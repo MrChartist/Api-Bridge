@@ -26,13 +26,15 @@ const INTERVAL_MAP = {
 };
 
 export class HistoryService {
-  constructor({ dbPath, token, clientId, instrumentManager }) {
+  constructor({ dbPath, token, clientId, instrumentManager, mock = false }) {
     this.token = token;
     this.clientId = clientId;
     this.instrumentManager = instrumentManager;
+    this.mock = mock;
     this.dbPath = dbPath || path.join(process.cwd(), 'data', 'history.db');
     this.db = null;
     this._initDB();
+    if (mock) console.log('[HISTORY] 🎭 Mock mode — chart data is simulated');
   }
 
   _initDB() {
@@ -215,6 +217,20 @@ export class HistoryService {
   }
 
   async _dhanFetch(endpoint, body) {
+    // Mock mode — generate synthetic data
+    if (this.mock) {
+      const n = 30;
+      const base = 24000;
+      return {
+        open: Array.from({length:n}, (_,i) => +(base + Math.sin(i/3)*200 + Math.random()*50).toFixed(2)),
+        high: Array.from({length:n}, (_,i) => +(base + Math.sin(i/3)*200 + 80 + Math.random()*40).toFixed(2)),
+        low: Array.from({length:n}, (_,i) => +(base + Math.sin(i/3)*200 - 60 - Math.random()*40).toFixed(2)),
+        close: Array.from({length:n}, (_,i) => +(base + Math.sin(i/3)*200 + 20 + Math.random()*30).toFixed(2)),
+        volume: Array.from({length:n}, () => Math.floor(Math.random()*1000000) + 500000),
+        timestamp: Array.from({length:n}, (_,i) => Math.floor(Date.now()/1000) - (n-i)*86400)
+      };
+    }
+
     const url = `${DHAN_BASE}${endpoint}`;
     try {
       const res = await fetch(url, {

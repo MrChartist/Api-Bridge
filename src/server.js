@@ -53,9 +53,11 @@ console.log(`[SYSTEM] Active broker: ${ACTIVE_BROKER}`);
 const broker = BrokerRegistry.createFromEnv(ACTIVE_BROKER, (tick) => handleIncomingTick(tick));
 
 // Order API (Dhan for now — add broker-specific order APIs here)
+const isMock = process.env.DHAN_MOCK === 'true' || process.env[`${ACTIVE_BROKER.toUpperCase()}_MOCK`] === 'true';
 const orders = new DhanOrderApi({
   token: process.env.DHAN_ACCESS_TOKEN,
-  clientId: process.env.DHAN_CLIENT_ID
+  clientId: process.env.DHAN_CLIENT_ID,
+  mock: isMock
 });
 
 const subManager = new SubscriptionManager({ broker, cache, instrumentManager });
@@ -68,7 +70,8 @@ const history = new HistoryService({
   dbPath: path.join(__dirname, '..', 'data', 'history.db'),
   token: process.env.DHAN_ACCESS_TOKEN,
   clientId: process.env.DHAN_CLIENT_ID,
-  instrumentManager
+  instrumentManager,
+  mock: isMock
 });
 const smartOrder = new SmartOrderRouter({ orderApi: orders, instrumentManager, cache });
 
