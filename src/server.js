@@ -20,6 +20,9 @@ import { InstrumentManager } from './engine/instrument-manager.js';
 import { SubscriptionManager } from './engine/subscription-manager.js';
 import { OptionChainService } from './engine/option-chain-service.js';
 import { HealthChecker } from './monitor/health-checker.js';
+import { GreeksCalculator } from './engine/greeks-calculator.js';
+import { HistoryService } from './engine/history-service.js';
+import { SmartOrderRouter } from './engine/smart-order.js';
 
 // Setup paths
 const __filename = fileURLToPath(import.meta.url);
@@ -58,6 +61,16 @@ const orders = new DhanOrderApi({
 const subManager = new SubscriptionManager({ broker, cache, instrumentManager });
 const optionChain = new OptionChainService({ cache, instrumentManager, subManager, orders });
 const monitor = new HealthChecker({ broker, cache, subManager });
+
+// Phase 2: Advanced services
+const greeks = new GreeksCalculator({ cache, instrumentManager });
+const history = new HistoryService({
+  dbPath: path.join(__dirname, '..', 'data', 'history.db'),
+  token: process.env.DHAN_ACCESS_TOKEN,
+  clientId: process.env.DHAN_CLIENT_ID,
+  instrumentManager
+});
+const smartOrder = new SmartOrderRouter({ orderApi: orders, instrumentManager, cache });
 
 // Global client tracking
 const clients = new Map(); // ws -> { id, subscriptions: Set }
@@ -392,6 +405,116 @@ app.post('/api/v1/instruments/refresh', async (req, res) => {
       contracts: Object.keys(data.optionContracts).length,
       fnoSymbols: data.fnoList.length
     });
+  } catch (err) {
+    res.status(500).json({ status: 'error', error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════
+//  Phase 2: Advanced Endpoints
+// ═══════════════════════════════════════════
+
+// ── Historical Data ──
+app.post('/api/v1/history', async (req, res) => {
+  try {
+    const { symbol, exchange, interval, startDate, endDate, forceRefresh } = req.body;
+    if (!symbol || !startDate || !endDate) {
+      return res.status(400).json({ status: 'error', error: 'symbol, startDate, endDate are required' });
+    }
+    const data = await history.getHistory({ symbol, exchange, interval, startDate, endDate, forceRefresh });
+    res.json({ status: 'success', ...data });
+  } catch (err) {
+    res.status(500).json({ status: 'error', error: err.message });
+  }
+});
+
+app.get('/api/v1/intervals', (req, res) => {
+  res.json({ status: 'success', data: history.getIntervals() });
+});
+
+// ── Option Greeks ──
+app.post('/api/v1/greeks', async (req, res) => {
+  try {
+    const { symbol, exchange, interestRate, forwardPrice, expiryTime } = req.body;
+    if (!symbol) return res.status(400).json({ status: 'error', error: 'symbol is required' });
+    const data = await greeks.calculate({ symbol, exchange, interestRate, forwardPrice, expiryTime });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ status: 'error', error: err.message });
+  }
+});
+
+app.post('/api/v1/greeks/batch', async (req, res) => {
+  try {
+    const { options } = req.body;
+    if (!options || !Array.isArray(options)) return res.status(400).json({ status: 'error', error: 'options array is required' });
+    const data = await greeks.calculateBatch(options);
+    res.json({ status: 'success', count: data.length, data });
+  } catch (err) {
+    res.status(500).json({ status: 'error', error: err.message });
+  }
+});
+
+// ── Smart Order Routing ──
+app.post('/api/v1/smartorder', async (req, res) => {
+  try {
+    const data = await smartOrder.placeSmartOrder(req.body);
+    res.json({ status: 'success', data });
+  } catch (err) {
+    res.status(500).json({ status: 'error', error: err.message });
+  }
+});
+
+app.post('/api/v1/basket', async (req, res) => {
+  try {
+    const data = await smartOrder.placeBasketOrder(req.body);
+    res.json({ status: 'success', data });
+  } catch (err) {
+    res.status(500).json({ status: 'error', error: err.message });
+  }
+});
+
+app.post('/api/v1/positions/close-all', async (req, res) => {
+  try {
+    const data = await smartOrder.closeAllPositions(req.body);
+    res.json({ status: 'success', data });
+  } catch (err) {
+    res.status(500).json({ status: 'error', error: err.message });
+  }
+});
+
+app.post('/api/v1/orders/cancel-all', async (req, res) => {
+  try {
+    const data = await smartOrder.cancelAllOrders();
+    res.json({ status: 'success', data });
+  } catch (err) {
+    res.status(500).json({ status: 'error', error: err.message });
+  }
+});
+
+app.get('/api/v1/freeze-quantities', (req, res) => {
+  res.json({ status: 'success', data: smartOrder.getFreezeQuantities() });
+});
+
+// ── Market Depth ──
+app.post('/api/v1/depth', async (req, res) => {
+  try {
+    const { symbol, exchange } = req.body;
+    if (!symbol) return res.status(400).json({ status: 'error', error: 'symbol is required' });
+    // Get cached depth data or fallback to snapshot
+    const tick = cache.get(symbol.toUpperCase());
+    if (tick && tick.depth) {
+      res.json({ status: 'success', symbol, exchange, data: tick.depth });
+    } else if (tick) {
+      // Return basic bid/ask from LTP data
+      res.json({ status: 'success', symbol, source: 'ltp-only', data: {
+        buy: [{ price: tick.ltp, qty: 0, orders: 0 }],
+        sell: [{ price: tick.ltp, qty: 0, orders: 0 }],
+        ltp: tick.ltp, open: tick.open, high: tick.high, low: tick.low, close: tick.close
+      }});
+    } else {
+      res.json({ status: 'success', symbol, source: 'no-data', data: null, message: 'Subscribe via WebSocket first for depth data' });
+    }
   } catch (err) {
     res.status(500).json({ status: 'error', error: err.message });
   }

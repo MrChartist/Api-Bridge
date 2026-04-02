@@ -28,14 +28,14 @@ function nav(page) {
   location.hash = page;
   document.querySelectorAll('.sb-item').forEach(el => el.classList.remove('active'));
   document.querySelector(`.sb-item[data-page="${page}"]`)?.classList.add('active');
-  const T = { dashboard:'Dashboard', positions:'Positions', orders:'Order Book', trades:'Trade Book', holdings:'Holdings', funds:'Funds', search:'Symbol Search', optionchain:'Option Chain', websocket:'WebSocket Test', api:'API Explorer', health:'Health Monitor' };
+  const T = { dashboard:'Dashboard', positions:'Positions', orders:'Order Book', trades:'Trade Book', holdings:'Holdings', funds:'Funds', search:'Symbol Search', optionchain:'Option Chain', websocket:'WebSocket Test', api:'API Explorer', health:'Health Monitor', history:'Historical Data', greeks:'Option Greeks' };
   document.getElementById('pageTitle').textContent = T[page] || 'Dashboard';
   render(page);
 }
 
 function render(p) {
   const c = document.getElementById('pageContainer');
-  ({ dashboard: pgDash, positions: pgPos, orders: pgOrd, trades: pgTrd, holdings: pgHld, funds: pgFunds, search: pgSearch, optionchain: pgOC, websocket: pgWS, api: pgApi, health: pgHealth }[p] || pgDash)(c);
+  ({ dashboard: pgDash, positions: pgPos, orders: pgOrd, trades: pgTrd, holdings: pgHld, funds: pgFunds, search: pgSearch, optionchain: pgOC, websocket: pgWS, api: pgApi, health: pgHealth, history: pgHistory, greeks: pgGreeks }[p] || pgDash)(c);
 }
 
 // ── API ──
@@ -69,10 +69,12 @@ async function pgDash(el) {
     <div class="qgrid stagger">
       ${qHTML('🔍','rgba(124,58,237,0.12)','Symbol Search','Find any stock, index or F&O','search')}
       ${qHTML('⛓️','rgba(139,92,246,0.12)','Option Chain','ATM-centered live option chain','optionchain')}
+      ${qHTML('📐','rgba(99,102,241,0.12)','Option Greeks','Black-76 Delta, Gamma, Theta, IV','greeks')}
+      ${qHTML('📈','rgba(6,182,212,0.1)','Historical Data','OHLCV candles with SQLite cache','history')}
       ${qHTML('📊','rgba(34,197,94,0.1)','Positions','Open positions with live P&L','positions')}
       ${qHTML('📋','rgba(245,158,11,0.1)','Order Book','All orders — pending, completed','orders')}
       ${qHTML('⚡','rgba(6,182,212,0.1)','WebSocket Test','Subscribe to live market ticks','websocket')}
-      ${qHTML('🧩','rgba(236,72,153,0.1)','API Explorer','Test all 18 REST endpoints','api')}
+      ${qHTML('🧩','rgba(236,72,153,0.1)','API Explorer','Test all 28 REST endpoints','api')}
     </div>`;
   const [f, fno] = await Promise.all([get('/api/v1/funds'), get('/api/v1/fno-symbols')]);
   state.funds = f?.data; state.fnoCount = fno?.count || 0; updateDashStats();
@@ -231,7 +233,13 @@ function pgApi(el) {
     ['GET','/api/v1/optionchain/NIFTY/2026-04-07?strikes=5','Live option chain'],
     ['POST','/api/v1/order','Place order'],['PUT','/api/v1/order/:orderId','Modify order'],['DELETE','/api/v1/order/:orderId','Cancel order'],
     ['GET','/api/v1/orders','Order book'],['GET','/api/v1/trades','Trade book'],['GET','/api/v1/positions','Positions'],['GET','/api/v1/holdings','Holdings'],
-    ['GET','/api/v1/funds','Funds & margin'],['POST','/api/v1/instruments/refresh','Force refresh master']
+    ['GET','/api/v1/funds','Funds & margin'],['POST','/api/v1/instruments/refresh','Force refresh master'],
+    ['POST','/api/v1/history','Historical OHLCV candles'],['GET','/api/v1/intervals','Supported chart intervals'],
+    ['POST','/api/v1/greeks','Option Greeks (Black-76)'],['POST','/api/v1/greeks/batch','Batch Greeks for chain'],
+    ['POST','/api/v1/smartorder','Smart order (auto-split)'],['POST','/api/v1/basket','Multi-leg basket order'],
+    ['POST','/api/v1/positions/close-all','Close all positions'],['POST','/api/v1/orders/cancel-all','Cancel all pending orders'],
+    ['GET','/api/v1/freeze-quantities','Exchange freeze qty limits'],
+    ['POST','/api/v1/depth','Market depth (Level 2)']
   ];
   el.innerHTML = `<div class="card" style="margin-bottom:0.75rem"><div class="card-head"><h3>REST Endpoints (${eps.length})</h3></div><div class="card-body">${eps.map(([m,p,d]) => `<div class="ep" onclick="testEp('${m}','${p}')"><span class="method m-${m==='DELETE'?'del':m.toLowerCase()}">${m}</span><span class="ep-path">${p}</span><span class="ep-desc">${d}</span></div>`).join('')}</div></div>
   <div class="card"><div class="card-head"><h3>Response</h3></div><div class="card-body"><pre id="apiOut" class="mono" style="font-size:0.75rem;color:var(--text-secondary);max-height:400px;overflow:auto;white-space:pre-wrap">Click any endpoint above to test</pre></div></div>`;
@@ -239,7 +247,18 @@ function pgApi(el) {
 
 async function testEp(m, p) {
   const o = document.getElementById('apiOut'); o.textContent = `${m} ${p}...`;
-  try { const opt = { method: m }; if (m === 'POST') { opt.headers = {'Content-Type':'application/json'}; if (p.includes('quotes')) opt.body = JSON.stringify({symbols:['NIFTY','BANKNIFTY']}); } const r = await fetch(p, opt); o.textContent = JSON.stringify(await r.json(), null, 2); } catch(e) { o.textContent = 'Error: ' + e.message; }
+  try {
+    const opt = { method: m };
+    if (m === 'POST') {
+      opt.headers = {'Content-Type':'application/json'};
+      if (p.includes('quotes')) opt.body = JSON.stringify({symbols:['NIFTY','BANKNIFTY']});
+      else if (p.includes('history')) opt.body = JSON.stringify({symbol:'NIFTY',exchange:'IDX_I',interval:'1D',startDate:'2026-03-01',endDate:'2026-04-03'});
+      else if (p.includes('greeks/batch')) opt.body = JSON.stringify({options:[{symbol:'NIFTY03APR2524000CE'},{symbol:'NIFTY03APR2524000PE'}]});
+      else if (p.includes('greeks')) opt.body = JSON.stringify({symbol:'NIFTY03APR2524000CE',forwardPrice:24000});
+      else if (p.includes('depth')) opt.body = JSON.stringify({symbol:'NIFTY'});
+    }
+    const r = await fetch(p, opt); o.textContent = JSON.stringify(await r.json(), null, 2);
+  } catch(e) { o.textContent = 'Error: ' + e.message; }
 }
 
 // ══════════════════ Health Monitor ══════════════════
@@ -271,3 +290,90 @@ function loading(what) { return `<div style="text-align:center;padding:2.5rem;co
 function empty(icon, title, sub) { return `<div class="card"><div class="empty"><div class="empty-icon">${icon}</div><div class="empty-text">${title}</div><div class="empty-sub">${sub}</div></div></div>`; }
 function card(title, count, inner) { return `<div class="card"><div class="card-head"><h3>${title} (${count})</h3></div>${inner}</div>`; }
 function tbl(heads, rows) { return `<div class="tbl-wrap"><table><thead><tr>${heads.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`; }
+
+// ══════════════════ Historical Data ══════════════════
+
+function pgHistory(el) {
+  const today = new Date().toISOString().split('T')[0];
+  const month = new Date(Date.now() - 30*86400000).toISOString().split('T')[0];
+  el.innerHTML = `<div class="card" style="margin-bottom:0.75rem"><div class="card-body" style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">
+    <input type="text" id="hSym" value="NIFTY" placeholder="Symbol" style="width:120px" />
+    <select id="hExch" style="width:120px"><option value="IDX_I">Index</option><option value="NSE_EQ">NSE Equity</option><option value="NSE_FNO">NSE F&O</option><option value="BSE_EQ">BSE Equity</option></select>
+    <select id="hInt" style="width:80px"><option value="1D">1D</option><option value="1h">1H</option><option value="15m">15m</option><option value="5m">5m</option><option value="1m">1m</option></select>
+    <input type="date" id="hFrom" value="${month}" style="width:140px" />
+    <input type="date" id="hTo" value="${today}" style="width:140px" />
+    <button class="btn btn-primary" onclick="loadHistory()">Fetch</button>
+  </div></div><div id="hRes"></div>`;
+}
+
+async function loadHistory() {
+  const sym = document.getElementById('hSym').value.trim().toUpperCase();
+  const r = document.getElementById('hRes'); r.innerHTML = loading('candles');
+  const d = await post('/api/v1/history', {
+    symbol: sym, exchange: document.getElementById('hExch').value,
+    interval: document.getElementById('hInt').value,
+    startDate: document.getElementById('hFrom').value,
+    endDate: document.getElementById('hTo').value
+  });
+  if (d.status !== 'success' || !d.data?.length) { r.innerHTML = empty('📈','No data',d.error||'No candles returned'); return; }
+  const candles = d.data;
+  r.innerHTML = `<div class="stats stagger" style="margin-bottom:0.75rem">
+    <div class="stat animate-in" style="--stat-accent:var(--primary)"><div class="stat-lbl">Candles</div><div class="stat-val">${candles.length}</div></div>
+    <div class="stat animate-in" style="--stat-accent:var(--bullish)"><div class="stat-lbl">High</div><div class="stat-val">${fix(Math.max(...candles.map(c=>c.high)))}</div></div>
+    <div class="stat animate-in" style="--stat-accent:var(--bearish)"><div class="stat-lbl">Low</div><div class="stat-val">${fix(Math.min(...candles.map(c=>c.low)))}</div></div>
+    <div class="stat animate-in" style="--stat-accent:var(--cyan)"><div class="stat-lbl">Source</div><div class="stat-val">${d.source}</div></div>
+  </div>` + card(`${sym} · ${d.interval}`, candles.length, tbl(
+    ['Date','Open','High','Low','Close','Volume'],
+    candles.slice(-50).reverse().map(c => [
+      c.date ? new Date(c.date).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'2-digit'}) : '—',
+      fix(c.open), `<span class="profit">${fix(c.high)}</span>`, `<span class="loss">${fix(c.low)}</span>`,
+      `<span style="font-weight:600">${fix(c.close)}</span>`, (c.volume||0).toLocaleString()
+    ])
+  ));
+}
+
+// ══════════════════ Option Greeks ══════════════════
+
+function pgGreeks(el) {
+  el.innerHTML = `<div class="card" style="margin-bottom:0.75rem"><div class="card-head"><h3>Black-76 Greeks Calculator</h3></div><div class="card-body">
+    <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-bottom:0.75rem">
+      <input type="text" id="gSym" value="NIFTY03APR2524000CE" placeholder="Option symbol" style="flex:1;min-width:200px" />
+      <input type="number" id="gFwd" placeholder="Forward price (optional)" style="width:160px" step="0.01" />
+      <input type="number" id="gRate" value="7" placeholder="Interest rate %" style="width:100px" step="0.1" />
+      <button class="btn btn-primary" onclick="calcGreeks()">Calculate</button>
+    </div>
+    <div style="font-size:0.72rem;color:var(--text-muted)">Format: SYMBOL + DD + MON + YY + STRIKE + CE/PE — e.g. NIFTY03APR2524000CE</div>
+  </div></div><div id="gRes"></div>`;
+}
+
+async function calcGreeks() {
+  const sym = document.getElementById('gSym').value.trim();
+  const fwd = parseFloat(document.getElementById('gFwd').value) || undefined;
+  const rate = parseFloat(document.getElementById('gRate').value) || 7;
+  const r = document.getElementById('gRes'); r.innerHTML = loading('greeks');
+  const d = await post('/api/v1/greeks', { symbol: sym, interestRate: rate, forwardPrice: fwd });
+  if (d.status !== 'success') { r.innerHTML = `<div class="card"><div class="card-body" style="color:var(--bearish)">Error: ${d.error||'Calculation failed'}</div></div>`; return; }
+  const g = d.greeks;
+  r.innerHTML = `<div class="stats stagger" style="margin-bottom:0.75rem">
+    <div class="stat animate-in" style="--stat-accent:var(--primary)"><div class="stat-lbl">IV</div><div class="stat-val">${d.iv}%</div></div>
+    <div class="stat animate-in" style="--stat-accent:var(--cyan)"><div class="stat-lbl">Delta</div><div class="stat-val">${g.delta}</div></div>
+    <div class="stat animate-in" style="--stat-accent:var(--indigo)"><div class="stat-lbl">Gamma</div><div class="stat-val">${g.gamma}</div></div>
+    <div class="stat animate-in" style="--stat-accent:var(--bearish)"><div class="stat-lbl">Theta</div><div class="stat-val">${g.theta}</div></div>
+    <div class="stat animate-in" style="--stat-accent:var(--bullish)"><div class="stat-lbl">Vega</div><div class="stat-val">${g.vega}</div></div>
+    <div class="stat animate-in" style="--stat-accent:var(--warning)"><div class="stat-lbl">Rho</div><div class="stat-val">${g.rho}</div></div>
+  </div>
+  <div class="card"><div class="card-head"><h3>Full Result</h3></div><div class="card-body">
+    <div class="tbl-wrap"><table><tbody>
+      <tr><td style="color:var(--text-muted)">Symbol</td><td style="font-weight:600">${d.symbol}</td></tr>
+      <tr><td style="color:var(--text-muted)">Underlying</td><td>${d.underlying}</td></tr>
+      <tr><td style="color:var(--text-muted)">Strike</td><td>${d.strike}</td></tr>
+      <tr><td style="color:var(--text-muted)">Type</td><td>${badge(d.type, d.type==='CE'?'green':'red')}</td></tr>
+      <tr><td style="color:var(--text-muted)">Expiry</td><td>${d.expiryDate}</td></tr>
+      <tr><td style="color:var(--text-muted)">Days to Expiry</td><td>${d.daysToExpiry}</td></tr>
+      <tr><td style="color:var(--text-muted)">Forward Price</td><td>₹${fix(d.forwardPrice)}</td></tr>
+      <tr><td style="color:var(--text-muted)">Market Price</td><td>₹${fix(d.optionPrice)}</td></tr>
+      <tr><td style="color:var(--text-muted)">Theoretical Price</td><td>₹${fix(d.theoreticalPrice)}</td></tr>
+      <tr><td style="color:var(--text-muted)">Interest Rate</td><td>${d.interestRate}%</td></tr>
+    </tbody></table></div>
+  </div></div>`;
+}
