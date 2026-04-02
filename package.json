@@ -1,0 +1,33 @@
+{
+  "name": "mc-api-bridge",
+  "version": "1.0.0",
+  "description": "Mr. Chartist Unified API Bridge",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node scripts/test-client.js",
+    "init-db": "node scripts/init-db.js"
+  },
+  "keywords": [
+    "trading",
+    "api",
+    "bridge",
+    "dhan",
+    "angel",
+    "fyers",
+    "zerodha",
+    "stock-market",
+    "options"
+  ],
+  "author": "Mr. Chartist",
+  "license": "Proprietary",
+  "dependencies": {
+    "better-sqlite3": "^12.8.0",
+    "dotenv": "^17.4.0",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "ws": "^8.20.0"
+  }
+}
