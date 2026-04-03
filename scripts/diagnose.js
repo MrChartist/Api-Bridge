@@ -14,7 +14,7 @@ console.log('');
 
 // Step 1: Test DataCache
 try {
-  const { DataCache } = await import('./src/engine/data-cache.js');
+  const { DataCache } = await import('../src/engine/data-cache.js');
   const cache = new DataCache();
   cache.update({ symbol: 'TEST', ltp: 100 });
   console.log('[PASS] DataCache works. Test get:', cache.get('TEST'));
@@ -24,8 +24,8 @@ try {
 
 // Step 2: Test InstrumentManager (without network)
 try {
-  const { InstrumentManager } = await import('./src/engine/instrument-manager.js');
-  const im = new InstrumentManager({ dbPath: './data/bridge.db' });
+  const { InstrumentManager } = await import('../src/engine/instrument-manager.js');
+  const im = new InstrumentManager({ dbPath: '../data/bridge.db' });
   console.log('[PASS] InstrumentManager initialized');
 } catch (e) {
   console.error('[FAIL] InstrumentManager:', e.message);
@@ -33,7 +33,7 @@ try {
 
 // Step 3: Test DhanAdapter (mock mode)
 try {
-  const { DhanAdapter } = await import('./src/brokers/dhan/dhan-adapter.js');
+  const { DhanAdapter } = await import('../src/brokers/dhan/dhan-adapter.js');
   const adapter = new DhanAdapter({
     token: 'test',
     clientId: 'test',

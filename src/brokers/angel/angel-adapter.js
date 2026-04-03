@@ -99,6 +99,37 @@ export class AngelAdapter extends BaseBrokerAdapter {
     setTimeout(() => this.connect(), delay);
   }
 
+  async disconnect() {
+    if (this.mockInterval) clearInterval(this.mockInterval);
+    if (this.ws) {
+      this.ws.close(1000, 'Client disconnect');
+      this.ws = null;
+    }
+    this.connected = false;
+    console.log('[ANGEL] Disconnected.');
+  }
+
+  async unsubscribe(instruments) {
+    if (!this.connected || !this.ws) return;
+    const items = Array.isArray(instruments) ? instruments : [instruments];
+    const grouped = {};
+    items.forEach(inst => {
+      const exchangeType = inst.exchangeType || EXCHANGE_MAP[inst.exchangeSegment] || 1;
+      if (!grouped[exchangeType]) grouped[exchangeType] = [];
+      grouped[exchangeType].push(String(inst.securityId || inst.token));
+      this.securityIdMap.delete(String(inst.securityId || inst.token));
+    });
+    const tokenList = Object.entries(grouped).map(([exchangeType, tokens]) => ({
+      exchangeType: parseInt(exchangeType), tokens
+    }));
+    const payload = JSON.stringify({
+      correlationID: `mc_bridge_unsub_${Date.now()}`,
+      action: 0, // 0 = unsubscribe
+      params: { mode: 1, tokenList }
+    });
+    this.ws.send(payload);
+  }
+
   async subscribe(instruments, mode = 'quote') {
     if (!this.connected || !this.ws) return;
 

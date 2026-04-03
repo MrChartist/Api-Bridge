@@ -1,7 +1,8 @@
 # Dependencies
 node_modules/
+package-lock.json
 
-# Environment (contains secrets)
+# Environment
 .env
 .env.local
 
@@ -13,12 +14,15 @@ node_modules/
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/*.sqlite
 
 # Instrument cache CSVs
 data/*.csv
 
 # Logs
+logs/
 *.log
+npm-debug.log*
 error.txt
 stdout.txt
 

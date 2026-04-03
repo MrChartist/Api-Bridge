@@ -8,8 +8,31 @@ const WS_URL = `ws://${location.hostname}:4501`;
 
 const state = { health: null, funds: null, ws: null, ticks: {}, fnoCount: 0, page: 'dashboard' };
 
+// ── Theme ──
+function toggleTheme() {
+  const html = document.documentElement;
+  const current = html.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('mc-theme', next);
+  updateThemeIcon(next);
+}
+
+function updateThemeIcon(theme) {
+  const icon = document.getElementById('themeIcon');
+  if (!icon) return;
+  icon.innerHTML = theme === 'dark'
+    ? '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>'
+    : '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
+}
+
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
+  // Restore saved theme
+  const saved = localStorage.getItem('mc-theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+  updateThemeIcon(saved);
+
   document.querySelectorAll('.sb-item[data-page]').forEach(el => {
     el.addEventListener('click', e => { e.preventDefault(); nav(el.dataset.page); closeMobile(); });
   });
@@ -28,14 +51,14 @@ function nav(page) {
   location.hash = page;
   document.querySelectorAll('.sb-item').forEach(el => el.classList.remove('active'));
   document.querySelector(`.sb-item[data-page="${page}"]`)?.classList.add('active');
-  const T = { dashboard:'Dashboard', positions:'Positions', orders:'Order Book', trades:'Trade Book', holdings:'Holdings', funds:'Funds', search:'Symbol Search', optionchain:'Option Chain', websocket:'WebSocket Test', api:'API Explorer', health:'Health Monitor', history:'Historical Data', greeks:'Option Greeks' };
+  const T = { dashboard:'Dashboard', positions:'Positions', orders:'Order Book', trades:'Trade Book', holdings:'Holdings', funds:'Funds', search:'Symbol Search', optionchain:'Option Chain', websocket:'WebSocket Test', api:'API Explorer', health:'Health Monitor', history:'Historical Data', greeks:'Option Greeks', webhooks:'Webhook Signals' };
   document.getElementById('pageTitle').textContent = T[page] || 'Dashboard';
   render(page);
 }
 
 function render(p) {
   const c = document.getElementById('pageContainer');
-  ({ dashboard: pgDash, positions: pgPos, orders: pgOrd, trades: pgTrd, holdings: pgHld, funds: pgFunds, search: pgSearch, optionchain: pgOC, websocket: pgWS, api: pgApi, health: pgHealth, history: pgHistory, greeks: pgGreeks }[p] || pgDash)(c);
+  ({ dashboard: pgDash, positions: pgPos, orders: pgOrd, trades: pgTrd, holdings: pgHld, funds: pgFunds, search: pgSearch, optionchain: pgOC, websocket: pgWS, api: pgApi, health: pgHealth, history: pgHistory, greeks: pgGreeks, webhooks: pgWebhooks }[p] || pgDash)(c);
 }
 
 // ── API ──
@@ -51,8 +74,12 @@ function updateBroker() {
   const h = state.health; if (!h) return;
   const d = document.getElementById('brokerDot');
   const n = document.getElementById('brokerName');
+  const badge = document.getElementById('brokerBadge');
+  const live = document.getElementById('liveIndicator');
   if (d) d.className = 'dot' + (h.broker?.connected ? '' : ' off');
   if (n) n.textContent = `${h.broker?.name || '—'} · ${h.broker?.connected ? 'Live' : 'Offline'}`;
+  if (badge) badge.textContent = `${(h.broker?.type || h.broker?.name || 'bridge').toUpperCase()} v1.0`;
+  if (live) live.style.display = h.broker?.connected ? 'inline-flex' : 'none';
 }
 
 // ══════════════════ Dashboard ══════════════════
@@ -75,6 +102,7 @@ async function pgDash(el) {
       ${qHTML('📋','rgba(245,158,11,0.1)','Order Book','All orders — pending, completed','orders')}
       ${qHTML('⚡','rgba(6,182,212,0.1)','WebSocket Test','Subscribe to live market ticks','websocket')}
       ${qHTML('🧩','rgba(236,72,153,0.1)','API Explorer','Test all 28 REST endpoints','api')}
+      ${qHTML('🧩','rgba(236,72,153,0.1)','API Explorer','Test all 32 REST endpoints','api')}
     </div>`;
   const [f, fno] = await Promise.all([get('/api/v1/funds'), get('/api/v1/fno-symbols')]);
   state.funds = f?.data; state.fnoCount = fno?.count || 0; updateDashStats();
@@ -239,7 +267,11 @@ function pgApi(el) {
     ['POST','/api/v1/smartorder','Smart order (auto-split)'],['POST','/api/v1/basket','Multi-leg basket order'],
     ['POST','/api/v1/positions/close-all','Close all positions'],['POST','/api/v1/orders/cancel-all','Cancel all pending orders'],
     ['GET','/api/v1/freeze-quantities','Exchange freeze qty limits'],
-    ['POST','/api/v1/depth','Market depth (Level 2)']
+    ['POST','/api/v1/depth','Market depth (Level 2)'],
+    ['POST','/api/v1/webhook','JSON webhook receiver'],
+    ['POST','/api/v1/webhook/tradingview','TradingView-specific (text)'],
+    ['GET','/api/v1/webhook/log','Signal log (last N signals)'],
+    ['GET','/api/v1/webhook/stats','Webhook execution stats']
   ];
   el.innerHTML = `<div class="card" style="margin-bottom:0.75rem"><div class="card-head"><h3>REST Endpoints (${eps.length})</h3></div><div class="card-body">${eps.map(([m,p,d]) => `<div class="ep" onclick="testEp('${m}','${p}')"><span class="method m-${m==='DELETE'?'del':m.toLowerCase()}">${m}</span><span class="ep-path">${p}</span><span class="ep-desc">${d}</span></div>`).join('')}</div></div>
   <div class="card"><div class="card-head"><h3>Response</h3></div><div class="card-body"><pre id="apiOut" class="mono" style="font-size:0.75rem;color:var(--text-secondary);max-height:400px;overflow:auto;white-space:pre-wrap">Click any endpoint above to test</pre></div></div>`;
@@ -376,4 +408,68 @@ async function calcGreeks() {
       <tr><td style="color:var(--text-muted)">Interest Rate</td><td>${d.interestRate}%</td></tr>
     </tbody></table></div>
   </div></div>`;
+}
+
+// ══════════════════ Webhook Signals ══════════════════
+
+async function pgWebhooks(el) {
+  const [statsRes, logRes] = await Promise.all([get('/api/v1/webhook/stats'), get('/api/v1/webhook/log?limit=30')]);
+  const s = statsRes.data || {};
+  const log = logRes.data || [];
+
+  el.innerHTML = `
+  <div class="stats-grid">
+    <div class="stat animate-in" style="--stat-accent:var(--primary)"><div class="stat-lbl">Total Received</div><div class="stat-val font-mono-data">${s.totalReceived || 0}</div></div>
+    <div class="stat animate-in" style="--stat-accent:var(--bullish)"><div class="stat-lbl">Executed</div><div class="stat-val font-mono-data">${s.totalExecuted || 0}</div></div>
+    <div class="stat animate-in" style="--stat-accent:var(--bearish)"><div class="stat-lbl">Failed</div><div class="stat-val font-mono-data">${s.totalFailed || 0}</div></div>
+    <div class="stat animate-in" style="--stat-accent:var(--warning)"><div class="stat-lbl">Rejected</div><div class="stat-val font-mono-data">${s.totalRejected || 0}</div></div>
+  </div>
+
+  <div class="card"><div class="card-head"><h3>Webhook URLs</h3></div><div class="card-body">
+    <div style="font-family:var(--font-mono);font-size:0.8rem;line-height:1.8;color:var(--text-secondary)">
+      <div><span style="color:var(--bullish)">JSON:</span> POST <span style="color:var(--primary-light)">http://${location.host}/api/v1/webhook</span></div>
+      <div><span style="color:var(--scanner-cyan)">TradingView:</span> POST <span style="color:var(--primary-light)">http://${location.host}/api/v1/webhook/tradingview</span></div>
+      <div style="margin-top:0.5rem;color:var(--text-muted)">Secret: ${s.secretConfigured ? '🔒 Configured (X-Webhook-Secret header)' : '🔓 Not configured (open)'}</div>
+    </div>
+  </div></div>
+
+  <div class="card"><div class="card-head"><h3>Signal Log (${log.length})</h3></div><div class="card-body">
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Time</th><th>Source</th><th>Signal</th><th>Status</th></tr></thead>
+      <tbody>
+        ${log.length === 0 ? '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">No signals received yet — send a POST to /api/v1/webhook</td></tr>' :
+          log.map(l => {
+            const sig = l.parsed ? `${l.parsed.action || l.parsed.type} ${l.parsed.symbol || ''} x${l.parsed.quantity || ''}` : l.rawPayload?.substring(0, 40);
+            const statusColor = l.status === 'executed' ? 'var(--bullish)' : l.status === 'failed' ? 'var(--bearish)' : 'var(--warning)';
+            const time = l.receivedAt ? new Date(l.receivedAt).toLocaleTimeString() : '';
+            return `<tr><td class="font-mono-data" style="font-size:0.75rem">${time}</td><td>${l.source || '—'}</td><td style="font-weight:600">${sig}</td><td style="color:${statusColor}">${l.status}</td></tr>`;
+          }).join('')
+        }
+      </tbody>
+    </table></div>
+  </div></div>
+
+  <div class="card"><div class="card-head"><h3>Test Webhook</h3></div><div class="card-body">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-bottom:0.75rem">
+      <input id="whSymbol" class="input" placeholder="Symbol (e.g. NIFTY)" value="NIFTY" />
+      <select id="whAction" class="input"><option>BUY</option><option>SELL</option></select>
+      <input id="whQty" class="input" placeholder="Quantity" value="50" type="number" />
+      <select id="whType" class="input"><option>MARKET</option><option>LIMIT</option></select>
+    </div>
+    <button class="btn" onclick="testWebhook()">🚀 Send Test Signal</button>
+    <div id="whResult" style="margin-top:0.75rem;font-family:var(--font-mono);font-size:0.78rem;white-space:pre-wrap"></div>
+  </div></div>`;
+}
+
+async function testWebhook() {
+  const body = {
+    symbol: document.getElementById('whSymbol').value, 
+    action: document.getElementById('whAction').value,
+    quantity: parseInt(document.getElementById('whQty').value),
+    orderType: document.getElementById('whType').value
+  };
+  const r = await post('/api/v1/webhook', body);
+  document.getElementById('whResult').textContent = JSON.stringify(r, null, 2);
+  // Refresh page after 1s
+  setTimeout(() => pgWebhooks(document.getElementById('pageContainer')), 1000);
 }

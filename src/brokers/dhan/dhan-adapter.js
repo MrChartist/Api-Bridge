@@ -94,6 +94,41 @@ export class DhanAdapter extends BaseBrokerAdapter {
     setTimeout(() => this.connect(), delay);
   }
 
+  async disconnect() {
+    if (this.mockInterval) clearInterval(this.mockInterval);
+    if (this.ws) {
+      try {
+        this.ws.send(JSON.stringify({ RequestCode: 12 })); // DISCONNECT signal
+      } catch (_) {}
+      this.ws.close(1000, 'Client disconnect');
+      this.ws = null;
+    }
+    this.connected = false;
+    console.log('[DHAN] Disconnected.');
+  }
+
+  async unsubscribe(instruments) {
+    if (!this.connected || !this.ws) return;
+    const items = Array.isArray(instruments) ? instruments : [instruments];
+    const list = items.map(inst => ({
+      ExchangeSegment: inst.exchangeSegment,
+      SecurityId: String(inst.securityId)
+    }));
+    for (let i = 0; i < list.length; i += 100) {
+      const batch = list.slice(i, i + 100);
+      const msg = JSON.stringify({
+        RequestCode: 18, // UNSUBSCRIBE_QUOTE
+        InstrumentCount: batch.length,
+        InstrumentList: batch
+      });
+      this.ws.send(msg);
+      batch.forEach(item => {
+        this.instruments.delete(item.SecurityId);
+        this.securityIdMap.delete(parseInt(item.SecurityId));
+      });
+    }
+  }
+
   async subscribe(instruments, mode = 'quote') {
     if (!this.connected || !this.ws) return;
 

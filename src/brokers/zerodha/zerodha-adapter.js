@@ -88,6 +88,28 @@ export class ZerodhaAdapter extends BaseBrokerAdapter {
     setTimeout(() => this.connect(), delay);
   }
 
+  async disconnect() {
+    if (this.mockInterval) clearInterval(this.mockInterval);
+    if (this.ws) {
+      this.ws.close(1000, 'Client disconnect');
+      this.ws = null;
+    }
+    this.connected = false;
+    console.log('[ZERODHA] Disconnected.');
+  }
+
+  async unsubscribe(instruments) {
+    if (!this.connected || !this.ws) return;
+    const items = Array.isArray(instruments) ? instruments : [instruments];
+    const tokens = items.map(inst => {
+      const token = inst.instrumentToken || inst.securityId;
+      this.tokenMap.delete(token);
+      return token;
+    });
+    const message = JSON.stringify({ a: 'unsubscribe', v: tokens });
+    this.ws.send(message);
+  }
+
   async subscribe(instruments, mode = 'quote') {
     if (!this.connected || !this.ws) return;
     

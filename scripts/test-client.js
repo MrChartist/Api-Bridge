@@ -122,10 +122,59 @@ async function run() {
     method: 'POST',
     body: { symbols: ['NIFTY', 'BANKNIFTY', 'SENSEX'] }
   });
+  await testREST('Search', '/api/v1/search?q=NIFTY');
+  await testREST('Instrument', '/api/v1/instruments/NIFTY');
+  await testREST('Expiry List', '/api/v1/expirylist/NIFTY');
+  await testREST('Option Chain', '/api/v1/optionchain/NIFTY/current');
+  await testREST('Depth', '/api/v1/depth', { method: 'POST', body: { symbols: ['NIFTY'] }});
+  
   await testREST('Funds', '/api/v1/funds');
   await testREST('Positions', '/api/v1/positions');
+  await testREST('Holdings', '/api/v1/holdings');
+  await testREST('Trades', '/api/v1/trades');
   await testREST('Orders', '/api/v1/orders');
   await testREST('FNO Symbols', '/api/v1/fno-symbols');
+  
+  await testREST('Place Order (Mock)', '/api/v1/order', {
+    method: 'POST',
+    body: { symbol: 'NIFTY', quantity: 50, action: 'BUY', orderType: 'MARKET' }
+  });
+  await testREST('Modify Order (Mock)', '/api/v1/order/mock_order_123', {
+    method: 'PUT',
+    body: { quantity: 100 }
+  });
+  await testREST('Cancel Order (Mock)', '/api/v1/order/mock_order_123', {
+    method: 'DELETE'
+  });
+  
+  await testREST('Smart Order', '/api/v1/smartorder', {
+    method: 'POST',
+    body: { symbol: 'NIFTY', quantity: 2000, action: 'BUY', orderType: 'MARKET', splitLimit: 1800 }
+  });
+  await testREST('Basket Order', '/api/v1/basket', {
+    method: 'POST',
+    body: { legs: [{ symbol: 'NIFTY', quantity: 50, action: 'BUY' }] }
+  });
+  await testREST('Close All Positions', '/api/v1/positions/close-all', { method: 'POST' });
+  await testREST('Cancel All Orders', '/api/v1/orders/cancel-all', { method: 'POST' });
+  await testREST('Freeze Quantities', '/api/v1/freeze-quantities');
+
+  await testREST('Webhook Stats', '/api/v1/webhook/stats');
+  await testREST('Webhook Log', '/api/v1/webhook/log');
+  await testREST('Webhook TV XML', '/api/v1/webhook/tradingview', {
+    method: 'POST',
+    body: 'signal=buy action=buy symbol=NIFTY qty=50\nsecret=xyz'
+  });
+  await testREST('Webhook JSON', '/api/v1/webhook', {
+    method: 'POST',
+    body: { action: 'buy', symbol: 'NIFTY', qty: 50 }
+  });
+
+  await testREST('History (Mock)', '/api/v1/history', { method: 'POST', body: { symbol: 'NIFTY', timeframe: '5m', startDate: '2023-01-01', endDate: '2023-01-02' }});
+  await testREST('Intervals', '/api/v1/intervals');
+  await testREST('Greeks', '/api/v1/greeks', { method: 'POST', body: { symbol: 'NIFTY', underlyingPrice: 24000, strikePrice: 24100, dte: 7, callPut: 'CE', price: 100 }});
+  await testREST('Greeks Batch', '/api/v1/greeks/batch', { method: 'POST', body: { underlyingPrice: 24000, dte: 7, options: [{ id: 1, strikePrice: 24100, callPut: 'CE', price: 100 }] }});
+  await testREST('Instruments Refresh', '/api/v1/instruments/refresh', { method: 'POST' });
 
   // 2. WebSocket Test
   console.log('\n🔌 WebSocket Tests:');

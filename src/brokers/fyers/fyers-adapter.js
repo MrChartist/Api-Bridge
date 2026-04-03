@@ -79,6 +79,28 @@ export class FyersAdapter extends BaseBrokerAdapter {
     setTimeout(() => this.connect(), delay);
   }
 
+  async disconnect() {
+    if (this.mockInterval) clearInterval(this.mockInterval);
+    if (this.ws) {
+      this.ws.close(1000, 'Client disconnect');
+      this.ws = null;
+    }
+    this.connected = false;
+    console.log('[FYERS] Disconnected.');
+  }
+
+  async unsubscribe(instruments) {
+    if (!this.connected || !this.ws) return;
+    const items = Array.isArray(instruments) ? instruments : [instruments];
+    const symbols = items.map(inst => {
+      const fyersSymbol = inst.fyersSymbol || `NSE:${inst.symbol}-EQ`;
+      this.symbolMap.delete(fyersSymbol);
+      return fyersSymbol;
+    });
+    const payload = JSON.stringify({ T: 'UNSUB', L: symbols });
+    this.ws.send(payload);
+  }
+
   async subscribe(instruments, mode = 'quote') {
     if (!this.connected || !this.ws) return;
 
