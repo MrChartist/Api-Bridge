@@ -1,3 +1,4 @@
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:1a1a2e,100:6366f1&height=180&section=header&text=API%20Bridge&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=Unified%20Multi-Broker%20Trading%20Middleware&descSize=16&descAlignY=55&descColor=8b5cf6" width="100%" />
 # 🌉 Mr. Chartist API Bridge
 
 **Unified multi-broker API bridge for the Mr. Chartist trading ecosystem**
@@ -304,3 +305,15 @@ This bridge powers the entire Mr. Chartist ecosystem:
 ---
 
 **Built with ❤️ by Mr. Chartist (Investology) — SEBI Registered RA (INH000015297)**
+
+
+---
+
+<p align="center">
+  <b>Made with care by <a href="https://github.com/MrChartist">Mr. Chartist</a></b><br>
+  <i>Part of the <a href="https://mrchartist.com">Mr. Chartist Ecosystem</a></i><br><br>
+  <a href="https://mrchartist.com"><img src="https://img.shields.io/badge/mrchartist.com-6366f1?style=flat-square&logo=safari&logoColor=white" alt="Website"/></a>
+  <a href="https://github.com/MrChartist"><img src="https://img.shields.io/badge/More_Projects-0d1117?style=flat-square&logo=github&logoColor=white" alt="GitHub"/></a>
+</p>
+
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:1a1a2e,100:6366f1&height=100&section=footer" width="100%" />
