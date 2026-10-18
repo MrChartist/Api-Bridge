@@ -4,7 +4,7 @@ How every one of the 33 broker adapters in `server/brokers/` should look, how to
 
 ## 0. Licence rule (read first)
 
-OpenAlgo (`scratchpad/ref/openalgo`) is **AGPL-3.0**; this project is **MIT**.
+OpenAlgo (`scratchpad/ref/openalgo`) is **AGPL-3.0**; this project is **proprietary** (see LICENSE).
 
 - Use OpenAlgo only as a **factual** reference: endpoint URLs, HTTP methods, auth steps, request/response field names, exchange/segment codes, instrument-master URLs and formats.
 - **Never** copy, paste or translate its code, comments, docstrings or structure line by line. Write your own idiomatic ESM in this repo's style. Do not add it as a dependency.

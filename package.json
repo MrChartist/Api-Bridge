@@ -6,8 +6,14 @@
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "author": "Rohit Singh (Mr. Chartist)",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
+    "start": "node bin/mc-bridge.mjs start",
+    "doctor": "node bin/mc-bridge.mjs doctor",
+    "bridge": "node bin/mc-bridge.mjs",
+    "audit:runtime": "npm audit --omit=dev",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -15,12 +21,17 @@
     "capabilities": "node scripts/generate-broker-capabilities.mjs"
   },
   "dependencies": {
-    "ws": "^8.20.0"
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "ws": "8.22.0",
+    "zod": "4.6.4"
   },
   "devDependencies": {
     "@types/node": "^22.16.5",
-    "@vitest/coverage-v8": "~3.2.4",
+    "@vitest/coverage-v8": "^4.1.12",
     "typescript": "^5.8.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.12"
+  },
+  "bin": {
+    "mc-bridge": "bin/mc-bridge.mjs"
   }
 }

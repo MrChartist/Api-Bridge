@@ -42,3 +42,16 @@ dist/
 
 # Test output
 coverage/
+
+# Bridge runtime state (keys, encrypted secrets, audit log, caches) and the local config
+/data/
+/bridge.config.json
+
+# Instrument-master caches written by broker adapters during tests and local runs
+.cache/
+
+# Python build and test output
+build/
+*.egg-info/
+__pycache__/
+.pytest_cache/

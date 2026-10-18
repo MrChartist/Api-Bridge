@@ -4,12 +4,17 @@
  *
  * Real-money adapter methods are wrapped with withOrderGate(). The wrapper refuses (before any network
  * call) unless its LAST argument is a gate object minted by issueOrderGate() in this process, for the
- * same action, not yet used and not older than ORDER_GATE_TTL_MS. Only the proxy's trade route may mint
- * one, after validateOrder() passed with liveArmed === true. Today no non-Dhan route mints gates: the
- * browser order path for other brokers is intentionally blocked pending owner review.
+ * same action, not yet used and not older than ORDER_GATE_TTL_MS.
+ *
+ * Call sites that mint gates (keep this list current; each is a real-money surface):
+ *  - the proxy's trade route (Dhan), after validateOrder() passed with liveArmed === true;
+ *  - the Bridge OrderService (server/bridge/orders/orderService.mjs): sendLeg() for live placeOrder and writeLegs()
+ *    for live modifyOrder / cancelOrder, right before the adapter call, after SafetyGuard passed. Its live mappers
+ *    (server/bridge/orders/brokerOrders.mjs LIVE_ORDER_MAPPERS) are wired for Dhan, Zerodha and Upstox; only Dhan is
+ *    marked liveVerified, the others warn on every live order.
  *
  * issueOrderGate is deliberately NOT re-exported from contract.mjs: adapters must never mint their own gate. Import
- * it from this module only in the proxy trade route and in tests. Every gate names exactly one broker, and every
+ * it from this module only in the call sites above and in tests. Every gate names exactly one broker, and every
  * wrapped method names its broker, so a gate minted for one broker can never unlock another. This is a coding
  * guard, not an authority boundary: the authority is the server-side arm session that decides `liveArmed`.
  */

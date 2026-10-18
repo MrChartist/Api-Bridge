@@ -1,0 +1,2745 @@
+openapi: 3.1.0
+info:
+  title: Mr. Chartist API Bridge
+  version: 1.0.0-draft.1
+  summary: One local API for all your Indian broker accounts.
+  description: |
+    The Bridge runs on your own computer (default `http://127.0.0.1:4300`) and holds your connections to several
+    brokers and accounts at once. Option Hub, charts, TradingView/ChartInk alerts, Python and Node scripts, Excel,
+    Google Sheets and AI assistants all share those connections through this API, so the broker sees one well-behaved
+    client instead of many.
+
+    ## Authentication
+    Every route except `/v1/health`, `/openapi.yaml`, inbound webhooks and the streaming endpoints needs a Bridge API
+    key: `Authorization: Bearer mcb_<keyId>_<secret>` (or `X-API-Key`). Keys are created with `mc-bridge keys create`
+    and carry scopes:
+
+    | Scope | Allows |
+    |---|---|
+    | `read` | market data, instruments, accounts, portfolio, orders list, limits |
+    | `paper` | `read` + paper orders |
+    | `live` | `paper` + live orders, only on accounts enabled for live trading in `bridge.config.json`, and only when the request says `"mode": "live"` |
+    | `admin` | `read` + keys, audit log, kill-switch release, broker sessions; from this computer only |
+
+    Keys may also be limited to some accounts. `?key=` in the URL is accepted only on `/udf/*` and `/xl/*`, and only for
+    read-only keys created with `--allow-query` (Excel `WEBSERVICE` and some chart libraries cannot send headers).
+    Streaming endpoints take a short-lived `?token=` from `POST /v1/stream/token`, or an Authorization header.
+
+    ## Symbols
+    One canonical, reversible format for every broker:
+
+    | Instrument | Example |
+    |---|---|
+    | Equity | `NSE:RELIANCE`, `NSE:BAJAJ-AUTO`, `NSE:M&M` |
+    | Index | `NSE:NIFTY`, `BSE:SENSEX` |
+    | Future | `NFO:NIFTY-2026-10-27-FUT`, `MCX:CRUDEOIL-2026-11-19-FUT` |
+    | Option | `NFO:NIFTY-2026-10-27-25000-CE`, `BFO:SENSEX-2026-10-30-82500-PE`, `NFO:VEDL-2026-10-27-292.5-CE` |
+
+    `EXCHANGE:UNDERLYING[-YYYY-MM-DD(-FUT | -STRIKE-CE | -STRIKE-PE)]`. Exchange codes are NSE and BSE (cash and
+    indices), NFO and BFO (equity derivatives), MCX and CDS. The ISO expiry removes the ambiguity of exchange trading
+    symbols (weekly codes, DDMMMYY vs YYMDD), the suffix is parsed from the right so hyphens in names are safe, and no
+    lookup is needed to read it. Inputs are lenient (case, `NSE:` for derivatives, TradingView tickers such as
+    `NSE:NIFTY1!`, OpenAlgo-style symbols with an exchange); responses always use the canonical form. Convert with
+    `/v1/symbols/convert`.
+
+    ## Responses, freshness and errors
+    JSON responses under `/v1` are `{ "data": ..., "meta": { "requestId": ..., ... } }`. Every market-data item carries
+    `freshness` (`source`: stream, cache, broker or paper; `asOf`; `ageMs`; `stale`; which account served it), so you
+    always know how old a number is. Errors are RFC 9457 `application/problem+json` with a stable `code` and a
+    `retryable` flag. Times are ISO-8601 with the IST offset (`+05:30`) unless an endpoint says otherwise; candle times
+    are epoch seconds. List endpoints are paginated with `limit` and an opaque `cursor` (`meta.nextCursor`).
+
+    ## Rate limits
+    The Bridge never exceeds a broker's documented limit. It serves from live streams first, then a short freshness
+    cache, then batches and coalesces broker calls, with orders always ahead of reads. Your own per-key limit is shown in
+    `RateLimit` and `RateLimit-Policy` headers (IETF draft; syntax may change). On 429, wait `Retry-After` seconds.
+
+    ## Orders and safety
+    Paper mode is the default. A live order needs: `safety.liveTrading` and the account's `live.enabled` in the config
+    file, a `live` key, the request source allowed for that account, `"mode": "live"` in the request, and every safety
+    check (kill switch, order-rate cap default 5/s per account, daily order and loss limits, value and lot caps, price
+    band, market-order protection). Send an `Idempotency-Key` with every order write; a retry with the same key returns
+    the first result. A write that times out returns `OUTCOME_UNKNOWN`: check the order book before sending it again.
+
+    Personal use only: broker data terms generally forbid passing market data to other people.
+  contact:
+    name: Investology (Mr. Chartist)
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: http://127.0.0.1:4300
+    description: Local Bridge (default)
+security:
+  - bearerAuth: []
+  - apiKeyHeader: []
+tags:
+  - name: System
+    description: Health, versions and this document.
+  - name: Accounts
+    description: Your broker accounts, sessions and broker capabilities.
+  - name: Keys
+    description: Bridge API keys and their scopes.
+  - name: Instruments
+    description: Instrument search, resolution and symbol conversion.
+  - name: Market data
+    description: Quotes, LTP, depth, history, expiries and option chains, served streaming-first within broker limits.
+  - name: Streaming
+    description: WebSocket and SSE live data.
+  - name: Portfolio
+    description: Positions, holdings and funds per account.
+  - name: Orders
+    description: Paper and live orders with idempotency and safety checks.
+  - name: Paper
+    description: The paper-trading engine.
+  - name: Limits
+    description: Broker limits, budgets and usage.
+  - name: Safety
+    description: Kill switch, safety counters and the audit log.
+  - name: Charting (UDF)
+    description: TradingView UDF-compatible datafeed.
+  - name: Spreadsheets
+    description: Plain-text and CSV endpoints for Excel, Google Sheets and AmiBroker.
+  - name: Webhooks
+    description: Inbound alerts from TradingView, ChartInk, GoCharting and signed senders.
+  - name: AI (MCP)
+    description: Model Context Protocol endpoint for AI assistants.
+
+paths:
+  /v1/health:
+    get:
+      tags: [System]
+      operationId: getHealth
+      summary: Liveness check
+      description: No key needed. Callers on this computer also see which services are built.
+      x-stream: core
+      security: []
+      responses:
+        "200":
+          description: The Bridge is running.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /:
+    get:
+      tags: [System]
+      operationId: getRoot
+      summary: Redirect to the local dashboard
+      x-stream: core
+      x-loopback-only: true
+      security: []
+      responses:
+        "302":
+          description: Redirect to /dashboard.
+
+  /dashboard:
+    get:
+      tags: [System]
+      operationId: getDashboard
+      summary: Local dashboard (HTML; this computer only)
+      description: Accounts, sessions, rate-limit savings, streams, kill switch and pending confirmations. The page asks for an API key and keeps it in the browser tab only.
+      x-stream: core
+      x-loopback-only: true
+      security: []
+      responses:
+        "200":
+          description: The dashboard page.
+          content:
+            text/html:
+              schema: { type: string }
+
+  /dashboard/{file}:
+    get:
+      tags: [System]
+      operationId: getDashboardAsset
+      summary: Dashboard script and stylesheet
+      x-stream: core
+      x-loopback-only: true
+      security: []
+      parameters:
+        - name: file
+          in: path
+          required: true
+          schema: { type: string, enum: [index.html, app.js, app.css] }
+      responses:
+        "200":
+          description: The file.
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /v1/meta:
+    get:
+      tags: [System]
+      operationId: getMeta
+      summary: Versions, brokers, modules and routes
+      x-stream: core
+      x-scope: read
+      responses:
+        "200":
+          description: Meta information.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MetaInfo" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /openapi.yaml:
+    get:
+      tags: [System]
+      operationId: getOpenApi
+      summary: This document
+      x-stream: core
+      security: []
+      responses:
+        "200":
+          description: OpenAPI 3.1 YAML.
+          content:
+            application/yaml:
+              schema: { type: string }
+
+  /v1/brokers:
+    get:
+      tags: [Accounts]
+      operationId: listBrokers
+      summary: Supported brokers and what each can do
+      description: Capabilities come from each adapter's declared contract; limits from the Bridge's broker policy table (each number marked verified or not).
+      x-stream: S1
+      x-scope: read
+      responses:
+        "200":
+          description: All broker adapters.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/BrokerInfo" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/accounts:
+    get:
+      tags: [Accounts]
+      operationId: listAccounts
+      summary: Your configured accounts and their session state
+      description: Only accounts this key may use are listed. Never includes credentials.
+      x-stream: S1
+      x-scope: read
+      responses:
+        "200":
+          description: Accounts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/AccountSummary" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/accounts/{accountId}:
+    parameters:
+      - $ref: "#/components/parameters/AccountIdPath"
+    get:
+      tags: [Accounts]
+      operationId: getAccount
+      summary: One account
+      x-stream: S1
+      x-scope: read
+      responses:
+        "200":
+          description: The account.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/AccountSummary" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/accounts/{accountId}/session:
+    parameters:
+      - $ref: "#/components/parameters/AccountIdPath"
+    post:
+      tags: [Accounts]
+      operationId: connectAccount
+      summary: Connect or log in to the broker
+      description: |
+        Saves the non-secret values (API key, client id, access token) encrypted at rest, then logs in where the broker
+        needs it. For session-login brokers send the password/PIN and the current 6-digit TOTP code in `secrets`: they
+        are used once for the broker login and never stored, cached or logged. Admin scope, this computer only.
+      x-stream: S1
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SessionConnectRequest" }
+      responses:
+        "200":
+          description: New session state.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/SessionState" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Accounts]
+      operationId: disconnectAccount
+      summary: Forget the broker session (saved keys stay)
+      x-stream: S1
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Session state after logout.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/SessionState" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/accounts/{accountId}/test:
+    parameters:
+      - $ref: "#/components/parameters/AccountIdPath"
+    post:
+      tags: [Accounts]
+      operationId: testAccount
+      summary: Make one cheap authenticated broker call
+      x-stream: S1
+      x-scope: read
+      responses:
+        "200":
+          description: Result of the test call.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [ok, message]
+                    properties:
+                      ok: { type: boolean }
+                      message: { type: string }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/keys:
+    get:
+      tags: [Keys]
+      operationId: listKeys
+      summary: List API keys (never the key itself)
+      x-stream: S2
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Keys.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/KeyRecord" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Keys]
+      operationId: createKey
+      summary: Create an API key
+      description: The key is in the response once and cannot be shown again; only a scrypt hash is stored.
+      x-stream: S2
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KeyCreateRequest" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/KeyCreated" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/keys/{keyId}:
+    parameters:
+      - name: keyId
+        in: path
+        required: true
+        schema: { type: string, pattern: "^[a-z0-9]{10}$" }
+    delete:
+      tags: [Keys]
+      operationId: revokeKey
+      summary: Revoke a key (takes effect immediately)
+      x-stream: S2
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: The revoked key.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/KeyRecord" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/stream/token:
+    post:
+      tags: [Streaming]
+      operationId: createStreamToken
+      summary: Short-lived token for WebSocket and SSE URLs
+      description: Use it as `?token=` on `/v1/stream` or `/v1/stream/sse` so your API key never appears in a URL or a log. Valid for 60 seconds to connect; the connection then lives on with the key's scopes.
+      x-stream: S2
+      x-scope: read
+      responses:
+        "200":
+          description: Token.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [token, expiresAt]
+                    properties:
+                      token: { type: string }
+                      expiresAt: { type: string, format: date-time }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/limits:
+    get:
+      tags: [Limits]
+      operationId: getLimits
+      summary: Broker limits, safety limits and current budgets per account
+      x-stream: S3
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200":
+          description: Limits report.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/LimitsReport" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/usage:
+    get:
+      tags: [Limits]
+      operationId: getUsage
+      summary: How much of each budget is used, queued and saved by streaming, caching and coalescing
+      x-stream: S3
+      x-scope: read
+      responses:
+        "200":
+          description: Usage report.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/UsageReport" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/instruments/search:
+    get:
+      tags: [Instruments]
+      operationId: searchInstruments
+      summary: Search instruments across connected brokers' masters
+      x-stream: S4
+      x-scope: read
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Free text (RELIANCE, nifty 25000 ce, banknifty fut).
+          schema: { type: string, minLength: 1, maxLength: 64 }
+        - name: exchange
+          in: query
+          schema: { $ref: "#/components/schemas/Exchange" }
+        - name: kind
+          in: query
+          schema: { $ref: "#/components/schemas/InstrumentKind" }
+        - name: underlying
+          in: query
+          schema: { type: string, maxLength: 30 }
+        - name: expiry
+          in: query
+          schema: { type: string, format: date }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Matching instruments.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Instrument" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/instruments/{symbol}:
+    parameters:
+      - name: symbol
+        in: path
+        required: true
+        description: Any accepted symbol form; URL-encode it.
+        schema: { type: string, maxLength: 64 }
+      - name: include
+        in: query
+        description: "`refs` adds each broker's native token and trading symbol."
+        schema: { type: string, enum: [refs] }
+    get:
+      tags: [Instruments]
+      operationId: getInstrument
+      summary: Resolve one instrument (lot size, tick size, freeze quantity)
+      x-stream: S4
+      x-scope: read
+      responses:
+        "200":
+          description: The instrument.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Instrument" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/symbols/convert:
+    get:
+      tags: [Instruments]
+      operationId: convertSymbolGet
+      summary: Convert one symbol between formats
+      x-stream: S4
+      x-scope: read
+      parameters:
+        - name: input
+          in: query
+          required: true
+          schema: { type: string, maxLength: 64 }
+        - name: from
+          in: query
+          schema: { $ref: "#/components/schemas/SymbolFormatName" }
+        - name: exchange
+          in: query
+          description: Needed for OpenAlgo-style and broker trading symbols.
+          schema: { type: string, maxLength: 12 }
+        - name: broker
+          in: query
+          description: Needed when `from` is `broker`, and to include that broker's native alias.
+          schema: { type: string }
+      responses:
+        "200":
+          description: Canonical form and aliases.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/ConvertResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Instruments]
+      operationId: convertSymbols
+      summary: Convert up to 200 symbols in one call
+      x-stream: S4
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              additionalProperties: false
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  items: { $ref: "#/components/schemas/ConvertRequest" }
+      responses:
+        "200":
+          description: One result or error per item, in order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      oneOf:
+                        - $ref: "#/components/schemas/ConvertResult"
+                        - $ref: "#/components/schemas/ItemError"
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/ltp:
+    get:
+      tags: [Market data]
+      operationId: getLtp
+      summary: Last traded price for up to 200 symbols
+      x-stream: S5
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/Symbols"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200":
+          description: Prices; symbols that failed are listed in `errors`.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/LtpItem" } }
+                  errors: { type: array, items: { $ref: "#/components/schemas/ItemError" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/quotes:
+    get:
+      tags: [Market data]
+      operationId: getQuotes
+      summary: Full quotes for up to 200 symbols
+      x-stream: S5
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/Symbols"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200":
+          description: Quotes.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/QuoteItem" } }
+                  errors: { type: array, items: { $ref: "#/components/schemas/ItemError" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/depth:
+    get:
+      tags: [Market data]
+      operationId: getDepth
+      summary: Market depth (5 levels where the broker offers it)
+      x-stream: S5
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/SymbolQuery"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200":
+          description: Depth.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/DepthItem" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/history:
+    get:
+      tags: [Market data]
+      operationId: getHistory
+      summary: Historical candles, automatically split across broker limits
+      description: Give `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in one call are fetched in chunks within the rate limits. `format=csv` returns `time,open,high,low,close,volume,oi` with IST timestamps.
+      x-stream: S5
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/SymbolQuery"
+        - name: interval
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/Interval" }
+        - name: from
+          in: query
+          description: ISO date or date-time (IST if no offset), or epoch seconds.
+          schema: { type: string }
+        - name: to
+          in: query
+          schema: { type: string }
+        - name: countback
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 5000 }
+        - name: format
+          in: query
+          schema: { type: string, enum: [json, csv], default: json }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200":
+          description: Candles, ascending.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/HistoryResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+            text/csv:
+              schema: { type: string }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/expiries:
+    get:
+      tags: [Market data]
+      operationId: getExpiries
+      summary: Expiry dates for an underlying
+      x-stream: S5
+      x-scope: read
+      parameters:
+        - name: underlying
+          in: query
+          required: true
+          description: NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, SENSEX, BANKEX or a stock symbol.
+          schema: { type: string, maxLength: 30 }
+        - name: exchange
+          in: query
+          schema: { type: string, enum: [NFO, BFO, MCX, CDS] }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200":
+          description: ISO dates, ascending.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [underlying, expiries, freshness]
+                    properties:
+                      underlying: { type: string }
+                      expiries: { type: array, items: { type: string, format: date } }
+                      freshness: { $ref: "#/components/schemas/Freshness" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/optionchain:
+    get:
+      tags: [Market data]
+      operationId: getOptionChain
+      summary: Option chain with IV and Greeks
+      x-stream: S5
+      x-scope: read
+      parameters:
+        - name: underlying
+          in: query
+          required: true
+          schema: { type: string, maxLength: 30 }
+        - name: expiry
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: strikes
+          in: query
+          description: Strikes on each side of ATM (default all).
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - name: greeks
+          in: query
+          schema: { type: boolean, default: true }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200":
+          description: Chain.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/OptionChain" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/stream:
+    get:
+      tags: [Streaming]
+      operationId: openStream
+      summary: WebSocket stream (upgrade)
+      description: |
+        Connect with `ws://127.0.0.1:4300/v1/stream?token=<stream token>` (or an `Authorization` header from scripts).
+        Client messages: `{"op":"subscribe","symbols":[...],"mode":"ltp|quote|depth"}`, `{"op":"unsubscribe",...}`,
+        `{"op":"subscribe_orders"}`, `{"op":"ping"}`. Server messages: `snapshot`, `tick` (with a per-connection `seq`),
+        `order`, `status` (upstream connected or stale), `error`, `heartbeat` every 15 s and `go_away` before a restart.
+        A gap in `seq` means re-subscribe for a fresh snapshot. Full message schemas: docs/asyncapi.yaml (stream S6).
+      x-stream: S6
+      x-websocket: true
+      security: []
+      parameters:
+        - name: token
+          in: query
+          schema: { type: string }
+      responses:
+        "101":
+          description: Switching to the WebSocket protocol.
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/stream/sse:
+    get:
+      tags: [Streaming]
+      operationId: openSse
+      summary: Server-Sent Events stream (same messages as the WebSocket)
+      description: "`GET /v1/stream/sse?token=<stream token>&symbols=NSE:NIFTY,NSE:RELIANCE&mode=ltp`. Each event's `id` is its `seq`; a reconnect gets a fresh snapshot first."
+      x-stream: S6
+      security: []
+      parameters:
+        - name: token
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/Symbols"
+        - name: mode
+          in: query
+          schema: { $ref: "#/components/schemas/StreamMode" }
+        - name: orders
+          in: query
+          description: "1 to also receive `order` messages for the accounts the key may use. The key may instead be sent in an Authorization header."
+          schema: { type: string, enum: ["1"] }
+      responses:
+        "200":
+          description: Event stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/stream/stats:
+    get:
+      tags: [Streaming]
+      operationId: getStreamStats
+      summary: Upstream feeds, subscriptions and clients
+      x-stream: S6
+      x-scope: read
+      responses:
+        "200":
+          description: Stats.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/StreamStats" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/positions:
+    get:
+      tags: [Portfolio]
+      operationId: getPositions
+      summary: Positions for one account (live from the broker, or paper)
+      x-stream: S7
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/AccountQuery"
+        - $ref: "#/components/parameters/ModeQuery"
+      responses:
+        "200":
+          description: Positions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Position" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/holdings:
+    get:
+      tags: [Portfolio]
+      operationId: getHoldings
+      summary: Demat holdings for one account
+      x-stream: S7
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/AccountQuery"
+      responses:
+        "200":
+          description: Holdings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Holding" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/funds:
+    get:
+      tags: [Portfolio]
+      operationId: getFunds
+      summary: Funds and margin for one account
+      x-stream: S7
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/AccountQuery"
+        - $ref: "#/components/parameters/ModeQuery"
+      responses:
+        "200":
+          description: Funds.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Funds" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/orders:
+    get:
+      tags: [Orders]
+      operationId: listOrders
+      summary: Orders (newest first)
+      x-stream: S7
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/ModeQuery"
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/OrderStatus" }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of orders.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/OrderResult" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Orders]
+      operationId: placeOrder
+      summary: Place an order (paper unless you ask for live)
+      description: |
+        Every order passes the safety checks. Live needs a `live` key, an account enabled for live trading in the config
+        file and `"mode": "live"` in the body; orders from AI assistants also need a `confirmToken` from a human
+        confirmation. `quantity` is in units and must be a multiple of the lot size; or send `lots`. There is no default
+        product or order type. MARKET and SL-M orders get market protection (or are refused) as configured.
+      x-stream: S7
+      x-scope: paper
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OrderRequest" }
+      responses:
+        "201":
+          description: Accepted by the paper engine or the broker. `status` may still be pending.
+          headers:
+            Idempotency-Replayed: { $ref: "#/components/headers/IdempotencyReplayed" }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/OrderResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/orders/preview:
+    post:
+      tags: [Orders]
+      operationId: previewOrder
+      summary: Check an order without sending it
+      description: Resolves the symbol and lot size, runs every safety check, and returns warnings and the estimated value. When a human must confirm (orders from AI assistants, or hooks set to require it), it opens a ticket that you confirm in Option Hub; the confirmation yields the `confirmToken` that `POST /v1/orders` needs.
+      x-stream: S7
+      x-scope: paper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OrderRequest" }
+      responses:
+        "200":
+          description: Preview.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/PreviewResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/orders/cancel-all:
+    post:
+      tags: [Orders]
+      operationId: cancelAllOrders
+      summary: Cancel every open order for an account (or all accounts this key may use)
+      x-stream: S7
+      x-scope: paper
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                account: { $ref: "#/components/schemas/AccountId" }
+                mode: { type: string, enum: [paper, live] }
+      responses:
+        "200":
+          description: What was cancelled.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [cancelled, failed]
+                    properties:
+                      cancelled: { type: array, items: { type: string } }
+                      failed: { type: array, items: { $ref: "#/components/schemas/ItemError" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/orders/by-client-id/{clientOrderId}:
+    parameters:
+      - name: clientOrderId
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ClientOrderId" }
+    get:
+      tags: [Orders]
+      operationId: getOrderByClientId
+      summary: Look up an order by your own clientOrderId
+      x-stream: S7
+      x-scope: read
+      responses:
+        "200":
+          description: The order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/OrderResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/orders/{orderId}:
+    parameters:
+      - name: orderId
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    get:
+      tags: [Orders]
+      operationId: getOrder
+      summary: One order (refreshed from the broker for live orders)
+      x-stream: S7
+      x-scope: read
+      responses:
+        "200":
+          description: The order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/OrderResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    patch:
+      tags: [Orders]
+      operationId: modifyOrder
+      summary: Modify an open order
+      description: Counts towards the order-rate cap. Brokers limit modifications per order (for example 25); after that, cancel and place again.
+      x-stream: S7
+      x-scope: paper
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OrderChanges" }
+      responses:
+        "200":
+          description: The order after the change was accepted.
+          headers:
+            Idempotency-Replayed: { $ref: "#/components/headers/IdempotencyReplayed" }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/OrderResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Orders]
+      operationId: cancelOrder
+      summary: Cancel an open order
+      x-stream: S7
+      x-scope: paper
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The order after cancellation was accepted.
+          headers:
+            Idempotency-Replayed: { $ref: "#/components/headers/IdempotencyReplayed" }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/OrderResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/trades:
+    get:
+      tags: [Orders]
+      operationId: listTrades
+      summary: Executions (trade book)
+      x-stream: S7
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/ModeQuery"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of trades.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Trade" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/tickets:
+    get:
+      tags: [Orders]
+      operationId: listTickets
+      summary: Orders waiting for a human confirmation
+      description: Option Hub's "Pending confirmations" panel polls this (or listens on the stream) and shows each ticket's full order, its source (AI assistant or webhook) and its checks. Admin scope, this computer only.
+      x-stream: S7
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Pending tickets, oldest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Ticket" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/tickets/{ticketId}/confirm:
+    parameters:
+      - name: ticketId
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    post:
+      tags: [Orders]
+      operationId: confirmTicket
+      summary: Human confirmation of an order prepared by an AI assistant or webhook
+      description: Used by the Bridge's own confirmation page on this computer. Returns the `confirmToken` that `POST /v1/orders` needs. Tickets expire after about 60 seconds.
+      x-stream: S7
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Confirmation token.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [confirmToken, expiresAt]
+                    properties:
+                      confirmToken: { type: string }
+                      expiresAt: { type: string, format: date-time }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/paper/accounts/{accountId}:
+    parameters:
+      - $ref: "#/components/parameters/AccountIdPath"
+    get:
+      tags: [Paper]
+      operationId: getPaperAccount
+      summary: Paper account summary
+      x-stream: S8
+      x-scope: read
+      responses:
+        "200":
+          description: Summary.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/PaperAccount" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/paper/accounts/{accountId}/reset:
+    parameters:
+      - $ref: "#/components/parameters/AccountIdPath"
+    post:
+      tags: [Paper]
+      operationId: resetPaperAccount
+      summary: Clear paper orders and positions and start again
+      x-stream: S8
+      x-scope: paper
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                startingCapital: { type: number, minimum: 10000, maximum: 1000000000 }
+      responses:
+        "200":
+          description: The fresh paper account.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/PaperAccount" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/safety:
+    get:
+      tags: [Safety]
+      operationId: getSafety
+      summary: Kill switch, live-trading state and today's safety counters
+      x-stream: S9
+      x-scope: read
+      responses:
+        "200":
+          description: Safety status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/SafetyStatus" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/safety/kill-switch:
+    post:
+      tags: [Safety]
+      operationId: engageKillSwitch
+      summary: Stop all orders now (any key may do this)
+      x-stream: S9
+      x-scope: read
+      description: >-
+        Any key may stop trading; an empty body works (reason "manual"). cancelOpenOrders needs a live key (or admin
+        from this computer) and cancels only orders the Bridge placed on the caller's accounts; includeExternal (admin
+        from this computer) also cancels orders placed outside the Bridge. Without the needed scope the switch is still
+        engaged and the response carries a warning.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 200, default: manual }
+                cancelOpenOrders: { type: boolean, default: false }
+                includeExternal: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Kill switch state.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/KillSwitchState" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Safety]
+      operationId: releaseKillSwitch
+      summary: Release the kill switch (admin, this computer only)
+      x-stream: S9
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirm]
+              additionalProperties: false
+              properties:
+                confirm: { type: string, const: RELEASE }
+      responses:
+        "200":
+          description: Kill switch state.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/KillSwitchState" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/audit:
+    get:
+      tags: [Safety]
+      operationId: queryAudit
+      summary: Read the append-only audit log
+      x-stream: S9
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - name: type
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of audit records.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/AuditRecord" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/audit/verify:
+    get:
+      tags: [Safety]
+      operationId: verifyAudit
+      summary: Check the audit log's hash chain
+      x-stream: S9
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - name: day
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Verification result.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [ok, checked, brokenAt]
+                    properties:
+                      ok: { type: boolean }
+                      checked: { type: integer }
+                      brokenAt: { type: [integer, "null"] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /udf/config:
+    get:
+      tags: [Charting (UDF)]
+      operationId: udfConfig
+      summary: TradingView UDF datafeed configuration
+      description: "UDF responses use the UDF wire format (`{ s: \"ok\" | \"error\" | \"no_data\", ... }`, Unix seconds), not the `/v1` envelope. Works with any UDF-compatible chart, including a TradingView Advanced Charts licence you hold yourself."
+      x-stream: S10
+      x-scope: read
+      security:
+        - bearerAuth: []
+        - apiKeyQuery: []
+      responses:
+        "200":
+          description: Datafeed configuration.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UdfObject" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+
+  /udf/symbols:
+    get:
+      tags: [Charting (UDF)]
+      operationId: udfSymbols
+      summary: Symbol info (lot size, tick, session in Asia/Kolkata)
+      x-stream: S10
+      x-scope: read
+      security:
+        - bearerAuth: []
+        - apiKeyQuery: []
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: LibrarySymbolInfo.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UdfObject" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+
+  /udf/search:
+    get:
+      tags: [Charting (UDF)]
+      operationId: udfSearch
+      summary: Symbol search
+      x-stream: S10
+      x-scope: read
+      security:
+        - bearerAuth: []
+        - apiKeyQuery: []
+      parameters:
+        - { name: query, in: query, required: true, schema: { type: string } }
+        - { name: type, in: query, schema: { type: string } }
+        - { name: exchange, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+      responses:
+        "200":
+          description: Search results.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/UdfObject" } }
+        "4XX": { $ref: "#/components/responses/Problem" }
+
+  /udf/history:
+    get:
+      tags: [Charting (UDF)]
+      operationId: udfHistory
+      summary: Bars in UDF column format
+      x-stream: S10
+      x-scope: read
+      security:
+        - bearerAuth: []
+        - apiKeyQuery: []
+      parameters:
+        - { name: symbol, in: query, required: true, schema: { type: string } }
+        - { name: resolution, in: query, required: true, schema: { type: string } }
+        - { name: from, in: query, required: true, schema: { type: integer } }
+        - { name: to, in: query, required: true, schema: { type: integer } }
+        - { name: countback, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: "`{ s, t[], o[], h[], l[], c[], v[], nextTime? }`"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UdfObject" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+
+  /udf/time:
+    get:
+      tags: [Charting (UDF)]
+      operationId: udfTime
+      summary: Server time in Unix seconds (plain text)
+      x-stream: S10
+      x-scope: read
+      security:
+        - bearerAuth: []
+        - apiKeyQuery: []
+      responses:
+        "200":
+          description: Seconds.
+          content:
+            text/plain:
+              schema: { type: string }
+        "4XX": { $ref: "#/components/responses/Problem" }
+
+  /udf/quotes:
+    get:
+      tags: [Charting (UDF)]
+      operationId: udfQuotes
+      summary: Quotes in UDF format
+      x-stream: S10
+      x-scope: read
+      security:
+        - bearerAuth: []
+        - apiKeyQuery: []
+      parameters:
+        - { name: symbols, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: "`{ s, d: [...] }`"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UdfObject" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+
+  /xl/ltp:
+    get:
+      tags: [Spreadsheets]
+      operationId: xlLtp
+      summary: One number as plain text, for Excel WEBSERVICE and AmiBroker
+      description: "`=WEBSERVICE(\"http://127.0.0.1:4300/xl/ltp?symbol=\"&ENCODEURL(A1)&\"&key=...\")`. Read-only URL keys only; nothing under /xl can place an order."
+      x-stream: S10
+      x-scope: read
+      security:
+        - bearerAuth: []
+        - apiKeyQuery: []
+      parameters:
+        - $ref: "#/components/parameters/SymbolQuery"
+      responses:
+        "200":
+          description: The price, or `#N/A` with a 4xx status.
+          content:
+            text/plain:
+              schema: { type: string }
+        "4XX": { $ref: "#/components/responses/Problem" }
+
+  /xl/quote:
+    get:
+      tags: [Spreadsheets]
+      operationId: xlQuote
+      summary: One quote field as plain text
+      x-stream: S10
+      x-scope: read
+      security:
+        - bearerAuth: []
+        - apiKeyQuery: []
+      parameters:
+        - $ref: "#/components/parameters/SymbolQuery"
+        - name: field
+          in: query
+          required: true
+          schema: { type: string, enum: [ltp, open, high, low, close, change, changePct, volume, oi, bid, ask] }
+      responses:
+        "200":
+          description: The value.
+          content:
+            text/plain:
+              schema: { type: string }
+        "4XX": { $ref: "#/components/responses/Problem" }
+
+  /xl/chain:
+    get:
+      tags: [Spreadsheets]
+      operationId: xlChain
+      summary: Flat option chain table (CSV or JSON records) for Power Query and Sheets
+      x-stream: S10
+      x-scope: read
+      security:
+        - bearerAuth: []
+        - apiKeyQuery: []
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: format, in: query, schema: { type: string, enum: [csv, json], default: csv } }
+      responses:
+        "200":
+          description: One row per strike.
+          content:
+            text/csv:
+              schema: { type: string }
+            application/json:
+              schema: { type: array, items: { type: object } }
+        "4XX": { $ref: "#/components/responses/Problem" }
+
+  /xl/history:
+    get:
+      tags: [Spreadsheets]
+      operationId: xlHistory
+      summary: Candles as CSV (layout=amibroker matches the shipped AmiBroker import format)
+      x-stream: S10
+      x-scope: read
+      security:
+        - bearerAuth: []
+        - apiKeyQuery: []
+      parameters:
+        - $ref: "#/components/parameters/SymbolQuery"
+        - name: interval
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/Interval" }
+        - { name: from, in: query, schema: { type: string } }
+        - { name: to, in: query, schema: { type: string } }
+        - { name: layout, in: query, schema: { type: string, enum: [standard, amibroker], default: standard } }
+      responses:
+        "200":
+          description: CSV.
+          content:
+            text/csv:
+              schema: { type: string }
+        "4XX": { $ref: "#/components/responses/Problem" }
+
+  /hooks/{source}/{token}:
+    parameters:
+      - name: source
+        in: path
+        required: true
+        schema: { type: string, enum: [tradingview, chartink, gocharting, generic] }
+      - name: token
+        in: path
+        required: true
+        description: The hook's secret token (shown once when the hook is created). It is the only credential TradingView, ChartInk and GoCharting can carry, since they cannot sign requests.
+        schema: { type: string, minLength: 32, maxLength: 128 }
+    post:
+      tags: [Webhooks]
+      operationId: receiveHook
+      summary: Inbound alert (TradingView, ChartInk, GoCharting, or signed generic)
+      description: |
+        Answers within milliseconds (TradingView gives up after 3 seconds) and processes the signal in the background,
+        through the same preview and safety checks as any order. The hook decides what an alert may do (account,
+        symbols, quantity caps, paper or live, whether a human must confirm). `generic` hooks must send
+        `X-MCB-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`; requests older than 5 minutes or
+        replayed are refused. Served on the public ingress listener when it is enabled.
+      x-stream: S11
+      x-public: true
+      security: []
+      parameters:
+        - name: X-MCB-Signature
+          in: header
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+          text/plain:
+            schema: { type: string }
+      responses:
+        "202":
+          description: Accepted for processing.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accepted, signalId]
+                properties:
+                  accepted: { type: boolean }
+                  signalId: { type: string }
+                  duplicate: { type: boolean }
+                  dropped: { type: integer, description: Orders in the alert that were dropped before queueing (for example over the per-alert cap). }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/hooks:
+    get:
+      tags: [Webhooks]
+      operationId: listHooks
+      summary: List configured hooks (never the token)
+      x-stream: S11
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Hooks.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Hook" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Webhooks]
+      operationId: createHook
+      summary: Create a hook; the URL with its token is shown once
+      x-stream: S11
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HookCreate" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    allOf:
+                      - $ref: "#/components/schemas/Hook"
+                      - type: object
+                        required: [url]
+                        properties:
+                          url: { type: string, description: "Full hook URL including the secret token. Shown once." }
+                          path: { type: string, description: "The URL path alone (for tunnels and public ingress). Shown once." }
+                          signingSecret: { type: string, description: "For generic hooks only. Shown once." }
+                          templates: { type: object, additionalProperties: true, description: Ready-to-paste alert message templates for this source. }
+                          warnings: { type: array, items: { type: string } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/hooks/{hookId}:
+    parameters:
+      - name: hookId
+        in: path
+        required: true
+        schema: { type: string, maxLength: 40 }
+    delete:
+      tags: [Webhooks]
+      operationId: deleteHook
+      summary: Delete a hook (its URL stops working immediately)
+      x-stream: S11
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "204":
+          description: Deleted.
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /mcp:
+    post:
+      tags: [AI (MCP)]
+      operationId: mcp
+      summary: MCP Streamable HTTP endpoint for AI assistants
+      description: |
+        JSON-RPC 2.0 per the Model Context Protocol. The key's scopes decide which tools exist: market-data and account
+        tools for `read`; order tools only when enabled in config, and every order still needs your confirmation in the
+        Bridge. Desktop assistants should prefer `mc-bridge mcp` over stdio.
+      x-stream: S11
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "200":
+          description: JSON-RPC response, or an SSE stream for long calls.
+          content:
+            application/json:
+              schema: { type: object }
+            text/event-stream:
+              schema: { type: string }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: "Bridge API key: `mcb_<keyId>_<secret>`."
+    apiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    apiKeyQuery:
+      type: apiKey
+      in: query
+      name: key
+      description: Only on /udf/* and /xl/*, only for read-only keys created with --allow-query.
+
+  headers:
+    IdempotencyReplayed:
+      description: "`true` when this response is the stored result of an earlier request with the same Idempotency-Key."
+      schema: { type: string, enum: ["true"] }
+    RateLimit:
+      description: Remaining client budget (IETF RateLimit header draft).
+      schema: { type: string }
+    RetryAfter:
+      description: Seconds to wait before retrying.
+      schema: { type: integer }
+
+  parameters:
+    AccountIdPath:
+      name: accountId
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/AccountId" }
+    AccountQuery:
+      name: account
+      in: query
+      required: true
+      schema: { $ref: "#/components/schemas/AccountId" }
+    AccountQueryOptional:
+      name: account
+      in: query
+      description: Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling.
+      schema: { $ref: "#/components/schemas/AccountId" }
+    ModeQuery:
+      name: mode
+      in: query
+      description: "`paper` reads the account's paper book; `live` the broker's (default for portfolio reads)."
+      schema: { type: string, enum: [paper, live], default: live }
+    Symbols:
+      name: symbols
+      in: query
+      required: true
+      description: Comma-separated symbols (up to 200).
+      schema: { type: string, maxLength: 8000 }
+    SymbolQuery:
+      name: symbol
+      in: query
+      required: true
+      schema: { $ref: "#/components/schemas/Symbol" }
+    MaxAge:
+      name: maxAgeMs
+      in: query
+      description: Oldest data you accept, in ms. 0 forces a live read (still within rate limits). Default depends on the endpoint (LTP 1000, quotes 2000, chain 3000).
+      schema: { type: integer, minimum: 0, maximum: 3600000 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor from `meta.nextCursor`.
+      schema: { type: string, maxLength: 512 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: |
+        Your unique id for this write (UUID recommended). A retry with the same key and the same body returns the first
+        result with `Idempotency-Replayed: true`; a different body is refused with 409 IDEMPOTENCY_KEY_REUSED; a retry
+        while the first is still running gets 409 IDEMPOTENCY_IN_PROGRESS. Keys are kept until the end of the IST
+        trading day and at least 24 hours. For POST /v1/orders, `clientOrderId` in the body works the same way when the
+        header is absent.
+      schema: { type: string, minLength: 8, maxLength: 255, pattern: "^[A-Za-z0-9_.:-]+$" }
+
+  responses:
+    Problem:
+      description: Error (RFC 9457 problem details).
+      headers:
+        Retry-After: { $ref: "#/components/headers/RetryAfter" }
+        RateLimit: { $ref: "#/components/headers/RateLimit" }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status, code, retryable]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string, description: "Human text. Do not parse it." }
+        code: { $ref: "#/components/schemas/ErrorCode" }
+        retryable: { type: boolean, description: "Safe to send exactly this request again (after Retry-After)." }
+        requestId: { type: string }
+        retryAfterMs: { type: integer }
+        broker:
+          type: object
+          description: The broker's own error, when one caused this.
+          properties:
+            id: { type: string }
+            code: { type: string }
+            message: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            required: [path, message]
+            properties:
+              path: { type: string }
+              message: { type: string }
+    ErrorCode:
+      type: string
+      description: Stable codes; new ones may be added. Source of truth server/bridge/core/errors.mjs.
+      enum:
+        - VALIDATION_FAILED
+        - INVALID_JSON
+        - UNAUTHENTICATED
+        - SCOPE_REQUIRED
+        - ACCOUNT_FORBIDDEN
+        - HOST_NOT_ALLOWED
+        - ORIGIN_NOT_ALLOWED
+        - LOOPBACK_ONLY
+        - NOT_FOUND
+        - ACCOUNT_NOT_FOUND
+        - SYMBOL_NOT_FOUND
+        - ORDER_NOT_FOUND
+        - METHOD_NOT_ALLOWED
+        - IDEMPOTENCY_KEY_REUSED
+        - IDEMPOTENCY_IN_PROGRESS
+        - DUPLICATE_CLIENT_ORDER_ID
+        - PAYLOAD_TOO_LARGE
+        - UNSUPPORTED_MEDIA_TYPE
+        - CAPABILITY_UNSUPPORTED
+        - INVALID_ORDER
+        - SESSION_EXPIRED
+        - CONFIRMATION_REQUIRED
+        - PAPER_ONLY
+        - ORDER_GATE_CLOSED
+        - DAILY_LIMIT_REACHED
+        - MARKET_CLOSED
+        - KILL_SWITCH_ACTIVE
+        - RATE_LIMITED
+        - ORDER_RATE_LIMITED
+        - UPSTREAM_RATE_LIMITED
+        - SUBSCRIPTION_LIMIT
+        - INTERNAL
+        - NOT_IMPLEMENTED
+        - UPSTREAM_ERROR
+        - BROKER_UNAVAILABLE
+        - UPSTREAM_TIMEOUT
+        - OUTCOME_UNKNOWN
+    Meta:
+      type: object
+      required: [requestId]
+      properties:
+        requestId: { type: string }
+        nextCursor: { type: [string, "null"], description: "Present on list endpoints; null on the last page." }
+        accountId: { type: [string, "null"] }
+        mode: { type: string, enum: [paper, live] }
+        freshness: { $ref: "#/components/schemas/Freshness" }
+    ItemError:
+      type: object
+      required: [code, message]
+      properties:
+        symbol: { type: string }
+        orderId: { type: string }
+        input: { type: string }
+        code: { $ref: "#/components/schemas/ErrorCode" }
+        message: { type: string }
+    Health:
+      type: object
+      required: [status, version, apiVersion]
+      properties:
+        status: { type: string, enum: [ok] }
+        version: { type: string }
+        apiVersion: { type: string }
+        startedAt: { type: string, format: date-time }
+        uptimeSeconds: { type: integer }
+        services:
+          type: object
+          additionalProperties: { type: string, enum: [ready, not_built] }
+    MetaInfo:
+      type: object
+      required: [bridgeVersion, apiVersion, brokers, modules, routes]
+      properties:
+        bridgeVersion: { type: string }
+        apiVersion: { type: string }
+        brokerContractVersion: { type: integer }
+        brokers: { type: array, items: { type: string } }
+        modules:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              stream: { type: string }
+        routes:
+          type: array
+          items:
+            type: object
+            properties:
+              method: { type: string }
+              path: { type: string }
+              scope: { type: [string, "null"] }
+              auth: { type: string }
+
+    Symbol:
+      type: string
+      maxLength: 64
+      description: Canonical Bridge symbol (see the introduction). Inputs may use accepted aliases.
+      examples: ["NSE:RELIANCE", "NSE:NIFTY", "NFO:NIFTY-2026-10-27-FUT", "NFO:NIFTY-2026-10-27-25000-CE"]
+    SymbolFormatName:
+      type: string
+      enum: [auto, canonical, tradingview, openalgo, broker]
+      default: auto
+    Exchange:
+      type: string
+      enum: [NSE, BSE, NFO, BFO, MCX, CDS]
+    InstrumentKind:
+      type: string
+      enum: [INDEX, EQ, FUT, OPT]
+    Interval:
+      type: string
+      enum: ["1m", "3m", "5m", "10m", "15m", "30m", "60m", "1d", "1w", "1M"]
+    StreamMode:
+      type: string
+      enum: [ltp, quote, depth]
+      default: ltp
+    AccountId:
+      type: string
+      pattern: "^[a-z0-9][a-z0-9-]{1,31}$"
+    ClientOrderId:
+      type: string
+      pattern: "^[A-Za-z0-9_-]{1,64}$"
+      description: Your own id for an order, unique per account per IST day. The Bridge maps it to the broker's shorter tag field itself.
+    Freshness:
+      type: object
+      required: [source, asOf, ageMs, stale]
+      properties:
+        source: { type: string, enum: [stream, cache, broker, paper] }
+        asOf: { type: string, format: date-time }
+        ageMs: { type: integer, minimum: 0 }
+        stale: { type: boolean }
+        accountId: { type: [string, "null"], description: "Account whose connection supplied the data." }
+        broker: { type: [string, "null"] }
+
+    BrokerInfo:
+      type: object
+      required: [id, name, authKind, capabilities, verified]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        authKind: { type: string, enum: [apiKeyToken, oauthRedirect, requestTokenExchange, sessionLogin] }
+        capabilities: { type: array, items: { type: string } }
+        verified: { type: boolean, description: "Checked end to end against a live account." }
+        credentialFields: { type: array, items: { type: string }, description: "Keys to send in SessionConnectRequest.values." }
+        loginFields:
+          type: array
+          description: "sessionLogin brokers only: keys to send in SessionConnectRequest.secrets (used once, never stored)."
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              label: { type: string }
+              kind: { type: string, enum: [secret, totp] }
+        tokenExpiry: { type: [string, "null"], description: "When the broker's session usually ends, as the broker documents it." }
+        policy: { $ref: "#/components/schemas/BrokerPolicy" }
+    BrokerPolicy:
+      type: object
+      properties:
+        limits:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              perSecond: { type: number }
+              perMinute: { type: number }
+              perDay: { type: number }
+              verified: { type: boolean }
+              source: { type: string, format: uri }
+        maxQuoteBatch: { type: integer }
+        feed:
+          type: object
+          properties:
+            maxConnections: { type: [integer, "null"] }
+            maxSubscriptions: { type: [integer, "null"] }
+        pooling: { type: string, enum: [allowed, not-allowed, unknown] }
+        maxModificationsPerOrder: { type: [integer, "null"] }
+    SessionState:
+      type: object
+      required: [state]
+      properties:
+        state: { type: string, enum: [connected, expired, missing, error, checking] }
+        expiresAt: { type: [string, "null"], format: date-time }
+        checkedAt: { type: [string, "null"], format: date-time }
+        message: { type: [string, "null"] }
+    AccountSummary:
+      type: object
+      required: [id, broker, label, enabled, session, liveAllowedByConfig, pooling, capabilities]
+      properties:
+        id: { $ref: "#/components/schemas/AccountId" }
+        broker: { type: string }
+        label: { type: string }
+        enabled: { type: boolean }
+        session: { $ref: "#/components/schemas/SessionState" }
+        liveAllowedByConfig: { type: boolean }
+        pooling: { type: boolean, description: "This account's market-data budget may serve requests that did not name an account." }
+        capabilities: { type: array, items: { type: string } }
+        authKind: { type: [string, "null"] }
+    SessionConnectRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        values:
+          type: object
+          description: Non-secret fields the broker needs (apiKey, clientId, accessToken ...). Stored encrypted.
+          additionalProperties: { type: string, maxLength: 4096 }
+        secrets:
+          type: object
+          description: Password/PIN and the current TOTP code for session-login brokers. Used once, never stored.
+          additionalProperties: { type: string, maxLength: 256 }
+
+    KeyRecord:
+      type: object
+      required: [id, label, scopes, accounts, createdAt]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        scopes: { type: array, items: { type: string, enum: [read, paper, live, admin] } }
+        accounts:
+          oneOf:
+            - { type: string, const: "*" }
+            - { type: array, items: { $ref: "#/components/schemas/AccountId" } }
+        allowQuery: { type: boolean }
+        clientKind: { type: string, enum: [script, excel, tradingview, mcp, ui, other] }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: [string, "null"], format: date-time }
+        lastUsedAt: { type: [string, "null"], format: date-time }
+        revokedAt: { type: [string, "null"], format: date-time }
+    KeyCreateRequest:
+      type: object
+      required: [label, scopes]
+      additionalProperties: false
+      properties:
+        label: { type: string, minLength: 1, maxLength: 60 }
+        scopes: { type: array, minItems: 1, items: { type: string, enum: [read, paper, live, admin] } }
+        accounts:
+          oneOf:
+            - { type: string, const: "*" }
+            - { type: array, minItems: 1, items: { $ref: "#/components/schemas/AccountId" } }
+        expiresAt: { type: [string, "null"], format: date-time }
+        allowQuery: { type: boolean, default: false, description: "Allow ?key= use. Only for keys whose only scope is read." }
+        clientKind: { type: string, enum: [script, excel, tradingview, mcp, ui, other] }
+    KeyCreated:
+      type: object
+      required: [key, record]
+      properties:
+        key: { type: string, description: "Shown once." }
+        record: { $ref: "#/components/schemas/KeyRecord" }
+
+    Instrument:
+      type: object
+      required: [symbol, exchange, kind, underlying, lotSize, tickSize]
+      properties:
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        exchange: { $ref: "#/components/schemas/Exchange" }
+        kind: { $ref: "#/components/schemas/InstrumentKind" }
+        underlying: { type: string }
+        name: { type: [string, "null"] }
+        expiry: { type: [string, "null"], format: date }
+        strike: { type: [number, "null"] }
+        right: { type: [string, "null"], enum: [CE, PE, null] }
+        lotSize: { type: integer, minimum: 1 }
+        tickSize: { type: number, exclusiveMinimum: 0 }
+        freezeQty: { type: [integer, "null"] }
+        freezeQtySource:
+          type: [string, "null"]
+          enum: [master, exchange-list, null]
+          description: Where freezeQty came from. "exchange-list" is the Bridge's dated list and is marked needs-verification.
+        isin: { type: [string, "null"] }
+        refs:
+          type: object
+          description: Present with include=refs. Keyed by broker id.
+          additionalProperties:
+            type: object
+            properties:
+              token: { type: string }
+              exchange: { type: string }
+              tradingSymbol: { type: [string, "null"] }
+    ConvertRequest:
+      type: object
+      required: [input]
+      additionalProperties: false
+      properties:
+        input: { type: string, maxLength: 64 }
+        from: { $ref: "#/components/schemas/SymbolFormatName" }
+        exchange: { type: string, maxLength: 12 }
+        broker: { type: string }
+    ConvertResult:
+      type: object
+      required: [input, canonical, aliases]
+      properties:
+        input: { type: string }
+        canonical: { $ref: "#/components/schemas/Symbol" }
+        aliases:
+          type: object
+          description: "tradingview, openalgo (symbol and exchange) and, when a broker is given or connected, broker:<id>."
+          additionalProperties: { type: [string, "null"] }
+
+    LtpItem:
+      type: object
+      required: [symbol, ltp, freshness]
+      properties:
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        ltp: { type: number }
+        freshness: { $ref: "#/components/schemas/Freshness" }
+    QuoteItem:
+      type: object
+      required: [symbol, ltp, freshness]
+      properties:
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        ltp: { type: number }
+        open: { type: [number, "null"] }
+        high: { type: [number, "null"] }
+        low: { type: [number, "null"] }
+        close: { type: [number, "null"], description: "Previous close." }
+        change: { type: [number, "null"] }
+        changePct: { type: [number, "null"] }
+        volume: { type: [number, "null"] }
+        oi: { type: [number, "null"] }
+        bid: { type: [number, "null"] }
+        ask: { type: [number, "null"] }
+        bidQty: { type: [number, "null"] }
+        askQty: { type: [number, "null"] }
+        freshness: { $ref: "#/components/schemas/Freshness" }
+    DepthLevel:
+      type: object
+      required: [price, qty]
+      properties:
+        price: { type: number }
+        qty: { type: number }
+        orders: { type: [integer, "null"] }
+    DepthItem:
+      type: object
+      required: [symbol, bids, asks, freshness]
+      properties:
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        bids: { type: array, items: { $ref: "#/components/schemas/DepthLevel" } }
+        asks: { type: array, items: { $ref: "#/components/schemas/DepthLevel" } }
+        freshness: { $ref: "#/components/schemas/Freshness" }
+    Candle:
+      type: object
+      required: [time, open, high, low, close, volume]
+      properties:
+        time: { type: integer, description: "Bar open time, epoch seconds." }
+        open: { type: number }
+        high: { type: number }
+        low: { type: number }
+        close: { type: number }
+        volume: { type: number }
+        oi: { type: number }
+    HistoryResult:
+      type: object
+      required: [symbol, interval, candles, freshness, partial]
+      properties:
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        interval: { $ref: "#/components/schemas/Interval" }
+        candles: { type: array, items: { $ref: "#/components/schemas/Candle" } }
+        freshness: { $ref: "#/components/schemas/Freshness" }
+        partial: { type: boolean, description: "True when the broker could not supply the whole range (history depth limits)." }
+    ChainLeg:
+      type: object
+      required: [symbol]
+      properties:
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        ltp: { type: [number, "null"] }
+        bid: { type: [number, "null"] }
+        ask: { type: [number, "null"] }
+        oi: { type: [number, "null"] }
+        oiChange: { type: [number, "null"] }
+        volume: { type: [number, "null"] }
+        iv: { type: [number, "null"], description: "Percent." }
+        delta: { type: [number, "null"] }
+        gamma: { type: [number, "null"] }
+        theta: { type: [number, "null"] }
+        vega: { type: [number, "null"] }
+        greeksSource: { type: [string, "null"], enum: [broker, computed, null] }
+    OptionChain:
+      type: object
+      required: [underlying, expiry, rows, freshness]
+      properties:
+        underlying: { type: string }
+        expiry: { type: string, format: date }
+        underlyingLtp: { type: [number, "null"] }
+        atmStrike: { type: [number, "null"] }
+        lotSize: { type: [integer, "null"] }
+        rows:
+          type: array
+          items:
+            type: object
+            required: [strike]
+            properties:
+              strike: { type: number }
+              ce: { oneOf: [{ $ref: "#/components/schemas/ChainLeg" }, { type: "null" }] }
+              pe: { oneOf: [{ $ref: "#/components/schemas/ChainLeg" }, { type: "null" }] }
+        freshness: { $ref: "#/components/schemas/Freshness" }
+    StreamStats:
+      type: object
+      properties:
+        clients: { type: integer }
+        symbols: { type: integer }
+        upstreams:
+          type: array
+          items:
+            type: object
+            properties:
+              accountId: { type: string }
+              broker: { type: string }
+              connected: { type: boolean }
+              subscriptions: { type: integer }
+              limit: { type: [integer, "null"] }
+              state: { type: string, enum: [up, stale, down] }
+              detail: { type: [string, "null"] }
+              reason: { type: [string, "null"] }
+              modes: { type: object, additionalProperties: { type: integer } }
+              reconnects: { type: integer }
+              ticks: { type: integer }
+              lastTickAt: { type: [string, "null"], format: date-time }
+        downstream:
+          type: object
+          properties:
+            connections: { type: integer }
+            maxConnections: { type: integer }
+            ws: { type: integer }
+            sse: { type: integer }
+            queued: { type: integer }
+            conflatedTicks: { type: integer }
+            slowDisconnects: { type: integer }
+            opened: { type: integer }
+
+    Position:
+      type: object
+      required: [symbol, product, netQty, avgPrice, pnl]
+      properties:
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        product: { type: string, enum: [CNC, INTRADAY, MARGIN, MTF, CO, BO] }
+        netQty: { type: number }
+        avgPrice: { type: number }
+        ltp: { type: [number, "null"] }
+        pnl: { type: number }
+        realisedPnl: { type: [number, "null"] }
+        unrealisedPnl: { type: [number, "null"] }
+        charges: { type: [number, "null"], description: Paper accounts only; estimated brokerage and taxes. }
+    Holding:
+      type: object
+      required: [symbol, qty, avgPrice]
+      properties:
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        isin: { type: [string, "null"] }
+        qty: { type: number }
+        avgPrice: { type: number }
+        ltp: { type: [number, "null"] }
+        pnl: { type: [number, "null"] }
+    Funds:
+      type: object
+      required: [availableCash, usedMargin]
+      properties:
+        availableCash: { type: number }
+        usedMargin: { type: number }
+        totalBalance: { type: [number, "null"] }
+        collateral: { type: [number, "null"] }
+        withdrawable: { type: [number, "null"] }
+        realisedPnl: { type: [number, "null"] }
+        unrealisedPnl: { type: [number, "null"] }
+
+    OrderStatus:
+      type: string
+      enum: [pending, open, trigger_pending, partially_filled, filled, cancelled, rejected, expired, outcome_unknown]
+    OrderRequest:
+      type: object
+      required: [account, symbol, side, product, orderType]
+      additionalProperties: false
+      properties:
+        account: { $ref: "#/components/schemas/AccountId" }
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        side: { type: string, enum: [BUY, SELL] }
+        quantity: { type: integer, minimum: 1, description: "Units; must be a multiple of the lot size. Send this or lots." }
+        lots: { type: integer, minimum: 1 }
+        product: { type: string, enum: [CNC, INTRADAY, MARGIN, MTF], description: "No default." }
+        orderType: { type: string, enum: [LIMIT, MARKET, SL, SL-M], description: "No default." }
+        price: { type: number, exclusiveMinimum: 0, description: "Required for LIMIT and SL." }
+        triggerPrice: { type: number, exclusiveMinimum: 0, description: "Required for SL and SL-M." }
+        validity: { type: string, enum: [DAY, IOC], default: DAY }
+        marketProtectionPct: { type: number, exclusiveMinimum: 0, maximum: 10, description: "For MARKET and SL-M; defaults to the configured value." }
+        disclosedQuantity: { type: integer, minimum: 0 }
+        mode: { type: string, enum: [paper, live], default: paper }
+        clientOrderId: { $ref: "#/components/schemas/ClientOrderId" }
+        tag: { type: string, pattern: "^[A-Za-z0-9_-]{1,20}$", description: "Strategy label, kept in the audit log and sent to the broker where supported." }
+        algoId: { type: string, maxLength: 32, description: "Exchange algo id for a registered strategy, where the broker accepts one." }
+        confirmToken: { type: string, description: "From a human confirmation (required for orders prepared by AI assistants)." }
+      oneOf:
+        - required: [quantity]
+          not: { required: [lots] }
+        - required: [lots]
+          not: { required: [quantity] }
+    OrderChanges:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        quantity: { type: integer, minimum: 1 }
+        price: { type: number, exclusiveMinimum: 0 }
+        triggerPrice: { type: number, exclusiveMinimum: 0 }
+        orderType: { type: string, enum: [LIMIT, MARKET, SL, SL-M] }
+        validity: { type: string, enum: [DAY, IOC] }
+    OrderLeg:
+      type: object
+      required: [quantity, status]
+      properties:
+        brokerOrderId: { type: [string, "null"] }
+        quantity: { type: integer }
+        status: { $ref: "#/components/schemas/OrderStatus" }
+        error:
+          oneOf:
+            - type: "null"
+            - type: object
+              properties:
+                code: { type: string }
+                message: { type: string }
+    OrderResult:
+      type: object
+      required: [orderId, accountId, broker, mode, symbol, side, quantity, filledQuantity, orderType, product, status, legs, placedAt, updatedAt]
+      properties:
+        orderId: { type: string, description: "Bridge id: ord_... for live, PAPER-... for paper." }
+        clientOrderId: { type: [string, "null"] }
+        accountId: { $ref: "#/components/schemas/AccountId" }
+        broker: { type: string }
+        mode: { type: string, enum: [paper, live] }
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        side: { type: string, enum: [BUY, SELL] }
+        quantity: { type: integer }
+        filledQuantity: { type: integer }
+        avgPrice: { type: [number, "null"] }
+        price: { type: [number, "null"] }
+        triggerPrice: { type: [number, "null"] }
+        orderType: { type: string, enum: [LIMIT, MARKET, SL, SL-M] }
+        product: { type: string, enum: [CNC, INTRADAY, MARGIN, MTF] }
+        validity: { type: string, enum: [DAY, IOC] }
+        status: { $ref: "#/components/schemas/OrderStatus" }
+        brokerStatus: { type: [string, "null"], description: "The broker's own status text." }
+        statusMessage: { type: [string, "null"] }
+        legs:
+          type: array
+          description: One leg per broker order (orders above the freeze quantity are sliced).
+          items: { $ref: "#/components/schemas/OrderLeg" }
+        source: { type: string, enum: [rest, webhook, mcp, cli, system], description: '"system" is used for automatic intraday square-off of paper positions.' }
+        tag: { type: [string, "null"] }
+        placedAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Check:
+      type: object
+      required: [code, message, severity]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        severity: { type: string, enum: [block, warn] }
+    PreviewResult:
+      type: object
+      required: [ok, mode, checks, requiresHumanConfirmation]
+      properties:
+        ok: { type: boolean }
+        mode: { type: string, enum: [paper, live] }
+        checks: { type: array, items: { $ref: "#/components/schemas/Check" } }
+        resolved: { oneOf: [{ $ref: "#/components/schemas/Instrument" }, { type: "null" }] }
+        quantity: { type: [integer, "null"] }
+        estimatedValue: { type: [number, "null"] }
+        ltp: { type: [number, "null"] }
+        confirmToken: { type: [string, "null"] }
+        confirmExpiresAt: { type: [string, "null"], format: date-time }
+        requiresHumanConfirmation: { type: boolean }
+        ticketId: { type: [string, "null"], description: "Set when a human must confirm; the ticket appears in GET /v1/tickets (Option Hub's Pending confirmations panel)." }
+    Ticket:
+      type: object
+      required: [ticketId, order, source, checks, createdAt, expiresAt]
+      properties:
+        ticketId: { type: string }
+        order: { $ref: "#/components/schemas/OrderRequest" }
+        source: { type: string, enum: [mcp, webhook, rest] }
+        client: { type: string, description: "Key label or hook label that prepared it." }
+        checks: { type: array, items: { $ref: "#/components/schemas/Check" } }
+        estimatedValue: { type: [number, "null"] }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+    Trade:
+      type: object
+      required: [tradeId, orderId, symbol, side, qty, price]
+      properties:
+        tradeId: { type: string }
+        orderId: { type: string }
+        accountId: { $ref: "#/components/schemas/AccountId" }
+        mode: { type: string, enum: [paper, live] }
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        side: { type: string, enum: [BUY, SELL] }
+        qty: { type: number }
+        price: { type: number }
+        product: { type: [string, "null"] }
+        charges: { type: [number, "null"] }
+        tradedAt: { type: [string, "null"], format: date-time }
+    PaperAccount:
+      type: object
+      required: [accountId, startingCapital, funds]
+      properties:
+        accountId: { $ref: "#/components/schemas/AccountId" }
+        startingCapital: { type: number }
+        createdAt: { type: string, format: date-time }
+        resetAt: { type: [string, "null"], format: date-time }
+        ordersToday: { type: integer }
+        funds: { $ref: "#/components/schemas/Funds" }
+        fillModel: { type: string, description: "Short description of how paper fills are simulated." }
+
+    LimitsReport:
+      type: object
+      properties:
+        safety:
+          type: object
+          description: Effective safety limits per account (the stricter of global and account values).
+          additionalProperties:
+            type: object
+            properties:
+              dailyMaxOrders: { type: integer }
+              dailyMaxLoss: { type: number }
+              maxOrderValue: { type: number }
+              maxLotsPerOrder: { type: integer }
+              orderRatePerSecond: { type: number }
+        brokers:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/BrokerPolicy" }
+        client:
+          type: object
+          description: This key's own request budget.
+          properties:
+            perSecond: { type: number }
+            remaining: { type: number }
+    UsageReport:
+      type: object
+      properties:
+        accounts:
+          type: array
+          items:
+            type: object
+            properties:
+              accountId: { type: string }
+              broker: { type: string }
+              classes:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    used: { type: number }
+                    limit: { type: number }
+                    queued: { type: integer }
+                    resetMs: { type: integer }
+        savings:
+          type: object
+          description: Broker calls avoided today.
+          properties:
+            servedFromStream: { type: integer }
+            servedFromCache: { type: integer }
+            coalesced: { type: integer }
+            batched: { type: integer }
+    KillSwitchState:
+      type: object
+      required: [engaged]
+      properties:
+        engaged: { type: boolean }
+        reason: { type: [string, "null"] }
+        by: { type: [string, "null"] }
+        at: { type: [string, "null"], format: date-time }
+    SafetyStatus:
+      type: object
+      required: [killSwitch, liveTrading]
+      properties:
+        killSwitch: { $ref: "#/components/schemas/KillSwitchState" }
+        liveTrading: { type: boolean, description: "Global config switch." }
+        accounts:
+          type: array
+          items:
+            type: object
+            properties:
+              accountId: { type: string }
+              liveAllowedByConfig: { type: boolean }
+              ordersToday: { type: integer }
+              realisedPnlToday: { type: number }
+              limits: { type: object }
+    AuditRecord:
+      type: object
+      required: [seq, at, type, actor, source, hash, prevHash]
+      properties:
+        seq: { type: integer }
+        at: { type: string, format: date-time }
+        type: { type: string, examples: [order.placed, order.refused, key.created, kill_switch.engaged, account.connected] }
+        actor:
+          type: object
+          properties:
+            kind: { type: string }
+            id: { type: string }
+        source: { type: string }
+        accountId: { type: [string, "null"] }
+        requestId: { type: [string, "null"] }
+        data: { type: object }
+        prevHash: { type: string }
+        hash: { type: string }
+
+    Hook:
+      type: object
+      required: [id, source, label, account, mode, createdAt]
+      properties:
+        id: { type: string }
+        source: { type: string, enum: [tradingview, chartink, gocharting, generic] }
+        label: { type: string }
+        account: { $ref: "#/components/schemas/AccountId" }
+        mode: { type: string, enum: [paper, live] }
+        requireConfirmation: { type: boolean }
+        allowedSymbols: { type: array, items: { $ref: "#/components/schemas/Symbol" } }
+        maxLotsPerSignal: { type: integer }
+        side: { type: [string, "null"], enum: [BUY, SELL, null] }
+        product: { type: [string, "null"], enum: [CNC, INTRADAY, MARGIN, null] }
+        orderType: { type: string, enum: [LIMIT, MARKET] }
+        allowSourceIps: { type: array, items: { type: string } }
+        createdAt: { type: string, format: date-time }
+        lastSignalAt: { type: [string, "null"], format: date-time }
+    HookCreate:
+      type: object
+      required: [source, label, account]
+      additionalProperties: false
+      properties:
+        source: { type: string, enum: [tradingview, chartink, gocharting, generic] }
+        label: { type: string, minLength: 1, maxLength: 60 }
+        account: { $ref: "#/components/schemas/AccountId" }
+        mode: { type: string, enum: [paper, live], default: paper }
+        requireConfirmation: { type: boolean, default: false }
+        allowedSymbols: { type: array, items: { $ref: "#/components/schemas/Symbol" } }
+        maxLotsPerSignal: { type: integer, minimum: 1, default: 1 }
+        product: { type: string, enum: [CNC, INTRADAY, MARGIN] }
+        orderType: { type: string, enum: [LIMIT, MARKET], default: LIMIT }
+        side: { type: string, enum: [BUY, SELL], description: "Fix the side for every signal (needed for ChartInk, whose alerts carry no side)." }
+        allowSourceIps: { type: array, items: { type: string }, description: "Optional allowlist (for example TradingView's published addresses)." }
+        acknowledgeUnsignedLive: { type: boolean, default: false, description: "Live mode on an unsigned source (tradingview, chartink, gocharting) needs allowSourceIps, requireConfirmation or this acknowledgement." }
+    UdfObject:
+      type: object
+      description: UDF wire format; see the TradingView UDF documentation.
+      additionalProperties: true

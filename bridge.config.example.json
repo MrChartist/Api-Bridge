@@ -1,0 +1,59 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 4300,
+    "allowedHosts": [],
+    "publicIngress": { "enabled": false, "host": "127.0.0.1", "port": 4301 }
+  },
+  "cors": { "allowedOrigins": ["http://localhost:5173", "http://localhost:5180"] },
+  "dataDir": "./data",
+  "logging": { "level": "info" },
+  "accounts": [
+    {
+      "id": "dhan-main",
+      "broker": "dhan",
+      "label": "Dhan (main)",
+      "live": { "enabled": false, "allowedSources": ["rest"] },
+      "marketData": { "pooling": false }
+    },
+    {
+      "id": "zerodha-family",
+      "broker": "zerodha",
+      "label": "Zerodha (spouse)",
+      "marketData": { "pooling": false }
+    },
+    { "id": "paper", "broker": "paper", "label": "Practice account" }
+  ],
+  "safety": {
+    "liveTrading": false,
+    "orderRatePerSecond": 5,
+    "dailyMaxOrders": 100,
+    "dailyMaxLoss": 10000,
+    "maxOrderValue": 200000,
+    "maxLotsPerOrder": 10,
+    "priceBandPct": 3,
+    "marketOrders": "protect",
+    "marketProtectionPct": 2,
+    "killSwitchOnStart": false
+  },
+  "ratelimit": {
+    "client": { "perSecond": 50, "burst": 50 },
+    "queue": { "maxQueuedPerAccount": 5000, "ageingMs": 2000 },
+    "maxInFlightPerAccount": 8,
+    "windowPaddingMs": 100,
+    "backoff": { "initialMs": 1000, "maxMs": 60000 }
+  },
+  "symbols": { "refreshAfterIst": "08:30", "diskCache": true, "failureBackoffMs": 60000, "warmOnStart": true },
+  "market": {
+    "freshness": { "ltpMs": 1000, "quoteMs": 2000, "depthMs": 1000, "chainMs": 3000 },
+    "stale": { "enabled": true, "maxStaleMs": 60000, "waitMs": 250 },
+    "streamFirst": true,
+    "chain": { "source": "auto", "riskFreeRate": 0.065 }
+  },
+  "stream": { "heartbeatMs": 15000, "maxClients": 50, "maxSymbolsPerClient": 500 },
+  "orders": { "ticketTtlMs": 60000, "confirmTokenTtlMs": 60000, "confirmPaperFromMcp": true, "sliceAboveFreeze": false },
+  "paper": { "startingCapital": 1000000, "slippageBps": 5, "squareOff": { "enabled": true, "time": "15:20" } },
+  "integrations": { "udf": { "searchLimit": 30, "maxCountback": 5000 }, "xl": { "chainFormat": "csv", "historyLayout": "standard" } },
+  "hooks": { "queueSize": 200, "concurrency": 2, "dedupeWindowMs": 120000, "signatureToleranceS": 300, "maxSignalsPerMinute": 30, "allowSourceIps": [] },
+  "mcp": { "enabled": true, "toolsets": ["market", "analytics", "account"], "orderAccounts": [], "maxItems": 200 }
+}

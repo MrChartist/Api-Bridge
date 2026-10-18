@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Licence check for broker adapters: reports runs of N consecutive code tokens that a server/brokers file shares with
- * a local checkout of OpenAlgo (AGPL-3.0). This project is MIT, so adapters must be written independently; a shared
+ * a local checkout of OpenAlgo (AGPL-3.0). This project is proprietary, so adapters must be written independently; a shared
  * run that is not an endpoint path, a documented field name or a documented constant is a sign that code was
  * translated and must be rewritten before merge. Not run in CI (it needs the OpenAlgo checkout); see
  * docs/broker-contract.md section 9.

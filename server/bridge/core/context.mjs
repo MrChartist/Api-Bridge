@@ -1,0 +1,155 @@
+/**
+ * Request context: what every handler receives. Built by app.mjs for each HTTP request, and by non-HTTP callers
+ * (MCP tools, webhook workers, CLI) through createCallContext() so services always see the same shape.
+ *
+ * Scopes (stored on API keys; see docs/ARCHITECTURE.md §8):
+ *   read   market data, instruments, accounts, portfolio, orders list, limits
+ *   paper  read + paper orders
+ *   live   paper + live orders (the account must also be live-enabled in config, and the request must say mode "live")
+ *   admin  read + keys, audit, kill-switch release, account sessions (loopback only)
+ */
+import { randomUUID } from "node:crypto";
+import { BridgeError } from "./errors.mjs";
+
+export const SCOPES = Object.freeze(["read", "paper", "live", "admin"]);
+const IMPLIES = Object.freeze({ read: ["read"], paper: ["paper", "read"], live: ["live", "paper", "read"], admin: ["admin", "read"] });
+
+/** Expand granted scopes with what they imply. */
+export function expandScopes(granted) {
+  const out = new Set();
+  for (const s of granted ?? []) for (const x of IMPLIES[s] ?? []) out.add(x);
+  return out;
+}
+
+/** Whether a set of granted scopes satisfies `needed`. */
+export function hasScope(granted, needed) {
+  return expandScopes(granted).has(needed);
+}
+
+/**
+ * @typedef {{ id: string, label: string, scopes: string[], accounts: string[] | "*", allowQuery?: boolean,
+ *   clientKind?: "script"|"excel"|"tradingview"|"mcp"|"ui"|"other", createdAt: string, expiresAt?: string | null,
+ *   lastUsedAt?: string | null, revokedAt?: string | null }} KeyRecord
+ *   Public view of an API key. Never holds the key or its hash.
+ * @typedef {{ kind: "key", id: string, label: string } | { kind: "hook", id: string, label?: string } |
+ *   { kind: "local", id: "cli" } | { kind: "anonymous", id: "anonymous" }} Principal
+ * @typedef {"rest" | "webhook" | "mcp" | "cli" | "stream" | "system"} Source
+ *
+ * @typedef {object} RequestContext
+ * @property {string} requestId
+ * @property {string} method
+ * @property {string} path
+ * @property {Record<string, string>} params
+ * @property {URLSearchParams} query
+ * @property {unknown} body           Parsed body (route option `body`).
+ * @property {Buffer | undefined} rawBody  Only for routes with body "raw" or "json-or-text" (HMAC checks).
+ * @property {KeyRecord | null} key
+ * @property {Set<string>} scopes     Expanded scopes of the key ("custom" routes may set them).
+ * @property {Principal} principal
+ * @property {Source} source
+ * @property {string} clientIp
+ * @property {boolean} loopback       TCP peer is loopback.
+ * @property {boolean} viaPublicIngress
+ * @property {AbortSignal} signal     Aborts when the client disconnects.
+ * @property {number} startedAt
+ * @property {import("./logger.mjs").Logger} log
+ * @property {import("node:http").IncomingMessage} [req]
+ * @property {import("node:http").ServerResponse} [res]
+ * @property {(scope: string) => void} requireScope
+ * @property {(accountId: string) => void} requireAccountAccess  Key may use this account (does not check it exists).
+ * @property {(name: string, value: string) => void} setHeader   Add a response header (RateLimit, Idempotency-Replayed ...).
+ * @property {Record<string, string>} responseHeaders
+ * @property {boolean} [confirmationRequired]  Set for webhook signals whose hook requires a person to confirm each
+ *   order (OrderService then opens a ticket instead of placing).
+ * @property {string[]} [hookAccounts]   Accounts a webhook principal may use.
+ */
+
+export function newRequestId() {
+  return `req_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
+}
+
+function attachHelpers(ctx) {
+  ctx.requireScope = (scope) => {
+    if (!ctx.scopes.has(scope)) {
+      throw new BridgeError(ctx.key || ctx.principal.kind !== "anonymous" ? "SCOPE_REQUIRED" : "UNAUTHENTICATED", ctx.key ? `This API key needs the "${scope}" scope.` : undefined);
+    }
+  };
+  ctx.requireAccountAccess = (accountId) => {
+    if (ctx.principal.kind === "local") return;
+    const allowed = ctx.key?.accounts;
+    if (allowed === "*" || (Array.isArray(allowed) && allowed.includes(accountId))) return;
+    if (ctx.principal.kind === "hook" && ctx.hookAccounts?.includes(accountId)) return;
+    throw new BridgeError("ACCOUNT_FORBIDDEN", `This key may not use account ${accountId}.`);
+  };
+  ctx.setHeader = (name, value) => {
+    ctx.responseHeaders[name] = String(value);
+  };
+  return ctx;
+}
+
+/**
+ * Context for calls that do not come from an HTTP request (MCP tools, webhook workers, CLI, background jobs).
+ * @param {{ source: Source, principal?: Principal, key?: KeyRecord | null, scopes?: Iterable<string>, log: import("./logger.mjs").Logger,
+ *   requestId?: string, signal?: AbortSignal, hookAccounts?: string[], confirmationRequired?: boolean }} opts
+ * @returns {RequestContext}
+ */
+export function createCallContext({ source, principal, key = null, scopes, log, requestId = newRequestId(), signal, hookAccounts, confirmationRequired }) {
+  const ctx = {
+    requestId,
+    method: "CALL",
+    path: "",
+    params: {},
+    query: new URLSearchParams(),
+    body: undefined,
+    rawBody: undefined,
+    key,
+    scopes: expandScopes(scopes ?? key?.scopes ?? []),
+    principal: principal ?? (key ? { kind: "key", id: key.id, label: key.label } : { kind: "anonymous", id: "anonymous" }),
+    source,
+    clientIp: "",
+    loopback: true,
+    viaPublicIngress: false,
+    signal: signal ?? new AbortController().signal,
+    startedAt: Date.now(),
+    log: log.child({ requestId, source }),
+    responseHeaders: {},
+    hookAccounts,
+  };
+  if (confirmationRequired !== undefined) ctx.confirmationRequired = confirmationRequired === true;
+  return attachHelpers(ctx);
+}
+
+/**
+ * Context for an HTTP request (app.mjs). Auth fields are filled in later by the pipeline.
+ * @returns {RequestContext}
+ */
+export function createHttpContext({ req, res, url, params, log, viaPublicIngress, requestId = newRequestId() }) {
+  const ac = new AbortController();
+  res.on("close", () => {
+    if (!res.writableFinished) ac.abort();
+  });
+  const clientIp = req.socket?.remoteAddress ?? "";
+  const ctx = {
+    requestId,
+    method: req.method,
+    path: url.pathname,
+    params,
+    query: url.searchParams,
+    body: undefined,
+    rawBody: undefined,
+    key: null,
+    scopes: new Set(),
+    principal: { kind: "anonymous", id: "anonymous" },
+    source: "rest",
+    clientIp,
+    loopback: false,
+    viaPublicIngress,
+    signal: ac.signal,
+    startedAt: Date.now(),
+    log: log.child({ requestId }),
+    req,
+    res,
+    responseHeaders: {},
+  };
+  return attachHelpers(ctx);
+}
