@@ -1,0 +1,31 @@
+# Mr. Chartist API Bridge with Docker.
+#   docker compose up -d                  start (first start writes the config and prints your admin key once)
+#   docker compose logs bridge            see the admin key and the startup lines
+#   docker compose exec bridge mc-bridge doctor
+# The dashboard is then at http://127.0.0.1:4300/dashboard on this computer only.
+services:
+  bridge:
+    build: .
+    image: mrchartist/api-bridge:local
+    container_name: mc-bridge
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4300:4300"          # this computer only; never publish on 0.0.0.0
+    environment:
+      MCB_DEMO: "0"                     # "1" = demo mode: sample data, no broker, paper only
+    volumes:
+      - bridge-data:/data               # config, API keys, encrypted broker secrets, audit log, paper book
+      - bridge-secrets:/secrets         # the master key, kept apart from the data volume
+    networks:
+      - bridge-net
+
+networks:
+  bridge-net:
+    ipam:
+      config:
+        - subnet: 172.31.240.0/24
+          gateway: 172.31.240.1
+
+volumes:
+  bridge-data:
+  bridge-secrets:

@@ -1,6 +1,6 @@
 # Dependencies
 node_modules/
-package-lock.json
+
 
 # Environment
 .env
@@ -39,3 +39,32 @@ desktop.ini
 
 # Build
 dist/
+
+# Test output
+coverage/
+
+# Bridge runtime state (keys, encrypted secrets, audit log, caches) and the local config
+/data/
+/bridge.config.json
+
+# Instrument-master caches written by broker adapters during tests and local runs
+.cache/
+
+# Python build and test output
+build/
+*.egg-info/
+__pycache__/
+.pytest_cache/
+
+# Master keys and local secrets (mc-bridge init keeps the master key outside the repo; never commit one)
+master.key
+*.key
+/secrets/
+.env.*
+.ccr-ca.crt
+
+# Screenshot work files (only the .webp files in docs/screenshots are committed)
+docs/screenshots/*.png
+
+# Packed SDK tarballs (npm pack)
+*.tgz

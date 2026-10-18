@@ -1,0 +1,12 @@
+node_modules
+coverage
+data
+.cache
+.git
+.github
+docs/screenshots
+sdk
+integrations
+bridge.config.json
+*.log
+**/__pycache__

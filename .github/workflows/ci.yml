@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: Runtime dependencies have no known vulnerabilities
+        run: npm audit --omit=dev
+      - name: Lockfile resolves only from registry.npmjs.org over HTTPS, with integrity hashes
+        run: |
+          node -e '
+            const lock = require("./package-lock.json");
+            const bad = [];
+            for (const [path, p] of Object.entries(lock.packages ?? {})) {
+              if (!path || p.link) continue;
+              if (!p.resolved || !p.resolved.startsWith("https://registry.npmjs.org/")) bad.push(`${path}: resolved ${p.resolved}`);
+              if (!p.integrity || !p.integrity.startsWith("sha512-")) bad.push(`${path}: integrity ${p.integrity}`);
+            }
+            if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+            console.log("lockfile ok");
+          '
+      - name: Production dependencies are pinned to exact versions
+        run: node -e 'const d = require("./package.json").dependencies; const loose = Object.entries(d).filter(([, v]) => !/^\d+\.\d+\.\d+$/.test(v)); if (loose.length) { console.error(loose); process.exit(1); }'
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Syntax check (node --check on every .mjs)
+        run: node scripts/check-mjs.mjs
+      - name: Tests with coverage
+        run: npx vitest run --coverage --coverage.reporter=text-summary --coverage.reporter=lcov
+        env:
+          TZ: UTC
+      - name: Node SDK tests
+        run: node --test sdk/node/test/client.test.mjs
+      - name: Smoke test (start, /v1/health, stop)
+        run: |
+          mkdir -p "$RUNNER_TEMP/smoke"
+          echo '{"server":{"port":4399},"dataDir":"'"$RUNNER_TEMP"'/smoke/data","logging":{"level":"warn"}}' > "$RUNNER_TEMP/smoke/bridge.config.json"
+          node bin/mc-bridge.mjs start --config "$RUNNER_TEMP/smoke/bridge.config.json" &
+          pid=$!
+          for i in $(seq 1 50); do curl -fsS http://127.0.0.1:4399/v1/health && break; sleep 0.2; done
+          curl -fsS http://127.0.0.1:4399/v1/health | grep -q '"status":"ok"'
+          kill -TERM "$pid"
+          wait "$pid" || true
+      - name: Upload coverage
+        if: matrix.node == 22
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: ignore
+
+  python-sdk:
+    name: Python SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci   # the Python tests run against the Node fake server, which needs `ws`
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip pytest
+      - run: python -m pip install ./sdk/python
+      - name: pytest
+        run: python -m pytest sdk/python/tests -q

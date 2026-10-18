@@ -1,0 +1,92 @@
+/**
+ * The dashboard's pending-confirmation view: a person must see every field the confirmation covers before they
+ * approve it, and the single-use code must be shown once after confirming. Pure helpers only (no DOM).
+ */
+import { describe, expect, it } from "vitest";
+import { confirmCodeNotice, ticketFields } from "./app.js";
+
+const ticket = {
+  ticketId: "tkt_abc123",
+  source: "mcp",
+  client: "Claude",
+  order: { account: "zerodha-main", symbol: "NSE:RELIANCE", side: "BUY", quantity: 10, product: "CNC", orderType: "LIMIT", price: 1400, triggerPrice: null, validity: "DAY", mode: "live", tag: "ai1" },
+  checks: [{ code: "PRICE_FAR_FROM_LTP", message: "Price is 4% away from the last price.", severity: "warn" }],
+  estimatedValue: 14000,
+};
+const accounts = new Map([["zerodha-main", { id: "zerodha-main", broker: "zerodha", label: "Main" }]]);
+
+describe("dashboard ticket view", () => {
+  it("shows every field of the order the confirmation covers", () => {
+    const f = Object.fromEntries(ticketFields(ticket, accounts).map(([k, v]) => [k, v]));
+    expect(f.Account).toBe("zerodha-main (zerodha · Main)");
+    expect(f.Mode).toMatch(/LIVE/);
+    expect(f).toMatchObject({ Side: "BUY", Quantity: "10", Symbol: "NSE:RELIANCE", "Order type": "LIMIT", Product: "CNC", Validity: "DAY", Tag: "ai1" });
+    expect(f.Price).toMatch(/1,400/);
+    expect(f["Trigger price"]).toBe("—");
+    expect(f["Estimated value"]).toMatch(/14,000/);
+    expect(f.Warning).toMatch(/PRICE_FAR_FROM_LTP/);
+  });
+
+  it("flags live mode, MARKET orders and blocking checks", () => {
+    const rows = ticketFields({ ...ticket, order: { ...ticket.order, orderType: "MARKET", price: null }, checks: [{ code: "KILL_SWITCH", severity: "block" }] }, accounts);
+    const cls = Object.fromEntries(rows.map(([k, , c]) => [k, c]));
+    expect(cls.Mode).toBe("bad");
+    expect(cls["Order type"]).toBe("warn");
+    expect(rows.find(([k]) => k === "Order type")[1]).toMatch(/MARKET \(no price limit\)/);
+    expect(cls.Blocked).toBe("bad");
+  });
+
+  it("shows lots and an unknown account plainly", () => {
+    const f = Object.fromEntries(ticketFields({ order: { account: "ghost", lots: 2, symbol: "NFO:NIFTY-2026-10-27-25000-CE", mode: "paper" } }).map(([k, v]) => [k, v]));
+    expect(f).toMatchObject({ Account: "ghost", Quantity: "2 lot(s)", Mode: "paper", Validity: "DAY" });
+  });
+
+  it("keeps the confirmation code from the confirm response instead of throwing it away", () => {
+    const n = confirmCodeNotice("tkt_abc123", { data: { confirmToken: "mct_0123456789abcdef", expiresAt: "2026-10-18T10:01:00+05:30" }, meta: {} });
+    expect(n.token).toBe("mct_0123456789abcdef");
+    expect(n.text).toMatch(/single-use/);
+    expect(n.text).toMatch(/expires at/);
+    expect(confirmCodeNotice("tkt_x", { data: {} })).toBeNull();
+  });
+});
+
+describe("dashboard helpers", async () => {
+  const { checklistState, friendlyError, highlightJson } = await import("./app.js");
+  const { KEY_PRESETS, snippets, tradingViewAlert } = await import("./snippets.js");
+
+  it("explains errors in plain words", () => {
+    expect(friendlyError({ network: true }).title).toMatch(/Cannot reach the Bridge/);
+    expect(friendlyError({ code: "UNAUTHENTICATED" }).detail).toMatch(/keys create/);
+    expect(friendlyError({ code: "SESSION_EXPIRED", message: "dhan-main: expired" }).detail).toMatch(/accounts connect/);
+    expect(friendlyError({ code: "BROKER_UNAVAILABLE", message: "x" }).detail).toMatch(/--demo/);
+    expect(friendlyError({ status: 418, message: "teapot" })).toEqual({ title: "The Bridge answered 418", detail: "teapot" });
+  });
+
+  it("works out the welcome checklist", () => {
+    const keys = [{ id: "a" }, { id: "b", revokedAt: "2026-01-01" }];
+    expect(checklistState({ demo: true, keys }).map((s) => s.done)).toEqual([true, false, false, false]);
+    const accounts = [{ broker: "dhan", session: { state: "connected" } }];
+    expect(checklistState({ accounts, keys: [{ id: "a" }, { id: "b" }], copied: "1", tested: "1" }).every((s) => s.done)).toBe(true);
+    expect(checklistState({ accounts: [{ broker: "paper", session: { state: "connected" } }] })[0].done).toBe(false);
+  });
+
+  it("escapes data before highlighting JSON", () => {
+    const html = highlightJson(JSON.stringify({ name: "<img src=x onerror=alert(1)>", n: 1, ok: true }));
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;img");
+    expect(html).toContain('<span class="json-num">1</span>');
+  });
+
+  it("fills snippets with the Bridge address and never an admin key", () => {
+    const s = snippets({ base: "http://127.0.0.1:4300/", account: "paper" });
+    const all = JSON.stringify(s);
+    expect(Object.keys(s)).toEqual(["tradingview", "python", "node", "excel", "amibroker", "claude", "chatgpt", "rest"]);
+    expect(all).toContain("http://127.0.0.1:4300/udf");
+    expect(all).toContain("mcb_YOUR_READ_KEY");
+    expect(JSON.parse(s.claude[0].code).mcpServers["mr-chartist-bridge"].env.MCB_BRIDGE_URL).toBe("http://127.0.0.1:4300");
+    expect(snippets({ base: "http://h:1", key: "mcb_k_x" }).excel[1].code).toBe("mcb_k_x");
+    expect(JSON.parse(tradingViewAlert())).toMatchObject({ side: "{{strategy.order.action}}", price: "{{close}}" });
+    expect(JSON.parse(tradingViewAlert({ orderType: "MARKET" })).price).toBeUndefined();
+    for (const p of Object.values(KEY_PRESETS)) expect(p.scopes).not.toContain("admin");
+  });
+});

@@ -1,38 +1,37 @@
 {
-  "name": "mc-api-bridge",
-  "version": "1.0.0",
-  "description": "Mr. Chartist Unified API Bridge",
+  "name": "@mrchartist/api-bridge",
+  "version": "0.1.0",
+  "description": "Mr. Chartist API Bridge: one local API for all your Indian broker accounts, with rate-limit-aware routing, streaming and safety gates.",
   "type": "module",
-  "main": "src/server.js",
-  "scripts": {
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
-    "start:prod": "pm2 start ecosystem.config.cjs --env production",
-    "stop:prod": "pm2 stop mc-api-bridge",
-    "logs:prod": "pm2 logs mc-api-bridge --lines 100",
-    "test": "node scripts/test-client.js",
-    "init-db": "node scripts/init-db.js"
+  "private": true,
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Rohit Singh (Mr. Chartist)",
+  "engines": {
+    "node": ">=20"
   },
-  "keywords": [
-    "trading",
-    "api",
-    "bridge",
-    "dhan",
-    "angel",
-    "fyers",
-    "zerodha",
-    "stock-market",
-    "options"
-  ],
-  "author": "Mr. Chartist",
-  "license": "Proprietary",
+  "scripts": {
+    "start": "node bin/mc-bridge.mjs start",
+    "doctor": "node bin/mc-bridge.mjs doctor",
+    "bridge": "node bin/mc-bridge.mjs",
+    "audit:runtime": "npm audit --omit=dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "check:mjs": "node scripts/check-mjs.mjs",
+    "capabilities": "node scripts/generate-broker-capabilities.mjs"
+  },
   "dependencies": {
-    "better-sqlite3": "^12.8.0",
-    "dotenv": "^17.4.0",
-    "express": "^5.2.1",
-    "express-rate-limit": "^8.3.2",
-    "helmet": "^8.1.0",
-    "jsonwebtoken": "^9.0.3",
-    "ws": "^8.20.0"
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "ws": "8.22.0",
+    "zod": "4.6.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.16.5",
+    "@vitest/coverage-v8": "^4.1.12",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.12"
+  },
+  "bin": {
+    "mc-bridge": "bin/mc-bridge.mjs"
   }
 }

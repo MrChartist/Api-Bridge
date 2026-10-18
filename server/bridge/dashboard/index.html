@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Mr. Chartist API Bridge</title>
+  <link rel="icon" href="/dashboard/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/dashboard/app.css">
+  <script type="module" src="/dashboard/app.js"></script>
+</head>
+<body>
+  <!-- Sign-in: the API key stays in this browser tab only (sessionStorage) and is never put in a URL. -->
+  <section id="login" class="login" hidden>
+    <div class="card login-card">
+      <div class="brand">
+        <div class="brand-logo"><img src="/dashboard/logo.svg" alt=""></div>
+        <div><div class="brand-name">Mr. Chartist API Bridge</div><div class="brand-sub">Local dashboard · this computer only</div></div>
+      </div>
+      <div id="login-demo" class="demo-banner" hidden><strong>DEMO DATA</strong><span>This Bridge runs in demo mode: sample prices, no broker, paper orders only.</span></div>
+      <div class="stack">
+        <h1>Sign in with your admin key</h1>
+        <p class="muted">The key was printed once when you ran the setup. It stays in this browser tab and is forgotten when you close it.</p>
+      </div>
+      <form id="login-form" class="stack">
+        <label class="field">API key
+          <input id="key-input" type="password" autocomplete="off" spellcheck="false" placeholder="mcb_…" required>
+        </label>
+        <button type="submit" class="primary">Open dashboard</button>
+      </form>
+      <div id="login-error" role="alert"></div>
+      <div class="stack small">
+        <strong>No key yet?</strong>
+        <ol>
+          <li>In the Bridge folder, run <code>npm run bridge -- init</code> (first time), or</li>
+          <li><code>npm run bridge -- keys create --label me --scope admin,paper</code></li>
+        </ol>
+        <p class="muted">Lost your key? Create a new one the same way and revoke the old one on the Keys page.</p>
+      </div>
+    </div>
+  </section>
+
+  <div id="app" class="app" hidden>
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo"><img src="/dashboard/logo.svg" alt="Mr. Chartist"></div>
+        <div class="brand-text"><div class="brand-name">API Bridge</div><div class="brand-sub">by Mr. Chartist</div></div>
+      </div>
+      <nav id="nav" class="nav" aria-label="Pages"></nav>
+      <div class="sidebar-foot">
+        <div class="segmented" id="theme" role="group" aria-label="Theme">
+          <button type="button" data-theme-choice="auto">Auto</button>
+          <button type="button" data-theme-choice="light">Light</button>
+          <button type="button" data-theme-choice="dark">Dark</button>
+        </div>
+        <div class="who"><span class="dot"></span><span id="who">Signed in</span></div>
+        <button type="button" id="logout" class="ghost small">Forget key</button>
+      </div>
+    </aside>
+    <div class="main">
+      <div id="demo-banner" class="demo-banner" role="status" hidden>
+        <strong>DEMO DATA</strong>
+        <span>Sample prices generated on this computer. Not live market data. No broker is connected and orders are paper only.</span>
+      </div>
+      <header class="toolbar">
+        <div class="title"><h1 id="page-title">Home</h1><p id="page-sub"></p></div>
+        <div class="actions" id="page-actions"></div>
+      </header>
+      <main id="content" class="content" tabindex="-1"></main>
+      <footer class="foot" id="foot">Mr. Chartist API Bridge · paper trading is the default · live orders need explicit opt-ins in bridge.config.json</footer>
+    </div>
+  </div>
+  <dialog id="dialog"></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

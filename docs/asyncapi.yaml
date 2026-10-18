@@ -1,0 +1,546 @@
+asyncapi: 3.0.0
+info:
+  title: Mr. Chartist API Bridge — live streams
+  version: 0.1.0
+  description: |
+    Live prices, upstream feed status and order updates from the local Bridge, over a WebSocket (`/v1/stream`) or
+    Server-Sent Events (`/v1/stream/sse`). Owned by stream S6; the REST side is in `docs/openapi.yaml`.
+
+    ## One broker feed, many tools
+    The Bridge opens at most one feed per broker account and shares it: if Option Hub, a chart and a Python script all
+    watch `NSE:NIFTY`, the broker sees one subscription. A symbol leaves the broker feed when the last client
+    unsubscribes. When the broker's cap on one feed is reached, the client that asked for one symbol too many gets an
+    `error` with code `SUBSCRIPTION_LIMIT` for exactly those symbols; nothing is ever dropped silently.
+    Where the broker's terms allow it and you have switched pooling on for those accounts, symbols are spread over
+    your own connected accounts; credentials never move between accounts.
+
+    ## Connecting
+    1. `POST /v1/stream/token` with your API key (read scope). The token is single use and valid for 60 seconds.
+    2. `ws://127.0.0.1:4300/v1/stream?token=<token>` or
+       `GET /v1/stream/sse?token=<token>&symbols=NSE:NIFTY,NSE:RELIANCE&mode=ltp[&orders=1]`.
+    Scripts may send `Authorization: Bearer <key>` (or `X-API-Key`) instead of a token. API keys are never accepted
+    in the URL. Browser pages must be on `cors.allowedOrigins`; the Host header must be a loopback name or listed in
+    `server.allowedHosts`.
+    Refusals before the stream starts: WebSocket `401` (credentials), `403` (scope, Host or Origin), `429` (too many
+    connections, `stream.maxClients`); SSE answers the same cases with `application/problem+json`.
+
+    ## Ordering, seq and slow clients
+    Every server message carries `seq`, a per-connection counter in wire order starting at 1. Ticks are conflated
+    per symbol for a client that reads slower than prices arrive: a newer tick replaces an unsent older one, whose
+    `seq` is then never sent. **A gap in `seq` means values were skipped; the latest value always arrives.** If you
+    need a fresh baseline, subscribe again to receive a `snapshot`. Each `heartbeat` reports how many ticks were
+    conflated since the previous one. Non-tick messages (`order`, `status`, `error`) are never conflated; a client
+    whose backlog of them exceeds `stream.maxQueuedMessages` receives `go_away` with reason `slow_consumer` and is
+    disconnected.
+
+    ## SSE
+    The same messages as SSE events: `id` is the `seq`, `event` is the `type`, `data` is the JSON message. SSE is one
+    way, so the subscription is fixed by the URL (`symbols`, `mode`, `orders=1`); open a new URL to change it. A
+    reconnect (EventSource sends `Last-Event-ID`) starts again with a fresh `snapshot`; nothing is replayed.
+
+    ## Symbols
+    Canonical Bridge symbols (`NSE:RELIANCE`, `NFO:NIFTY-2026-10-27-25000-CE`). Inputs may be aliases (lower case,
+    TradingView tickers such as `NSE:NIFTY1!`); replies always use the canonical form, and you may unsubscribe with
+    the alias you subscribed with.
+
+    Personal use only: broker data terms generally forbid passing market data to other people.
+  license:
+    name: Mr. Chartist API Bridge Personal Use Licence 1.0
+  contact:
+    name: Investology (Mr. Chartist)
+defaultContentType: application/json
+
+servers:
+  local-ws:
+    host: 127.0.0.1:4300
+    protocol: ws
+    description: The local Bridge (default port 4300).
+    security:
+      - $ref: "#/components/securitySchemes/streamToken"
+      - $ref: "#/components/securitySchemes/bearerKey"
+      - $ref: "#/components/securitySchemes/apiKeyHeader"
+  local-http:
+    host: 127.0.0.1:4300
+    protocol: http
+    description: The local Bridge, for Server-Sent Events (text/event-stream).
+    security:
+      - $ref: "#/components/securitySchemes/streamToken"
+      - $ref: "#/components/securitySchemes/bearerKey"
+      - $ref: "#/components/securitySchemes/apiKeyHeader"
+
+channels:
+  stream:
+    address: /v1/stream
+    title: WebSocket stream
+    description: Two-way. Send ops as JSON text frames; receive server messages as JSON text frames.
+    servers:
+      - $ref: "#/servers/local-ws"
+    messages:
+      subscribe: { $ref: "#/components/messages/subscribe" }
+      unsubscribe: { $ref: "#/components/messages/unsubscribe" }
+      subscribeOrders: { $ref: "#/components/messages/subscribeOrders" }
+      unsubscribeOrders: { $ref: "#/components/messages/unsubscribeOrders" }
+      ping: { $ref: "#/components/messages/ping" }
+      heartbeat: { $ref: "#/components/messages/heartbeat" }
+      snapshot: { $ref: "#/components/messages/snapshot" }
+      tick: { $ref: "#/components/messages/tick" }
+      order: { $ref: "#/components/messages/order" }
+      status: { $ref: "#/components/messages/status" }
+      error: { $ref: "#/components/messages/error" }
+      goAway: { $ref: "#/components/messages/goAway" }
+    bindings:
+      ws:
+        method: GET
+        query:
+          type: object
+          properties:
+            token:
+              type: string
+              maxLength: 512
+              description: Single-use stream token from POST /v1/stream/token.
+        bindingVersion: 0.1.0
+  sse:
+    address: /v1/stream/sse
+    title: Server-Sent Events stream
+    description: |
+      One-way. Query parameters: `token`, `symbols` (comma-separated, up to `stream.maxSymbolsPerRequest`, default 200),
+      `mode` (ltp | quote | depth, default ltp), `orders=1` to add order updates. Give `symbols`, `orders=1` or both.
+      Each event: `id: <seq>`, `event: <type>`, `data: <message JSON>`.
+    servers:
+      - $ref: "#/servers/local-http"
+    messages:
+      heartbeat: { $ref: "#/components/messages/heartbeat" }
+      snapshot: { $ref: "#/components/messages/snapshot" }
+      tick: { $ref: "#/components/messages/tick" }
+      order: { $ref: "#/components/messages/order" }
+      status: { $ref: "#/components/messages/status" }
+      error: { $ref: "#/components/messages/error" }
+      goAway: { $ref: "#/components/messages/goAway" }
+
+operations:
+  receiveSubscribe:
+    action: receive
+    channel: { $ref: "#/channels/stream" }
+    summary: Client subscribes to symbols in a mode.
+    messages: [{ $ref: "#/channels/stream/messages/subscribe" }]
+    reply:
+      channel: { $ref: "#/channels/stream" }
+      messages:
+        - $ref: "#/channels/stream/messages/snapshot"
+        - $ref: "#/channels/stream/messages/error"
+  receiveUnsubscribe:
+    action: receive
+    channel: { $ref: "#/channels/stream" }
+    summary: Client unsubscribes from symbols. No reply; queued ticks for those symbols are discarded.
+    messages: [{ $ref: "#/channels/stream/messages/unsubscribe" }]
+  receiveSubscribeOrders:
+    action: receive
+    channel: { $ref: "#/channels/stream" }
+    summary: Client asks for order updates (paper and live) for accounts its key may use. No reply unless refused.
+    messages: [{ $ref: "#/channels/stream/messages/subscribeOrders" }]
+  receiveUnsubscribeOrders:
+    action: receive
+    channel: { $ref: "#/channels/stream" }
+    summary: Client stops order updates.
+    messages: [{ $ref: "#/channels/stream/messages/unsubscribeOrders" }]
+  receivePing:
+    action: receive
+    channel: { $ref: "#/channels/stream" }
+    summary: Client checks the connection; the Bridge answers with a heartbeat carrying the same id.
+    messages: [{ $ref: "#/channels/stream/messages/ping" }]
+    reply:
+      channel: { $ref: "#/channels/stream" }
+      messages: [{ $ref: "#/channels/stream/messages/heartbeat" }]
+  sendHeartbeat:
+    action: send
+    channel: { $ref: "#/channels/stream" }
+    summary: First message on every connection, then every `stream.heartbeatMs` (default 15 s).
+    messages: [{ $ref: "#/channels/stream/messages/heartbeat" }]
+  sendSnapshot:
+    action: send
+    channel: { $ref: "#/channels/stream" }
+    summary: Latest known value of every symbol just subscribed.
+    messages: [{ $ref: "#/channels/stream/messages/snapshot" }]
+  sendTick:
+    action: send
+    channel: { $ref: "#/channels/stream" }
+    summary: A price update for one subscribed symbol.
+    messages: [{ $ref: "#/channels/stream/messages/tick" }]
+  sendOrder:
+    action: send
+    channel: { $ref: "#/channels/stream" }
+    summary: An order changed state.
+    messages: [{ $ref: "#/channels/stream/messages/order" }]
+  sendStatus:
+    action: send
+    channel: { $ref: "#/channels/stream" }
+    summary: A broker feed went up, down or stale. Also sent once per feed right after connecting.
+    messages: [{ $ref: "#/channels/stream/messages/status" }]
+  sendError:
+    action: send
+    channel: { $ref: "#/channels/stream" }
+    summary: An op was refused, fully or for some symbols. The connection stays open.
+    messages: [{ $ref: "#/channels/stream/messages/error" }]
+  sendGoAway:
+    action: send
+    channel: { $ref: "#/channels/stream" }
+    summary: The Bridge is about to close this connection, and why.
+    messages: [{ $ref: "#/channels/stream/messages/goAway" }]
+  sendSse:
+    action: send
+    channel: { $ref: "#/channels/sse" }
+    summary: Every server message, as SSE events.
+    messages:
+      - $ref: "#/channels/sse/messages/heartbeat"
+      - $ref: "#/channels/sse/messages/snapshot"
+      - $ref: "#/channels/sse/messages/tick"
+      - $ref: "#/channels/sse/messages/order"
+      - $ref: "#/channels/sse/messages/status"
+      - $ref: "#/channels/sse/messages/error"
+      - $ref: "#/channels/sse/messages/goAway"
+
+components:
+  securitySchemes:
+    streamToken:
+      type: httpApiKey
+      name: token
+      in: query
+      description: Single-use, 60-second token from POST /v1/stream/token. The connection then lives on with the key's scopes until the key is revoked or expires (checked every heartbeat).
+    bearerKey:
+      type: http
+      scheme: bearer
+      description: "`Authorization: Bearer mcb_<keyId>_<secret>` from scripts. Read scope."
+    apiKeyHeader:
+      type: httpApiKey
+      name: X-API-Key
+      in: header
+
+  messages:
+    # ── client -> server ──
+    subscribe:
+      name: subscribe
+      title: Subscribe
+      summary: Start (or change the mode of) symbols on this connection.
+      payload: { $ref: "#/components/schemas/SubscribeOp" }
+      examples:
+        - name: quote
+          payload: { op: subscribe, symbols: ["NSE:NIFTY", "NFO:NIFTY-2026-10-27-25000-CE"], mode: quote, id: s1 }
+    unsubscribe:
+      name: unsubscribe
+      title: Unsubscribe
+      payload: { $ref: "#/components/schemas/UnsubscribeOp" }
+      examples:
+        - payload: { op: unsubscribe, symbols: ["NSE:NIFTY"] }
+    subscribeOrders:
+      name: subscribe_orders
+      title: Subscribe to order updates
+      payload: { $ref: "#/components/schemas/SubscribeOrdersOp" }
+      examples:
+        - payload: { op: subscribe_orders, accounts: ["dhan-main"] }
+    unsubscribeOrders:
+      name: unsubscribe_orders
+      title: Stop order updates
+      payload: { $ref: "#/components/schemas/UnsubscribeOrdersOp" }
+    ping:
+      name: ping
+      title: Ping
+      payload: { $ref: "#/components/schemas/PingOp" }
+      examples:
+        - payload: { op: ping, id: 7 }
+
+    # ── server -> client ──
+    heartbeat:
+      name: heartbeat
+      title: Heartbeat
+      payload: { $ref: "#/components/schemas/Heartbeat" }
+      examples:
+        - name: first
+          payload: { type: heartbeat, seq: 1, time: "2026-10-19T09:15:00.000+05:30", conflated: 0, clientId: ws_3kq9X2b7Lm0A, heartbeatMs: 15000 }
+        - name: periodic
+          payload: { type: heartbeat, seq: 912, time: "2026-10-19T09:30:15.000+05:30", conflated: 42 }
+    snapshot:
+      name: snapshot
+      title: Snapshot
+      payload: { $ref: "#/components/schemas/Snapshot" }
+      examples:
+        - payload:
+            type: snapshot
+            seq: 3
+            id: s1
+            mode: ltp
+            symbols: ["NSE:NIFTY", "NSE:RELIANCE"]
+            ticks: [{ symbol: "NSE:NIFTY", ltp: 25012.5, exchangeTs: 1792381512000, receivedAt: 1792381512043, accountId: dhan-main, broker: dhan }]
+            pending: ["NSE:RELIANCE"]
+    tick:
+      name: tick
+      title: Tick
+      payload: { $ref: "#/components/schemas/TickMessage" }
+      examples:
+        - name: ltp
+          payload: { type: tick, seq: 57, symbol: "NSE:NIFTY", ltp: 25013.1, exchangeTs: 1792381513000, receivedAt: 1792381513021, accountId: dhan-main, broker: dhan }
+        - name: quote
+          payload:
+            type: tick
+            seq: 58
+            symbol: "NFO:NIFTY-2026-10-27-25000-CE"
+            ltp: 182.4
+            exchangeTs: null
+            receivedAt: 1792381513100
+            accountId: dhan-main
+            broker: dhan
+            open: 160
+            high: 190.5
+            low: 151.2
+            close: 171.35
+            change: 11.05
+            changePct: 6.4488
+            volume: 1834500
+            oi: 5123400
+            bid: 182.35
+            ask: 182.45
+            bidQty: null
+            askQty: null
+    order:
+      name: order
+      title: Order update
+      payload: { $ref: "#/components/schemas/OrderMessage" }
+      examples:
+        - payload: { type: order, seq: 120, order: { orderId: PAPER-20261019-0007, clientOrderId: hub-17, accountId: dhan-main, mode: paper, status: filled, filledQuantity: 65, avgPrice: 182.4, source: rest } }
+    status:
+      name: status
+      title: Upstream status
+      payload: { $ref: "#/components/schemas/Status" }
+      examples:
+        - name: up
+          payload: { type: status, seq: 2, accountId: dhan-main, broker: dhan, state: up, connected: true, reason: null, subscriptions: 14 }
+        - name: session ended
+          payload: { type: status, seq: 4001, accountId: dhan-main, broker: dhan, state: down, connected: false, reason: "The dhan session for dhan-main has ended. Log in again from the Bridge to resume live prices.", subscriptions: 14 }
+    error:
+      name: error
+      title: Error
+      payload: { $ref: "#/components/schemas/ErrorMessage" }
+      examples:
+        - name: cap
+          payload: { type: error, seq: 4, code: SUBSCRIPTION_LIMIT, message: "The live feed on dhan-main is full (1500 symbols). Unsubscribe something first.", retryable: false, op: subscribe, id: s1, symbols: ["NSE:INFY"] }
+    goAway:
+      name: go_away
+      title: Going away
+      payload: { $ref: "#/components/schemas/GoAway" }
+      examples:
+        - payload: { type: go_away, seq: 9001, reason: shutdown, message: "The Bridge is restarting. Reconnect in a few seconds.", reconnectAfterMs: 3000 }
+
+  schemas:
+    Symbol:
+      type: string
+      maxLength: 100
+      description: Canonical Bridge symbol in replies; aliases accepted in ops. See docs/openapi.yaml (Symbols).
+      examples: ["NSE:RELIANCE", "NFO:NIFTY-2026-10-27-25000-CE"]
+    StreamMode:
+      type: string
+      enum: [ltp, quote, depth]
+      default: ltp
+      description: "ltp: price and times. quote: + OHLC, change, volume, OI and best bid/ask. depth: quote + `depth` when the broker feed carries it. The broker feed runs at the highest mode any client asked for."
+    OpId:
+      description: Optional client correlation id, echoed on the reply (snapshot, heartbeat or error).
+      oneOf:
+        - { type: string, maxLength: 64 }
+        - { type: integer }
+    AccountId:
+      type: string
+      pattern: "^[a-z0-9][a-z0-9-]{1,31}$"
+
+    SubscribeOp:
+      type: object
+      additionalProperties: false
+      required: [op, symbols]
+      properties:
+        op: { const: subscribe }
+        symbols:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          description: At most `stream.maxSymbolsPerRequest` (default 200) per op and `stream.maxSymbolsPerClient` (default 500) per connection.
+          items: { $ref: "#/components/schemas/Symbol" }
+        mode: { $ref: "#/components/schemas/StreamMode" }
+        id: { $ref: "#/components/schemas/OpId" }
+    UnsubscribeOp:
+      type: object
+      additionalProperties: false
+      required: [op, symbols]
+      properties:
+        op: { const: unsubscribe }
+        symbols: { type: array, minItems: 1, maxItems: 1000, items: { $ref: "#/components/schemas/Symbol" } }
+        id: { $ref: "#/components/schemas/OpId" }
+    SubscribeOrdersOp:
+      type: object
+      additionalProperties: false
+      required: [op]
+      properties:
+        op: { const: subscribe_orders }
+        accounts:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: Default every account the key may use. Naming an account the key may not use is refused with ACCOUNT_FORBIDDEN.
+          items: { $ref: "#/components/schemas/AccountId" }
+        id: { $ref: "#/components/schemas/OpId" }
+    UnsubscribeOrdersOp:
+      type: object
+      additionalProperties: false
+      required: [op]
+      properties:
+        op: { const: unsubscribe_orders }
+        id: { $ref: "#/components/schemas/OpId" }
+    PingOp:
+      type: object
+      additionalProperties: false
+      required: [op]
+      properties:
+        op: { const: ping }
+        id: { $ref: "#/components/schemas/OpId" }
+
+    Envelope:
+      type: object
+      required: [type, seq]
+      properties:
+        type: { type: string }
+        seq: { type: integer, minimum: 1, description: "Per-connection counter in wire order. A gap means conflated ticks." }
+
+    Heartbeat:
+      allOf:
+        - { $ref: "#/components/schemas/Envelope" }
+        - type: object
+          required: [time, conflated]
+          properties:
+            type: { const: heartbeat }
+            time: { type: string, format: date-time, description: "Bridge time, ISO-8601 with +05:30." }
+            conflated: { type: integer, minimum: 0, description: Ticks replaced by newer ones since the previous heartbeat. }
+            id: { $ref: "#/components/schemas/OpId" }
+            clientId: { type: string, description: First heartbeat only. This connection's id in logs and stats. }
+            heartbeatMs: { type: integer, description: First heartbeat only. }
+
+    TickFields:
+      type: object
+      required: [symbol, ltp, exchangeTs, receivedAt, accountId, broker]
+      properties:
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        ltp: { type: number, exclusiveMinimum: 0 }
+        exchangeTs: { type: [integer, "null"], description: "Exchange time, epoch ms, when the broker sends it." }
+        receivedAt: { type: integer, description: "When the Bridge received the tick, epoch ms." }
+        accountId: { type: string, description: Account whose feed supplied the tick. }
+        broker: { type: string }
+        open: { type: [number, "null"], description: quote and depth modes }
+        high: { type: [number, "null"] }
+        low: { type: [number, "null"] }
+        close: { type: [number, "null"], description: Previous close. }
+        change: { type: [number, "null"], description: ltp - close. }
+        changePct: { type: [number, "null"] }
+        volume: { type: [number, "null"], description: Cumulative day volume. }
+        oi: { type: [number, "null"] }
+        bid: { type: [number, "null"] }
+        ask: { type: [number, "null"] }
+        bidQty: { type: [number, "null"] }
+        askQty: { type: [number, "null"] }
+        depth:
+          type: object
+          description: depth mode only, when the broker feed carries market depth.
+          properties:
+            bids: { type: array, items: { $ref: "#/components/schemas/DepthLevel" } }
+            asks: { type: array, items: { $ref: "#/components/schemas/DepthLevel" } }
+    DepthLevel:
+      type: object
+      properties:
+        price: { type: [number, "null"] }
+        qty: { type: [number, "null"] }
+        orders: { type: [integer, "null"] }
+
+    TickMessage:
+      allOf:
+        - { $ref: "#/components/schemas/Envelope" }
+        - { $ref: "#/components/schemas/TickFields" }
+        - type: object
+          properties:
+            type: { const: tick }
+
+    Snapshot:
+      allOf:
+        - { $ref: "#/components/schemas/Envelope" }
+        - type: object
+          required: [mode, symbols, ticks, pending]
+          properties:
+            type: { const: snapshot }
+            id: { $ref: "#/components/schemas/OpId" }
+            mode: { $ref: "#/components/schemas/StreamMode" }
+            symbols: { type: array, description: Every symbol accepted by this subscribe (canonical)., items: { $ref: "#/components/schemas/Symbol" } }
+            ticks: { type: array, description: Latest known value per accepted symbol., items: { $ref: "#/components/schemas/TickFields" } }
+            pending: { type: array, description: Accepted symbols with no value yet; their first tick follows., items: { $ref: "#/components/schemas/Symbol" } }
+
+    OrderMessage:
+      allOf:
+        - { $ref: "#/components/schemas/Envelope" }
+        - type: object
+          required: [order]
+          properties:
+            type: { const: order }
+            order:
+              type: object
+              description: The "order.updated" event. Only accounts the key may use.
+              required: [orderId, accountId, mode, status]
+              properties:
+                orderId: { type: string }
+                clientOrderId: { type: [string, "null"] }
+                accountId: { type: string }
+                mode: { type: string, enum: [paper, live] }
+                status: { type: string, enum: [pending, open, trigger_pending, partially_filled, filled, cancelled, rejected, expired, outcome_unknown] }
+                brokerStatus: { type: [string, "null"] }
+                filledQuantity: { type: number }
+                avgPrice: { type: [number, "null"] }
+                source: { type: string }
+
+    Status:
+      allOf:
+        - { $ref: "#/components/schemas/Envelope" }
+        - type: object
+          required: [accountId, broker, state, connected, reason, subscriptions]
+          properties:
+            type: { const: status }
+            accountId: { type: string }
+            broker: { type: string }
+            state:
+              type: string
+              enum: [up, stale, down]
+              description: "up: connected and ticking. stale: connected but no tick for `stream.staleAfterMs` (normal outside market hours). down: reconnecting, waiting for a broker login, closed or unsupported (see reason)."
+            connected: { type: boolean }
+            reason: { type: [string, "null"] }
+            subscriptions: { type: integer, minimum: 0 }
+
+    ErrorMessage:
+      allOf:
+        - { $ref: "#/components/schemas/Envelope" }
+        - type: object
+          required: [code, message, retryable]
+          properties:
+            type: { const: error }
+            code:
+              type: string
+              description: Bridge error code (docs/openapi.yaml). Common here are SUBSCRIPTION_LIMIT, SYMBOL_NOT_FOUND, VALIDATION_FAILED, INVALID_JSON, RATE_LIMITED, ACCOUNT_FORBIDDEN, BROKER_UNAVAILABLE.
+              examples: [SUBSCRIPTION_LIMIT]
+            message: { type: string, description: Plain English for people; do not parse. }
+            retryable: { type: boolean }
+            op: { type: string, description: The op that failed. }
+            id: { $ref: "#/components/schemas/OpId" }
+            symbols: { type: array, description: The symbols this error applies to (subscribe)., items: { type: string } }
+
+    GoAway:
+      allOf:
+        - { $ref: "#/components/schemas/Envelope" }
+        - type: object
+          required: [reason, message, reconnectAfterMs]
+          properties:
+            type: { const: go_away }
+            reason:
+              type: string
+              enum: [shutdown, slow_consumer, key_revoked]
+              description: "shutdown: the Bridge is stopping or restarting (WebSocket close 1001). slow_consumer: the client fell too far behind (close 4008). key_revoked: the API key was revoked or expired (close 4001); do not reconnect with it."
+            message: { type: string }
+            reconnectAfterMs: { type: [integer, "null"], description: Suggested wait before reconnecting; null means do not reconnect. }
