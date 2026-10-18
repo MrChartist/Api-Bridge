@@ -10,9 +10,9 @@ const WINDOWS = ["perSecond", "perMinute", "perDay"];
 const ids = Object.keys(BROKER_POLICIES);
 
 describe("BROKER_POLICIES table", () => {
-  it("has exactly one entry per registered adapter (all 33)", () => {
+  it("has exactly one entry per registered adapter (all 41)", () => {
     const registered = createBrokerRegistry().list().sort();
-    expect(registered).toHaveLength(33);
+    expect(registered).toHaveLength(41);
     expect(ids.sort()).toEqual(registered);
     for (const id of ids) expect(BROKER_POLICIES[id].brokerId).toBe(id);
   });
@@ -38,7 +38,7 @@ describe("BROKER_POLICIES table", () => {
     for (const id of ids) expect(BROKER_POLICIES[id].pooling).toBe("unknown");
     // S1 reads the table through its own helpers; check they see it the same way.
     const table = normalisePolicies(BROKER_POLICIES);
-    expect(Object.keys(table)).toHaveLength(33);
+    expect(Object.keys(table)).toHaveLength(41);
     expect(poolingFor(table, "zerodha")).toBe("unknown");
   });
 

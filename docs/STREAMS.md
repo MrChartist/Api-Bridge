@@ -73,7 +73,7 @@ Acceptance: a wrong key costs the same time as a right one (no early exit on pre
 **Implements:** `Scheduler` (`deps.scheduler`). **Routes:** `GET /v1/limits`, `GET /v1/usage`. **Config section:** `ratelimit` (client requests per second per key, default 50; per-broker overrides that may only LOWER limits).
 
 Tasks:
-- `brokerPolicies.mjs`: one entry per adapter id (all 33) with per-class `{ perSecond, perMinute, perDay, verified, source }`, `maxQuoteBatch`, feed caps, `pooling` (`unknown` unless a broker's terms clearly allow spreading one user's reads across that user's accounts), `maxModificationsPerOrder`. Start from ARCHITECTURE §6 and each broker's official docs; anything not verified gets the conservative defaults. Export it early (S1 and S5 read it).
+- `brokerPolicies.mjs`: one entry per adapter id (all 41) with per-class `{ perSecond, perMinute, perDay, verified, source }`, `maxQuoteBatch`, feed caps, `pooling` (`unknown` unless a broker's terms clearly allow spreading one user's reads across that user's accounts), `maxModificationsPerOrder`. Start from ARCHITECTURE §6 and each broker's official docs; anything not verified gets the conservative defaults. Export it early (S1 and S5 read it).
 - Token buckets with second/minute/day windows; IST day boundaries for daily caps; per `(accountId, endpointClass)`.
 - Priority queue per account with ageing; abort via `signal`; bounded queue length per class (reject with `UPSTREAM_RATE_LIMITED` + `retryAfterMs` when a request could not start before its deadline).
 - Singleflight coalescing by `coalesceKey`; back-off on upstream throttling; `pickAccount` by headroom and health.

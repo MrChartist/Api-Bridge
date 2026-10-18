@@ -13,7 +13,7 @@ Design principles, in priority order:
 1. **Safe by default.** Paper mode, loopback only, read-only keys, no market orders without protection, live trading only after three separate opt-ins in the config file plus a per-request `"mode": "live"`.
 2. **Never exceed a documented limit.** Unknown limits get conservative defaults. Every number in the policy table carries a source and a `verified` flag.
 3. **Honest data.** Every market-data value says where it came from and how old it is (`freshness`). No silent fallbacks to another symbol, account or stale value.
-4. **One contract.** The 33 broker adapters (`server/brokers/`) already share a tested contract; the Bridge adds no second adapter model.
+4. **One contract.** The 41 broker adapters (`server/brokers/`) already share a tested contract; the Bridge adds no second adapter model.
 5. **Personal use.** One user (and family, as SEBI allows) on their own machine. Never a multi-user or public data service.
 
 ## 2. Process model
@@ -28,7 +28,7 @@ Design principles, in priority order:
  (via tunnel)            │                                                                                           │
                          │  services (deps): secrets · keyStore · audit · accounts · scheduler · symbols ·           │
                          │                   streamHub · marketData · safety · paper · orders                         │
-                         │  broker layer: server/brokers/registry.mjs → 33 adapters → brokerFetch / createFeed       │
+                         │  broker layer: server/brokers/registry.mjs → 41 adapters → brokerFetch / createFeed       │
                          └───────────────────────────────────────────────┬───────────────────────────────────────────┘
                                                                          │ HTTPS / WSS (from the user's static IP for orders)
                                                                          ▼

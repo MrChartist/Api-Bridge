@@ -9,7 +9,7 @@ AmiBroker, Python and Node scripts, Excel and Google Sheets, and AI assistants s
 Your broker then sees **one careful client** instead of ten tools each polling on their own. That is how the Bridge
 solves the headline problem of broker APIs: **rate limits**.
 
-- **33 Indian brokers** behind one tested contract ([docs/BROKERS.md](docs/BROKERS.md)), several brokers and several
+- **41 Indian brokers** behind one tested contract ([docs/BROKERS.md](docs/BROKERS.md)), several brokers and several
   accounts at the same time, each with its own session and its own limits.
 - **Rate-limit engine:** live stream first, then a freshness-labelled cache, then batched and coalesced broker calls
   inside per-account, per-endpoint token buckets, with orders always ahead of reads.
@@ -134,7 +134,7 @@ another folder still finds the same keys. `start` prints the dashboard address, 
 ```
 
 - `id` is yours to choose (lowercase letters, digits, hyphens). `broker` is an adapter id from
-  [docs/BROKERS.md](docs/BROKERS.md) (`dhan`, `zerodha`, `upstox`, `angelone`, `fyers`, `kotak`, `shoonya` ... 33 in all)
+  [docs/BROKERS.md](docs/BROKERS.md) (`dhan`, `zerodha`, `upstox`, `angelone`, `fyers`, `kotak`, `shoonya` ... 41 in all)
   or `paper`.
 - You can list several accounts at the same broker (family accounts) and several brokers at once.
 - `holder` says whose account it is (any label such as `self` or `spouse`, never a PAN). Market-data pooling only
@@ -612,7 +612,7 @@ cd sdk/node && npm test        # Node SDK
 python3 -m pytest sdk/python/tests   # Python SDK (or: python3 -m unittest discover -s sdk/python/tests -t sdk/python)
 ```
 
-Layout: `server/brokers/` (33 adapters behind [the broker contract](docs/broker-contract.md)),
+Layout: `server/brokers/` (41 adapters behind [the broker contract](docs/broker-contract.md)),
 `server/bridge/core/` (config, pipeline, security, CLI), one folder per service under `server/bridge/`
 (`accounts`, `auth`, `ratelimit`, `symbols`, `market`, `stream`, `orders`, `paper`, `safety`, `integrations`,
 `hooks`, `mcp`, `dashboard`), end-to-end tests in `server/bridge/e2e/`, SDKs in `sdk/`, ready-made integrations in

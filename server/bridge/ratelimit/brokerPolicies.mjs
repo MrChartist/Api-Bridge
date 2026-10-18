@@ -1,7 +1,7 @@
 /**
  * Broker policy table — stream S3, DATA ONLY (S1 and S5 import it; it imports nothing).
  *
- * One entry per adapter id in server/brokers/registry.mjs (all 33). Every number carries `verified` and, where there
+ * One entry per adapter id in server/brokers/registry.mjs (all 41). Every number carries `verified` and, where there
  * is one, a `source` URL. What `verified: true` means here: the figure was read on the broker's OWN official API
  * documentation page named in `source` during the broker-layer review (checked October 2026), and is quoted in
  * that adapter's header comment. It does NOT mean it was measured against a live account. Figures from third-party
@@ -116,6 +116,10 @@ const S = Object.freeze({
   upstox: "https://upstox.com/developer/api-documentation/rate-limiting",
   zebu: "https://zebumyntapi.web.app/",
   zerodha: "https://kite.trade/docs/connect/v3/exceptions/",
+  rupeezy: "https://vortex.rupeezy.in/docs/latest/",
+  icicidirect: "https://api.icicidirect.com/breezeapi/documents/index.html",
+  anandrathi: "https://algozy.rathi.com/doc/interactive/",
+  fivepaisaxts: "https://symphonyfintech.com/xts-trading-front-end-api/",
 });
 
 /** XTS (Symphony) deployments share one engine; limits from Symphony's official table. */
@@ -369,6 +373,51 @@ export const BROKER_POLICIES = Object.freeze({
     feed: { maxConnections: 3, maxSubscriptions: 3000 },
     maxModificationsPerOrder: 25,
     notes: "Exceptions page: quote 1/s, historical 3/s, orders 10/s, everything else 10/s. Orders 400/min and 5,000/day are research figures (unverified) and are enforced because they only lower the budget. Feed: 3 connections x 3,000 instruments.",
+  }),
+  anandrathi: xtsPolicy("anandrathi", { verified: false, source: S.anandrathi }),
+
+  axisdirect: entry("axisdirect", {
+    maxQuoteBatch: 50,
+    notes: "The RAPID API collection publishes no rate limit; conservative defaults. Read-only adapter (no order methods).",
+  }),
+
+  bigul: entry("bigul", {
+    maxQuoteBatch: 1,
+    notes: "Bigul Connect publishes no rate limit; quotes come from its market-data WebSocket. Conservative defaults.",
+  }),
+
+  fivepaisaxts: xtsPolicy("fivepaisaxts", { verified: false, source: S.fivepaisaxts }),
+
+  goodwill: entry("goodwill", {
+    maxQuoteBatch: 1,
+    notes: "The Goodwill API v1 docs publish no rate limit; one getquote call per contract. Conservative defaults.",
+  }),
+
+  icicidirect: entry("icicidirect", {
+    groups: { breeze: Object.freeze({ ...v(S.icicidirect, { perMinute: 100, perDay: 5000 }), classes: Object.freeze(["order", "quote", "depth", "history", "chain", "portfolio", "other", "master"]) }) },
+    maxQuoteBatch: 1,
+    notes: "Breeze: 100 calls a minute and 5,000 a day across every API (one shared budget). The per-class conservative defaults still apply on top.",
+  }),
+
+  profitmart: entry("profitmart", {
+    maxQuoteBatch: 1,
+    notes: "ProfitMax (Noren) publishes no rate limit; one instrument per GetQuotes call. Conservative defaults.",
+  }),
+
+  rupeezy: entry("rupeezy", {
+    ...merge(
+      {
+        limits: {
+          order: v(S.rupeezy, { perSecond: 10 }),
+          history: v(S.rupeezy, { perSecond: 1 }),
+          portfolio: v(S.rupeezy, { perSecond: 1 }),
+        },
+        groups: { daily: Object.freeze({ ...v(S.rupeezy, { perDay: 50_000 }), classes: Object.freeze(["order", "quote", "depth", "history", "chain", "portfolio", "other", "master"]) }) },
+      },
+      shared("dataApis", ["quote", "depth", "chain"], v(S.rupeezy, { perSecond: 1 })),
+    ),
+    maxQuoteBatch: 1000,
+    notes: "Vortex usage page: 1/s for session, funds, quotes, history and option chain; 10/s for trading calls; 50,000 a day in all. Quotes take up to 1,000 instruments.",
   }),
 });
 

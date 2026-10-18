@@ -122,12 +122,12 @@ describe("route table", () => {
 });
 
 describe("GET /v1/brokers", () => {
-  it("lists all 33 adapters with auth kind, capabilities and verification", async () => {
+  it("lists all 41 adapters with auth kind, capabilities and verification", async () => {
     expect((await call("GET", "/v1/brokers")).status).toBe(401);
     const r = await call("GET", "/v1/brokers", { key: READ });
     expect(r.status).toBe(200);
     expect(r.json.meta.requestId).toMatch(/^req_/);
-    expect(r.json.data).toHaveLength(33);
+    expect(r.json.data).toHaveLength(41);
     const zerodha = r.json.data.find((b) => b.id === "zerodha");
     expect(zerodha).toMatchObject({ name: "Zerodha (Kite)", authKind: "oauthRedirect", verified: false });
     expect(zerodha.capabilities).toContain("optionChain");

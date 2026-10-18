@@ -14,7 +14,7 @@ const CACHE_DIR = resolve(__dirname, "../../.cache");
 try { mkdirSync(CACHE_DIR, { recursive: true }); } catch { /* ignore */ }
 
 // At most MAX_RESIDENT masters stay parsed in memory (least recently used dropped first); an evicted master is
-// re-read from its disk copy, not re-downloaded. With 33 brokers this keeps resident memory bounded.
+// re-read from its disk copy, not re-downloaded. With 41 brokers this keeps resident memory bounded.
 const MAX_RESIDENT = 24;
 const memCache = createSessionCache({ maxEntries: MAX_RESIDENT, expiryOf: () => null });
 

@@ -42,6 +42,14 @@ export const BROKER_NAMES = Object.freeze({
   wisdom: "Wisdom Capital (XTS)",
   zebu: "Zebu (Mynt)",
   zerodha: "Zerodha (Kite)",
+  rupeezy: "Rupeezy (Vortex)",
+  icicidirect: "ICICI Direct (Breeze)",
+  goodwill: "Goodwill (GWC)",
+  bigul: "Bigul (Bigul Connect)",
+  anandrathi: "Anand Rathi (Algozy, XTS)",
+  fivepaisaxts: "5paisa (XTS)",
+  profitmart: "Profitmart (ProfitMax API)",
+  axisdirect: "Axis Direct (RAPID APIs)",
 });
 
 /** Brokers checked end to end against a live account (docs/BROKERS.md). Only Dhan today. */

@@ -76,8 +76,8 @@ describe("S5 normalisers accept every adapter's fixture output", async () => {
   }
   vi.useRealTimers();
 
-  it("covers all 33 adapters", () => {
-    expect(runs.length).toBe(33);
+  it("covers all 41 adapters", () => {
+    expect(runs.length).toBe(41);
   });
 
   it("quotes: every priced row normalises with the same LTP and nulls (not zeros) for missing fields", () => {
