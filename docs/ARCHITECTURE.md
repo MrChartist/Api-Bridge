@@ -222,7 +222,7 @@ BFO:SENSEX-2026-10-30-82500-PE   BSE option      NFO:VEDL-2026-10-27-292.5-CE   
 
 `EXCHANGE:UNDERLYING[-YYYY-MM-DD(-FUT | -STRIKE-CE | -STRIKE-PE)]`, exchange codes `NSE BSE NFO BFO MCX CDS` (the broker contract's own). **Why:** readable (what, when, which strike and side), ISO dates remove the weekly-code and DDMMMYY/YYMDD ambiguity of exchange trading symbols, parsing from the right keeps names like `BAJAJ-AUTO` and `M&M` safe, and it is reversible with no lookup. Inputs are lenient (case, `NSE:` venue form for derivatives); outputs are always canonical.
 
-**Aliases accepted** (`/v1/symbols/convert`, and anywhere a symbol is accepted): TradingView tickers (`NSE:NIFTY`, continuous `NSE:NIFTY1!` resolved to the current expiry, options `NSE:NIFTY261027C25000` **(needs verification of TradingView's NSE option naming)**), OpenAlgo-style trading symbols with an exchange (`NIFTY27OCT2625000CE` + `NFO`; a published format, no code reused), and broker-native tokens or trading symbols with a `broker` parameter.
+**Aliases accepted** (`/v1/symbols/convert`, and anywhere a symbol is accepted): TradingView tickers (`NSE:NIFTY`, continuous `NSE:NIFTY1!` resolved to the current expiry, options `NSE:NIFTY261027C25000` **(needs verification of TradingView's NSE option naming)**), compact trading symbols with an exchange (`NIFTY27OCT2625000CE` + `NFO`, `from=compact`), and broker-native tokens or trading symbols with a `broker` parameter.
 
 **Resolution (S4):** instrument masters from each connected broker's `fetchInstruments`, cached per IST day, merged by canonical id into `ResolvedInstrument { lotSize, tickSize, freezeQty, isin, refs: { <broker>: { token, exchange, tradingSymbol } } }`. Expired contracts drop out (exchange tokens get reused after expiry, so a token is never an identity). Lot sizes change: never hard-code them, never guess (unknown → `SYMBOL_NOT_FOUND`). Freeze quantities come from the master where a broker publishes them, otherwise from an exchange list **(needs verification per segment)**.
 
@@ -257,7 +257,7 @@ These shape the design. None of this is legal advice; items flagged **(needs ver
 | Daily logout | API sessions must be logged out before the next trading day (CIR/2025/0000013; brokers apply it as a daily re-login) **(needs verification per broker)** | Sessions expire daily; clear `SESSION_EXPIRED`; no stored-TOTP auto-login |
 | Order types | Plain market, SL-M and (at some brokers) IOC orders are restricted for API orders | Market protection by default, `reject` option, IOC capability per broker |
 | Family use | A retail algo may be used by self, spouse, dependent children and dependent parents (CIR/2025/0000013, NSE/INVG/67858) **(needs verification: the exact family definition)** | Multi-account supports family accounts; no use by anyone else. Each account names its `holder`; market-data pooling never spreads reads across different holders, because each family member is a separate user under the brokers' personal-use terms |
-| Algo provider risk | Hosting the Bridge or strategies for other people, or selling signals, would likely make the operator an exchange-empanelled algo provider; black-box strategies may need Research Analyst registration | The Bridge ships no strategies, hosts nothing for others, and stays single-user **(legal review before any hosted or commercial offering)** |
+| Algo provider risk | Hosting the Bridge or strategies for other people, or selling signals, would likely make the operator an exchange-empanelled algo provider; black-box strategies may need Research Analyst registration | The Bridge ships no strategies, hosts nothing for others, and stays single-user **(legal review before any hosted offering)** |
 | AI-placed orders | No regulator or broker source covers AI agents placing orders; an AI order through the user's key is still an API algo order | Read-only by default; every AI order needs human confirmation; the audit log records the client (API key label and principal) and the exact order prepared and sent (`ticket.created`, `order.placed`). The Bridge never sees the user's prompt, so no prompt context is logged **(gray area)** |
 | Market data terms | Broker API terms generally forbid passing market data to others (Kite: personal use) | Personal-use notice; loopback; no multi-user or public data endpoints; pooling only across accounts with the same `holder`, only among accounts the calling key may use, and only where the broker policy allows **(needs verification per broker)** |
 
@@ -271,7 +271,7 @@ These shape the design. None of this is legal advice; items flagged **(needs ver
 - Send plain market orders without protection; default a product or order type.
 - Place orders from Excel formulas or GET URLs; nothing under `/xl` or `/udf` can trade.
 - Ship trading strategies, signals or "AI picks".
-- Copy or translate OpenAlgo (AGPL-3.0) code; it is used for publicly documented facts only.
+- Write an adapter from anything but the broker's official docs, SDKs and Postman collections.
 - Bundle TradingView Advanced Charts.
 
 ## 14. Configuration and environment

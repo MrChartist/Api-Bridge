@@ -17,7 +17,7 @@
  * The exchange codes are the broker contract's own, so a canonical symbol maps 1:1 onto an InstrumentRef exchange.
  *
  * Accepted aliases on input (parseAny): the "venue" form with NSE/BSE for derivatives (NSE:NIFTY-2026-10-27-FUT ->
- * NFO:...), TradingView tickers, and the OpenAlgo-style trading symbol format (a published format; no code reused).
+ * NFO:...), TradingView tickers, and compact trading symbols with an exchange code (NIFTY27OCT2625000CE, NFO).
  */
 import { BridgeError } from "./errors.mjs";
 
@@ -186,19 +186,19 @@ export function toTradingView(symbol) {
   return `${venue}:${toTradingViewName(p.underlying)}${y.slice(2)}${m}${d}${p.right === "CE" ? "C" : "P"}${normaliseStrike(p.strike)}`;
 }
 
-// ── OpenAlgo-style trading symbols (published format, facts only) ──
+// ── Compact trading symbols (NIFTY27OCT2625000CE + exchange code, the common Indian broker style) ──
 
-const OA_EXCHANGE_IN = Object.freeze({ NSE: "NSE", BSE: "BSE", NFO: "NFO", BFO: "BFO", MCX: "MCX", CDS: "CDS", NSE_INDEX: "NSE", BSE_INDEX: "BSE" });
+const COMPACT_EXCHANGE_IN = Object.freeze({ NSE: "NSE", BSE: "BSE", NFO: "NFO", BFO: "BFO", MCX: "MCX", CDS: "CDS", NSE_INDEX: "NSE", BSE_INDEX: "BSE" });
 
 /**
  * Parse "NIFTY27OCT2625000CE" / "NIFTY27OCT26FUT" / "RELIANCE" with its exchange code (NFO, NSE, NSE_INDEX ...).
  * @returns {import("./contracts.mjs").ParsedSymbol}
  */
-export function parseOpenAlgo(symbol, exchange) {
+export function parseCompact(symbol, exchange) {
   const s = String(symbol ?? "").trim().toUpperCase();
   const exIn = String(exchange ?? "").trim().toUpperCase();
-  const ex = OA_EXCHANGE_IN[exIn];
-  if (!ex) throw bad(`Unknown exchange ${exchange} for an OpenAlgo-style symbol.`);
+  const ex = COMPACT_EXCHANGE_IN[exIn];
+  if (!ex) throw bad(`Unknown exchange ${exchange} for an compact symbol.`);
   const m = /^([A-Z0-9&_-]+?)(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})(?:(FUT)|(\d+(?:\.\d+)?)(CE|PE))$/.exec(s);
   if (!m) {
     const kind = exIn.endsWith("_INDEX") ? "INDEX" : undefined;
@@ -211,8 +211,8 @@ export function parseOpenAlgo(symbol, exchange) {
   return parseSymbol(formatSymbol({ exchange: exchangeOut, underlying, kind: fut ? "FUT" : "OPT", expiry, strike: strike ? Number(strike) : null, right }));
 }
 
-/** Canonical -> { symbol, exchange } in the OpenAlgo-style format. */
-export function toOpenAlgo(symbol) {
+/** Canonical -> { symbol, exchange } in the compact format. */
+export function toCompact(symbol) {
   const p = parseSymbol(symbol);
   if (p.kind === "EQ") return { symbol: p.underlying, exchange: p.exchange };
   if (p.kind === "INDEX") return { symbol: p.underlying, exchange: `${p.exchange}_INDEX` };
@@ -224,13 +224,13 @@ export function toOpenAlgo(symbol) {
 
 /**
  * Best-effort format detection for /v1/symbols/convert with from="auto".
- * @returns {"canonical" | "tradingview" | "openalgo" | "unknown"}
+ * @returns {"canonical" | "tradingview" | "compact" | "unknown"}
  */
 export function detectFormat(input, exchange) {
   const s = String(input ?? "").trim().toUpperCase();
   // TradingView option and continuous tickers first: "NSE:NIFTY261027C25000" would otherwise look like a cash symbol.
   if (/^[A-Z]+:[A-Z][A-Z0-9&_-]*?(\d!|\d{6}[CP]\d+(\.\d+)?)$/.test(s)) return "tradingview";
   if (CANONICAL_RE.test(s)) return "canonical";
-  if (exchange && /^[A-Z0-9&_-]+$/.test(s)) return "openalgo";
+  if (exchange && /^[A-Z0-9&_-]+$/.test(s)) return "compact";
   return "unknown";
 }

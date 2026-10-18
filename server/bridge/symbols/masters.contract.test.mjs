@@ -3,7 +3,7 @@
  * acceptance). Two layers:
  *  1. snapshot masters (__fixtures__/masters/*.json, the adapters' normalised output) through the full service:
  *     every row maps to a canonical symbol and back to exactly its own token, by token and by trading symbol, and the
- *     TradingView and OpenAlgo aliases read back to the same canonical symbol;
+ *     TradingView and compact aliases read back to the same canonical symbol;
  *  2. the REAL adapter modules (server/brokers/<id>.mjs) behind the fake AccountManager, with fetch answered only by
  *     their own contract fixtures (contractHarness createFetchStub): no network, but the actual mapping code.
  */
@@ -59,7 +59,7 @@ describe("snapshot masters: every row round-trips", () => {
           const { aliases } = await svc.convert({ input: canonical, broker });
           expect(aliases[`broker:${broker}:token`]).toBe(row.token);
           if (aliases.tradingview) expect((await svc.convert({ input: aliases.tradingview, from: "tradingview" })).canonical).toBe(canonical);
-          expect((await svc.convert({ input: aliases.openalgo, exchange: aliases.openalgoExchange, from: "openalgo" })).canonical).toBe(canonical);
+          expect((await svc.convert({ input: aliases.compact, exchange: aliases.compactExchange, from: "compact" })).canonical).toBe(canonical);
         });
       }
     });

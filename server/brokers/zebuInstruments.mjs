@@ -3,8 +3,8 @@
  *
  * Official docs (https://zebumyntapi.web.app/OAuth/Masters/, checked 2026-10): daily ZIP files
  *   https://go.mynt.in/{NSE|BSE|NFO|BFO|CDS|MCX}_symbols.txt.zip
- * "Master file downloads require OAuth authentication", so the Bearer token is sent (OpenAlgo downloads
- * them without one; the docs are followed). Each ZIP holds one comma-separated text file with a header
+ * "Master file downloads require OAuth authentication", so the Bearer token is sent (the docs
+ * are followed). Each ZIP holds one comma-separated text file with a header
  * row and a trailing comma on every line (read from the published files):
  *   NSE: Exchange,Token,LotSize,Symbol,TradingSymbol,Instrument,TickSize   (Instrument = series: EQ, BE,
  *        ..., and INDEX rows for Nifty 50 26000, Nifty Bank 26009, Nifty Fin Services 26037, India VIX)

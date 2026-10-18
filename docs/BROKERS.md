@@ -86,7 +86,3 @@ The capability columns are generated from each adapter's declared `capabilities`
 ## Using a broker through the Bridge
 
 Add an account under `accounts` in `bridge.config.json` (`mc-bridge init` can do this for you; see [guides/accounts.md](guides/accounts.md)), then sign in with `mc-bridge accounts connect <accountId>` or `POST /v1/accounts/{accountId}/session`. Every market-data, portfolio and order route takes an optional `account` parameter; without one the Bridge picks your default account. A capability the broker's adapter does not declare answers `422 CAPABILITY_UNSUPPORTED`; a missing or expired session answers `422 SESSION_EXPIRED` with a hint to sign in again. `GET /v1/brokers` lists what each adapter offers, without credentials. The full API is in [openapi.yaml](openapi.yaml); adapter internals are in [broker-contract.md](broker-contract.md).
-
-## Attribution
-
-The broker API facts behind these adapters (endpoints, field names, error codes, instrument formats) were cross-checked against the open-source [OpenAlgo](https://github.com/marketcalls/openalgo) project (AGPL-3.0, github.com/marketcalls/openalgo) and each broker's official API documentation, linked above. Where the two disagreed, the official documentation was followed. No OpenAlgo code is included in this project: OpenAlgo was used only as a factual reference, and every adapter was written independently.

@@ -10,7 +10,7 @@
  *  - Masters are merged into ResolvedInstrument records (instrumentStore.mjs). Lot sizes are never guessed: an unknown
  *    lot size is SYMBOL_NOT_FOUND. Expired contracts never resolve.
  *  - resolve() accepts canonical symbols, the venue form (NSE: for derivatives), TradingView tickers (continuous 1!/2!
- *    become the nearest/next futures expiry from the master), OpenAlgo-style symbols with an exchange (or written
+ *    become the nearest/next futures expiry from the master), compact symbols with an exchange (or written
  *    "NFO:NIFTY27OCT2625000CE"), and, with { broker }, that broker's own tokens and trading symbols.
  *
  * Nothing here holds or logs credentials: creds() is called inside the scheduled function and handed straight to the
@@ -25,10 +25,10 @@ import {
   EXCHANGES,
   detectFormat,
   formatSymbol,
-  parseOpenAlgo,
+  parseCompact,
   parseSymbol,
   parseTradingView,
-  toOpenAlgo,
+  toCompact,
   toTradingView,
 } from "../core/symbolFormat.mjs";
 import { FREEZE_LIST_AS_OF } from "./freezeQuantities.mjs";
@@ -37,7 +37,7 @@ import { istDay, istTimeOnDay, toIstIso } from "./ist.mjs";
 import { createMasterCache } from "./masterCache.mjs";
 import { SYMBOLS_CONFIG_DEFAULTS } from "./symbolsConfig.mjs";
 
-export const FROM_FORMATS = Object.freeze(["auto", "canonical", "tradingview", "openalgo", "broker"]);
+export const FROM_FORMATS = Object.freeze(["auto", "canonical", "tradingview", "compact", "broker"]);
 export const KINDS = Object.freeze(["INDEX", "EQ", "FUT", "OPT"]);
 export const SEARCH_LIMIT_DEFAULT = 100;
 export const SEARCH_LIMIT_MAX = 500;
@@ -283,12 +283,12 @@ export function createSymbolService(deps, opts = {}) {
     return formatSymbol({ exchange: tv.exchange, underlying: tv.underlying, kind: "FUT", expiry });
   }
 
-  /** OpenAlgo-style symbol: exchange from the argument, or written as "NFO:NIFTY27OCT2625000CE". */
-  function fromOpenAlgo(input, exchange) {
-    if (exchange) return parseOpenAlgo(input, exchange).canonical;
+  /** Compact symbol: exchange from the argument, or written as "NFO:NIFTY27OCT2625000CE". */
+  function fromCompact(input, exchange) {
+    if (exchange) return parseCompact(input, exchange).canonical;
     const i = input.indexOf(":");
-    if (i > 0) return parseOpenAlgo(input.slice(i + 1), input.slice(0, i)).canonical;
-    throw invalid("OpenAlgo-style symbols need an exchange (for example exchange=NFO).");
+    if (i > 0) return parseCompact(input.slice(i + 1), input.slice(0, i)).canonical;
+    throw invalid("Compact symbols need an exchange (for example exchange=NFO).");
   }
 
   /** Broker-native token or trading symbol -> canonical. */
@@ -312,21 +312,21 @@ export function createSymbolService(deps, opts = {}) {
 
   /**
    * Any accepted input -> canonical string. `from: "auto"` tries, in order: TradingView, canonical/venue form,
-   * OpenAlgo-style, and (with a broker) broker-native, keeping the most useful error.
+   * compact, and (with a broker) broker-native, keeping the most useful error.
    */
   function toCanonical(rawInput, { from = "auto", broker = null, exchange } = {}) {
     const input = checkInput(rawInput);
     if (!FROM_FORMATS.includes(from)) throw invalid(`from must be one of ${FROM_FORMATS.join(", ")}.`);
     if (from === "canonical") return parseSymbol(input).canonical;
     if (from === "tradingview") return fromTradingView(input);
-    if (from === "openalgo") return fromOpenAlgo(input, exchange);
+    if (from === "compact") return fromCompact(input, exchange);
     if (from === "broker") return fromBrokerNative(broker, input, exchange);
 
     const fmt = detectFormat(input, exchange);
     const attempts = [];
     if (fmt === "tradingview") attempts.push(() => fromTradingView(input));
     if (fmt === "canonical" && !exchange) attempts.push(() => parseSymbol(input).canonical);
-    if (fmt === "openalgo" || exchange || input.includes(":")) attempts.push(() => fromOpenAlgo(input, exchange));
+    if (fmt === "compact" || exchange || input.includes(":")) attempts.push(() => fromCompact(input, exchange));
     if (fmt === "canonical" && exchange) attempts.push(() => parseSymbol(input).canonical);
     let firstError = null;
     for (const attempt of attempts) {
@@ -379,15 +379,15 @@ export function createSymbolService(deps, opts = {}) {
       aliases.tradingview = toTradingView(canonical);
     }
     if (kind === "INDEX") {
-      aliases.openalgo = p.underlying;
-      aliases.openalgoExchange = `${p.exchange}_INDEX`;
+      aliases.compact = p.underlying;
+      aliases.compactExchange = `${p.exchange}_INDEX`;
     } else if (kind === "EQ") {
-      aliases.openalgo = p.underlying;
-      aliases.openalgoExchange = p.exchange;
+      aliases.compact = p.underlying;
+      aliases.compactExchange = p.exchange;
     } else {
-      const oa = toOpenAlgo(canonical);
-      aliases.openalgo = oa.symbol;
-      aliases.openalgoExchange = oa.exchange;
+      const oa = toCompact(canonical);
+      aliases.compact = oa.symbol;
+      aliases.compactExchange = oa.exchange;
     }
     const brokers = broker ? [broker] : Object.keys(rec?.refs ?? {}).sort();
     for (const b of brokers) {
@@ -439,7 +439,7 @@ export function createSymbolService(deps, opts = {}) {
     /**
      * @param {string} input any accepted form
      * @param {{ broker?: string, exchange?: string, from?: string }} [options]
-     *   broker: require that broker's ref (and accept its native tokens/trading symbols); exchange: for OpenAlgo-style
+     *   broker: require that broker's ref (and accept its native tokens/trading symbols); exchange: for compact
      *   or broker-native input; from: force one input format.
      * @returns {Promise<import("../core/contracts.mjs").ResolvedInstrument>}
      */

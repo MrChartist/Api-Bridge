@@ -23,7 +23,7 @@ read-only key created with `--allow-query`.
 
 ### Licences
 
-- **TradingView Lightweight Charts** (Apache 2.0) is free to use, including commercially, with attribution: keep the
+- **TradingView Lightweight Charts** (Apache 2.0) is free to use with attribution: keep the
   TradingView logo (`layout.attributionLogo`) or a visible link to tradingview.com. Option Hub's own chart should use
   it.
 - **TradingView Advanced Charts / Trading Platform** is licensed by TradingView separately and, as far as we know, not

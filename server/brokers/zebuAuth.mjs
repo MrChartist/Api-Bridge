@@ -12,7 +12,7 @@
  *  4. Every API call: POST https://go.mynt.in/NorenWClientAPI/<Endpoint>, `Authorization: Bearer
  *     <access_token>`, body `jData=<json>` with uid (and actid where documented).
  * Failures are HTTP 200 { stat: "Not_Ok", emsg }; "Session Expired : Invalid Session Key" means the token is
- * dead. Documented rate limit: 10 requests/second per user (OpenAlgo's figure; Zebu's OAuth pages do not
+ * dead. Documented rate limit: 10 requests/second per user (unofficial figure; Zebu's OAuth pages do not
  * state one).
  *
  * The code is single-use. This module exchanges it once per credential set, keeps the access and refresh

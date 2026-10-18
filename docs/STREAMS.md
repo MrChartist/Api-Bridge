@@ -13,7 +13,7 @@ Eleven streams build the Bridge in parallel on top of the shared core. Read [ARC
 7. **Secrets:** never log, return, cache-key or persist (outside SecretStore) a credential. Passwords, PINs and TOTP codes are never stored anywhere.
 8. **Tests:** Vitest, files next to the code (`*.test.mjs`). No live network calls: stub adapters, use `contractHarness.mjs` fixtures, or the fakes other streams publish. Each stream publishes **`server/bridge/<dir>/fake.mjs`** in its first PR: an in-memory implementation of its service contract for other streams' tests.
 9. **Copy:** user-facing text in Indian English, plain and specific ("Log in again from the Bridge; your Zerodha session ended at 6 am."). Amounts in rupees with Indian grouping where formatted (₹2,00,000).
-10. **Licence:** proprietary; keep `LICENSE` unchanged. OpenAlgo (AGPL-3.0) is for public facts only: never copy or translate its code. No git write commands in agent sessions.
+10. **Licence and sources:** see `LICENSE`. Broker facts come only from each broker's official docs, SDKs and Postman collections. No git write commands in agent sessions.
 11. **Definition of done:** `npx vitest run` and `node scripts/check-mjs.mjs` pass; your stub is gone (`/v1/health` shows `ready`); routes answer per `openapi.yaml`; acceptance criteria below hold; your section of the stream checklist is ticked in the PR description.
 
 ## Dependency and merge order
@@ -91,7 +91,7 @@ Acceptance (fake clock, no sleeps): no window ever exceeds its limit under a 1,0
 Tasks:
 - Delegate `parse`/`format` to `core/symbolFormat.mjs` (do not fork the format).
 - Load each connected broker's master through `scheduler.schedule({ endpointClass: "master", priority: "background" })`, map contract `Instrument` rows to canonical ids (index underlyings via `CANONICAL_UNDERLYINGS`), merge across brokers into `ResolvedInstrument`, cache per broker per IST day in `dataDir/instruments/`, refresh after 08:30 IST and on demand.
-- `resolve`: canonical, venue form, TradingView (continuous `1!`/`2!` → nearest/next expiry), OpenAlgo-style, broker-native (`broker` + token or trading symbol). Kind correction for cash symbols (index vs equity) from the master.
+- `resolve`: canonical, venue form, TradingView (continuous `1!`/`2!` → nearest/next expiry), compact (`NIFTY27OCT2625000CE` + exchange), broker-native (`broker` + token or trading symbol). Kind correction for cash symbols (index vs equity) from the master.
 - Search with ranking (exact symbol, underlying, then fuzzy), cursor pagination.
 - Freeze quantities: from masters where present, else a dated exchange list file you own (mark `verified`).
 

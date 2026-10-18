@@ -184,8 +184,8 @@ describe("/v1/symbols/convert", () => {
       canonical: "NFO:NIFTY-2026-10-27-25000-CE",
       aliases: {
         tradingview: "NSE:NIFTY261027C25000",
-        openalgo: "NIFTY27OCT2625000CE",
-        openalgoExchange: "NFO",
+        compact: "NIFTY27OCT2625000CE",
+        compactExchange: "NFO",
         "broker:zerodha": "NIFTY26OCT25000CE",
         "broker:zerodha:token": "12010242",
       },

@@ -687,7 +687,7 @@ export function createStreamHub(deps, { random = Math.random } = {}) {
    * (VALIDATION_FAILED, SYMBOL_NOT_FOUND, SUBSCRIPTION_LIMIT, BROKER_UNAVAILABLE ...). Re-subscribing a symbol the
    * client already has changes its mode. Throws VALIDATION_FAILED only for a malformed call.
    * @param {string} clientId
-   * @param {string[]} input  canonical symbols or aliases (TradingView, OpenAlgo with exchange)
+   * @param {string[]} input  canonical symbols or aliases (TradingView, compact with exchange)
    * @param {StreamMode} [mode]
    * @returns {Promise<{ accepted: string[], rejected: Array<{ symbol: string, code: string, message: string }> }>}
    */

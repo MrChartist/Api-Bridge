@@ -39,7 +39,7 @@ info:
     indices), NFO and BFO (equity derivatives), MCX and CDS. The ISO expiry removes the ambiguity of exchange trading
     symbols (weekly codes, DDMMMYY vs YYMDD), the suffix is parsed from the right so hyphens in names are safe, and no
     lookup is needed to read it. Inputs are lenient (case, `NSE:` for derivatives, TradingView tickers such as
-    `NSE:NIFTY1!`, OpenAlgo-style symbols with an exchange); responses always use the canonical form. Convert with
+    `NSE:NIFTY1!`, compact symbols with an exchange); responses always use the canonical form. Convert with
     `/v1/symbols/convert`.
 
     ## Responses, freshness and errors
@@ -65,8 +65,8 @@ info:
   contact:
     name: Investology (Mr. Chartist)
   license:
-    name: Proprietary
-    identifier: LicenseRef-Proprietary
+    name: Mr. Chartist API Bridge Personal Use Licence 1.0
+    identifier: LicenseRef-MrChartist-Personal-Use-1.0
 servers:
   - url: http://127.0.0.1:4300
     description: Local Bridge (default)
@@ -580,7 +580,7 @@ paths:
           schema: { $ref: "#/components/schemas/SymbolFormatName" }
         - name: exchange
           in: query
-          description: Needed for OpenAlgo-style and broker trading symbols.
+          description: Needed for compact and broker trading symbols.
           schema: { type: string, maxLength: 12 }
         - name: broker
           in: query
@@ -2104,7 +2104,7 @@ components:
       examples: ["NSE:RELIANCE", "NSE:NIFTY", "NFO:NIFTY-2026-10-27-FUT", "NFO:NIFTY-2026-10-27-25000-CE"]
     SymbolFormatName:
       type: string
-      enum: [auto, canonical, tradingview, openalgo, broker]
+      enum: [auto, canonical, tradingview, compact, broker]
       default: auto
     Exchange:
       type: string
@@ -2297,7 +2297,7 @@ components:
         canonical: { $ref: "#/components/schemas/Symbol" }
         aliases:
           type: object
-          description: "tradingview, openalgo (symbol and exchange) and, when a broker is given or connected, broker:<id>."
+          description: "tradingview, compact (symbol and exchange) and, when a broker is given or connected, broker:<id>."
           additionalProperties: { type: [string, "null"] }
 
     LtpItem:

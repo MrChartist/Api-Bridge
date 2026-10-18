@@ -622,8 +622,7 @@ Layout: `server/brokers/` (41 adapters behind [the broker contract](docs/broker-
 
 ## Licence
 
-Proprietary. See [LICENSE](LICENSE). © 2026 Investology (Mr. Chartist). All rights reserved.
+Free for personal use by individuals. The source is open to read, run and change for your own use. See [LICENSE](LICENSE).
 
-OpenAlgo (AGPL-3.0) was consulted for publicly documented facts only; no OpenAlgo code is copied or translated.
 TradingView, Lightweight Charts and Advanced Charts are trademarks of TradingView, Inc.; Advanced Charts is not
 included.

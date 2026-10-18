@@ -9,8 +9,8 @@
  *   module sent "|" and "," raw; Kotak decodes both forms).
  * The docs publish no response sample. Field names used here (exchange, exchange_token, display_symbol, ltp,
  * last_volume, open_int, ohlc{open,high,low,close}, depth{buy[],sell[]} with price/quantity/orders) are the ones
- * this repo's previous module and OpenAlgo read; a bad query answers HTTP 200 { stat: "Not_Ok", stCode, emsg }.
- * Limits: no cap is documented. OpenAlgo observed HTTP 400 at 50 symbols per call and HTTP 429 with more than ~4
+ * this repo's previous module read; a bad query answers HTTP 200 { stat: "Not_Ok", stCode, emsg }.
+ * Limits: no cap is documented. Unofficial reports: HTTP 400 at 50 symbols per call and HTTP 429 with more than ~4
  * requests in flight; we send at most 25 symbols per call, one call at a time, 200 ms apart.
  */
 

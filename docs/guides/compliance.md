@@ -36,8 +36,8 @@ yourself and the family members SEBI allows. It ships no strategies or signals a
 A retail algo may be used by the client, spouse, dependent children and dependent parents (**needs verification**:
 the family definition in CIR/2025/0000013 and NSE/INVG/67858). Running the Bridge for
 anyone else, hosting it, or selling signals or strategies would likely make the operator an exchange-empanelled algo
-provider, and black-box strategies may need Research Analyst registration (**legal review before any hosted or
-commercial use**).
+provider, and black-box strategies may need Research Analyst registration (**legal review before any hosted
+use**).
 
 ## Market data
 

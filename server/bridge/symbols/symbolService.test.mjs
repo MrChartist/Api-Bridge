@@ -300,7 +300,7 @@ describe("resolve", () => {
     expect((await svc.resolve("BFO:SENSEX-2026-10-22-82000-CE")).refs.dhan.token).toBe("1125429");
   });
 
-  it("accepts OpenAlgo-style symbols with an exchange", async () => {
+  it("accepts compact symbols with an exchange", async () => {
     expect((await svc.resolve("NIFTY27OCT2625000CE", { exchange: "NFO" })).canonical).toBe("NFO:NIFTY-2026-10-27-25000-CE");
     expect((await svc.resolve("NIFTY", { exchange: "NSE_INDEX" })).canonical).toBe("NSE:NIFTY");
     await expect(svc.resolve("NIFTY27OCT2625000CE")).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
@@ -398,15 +398,15 @@ describe("convert", () => {
     ({ svc } = setup());
   });
 
-  it("gives canonical plus TradingView, OpenAlgo and every connected broker's alias", async () => {
+  it("gives canonical plus TradingView, compact and every connected broker's alias", async () => {
     const r = await svc.convert({ input: "NSE:NIFTY261027C25000" });
     expect(r).toEqual({
       input: "NSE:NIFTY261027C25000",
       canonical: "NFO:NIFTY-2026-10-27-25000-CE",
       aliases: {
         tradingview: "NSE:NIFTY261027C25000",
-        openalgo: "NIFTY27OCT2625000CE",
-        openalgoExchange: "NFO",
+        compact: "NIFTY27OCT2625000CE",
+        compactExchange: "NFO",
         "broker:angelone": "NIFTY27OCT2625000CE",
         "broker:angelone:token": "51440",
         "broker:dhan": "NIFTY-Oct2026-25000-CE",
@@ -423,8 +423,8 @@ describe("convert", () => {
 
   it("names futures by their continuous TradingView ticker and indices with the _INDEX exchange", async () => {
     expect((await svc.convert({ input: "NFO:BANKNIFTY-2026-10-27-FUT" })).aliases.tradingview).toBe("NSE:BANKNIFTY1!");
-    expect((await svc.convert({ input: "NSE:NIFTY" })).aliases).toMatchObject({ tradingview: "NSE:NIFTY", openalgo: "NIFTY", openalgoExchange: "NSE_INDEX" });
-    expect((await svc.convert({ input: "NSE:RELIANCE" })).aliases).toMatchObject({ openalgo: "RELIANCE", openalgoExchange: "NSE" });
+    expect((await svc.convert({ input: "NSE:NIFTY" })).aliases).toMatchObject({ tradingview: "NSE:NIFTY", compact: "NIFTY", compactExchange: "NSE_INDEX" });
+    expect((await svc.convert({ input: "NSE:RELIANCE" })).aliases).toMatchObject({ compact: "RELIANCE", compactExchange: "NSE" });
   });
 
   it("from=broker reads a native token; a given broker without the instrument gets a null alias", async () => {
@@ -435,7 +435,7 @@ describe("convert", () => {
   });
 
   it("works as a pure format converter for symbols no master lists", async () => {
-    expect(await svc.convert({ input: "NIFTY30DEC2626000PE", from: "openalgo", exchange: "NFO" })).toMatchObject({ canonical: "NFO:NIFTY-2026-12-30-26000-PE", aliases: { tradingview: "NSE:NIFTY261230P26000" } });
+    expect(await svc.convert({ input: "NIFTY30DEC2626000PE", from: "compact", exchange: "NFO" })).toMatchObject({ canonical: "NFO:NIFTY-2026-12-30-26000-PE", aliases: { tradingview: "NSE:NIFTY261230P26000" } });
   });
 
   it("validates its input", async () => {
@@ -443,7 +443,7 @@ describe("convert", () => {
     await expect(svc.convert({ input: "NSE:RELIANCE", from: "bloomberg" })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
     await expect(svc.convert({ input: "51440", from: "broker" })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
     await expect(svc.convert({ input: "NSE:RELIANCE", exchange: "X".repeat(13) })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
-    await expect(svc.convert({ input: "NIFTY", from: "openalgo" })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await expect(svc.convert({ input: "NIFTY", from: "compact" })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 });
 

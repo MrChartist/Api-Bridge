@@ -4,10 +4,10 @@ import {
   formatSymbol,
   isCanonicalSymbol,
   normaliseStrike,
-  parseOpenAlgo,
+  parseCompact,
   parseSymbol,
   parseTradingView,
-  toOpenAlgo,
+  toCompact,
   toTradingView,
 } from "./symbolFormat.mjs";
 
@@ -125,7 +125,7 @@ describe("TradingView aliases", () => {
   });
 });
 
-describe("OpenAlgo-style aliases (format only)", () => {
+describe("compact aliases (format only)", () => {
   it.each([
     ["NIFTY27OCT2625000CE", "NFO", "NFO:NIFTY-2026-10-27-25000-CE"],
     ["NIFTY27OCT26FUT", "NFO", "NFO:NIFTY-2026-10-27-FUT"],
@@ -134,13 +134,13 @@ describe("OpenAlgo-style aliases (format only)", () => {
     ["RELIANCE", "NSE", "NSE:RELIANCE"],
     ["NIFTY", "NSE_INDEX", "NSE:NIFTY"],
   ])("%s on %s -> %s and back", (sym, ex, canonical) => {
-    expect(parseOpenAlgo(sym, ex).canonical).toBe(canonical);
-    const back = toOpenAlgo(canonical);
-    expect(parseOpenAlgo(back.symbol, back.exchange).canonical).toBe(canonical);
+    expect(parseCompact(sym, ex).canonical).toBe(canonical);
+    const back = toCompact(canonical);
+    expect(parseCompact(back.symbol, back.exchange).canonical).toBe(canonical);
   });
 
   it("rejects unknown exchanges", () => {
-    expect(() => parseOpenAlgo("NIFTY", "NASDAQ")).toThrow(/Unknown exchange/);
+    expect(() => parseCompact("NIFTY", "NASDAQ")).toThrow(/Unknown exchange/);
   });
 });
 
@@ -149,7 +149,7 @@ describe("detectFormat", () => {
     expect(detectFormat("NFO:NIFTY-2026-10-27-FUT")).toBe("canonical");
     expect(detectFormat("NSE:NIFTY1!")).toBe("tradingview");
     expect(detectFormat("NSE:NIFTY261027C25000")).toBe("tradingview");
-    expect(detectFormat("NIFTY27OCT26FUT", "NFO")).toBe("openalgo");
+    expect(detectFormat("NIFTY27OCT26FUT", "NFO")).toBe("compact");
     expect(detectFormat("??")).toBe("unknown");
   });
 });

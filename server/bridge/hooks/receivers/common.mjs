@@ -92,7 +92,7 @@ const pick = (o, names) => {
 };
 
 /**
- * One Signal from a JSON object, accepting the common field spellings used by TradingView templates, OpenAlgo-style
+ * One Signal from a JSON object, accepting the common field spellings used by TradingView templates, compact
  * payloads and hand-written scripts.
  * @param {Record<string, unknown>} o
  * @param {string} [prefix] path prefix for error messages

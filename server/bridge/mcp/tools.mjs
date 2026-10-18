@@ -368,11 +368,11 @@ export const TOOL_DEFS = Object.freeze([
     name: "convert_symbol",
     title: "Convert a symbol",
     toolset: "market",
-    description: "Convert a TradingView, OpenAlgo-style or broker symbol to the Bridge's canonical symbol, with its aliases.",
+    description: "Convert a TradingView, compact or broker symbol to the Bridge's canonical symbol, with its aliases.",
     input: () =>
       z.strictObject({
         input: z.string().min(1).max(64),
-        from: z.enum(["auto", "canonical", "tradingview", "openalgo", "broker"]).nullable(),
+        from: z.enum(["auto", "canonical", "tradingview", "compact", "broker"]).nullable(),
         broker: z.string().regex(/^[a-z0-9]{2,20}$/).nullable(),
         exchange: exchangeIn.nullable(),
       }),

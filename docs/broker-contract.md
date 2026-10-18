@@ -1,15 +1,12 @@
 # Broker adapter contract (v1)
 
-How every one of the 33 broker adapters in `server/brokers/` should look, how to prove it, and what each broker engineer fills in. The code is the source of truth: `server/brokers/contract.mjs` (with `orderGate.mjs`), `contractShapes.mjs`, `contractHarness.mjs` and `sessionLogin.mjs`. Dhan (`dhan.mjs` + `dhanContract.mjs`, fixtures in `__fixtures__/dhan/`) is the reference adapter.
+How every one of the 41 broker adapters in `server/brokers/` should look, how to prove it, and what each broker engineer fills in. The code is the source of truth: `server/brokers/contract.mjs` (with `orderGate.mjs`), `contractShapes.mjs`, `contractHarness.mjs` and `sessionLogin.mjs`. Dhan (`dhan.mjs` + `dhanContract.mjs`, fixtures in `__fixtures__/dhan/`) is the reference adapter.
 
-## 0. Licence rule (read first)
+## 0. Sources rule (read first)
 
-OpenAlgo (`scratchpad/ref/openalgo`) is **AGPL-3.0**; this project is **proprietary** (see LICENSE).
-
-- Use OpenAlgo only as a **factual** reference: endpoint URLs, HTTP methods, auth steps, request/response field names, exchange/segment codes, instrument-master URLs and formats.
-- **Never** copy, paste or translate its code, comments, docstrings or structure line by line. Write your own idiomatic ESM in this repo's style. Do not add it as a dependency.
-- Check every fact against the broker's **official** API docs. Where OpenAlgo and the official docs disagree, follow the official docs and say so in the file header and in your checklist.
-- Fixture payloads come from official doc samples or your own sandbox account, never from OpenAlgo's test data. Replace every token, account ID and name with a dummy value.
+- Write every adapter from the broker's **official** sources only: its API documentation, its official SDKs and its official Postman collections. Cite them in the file header and in `__fixtures__/<id>/manifest.json`.
+- A fact the official sources leave out is marked in the code as "not in the official docs: needs live verification".
+- Fixture payloads come from official doc samples or your own sandbox account. Replace every token, account ID and name with a dummy value.
 
 ## 1. Files
 
@@ -143,11 +140,7 @@ browser saves values + session + sessionExpiresAt  <--  only declared auth.sessi
    ```
 4. Limits: the harness stubs `fetch` only. Code that uses `node:https` (mStock quotes) or WebSockets (Tradejini, Alice Blue, Pocketful) needs its own small unit test around a pure parser; keep the network call thin. Module-level instrument caches persist between capabilities in one run, so include the master download in the first fixture that needs it.
 
-## 7. OpenAlgo capability map (facts only)
-
-OpenAlgo's `broker/<name>/` covers: `api/auth_api.py` → `auth`/`login`; `api/data.py` → `quotes`, `depth`, `historical`; `api/order_api.py` → `orderBook`, `tradeBook`, `positions`, `holdings`, `placeOrder`, `modifyOrder`, `cancelOrder`; `api/funds.py` → `funds`; `database/master_contract_db.py` → `instruments` (master URL and columns); `mapping/` → exchange, product and order-type codes; `streaming/` → `feed`. Its GTT, margin calculator, "smart order" and close-all helpers are **out of scope** for v1. Read those files for endpoint and field facts, then confirm each one in the official docs.
-
-## 8. Current status
+## 7. Current status
 
 All 41 adapters are on the strict contract with a full fixture harness (`validateAdapter` strict, `runContractHarness` with no failures). Only Dhan has been verified against a live account; the rest are beta. The user-facing table, with capabilities and docs links, is in [BROKERS.md](BROKERS.md); `src/lib/brokerCapabilities.generated.ts` is generated from the adapters (`node scripts/generate-broker-capabilities.mjs`).
 
@@ -160,12 +153,12 @@ All 41 adapters are on the strict contract with a full fixture harness (`validat
 
 Known follow-ups (not blocking): OAuth/third-party callback routes (zerodha, upstox, compositedge) so users need not paste tokens; streaming feeds for the brokers that do not declare `feed`; `server/lib/batch.mjs` swallows `SessionRequiredError` (the brokers that hit this stopped using it); `server/lib/dhanPacketParser.mjs` differs from the official v2 feed layout (SENSEX id 51, BANKEX 69, float32 prices) but only its `tickKey` helper is used in production, the proxy has its own float32 decoder.
 
-## 9. Per-broker checklist (copy into your PR description)
+## 8. Per-broker checklist (copy into your PR description)
 
 ```
 ### Broker: <id>  —  engineer: <name>
-Official docs: <URLs>                     OpenAlgo consulted for facts only: yes/no
-Disagreements (OpenAlgo vs official, what we followed):
+Official docs / SDKs / Postman: <URLs>
+Facts not in the official sources (each flagged for live verification):
 -
 
 Auth
@@ -202,11 +195,6 @@ Tests and fixtures
 - [ ] <id>.contract.test.mjs: validateAdapter(strict) has no errors; runContractHarness has no failures
 - [ ] npm run typecheck · npm run lint · npx vitest run --project server · node --check server/brokers/<id>*.mjs
 
-Licence (required before merge; see section 0)
-- [ ] node scripts/check-openalgo-overlap.mjs --ref <local OpenAlgo checkout> <id>
-      Every shared 6-token run it lists is an endpoint path, a documented field name or a documented constant.
-      Anything else (helper shape, header/filler values, log or error text, literal tables in OpenAlgo's order)
-      has been rewritten from the official docs. Paste the script's summary line here: ____
-- [ ] Any fact taken from OpenAlgo because the official docs omit it is named in the file header and in
-      "Disagreements" above, and flagged for live verification
+Sources (required before merge; see section 0)
+- [ ] Every fact is cited to the broker's official docs, SDK or Postman collection, or flagged for live verification
 ```

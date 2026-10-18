@@ -4,7 +4,7 @@
  * Official docs: https://tradingapi.mstock.com/docs/v1/Introduction/ and the Type B pages
  * (User, Orders, Portfolio, Position, market-quote-and-instrument, historical-candle, intraday-chart-data,
  * option-chain-apis, market-data, error-codes) plus https://tradingapi.mstock.com/docs/v1/Annexure/.
- * OpenAlgo (AGPL) was read for facts only; where it differs from the docs the docs are followed and the
+ * Where unofficial sources differ from the docs the docs are followed and the
  * module that makes the call says so.
  *
  * Auth (sessionLogin): the user types the password and the current TOTP code; login() returns only the JWT

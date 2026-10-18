@@ -14,9 +14,9 @@
  *    same step ("once the request_token is obtained from the login flow, it should be POSTed to
  *    /user/session"). A used or expired token raises SessionRequiredError; there is no automatic re-login.
  *
- * Differences from OpenAlgo (official docs followed): see the header of compositedgeXtsCore.mjs. In
- * addition, OpenAlgo's CompositEdge modify-order reader looks for {status:"true", data:{orderid}}, which is
- * not the documented XTS envelope ({type:"success", result:{AppOrderID}}); we read the documented one.
+ * Official docs followed throughout: see the header of compositedgeXtsCore.mjs. In addition, the modify-order
+ * answer is read as the documented XTS envelope ({type:"success", result:{AppOrderID}}), not as
+ * {status:"true", data:{orderid}}.
  */
 
 import { createXtsBroker, xtsCapabilities } from "./compositedgeXtsCore.mjs";

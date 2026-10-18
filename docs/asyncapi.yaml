@@ -45,7 +45,7 @@ info:
 
     Personal use only: broker data terms generally forbid passing market data to other people.
   license:
-    name: Proprietary (Investology / Mr. Chartist)
+    name: Mr. Chartist API Bridge Personal Use Licence 1.0
   contact:
     name: Investology (Mr. Chartist)
 defaultContentType: application/json

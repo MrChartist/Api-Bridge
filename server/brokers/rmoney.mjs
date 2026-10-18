@@ -15,10 +15,10 @@
  *    token; nothing is exchanged server-side.
  *
  * RMoney publishes no reachable API docs (its /doc pages reset the connection during this audit). Host,
- * port, the /apibinarymarketdata path and the "session already holds the token" behaviour come from
- * OpenAlgo (facts only) and differ from the generic XTS v2 docs, where the third-party login returns an
- * accessToken that is exchanged via /hostlookup + /user/session. We follow OpenAlgo here because it is the
- * only RMoney-specific source; confirm on a live account. Fixes over the previous adapter: the option
+ * port, the /apibinarymarketdata path and the "session already holds the token" behaviour are not in
+ * the official docs (needs live verification) and differ from the generic XTS v2 docs, where the third-party login returns an
+ * accessToken that is exchanged via /hostlookup + /user/session. We follow them here because they are the
+ * only RMoney-specific facts; confirm on a live account. Fixes over the previous adapter: the option
  * chain no longer reads UnderlyingInstrumentId as the index token (the official master sample has -1
  * there for index options), quotes accept listQuotes as an object as well as an array, and masters are
  * fetched with the token.
