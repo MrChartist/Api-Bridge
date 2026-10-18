@@ -1,6 +1,6 @@
 # Dependencies
 node_modules/
-package-lock.json
+
 
 # Environment
 .env
@@ -39,3 +39,6 @@ desktop.ini
 
 # Build
 dist/
+
+# Test output
+coverage/
