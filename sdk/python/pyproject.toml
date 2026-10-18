@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mrchartist-bridge"
+version = "0.1.0"
+description = "Python client for the Mr. Chartist API Bridge: market data, paper and live orders with idempotency keys, and live streams."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Proprietary. See LICENSE in the repository." }
+authors = [{ name = "Rohit Singh (Mr. Chartist)" }]
+dependencies = []
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: Other/Proprietary License",
+  "Operating System :: OS Independent",
+]
+
+[tool.setuptools]
+packages = ["mrchartist_bridge"]
+
+[tool.setuptools.package-data]
+mrchartist_bridge = ["py.typed"]

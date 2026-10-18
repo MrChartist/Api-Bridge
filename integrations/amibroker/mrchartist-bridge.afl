@@ -1,0 +1,146 @@
+// =====================================================================================================
+// Mr. Chartist API Bridge — AFL include (read-only market data)
+// Copyright (c) Investology (Mr. Chartist). Proprietary; see LICENSE in the repository.
+//
+// Put this file in AmiBroker's Formulas\Include folder and add to your formula:
+//     #include_once <mrchartist-bridge.afl>
+//
+// THE KEY NEVER GOES IN A STRATEGY FILE. This include finds it, in this order:
+//   1. the MCB_AMIBROKER_KEY environment variable (set it for your Windows user, then restart AmiBroker), or
+//   2. the first line of %USERPROFILE%\.mc-bridge\amibroker.key
+// Create a read-only URL key for it:  mc-bridge keys create --label amibroker --scope read --allow-query --client other
+// Nothing here can place an order: the Bridge's /xl routes are read-only and refuse any key that is not read-only.
+//
+// The Bridge address defaults to http://127.0.0.1:4300; set MCB_BRIDGE_URL to change it.
+//
+// Rate limits: AmiBroker re-runs formulas on every refresh. Each value is cached in a static variable and fetched at
+// most once per McbMinIntervalMs (default 1000 ms) per symbol, and the Bridge itself answers from its live stream or
+// cache first, so a chart refreshing many times a second does not multiply broker calls.
+//
+// Needs AmiBroker 5.90 or later (InternetOpenURL, GetPerformanceCounter) and Windows Script Host (WScript.Shell) for
+// environment variables. Tested logic only against the Bridge's own test server; check on your AmiBroker version.
+// =====================================================================================================
+
+// Minimum time between two fetches of the same value. Raise it (never lower it below 500) if you watch many symbols.
+McbMinIntervalMs = 1000;
+
+// Expand %VARIABLES% through Windows Script Host. Returns "" when the variable is not set.
+function McbEnv(name)
+{
+    value = "";
+    shell = CreateObject("WScript.Shell");
+    if (NOT IsNull(shell))
+    {
+        value = shell.ExpandEnvironmentStrings("%" + name + "%");
+        if (value == "%" + name + "%")
+            value = "";
+    }
+    return value;
+}
+
+function McbTrim(s)
+{
+    s = StrReplace(s, "\r", "");
+    s = StrReplace(s, "\n", "");
+    return StrReplace(s, " ", "");
+}
+
+// The read-only Bridge key, from the environment or the key file. Cached for the session; never written anywhere.
+function McbKey()
+{
+    key = StaticVarGetText("mcb_bridge_key");
+    if (key == "")
+    {
+        key = McbTrim(McbEnv("MCB_AMIBROKER_KEY"));
+        if (key == "")
+        {
+            path = McbEnv("USERPROFILE") + "\\.mc-bridge\\amibroker.key";
+            fh = fopen(path, "r");
+            if (fh)
+            {
+                key = McbTrim(fgets(fh));
+                fclose(fh);
+            }
+        }
+        if (key != "")
+            StaticVarSetText("mcb_bridge_key", key);
+    }
+    return key;
+}
+
+function McbBaseUrl()
+{
+    url = McbTrim(McbEnv("MCB_BRIDGE_URL"));
+    if (url == "")
+        url = "http://127.0.0.1:4300";
+    return url;
+}
+
+// Percent-encode the characters that matter in Bridge symbols (M&M, BAJAJ-AUTO, option strikes).
+function McbUrlEncode(s)
+{
+    s = StrReplace(s, "%", "%25");
+    s = StrReplace(s, "&", "%26");
+    s = StrReplace(s, "+", "%2B");
+    s = StrReplace(s, "#", "%23");
+    s = StrReplace(s, " ", "%20");
+    return s;
+}
+
+// GET a Bridge /xl path and return the first line of the reply ("" on failure). The key goes in the URL only because
+// AmiBroker cannot send headers; it must be a read-only key created with --allow-query.
+function McbGetText(path)
+{
+    result = "";
+    key = McbKey();
+    if (key == "")
+    {
+        _TRACE("Mr. Chartist Bridge: no key. Set MCB_AMIBROKER_KEY or create %USERPROFILE%\\.mc-bridge\\amibroker.key");
+        return result;
+    }
+    sep = "?";
+    if (StrFind(path, "?"))
+        sep = "&";
+    ih = InternetOpenURL(McbBaseUrl() + path + sep + "key=" + key);
+    if (ih)
+    {
+        result = McbTrim(InternetReadString(ih));
+        InternetClose(ih);
+    }
+    return result;
+}
+
+// Cached numeric value from a Bridge /xl path; Null when the Bridge answers #N/A or cannot be reached.
+function McbCachedNumber(cacheKey, path)
+{
+    nowMs = GetPerformanceCounter();
+    lastAt = Nz(StaticVarGet(cacheKey + "_at"));
+    if (lastAt > 0 AND nowMs - lastAt < McbMinIntervalMs)
+        return StaticVarGet(cacheKey);
+    txt = McbGetText(path);
+    value = Null;
+    if (txt != "" AND txt != "#N/A")
+        value = StrToNum(txt);
+    StaticVarSet(cacheKey, value);
+    StaticVarSet(cacheKey + "_at", nowMs);
+    return value;
+}
+
+// Last traded price of a Bridge symbol, e.g. McbLtp("NSE:NIFTY") or McbLtp("NFO:NIFTY-2026-10-27-25000-CE").
+function McbLtp(symbol)
+{
+    return McbCachedNumber("mcb_ltp_" + symbol, "/xl/ltp?symbol=" + McbUrlEncode(symbol));
+}
+
+// One quote field: ltp, open, high, low, close, change, changePct, volume, oi, bid or ask.
+function McbQuote(symbol, field)
+{
+    return McbCachedNumber("mcb_q_" + field + "_" + symbol, "/xl/quote?symbol=" + McbUrlEncode(symbol) + "&field=" + field);
+}
+
+// URL of a history CSV in the AmiBroker layout (for File > Import ASCII with mrchartist-intraday.format or
+// mrchartist-eod.format). Download it with a browser or curl using an Authorization header where you can.
+function McbHistoryUrl(symbol, interval, countback)
+{
+    return McbBaseUrl() + "/xl/history?layout=amibroker&symbol=" + McbUrlEncode(symbol) + "&interval=" + interval + "&countback=" + NumToStr(countback, 1.0, False);
+}
