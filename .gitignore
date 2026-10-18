@@ -55,3 +55,13 @@ build/
 *.egg-info/
 __pycache__/
 .pytest_cache/
+
+# Master keys and local secrets (mc-bridge init keeps the master key outside the repo; never commit one)
+master.key
+*.key
+/secrets/
+.env.*
+.ccr-ca.crt
+
+# Screenshot work files (only the .webp files in docs/screenshots are committed)
+docs/screenshots/*.png

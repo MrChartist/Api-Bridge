@@ -80,7 +80,8 @@ export function createAccountRoutes(deps, { policies = {} } = {}) {
           const adapter = deps.brokers.get(id);
           const item = {
             id,
-            name: BROKER_NAMES[id] ?? id,
+            name: BROKER_NAMES[id] ?? adapter.displayName ?? id,
+            ...(adapter.demo ? { demo: true } : {}),
             authKind: adapter.capabilities?.auth?.kind ?? "apiKeyToken",
             capabilities: adapterCapabilities(adapter),
             verified: VERIFIED_BROKERS.includes(id),

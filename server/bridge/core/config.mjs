@@ -18,6 +18,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { BridgeError } from "./errors.mjs";
+import { applyDemoConfig, demoFromEnv } from "../demo/demoMode.mjs";
 
 export const DEFAULT_PORT = 4300;
 export const DEFAULT_CONFIG_FILE = "bridge.config.json";
@@ -82,6 +83,12 @@ export const coreSchema = z
         port: z.number().int().min(0).max(65535).default(DEFAULT_PORT),
         /** Must be true to bind anything but loopback. Keys are still required for every route. */
         allowNonLoopback: z.boolean().default(false),
+        /**
+         * Peer addresses (IPv4 or IPv4/CIDR) that count as "this computer" for this-computer-only routes, besides
+         * loopback. Only for Docker, where the host's own browser arrives from the container network's gateway.
+         * Leave empty otherwise.
+         */
+        localPeers: z.array(z.string().regex(/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/, "use an IPv4 address or IPv4/CIDR")).max(8).default([]),
         /** Extra Host header values to accept (DNS-rebinding guard). Loopback names are always accepted. */
         allowedHosts: z.array(z.string()).default([]),
         bodyLimitBytes: z.number().int().positive().max(1_048_576).default(65_536),
@@ -103,6 +110,14 @@ export const coreSchema = z
       .strict()
       .prefault({}),
     dataDir: z.string().default("./data"),
+    /**
+     * Where the master key file lives (relative to this config file). `mc-bridge init` puts it OUTSIDE the data folder
+     * so a backup or cloud sync of the data folder never carries the key with the secrets. MCB_MASTER_KEY or
+     * MCB_MASTER_KEY_FILE in the environment take precedence. Default: <dataDir>/master.key.
+     */
+    masterKeyFile: z.string().min(1).optional(),
+    /** Demo mode: sample market data, no real broker, live trading off (see server/bridge/demo/demoMode.mjs). */
+    demo: z.boolean().default(false),
     logging: z
       .object({ level: z.enum(["debug", "info", "warn", "error", "silent"]).default("info") })
       .strict()
@@ -165,11 +180,12 @@ function envOverrides(env) {
 
 /**
  * Load, merge and validate the configuration.
- * @param {{ path?: string, env?: NodeJS.ProcessEnv, cwd?: string, raw?: object, knownBrokers?: string[] }} [opts]
+ * @param {{ path?: string, env?: NodeJS.ProcessEnv, cwd?: string, raw?: object, knownBrokers?: string[], demo?: boolean }} [opts]
  *   raw: use this object instead of reading a file (tests, `doctor`). knownBrokers: adapter ids for account checks.
+ *   demo: force demo mode (`mc-bridge start --demo`); MCB_DEMO=1 and `"demo": true` in the file do the same.
  * @returns {{ config: Readonly<any>, warnings: string[], source: string | null }}
  */
-export function loadConfig({ path, env = process.env, cwd = process.cwd(), raw, knownBrokers } = {}) {
+export function loadConfig({ path, env = process.env, cwd = process.cwd(), raw, knownBrokers, demo = false } = {}) {
   const warnings = [];
   let source = null;
   let fileObj = raw ?? {};
@@ -213,12 +229,14 @@ export function loadConfig({ path, env = process.env, cwd = process.cwd(), raw, 
   }
   if (ov.paperOnly) cfg.safety.liveTrading = false;
   if (ov.killSwitch) cfg.safety.killSwitchOnStart = true;
+  if (demo || cfg.demo || demoFromEnv(env)) warnings.push(...applyDemoConfig(cfg));
 
   // Cross-field rules.
   if (!isLoopbackHost(cfg.server.host) && !cfg.server.allowNonLoopback) {
     throw new BridgeError("VALIDATION_FAILED", `server.host ${cfg.server.host} is not a loopback address. Set server.allowNonLoopback to true in the config file if you really mean it.`);
   }
   if (!isLoopbackHost(cfg.server.host)) warnings.push(`The Bridge will listen on ${cfg.server.host}, not only on this computer. Every route still needs an API key.`);
+  if (cfg.server.localPeers.length) warnings.push(`server.localPeers treats ${cfg.server.localPeers.join(", ")} as this computer (meant for Docker). Publish the port on 127.0.0.1 only.`);
   const pi = cfg.server.publicIngress;
   if (pi.enabled && !isLoopbackHost(pi.host)) {
     if (!cfg.server.allowNonLoopback) {
@@ -231,7 +249,7 @@ export function loadConfig({ path, env = process.env, cwd = process.cwd(), raw, 
   for (const a of cfg.accounts) {
     if (ids.has(a.id)) throw new BridgeError("VALIDATION_FAILED", `Duplicate account id ${a.id}.`);
     ids.add(a.id);
-    if (knownBrokers && a.broker !== "paper" && !knownBrokers.includes(a.broker)) {
+    if (knownBrokers && a.broker !== "paper" && !(cfg.demo && a.broker === "demo") && !knownBrokers.includes(a.broker)) {
       throw new BridgeError("VALIDATION_FAILED", `Account ${a.id}: unknown broker ${a.broker}.`);
     }
     if (a.broker === "paper" && a.live.enabled) throw new BridgeError("VALIDATION_FAILED", `Account ${a.id}: a paper account cannot enable live trading.`);
@@ -245,6 +263,7 @@ export function loadConfig({ path, env = process.env, cwd = process.cwd(), raw, 
   const baseDir = source ? dirname(source) : cwd;
   if (userDefaultDataDir && ov.dataDir === undefined) cfg.dataDir = userDefaultDataDir;
   cfg.dataDir = isAbsolute(cfg.dataDir) ? cfg.dataDir : resolve(baseDir, cfg.dataDir);
+  if (cfg.masterKeyFile !== undefined) cfg.masterKeyFile = isAbsolute(cfg.masterKeyFile) ? cfg.masterKeyFile : resolve(baseDir, cfg.masterKeyFile);
 
   return { config: deepFreeze(cfg), warnings, source };
 }

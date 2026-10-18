@@ -66,3 +66,18 @@ describe("isLocalRequest", () => {
     expect(isLocalRequest(req("127.0.0.1", {}))).toBe(false);
   });
 });
+
+describe("server.localPeers (Docker)", async () => {
+  const { isLocalRequest, peerInList } = await import("./security.mjs");
+  const req = (addr, host = "127.0.0.1:4300", headers = {}) => ({ socket: { remoteAddress: addr }, headers: { host, ...headers } });
+  it("treats only listed peers as this computer, and still needs a loopback Host and no proxy headers", () => {
+    expect(peerInList("172.31.240.1", ["172.31.240.1"])).toBe(true);
+    expect(peerInList("::ffff:192.168.65.3", ["192.168.65.0/24"])).toBe(true);
+    expect(peerInList("10.0.0.1", ["192.168.65.0/24"])).toBe(false);
+    expect(peerInList("fe80::1", ["0.0.0.0/0"])).toBe(false);
+    expect(isLocalRequest(req("172.31.240.1"))).toBe(false);
+    expect(isLocalRequest(req("172.31.240.1"), { localPeers: ["172.31.240.1"] })).toBe(true);
+    expect(isLocalRequest(req("172.31.240.1", "evil.example"), { localPeers: ["172.31.240.1"] })).toBe(false);
+    expect(isLocalRequest(req("172.31.240.1", undefined, { "x-forwarded-for": "1.2.3.4" }), { localPeers: ["172.31.240.1"] })).toBe(false);
+  });
+});

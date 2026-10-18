@@ -71,8 +71,9 @@ export function isLoopbackHostHeader(hostHeader) {
  * loopback Host name (a tunnel host matched through server.allowedHosts is not one) and no forwarding headers.
  * @param {import("node:http").IncomingMessage} req
  */
-export function isLocalRequest(req) {
-  if (!isLoopbackAddress(req?.socket?.remoteAddress)) return false;
+export function isLocalRequest(req, { localPeers = [] } = {}) {
+  const peer = req?.socket?.remoteAddress;
+  if (!isLoopbackAddress(peer) && !peerInList(peer, localPeers)) return false;
   if (!isLoopbackHostHeader(req.headers?.host)) return false;
   for (const h of FORWARDING_HEADERS) if (req.headers?.[h] !== undefined) return false;
   return true;
@@ -132,4 +133,25 @@ export function assertTransportAllowed(req, { hostCheck, cors }) {
   if (origin !== undefined && !cors.isAllowed(origin) && !isSameOrigin(origin, req.headers.host)) {
     throw new BridgeError("ORIGIN_NOT_ALLOWED", "Add this page's origin to cors.allowedOrigins in bridge.config.json to allow it.");
   }
+}
+
+/**
+ * Whether an IPv4 peer (plain or IPv4-mapped IPv6) matches one of `list` (addresses or CIDR blocks).
+ * Used only for server.localPeers (Docker).
+ * @param {string | undefined} addr @param {string[]} list
+ */
+export function peerInList(addr, list) {
+  if (!list?.length) return false;
+  let a = String(addr ?? "");
+  if (a.startsWith("::ffff:")) a = a.slice(7);
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(a)) return false;
+  const toInt = (ip) => ip.split(".").reduce((n, o) => n * 256 + Number(o), 0);
+  for (const e of list) {
+    const [base, bitsText] = String(e).split("/");
+    const bits = bitsText === undefined ? 32 : Number(bitsText);
+    if (!(bits >= 0 && bits <= 32)) continue;
+    const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+    if (((toInt(a) & mask) >>> 0) === ((toInt(base) & mask) >>> 0)) return true;
+  }
+  return false;
 }

@@ -28,6 +28,7 @@ import { createLogger } from "./logger.mjs";
 import { applyModuleConfig, buildServices, validateModules } from "./modules.mjs";
 import { createRouter } from "./router.mjs";
 import { BASE_HEADERS, assertTransportAllowed, createCors, createHostCheck, isLocalRequest } from "./security.mjs";
+import { DEMO_HEADER, DEMO_MARKET_ACCOUNT, DEMO_NOTICE, createDemoRegistry, labelDemoResult } from "../demo/demoMode.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 export const BRIDGE_VERSION = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")).version;
@@ -78,9 +79,21 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     bus,
     clock: clock ?? { now: () => Date.now() },
     paths: Object.freeze({ root: ROOT, dataDir: config.dataDir }),
-    brokers: brokers ?? createBrokerRegistry(),
+    // Demo mode loads ONLY the demo adapter, so no request can reach a real broker.
+    brokers: brokers ?? (config.demo ? createDemoRegistry() : createBrokerRegistry()),
   };
   const deps = await buildServices(coreDeps, mods, overrides);
+  if (config.demo && !isStub(deps.accounts)) {
+    // The demo account needs no login: connect it now (memory-only secret store, no network).
+    try {
+      await deps.accounts.connect(DEMO_MARKET_ACCOUNT, { values: { demoToken: "demo" } });
+    } catch (err) {
+      log.warn("demo account could not be connected", { err });
+    }
+  }
+  /** The last requests (method, path without query, status, ms, key id) for the dashboard's request log. Memory only. */
+  const recentRequests = [];
+  const RECENT_MAX = 200;
   const router = createRouter();
   /** @type {Map<string, { handler: Function, module: string, options: object }>} */
   const upgrades = new Map();
@@ -114,7 +127,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
   core.get(
     "/v1/health",
     (ctx) => {
-      const basic = { status: "ok", version: BRIDGE_VERSION, apiVersion: API_VERSION };
+      const basic = { status: "ok", version: BRIDGE_VERSION, apiVersion: API_VERSION, ...(config.demo ? { demo: true, dataNotice: DEMO_NOTICE } : {}) };
       if (!ctx.loopback) return basic;
       const services = {};
       for (const name of Object.keys(SERVICE_CONTRACTS)) services[name] = isStub(deps[name]) ? "not_built" : "ready";
@@ -134,8 +147,23 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     }),
     { scope: "read", summary: "Versions, brokers, modules and routes" },
   );
+  core.get(
+    "/v1/requests",
+    (ctx) => {
+      const limit = Math.min(200, Math.max(1, Number.parseInt(ctx.url.searchParams.get("limit") ?? "100", 10) || 100));
+      return { data: recentRequests.slice(-limit).reverse(), meta: { requestId: ctx.requestId, kept: RECENT_MAX } };
+    },
+    { scope: "admin", loopbackOnly: true, summary: "Recent requests to this Bridge (memory only, newest first)" },
+  );
   // ── Local dashboard (static files, this computer only; the page asks for an API key and keeps it in the tab) ──
-  const DASHBOARD_FILES = Object.freeze({ "index.html": "text/html; charset=utf-8", "app.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8" });
+  const DASHBOARD_FILES = Object.freeze({
+    "index.html": "text/html; charset=utf-8",
+    "app.js": "text/javascript; charset=utf-8",
+    "views.js": "text/javascript; charset=utf-8",
+    "snippets.js": "text/javascript; charset=utf-8",
+    "app.css": "text/css; charset=utf-8",
+    "logo.svg": "image/svg+xml",
+  });
   const DASHBOARD_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
   const dashboardFile = (name) => {
     // Object.hasOwn: inherited names such as "constructor" or "__proto__" must not pass the allowlist.
@@ -160,6 +188,10 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     const supplied = req.headers["x-request-id"];
     const requestId = typeof supplied === "string" && REQUEST_ID_RE.test(supplied) ? supplied : newRequestId();
     const headers = { ...BASE_HEADERS, "X-Request-Id": requestId };
+    if (config.demo) {
+      headers[DEMO_HEADER] = "demo";
+      res.setHeader(DEMO_HEADER, "demo"); // also on responses a handler writes itself (SSE)
+    }
     const t0 = Date.now();
     let ctx = null;
     let status = 500;
@@ -199,7 +231,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       ctx = createHttpContext({ req, res, url, params, log, viaPublicIngress: listener.public, requestId });
       // "This computer" means: loopback peer, loopback Host name, no proxy headers, and not the public listener.
       // A local tunnel (cloudflared/ngrok) connects from 127.0.0.1, so the peer address alone proves nothing.
-      ctx.loopback = !listener.public && isLocalRequest(req);
+      ctx.loopback = !listener.public && isLocalRequest(req, { localPeers: config.server.localPeers });
       if (opts.loopbackOnly && !ctx.loopback) throw new BridgeError("LOOPBACK_ONLY");
 
       const authMode = opts.auth ?? "key";
@@ -239,7 +271,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         status = res.statusCode;
         return;
       }
-      const reply = result === undefined ? noContent() : result;
+      const reply = result === undefined ? noContent() : config.demo ? labelDemoResult(result) : result;
       status = reply instanceof Reply ? reply.status : 200;
       send(res, reply, { ...headers, ...ctx.responseHeaders }, { head: method === "HEAD" });
     } catch (err) {
@@ -261,7 +293,13 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         else sendProblem(res, problem, { ...headers, ...(ctx?.responseHeaders ?? {}), ...problemHeaders(err) });
       } else sendProblem(res, problem, { ...headers, ...(ctx?.responseHeaders ?? {}), ...problemHeaders(err) });
     } finally {
-      log.info("http", { requestId, method: req.method, path, status, ms: Date.now() - t0, keyId: ctx?.key?.id, public: listener.public || undefined });
+      const ms = Date.now() - t0;
+      log.info("http", { requestId, method: req.method, path, status, ms, keyId: ctx?.key?.id, public: listener.public || undefined });
+      if (!listener.public && path !== "/v1/requests" && !path.startsWith("/dashboard")) {
+        const client = req.headers["x-mcb-client"] === "dashboard" ? "dashboard" : null;
+        recentRequests.push({ at: new Date().toISOString(), method: req.method, path, status, ms, keyId: ctx?.key?.id ?? null, client, requestId });
+        if (recentRequests.length > RECENT_MAX) recentRequests.splice(0, recentRequests.length - RECENT_MAX);
+      }
     }
   };
 

@@ -3,6 +3,7 @@
  * Commands delegate to the contract services (KeyStore, AccountManager, AuditLog); until a stream lands, its
  * command prints a clear "not built yet" message and exits with code 2.
  */
+import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync, statSync } from "node:fs";
 import net from "node:net";
 import { dirname, join, resolve } from "node:path";
@@ -15,7 +16,10 @@ import { createLogger } from "./logger.mjs";
 export const USAGE = `Mr. Chartist API Bridge
 
 Usage:
-  mc-bridge start [--config <file>]
+  mc-bridge init [--yes] [--demo] [--broker <id> [--account <id>] [--label <text>]] [--no-paper] [--force]
+                                   first-run setup (alias: setup); asks questions unless --yes
+  mc-bridge start [--config <file>] [--demo] [--open]
+                                   --demo: sample data, no broker, live trading off; --open: open the dashboard
   mc-bridge keys create --label <name> --scope read[,paper,live,admin] [--accounts a,b|*] [--expires 30d] [--allow-query] [--client <kind>]
   mc-bridge keys list
   mc-bridge keys revoke <keyId>
@@ -53,7 +57,8 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
   const add = (level, check, message) => out.push({ level, check, message });
   const major = Number(process.versions.node.split(".")[0]);
   add(major >= 20 ? "ok" : "fail", "node", `Node.js ${process.versions.node}${major >= 20 ? "" : " (20 or newer is required)"}`);
-  add("ok", "config", source ? `Loaded ${source}` : "No config file; using safe defaults");
+  add(source ? "ok" : "warn", "config", source ? `Loaded ${source}` : "No bridge.config.json yet; using safe defaults. Run: npm run bridge -- init");
+  if (config.demo) add("warn", "demo", "Demo mode is ON: sample prices, no real broker, paper orders only. Remove \"demo\" from the config (or start without --demo) for real accounts.");
   for (const w of warnings) add("warn", "config", w);
   const host = config.server.host;
   add(isLoopbackHost(host) ? "ok" : "warn", "bind", `Listening address ${host}:${config.server.port}${isLoopbackHost(host) ? " (this computer only)" : " (reachable from other machines)"}`);
@@ -76,15 +81,15 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
     const len = Buffer.from(env.MCB_MASTER_KEY, "base64").length;
     add(len === 32 ? "ok" : "fail", "master-key", len === 32 ? "MCB_MASTER_KEY is set (32 bytes)" : `MCB_MASTER_KEY must be base64 of 32 bytes, got ${len}`);
   } else {
-    const keyFile = env.MCB_MASTER_KEY_FILE ?? join(dataDir, "master.key");
+    const keyFile = env.MCB_MASTER_KEY_FILE ?? config.masterKeyFile ?? join(dataDir, "master.key");
     const sameFolder = resolve(dirname(keyFile)) === resolve(dataDir);
     if (existsSync(keyFile)) {
       const mode = statSync(keyFile).mode & 0o777;
       const tooOpen = process.platform !== "win32" && mode & 0o077;
       add(tooOpen ? "fail" : "ok", "master-key", tooOpen ? `${keyFile} is readable by other users (mode ${mode.toString(8)}); run chmod 600` : `Key file ${keyFile}`);
-    } else add("warn", "master-key", `No master key yet; ${keyFile} will be created (mode 600) when you first connect a broker`);
+    } else add("warn", "master-key", `No master key yet; ${keyFile} will be created (mode 600) when you first connect a broker. 'npm run bridge -- init' creates one outside the data folder now.`);
     if (sameFolder) {
-      add("warn", "master-key", `The master key sits in the data folder next to secrets.enc, so a backup, cloud sync or zip of ${dataDir} carries both and the encryption adds nothing. Move it outside (for example ${process.platform === "win32" ? "%APPDATA%\\MrChartist\\master.key" : "~/.config/mc-bridge/master.key"}) and set MCB_MASTER_KEY_FILE, or use MCB_MASTER_KEY.`);
+      add("warn", "master-key", `The master key sits in the data folder next to secrets.enc, so a backup, cloud sync or zip of ${dataDir} carries both and the encryption adds nothing. Move it outside (for example ${process.platform === "win32" ? "%APPDATA%\\MrChartist\\master.key" : "~/.config/mc-bridge/master.key"}) and set "masterKeyFile" in bridge.config.json (or MCB_MASTER_KEY_FILE), or use MCB_MASTER_KEY.`);
     }
     if (process.platform === "win32") add("warn", "master-key", "File permissions are not checked on Windows. Restrict the key file to your user: icacls <file> /inheritance:r /grant:r %USERNAME%:F");
   }
@@ -107,12 +112,21 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
     add(stubs.length ? "warn" : "ok", "services", stubs.length ? `Not built yet: ${stubs.map((k) => SERVICE_CONTRACTS[k].iface).join(", ")}` : "All services built");
   }
   // Paper trading still needs prices and an instrument list, and both come from a connected broker account.
+  if (deps && !isStub(deps.keyStore)) {
+    try {
+      const keys = (await deps.keyStore.list()).filter((k) => !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) < Date.now()));
+      const admin = keys.some((k) => k.scopes.includes("admin"));
+      add(keys.length ? (admin ? "ok" : "warn") : "warn", "api-keys", keys.length ? `${keys.length} active key(s)${admin ? "" : "; none is an admin key (the dashboard and accounts connect need one)"}` : "No API keys yet. Create one: npm run bridge -- keys create --label me --scope admin,paper");
+    } catch {
+      /* key store not available */
+    }
+  }
   if (deps && !isStub(deps.accounts)) {
     try {
       const brokers = deps.accounts.list().filter((a) => a.broker !== "paper");
       const connected = brokers.filter((a) => a.session?.state === "connected");
       if (connected.length) add("ok", "market-data", `Market data from: ${connected.map((a) => a.id).join(", ")}`);
-      else add("warn", "market-data", `No market-data source connected${brokers.length ? ` (log in ${brokers.map((a) => a.id).join(", ")})` : ""}. Quotes, history, option chains, symbol lookups and paper orders all need at least one connected broker account (mc-bridge accounts connect <id>).`);
+      else add("warn", "market-data", `No market-data source connected${brokers.length ? ` (log in ${brokers.map((a) => a.id).join(", ")})` : ""}. Quotes, history, option chains, symbol lookups and paper orders all need at least one connected broker account (mc-bridge accounts connect <id>), or try everything with sample data: npm start -- --demo`);
     } catch {
       /* account manager not available */
     }
@@ -129,7 +143,7 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
 }
 
 async function bootServices(flags, io, { server = false } = {}) {
-  const { config, warnings, source } = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd, knownBrokers: createBrokerRegistry().list() });
+  const { config, warnings, source } = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd, knownBrokers: createBrokerRegistry().list(), demo: flags.demo === true });
   const { createApp } = await import("./app.mjs");
   // The server logs at the configured level; one-shot commands only show warnings and errors.
   const logger = createLogger({ level: server || config.logging.level === "debug" ? config.logging.level : "warn" });
@@ -162,7 +176,7 @@ export async function startHints({ app, port }) {
   lines.push(`Dashboard (this computer only): http://${host.includes(":") ? `[${host}]` : host}:${port}/dashboard`);
   try {
     const keys = (await app.deps.keyStore.list()).filter((k) => !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) < Date.now()));
-    if (keys.length === 0) lines.push("No API keys yet. In a second terminal, from this same folder: mc-bridge keys create --label me --scope read,paper");
+    if (keys.length === 0) lines.push("No API keys yet. In a second terminal, from this same folder: npm run bridge -- init   (or: npm run bridge -- keys create --label me --scope admin,paper)");
     else lines.push(`${keys.length} active API key(s).`);
   } catch {
     /* key store not built */
@@ -170,13 +184,33 @@ export async function startHints({ app, port }) {
   try {
     const rows = app.deps.accounts.list().filter((a) => a.broker !== "paper");
     const live = rows.filter((a) => a.session?.state === "connected");
-    if (rows.length === 0) lines.push('No market-data source connected: no broker account is configured. Quotes and even paper orders need one; add it under "accounts" in bridge.config.json (see docs/guides/accounts.md).');
+    if (app.config.demo) lines.push("Market data: demo (sample prices generated on this computer).");
+    else if (rows.length === 0) lines.push('No market-data source connected: no broker account is configured. Quotes and even paper orders need one; add it under "accounts" in bridge.config.json (see docs/guides/accounts.md), or try everything with sample data: npm start -- --demo');
     else if (live.length === 0) lines.push(`No market-data source connected (${rows.map((a) => a.id).join(", ")} not logged in). Quotes and even paper orders need one: mc-bridge accounts connect <id>.`);
     else lines.push(`Market data from: ${live.map((a) => a.id).join(", ")}.`);
   } catch {
     /* account manager not built */
   }
   return lines;
+}
+
+/**
+ * Open a URL in the default browser (macOS open, Windows start, Linux xdg-open). Never throws; returns false when no
+ * opener could be started (for example on a server without a desktop).
+ * @param {string} url  http(s) URL built by the Bridge itself
+ */
+export function openInBrowser(url, { platform = process.platform, spawnImpl } = {}) {
+  if (!/^https?:\/\/[^\s"']+$/.test(url)) return false;
+  const [cmd, args] = platform === "darwin" ? ["open", [url]] : platform === "win32" ? ["cmd", ["/c", "start", "", url]] : ["xdg-open", [url]];
+  try {
+    const run = spawnImpl ?? spawn;
+    const child = run(cmd, args, { stdio: "ignore", detached: true, windowsHide: true });
+    child?.on?.("error", () => {});
+    child?.unref?.();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function audit(deps, io, input) {
@@ -207,12 +241,47 @@ export async function runCli(positionals, flags, io) {
   }
   try {
     switch (cmd) {
+      case "init":
+      case "setup": {
+        const { runInit } = await import("./init.mjs");
+        const { BROKER_NAMES } = await import("../accounts/brokerInfo.mjs");
+        const brokerIds = createBrokerRegistry().list().slice().sort();
+        return await runInit(flags, { ...io, prompt: io.prompt ?? ((q, o) => terminalPrompt(q, o)) }, {
+          brokerIds,
+          brokerNames: BROKER_NAMES,
+          createKey: async (configPath) => {
+            const { app } = await bootServices({ ...flags, config: configPath, demo: false }, io);
+            try {
+              const { key, record } = await app.deps.keyStore.create({ label: "admin (created by init)", scopes: ["admin", "paper"], accounts: "*", clientKind: "ui" });
+              await audit(app.deps, io, { type: "key.created", data: { keyId: record.id, scopes: record.scopes, label: record.label } });
+              return { key, id: record.id };
+            } finally {
+              await app.close();
+            }
+          },
+        });
+      }
       case "start": {
         const { app } = await bootServices(flags, io, { server: true });
         const { port, publicPort } = await app.listen();
+        if (app.config.demo) {
+          io.err("");
+          io.err("  ************************************************************");
+          io.err("  *  DEMO MODE: sample data, not live market data.           *");
+          io.err("  *  No broker is connected. Orders are paper only.          *");
+          io.err("  ************************************************************");
+          io.err("");
+        }
         io.err(`Mr. Chartist API Bridge listening on http://${app.config.server.host}:${port}${publicPort ? ` (public ingress on ${publicPort})` : ""}`);
         io.err(`Data folder: ${app.config.dataDir}`);
         for (const line of await startHints({ app, port })) io.err(line);
+        if (flags.open) {
+          const host = app.config.server.host === "0.0.0.0" || app.config.server.host === "::" ? "127.0.0.1" : app.config.server.host;
+          const url = `http://${host.includes(":") ? `[${host}]` : host}:${port}/dashboard`;
+          const opened = (io.openUrl ?? openInBrowser)(url);
+          io.err(opened ? `Opening ${url} in your browser.` : `Open ${url} in your browser.`);
+        }
+        io.err("Press Ctrl+C to stop.");
         const stop = async () => {
           await app.close();
           process.exit(0);

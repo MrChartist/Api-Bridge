@@ -6,7 +6,7 @@
  *
  * Crypto
  *  - Master key: 32 bytes from MCB_MASTER_KEY (base64 of exactly 32 bytes), else from a key file
- *    (MCB_MASTER_KEY_FILE, default <dataDir>/master.key) holding the base64 key. The file is created on first write
+ *    (MCB_MASTER_KEY_FILE, else the config's masterKeyFile, else <dataDir>/master.key) holding the base64 key. The file is created on first write
  *    with mode 0600 (exclusive create, so two processes cannot race). On POSIX a key file that group/others can
  *    access, or that another user owns, is refused with a clear message — never silently "fixed".
  *  - Two sub-keys are derived with HKDF-SHA256 so one key never does two jobs: an AES-256-GCM key and an
@@ -113,7 +113,7 @@ export function createSecretStore(deps, opts = {}) {
   const logger = deps.logger;
   const dataDir = resolve(deps.paths?.dataDir ?? deps.config?.dataDir ?? "./data");
   const filePath = opts.file ?? join(dataDir, SECRETS_FILE);
-  const keyFilePath = resolve(env.MCB_MASTER_KEY_FILE || join(dataDir, MASTER_KEY_FILE));
+  const keyFilePath = resolve(env.MCB_MASTER_KEY_FILE || deps.config?.masterKeyFile || join(dataDir, MASTER_KEY_FILE));
 
   /** @type {{ enc: Buffer, mac: Buffer, keyCheck: string } | null} */
   let keys = null;

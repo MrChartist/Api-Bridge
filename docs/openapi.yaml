@@ -153,7 +153,7 @@ paths:
     get:
       tags: [System]
       operationId: getDashboardAsset
-      summary: Dashboard script and stylesheet
+      summary: Dashboard scripts, stylesheet and logo
       x-stream: core
       x-loopback-only: true
       security: []
@@ -161,7 +161,7 @@ paths:
         - name: file
           in: path
           required: true
-          schema: { type: string, enum: [index.html, app.js, app.css] }
+          schema: { type: string, enum: [index.html, app.js, views.js, snippets.js, app.css, logo.svg] }
       responses:
         "200":
           description: The file.
@@ -180,6 +180,45 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/MetaInfo" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/requests:
+    get:
+      tags: [System]
+      operationId: listRecentRequests
+      summary: Recent requests to this Bridge (newest first)
+      description: The last 200 requests, kept in memory only (method, path without the query string, status, time taken, key id). Requests the dashboard makes for itself carry client "dashboard". Webhook paths are shown as their pattern, never with their token.
+      x-stream: core
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 100 }
+      responses:
+        "200":
+          description: Recent requests.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        at: { type: string, format: date-time }
+                        method: { type: string }
+                        path: { type: string }
+                        status: { type: integer }
+                        ms: { type: integer }
+                        keyId: { type: [string, "null"] }
+                        client: { type: [string, "null"] }
+                        requestId: { type: string }
+                  meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
@@ -2051,6 +2090,8 @@ components:
         accountId: { type: [string, "null"] }
         mode: { type: string, enum: [paper, live] }
         freshness: { $ref: "#/components/schemas/Freshness" }
+        demo: { type: boolean, description: "Demo mode only: true. The data is generated sample data, not live market data (every response also carries the header X-MCB-Data: demo)." }
+        dataNotice: { type: string, description: "Demo mode only: a plain sentence saying so." }
     ItemError:
       type: object
       required: [code, message]
@@ -2069,6 +2110,8 @@ components:
         apiVersion: { type: string }
         startedAt: { type: string, format: date-time }
         uptimeSeconds: { type: integer }
+        demo: { type: boolean, description: "Present and true only in demo mode (sample data, no real broker)." }
+        dataNotice: { type: string, description: "In demo mode: a plain sentence saying the data is sample data." }
         services:
           type: object
           additionalProperties: { type: string, enum: [ready, not_built] }

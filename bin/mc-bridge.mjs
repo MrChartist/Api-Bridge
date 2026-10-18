@@ -2,7 +2,8 @@
 /**
  * mc-bridge — command line for the Mr. Chartist API Bridge.
  *
- *   mc-bridge start [--config <file>]
+ *   mc-bridge init [--yes] [--demo] [--broker <id>]   (first-run setup; alias: setup)
+ *   mc-bridge start [--config <file>] [--demo] [--open]
  *   mc-bridge keys create --label <name> --scope read[,paper,live,admin] [--accounts a,b|*] [--expires 30d] [--allow-query] [--client excel]
  *   mc-bridge keys list
  *   mc-bridge keys revoke <keyId>
@@ -32,6 +33,17 @@ const { positionals, values } = parseArgs({
     "allow-query": { type: "boolean" },
     "no-port-check": { type: "boolean" },
     json: { type: "boolean" },
+    demo: { type: "boolean" },
+    open: { type: "boolean" },
+    yes: { type: "boolean", short: "y" },
+    force: { type: "boolean" },
+    broker: { type: "string" },
+    account: { type: "string" },
+    "no-paper": { type: "boolean" },
+    "no-key": { type: "boolean" },
+    url: { type: "string" },
+    reason: { type: "string" },
+    "cancel-open": { type: "boolean" },
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
   },

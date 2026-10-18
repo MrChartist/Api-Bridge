@@ -15,6 +15,7 @@ import { json } from "../core/http.mjs";
 import { defineModule } from "../core/modules.mjs";
 import { createKeyStore, KEY_ID_RE } from "./keyStore.mjs";
 import { createSecretStore } from "./secretStore.mjs";
+import { createDemoSecretStore } from "../demo/demoMode.mjs";
 
 /** [method, path, route options] — the contract; keep in step with docs/openapi.yaml. */
 export const ROUTES = Object.freeze([
@@ -81,7 +82,7 @@ const HANDLER_FOR = Object.freeze({
 export default defineModule({
   name: "auth",
   stream: "S2",
-  services: { secrets: (deps) => createSecretStore(deps), keyStore: (deps) => createKeyStore(deps) },
+  services: { secrets: (deps) => (deps.config.demo ? createDemoSecretStore() : createSecretStore(deps)), keyStore: (deps) => createKeyStore(deps) },
   register(app, deps) {
     const handlers = createHandlers(deps);
     for (const [method, path, options] of ROUTES) app.route(method, path, handlers[HANDLER_FOR[`${method} ${path}`]], options);

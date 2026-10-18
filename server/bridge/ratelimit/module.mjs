@@ -8,6 +8,8 @@ import { defineModule } from "../core/modules.mjs";
 import { ratelimitConfigSchema } from "./config.mjs";
 import { createLimitRoutes } from "./routes.mjs";
 import { createScheduler } from "./scheduler.mjs";
+import { BROKER_POLICIES } from "./brokerPolicies.mjs";
+import { DEMO_BROKER_ID, DEMO_POLICY } from "../demo/demoMode.mjs";
 
 /** [method, path, route options, handler name] — the contract in docs/openapi.yaml. */
 export const ROUTES = Object.freeze([
@@ -20,7 +22,8 @@ export default defineModule({
   stream: "S3",
   configKey: "ratelimit",
   configSchema: ratelimitConfigSchema,
-  services: { scheduler: (deps) => createScheduler(deps) },
+    // Demo mode adds the demo broker's sample limits; the real table stays one entry per real adapter.
+  services: { scheduler: (deps) => createScheduler(deps, deps.config.demo ? { policies: { ...BROKER_POLICIES, [DEMO_BROKER_ID]: DEMO_POLICY } } : {}) },
   register(app, deps) {
     const handlers = createLimitRoutes(deps);
     for (const [method, path, options, name] of ROUTES) app.route(method, path, handlers[name], options);
