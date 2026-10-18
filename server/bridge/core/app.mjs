@@ -150,7 +150,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
   core.get(
     "/v1/requests",
     (ctx) => {
-      const limit = Math.min(200, Math.max(1, Number.parseInt(ctx.url.searchParams.get("limit") ?? "100", 10) || 100));
+      const limit = Math.min(200, Math.max(1, Number.parseInt(ctx.query.get("limit") ?? "100", 10) || 100));
       return { data: recentRequests.slice(-limit).reverse(), meta: { requestId: ctx.requestId, kept: RECENT_MAX } };
     },
     { scope: "admin", loopbackOnly: true, summary: "Recent requests to this Bridge (memory only, newest first)" },

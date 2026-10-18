@@ -9,6 +9,7 @@
 import { isStub } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { BROKER_NAMES, VERIFIED_BROKERS, adapterCapabilities, loadBrokerPolicies } from "./brokerInfo.mjs";
+import { createBrokerRegistry } from "../../brokers/registry.mjs";
 
 /** Accounts the request's key may use ("*" = all). Local (CLI) callers see everything. */
 export function visibleAccountIds(ctx) {
@@ -49,6 +50,30 @@ async function audit(deps, ctx, type, accountId, data) {
  * @param {object} deps
  * @param {{ policies?: Record<string, any> }} [opts]  policies: S3's table, used when the scheduler is still a stub.
  */
+/** The 41 real adapters as directory entries (demo mode only): names and declared capabilities, available: false. */
+let catalogueCache = null;
+function realBrokerCatalogue() {
+  if (catalogueCache) return catalogueCache;
+  const reg = createBrokerRegistry();
+  catalogueCache = reg
+    .list()
+    .slice()
+    .sort()
+    .map((id) => {
+      const adapter = reg.get(id);
+      return {
+        id,
+        name: BROKER_NAMES[id] ?? id,
+        authKind: adapter.capabilities?.auth?.kind ?? "apiKeyToken",
+        capabilities: adapterCapabilities(adapter),
+        verified: VERIFIED_BROKERS.includes(id),
+        available: false,
+        note: "Not loaded in demo mode. Start without --demo to connect this broker.",
+      };
+    });
+  return catalogueCache;
+}
+
 export function createAccountRoutes(deps, { policies = {} } = {}) {
   const accounts = deps.accounts;
 
@@ -94,6 +119,11 @@ export function createAccountRoutes(deps, { policies = {} } = {}) {
           if (policy) item.policy = policy;
           return item;
         });
+      // Demo mode loads only the demo adapter. The real brokers are still listed (for the dashboard's directory),
+      // marked unavailable: nothing about them is loaded into the running Bridge and no account can use them.
+      if (deps.config?.demo) {
+        for (const b of realBrokerCatalogue()) if (!data.some((d) => d.id === b.id)) data.push(b);
+      }
       return { data, meta: meta(ctx) };
     },
 

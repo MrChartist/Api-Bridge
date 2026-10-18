@@ -49,3 +49,44 @@ describe("dashboard ticket view", () => {
     expect(confirmCodeNotice("tkt_x", { data: {} })).toBeNull();
   });
 });
+
+describe("dashboard helpers", async () => {
+  const { checklistState, friendlyError, highlightJson } = await import("./app.js");
+  const { KEY_PRESETS, snippets, tradingViewAlert } = await import("./snippets.js");
+
+  it("explains errors in plain words", () => {
+    expect(friendlyError({ network: true }).title).toMatch(/Cannot reach the Bridge/);
+    expect(friendlyError({ code: "UNAUTHENTICATED" }).detail).toMatch(/keys create/);
+    expect(friendlyError({ code: "SESSION_EXPIRED", message: "dhan-main: expired" }).detail).toMatch(/accounts connect/);
+    expect(friendlyError({ code: "BROKER_UNAVAILABLE", message: "x" }).detail).toMatch(/--demo/);
+    expect(friendlyError({ status: 418, message: "teapot" })).toEqual({ title: "The Bridge answered 418", detail: "teapot" });
+  });
+
+  it("works out the welcome checklist", () => {
+    const keys = [{ id: "a" }, { id: "b", revokedAt: "2026-01-01" }];
+    expect(checklistState({ demo: true, keys }).map((s) => s.done)).toEqual([true, false, false, false]);
+    const accounts = [{ broker: "dhan", session: { state: "connected" } }];
+    expect(checklistState({ accounts, keys: [{ id: "a" }, { id: "b" }], copied: "1", tested: "1" }).every((s) => s.done)).toBe(true);
+    expect(checklistState({ accounts: [{ broker: "paper", session: { state: "connected" } }] })[0].done).toBe(false);
+  });
+
+  it("escapes data before highlighting JSON", () => {
+    const html = highlightJson(JSON.stringify({ name: "<img src=x onerror=alert(1)>", n: 1, ok: true }));
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;img");
+    expect(html).toContain('<span class="json-num">1</span>');
+  });
+
+  it("fills snippets with the Bridge address and never an admin key", () => {
+    const s = snippets({ base: "http://127.0.0.1:4300/", account: "paper" });
+    const all = JSON.stringify(s);
+    expect(Object.keys(s)).toEqual(["tradingview", "python", "node", "excel", "amibroker", "claude", "chatgpt", "rest"]);
+    expect(all).toContain("http://127.0.0.1:4300/udf");
+    expect(all).toContain("mcb_YOUR_READ_KEY");
+    expect(JSON.parse(s.claude[0].code).mcpServers["mr-chartist-bridge"].env.MCB_BRIDGE_URL).toBe("http://127.0.0.1:4300");
+    expect(snippets({ base: "http://h:1", key: "mcb_k_x" }).excel[1].code).toBe("mcb_k_x");
+    expect(JSON.parse(tradingViewAlert())).toMatchObject({ side: "{{strategy.order.action}}", price: "{{close}}" });
+    expect(JSON.parse(tradingViewAlert({ orderType: "MARKET" })).price).toBeUndefined();
+    for (const p of Object.values(KEY_PRESETS)) expect(p.scopes).not.toContain("admin");
+  });
+});

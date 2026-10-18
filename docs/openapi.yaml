@@ -138,7 +138,7 @@ paths:
       tags: [System]
       operationId: getDashboard
       summary: Local dashboard (HTML; this computer only)
-      description: Accounts, sessions, rate-limit savings, streams, kill switch and pending confirmations. The page asks for an API key and keeps it in the browser tab only.
+      description: Welcome checklist, accounts and the broker directory, a test console, live rate-limit usage, orders and pending confirmations, the kill switch, API keys, integration snippets and the request and audit logs. The page asks for an API key and keeps it in the browser tab only.
       x-stream: core
       x-loopback-only: true
       security: []
