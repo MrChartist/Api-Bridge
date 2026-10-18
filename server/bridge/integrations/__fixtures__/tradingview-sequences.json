@@ -1,0 +1,60 @@
+{
+  "about": "Request sequences in the shape TradingView's UDF-compatible datafeed sends them: same paths, parameter names and order, URL encoding, empty type/exchange on search, countback on history, scroll-back paging with contiguous from/to windows. Modelled on the library's documented UDF behaviour, not captured from a live session (no broker or TradingView traffic in tests). Times are Unix seconds; the fake data has weekday bars from 2026-01-01, holidays on 2026-10-02 and 2026-10-20, and the clock fixed at 2026-10-16 15:00 IST.",
+  "sequences": [
+    {
+      "name": "open NIFTY 5-minute chart, then scroll back twice",
+      "steps": [
+        { "path": "/udf/config", "expect": "config" },
+        { "path": "/udf/time", "expect": "time" },
+        { "path": "/udf/symbols?symbol=NSE%3ANIFTY", "expect": "symbol", "ticker": "NSE:NIFTY" },
+        { "path": "/udf/history?symbol=NSE%3ANIFTY&resolution=5&from=1792035900&to=1792143000&countback=300", "expect": "bars", "countback": 300, "page": "a" },
+        { "path": "/udf/history?symbol=NSE%3ANIFTY&resolution=5&from=1791776700&to=1792035900&countback=300", "expect": "bars", "countback": 300, "page": "b" },
+        { "path": "/udf/history?symbol=NSE%3ANIFTY&resolution=5&from=1791517500&to=1791776700&countback=300", "expect": "bars", "countback": 300, "page": "c" }
+      ],
+      "pagesContiguous": ["c", "b", "a"]
+    },
+    {
+      "name": "switch to the daily chart and scroll back past the start of history",
+      "steps": [
+        { "path": "/udf/symbols?symbol=NSE%3ANIFTY", "expect": "symbol", "ticker": "NSE:NIFTY" },
+        { "path": "/udf/history?symbol=NSE%3ANIFTY&resolution=1D&from=1776297600&to=1792195200&countback=150", "expect": "bars", "countback": 150, "daily": true },
+        { "path": "/udf/history?symbol=NSE%3ANIFTY&resolution=1D&from=1759276800&to=1776297600&countback=150", "expect": "bars", "daily": true },
+        { "path": "/udf/history?symbol=NSE%3ANIFTY&resolution=1D&from=1743465600&to=1759276800", "expect": "no_data", "nextTime": false }
+      ]
+    },
+    {
+      "name": "weekly and monthly",
+      "steps": [
+        { "path": "/udf/history?symbol=NSE%3ARELIANCE&resolution=1W&from=1767225600&to=1792195200&countback=20", "expect": "bars", "countback": 20, "daily": true },
+        { "path": "/udf/history?symbol=NSE%3ARELIANCE&resolution=1M&from=1767225600&to=1792195200&countback=12", "expect": "bars", "countback": 12, "daily": true }
+      ]
+    },
+    {
+      "name": "holiday gap on the daily chart (Gandhi Jayanti, Friday 2 Oct 2026)",
+      "steps": [
+        { "path": "/udf/history?symbol=NSE%3ANIFTY&resolution=1D&from=1790899200&to=1790985600", "expect": "no_data", "nextTime": 1790812800 }
+      ]
+    },
+    {
+      "name": "search box, then pick an option contract",
+      "steps": [
+        { "path": "/udf/search?limit=30&query=NIFTY&type=&exchange=", "expect": "search", "min": 3 },
+        { "path": "/udf/search?limit=30&query=NIFTY&type=option&exchange=NFO", "expect": "search", "min": 1 },
+        { "path": "/udf/symbols?symbol=NFO%3ANIFTY-2026-10-27-25000-CE", "expect": "symbol", "ticker": "NFO:NIFTY-2026-10-27-25000-CE" },
+        { "path": "/udf/history?symbol=NFO%3ANIFTY-2026-10-27-25000-CE&resolution=1&from=1792122300&to=1792143000&countback=329", "expect": "bars", "countback": 329 }
+      ]
+    },
+    {
+      "name": "watchlist quotes",
+      "steps": [
+        { "path": "/udf/quotes?symbols=NSE%3ANIFTY%2CNSE%3ARELIANCE%2CNFO%3ANIFTY-2026-10-27-FUT", "expect": "quotes", "n": 3 }
+      ]
+    },
+    {
+      "name": "symbol the user mistyped",
+      "steps": [
+        { "path": "/udf/symbols?symbol=NSE%3ARELIANC", "expect": "error" }
+      ]
+    }
+  ]
+}

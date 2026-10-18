@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mr. Chartist API Bridge</title>
+  <link rel="stylesheet" href="/dashboard/app.css">
+  <script type="module" src="/dashboard/app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Mr. Chartist API Bridge</h1>
+      <p class="muted" id="version">Local dashboard · this computer only</p>
+    </div>
+    <div id="mode-pill" class="pill">Paper</div>
+  </header>
+
+  <section id="login" class="card" hidden>
+    <h2>Sign in with an API key</h2>
+    <p class="muted">Create one in a terminal with <code>npx mc-bridge keys create --label dashboard --scope admin</code>.
+      The key stays in this browser tab only and is forgotten when you close it.</p>
+    <form id="login-form">
+      <input id="key-input" type="password" autocomplete="off" spellcheck="false" placeholder="mcb_…" aria-label="API key" required>
+      <button type="submit">Open dashboard</button>
+    </form>
+    <p id="login-error" class="error" role="alert"></p>
+  </section>
+
+  <main id="main" hidden>
+    <div class="toolbar">
+      <span class="muted" id="key-label"></span>
+      <button id="refresh" class="ghost">Refresh</button>
+      <button id="logout" class="ghost">Forget key</button>
+    </div>
+
+    <section class="card danger-zone">
+      <div class="row">
+        <div>
+          <h2>Kill switch</h2>
+          <p id="kill-state" class="muted">…</p>
+        </div>
+        <div class="actions">
+          <button id="kill-engage" class="danger">Stop all orders</button>
+          <button id="kill-release" class="ghost">Release (admin)</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <section class="card"><h2>Services</h2><ul id="services" class="kv"></ul></section>
+      <section class="card"><h2>Broker accounts</h2><table><thead><tr><th>Account</th><th>Broker</th><th>Session</th><th>Mode</th></tr></thead><tbody id="accounts"></tbody></table></section>
+      <section class="card"><h2>Rate limits saved</h2><ul id="savings" class="kv"></ul><p class="muted small">Broker calls avoided by streaming, caching, batching and coalescing.</p></section>
+      <section class="card"><h2>Live streams</h2><ul id="streams" class="kv"></ul></section>
+    </div>
+
+    <section class="card">
+      <h2>Pending confirmations</h2>
+      <p class="muted small">Orders prepared by AI assistants or confirmation-required webhooks wait here. Nothing is sent until you confirm.</p>
+      <table><thead><tr><th>Ticket</th><th>From</th><th>Order</th><th>Value</th><th></th></tr></thead><tbody id="tickets"></tbody></table>
+      <div id="confirm-code" class="small" aria-live="polite"></div>
+    </section>
+
+    <section class="card">
+      <h2>Today's orders</h2>
+      <table><thead><tr><th>Time</th><th>Account</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Status</th><th>Mode</th></tr></thead><tbody id="orders"></tbody></table>
+    </section>
+    <p id="error" class="error" role="alert"></p>
+  </main>
+  <footer class="muted small">Mr. Chartist API Bridge · Investology · Paper mode is the default. Live orders need explicit enablement per account.</footer>
+</body>
+</html>

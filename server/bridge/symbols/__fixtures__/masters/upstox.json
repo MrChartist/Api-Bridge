@@ -1,0 +1,126 @@
+{
+ "broker": "upstox",
+ "note": "Normalised fetchInstruments() output of server/brokers/upstox.mjs over its contract fixture (server/brokers/__fixtures__/upstox/instruments.json). Regenerate if the adapter's mapping changes.",
+ "rows": [
+  {
+   "token": "NSE_INDEX|Nifty 50",
+   "exchange": "NSE",
+   "tradingSymbol": "NIFTY",
+   "lotSize": 1,
+   "tickSize": 0.05,
+   "underlying": "NIFTY",
+   "instrumentType": "INDEX",
+   "expiry": null,
+   "strike": null,
+   "optionType": null
+  },
+  {
+   "token": "BSE_INDEX|SENSEX",
+   "exchange": "BSE",
+   "tradingSymbol": "SENSEX",
+   "lotSize": 1,
+   "tickSize": 0.05,
+   "underlying": "SENSEX",
+   "instrumentType": "INDEX",
+   "expiry": null,
+   "strike": null,
+   "optionType": null
+  },
+  {
+   "token": "NSE_FO|51440",
+   "exchange": "NFO",
+   "tradingSymbol": "NIFTY 25000 CE 27 OCT 26",
+   "lotSize": 65,
+   "tickSize": 0.05,
+   "underlying": "NIFTY",
+   "instrumentType": "OPTIDX",
+   "expiry": "2026-10-27",
+   "strike": 25000,
+   "optionType": "CE"
+  },
+  {
+   "token": "NSE_FO|51441",
+   "exchange": "NFO",
+   "tradingSymbol": "NIFTY 25000 PE 27 OCT 26",
+   "lotSize": 65,
+   "tickSize": 0.05,
+   "underlying": "NIFTY",
+   "instrumentType": "OPTIDX",
+   "expiry": "2026-10-27",
+   "strike": 25000,
+   "optionType": "PE"
+  },
+  {
+   "token": "NSE_FO|54333",
+   "exchange": "NFO",
+   "tradingSymbol": "NIFTY 25000 PE 03 NOV 26",
+   "lotSize": 65,
+   "tickSize": 0.05,
+   "underlying": "NIFTY",
+   "instrumentType": "OPTIDX",
+   "expiry": "2026-11-03",
+   "strike": 25000,
+   "optionType": "PE"
+  },
+  {
+   "token": "BSE_FO|1124300",
+   "exchange": "BFO",
+   "tradingSymbol": "SENSEX 82000 PE 22 OCT 26",
+   "lotSize": 20,
+   "tickSize": 0.05,
+   "underlying": "SENSEX",
+   "instrumentType": "OPTIDX",
+   "expiry": "2026-10-22",
+   "strike": 82000,
+   "optionType": "PE"
+  },
+  {
+   "token": "BSE_FO|1101751",
+   "exchange": "BFO",
+   "tradingSymbol": "BANKEX 66000 PE 26 NOV 26",
+   "lotSize": 30,
+   "tickSize": 0.05,
+   "underlying": "BANKEX",
+   "instrumentType": "OPTIDX",
+   "expiry": "2026-11-26",
+   "strike": 66000,
+   "optionType": "PE"
+  },
+  {
+   "token": "NSE_FO|106737",
+   "exchange": "NFO",
+   "tradingSymbol": "RELIANCE 1400 CE 27 OCT 26",
+   "lotSize": 500,
+   "tickSize": 0.05,
+   "underlying": "RELIANCE",
+   "instrumentType": "OPTSTK",
+   "expiry": "2026-10-27",
+   "strike": 1400,
+   "optionType": "CE"
+  },
+  {
+   "token": "NSE_FO|48699",
+   "exchange": "NFO",
+   "tradingSymbol": "BANKNIFTY FUT 27 OCT 26",
+   "lotSize": 30,
+   "tickSize": 0.2,
+   "underlying": "BANKNIFTY",
+   "instrumentType": "FUTIDX",
+   "expiry": "2026-10-27",
+   "strike": null,
+   "optionType": null
+  },
+  {
+   "token": "NSE_EQ|INE002A01018",
+   "exchange": "NSE",
+   "tradingSymbol": "RELIANCE",
+   "lotSize": 1,
+   "tickSize": 0.1,
+   "underlying": "RELIANCE",
+   "instrumentType": "EQ",
+   "expiry": null,
+   "strike": null,
+   "optionType": null
+  }
+ ]
+}
