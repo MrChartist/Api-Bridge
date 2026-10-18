@@ -213,7 +213,7 @@ export async function runInit(flags, io, deps) {
   if (!cfg.demo) say(`                              npm start -- --open           (your real accounts)`);
   say("  2. Open the dashboard:      http://127.0.0.1:4300/dashboard and paste the admin key");
   if (brokerAccount) say(`  3. Log in to your broker:   ${cmd} accounts connect ${brokerAccount.id}   (while the Bridge is running)`);
-  else say(`  3. Add a broker later:      run this again, or add it under "accounts" in bridge.config.json (docs/guides/accounts.md)`);
+  else say(`  3. Add a broker later:      add it under "accounts" in bridge.config.json (see docs/guides/accounts.md), then restart`);
   say(`  4. Check everything:        ${cmd} doctor`);
   say("");
   say("Paper trading is the default. Live orders stay off until you switch them on in bridge.config.json.");

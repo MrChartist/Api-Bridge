@@ -383,6 +383,14 @@ export const app = { state: { demo: false, health: null, meta: null }, local };
 async function signIn() {
   const login = document.getElementById("login");
   const shell = document.getElementById("app");
+  // /v1/health needs no key, so the sign-in screen can say "demo" before anyone signs in.
+  fetch("/v1/health")
+    .then((r) => r.json())
+    .then((hl) => {
+      const el = document.getElementById("login-demo");
+      if (el) el.hidden = !hl?.demo;
+    })
+    .catch(() => {});
   if (!memoryKey) {
     login.hidden = false;
     shell.hidden = true;

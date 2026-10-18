@@ -65,3 +65,6 @@ master.key
 
 # Screenshot work files (only the .webp files in docs/screenshots are committed)
 docs/screenshots/*.png
+
+# Packed SDK tarballs (npm pack)
+*.tgz
