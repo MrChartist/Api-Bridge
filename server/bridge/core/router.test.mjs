@@ -32,10 +32,10 @@ describe("router", () => {
 
   it("supports a trailing wildcard, beaten by exact routes", () => {
     const r = createRouter();
-    r.add("GET", "/udf/*", () => "wild");
-    r.add("GET", "/udf/config", () => "exact");
-    expect(r.match("GET", "/udf/config").route.handler()).toBe("exact");
-    const m = r.match("GET", "/udf/a/b");
+    r.add("GET", "/xl/*", () => "wild");
+    r.add("GET", "/xl/config", () => "exact");
+    expect(r.match("GET", "/xl/config").route.handler()).toBe("exact");
+    const m = r.match("GET", "/xl/a/b");
     expect(m.route.handler()).toBe("wild");
     expect(m.params["*"]).toBe("a/b");
   });

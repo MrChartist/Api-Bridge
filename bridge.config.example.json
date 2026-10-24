@@ -53,7 +53,7 @@
   "stream": { "heartbeatMs": 15000, "maxClients": 50, "maxSymbolsPerClient": 500 },
   "orders": { "ticketTtlMs": 60000, "confirmTokenTtlMs": 60000, "confirmPaperFromMcp": true, "sliceAboveFreeze": false },
   "paper": { "startingCapital": 1000000, "slippageBps": 5, "squareOff": { "enabled": true, "time": "15:20" } },
-  "integrations": { "udf": { "searchLimit": 30, "maxCountback": 5000 }, "xl": { "chainFormat": "csv", "historyLayout": "standard" } },
+  "integrations": { "xl": { "chainFormat": "csv", "historyLayout": "standard" } },
   "hooks": { "queueSize": 200, "concurrency": 2, "dedupeWindowMs": 120000, "signatureToleranceS": 300, "maxSignalsPerMinute": 30, "allowSourceIps": [] },
   "mcp": { "enabled": true, "toolsets": ["market", "analytics", "account"], "orderAccounts": [], "maxItems": 200 }
 }

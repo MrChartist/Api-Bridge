@@ -30,7 +30,7 @@ import { mcpConfig } from "./config.mjs";
 
 // ───────────────────────────── shared schemas ─────────────────────────────
 
-const symbolStr = z.string().min(2).max(64).describe("Bridge symbol, e.g. NSE:RELIANCE, NSE:NIFTY, NFO:NIFTY-2026-10-27-25000-CE (TradingView tickers also work).");
+const symbolStr = z.string().min(2).max(64).describe("Bridge symbol, e.g. NSE:RELIANCE, NSE:NIFTY, NFO:NIFTY-2026-10-27-25000-CE (chart tickers such as NSE:NIFTY1! also work).");
 const accountIn = z.string().regex(/^[a-z0-9][a-z0-9-]{1,31}$/).nullable().describe("Pin the read to one account id; null lets the Bridge choose.");
 const modeIn = z.enum(["paper", "live"]).nullable().describe("paper or live; null for the default.");
 const limitIn = z.number().int().min(1).max(1000).nullable().describe("Page size; null for the default.");
@@ -368,11 +368,11 @@ export const TOOL_DEFS = Object.freeze([
     name: "convert_symbol",
     title: "Convert a symbol",
     toolset: "market",
-    description: "Convert a TradingView, compact or broker symbol to the Bridge's canonical symbol, with its aliases.",
+    description: "Convert a chart ticker, compact or broker symbol to the Bridge's canonical symbol, with its aliases.",
     input: () =>
       z.strictObject({
         input: z.string().min(1).max(64),
-        from: z.enum(["auto", "canonical", "tradingview", "compact", "broker"]).nullable(),
+        from: z.enum(["auto", "canonical", "chart", "compact", "broker"]).nullable(),
         broker: z.string().regex(/^[a-z0-9]{2,20}$/).nullable(),
         exchange: exchangeIn.nullable(),
       }),

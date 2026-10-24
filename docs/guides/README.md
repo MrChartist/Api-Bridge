@@ -7,8 +7,7 @@ Start with the [main README](../../README.md) for the quick start. These guides 
 | [accounts.md](accounts.md) | Adding brokers and several accounts, logging in, sessions, family accounts |
 | [rate-limits.md](rate-limits.md) | How the Bridge stays inside every broker's limits, and how to see it working |
 | [streaming.md](streaming.md) | WebSocket and SSE live data |
-| [charts.md](charts.md) | TradingView-compatible UDF datafeed, Lightweight Charts |
-| [webhooks.md](webhooks.md) | TradingView, ChartInk, GoCharting and signed generic alerts |
+| [webhooks.md](webhooks.md) | Signed generic, ChartInk and GoCharting alerts |
 | [amibroker.md](amibroker.md) | AmiBroker AFL and ASCII import |
 | [python.md](python.md) | Python SDK |
 | [typescript.md](typescript.md) | Node and TypeScript SDK |

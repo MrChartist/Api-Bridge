@@ -5,8 +5,8 @@
  *
  * Config section `integrations` (optional; see config.mjs): CSV and countback defaults for /xl.
  *
- * Safety: every route is a GET with scope "read", and the handlers only touch deps.marketData, deps.symbols and
- * deps.clock (noOrders.test.mjs proves it), so nothing reachable from a spreadsheet formula or an AmiBroker
+ * Safety: every route is a GET with scope "read", and the handlers only touch deps.marketData
+ * (noOrders.test.mjs proves it), so nothing reachable from a spreadsheet formula or an AmiBroker
  * formula can place, modify or cancel an order. `?key=` works here only for read-only keys created with allowQuery
  * (enforced by the core pipeline).
  */
@@ -24,7 +24,7 @@ export const ERROR_FORMATTERS = Object.freeze({ xlCell: (err) => xlError(err) })
 const formatterFor = (group, name) => (name === "ltp" || name === "quote" ? ERROR_FORMATTERS.xlCell : undefined);
 
 /** The contract services the handlers read. Anything else is a bug (see noOrders.test.mjs). */
-export const USED_SERVICES = Object.freeze(["marketData", "symbols"]);
+export const USED_SERVICES = Object.freeze(["marketData"]);
 
 /** [method, path, route options, handler group, handler name] */
 export const ROUTES = Object.freeze([

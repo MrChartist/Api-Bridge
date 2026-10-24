@@ -1,6 +1,6 @@
 /**
  * The Bridge application: builds core deps and contract services, lets every module register its routes, and
- * runs the request pipeline on node:http (one port for REST, SSE, WebSocket upgrades, UDF, webhooks and MCP).
+ * runs the request pipeline on node:http (one port for REST, SSE, WebSocket upgrades, spreadsheet routes, webhooks and MCP).
  *
  * Pipeline for every HTTP request (in this order; a failure at any step becomes problem+json):
  *   1. request id (X-Request-Id if sane, else new) and baseline security headers
@@ -283,7 +283,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       else if (status >= 500 && status !== 501) log.warn("request failed", { requestId, path, code: problem.code });
       if (res.headersSent) res.destroy();
       else if (typeof matched?.options?.formatError === "function") {
-        // Clients that cannot read problem+json (TradingView UDF, Excel cells) get the error in their own format,
+        // Clients that cannot read problem+json (Excel cells) get the error in their own format,
         // including failures raised before the handler ran (auth, scope, client rate limit).
         let reply = null;
         try {

@@ -40,7 +40,7 @@ info:
 
     ## Symbols
     Canonical Bridge symbols (`NSE:RELIANCE`, `NFO:NIFTY-2026-10-27-25000-CE`). Inputs may be aliases (lower case,
-    TradingView tickers such as `NSE:NIFTY1!`); replies always use the canonical form, and you may unsubscribe with
+    chart tickers such as `NSE:NIFTY1!`); replies always use the canonical form, and you may unsubscribe with
     the alias you subscribed with.
 
     Personal use only: broker data terms generally forbid passing market data to other people.

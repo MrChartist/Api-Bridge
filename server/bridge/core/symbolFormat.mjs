@@ -17,7 +17,7 @@
  * The exchange codes are the broker contract's own, so a canonical symbol maps 1:1 onto an InstrumentRef exchange.
  *
  * Accepted aliases on input (parseAny): the "venue" form with NSE/BSE for derivatives (NSE:NIFTY-2026-10-27-FUT ->
- * NFO:...), TradingView tickers, and compact trading symbols with an exchange code (NIFTY27OCT2625000CE, NFO).
+ * NFO:...), chart tickers (the EXCHANGE:TICKER style used by charting platforms), and compact trading symbols with an exchange code (NIFTY27OCT2625000CE, NFO).
  */
 import { BridgeError } from "./errors.mjs";
 
@@ -111,55 +111,55 @@ export function isCanonicalSymbol(s) {
   }
 }
 
-// ── TradingView tickers ──
+// ── Chart tickers (NSE:NIFTY, NSE:M_M, NSE:NIFTY1!, NSE:NIFTY261027C25000) ──
 
 /**
- * TradingView spells NSE/BSE tickers without "-" and "&": both become "_" (NSE:M_M for M&M, NSE:BAJAJ_AUTO for
+ * Chart tickers spell NSE/BSE symbols without "-" and "&": both become "_" (NSE:M_M for M&M, NSE:BAJAJ_AUTO for
  * BAJAJ-AUTO). "_" is ambiguous on the way back, so names that carry "&" are listed here; every other "_" is "-".
  * Exchange symbols never contain "_" themselves. Keep this list in step with the masters (needs verification).
  */
-export const TV_AMPERSAND_NAMES = Object.freeze(["M&M", "M&MFIN", "J&KBANK", "GMRP&UI", "S&SPOWER"]);
-const TV_AMPERSAND_BY_TV = Object.freeze(Object.fromEntries(TV_AMPERSAND_NAMES.map((n) => [n.replace(/&/g, "_"), n])));
+export const CHART_AMPERSAND_NAMES = Object.freeze(["M&M", "M&MFIN", "J&KBANK", "GMRP&UI", "S&SPOWER"]);
+const CHART_AMPERSAND_BY_CHART = Object.freeze(Object.fromEntries(CHART_AMPERSAND_NAMES.map((n) => [n.replace(/&/g, "_"), n])));
 
 /**
- * Index tickers TradingView names differently from the exchange (needs verification against TradingView's symbol
- * search). TradingView name -> canonical underlying, per venue.
+ * Index tickers that charting platforms name differently from the exchange (needs verification). Chart name ->
+ * canonical underlying, per venue.
  */
-export const TV_INDEX_ALIASES = Object.freeze({
+export const CHART_INDEX_ALIASES = Object.freeze({
   NSE: Object.freeze({ CNXFINANCE: "FINNIFTY", NIFTY_MID_SELECT: "MIDCPNIFTY" }),
   BSE: Object.freeze({}),
 });
-const TV_INDEX_BY_CANONICAL = Object.freeze(
-  Object.fromEntries(Object.entries(TV_INDEX_ALIASES).map(([v, m]) => [v, Object.fromEntries(Object.entries(m).map(([tv, c]) => [c, tv]))])),
+const CHART_INDEX_BY_CANONICAL = Object.freeze(
+  Object.fromEntries(Object.entries(CHART_INDEX_ALIASES).map(([v, m]) => [v, Object.fromEntries(Object.entries(m).map(([chart, c]) => [c, chart]))])),
 );
 
-/** TradingView underlying -> exchange underlying ("M_M" -> "M&M", "BAJAJ_AUTO" -> "BAJAJ-AUTO"). */
-export function fromTradingViewName(name) {
+/** Chart underlying -> exchange underlying ("M_M" -> "M&M", "BAJAJ_AUTO" -> "BAJAJ-AUTO"). */
+export function fromChartName(name) {
   const n = String(name ?? "").toUpperCase();
   if (!n.includes("_")) return n;
-  return TV_AMPERSAND_BY_TV[n] ?? n.replace(/_/g, "-");
+  return CHART_AMPERSAND_BY_CHART[n] ?? n.replace(/_/g, "-");
 }
 
-/** Exchange underlying -> TradingView underlying ("M&M" -> "M_M", "BAJAJ-AUTO" -> "BAJAJ_AUTO"). */
-export function toTradingViewName(name) {
+/** Exchange underlying -> chart underlying ("M&M" -> "M_M", "BAJAJ-AUTO" -> "BAJAJ_AUTO"). */
+export function toChartName(name) {
   return String(name ?? "").replace(/[-&]/g, "_");
 }
 
 /**
- * Parse a TradingView ticker. Cash/index tickers map directly. Continuous futures ("NSE:NIFTY1!") need an expiry
+ * Parse a chart ticker. Cash/index tickers map directly. Continuous futures ("NSE:NIFTY1!") need an expiry
  * lookup, so they come back with `continuous` set and `canonical: null` for SymbolService to resolve. Option tickers
- * "NSE:NIFTY261027C25000" (YYMMDD + C|P + strike) follow TradingView's NSE convention (needs verification).
+ * "NSE:NIFTY261027C25000" (YYMMDD + C|P + strike) follow the common charting convention for NSE (needs verification).
  * @returns {{ canonical: string | null, exchange: string, underlying: string, kind: string, continuous?: number,
  *   expiry?: string, strike?: number, right?: string }}
  */
-export function parseTradingView(ticker) {
+export function parseChartTicker(ticker) {
   const s = String(ticker ?? "").trim().toUpperCase();
   const m = /^([A-Z]+):([A-Z0-9&_-]+?)(?:(\d)!|(\d{2})(\d{2})(\d{2})([CP])(\d+(?:\.\d+)?))?$/.exec(s);
-  if (!m) throw bad(`"${ticker}" is not a TradingView ticker like NSE:NIFTY or NSE:NIFTY1!.`);
-  const [, venue, tvUnderlying, cont, yy, mm, dd, cp, strike] = m;
-  if (!CASH_EXCHANGES.includes(venue) && !DERIVATIVE_EXCHANGES.includes(venue)) throw bad(`Unknown TradingView exchange ${venue}.`);
-  const indexAlias = !cont && !cp ? TV_INDEX_ALIASES[venue]?.[tvUnderlying] : undefined;
-  const underlying = indexAlias ?? fromTradingViewName(tvUnderlying);
+  if (!m) throw bad(`"${ticker}" is not a chart ticker like NSE:NIFTY or NSE:NIFTY1!.`);
+  const [, venue, chartUnderlying, cont, yy, mm, dd, cp, strike] = m;
+  if (!CASH_EXCHANGES.includes(venue) && !DERIVATIVE_EXCHANGES.includes(venue)) throw bad(`Unknown chart exchange ${venue}.`);
+  const indexAlias = !cont && !cp ? CHART_INDEX_ALIASES[venue]?.[chartUnderlying] : undefined;
+  const underlying = indexAlias ?? fromChartName(chartUnderlying);
   if (cont) {
     const exchange = VENUE_TO_SEGMENT[venue] ?? venue;
     return { canonical: null, exchange, underlying, kind: "FUT", continuous: Number(cont) };
@@ -175,15 +175,15 @@ export function parseTradingView(ticker) {
   return { canonical: p.canonical, exchange: p.exchange, underlying: p.underlying, kind: p.kind };
 }
 
-/** Canonical -> TradingView ticker (cash, index and options; futures need "1!"-style continuous names, so null). */
-export function toTradingView(symbol) {
+/** Canonical -> chart ticker (cash, index and options; futures need "1!"-style continuous names, so null). */
+export function toChartTicker(symbol) {
   const p = parseSymbol(symbol);
-  if (p.kind === "INDEX" && TV_INDEX_BY_CANONICAL[p.exchange]?.[p.underlying]) return `${p.exchange}:${TV_INDEX_BY_CANONICAL[p.exchange][p.underlying]}`;
-  if (p.kind === "EQ" || p.kind === "INDEX") return `${p.exchange}:${toTradingViewName(p.underlying)}`;
+  if (p.kind === "INDEX" && CHART_INDEX_BY_CANONICAL[p.exchange]?.[p.underlying]) return `${p.exchange}:${CHART_INDEX_BY_CANONICAL[p.exchange][p.underlying]}`;
+  if (p.kind === "EQ" || p.kind === "INDEX") return `${p.exchange}:${toChartName(p.underlying)}`;
   if (p.kind === "FUT") return null;
   const venue = p.exchange === "NFO" ? "NSE" : p.exchange === "BFO" ? "BSE" : p.exchange;
   const [y, m, d] = p.expiry.split("-");
-  return `${venue}:${toTradingViewName(p.underlying)}${y.slice(2)}${m}${d}${p.right === "CE" ? "C" : "P"}${normaliseStrike(p.strike)}`;
+  return `${venue}:${toChartName(p.underlying)}${y.slice(2)}${m}${d}${p.right === "CE" ? "C" : "P"}${normaliseStrike(p.strike)}`;
 }
 
 // ── Compact trading symbols (NIFTY27OCT2625000CE + exchange code, the common Indian broker style) ──
@@ -224,12 +224,12 @@ export function toCompact(symbol) {
 
 /**
  * Best-effort format detection for /v1/symbols/convert with from="auto".
- * @returns {"canonical" | "tradingview" | "compact" | "unknown"}
+ * @returns {"canonical" | "chart" | "compact" | "unknown"}
  */
 export function detectFormat(input, exchange) {
   const s = String(input ?? "").trim().toUpperCase();
-  // TradingView option and continuous tickers first: "NSE:NIFTY261027C25000" would otherwise look like a cash symbol.
-  if (/^[A-Z]+:[A-Z][A-Z0-9&_-]*?(\d!|\d{6}[CP]\d+(\.\d+)?)$/.test(s)) return "tradingview";
+  // Chart option and continuous tickers first: "NSE:NIFTY261027C25000" would otherwise look like a cash symbol.
+  if (/^[A-Z]+:[A-Z][A-Z0-9&_-]*?(\d!|\d{6}[CP]\d+(\.\d+)?)$/.test(s)) return "chart";
   if (CANONICAL_RE.test(s)) return "canonical";
   if (exchange && /^[A-Z0-9&_-]+$/.test(s)) return "compact";
   return "unknown";

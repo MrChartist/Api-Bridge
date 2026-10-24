@@ -3,7 +3,6 @@ import { MAX_SIGNALS_PER_ALERT, signalFromObject, signalFromText, toNumber, toOr
 import { parseChartInk } from "./chartink.mjs";
 import { parseGeneric } from "./generic.mjs";
 import { parseGoCharting } from "./gocharting.mjs";
-import { parseTradingView } from "./tradingview.mjs";
 
 const code = (fn) => {
   try {
@@ -63,26 +62,6 @@ describe("text alert grammar", () => {
   });
 });
 
-describe("TradingView", () => {
-  it("uses strategy order id + time as the alert identity", () => {
-    const a = parseTradingView({ symbol: "NSE:RELIANCE", side: "buy", quantity: "1", price: "1400", id: "Long", time: "2026-10-19T04:00:00Z" });
-    expect(a.basis).toBe("tv|Long|2026-10-19T04:00:00Z");
-    expect(a.signals).toHaveLength(1);
-    expect(parseTradingView({ symbol: "NSE:RELIANCE", side: "buy", id: "Long" }).basis).toBeNull();
-  });
-  it("accepts text alerts", () => {
-    expect(parseTradingView("BUY NSE:RELIANCE 1 @ 1400").signals[0]).toMatchObject({ side: "BUY", quantity: 1 });
-  });
-  it("refuses unfilled placeholders, in JSON and in text", () => {
-    expect(code(() => parseTradingView({ symbol: "NSE:RELIANCE", side: "{{strategy.order.action}}" }))).toBe("VALIDATION_FAILED");
-    expect(code(() => parseTradingView("{{strategy.order.action}} NSE:RELIANCE 1"))).toBe("VALIDATION_FAILED");
-  });
-  it("refuses arrays and other shapes", () => {
-    expect(code(() => parseTradingView([1, 2]))).toBe("VALIDATION_FAILED");
-    expect(code(() => parseTradingView(42))).toBe("VALIDATION_FAILED");
-  });
-});
-
 describe("ChartInk", () => {
   const body = { stocks: "SEPOWER,ASTEC,M&M", trigger_prices: "3.75,541.8,2900", triggered_at: "2:34 pm", scan_name: "Short term breakouts", scan_url: "short-term-breakouts", alert_name: "Alert" };
   it("splits comma-joined lists into NSE signals with trigger prices", () => {
@@ -118,6 +97,20 @@ describe("GoCharting", () => {
     expect(parseGoCharting("SELL NSE:INFY 2 @ 1500").signals[0]).toMatchObject({ side: "SELL", quantity: 2, price: 1500 });
     expect(parseGoCharting({ symbol: "NSE:INFY", side: "buy" }).signals[0].side).toBe("BUY");
     expect(code(() => parseGoCharting(null))).toBe("VALIDATION_FAILED");
+  });
+  it("uses id + time as the alert identity when the message carries both", () => {
+    const a = parseGoCharting({ symbol: "NSE:RELIANCE", side: "buy", quantity: "1", price: "1400", id: "Long", time: "2026-10-19T04:00:00Z" });
+    expect(a.basis).toBe("gc|Long|2026-10-19T04:00:00Z");
+    expect(a.signals).toHaveLength(1);
+    expect(parseGoCharting({ symbol: "NSE:RELIANCE", side: "buy", id: "Long" }).basis).toBeNull();
+  });
+  it("refuses unfilled placeholders, in JSON and in text", () => {
+    expect(code(() => parseGoCharting({ symbol: "NSE:RELIANCE", side: "{{side}}" }))).toBe("VALIDATION_FAILED");
+    expect(code(() => parseGoCharting("{{side}} NSE:RELIANCE 1"))).toBe("VALIDATION_FAILED");
+  });
+  it("refuses arrays and other shapes", () => {
+    expect(code(() => parseGoCharting([1, 2]))).toBe("VALIDATION_FAILED");
+    expect(code(() => parseGoCharting(42))).toBe("VALIDATION_FAILED");
   });
 });
 

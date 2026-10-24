@@ -1,8 +1,8 @@
 /**
  * Acceptance (docs/STREAMS.md §S10): nothing in this stream can place an order. Proved four ways:
  *  1. every S10 route is a GET with scope "read" (no write method, no paper/live scope);
- *  2. the handlers, driven with every route and hostile inputs, touch only deps.marketData, deps.symbols and
- *     deps.clock (a recording Proxy around deps);
+ *  2. the handlers, driven with every route and hostile inputs, touch only deps.marketData (a recording Proxy
+ *     around deps);
  *  3. through the real HTTP pipeline, with recording order/paper/safety services installed, no request reaches them,
  *     and every write method on /xl is refused with 405;
  *  4. the module's source never names an order-capable service or method.
@@ -60,7 +60,7 @@ describe("route table", () => {
   });
 });
 
-describe("handlers only read market data, symbols and the clock", () => {
+describe("handlers only read market data", () => {
   it("records every deps property the handlers touch", async () => {
     const touched = new Set();
     const calls = [];
@@ -87,12 +87,12 @@ describe("handlers only read market data, symbols and the clock", () => {
           /* table routes may throw validation errors; that is fine */
         }
       }
-      expect([...touched].filter((p) => !["marketData", "symbols", "clock"].includes(p)), key).toEqual([]);
+      expect([...touched].filter((p) => p !== "marketData"), key).toEqual([]);
     }
     expect(calls).toEqual([]);
     // the probe really observed the handlers (not a vacuous pass)
-    expect([...touched].sort()).toEqual(["clock", "marketData", "symbols"]);
-    expect(USED_SERVICES).toEqual(["marketData", "symbols"]);
+    expect([...touched].sort()).toEqual(["marketData"]);
+    expect(USED_SERVICES).toEqual(["marketData"]);
   });
 });
 

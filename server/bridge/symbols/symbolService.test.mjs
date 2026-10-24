@@ -398,13 +398,13 @@ describe("convert", () => {
     ({ svc } = setup());
   });
 
-  it("gives canonical plus TradingView, compact and every connected broker's alias", async () => {
+  it("gives canonical plus chart, compact and every connected broker's alias", async () => {
     const r = await svc.convert({ input: "NSE:NIFTY261027C25000" });
     expect(r).toEqual({
       input: "NSE:NIFTY261027C25000",
       canonical: "NFO:NIFTY-2026-10-27-25000-CE",
       aliases: {
-        tradingview: "NSE:NIFTY261027C25000",
+        chart: "NSE:NIFTY261027C25000",
         compact: "NIFTY27OCT2625000CE",
         compactExchange: "NFO",
         "broker:angelone": "NIFTY27OCT2625000CE",
@@ -421,9 +421,9 @@ describe("convert", () => {
     });
   });
 
-  it("names futures by their continuous TradingView ticker and indices with the _INDEX exchange", async () => {
-    expect((await svc.convert({ input: "NFO:BANKNIFTY-2026-10-27-FUT" })).aliases.tradingview).toBe("NSE:BANKNIFTY1!");
-    expect((await svc.convert({ input: "NSE:NIFTY" })).aliases).toMatchObject({ tradingview: "NSE:NIFTY", compact: "NIFTY", compactExchange: "NSE_INDEX" });
+  it("names futures by their continuous chart ticker and indices with the _INDEX exchange", async () => {
+    expect((await svc.convert({ input: "NFO:BANKNIFTY-2026-10-27-FUT" })).aliases.chart).toBe("NSE:BANKNIFTY1!");
+    expect((await svc.convert({ input: "NSE:NIFTY" })).aliases).toMatchObject({ chart: "NSE:NIFTY", compact: "NIFTY", compactExchange: "NSE_INDEX" });
     expect((await svc.convert({ input: "NSE:RELIANCE" })).aliases).toMatchObject({ compact: "RELIANCE", compactExchange: "NSE" });
   });
 
@@ -435,7 +435,7 @@ describe("convert", () => {
   });
 
   it("works as a pure format converter for symbols no master lists", async () => {
-    expect(await svc.convert({ input: "NIFTY30DEC2626000PE", from: "compact", exchange: "NFO" })).toMatchObject({ canonical: "NFO:NIFTY-2026-12-30-26000-PE", aliases: { tradingview: "NSE:NIFTY261230P26000" } });
+    expect(await svc.convert({ input: "NIFTY30DEC2626000PE", from: "compact", exchange: "NFO" })).toMatchObject({ canonical: "NFO:NIFTY-2026-12-30-26000-PE", aliases: { chart: "NSE:NIFTY261230P26000" } });
   });
 
   it("validates its input", async () => {

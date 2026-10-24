@@ -5,4 +5,4 @@ contact_links:
     about: Please report security problems privately, never in a public issue. See SECURITY.md.
   - name: Setup guides
     url: https://github.com/MrChartist/api-bridge/tree/main/docs/guides
-    about: Step-by-step guides for accounts, TradingView, Excel, AmiBroker, Python, Node, MCP and safety.
+    about: Step-by-step guides for accounts, webhooks, Excel, AmiBroker, Python, Node, MCP and safety.

@@ -52,7 +52,7 @@ describe("dashboard ticket view", () => {
 
 describe("dashboard helpers", async () => {
   const { checklistState, friendlyError, highlightJson } = await import("./app.js");
-  const { KEY_PRESETS, snippets, tradingViewAlert } = await import("./snippets.js");
+  const { KEY_PRESETS, genericAlert, snippets } = await import("./snippets.js");
 
   it("explains errors in plain words", () => {
     expect(friendlyError({ network: true }).title).toMatch(/Cannot reach the Bridge/);
@@ -80,13 +80,14 @@ describe("dashboard helpers", async () => {
   it("fills snippets with the Bridge address and never an admin key", () => {
     const s = snippets({ base: "http://127.0.0.1:4300/", account: "paper" });
     const all = JSON.stringify(s);
-    expect(Object.keys(s)).toEqual(["tradingview", "python", "node", "excel", "amibroker", "claude", "chatgpt", "rest"]);
-    expect(all).toContain("http://127.0.0.1:4300/udf");
+    expect(Object.keys(s)).toEqual(["webhooks", "python", "node", "excel", "amibroker", "claude", "chatgpt", "rest"]);
+    expect(all).toContain("http://127.0.0.1:4300/hooks/generic/");
     expect(all).toContain("mcb_YOUR_READ_KEY");
     expect(JSON.parse(s.claude[0].code).mcpServers["mr-chartist-bridge"].env.MCB_BRIDGE_URL).toBe("http://127.0.0.1:4300");
     expect(snippets({ base: "http://h:1", key: "mcb_k_x" }).excel[1].code).toBe("mcb_k_x");
-    expect(JSON.parse(tradingViewAlert())).toMatchObject({ side: "{{strategy.order.action}}", price: "{{close}}" });
-    expect(JSON.parse(tradingViewAlert({ orderType: "MARKET" })).price).toBeUndefined();
+    expect(JSON.parse(genericAlert())).toMatchObject({ symbol: "NSE:RELIANCE", side: "BUY", price: 1402.5 });
+    expect(JSON.parse(genericAlert({ orderType: "MARKET" })).price).toBeUndefined();
+    expect(KEY_PRESETS.webhooks).toBeUndefined(); // the hook URL (and signing secret) is the credential
     for (const p of Object.values(KEY_PRESETS)) expect(p.scopes).not.toContain("admin");
   });
 });

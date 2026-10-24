@@ -18,7 +18,8 @@ describe("auth on /xl", () => {
   it("needs a key", async () => {
     const r = await get("/xl/ltp?symbol=NSE:NIFTY", {});
     expect(r.status).toBe(401);
-    expect(r.json.code).toBe("UNAUTHENTICATED");
+    expect(r.raw).toBe("#N/A");
+    expect(r.headers["x-error-code"]).toBe("UNAUTHENTICATED");
   });
   it("accepts ?key= only for read-only URL keys", async () => {
     expect((await get(`/xl/ltp?symbol=NSE:NIFTY&key=${KEYS.XL}`, {})).status).toBe(200);

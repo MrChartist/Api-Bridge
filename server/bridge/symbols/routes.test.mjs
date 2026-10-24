@@ -183,7 +183,7 @@ describe("/v1/symbols/convert", () => {
       input: "NIFTY27OCT2625000CE",
       canonical: "NFO:NIFTY-2026-10-27-25000-CE",
       aliases: {
-        tradingview: "NSE:NIFTY261027C25000",
+        chart: "NSE:NIFTY261027C25000",
         compact: "NIFTY27OCT2625000CE",
         compactExchange: "NFO",
         "broker:zerodha": "NIFTY26OCT25000CE",

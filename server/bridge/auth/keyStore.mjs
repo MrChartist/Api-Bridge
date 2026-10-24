@@ -76,7 +76,7 @@ const BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
 export const KEY_ID_RE = /^[a-z2-7]{10}$/;
 export const API_KEY_RE = /^mcb_([a-z2-7]{10})_([A-Za-z0-9_-]{43})$/;
 export const STREAM_TOKEN_RE = /^mcb_st_[A-Za-z0-9_-]{43}$/;
-export const CLIENT_KINDS = Object.freeze(["script", "excel", "tradingview", "mcp", "ui", "other"]);
+export const CLIENT_KINDS = Object.freeze(["script", "excel", "mcp", "ui", "other"]);
 const ACCOUNT_ID_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 
@@ -134,7 +134,8 @@ const storedKeySchema = z.object({
   scopes: scopesSchema,
   accounts: accountsSchema,
   allowQuery: z.boolean().default(false),
-  clientKind: z.enum(CLIENT_KINDS).default("other"),
+  // A kind this version no longer offers (a key file written by an older release) reads as "other".
+  clientKind: z.enum(CLIENT_KINDS).catch("other"),
   createdAt: isoString,
   expiresAt: isoString.nullable().default(null),
   revokedAt: isoString.nullable().default(null),

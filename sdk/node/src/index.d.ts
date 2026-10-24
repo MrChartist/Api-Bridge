@@ -357,7 +357,7 @@ export declare class BridgeClient {
 
   searchInstruments(p: { q: string; exchange?: Exchange; kind?: InstrumentKind; underlying?: string; expiry?: string; limit?: number; cursor?: string }): Promise<Envelope<Instrument[]>>;
   instrument(symbol: string, o?: { include?: "refs" }): Promise<Envelope<Instrument>>;
-  convertSymbol(input: string, o?: { from?: "auto" | "canonical" | "tradingview" | "compact" | "broker"; exchange?: string; broker?: string }): Promise<Envelope<ConvertResult>>;
+  convertSymbol(input: string, o?: { from?: "auto" | "canonical" | "chart" | "compact" | "broker"; exchange?: string; broker?: string }): Promise<Envelope<ConvertResult>>;
   convertSymbols(items: Array<string | { input: string; from?: string; exchange?: string; broker?: string }>): Promise<Envelope<Array<ConvertResult | ItemError>>>;
 
   ltp(symbols: string | string[], o?: ReadOpts): Promise<Envelope<LtpItem[]>>;

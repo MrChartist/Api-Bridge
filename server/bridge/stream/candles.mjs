@@ -1,5 +1,5 @@
 /**
- * Tick-to-candle aggregator for live chart bars (stream S10's UDF datafeed and anything else that draws charts).
+ * Tick-to-candle aggregator for live chart bars (anything that draws charts).
  *
  * Bars are aligned to the IST trading session, the way Indian charts show them: NSE/BSE/NFO/BFO minute bars start at
  * 09:15, so 60m bars are 09:15, 10:15 ... 15:15 (the last one 15 minutes long); MCX and CDS start at 09:00. Daily bars

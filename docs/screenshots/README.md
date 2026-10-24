@@ -52,12 +52,6 @@ Rate limits: live usage per endpoint class against the broker's limits, and the 
 
 ![Rate limits](limits-dark.webp)
 
-### Integrations: TradingView (dark)
-
-Copy-paste setup for TradingView, with this Bridge's address filled in and a button that creates a key with only the access it needs.
-
-![Integrations: TradingView](integrations-tradingview-dark.webp)
-
 ### Integrations: Python (dark)
 
 Copy-paste setup for Python, with this Bridge's address filled in and a button that creates a key with only the access it needs.
@@ -162,12 +156,6 @@ Rate limits: live usage per endpoint class against the broker's limits, and the 
 
 ![Rate limits](limits-light.webp)
 
-### Integrations: TradingView (light)
-
-Copy-paste setup for TradingView, with this Bridge's address filled in and a button that creates a key with only the access it needs.
-
-![Integrations: TradingView](integrations-tradingview-light.webp)
-
 ### Integrations: Python (light)
 
 Copy-paste setup for Python, with this Bridge's address filled in and a button that creates a key with only the access it needs.
@@ -242,12 +230,6 @@ An option-chain call with Greeks: status, timing, request id, rate-limit headers
 
 ![Test console with a response](feature-test-console-option-chain.webp)
 
-### Snippet panel: TradingView
-
-Ready-to-paste TradingView setup with copy buttons.
-
-![Snippet panel: TradingView](feature-snippets-tradingview.webp)
-
 ### Snippet panel: Python
 
 Ready-to-paste Python setup with copy buttons.
@@ -265,12 +247,6 @@ Ready-to-paste Excel and Google Sheets setup with copy buttons.
 Ready-to-paste Claude Desktop and Claude Code (MCP) setup with copy buttons.
 
 ![Snippet panel: Claude Desktop and Claude Code (MCP)](feature-snippets-claude.webp)
-
-### TradingView webhook created
-
-A new TradingView hook: its secret URL is shown once, with the alert message to paste. Paper orders by default.
-
-![TradingView webhook created](feature-tradingview-webhook.webp)
 
 ### Kill switch: confirm
 

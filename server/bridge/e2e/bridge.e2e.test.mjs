@@ -1,7 +1,7 @@
 /**
  * End-to-end: the REAL Bridge (every built-in module and real service, real HTTP listener on 127.0.0.1) with stub
  * broker adapters. Walks the product the way a user would: create keys → connect two broker accounts → quotes over
- * REST → live stream over WebSocket → UDF chart history → a TradingView alert creates a PAPER order → the kill switch
+ * REST → live stream over WebSocket → spreadsheet cells → a webhook alert creates a PAPER order → the kill switch
  * blocks orders → the audit log holds every step. Also proves the headline rate-limit claims: 20 concurrent
  * identical quote requests reach the broker as ONE call, and unpinned reads stay on the primary account when the
  * broker's terms do not allow pooling (pooling.e2e.test.mjs covers the "allowed" side).
@@ -204,22 +204,7 @@ describe("Mr. Chartist API Bridge end to end", () => {
     expect(quoteCalls(null, tokenOf("SBIN"))).toHaveLength(0);
   });
 
-  it("serves TradingView UDF chart history (with a read-only ?key=), and UDF errors in UDF format", async () => {
-    const to = Math.floor(Date.parse("2026-10-17T00:00:00+05:30") / 1000);
-    const from = to - 14 * 86_400;
-    const r = await bridge.http(`/udf/history?symbol=NSE:RELIANCE&resolution=1D&from=${from}&to=${to}&key=${encodeURIComponent(keys.read)}`);
-    expect(r.status).toBe(200);
-    expect(r.json.s).toBe("ok");
-    expect(r.json.t.length).toBeGreaterThan(5);
-    expect(r.json.c.every((c) => c === 1402.5)).toBe(true);
-    const cfg = await bridge.http("/udf/config", { key: keys.read });
-    expect(cfg.json.supported_resolutions).toContain("1D");
-
-    // A bad key on a UDF route must still be a UDF body, or TradingView reads it as data.
-    const bad = await bridge.http("/udf/symbols?symbol=NSE:RELIANCE&key=mcb_aaaaaaaaaa_nope");
-    expect(bad.status).toBe(401);
-    expect(bad.json).toMatchObject({ s: "error", code: "UNAUTHENTICATED" });
-    expect(bad.json.errmsg).toBeTruthy();
+  it("serves spreadsheet cells (with a read-only ?key=), and errors as #N/A", async () => {
     // Spreadsheet cells get #N/A, never problem+json.
     const cell = await bridge.http("/xl/ltp?symbol=NSE:RELIANCE");
     expect(cell.status).toBe(401);
@@ -227,15 +212,15 @@ describe("Mr. Chartist API Bridge end to end", () => {
     const ok = await bridge.http(`/xl/ltp?symbol=NSE:RELIANCE&key=${encodeURIComponent(keys.read)}`);
     expect(ok.text).toBe("1402.5");
     // ?key= is refused for keys that can trade.
-    expect((await bridge.http(`/udf/time?key=${encodeURIComponent(keys.paper)}`)).status).toBe(401);
+    expect((await bridge.http(`/xl/ltp?symbol=NSE:RELIANCE&key=${encodeURIComponent(keys.paper)}`)).status).toBe(401);
   });
 
   let hookPath;
-  it("a TradingView alert creates exactly one PAPER order, even when TradingView fires twice", async () => {
-    const created = await bridge.http("/v1/hooks", { method: "POST", key: keys.admin, body: { source: "tradingview", label: "TV RELIANCE", account: "paper", product: "CNC", orderType: "MARKET", maxLotsPerSignal: 5 } });
+  it("a webhook alert creates exactly one PAPER order, even when the sender fires twice", async () => {
+    const created = await bridge.http("/v1/hooks", { method: "POST", key: keys.admin, body: { source: "gocharting", label: "GC RELIANCE", account: "paper", product: "CNC", orderType: "MARKET", maxLotsPerSignal: 5 } });
     expect(created.status).toBe(201);
     hookPath = created.json.data.path ?? new URL(created.json.data.url).pathname;
-    expect(hookPath).toMatch(/^\/hooks\/tradingview\//);
+    expect(hookPath).toMatch(/^\/hooks\/gocharting\//);
     const listed = await bridge.http("/v1/hooks", { key: keys.admin });
     expect(listed.text).not.toContain(hookPath.split("/").pop());
 
@@ -258,7 +243,7 @@ describe("Mr. Chartist API Bridge end to end", () => {
   });
 
   it("a confirmation-required hook waits for a person, then places exactly the confirmed order", async () => {
-    const created = await bridge.http("/v1/hooks", { method: "POST", key: keys.admin, body: { source: "tradingview", label: "TV confirm", account: "paper", product: "CNC", orderType: "MARKET", requireConfirmation: true } });
+    const created = await bridge.http("/v1/hooks", { method: "POST", key: keys.admin, body: { source: "gocharting", label: "GC confirm", account: "paper", product: "CNC", orderType: "MARKET", requireConfirmation: true } });
     expect(created.status).toBe(201);
     const path = created.json.data.path ?? new URL(created.json.data.url).pathname;
     expect((await bridge.http(path, { method: "POST", body: { symbol: "NSE:INFY", side: "BUY", quantity: "1", id: "C1", time: "2026-10-19T04:40:00Z" } })).status).toBe(202);
