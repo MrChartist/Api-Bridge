@@ -5,10 +5,11 @@
 <h1 align="center">Mr. Chartist API Bridge</h1>
 
 <p align="center"><strong>One local API for all your Indian broker accounts.</strong><br>
-Charts, alerts, Excel, Python and AI assistants all share one careful connection to your broker.</p>
+Alerts, Excel, Python and AI assistants all share one careful connection to your broker. Free and open source.</p>
 
 <p align="center">
-  <img alt="licence: personal use" src="https://img.shields.io/badge/licence-personal%20use-ef6a2e">
+  <a href="https://github.com/MrChartist/api-bridge/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/MrChartist/api-bridge/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-ef6a2e"></a>
   <img alt="41 brokers" src="https://img.shields.io/badge/brokers-41-ef6a2e">
   <img alt="paper trading by default" src="https://img.shields.io/badge/orders-paper%20by%20default-2e7d4f">
   <img alt="Node.js 20+" src="https://img.shields.io/badge/node-20%2B-3c873a">
@@ -26,7 +27,7 @@ The Bridge is a small program that runs on **your own computer**. You log in to 
 tool you use gets prices, option chains, candles, positions and (paper) orders from the Bridge instead of each tool
 calling the broker on its own:
 
-- **TradingView** alerts become paper orders through a webhook, and charts get a TradingView-compatible datafeed.
+- **Alerts** from Chartink, GoCharting or your own scripts become paper orders through a webhook.
 - **Excel, Google Sheets and AmiBroker** get live prices in cells and formulas.
 - **Python and Node** scripts use a simple SDK.
 - **Claude, ChatGPT and other AI assistants** can read prices and your positions, and can only *prepare* orders that
@@ -39,8 +40,10 @@ account inside its broker's limits, so your broker sees **one well-behaved clien
 It is **safe by default**: it listens on `127.0.0.1` only, every order is a **paper** order unless you switch live
 trading on in the config file, every tool gets its own scoped key, and there is a one-click kill switch.
 
-> **Personal use only.** The Bridge is for you (and the family members SEBI allows) on your own machine. It is not a
-> hosted or shared service. See [Compliance notes](#compliance-notes).
+> **Use at your own risk.** This is not investment advice, and the authors are not responsible for any trading loss.
+> The Bridge is meant to run on your own machine for your own accounts (and the family members SEBI allows); it is not
+> a hosted or shared service. Following SEBI rules and your broker's API terms is your responsibility. See
+> [Compliance notes](#compliance-notes).
 
 ## Contents
 
@@ -48,12 +51,12 @@ trading on in the config file, every tool gets its own scoped key, and there is 
 2. [Connect brokers and several accounts](#connect-brokers-and-several-accounts)
 3. [How rate limits are handled](#how-rate-limits-are-handled)
 4. [Screenshots](#screenshots)
-5. [Integrations](#integrations): TradingView alerts · chart datafeed · AmiBroker · Excel and Sheets · Python · Node ·
-   Claude (MCP) · ChatGPT and OpenAI · REST and streaming
+5. [Integrations](#integrations): alert webhooks · AmiBroker · Excel and Sheets · Python · Node · Claude (MCP) ·
+   ChatGPT and OpenAI · REST and streaming
 6. [Safety model](#safety-model) · [Compliance notes](#compliance-notes)
 7. [Supported brokers](#supported-brokers)
 8. [Troubleshooting](#troubleshooting) · [FAQ](#faq) · [Commands and configuration](#commands-and-configuration)
-9. [Development](#development) · [Licence](#licence)
+9. [Contributing](#contributing) · [Roadmap](ROADMAP.md) · [License](#license)
 
 ---
 
@@ -124,7 +127,7 @@ WARN  market-data    No market-data source connected (log in dhan-main). ... or 
 npm start -- --demo --open
 ```
 
-Demo mode lets you try **everything** with no broker account: the dashboard, the test console, charts, Excel,
+Demo mode lets you try **everything** with no broker account: the dashboard, the test console, Excel,
 Python, Node, webhooks and AI tools. A built-in sample market gives repeatable quotes, depth, option chains with
 Greeks, candles and a live tick stream for **NIFTY, BANKNIFTY, SENSEX** and RELIANCE, HDFCBANK, ICICIBANK, INFY,
 TCS and SBIN, plus a paper account with ₹10,00,000 of practice money.
@@ -225,7 +228,7 @@ All taken in demo mode. The full gallery with descriptions is in [docs/screensho
 |---|---|
 | <img src="docs/screenshots/accounts-dark.webp" alt="Accounts page with the 41-broker directory" width="420"><br>**Accounts** and the 41-broker directory | <img src="docs/screenshots/console-dark.webp" alt="Test console with a quotes response" width="420"><br>**Test console** with a live response |
 | <img src="docs/screenshots/limits-dark.webp" alt="Rate limits page" width="420"><br>**Rate limits**: live budgets and calls saved | <img src="docs/screenshots/orders-dark.webp" alt="Orders page with a pending AI ticket" width="420"><br>**Orders**: AI tickets wait for you |
-| <img src="docs/screenshots/integrations-tradingview-dark.webp" alt="Integrations page, TradingView tab" width="420"><br>**Integrations**: copy-paste setup per tool | <img src="docs/screenshots/safety-dark.webp" alt="Safety page with the kill switch" width="420"><br>**Safety**: kill switch and daily limits |
+| <img src="docs/screenshots/integrations-python-dark.webp" alt="Integrations page, Python tab" width="420"><br>**Integrations**: copy-paste setup per tool | <img src="docs/screenshots/safety-dark.webp" alt="Safety page with the kill switch" width="420"><br>**Safety**: kill switch and daily limits |
 | <img src="docs/screenshots/keys-dark.webp" alt="API keys page" width="420"><br>**API keys** with scopes | <img src="docs/screenshots/activity-dark.webp" alt="Activity page, request log" width="420"><br>**Activity**: request and audit logs |
 
 <details>
@@ -254,60 +257,42 @@ All taken in demo mode. The full gallery with descriptions is in [docs/screensho
 ## Integrations
 
 Make **one key per tool** with the least access it needs (dashboard → **API keys**, or the **Create a key for this**
-button on each Integrations tab). `read` is enough for charts, Excel and AI; scripts that place paper orders need
-`paper`. All examples use the default address `http://127.0.0.1:4300`.
+button on each Integrations tab). `read` is enough for Excel and AI; scripts that place paper orders need
+`paper`. All examples use the default address `http://127.0.0.1:4300`. In demo mode the paper account is called
+`demo-paper`, so use `"account": "demo-paper"` wherever an example says `"account": "paper"`.
 
 ```bash
-npm run bridge -- keys create --label charts  --scope read
+npm run bridge -- keys create --label ai      --scope read
 npm run bridge -- keys create --label scripts --scope paper
 npm run bridge -- keys create --label excel   --scope read --allow-query --client excel --expires 90d   # key goes in URLs
 ```
 
-### TradingView alerts (webhook with its own secret URL)
+### Alert webhooks (Chartink, GoCharting, your own scripts)
 
-Create a hook on the dashboard (**Integrations → TradingView → Create webhook**) or with an admin key:
+Create a hook on the dashboard (**Integrations → Webhooks → Create webhook**) or with an admin key:
 
 ```bash
 curl -X POST http://127.0.0.1:4300/v1/hooks -H "Authorization: Bearer $MCB_ADMIN_KEY" -H "Content-Type: application/json" \
-  -d '{"source":"tradingview","label":"NIFTY breakout","account":"paper","product":"MARGIN","orderType":"LIMIT","maxLotsPerSignal":2}'
+  -d '{"source":"generic","label":"My strategy","account":"paper","product":"MARGIN","orderType":"LIMIT","maxLotsPerSignal":2}'
 ```
 
-The answer contains the hook's **URL, which carries its own 256-bit secret token** (`/hooks/tradingview/<token>`).
-It is shown **once**; only a hash is stored. Paste it into the alert's *Webhook URL*, and this into *Message*:
+The answer contains the hook's **URL, which carries its own 256-bit secret token** (`/hooks/<source>/<token>`), and,
+for `generic` hooks, the signing secret. Both are shown **once**; only hashes are stored. In demo mode use
+`"account": "demo-paper"`.
 
-```json
-{
-  "symbol": "{{exchange}}:{{ticker}}",
-  "side": "{{strategy.order.action}}",
-  "quantity": "{{strategy.order.contracts}}",
-  "price": "{{close}}",
-  "id": "{{strategy.order.id}}",
-  "time": "{{timenow}}"
-}
-```
+| Source | What it sends |
+|---|---|
+| `generic` | Your own scripts and tools. JSON such as `{"symbol":"NSE:RELIANCE","side":"BUY","quantity":10,"price":1402.5,"id":"sig-42"}`, signed with `X-MCB-Signature: t=<unix seconds>,v1=<HMAC-SHA256>`. |
+| `chartink` | Chartink scan alerts. The hook's `side` decides buy or sell; each listed stock becomes one signal. |
+| `gocharting` | GoCharting alerts with a text message such as `BUY NSE:RELIANCE 10 @ 1402.5`. |
 
-- `id` + `time` make a TradingView double-fire place one order, not two.
+- An `id` on a signal makes a repeated delivery place one order, not two.
 - Hooks place **paper** orders unless created as live, which needs live trading switched on for the account, the
-  `live` scope, and an IP allowlist or human confirmation, because TradingView cannot sign its alerts.
-- TradingView only posts to public HTTPS, so point a tunnel (for example Cloudflare Tunnel) at the opt-in public
-  listener, which serves `/hooks/*` and nothing else: `"server": { "publicIngress": { "enabled": true } }`.
-- ChartInk, GoCharting and signed generic webhooks work too. Guide: [docs/guides/webhooks.md](docs/guides/webhooks.md).
+  `live` scope, and a signature, an IP allowlist or your confirmation.
+- Chartink and GoCharting post only to public HTTPS, so point a tunnel (for example Cloudflare Tunnel) at the opt-in
+  public listener, which serves `/hooks/*` and nothing else: `"server": { "publicIngress": { "enabled": true } }`.
 
-### Chart datafeed (TradingView-compatible UDF)
-
-```js
-const auth = { headers: { Authorization: "Bearer mcb_YOUR_READ_KEY" } };
-const cfg  = await (await fetch("http://127.0.0.1:4300/udf/config", auth)).json();
-const bars = await (await fetch("http://127.0.0.1:4300/udf/history?symbol=NSE:NIFTY&resolution=5&countback=300&to=" + Math.floor(Date.now() / 1000), auth)).json();
-// bars = { s: "ok", t: [...], o: [...], h: [...], l: [...], c: [...], v: [...] }
-```
-
-Routes: `/udf/config`, `/udf/symbols`, `/udf/search`, `/udf/history`, `/udf/time`, `/udf/quotes`. Chart libraries that
-cannot send headers may use `?key=` with a read-only key created with `--allow-query` (keep it short-lived). A free
-chart page using TradingView Lightweight Charts is ready in
-[integrations/charts/lightweight-charts.html](integrations/charts/lightweight-charts.html). With TradingView Advanced
-Charts (your own licence), give its datafeed a request helper that adds the `Authorization` header (whether your build
-exposes one **needs verification**). Guide: [docs/guides/charts.md](docs/guides/charts.md).
+Guide: [docs/guides/webhooks.md](docs/guides/webhooks.md).
 
 ### AmiBroker (AFL)
 
@@ -441,12 +426,13 @@ through a tunnel without your own access control. Guide: [docs/guides/chatgpt-op
 ```bash
 K="Authorization: Bearer $MCB_API_KEY"
 curl -H "$K" "http://127.0.0.1:4300/v1/quotes?symbols=NSE:NIFTY,NSE:RELIANCE"
-curl -H "$K" "http://127.0.0.1:4300/v1/optionchain?underlying=NIFTY&expiry=2026-10-27&strikes=10&greeks=true"
+curl -H "$K" "http://127.0.0.1:4300/v1/expiries?underlying=NIFTY"     # pick an expiry from this list
+curl -H "$K" "http://127.0.0.1:4300/v1/optionchain?underlying=NIFTY&expiry=<YYYY-MM-DD>&strikes=10&greeks=true"
 curl -H "$K" "http://127.0.0.1:4300/v1/history?symbol=NSE:NIFTY&interval=5m&countback=300"
 ```
 
 One symbol format for every broker: `NSE:RELIANCE`, `NSE:NIFTY`, `NFO:NIFTY-2026-10-27-25000-CE`
-(`/v1/symbols/convert` also takes TradingView tickers such as `NSE:NIFTY1!`). Answers are `{ "data", "meta" }`;
+(`/v1/symbols/convert` translates broker-specific symbols). Answers are `{ "data", "meta" }`;
 errors are `application/problem+json` with a stable `code`. Live prices: WebSocket `ws://127.0.0.1:4300/v1/stream`
 or SSE `/v1/stream/sse`, with a single-use token from `POST /v1/stream/token`. Send an `Idempotency-Key` with every
 order (required for live orders). Reference: [docs/openapi.yaml](docs/openapi.yaml) (also served at `/openapi.yaml`)
@@ -469,6 +455,16 @@ and [docs/guides/streaming.md](docs/guides/streaming.md).
 | **Encrypted secrets** | Broker keys and sessions are encrypted with AES-256-GCM. `mc-bridge init` keeps the master key in a private file **outside** the data folder (`~/.config/mc-bridge/master.key`, or `%APPDATA%\MrChartist\master.key` restricted with `icacls`). Passwords, PINs and TOTP codes are never stored. |
 | **Audit log** | Append-only, hash-chained, one file per IST day in `data/audit/`, with secrets redacted. Verify it from the Safety page. |
 | **Clean logs** | No request bodies, keys or tokens in logs; webhook URLs are logged without their secret. |
+
+What the safety model does **not** cover:
+
+- **Programs that can run commands as you.** Anything that can run commands on your computer, including an AI agent
+  with shell access, can use the local `mc-bridge` CLI to create keys and confirm its own order tickets. The
+  confirmation step protects you from AI tools that only have API access, not from ones that have your terminal.
+- **Docker published on all interfaces.** Use the provided `docker-compose.yml`, which publishes the port on
+  `127.0.0.1` only. A plain `docker run -p 4300:4300` exposes the Bridge to your network.
+- **Keys in logs.** The first admin key is printed once at setup (with Docker, into `docker compose logs`). Create a
+  new admin key and revoke the first one once you are set up.
 
 Guide: [docs/guides/safety.md](docs/guides/safety.md).
 
@@ -590,7 +586,7 @@ and use a key with the `live` scope, and the kill switch stops everything.
 anywhere else, and there is no cloud service.
 
 **Do I need to know programming?** No. Download, double-click the start file, paste the key into the dashboard, and use
-the Integrations page to copy setup for TradingView, Excel, AmiBroker or Claude.
+the Integrations page to copy setup for Excel, AmiBroker, webhooks or Claude.
 
 **Can I use two brokers, or my spouse's account?** Yes. List each account in `bridge.config.json` with its own `holder`.
 Each account keeps its own session and limits.
@@ -609,12 +605,12 @@ only prepare a ticket that you confirm yourself.
 | Command | What it does |
 |---|---|
 | `mc-bridge init [--yes] [--demo] [--broker <id>]` | First-run setup (alias `setup`) |
-| `mc-bridge start [--demo] [--open] [--config <file>]` | Runs the Bridge: REST, WebSocket/SSE, UDF, `/xl`, webhooks, MCP and the dashboard |
+| `mc-bridge start [--demo] [--open] [--config <file>]` | Runs the Bridge: REST, WebSocket/SSE, `/xl`, webhooks, MCP and the dashboard |
 | `mc-bridge doctor [--no-port-check] [--json]` | Checks Node, config, data folder, master key, keys, accounts and the port |
 | `mc-bridge keys create --label <name> --scope read[,paper,live,admin] [--accounts a,b] [--expires 30d] [--allow-query] [--client excel]` | New API key (shown once) |
 | `mc-bridge keys list` / `keys revoke <keyId>` | Manage keys |
 | `mc-bridge accounts list` / `accounts connect <id> [--key <admin key>]` | Accounts and logging in |
-| `mc-bridge kill [--reason "..."] [--cancel-open]` / `kill release` | Kill switch from the terminal |
+| `mc-bridge kill [--reason "..."] [--cancel-open] [--key <key>]` / `kill release [--key <admin key>]` | Kill switch from the terminal (while the Bridge runs, pass a key or set `MCB_API_KEY`) |
 | `mc-bridge mcp --key <key> [--url <bridge url>]` | MCP over stdio for Claude Desktop, Claude Code, Cursor |
 | `mc-bridge openai-tools [--scope read\|paper] [--format responses\|chat]` | Tool schemas for OpenAI function calling |
 
@@ -638,24 +634,33 @@ are caught at start. Core settings: `server`, `cors`, `dataDir`, `masterKeyFile`
 Design and contracts: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/openapi.yaml](docs/openapi.yaml),
 [docs/asyncapi.yaml](docs/asyncapi.yaml), guides in [docs/guides](docs/guides/README.md).
 
-## Development
+## Contributing
+
+Contributions are welcome, especially reports from people using a beta broker. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) for the development setup and the rules for broker adapters, and the
+[Code of Conduct](CODE_OF_CONDUCT.md). Report security problems privately as described in [SECURITY.md](SECURITY.md).
+What we plan next is in the [Roadmap](ROADMAP.md).
+
+### Development
 
 ```bash
 npm ci
-npx vitest run --coverage            # unit, contract and end-to-end tests (no live broker calls)
-node scripts/check-mjs.mjs           # node --check on every .mjs file
-npx tsc --noEmit -p tsconfig.json    # type check
-cd sdk/node && npm test              # Node SDK
-cd sdk/python && python3 -I -m unittest discover -s tests   # Python SDK
+npm test                             # unit, contract and end-to-end tests (no live broker calls)
+npm run check:mjs                    # node --check on every .mjs file
+npm run typecheck                    # type check
+node --test sdk/node/test/client.test.mjs                                   # Node SDK
+python -m pip install ./sdk/python pytest && python -m pytest sdk/python/tests -q   # Python SDK
 ```
 
 Layout: `server/brokers/` (41 adapters behind [the broker contract](docs/broker-contract.md)), `server/bridge/`
 (one folder per service: `accounts`, `auth`, `ratelimit`, `symbols`, `market`, `stream`, `orders`, `paper`, `safety`,
 `integrations`, `hooks`, `mcp`, `demo`, `dashboard`), `sdk/`, `integrations/`, and `docs/`.
 
-## Licence
+## License
 
-Free for personal use by individuals. The source is open to read, run and change for your own use. See [LICENSE](LICENSE).
+[MIT](LICENSE). Free to use, change and share, including commercially.
 
-TradingView, Lightweight Charts and Advanced Charts are trademarks of TradingView, Inc.; Advanced Charts is not
-included.
+Not affiliated with, endorsed by or sponsored by SEBI, NSE, BSE or any broker. Broker, exchange and product names are
+trademarks of their owners and are used only to say which APIs the Bridge works with. **This software is provided
+"as is", without warranty of any kind. Trading involves risk of loss; you are responsible for every order placed
+with it.**

@@ -8,7 +8,7 @@
  *     "signatureToleranceS": 300,       // generic hooks: |now - t| allowed in X-MCB-Signature (at most 5 minutes)
  *     "maxSignalsPerMinute": 30,        // per hook; more answers 429
  *     "maxHooks": 100,
- *     "allowSourceIps": [],             // global allowlist added to every hook's own list ("tradingview" = preset)
+ *     "allowSourceIps": [],             // global allowlist added to every hook's own list
  *     "clientIpHeader": null            // "cf-connecting-ip" | "x-forwarded-for" | "x-real-ip": trusted ONLY when the
  *                                       //  TCP peer is loopback (a local tunnel such as cloudflared), never otherwise
  *   }
@@ -18,18 +18,6 @@
  */
 import { isIP } from "node:net";
 import { z } from "zod";
-
-/**
- * TradingView's published webhook source addresses (IPv4 only).
- * Source: https://www.tradingview.com/support/solutions/43000529348-about-webhooks/ (needs verification: re-check before
- * each release; TradingView has changed this list before).
- */
-export const TRADINGVIEW_IPS = Object.freeze(["52.89.214.238", "34.212.75.30", "54.218.53.128", "52.32.178.7"]);
-
-/** Named presets accepted wherever an IP allowlist is given. */
-export const IP_PRESETS = Object.freeze({ tradingview: TRADINGVIEW_IPS });
-/** Own preset names only: `in` would also accept inherited names such as "constructor" or "__proto__". */
-export const isIpPreset = (s) => typeof s === "string" && Object.hasOwn(IP_PRESETS, s);
 
 export const HOOKS_DEFAULTS = Object.freeze({
   queueSize: 200,
@@ -42,11 +30,11 @@ export const HOOKS_DEFAULTS = Object.freeze({
   clientIpHeader: null,
 });
 
-/** An IPv4/IPv6 address, an IPv4 CIDR block (a.b.c.d/n) or a preset name. */
+/** An IPv4/IPv6 address or an IPv4 CIDR block (a.b.c.d/n). */
 export const ipEntrySchema = z
   .string()
   .max(64)
-  .refine((s) => isIpPreset(s) || isIP(s) !== 0 || isIpv4Cidr(s), { message: "use an IP address, an IPv4 CIDR block such as 52.89.0.0/16, or the preset 'tradingview'" });
+  .refine((s) => isIP(s) !== 0 || isIpv4Cidr(s), { message: "use an IP address or an IPv4 CIDR block such as 52.89.0.0/16" });
 
 export const HOOKS_CONFIG_SCHEMA = z
   .object({
@@ -89,14 +77,9 @@ export function normaliseIp(ip) {
   return s.toLowerCase();
 }
 
-/** Expand presets into addresses / CIDR blocks. */
+/** Normalise an allowlist (addresses and CIDR blocks) for ipAllowed. */
 export function expandIpList(list) {
-  const out = [];
-  for (const e of list ?? []) {
-    if (isIpPreset(e)) out.push(...IP_PRESETS[e]);
-    else out.push(String(e).toLowerCase());
-  }
-  return out;
+  return (list ?? []).map((e) => String(e).toLowerCase());
 }
 
 /**

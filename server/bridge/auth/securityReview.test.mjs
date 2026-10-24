@@ -27,10 +27,10 @@ describe("key creation cannot widen accounts", () => {
   });
 });
 
-describe("hook IP presets", () => {
-  it("does not treat inherited Object names as presets", () => {
+describe("hook IP allowlist entries", () => {
+  it("accepts only addresses and CIDR blocks, never names such as inherited Object keys", () => {
     for (const name of ["constructor", "__proto__", "toString", "hasOwnProperty"]) expect(ipEntrySchema.safeParse(name).success).toBe(false);
-    expect(ipEntrySchema.safeParse("tradingview").success).toBe(true);
-    expect(expandIpList(["tradingview"]).length).toBeGreaterThan(0);
+    expect(ipEntrySchema.safeParse("52.89.214.238").success).toBe(true);
+    expect(expandIpList(["__proto__"])).toEqual(["__proto__"]);
   });
 });

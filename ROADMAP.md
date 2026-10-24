@@ -12,7 +12,7 @@ What we plan to work on after the first public release. Dates are targets, not p
 ## Next few days (v0.1.x)
 
 **Make first use smoother**
-- Show the reachable webhook URL (public ingress or tunnel) next to the local one, so TradingView alerts work on the first try.
+- Show the reachable webhook URL (public ingress or tunnel) next to the local one, so Chartink and GoCharting alerts work on the first try.
 - Remember the first-run checklist on the server, not only in one browser.
 - `mc-bridge kill` while the Bridge is running: work without `--key` from this computer, or explain the flag clearly.
 - Account-not-found errors in demo mode suggest `demo-paper`.

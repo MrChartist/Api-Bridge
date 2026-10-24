@@ -4,7 +4,7 @@
  *  2. the handlers, driven with every route and hostile inputs, touch only deps.marketData, deps.symbols and
  *     deps.clock (a recording Proxy around deps);
  *  3. through the real HTTP pipeline, with recording order/paper/safety services installed, no request reaches them,
- *     and every write method on /udf and /xl is refused with 405;
+ *     and every write method on /xl is refused with 405;
  *  4. the module's source never names an order-capable service or method.
  */
 import { readFileSync, readdirSync } from "node:fs";
@@ -49,13 +49,13 @@ function recordingServices(log) {
 
 describe("route table", () => {
   it("every S10 route is GET with scope read", () => {
-    expect(ROUTES.length).toBe(10);
+    expect(ROUTES.length).toBe(4);
     for (const [method, path, options] of ROUTES) {
       expect(method, path).toBe("GET");
       expect(options.scope, path).toBe("read");
       expect(options.auth ?? "key", path).toBe("key");
       expect(options.public, path).toBeUndefined();
-      expect(path).toMatch(/^\/(udf|xl)\//);
+      expect(path).toMatch(/^\/xl\//);
     }
   });
 });
@@ -132,7 +132,7 @@ describe("source", () => {
   it("never names an order-capable service or method", () => {
     const dir = new URL("./", import.meta.url);
     const files = readdirSync(dir).filter((f) => f.endsWith(".mjs") && !f.endsWith(".test.mjs"));
-    expect(files.sort()).toEqual(["config.mjs", "ist.mjs", "module.mjs", "params.mjs", "udf.mjs", "xl.mjs"]);
+    expect(files.sort()).toEqual(["config.mjs", "ist.mjs", "module.mjs", "params.mjs", "xl.mjs"]);
     for (const f of files) {
       const src = readFileSync(new URL(f, dir), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ""); // code only
       expect(src, f).not.toMatch(/deps\.(orders|paper|safety|audit|accounts|scheduler|keyStore|secrets)\b/);
