@@ -277,6 +277,9 @@ label.field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; 
 label.field .hint { font-weight: 400; color: var(--text-3); }
 label.check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; align-items: end; }
+/* A field whose options are long sentences (the Keys page's Access) takes two columns so its text is not cut off.
+   Phones have one full-width column, which is wide enough, so it stays single there (no implicit extra column). */
+@media (min-width: 761px) { .form-grid > .field.wide { grid-column: span 2; } }
 .segmented { display: inline-flex; background: var(--control-track); padding: 2px; border-radius: 8px; gap: 2px; }
 .segmented button { box-shadow: none; background: transparent; padding: 3px 10px; min-height: 24px; font-size: 12px; color: var(--text-2); flex: 1; }
 .segmented button[aria-pressed="true"] { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }

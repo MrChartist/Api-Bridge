@@ -137,8 +137,10 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
   );
   core.get(
     "/v1/meta",
-    () => ({
+    (ctx) => ({
       bridgeVersion: BRIDGE_VERSION,
+      // The install folder, for this computer only: the dashboard fills it into the MCP (stdio) snippets.
+      ...(ctx.loopback ? { installDir: ROOT } : {}),
       apiVersion: API_VERSION,
       brokerContractVersion: CONTRACT_VERSION,
       brokers: coreDeps.brokers.list(),

@@ -111,7 +111,7 @@ export const DOCKER_LOCAL_PEERS = Object.freeze(["172.31.240.1", "192.168.65.0/2
  * Run the wizard.
  * @param {Record<string, any>} flags
  * @param {{ out(s: string): void, err(s: string): void, env: NodeJS.ProcessEnv, cwd: string, prompt?: (q: string, o?: object) => Promise<string>, interactive?: boolean }} io
- * @param {{ brokerIds: string[], brokerNames: Record<string, string>, createKey: (configPath: string) => Promise<{ key: string, id: string } | null> }} deps
+ * @param {{ brokerIds: string[], brokerNames: Record<string, string>, createKey: (configPath: string) => Promise<{ key: string, id: string, existingAdmin?: number } | null> }} deps
  */
 export async function runInit(flags, io, deps) {
   const interactive = io.interactive ?? (!flags.yes && Boolean(process.stdin.isTTY));
@@ -191,6 +191,12 @@ export async function runInit(flags, io, deps) {
       say(`  ${created.key}`);
       say("");
       say("Keep it like a password. Make smaller keys for each tool on the dashboard's Keys page.");
+      if (created.existingAdmin > 0) {
+        say("");
+        say(`Note: ${created.existingAdmin} admin key(s) already existed, so this is an extra one (${created.id}); the old ones still work.`);
+        say("Revoke any you no longer use on the dashboard's Keys page or with: mc-bridge keys revoke <keyId>  (list them: mc-bridge keys list).");
+        say("Next time, run init with --no-key to keep your keys, or make another key with: mc-bridge keys create --label <name> --scope admin,paper");
+      }
     }
   }
 

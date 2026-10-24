@@ -301,7 +301,8 @@ async function renderAccounts() {
   // Directory
   const search = h("input", { type: "search", placeholder: "Search 41 brokers…", "aria-label": "Search brokers" });
   const grid = h("div", { class: "brokers" });
-  const real = list.filter((b) => b.id !== "demo");
+  // By the name people see (the API lists by id, which put "5paisa" between Firstock and Flattrade).
+  const real = list.filter((b) => b.id !== "demo").sort((a, b) => String(a.name ?? a.id).localeCompare(String(b.name ?? b.id), undefined, { sensitivity: "base", numeric: true }));
   const draw = () => {
     const q = search.value.trim().toLowerCase();
     const rows = real.filter((b) => !q || b.name.toLowerCase().includes(q) || b.id.includes(q));
@@ -350,6 +351,9 @@ async function renderConsole() {
   const paperAcc = accounts.find((a) => a.broker === "paper")?.id ?? accounts[0]?.id ?? "paper";
   const dataAcc = accounts.find((a) => a.broker !== "paper")?.id ?? paperAcc;
   const select = h("select", { "aria-label": "Endpoint" }, ENDPOINTS.map((e) => h("option", { value: e.id }, e.label)));
+  // #/console?endpoint=order opens a given endpoint (the Orders page links straight to the order form).
+  const wanted = new URLSearchParams(location.hash.split("?")[1] ?? "").get("endpoint");
+  if (ENDPOINTS.some((e) => e.id === wanted)) select.value = wanted;
   const fieldsBox = h("div", { class: "stack" });
   const curlBox = h("div");
   const out = h("div", { class: "response" });
@@ -597,7 +601,7 @@ async function renderOrders() {
   nodes.push(
     card({
       title: "Today's orders",
-      actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/console") }, icon("plus"), "Place a paper order"),
+      actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/console?endpoint=order") }, icon("plus"), "Place a paper order"),
       flush: true,
       body: orders.error
         ? h("div", { class: "card-body" }, alertBox(orders.error))
@@ -852,7 +856,7 @@ async function renderKeys() {
       body: h(
         "div",
         { class: "stack" },
-        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field" }, "Access", scope), h("label", { class: "field" }, "Accounts", acct), h("label", { class: "field" }, "Used by", client), h("label", { class: "field" }, "Expires", expires)),
+        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field wide" }, "Access", scope), h("label", { class: "field" }, "Accounts", acct), h("label", { class: "field" }, "Used by", client), h("label", { class: "field" }, "Expires", expires)),
         h("div", { class: "row" }, h("label", { class: "check" }, urlUse, "Allow in URLs (?key=), for Excel and chart libraries. Read-only keys only."), h("span", { class: "grow" }), createBtn),
         createdBox,
       ),
@@ -896,7 +900,7 @@ async function renderIntegrations() {
 
   const draw = async () => {
     tabsBar.replaceChildren(...TABS.map(([id, label]) => h("button", { type: "button", role: "tab", "aria-selected": String(id === active), onclick: () => { active = id; draw(); } }, label)));
-    const s = snippets({ base: location.origin, key: createdKeys[active] ?? null, account: paperAcc, symbol: "NSE:NIFTY" })[active];
+    const s = snippets({ base: location.origin, key: createdKeys[active] ?? null, account: paperAcc, symbol: "NSE:NIFTY", folder: app.state.meta?.installDir || undefined })[active];
     const preset = KEY_PRESETS[active];
     const keyBtn = h("button", { type: "button", class: createdKeys[active] ? "small" : "small primary" }, icon("keys"), createdKeys[active] ? "Key created" : `Create a ${preset.scopes.join("+")} key for this`);
     keyBtn.disabled = Boolean(createdKeys[active]);
@@ -934,11 +938,37 @@ async function webhookPanel(paperAcc) {
   const product = h("select", {}, ["INTRADAY", "MARGIN", "CNC"].map((p) => h("option", { value: p }, p)));
   const lots = h("input", { type: "number", value: "1", min: "1", max: "50" });
   const btn = h("button", { type: "button", class: "primary" }, icon("plus"), "Create webhook");
+  const columns = [
+    { label: "Hook", cell: (x) => h("div", {}, h("strong", {}, x.label), h("div", { class: "muted small mono" }, x.id)) },
+    { label: "Source", cell: (x) => x.source },
+    { label: "Account", cell: (x) => x.account },
+    { label: "Mode", cell: (x) => (x.mode === "live" ? pill("live", "bad") : pill("paper", "accent")) },
+    { label: "Last alert", cell: (x) => istDateTime(x.lastSignalAt) },
+    {
+      label: "",
+      cell: (x) =>
+        h("button", {
+          type: "button",
+          class: "small ghost",
+          onclick: async () => {
+            if (!(await modal({ title: `Delete “${x.label}”?`, body: h("p", {}, "Alerts sent to its URL are refused from now on."), buttons: [{ label: "Cancel", value: false }, { label: "Delete", cls: "danger", value: true }] }))) return;
+            await optional(api(`/v1/hooks/${encodeURIComponent(x.id)}`, { method: "DELETE" }));
+            show();
+          },
+        }, "Delete"),
+    },
+  ];
+  // Only the table is redrawn when a hook is added, so the one-time secret URL in `box` stays on screen.
+  const tableSlot = h("div");
+  const drawTable = () => tableSlot.replaceChildren(...[table(columns, list, null)].filter(Boolean));
+  drawTable();
   btn.addEventListener("click", async () => {
     btn.disabled = true;
     try {
       const r = await api("/v1/hooks", { method: "POST", body: { source: "tradingview", label: label.value.trim() || "TradingView", account: paperAcc, orderType: orderType.value, product: product.value, maxLotsPerSignal: Number(lots.value) || 1 } });
       const d = r.data.data;
+      list.push(d);
+      drawTable();
       box.replaceChildren(
         h("div", { class: "secret-box" }, h("strong", {}, "Webhook URL (its secret token is shown once):"), h("code", {}, d.url), h("button", { type: "button", class: "small primary", onclick: () => copyText(d.url, "URL copied").then(markCopied) }, icon("copy"), "Copy")),
         ...(d.templates ?? []).slice(0, 1).map((t) => codeBlock(t.message, { title: `${t.name}: paste into the alert's Message box`, json: true, onCopy: markCopied })),
@@ -956,32 +986,7 @@ async function webhookPanel(paperAcc) {
     { class: "card", style: undefined },
     h("div", { class: "card-head" }, h("div", {}, h("h3", {}, "Alert webhook"), h("p", {}, `Each hook has its own secret URL and places paper orders on ${paperAcc}.`))),
     h("div", { class: "card-body stack" }, h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field" }, "Order type", orderType), h("label", { class: "field" }, "Product", product), h("label", { class: "field" }, "Max lots per alert", lots), btn), box),
-    list.length
-      ? table(
-          [
-            { label: "Hook", cell: (x) => h("div", {}, h("strong", {}, x.label), h("div", { class: "muted small mono" }, x.id)) },
-            { label: "Source", cell: (x) => x.source },
-            { label: "Account", cell: (x) => x.account },
-            { label: "Mode", cell: (x) => (x.mode === "live" ? pill("live", "bad") : pill("paper", "accent")) },
-            { label: "Last alert", cell: (x) => istDateTime(x.lastSignalAt) },
-            {
-              label: "",
-              cell: (x) =>
-                h("button", {
-                  type: "button",
-                  class: "small ghost",
-                  onclick: async () => {
-                    if (!(await modal({ title: `Delete “${x.label}”?`, body: h("p", {}, "Alerts sent to its URL are refused from now on."), buttons: [{ label: "Cancel", value: false }, { label: "Delete", cls: "danger", value: true }] }))) return;
-                    await optional(api(`/v1/hooks/${encodeURIComponent(x.id)}`, { method: "DELETE" }));
-                    show();
-                  },
-                }, "Delete"),
-            },
-          ],
-          list,
-          null,
-        )
-      : null,
+    tableSlot,
   );
 }
 

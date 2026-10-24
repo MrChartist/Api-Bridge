@@ -1,5 +1,5 @@
 import http from "node:http";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -119,6 +119,7 @@ describe("core routes", () => {
     const r = await get("/v1/meta", auth(READ));
     expect(r.status).toBe(200);
     expect(r.json.routes.some((x) => x.path === "/t/read")).toBe(true);
+    expect(existsSync(join(r.json.installDir, "bin", "mc-bridge.mjs"))).toBe(true);
   });
 
   it("serves the OpenAPI document", async () => {

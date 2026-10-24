@@ -179,8 +179,18 @@ describe("check(): market hours", () => {
       expect(rules(await guard.check(keyCtx({ scopes: ["live"] }), intent({ mode: "live" })))).toEqual(["marketHours"]);
       const p = await guard.check(keyCtx(), intent());
       expect(p.ok).toBe(true);
-      expect(p.warnings.join(" ")).toMatch(/not open/);
+      expect(p.warnings.join(" ")).toMatch(/not open.*may stay open until trading resumes/);
     }
+  });
+
+  it("does not warn demo paper orders about a closed market (demo prices run round the clock, so they fill at once)", async () => {
+    const config = { ...makeConfig(), demo: true };
+    const { guard } = setup({ t: SAT_1100, config });
+    const p = await guard.check(keyCtx(), intent());
+    expect(p.ok).toBe(true);
+    expect(p.warnings.join(" ")).not.toMatch(/not open|wait/);
+    const mcx = await guard.check(keyCtx(), intent({ order: limitOrder({ symbol: "MCX:CRUDEOIL-2026-11-19-FUT" }) }));
+    expect(mcx.warnings.join(" ")).not.toMatch(/outside its usual/);
   });
 
   it("allows cancels when closed; refuses live MCX/CDS outside their window, warns about holidays inside it", async () => {

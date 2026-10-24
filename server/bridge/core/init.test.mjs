@@ -38,6 +38,18 @@ describe("mc-bridge init", () => {
     expect(JSON.parse(t.out.at(-1))[0].scopes.sort()).toEqual(["admin", "paper"]);
   });
 
+  it("says so when a re-run creates another admin key", async () => {
+    const t = setup();
+    expect(await runCli(["init"], { yes: true }, t.io)).toBe(0);
+    expect(t.out.join("\n")).not.toMatch(/already existed/);
+    t.out.length = 0;
+    expect(await runCli(["init"], { yes: true }, t.io)).toBe(0);
+    const text = t.out.join("\n");
+    expect(text).toMatch(/1 admin key\(s\) already existed, so this is an extra one/);
+    expect(text).toMatch(/mc-bridge keys revoke/);
+    expect(text).toMatch(/--no-key/);
+  });
+
   it("keeps an existing config and master key unless --force", async () => {
     const t = setup();
     writeFileSync(join(t.dir, "bridge.config.json"), JSON.stringify({ dataDir: "data", accounts: [] }));
