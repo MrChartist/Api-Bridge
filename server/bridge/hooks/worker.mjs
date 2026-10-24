@@ -128,7 +128,7 @@ export function createSignalWorker({ deps, store, logger, queueSize, concurrency
     if (s.orderType && s.orderType !== hook.orderType) throw new SignalRefused("ORDER_TYPE_NOT_ALLOWED", `This hook places ${hook.orderType} orders; the alert asked for ${s.orderType}.`);
     const order = { account: hook.account, symbol: inst.canonical, side, lots, product, orderType: hook.orderType, mode: hook.mode, tag: hook.id };
     if (hook.orderType === "LIMIT") {
-      if (s.price === null) throw new SignalRefused("VALIDATION_FAILED", "This hook places LIMIT orders, so the alert must carry a price (for TradingView, {{close}}).");
+      if (s.price === null) throw new SignalRefused("VALIDATION_FAILED", "This hook places LIMIT orders, so the alert must carry a price.");
       order.price = s.price;
     }
     return order;

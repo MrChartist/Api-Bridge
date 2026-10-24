@@ -15,8 +15,8 @@
  *
  * Creating a LIVE hook (POST /v1/hooks with mode "live") needs, besides admin: the "live" scope on the creating key
  * (admin does not imply live; the local CLI is exempt), access to the hook's account, live enabled for that account
- * in the config with "webhook" in live.allowedSources, and, for sources that cannot sign their alerts (TradingView,
- * ChartInk, GoCharting: the URL token is the only credential), at least one of allowSourceIps, requireConfirmation:
+ * in the config with "webhook" in live.allowedSources, and, for sources that cannot sign their alerts (ChartInk,
+ * GoCharting: the URL token is the only credential), at least one of allowSourceIps, requireConfirmation:
  * true, or an explicit acknowledgeUnsignedLive: true (audited and shown on the hook). The creating key id is kept on
  * the hook; when that key is revoked, the live hook stops accepting alerts.
  */
@@ -33,7 +33,6 @@ import { HOOK_SOURCES, publicHook } from "./hookStore.mjs";
 import { parseChartInk } from "./receivers/chartink.mjs";
 import { parseGeneric } from "./receivers/generic.mjs";
 import { parseGoCharting } from "./receivers/gocharting.mjs";
-import { parseTradingView } from "./receivers/tradingview.mjs";
 import { alertTemplates } from "./templates.mjs";
 
 const sha256 = (s) => createHash("sha256").update(s).digest("hex");
@@ -42,7 +41,6 @@ const istDate = (ms) => new Date(ms + IST_OFFSET_MS).toISOString().slice(0, 10);
 const HOOK_ID_RE = /^hk_[a-z2-7]{12}$/;
 
 const PARSERS = Object.freeze({
-  tradingview: (body) => parseTradingView(body),
   chartink: (body, meta) => parseChartInk(body, meta),
   gocharting: (body) => parseGoCharting(body),
   generic: (body) => parseGeneric(body),
@@ -267,7 +265,7 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
       if (!ips && input.requireConfirmation !== true && input.acknowledgeUnsignedLive !== true) {
         throw new BridgeError(
           "VALIDATION_FAILED",
-          `${input.source} alerts cannot be signed, so for live orders the URL alone would be the only protection (it is stored in your ${input.source} account, browser history and tunnel logs). Set allowSourceIps (for example the "tradingview" preset), or requireConfirmation: true, or acknowledgeUnsignedLive: true to accept the risk.`,
+          `${input.source} alerts cannot be signed, so for live orders the URL alone would be the only protection (it is stored in your ${input.source} account, browser history and tunnel logs). Set allowSourceIps (the sender's published addresses), or requireConfirmation: true, or acknowledgeUnsignedLive: true to accept the risk.`,
           { errors: [{ path: "allowSourceIps", message: "needed for an unsigned live hook (or requireConfirmation / acknowledgeUnsignedLive)" }] },
         );
       }
