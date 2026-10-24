@@ -28,6 +28,8 @@ export const TRADINGVIEW_IPS = Object.freeze(["52.89.214.238", "34.212.75.30", "
 
 /** Named presets accepted wherever an IP allowlist is given. */
 export const IP_PRESETS = Object.freeze({ tradingview: TRADINGVIEW_IPS });
+/** Own preset names only: `in` would also accept inherited names such as "constructor" or "__proto__". */
+export const isIpPreset = (s) => typeof s === "string" && Object.hasOwn(IP_PRESETS, s);
 
 export const HOOKS_DEFAULTS = Object.freeze({
   queueSize: 200,
@@ -44,7 +46,7 @@ export const HOOKS_DEFAULTS = Object.freeze({
 export const ipEntrySchema = z
   .string()
   .max(64)
-  .refine((s) => s in IP_PRESETS || isIP(s) !== 0 || isIpv4Cidr(s), { message: "use an IP address, an IPv4 CIDR block such as 52.89.0.0/16, or the preset 'tradingview'" });
+  .refine((s) => isIpPreset(s) || isIP(s) !== 0 || isIpv4Cidr(s), { message: "use an IP address, an IPv4 CIDR block such as 52.89.0.0/16, or the preset 'tradingview'" });
 
 export const HOOKS_CONFIG_SCHEMA = z
   .object({
@@ -91,7 +93,7 @@ export function normaliseIp(ip) {
 export function expandIpList(list) {
   const out = [];
   for (const e of list ?? []) {
-    if (e in IP_PRESETS) out.push(...IP_PRESETS[e]);
+    if (isIpPreset(e)) out.push(...IP_PRESETS[e]);
     else out.push(String(e).toLowerCase());
   }
   return out;

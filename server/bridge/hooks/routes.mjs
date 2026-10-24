@@ -296,6 +296,9 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
   /** POST /v1/hooks */
   async function createHook(ctx) {
     const input = ctx.body;
+    // Paper or live, the creating key must be allowed to use the hook's account (checked before the lookup, so a key
+    // cannot probe which account ids exist).
+    if (input && typeof input === "object" && typeof input.account === "string") ctx.requireAccountAccess?.(input.account);
     if (input && typeof input === "object" && typeof input.account === "string" && deps.accounts && !isStub(deps.accounts)) {
       deps.accounts.get(input.account); // throws ACCOUNT_NOT_FOUND
     }

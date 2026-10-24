@@ -33,7 +33,9 @@
  *    passes ctx.loopback (the route is loopbackOnly as well, so this is defence in depth).
  *  - A caller may not grant more than it holds: over HTTP the route passes the creating key's scopes
  *    (opts.creatorScopes), and a key with the "live" scope can only be minted by a key that has "live" itself. An
- *    admin key alone cannot create a live trading path (admin does not imply live). The local CLI passes none.
+ *    admin key alone cannot create a live trading path (admin does not imply live). Likewise the creating key's
+ *    accounts (opts.creatorAccounts): a key limited to some accounts can only mint keys limited to those accounts.
+ *    The local CLI passes neither.
  *  - A key for an AI assistant (clientKind "mcp") may not have the admin scope: admin confirms order tickets, and the
  *    assistant must never confirm its own orders.
  *
@@ -357,7 +359,7 @@ export function createKeyStore(deps, opts = {}) {
      * @param {object} input  KeyCreateRequest: { label, scopes, accounts?, expiresAt?, allowQuery?, clientKind? }
      * @param {{ loopback?: boolean }} [opts]  loopback: the request came from this computer (default true: CLI).
      */
-    async create(input, { loopback = true, creatorScopes } = {}) {
+    async create(input, { loopback = true, creatorScopes, creatorAccounts } = {}) {
       const parsed = keyCreateSchema.safeParse(input ?? {});
       if (!parsed.success) throw fromValidation(parsed.error, "The key request is not valid.");
       const v = parsed.data;
@@ -370,6 +372,12 @@ export function createKeyStore(deps, opts = {}) {
       }
       if (creatorScopes !== undefined && scopes.includes("live") && !new Set(creatorScopes).has("live")) {
         throw new BridgeError("SCOPE_REQUIRED", 'Only a key that has the "live" scope itself (or the mc-bridge command line) can create a live key.', { errors: [{ path: "scopes", message: "live needs a creator with live" }] });
+      }
+      if (creatorAccounts !== undefined && creatorAccounts !== "*") {
+        const held = new Set(Array.isArray(creatorAccounts) ? creatorAccounts : []);
+        if (v.accounts === "*" || !v.accounts.every((a) => held.has(a))) {
+          throw new BridgeError("ACCOUNT_FORBIDDEN", "A key limited to some accounts can only create keys limited to those same accounts.", { errors: [{ path: "accounts", message: "must be a subset of the creating key's accounts" }] });
+        }
       }
       if (v.clientKind === "mcp" && scopes.includes("admin")) {
         throw new BridgeError("VALIDATION_FAILED", "A key for an AI assistant (clientKind mcp) cannot have the admin scope: admin confirms orders, and an assistant must never confirm its own.", { errors: [{ path: "scopes", message: "admin not allowed with clientKind mcp" }] });
