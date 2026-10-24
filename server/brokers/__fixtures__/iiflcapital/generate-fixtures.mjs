@@ -183,7 +183,7 @@ const fixtures = {
     expect: { minRows: 3 },
   },
   tradeBook: {
-    responses: [session, { method: "GET", url: `${API}/trades`, json: [{ clientId: "31625881", placedBy: "31625881", brokerOrderId: "240807000000068", exchangeOrderId: "900000000000000", exchangeTradeId: "893487609000000", formattedInstrumentName: "IDEA VODAFONE", tradingSymbol: "IDEA-EQ", instrumentId: "14366", exchange: "NSEEQ", transactionType: "BUY", product: "NORMAL", orderComplexity: "REGULAR", orderType: "MARKET", validity: "DAY", tradedPrice: "15.60", filledQuantity: "50", fillTimestamp: "07-Aug-2024 16:14:17", algoId: "algo123", orderTag: "123abc" }] }],
+    responses: [session, { method: "GET", url: `${API}/trades`, json: [{ clientId: "99000005", placedBy: "99000005", brokerOrderId: "240807000000068", exchangeOrderId: "900000000000000", exchangeTradeId: "893487609000000", formattedInstrumentName: "IDEA VODAFONE", tradingSymbol: "IDEA-EQ", instrumentId: "14366", exchange: "NSEEQ", transactionType: "BUY", product: "NORMAL", orderComplexity: "REGULAR", orderType: "MARKET", validity: "DAY", tradedPrice: "15.60", filledQuantity: "50", fillTimestamp: "07-Aug-2024 16:14:17", algoId: "algo123", orderTag: "123abc" }] }],
     expect: { minRows: 1 },
   },
   placeOrder: {

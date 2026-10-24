@@ -24,8 +24,7 @@ read-only key created with `--allow-query`.
 ### Licences
 
 - **TradingView Lightweight Charts** (Apache 2.0) is free to use with attribution: keep the
-  TradingView logo (`layout.attributionLogo`) or a visible link to tradingview.com. Option Hub's own chart should use
-  it.
+  TradingView logo (`layout.attributionLogo`) or a visible link to tradingview.com.
 - **TradingView Advanced Charts / Trading Platform** is licensed by TradingView separately and, as far as we know, not
   for personal or private projects (**needs verification**). The UDF feed works with it if you hold your own licence;
   nothing in this repository includes or redistributes it.
@@ -41,5 +40,5 @@ python -m http.server 5180 --bind 127.0.0.1
 # open http://localhost:5180/lightweight-charts.html, paste a read key, press Load
 ```
 
-The page's origin must be in `cors.allowedOrigins` (the example config allows `http://localhost:5180`; 5173 is Option Hub's). The key stays
+The page's origin must be in `cors.allowedOrigins` (the example config allows `http://localhost:5180`; 5173 is Vite's default). The key stays
 in memory and in this tab's `sessionStorage`; it is sent in a header, never in a URL. The page is read-only.

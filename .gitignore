@@ -68,3 +68,16 @@ docs/screenshots/*.png
 
 # Packed SDK tarballs (npm pack)
 *.tgz
+
+# Bridge runtime files if dataDir or MCB_HOME is pointed somewhere inside the checkout
+# (the defaults are ./data, ~/.mc-bridge and ~/.config/mc-bridge/master.key)
+secrets.enc
+/.mc-bridge/
+*.pem
+
+# Python virtual environments (the README creates .venv in the repository folder)
+.venv/
+venv/
+
+# Local output of `mc-bridge openai-tools > tools.json` from the README
+/tools.json

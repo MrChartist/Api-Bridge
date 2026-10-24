@@ -7,7 +7,7 @@ info:
     Server-Sent Events (`/v1/stream/sse`). Owned by stream S6; the REST side is in `docs/openapi.yaml`.
 
     ## One broker feed, many tools
-    The Bridge opens at most one feed per broker account and shares it: if Option Hub, a chart and a Python script all
+    The Bridge opens at most one feed per broker account and shares it: if a web app, a chart and a Python script all
     watch `NSE:NIFTY`, the broker sees one subscription. A symbol leaves the broker feed when the last client
     unsubscribes. When the broker's cap on one feed is reached, the client that asked for one symbol too many gets an
     `error` with code `SUBSCRIPTION_LIMIT` for exactly those symbols; nothing is ever dropped silently.
@@ -45,7 +45,8 @@ info:
 
     Personal use only: broker data terms generally forbid passing market data to other people.
   license:
-    name: Mr. Chartist API Bridge Personal Use Licence 1.0
+    name: MIT
+    url: https://github.com/MrChartist/api-bridge/blob/main/LICENSE
   contact:
     name: Investology (Mr. Chartist)
 defaultContentType: application/json

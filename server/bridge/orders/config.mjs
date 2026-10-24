@@ -2,7 +2,7 @@
  * The `orders` config section — stream S7 (owned by the orders module; validated by core with this schema).
  *
  *   "orders": {
- *     "ticketTtlMs": 60000,              // how long a ticket waits for a human in Option Hub
+ *     "ticketTtlMs": 60000,              // how long a ticket waits for a human to confirm it
  *     "confirmTokenTtlMs": 60000,        // how long a confirmed ticket's token may be used
  *     "confirmPaperFromMcp": true,       // AI-prepared PAPER orders also need a human confirmation
  *     "liveCallTimeoutMs": 15000,        // a live adapter write slower than this becomes outcome_unknown

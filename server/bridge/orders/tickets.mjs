@@ -3,7 +3,7 @@
  *
  *  1. preview() of an order that needs a human (AI assistant, or a hook set to require it) opens a ticket holding
  *     the exact order body, who prepared it and its checks. Tickets expire after orders.ticketTtlMs (60 s).
- *  2. Option Hub's Pending confirmations panel lists open tickets (GET /v1/tickets, admin key, this computer only).
+ *  2. The dashboard's Pending confirmations panel lists open tickets (GET /v1/tickets, admin key, this computer only).
  *  3. The human confirms (POST /v1/tickets/{id}/confirm). That yields a single-use confirmToken, valid for
  *     orders.confirmTokenTtlMs (60 s), bound to the exact order body (fingerprint), the account and the principal
  *     that prepared the ticket. The ticket leaves the pending list.

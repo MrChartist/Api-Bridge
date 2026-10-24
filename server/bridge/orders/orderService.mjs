@@ -1040,7 +1040,7 @@ export function createOrderService(deps) {
     const accountCfg = (config?.accounts ?? []).find((a) => a.id === rec.order.accountId);
     const d = decideMode({ config, accountCfg, summary, requested: "live", ctx, confirmPaperFromMcp: cfg.confirmPaperFromMcp });
     if (d.refusals.length) throw refusalError(sortByPriority(d.refusals));
-    if (d.needsConfirmation) throw new BridgeError("CONFIRMATION_REQUIRED", "AI assistants and confirmation-required hooks cannot change live orders. Change it in Option Hub or the broker app.");
+    if (d.needsConfirmation) throw new BridgeError("CONFIRMATION_REQUIRED", "AI assistants and confirmation-required hooks cannot change live orders. Change it in the Bridge dashboard or the broker app.");
     return summary;
   }
 
@@ -1530,9 +1530,9 @@ export function createOrderService(deps) {
     if (effectiveSource(ctx) === "mcp" || ctx.source === "webhook") throw new BridgeError("SCOPE_REQUIRED", "Only a person using the Bridge on this computer can confirm an order.");
     if (!ctx.loopback) throw new BridgeError("LOOPBACK_ONLY", "Orders can only be confirmed from this computer.");
     // The client that prepared an order may not confirm it itself: a confirmation must come from someone else
-    // (the person, through Option Hub, the dashboard or the CLI), or it confirms nothing.
+    // (the person, through the dashboard, the CLI or another admin client), or it confirms nothing.
     if (ctx.principal?.kind !== "local" && tickets.principalOf(ticketId) === principalKey(ctx)) {
-      throw new BridgeError("SCOPE_REQUIRED", "The client that prepared this order cannot confirm it. Confirm it in the Bridge dashboard or Option Hub with a different key.");
+      throw new BridgeError("SCOPE_REQUIRED", "The client that prepared this order cannot confirm it. Confirm it in the Bridge dashboard or with a different key.");
     }
     const r = tickets.confirm(String(ticketId ?? ""), principalKey(ctx));
     await audit(ctx, "ticket.confirmed", { accountId: r.ticket.order.account, data: { ticketId, order: { symbol: r.ticket.order.symbol, side: r.ticket.order.side, mode: r.ticket.order.mode ?? "paper" } } });

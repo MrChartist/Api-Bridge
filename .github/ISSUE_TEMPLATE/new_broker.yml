@@ -1,0 +1,78 @@
+name: New broker request
+description: Ask for (or offer to write) an adapter for an Indian broker the Bridge does not support yet.
+title: "Broker: <name>"
+labels: [broker, enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The Bridge supports 41 brokers today; check [docs/BROKERS.md](https://github.com/MrChartist/api-bridge/blob/main/docs/BROKERS.md) first.
+        Adapters are written **only from the broker's official sources** (API documentation, official SDKs,
+        official Postman collections). Please link those below. Never paste your own keys, tokens or account data.
+  - type: input
+    id: broker-name
+    attributes:
+      label: Broker name
+      placeholder: "Example Securities (ExampleAPI)"
+    validations:
+      required: true
+  - type: input
+    id: docs
+    attributes:
+      label: Official API documentation URL
+    validations:
+      required: true
+  - type: textarea
+    id: sources
+    attributes:
+      label: Other official sources
+      description: Official SDKs, Postman collections, instrument-master download URLs, published rate limits.
+  - type: dropdown
+    id: auth
+    attributes:
+      label: How does a user sign in to the API?
+      description: Matches the adapter `auth.kind` values in docs/broker-contract.md.
+      options:
+        - API key or long-lived token pasted by the user (apiKeyToken)
+        - OAuth redirect from the broker's login page (oauthRedirect)
+        - One-time request or auth code exchanged for a session (requestTokenExchange)
+        - Password/PIN plus the current TOTP code each session (sessionLogin)
+        - Not sure
+    validations:
+      required: true
+  - type: checkboxes
+    id: capabilities
+    attributes:
+      label: What does the official API offer?
+      options:
+        - label: Instrument master (download of all symbols)
+        - label: LTP / quotes
+        - label: Market depth
+        - label: Option chain endpoint (or Greeks)
+        - label: Historical candles
+        - label: WebSocket live feed
+        - label: Positions, holdings, funds
+        - label: Order book and trade book
+        - label: Place / modify / cancel orders
+  - type: textarea
+    id: limits
+    attributes:
+      label: Published rate limits
+      description: Requests per second / minute / day per endpoint, with the URL where the broker publishes them.
+  - type: dropdown
+    id: account
+    attributes:
+      label: Do you have an account with this broker?
+      description: A contributor with an account can help verify the adapter with read-only calls.
+      options:
+        - "Yes, and I can test read-only calls"
+        - "Yes, but I cannot help test"
+        - "No"
+    validations:
+      required: true
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I would like to write this adapter myself (see "Adding a broker" in CONTRIBUTING.md).

@@ -5,7 +5,7 @@ info:
   summary: One local API for all your Indian broker accounts.
   description: |
     The Bridge runs on your own computer (default `http://127.0.0.1:4300`) and holds your connections to several
-    brokers and accounts at once. Option Hub, charts, TradingView/ChartInk alerts, Python and Node scripts, Excel,
+    brokers and accounts at once. Web apps, charts, TradingView/ChartInk alerts, Python and Node scripts, Excel,
     Google Sheets and AI assistants all share those connections through this API, so the broker sees one well-behaved
     client instead of many.
 
@@ -65,8 +65,8 @@ info:
   contact:
     name: Investology (Mr. Chartist)
   license:
-    name: Mr. Chartist API Bridge Personal Use Licence 1.0
-    identifier: LicenseRef-MrChartist-Personal-Use-1.0
+    name: MIT
+    identifier: MIT
 servers:
   - url: http://127.0.0.1:4300
     description: Local Bridge (default)
@@ -1086,7 +1086,7 @@ paths:
       tags: [Orders]
       operationId: previewOrder
       summary: Check an order without sending it
-      description: Resolves the symbol and lot size, runs every safety check, and returns warnings and the estimated value. When a human must confirm (orders from AI assistants, or hooks set to require it), it opens a ticket that you confirm in Option Hub; the confirmation yields the `confirmToken` that `POST /v1/orders` needs.
+      description: Resolves the symbol and lot size, runs every safety check, and returns warnings and the estimated value. When a human must confirm (orders from AI assistants, or hooks set to require it), it opens a ticket that you confirm in the dashboard (Orders, Pending confirmations); the confirmation yields the `confirmToken` that `POST /v1/orders` needs.
       x-stream: S7
       x-scope: paper
       requestBody:
@@ -1281,7 +1281,7 @@ paths:
       tags: [Orders]
       operationId: listTickets
       summary: Orders waiting for a human confirmation
-      description: Option Hub's "Pending confirmations" panel polls this (or listens on the stream) and shows each ticket's full order, its source (AI assistant or webhook) and its checks. Admin scope, this computer only.
+      description: The dashboard's "Pending confirmations" panel polls this (or listens on the stream) and shows each ticket's full order, its source (AI assistant or webhook) and its checks. Admin scope, this computer only.
       x-stream: S7
       x-scope: admin
       x-loopback-only: true
@@ -2614,7 +2614,7 @@ components:
         confirmToken: { type: [string, "null"] }
         confirmExpiresAt: { type: [string, "null"], format: date-time }
         requiresHumanConfirmation: { type: boolean }
-        ticketId: { type: [string, "null"], description: "Set when a human must confirm; the ticket appears in GET /v1/tickets (Option Hub's Pending confirmations panel)." }
+        ticketId: { type: [string, "null"], description: "Set when a human must confirm; the ticket appears in GET /v1/tickets (the dashboard's Pending confirmations panel)." }
     Ticket:
       type: object
       required: [ticketId, order, source, checks, createdAt, expiresAt]

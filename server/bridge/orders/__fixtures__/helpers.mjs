@@ -276,7 +276,7 @@ export const KEYS = Object.freeze({
   live: { id: "livekey0001", label: "my script", scopes: ["live"], accounts: "*" },
   paper: { id: "paperkey001", label: "paper script", scopes: ["paper"], accounts: "*" },
   read: { id: "readkey0001", label: "sheet", scopes: ["read"], accounts: "*" },
-  admin: { id: "adminkey001", label: "Option Hub", scopes: ["admin"], accounts: "*" },
+  admin: { id: "adminkey001", label: "Admin app", scopes: ["admin"], accounts: "*" },
   mcp: { id: "mcpkey00001", label: "Claude", scopes: ["live"], accounts: "*", clientKind: "mcp" },
   dhanOnly: { id: "dhanonly001", label: "dhan only", scopes: ["live"], accounts: ["dhan-main"] },
 });

@@ -1,2 +1,3 @@
-# Every change needs review from the owner.
+# Code owners: GitHub asks the maintainer below to review every pull request, and a merge to `main` needs
+# their approval. Outside contributions are welcome; see CONTRIBUTING.md for how to send one.
 * @MrChartist

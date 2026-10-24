@@ -33,7 +33,7 @@ npx mc-bridge keys create --label charts --scope read --allow-query
 
 [integrations/charts/lightweight-charts.html](../../integrations/charts/lightweight-charts.html) draws candles from
 `/udf/history` and keeps the last bar live from the WebSocket. Serve it from an origin listed in
-`cors.allowedOrigins`. The example config allows `http://localhost:5180` for it (5173 is Option Hub's and Vite's
+`cors.allowedOrigins`. The example config allows `http://localhost:5180` for it (5173 is Vite's
 default), so from the `integrations/charts` folder run `python -m http.server 5180 --bind 127.0.0.1` and open
 <http://localhost:5180/lightweight-charts.html>. The page loads the pinned library with an SRI `integrity` hash, so a
 changed CDN file is refused. Keep TradingView's attribution.

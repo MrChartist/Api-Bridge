@@ -65,7 +65,7 @@ instruments `search_instruments`, `instrument`, `convert_symbol`, `convert_symbo
 safety `safety`, `engage_kill_switch` · helpers `paginate`, `stream_token`, `stream_url`, `stream`, `request`.
 
 Admin actions (API keys, broker sessions, the audit log, confirming AI-prepared tickets, releasing the kill switch)
-are deliberately not in the SDK: use `mc-bridge` on the same computer or Option Hub.
+are deliberately not in the SDK: use `mc-bridge` or the dashboard on the same computer.
 
 Typed shapes for editors and type checkers: `mrchartist_bridge/models.py`.
 

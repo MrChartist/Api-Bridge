@@ -4,7 +4,7 @@ Status: **v2 design, frozen for the parallel build** (owner: lead architect). Th
 
 ## 1. What the Bridge is
 
-One local service that holds a user's connections to **several brokers and several accounts at once**, and lets every tool share them: Option Hub, charts (UDF datafeed), TradingView/ChartInk/GoCharting alerts, AmiBroker, Python and Node scripts, Excel and Google Sheets, and AI assistants over MCP.
+One local service that holds a user's connections to **several brokers and several accounts at once**, and lets every tool share them: trading front ends, charts (UDF datafeed), TradingView/ChartInk/GoCharting alerts, AmiBroker, Python and Node scripts, Excel and Google Sheets, and AI assistants over MCP.
 
 The headline problem is **broker rate limits**. Ten tools each polling a broker that allows 1 quote request a second cannot work. The Bridge makes the broker see one careful client: it serves from live streams first, then a short freshness-labelled cache, then batched and coalesced calls inside per-account token buckets, with orders always ahead of reads, and it can spread read-only market data over the user's *own* accounts where the broker's terms allow it.
 
@@ -20,7 +20,7 @@ Design principles, in priority order:
 
 ```
                          ┌──────────────────────── one Node.js 20+ process (mc-bridge start) ───────────────────────┐
- Option Hub, scripts,    │  main listener 127.0.0.1:4300                                                             │
+ Web apps, scripts,      │  main listener 127.0.0.1:4300                                                             │
  Excel, AmiBroker,  ───► │   REST /v1/*  ·  SSE /v1/stream/sse  ·  WS /v1/stream  ·  UDF /udf/*  ·  /xl/*  ·  POST /mcp│
  MCP relay (stdio)       │                                                                                           │
                          │  optional public-ingress listener (off by default): ONLY routes marked public (/hooks/*) │
@@ -132,7 +132,7 @@ route (S7, scope paper) ─► validate body (zod) ─► idempotency check (rep
 
 **Webhook** (`POST /hooks/tradingview/<token>`): verify token hash (and HMAC + timestamp for `generic`), parse, dedupe, enqueue, **reply 202 within milliseconds** (TradingView abandons after 3 s), then a worker builds an `OrderRequest` from the hook's fixed mapping and calls `orders.preview` / `orders.place` with `source: "webhook"`.
 
-**AI** (`POST /mcp` or the stdio relay): MCP tools call the same services with `source: "mcp"`. Order tools only prepare: `orders.preview` opens a ticket, which appears in Option Hub's Pending confirmations panel (`GET /v1/tickets`); the human confirms there (`POST /v1/tickets/{id}/confirm`, admin key, this computer only), which yields the single-use `confirmToken` without which `orders.place` refuses.
+**AI** (`POST /mcp` or the stdio relay): MCP tools call the same services with `source: "mcp"`. Order tools only prepare: `orders.preview` opens a ticket, which appears in the dashboard's Pending confirmations panel on the Orders page (`GET /v1/tickets`); the human confirms there (`POST /v1/tickets/{id}/confirm`, admin key, this computer only), which yields the single-use `confirmToken` without which `orders.place` refuses.
 
 ## 5. Multi-account model
 
@@ -164,7 +164,7 @@ route (S7, scope paper) ─► validate body (zod) ─► idempotency check (rep
 - **Coalescing (singleflight).** Identical in-flight reads (`coalesceKey` = class + account + canonical args) share one broker call.
 - **Batching.** Quote and LTP requests arriving within a short window (about 25 ms) are merged up to `maxQuoteBatch` per adapter call.
 - **Freshness cache.** Per-class targets (LTP 1 s, quotes 2 s, depth 1 s, chain 3 s, expiries 5 min, history 60 s for closed bars). Callers tighten with `maxAgeMs`. When the budget is exhausted the engine may serve the cached value **labelled `stale: true`** rather than queueing past the caller's deadline; portfolio and orders are never served stale.
-- **Streaming first.** If StreamHub has a live, fresh tick for a symbol, LTP and quotes come from it and cost no REST call. Option Hub and charts should subscribe rather than poll.
+- **Streaming first.** If StreamHub has a live, fresh tick for a symbol, LTP and quotes come from it and cost no REST call. Front ends and charts should subscribe rather than poll.
 - **Pooled routing.** `pickAccount` chooses among eligible candidates by headroom, health and back-off state. Credentials never move between accounts; each call uses the chosen account's own session.
 - **Upstream back-off.** A broker 429 or rate-limit error (`UPSTREAM_RATE_LIMITED`) puts that `(account, class)` into back-off (Retry-After, else exponential from 1 s) and emits `limits.throttled`.
 - **Client limits.** Each API key has its own budget (default 50 requests/s, configurable in the `ratelimit` config section), reported in `RateLimit` / `RateLimit-Policy` headers and 429 + `Retry-After`.
@@ -207,7 +207,7 @@ route (S7, scope paper) ─► validate body (zod) ─► idempotency check (rep
 | Audit log | S9 | append-only JSON lines, one `appendFileSync` per event, SHA-256 hash chain (`/v1/audit/verify`), redacted; every order, refusal, key change, session change and kill-switch action |
 | Webhook auth | S11 | per-hook 128-bit+ URL token (hash stored, shown once); `generic` hooks also need `X-MCB-Signature: t=…,v1=HMAC-SHA256(secret, "t.body")` with a 5-minute window and replay cache; optional source-IP allowlist; each hook can only do what its definition allows |
 | Public ingress | core | off by default; a separate listener that serves only `public` routes (webhooks), never the API |
-| AI confirmation | S7, S11 | order tools prepare a ticket; a human confirms it in Option Hub with an admin key from this computer; client-side approval prompts and MCP annotations never count as confirmation; no tool can change paper/live mode, scopes or the kill switch release |
+| AI confirmation | S7, S11 | order tools prepare a ticket; a human confirms it in the dashboard with an admin key from this computer; client-side approval prompts and MCP annotations never count as confirmation; no tool can change paper/live mode, scopes or the kill switch release |
 | Body limits and timeouts | core | 64 KB default bodies (16 KB for hooks), 30 s request timeout, broker calls time out via `brokerFetch` |
 
 ## 9. Symbology
@@ -228,7 +228,7 @@ BFO:SENSEX-2026-10-30-82500-PE   BSE option      NFO:VEDL-2026-10-27-292.5-CE   
 
 ## 10. Integrations
 
-- **Charts (S10, UDF).** `/udf/config|symbols|search|history|time|quotes` in UDF format (Unix seconds, column arrays, `s: ok|no_data|error`), `Asia/Kolkata` sessions (`0915-1530` for NSE cash and F&O; special sessions from exchange data, not hard-coded **(needs verification)**), `minmov`/`pricescale` from tick size. TradingView Advanced Charts is not licensed for personal or private use, so Option Hub's bundled chart should be Lightweight Charts (Apache 2.0, attribution required); the UDF feed still serves anyone who holds their own Advanced Charts licence **(licence terms need verification)**. Live bars come from the WebSocket.
+- **Charts (S10, UDF).** `/udf/config|symbols|search|history|time|quotes` in UDF format (Unix seconds, column arrays, `s: ok|no_data|error`), `Asia/Kolkata` sessions (`0915-1530` for NSE cash and F&O; special sessions from exchange data, not hard-coded **(needs verification)**), `minmov`/`pricescale` from tick size. TradingView Advanced Charts is not licensed for personal or private use, so a bundled chart should use Lightweight Charts (Apache 2.0, attribution required); the UDF feed still serves anyone who holds their own Advanced Charts licence **(licence terms need verification)**. Live bars come from the WebSocket.
 - **Spreadsheets and AmiBroker (S10).** `/xl/ltp` and `/xl/quote` return one value as plain text (Excel `WEBSERVICE` is GET-only, Windows desktop only, 2,048-character URLs, 32,767-character results); `/xl/chain` and `/xl/history` return flat CSV or JSON records for Power Query, Google Sheets and AmiBroker ASCII import (`layout=amibroker` plus a shipped `.format` file and an AFL include). CSV output guards against formula injection. Google Sheets `IMPORTDATA` and Apps Script run on Google's servers and cannot reach localhost; they need the user's tunnel and a read-only URL key, and refresh only hourly.
 - **Webhooks (S11).** TradingView sends only to ports 80/443, over IPv4, from four published addresses (52.89.214.238, 34.212.75.30, 54.218.53.128, 52.32.178.7), needs 2FA on the TradingView account, and abandons requests after **3 seconds**; it cannot sign requests and advises against credentials in the body. So: per-hook URL token, optional IP allowlist, fast 202 and asynchronous processing, idempotency from `{{strategy.order.id}}`+`{{timenow}}` where the template provides it, and per-hook action mapping (account, symbols, lots cap, product, paper/live, confirmation). ChartInk posts a fixed JSON with comma-joined `stocks` and `trigger_prices` and a dateless `triggered_at`; GoCharting posts plain text. A copy-paste alert-template generator ships with the hooks UI.
 - **AI (S11, MCP).** Built on `@modelcontextprotocol/sdk` with protocol-version negotiation (the spec moved to a stateless revision 2026-07-28; which revision each client speaks **needs verification**). Transports: Streamable HTTP at `POST /mcp` (loopback, Host/Origin checked, bearer key) and stdio via the `mc-bridge mcp` relay. Toolsets: market data, analytics, account, orders; fewer than 20 tools by default, listed in a fixed order, all four annotations set explicitly, `outputSchema` + `structuredContent`, results wrapped in an untrusted-data envelope (instrument names and broker messages are third-party text). Order tools exist only when the config enables them for that account and the key has the scope, and they only prepare tickets. The same tool registry is exported as strict OpenAI function schemas. Remote access (ChatGPT, claude.ai web) needs a tunnel plus OAuth and is out of scope for v1.
@@ -299,4 +299,4 @@ These shape the design. None of this is legal advice; items flagged **(needs ver
 | JSON files, atomic writes | small data, zero native dependencies, easy to inspect and back up |
 | Canonical symbols with ISO expiry and contract exchange codes | §9 |
 | RFC 9457 errors with `retryable` | scripts, webhooks and AI clients need one machine-readable answer to "may I retry?" |
-| Default port 4300 | avoids Option Hub's proxy (4002) and common dev ports |
+| Default port 4300 | avoids common dev ports (3000, 4002, 5173, 8080) |

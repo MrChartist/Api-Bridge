@@ -11,7 +11,7 @@ Ready-made ways to use the Mr. Chartist API Bridge from other tools. Each folder
 | [`../sdk/python`](../sdk/python), [`../sdk/node`](../sdk/node) | Your own scripts and strategies | the whole `/v1` API |
 
 Everything under `/udf` and `/xl` is **read-only**: those routes are GET-only, need only the `read` scope, and cannot
-place, modify or cancel an order. Orders go through `/v1/orders` (paper by default) with the SDKs or Option Hub.
+place, modify or cancel an order. Orders go through `/v1/orders` (paper by default) with the SDKs or the dashboard.
 
 Keys: create one per tool, with the least it needs, and keep keys out of files you share:
 
