@@ -454,7 +454,7 @@ claude mcp add --transport http mr-chartist-bridge http://127.0.0.1:4300/mcp --h
 ```
 
 Tools: `get_ltp`, `get_quotes`, `get_depth`, `get_history`, `get_expiries`, `get_option_chain`, `search_instruments`,
-`convert_symbol`, `option_chain_summary`, `history_summary`, `list_accounts`, `get_positions`, `get_holdings`,
+`convert_symbol`, `option_chain_summary`, `history_summary`, `scan_market`, `list_accounts`, `get_positions`, `get_holdings`,
 `get_funds`, `list_orders`, `get_order`, `get_safety_status`. Order tools appear only if you turn them on
 (`mcp.toolsets` with `"orders"`, `mcp.orderAccounts`, a `paper` key), and even then the AI only **prepares** a
 ticket: nothing is sent until you confirm it on the dashboard's **Orders** page. Guide:

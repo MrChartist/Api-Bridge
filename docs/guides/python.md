@@ -63,3 +63,17 @@ c = bridge.history("NSE:RELIANCE", "1d", countback=250)["data"]["candles"]
 df = pd.DataFrame(c)
 df["time"] = pd.to_datetime(df["time"], unit="s", utc=True).dt.tz_convert("Asia/Kolkata")
 ```
+
+## Scans and backup data
+
+```python
+job = bridge.scan({"universe": "FNO", "condition": "close crosses above ema(20) and rsi(14) > 55",
+                   "columns": ["rsi(14)"], "sort": {"by": "rsi(14)"}}, wait_ms=60000)
+for row in job["data"]["results"]:
+    print(row["symbol"], row["values"]["rsi(14)"], row["source"])
+
+bridge.save_scan("Breakouts", {"universe": "NIFTY50", "interval": "15m", "condition": "close > highest(20)[1]"}, every_minutes=15)
+bridge.backup_quotes(["NSE:RELIANCE", "NSE:NIFTY"])   # straight from Yahoo / NSE, labelled source "backup"
+```
+
+See [scanner.md](scanner.md) and [backup-data.md](backup-data.md).

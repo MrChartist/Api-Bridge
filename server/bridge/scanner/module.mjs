@@ -31,6 +31,11 @@ export const USED_SERVICES = Object.freeze(["marketData", "accounts", "scheduler
 /** One scanner per app (tests build many apps in one process). */
 const scanners = new WeakMap();
 
+/** The scanner register() built for these deps (the MCP scan tool), or null before registration. */
+export function scannerFor(deps) {
+  return scanners.get(deps) ?? null;
+}
+
 export default defineModule({
   name: "scanner",
   stream: "S13",

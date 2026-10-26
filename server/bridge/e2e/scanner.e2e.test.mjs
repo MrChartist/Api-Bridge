@@ -7,7 +7,9 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../core/app.mjs";
 import { loadConfig } from "../core/config.mjs";
+import { createCallContext } from "../core/context.mjs";
 import { createNullLogger } from "../core/logger.mjs";
+import { mcpRegistryFor } from "../mcp/module.mjs";
 
 describe("scanner over HTTP (demo mode)", () => {
   let app;
@@ -95,5 +97,17 @@ describe("scanner over HTTP (demo mode)", () => {
     const q = await call("GET", "/v1/backup/quotes?symbols=NSE:RELIANCE");
     expect(q.status).toBe(422);
     expect(q.body.detail).toMatch(/demo mode/);
+  });
+
+  it("AI assistants can run a scan through the scan_market MCP tool", async () => {
+    const registry = mcpRegistryFor(app.deps);
+    const record = await app.deps.keyStore.authenticate(reader, {});
+    const ctx = createCallContext({ source: "mcp", key: record, log: createNullLogger() });
+    expect(registry.listTools(ctx).map((t) => t.name)).toContain("scan_market");
+    const r = await registry.call("scan_market", { symbols: ["NSE:RELIANCE", "NSE:TCS"], condition: "close > 0", columns: ["rsi(14)"], sortBy: "close" }, ctx);
+    expect(r.isError).toBeFalsy();
+    expect(r.structuredContent.data.status).toBe("completed");
+    expect(r.structuredContent.data.matches).toHaveLength(2);
+    expect(r.structuredContent.data.matches[0].values).toHaveProperty("rsi(14)");
   });
 });

@@ -4,7 +4,7 @@
  *
  * Rules (docs/ARCHITECTURE.md §8 "AI confirmation", docs/STREAMS.md §S11):
  *  - Fixed order. Tools are listed in TOOL_DEFS order, filtered by toolset, scope and config; never re-sorted.
- *  - Fewer than 20 tools by default (market, analytics and account toolsets: 17).
+ *  - Fewer than 20 tools by default (market, analytics and account toolsets: 18).
  *  - All four annotations are set explicitly on every tool. Annotations are hints for the client; they are NEVER
  *    treated as consent. Client-side approval prompts are not confirmation either.
  *  - Every successful result has `structuredContent` = { data, meta, untrusted: true } matching the tool's
@@ -410,6 +410,50 @@ export const TOOL_DEFS = Object.freeze([
     handler: async (a, ctx, rt) => {
       const h = await svc(rt.deps, "marketData").history({ symbol: a.symbol, interval: a.interval, countback: a.countback ?? 20 }, readOpts(a, ctx));
       return { data: { symbol: h.symbol, interval: h.interval, ...summariseCandles(h.candles), partial: Boolean(h.partial) }, meta: { freshness: h.freshness } };
+    },
+  },
+
+  {
+    name: "scan_market",
+    title: "Scan the market",
+    toolset: "analytics",
+    description:
+      "Run a technical scan over a universe (FNO, NIFTY50, INDICES or a config list) or a symbol list and return the symbols whose condition is true on the last candle. " +
+      "Condition language: fields open high low close volume change_pct; functions sma(n) ema(n) rsi(n) atr(n) macd() macd_signal() bb_upper() bb_lower() supertrend(n,m) vwap() highest(n) lowest(n) avg_volume(n); " +
+      "operators > < >= <= == and or not, 'crosses above', 'crosses below', x[k] for k bars ago. Example: \"rsi(14) > 60 and close crosses above ema(20)\". Waits up to 60 s.",
+    input: () =>
+      z.strictObject({
+        universe: z.string().min(2).max(32).nullable().describe("FNO, NIFTY50, INDICES or a universe from the config; null when giving symbols."),
+        symbols: z.array(symbolStr).min(1).max(500).nullable().describe("Symbols to scan; null when giving a universe."),
+        interval: intervalIn.nullable().describe("Candle interval; null for 1d."),
+        condition: z.string().min(1).max(1000).describe("The scan condition."),
+        columns: z.array(z.string().min(1).max(200)).max(8).nullable().describe("Extra values to report per match, e.g. [\"rsi(14)\"]; null for none."),
+        sortBy: z.string().max(200).nullable().describe("Expression to sort matches by, highest first; null for symbol order."),
+        limit: z.number().int().min(1).max(100).nullable().describe("Most matches to return; null for 50."),
+      }),
+    output: z.strictObject({ data: z.looseObject({ status: z.string(), matches: z.array(anyObj) }), meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_BROKER,
+    handler: async (a, ctx, rt) => {
+      const { scannerFor } = await import("../scanner/module.mjs");
+      const scanner = scannerFor(rt.deps);
+      if (!scanner) throw new BridgeError("NOT_IMPLEMENTED", "The scanner is not running.");
+      const req = { condition: a.condition, interval: a.interval ?? "1d", limit: a.limit ?? 50 };
+      if (a.universe) req.universe = a.universe;
+      if (a.symbols) req.symbols = a.symbols;
+      if (a.columns) req.columns = a.columns;
+      if (a.sortBy) req.sort = { by: a.sortBy, order: "desc" };
+      const allowed = allowedAccountsFor(ctx);
+      const job = await scanner.waitFor(await scanner.start(req, { allowedAccounts: allowed, keyId: ctx.key?.id ?? null }), 60_000);
+      const v = scanner.view(job);
+      return {
+        data: {
+          status: v.status,
+          jobId: v.id,
+          progress: v.progress,
+          matches: v.results.map((r) => ({ symbol: r.symbol, values: r.values, source: r.source })),
+          errors: v.errors.slice(0, 20),
+        },
+      };
     },
   },
 

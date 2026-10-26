@@ -117,6 +117,17 @@ class ReadTests(Base):
         self.assertEqual(requests()[-1]["query"]["greeks"], "false")
         self.assertEqual(c.quotes("NSE:RELIANCE")["data"][0]["bid"], 99.95)
 
+    def test_backup_and_scan(self):
+        c = self.client()
+        self.assertEqual(c.backup_quotes(["NSE:RELIANCE"])["data"][0]["freshness"]["source"], "backup")
+        job = c.scan({"universe": "NIFTY50", "condition": "rsi(14) > 60"}, wait_ms=5000)
+        self.assertEqual(job["data"]["status"], "completed")
+        self.assertEqual(job["data"]["results"][0]["symbol"], "NSE:TCS")
+        sent = [r for r in requests() if r["path"] == "/v1/scanner/jobs"][-1]
+        self.assertEqual(sent["query"]["waitMs"], "5000")
+        self.assertEqual(sent["body"]["condition"], "rsi(14) > 60")
+        self.assertEqual(c.scan_job(job["data"]["id"])["data"]["status"], "completed")
+
     def test_paginate(self):
         c = self.client()
         ids = [o["orderId"] for o in c.paginate(c.orders, account="dhan-main")]

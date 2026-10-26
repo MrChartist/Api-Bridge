@@ -255,6 +255,61 @@ class BridgeClient:
     def stream_stats(self) -> Dict[str, Any]:
         return self._get("/v1/stream/stats")
 
+    # ── backup data (Yahoo Finance, NSE website; labelled freshness.source "backup") ──
+    def backup_status(self) -> Dict[str, Any]:
+        return self._get("/v1/backup/status")
+
+    def backup_quotes(self, symbols: Union[str, Sequence[str]], *, fields: Optional[str] = None) -> Dict[str, Any]:
+        return self._get("/v1/backup/quotes", {"symbols": _list(symbols), "fields": fields})
+
+    def backup_history(self, symbol: str, interval: str, *, from_: Optional[str] = None, to: Optional[str] = None, countback: Optional[int] = None) -> Dict[str, Any]:
+        return self._get("/v1/backup/history", {"symbol": symbol, "interval": interval, "from": from_, "to": to, "countback": countback})
+
+    # ── scanner ──
+    def scanner_language(self) -> Dict[str, Any]:
+        return self._get("/v1/scanner/language")
+
+    def scanner_universes(self) -> Dict[str, Any]:
+        return self._get("/v1/scanner/universes")
+
+    def scanner_universe(self, name: str) -> Dict[str, Any]:
+        return self._get("/v1/scanner/universes/" + _seg(name))
+
+    def plan_scan(self, scan: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._post("/v1/scanner/plan", dict(scan))
+
+    def scan(self, scan: Mapping[str, Any], *, wait_ms: Optional[int] = None) -> Dict[str, Any]:
+        """Start a scan. With wait_ms the reply carries the results when it finished in time (status "completed")."""
+        timeout = max(self.timeout, (wait_ms or 0) / 1000 + 10) if wait_ms else None
+        return self.request("POST", "/v1/scanner/jobs", query={"waitMs": wait_ms}, body=dict(scan), timeout=timeout, retries=0).body
+
+    def scans(self) -> Dict[str, Any]:
+        return self._get("/v1/scanner/jobs")
+
+    def scan_job(self, job_id: str) -> Dict[str, Any]:
+        return self._get("/v1/scanner/jobs/" + _seg(job_id))
+
+    def cancel_scan(self, job_id: str) -> Dict[str, Any]:
+        return self.request("DELETE", "/v1/scanner/jobs/" + _seg(job_id)).body
+
+    def saved_scans(self) -> Dict[str, Any]:
+        return self._get("/v1/scanner/saved")
+
+    def save_scan(self, name: str, request: Mapping[str, Any], *, every_minutes: Optional[int] = None, market_hours_only: Optional[bool] = None) -> Dict[str, Any]:
+        body: Dict[str, Any] = {"name": name, "request": dict(request)}
+        if every_minutes is not None:
+            body["everyMinutes"] = every_minutes
+        if market_hours_only is not None:
+            body["marketHoursOnly"] = market_hours_only
+        return self._post("/v1/scanner/saved", body)
+
+    def delete_saved_scan(self, saved_id: str) -> Dict[str, Any]:
+        return self.request("DELETE", "/v1/scanner/saved/" + _seg(saved_id)).body
+
+    def run_saved_scan(self, saved_id: str, *, wait_ms: Optional[int] = None) -> Dict[str, Any]:
+        timeout = max(self.timeout, (wait_ms or 0) / 1000 + 10) if wait_ms else None
+        return self.request("POST", "/v1/scanner/saved/" + _seg(saved_id) + "/run", query={"waitMs": wait_ms}, timeout=timeout, retries=0).body
+
     # ── portfolio ──
     def positions(self, account: str, *, mode: Optional[str] = None) -> Dict[str, Any]:
         return self._get("/v1/positions", {"account": account, "mode": mode})
