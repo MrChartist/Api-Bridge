@@ -184,8 +184,7 @@ describe("scan jobs", () => {
     expect(v.results.map((r) => r.sortValue)).toEqual([...v.results.map((r) => r.sortValue)].sort((a, b) => b - a));
     const hist = f.calls.filter((c) => c[0] === "history");
     expect(new Set(hist.map((c) => c[3]))).toEqual(new Set(["background"]));
-    const byAccount = Object.groupBy(hist, (c) => c[2]);
-    expect(Object.keys(byAccount).sort()).toEqual(["acc-a", "acc-b"]);
+    expect([...new Set(hist.map((c) => c[2]))].sort()).toEqual(["acc-a", "acc-b"]);
     // pool widths follow each account's history budget: a 3/s account runs 3 workers, a 1/s account 1
     expect(v.plan.pools.map((p) => [p.accountId, p.concurrency])).toEqual([
       ["acc-a", 3],
