@@ -80,11 +80,14 @@ channels:
       unsubscribe: { $ref: "#/components/messages/unsubscribe" }
       subscribeOrders: { $ref: "#/components/messages/subscribeOrders" }
       unsubscribeOrders: { $ref: "#/components/messages/unsubscribeOrders" }
+      subscribeScans: { $ref: "#/components/messages/subscribeScans" }
+      unsubscribeScans: { $ref: "#/components/messages/unsubscribeScans" }
       ping: { $ref: "#/components/messages/ping" }
       heartbeat: { $ref: "#/components/messages/heartbeat" }
       snapshot: { $ref: "#/components/messages/snapshot" }
       tick: { $ref: "#/components/messages/tick" }
       order: { $ref: "#/components/messages/order" }
+      scan: { $ref: "#/components/messages/scan" }
       status: { $ref: "#/components/messages/status" }
       error: { $ref: "#/components/messages/error" }
       goAway: { $ref: "#/components/messages/goAway" }
@@ -104,7 +107,8 @@ channels:
     title: Server-Sent Events stream
     description: |
       One-way. Query parameters: `token`, `symbols` (comma-separated, up to `stream.maxSymbolsPerRequest`, default 200),
-      `mode` (ltp | quote | depth, default ltp), `orders=1` to add order updates. Give `symbols`, `orders=1` or both.
+      `mode` (ltp | quote | depth, default ltp), `orders=1` to add order updates, `scans=1` to add scanner events.
+      Give `symbols`, `orders=1`, `scans=1` or any mix.
       Each event: `id: <seq>`, `event: <type>`, `data: <message JSON>`.
     servers:
       - $ref: "#/servers/local-http"
@@ -113,6 +117,7 @@ channels:
       snapshot: { $ref: "#/components/messages/snapshot" }
       tick: { $ref: "#/components/messages/tick" }
       order: { $ref: "#/components/messages/order" }
+      scan: { $ref: "#/components/messages/scan" }
       status: { $ref: "#/components/messages/status" }
       error: { $ref: "#/components/messages/error" }
       goAway: { $ref: "#/components/messages/goAway" }
@@ -143,6 +148,16 @@ operations:
     channel: { $ref: "#/channels/stream" }
     summary: Client stops order updates.
     messages: [{ $ref: "#/channels/stream/messages/unsubscribeOrders" }]
+  receiveSubscribeScans:
+    action: receive
+    channel: { $ref: "#/channels/stream" }
+    summary: Client asks for scanner events (progress, completion, saved-scan alerts) for its key's scans (all scans for an admin key).
+    messages: [{ $ref: "#/channels/stream/messages/subscribeScans" }]
+  receiveUnsubscribeScans:
+    action: receive
+    channel: { $ref: "#/channels/stream" }
+    summary: Client stops scanner events.
+    messages: [{ $ref: "#/channels/stream/messages/unsubscribeScans" }]
   receivePing:
     action: receive
     channel: { $ref: "#/channels/stream" }
@@ -171,6 +186,11 @@ operations:
     channel: { $ref: "#/channels/stream" }
     summary: An order changed state.
     messages: [{ $ref: "#/channels/stream/messages/order" }]
+  sendScan:
+    action: send
+    channel: { $ref: "#/channels/stream" }
+    summary: A scan made progress or finished, or a saved scan found new matches.
+    messages: [{ $ref: "#/channels/stream/messages/scan" }]
   sendStatus:
     action: send
     channel: { $ref: "#/channels/stream" }
@@ -241,6 +261,16 @@ components:
       name: unsubscribe_orders
       title: Stop order updates
       payload: { $ref: "#/components/schemas/UnsubscribeOrdersOp" }
+    subscribeScans:
+      name: subscribe_scans
+      title: Subscribe to scanner events
+      payload: { $ref: "#/components/schemas/SubscribeScansOp" }
+      examples:
+        - payload: { op: subscribe_scans }
+    unsubscribeScans:
+      name: unsubscribe_scans
+      title: Stop scanner events
+      payload: { $ref: "#/components/schemas/UnsubscribeScansOp" }
     ping:
       name: ping
       title: Ping
@@ -306,6 +336,12 @@ components:
       payload: { $ref: "#/components/schemas/OrderMessage" }
       examples:
         - payload: { type: order, seq: 120, order: { orderId: PAPER-20261019-0007, clientOrderId: hub-17, accountId: dhan-main, mode: paper, status: filled, filledQuantity: 65, avgPrice: 182.4, source: rest } }
+    scan:
+      name: scan
+      title: Scanner event
+      payload: { $ref: "#/components/schemas/ScanMessage" }
+      examples:
+        - payload: { type: scan, seq: 40, event: alert, savedId: saved_9f2c1a7b3d4e5f60, name: "Breakouts", jobId: scan_1a2b3c4d5e6f7a8b, newMatches: ["NSE:TCS"], at: "2026-10-26T10:35:02.000Z" }
     status:
       name: status
       title: Upstream status
@@ -391,6 +427,20 @@ components:
       properties:
         op: { const: unsubscribe_orders }
         id: { $ref: "#/components/schemas/OpId" }
+    SubscribeScansOp:
+      type: object
+      additionalProperties: false
+      required: [op]
+      properties:
+        op: { const: subscribe_scans }
+        id: { $ref: "#/components/schemas/OpId" }
+    UnsubscribeScansOp:
+      type: object
+      additionalProperties: false
+      required: [op]
+      properties:
+        op: { const: unsubscribe_scans }
+        id: { $ref: "#/components/schemas/OpId" }
     PingOp:
       type: object
       additionalProperties: false
@@ -475,6 +525,28 @@ components:
             ticks: { type: array, description: Latest known value per accepted symbol., items: { $ref: "#/components/schemas/TickFields" } }
             pending: { type: array, description: Accepted symbols with no value yet; their first tick follows., items: { $ref: "#/components/schemas/Symbol" } }
 
+    ScanMessage:
+      allOf:
+        - { $ref: "#/components/schemas/Envelope" }
+        - type: object
+          required: [event]
+          properties:
+            type: { const: scan }
+            event: { type: string, enum: [progress, completed, alert] }
+            jobId: { type: string }
+            savedId: { type: [string, "null"] }
+            status: { type: string, enum: [queued, running, completed, failed, cancelled] }
+            progress:
+              type: object
+              properties:
+                total: { type: integer }
+                done: { type: integer }
+                matched: { type: integer }
+                errors: { type: integer }
+            matched: { type: array, items: { type: string }, description: "completed: the matching symbols" }
+            name: { type: string, description: "alert: the saved scan's name" }
+            newMatches: { type: array, items: { type: string }, description: "alert: symbols the previous run did not match" }
+            at: { type: string, format: date-time }
     OrderMessage:
       allOf:
         - { $ref: "#/components/schemas/Envelope" }

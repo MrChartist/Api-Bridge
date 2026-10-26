@@ -104,6 +104,8 @@ tags:
     description: Inbound alerts from TradingView, ChartInk, GoCharting and signed senders.
   - name: AI (MCP)
     description: Model Context Protocol endpoint for AI assistants.
+  - name: Scanner
+    description: Condition scans over big universes, spread over your pooled accounts at background priority.
   - name: Backup data
     description: Free public sources (Yahoo Finance, NSE website) used as a labelled fallback when no broker account can answer.
 
@@ -2010,6 +2012,291 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/scanner/language:
+    get:
+      tags: [Scanner]
+      operationId: getScanLanguage
+      summary: Fields, functions and operators of the scan condition language
+      x-stream: S13
+      x-scope: read
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/universes:
+    get:
+      tags: [Scanner]
+      operationId: listScanUniverses
+      summary: Named symbol lists (FNO, NIFTY50, INDICES and your own)
+      x-stream: S13
+      x-scope: read
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/universes/{name}:
+    get:
+      tags: [Scanner]
+      operationId: getScanUniverse
+      summary: The symbols in one universe
+      x-stream: S13
+      x-scope: read
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/plan:
+    post:
+      tags: [Scanner]
+      operationId: planScan
+      summary: "Dry run: which accounts would serve a scan and how long it would take"
+      x-stream: S13
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScanRequest" }
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/jobs:
+    post:
+      tags: [Scanner]
+      operationId: startScan
+      summary: Start a scan
+      description: Candles are fetched at background priority, shared out over your pooled accounts; symbols no broker can serve use the backup sources when source is auto and they are on.
+      x-stream: S13
+      x-scope: read
+      parameters:
+        - { name: waitMs, in: query, description: "Wait up to this long for the scan to finish (max 120000).", schema: { type: integer, minimum: 0, maximum: 120000 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScanRequest" }
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "202":
+          description: Accepted; poll the job (Location header).
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    get:
+      tags: [Scanner]
+      operationId: listScans
+      summary: Recent scans (without result rows)
+      x-stream: S13
+      x-scope: read
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/jobs/{jobId}:
+    get:
+      tags: [Scanner]
+      operationId: getScan
+      summary: One scan with its matches
+      x-stream: S13
+      x-scope: read
+      parameters:
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Scanner]
+      operationId: cancelScan
+      summary: Cancel a scan
+      x-stream: S13
+      x-scope: read
+      parameters:
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/saved:
+    get:
+      tags: [Scanner]
+      operationId: listSavedScans
+      summary: Saved scans
+      x-stream: S13
+      x-scope: read
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Scanner]
+      operationId: createSavedScan
+      summary: Save a scan, optionally to run every N minutes in market hours
+      x-stream: S13
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SavedScanRequest" }
+      responses:
+        "201":
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/saved/{savedId}:
+    delete:
+      tags: [Scanner]
+      operationId: deleteSavedScan
+      summary: Delete a saved scan
+      x-stream: S13
+      x-scope: read
+      parameters:
+        - { name: savedId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/saved/{savedId}/run:
+    post:
+      tags: [Scanner]
+      operationId: runSavedScan
+      summary: Run a saved scan now
+      x-stream: S13
+      x-scope: read
+      parameters:
+        - { name: savedId, in: path, required: true, schema: { type: string } }
+        - { name: waitMs, in: query, description: "Wait up to this long for the scan to finish (max 120000).", schema: { type: integer, minimum: 0, maximum: 120000 } }
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "202":
+          description: Accepted; poll the job (Location header).
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2269,6 +2556,34 @@ components:
       type: string
       pattern: "^[A-Za-z0-9_-]{1,64}$"
       description: Your own id for an order, unique per account per IST day. The Bridge maps it to the broker's shorter tag field itself.
+    ScanRequest:
+      type: object
+      required: [condition]
+      description: Give universe or symbols (not both).
+      properties:
+        name: { type: string, maxLength: 80 }
+        universe: { type: string, description: "FNO, NIFTY50, INDICES or a name from scanner.universes" }
+        symbols: { type: array, items: { type: string }, maxItems: 5000 }
+        interval: { type: string, enum: ["1m", "3m", "5m", "10m", "15m", "30m", "60m", "1d", "1w", "1M"], default: "1d" }
+        lookback: { type: integer, minimum: 2, maximum: 5000, description: "Bars per symbol; default from the condition" }
+        condition: { type: string, maxLength: 1000, example: "rsi(14) > 60 and close crosses above ema(20)" }
+        columns: { type: array, maxItems: 12, items: { type: string }, example: ["rsi(14)", "close / sma(200) - 1"] }
+        sort:
+          type: object
+          properties:
+            by: { type: string }
+            order: { type: string, enum: [asc, desc], default: desc }
+        limit: { type: integer, minimum: 1, maximum: 5000 }
+        source: { type: string, enum: [auto, broker, backup], default: auto }
+    SavedScanRequest:
+      type: object
+      required: [name, request]
+      properties:
+        name: { type: string, maxLength: 80 }
+        request: { $ref: "#/components/schemas/ScanRequest" }
+        everyMinutes: { type: integer, minimum: 1, maximum: 1440 }
+        marketHoursOnly: { type: boolean, default: true }
+
     Freshness:
       type: object
       required: [source, asOf, ageMs, stale]
