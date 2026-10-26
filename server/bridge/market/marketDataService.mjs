@@ -60,6 +60,8 @@ const PRESSURE_CODES = new Set(["UPSTREAM_RATE_LIMITED", "RATE_LIMITED", "UPSTRE
 const MASTER_PAGE_LIMIT = 500;
 const MASTER_MAX_PAGES = 20;
 const BSE_INDICES = new Set(["SENSEX", "BANKEX", "SENSEX50"]);
+/** spreadQuotes(): an account whose quote budget frees up later than this is left out of the split. */
+const SPREAD_MAX_WAIT_MS = 1500;
 
 const readOptionsSchema = z
   .object({
@@ -183,6 +185,59 @@ export function createMarketDataService(deps) {
     if (!Array.isArray(candidates) || candidates.length === 0) return null;
     if (candidates.length === 1) return candidates[0];
     return scheduler.pickAccount({ candidates, endpointClass }) ?? candidates[0];
+  }
+
+  /**
+   * Split an unpinned quote read over the pooled accounts (same holder, pooling allowed, the caller may use them):
+   * symbols go out in each account's maxQuoteBatch-sized chunks to the account with the most spare quote budget, so a
+   * 200-symbol scan uses every pooled account's limit instead of queueing on one. Null when there is nothing to split
+   * (one candidate, or one symbol); the caller then uses its single chosen account.
+   * @param {string[]} list  canonical symbols still to fetch
+   * @param {string[] | undefined} allowed
+   * @returns {Map<string, string> | null} symbol -> accountId
+   */
+  function spreadQuotes(list, allowed) {
+    if (list.length < 2) return null;
+    const q = { capability: "quotes" };
+    if (allowed) q.allowedAccounts = allowed;
+    const candidates = accounts.marketDataCandidates(q);
+    if (!Array.isArray(candidates) || candidates.length < 2) return null;
+    const slots = candidates.map((id, index) => {
+      let batch = 1;
+      let spare = 1;
+      let limit = 1;
+      let blockedMs = 0;
+      try {
+        batch = Math.max(1, Math.floor(Number(scheduler.policyFor(brokerOf(id))?.maxQuoteBatch) || 1));
+      } catch {
+        batch = 1;
+      }
+      try {
+        const h = scheduler.headroom(id, "quote");
+        limit = Number.isFinite(h?.limit) && h.limit > 0 ? h.limit : h?.limit === Infinity ? 1e9 : 1;
+        spare = Number.isFinite(h?.remaining) ? Math.max(0, h.remaining) : limit;
+        if (spare <= 0) blockedMs = Number(h?.resetMs) || 0;
+      } catch {
+        // no headroom figure: treat as one call of budget
+      }
+      return { id, index, batch, spare, limit, blockedMs, planned: 0 };
+    });
+    // An account out of budget for longer than a per-second window (broker back-off, minute or day limit used up)
+    // gets nothing; waiting on it would hold up the whole read.
+    const usableSlots = slots.filter((s) => s.blockedMs <= SPREAD_MAX_WAIT_MS);
+    if (usableSlots.length < 2) return null;
+    // Spare share after the chunks already planned; ties go to the earlier account in config order.
+    const score = (s) => (s.spare - s.planned) / s.limit;
+    const out = new Map();
+    let i = 0;
+    while (i < list.length) {
+      let best = usableSlots[0];
+      for (const s of usableSlots) if (score(s) > score(best) || (score(s) === score(best) && s.planned < best.planned)) best = s;
+      for (const sym of list.slice(i, i + best.batch)) out.set(sym, best.id);
+      i += best.batch;
+      best.planned += 1;
+    }
+    return out;
   }
 
   function noAccountError(what, pinned) {
@@ -509,9 +564,11 @@ export function createMarketDataService(deps) {
       const failures = new Map();
       const quotesAccount = chooseAccount("quotes", "quote", pinned, o.allowedAccounts);
       const ltpAccount = !quotesAccount && !wantQuote ? chooseAccount("ltp", "quote", pinned, o.allowedAccounts) : null;
-      const accountId = quotesAccount ?? ltpAccount;
+      const firstAccount = quotesAccount ?? ltpAccount;
+      const spread = quotesAccount && !pinned ? spreadQuotes(pending, o.allowedAccounts) : null;
       await Promise.all(
         pending.map(async (symbol) => {
+          const accountId = spread?.get(symbol) ?? firstAccount;
           if (!accountId) {
             failures.set(symbol, noAccountError(wantQuote ? "quotes" : "prices", pinned));
             return;

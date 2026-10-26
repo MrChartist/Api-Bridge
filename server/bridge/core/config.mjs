@@ -68,6 +68,12 @@ export const accountSchema = z
       .object({
         /** Let this account's market-data budget serve requests that did not name an account. Off by default. */
         pooling: z.boolean().default(false),
+        /**
+         * Also pool when the broker's terms about spreading one user's reads over that user's own accounts are not
+         * confirmed (policy pooling "unknown"). The user's own decision, made in the file only; a broker whose policy
+         * says "not-allowed" is never pooled, and accounts of different holders never are either.
+         */
+        poolingWhenTermsUnknown: z.boolean().default(false),
       })
       .strict()
       .prefault({}),

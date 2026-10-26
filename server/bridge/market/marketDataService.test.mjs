@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { SERVICE_CONTRACTS, assertService } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
+import { createFakeScheduler } from "../ratelimit/fake.mjs";
 import { FIFTY, T0, buildMarket, priceForToken, stubAdapter, stubStreamHub } from "./__fixtures__/helpers.mjs";
 
 const quoteCalls = (adapter) => adapter.calls.filter((c) => c[0] === "fetchQuotes");
@@ -232,6 +233,49 @@ describe("pinned and pooled routing", () => {
     const r = await settle(md.ltp(["NSE:RELIANCE"]));
     expect(r.items[0].freshness.accountId).toBe("dhan-main");
     expect(deps.accounts.calls.some((c) => c[0] === "marketDataCandidates" && c[1].capability === "quotes")).toBe(true);
+  });
+
+  it("pooled: a many-symbol read is split over the pooled accounts in batch-sized chunks", async () => {
+    const policies = { zerodha: { pooling: "allowed", maxQuoteBatch: 10 }, dhan: { pooling: "allowed", maxQuoteBatch: 10 } };
+    const zerodha = stubAdapter("zerodha");
+    const dhan = stubAdapter("dhan");
+    const { md, settle } = buildMarket({
+      policies,
+      scheduler: createFakeScheduler({ policies }),
+      accounts: [
+        { id: "zerodha-main", broker: "zerodha", pooling: true, adapter: zerodha, creds: { apiKey: "k" } },
+        { id: "dhan-main", broker: "dhan", pooling: true, adapter: dhan, creds: { clientId: "1" } },
+      ],
+    });
+    const r = await settle(md.quotes(FIFTY.slice(0, 40)));
+    expect(r.errors).toEqual([]);
+    expect(r.items).toHaveLength(40);
+    const zSymbols = quoteCalls(zerodha).flatMap((c) => c[1]).length;
+    const dSymbols = quoteCalls(dhan).flatMap((c) => c[1]).length;
+    expect(zSymbols + dSymbols).toBe(40);
+    expect(zSymbols).toBe(20);
+    expect(dSymbols).toBe(20);
+    const used = new Set(r.items.map((i) => i.freshness.accountId));
+    expect([...used].sort()).toEqual(["dhan-main", "zerodha-main"]);
+  });
+
+  it("pooled: an account in broker back-off gets no share of the split", async () => {
+    const policies = { zerodha: { pooling: "allowed", maxQuoteBatch: 10 }, dhan: { pooling: "allowed", maxQuoteBatch: 10 } };
+    const zerodha = stubAdapter("zerodha");
+    const dhan = stubAdapter("dhan");
+    const { md, settle, scheduler } = buildMarket({
+      policies,
+      scheduler: createFakeScheduler({ policies }),
+      accounts: [
+        { id: "zerodha-main", broker: "zerodha", pooling: true, adapter: zerodha, creds: { apiKey: "k" } },
+        { id: "dhan-main", broker: "dhan", pooling: true, adapter: dhan, creds: { clientId: "1" } },
+      ],
+    });
+    scheduler.throttle("zerodha-main", "quote", 60_000);
+    const r = await settle(md.quotes(FIFTY.slice(0, 30)));
+    expect(r.items).toHaveLength(30);
+    expect(quoteCalls(zerodha)).toHaveLength(0);
+    expect(new Set(r.items.map((i) => i.freshness.accountId))).toEqual(new Set(["dhan-main"]));
   });
 
   it("refuses a pinned account that lacks the capability", async () => {

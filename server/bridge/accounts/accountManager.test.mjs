@@ -96,6 +96,21 @@ describe("AccountManager: summaries", () => {
     expect(mgr.list().map((a) => a.pooling)).toEqual([true, false, false]);
   });
 
+  it("poolingWhenTermsUnknown pools a broker with unknown terms, never one whose terms say not-allowed", async () => {
+    const opt = { pooling: true, poolingWhenTermsUnknown: true };
+    const { mgr } = await setup({
+      accounts: [
+        { id: "aa", broker: "stubkey", holder: "self", marketData: opt },
+        { id: "bb", broker: "stuboauth", holder: "self", marketData: opt },
+        { id: "cc", broker: "stubkey", marketData: opt },
+      ],
+      adapters: { stubkey: apiKeyAdapter(), stuboauth: oauthAdapter() },
+      policies: { stubkey: { pooling: "unknown" }, stuboauth: { pooling: "not-allowed" } },
+    });
+    // cc names no holder, so it is never pooled.
+    expect(mgr.list().map((a) => a.pooling)).toEqual([true, false, false]);
+  });
+
   it("the paper account has no adapter, creds or session to manage", async () => {
     const { mgr } = await setup({ accounts: [{ id: "paper", broker: "paper" }], adapters: {} });
     await expectBridge(() => mgr.adapter("paper"), "CAPABILITY_UNSUPPORTED");
