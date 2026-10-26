@@ -131,6 +131,10 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
       /* account manager not available */
     }
   }
+  const backup = config.backup;
+  if (config.demo) add("ok", "backup-data", "Backup data sources are off in demo mode");
+  else if (backup?.enabled) add("ok", "backup-data", `Backup data on (${["yahoo", "nse"].filter((p) => backup.providers?.[p]?.enabled !== false).join(", ")}): reads no broker can answer fall back to it, labelled source "backup"`);
+  else add("ok", "backup-data", 'Backup data off. To fall back to Yahoo Finance / NSE when no broker can answer, set "backup": { "enabled": true }');
   if (portCheck) {
     const free = await new Promise((r) => {
       const srv = net.createServer();
