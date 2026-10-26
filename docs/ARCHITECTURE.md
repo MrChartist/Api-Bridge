@@ -71,6 +71,9 @@ data/
 | `safety/` | S9 | `safety` (SafetyGuard), `audit` (AuditLog) | `/v1/safety*`, `/v1/audit*` |
 | `integrations/` | S10 | (routes only) | `/udf/*`, `/xl/*` |
 | `hooks/`, `mcp/` | S11 | (routes only) | `/hooks/{source}/{token}`, `/v1/hooks*`, `/mcp`, `mc-bridge mcp` |
+| `backup/` | S12 | `backupData` (BackupDataService) | `/v1/backup/status`, `/v1/backup/quotes`, `/v1/backup/history` |
+| `scanner/` | S13 | (routes only) | `/v1/scanner/*`; `scan` events on the stream |
+| `compat/` | S14 | (routes only) | `/api/v1/*` apikey-in-body REST, WS `/api/v1/ws` |
 | `server/brokers/`, `server/lib/` | frozen | broker adapters and helpers (existing, tested) | none directly |
 
 **How modules plug in** (`core/modules.mjs`): each area has one `module.mjs` exporting `defineModule({ name, stream, services, configKey?, configSchema?, register(app, deps), start?, stop? })`.
@@ -85,6 +88,7 @@ data/
 
 ```
 secrets ─► accounts ─► scheduler ─► symbols ─► streamHub ─► marketData ─► paper ─┐
+backupData ─────────────────────────────────────────────────┘ (optional fallback)  │
 keyStore                                                                          ├─► orders
 audit ─────────────────────────────────────────────────────► safety ─────────────┘
 ```
@@ -165,7 +169,9 @@ route (S7, scope paper) ─► validate body (zod) ─► idempotency check (rep
 - **Batching.** Quote and LTP requests arriving within a short window (about 25 ms) are merged up to `maxQuoteBatch` per adapter call.
 - **Freshness cache.** Per-class targets (LTP 1 s, quotes 2 s, depth 1 s, chain 3 s, expiries 5 min, history 60 s for closed bars). Callers tighten with `maxAgeMs`. When the budget is exhausted the engine may serve the cached value **labelled `stale: true`** rather than queueing past the caller's deadline; portfolio and orders are never served stale.
 - **Streaming first.** If StreamHub has a live, fresh tick for a symbol, LTP and quotes come from it and cost no REST call. Option Hub and charts should subscribe rather than poll.
-- **Pooled routing.** `pickAccount` chooses among eligible candidates by headroom, health and back-off state. Credentials never move between accounts; each call uses the chosen account's own session.
+- **Pooled routing.** `pickAccount` chooses among eligible candidates by headroom, health and back-off state. Credentials never move between accounts; each call uses the chosen account's own session. A many-symbol unpinned quote read is split: `maxQuoteBatch` chunks go to the pooled account with the most spare quote budget (accounts in back-off or out of budget for longer than a second get none). Pooling at a broker whose policy is `unknown` needs the account's `marketData.poolingWhenTermsUnknown` as well; `not-allowed` is never pooled.
+- **Backup data (S12).** An unpinned read whose caller allows it (`ReadOptions.allowBackup`: REST, UDF, /xl and the scanner by default via `backup.autoFallback`; never orders, paper or safety) and that no broker account could answer is served by BackupDataService (Yahoo Finance chart API, NSE website JSON), labelled `freshness.source: "backup"` with `provider` and the provider's own timestamp, and never written to the shared freshness cache. Per-provider pacing, circuit breaker and a short quote cache keep the Bridge a polite client.
+- **Scanner (S13).** Scan jobs fetch candles at `background` priority. With several pooled candidates, one worker pool per account is pinned to it and sized to the account's history `perSecond` (capped by `scanner.perAccountConcurrency`), all pulling from one queue; the scheduler still paces every call. Conditions are parsed into a tree by a small recursive-descent parser and evaluated over candle series; nothing is ever `eval`'d.
 - **Upstream back-off.** A broker 429 or rate-limit error (`UPSTREAM_RATE_LIMITED`) puts that `(account, class)` into back-off (Retry-After, else exponential from 1 s) and emits `limits.throttled`.
 - **Client limits.** Each API key has its own budget (default 50 requests/s, configurable in the `ratelimit` config section), reported in `RateLimit` / `RateLimit-Policy` headers and 429 + `Retry-After`.
 - **Observability.** `/v1/usage` shows used, queued and reset per class, and the calls saved by streaming, caching, coalescing and batching.

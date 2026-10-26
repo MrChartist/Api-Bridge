@@ -48,17 +48,40 @@ The Bridge never bursts past a limit. Instead:
 
 ## Spreading reads across your own accounts
 
-If you have several accounts at one broker, unpinned read-only market data can use the budgets of all of them, but
-only when **both** are true:
+If you have several accounts (at one broker or several), unpinned read-only market data can use the budgets of all of
+them. An account takes part only when:
 
-1. the account opts in: `"marketData": { "pooling": true }`;
-2. the broker's policy entry says `pooling: "allowed"`, meaning its terms clearly allow one user's reads to be spread
-   over that user's own accounts.
+1. it opts in: `"marketData": { "pooling": true }`;
+2. it names its `holder` (`"self"`, `"spouse"` ...). Only accounts of **one** holder are ever pooled together;
+3. the broker's policy entry says `pooling: "allowed"`, **or** the entry is `"unknown"` and you opt in to that as
+   well with `"poolingWhenTermsUnknown": true`. A broker whose entry says `"not-allowed"` is never pooled.
 
-Today every broker's entry is `"unknown"`, which the Bridge treats as **not allowed** (needs verification against
-each broker's terms before any is changed). So reads stay on your primary account. `GET /v1/accounts` shows the
-effective `pooling` value per account. Orders and portfolio reads are never pooled, credentials are never shared,
-and accounts of different people must never be pooled.
+Today every broker's entry is `"unknown"` (needs verification against each broker's terms), so pooling happens only
+for accounts where you set both flags yourself:
+
+```json
+{ "id": "dhan-main",  "broker": "dhan",    "holder": "self", "marketData": { "pooling": true, "poolingWhenTermsUnknown": true } },
+{ "id": "kite-main",  "broker": "zerodha", "holder": "self", "marketData": { "pooling": true, "poolingWhenTermsUnknown": true } }
+```
+
+What pooling does:
+
+- **Many-symbol quote reads are split.** A request for 200 symbols is cut into each broker's batch size and every
+  chunk goes to the pooled account with the most spare quote budget, so two accounts answer roughly twice as fast.
+  An account in broker back-off gets no share.
+- **Single reads** go to the pooled account with the most headroom.
+- **Scans** ([scanner.md](scanner.md)) run one worker pool per pooled account, each pinned to its account and as
+  wide as that account's history budget, all pulling from one queue.
+
+`GET /v1/accounts` shows the effective `pooling` value per account. Orders and portfolio reads are never pooled,
+credentials are never shared, and accounts of different people are never pooled. Read your brokers' API terms before
+turning this on: it is your decision, made in the config file only.
+
+## When no broker can answer: backup data
+
+With `"backup": { "enabled": true }`, an unpinned read that no broker account can answer (none connected, session
+expired, broker down, budget gone) is served from free public sources instead and labelled `source: "backup"`. See
+[backup-data.md](backup-data.md).
 
 ## Your own budget
 

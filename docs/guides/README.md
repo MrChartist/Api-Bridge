@@ -5,7 +5,10 @@ Start with the [main README](../../README.md) for the quick start. These guides 
 | Guide | For |
 |---|---|
 | [accounts.md](accounts.md) | Adding brokers and several accounts, logging in, sessions, family accounts |
-| [rate-limits.md](rate-limits.md) | How the Bridge stays inside every broker's limits, and how to see it working |
+| [rate-limits.md](rate-limits.md) | How the Bridge stays inside every broker's limits, spreading reads over your own accounts |
+| [backup-data.md](backup-data.md) | Yahoo Finance and NSE website as a labelled fallback when no broker can answer |
+| [scanner.md](scanner.md) | Condition scans over big universes, scheduled scans and alerts |
+| [compat-api.md](compat-api.md) | `/api/v1` apikey-in-body REST and WebSocket for existing algo tools and SDKs |
 | [streaming.md](streaming.md) | WebSocket and SSE live data |
 | [charts.md](charts.md) | TradingView-compatible UDF datafeed, Lightweight Charts |
 | [webhooks.md](webhooks.md) | TradingView, ChartInk, GoCharting and signed generic alerts |

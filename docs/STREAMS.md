@@ -26,13 +26,16 @@ All streams can start on day one against fakes. Merge order (each stream rebases
 | S2 | secrets, keyStore | none |
 | S3 | scheduler | accounts |
 | S4 | symbols | accounts, scheduler |
-| S5 | marketData | accounts, scheduler, symbols, streamHub |
+| S5 | marketData | accounts, scheduler, symbols, streamHub, backupData (optional) |
 | S6 | streamHub | accounts, symbols (keyStore for WS auth) |
 | S7 | orders | accounts, scheduler, symbols, safety, audit, paper, marketData |
 | S8 | paper | marketData, symbols |
 | S9 | safety, audit | accounts |
 | S10 | (routes) | marketData, symbols, keyStore |
 | S11 | (routes, MCP relay) | orders, marketData, symbols, accounts, safety, audit, keyStore |
+| S12 | backupData (Yahoo Finance, NSE website) | none (core deps only) |
+| S13 | (routes: scanner) | marketData, accounts, scheduler, symbols, backupData |
+| S14 | (routes: compat `/api/v1`, WS `/api/v1/ws`) | orders, marketData, symbols, accounts, keyStore, streamHub, backupData |
 
 ---
 

@@ -46,10 +46,11 @@ trading on in the config file, every tool gets its own scoped key, and there is 
 
 1. [Quick start in 3 steps](#quick-start-in-3-steps) · [Try demo mode](#try-demo-mode)
 2. [Connect brokers and several accounts](#connect-brokers-and-several-accounts)
-3. [How rate limits are handled](#how-rate-limits-are-handled)
+3. [How rate limits are handled](#how-rate-limits-are-handled) · [Spread the work over your accounts](#spread-the-work-over-your-accounts) ·
+   [Backup data](#backup-data-when-no-broker-can-answer) · [Scanner](#scanner)
 4. [Screenshots](#screenshots)
 5. [Integrations](#integrations): TradingView alerts · chart datafeed · AmiBroker · Excel and Sheets · Python · Node ·
-   Claude (MCP) · ChatGPT and OpenAI · REST and streaming
+   Claude (MCP) · ChatGPT and OpenAI · REST and streaming · compat `/api/v1` API
 6. [Safety model](#safety-model) · [Compliance notes](#compliance-notes)
 7. [Supported brokers](#supported-brokers)
 8. [Troubleshooting](#troubleshooting) · [FAQ](#faq) · [Commands and configuration](#commands-and-configuration)
@@ -164,7 +165,7 @@ README were taken in demo mode.
   [Supported brokers](#supported-brokers), or `paper` for the built-in simulator.
 - Several brokers and several accounts at the same broker work side by side, each with its own session and limits.
 - `holder` says whose account it is (`self`, `spouse` ...; never a PAN). Reads are only ever spread over accounts of
-  the **same** holder, and only where the broker's terms allow it (none is confirmed yet, so this stays off).
+  the **same** holder, and only when you switch it on (see [Spread the work over your accounts](#spread-the-work-over-your-accounts)).
 - **No password, PIN or API secret ever goes in this file.**
 
 ### 2. Log in each account
@@ -199,7 +200,7 @@ Every request goes through the same pipeline, so the broker only sees what is re
 1. **Live stream first.** If any tool streams a symbol, reads of it are answered from the latest tick: no broker call.
 2. **Cache with honest labels.** Recent values are reused within a short freshness target (LTP 1 s, quote 2 s,
    depth 1 s, chain 3 s). Every value says where it came from and how old it is:
-   `"freshness": { "source": "stream" | "cache" | "broker" | "paper", "ageMs": 420, "stale": false, ... }`.
+   `"freshness": { "source": "stream" | "cache" | "broker" | "paper" | "backup", "ageMs": 420, "stale": false, ... }`.
 3. **Sharing and batching.** Twenty tools asking for the same price at once cause **one** broker call; symbols from
    many requests are packed into each broker's documented batch size.
 4. **Budgets per account and per kind of call** (orders, quotes, depth, history, chains, portfolio, instrument
@@ -214,6 +215,43 @@ See it live on the dashboard's **Rate limits** page (with a "send 20 identical r
 `GET /v1/usage` and `GET /v1/limits`. Each number in the policy table has a source link and a `verified` flag:
 [server/bridge/ratelimit/brokerPolicies.mjs](server/bridge/ratelimit/brokerPolicies.mjs). Guide:
 [docs/guides/rate-limits.md](docs/guides/rate-limits.md).
+
+### Spread the work over your accounts
+
+Have Dhan and Zerodha (or two Dhan accounts) in your own name? Let read-only market data use the budgets of all of
+them:
+
+```json
+{ "id": "dhan-main", "broker": "dhan",    "holder": "self", "marketData": { "pooling": true, "poolingWhenTermsUnknown": true } },
+{ "id": "kite-main", "broker": "zerodha", "holder": "self", "marketData": { "pooling": true, "poolingWhenTermsUnknown": true } }
+```
+
+A 200-symbol quote request is then cut into each broker's batch size and shared out to whichever account has the
+most budget left; scans run one worker pool per account. Every account still stays inside its own broker's limits,
+credentials never move between accounts, orders and portfolio reads are never pooled, and accounts of different
+people are never mixed. Brokers' terms on this are not confirmed, so it is your choice, made in the config file only.
+
+### Backup data when no broker can answer
+
+Turn on `"backup": { "enabled": true }` (new installs have it) and a read that no broker account can answer
+(none connected, session expired before you logged in, broker down, budget gone) is answered from **Yahoo Finance**
+or the **NSE website** instead of failing: stock and index quotes and candles, NSE option chains and expiries. Every
+such value says so: `"freshness": { "source": "backup", "provider": "yahoo", "asOf": ... }`. Backup prices are never
+used for orders, paper fills or safety checks. Guide: [docs/guides/backup-data.md](docs/guides/backup-data.md).
+
+### Scanner
+
+Scan the whole F&O list, NIFTY 50 or your own watchlist with a readable condition:
+
+```bash
+curl -X POST -H "Authorization: Bearer $KEY" -H "content-type: application/json" "http://127.0.0.1:4300/v1/scanner/jobs?waitMs=60000" \
+  -d '{ "universe": "FNO", "condition": "close crosses above ema(20) and rsi(14) > 55", "columns": ["rsi(14)"], "sort": { "by": "rsi(14)" } }'
+```
+
+Indicators: SMA, EMA, WMA, RSI, MACD, ATR, Bollinger, Supertrend, VWAP, highest/lowest, `crosses above/below`,
+`x[k]` for past bars. Scans run at background priority (charts and orders always go first), are shared out over
+your pooled accounts, fall back to backup candles, and can be saved to run every few minutes with an alert on the
+WebSocket when new symbols match. Guide: [docs/guides/scanner.md](docs/guides/scanner.md).
 
 ---
 
@@ -451,6 +489,14 @@ errors are `application/problem+json` with a stable `code`. Live prices: WebSock
 or SSE `/v1/stream/sse`, with a single-use token from `POST /v1/stream/token`. Send an `Idempotency-Key` with every
 order (required for live orders). Reference: [docs/openapi.yaml](docs/openapi.yaml) (also served at `/openapi.yaml`)
 and [docs/guides/streaming.md](docs/guides/streaming.md).
+
+### Compat `/api/v1` API for existing algo tools
+
+Tools and SDKs built for the common Indian-algo REST style (`POST /api/v1/placeorder` with `apikey` in the JSON body,
+`{ "status": "success" }` replies, symbols like `NIFTY27OCT2625000CE` / `NFO`) work against the Bridge unchanged:
+point them at `http://127.0.0.1:4300` and use a Bridge key. 30 endpoints (orders, smart/basket/split orders, books,
+quotes, depth, history, option chain, option symbol by offset) plus a WebSocket at `/api/v1/ws`. Orders are paper
+("analyzer mode") until you enable live trading the Bridge way. Guide: [docs/guides/compat-api.md](docs/guides/compat-api.md).
 
 ---
 

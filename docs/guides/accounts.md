@@ -22,7 +22,9 @@ own rate-limit budget and its own credentials; one account's credentials are nev
 | `broker` | Adapter id from [BROKERS.md](../BROKERS.md), or `paper`. |
 | `label` | Shown on the dashboard and in Option Hub. |
 | `enabled` | `false` keeps the account in the file but out of use. |
+| `holder` | Whose account it is (`self`, `spouse` ...; never a PAN). Pooling only ever joins accounts of one holder. |
 | `marketData.pooling` | Opt in to letting this account serve other unpinned reads (see [rate-limits.md](rate-limits.md)). Off by default. |
+| `marketData.poolingWhenTermsUnknown` | Also pool when the broker's terms on this are not confirmed (every broker today). Your decision; off by default. |
 | `live` | `{ "enabled": false, "allowedSources": ["rest"], "registeredIp": "..." }`; see [safety.md](safety.md). Off by default. |
 | `limits` | Per-account safety limits that may only be stricter than the global `safety` section. |
 
