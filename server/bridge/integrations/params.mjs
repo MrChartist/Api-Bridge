@@ -69,9 +69,10 @@ export function listParam(query, name, max, example) {
  * Market-data read options from the query: an optional pinned `account` (checked against the key first) and
  * `maxAgeMs`. The caller's abort signal is passed through so a closed chart stops waiting for budget.
  * @param {import("../core/context.mjs").RequestContext} ctx
- * @param {{ maxAge?: boolean }} [o]
+ * @param {{ maxAge?: boolean, autoBackup?: boolean }} [o]  autoBackup: the config default for `?backup=` (unpinned
+ *   reads that no broker can answer fall back to the labelled backup data sources).
  */
-export function readOptions(ctx, { maxAge = true } = {}) {
+export function readOptions(ctx, { maxAge = true, autoBackup = false } = {}) {
   const opts = { signal: ctx.signal, priority: "interactive" };
   const account = opt(ctx.query, "account");
   if (account !== undefined) {
@@ -83,7 +84,16 @@ export function readOptions(ctx, { maxAge = true } = {}) {
     const m = intParam(ctx.query, "maxAgeMs", 0, 3_600_000);
     if (m !== undefined) opts.maxAgeMs = m;
   }
+  const b = opt(ctx.query, "backup");
+  if (b !== undefined && !/^(true|false|1|0)$/i.test(b)) throw invalid("backup", "backup must be true or false.");
+  const backup = b === undefined ? autoBackup : /^(true|1)$/i.test(b);
+  if (backup && opts.accountId === undefined) opts.allowBackup = true;
   return opts;
+}
+
+/** The `?backup=` default from config: backup sources on, autoFallback on, not demo mode. */
+export function autoBackupFromConfig(config) {
+  return Boolean(config && config.demo !== true && config.backup?.enabled === true && config.backup?.autoFallback !== false);
 }
 
 /** Turn anything thrown into a BridgeError (unknown errors become INTERNAL without their message). */

@@ -307,7 +307,7 @@ export function createUdfRoutes(deps, cfg) {
       const from = intParam(q, "from", 0, 99_999_999_999);
       if (from === undefined && countback === undefined) throw invalid("from", "from is required (Unix seconds), or give countback.");
       if (to <= EARLIEST || (countback === undefined && from >= to)) return { s: "no_data" };
-      const opts = readOptions(ctx, { maxAge: false });
+      const opts = readOptions(ctx, { maxAge: false, autoBackup: cfg.autoBackup });
       const bars = await readBars(ctx, { symbol, interval, from, to, countback }, opts);
       if (bars.length) return historyBody(bars);
       if (!udf.nextTimeLookup) return { s: "no_data" };
@@ -324,7 +324,7 @@ export function createUdfRoutes(deps, cfg) {
 
     quotes: guarded(async (ctx) => {
       const inputs = listParam(ctx.query, "symbols", udf.maxQuoteSymbols, "NSE:NIFTY,NSE:RELIANCE");
-      const opts = readOptions(ctx);
+      const opts = readOptions(ctx, { autoBackup: cfg.autoBackup });
       const r = await deps.marketData.quotes(inputs, opts);
       const byCanonical = new Map((r?.items ?? []).map((it) => [it.symbol, it]));
       const errByKey = new Map();

@@ -14,6 +14,7 @@
 import { defineModule } from "../core/modules.mjs";
 import { INTEGRATIONS_CONFIG_SCHEMA, parseIntegrationsConfig } from "./config.mjs";
 import { createUdfRoutes, udfError } from "./udf.mjs";
+import { autoBackupFromConfig } from "./params.mjs";
 import { createXlRoutes, xlError } from "./xl.mjs";
 
 /**
@@ -50,7 +51,7 @@ export default defineModule({
   register(app, deps) {
     // Core has already validated and defaulted config.integrations; parsing again is cheap and keeps register()
     // usable with a hand-built facade in tests.
-    const cfg = parseIntegrationsConfig(app.config?.integrations);
+    const cfg = { ...parseIntegrationsConfig(app.config?.integrations), autoBackup: autoBackupFromConfig(app.config) };
     const handlers = { udf: createUdfRoutes(deps, cfg), xl: createXlRoutes(deps, cfg) };
     for (const [method, path, options, group, name] of ROUTES) app.route(method, path, handlers[group][name], { ...options, formatError: formatterFor(group, name) });
   },
