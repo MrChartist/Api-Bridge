@@ -47,6 +47,7 @@ const PAGES = [
   { id: "accounts", label: "Accounts", icon: "accounts", group: "Overview", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
   { id: "console", label: "Test console", icon: "console", group: "Overview", title: "Test console", sub: "Try any call and see exactly what comes back", render: renderConsole },
   { id: "limits", label: "Rate limits", icon: "limits", group: "Overview", title: "Rate limits", sub: "Live usage against each broker's limits, and the calls the Bridge saved", render: renderLimits },
+  { id: "scanner", label: "Scanner", icon: "scan", group: "Overview", title: "Scanner", sub: "Scan big universes with a readable condition, shared out over your accounts", render: renderScanner },
   { id: "orders", label: "Orders", icon: "orders", group: "Trading", title: "Orders and positions", sub: "Paper by default. Pending confirmations wait here", render: renderOrders },
   { id: "safety", label: "Safety", icon: "safety", group: "Trading", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
   { id: "keys", label: "API keys", icon: "keys", group: "Connect", title: "API keys", sub: "One key per tool, with only the access it needs", render: renderKeys },
@@ -113,6 +114,133 @@ async function refreshTicketCount() {
 export function startRouter() {
   window.addEventListener("hashchange", show);
   show();
+}
+
+// ── Scanner ──
+
+const SCAN_EXAMPLES = [
+  "rsi(14) > 60 and close > sma(50)",
+  "close crosses above ema(20) and volume > 1.5 * avg_volume(20)",
+  "close > highest(20)[1]",
+  "macd() crosses above macd_signal()",
+  "close > supertrend(10, 3) and change_pct > 2",
+];
+
+async function renderScanner() {
+  const [universes, backup, jobs] = await Promise.all([optional(api("/v1/scanner/universes")), optional(api("/v1/backup/status")), optional(api("/v1/scanner/jobs"))]);
+  const uni = h("select", { "aria-label": "Universe" }, h("option", { value: "" }, "My symbols (below)"), (universes.data?.data ?? []).map((u) => h("option", { value: u.name, selected: u.name === "NIFTY50" }, `${u.name}${u.size ? ` (${u.size})` : ""}`)));
+  const syms = h("input", { placeholder: "NSE:RELIANCE, NSE:TCS …", spellcheck: "false" });
+  const interval = h("select", { "aria-label": "Interval" }, ["1d", "1w", "60m", "30m", "15m", "5m", "1m"].map((i) => h("option", { value: i }, i)));
+  const source = h("select", { "aria-label": "Source" }, h("option", { value: "auto" }, "Brokers, then backup"), h("option", { value: "broker" }, "Brokers only"), h("option", { value: "backup" }, "Backup only (Yahoo)"));
+  const cond = h("textarea", { rows: 3, spellcheck: "false" }, SCAN_EXAMPLES[0]);
+  const cols = h("input", { value: "rsi(14), close / sma(50) - 1", spellcheck: "false" });
+  const sortBy = h("input", { value: "rsi(14)", spellcheck: "false" });
+  const examples = h("div", { class: "row" }, SCAN_EXAMPLES.map((e) => h("button", { type: "button", class: "small ghost", onclick: () => (cond.value = e) }, e)));
+  const out = h("div", { class: "stack" });
+  const planBtn = h("button", { type: "button", class: "ghost" }, icon("info"), "Plan");
+  const runBtn = h("button", { type: "button", class: "primary" }, icon("play"), "Run scan");
+
+  const request = () => {
+    const r = { interval: interval.value, condition: cond.value.trim(), source: source.value };
+    if (uni.value) r.universe = uni.value;
+    else r.symbols = syms.value.split(/[\s,]+/).filter(Boolean);
+    const c = cols.value.split(",").map((x) => x.trim()).filter(Boolean);
+    if (c.length) r.columns = c;
+    if (sortBy.value.trim()) r.sort = { by: sortBy.value.trim(), order: "desc" };
+    return r;
+  };
+  const drawJob = (job) => {
+    const p = job.progress ?? {};
+    const pools = (job.plan?.pools ?? []).map((x) => (x.kind === "backup" ? "backup sources" : `${x.accountId} ×${x.concurrency}`)).join(", ");
+    const head = h("p", { class: "muted small" }, `${job.status} · ${p.done ?? 0}/${p.total ?? 0} symbols · ${p.matched ?? 0} matched · ${p.errors ?? 0} errors${pools ? ` · served by ${pools}` : ""}`);
+    const labels = Object.keys(job.results?.[0]?.values ?? {});
+    const rows = table(
+      [{ label: "Symbol", cell: (r) => h("strong", {}, r.symbol) }, ...labels.map((l) => ({ label: l, num: true, cell: (r) => (r.values[l] === null ? "—" : (Number.isInteger(r.values[l]) ? fmtInt : fmtNum).format(r.values[l])) })), { label: "Data", cell: (r) => pill(r.source === "backup" ? `backup · ${r.provider}` : r.accountId ?? r.source, r.source === "backup" ? "warn" : "ok") }],
+      job.results ?? [],
+      emptyState("scan", job.status === "completed" ? "Nothing matched" : "Scanning…", job.status === "completed" ? "No symbol met the condition on its last candle." : "Results appear here when the scan finishes."),
+    );
+    const errs = (job.errors ?? []).length ? h("details", {}, h("summary", { class: "muted small" }, `${job.errors.length} symbol(s) could not be scanned`), table([{ label: "Symbol", cell: (e) => e.symbol }, { label: "Code", cell: (e) => e.code }, { label: "Message", wrap: true, cell: (e) => e.message }], job.errors.slice(0, 100), null)) : null;
+    out.replaceChildren(head, rows, errs ?? "");
+  };
+  planBtn.addEventListener("click", async () => {
+    try {
+      const r = (await api("/v1/scanner/plan", { method: "POST", body: request() })).data.data;
+      toast(`${r.symbols} symbols · about ${r.estimatedSeconds} s · ${r.pools.map((x) => x.accountId ?? "backup").join(", ")}`);
+    } catch (err) {
+      out.replaceChildren(alertBox(err));
+    }
+  });
+  runBtn.addEventListener("click", async () => {
+    runBtn.disabled = true;
+    out.replaceChildren(h("p", { class: "muted" }, "Scanning…"));
+    try {
+      let job = (await api("/v1/scanner/jobs?waitMs=2000", { method: "POST", body: request() })).data.data;
+      drawJob(job);
+      while (job.status === "queued" || job.status === "running") {
+        await new Promise((r) => setTimeout(r, 1000));
+        job = (await api(`/v1/scanner/jobs/${encodeURIComponent(job.id)}`)).data.data;
+        drawJob(job);
+      }
+    } catch (err) {
+      out.replaceChildren(alertBox(err));
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
+
+  const b = backup.data?.data;
+  const backupCard = card({
+    title: "Backup data",
+    sub: "Used only when no broker account can answer; every value is labelled source \"backup\".",
+    actions: b ? pill(b.enabled ? "On" : b.demo ? "Off in demo mode" : "Off", b.enabled ? "ok" : "warn") : null,
+    body: b
+      ? table(
+          [
+            { label: "Provider", cell: (p) => h("strong", {}, p.name) },
+            { label: "State", cell: (p) => (!p.enabled ? pill("Off", "warn") : p.paused ? pill("Paused", "bad") : pill("Ready", "ok")) },
+            { label: "Calls", num: true, cell: (p) => fmtInt.format(p.calls) },
+            { label: "Errors", num: true, cell: (p) => fmtInt.format(p.errors) },
+            { label: "Last error", wrap: true, cell: (p) => p.lastError?.message ?? "—" },
+          ],
+          b.providers ?? [],
+          null,
+        )
+      : alertBox(backup.error ?? "Backup status is not available."),
+  });
+  const recent = (jobs.data?.data ?? []).slice(0, 10);
+  const recentCard = card({
+    title: "Recent scans",
+    flush: true,
+    body: table(
+      [
+        { label: "Started", cell: (j) => (j.startedAt ? istTime(j.startedAt) : "—") },
+        { label: "Condition", wrap: true, cell: (j) => h("code", {}, j.request?.condition ?? "") },
+        { label: "Status", cell: (j) => pill(j.status, j.status === "completed" ? "ok" : j.status === "failed" ? "bad" : "warn") },
+        { label: "Matched", num: true, cell: (j) => fmtInt.format(j.progress?.matched ?? 0) },
+      ],
+      recent,
+      emptyState("scan", "No scans yet", "Run one above, or from Python, Node, Excel or an AI assistant."),
+    ),
+  });
+
+  return [
+    card({
+      title: "New scan",
+      sub: "The condition is checked on each symbol's last candle. Scans run behind charts and orders, and share the work over your pooled accounts.",
+      body: h(
+        "div",
+        { class: "stack" },
+        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Universe", uni), h("label", { class: "field" }, "Interval", interval), h("label", { class: "field" }, "Data", source)),
+        h("label", { class: "field" }, "Symbols", h("span", { class: "hint" }, "Only when Universe is “My symbols”."), syms),
+        h("label", { class: "field" }, "Condition", h("span", { class: "hint" }, "Fields: open high low close volume change_pct. Functions: sma ema rsi atr macd supertrend vwap highest lowest avg_volume … “crosses above”, x[1] for the previous bar."), cond),
+        examples,
+        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Columns", h("span", { class: "hint" }, "Comma-separated expressions."), cols), h("label", { class: "field" }, "Sort by", sortBy)),
+        h("div", { class: "row" }, runBtn, planBtn),
+        out,
+      ),
+    }),
+    h("div", { class: "grid cols-2" }, recentCard, backupCard),
+  ];
 }
 
 // ── Home ──
