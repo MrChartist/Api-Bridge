@@ -106,6 +106,10 @@ tags:
     description: Model Context Protocol endpoint for AI assistants.
   - name: Scanner
     description: Condition scans over big universes, spread over your pooled accounts at background priority.
+  - name: Compat REST
+    description: >-
+      Endpoints in the common apikey-in-body style (POST JSON, `apikey` in the body, { status, ... } replies) so SDKs and add-ins written for that style work
+      against the Bridge. Same services, limits and safety as /v1; orders are paper while analyzer mode is on.
   - name: Backup data
     description: Free public sources (Yahoo Finance, NSE website) used as a labelled fallback when no broker account can answer.
 
@@ -2297,6 +2301,1056 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /api/v1/ping:
+    post:
+      tags: [Compat REST]
+      operationId: compatPing
+      summary: "Check the key and the account the calls act on"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/analyzer:
+    post:
+      tags: [Compat REST]
+      operationId: compatAnalyzer
+      summary: "Analyzer (paper) mode status for this key"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/analyzer/toggle:
+    post:
+      tags: [Compat REST]
+      operationId: compatAnalyzerToggle
+      summary: "Switch analyzer mode for this key (off needs a live key)"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/funds:
+    post:
+      tags: [Compat REST]
+      operationId: compatFunds
+      summary: "Funds"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/orderbook:
+    post:
+      tags: [Compat REST]
+      operationId: compatOrderbook
+      summary: "Order book with statistics"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/tradebook:
+    post:
+      tags: [Compat REST]
+      operationId: compatTradebook
+      summary: "Trade book"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/positionbook:
+    post:
+      tags: [Compat REST]
+      operationId: compatPositionbook
+      summary: "Positions"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/holdings:
+    post:
+      tags: [Compat REST]
+      operationId: compatHoldings
+      summary: "Holdings with statistics"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/placeorder:
+    post:
+      tags: [Compat REST]
+      operationId: compatPlaceorder
+      summary: "Place an order"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/placesmartorder:
+    post:
+      tags: [Compat REST]
+      operationId: compatPlacesmartorder
+      summary: "Order towards a target position size"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/basketorder:
+    post:
+      tags: [Compat REST]
+      operationId: compatBasketorder
+      summary: "Several orders in one call"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/splitorder:
+    post:
+      tags: [Compat REST]
+      operationId: compatSplitorder
+      summary: "One order split into pieces"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/modifyorder:
+    post:
+      tags: [Compat REST]
+      operationId: compatModifyorder
+      summary: "Modify an open order"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/cancelorder:
+    post:
+      tags: [Compat REST]
+      operationId: compatCancelorder
+      summary: "Cancel an order"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/cancelallorder:
+    post:
+      tags: [Compat REST]
+      operationId: compatCancelallorder
+      summary: "Cancel every open order"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/closeposition:
+    post:
+      tags: [Compat REST]
+      operationId: compatCloseposition
+      summary: "Square off every open position"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/orderstatus:
+    post:
+      tags: [Compat REST]
+      operationId: compatOrderstatus
+      summary: "One order's status"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/openposition:
+    post:
+      tags: [Compat REST]
+      operationId: compatOpenposition
+      summary: "Net quantity for one symbol and product"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/optionsorder:
+    post:
+      tags: [Compat REST]
+      operationId: compatOptionsorder
+      summary: "Order an option by offset (ATM, ITM2, OTM1 ...)"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/quotes:
+    post:
+      tags: [Compat REST]
+      operationId: compatQuotes
+      summary: "Quote for one symbol"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/multiquotes:
+    post:
+      tags: [Compat REST]
+      operationId: compatMultiquotes
+      summary: "Quotes for up to 200 symbols"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/depth:
+    post:
+      tags: [Compat REST]
+      operationId: compatDepth
+      summary: "Market depth"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/history:
+    post:
+      tags: [Compat REST]
+      operationId: compatHistory
+      summary: "Candles"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/intervals:
+    post:
+      tags: [Compat REST]
+      operationId: compatIntervals
+      summary: "Supported candle intervals"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/symbol:
+    post:
+      tags: [Compat REST]
+      operationId: compatSymbol
+      summary: "Instrument details"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/search:
+    post:
+      tags: [Compat REST]
+      operationId: compatSearch
+      summary: "Instrument search"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/expiry:
+    post:
+      tags: [Compat REST]
+      operationId: compatExpiry
+      summary: "Expiry dates"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/optionchain:
+    post:
+      tags: [Compat REST]
+      operationId: compatOptionchain
+      summary: "Option chain"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/optionsymbol:
+    post:
+      tags: [Compat REST]
+      operationId: compatOptionsymbol
+      summary: "Option symbol for an offset"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/margin:
+    post:
+      tags: [Compat REST]
+      operationId: compatMargin
+      summary: "Margin calculation (not available yet)"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2556,6 +3610,16 @@ components:
       type: string
       pattern: "^[A-Za-z0-9_-]{1,64}$"
       description: Your own id for an order, unique per account per IST day. The Bridge maps it to the broker's shorter tag field itself.
+    CompatReply:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [success, error] }
+        message: { type: string }
+        mode: { type: string, enum: [analyze], description: "Present while analyzer (paper) mode is on." }
+        data: {}
+        orderid: { type: [string, "null"] }
+      additionalProperties: true
     ScanRequest:
       type: object
       required: [condition]

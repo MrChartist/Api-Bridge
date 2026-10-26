@@ -16,5 +16,6 @@ import hooks from "../hooks/module.mjs";
 import mcp from "../mcp/module.mjs";
 import backup from "../backup/module.mjs";
 import scanner from "../scanner/module.mjs";
+import compat from "../compat/module.mjs";
 
-export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, market, stream, orders, paper, safety, integrations, hooks, mcp, backup, scanner]);
+export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, market, stream, orders, paper, safety, integrations, hooks, mcp, backup, scanner, compat]);
