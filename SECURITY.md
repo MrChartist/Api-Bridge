@@ -13,7 +13,7 @@ Include what you found, the steps to reproduce it, the version or commit, and wh
 
 ## Supported versions
 
-Security fixes go into the latest release on the `main` branch.
+Security fixes go into the latest release on the default branch (`master`).
 
 ## Scope
 

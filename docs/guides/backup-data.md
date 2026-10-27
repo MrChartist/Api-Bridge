@@ -22,7 +22,7 @@ Yahoo).
 ## When it is used
 
 - Only **unpinned** reads (no `account=`): `/v1/ltp`, `/v1/quotes`, `/v1/history`, `/v1/expiries`, `/v1/optionchain`,
-  the chart datafeed (`/udf/*`), spreadsheet endpoints (`/xl/*`) and the [scanner](scanner.md).
+  spreadsheet endpoints (`/xl/*`), the [compat API](compat-api.md) and the [scanner](scanner.md).
 - Only after the broker path failed: no account connected, session expired, broker unreachable or erroring, rate
   budget gone with no cached value, or the broker cannot price that symbol.
 - `?backup=false` on a request turns it off for that read; `?backup=true` turns it on when `autoFallback` is off.

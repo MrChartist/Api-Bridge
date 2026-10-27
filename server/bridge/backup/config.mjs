@@ -4,7 +4,7 @@
  *
  *   "backup": {
  *     "enabled": true,
- *     "autoFallback": true,                       // REST/UDF/Excel/scanner reads fall back by themselves
+ *     "autoFallback": true,                       // REST, Excel, compat and scanner reads fall back by themselves
  *     "providers": {
  *       "yahoo": { "enabled": true, "perSecond": 4 },
  *       "nse":   { "enabled": true, "perSecond": 2 }

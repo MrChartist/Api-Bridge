@@ -1,7 +1,7 @@
 /**
  * Indicator series for the scanner (stream S13). Pure functions over number arrays aligned to candles: index i is
  * bar i (oldest first). A value that cannot be computed yet (not enough bars) is NaN, never 0, so a condition on it
- * is simply false. Definitions follow the usual charting conventions (TradingView/Chartink):
+ * is simply false. Definitions follow the usual charting conventions:
  *   sma, ema (seeded with the SMA of the first n bars), rma (Wilder), rsi (Wilder), atr (Wilder over true range),
  *   macd = ema(fast) - ema(slow), signal = ema(macd, n), stddev (population), Bollinger = sma ± k·stddev,
  *   supertrend (ATR bands, flips on close), vwap (resets each IST day), roc in percent.
