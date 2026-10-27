@@ -16,6 +16,7 @@
   <!-- Sign-in: the API key stays in this browser tab only (sessionStorage) and is never put in a URL. -->
   <section id="login" class="login" hidden>
     <div class="card login-card">
+      <div class="traffic" aria-hidden="true"><span></span><span></span><span></span></div>
       <div class="brand">
         <div class="brand-logo"><img src="/dashboard/logo.svg" alt=""></div>
         <div><div class="brand-name">Mr. Chartist API Bridge</div><div class="brand-sub">Local dashboard · this computer only</div></div>
@@ -44,7 +45,8 @@
   </section>
 
   <div id="app" class="app" hidden>
-    <aside class="sidebar">
+    <aside class="sidebar vibrant">
+      <div class="traffic" aria-hidden="true"><span></span><span></span><span></span></div>
       <div class="brand">
         <div class="brand-logo"><img src="/dashboard/logo.svg" alt="Mr. Chartist"></div>
         <div class="brand-text"><div class="brand-name">API Bridge</div><div class="brand-sub">by Mr. Chartist</div></div>
@@ -73,7 +75,7 @@
       <footer class="foot" id="foot">Mr. Chartist API Bridge · paper trading is the default · live orders need explicit opt-ins in bridge.config.json</footer>
     </div>
   </div>
-  <dialog id="dialog"></dialog>
-  <div id="toast" class="toast" role="status" hidden></div>
+  <dialog id="dialog" class="sheet"></dialog>
+  <div id="toast" class="toast banner" role="status" hidden></div>
 </body>
 </html>

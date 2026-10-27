@@ -1343,7 +1343,7 @@ async function renderActivity() {
           rows,
           emptyState("activity", "No requests yet", hideOwn.checked ? "Requests from your scripts, charts, Excel and AI tools appear here. Untick the box to see the dashboard's own." : "Requests appear here as they arrive.", nextStep("Make a call in the test console", "#/console", "ghost")),
         ),
-        more,
+        ...(more ? [more] : []), // replaceChildren would print a null as the text "null"
       );
     } else {
       const r = await api("/v1/audit?limit=100");
