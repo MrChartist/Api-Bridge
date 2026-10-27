@@ -3,6 +3,7 @@
  * VALIDATION_FAILED with a field path, so clients get the same error shape as the /v1 routes.
  */
 import { BridgeError } from "../core/errors.mjs";
+import { allowedAccountsFor } from "../market/routes.mjs";
 
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 
@@ -62,6 +63,10 @@ export function enumParam(query, name, allowed, dflt) {
  */
 export function readOptions(ctx, { maxAge = true, autoBackup = false } = {}) {
   const opts = { signal: ctx.signal, priority: "interactive" };
+  // Unpinned reads stay inside the key's account list: a key limited to one account never borrows another's
+  // market-data entitlement or rate budget.
+  const allowed = allowedAccountsFor(ctx);
+  if (allowed) opts.allowedAccounts = allowed;
   const account = opt(ctx.query, "account");
   if (account !== undefined) {
     if (!ACCOUNT_RE.test(account)) throw invalid("account", "account is not a valid account id.");

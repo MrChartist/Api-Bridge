@@ -28,6 +28,11 @@ What we plan to work on after the first public release. Dates are targets, not p
 - Tagged releases with a changelog and a prebuilt Docker image.
 - Run CI on Windows and macOS as well as Linux, on Node 20 and 22.
 
+## Done since launch
+
+- Multi-account work splitting, Yahoo Finance / NSE backup data, the scanner with saved scans and alerts, the
+  compat `/api/v1` REST and WebSocket API, and Telegram / Discord / Slack / webhook notifications.
+
 ## Next few weeks (v0.2)
 
 **Broker verification programme**

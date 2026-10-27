@@ -34,6 +34,12 @@ describe("auth on /xl", () => {
     expect(r.headers["x-error-code"]).toBe("ACCOUNT_FORBIDDEN");
     expect(t.marketData.calls.length).toBe(before);
   });
+  it("an unpinned read from an account-limited key stays inside that key's accounts", async () => {
+    const before = t.marketData.calls.length;
+    expect((await get("/xl/ltp?symbol=NSE:NIFTY", bearer(KEYS.ONE_ACCOUNT))).status).toBe(200);
+    const call = t.marketData.calls.slice(before).find((c) => c[0] === "ltp");
+    expect(call.at(-1).allowedAccounts).toEqual(["dhan-main"]);
+  });
 });
 
 describe("/xl/ltp and /xl/quote", () => {
