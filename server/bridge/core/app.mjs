@@ -163,6 +163,10 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     "app.js": "text/javascript; charset=utf-8",
     "views.js": "text/javascript; charset=utf-8",
     "snippets.js": "text/javascript; charset=utf-8",
+    "motion.js": "text/javascript; charset=utf-8",
+    "palette.js": "text/javascript; charset=utf-8",
+    "motion.min.js": "text/javascript; charset=utf-8",
+    "palette.css": "text/css; charset=utf-8",
     "app.css": "text/css; charset=utf-8",
     "logo.svg": "image/svg+xml",
   });
