@@ -2,6 +2,11 @@
 // sessionStorage for this tab and is sent as a Bearer header; it is never put in a URL.
 // Pure helpers (ticketFields, confirmCodeNotice, friendlyError ...) are exported for tests; DOM code runs only in a browser.
 
+import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, installPressFeedback, pulse, sheetIn, sheetOut, shake } from "./motion.js";
+
+// Page hooks for views.js (optional: app.js start-up already runs them automatically; both are idempotent).
+export { animateNav, animatePage };
+
 const KEY_SLOT = "mcb.dashboard.key";
 const THEME_SLOT = "mcb.dashboard.theme";
 export const fmtInt = new Intl.NumberFormat("en-IN");
@@ -176,12 +181,21 @@ export function icon(name) {
   return s;
 }
 
+/** A short banner in #toast. views.js may hide it at any time with `$("toast").hidden = true`. */
 export function toast(text) {
   const t = document.getElementById("toast");
+  const gen = (toast.gen = (toast.gen ?? 0) + 1);
+  const wasHidden = t.hidden;
   t.textContent = text;
   t.hidden = false;
+  if (wasHidden) bannerIn(t);
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => (t.hidden = true), 2200);
+  toast.timer = setTimeout(() => {
+    // Hide after sliding out, unless another toast took over meanwhile.
+    bannerOut(t).then(() => {
+      if (toast.gen === gen) t.hidden = true;
+    });
+  }, 2200);
 }
 
 export async function copyText(text, label = "Copied") {
@@ -272,10 +286,35 @@ export const istDateTime = (iso) => (iso ? new Date(iso).toLocaleString("en-IN",
 /** Show a modal. buttons: [{ label, cls, value, onClick? }]; onClick returning false keeps it open. Resolves with the value. */
 export function modal({ title, body, buttons }) {
   const d = document.getElementById("dialog");
+  d.classList.add("sheet");
   return new Promise((resolve) => {
-    const close = (v) => {
-      d.close();
+    const token = (modal.token = {});
+    let settled = false;
+    let closing = false;
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      d.removeEventListener("cancel", onCancel);
+      d.removeEventListener("close", onClose);
       resolve(v);
+    };
+    // Animate the sheet away, then close the native dialog (focus returns to the opener) and resolve.
+    const close = (v) => {
+      if (closing || settled) return;
+      closing = true;
+      sheetOut(d, d).then(() => {
+        if (modal.token === token && d.open) d.close();
+        finish(v);
+      });
+    };
+    // Escape: keep the native behaviour (resolves undefined) but let the sheet slide away first.
+    const onCancel = (e) => {
+      e.preventDefault();
+      close(undefined);
+    };
+    // Closed some other way (e.g. the browser forced it): resolve, unless a newer modal already reopened it.
+    const onClose = () => {
+      if (!d.open) finish(undefined);
     };
     d.replaceChildren(
       h("div", { class: "dialog-body" }, h("h2", {}, title), body),
@@ -289,6 +328,7 @@ export function modal({ title, body, buttons }) {
               type: "button",
               class: b.cls ?? "",
               onclick: async () => {
+                if (closing) return;
                 if (b.onClick) {
                   const v = await b.onClick();
                   if (v === false) return;
@@ -301,8 +341,10 @@ export function modal({ title, body, buttons }) {
         ),
       ),
     );
-    d.addEventListener("cancel", () => resolve(undefined), { once: true });
-    d.showModal();
+    d.addEventListener("cancel", onCancel);
+    d.addEventListener("close", onClose);
+    if (!d.open) d.showModal();
+    sheetIn(d, d);
   });
 }
 
@@ -408,11 +450,13 @@ async function signIn() {
     login.hidden = false;
     shell.hidden = true;
     document.getElementById("login-error").replaceChildren(alertBox(err));
+    shake(document.querySelector("#login .login-card") ?? document.getElementById("login-form"));
     return;
   }
   login.hidden = true;
   shell.hidden = false;
   document.getElementById("demo-banner").hidden = !app.state.demo;
+  if (!signIn.pulsing) signIn.pulsing = pulse(document.querySelector(".who .dot"));
   document.getElementById("who").textContent = `Key ${memoryKey.split("_")[1] ?? ""} · v${app.state.health?.version ?? ""}`;
   const { startRouter } = await import("./views.js");
   startRouter();
@@ -420,6 +464,10 @@ async function signIn() {
 
 if (typeof document !== "undefined" && document.getElementById("login-form")) {
   applyTheme(local.get(THEME_SLOT) ?? "auto");
+  // Motion: banner styling for #toast, button press feedback, and page / sidebar entrances on navigation.
+  document.getElementById("toast")?.classList.add("banner");
+  installPressFeedback(document);
+  installAutoAnimations();
   for (const b of document.querySelectorAll("[data-theme-choice]")) {
     b.addEventListener("click", () => {
       const c = b.dataset.themeChoice;

@@ -10,175 +10,6 @@
     "description": "Sign-in screen: paste the admin key printed once by mc-bridge init. The key stays in this browser tab."
   },
   {
-    "file": "home-dark.webp",
-    "title": "Home",
-    "page": "home",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1057,
-    "description": "Home: welcome checklist, market snapshot, broker accounts, calls saved and safety status."
-  },
-  {
-    "file": "accounts-dark.webp",
-    "title": "Accounts",
-    "page": "accounts",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1531,
-    "description": "Accounts: your broker accounts with session state, and the directory of all 41 supported brokers."
-  },
-  {
-    "file": "orders-dark.webp",
-    "title": "Orders",
-    "page": "orders",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1000,
-    "description": "Orders: AI-prepared tickets waiting for confirmation, today's orders and paper positions."
-  },
-  {
-    "file": "safety-dark.webp",
-    "title": "Safety",
-    "page": "safety",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1000,
-    "description": "Safety: the kill switch, daily limits per account and the live-trading checklist."
-  },
-  {
-    "file": "keys-dark.webp",
-    "title": "Keys",
-    "page": "keys",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1000,
-    "description": "API keys: one key per tool with its scopes, accounts, expiry and last use."
-  },
-  {
-    "file": "console-dark.webp",
-    "title": "Test console",
-    "page": "console",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1000,
-    "description": "Test console: send any API call and see the status, rate-limit headers and JSON exactly as a script gets it."
-  },
-  {
-    "file": "limits-dark.webp",
-    "title": "Rate limits",
-    "page": "limits",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1257,
-    "description": "Rate limits: live usage per endpoint class against the broker's limits, and the calls saved by stream, cache, coalescing and batching."
-  },
-  {
-    "file": "integrations-python-dark.webp",
-    "title": "Integrations: Python",
-    "page": "integrations",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1000,
-    "description": "Copy-paste setup for Python, with this Bridge's address filled in and a button that creates a key with only the access it needs.",
-    "tab": "python"
-  },
-  {
-    "file": "integrations-node-dark.webp",
-    "title": "Integrations: Node",
-    "page": "integrations",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1000,
-    "description": "Copy-paste setup for Node, with this Bridge's address filled in and a button that creates a key with only the access it needs.",
-    "tab": "node"
-  },
-  {
-    "file": "integrations-excel-dark.webp",
-    "title": "Integrations: Excel and Google Sheets",
-    "page": "integrations",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1000,
-    "description": "Copy-paste setup for Excel and Google Sheets, with this Bridge's address filled in and a button that creates a key with only the access it needs.",
-    "tab": "excel"
-  },
-  {
-    "file": "integrations-amibroker-dark.webp",
-    "title": "Integrations: AmiBroker",
-    "page": "integrations",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1000,
-    "description": "Copy-paste setup for AmiBroker, with this Bridge's address filled in and a button that creates a key with only the access it needs.",
-    "tab": "amibroker"
-  },
-  {
-    "file": "integrations-claude-dark.webp",
-    "title": "Integrations: Claude Desktop and Claude Code (MCP)",
-    "page": "integrations",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1000,
-    "description": "Copy-paste setup for Claude Desktop and Claude Code (MCP), with this Bridge's address filled in and a button that creates a key with only the access it needs.",
-    "tab": "claude"
-  },
-  {
-    "file": "integrations-chatgpt-dark.webp",
-    "title": "Integrations: ChatGPT and OpenAI tools",
-    "page": "integrations",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1000,
-    "description": "Copy-paste setup for ChatGPT and OpenAI tools, with this Bridge's address filled in and a button that creates a key with only the access it needs.",
-    "tab": "chatgpt"
-  },
-  {
-    "file": "integrations-rest-dark.webp",
-    "title": "Integrations: REST and curl",
-    "page": "integrations",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1000,
-    "description": "Copy-paste setup for REST and curl, with this Bridge's address filled in and a button that creates a key with only the access it needs.",
-    "tab": "rest"
-  },
-  {
-    "file": "activity-dark.webp",
-    "title": "Activity: request log",
-    "page": "activity",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 2020,
-    "description": "Activity: the recent request log (paths only, never keys or query strings).",
-    "tab": "requests"
-  },
-  {
-    "file": "audit-dark.webp",
-    "title": "Activity: audit log",
-    "page": "activity",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1000,
-    "description": "Audit log: the append-only, hash-chained record of keys, orders and kill-switch actions.",
-    "tab": "audit"
-  },
-  {
     "file": "login-light.webp",
     "title": "Sign in",
     "page": "login",
@@ -189,14 +20,34 @@
     "description": "Sign-in screen: paste the admin key printed once by mc-bridge init. The key stays in this browser tab."
   },
   {
+    "file": "home-dark.webp",
+    "title": "Home",
+    "page": "home",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Home: welcome checklist, market snapshot, broker accounts, calls saved and safety status."
+  },
+  {
     "file": "home-light.webp",
     "title": "Home",
     "page": "home",
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1057,
+    "height": 1000,
     "description": "Home: welcome checklist, market snapshot, broker accounts, calls saved and safety status."
+  },
+  {
+    "file": "accounts-dark.webp",
+    "title": "Accounts",
+    "page": "accounts",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Accounts: connected broker accounts with session state, and the directory of 41 supported brokers."
   },
   {
     "file": "accounts-light.webp",
@@ -205,38 +56,18 @@
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1531,
-    "description": "Accounts: your broker accounts with session state, and the directory of all 41 supported brokers."
+    "height": 1000,
+    "description": "Accounts: connected broker accounts with session state, and the directory of 41 supported brokers."
   },
   {
-    "file": "orders-light.webp",
-    "title": "Orders",
-    "page": "orders",
-    "theme": "light",
+    "file": "console-dark.webp",
+    "title": "Test console",
+    "page": "console",
+    "theme": "dark",
     "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "Orders: AI-prepared tickets waiting for confirmation, today's orders and paper positions."
-  },
-  {
-    "file": "safety-light.webp",
-    "title": "Safety",
-    "page": "safety",
-    "theme": "light",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1000,
-    "description": "Safety: the kill switch, daily limits per account and the live-trading checklist."
-  },
-  {
-    "file": "keys-light.webp",
-    "title": "Keys",
-    "page": "keys",
-    "theme": "light",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1000,
-    "description": "API keys: one key per tool with its scopes, accounts, expiry and last use."
+    "description": "Test console: pick an endpoint, send it, and see the response, status and timing."
   },
   {
     "file": "console-light.webp",
@@ -246,7 +77,17 @@
     "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "Test console: send any API call and see the status, rate-limit headers and JSON exactly as a script gets it."
+    "description": "Test console: pick an endpoint, send it, and see the response, status and timing."
+  },
+  {
+    "file": "limits-dark.webp",
+    "title": "Rate limits",
+    "page": "limits",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1091,
+    "description": "Rate limits: live per-endpoint budgets for each account and the calls the Bridge saved through streaming, caching, coalescing and batching."
   },
   {
     "file": "limits-light.webp",
@@ -255,41 +96,98 @@
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1257,
-    "description": "Rate limits: live usage per endpoint class against the broker's limits, and the calls saved by stream, cache, coalescing and batching."
+    "height": 1091,
+    "description": "Rate limits: live per-endpoint budgets for each account and the calls the Bridge saved through streaming, caching, coalescing and batching."
   },
   {
-    "file": "integrations-python-light.webp",
-    "title": "Integrations: Python",
-    "page": "integrations",
+    "file": "scanner-dark.webp",
+    "title": "Scanner",
+    "page": "scanner",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Scanner: a readable condition, a universe and the accounts it is shared across."
+  },
+  {
+    "file": "scanner-light.webp",
+    "title": "Scanner",
+    "page": "scanner",
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "Copy-paste setup for Python, with this Bridge's address filled in and a button that creates a key with only the access it needs.",
-    "tab": "python"
+    "description": "Scanner: a readable condition, a universe and the accounts it is shared across."
   },
   {
-    "file": "integrations-node-light.webp",
-    "title": "Integrations: Node",
-    "page": "integrations",
+    "file": "orders-dark.webp",
+    "title": "Orders",
+    "page": "orders",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Orders: an AI-prepared ticket waiting for confirmation, open orders and positions on the paper account."
+  },
+  {
+    "file": "orders-light.webp",
+    "title": "Orders",
+    "page": "orders",
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "Copy-paste setup for Node, with this Bridge's address filled in and a button that creates a key with only the access it needs.",
-    "tab": "node"
+    "description": "Orders: an AI-prepared ticket waiting for confirmation, open orders and positions on the paper account."
   },
   {
-    "file": "integrations-excel-light.webp",
-    "title": "Integrations: Excel and Google Sheets",
-    "page": "integrations",
+    "file": "safety-dark.webp",
+    "title": "Safety",
+    "page": "safety",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Safety: kill switch, daily limits, live-trading status and audit-log verification."
+  },
+  {
+    "file": "safety-light.webp",
+    "title": "Safety",
+    "page": "safety",
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "Copy-paste setup for Excel and Google Sheets, with this Bridge's address filled in and a button that creates a key with only the access it needs.",
-    "tab": "excel"
+    "description": "Safety: kill switch, daily limits, live-trading status and audit-log verification."
+  },
+  {
+    "file": "keys-dark.webp",
+    "title": "API keys",
+    "page": "keys",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "API keys: one key per tool with only the scopes and accounts it needs."
+  },
+  {
+    "file": "keys-light.webp",
+    "title": "API keys",
+    "page": "keys",
+    "theme": "light",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "API keys: one key per tool with only the scopes and accounts it needs."
+  },
+  {
+    "file": "integrations-amibroker-dark.webp",
+    "title": "Integrations: AmiBroker",
+    "page": "integrations",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Integrations, AmiBroker tab: copy-paste setup with a key made for that tool."
   },
   {
     "file": "integrations-amibroker-light.webp",
@@ -299,63 +197,207 @@
     "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "Copy-paste setup for AmiBroker, with this Bridge's address filled in and a button that creates a key with only the access it needs.",
-    "tab": "amibroker"
+    "description": "Integrations, AmiBroker tab: copy-paste setup with a key made for that tool."
   },
   {
-    "file": "integrations-claude-light.webp",
-    "title": "Integrations: Claude Desktop and Claude Code (MCP)",
+    "file": "integrations-chatgpt-dark.webp",
+    "title": "Integrations: ChatGPT",
     "page": "integrations",
-    "theme": "light",
+    "theme": "dark",
     "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "Copy-paste setup for Claude Desktop and Claude Code (MCP), with this Bridge's address filled in and a button that creates a key with only the access it needs.",
-    "tab": "claude"
+    "description": "Integrations, ChatGPT tab: copy-paste setup with a key made for that tool."
   },
   {
     "file": "integrations-chatgpt-light.webp",
-    "title": "Integrations: ChatGPT and OpenAI tools",
+    "title": "Integrations: ChatGPT",
     "page": "integrations",
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "Copy-paste setup for ChatGPT and OpenAI tools, with this Bridge's address filled in and a button that creates a key with only the access it needs.",
-    "tab": "chatgpt"
+    "description": "Integrations, ChatGPT tab: copy-paste setup with a key made for that tool."
+  },
+  {
+    "file": "integrations-claude-dark.webp",
+    "title": "Integrations: Claude",
+    "page": "integrations",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Integrations, Claude tab: copy-paste setup with a key made for that tool."
+  },
+  {
+    "file": "integrations-claude-light.webp",
+    "title": "Integrations: Claude",
+    "page": "integrations",
+    "theme": "light",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Integrations, Claude tab: copy-paste setup with a key made for that tool."
+  },
+  {
+    "file": "integrations-excel-dark.webp",
+    "title": "Integrations: Excel",
+    "page": "integrations",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Integrations, Excel tab: copy-paste setup with a key made for that tool."
+  },
+  {
+    "file": "integrations-excel-light.webp",
+    "title": "Integrations: Excel",
+    "page": "integrations",
+    "theme": "light",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Integrations, Excel tab: copy-paste setup with a key made for that tool."
+  },
+  {
+    "file": "integrations-node-dark.webp",
+    "title": "Integrations: Node.js",
+    "page": "integrations",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Integrations, Node.js tab: copy-paste setup with a key made for that tool."
+  },
+  {
+    "file": "integrations-node-light.webp",
+    "title": "Integrations: Node.js",
+    "page": "integrations",
+    "theme": "light",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Integrations, Node.js tab: copy-paste setup with a key made for that tool."
+  },
+  {
+    "file": "integrations-python-dark.webp",
+    "title": "Integrations: Python",
+    "page": "integrations",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Integrations, Python tab: copy-paste setup with a key made for that tool."
+  },
+  {
+    "file": "integrations-python-light.webp",
+    "title": "Integrations: Python",
+    "page": "integrations",
+    "theme": "light",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Integrations, Python tab: copy-paste setup with a key made for that tool."
+  },
+  {
+    "file": "integrations-rest-dark.webp",
+    "title": "Integrations: REST",
+    "page": "integrations",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Integrations, REST tab: copy-paste setup with a key made for that tool."
   },
   {
     "file": "integrations-rest-light.webp",
-    "title": "Integrations: REST and curl",
+    "title": "Integrations: REST",
     "page": "integrations",
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "Copy-paste setup for REST and curl, with this Bridge's address filled in and a button that creates a key with only the access it needs.",
-    "tab": "rest"
+    "description": "Integrations, REST tab: copy-paste setup with a key made for that tool."
   },
   {
-    "file": "activity-light.webp",
-    "title": "Activity: request log",
-    "page": "activity",
+    "file": "integrations-webhooks-dark.webp",
+    "title": "Integrations: Webhooks",
+    "page": "integrations",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1029,
+    "description": "Integrations, Webhooks tab: copy-paste setup with a key made for that tool."
+  },
+  {
+    "file": "integrations-webhooks-light.webp",
+    "title": "Integrations: Webhooks",
+    "page": "integrations",
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 2020,
-    "description": "Activity: the recent request log (paths only, never keys or query strings).",
-    "tab": "requests"
+    "height": 1029,
+    "description": "Integrations, Webhooks tab: copy-paste setup with a key made for that tool."
   },
   {
-    "file": "audit-light.webp",
-    "title": "Activity: audit log",
+    "file": "activity-dark.webp",
+    "title": "Activity",
+    "page": "activity",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Activity: recent requests with the tool, endpoint, status and time each took."
+  },
+  {
+    "file": "activity-light.webp",
+    "title": "Activity",
     "page": "activity",
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "Audit log: the append-only, hash-chained record of keys, orders and kill-switch actions.",
-    "tab": "audit"
+    "description": "Activity: recent requests with the tool, endpoint, status and time each took."
+  },
+  {
+    "file": "audit-dark.webp",
+    "title": "Audit log",
+    "page": "activity",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "The tamper-evident audit log: key changes, orders and kill-switch actions, hash-chained per day."
+  },
+  {
+    "file": "audit-light.webp",
+    "title": "Audit log",
+    "page": "activity",
+    "theme": "light",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "The tamper-evident audit log: key changes, orders and kill-switch actions, hash-chained per day."
+  },
+  {
+    "file": "feature-command-palette-dark.webp",
+    "title": "Command palette",
+    "page": "home",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Press Command-K (Ctrl-K) to jump to any page or action from the keyboard."
+  },
+  {
+    "file": "feature-command-palette-light.webp",
+    "title": "Command palette",
+    "page": "home",
+    "theme": "light",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "Press Command-K (Ctrl-K) to jump to any page or action from the keyboard."
   },
   {
     "file": "feature-welcome-checklist.webp",
@@ -363,72 +405,69 @@
     "page": "home",
     "theme": "dark",
     "viewport": "desktop 1600x1000",
-    "width": 1272,
-    "height": 326,
-    "description": "First-run checklist: connect a broker or try demo mode, create a key, copy a snippet, make a test call."
-  },
-  {
-    "file": "feature-rate-limit-usage.webp",
-    "title": "Live rate-limit usage",
-    "page": "limits",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "Per-account budgets per endpoint class, refreshed every few seconds, after 20 identical requests were coalesced."
+    "description": "The welcome checklist on Home walks through connecting a broker, making a key, copying a snippet and testing a call."
   },
   {
     "file": "feature-test-console-option-chain.webp",
-    "title": "Test console with a response",
+    "title": "Option chain in the test console",
     "page": "console",
     "theme": "dark",
     "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "An option-chain call with Greeks: status, timing, request id, rate-limit headers and the JSON, labelled Demo data."
+    "description": "The test console calling the option chain endpoint on demo data."
   },
   {
-    "file": "feature-snippets-python.webp",
-    "title": "Snippet panel: Python",
-    "page": "integrations",
+    "file": "feature-rate-limit-usage.webp",
+    "title": "Rate-limit usage",
+    "page": "limits",
     "theme": "dark",
     "viewport": "desktop 1600x1000",
-    "width": 1272,
-    "height": 507,
-    "description": "Ready-to-paste Python setup with copy buttons.",
-    "tab": "python"
+    "width": 1600,
+    "height": 1000,
+    "description": "Per-endpoint budget bars after a burst of identical requests: most were coalesced into one broker call."
   },
   {
-    "file": "feature-snippets-excel.webp",
-    "title": "Snippet panel: Excel and Google Sheets",
-    "page": "integrations",
+    "file": "feature-scanner-results-dark.webp",
+    "title": "Scan results",
+    "page": "scanner",
     "theme": "dark",
     "viewport": "desktop 1600x1000",
-    "width": 1272,
-    "height": 435,
-    "description": "Ready-to-paste Excel and Google Sheets setup with copy buttons.",
-    "tab": "excel"
+    "width": 1600,
+    "height": 1437,
+    "description": "A finished scan: matched symbols with their values, progress per account and the calls it cost."
   },
   {
-    "file": "feature-snippets-claude.webp",
-    "title": "Snippet panel: Claude Desktop and Claude Code (MCP)",
-    "page": "integrations",
+    "file": "feature-scanner-results-light.webp",
+    "title": "Scan results",
+    "page": "scanner",
+    "theme": "light",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1401,
+    "description": "A finished scan: matched symbols with their values, progress per account and the calls it cost."
+  },
+  {
+    "file": "feature-ai-ticket-confirmation.webp",
+    "title": "AI ticket confirmation",
+    "page": "orders",
     "theme": "dark",
     "viewport": "desktop 1600x1000",
-    "width": 1272,
-    "height": 642,
-    "description": "Ready-to-paste Claude Desktop and Claude Code (MCP) setup with copy buttons.",
-    "tab": "claude"
+    "width": 1600,
+    "height": 1000,
+    "description": "An order prepared by Claude through MCP waits here; nothing is sent until you check every field and confirm."
   },
   {
     "file": "feature-kill-switch-dialog.webp",
-    "title": "Kill switch: confirm",
+    "title": "Kill switch sheet",
     "page": "safety",
     "theme": "dark",
     "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "Stopping all orders asks for a reason and whether to cancel open orders."
+    "description": "Engaging the kill switch: a sheet asks for a reason and whether to cancel open orders."
   },
   {
     "file": "feature-kill-switch-engaged.webp",
@@ -438,27 +477,47 @@
     "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "With the kill switch on, every new order from every tool is refused until an admin releases it."
+    "description": "With the kill switch on, every order route refuses until an admin releases it."
   },
   {
     "file": "feature-keys-scopes.webp",
-    "title": "API keys with scopes",
+    "title": "Key scopes",
     "page": "keys",
     "theme": "dark",
     "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "A new key is shown once; every key lists its scopes (read, paper, admin), accounts, client and expiry."
+    "description": "Creating a key: choose its access, the accounts it can use, the tool it is for and when it expires."
   },
   {
-    "file": "feature-ai-ticket-confirmation.webp",
-    "title": "Confirming an AI-prepared order",
-    "page": "orders",
+    "file": "feature-snippets-claude.webp",
+    "title": "Claude snippet",
+    "page": "integrations",
     "theme": "dark",
     "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "An order prepared by Claude over MCP: every field is shown before a person confirms it. Nothing is sent until then."
+    "description": "The Claude snippet, ready to paste."
+  },
+  {
+    "file": "feature-snippets-excel.webp",
+    "title": "Excel snippet",
+    "page": "integrations",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "The Excel snippet, ready to paste."
+  },
+  {
+    "file": "feature-snippets-python.webp",
+    "title": "Python snippet",
+    "page": "integrations",
+    "theme": "dark",
+    "viewport": "desktop 1600x1000",
+    "width": 1600,
+    "height": 1000,
+    "description": "The Python snippet, ready to paste."
   },
   {
     "file": "feature-request-log.webp",
@@ -468,87 +527,106 @@
     "viewport": "desktop 1600x1000",
     "width": 1600,
     "height": 1000,
-    "description": "Every request from scripts, charts, Excel and AI tools: method, path, status, time and key id.",
-    "tab": "requests"
+    "description": "The request log: every call with its client, account, status and latency."
   },
   {
     "file": "mobile-home-dark.webp",
-    "title": "Mobile: home",
+    "title": "Home on a phone",
     "page": "home",
     "theme": "dark",
-    "viewport": "mobile 390x844 @2x",
-    "width": 780,
-    "height": 1688,
-    "description": "Home: welcome checklist, market snapshot, broker accounts, calls saved and safety status. (390 x 844 at 2x)"
-  },
-  {
-    "file": "mobile-console-dark.webp",
-    "title": "Mobile: console",
-    "page": "console",
-    "theme": "dark",
-    "viewport": "mobile 390x844 @2x",
-    "width": 780,
-    "height": 1688,
-    "description": "Test console: send any API call and see the status, rate-limit headers and JSON exactly as a script gets it. (390 x 844 at 2x)"
-  },
-  {
-    "file": "mobile-integrations-dark.webp",
-    "title": "Mobile: integrations",
-    "page": "integrations",
-    "theme": "dark",
-    "viewport": "mobile 390x844 @2x",
-    "width": 780,
-    "height": 1688,
-    "description": "Integrations on a phone. (390 x 844 at 2x)"
-  },
-  {
-    "file": "mobile-safety-dark.webp",
-    "title": "Mobile: safety",
-    "page": "safety",
-    "theme": "dark",
-    "viewport": "mobile 390x844 @2x",
-    "width": 780,
-    "height": 1688,
-    "description": "Safety: the kill switch, daily limits per account and the live-trading checklist. (390 x 844 at 2x)"
+    "viewport": "mobile 390x844",
+    "width": 390,
+    "height": 844,
+    "description": "Home at phone width: the sidebar folds away and cards stack."
   },
   {
     "file": "mobile-home-light.webp",
-    "title": "Mobile: home",
+    "title": "Home on a phone",
     "page": "home",
     "theme": "light",
-    "viewport": "mobile 390x844 @2x",
-    "width": 780,
-    "height": 1688,
-    "description": "Home: welcome checklist, market snapshot, broker accounts, calls saved and safety status. (390 x 844 at 2x)"
+    "viewport": "mobile 390x844",
+    "width": 390,
+    "height": 844,
+    "description": "Home at phone width: the sidebar folds away and cards stack."
+  },
+  {
+    "file": "mobile-console-dark.webp",
+    "title": "Test console on a phone",
+    "page": "console",
+    "theme": "dark",
+    "viewport": "mobile 390x844",
+    "width": 390,
+    "height": 844,
+    "description": "Test console at phone width."
   },
   {
     "file": "mobile-console-light.webp",
-    "title": "Mobile: console",
+    "title": "Test console on a phone",
     "page": "console",
     "theme": "light",
-    "viewport": "mobile 390x844 @2x",
-    "width": 780,
-    "height": 1688,
-    "description": "Test console: send any API call and see the status, rate-limit headers and JSON exactly as a script gets it. (390 x 844 at 2x)"
+    "viewport": "mobile 390x844",
+    "width": 390,
+    "height": 844,
+    "description": "Test console at phone width."
   },
   {
-    "file": "mobile-integrations-light.webp",
-    "title": "Mobile: integrations",
-    "page": "integrations",
+    "file": "mobile-scanner-dark.webp",
+    "title": "Scanner on a phone",
+    "page": "scanner",
+    "theme": "dark",
+    "viewport": "mobile 390x844",
+    "width": 390,
+    "height": 844,
+    "description": "Scanner at phone width: condition, universe and example buttons wrap cleanly."
+  },
+  {
+    "file": "mobile-scanner-light.webp",
+    "title": "Scanner on a phone",
+    "page": "scanner",
     "theme": "light",
-    "viewport": "mobile 390x844 @2x",
-    "width": 780,
-    "height": 1688,
-    "description": "Integrations on a phone. (390 x 844 at 2x)"
+    "viewport": "mobile 390x844",
+    "width": 390,
+    "height": 844,
+    "description": "Scanner at phone width: condition, universe and example buttons wrap cleanly."
+  },
+  {
+    "file": "mobile-safety-dark.webp",
+    "title": "Safety on a phone",
+    "page": "safety",
+    "theme": "dark",
+    "viewport": "mobile 390x844",
+    "width": 390,
+    "height": 844,
+    "description": "Safety at phone width: the kill switch is one tap away."
   },
   {
     "file": "mobile-safety-light.webp",
-    "title": "Mobile: safety",
+    "title": "Safety on a phone",
     "page": "safety",
     "theme": "light",
-    "viewport": "mobile 390x844 @2x",
-    "width": 780,
-    "height": 1688,
-    "description": "Safety: the kill switch, daily limits per account and the live-trading checklist. (390 x 844 at 2x)"
+    "viewport": "mobile 390x844",
+    "width": 390,
+    "height": 844,
+    "description": "Safety at phone width: the kill switch is one tap away."
+  },
+  {
+    "file": "mobile-integrations-dark.webp",
+    "title": "Integrations on a phone",
+    "page": "integrations",
+    "theme": "dark",
+    "viewport": "mobile 390x844",
+    "width": 390,
+    "height": 844,
+    "description": "Integrations at phone width, with copy-paste snippets."
+  },
+  {
+    "file": "mobile-integrations-light.webp",
+    "title": "Integrations on a phone",
+    "page": "integrations",
+    "theme": "light",
+    "viewport": "mobile 390x844",
+    "width": 390,
+    "height": 844,
+    "description": "Integrations at phone width, with copy-paste snippets."
   }
 ]

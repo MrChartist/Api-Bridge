@@ -2,6 +2,7 @@
  * Demo mode: deterministic sample data through the real pipeline, every response labelled, no real broker reachable,
  * live trading forced off.
  */
+import http from "node:http";
 import { mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +12,8 @@ import { createBrokerRegistry } from "../../brokers/registry.mjs";
 import { createApp } from "../core/app.mjs";
 import { loadConfig } from "../core/config.mjs";
 import { createNullLogger } from "../core/logger.mjs";
-import { candles, createDemoAdapter, demoInstruments, expiriesFor, spotAt } from "./demoAdapter.mjs";
+import { candles, createDemoAdapter, demoInstruments, expiriesFor, parseToken, spotAt } from "./demoAdapter.mjs";
+import { NIFTY50 } from "../scanner/universes.mjs";
 import { DEMO_HEADER, createDemoRegistry, labelDemoResult } from "./demoMode.mjs";
 
 const T = Date.UTC(2026, 9, 19, 5, 0, 0); // Monday 10:30 IST
@@ -41,6 +43,16 @@ describe("demo adapter", () => {
     expect(expiriesFor("NIFTY", T)[0]).toBe("2026-10-20");
     expect(expiriesFor("SENSEX", T)[0]).toBe("2026-10-22");
     expect(expiriesFor("BANKNIFTY", T)[0]).toBe("2026-10-27");
+  });
+
+  it("covers every NIFTY 50 stock, including symbols with - and &, so demo scans have a full universe", async () => {
+    const listed = new Set(demoInstruments(T).map((r) => `${r.exchange}:${r.tradingSymbol}`));
+    expect(NIFTY50.filter((s) => !listed.has(s))).toEqual([]);
+    expect(parseToken("DM-BAJAJ-AUTO")).toEqual({ symbol: "BAJAJ-AUTO", kind: "spot" });
+    expect(parseToken("DM-M&M")).toEqual({ symbol: "M&M", kind: "spot" });
+    expect(parseToken("DM-NIFTY-2026-10-27-FUT")).toEqual({ symbol: "NIFTY", kind: "fut", expiry: "2026-10-27" });
+    const q = await a.fetchQuotes({}, [{ token: "DM-BAJAJ-AUTO", exchange: "NSE" }, { token: "DM-M&M", exchange: "NSE" }]);
+    expect(q.data.map((x) => x.ltp > 0)).toEqual([true, true]);
   });
 
   it("builds an option chain around the spot and candles in market hours", async () => {
@@ -146,5 +158,42 @@ describe("demo mode end to end", () => {
     const r = await get("/v1/quotes");
     expect(r.status).toBe(400);
     expect(r.demo).toBe("demo");
+  });
+});
+
+describe("public demo dashboard (server.remoteDashboard)", () => {
+  const get = (port, path, host) =>
+    new Promise((resolve, reject) => {
+      const r = http.request({ host: "127.0.0.1", port, path, headers: { host, "x-forwarded-for": "203.0.113.9" } }, (res) => {
+        res.resume();
+        resolve(res.statusCode);
+      });
+      r.on("error", reject);
+      r.end();
+    });
+  const boot = async (remoteDashboard) => {
+    const dir = mkdtempSync(join(tmpdir(), "mcb-pubdemo-"));
+    const { config } = loadConfig({ raw: { dataDir: dir, demo: true, server: { port: 0, allowedHosts: ["demo.example.com"], remoteDashboard }, logging: { level: "silent" } }, env: {} });
+    const app = await createApp({ config, logger: createNullLogger() });
+    const { port } = await app.listen();
+    return { app, port };
+  };
+
+  it("serves the dashboard through a proxy only when switched on; key routes stay this-computer-only", async () => {
+    const off = await boot(false);
+    try {
+      expect(await get(off.port, "/dashboard", "demo.example.com")).toBe(403);
+    } finally {
+      await off.app.close();
+    }
+    const on = await boot(true);
+    try {
+      expect(await get(on.port, "/dashboard", "demo.example.com")).toBe(200);
+      expect(await get(on.port, "/dashboard/app.js", "demo.example.com")).toBe(200);
+      expect(await get(on.port, "/v1/accounts", "demo.example.com")).toBe(401);
+      expect(await get(on.port, "/dashboard", "evil.example.net")).toBe(403);
+    } finally {
+      await on.app.close();
+    }
   });
 });

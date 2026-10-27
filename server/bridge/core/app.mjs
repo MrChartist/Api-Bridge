@@ -163,6 +163,10 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     "app.js": "text/javascript; charset=utf-8",
     "views.js": "text/javascript; charset=utf-8",
     "snippets.js": "text/javascript; charset=utf-8",
+    "motion.js": "text/javascript; charset=utf-8",
+    "palette.js": "text/javascript; charset=utf-8",
+    "motion.min.js": "text/javascript; charset=utf-8",
+    "palette.css": "text/css; charset=utf-8",
     "app.css": "text/css; charset=utf-8",
     "logo.svg": "image/svg+xml",
   });
@@ -173,9 +177,11 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     if (!type) throw new BridgeError("NOT_FOUND", `No dashboard file ${name}.`);
     return new Reply(200, readFileSync(resolve(ROOT, "server/bridge/dashboard", name), "utf8"), { "Content-Type": type, "Content-Security-Policy": DASHBOARD_CSP });
   };
-  core.get("/", () => new Reply(302, "", { Location: "/dashboard" }), { auth: "none", loopbackOnly: true, summary: "Redirect to the local dashboard" });
-  core.get("/dashboard", () => dashboardFile("index.html"), { auth: "none", loopbackOnly: true, summary: "Local dashboard" });
-  core.get("/dashboard/:file", (ctx) => dashboardFile(ctx.params.file), { auth: "none", loopbackOnly: true, summary: "Dashboard assets" });
+  // server.remoteDashboard (demo mode only, enforced by config.mjs) serves the pages to other computers as well.
+  const dashboardLocalOnly = !(config.demo && config.server.remoteDashboard);
+  core.get("/", () => new Reply(302, "", { Location: "/dashboard" }), { auth: "none", loopbackOnly: dashboardLocalOnly, summary: "Redirect to the local dashboard" });
+  core.get("/dashboard", () => dashboardFile("index.html"), { auth: "none", loopbackOnly: dashboardLocalOnly, summary: "Local dashboard" });
+  core.get("/dashboard/:file", (ctx) => dashboardFile(ctx.params.file), { auth: "none", loopbackOnly: dashboardLocalOnly, summary: "Dashboard assets" });
   core.get(
     "/openapi.yaml",
     () => text(readFileSync(resolve(ROOT, "docs/openapi.yaml"), "utf8"), { headers: { "Content-Type": "application/yaml; charset=utf-8" } }),
