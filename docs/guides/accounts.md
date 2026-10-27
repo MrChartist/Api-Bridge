@@ -20,7 +20,7 @@ own rate-limit budget and its own credentials; one account's credentials are nev
 |---|---|
 | `id` | Your name for the account: 2-32 lowercase letters, digits or hyphens. Used everywhere (`account=` in queries, `"account"` in orders). |
 | `broker` | Adapter id from [BROKERS.md](../BROKERS.md), or `paper`. |
-| `label` | Shown on the dashboard and in Option Hub. |
+| `label` | Shown on the dashboard and in API responses. |
 | `enabled` | `false` keeps the account in the file but out of use. |
 | `holder` | Whose account it is (`self`, `spouse` ...; never a PAN). Pooling only ever joins accounts of one holder. |
 | `marketData.pooling` | Opt in to letting this account serve other unpinned reads (see [rate-limits.md](rate-limits.md)). Off by default. |
@@ -33,8 +33,8 @@ own rate-limit budget and its own credentials; one account's credentials are nev
 ## 2. Log in
 
 Credentials never go in the config file. They go to the encrypted SecretStore (`data/secrets.enc`, AES-256-GCM)
-through `POST /v1/accounts/{id}/session`, which answers only on this computer and needs an admin key. Option Hub's
-Broker Settings page calls it for you.
+through `POST /v1/accounts/{id}/session`, which answers only on this computer and needs an admin key.
+`mc-bridge accounts connect <accountId>` calls it for you.
 
 `GET /v1/brokers` lists every broker with its `authKind` and the fields it needs (`credentialFields`). There are four
 kinds of login:

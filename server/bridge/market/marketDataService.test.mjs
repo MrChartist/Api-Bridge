@@ -391,7 +391,7 @@ describe("history", () => {
     const from = nowSec - 3 * 86_400;
     await md.history({ symbol: "NSE:NIFTY", interval: "5m", from, to: nowSec + 120 });
     const fetches = z.calls.filter((c) => c[0] === "fetchHistorical").length;
-    // TradingView-style refreshes a few seconds later: `to` and `from` move slightly, still inside one step.
+    // Chart-style refreshes a few seconds later: `to` and `from` move slightly, still inside one step.
     if (typeof clock.advance === "function") await clock.advance(5000);
     const again = await md.history({ symbol: "NSE:NIFTY", interval: "5m", from: from + 5, to: nowSec + 125 });
     expect(z.calls.filter((c) => c[0] === "fetchHistorical").length).toBe(fetches);

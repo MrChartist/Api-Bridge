@@ -6,9 +6,9 @@ import {
   normaliseStrike,
   parseCompact,
   parseSymbol,
-  parseTradingView,
+  parseChartTicker,
   toCompact,
-  toTradingView,
+  toChartTicker,
 } from "./symbolFormat.mjs";
 
 describe("canonical symbols", () => {
@@ -81,47 +81,47 @@ describe("canonical symbols", () => {
   });
 });
 
-describe("TradingView aliases", () => {
+describe("chart ticker aliases", () => {
   it("maps cash and index tickers directly", () => {
-    expect(parseTradingView("NSE:RELIANCE").canonical).toBe("NSE:RELIANCE");
-    expect(parseTradingView("nse:nifty")).toMatchObject({ canonical: "NSE:NIFTY", kind: "INDEX" });
+    expect(parseChartTicker("NSE:RELIANCE").canonical).toBe("NSE:RELIANCE");
+    expect(parseChartTicker("nse:nifty")).toMatchObject({ canonical: "NSE:NIFTY", kind: "INDEX" });
   });
 
   it("leaves continuous futures for SymbolService to resolve", () => {
-    expect(parseTradingView("NSE:NIFTY1!")).toEqual({ canonical: null, exchange: "NFO", underlying: "NIFTY", kind: "FUT", continuous: 1 });
+    expect(parseChartTicker("NSE:NIFTY1!")).toEqual({ canonical: null, exchange: "NFO", underlying: "NIFTY", kind: "FUT", continuous: 1 });
   });
 
   it("parses option tickers and formats them back", () => {
-    const p = parseTradingView("NSE:NIFTY261027C25000");
+    const p = parseChartTicker("NSE:NIFTY261027C25000");
     expect(p.canonical).toBe("NFO:NIFTY-2026-10-27-25000-CE");
-    expect(toTradingView(p.canonical)).toBe("NSE:NIFTY261027C25000");
-    expect(toTradingView("NSE:SBIN")).toBe("NSE:SBIN");
-    expect(toTradingView("NFO:NIFTY-2026-10-27-FUT")).toBeNull();
+    expect(toChartTicker(p.canonical)).toBe("NSE:NIFTY261027C25000");
+    expect(toChartTicker("NSE:SBIN")).toBe("NSE:SBIN");
+    expect(toChartTicker("NFO:NIFTY-2026-10-27-FUT")).toBeNull();
   });
 
-  it("round-trips TradingView's '_' spelling of '-' and '&' (NSE:M_M, NSE:BAJAJ_AUTO)", () => {
-    expect(toTradingView("NSE:M&M")).toBe("NSE:M_M");
-    expect(parseTradingView("NSE:M_M").canonical).toBe("NSE:M&M");
-    expect(toTradingView("NSE:BAJAJ-AUTO")).toBe("NSE:BAJAJ_AUTO");
-    expect(parseTradingView("NSE:BAJAJ_AUTO").canonical).toBe("NSE:BAJAJ-AUTO");
-    expect(parseTradingView("NSE:M_MFIN").canonical).toBe("NSE:M&MFIN");
-    expect(parseTradingView("NSE:M&M").canonical).toBe("NSE:M&M");
-    for (const c of ["NSE:M&M", "NSE:BAJAJ-AUTO", "NSE:J&KBANK", "NSE:RELIANCE"]) expect(parseTradingView(toTradingView(c)).canonical).toBe(c);
-    const opt = parseTradingView("NSE:M_M261027C3000");
+  it("round-trips the chart '_' spelling of '-' and '&' (NSE:M_M, NSE:BAJAJ_AUTO)", () => {
+    expect(toChartTicker("NSE:M&M")).toBe("NSE:M_M");
+    expect(parseChartTicker("NSE:M_M").canonical).toBe("NSE:M&M");
+    expect(toChartTicker("NSE:BAJAJ-AUTO")).toBe("NSE:BAJAJ_AUTO");
+    expect(parseChartTicker("NSE:BAJAJ_AUTO").canonical).toBe("NSE:BAJAJ-AUTO");
+    expect(parseChartTicker("NSE:M_MFIN").canonical).toBe("NSE:M&MFIN");
+    expect(parseChartTicker("NSE:M&M").canonical).toBe("NSE:M&M");
+    for (const c of ["NSE:M&M", "NSE:BAJAJ-AUTO", "NSE:J&KBANK", "NSE:RELIANCE"]) expect(parseChartTicker(toChartTicker(c)).canonical).toBe(c);
+    const opt = parseChartTicker("NSE:M_M261027C3000");
     expect(opt.underlying).toBe("M&M");
-    expect(toTradingView(opt.canonical)).toBe("NSE:M_M261027C3000");
+    expect(toChartTicker(opt.canonical)).toBe("NSE:M_M261027C3000");
   });
 
-  it("maps index names TradingView spells differently (needs verification)", () => {
-    expect(parseTradingView("NSE:CNXFINANCE")).toMatchObject({ canonical: "NSE:FINNIFTY", kind: "INDEX" });
-    expect(toTradingView("NSE:FINNIFTY")).toBe("NSE:CNXFINANCE");
-    expect(parseTradingView("NSE:NIFTY_MID_SELECT").canonical).toBe("NSE:MIDCPNIFTY");
-    expect(toTradingView("NSE:MIDCPNIFTY")).toBe("NSE:NIFTY_MID_SELECT");
+  it("maps index names chart tickers spell differently (needs verification)", () => {
+    expect(parseChartTicker("NSE:CNXFINANCE")).toMatchObject({ canonical: "NSE:FINNIFTY", kind: "INDEX" });
+    expect(toChartTicker("NSE:FINNIFTY")).toBe("NSE:CNXFINANCE");
+    expect(parseChartTicker("NSE:NIFTY_MID_SELECT").canonical).toBe("NSE:MIDCPNIFTY");
+    expect(toChartTicker("NSE:MIDCPNIFTY")).toBe("NSE:NIFTY_MID_SELECT");
   });
 
   it("rejects junk", () => {
-    expect(() => parseTradingView("NIFTY")).toThrow();
-    expect(() => parseTradingView("FOO:NIFTY")).toThrow();
+    expect(() => parseChartTicker("NIFTY")).toThrow();
+    expect(() => parseChartTicker("FOO:NIFTY")).toThrow();
   });
 });
 
@@ -147,8 +147,8 @@ describe("compact aliases (format only)", () => {
 describe("detectFormat", () => {
   it("tells formats apart", () => {
     expect(detectFormat("NFO:NIFTY-2026-10-27-FUT")).toBe("canonical");
-    expect(detectFormat("NSE:NIFTY1!")).toBe("tradingview");
-    expect(detectFormat("NSE:NIFTY261027C25000")).toBe("tradingview");
+    expect(detectFormat("NSE:NIFTY1!")).toBe("chart");
+    expect(detectFormat("NSE:NIFTY261027C25000")).toBe("chart");
     expect(detectFormat("NIFTY27OCT26FUT", "NFO")).toBe("compact");
     expect(detectFormat("??")).toBe("unknown");
   });

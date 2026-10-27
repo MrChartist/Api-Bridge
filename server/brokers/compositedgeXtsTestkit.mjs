@@ -4,7 +4,7 @@
  * every fetch is answered from server/brokers/__fixtures__/<id>/ or fails the test.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrokerInputError, OrderGateError, SessionRequiredError, validateAdapter } from "./contract.mjs";
 import { issueOrderGate } from "./orderGate.mjs";
 import { createFetchStub, harnessFailures, loadFixtures, runContractHarness } from "./contractHarness.mjs";
@@ -31,13 +31,18 @@ export function describeXtsAdapter({ adapter, clearCache, interactiveMode }) {
     return stub;
   };
 
+  // The fixtures are a snapshot taken before the 2026-10-20 NIFTY weekly expiry. Freeze Date there (10:30 IST on
+  // 2026-10-17, as the other broker suites do) so option chains are priced with time left to expiry on any run date.
   beforeEach(() => {
     realFetch = globalThis.fetch;
     adapter.resetForTests({ intervalMs: 0 });
     clearCache();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-17T05:00:00Z"));
   });
   afterEach(() => {
     globalThis.fetch = realFetch;
+    vi.useRealTimers();
   });
 
   describe(`${id} adapter contract`, () => {
@@ -191,6 +196,7 @@ export function describeXtsAdapter({ adapter, clearCache, interactiveMode }) {
     });
 
     it("spaces market-data calls at the configured interval (official limit: 1 request/second)", async () => {
+      vi.useRealTimers(); // the throttle paces on the wall clock; a frozen Date cannot measure its spacing
       adapter.resetForTests({ intervalMs: 40 });
       useResponses(fx.byCapability.ltp.responses);
       await adapter.fetchLTP(creds, "NIFTY"); // warms index list + session

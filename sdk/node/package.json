@@ -4,8 +4,29 @@
   "description": "Node client for the Mr. Chartist API Bridge: market data, paper and live orders with idempotency keys, and live streams.",
   "type": "module",
   "private": true,
-  "license": "SEE LICENSE IN ../../LICENSE",
-  "author": "Rohit Singh (Mr. Chartist)",
+  "license": "MIT",
+  "author": "Mr. Chartist",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MrChartist/api-bridge.git",
+    "directory": "sdk/node"
+  },
+  "homepage": "https://github.com/MrChartist/api-bridge/tree/main/sdk/node#readme",
+  "bugs": {
+    "url": "https://github.com/MrChartist/api-bridge/issues"
+  },
+  "keywords": [
+    "trading",
+    "india",
+    "broker",
+    "nse",
+    "market-data",
+    "option-chain",
+    "websocket",
+    "sdk",
+    "mrchartist",
+    "api-bridge"
+  ],
   "engines": {
     "node": ">=20"
   },

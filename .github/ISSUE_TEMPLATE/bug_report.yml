@@ -1,0 +1,94 @@
+name: Bug report
+description: Something in the Bridge, the dashboard, an integration or an SDK does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this.
+
+        **Before you paste anything:** remove API keys (`mcb_...`), broker tokens, client IDs, account numbers,
+        names, PANs, phone numbers and webhook URLs (they contain a secret). If the bug is a security problem,
+        do not open an issue: report it privately as described in SECURITY.md.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you got instead.
+      placeholder: "I called GET /v1/quotes?symbols=NSE:NIFTY and got 502 UPSTREAM_ERROR, but the broker app shows prices."
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps. Does it also happen in demo mode (`npm start -- --demo`)?
+      placeholder: |
+        1. npm start -- --demo
+        2. curl -H "Authorization: Bearer $MCB_API_KEY" "http://127.0.0.1:4300/v1/..."
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Install / start / mc-bridge CLI
+        - Dashboard
+        - Broker adapter or login
+        - Market data / option chain / history
+        - Streaming (WebSocket / SSE)
+        - Orders / paper engine / safety
+        - Rate limits
+        - Webhooks (generic, ChartInk, GoCharting)
+        - Excel / Google Sheets / AmiBroker
+        - MCP (Claude, other AI tools) / OpenAI tool schemas
+        - Node SDK
+        - Python SDK
+        - Docker
+        - Documentation
+    validations:
+      required: true
+  - type: input
+    id: broker
+    attributes:
+      label: Broker id
+      description: The `broker` value of the account involved (for example `dhan`, `zerodha`), or "demo".
+  - type: input
+    id: version
+    attributes:
+      label: Bridge version or commit
+      description: "`GET /v1/health` shows the version; `git rev-parse --short HEAD` gives the commit."
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `npm run bridge -- doctor`
+      description: Paths may show your user name; edit them out if you like.
+      render: text
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Node.js version (`node -v`), and how you run it (start file, npm, Docker).
+      placeholder: "Windows 11, Node 22.11, start-windows.bat"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error response or log lines
+      description: The `application/problem+json` body (its `code` helps most) or the relevant log lines, with secrets removed.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I removed keys, tokens, account IDs and other personal data from everything above.
+          required: true
+        - label: I searched existing issues and this is not a duplicate.
+          required: true

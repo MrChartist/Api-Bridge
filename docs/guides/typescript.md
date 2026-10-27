@@ -36,7 +36,7 @@ sent only as a header, and single-use stream tokens.
 
 ## Browser apps
 
-A page served from another origin (for example Option Hub on `http://localhost:5173`) must be listed in
+A page served from another origin (for example a Vite dev server on `http://localhost:5173`) must be listed in
 `cors.allowedOrigins`. Never put an admin or live key in browser code.
 
 ## Scans and backup data

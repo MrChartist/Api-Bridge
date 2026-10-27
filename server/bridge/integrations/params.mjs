@@ -1,5 +1,5 @@
 /**
- * Query-string helpers shared by the UDF and spreadsheet routes (stream S10). Every helper throws
+ * Query-string helpers for the spreadsheet and AmiBroker routes (stream S10). Every helper throws
  * VALIDATION_FAILED with a field path, so clients get the same error shape as the /v1 routes.
  */
 import { BridgeError } from "../core/errors.mjs";
@@ -53,21 +53,9 @@ export function enumParam(query, name, allowed, dflt) {
   return hit;
 }
 
-/** Comma-separated list, trimmed, blanks dropped, at most `max` entries. */
-export function listParam(query, name, max, example) {
-  const raw = opt(query, name);
-  const list = String(raw ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (!list.length) throw invalid(name, `${name} is required${example ? `, for example ${example}` : ""}.`);
-  if (list.length > max) throw invalid(name, `Ask for at most ${max} symbols at a time.`);
-  return list;
-}
-
 /**
  * Market-data read options from the query: an optional pinned `account` (checked against the key first) and
- * `maxAgeMs`. The caller's abort signal is passed through so a closed chart stops waiting for budget.
+ * `maxAgeMs`. The caller's abort signal is passed through so a closed client stops waiting for budget.
  * @param {import("../core/context.mjs").RequestContext} ctx
  * @param {{ maxAge?: boolean, autoBackup?: boolean }} [o]  autoBackup: the config default for `?backup=` (unpinned
  *   reads that no broker can answer fall back to the labelled backup data sources).

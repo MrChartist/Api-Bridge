@@ -84,7 +84,7 @@ const fullQuote = (code, ltp, bid, ask, extra = {}) => ({
 const qPattern = (codes) => `^${esc(`${API}/market/quotes/full?scrip-codes=`)}${codes.map(esc).join("%2C")}$`;
 
 const orderRow = (over = {}) => ({
-  created_at: "2026-10-16T09:18:40.446948+05:30", updated_at: "2026-10-16T09:18:40.498595+05:30", user_id: "710354", security_id: "73871", isin: "",
+  created_at: "2026-10-16T09:18:40.446948+05:30", updated_at: "2026-10-16T09:18:40.498595+05:30", user_id: "990003", security_id: "73871", isin: "",
   name: "NIFTY 27 OCT 25000 CE", id: "DRV-28131451", exch_order_id: "1300000002340881", txn_type: "BUY", exchange: "NSE", segment: "DERIVATIVE",
   product: "MARGIN", order_type: "MARKET", validity: "DAY", mkt_type: "NL", off_mkt_flag: "false", traded_qty: 65, requested_qty: 65,
   requested_price: "43.55", traded_price: "43.55", sl_trigger_price: "", sl_limit_price: "", tgt_trigger_price: "", tgt_limit_price: "", status: "SUCCESS", extra_info: "", ...over,

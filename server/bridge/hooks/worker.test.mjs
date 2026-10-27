@@ -29,7 +29,7 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 async function run(hookDef, signal) {
-  const { hook } = await store.create({ source: "tradingview", label: "t", account: "paper", product: "CNC", ...hookDef });
+  const { hook } = await store.create({ source: "gocharting", label: "t", account: "paper", product: "CNC", ...hookDef });
   const j = job(hook, signal);
   worker.enqueue([j]);
   await worker.idle();
@@ -104,7 +104,7 @@ describe("signal worker: hook mapping and caps", () => {
   });
 
   it("the same idempotency key never places twice", async () => {
-    const { hook } = await store.create({ source: "tradingview", label: "t", account: "paper", product: "CNC" });
+    const { hook } = await store.create({ source: "gocharting", label: "t", account: "paper", product: "CNC" });
     const j1 = job(hook, sig(), { idempotencyKey: "hook:same-key-123" });
     const j2 = job(hook, sig(), { idempotencyKey: "hook:same-key-123" });
     worker.enqueue([j1, j2]);
@@ -123,7 +123,7 @@ describe("signal worker: hook mapping and caps", () => {
   });
 
   it("rejects signals whose hook was deleted meanwhile", async () => {
-    const { hook } = await store.create({ source: "tradingview", label: "t", account: "paper", product: "CNC" });
+    const { hook } = await store.create({ source: "gocharting", label: "t", account: "paper", product: "CNC" });
     const j = job(hook, sig());
     await store.remove(hook.id);
     worker.enqueue([j]);
@@ -134,7 +134,7 @@ describe("signal worker: hook mapping and caps", () => {
 
 describe("signal worker: queue", () => {
   it("is bounded: an alert that does not fit is refused whole with RATE_LIMITED", async () => {
-    const { hook } = await store.create({ source: "tradingview", label: "t", account: "paper", product: "CNC" });
+    const { hook } = await store.create({ source: "gocharting", label: "t", account: "paper", product: "CNC" });
     const jobs = Array.from({ length: 6 }, () => job(hook, sig()));
     expect(() => worker.enqueue(jobs)).toThrow(expect.objectContaining({ code: "RATE_LIMITED" }));
     expect(worker.stats().queued).toBe(0);
@@ -145,7 +145,7 @@ describe("signal worker: queue", () => {
   });
 
   it("does not start work before the receiver returns (processing is deferred)", async () => {
-    const { hook } = await store.create({ source: "tradingview", label: "t", account: "paper", product: "CNC" });
+    const { hook } = await store.create({ source: "gocharting", label: "t", account: "paper", product: "CNC" });
     worker.enqueue([job(hook, sig())]);
     expect(orders.calls).toHaveLength(0);
     await worker.idle();
@@ -153,7 +153,7 @@ describe("signal worker: queue", () => {
   });
 
   it("drops and audits queued signals at shutdown, then refuses new ones", async () => {
-    const { hook } = await store.create({ source: "tradingview", label: "t", account: "paper", product: "CNC" });
+    const { hook } = await store.create({ source: "gocharting", label: "t", account: "paper", product: "CNC" });
     const j = job(hook, sig());
     worker.enqueue([j]);
     await worker.stop();

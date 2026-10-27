@@ -80,7 +80,7 @@ instruments `searchInstruments`, `instrument`, `convertSymbol`, `convertSymbols`
 `engageKillSwitch` · helpers `paginate`, `streamToken`, `streamUrl`, `stream`, `request`.
 
 Admin actions (API keys, broker sessions, the audit log, confirming AI-prepared tickets, releasing the kill switch)
-are deliberately not in the SDK: use `mc-bridge` on the same computer or Option Hub.
+are deliberately not in the SDK: use `mc-bridge` or the dashboard on the same computer.
 
 Types: `src/index.d.ts`, written against `docs/openapi.yaml`.
 

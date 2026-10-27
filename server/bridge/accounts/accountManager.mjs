@@ -414,7 +414,7 @@ export async function createAccountManager(deps, options = {}) {
             } catch (err) {
               throw brokerFailure(adapter, account.broker, err, redactList);
             }
-            const problems = checkLoginResult(result, { sessionFields: auth.sessionFields ?? [], secrets: secretValues });
+            const problems = checkLoginResult(result, { sessionFields: auth.sessionFields ?? [], secrets: secretValues, now: now() });
             if (problems.length) {
               log.warn("broker login returned an unexpected session; nothing was saved", { accountId: account.id, broker: account.broker, problems: problems.length });
               throw new BridgeError("UPSTREAM_ERROR", `${BROKER_NAMES[account.broker] ?? account.broker} login returned an unexpected session. Nothing was saved.`, {

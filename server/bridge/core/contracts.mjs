@@ -227,7 +227,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  toBroker(symbol: string, brokerId: string) -> Promise<BrokerRef>
    *  fromBroker(brokerId: string, ref: { token: string, exchange: Exchange }) -> Promise<string | null>
    *  search({ q, exchange?, kind?, underlying?, expiry?, limit?, cursor? }) -> Promise<Page>   items: ResolvedInstrument (refs omitted)
-   *  convert({ input, from?: "auto"|"canonical"|"tradingview"|"compact"|"broker", broker?, exchange? }) -> Promise<{ canonical: string, aliases: Record<string, string> }>
+   *  convert({ input, from?: "auto"|"canonical"|"chart"|"compact"|"broker", broker?, exchange? }) -> Promise<{ canonical: string, aliases: Record<string, string> }>
    *  refresh({ broker? }) -> Promise<{ brokers: string[], instruments: number, errors: Array<{ broker, code, message }> }>
    *  status() -> { brokers: Array<{ broker: string, instruments: number, loadedAt: string | null, source, day, fresh, lastError }>, conflicts, freezeList }
    *  Extras: warm() (start-up load), close().

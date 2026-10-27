@@ -7,7 +7,7 @@
  * always allowed; anything else must be listed in config (server.allowedHosts / publicIngress.allowedHosts).
  *
  * Why the Origin check: a browser always sends Origin on cross-origin requests. If it is present it must be on the
- * allowlist (cors.allowedOrigins); there is no "*". Requests without Origin (curl, Python, Excel, TradingView's
+ * allowlist (cors.allowedOrigins); there is no "*". Requests without Origin (curl, Python, Excel, charting platforms'
  * servers) pass this check and are judged by their API key.
  */
 import { BridgeError } from "./errors.mjs";

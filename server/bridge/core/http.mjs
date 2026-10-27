@@ -20,7 +20,7 @@ export function json(body, { status = 200, headers = {} } = {}) {
   return new Reply(status, JSON.stringify(body), { "Content-Type": "application/json; charset=utf-8", ...headers });
 }
 
-/** Plain-text reply (Excel WEBSERVICE, AmiBroker AFL, UDF /time). */
+/** Plain-text reply (Excel WEBSERVICE, AmiBroker AFL). */
 export function text(body, { status = 200, headers = {} } = {}) {
   return new Reply(status, String(body), { "Content-Type": "text/plain; charset=utf-8", ...headers });
 }
@@ -111,7 +111,7 @@ export function parseBody(raw, contentType, mode) {
   try {
     return JSON.parse(s);
   } catch {
-    if (mode === "json-or-text" && isText) return s; // e.g. a TradingView alert that is not JSON
+    if (mode === "json-or-text" && isText) return s; // e.g. a plain-text webhook alert
     throw new BridgeError("INVALID_JSON", "The body could not be parsed as JSON.");
   }
 }

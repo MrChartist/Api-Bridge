@@ -9,7 +9,7 @@
         "message": "",
         "data": [
           {
-            "client_id": "22820439",
+            "client_id": "99000001",
             "txn_type": "B",
             "exchange": "NSE",
             "segment": "D",
@@ -68,7 +68,7 @@
             }
           },
           {
-            "client_id": "22820439",
+            "client_id": "99000001",
             "txn_type": "B",
             "exchange": "NSE",
             "segment": "D",
@@ -138,7 +138,7 @@
         "message": "",
         "data": [
           {
-            "client_id": "1194654",
+            "client_id": "9900002",
             "trade_no": "123800",
             "quantity": 50,
             "traded_price": 141.95,

@@ -7,9 +7,8 @@ export const PLACEHOLDER = {
   url: "mcb_YOUR_URL_KEY",
 };
 
-/** What key each integration needs, for the "Create a key for this" button. */
+/** What key each integration needs, for the "Create a key for this" button (webhooks need none: the URL is the credential). */
 export const KEY_PRESETS = Object.freeze({
-  tradingview: { label: "TradingView charts", scopes: ["read"], clientKind: "tradingview", allowQuery: true, expiresDays: 30 },
   python: { label: "Python scripts", scopes: ["paper"], clientKind: "script" },
   node: { label: "Node scripts", scopes: ["paper"], clientKind: "script" },
   excel: { label: "Excel prices", scopes: ["read"], clientKind: "excel", allowQuery: true, expiresDays: 90 },
@@ -21,10 +20,10 @@ export const KEY_PRESETS = Object.freeze({
 
 const j = (v) => JSON.stringify(v, null, 2);
 
-/** TradingView alert message for a hook (strategy alerts). */
-export function tradingViewAlert({ orderType = "LIMIT" } = {}) {
-  const m = { symbol: "{{exchange}}:{{ticker}}", side: "{{strategy.order.action}}", quantity: "{{strategy.order.contracts}}", id: "{{strategy.order.id}}", time: "{{timenow}}" };
-  if (orderType === "LIMIT") m.price = "{{close}}";
+/** Body of a generic webhook alert (sign it with the hook's signing secret). */
+export function genericAlert({ orderType = "LIMIT", symbol = "NSE:RELIANCE" } = {}) {
+  const m = { symbol, side: "BUY", quantity: 1, id: "my-signal-0001" };
+  if (orderType === "LIMIT") m.price = 1402.5;
   return j(m);
 }
 
@@ -38,24 +37,21 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
   const url = key ?? PLACEHOLDER.url;
   const host = base.replace(/\/$/, "");
   return {
-    tradingview: [
-      { title: "Alert message (paste into the alert's Message box)", lang: "json", code: tradingViewAlert() },
+    webhooks: [
+      { title: "Generic alert body (JSON)", lang: "json", code: genericAlert() },
       {
-        title: "Chart datafeed (TradingView-compatible UDF)",
-        lang: "js",
+        title: "Send a signed generic alert (bash + openssl)",
+        lang: "bash",
         code: [
-          `// Any UDF client: base URL ${host}/udf`,
-          `const auth = { headers: { Authorization: "Bearer ${read}" } };`,
-          `const cfg  = await (await fetch("${host}/udf/config", auth)).json();`,
-          `const bars = await (await fetch("${host}/udf/history?symbol=${symbol}&resolution=5&countback=300&to=" + Math.floor(Date.now() / 1000), auth)).json();`,
-          `// bars = { s: "ok", t: [...], o: [...], h: [...], l: [...], c: [...], v: [...] }`,
+          `URL="${host}/hooks/generic/<token from the webhook URL>"`,
+          `SECRET="<signing secret shown once when the hook was created>"`,
+          `BODY='{"symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"id":"my-signal-0001","price":1402.5}'`,
+          `T=$(date +%s)`,
+          `SIG=$(printf '%s' "$T.$BODY" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')`,
+          `curl -sS -X POST "$URL" -H "Content-Type: application/json" -H "X-MCB-Signature: t=$T,v1=$SIG" -d "$BODY"`,
         ].join("\n"),
       },
-      {
-        title: "Chart libraries that cannot send headers (read-only URL key)",
-        lang: "text",
-        code: `${host}/udf/history?symbol=${symbol}&resolution=D&countback=200&to=<unix time>&key=${url}`,
-      },
+      { title: "GoCharting alert message (plain text)", lang: "text", code: "BUY NSE:RELIANCE 1 @ 1402.5 INTRADAY" },
     ],
     python: [
       { title: "Install (inside the api-bridge folder)", lang: "bash", code: `python3 -m venv .venv && . .venv/bin/activate\npip install ./sdk/python\nexport MCB_API_KEY=${paper}` },

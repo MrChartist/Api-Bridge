@@ -7,12 +7,12 @@ let b;
 const json = { "content-type": "application/json" };
 
 async function createHook(def) {
-  const r = await b.request({ method: "POST", path: "/v1/hooks", headers: { ...b.auth(b.keys.admin), ...json }, body: { source: "tradingview", label: "TV", account: "paper", product: "CNC", maxLotsPerSignal: 10, ...def } });
+  const r = await b.request({ method: "POST", path: "/v1/hooks", headers: { ...b.auth(b.keys.admin), ...json }, body: { source: "gocharting", label: "GC", account: "paper", product: "CNC", maxLotsPerSignal: 10, ...def } });
   expect(r.status).toBe(201);
   return r.json.data;
 }
 const idle = () => hooksRuntimeFor(b.app.deps).worker.idle();
-const tvAlert = (o = {}) => ({ symbol: "NSE:RELIANCE", side: "buy", quantity: "1", price: "1400", id: "Long", time: "2026-10-19T04:00:00Z", ...o });
+const alert = (o = {}) => ({ symbol: "NSE:RELIANCE", side: "buy", quantity: "1", price: "1400", id: "Long", time: "2026-10-19T04:00:00Z", ...o });
 
 describe("hook management routes", () => {
   beforeEach(async () => {
@@ -24,7 +24,7 @@ describe("hook management routes", () => {
     const h = await createHook({});
     expect(h.url).toBe(`http://127.0.0.1:${b.port}${h.path}`);
     const token = h.path.split("/").at(-1);
-    expect(h.templates[0].message).toContain("{{strategy.order.id}}");
+    expect(h.templates[0].message).toContain("NSE:RELIANCE");
     const list = await b.request({ path: "/v1/hooks", headers: b.auth(b.keys.admin) });
     expect(list.status).toBe(200);
     expect(list.json.data).toHaveLength(1);
@@ -32,7 +32,7 @@ describe("hook management routes", () => {
     expect(list.raw).not.toContain("tokenHash");
     const del = await b.request({ method: "DELETE", path: `/v1/hooks/${h.id}`, headers: b.auth(b.keys.admin) });
     expect(del.status).toBe(204);
-    const after = await b.request({ method: "POST", path: h.path, headers: json, body: tvAlert() });
+    const after = await b.request({ method: "POST", path: h.path, headers: json, body: alert() });
     expect(after.status).toBe(404);
     expect(b.audit.ofType("hook.*").map((r) => r.type)).toEqual(["hook.created", "hook.deleted"]);
     expect(JSON.stringify(b.audit.records)).not.toContain(token);
@@ -41,15 +41,15 @@ describe("hook management routes", () => {
   it("needs an admin key and refuses unknown accounts or bad bodies", async () => {
     expect((await b.request({ path: "/v1/hooks", headers: b.auth(b.keys.read) })).status).toBe(403);
     expect((await b.request({ path: "/v1/hooks" })).status).toBe(401);
-    const bad = await b.request({ method: "POST", path: "/v1/hooks", headers: { ...b.auth(b.keys.admin), ...json }, body: { source: "tradingview", label: "x", account: "nobody" } });
+    const bad = await b.request({ method: "POST", path: "/v1/hooks", headers: { ...b.auth(b.keys.admin), ...json }, body: { source: "gocharting", label: "x", account: "nobody" } });
     expect(bad.json.code).toBe("ACCOUNT_NOT_FOUND");
-    const invalid = await b.request({ method: "POST", path: "/v1/hooks", headers: { ...b.auth(b.keys.admin), ...json }, body: { source: "tradingview", label: "x", account: "paper", maxLotsPerSignal: -1 } });
+    const invalid = await b.request({ method: "POST", path: "/v1/hooks", headers: { ...b.auth(b.keys.admin), ...json }, body: { source: "gocharting", label: "x", account: "paper", maxLotsPerSignal: -1 } });
     expect(invalid.status).toBe(400);
     expect((await b.request({ method: "DELETE", path: "/v1/hooks/hk_aaaaaaaaaaaa", headers: b.auth(b.keys.admin) })).status).toBe(404);
   });
 
   it("refuses a live hook the config does not allow, and warns about a ChartInk hook without a side", async () => {
-    const r = await b.request({ method: "POST", path: "/v1/hooks", headers: { ...b.auth(b.keys.adminLive), ...json }, body: { source: "tradingview", label: "TV", account: "dhan-main", mode: "live", allowSourceIps: ["tradingview"] } });
+    const r = await b.request({ method: "POST", path: "/v1/hooks", headers: { ...b.auth(b.keys.adminLive), ...json }, body: { source: "gocharting", label: "GC", account: "dhan-main", mode: "live", allowSourceIps: ["52.89.214.238"] } });
     expect(r.status).toBe(403);
     expect(r.json.code).toBe("PAPER_ONLY");
     const ci = await createHook({ source: "chartink" });
@@ -68,10 +68,10 @@ describe("live hooks need live authority (regressions)", () => {
     b = await startTestBridge({ config: liveCfg, liveAccounts: ["dhan-main"] });
   });
   afterEach(async () => b.close());
-  const post = (key, def) => b.request({ method: "POST", path: "/v1/hooks", headers: { ...b.auth(key), ...json }, body: { source: "tradingview", label: "TV", account: "dhan-main", mode: "live", product: "CNC", ...def } });
+  const post = (key, def) => b.request({ method: "POST", path: "/v1/hooks", headers: { ...b.auth(key), ...json }, body: { source: "gocharting", label: "GC", account: "dhan-main", mode: "live", product: "CNC", ...def } });
 
   it("an admin key without the live scope cannot create a live hook", async () => {
-    const r = await post(b.keys.admin, { allowSourceIps: ["tradingview"] });
+    const r = await post(b.keys.admin, { allowSourceIps: ["52.89.214.238"] });
     expect(r.status).toBe(403);
     expect(r.json.code).toBe("SCOPE_REQUIRED");
   });
@@ -80,7 +80,7 @@ describe("live hooks need live authority (regressions)", () => {
     const bare = await post(b.keys.adminLive, {});
     expect(bare.status).toBe(400);
     expect(bare.json.detail).toMatch(/allowSourceIps/);
-    expect((await post(b.keys.adminLive, { allowSourceIps: ["tradingview"] })).status).toBe(201);
+    expect((await post(b.keys.adminLive, { allowSourceIps: ["52.89.214.238"] })).status).toBe(201);
     expect((await post(b.keys.adminLive, { requireConfirmation: true })).status).toBe(201);
     const ack = await post(b.keys.adminLive, { acknowledgeUnsignedLive: true });
     expect(ack.status).toBe(201);
@@ -92,7 +92,7 @@ describe("live hooks need live authority (regressions)", () => {
     const r = await post(b.keys.adminLive, { acknowledgeUnsignedLive: true });
     expect(r.status).toBe(201);
     await b.app.deps.keyStore.revoke(r.json.data.createdByKeyId);
-    const sent = await b.request({ method: "POST", path: r.json.data.path, headers: json, body: tvAlert() });
+    const sent = await b.request({ method: "POST", path: r.json.data.path, headers: json, body: alert() });
     expect(sent.status).toBe(401);
   });
 });
@@ -105,7 +105,7 @@ describe("POST /hooks/{source}/{token}", () => {
 
   it("acknowledges within 50 ms under load (server time for a burst of 100; round trip while the worker is busy)", async () => {
     const h = await createHook({});
-    const results = await Promise.all(Array.from({ length: 100 }, (_, i) => b.request({ method: "POST", path: h.path, headers: json, body: tvAlert({ id: `L${i}` }) })));
+    const results = await Promise.all(Array.from({ length: 100 }, (_, i) => b.request({ method: "POST", path: h.path, headers: json, body: alert({ id: `L${i}` }) })));
     expect(results.every((r) => r.status === 202 && r.json.accepted === true)).toBe(true);
     // Server-side time per request, from the access log (handler start to reply), for every request in the burst.
     const serverMs = b.logLines.map((l) => JSON.parse(l)).filter((l) => l.msg === "http" && String(l.path).startsWith("/hooks/")).map((l) => l.ms);
@@ -113,7 +113,7 @@ describe("POST /hooks/{source}/{token}", () => {
     expect(Math.max(...serverMs)).toBeLessThan(50);
     // Round trips while the worker still has a backlog to process.
     for (let i = 0; i < 20; i += 1) {
-      const r = await b.request({ method: "POST", path: h.path, headers: json, body: tvAlert({ id: `S${i}` }) });
+      const r = await b.request({ method: "POST", path: h.path, headers: json, body: alert({ id: `S${i}` }) });
       expect(r.status).toBe(202);
       expect(r.ms).toBeLessThan(50);
     }
@@ -121,11 +121,11 @@ describe("POST /hooks/{source}/{token}", () => {
     expect(b.orders.all()).toHaveLength(120);
   });
 
-  it("a TradingView double-fire creates one order", async () => {
+  it("a double-fire (same id + time) creates one order", async () => {
     const h = await createHook({});
     const [r1, r2] = await Promise.all([
-      b.request({ method: "POST", path: h.path, headers: json, body: tvAlert() }),
-      b.request({ method: "POST", path: h.path, headers: json, body: tvAlert() }),
+      b.request({ method: "POST", path: h.path, headers: json, body: alert() }),
+      b.request({ method: "POST", path: h.path, headers: json, body: alert() }),
     ]);
     expect([r1.status, r2.status]).toEqual([202, 202]);
     expect(r1.json.signalId).toBe(r2.json.signalId);
@@ -135,22 +135,22 @@ describe("POST /hooks/{source}/{token}", () => {
     expect(b.orders.all()[0]).toMatchObject({ source: "webhook", mode: "paper", symbol: "NSE:RELIANCE" });
   });
 
-  it("a redelivery after the dedupe window still makes no second order (same strategy id + time)", async () => {
+  it("a redelivery after the dedupe window still makes no second order (same id + time)", async () => {
     await b.close();
     b = await startTestBridge({ config: { hooks: { dedupeWindowMs: 1000 } } });
     const h = await createHook({});
-    await b.request({ method: "POST", path: h.path, headers: json, body: tvAlert() });
+    await b.request({ method: "POST", path: h.path, headers: json, body: alert() });
     await idle();
     await new Promise((r) => setTimeout(r, 1100));
     const rt = hooksRuntimeFor(b.app.deps);
-    const again = await b.request({ method: "POST", path: h.path, headers: json, body: tvAlert({ price: "1400" }) });
+    const again = await b.request({ method: "POST", path: h.path, headers: json, body: alert({ price: "1400" }) });
     expect(again.status).toBe(202);
     await idle();
     expect(b.orders.all()).toHaveLength(1);
     expect(rt.worker.recent().at(-1).status).toBe("duplicate");
   });
 
-  it("accepts TradingView text alerts with text/plain", async () => {
+  it("accepts text alerts with text/plain", async () => {
     const h = await createHook({});
     const r = await b.request({ method: "POST", path: h.path, headers: { "content-type": "text/plain" }, raw: "BUY NSE:RELIANCE 2 @ 1401" });
     expect(r.status).toBe(202);
@@ -160,27 +160,27 @@ describe("POST /hooks/{source}/{token}", () => {
 
   it("answers 400 for a malformed alert, 404 for unknown or mismatched tokens", async () => {
     const h = await createHook({});
-    expect((await b.request({ method: "POST", path: h.path, headers: json, body: tvAlert({ side: "{{strategy.order.action}}" }) })).status).toBe(400);
+    expect((await b.request({ method: "POST", path: h.path, headers: json, body: alert({ side: "{{side}}" }) })).status).toBe(400);
     expect((await b.request({ method: "POST", path: h.path, headers: { "content-type": "text/plain" }, raw: "please buy something" })).status).toBe(400);
-    expect((await b.request({ method: "POST", path: `/hooks/tradingview/${"x".repeat(43)}`, headers: json, body: tvAlert() })).status).toBe(404);
-    expect((await b.request({ method: "POST", path: h.path.replace("tradingview", "chartink"), headers: json, body: tvAlert() })).status).toBe(404);
-    expect((await b.request({ method: "POST", path: h.path.replace("tradingview", "slack"), headers: json, body: tvAlert() })).status).toBe(404);
+    expect((await b.request({ method: "POST", path: `/hooks/gocharting/${"x".repeat(43)}`, headers: json, body: alert() })).status).toBe(404);
+    expect((await b.request({ method: "POST", path: h.path.replace("gocharting", "chartink"), headers: json, body: alert() })).status).toBe(404);
+    expect((await b.request({ method: "POST", path: h.path.replace("gocharting", "slack"), headers: json, body: alert() })).status).toBe(404);
   });
 
   it("never logs the hook token", async () => {
     const h = await createHook({});
     const token = h.path.split("/").at(-1);
-    await b.request({ method: "POST", path: h.path, headers: json, body: tvAlert() });
+    await b.request({ method: "POST", path: h.path, headers: json, body: alert() });
     await idle();
     expect(b.logLines.join("\n")).not.toContain(token);
   });
 
   it("enforces the source-IP allowlist", async () => {
-    const tv = await createHook({ allowSourceIps: ["tradingview"] });
-    const r = await b.request({ method: "POST", path: tv.path, headers: json, body: tvAlert() });
+    const remote = await createHook({ allowSourceIps: ["52.89.214.238"] });
+    const r = await b.request({ method: "POST", path: remote.path, headers: json, body: alert() });
     expect(r.status).toBe(401);
     const local = await createHook({ allowSourceIps: ["127.0.0.1"] });
-    expect((await b.request({ method: "POST", path: local.path, headers: json, body: tvAlert() })).status).toBe(202);
+    expect((await b.request({ method: "POST", path: local.path, headers: json, body: alert() })).status).toBe(202);
   });
 
   it("ChartInk scans become one order per stock on the hook's side", async () => {
@@ -196,7 +196,7 @@ describe("POST /hooks/{source}/{token}", () => {
 
   it("confirmation-required hooks place nothing until a person confirms", async () => {
     const h = await createHook({ requireConfirmation: true });
-    await b.request({ method: "POST", path: h.path, headers: json, body: tvAlert() });
+    await b.request({ method: "POST", path: h.path, headers: json, body: alert() });
     await idle();
     expect(b.orders.all()).toHaveLength(0);
     const tickets = await b.orders.tickets({ principal: { kind: "local", id: "cli" }, scopes: new Set(["admin"]) });
@@ -209,7 +209,7 @@ describe("POST /hooks/{source}/{token}", () => {
     b = await startTestBridge({ config: { hooks: { maxSignalsPerMinute: 2 } } });
     const h = await createHook({});
     const codes = [];
-    for (let i = 0; i < 3; i += 1) codes.push((await b.request({ method: "POST", path: h.path, headers: json, body: tvAlert({ id: `x${i}` }) })).status);
+    for (let i = 0; i < 3; i += 1) codes.push((await b.request({ method: "POST", path: h.path, headers: json, body: alert({ id: `x${i}` }) })).status);
     expect(codes).toEqual([202, 202, 429]);
   });
 });

@@ -33,7 +33,9 @@
  *    passes ctx.loopback (the route is loopbackOnly as well, so this is defence in depth).
  *  - A caller may not grant more than it holds: over HTTP the route passes the creating key's scopes
  *    (opts.creatorScopes), and a key with the "live" scope can only be minted by a key that has "live" itself. An
- *    admin key alone cannot create a live trading path (admin does not imply live). The local CLI passes none.
+ *    admin key alone cannot create a live trading path (admin does not imply live). Likewise the creating key's
+ *    accounts (opts.creatorAccounts): a key limited to some accounts can only mint keys limited to those accounts.
+ *    The local CLI passes neither.
  *  - A key for an AI assistant (clientKind "mcp") may not have the admin scope: admin confirms order tickets, and the
  *    assistant must never confirm its own orders.
  *
@@ -74,7 +76,7 @@ const BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
 export const KEY_ID_RE = /^[a-z2-7]{10}$/;
 export const API_KEY_RE = /^mcb_([a-z2-7]{10})_([A-Za-z0-9_-]{43})$/;
 export const STREAM_TOKEN_RE = /^mcb_st_[A-Za-z0-9_-]{43}$/;
-export const CLIENT_KINDS = Object.freeze(["script", "excel", "tradingview", "mcp", "ui", "other"]);
+export const CLIENT_KINDS = Object.freeze(["script", "excel", "mcp", "ui", "other"]);
 const ACCOUNT_ID_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 
@@ -132,7 +134,8 @@ const storedKeySchema = z.object({
   scopes: scopesSchema,
   accounts: accountsSchema,
   allowQuery: z.boolean().default(false),
-  clientKind: z.enum(CLIENT_KINDS).default("other"),
+  // A kind this version no longer offers (a key file written by an older release) reads as "other".
+  clientKind: z.enum(CLIENT_KINDS).catch("other"),
   createdAt: isoString,
   expiresAt: isoString.nullable().default(null),
   revokedAt: isoString.nullable().default(null),
@@ -357,7 +360,7 @@ export function createKeyStore(deps, opts = {}) {
      * @param {object} input  KeyCreateRequest: { label, scopes, accounts?, expiresAt?, allowQuery?, clientKind? }
      * @param {{ loopback?: boolean }} [opts]  loopback: the request came from this computer (default true: CLI).
      */
-    async create(input, { loopback = true, creatorScopes } = {}) {
+    async create(input, { loopback = true, creatorScopes, creatorAccounts } = {}) {
       const parsed = keyCreateSchema.safeParse(input ?? {});
       if (!parsed.success) throw fromValidation(parsed.error, "The key request is not valid.");
       const v = parsed.data;
@@ -370,6 +373,12 @@ export function createKeyStore(deps, opts = {}) {
       }
       if (creatorScopes !== undefined && scopes.includes("live") && !new Set(creatorScopes).has("live")) {
         throw new BridgeError("SCOPE_REQUIRED", 'Only a key that has the "live" scope itself (or the mc-bridge command line) can create a live key.', { errors: [{ path: "scopes", message: "live needs a creator with live" }] });
+      }
+      if (creatorAccounts !== undefined && creatorAccounts !== "*") {
+        const held = new Set(Array.isArray(creatorAccounts) ? creatorAccounts : []);
+        if (v.accounts === "*" || !v.accounts.every((a) => held.has(a))) {
+          throw new BridgeError("ACCOUNT_FORBIDDEN", "A key limited to some accounts can only create keys limited to those same accounts.", { errors: [{ path: "accounts", message: "must be a subset of the creating key's accounts" }] });
+        }
       }
       if (v.clientKind === "mcp" && scopes.includes("admin")) {
         throw new BridgeError("VALIDATION_FAILED", "A key for an AI assistant (clientKind mcp) cannot have the admin scope: admin confirms orders, and an assistant must never confirm its own.", { errors: [{ path: "scopes", message: "admin not allowed with clientKind mcp" }] });

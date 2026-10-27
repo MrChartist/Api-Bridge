@@ -1,7 +1,7 @@
 /**
  * Test doubles for stream S10: deterministic marketData, symbols and keyStore fakes that satisfy the core contracts.
- * Nothing here talks to a broker. Candles exist for weekdays from DATA_START, with no data on HOLIDAYS, so UDF
- * `no_data` / `nextTime` behaviour can be tested exactly.
+ * Nothing here talks to a broker. Candles exist for weekdays from DATA_START, with no data on HOLIDAYS, so empty
+ * ranges can be tested exactly.
  */
 import { notImplementedService } from "../../core/contracts.mjs";
 import { BridgeError } from "../../core/errors.mjs";

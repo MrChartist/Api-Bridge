@@ -1,0 +1,44 @@
+name: Feature request
+description: Suggest a new capability, integration or improvement.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Want support for a new broker? Use the **New broker** template instead.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the problem or workflow, not only the solution. Who benefits, and how often?
+      placeholder: "I chart in AmiBroker and want 1-minute candles for all NIFTY weekly options backfilled at 09:15."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like the Bridge to do?
+      description: The API route, config setting, dashboard change or integration you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have tried
+  - type: dropdown
+    id: safety
+    attributes:
+      label: Does this touch orders, live trading or credentials?
+      description: Changes here get extra review. The Bridge stays paper-by-default and local-only.
+      options:
+        - "No"
+        - "Yes"
+        - Not sure
+    validations:
+      required: true
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I would like to work on this myself (see CONTRIBUTING.md).

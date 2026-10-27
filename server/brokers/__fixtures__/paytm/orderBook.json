@@ -9,7 +9,7 @@
         "message": "",
         "data": [
           {
-            "client_id": "22820439",
+            "client_id": "99000001",
             "txn_type": "B",
             "exchange": "NSE",
             "segment": "D",
@@ -68,7 +68,7 @@
             }
           },
           {
-            "client_id": "22820439",
+            "client_id": "99000001",
             "txn_type": "B",
             "exchange": "NSE",
             "segment": "D",

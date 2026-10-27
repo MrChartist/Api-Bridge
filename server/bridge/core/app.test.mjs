@@ -1,5 +1,5 @@
 import http from "node:http";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -119,6 +119,7 @@ describe("core routes", () => {
     const r = await get("/v1/meta", auth(READ));
     expect(r.status).toBe(200);
     expect(r.json.routes.some((x) => x.path === "/t/read")).toBe(true);
+    expect(existsSync(join(r.json.installDir, "bin", "mc-bridge.mjs"))).toBe(true);
   });
 
   it("serves the OpenAPI document", async () => {
@@ -156,9 +157,9 @@ describe("loopback trust (tunnels)", () => {
 describe("access log redaction", () => {
   it("never logs a webhook URL token, even when the method or path does not match", async () => {
     const token = "TOKENsecret0123456789abcdefghijklmnopqrstuvw";
-    await get(`/hooks/tradingview/${token}`);
-    await request(port, { method: "DELETE", path: `/hooks/tradingview/${token}` });
-    await request(publicPort, { method: "GET", path: `/hooks/tradingview/${token}`, headers: { host: `127.0.0.1:${publicPort}` } });
+    await get(`/hooks/gocharting/${token}`);
+    await request(port, { method: "DELETE", path: `/hooks/gocharting/${token}` });
+    await request(publicPort, { method: "GET", path: `/hooks/gocharting/${token}`, headers: { host: `127.0.0.1:${publicPort}` } });
     await request(publicPort, { method: "GET", path: `/nope/${token}`, headers: { host: `127.0.0.1:${publicPort}` } });
     expect(logLines.join("\n")).not.toContain(token);
     expect(logLines.join("\n")).toContain("/hooks/:source/:token");

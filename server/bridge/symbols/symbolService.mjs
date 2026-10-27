@@ -9,7 +9,7 @@
  *    and fetched again once after `symbols.refreshAfterIst` (08:30 IST) if the cached copy is older, or on refresh().
  *  - Masters are merged into ResolvedInstrument records (instrumentStore.mjs). Lot sizes are never guessed: an unknown
  *    lot size is SYMBOL_NOT_FOUND. Expired contracts never resolve.
- *  - resolve() accepts canonical symbols, the venue form (NSE: for derivatives), TradingView tickers (continuous 1!/2!
+ *  - resolve() accepts canonical symbols, the venue form (NSE: for derivatives), chart tickers (continuous 1!/2!
  *    become the nearest/next futures expiry from the master), compact symbols with an exchange (or written
  *    "NFO:NIFTY27OCT2625000CE"), and, with { broker }, that broker's own tokens and trading symbols.
  *
@@ -27,9 +27,9 @@ import {
   formatSymbol,
   parseCompact,
   parseSymbol,
-  parseTradingView,
+  parseChartTicker,
   toCompact,
-  toTradingView,
+  toChartTicker,
 } from "../core/symbolFormat.mjs";
 import { FREEZE_LIST_AS_OF } from "./freezeQuantities.mjs";
 import { createInstrumentStore } from "./instrumentStore.mjs";
@@ -37,7 +37,7 @@ import { istDay, istTimeOnDay, toIstIso } from "./ist.mjs";
 import { createMasterCache } from "./masterCache.mjs";
 import { SYMBOLS_CONFIG_DEFAULTS } from "./symbolsConfig.mjs";
 
-export const FROM_FORMATS = Object.freeze(["auto", "canonical", "tradingview", "compact", "broker"]);
+export const FROM_FORMATS = Object.freeze(["auto", "canonical", "chart", "compact", "broker"]);
 export const KINDS = Object.freeze(["INDEX", "EQ", "FUT", "OPT"]);
 export const SEARCH_LIMIT_DEFAULT = 100;
 export const SEARCH_LIMIT_MAX = 500;
@@ -273,14 +273,14 @@ export function createSymbolService(deps, opts = {}) {
     return broker;
   }
 
-  /** TradingView ticker -> canonical, resolving continuous futures (1!, 2!) against the master. */
-  function fromTradingView(input) {
-    const tv = parseTradingView(input);
-    if (!tv.continuous) return tv.canonical;
-    const expiries = store.futuresExpiries(tv.exchange, tv.underlying, today());
-    const expiry = expiries[tv.continuous - 1];
-    if (!expiry) throw notFound(`No ${tv.continuous === 1 ? "current" : `number ${tv.continuous}`} ${tv.underlying} future in the loaded instrument masters.`);
-    return formatSymbol({ exchange: tv.exchange, underlying: tv.underlying, kind: "FUT", expiry });
+  /** Chart ticker -> canonical, resolving continuous futures (1!, 2!) against the master. */
+  function fromChartTicker(input) {
+    const ct = parseChartTicker(input);
+    if (!ct.continuous) return ct.canonical;
+    const expiries = store.futuresExpiries(ct.exchange, ct.underlying, today());
+    const expiry = expiries[ct.continuous - 1];
+    if (!expiry) throw notFound(`No ${ct.continuous === 1 ? "current" : `number ${ct.continuous}`} ${ct.underlying} future in the loaded instrument masters.`);
+    return formatSymbol({ exchange: ct.exchange, underlying: ct.underlying, kind: "FUT", expiry });
   }
 
   /** Compact symbol: exchange from the argument, or written as "NFO:NIFTY27OCT2625000CE". */
@@ -311,20 +311,20 @@ export function createSymbolService(deps, opts = {}) {
   }
 
   /**
-   * Any accepted input -> canonical string. `from: "auto"` tries, in order: TradingView, canonical/venue form,
+   * Any accepted input -> canonical string. `from: "auto"` tries, in order: chart ticker, canonical/venue form,
    * compact, and (with a broker) broker-native, keeping the most useful error.
    */
   function toCanonical(rawInput, { from = "auto", broker = null, exchange } = {}) {
     const input = checkInput(rawInput);
     if (!FROM_FORMATS.includes(from)) throw invalid(`from must be one of ${FROM_FORMATS.join(", ")}.`);
     if (from === "canonical") return parseSymbol(input).canonical;
-    if (from === "tradingview") return fromTradingView(input);
+    if (from === "chart") return fromChartTicker(input);
     if (from === "compact") return fromCompact(input, exchange);
     if (from === "broker") return fromBrokerNative(broker, input, exchange);
 
     const fmt = detectFormat(input, exchange);
     const attempts = [];
-    if (fmt === "tradingview") attempts.push(() => fromTradingView(input));
+    if (fmt === "chart") attempts.push(() => fromChartTicker(input));
     if (fmt === "canonical" && !exchange) attempts.push(() => parseSymbol(input).canonical);
     if (fmt === "compact" || exchange || input.includes(":")) attempts.push(() => fromCompact(input, exchange));
     if (fmt === "canonical" && exchange) attempts.push(() => parseSymbol(input).canonical);
@@ -374,9 +374,9 @@ export function createSymbolService(deps, opts = {}) {
       const expiries = store.futuresExpiries(p.exchange, p.underlying, today());
       const i = expiries.indexOf(p.expiry);
       const venue = p.exchange === "NFO" ? "NSE" : p.exchange === "BFO" ? "BSE" : p.exchange;
-      aliases.tradingview = i >= 0 && i < 2 ? `${venue}:${p.underlying}${i + 1}!` : null;
+      aliases.chart = i >= 0 && i < 2 ? `${venue}:${p.underlying}${i + 1}!` : null;
     } else {
-      aliases.tradingview = toTradingView(canonical);
+      aliases.chart = toChartTicker(canonical);
     }
     if (kind === "INDEX") {
       aliases.compact = p.underlying;
@@ -417,15 +417,15 @@ export function createSymbolService(deps, opts = {}) {
 
   const service = {
     /**
-     * Parse without data: canonical, venue form or a dated TradingView ticker. Continuous futures need resolve().
+     * Parse without data: canonical, venue form or a dated chart ticker. Continuous futures need resolve().
      * @param {string} input
      * @returns {import("../core/contracts.mjs").ParsedSymbol}
      */
     parse(input) {
       const s = checkInput(input);
-      if (detectFormat(s) === "tradingview") {
-        const tv = parseTradingView(s);
-        if (tv.canonical) return parseSymbol(tv.canonical);
+      if (detectFormat(s) === "chart") {
+        const ct = parseChartTicker(s);
+        if (ct.canonical) return parseSymbol(ct.canonical);
         throw invalid(`${s} is a continuous future; resolve it to get a contract.`);
       }
       return parseSymbol(s);

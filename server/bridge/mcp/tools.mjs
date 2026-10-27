@@ -13,7 +13,7 @@
  *  - Big results are paged (`cursor` in, `meta.nextCursor` out, at most mcp.maxItems per page).
  *  - Order tools exist only when config (`mcp.toolsets` has "orders" and `mcp.orderAccounts` lists the account) AND
  *    the key (scope "paper" or "live", and access to that account) allow. They never place an order by themselves:
- *    prepare_order opens a ticket that a person confirms in the Bridge on this computer (Option Hub, Pending
+ *    prepare_order opens a ticket that a person confirms in the Bridge on this computer (dashboard, Orders, Pending
  *    confirmations, POST /v1/tickets/{id}/confirm with an admin key from loopback). Only the single-use confirmToken
  *    that confirmation yields lets submit_confirmed_order send exactly the prepared order, once.
  *  - There is no tool for paper/live mode, key scopes, account sessions or kill-switch release.
@@ -30,7 +30,7 @@ import { mcpConfig } from "./config.mjs";
 
 // ───────────────────────────── shared schemas ─────────────────────────────
 
-const symbolStr = z.string().min(2).max(64).describe("Bridge symbol, e.g. NSE:RELIANCE, NSE:NIFTY, NFO:NIFTY-2026-10-27-25000-CE (TradingView tickers also work).");
+const symbolStr = z.string().min(2).max(64).describe("Bridge symbol, e.g. NSE:RELIANCE, NSE:NIFTY, NFO:NIFTY-2026-10-27-25000-CE (chart tickers such as NSE:NIFTY1! also work).");
 const accountIn = z.string().regex(/^[a-z0-9][a-z0-9-]{1,31}$/).nullable().describe("Pin the read to one account id; null lets the Bridge choose.");
 const modeIn = z.enum(["paper", "live"]).nullable().describe("paper or live; null for the default.");
 const limitIn = z.number().int().min(1).max(1000).nullable().describe("Page size; null for the default.");
@@ -368,11 +368,11 @@ export const TOOL_DEFS = Object.freeze([
     name: "convert_symbol",
     title: "Convert a symbol",
     toolset: "market",
-    description: "Convert a TradingView, compact or broker symbol to the Bridge's canonical symbol, with its aliases.",
+    description: "Convert a chart ticker, compact or broker symbol to the Bridge's canonical symbol, with its aliases.",
     input: () =>
       z.strictObject({
         input: z.string().min(1).max(64),
-        from: z.enum(["auto", "canonical", "tradingview", "compact", "broker"]).nullable(),
+        from: z.enum(["auto", "canonical", "chart", "compact", "broker"]).nullable(),
         broker: z.string().regex(/^[a-z0-9]{2,20}$/).nullable(),
         exchange: exchangeIn.nullable(),
       }),
@@ -595,7 +595,7 @@ export const TOOL_DEFS = Object.freeze([
       const pv = await svc(rt.deps, "orders").preview(ctx, order);
       if (pv.ticketId) rt.prepared.put(pv.ticketId, order, principalKey(ctx));
       const nextStep = pv.ticketId
-        ? `Ask the person to confirm ticket ${pv.ticketId} in the Bridge on their computer (Option Hub, Pending confirmations) within about a minute. Once they share the confirmation code, call submit_confirmed_order with it. Nothing has been sent.`
+        ? `Ask the person to confirm ticket ${pv.ticketId} in the Bridge on their computer (dashboard, Orders, Pending confirmations) within about a minute. Once they share the confirmation code, call submit_confirmed_order with it. Nothing has been sent.`
         : "No ticket was opened because a check blocked the order (see checks). Nothing has been sent.";
       return {
         data: { ticketId: pv.ticketId ?? null, ok: Boolean(pv.ok), mode: pv.mode, checks: pv.checks ?? [], quantity: pv.quantity ?? null, estimatedValue: pv.estimatedValue ?? null, ltp: pv.ltp ?? null, requiresHumanConfirmation: Boolean(pv.requiresHumanConfirmation), nextStep },

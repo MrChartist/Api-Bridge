@@ -15,7 +15,7 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-const base = { source: "tradingview", label: "Nifty breakout", account: "dhan-main", product: "INTRADAY" };
+const base = { source: "gocharting", label: "Nifty breakout", account: "dhan-main", product: "INTRADAY" };
 
 describe("hook store", () => {
   it("returns the token once and stores only its hash", async () => {

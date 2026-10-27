@@ -219,6 +219,7 @@ describe("doctor: market-data source", () => {
     const md = checks.find((c) => c.check === "market-data");
     expect(md).toMatchObject({ level: "warn" });
     expect(md.message).toMatch(/No market-data source connected \(log in dhan-main\)/);
+    expect(md.message).toMatch(/mc-bridge start --demo/);
   });
 });
 

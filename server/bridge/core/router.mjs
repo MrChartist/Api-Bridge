@@ -3,7 +3,7 @@
  * wildcard, 404 vs 405 with an Allow header, and per-route options the request pipeline reads (auth, scope,
  * public ingress, body handling). That is ~100 lines; a framework would add surface without adding safety.
  *
- * Patterns: "/v1/orders", "/v1/orders/:orderId", "/udf/*". Params are URI-decoded; a param never contains "/".
+ * Patterns: "/v1/orders", "/v1/orders/:orderId", "/xl/*". Params are URI-decoded; a param never contains "/".
  * Static segments win over params at the same depth, regardless of registration order.
  */
 
@@ -20,7 +20,7 @@ export const METHODS = Object.freeze(["GET", "POST", "PUT", "PATCH", "DELETE"]);
  *   bodyLimitBytes?: number,
  *   summary?: string,
  *   formatError?: (err: unknown, info: { requestId: string }) => import("./http.mjs").Reply,
- *                                          // error body for clients that cannot read problem+json (UDF, Excel);
+ *                                          // error body for clients that cannot read problem+json (Excel);
  *                                          // used for every failure on the route, including auth and rate limit
  * }} RouteOptions
  * @typedef {(ctx: import("./context.mjs").RequestContext) => unknown | Promise<unknown>} Handler

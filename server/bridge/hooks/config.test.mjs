@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HOOKS_CONFIG_SCHEMA, TRADINGVIEW_IPS, expandIpList, hooksConfig, ipAllowed, isIpv4Cidr, normaliseIp } from "./config.mjs";
+import { HOOKS_CONFIG_SCHEMA, expandIpList, hooksConfig, ipAllowed, isIpv4Cidr, normaliseIp } from "./config.mjs";
 
 describe("hooks config", () => {
   it("has conservative defaults", () => {
@@ -12,16 +12,17 @@ describe("hooks config", () => {
   it("rejects unknown keys and bad addresses", () => {
     expect(HOOKS_CONFIG_SCHEMA.safeParse({ queue: 1 }).success).toBe(false);
     expect(HOOKS_CONFIG_SCHEMA.safeParse({ allowSourceIps: ["not-an-ip"] }).success).toBe(false);
-    expect(HOOKS_CONFIG_SCHEMA.safeParse({ allowSourceIps: ["tradingview", "10.0.0.0/8", "::1"] }).success).toBe(true);
+    expect(HOOKS_CONFIG_SCHEMA.safeParse({ allowSourceIps: ["52.89.214.238", "10.0.0.0/8", "::1"] }).success).toBe(true);
   });
 });
 
 describe("IP allowlists", () => {
-  it("expands the TradingView preset", () => {
-    expect(expandIpList(["tradingview"])).toEqual([...TRADINGVIEW_IPS]);
+  it("normalises entries", () => {
+    expect(expandIpList(["FE80::1", "10.1.0.0/16"])).toEqual(["fe80::1", "10.1.0.0/16"]);
+    expect(expandIpList(undefined)).toEqual([]);
   });
   it("matches exact addresses, IPv4-mapped IPv6 and CIDR blocks", () => {
-    const list = expandIpList(["tradingview", "10.1.0.0/16"]);
+    const list = expandIpList(["52.89.214.238", "10.1.0.0/16"]);
     expect(ipAllowed("52.89.214.238", list)).toBe(true);
     expect(ipAllowed("::ffff:52.89.214.238", list)).toBe(true);
     expect(ipAllowed("10.1.200.3", list)).toBe(true);

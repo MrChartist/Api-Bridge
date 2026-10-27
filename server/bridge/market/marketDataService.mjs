@@ -336,7 +336,7 @@ export function createMarketDataService(deps) {
 
   // ── symbols ──
 
-  /** Canonical symbol for any accepted input (canonical, venue form, TradingView, continuous futures ...). */
+  /** Canonical symbol for any accepted input (canonical, venue form, chart tickers, continuous futures ...). */
   async function canonical(input) {
     const s = String(input ?? "").trim();
     if (!s) throw new BridgeError("VALIDATION_FAILED", "A symbol is required.");
@@ -720,7 +720,7 @@ export function createMarketDataService(deps) {
     if (fromMs > toMs) throw new BridgeError("VALIDATION_FAILED", "from must be before to.", { errors: [{ path: "from", message: "after to" }] });
 
     const targetMs = o.maxAgeMs ?? cfg.freshness.historyMs;
-    // Chart clients send a slightly different from/to on every refresh (UDF pads `to`, TradingView moves it), so the
+    // Chart clients send a slightly different from/to on every refresh (they pad or move `to`), so the
     // cache key snaps both to interval steps and treats a `to` within one step of now as "now". The broker fetch
     // covers the whole snapped range, so a hit holds every bar of any request with the same key; it is then filtered
     // to the exact range asked for.
