@@ -108,6 +108,15 @@ describe("condition language", () => {
     expect(lookbackOf(parseExpression("ema(20)[5] > 1"))).toBeGreaterThanOrEqual(66);
     expect(languageReference().functions.length).toBeGreaterThan(10);
   });
+
+  it("counts offsets on plain fields and nested indicator sources", () => {
+    expect(lookbackOf(parseExpression("close > close[60]"))).toBeGreaterThanOrEqual(61);
+    expect(lookbackOf(parseExpression("sma(50, rsi(14)) > 50"))).toBeGreaterThanOrEqual(50 + 42);
+    expect(lookbackOf(parseExpression("change_pct[3] > 1"))).toBeGreaterThanOrEqual(5);
+    const closes = Array.from({ length: lookbackOf(parseExpression("sma(5, rsi(3)) > 0")) }, (_, i) => 100 + (i % 3));
+    const cols = columns(closes.map((c, i) => ({ time: i * 86_400, open: c, high: c, low: c, close: c, volume: 1 })));
+    expect(lastValue(parseExpression("sma(5, rsi(3))"), cols)).not.toBeNull();
+  });
 });
 
 // ── scan jobs ──
@@ -247,6 +256,42 @@ describe("scan jobs", () => {
     const p = await scanner.plan({ universe: "MINE", condition: "rsi(14) > 50" });
     expect(p).toMatchObject({ symbols: 1, backupFallback: false });
     expect(p.lookbackBars).toBeGreaterThanOrEqual(42);
+  });
+
+  it("cancelling a queued scan wakes anyone waiting on it", async () => {
+    const f = fakes();
+    const { scanner } = makeScanner(f, { scanner: { maxRunning: 1, perAccountConcurrency: 1 } });
+    const first = await scanner.start({ symbols: Array.from({ length: 100 }, (_, i) => `NSE:UP${i}`), condition: "close > 0" });
+    const queued = await scanner.start({ symbols: ["NSE:UP1"], condition: "close > 0" });
+    expect(queued.status).toBe("queued");
+    const t0 = Date.now();
+    const waiting = scanner.waitFor(queued, 10_000);
+    scanner.cancel(queued);
+    await waiting;
+    expect(Date.now() - t0).toBeLessThan(1000);
+    scanner.cancel(first);
+    await done(scanner, first);
+  });
+
+  it("saved-scan alerts compare all matches, not just the top N kept by limit", async () => {
+    const f = fakes({ candidates: ["acc-a"] });
+    const { scanner, events } = makeScanner(f);
+    const s = await scanner.save({ name: "Top", request: { symbols: ["NSE:UP1", "NSE:UP2", "NSE:UP3"], condition: "close > 0", limit: 1, sort: { by: "close" } } });
+    await done(scanner, await scanner.runSaved(s.id));
+    expect(scanner.saved()[0].lastRun.matched).toHaveLength(3);
+    await done(scanner, await scanner.runSaved(s.id));
+    expect(events.filter(([tp]) => tp === "scan.alert")).toHaveLength(0);
+  });
+
+  it("a revoked key's scheduled scans stop running", async () => {
+    let t = Date.UTC(2026, 9, 26, 5, 0);
+    const f = fakes({ candidates: ["acc-a"] });
+    const { scanner, bus } = makeScanner(f, { now: () => t });
+    await scanner.save({ name: "x", request: { symbols: ["NSE:UP1"], condition: "close > 0" }, everyMinutes: 5 }, { keyId: "key_gone" });
+    bus.emit("key.revoked", { keyId: "key_gone" });
+    await scanner.tick();
+    expect(scanner.list()).toHaveLength(0);
+    expect(scanner.saved()[0].disabledReason).toBe("key revoked");
   });
 
   it("cancels a running scan", async () => {

@@ -12,7 +12,7 @@
 import { BridgeError } from "../core/errors.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
 import { INTERVALS, countbackRange } from "../market/history.mjs";
-import { freshness, toLtpItem, toQuoteItem } from "../market/normalise.mjs";
+import { freshness, quoteFields, toLtpItem, toQuoteItem } from "../market/normalise.mjs";
 import { parseTimeInput } from "../market/time.mjs";
 
 const invalid = (path, detail) => new BridgeError("VALIDATION_FAILED", detail, { errors: [{ path, message: detail }] });
@@ -42,7 +42,7 @@ export function createBackupRoutes(deps) {
       const t = now();
       const data = r.items.map((it) => {
         const f = freshness({ source: "backup", at: it.at, now: t, targetMs: 0, provider: it.provider });
-        return ltpOnly ? toLtpItem(it.symbol, { ltp: it.fields.ltp }, f) : toQuoteItem(it.symbol, it.fields, f);
+        return ltpOnly ? toLtpItem(it.symbol, { ltp: it.fields.ltp }, f) : toQuoteItem(it.symbol, quoteFields(it.fields) ?? it.fields, f);
       });
       return { data, errors: r.errors, meta: { requestId: ctx.requestId } };
     },

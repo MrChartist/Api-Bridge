@@ -316,7 +316,11 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
     offs.push(...scanOffs);
   }
   function doUnsubscribeScans() {
-    for (const off of scanOffs ?? []) off();
+    for (const off of scanOffs ?? []) {
+      off();
+      const i = offs.indexOf(off);
+      if (i >= 0) offs.splice(i, 1);
+    }
     scanOffs = null;
   }
 

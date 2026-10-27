@@ -623,7 +623,8 @@ export function createMarketDataService(deps) {
           const b = await backup.quotes(forBackup, { maxAgeMs: o.maxAgeMs });
           for (const it of b.items ?? []) {
             if (!failures.has(it.symbol)) continue;
-            const fields = wantQuote ? it.fields : { ltp: it.fields.ltp };
+            const full = quoteFields(it.fields) ?? it.fields;
+            const fields = wantQuote ? full : { ltp: full.ltp };
             items.set(it.symbol, toItem(it.symbol, fields, freshness({ source: "backup", at: it.at, now: now(), targetMs, provider: it.provider })));
             failures.delete(it.symbol);
             stats.backup += 1;

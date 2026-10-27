@@ -55,7 +55,8 @@ export function createCompatWs({ hub, keyStore, accounts, bus, logger, account }
     }
   }
 
-  function attach(ws) {
+  function attach(ws, req) {
+    const ip = req?.socket?.remoteAddress ?? null;
     const id = `cws_${randomBytes(9).toString("base64url")}`;
     const entry = { ws, keyId: null };
     sockets.set(id, entry);
@@ -88,7 +89,7 @@ export function createCompatWs({ hub, keyStore, accounts, bus, logger, account }
       }
       const action = String(msg?.action ?? "").toLowerCase();
       if (action === "authenticate") {
-        const rec = typeof msg.api_key === "string" ? await keyStore.authenticate(msg.api_key, {}) : null;
+        const rec = typeof msg.api_key === "string" ? await keyStore.authenticate(msg.api_key, { ip }) : null;
         if (!rec || !expandScopes(rec.scopes).has("read")) {
           send({ type: "auth", status: "error", message: "Invalid API key" });
           return ws.close(4001, "invalid api key");
@@ -175,7 +176,7 @@ export function createCompatWs({ hub, keyStore, accounts, bus, logger, account }
     async handleUpgrade({ req, socket, head, reject }) {
       if (sockets.size >= MAX_CONNECTIONS) return reject("429 Too Many Requests");
       if (socket.destroyed) return;
-      wss.handleUpgrade(req, socket, head, attach);
+      wss.handleUpgrade(req, socket, head, (ws) => attach(ws, req));
     },
     close() {
       for (const s of sockets.values()) s.ws.close(1001, "shutting down");

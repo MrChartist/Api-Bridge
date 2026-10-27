@@ -91,6 +91,26 @@ export function createScanner(deps) {
     }
   }
   let saved = loadSaved();
+
+  // A revoked key's scans stop: running ones are cancelled and its scheduled scans no longer run.
+  deps.bus?.on?.("key.revoked", ({ keyId } = {}) => {
+    if (!keyId) return;
+    for (const j of jobs.values()) if (j.keyId === keyId && (j.status === "queued" || j.status === "running")) api.cancel(j);
+    let changed = false;
+    for (const s of saved) {
+      if (s.keyId === keyId && !s.disabledReason) {
+        s.disabledReason = "key revoked";
+        changed = true;
+      }
+    }
+    if (changed) {
+      try {
+        persist();
+      } catch (err) {
+        log?.warn?.("could not save scan state", { err: err?.message });
+      }
+    }
+  });
   const persist = () => {
     if (savedPath) writeFileAtomic(savedPath, `${JSON.stringify({ version: 1, scans: saved }, null, 2)}\n`);
   };
@@ -292,6 +312,9 @@ export function createScanner(deps) {
         return (av - bv) * dir;
       });
     } else job.results.sort((a, b) => (a.symbol < b.symbol ? -1 : 1));
+    // Every match, before `limit` trims the list: saved-scan alerts compare these, so a symbol moving in and out of
+    // the top N is not reported as new.
+    job.allMatched = job.results.map((r) => r.symbol);
     if (limit && job.results.length > limit) job.results = job.results.slice(0, limit);
     progressEvent(job, true);
     deps.bus?.emit?.("scan.completed", { keyId: job.keyId, jobId: job.id, savedId: job.savedId ?? null, status: job.status, matched: job.results.map((r) => r.symbol), progress: { ...job.progress } });
@@ -304,7 +327,7 @@ export function createScanner(deps) {
   function afterSavedRun(job) {
     const s = saved.find((x) => x.id === job.savedId);
     if (!s || job.status !== "completed") return;
-    const matched = job.results.map((r) => r.symbol);
+    const matched = job.allMatched ?? job.results.map((r) => r.symbol);
     const before = new Set(s.lastRun?.matched ?? []);
     const newMatches = s.lastRun ? matched.filter((m) => !before.has(m)) : [];
     s.lastRun = { jobId: job.id, at: job.finishedAt, matched, newMatches };
@@ -417,7 +440,7 @@ export function createScanner(deps) {
   // ── scheduling saved scans ──
 
   function due(s, t) {
-    if (!s.everyMinutes) return false;
+    if (!s.everyMinutes || s.disabledReason) return false;
     if (s.marketHoursOnly !== false) {
       const st = marketSession(new Date(t)).state;
       if (st !== "OPEN" && st !== "SPECIAL") return false;
@@ -441,7 +464,7 @@ export function createScanner(deps) {
     }
   }
 
-  return {
+  const api = {
     start,
     waitFor,
     view,
@@ -452,6 +475,7 @@ export function createScanner(deps) {
       if (job.status === "queued") {
         job.status = "cancelled";
         job.finishedAt = new Date(now()).toISOString();
+        deps.bus?.emit?.("scan.completed", { keyId: job.keyId, jobId: job.id, savedId: job.savedId ?? null, status: job.status, matched: [], progress: { ...job.progress } });
         return job;
       }
       if (job.status === "running") job.abort.abort();
@@ -525,4 +549,5 @@ export function createScanner(deps) {
       for (const j of jobs.values()) if (j.status === "running") j.abort.abort();
     },
   };
+  return api;
 }

@@ -93,6 +93,14 @@ describe("Yahoo provider", () => {
   });
 });
 
+describe("backup HTTP client", () => {
+  it("an HTML 404 page means 'not found', not a provider failure", async () => {
+    const fetchImpl = stubFetch([[/./, { status: 404, body: "<html>Not Found</html>" }]]);
+    const http = createHttpClient({ fetchImpl, provider: "NSE India" });
+    await expect(http.get("https://www.nseindia.com/api/x")).rejects.toMatchObject({ code: "SYMBOL_NOT_FOUND" });
+  });
+});
+
 describe("NSE provider", () => {
   it("converts NSE dates both ways", () => {
     expect(nseDateToIso("27-Oct-2026")).toBe("2026-10-27");
@@ -284,6 +292,8 @@ describe("MarketDataService falls back to backup sources", () => {
     expect(r.errors).toEqual([expect.objectContaining({ symbol: "NFO:NIFTY-2026-10-27-FUT", code: "BROKER_UNAVAILABLE" })]);
     expect(r.items[0].freshness).toMatchObject({ source: "backup", provider: "yahoo", accountId: null, broker: null, stale: true });
     expect(r.items[0].freshness.ageMs).toBe(5000);
+    // normalised like broker quotes: change and changePct are filled in
+    expect(r.items[0]).toMatchObject({ close: 99, change: 222, changePct: expect.any(Number) });
   });
 
   it("never falls back without allowBackup (orders, paper and safety reads)", async () => {

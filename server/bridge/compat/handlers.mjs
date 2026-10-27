@@ -56,8 +56,9 @@ export function createCompatHandlers(deps, cfg) {
     return pick.id;
   }
 
-  const readOpts = (ctx) => {
-    const o = { signal: ctx.signal, allowBackup: autoBackup() };
+  /** Read options. forOrder: the result picks or prices an order, so backup (public, possibly delayed) data is never used. */
+  const readOpts = (ctx, { forOrder = false } = {}) => {
+    const o = { signal: ctx.signal, allowBackup: !forOrder && autoBackup() };
     const allowed = allowedAccountsFor(ctx);
     if (allowed) o.allowedAccounts = allowed;
     return o;
@@ -122,7 +123,7 @@ export function createCompatHandlers(deps, cfg) {
   }
 
   /** The option symbol for an offset (ATM, ITM3, OTM2) from a chain. */
-  async function optionFor(ctx, body) {
+  async function optionFor(ctx, body, { forOrder = false } = {}) {
     const underlyingIn = String(body.underlying ?? "").toUpperCase();
     if (!underlyingIn) throw bad("underlying is required, for example NIFTY.", "underlying");
     const underlying = underlyingIn.replace(/\d{2}[A-Z]{3}\d{2}FUT$/, "");
@@ -136,11 +137,12 @@ export function createCompatHandlers(deps, cfg) {
     let expiry;
     if (body.expiry_date) expiry = expiryToIso(body.expiry_date);
     else {
-      const ex = await deps.marketData.expiries(underlying, readOpts(ctx));
+      const ex = await deps.marketData.expiries(underlying, readOpts(ctx, { forOrder }));
       expiry = ex.expiries[0];
       if (!expiry) throw new BridgeError("SYMBOL_NOT_FOUND", `No upcoming expiries for ${underlying}.`);
     }
-    const chain = await deps.marketData.optionChain({ underlying, expiry, strikes: Math.min(100, steps + 2), greeks: false }, readOpts(ctx));
+    const chain = await deps.marketData.optionChain({ underlying, expiry, strikes: Math.min(100, steps + 2), greeks: false }, readOpts(ctx, { forOrder }));
+    if (forOrder && chain.freshness?.source === "backup") throw new BridgeError("BROKER_UNAVAILABLE", "No broker account can price this option chain right now, so the strike cannot be chosen for an order.");
     const strikes = chain.rows.map((r) => r.strike);
     const atmIdx = strikes.indexOf(chain.atmStrike);
     if (atmIdx < 0) throw new BridgeError("UPSTREAM_ERROR", `Could not find the ATM strike for ${underlying}.`);
@@ -379,7 +381,7 @@ export function createCompatHandlers(deps, cfg) {
 
     async optionsorder(ctx, body) {
       ctx.requireScope("paper");
-      const opt = await optionFor(ctx, body);
+      const opt = await optionFor(ctx, body, { forOrder: true });
       const product = String(body.product ?? "MIS").toUpperCase();
       if (product !== "MIS" && product !== "NRML") throw bad("product must be MIS or NRML for options.", "product");
       const req = orderRequest(ctx, { ...body, product }, { symbol: opt.symbol, exchange: opt.exchange });

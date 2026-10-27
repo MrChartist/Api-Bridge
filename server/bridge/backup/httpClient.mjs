@@ -51,12 +51,13 @@ export function createHttpClient({ fetchImpl = globalThis.fetch, timeoutMs = 800
     if (res.status === 401 || res.status === 403) throw new BridgeError("UPSTREAM_ERROR", `${provider} refused the request (HTTP ${res.status}).`, { broker: { id: provider, code: `HTTP_${res.status}` } });
     let json = null;
     const text = await res.text();
+    if (res.status === 404 && !o.accept404) throw new BridgeError("SYMBOL_NOT_FOUND", `${provider} has no data for this request.`);
     try {
       json = text ? JSON.parse(text) : null;
     } catch {
+      if (res.status === 404) throw new BridgeError("SYMBOL_NOT_FOUND", `${provider} has no data for this request.`);
       throw new BridgeError("UPSTREAM_ERROR", `${provider} answered with something that is not JSON (HTTP ${res.status}).`);
     }
-    if (res.status === 404 && !o.accept404) throw new BridgeError("SYMBOL_NOT_FOUND", `${provider} has no data for this request.`);
     if (res.status >= 400 && res.status !== 404) {
       // Yahoo answers 4xx with { chart: { error } } for a bad symbol or range; let the caller read it.
       return { status: res.status, json };

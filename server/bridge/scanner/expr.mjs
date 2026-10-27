@@ -299,25 +299,40 @@ function checkCall(name, args) {
 }
 
 /** The most bars any part of the tree looks back, plus a margin for EMA/RSI warm-up. */
+/** Fields that look one bar back. */
+const PREV_FIELDS = new Set(["prev_close", "change", "change_pct", "gap_pct"]);
+/** Smoothed indicators: a few periods of warm-up before the value settles. */
+const SMOOTHED = new Set(["ema", "rsi", "atr", "macd", "macd_signal", "supertrend"]);
+
+/**
+ * Bars an expression needs for its value on the last bar: offsets add their k, an indicator adds its (warm-up)
+ * period on top of what its source needs, and crosses need one bar more.
+ */
 export function lookbackOf(tree) {
-  let max = 2;
-  const walk = (n, extra = 0) => {
-    if (!n) return;
-    if (n.t === "shift") return walk(n.x, extra + n.k);
-    if (n.t === "call") {
-      const p = n.periods.length ? Math.max(...n.periods.filter(Number.isInteger)) : 1;
-      // smoothed indicators need warm-up bars to settle
-      const warm = ["ema", "rsi", "atr", "macd", "macd_signal", "supertrend"].includes(n.name) ? p * 3 : p;
-      max = Math.max(max, warm + extra + 1);
-      walk(n.src, extra);
-      for (const a of n.args) walk(a, extra);
-      return;
+  const need = (n) => {
+    if (!n) return 0;
+    switch (n.t) {
+      case "num":
+        return 0;
+      case "field":
+        return PREV_FIELDS.has(n.name) ? 2 : 1;
+      case "shift":
+        return need(n.x) + n.k;
+      case "call": {
+        const ints = n.periods.filter(Number.isInteger);
+        const p = ints.length ? Math.max(...ints) : 1;
+        const own = SMOOTHED.has(n.name) ? p * 3 : p;
+        const src = n.src ? need(n.src) : 1;
+        const args = n.args.length ? Math.max(...n.args.map(need)) : 0;
+        return Math.max(own + src, args);
+      }
+      case "cross":
+        return Math.max(need(n.l), need(n.r)) + 1;
+      default:
+        return Math.max(need(n.l), need(n.r), need(n.x));
     }
-    if (n.t === "cross") max = Math.max(max, extra + 2);
-    for (const k of ["l", "r", "x"]) if (n[k]) walk(n[k], extra);
   };
-  walk(tree);
-  return max;
+  return Math.max(2, need(tree));
 }
 
 /** Candle list -> column arrays. */
