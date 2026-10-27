@@ -56,7 +56,7 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
   const out = [];
   const add = (level, check, message) => out.push({ level, check, message });
   const major = Number(process.versions.node.split(".")[0]);
-  add(major >= 20 ? "ok" : "fail", "node", `Node.js ${process.versions.node}${major >= 20 ? "" : " (20 or newer is required)"}`);
+  add(major >= 22 ? "ok" : "fail", "node", `Node.js ${process.versions.node}${major >= 22 ? "" : " (22 or newer is required)"}`);
   add(source ? "ok" : "warn", "config", source ? `Loaded ${source}` : "No bridge.config.json yet; using safe defaults. Run: npm run bridge -- init");
   if (config.demo) add("warn", "demo", "Demo mode is ON: sample prices, no real broker, paper orders only. Remove \"demo\" from the config (or start without --demo) for real accounts.");
   for (const w of warnings) add("warn", "config", w);

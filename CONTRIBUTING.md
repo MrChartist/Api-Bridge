@@ -10,7 +10,7 @@ Please read the [Code of Conduct](CODE_OF_CONDUCT.md) first. Security problems g
 
 ## Development setup
 
-You need Node.js 20 or newer (CI runs 20 and 22) and, for the Python SDK, Python 3.9 or newer.
+You need Node.js 22.12 or newer (CI runs 22 and 24; the test tools need 22.12) and, for the Python SDK, Python 3.9 or newer.
 
 ```bash
 git clone https://github.com/MrChartist/api-bridge.git

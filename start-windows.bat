@@ -12,10 +12,10 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-node -e "process.exit(Number(process.versions.node.split('.')[0]) >= 20 ? 0 : 1)"
+node -e "process.exit(Number(process.versions.node.split('.')[0]) >= 22 ? 0 : 1)"
 if errorlevel 1 (
   echo.
-  echo This needs Node.js 20 or newer. Install the LTS version from https://nodejs.org/ and try again.
+  echo This needs Node.js 22 or newer. Install the LTS version from https://nodejs.org/ and try again.
   echo.
   pause
   exit /b 1

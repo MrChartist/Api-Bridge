@@ -19,7 +19,7 @@ Design principles, in priority order:
 ## 2. Process model
 
 ```
-                         ┌──────────────────────── one Node.js 20+ process (mc-bridge start) ───────────────────────┐
+                         ┌──────────────────────── one Node.js 22+ process (mc-bridge start) ───────────────────────┐
  Web apps, scripts,      │  main listener 127.0.0.1:4300                                                             │
  Excel, AmiBroker,  ───► │   REST /v1/*  ·  SSE /v1/stream/sse  ·  WS /v1/stream  ·  /xl/*  ·  POST /mcp             │
  MCP relay (stdio)       │                                                                                           │

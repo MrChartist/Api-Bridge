@@ -4,6 +4,12 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ## [Unreleased]
 
+### Changed
+
+- **Node.js 22 or newer is now required** (Node 20 reached end of life in April 2026). CI runs Node 22 and 24.
+  The Node SDK in `sdk/node` still works on Node 20.
+- Dev tools: Vitest 5, TypeScript 7, @types/node 22; MCP SDK 1.32.2; GitHub Actions updated.
+
 ### Added
 
 - **Spread the work over your own accounts.** Many-symbol quote reads are split in each broker's batch size to the

@@ -12,7 +12,7 @@ Alerts, Excel, Python and AI assistants all share one careful connection to your
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-ef6a2e"></a>
   <img alt="41 brokers" src="https://img.shields.io/badge/brokers-41-ef6a2e">
   <img alt="paper trading by default" src="https://img.shields.io/badge/orders-paper%20by%20default-2e7d4f">
-  <img alt="Node.js 20+" src="https://img.shields.io/badge/node-20%2B-3c873a">
+  <img alt="Node.js 22+" src="https://img.shields.io/badge/node-22%2B-3c873a">
 </p>
 
 <p align="center">
@@ -63,7 +63,7 @@ trading on in the config file, every tool gets its own scoped key, and there is 
 
 ## Quick start in 3 steps
 
-You need **[Node.js 20 or newer](https://nodejs.org/)** (the LTS download is fine), except for Docker.
+You need **[Node.js 22 or newer](https://nodejs.org/)** (the LTS download is fine), except for Docker.
 
 ### Windows
 

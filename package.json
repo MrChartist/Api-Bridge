@@ -34,7 +34,7 @@
     "upstox"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "start": "node bin/mc-bridge.mjs start",
@@ -53,7 +53,7 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
+    "@types/node": "^22.20.5",
     "@vitest/coverage-v8": "^5.0.5",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"

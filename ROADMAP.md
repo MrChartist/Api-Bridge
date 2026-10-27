@@ -26,7 +26,7 @@ What we plan to work on after the first public release. Dates are targets, not p
 **Release plumbing**
 - Publish the Node SDK to npm and the Python SDK to PyPI.
 - Tagged releases with a changelog and a prebuilt Docker image.
-- Run CI on Windows and macOS as well as Linux, on Node 20 and 22.
+- Run CI on Windows and macOS as well as Linux, on Node 22 and 24.
 
 ## Done since launch
 

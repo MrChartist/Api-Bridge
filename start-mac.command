@@ -10,8 +10,8 @@ if ! command -v node >/dev/null 2>&1; then
   read -r -p "Press Enter to close." _
   exit 1
 fi
-if ! node -e "process.exit(Number(process.versions.node.split('.')[0]) >= 20 ? 0 : 1)"; then
-  echo "This needs Node.js 20 or newer. Install the LTS version from https://nodejs.org/ and try again."
+if ! node -e "process.exit(Number(process.versions.node.split('.')[0]) >= 22 ? 0 : 1)"; then
+  echo "This needs Node.js 22 or newer. Install the LTS version from https://nodejs.org/ and try again."
   read -r -p "Press Enter to close." _
   exit 1
 fi
