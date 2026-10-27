@@ -251,11 +251,14 @@ export function checkNormalisedError(result) {
   return p;
 }
 
-/** login() result: only declared session fields, string values, nothing that looks like a secret. */
-export function checkLoginResult(result, { sessionFields = [], secrets = [] } = {}) {
+/**
+ * login() result: only declared session fields, string values, nothing that looks like a secret.
+ * `now` is the caller's clock (epoch ms) so a component running on an injected clock judges expiresAt against it.
+ */
+export function checkLoginResult(result, { sessionFields = [], secrets = [], now = Date.now() } = {}) {
   const p = [];
   if (!result || typeof result.session !== "object" || result.session === null) return ["login() must return { session, expiresAt }"];
-  if (!isNum(result.expiresAt) || result.expiresAt <= Date.now() - 60_000) p.push("expiresAt must be a future epoch-ms number");
+  if (!isNum(result.expiresAt) || result.expiresAt <= now - 60_000) p.push("expiresAt must be a future epoch-ms number");
   const keys = Object.keys(result.session);
   if (!keys.length) p.push("session is empty");
   for (const k of keys) {

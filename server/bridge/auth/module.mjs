@@ -51,8 +51,10 @@ export function createHandlers(deps) {
         throw new BridgeError("VALIDATION_FAILED", "Send a JSON object with at least label and scopes.");
       }
       // A key cannot grant more than it holds (live needs live); the local CLI is not limited.
+      // Nor reach more accounts than it may use.
       const creatorScopes = ctx.principal?.kind === "local" ? undefined : [...(ctx.scopes ?? [])];
-      const { key, record } = await deps.keyStore.create(ctx.body, { loopback: ctx.loopback, creatorScopes });
+      const creatorAccounts = ctx.principal?.kind === "local" ? undefined : (ctx.key?.accounts ?? []);
+      const { key, record } = await deps.keyStore.create(ctx.body, { loopback: ctx.loopback, creatorScopes, creatorAccounts });
       await auditKeyEvent(deps, ctx, "key.created", { keyId: record.id, label: record.label, scopes: record.scopes, accounts: record.accounts, allowQuery: record.allowQuery, expiresAt: record.expiresAt, createdBy: ctx.key?.id ?? ctx.principal?.id ?? null });
       return json({ data: { key, record }, meta: meta(ctx) }, { status: 201 });
     },

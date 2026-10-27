@@ -1,7 +1,7 @@
 /**
  * Checks the files shipped in integrations/ and sdk/: AmiBroker formats match what /xl/history emits, no API key is
- * ever written into a shipped file, the AFL include reads the key from the environment or a key file, the chart page
- * keeps the TradingView attribution and pins its library version, and every /udf or /xl path the examples use exists.
+ * ever written into a shipped file, the AFL include reads the key from the environment or a key file, and every /xl
+ * path the examples use exists.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -67,44 +67,14 @@ describe("keys never live in shipped files", () => {
   });
 });
 
-describe("Lightweight Charts example", () => {
-  const html = read("integrations/charts/lightweight-charts.html");
-  it("keeps the TradingView attribution", () => {
-    expect(html).toMatch(/attributionLogo: true/);
-    expect(html).toMatch(/href="https:\/\/www\.tradingview\.com\/"/);
-    expect(html).toMatch(/Lightweight Charts™/);
-  });
-  it("pins an exact library version from an allowed CDN", () => {
-    const srcs = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
-    expect(srcs).toHaveLength(1);
-    expect(srcs[0]).toMatch(/^https:\/\/unpkg\.com\/lightweight-charts@\d+\.\d+\.\d+\//);
-  });
-  it("loads the library with a Subresource Integrity hash (the page holds an API key)", () => {
-    const tag = /<script src="https:\/\/unpkg[^>]*>/.exec(html)?.[0] ?? "";
-    expect(tag).toMatch(/integrity="sha384-[A-Za-z0-9+/=]{64}"/);
-    expect(tag).toMatch(/crossorigin="anonymous"/);
-  });
-  it("sends the key in a header, never in a URL, and never writes server text as HTML", () => {
-    expect(html).toMatch(/Authorization: "Bearer "/);
-    expect(html).not.toMatch(/[?&]key=/);
-    expect(html).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML|document\.write/);
-    expect(html).toMatch(/\/v1\/stream\/token/);
-  });
-  it("defines light and dark tokens and a body background", () => {
-    expect(html).toMatch(/@media \(prefers-color-scheme: dark\)/);
-    expect(html).toMatch(/:root\[data-theme="dark"\]/);
-    expect(html).toMatch(/body \{[^}]*background: var\(--bg\)/);
-  });
-});
-
 describe("examples only use routes that exist and are read-only", () => {
   const known = new Set(ROUTES.map(([, p]) => p));
-  it("every /udf or /xl path mentioned exists", () => {
+  it("every /xl path mentioned exists", () => {
     for (const f of SHIPPED.filter((x) => x.startsWith("integrations"))) {
-      for (const m of read(f).matchAll(/\/(udf|xl)\/([a-z]+)/g)) expect(known.has(`/${m[1]}/${m[2]}`), `${relative(ROOT, join(ROOT, f))}: ${m[0]}`).toBe(true);
+      for (const m of read(f).matchAll(/\/(xl)\/([a-z]+)/g)) expect(known.has(`/${m[1]}/${m[2]}`), `${relative(ROOT, join(ROOT, f))}: ${m[0]}`).toBe(true);
     }
   });
-  it("no spreadsheet, AmiBroker or chart code calls an order route", () => {
+  it("no spreadsheet or AmiBroker code calls an order route", () => {
     for (const f of SHIPPED.filter((x) => x.startsWith("integrations") && !x.endsWith(".md"))) expect(read(f), f).not.toMatch(/\/v1\/orders|placeOrder|place_order/);
   });
 });

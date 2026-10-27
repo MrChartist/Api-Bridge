@@ -1,34 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { parseGeneric } from "./receivers/generic.mjs";
 import { parseGoCharting } from "./receivers/gocharting.mjs";
-import { parseTradingView } from "./receivers/tradingview.mjs";
 import { alertTemplates } from "./templates.mjs";
 
-const hook = (o) => ({ source: "tradingview", side: null, orderType: "LIMIT", product: null, maxLotsPerSignal: 2, ...o });
-
-/** What TradingView would send once it fills the placeholders. */
-const fill = (msg) =>
-  msg
-    .replace("{{exchange}}", "NSE")
-    .replace("{{ticker}}", "RELIANCE")
-    .replace("{{strategy.order.action}}", "buy")
-    .replace("{{strategy.order.contracts}}", "1")
-    .replace("{{strategy.order.id}}", "Long")
-    .replace("{{timenow}}", "2026-10-19T04:00:00Z")
-    .replace("{{close}}", "1402.5");
+const hook = (o) => ({ source: "generic", side: null, orderType: "LIMIT", product: null, maxLotsPerSignal: 2, ...o });
 
 describe("alert templates match their receivers", () => {
-  it("TradingView strategy and indicator templates parse once filled, and refuse while unfilled", () => {
-    const [strategy, indicator] = alertTemplates(hook({}));
-    const s = parseTradingView(JSON.parse(fill(strategy.message)));
-    expect(s.signals[0]).toMatchObject({ symbol: "NSE:RELIANCE", side: "BUY", quantity: 1, price: 1402.5 });
-    expect(s.basis).toBe("tv|Long|2026-10-19T04:00:00Z");
-    expect(parseTradingView(JSON.parse(fill(indicator.message))).signals[0]).toMatchObject({ lots: 1, price: 1402.5 });
-    expect(() => parseTradingView(JSON.parse(strategy.message))).toThrow();
-  });
-  it("MARKET hooks get templates without a price", () => {
-    const [strategy] = alertTemplates(hook({ orderType: "MARKET" }));
-    expect(strategy.message).not.toContain("{{close}}");
+  it("MARKET hooks get examples without a price, LIMIT hooks with one", () => {
+    expect(JSON.parse(alertTemplates(hook({ orderType: "MARKET" }))[0].message).price).toBeUndefined();
+    expect(JSON.parse(alertTemplates(hook({}))[0].message).price).toBe(1402.5);
+    expect(alertTemplates(hook({ source: "gocharting", orderType: "MARKET" }))[0].message).toContain("MKT");
   });
   it("GoCharting and generic examples parse", () => {
     expect(parseGoCharting(alertTemplates(hook({ source: "gocharting" }))[0].message).signals[0]).toMatchObject({ side: "BUY", quantity: 1 });

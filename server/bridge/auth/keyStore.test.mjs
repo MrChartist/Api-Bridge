@@ -47,11 +47,11 @@ describe("KeyStore", () => {
 
   it("creates a key shown once and stores only a scrypt hash (production parameters)", async () => {
     const ks = createKeyStore({ logger, clock, paths: { dataDir: dir } });
-    const { key, record } = await ks.create({ label: "Option Hub", scopes: ["read"] });
+    const { key, record } = await ks.create({ label: "Dashboard", scopes: ["read"] });
     expect(key).toMatch(API_KEY_RE);
     expect(record).toEqual({
       id: key.slice(4, 14),
-      label: "Option Hub",
+      label: "Dashboard",
       scopes: ["read"],
       accounts: "*",
       allowQuery: false,

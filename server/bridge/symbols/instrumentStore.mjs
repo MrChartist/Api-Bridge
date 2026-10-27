@@ -332,7 +332,7 @@ export function createInstrumentStore({ freezeTable = INDEX_FREEZE_QUANTITIES } 
       }
       return [...(bareTsIndex.get(broker)?.get(ts) ?? [])];
     },
-    /** Sorted, unexpired futures expiries for EXCHANGE:UNDERLYING (for TradingView 1!/2!). */
+    /** Sorted, unexpired futures expiries for EXCHANGE:UNDERLYING (for chart tickers such as NIFTY1!/NIFTY2!). */
     futuresExpiries(exchange, underlying, today) {
       return (futExpiries.get(`${exchange}:${underlying}`) ?? []).filter((e) => e >= today);
     },

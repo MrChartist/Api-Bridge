@@ -33,8 +33,8 @@ const signal = (o = {}) => ({ symbol: "NSE:RELIANCE", side: "BUY", quantity: 10,
 describe("webhooks through the real OrderService", () => {
   it("a live hook on an account that allows webhooks places once per idempotency key", async () => {
     const { store, worker } = hooks();
-    const { hook } = await store.create({ source: "tradingview", label: "TV live", account: "zerodha-main", mode: "live", product: "CNC", maxLotsPerSignal: 10 });
-    const job = (id) => ({ signalId: id, hookId: hook.id, index: 0, signal: signal(), idempotencyKey: "hook:tv-double-fire-key-1", receivedAt: Date.now() });
+    const { hook } = await store.create({ source: "gocharting", label: "GC live", account: "zerodha-main", mode: "live", product: "CNC", maxLotsPerSignal: 10 });
+    const job = (id) => ({ signalId: id, hookId: hook.id, index: 0, signal: signal(), idempotencyKey: "hook:gc-double-fire-key-1", receivedAt: Date.now() });
     worker.enqueue([job("sig_a"), job("sig_b")]);
     await worker.idle();
     expect(h.zerodha.placed).toHaveLength(1);
@@ -44,7 +44,7 @@ describe("webhooks through the real OrderService", () => {
 
   it("a live hook on an account that does not allow webhooks is refused, never downgraded", async () => {
     const { store, worker } = hooks();
-    const { hook } = await store.create({ source: "tradingview", label: "TV", account: "dhan-main", mode: "live", product: "CNC", maxLotsPerSignal: 10 });
+    const { hook } = await store.create({ source: "gocharting", label: "GC", account: "dhan-main", mode: "live", product: "CNC", maxLotsPerSignal: 10 });
     worker.enqueue([{ signalId: "sig_c", hookId: hook.id, index: 0, signal: signal(), idempotencyKey: "hook:dhan-refused-0001", receivedAt: Date.now() }]);
     await worker.idle();
     expect(worker.get("sig_c")[0]).toMatchObject({ status: "rejected", code: "PAPER_ONLY" });
@@ -53,13 +53,13 @@ describe("webhooks through the real OrderService", () => {
 
   it("a confirmation-required hook opens a real ticket and reaches no broker", async () => {
     const { store, worker } = hooks();
-    const { hook } = await store.create({ source: "tradingview", label: "TV confirm", account: "zerodha-main", mode: "live", product: "CNC", maxLotsPerSignal: 10, requireConfirmation: true });
+    const { hook } = await store.create({ source: "gocharting", label: "GC confirm", account: "zerodha-main", mode: "live", product: "CNC", maxLotsPerSignal: 10, requireConfirmation: true });
     worker.enqueue([{ signalId: "sig_d", hookId: hook.id, index: 0, signal: signal(), idempotencyKey: "hook:confirm-0000001", receivedAt: Date.now() }]);
     await worker.idle();
     expect(worker.get("sig_d")[0].status).toBe("awaiting_confirmation");
     const tickets = await h.svc.tickets(h.ctx("admin"));
     expect(tickets).toHaveLength(1);
-    expect(tickets[0]).toMatchObject({ source: "webhook", client: "TV confirm" });
+    expect(tickets[0]).toMatchObject({ source: "webhook", client: "GC confirm" });
     expect(h.zerodha.placed).toHaveLength(0);
   });
 });

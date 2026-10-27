@@ -7,6 +7,8 @@
  *   { "op": "unsubscribe", "symbols": ["NSE:NIFTY"], "id"?: ... }
  *   { "op": "subscribe_orders", "accounts"?: ["dhan-main"], "id"?: ... }
  *   { "op": "unsubscribe_orders", "id"?: ... }
+ *   { "op": "subscribe_scans", "id"?: ... }        scanner progress, completions and saved-scan alerts (SSE: &scans=1)
+ *   { "op": "unsubscribe_scans", "id"?: ... }
  *   { "op": "ping", "id"?: ... }
  *
  * Server -> client messages, every one with `type` and a per-connection `seq` (1, 2, 3 ... in wire order):
@@ -14,6 +16,7 @@
  *   snapshot   { id?, mode, symbols, ticks, pending }               reply to subscribe: latest known value per symbol
  *   tick       { symbol, ltp, ... }                                 fields depend on the mode (see tickBody)
  *   order      { order }                                            from "order.updated", only accounts the key may use
+ *   scan       { event: progress|completed|alert, jobId, savedId, ... }   only this key's scans (all of them for an admin key)
  *   status     { accountId, broker, state: up|stale|down, connected, reason, subscriptions }
  *   error      { code, message, retryable, id?, op?, symbols? }
  *   go_away    { reason, message, reconnectAfterMs }                then the server closes the connection
@@ -48,6 +51,8 @@ export const clientOpSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("unsubscribe"), symbols: symbolList, id: opId }).strict(),
   z.object({ op: z.literal("subscribe_orders"), accounts: z.array(accountId).min(1).max(100).optional(), id: opId }).strict(),
   z.object({ op: z.literal("unsubscribe_orders"), id: opId }).strict(),
+  z.object({ op: z.literal("subscribe_scans"), id: opId }).strict(),
+  z.object({ op: z.literal("unsubscribe_scans"), id: opId }).strict(),
   z.object({ op: z.literal("ping"), id: opId }).strict(),
 ]);
 
@@ -188,6 +193,8 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
   let closed = false;
   /** @type {"*" | Set<string> | null} */
   let orderFilter = null;
+  /** Unsubscribe functions for the scan topics, or null when not subscribed. */
+  let scanOffs = null;
   let tokens = cfg.maxOpsPerSecond;
   let refillAt = now();
   const offs = [];
@@ -297,6 +304,26 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
     enqueue({ type: "order", order: p });
   };
 
+  const seesAllScans = expandScopes(key.scopes ?? []).has("admin");
+  const onScan = (event) => (p) => {
+    if (!p || (!seesAllScans && p.keyId !== key.id)) return;
+    const { keyId: _k, ...rest } = p;
+    enqueue({ type: "scan", event, ...rest });
+  };
+  function doSubscribeScans() {
+    if (scanOffs) return;
+    scanOffs = [bus.on("scan.progress", onScan("progress")), bus.on("scan.completed", onScan("completed")), bus.on("scan.alert", onScan("alert"))];
+    offs.push(...scanOffs);
+  }
+  function doUnsubscribeScans() {
+    for (const off of scanOffs ?? []) {
+      off();
+      const i = offs.indexOf(off);
+      if (i >= 0) offs.splice(i, 1);
+    }
+    scanOffs = null;
+  }
+
   // ── heartbeat and key re-check ──
   const beat = setInterval(() => {
     enqueue({ type: "heartbeat", time: istIso(now()), conflated: conflatedSinceBeat });
@@ -363,6 +390,8 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
       else if (op.op === "unsubscribe") doUnsubscribe(op);
       else if (op.op === "subscribe_orders") doSubscribeOrders(op);
       else if (op.op === "unsubscribe_orders") orderFilter = null;
+      else if (op.op === "subscribe_scans") doSubscribeScans();
+      else if (op.op === "unsubscribe_scans") doUnsubscribeScans();
       else if (op.op === "ping") enqueue({ type: "heartbeat", time: istIso(now()), conflated: conflatedSinceBeat, ...ref });
     } catch (err) {
       if (!(err instanceof BridgeError)) log.error("stream op failed", { op: op.op, err });

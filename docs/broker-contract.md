@@ -20,8 +20,8 @@ How every one of the 41 broker adapters in `server/brokers/` should look, how to
 | `server/brokers/__fixtures__/<id>/` | `manifest.json` + one `<capability>.json` per declared capability (+ `login.json` for session login). |
 | `server/brokers/contract.test.mjs` | The harness proven on Dhan, plus gate and `validateAdapter` rules. Also checks that **all 41** adapters pass the lenient contract. |
 | `server/brokers/sessionLogin.test.mjs` | All 8 session-login brokers: strict contract, login fixture, no network before login, UI prompts match the adapter. |
-| `src/lib/brokerConfig.ts` | `SESSION_LOGIN_BROKER_IDS`, `sessionLogin.prompts`, `getBrokerSessionState`, `withSession`. |
-| `src/components/BrokerSessionLoginDialog.tsx` | The "Log in" dialog. |
+| `server/bridge/accounts/session.mjs` | How the Bridge logs an account in: validates the login fields, calls `adapter.login()` once and keeps only the declared session fields, encrypted. |
+| `src/lib/brokerCatalog*.ts` | The broker catalogue (names, credential fields, docs links) used by the dashboard and `GET /v1/brokers`. |
 
 The vitest `server` project already picks up `server/**/*.{test,spec}.mjs`, so a new `server/brokers/<id>.test.mjs` runs with no config change.
 
@@ -30,7 +30,7 @@ The vitest `server` project already picks up `server/**/*.{test,spec}.mjs`, so a
 Every adapter module exports:
 
 ```js
-export const id = "mybroker";                       // matches src/lib/brokerConfig.ts and registry.mjs
+export const id = "mybroker";                       // matches src/lib/brokerCatalog*.ts and registry.mjs
 export const credentialFields = ["apiKey", ...];    // stored, NON-secret fields only
 export const capabilities = { auth: { kind: "..." }, testConnection: true, expiries: true, optionChain: { greeks: "broker"|"computed" }, ltp: true, ... };
 export async function testConnection(creds) {}      // + one function per declared capability (table below)
@@ -93,20 +93,19 @@ Field lists for `Position`, `Holding`, `Order`, `Trade`, `Quote` and `Instrument
 ## 5. Session login (password/PIN + current TOTP)
 
 ```
-Broker Settings "Log in" dialog --POST {values, secrets}--> /api/broker-session-login?broker=<id>
-      (type=password, autocomplete=one-time-code, state only)     |  loopback/Origin check, JSON, 4 KB cap,
-                                                                   |  5 attempts/min per IP+broker, no logging
+mc-bridge accounts connect <id> --POST {values, secrets}--> POST /v1/accounts/<id>/session
+      (input hidden, never written to disk)                       |  admin key, this computer only, no logging
                                                                    v
                                                          adapter.login({...values, ...secrets})
                                                                    |  returns { session, expiresAt }
-browser saves values + session + sessionExpiresAt  <--  only declared auth.sessionFields go back
-(same session-only/encrypted store as every key)
+encrypted secret store keeps the session  <--  only declared auth.sessionFields are kept
+(passwords, PINs and TOTP codes are dropped after this call)
 ```
 
 - `capabilities.auth = { kind: "sessionLogin", loginFields: [{ key, label, kind: "secret"|"totp" }], sessionFields: ["sessionToken", ...] }`. `loginFields` must include `{ key: "totpCode", kind: "totp" }`. Session field names must not match `FORBIDDEN_SECRET_KEY`.
 - `login(creds)`: call `requireFields` for the stored and secret fields, then `readTotpCode(creds)` (refuses anything but 6 digits, before any network call). Make the broker call(s) and return `{ session, expiresAt }`. Never cache by, log or return a secret.
 - Data calls: `sessionFromCreds(creds, SESSION_FIELDS, name)` throws `SessionRequiredError` when not logged in or expired. Call it **before** any instrument-master download. A broker-side token rejection must throw `SessionRequiredError`. There is no auto re-login.
-- Frontend: add the id to `SESSION_LOGIN_BROKER_IDS` in `src/lib/brokerConfig.ts`. Prompts come from the catalogue's secret fields, and a TOTP secret becomes `totpCode`. `sessionLogin.test.mjs` fails if the UI prompts or saveable fields drift from the adapter.
+- Catalogue: add the broker and its fields to `src/lib/brokerCatalog*.ts`; `mc-bridge accounts connect` prompts for the adapter's `loginFields`. `sessionLogin.test.mjs` fails if the prompts or saveable fields drift from the adapter.
 - Already done for: angelone, fivepaisa, firstock, kotak, motilal, mstock, nubra, tradejini (login fixtures only; data-capability fixtures are each engineer's job). Kotak's `sessionBaseUrl` is pinned to `https://*.kotaksecurities.com` at login and on every use.
 
 ## 6. Fixtures and the harness

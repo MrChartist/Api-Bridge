@@ -17,7 +17,7 @@
  *   max order value / lots     x      x       -     live place with an unknown value is refused
  *   price band vs LTP          x      x       -     price and trigger price
  *   market-order policy        x      x       -     "reject" refuses MARKET/SL-M; "protect" warns
- *   market hours               x      x       -     live refused when closed; paper only warned. NSE/BSE/NFO/BFO
+ *   market hours               x      x       -     live refused when closed; paper warned (not in demo). NSE/BSE/NFO/BFO
  *                                                    from lib/marketHours; MCX and CDS from a weekday time window
  *                                                    (needs verification; no holiday list for them)
  *   static IP                  warn   warn    -     when registeredIp is set and the detected egress IP differs
@@ -383,20 +383,24 @@ export function createSafetyGuard(deps, opts = {}) {
         }
       }
 
-      // Market hours
+      // Market hours. Paper is only warned, and only when the warning is true: the paper engine fills against any
+      // recent price whatever the clock says, and demo mode generates prices round the clock, so a demo paper order
+      // fills at once and needs no warning. With a real data source a closed market usually means no fresh price.
+      const warnClosed = config.demo !== true;
+      const PAPER_CLOSED_NOTE = "a paper order fills only against a recent price, so it may stay open until trading resumes";
       if (action === "place" || action === "modify") {
         const exch = exchangeOf(order?.symbol);
         if (exch && EQUITY_SESSION_EXCHANGES.has(exch)) {
           const sess = sessionAt(new Date(t));
           if (sess.state !== "OPEN" && sess.state !== "SPECIAL") {
             if (mode === "live") block("MARKET_CLOSED", "marketHours", `The ${exch} market is not open for orders now (${sess.label}).`);
-            else warnings.push(`The ${exch} market is not open now (${sess.label}); the paper order will wait for prices.`);
+            else if (warnClosed) warnings.push(`The ${exch} market is not open now (${sess.label}); ${PAPER_CLOSED_NOTE}.`);
           }
         } else if (exch === "MCX" || exch === "CDS") {
           if (!windowOpen(exch, t)) {
             const label = `${exch} is outside its usual trading hours (${SESSION_WINDOWS[exch].label}, Monday to Friday; needs verification, holidays not known)`;
             if (mode === "live") block("MARKET_CLOSED", "marketHours", `${label}. The order was not sent.`);
-            else warnings.push(`${label}; the paper order will wait for prices.`);
+            else if (warnClosed) warnings.push(`${label}; ${PAPER_CLOSED_NOTE}.`);
           } else if (mode === "live") {
             warnings.push(`${exch} holidays are not checked by the Bridge (needs verification); the broker will refuse an order on a holiday.`);
           }

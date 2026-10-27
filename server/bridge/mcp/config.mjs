@@ -10,7 +10,7 @@
  *
  * Default: read-only. Order tools exist only when "orders" is in toolsets AND orderAccounts lists the account AND the
  * calling key has the "paper" scope (or "live") AND may use that account. Even then they only prepare a ticket: a
- * person confirms it in the Bridge on this computer (Option Hub, Pending confirmations) before anything is sent.
+ * person confirms it in the Bridge on this computer (dashboard, Orders, Pending confirmations) before anything is sent.
  * There is no tool, and no setting here, that can change paper/live mode, key scopes or release the kill switch.
  */
 import { z } from "zod";

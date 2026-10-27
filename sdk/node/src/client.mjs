@@ -200,6 +200,32 @@ export class BridgeClient {
   optionChain({ underlying, expiry, strikes, greeks, account, maxAgeMs } = {}) { return this._get("/v1/optionchain", { underlying, expiry, strikes, greeks, account, maxAgeMs }); }
   streamStats() { return this._get("/v1/stream/stats"); }
 
+  // ── Backup data (Yahoo Finance, NSE website; labelled freshness.source "backup") ──
+  backupStatus() { return this._get("/v1/backup/status"); }
+  backupQuotes(symbols, { fields } = {}) { return this._get("/v1/backup/quotes", { symbols: [].concat(symbols), fields }); }
+  backupHistory({ symbol, interval, from, to, countback } = {}) { return this._get("/v1/backup/history", { symbol, interval, from, to, countback }); }
+
+  // ── Scanner ──
+  scannerLanguage() { return this._get("/v1/scanner/language"); }
+  scannerUniverses() { return this._get("/v1/scanner/universes"); }
+  scannerUniverse(name) { return this._get(`/v1/scanner/universes/${encodeURIComponent(name)}`); }
+  async planScan(scan, o = {}) { return (await this.request("POST", "/v1/scanner/plan", { body: scan, signal: o.signal })).body; }
+  /** Start a scan; with waitMs the reply carries the results when it finished in time (status "completed"). */
+  async scan(scan, { waitMs, signal } = {}) {
+    return (await this.request("POST", "/v1/scanner/jobs", { body: scan, query: { waitMs }, signal, timeoutMs: Math.max(this.timeoutMs, (waitMs ?? 0) + 10_000) })).body;
+  }
+  scans() { return this._get("/v1/scanner/jobs"); }
+  scanJob(jobId) { return this._get(`/v1/scanner/jobs/${encodeURIComponent(jobId)}`); }
+  async cancelScan(jobId) { return (await this.request("DELETE", `/v1/scanner/jobs/${encodeURIComponent(jobId)}`)).body; }
+  savedScans() { return this._get("/v1/scanner/saved"); }
+  async saveScan({ name, request, everyMinutes, marketHoursOnly } = {}) {
+    return (await this.request("POST", "/v1/scanner/saved", { body: { name, request, everyMinutes, marketHoursOnly } })).body;
+  }
+  async deleteSavedScan(savedId) { return (await this.request("DELETE", `/v1/scanner/saved/${encodeURIComponent(savedId)}`)).body; }
+  async runSavedScan(savedId, { waitMs } = {}) {
+    return (await this.request("POST", `/v1/scanner/saved/${encodeURIComponent(savedId)}/run`, { query: { waitMs }, timeoutMs: Math.max(this.timeoutMs, (waitMs ?? 0) + 10_000) })).body;
+  }
+
   // ── Portfolio ──
   positions(account, { mode } = {}) { return this._get("/v1/positions", { account, mode }); }
   holdings(account) { return this._get("/v1/holdings", { account }); }

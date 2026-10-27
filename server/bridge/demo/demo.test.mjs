@@ -122,8 +122,8 @@ describe("demo mode end to end", () => {
     expect(c.body.data.rows[3].ce.delta).toBeGreaterThan(0);
     const hist = await get("/v1/history?symbol=NSE:NIFTY&interval=1d&countback=5");
     expect(hist.body.data.candles).toHaveLength(5);
-    const udf = await fetch(`${base}/udf/config`, { headers: { Authorization: `Bearer ${key}` } });
-    expect(udf.headers.get(DEMO_HEADER)).toBe("demo");
+    const cell = await fetch(`${base}/xl/ltp?symbol=NSE:NIFTY`, { headers: { Authorization: `Bearer ${key}` } });
+    expect(cell.headers.get(DEMO_HEADER)).toBe("demo");
   });
 
   it("places paper orders and refuses live ones; writes no secrets file or master key", async () => {

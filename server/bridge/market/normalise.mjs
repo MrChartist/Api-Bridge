@@ -28,14 +28,16 @@ const round = (n, dp) => {
 
 /**
  * Build a Freshness label.
- * @param {{ source: "stream"|"cache"|"broker"|"paper", at: number, now: number, targetMs: number, stale?: boolean,
- *   accountId?: string | null, broker?: string | null }} p
+ * @param {{ source: "stream"|"cache"|"broker"|"paper"|"backup", at: number, now: number, targetMs: number, stale?: boolean,
+ *   accountId?: string | null, broker?: string | null, provider?: string }} p
  *   stale defaults to "older than the target"; pass it explicitly to force a label (live stream ticks are never stale).
  * @returns {import("../core/contracts.mjs").Freshness}
  */
-export function freshness({ source, at, now, targetMs, stale, accountId = null, broker = null }) {
+export function freshness({ source, at, now, targetMs, stale, accountId = null, broker = null, provider }) {
   const ageMs = Math.max(0, Math.round(now - at));
-  return { source, asOf: toIstIso(at), ageMs, stale: stale ?? ageMs > targetMs, accountId: accountId ?? null, broker: broker ?? null };
+  const out = { source, asOf: toIstIso(at), ageMs, stale: stale ?? ageMs > targetMs, accountId: accountId ?? null, broker: broker ?? null };
+  if (provider) out.provider = provider;
+  return out;
 }
 
 /**

@@ -1,8 +1,9 @@
 /**
- * Query-string helpers shared by the UDF and spreadsheet routes (stream S10). Every helper throws
+ * Query-string helpers for the spreadsheet and AmiBroker routes (stream S10). Every helper throws
  * VALIDATION_FAILED with a field path, so clients get the same error shape as the /v1 routes.
  */
 import { BridgeError } from "../core/errors.mjs";
+import { allowedAccountsFor } from "../market/routes.mjs";
 
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 
@@ -53,26 +54,19 @@ export function enumParam(query, name, allowed, dflt) {
   return hit;
 }
 
-/** Comma-separated list, trimmed, blanks dropped, at most `max` entries. */
-export function listParam(query, name, max, example) {
-  const raw = opt(query, name);
-  const list = String(raw ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (!list.length) throw invalid(name, `${name} is required${example ? `, for example ${example}` : ""}.`);
-  if (list.length > max) throw invalid(name, `Ask for at most ${max} symbols at a time.`);
-  return list;
-}
-
 /**
  * Market-data read options from the query: an optional pinned `account` (checked against the key first) and
- * `maxAgeMs`. The caller's abort signal is passed through so a closed chart stops waiting for budget.
+ * `maxAgeMs`. The caller's abort signal is passed through so a closed client stops waiting for budget.
  * @param {import("../core/context.mjs").RequestContext} ctx
- * @param {{ maxAge?: boolean }} [o]
+ * @param {{ maxAge?: boolean, autoBackup?: boolean }} [o]  autoBackup: the config default for `?backup=` (unpinned
+ *   reads that no broker can answer fall back to the labelled backup data sources).
  */
-export function readOptions(ctx, { maxAge = true } = {}) {
+export function readOptions(ctx, { maxAge = true, autoBackup = false } = {}) {
   const opts = { signal: ctx.signal, priority: "interactive" };
+  // Unpinned reads stay inside the key's account list: a key limited to one account never borrows another's
+  // market-data entitlement or rate budget.
+  const allowed = allowedAccountsFor(ctx);
+  if (allowed) opts.allowedAccounts = allowed;
   const account = opt(ctx.query, "account");
   if (account !== undefined) {
     if (!ACCOUNT_RE.test(account)) throw invalid("account", "account is not a valid account id.");
@@ -83,7 +77,16 @@ export function readOptions(ctx, { maxAge = true } = {}) {
     const m = intParam(ctx.query, "maxAgeMs", 0, 3_600_000);
     if (m !== undefined) opts.maxAgeMs = m;
   }
+  const b = opt(ctx.query, "backup");
+  if (b !== undefined && !/^(true|false|1|0)$/i.test(b)) throw invalid("backup", "backup must be true or false.");
+  const backup = b === undefined ? autoBackup : /^(true|1)$/i.test(b);
+  if (backup && opts.accountId === undefined) opts.allowBackup = true;
   return opts;
+}
+
+/** The `?backup=` default from config: backup sources on, autoFallback on, not demo mode. */
+export function autoBackupFromConfig(config) {
+  return Boolean(config && config.demo !== true && config.backup?.enabled === true && config.backup?.autoFallback !== false);
 }
 
 /** Turn anything thrown into a BridgeError (unknown errors become INTERNAL without their message). */

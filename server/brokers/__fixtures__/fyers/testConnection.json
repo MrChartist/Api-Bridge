@@ -14,7 +14,7 @@
           "pin_change_date": "15-12-2022 09:24:05",
           "email_id": "dummy@example.com",
           "pwd_change_date": "None",
-          "PAN": "FYxxxxxx0S",
+          "PAN": "AAxxxxxx0A",
           "mobile_number": "99xxxxxx99",
           "totp": true,
           "pwd_to_expire": 90,

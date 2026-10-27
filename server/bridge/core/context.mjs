@@ -28,7 +28,7 @@ export function hasScope(granted, needed) {
 
 /**
  * @typedef {{ id: string, label: string, scopes: string[], accounts: string[] | "*", allowQuery?: boolean,
- *   clientKind?: "script"|"excel"|"tradingview"|"mcp"|"ui"|"other", createdAt: string, expiresAt?: string | null,
+ *   clientKind?: "script"|"excel"|"mcp"|"ui"|"other", createdAt: string, expiresAt?: string | null,
  *   lastUsedAt?: string | null, revokedAt?: string | null }} KeyRecord
  *   Public view of an API key. Never holds the key or its hash.
  * @typedef {{ kind: "key", id: string, label: string } | { kind: "hook", id: string, label?: string } |

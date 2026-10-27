@@ -1,10 +1,10 @@
 /**
  * Acceptance (docs/STREAMS.md §S10): nothing in this stream can place an order. Proved four ways:
  *  1. every S10 route is a GET with scope "read" (no write method, no paper/live scope);
- *  2. the handlers, driven with every route and hostile inputs, touch only deps.marketData, deps.symbols and
- *     deps.clock (a recording Proxy around deps);
+ *  2. the handlers, driven with every route and hostile inputs, touch only deps.marketData (a recording Proxy
+ *     around deps);
  *  3. through the real HTTP pipeline, with recording order/paper/safety services installed, no request reaches them,
- *     and every write method on /udf and /xl is refused with 405;
+ *     and every write method on /xl is refused with 405;
  *  4. the module's source never names an order-capable service or method.
  */
 import { readFileSync, readdirSync } from "node:fs";
@@ -49,18 +49,18 @@ function recordingServices(log) {
 
 describe("route table", () => {
   it("every S10 route is GET with scope read", () => {
-    expect(ROUTES.length).toBe(10);
+    expect(ROUTES.length).toBe(4);
     for (const [method, path, options] of ROUTES) {
       expect(method, path).toBe("GET");
       expect(options.scope, path).toBe("read");
       expect(options.auth ?? "key", path).toBe("key");
       expect(options.public, path).toBeUndefined();
-      expect(path).toMatch(/^\/(udf|xl)\//);
+      expect(path).toMatch(/^\/xl\//);
     }
   });
 });
 
-describe("handlers only read market data, symbols and the clock", () => {
+describe("handlers only read market data", () => {
   it("records every deps property the handlers touch", async () => {
     const touched = new Set();
     const calls = [];
@@ -87,12 +87,12 @@ describe("handlers only read market data, symbols and the clock", () => {
           /* table routes may throw validation errors; that is fine */
         }
       }
-      expect([...touched].filter((p) => !["marketData", "symbols", "clock"].includes(p)), key).toEqual([]);
+      expect([...touched].filter((p) => p !== "marketData"), key).toEqual([]);
     }
     expect(calls).toEqual([]);
     // the probe really observed the handlers (not a vacuous pass)
-    expect([...touched].sort()).toEqual(["clock", "marketData", "symbols"]);
-    expect(USED_SERVICES).toEqual(["marketData", "symbols"]);
+    expect([...touched].sort()).toEqual(["marketData"]);
+    expect(USED_SERVICES).toEqual(["marketData"]);
   });
 });
 
@@ -132,7 +132,7 @@ describe("source", () => {
   it("never names an order-capable service or method", () => {
     const dir = new URL("./", import.meta.url);
     const files = readdirSync(dir).filter((f) => f.endsWith(".mjs") && !f.endsWith(".test.mjs"));
-    expect(files.sort()).toEqual(["config.mjs", "ist.mjs", "module.mjs", "params.mjs", "udf.mjs", "xl.mjs"]);
+    expect(files.sort()).toEqual(["config.mjs", "ist.mjs", "module.mjs", "params.mjs", "xl.mjs"]);
     for (const f of files) {
       const src = readFileSync(new URL(f, dir), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ""); // code only
       expect(src, f).not.toMatch(/deps\.(orders|paper|safety|audit|accounts|scheduler|keyStore|secrets)\b/);

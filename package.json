@@ -4,8 +4,35 @@
   "description": "Mr. Chartist API Bridge: one local API for all your Indian broker accounts, with rate-limit-aware routing, streaming and safety gates.",
   "type": "module",
   "private": true,
-  "license": "SEE LICENSE IN LICENSE",
-  "author": "Rohit Singh (Mr. Chartist)",
+  "license": "MIT",
+  "author": "Mr. Chartist",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MrChartist/api-bridge.git"
+  },
+  "homepage": "https://github.com/MrChartist/api-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/MrChartist/api-bridge/issues"
+  },
+  "keywords": [
+    "trading",
+    "india",
+    "broker",
+    "nse",
+    "bse",
+    "option-chain",
+    "market-data",
+    "rate-limit",
+    "websocket",
+    "webhooks",
+    "excel",
+    "amibroker",
+    "mcp",
+    "paper-trading",
+    "dhan",
+    "zerodha",
+    "upstox"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -23,7 +50,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
     "ws": "8.22.0",
-    "zod": "4.6.4"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.16.5",

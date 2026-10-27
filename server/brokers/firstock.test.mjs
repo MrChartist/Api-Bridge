@@ -39,6 +39,10 @@ const stub = (responses) => {
   return s;
 };
 
+// The fixtures are a snapshot taken before the 2026-10-20 NIFTY weekly expiry. Freeze Date there (10:30 IST on
+// 2026-10-17, as the other broker suites do) so option chains are priced with time left to expiry on any run date.
+beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-10-17T05:00:00Z")); });
+afterEach(() => { vi.useRealTimers(); });
 beforeEach(() => cache.__clear());
 afterEach(() => { globalThis.fetch = realFetch; });
 

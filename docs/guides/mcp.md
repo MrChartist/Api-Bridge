@@ -53,7 +53,7 @@ environment); clients that speak Streamable HTTP use `http://127.0.0.1:4300/mcp`
 | Toolset | Tools |
 |---|---|
 | `market` | `get_ltp`, `get_quotes`, `get_depth`, `get_history`, `get_expiries`, `get_option_chain`, `search_instruments`, `convert_symbol` |
-| `analytics` | `option_chain_summary`, `history_summary` |
+| `analytics` | `option_chain_summary`, `history_summary`, `scan_market` (technical scans, see [scanner.md](scanner.md)) |
 | `account` | `list_accounts`, `get_positions`, `get_holdings`, `get_funds`, `list_orders`, `get_order`, `get_safety_status` |
 | `orders` (off by default) | `prepare_order`, `submit_confirmed_order` |
 

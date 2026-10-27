@@ -5,7 +5,7 @@ info:
   summary: One local API for all your Indian broker accounts.
   description: |
     The Bridge runs on your own computer (default `http://127.0.0.1:4300`) and holds your connections to several
-    brokers and accounts at once. Option Hub, charts, TradingView/ChartInk alerts, Python and Node scripts, Excel,
+    brokers and accounts at once. Web apps, webhook alerts (ChartInk, GoCharting, signed scripts), Python and Node scripts, Excel,
     Google Sheets and AI assistants all share those connections through this API, so the broker sees one well-behaved
     client instead of many.
 
@@ -21,8 +21,8 @@ info:
     | `live` | `paper` + live orders, only on accounts enabled for live trading in `bridge.config.json`, and only when the request says `"mode": "live"` |
     | `admin` | `read` + keys, audit log, kill-switch release, broker sessions; from this computer only |
 
-    Keys may also be limited to some accounts. `?key=` in the URL is accepted only on `/udf/*` and `/xl/*`, and only for
-    read-only keys created with `--allow-query` (Excel `WEBSERVICE` and some chart libraries cannot send headers).
+    Keys may also be limited to some accounts. `?key=` in the URL is accepted only on `/xl/*`, and only for
+    read-only keys created with `--allow-query` (Excel `WEBSERVICE` and AmiBroker cannot send headers).
     Streaming endpoints take a short-lived `?token=` from `POST /v1/stream/token`, or an Authorization header.
 
     ## Symbols
@@ -38,7 +38,7 @@ info:
     `EXCHANGE:UNDERLYING[-YYYY-MM-DD(-FUT | -STRIKE-CE | -STRIKE-PE)]`. Exchange codes are NSE and BSE (cash and
     indices), NFO and BFO (equity derivatives), MCX and CDS. The ISO expiry removes the ambiguity of exchange trading
     symbols (weekly codes, DDMMMYY vs YYMDD), the suffix is parsed from the right so hyphens in names are safe, and no
-    lookup is needed to read it. Inputs are lenient (case, `NSE:` for derivatives, TradingView tickers such as
+    lookup is needed to read it. Inputs are lenient (case, `NSE:` for derivatives, chart tickers such as
     `NSE:NIFTY1!`, compact symbols with an exchange); responses always use the canonical form. Convert with
     `/v1/symbols/convert`.
 
@@ -65,8 +65,8 @@ info:
   contact:
     name: Investology (Mr. Chartist)
   license:
-    name: Mr. Chartist API Bridge Personal Use Licence 1.0
-    identifier: LicenseRef-MrChartist-Personal-Use-1.0
+    name: MIT
+    identifier: MIT
 servers:
   - url: http://127.0.0.1:4300
     description: Local Bridge (default)
@@ -96,14 +96,22 @@ tags:
     description: Broker limits, budgets and usage.
   - name: Safety
     description: Kill switch, safety counters and the audit log.
-  - name: Charting (UDF)
-    description: TradingView UDF-compatible datafeed.
   - name: Spreadsheets
     description: Plain-text and CSV endpoints for Excel, Google Sheets and AmiBroker.
   - name: Webhooks
-    description: Inbound alerts from TradingView, ChartInk, GoCharting and signed senders.
+    description: Inbound alerts from ChartInk, GoCharting and signed senders.
   - name: AI (MCP)
     description: Model Context Protocol endpoint for AI assistants.
+  - name: Scanner
+    description: Condition scans over big universes, spread over your pooled accounts at background priority.
+  - name: Compat REST
+    description: >-
+      Endpoints in the common apikey-in-body style (POST JSON, `apikey` in the body, { status, ... } replies) so SDKs and add-ins written for that style work
+      against the Bridge. Same services, limits and safety as /v1; orders are paper while analyzer mode is on.
+  - name: Notifications
+    description: Push saved-scan alerts, live fills, the kill switch and expired sessions to Telegram, Discord, Slack or a signed webhook.
+  - name: Backup data
+    description: Free public sources (Yahoo Finance, NSE website) used as a labelled fallback when no broker account can answer.
 
 paths:
   /v1/health:
@@ -686,6 +694,7 @@ paths:
       x-scope: read
       parameters:
         - $ref: "#/components/parameters/Symbols"
+        - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
       responses:
@@ -712,6 +721,7 @@ paths:
       x-scope: read
       parameters:
         - $ref: "#/components/parameters/Symbols"
+        - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
       responses:
@@ -781,6 +791,7 @@ paths:
         - name: format
           in: query
           schema: { type: string, enum: [json, csv], default: json }
+        - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/AccountQueryOptional"
       responses:
         "200":
@@ -814,6 +825,7 @@ paths:
         - name: exchange
           in: query
           schema: { type: string, enum: [NFO, BFO, MCX, CDS] }
+        - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/AccountQueryOptional"
       responses:
         "200":
@@ -858,6 +870,7 @@ paths:
         - name: greeks
           in: query
           schema: { type: boolean, default: true }
+        - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
       responses:
@@ -1086,7 +1099,7 @@ paths:
       tags: [Orders]
       operationId: previewOrder
       summary: Check an order without sending it
-      description: Resolves the symbol and lot size, runs every safety check, and returns warnings and the estimated value. When a human must confirm (orders from AI assistants, or hooks set to require it), it opens a ticket that you confirm in Option Hub; the confirmation yields the `confirmToken` that `POST /v1/orders` needs.
+      description: Resolves the symbol and lot size, runs every safety check, and returns warnings and the estimated value. When a human must confirm (orders from AI assistants, or hooks set to require it), it opens a ticket that you confirm in the dashboard (Orders, Pending confirmations); the confirmation yields the `confirmToken` that `POST /v1/orders` needs.
       x-stream: S7
       x-scope: paper
       requestBody:
@@ -1281,7 +1294,7 @@ paths:
       tags: [Orders]
       operationId: listTickets
       summary: Orders waiting for a human confirmation
-      description: Option Hub's "Pending confirmations" panel polls this (or listens on the stream) and shows each ticket's full order, its source (AI assistant or webhook) and its checks. Admin scope, this computer only.
+      description: The dashboard's "Pending confirmations" panel polls this (or listens on the stream) and shows each ticket's full order, its source (AI assistant or webhook) and its checks. Admin scope, this computer only.
       x-stream: S7
       x-scope: admin
       x-loopback-only: true
@@ -1541,133 +1554,6 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
-  /udf/config:
-    get:
-      tags: [Charting (UDF)]
-      operationId: udfConfig
-      summary: TradingView UDF datafeed configuration
-      description: "UDF responses use the UDF wire format (`{ s: \"ok\" | \"error\" | \"no_data\", ... }`, Unix seconds), not the `/v1` envelope. Works with any UDF-compatible chart, including a TradingView Advanced Charts licence you hold yourself."
-      x-stream: S10
-      x-scope: read
-      security:
-        - bearerAuth: []
-        - apiKeyQuery: []
-      responses:
-        "200":
-          description: Datafeed configuration.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/UdfObject" }
-        "4XX": { $ref: "#/components/responses/Problem" }
-
-  /udf/symbols:
-    get:
-      tags: [Charting (UDF)]
-      operationId: udfSymbols
-      summary: Symbol info (lot size, tick, session in Asia/Kolkata)
-      x-stream: S10
-      x-scope: read
-      security:
-        - bearerAuth: []
-        - apiKeyQuery: []
-      parameters:
-        - name: symbol
-          in: query
-          required: true
-          schema: { type: string }
-      responses:
-        "200":
-          description: LibrarySymbolInfo.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/UdfObject" }
-        "4XX": { $ref: "#/components/responses/Problem" }
-
-  /udf/search:
-    get:
-      tags: [Charting (UDF)]
-      operationId: udfSearch
-      summary: Symbol search
-      x-stream: S10
-      x-scope: read
-      security:
-        - bearerAuth: []
-        - apiKeyQuery: []
-      parameters:
-        - { name: query, in: query, required: true, schema: { type: string } }
-        - { name: type, in: query, schema: { type: string } }
-        - { name: exchange, in: query, schema: { type: string } }
-        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
-      responses:
-        "200":
-          description: Search results.
-          content:
-            application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/UdfObject" } }
-        "4XX": { $ref: "#/components/responses/Problem" }
-
-  /udf/history:
-    get:
-      tags: [Charting (UDF)]
-      operationId: udfHistory
-      summary: Bars in UDF column format
-      x-stream: S10
-      x-scope: read
-      security:
-        - bearerAuth: []
-        - apiKeyQuery: []
-      parameters:
-        - { name: symbol, in: query, required: true, schema: { type: string } }
-        - { name: resolution, in: query, required: true, schema: { type: string } }
-        - { name: from, in: query, required: true, schema: { type: integer } }
-        - { name: to, in: query, required: true, schema: { type: integer } }
-        - { name: countback, in: query, schema: { type: integer } }
-      responses:
-        "200":
-          description: "`{ s, t[], o[], h[], l[], c[], v[], nextTime? }`"
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/UdfObject" }
-        "4XX": { $ref: "#/components/responses/Problem" }
-
-  /udf/time:
-    get:
-      tags: [Charting (UDF)]
-      operationId: udfTime
-      summary: Server time in Unix seconds (plain text)
-      x-stream: S10
-      x-scope: read
-      security:
-        - bearerAuth: []
-        - apiKeyQuery: []
-      responses:
-        "200":
-          description: Seconds.
-          content:
-            text/plain:
-              schema: { type: string }
-        "4XX": { $ref: "#/components/responses/Problem" }
-
-  /udf/quotes:
-    get:
-      tags: [Charting (UDF)]
-      operationId: udfQuotes
-      summary: Quotes in UDF format
-      x-stream: S10
-      x-scope: read
-      security:
-        - bearerAuth: []
-        - apiKeyQuery: []
-      parameters:
-        - { name: symbols, in: query, required: true, schema: { type: string } }
-      responses:
-        "200":
-          description: "`{ s, d: [...] }`"
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/UdfObject" }
-        "4XX": { $ref: "#/components/responses/Problem" }
-
   /xl/ltp:
     get:
       tags: [Spreadsheets]
@@ -1769,18 +1655,18 @@ paths:
       - name: source
         in: path
         required: true
-        schema: { type: string, enum: [tradingview, chartink, gocharting, generic] }
+        schema: { type: string, enum: [generic, chartink, gocharting] }
       - name: token
         in: path
         required: true
-        description: The hook's secret token (shown once when the hook is created). It is the only credential TradingView, ChartInk and GoCharting can carry, since they cannot sign requests.
+        description: The hook's secret token (shown once when the hook is created). It is the only credential ChartInk and GoCharting can carry, since they cannot sign requests.
         schema: { type: string, minLength: 32, maxLength: 128 }
     post:
       tags: [Webhooks]
       operationId: receiveHook
-      summary: Inbound alert (TradingView, ChartInk, GoCharting, or signed generic)
+      summary: Inbound alert (signed generic, ChartInk or GoCharting)
       description: |
-        Answers within milliseconds (TradingView gives up after 3 seconds) and processes the signal in the background,
+        Answers within milliseconds (alert services give up after a few seconds) and processes the signal in the background,
         through the same preview and safety checks as any order. The hook decides what an alert may do (account,
         symbols, quantity caps, paper or live, whether a human must confirm). `generic` hooks must send
         `X-MCB-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`; requests older than 5 minutes or
@@ -1918,6 +1804,1475 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/backup/status:
+    get:
+      tags: [Backup data]
+      operationId: getBackupStatus
+      summary: Backup sources, their pacing and health
+      description: No network calls. Shows whether backup sources are on, each provider's calls, errors and whether its circuit breaker has paused it.
+      x-stream: S12
+      x-scope: read
+      responses:
+        "200":
+          description: Status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      enabled: { type: boolean }
+                      autoFallback: { type: boolean }
+                      providers: { type: array, items: { type: object } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/backup/quotes:
+    get:
+      tags: [Backup data]
+      operationId: getBackupQuotes
+      summary: Quotes straight from the backup sources (no broker budget spent)
+      description: NSE/BSE stocks and the main indices only. Every item is labelled freshness.source "backup" with its provider; values may be delayed.
+      x-stream: S12
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/Symbols"
+        - name: fields
+          in: query
+          schema: { type: string, enum: [ltp, quote], default: quote }
+      responses:
+        "200":
+          description: Quotes.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/QuoteItem" } }
+                  errors: { type: array, items: { $ref: "#/components/schemas/ItemError" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/backup/history:
+    get:
+      tags: [Backup data]
+      operationId: getBackupHistory
+      summary: Candles straight from Yahoo Finance (no broker budget spent)
+      description: Intraday lookback is limited by Yahoo (1m about 30 days, 5m-30m 60 days, 60m 2 years); older ranges come back with partial true.
+      x-stream: S12
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/SymbolQuery"
+        - name: interval
+          in: query
+          required: true
+          schema: { type: string, enum: ["1m", "3m", "5m", "10m", "15m", "30m", "60m", "1d", "1w", "1M"] }
+        - { name: from, in: query, schema: { type: string } }
+        - { name: to, in: query, schema: { type: string } }
+        - { name: countback, in: query, schema: { type: integer, minimum: 1, maximum: 5000 } }
+      responses:
+        "200":
+          description: Candles.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/language:
+    get:
+      tags: [Scanner]
+      operationId: getScanLanguage
+      summary: Fields, functions and operators of the scan condition language
+      x-stream: S13
+      x-scope: read
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/universes:
+    get:
+      tags: [Scanner]
+      operationId: listScanUniverses
+      summary: Named symbol lists (FNO, NIFTY50, INDICES and your own)
+      x-stream: S13
+      x-scope: read
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/universes/{name}:
+    get:
+      tags: [Scanner]
+      operationId: getScanUniverse
+      summary: The symbols in one universe
+      x-stream: S13
+      x-scope: read
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/plan:
+    post:
+      tags: [Scanner]
+      operationId: planScan
+      summary: "Dry run: which accounts would serve a scan and how long it would take"
+      x-stream: S13
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScanRequest" }
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/jobs:
+    post:
+      tags: [Scanner]
+      operationId: startScan
+      summary: Start a scan
+      description: Candles are fetched at background priority, shared out over your pooled accounts; symbols no broker can serve use the backup sources when source is auto and they are on.
+      x-stream: S13
+      x-scope: read
+      parameters:
+        - { name: waitMs, in: query, description: "Wait up to this long for the scan to finish (max 120000).", schema: { type: integer, minimum: 0, maximum: 120000 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScanRequest" }
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "202":
+          description: Accepted; poll the job (Location header).
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    get:
+      tags: [Scanner]
+      operationId: listScans
+      summary: Recent scans (without result rows)
+      x-stream: S13
+      x-scope: read
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/jobs/{jobId}:
+    get:
+      tags: [Scanner]
+      operationId: getScan
+      summary: One scan with its matches
+      x-stream: S13
+      x-scope: read
+      parameters:
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Scanner]
+      operationId: cancelScan
+      summary: Cancel a scan
+      x-stream: S13
+      x-scope: read
+      parameters:
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/saved:
+    get:
+      tags: [Scanner]
+      operationId: listSavedScans
+      summary: Saved scans
+      x-stream: S13
+      x-scope: read
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Scanner]
+      operationId: createSavedScan
+      summary: Save a scan, optionally to run every N minutes in market hours
+      x-stream: S13
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SavedScanRequest" }
+      responses:
+        "201":
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/saved/{savedId}:
+    delete:
+      tags: [Scanner]
+      operationId: deleteSavedScan
+      summary: Delete a saved scan
+      x-stream: S13
+      x-scope: read
+      parameters:
+        - { name: savedId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/saved/{savedId}/run:
+    post:
+      tags: [Scanner]
+      operationId: runSavedScan
+      summary: Run a saved scan now
+      x-stream: S13
+      x-scope: read
+      parameters:
+        - { name: savedId, in: path, required: true, schema: { type: string } }
+        - { name: waitMs, in: query, description: "Wait up to this long for the scan to finish (max 120000).", schema: { type: integer, minimum: 0, maximum: 120000 } }
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "202":
+          description: Accepted; poll the job (Location header).
+          content:
+            application/json:
+              schema: { type: object }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /api/v1/ping:
+    post:
+      tags: [Compat REST]
+      operationId: compatPing
+      summary: "Check the key and the account the calls act on"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/analyzer:
+    post:
+      tags: [Compat REST]
+      operationId: compatAnalyzer
+      summary: "Analyzer (paper) mode status for this key"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/analyzer/toggle:
+    post:
+      tags: [Compat REST]
+      operationId: compatAnalyzerToggle
+      summary: "Switch analyzer mode for this key (off needs a live key)"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/funds:
+    post:
+      tags: [Compat REST]
+      operationId: compatFunds
+      summary: "Funds"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/orderbook:
+    post:
+      tags: [Compat REST]
+      operationId: compatOrderbook
+      summary: "Order book with statistics"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/tradebook:
+    post:
+      tags: [Compat REST]
+      operationId: compatTradebook
+      summary: "Trade book"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/positionbook:
+    post:
+      tags: [Compat REST]
+      operationId: compatPositionbook
+      summary: "Positions"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/holdings:
+    post:
+      tags: [Compat REST]
+      operationId: compatHoldings
+      summary: "Holdings with statistics"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/placeorder:
+    post:
+      tags: [Compat REST]
+      operationId: compatPlaceorder
+      summary: "Place an order"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/placesmartorder:
+    post:
+      tags: [Compat REST]
+      operationId: compatPlacesmartorder
+      summary: "Order towards a target position size"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/basketorder:
+    post:
+      tags: [Compat REST]
+      operationId: compatBasketorder
+      summary: "Several orders in one call"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/splitorder:
+    post:
+      tags: [Compat REST]
+      operationId: compatSplitorder
+      summary: "One order split into pieces"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/modifyorder:
+    post:
+      tags: [Compat REST]
+      operationId: compatModifyorder
+      summary: "Modify an open order"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/cancelorder:
+    post:
+      tags: [Compat REST]
+      operationId: compatCancelorder
+      summary: "Cancel an order"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/cancelallorder:
+    post:
+      tags: [Compat REST]
+      operationId: compatCancelallorder
+      summary: "Cancel every open order"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/closeposition:
+    post:
+      tags: [Compat REST]
+      operationId: compatCloseposition
+      summary: "Square off every open position"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/orderstatus:
+    post:
+      tags: [Compat REST]
+      operationId: compatOrderstatus
+      summary: "One order's status"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/openposition:
+    post:
+      tags: [Compat REST]
+      operationId: compatOpenposition
+      summary: "Net quantity for one symbol and product"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/optionsorder:
+    post:
+      tags: [Compat REST]
+      operationId: compatOptionsorder
+      summary: "Order an option by offset (ATM, ITM2, OTM1 ...)"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/quotes:
+    post:
+      tags: [Compat REST]
+      operationId: compatQuotes
+      summary: "Quote for one symbol"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/multiquotes:
+    post:
+      tags: [Compat REST]
+      operationId: compatMultiquotes
+      summary: "Quotes for up to 200 symbols"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/depth:
+    post:
+      tags: [Compat REST]
+      operationId: compatDepth
+      summary: "Market depth"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/history:
+    post:
+      tags: [Compat REST]
+      operationId: compatHistory
+      summary: "Candles"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/intervals:
+    post:
+      tags: [Compat REST]
+      operationId: compatIntervals
+      summary: "Supported candle intervals"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/symbol:
+    post:
+      tags: [Compat REST]
+      operationId: compatSymbol
+      summary: "Instrument details"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/search:
+    post:
+      tags: [Compat REST]
+      operationId: compatSearch
+      summary: "Instrument search"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/expiry:
+    post:
+      tags: [Compat REST]
+      operationId: compatExpiry
+      summary: "Expiry dates"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/optionchain:
+    post:
+      tags: [Compat REST]
+      operationId: compatOptionchain
+      summary: "Option chain"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/optionsymbol:
+    post:
+      tags: [Compat REST]
+      operationId: compatOptionsymbol
+      summary: "Option symbol for an offset"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /api/v1/margin:
+    post:
+      tags: [Compat REST]
+      operationId: compatMargin
+      summary: "Margin calculation (not available yet)"
+      x-stream: S14
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apikey]
+              properties:
+                apikey: { type: string, description: "A Bridge API key (read for data, paper or live for orders)." }
+                account: { type: string, description: "Bridge extension: the account to act on (default compat.account, then the first the key may use)." }
+              additionalProperties: true
+      responses:
+        "200":
+          description: Compat-style reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "4XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+        "5XX":
+          description: Compat-style error reply.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /v1/notify:
+    get:
+      tags: [Notifications]
+      operationId: getNotifyStatus
+      summary: Notification targets and delivery counts
+      description: Never returns a token or webhook URL; only whether each target's environment variables are set.
+      x-stream: S15
+      x-scope: admin
+      responses:
+        "200":
+          description: Targets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/notify/test:
+    post:
+      tags: [Notifications]
+      operationId: testNotify
+      summary: Send a test message to one target or all
+      x-stream: S15
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target: { type: string }
+      responses:
+        "200":
+          description: Delivery result per target.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { type: object } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1932,7 +3287,7 @@ components:
       type: apiKey
       in: query
       name: key
-      description: Only on /udf/* and /xl/*, only for read-only keys created with --allow-query.
+      description: Only on /xl/*, only for read-only keys created with --allow-query.
 
   headers:
     IdempotencyReplayed:
@@ -1977,6 +3332,14 @@ components:
       in: query
       required: true
       schema: { $ref: "#/components/schemas/Symbol" }
+    Backup:
+      name: backup
+      in: query
+      description: >-
+        Unpinned reads only. true lets a read that no broker account can answer fall back to the free backup sources
+        (Yahoo Finance, NSE website; freshness.source "backup", delayed); false never does. Default from config
+        (backup.enabled and backup.autoFallback).
+      schema: { type: boolean }
     MaxAge:
       name: maxAgeMs
       in: query
@@ -2147,7 +3510,7 @@ components:
       examples: ["NSE:RELIANCE", "NSE:NIFTY", "NFO:NIFTY-2026-10-27-FUT", "NFO:NIFTY-2026-10-27-25000-CE"]
     SymbolFormatName:
       type: string
-      enum: [auto, canonical, tradingview, compact, broker]
+      enum: [auto, canonical, chart, compact, broker]
       default: auto
     Exchange:
       type: string
@@ -2169,16 +3532,58 @@ components:
       type: string
       pattern: "^[A-Za-z0-9_-]{1,64}$"
       description: Your own id for an order, unique per account per IST day. The Bridge maps it to the broker's shorter tag field itself.
+    CompatReply:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [success, error] }
+        message: { type: string }
+        mode: { type: string, enum: [analyze], description: "Present while analyzer (paper) mode is on." }
+        data: {}
+        orderid: { type: [string, "null"] }
+      additionalProperties: true
+    ScanRequest:
+      type: object
+      required: [condition]
+      description: Give universe or symbols (not both).
+      properties:
+        name: { type: string, maxLength: 80 }
+        universe: { type: string, description: "FNO, NIFTY50, INDICES or a name from scanner.universes" }
+        symbols: { type: array, items: { type: string }, maxItems: 5000 }
+        interval: { type: string, enum: ["1m", "3m", "5m", "10m", "15m", "30m", "60m", "1d", "1w", "1M"], default: "1d" }
+        lookback: { type: integer, minimum: 2, maximum: 5000, description: "Bars per symbol; default from the condition" }
+        condition: { type: string, maxLength: 1000, example: "rsi(14) > 60 and close crosses above ema(20)" }
+        columns: { type: array, maxItems: 12, items: { type: string }, example: ["rsi(14)", "close / sma(200) - 1"] }
+        sort:
+          type: object
+          properties:
+            by: { type: string }
+            order: { type: string, enum: [asc, desc], default: desc }
+        limit: { type: integer, minimum: 1, maximum: 5000 }
+        source: { type: string, enum: [auto, broker, backup], default: auto }
+    SavedScanRequest:
+      type: object
+      required: [name, request]
+      properties:
+        name: { type: string, maxLength: 80 }
+        request: { $ref: "#/components/schemas/ScanRequest" }
+        everyMinutes: { type: integer, minimum: 1, maximum: 1440 }
+        marketHoursOnly: { type: boolean, default: true }
+
     Freshness:
       type: object
       required: [source, asOf, ageMs, stale]
       properties:
-        source: { type: string, enum: [stream, cache, broker, paper] }
+        source:
+          type: string
+          enum: [stream, cache, broker, paper, backup]
+          description: backup = a free public source (named in provider) used because no broker account could answer; may be delayed.
         asOf: { type: string, format: date-time }
         ageMs: { type: integer, minimum: 0 }
         stale: { type: boolean }
         accountId: { type: [string, "null"], description: "Account whose connection supplied the data." }
         broker: { type: [string, "null"] }
+        provider: { type: string, enum: [yahoo, nse], description: "Only for source backup: which public source supplied it." }
 
     BrokerInfo:
       type: object
@@ -2268,7 +3673,7 @@ components:
             - { type: string, const: "*" }
             - { type: array, items: { $ref: "#/components/schemas/AccountId" } }
         allowQuery: { type: boolean }
-        clientKind: { type: string, enum: [script, excel, tradingview, mcp, ui, other] }
+        clientKind: { type: string, enum: [script, excel, mcp, ui, other] }
         createdAt: { type: string, format: date-time }
         expiresAt: { type: [string, "null"], format: date-time }
         lastUsedAt: { type: [string, "null"], format: date-time }
@@ -2286,7 +3691,7 @@ components:
             - { type: array, minItems: 1, items: { $ref: "#/components/schemas/AccountId" } }
         expiresAt: { type: [string, "null"], format: date-time }
         allowQuery: { type: boolean, default: false, description: "Allow ?key= use. Only for keys whose only scope is read." }
-        clientKind: { type: string, enum: [script, excel, tradingview, mcp, ui, other] }
+        clientKind: { type: string, enum: [script, excel, mcp, ui, other] }
     KeyCreated:
       type: object
       required: [key, record]
@@ -2340,7 +3745,7 @@ components:
         canonical: { $ref: "#/components/schemas/Symbol" }
         aliases:
           type: object
-          description: "tradingview, compact (symbol and exchange) and, when a broker is given or connected, broker:<id>."
+          description: "chart (chart ticker such as NSE:NIFTY1!), compact (symbol and exchange) and, when a broker is given or connected, broker:<id>."
           additionalProperties: { type: [string, "null"] }
 
     LtpItem:
@@ -2614,7 +4019,7 @@ components:
         confirmToken: { type: [string, "null"] }
         confirmExpiresAt: { type: [string, "null"], format: date-time }
         requiresHumanConfirmation: { type: boolean }
-        ticketId: { type: [string, "null"], description: "Set when a human must confirm; the ticket appears in GET /v1/tickets (Option Hub's Pending confirmations panel)." }
+        ticketId: { type: [string, "null"], description: "Set when a human must confirm; the ticket appears in GET /v1/tickets (the dashboard's Pending confirmations panel)." }
     Ticket:
       type: object
       required: [ticketId, order, source, checks, createdAt, expiresAt]
@@ -2752,7 +4157,7 @@ components:
       required: [id, source, label, account, mode, createdAt]
       properties:
         id: { type: string }
-        source: { type: string, enum: [tradingview, chartink, gocharting, generic] }
+        source: { type: string, enum: [generic, chartink, gocharting] }
         label: { type: string }
         account: { $ref: "#/components/schemas/AccountId" }
         mode: { type: string, enum: [paper, live] }
@@ -2770,7 +4175,7 @@ components:
       required: [source, label, account]
       additionalProperties: false
       properties:
-        source: { type: string, enum: [tradingview, chartink, gocharting, generic] }
+        source: { type: string, enum: [generic, chartink, gocharting] }
         label: { type: string, minLength: 1, maxLength: 60 }
         account: { $ref: "#/components/schemas/AccountId" }
         mode: { type: string, enum: [paper, live], default: paper }
@@ -2780,9 +4185,5 @@ components:
         product: { type: string, enum: [CNC, INTRADAY, MARGIN] }
         orderType: { type: string, enum: [LIMIT, MARKET], default: LIMIT }
         side: { type: string, enum: [BUY, SELL], description: "Fix the side for every signal (needed for ChartInk, whose alerts carry no side)." }
-        allowSourceIps: { type: array, items: { type: string }, description: "Optional allowlist (for example TradingView's published addresses)." }
-        acknowledgeUnsignedLive: { type: boolean, default: false, description: "Live mode on an unsigned source (tradingview, chartink, gocharting) needs allowSourceIps, requireConfirmation or this acknowledgement." }
-    UdfObject:
-      type: object
-      description: UDF wire format; see the TradingView UDF documentation.
-      additionalProperties: true
+        allowSourceIps: { type: array, items: { type: string }, description: "Optional allowlist of sender IP addresses or IPv4 CIDR blocks." }
+        acknowledgeUnsignedLive: { type: boolean, default: false, description: "Live mode on an unsigned source (chartink, gocharting) needs allowSourceIps, requireConfirmation or this acknowledgement." }

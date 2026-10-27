@@ -79,7 +79,7 @@ export function allowedAccountsFor(ctx) {
  * unpinned reads, and maxAgeMs.
  * @param {import("../core/context.mjs").RequestContext} ctx
  */
-function readOptions(ctx, { maxAge = true } = {}) {
+function readOptionsBase(ctx, { maxAge = true, autoBackup = false } = {}) {
   const q = ctx.query;
   const opts = { signal: ctx.signal };
   const allowed = allowedAccountsFor(ctx);
@@ -94,7 +94,22 @@ function readOptions(ctx, { maxAge = true } = {}) {
     const m = intParam(q, "maxAgeMs", 0, MAX_AGE_LIMIT_MS);
     if (m !== undefined) opts.maxAgeMs = m;
   }
+  if (opts.accountId === undefined && boolParam(q, "backup", autoBackup)) opts.allowBackup = true;
   return opts;
+}
+
+/**
+ * The config default for `?backup=`: true when backup sources are on with autoFallback. Unpinned reads that no broker
+ * can answer then fall back to them; `?backup=false` opts one read out, `?backup=true` opts in.
+ * @param {object} deps
+ */
+export function autoBackupFor(deps) {
+  try {
+    const svc = deps.backupData;
+    return Boolean(svc && typeof svc.autoFallback === "function" && svc.autoFallback());
+  } catch {
+    return false;
+  }
 }
 
 const meta = (ctx, opts) => ({ requestId: ctx.requestId, accountId: opts.accountId ?? null });
@@ -104,6 +119,7 @@ const meta = (ctx, opts) => ({ requestId: ctx.requestId, accountId: opts.account
  */
 export function createMarketRoutes(deps) {
   const md = () => deps.marketData;
+  const readOptions = (ctx, o = {}) => readOptionsBase(ctx, { ...o, autoBackup: autoBackupFor(deps) });
 
   return {
     async ltp(ctx) {

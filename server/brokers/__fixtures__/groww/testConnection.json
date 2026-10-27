@@ -20,8 +20,8 @@
       "json": {
         "status": "SUCCESS",
         "payload": {
-          "vendor_user_id": "d86890d1-c60d-4ebd-9730-4f451670",
-          "ucc": "924189",
+          "vendor_user_id": "00000000-0000-0000-0000-00000000",
+          "ucc": "990004",
           "nse_enabled": true,
           "bse_enabled": true,
           "ddpi_enabled": false,

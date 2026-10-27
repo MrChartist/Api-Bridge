@@ -212,15 +212,20 @@ export async function createAccountManager(deps, options = {}) {
   }
 
   /**
-   * Account opted in AND the broker's terms (S3 policy) allow spreading one user's reads over their accounts AND the
-   * account says whose it is (`holder`), so accounts of different people are never pooled together.
+   * Account opted in AND the broker's terms (S3 policy) allow spreading one user's reads over their accounts (or the
+   * terms are unknown and the user opted in to that too with marketData.poolingWhenTermsUnknown) AND the account says
+   * whose it is (`holder`), so accounts of different people are never pooled together. "not-allowed" always wins.
    */
+  const brokerPoolingOk = (account) => {
+    const terms = poolingFor(policies, account.broker);
+    return terms === "allowed" || (terms === "unknown" && account.marketData?.poolingWhenTermsUnknown === true);
+  };
   const effectivePooling = (account) =>
     account.broker !== PAPER_BROKER &&
     account.marketData?.pooling === true &&
     typeof account.holder === "string" &&
     account.holder.length > 0 &&
-    poolingFor(policies, account.broker) === "allowed";
+    brokerPoolingOk(account);
 
   function summary(account) {
     const adapter = adapterOf(account);
@@ -409,7 +414,7 @@ export async function createAccountManager(deps, options = {}) {
             } catch (err) {
               throw brokerFailure(adapter, account.broker, err, redactList);
             }
-            const problems = checkLoginResult(result, { sessionFields: auth.sessionFields ?? [], secrets: secretValues });
+            const problems = checkLoginResult(result, { sessionFields: auth.sessionFields ?? [], secrets: secretValues, now: now() });
             if (problems.length) {
               log.warn("broker login returned an unexpected session; nothing was saved", { accountId: account.id, broker: account.broker, problems: problems.length });
               throw new BridgeError("UPSTREAM_ERROR", `${BROKER_NAMES[account.broker] ?? account.broker} login returned an unexpected session. Nothing was saved.`, {

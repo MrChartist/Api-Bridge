@@ -4,14 +4,14 @@
  * Every receiver turns an alert into one or more Signals. A Signal is only what the alert ASKED for; the worker
  * then applies the hook's fixed mapping and caps (account, allowed symbols, lots cap, product, order type, side,
  * paper or live, confirmation) and refuses anything the hook does not allow. Parsing is strict: an unknown word in
- * a text alert, a placeholder TradingView did not fill in or a malformed number refuses the alert rather than
+ * a text alert, an unfilled {{placeholder}} or a malformed number refuses the alert rather than
  * guessing, because a guessed order is worse than no order.
  *
  * @typedef {{ symbol: string, side: "BUY"|"SELL"|null, quantity: number|null, lots: number|null, price: number|null,
  *   orderType: "LIMIT"|"MARKET"|null, product: "CNC"|"INTRADAY"|"MARGIN"|null, ref: string|null, time: string|null }} Signal
- *   ref + time: the sender's own identity for the signal (TradingView {{strategy.order.id}} + {{timenow}}).
+ *   ref + time: the sender's own identity for the signal (for example an order id plus the alert time).
  * @typedef {{ signals: Signal[], basis: string | null, dropped: number }} ParsedAlert
- *   basis: a stable identity for the alert when the sender supplies one (TradingView strategy order id + time);
+ *   basis: a stable identity for the alert when the sender supplies one (order id + time);
  *   null means "identify the alert by its exact bytes inside the dedupe window".
  */
 import { BridgeError } from "../../core/errors.mjs";
@@ -24,13 +24,13 @@ const NUM_RE = /^[+]?\d{1,12}(\.\d{1,8})?$/;
 /** @param {string} detail @param {string} [path] */
 export const invalid = (detail, path = "(body)") => new BridgeError("VALIDATION_FAILED", detail, { errors: [{ path, message: detail }] });
 
-/** Refuse an alert that still contains a TradingView {{placeholder}}. */
+/** Refuse an alert that still contains an unfilled {{placeholder}}. */
 export function assertNoPlaceholders(value, path = "(body)") {
   const s = typeof value === "string" ? value : JSON.stringify(value ?? "");
   const m = PLACEHOLDER_RE.exec(s);
   if (m) {
     throw invalid(
-      `The alert still contains the placeholder ${m[0].slice(0, 60)}. TradingView fills strategy placeholders such as {{strategy.order.action}} only in strategy alerts; use the alert template for your alert type.`,
+      `The alert still contains the placeholder ${m[0].slice(0, 60)}, which the sender did not fill in; use the alert template for your hook.`,
       path,
     );
   }
@@ -92,7 +92,7 @@ const pick = (o, names) => {
 };
 
 /**
- * One Signal from a JSON object, accepting the common field spellings used by TradingView templates, compact
+ * One Signal from a JSON object, accepting the common field spellings used by charting-platform alerts, compact
  * payloads and hand-written scripts.
  * @param {Record<string, unknown>} o
  * @param {string} [prefix] path prefix for error messages

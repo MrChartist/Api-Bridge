@@ -47,10 +47,11 @@ const PAGES = [
   { id: "accounts", label: "Accounts", icon: "accounts", group: "Overview", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
   { id: "console", label: "Test console", icon: "console", group: "Overview", title: "Test console", sub: "Try any call and see exactly what comes back", render: renderConsole },
   { id: "limits", label: "Rate limits", icon: "limits", group: "Overview", title: "Rate limits", sub: "Live usage against each broker's limits, and the calls the Bridge saved", render: renderLimits },
+  { id: "scanner", label: "Scanner", icon: "scan", group: "Overview", title: "Scanner", sub: "Scan big universes with a readable condition, shared out over your accounts", render: renderScanner },
   { id: "orders", label: "Orders", icon: "orders", group: "Trading", title: "Orders and positions", sub: "Paper by default. Pending confirmations wait here", render: renderOrders },
   { id: "safety", label: "Safety", icon: "safety", group: "Trading", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
   { id: "keys", label: "API keys", icon: "keys", group: "Connect", title: "API keys", sub: "One key per tool, with only the access it needs", render: renderKeys },
-  { id: "integrations", label: "Integrations", icon: "integrations", group: "Connect", title: "Integrations", sub: "Copy-paste setup for TradingView, Python, Excel, Claude and more", render: renderIntegrations },
+  { id: "integrations", label: "Integrations", icon: "integrations", group: "Connect", title: "Integrations", sub: "Copy-paste setup for webhooks, Python, Excel, Claude and more", render: renderIntegrations },
   { id: "activity", label: "Activity", icon: "activity", group: "Connect", title: "Activity", sub: "Recent requests and the tamper-evident audit log", render: renderActivity },
 ];
 
@@ -115,6 +116,133 @@ export function startRouter() {
   show();
 }
 
+// ── Scanner ──
+
+const SCAN_EXAMPLES = [
+  "rsi(14) > 60 and close > sma(50)",
+  "close crosses above ema(20) and volume > 1.5 * avg_volume(20)",
+  "close > highest(20)[1]",
+  "macd() crosses above macd_signal()",
+  "close > supertrend(10, 3) and change_pct > 2",
+];
+
+async function renderScanner() {
+  const [universes, backup, jobs] = await Promise.all([optional(api("/v1/scanner/universes")), optional(api("/v1/backup/status")), optional(api("/v1/scanner/jobs"))]);
+  const uni = h("select", { "aria-label": "Universe" }, h("option", { value: "" }, "My symbols (below)"), (universes.data?.data ?? []).map((u) => h("option", { value: u.name, selected: u.name === "NIFTY50" }, `${u.name}${u.size ? ` (${u.size})` : ""}`)));
+  const syms = h("input", { placeholder: "NSE:RELIANCE, NSE:TCS …", spellcheck: "false" });
+  const interval = h("select", { "aria-label": "Interval" }, ["1d", "1w", "60m", "30m", "15m", "5m", "1m"].map((i) => h("option", { value: i }, i)));
+  const source = h("select", { "aria-label": "Source" }, h("option", { value: "auto" }, "Brokers, then backup"), h("option", { value: "broker" }, "Brokers only"), h("option", { value: "backup" }, "Backup only (Yahoo)"));
+  const cond = h("textarea", { rows: 3, spellcheck: "false" }, SCAN_EXAMPLES[0]);
+  const cols = h("input", { value: "rsi(14), close / sma(50) - 1", spellcheck: "false" });
+  const sortBy = h("input", { value: "rsi(14)", spellcheck: "false" });
+  const examples = h("div", { class: "row" }, SCAN_EXAMPLES.map((e) => h("button", { type: "button", class: "small ghost", onclick: () => (cond.value = e) }, e)));
+  const out = h("div", { class: "stack" });
+  const planBtn = h("button", { type: "button", class: "ghost" }, icon("info"), "Plan");
+  const runBtn = h("button", { type: "button", class: "primary" }, icon("play"), "Run scan");
+
+  const request = () => {
+    const r = { interval: interval.value, condition: cond.value.trim(), source: source.value };
+    if (uni.value) r.universe = uni.value;
+    else r.symbols = syms.value.split(/[\s,]+/).filter(Boolean);
+    const c = cols.value.split(",").map((x) => x.trim()).filter(Boolean);
+    if (c.length) r.columns = c;
+    if (sortBy.value.trim()) r.sort = { by: sortBy.value.trim(), order: "desc" };
+    return r;
+  };
+  const drawJob = (job) => {
+    const p = job.progress ?? {};
+    const pools = (job.plan?.pools ?? []).map((x) => (x.kind === "backup" ? "backup sources" : `${x.accountId} ×${x.concurrency}`)).join(", ");
+    const head = h("p", { class: "muted small" }, `${job.status} · ${p.done ?? 0}/${p.total ?? 0} symbols · ${p.matched ?? 0} matched · ${p.errors ?? 0} errors${pools ? ` · served by ${pools}` : ""}`);
+    const labels = Object.keys(job.results?.[0]?.values ?? {});
+    const rows = table(
+      [{ label: "Symbol", cell: (r) => h("strong", {}, r.symbol) }, ...labels.map((l) => ({ label: l, num: true, cell: (r) => (r.values[l] === null ? "—" : (Number.isInteger(r.values[l]) ? fmtInt : fmtNum).format(r.values[l])) })), { label: "Data", cell: (r) => pill(r.source === "backup" ? `backup · ${r.provider}` : r.accountId ?? r.source, r.source === "backup" ? "warn" : "ok") }],
+      job.results ?? [],
+      emptyState("scan", job.status === "completed" ? "Nothing matched" : "Scanning…", job.status === "completed" ? "No symbol met the condition on its last candle." : "Results appear here when the scan finishes."),
+    );
+    const errs = (job.errors ?? []).length ? h("details", {}, h("summary", { class: "muted small" }, `${job.errors.length} symbol(s) could not be scanned`), table([{ label: "Symbol", cell: (e) => e.symbol }, { label: "Code", cell: (e) => e.code }, { label: "Message", wrap: true, cell: (e) => e.message }], job.errors.slice(0, 100), null)) : null;
+    out.replaceChildren(head, rows, errs ?? "");
+  };
+  planBtn.addEventListener("click", async () => {
+    try {
+      const r = (await api("/v1/scanner/plan", { method: "POST", body: request() })).data.data;
+      toast(`${r.symbols} symbols · about ${r.estimatedSeconds} s · ${r.pools.map((x) => x.accountId ?? "backup").join(", ")}`);
+    } catch (err) {
+      out.replaceChildren(alertBox(err));
+    }
+  });
+  runBtn.addEventListener("click", async () => {
+    runBtn.disabled = true;
+    out.replaceChildren(h("p", { class: "muted" }, "Scanning…"));
+    try {
+      let job = (await api("/v1/scanner/jobs?waitMs=2000", { method: "POST", body: request() })).data.data;
+      drawJob(job);
+      while (job.status === "queued" || job.status === "running") {
+        await new Promise((r) => setTimeout(r, 1000));
+        job = (await api(`/v1/scanner/jobs/${encodeURIComponent(job.id)}`)).data.data;
+        drawJob(job);
+      }
+    } catch (err) {
+      out.replaceChildren(alertBox(err));
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
+
+  const b = backup.data?.data;
+  const backupCard = card({
+    title: "Backup data",
+    sub: "Used only when no broker account can answer; every value is labelled source \"backup\".",
+    actions: b ? pill(b.enabled ? "On" : b.demo ? "Off in demo mode" : "Off", b.enabled ? "ok" : "warn") : null,
+    body: b
+      ? table(
+          [
+            { label: "Provider", cell: (p) => h("strong", {}, p.name) },
+            { label: "State", cell: (p) => (!p.enabled ? pill("Off", "warn") : p.paused ? pill("Paused", "bad") : pill("Ready", "ok")) },
+            { label: "Calls", num: true, cell: (p) => fmtInt.format(p.calls) },
+            { label: "Errors", num: true, cell: (p) => fmtInt.format(p.errors) },
+            { label: "Last error", wrap: true, cell: (p) => p.lastError?.message ?? "—" },
+          ],
+          b.providers ?? [],
+          null,
+        )
+      : alertBox(backup.error ?? "Backup status is not available."),
+  });
+  const recent = (jobs.data?.data ?? []).slice(0, 10);
+  const recentCard = card({
+    title: "Recent scans",
+    flush: true,
+    body: table(
+      [
+        { label: "Started", cell: (j) => (j.startedAt ? istTime(j.startedAt) : "—") },
+        { label: "Condition", wrap: true, cell: (j) => h("code", {}, j.request?.condition ?? "") },
+        { label: "Status", cell: (j) => pill(j.status, j.status === "completed" ? "ok" : j.status === "failed" ? "bad" : "warn") },
+        { label: "Matched", num: true, cell: (j) => fmtInt.format(j.progress?.matched ?? 0) },
+      ],
+      recent,
+      emptyState("scan", "No scans yet", "Run one above, or from Python, Node, Excel or an AI assistant."),
+    ),
+  });
+
+  return [
+    card({
+      title: "New scan",
+      sub: "The condition is checked on each symbol's last candle. Scans run behind charts and orders, and share the work over your pooled accounts.",
+      body: h(
+        "div",
+        { class: "stack" },
+        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Universe", uni), h("label", { class: "field" }, "Interval", interval), h("label", { class: "field" }, "Data", source)),
+        h("label", { class: "field" }, "Symbols", h("span", { class: "hint" }, "Only when Universe is “My symbols”."), syms),
+        h("label", { class: "field" }, "Condition", h("span", { class: "hint" }, "Fields: open high low close volume change_pct. Functions: sma ema rsi atr macd supertrend vwap highest lowest avg_volume … “crosses above”, x[1] for the previous bar."), cond),
+        examples,
+        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Columns", h("span", { class: "hint" }, "Comma-separated expressions."), cols), h("label", { class: "field" }, "Sort by", sortBy)),
+        h("div", { class: "row" }, runBtn, planBtn),
+        out,
+      ),
+    }),
+    h("div", { class: "grid cols-2" }, recentCard, backupCard),
+  ];
+}
+
 // ── Home ──
 
 async function renderHome() {
@@ -136,8 +264,8 @@ async function renderHome() {
     const done = state.filter((s) => s.done).length;
     const ITEMS = {
       broker: { title: app.state.demo ? "Demo mode is on: sample data is ready" : "Connect a broker, or try demo mode", text: app.state.demo ? "Everything works with sample prices. When you are ready, restart without --demo and connect your broker." : "Log in to one broker account (npm run bridge -- accounts connect <id>), or restart with npm start -- --demo to try everything first.", go: "accounts", cta: "Accounts" },
-      key: { title: "Create a key for each tool", text: "A read-only key for charts and AI, a paper key for scripts. Never share your admin key.", go: "keys", cta: "Create a key" },
-      snippet: { title: "Copy a snippet for TradingView, Python, Excel or Claude", text: "Ready-made setup with your Bridge address filled in.", go: "integrations", cta: "Integrations" },
+      key: { title: "Create a key for each tool", text: "A read-only key for spreadsheets and AI, a paper key for scripts. Never share your admin key.", go: "keys", cta: "Create a key" },
+      snippet: { title: "Copy a snippet for Python, Excel, Claude or webhooks", text: "Ready-made setup with your Bridge address filled in.", go: "integrations", cta: "Integrations" },
       test: { title: "Make your first call", text: "Fetch a quote or an option chain in the test console and see the rate-limit headers.", go: "console", cta: "Test console" },
     };
     const progress = h("span");
@@ -301,7 +429,8 @@ async function renderAccounts() {
   // Directory
   const search = h("input", { type: "search", placeholder: "Search 41 brokers…", "aria-label": "Search brokers" });
   const grid = h("div", { class: "brokers" });
-  const real = list.filter((b) => b.id !== "demo");
+  // By the name people see (the API lists by id, which put "5paisa" between Firstock and Flattrade).
+  const real = list.filter((b) => b.id !== "demo").sort((a, b) => String(a.name ?? a.id).localeCompare(String(b.name ?? b.id), undefined, { sensitivity: "base", numeric: true }));
   const draw = () => {
     const q = search.value.trim().toLowerCase();
     const rows = real.filter((b) => !q || b.name.toLowerCase().includes(q) || b.id.includes(q));
@@ -350,6 +479,9 @@ async function renderConsole() {
   const paperAcc = accounts.find((a) => a.broker === "paper")?.id ?? accounts[0]?.id ?? "paper";
   const dataAcc = accounts.find((a) => a.broker !== "paper")?.id ?? paperAcc;
   const select = h("select", { "aria-label": "Endpoint" }, ENDPOINTS.map((e) => h("option", { value: e.id }, e.label)));
+  // #/console?endpoint=order opens a given endpoint (the Orders page links straight to the order form).
+  const wanted = new URLSearchParams(location.hash.split("?")[1] ?? "").get("endpoint");
+  if (ENDPOINTS.some((e) => e.id === wanted)) select.value = wanted;
   const fieldsBox = h("div", { class: "stack" });
   const curlBox = h("div");
   const out = h("div", { class: "response" });
@@ -597,7 +729,7 @@ async function renderOrders() {
   nodes.push(
     card({
       title: "Today's orders",
-      actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/console") }, icon("plus"), "Place a paper order"),
+      actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/console?endpoint=order") }, icon("plus"), "Place a paper order"),
       flush: true,
       body: orders.error
         ? h("div", { class: "card-body" }, alertBox(orders.error))
@@ -775,10 +907,10 @@ async function renderKeys() {
   const rows = keys.data.data ?? [];
   const accs = accounts.data.data ?? [];
   const createdBox = h("div");
-  const label = h("input", { placeholder: "e.g. TradingView charts", maxlength: "60" });
+  const label = h("input", { placeholder: "e.g. Excel prices", maxlength: "60" });
   const scope = h("select", {}, h("option", { value: "read" }, "Read only: prices, charts, AI"), h("option", { value: "paper" }, "Paper trading: read + paper orders"), h("option", { value: "admin,paper" }, "Admin: manage the Bridge"));
   const acct = h("select", {}, h("option", { value: "*" }, "All accounts"), accs.map((a) => h("option", { value: a.id }, a.id)));
-  const client = h("select", {}, ["script", "excel", "tradingview", "mcp", "ui", "other"].map((c) => h("option", { value: c }, { script: "Script (Python, Node)", excel: "Excel / Sheets", tradingview: "Charts / TradingView", mcp: "AI assistant (MCP)", ui: "App / dashboard", other: "Other" }[c])));
+  const client = h("select", {}, ["script", "excel", "mcp", "ui", "other"].map((c) => h("option", { value: c }, { script: "Script (Python, Node)", excel: "Excel / Sheets", mcp: "AI assistant (MCP)", ui: "App / dashboard", other: "Other" }[c])));
   const expires = h("select", {}, h("option", { value: "" }, "Never"), h("option", { value: "7" }, "7 days"), h("option", { value: "30" }, "30 days"), h("option", { value: "90" }, "90 days"));
   const urlUse = h("input", { type: "checkbox" });
   const createBtn = h("button", { type: "button", class: "primary" }, icon("plus"), "Create key");
@@ -852,8 +984,8 @@ async function renderKeys() {
       body: h(
         "div",
         { class: "stack" },
-        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field" }, "Access", scope), h("label", { class: "field" }, "Accounts", acct), h("label", { class: "field" }, "Used by", client), h("label", { class: "field" }, "Expires", expires)),
-        h("div", { class: "row" }, h("label", { class: "check" }, urlUse, "Allow in URLs (?key=), for Excel and chart libraries. Read-only keys only."), h("span", { class: "grow" }), createBtn),
+        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field wide" }, "Access", scope), h("label", { class: "field" }, "Accounts", acct), h("label", { class: "field" }, "Used by", client), h("label", { class: "field" }, "Expires", expires)),
+        h("div", { class: "row" }, h("label", { class: "check" }, urlUse, "Allow in URLs (?key=), for Excel and Google Sheets. Read-only keys only."), h("span", { class: "grow" }), createBtn),
         createdBox,
       ),
     }),
@@ -864,7 +996,7 @@ async function renderKeys() {
 // ── Integrations ──
 
 const TABS = [
-  ["tradingview", "TradingView"],
+  ["webhooks", "Webhooks"],
   ["python", "Python"],
   ["node", "Node"],
   ["excel", "Excel & Sheets"],
@@ -874,7 +1006,7 @@ const TABS = [
   ["rest", "REST / curl"],
 ];
 const INTRO = {
-  tradingview: "Two things: alerts that place paper orders through a webhook, and a chart datafeed (TradingView-compatible UDF).",
+  webhooks: "Alerts that place paper orders through a webhook: signed generic JSON from your scripts, ChartInk scans or GoCharting alerts.",
   python: "The Python SDK: standard library only, Python 3.9+. Paper orders get an Idempotency-Key automatically.",
   node: "The Node SDK (ESM). Streaming on Node 20 needs ws; Node 22 has a built-in WebSocket.",
   excel: "Live prices in cells with WEBSERVICE. The key goes in the URL, so make a read-only URL key with an expiry.",
@@ -883,7 +1015,7 @@ const INTRO = {
   chatgpt: "ChatGPT connectors cannot reach a local server. Use the same tools from your own script with OpenAI function calling.",
   rest: "Every route answers { data, meta } JSON with freshness labels; errors are problem+json with a stable code.",
 };
-const GUIDES = { tradingview: "webhooks", python: "python", node: "typescript", excel: "excel-sheets", amibroker: "amibroker", claude: "mcp", chatgpt: "chatgpt-openai", rest: "streaming" };
+const GUIDES = { webhooks: "webhooks", python: "python", node: "typescript", excel: "excel-sheets", amibroker: "amibroker", claude: "mcp", chatgpt: "chatgpt-openai", rest: "streaming" };
 
 async function renderIntegrations() {
   const accounts = (await api("/v1/accounts")).data.data ?? [];
@@ -892,15 +1024,15 @@ async function renderIntegrations() {
   const tabsBar = h("div", { class: "tabs", role: "tablist" });
   const panel = h("div", { class: "card-body stack" });
   const params = new URLSearchParams(location.hash.split("?")[1] ?? "");
-  let active = TABS.some(([id]) => id === params.get("tab")) ? params.get("tab") : "tradingview";
+  let active = TABS.some(([id]) => id === params.get("tab")) ? params.get("tab") : "webhooks";
 
   const draw = async () => {
     tabsBar.replaceChildren(...TABS.map(([id, label]) => h("button", { type: "button", role: "tab", "aria-selected": String(id === active), onclick: () => { active = id; draw(); } }, label)));
-    const s = snippets({ base: location.origin, key: createdKeys[active] ?? null, account: paperAcc, symbol: "NSE:NIFTY" })[active];
+    const s = snippets({ base: location.origin, key: createdKeys[active] ?? null, account: paperAcc, symbol: "NSE:NIFTY", folder: app.state.meta?.installDir || undefined })[active];
     const preset = KEY_PRESETS[active];
-    const keyBtn = h("button", { type: "button", class: createdKeys[active] ? "small" : "small primary" }, icon("keys"), createdKeys[active] ? "Key created" : `Create a ${preset.scopes.join("+")} key for this`);
-    keyBtn.disabled = Boolean(createdKeys[active]);
-    keyBtn.addEventListener("click", async () => {
+    const keyBtn = preset && h("button", { type: "button", class: createdKeys[active] ? "small" : "small primary" }, icon("keys"), createdKeys[active] ? "Key created" : `Create a ${preset.scopes.join("+")} key for this`);
+    if (keyBtn) keyBtn.disabled = Boolean(createdKeys[active]);
+    keyBtn?.addEventListener("click", async () => {
       try {
         const body = { label: preset.label, scopes: preset.scopes, accounts: "*", clientKind: preset.clientKind };
         if (preset.allowQuery) body.allowQuery = true;
@@ -914,10 +1046,10 @@ async function renderIntegrations() {
       }
     });
     const parts = [
-      h("div", { class: "row" }, h("p", { class: "grow muted" }, INTRO[active]), keyBtn, h("a", { href: `https://github.com/MrChartist/api-bridge/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener" }, "Guide ↗")),
+      h("div", { class: "row" }, h("p", { class: "grow muted" }, INTRO[active]), ...(keyBtn ? [keyBtn] : []), h("a", { href: `https://github.com/MrChartist/api-bridge/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener" }, "Guide ↗")),
       createdKeys[active] ? h("div", { class: "alert info" }, icon("info"), h("div", {}, h("strong", {}, "Your new key is in the snippets below."), h("span", { class: "detail" }, "It is shown only on this page and only until you leave it."))) : null,
     ];
-    if (active === "tradingview") parts.push(await webhookPanel(paperAcc));
+    if (active === "webhooks") parts.push(await webhookPanel(paperAcc));
     for (const sn of s) parts.push(codeBlock(sn.code, { title: sn.title, json: sn.lang === "json", onCopy: markCopied }));
     panel.replaceChildren(...parts.filter(Boolean));
   };
@@ -930,21 +1062,50 @@ async function webhookPanel(paperAcc) {
   const list = hooks.data?.data ?? [];
   const box = h("div", { class: "stack" });
   const label = h("input", { value: "NIFTY breakout", maxlength: "60" });
+  const source = h("select", {}, [["generic", "Generic (signed JSON)"], ["chartink", "ChartInk"], ["gocharting", "GoCharting"]].map(([v, t]) => h("option", { value: v }, t)));
+  const side = h("select", {}, h("option", { value: "" }, "From the alert"), h("option", { value: "BUY" }, "BUY"), h("option", { value: "SELL" }, "SELL"));
   const orderType = h("select", {}, h("option", { value: "LIMIT" }, "LIMIT (safer)"), h("option", { value: "MARKET" }, "MARKET (protected)"));
   const product = h("select", {}, ["INTRADAY", "MARGIN", "CNC"].map((p) => h("option", { value: p }, p)));
   const lots = h("input", { type: "number", value: "1", min: "1", max: "50" });
   const btn = h("button", { type: "button", class: "primary" }, icon("plus"), "Create webhook");
+  const columns = [
+    { label: "Hook", cell: (x) => h("div", {}, h("strong", {}, x.label), h("div", { class: "muted small mono" }, x.id)) },
+    { label: "Source", cell: (x) => x.source },
+    { label: "Account", cell: (x) => x.account },
+    { label: "Mode", cell: (x) => (x.mode === "live" ? pill("live", "bad") : pill("paper", "accent")) },
+    { label: "Last alert", cell: (x) => istDateTime(x.lastSignalAt) },
+    {
+      label: "",
+      cell: (x) =>
+        h("button", {
+          type: "button",
+          class: "small ghost",
+          onclick: async () => {
+            if (!(await modal({ title: `Delete “${x.label}”?`, body: h("p", {}, "Alerts sent to its URL are refused from now on."), buttons: [{ label: "Cancel", value: false }, { label: "Delete", cls: "danger", value: true }] }))) return;
+            await optional(api(`/v1/hooks/${encodeURIComponent(x.id)}`, { method: "DELETE" }));
+            show();
+          },
+        }, "Delete"),
+    },
+  ];
+  // Only the table is redrawn when a hook is added, so the one-time secret URL in `box` stays on screen.
+  const tableSlot = h("div");
+  const drawTable = () => tableSlot.replaceChildren(...[table(columns, list, null)].filter(Boolean));
+  drawTable();
   btn.addEventListener("click", async () => {
     btn.disabled = true;
     try {
-      const r = await api("/v1/hooks", { method: "POST", body: { source: "tradingview", label: label.value.trim() || "TradingView", account: paperAcc, orderType: orderType.value, product: product.value, maxLotsPerSignal: Number(lots.value) || 1 } });
+      const r = await api("/v1/hooks", { method: "POST", body: { source: source.value, label: label.value.trim() || "Webhook", account: paperAcc, orderType: orderType.value, product: product.value, maxLotsPerSignal: Number(lots.value) || 1, ...(side.value ? { side: side.value } : {}) } });
       const d = r.data.data;
-      box.replaceChildren(
+      list.push(d);
+      drawTable();
+      box.replaceChildren(...[
         h("div", { class: "secret-box" }, h("strong", {}, "Webhook URL (its secret token is shown once):"), h("code", {}, d.url), h("button", { type: "button", class: "small primary", onclick: () => copyText(d.url, "URL copied").then(markCopied) }, icon("copy"), "Copy")),
-        ...(d.templates ?? []).slice(0, 1).map((t) => codeBlock(t.message, { title: `${t.name}: paste into the alert's Message box`, json: true, onCopy: markCopied })),
+        d.signingSecret ? h("div", { class: "secret-box" }, h("strong", {}, "Signing secret (shown once; sign every request with it):"), h("code", {}, d.signingSecret), h("button", { type: "button", class: "small primary", onclick: () => copyText(d.signingSecret, "Secret copied").then(markCopied) }, icon("copy"), "Copy")) : null,
+        ...(d.templates ?? []).slice(0, 1).map((t) => codeBlock(t.message, { title: t.name, json: t.contentType === "application/json" && t.message.startsWith("{"), onCopy: markCopied })),
         ...(d.warnings ?? []).map((w) => alertBox({ title: "Note", detail: w }, "warn")),
-        h("p", { class: "muted small" }, "TradingView posts only to public HTTPS on port 443, so point a tunnel (for example Cloudflare Tunnel) at the public ingress listener, which serves /hooks only. Paper orders by default."),
-      );
+        h("p", { class: "muted small" }, "Hosted alert services post from the internet, so point a tunnel (for example Cloudflare Tunnel) at the public ingress listener, which serves /hooks only. Paper orders by default."),
+      ].filter(Boolean));
     } catch (err) {
       box.replaceChildren(alertBox(err));
     } finally {
@@ -955,33 +1116,8 @@ async function webhookPanel(paperAcc) {
     "div",
     { class: "card", style: undefined },
     h("div", { class: "card-head" }, h("div", {}, h("h3", {}, "Alert webhook"), h("p", {}, `Each hook has its own secret URL and places paper orders on ${paperAcc}.`))),
-    h("div", { class: "card-body stack" }, h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field" }, "Order type", orderType), h("label", { class: "field" }, "Product", product), h("label", { class: "field" }, "Max lots per alert", lots), btn), box),
-    list.length
-      ? table(
-          [
-            { label: "Hook", cell: (x) => h("div", {}, h("strong", {}, x.label), h("div", { class: "muted small mono" }, x.id)) },
-            { label: "Source", cell: (x) => x.source },
-            { label: "Account", cell: (x) => x.account },
-            { label: "Mode", cell: (x) => (x.mode === "live" ? pill("live", "bad") : pill("paper", "accent")) },
-            { label: "Last alert", cell: (x) => istDateTime(x.lastSignalAt) },
-            {
-              label: "",
-              cell: (x) =>
-                h("button", {
-                  type: "button",
-                  class: "small ghost",
-                  onclick: async () => {
-                    if (!(await modal({ title: `Delete “${x.label}”?`, body: h("p", {}, "Alerts sent to its URL are refused from now on."), buttons: [{ label: "Cancel", value: false }, { label: "Delete", cls: "danger", value: true }] }))) return;
-                    await optional(api(`/v1/hooks/${encodeURIComponent(x.id)}`, { method: "DELETE" }));
-                    show();
-                  },
-                }, "Delete"),
-            },
-          ],
-          list,
-          null,
-        )
-      : null,
+    h("div", { class: "card-body stack" }, h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field" }, "Source", source), h("label", { class: "field" }, "Side", side), h("label", { class: "field" }, "Order type", orderType), h("label", { class: "field" }, "Product", product), h("label", { class: "field" }, "Max lots per alert", lots), btn), box),
+    tableSlot,
   );
 }
 

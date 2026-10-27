@@ -126,11 +126,15 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
       const brokers = deps.accounts.list().filter((a) => a.broker !== "paper");
       const connected = brokers.filter((a) => a.session?.state === "connected");
       if (connected.length) add("ok", "market-data", `Market data from: ${connected.map((a) => a.id).join(", ")}`);
-      else add("warn", "market-data", `No market-data source connected${brokers.length ? ` (log in ${brokers.map((a) => a.id).join(", ")})` : ""}. Quotes, history, option chains, symbol lookups and paper orders all need at least one connected broker account (mc-bridge accounts connect <id>), or try everything with sample data: npm start -- --demo`);
+      else add("warn", "market-data", `No market-data source connected${brokers.length ? ` (log in ${brokers.map((a) => a.id).join(", ")})` : ""}. Quotes, history, option chains, symbol lookups and paper orders all need at least one connected broker account (mc-bridge accounts connect <id>). To try everything without a broker, start with --demo for sample data (mc-bridge start --demo, or npm start -- --demo); if the Bridge is already running with --demo, this check is about your real accounts and you can ignore it.`);
     } catch {
       /* account manager not available */
     }
   }
+  const backup = config.backup;
+  if (config.demo) add("ok", "backup-data", "Backup data sources are off in demo mode");
+  else if (backup?.enabled) add("ok", "backup-data", `Backup data on (${["yahoo", "nse"].filter((p) => backup.providers?.[p]?.enabled !== false).join(", ")}): reads no broker can answer fall back to it, labelled source "backup"`);
+  else add("ok", "backup-data", 'Backup data off. To fall back to Yahoo Finance / NSE when no broker can answer, set "backup": { "enabled": true }');
   if (portCheck) {
     const free = await new Promise((r) => {
       const srv = net.createServer();
@@ -252,9 +256,11 @@ export async function runCli(positionals, flags, io) {
           createKey: async (configPath) => {
             const { app } = await bootServices({ ...flags, config: configPath, demo: false }, io);
             try {
+              // Count the admin keys already there, so a second init can say it made another one.
+              const existingAdmin = (await app.deps.keyStore.list()).filter((k) => !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) < Date.now()) && k.scopes.includes("admin")).length;
               const { key, record } = await app.deps.keyStore.create({ label: "admin (created by init)", scopes: ["admin", "paper"], accounts: "*", clientKind: "ui" });
               await audit(app.deps, io, { type: "key.created", data: { keyId: record.id, scopes: record.scopes, label: record.label } });
-              return { key, id: record.id };
+              return { key, id: record.id, existingAdmin };
             } finally {
               await app.close();
             }

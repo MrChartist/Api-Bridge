@@ -13,6 +13,7 @@
       "id": "dhan-main",
       "broker": "dhan",
       "label": "Dhan (main)",
+      "holder": "self",
       "live": { "enabled": false, "allowedSources": ["rest"] },
       "marketData": { "pooling": false }
     },
@@ -20,6 +21,7 @@
       "id": "zerodha-family",
       "broker": "zerodha",
       "label": "Zerodha (spouse)",
+      "holder": "spouse",
       "marketData": { "pooling": false }
     },
     { "id": "paper", "broker": "paper", "label": "Practice account" }
@@ -53,7 +55,11 @@
   "stream": { "heartbeatMs": 15000, "maxClients": 50, "maxSymbolsPerClient": 500 },
   "orders": { "ticketTtlMs": 60000, "confirmTokenTtlMs": 60000, "confirmPaperFromMcp": true, "sliceAboveFreeze": false },
   "paper": { "startingCapital": 1000000, "slippageBps": 5, "squareOff": { "enabled": true, "time": "15:20" } },
-  "integrations": { "udf": { "searchLimit": 30, "maxCountback": 5000 }, "xl": { "chainFormat": "csv", "historyLayout": "standard" } },
+  "integrations": { "xl": { "chainFormat": "csv", "historyLayout": "standard" } },
   "hooks": { "queueSize": 200, "concurrency": 2, "dedupeWindowMs": 120000, "signatureToleranceS": 300, "maxSignalsPerMinute": 30, "allowSourceIps": [] },
-  "mcp": { "enabled": true, "toolsets": ["market", "analytics", "account"], "orderAccounts": [], "maxItems": 200 }
+  "mcp": { "enabled": true, "toolsets": ["market", "analytics", "account"], "orderAccounts": [], "maxItems": 200 },
+  "backup": { "enabled": true, "autoFallback": true, "providers": { "yahoo": { "perSecond": 4 }, "nse": { "perSecond": 2 } } },
+  "scanner": { "maxSymbols": 1000, "maxRunning": 2, "perAccountConcurrency": 4, "schedule": true, "universes": {} },
+  "compat": { "enabled": true, "analyzer": true },
+  "notify": { "targets": [] }
 }

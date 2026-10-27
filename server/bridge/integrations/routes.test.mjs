@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { EXCEL_CELL_LIMIT } from "./xl.mjs";
-import { HOLIDAYS, KEYS, NOW_MS, istAt } from "./__fixtures__/fakes.mjs";
+import { KEYS } from "./__fixtures__/fakes.mjs";
 import { bearer, startTestApp } from "./__fixtures__/testApp.mjs";
 
 let t;
@@ -13,14 +13,13 @@ afterAll(async () => {
 
 const R = bearer(KEYS.READ);
 const get = (path, headers = R) => t.request(path, { headers });
-const qs = (o) => new URLSearchParams(o).toString();
-const utcDay = (iso) => Date.parse(`${iso}T00:00:00Z`) / 1000;
 
-describe("auth on /udf and /xl", () => {
+describe("auth on /xl", () => {
   it("needs a key", async () => {
-    const r = await get("/udf/config", {});
+    const r = await get("/xl/ltp?symbol=NSE:NIFTY", {});
     expect(r.status).toBe(401);
-    expect(r.json.code).toBe("UNAUTHENTICATED");
+    expect(r.raw).toBe("#N/A");
+    expect(r.headers["x-error-code"]).toBe("UNAUTHENTICATED");
   });
   it("accepts ?key= only for read-only URL keys", async () => {
     expect((await get(`/xl/ltp?symbol=NSE:NIFTY&key=${KEYS.XL}`, {})).status).toBe(200);
@@ -35,129 +34,11 @@ describe("auth on /udf and /xl", () => {
     expect(r.headers["x-error-code"]).toBe("ACCOUNT_FORBIDDEN");
     expect(t.marketData.calls.length).toBe(before);
   });
-});
-
-describe("/udf/config and /udf/time", () => {
-  it("config", async () => {
-    const r = await get("/udf/config");
-    expect(r.status).toBe(200);
-    expect(r.json.supported_resolutions).toContain("1D");
-    expect(r.json.supports_time).toBe(true);
-  });
-  it("time is Unix seconds as text", async () => {
-    const r = await get("/udf/time");
-    expect(r.headers["content-type"]).toMatch(/^text\/plain/);
-    expect(r.raw).toBe(String(NOW_MS / 1000));
-  });
-});
-
-describe("/udf/symbols and /udf/search", () => {
-  it("resolves aliases to canonical tickers", async () => {
-    const r = await get(`/udf/symbols?${qs({ symbol: "nse:m&m" })}`);
-    expect(r.status).toBe(200);
-    expect(r.json).toMatchObject({ ticker: "NSE:M&M", name: "M&M", type: "stock", minmov: 5, pricescale: 100, session: "0915-1530", timezone: "Asia/Kolkata" });
-    const fut = await get(`/udf/symbols?${qs({ symbol: "NSE:NIFTY1!" })}`);
-    expect(fut.json.ticker).toBe("NFO:NIFTY-2026-10-27-FUT");
-  });
-  it("CDS and MCX price formats", async () => {
-    expect((await get(`/udf/symbols?symbol=CDS:USDINR-2026-10-28-FUT`)).json).toMatchObject({ minmov: 25, pricescale: 10000, session: "0900-1700" });
-    expect((await get(`/udf/symbols?symbol=MCX:CRUDEOIL-2026-11-19-FUT`)).json).toMatchObject({ minmov: 1, pricescale: 1 });
-  });
-  it("unknown symbol is a UDF error with the Bridge code and real status", async () => {
-    const r = await get("/udf/symbols?symbol=NSE:NOPE");
-    expect(r.status).toBe(404);
-    expect(r.json).toMatchObject({ s: "error", code: "SYMBOL_NOT_FOUND", retryable: false });
-    expect(r.json.errmsg).toMatch(/NSE:NOPE/);
-    expect(r.json.requestId).toMatch(/^req_/);
-  });
-  it("missing symbol is VALIDATION_FAILED", async () => {
-    const r = await get("/udf/symbols");
-    expect(r.status).toBe(400);
-    expect(r.json).toMatchObject({ s: "error", code: "VALIDATION_FAILED" });
-  });
-  it("search maps type and exchange filters", async () => {
-    const all = (await get("/udf/search?query=NIFTY")).json;
-    expect(all.length).toBeGreaterThan(2);
-    expect(all[0]).toHaveProperty("ticker");
-    const opts = (await get("/udf/search?query=NIFTY&type=option&exchange=NFO")).json;
-    expect(opts.length).toBeGreaterThan(0);
-    expect(opts.every((x) => x.type === "option" && x.exchange === "NFO")).toBe(true);
-    expect((await get("/udf/search?query=NIFTY&type=crypto")).json).toEqual([]);
-    expect((await get("/udf/search?query=NIFTY&exchange=NYSE")).json).toEqual([]);
-    expect((await get("/udf/search?query=")).json).toEqual([]);
-    expect((await get("/udf/search?query=NIFTY&limit=1")).json).toHaveLength(1);
-  });
-});
-
-describe("/udf/history", () => {
-  const from = istAt("2026-10-16", 9, 15);
-  it("returns column arrays in [from, to)", async () => {
-    const r = await get(`/udf/history?${qs({ symbol: "NSE:NIFTY", resolution: "5", from, to: from + 1800 })}`);
-    expect(r.status).toBe(200);
-    expect(r.json.s).toBe("ok");
-    expect(r.json.t).toEqual([0, 1, 2, 3, 4, 5].map((i) => from + i * 300));
-    for (const k of ["o", "h", "l", "c", "v"]) expect(r.json[k]).toHaveLength(6);
-  });
-  it("countback wins over from", async () => {
-    const to = istAt("2026-10-16", 10, 0);
-    const r = await get(`/udf/history?${qs({ symbol: "NSE:NIFTY", resolution: "15", from: to - 60, to, countback: 3 })}`);
-    expect(r.json.t).toEqual([to - 2700, to - 1800, to - 900]);
-  });
-  it("daily bars are stamped 00:00 UTC of the trading date", async () => {
-    const r = await get(`/udf/history?${qs({ symbol: "NSE:NIFTY", resolution: "1D", from: utcDay("2026-10-12"), to: utcDay("2026-10-17") })}`);
-    expect(r.json.t).toEqual(["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"].map(utcDay));
-  });
-  it("an empty range inside the data answers no_data with nextTime (holiday gap)", async () => {
-    expect(HOLIDAYS.has("2026-10-02")).toBe(true);
-    const r = await get(`/udf/history?${qs({ symbol: "NSE:NIFTY", resolution: "1D", from: utcDay("2026-10-02"), to: utcDay("2026-10-03") })}`);
-    expect(r.json).toEqual({ s: "no_data", nextTime: utcDay("2026-10-01") });
-  });
-  it("before the data starts answers no_data without nextTime", async () => {
-    const r = await get(`/udf/history?${qs({ symbol: "NSE:NIFTY", resolution: "1D", from: utcDay("2025-06-01"), to: utcDay("2025-07-01") })}`);
-    expect(r.json).toEqual({ s: "no_data" });
-  });
-  it("silly ranges answer no_data without a broker read", async () => {
+  it("an unpinned read from an account-limited key stays inside that key's accounts", async () => {
     const before = t.marketData.calls.length;
-    expect((await get(`/udf/history?${qs({ symbol: "NSE:NIFTY", resolution: "5", from: 100, to: 50 })}`)).json).toEqual({ s: "no_data" });
-    expect((await get(`/udf/history?${qs({ symbol: "NSE:NIFTY", resolution: "5", from: 0, to: 1000 })}`)).json).toEqual({ s: "no_data" });
-    expect(t.marketData.calls.length).toBe(before);
-  });
-  it("bad input is a UDF error", async () => {
-    const r = await get(`/udf/history?${qs({ symbol: "NSE:NIFTY", resolution: "240", from, to: from + 60 })}`);
-    expect(r.status).toBe(400);
-    expect(r.json).toMatchObject({ s: "error", code: "VALIDATION_FAILED" });
-    expect((await get(`/udf/history?${qs({ symbol: "NSE:NIFTY", resolution: "5", to: from })}`)).json.code).toBe("VALIDATION_FAILED");
-    expect((await get(`/udf/history?${qs({ symbol: "NSE:NIFTY", resolution: "5", from: "abc", to: from })}`)).status).toBe(400);
-  });
-  it("passes the interval, an abort signal and interactive priority to marketData", async () => {
-    await get(`/udf/history?${qs({ symbol: "NSE:NIFTY", resolution: "60", from, to: from + 7200 })}`);
-    const [kind, params, opts] = t.marketData.calls.at(-1);
-    expect(kind).toBe("history");
-    expect(params).toMatchObject({ symbol: "NSE:NIFTY", interval: "60m", from, to: from + 7200 });
-    expect(opts.priority).toBe("interactive");
-    expect(opts.signal).toBeInstanceOf(AbortSignal);
-  });
-});
-
-describe("/udf/quotes", () => {
-  it("echoes the requested names and marks failures per symbol", async () => {
-    const r = await get(`/udf/quotes?${qs({ symbols: "nse:nifty,NSE:NOPE,NSE:RELIANCE" })}`);
-    expect(r.status).toBe(200);
-    expect(r.json.s).toBe("ok");
-    expect(r.json.d.map((x) => [x.s, x.n])).toEqual([
-      ["ok", "nse:nifty"],
-      ["error", "NSE:NOPE"],
-      ["ok", "NSE:RELIANCE"],
-    ]);
-    expect(r.json.d[0].v).toMatchObject({ lp: 25000, short_name: "NIFTY", exchange: "NSE" });
-    expect(r.json.d[0].v).not.toHaveProperty("volume"); // null for an index, so left out
-    expect(r.json.d[1].code).toBe("SYMBOL_NOT_FOUND");
-  });
-  it("caps the list", async () => {
-    const many = Array.from({ length: 101 }, (_, i) => `NSE:S${i}`).join(",");
-    const r = await get(`/udf/quotes?symbols=${many}`);
-    expect(r.status).toBe(400);
-    expect(r.json.s).toBe("error");
+    expect((await get("/xl/ltp?symbol=NSE:NIFTY", bearer(KEYS.ONE_ACCOUNT))).status).toBe(200);
+    const call = t.marketData.calls.slice(before).find((c) => c[0] === "ltp");
+    expect(call.at(-1).allowedAccounts).toEqual(["dhan-main"]);
   });
 });
 
@@ -277,15 +158,10 @@ describe("/xl/history", () => {
 });
 
 describe("integrations config reaches the routes", () => {
-  it("custom resolutions and sessions", async () => {
-    const t2 = await startTestApp({ integrations: { udf: { supportedResolutions: ["5", "1D"], sessions: { NSE: "0915-1530:23456" }, nextTimeLookup: false }, xl: { chainFormat: "json" } } });
+  it("xl defaults", async () => {
+    const t2 = await startTestApp({ integrations: { xl: { chainFormat: "json" } } });
     try {
       const g = (p) => t2.request(p, { headers: R });
-      expect((await g("/udf/config")).json.supported_resolutions).toEqual(["5", "1D"]);
-      expect((await g("/udf/symbols?symbol=NSE:NIFTY")).json.session).toBe("0915-1530:23456");
-      expect((await g(`/udf/history?${qs({ symbol: "NSE:NIFTY", resolution: "1", from: 1_800_000_000, to: 1_800_000_600 })}`)).status).toBe(400);
-      const gap = await g(`/udf/history?${qs({ symbol: "NSE:NIFTY", resolution: "1D", from: utcDay("2026-10-02"), to: utcDay("2026-10-03") })}`);
-      expect(gap.json).toEqual({ s: "no_data" });
       expect(Array.isArray((await g("/xl/chain?underlying=NIFTY&expiry=2026-10-27")).json)).toBe(true);
     } finally {
       await t2.close();

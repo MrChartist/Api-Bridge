@@ -29,7 +29,7 @@ import { BridgeError, fromBrokerError, fromValidation } from "../core/errors.mjs
 import { parseSymbol } from "../core/symbolFormat.mjs";
 import { recordSaving as recordSavingGlobal } from "../ratelimit/scheduler.mjs";
 import { createBatcher } from "./batcher.mjs";
-import { atmStrike, defaultOptionExchange, rowsFromBrokerChain, rowsFromQuotes, trimStrikes } from "./chain.mjs";
+import { atmStrike, defaultOptionExchange, finishLeg, legSymbol, rowsFromBrokerChain, rowsFromQuotes, trimStrikes } from "./chain.mjs";
 import { DEPTH_STALE_CAP_MS, parseMarketConfig } from "./config.mjs";
 import { createFreshnessCache } from "./freshnessCache.mjs";
 import { INTERVALS, INTRADAY_MINUTES, aggregate, countbackRange, planChunks, planInterval } from "./history.mjs";
@@ -57,9 +57,13 @@ const UNDERLYING_RE = /^[A-Z0-9&-]{1,30}$/;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** Errors that mean "no budget or no answer right now", for which a labelled stale value is better than nothing. */
 const PRESSURE_CODES = new Set(["UPSTREAM_RATE_LIMITED", "RATE_LIMITED", "UPSTREAM_TIMEOUT", "BROKER_UNAVAILABLE"]);
+/** Failures of an unpinned read after which a backup source may answer instead (when the read allows it). */
+const BACKUP_CODES = new Set([...PRESSURE_CODES, "UPSTREAM_ERROR", "SESSION_EXPIRED", "CAPABILITY_UNSUPPORTED", "SYMBOL_NOT_FOUND", "NOT_IMPLEMENTED"]);
 const MASTER_PAGE_LIMIT = 500;
 const MASTER_MAX_PAGES = 20;
 const BSE_INDICES = new Set(["SENSEX", "BANKEX", "SENSEX50"]);
+/** spreadQuotes(): an account whose quote budget frees up later than this is left out of the split. */
+const SPREAD_MAX_WAIT_MS = 1500;
 
 const readOptionsSchema = z
   .object({
@@ -68,6 +72,8 @@ const readOptionsSchema = z
     priority: z.enum(PRIORITIES).optional(),
     signal: z.any().optional(),
     exchange: z.string().nullable().optional(),
+    /** Unpinned reads no broker can answer may fall back to BackupDataService (labelled source "backup"). */
+    allowBackup: z.boolean().optional(),
     /** The caller's account restriction (a key's accounts list); "*" or absent = any. Unpinned reads stay inside it. */
     allowedAccounts: z.union([z.literal("*"), z.array(z.string().min(1).max(64))]).optional(),
   })
@@ -107,6 +113,14 @@ export function createMarketDataService(deps) {
   const scheduler = deps.scheduler;
   const symbols = deps.symbols;
   const streamHub = deps.streamHub;
+  /** Optional: absent in tests and tools that build the service by hand. */
+  const backup = (() => {
+    try {
+      return deps.backupData;
+    } catch {
+      return undefined;
+    }
+  })();
   const now = () => clock.now();
   const setTimer = typeof clock.setTimeout === "function" ? (fn, ms) => clock.setTimeout(fn, ms) : undefined;
   const clearTimer = typeof clock.clearTimeout === "function" ? (h) => clock.clearTimeout(h) : undefined;
@@ -114,7 +128,7 @@ export function createMarketDataService(deps) {
   /** accountId|kind|symbol -> Promise<CacheEntry> for symbols being fetched right now */
   const inflight = new Map();
   /** Local counters for diagnostics and tests (the scheduler keeps the reported totals). */
-  const stats = { stream: 0, cache: 0, stale: 0, coalesced: 0, batched: 0, brokerCalls: 0 };
+  const stats = { stream: 0, cache: 0, stale: 0, coalesced: 0, batched: 0, brokerCalls: 0, backup: 0 };
 
   // ── small helpers ──
 
@@ -142,6 +156,8 @@ export function createMarketDataService(deps) {
   }
 
   const isPressure = (err) => err instanceof BridgeError && PRESSURE_CODES.has(err.code);
+  /** This failed read may be answered by a backup source. */
+  const backupOk = (o, err) => o.allowBackup && usable(backup) && (!err || (err instanceof BridgeError && BACKUP_CODES.has(err.code)));
 
   function readOpts(opts) {
     const parsed = readOptionsSchema.safeParse(opts ?? {});
@@ -150,7 +166,15 @@ export function createMarketDataService(deps) {
     // Reads never run at order priority: orders must always stay ahead of market data.
     const priority = o.priority === "order" ? "live" : o.priority ?? "interactive";
     const allowedAccounts = Array.isArray(o.allowedAccounts) ? o.allowedAccounts : undefined;
-    return { accountId: o.accountId ?? null, maxAgeMs: o.maxAgeMs, priority, signal: o.signal ?? undefined, exchange: o.exchange ?? undefined, allowedAccounts };
+    return {
+      accountId: o.accountId ?? null,
+      maxAgeMs: o.maxAgeMs,
+      priority,
+      signal: o.signal ?? undefined,
+      exchange: o.exchange ?? undefined,
+      allowedAccounts,
+      allowBackup: o.allowBackup === true && !o.accountId,
+    };
   }
 
   /** Throws ACCOUNT_NOT_FOUND for an unknown pinned account. */
@@ -183,6 +207,59 @@ export function createMarketDataService(deps) {
     if (!Array.isArray(candidates) || candidates.length === 0) return null;
     if (candidates.length === 1) return candidates[0];
     return scheduler.pickAccount({ candidates, endpointClass }) ?? candidates[0];
+  }
+
+  /**
+   * Split an unpinned quote read over the pooled accounts (same holder, pooling allowed, the caller may use them):
+   * symbols go out in each account's maxQuoteBatch-sized chunks to the account with the most spare quote budget, so a
+   * 200-symbol scan uses every pooled account's limit instead of queueing on one. Null when there is nothing to split
+   * (one candidate, or one symbol); the caller then uses its single chosen account.
+   * @param {string[]} list  canonical symbols still to fetch
+   * @param {string[] | undefined} allowed
+   * @returns {Map<string, string> | null} symbol -> accountId
+   */
+  function spreadQuotes(list, allowed) {
+    if (list.length < 2) return null;
+    const q = { capability: "quotes" };
+    if (allowed) q.allowedAccounts = allowed;
+    const candidates = accounts.marketDataCandidates(q);
+    if (!Array.isArray(candidates) || candidates.length < 2) return null;
+    const slots = candidates.map((id, index) => {
+      let batch = 1;
+      let spare = 1;
+      let limit = 1;
+      let blockedMs = 0;
+      try {
+        batch = Math.max(1, Math.floor(Number(scheduler.policyFor(brokerOf(id))?.maxQuoteBatch) || 1));
+      } catch {
+        batch = 1;
+      }
+      try {
+        const h = scheduler.headroom(id, "quote");
+        limit = Number.isFinite(h?.limit) && h.limit > 0 ? h.limit : h?.limit === Infinity ? 1e9 : 1;
+        spare = Number.isFinite(h?.remaining) ? Math.max(0, h.remaining) : limit;
+        if (spare <= 0) blockedMs = Number(h?.resetMs) || 0;
+      } catch {
+        // no headroom figure: treat as one call of budget
+      }
+      return { id, index, batch, spare, limit, blockedMs, planned: 0 };
+    });
+    // An account out of budget for longer than a per-second window (broker back-off, minute or day limit used up)
+    // gets nothing; waiting on it would hold up the whole read.
+    const usableSlots = slots.filter((s) => s.blockedMs <= SPREAD_MAX_WAIT_MS);
+    if (usableSlots.length < 2) return null;
+    // Spare share after the chunks already planned; ties go to the earlier account in config order.
+    const score = (s) => (s.spare - s.planned) / s.limit;
+    const out = new Map();
+    let i = 0;
+    while (i < list.length) {
+      let best = usableSlots[0];
+      for (const s of usableSlots) if (score(s) > score(best) || (score(s) === score(best) && s.planned < best.planned)) best = s;
+      for (const sym of list.slice(i, i + best.batch)) out.set(sym, best.id);
+      i += best.batch;
+      best.planned += 1;
+    }
+    return out;
   }
 
   function noAccountError(what, pinned) {
@@ -259,7 +336,7 @@ export function createMarketDataService(deps) {
 
   // ── symbols ──
 
-  /** Canonical symbol for any accepted input (canonical, venue form, TradingView, continuous futures ...). */
+  /** Canonical symbol for any accepted input (canonical, venue form, chart tickers, continuous futures ...). */
   async function canonical(input) {
     const s = String(input ?? "").trim();
     if (!s) throw new BridgeError("VALIDATION_FAILED", "A symbol is required.");
@@ -509,9 +586,11 @@ export function createMarketDataService(deps) {
       const failures = new Map();
       const quotesAccount = chooseAccount("quotes", "quote", pinned, o.allowedAccounts);
       const ltpAccount = !quotesAccount && !wantQuote ? chooseAccount("ltp", "quote", pinned, o.allowedAccounts) : null;
-      const accountId = quotesAccount ?? ltpAccount;
+      const firstAccount = quotesAccount ?? ltpAccount;
+      const spread = quotesAccount && !pinned ? spreadQuotes(pending, o.allowedAccounts) : null;
       await Promise.all(
         pending.map(async (symbol) => {
+          const accountId = spread?.get(symbol) ?? firstAccount;
           if (!accountId) {
             failures.set(symbol, noAccountError(wantQuote ? "quotes" : "prices", pinned));
             return;
@@ -538,6 +617,22 @@ export function createMarketDataService(deps) {
           }
         }),
       );
+      const forBackup = [...failures].filter(([, err]) => backupOk(o, err)).map(([symbol]) => symbol);
+      if (forBackup.length) {
+        try {
+          const b = await backup.quotes(forBackup, { maxAgeMs: o.maxAgeMs });
+          for (const it of b.items ?? []) {
+            if (!failures.has(it.symbol)) continue;
+            const full = quoteFields(it.fields) ?? it.fields;
+            const fields = wantQuote ? full : { ltp: full.ltp };
+            items.set(it.symbol, toItem(it.symbol, fields, freshness({ source: "backup", at: it.at, now: now(), targetMs, provider: it.provider })));
+            failures.delete(it.symbol);
+            stats.backup += 1;
+          }
+        } catch (err) {
+          log?.debug?.("backup quotes failed", { code: err?.code });
+        }
+      }
       for (const [symbol, err] of failures) errors.push(itemError(symbol, err));
     }
 
@@ -625,7 +720,7 @@ export function createMarketDataService(deps) {
     if (fromMs > toMs) throw new BridgeError("VALIDATION_FAILED", "from must be before to.", { errors: [{ path: "from", message: "after to" }] });
 
     const targetMs = o.maxAgeMs ?? cfg.freshness.historyMs;
-    // Chart clients send a slightly different from/to on every refresh (UDF pads `to`, TradingView moves it), so the
+    // Chart clients send a slightly different from/to on every refresh (they pad or move `to`), so the
     // cache key snaps both to interval steps and treats a `to` within one step of now as "now". The broker fetch
     // covers the whole snapped range, so a hit holds every bar of any request with the same key; it is then filtered
     // to the exact range asked for.
@@ -649,57 +744,76 @@ export function createMarketDataService(deps) {
       return { ...hit.value, candles: pick(hit.value.candles), freshness: freshness({ source: "cache", at: hit.at, now: t, targetMs, accountId: hit.accountId, broker: hit.broker }) };
     }
 
-    const accountId = chooseAccount("historical", "history", pinned, o.allowedAccounts);
-    if (!accountId) throw noAccountError("historical candles", pinned);
-    const broker = brokerOf(accountId);
-    const caps = adapterCaps(accountId).historical;
-    const capObj = caps && typeof caps === "object" ? caps : {};
-    if (Array.isArray(capObj.segments) && !capObj.segments.includes(parts.exchange)) {
-      throw new BridgeError("CAPABILITY_UNSUPPORTED", `${broker} offers historical candles only for ${capObj.segments.join(", ")}.`);
-    }
-    const plan = planInterval(p.interval, capObj.intervals);
-    const daily = plan.base === "1d";
-    const spans = cfg.history.brokers[broker] ?? {};
-    const spanDays = (daily ? spans.daily : spans.intraday) ?? (daily ? cfg.history.maxSpanDays.daily : cfg.history.maxSpanDays.intraday);
-    let chunks = planChunks({ fromMs: fetchFromMs, toMs: fetchToMs, spanDays, daily });
-    let partial = false;
-    if (chunks.length > cfg.history.maxChunks) {
-      chunks = chunks.slice(0, cfg.history.maxChunks); // newest first: keep the most recent part
-      partial = true;
-    }
-    const ref = await brokerRef(symbol, broker);
-    const settled = await raceSignal(
-      Promise.allSettled(
-        chunks.map((c) =>
-          callBroker(
-            { accountId, broker, endpointClass: "history", priority: o.priority, coalesceKey: `history:${accountId}:${symbol}:${plan.base}:${c.from}:${c.to}` },
-            (adapter, creds) => {
-              if (typeof adapter.fetchHistorical !== "function") throw new BridgeError("CAPABILITY_UNSUPPORTED", `${broker} offers no historical candles.`);
-              return adapter.fetchHistorical(creds, { instrument: ref, interval: plan.base, from: c.from, to: c.to });
-            },
-          ),
-        ),
-      ),
-      o.signal,
-    );
-    const lists = [];
-    let firstError = null;
-    // chunks are newest first; merge oldest first so a newer chunk wins any overlap
-    for (let i = settled.length - 1; i >= 0; i -= 1) {
-      const s = settled[i];
-      if (s.status === "fulfilled") lists.push(normaliseCandles(s.value?.data ?? s.value));
-      else {
-        firstError ??= s.reason;
-        partial = true;
+    const fromBackup = async () => {
+      const b = await backup.history({ symbol, interval: p.interval, fromMs: fetchFromMs, toMs: fetchToMs });
+      stats.backup += 1;
+      // Not put in the shared cache: a later hit would be labelled "cache" and could be mistaken for broker data.
+      return { symbol, interval: p.interval, candles: pick(b.candles), partial: b.partial, freshness: freshness({ source: "backup", at: b.at, now: now(), targetMs, provider: b.provider }) };
+    };
+    try {
+      return await brokerHistory();
+    } catch (err) {
+      if (err?.name === "AbortError" || !backupOk(o, err)) throw err;
+      try {
+        return await fromBackup();
+      } catch {
+        throw err;
       }
     }
-    if (!lists.length) throw toBridge(firstError, broker);
-    const merged = mergeCandles(lists).filter((c) => c.time >= Math.floor(fetchFromMs / 1000) && c.time <= Math.floor(fetchToMs / 1000));
-    const all = aggregate(merged, plan, p.interval, parts.exchange);
-    const at = now();
-    cache.set(key, { symbol, interval: p.interval, candles: all, partial }, { at, accountId, broker });
-    const value = { symbol, interval: p.interval, candles: pick(all), partial };
-    return { ...value, freshness: freshness({ source: "broker", at, now: at, targetMs, accountId, broker }) };
+
+    async function brokerHistory() {
+      const accountId = chooseAccount("historical", "history", pinned, o.allowedAccounts);
+      if (!accountId) throw noAccountError("historical candles", pinned);
+      const broker = brokerOf(accountId);
+      const caps = adapterCaps(accountId).historical;
+      const capObj = caps && typeof caps === "object" ? caps : {};
+      if (Array.isArray(capObj.segments) && !capObj.segments.includes(parts.exchange)) {
+        throw new BridgeError("CAPABILITY_UNSUPPORTED", `${broker} offers historical candles only for ${capObj.segments.join(", ")}.`);
+      }
+      const plan = planInterval(p.interval, capObj.intervals);
+      const daily = plan.base === "1d";
+      const spans = cfg.history.brokers[broker] ?? {};
+      const spanDays = (daily ? spans.daily : spans.intraday) ?? (daily ? cfg.history.maxSpanDays.daily : cfg.history.maxSpanDays.intraday);
+      let chunks = planChunks({ fromMs: fetchFromMs, toMs: fetchToMs, spanDays, daily });
+      let partial = false;
+      if (chunks.length > cfg.history.maxChunks) {
+        chunks = chunks.slice(0, cfg.history.maxChunks); // newest first: keep the most recent part
+        partial = true;
+      }
+      const ref = await brokerRef(symbol, broker);
+      const settled = await raceSignal(
+        Promise.allSettled(
+          chunks.map((c) =>
+            callBroker(
+              { accountId, broker, endpointClass: "history", priority: o.priority, coalesceKey: `history:${accountId}:${symbol}:${plan.base}:${c.from}:${c.to}` },
+              (adapter, creds) => {
+                if (typeof adapter.fetchHistorical !== "function") throw new BridgeError("CAPABILITY_UNSUPPORTED", `${broker} offers no historical candles.`);
+                return adapter.fetchHistorical(creds, { instrument: ref, interval: plan.base, from: c.from, to: c.to });
+              },
+            ),
+          ),
+        ),
+        o.signal,
+      );
+      const lists = [];
+      let firstError = null;
+      // chunks are newest first; merge oldest first so a newer chunk wins any overlap
+      for (let i = settled.length - 1; i >= 0; i -= 1) {
+        const s = settled[i];
+        if (s.status === "fulfilled") lists.push(normaliseCandles(s.value?.data ?? s.value));
+        else {
+          firstError ??= s.reason;
+          partial = true;
+        }
+      }
+      if (!lists.length) throw toBridge(firstError, broker);
+      const merged = mergeCandles(lists).filter((c) => c.time >= Math.floor(fetchFromMs / 1000) && c.time <= Math.floor(fetchToMs / 1000));
+      const all = aggregate(merged, plan, p.interval, parts.exchange);
+      const at = now();
+      cache.set(key, { symbol, interval: p.interval, candles: all, partial }, { at, accountId, broker });
+      const value = { symbol, interval: p.interval, candles: pick(all), partial };
+      return { ...value, freshness: freshness({ source: "broker", at, now: at, targetMs, accountId, broker }) };
+    }
   }
 
   // ── expiries ──
@@ -751,11 +865,24 @@ export function createMarketDataService(deps) {
       const at = now();
       return { underlying, expiries: list, freshness: freshness({ source: "cache", at, now: at, targetMs, accountId: null, broker: null }) };
     };
+    const fromBackup = async (err) => {
+      if (exchange && exchange !== "NFO") throw err;
+      try {
+        const b = await backup.expiries(underlying);
+        stats.backup += 1;
+        const today = istDate(now());
+        return { underlying, expiries: b.expiries.filter((d) => d >= today), freshness: freshness({ source: "backup", at: b.at, now: now(), targetMs, provider: b.provider }) };
+      } catch {
+        throw err;
+      }
+    };
     const accountId = chooseAccount("expiries", "chain", pinned, o.allowedAccounts);
     if (!accountId) {
       const m = pinned ? null : await fromMaster();
       if (m) return m;
-      throw noAccountError("expiry dates", pinned);
+      const err = noAccountError("expiry dates", pinned);
+      if (backupOk(o, err)) return fromBackup(err);
+      throw err;
     }
     const broker = brokerOf(accountId);
     const stale = staleEntry(key, pinned, Math.max(cfg.stale.maxStaleMs, targetMs * 2));
@@ -779,6 +906,7 @@ export function createMarketDataService(deps) {
       }
       const m = pinned ? null : await fromMaster().catch(() => null);
       if (m) return m;
+      if (backupOk(o, err)) return fromBackup(err);
       throw err;
     }
     // fetchExpiryList takes no exchange, so the broker may answer for another segment (NFO for BFO, NFO for MCX).
@@ -902,6 +1030,41 @@ export function createMarketDataService(deps) {
     };
   }
 
+  /** Option chain from a backup source (NSE website), Greeks computed locally. Not cached; rethrows `err` on failure. */
+  async function backupChain(underlying, p, greeks, targetMs, err) {
+    let b;
+    try {
+      b = await backup.optionChain(underlying, p.expiry);
+    } catch {
+      throw err;
+    }
+    stats.backup += 1;
+    const exchange = defaultOptionExchange(underlying);
+    const spot = b.underlyingLtp ?? null;
+    const rows = b.rows.map((r) => {
+      const row = { strike: r.strike, ce: null, pe: null };
+      for (const right of ["CE", "PE"]) {
+        const raw = r[right.toLowerCase()];
+        if (!raw) continue;
+        const { symbol: _s, greeksSource: _g, ...fields } = raw;
+        row[right.toLowerCase()] = finishLeg(fields, {
+          symbol: legSymbol(exchange, underlying, p.expiry, r.strike, right),
+          declared: null,
+          greeks,
+          spot,
+          strike: r.strike,
+          expiry: p.expiry,
+          right,
+          nowMs: now(),
+          rate: cfg.chain.riskFreeRate,
+        });
+      }
+      return row;
+    });
+    const value = { underlyingLtp: spot, rows, lotSize: null };
+    return chainResult(underlying, p.expiry, value, p.strikes, freshness({ source: "backup", at: b.at, now: now(), targetMs, provider: b.provider }));
+  }
+
   async function optionChain(params, opts) {
     const parsed = chainSchema.safeParse(params ?? {});
     if (!parsed.success) throw fromValidation(parsed.error);
@@ -940,6 +1103,7 @@ export function createMarketDataService(deps) {
       if (!got) got = await raceSignal(builtChain(args), o.signal);
     } catch (err) {
       if (stale && isPressure(err)) return serveStale();
+      if (err?.name !== "AbortError" && backupOk(o, err)) return backupChain(underlying, p, greeks, targetMs, err);
       throw err;
     }
     cache.set(key, got.value, { at: got.at, accountId: got.accountId, broker: got.broker });

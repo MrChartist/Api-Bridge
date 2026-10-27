@@ -80,17 +80,6 @@
     "description": "Rate limits: live usage per endpoint class against the broker's limits, and the calls saved by stream, cache, coalescing and batching."
   },
   {
-    "file": "integrations-tradingview-dark.webp",
-    "title": "Integrations: TradingView",
-    "page": "integrations",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1093,
-    "description": "Copy-paste setup for TradingView, with this Bridge's address filled in and a button that creates a key with only the access it needs.",
-    "tab": "tradingview"
-  },
-  {
     "file": "integrations-python-dark.webp",
     "title": "Integrations: Python",
     "page": "integrations",
@@ -270,17 +259,6 @@
     "description": "Rate limits: live usage per endpoint class against the broker's limits, and the calls saved by stream, cache, coalescing and batching."
   },
   {
-    "file": "integrations-tradingview-light.webp",
-    "title": "Integrations: TradingView",
-    "page": "integrations",
-    "theme": "light",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1093,
-    "description": "Copy-paste setup for TradingView, with this Bridge's address filled in and a button that creates a key with only the access it needs.",
-    "tab": "tradingview"
-  },
-  {
     "file": "integrations-python-light.webp",
     "title": "Integrations: Python",
     "page": "integrations",
@@ -410,17 +388,6 @@
     "description": "An option-chain call with Greeks: status, timing, request id, rate-limit headers and the JSON, labelled Demo data."
   },
   {
-    "file": "feature-snippets-tradingview.webp",
-    "title": "Snippet panel: TradingView",
-    "page": "integrations",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1272,
-    "height": 875,
-    "description": "Ready-to-paste TradingView setup with copy buttons.",
-    "tab": "tradingview"
-  },
-  {
     "file": "feature-snippets-python.webp",
     "title": "Snippet panel: Python",
     "page": "integrations",
@@ -452,17 +419,6 @@
     "height": 642,
     "description": "Ready-to-paste Claude Desktop and Claude Code (MCP) setup with copy buttons.",
     "tab": "claude"
-  },
-  {
-    "file": "feature-tradingview-webhook.webp",
-    "title": "TradingView webhook created",
-    "page": "integrations",
-    "theme": "dark",
-    "viewport": "desktop 1600x1000",
-    "width": 1600,
-    "height": 1000,
-    "description": "A new TradingView hook: its secret URL is shown once, with the alert message to paste. Paper orders by default.",
-    "tab": "tradingview"
   },
   {
     "file": "feature-kill-switch-dialog.webp",

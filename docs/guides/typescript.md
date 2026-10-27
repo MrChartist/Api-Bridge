@@ -36,5 +36,20 @@ sent only as a header, and single-use stream tokens.
 
 ## Browser apps
 
-A page served from another origin (for example Option Hub on `http://localhost:5173`) must be listed in
+A page served from another origin (for example a Vite dev server on `http://localhost:5173`) must be listed in
 `cors.allowedOrigins`. Never put an admin or live key in browser code.
+
+## Scans and backup data
+
+```js
+const job = await bridge.scan(
+  { universe: "FNO", condition: "close crosses above ema(20) and rsi(14) > 55", columns: ["rsi(14)"], sort: { by: "rsi(14)" } },
+  { waitMs: 60_000 },
+);
+for (const row of job.data.results ?? []) console.log(row.symbol, row.values["rsi(14)"], row.source);
+
+await bridge.saveScan({ name: "Breakouts", everyMinutes: 15, request: { universe: "NIFTY50", interval: "15m", condition: "close > highest(20)[1]" } });
+await bridge.backupQuotes(["NSE:RELIANCE", "NSE:NIFTY"]); // straight from Yahoo / NSE, labelled source "backup"
+```
+
+See [scanner.md](scanner.md) and [backup-data.md](backup-data.md).

@@ -29,10 +29,11 @@ import { NotImplementedError } from "./errors.mjs";
  * @typedef {ParsedSymbol & { name: string | null, lotSize: number, tickSize: number, freezeQty: number | null,
  *   isin: string | null, refs: Record<string, BrokerRef> }} ResolvedInstrument   refs keyed by broker id.
  *
- * @typedef {{ source: "stream"|"cache"|"broker"|"paper", asOf: string, ageMs: number, stale: boolean,
- *   accountId: string | null, broker: string | null }} Freshness
+ * @typedef {{ source: "stream"|"cache"|"broker"|"paper"|"backup", asOf: string, ageMs: number, stale: boolean,
+ *   accountId: string | null, broker: string | null, provider?: string }} Freshness
  *   Attached to every market-data item. `asOf` is ISO-8601 with offset (+05:30). `stale` = older than the freshness
- *   target the caller asked for (maxAgeMs) or than the endpoint default.
+ *   target the caller asked for (maxAgeMs) or than the endpoint default. source "backup" = a free public source
+ *   (BackupDataService, named in `provider`), used only when no broker account could answer; accountId/broker null.
  * @typedef {{ symbol: string, ltp: number, freshness: Freshness }} LtpItem
  * @typedef {{ symbol: string, ltp: number, open: number|null, high: number|null, low: number|null, close: number|null,
  *   change: number|null, changePct: number|null, volume: number|null, oi: number|null, bid: number|null, ask: number|null,
@@ -48,8 +49,10 @@ import { NotImplementedError } from "./errors.mjs";
  *   greeksSource: "broker"|"computed"|null }} ChainLeg   iv in percent.
  * @typedef {{ underlying: string, expiry: string, underlyingLtp: number|null, atmStrike: number|null, lotSize: number|null,
  *   rows: ChainRow[], freshness: Freshness }} OptionChain
- * @typedef {{ accountId?: string, maxAgeMs?: number, priority?: Priority, signal?: AbortSignal }} ReadOptions
+ * @typedef {{ accountId?: string, maxAgeMs?: number, priority?: Priority, signal?: AbortSignal, allowBackup?: boolean }} ReadOptions
  *   accountId pins the read to one account (no pooling). maxAgeMs: freshest acceptable data (0 = must hit stream/broker).
+ *   allowBackup: an unpinned read that no broker account could answer may be served by BackupDataService. Default
+ *   false, so orders, paper fills and safety checks never see backup prices; routes for people and tools opt in.
  *
  * @typedef {"order"|"quote"|"depth"|"history"|"chain"|"portfolio"|"master"|"other"} EndpointClass
  * @typedef {"order"|"live"|"interactive"|"background"} Priority   Highest first.
@@ -224,7 +227,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  toBroker(symbol: string, brokerId: string) -> Promise<BrokerRef>
    *  fromBroker(brokerId: string, ref: { token: string, exchange: Exchange }) -> Promise<string | null>
    *  search({ q, exchange?, kind?, underlying?, expiry?, limit?, cursor? }) -> Promise<Page>   items: ResolvedInstrument (refs omitted)
-   *  convert({ input, from?: "auto"|"canonical"|"tradingview"|"compact"|"broker", broker?, exchange? }) -> Promise<{ canonical: string, aliases: Record<string, string> }>
+   *  convert({ input, from?: "auto"|"canonical"|"chart"|"compact"|"broker", broker?, exchange? }) -> Promise<{ canonical: string, aliases: Record<string, string> }>
    *  refresh({ broker? }) -> Promise<{ brokers: string[], instruments: number, errors: Array<{ broker, code, message }> }>
    *  status() -> { brokers: Array<{ broker: string, instruments: number, loadedAt: string | null, source, day, fresh, lastError }>, conflicts, freezeList }
    *  Extras: warm() (start-up load), close().
@@ -257,6 +260,19 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
+   * BackupDataService — S12. Free public market data (Yahoo Finance chart API, NSE India website JSON) for when no
+   * broker account can answer. Off unless config.backup.enabled; always off in demo mode. Per-provider pacing and a
+   * circuit breaker; every result names its provider and the provider's own timestamp.
+   *  quotes(symbols: string[], { maxAgeMs? }) -> Promise<{ items: Array<{ symbol, fields, at, provider }>, errors }>   cash and index only
+   *  history({ symbol, interval, fromMs, toMs }) -> Promise<{ symbol, interval, candles, partial, provider, at }>
+   *  expiries(underlying) -> Promise<{ underlying, expiries: string[], provider, at }>   NSE derivatives
+   *  optionChain(underlying, expiry) -> Promise<{ underlying, expiry, rows, underlyingLtp, provider, at }>   legs without greeks
+   *  status() -> { enabled, autoFallback, providers: [...], order, cacheMs }
+   *  Extra: autoFallback() -> boolean
+   */
+  backupData: { iface: "BackupDataService", stream: "S12", requires: [], methods: ["quotes", "history", "expiries", "optionChain", "status"] },
+
+  /**
    * MarketDataService — S5. Streaming-first, then freshness cache, then a scheduled broker call (batched and coalesced),
    * routed to a pinned account or a pooled candidate. Every item carries Freshness.
    *  ltp(symbols: string[], opts?: ReadOptions) -> Promise<{ items: LtpItem[], errors: Array<{ symbol, code, message }> }>
@@ -269,7 +285,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   marketData: {
     iface: "MarketDataService",
     stream: "S5",
-    requires: ["accounts", "scheduler", "symbols", "streamHub"],
+    requires: ["accounts", "scheduler", "symbols", "streamHub", "backupData"],
     methods: ["ltp", "quotes", "depth", "history", "expiries", "optionChain"],
   },
 
