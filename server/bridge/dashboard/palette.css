@@ -1,1 +1,182 @@
-/* Command palette and keyboard-shortcut styles. */
+/* Command palette (Spotlight style), keyboard-shortcut hints and small accessibility helpers.
+   Uses the app.css tokens with fallbacks, so it still reads well if a token is renamed. */
+
+/* ── Key caps (app.css may style .kbd too; :where keeps this a low-priority default) ── */
+:where(.kbd) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font: 500 11px/1 var(--font, system-ui, sans-serif);
+  color: var(--text-2, #555);
+  background: var(--control, #fff);
+  box-shadow: var(--shadow-control, 0 0 0 0.5px rgb(0 0 0 / 0.15), 0 0.5px 1px rgb(0 0 0 / 0.15));
+}
+.kbd-group { display: inline-flex; gap: 3px; align-items: center; }
+
+/* ── Palette panel ── */
+dialog.palette {
+  position: fixed;
+  inset: 12vh 0 auto 0;
+  margin: 0 auto;
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(520px, 76vh);
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  color: var(--text, #222);
+  background: var(--card, #fdfdfd);
+  box-shadow: 0 0 0 0.5px var(--line-strong, rgb(0 0 0 / 0.18)), 0 24px 64px rgb(0 0 0 / 0.28), 0 4px 14px rgb(0 0 0 / 0.12);
+  flex-direction: column;
+}
+dialog.palette[open] { display: flex; animation: palette-in 140ms var(--ease, ease-out); }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  dialog.palette {
+    background: color-mix(in srgb, var(--card, #fdfdfd) 76%, transparent);
+    -webkit-backdrop-filter: saturate(180%) blur(28px);
+    backdrop-filter: saturate(180%) blur(28px);
+  }
+}
+dialog.palette::backdrop { background: rgb(0 0 0 / 0.18); backdrop-filter: none; }
+@keyframes palette-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  dialog.palette[open] { animation: none; }
+}
+
+.palette-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line, rgb(0 0 0 / 0.1));
+}
+.palette-search > svg { width: 22px; height: 22px; flex: none; stroke: var(--text-3, #777); fill: none; stroke-width: 2; stroke-linecap: round; }
+dialog.palette .palette-input,
+dialog.palette .palette-input:focus {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  color: var(--text, #222);
+  font: 400 20px/1.3 var(--font, system-ui, sans-serif);
+  padding: 4px 0;
+}
+.palette-input::placeholder { color: var(--text-3, #888); }
+
+.palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  flex: 1;
+}
+.palette-group {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-3, #777);
+}
+.palette-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  cursor: default;
+  font-size: 13.5px;
+}
+.palette-option[aria-selected="true"] { background: var(--accent, #e8622c); color: var(--on-accent, #1a0d12); }
+.palette-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 6px;
+  background: var(--control-track, rgb(0 0 0 / 0.06));
+}
+.palette-option[aria-selected="true"] .palette-icon { background: rgb(255 255 255 / 0.28); }
+.palette-icon svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.palette-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-kind { margin-left: 8px; font-size: 11.5px; color: var(--text-3, #777); }
+.palette-option[aria-selected="true"] .palette-kind { color: inherit; opacity: 0.75; }
+.palette-right { margin-left: auto; flex: none; display: inline-flex; }
+.palette-hint { font-size: 11.5px; color: var(--text-3, #777); }
+.palette-option[aria-selected="true"] .palette-hint { color: inherit; opacity: 0.75; }
+.palette-empty { padding: 22px 12px; text-align: center; color: var(--text-3, #777); }
+.palette-foot {
+  display: flex;
+  gap: 16px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--line, rgb(0 0 0 / 0.1));
+  font-size: 11.5px;
+  color: var(--text-3, #777);
+}
+.palette-foot > span { display: inline-flex; align-items: center; gap: 4px; }
+.palette-foot .kbd-group { gap: 2px; }
+@media (max-width: 560px) {
+  dialog.palette { inset-block-start: 8px; max-height: calc(100vh - 16px); }
+  .palette-foot { display: none; }
+}
+
+/* ── Toolbar search button with its ⌘K hint ── */
+button.search-hint { gap: 6px; }
+button.search-hint > svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; }
+button.search-hint .kbd-group { margin-left: 2px; }
+@media (max-width: 760px) {
+  button.search-hint .lbl, button.search-hint .kbd-group { display: none; }
+}
+
+/* ── Shortcuts sheet ── */
+table.shortcuts { width: 100%; border-collapse: collapse; }
+table.shortcuts td { padding: 6px 0; border-bottom: 1px solid var(--line, rgb(0 0 0 / 0.1)); vertical-align: middle; }
+table.shortcuts tr:last-child td { border-bottom: 0; }
+table.shortcuts td.shortcut-keys { width: 120px; white-space: nowrap; }
+
+/* ── Segmented controls used as form fields (views.js segField) ── */
+div.field.seg-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 560; color: var(--text-2, #555); min-width: 0; }
+div.field.seg-field .segmented { align-self: flex-start; max-width: 100%; flex-wrap: wrap; }
+div.field.seg-field .segmented button { white-space: nowrap; }
+
+/* ── Accessibility helpers ── */
+.pal-sr-only {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 1000;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--card, #fff);
+  color: var(--text, #222);
+  box-shadow: var(--shadow-3, 0 4px 16px rgb(0 0 0 / 0.2));
+  transform: translateY(-160%);
+  transition: transform 120ms var(--ease, ease-out);
+}
+.skip-link:focus, .skip-link:focus-visible { transform: none; text-decoration: none; box-shadow: var(--focus, 0 0 0 3px #e8622c80), var(--shadow-3, 0 4px 16px rgb(0 0 0 / 0.2)); }
+#content:focus { outline: none; box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .skip-link { transition: none; }
+}

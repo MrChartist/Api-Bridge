@@ -28,6 +28,7 @@ import {
   toast,
 } from "./app.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
+import { initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
 const $ = (id) => document.getElementById(id);
 const local = app.local;
@@ -39,10 +40,103 @@ const demoPill = () => (app.state.demo ? pill("Demo data", "demo") : null);
 const sum = (o) => Object.values(o ?? {}).reduce((a, b) => a + (Number(b) || 0), 0);
 const initials = (name) => String(name).replace(/\(.*?\)/g, "").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 const signed = (n) => (n > 0 ? `+${fmtNum.format(n)}` : fmtNum.format(n));
+/** A button for an empty state's next step: goes to a page (hash) or runs a function. */
+const nextStep = (label, to, cls = "primary") => h("button", { type: "button", class: cls, onclick: typeof to === "function" ? to : () => (location.hash = to) }, label);
+
+/**
+ * A macOS segmented control for 2-4 mutually exclusive options. The returned element has a `.value` like a <select>,
+ * so the code that reads it does not change. Arrow keys move the choice; only the chosen button is in the Tab order.
+ */
+function segmented(label, options, initial = options[0][0]) {
+  let value = initial;
+  const el = h("div", { class: "segmented", role: "group", "aria-label": label });
+  const buttons = options.map(([v, text]) => h("button", { type: "button", "data-value": v, onclick: () => pick(v, false) }, text));
+  const pick = (v, focus) => {
+    value = v;
+    for (const b of buttons) {
+      const on = b.dataset.value === v;
+      b.setAttribute("aria-pressed", String(on));
+      b.tabIndex = on ? 0 : -1;
+      if (on && focus) b.focus();
+    }
+    el.dispatchEvent(new Event("change"));
+  };
+  el.addEventListener("keydown", (e) => {
+    const i = buttons.findIndex((b) => b.dataset.value === value);
+    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    pick(buttons[(i + step + buttons.length) % buttons.length].dataset.value, true);
+  });
+  el.append(...buttons);
+  Object.defineProperty(el, "value", { get: () => value, set: (v) => pick(String(v), false) });
+  pick(initial, false);
+  return el;
+}
+/** A labelled field around a segmented control (a <label> would forward clicks on its text to the first button). */
+const segField = (label, seg, { wide = false } = {}) => {
+  const id = `seg-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${++segField.n}`;
+  seg.removeAttribute("aria-label");
+  seg.setAttribute("aria-labelledby", id);
+  return h("div", { class: wide ? "field seg-field wide" : "field seg-field" }, h("span", { id }, label), seg);
+};
+segField.n = 0;
+
+/**
+ * Tabs with the WAI-ARIA keyboard pattern: arrow keys, Home and End move between tabs; focus stays on the chosen tab
+ * after the panel is redrawn. `onPick(id)` redraws.
+ */
+function drawTabs(bar, panel, tabs, active, onPick) {
+  const hadFocus = bar.contains(document.activeElement);
+  const base = bar.id || (bar.id = `tabs-${++drawTabs.n}`);
+  panel.id ||= `${base}-panel`;
+  panel.setAttribute("role", "tabpanel");
+  const buttons = tabs.map(([id, label]) =>
+    h("button", { type: "button", role: "tab", id: `${base}-${id}`, "aria-selected": String(id === active), "aria-controls": panel.id, tabindex: id === active ? "0" : "-1", onclick: () => onPick(id) }, label),
+  );
+  bar.replaceChildren(...buttons);
+  panel.setAttribute("aria-labelledby", `${base}-${active}`);
+  bar.onkeydown = (e) => {
+    const i = tabs.findIndex(([id]) => id === active);
+    const j = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : null;
+    if (j === null) return;
+    e.preventDefault();
+    onPick(tabs[(j + tabs.length) % tabs.length][0]);
+  };
+  if (hadFocus) buttons.find((b) => b.getAttribute("aria-selected") === "true")?.focus();
+}
+drawTabs.n = 0;
+
+/**
+ * Pages that redraw on a timer would drop keyboard focus every few seconds. Run `fn` (which replaces the children of
+ * `container`) and put focus back on the equivalent control if it was inside.
+ */
+function keepFocus(container, fn) {
+  const sig = focusSignature(container);
+  const r = fn();
+  restoreFocus(container, sig);
+  return r;
+}
+async function keepFocusAsync(container, fn) {
+  const sig = focusSignature(container);
+  await fn();
+  restoreFocus(container, sig);
+}
+function focusSignature(container) {
+  const a = document.activeElement;
+  if (!a || a === document.body || !container.contains(a)) return null;
+  return { el: a, sig: `${a.tagName}|${a.id}|${a.getAttribute("aria-label") ?? ""}|${a.textContent.trim()}` };
+}
+function restoreFocus(container, saved) {
+  if (!saved || document.activeElement === saved.el) return;
+  if (saved.el.isConnected) return saved.el.focus({ preventScroll: true });
+  const same = [...container.querySelectorAll("button, a[href], input, select, textarea, [tabindex]")].find((e) => `${e.tagName}|${e.id}|${e.getAttribute("aria-label") ?? ""}|${e.textContent.trim()}` === saved.sig);
+  same?.focus({ preventScroll: true });
+}
 
 // ── Pages ──
 
-const PAGES = [
+export const PAGES = [
   { id: "home", label: "Home", icon: "home", group: "Overview", title: "Home", sub: "Your Bridge at a glance", render: renderHome },
   { id: "accounts", label: "Accounts", icon: "accounts", group: "Overview", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
   { id: "console", label: "Test console", icon: "console", group: "Overview", title: "Test console", sub: "Try any call and see exactly what comes back", render: renderConsole },
@@ -66,9 +160,12 @@ function nav(active) {
       group = p.group;
       out.push(h("div", { class: "nav-group" }, group));
     }
-    out.push(h("a", { href: `#/${p.id}`, "aria-current": p.id === active ? "page" : undefined, "data-page": p.id }, icon(p.icon), h("span", { class: "lbl" }, p.label), p.id === "orders" ? h("span", { class: "count", id: "nav-tickets", hidden: true }) : null));
+    const sc = pageShortcut(PAGES.indexOf(p));
+    out.push(h("a", { href: `#/${p.id}`, "aria-current": p.id === active ? "page" : undefined, "data-page": p.id, title: sc ? `${p.label} (${sc.label})` : p.label, "aria-keyshortcuts": sc?.aria }, icon(p.icon), h("span", { class: "lbl" }, p.label), p.id === "orders" ? h("span", { class: "count", id: "nav-tickets", hidden: true }) : null));
   }
   $("nav").replaceChildren(...out);
+  const anim = motionHooks?.animateNav;
+  if (typeof anim === "function") anim($("nav"));
 }
 
 /** Re-run `fn` every `ms` while this page is shown and the tab is visible. */
@@ -79,17 +176,28 @@ function every(ms, fn) {
   }, ms);
 }
 
+let shownPage = null;
+let pendingFocus = null;
+
 async function show() {
   const id = (location.hash.replace(/^#\/?/, "").split("?")[0] || "home").toLowerCase();
   const page = PAGES.find((p) => p.id === id) ?? PAGES[0];
+  const changed = page.id !== shownPage;
+  shownPage = page.id;
   clearInterval(timer);
   $("toast").hidden = true;
   nav(page.id);
   $("page-title").textContent = page.title;
   $("page-sub").textContent = page.sub;
-  $("page-actions").replaceChildren(demoPill() ?? "", h("button", { type: "button", class: "ghost", title: "Refresh", onclick: () => show() }, icon("refresh"), "Refresh"));
+  const mod = modKey();
+  $("page-actions").replaceChildren(
+    demoPill() ?? "",
+    h("button", { type: "button", class: "ghost search-hint", title: `Search pages and actions (${mod === "⌘" ? "⌘K" : "Ctrl+K"})`, "aria-label": "Search pages and actions", "aria-keyshortcuts": mod === "⌘" ? "Meta+K" : "Control+K", onclick: () => openPalette() }, searchIcon(), h("span", { class: "lbl" }, "Search"), kbd(mod, "K")),
+    h("button", { type: "button", class: "ghost", title: "Reload this page's data", onclick: () => show() }, icon("refresh"), "Refresh"),
+  );
   const seq = ++renderSeq;
   const root = $("content");
+  root.setAttribute("aria-busy", "true");
   root.replaceChildren(h("p", { class: "muted" }, "Loading…"));
   try {
     const nodes = await page.render();
@@ -99,7 +207,63 @@ async function show() {
     if (seq !== renderSeq) return;
     root.replaceChildren(alertBox(err));
   }
+  root.removeAttribute("aria-busy");
+  announce(changed ? `${page.title} page` : `${page.title} refreshed`);
+  if (pendingFocus) {
+    const target = pendingFocus === true ? null : root.querySelector(pendingFocus);
+    pendingFocus = null;
+    (target ?? root).focus({ preventScroll: !target });
+  }
+  const anim = motionHooks?.animatePage;
+  if (typeof anim === "function") anim(root);
   refreshTicketCount();
+}
+
+// ── Accessibility plumbing (created from here because index.html is static) ──
+
+/** Tell screen readers what just happened (page changes and refreshes). */
+function announce(text) {
+  const el = $("route-announcer");
+  if (!el) return;
+  el.textContent = "";
+  setTimeout(() => (el.textContent = text), 50);
+}
+
+/** Every table gets an accessible name from its card's heading (or the selected tab), however it was drawn. */
+function labelTables(root) {
+  for (const t of root.querySelectorAll("table:not([aria-label]):not([aria-labelledby])")) {
+    if (t.querySelector("caption")) continue;
+    const c = t.closest(".card");
+    const name = c?.querySelector(".card-head h2, .card-head h3")?.textContent || c?.querySelector('[role="tab"][aria-selected="true"]')?.textContent || $("page-title")?.textContent || "Table";
+    t.setAttribute("aria-label", name);
+  }
+  // Fallback for any icon-only button: use its title as the name.
+  for (const b of root.querySelectorAll("button[title]:not([aria-label])")) if (!b.textContent.trim()) b.setAttribute("aria-label", b.title);
+}
+
+function setupA11y() {
+  if (!$("skip-link")) {
+    const skip = h("a", { id: "skip-link", class: "skip-link", href: "#content" }, "Skip to content");
+    // Not a hash change: the router owns the hash.
+    skip.addEventListener("click", (e) => {
+      e.preventDefault();
+      $("content").focus();
+    });
+    document.body.prepend(skip);
+  }
+  if (!$("route-announcer")) document.body.append(h("div", { id: "route-announcer", class: "pal-sr-only", role: "status", "aria-live": "polite", "aria-atomic": "true" }));
+  const content = $("content");
+  content.setAttribute("aria-labelledby", "page-title");
+  const mo = new MutationObserver(() => labelTables(content));
+  mo.observe(content, { childList: true, subtree: true });
+}
+
+/** Go to a page from the palette or a shortcut; focus moves into the page (or to `focusSelector`) once it is drawn. */
+function go(id, focusSelector) {
+  pendingFocus = focusSelector ?? true;
+  const hash = `#/${id}`;
+  if (location.hash === hash) show();
+  else location.hash = hash;
 }
 
 async function refreshTicketCount() {
@@ -111,7 +275,17 @@ async function refreshTicketCount() {
   el.textContent = String(n);
 }
 
-export function startRouter() {
+// Motion helpers (animatePage / animateNav), when motion.js provides them. Loaded lazily so Node tests never touch it.
+let motionHooks = null;
+
+export async function startRouter() {
+  setupA11y();
+  initPalette({ pages: () => PAGES, go, refresh: () => show() });
+  try {
+    motionHooks = await import("./motion.js");
+  } catch {
+    motionHooks = null;
+  }
   window.addEventListener("hashchange", show);
   show();
 }
@@ -130,12 +304,14 @@ async function renderScanner() {
   const [universes, backup, jobs] = await Promise.all([optional(api("/v1/scanner/universes")), optional(api("/v1/backup/status")), optional(api("/v1/scanner/jobs"))]);
   const uni = h("select", { "aria-label": "Universe" }, h("option", { value: "" }, "My symbols (below)"), (universes.data?.data ?? []).map((u) => h("option", { value: u.name, selected: u.name === "NIFTY50" }, `${u.name}${u.size ? ` (${u.size})` : ""}`)));
   const syms = h("input", { placeholder: "NSE:RELIANCE, NSE:TCS …", spellcheck: "false" });
+  syms.disabled = Boolean(uni.value);
+  uni.addEventListener("change", () => (syms.disabled = Boolean(uni.value)));
   const interval = h("select", { "aria-label": "Interval" }, ["1d", "1w", "60m", "30m", "15m", "5m", "1m"].map((i) => h("option", { value: i }, i)));
   const source = h("select", { "aria-label": "Source" }, h("option", { value: "auto" }, "Brokers, then backup"), h("option", { value: "broker" }, "Brokers only"), h("option", { value: "backup" }, "Backup only (Yahoo)"));
-  const cond = h("textarea", { rows: 3, spellcheck: "false" }, SCAN_EXAMPLES[0]);
+  const cond = h("textarea", { id: "scan-condition", rows: 3, spellcheck: "false" }, SCAN_EXAMPLES[0]);
   const cols = h("input", { value: "rsi(14), close / sma(50) - 1", spellcheck: "false" });
   const sortBy = h("input", { value: "rsi(14)", spellcheck: "false" });
-  const examples = h("div", { class: "row" }, SCAN_EXAMPLES.map((e) => h("button", { type: "button", class: "small ghost", onclick: () => (cond.value = e) }, e)));
+  const examples = h("div", { class: "row", role: "group", "aria-label": "Example conditions" }, SCAN_EXAMPLES.map((e) => h("button", { type: "button", class: "small ghost", title: "Use this condition", onclick: () => { cond.value = e; cond.focus(); } }, e)));
   const out = h("div", { class: "stack" });
   const planBtn = h("button", { type: "button", class: "ghost" }, icon("info"), "Plan");
   const runBtn = h("button", { type: "button", class: "primary" }, icon("play"), "Run scan");
@@ -219,7 +395,7 @@ async function renderScanner() {
         { label: "Matched", num: true, cell: (j) => fmtInt.format(j.progress?.matched ?? 0) },
       ],
       recent,
-      emptyState("scan", "No scans yet", "Run one above, or from Python, Node, Excel or an AI assistant."),
+      emptyState("scan", "No scans yet", "Run one above, or from Python, Node, Excel or an AI assistant.", nextStep("Write a condition", () => cond.focus())),
     ),
   });
 
@@ -351,7 +527,7 @@ async function renderHome() {
             { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("live enabled", "bad") : pill("paper", "accent")) },
           ],
           accs,
-          emptyState("accounts", "No accounts yet", 'Add one under "accounts" in bridge.config.json, or run npm run bridge -- init.'),
+          emptyState("accounts", "No accounts yet", 'Add one under "accounts" in bridge.config.json, or run npm run bridge -- init.', nextStep("Copy the setup command", () => copyText("npm run bridge -- init", "Command copied"))),
         ),
       }),
       card({
@@ -415,14 +591,14 @@ async function renderAccounts() {
           label: "",
           cell: (a) => {
             if (a.broker === "paper") return h("span", { class: "muted small" }, "simulator");
-            const t = h("button", { type: "button", class: "small" }, "Test");
+            const t = h("button", { type: "button", class: "small", "aria-label": `Test ${a.id}` }, "Test");
             t.addEventListener("click", () => testAccount(a, t));
-            return h("div", { class: "row" }, t, a.session?.state !== "connected" ? h("button", { type: "button", class: "small primary", onclick: () => howTo(a) }, "How to log in") : null);
+            return h("div", { class: "row" }, t, a.session?.state !== "connected" ? h("button", { type: "button", class: "small primary", "aria-label": `How to log in to ${a.label}`, onclick: () => howTo(a) }, "How to log in") : null);
           },
         },
       ],
       accs,
-      emptyState("accounts", "No accounts in your config", 'Run npm run bridge -- init to add a paper account and a broker, or add them under "accounts" in bridge.config.json.'),
+      emptyState("accounts", "No accounts in your config", 'Run npm run bridge -- init to add a paper account and a broker, or add them under "accounts" in bridge.config.json.', nextStep("Copy the setup command", () => copyText("npm run bridge -- init", "Command copied"))),
     ),
   });
 
@@ -444,7 +620,7 @@ async function renderAccounts() {
         ),
       ),
     );
-    if (!rows.length) grid.replaceChildren(h("p", { class: "muted" }, `No broker matches “${search.value}”.`));
+    if (!rows.length) grid.replaceChildren(h("div", { class: "row" }, h("p", { class: "muted" }, `No broker matches “${search.value}”.`), nextStep("Clear search", () => { search.value = ""; draw(); search.focus(); }, "small ghost")));
   };
   search.addEventListener("input", draw);
   draw();
@@ -644,7 +820,7 @@ async function renderLimits() {
         body: h("div", { class: "row" }, tryBtn, h("span", { class: "muted small" }, accounts.length ? "Uses /v1/ltp for NIFTY and RELIANCE." : "Needs a connected broker or demo mode.")),
       }),
     );
-    if (!accounts.length) nodes.push(card({ title: "Broker budgets", body: emptyState("limits", "No broker account in use yet", "Once a broker account is connected, its live budget per endpoint class shows here.") }));
+    if (!accounts.length) nodes.push(card({ title: "Broker budgets", body: emptyState("limits", "No broker account in use yet", "Once a broker account is connected, its live budget per endpoint class shows here.", nextStep("Go to Accounts", "#/accounts")) }));
     for (const a of accounts) {
       const classes = Object.entries(a.classes ?? {});
       nodes.push(
@@ -682,7 +858,7 @@ async function renderLimits() {
         }),
       );
     }
-    root.replaceChildren(...nodes);
+    keepFocus(root, () => root.replaceChildren(...nodes));
   };
   await draw();
   every(2500, draw);
@@ -715,12 +891,12 @@ async function renderOrders() {
                 label: "",
                 cell: (t) => {
                   const blocked = (t.checks ?? []).some((c) => c?.severity === "block");
-                  return h("button", { type: "button", class: t.order?.mode === "live" ? "small danger" : "small primary", disabled: blocked, onclick: () => confirmTicket(t, byId) }, blocked ? "Blocked" : "Review");
+                  return h("button", { type: "button", class: t.order?.mode === "live" ? "small danger" : "small primary", disabled: blocked, "aria-label": `${blocked ? "Blocked" : "Review"} ticket ${t.ticketId}`, onclick: () => confirmTicket(t, byId) }, blocked ? "Blocked" : "Review");
                 },
               },
             ],
             tk,
-            emptyState("inbox", "Nothing waiting", "When an AI assistant prepares an order, it appears here for you to check every field and confirm."),
+            emptyState("inbox", "Nothing waiting", "When an AI assistant prepares an order, it appears here for you to check every field and confirm.", nextStep("Set up an AI assistant", "#/integrations?tab=claude", "ghost")),
           ),
     }),
   );
@@ -745,7 +921,7 @@ async function renderOrders() {
               { label: "Mode", cell: (o) => (o.mode === "live" ? pill("live", "bad") : pill("paper", "accent")) },
             ],
             ord,
-            emptyState("orders", "No orders today", "Paper orders from the test console, your scripts, webhooks and AI assistants show up here."),
+            emptyState("orders", "No orders today", "Paper orders from the test console, your scripts, webhooks and AI assistants show up here.", nextStep("Place a paper order", "#/console?endpoint=order")),
           ),
     }),
   );
@@ -770,7 +946,7 @@ async function renderOrders() {
             { label: "P&L", num: true, cell: (p) => h("span", { class: (p.pnl ?? 0) >= 0 ? "up" : "down" }, fmtRs.format(p.pnl ?? 0)) },
           ],
           rows,
-          emptyState("orders", "No open paper positions", "Place a paper order to practise with ₹10,00,000 of virtual money."),
+          emptyState("orders", "No open paper positions", "Place a paper order to practise with ₹10,00,000 of virtual money.", nextStep("Place a paper order", "#/console?endpoint=order", "ghost")),
         ),
       }),
     );
@@ -819,10 +995,10 @@ async function renderSafety() {
     show();
   };
   const release = async () => {
-    const typed = h("input", { placeholder: "RELEASE", autocomplete: "off" });
+    const typed = h("input", { placeholder: "RELEASE", autocomplete: "off", spellcheck: "false" });
     const go = await modal({
       title: "Allow orders again?",
-      body: h("div", { class: "stack" }, h("p", {}, "Type RELEASE to confirm. Needs an admin key, from this computer."), typed),
+      body: h("div", { class: "stack" }, h("p", {}, "Needs an admin key, from this computer."), h("label", { class: "field" }, "Type RELEASE to confirm", typed)),
       buttons: [{ label: "Cancel", value: false }, { label: "Release", cls: "primary", onClick: () => (typed.value === "RELEASE" ? true : (toast("Type RELEASE exactly"), false)) }],
     });
     if (!go) return;
@@ -854,7 +1030,7 @@ async function renderSafety() {
     { class: `card kill${ks.engaged ? " engaged" : ""}` },
     h("div", { class: "kicon" }, icon(ks.engaged ? "stop" : "power")),
     h("div", { class: "stack" }, h("h2", {}, ks.engaged ? "Kill switch is ON: no orders are sent" : "Kill switch is off"), h("p", { class: "muted" }, ks.engaged ? `Engaged ${istDateTime(ks.at)} by ${ks.by ?? "?"}: ${ks.reason ?? ""}` : "One click stops every new order from every tool: REST, webhooks, AI assistants and the CLI. Also: mc-bridge kill.")),
-    h("div", { class: "actions" }, ks.engaged ? h("button", { type: "button", class: "primary", onclick: release }, "Release (admin)") : h("button", { type: "button", class: "danger", onclick: engage }, icon("stop"), "Stop all orders")),
+    h("div", { class: "actions" }, ks.engaged ? h("button", { type: "button", id: "kill-action", class: "primary", onclick: release }, "Release (admin)") : h("button", { type: "button", id: "kill-action", class: "danger", onclick: engage }, icon("stop"), "Stop all orders")),
   );
   const live = card({
     title: "Live trading",
@@ -894,7 +1070,7 @@ async function renderSafety() {
         { label: "Market orders", cell: (a) => a.limits?.marketOrders ?? "protect" },
       ],
       s.accounts ?? [],
-      emptyState("safety", "No accounts", ""),
+      emptyState("safety", "No accounts", "Daily limits appear once an account is configured.", nextStep("Go to Accounts", "#/accounts", "ghost")),
     ),
   });
   return [killCard, h("div", { class: "grid side" }, limits, live)];
@@ -907,15 +1083,18 @@ async function renderKeys() {
   const rows = keys.data.data ?? [];
   const accs = accounts.data.data ?? [];
   const createdBox = h("div");
-  const label = h("input", { placeholder: "e.g. Excel prices", maxlength: "60" });
+  const label = h("input", { id: "key-label", placeholder: "e.g. Excel prices", maxlength: "60", "aria-required": "true" });
   const scope = h("select", {}, h("option", { value: "read" }, "Read only: prices, charts, AI"), h("option", { value: "paper" }, "Paper trading: read + paper orders"), h("option", { value: "admin,paper" }, "Admin: manage the Bridge"));
   const acct = h("select", {}, h("option", { value: "*" }, "All accounts"), accs.map((a) => h("option", { value: a.id }, a.id)));
   const client = h("select", {}, ["script", "excel", "mcp", "ui", "other"].map((c) => h("option", { value: c }, { script: "Script (Python, Node)", excel: "Excel / Sheets", mcp: "AI assistant (MCP)", ui: "App / dashboard", other: "Other" }[c])));
-  const expires = h("select", {}, h("option", { value: "" }, "Never"), h("option", { value: "7" }, "7 days"), h("option", { value: "30" }, "30 days"), h("option", { value: "90" }, "90 days"));
+  const expires = segmented("Expires", [["", "Never"], ["7", "7 days"], ["30", "30 days"], ["90", "90 days"]], "");
   const urlUse = h("input", { type: "checkbox" });
   const createBtn = h("button", { type: "button", class: "primary" }, icon("plus"), "Create key");
   createBtn.addEventListener("click", async () => {
-    if (!label.value.trim()) return toast("Give the key a name");
+    if (!label.value.trim()) {
+      label.focus();
+      return toast("Give the key a name");
+    }
     createBtn.disabled = true;
     try {
       const body = { label: label.value.trim(), scopes: scope.value.split(","), accounts: acct.value === "*" ? "*" : [acct.value], clientKind: client.value };
@@ -957,6 +1136,7 @@ async function renderKeys() {
                 : h("button", {
                     type: "button",
                     class: "small ghost",
+                    "aria-label": `Revoke key ${k.label}`,
                     onclick: async () => {
                       const ok = await modal({ title: `Revoke “${k.label}”?`, body: h("p", {}, "It stops working on its very next request, and its open streams close. This cannot be undone."), buttons: [{ label: "Cancel", value: false }, { label: "Revoke", cls: "danger", value: true }] });
                       if (!ok) return;
@@ -972,7 +1152,7 @@ async function renderKeys() {
           },
         ],
         data,
-        emptyState("keys", "No keys yet", "Create one key per tool so you can revoke one without touching the others."),
+        emptyState("keys", "No keys yet", "Create one key per tool so you can revoke one without touching the others.", nextStep("Create a key", () => label.focus())),
       ),
     );
   };
@@ -984,7 +1164,7 @@ async function renderKeys() {
       body: h(
         "div",
         { class: "stack" },
-        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field wide" }, "Access", scope), h("label", { class: "field" }, "Accounts", acct), h("label", { class: "field" }, "Used by", client), h("label", { class: "field" }, "Expires", expires)),
+        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field wide" }, "Access", scope), h("label", { class: "field" }, "Accounts", acct), h("label", { class: "field" }, "Used by", client), segField("Expires", expires, { wide: true })),
         h("div", { class: "row" }, h("label", { class: "check" }, urlUse, "Allow in URLs (?key=), for Excel and Google Sheets. Read-only keys only."), h("span", { class: "grow" }), createBtn),
         createdBox,
       ),
@@ -1021,13 +1201,16 @@ async function renderIntegrations() {
   const accounts = (await api("/v1/accounts")).data.data ?? [];
   const paperAcc = accounts.find((a) => a.broker === "paper")?.id ?? "paper";
   const createdKeys = {};
-  const tabsBar = h("div", { class: "tabs", role: "tablist" });
+  const tabsBar = h("div", { class: "tabs", role: "tablist", "aria-label": "Tools" });
   const panel = h("div", { class: "card-body stack" });
   const params = new URLSearchParams(location.hash.split("?")[1] ?? "");
   let active = TABS.some(([id]) => id === params.get("tab")) ? params.get("tab") : "webhooks";
 
   const draw = async () => {
-    tabsBar.replaceChildren(...TABS.map(([id, label]) => h("button", { type: "button", role: "tab", "aria-selected": String(id === active), onclick: () => { active = id; draw(); } }, label)));
+    drawTabs(tabsBar, panel, TABS, active, (id) => {
+      active = id;
+      draw();
+    });
     const s = snippets({ base: location.origin, key: createdKeys[active] ?? null, account: paperAcc, symbol: "NSE:NIFTY", folder: app.state.meta?.installDir || undefined })[active];
     const preset = KEY_PRESETS[active];
     const keyBtn = preset && h("button", { type: "button", class: createdKeys[active] ? "small" : "small primary" }, icon("keys"), createdKeys[active] ? "Key created" : `Create a ${preset.scopes.join("+")} key for this`);
@@ -1046,7 +1229,7 @@ async function renderIntegrations() {
       }
     });
     const parts = [
-      h("div", { class: "row" }, h("p", { class: "grow muted" }, INTRO[active]), ...(keyBtn ? [keyBtn] : []), h("a", { href: `https://github.com/MrChartist/api-bridge/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener" }, "Guide ↗")),
+      h("div", { class: "row" }, h("p", { class: "grow muted" }, INTRO[active]), ...(keyBtn ? [keyBtn] : []), h("a", { href: `https://github.com/MrChartist/api-bridge/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener", "aria-label": `${TABS.find(([id]) => id === active)[1]} guide (opens in a new tab)` }, "Guide ↗")),
       createdKeys[active] ? h("div", { class: "alert info" }, icon("info"), h("div", {}, h("strong", {}, "Your new key is in the snippets below."), h("span", { class: "detail" }, "It is shown only on this page and only until you leave it."))) : null,
     ];
     if (active === "webhooks") parts.push(await webhookPanel(paperAcc));
@@ -1063,9 +1246,9 @@ async function webhookPanel(paperAcc) {
   const box = h("div", { class: "stack" });
   const label = h("input", { value: "NIFTY breakout", maxlength: "60" });
   const source = h("select", {}, [["generic", "Generic (signed JSON)"], ["chartink", "ChartInk"], ["gocharting", "GoCharting"]].map(([v, t]) => h("option", { value: v }, t)));
-  const side = h("select", {}, h("option", { value: "" }, "From the alert"), h("option", { value: "BUY" }, "BUY"), h("option", { value: "SELL" }, "SELL"));
-  const orderType = h("select", {}, h("option", { value: "LIMIT" }, "LIMIT (safer)"), h("option", { value: "MARKET" }, "MARKET (protected)"));
-  const product = h("select", {}, ["INTRADAY", "MARGIN", "CNC"].map((p) => h("option", { value: p }, p)));
+  const side = segmented("Side", [["", "From the alert"], ["BUY", "BUY"], ["SELL", "SELL"]], "");
+  const orderType = segmented("Order type", [["LIMIT", "LIMIT (safer)"], ["MARKET", "MARKET (protected)"]], "LIMIT");
+  const product = segmented("Product", ["INTRADAY", "MARGIN", "CNC"].map((p) => [p, p]), "INTRADAY");
   const lots = h("input", { type: "number", value: "1", min: "1", max: "50" });
   const btn = h("button", { type: "button", class: "primary" }, icon("plus"), "Create webhook");
   const columns = [
@@ -1080,6 +1263,7 @@ async function webhookPanel(paperAcc) {
         h("button", {
           type: "button",
           class: "small ghost",
+          "aria-label": `Delete webhook ${x.label}`,
           onclick: async () => {
             if (!(await modal({ title: `Delete “${x.label}”?`, body: h("p", {}, "Alerts sent to its URL are refused from now on."), buttons: [{ label: "Cancel", value: false }, { label: "Delete", cls: "danger", value: true }] }))) return;
             await optional(api(`/v1/hooks/${encodeURIComponent(x.id)}`, { method: "DELETE" }));
@@ -1090,7 +1274,7 @@ async function webhookPanel(paperAcc) {
   ];
   // Only the table is redrawn when a hook is added, so the one-time secret URL in `box` stays on screen.
   const tableSlot = h("div");
-  const drawTable = () => tableSlot.replaceChildren(...[table(columns, list, null)].filter(Boolean));
+  const drawTable = () => tableSlot.replaceChildren(...[table(columns, list, h("p", { class: "card-body muted small" }, "No webhooks yet. Fill in the form above and choose Create webhook."))].filter(Boolean));
   drawTable();
   btn.addEventListener("click", async () => {
     btn.disabled = true;
@@ -1116,7 +1300,7 @@ async function webhookPanel(paperAcc) {
     "div",
     { class: "card", style: undefined },
     h("div", { class: "card-head" }, h("div", {}, h("h3", {}, "Alert webhook"), h("p", {}, `Each hook has its own secret URL and places paper orders on ${paperAcc}.`))),
-    h("div", { class: "card-body stack" }, h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field" }, "Source", source), h("label", { class: "field" }, "Side", side), h("label", { class: "field" }, "Order type", orderType), h("label", { class: "field" }, "Product", product), h("label", { class: "field" }, "Max lots per alert", lots), btn), box),
+    h("div", { class: "card-body stack" }, h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field" }, "Source", source), segField("Side", side), segField("Order type", orderType, { wide: true }), segField("Product", product), h("label", { class: "field" }, "Max lots per alert", lots), btn), box),
     tableSlot,
   );
 }
@@ -1124,7 +1308,7 @@ async function webhookPanel(paperAcc) {
 // ── Activity ──
 
 async function renderActivity() {
-  const tabsBar = h("div", { class: "tabs", role: "tablist" });
+  const tabsBar = h("div", { class: "tabs", role: "tablist", "aria-label": "Activity" });
   const body = h("div");
   let active = "requests";
   let showAll = false;
@@ -1134,11 +1318,12 @@ async function renderActivity() {
     local.set(FLAG.hideOwn, hideOwn.checked ? null : "0");
     draw();
   });
-  const draw = async () => {
-    tabsBar.replaceChildren(
-      h("button", { type: "button", role: "tab", "aria-selected": String(active === "requests"), onclick: () => { active = "requests"; draw(); } }, "Requests"),
-      h("button", { type: "button", role: "tab", "aria-selected": String(active === "audit"), onclick: () => { active = "audit"; draw(); } }, "Audit log"),
-    );
+  const draw = () => keepFocusAsync(body, drawActivity);
+  const drawActivity = async () => {
+    drawTabs(tabsBar, body, [["requests", "Requests"], ["audit", "Audit log"]], active, (id) => {
+      active = id;
+      draw();
+    });
     if (active === "requests") {
       const r = await api("/v1/requests?limit=200");
       const all = (r.data.data ?? []).filter((x) => !hideOwn.checked || x.client !== "dashboard");
@@ -1156,7 +1341,7 @@ async function renderActivity() {
             { label: "Key", cell: (x) => (x.keyId ? h("span", { class: "mono small" }, x.keyId) : h("span", { class: "muted" }, "none")) },
           ],
           rows,
-          emptyState("activity", "No requests yet", hideOwn.checked ? "Requests from your scripts, charts, Excel and AI tools appear here. Untick the box to see the dashboard's own." : "Requests appear here as they arrive."),
+          emptyState("activity", "No requests yet", hideOwn.checked ? "Requests from your scripts, charts, Excel and AI tools appear here. Untick the box to see the dashboard's own." : "Requests appear here as they arrive.", nextStep("Make a call in the test console", "#/console", "ghost")),
         ),
         more,
       );
