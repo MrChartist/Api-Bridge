@@ -26,12 +26,17 @@ All notable changes to this project are listed here. The format follows [Keep a 
   palette (⌘K), ⌘1–⌘9 page shortcuts and a shortcuts sheet (?), plus accessibility fixes.
 - **Public demo kit** for a Hostinger VPS (`deploy/hostinger`: Docker + Caddy HTTPS, demo mode only) and
   `server.remoteDashboard`, which the config accepts only in demo mode.
+- Demo mode now covers every NIFTY 50 stock, so a demo scan runs over a whole universe.
+- `scripts/capture-screenshots.mjs` regenerates every README and docs screenshot (63, new design) from a throwaway
+  demo Bridge with Playwright.
 
 ### Fixed
 
 - `/xl` reads from an account-limited key without `account=` now stay inside that key's accounts.
 - Broker adapter tests no longer fail once the option expiries in their recorded fixtures pass.
 - CI also runs on pushes to `master`.
+- Demo instruments whose symbol contains `-` or `&` (BAJAJ-AUTO, M&M) no longer fail to price.
+- Two key-redaction tests could fail at random when a key's secret contained `_`.
 
 ## [0.1.0] - 2026-10-24
 

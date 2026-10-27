@@ -12,7 +12,8 @@ import { createBrokerRegistry } from "../../brokers/registry.mjs";
 import { createApp } from "../core/app.mjs";
 import { loadConfig } from "../core/config.mjs";
 import { createNullLogger } from "../core/logger.mjs";
-import { candles, createDemoAdapter, demoInstruments, expiriesFor, spotAt } from "./demoAdapter.mjs";
+import { candles, createDemoAdapter, demoInstruments, expiriesFor, parseToken, spotAt } from "./demoAdapter.mjs";
+import { NIFTY50 } from "../scanner/universes.mjs";
 import { DEMO_HEADER, createDemoRegistry, labelDemoResult } from "./demoMode.mjs";
 
 const T = Date.UTC(2026, 9, 19, 5, 0, 0); // Monday 10:30 IST
@@ -42,6 +43,16 @@ describe("demo adapter", () => {
     expect(expiriesFor("NIFTY", T)[0]).toBe("2026-10-20");
     expect(expiriesFor("SENSEX", T)[0]).toBe("2026-10-22");
     expect(expiriesFor("BANKNIFTY", T)[0]).toBe("2026-10-27");
+  });
+
+  it("covers every NIFTY 50 stock, including symbols with - and &, so demo scans have a full universe", async () => {
+    const listed = new Set(demoInstruments(T).map((r) => `${r.exchange}:${r.tradingSymbol}`));
+    expect(NIFTY50.filter((s) => !listed.has(s))).toEqual([]);
+    expect(parseToken("DM-BAJAJ-AUTO")).toEqual({ symbol: "BAJAJ-AUTO", kind: "spot" });
+    expect(parseToken("DM-M&M")).toEqual({ symbol: "M&M", kind: "spot" });
+    expect(parseToken("DM-NIFTY-2026-10-27-FUT")).toEqual({ symbol: "NIFTY", kind: "fut", expiry: "2026-10-27" });
+    const q = await a.fetchQuotes({}, [{ token: "DM-BAJAJ-AUTO", exchange: "NSE" }, { token: "DM-M&M", exchange: "NSE" }]);
+    expect(q.data.map((x) => x.ltp > 0)).toEqual([true, true]);
   });
 
   it("builds an option chain around the spot and candles in market hours", async () => {

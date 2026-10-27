@@ -262,6 +262,8 @@ Indicators: SMA, EMA, WMA, RSI, MACD, ATR, Bollinger, Supertrend, VWAP, highest/
 your pooled accounts, fall back to backup candles, and can be saved to run every few minutes with an alert on the
 WebSocket when new symbols match. Guide: [docs/guides/scanner.md](docs/guides/scanner.md).
 
+<img src="docs/screenshots/feature-scanner-results-dark.webp" alt="Scanner page after a NIFTY 50 scan: the condition rsi(14) > 60 and close > sma(50), 50 of 50 symbols scanned, 13 matches sorted by RSI" width="820">
+
 ### Alerts on your phone
 
 Saved-scan hits, live fills, the kill switch and expired broker sessions can go to **Telegram**, **Discord**,
@@ -272,10 +274,15 @@ variables, never in the config file. Guide: [docs/guides/notifications.md](docs/
 
 ## Screenshots
 
-All taken in demo mode. The full gallery with descriptions is in [docs/screenshots](docs/screenshots/README.md).
+All taken in demo mode, styled after macOS: a translucent sidebar, a unified toolbar, sheets that slide down from it,
+system blue, light and dark themes, and Motion animations that switch off when your system asks for reduced motion.
+Press <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> anywhere to jump to a page or action. The full gallery with descriptions is in
+[docs/screenshots](docs/screenshots/README.md); `node scripts/capture-screenshots.mjs` regenerates every image.
 
 | | |
 |---|---|
+| <img src="docs/screenshots/feature-scanner-results-dark.webp" alt="Scanner with NIFTY 50 results" width="420"><br>**Scanner**: a whole universe, shared over your accounts | <img src="docs/screenshots/feature-ai-ticket-confirmation.webp" alt="Confirm sheet for an order prepared by Claude" width="420"><br>**AI tickets**: nothing is sent until you confirm |
+| <img src="docs/screenshots/feature-command-palette-dark.webp" alt="Command palette open over the home page" width="420"><br>**Command palette**: every page and action from the keyboard | <img src="docs/screenshots/feature-kill-switch-dialog.webp" alt="Kill switch sheet" width="420"><br>**Kill switch**: one click stops every order |
 | <img src="docs/screenshots/accounts-dark.webp" alt="Accounts page with the 41-broker directory" width="420"><br>**Accounts** and the 41-broker directory | <img src="docs/screenshots/console-dark.webp" alt="Test console with a quotes response" width="420"><br>**Test console** with a live response |
 | <img src="docs/screenshots/limits-dark.webp" alt="Rate limits page" width="420"><br>**Rate limits**: live budgets and calls saved | <img src="docs/screenshots/orders-dark.webp" alt="Orders page with a pending AI ticket" width="420"><br>**Orders**: AI tickets wait for you |
 | <img src="docs/screenshots/integrations-python-dark.webp" alt="Integrations page, Python tab" width="420"><br>**Integrations**: copy-paste setup per tool | <img src="docs/screenshots/safety-dark.webp" alt="Safety page with the kill switch" width="420"><br>**Safety**: kill switch and daily limits |
@@ -290,15 +297,16 @@ All taken in demo mode. The full gallery with descriptions is in [docs/screensho
 | <img src="docs/screenshots/console-light.webp" alt="Test console, light theme" width="420"> | <img src="docs/screenshots/limits-light.webp" alt="Rate limits, light theme" width="420"> |
 | <img src="docs/screenshots/orders-light.webp" alt="Orders, light theme" width="420"> | <img src="docs/screenshots/safety-light.webp" alt="Safety, light theme" width="420"> |
 | <img src="docs/screenshots/keys-light.webp" alt="API keys, light theme" width="420"> | <img src="docs/screenshots/integrations-python-light.webp" alt="Integrations, Python tab, light theme" width="420"> |
+| <img src="docs/screenshots/feature-scanner-results-light.webp" alt="Scanner results, light theme" width="420"> | <img src="docs/screenshots/feature-command-palette-light.webp" alt="Command palette, light theme" width="420"> |
 
 </details>
 
 <details>
 <summary><strong>Phone</strong></summary>
 
-| | | | |
-|---|---|---|---|
-| <img src="docs/screenshots/mobile-home-dark.webp" alt="Home on a phone" width="190"> | <img src="docs/screenshots/mobile-console-dark.webp" alt="Test console on a phone" width="190"> | <img src="docs/screenshots/mobile-integrations-light.webp" alt="Integrations on a phone, light theme" width="190"> | <img src="docs/screenshots/mobile-safety-light.webp" alt="Safety on a phone, light theme" width="190"> |
+| | | | | |
+|---|---|---|---|---|
+| <img src="docs/screenshots/mobile-home-dark.webp" alt="Home on a phone" width="160"> | <img src="docs/screenshots/mobile-scanner-dark.webp" alt="Scanner on a phone" width="160"> | <img src="docs/screenshots/mobile-console-dark.webp" alt="Test console on a phone" width="160"> | <img src="docs/screenshots/mobile-integrations-light.webp" alt="Integrations on a phone, light theme" width="160"> | <img src="docs/screenshots/mobile-safety-light.webp" alt="Safety on a phone, light theme" width="160"> |
 
 </details>
 

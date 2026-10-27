@@ -63,7 +63,7 @@ describe("runCli", () => {
     expect(await runCli(["keys", "list"], { json: true }, a.io)).toBe(0);
     const rows = JSON.parse(a.out.at(-1));
     expect(rows).toHaveLength(1);
-    expect(JSON.stringify(rows)).not.toContain(key.split("_")[2]);
+    expect(JSON.stringify(rows)).not.toContain(key.split("_").slice(2).join("_"));
     expect(await runCli(["keys", "revoke", keyId], {}, a.io)).toBe(0);
     expect(a.out.at(-1)).toMatch(new RegExp(`Revoked key ${keyId}`));
     expect(await runCli(["accounts", "list"], { json: true }, a.io)).toBe(0);

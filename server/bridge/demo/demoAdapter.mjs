@@ -3,7 +3,7 @@
  * NO network calls. It serves deterministic sample data so anyone can try the Bridge without a broker account, and
  * so screenshots look the same every time:
  *
- *  - instruments: NIFTY, BANKNIFTY and SENSEX (index, futures, options) plus a few large NSE stocks;
+ *  - instruments: NIFTY, BANKNIFTY and SENSEX (index, futures, options) plus the NIFTY 50 stocks;
  *  - prices: a smooth function of wall-clock time per symbol (slow multi-day waves plus minute-scale wiggles), so the
  *    same instant always gives the same price and ticks keep moving even when the real market is shut;
  *  - option chains: Black-Scholes prices from a simple volatility smile, with open interest peaking near the money;
@@ -34,6 +34,51 @@ export const DEMO_UNDERLYINGS = Object.freeze([
   { symbol: "INFY", exchange: "NSE", kind: "EQ", name: "Infosys (Demo)", base: 1512, tick: 0.1 },
   { symbol: "TCS", exchange: "NSE", kind: "EQ", name: "Tata Consultancy Services (Demo)", base: 3086, tick: 0.1 },
   { symbol: "SBIN", exchange: "NSE", kind: "EQ", name: "State Bank of India (Demo)", base: 872, tick: 0.05 },
+  // The rest of NIFTY 50, so demo scans cover a whole universe
+  { symbol: "ADANIENT", exchange: "NSE", kind: "EQ", name: "Adani Enterprises (Demo)", base: 2450, tick: 0.1 },
+  { symbol: "ADANIPORTS", exchange: "NSE", kind: "EQ", name: "Adani Ports and SEZ (Demo)", base: 1420, tick: 0.1 },
+  { symbol: "APOLLOHOSP", exchange: "NSE", kind: "EQ", name: "Apollo Hospitals (Demo)", base: 7450, tick: 0.1 },
+  { symbol: "ASIANPAINT", exchange: "NSE", kind: "EQ", name: "Asian Paints (Demo)", base: 2380, tick: 0.1 },
+  { symbol: "AXISBANK", exchange: "NSE", kind: "EQ", name: "Axis Bank (Demo)", base: 1165, tick: 0.1 },
+  { symbol: "BAJAJ-AUTO", exchange: "NSE", kind: "EQ", name: "Bajaj Auto (Demo)", base: 8650, tick: 0.1 },
+  { symbol: "BAJAJFINSV", exchange: "NSE", kind: "EQ", name: "Bajaj Finserv (Demo)", base: 2010, tick: 0.1 },
+  { symbol: "BAJFINANCE", exchange: "NSE", kind: "EQ", name: "Bajaj Finance (Demo)", base: 985, tick: 0.05 },
+  { symbol: "BEL", exchange: "NSE", kind: "EQ", name: "Bharat Electronics (Demo)", base: 405, tick: 0.05 },
+  { symbol: "BHARTIARTL", exchange: "NSE", kind: "EQ", name: "Bharti Airtel (Demo)", base: 1940, tick: 0.1 },
+  { symbol: "CIPLA", exchange: "NSE", kind: "EQ", name: "Cipla (Demo)", base: 1530, tick: 0.1 },
+  { symbol: "COALINDIA", exchange: "NSE", kind: "EQ", name: "Coal India (Demo)", base: 388, tick: 0.05 },
+  { symbol: "DRREDDY", exchange: "NSE", kind: "EQ", name: "Dr. Reddy's Laboratories (Demo)", base: 1265, tick: 0.1 },
+  { symbol: "EICHERMOT", exchange: "NSE", kind: "EQ", name: "Eicher Motors (Demo)", base: 6850, tick: 0.1 },
+  { symbol: "ETERNAL", exchange: "NSE", kind: "EQ", name: "Eternal (Demo)", base: 318, tick: 0.05 },
+  { symbol: "GRASIM", exchange: "NSE", kind: "EQ", name: "Grasim Industries (Demo)", base: 2760, tick: 0.1 },
+  { symbol: "HCLTECH", exchange: "NSE", kind: "EQ", name: "HCL Technologies (Demo)", base: 1480, tick: 0.1 },
+  { symbol: "HDFCLIFE", exchange: "NSE", kind: "EQ", name: "HDFC Life Insurance (Demo)", base: 765, tick: 0.05 },
+  { symbol: "HINDALCO", exchange: "NSE", kind: "EQ", name: "Hindalco Industries (Demo)", base: 745, tick: 0.05 },
+  { symbol: "HINDUNILVR", exchange: "NSE", kind: "EQ", name: "Hindustan Unilever (Demo)", base: 2510, tick: 0.1 },
+  { symbol: "INDIGO", exchange: "NSE", kind: "EQ", name: "InterGlobe Aviation (Demo)", base: 5720, tick: 0.1 },
+  { symbol: "ITC", exchange: "NSE", kind: "EQ", name: "ITC (Demo)", base: 408, tick: 0.05 },
+  { symbol: "JIOFIN", exchange: "NSE", kind: "EQ", name: "Jio Financial Services (Demo)", base: 305, tick: 0.05 },
+  { symbol: "JSWSTEEL", exchange: "NSE", kind: "EQ", name: "JSW Steel (Demo)", base: 1135, tick: 0.1 },
+  { symbol: "KOTAKBANK", exchange: "NSE", kind: "EQ", name: "Kotak Mahindra Bank (Demo)", base: 2110, tick: 0.1 },
+  { symbol: "LT", exchange: "NSE", kind: "EQ", name: "Larsen & Toubro (Demo)", base: 3780, tick: 0.1 },
+  { symbol: "M&M", exchange: "NSE", kind: "EQ", name: "Mahindra & Mahindra (Demo)", base: 3420, tick: 0.1 },
+  { symbol: "MARUTI", exchange: "NSE", kind: "EQ", name: "Maruti Suzuki (Demo)", base: 15900, tick: 0.1 },
+  { symbol: "MAXHEALTH", exchange: "NSE", kind: "EQ", name: "Max Healthcare (Demo)", base: 1150, tick: 0.1 },
+  { symbol: "NESTLEIND", exchange: "NSE", kind: "EQ", name: "Nestle India (Demo)", base: 1240, tick: 0.1 },
+  { symbol: "NTPC", exchange: "NSE", kind: "EQ", name: "NTPC (Demo)", base: 342, tick: 0.05 },
+  { symbol: "ONGC", exchange: "NSE", kind: "EQ", name: "Oil and Natural Gas Corporation (Demo)", base: 242, tick: 0.05 },
+  { symbol: "POWERGRID", exchange: "NSE", kind: "EQ", name: "Power Grid Corporation (Demo)", base: 288, tick: 0.05 },
+  { symbol: "SBILIFE", exchange: "NSE", kind: "EQ", name: "SBI Life Insurance (Demo)", base: 1840, tick: 0.1 },
+  { symbol: "SHRIRAMFIN", exchange: "NSE", kind: "EQ", name: "Shriram Finance (Demo)", base: 665, tick: 0.05 },
+  { symbol: "SUNPHARMA", exchange: "NSE", kind: "EQ", name: "Sun Pharmaceutical (Demo)", base: 1640, tick: 0.1 },
+  { symbol: "TATACONSUM", exchange: "NSE", kind: "EQ", name: "Tata Consumer Products (Demo)", base: 1120, tick: 0.1 },
+  { symbol: "TATASTEEL", exchange: "NSE", kind: "EQ", name: "Tata Steel (Demo)", base: 168, tick: 0.05 },
+  { symbol: "TECHM", exchange: "NSE", kind: "EQ", name: "Tech Mahindra (Demo)", base: 1470, tick: 0.1 },
+  { symbol: "TITAN", exchange: "NSE", kind: "EQ", name: "Titan Company (Demo)", base: 3560, tick: 0.1 },
+  { symbol: "TMPV", exchange: "NSE", kind: "EQ", name: "Tata Motors Passenger Vehicles (Demo)", base: 405, tick: 0.05 },
+  { symbol: "TRENT", exchange: "NSE", kind: "EQ", name: "Trent (Demo)", base: 4780, tick: 0.1 },
+  { symbol: "ULTRACEMCO", exchange: "NSE", kind: "EQ", name: "UltraTech Cement (Demo)", base: 12150, tick: 0.1 },
+  { symbol: "WIPRO", exchange: "NSE", kind: "EQ", name: "Wipro (Demo)", base: 245, tick: 0.05 },
 ]);
 
 const BY_SYMBOL = new Map(DEMO_UNDERLYINGS.map((u) => [u.symbol, u]));
@@ -237,7 +282,7 @@ function monthlyExpiries(u, t) {
 
 /** Parse a demo token: DM-<SYM>[-<expiry>-FUT | -<expiry>-<strike>-<CE|PE>]. */
 export function parseToken(token) {
-  const m = /^DM-([A-Z]+)(?:-(\d{4}-\d{2}-\d{2})-(?:(FUT)|(\d+(?:\.\d+)?)-(CE|PE)))?$/.exec(String(token));
+  const m = /^DM-([A-Z0-9&-]+?)(?:-(\d{4}-\d{2}-\d{2})-(?:(FUT)|(\d+(?:\.\d+)?)-(CE|PE)))?$/.exec(String(token));
   if (!m || !BY_SYMBOL.has(m[1])) return null;
   if (!m[2]) return { symbol: m[1], kind: "spot" };
   if (m[3]) return { symbol: m[1], kind: "fut", expiry: m[2] };

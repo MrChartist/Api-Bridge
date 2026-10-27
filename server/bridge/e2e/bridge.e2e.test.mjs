@@ -92,7 +92,7 @@ describe("Mr. Chartist API Bridge end to end", () => {
 
     const list = await bridge.http("/v1/keys", { key: keys.admin });
     expect(list.json.data.map((k) => k.label).sort()).toEqual(["charts", "e2e admin", "scripts"]);
-    expect(list.text).not.toContain(keys.read.split("_")[2]);
+    expect(list.text).not.toContain(keys.read.split("_").slice(2).join("_"));
     expect((await bridge.http("/v1/accounts")).status).toBe(401);
     expect((await bridge.http("/v1/keys", { key: keys.read })).status).toBe(403);
   });
