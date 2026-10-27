@@ -159,17 +159,26 @@ export function sheetOut(backdrop, panel) {
   const m = live();
   if (!m) return done();
   const jobs = [fadeBackdrop(backdrop, panel, [1, 0], 160, true)];
-  if (isEl(panel)) jobs.push(run(panel, { opacity: [1, 0], scale: [1, 0.97], translate: ["0px 0px", "0px -4px"] }, { duration: 0.16, ease: [0.4, 0, 1, 1] }, { ms: 200, keep: true }));
-  // The panel stays at its end state until the caller has closed / removed it, then gets its inline styles back.
+  let exit = null;
+  if (isEl(panel)) {
+    // Native Web Animations with individual properties: exact timing, nothing written inline, and it composes
+    // with whatever transform the stylesheet gives the panel.
+    try {
+      for (const a of panel.getAnimations()) a.cancel(); // an unfinished sheetIn
+      for (const p of ["opacity", "transform", "translate"]) panel.style.removeProperty(p);
+      exit = panel.animate({ opacity: [1, 0], scale: ["1", "0.97"], translate: ["0px 0px", "0px -4px"] }, { duration: 160, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" });
+      jobs.push(exit.finished.catch(() => {}));
+    } catch {
+      exit = null;
+    }
+  }
   // Hard cap so closing never feels sluggish, even when frames arrive late.
   let timer;
-  const cap = new Promise((r) => (timer = setTimeout(r, 190)));
+  const cap = new Promise((r) => (timer = setTimeout(r, 180)));
   return Promise.race([Promise.all(jobs), cap]).then(() => {
     clearTimeout(timer);
-    setTimeout(() => {
-      if (!isEl(panel)) return;
-      for (const p of ["opacity", "transform", "translate"]) panel.style.removeProperty(p);
-    }, 0);
+    // The panel holds its end state until the caller has closed / removed it (same task), then the exit is dropped.
+    setTimeout(() => exit?.cancel(), 0);
   });
 }
 

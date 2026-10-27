@@ -311,7 +311,7 @@ async function renderScanner() {
   const cond = h("textarea", { id: "scan-condition", rows: 3, spellcheck: "false" }, SCAN_EXAMPLES[0]);
   const cols = h("input", { value: "rsi(14), close / sma(50) - 1", spellcheck: "false" });
   const sortBy = h("input", { value: "rsi(14)", spellcheck: "false" });
-  const examples = h("div", { class: "row", role: "group", "aria-label": "Example conditions" }, SCAN_EXAMPLES.map((e) => h("button", { type: "button", class: "small ghost", title: "Use this condition", onclick: () => { cond.value = e; cond.focus(); } }, e)));
+  const examples = h("div", { class: "row", role: "group", "aria-label": "Example conditions" }, SCAN_EXAMPLES.map((e) => h("button", { type: "button", class: "small ghost example", title: "Use this condition", onclick: () => { cond.value = e; cond.focus(); } }, e)));
   const out = h("div", { class: "stack" });
   const planBtn = h("button", { type: "button", class: "ghost" }, icon("info"), "Plan");
   const runBtn = h("button", { type: "button", class: "primary" }, icon("play"), "Run scan");

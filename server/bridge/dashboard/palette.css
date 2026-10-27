@@ -180,3 +180,11 @@ div.field.seg-field .segmented button { white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) {
   .skip-link { transition: none; }
 }
+
+/* Scanner example-condition buttons: long conditions wrap instead of pushing the page sideways on phones. */
+button.example {
+  white-space: normal;
+  text-align: left;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
