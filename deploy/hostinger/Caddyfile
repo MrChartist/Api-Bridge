@@ -1,0 +1,9 @@
+# HTTPS for the public demo. Caddy gets and renews a Let's Encrypt certificate for {$DOMAIN} by itself.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy bridge:4300
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+}

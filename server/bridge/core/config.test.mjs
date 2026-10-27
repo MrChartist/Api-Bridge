@@ -114,3 +114,12 @@ describe("effective limits and live permission", () => {
     expect(liveAllowedByConfig(on, on.accounts[1])).toBe(false);
   });
 });
+
+describe("server.remoteDashboard", () => {
+  it("is refused unless demo mode is on", () => {
+    expect(() => loadConfig({ raw: { server: { remoteDashboard: true } }, env: {} })).toThrow(/only allowed in demo mode/);
+    const { config, warnings } = loadConfig({ raw: { demo: true, server: { remoteDashboard: true } }, env: {} });
+    expect(config.server.remoteDashboard).toBe(true);
+    expect(warnings.join(" ")).toMatch(/remoteDashboard is on/);
+  });
+});

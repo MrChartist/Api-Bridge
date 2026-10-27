@@ -87,6 +87,12 @@ You need **[Node.js 20 or newer](https://nodejs.org/)** (the LTS download is fin
    master key live in two separate volumes (`bridge-data`, `bridge-secrets`). For demo mode set `MCB_DEMO: "1"` in
    `docker-compose.yml`.
 
+### Public demo on a server (Hostinger VPS)
+
+Want a demo others can open at your own domain? `deploy/hostinger` runs the Bridge in **demo mode** behind Caddy
+(automatic HTTPS) with Docker: `DOMAIN=bridge.yourdomain.com docker compose up -d --build`. Step-by-step:
+[deploy/hostinger/README.md](deploy/hostinger/README.md). Never put real broker accounts on a public server.
+
 ### Developers
 
 ```bash

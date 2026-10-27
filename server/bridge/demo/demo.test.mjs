@@ -2,6 +2,7 @@
  * Demo mode: deterministic sample data through the real pipeline, every response labelled, no real broker reachable,
  * live trading forced off.
  */
+import http from "node:http";
 import { mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -146,5 +147,42 @@ describe("demo mode end to end", () => {
     const r = await get("/v1/quotes");
     expect(r.status).toBe(400);
     expect(r.demo).toBe("demo");
+  });
+});
+
+describe("public demo dashboard (server.remoteDashboard)", () => {
+  const get = (port, path, host) =>
+    new Promise((resolve, reject) => {
+      const r = http.request({ host: "127.0.0.1", port, path, headers: { host, "x-forwarded-for": "203.0.113.9" } }, (res) => {
+        res.resume();
+        resolve(res.statusCode);
+      });
+      r.on("error", reject);
+      r.end();
+    });
+  const boot = async (remoteDashboard) => {
+    const dir = mkdtempSync(join(tmpdir(), "mcb-pubdemo-"));
+    const { config } = loadConfig({ raw: { dataDir: dir, demo: true, server: { port: 0, allowedHosts: ["demo.example.com"], remoteDashboard }, logging: { level: "silent" } }, env: {} });
+    const app = await createApp({ config, logger: createNullLogger() });
+    const { port } = await app.listen();
+    return { app, port };
+  };
+
+  it("serves the dashboard through a proxy only when switched on; key routes stay this-computer-only", async () => {
+    const off = await boot(false);
+    try {
+      expect(await get(off.port, "/dashboard", "demo.example.com")).toBe(403);
+    } finally {
+      await off.app.close();
+    }
+    const on = await boot(true);
+    try {
+      expect(await get(on.port, "/dashboard", "demo.example.com")).toBe(200);
+      expect(await get(on.port, "/dashboard/app.js", "demo.example.com")).toBe(200);
+      expect(await get(on.port, "/v1/accounts", "demo.example.com")).toBe(401);
+      expect(await get(on.port, "/dashboard", "evil.example.net")).toBe(403);
+    } finally {
+      await on.app.close();
+    }
   });
 });

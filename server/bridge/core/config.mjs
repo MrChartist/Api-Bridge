@@ -94,6 +94,12 @@ export const coreSchema = z
          * loopback. Only for Docker, where the host's own browser arrives from the container network's gateway.
          * Leave empty otherwise.
          */
+        /**
+         * Serve the dashboard pages to other computers, not only this one. Demo mode only (a public demo behind an
+         * HTTPS proxy, see deploy/hostinger): the config is refused when demo mode is off, so a Bridge with real
+         * broker accounts never shows its dashboard to the internet. Every API call still needs a key.
+         */
+        remoteDashboard: z.boolean().default(false),
         localPeers: z.array(z.string().regex(/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/, "use an IPv4 address or IPv4/CIDR")).max(8).default([]),
         /** Extra Host header values to accept (DNS-rebinding guard). Loopback names are always accepted. */
         allowedHosts: z.array(z.string()).default([]),
@@ -249,6 +255,10 @@ export function loadConfig({ path, env = process.env, cwd = process.cwd(), raw, 
       throw new BridgeError("VALIDATION_FAILED", `server.publicIngress.host ${pi.host} is not a loopback address. Point your tunnel at 127.0.0.1, or set server.allowNonLoopback to true in the config file if you really mean it.`);
     }
     warnings.push(`The webhook listener will listen on ${pi.host}, not only on this computer.`);
+  }
+  if (cfg.server.remoteDashboard) {
+    if (!cfg.demo) throw new BridgeError("VALIDATION_FAILED", "server.remoteDashboard is only allowed in demo mode. A Bridge with real broker accounts serves its dashboard to this computer only.");
+    warnings.push("server.remoteDashboard is on (demo mode): the dashboard pages are served to other computers. API calls still need a key.");
   }
   if (cfg.server.publicIngress.enabled) warnings.push("Public ingress is on: only webhook routes are served on it. Keep the tunnel URL private.");
   const ids = new Set();
