@@ -21,6 +21,11 @@ All notable changes to this project are listed here. The format follows [Keep a 
 - **Notifications** (`notify` config): saved-scan alerts, live fills, kill switch and expired sessions to Telegram,
   Discord, Slack or a signed webhook; secrets from environment variables only.
 - `mc-bridge doctor` reports whether backup data is on.
+- **macOS-style dashboard**: translucent sidebar, unified toolbar, System Settings cards, Finder tables, sheets and
+  notification banners in light and dark, with Motion animations (reduced-motion aware), a Spotlight-style command
+  palette (⌘K), ⌘1–⌘9 page shortcuts and a shortcuts sheet (?), plus accessibility fixes.
+- **Public demo kit** for a Hostinger VPS (`deploy/hostinger`: Docker + Caddy HTTPS, demo mode only) and
+  `server.remoteDashboard`, which the config accepts only in demo mode.
 
 ### Fixed
 
