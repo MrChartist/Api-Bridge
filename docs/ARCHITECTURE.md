@@ -74,6 +74,7 @@ data/
 | `backup/` | S12 | `backupData` (BackupDataService) | `/v1/backup/status`, `/v1/backup/quotes`, `/v1/backup/history` |
 | `scanner/` | S13 | (routes only) | `/v1/scanner/*`; `scan` events on the stream |
 | `compat/` | S14 | (routes only) | `/api/v1/*` apikey-in-body REST, WS `/api/v1/ws` |
+| `notify/` | S15 | (routes only) | `/v1/notify`, `/v1/notify/test`; Telegram, Discord, Slack, signed webhooks |
 | `server/brokers/`, `server/lib/` | frozen | broker adapters and helpers (existing, tested) | none directly |
 
 **How modules plug in** (`core/modules.mjs`): each area has one `module.mjs` exporting `defineModule({ name, stream, services, configKey?, configSchema?, register(app, deps), start?, stop? })`.

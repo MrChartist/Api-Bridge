@@ -110,6 +110,8 @@ tags:
     description: >-
       Endpoints in the common apikey-in-body style (POST JSON, `apikey` in the body, { status, ... } replies) so SDKs and add-ins written for that style work
       against the Bridge. Same services, limits and safety as /v1; orders are paper while analyzer mode is on.
+  - name: Notifications
+    description: Push saved-scan alerts, live fills, the kill switch and expired sessions to Telegram, Discord, Slack or a signed webhook.
   - name: Backup data
     description: Free public sources (Yahoo Finance, NSE website) used as a labelled fallback when no broker account can answer.
 
@@ -3350,6 +3352,55 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/CompatReply" }
+
+  /v1/notify:
+    get:
+      tags: [Notifications]
+      operationId: getNotifyStatus
+      summary: Notification targets and delivery counts
+      description: Never returns a token or webhook URL; only whether each target's environment variables are set.
+      x-stream: S15
+      x-scope: admin
+      responses:
+        "200":
+          description: Targets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/notify/test:
+    post:
+      tags: [Notifications]
+      operationId: testNotify
+      summary: Send a test message to one target or all
+      x-stream: S15
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target: { type: string }
+      responses:
+        "200":
+          description: Delivery result per target.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { type: object } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
 
 components:
   securitySchemes:

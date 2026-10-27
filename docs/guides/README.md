@@ -8,6 +8,7 @@ Start with the [main README](../../README.md) for the quick start. These guides 
 | [rate-limits.md](rate-limits.md) | How the Bridge stays inside every broker's limits, spreading reads over your own accounts |
 | [backup-data.md](backup-data.md) | Yahoo Finance and NSE website as a labelled fallback when no broker can answer |
 | [scanner.md](scanner.md) | Condition scans over big universes, scheduled scans and alerts |
+| [notifications.md](notifications.md) | Saved-scan alerts, fills, kill switch and expired sessions to Telegram, Discord, Slack or a webhook |
 | [compat-api.md](compat-api.md) | `/api/v1` apikey-in-body REST and WebSocket for existing algo tools and SDKs |
 | [streaming.md](streaming.md) | WebSocket and SSE live data |
 | [charts.md](charts.md) | TradingView-compatible UDF datafeed, Lightweight Charts |

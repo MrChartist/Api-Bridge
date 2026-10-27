@@ -60,5 +60,6 @@
   "mcp": { "enabled": true, "toolsets": ["market", "analytics", "account"], "orderAccounts": [], "maxItems": 200 },
   "backup": { "enabled": true, "autoFallback": true, "providers": { "yahoo": { "perSecond": 4 }, "nse": { "perSecond": 2 } } },
   "scanner": { "maxSymbols": 1000, "maxRunning": 2, "perAccountConcurrency": 4, "schedule": true, "universes": {} },
-  "compat": { "enabled": true, "analyzer": true }
+  "compat": { "enabled": true, "analyzer": true },
+  "notify": { "targets": [] }
 }

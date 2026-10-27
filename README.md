@@ -253,6 +253,12 @@ Indicators: SMA, EMA, WMA, RSI, MACD, ATR, Bollinger, Supertrend, VWAP, highest/
 your pooled accounts, fall back to backup candles, and can be saved to run every few minutes with an alert on the
 WebSocket when new symbols match. Guide: [docs/guides/scanner.md](docs/guides/scanner.md).
 
+### Alerts on your phone
+
+Saved-scan hits, live fills, the kill switch and expired broker sessions can go to **Telegram**, **Discord**,
+**Slack** or a signed **webhook** (n8n, Zapier, your own code). Tokens and webhook URLs stay in environment
+variables, never in the config file. Guide: [docs/guides/notifications.md](docs/guides/notifications.md).
+
 ---
 
 ## Screenshots
