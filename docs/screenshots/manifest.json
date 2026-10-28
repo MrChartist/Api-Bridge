@@ -436,7 +436,7 @@
     "theme": "dark",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1437,
+    "height": 1407,
     "description": "A finished scan: matched symbols with their values, progress per account and the calls it cost."
   },
   {
@@ -446,7 +446,7 @@
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1401,
+    "height": 1371,
     "description": "A finished scan: matched symbols with their values, progress per account and the calls it cost."
   },
   {

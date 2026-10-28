@@ -43,6 +43,25 @@ const sessionPill = (s) => pill(s ?? "—", s === "connected" ? "ok" : s === "ex
 const demoPill = () => (app.state.demo ? pill("Demo data", "demo") : null);
 const sum = (o) => Object.values(o ?? {}).reduce((a, b) => a + (Number(b) || 0), 0);
 const initials = (name) => String(name).replace(/\(.*?\)/g, "").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+/** A table cell: the broker's small logo and its name (paper accounts and unknown brokers: the name alone). */
+const brokerCell = (id, name) => (id === "paper" ? name : h("span", { class: "broker-cell" }, brokerAvatar({ id, name }, "sm"), h("span", {}, name)));
+/**
+ * A broker's logo tile (served from dashboard/brokers/<id>.png), or its initials when there is no logo for it.
+ * @param {{ id: string, name: string }} b @param {string} [extra] more classes
+ */
+function brokerAvatar(b, extra = "") {
+  const tile = h("span", { class: `avatar logo ${extra}`.trim(), "aria-hidden": "true" });
+  const fallback = () => {
+    tile.classList.remove("logo");
+    tile.replaceChildren(initials(b.name));
+  };
+  if (!/^[a-z0-9]{2,32}$/.test(String(b.id))) {
+    fallback();
+    return tile;
+  }
+  tile.append(h("img", { src: `/dashboard/broker-${b.id}.png`, alt: "", loading: "lazy", decoding: "async", width: 64, height: 64, onerror: fallback }));
+  return tile;
+}
 const signed = (n) => (n > 0 ? `+${fmtNum.format(n)}` : fmtNum.format(n));
 /** A button for an empty state's next step: goes to a page (hash) or runs a function. */
 const nextStep = (label, to, cls = "primary") => h("button", { type: "button", class: cls, onclick: typeof to === "function" ? to : () => (location.hash = to) }, label);
@@ -534,7 +553,7 @@ async function renderHome() {
         body: table(
           [
             { label: "Account", cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
-            { label: "Broker", cell: (a) => a.broker },
+            { label: "Broker", cell: (a) => brokerCell(a.broker, a.broker) },
             { label: "Session", cell: (a) => sessionPill(a.session?.state) },
             { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("live enabled", "bad") : pill("paper", "accent")) },
           ],
@@ -617,7 +636,7 @@ function addBrokerSheet(list, { preselect } = {}) {
       "label",
       { class: "pick-row" },
       radio,
-      h("span", { class: "avatar" }, b.paper ? "P" : initials(b.name)),
+      b.paper ? h("span", { class: "avatar" }, "P") : brokerAvatar(b),
       h("span", { class: "names" }, h("span", { class: "nm" }, b.name), h("span", { class: "sub" }, b.paper ? "Simulated orders with real prices" : AUTH_KIND_LABEL[b.authKind] ?? b.authKind)),
       b.paper ? pill("Simulator", "accent") : b.verified ? pill("Verified", "ok") : pill("Beta", "warn"),
     );
@@ -864,7 +883,7 @@ async function renderAccounts() {
     body: table(
       [
         { label: "Account", cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
-        { label: "Broker", cell: (a) => (a.broker === "paper" ? "Paper (simulator)" : brokerOf(a)?.name ?? a.broker) },
+        { label: "Broker", cell: (a) => (a.broker === "paper" ? "Paper (simulator)" : brokerCell(a.broker, brokerOf(a)?.name ?? a.broker)) },
         { label: "Session", cell: (a) => h("div", {}, sessionPill(a.session?.state), a.session?.expiresAt ? h("div", { class: "muted small" }, `until ${istDateTime(a.session.expiresAt)}`) : null) },
         { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("live enabled", "bad") : pill("paper", "accent")) },
         { label: "Can do", wrap: true, cell: (a) => h("div", { class: "chips" }, (a.capabilities ?? []).slice(0, 6).map((c) => h("span", { class: "chip" }, c)), (a.capabilities?.length ?? 0) > 6 ? h("span", { class: "chip" }, `+${a.capabilities.length - 6}`) : null) },
@@ -902,7 +921,7 @@ async function renderAccounts() {
         h(
           "div",
           { class: "broker" },
-          h("div", { class: "top" }, h("span", { class: "avatar" }, initials(b.name)), h("div", { class: "names" }, h("div", { class: "nm", title: b.name }, b.name), h("div", { class: "id" }, b.id)), b.verified ? pill("Verified", "ok") : pill("Beta", "warn")),
+          h("div", { class: "top" }, brokerAvatar(b), h("div", { class: "names" }, h("div", { class: "nm", title: b.name }, b.name), h("div", { class: "id" }, b.id)), b.verified ? pill("Verified", "ok") : pill("Beta", "warn")),
           h(
             "div",
             { class: "row broker-foot" },

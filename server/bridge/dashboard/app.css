@@ -665,6 +665,12 @@ label.check { display: flex; align-items: center; gap: 7px; font-size: 13px; col
 .pick-row:hover { background: var(--row-hover); }
 .pick-row:has(input:checked) { background: var(--accent-wash); }
 .pick-row .avatar { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; font-weight: 700; font-size: 10.5px; background: linear-gradient(#5aa8ff, var(--accent)); color: #fff; box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.1); }
+/* Broker logos: the brand mark on a white tile (logos are made for light backgrounds), in light and dark alike. */
+.avatar.logo { background: #fff; padding: 3px; overflow: hidden; box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.12), 0 0.5px 1px rgb(0 0 0 / 0.08); }
+.broker-cell { display: inline-flex; align-items: center; gap: 7px; }
+.broker-cell .avatar { width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; font-size: 8.5px; font-weight: 700; flex: none; background: linear-gradient(#5aa8ff, var(--accent)); color: #fff; }
+.broker-cell .avatar.logo { background: #fff; padding: 2px; }
+.avatar.logo img { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: 3px; }
 .pick-row .names { display: flex; flex-direction: column; min-width: 0; }
 .pick-row .nm { font-weight: 600; font-size: 13px; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pick-row .sub { font-size: 11px; color: var(--text-3); }
