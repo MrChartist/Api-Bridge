@@ -18,6 +18,7 @@ import { createFakeMarketData } from "../../market/fake.mjs";
 import { createFakeScheduler, createManualClock } from "../../ratelimit/fake.mjs";
 import { createFakeSymbolService } from "../../symbols/fake.mjs";
 import { createOrderService } from "../orderService.mjs";
+import { marginFor } from "../../paper/fillModel.mjs";
 
 export const INSTRUMENTS = Object.freeze([
   { symbol: "NSE:NIFTY", lotSize: 1, tickSize: 0.05, refs: { zerodha: { token: "256265", tradingSymbol: "NIFTY 50" }, dhan: { token: "13" } } },
@@ -163,6 +164,15 @@ export function createStubPaper({ clock = { now: () => Date.now() } } = {}) {
     },
     async positions(accountId) {
       return structuredClone(book(accountId).positions);
+    },
+    /** The paper engine's margin model (fillModel.marginFor at the default rates) on the exposure the order adds. */
+    async estimateOrderMargin(accountId, order, price) {
+      p.calls.push(["estimateOrderMargin", accountId, order.symbol]);
+      const r = order.resolved ?? {};
+      const held = book(accountId).positions.find((x) => x.symbol === order.symbol && x.product === order.product)?.netQty ?? 0;
+      const signed = order.side === "BUY" ? order.quantity : -order.quantity;
+      const adds = held !== 0 && Math.sign(held) !== Math.sign(signed) ? Math.max(0, order.quantity - Math.abs(held)) : order.quantity;
+      return marginFor({ kind: r.kind, strike: r.strike ?? null }, { side: order.side, product: order.product, quantity: adds, price: price ?? order.price ?? 0 }, { intradayEquityPct: 20, futuresPct: 15, optionSellPct: 15 });
     },
     async funds() {
       return { availableCash: 1_000_000, usedMargin: 0, totalBalance: 1_000_000, realisedPnl: 0, unrealisedPnl: 0 };

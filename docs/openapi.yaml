@@ -4142,6 +4142,19 @@ components:
         ok: { type: boolean }
         mode: { type: string, enum: [paper, live] }
         checks: { type: array, items: { $ref: "#/components/schemas/Check" } }
+        margin:
+          description: >-
+            The margin this order would block. Paper orders (a paper account, or any account in paper mode): the paper
+            engine's own model on the exposure the order adds (a quantity that closes a held position blocks nothing),
+            the same figure its fill will use. Live orders: null (the broker decides). Each leg of a basket is sized
+            alone, with no hedge benefit.
+          oneOf:
+            - type: object
+              required: [required, source]
+              properties:
+                required: { type: [number, "null"], description: "Rupees." }
+                source: { type: [string, "null"], enum: [paper-model, null] }
+            - type: "null"
         resolved: { oneOf: [{ $ref: "#/components/schemas/Instrument" }, { type: "null" }] }
         quantity: { type: [integer, "null"] }
         estimatedValue: { type: [number, "null"] }

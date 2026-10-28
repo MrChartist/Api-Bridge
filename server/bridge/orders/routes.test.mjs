@@ -165,6 +165,34 @@ describe("POST /v1/orders", () => {
   });
 });
 
+describe("POST /v1/orders/preview margin", () => {
+  const CE = "NFO:NIFTY-2026-10-27-25000-CE";
+  const opt = (over) => ({ account: "paper", symbol: CE, side: "SELL", lots: 1, product: "MARGIN", orderType: "LIMIT", price: 120, ...over });
+
+  it("a paper SELL option preview carries the paper engine's margin", async () => {
+    const r = await call("POST", "/v1/orders/preview", { key: RAW.paper, body: opt() });
+    expect(r.status).toBe(200);
+    expect(r.json.data.margin).toEqual({ required: 243_750, source: "paper-model" }); // 15% of 25000 × 65
+  });
+
+  it("a paper BUY option blocks its premium", async () => {
+    const r = await call("POST", "/v1/orders/preview", { key: RAW.paper, body: opt({ side: "BUY", price: 120 }) });
+    expect(r.json.data.margin).toEqual({ required: 7800, source: "paper-model" }); // 120 × 65
+  });
+
+  it("an order that only closes a held position blocks nothing", async () => {
+    app.deps.paper.seed("paper", { positions: [{ symbol: CE, product: "MARGIN", netQty: 65 }] });
+    const r = await call("POST", "/v1/orders/preview", { key: RAW.paper, body: opt({ side: "SELL" }) });
+    expect(r.json.data.margin).toEqual({ required: 0, source: "paper-model" });
+  });
+
+  it("a live preview on a broker account has no margin figure", async () => {
+    const r = await call("POST", "/v1/orders/preview", { body: liveOrder() });
+    expect(r.json.data.mode).toBe("live");
+    expect(r.json.data.margin).toBeNull();
+  });
+});
+
 describe("other order routes", () => {
   it("preview, get, by-client-id, modify, cancel and list", async () => {
     const pv = await call("POST", "/v1/orders/preview", { body: liveOrder() });

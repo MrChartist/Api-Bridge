@@ -699,3 +699,17 @@ describe("listing and reset", () => {
     expect(fills.map((e) => e.realisedPnl)).toEqual([0, 985]);
   });
 });
+
+describe("estimateOrderMargin (order preview)", () => {
+  it("sizes an option sell on the strike, a buy on its premium, and a closing order at 0; nothing is stored", async () => {
+    const r = rig();
+    const sellCe = { symbol: NIFTY_CE, side: "SELL", quantity: 65, product: "MARGIN", orderType: "LIMIT", price: 120 };
+    expect(await r.engine.estimateOrderMargin("paper-1", sellCe)).toBe(243_750); // 15% × 25000 × 65
+    expect(await r.engine.estimateOrderMargin("paper-1", { ...sellCe, side: "BUY" })).toBe(7800); // 120 × 65
+    expect(await r.engine.estimateOrderMargin("paper-1", { ...sellCe, side: "BUY" }, 100)).toBe(6500);
+    expect((await r.engine.orders("paper-1")).items).toHaveLength(0);
+    await r.engine.place("paper-1", { symbol: NIFTY_CE, side: "BUY", quantity: 65, product: "MARGIN", orderType: "MARKET" });
+    expect(await r.engine.estimateOrderMargin("paper-1", sellCe)).toBe(0);
+    expect(await r.engine.estimateOrderMargin("paper-1", { ...sellCe, quantity: 130 })).toBe(243_750); // 65 closes, 65 adds
+  });
+});

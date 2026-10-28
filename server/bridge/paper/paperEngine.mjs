@@ -762,6 +762,23 @@ export function createPaperEngine(deps, options = {}) {
       return project(o);
     },
 
+    /**
+     * The margin this order would block if it were placed now: the same model as a fill (marginFor on the part of the
+     * order that adds exposure; the quantity that closes an open position blocks nothing). Nothing is stored.
+     * @param {string} accountId
+     * @param {object} order  OrderRequest & { quantity, resolved? }
+     * @param {number} [price]  price to size it at (default: the limit / trigger, else the last price)
+     * @returns {Promise<number>} rupees
+     */
+    async estimateOrderMargin(accountId, order, price) {
+      const st = book(accountId);
+      const inst = await resolveInstrument(order);
+      const o = normalise(order, inst);
+      if (!Number.isFinite(o.quantity) || o.quantity <= 0) return 0;
+      const px = Number.isFinite(price) ? price : o.orderType === "MARKET" ? (lastPrice.get(o.symbol)?.ltp ?? (await marketFor(o.symbol, { depth: false }).catch(() => null))?.ltp ?? 0) : estimatePrice(o);
+      return round2(orderBlock(st, o, Number.isFinite(px) ? px : 0));
+    },
+
     /** One order, or null. */
     async order(accountId, orderId) {
       const st = book(accountId);

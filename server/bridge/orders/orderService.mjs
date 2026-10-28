@@ -1504,6 +1504,7 @@ export function createOrderService(deps) {
       ok: p.blocks.length === 0,
       mode: p.decision.requested,
       checks: p.checks,
+      margin: await previewMargin(p),
       resolved: publicInstrument(p.resolved),
       quantity: p.quantity,
       estimatedValue: p.estimatedValue,
@@ -1513,6 +1514,23 @@ export function createOrderService(deps) {
       requiresHumanConfirmation,
       ticketId,
     };
+  }
+
+  /**
+   * The margin a paper order would block, from the paper engine's own model (the figure its fill will use). Live
+   * orders: null (the broker decides; basket-margin adapters are a later addition). Never throws: no figure → null.
+   */
+  async function previewMargin(p) {
+    const live = p.decision.requested === "live" && p.summary.broker !== "paper";
+    if (live || !p.resolved || !Number.isFinite(p.quantity) || p.quantity <= 0 || typeof deps.paper?.estimateOrderMargin !== "function") return null;
+    try {
+      const order = { ...p.effective, symbol: p.resolved.canonical, quantity: p.quantity, resolved: p.resolved };
+      const px = p.effective?.price ?? p.effective?.triggerPrice ?? p.ltp;
+      const required = await deps.paper.estimateOrderMargin(p.summary.id, order, Number.isFinite(px) ? px : undefined);
+      return Number.isFinite(required) ? { required, source: "paper-model" } : null;
+    } catch {
+      return null;
+    }
   }
 
   function requireAdmin(ctx) {

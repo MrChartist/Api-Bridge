@@ -1,4 +1,4 @@
-// The Option Desk: a live option chain you can trade from, a strategy builder with payoffs, the OI profile and your
+// The Option Desk: a live option chain you can trade from, a strategy builder with payoffs, OI analysis and your
 // positions on the same underlying. Data is GET /v1/expiries, /v1/optionchain and /v1/positions; orders go through
 // POST /v1/orders/preview and /v1/orders like every other client, so the Bridge's safety gates apply unchanged.
 //
@@ -8,14 +8,18 @@
 import { alertBox, api, app, card, emptyState, h, icon, istTime, modal, optional, pill, toast } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import { openChainSheet } from "./chain-sheet.js";
+import { createOiPage, oiConfig } from "./oi.js";
+import { createBuilder } from "./strategy.js";
 import * as O from "./options.js";
 import { cap, every, keepFocus, pnl, segField, segmented, stopTimer } from "./views.js";
 
 const SLOT = "mcb.dashboard.desk";
 const UNDERLYINGS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX"];
 const DEMO_UNDERLYINGS = ["NIFTY", "BANKNIFTY", "SENSEX"];
-/** Strikes fetched either side of ATM: wide enough for PCR, max pain and the OI profile, whatever is shown. */
+/** Strikes fetched either side of ATM: wide enough for PCR and max pain, whatever is shown. */
 const FETCH_STRIKES = 40;
+/** The OI page reads the whole listed chain (the API maximum), so max pain and PCR are not biased by a partial one. */
+const OI_FETCH_STRIKES = 100;
 const REFRESH_MS = 3000;
 const EXPIRY_DAY = new Intl.DateTimeFormat("en-IN", { timeZone: "UTC", day: "numeric", month: "short" });
 const expiryText = (e) => (/^\d{4}-\d{2}-\d{2}$/.test(e ?? "") ? EXPIRY_DAY.format(new Date(`${e}T00:00:00Z`)) : e ?? "");
@@ -58,15 +62,6 @@ const readPrefs = () => {
     return {};
   }
 };
-
-// ── SVG helper (h() makes HTML elements) ──
-const SVG_NS = "http://www.w3.org/2000/svg";
-function s(tag, attrs, ...children) {
-  const e = document.createElementNS(SVG_NS, tag);
-  for (const [k, v] of Object.entries(attrs ?? {})) if (v !== undefined && v !== null && v !== false) e.setAttribute(k, String(v));
-  for (const c of children.flat(Infinity)) if (c !== null && c !== undefined && c !== false) e.append(c instanceof Node ? c : document.createTextNode(String(c)));
-  return e;
-}
 
 // Keyboard: one listener for the life of the tab; it acts on the desk on screen, if any.
 let activeDesk = null;
@@ -111,7 +106,9 @@ async function renderDesk(kind) {
     account: tradable.some((a) => a.id === prefs.account) ? prefs.account : (tradable.find((a) => a.broker === "paper") ?? tradable[0])?.id ?? null,
     live: prefs.live !== false,
     baskets: prefs.baskets && typeof prefs.baskets === "object" ? prefs.baskets : {},
-    profile: prefs.profile === "change" ? "change" : "oi",
+    oi: oiConfig(prefs.oi),
+    scfg: prefs.strategy ?? null,
+    whatIf: prefs.whatIf ?? null,
     chain: null,
     freshness: null,
     error: null,
@@ -127,7 +124,7 @@ async function renderDesk(kind) {
     seq: 0,
   };
   st.strikesView = st.strikes;
-  const save = () => local.set(SLOT, JSON.stringify({ underlying: st.underlying, expiry: st.expiry, strikes: st.strikes, chain: st.cfg, account: st.account, live: st.live, baskets: st.baskets, profile: st.profile }));
+  const save = () => local.set(SLOT, JSON.stringify({ underlying: st.underlying, expiry: st.expiry, strikes: st.strikes, chain: st.cfg, account: st.account, live: st.live, baskets: st.baskets, oi: st.oi, strategy: st.scfg ?? undefined, whatIf: st.whatIf ?? undefined }));
   const account = () => tradable.find((a) => a.id === st.account) ?? null;
   const basketKey = () => `${st.underlying}|${st.expiry}`;
   const basket = () => (st.baskets[basketKey()] ??= []);
@@ -176,10 +173,20 @@ async function renderDesk(kind) {
     { class: "desk-keys" },
     KEY_LEGEND.map(([keys, short]) => h("span", { class: "kbd-pair" }, h("span", { class: "kbd-group" }, keys.map((k) => h("kbd", {}, k))), short)),
   );
-  const builderEl = h("div");
-  const profileEl = h("div");
   const posEl = h("div");
   let sheet = null;
+  /** "Open in chain" from the OI page: the chain focuses this strike once, then forgets it. */
+  let jump = kind === "chain" && prefs.jump && typeof prefs.jump === "object" ? prefs.jump : null;
+  if (prefs.jump) {
+    const { jump: _drop, ...rest } = prefs;
+    local.set(SLOT, JSON.stringify(rest));
+  }
+  const oiPage = kind === "oi" ? createOiPage({ st, save, retry: () => reloadAll(), openInChain, demo: () => Boolean(app.state.demo) }) : null;
+  function openInChain(strike, side) {
+    save();
+    local.set(SLOT, JSON.stringify({ ...readPrefs(), jump: { underlying: st.underlying, expiry: st.expiry, strike, side: side === "pe" ? "pe" : "ce" } }));
+    location.hash = "#/chain";
+  }
 
   // ── Data ──
   async function loadExpiries() {
@@ -205,6 +212,7 @@ async function renderDesk(kind) {
       st.expiries = ex;
       eSel.replaceChildren(...ex.map((e) => h("option", { value: e, selected: e === st.expiry }, `${expiryText(e)} · ${O.isExpiryDay(e) ? "today" : O.timeToExpiry(e).label}${O.isMonthlyExpiry(e, ex) ? " · M" : ""}`)));
       eSel.disabled = false;
+      oiPage?.expiriesLoaded();
       return true;
     } catch (err) {
       if (seq !== st.seq) return false;
@@ -236,7 +244,7 @@ async function renderDesk(kind) {
     const seq = st.seq;
     const t0 = performance.now();
     try {
-      const [r] = await Promise.all([api(`/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(st.expiry)}&strikes=${FETCH_STRIKES}&greeks=true`), loadQuotes()]);
+      const [r] = await Promise.all([api(`/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(st.expiry)}&strikes=${kind === "oi" ? OI_FETCH_STRIKES : FETCH_STRIKES}&greeks=true`), loadQuotes()]);
       if (seq !== st.seq) return;
       st.chain = r.data.data;
       st.freshness = r.data.data?.freshness ?? r.data.meta?.freshness ?? null;
@@ -259,10 +267,11 @@ async function renderDesk(kind) {
     st.positionsError = r.error ?? null;
     drawPositions();
   }
-  const refresh = () => Promise.all([loadChain(), loadPositions()]);
+  const refresh = () => Promise.all([loadChain(), loadPositions(), oiPage?.tick()]);
   const startTimer = () => (st.live ? every(REFRESH_MS, refresh) : stopTimer());
   async function reloadAll() {
     chain.reset();
+    oiPage?.reset({ underlying: true });
     sheet?.close();
     st.chain = null;
     st.focus = null;
@@ -363,7 +372,7 @@ async function renderDesk(kind) {
       }
       chain.reset();
       lastX = null;
-      drawStats(null);
+      if (kind !== "oi") drawStats(null);
       const retry = h("button", { type: "button", class: "small", onclick: () => reloadAll() }, icon("refresh"), "Retry");
       chainEl.replaceChildren(
         st.error
@@ -372,24 +381,35 @@ async function renderDesk(kind) {
             ? emptyState("clock", "No expiries", st.empty)
             : h("p", { class: "muted chain-loading" }, "Loading the chain…"),
       );
-      builderEl.replaceChildren();
-      profileEl.replaceChildren();
+      builder?.draw(null, { error: st.error });
+      oiPage?.draw(null);
       return;
     }
     const t0 = performance.now();
     const x = context();
     lastX = x;
-    drawStats(x);
+    if (kind !== "oi") drawStats(x);
     if (kind === "chain") {
       drawTitle(x);
       chain.draw(x);
+      if (jump) {
+        if (jump.underlying === x.c.underlying && jump.expiry === x.c.expiry && x.c.rows.some((r) => r.strike === jump.strike)) {
+          st.focus = { strike: jump.strike, side: jump.side === "pe" ? "pe" : "ce" };
+          chain.paintFocus(true, true);
+        }
+        jump = null;
+      }
       chain.note(st.error ? `Last update ${istTime(st.lastOk)} · retrying every ${REFRESH_MS / 1000} s` : null);
       st.patchMs = Math.round((performance.now() - t0) * 10) / 10;
       sheet?.update();
       drawClock();
     }
-    if (kind === "strategy") drawBuilder(x);
-    if (kind === "oi") drawProfile(x);
+    if (kind === "strategy") builder.draw(x);
+    if (kind === "oi") {
+      oiPage.draw(x);
+      st.patchMs = Math.round((performance.now() - t0) * 10) / 10;
+      drawClock();
+    }
   }
   function drawTitle(x) {
     const t = O.timeToExpiry(x.c.expiry);
@@ -405,7 +425,10 @@ async function renderDesk(kind) {
   }
   function drawClock() {
     const asOf = st.freshness?.asOf;
-    const sig = JSON.stringify([Boolean(st.error), st.freshness?.stale, asOf, st.ms]);
+    // The OI page says when the market is shut, so a quiet ΔOI does not look live.
+    const session = kind === "oi" && !app.state.demo ? O.marketSession() : null;
+    const closed = session && session.phase !== "open" ? session.label : "";
+    const sig = JSON.stringify([Boolean(st.error), st.freshness?.stale, asOf, st.ms, closed]);
     if (clock.__sig !== sig) {
       clock.__sig = sig;
       clock.classList.toggle("bad", Boolean(st.error));
@@ -414,6 +437,7 @@ async function renderDesk(kind) {
         st.error ? "Not updating" : st.freshness?.stale ? "Stale" : "",
         ...(asOf && !st.error ? [` ${istTime(asOf)}`] : []),
         ...(st.ms !== null && !st.error ? [h("small", {}, ` ${formatInt(st.ms)} ms`)] : []),
+        ...(closed ? [h("small", { class: "desk-closed" }, ` · ${closed}`)] : []),
       );
     }
     const title = [st.error ? String(st.error.message ?? st.error) : st.freshness?.accountId ? `Data from ${st.freshness.accountId}` : "", st.patchMs !== null ? `render ${formatFixed(st.patchMs, 1)} ms` : ""].filter(Boolean).join(" · ");
@@ -590,14 +614,6 @@ async function renderDesk(kind) {
     });
   }
 
-  function drawProfile(x) {
-    profileEl.replaceChildren(oiProfile(x, st.profile, (p) => {
-      st.profile = p;
-      save();
-      drawProfile(context());
-    }));
-  }
-
   // ── Positions ──
   function drawPositions() {
     const a = account();
@@ -686,7 +702,7 @@ async function renderDesk(kind) {
     for (const p of rows) {
       const o = O.parseOptionSymbol(p.symbol);
       if (!o || o.expiry !== st.expiry) continue;
-      legs.push({ right: o.right, strike: o.strike, side: Number(p.netQty) > 0 ? "BUY" : "SELL", lots: Math.max(1, Math.round(Math.abs(Number(p.netQty)) / lot)), entry: num(p.avgPrice) });
+      legs.push({ right: o.right, strike: o.strike, side: Number(p.netQty) > 0 ? "BUY" : "SELL", lots: Math.max(1, Math.round(Math.abs(Number(p.netQty)) / lot)), entry: num(p.avgPrice), entryTag: "avg", product: p.product, symbol: p.symbol, lotSize: lot });
     }
     if (!legs.length) return toast(`Positions on other expiries: switch the expiry to analyse them.`);
     st.baskets[basketKey()] = legs;
@@ -710,136 +726,34 @@ async function renderDesk(kind) {
     return `${done} order${done === 1 ? "" : "s"} sent`;
   }
 
-  // ── Strategy builder ──
-  const legQuote = (l) => st.chain?.rows.find((r) => r.strike === l.strike)?.[l.right.toLowerCase()] ?? null;
-  /** A leg with its price: a fixed entry (analysed positions) or the live touch (ask to buy, bid to sell). */
-  const pricedLegs = () => basket().map((l) => {
-    const q = legQuote(l);
-    return { ...l, symbol: q?.symbol, price: l.entry ?? O.touchPrice(q, l.side) ?? num(q?.ltp), iv: num(q?.iv) ?? O.chainSummary(st.chain).atmIv };
-  });
+  // ── Strategy builder (strategy.js; built once, patched on every tick) ──
+  const builder =
+    kind === "strategy"
+      ? createBuilder({
+          st,
+          save,
+          account,
+          refresh: () => refresh(),
+          onPositions: () => (location.hash = "#/positions"),
+          switchTo: async (u, e) => {
+            st.underlying = u;
+            uSel.value = u;
+            st.expiry = e;
+            save();
+            await reloadAll();
+          },
+        })
+      : null;
+  /** ⇧B / ⇧S on the chain and "Add to strategy" in the ticket: the same contract and side merge into one leg. */
   function addLeg(leg) {
+    if (builder) return toast(builder.addLeg(leg) ?? "");
     const legs = basket();
-    const same = legs.find((l) => l.strike === leg.strike && l.right === leg.right && l.side === leg.side && l.entry === undefined);
+    const same = legs.find((l) => (l.kind ?? "OPT") === "OPT" && l.strike === leg.strike && l.right === leg.right && l.side === leg.side && (l.entry === undefined || l.entry === null));
     if (same) same.lots += leg.lots ?? 1;
+    else if (legs.length >= O.MAX_LEGS) return toast(`The strategy holds up to ${O.MAX_LEGS} legs`);
     else legs.push({ right: leg.right, strike: leg.strike, side: leg.side, lots: leg.lots ?? 1 });
     save();
-    if (kind === "strategy") drawBuilder(context());
-    toast(`${leg.side === "BUY" ? "Buy" : "Sell"} ${formatInt(leg.strike)} ${leg.right} added${kind === "strategy" ? "" : " to Strategy Builder"}`);
-  }
-  function drawBuilder(x) {
-    const legs = pricedLegs();
-    const typing = builderEl.contains(document.activeElement) && document.activeElement?.tagName === "INPUT";
-    const presets = h(
-      "div",
-      { class: "preset-row", role: "group", "aria-label": "Ready-made strategies" },
-      O.PRESETS.map((p) =>
-        h(
-          "button",
-          {
-            type: "button",
-            class: "preset",
-            title: p.view,
-            onclick: () => {
-              st.baskets[basketKey()] = O.presetLegs(p.id, x.c, { move: x.move });
-              save();
-              drawBuilder(context());
-            },
-          },
-          p.name,
-        ),
-      ),
-    );
-    const actions = legs.length
-      ? [
-          h("button", { type: "button", class: "small plain", onclick: () => { st.baskets[basketKey()] = []; save(); drawBuilder(context()); } }, "Clear"),
-          h("button", { type: "button", class: "small primary", disabled: !st.account || legs.some((l) => l.entry !== undefined && l.entry !== null), title: legs.some((l) => l.entry != null) ? "These legs are your open positions" : undefined, onclick: () => placeStrategy(legs) }, `Place ${formatInt(legs.length)} leg${legs.length === 1 ? "" : "s"}`),
-        ]
-      : null;
-    if (!legs.length) {
-      builderEl.replaceChildren(
-        card({
-          title: "Strategy builder",
-          sub: `${st.underlying} ${expiryText(st.expiry)}: payoff, breakevens and probability before you trade`,
-          cls: "desk-card",
-          body: h("div", { class: "stack" }, presets, h("p", { class: "desk-empty flush" }, "Pick a strategy above, press ⇧B / ⇧S on a strike, or use “Add to strategy” in an order ticket.")),
-        }),
-      );
-      return;
-    }
-    const stats = O.strategyStats(legs, x.lot, { forward: x.F, ivPct: x.sm.atmIv, years: x.years });
-    const g = O.netGreeks(legs, x.c);
-    const money = (v, unlimited) => (v === null ? h("span", { class: unlimited }, "Unlimited") : pnl(v));
-    const legRows = legs.map((l, i) => {
-      const q = legQuote(l);
-      const lotsIn = h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(l.lots), "aria-label": `Lots for ${l.side} ${l.strike} ${l.right}`, class: "lots-in" });
-      lotsIn.addEventListener("input", () => {
-        const v = Math.floor(Number(lotsIn.value));
-        if (v >= 1) {
-          basket()[i].lots = v;
-          save();
-          drawBuilder(context());
-        }
-      });
-      return h(
-        "tr",
-        {},
-        h("td", {}, h("button", { type: "button", class: `side-tag ${l.side === "BUY" ? "buy" : "sell"}`, title: "Switch buy / sell", "aria-label": `${l.side}: switch`, onclick: () => { basket()[i].side = l.side === "BUY" ? "SELL" : "BUY"; delete basket()[i].entry; save(); drawBuilder(context()); } }, l.side === "BUY" ? "B" : "S")),
-        h("td", {}, h("strong", {}, `${formatInt(l.strike)} ${l.right}`)),
-        h("td", { class: "num" }, lotsIn),
-        h("td", { class: "num" }, formatFixed(l.price, 2), l.entry != null ? h("span", { class: "muted small" }, " avg") : null),
-        h("td", { class: "num opt-x" }, formatFixed(q?.iv, 1)),
-        h("td", { class: "num opt-x" }, formatFixed(q?.delta, 2)),
-        h("td", { class: "act" }, h("button", { type: "button", class: "icon-btn small-x", "aria-label": `Remove ${l.side} ${l.strike} ${l.right}`, onclick: () => { basket().splice(i, 1); save(); drawBuilder(context()); } }, icon("close"))),
-      );
-    });
-    const legsTable = h("div", { class: "table-wrap" }, h("table", { class: "desk-table legs" }, h("thead", {}, h("tr", {}, ["", "Leg", "Lots", "Price", "IV", "Delta", ""].map((l, i) => h("th", { scope: "col", class: [i >= 2 && i <= 5 ? "num" : "", i >= 4 && i <= 5 ? "opt-x" : ""].join(" ").trim() || undefined }, l)))), h("tbody", {}, legRows)));
-    const summary = h(
-      "div",
-      { class: "desk-stats compact" },
-      tile(stats.net >= 0 ? "Credit" : "Debit", formatRupee(Math.abs(stats.net), 0), `${formatInt(legs.reduce((a, l) => a + l.lots, 0))} lot(s) · lot ${formatInt(x.lot)}`),
-      tile("Max profit", money(stats.maxProfit, "up"), ""),
-      tile("Max loss", money(stats.maxLoss, "down"), ""),
-      tile("Breakeven", stats.breakevens.length ? stats.breakevens.map((b) => formatInt(b)).join(" · ") : DASH, stats.breakevens.length && x.spot ? stats.breakevens.map((b) => formatPercent(((b - x.spot) / x.spot) * 100, 1)).join(" · ") : ""),
-      tile("Win chance", formatPercent(stats.pop === null ? null : stats.pop * 100, 0), "at expiry, IV model", { title: "Probability the strategy finishes in profit, from a log-normal model at ATM IV" }),
-      tile("Greeks", `Δ ${formatFixed(g.delta, 0)}`, `θ ${formatRupee(g.theta, 0)}/day · ν ${formatRupee(g.vega, 0)}`, { title: "Net delta (units), theta (₹ per day) and vega (₹ per IV point)" }),
-    );
-    const chart = payoffChart(legs, x);
-    const body = h("div", { class: "builder" }, h("div", { class: "builder-side" }, presets, legsTable, summary), chart);
-    if (typing) {
-      // Keep the input being typed in; refresh the figures and the chart only.
-      const old = builderEl.querySelector(".builder");
-      old?.querySelector(".desk-stats")?.replaceWith(summary);
-      old?.querySelector(".payoff")?.replaceWith(chart);
-      return;
-    }
-    keepFocus(builderEl, () =>
-      builderEl.replaceChildren(card({ title: "Strategy builder", sub: `${st.underlying} ${expiryText(st.expiry)} · prices at the touch, live`, actions, cls: "desk-card", body })),
-    );
-  }
-  async function placeStrategy(legs) {
-    const a = account();
-    if (!a) return;
-    const live = a.liveAllowedByConfig ? segmented("Mode", [["paper", "Paper"], ["live", "Live"]], "paper") : null;
-    const ack = h("input", { type: "checkbox" });
-    const ackRow = h("label", { class: "check live-ack", hidden: true }, ack, `I understand these are real orders to ${a.label}.`);
-    live?.addEventListener("change", () => (ackRow.hidden = live.value !== "live"));
-    const ordered = [...legs].sort((x, y) => (x.side === y.side ? 0 : x.side === "BUY" ? -1 : 1));
-    const ok = await modal({
-      title: `Place ${legs.length}-leg strategy?`,
-      body: h(
-        "div",
-        { class: "stack" },
-        h("p", { class: "muted" }, `Limit orders at the touch to ${a.label}. Buys go first, so the hedges are in before the short legs.`),
-        h("ul", { class: "desk-list" }, ordered.map((l) => h("li", {}, `${l.side === "BUY" ? "Buy" : "Sell"} ${formatInt(l.lots)} lot · ${contractName(st.underlying, st.expiry, l.strike, l.right)} @ ${formatFixed(l.price, 2)}`))),
-        live ? segField("Mode", live) : null,
-        ackRow,
-      ),
-      buttons: [{ label: "Cancel", value: false }, { label: "Place orders", cls: "primary", value: true, onClick: () => (live?.value === "live" && !ack.checked ? false : true) }],
-    });
-    if (!ok) return;
-    const bodies = ordered.map((l) => ({ account: a.id, symbol: l.symbol, side: l.side, lots: l.lots, product: "MARGIN", orderType: "LIMIT", price: l.price, ...(live?.value === "live" ? { mode: "live" } : {}) }));
-    toast(await sendOrders(bodies, "strat"));
-    refresh();
+    toast(`${leg.side === "BUY" ? "Buy" : "Sell"} ${formatInt(leg.strike)} ${leg.right} added to Strategy Builder`);
   }
 
   // ── Order ticket ──
@@ -1258,7 +1172,23 @@ async function renderDesk(kind) {
       return false;
     },
   };
-  activeDesk = kind === "chain" ? desk : null;
+  const oiDesk = oiPage && {
+    root: oiPage.root,
+    onKey(e) {
+      if (e.key === "p") return liveBtn.click(), true;
+      if (e.key === "r") return refresh(), true;
+      return oiPage.onKey(e);
+    },
+  };
+  const stratDesk = builder && {
+    root: builder.panel,
+    onKey(e) {
+      if (e.key === "p") return liveBtn.click(), true;
+      if (e.key === "r") return refresh(), true;
+      return builder.onKey(e);
+    },
+  };
+  activeDesk = kind === "chain" ? desk : kind === "oi" ? oiDesk : kind === "strategy" ? stratDesk : null;
   bindKeys();
 
   // ── Wiring ──
@@ -1274,6 +1204,7 @@ async function renderDesk(kind) {
     st.focus = null;
     sheet?.close();
     chain.reset();
+    oiPage?.reset();
     save();
     loadChain();
   });
@@ -1292,6 +1223,7 @@ async function renderDesk(kind) {
     st.account = aSel.value;
     save();
     loadPositions();
+    builder?.accountChanged();
   });
   liveBtn.addEventListener("click", () => {
     st.live = !st.live;
@@ -1303,7 +1235,7 @@ async function renderDesk(kind) {
   drawLive();
   // Back to the tab: refresh at once instead of on the next tick. Device class changes (rotation, a phone-width
   // window, a touch screen) re-lay the chain. Both listeners go when the page does.
-  const pageRoot = kind === "chain" ? chainEl : kind === "strategy" ? builderEl : kind === "oi" ? profileEl : posEl;
+  const pageRoot = kind === "chain" ? chainEl : kind === "strategy" ? builder.panel : kind === "oi" ? oiPage.root : posEl;
   const onVisible = () => {
     if (!pageRoot.isConnected) return cleanup();
     if (!document.hidden && st.live) refresh();
@@ -1321,6 +1253,7 @@ async function renderDesk(kind) {
     for (const m of mqs) m.removeEventListener("change", onDevice);
     chain.reset();
     sheet?.close();
+    builder?.destroy();
   }
   document.addEventListener("visibilitychange", onVisible);
   window.addEventListener("hashchange", onRoute);
@@ -1353,8 +1286,8 @@ async function renderDesk(kind) {
   }
   const top = h("section", { class: "desk-panel desk-top", "data-fixed": "" }, bar);
   const summary = h("section", { class: "desk-panel", "data-panel": "summary", "aria-label": "Chain summary" }, statsEl);
-  if (kind === "strategy") return [top, summary, builderEl];
-  if (kind === "oi") return [top, summary, profileEl];
+  if (kind === "strategy") return [top, summary, builder.panel, builder.slot];
+  if (kind === "oi") return [top, ...oiPage.panels];
   return [top, posEl];
 }
 
@@ -2250,143 +2183,6 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
   return self;
 }
 
-// ── OI profile chart ──
-
-function oiProfile(x, mode, onMode) {
-  const rows = O.rowsAroundAtm(x.c, 15);
-  const pick = (q) => num(mode === "change" ? q?.oiChange : q?.oi) ?? 0;
-  const max = Math.max(1, ...rows.flatMap((r) => [Math.abs(pick(r.ce)), Math.abs(pick(r.pe))]));
-  const W = 640;
-  const H = 260;
-  const padL = 44;
-  const padB = 34;
-  const padT = 14;
-  const innerW = W - padL - 10;
-  const innerH = H - padB - padT;
-  const zeroY = mode === "change" ? padT + innerH / 2 : padT + innerH;
-  const scale = mode === "change" ? innerH / 2 / max : innerH / max;
-  const bw = innerW / rows.length;
-  const bars = [];
-  rows.forEach((r, i) => {
-    const x0 = padL + i * bw;
-    for (const [side, off] of [["ce", 0.12], ["pe", 0.5]]) {
-      const v = pick(r[side]);
-      const hgt = Math.abs(v) * scale;
-      bars.push(s("rect", { x: x0 + bw * off, width: bw * 0.36, y: v >= 0 ? zeroY - hgt : zeroY, height: Math.max(0.5, hgt), class: `bar-${side}`, rx: 1.5 }, s("title", {}, `${formatInt(r.strike)} ${side.toUpperCase()}: ${formatCompact(v, { signed: mode === "change" })}`)));
-    }
-  });
-  const xAt = (k) => {
-    const i = rows.findIndex((r) => r.strike >= k);
-    if (i <= 0) return padL + (i === 0 ? bw / 2 : innerW);
-    const a = rows[i - 1].strike;
-    const b = rows[i].strike;
-    return padL + (i - 1) * bw + bw / 2 + ((k - a) / (b - a)) * bw;
-  };
-  const marks = [];
-  if (x.spot !== null) marks.push(s("line", { x1: xAt(x.spot), x2: xAt(x.spot), y1: padT, y2: padT + innerH, class: "mark-spot" }), s("text", { x: xAt(x.spot), y: padT - 3, class: "mark-label spot", "text-anchor": "middle" }, `Spot ${formatInt(x.spot)}`));
-  if (x.sm.maxPain !== null) marks.push(s("line", { x1: xAt(x.sm.maxPain), x2: xAt(x.sm.maxPain), y1: padT, y2: padT + innerH, class: "mark-mp" }));
-  const every = Math.ceil(rows.length / 8);
-  const labels = rows.map((r, i) => (i % every === 0 ? s("text", { x: padL + i * bw + bw / 2, y: H - padB + 16, class: "axis", "text-anchor": "middle" }, formatInt(r.strike)) : null));
-  const ticks = niceTicks(mode === "change" ? -max : 0, max, mode === "change" ? 5 : 4).map((v) => {
-    const y = zeroY - v * scale;
-    return [s("line", { x1: padL, x2: W - 10, y1: y, y2: y, class: v === 0 ? "grid zero" : "grid" }), s("text", { x: padL - 6, y: y + 3.5, class: "axis", "text-anchor": "end" }, formatCompact(v))];
-  });
-  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, class: "oi-chart", role: "img", "aria-label": `${mode === "change" ? "OI change" : "Open interest"} by strike, calls and puts` }, ticks, bars, marks, labels);
-  const seg = segmented("Profile", [["oi", "OI"], ["change", "Change"]], mode);
-  seg.addEventListener("change", () => onMode(seg.value));
-  return card({
-    title: "OI by strike",
-    actions: [h("span", { class: "legend" }, h("i", { class: "ce" }), "Calls", h("i", { class: "pe" }), "Puts", h("i", { class: "mp" }), "Max pain"), seg],
-    cls: "desk-card",
-    body: svg,
-  });
-}
-
-// ── Payoff chart ──
-
-function payoffChart(legs, x) {
-  const host = h("div", { class: "payoff" });
-  const spot = x.spot ?? x.F;
-  if (spot === null) return host;
-  const strikes = legs.map((l) => l.strike);
-  const span = Math.max((x.move ?? spot * 0.02) * 2.6, ...strikes.map((k) => Math.abs(k - spot) * 1.35), spot * 0.015);
-  const lo = spot - span;
-  const hi = spot + span;
-  const N = 140;
-  const xs = [...Array.from({ length: N + 1 }, (_, i) => lo + ((hi - lo) * i) / N), ...strikes.filter((k) => k > lo && k < hi)].sort((a, b) => a - b);
-  const basis = x.F !== null && x.spot !== null ? x.F - x.spot : 0;
-  const exp = xs.map((p) => O.payoffAt(legs, p, x.lot));
-  const today = x.years > 0 ? xs.map((p) => O.valueAt(legs, p, x.lot, x.years, basis)) : null;
-  const all = [...exp, ...(today ?? []).filter((v) => v !== null), 0];
-  let yMin = Math.min(...all);
-  let yMax = Math.max(...all);
-  const pad = (yMax - yMin || Math.abs(yMax) || 1) * 0.12;
-  yMin -= pad;
-  yMax += pad;
-  const W = 720;
-  const H = 300;
-  const L = 64;
-  const R = 12;
-  const T = 16;
-  const B = 30;
-  const X = (p) => L + ((p - lo) / (hi - lo)) * (W - L - R);
-  const Y = (v) => T + ((yMax - v) / (yMax - yMin)) * (H - T - B);
-  const path = (vals) => vals.map((v, i) => (v === null ? "" : `${i === 0 || vals[i - 1] === null ? "M" : "L"}${r1(X(xs[i]))},${r1(Y(v))}`)).join("");
-  const zy = Y(0);
-  const area = `M${r1(X(xs[0]))},${r1(zy)}${exp.map((v, i) => `L${r1(X(xs[i]))},${r1(Y(v))}`).join("")}L${r1(X(xs[xs.length - 1]))},${r1(zy)}Z`;
-  const id = `pc${Math.random().toString(36).slice(2, 7)}`;
-  const yTicks = niceTicks(yMin, yMax, 5);
-  const xTicks = Array.from({ length: 5 }, (_, i) => lo + ((hi - lo) * i) / 4);
-  const stats = O.strategyStats(legs, x.lot);
-  const svg = s(
-    "svg",
-    { viewBox: `0 0 ${W} ${H}`, class: "payoff-svg", role: "img", "aria-label": "Payoff at expiry and today" },
-    s("defs", {}, s("clipPath", { id: `${id}-up` }, s("rect", { x: 0, y: 0, width: W, height: Math.max(0, zy) })), s("clipPath", { id: `${id}-dn` }, s("rect", { x: 0, y: zy, width: W, height: Math.max(0, H - zy) }))),
-    x.move ? s("rect", { x: X(Math.max(lo, (x.F ?? spot) - x.move)), y: T, width: Math.max(0, X(Math.min(hi, (x.F ?? spot) + x.move)) - X(Math.max(lo, (x.F ?? spot) - x.move))), height: H - T - B, class: "band" }) : null,
-    yTicks.map((v) => [s("line", { x1: L, x2: W - R, y1: Y(v), y2: Y(v), class: "grid" }), s("text", { x: L - 8, y: Y(v) + 3.5, class: "axis", "text-anchor": "end" }, formatCompact(v))]),
-    xTicks.map((p) => s("text", { x: X(p), y: H - 10, class: "axis", "text-anchor": "middle" }, formatInt(p))),
-    s("path", { d: area, class: "area-up", "clip-path": `url(#${id}-up)` }),
-    s("path", { d: area, class: "area-dn", "clip-path": `url(#${id}-dn)` }),
-    s("line", { x1: L, x2: W - R, y1: zy, y2: zy, class: "zero" }),
-    today ? s("path", { d: path(today), class: "line-today" }) : null,
-    s("path", { d: path(exp), class: "line-exp" }),
-    s("line", { x1: X(spot), x2: X(spot), y1: T, y2: H - B, class: "mark-spot" }),
-    s("text", { x: X(spot), y: T - 4, class: "mark-label spot", "text-anchor": "middle" }, formatInt(spot)),
-    stats.breakevens.filter((b) => b > lo && b < hi).map((b) => [s("circle", { cx: X(b), cy: zy, r: 3.5, class: "be" }), s("text", { x: X(b), y: zy + 15, class: "mark-label", "text-anchor": "middle" }, formatInt(b))]),
-  );
-  // Crosshair readout.
-  const cross = s("line", { y1: T, y2: H - B, class: "cross", visibility: "hidden" });
-  const dotE = s("circle", { r: 3.5, class: "dot-exp", visibility: "hidden" });
-  const dotT = s("circle", { r: 3.5, class: "dot-today", visibility: "hidden" });
-  svg.append(cross, dotE, dotT);
-  const readout = h("div", { class: "payoff-readout" }, h("span", { class: "muted" }, "Hover the chart to read P&L at a price"));
-  svg.addEventListener("pointermove", (e) => {
-    const r = svg.getBoundingClientRect();
-    const px = ((e.clientX - r.left) / r.width) * W;
-    const p = lo + ((Math.max(L, Math.min(W - R, px)) - L) / (W - L - R)) * (hi - lo);
-    const ve = O.payoffAt(legs, p, x.lot);
-    const vt = x.years > 0 ? O.valueAt(legs, p, x.lot, x.years, basis) : null;
-    for (const [el, v] of [[dotE, ve], [dotT, vt]]) {
-      if (v === null) continue;
-      el.setAttribute("cx", X(p));
-      el.setAttribute("cy", Y(Math.max(yMin, Math.min(yMax, v))));
-      el.setAttribute("visibility", "visible");
-    }
-    cross.setAttribute("x1", X(p));
-    cross.setAttribute("x2", X(p));
-    cross.setAttribute("visibility", "visible");
-    readout.replaceChildren(...[h("strong", {}, formatInt(p)), h("span", { class: "muted" }, ` (${formatSigned(((p - spot) / spot) * 100, 2)}%)  `), h("span", { class: "muted" }, "Expiry "), pnl(ve), ...(vt !== null ? [h("span", { class: "muted" }, "  Today "), pnl(vt)] : [])]);
-  });
-  svg.addEventListener("pointerleave", () => {
-    for (const el of [cross, dotE, dotT]) el.setAttribute("visibility", "hidden");
-  });
-  host.append(
-    h("div", { class: "payoff-head" }, h("span", { class: "legend" }, h("i", { class: "exp" }), "At expiry", h("i", { class: "today" }), "Today", x.move ? [h("i", { class: "band" }), "±1σ"] : null), readout),
-    svg,
-  );
-  return host;
-}
-
 /** Contracts whose volume ÷ OI stands out from the rest of the chain (at least 3× the median, top 4 per side). */
 function unusualVolume(rows) {
   const out = new Set();
@@ -2397,17 +2193,6 @@ function unusualVolume(rows) {
     const median = sorted[Math.floor(sorted.length / 2)];
     legs.sort((a, b) => b.r - a.r).slice(0, 4).filter((l) => l.r >= 3 * median).forEach((l) => out.add(l.symbol));
   }
-  return out;
-}
-
-/** Round axis values (1, 2, 2.5 or 5 × 10^n) covering [lo, hi]. */
-function niceTicks(lo, hi, count) {
-  const span = hi - lo || Math.abs(hi) || 1;
-  const raw = span / Math.max(1, count - 1);
-  const mag = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((x) => x >= raw) ?? 10 * mag;
-  const out = [];
-  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) out.push(Math.abs(v) < step * 1e-9 ? 0 : v);
   return out;
 }
 
