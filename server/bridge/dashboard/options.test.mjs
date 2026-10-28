@@ -31,6 +31,7 @@ import {
   valueAt,
   volumeRanks,
 } from "./options.js";
+import * as O from "./options.js";
 
 const leg = (o) => ({ symbol: "X", ltp: 100, bid: 99.9, ask: 100.1, oi: 1000, oiChange: 100, volume: 500, iv: 12, ...o });
 const chain = {
@@ -241,5 +242,155 @@ describe("ticket helpers", () => {
     expect(positionsFor(pos, "SENSEX")).toHaveLength(1);
     expect(parseOptionSymbol("NFO:NIFTY-2026-11-03-26000-CE")).toEqual({ underlying: "NIFTY", expiry: "2026-11-03", strike: 26000, right: "CE" });
     expect(parseOptionSymbol("NSE:NIFTY")).toBeNull();
+  });
+});
+
+describe("persona reads", () => {
+  it("breakeven", () => {
+    expect(O.breakeven(26400, "CE", 155.35)).toBeCloseTo(26555.35, 6);
+    expect(O.breakeven(26400, "PE", 158.9)).toBeCloseTo(26241.1, 6);
+    expect(O.breakeven(26400, "CE", null)).toBeNull();
+    expect(O.breakeven(100, "PE", 120)).toBeNull();
+  });
+
+  it("chance of profit is P(ITM) at the breakeven", () => {
+    const T = 10 / 365;
+    const pop = O.chanceOfProfit(26000, 26000, T, 12, "CE", 150);
+    expect(pop).toBeCloseTo(O.probItm(26000, 26150, T, 12, "CE"), 10);
+    expect(pop).toBeLessThan(O.probItm(26000, 26000, T, 12, "CE"));
+    expect(O.chanceOfProfit(26200, 26000, 0, 12, "CE", 150)).toBe(1);
+    expect(O.chanceOfProfit(26100, 26000, 0, 12, "CE", 150)).toBe(0);
+    expect(O.chanceOfProfit(26000, 26000, T, null, "CE", 150)).toBeNull();
+  });
+
+  it("distance from spot, OTM positive, and in σ", () => {
+    expect(O.distance(26500, "CE", 26000)).toEqual({ pts: 500, pct: (500 / 26000) * 100 });
+    expect(O.distance(25500, "PE", 26000).pts).toBe(500);
+    expect(O.distance(25500, "CE", 26000).pts).toBe(-500);
+    const T = 30 / 365;
+    const K = 26000 * Math.exp(0.12 * Math.sqrt(T));
+    expect(O.sigmaDistance(K, "CE", 26000, 12, T)).toBeCloseTo(1, 10);
+    expect(O.sigmaDistance(26000 * Math.exp(-0.12 * Math.sqrt(T)), "PE", 26000, 12, T)).toBeCloseTo(1, 10);
+    expect(O.sigmaDistance(K, "CE", 26000, null, T)).toBeNull();
+  });
+
+  it("log-normal σ bands", () => {
+    const T = 30 / 365;
+    const b1 = O.sigmaBand(26000, 12, T, 1);
+    const b2 = O.sigmaBand(26000, 12, T, 2);
+    expect(b1.lo * b1.hi).toBeCloseTo(26000 * 26000, 3);
+    expect(b2.hi).toBeGreaterThan(b1.hi);
+    expect(b2.lo).toBeLessThan(b1.lo);
+    expect(O.sigmaBand(26000, null, T)).toBeNull();
+  });
+
+  it("time value against the forward is not clamped", () => {
+    expect(O.extrinsic(26000, "CE", 90, 26100)).toBe(-10);
+    expect(O.extrinsic(26500, "CE", 40, 26100)).toBe(40);
+    expect(O.extrinsic(26500, "PE", 410, 26100)).toBe(10);
+    expect(O.extrinsic(26500, "PE", null, 26100)).toBeNull();
+  });
+
+  it("synthetic future and the parity edge", () => {
+    const row = { strike: 26000, ce: { bid: 110, ask: 111, ltp: 110.5 }, pe: { bid: 99, ask: 100, ltp: 99.5 } };
+    const s = O.synthetic(row);
+    expect(s.mid).toBeCloseTo(26011, 6);
+    expect(s.buy).toBe(26000 + 111 - 99);
+    expect(s.sell).toBe(26000 + 110 - 100);
+    expect(O.synthetic({ strike: 26000, ce: { ltp: 110 }, pe: { bid: 99, ask: 100 } })).toMatchObject({ buy: null, sell: null, twoSided: false });
+    // Normal market: both ways cost the spread.
+    expect(O.parityEdge(row, 26011).edge).toBeLessThanOrEqual(0);
+    // The synthetic sells above the future: a conversion.
+    expect(O.parityEdge(row, 26005)).toEqual({ edge: 5, kind: "conv" });
+    // The future above the synthetic's buy price: a reversal.
+    expect(O.parityEdge(row, 26015)).toEqual({ edge: 3, kind: "rev" });
+    expect(O.parityEdge({ strike: 26000, ce: { ltp: 1 }, pe: { ltp: 1 } }, 26000)).toBeNull();
+  });
+
+  it("top OI strikes per side", () => {
+    const rows = [
+      { strike: 100, ce: { oi: 50 } },
+      { strike: 110, ce: { oi: 90 } },
+      { strike: 120, ce: { oi: 50 } },
+      { strike: 130, ce: { oi: 0 } },
+      { strike: 140, ce: { oi: 10 } },
+    ];
+    expect(O.topOi(rows, "ce", 3)).toEqual([
+      { strike: 110, oi: 90, rank: 1 },
+      { strike: 100, oi: 50, rank: 2 },
+      { strike: 120, oi: 50, rank: 3 },
+    ]);
+    expect(O.topOi([{ strike: 1, pe: { oi: 0 } }], "pe")).toEqual([]);
+  });
+
+  it("hedge lots", () => {
+    expect(O.hedgeLots(150, -0.5, 75)).toBe(4);
+    expect(O.hedgeLots(75, -0.5, 75)).toBe(2);
+    expect(O.hedgeLots(150, 0.5, 75)).toBeNull();
+    expect(O.hedgeLots(150, -0.01, 75)).toBeNull();
+    expect(O.hedgeLots(-150, 0.3, 75)).toBe(7);
+  });
+
+  it("strike query", () => {
+    const strikes = Array.from({ length: 21 }, (_, i) => 25500 + i * 100);
+    const ctx = { strikes, atm: 26500, F: 26500, sigmaPts: 400, maxPain: 26300 };
+    expect(O.strikeQuery("26400", ctx)).toBe(26400);
+    expect(O.strikeQuery("26437", ctx)).toBe(26400);
+    expect(O.strikeQuery("264", ctx)).toBe(26400);
+    expect(O.strikeQuery("+3", ctx)).toBe(26800);
+    expect(O.strikeQuery("-2", ctx)).toBe(26300);
+    expect(O.strikeQuery("1s", ctx)).toBe(26900);
+    expect(O.strikeQuery("-2σ", ctx)).toBe(25700);
+    expect(O.strikeQuery("+1.5sd", ctx)).toBe(27100);
+    expect(O.strikeQuery("ATM", ctx)).toBe(26500);
+    expect(O.strikeQuery("mp", ctx)).toBe(26300);
+    expect(O.strikeQuery("max pain", ctx)).toBe(26300);
+    expect(O.strikeQuery("abc", ctx)).toBeNull();
+    expect(O.strikeQuery("", ctx)).toBeNull();
+    expect(O.strikeQuery("+99", ctx)).toBe(27500);
+  });
+
+  it("expiry day and the monthly expiry", () => {
+    const at = (iso) => Date.parse(iso);
+    expect(O.isExpiryDay("2026-11-03", at("2026-11-03T09:15:00+05:30"))).toBe(true);
+    expect(O.isExpiryDay("2026-11-03", at("2026-11-03T15:31:00+05:30"))).toBe(false);
+    expect(O.isExpiryDay("2026-11-03", at("2026-11-02T10:00:00+05:30"))).toBe(false);
+    const list = ["2026-11-03", "2026-11-24", "2026-12-29"];
+    expect(O.isMonthlyExpiry("2026-11-24", list)).toBe(true);
+    expect(O.isMonthlyExpiry("2026-11-03", list)).toBe(false);
+  });
+
+  it("net OI change in the summary", () => {
+    const s = chainSummary(chain);
+    expect(s.netOiChange).toBe(0);
+    const c2 = { ...chain, rows: [{ strike: 1, ce: { oiChange: -500 }, pe: { oiChange: 200 } }] };
+    expect(chainSummary(c2).netOiChange).toBe(700);
+    expect(chainSummary(c2).pcrChange).toBeNull();
+  });
+});
+
+describe("trade warnings", () => {
+  const good = { bid: 100, ask: 100.5, ltp: 100.2, theta: -2 };
+  const base = { side: "BUY", right: "CE", leg: good, lots: 1, lot: 75, freezeQty: 1800, liq: 5, stale: false, isExpiryDay: false, itm: false, intrinsic: 0, hasLongSameExpiry: false, orderType: "LIMIT", years: 5 / 365 };
+  const codes = (o) => O.tradeWarnings({ ...base, ...o }).map((w) => w.code);
+  it("is quiet for a clean order", () => expect(O.tradeWarnings(base)).toEqual([]));
+  it("flags each mistake", () => {
+    expect(O.tradeWarnings({ ...base, leg: { bid: 93, ask: 100 } })[0]).toMatchObject({ code: "WIDE_SPREAD", level: "warn", text: "Spread 7.3% of mid: use a limit order" });
+    expect(O.tradeWarnings({ ...base, leg: { bid: 80, ask: 100 } })[0].level).toBe("bad");
+    expect(codes({ liq: 2 })).toEqual(["ILLIQUID"]);
+    expect(codes({ leg: { bid: 98, ask: 101 }, orderType: "MARKET" })).toEqual(["MARKET_ILLIQUID"]);
+    expect(codes({ leg: { bid: 0, ask: 101, ltp: 100 } })).toEqual(["ONE_SIDED"]);
+    expect(codes({ stale: true })).toEqual(["STALE"]);
+    expect(codes({ lots: 25 })).toEqual(["FREEZE"]);
+    expect(O.tradeWarnings({ ...base, side: "SELL" })[0]).toMatchObject({ code: "NAKED_SHORT", text: "Uncovered short: margin is blocked and losses are unlimited" });
+    expect(O.tradeWarnings({ ...base, side: "SELL", right: "PE" })[0].text).toMatch(/large$/);
+    expect(codes({ side: "SELL", hasLongSameExpiry: true })).toEqual([]);
+    expect(codes({ side: "SELL", hasLongSameExpiry: true, isExpiryDay: true })).toEqual(["EXPIRY_ELM"]);
+    const stt = O.tradeWarnings({ ...base, isExpiryDay: true, itm: true, intrinsic: 200, lots: 2 });
+    expect(stt.map((w) => w.code)).toEqual(["EXPIRY_STT"]);
+    expect(stt[0].text).toContain("₹38");
+    expect(stt[0].text).toContain("₹15");
+    expect(codes({ side: "SELL", exit: true, isExpiryDay: true, itm: true, intrinsic: 200 })).toEqual(["EXPIRY_STT"]);
+    expect(codes({ years: 0.5 / 365, leg: { ...good, theta: -40 } })).toEqual(["THETA_0DTE"]);
   });
 });

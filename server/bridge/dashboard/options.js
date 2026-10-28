@@ -7,6 +7,8 @@
  * rows: [{ strike, ce: { ltp, bid, ask, oi, oiChange, volume, iv, delta, ... } | null, pe: {...} | null }] }.
  */
 
+import { formatFixed, formatInt, formatRupee } from "./format.js";
+
 const num = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
 const sum = (rows, pick) => rows.reduce((a, r) => a + (num(pick(r)) ?? 0), 0);
 
@@ -97,6 +99,8 @@ export function chainSummary(chain) {
       const p = sum(rows, (r) => r.pe?.oiChange);
       return c > 0 && p > 0 ? p / c : null;
     })(),
+    /** Put OI added minus call OI added today: signed, so it reads even when one side is unwinding. */
+    netOiChange: sum(rows, (r) => r.pe?.oiChange) - sum(rows, (r) => r.ce?.oiChange),
   };
 }
 
@@ -444,4 +448,199 @@ export function presetLegs(id, chain, { move = null } = {}) {
     }
     default: return [];
   }
+}
+
+// ── Persona reads (the numbers a buyer, seller, hedger or arbitrageur decides on) ──
+
+/** Breakeven at expiry for a long option bought at `premium`: CE K + P, PE K − P (null when P is missing or BE ≤ 0). */
+export function breakeven(strike, right, premium) {
+  const K = num(strike);
+  const P = num(premium);
+  if (K === null || P === null) return null;
+  const be = right === "CE" ? K + P : K - P;
+  return be > 0 ? be : null;
+}
+/**
+ * A buyer's chance of profit at expiry: P(S_T beyond the breakeven) under the log-normal model on the forward. At
+ * or after expiry (T ≤ 0) it is 1 or 0 from where the forward stands against the breakeven.
+ */
+export function chanceOfProfit(forward, strike, years, ivPct, right, premium) {
+  const F = num(forward);
+  const be = breakeven(strike, right, premium);
+  if (F === null || be === null) return null;
+  if (!(years > 0)) return (right === "CE" ? F > be : F < be) ? 1 : 0;
+  if (!(num(ivPct) > 0)) return null;
+  return probItm(F, be, years, ivPct, right);
+}
+/** Distance from spot, out-of-the-money positive (CE: K − S, PE: S − K): { pts, pct }. */
+export function distance(strike, right, spot) {
+  const K = num(strike);
+  const S = num(spot);
+  if (K === null || S === null || S <= 0) return null;
+  const pts = right === "CE" ? K - S : S - K;
+  return { pts, pct: (pts / S) * 100 };
+}
+/** The same distance in standard deviations of the log price to expiry (CE ln(K/F), PE ln(F/K), over σ√T). */
+export function sigmaDistance(strike, right, forward, atmIvPct, years) {
+  const K = num(strike);
+  const F = num(forward);
+  const sig = (num(atmIvPct) ?? 0) / 100;
+  if (K === null || F === null || K <= 0 || F <= 0 || !(sig > 0) || !(years > 0)) return null;
+  const sd = sig * Math.sqrt(years);
+  return (right === "CE" ? Math.log(K / F) : Math.log(F / K)) / sd;
+}
+/** The log-normal ±kσ band to expiry: { lo: F·e^(−kσ√T), hi: F·e^(kσ√T) } (lo · hi = F²). */
+export function sigmaBand(forward, ivPct, years, k = 1) {
+  const F = num(forward);
+  const sig = (num(ivPct) ?? 0) / 100;
+  if (F === null || F <= 0 || !(sig > 0) || !(years > 0)) return null;
+  const sd = k * sig * Math.sqrt(years);
+  return { lo: F * Math.exp(-sd), hi: F * Math.exp(sd) };
+}
+/**
+ * Time value against the forward: P − max(0, ±(F − K)). Not clamped: a negative value means the premium is below
+ * intrinsic on the forward (a parity break or a stale quote).
+ */
+export function extrinsic(strike, right, premium, forward) {
+  const K = num(strike);
+  const P = num(premium);
+  const F = num(forward);
+  if (K === null || P === null || F === null) return null;
+  return P - Math.max(0, right === "CE" ? F - K : K - F);
+}
+const twoSided = (q) => num(q?.bid) !== null && num(q?.ask) !== null && q.bid > 0 && q.ask >= q.bid;
+/**
+ * The synthetic future at one strike (put-call parity, K + C − P): `mid` from mids (or last prices), and the
+ * executable prices when both legs are two-sided: `buy` = K + C.ask − P.bid (buy the call, sell the put), `sell` =
+ * K + C.bid − P.ask.
+ */
+export function synthetic(row) {
+  const K = num(row?.strike);
+  const c = mid(row?.ce);
+  const p = mid(row?.pe);
+  if (K === null || c === null || p === null) return null;
+  const exec = twoSided(row.ce) && twoSided(row.pe);
+  return { mid: K + c - p, buy: exec ? K + row.ce.ask - row.pe.bid : null, sell: exec ? K + row.ce.bid - row.pe.ask : null, twoSided: exec };
+}
+/**
+ * The parity edge at the touch against a reference future R, gross of costs: a conversion (sell the synthetic, buy
+ * the future) earns syn.sell − R; a reversal (buy the synthetic, sell the future) earns R − syn.buy. Returns the
+ * better of the two (usually ≤ 0), or null without two-sided quotes or R.
+ */
+export function parityEdge(row, reference) {
+  const R = num(reference);
+  const syn = synthetic(row);
+  if (R === null || !syn?.twoSided) return null;
+  const conv = syn.sell - R;
+  const rev = R - syn.buy;
+  return conv >= rev ? { edge: conv, kind: "conv" } : { edge: rev, kind: "rev" };
+}
+/** The `n` strikes with the most OI on one side, rank 1 first (ties keep the lower strike; OI 0 is left out). */
+export function topOi(rows, side, n = 3) {
+  return (rows ?? [])
+    .map((r) => ({ strike: r.strike, oi: num(r[side]?.oi) ?? 0 }))
+    .filter((r) => r.oi > 0)
+    .sort((a, b) => b.oi - a.oi || a.strike - b.strike)
+    .slice(0, n)
+    .map((r, i) => ({ ...r, rank: i + 1 }));
+}
+/**
+ * Lots of this option that neutralise `netDelta` (units of the underlying): ceil(|netDelta| / (|delta| · lot)), only
+ * when the option's delta has the opposite sign. Null for a same-sign leg, a tiny delta (< 0.02) or no delta to hedge.
+ */
+export function hedgeLots(netDelta, delta, lot) {
+  const nd = num(netDelta);
+  const d = num(delta);
+  const L = num(lot) || 1;
+  if (nd === null || nd === 0 || d === null || Math.abs(d) < 0.02 || Math.sign(d) === Math.sign(nd)) return null;
+  return Math.ceil(Math.abs(nd) / (Math.abs(d) * L) - 1e-9);
+}
+
+/**
+ * "Go to strike": what a trader types, to a listed strike (null when it means nothing).
+ *   26400 → nearest strike · 264 → the strike starting 264… nearest ATM · +3 / -2 → strikes above / below ATM ·
+ *   1s, -2σ, +1.5sd → nearest F·e^(kσ√T) · atm · mp / max pain.
+ * @param {{ strikes: number[], atm: number|null, F: number|null, sigmaPts: number|null, maxPain: number|null }} ctx
+ *   strikes sorted ascending; sigmaPts = σ_ATM·√T·F (one σ in points).
+ */
+export function strikeQuery(text, ctx) {
+  const t = String(text ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  const strikes = ctx?.strikes ?? [];
+  if (!t || !strikes.length) return null;
+  const nearest = (x) => strikes.reduce((b, k) => (Math.abs(k - x) < Math.abs(b - x) ? k : b), strikes[0]);
+  const atm = num(ctx.atm) ?? strikes[Math.floor(strikes.length / 2)];
+  if (t === "atm") return nearest(atm);
+  if (t === "mp" || t === "max pain" || t === "maxpain") return num(ctx.maxPain) === null ? null : nearest(ctx.maxPain);
+  let m = /^([+-]?)(\d*\.?\d+) ?(s|σ|sd|sigma)$/.exec(t);
+  if (m) {
+    const F = num(ctx.F);
+    const sp = num(ctx.sigmaPts);
+    if (F === null || F <= 0 || sp === null || sp <= 0) return null;
+    const k = Number(m[2]) * (m[1] === "-" ? -1 : 1);
+    return nearest(F * Math.exp((k * sp) / F));
+  }
+  m = /^([+-])(\d+)$/.exec(t);
+  if (m) {
+    const i = strikes.indexOf(nearest(atm));
+    const j = i + Number(m[2]) * (m[1] === "-" ? -1 : 1);
+    return strikes[Math.max(0, Math.min(strikes.length - 1, j))];
+  }
+  m = /^\d+(\.\d+)?$/.exec(t);
+  if (!m) return null;
+  const n = Number(t);
+  if (!(n > 0)) return null;
+  const digits = String(Math.round(atm)).length;
+  if (!m[1] && t.length < digits) {
+    const hits = strikes.filter((k) => String(Math.round(k)).startsWith(t));
+    if (hits.length) return hits.reduce((b, k) => (Math.abs(k - atm) < Math.abs(b - atm) ? k : b), hits[0]);
+    return null;
+  }
+  return nearest(n);
+}
+
+/** True on the expiry date (IST) before the 15:30 IST settlement. */
+export function isExpiryDay(expiry, now = Date.now()) {
+  const t = timeToExpiry(expiry, now);
+  return t.days !== null && t.days > 0 && t.label === "Expires today";
+}
+/** The monthly expiry: the last of the listed expiries in its calendar month. */
+export function isMonthlyExpiry(expiry, expiries) {
+  const e = String(expiry ?? "");
+  const month = e.slice(0, 7);
+  const same = (expiries ?? []).filter((x) => String(x).slice(0, 7) === month).sort();
+  return same.length > 0 && same[same.length - 1] === e;
+}
+
+/**
+ * Advisory warnings before an order (the Bridge's own checks still decide): [{ level: "warn"|"bad", code, text }].
+ * @param {{ side: "BUY"|"SELL", right: "CE"|"PE", leg: object|null, lots: number, lot: number, freezeQty?: number|null,
+ *   liq?: number|null, stale?: boolean, isExpiryDay?: boolean, itm?: boolean, intrinsic?: number|null,
+ *   hasLongSameExpiry?: boolean, orderType?: "LIMIT"|"MARKET", years?: number|null, exit?: boolean }} i
+ */
+export function tradeWarnings(i) {
+  const out = [];
+  const add = (level, code, text) => out.push({ level, code, text });
+  const leg = i?.leg ?? null;
+  const lot = num(i?.lot) || 1;
+  const lots = Math.max(1, Math.floor(num(i?.lots) ?? 1));
+  const qty = lots * lot;
+  const sp = spreadPct(leg);
+  const P = mid(leg);
+  if (sp !== null && sp > 5) add(sp > 10 ? "bad" : "warn", "WIDE_SPREAD", `Spread ${formatFixed(sp, 1)}% of mid: use a limit order`);
+  if (num(i?.liq) !== null && i.liq > 0 && i.liq <= 2) add("warn", "ILLIQUID", "Thin strike: you may not get out at a fair price");
+  if (i?.orderType === "MARKET" && sp !== null && sp > 2) add("bad", "MARKET_ILLIQUID", "Market order on a wide spread");
+  if (leg && !(num(leg.bid) > 0 && num(leg.ask) > 0)) add("warn", "ONE_SIDED", "One-sided quote");
+  if (i?.stale) add("bad", "STALE", "Quotes are stale: prices may have moved");
+  if (num(i?.freezeQty) > 0 && qty > i.freezeQty) add("warn", "FREEZE", `Above freeze qty ${formatInt(i.freezeQty)}: the order will be split or rejected`);
+  if (i?.side === "SELL" && !i.exit && !i.hasLongSameExpiry) add("warn", "NAKED_SHORT", `Uncovered short: margin is blocked and losses are ${i.right === "CE" ? "unlimited" : "large"}`);
+  if (i?.isExpiryDay && i.side === "SELL" && !i.exit) add("warn", "EXPIRY_ELM", "Expiry day: +2% ELM on index option shorts");
+  const intrinsic = num(i?.intrinsic);
+  if (i?.isExpiryDay && i.itm && intrinsic !== null && intrinsic > 0 && ((i.side === "BUY" && !i.exit) || (i.side === "SELL" && i.exit))) {
+    add("warn", "EXPIRY_STT", `ITM at expiry: exercise STT 0.125% of intrinsic (≈ ${formatRupee(0.00125 * intrinsic * qty, 0)}) vs 0.1% of premium if you square off (≈ ${formatRupee(0.001 * (P ?? 0) * qty, 0)})`);
+  }
+  const theta = num(leg?.theta);
+  if (i?.side === "BUY" && !i.exit && num(i?.years) !== null && i.years < 1 / 365 && theta !== null && P && Math.abs(theta * lot) > 0.15 * P * lot) {
+    add("warn", "THETA_0DTE", `Time decay ${formatRupee(Math.abs(theta * lot), 0)} per lot today`);
+  }
+  return out;
 }
