@@ -259,7 +259,7 @@ mcb_make_linux_shortcuts() {
   # Desktop entry Exec= quoting: inside "...", escape \ " ` $ with a backslash, then double every backslash
   # (the file format's own escaping), and write % as %%.
   q() { printf '%s' "$1" | sed -e 's/[\\"`$]/\\&/g' -e 's/\\/\\\\/g' -e 's/%/%%/g'; }
-  icon="$APP/server/bridge/dashboard/logo.svg"
+  icon="$APP/scripts/install/icon/app-icon-1024.png"
   mkdir -p "$(dirname "$LINUX_ENTRY")" || return 0
   {
     echo "[Desktop Entry]"
@@ -336,20 +336,9 @@ mcb_make_mac_shortcuts() {
   return 0
 }
 
-# The app icon from the dashboard logo, made with macOS's own tools (qlmanage, sips, iconutil). Skipped without them.
+# The app icon, shipped ready-made (scripts/install/icon/AppIcon.icns), so no macOS tools are needed.
 mcb_make_mac_icon() {
-  svg="$APP/server/bridge/dashboard/logo.svg"
-  [ -f "$svg" ] && command -v qlmanage >/dev/null 2>&1 && command -v sips >/dev/null 2>&1 &&
-    command -v iconutil >/dev/null 2>&1 || return 1
-  ic="$WORK/icon"
-  rm -rf "$ic" && mkdir -p "$ic/AppIcon.iconset" || return 1
-  qlmanage -t -s 1024 -o "$ic" "$svg" >/dev/null 2>&1 && [ -f "$ic/logo.svg.png" ] || return 1
-  for sz in 16 32 128 256 512; do
-    sips -z "$sz" "$sz" "$ic/logo.svg.png" --out "$ic/AppIcon.iconset/icon_${sz}x${sz}.png" >/dev/null 2>&1 || return 1
-    d=$((sz * 2))
-    sips -z "$d" "$d" "$ic/logo.svg.png" --out "$ic/AppIcon.iconset/icon_${sz}x${sz}@2x.png" >/dev/null 2>&1 || return 1
-  done
-  iconutil -c icns -o "$1" "$ic/AppIcon.iconset" >/dev/null 2>&1
+  [ -f "$APP/scripts/install/icon/AppIcon.icns" ] && cp "$APP/scripts/install/icon/AppIcon.icns" "$1"
 }
 
 # The Desktop folder (Linux may name it in the user's language), or nothing when there is none.

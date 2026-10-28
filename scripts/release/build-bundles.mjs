@@ -78,6 +78,9 @@ async function main() {
     const lock = JSON.parse(readFileSync(join(app, "package-lock.json"), "utf8"));
     const scripted = Object.entries(lock.packages).filter(([k, p]) => k && !p.dev && p.hasInstallScript).map(([k]) => k);
     if (scripted.length) throw new Error(`these production parts need an install script, so one node_modules cannot fit every system: ${scripted.join(", ")}`);
+    // The Windows launcher's "parts are installed" mark (node-runtime.ps1, Test-McbPackagesCurrent): the lockfile's SHA-256,
+    // so the first double-click does not reinstall. The macOS/Linux launchers look for node_modules/.package-lock.json.
+    writeFileSync(join(app, "node_modules", ".mcb-installed"), createHash("sha256").update(readFileSync(join(app, "package-lock.json"))).digest("hex").toUpperCase());
 
     // 3. Node.js, checked.
     const nodeVersion = pickNode(JSON.parse((await download(`${NODE_DIST}/index.json`)).toString("utf8")));
