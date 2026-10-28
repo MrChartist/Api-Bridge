@@ -686,3 +686,315 @@ describe("OI analysis maths", () => {
     expect(OA.marketSession(Date.UTC(2026, 10, 1, 23, 0)).istDate).toBe("2026-11-02");
   });
 });
+
+// ── Book risk (PRD 04) ──
+import { computeIVAndGreeks } from "../../lib/blackScholes.mjs";
+
+describe("book legs", () => {
+  const pos = [
+    { symbol: "NFO:NIFTY-2026-11-03-26400-CE", netQty: -75, avgPrice: 40, product: "MARGIN", realisedPnl: 10 },
+    { symbol: "NFO:NIFTY-2026-11-24-FUT", netQty: 75, avgPrice: 26500, product: "MARGIN" },
+    { symbol: "NFO:NIFTY-2026-11-03-26500-PE", netQty: 0, avgPrice: 0, realisedPnl: 300 },
+    { symbol: "NFO:NIFTYNXT50-2026-11-24-60000-CE", netQty: 25, avgPrice: 100 },
+    { symbol: "NFO:BANKNIFTY-2026-11-24-52000-PE", netQty: 30, avgPrice: 100, pnl: 120 },
+    { symbol: "BFO:SENSEX-2026-11-05-80000-CE", netQty: -20, avgPrice: 200, pnl: -50 },
+    { symbol: "NSE:RELIANCE", netQty: 10 },
+  ];
+  it("keeps CE / PE / FUT of the underlying, exact match, open only unless closed", () => {
+    const l = O.bookLegs(pos, "NIFTY");
+    expect(l.map((x) => x.symbol)).toEqual(["NFO:NIFTY-2026-11-03-26400-CE", "NFO:NIFTY-2026-11-24-FUT"]);
+    expect(l[0]).toMatchObject({ kind: "OPT", strike: 26400, right: "CE", q: -75, avg: 40, expiry: "2026-11-03", realised: 10 });
+    expect(l[1]).toMatchObject({ kind: "FUT", strike: null, right: null, q: 75, expiry: "2026-11-24" });
+    expect(O.bookLegs(pos, "NIFTY", { closed: true })).toHaveLength(3);
+    expect(O.bookLegs(pos, "BANKNIFTY").map((x) => x.underlying)).toEqual(["BANKNIFTY"]);
+    expect(O.bookLegs(pos, "SENSEX")[0]).toMatchObject({ kind: "OPT", strike: 80000, q: -20 });
+  });
+  it("counts the other underlyings with open legs", () => {
+    expect(O.bookUnderlyings(pos, "NIFTY")).toEqual([
+      { underlying: "BANKNIFTY", legs: 1, pnl: 120 },
+      { underlying: "NIFTYNXT50", legs: 1, pnl: 0 },
+      { underlying: "SENSEX", legs: 1, pnl: -50 },
+    ]);
+  });
+  it("parses future symbols", () => {
+    expect(O.parseFutureSymbol("NFO:NIFTY-2026-11-24-FUT")).toEqual({ exchange: "NFO", underlying: "NIFTY", expiry: "2026-11-24" });
+    expect(O.parseFutureSymbol("BFO:SENSEX-2026-11-26-FUT")?.underlying).toBe("SENSEX");
+    expect(O.parseFutureSymbol("NFO:NIFTY-2026-11-24-26000-CE")).toBeNull();
+    expect(O.parseFutureSymbol("NIFTY-FUT")).toBeNull();
+    expect(O.parseFutureSymbol(null)).toBeNull();
+  });
+  it("monthly expiries are the last option expiry of each month", () => {
+    expect(O.monthlyExpiries(["2026-11-10", "2026-11-03", "2026-11-24", "2026-12-01", "2026-12-29", "bad"])).toEqual(["2026-11-24", "2026-12-29"]);
+  });
+  it("legUnits honours exact units while lots match them", () => {
+    expect(O.legUnits({ lots: 1, units: 37, lotSize: 75 })).toBe(37);
+    expect(O.legUnits({ lots: 2, units: 150, lotSize: 75 })).toBe(150);
+    expect(O.legUnits({ lots: 3, units: 37, lotSize: 75 })).toBe(225);
+    expect(O.legUnits({ lots: 2, lotSize: 75 })).toBe(150);
+    expect(O.migrateLegs([{ right: "CE", strike: 26000, side: "BUY", lots: 1, units: 37 }], "2026-11-03")[0].units).toBe(37);
+  });
+});
+
+describe("implied vol and Black-76 Greeks", () => {
+  it("round-trips black76 for CE and PE", () => {
+    for (const right of ["CE", "PE"]) {
+      for (const iv of [5, 12, 60]) {
+        for (const days of [1, 30]) {
+          const T = days / 365;
+          const p = black76(26000, 26200, T, iv, right);
+          expect(Math.abs(O.impliedVol(p, 26000, 26200, T, right) - iv)).toBeLessThan(0.01 + (p < 0.5 ? 1 : 0));
+        }
+      }
+    }
+  });
+  it("is null below intrinsic or at expiry", () => {
+    expect(O.impliedVol(100, 26300, 26000, 0.02, "CE")).toBeNull();
+    expect(O.impliedVol(100, 26000, 26000, 0, "CE")).toBeNull();
+  });
+  it("satisfies parity and matches the server's Greeks", () => {
+    const c = O.black76Greeks(26000, 26100, 10 / 365, 13, "CE");
+    const p = O.black76Greeks(26000, 26100, 10 / 365, 13, "PE");
+    expect(c.delta - p.delta).toBeCloseTo(1, 10);
+    expect(c.gamma).toBeCloseTo(p.gamma, 12);
+    expect(c.vega).toBeCloseTo(p.vega, 12);
+    expect(c.theta).toBeLessThan(0);
+    // Server fixture: Black-Scholes on spot with r = 6.5 %, an ATM NIFTY leg 6 days out.
+    const S = 26416.75;
+    const K = 26400;
+    const days = 6;
+    const r = 0.065;
+    const T = days / 365;
+    const sc = computeIVAndGreeks({ ltp: 177.1, spot: S, strike: K, daysToExpiry: days, type: "CE", rate: r });
+    const sp = computeIVAndGreeks({ ltp: 151.2, spot: S, strike: K, daysToExpiry: days, type: "PE", rate: r });
+    const F = S * Math.exp(r * T);
+    const mc = O.black76Greeks(F, K, T, sc.iv, "CE");
+    const within = (a, b, tol) => expect(Math.abs(a / b - 1)).toBeLessThan(tol);
+    within(mc.delta, sc.delta, 0.02);
+    within(mc.gamma, sc.gamma, 0.02);
+    within(mc.vega, sc.vega, 0.02);
+    const mp = O.black76Greeks(F, K, T, sp.iv, "PE");
+    // Theta: Black-76 has no carry term, so it matches the server's CE / PE average.
+    within((mc.theta + mp.theta) / 2, (sc.theta + sp.theta) / 2, 0.05);
+  });
+});
+
+const NOW = Date.UTC(2026, 9, 28, 6, 0); // 28 Oct 2026, 11:30 IST
+const mkChain = (expiry, spot, iv = 12) => {
+  const T = O.yearsToExpiry(expiry, NOW);
+  const rows = [];
+  for (let k = 25500; k <= 26500; k += 100) {
+    const mk = (right) => {
+      const p = black76(spot, k, T, iv, right);
+      const g = O.black76Greeks(spot, k, T, iv, right);
+      return { symbol: `NFO:NIFTY-${expiry}-${k}-${right}`, ltp: p, bid: p - 0.05, ask: p + 0.05, iv, ...g };
+    };
+    rows.push({ strike: k, ce: mk("CE"), pe: mk("PE") });
+  }
+  return { underlying: "NIFTY", expiry, underlyingLtp: spot, atmStrike: 26000, lotSize: 75, rows };
+};
+const condorPositions = [
+  { symbol: "NFO:NIFTY-2026-11-03-26300-CE", netQty: -150, avgPrice: 40 },
+  { symbol: "NFO:NIFTY-2026-11-03-26500-CE", netQty: 150, avgPrice: 12 },
+  { symbol: "NFO:NIFTY-2026-11-03-25700-PE", netQty: -150, avgPrice: 38 },
+  { symbol: "NFO:NIFTY-2026-11-03-25500-PE", netQty: 150, avgPrice: 14 },
+];
+const priced = (pos, more = {}) => O.priceBook(O.bookLegs(pos, "NIFTY"), { chains: new Map([["2026-11-03", mkChain("2026-11-03", 26000)], ["2026-11-24", mkChain("2026-11-24", 26000)]]), now: NOW, ...more });
+
+describe("pricing, Greeks and scenarios", () => {
+  it("prices from the chain and calibrates to the mark", () => {
+    const legs = priced(condorPositions);
+    expect(legs.every((l) => l.priced && l.lot === 75)).toBe(true);
+    const live = legs.reduce((t, l) => t + O.legPnl(l), 0);
+    expect(O.scenarioPnl(legs, {})).toBeCloseTo(live, 6);
+  });
+  it("at the expiry date equals payoffAt for a single-expiry book", () => {
+    const legs = priced(condorPositions);
+    const days = legs[0].T * 365;
+    const asStrategy = legs.map((l) => ({ kind: "OPT", right: l.right, strike: l.strike, side: l.q > 0 ? "BUY" : "SELL", lots: Math.abs(l.q) / 75, lotSize: 75, price: l.avg }));
+    for (const x of [25400, 25700, 26000, 26400, 26700]) expect(O.scenarioPnl(legs, { dS: x / legs[0].F - 1, days })).toBeCloseTo(payoffAt(asStrategy, x, 75), 6);
+  });
+  it("futures are linear; IV up lifts longs; legs past expiry sit at intrinsic", () => {
+    const fut = O.priceBook(O.bookLegs([{ symbol: "NFO:NIFTY-2026-11-24-FUT", netQty: 75, avgPrice: 26000 }], "NIFTY"), { quotes: new Map([["NFO:NIFTY-2026-11-24-FUT", { ltp: 26100, bid: 26099, ask: 26101 }]]), now: NOW });
+    expect(O.scenarioPnl(fut, {})).toBeCloseTo(7500, 6);
+    expect(O.scenarioPnl(fut, { dS: 0.01 }) - O.scenarioPnl(fut, {})).toBeCloseTo(75 * 261, 6);
+    expect(O.bookGreeks(fut).delta).toBe(75);
+    const long = priced([{ symbol: "NFO:NIFTY-2026-11-24-26000-CE", netQty: 75, avgPrice: 200 }]);
+    expect(O.scenarioPnl(long, { dIv: 5 })).toBeGreaterThan(O.scenarioPnl(long, {}));
+    const past = O.scenarioPnl(long, { dS: 0.02, days: 60 });
+    expect(past).toBeCloseTo(75 * (26000 * 1.02 - 26000 - 200), 4);
+  });
+  it("book Greeks sum expiries, skip excluded legs and report unpriced ones", () => {
+    const pos = [...condorPositions, { symbol: "NFO:NIFTY-2026-11-24-26000-PE", netQty: 75, avgPrice: 150 }, { symbol: "NFO:NIFTY-2026-11-03-29900-CE", netQty: -75, avgPrice: 1 }];
+    const legs = priced(pos, { excluded: new Set(["NFO:NIFTY-2026-11-03-25500-PE"]) });
+    const g = O.bookGreeks(legs);
+    expect(g.excluded).toBe(1);
+    expect(g.missing.map((l) => l.strike)).toEqual([29900]);
+    const want = legs.filter((l) => l.inc && l.priced).reduce((t, l) => t + l.q * l.greeks.delta, 0);
+    expect(g.delta).toBeCloseTo(want, 9);
+    expect(legs.find((l) => l.strike === 26000).expiry).toBe("2026-11-24");
+  });
+  it("falls back to a quote with a solved IV", () => {
+    const legs = O.priceBook(O.bookLegs([{ symbol: "NFO:NIFTY-2026-11-03-26000-CE", netQty: 75, avgPrice: 100 }], "NIFTY"), { quotes: new Map([["NFO:NIFTY-2026-11-03-26000-CE", { ltp: 120, bid: 119.9, ask: 120.1 }]]), spot: 26000, now: NOW });
+    expect(legs[0]).toMatchObject({ priced: true, ivSolved: true });
+    expect(black76(26000, 26000, legs[0].T, legs[0].iv, "CE")).toBeCloseTo(120, 1);
+  });
+  it("builds the scenario grid with labels and its worst cell", () => {
+    const legs = priced(condorPositions);
+    const g = O.scenarioGrid(legs, { ladder: "tight", axis: "iv", F: 26000 });
+    expect(g.rows).toHaveLength(11);
+    expect(g.cols.map((c) => c.label)).toEqual(["IV −5", "IV now", "IV +5"]);
+    expect(g.rows[5].pct).toBe(0);
+    expect(g.rows[0].price).toBeCloseTo(24700, 6);
+    expect(g.rows[5].cells[1]).toBeCloseTo(O.scenarioPnl(legs, {}), 6);
+    const all = g.rows.flatMap((r) => r.cells);
+    expect(g.worst.v).toBe(Math.min(...all));
+    expect(g.rows[g.worst.r].cells[g.worst.c]).toBe(g.worst.v);
+    const d = O.scenarioGrid(legs, { axis: "days", firstDays: 6 });
+    expect(d.cols.map((c) => c.days)).toEqual([0, 1, 3, 6]);
+    expect(O.scenarioGrid(legs, { ladder: "sigma", sigmaPct: 2 }).rows.map((r) => r.pct)).toEqual([-4, -3, -2, -1, 0, 1, 2, 3, 4]);
+  });
+  it("finds breakevens on a sampled curve", () => {
+    const r = O.curveRoots((x) => (x - 100) * (x - 200), [0, 50, 120, 180, 250]);
+    expect(r[0]).toBeCloseTo(100, 0);
+    expect(r[1]).toBeCloseTo(200, 0);
+  });
+});
+
+describe("hedge plan", () => {
+  const fut = { symbol: "NFO:NIFTY-2026-11-24-FUT", lot: 65, mark: 26000, expiry: "2026-11-24" };
+  it("futures: rounds to lots and reports the residual", () => {
+    const p = O.hedgePlan({ delta: -1310, S: 26000 }, { method: "fut", fut });
+    expect(p.legs[0]).toMatchObject({ side: "BUY", lots: 20, units: 1300 });
+    expect(p.residual).toBe(-10);
+    expect(p.change.gamma).toBe(0);
+    expect(O.hedgePlan({ delta: 162.5 }, { method: "fut", fut }).legs[0]).toMatchObject({ side: "SELL", lots: 3 });
+    expect(O.hedgePlan({ delta: -162.5 }, { method: "fut", fut }).legs[0]).toMatchObject({ side: "BUY", lots: 3 });
+    const none = O.hedgePlan({ delta: 30 }, { method: "fut", fut });
+    expect(none.legs).toHaveLength(0);
+    expect(none.notes[0]).toMatch(/Within one lot/);
+  });
+  const atm = { strike: 26000, expiry: "2026-11-03", lot: 75, ce: { symbol: "C", mark: 120, delta: 0.5, gamma: 0.001, theta: -15, vega: 12 }, pe: { symbol: "P", mark: 110, delta: -0.5, gamma: 0.001, theta: -14, vega: 12 } };
+  it("ATM option: the right follows the direction and the side", () => {
+    const buy = O.hedgePlan({ delta: 300 }, { method: "atm", side: "BUY", atm });
+    expect(buy.legs[0]).toMatchObject({ right: "PE", side: "BUY", lots: 8 });
+    expect(buy.premium).toBeCloseTo(-8 * 75 * 110, 6);
+    const sell = O.hedgePlan({ delta: 300 }, { method: "atm", side: "SELL", atm });
+    expect(sell.legs[0]).toMatchObject({ right: "CE", side: "SELL", lots: 8 });
+    expect(sell.premium).toBeGreaterThan(0);
+    expect(O.hedgePlan({ delta: -300 }, { method: "atm", side: "BUY", atm }).legs[0].right).toBe("CE");
+    expect(O.hedgePlan({ delta: 300 }, { method: "atm", atm: { ...atm, pe: { ...atm.pe, delta: -0.01 } } }).error).toMatch(/ATM delta/);
+  });
+  it("gamma then delta flattens Γ within a lot and Δ within a futures lot", () => {
+    const p = O.hedgePlan({ delta: 400, gamma: -0.6, S: 26000 }, { method: "gamma", atm, fut });
+    expect(Math.abs(p.after.gamma)).toBeLessThanOrEqual(0.001 * 75);
+    expect(Math.abs(p.after.delta)).toBeLessThanOrEqual(65 / 2);
+    expect(p.legs[0]).toMatchObject({ kind: "OPT", side: "BUY", right: "PE" });
+    expect(O.hedgePlan({ delta: 400, gamma: 0.00001, S: 26000 }, { method: "gamma", atm, fut }).notes.join()).toMatch(/already/);
+  });
+});
+
+describe("exit plan", () => {
+  const q = (bid, ask) => ({ bid, ask, ltp: (bid + ask) / 2 });
+  const legs = [
+    { symbol: "LC", kind: "OPT", q: 150, avg: 10, lot: 75, quote: q(5, 5.4), greeks: { delta: 0.1 } },
+    { symbol: "SC", kind: "OPT", q: -150, avg: 40, lot: 75, quote: q(20, 20.4), greeks: { delta: 0.3 } },
+    { symbol: "F", kind: "FUT", q: 75, avg: 26000, lot: 75, quote: q(26100, 26101) },
+    { symbol: "SP", kind: "OPT", q: -150, avg: 38, lot: 75, quote: q(30, 30.4), greeks: { delta: -0.4 } },
+  ];
+  it("orders shorts by |Δ|, then longs, then futures", () => {
+    expect(O.exitPlan(legs).orders.map((o) => o.symbol)).toEqual(["SP", "SC", "LC", "F"]);
+    expect(O.exitPlan(legs).orders.map((o) => o.side)).toEqual(["BUY", "BUY", "SELL", "SELL"]);
+  });
+  it("prices at mid (toward a fill), touch and market, with slippage", () => {
+    const mid = O.exitPlan(legs, { type: "mid" }).orders;
+    expect(mid[0].price).toBe(30.2);
+    expect(mid.find((o) => o.symbol === "F").price).toBe(26100.5);
+    const touch = O.exitPlan(legs, { type: "touch" });
+    expect(touch.orders[0].price).toBe(30.4);
+    expect(touch.orders.find((o) => o.symbol === "LC").price).toBe(5);
+    expect(touch.slippage).toBeCloseTo(0.2 * 150 * 3 + 0.5 * 75, 6);
+    const mkt = O.exitPlan(legs, { type: "market" });
+    expect(mkt.orders[0].price).toBeNull();
+    expect(mkt.slippage).toBeCloseTo(touch.slippage, 6);
+    expect(O.exitPlan([legs[1]], { type: "touch" }).pnl).toBeCloseTo((40 - 20.4) * 150, 6);
+  });
+  it("slices above the freeze quantity and exits partial whole lots", () => {
+    const big = O.exitPlan([{ symbol: "B", kind: "OPT", q: -4000, avg: 1, lot: 75, freeze: 1800, quote: q(1, 1.1) }]).orders[0];
+    expect(big.slices).toEqual([1800, 1800, 400]);
+    expect(O.exitPlan([{ ...legs[0], q: 225 }], { pct: 50 }).orders[0].qty).toBe(150);
+    expect(O.exitPlan([{ ...legs[0], q: 75 }], { pct: 25 }).orders[0].qty).toBe(75);
+    expect(O.exitPlan([{ ...legs[0], q: 37 }], { pct: 50 }).orders[0].qty).toBe(37);
+  });
+});
+
+describe("structures", () => {
+  const o = (right, strike, q) => ({ kind: "OPT", right, strike, q });
+  const f = (q) => ({ kind: "FUT", q });
+  it("names each recognised structure", () => {
+    const cases = [
+      [[o("CE", 100, 75)], "Long call"],
+      [[o("PE", 100, -75)], "Short put"],
+      [[o("CE", 100, -75), o("PE", 100, -75)], "Short straddle"],
+      [[o("CE", 110, 75), o("PE", 90, 75)], "Long strangle"],
+      [[o("CE", 100, 75), o("CE", 110, -75)], "Bull call spread"],
+      [[o("CE", 100, -75), o("CE", 110, 75)], "Bear call spread"],
+      [[o("PE", 100, -75), o("PE", 90, 75)], "Bull put spread"],
+      [[o("PE", 100, 75), o("PE", 90, -75)], "Bear put spread"],
+      [[o("CE", 100, 75), o("CE", 110, -150)], "Call ratio spread"],
+      [[o("PE", 80, 75), o("PE", 90, -75), o("CE", 110, -75), o("CE", 120, 75)], "Iron condor"],
+      [[o("PE", 90, 75), o("PE", 100, -75), o("CE", 100, -75), o("CE", 110, 75)], "Iron fly"],
+      [[f(75)], "Long future"],
+      [[f(75), o("CE", 110, -75)], "Covered call"],
+      [[f(75), o("PE", 90, 75)], "Protective put"],
+      [[f(75), o("CE", 100, -75), o("PE", 100, 75)], "Conversion"],
+      [[f(-75), o("CE", 100, 75), o("PE", 100, -75)], "Reversal"],
+      [[o("CE", 100, 75), o("CE", 110, -75), o("PE", 110, 75), o("PE", 100, -75)], "Long box"],
+      [[o("CE", 100, 75), o("PE", 90, 75), o("CE", 130, -25)], "Custom · 3 legs"],
+    ];
+    for (const [legs, name] of cases) expect(O.detectStructure(legs).name).toBe(name);
+    expect(O.detectStructure(cases[14][0]).locked).toBe(true);
+    expect(O.detectStructure(cases[16][0]).locked).toBe(true);
+    expect(O.detectStructure(cases[9][0]).locked).toBe(false);
+  });
+  it("reads the locked value of a conversion", () => {
+    const legs = [{ kind: "FUT", q: 75, avg: 26050 }, { kind: "OPT", right: "CE", strike: 26000, q: -75, avg: 150 }, { kind: "OPT", right: "PE", strike: 26000, q: 75, avg: 95 }];
+    expect(O.lockedValue(legs)).toBeCloseTo(75 * (26000 - 26050 + 150 - 95), 6);
+    expect(O.lockedValue([legs[0], legs[1]])).toBeNull();
+  });
+});
+
+describe("book warnings and settings", () => {
+  it("flags unpriced, lot mismatch, tested shorts and excluded legs", () => {
+    const legs = priced([...condorPositions, { symbol: "NFO:NIFTY-2026-11-03-26000-PE", netQty: -100, avgPrice: 50 }, { symbol: "NFO:NIFTY-2026-11-03-29900-CE", netQty: -75, avgPrice: 1 }], { excluded: new Set(["NFO:NIFTY-2026-11-03-25500-PE"]) });
+    const w = O.bookWarnings(legs, { spot: 26000, now: NOW, stale: { age: "40 s" } });
+    const ids = w.map((x) => x.id);
+    expect(ids[0]).toBe("unpriced");
+    expect(ids).toContain("lot");
+    expect(ids).toContain("tested");
+    expect(ids).toContain("excluded");
+    expect(ids).toContain("stale");
+    expect(w.find((x) => x.id === "lot").text).toMatch(/100 qty is not a multiple of lot 75/);
+  });
+  it("on expiry day warns of exercise STT, ELM and the MIS square-off", () => {
+    const day = Date.UTC(2026, 10, 3, 9, 0); // 3 Nov, 14:30 IST
+    const legs = O.priceBook(O.bookLegs([{ symbol: "NFO:NIFTY-2026-11-03-25800-CE", netQty: 75, avgPrice: 150, product: "INTRADAY" }, { symbol: "NFO:NIFTY-2026-11-03-26500-CE", netQty: -75, avgPrice: 5 }], "NIFTY"), { chains: new Map([["2026-11-03", mkChain("2026-11-03", 26000)]]), now: day });
+    const w = O.bookWarnings(legs, { spot: 26000, now: day });
+    expect(w.find((x) => x.id === "stt").text).toMatch(/≈ ₹23/);
+    expect(w.find((x) => x.id === "elm").text).toMatch(/₹39000/);
+    expect(w.some((x) => x.id === "mis")).toBe(false);
+    expect(O.bookWarnings(legs, { spot: 26000, now: day + 30 * 60000 }).find((x) => x.id === "mis").text).toMatch(/15:20 · 20:00/);
+    expect(O.misCountdown(day + 60 * 60000)).toBeNull();
+  });
+  it("hedge expiring before the shorts is flagged", () => {
+    const legs = priced([{ symbol: "NFO:NIFTY-2026-11-24-26300-CE", netQty: -75, avgPrice: 80 }, { symbol: "NFO:NIFTY-2026-11-03-26200-CE", netQty: 75, avgPrice: 30 }]);
+    expect(O.bookWarnings(legs, { spot: 26000, now: NOW }).find((x) => x.id === "hedge-early").text).toMatch(/3 Nov expires before 24 Nov/);
+  });
+  it("positionsConfig: defaults, unknown keys dropped, bad values replaced", () => {
+    const d = O.positionsConfig(undefined);
+    expect(d).toEqual({ ...O.POSITIONS_DEFAULTS, cols: [...O.POSITIONS_DEFAULTS.cols], hedge: { ...O.POSITIONS_DEFAULTS.hedge }, excluded: {} });
+    const c = O.positionsConfig({ cols: ["pnl", "nope", "pnl", "gamma"], group: "x", ladder: "wide", axis: "days", lossLimit: "5000", exitType: "touch", hedge: { method: "gamma", side: "SELL" }, excluded: { "demo-paper": ["NFO:NIFTY-2026-11-03-26000-CE", "junk", 4], "bad acct!": ["NFO:NIFTY-2026-11-24-FUT"] }, chartSlot: true, extra: 1 });
+    expect(c).toEqual({ cols: ["pnl", "gamma"], group: "expiry", closed: false, ladder: "wide", axis: "days", lossLimit: 5000, exitType: "touch", hedge: { method: "gamma", side: "SELL" }, excluded: { "demo-paper": ["NFO:NIFTY-2026-11-03-26000-CE"] }, chartSlot: true });
+    expect(O.positionsConfig({ cols: [], lossLimit: -3 }).cols).toEqual([...O.POSITIONS_DEFAULTS.cols]);
+    expect(O.positionsConfig({ lossLimit: -3 }).lossLimit).toBeNull();
+  });
+});

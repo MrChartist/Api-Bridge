@@ -11,7 +11,8 @@ import { openChainSheet } from "./chain-sheet.js";
 import { createOiPage, oiConfig } from "./oi.js";
 import { createBuilder } from "./strategy.js";
 import * as O from "./options.js";
-import { cap, every, keepFocus, pnl, segField, segmented, stopTimer } from "./views.js";
+import { createPositionsPage } from "./positions.js";
+import { cap, every, segField, segmented, stopTimer } from "./views.js";
 
 const SLOT = "mcb.dashboard.desk";
 const UNDERLYINGS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX"];
@@ -109,6 +110,7 @@ async function renderDesk(kind) {
     oi: oiConfig(prefs.oi),
     scfg: prefs.strategy ?? null,
     whatIf: prefs.whatIf ?? null,
+    pos: O.positionsConfig(prefs.pos),
     chain: null,
     freshness: null,
     error: null,
@@ -124,7 +126,7 @@ async function renderDesk(kind) {
     seq: 0,
   };
   st.strikesView = st.strikes;
-  const save = () => local.set(SLOT, JSON.stringify({ underlying: st.underlying, expiry: st.expiry, strikes: st.strikes, chain: st.cfg, account: st.account, live: st.live, baskets: st.baskets, oi: st.oi, strategy: st.scfg ?? undefined, whatIf: st.whatIf ?? undefined }));
+  const save = () => local.set(SLOT, JSON.stringify({ underlying: st.underlying, expiry: st.expiry, strikes: st.strikes, chain: st.cfg, account: st.account, live: st.live, baskets: st.baskets, oi: st.oi, strategy: st.scfg ?? undefined, whatIf: st.whatIf ?? undefined, pos: st.pos }));
   const account = () => tradable.find((a) => a.id === st.account) ?? null;
   const basketKey = () => `${st.underlying}|${st.expiry}`;
   const basket = () => (st.baskets[basketKey()] ??= []);
@@ -173,7 +175,6 @@ async function renderDesk(kind) {
     { class: "desk-keys" },
     KEY_LEGEND.map(([keys, short]) => h("span", { class: "kbd-pair" }, h("span", { class: "kbd-group" }, keys.map((k) => h("kbd", {}, k))), short)),
   );
-  const posEl = h("div");
   let sheet = null;
   /** "Open in chain" from the OI page: the chain focuses this strike once, then forgets it. */
   let jump = kind === "chain" && prefs.jump && typeof prefs.jump === "object" ? prefs.jump : null;
@@ -182,6 +183,28 @@ async function renderDesk(kind) {
     local.set(SLOT, JSON.stringify(rest));
   }
   const oiPage = kind === "oi" ? createOiPage({ st, save, retry: () => reloadAll(), openInChain, demo: () => Boolean(app.state.demo) }) : null;
+  // Positions and risk (positions.js): its own data (every expiry, futures, funds); desk.js keeps the toolbar and timer.
+  const posPage =
+    kind === "positions"
+      ? createPositionsPage({
+          st,
+          save,
+          account,
+          openTicket: (o) => openTicket(o),
+          onClock: () => drawClock(),
+          openInChain: (expiry, strike, side) => {
+            st.expiry = expiry;
+            openInChain(strike, side);
+          },
+          setUnderlying: (u) => {
+            if (!list.includes(u)) return toast(`${u} is not on this desk's list`);
+            st.underlying = u;
+            uSel.value = u;
+            save();
+            reloadAll();
+          },
+        })
+      : null;
   function openInChain(strike, side) {
     save();
     local.set(SLOT, JSON.stringify({ ...readPrefs(), jump: { underlying: st.underlying, expiry: st.expiry, strike, side: side === "pe" ? "pe" : "ce" } }));
@@ -258,18 +281,21 @@ async function renderDesk(kind) {
     drawAll();
   }
   async function loadPositions() {
-    if (!st.account) return drawPositions();
+    if (!st.account) return;
     const r = await optional(api(`/v1/positions?account=${encodeURIComponent(st.account)}`));
     const all = r.data?.data ?? [];
     st.positions = O.positionsFor(all, st.underlying);
     const fut = new RegExp(`^(NFO|BFO):${st.underlying.replace(/[^A-Z0-9&]/g, "")}-\\d{4}-\\d{2}-\\d{2}-FUT$`);
     st.futPositions = all.filter((p) => fut.test(String(p.symbol ?? "")) && Number(p.netQty));
     st.positionsError = r.error ?? null;
-    drawPositions();
   }
-  const refresh = () => Promise.all([loadChain(), loadPositions(), oiPage?.tick()]);
+  const refresh = () => (posPage ? posPage.tick() : Promise.all([loadChain(), loadPositions(), oiPage?.tick()]));
   const startTimer = () => (st.live ? every(REFRESH_MS, refresh) : stopTimer());
   async function reloadAll() {
+    if (posPage) {
+      posPage.reset();
+      return posPage.tick();
+    }
     chain.reset();
     oiPage?.reset({ underlying: true });
     sheet?.close();
@@ -528,14 +554,14 @@ async function renderDesk(kind) {
     return q;
   }
   /** Advisory warnings (options.js tradeWarnings) for one contract and order. */
-  function warningsFor({ strike, right, side, lots = 1, orderType = "LIMIT", exit = false, freezeQty = null, quote = null }) {
-    const x = lastX;
+  function warningsFor({ strike, right, side, lots = 1, orderType = "LIMIT", exit = false, freezeQty = null, quote = null, lot: lotIn = null, expiry = null, spot: spotIn = null }) {
+    const x = lastX && (!expiry || lastX.c.expiry === expiry) ? lastX : null;
     const row = x?.c.rows.find((r) => r.strike === strike);
     const s = right.toLowerCase();
     const leg = quote ?? row?.[s] ?? null;
-    const spot = x?.spot ?? null;
+    const spot = x?.spot ?? spotIn ?? null;
     const intrinsic = spot === null ? null : Math.max(0, right === "CE" ? spot - strike : strike - spot);
-    const lot = x?.lot ?? 1;
+    const lot = lotIn ?? x?.lot ?? 1;
     return O.tradeWarnings({
       side,
       right,
@@ -545,11 +571,11 @@ async function renderDesk(kind) {
       freezeQty: freezeQty ?? freezeCache.get(leg?.symbol) ?? null,
       liq: x && row ? O.liquidityScore(leg, x.ranks[s].get(strike)) : null,
       stale: Boolean(st.freshness?.stale),
-      isExpiryDay: O.isExpiryDay(x?.c.expiry ?? st.expiry),
+      isExpiryDay: O.isExpiryDay(expiry ?? x?.c.expiry ?? st.expiry),
       itm: O.inTheMoney(strike, s, spot),
       intrinsic,
       // Covered only when the long quantity covers the whole short.
-      hasLongSameExpiry: longQty(right, x?.c.expiry ?? st.expiry) >= Math.max(1, Math.floor(Number(lots) || 1)) * lot,
+      hasLongSameExpiry: longQty(right, expiry ?? x?.c.expiry ?? st.expiry) >= Math.max(1, Math.floor(Number(lots) || 1)) * lot,
       orderType,
       years: x?.years ?? null,
       exit,
@@ -614,118 +640,13 @@ async function renderDesk(kind) {
     });
   }
 
-  // ── Positions ──
-  function drawPositions() {
-    const a = account();
-    const rows = st.positions.filter((p) => Number(p.netQty) !== 0);
-    const lot = num(st.chain?.lotSize);
-    const total = rows.reduce((t, p) => t + (Number(p.pnl) || 0), 0);
-    const g = { delta: 0, theta: 0 };
-    for (const p of rows) {
-      const o = O.parseOptionSymbol(p.symbol);
-      const q = o && st.chain?.expiry === o.expiry ? st.chain.rows.find((r) => r.strike === o.strike)?.[o.right.toLowerCase()] : null;
-      g.delta += (num(q?.delta) ?? 0) * Number(p.netQty);
-      g.theta += (num(q?.theta) ?? 0) * Number(p.netQty);
-    }
-    const exitAll = rows.length ? h("button", { type: "button", class: "small", onclick: () => exitAllPositions(rows) }, "Exit all") : null;
-    const analyse = rows.length ? h("button", { type: "button", class: "small tinted", title: "Load these positions into the strategy builder to see their payoff", onclick: () => analysePositions(rows) }, "Analyse") : null;
-    keepFocus(posEl, () =>
-      posEl.replaceChildren(
-        card({
-          title: `${st.underlying} positions`,
-          sub: a ? (rows.length ? `Net Δ ${formatFixed(g.delta, 0)} · θ ${formatRupee(g.theta, 0)} a day` : a.label) : "Choose an account that can place orders",
-          actions: rows.length ? [h("span", { class: "desk-total" }, pnl(total)), analyse, exitAll] : null,
-          flush: true,
-          cls: "desk-card",
-          body: st.positionsError
-            ? h("div", { class: "card-body" }, alertBox(st.positionsError))
-            : rows.length
-              ? h(
-                  "div",
-                  { class: "table-wrap" },
-                  h(
-                    "table",
-                    { class: "desk-table" },
-                    h("thead", {}, h("tr", {}, ["Contract", lot ? "Lots" : "Qty", "Avg", "LTP", "P&L", ""].map((l, i) => h("th", { scope: "col", class: [i > 0 && i < 5 ? "num" : "", i === 2 ? "opt-x" : ""].join(" ").trim() || undefined }, l)))),
-                    h(
-                      "tbody",
-                      {},
-                      rows.map((p) => {
-                        const o = O.parseOptionSymbol(p.symbol);
-                        const q = Number(p.netQty);
-                        return h(
-                          "tr",
-                          {},
-                          h("td", {}, h("span", { class: "pos-leg" }, h("span", { class: `side-tag ${q > 0 ? "buy" : "sell"}` }, q > 0 ? "B" : "S"), h("span", {}, h("strong", {}, o ? `${formatInt(o.strike)} ${o.right}` : p.symbol), h("small", {}, o ? `${expiryText(o.expiry)} · ${cap(String(p.product).toLowerCase())}` : p.product)))),
-                          h("td", { class: "num", title: `${formatInt(q)} qty` }, lot ? `${formatFixed(q / lot, 0)}` : formatInt(q)),
-                          h("td", { class: "num opt-x" }, formatFixed(p.avgPrice, 2)),
-                          h("td", { class: "num" }, formatFixed(p.ltp, 2)),
-                          h("td", { class: "num" }, pnl(p.pnl)),
-                          h("td", { class: "act" }, h("button", { type: "button", class: "small plain", "aria-label": `Exit ${p.symbol}`, onclick: () => exitPosition(p) }, "Exit")),
-                        );
-                      }),
-                    ),
-                  ),
-                )
-              : h("p", { class: "desk-empty" }, `No open ${st.underlying} options. Click a bid or ask in the chain, or press B / S on a strike.`),
-        }),
-      ),
-    );
-  }
+  // ── Positions (chain sheet and X: exit the contract you hold) ──
   function exitPosition(p) {
     const o = O.parseOptionSymbol(p.symbol);
     if (!o) return;
     const row = st.chain?.expiry === o.expiry ? st.chain.rows.find((r) => r.strike === o.strike) : null;
     openTicket({ row: row ?? { strike: o.strike, ce: null, pe: null }, right: o.right, side: Number(p.netQty) > 0 ? "SELL" : "BUY", qty: Math.abs(Number(p.netQty)), symbol: p.symbol, product: p.product, expiry: o.expiry, exit: true });
   }
-  async function exitAllPositions(rows) {
-    const a = account();
-    const ok = await modal({
-      title: `Exit all ${st.underlying} positions?`,
-      body: h(
-        "div",
-        { class: "stack" },
-        h("p", { class: "muted" }, `${formatInt(rows.length)} market order(s) to ${a?.label}. Short positions are bought back first.`),
-        h("ul", { class: "desk-list" }, rows.map((p) => h("li", {}, `${Number(p.netQty) > 0 ? "Sell" : "Buy"} ${formatInt(Math.abs(Number(p.netQty)))} ${p.symbol}`))),
-      ),
-      buttons: [{ label: "Cancel", value: false }, { label: "Exit all", cls: "danger", value: true }],
-    });
-    if (!ok) return;
-    const ordered = [...rows].sort((x, y) => Number(x.netQty) - Number(y.netQty));
-    const out = await sendOrders(ordered.map((p) => ({ account: a.id, symbol: p.symbol, side: Number(p.netQty) > 0 ? "SELL" : "BUY", quantity: Math.abs(Number(p.netQty)), product: p.product, orderType: "MARKET" })), "exit");
-    toast(out);
-    refresh();
-  }
-  function analysePositions(rows) {
-    const lot = num(st.chain?.lotSize) || 1;
-    const legs = [];
-    for (const p of rows) {
-      const o = O.parseOptionSymbol(p.symbol);
-      if (!o || o.expiry !== st.expiry) continue;
-      legs.push({ right: o.right, strike: o.strike, side: Number(p.netQty) > 0 ? "BUY" : "SELL", lots: Math.max(1, Math.round(Math.abs(Number(p.netQty)) / lot)), entry: num(p.avgPrice), entryTag: "avg", product: p.product, symbol: p.symbol, lotSize: lot });
-    }
-    if (!legs.length) return toast(`Positions on other expiries: switch the expiry to analyse them.`);
-    st.baskets[basketKey()] = legs;
-    save();
-    location.hash = "#/strategy";
-  }
-
-  /** Send orders one by one (hedges first is the caller's job); stop at the first refusal. Returns a summary line. */
-  async function sendOrders(bodies, tag) {
-    const batch = `${tag}-${Date.now().toString(36)}`;
-    let done = 0;
-    for (const [i, b] of bodies.entries()) {
-      try {
-        await api("/v1/orders", { method: "POST", body: { ...b, clientOrderId: `${batch}-${i}` } });
-        done += 1;
-      } catch (err) {
-        await modal({ title: `Stopped after ${done} of ${bodies.length}`, body: h("div", { class: "stack" }, h("p", {}, `${b.side} ${b.symbol} was refused; the rest were not sent.`), alertBox(err)), buttons: [{ label: "Close", value: true }] });
-        return `${done} of ${bodies.length} orders sent`;
-      }
-    }
-    return `${done} order${done === 1 ? "" : "s"} sent`;
-  }
-
   // ── Strategy builder (strategy.js; built once, patched on every tick) ──
   const builder =
     kind === "strategy"
@@ -757,32 +678,47 @@ async function renderDesk(kind) {
   }
 
   // ── Order ticket ──
-  async function openTicket({ row, right, side, qty, symbol, product, expiry, exit = false }) {
+  /**
+   * The order ticket. From the chain: `row` + `right`. From positions (any expiry, futures too): `quote` (a getter for
+   * the live quote), `lotSize`, `units` (an odd quantity: the ticket works in units and sends `quantity`), `kind`, `name`
+   * and `tick`. An exit starts as a LIMIT at mid rounded toward a fill, with 25 / 50 / 75 / 100 % chips.
+   */
+  async function openTicket({ row, right, side, qty, symbol, product, expiry, exit = false, quote: quoteIn = null, units: oddUnits = false, lotSize: lotIn = null, kind = "OPT", name: nameIn = null, tick: tickIn = null, freezeQty = null, price: priceIn = null }) {
     const a = account();
     if (!a) return toast("Choose an account that can place orders first.");
     const c = st.chain;
     const ex = expiry ?? c?.expiry;
+    const fut = kind === "FUT";
     const sym = symbol ?? row?.[right.toLowerCase()]?.symbol;
     if (!sym) return toast("This contract has no symbol in the chain.");
-    const lotSize = num(c?.lotSize) || 1;
-    const quote = () => (st.chain?.expiry === ex ? st.chain.rows.find((r) => r.strike === row.strike)?.[right.toLowerCase()] : row?.[right.toLowerCase()]) ?? null;
+    const lotSize = num(lotIn) || num(c?.lotSize) || 1;
+    const tick = num(tickIn) || 0.05;
+    const quote = quoteIn ?? (() => (st.chain?.expiry === ex ? st.chain.rows.find((r) => r.strike === row.strike)?.[right.toLowerCase()] : row?.[right.toLowerCase()]) ?? null);
     const clientOrderId = `desk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const held = num(qty) ? Math.abs(num(qty)) : null;
+    const inUnits = Boolean(oddUnits) || (held !== null && held % lotSize !== 0);
     const sideSeg = segmented("Side", [["BUY", "Buy"], ["SELL", "Sell"]], side);
-    const lots = h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(qty ? Math.max(1, Math.round(qty / lotSize)) : 1) });
+    const lots = inUnits
+      ? h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(held ?? lotSize) })
+      : h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(held ? Math.max(1, Math.round(held / lotSize)) : 1) });
     const lotHint = h("span", { class: "hint" });
     const typeSeg = segmented("Order type", [["LIMIT", "Limit"], ["MARKET", "Market"]], "LIMIT");
-    const price = h("input", { type: "number", min: "0.05", step: "0.05", inputmode: "decimal", value: String(O.touchPrice(quote(), side) ?? "") });
-    const prodSeg = segmented("Product", [["INTRADAY", "Intraday"], ["MARGIN", "Carry (NRML)"]], product === "MARGIN" ? "MARGIN" : "INTRADAY");
+    const midPx = (sd) => O.roundToTick(O.mid(quote()), tick, sd === "BUY" ? "buy" : "sell");
+    const startPx = isFigure(priceIn) ? Number(priceIn) : exit ? midPx(side) ?? O.touchPrice(quote(), side, tick) : O.touchPrice(quote(), side, tick);
+    const price = h("input", { type: "number", min: "0.05", step: String(tick), inputmode: "decimal", value: String(startPx ?? "") });
+    const prodSeg = segmented("Product", [["INTRADAY", "Intraday"], ["MARGIN", "Carry (NRML)"]], product === "MARGIN" || product === "CNC" ? "MARGIN" : "INTRADAY");
     const modeSeg = a.liveAllowedByConfig ? segmented("Mode", [["paper", "Paper"], ["live", "Live"]], "paper") : null;
     const ack = h("input", { type: "checkbox" });
     const ackRow = h("label", { class: "check live-ack", hidden: true }, ack, `I understand this sends a real order to ${a.label}.`);
     const quoteLine = h("div", { class: "ticket-quote" });
     // Advisory warnings from the chain (spread, liquidity, freeze qty, expiry day...): the server checks still decide.
     const warnEl = h("ul", { class: "ticket-checks ticket-warns", "aria-label": "Before you trade", hidden: true });
-    loadFreeze(sym);
+    if (freezeQty === null) loadFreeze(sym);
+    const units = () => (inUnits ? Math.max(1, Math.floor(Number(lots.value) || 1)) : Math.max(1, Math.floor(Number(lots.value) || 1)) * lotSize);
     const drawWarnings = () => {
+      if (fut) return;
       const b = body();
-      const w = warningsFor({ strike: row.strike, right, side: b.side, lots: b.lots, orderType: b.orderType, exit, quote: quote() });
+      const w = warningsFor({ strike: row.strike, right, side: b.side, lots: inUnits ? units() / lotSize : b.lots, orderType: b.orderType, exit, quote: quote(), lot: lotSize, expiry: ex, freezeQty });
       const sig = JSON.stringify(w);
       if (warnEl.__sig === sig) return;
       warnEl.__sig = sig;
@@ -793,18 +729,31 @@ async function renderDesk(kind) {
     const touch = (k) => {
       const q = quote();
       if (!isFigure(q?.[k])) return;
-      price.value = String(O.roundToTick(q[k], 0.05, sideSeg.value === "BUY" ? "buy" : "sell"));
+      price.value = String(O.roundToTick(q[k], tick, sideSeg.value === "BUY" ? "buy" : "sell"));
       changed();
     };
     const priceField = h(
       "div",
       { class: "field" },
       h("span", {}, "Limit price"),
-      h("div", { class: "price-row" }, price, h("div", { class: "touch-btns", role: "group", "aria-label": "Use a quote" }, [["Bid", "bid"], ["Mid", "mid"], ["Ask", "ask"]].map(([l, k]) => h("button", { type: "button", class: "small", onclick: () => (k === "mid" ? ((price.value = String(O.roundToTick(O.mid(quote()), 0.05))), changed()) : touch(k)) }, l)))),
+      h("div", { class: "price-row" }, price, h("div", { class: "touch-btns", role: "group", "aria-label": "Use a quote" }, [["Bid", "bid"], ["Mid", "mid"], ["Ask", "ask"]].map(([l, k]) => h("button", { type: "button", class: "small", onclick: () => (k === "mid" ? ((price.value = String(midPx(sideSeg.value) ?? "")), changed()) : touch(k)) }, l)))),
     );
+    // Exit size: 25 / 50 / 75 % in whole lots (at least one), 100 % the exact quantity held.
+    const sizeFor = (pct) => {
+      if (held === null) return null;
+      if (pct >= 100) return inUnits ? held : Math.max(1, Math.round(held / lotSize));
+      const whole = Math.floor(held / lotSize);
+      if (whole < 1) return inUnits ? held : 1;
+      const l = Math.min(whole, Math.max(1, Math.floor((whole * pct) / 100 + 0.5)));
+      return inUnits ? l * lotSize : l;
+    };
+    const pctBtns = exit && held !== null ? [25, 50, 75, 100].map((p) => h("button", { type: "button", class: "small", "data-pct": String(p), "aria-pressed": String(p === 100), onclick: () => ((lots.value = String(sizeFor(p))), changed()) }, `${p}%`)) : [];
+    const pctRow = pctBtns.length ? h("div", { class: "touch-btns pct-btns", role: "group", "aria-label": "Exit size" }, pctBtns) : null;
     const live = () => modeSeg?.value === "live";
     const body = () => {
-      const b = { account: a.id, symbol: sym, side: sideSeg.value, lots: Math.max(1, Math.floor(Number(lots.value) || 1)), product: prodSeg.value, orderType: typeSeg.value };
+      const b = { account: a.id, symbol: sym, side: sideSeg.value, product: prodSeg.value, orderType: typeSeg.value };
+      if (inUnits) b.quantity = units();
+      else b.lots = Math.max(1, Math.floor(Number(lots.value) || 1));
       if (typeSeg.value === "LIMIT" && isFigure(price.value)) b.price = Number(price.value);
       if (live()) b.mode = "live";
       return b;
@@ -815,14 +764,14 @@ async function renderDesk(kind) {
       if (!placeBtn) return;
       const b = body();
       const blocked = (last?.checks ?? []).some((x) => x?.severity === "block");
-      placeBtn.textContent = `${b.side === "BUY" ? "Buy" : "Sell"} ${formatInt(b.lots)} lot${b.lots === 1 ? "" : "s"}${live() ? " · LIVE" : ""}`;
+      placeBtn.textContent = `${b.side === "BUY" ? "Buy" : "Sell"} ${inUnits ? `${formatInt(b.quantity)} qty` : `${formatInt(b.lots)} lot${b.lots === 1 ? "" : "s"}`}${live() ? " · LIVE" : ""}`;
       placeBtn.className = live() ? "danger" : b.side === "BUY" ? "primary" : "primary sell";
       placeBtn.disabled = blocked || (live() && !ack.checked) || (typeSeg.value === "LIMIT" && !isFigure(price.value));
     };
     const drawQuote = () => {
       const q = quote();
       const cell = (l, v, cls) => h("span", { class: cls }, h("small", {}, l), isFigure(v) ? formatFixed(v, 2) : DASH);
-      quoteLine.replaceChildren(cell("Bid", q?.bid, "bid"), cell("LTP", q?.ltp), cell("Ask", q?.ask, "ask"), h("span", {}, h("small", {}, "IV"), formatFixed(q?.iv, 1)), h("span", {}, h("small", {}, "Δ"), formatFixed(q?.delta, 2)));
+      quoteLine.replaceChildren(cell("Bid", q?.bid, "bid"), cell("LTP", q?.ltp), cell("Ask", q?.ask, "ask"), h("span", {}, h("small", {}, "IV"), fut ? DASH : formatFixed(q?.iv, 1)), h("span", {}, h("small", {}, "Δ"), fut ? "1.00" : formatFixed(q?.delta, 2)));
     };
     let previewSeq = 0;
     let previewTimer = null;
@@ -858,7 +807,9 @@ async function renderDesk(kind) {
     }
     const changed = () => {
       drawWarnings();
-      lotHint.textContent = `${formatInt(Math.max(1, Math.floor(Number(lots.value) || 1)) * lotSize)} qty`;
+      const n = Math.max(1, Math.floor(Number(lots.value) || 1));
+      lotHint.textContent = inUnits ? `odd quantity · lot ${formatInt(lotSize)}` : `${formatInt(n * lotSize)} qty`;
+      for (const btn of pctBtns) btn.setAttribute("aria-pressed", String(sizeFor(Number(btn.dataset.pct)) === n && (Number(btn.dataset.pct) === 100 || sizeFor(100) !== n)));
       priceField.hidden = typeSeg.value !== "LIMIT";
       ackRow.hidden = !live();
       drawButton();
@@ -866,7 +817,7 @@ async function renderDesk(kind) {
       previewTimer = setTimeout(preview, 200);
     };
     sideSeg.addEventListener("change", () => {
-      const p = O.touchPrice(quote(), sideSeg.value);
+      const p = exit ? midPx(sideSeg.value) ?? O.touchPrice(quote(), sideSeg.value, tick) : O.touchPrice(quote(), sideSeg.value, tick);
       if (p !== null) price.value = String(p);
       changed();
     });
@@ -876,7 +827,7 @@ async function renderDesk(kind) {
     const quoteTimer = setInterval(() => (drawQuote(), drawWarnings()), 1000);
     drawQuote();
 
-    const name = contractName(c?.underlying ?? st.underlying, ex, row.strike, right);
+    const name = nameIn ?? contractName(c?.underlying ?? st.underlying, ex, row.strike, right);
     const done = modal({
       title: exit ? `Exit ${name}` : name,
       body: h(
@@ -884,7 +835,8 @@ async function renderDesk(kind) {
         { class: "stack ticket" },
         quoteLine,
         segField("Side", sideSeg),
-        h("div", { class: "ticket-grid" }, h("label", { class: "field" }, h("span", {}, "Lots ", lotHint), lots), segField("Type", typeSeg)),
+        h("div", { class: "ticket-grid" }, h("label", { class: "field" }, h("span", {}, inUnits ? "Quantity " : "Lots ", lotHint), lots), segField("Type", typeSeg)),
+        pctRow,
         priceField,
         h("div", { class: "ticket-grid" }, segField("Product", prodSeg), modeSeg ? segField("Mode", modeSeg) : h("div", { class: "field" }, h("span", {}, "Account"), h("span", { class: "ticket-acct" }, `${a.label}\u00a0`, h("span", { class: "muted" }, "· paper")))),
         ackRow,
@@ -892,7 +844,7 @@ async function renderDesk(kind) {
         previewEl,
       ),
       buttons: [
-        ...(exit ? [] : [{ label: "Add to strategy", cls: "plain", onClick: () => { addLeg({ right, strike: row.strike, side: sideSeg.value, lots: body().lots }); return "added"; } }]),
+        ...(exit || fut ? [] : [{ label: "Add to strategy", cls: "plain", onClick: () => { addLeg({ right, strike: row.strike, side: sideSeg.value, lots: body().lots ?? 1 }); return "added"; } }]),
         { label: "Cancel", value: false },
         {
           label: "Place",
@@ -918,6 +870,7 @@ async function renderDesk(kind) {
     clearInterval(quoteTimer);
     clearTimeout(previewTimer);
     if (result === "placed") refresh();
+    return result;
   }
 
   // ── Chain settings ──
@@ -1188,7 +1141,15 @@ async function renderDesk(kind) {
       return builder.onKey(e);
     },
   };
-  activeDesk = kind === "chain" ? desk : kind === "oi" ? oiDesk : kind === "strategy" ? stratDesk : null;
+  const posDesk = posPage && {
+    root: posPage.root,
+    onKey(e) {
+      if (e.key === "p") return liveBtn.click(), true;
+      if (e.key === "r") return refresh(), true;
+      return posPage.onKey(e);
+    },
+  };
+  activeDesk = kind === "chain" ? desk : kind === "oi" ? oiDesk : kind === "strategy" ? stratDesk : kind === "positions" ? posDesk : null;
   bindKeys();
 
   // ── Wiring ──
@@ -1222,7 +1183,8 @@ async function renderDesk(kind) {
   aSel.addEventListener("change", () => {
     st.account = aSel.value;
     save();
-    loadPositions();
+    if (posPage) posPage.accountChanged();
+    else loadPositions();
     builder?.accountChanged();
   });
   liveBtn.addEventListener("click", () => {
@@ -1235,7 +1197,7 @@ async function renderDesk(kind) {
   drawLive();
   // Back to the tab: refresh at once instead of on the next tick. Device class changes (rotation, a phone-width
   // window, a touch screen) re-lay the chain. Both listeners go when the page does.
-  const pageRoot = kind === "chain" ? chainEl : kind === "strategy" ? builder.panel : kind === "oi" ? oiPage.root : posEl;
+  const pageRoot = kind === "chain" ? chainEl : kind === "strategy" ? builder.panel : kind === "oi" ? oiPage.root : posPage.root;
   const onVisible = () => {
     if (!pageRoot.isConnected) return cleanup();
     if (!document.hidden && st.live) refresh();
@@ -1254,6 +1216,7 @@ async function renderDesk(kind) {
     chain.reset();
     sheet?.close();
     builder?.destroy();
+    posPage?.destroy();
   }
   document.addEventListener("visibilitychange", onVisible);
   window.addEventListener("hashchange", onRoute);
@@ -1288,7 +1251,10 @@ async function renderDesk(kind) {
   const summary = h("section", { class: "desk-panel", "data-panel": "summary", "aria-label": "Chain summary" }, statsEl);
   if (kind === "strategy") return [top, summary, builder.panel, builder.slot];
   if (kind === "oi") return [top, ...oiPage.panels];
-  return [top, posEl];
+  // The page covers every expiry: the toolbar's expiry select is hidden (st.expiry stays for the other pages).
+  eSel.hidden = true;
+  aSel.classList.add("wide");
+  return [top, ...posPage.panels];
 }
 
 // ── Chain table (built once, patched on every refresh) ──

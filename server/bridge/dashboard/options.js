@@ -7,7 +7,7 @@
  * rows: [{ strike, ce: { ltp, bid, ask, oi, oiChange, volume, iv, delta, ... } | null, pe: {...} | null }] }.
  */
 
-import { DASH, formatCompact, formatFixed, formatInt, formatRupee } from "./format.js";
+import { DASH, formatCompact, formatFixed, formatInt, formatRupee, formatSigned } from "./format.js";
 
 const num = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
 const sum = (rows, pick) => rows.reduce((a, r) => a + (num(pick(r)) ?? 0), 0);
@@ -324,8 +324,17 @@ export function deltaTargets(rows) {
  */
 const legSign = (l) => (l.side === "SELL" ? -1 : 1);
 const isFut = (l) => l?.kind === "FUT";
-/** Units of a leg: whole lots × its own lot size (else the fallback). */
-export const legUnits = (l, fallbackLot) => Math.max(0, Math.floor(num(l?.lots) ?? 0)) * (num(l?.lotSize) || num(fallbackLot) || 1);
+/**
+ * Units of a leg: whole lots × its own lot size (else the fallback). A leg loaded from a position may carry its exact
+ * `units` (an odd quantity such as half a lot): they count while `lots` is still the whole-lot count they round up to,
+ * so editing the lots in the builder takes over again.
+ */
+export const legUnits = (l, fallbackLot) => {
+  const lot = num(l?.lotSize) || num(fallbackLot) || 1;
+  const lots = Math.max(0, Math.floor(num(l?.lots) ?? 0));
+  const u = num(l?.units);
+  return u !== null && u > 0 && Number.isInteger(u) && Math.max(1, Math.ceil(u / lot)) === lots ? u : lots * lot;
+};
 /** The legs that count: switched-off legs are dropped before every calculation. */
 export const activeLegs = (legs) => (legs ?? []).filter((l) => l && l.on !== false);
 const intrinsicOf = (l, S) => (l.right === "CE" ? Math.max(0, S - l.strike) : Math.max(0, l.strike - S));
@@ -1416,6 +1425,7 @@ export function migrateLegs(legs, expiry, { lotSize = null } = {}) {
       if (l.entryTag === "avg" || l.entryTag === "saved") leg.entryTag = l.entryTag;
     }
     if (["INTRADAY", "MARGIN", "CNC"].includes(l.product)) leg.product = l.product;
+    if (Number.isInteger(num(l.units)) && num(l.units) > 0) leg.units = num(l.units);
     out.push(leg);
     if (out.length >= MAX_LEGS) break;
   }
@@ -1979,4 +1989,627 @@ export function normaliseSaved(obj) {
     });
   }
   return { items, skipped };
+}
+
+// ── Book risk ──
+//
+// The #/positions page (PRD 04): every open option and future on one underlying, all expiries, priced from its own
+// expiry's chain (else a quote and an IV solved from it), summed into book Greeks, a scenario P&L calibrated to the
+// marks, a hedge proposal and a safe exit plan. Quantities are signed units (q > 0 long, q < 0 short).
+
+/** Exercise STT on ITM long options left to settle (approx; check current rates). */
+export const STT_EXERCISE = CHARGE_RATES.opt.exerciseStt;
+/** Extra exposure margin on index option shorts on their expiry day (fraction of notional). */
+export const EXPIRY_ELM = 0.02;
+const OPT_RE = /^(NFO|BFO):([A-Z0-9&]+)-(\d{4}-\d{2}-\d{2})-([\d.]+)-(CE|PE)$/;
+const FUT_RE = /^(NFO|BFO):([A-Z0-9&]+)-(\d{4}-\d{2}-\d{2})-FUT$/;
+/** Half rounds away from zero (2.5 → 3, −2.5 → −3). */
+export const roundHalfAway = (x) => (x < 0 ? -Math.round(-x) : Math.round(x));
+const sgn = (x) => (x > 0 ? 1 : x < 0 ? -1 : 0);
+
+/** "NFO:NIFTY-2026-11-24-FUT" → { exchange, underlying, expiry } (null when not a future). */
+export function parseFutureSymbol(symbol) {
+  const m = FUT_RE.exec(String(symbol ?? ""));
+  return m ? { exchange: m[1], underlying: m[2], expiry: m[3] } : null;
+}
+
+/**
+ * Book legs on one underlying from GET /v1/positions rows: options and futures of every expiry, exact underlying
+ * match (NIFTY is not NIFTYNXT50). netQty 0 rows are kept only with `closed` (today's closed legs, for realised P&L).
+ * @returns {Array<{ symbol, kind: "OPT"|"FUT", underlying, expiry, strike, right, q, avg, product, realised, ltp, pnl }>}
+ */
+export function bookLegs(positions, underlying, { closed = false } = {}) {
+  const u = String(underlying ?? "").toUpperCase();
+  const out = [];
+  for (const p of positions ?? []) {
+    const s = String(p?.symbol ?? "");
+    const o = OPT_RE.exec(s);
+    const f = o ? null : FUT_RE.exec(s);
+    const m = o ?? f;
+    if (!m || m[2] !== u) continue;
+    const q = num(p.netQty) ?? 0;
+    if (!q && !closed) continue;
+    out.push({
+      symbol: s,
+      kind: o ? "OPT" : "FUT",
+      underlying: m[2],
+      expiry: m[3],
+      strike: o ? Number(o[4]) : null,
+      right: o ? o[5] : null,
+      q,
+      avg: num(p.avgPrice),
+      product: ["INTRADAY", "MARGIN", "CNC"].includes(p.product) ? p.product : "MARGIN",
+      realised: num(p.realisedPnl),
+      ltp: num(p.ltp),
+      pnl: num(p.pnl),
+    });
+  }
+  return out;
+}
+
+/** Other underlyings with open option / future legs: [{ underlying, legs, pnl }] (broker P&L), by name. */
+export function bookUnderlyings(positions, except = null) {
+  const m = new Map();
+  for (const p of positions ?? []) {
+    const s = String(p?.symbol ?? "");
+    const r = OPT_RE.exec(s) ?? FUT_RE.exec(s);
+    if (!r || !num(p.netQty) || r[2] === except) continue;
+    const e = m.get(r[2]) ?? { underlying: r[2], legs: 0, pnl: 0 };
+    e.legs += 1;
+    e.pnl += num(p.pnl) ?? 0;
+    m.set(r[2], e);
+  }
+  return [...m.values()].sort((a, b) => (a.underlying < b.underlying ? -1 : 1));
+}
+
+/** The last option expiry of each calendar month (the monthly series, where index futures expire). */
+export function monthlyExpiries(expiries) {
+  const by = new Map();
+  for (const e of [...(expiries ?? [])].filter((x) => DATE_RE.test(String(x))).sort()) by.set(e.slice(0, 7), e);
+  return [...by.values()];
+}
+
+/**
+ * The mark of a quote: the mid when both sides are quoted and the spread is at most 20 % of it, else the LTP.
+ * @returns {{ mark: number|null, source: "mid"|"ltp"|null }}
+ */
+export function legMark(quote) {
+  const b = num(quote?.bid);
+  const a = num(quote?.ask);
+  if (b > 0 && a > 0 && a >= b && (a - b) / ((a + b) / 2) <= 0.2) return { mark: (a + b) / 2, source: "mid" };
+  const l = num(quote?.ltp);
+  return l !== null && l > 0 ? { mark: l, source: "ltp" } : { mark: null, source: null };
+}
+
+/**
+ * Implied volatility (percent) from a Black-76 price by bisection between 0.5 % and 300 %: 60 steps or a price
+ * tolerance of 0.000001 (a coarser one leaves far OTM legs a few hundredths of a vol point off). Null when T ≤ 0, inputs are missing or the price is below intrinsic − 0.05.
+ */
+export function impliedVol(price, forward, strike, years, right) {
+  const P = num(price);
+  const F = num(forward);
+  const K = num(strike);
+  if (P === null || F === null || K === null || F <= 0 || K <= 0 || !(years > 0)) return null;
+  const intrinsic = right === "CE" ? Math.max(0, F - K) : Math.max(0, K - F);
+  if (P < intrinsic - 0.05) return null;
+  let lo = 0.5;
+  let hi = 300;
+  if (P <= black76(F, K, years, lo, right)) return lo;
+  if (P >= black76(F, K, years, hi, right)) return hi;
+  for (let i = 0; i < 60; i++) {
+    const m = (lo + hi) / 2;
+    const v = black76(F, K, years, m, right);
+    if (Math.abs(v - P) < 1e-6) return m;
+    if (v > P) hi = m;
+    else lo = m;
+  }
+  return (lo + hi) / 2;
+}
+
+/**
+ * Price every book leg (pure). Options read their own expiry's chain (mark, IV, the server's Greeks); a leg missing
+ * from it falls back to `quotes` with IV solved from the mark and Black-76 Greeks. Futures: mark from `quotes`, Δ 1.
+ * `inst` gives lotSize / freezeQty / tickSize per symbol (else the chain's lot size, else 1 with `lotUnknown`).
+ * @param {object[]} legs from bookLegs
+ * @param {{ chains?: Map<string, object>, quotes?: Map<string, object>, inst?: Map<string, object>, spot?: number|null,
+ *   excluded?: Set<string>, now?: number }} m
+ */
+export function priceBook(legs, { chains = new Map(), quotes = new Map(), inst = new Map(), spot = null, excluded = new Set(), now = Date.now() } = {}) {
+  const fwd = new Map();
+  const futMark = new Map();
+  for (const l of legs) {
+    if (l.kind !== "FUT") continue;
+    const mk = legMark(quotes.get(l.symbol)).mark;
+    if (mk !== null) futMark.set(l.expiry, mk);
+  }
+  let S = num(spot);
+  for (const c of chains.values()) if (S === null) S = num(c?.underlyingLtp);
+  const expCtx = (e) => {
+    if (fwd.has(e)) return fwd.get(e);
+    const c = chains.get(e) ?? null;
+    const T = yearsToExpiry(e, now) ?? 0;
+    const sm = c ? chainSummary(c) : null;
+    const F = (c ? forwardPrice(c, parityGrowth(T)) : null) ?? futMark.get(e) ?? S;
+    const ctx = { chain: c, T, F, atmIv: sm?.atmIv ?? null, lot: num(c?.lotSize) };
+    fwd.set(e, ctx);
+    return ctx;
+  };
+  return legs.map((l) => {
+    const ix = inst.get(l.symbol) ?? null;
+    const x = expCtx(l.expiry);
+    const lot = num(ix?.lotSize) || x.lot || 1;
+    const base = { ...l, lot, lotUnknown: !(num(ix?.lotSize) || x.lot), freeze: num(ix?.freezeQty), tick: num(ix?.tickSize) || 0.05, inc: !excluded.has(l.symbol), T: x.T, expired: !(x.T > 0) };
+    if (l.kind === "FUT") {
+      const qt = quotes.get(l.symbol) ?? null;
+      const { mark, source } = legMark(qt);
+      return { ...base, quote: qt, mark, markSrc: source, F: mark, atmIv: null, iv: null, ivSolved: false, greeks: { delta: 1, gamma: 0, theta: 0, vega: 0 }, priced: mark !== null, why: mark === null ? "no quote" : null };
+    }
+    const row = x.chain?.rows?.find((r) => r.strike === l.strike);
+    const fromChain = row?.[l.right === "CE" ? "ce" : "pe"] ?? null;
+    const qt = fromChain ?? quotes.get(l.symbol) ?? null;
+    let { mark, source } = legMark(qt);
+    const F = x.F;
+    if (base.expired && F !== null) {
+      mark = l.right === "CE" ? Math.max(0, F - l.strike) : Math.max(0, l.strike - F);
+      source = "intrinsic";
+    }
+    let iv = num(fromChain?.iv);
+    let ivSolved = false;
+    if (iv === null && mark !== null && !base.expired) {
+      iv = impliedVol(mark, F, l.strike, x.T, l.right);
+      ivSolved = iv !== null;
+    }
+    const chainG = fromChain && ["delta", "gamma", "theta", "vega"].every((k) => num(fromChain[k]) !== null) ? { delta: num(fromChain.delta), gamma: num(fromChain.gamma), theta: num(fromChain.theta), vega: num(fromChain.vega) } : null;
+    const greeks = chainG ?? (F !== null && (iv !== null || base.expired) ? black76Greeks(F, l.strike, base.expired ? 0 : x.T, iv ?? 0, l.right) : null);
+    const priced = mark !== null && F !== null && (iv !== null || base.expired) && greeks !== null;
+    return { ...base, quote: qt, mark, markSrc: source, F, atmIv: x.atmIv ?? iv, iv, ivSolved, greeks, priced, why: priced ? null : mark === null ? "no quote" : "no IV" };
+  });
+}
+
+/**
+ * Model value per unit of a priced leg at a scenario: options Black-76 on F·(1 + dS) with IV + dIv (floored at
+ * 0.5 %) and `days` less to expiry (intrinsic past it); futures F·(1 + dS). Null when it cannot be valued.
+ */
+export function priceLeg(leg, { dS = 0, dIv = 0, days = 0 } = {}) {
+  const F = num(leg?.F);
+  if (F === null) return null;
+  const Fs = F * (1 + dS);
+  if (leg.kind === "FUT") return Fs;
+  const T = Math.max(0, (num(leg.T) ?? 0) - days / 365);
+  if (T > 0 && num(leg.iv) === null) return null;
+  return black76(Fs, leg.strike, T, Math.max(0.5, (num(leg.iv) ?? 0) + dIv), leg.right);
+}
+/** Calibration: mark − model value now, so a scenario at (0, 0, 0) equals the live P&L. 0 once the leg has expired. */
+export function legAdj(leg, days = 0) {
+  if (leg?.kind === "FUT" || num(leg?.mark) === null) return 0;
+  if (!((num(leg.T) ?? 0) - days / 365 > 0)) return 0;
+  const v = priceLeg(leg, {});
+  return v === null ? 0 : leg.mark - v;
+}
+const counts = (l) => l && l.priced && l.inc !== false && num(l.avg) !== null;
+/** Unrealised P&L of the included, priced legs at a scenario (₹): Σ q × (value + calibration − avg). */
+export function scenarioPnl(legs, shift = {}) {
+  let t = 0;
+  for (const l of legs ?? []) {
+    if (!counts(l)) continue;
+    const v = priceLeg(l, shift);
+    if (v === null) continue;
+    t += l.q * (v + legAdj(l, shift.days ?? 0) - l.avg);
+  }
+  return t;
+}
+/** Unrealised P&L per leg from its mark (no model): (mark − avg) × q, or null. */
+export const legPnl = (l) => (num(l?.mark) !== null && num(l?.avg) !== null ? (l.mark - l.avg) * l.q : null);
+
+/**
+ * Book Greeks from the legs' own Greeks (the chain's, else Black-76 on the solved IV): Δ units, Γ per point, Θ ₹ per
+ * calendar day, Vega ₹ per vol point. Excluded legs count nowhere; included legs without Greeks are in `missing`.
+ */
+export function bookGreeks(legs) {
+  const out = { delta: 0, gamma: 0, theta: 0, vega: 0, missing: [], excluded: 0, priced: 0 };
+  for (const l of legs ?? []) {
+    if (l.inc === false) {
+      out.excluded += 1;
+      continue;
+    }
+    if (!l.priced || !l.greeks) {
+      out.missing.push(l);
+      continue;
+    }
+    out.priced += 1;
+    if (l.kind === "FUT") {
+      out.delta += l.q;
+      continue;
+    }
+    for (const k of ["delta", "gamma", "theta", "vega"]) out[k] += l.q * l.greeks[k];
+  }
+  return out;
+}
+/** Analytic Black-76 Greeks of the included legs at a scenario (the scenario panel's output line). */
+export function scenarioGreeks(legs, { dS = 0, dIv = 0, days = 0 } = {}) {
+  const out = { delta: 0, gamma: 0, theta: 0, vega: 0 };
+  for (const l of legs ?? []) {
+    if (!counts(l)) continue;
+    if (l.kind === "FUT") {
+      out.delta += l.q;
+      continue;
+    }
+    const g = black76Greeks(l.F * (1 + dS), l.strike, Math.max(0, l.T - days / 365), Math.max(0.5, (num(l.iv) ?? 0) + dIv), l.right);
+    if (g) for (const k of Object.keys(out)) out[k] += l.q * g[k];
+  }
+  return out;
+}
+
+/** Spot ladders of the scenario matrix: % moves, or σ multiples for "sigma". */
+export const LADDERS = Object.freeze({
+  tight: Object.freeze([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]),
+  wide: Object.freeze([-10, -5, -3, -2, -1, 0, 1, 2, 3, 5, 10]),
+  sigma: Object.freeze([-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2]),
+});
+/**
+ * Scenario matrix: rows = spot ladder, columns = IV shifts (−5, 0, +5 at `days`) or days (Today, +1, +3, first
+ * expiry at `dIv`). `sigmaPct` = 1σ move in % of F (the sigma ladder). Cells are unrealised P&L (scenarioPnl).
+ * @returns {{ rows: Array<{ pct, k, price, cells: number[] }>, cols: Array<{ label, dIv, days }>, worst, best }}
+ */
+export function scenarioGrid(legs, { ladder = "tight", axis = "iv", days = 0, dIv = 0, sigmaPct = null, F = null, firstDays = 0 } = {}) {
+  const lad = LADDERS[ladder] ?? LADDERS.tight;
+  const sig = ladder === "sigma" && num(sigmaPct) > 0;
+  const steps = ladder === "sigma" && !sig ? LADDERS.tight : lad;
+  const fd = Math.max(0, Math.round(num(firstDays) ?? 0));
+  const cols =
+    axis === "days"
+      ? [{ label: "Today", dIv, days: 0 }, { label: "+1 day", dIv, days: 1 }, { label: "+3 days", dIv, days: 3 }, { label: `Expiry (+${fd})`, dIv, days: fd }]
+      : [{ label: "IV −5", dIv: -5, days }, { label: "IV now", dIv: 0, days }, { label: "IV +5", dIv: 5, days }];
+  let worst = null;
+  let best = null;
+  const rows = steps.map((k, r) => {
+    const pct = sig ? k * sigmaPct : k;
+    const cells = cols.map((c, ci) => {
+      const v = scenarioPnl(legs, { dS: pct / 100, dIv: c.dIv, days: c.days });
+      if (!worst || v < worst.v) worst = { v, r, c: ci };
+      if (!best || v > best.v) best = { v, r, c: ci };
+      return v;
+    });
+    return { pct, k: sig ? k : null, price: num(F) !== null ? F * (1 + pct / 100) : null, cells };
+  });
+  return { rows, cols, worst, best };
+}
+
+/** Roots of f over the sorted sample points xs: sign changes, linear interpolation, then bisection refinement. */
+export function curveRoots(f, xs) {
+  const out = [];
+  let px = xs[0];
+  let py = f(px);
+  for (let i = 1; i < xs.length; i++) {
+    const x = xs[i];
+    const y = f(x);
+    if (py === 0) out.push(px);
+    else if (sgn(py) * sgn(y) < 0) {
+      // Linear interpolation, then bisection on the bracket until it is under 0.01 point wide.
+      let a = px;
+      let b = x;
+      let fa = py;
+      let r = a - (py * (b - a)) / (y - py);
+      for (let i = 0; i < 40 && b - a > 0.01; i++) {
+        const fr = f(r);
+        if (fr === 0) break;
+        if (sgn(fr) === sgn(fa)) [a, fa] = [r, fr];
+        else b = r;
+        r = (a + b) / 2;
+      }
+      out.push(r);
+    }
+    px = x;
+    py = y;
+  }
+  return out.filter((r, i, a) => i === 0 || Math.abs(r - a[i - 1]) > 0.5);
+}
+
+/** Distance of an option leg's strike from its forward in σ of its expiry, with the side, points and ITM flag. */
+export function legDistance(l) {
+  if (l?.kind !== "OPT" || num(l.F) === null) return null;
+  const pts = l.strike - l.F;
+  const s = sigmaMove(l.F, l.atmIv ?? l.iv, l.T);
+  const itm = l.right === "CE" ? l.F > l.strike : l.F < l.strike;
+  const sigma = s ? Math.abs(pts) / s : null;
+  return { pts, pct: (pts / l.F) * 100, sigma, dir: pts >= 0 ? "up" : "down", itm, tested: l.q < 0 && (itm || (sigma !== null && sigma < 0.5)) };
+}
+
+/**
+ * The structure of one expiry group, from units (not lots): long / short call or put, straddle, strangle, verticals,
+ * ratio spreads, iron condor / fly, future, covered call, protective put, conversion, reversal and box. Conversion,
+ * reversal and box are `locked` (a flat expiry line). Anything else: "Custom · N legs".
+ */
+export function detectStructure(legs) {
+  const ls = (legs ?? []).filter((l) => l && num(l.q));
+  const n = ls.length;
+  const custom = { name: `Custom · ${formatInt(n)} leg${n === 1 ? "" : "s"}`, locked: false };
+  if (!n) return { name: "No legs", locked: false };
+  const futs = ls.filter((l) => l.kind === "FUT");
+  const opts = ls.filter((l) => l.kind !== "FUT");
+  const ce = opts.filter((l) => l.right === "CE").sort((a, b) => a.strike - b.strike);
+  const pe = opts.filter((l) => l.right === "PE").sort((a, b) => a.strike - b.strike);
+  const sameQty = ls.every((l) => Math.abs(l.q) === Math.abs(ls[0].q));
+  const LS = (q) => (q > 0 ? "Long" : "Short");
+  if (futs.length === 1 && !opts.length) return { name: `${LS(futs[0].q)} future`, locked: false };
+  if (futs.length === 1 && sameQty) {
+    const f = futs[0];
+    if (opts.length === 1) {
+      const o = opts[0];
+      if (f.q > 0 && o.right === "CE" && o.q < 0) return { name: "Covered call", locked: false };
+      if (f.q > 0 && o.right === "PE" && o.q > 0) return { name: "Protective put", locked: false };
+      if (f.q < 0 && o.right === "PE" && o.q < 0) return { name: "Covered put", locked: false };
+      if (f.q < 0 && o.right === "CE" && o.q > 0) return { name: "Protective call", locked: false };
+    }
+    if (ce.length === 1 && pe.length === 1 && ce[0].strike === pe[0].strike) {
+      if (f.q > 0 && ce[0].q < 0 && pe[0].q > 0) return { name: "Conversion", locked: true };
+      if (f.q < 0 && ce[0].q > 0 && pe[0].q < 0) return { name: "Reversal", locked: true };
+    }
+    return custom;
+  }
+  if (futs.length) return custom;
+  if (n === 1) return { name: `${LS(opts[0].q)} ${opts[0].right === "CE" ? "call" : "put"}`, locked: false };
+  if (n === 2) {
+    const [a, b] = opts;
+    if (a.right !== b.right && sgn(a.q) === sgn(b.q) && sameQty) return { name: `${LS(a.q)} ${a.strike === b.strike ? "straddle" : "strangle"}`, locked: false };
+    if (a.right === b.right && sgn(a.q) !== sgn(b.q) && a.strike !== b.strike) {
+      const [lo, hi] = a.right === "CE" ? ce : pe;
+      if (!sameQty) return { name: `${a.right === "CE" ? "Call" : "Put"} ratio spread`, locked: false };
+      if (a.right === "CE") return { name: lo.q > 0 ? "Bull call spread" : "Bear call spread", locked: false };
+      return { name: hi.q > 0 ? "Bear put spread" : "Bull put spread", locked: false };
+    }
+    return custom;
+  }
+  if (n === 4 && ce.length === 2 && pe.length === 2 && sameQty) {
+    const [c1, c2] = ce;
+    const [p1, p2] = pe;
+    // Box: bull call (long K1 CE, short K2 CE) + bear put (long K2 PE, short K1 PE), or the reverse.
+    if (c1.strike === p1.strike && c2.strike === p2.strike && c1.strike < c2.strike && sgn(c1.q) === -sgn(c2.q) && sgn(p2.q) === -sgn(p1.q) && sgn(c1.q) === sgn(p2.q)) return { name: c1.q > 0 ? "Long box" : "Short box", locked: true };
+    // Iron condor / fly: short inner strikes (PE below or at CE), long wings outside.
+    if (p1.strike < p2.strike && c1.strike < c2.strike && p2.strike <= c1.strike && sgn(p2.q) === sgn(c1.q) && sgn(p1.q) === sgn(c2.q) && sgn(p1.q) === -sgn(p2.q)) {
+      const fly = p2.strike === c1.strike;
+      return { name: `${p2.q < 0 ? "" : "Reverse "}iron ${fly ? "fly" : "condor"}`.replace(/^iron/, "Iron"), locked: false };
+    }
+  }
+  return custom;
+}
+
+/**
+ * The flat expiry value of a locked group (conversion, reversal, box): P&L at expiry at three prices that must agree
+ * within ₹1, else null (not locked).
+ */
+export function lockedValue(legs) {
+  const ks = (legs ?? []).filter((l) => l.kind !== "FUT").map((l) => l.strike);
+  if (!ks.length || (legs ?? []).some((l) => num(l.avg) === null)) return null;
+  const lo = Math.min(...ks);
+  const hi = Math.max(...ks);
+  const at = (P) => legs.reduce((t, l) => t + l.q * ((l.kind === "FUT" ? P : l.right === "CE" ? Math.max(0, P - l.strike) : Math.max(0, l.strike - P)) - l.avg), 0);
+  const vs = [lo * 0.8, (lo + hi) / 2, hi * 1.2].map(at);
+  return Math.max(...vs) - Math.min(...vs) <= 1 ? vs[1] : null;
+}
+
+/**
+ * A hedge proposal (pure). `book` = { delta, gamma, theta, vega, S }. Methods: "fut" (futures lots to the target Δ),
+ * "atm" (ATM option of the chosen side; the right follows the direction), "gamma" (ATM options to flatten Γ, then
+ * futures for the Δ left). `fut` = { symbol, lot, mark, expiry }; `atm` = { strike, expiry, lot, ce, pe } where ce / pe
+ * = { symbol, mark, delta, gamma, theta, vega }.
+ * @returns {{ method, legs: object[], change, after, residual, premium, notes: string[], error: string|null }}
+ */
+export function hedgePlan(book, { method = "fut", target = 0, side = "BUY", fut = null, atm = null } = {}) {
+  const before = { delta: num(book?.delta) ?? 0, gamma: num(book?.gamma) ?? 0, theta: num(book?.theta) ?? 0, vega: num(book?.vega) ?? 0 };
+  const S = num(book?.S);
+  const change = { delta: 0, gamma: 0, theta: 0, vega: 0 };
+  const legs = [];
+  const notes = [];
+  let premium = 0;
+  const res = (error = null) => {
+    const after = Object.fromEntries(Object.keys(before).map((k) => [k, before[k] + change[k]]));
+    return { method, legs, change, after, residual: after.delta - (num(target) ?? 0), premium, notes, error };
+  };
+  const addFut = (need) => {
+    const L = num(fut?.lot);
+    if (!fut?.symbol || !(L > 0)) return "No future to hedge with";
+    const lots = roundHalfAway(need / L);
+    if (!lots) return null;
+    legs.push({ kind: "FUT", symbol: fut.symbol, expiry: fut.expiry ?? null, side: lots > 0 ? "BUY" : "SELL", lots: Math.abs(lots), units: Math.abs(lots) * L, lot: L, mark: num(fut.mark) });
+    change.delta += lots * L;
+    return null;
+  };
+  const addOpt = (right, sideSign, lots) => {
+    const o = right === "CE" ? atm.ce : atm.pe;
+    const u = lots * atm.lot * sideSign;
+    legs.push({ kind: "OPT", symbol: o.symbol, right, strike: atm.strike, expiry: atm.expiry, side: sideSign > 0 ? "BUY" : "SELL", lots, units: lots * atm.lot, lot: atm.lot, mark: num(o.mark) });
+    for (const k of Object.keys(change)) change[k] += u * (num(o[k]) ?? 0);
+    premium += -u * (num(o.mark) ?? 0);
+  };
+  const need = (num(target) ?? 0) - before.delta;
+  if (method === "fut") {
+    const err = addFut(need);
+    if (err) return res(err);
+    notes.push("Futures add no Γ, Θ or Vega");
+  } else if (method === "atm") {
+    const sideSign = side === "SELL" ? -1 : 1;
+    const right = (need < 0) === (sideSign > 0) ? "PE" : "CE";
+    const o = right === "CE" ? atm?.ce : atm?.pe;
+    const d = num(o?.delta);
+    if (!o?.symbol || d === null || Math.abs(d) < 0.05 || !(num(atm?.lot) > 0)) return res("ATM delta unavailable");
+    const lots = Math.max(0, roundHalfAway(need / (d * atm.lot * sideSign)));
+    if (lots) addOpt(right, sideSign, lots);
+  } else {
+    const g = num(atm?.ce?.gamma) ?? num(atm?.pe?.gamma);
+    if (S !== null && Math.abs(before.gamma) * S * 0.01 < 1) {
+      notes.push("Γ already ≈ 0: futures only");
+    } else if (!(g > 0) || !(num(atm?.lot) > 0)) return res("ATM gamma unavailable");
+    else {
+      const lots = roundHalfAway(-before.gamma / (g * atm.lot));
+      if (!lots) notes.push("Γ is within one ATM lot: futures only");
+      if (lots) {
+        const sideSign = lots > 0 ? 1 : -1;
+        // Buying: the CE also lifts Δ, the PE lowers it; selling: the reverse. Pick the one that helps Δ.
+        const right = (need > 0) === (sideSign > 0) ? "CE" : "PE";
+        if (!(right === "CE" ? atm.ce : atm.pe)?.symbol) return res("ATM option unavailable");
+        addOpt(right, sideSign, Math.abs(lots));
+      }
+    }
+    const err = addFut((num(target) ?? 0) - (before.delta + change.delta));
+    if (err && !legs.length) return res(err);
+  }
+  if (!legs.length) notes.unshift(`Within one lot of target: no hedge needed (residual ${formatSigned(before.delta - (num(target) ?? 0), 0)})`);
+  return res();
+}
+
+/**
+ * Exit orders for a set of legs (pure): short options first (largest |Δ| first), then long options, then futures.
+ * `type` "mid" (limit at mid, rounded to tick toward a fill), "touch" (bid to sell, ask to buy) or "market" (estimated
+ * at the touch). `pct` < 100 exits whole lots (round half up, min 1 lot). Orders above the freeze quantity are split
+ * into lot-multiple slices with the remainder last. Slippage = |price − mid| × qty.
+ * Legs: { symbol, kind, right, strike, expiry, q, avg, lot, freeze, tick, quote, greeks, product }.
+ */
+export function exitPlan(legs, { type = "mid", pct = 100 } = {}) {
+  const orders = [];
+  for (const l of legs ?? []) {
+    const abs = Math.abs(num(l.q) ?? 0);
+    if (!abs) continue;
+    const L = num(l.lot) || 1;
+    let qty = abs;
+    if (pct < 100) {
+      const whole = Math.floor(abs / L);
+      if (whole >= 1) qty = Math.min(whole, Math.max(1, Math.floor((whole * pct) / 100 + 0.5))) * L;
+    }
+    const side = l.q > 0 ? "SELL" : "BUY";
+    const b = num(l.quote?.bid);
+    const a = num(l.quote?.ask);
+    const ltp = num(l.quote?.ltp) ?? num(l.mark);
+    const m = b > 0 && a > 0 ? (a + b) / 2 : ltp;
+    const tick = num(l.tick) || 0.05;
+    const touch = side === "BUY" ? (a > 0 ? a : ltp) : b > 0 ? b : ltp;
+    const price = type === "market" ? null : type === "touch" ? roundToTick(touch, tick, side === "BUY" ? "buy" : "sell") : roundToTick(m, tick, side === "BUY" ? "buy" : "sell");
+    const est = type === "market" ? touch : price;
+    const fz = num(l.freeze);
+    const per = fz > 0 && qty > fz ? Math.max(L, Math.floor(fz / L) * L) : qty;
+    const slices = [];
+    for (let left = qty; left > 0; left -= per) slices.push(Math.min(per, left));
+    const dAbs = Math.abs(l.q * (l.kind === "FUT" ? 1 : num(l.greeks?.delta) ?? 0));
+    orders.push({
+      leg: l,
+      symbol: l.symbol,
+      side,
+      qty,
+      slices,
+      price,
+      mid: m,
+      est,
+      slip: est !== null && m !== null ? Math.abs(est - m) * qty : null,
+      pnl: est !== null && num(l.avg) !== null ? (l.q > 0 ? est - l.avg : l.avg - est) * qty : null,
+      rank: l.kind === "FUT" ? 2 : l.q < 0 ? 0 : 1,
+      dAbs,
+      product: l.product,
+    });
+  }
+  orders.sort((x, y) => x.rank - y.rank || y.dAbs - x.dAbs);
+  const total = (k) => orders.reduce((t, o) => (o[k] === null ? t : t + o[k]), 0);
+  return { orders, slippage: total("slip"), pnl: total("pnl"), count: orders.reduce((t, o) => t + o.slices.length, 0) };
+}
+
+const IST_MIN = (ms) => istClock(ms).mins + (new Date(ms + IST_OFFSET_MS).getUTCSeconds() / 60);
+/** Seconds to the 15:20 IST intraday square-off while it is between 14:50 and 15:20 IST, else null. */
+export function misCountdown(nowMs = Date.now()) {
+  const m = IST_MIN(nowMs);
+  return m >= 14 * 60 + 50 && m < 15 * 60 + 20 ? Math.round((15 * 60 + 20 - m) * 60) : null;
+}
+
+/**
+ * Warnings for the book (PRD 04 §7), most severe first: [{ id, level: "bad"|"warn"|"info", text, title }].
+ * `legs` are priced legs (priceBook); `stale` = { age } when prices are old.
+ */
+export function bookWarnings(legs, { spot = null, now = Date.now(), stale = null } = {}) {
+  const out = [];
+  const add = (id, level, text, title = "") => out.push({ id, level, text, title });
+  const name = (l) => (l.kind === "FUT" ? `FUT ${dayMonth(l.expiry)}` : `${formatInt(l.strike)} ${l.right} ${dayMonth(l.expiry)}`);
+  const inc = (legs ?? []).filter((l) => l.inc !== false && num(l.q));
+  const unpriced = inc.filter((l) => !l.priced);
+  if (unpriced.length) add("unpriced", "bad", `Not in Greeks: ${unpriced.slice(0, 3).map((l) => `${name(l)} (${l.why ?? "no quote"})`).join(", ")}${unpriced.length > 3 ? ` +${formatInt(unpriced.length - 3)}` : ""}`, "These legs could not be priced: the book's Greeks, payoff and scenarios leave them out");
+  const S = num(spot);
+  for (const l of inc) {
+    if (l.kind !== "OPT" || !isExpiryDay(l.expiry, now)) continue;
+    const intr = S === null ? 0 : l.right === "CE" ? Math.max(0, S - l.strike) : Math.max(0, l.strike - S);
+    if (l.q > 0 && intr > 0) add("stt", "bad", `Long ${formatInt(l.strike)} ${l.right} ITM expires today: exercise STT ≈ ${formatRupee(STT_EXERCISE * intr * l.q, 0)}. Exiting may cost less`, `Rate ${formatFixed(STT_EXERCISE * 100, 2)}% of intrinsic (approx; check current rates)`);
+  }
+  const shortsToday = inc.filter((l) => l.kind === "OPT" && l.q < 0 && isExpiryDay(l.expiry, now));
+  if (shortsToday.length && S !== null) add("elm", "warn", `Expiry day: extra ELM ≈ ${formatRupee(EXPIRY_ELM * S * shortsToday.reduce((t, l) => t + Math.abs(l.q), 0), 0)} on shorts`, "Exchanges add 2% ELM on index option shorts on their expiry day");
+  const mis = misCountdown(now);
+  if (mis !== null && inc.some((l) => l.product === "INTRADAY")) add("mis", "warn", `Intraday legs square off at 15:20 · ${formatInt(Math.floor(mis / 60))}:${String(mis % 60).padStart(2, "0")}`, "15:20 is the paper default; your broker may square off earlier");
+  for (const l of inc) if (l.lot > 1 && Math.abs(l.q) % l.lot !== 0) add("lot", "warn", `${l.kind === "FUT" ? "FUT" : `${formatInt(l.strike)} ${l.right}`}: ${formatInt(Math.abs(l.q))} qty is not a multiple of lot ${formatInt(l.lot)}`, "Exit may need an odd-lot order or holding to expiry");
+  for (const l of inc) {
+    const d = l.priced ? legDistance(l) : null;
+    if (!d?.tested) continue;
+    add("tested", d.itm ? "bad" : "warn", d.itm ? `Short ${formatInt(l.strike)} ${l.right} is ITM` : `Short ${formatInt(l.strike)} ${l.right} tested (${formatFixed(d.sigma, 1)}σ)`, `${formatSigned(d.pts, 0)} pts from the forward`);
+  }
+  const shorts = inc.filter((l) => l.kind === "OPT" && l.q < 0);
+  const lastShort = shorts.map((l) => l.expiry).sort().pop();
+  const shortDelta = shorts.reduce((t, l) => t + l.q * (num(l.greeks?.delta) ?? 0), 0);
+  if (lastShort && shortDelta) {
+    const early = inc.filter((l) => (l.kind === "FUT" || l.q > 0) && l.expiry < lastShort && sgn(l.q * (l.kind === "FUT" ? 1 : num(l.greeks?.delta) ?? 0)) === -sgn(shortDelta));
+    for (const e of [...new Set(early.map((l) => l.expiry))]) add("hedge-early", "warn", `Hedge ${dayMonth(e)} expires before ${dayMonth(lastShort)} shorts`, "When it expires, the shorts it covers are left open");
+  }
+  const ex = (legs ?? []).filter((l) => l.inc === false && num(l.q)).length;
+  if (ex) add("excluded", "info", `${formatInt(ex)} leg${ex === 1 ? "" : "s"} excluded from risk`, "Click to include every leg again");
+  if (stale) add("stale", "warn", `Prices ${stale.age ?? "a while"} old`, "The last good prices are shown");
+  return out;
+}
+
+/** Columns of the positions table (key, header, Customise name). */
+export const POS_COLUMNS = Object.freeze([
+  ["lots", "Lots", "Lots"],
+  ["px", "Avg → Mark", "Avg → Mark"],
+  ["pnl", "P&L", "P&L"],
+  ["pnlPct", "P&L %", "P&L %"],
+  ["delta", "Δ", "Delta (position)"],
+  ["theta", "Θ ₹/d", "Theta ₹ a day"],
+  ["vega", "Vega ₹", "Vega ₹ per vol point"],
+  ["gamma", "Γ", "Gamma"],
+  ["iv", "IV", "IV"],
+  ["dist", "Distance", "Distance from the forward (σ)"],
+]);
+export const POSITIONS_DEFAULTS = Object.freeze({
+  cols: Object.freeze(["lots", "px", "pnl", "pnlPct", "delta", "theta", "vega", "iv", "dist"]),
+  group: "expiry",
+  closed: false,
+  ladder: "tight",
+  axis: "iv",
+  lossLimit: null,
+  exitType: "mid",
+  hedge: Object.freeze({ method: "fut", side: "BUY" }),
+  excluded: Object.freeze({}),
+  chartSlot: false,
+});
+/** The positions page settings (desk prefs → pos), validated: unknown keys dropped, bad values replaced. */
+export function positionsConfig(saved) {
+  const d = POSITIONS_DEFAULTS;
+  const s = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+  const known = new Set(POS_COLUMNS.map(([k]) => k));
+  const cols = Array.isArray(s.cols) ? s.cols.filter((k, i, a) => known.has(k) && a.indexOf(k) === i) : [...d.cols];
+  const pick = (v, list, def) => (list.includes(v) ? v : def);
+  const h = s.hedge && typeof s.hedge === "object" ? s.hedge : {};
+  const excluded = {};
+  if (s.excluded && typeof s.excluded === "object" && !Array.isArray(s.excluded)) {
+    for (const [acc, list] of Object.entries(s.excluded)) {
+      if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(acc) || !Array.isArray(list)) continue;
+      const l = [...new Set(list.filter((x) => typeof x === "string" && (OPT_RE.test(x) || FUT_RE.test(x))))].slice(0, 200);
+      if (l.length) excluded[acc] = l;
+    }
+  }
+  const loss = num(s.lossLimit);
+  return {
+    cols: cols.length ? cols : [...d.cols],
+    group: pick(s.group, ["expiry", "none"], d.group),
+    closed: typeof s.closed === "boolean" ? s.closed : d.closed,
+    ladder: pick(s.ladder, Object.keys(LADDERS), d.ladder),
+    axis: pick(s.axis, ["iv", "days"], d.axis),
+    lossLimit: loss !== null && loss > 0 ? Math.round(loss) : null,
+    exitType: pick(s.exitType, ["mid", "touch", "market"], d.exitType),
+    hedge: { method: pick(h.method, ["fut", "atm", "gamma"], d.hedge.method), side: pick(h.side, ["BUY", "SELL"], d.hedge.side) },
+    excluded,
+    chartSlot: typeof s.chartSlot === "boolean" ? s.chartSlot : d.chartSlot,
+  };
 }
