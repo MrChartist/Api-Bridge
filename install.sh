@@ -12,7 +12,8 @@
 #
 # Where things go: the program in ~/.mc-bridge/app (its own Node.js in ~/.mc-bridge/app/runtime when the computer
 # has no Node.js 22), settings and data in ~/.mc-bridge, the "mc-bridge" command in ~/.local/bin, and a
-# "Mr Chartist Bridge" shortcut in your applications menu (Linux) or ~/Applications (macOS) and on the Desktop.
+# "Mr Chartist Bridge" app in ~/Applications (macOS: Spotlight and Launchpad find it) or in your applications menu
+# and on the Desktop (Linux).
 # For testing: MCB_SOURCE=<folder, .tar.gz file or URL> installs from there; MCB_REF=<branch or tag> picks a version.
 # MCB_HOME moves the whole thing (the Bridge itself reads MCB_HOME too).
 #
