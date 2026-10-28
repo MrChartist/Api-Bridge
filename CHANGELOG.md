@@ -4,6 +4,27 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ## [Unreleased]
 
+### Easy install
+
+- **One-line installers, no Node.js needed.** `irm …/install.ps1 | iex` (Windows) and `curl -fsSL …/install.sh | sh`
+  (macOS, Linux): no admin password; Node.js 22 is used if present, otherwise a private copy is downloaded from
+  nodejs.org and checked against its SHA-256. They set up paper trading, add a **Mr Chartist Bridge** app or shortcut
+  (Start menu and Desktop; Spotlight and Launchpad; applications menu) and an `mc-bridge` command, then open the
+  dashboard. Running them again upgrades in place; both can uninstall.
+- **Ready-to-run downloads.** Each release has one ZIP per system (Windows x64, macOS arm64/x64, Linux x64/arm64) with
+  the Bridge, its parts and Node.js inside: unzip and double-click, even offline. Built and smoke-tested by the new
+  Release workflow.
+- **Double-click launchers with no questions**: `start-windows.bat`, `start-mac.command` and the new `start-linux.sh`
+  fetch Node.js if needed and set up paper trading without asking anything.
+- **Signed in automatically.** `mc-bridge start --open` and the new `mc-bridge open` open the dashboard with a
+  one-time sign-in link (single use, 10 minutes, this computer only), so nobody copies an admin key. Starting again
+  while it runs just reopens the dashboard.
+- **Add a broker and log in from the dashboard**: an Add a broker sheet and a Log in form per broker
+  (`POST`/`DELETE /v1/accounts`); no config file, terminal or restart.
+- Hints name the command that works in your setup (`mc-bridge …`, `npm run bridge -- …` or `docker compose exec …`).
+- App icons for Windows, macOS and Linux; CI runs the installers on real Windows (PowerShell 5.1) and macOS.
+- Beginner guide: [docs/guides/install.md](docs/guides/install.md).
+
 ### Changed
 
 - **Node.js 22 or newer is now required** (Node 20 reached end of life in April 2026). CI runs Node 22 and 24.

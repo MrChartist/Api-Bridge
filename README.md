@@ -170,9 +170,15 @@ README were taken in demo mode.
 
 ## Connect brokers and several accounts
 
+**The easy way:** on the dashboard open **Accounts → Add a broker**, pick your broker, then fill in the **Log in**
+form it opens. That is all; no file to edit, no terminal, no restart. New accounts are paper (practice) only. Each
+morning when a broker ends its session, click **Log in again** on the same page.
+
+The rest of this section is for people who prefer files and the terminal.
+
 ### 1. List your accounts in `bridge.config.json`
 
-`mc-bridge init` writes this file for you. Add more accounts the same way:
+`mc-bridge init` writes this file for you, and the dashboard's **Add a broker** adds to it. By hand it looks like this:
 
 ```json
 {
@@ -202,8 +208,8 @@ npm run bridge -- accounts connect dhan-main --key <your admin key>
 
 It asks for each field your broker needs. What you type is hidden and goes only to the Bridge on this computer,
 which keeps it encrypted (AES-256-GCM). PINs, passwords and TOTP codes are used once to log in and **never stored**.
-Most brokers end API sessions every morning: run the command again then. The dashboard's **Accounts** page shows each
-session's state and the exact command.
+Most brokers end API sessions every morning: run the command again then, or click **Log in again** on the
+dashboard's **Accounts** page, which shows each session's state.
 
 Full guide: [docs/guides/accounts.md](docs/guides/accounts.md).
 

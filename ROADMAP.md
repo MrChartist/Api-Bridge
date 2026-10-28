@@ -17,8 +17,10 @@ What we plan to work on after the first public release. Dates are targets, not p
 
 **Release plumbing**
 - Publish the Node SDK to npm and the Python SDK to PyPI.
-- Tagged releases with a changelog and a prebuilt Docker image.
-- Run CI on Windows and macOS as well as Linux, on Node 22 and 24.
+- A prebuilt Docker image on each tagged release (the ready-to-run ZIPs are already built per tag).
+- Run the full test suite on Windows and macOS as well as Linux (the installers already run there).
+- Sign the Windows and macOS downloads, so the one-time "unknown developer" prompt goes away.
+- Let the dashboard swap Zerodha/Upstox request tokens for the day's access token, so nobody pastes tokens.
 
 ## Done since launch
 
@@ -31,6 +33,8 @@ What we plan to work on after the first public release. Dates are targets, not p
 - Docker base images pinned by digest, kept current by Dependabot.
 - The MCP guide and SECURITY.md say plainly that AI confirmation does not stop an agent with shell or browser control.
 - Docker: `docker compose` documented as the supported way, and the first start asks you to rotate the logged admin key.
+- Easy install: one-line installers and ready-to-run ZIPs with Node.js inside, no-question launchers, automatic
+  dashboard sign-in, and adding and logging in to brokers from the dashboard.
 
 ## Next few weeks (v0.2)
 
