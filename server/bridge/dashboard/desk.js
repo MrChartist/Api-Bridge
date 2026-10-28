@@ -73,7 +73,7 @@ async function renderDesk(kind) {
     underlying: list.includes(prefs.underlying) ? prefs.underlying : list[0],
     expiry: prefs.expiry ?? null,
     strikes: ["8", "12", "20"].includes(prefs.strikes) ? prefs.strikes : "12",
-    view: ["oi", "greeks", "value"].includes(prefs.view) ? prefs.view : "oi",
+    cfg: chainConfig(prefs.chain),
     account: tradable.some((a) => a.id === prefs.account) ? prefs.account : (tradable.find((a) => a.broker === "paper") ?? tradable[0])?.id ?? null,
     live: prefs.live !== false,
     baskets: prefs.baskets && typeof prefs.baskets === "object" ? prefs.baskets : {},
@@ -87,7 +87,7 @@ async function renderDesk(kind) {
     focus: null, // { strike, side: "ce" | "pe" }
     seq: 0,
   };
-  const save = () => local.set(SLOT, JSON.stringify({ underlying: st.underlying, expiry: st.expiry, strikes: st.strikes, view: st.view, account: st.account, live: st.live, baskets: st.baskets, profile: st.profile }));
+  const save = () => local.set(SLOT, JSON.stringify({ underlying: st.underlying, expiry: st.expiry, strikes: st.strikes, chain: st.cfg, account: st.account, live: st.live, baskets: st.baskets, profile: st.profile }));
   const account = () => tradable.find((a) => a.id === st.account) ?? null;
   const basketKey = () => `${st.underlying}|${st.expiry}`;
   const basket = () => (st.baskets[basketKey()] ??= []);
@@ -96,7 +96,11 @@ async function renderDesk(kind) {
   const uSel = h("select", { "aria-label": "Underlying", class: "desk-u" }, list.map((u) => h("option", { value: u, selected: u === st.underlying }, u)));
   const eSel = h("select", { "aria-label": "Expiry" });
   const strikesSeg = segmented("Strikes each side of ATM", [["8", "±8"], ["12", "±12"], ["20", "±20"]], st.strikes);
-  const viewSeg = segmented("Columns", [["oi", "OI"], ["greeks", "Greeks"], ["value", "Value"]], st.view);
+  const presetOf = () => Object.keys(CHAIN_PRESETS).find((k) => CHAIN_PRESETS[k].join() === st.cfg.cols.join()) ?? "custom";
+  const viewSeg = segmented("Columns", [["oi", "OI"], ["greeks", "Greeks"], ["value", "Value"]], presetOf() === "custom" ? "oi" : presetOf());
+  viewSeg.classList.toggle("custom", presetOf() === "custom");
+  const gearBtn = h("button", { type: "button", class: "small gear-btn", "aria-haspopup": "dialog", title: "Customise the chain: columns, bars, tags" }, icon("sliders"), "Customise");
+  const chainTitle = h("span", { class: "chain-title" });
   const aSel = h(
     "select",
     { "aria-label": "Orders go to", disabled: !tradable.length },
@@ -120,9 +124,7 @@ async function renderDesk(kind) {
     ),
   );
   const builderEl = h("div");
-  const adderEl = h("div");
   const profileEl = h("div");
-  const oiMoreEl = h("div", { class: "grid desk-split" });
   const posEl = h("div");
 
   // ── Data ──
@@ -202,6 +204,8 @@ async function renderDesk(kind) {
       targets: O.deltaTargets(c.rows),
       ranks: { ce: O.volumeRanks(c.rows, "ce"), pe: O.volumeRanks(c.rows, "pe") },
       hot: unusualVolume(c.rows),
+      maxVol: c.rows.reduce((m, r) => Math.max(m, num(r.ce?.volume) ?? 0, num(r.pe?.volume) ?? 0), 0),
+      held: heldLots(st.cfg.positions ? st.positions : [], num(c.lotSize) || 1),
       emUp: move ? near(F + move) : null,
       emDown: move ? near(F - move) : null,
     };
@@ -215,20 +219,16 @@ async function renderDesk(kind) {
       chainEl.replaceChildren(st.error ? h("div", { class: "desk-pad" }, alertBox(st.error)) : h("p", { class: "muted desk-pad" }, "Loading the chain…"));
       builderEl.replaceChildren();
       profileEl.replaceChildren();
-      oiMoreEl.replaceChildren();
       return;
     }
     const x = context();
     drawStats(x);
-    if (kind === "chain") chain.draw(x);
-    if (kind === "strategy") {
-      drawAdder(x);
-      drawBuilder(x);
+    if (kind === "chain") {
+      chainTitle.replaceChildren(h("strong", {}, `${x.c.underlying} ${expiryText(x.c.expiry)}`), h("span", { class: "muted" }, ` · ${O.timeToExpiry(x.c.expiry).label} · lot ${formatInt(x.lot)}`));
+      chain.draw(x);
     }
-    if (kind === "oi") {
-      drawProfile(x);
-      drawOiMore(x);
-    }
+    if (kind === "strategy") drawBuilder(x);
+    if (kind === "oi") drawProfile(x);
   }
   function drawClock() {
     const asOf = st.freshness?.asOf;
@@ -269,6 +269,7 @@ async function renderDesk(kind) {
   const chain = createChain({
     st,
     host: chainEl,
+    onSide: (side) => setCfg({ side }),
     onTrade: (row, right, side) => openTicket({ row, right, side }),
     onFocus: (f) => {
       st.focus = f;
@@ -276,8 +277,6 @@ async function renderDesk(kind) {
     },
   });
 
-  function drawAdder() {}
-  function drawOiMore() {}
   function drawProfile(x) {
     profileEl.replaceChildren(oiProfile(x, st.profile, (p) => {
       st.profile = p;
@@ -680,6 +679,144 @@ async function renderDesk(kind) {
     if (result === "placed") refresh();
   }
 
+  // ── Chain settings ──
+  function setCfg(patch) {
+    st.cfg = chainConfig({ ...st.cfg, ...patch });
+    save();
+    const p = presetOf();
+    if (p !== "custom" && viewSeg.value !== p) viewSeg.value = p;
+    viewSeg.classList.toggle("custom", p === "custom");
+    chain.reset(true);
+    if (st.chain) drawAll();
+  }
+  function openCustomise() {
+    const close = () => {
+      pop.remove();
+      document.removeEventListener("pointerdown", outside, true);
+      document.removeEventListener("keydown", esc, true);
+      gearBtn.setAttribute("aria-expanded", "false");
+      gearBtn.focus();
+    };
+    const outside = (e) => {
+      if (!pop.contains(e.target) && !gearBtn.contains(e.target)) close();
+    };
+    const esc = (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close();
+      }
+    };
+    const sw = (label, get, set, hint) => {
+      const input = h("input", { type: "checkbox", role: "switch" });
+      input.checked = get();
+      input.addEventListener("change", () => {
+        set(input.checked);
+        draw();
+      });
+      return h("label", { class: "sw-row" }, h("span", { class: "sw-text" }, label, hint ? h("small", {}, hint) : null), h("span", { class: "switch" }, input, h("i", { "aria-hidden": "true" })));
+    };
+    const body = h("div", { class: "pop-body" });
+    const draw = () => {
+      const c = st.cfg;
+      const sideSeg = segmented("Show", [["ce", "Calls"], ["both", "Both"], ["pe", "Puts"]], c.side);
+      sideSeg.addEventListener("change", () => setCfg({ side: sideSeg.value }));
+      const enabled = c.cols;
+      const others = CHAIN_COLUMNS.map(([k]) => k).filter((k) => !enabled.includes(k));
+      const label = (k) => CHAIN_COLUMNS.find(([x]) => x === k)?.[1] ?? k;
+      const move = (k, d) => {
+        const a = [...enabled];
+        const i = a.indexOf(k);
+        const j = i + d;
+        if (j < 0 || j >= a.length) return;
+        [a[i], a[j]] = [a[j], a[i]];
+        setCfg({ cols: a });
+        draw();
+      };
+      const colRow = (k, on) =>
+        h(
+          "div",
+          { class: `col-row ${on ? "on" : ""}`.trim(), draggable: on ? "true" : undefined, "data-col": k },
+          on ? h("span", { class: "grip", "aria-hidden": "true" }, icon("grip")) : h("span", { class: "grip" }),
+          h("label", { class: "col-check" }, (() => {
+            const i = h("input", { type: "checkbox" });
+            i.checked = on;
+            i.addEventListener("change", () => {
+              const next = on ? enabled.filter((x) => x !== k) : [...enabled, k];
+              if (!next.length) return draw();
+              setCfg({ cols: next });
+              draw();
+            });
+            return i;
+          })(), label(k)),
+          on ? h("span", { class: "col-move" }, h("button", { type: "button", class: "icon-btn tiny", "aria-label": `Move ${label(k)} towards the strike`, disabled: enabled.indexOf(k) === 0, onclick: () => move(k, -1) }, icon("up")), h("button", { type: "button", class: "icon-btn tiny", "aria-label": `Move ${label(k)} away from the strike`, disabled: enabled.indexOf(k) === enabled.length - 1, onclick: () => move(k, 1) }, icon("down"))) : null,
+        );
+      const list = h("div", { class: "col-list" }, enabled.map((k) => colRow(k, true)), others.map((k) => colRow(k, false)));
+      // Drag a column row to reorder (mouse); the arrow buttons do the same from the keyboard.
+      let dragKey = null;
+      list.addEventListener("dragstart", (e) => {
+        const r = e.target.closest(".col-row.on");
+        if (!r) return;
+        dragKey = r.dataset.col;
+        r.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", dragKey);
+      });
+      list.addEventListener("dragover", (e) => {
+        if (!dragKey) return;
+        e.preventDefault();
+        const over = e.target.closest(".col-row.on");
+        const from = list.querySelector(".dragging");
+        if (!over || !from || over === from) return;
+        const r = over.getBoundingClientRect();
+        list.insertBefore(from, e.clientY > r.top + r.height / 2 ? over.nextSibling : over);
+      });
+      list.addEventListener("dragend", () => {
+        if (!dragKey) return;
+        dragKey = null;
+        setCfg({ cols: [...list.querySelectorAll(".col-row.on")].map((r) => r.dataset.col) });
+        draw();
+      });
+      const presets = h("div", { class: "preset-row" }, Object.keys(CHAIN_PRESETS).map((p) => h("button", { type: "button", class: `preset ${presetOf() === p ? "on" : ""}`.trim(), onclick: () => { setCfg({ cols: [...CHAIN_PRESETS[p]] }); draw(); } }, { oi: "OI", greeks: "Greeks", value: "Value" }[p])));
+      body.replaceChildren(
+        h("section", {}, h("h3", {}, "Show"), sideSeg),
+        h("section", {}, h("h3", {}, "Columns ", h("small", {}, "from the strike outwards · drag to reorder")), presets, list, sw("Bid and ask (click to trade)", () => c.quotes, (v) => setCfg({ quotes: v }))),
+        h("section", {}, h("h3", {}, "Bars"), sw("OI bars", () => c.bars.oi, (v) => setCfg({ bars: { ...st.cfg.bars, oi: v } })), sw("OI change bars", () => c.bars.chg, (v) => setCfg({ bars: { ...st.cfg.bars, chg: v } })), sw("Volume bars", () => c.bars.vol, (v) => setCfg({ bars: { ...st.cfg.bars, vol: v } }))),
+        h(
+          "section",
+          {},
+          h("h3", {}, "Display"),
+          sw("% change under values", () => c.pct, (v) => setCfg({ pct: v })),
+          sw("Values in lots", () => c.lots, (v) => setCfg({ lots: v }), "OI and volume ÷ lot size"),
+          sw("Highlight in-the-money", () => c.itm, (v) => setCfg({ itm: v })),
+          sw("My positions in the chain", () => c.positions, (v) => setCfg({ positions: v }), "Lots you hold, beside the LTP"),
+          sw("Compact rows", () => c.dense, (v) => setCfg({ dense: v })),
+        ),
+        h(
+          "section",
+          {},
+          h("h3", {}, "Strike tags"),
+          sw("Max Pain", () => c.tags.mp, (v) => setCfg({ tags: { ...st.cfg.tags, mp: v } })),
+          sw("Support / Resistance (OI walls)", () => c.tags.walls, (v) => setCfg({ tags: { ...st.cfg.tags, walls: v } })),
+          sw("Expected move (±1σ)", () => c.tags.em, (v) => setCfg({ tags: { ...st.cfg.tags, em: v } })),
+        ),
+      );
+    };
+    const pop = h(
+      "div",
+      { class: "popover customise", role: "dialog", "aria-label": "Customise the chain" },
+      h("div", { class: "pop-head" }, h("strong", {}, "Customise"), h("button", { type: "button", class: "small plain reset", onclick: () => { st.cfg = chainConfig({}); setCfg({}); draw(); } }, icon("refresh"), "Reset"), h("button", { type: "button", class: "icon-btn tiny", "aria-label": "Close", onclick: () => close() }, icon("close"))),
+      body,
+    );
+    draw();
+    gearBtn.setAttribute("aria-expanded", "true");
+    gearBtn.closest(".panel-head").append(pop);
+    pop.querySelector("button, input")?.focus();
+    setTimeout(() => {
+      document.addEventListener("pointerdown", outside, true);
+      document.addEventListener("keydown", esc, true);
+    });
+  }
+
   // ── Keyboard ──
   const desk = {
     root: chainEl,
@@ -691,18 +828,18 @@ async function renderDesk(kind) {
       const move = (d) => {
         const i = f ? rows.indexOf(f.strike) : rows.indexOf(chain.atmStrike());
         const j = Math.max(0, Math.min(rows.length - 1, (i < 0 ? 0 : i) + d));
-        st.focus = { strike: rows[j], side: f?.side ?? "ce" };
+        st.focus = { strike: rows[j], side: st.cfg.side !== "both" ? st.cfg.side : f?.side ?? "ce" };
         chain.paintFocus(true);
       };
       if (k === "j" || (k === "ArrowDown" && f)) return move(1), true;
       if (k === "k" || (k === "ArrowUp" && f)) return move(-1), true;
-      if ((k === "ArrowLeft" || k === "h") && f) return (st.focus = { ...f, side: "ce" }), chain.paintFocus(true), true;
-      if ((k === "ArrowRight" || k === "l") && f) return (st.focus = { ...f, side: "pe" }), chain.paintFocus(true), true;
+      if ((k === "ArrowLeft" || k === "h") && f && st.cfg.side === "both") return (st.focus = { ...f, side: "ce" }), chain.paintFocus(true), true;
+      if ((k === "ArrowRight" || k === "l") && f && st.cfg.side === "both") return (st.focus = { ...f, side: "pe" }), chain.paintFocus(true), true;
       if (k === "g") return (st.focus = { strike: chain.atmStrike(), side: f?.side ?? "ce" }), chain.paintFocus(true), true;
       if (k === "Escape" && f) return (st.focus = null), chain.paintFocus(), true;
       if (k === "p") return liveBtn.click(), true;
       if (k === "r") return refresh(), true;
-      const target = f ?? { strike: chain.atmStrike(), side: "ce" };
+      const target = f ?? { strike: chain.atmStrike(), side: st.cfg.side !== "both" ? st.cfg.side : "ce" };
       const row = st.chain?.rows.find((r) => r.strike === target.strike);
       if (!row) return false;
       const right = target.side === "ce" ? "CE" : "PE";
@@ -735,12 +872,8 @@ async function renderDesk(kind) {
     chain.reset();
     drawAll();
   });
-  viewSeg.addEventListener("change", () => {
-    st.view = viewSeg.value;
-    save();
-    chain.reset(true);
-    drawAll();
-  });
+  viewSeg.addEventListener("change", () => setCfg({ cols: [...CHAIN_PRESETS[viewSeg.value]] }));
+  gearBtn.addEventListener("click", () => openCustomise());
   aSel.addEventListener("change", () => {
     st.account = aSel.value;
     save();
@@ -762,63 +895,132 @@ async function renderDesk(kind) {
     "div",
     { class: "desk-bar" },
     h("div", { class: "desk-pick" }, uSel, eSel),
-    kind === "chain" ? h("div", { class: "desk-opts" }, strikesSeg, viewSeg) : null,
     h("div", { class: "desk-acct", title: "Orders from these pages go to this account" }, aSel),
     h("div", { class: "desk-live" }, clock, liveBtn),
   );
-  if (kind === "chain") return [h("section", { class: "desk-panel" }, bar, statsEl, chainEl, keysEl)];
-  if (kind === "strategy") return [h("section", { class: "desk-panel" }, bar, statsEl), adderEl, builderEl];
-  if (kind === "oi") return [h("section", { class: "desk-panel" }, bar, statsEl), profileEl, oiMoreEl];
-  return [h("section", { class: "desk-panel" }, bar), posEl];
+  if (kind === "chain") {
+    return [
+      h("section", { class: "desk-panel desk-top", "data-fixed": "" }, bar),
+      h("section", { class: "desk-panel", "data-panel": "summary", "aria-label": "Chain summary" }, statsEl),
+      h(
+        "section",
+        { class: "desk-panel", "data-panel": "chain", "aria-label": "Option chain" },
+        h("div", { class: "chain-head panel-head" }, chainTitle, h("div", { class: "chain-tools" }, strikesSeg, viewSeg, gearBtn)),
+        chainEl,
+        keysEl,
+      ),
+    ];
+  }
+  const top = h("section", { class: "desk-panel desk-top", "data-fixed": "" }, bar);
+  const summary = h("section", { class: "desk-panel", "data-panel": "summary", "aria-label": "Chain summary" }, statsEl);
+  if (kind === "strategy") return [top, summary, builderEl];
+  if (kind === "oi") return [top, summary, profileEl];
+  return [top, posEl];
 }
 
 // ── Chain table (built once, patched on every refresh) ──
 
-function createChain({ st, host, onTrade, onFocus }) {
-  let built = null; // { key, table, rows: Map<strike, { tr, th, ce: td[], pe: td[] }>, spotTr, foot }
+/** Every column the chain can show. `v` = what the cell depends on (unchanged → skipped), `r` = its content. */
+export const CHAIN_COLUMNS = [
+  ["ltp", "LTP"], ["iv", "IV"], ["oi", "OI"], ["chg", "OI change"], ["vol", "Volume"], ["bu", "Build-up"],
+  ["delta", "Delta"], ["gamma", "Gamma"], ["theta", "Theta"], ["vega", "Vega"], ["pitm", "P(ITM)"],
+  ["ext", "Time value"], ["spread", "Spread %"], ["liq", "Liquidity"], ["prem", "Premium traded"],
+];
+/** Column presets, listed from the strike outwards. */
+export const CHAIN_PRESETS = {
+  oi: ["ltp", "iv", "vol", "chg", "oi", "bu"],
+  greeks: ["ltp", "iv", "delta", "gamma", "theta", "vega", "pitm"],
+  value: ["ltp", "iv", "ext", "spread", "liq", "prem"],
+};
+/** The chain's settings (Customise panel); stored with the desk's other preferences. */
+export const CHAIN_DEFAULTS = Object.freeze({
+  cols: CHAIN_PRESETS.oi,
+  side: "both",
+  quotes: true,
+  bars: { oi: true, chg: true, vol: true },
+  pct: true,
+  lots: false,
+  itm: true,
+  positions: true,
+  dense: false,
+  tags: { mp: true, walls: true, em: true },
+});
+export function chainConfig(saved) {
+  const d = CHAIN_DEFAULTS;
+  const c = saved && typeof saved === "object" ? saved : {};
+  const known = new Set(CHAIN_COLUMNS.map(([k]) => k));
+  const cols = Array.isArray(c.cols) ? c.cols.filter((k, i, a) => known.has(k) && a.indexOf(k) === i) : d.cols;
+  const bool = (v, def) => (typeof v === "boolean" ? v : def);
+  return {
+    cols: cols.length ? cols : [...d.cols],
+    side: ["both", "ce", "pe"].includes(c.side) ? c.side : d.side,
+    quotes: bool(c.quotes, d.quotes),
+    bars: { oi: bool(c.bars?.oi, d.bars.oi), chg: bool(c.bars?.chg, d.bars.chg), vol: bool(c.bars?.vol, d.bars.vol) },
+    pct: bool(c.pct, d.pct),
+    lots: bool(c.lots, d.lots),
+    itm: bool(c.itm, d.itm),
+    positions: bool(c.positions, d.positions),
+    dense: bool(c.dense, d.dense),
+    tags: { mp: bool(c.tags?.mp, d.tags.mp), walls: bool(c.tags?.walls, d.tags.walls), em: bool(c.tags?.em, d.tags.em) },
+  };
+}
+
+function createChain({ st, host, onTrade, onFocus, onSide }) {
+  let built = null;
   let centred = false;
 
   const g = (v, dp) => (isFigure(v) ? formatFixed(v, dp) : DASH);
   const dots = (n) => h("span", { class: "liq", title: `Liquidity ${n} of 5`, "aria-label": `Liquidity ${n} of 5` }, [1, 2, 3, 4, 5].map((i) => h("i", { class: i <= n ? "on" : undefined })));
-  /** Column: v = what the cell depends on (compared to skip unchanged cells), r = the cell's content. */
+  /** A value with an optional bar under it (width = share of the chain's largest), growing away from the strike. */
+  const barred = (text, frac, cls, on) => {
+    if (!on) return text;
+    const bar = h("span", { class: `vbar ${cls ?? ""}`.trim(), "aria-hidden": "true" }, h("span"));
+    bar.firstChild.style.width = `${Math.max(0, Math.min(100, frac * 100))}%`;
+    return h("span", { class: "barred" }, h("span", {}, text), bar);
+  };
+  const cfg = () => st.cfg;
+  const unit = (x) => (cfg().lots ? x.lot : 1);
   const COLS = {
-    bu: { label: "Build-up", title: "OI build-up: LB long build-up, SB short build-up, SC short covering, LU long unwinding", cls: "opt-x bu-col", v: (q) => O.buildup(q), r: (q) => { const b = O.buildup(q); return b ? h("span", { class: `bu bu-${b}`, title: O.BUILDUP_NAMES[b] }, b) : h("span", { class: "muted" }, DASH); } },
+    bu: { label: "Build-up", title: "OI build-up: LB long build-up, SB short build-up, SC short covering, LU long unwinding", cls: "opt-x", v: (q) => O.buildup(q), r: (q) => { const b = O.buildup(q); return b ? h("span", { class: `bu bu-${b}`, title: O.BUILDUP_NAMES[b] }, b) : h("span", { class: "muted" }, DASH); } },
     oi: {
       label: "OI",
-      v: (q, row, side, x) => [q?.oi, q?.oiChange, x.sm.maxOi, x.sm.maxOiChange],
-      r: (q, row, side, x) => {
-        const bar = h("span", { class: "oi-bar", "aria-hidden": "true" }, h("span"), h("span", { class: `chg ${num(q?.oiChange) < 0 ? "neg" : ""}`.trim() }));
-        bar.children[0].style.width = `${x.sm.maxOi > 0 ? Math.min(100, ((num(q?.oi) ?? 0) / x.sm.maxOi) * 100) : 0}%`;
-        bar.children[1].style.width = `${x.sm.maxOiChange > 0 ? Math.min(100, (Math.abs(num(q?.oiChange) ?? 0) / x.sm.maxOiChange) * 100) : 0}%`;
-        return h("span", { class: "oi-cell" }, h("span", {}, formatCompact(q?.oi)), bar);
-      },
+      v: (q, row, side, x) => [q?.oi, x.sm.maxOi, x.held.get(q?.symbol)],
+      r: (q, row, side, x) => barred(formatCompact(num(q?.oi) === null ? null : q.oi / unit(x)), x.sm.maxOi ? (num(q?.oi) ?? 0) / x.sm.maxOi : 0, `oi ${row.strike === x.sm.resistance?.strike && side === "ce" ? "wall" : row.strike === x.sm.support?.strike && side === "pe" ? "wall" : ""}`, cfg().bars.oi),
     },
     chg: {
-      label: "Chg OI",
-      v: (q) => [q?.oiChange, q?.oi],
-      r: (q) => {
+      label: "OI chg",
+      v: (q, row, side, x) => [q?.oiChange, q?.oi, x.sm.maxOiChange],
+      r: (q, row, side, x) => {
         const v = num(q?.oiChange);
         const pct = O.oiChangePct(q);
-        return h("span", { class: "two" }, h("span", { class: v > 0 ? "up" : v < 0 ? "down" : undefined }, formatCompact(v, { signed: true })), h("small", {}, pct === null ? "" : formatPercent(pct, 1)));
+        const text = h("span", { class: "two" }, h("span", { class: v > 0 ? "up" : v < 0 ? "down" : undefined }, formatCompact(v === null ? null : v / unit(x), { signed: true })), cfg().pct ? h("small", {}, pct === null ? "" : formatPercent(pct, 1)) : null);
+        return barred(text, x.sm.maxOiChange ? Math.abs(v ?? 0) / x.sm.maxOiChange : 0, v < 0 ? "neg" : "pos", cfg().bars.chg);
       },
     },
     vol: {
       label: "Volume",
       cls: "opt-x",
-      v: (q, row, side, x) => [q?.volume, x.hot.has(q?.symbol)],
+      v: (q, row, side, x) => [q?.volume, x.hot.has(q?.symbol), x.maxVol],
       r: (q, row, side, x) => {
         const hot = x.hot.has(q?.symbol);
-        return h("span", { class: hot ? "hot" : undefined, title: hot ? "Unusual: volume ÷ OI well above the rest of the chain" : undefined }, formatCompact(q?.volume));
+        const text = h("span", { class: hot ? "hot" : undefined, title: hot ? "Unusual: volume ÷ OI well above the rest of the chain" : undefined }, formatCompact(num(q?.volume) === null ? null : q.volume / unit(x)));
+        return barred(text, x.maxVol ? (num(q?.volume) ?? 0) / x.maxVol : 0, "vol", cfg().bars.vol);
       },
     },
     iv: { label: "IV", v: (q) => q?.iv, r: (q) => g(q?.iv, 1) },
     ltp: {
       label: "LTP",
       ltp: true,
-      v: (q) => [q?.ltp, q?.change],
-      r: (q) => {
+      v: (q, row, side, x) => [q?.ltp, q?.change, x.held.get(q?.symbol)],
+      r: (q, row, side, x) => {
         const pct = O.changePct(q);
-        return h("span", { class: "two" }, h("strong", {}, g(q?.ltp, 2)), h("small", { class: pct > 0 ? "up" : pct < 0 ? "down" : undefined }, pct === null ? "" : formatSigned(pct, 1)));
+        const held = x.held.get(q?.symbol);
+        return h(
+          "span",
+          { class: "two" },
+          h("strong", {}, held ? h("span", { class: `held ${held > 0 ? "long" : "short"}`, title: `You hold ${formatSigned(held, 0)} lot(s)` }, formatSigned(held, 0)) : null, g(q?.ltp, 2)),
+          cfg().pct ? h("small", { class: pct > 0 ? "up" : pct < 0 ? "down" : undefined }, pct === null ? "" : formatSigned(pct, 1)) : null,
+        );
       },
     },
     delta: { label: "Delta", v: (q) => q?.delta, r: (q) => g(q?.delta, 2) },
@@ -829,7 +1031,10 @@ function createChain({ st, host, onTrade, onFocus }) {
       label: "P(ITM)",
       title: "Probability of finishing in the money (Black-76 on the forward)",
       v: (q, row, side, x) => [q?.iv, Math.round((x.F ?? 0) * 10)],
-      r: (q, row, side, x) => formatPercent(O.probItm(x.F, row.strike, x.years, q?.iv, side === "ce" ? "CE" : "PE") === null ? null : O.probItm(x.F, row.strike, x.years, q?.iv, side === "ce" ? "CE" : "PE") * 100, 0),
+      r: (q, row, side, x) => {
+        const p = O.probItm(x.F, row.strike, x.years, q?.iv, side === "ce" ? "CE" : "PE");
+        return formatPercent(p === null ? null : p * 100, 0);
+      },
     },
     ext: {
       label: "Time value",
@@ -855,10 +1060,18 @@ function createChain({ st, host, onTrade, onFocus }) {
     bid: { label: "Bid", trade: "SELL" },
     ask: { label: "Ask", trade: "BUY" },
   };
-  const VIEWS = { oi: ["bu", "oi", "chg", "vol", "iv", "ltp"], greeks: ["pitm", "vega", "theta", "gamma", "delta", "iv", "ltp"], value: ["prem", "liq", "spread", "ext", "iv", "ltp"] };
-  const layout = (view) => {
-    const inner = VIEWS[view] ?? VIEWS.oi;
-    return { ce: [...inner, "bid", "ask"], pe: ["bid", "ask", ...[...inner].reverse()] };
+  /**
+   * Cells per side, in screen order. Both sides: calls mirror puts around the strike. One side: the strike comes
+   * first and that side reads outwards from it.
+   */
+  const layout = () => {
+    const c = cfg();
+    const inner = c.cols.filter((k) => COLS[k]);
+    const near = c.quotes ? ["bid", "ask"] : [];
+    const out = [...near, ...inner];
+    if (c.side === "ce") return { order: ["strike", "ce"], ce: out, pe: [] };
+    if (c.side === "pe") return { order: ["strike", "pe"], ce: [], pe: out };
+    return { order: ["ce", "strike", "pe"], ce: [...inner].reverse().concat(near), pe: out };
   };
 
   function tradeButton(q, row, side, trade) {
@@ -868,42 +1081,46 @@ function createChain({ st, host, onTrade, onFocus }) {
     const label = `${trade === "BUY" ? "Buy" : "Sell"} ${formatInt(row.strike)} ${right} at ${formatFixed(price, 2)}`;
     return h("button", { type: "button", class: `q-btn ${trade === "BUY" ? "buy" : "sell"}`, title: label, "aria-label": label, disabled: !st.account, onclick: (e) => { e.stopPropagation(); onTrade(row, right, trade); } }, formatFixed(price, 2));
   }
+  const headCell = (k) => h("th", { scope: "col", class: `num ${COLS[k].cls ?? ""}`.trim(), title: COLS[k].title }, k === "oi" && cfg().lots ? "OI (lots)" : k === "vol" && cfg().lots ? "Vol (lots)" : COLS[k].label);
 
   function build(x, rows, key) {
-    const cols = layout(st.view);
-    const n = cols.ce.length;
-    const head = h(
-      "thead",
-      {},
-      h("tr", { class: "side-head" }, h("th", { colspan: n, scope: "colgroup" }, "Calls"), h("th", { class: "strike-col" }, ""), h("th", { colspan: n, scope: "colgroup" }, "Puts")),
-      h(
-        "tr",
-        { class: "col-head" },
-        cols.ce.map((k) => h("th", { scope: "col", class: `num ${COLS[k].cls ?? ""}`.trim(), title: COLS[k].title }, COLS[k].label)),
-        h("th", { scope: "col", class: "strike-col" }, "Strike"),
-        cols.pe.map((k) => h("th", { scope: "col", class: `num ${COLS[k].cls ?? ""}`.trim(), title: COLS[k].title }, COLS[k].label)),
-      ),
-    );
+    const L = layout();
+    const c = cfg();
+    const span = L.ce.length + L.pe.length + 1;
+    const sideBtn = (side, label) =>
+      h("button", { type: "button", class: "side-btn", title: c.side === side ? "Show calls and puts" : `Show ${label.toLowerCase()} only`, "aria-pressed": String(c.side === side), onclick: () => onSide(c.side === side ? "both" : side) }, side === "ce" ? "‹ " : "", label, side === "pe" ? " ›" : "");
+    const sideHead =
+      c.side === "both"
+        ? [h("th", { colspan: L.ce.length, scope: "colgroup" }, sideBtn("ce", "Calls")), h("th", { class: "strike-col" }, ""), h("th", { colspan: L.pe.length, scope: "colgroup" }, sideBtn("pe", "Puts"))]
+        : [h("th", { colspan: span, scope: "colgroup" }, h("button", { type: "button", class: "side-btn on", onclick: () => onSide("both") }, `Showing ${c.side === "ce" ? "calls" : "puts"} only`, h("span", { "aria-hidden": "true" }, " ×")))];
+    const colHead = L.order.flatMap((part) => (part === "strike" ? [h("th", { scope: "col", class: "strike-col" }, "Strike")] : L[part].map(headCell)));
+    const head = h("thead", {}, h("tr", { class: "side-head" }, sideHead), h("tr", { class: "col-head" }, colHead));
     const map = new Map();
     const body = h("tbody");
     for (const row of rows) {
-      const ce = cols.ce.map((k) => h("td", { class: `num ${COLS[k].cls ?? ""} c-${k}`.trim() }));
-      const pe = cols.pe.map((k) => h("td", { class: `num ${COLS[k].cls ?? ""} c-${k}`.trim() }));
+      const ce = L.ce.map((k) => h("td", { class: `num ${COLS[k].cls ?? ""} c-${k}`.trim() }));
+      const pe = L.pe.map((k) => h("td", { class: `num ${COLS[k].cls ?? ""} c-${k}`.trim() }));
       const th = h("th", { scope: "row", class: "strike-col" });
-      const tr = h("tr", { "data-strike": row.strike }, ce, th, pe);
+      const tr = h("tr", { "data-strike": row.strike }, L.order.map((part) => (part === "strike" ? th : part === "ce" ? ce : pe)));
       tr.addEventListener("click", (e) => {
         if (e.target.closest("button")) return;
         const cell = e.target.closest("td");
-        const side = cell && pe.includes(cell) ? "pe" : cell && ce.includes(cell) ? "ce" : st.focus?.side ?? "ce";
+        const side = cell && pe.includes(cell) ? "pe" : cell && ce.includes(cell) ? "ce" : c.side !== "both" ? c.side : st.focus?.side ?? "ce";
         onFocus({ strike: row.strike, side });
       });
       body.append(tr);
-      map.set(row.strike, { tr, th, ce, pe, cols });
+      map.set(row.strike, { tr, th, ce, pe });
     }
-    const spotTr = h("tr", { class: "spot-row", "aria-hidden": "true" }, h("td", { colspan: n * 2 + 1 }, h("span", { class: "spot-tag" })));
-    const foot = { ce: cols.ce.map((k) => h("td", { class: `num ${COLS[k].cls ?? ""}`.trim() })), th: h("th", { scope: "row", class: "strike-col" }), pe: cols.pe.map((k) => h("td", { class: `num ${COLS[k].cls ?? ""}`.trim() })) };
-    const table = h("table", { class: `chain v-${st.view}` }, head, body, h("tfoot", {}, h("tr", {}, foot.ce, foot.th, foot.pe)));
-    built = { key, table, rows: map, spotTr, foot, cols, body };
+    const spotTr = h("tr", { class: "spot-row", "aria-hidden": "true" }, h("td", { colspan: span }, h("span", { class: "spot-tag" })));
+    const foot = { ce: L.ce.map((k) => h("td", { class: `num ${COLS[k].cls ?? ""}`.trim() })), th: h("th", { scope: "row", class: "strike-col" }), pe: L.pe.map((k) => h("td", { class: `num ${COLS[k].cls ?? ""}`.trim() })) };
+    const table = h(
+      "table",
+      { class: `chain side-${c.side}${c.dense ? " dense" : ""}` },
+      head,
+      body,
+      h("tfoot", {}, h("tr", {}, L.order.map((part) => (part === "strike" ? foot.th : foot[part])))),
+    );
+    built = { key, table, rows: map, spotTr, foot, L, body };
     const wrap = h("div", { class: "table-wrap chain-wrap" }, table);
     const old = st.__wrap;
     const keepX = old?.isConnected ? old.scrollLeft : null;
@@ -940,48 +1157,50 @@ function createChain({ st, host, onTrade, onFocus }) {
 
   function patch(x, rows) {
     const { sm, spot } = x;
-    const mp = sm.maxPain;
+    const c = cfg();
     for (const row of rows) {
       const b = built.rows.get(row.strike);
       if (!b) continue;
       for (const side of ["ce", "pe"]) {
         const q = row[side];
-        const itm = O.inTheMoney(row.strike, side, spot);
+        const itm = c.itm && O.inTheMoney(row.strike, side, spot);
         const dt = x.targets[side].get(row.strike);
-        b.cols[side].forEach((k, i) => {
+        built.L[side].forEach((k, i) => {
           const td = b[side][i];
           patchCell(td, k, q, row, side, x);
           td.classList.toggle("itm", itm);
-          td.classList.toggle("dt", Boolean(dt) && k === "delta");
-          if (k === "delta") td.title = dt ? `${dt} strike` : "";
+          if (k === "delta") {
+            td.classList.toggle("dt", Boolean(dt));
+            td.title = dt ? `${dt} strike` : "";
+          }
         });
       }
       const tags = [];
       if (row.strike === sm.atm) tags.push(["atm", "ATM", "At the money"]);
-      if (row.strike === mp) tags.push(["mp", "MP", "Max pain"]);
-      if (row.strike === sm.resistance?.strike) tags.push(["cw", "CW", "Call wall: most call OI"]);
-      if (row.strike === sm.support?.strike) tags.push(["pw", "PW", "Put wall: most put OI"]);
-      if (row.strike === x.emUp) tags.push(["em", "+1σ", "Upper edge of the expected move (IV 1σ)"]);
-      if (row.strike === x.emDown) tags.push(["em", "−1σ", "Lower edge of the expected move (IV 1σ)"]);
+      if (c.tags.mp && row.strike === sm.maxPain) tags.push(["mp", "Max Pain", "Settlement at which option buyers collect the least"]);
+      if (c.tags.walls && row.strike === sm.resistance?.strike) tags.push(["cw", "Resistance", "Most call OI in the chain"]);
+      if (c.tags.walls && row.strike === sm.support?.strike) tags.push(["pw", "Support", "Most put OI in the chain"]);
+      if (c.tags.em && row.strike === x.emUp) tags.push(["em", "+1σ", "Upper edge of the expected move (IV 1σ to expiry)"]);
+      if (c.tags.em && row.strike === x.emDown) tags.push(["em", "−1σ", "Lower edge of the expected move (IV 1σ to expiry)"]);
       const sig = `${row.strike}|${tags.map((t) => t[1]).join(",")}`;
       if (b.th.__sig !== sig) {
         b.th.__sig = sig;
-        b.th.replaceChildren(...[h("span", { class: "k" }, formatInt(row.strike)), tags.length ? h("span", { class: "tags" }, tags.map(([c, t, title]) => h("span", { class: `tag ${c}`, title }, t))) : null].filter(Boolean));
+        b.th.replaceChildren(...[h("span", { class: "k" }, formatInt(row.strike)), tags.length ? h("span", { class: "tags" }, tags.map(([cl, t, title]) => h("span", { class: `tag ${cl}`, title }, t))) : null].filter(Boolean));
       }
       b.tr.classList.toggle("atm", row.strike === sm.atm);
-      b.tr.classList.toggle("in-em", x.emDown !== null && row.strike >= x.emDown && row.strike <= x.emUp);
+      b.tr.classList.toggle("in-em", c.tags.em && x.emDown !== null && row.strike >= x.emDown && row.strike <= x.emUp);
     }
-    // Spot marker: between the last strike below spot and the first above it.
     if (spot !== null) {
       built.spotTr.querySelector(".spot-tag").textContent = `${st.chain.underlying} ${formatFixed(spot, 2)}`;
       const after = rows.find((r) => r.strike > spot);
       const anchor = after ? built.rows.get(after.strike).tr : null;
       if (built.spotTr.nextSibling !== anchor || !built.spotTr.isConnected) built.body.insertBefore(built.spotTr, anchor);
     } else built.spotTr.remove();
-    // Footer: totals over the whole chain, PCR in the strike column.
-    const totals = { oi: [sm.ceOi, sm.peOi], chg: [sm.ceOiChange, sm.peOiChange], vol: [sm.ceVolume, sm.peVolume] };
+    // Footer: totals over the whole chain; PCR under the strikes.
+    const u = unit(x);
+    const totals = { oi: [sm.ceOi / u, sm.peOi / u], chg: [sm.ceOiChange / u, sm.peOiChange / u], vol: [sm.ceVolume / u, sm.peVolume / u] };
     for (const [i, side] of [[0, "ce"], [1, "pe"]]) {
-      built.cols[side].forEach((k, j) => {
+      built.L[side].forEach((k, j) => {
         const v = totals[k]?.[i];
         built.foot[side][j].textContent = v === undefined ? "" : k === "chg" ? formatCompact(v, { signed: true }) : formatCompact(v);
       });
@@ -989,7 +1208,7 @@ function createChain({ st, host, onTrade, onFocus }) {
     built.foot.th.replaceChildren(h("small", {}, "PCR "), formatFixed(sm.pcr, 2));
   }
 
-  const api_ = {
+  return {
     reset(keepX = false) {
       built = null;
       if (!keepX) centred = false;
@@ -1000,7 +1219,7 @@ function createChain({ st, host, onTrade, onFocus }) {
         host.replaceChildren(emptyState("chart", "No strikes", `No strikes for ${x.c.underlying} ${expiryText(x.c.expiry)}.`));
         return;
       }
-      const key = [x.c.underlying, x.c.expiry, st.view, rows.map((r) => r.strike).join(",")].join("|");
+      const key = [x.c.underlying, x.c.expiry, rows.map((r) => r.strike).join(",")].join("|");
       if (!built || built.key !== key) {
         const { wrap, keepX } = build(x, rows, key);
         patch(x, rows);
@@ -1014,7 +1233,7 @@ function createChain({ st, host, onTrade, onFocus }) {
             return;
           }
           if (keepX !== null) wrap.scrollLeft = keepX;
-          else wrap.scrollLeft = (wrap.scrollWidth - wrap.clientWidth) / 2;
+          else if (cfg().side === "both") wrap.scrollLeft = (wrap.scrollWidth - wrap.clientWidth) / 2;
           if (!centred) {
             const atm = built?.rows.get(x.sm.atm)?.tr;
             if (atm && wrap.scrollHeight > wrap.clientHeight) wrap.scrollTop = atm.offsetTop - wrap.clientHeight / 2 + atm.offsetHeight;
@@ -1036,7 +1255,6 @@ function createChain({ st, host, onTrade, onFocus }) {
     visibleStrikes: () => (built?.rows ? [...built.rows.keys()] : []),
     atmStrike: () => O.atmRow(st.chain)?.strike ?? null,
   };
-  return api_;
 }
 
 // ── OI profile chart ──
@@ -1197,5 +1415,15 @@ function niceTicks(lo, hi, count) {
   const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((x) => x >= raw) ?? 10 * mag;
   const out = [];
   for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) out.push(Math.abs(v) < step * 1e-9 ? 0 : v);
+  return out;
+}
+
+/** symbol -> signed lots held, from GET /v1/positions rows. */
+function heldLots(positions, lot) {
+  const out = new Map();
+  for (const p of positions ?? []) {
+    const q = Number(p.netQty);
+    if (q) out.set(p.symbol, Math.round((q / lot) * 100) / 100);
+  }
   return out;
 }

@@ -375,6 +375,7 @@ async function show() {
   // Pages can restyle the shell (the Option Desk hides the large title and runs edge to edge).
   document.documentElement.dataset.page = page.id;
   document.documentElement.dataset.layout = page.layout ?? "";
+  document.documentElement.classList.remove("panel-max-open");
   document.title = `${page.label} · Mr. Chartist API Bridge`;
   $("toolbar-icon").replaceChildren(pageGlyph(page));
   $("toolbar-label").textContent = page.label;
@@ -390,6 +391,7 @@ async function show() {
     const nodes = await page.render();
     if (seq !== renderSeq) return;
     root.replaceChildren(...[nodes].flat());
+    arrangePanels(root, page.id);
   } catch (err) {
     if (seq !== renderSeq) return;
     root.replaceChildren(alertBox(err));
@@ -405,6 +407,114 @@ async function show() {
   const anim = motionHooks?.animatePage;
   if (typeof anim === "function") anim(root);
   refreshTicketCount();
+}
+
+// ── Movable panels ──
+
+const layoutSlot = (pageId) => `mcb.dashboard.layout.${pageId}`;
+const panelKey = (el, i) => el.dataset.panel || el.querySelector(".card-head h2")?.textContent?.trim() || el.getAttribute("aria-label") || `panel-${i}`;
+const movables = (root) => [...root.children].filter((el) => el.classList.contains("movable"));
+const saveLayout = (root, pageId) => local.set(layoutSlot(pageId), JSON.stringify(movables(root).map((el) => el.dataset.panelKey)));
+
+/**
+ * Give each top-level panel of a page a handle to move it (drag, or arrow keys on the handle) and a button to
+ * maximise it, and put the panels in the order this browser saved for the page. Panels marked data-fixed stay put.
+ */
+function arrangePanels(root, pageId) {
+  const items = [...root.children].filter((el) => !el.hasAttribute("data-fixed") && !el.matches("p, .alert"));
+  if (items.length < 2 && !items.some((el) => el.dataset.panel)) return;
+  items.forEach((el, i) => {
+    el.dataset.panelKey = panelKey(el, i);
+    el.classList.add("movable");
+    if (!el.querySelector(":scope > .panel-tools")) el.prepend(panelTools(el, root, pageId));
+  });
+  let saved = [];
+  try {
+    saved = JSON.parse(local.get(layoutSlot(pageId)) ?? "[]");
+  } catch {
+    saved = [];
+  }
+  if (!Array.isArray(saved) || !saved.length) return;
+  const rank = (el) => {
+    const i = saved.indexOf(el.dataset.panelKey);
+    return i < 0 ? saved.length + items.indexOf(el) : i;
+  };
+  root.append(...[...items].sort((a, b) => rank(a) - rank(b)));
+}
+
+function panelTools(panel, root, pageId) {
+  const grip = h("button", { type: "button", class: "grip-btn", title: "Drag to move (or use the arrow keys). Double-click to reset this page's layout", "aria-label": "Move panel: arrow up or down" }, icon("grip"));
+  const max = h("button", { type: "button", class: "max-btn", title: "Maximise", "aria-label": "Maximise panel", "aria-pressed": "false" }, icon("expand"));
+  const moveBy = (d) => {
+    const list = movables(root);
+    const i = list.indexOf(panel);
+    const j = i + d;
+    if (j < 0 || j >= list.length) return;
+    if (d < 0) root.insertBefore(panel, list[j]);
+    else root.insertBefore(panel, list[j].nextSibling);
+    saveLayout(root, pageId);
+    grip.focus();
+  };
+  grip.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.preventDefault();
+      moveBy(e.key === "ArrowUp" ? -1 : 1);
+    }
+  });
+  grip.addEventListener("dblclick", () => {
+    local.set(layoutSlot(pageId), null);
+    toast("Layout reset");
+    show();
+  });
+  grip.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    panel.classList.add("dragging");
+    const startY = e.clientY;
+    let moved = false;
+    const onMove = (ev) => {
+      if (Math.abs(ev.clientY - startY) > 4) moved = true;
+      // Swap with a neighbour once the pointer passes its middle.
+      for (const other of movables(root)) {
+        if (other === panel) continue;
+        const r = other.getBoundingClientRect();
+        const mid = r.top + r.height / 2;
+        const before = panel.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_PRECEDING;
+        if (before && ev.clientY < mid) root.insertBefore(panel, other);
+        else if (!before && ev.clientY > mid) root.insertBefore(panel, other.nextSibling);
+      }
+    };
+    const onUp = () => {
+      grip.removeEventListener("pointermove", onMove);
+      grip.removeEventListener("pointerup", onUp);
+      grip.removeEventListener("pointercancel", onUp);
+      panel.classList.remove("dragging");
+      if (moved) saveLayout(root, pageId);
+    };
+    grip.addEventListener("pointermove", onMove);
+    grip.addEventListener("pointerup", onUp);
+    grip.addEventListener("pointercancel", onUp);
+  });
+  const setMax = (on) => {
+    panel.classList.toggle("panel-max", on);
+    document.documentElement.classList.toggle("panel-max-open", on);
+    max.setAttribute("aria-pressed", String(on));
+    max.title = on ? "Restore (Esc)" : "Maximise";
+    max.setAttribute("aria-label", on ? "Restore panel" : "Maximise panel");
+    max.replaceChildren(icon(on ? "shrink" : "expand"));
+    if (on) {
+      const esc = (e) => {
+        if (e.key !== "Escape" || document.querySelector("dialog[open]") || !panel.classList.contains("panel-max")) return;
+        if (panel.querySelector(".popover")) return;
+        document.removeEventListener("keydown", esc);
+        setMax(false);
+      };
+      document.addEventListener("keydown", esc);
+    }
+  };
+  max.addEventListener("click", () => setMax(!panel.classList.contains("panel-max")));
+  return h("div", { class: "panel-tools" }, grip, max);
 }
 
 // ── Accessibility plumbing (created from here because index.html is static) ──
