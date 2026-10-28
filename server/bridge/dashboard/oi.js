@@ -78,6 +78,8 @@ function makeTile(label, cls) {
   return { el, label: el.children[0], value: el.children[1], sub: el.children[2], sig: "" };
 }
 const signedPct = (v, dp = 1) => (v === null ? DASH : `${formatSigned(v, dp)}%`);
+/** "1 snapshot", "2 snapshots". */
+const plural = (n, word) => `${formatInt(n)} ${word}${n === 1 ? "" : "s"}`;
 const tagOf = (side, rank) => `${side === "ce" ? "R" : "S"}${rank}`;
 
 /**
@@ -97,6 +99,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
   let toastSig = "";
   let liveText = "";
   let liveAt = 0;
+  let liveCtx = "";
   let moverTab = "adds";
   let loadingKey = null;
 
@@ -286,8 +289,9 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     if (!avail.get(win)?.ok) {
       const fb = avail.get("prev").ok ? "prev" : avail.get("open").ok ? "open" : WINDOW_IDS.find((w) => avail.get(w).ok) ?? null;
       const sig = `${st.underlying}|${st.expiry}|${win}`;
-      // Say so once when the chosen window is not available here (not while the page is still warming up).
-      if (fb && fb !== win && toastSig !== sig && snaps.length) {
+      // Say so once when a window the user chose is not available here (not while the page is still warming up). The
+      // default (Prev close) falling back to Since open is how a source without oiChange works: no toast for that.
+      if (fb && fb !== win && win !== OI_DEFAULTS.window && toastSig !== sig && snaps.length) {
         toastSig = sig;
         toast(`${WINDOW_NAME[win]} is not available here: showing ${WINDOW_NAME[fb]}`);
       }
@@ -322,7 +326,13 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const div = combined || cfg().unit === "lots" ? lot : 1;
     const unit = combined || cfg().unit === "lots" ? "lots" : "qty";
     const fq = (v) => formatCompact(v === null || v === undefined ? null : v / div);
-    const fd = (v) => formatCompact(v === null || v === undefined ? null : v / div, { signed: true });
+    // A change under 10 lots keeps one decimal, so a sub-lot move never prints a bare "0" beside a large %.
+    const fd = (v) => {
+      if (v === null || v === undefined || !isFigure(v)) return DASH;
+      const q = v / div;
+      if (unit !== "lots" || q === 0 || Math.abs(q) >= 10 || Number.isInteger(q)) return formatCompact(q, { signed: true });
+      return Math.abs(q) < 0.05 ? `${q > 0 ? "+" : "−"}<0.1` : formatSigned(q, 1);
+    };
     const chains = combined ? [c, ...extraList().map((e) => extras.get(e)?.chain).filter(Boolean)] : [c];
     const rows = combined ? O.cumulativeOi(chains, now).rows : O.oiWindowRows(c, w.ref?.ok ? w.ref.snap : null);
     const th = { lot, ...cfg().th };
@@ -352,6 +362,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const S1ref = hasRef ? O.oiWalls(refRows, "pe", refSpot, { top: 1 })[0]?.strike ?? null : null;
     const pcrRef = hasRef ? O.pcrSet(refRows).oi : null;
     const pin = sessions !== null && sessions <= 2 ? O.pinZone(rows, spot) : null;
+    mainEl.classList.remove("oi-msg");
     const t = O.timeToExpiry(c.expiry, now);
     const expiryDay = O.isExpiryDay(c.expiry, now);
     const winLabel = w.ref?.ok ? WINDOW_NAME[w.win] : "Warming up";
@@ -362,6 +373,12 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     // Verdict.
     const verdict = O.oiVerdict({ walls: { r1: R1?.strike, s1: S1?.strike }, pcr: pcrChain.oi, buildup: bu, maxPain: mp?.strike, relevance }) ?? "Not enough OI to read";
     if (verdictText.textContent !== verdict) verdictText.textContent = verdict;
+    // The polite region speaks at most once a minute, but at once for a new underlying, expiry or scope.
+    const ctx = `${c.underlying}|${c.expiry}|${combined ? "all" : "one"}`;
+    if (ctx !== liveCtx) {
+      liveCtx = ctx;
+      liveAt = 0;
+    }
     if (verdict !== liveText && now - liveAt >= 60_000) {
       liveText = verdict;
       liveAt = now;
@@ -372,10 +389,11 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const scopeTxt = N === Infinity ? "All" : `±${N}`;
     setTile("spot", { value: formatFixed(spot, 2), sub: `ATM ${formatInt(atm)} · ${expiryDay ? "expiry today" : t.label}`, title: "Underlying LTP and the strike closest to it" });
     const bandWord = O.pcrBand(pcrChain.oi);
-    const arrow = pcrChain.oi !== null && pcrRef !== null && Math.abs(pcrChain.oi - pcrRef) >= 0.005 ? (pcrChain.oi > pcrRef ? " ▲" : " ▼") : "";
+    const arrow = pcrChain.oi !== null && pcrRef !== null && Math.abs(pcrChain.oi - pcrRef) >= 0.005 ? (pcrChain.oi > pcrRef ? "\u00a0▲" : "\u00a0▼") : "";
     setTile("pcr", {
-      value: formatFixed(pcrChain.oi, 2),
-      sub: [["oi-wide", `${scopeTxt} ${formatFixed(pcrB.oi, 2)} · `], ["", `Vol ${formatFixed(pcrB.vol, 2)}`], ["", bandWord ? ` · ${bandWord.word}` : ""], ["", arrow]],
+      // The trend arrow sits with the value (never orphaned or clipped at the end of the sub-line).
+      value: `${formatFixed(pcrChain.oi, 2)}${arrow}`,
+      sub: [["oi-wide", `${scopeTxt} ${formatFixed(pcrB.oi, 2)} · `], ["", `Vol ${formatFixed(pcrB.vol, 2)}`], ["", bandWord ? ` · ${bandWord.word}` : ""]],
       title: `Put OI ÷ call OI over the ${formatInt(rows.length)} strikes loaded. Writer view: high = put writing below (support), low = call writing above (cap). Context, not a signal.${arrow ? ` PCR ${formatFixed(pcrRef, 2)} ${refLabel}.` : ""}`,
     });
     const chg = pcrB.chg;
@@ -398,7 +416,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const cov = coverage(snaps, session);
     setTile("win", {
       value: winLabel,
-      sub: w.ref?.ok ? (w.win === "prev" ? "vs previous close" : `${refLabel} · ${formatInt(snaps.length)} snaps`) : snaps.length ? `Recording since ${O.istHm(snaps[0].t)}` : session.phase !== "open" && !isDemo() ? "Market closed · last session" : "Recording starts now",
+      sub: w.ref?.ok ? (w.win === "prev" ? "vs previous close" : `${refLabel} · ${plural(snaps.length, "snap")}`) : snaps.length ? `Recording since ${O.istHm(snaps[0].t)}` : session.phase !== "open" && !isDemo() ? "Market closed · last session" : "Recording starts now",
       title: `${cov}${store.persistent ? "" : " · Not saved: browser storage unavailable"}`,
     });
 
@@ -421,8 +439,8 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
 
   function coverage(snaps, session) {
     if (session.phase !== "open" && !isDemo()) return "Market closed · showing the last session";
-    if (isDemo() && session.phase !== "open") return `Demo data: snapshots recorded off-hours${snaps.length ? ` · ${formatInt(snaps.length)} snapshots since ${O.istHm(snaps[0].t)}` : ""}`;
-    return snaps.length ? `Recording since ${O.istHm(snaps[0].t)} · ${formatInt(snaps.length)} snapshots · every 1 min` : "Recording starts with the next update · every 1 min";
+    if (isDemo() && session.phase !== "open") return `Demo data: snapshots recorded off-hours${snaps.length ? ` · ${plural(snaps.length, "snapshot")} since ${O.istHm(snaps[0].t)}` : ""}`;
+    return snaps.length ? `Recording since ${O.istHm(snaps[0].t)} · ${plural(snaps.length, "snapshot")} · every 1 min` : "Recording starts with the next update · every 1 min";
   }
 
   function ladderModel({ x, rows, inBand, atm, spot, mp, wallMap, combined, unit, fq, fd, winLabel }) {
@@ -468,7 +486,8 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         const leg = r[s];
         if (!leg) return { val: null, ref: null, txt: DASH, dTxt: DASH, pTxt: "", bu: null, neg: false, wall: false, title: "" };
         const v = val(leg);
-        const shown = metric === "chg" ? fd(leg.d) : fq(metric === "oi" ? leg.oi : leg.v);
+        // ΔOI bars carry no text: the Δ column beside them already prints the signed change.
+        const shown = metric === "chg" ? "" : fq(metric === "oi" ? leg.oi : leg.v);
         const read = leg.cls ? O.BUILDUP_READ[s][leg.cls] : null;
         return {
           val: v,
@@ -499,6 +518,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       caption: `Open interest by strike, ${winLabel}, ${unit}`,
       head: { ce: `Calls ${metricName}`, pe: `Puts ${metricName}`, unit },
       rows: out,
+      metric,
       max,
       atm,
     };
@@ -539,8 +559,8 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         fq(v.oi),
         fd(v.d),
         v.share === null ? DASH : `${formatFixed(v.share * 100, 0)}%`,
-        `${formatSigned(v.dist, 0)}${v.sigma !== null ? ` · ${formatFixed(v.sigma, 1)}σ` : ""}`,
-        [v.strong ? "strong" : "", v.fresh ?? ""].filter(Boolean).join(" · "),
+        [formatSigned(v.dist, 0), v.sigma !== null ? ` · ${formatFixed(v.sigma, 1)}σ` : ""],
+        [v.strong, v.fresh ?? ""],
         v.strength === null ? "" : `${formatFixed(v.strength, 1)}× the band's average ${s === "ce" ? "call" : "put"} OI`,
       ]);
     const data = {
@@ -556,6 +576,9 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const sig = JSON.stringify(data);
     if (wallsEl.__sig === sig) return;
     wallsEl.__sig = sig;
+    // "strong · fresh": on a phone the word "strong" gives way to bold, so the tag stays on one line.
+    const wallTag = ([strong, fresh], title) =>
+      h("td", { class: `oi-tag${strong ? " strong" : ""}`, title: strong ? `Strong wall: ${title}` : title }, ...[strong ? (fresh ? h("span", { class: "oi-strong" }, "strong · ") : "strong") : null, fresh].filter(Boolean));
     const mini = (title, list, shiftTxt) =>
       h(
         "table",
@@ -566,7 +589,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
           "tbody",
           {},
           list.length
-            ? list.map((r) => h("tr", {}, h("td", { class: "oi-rank" }, r[0]), h("th", { scope: "row" }, r[1]), h("td", { class: "num" }, r[2]), h("td", { class: "num" }, r[3]), h("td", { class: "num oi-share" }, r[4]), h("td", { class: "num" }, r[5]), h("td", { class: "oi-tag", title: r[7] }, r[6])))
+            ? list.map((r) => h("tr", {}, h("td", { class: "oi-rank" }, r[0]), h("th", { scope: "row" }, r[1]), h("td", { class: "num" }, r[2]), h("td", { class: "num" }, r[3]), h("td", { class: "num oi-share" }, r[4]), h("td", { class: "num" }, r[5][0], r[5][1] ? h("span", { class: "oi-sig" }, r[5][1]) : null), wallTag(r[6], r[7])))
             : h("tr", {}, h("td", { colspan: "7", class: "oi-none" }, "No OI on this side of spot")),
         ),
       );
@@ -587,6 +610,15 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const sig = JSON.stringify(data);
     if (buildEl.__sig === sig) return;
     buildEl.__sig = sig;
+    if (combined) {
+      // Combined OI has no price change, so no strike can be classed: say so and offer the per-expiry view.
+      buildEl.replaceChildren(
+        h("h3", { class: "oi-block-head" }, "Build-up", h("small", {}, "Combined")),
+        h("p", { class: "oi-foot muted" }, "Combined OI carries no price change, so build-up is read per expiry."),
+        h("button", { type: "button", class: "link-btn oi-filter", onclick: () => setCfg({ scope: "one" }, true) }, "Show this expiry"),
+      );
+      return;
+    }
     const glyph = bu.tone === "up" ? "▲" : bu.tone === "down" ? "▼" : "↔";
     const head = (k) =>
       h(
@@ -601,7 +633,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       h("table", { class: "oi-matrix" }, h("thead", {}, h("tr", {}, h("td", {}), COLS.map(head))), h("tbody", {}, row("ce", "Calls"), row("pe", "Puts"))),
       h("p", { class: "oi-foot" }, data.line),
       h("p", { class: `oi-tone tone-${bu.tone}` }, h("span", { "aria-hidden": "true" }, glyph), ` ${bu.text}`),
-      ...[bu.empty ? h("p", { class: "oi-foot muted" }, combined ? "Combined OI carries no price change, so build-up is read per expiry: switch Scope to This expiry." : "No strike passed the noise filter in this window: try a longer window or a wider band.") : null].filter(Boolean),
+      ...[bu.empty ? h("p", { class: "oi-foot muted" }, "No strike passed the noise filter in this window: try a longer window or a wider band.") : null].filter(Boolean),
       filterBtn,
     );
   }
@@ -708,7 +740,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const sig = `${key}|${snaps.length}|${snaps[snaps.length - 1]?.t ?? 0}`;
     if (seriesCache.sig !== sig) seriesCache = { sig, data: O.oiSeries(snaps) };
     const n = seriesCache.data.length;
-    const label = `Call OI, Put OI, PCR, max pain and spot vs time (${formatInt(n)} points ready)`;
+    const label = `Call OI, Put OI, PCR, max pain and spot vs time (${plural(n, "point")} ready)`;
     if (slotLabel.textContent !== label) {
       slotLabel.textContent = label;
       slot.setAttribute("aria-label", `Chart engine slot · ${label}`);
@@ -722,6 +754,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
   // ── States ──
   function drawEmpty() {
     model = null;
+    mainEl.classList.add("oi-msg");
     for (const [k] of tiles) setTile(k, {});
     const msg = st.error ? "Not updating" : st.empty ? "No expiries" : "Loading the chain…";
     if (verdictText.textContent !== msg) verdictText.textContent = msg;
@@ -737,6 +770,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
   }
   function drawNoOi(c) {
     model = null;
+    mainEl.classList.add("oi-msg");
     for (const [k] of tiles) setTile(k, {});
     verdictText.textContent = "No open interest to read";
     ladder.message(emptyState("chart", "No open interest", `This data source sends no open interest for ${c.underlying} ${expiryText(c.expiry)}.`));
@@ -968,16 +1002,17 @@ function createLadder({ detailFor, onOpenChain, onAtmVisible }) {
     }
     const detail = h("tr", { class: "oi-detail", id: `oi-detail-${++uid}`, hidden: true }, h("td", { colspan: "5" }));
     const tbl = h("table", { class: "oi-ladder" }, caption, h("thead", {}, head), tbody);
+    tbl.classList.toggle("m-chg", m.metric === "chg");
     tbody.addEventListener("click", onClick);
-    tbody.addEventListener("dblclick", (e) => {
-      const tr = e.target.closest("tr[data-k]");
-      if (tr && !coarse()) toggle(Number(tr.dataset.k));
-    });
+    const hadFocus = wrap.contains(document.activeElement) && document.activeElement?.matches?.("tr[data-k]");
     wrap.replaceChildren(tbl);
     built = { key: m.key, caption, hce, hpe, tbody, rows, detail, max: 0 };
     if (sel !== null && !rows.has(sel)) sel = null;
     if (open !== null && !rows.has(open)) open = null;
-    needCentre = true;
+    // A rebuild (metric, unit, strikes) keeps the selection: mark it again, keep it tabbable and keep focus on it.
+    // The scroll position carries over (same strikes, same row height); a fresh ladder centres on ATM.
+    if (sel !== null) select(sel, false, hadFocus);
+    else needCentre = true;
   }
   function onClick(e) {
     if (e.target.closest("a, button")) return;
@@ -990,7 +1025,7 @@ function createLadder({ detailFor, onOpenChain, onAtmVisible }) {
     } else if (sel === k) toggle(k);
     else select(k, false);
   }
-  function select(k, scroll = true) {
+  function select(k, scroll = true, focus = true) {
     sel = k;
     for (const [s, b] of built.rows) {
       const on = s === k;
@@ -1000,7 +1035,7 @@ function createLadder({ detailFor, onOpenChain, onAtmVisible }) {
     }
     const b = built.rows.get(k);
     if (!b) return;
-    b.tr.focus({ preventScroll: true });
+    if (focus) b.tr.focus({ preventScroll: true });
     if (scroll) into(b.tr);
   }
   /** Bring a row into view in the ladder and in the window (scroll-margin keeps it clear of the sticky header). */

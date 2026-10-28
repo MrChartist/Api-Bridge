@@ -605,6 +605,10 @@ describe("OI analysis maths", () => {
     expect(m.adds[0]).toMatchObject({ dPct: null, oiRef: 0, wall: "R1" });
     expect(m.unwinds.map((a) => [a.strike, a.side, a.d])).toEqual([[110, "ce", -200], [120, "pe", -100]]);
     expect(OA.oiMovers(rows).adds.map((a) => a.d)).toEqual([1300, 500, 200, 100]);
+    // The noise filter drops sub-threshold changes: 10 lots of 15 = 150, so only +1300, +500, +200 and −200 remain.
+    const f = OA.oiMovers(rows, { lot: 15, minLots: 10 });
+    expect(f.adds.map((a) => a.d)).toEqual([1300, 500, 200]);
+    expect(f.unwinds.map((a) => a.d)).toEqual([-200]);
   });
 
   it("oiWindowRows: previous close, a snapshot with a missing strike, window volume", () => {

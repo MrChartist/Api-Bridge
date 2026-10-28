@@ -1879,7 +1879,8 @@ button.chart-slot-toggle[aria-expanded="true"] svg { transform: rotate(180deg); 
 .oi-quiet { font-weight: 450; color: hsl(var(--foreground) / var(--a-quiet)); }
 .desk-stats.oi-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: visible; scroll-snap-type: none; box-shadow: none; }
 .desk-stats.oi-tiles .desk-stat { min-width: 0; }
-@container (min-width: 1000px) { .desk-stats.oi-tiles { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+/* One row of 8 once each tile gets 104px (tablet landscape and up). */
+@container (min-width: 832px) { .desk-stats.oi-tiles { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
 .oi-tiles .desk-stat { padding: 9px 12px 10px; }
 .oi-tiles .desk-stat .sub { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; min-height: 2.6em; }
 .oi-tiles .desk-stat.warn .sub { color: hsl(var(--ios-orange-ink)); }
@@ -1954,8 +1955,13 @@ table.oi-ladder tr.spot-above > th.k { box-shadow: inset 0 1px 0 hsl(var(--ios-b
 table.oi-ladder th.k[data-spot] { padding-top: 14px; }
 table.oi-ladder th.k[data-spot]::before { content: attr(data-spot); position: absolute; top: 2px; left: 50%; z-index: 2; transform: translateX(-50%); padding: 1px 6px; border-radius: 99px; font: 650 9.5px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; color: hsl(var(--ios-blue-ink)); background: var(--mat-grouped-solid); box-shadow: 0 0 0 1px hsl(var(--ios-blue) / 0.6); pointer-events: none; }
 /* Bars: OI now (solid), a tick at OI at the window start, and a striped ghost where OI was unwound. */
-table.oi-ladder td.ob { position: relative; padding: 0 8px; }
+table.oi-ladder td.ob { --oi-vw: 44px; position: relative; padding: 0 8px; }
+/* The value sits in its own gutter at the outer edge; the bar track starts after it, so no bar or tick crosses digits. */
 table.oi-ladder .trk { position: absolute; top: 50%; left: 4px; right: 4px; height: 16px; transform: translateY(-50%); pointer-events: none; }
+table.oi-ladder .ob.ce .trk { left: calc(var(--oi-vw) + 12px); }
+table.oi-ladder .ob.pe .trk { right: calc(var(--oi-vw) + 12px); }
+table.oi-ladder.m-chg .ob.ce .trk { left: 4px; }
+table.oi-ladder.m-chg .ob.pe .trk { right: 4px; }
 table.oi-ladder .trk > span { position: absolute; top: 0; bottom: 0; display: block; }
 table.oi-ladder .trk > span[hidden] { display: none; }
 table.oi-ladder .ob.ce .trk > span { right: 0; }
@@ -1991,6 +1997,12 @@ button.link-btn:hover { background: none; text-decoration: underline; }
 
 /* Side blocks. */
 .oi-block { padding: 12px 14px 14px; min-width: 0; }
+/* Loading, error or no-OI: the ladder's message takes the whole panel (no blank side column). */
+.oi-main.oi-msg .oi-body { display: block; }
+.oi-main.oi-msg .oi-side { display: none; }
+.oi-main.oi-msg .oi-ladder-host { flex: none; min-height: 0; }
+.oi-main.oi-msg .oi-keys { display: none; }
+.oi-main.oi-msg .oi-ladder-host > .oi-ladder-wrap { position: static; }
 .oi-block:empty { display: none; }
 .oi-block-head { display: flex; align-items: baseline; gap: 4px 8px; flex-wrap: wrap; margin: 0 0 8px; font: 700 14px/1.2 var(--font-display); letter-spacing: -0.01em; }
 .oi-block-head small { font: 500 11.5px/1.2 var(--font-body); letter-spacing: 0; color: hsl(var(--foreground) / var(--a-quiet)); }
@@ -2087,10 +2099,15 @@ table.oi-help-table thead th { font-size: 11.5px; color: hsl(var(--foreground) /
   table.oi-ladder .v { font-size: 11px; }
   table.oi-ladder .kv { font-size: 12.5px; }
   table.oi-ladder .tags .tag:nth-child(n + 3) { display: none; }
+  table.oi-ladder td.ob { --oi-vw: 32px; }
   table.oi-ladder .trk { left: 2px; right: 2px; }
+  table.oi-ladder .ob.ce .trk { left: calc(var(--oi-vw) + 6px); }
+  table.oi-ladder .ob.pe .trk { right: calc(var(--oi-vw) + 6px); }
   .oi-side { display: block; }
   .oi-side .oi-build { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
-  .oi-share { display: none; }
+  .oi-share, .oi-sig, .oi-strong { display: none; }
+  .oi-tag { white-space: nowrap !important; }
+  .oi-tag.strong { font-weight: 700; color: hsl(var(--foreground)); }
   .oi-mseg { display: inline-flex !important; }
   .oi-mlists { grid-template-columns: minmax(0, 1fr); }
   .oi-mlist:not(.on) { display: none; }

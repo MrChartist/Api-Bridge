@@ -1184,15 +1184,18 @@ export function buildupSummary(rows, opts = {}) {
 /**
  * The biggest OI additions and unwinds over rows, both sides: { adds, unwinds }, each [{ strike, side, d, dPct, oi,
  * oiRef, dLtp, cls, dir, v, wall }] (dPct null for a strike that had no OI: print "new"). `walls` = { ce: Map(strike →
- * "R1"), pe: Map(strike → "S1") } tags the strikes that are walls.
+ * "R1"), pe: Map(strike → "S1") } tags the strikes that are walls. With `minLots` (and `lot`) given, a change below
+ * minLots × lot is left out as noise.
  */
 export function oiMovers(rows, { n = 5, walls = null, ...opts } = {}) {
+  // With the noise filter given (minLots, lot), a change below it is noise, not a mover.
+  const floor = num(opts.minLots) !== null ? num(opts.minLots) * (num(opts.lot) || 1) : 0;
   const items = [];
   for (const r of rows ?? []) {
     for (const side of ["ce", "pe"]) {
       const leg = r[side];
       const d = num(leg?.d);
-      if (d === null || d === 0) continue;
+      if (d === null || d === 0 || Math.abs(d) < floor) continue;
       const cls = "cls" in leg ? leg.cls : classifyBuildup(leg, opts);
       items.push({ strike: r.strike, side, d, dPct: num(leg.dPct), oi: num(leg.oi), oiRef: num(leg.oiRef), dLtp: num(leg.dLtp), cls, dir: cls && cls !== "CH" ? BUILDUP_DIR[cls][side] : null, v: num(leg.v), wall: walls?.[side]?.get(r.strike) ?? null });
     }
