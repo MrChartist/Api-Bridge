@@ -86,6 +86,12 @@ You need **[Node.js 22 or newer](https://nodejs.org/)** (the LTS download is fin
 3. Open <http://127.0.0.1:4300/dashboard> and paste the key. The port is published on `127.0.0.1` only. Data and the
    master key live in two separate volumes (`bridge-data`, `bridge-secrets`). For demo mode set `MCB_DEMO: "1"` in
    `docker-compose.yml`.
+4. The first admin key is now in the container log: make a new admin key on the **API keys** page and revoke the
+   first one.
+
+`docker compose` with the provided `docker-compose.yml` is the supported way to run the Bridge in Docker: it keeps the
+port on `127.0.0.1`, the filesystem read-only and the master key in its own volume. A plain `docker run -p 4300:4300`
+publishes the Bridge to your whole network.
 
 ### Public demo on a server (Hostinger VPS)
 
@@ -676,7 +682,7 @@ only prepare a ticket that you confirm yourself.
 | `mc-bridge keys create --label <name> --scope read[,paper,live,admin] [--accounts a,b] [--expires 30d] [--allow-query] [--client excel]` | New API key (shown once) |
 | `mc-bridge keys list` / `keys revoke <keyId>` | Manage keys |
 | `mc-bridge accounts list` / `accounts connect <id> [--key <admin key>]` | Accounts and logging in |
-| `mc-bridge kill [--reason "..."] [--cancel-open] [--key <key>]` / `kill release [--key <admin key>]` | Kill switch from the terminal (while the Bridge runs, pass a key or set `MCB_API_KEY`) |
+| `mc-bridge kill [--reason "..."] [--cancel-open] [--key <key>]` / `kill release [--key <admin key>]` | Kill switch from the terminal. On the computer running the Bridge no key is needed (it uses a control token the Bridge keeps in its data folder); elsewhere pass `--key` or set `MCB_API_KEY` |
 | `mc-bridge mcp --key <key> [--url <bridge url>]` | MCP over stdio for Claude Desktop, Claude Code, Cursor |
 | `mc-bridge openai-tools [--scope read\|paper] [--format responses\|chat]` | Tool schemas for OpenAI function calling |
 

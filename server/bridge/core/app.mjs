@@ -23,12 +23,13 @@ import { SERVICE_CONTRACTS, isStub } from "./contracts.mjs";
 import { createHttpContext, expandScopes, newRequestId } from "./context.mjs";
 import { BridgeError, problemHeaders, toProblem } from "./errors.mjs";
 import { createEventBus } from "./eventBus.mjs";
+import { isControlToken, removeControlToken, writeControlToken } from "./controlToken.mjs";
 import { Reply, noContent, parseBody, readBody, send, sendProblem, text } from "./http.mjs";
 import { createLogger } from "./logger.mjs";
 import { applyModuleConfig, buildServices, validateModules } from "./modules.mjs";
 import { createRouter } from "./router.mjs";
 import { BASE_HEADERS, assertTransportAllowed, createCors, createHostCheck, isLocalRequest } from "./security.mjs";
-import { DEMO_HEADER, DEMO_MARKET_ACCOUNT, DEMO_NOTICE, createDemoRegistry, labelDemoResult } from "../demo/demoMode.mjs";
+import { DEMO_ACCOUNT_HINT, DEMO_HEADER, DEMO_MARKET_ACCOUNT, DEMO_NOTICE, createDemoRegistry, labelDemoResult } from "../demo/demoMode.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 export const BRIDGE_VERSION = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")).version;
@@ -246,20 +247,28 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       if (authMode === "key") {
         const found = extractApiKey(req, url, { allowQuery: opts.allowQueryKey === true });
         if (!found) throw new BridgeError("UNAUTHENTICATED", "Send your Bridge API key as 'Authorization: Bearer <key>'.");
-        const record = await deps.keyStore.authenticate(found.key, { ip: ctx.clientIp });
-        if (!record) throw new BridgeError("UNAUTHENTICATED", "This API key is not valid, has expired or was revoked.");
-        if (found.viaQuery && (!record.allowQuery || record.scopes.some((s) => s !== "read"))) {
-          throw new BridgeError("UNAUTHENTICATED", "Only read-only keys created for URL use may be sent as ?key=.");
-        }
-        ctx.key = record;
-        ctx.scopes = expandScopes(record.scopes);
-        ctx.principal = { kind: "key", id: record.id, label: record.label };
-        ctx.log = ctx.log.child({ keyId: record.id });
-        if (opts.scope) ctx.requireScope(opts.scope);
-        if (!isStub(deps.scheduler)) {
-          const verdict = deps.scheduler.checkClient(ctx);
-          Object.assign(ctx.responseHeaders, verdict.headers ?? {});
-          if (!verdict.ok) throw new BridgeError("RATE_LIMITED", undefined, { retryAfterMs: verdict.retryAfterMs });
+        // `mc-bridge kill` on this computer: the control token in the data folder acts as the local CLI (controlToken.mjs).
+        const control = opts.localControl === true && ctx.loopback && !found.viaQuery && isControlToken(controlToken, found.key);
+        if (control) {
+          ctx.scopes = expandScopes(["admin"]);
+          ctx.principal = { kind: "local", id: "cli" };
+          ctx.log = ctx.log.child({ principal: "cli" });
+        } else {
+          const record = await deps.keyStore.authenticate(found.key, { ip: ctx.clientIp });
+          if (!record) throw new BridgeError("UNAUTHENTICATED", "This API key is not valid, has expired or was revoked.");
+          if (found.viaQuery && (!record.allowQuery || record.scopes.some((s) => s !== "read"))) {
+            throw new BridgeError("UNAUTHENTICATED", "Only read-only keys created for URL use may be sent as ?key=.");
+          }
+          ctx.key = record;
+          ctx.scopes = expandScopes(record.scopes);
+          ctx.principal = { kind: "key", id: record.id, label: record.label };
+          ctx.log = ctx.log.child({ keyId: record.id });
+          if (opts.scope) ctx.requireScope(opts.scope);
+          if (!isStub(deps.scheduler)) {
+            const verdict = deps.scheduler.checkClient(ctx);
+            Object.assign(ctx.responseHeaders, verdict.headers ?? {});
+            if (!verdict.ok) throw new BridgeError("RATE_LIMITED", undefined, { retryAfterMs: verdict.retryAfterMs });
+          }
         }
       } else if (opts.scope && authMode === "none") {
         throw new BridgeError("INTERNAL", "Route misconfigured: scope without auth.");
@@ -284,6 +293,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       send(res, reply, { ...headers, ...ctx.responseHeaders }, { head: method === "HEAD" });
     } catch (err) {
       const problem = toProblem(err, { requestId });
+      if (config.demo && problem.code === "ACCOUNT_NOT_FOUND") problem.detail = `${problem.detail ?? ""} ${DEMO_ACCOUNT_HINT}`.trim();
       status = problem.status;
       if (!(err instanceof BridgeError)) log.error("unhandled error", { requestId, path, err });
       else if (status >= 500 && status !== 501) log.warn("request failed", { requestId, path, code: problem.code });
@@ -351,6 +361,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
 
   const servers = [];
   let started = false;
+  /** Written while listening; see controlToken.mjs. */
+  let controlToken = null;
 
   return {
     deps,
@@ -384,12 +396,19 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         publicPort = await bind(s.publicIngress.host, s.publicIngress.port, pub);
       }
       for (const m of mods) if (m.start) await m.start(deps);
+      try {
+        controlToken = writeControlToken(config.dataDir);
+      } catch (err) {
+        log.warn("could not write the local control token; mc-bridge kill will need --key", { err });
+      }
       for (const w of warnings) log.warn(w);
       log.info("bridge listening", { host: s.host, port, publicPort, version: BRIDGE_VERSION });
       return { port, publicPort };
     },
     /** Stop modules (reverse order) and close listeners. */
     async close() {
+      if (controlToken) removeControlToken(config.dataDir, controlToken);
+      controlToken = null;
       for (const m of [...mods].reverse()) {
         if (!m.stop) continue;
         try {

@@ -36,3 +36,4 @@ Out of scope:
 - Give each tool its own API key with the fewest scopes it needs, and revoke keys you no longer use.
 - Rotate the first admin key after setup if it was printed into logs (for example `docker compose logs`).
 - Keep live trading off until you have tried your setup in paper mode.
+- The confirmation step for AI-prepared orders protects against an assistant that only has its MCP tools or API key. It does not protect against one that can run shell commands or control the browser on your computer; give such tools a `read` key only (see [docs/guides/mcp.md](docs/guides/mcp.md)).

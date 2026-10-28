@@ -159,6 +159,12 @@ describe("demo mode end to end", () => {
     expect(r.status).toBe(400);
     expect(r.demo).toBe("demo");
   });
+
+  it("an unknown account points at the demo account ids", async () => {
+    const r = await get("/v1/positions?account=paper");
+    expect(r.body.code).toBe("ACCOUNT_NOT_FOUND");
+    expect(r.body.detail).toContain('"demo-paper"');
+  });
 });
 
 describe("public demo dashboard (server.remoteDashboard)", () => {

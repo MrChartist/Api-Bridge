@@ -3,7 +3,8 @@
  *
  *   POST   /hooks/{source}/{token}   public ingress allowed, auth "custom": the URL token (and for generic hooks the
  *                                    HMAC signature) is the credential. Answers 202 in milliseconds.
- *   GET    /v1/hooks                 admin, this computer only. Never shows tokens.
+ *   GET    /v1/hooks                 admin, this computer only. Never shows tokens. An account-limited admin key sees, and
+ *                                    can delete, only the hooks of its own accounts.
  *   POST   /v1/hooks                 admin, this computer only. 201 with the URL (token) and signing secret ONCE.
  *   DELETE /v1/hooks/{hookId}        admin, this computer only. The URL stops working at once.
  *
@@ -243,7 +244,8 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
 
   /** GET /v1/hooks */
   async function listHooks(ctx) {
-    return { data: store.list().map((h) => ({ ...publicHook(h), templates: alertTemplates(h) })), meta: { requestId: ctx.requestId } };
+    const mine = store.list().filter((h) => ctx.canAccessAccounts?.([h.account]) ?? true);
+    return { data: mine.map((h) => ({ ...publicHook(h), templates: alertTemplates(h) })), meta: { requestId: ctx.requestId } };
   }
 
   /** Refuse a live hook the caller may not create (see the file header). Throws; returns nothing. */
@@ -322,6 +324,9 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
   async function deleteHook(ctx) {
     const id = String(ctx.params.hookId ?? "");
     if (!HOOK_ID_RE.test(id)) throw new BridgeError("NOT_FOUND", "No hook with this id.");
+    // An account-limited admin key cannot delete (or learn of) another account's hook.
+    const existing = store.get(id);
+    if (existing && !(ctx.canAccessAccounts?.([existing.account]) ?? true)) throw new BridgeError("NOT_FOUND", "No hook with this id.");
     const hook = await store.remove(id);
     await audit(ctx, "hook.deleted", hook.account, { hookId: hook.id, source: hook.source, label: hook.label });
     return noContent();

@@ -57,6 +57,8 @@ export function hasScope(granted, needed) {
  * @property {import("node:http").ServerResponse} [res]
  * @property {(scope: string) => void} requireScope
  * @property {(accountId: string) => void} requireAccountAccess  Key may use this account (does not check it exists).
+ * @property {(accounts: "*" | string[]) => boolean} canAccessAccounts  Key may use every one of these accounts ("*" needs an
+ *   unlimited key). Admin routes use it so an account-limited admin key only sees and manages keys and hooks for its accounts.
  * @property {(name: string, value: string) => void} setHeader   Add a response header (RateLimit, Idempotency-Replayed ...).
  * @property {Record<string, string>} responseHeaders
  * @property {boolean} [confirmationRequired]  Set for webhook signals whose hook requires a person to confirm each
@@ -80,6 +82,13 @@ function attachHelpers(ctx) {
     if (allowed === "*" || (Array.isArray(allowed) && allowed.includes(accountId))) return;
     if (ctx.principal.kind === "hook" && ctx.hookAccounts?.includes(accountId)) return;
     throw new BridgeError("ACCOUNT_FORBIDDEN", `This key may not use account ${accountId}.`);
+  };
+  ctx.canAccessAccounts = (accounts) => {
+    if (ctx.principal.kind === "local") return true;
+    const allowed = ctx.key?.accounts;
+    if (allowed === "*") return true;
+    if (accounts === "*" || !Array.isArray(allowed) || !Array.isArray(accounts)) return false;
+    return accounts.every((a) => allowed.includes(a));
   };
   ctx.setHeader = (name, value) => {
     ctx.responseHeaders[name] = String(value);

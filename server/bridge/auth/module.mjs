@@ -2,7 +2,8 @@
  * auth module — stream S2: API keys, secrets and stream tokens. Owned files and tasks: docs/STREAMS.md §S2.
  * Routes follow docs/openapi.yaml (method, path, auth, scope); responses use the { data, meta } envelope.
  *
- *  GET    /v1/keys            admin, loopback only   list keys (never the key or its hash)
+ *  GET    /v1/keys            admin, loopback only   list keys (never the key or its hash); an account-limited admin key
+ *                                                    sees and revokes only keys limited to its own accounts
  *  POST   /v1/keys            admin, loopback only   create a key; 201 with the key shown once; audited key.created
  *  DELETE /v1/keys/{keyId}    admin, loopback only   revoke now; audited key.revoked
  *  POST   /v1/stream/token    read                   single-use 60 s token for ?token= on WS/SSE URLs
@@ -26,6 +27,8 @@ export const ROUTES = Object.freeze([
 ]);
 
 const meta = (ctx) => ({ requestId: ctx.requestId });
+/** A key record the caller may see and revoke: its accounts are all ones the caller holds. */
+const visible = (ctx, record) => ctx.canAccessAccounts?.(record.accounts) ?? true;
 
 /**
  * Append an audit record for a key event without failing the request.
@@ -44,7 +47,9 @@ export async function auditKeyEvent(deps, ctx, type, data) {
 export function createHandlers(deps) {
   return {
     async listKeys(ctx) {
-      return { data: await deps.keyStore.list(), meta: meta(ctx) };
+      // An account-limited admin key sees only keys limited to accounts it holds (never the unlimited ones).
+      const all = await deps.keyStore.list();
+      return { data: all.filter((k) => visible(ctx, k)), meta: meta(ctx) };
     },
     async createKey(ctx) {
       if (ctx.body === undefined || ctx.body === null || typeof ctx.body !== "object" || Array.isArray(ctx.body)) {
@@ -62,6 +67,8 @@ export function createHandlers(deps) {
       const keyId = ctx.params.keyId;
       if (!KEY_ID_RE.test(String(keyId ?? ""))) throw new BridgeError("NOT_FOUND", "No API key with this id.");
       const before = await deps.keyStore.get(keyId);
+      // The same answer as an unknown id, so a limited key cannot probe for keys it may not manage.
+      if (before && !visible(ctx, before)) throw new BridgeError("NOT_FOUND", "No API key with this id.");
       const record = await deps.keyStore.revoke(keyId);
       if (before && !before.revokedAt) await auditKeyEvent(deps, ctx, "key.revoked", { keyId: record.id, label: record.label });
       return { data: record, meta: meta(ctx) };

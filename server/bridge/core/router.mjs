@@ -16,6 +16,8 @@ export const METHODS = Object.freeze(["GET", "POST", "PUT", "PATCH", "DELETE"]);
  *   allowQueryKey?: boolean,               // accept ?key= (read scope only; Excel WEBSERVICE / Sheets)
  *   public?: boolean,                      // also served on the opt-in public ingress listener
  *   loopbackOnly?: boolean,                // refuse unless the TCP peer is loopback (credential and admin actions)
+ *   localControl?: boolean,                // also accept the data folder's control token from this computer, as the
+ *                                          // local CLI (the kill switch; see controlToken.mjs)
  *   body?: "json" | "json-or-text" | "raw" | "none",
  *   bodyLimitBytes?: number,
  *   summary?: string,

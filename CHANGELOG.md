@@ -9,6 +9,16 @@ All notable changes to this project are listed here. The format follows [Keep a 
 - **Node.js 22 or newer is now required** (Node 20 reached end of life in April 2026). CI runs Node 22 and 24.
   The Node SDK in `sdk/node` still works on Node 20.
 - Dev tools: Vitest 5, TypeScript 7, @types/node 22; MCP SDK 1.32.2; GitHub Actions updated.
+- `mc-bridge kill` and `kill release` need no `--key` on the computer running the Bridge: they use an owner-only
+  control token the Bridge keeps in its data folder while it runs, accepted only on the kill-switch routes and only
+  from this computer.
+- An account-limited admin key now lists, revokes and deletes only the keys and hooks of its own accounts; others
+  answer 404, like unknown ids.
+- Docker: base images pinned by digest (Dependabot keeps them current), `docker-compose.yml` runs read-only with no
+  capabilities, and the first start asks you to rotate the admin key it printed into the log.
+- Demo mode: "account not found" errors name the demo accounts (`demo-paper`, `demo`).
+- Docs: the AI confirmation step does not protect against an agent with shell or browser control (MCP guide,
+  SECURITY.md).
 
 ### Added
 

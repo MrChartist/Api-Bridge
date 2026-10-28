@@ -128,6 +128,32 @@ describe("auth routes", () => {
     expect((await request("/v1/keys/NOT-AN-ID", { method: "DELETE", headers: bearer(adminKey) })).status).toBe(404);
   });
 
+  it("an account-limited admin key sees and revokes only keys limited to its own accounts", async () => {
+    const ks = app.deps.keyStore;
+    const { key: limitedAdmin } = await ks.create({ label: "desk A admin", scopes: ["admin"], accounts: ["acct-a"] });
+    const { record: ownKey } = await ks.create({ label: "desk A script", scopes: ["paper"], accounts: ["acct-a"] });
+    const { record: otherKey } = await ks.create({ label: "desk B script", scopes: ["paper"], accounts: ["acct-b"] });
+    const { record: mixedKey } = await ks.create({ label: "both desks", scopes: ["read"], accounts: ["acct-a", "acct-b"] });
+
+    const list = await request("/v1/keys", { headers: bearer(limitedAdmin) });
+    expect(list.status).toBe(200);
+    const labels = list.json.data.map((k) => k.label);
+    expect(labels).toEqual(expect.arrayContaining(["desk A admin", "desk A script"]));
+    for (const hidden of ["desk B script", "both desks", "cli admin", "reader"]) expect(labels).not.toContain(hidden);
+
+    // Out-of-scope keys answer exactly like unknown ids, and stay active.
+    for (const id of [otherKey.id, mixedKey.id]) {
+      const r = await request(`/v1/keys/${id}`, { method: "DELETE", headers: bearer(limitedAdmin) });
+      expect(r.status).toBe(404);
+      expect((await ks.get(id)).revokedAt).toBeNull();
+    }
+    expect((await request(`/v1/keys/${ownKey.id}`, { method: "DELETE", headers: bearer(limitedAdmin) })).status).toBe(200);
+
+    // An unlimited admin key still sees everything.
+    const all = (await request("/v1/keys", { headers: bearer(adminKey) })).json.data.map((k) => k.label);
+    expect(all).toEqual(expect.arrayContaining(["desk B script", "both desks", "cli admin"]));
+  });
+
   it("issues single-use stream tokens to read keys", async () => {
     const r = await request("/v1/stream/token", { method: "POST", headers: bearer(readKey) });
     expect(r.status).toBe(200);

@@ -397,6 +397,7 @@ paths:
       tags: [Keys]
       operationId: listKeys
       summary: List API keys (never the key itself)
+      description: An admin key limited to some accounts lists only keys limited to those same accounts.
       x-stream: S2
       x-scope: admin
       x-loopback-only: true
@@ -450,6 +451,7 @@ paths:
       tags: [Keys]
       operationId: revokeKey
       summary: Revoke a key (takes effect immediately)
+      description: An admin key limited to some accounts can revoke only keys limited to those accounts; any other key answers 404, as an unknown id does.
       x-stream: S2
       x-scope: admin
       x-loopback-only: true
@@ -1706,6 +1708,7 @@ paths:
       tags: [Webhooks]
       operationId: listHooks
       summary: List configured hooks (never the token)
+      description: An admin key limited to some accounts lists only the hooks of those accounts.
       x-stream: S11
       x-scope: admin
       x-loopback-only: true
@@ -1768,6 +1771,7 @@ paths:
       tags: [Webhooks]
       operationId: deleteHook
       summary: Delete a hook (its URL stops working immediately)
+      description: An admin key limited to some accounts can delete only the hooks of those accounts; any other hook answers 404.
       x-stream: S11
       x-scope: admin
       x-loopback-only: true

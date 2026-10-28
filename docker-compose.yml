@@ -16,6 +16,12 @@ services:
     volumes:
       - bridge-data:/data               # config, API keys, encrypted broker secrets, audit log, paper book
       - bridge-secrets:/secrets         # the master key, kept apart from the data volume
+    read_only: true                     # the image cannot be changed at run time; only the volumes are writable
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
     networks:
       - bridge-net
 

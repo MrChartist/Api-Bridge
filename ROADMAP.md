@@ -14,14 +14,6 @@ What we plan to work on after the first public release. Dates are targets, not p
 **Make first use smoother**
 - Show the reachable webhook URL (public ingress or tunnel) next to the local one, so Chartink and GoCharting alerts work on the first try.
 - Remember the first-run checklist on the server, not only in one browser.
-- `mc-bridge kill` while the Bridge is running: work without `--key` from this computer, or explain the flag clearly.
-- Account-not-found errors in demo mode suggest `demo-paper`.
-
-**Safety and security hardening**
-- Account-limited admin keys can only list, delete and revoke hooks and keys for their own accounts.
-- Pin the Docker base image by digest; document that the compose file is the supported way to run in Docker.
-- Prompt to rotate the first admin key printed during Docker setup.
-- Document clearly that the AI confirmation step does not protect against an agent that can run shell commands on your machine.
 
 **Release plumbing**
 - Publish the Node SDK to npm and the Python SDK to PyPI.
@@ -32,6 +24,13 @@ What we plan to work on after the first public release. Dates are targets, not p
 
 - Multi-account work splitting, Yahoo Finance / NSE backup data, the scanner with saved scans and alerts, the
   compat `/api/v1` REST and WebSocket API, and Telegram / Discord / Slack / webhook notifications.
+- macOS-style dashboard with Motion animations and a ⌘K command palette; a public demo kit for a VPS.
+- `mc-bridge kill` works without `--key` on the computer running the Bridge.
+- Account-limited admin keys only see and manage keys and hooks for their own accounts.
+- Account-not-found errors in demo mode name the demo accounts.
+- Docker base images pinned by digest, kept current by Dependabot.
+- The MCP guide and SECURITY.md say plainly that AI confirmation does not stop an agent with shell or browser control.
+- Docker: `docker compose` documented as the supported way, and the first start asks you to rotate the logged admin key.
 
 ## Next few weeks (v0.2)
 

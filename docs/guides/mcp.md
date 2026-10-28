@@ -76,3 +76,10 @@ and the assistant's key has the `paper` scope (or `live`) and may use that accou
 
 No tool can change paper/live mode, key scopes or account sessions, or release the kill switch. Client-side approval
 prompts never count as confirmation. AI-placed orders are a regulatory gray area; see [compliance.md](compliance.md).
+
+> **What the confirmation step does not cover.** It stops an assistant that can only reach the Bridge through its
+> MCP tools or its API key. It cannot stop an assistant (or any program) that can also **run shell commands or
+> control the browser on your computer**, such as a coding agent with terminal access or a computer-use tool: such
+> a program can read the Bridge's data folder, use the local CLI, or click Confirm on the dashboard for you. Give
+> those tools a `read` key only, keep the `orders` toolset off for them, or run them in a sandbox or on another
+> machine that cannot reach your Bridge's files or dashboard.
