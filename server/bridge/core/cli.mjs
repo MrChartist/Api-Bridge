@@ -9,6 +9,7 @@ import net from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { createBrokerRegistry } from "../../brokers/registry.mjs";
 import { SERVICE_CONTRACTS, isStub } from "./contracts.mjs";
+import { readControlToken } from "./controlToken.mjs";
 import { BridgeError, NotImplementedError } from "./errors.mjs";
 import { isLoopbackHost, loadConfig } from "./config.mjs";
 import { createLogger } from "./logger.mjs";
@@ -406,8 +407,9 @@ export async function runCli(positionals, flags, io) {
 
 /**
  * `mc-bridge kill` / `mc-bridge kill release`. When the Bridge is running, the command goes through its API (the
- * running process holds the kill-switch state; engaging needs any key, releasing an admin key, both from this
- * computer). When it is not running, the CLI engages or releases the persisted kill switch directly, as the local
+ * running process holds the kill-switch state). With no --key it uses the control token the Bridge keeps in its data
+ * folder, so on this computer no key is needed; with --key, engaging needs any key and releasing an admin key, from
+ * this computer. When it is not running, the CLI engages or releases the persisted kill switch directly, as the local
  * principal, with the same audit record, so trading stays stopped when the Bridge next starts.
  */
 async function killCommand(sub, flags, io) {
@@ -423,8 +425,11 @@ async function killCommand(sub, flags, io) {
   const baseUrl = bridgeUrl(flags, io, config);
   const alive = await fetch(`${baseUrl}/v1/health`, { signal: AbortSignal.timeout(2000) }).then((r) => r.ok, () => false);
   if (alive) {
-    const key = typeof flags.key === "string" ? flags.key : io.env.MCB_API_KEY;
-    if (!key) throw new BridgeError("UNAUTHENTICATED", `The Bridge is running at ${baseUrl}; pass --key (or MCB_API_KEY)${release ? " with an admin key" : ""}, or use the dashboard.`);
+    // No key needed on this computer: the running Bridge keeps a control token in its data folder (controlToken.mjs).
+    const key = typeof flags.key === "string" ? flags.key : (io.env.MCB_API_KEY ?? readControlToken(config.dataDir));
+    if (!key) {
+      throw new BridgeError("UNAUTHENTICATED", `The Bridge is running at ${baseUrl} but its control token is not in ${config.dataDir} (another data folder, or another computer). Pass --key (or MCB_API_KEY)${release ? " with an admin key" : ""}, or use the dashboard's Safety page.`);
+    }
     const res = await fetch(`${baseUrl}/v1/safety/kill-switch`, {
       method: release ? "DELETE" : "POST",
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
@@ -432,7 +437,9 @@ async function killCommand(sub, flags, io) {
     });
     if (!res.ok) {
       const problem = await res.json().catch(() => ({}));
-      io.err(`Error: ${problem.detail ?? `the Bridge answered HTTP ${res.status}`}`);
+      const usedControlToken = typeof flags.key !== "string" && !io.env.MCB_API_KEY;
+      if (usedControlToken && res.status === 401) io.err(`Error: the running Bridge did not accept the control token in ${config.dataDir} (it may belong to another Bridge). Pass --key, or use the dashboard's Safety page.`);
+      else io.err(`Error: ${problem.detail ?? `the Bridge answered HTTP ${res.status}`}`);
       return 1;
     }
     io.out(release ? "Kill switch released. Orders can be sent again." : `Kill switch engaged: ${reason}. No orders will be sent; cancels still work.`);

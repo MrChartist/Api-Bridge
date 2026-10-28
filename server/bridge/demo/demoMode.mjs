@@ -18,6 +18,8 @@ export { DEMO_BROKER_ID, DEMO_NOTICE };
 export const DEMO_HEADER = "X-MCB-Data";
 export const DEMO_MARKET_ACCOUNT = "demo";
 export const DEMO_PAPER_ACCOUNT = "demo-paper";
+/** Added to "account not found" errors in demo mode, where the usual account ids from the docs do not exist. */
+export const DEMO_ACCOUNT_HINT = `Demo mode has two accounts: "${DEMO_PAPER_ACCOUNT}" for paper orders and positions, and "${DEMO_MARKET_ACCOUNT}" for market data.`;
 
 /** The accounts demo mode runs with (parsed, so defaults are filled in exactly as for a real config). */
 export function demoAccounts() {

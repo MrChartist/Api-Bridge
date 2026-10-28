@@ -1,5 +1,5 @@
 import http from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -111,6 +111,43 @@ describe("kill switch from the CLI", () => {
     expect(await runCli(["kill", "release"], {}, a.io)).toBe(0);
     expect(a.out.at(-1)).toMatch(/released/);
     expect(await runCli(["kill", "sideways"], {}, a.io)).toBe(1);
+  });
+});
+
+describe("kill switch on a running Bridge", () => {
+  it("needs no key on this computer: it uses the control token in the data folder, removed on stop", async () => {
+    const a = io();
+    const { config } = loadConfig({ path: join(a.dir, "bridge.config.json"), env: {}, cwd: a.dir });
+    const { createApp } = await import("./app.mjs");
+    const { createNullLogger } = await import("./logger.mjs");
+    const app = await createApp({ config: { ...config, server: { ...config.server, port: 0 } }, logger: createNullLogger() });
+    const { port } = await app.listen();
+    const tokenFile = join(config.dataDir, "control.token");
+    try {
+      expect(existsSync(tokenFile)).toBe(true);
+      if (process.platform !== "win32") expect(statSync(tokenFile).mode & 0o777).toBe(0o600);
+      a.io.env = { MCB_BRIDGE_URL: `http://127.0.0.1:${port}` };
+      expect(await runCli(["kill"], { reason: "panic" }, a.io)).toBe(0);
+      expect(a.out.at(-1)).toMatch(/Kill switch engaged: panic/);
+      expect(app.deps.safety.status().killSwitch.engaged).toBe(true);
+      expect(await runCli(["kill", "release"], {}, a.io)).toBe(0);
+      expect(app.deps.safety.status().killSwitch.engaged).toBe(false);
+
+      // The token works only on the kill-switch routes.
+      const token = readFileSync(tokenFile, "utf8").trim();
+      const keys = await fetch(`http://127.0.0.1:${port}/v1/keys`, { headers: { authorization: `Bearer ${token}` } });
+      expect(keys.status).toBe(401);
+      // ...and only from this computer (a proxied request is not local).
+      const proxied = await fetch(`http://127.0.0.1:${port}/v1/safety/kill-switch`, { method: "POST", headers: { authorization: `Bearer ${token}`, "x-forwarded-for": "203.0.113.9" } });
+      expect(proxied.status).toBe(401);
+      // A wrong token is an ordinary bad key, with a clear message from the CLI.
+      writeFileSync(tokenFile, "mcbctl_not-the-real-one\n");
+      expect(await runCli(["kill"], {}, a.io)).toBe(1);
+      expect(a.err.at(-1)).toMatch(/did not accept the control token/);
+    } finally {
+      await app.close();
+    }
+    expect(existsSync(tokenFile)).toBe(true); // not ours any more (overwritten above), so left alone
   });
 });
 

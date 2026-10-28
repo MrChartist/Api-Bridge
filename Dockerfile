@@ -1,6 +1,7 @@
 # Mr. Chartist API Bridge in a container. Use docker-compose.yml, which publishes the port on 127.0.0.1 only.
 #   docker compose up -d && docker compose logs bridge     (the first start prints your admin key once)
-FROM node:22-alpine
+# Pinned by digest (the tag alone can be re-pointed); Dependabot proposes updates.
+FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914
 
 ENV NODE_ENV=production \
     MCB_CONFIG=/data/bridge.config.json \

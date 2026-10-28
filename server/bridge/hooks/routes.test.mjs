@@ -62,6 +62,27 @@ describe("hook management routes", () => {
   });
 });
 
+describe("account-limited admin keys manage only their own accounts' hooks", () => {
+  beforeEach(async () => {
+    b = await startTestBridge();
+  });
+  afterEach(async () => b.close());
+
+  it("lists and deletes only hooks on its accounts; another account's hook answers 404 and keeps working", async () => {
+    const { key: limited } = b.app.deps.keyStore.addKey({ label: "paper desk admin", scopes: ["admin"], accounts: ["paper"] });
+    const own = await createHook({ label: "mine" });
+    const other = await createHook({ label: "theirs", account: "dhan-main" });
+
+    const list = await b.request({ path: "/v1/hooks", headers: b.auth(limited) });
+    expect(list.json.data.map((h) => h.label)).toEqual(["mine"]);
+    const del = await b.request({ method: "DELETE", path: `/v1/hooks/${other.id}`, headers: b.auth(limited) });
+    expect(del.status).toBe(404);
+    expect((await b.request({ method: "POST", path: other.path, headers: json, body: alert() })).status).toBe(202);
+    expect((await b.request({ method: "DELETE", path: `/v1/hooks/${own.id}`, headers: b.auth(limited) })).status).toBe(204);
+    expect((await b.request({ path: "/v1/hooks", headers: b.auth(b.keys.admin) })).json.data.map((h) => h.label)).toEqual(["theirs"]);
+  });
+});
+
 describe("live hooks need live authority (regressions)", () => {
   const liveCfg = { safety: { liveTrading: true }, accounts: [{ id: "dhan-main", broker: "dhan", live: { enabled: true, allowedSources: ["webhook"] } }, { id: "paper", broker: "paper" }] };
   beforeEach(async () => {

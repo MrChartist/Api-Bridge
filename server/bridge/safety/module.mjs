@@ -13,8 +13,8 @@ import { createSafetyGuard } from "./safetyGuard.mjs";
 /** [method, path, route options, handler name] */
 export const ROUTES = Object.freeze([
   ["GET", "/v1/safety", { scope: "read" }, "getSafety"],
-  ["POST", "/v1/safety/kill-switch", { scope: "read" }, "engageKillSwitch"],
-  ["DELETE", "/v1/safety/kill-switch", { scope: "admin", loopbackOnly: true }, "releaseKillSwitch"],
+  ["POST", "/v1/safety/kill-switch", { scope: "read", localControl: true }, "engageKillSwitch"],
+  ["DELETE", "/v1/safety/kill-switch", { scope: "admin", loopbackOnly: true, localControl: true }, "releaseKillSwitch"],
   ["GET", "/v1/audit", { scope: "admin", loopbackOnly: true }, "queryAudit"],
   ["GET", "/v1/audit/verify", { scope: "admin", loopbackOnly: true }, "verifyAudit"],
 ]);

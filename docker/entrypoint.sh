@@ -10,6 +10,10 @@ export MCB_DOCKER=1
 if [ ! -f "$MCB_CONFIG" ]; then
   echo "First start: setting up the Bridge in /data (your admin key is printed once below)."
   node bin/mc-bridge.mjs init --yes --config "$MCB_CONFIG"
+  echo
+  echo "That admin key is now in this container's log. Once you are signed in, make a new admin key on the"
+  echo "dashboard's API keys page (or: docker compose exec bridge mc-bridge keys create --label admin --scope admin)"
+  echo "and revoke the first one, so the logged key stops working."
 fi
 if [ "$#" -eq 0 ]; then
   set -- start
