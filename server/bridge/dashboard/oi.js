@@ -413,7 +413,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     ladder.draw(ladderModel({ x, rows, inBand, atm, spot, mp, wallMap, combined, unit, fq, fd, winLabel }));
 
     drawWalls({ walls, rows, fq, fd, R1ref, S1ref, R1, S1, pin, unit, winLabel });
-    drawBuildup(bu, { scopeTxt, winLabel, th });
+    drawBuildup(bu, { scopeTxt, winLabel, th, combined });
     drawMovers(movers, { fd, winLabel });
     drawExpiries(c, now);
     drawTimeline(key, snaps, session);
@@ -579,11 +579,11 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
   }
 
   // ── Build-up ──
-  function drawBuildup(bu, { scopeTxt, winLabel, th }) {
+  function drawBuildup(bu, { scopeTxt, winLabel, th, combined }) {
     const COLS = ["LB", "SB", "SC", "LU", "CH"];
     const cell = (s, k) => [bu[s][k].n, formatCompact(bu[s][k].lots), bu[s].dom === k];
     const word = (s) => (bu[s].dom ? `${bu[s].dom} dominant → ${O.BUILDUP_READ[s][bu[s].dom][1]}` : "nothing dominant");
-    const data = { ce: COLS.map((k) => cell("ce", k)), pe: COLS.map((k) => cell("pe", k)), tone: bu.tone, text: bu.text, empty: bu.empty, line: `Calls: ${word("ce")} · Puts: ${word("pe")}`, scopeTxt, winLabel, th };
+    const data = { ce: COLS.map((k) => cell("ce", k)), pe: COLS.map((k) => cell("pe", k)), tone: bu.tone, text: bu.text, empty: bu.empty, line: `Calls: ${word("ce")} · Puts: ${word("pe")}`, scopeTxt, winLabel, th, combined };
     const sig = JSON.stringify(data);
     if (buildEl.__sig === sig) return;
     buildEl.__sig = sig;
@@ -601,7 +601,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       h("table", { class: "oi-matrix" }, h("thead", {}, h("tr", {}, h("td", {}), COLS.map(head))), h("tbody", {}, row("ce", "Calls"), row("pe", "Puts"))),
       h("p", { class: "oi-foot" }, data.line),
       h("p", { class: `oi-tone tone-${bu.tone}` }, h("span", { "aria-hidden": "true" }, glyph), ` ${bu.text}`),
-      ...[bu.empty ? h("p", { class: "oi-foot muted" }, "No strike passed the noise filter in this window: try a longer window or a wider band.") : null].filter(Boolean),
+      ...[bu.empty ? h("p", { class: "oi-foot muted" }, combined ? "Combined OI carries no price change, so build-up is read per expiry: switch Scope to This expiry." : "No strike passed the noise filter in this window: try a longer window or a wider band.") : null].filter(Boolean),
       filterBtn,
     );
   }
@@ -625,7 +625,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         { class: `oi-mlist ${cls}${moverTab === cls ? " on" : ""}` },
         h("h4", {}, title),
         items.length
-          ? h("ol", {}, items.map((it) => h("li", {}, h("span", { class: "m-k" }, it[0]), h("span", { class: "m-d" }, it[1]), h("span", { class: "m-p" }, it[2]), h("span", { class: "m-c" }, it[3]), it[4] ? h("span", { class: "m-w", title: it[0].endsWith("CE") ? "A call wall: unwinding here is the breakout cue" : "A put wall: unwinding here is the breakdown cue" }, `wall ${it[4]}`) : null)))
+          ? h("ol", {}, items.map((it) => h("li", {}, h("span", { class: "m-k" }, it[0]), h("span", { class: "m-d" }, it[1]), h("span", { class: "m-sub" }, ...[it[2] ? h("span", { class: "m-p" }, it[2]) : null, it[3] ? h("span", { class: "m-c" }, it[3]) : null, it[4] ? h("span", { class: "m-w", title: it[0].endsWith("CE") ? "A call wall: unwinding here is the breakout cue" : "A put wall: unwinding here is the breakdown cue" }, `wall ${it[4]}`) : null].filter(Boolean)))))
           : h("p", { class: "oi-none" }, cls === "adds" ? "No additions in this window" : "No unwinding in this window"),
       );
     const seg = segmented("Movers", [["adds", "Adds"], ["unwinds", "Unwinds"]], moverTab);
@@ -684,7 +684,21 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const n = 1 + extraList().filter((e) => extras.get(e)?.chain).length;
     const t = table(columns, data, h("p", { class: "desk-empty" }, "No expiries listed"), { mobile: "stack" });
     t.classList.add("oi-exp-table");
-    expBody.replaceChildren(t);
+    // Phone: one compact card per expiry (an included expiry shows its figures; the others one line).
+    const FIG = ["DTE", "Lot", "CE OI", "PE OI", "PCR", "Max pain", "Support", "Resistance"];
+    const cards = h(
+      "ul",
+      { class: "oi-exp-cards" },
+      data.map((d) =>
+        h(
+          "li",
+          { class: d.on ? "on" : undefined },
+          h("label", { class: "oi-exp-card-head" }, columns[1].cell(d), h("strong", {}, `${expiryText(d.e)}${d.monthly ? " · M" : ""}`), d.p ? h("span", { class: "muted" }, d.p[0]) : h("span", { class: "muted" }, status(d))),
+          d.p ? h("dl", {}, FIG.slice(1).map((l, i) => h("div", {}, h("dt", {}, l), h("dd", {}, d.p[i + 1])))) : null,
+        ),
+      ),
+    );
+    expBody.replaceChildren(t, cards);
     const allBtn = scopeSeg.querySelector('[data-value="all"]');
     if (allBtn) allBtn.textContent = `Combined (${formatInt(n)})`;
   }
@@ -926,7 +940,7 @@ function createLadder({ detailFor, onOpenChain, onAtmVisible }) {
     const now = h("span", { class: "now" });
     const mark = h("span", { class: "mark" });
     const v = h("span", { class: "v" });
-    return { td: h("td", { class: `bar ${side}` }, h("span", { class: "trk", "aria-hidden": "true" }, ghost, now, mark), v), ghost, now, mark, v, sig: "" };
+    return { td: h("td", { class: `ob ${side}` }, h("span", { class: "trk", "aria-hidden": "true" }, ghost, now, mark), v), ghost, now, mark, v, sig: "" };
   }
   function dCell(side) {
     const val = h("span", { class: "dv" });
@@ -938,7 +952,7 @@ function createLadder({ detailFor, onOpenChain, onAtmVisible }) {
     const caption = h("caption", { class: "sr-only" }, m.caption);
     const hce = h("span", {});
     const hpe = h("span", {});
-    const head = h("tr", {}, h("th", { scope: "col", class: "d ce" }, "CE Δ"), h("th", { scope: "col", class: "bar ce" }, hce), h("th", { scope: "col", class: "k" }, "Strike"), h("th", { scope: "col", class: "bar pe" }, hpe), h("th", { scope: "col", class: "d pe" }, "PE Δ"));
+    const head = h("tr", {}, h("th", { scope: "col", class: "d ce" }, "CE Δ"), h("th", { scope: "col", class: "ob ce" }, hce), h("th", { scope: "col", class: "k" }, "Strike"), h("th", { scope: "col", class: "ob pe" }, hpe), h("th", { scope: "col", class: "d pe" }, "PE Δ"));
     const tbody = h("tbody");
     const rows = new Map();
     for (const r of m.rows) {
@@ -989,12 +1003,9 @@ function createLadder({ detailFor, onOpenChain, onAtmVisible }) {
     b.tr.focus({ preventScroll: true });
     if (scroll) into(b.tr);
   }
+  /** Bring a row into view in the ladder and in the window (scroll-margin keeps it clear of the sticky header). */
   function into(tr) {
-    const head = wrap.querySelector("thead")?.offsetHeight ?? 0;
-    const top = tr.offsetTop - head;
-    const bottom = tr.offsetTop + tr.offsetHeight;
-    if (top < wrap.scrollTop) wrap.scrollTop = top;
-    else if (bottom > wrap.scrollTop + wrap.clientHeight) wrap.scrollTop = bottom - wrap.clientHeight;
+    tr.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
   function toggle(k = sel ?? atm) {
     if (!built || k === null || k === undefined) return;
@@ -1044,14 +1055,15 @@ function createLadder({ detailFor, onOpenChain, onAtmVisible }) {
     if (focusRow) select(atm, false);
   }
   let rafPending = false;
-  wrap.addEventListener("scroll", () => {
+  function scheduleAtmCheck() {
     if (rafPending) return;
     rafPending = true;
     requestAnimationFrame(() => {
       rafPending = false;
       checkAtm();
     });
-  });
+  }
+  wrap.addEventListener("scroll", scheduleAtmCheck);
   function checkAtm() {
     if (!built || atm === null) return onAtmVisible(true);
     const b = built.rows.get(atm);
@@ -1132,7 +1144,8 @@ function createLadder({ detailFor, onOpenChain, onAtmVisible }) {
       if (b && b.tr.tabIndex !== 0) b.tr.tabIndex = 0;
     }
     if (open !== null) paintDetail();
-    checkAtm();
+    // Reading row positions forces a layout: do it after the frame paints, not inside the refresh.
+    scheduleAtmCheck();
   }
   function move(d) {
     if (!built) return false;
