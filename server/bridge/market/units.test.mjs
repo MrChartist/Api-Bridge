@@ -131,8 +131,9 @@ describe("normalise", () => {
 
   it("reads Dhan-shaped chain legs", () => {
     expect(chainLegFields({ last_price: 10, oi: 100, previous_oi: 80, volume: 5, implied_volatility: 14.2, greeks: { delta: 0.4, gamma: 0.01, theta: -2, vega: 3 }, top_bid_price: 9.9, top_ask_price: 10.1 })).toEqual({
-      ltp: 10, bid: 9.9, ask: 10.1, oi: 100, oiChange: 20, volume: 5, iv: 14.2, delta: 0.4, gamma: 0.01, theta: -2, vega: 3,
+      ltp: 10, bid: 9.9, ask: 10.1, oi: 100, oiChange: 20, volume: 5, iv: 14.2, close: null, change: null, delta: 0.4, gamma: 0.01, theta: -2, vega: 3,
     });
+    expect(chainLegFields({ last_price: 12.5, previous_close_price: 10 })).toMatchObject({ ltp: 12.5, close: 10, change: 2.5 });
     expect(chainLegFields({ ltp: 0, iv: 0 })).toMatchObject({ ltp: null, iv: null, oiChange: null, delta: null });
     expect(chainLegFields(undefined)).toBeNull();
   });

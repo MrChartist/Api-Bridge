@@ -401,7 +401,7 @@ export function createDemoAdapter({ now = () => Date.now(), tickMs = 1000 } = {}
         const leg = (r) => {
           const q = quoteOf(`DM-${u.symbol}-${expiry}-${k}-${r}`, u.deriv, t);
           const prevOi = Math.round(q.oi * (0.88 + 0.2 * unit(`${u.symbol}:${expiry}:${k}:${r}:prev`)));
-          return { last_price: q.ltp, oi: q.oi, previous_oi: prevOi, oi_chg: q.oi - prevOi, volume: q.volume, top_bid_price: q.bid, top_ask_price: q.ask, security_id: `DM-${u.symbol}-${expiry}-${k}-${r}` };
+          return { last_price: q.ltp, oi: q.oi, previous_oi: prevOi, oi_chg: q.oi - prevOi, volume: q.volume, top_bid_price: q.bid, top_ask_price: q.ask, previous_close_price: q.close, security_id: `DM-${u.symbol}-${expiry}-${k}-${r}` };
         };
         oc[k.toFixed(6)] = { ce: leg("CE"), pe: leg("PE") };
       }

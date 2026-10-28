@@ -4,7 +4,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DASH, formatFixed, formatInt, formatNumber, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
+import { DASH, formatCompact, formatFixed, formatInt, formatNumber, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 
 describe("dashboard number format", () => {
   it("prints figures without grouping commas", () => {
@@ -38,8 +38,19 @@ describe("dashboard number format", () => {
     expect(formatInt("17")).toBe("17");
   });
 
+  it("prints big counts in Indian units", () => {
+    expect(formatCompact(12_500_000)).toBe("1.25Cr");
+    expect(formatCompact(1_586_850)).toBe("15.87L");
+    expect(formatCompact(8_540)).toBe("8.5K");
+    expect(formatCompact(950)).toBe("950");
+    expect(formatCompact(-31_382)).toBe("-31.4K");
+    expect(formatCompact(31_382, { signed: true })).toBe("+31.4K");
+    expect(formatCompact(0, { signed: true })).toBe("0");
+    expect(formatCompact(null)).toBe(DASH);
+  });
+
   it("no other dashboard file formats numbers with the locale formatter", () => {
-    for (const f of ["app.js", "views.js", "palette.js", "motion.js", "snippets.js"]) {
+    for (const f of ["app.js", "views.js", "palette.js", "motion.js", "snippets.js", "options.js", "desk.js"]) {
       const src = readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
       expect(src, f).not.toMatch(/Intl\.NumberFormat|\.toLocaleString\(|toLocaleTimeString|toFixed\(/);
       expect(src, f).not.toMatch(/₹\d{1,3},\d/);

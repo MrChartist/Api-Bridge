@@ -51,3 +51,16 @@ export function formatSigned(value, dp = 2) {
 
 /** A percentage with fixed decimals ("12.3%"). Missing → "--". */
 export const formatPercent = (value, dp = 1) => (isFigure(value) ? `${formatFixed(value, dp)}%` : DASH);
+
+/**
+ * Indian compact units for big counts (OI, volume, premium): 1.25Cr, 12.40L, 8.5K, 950. `signed` adds "+" to gains.
+ * Still no grouping; 2 decimals for lakh and crore, 1 for thousand. Missing → "--".
+ */
+export function formatCompact(value, { signed = false } = {}) {
+  if (!isFigure(value)) return DASH;
+  const n = Number(value);
+  const a = Math.abs(n);
+  const [div, unit, dp] = a >= 1e7 ? [1e7, "Cr", 2] : a >= 1e5 ? [1e5, "L", 2] : a >= 1e3 ? [1e3, "K", 1] : [1, "", 0];
+  const text = `${formatFixed(n / div, dp)}${unit}`;
+  return signed && Number(formatFixed(n / div, dp)) > 0 ? `+${text}` : text.replace(/^-(0(?:\.0+)?)(\D*)$/, "$1$2");
+}

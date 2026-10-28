@@ -3949,6 +3949,8 @@ components:
         oiChange: { type: [number, "null"] }
         volume: { type: [number, "null"] }
         iv: { type: [number, "null"], description: "Percent." }
+        close: { type: [number, "null"], description: "Previous session's close, when the broker sends it." }
+        change: { type: [number, "null"], description: "ltp - close; null without a close." }
         delta: { type: [number, "null"] }
         gamma: { type: [number, "null"] }
         theta: { type: [number, "null"] }

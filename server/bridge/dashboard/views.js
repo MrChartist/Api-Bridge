@@ -31,6 +31,7 @@ import {
   toast,
 } from "./app.js";
 import { DASH, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
+import { renderOptionDesk } from "./desk.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
@@ -40,9 +41,9 @@ const FLAG = { copied: "mcb.dashboard.copied", tested: "mcb.dashboard.tested", h
 const markCopied = () => local.set(FLAG.copied, "1");
 const scopeChip = (s) => h("span", { class: `chip scope-${s}` }, s);
 /** Sentence case for a status word from the API ("filled" → "Filled"). */
-const cap = (s) => (s ? `${String(s)[0].toUpperCase()}${String(s).slice(1)}` : DASH);
+export const cap = (s) => (s ? `${String(s)[0].toUpperCase()}${String(s).slice(1)}` : DASH);
 const sessionPill = (s) => pill(cap(s), s === "connected" ? "ok" : s === "expired" || s === "error" ? "bad" : "warn");
-const demoPill = () => (app.state.demo ? pill("Demo data", "demo") : null);
+export const demoPill = () => (app.state.demo ? pill("Demo data", "demo") : null);
 const sum = (o) => Object.values(o ?? {}).reduce((a, b) => a + (Number(b) || 0), 0);
 const initials = (name) => String(name).replace(/\(.*?\)/g, "").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 /** A table cell: the broker's small logo and its name (paper accounts and unknown brokers: the name alone). */
@@ -73,7 +74,7 @@ function delta(value, text) {
   return h("span", { class: `delta ${dir}` }, h("span", { "aria-hidden": "true" }, n > 0 ? "▲" : n < 0 ? "▼" : "•"), text);
 }
 /** Money with the gain / loss colour and an explicit sign (P&L). */
-function pnl(v) {
+export function pnl(v) {
   if (!isFigure(v)) return DASH;
   const text = formatRupee(Math.abs(Number(v)));
   const n = Number(formatFixed(v, 2));
@@ -86,7 +87,7 @@ const nextStep = (label, to, cls = "primary") => h("button", { type: "button", c
  * A macOS segmented control for 2-4 mutually exclusive options. The returned element has a `.value` like a <select>,
  * so the code that reads it does not change. Arrow keys move the choice; only the chosen button is in the Tab order.
  */
-function segmented(label, options, initial = options[0][0]) {
+export function segmented(label, options, initial = options[0][0]) {
   let value = initial;
   const el = h("div", { class: "segmented", role: "group", "aria-label": label });
   const buttons = options.map(([v, text]) => h("button", { type: "button", "data-value": v, onclick: () => pick(v, false) }, text));
@@ -113,7 +114,7 @@ function segmented(label, options, initial = options[0][0]) {
   return el;
 }
 /** A labelled field around a segmented control (a <label> would forward clicks on its text to the first button). */
-const segField = (label, seg, { wide = false } = {}) => {
+export const segField = (label, seg, { wide = false } = {}) => {
   const id = `seg-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${++segField.n}`;
   seg.removeAttribute("aria-label");
   seg.setAttribute("aria-labelledby", id);
@@ -150,7 +151,7 @@ drawTabs.n = 0;
  * Pages that redraw on a timer would drop keyboard focus every few seconds. Run `fn` (which replaces the children of
  * `container`) and put focus back on the equivalent control if it was inside.
  */
-function keepFocus(container, fn) {
+export function keepFocus(container, fn) {
   const sig = focusSignature(container);
   const r = fn();
   restoreFocus(container, sig);
@@ -177,15 +178,16 @@ function restoreFocus(container, saved) {
 
 /**
  * The one list of pages: it feeds the sidebar, the phone tab bar, the More sheet and the ⌘K palette. `tint` is an iOS
- * system colour name (the page's glyph colour everywhere), `tab: true` puts it in the phone tab bar, `headline` is the
+ * system colour name (the page's glyph colour everywhere), `tab: true` puts it in the phone tab bar (`short` labels it there), `headline` is the
  * large title when it differs from `title` (one serif accent word at most).
  */
 export const PAGES = [
   { id: "home", label: "Home", icon: "home", tint: "blue", tab: true, group: "Overview", title: "Home", headline: ["Your ", { serif: "Bridge" }], sub: "Your accounts, today's activity and safety, on this computer", render: renderHome },
-  { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", tab: true, group: "Overview", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
+  { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", group: "Overview", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
   { id: "console", label: "Test console", icon: "console", tint: "teal", group: "Overview", title: "Test console", sub: "Try any call and see exactly what comes back", render: renderConsole },
   { id: "limits", label: "Rate limits", icon: "limits", tint: "purple", group: "Overview", title: "Rate limits", sub: "Live usage against each broker's limits, and the calls the Bridge saved", render: renderLimits },
   { id: "scanner", label: "Scanner", icon: "scan", tint: "mint", group: "Overview", title: "Scanner", sub: "Scan big universes with a readable condition, shared out over your accounts", render: renderScanner },
+  { id: "desk", label: "Option Desk", short: "Desk", icon: "chart", tint: "green", tab: true, group: "Trading", title: "Option Desk", headline: ["Option ", { serif: "Desk" }], sub: "Live option chain with OI, IV and Greeks. Click a bid or ask to trade; paper unless you choose live", render: renderOptionDesk },
   { id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, group: "Trading", title: "Orders and positions", sub: "Paper by default. Pending confirmations wait here", render: renderOrders },
   { id: "safety", label: "Safety", icon: "safety", tint: "red", tab: true, group: "Trading", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
   { id: "keys", label: "API keys", icon: "keys", tint: "pink", group: "Connect", title: "API keys", sub: "One key per tool, with only the access it needs", render: renderKeys },
@@ -240,7 +242,7 @@ function tabbar(active) {
         "a",
         { href: `#/${p.id}`, class: "tab", "data-page": p.id, "aria-current": p.id === active ? "page" : undefined },
         icon(p.icon),
-        h("span", {}, p.label),
+        h("span", {}, p.short ?? p.label),
         p.id === "orders" ? h("span", { class: "count", "data-tickets": "", hidden: true }) : null,
       ),
     ),
@@ -337,8 +339,10 @@ function appearanceControl(labelledBy) {
   );
 }
 
+/** Stop the page's refresh timer (a page that pauses its own refresh). */
+export const stopTimer = () => clearInterval(timer);
 /** Re-run `fn` every `ms` while this page is shown and the tab is visible. */
-function every(ms, fn) {
+export function every(ms, fn) {
   clearInterval(timer);
   timer = setInterval(() => {
     if (!document.hidden) fn().catch(() => {});
@@ -365,6 +369,8 @@ async function show() {
   clearInterval(timer);
   $("toast").hidden = true;
   nav(page.id);
+  // Pages can restyle the shell (the Option Desk hides the large title and runs edge to edge).
+  document.documentElement.dataset.page = page.id;
   document.title = `${page.label} · Mr. Chartist API Bridge`;
   $("toolbar-icon").replaceChildren(pageGlyph(page));
   $("toolbar-label").textContent = page.label;
