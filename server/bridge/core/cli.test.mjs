@@ -256,7 +256,12 @@ describe("doctor: market-data source", () => {
     const md = checks.find((c) => c.check === "market-data");
     expect(md).toMatchObject({ level: "warn" });
     expect(md.message).toMatch(/No market-data source connected \(log in dhan-main\)/);
-    expect(md.message).toMatch(/mc-bridge start --demo/);
+    expect(md.message).toMatch(/npm run bridge -- start --demo --open/);
+    // Hints name the command that works in the user's setup: the installers set MCB_CLI_NAME.
+    const installed = await runDoctor({ config, env: { MCB_CLI_NAME: "mc-bridge" }, portCheck: false, deps });
+    expect(installed.find((c) => c.check === "market-data").message).toMatch(/\(mc-bridge start --demo --open\)/);
+    const docker = await runDoctor({ config, env: { MCB_DOCKER: "1" }, portCheck: false, deps });
+    expect(docker.find((c) => c.check === "market-data").message).toMatch(/docker compose exec bridge mc-bridge start --demo/);
   });
 });
 

@@ -18,6 +18,7 @@ import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, st
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { cliCommand } from "./cliName.mjs";
 import { BridgeError } from "./errors.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -205,7 +206,7 @@ export async function runInit(flags, io, deps) {
   const cfg = safeJson(configPath) ?? {};
   const brokerAccount = (cfg.accounts ?? []).find((a) => a.broker !== "paper");
   const docker = io.env.MCB_DOCKER === "1";
-  const cmd = docker ? "docker compose exec bridge mc-bridge" : "npm run bridge --";
+  const cmd = cliCommand(io.env);
   say("");
   say("Next steps");
   if (docker) {
@@ -216,8 +217,8 @@ export async function runInit(flags, io, deps) {
     say(`  3. Check everything:        ${cmd} doctor`);
     return 0;
   }
-  say(`  1. Start the Bridge:        ${cfg.demo ? "npm start -- --open" : "npm start -- --demo --open    (sample data, no broker needed)"}`);
-  if (!cfg.demo) say(`                              npm start -- --open           (your real accounts)`);
+  say(`  1. Start the Bridge:        ${cfg.demo ? `${cmd} start --demo --open` : `${cmd} start --demo --open    (sample data, no broker needed)`}`);
+  if (!cfg.demo) say(`                              ${cmd} start --open           (your real accounts)`);
   say(`  2. The dashboard opens by itself, already signed in. To open it again later: ${cmd} open`);
   if (brokerAccount) say(`  3. Log in to your broker:   ${cmd} accounts connect ${brokerAccount.id}   (while the Bridge is running)`);
   else say(`  3. Add a broker later:      add it under "accounts" in bridge.config.json (see docs/guides/accounts.md), then restart`);
