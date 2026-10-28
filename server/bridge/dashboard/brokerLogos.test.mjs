@@ -42,6 +42,22 @@ describe("broker logos", () => {
       expect(Buffer.from(await r.arrayBuffer()).subarray(0, 8).equals(PNG)).toBe(true);
     });
 
+    it("the dashboard's three typefaces as font/woff2, and the CSP allows only its own fonts", async () => {
+      for (const name of ["font-inter-var-v3.woff2", "font-plus-jakarta-sans-var.woff2", "font-dm-serif-display-italic.woff2"]) {
+        const r = await fetch(`${base}/dashboard/${name}`);
+        expect(r.status, name).toBe(200);
+        expect(r.headers.get("content-type")).toBe("font/woff2");
+        expect(Buffer.from(await r.arrayBuffer()).subarray(0, 4).toString("latin1")).toBe("wOF2");
+      }
+      const csp = (await fetch(`${base}/dashboard`)).headers.get("content-security-policy");
+      expect(csp).toContain("font-src 'self'");
+      expect(csp).toContain("script-src 'self';");
+      expect(csp).not.toMatch(/unsafe-inline|https?:/);
+      for (const name of ["font-inter.woff2", "fonts%2Finter-var-v3.woff2", "font-..%2Fapp.js", "OFL-Inter.txt", "font-inter-var-v3.woff2.map"]) {
+        expect((await fetch(`${base}/dashboard/${name}`)).status, name).toBe(404);
+      }
+    });
+
     it("only for known ids: nothing else in the folder or outside it", async () => {
       for (const name of ["broker-nosuchbroker.png", "broker-README.md", "broker-..%2Fapp.png", "broker-dhan.png.map", "brokers%2Fdhan.png", "broker-DHAN.png"]) {
         expect((await fetch(`${base}/dashboard/${name}`)).status, name).toBe(404);

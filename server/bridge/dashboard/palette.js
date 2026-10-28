@@ -1,6 +1,6 @@
 // Command palette (Spotlight style) and keyboard shortcuts for the dashboard.
 // Browser only: nothing here touches the DOM until initPalette() runs (views.js calls it from startRouter()).
-import { applyTheme, copyText, h, icon, modal, toast } from "./app.js";
+import { chooseTheme, copyText, h, icon, iconTile, lockScroll, modal, toast } from "./app.js";
 
 /** True on Apple platforms, where shortcuts use ⌘ instead of Ctrl. */
 export const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "");
@@ -71,10 +71,7 @@ const isTyping = (el) => Boolean(el && (el.isContentEditable || /^(INPUT|TEXTARE
 const otherDialogOpen = () => Boolean(document.getElementById("dialog")?.open);
 
 function setTheme(choice) {
-  // The sidebar's own theme buttons apply and remember the choice; fall back to applyTheme alone.
-  const btn = document.querySelector(`[data-theme-choice="${choice}"]`);
-  if (btn) btn.click();
-  else applyTheme(choice);
+  chooseTheme(choice);
   toast(`Theme: ${choice === "auto" ? "Auto (matches your system)" : choice === "light" ? "Light" : "Dark"}`);
 }
 
@@ -91,22 +88,24 @@ function commands() {
     label: p.label,
     keywords: `${p.title} ${p.sub} go open page`,
     icon: p.icon,
+    tint: p.tint,
+    sub: p.sub,
     hint: i < 9 ? [mod, String(i + 1)] : null,
     run: () => ctx.go(p.id),
   }));
   const actions = [
-    { id: "scan", label: "Run a scan", keywords: "scanner screener condition rsi", icon: "scan", run: () => ctx.go("scanner", "#scan-condition") },
-    { id: "kill", label: "Engage kill switch", keywords: "stop all orders safety emergency halt", icon: "power", run: () => ctx.go("safety", "#kill-action") },
-    { id: "key", label: "Create API key", keywords: "new token keys access", icon: "keys", run: () => ctx.go("keys", "#key-label") },
-    { id: "console", label: "Open test console", keywords: "try request call endpoint quote", icon: "console", run: () => ctx.go("console") },
-    { id: "paper", label: "Place a paper order", keywords: "buy sell trade order console", icon: "orders", run: () => ctx.go("console?endpoint=order") },
-    { id: "theme", label: "Toggle theme", keywords: "dark light appearance mode", icon: "bolt", hintText: `now ${currentTheme()}`, run: () => setTheme({ auto: "light", light: "dark", dark: "auto" }[currentTheme()] ?? "auto") },
-    { id: "theme-light", label: "Theme: Light", keywords: "appearance", icon: "bolt", run: () => setTheme("light") },
-    { id: "theme-dark", label: "Theme: Dark", keywords: "appearance night", icon: "bolt", run: () => setTheme("dark") },
-    { id: "theme-auto", label: "Theme: Auto (match system)", keywords: "appearance system", icon: "bolt", run: () => setTheme("auto") },
-    { id: "copy-url", label: "Copy dashboard URL", keywords: "link address share", icon: "copy", run: () => copyText(`${location.origin}/dashboard`, "Dashboard URL copied") },
-    { id: "refresh", label: "Refresh this page", keywords: "reload update data", icon: "refresh", run: () => ctx.refresh() },
-    { id: "shortcuts", label: "Keyboard shortcuts", keywords: "help keys hotkeys", icon: "info", hint: ["?"], run: () => showShortcuts() },
+    { id: "scan", label: "Run a scan", sub: "Write a condition on the Scanner page", keywords: "scanner screener condition rsi", icon: "scan", tint: "mint", run: () => ctx.go("scanner", "#scan-condition") },
+    { id: "kill", label: "Engage kill switch", sub: "Stop every new order, from every tool", keywords: "stop all orders safety emergency halt", icon: "power", tint: "red", run: () => ctx.go("safety", "#kill-action") },
+    { id: "key", label: "Create API key", sub: "One key per tool, with only the access it needs", keywords: "new token keys access", icon: "keys", tint: "pink", run: () => ctx.go("keys", "#key-label") },
+    { id: "console", label: "Open test console", sub: "Try any call and see what comes back", keywords: "try request call endpoint quote", icon: "console", tint: "teal", run: () => ctx.go("console") },
+    { id: "paper", label: "Place a paper order", sub: "The order form in the test console", keywords: "buy sell trade order console", icon: "orders", tint: "orange", run: () => ctx.go("console?endpoint=order") },
+    { id: "theme", label: "Toggle theme", sub: `Now ${currentTheme() === "auto" ? "Auto" : currentTheme() === "light" ? "Light" : "Dark"}`, keywords: "dark light appearance mode", icon: "moon", tint: "indigo", run: () => setTheme({ auto: "light", light: "dark", dark: "auto" }[currentTheme()] ?? "auto") },
+    { id: "theme-light", label: "Theme: Light", keywords: "appearance", icon: "sun", tint: "gray", run: () => setTheme("light") },
+    { id: "theme-dark", label: "Theme: Dark", keywords: "appearance night", icon: "moon", tint: "gray", run: () => setTheme("dark") },
+    { id: "theme-auto", label: "Theme: Auto (match system)", keywords: "appearance system", icon: "monitor", tint: "gray", run: () => setTheme("auto") },
+    { id: "copy-url", label: "Copy dashboard URL", keywords: "link address share", icon: "copy", tint: "gray", run: () => copyText(`${location.origin}/dashboard`, "Dashboard URL copied") },
+    { id: "refresh", label: "Refresh this page", keywords: "reload update data", icon: "refresh", tint: "gray", run: () => ctx.refresh() },
+    { id: "shortcuts", label: "Keyboard shortcuts", keywords: "help keys hotkeys", icon: "info", tint: "gray", hint: ["?"], run: () => showShortcuts() },
   ].map((a) => ({ ...a, group: "Actions" }));
   return [...pageCmds, ...actions];
 }
@@ -128,14 +127,16 @@ function build() {
   const footer = h(
     "div",
     { class: "palette-foot", "aria-hidden": "true" },
-    h("span", {}, kbd("↑"), kbd("↓"), " to move"),
-    h("span", {}, kbd("↵"), " to open"),
-    h("span", {}, kbd("esc"), " to close"),
+    h("span", {}, kbd("↑"), kbd("↓"), " navigate"),
+    h("span", {}, kbd("↵"), " open"),
+    h("span", {}, kbd("esc"), " close"),
   );
+  // The close button is for pointers and touch; the keyboard closes with Escape (focus stays in the field).
+  const closeBtn = h("button", { type: "button", class: "palette-x", "aria-label": "Close search", tabindex: "-1", onclick: () => closePalette() }, icon("close"));
   dlg = h(
     "dialog",
-    { class: "palette vibrant", "aria-modal": "true", "aria-label": "Command palette" },
-    h("div", { class: "palette-search" }, searchIcon(), input, h("kbd", { class: "kbd", "aria-hidden": "true" }, "esc")),
+    { class: "palette", "aria-modal": "true", "aria-label": "Command palette" },
+    h("div", { class: "palette-search" }, searchIcon(), input, closeBtn),
     list,
     footer,
   );
@@ -166,14 +167,19 @@ function draw() {
   results.forEach((c, i) => {
     if (!input.value.trim() && c.group !== group) {
       group = c.group;
-      items.push(h("li", { class: "palette-group", role: "presentation" }, group));
+      items.push(h("li", { class: "palette-group", role: "presentation" }, group === "Pages" ? "Go to" : group));
     }
     const hint = c.hint ? kbd(...c.hint) : c.hintText ? h("span", { class: "palette-hint" }, c.hintText) : null;
     const li = h(
       "li",
       { id: `palette-opt-${c.id}`, class: "palette-option", role: "option", "aria-selected": String(i === activeIndex) },
-      h("span", { class: "palette-icon" }, icon(c.icon)),
-      h("span", { class: "palette-label" }, c.label, input.value.trim() ? h("span", { class: "palette-kind" }, c.group === "Pages" ? "Page" : "Action") : null),
+      iconTile(c.icon, c.tint ?? "gray", "md"),
+      h(
+        "span",
+        { class: "palette-text" },
+        h("span", { class: "palette-label" }, c.label, input.value.trim() ? h("span", { class: "palette-kind" }, c.group === "Pages" ? "Page" : "Action") : null),
+        c.sub ? h("span", { class: "palette-sub" }, c.sub) : null,
+      ),
       hint ? h("span", { class: "palette-right", "aria-hidden": "true" }, hint) : null,
     );
     li.addEventListener("mousemove", () => {
@@ -247,12 +253,14 @@ export function openPalette() {
   activeIndex = 0;
   draw();
   dlg.showModal();
+  lockScroll(true);
   input.focus();
 }
 
 export function closePalette({ restore = true } = {}) {
   if (!dlg?.open) return;
   dlg.close();
+  if (!otherDialogOpen()) lockScroll(false);
   if (restore && returnFocus && document.contains(returnFocus) && typeof returnFocus.focus === "function") returnFocus.focus();
   returnFocus = null;
 }
