@@ -25,6 +25,14 @@ All notable changes to this project are listed here. The format follows [Keep a 
   while it runs just reopens the dashboard.
 - **Add a broker and log in from the dashboard**: an Add a broker sheet and a Log in form per broker
   (`POST`/`DELETE /v1/accounts`); no config file, terminal or restart.
+- **Dashboard redesigned in the IPO Decode design system** (Liquid Glass): a floating glass sidebar on wide
+  screens and a floating tab bar with a More sheet on phones and tablets, a glass toolbar with an IST clock, calm
+  grouped cards with tinted icon tiles, large-title page headers and numbered section eyebrows, warm paper and warm
+  charcoal canvases, bottom sheets on phones, and a Spotlight-style search. The house fonts (Plus Jakarta Sans,
+  Inter, DM Serif Display) are self-hosted; numbers print without grouping commas, with fixed decimals and `--` for
+  missing values. Checked at 320 to 2560 px in light and dark with no horizontal overflow.
+- **Android**: the one-line installer works in Termux (Node.js from Termux's own packages, a Termux:Widget shortcut,
+  a wake lock while running, links opened with termux-open-url).
 - **Broker logos** on the Accounts page, the Add a broker list and the account tables: each broker's own site icon,
   shipped with the Bridge (no outside requests) and served as `/dashboard/broker-<id>.png`; initials when a logo is missing.
 - Hints name the command that works in your setup (`mc-bridge …`, `npm run bridge -- …` or `docker compose exec …`).

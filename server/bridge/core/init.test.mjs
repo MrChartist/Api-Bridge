@@ -102,7 +102,9 @@ describe("openInBrowser", () => {
     expect(openInBrowser("http://127.0.0.1:4300/dashboard", { platform: "darwin", spawnImpl })).toBe(true);
     expect(openInBrowser("http://127.0.0.1:4300/dashboard", { platform: "win32", spawnImpl })).toBe(true);
     expect(openInBrowser("http://127.0.0.1:4300/dashboard", { platform: "linux", env: { DISPLAY: ":0" }, spawnImpl })).toBe(true);
-    expect(calls.map((c) => c[0])).toEqual(["open", "cmd", "xdg-open"]);
+    // Android (Node.js in Termux): Termux's own opener, with or without a display variable.
+    expect(openInBrowser("http://127.0.0.1:4300/dashboard", { platform: "android", env: {}, spawnImpl })).toBe(true);
+    expect(calls.map((c) => c[0])).toEqual(["open", "cmd", "xdg-open", "termux-open-url"]);
     expect(openInBrowser("javascript:alert(1)", { spawnImpl })).toBe(false);
     expect(openInBrowser("http://x/\" & calc", { spawnImpl })).toBe(false);
     expect(openInBrowser("http://x/", { platform: "darwin", spawnImpl: () => { throw new Error("no"); } })).toBe(false);

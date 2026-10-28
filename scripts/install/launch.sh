@@ -58,6 +58,7 @@ echo "Keep this window open while you use the Bridge. To stop it, press Ctrl+C o
 echo
 # Ctrl+C stops the Bridge (it shuts down cleanly); this script then carries on to the "Press Enter" line.
 trap ':' INT
+mcb_wake_lock
 node "$APP_DIR/bin/mc-bridge.mjs" start --open "$@"
 trap - INT
 mcb_pause "The Bridge has stopped. Press Enter to close."

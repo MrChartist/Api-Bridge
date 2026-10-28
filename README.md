@@ -85,6 +85,9 @@ Afterwards, start it like any app: **Mr Chartist Bridge** in the Start menu or o
 Spotlight or Launchpad (Mac), or in your applications menu (Linux). Run the same line again to update; your settings
 are kept.
 
+**Android phone or tablet**: the same line works inside the free **Termux** app; see
+[Android (Termux)](docs/guides/install.md#android-termux).
+
 **Prefer a download?** Each [release](https://github.com/MrChartist/api-bridge/releases/latest) has a ready-to-run
 ZIP per system with everything inside. Unzip it and double-click `start-windows.bat`, `start-mac.command` or
 `start-linux.sh`. The [install guide](docs/guides/install.md#ready-to-run-download) covers the one-time Windows and

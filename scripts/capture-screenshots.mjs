@@ -260,12 +260,12 @@ async function main() {
         if (!mobile) await save(page, `login-${theme}.webp`, m("login", "Sign in", "Sign-in screen: paste the admin key printed once by mc-bridge init. The key stays in this browser tab."), { fullPage: false });
         await page.fill("#key-input", bridge.adminKey);
         await page.keyboard.press("Enter");
-        await page.locator("nav a[data-page]").first().waitFor();
+        await page.locator("nav a[data-page]:visible").first().waitFor();
 
         if (mobile) {
           const prefix = "mobile-";
           await go("/home");
-          await save(page, `${prefix}home-${theme}.webp`, m("home", "Home on a phone", "Home at phone width: the sidebar folds away and cards stack."), { fullPage: false });
+          await save(page, `${prefix}home-${theme}.webp`, m("home", "Home on a phone", "Home at phone width: the sidebar becomes a floating tab bar and cards stack."), { fullPage: false });
           await go("/console");
           await save(page, `${prefix}console-${theme}.webp`, m("console", "Test console on a phone", "Test console at phone width."), { fullPage: false });
           await go("/scanner");

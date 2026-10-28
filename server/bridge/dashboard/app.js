@@ -5,6 +5,7 @@
 // Pure helpers (ticketFields, confirmCodeNotice, friendlyError ...) are exported for tests; DOM code runs only in a browser.
 
 import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, installPressFeedback, pulse, sheetIn, sheetOut, shake } from "./motion.js";
+import { DASH, formatRupee } from "./format.js";
 
 // Page hooks for views.js (optional: app.js start-up already runs them automatically; both are idempotent).
 export { animateNav, animatePage };
@@ -69,9 +70,6 @@ function takeSignInCode() {
 // First thing in the browser, before any other code runs or the page is drawn.
 const pendingSignInCode = takeSignInCode();
 const THEME_SLOT = "mcb.dashboard.theme";
-export const fmtInt = new Intl.NumberFormat("en-IN");
-export const fmtRs = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 });
-export const fmtNum = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
 
 // ── Storage (wrapped: private windows and blocked storage must not break the page) ──
 
@@ -238,21 +236,42 @@ export const ICONS = {
   inbox: '<path d="M3 13h5l2 3h4l2-3h5"/><path d="M5 5h14l2 8v6H3v-6z"/>',
   bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
   external: '<path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v6H4V5h6"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/>',
+  monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
+  chevron: '<path d="m9 6 6 6-6 6"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  logout: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>',
+  chart: '<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/>',
+  wallet: '<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18"/><circle cx="16" cy="15" r="1.2"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
 };
 export function icon(name) {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   s.setAttribute("viewBox", "0 0 24 24");
   s.setAttribute("aria-hidden", "true");
+  s.setAttribute("focusable", "false");
   s.innerHTML = ICONS[name] ?? "";
   return s;
 }
 
-/** A short banner in #toast. views.js may hide it at any time with `$("toast").hidden = true`. */
+/**
+ * The coloured squircle behind an icon (IPO Decode's IconTile, Settings-style). `tint` is an iOS system colour name
+ * (blue, green, red, orange, indigo, purple, pink, teal, mint, gray); `size` is "sm" (28), "md" (32) or "lg" (44).
+ */
+export function iconTile(name, tint = "blue", size = "md") {
+  return h("span", { class: `icon-tile tint-${tint} tile-${size}`, "aria-hidden": "true" }, icon(name));
+}
+
+/** A HUD confirmation in #toast (one at a time; a new one replaces the old). views.js may hide it with `$("toast").hidden = true`. */
 export function toast(text) {
   const t = document.getElementById("toast");
   const gen = (toast.gen = (toast.gen ?? 0) + 1);
   const wasHidden = t.hidden;
-  t.textContent = text;
+  t.replaceChildren(h("span", { class: "toast-icon" }, icon("check")), h("span", { class: "toast-text" }, text));
   t.hidden = false;
   if (wasHidden) bannerIn(t);
   clearTimeout(toast.timer);
@@ -261,7 +280,7 @@ export function toast(text) {
     bannerOut(t).then(() => {
       if (toast.gen === gen) t.hidden = true;
     });
-  }, 2200);
+  }, 2600);
 }
 
 export async function copyText(text, label = "Copied") {
@@ -293,19 +312,24 @@ export function highlightJson(text) {
 
 /** A code block with a copy button. `onCopy` runs after copying (the welcome checklist listens). */
 export function codeBlock(code, { title, json = false, onCopy } = {}) {
-  const pre = h("pre");
+  const pre = h("pre", { tabindex: "0" });
   if (json) pre.innerHTML = highlightJson(code);
   else pre.textContent = code;
-  const btn = h("button", { class: "small copy", type: "button", onclick: () => copyText(code).then(() => onCopy?.()) }, icon("copy"), "Copy");
-  return h("div", {}, title ? h("div", { class: "code-title" }, title) : null, h("div", { class: "code" }, pre, btn));
+  const btn = h("button", { type: "button", class: "small copy", onclick: () => copyText(code).then(() => onCopy?.()) }, icon("copy"), "Copy");
+  return h("div", { class: "code-block" }, title ? h("div", { class: "code-title" }, title) : null, h("div", { class: "code" }, pre, btn));
 }
 
+/**
+ * A status pill. Colour is meaning: ok (green) and bad (red) are good / bad state, warn (orange) is caution or
+ * awaiting, info (blue) is selected / in progress, demo (orange) marks sample data; no class (or accent) is neutral.
+ */
 export function pill(text, cls = "") {
-  return h("span", { class: `pill ${cls}` }, cls && cls !== "demo" ? h("span", { class: "pdot" }) : null, text);
+  const state = cls === "ok" || cls === "bad" || cls === "warn";
+  return h("span", { class: `pill ${cls}`.trim() }, state ? h("span", { class: "pdot", "aria-hidden": "true" }) : null, text);
 }
 
 export function emptyState(iconName, title, text, action) {
-  return h("div", { class: "empty" }, h("div", { class: "eicon" }, icon(iconName)), h("strong", {}, title), text ? h("p", {}, text) : null, action ?? null);
+  return h("div", { class: "empty" }, iconTile(iconName, "gray", "lg"), h("strong", {}, title), text ? h("p", {}, text) : null, action ?? null);
 }
 
 export function alertBox(err, cls = "bad") {
@@ -313,27 +337,43 @@ export function alertBox(err, cls = "bad") {
   return h("div", { class: `alert ${cls}`, role: "alert" }, icon(cls === "info" ? "info" : "warn"), h("div", {}, h("strong", {}, f.title), f.detail ? h("span", { class: "detail" }, f.detail) : null));
 }
 
-export function table(columns, rows, empty) {
+/**
+ * A table inside a card. Numeric columns (`num: true`) are right-aligned with tabular figures. On phones the table
+ * never widens the page: `mobile: "stack"` (default) turns each row into a grouped block of label / value lines (the
+ * first column is the row's title, a column without a label holds its actions); `mobile: "scroll"` keeps the grid and
+ * scrolls sideways inside the card (for logs with many short rows); `mobile: "stack-wide"` stacks on tablets too (below
+ * 1100px), for wide tables whose last column holds the row's actions.
+ */
+export function table(columns, rows, empty, { mobile = "stack" } = {}) {
   if (!rows.length) return empty;
+  const cls = (c, i) => [c.num ? "num" : "", c.wrap ? "wrap" : "", c.label ? "" : "act", i === 0 ? "lead" : ""].join(" ").trim() || undefined;
   return h(
     "div",
-    { class: "table-wrap" },
+    { class: `table-wrap ${mobile === "scroll" ? "scroll-x" : mobile === "stack-wide" ? "stack stack-wide" : "stack"}` },
     h(
       "table",
       {},
-      h("thead", {}, h("tr", {}, columns.map((c) => h("th", { class: c.num ? "num" : undefined }, c.label)))),
-      h("tbody", {}, rows.map((r) => h("tr", {}, columns.map((c) => h("td", { class: [c.num ? "num" : "", c.wrap ? "wrap" : ""].join(" ").trim() || undefined }, c.cell(r)))))),
+      h("thead", {}, h("tr", {}, columns.map((c) => h("th", { scope: "col", class: c.num ? "num" : undefined }, c.label || h("span", { class: "pal-sr-only" }, "Actions"))))),
+      h("tbody", {}, rows.map((r) => h("tr", {}, columns.map((c, i) => h("td", { class: cls(c, i), "data-label": c.label || undefined }, c.cell(r)))))),
     ),
   );
 }
 
-export function card({ title, sub, actions, body, flush = false, cls = "", id }) {
+/** A grouped content card (IPO Decode's lg-card) with an optional tinted icon tile in its header. */
+export function card({ title, sub, actions, body, flush = false, cls = "", id, glyph, tint = "blue" }) {
   return h(
     "section",
-    { class: `card ${cls}`, id },
-    title || actions ? h("div", { class: "card-head" }, h("div", {}, title ? h("h2", {}, title) : null, sub ? h("p", {}, sub) : null), h("div", { class: "spacer" }), actions ?? null) : null,
+    { class: `card ${cls}`.trim(), id },
+    title || actions
+      ? h("header", { class: "card-head" }, glyph ? iconTile(glyph, tint) : null, h("div", { class: "card-titles" }, title ? h("h2", {}, title) : null, sub ? h("p", {}, sub) : null), actions ? h("div", { class: "card-actions" }, actions) : null)
+      : null,
     h("div", { class: flush ? "card-body flush" : "card-body" }, body),
   );
+}
+
+/** A numbered section eyebrow ("01  GET STARTED ———"), as IPO Decode's SectionEyebrow. */
+export function sectionEyebrow(index, label) {
+  return h("div", { class: "sec-eyebrow" }, h("b", {}, index), h("span", {}, label), h("i", { "aria-hidden": "true" }));
 }
 
 export function meterRow(name, used, limit, valueText) {
@@ -344,13 +384,26 @@ export function meterRow(name, used, limit, valueText) {
   return h("div", { class: "meter" }, h("span", { class: "name" }, name), h("div", { class: `bar ${cls}` }, span), h("span", { class: "val" }, valueText ?? `${used} / ${limit}`));
 }
 
-export const istTime = (iso) => (iso ? new Date(iso).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false }) : "—");
-export const istDateTime = (iso) => (iso ? new Date(iso).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false, day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—");
+const IST_TIME = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hourCycle: "h23", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const IST_DATE_TIME = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hourCycle: "h23", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+const validDate = (iso) => (iso ? !Number.isNaN(new Date(iso).getTime()) : false);
+export const istTime = (iso) => (validDate(iso) ? IST_TIME.format(new Date(iso)) : DASH);
+export const istDateTime = (iso) => (validDate(iso) ? IST_DATE_TIME.format(new Date(iso)) : DASH);
 
-// ── Dialog ──
+// ── Sheet (modal dialog) ──
 
-/** Show a modal. buttons: [{ label, cls, value, onClick? }]; onClick returning false keeps it open. Resolves with the value. */
-export function modal({ title, body, buttons }) {
+/** While a sheet or the palette is open the page behind it does not scroll. */
+export function lockScroll(on) {
+  document.documentElement.classList.toggle("sheet-open", Boolean(on));
+}
+
+/**
+ * Show a sheet: a bottom sheet on phones, a centred card from 720px up (IPO Decode's Sheet). The native modal
+ * <dialog> keeps focus inside and returns it to the opener; Escape, the close button and a tap on the dimmed backdrop
+ * close it; the page behind stops scrolling. buttons: [{ label, cls, value, onClick? }]; onClick returning false keeps
+ * it open. `body` may be a function that receives close(value). Resolves with the value (undefined when dismissed).
+ */
+export function modal({ title, body, buttons = [] }) {
   const d = document.getElementById("dialog");
   d.classList.add("sheet");
   return new Promise((resolve) => {
@@ -362,6 +415,8 @@ export function modal({ title, body, buttons }) {
       settled = true;
       d.removeEventListener("cancel", onCancel);
       d.removeEventListener("close", onClose);
+      d.removeEventListener("click", onBackdrop);
+      if (modal.token === token) lockScroll(false);
       resolve(v);
     };
     // Animate the sheet away, then close the native dialog (focus returns to the opener) and resolve.
@@ -382,34 +437,54 @@ export function modal({ title, body, buttons }) {
     const onClose = () => {
       if (!d.open) finish(undefined);
     };
+    // A tap on the dimmed area outside the panel (the <dialog> box is the panel; its ::backdrop is the rest).
+    const onBackdrop = (e) => {
+      if (e.target !== d) return;
+      const r = d.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) close(undefined);
+    };
+    const content = typeof body === "function" ? body(close) : body;
+    const closeBtn = h("button", { type: "button", class: "icon-btn sheet-close", "aria-label": "Close", onclick: () => close(undefined) }, icon("close"));
+    // replaceChildren prints null as the text "null": an empty string stands for "no action row".
     d.replaceChildren(
-      h("div", { class: "dialog-body" }, h("h2", {}, title), body),
-      h(
-        "div",
-        { class: "dialog-actions" },
-        buttons.map((b) =>
-          h(
-            "button",
-            {
-              type: "button",
-              class: b.cls ?? "",
-              onclick: async () => {
-                if (closing) return;
-                if (b.onClick) {
-                  const v = await b.onClick();
-                  if (v === false) return;
-                  close(v ?? b.value);
-                } else close(b.value);
-              },
-            },
-            b.label,
-          ),
-        ),
-      ),
+      h("div", { class: "sheet-grabber", "aria-hidden": "true" }),
+      h("div", { class: "sheet-head" }, h("h2", { class: "sheet-title", id: "dialog-title" }, title), closeBtn),
+      h("div", { class: "dialog-body" }, content),
+      buttons.length
+        ? h(
+            "div",
+            { class: "dialog-actions" },
+            buttons.map((b) =>
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: b.cls ?? "",
+                  onclick: async () => {
+                    if (closing) return;
+                    if (b.onClick) {
+                      const v = await b.onClick();
+                      if (v === false) return;
+                      close(v ?? b.value);
+                    } else close(b.value);
+                  },
+                },
+                b.label,
+              ),
+            ),
+          )
+        : "",
     );
+    d.setAttribute("aria-labelledby", "dialog-title");
     d.addEventListener("cancel", onCancel);
     d.addEventListener("close", onClose);
+    d.addEventListener("click", onBackdrop);
     if (!d.open) d.showModal();
+    lockScroll(true);
+    d.querySelector(".dialog-body")?.scrollTo?.(0, 0);
+    // Focus: the first field to type in; else the first action (Cancel, never the confirming one); else Close.
+    const first = d.querySelector(".dialog-body :is(input:not([type=hidden]):not([type=radio]):not(:disabled), select, textarea)") ?? d.querySelector(".dialog-actions button") ?? closeBtn;
+    first.focus({ preventScroll: true });
     sheetIn(d, d);
   });
 }
@@ -424,8 +499,8 @@ export function modal({ title, body, buttons }) {
  */
 export function ticketFields(ticket, accountsById = new Map()) {
   const o = ticket?.order ?? {};
-  const show = (v) => (v === undefined || v === null || v === "" ? "—" : String(v));
-  const money = (v) => (typeof v === "number" && Number.isFinite(v) ? fmtRs.format(v) : "—");
+  const show = (v) => (v === undefined || v === null || v === "" ? DASH : String(v));
+  const money = (v) => (typeof v === "number" && Number.isFinite(v) ? formatRupee(v) : DASH);
   const acc = accountsById.get(o.account);
   const mode = String(o.mode ?? "paper");
   const orderType = show(o.orderType);
@@ -436,8 +511,8 @@ export function ticketFields(ticket, accountsById = new Map()) {
     ["Quantity", o.lots ? `${o.lots} lot(s)` : show(o.quantity)],
     ["Symbol", show(o.symbol)],
     ["Order type", orderType === "MARKET" || orderType === "SL-M" ? `${orderType} (no price limit)` : orderType, orderType === "MARKET" || orderType === "SL-M" ? "warn" : undefined],
-    ["Price", o.price === undefined || o.price === null ? "—" : money(o.price)],
-    ["Trigger price", o.triggerPrice === undefined || o.triggerPrice === null ? "—" : money(o.triggerPrice)],
+    ["Price", o.price === undefined || o.price === null ? DASH : money(o.price)],
+    ["Trigger price", o.triggerPrice === undefined || o.triggerPrice === null ? DASH : money(o.triggerPrice)],
     ["Product", show(o.product)],
     ["Validity", show(o.validity ?? "DAY")],
     ["Estimated value", money(ticket?.estimatedValue)],
@@ -635,6 +710,20 @@ export function applyTheme(choice) {
   for (const b of document.querySelectorAll("[data-theme-choice]")) b.setAttribute("aria-pressed", String(b.dataset.themeChoice === (choice ?? "auto")));
 }
 
+/** Apply an appearance (auto, light or dark) and remember it in this browser. */
+export function chooseTheme(choice) {
+  const c = choice === "light" || choice === "dark" ? choice : "auto";
+  local.set(THEME_SLOT, c === "auto" ? null : c);
+  applyTheme(c);
+}
+
+/** Forget the key in this tab and go back to the sign-in screen. */
+export function forgetKey() {
+  setKey(null);
+  location.hash = "";
+  location.reload();
+}
+
 // ── App boot (browser only) ──
 
 export const app = { state: { demo: false, health: null, meta: null }, local };
@@ -673,7 +762,8 @@ async function signIn() {
   shell.hidden = false;
   document.getElementById("demo-banner").hidden = !app.state.demo;
   if (!signIn.pulsing) signIn.pulsing = pulse(document.querySelector(".who .dot"));
-  document.getElementById("who").textContent = `Key ${memoryKey.split("_")[1] ?? ""} · v${app.state.health?.version ?? ""}`;
+  app.state.who = `Key ${memoryKey.split("_")[1] ?? ""} · v${app.state.health?.version ?? ""}`;
+  document.getElementById("who").textContent = app.state.who;
   const { startRouter } = await import("./views.js");
   // Awaited so a banner shown after sign-in comes after the first page draw (which clears #toast).
   await startRouter();
@@ -681,17 +771,16 @@ async function signIn() {
 
 if (typeof document !== "undefined" && document.getElementById("login-form")) {
   applyTheme(local.get(THEME_SLOT) ?? "auto");
-  // Motion: banner styling for #toast, button press feedback, and page / sidebar entrances on navigation.
-  document.getElementById("toast")?.classList.add("banner");
+  // Motion: button press feedback, and page / sidebar entrances on navigation.
   installPressFeedback(document);
   installAutoAnimations();
-  for (const b of document.querySelectorAll("[data-theme-choice]")) {
-    b.addEventListener("click", () => {
-      const c = b.dataset.themeChoice;
-      local.set(THEME_SLOT, c === "auto" ? null : c);
-      applyTheme(c);
-    });
-  }
+  // Appearance buttons (the sidebar's and the More sheet's) and "Forget key", wherever they are drawn.
+  document.addEventListener("click", (e) => {
+    const t = /** @type {Element} */ (e.target);
+    const choice = t?.closest?.("[data-theme-choice]");
+    if (choice) chooseTheme(/** @type {HTMLElement} */ (choice).dataset.themeChoice);
+    else if (t?.closest?.("[data-action=logout]")) forgetKey();
+  });
   document.getElementById("login-form").addEventListener("submit", (e) => {
     e.preventDefault();
     const input = document.getElementById("key-input");
@@ -699,11 +788,6 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
     input.value = "";
     document.getElementById("login-error").replaceChildren();
     signIn();
-  });
-  document.getElementById("logout").addEventListener("click", () => {
-    setKey(null);
-    location.hash = "";
-    location.reload();
   });
   boot();
 }

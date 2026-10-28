@@ -212,8 +212,9 @@ export async function startHints({ app, port, env = process.env }) {
 export function openInBrowser(url, { platform = process.platform, env = process.env, spawnImpl } = {}) {
   if (!/^https?:\/\/[^\s"']+$/.test(url)) return false;
   // Linux and other Unix systems without a graphical session (a server over SSH): there is no browser to open.
-  if (platform !== "darwin" && platform !== "win32" && !env.DISPLAY && !env.WAYLAND_DISPLAY) return false;
-  const [cmd, args] = platform === "darwin" ? ["open", [url]] : platform === "win32" ? ["cmd", ["/c", "start", "", url]] : ["xdg-open", [url]];
+  // Android (Node.js in Termux reports "android") opens links through Termux's own command.
+  if (platform !== "darwin" && platform !== "win32" && platform !== "android" && !env.DISPLAY && !env.WAYLAND_DISPLAY) return false;
+  const [cmd, args] = platform === "darwin" ? ["open", [url]] : platform === "win32" ? ["cmd", ["/c", "start", "", url]] : platform === "android" ? ["termux-open-url", [url]] : ["xdg-open", [url]];
   try {
     const run = spawnImpl ?? spawn;
     const child = run(cmd, args, { stdio: "ignore", detached: true, windowsHide: true });

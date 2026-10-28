@@ -181,4 +181,30 @@ describe.skipIf(!posix)("installer scripts (macOS / Linux)", () => {
     expect(r.status).toBe(1);
     expect(existsSync(tmp)).toBe(true);
   });
+
+  it("Android (Termux): Node.js from pkg (never nodejs.org), the command in Termux's bin, a Termux:Widget shortcut", () => {
+    const home = join(tmp, "android-home");
+    const prefix = join(tmp, "android-prefix");
+    const tools = join(tmp, "android-tools");
+    for (const d of [home, join(prefix, "bin"), tools]) mkdirSync(d, { recursive: true });
+    // A stand-in for Termux's package manager: "installs" Node.js by linking this machine's node and npm into $PREFIX/bin.
+    const npmCli = join(dirname(process.execPath), "..", "lib", "node_modules", "npm", "bin", "npm-cli.js");
+    writeFileSync(join(tools, "pkg"), `#!/bin/sh\necho "pkg $*" >> "${join(tmp, "android-pkg.log")}"\nln -sf "${process.execPath}" "${join(prefix, "bin", "node")}"\nln -sf "${npmCli}" "${join(prefix, "bin", "npm")}"\n`);
+    chmodSync(join(tools, "pkg"), 0o755);
+    const env = { HOME: home, PREFIX: prefix, PATH: `${join(prefix, "bin")}:${tools}:/usr/bin:/bin`, MCB_TEST_OS: "android", MCB_SOURCE: ROOT, MCB_NODE_DIST: "http://127.0.0.1:9/never", npm_config_cache: join(tmp, "npm-cache") };
+    for (const k of ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "npm_config_registry"]) if (process.env[k]) env[k] = process.env[k];
+    const r = spawnSync("sh", [INSTALL, "--no-start"], { encoding: "utf8", env, timeout: 240_000 });
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/Installing Node.js with Termux's package manager/);
+    expect(r.stdout).not.toMatch(/Downloading Node.js/);
+    expect(readFileSync(join(tmp, "android-pkg.log"), "utf8")).toMatch(/install -y nodejs-lts/);
+    expect(existsSync(join(prefix, "bin", "mc-bridge"))).toBe(true); // already on Termux's PATH
+    const shortcut = join(home, ".shortcuts", "Mr Chartist Bridge");
+    expect(readFileSync(shortcut, "utf8")).toMatch(/launch\.sh/);
+    expect(existsSync(join(home, ".local", "share", "applications"))).toBe(false); // no Linux desktop entries on Android
+    const u = spawnSync("sh", [INSTALL, "--uninstall"], { encoding: "utf8", env });
+    expect(u.status, u.stdout + u.stderr).toBe(0);
+    expect(existsSync(shortcut)).toBe(false);
+    expect(existsSync(join(prefix, "bin", "mc-bridge"))).toBe(false);
+  }, 300_000);
 });

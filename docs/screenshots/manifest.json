@@ -26,7 +26,7 @@
     "theme": "dark",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1000,
+    "height": 1546,
     "description": "Home: welcome checklist, market snapshot, broker accounts, calls saved and safety status."
   },
   {
@@ -36,7 +36,7 @@
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1000,
+    "height": 1546,
     "description": "Home: welcome checklist, market snapshot, broker accounts, calls saved and safety status."
   },
   {
@@ -86,7 +86,7 @@
     "theme": "dark",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1091,
+    "height": 1626,
     "description": "Rate limits: live per-endpoint budgets for each account and the calls the Bridge saved through streaming, caching, coalescing and batching."
   },
   {
@@ -96,7 +96,7 @@
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1091,
+    "height": 1626,
     "description": "Rate limits: live per-endpoint budgets for each account and the calls the Bridge saved through streaming, caching, coalescing and batching."
   },
   {
@@ -136,7 +136,7 @@
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1000,
+    "height": 1050,
     "description": "Orders: an AI-prepared ticket waiting for confirmation, open orders and positions on the paper account."
   },
   {
@@ -166,7 +166,7 @@
     "theme": "dark",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1000,
+    "height": 1134,
     "description": "API keys: one key per tool with only the scopes and accounts it needs."
   },
   {
@@ -176,7 +176,7 @@
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1000,
+    "height": 1134,
     "description": "API keys: one key per tool with only the scopes and accounts it needs."
   },
   {
@@ -226,7 +226,7 @@
     "theme": "dark",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1000,
+    "height": 1078,
     "description": "Integrations, Claude tab: copy-paste setup with a key made for that tool."
   },
   {
@@ -236,7 +236,7 @@
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1000,
+    "height": 1078,
     "description": "Integrations, Claude tab: copy-paste setup with a key made for that tool."
   },
   {
@@ -326,7 +326,7 @@
     "theme": "dark",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1029,
+    "height": 1389,
     "description": "Integrations, Webhooks tab: copy-paste setup with a key made for that tool."
   },
   {
@@ -336,7 +336,7 @@
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1029,
+    "height": 1389,
     "description": "Integrations, Webhooks tab: copy-paste setup with a key made for that tool."
   },
   {
@@ -346,7 +346,7 @@
     "theme": "dark",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1000,
+    "height": 1503,
     "description": "Activity: recent requests with the tool, endpoint, status and time each took."
   },
   {
@@ -366,7 +366,7 @@
     "theme": "dark",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1000,
+    "height": 1161,
     "description": "The tamper-evident audit log: key changes, orders and kill-switch actions, hash-chained per day."
   },
   {
@@ -376,7 +376,7 @@
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1000,
+    "height": 1161,
     "description": "The tamper-evident audit log: key changes, orders and kill-switch actions, hash-chained per day."
   },
   {
@@ -436,7 +436,7 @@
     "theme": "dark",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1407,
+    "height": 2051,
     "description": "A finished scan: matched symbols with their values, progress per account and the calls it cost."
   },
   {
@@ -446,7 +446,7 @@
     "theme": "light",
     "viewport": "desktop 1600x1000",
     "width": 1600,
-    "height": 1371,
+    "height": 1994,
     "description": "A finished scan: matched symbols with their values, progress per account and the calls it cost."
   },
   {
@@ -537,7 +537,7 @@
     "viewport": "mobile 390x844",
     "width": 390,
     "height": 844,
-    "description": "Home at phone width: the sidebar folds away and cards stack."
+    "description": "Home at phone width: the sidebar becomes a floating tab bar and cards stack."
   },
   {
     "file": "mobile-home-light.webp",
@@ -547,7 +547,7 @@
     "viewport": "mobile 390x844",
     "width": 390,
     "height": 844,
-    "description": "Home at phone width: the sidebar folds away and cards stack."
+    "description": "Home at phone width: the sidebar becomes a floating tab bar and cards stack."
   },
   {
     "file": "mobile-console-dark.webp",

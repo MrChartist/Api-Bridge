@@ -13,12 +13,10 @@ import {
   currentKey,
   emptyState,
   fillLoginUrl,
-  fmtInt,
-  fmtNum,
-  fmtRs,
   h,
   highlightJson,
   icon,
+  iconTile,
   istDateTime,
   istTime,
   loginBody,
@@ -27,10 +25,12 @@ import {
   modal,
   optional,
   pill,
+  sectionEyebrow,
   table,
   ticketFields,
   toast,
 } from "./app.js";
+import { DASH, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
@@ -39,7 +39,9 @@ const local = app.local;
 const FLAG = { copied: "mcb.dashboard.copied", tested: "mcb.dashboard.tested", hideChecklist: "mcb.dashboard.hideChecklist", hideOwn: "mcb.dashboard.hideOwnRequests" };
 const markCopied = () => local.set(FLAG.copied, "1");
 const scopeChip = (s) => h("span", { class: `chip scope-${s}` }, s);
-const sessionPill = (s) => pill(s ?? "—", s === "connected" ? "ok" : s === "expired" || s === "error" ? "bad" : "warn");
+/** Sentence case for a status word from the API ("filled" → "Filled"). */
+const cap = (s) => (s ? `${String(s)[0].toUpperCase()}${String(s).slice(1)}` : DASH);
+const sessionPill = (s) => pill(cap(s), s === "connected" ? "ok" : s === "expired" || s === "error" ? "bad" : "warn");
 const demoPill = () => (app.state.demo ? pill("Demo data", "demo") : null);
 const sum = (o) => Object.values(o ?? {}).reduce((a, b) => a + (Number(b) || 0), 0);
 const initials = (name) => String(name).replace(/\(.*?\)/g, "").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
@@ -55,14 +57,28 @@ function brokerAvatar(b, extra = "") {
     tile.classList.remove("logo");
     tile.replaceChildren(initials(b.name));
   };
-  if (!/^[a-z0-9]{2,32}$/.test(String(b.id))) {
+  // The demo broker has no logo file (it is not a real broker): its initials, without a request that would 404.
+  if (!/^[a-z0-9]{2,32}$/.test(String(b.id)) || b.id === "demo") {
     fallback();
     return tile;
   }
   tile.append(h("img", { src: `/dashboard/broker-${b.id}.png`, alt: "", loading: "lazy", decoding: "async", width: 64, height: 64, onerror: fallback }));
   return tile;
 }
-const signed = (n) => (n > 0 ? `+${fmtNum.format(n)}` : fmtNum.format(n));
+/** A signed change with an arrow and the gain / loss colour (never colour alone); "--" when missing. */
+function delta(value, text) {
+  if (!isFigure(value)) return h("span", { class: "delta flat" }, DASH);
+  const n = Number(value);
+  const dir = n > 0 ? "up" : n < 0 ? "down" : "flat";
+  return h("span", { class: `delta ${dir}` }, h("span", { "aria-hidden": "true" }, n > 0 ? "▲" : n < 0 ? "▼" : "•"), text);
+}
+/** Money with the gain / loss colour and an explicit sign (P&L). */
+function pnl(v) {
+  if (!isFigure(v)) return DASH;
+  const text = formatRupee(Math.abs(Number(v)));
+  const n = Number(formatFixed(v, 2));
+  return h("span", { class: n > 0 ? "up" : n < 0 ? "down" : undefined }, n > 0 ? `+${text}` : n < 0 ? `-${text}` : text);
+}
 /** A button for an empty state's next step: goes to a page (hash) or runs a function. */
 const nextStep = (label, to, cls = "primary") => h("button", { type: "button", class: cls, onclick: typeof to === "function" ? to : () => (location.hash = to) }, label);
 
@@ -159,21 +175,33 @@ function restoreFocus(container, saved) {
 
 // ── Pages ──
 
+/**
+ * The one list of pages: it feeds the sidebar, the phone tab bar, the More sheet and the ⌘K palette. `tint` is an iOS
+ * system colour name (the page's glyph colour everywhere), `tab: true` puts it in the phone tab bar, `headline` is the
+ * large title when it differs from `title` (one serif accent word at most).
+ */
 export const PAGES = [
-  { id: "home", label: "Home", icon: "home", group: "Overview", title: "Home", sub: "Your Bridge at a glance", render: renderHome },
-  { id: "accounts", label: "Accounts", icon: "accounts", group: "Overview", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
-  { id: "console", label: "Test console", icon: "console", group: "Overview", title: "Test console", sub: "Try any call and see exactly what comes back", render: renderConsole },
-  { id: "limits", label: "Rate limits", icon: "limits", group: "Overview", title: "Rate limits", sub: "Live usage against each broker's limits, and the calls the Bridge saved", render: renderLimits },
-  { id: "scanner", label: "Scanner", icon: "scan", group: "Overview", title: "Scanner", sub: "Scan big universes with a readable condition, shared out over your accounts", render: renderScanner },
-  { id: "orders", label: "Orders", icon: "orders", group: "Trading", title: "Orders and positions", sub: "Paper by default. Pending confirmations wait here", render: renderOrders },
-  { id: "safety", label: "Safety", icon: "safety", group: "Trading", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
-  { id: "keys", label: "API keys", icon: "keys", group: "Connect", title: "API keys", sub: "One key per tool, with only the access it needs", render: renderKeys },
-  { id: "integrations", label: "Integrations", icon: "integrations", group: "Connect", title: "Integrations", sub: "Copy-paste setup for webhooks, Python, Excel, Claude and more", render: renderIntegrations },
-  { id: "activity", label: "Activity", icon: "activity", group: "Connect", title: "Activity", sub: "Recent requests and the tamper-evident audit log", render: renderActivity },
+  { id: "home", label: "Home", icon: "home", tint: "blue", tab: true, group: "Overview", title: "Home", headline: ["Your ", { serif: "Bridge" }], sub: "Your accounts, today's activity and safety, on this computer", render: renderHome },
+  { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", tab: true, group: "Overview", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
+  { id: "console", label: "Test console", icon: "console", tint: "teal", group: "Overview", title: "Test console", sub: "Try any call and see exactly what comes back", render: renderConsole },
+  { id: "limits", label: "Rate limits", icon: "limits", tint: "purple", group: "Overview", title: "Rate limits", sub: "Live usage against each broker's limits, and the calls the Bridge saved", render: renderLimits },
+  { id: "scanner", label: "Scanner", icon: "scan", tint: "mint", group: "Overview", title: "Scanner", sub: "Scan big universes with a readable condition, shared out over your accounts", render: renderScanner },
+  { id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, group: "Trading", title: "Orders and positions", sub: "Paper by default. Pending confirmations wait here", render: renderOrders },
+  { id: "safety", label: "Safety", icon: "safety", tint: "red", tab: true, group: "Trading", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
+  { id: "keys", label: "API keys", icon: "keys", tint: "pink", group: "Connect", title: "API keys", sub: "One key per tool, with only the access it needs", render: renderKeys },
+  { id: "integrations", label: "Integrations", icon: "integrations", tint: "blue", group: "Connect", title: "Integrations", sub: "Copy-paste setup for webhooks, Python, Excel, Claude and more", render: renderIntegrations },
+  { id: "activity", label: "Activity", icon: "activity", tint: "gray", group: "Connect", title: "Activity", sub: "Recent requests and the tamper-evident audit log", render: renderActivity },
 ];
 
 let timer = null;
 let renderSeq = 0;
+
+/** A tinted page glyph for the sidebar and toolbar. */
+const pageGlyph = (p) => {
+  const s = icon(p.icon);
+  s.classList.add(`tint-${p.tint}`);
+  return s;
+};
 
 function nav(active) {
   const out = [];
@@ -184,11 +212,129 @@ function nav(active) {
       out.push(h("div", { class: "nav-group" }, group));
     }
     const sc = pageShortcut(PAGES.indexOf(p));
-    out.push(h("a", { href: `#/${p.id}`, "aria-current": p.id === active ? "page" : undefined, "data-page": p.id, title: sc ? `${p.label} (${sc.label})` : p.label, "aria-keyshortcuts": sc?.aria }, icon(p.icon), h("span", { class: "lbl" }, p.label), p.id === "orders" ? h("span", { class: "count", id: "nav-tickets", hidden: true }) : null));
+    out.push(
+      h(
+        "a",
+        { href: `#/${p.id}`, class: `tint-${p.tint}`, "aria-current": p.id === active ? "page" : undefined, "data-page": p.id, title: sc ? `${p.label} (${sc.label})` : p.label, "aria-keyshortcuts": sc?.aria },
+        icon(p.icon),
+        h("span", { class: "lbl" }, p.label),
+        p.id === "orders" ? h("span", { class: "count", id: "nav-tickets", "data-tickets": "", hidden: true }) : null,
+      ),
+    );
   }
   $("nav").replaceChildren(...out);
   const anim = motionHooks?.animateNav;
   if (typeof anim === "function") anim($("nav"));
+  tabbar(active);
+}
+
+/** The phone / tablet tab bar: the four `tab` pages and More (a sheet with every page, appearance and the key). */
+function tabbar(active) {
+  const bar = $("tabbar");
+  if (!bar) return;
+  const inTabs = PAGES.filter((p) => p.tab);
+  const moreActive = !inTabs.some((p) => p.id === active);
+  bar.replaceChildren(
+    ...inTabs.map((p) =>
+      h(
+        "a",
+        { href: `#/${p.id}`, class: "tab", "data-page": p.id, "aria-current": p.id === active ? "page" : undefined },
+        icon(p.icon),
+        h("span", {}, p.label),
+        p.id === "orders" ? h("span", { class: "count", "data-tickets": "", hidden: true }) : null,
+      ),
+    ),
+    h("button", { type: "button", class: "tab", "aria-haspopup": "dialog", "aria-current": moreActive ? "page" : undefined, onclick: () => moreSheet(active) }, icon("more"), h("span", {}, "More")),
+  );
+}
+
+/** "More" (phones and tablets): every page grouped as in the sidebar, appearance, and the signed-in key. */
+function moreSheet(active) {
+  const groups = [...new Set(PAGES.map((p) => p.group))];
+  return modal({
+    title: "More",
+    body: (close) => {
+      const goTo = (id) => {
+        close(undefined);
+        go(id);
+      };
+      return h(
+        "div",
+        { class: "more-sheet" },
+        h(
+          "div",
+          { class: "lockup" },
+          symbolSvg(),
+          h("span", { class: "lockup-text" }, h("span", { class: "lockup-name" }, "API Bridge"), h("span", { class: "lockup-sub" }, "by Mr. Chartist")),
+        ),
+        groups.map((g) =>
+          h(
+            "section",
+            {},
+            h("div", { class: "eyebrow list-label" }, g),
+            h(
+              "div",
+              { class: "list" },
+              PAGES.filter((p) => p.group === g).map((p) =>
+                h(
+                  "button",
+                  { type: "button", class: "list-row", "aria-current": p.id === active ? "page" : undefined, onclick: () => goTo(p.id) },
+                  iconTile(p.icon, p.tint, "md"),
+                  h("span", { class: "names" }, h("span", { class: "nm" }, p.label), h("span", { class: "sub" }, p.sub)),
+                  chevron(),
+                ),
+              ),
+            ),
+          ),
+        ),
+        h(
+          "section",
+          {},
+          h("div", { class: "eyebrow list-label", id: "more-appearance" }, "Appearance"),
+          appearanceControl("more-appearance"),
+        ),
+        h(
+          "section",
+          {},
+          h("div", { class: "eyebrow list-label" }, "This browser"),
+          h(
+            "div",
+            { class: "list" },
+            h("div", { class: "list-row" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", { class: "names" }, h("span", { class: "nm" }, "Signed in"), h("span", { class: "sub" }, app.state.who ?? ""))),
+            h("button", { type: "button", class: "list-row", onclick: () => { close(undefined); showShortcutsLater(); } }, iconTile("info", "gray", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, "Keyboard shortcuts")), chevron()),
+            h("button", { type: "button", class: "list-row", "data-action": "logout" }, iconTile("logout", "red", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, "Forget key"), h("span", { class: "sub" }, "Sign out of this tab"))),
+          ),
+        ),
+      );
+    },
+  });
+}
+const showShortcutsLater = () => setTimeout(() => import("./palette.js").then((m) => m.showShortcuts()), 260);
+const chevron = () => {
+  const s = icon("chevron");
+  s.classList.add("chev");
+  return s;
+};
+/** The Mr. Chartist symbol (the sprite in index.html). */
+function symbolSvg(cls = "lockup-symbol") {
+  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("class", cls);
+  s.setAttribute("viewBox", "0 0 1024 1024");
+  s.setAttribute("aria-hidden", "true");
+  s.setAttribute("focusable", "false");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", "#mc-symbol");
+  s.append(use);
+  return s;
+}
+/** Light / Dark / Auto, as in the sidebar (app.js handles the clicks for every copy). */
+function appearanceControl(labelledBy) {
+  const current = document.documentElement.getAttribute("data-theme") ?? "auto";
+  return h(
+    "div",
+    { class: "segmented appearance", role: "group", "aria-labelledby": labelledBy },
+    [["light", "Light", "sun"], ["dark", "Dark", "moon"], ["auto", "Auto", "monitor"]].map(([v, label, ic]) => h("button", { type: "button", "data-theme-choice": v, "aria-pressed": String(current === v) }, icon(ic), label)),
+  );
 }
 
 /** Re-run `fn` every `ms` while this page is shown and the tab is visible. */
@@ -202,6 +348,13 @@ function every(ms, fn) {
 let shownPage = null;
 let pendingFocus = null;
 
+/** The page's large title: plain text, with at most one word in the serif accent. */
+function headline(page) {
+  return (page.headline ?? [page.title]).map((part) => (typeof part === "string" ? part : h("em", { class: "serif" }, part.serif)));
+}
+/** Home's eyebrow is today's date in IST; every other page names its group. */
+const IST_DAY = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
 async function show() {
   const raw = location.hash.replace(/^#\/?/, "").split("?")[0];
   // A one-time sign-in fragment (#signin=..., app.js removes it at start-up) is never a page name.
@@ -212,14 +365,13 @@ async function show() {
   clearInterval(timer);
   $("toast").hidden = true;
   nav(page.id);
-  $("page-title").textContent = page.title;
+  document.title = `${page.label} · Mr. Chartist API Bridge`;
+  $("toolbar-icon").replaceChildren(pageGlyph(page));
+  $("toolbar-label").textContent = page.label;
+  $("page-eyebrow").textContent = page.id === "home" ? IST_DAY.format(new Date()) : page.group;
+  $("page-title").replaceChildren(...headline(page));
   $("page-sub").textContent = page.sub;
-  const mod = modKey();
-  $("page-actions").replaceChildren(
-    demoPill() ?? "",
-    h("button", { type: "button", class: "ghost search-hint", title: `Search pages and actions (${mod === "⌘" ? "⌘K" : "Ctrl+K"})`, "aria-label": "Search pages and actions", "aria-keyshortcuts": mod === "⌘" ? "Meta+K" : "Control+K", onclick: () => openPalette() }, searchIcon(), h("span", { class: "lbl" }, "Search"), kbd(mod, "K")),
-    h("button", { type: "button", class: "ghost", title: "Reload this page's data", onclick: () => show() }, icon("refresh"), "Refresh"),
-  );
+  $("toolbar-demo").hidden = !app.state.demo;
   const seq = ++renderSeq;
   const root = $("content");
   root.setAttribute("aria-busy", "true");
@@ -239,6 +391,7 @@ async function show() {
     pendingFocus = null;
     (target ?? root).focus({ preventScroll: !target });
   }
+  if (changed) window.scrollTo({ top: 0 });
   const anim = motionHooks?.animatePage;
   if (typeof anim === "function") anim(root);
   refreshTicketCount();
@@ -283,6 +436,38 @@ function setupA11y() {
   mo.observe(content, { childList: true, subtree: true });
 }
 
+/** The toolbar's search (a labelled pill on wide screens, an icon on phones) and refresh, and the sidebar's search. */
+function setupChrome() {
+  const mod = modKey();
+  const shortcut = mod === "⌘" ? "⌘K" : "Ctrl+K";
+  const aria = mod === "⌘" ? "Meta+K" : "Control+K";
+  $("toolbar-actions").replaceChildren(
+    h("button", { type: "button", class: "toolbar-search search-hint", title: `Search pages and actions (${shortcut})`, "aria-keyshortcuts": aria, onclick: () => openPalette() }, searchIcon(), h("span", { class: "lbl" }, "Search pages and actions"), kbd(mod, "K")),
+    h("button", { type: "button", class: "icon-btn toolbar-search-m", "aria-label": "Search pages and actions", "aria-keyshortcuts": aria, onclick: () => openPalette() }, searchIcon()),
+    h("button", { type: "button", class: "icon-btn", title: "Reload this page's data", "aria-label": "Reload this page's data", onclick: () => show() }, icon("refresh")),
+  );
+  const sb = $("sb-search");
+  if (sb && !sb.dataset.ready) {
+    sb.dataset.ready = "1";
+    sb.title = `Search pages and actions (${shortcut})`;
+    sb.setAttribute("aria-label", "Search pages and actions");
+    sb.setAttribute("aria-keyshortcuts", aria);
+    sb.prepend(searchIcon());
+    sb.append(kbd(mod, "K"));
+    sb.addEventListener("click", () => openPalette());
+  }
+  // The sidebar's appearance buttons get their glyphs here (index.html carries the words).
+  for (const b of document.querySelectorAll("#theme [data-theme-choice]")) if (!b.querySelector("svg")) b.prepend(icon({ light: "sun", dark: "moon", auto: "monitor" }[b.dataset.themeChoice] ?? "monitor"));
+  // The IST clock in the toolbar (wide screens). It claims nothing about the market being open.
+  const clock = $("clock");
+  const IST_CLOCK = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hourCycle: "h23", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const tick = () => {
+    if (clock && clock.offsetParent !== null) clock.replaceChildren(IST_CLOCK.format(new Date()), h("small", {}, "IST"));
+  };
+  tick();
+  setInterval(tick, 1000);
+}
+
 /** Go to a page from the palette or a shortcut; focus moves into the page (or to `focusSelector`) once it is drawn. */
 function go(id, focusSelector) {
   pendingFocus = focusSelector ?? true;
@@ -294,10 +479,11 @@ function go(id, focusSelector) {
 async function refreshTicketCount() {
   const r = await optional(api("/v1/tickets"));
   const n = r.data?.data?.length ?? 0;
-  const el = $("nav-tickets");
-  if (!el) return;
-  el.hidden = n === 0;
-  el.textContent = String(n);
+  for (const el of document.querySelectorAll("[data-tickets]")) {
+    el.hidden = n === 0;
+    el.textContent = formatInt(n);
+    el.setAttribute("aria-label", `${n} waiting`);
+  }
 }
 
 // Motion helpers (animatePage / animateNav), when motion.js provides them. Loaded lazily so Node tests never touch it.
@@ -305,6 +491,7 @@ let motionHooks = null;
 
 export async function startRouter() {
   setupA11y();
+  setupChrome();
   initPalette({ pages: () => PAGES, go, refresh: () => show() });
   try {
     motionHooks = await import("./motion.js");
@@ -336,9 +523,9 @@ async function renderScanner() {
   const cond = h("textarea", { id: "scan-condition", rows: 3, spellcheck: "false" }, SCAN_EXAMPLES[0]);
   const cols = h("input", { value: "rsi(14), close / sma(50) - 1", spellcheck: "false" });
   const sortBy = h("input", { value: "rsi(14)", spellcheck: "false" });
-  const examples = h("div", { class: "row", role: "group", "aria-label": "Example conditions" }, SCAN_EXAMPLES.map((e) => h("button", { type: "button", class: "small ghost example", title: "Use this condition", onclick: () => { cond.value = e; cond.focus(); } }, e)));
+  const examples = h("div", { class: "row", role: "group", "aria-label": "Example conditions" }, SCAN_EXAMPLES.map((e) => h("button", { type: "button", class: "small example", title: "Use this condition", onclick: () => { cond.value = e; cond.focus(); } }, e)));
   const out = h("div", { class: "stack" });
-  const planBtn = h("button", { type: "button", class: "ghost" }, icon("info"), "Plan");
+  const planBtn = h("button", { type: "button", class: "" }, icon("info"), "Plan");
   const runBtn = h("button", { type: "button", class: "primary" }, icon("play"), "Run scan");
 
   const request = () => {
@@ -353,20 +540,28 @@ async function renderScanner() {
   const drawJob = (job) => {
     const p = job.progress ?? {};
     const pools = (job.plan?.pools ?? []).map((x) => (x.kind === "backup" ? "backup sources" : `${x.accountId} ×${x.concurrency}`)).join(", ");
-    const head = h("p", { class: "muted small" }, `${job.status} · ${p.done ?? 0}/${p.total ?? 0} symbols · ${p.matched ?? 0} matched · ${p.errors ?? 0} errors${pools ? ` · served by ${pools}` : ""}`);
-    const labels = Object.keys(job.results?.[0]?.values ?? {});
-    const rows = table(
-      [{ label: "Symbol", cell: (r) => h("strong", {}, r.symbol) }, ...labels.map((l) => ({ label: l, num: true, cell: (r) => (r.values[l] === null ? "—" : (Number.isInteger(r.values[l]) ? fmtInt : fmtNum).format(r.values[l])) })), { label: "Data", cell: (r) => pill(r.source === "backup" ? `backup · ${r.provider}` : r.accountId ?? r.source, r.source === "backup" ? "warn" : "ok") }],
-      job.results ?? [],
-      emptyState("scan", job.status === "completed" ? "Nothing matched" : "Scanning…", job.status === "completed" ? "No symbol met the condition on its last candle." : "Results appear here when the scan finishes."),
+    const head = h("div", { class: "row" }, pill(cap(job.status), job.status === "completed" ? "ok" : job.status === "failed" ? "bad" : "info"), h("span", { class: "muted small" }, `${formatInt(p.done ?? 0)}/${formatInt(p.total ?? 0)} symbols · ${formatInt(p.matched ?? 0)} matched · ${formatInt(p.errors ?? 0)} errors${pools ? ` · served by ${pools}` : ""}`));
+    const results = job.results ?? [];
+    const labels = Object.keys(results[0]?.values ?? {});
+    // Fixed decimals per column: whole numbers when every value in the column is whole, else 2.
+    const dp = Object.fromEntries(labels.map((l) => [l, results.every((r) => !isFigure(r.values[l]) || Number.isInteger(Number(r.values[l]))) ? 0 : 2]));
+    const rows = h(
+      "div",
+      { class: "card" },
+      table(
+        [{ label: "Symbol", cell: (r) => h("strong", {}, r.symbol) }, ...labels.map((l) => ({ label: l, num: true, cell: (r) => formatFixed(r.values[l], dp[l]) })), { label: "Data", cell: (r) => pill(r.source === "backup" ? `backup · ${r.provider}` : r.accountId ?? r.source, r.source === "backup" ? "warn" : "") }],
+        results,
+        emptyState("scan", job.status === "completed" ? "Nothing matched" : "Scanning…", job.status === "completed" ? "No symbol met the condition on its last candle." : "Results appear here when the scan finishes."),
+        { mobile: "scroll" },
+      ),
     );
-    const errs = (job.errors ?? []).length ? h("details", {}, h("summary", { class: "muted small" }, `${job.errors.length} symbol(s) could not be scanned`), table([{ label: "Symbol", cell: (e) => e.symbol }, { label: "Code", cell: (e) => e.code }, { label: "Message", wrap: true, cell: (e) => e.message }], job.errors.slice(0, 100), null)) : null;
+    const errs = (job.errors ?? []).length ? h("details", { class: "disclosure" }, h("summary", {}, `${formatInt(job.errors.length)} symbol(s) could not be scanned`), h("div", { class: "card" }, table([{ label: "Symbol", cell: (e) => e.symbol }, { label: "Code", cell: (e) => e.code }, { label: "Message", wrap: true, cell: (e) => e.message }], job.errors.slice(0, 100), null))) : null;
     out.replaceChildren(head, rows, errs ?? "");
   };
   planBtn.addEventListener("click", async () => {
     try {
       const r = (await api("/v1/scanner/plan", { method: "POST", body: request() })).data.data;
-      toast(`${r.symbols} symbols · about ${r.estimatedSeconds} s · ${r.pools.map((x) => x.accountId ?? "backup").join(", ")}`);
+      toast(`${formatInt(r.symbols)} symbols · about ${formatInt(r.estimatedSeconds)} s · ${r.pools.map((x) => x.accountId ?? "backup").join(", ")}`);
     } catch (err) {
       out.replaceChildren(alertBox(err));
     }
@@ -391,17 +586,20 @@ async function renderScanner() {
 
   const b = backup.data?.data;
   const backupCard = card({
+    glyph: "plug",
+    tint: "gray",
     title: "Backup data",
     sub: "Used only when no broker account can answer; every value is labelled source \"backup\".",
     actions: b ? pill(b.enabled ? "On" : b.demo ? "Off in demo mode" : "Off", b.enabled ? "ok" : "warn") : null,
+    flush: Boolean(b),
     body: b
       ? table(
           [
             { label: "Provider", cell: (p) => h("strong", {}, p.name) },
             { label: "State", cell: (p) => (!p.enabled ? pill("Off", "warn") : p.paused ? pill("Paused", "bad") : pill("Ready", "ok")) },
-            { label: "Calls", num: true, cell: (p) => fmtInt.format(p.calls) },
-            { label: "Errors", num: true, cell: (p) => fmtInt.format(p.errors) },
-            { label: "Last error", wrap: true, cell: (p) => p.lastError?.message ?? "—" },
+            { label: "Calls", num: true, cell: (p) => formatInt(p.calls) },
+            { label: "Errors", num: true, cell: (p) => formatInt(p.errors) },
+            { label: "Last error", wrap: true, cell: (p) => p.lastError?.message ?? DASH },
           ],
           b.providers ?? [],
           null,
@@ -410,14 +608,16 @@ async function renderScanner() {
   });
   const recent = (jobs.data?.data ?? []).slice(0, 10);
   const recentCard = card({
+    glyph: "clock",
+    tint: "mint",
     title: "Recent scans",
     flush: true,
     body: table(
       [
-        { label: "Started", cell: (j) => (j.startedAt ? istTime(j.startedAt) : "—") },
+        { label: "Started", cell: (j) => istTime(j.startedAt) },
         { label: "Condition", wrap: true, cell: (j) => h("code", {}, j.request?.condition ?? "") },
-        { label: "Status", cell: (j) => pill(j.status, j.status === "completed" ? "ok" : j.status === "failed" ? "bad" : "warn") },
-        { label: "Matched", num: true, cell: (j) => fmtInt.format(j.progress?.matched ?? 0) },
+        { label: "Status", cell: (j) => pill(cap(j.status), j.status === "completed" ? "ok" : j.status === "failed" ? "bad" : "warn") },
+        { label: "Matched", num: true, cell: (j) => formatInt(j.progress?.matched) },
       ],
       recent,
       emptyState("scan", "No scans yet", "Run one above, or from Python, Node, Excel or an AI assistant.", nextStep("Write a condition", () => cond.focus())),
@@ -426,6 +626,8 @@ async function renderScanner() {
 
   return [
     card({
+      glyph: "scan",
+      tint: "mint",
       title: "New scan",
       sub: "The condition is checked on each symbol's last candle. Scans run behind charts and orders, and share the work over your pooled accounts.",
       body: h(
@@ -458,6 +660,8 @@ async function renderHome() {
   const accs = accounts.data.data ?? [];
   const keyRows = keys.data?.data ?? [];
   const nodes = [];
+  let section = 0;
+  const eyebrow = (label) => sectionEyebrow(String(++section).padStart(2, "0"), label);
 
   // Welcome checklist
   if (!local.get(FLAG.hideChecklist)) {
@@ -475,36 +679,64 @@ async function renderHome() {
       snippet: { title: "Copy a snippet for Python, Excel, Claude or webhooks", text: "Ready-made setup with your Bridge address filled in.", go: "integrations", cta: "Integrations" },
       test: { title: "Make your first call", text: "Fetch a quote or an option chain in the test console and see the rate-limit headers.", go: "console", cta: "Test console" },
     };
-    const progress = h("span");
-    progress.style.width = `${(done / state.length) * 100}%`;
+    const fill = h("span");
+    fill.style.width = `${(done / state.length) * 100}%`;
     nodes.push(
+      eyebrow("Get started"),
       card({
-        cls: "accent-edge",
+        glyph: "check",
+        tint: "green",
         title: "Welcome to your Bridge",
-        sub: `${done} of ${state.length} done. One local API for all your broker accounts.`,
-        actions: h("div", { class: "row" }, h("div", { class: "bar", style: undefined }, progress), h("button", { type: "button", class: "ghost small", onclick: () => { local.set(FLAG.hideChecklist, "1"); show(); } }, "Hide")),
+        sub: `${formatInt(done)} of ${formatInt(state.length)} done. One local API for all your broker accounts.`,
+        actions: h(
+          "div",
+          { class: "row" },
+          h("div", { class: "progress", role: "img", "aria-label": `${done} of ${state.length} steps done` }, h("div", { class: "bar ok" }, fill)),
+          h("button", { type: "button", class: "plain small", onclick: () => { local.set(FLAG.hideChecklist, "1"); show(); } }, "Hide"),
+        ),
         flush: true,
         body: h(
           "div",
           { class: "checklist" },
           state.map((s) =>
-            h("div", { class: `check-item${s.done ? " done" : ""}` }, h("span", { class: "tick" }, icon("check")), h("div", { class: "what" }, h("strong", {}, ITEMS[s.id].title), h("span", {}, ITEMS[s.id].text)), h("button", { type: "button", class: s.done ? "small ghost" : "small primary", onclick: () => (location.hash = `#/${ITEMS[s.id].go}`) }, ITEMS[s.id].cta)),
+            h("div", { class: `check-item${s.done ? " done" : ""}` }, h("span", { class: "tick", "aria-hidden": "true" }, icon("check")), h("div", { class: "what" }, h("strong", {}, ITEMS[s.id].title, s.done ? h("span", { class: "pal-sr-only" }, " (done)") : null), h("span", {}, ITEMS[s.id].text)), h("button", { type: "button", class: s.done ? "small" : "small primary", onclick: () => (location.hash = `#/${ITEMS[s.id].go}`) }, ITEMS[s.id].cta)),
           ),
         ),
       }),
     );
-    const bar = nodes.at(-1).querySelector(".card-head .bar");
-    bar.style.width = "120px";
   }
 
-  // Market snapshot
+  // Today: the figures, then the market snapshot
+  const connected = accs.filter((a) => a.session?.state === "connected").length;
+  const sv = usage.data?.data?.savings;
+  const saved = sv ? (sv.servedFromStream ?? 0) + (sv.servedFromCache ?? 0) + (sv.coalesced ?? 0) + (sv.batched ?? 0) : null;
+  const ord = orders.data?.data ?? null;
+  const sd = streams.data?.data;
+  nodes.push(
+    eyebrow("Today"),
+    h(
+      "div",
+      { class: "grid cols-4 stats" },
+      stat("Accounts connected", `${formatInt(connected)}/${formatInt(accs.length)}`, accs.length ? accs.map((a) => a.id).join(", ") : "None configured", "accounts", "indigo"),
+      stat("Broker calls saved today", formatInt(saved), "Stream, cache, coalescing and batching", "bolt", "purple"),
+      stat("Live symbols", formatInt(sd?.symbols), sd ? `${formatInt(sd.downstream?.connections ?? 0)} client connection(s)` : "Stream statistics are not available", "activity", "teal"),
+      stat("Orders today", formatInt(ord?.length), ord ? `${formatInt(ord.filter((o) => o.mode === "paper").length)} paper · ${formatInt(ord.filter((o) => o.mode === "live").length)} live` : "Orders are not available", "orders", "orange"),
+    ),
+  );
+
   const marketAccount = accs.find((a) => a.broker !== "paper" && a.session?.state === "connected");
   const snapshot = h("div", { class: "quotes" });
   const fillQuotes = async () => {
     const r = await api("/v1/quotes?symbols=NSE:NIFTY,NSE:BANKNIFTY,BSE:SENSEX");
     snapshot.replaceChildren(
       ...(r.data.data ?? []).map((q) =>
-        h("div", { class: "quote" }, h("span", { class: "sym" }, q.symbol.split(":")[1], " · ", q.freshness?.source ?? ""), h("span", { class: "px" }, fmtNum.format(q.ltp)), h("span", { class: q.change >= 0 ? "up small" : "down small" }, `${signed(q.change ?? 0)} (${signed(q.changePct ?? 0)}%)`)),
+        h(
+          "div",
+          { class: "quote" },
+          h("span", { class: "sym" }, h("span", {}, q.symbol.split(":")[1]), h("small", {}, q.freshness?.source ?? "")),
+          h("span", { class: "px" }, formatFixed(q.ltp, 2)),
+          delta(q.change, `${formatSigned(q.change)} (${formatSigned(q.changePct)}%)`),
+        ),
       ),
     );
   };
@@ -514,6 +746,8 @@ async function renderHome() {
   }
   nodes.push(
     card({
+      glyph: "chart",
+      tint: "blue",
       title: "Market snapshot",
       sub: marketAccount ? `From ${marketAccount.label}, through the rate-limit engine` : "Connect a broker to see prices",
       actions: demoPill(),
@@ -522,59 +756,51 @@ async function renderHome() {
     }),
   );
 
-  // Stats
-  const connected = accs.filter((a) => a.session?.state === "connected").length;
-  const sv = usage.data?.data?.savings ?? {};
-  const saved = (sv.servedFromStream ?? 0) + (sv.servedFromCache ?? 0) + (sv.coalesced ?? 0) + (sv.batched ?? 0);
-  const ord = orders.data?.data ?? [];
-  const sd = streams.data?.data;
-  const stat = (label, value, sub) => h("section", { class: "card stat" }, h("span", { class: "label" }, label), h("span", { class: "value" }, value), h("span", { class: "sub" }, sub));
-  nodes.push(
-    h(
-      "div",
-      { class: "grid cols-4 stats" },
-      stat("Accounts connected", `${connected} / ${accs.length}`, accs.length ? accs.map((a) => a.id).join(", ") : "none configured"),
-      stat("Broker calls saved today", fmtInt.format(saved), "stream, cache, coalescing and batching"),
-      stat("Live symbols", fmtInt.format(sd?.symbols ?? 0), `${sd?.downstream?.connections ?? 0} client connection(s)`),
-      stat("Orders today", fmtInt.format(ord.length), `${ord.filter((o) => o.mode === "paper").length} paper · ${ord.filter((o) => o.mode === "live").length} live`),
-    ),
-  );
-
-  // Accounts + safety
+  // Your Bridge: accounts and safety
   const ks = safety.data?.data?.killSwitch;
   nodes.push(
+    eyebrow("Your Bridge"),
     h(
       "div",
       { class: "grid side" },
       card({
+        glyph: "accounts",
+        tint: "indigo",
         title: "Broker accounts",
         flush: true,
-        actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/accounts") }, "Manage"),
+        actions: h("button", { type: "button", class: "small tinted", onclick: () => (location.hash = "#/accounts") }, "Manage"),
         body: table(
           [
             { label: "Account", cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
             { label: "Broker", cell: (a) => brokerCell(a.broker, a.broker) },
             { label: "Session", cell: (a) => sessionPill(a.session?.state) },
-            { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("live enabled", "bad") : pill("paper", "accent")) },
+            { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")) },
           ],
           accs,
           emptyState("accounts", "No accounts yet", "Add your broker: choose it, then log in with its API details.", app.state.demo ? null : nextStep("Add a broker", "#/accounts?add=1")),
         ),
       }),
       card({
+        glyph: "safety",
+        tint: ks?.engaged ? "red" : "green",
         title: "Safety",
-        actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/safety") }, "Open"),
+        actions: h("button", { type: "button", class: "small tinted", onclick: () => (location.hash = "#/safety") }, "Open"),
         body: h(
           "div",
           { class: "stack" },
-          h("div", { class: "row" }, ks?.engaged ? pill("Kill switch ON", "bad") : pill("Kill switch off", "ok"), safety.data?.data?.liveTrading ? pill("Live trading ON", "bad") : pill("Paper only", "accent")),
+          h("div", { class: "row" }, ks?.engaged ? pill("Kill switch on", "bad") : pill("Kill switch off", "ok"), safety.data?.data?.liveTrading ? pill("Live trading on", "bad") : pill("Paper only")),
           h("p", { class: "muted" }, ks?.engaged ? `Engaged ${istDateTime(ks.at)}: ${ks.reason ?? ""}` : "Orders pass every safety check: order-rate cap, daily limits, price band, market-order protection."),
-          h("p", { class: "muted small" }, `Bridge ${app.state.health?.version ?? ""} · up ${Math.round((app.state.health?.uptimeSeconds ?? 0) / 60)} min · listening on this computer only`),
+          h("p", { class: "muted small" }, `Bridge ${app.state.health?.version ?? ""} · up ${formatInt((app.state.health?.uptimeSeconds ?? 0) / 60)} min · listening on this computer only`),
         ),
       }),
     ),
   );
   return nodes;
+}
+
+/** A metric card: tinted icon and label, the figure, a footnote (IPO Decode's Metric). */
+function stat(label, value, sub, glyph, tint) {
+  return h("section", { class: "card stat" }, h("div", { class: "stat-head" }, glyph ? iconTile(glyph, tint, "sm") : null, h("span", { class: "label" }, label)), h("span", { class: "value" }, value), h("span", { class: "sub" }, sub));
 }
 
 // ── Accounts ──
@@ -638,7 +864,7 @@ function addBrokerSheet(list, { preselect } = {}) {
       radio,
       b.paper ? h("span", { class: "avatar" }, "P") : brokerAvatar(b),
       h("span", { class: "names" }, h("span", { class: "nm" }, b.name), h("span", { class: "sub" }, b.paper ? "Simulated orders with real prices" : AUTH_KIND_LABEL[b.authKind] ?? b.authKind)),
-      b.paper ? pill("Simulator", "accent") : b.verified ? pill("Verified", "ok") : pill("Beta", "warn"),
+      b.paper ? pill("Simulator") : b.verified ? pill("Verified", "ok") : pill("Beta", "warn"),
     );
   };
   const draw = () => {
@@ -742,7 +968,7 @@ function loginSheet(a, broker) {
   if (broker.loginUrl) {
     const needs = [...broker.loginUrl.matchAll(/\{([A-Za-z0-9_]+)\}/g)].map((m) => labels[m[1]] ?? m[1]);
     const note = h("span", { class: "hint" }, `Type your ${needs.join(" and ")} above first.`);
-    const open = h("button", { type: "button", class: "small", disabled: true }, icon("external"), `Open ${broker.name} login page`);
+    const open = h("button", { type: "button", class: "small tinted", disabled: true }, icon("external"), `Open ${broker.name} login page`);
     const sync = () => {
       const ok = fillLoginUrl(broker.loginUrl, typed()) !== null;
       open.disabled = !ok;
@@ -800,7 +1026,7 @@ function loginSheet(a, broker) {
     body: h(
       "div",
       { class: "stack" },
-      h("div", { class: "row" }, pill(broker.name, "accent"), broker.verified ? pill("Verified", "ok") : pill("Beta", "warn"), sessionPill(a.session?.state)),
+      h("div", { class: "row" }, brokerAvatar(broker), h("strong", {}, broker.name), broker.verified ? pill("Verified", "ok") : pill("Beta", "warn"), sessionPill(a.session?.state)),
       h("div", { class: "login-help" }, spec.help.map((t) => h("p", {}, t))),
       spec.fields.length ? form : alertBox({ title: "Nothing to type", detail: "This broker needs no fields." }, "info"),
       result,
@@ -872,10 +1098,12 @@ async function renderAccounts() {
     }
   };
   const addButton = (cls = "primary", text = "Add a broker") => h("button", { type: "button", class: cls, onclick: () => addAccountFlow(list) }, icon("plus"), text);
-  const removeButton = (a) => h("button", { type: "button", class: "small ghost", "aria-label": `Remove ${a.label}`, onclick: () => removeAccountSheet(a) }, "Remove");
+  const removeButton = (a) => h("button", { type: "button", class: "small", "aria-label": `Remove ${a.label}`, onclick: () => removeAccountSheet(a) }, "Remove");
 
   const accountsCard = card({
     cls: "accounts-card",
+    glyph: "accounts",
+    tint: "indigo",
     title: "Your accounts",
     sub: "Several brokers and several accounts per broker are fine. New accounts are paper only.",
     actions: app.state.demo ? null : addButton("small primary"),
@@ -885,19 +1113,19 @@ async function renderAccounts() {
         { label: "Account", cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
         { label: "Broker", cell: (a) => (a.broker === "paper" ? "Paper (simulator)" : brokerCell(a.broker, brokerOf(a)?.name ?? a.broker)) },
         { label: "Session", cell: (a) => h("div", {}, sessionPill(a.session?.state), a.session?.expiresAt ? h("div", { class: "muted small" }, `until ${istDateTime(a.session.expiresAt)}`) : null) },
-        { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("live enabled", "bad") : pill("paper", "accent")) },
+        { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")) },
         { label: "Can do", wrap: true, cell: (a) => h("div", { class: "chips" }, (a.capabilities ?? []).slice(0, 6).map((c) => h("span", { class: "chip" }, c)), (a.capabilities?.length ?? 0) > 6 ? h("span", { class: "chip" }, `+${a.capabilities.length - 6}`) : null) },
         {
           label: "",
           cell: (a) => {
-            if (a.broker === "paper") return h("div", { class: "row" }, h("span", { class: "muted small" }, "simulator"), !app.state.demo && paperCount > 1 ? removeButton(a) : null);
+            if (a.broker === "paper") return h("div", { class: "row" }, h("span", { class: "muted small" }, "Simulator"), !app.state.demo && paperCount > 1 ? removeButton(a) : null);
             const t = h("button", { type: "button", class: "small", "aria-label": `Test ${a.id}` }, "Test");
             t.addEventListener("click", () => testAccount(a, t));
             if (app.state.demo) return t;
             const connected = a.session?.state === "connected";
             return h(
               "div",
-              { class: "row nowrap" },
+              { class: "row" },
               t,
               h("button", { type: "button", class: connected ? "small" : "small primary", "aria-label": `${connected ? "Log in again to" : "Log in to"} ${a.label}`, onclick: () => loginSheet(a, brokerOf(a)) }, connected ? "Log in again" : "Log in"),
               a.liveAllowedByConfig ? null : removeButton(a),
@@ -907,11 +1135,12 @@ async function renderAccounts() {
       ],
       accs,
       emptyState("accounts", "No accounts yet", "Add your broker to get started: choose it, then log in with its API details. It takes a minute.", app.state.demo ? null : addButton()),
+      { mobile: "stack-wide" },
     ),
   });
 
   // Directory
-  const search = h("input", { type: "search", placeholder: "Search 41 brokers…", "aria-label": "Search brokers" });
+  const search = h("input", { type: "search", class: "dir-search", placeholder: "Search 41 brokers…", "aria-label": "Search brokers" });
   const grid = h("div", { class: "brokers" });
   const real = realBrokers(list);
   const draw = () => {
@@ -926,19 +1155,21 @@ async function renderAccounts() {
             "div",
             { class: "row broker-foot" },
             h("div", { class: "chips grow" }, h("span", { class: "chip" }, AUTH_KIND_LABEL[b.authKind] ?? b.authKind), b.capabilities.includes("feed") ? h("span", { class: "chip" }, "live feed") : null, b.capabilities.includes("historical") ? h("span", { class: "chip" }, "history") : null, b.capabilities.includes("placeOrder") ? h("span", { class: "chip" }, "orders") : null),
-            app.state.demo ? null : h("button", { type: "button", class: "small", "aria-label": `Add a ${b.name} account`, onclick: () => addAccountFlow(list, { preselect: b.id }) }, "Add"),
+            app.state.demo ? null : h("button", { type: "button", class: "small tinted", "aria-label": `Add a ${b.name} account`, onclick: () => addAccountFlow(list, { preselect: b.id }) }, "Add"),
           ),
         ),
       ),
     );
-    if (!rows.length) grid.replaceChildren(h("div", { class: "row" }, h("p", { class: "muted" }, `No broker matches “${search.value}”.`), nextStep("Clear search", () => { search.value = ""; draw(); search.focus(); }, "small ghost")));
+    if (!rows.length) grid.replaceChildren(h("div", { class: "row" }, h("p", { class: "muted" }, `No broker matches “${search.value}”.`), nextStep("Clear search", () => { search.value = ""; draw(); search.focus(); }, "small tinted")));
   };
   search.addEventListener("input", draw);
   draw();
   const dirCard = card({
+    glyph: "plug",
+    tint: "blue",
     title: "Supported brokers",
     sub: `${real.length} brokers. Dhan is verified with a live account; the others are beta (tested against recorded samples).${app.state.demo ? " Demo mode loads none of them." : ""}`,
-    actions: h("div", { style: undefined }, search),
+    actions: search,
     flush: true,
     body: grid,
   });
@@ -1058,8 +1289,10 @@ async function renderConsole() {
       const friendly = !ok && typeof r.data === "object" ? alertBox({ code: r.data.code, status: r.status, message: r.data.detail }) : null;
       out.replaceChildren(
         card({
+          glyph: "inbox",
+          tint: ok ? "green" : "red",
           title: "Response",
-          actions: h("div", { class: "row" }, pill(`${r.status} ${ok ? "OK" : "Error"}`, ok ? "ok" : "bad"), r.ms ? pill(`${r.ms} ms`) : null, hdr("x-mcb-data") === "demo" ? pill("Demo data", "demo") : null),
+          actions: h("div", { class: "row" }, pill(`${r.status} ${ok ? "OK" : "Error"}`, ok ? "ok" : "bad"), r.ms ? pill(`${formatInt(r.ms)} ms`) : null, hdr("x-mcb-data") === "demo" ? pill("Demo data", "demo") : null),
           flush: true,
           body: h(
             "div",
@@ -1080,7 +1313,7 @@ async function renderConsole() {
   select.addEventListener("change", drawFields);
   runBtn.addEventListener("click", run);
   await drawFields();
-  out.replaceChildren(card({ title: "Response", body: emptyState("console", "Send a request to see the answer", "The response shows the status, the rate-limit headers and the JSON exactly as your scripts would get it.") }));
+  out.replaceChildren(card({ glyph: "inbox", tint: "gray", title: "Response", body: emptyState("console", "Send a request to see the answer", "The response shows the status, the rate-limit headers and the JSON exactly as your scripts would get it.") }));
   return h(
     "div",
     { class: "console" },
@@ -1088,6 +1321,8 @@ async function renderConsole() {
       "div",
       { class: "stack" },
       card({
+        glyph: "console",
+        tint: "teal",
         title: "Request",
         sub: "Uses your dashboard key. Scripts should use their own key.",
         body: h("div", { class: "stack" }, h("label", { class: "field" }, "Endpoint", select), fieldsBox, h("div", { class: "row" }, runBtn)),
@@ -1107,15 +1342,14 @@ async function renderLimits() {
     const u = usage.data.data ?? {};
     const lim = limits.data.data ?? {};
     const sv = u.savings ?? {};
-    const stat = (label, value, sub) => h("section", { class: "card stat" }, h("span", { class: "label" }, label), h("span", { class: "value" }, fmtInt.format(value ?? 0)), h("span", { class: "sub" }, sub));
     const nodes = [
       h(
         "div",
         { class: "grid cols-4 stats" },
-        stat("Served from live stream", sv.servedFromStream, "no broker call at all"),
-        stat("Served from cache", sv.servedFromCache, "fresh enough, labelled with its age"),
-        stat("Coalesced", sv.coalesced, "identical requests shared one call"),
-        stat("Batched", sv.batched, "symbols packed into fewer calls"),
+        stat("Served from live stream", formatInt(sv.servedFromStream), "No broker call at all", "activity", "teal"),
+        stat("Served from cache", formatInt(sv.servedFromCache), "Fresh enough, labelled with its age", "clock", "indigo"),
+        stat("Coalesced", formatInt(sv.coalesced), "Identical requests shared one call", "integrations", "purple"),
+        stat("Batched", formatInt(sv.batched), "Symbols packed into fewer calls", "list", "blue"),
       ),
     ];
     const accounts = (u.accounts ?? []).filter((a) => a.broker !== "paper");
@@ -1128,29 +1362,33 @@ async function renderLimits() {
       const after = (await api("/v1/usage")).data.data;
       tryBtn.disabled = false;
       const used = calls(after) - calls(before);
-      toast(`20 requests → ${used} broker call${used === 1 ? "" : "s"}. The rest came from the live stream, the cache or a shared call.`);
+      toast(`20 requests → ${formatInt(used)} broker call${used === 1 ? "" : "s"}. The rest came from the live stream, the cache or a shared call.`);
       await draw();
     });
     nodes.push(
       card({
+        glyph: "bolt",
+        tint: "purple",
         title: "Try it",
         sub: "Twenty tools asking for the same price at once should cost the broker about one call. Watch the counters.",
         body: h("div", { class: "row" }, tryBtn, h("span", { class: "muted small" }, accounts.length ? "Uses /v1/ltp for NIFTY and RELIANCE." : "Needs a connected broker or demo mode.")),
       }),
     );
-    if (!accounts.length) nodes.push(card({ title: "Broker budgets", body: emptyState("limits", "No broker account in use yet", "Once a broker account is connected, its live budget per endpoint class shows here.", nextStep("Go to Accounts", "#/accounts")) }));
+    if (!accounts.length) nodes.push(card({ glyph: "limits", tint: "purple", title: "Broker budgets", body: emptyState("limits", "No broker account in use yet", "Once a broker account is connected, its live budget per endpoint class shows here.", nextStep("Go to Accounts", "#/accounts")) }));
     for (const a of accounts) {
       const classes = Object.entries(a.classes ?? {});
       nodes.push(
         card({
+          glyph: "limits",
+          tint: "purple",
           title: `${a.accountId} · ${a.broker}`,
-          sub: `${a.healthy === false ? "backing off" : "healthy"} · ${a.inFlight ?? 0} in flight · ${a.queued ?? 0} queued`,
+          sub: `${a.healthy === false ? "Backing off" : "Healthy"} · ${formatInt(a.inFlight ?? 0)} in flight · ${formatInt(a.queued ?? 0)} queued`,
           actions: h("div", { class: "row" }, a.healthy === false ? pill("Backing off", "bad") : pill("Healthy", "ok"), demoPill()),
           body: h(
             "div",
             {},
-            classes.map(([cls, c]) => meterRow(cls, c.used ?? 0, c.limit ?? 0, `${c.used ?? 0} / ${c.limit ?? "∞"} per ${c.window ?? "s"} · ${fmtInt.format(c.callsToday ?? 0)} today`)),
-            h("p", { class: "muted small" }, `Today: ${fmtInt.format(sum(Object.fromEntries(classes.map(([k, c]) => [k, c.callsToday ?? 0]))))} broker calls, ${fmtInt.format(sum(Object.fromEntries(classes.map(([k, c]) => [k, c.throttledToday ?? 0]))))} throttled by the broker, ${fmtInt.format(sum(Object.fromEntries(classes.map(([k, c]) => [k, c.refusedToday ?? 0]))))} refused to stay inside limits.`),
+            classes.map(([cls, c]) => meterRow(cls, c.used ?? 0, c.limit ?? 0, `${formatInt(c.used ?? 0)} / ${isFigure(c.limit) ? formatInt(c.limit) : "∞"} per ${c.window ?? "s"} · ${formatInt(c.callsToday)} today`)),
+            h("p", { class: "muted small" }, `Today: ${formatInt(sum(Object.fromEntries(classes.map(([k, c]) => [k, c.callsToday ?? 0]))))} broker calls, ${formatInt(sum(Object.fromEntries(classes.map(([k, c]) => [k, c.throttledToday ?? 0]))))} throttled by the broker, ${formatInt(sum(Object.fromEntries(classes.map(([k, c]) => [k, c.refusedToday ?? 0]))))} refused to stay inside limits.`),
           ),
         }),
       );
@@ -1159,16 +1397,18 @@ async function renderLimits() {
     for (const p of policies) {
       nodes.push(
         card({
+          glyph: "list",
+          tint: "gray",
           title: `Policy: ${p.brokerId}`,
           sub: p.notes ?? "",
           flush: true,
           body: table(
             [
               { label: "Endpoint class", cell: (r) => h("strong", {}, r[0]) },
-              { label: "Per second", num: true, cell: (r) => r[1].perSecond ?? "—" },
-              { label: "Per minute", num: true, cell: (r) => r[1].perMinute ?? "—" },
-              { label: "Per day", num: true, cell: (r) => (r[1].perDay ? fmtInt.format(r[1].perDay) : "—") },
-              { label: "Source", wrap: true, cell: (r) => (String(r[1].source ?? "").includes("demo") ? pill("sample (demo)", "accent") : r[1].verified ? pill("broker docs", "ok") : pill("conservative default", "warn")) },
+              { label: "Per second", num: true, cell: (r) => formatFixed(r[1].perSecond, Object.values(p.limits ?? {}).some((x) => isFigure(x.perSecond) && !Number.isInteger(Number(x.perSecond))) ? 1 : 0) },
+              { label: "Per minute", num: true, cell: (r) => formatInt(r[1].perMinute) },
+              { label: "Per day", num: true, cell: (r) => formatInt(r[1].perDay) },
+              { label: "Source", wrap: true, cell: (r) => (String(r[1].source ?? "").includes("demo") ? pill("Sample (demo)", "demo") : r[1].verified ? pill("Broker docs", "ok") : pill("Conservative default", "warn")) },
             ],
             Object.entries(p.limits ?? {}),
             emptyState("limits", "No limits", ""),
@@ -1194,6 +1434,8 @@ async function renderOrders() {
   const tk = tickets.data?.data ?? [];
   nodes.push(
     card({
+      glyph: "inbox",
+      tint: "orange",
       title: "Pending confirmations",
       sub: "Orders prepared by AI assistants or confirmation-required webhooks wait here. Nothing is sent until you confirm.",
       flush: true,
@@ -1204,7 +1446,7 @@ async function renderOrders() {
               { label: "Ticket", cell: (t) => h("span", { class: "mono" }, t.ticketId) },
               { label: "From", cell: (t) => `${t.source} · ${t.client}` },
               { label: "Order", wrap: true, cell: (t) => `${t.order?.side} ${t.order?.lots ? `${t.order.lots} lot(s)` : t.order?.quantity} ${t.order?.symbol} (${t.order?.mode ?? "paper"})` },
-              { label: "Value", num: true, cell: (t) => (t.estimatedValue == null ? "—" : fmtRs.format(t.estimatedValue)) },
+              { label: "Value", num: true, cell: (t) => formatRupee(t.estimatedValue) },
               {
                 label: "",
                 cell: (t) => {
@@ -1214,7 +1456,7 @@ async function renderOrders() {
               },
             ],
             tk,
-            emptyState("inbox", "Nothing waiting", "When an AI assistant prepares an order, it appears here for you to check every field and confirm.", nextStep("Set up an AI assistant", "#/integrations?tab=claude", "ghost")),
+            emptyState("inbox", "Nothing waiting", "When an AI assistant prepares an order, it appears here for you to check every field and confirm.", nextStep("Set up an AI assistant", "#/integrations?tab=claude", "tinted")),
           ),
     }),
   );
@@ -1222,8 +1464,10 @@ async function renderOrders() {
   const ord = orders.data?.data ?? [];
   nodes.push(
     card({
+      glyph: "orders",
+      tint: "orange",
       title: "Today's orders",
-      actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/console?endpoint=order") }, icon("plus"), "Place a paper order"),
+      actions: h("button", { type: "button", class: "small tinted", onclick: () => (location.hash = "#/console?endpoint=order") }, icon("plus"), "Place a paper order"),
       flush: true,
       body: orders.error
         ? h("div", { class: "card-body" }, alertBox(orders.error))
@@ -1232,11 +1476,11 @@ async function renderOrders() {
               { label: "Time", cell: (o) => istTime(o.placedAt) },
               { label: "Account", cell: (o) => o.accountId },
               { label: "Symbol", cell: (o) => h("strong", {}, o.symbol) },
-              { label: "Side", cell: (o) => h("span", { class: o.side === "BUY" ? "up" : "down" }, o.side) },
-              { label: "Qty", num: true, cell: (o) => o.quantity },
-              { label: "Avg price", num: true, cell: (o) => (o.avgPrice == null ? "—" : fmtNum.format(o.avgPrice)) },
-              { label: "Status", cell: (o) => pill(o.status, o.status === "filled" ? "ok" : o.status === "rejected" ? "bad" : "info") },
-              { label: "Mode", cell: (o) => (o.mode === "live" ? pill("live", "bad") : pill("paper", "accent")) },
+              { label: "Side", cell: (o) => h("span", { class: "order-side" }, o.side) },
+              { label: "Qty", num: true, cell: (o) => formatInt(o.quantity) },
+              { label: "Avg price", num: true, cell: (o) => formatFixed(o.avgPrice, 2) },
+              { label: "Status", cell: (o) => pill(cap(o.status), o.status === "filled" ? "ok" : o.status === "rejected" ? "bad" : "warn") },
+              { label: "Mode", cell: (o) => (o.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
             ],
             ord,
             emptyState("orders", "No orders today", "Paper orders from the test console, your scripts, webhooks and AI assistants show up here.", nextStep("Place a paper order", "#/console?endpoint=order")),
@@ -1250,21 +1494,23 @@ async function renderOrders() {
     const rows = pos.data?.data ?? [];
     nodes.push(
       card({
+        glyph: "wallet",
+        tint: "teal",
         title: `${a.label} (paper)`,
-        sub: `Cash ${fmtRs.format(f.availableCash ?? 0)} · used margin ${fmtRs.format(f.usedMargin ?? 0)} · realised ${fmtRs.format(f.realisedPnl ?? 0)} · unrealised ${fmtRs.format(f.unrealisedPnl ?? 0)}`,
+        sub: `Cash ${formatRupee(f.availableCash)} · used margin ${formatRupee(f.usedMargin)} · realised ${formatRupee(f.realisedPnl)} · unrealised ${formatRupee(f.unrealisedPnl)}`,
         actions: demoPill(),
         flush: true,
         body: table(
           [
             { label: "Symbol", cell: (p) => h("strong", {}, p.symbol) },
             { label: "Product", cell: (p) => p.product },
-            { label: "Net qty", num: true, cell: (p) => p.netQty },
-            { label: "Avg", num: true, cell: (p) => fmtNum.format(p.avgPrice ?? 0) },
-            { label: "LTP", num: true, cell: (p) => (p.ltp == null ? "—" : fmtNum.format(p.ltp)) },
-            { label: "P&L", num: true, cell: (p) => h("span", { class: (p.pnl ?? 0) >= 0 ? "up" : "down" }, fmtRs.format(p.pnl ?? 0)) },
+            { label: "Net qty", num: true, cell: (p) => formatInt(p.netQty) },
+            { label: "Avg", num: true, cell: (p) => formatFixed(p.avgPrice, 2) },
+            { label: "LTP", num: true, cell: (p) => formatFixed(p.ltp, 2) },
+            { label: "P&L", num: true, cell: (p) => pnl(p.pnl) },
           ],
           rows,
-          emptyState("orders", "No open paper positions", "Place a paper order to practise with ₹10,00,000 of virtual money.", nextStep("Place a paper order", "#/console?endpoint=order", "ghost")),
+          emptyState("orders", "No open paper positions", `Place a paper order to practise with ${formatRupee(1000000, 0)} of virtual money.`, nextStep("Place a paper order", "#/console?endpoint=order", "tinted")),
         ),
       }),
     );
@@ -1333,26 +1579,28 @@ async function renderSafety() {
     try {
       const r = await api("/v1/audit/verify");
       const d = r.data.data ?? {};
-      toast(d.ok ? `Audit chain intact (${d.checked} records)` : `Audit chain broken at ${d.brokenAt}`);
+      toast(d.ok ? `Audit chain intact (${formatInt(d.checked)} records)` : `Audit chain broken at ${d.brokenAt}`);
     } catch (err) {
       toast(err.message);
     } finally {
       btn.disabled = false;
     }
   };
-  const verifyBtn = h("button", { type: "button", class: "small" }, "Verify audit log");
+  const verifyBtn = h("button", { type: "button", class: "small tinted" }, "Verify audit log");
   verifyBtn.addEventListener("click", () => verify(verifyBtn));
 
   const killCard = h(
     "section",
     { class: `card kill${ks.engaged ? " engaged" : ""}` },
-    h("div", { class: "kicon" }, icon(ks.engaged ? "stop" : "power")),
-    h("div", { class: "stack" }, h("h2", {}, ks.engaged ? "Kill switch is ON: no orders are sent" : "Kill switch is off"), h("p", { class: "muted" }, ks.engaged ? `Engaged ${istDateTime(ks.at)} by ${ks.by ?? "?"}: ${ks.reason ?? ""}` : "One click stops every new order from every tool: REST, webhooks, AI assistants and the CLI. Also: mc-bridge kill.")),
+    iconTile(ks.engaged ? "stop" : "power", ks.engaged ? "red" : "green", "lg"),
+    h("div", { class: "stack" }, h("h2", {}, ks.engaged ? "Kill switch is on: no orders are sent" : "Kill switch is off"), h("p", { class: "muted" }, ks.engaged ? `Engaged ${istDateTime(ks.at)} by ${ks.by ?? "?"}: ${ks.reason ?? ""}` : "One click stops every new order from every tool: REST, webhooks, AI assistants and the CLI. Also: mc-bridge kill.")),
     h("div", { class: "actions" }, ks.engaged ? h("button", { type: "button", id: "kill-action", class: "primary", onclick: release }, "Release (admin)") : h("button", { type: "button", id: "kill-action", class: "danger", onclick: engage }, icon("stop"), "Stop all orders")),
   );
   const live = card({
+    glyph: "bolt",
+    tint: s.liveTrading ? "red" : "gray",
     title: "Live trading",
-    actions: s.liveTrading ? pill("ON", "bad") : pill("Off: paper only", "accent"),
+    actions: s.liveTrading ? pill("On", "bad") : pill("Off: paper only"),
     body: h(
       "div",
       { class: "stack" },
@@ -1366,12 +1614,14 @@ async function renderSafety() {
           ["the key has the live scope and the request says mode: live", null],
           ["a person confirmed it, for AI-prepared orders and confirmation webhooks", null],
           ["every safety check passes (rate cap, daily limits, price band)", null],
-        ].map(([t, v]) => h("div", { class: "req" }, v === true ? pill("yes", "ok") : v === false ? pill("no", "accent") : pill("per order"), h("span", {}, t))),
+        ].map(([t, v]) => h("div", { class: "req" }, v === true ? pill("Yes", "ok") : v === false ? pill("No") : pill("Per order"), h("span", {}, t))),
       ),
       app.state.demo ? h("p", { class: "small warn-text" }, "Demo mode forces live trading off.") : null,
     ),
   });
   const limits = card({
+    glyph: "limits",
+    tint: "orange",
     title: "Daily limits per account",
     sub: `IST day ${s.day ?? ""}. Paper and live are counted separately.`,
     actions: verifyBtn,
@@ -1379,16 +1629,16 @@ async function renderSafety() {
     body: table(
       [
         { label: "Account", cell: (a) => h("strong", {}, a.accountId) },
-        { label: "Orders today", num: true, cell: (a) => `${a.ordersToday + (a.paperOrdersToday ?? 0)} / ${a.limits?.dailyMaxOrders}` },
-        { label: "P&L today", num: true, cell: (a) => fmtRs.format((a.realisedPnlToday ?? 0) + (a.paperRealisedPnlToday ?? 0)) },
-        { label: "Max loss", num: true, cell: (a) => fmtRs.format(a.limits?.dailyMaxLoss ?? 0) },
-        { label: "Max order value", num: true, cell: (a) => fmtRs.format(a.limits?.maxOrderValue ?? 0) },
-        { label: "Max lots", num: true, cell: (a) => a.limits?.maxLotsPerOrder },
-        { label: "Orders / s", num: true, cell: (a) => a.limits?.orderRatePerSecond },
+        { label: "Orders today", num: true, cell: (a) => `${formatInt((a.ordersToday ?? 0) + (a.paperOrdersToday ?? 0))} / ${formatInt(a.limits?.dailyMaxOrders)}` },
+        { label: "P&L today", num: true, cell: (a) => pnl(isFigure(a.realisedPnlToday) || isFigure(a.paperRealisedPnlToday) ? (a.realisedPnlToday ?? 0) + (a.paperRealisedPnlToday ?? 0) : null) },
+        { label: "Max loss", num: true, cell: (a) => formatRupee(a.limits?.dailyMaxLoss) },
+        { label: "Max order value", num: true, cell: (a) => formatRupee(a.limits?.maxOrderValue) },
+        { label: "Max lots", num: true, cell: (a) => formatInt(a.limits?.maxLotsPerOrder) },
+        { label: "Orders / s", num: true, cell: (a) => formatInt(a.limits?.orderRatePerSecond) },
         { label: "Market orders", cell: (a) => a.limits?.marketOrders ?? "protect" },
       ],
       s.accounts ?? [],
-      emptyState("safety", "No accounts", "Daily limits appear once an account is configured.", nextStep("Go to Accounts", "#/accounts", "ghost")),
+      emptyState("safety", "No accounts", "Daily limits appear once an account is configured.", nextStep("Go to Accounts", "#/accounts", "tinted")),
     ),
   });
   return [killCard, h("div", { class: "grid side" }, limits, live)];
@@ -1435,16 +1685,16 @@ async function renderKeys() {
   const tableBox = h("div");
   const drawTable = async (list) => {
     const data = list ?? (await api("/v1/keys")).data.data ?? [];
-    const status = (k) => (k.revokedAt ? pill("revoked", "bad") : k.expiresAt && Date.parse(k.expiresAt) < Date.now() ? pill("expired", "warn") : pill("active", "ok"));
+    const status = (k) => (k.revokedAt ? pill("Revoked", "bad") : k.expiresAt && Date.parse(k.expiresAt) < Date.now() ? pill("Expired", "warn") : pill("Active", "ok"));
     tableBox.replaceChildren(
       table(
         [
           { label: "Name", cell: (k) => h("div", {}, h("strong", {}, k.label), h("div", { class: "muted small mono" }, k.id)) },
           { label: "Scopes", cell: (k) => h("div", { class: "chips" }, k.scopes.slice().sort().map(scopeChip), k.allowQuery ? h("span", { class: "chip" }, "URL ok") : null) },
-          { label: "Accounts", cell: (k) => (k.accounts === "*" ? "all" : k.accounts.join(", ")) },
-          { label: "For", cell: (k) => k.clientKind ?? "—" },
+          { label: "Accounts", cell: (k) => (k.accounts === "*" ? "All" : k.accounts.join(", ")) },
+          { label: "For", cell: (k) => k.clientKind ?? DASH },
           { label: "Last used", cell: (k) => istDateTime(k.lastUsedAt) },
-          { label: "Expires", cell: (k) => (k.expiresAt ? istDateTime(k.expiresAt) : "never") },
+          { label: "Expires", cell: (k) => (k.expiresAt ? istDateTime(k.expiresAt) : "Never") },
           { label: "Status", cell: status },
           {
             label: "",
@@ -1453,7 +1703,7 @@ async function renderKeys() {
                 ? ""
                 : h("button", {
                     type: "button",
-                    class: "small ghost",
+                    class: "small plain",
                     "aria-label": `Revoke key ${k.label}`,
                     onclick: async () => {
                       const ok = await modal({ title: `Revoke “${k.label}”?`, body: h("p", {}, "It stops working on its very next request, and its open streams close. This cannot be undone."), buttons: [{ label: "Cancel", value: false }, { label: "Revoke", cls: "danger", value: true }] });
@@ -1471,12 +1721,15 @@ async function renderKeys() {
         ],
         data,
         emptyState("keys", "No keys yet", "Create one key per tool so you can revoke one without touching the others.", nextStep("Create a key", () => label.focus())),
+        { mobile: "stack-wide" },
       ),
     );
   };
   await drawTable(rows);
   return [
     card({
+      glyph: "plus",
+      tint: "pink",
       title: "Create a key",
       sub: "Least access wins: charts and AI need read, scripts that trade on paper need paper. Live keys are made from the terminal only.",
       body: h(
@@ -1487,7 +1740,7 @@ async function renderKeys() {
         createdBox,
       ),
     }),
-    card({ title: "Your keys", sub: "Only a hash of each key is stored. The key itself was shown once.", flush: true, body: tableBox }),
+    card({ glyph: "keys", tint: "pink", title: "Your keys", sub: "Only a hash of each key is stored. The key itself was shown once.", flush: true, body: tableBox }),
   ];
 }
 
@@ -1531,7 +1784,7 @@ async function renderIntegrations() {
     });
     const s = snippets({ base: location.origin, key: createdKeys[active] ?? null, account: paperAcc, symbol: "NSE:NIFTY", folder: app.state.meta?.installDir || undefined })[active];
     const preset = KEY_PRESETS[active];
-    const keyBtn = preset && h("button", { type: "button", class: createdKeys[active] ? "small" : "small primary" }, icon("keys"), createdKeys[active] ? "Key created" : `Create a ${preset.scopes.join("+")} key for this`);
+    const keyBtn = preset && h("button", { type: "button", class: createdKeys[active] ? "small" : "small tinted" }, icon("keys"), createdKeys[active] ? "Key created" : `Create a ${preset.scopes.join("+")} key for this`);
     if (keyBtn) keyBtn.disabled = Boolean(createdKeys[active]);
     keyBtn?.addEventListener("click", async () => {
       try {
@@ -1555,7 +1808,7 @@ async function renderIntegrations() {
     panel.replaceChildren(...parts.filter(Boolean));
   };
   await draw();
-  return card({ title: "Connect your tools", sub: `Your Bridge address: ${location.origin}`, actions: demoPill(), flush: true, body: h("div", {}, tabsBar, panel) });
+  return card({ glyph: "integrations", tint: "blue", title: "Connect your tools", sub: `Your Bridge address: ${location.origin}`, actions: demoPill(), flush: true, body: h("div", {}, tabsBar, panel) });
 }
 
 async function webhookPanel(paperAcc) {
@@ -1573,14 +1826,14 @@ async function webhookPanel(paperAcc) {
     { label: "Hook", cell: (x) => h("div", {}, h("strong", {}, x.label), h("div", { class: "muted small mono" }, x.id)) },
     { label: "Source", cell: (x) => x.source },
     { label: "Account", cell: (x) => x.account },
-    { label: "Mode", cell: (x) => (x.mode === "live" ? pill("live", "bad") : pill("paper", "accent")) },
+    { label: "Mode", cell: (x) => (x.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
     { label: "Last alert", cell: (x) => istDateTime(x.lastSignalAt) },
     {
       label: "",
       cell: (x) =>
         h("button", {
           type: "button",
-          class: "small ghost",
+          class: "small plain",
           "aria-label": `Delete webhook ${x.label}`,
           onclick: async () => {
             if (!(await modal({ title: `Delete “${x.label}”?`, body: h("p", {}, "Alerts sent to its URL are refused from now on."), buttons: [{ label: "Cancel", value: false }, { label: "Delete", cls: "danger", value: true }] }))) return;
@@ -1616,8 +1869,8 @@ async function webhookPanel(paperAcc) {
   });
   return h(
     "div",
-    { class: "card", style: undefined },
-    h("div", { class: "card-head" }, h("div", {}, h("h3", {}, "Alert webhook"), h("p", {}, `Each hook has its own secret URL and places paper orders on ${paperAcc}.`))),
+    { class: "card" },
+    h("div", { class: "card-head" }, iconTile("bolt", "orange"), h("div", { class: "card-titles" }, h("h3", {}, "Alert webhook"), h("p", {}, `Each hook has its own secret URL and places paper orders on ${paperAcc}.`))),
     h("div", { class: "card-body stack" }, h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field" }, "Source", source), segField("Side", side), segField("Order type", orderType, { wide: true }), segField("Product", product), h("label", { class: "field" }, "Max lots per alert", lots), btn), box),
     tableSlot,
   );
@@ -1646,7 +1899,7 @@ async function renderActivity() {
       const r = await api("/v1/requests?limit=200");
       const all = (r.data.data ?? []).filter((x) => !hideOwn.checked || x.client !== "dashboard");
       const rows = all.slice(0, showAll ? 200 : 40);
-      const more = all.length > rows.length ? h("div", { class: "card-body row" }, h("span", { class: "muted small" }, `Showing the latest ${rows.length} of ${all.length}.`), h("button", { type: "button", class: "small ghost", onclick: () => { showAll = true; draw(); } }, "Show all")) : null;
+      const more = all.length > rows.length ? h("div", { class: "card-body row" }, h("span", { class: "muted small" }, `Showing the latest ${formatInt(rows.length)} of ${formatInt(all.length)}.`), h("button", { type: "button", class: "small tinted", onclick: () => { showAll = true; draw(); } }, "Show all")) : null;
       body.replaceChildren(
         h("div", { class: "card-body row" }, h("label", { class: "check" }, hideOwn, "Hide the dashboard's own requests"), h("span", { class: "grow" }), h("span", { class: "muted small" }, "Kept in memory only: the last 200 requests. Paths only, never query strings, bodies or keys.")),
         table(
@@ -1655,11 +1908,12 @@ async function renderActivity() {
             { label: "Method", cell: (x) => h("span", { class: `method ${x.method}` }, x.method) },
             { label: "Path", cell: (x) => h("span", { class: "mono" }, x.path) },
             { label: "Status", cell: (x) => pill(String(x.status), x.status < 300 ? "ok" : x.status < 500 ? "warn" : "bad") },
-            { label: "Time taken", num: true, cell: (x) => `${x.ms} ms` },
-            { label: "Key", cell: (x) => (x.keyId ? h("span", { class: "mono small" }, x.keyId) : h("span", { class: "muted" }, "none")) },
+            { label: "Time taken", num: true, cell: (x) => `${formatInt(x.ms)} ms` },
+            { label: "Key", cell: (x) => (x.keyId ? h("span", { class: "mono small" }, x.keyId) : h("span", { class: "muted" }, "None")) },
           ],
           rows,
-          emptyState("activity", "No requests yet", hideOwn.checked ? "Requests from your scripts, charts, Excel and AI tools appear here. Untick the box to see the dashboard's own." : "Requests appear here as they arrive.", nextStep("Make a call in the test console", "#/console", "ghost")),
+          emptyState("activity", "No requests yet", hideOwn.checked ? "Requests from your scripts, charts, Excel and AI tools appear here. Untick the box to see the dashboard's own." : "Requests appear here as they arrive.", nextStep("Make a call in the test console", "#/console", "tinted")),
+          { mobile: "scroll" },
         ),
         ...(more ? [more] : []), // replaceChildren would print a null as the text "null"
       );
@@ -1670,16 +1924,17 @@ async function renderActivity() {
         h("div", { class: "card-body" }, h("p", { class: "muted small" }, "Append-only and hash-chained, one file per IST day in data/audit/. Secrets are redacted. Verify the chain on the Safety page.")),
         table(
           [
-            { label: "#", num: true, cell: (x) => x.seq },
+            { label: "#", num: true, cell: (x) => formatInt(x.seq) },
             { label: "When", cell: (x) => istDateTime(x.at) },
             { label: "Event", cell: (x) => h("strong", {}, x.type) },
             { label: "By", cell: (x) => `${x.actor?.kind ?? ""}:${x.actor?.id ?? ""}` },
             { label: "Source", cell: (x) => x.source },
-            { label: "Account", cell: (x) => x.accountId ?? "—" },
+            { label: "Account", cell: (x) => x.accountId ?? DASH },
             { label: "Details", wrap: true, cell: (x) => h("span", { class: "mono small" }, JSON.stringify(x.data ?? {}).slice(0, 140)) },
           ],
           rows,
           emptyState("activity", "The audit log is empty today", "Key changes, orders, kill-switch actions and webhook events are recorded here."),
+          { mobile: "scroll" },
         ),
       );
     }

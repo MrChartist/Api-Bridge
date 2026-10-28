@@ -332,13 +332,13 @@ The request log: every call with its client, account, status and latency.
 
 ### Home on a phone (dark)
 
-Home at phone width: the sidebar folds away and cards stack.
+Home at phone width: the sidebar becomes a floating tab bar and cards stack.
 
 ![Home on a phone](mobile-home-dark.webp)
 
 ### Home on a phone (light)
 
-Home at phone width: the sidebar folds away and cards stack.
+Home at phone width: the sidebar becomes a floating tab bar and cards stack.
 
 ![Home on a phone](mobile-home-light.webp)
 

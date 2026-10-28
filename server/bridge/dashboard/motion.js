@@ -20,6 +20,8 @@
 //    animateNav(document.getElementById("nav")) after nav(): both are idempotent (a second call for the same
 //    route / same active item does nothing), so calling them on top of the observers is harmless.
 
+import { formatInt } from "./format.js";
+
 export const Motion = typeof window !== "undefined" ? (window.Motion ?? null) : null;
 export const reducedMotion = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -139,15 +141,22 @@ export function listStagger(target, root) {
 
 // ── Sheets (modal dialogs) ──
 
+/** True when sheets are bottom sheets (phones, below 720px: see app.css dialog.sheet). */
+const bottomSheet = () => typeof matchMedia === "function" && matchMedia("(max-width: 719px)").matches;
+
 /**
- * macOS sheet in: backdrop fades, panel scales 0.96 → 1 and drops 8 px into place on a spring.
+ * Sheet in (IPO Decode's Sheet): on a phone the panel rises from the bottom edge on a soft spring; from 720px up it
+ * scales 0.96 → 1 and settles into place. The backdrop fades either way.
  * `backdrop` is an element, or the <dialog> itself (then its ::backdrop is faded with the Web Animations API).
  */
 export function sheetIn(backdrop, panel) {
   const m = live();
   if (!m) return done();
   const jobs = [fadeBackdrop(backdrop, panel, [0, 1], 200)];
-  if (isEl(panel)) jobs.push(run(panel, { opacity: [0, 1], scale: [0.96, 1], translate: ["0px -8px", "0px 0px"] }, SPRING(0.28), { ms: 1000 }));
+  if (isEl(panel)) {
+    if (bottomSheet()) jobs.push(run(panel, { translate: ["0px 100%", "0px 0px"] }, SPRING(0.42, 0.06), { ms: 1200 }));
+    else jobs.push(run(panel, { opacity: [0, 1], scale: [0.96, 1], translate: ["0px 8px", "0px 0px"] }, SPRING(0.3, 0.08), { ms: 1000 }));
+  }
   return Promise.all(jobs).then(() => {});
 }
 
@@ -166,7 +175,9 @@ export function sheetOut(backdrop, panel) {
     try {
       for (const a of panel.getAnimations()) a.cancel(); // an unfinished sheetIn
       for (const p of ["opacity", "transform", "translate"]) panel.style.removeProperty(p);
-      exit = panel.animate({ opacity: [1, 0], scale: ["1", "0.97"], translate: ["0px 0px", "0px -4px"] }, { duration: 160, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" });
+      exit = bottomSheet()
+        ? panel.animate({ translate: ["0px 0px", "0px 100%"] }, { duration: 200, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" })
+        : panel.animate({ opacity: [1, 0], scale: ["1", "0.97"], translate: ["0px 0px", "0px 4px"] }, { duration: 160, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" });
       jobs.push(exit.finished.catch(() => {}));
     } catch {
       exit = null;
@@ -174,7 +185,7 @@ export function sheetOut(backdrop, panel) {
   }
   // Hard cap so closing never feels sluggish, even when frames arrive late.
   let timer;
-  const cap = new Promise((r) => (timer = setTimeout(r, 180)));
+  const cap = new Promise((r) => (timer = setTimeout(r, 220)));
   return Promise.race([Promise.all(jobs), cap]).then(() => {
     clearTimeout(timer);
     // The panel holds its end state until the caller has closed / removed it (same task), then the exit is dropped.
@@ -357,7 +368,8 @@ export function installPressFeedback(doc = typeof document !== "undefined" ? doc
   );
 }
 
-const fmtDefault = typeof Intl !== "undefined" ? new Intl.NumberFormat("en-IN") : { format: String };
+// Counted figures follow the house rule (format.js): no grouping commas.
+const fmtDefault = { format: (v) => formatInt(v) };
 
 /**
  * Count a number up from `from` to `to`, writing format(value) into el. The final text is exactly format(to)
@@ -445,7 +457,7 @@ export function animatePage(root, { force = false } = {}) {
   for (const t of tables) jobs.push(listStagger(t));
   for (const v of [...root.querySelectorAll(".stat .value")].slice(0, 8)) {
     const text = v.textContent.trim();
-    if (!/^\d[\d,]*$/.test(text)) continue; // plain integers only ("1 / 2", "₹…" stay as they are)
+    if (!/^\d[\d,]*$/.test(text)) continue; // plain integers only ("1/2", "₹…", "--" stay as they are)
     const to = Number(text.replace(/,/g, ""));
     if (!Number.isSafeInteger(to) || to === 0) continue;
     jobs.push(countUp(v, 0, to, (x) => fmtDefault.format(Math.round(x)), text));

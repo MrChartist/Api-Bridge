@@ -12,6 +12,7 @@ yourself in the settings file.
 | Windows 10 or 11 | [Setup.exe](#windows-setupexe) (double-click) or [one line in PowerShell](#windows-one-line) |
 | Mac | [One line in Terminal](#mac-and-linux-one-line) (no security prompts) or [the ready-to-run download](#ready-to-run-download) |
 | Linux | [One line in a terminal](#mac-and-linux-one-line) or [the ready-to-run download](#ready-to-run-download) |
+| Android phone or tablet | [Termux and one line](#android-termux) |
 
 ---
 
@@ -98,6 +99,30 @@ Next time, start it from the **Mr Chartist Bridge** shortcut on your Desktop or 
 
 ---
 
+## Android (Termux)
+
+The Bridge runs on an Android phone or tablet inside **Termux**, a free Linux terminal app. Its API and dashboard
+are then on the phone itself, at `http://127.0.0.1:4300`.
+
+1. Install **Termux** from [F-Droid](https://f-droid.org/packages/com.termux/) (the Play Store version is outdated).
+   Optional: also install **Termux:Widget** from F-Droid for a home-screen shortcut.
+2. Open Termux, paste this line and press Enter:
+
+   ```sh
+   pkg install -y curl && curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.sh | sh
+   ```
+
+   It installs Node.js with Termux's own package manager (no root), sets up paper trading and opens the dashboard in
+   your browser, already signed in.
+3. Keep Termux open while you use the Bridge. Android may pause apps in the background: the Bridge asks for a Termux
+   wake lock while it runs, and you can also set Termux to **Unrestricted** under Android Settings → Apps → Termux →
+   Battery.
+
+Next time, tap the **Mr Chartist Bridge** widget, or type `mc-bridge start --open` in Termux. Other devices on your
+Wi-Fi cannot reach it unless you deliberately allow that in `bridge.config.json`; that is on purpose.
+
+---
+
 ## After installing
 
 - **Lost the dashboard tab?** Start the Bridge again from its shortcut (or double-click the start file). If it is
@@ -115,6 +140,7 @@ Next time, start it from the **Mr Chartist Bridge** shortcut on your Desktop or 
 | One line on Windows | `$env:MCB_UNINSTALL = "1"; irm https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.ps1 \| iex` (your settings and data stay in `%APPDATA%\MrChartist\Bridge`) |
 | Setup.exe on Windows | **Settings → Apps → Installed apps → Mr. Chartist API Bridge → Uninstall** (your settings and data stay in `%APPDATA%\MrChartist\Bridge`) |
 | Ready-to-run download | Delete the **Mr Chartist Bridge** folder. |
+| Android (Termux) | In Termux: `curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.sh \| sh -s -- --uninstall` |
 
 ## If something goes wrong
 
