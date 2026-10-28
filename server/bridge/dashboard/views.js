@@ -426,7 +426,7 @@ function arrangePanels(root, pageId) {
   items.forEach((el, i) => {
     el.dataset.panelKey = panelKey(el, i);
     el.classList.add("movable");
-    if (!el.querySelector(":scope > .panel-tools")) el.prepend(panelTools(el, root, pageId));
+    if (!el.querySelector(":scope > .panel-tools")) el.prepend(panelEdge(el), panelTools(el, root, pageId));
   });
   let saved = [];
   try {
@@ -440,6 +440,22 @@ function arrangePanels(root, pageId) {
     return i < 0 ? saved.length + items.indexOf(el) : i;
   };
   root.append(...[...items].sort((a, b) => rank(a) - rank(b)));
+}
+
+/**
+ * A thin strip on the panel's top edge: hovering it (or tapping it on a touch screen) shows the move / maximise pill,
+ * so the pill never sits over the panel's own controls while you work in it.
+ */
+function panelEdge(panel) {
+  let timer = 0;
+  const edge = h("div", { class: "panel-edge", "aria-hidden": "true" });
+  edge.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse") return;
+    panel.classList.add("tools-shown");
+    clearTimeout(timer);
+    timer = setTimeout(() => panel.classList.remove("tools-shown"), 4000);
+  });
+  return edge;
 }
 
 function panelTools(panel, root, pageId) {

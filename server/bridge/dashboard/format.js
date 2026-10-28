@@ -39,8 +39,12 @@ export const formatInt = (value) => formatNumber(value, { maximumFractionDigits:
 /** Exactly `dp` decimals: use it for every cell of a numeric column so the decimals line up. Missing → "--". */
 export const formatFixed = (value, dp = 2) => formatNumber(value, { minimumFractionDigits: dp, maximumFractionDigits: dp });
 
-/** ₹ prefix, exactly `dp` decimals (default 2, the money column rule). A negative keeps its sign after the symbol. Missing → "--". */
-export const formatRupee = (value, dp = 2) => (isFigure(value) ? `₹${formatFixed(value, dp)}` : DASH);
+/** ₹ prefix, exactly `dp` decimals (default 2, the money column rule). A negative puts its sign first ("-₹42.00"). Missing → "--". */
+export function formatRupee(value, dp = 2) {
+  if (!isFigure(value)) return DASH;
+  const abs = formatFixed(Math.abs(Number(value)), dp);
+  return Number(value) < 0 && Number(abs) !== 0 ? `-₹${abs}` : `₹${abs}`;
+}
 
 /** A signed figure with an explicit + for gains ("+12.30", "-4.10", "0.00"), fixed decimals. Missing → "--". */
 export function formatSigned(value, dp = 2) {

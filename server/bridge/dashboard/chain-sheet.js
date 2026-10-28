@@ -12,7 +12,7 @@ import { segmented } from "./views.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const g = (v, dp) => (isFigure(v) ? formatFixed(v, dp) : DASH);
-const rupees = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `₹${formatCompact(v)}` : formatRupee(v, 0));
+const rupees = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? "-" : ""}₹${formatCompact(Math.abs(v))}` : formatRupee(v, 0));
 const pct = (p) => formatPercent(p === null || p === undefined ? null : p * 100, 0);
 
 /**

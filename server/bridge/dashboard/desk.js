@@ -18,7 +18,6 @@ const DEMO_UNDERLYINGS = ["NIFTY", "BANKNIFTY", "SENSEX"];
 const FETCH_STRIKES = 40;
 const REFRESH_MS = 3000;
 const EXPIRY_DAY = new Intl.DateTimeFormat("en-IN", { timeZone: "UTC", day: "numeric", month: "short" });
-const MONTH = new Intl.DateTimeFormat("en-IN", { timeZone: "UTC", month: "short" });
 const expiryText = (e) => (/^\d{4}-\d{2}-\d{2}$/.test(e ?? "") ? EXPIRY_DAY.format(new Date(`${e}T00:00:00Z`)) : e ?? "");
 /** "NIFTY 3 Nov 26400 CE" */
 const contractName = (u, expiry, strike, right) => `${u} ${expiryText(expiry)} ${formatInt(strike)} ${right}`;
@@ -190,16 +189,28 @@ async function renderDesk(kind) {
       const r = await api(`/v1/expiries?underlying=${encodeURIComponent(st.underlying)}`);
       if (seq !== st.seq) return false;
       const ex = r.data.data?.expiries ?? [];
-      if (!ex.length) throw new Error(`No upcoming expiries for ${st.underlying}.`);
+      if (!ex.length) {
+        // A normal state, not an error: nothing is listed to show.
+        eSel.replaceChildren(h("option", { value: "" }, "No expiries"));
+        st.chain = null;
+        st.error = null;
+        st.freshness = null;
+        st.ms = null;
+        st.empty = `No upcoming expiries for ${st.underlying}.`;
+        drawAll();
+        return false;
+      }
+      st.empty = null;
       if (!ex.includes(st.expiry)) st.expiry = ex[0];
       st.expiries = ex;
-      eSel.replaceChildren(...ex.map((e) => h("option", { value: e, selected: e === st.expiry }, `${expiryText(e)} · ${O.timeToExpiry(e).label}${O.isMonthlyExpiry(e, ex) ? " · M" : ""}`)));
+      eSel.replaceChildren(...ex.map((e) => h("option", { value: e, selected: e === st.expiry }, `${expiryText(e)} · ${O.isExpiryDay(e) ? "today" : O.timeToExpiry(e).label}${O.isMonthlyExpiry(e, ex) ? " · M" : ""}`)));
       eSel.disabled = false;
       return true;
     } catch (err) {
       if (seq !== st.seq) return false;
       eSel.replaceChildren(h("option", { value: "" }, "No expiries"));
       st.chain = null;
+      st.empty = null;
       st.error = err;
       drawAll();
       return false;
@@ -270,19 +281,20 @@ async function renderDesk(kind) {
     const c = st.chain;
     const sm = O.chainSummary(c);
     const years = O.yearsToExpiry(c.expiry);
-    const F = O.forwardPrice(c) ?? sm.spot;
+    const growth = O.parityGrowth(years);
+    const F = O.forwardPrice(c, growth) ?? sm.spot;
     const move = O.sigmaMove(F, sm.atmIv, years);
     const strikes = c.rows.map((r) => r.strike);
     const near = (v) => (v === null || v === undefined ? null : strikes.reduce((b, k) => (Math.abs(k - v) < Math.abs(b - v) ? k : b), strikes[0]));
     const b1 = O.sigmaBand(F, sm.atmIv, years, 1);
     const b2 = O.sigmaBand(F, sm.atmIv, years, 2);
     const lot = num(c.lotSize) || 1;
-    // Same-expiry future = the arbitrage reference; else the chain's own forward. The spot row shows the nearest one.
+    // Same-expiry future = the arbitrage reference; else the chain's own forward (the spot row and the tile agree).
     const same = st.futures.find((f) => f.expiry === c.expiry);
     const sameQ = same ? st.quotes.get(same.symbol) : null;
+    // Dev compares mids against the future's last price (or F); Edge trades the future at its touch.
     const ref = num(sameQ?.ltp) ?? F;
-    const nextFut = st.futures.find((f) => f.expiry >= c.expiry);
-    const nextQ = nextFut ? st.quotes.get(nextFut.symbol) : null;
+    const edgeRef = same ? (sameQ ? { bid: sameQ.bid, ask: sameQ.ask } : null) : F;
     // Position delta in units: held options of this expiry (chain deltas) plus held futures.
     let netDelta = 0;
     let own = false;
@@ -299,8 +311,8 @@ async function renderDesk(kind) {
       own = true;
     }
     if (!own || Math.abs(netDelta) < 1e-9) netDelta = lot;
-    const syn = new Map(c.rows.map((r) => [r.strike, O.synthetic(r)]));
-    const edge = new Map(c.rows.map((r) => [r.strike, O.parityEdge(r, ref)]));
+    const syn = new Map(c.rows.map((r) => [r.strike, O.synthetic(r, growth)]));
+    const edge = new Map(c.rows.map((r) => [r.strike, O.parityEdge(r, edgeRef, growth)]));
     const devs = [...syn.values()].map((v) => v?.mid).filter((v) => v !== null && v !== undefined).map((v) => v - ref).sort((a, b) => a - b);
     const tops = (side) => new Map(O.topOi(c.rows, side, 3).map((t) => [t.strike, t.rank]));
     return {
@@ -325,7 +337,6 @@ async function renderDesk(kind) {
       medianDev: devs.length ? devs[Math.floor(devs.length / 2)] : null,
       syn,
       edge,
-      fut: nextFut && nextQ ? { expiry: nextFut.expiry, ltp: nextQ.ltp, symbol: nextFut.symbol } : null,
       sameFut: same && num(sameQ?.ltp) !== null ? { expiry: same.expiry, ltp: sameQ.ltp } : null,
       indexQuote: st.quotes.get(INDEX_SYMBOL[c.underlying] ?? "") ?? null,
       netDelta,
@@ -334,14 +345,33 @@ async function renderDesk(kind) {
   }
 
   let lastX = null;
+  let chainTools = null;
+  /** The chain's tools act on a chain: switched off (inert, dimmed) while there is none. */
+  function syncTools() {
+    if (!chainTools) return;
+    const off = !st.chain;
+    if (chainTools.inert !== off) chainTools.inert = off;
+    chainTools.classList.toggle("off", off);
+  }
   function drawAll() {
     drawClock();
+    syncTools();
     if (!st.chain) {
+      if (st.empty) {
+        chainTitle.__sig = "";
+        chainTitle.replaceChildren(h("strong", {}, st.underlying));
+      }
       chain.reset();
       lastX = null;
       drawStats(null);
       const retry = h("button", { type: "button", class: "small", onclick: () => reloadAll() }, icon("refresh"), "Retry");
-      chainEl.replaceChildren(st.error ? h("div", { class: "desk-pad stack" }, alertBox(st.error), h("div", {}, retry)) : h("p", { class: "muted chain-loading" }, "Loading the chain…"));
+      chainEl.replaceChildren(
+        st.error
+          ? h("div", { class: "desk-pad stack" }, alertBox(st.error), h("div", {}, retry))
+          : st.empty
+            ? emptyState("clock", "No expiries", st.empty)
+            : h("p", { class: "muted chain-loading" }, "Loading the chain…"),
+      );
       builderEl.replaceChildren();
       profileEl.replaceChildren();
       return;
@@ -369,7 +399,7 @@ async function renderDesk(kind) {
     chainTitle.__sig = sig;
     chainTitle.replaceChildren(
       h("strong", {}, `${x.c.underlying} ${expiryText(x.c.expiry)}`),
-      h("span", { class: "muted" }, ` · ${t.label} · lot ${formatInt(x.lot)}`),
+      h("span", { class: "muted" }, `${today ? "" : ` · ${t.label}`} · lot ${formatInt(x.lot)}`),
       ...(today ? [h("span", { class: "expiry-chip", title: EXPIRY_DAY_NOTE }, "Expiry today")] : []),
     );
   }
@@ -382,8 +412,8 @@ async function renderDesk(kind) {
       clock.classList.toggle("stale", Boolean(st.freshness?.stale));
       clock.replaceChildren(
         st.error ? "Not updating" : st.freshness?.stale ? "Stale" : "",
-        asOf ? ` ${istTime(asOf)}` : "",
-        st.ms !== null && !st.error ? h("small", {}, ` ${formatInt(st.ms)} ms`) : null,
+        ...(asOf && !st.error ? [` ${istTime(asOf)}`] : []),
+        ...(st.ms !== null && !st.error ? [h("small", {}, ` ${formatInt(st.ms)} ms`)] : []),
       );
     }
     const title = [st.error ? String(st.error.message ?? st.error) : st.freshness?.accountId ? `Data from ${st.freshness.accountId}` : "", st.patchMs !== null ? `render ${formatFixed(st.patchMs, 1)} ms` : ""].filter(Boolean).join(" · ");
@@ -413,7 +443,7 @@ async function renderDesk(kind) {
   }
   function drawStats(x) {
     if (!x) {
-      for (const [k, l] of [["spot", st.underlying], ["iv", "ATM IV"], ["em", "Expected move"], ["straddle", "Straddle"], ["pcr", "PCR"], ["mp", "Max pain"], ["pw", "Put wall"], ["cw", "Call wall"]]) setTile(k, l, DASH, "", { cls: k === "pw" ? "support" : k === "cw" ? "resistance" : undefined });
+      for (const [k, l] of [["spot", st.underlying], ["iv", "ATM IV"], ["em", "Expected move"], ["straddle", "Straddle"], ["pcr", "PCR"], ["mp", "Max pain"], ["pw", "Put wall"], ["cw", "Call wall"]]) setTile(k, l, DASH, "");
       return;
     }
     const { sm, c, F, move } = x;
@@ -427,7 +457,7 @@ async function renderDesk(kind) {
       c.underlying,
       formatFixed(sm.spot, 2),
       fut ? `Fut ${formatFixed(fut.ltp, 1)} (${formatSigned(fut.ltp - sm.spot, 1)})` : F !== null ? `F ${formatInt(F)} (syn)` : "",
-      { title: fut ? "The same-expiry future and its basis to spot" : "Synthetic future from put-call parity (K + C − P); no future is listed for this expiry" },
+      { title: fut ? "The same-expiry future and its basis to spot" : "Synthetic future from put-call parity (K + (C − P)·e^(rT)); no future is listed for this expiry" },
     );
     setTile("iv", "ATM IV", formatPercent(sm.atmIv, 2), day ? `1-day ±${formatInt(day)}` : t.label, { title: "Average of the ATM call and put IV; the 1-day 1σ move it implies" });
     setTile("em", "Expected move", move ? `±${formatInt(move)}` : DASH, x.band1 ? `${formatInt(x.band1.lo)} – ${formatInt(x.band1.hi)}` : "", { title: `Log-normal 1σ band to expiry at ATM IV (${t.label}): about 68% of outcomes land inside` });
@@ -436,8 +466,8 @@ async function renderDesk(kind) {
       title: `Put OI ÷ call OI over the ${formatInt(n)} strikes loaded (±${FETCH_STRIKES} around ATM; ${pcrWord}). Net ΔOI = put OI added − call OI added today${sm.pcrChange !== null ? ` (ratio ${formatFixed(sm.pcrChange, 2)})` : ""}. Volume PCR ${formatFixed(sm.pcrVolume, 2)}`,
     });
     setTile("mp", "Max pain", formatInt(sm.maxPain), sm.maxPain !== null && sm.spot !== null ? `${formatSigned(sm.maxPain - sm.spot, 0)} from spot` : "", { title: `Settlement at which option buyers would collect the least, over the ${formatInt(n)} strikes loaded` });
-    setTile("pw", "Put wall", formatInt(sm.support?.strike), sm.support ? `OI ${formatCompact(sm.support.oi)}` : "", { cls: "support", title: `Strike with the most put OI of the ${formatInt(n)} loaded (often read as support)` });
-    setTile("cw", "Call wall", formatInt(sm.resistance?.strike), sm.resistance ? `OI ${formatCompact(sm.resistance.oi)}` : "", { cls: "resistance", title: `Strike with the most call OI of the ${formatInt(n)} loaded (often read as resistance)` });
+    setTile("pw", "Put wall", formatInt(sm.support?.strike), sm.support ? `OI ${formatCompact(sm.support.oi)}` : "", { title: `Strike with the most put OI of the ${formatInt(n)} loaded (often read as support)` });
+    setTile("cw", "Call wall", formatInt(sm.resistance?.strike), sm.resistance ? `OI ${formatCompact(sm.resistance.oi)}` : "", { title: `Strike with the most call OI of the ${formatInt(n)} loaded (often read as resistance)` });
   }
 
   // ── The chain ──
@@ -464,13 +494,14 @@ async function renderDesk(kind) {
   }
 
   // ── Action sheet (tap a row on touch screens; Enter or double-click on desktop) ──
-  /** Does the account (or the strategy basket) hold a long option of this right and expiry? Covers a short. */
-  function hasLong(right, expiry) {
-    const held = st.positions.some((p) => {
+  /** Units the account holds long in options of this right and expiry (positions only: a basket leg is a plan, not cover). */
+  function longQty(right, expiry) {
+    let q = 0;
+    for (const p of st.positions) {
       const o = O.parseOptionSymbol(p.symbol);
-      return o && o.right === right && o.expiry === expiry && Number(p.netQty) > 0;
-    });
-    return held || (expiry === st.expiry && basket().some((l) => l.right === right && l.side === "BUY"));
+      if (o && o.right === right && o.expiry === expiry && Number(p.netQty) > 0) q += Number(p.netQty);
+    }
+    return q;
   }
   /** Advisory warnings (options.js tradeWarnings) for one contract and order. */
   function warningsFor({ strike, right, side, lots = 1, orderType = "LIMIT", exit = false, freezeQty = null, quote = null }) {
@@ -480,19 +511,21 @@ async function renderDesk(kind) {
     const leg = quote ?? row?.[s] ?? null;
     const spot = x?.spot ?? null;
     const intrinsic = spot === null ? null : Math.max(0, right === "CE" ? spot - strike : strike - spot);
+    const lot = x?.lot ?? 1;
     return O.tradeWarnings({
       side,
       right,
       leg,
       lots,
-      lot: x?.lot ?? 1,
+      lot,
       freezeQty: freezeQty ?? freezeCache.get(leg?.symbol) ?? null,
       liq: x && row ? O.liquidityScore(leg, x.ranks[s].get(strike)) : null,
       stale: Boolean(st.freshness?.stale),
       isExpiryDay: O.isExpiryDay(x?.c.expiry ?? st.expiry),
       itm: O.inTheMoney(strike, s, spot),
       intrinsic,
-      hasLongSameExpiry: hasLong(right, x?.c.expiry ?? st.expiry),
+      // Covered only when the long quantity covers the whole short.
+      hasLongSameExpiry: longQty(right, x?.c.expiry ?? st.expiry) >= Math.max(1, Math.floor(Number(lots) || 1)) * lot,
       orderType,
       years: x?.years ?? null,
       exit,
@@ -512,7 +545,22 @@ async function renderDesk(kind) {
         const position = q ? st.positions.find((p) => p.symbol === q.symbol && Number(p.netQty)) ?? null : null;
         const right = sd === "ce" ? "CE" : "PE";
         if (q?.symbol) loadFreeze(q.symbol);
-        const warnings = q ? warningsFor({ strike: k, right, side: position && Number(position.netQty) < 0 ? "SELL" : "BUY" }) : [];
+        let warnings = [];
+        if (q && position) {
+          // A held contract: the sheet's trade is the exit.
+          warnings = warningsFor({ strike: k, right, side: Number(position.netQty) < 0 ? "BUY" : "SELL", exit: true });
+        } else if (q) {
+          // Fresh trade: what applies either way, then what applies only to one side, labelled with that side.
+          const buy = warningsFor({ strike: k, right, side: "BUY" });
+          const sell = warningsFor({ strike: k, right, side: "SELL" });
+          const inBuy = new Set(buy.map((w) => w.code));
+          const inSell = new Set(sell.map((w) => w.code));
+          warnings = [
+            ...buy.filter((w) => inSell.has(w.code)),
+            ...buy.filter((w) => !inSell.has(w.code)).map((w) => ({ ...w, text: `If you buy: ${w.text}` })),
+            ...sell.filter((w) => !inBuy.has(w.code)).map((w) => ({ ...w, text: `If you sell: ${w.text}` })),
+          ];
+        }
         return { x, row, q, position, name: contractName(st.underlying, x?.c.expiry ?? st.expiry, k, right), canTrade: Boolean(st.account), paused: !st.live, warnings };
       },
       onTrade: (k, sd, tradeSide) => {
@@ -995,10 +1043,10 @@ async function renderDesk(kind) {
     const body = h("div", { class: "pop-body" });
     const draw = () => {
       const c = st.cfg;
-      const sideSeg = segmented("Show", [["ce", "Calls"], ["both", "Both"], ["pe", "Puts"]], c.side);
-      sideSeg.addEventListener("change", () => setCfg({ side: sideSeg.value }));
-      const phoneSeg = segmented("On phones show", [["ce", "Calls"], ["both", "Both"], ["pe", "Puts"]], c.phoneSide);
-      phoneSeg.addEventListener("change", () => setCfg({ phoneSide: phoneSeg.value }));
+      // One "Show" control: the one that applies at this width (phones keep their own side setting).
+      const phone = device().phone;
+      const sideSeg = segmented("Show", [["ce", "Calls"], ["pe", "Puts"], ["both", "Both"]], phone ? c.phoneSide : c.side);
+      sideSeg.addEventListener("change", () => setCfg(phone ? { phoneSide: sideSeg.value } : { side: sideSeg.value }));
       const enabled = c.cols;
       const others = CHAIN_COLUMNS.map(([k]) => k).filter((k) => !enabled.includes(k));
       const label = (k) => CHAIN_COLUMNS.find(([x]) => x === k)?.[1] ?? k;
@@ -1058,7 +1106,7 @@ async function renderDesk(kind) {
       const presetBtn = (p) => h("button", { type: "button", class: `preset ${c.preset === p ? "on" : ""}`.trim(), "aria-pressed": String(c.preset === p), onclick: () => { setCfg({ cols: [...CHAIN_PRESETS[p]] }); draw(); } }, PRESET_NAMES[p]);
       const presets = h("div", { class: "preset-row" }, TOOLBAR_PRESETS.map(presetBtn), h("span", { class: "preset-more" }, "More presets"), ["greeks", "value"].map(presetBtn));
       body.replaceChildren(
-        h("section", {}, h("h3", {}, "Show"), sideSeg, h("h3", { class: "sub-h" }, "On phones show"), phoneSeg),
+        h("section", {}, h("h3", {}, "Show"), sideSeg),
         h("section", {}, h("h3", {}, "Columns ", h("small", {}, "from the strike outwards · drag to reorder")), presets, list, (() => {
           const row = sw("Bid and ask (click to trade)", () => c.quotes, (v) => setCfg({ quotes: v }), c.preset === "arb" ? "Always on in the Arb view" : "Touch screens trade from the row's sheet instead");
           if (c.preset === "arb") row.querySelector("input").disabled = true;
@@ -1265,11 +1313,17 @@ async function renderDesk(kind) {
     if (!chainEl.isConnected) return cleanup();
     setCfg({});
   };
+  // Leaving the page: the router swaps #content on hashchange, so check once it has.
+  const onRoute = () => setTimeout(() => !pageRoot.isConnected && cleanup(), 0);
   function cleanup() {
     document.removeEventListener("visibilitychange", onVisible);
+    window.removeEventListener("hashchange", onRoute);
     for (const m of mqs) m.removeEventListener("change", onDevice);
+    chain.reset();
+    sheet?.close();
   }
   document.addEventListener("visibilitychange", onVisible);
+  window.addEventListener("hashchange", onRoute);
   if (kind === "chain") for (const m of mqs) m.addEventListener("change", onDevice);
 
   await reloadAll();
@@ -1283,17 +1337,19 @@ async function renderDesk(kind) {
     h("div", { class: "desk-live" }, clock, liveBtn),
   );
   if (kind === "chain") {
-    return [
+    const out = [
       h("section", { class: "desk-panel desk-top", "data-fixed": "" }, bar),
       h("section", { class: "desk-panel", "data-panel": "summary", "aria-label": "Chain summary" }, statsEl),
       h(
         "section",
         { class: "desk-panel chain-panel", "data-panel": "chain", "aria-label": "Option chain" },
-        h("div", { class: "chain-head panel-head" }, chainTitle, h("div", { class: "chain-tools" }, searchBox, strikesSeg, viewSeg, presetSel, gearBtn)),
+        h("div", { class: "chain-head panel-head" }, chainTitle, (chainTools = h("div", { class: "chain-tools" }, searchBox, strikesSeg, viewSeg, presetSel, gearBtn))),
         chainEl,
         keysEl,
       ),
     ];
+    syncTools();
+    return out;
   }
   const top = h("section", { class: "desk-panel desk-top", "data-fixed": "" }, bar);
   const summary = h("section", { class: "desk-panel", "data-panel": "summary", "aria-label": "Chain summary" }, statsEl);
@@ -1410,7 +1466,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
 
   const g = (v, dp) => (isFigure(v) ? formatFixed(v, dp) : DASH);
   const pct1 = (v) => (isFigure(v) ? `${formatSigned(v, 1)}%` : DASH);
-  const rupees = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `₹${formatCompact(v)}` : formatRupee(v, 0));
+  const rupees = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? "-" : ""}₹${formatCompact(Math.abs(v))}` : formatRupee(v, 0));
   const dots = (n) => h("span", { class: "liq", title: `Liquidity ${n} of 5`, "aria-label": `Liquidity ${n} of 5` }, [1, 2, 3, 4, 5].map((i) => h("i", { class: i <= n ? "on" : undefined })));
   const two = (main, sub, cls) => h("span", { class: "two" }, h("span", { class: cls }, main), cfg().pct || sub?.force ? h("small", { class: sub?.cls }, sub?.text ?? "") : null);
   /** A value with an optional bar under it (length = share of the chain's largest), growing away from the strike. */
@@ -1575,7 +1631,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     syn: {
       label: "Synthetic",
       row: true,
-      title: "Synthetic future K + C − P at mids; under it, executable sell – buy at the touch",
+      title: "Synthetic future K + (C − P)·e^(rT) at mids; under it, executable sell – buy at the touch",
       v: (row, r_, s_, x) => { const s = x.syn.get(row.strike); return [s?.mid, s?.buy, s?.sell]; },
       r: (row, r_, s_, x) => {
         const s = x.syn.get(row.strike);
@@ -1598,7 +1654,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     edge: {
       label: "Edge",
       row: true,
-      title: "Best of conversion (sell synthetic, buy future) and reversal (buy synthetic, sell future) at the touch, before costs",
+      title: "Best of conversion (sell synthetic, buy the future at its ask) and reversal (buy synthetic, sell the future at its bid) at the touch, before costs",
       v: (row, r_, s_, x) => { const e = x.edge.get(row.strike); return [e?.edge, e?.kind]; },
       r: (row, r_, s_, x) => {
         const e = x.edge.get(row.strike);
@@ -1680,7 +1736,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     const pe = L.pe.map((k) => h("td", { class: cellCls(k, L) }));
     const mid = L.mid.map((k) => h("td", { class: cellCls(k, L, "mid-col") }));
     const th = h("th", { scope: "row", class: "strike-col" });
-    const tr = h("tr", { "data-strike": strike, tabindex: "-1", "aria-selected": "false" }, L.order.map((part) => (part === "strike" ? th : part === "ce" ? ce : part === "pe" ? pe : mid)));
+    const tr = h("tr", { "data-strike": strike, tabindex: "-1" }, L.order.map((part) => (part === "strike" ? th : part === "ce" ? ce : part === "pe" ? pe : mid)));
     const sideOf = (e) => {
       const cell = e.target.closest("td");
       if (cell && pe.includes(cell)) return "pe";
@@ -1946,18 +2002,21 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     const q = x.indexQuote;
     const ch = num(q?.change);
     const chp = num(q?.changePct);
-    const fut = x.fut;
-    const sig = JSON.stringify([spot, ch, chp, fut?.ltp, fut?.expiry, x.F]);
+    const fut = x.sameFut;
+    const sig = JSON.stringify([spot, ch, chp, fut?.ltp, x.F]);
     if (built.spotTag.__sig !== sig) {
       built.spotTag.__sig = sig;
+      // Phones drop the absolute change and the basis (class "wide") so the row never widens the table.
       built.spotTag.replaceChildren(
-        h("strong", {}, `${x.c.underlying} ${formatFixed(spot, 2)}`),
-        ch !== null ? h("span", { class: ch > 0 ? "up" : ch < 0 ? "down" : undefined }, ` ${formatSigned(ch, 2)}${chp !== null ? ` (${formatSigned(chp, 2)}%)` : ""}`) : null,
-        fut && num(fut.ltp) !== null
-          ? h("span", { class: "fut" }, ` · Fut ${MONTH.format(new Date(`${fut.expiry}T00:00:00Z`))} ${formatFixed(fut.ltp, 2)} (${formatSigned(fut.ltp - spot, 2)})`)
-          : x.F !== null
-            ? h("span", { class: "fut" }, ` · F ${formatFixed(x.F, 1)} (synthetic)`)
-            : null,
+        ...[
+          h("strong", {}, `${x.c.underlying} ${formatFixed(spot, 2)}`),
+          ch !== null ? h("span", { class: ch > 0 ? "up" : ch < 0 ? "down" : undefined }, h("span", { class: "wide" }, ` ${formatSigned(ch, 2)}`), chp !== null ? ` (${formatSigned(chp, 2)}%)` : "") : null,
+          fut && num(fut.ltp) !== null
+            ? h("span", { class: "fut", title: "Same-expiry future and its basis to spot" }, ` · Fut ${formatFixed(fut.ltp, 2)}`, h("span", { class: "wide" }, ` (${formatSigned(fut.ltp - spot, 2)})`))
+            : x.F !== null
+              ? h("span", { class: "fut", title: "No future is listed for this expiry: the forward from put-call parity" }, ` · F ${formatFixed(x.F, 1)}`, h("span", { class: "wide" }, " (synthetic)"))
+              : null,
+        ].filter(Boolean),
       );
     }
     let anchor = null;
@@ -2042,6 +2101,15 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       live.textContent = text;
     }, 600);
   }
+  /** Touch layouts: scroll the page so the whole table sits above the floating tab bar before moving inside it. */
+  const bringIntoView = () => {
+    const w = built?.wrap;
+    if (!w?.isConnected) return;
+    const bar = document.querySelector(".tabbar");
+    const barTop = bar && getComputedStyle(bar).display !== "none" ? bar.getBoundingClientRect().top : window.innerHeight;
+    const r = w.getBoundingClientRect();
+    if (r.top < 0 || r.bottom > barTop) (w.closest("section") ?? w).scrollIntoView({ block: "start", behavior: "instant" });
+  };
   const centre = (tr) => {
     const w = built.wrap;
     const top = w.getBoundingClientRect().top + (built.thead.offsetHeight || 0);
@@ -2116,7 +2184,8 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
         if (b.__on !== on) {
           b.__on = on;
           b.tr.classList.toggle("focus", on);
-          b.tr.setAttribute("aria-selected", String(on));
+          if (on) b.tr.setAttribute("aria-current", "true");
+          else b.tr.removeAttribute("aria-current");
         }
         const tab = on || (!st.focus && strike === atm) ? 0 : -1;
         if (b.tr.tabIndex !== tab) b.tr.tabIndex = tab;
@@ -2147,6 +2216,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
         b = built.rows.get(strike);
         if (!b) return false;
       }
+      bringIntoView();
       centre(b.tr);
       st.focus = { strike, side };
       self.paintFocus(false, true);

@@ -18,7 +18,9 @@ describe("dashboard number format", () => {
   });
 
   it("keeps signs and never prints a negative zero", () => {
-    expect(formatRupee(-42)).toBe("₹-42.00");
+    expect(formatRupee(-42)).toBe("-₹42.00");
+    expect(formatRupee(-724, 0)).toBe("-₹724");
+    expect(formatRupee(-0.001, 0)).toBe("₹0");
     expect(formatFixed(-0.004)).toBe("0.00");
     expect(formatSigned(12.3)).toBe("+12.30");
     expect(formatSigned(-4.1)).toBe("-4.10");

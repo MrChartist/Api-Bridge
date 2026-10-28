@@ -280,15 +280,15 @@ function cdfAt(x, forward, years, sig) {
 }
 
 /**
- * The forward the options price in: median of K + C − P (put-call parity, mids) over the three two-sided strikes
- * nearest spot; spot when parity cannot be read.
+ * The forward the options price in: median of K + (C − P)·growth (put-call parity, mids; growth = e^(rT)) over the
+ * three two-sided strikes nearest spot; spot when parity cannot be read.
  */
-export function forwardPrice(chain) {
+export function forwardPrice(chain, growth = 1) {
   const spot = num(chain?.underlyingLtp);
   const rows = [...(chain?.rows ?? [])].filter((r) => mid(r.ce) !== null && mid(r.pe) !== null && num(r.ce?.bid) && num(r.pe?.bid));
   if (spot === null) return null;
   rows.sort((a, b) => Math.abs(a.strike - spot) - Math.abs(b.strike - spot));
-  const f = rows.slice(0, 3).map((r) => r.strike + mid(r.ce) - mid(r.pe)).sort((a, b) => a - b);
+  const f = rows.slice(0, 3).map((r) => r.strike + (mid(r.ce) - mid(r.pe)) * (num(growth) ?? 1)).sort((a, b) => a - b);
   return f.length ? f[Math.floor(f.length / 2)] : spot;
 }
 /** Years to expiry (15:30 IST), for pricing. */
@@ -509,30 +509,44 @@ export function extrinsic(strike, right, premium, forward) {
   return P - Math.max(0, right === "CE" ? F - K : K - F);
 }
 const twoSided = (q) => num(q?.bid) !== null && num(q?.ask) !== null && q.bid > 0 && q.ask >= q.bid;
+/** Risk-free rate the exchange-style pricing assumes (NSE uses about the 91-day T-bill; the demo prices at 6.5%). */
+export const RISK_FREE = 0.065;
+/** e^(rT): turns a present-value option spread into forward points (put-call parity: C − P = (F − K)·e^(−rT)). */
+export const parityGrowth = (years, rate = RISK_FREE) => (num(years) !== null && years > 0 ? Math.exp(rate * years) : 1);
 /**
- * The synthetic future at one strike (put-call parity, K + C − P): `mid` from mids (or last prices), and the
- * executable prices when both legs are two-sided: `buy` = K + C.ask − P.bid (buy the call, sell the put), `sell` =
- * K + C.bid − P.ask.
+ * The synthetic future at one strike (put-call parity, F = K + (C − P)·e^(rT)): `mid` from mids (or last prices),
+ * and the executable prices when both legs are two-sided: `buy` = K + (C.ask − P.bid)·g (buy the call, sell the
+ * put), `sell` = K + (C.bid − P.ask)·g. `growth` = e^(rT) (parityGrowth); 1 ignores carry.
  */
-export function synthetic(row) {
+export function synthetic(row, growth = 1) {
   const K = num(row?.strike);
   const c = mid(row?.ce);
   const p = mid(row?.pe);
+  const g = num(growth) ?? 1;
   if (K === null || c === null || p === null) return null;
   const exec = twoSided(row.ce) && twoSided(row.pe);
-  return { mid: K + c - p, buy: exec ? K + row.ce.ask - row.pe.bid : null, sell: exec ? K + row.ce.bid - row.pe.ask : null, twoSided: exec };
+  return { mid: K + (c - p) * g, buy: exec ? K + (row.ce.ask - row.pe.bid) * g : null, sell: exec ? K + (row.ce.bid - row.pe.ask) * g : null, twoSided: exec };
 }
 /**
  * The parity edge at the touch against a reference future R, gross of costs: a conversion (sell the synthetic, buy
- * the future) earns syn.sell − R; a reversal (buy the synthetic, sell the future) earns R − syn.buy. Returns the
- * better of the two (usually ≤ 0), or null without two-sided quotes or R.
+ * the future at its ask) earns syn.sell − R.ask; a reversal (buy the synthetic, sell the future at its bid) earns
+ * R.bid − syn.buy. `reference` is a future quote { bid, ask } (null without a two-sided quote) or a plain price (the
+ * chain's own forward, used for both sides). Returns the better of the two (usually ≤ 0), or null.
  */
-export function parityEdge(row, reference) {
-  const R = num(reference);
-  const syn = synthetic(row);
-  if (R === null || !syn?.twoSided) return null;
-  const conv = syn.sell - R;
-  const rev = R - syn.buy;
+export function parityEdge(row, reference, growth = 1) {
+  let bid;
+  let ask;
+  if (reference !== null && typeof reference === "object") {
+    if (!twoSided(reference)) return null;
+    bid = Number(reference.bid);
+    ask = Number(reference.ask);
+  } else {
+    bid = ask = num(reference);
+  }
+  const syn = synthetic(row, growth);
+  if (bid === null || !syn?.twoSided) return null;
+  const conv = syn.sell - ask;
+  const rev = bid - syn.buy;
   return conv >= rev ? { edge: conv, kind: "conv" } : { edge: rev, kind: "rev" };
 }
 /** The `n` strikes with the most OI on one side, rank 1 first (ties keep the lower strike; OI 0 is left out). */

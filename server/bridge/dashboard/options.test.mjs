@@ -307,6 +307,36 @@ describe("persona reads", () => {
     expect(O.parityEdge({ strike: 26000, ce: { ltp: 1 }, pe: { ltp: 1 } }, 26000)).toBeNull();
   });
 
+  it("the parity edge trades the future at its touch, not its last price", () => {
+    const row = { strike: 26000, ce: { bid: 110, ask: 111, ltp: 110.5 }, pe: { bid: 99, ask: 100, ltp: 99.5 } };
+    // syn.sell = 26010; LTP 26008.5 would show +1.5, but a conversion buys the future at its ask (26011): −1.
+    expect(O.parityEdge(row, { bid: 26006, ask: 26011, ltp: 26008.5 })).toEqual({ edge: -1, kind: "conv" });
+    // A reversal sells the future at its bid.
+    expect(O.parityEdge(row, { bid: 26016, ask: 26018, ltp: 26017 })).toEqual({ edge: 4, kind: "rev" });
+    // No two-sided future quote: no executable edge.
+    expect(O.parityEdge(row, { bid: null, ask: 26011, ltp: 26008 })).toBeNull();
+  });
+
+  it("the synthetic is flat across strikes when the chain is priced with carry (r > 0)", () => {
+    const F = 26500;
+    const years = 27 / 365;
+    const g = O.parityGrowth(years);
+    expect(g).toBeCloseTo(Math.exp(O.RISK_FREE * years), 12);
+    expect(O.parityGrowth(0)).toBe(1);
+    const D = Math.exp(-O.RISK_FREE * years);
+    const rows = [25400, 26000, 26500, 27000, 27400].map((K) => {
+      const c = O.black76(F, K, years, 12, "CE") * D;
+      const p = c - (F - K) * D;
+      const q = (v) => ({ bid: v - 0.05, ask: v + 0.05, ltp: v });
+      return { strike: K, ce: q(c), pe: q(p) };
+    });
+    const mids = rows.map((r) => O.synthetic(r, g).mid);
+    for (const m of mids) expect(m).toBeCloseTo(F, 6);
+    // Without the carry factor the synthetic tilts with strike.
+    expect(Math.abs(O.synthetic(rows[0]).mid - O.synthetic(rows[4]).mid)).toBeGreaterThan(5);
+    expect(O.forwardPrice({ underlyingLtp: 26450, rows }, g)).toBeCloseTo(F, 6);
+  });
+
   it("top OI strikes per side", () => {
     const rows = [
       { strike: 100, ce: { oi: 50 } },
