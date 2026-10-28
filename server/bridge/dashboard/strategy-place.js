@@ -10,6 +10,8 @@ import * as O from "./options.js";
 import { segField, segmented } from "./views.js";
 
 const TERMINAL = new Set(["filled", "rejected", "cancelled", "expired"]);
+/** Server messages print Indian digit grouping (3 lakh as 3,00,000); the dashboard never shows grouping commas. */
+const ungroup = (t) => (t === null || t === undefined ? t : String(t).replace(/(\d),(?=\d)/g, "$1"));
 const STATUS_TEXT = { queued: "Queued", sending: "Sending", open: "Open", filled: "Filled", partial: "Part filled", rejected: "Rejected", cancelled: "Cancelled", expired: "Expired", unknown: "Unknown", timeout: "Not filled", skipped: "Not sent" };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tickOf = (it) => (Number(it.tickSize) > 0 ? Number(it.tickSize) : 0.05);
@@ -51,6 +53,13 @@ export function openPlacement(o) {
   const legsHost = h("div", { class: "table-wrap place-legs" });
   const warnHost = h("ul", { class: "ticket-checks strat-warn-list" });
   let phase = "confirm"; // confirm | running | paused | done
+  // While orders are going out (or a hedge waits for a choice) the sheet cannot be closed: no Escape, X or backdrop.
+  const canClose = () => phase !== "running" && phase !== "paused";
+  const syncClose = () => {
+    const x = document.querySelector("#dialog .sheet-close");
+    if (x) x.hidden = !canClose();
+  };
+  let pfGen = 0;
   let closeSheet = null;
   let placedCount = 0;
   const batch = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
@@ -129,16 +138,19 @@ export function openPlacement(o) {
   function drawButtons() {
     if (phase !== "confirm") return;
     const n = rows.length;
+    const hedged = rows.some((r) => r.phase === "hedge") && rows.some((r) => r.phase === "short");
     const btn = h(
       "button",
       { type: "button", class: isLive() ? "danger" : "primary", disabled: blocked() || (isLive() && !ack.checked) || !rows.every((r) => r.preview) },
-      exit ? `Close ${formatInt(n)} leg${n === 1 ? "" : "s"} · shorts first${isLive() ? " · LIVE" : ""}` : `Place ${formatInt(n)} leg${n === 1 ? "" : "s"} · hedges first${isLive() ? " · LIVE" : ""}`,
+      exit ? `Close ${formatInt(n)} leg${n === 1 ? "" : "s"} · shorts first${isLive() ? " · LIVE" : ""}` : `Place ${formatInt(n)} leg${n === 1 ? "" : "s"}${hedged ? " · hedges first" : ""}${isLive() ? " · LIVE" : ""}`,
     );
     btn.addEventListener("click", () => run());
     actions.replaceChildren(h("button", { type: "button", class: "plain", onclick: () => closeSheet?.(false) }, "Cancel"), btn);
   }
 
   async function preflight() {
+    // A newer preflight (mode, product or prices changed) supersedes this one: its late answers are dropped.
+    const gen = ++pfGen;
     await Promise.all(
       rows.map(async (r) => {
         if (!r.symbol || !isFigure(r.limit)) {
@@ -146,18 +158,19 @@ export function openPlacement(o) {
           return;
         }
         const res = await optional(api("/v1/orders/preview", { method: "POST", body: body(r) }));
-        if (res.error) r.preview = { block: true, warn: false, text: res.error.message };
+        if (gen !== pfGen) return;
+        if (res.error) r.preview = { block: true, warn: false, text: ungroup(res.error.message) };
         else {
           const checks = res.data?.data?.checks ?? [];
           const b = checks.find((c) => c.severity === "block");
           const w = checks.find((c) => c.severity !== "block");
-          r.preview = { block: Boolean(b), warn: Boolean(w), text: (b ?? w)?.message ?? "" };
+          r.preview = { block: Boolean(b), warn: Boolean(w), text: ungroup((b ?? w)?.message ?? "") };
           r.freezeQty = res.data?.data?.resolved?.freezeQty ?? r.freezeQty;
           r.tickSize = res.data?.data?.resolved?.tickSize ?? r.tickSize;
         }
       }),
     );
-    if (phase !== "confirm") return;
+    if (phase !== "confirm" || gen !== pfGen) return;
     legTable();
     drawButtons();
   }
@@ -224,12 +237,12 @@ export function openPlacement(o) {
           return false;
         }
       } else {
-        setStatus(r, "rejected", err.message);
+        setStatus(r, "rejected", ungroup(err.message));
         return false;
       }
     }
     if (r.status === "rejected" || r.status === "cancelled" || r.status === "expired") {
-      r.error = r.order?.statusMessage ?? "Refused";
+      r.error = ungroup(r.order?.statusMessage ?? "Refused");
       legTable();
       return false;
     }
@@ -256,25 +269,30 @@ export function openPlacement(o) {
   /** The hedge did not fill in time: wait more, cancel and stop, or send the shorts after a second confirm. */
   function hedgeTimeout(r) {
     phase = "paused";
+    syncClose();
     r.status = "timeout";
     legTable();
     say(`Leg ${r.i + 1} is not filled yet`);
     return new Promise((resolve) => {
-      status.replaceChildren(h("p", { class: "warn-text" }, `${r.side === "BUY" ? "Buy" : "Sell"} ${r.label} is not filled after ${formatInt(Number(waitSeg.value))} s. The short legs have not been sent.`));
+      const secs = `${formatInt(Number(waitSeg.value))} s`;
+      // Exit plans and all-buy baskets have no shorts waiting: say "the remaining legs", not "the shorts".
+      const shortsWait = !exit && rows.some((x) => x.phase === "short" && x.status === "queued");
+      const verb = exit ? (r.side === "BUY" ? "Buy back" : "Sell") : r.side === "BUY" ? "Buy" : "Sell";
+      status.replaceChildren(h("p", { class: "warn-text" }, `${verb} ${r.label} is not filled after ${secs}. ${shortsWait ? "The short legs have not been sent." : "The remaining legs have not been sent."}`));
       let armed = false;
-      const anyway = h("button", { type: "button", class: "danger-plain" }, "Send the shorts anyway");
+      const anyway = h("button", { type: "button", class: "danger-plain" }, exit ? "Close the rest anyway" : shortsWait ? "Send the shorts anyway" : "Send the rest anyway");
       anyway.addEventListener("click", () => {
         if (!armed) {
           armed = true;
-          anyway.textContent = "Confirm: send unhedged";
-          status.append(h("p", { class: "bad-text" }, "The short legs will be unhedged until this fills."));
+          anyway.textContent = exit ? "Confirm: close the rest" : shortsWait ? "Confirm: send unhedged" : "Confirm: send the rest";
+          status.append(h("p", { class: "bad-text" }, exit ? "The rest closes while this order is still open." : shortsWait ? "The short legs will be unhedged until this fills." : "The rest goes while this order is still open."));
           return;
         }
         phase = "running";
         resolve("anyway");
       });
       actions.replaceChildren(
-        h("button", { type: "button", class: "primary", onclick: () => ((phase = "running"), resolve("wait")) }, `Wait ${formatInt(Number(waitSeg.value))} s more`),
+        h("button", { type: "button", class: "primary", onclick: () => ((phase = "running"), resolve("wait")) }, `Wait ${secs} more`),
         h("button", { type: "button", onclick: () => ((phase = "running"), resolve("cancel")) }, "Cancel it and stop"),
         anyway,
       );
@@ -287,13 +305,15 @@ export function openPlacement(o) {
       o.onCfg?.({ product: prodSeg.value, hedgeWait: Number(waitSeg.value) });
     }
     phase = "running";
+    syncClose();
     form.hidden = true;
     moved.hidden = true;
     actions.replaceChildren();
     status.replaceChildren(h("p", { class: "muted" }, exit ? "Closing: short legs first, each waited until filled." : "Placing: hedges first, each waited until filled."));
     legTable();
     for (const r of rows.slice(from)) {
-      if (r.status === "filled") continue;
+      // Only rows with nothing on the book are sent: an open, part-filled, timed-out or unknown order is never resent.
+      if (r.status !== "queued") continue;
       const ok = await send(r);
       if (!ok) return stopped(r);
       if (r.phase === "hedge") {
@@ -322,6 +342,7 @@ export function openPlacement(o) {
 
   function finish() {
     phase = "done";
+    syncClose();
     legTable();
     const all = rows.every((r) => r.status === "filled");
     if (all) {
@@ -331,8 +352,9 @@ export function openPlacement(o) {
       actions.replaceChildren(h("button", { type: "button", onclick: () => closeSheet?.(true) }, "Close"), h("button", { type: "button", class: "primary", onclick: () => (closeSheet?.(true), o.onPositions?.()) }, "View positions"));
     } else partial();
   }
-  function stopped(r) {
+  function stopped() {
     phase = "done";
+    syncClose();
     for (const x of rows) if (x.status === "queued") x.status = "skipped";
     legTable();
     partial();
@@ -344,9 +366,11 @@ export function openPlacement(o) {
     const shortsOut = rows.some((r) => r.phase === "short" && r.order);
     say(`Placed ${n} of ${rows.length}`);
     status.replaceChildren(h("p", { class: "warn-text" }, `Placed ${formatInt(n)} of ${formatInt(rows.length)}${!shortsOut && !exit && filled.length ? " · hedges in, shorts not sent" : ""}.`));
-    const retryAt = rows.findIndex((r) => r.status !== "filled");
+    // Retry only a row with no live order (rejected, cancelled, expired, not sent). An open or part-filled order is
+    // still working: resending it would double the leg.
+    const retryAt = O.retryIndex(rows);
     actions.replaceChildren(
-      ...(retryAt >= 0 && rows[retryAt].status !== "unknown" ? [h("button", { type: "button", class: "primary", onclick: () => retry(retryAt) }, `Retry leg ${formatInt(retryAt + 1)}`)] : []),
+      ...(retryAt >= 0 ? [h("button", { type: "button", class: "primary", onclick: () => retry(retryAt) }, `Retry leg ${formatInt(retryAt + 1)}`)] : []),
       ...(open.length ? [h("button", { type: "button", onclick: () => cancelOpen(open) }, "Cancel open orders")] : []),
       ...(filled.length ? [h("button", { type: "button", class: "danger-plain", onclick: () => unwind(filled) }, "Unwind filled legs")] : []),
       h("button", { type: "button", class: "plain", onclick: () => closeSheet?.(true) }, "Keep as is"),
@@ -354,6 +378,7 @@ export function openPlacement(o) {
   }
   function retry(i) {
     const r = rows[i];
+    if (!O.SENDABLE_STATUS.has(r.status)) return;
     r.status = "queued";
     r.error = null;
     r.order = null;
@@ -387,6 +412,12 @@ export function openPlacement(o) {
           actions.replaceChildren(h("span", { class: "muted" }, "Unwinding…"));
           const out = [];
           for (const r of plan) {
+            // A part-filled order is still working: cancel the rest first, then exit what actually filled.
+            if (r.order?.orderId && (r.status === "partial" || r.status === "open" || r.status === "timeout")) {
+              await optional(api(`/v1/orders/${encodeURIComponent(r.order.orderId)}`, { method: "DELETE" }));
+              const res = await optional(api(`/v1/orders/${encodeURIComponent(r.order.orderId)}`));
+              if (res.data?.data) fromOrder(r, res.data.data);
+            }
             const qty = Number(r.order?.filledQuantity) || 0;
             if (!qty) continue;
             const side = r.side === "BUY" ? "SELL" : "BUY";
@@ -396,8 +427,9 @@ export function openPlacement(o) {
               const t = O.basisPrice(r.quote?.() ?? null, side, "touch").price;
               if (isFigure(t)) res = await optional(api("/v1/orders", { method: "POST", body: { ...base, clientOrderId: `${base.clientOrderId}l`, orderType: "LIMIT", price: t } }));
             }
-            out.push(`${r.label}: ${res.error ? res.error.message : res.data.data.status}`);
+            out.push(`${r.label}: ${res.error ? ungroup(res.error.message) : res.data.data.status}`);
           }
+          legTable();
           status.replaceChildren(h("p", {}, "Unwind sent."), h("ul", { class: "desk-list" }, out.map((t) => h("li", {}, t))));
           actions.replaceChildren(h("button", { type: "button", class: "primary", onclick: () => closeSheet?.(true) }, "Close"));
         },
@@ -433,10 +465,11 @@ export function openPlacement(o) {
   preflight();
   const done = modal({
     title: o.title,
+    canClose,
     body: (close) => {
       closeSheet = (v) => {
-        if (phase === "running") return;
-        close(v);
+        if (!canClose()) return;
+        close(v, true);
       };
       return h("div", { class: "stack place-sheet" }, summary, legsHost, moved, warnHost, form, status, live, actions);
     },

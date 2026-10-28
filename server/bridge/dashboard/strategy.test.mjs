@@ -126,6 +126,45 @@ describe("strategyStats", () => {
   });
 });
 
+describe("strategyStats: charges and calendars", () => {
+  it("iron condor max loss after charges ≈ gross max loss + entry/exit charges", () => {
+    const legs = [L("PE", 25800, "BUY", 20), L("PE", 26000, "SELL", 45), L("CE", 26800, "SELL", 30), L("CE", 27000, "BUY", 15)];
+    const opts = { forward: 26400, ivPct: 12, years: 6 / 365 };
+    const gross = O.strategyStats(legs, 75, opts);
+    const ch = O.strategyCharges(legs, O.CHARGE_RATES, { lotSize: 75, ...opts });
+    const net = O.strategyStats(legs, 75, { ...opts, charges: ch });
+    expect(net.maxLoss).toBeLessThan(gross.maxLoss);
+    expect(gross.maxLoss - net.maxLoss).toBeLessThan(ch.entry + 200);
+  });
+  it("collar max loss is not inflated by exercise STT on the put at S = 0", () => {
+    const legs = [FUT("BUY", 26400), L("PE", 26000, "BUY", 60), L("CE", 26800, "SELL", 50)];
+    const opts = { forward: 26400, ivPct: 12, years: 6 / 365 };
+    const gross = O.strategyStats(legs, 75, opts);
+    const ch = O.strategyCharges(legs, O.CHARGE_RATES, { lotSize: 75, ...opts });
+    const net = O.strategyStats(legs, 75, { ...opts, charges: ch });
+    const sttAtZero = 26000 * 75 * O.CHARGE_RATES.opt.exerciseStt;
+    expect(gross.maxLoss - net.maxLoss).toBeCloseTo(ch.entry + ch.exit(0), 0);
+    expect(gross.maxLoss - net.maxLoss).toBeLessThan(ch.entry + ch.exit(26400) + sttAtZero / 2);
+  });
+  it("a calendar (legs with different expiries) samples the curved payoff", () => {
+    const T1 = 5 / 365;
+    const T2 = 33 / 365;
+    const legs = [L("CE", 25000, "SELL", 120, 1, { iv: 14, years: T1 }), L("CE", 25000, "BUY", 300, 1, { iv: 14, years: T2 })];
+    const s = O.strategyStats(legs, 75, { forward: 25000, ivPct: 14, years: T1 });
+    expect(s.breakevens).toHaveLength(2);
+    const f = O.strategyPayoff(legs, 75, { years: T1 });
+    for (const b of s.breakevens) expect(Math.abs(f(b))).toBeLessThan(5);
+    expect(s.breakevens[0]).toBeGreaterThan(24000);
+    expect(s.breakevens[1]).toBeLessThan(26000);
+    expect(s.breakevens[0]).toBeCloseTo(24488, -1);
+    expect(s.breakevens[1]).toBeCloseTo(25536, -1);
+    const sd = 0.14 * Math.sqrt(T1);
+    const cdf = (x) => O.normCdf(Math.log(x / 25000) / sd + sd / 2);
+    expect(s.pop).toBeCloseTo(cdf(s.breakevens[1]) - cdf(s.breakevens[0]), 6);
+    expect(s.maxProfit).toBeCloseTo(Math.max(...Array.from({ length: 2001 }, (_, i) => f(23000 + i * 2))), -2);
+  });
+});
+
 describe("expected value and greeks", () => {
   it("a long call bought at its Black-76 price has EV ≈ 0", () => {
     const T = 20 / 365;
@@ -211,6 +250,17 @@ describe("margin estimate", () => {
     const e = O.marginEstimate(legs, 75, { forward: 26000, years: 0.001, expiryToday: true });
     expect(e.elm).toBeCloseTo(0.02 * 2 * 75 * 26000, 6);
   });
+  it("a naked short put is not defined risk: its margin is a scan, below a strangle that contains it", () => {
+    const put = [L("PE", 24800, "SELL", 40)];
+    const strangle = [L("PE", 24800, "SELL", 40), L("CE", 25200, "SELL", 40)];
+    const mp = O.marginEstimate(put, 75, { forward: 25000, years: 5 / 365 });
+    const ms = O.marginEstimate(strangle, 75, { forward: 25000, years: 5 / 365 });
+    expect(mp.defined).toBe(false);
+    expect(mp.required).toBeLessThan(0.2 * 24800 * 75);
+    expect(mp.required).toBeLessThanOrEqual(ms.required);
+    const bullPut = [L("PE", 24800, "SELL", 40), L("PE", 24700, "BUY", 25)];
+    expect(O.marginEstimate(bullPut, 75, { forward: 25000, years: 5 / 365 }).defined).toBe(true);
+  });
   it("ratios: ROM, reward/risk and implied rate", () => {
     const r = O.strategyRatios({ maxProfit: 3000, maxLoss: -12000, margin: 40000, locked: 500, net: -100000, years: 0.1 });
     expect(r.rom).toBeCloseTo(0.075, 9);
@@ -287,6 +337,11 @@ describe("building and placing", () => {
     const exit = O.placementPlan(legs.slice(0, 4), "exit", { spot: 26000 });
     expect(exit.map((p) => `${p.side} ${p.leg.strike}`)).toEqual(["BUY 26200", "BUY 25800", "SELL 25700", "SELL 26400"]);
   });
+  it("retryIndex never picks a row whose order is still working", () => {
+    expect(O.retryIndex([{ status: "filled" }, { status: "open" }, { status: "rejected" }, { status: "skipped" }])).toBe(2);
+    expect(O.retryIndex([{ status: "filled" }, { status: "partial" }, { status: "timeout" }, { status: "unknown" }])).toBe(-1);
+    expect(O.retryIndex([{ status: "cancelled" }])).toBe(0);
+  });
   it("scenarioLevels in % and σ", () => {
     const pct = O.scenarioLevels("pct", { spot: 26000 });
     expect(pct).toHaveLength(9);
@@ -334,10 +389,12 @@ describe("strategyWarnings", () => {
     expect(w.map((x) => x.code)).toEqual(["NO_PRICE", "NOT_IN_CHAIN", "NO_SYMBOL"]);
     expect(w[0]).toMatchObject({ severity: "block", text: "26000 CE has no price" });
   });
-  it("shortfall warns on paper and blocks live", () => {
+  it("shortfall: the hedged estimate warns; the account's own figure and live block", () => {
     const legs = [L("CE", 26000, "BUY", 5, 1, { symbol: "S" })];
     expect(O.strategyWarnings({ ...base, legs, margin: { required: 50000, free: 40000 } })[0]).toMatchObject({ code: "SHORTFALL", severity: "warn", text: "Short of margin by ₹10000" });
     expect(O.strategyWarnings({ ...base, legs, margin: { required: 50000, free: 40000 }, live: true })[0].severity).toBe("block");
+    const acct = O.strategyWarnings({ ...base, legs, margin: { required: 50000, free: 40000, source: "account" } })[0];
+    expect(acct).toMatchObject({ code: "SHORTFALL", severity: "block" });
   });
   it("naked, expiry-day shorts, breakeven beyond 1σ", () => {
     const short = [L("CE", 26000, "SELL", 50, 1, { symbol: "S" })];

@@ -411,7 +411,7 @@ export function lockScroll(on) {
  * close it; the page behind stops scrolling. buttons: [{ label, cls, value, onClick? }]; onClick returning false keeps
  * it open. `body` may be a function that receives close(value). Resolves with the value (undefined when dismissed).
  */
-export function modal({ title, body, buttons = [] }) {
+export function modal({ title, body, buttons = [], canClose = null }) {
   const d = document.getElementById("dialog");
   d.classList.add("sheet");
   return new Promise((resolve) => {
@@ -428,8 +428,11 @@ export function modal({ title, body, buttons = [] }) {
       resolve(v);
     };
     // Animate the sheet away, then close the native dialog (focus returns to the opener) and resolve.
-    const close = (v) => {
+    // canClose() === false refuses Escape, the X and a backdrop tap (e.g. while orders are going out). The body's own
+    // buttons pass force = true once they have decided.
+    const close = (v, force = false) => {
       if (closing || settled) return;
+      if (!force && canClose && canClose() === false) return;
       closing = true;
       sheetOut(d, d).then(() => {
         if (modal.token === token && d.open) d.close();

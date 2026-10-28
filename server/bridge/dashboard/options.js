@@ -403,8 +403,10 @@ export function strategyPayoff(legs, lotSize, { years = null, ivShift = 0, charg
 
 /**
  * Max profit / loss (null = unlimited), breakevens, chance of profit at expiry, stress loss and the locked P&L.
- * The payoff is linear between strikes, so {0, every strike, 2 × the top strike} is exact. Only a slope above the top
- * strike (calls and futures) is unlimited: below the bottom strike the price stops at 0, so a naked short put has a
+ * With every option leg expiring together the payoff is linear between strikes, so {0, every strike, 2 × the top
+ * strike} is exact. A leg that expires later (a calendar) is valued by Black-76 and bends the curve: then ~400 points
+ * over F·e^(±6σ√T) plus the strikes are sampled and each sign change is refined by bisection. Only a slope above the
+ * top strike (calls and futures) is unlimited: below the bottom strike the price stops at 0, so a naked short put has a
  * finite worst case. Breakevens are sign changes, de-duplicated within 0.5 points. `charges` makes every figure net.
  * PoP integrates the log-normal (forward measure, σ = ATM IV + shift) over the profitable intervals.
  */
@@ -415,20 +417,48 @@ export function strategyStats(legs, lotSize, { forward = null, ivPct = null, yea
   const f = strategyPayoff(act, lotSize, { years: T, ivShift, charges });
   const strikes = [...new Set(act.filter((l) => !isFut(l)).map((l) => l.strike))].filter((k) => k > 0).sort((a, b) => a - b);
   const ref = num(spot) ?? num(forward) ?? num(act.find(isFut)?.price) ?? 0;
-  const hi = 2 * Math.max(strikes.length ? strikes[strikes.length - 1] : 0, ref, 1);
-  const pts = [0, ...strikes.filter((k) => k < hi), hi];
+  const ivp0 = num(ivPct);
+  const sig0 = ivp0 !== null && ivp0 > 0 ? Math.max(1, ivp0 + (num(ivShift) ?? 0)) / 100 : null;
+  const laterLegs = T !== null && act.some((l) => !isFut(l) && num(l.years) !== null && l.years - T > 1e-6 && num(l.iv) !== null);
+  let hi = 2 * Math.max(strikes.length ? strikes[strikes.length - 1] : 0, ref, 1);
+  let pts;
+  if (laterLegs) {
+    const F0 = num(forward) ?? (ref > 0 ? ref : null);
+    const Tmax = Math.max(T, ...act.map((l) => num(l.years) ?? 0));
+    const w = F0 && sig0 && Tmax > 0 ? 6 * sig0 * Math.sqrt(Tmax) : null;
+    const lo = w !== null ? Math.max(0, F0 * Math.exp(-w)) : 0;
+    if (w !== null) hi = Math.max(F0 * Math.exp(w), strikes.length ? strikes[strikes.length - 1] * 1.01 : 0);
+    const n = 400;
+    const grid = Array.from({ length: n + 1 }, (_, i) => lo + ((hi - lo) * i) / n);
+    pts = [...new Set([0, ...grid, ...strikes.filter((k) => k < hi)])].sort((a, b) => a - b);
+  } else pts = [0, ...strikes.filter((k) => k < hi), hi];
   const vals = pts.map(f);
   let upSlope = act.reduce((a, l) => a + (isFut(l) || l.right === "CE" ? legSign(l) * legUnits(l, lotSize) : 0), 0);
   if (Math.abs(upSlope) < 1e-9) upSlope = 0;
   const maxProfit = upSlope > 0 ? null : Math.max(...vals);
   const maxLoss = upSlope < 0 ? null : Math.min(...vals);
+  const cross = (a, b, fa, fb) => {
+    if (!laterLegs) return a + ((b - a) * -fa) / (fb - fa);
+    let x0 = a;
+    let x1 = b;
+    let f0 = fa;
+    for (let k = 0; k < 50 && x1 - x0 > 0.01; k += 1) {
+      const m = (x0 + x1) / 2;
+      const fm = f(m);
+      if ((fm < 0) === (f0 < 0)) {
+        x0 = m;
+        f0 = fm;
+      } else x1 = m;
+    }
+    return (x0 + x1) / 2;
+  };
   const raw = [];
   for (let i = 0; i < pts.length - 1; i += 1) {
     const a = vals[i];
     const b = vals[i + 1];
     if (Math.abs(a) < 0.5 && Math.abs(b) < 0.5) raw.push(pts[i], pts[i + 1]);
     else if (a === 0) raw.push(pts[i]);
-    else if ((a < 0 && b > 0) || (a > 0 && b < 0)) raw.push(pts[i] + ((pts[i + 1] - pts[i]) * -a) / (b - a));
+    else if ((a < 0 && b > 0) || (a > 0 && b < 0)) raw.push(cross(pts[i], pts[i + 1], a, b));
   }
   const last = vals[vals.length - 1];
   if (last === 0) raw.push(hi);
@@ -1542,6 +1572,29 @@ export function exitCharges(legs, S, rates = CHARGE_RATES, { lotSize = 1 } = {})
 }
 
 /**
+ * Entry and exit charges for the figures: { entry, exit(S) }. Exit charges grow with S (exercise STT on a long ITM
+ * option, FUT turnover), so S is held inside the strikes widened to F·e^(±3σ√T): far tails (S = 0, 2 × the top strike)
+ * would otherwise inflate max loss with STT nobody pays in a market that can actually trade.
+ */
+export function strategyCharges(legs, rates = CHARGE_RATES, { lotSize = 1, forward = null, ivPct = null, years = null } = {}) {
+  const act = activeLegs(legs);
+  const ks = act.filter((l) => !isFut(l)).map((l) => num(l.strike)).filter((k) => k !== null && k > 0);
+  const F = num(forward);
+  const iv = num(ivPct);
+  const T = num(years);
+  const w = F && F > 0 && iv !== null && iv > 0 && T !== null && T > 0 ? 3 * (iv / 100) * Math.sqrt(T) : 0;
+  const lo = Math.min(...ks, ...(F && F > 0 ? [F * Math.exp(-w)] : []));
+  const hi = Math.max(...ks, ...(F && F > 0 ? [F * Math.exp(w)] : []));
+  const bounded = Number.isFinite(lo) && Number.isFinite(hi);
+  return {
+    entry: charges(act, rates, { lotSize }).total,
+    exit: (S) => exitCharges(act, bounded ? Math.min(hi, Math.max(lo, S)) : S, rates, { lotSize }),
+    lo: bounded ? lo : null,
+    hi: bounded ? hi : null,
+  };
+}
+
+/**
  * Expected P&L under the model the options are priced with (log-normal around the forward, σ = ATM IV + shift):
  * Σ payoff(F·e^(−σ²T/2 + σ√T·z)) φ(z) Δz over z ∈ [−6, 6], 481 points. Close to −(spreads + charges) by construction.
  */
@@ -1582,7 +1635,10 @@ export function marginEstimate(legs, lotSize, { forward = null, years = null, ex
   const shortOpt = act.filter((l) => !isFut(l) && l.side === "SELL").reduce((a, l) => a + legUnits(l, lotSize) * F, 0);
   const futNotional = act.filter(isFut).reduce((a, l) => a + legUnits(l, lotSize) * F, 0);
   const exposure = 0.02 * (shortOpt + futNotional);
-  const defined = st.maxLoss !== null && !act.some(isFut);
+  // Defined risk: no futures, nothing unlimited above, and no net short puts below the lowest strike (a naked short
+  // put's finite S = 0 loss is the full notional, not a margin).
+  const putNet = act.reduce((a, l) => a + (!isFut(l) && l.right === "PE" ? legSign(l) * legUnits(l, lotSize) : 0), 0);
+  const defined = st.maxLoss !== null && !act.some(isFut) && putNet >= -1e-9;
   const debit = st.net < 0 ? -st.net : 0;
   const base = defined ? Math.max(0, -st.maxLoss) : scanLoss + exposure + debit;
   const elm = expiryToday ? 0.02 * shortOpt : 0;
@@ -1720,6 +1776,11 @@ export function placementPlan(legs, mode = "entry", { spot = null } = {}) {
   return [...buyOpt.map((leg) => ({ leg, side: "BUY", phase: "hedge" })), ...[...buyFut, ...sellFut].map((leg) => ({ leg, side: leg.side, phase: "hedge" })), ...sellOpt.map((leg) => ({ leg, side: "SELL", phase: "short" }))];
 }
 
+/** Placement rows with no order on the book: only these may be sent (again). Open, part-filled, timed-out or unknown never are. */
+export const SENDABLE_STATUS = Object.freeze(new Set(["queued", "skipped", "rejected", "cancelled", "expired"]));
+/** The first row a Retry may resend, or −1: never a row whose order is still working (that would double the leg). */
+export const retryIndex = (rows) => (rows ?? []).findIndex((r) => SENDABLE_STATUS.has(r?.status));
+
 const DAY_MONTH = new Intl.DateTimeFormat("en-IN", { timeZone: "UTC", day: "numeric", month: "short" });
 const dayMonth = (e) => (DATE_RE.test(String(e ?? "")) ? DAY_MONTH.format(new Date(`${e}T00:00:00Z`)) : String(e ?? ""));
 const rupeeShort = (v) => (Math.abs(v) >= 1e5 ? `₹${formatCompact(Math.abs(v))}` : formatRupee(Math.abs(v), 0));
@@ -1729,7 +1790,7 @@ export const legLabel = (l) => (isFut(l) ? `FUT ${dayMonth(l.expiry)}` : `${form
 /**
  * Warnings before a strategy is placed (PRD 02 §10): [{ code, severity: "block"|"warn"|"info", text }], blocks first.
  * @param {{ legs: object[], strikes?: number[], stats?: object|null, spot?: number|null, band1?: { lo, hi }|null,
- *   margin?: { required: number|null, free: number|null }|null, live?: boolean, expiryToday?: boolean,
+ *   margin?: { required: number|null, free: number|null, source?: "account"|"estimate" }|null, live?: boolean, expiryToday?: boolean,
  *   lotSize?: number, legCount?: number, rates?: object }} c
  */
 export function strategyWarnings(c) {
@@ -1745,7 +1806,12 @@ export function strategyWarnings(c) {
   for (const l of legs) if (!l.symbol && (isFut(l) || !c?.strikes || listed.has(l.strike))) add("NO_SYMBOL", "block", `${legLabel(l)}: contract not found`);
   const req = num(c?.margin?.required);
   const free = num(c?.margin?.free);
-  if (req !== null && free !== null && req > free) add("SHORTFALL", c?.live ? "block" : "warn", `Short of margin by ${rupeeShort(req - free)}`);
+  // The account's own figure (the paper engine refuses an order above free funds; live brokers likewise) blocks; the
+  // hedged estimate only warns.
+  if (req !== null && free !== null && req > free) {
+    const hard = Boolean(c?.live) || c?.margin?.source === "account";
+    add("SHORTFALL", hard ? "block" : "warn", `Short of margin by ${rupeeShort(req - free)}${hard && !c?.live ? ": the account will refuse it" : ""}`);
+  }
   const st = c?.stats;
   if (st && st.maxLoss === null) {
     const stress = st.stress ? `: stress -${rupeeShort(Math.min(0, st.stress.value))} at +2σ` : "";

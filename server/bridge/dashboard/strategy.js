@@ -3,7 +3,7 @@
 // scenario cells change in place, so sliders, focus and scroll never reset. The maths is in options.js (pure, tested),
 // drawing in payoff.js, placement in strategy-place.js. Numbers become text only through format.js.
 import { api, app, h, icon, modal, optional, toast } from "./app.js";
-import { DASH, formatFixed, formatInt, formatPercent, formatSigned, isFigure } from "./format.js";
+import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
 import { drawPayoff, money, moneyEl } from "./payoff.js";
 import { openPlacement } from "./strategy-place.js";
@@ -30,6 +30,9 @@ const expiryText = (e) => (/^\d{4}-\d{2}-\d{2}$/.test(e ?? "") ? DAY.format(new 
 const when = (ms) => WHEN.format(new Date(ms)).replace(",", "");
 const media = (q) => (typeof matchMedia === "function" ? matchMedia(q).matches : false);
 const isPhone = () => media("(max-width: 719px)");
+const isTouch = () => media("(pointer: coarse)");
+/** A leg held as a position (its entry is the average price): previews and margin use the closing side. */
+const isHeld = (l) => l.entry !== undefined && l.entry !== null && l.entryTag !== "saved";
 const num = (v) => (isFigure(v) ? Number(v) : null);
 /** "1d 4h" / "4h 15m" / "45m" */
 function span(ms) {
@@ -64,6 +67,7 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
   let chipsSig = "";
   let picker = null;
   let pop = null;
+  let noChain = null; // null while loading; else why there is no chain to build on ("error" | a no-strikes message)
 
   // ── Draft legs (data model v2, migrated in place) ──
   function legs() {
@@ -161,8 +165,10 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
     const el = Math.max(0, Math.min(T, (targetMs - now) / YEAR_MS));
     const shift = wi.ivShift;
     const lot = xx.lot;
+    const ivNow = num(xx.sm.atmIv) !== null ? Math.max(1, xx.sm.atmIv + shift) : null;
     const ch = ok ? O.charges(act, O.CHARGE_RATES, { lotSize: lot }) : null;
-    const net = ok && cfg().net ? { entry: ch.total, exit: (S) => O.exitCharges(act, S, O.CHARGE_RATES, { lotSize: lot }) } : null;
+    // Net of charges: exit charges are held inside the strikes ± 3σ, so the S = 0 / 2 × top tails cannot inflate max loss.
+    const net = ok && cfg().net ? O.strategyCharges(act, O.CHARGE_RATES, { lotSize: lot, forward: xx.F, ivPct: ivNow, years: T }) : null;
     const base = { forward: xx.F, ivPct: xx.sm.atmIv, years: T, ivShift: shift, spot: xx.spot };
     const stats = ok ? O.strategyStats(act, lot, { ...base, charges: net }) : null;
     const expiryToday = O.isExpiryDay(xx.c.expiry);
@@ -175,7 +181,6 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
     const greeks = ok && xx.spot !== null ? O.netGreeksModel(act, xx.spot, { lotSize: lot, basis, el, ivShift: shift }) : null;
     const ev = ok ? O.expectedValue(act, lot, { forward: xx.F, ivPct: xx.sm.atmIv, years: T, ivShift: shift, charges: net }) : null;
     const ratios = O.strategyRatios({ maxProfit: stats?.maxProfit ?? null, maxLoss: stats?.maxLoss ?? null, margin, locked: stats?.locked ?? null, net: stats?.net ?? null, years: T });
-    const ivNow = num(xx.sm.atmIv) !== null ? Math.max(1, xx.sm.atmIv + shift) : null;
     const b1 = O.sigmaBand(xx.F, ivNow, T, 1);
     const rs = act.map((l) => (l.kind === "FUT" ? "F" : l.strike)).sort().join() + `|${xx.sm.atm}|${act.length}`;
     if (rs !== rangeSig) {
@@ -184,10 +189,12 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
     }
     const model = ok ? O.payoffModel(act, { lotSize: lot, spot: xx.spot, forward: xx.F, years: T, el, ivShift: shift, ivPct: xx.sm.atmIv, charges: net, range }) : null;
     if (model && !range) range = { lo: model.lo, hi: model.hi };
-    const warnings = O.strategyWarnings({ legs: act, strikes: xx.c.rows.map((r) => r.strike), stats, spot: xx.spot, band1: b1, margin: { required: margin, free: funds.free }, live: false, expiryToday, lotSize: lot, legCount: all.length });
-    return { all, act, missing, ok, T, el, expMs, targetMs, shift, lot, ch, net, stats, est, acct, margin, atTarget, greeks, ev, ratios, model, warnings, expiryToday, b1, ivNow };
+    // Closing held legs releases margin: no shortfall check. Otherwise the account's own figure blocks, the estimate warns.
+    const exit = closeMode();
+    const warnings = O.strategyWarnings({ legs: act, strikes: xx.c.rows.map((r) => r.strike), stats, spot: xx.spot, band1: b1, margin: exit ? null : { required: margin, free: funds.free, source: acct !== null ? "account" : "estimate" }, live: false, expiryToday, lotSize: lot, legCount: all.length });
+    return { all, act, missing, ok, T, el, expMs, targetMs, shift, lot, ch, net, stats, est, acct, margin, atTarget, greeks, ev, ratios, model, warnings, expiryToday, b1, ivNow, exit };
   }
-  const sigOf = (act) => JSON.stringify([st.account, cfg().product, act.map((l) => [l.symbol, l.side, l.lots])]);
+  const sigOf = (act) => JSON.stringify([st.account, cfg().product, act.map((l) => [l.symbol, l.side, l.lots, isHeld(l)])]);
 
   // ── DOM: built once ──
   const ctxLine = h("span", { class: "strat-ctx" });
@@ -251,7 +258,10 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
   const scenBody = h("tbody");
   const scenHeadT = h("th", { scope: "col", class: "num" }, "At target");
   const scenTable = h("div", { class: "table-wrap scen-wrap" }, h("table", { class: "desk-table scen-table" }, h("caption", { class: "sr-only" }, "P&L at nine prices: at the target date and at expiry"), h("thead", {}, h("tr", {}, h("th", { scope: "col", class: "num" }, "Price"), h("th", { scope: "col", class: "num c-move" }, "Move"), scenHeadT, h("th", { scope: "col", class: "num" }, "At expiry"))), scenBody));
-  const scen = h("details", { class: "strat-scen" }, h("summary", {}, h("span", { class: "scen-title" }, "Scenarios"), h("span", { class: "scen-sub muted" }, "P&L at nine prices")), h("div", { class: "scen-tools" }, scenSeg), scenTable);
+  // The % | σ switch sits in the summary row (right-aligned before the chevron); a click on it never toggles the fold.
+  const scenTools = h("span", { class: "scen-tools" }, scenSeg);
+  scenTools.addEventListener("click", (e) => e.preventDefault());
+  const scen = h("details", { class: "strat-scen" }, h("summary", {}, h("span", { class: "scen-title" }, "Scenarios"), h("span", { class: "scen-sub muted" }, "P&L at nine prices"), scenTools), scenTable);
   if (media("(min-width: 1280px)")) scen.open = true;
   const analysis = h("div", { class: "strat-analysis" }, metricsEl, moreFigs, warnEl, chartHost, whatIf, note, scen);
   // Sticky action bar (phone and tablet)
@@ -401,7 +411,7 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
       h("span", { class: "leg-iv num" }),
       h("span", { class: "leg-delta num" }),
       more,
-      h("button", { type: "button", class: "icon-btn leg-x", "aria-label": `Remove ${name}`, onclick: () => mutate((ls) => ls.splice(i, 1), { undoLabel: `${name} removed` }) }, icon("close"), h("span", { class: "leg-x-text" }, "Remove")),
+      h("button", { type: "button", class: "leg-x", "aria-label": `Remove ${name}`, onclick: () => mutate((ls) => ls.splice(i, 1), { undoLabel: `${name} removed` }) }, icon("close"), h("span", { class: "leg-x-text" }, "Remove")),
     );
     more.addEventListener("click", () => {
       const open = !row.classList.contains("open");
@@ -435,7 +445,8 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
       shiftDn.disabled = shiftUp.disabled = !ls.some((l) => l.kind === "OPT") || !x;
       addBtn.disabled = ls.length >= O.MAX_LEGS || !x;
       emptyLegs.hidden = ls.length > 0;
-      emptyLegs.textContent = "Pick a strategy above, add legs with + Add leg (A), or press ⇧B / ⇧S on the chain.";
+      requestAnimationFrame(syncStick);
+      emptyLegs.textContent = isTouch() ? "Pick a strategy, or tap + Add leg." : "Pick a strategy above, add legs with + Add leg (A), or press ⇧B / ⇧S on the chain.";
     }
     // Patch prices, IV and Δ.
     for (const p of priced) {
@@ -456,6 +467,13 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
     if (title) td.title = title;
     else td.removeAttribute("title");
   }
+
+  /** The sticky build column only sticks while it fits the screen; a taller one scrolls with the page. */
+  function syncStick() {
+    build.classList.remove("no-stick");
+    if (build.offsetHeight > innerHeight - 24) build.classList.add("no-stick");
+  }
+  addEventListener("resize", syncStick);
 
   // ── Preset chips ──
   function drawChips() {
@@ -521,7 +539,7 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
   }
   function tileData(k) {
     const r = R;
-    const loading = !r;
+    const loading = !r && !noChain;
     const dash = { value: loading ? "…" : DASH };
     const after = cfg().net ? " after charges" : "";
     const nopx = r && r.missing.length ? `${plural(r.missing.length, "leg has", "legs have")} no price` : null;
@@ -563,8 +581,12 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
         const req = r?.margin;
         const short = isFigure(req) && isFigure(free) && req > free ? req - free : null;
         const est = r?.est?.required;
-        const v = r?.acct !== null && r?.acct !== undefined ? money(r.acct, { signed: false }) : isFigure(est) ? `≈ ${money(est, { signed: false })}` : pv.loading ? "…" : dash.value;
-        const subParts = [isFigure(est) && r?.acct !== null && r?.acct !== undefined ? `hedged ≈ ${money(est, { signed: false })}` : null, short ? `short by ${money(short, { signed: false })}` : isFigure(free) ? `${money(free, { signed: false })} free` : null].filter(Boolean);
+        const acctFig = r?.acct !== null && r?.acct !== undefined;
+        if (r?.exit) return { label: "Margin", value: acctFig ? money(r.acct, { signed: false }) : DASH, sub: "closing releases margin", title: "These orders close held legs: they release margin rather than block it." };
+        const v = acctFig ? money(r.acct, { signed: false }) : isFigure(est) ? `≈ ${money(est, { signed: false })}` : pv.loading ? "…" : dash.value;
+        // The account's figure (paper: per leg, no hedge benefit) says so; its shortfall is in the warnings already.
+        const subParts = acctFig ? ["paper · no hedge benefit", isFigure(est) ? `hedged ≈ ${money(est, { signed: false })}` : null] : [short ? `short by ${money(short, { signed: false })}` : isFigure(free) ? `${money(free, { signed: false })} free` : null];
+        subParts.splice(0, subParts.length, ...subParts.filter(Boolean));
         return {
           label: "Margin",
           value: h("span", { class: short ? "down" : undefined }, v),
@@ -660,13 +682,15 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
     tSlider.disabled = mins <= 0;
     ivSlider.disabled = false;
     if (tSlider.max !== String(mins)) tSlider.max = String(mins);
-    const v = wi.target === null ? 0 : Math.min(mins, Math.round((wi.target - now) / 60000));
+    // At expiry by time, not by slider value: the slider's max is rounded up to 15 minutes, the target is not.
+    const atExpiry = wi.target !== null && mins > 0 && R.targetMs >= R.expMs - 60000;
+    const v = wi.target === null ? 0 : atExpiry || R.expMs - wi.target <= 15 * 60000 ? mins : Math.min(mins, Math.round((wi.target - now) / 60000));
     if (document.activeElement !== tSlider || !dragging.t) tSlider.value = String(v);
-    const atExpiry = mins > 0 && Number(tSlider.value) >= mins;
     const left = R.expMs - R.targetMs;
-    const txt = atExpiry ? "At expiry" : R.el <= 0 ? `Now · ${span(R.expMs - now)} left` : `T+${span(R.targetMs - now)} · ${when(R.targetMs)} · ${span(left)} left`;
+    const txt = atExpiry ? "At expiry" : R.el <= 0 ? `Now · ${span(R.expMs - now)} left` : `T+${span(R.targetMs - now)} · ${when(R.targetMs)}`;
     tLabel.textContent = txt;
-    tSlider.setAttribute("aria-valuetext", txt);
+    tLabel.title = atExpiry || R.el <= 0 ? "" : `${span(left)} left to expiry`;
+    tSlider.setAttribute("aria-valuetext", atExpiry || R.el <= 0 ? txt : `${txt} · ${span(left)} left`);
     const ivTxt = `IV ${formatSigned(wi.ivShift, 1)} pts · ATM ${formatPercent(R.ivNow, 1)}`;
     ivLabel.textContent = ivTxt;
     ivSlider.setAttribute("aria-valuetext", ivTxt);
@@ -701,7 +725,8 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
 
   function drawScenarios() {
     if (!R?.ok) {
-      scenBody.replaceChildren(h("tr", {}, h("td", { colspan: "4", class: "muted" }, R ? "Figures need every leg priced." : "…")));
+      const msg = R ? (R.act.length ? "Figures need every leg priced." : "Add legs to see P&L at nine prices.") : noChain ? DASH : "…";
+      scenBody.replaceChildren(h("tr", {}, h("td", { colspan: "4", class: "muted" }, msg)));
       scenBody.__sig = "";
       return;
     }
@@ -733,14 +758,17 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
   function drawBar() {
     const n = R?.stats?.net;
     const exit = closeMode();
-    barNet.textContent = !R ? "…" : !R.ok ? (R.act.length ? "Needs prices" : "No legs") : `${n > 0.5 ? "Credit" : n < -0.5 ? "Debit" : "Even"} ${money(Math.abs(n), { signed: false })}`;
+    barNet.textContent = !R ? (noChain ? "No chain" : "…") : !R.ok ? (R.act.length ? "Needs prices" : "No legs") : `${n > 0.5 ? "Credit" : n < -0.5 ? "Debit" : "Even"} ${money(Math.abs(n), { signed: false })}`;
     const m = R?.margin;
-    barSub.textContent = R?.ok ? [`Margin ${isFigure(m) ? `${R.acct === null ? "≈ " : ""}${money(m, { signed: false })}` : DASH}`, isFigure(R.stats?.pop) ? `PoP ${formatPercent(R.stats.pop * 100, 0)}` : null].filter(Boolean).join(" · ") : "";
+    const mText = !isFigure(m) ? DASH : `${R.acct === null ? "≈ " : ""}${Math.abs(m) >= 1000 ? `₹${formatCompact(m)}` : money(m, { signed: false })}`;
+    barSub.textContent = R?.ok ? [exit ? null : `Margin ${mText}`, isFigure(R.stats?.pop) ? `PoP ${formatPercent(R.stats.pop * 100, 0)}` : null].filter(Boolean).join(" · ") : "";
     const nAct = R?.act.length ?? 0;
-    const label = exit ? "Close these legs" : `Place ${formatInt(nAct)}`;
-    const blockedWhy = !account() ? "Choose an account that can place orders" : !nAct ? "Add a leg first" : R?.warnings.some((w) => w.severity === "block") ? R.warnings.find((w) => w.severity === "block").text : null;
+    const blockedWhy = !R ? (noChain ? "The chain is unavailable" : "Waiting for the chain") : !account() ? "Choose an account that can place orders" : !nAct ? "Add a leg first" : !R.ok ? "Every leg needs a price" : R.warnings.some((w) => w.severity === "block") ? R.warnings.find((w) => w.severity === "block").text : null;
+    // Nothing placeable: a plain "Place" (disabled, with the reason as its title), never "Place 0 legs".
+    const placeable = Boolean(R?.ok) && nAct > 0;
+    const label = exit ? "Close these legs" : placeable ? `Place ${formatInt(nAct)}` : "Place";
     for (const b of [barPlace, placeBtn]) {
-      const text = b === placeBtn && !exit ? `Place ${plural(nAct, "leg")}` : label;
+      const text = b === placeBtn && !exit && placeable ? `Place ${plural(nAct, "leg")}` : label;
       if (b.textContent !== text) b.textContent = text;
       b.disabled = Boolean(blockedWhy);
       if (blockedWhy) b.title = blockedWhy;
@@ -756,7 +784,7 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
   function drawHead() {
     const c = x?.c;
     const basisText = { touch: "prices at the touch", mid: "prices at mid", ltp: "prices at LTP" }[cfg().basis];
-    ctxLine.textContent = c ? `${c.underlying} ${expiryText(c.expiry)} · lot ${formatInt(x.lot)} · ${basisText}${st.live ? "" : " · prices paused"}` : `${st.underlying} · ${basisText}`;
+    ctxLine.textContent = c ? `${c.underlying} ${expiryText(c.expiry)} · lot ${formatInt(x.lot)} · ${basisText}${st.live ? "" : " · prices paused"}` : `${st.underlying}${st.expiry ? ` ${expiryText(st.expiry)}` : ""} · ${basisText}`;
     const n = readSaves().length;
     savedBtn.textContent = n ? `Saved (${formatInt(n)})` : "Saved";
     clearBtn.disabled = !legs().length;
@@ -811,7 +839,8 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
     }
     if (!force && sig === pv.sig && !pv.loading) return;
     pv.loading = true;
-    const res = await Promise.all(act.map((l) => optional(api("/v1/orders/preview", { method: "POST", body: { account: a.id, symbol: l.symbol, side: l.side, lots: l.lots, product: cfg().product, orderType: "LIMIT", price: l.price } }))));
+    // Held legs (Positions → Analyse) are previewed as the closing order: that releases margin rather than blocks it.
+    const res = await Promise.all(act.map((l) => optional(api("/v1/orders/preview", { method: "POST", body: { account: a.id, symbol: l.symbol, side: isHeld(l) ? (l.side === "BUY" ? "SELL" : "BUY") : l.side, lots: l.lots, product: l.product ?? cfg().product, orderType: "LIMIT", price: l.price } }))));
     if (sigOf(priced.filter((l) => l.on !== false && l.symbol && isFigure(l.price))) !== sig) return;
     const freeze = new Map(pv.freeze);
     let total = 0;
@@ -951,20 +980,22 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
         paintFocus();
         return;
       }
-      if (e.target === filter) return;
+      // With a row highlighted, ← → and B / S act even while the Strike filter has focus (it only takes digits).
+      if (e.target === filter && focus.i < 0) return;
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
         focus.side = e.key === "ArrowLeft" ? "ce" : "pe";
         paintFocus();
         return;
       }
-      if ((e.key === "b" || e.key === "s") && focus.i >= 0) {
+      const k = e.key.toLowerCase();
+      if ((k === "b" || k === "s") && !e.ctrlKey && !e.metaKey && !e.altKey && focus.i >= 0) {
         e.preventDefault();
         const r = rs[focus.i];
-        r.querySelectorAll(".pk-btns")[focus.side === "ce" ? 0 : 1].querySelectorAll("button")[e.key === "b" ? 0 : 1].click();
+        r.querySelectorAll(".pk-btns")[focus.side === "ce" ? 0 : 1].querySelectorAll("button")[k === "b" ? 0 : 1].click();
       }
     };
-    body.append(h("div", { class: "picker-top" }, filter, h("span", { class: "muted small" }, "B / S add one lot · ↑ ↓ ← → · Esc")), futRow, rowsEl, status);
+    body.append(h("div", { class: "picker-top" }, filter, h("span", { class: "muted small pk-hint" }, "B / S add one lot · ↑ ↓ ← → · Esc")), futRow, rowsEl, status);
     body.addEventListener("keydown", onKey);
     build();
     let closeFn = null;
@@ -984,6 +1015,7 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
         if (fl && f) fl.textContent = formatFixed(st.quotes.get(f.symbol)?.ltp, 2);
       },
       focus: () => filter.focus(),
+      close: () => close(),
     };
     const atmIntoView = () => {
       const atm = rowsEl.querySelector(".pk-row.atm");
@@ -1008,9 +1040,13 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
     };
     addBtn.parentElement.append(popEl);
     addBtn.setAttribute("aria-expanded", "true");
-    atmIntoView();
-    popEl.scrollIntoView({ block: "nearest" });
     filter.focus({ preventScroll: true });
+    // After layout: centre the ATM row, then bring the popover into view clear of the tab bar and the sticky action bar
+    // (scroll-margin-bottom in the CSS).
+    requestAnimationFrame(() => {
+      atmIntoView();
+      popEl.scrollIntoView({ block: "nearest" });
+    });
     setTimeout(() => document.addEventListener("pointerdown", outside, true));
   }
 
@@ -1112,6 +1148,8 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
     draw();
     gearBtn.setAttribute("aria-expanded", "true");
     head.append(popEl);
+    // Desktop and tablet: never past the bottom of the screen (the body scrolls inside). The phone sheet is fixed.
+    if (!isPhone()) popEl.style.maxHeight = `${Math.max(240, Math.round(innerHeight - popEl.getBoundingClientRect().top - 16))}px`;
     popEl.querySelector("button, input")?.focus();
     setTimeout(() => {
       document.addEventListener("pointerdown", outside, true);
@@ -1361,7 +1399,11 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
     panel,
     slot,
     /** The desk's context for this tick (null while there is no chain). */
-    draw(xx, { error = null } = {}) {
+    draw(xx0, { error = null } = {}) {
+      // A chain with no strikes is a loaded state, not a loading one: "--" figures and a plain reason.
+      const noRows = Boolean(xx0) && !xx0.c?.rows?.length;
+      const xx = noRows ? null : xx0;
+      noChain = noRows ? `No strikes for ${xx0.c.underlying ?? st.underlying} ${expiryText(xx0.c.expiry ?? st.expiry)}.` : error ? "error" : null;
       x = xx;
       if (!xx) {
         R = null;
@@ -1373,7 +1415,7 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
         drawWhatIf();
         drawScenarios();
         drawBar();
-        chart.empty(error ? "The chain is unavailable: retrying." : "Loading the chain…");
+        chart.empty(noRows ? noChain : error ? "The chain is unavailable: retrying." : "Loading the chain…");
         return;
       }
       legs();
@@ -1404,10 +1446,13 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
     },
     destroy() {
       document.removeEventListener("keydown", onCtrl);
+      removeEventListener("resize", syncStick);
       clearTimeout(pvTimer);
       cancelAnimationFrame(raf);
       chart.destroy();
       closePop();
+      picker?.close?.();
+      picker = null;
       if (window.__mcbStrategyOverlay) delete window.__mcbStrategyOverlay;
     },
   };

@@ -111,7 +111,8 @@ export function drawPayoff(host, model, { onPin } = {}) {
   const readout = h("div", { class: "payoff-readout", "aria-live": "off" });
   const legend = h("span", { class: "legend" }, h("i", { class: "exp" }), "Expiry", h("span", { class: "lg-target" }, h("i", { class: "today" }), "Target"), h("span", { class: "lg-band" }, h("i", { class: "band" }), "±1σ"));
   const empty = h("p", { class: "payoff-empty muted", hidden: true });
-  host.replaceChildren(h("div", { class: "payoff-head" }, legend, readout), svg, empty);
+  const headEl = h("div", { class: "payoff-head" }, legend, readout);
+  host.replaceChildren(headEl, svg, empty);
 
   const X = (p) => L + ((p - m.lo) / (m.hi - m.lo)) * (W - L - R);
   const Y = (v) => T + ((m.yMax - v) / (m.yMax - m.yMin)) * (H - T - B);
@@ -145,12 +146,16 @@ export function drawPayoff(host, model, { onPin } = {}) {
   }
 
   function paint() {
+    // Nothing to draw: only the outlined placeholder shows, at the chart's own height (no blank SVG, legend or readout).
     if (!m) {
-      svg.setAttribute("visibility", "hidden");
+      svg.style.display = "none";
+      headEl.hidden = true;
+      empty.style.height = `${heightFor()}px`;
       empty.hidden = false;
       return;
     }
-    svg.removeAttribute("visibility");
+    svg.style.display = "";
+    headEl.hidden = false;
     empty.hidden = true;
     const zy = Y(0);
     set(clipUp, { width: W, height: Math.max(0, zy) });
