@@ -47,7 +47,7 @@ trading on in the config file, every tool gets its own scoped key, and there is 
 
 ## Contents
 
-1. [Quick start in 3 steps](#quick-start-in-3-steps) · [Try demo mode](#try-demo-mode)
+1. [Install in one step](#install-in-one-step) · [Try demo mode](#try-demo-mode)
 2. [Connect brokers and several accounts](#connect-brokers-and-several-accounts)
 3. [How rate limits are handled](#how-rate-limits-are-handled) · [Spread the work over your accounts](#spread-the-work-over-your-accounts) ·
    [Backup data](#backup-data-when-no-broker-can-answer) · [Scanner](#scanner)
@@ -61,23 +61,32 @@ trading on in the config file, every tool gets its own scoped key, and there is 
 
 ---
 
-## Quick start in 3 steps
+## Install in one step
 
-You need **[Node.js 22 or newer](https://nodejs.org/)** (the LTS download is fine), except for Docker.
+No programming needed, no admin password, and nothing else to install first: the Bridge brings its own Node.js when
+your computer does not have it. When it finishes, the dashboard opens in your browser **already signed in**.
+Step-by-step guide, with what to click on each system: **[docs/guides/install.md](docs/guides/install.md)**.
 
-### Windows
+**Windows 10 / 11**: open **PowerShell** (Start → type *PowerShell*), paste this line and press Enter:
 
-1. Download this repository (green **Code** button → **Download ZIP**) and unzip it, for example to `Documents\api-bridge`.
-2. Double-click **`start-windows.bat`**. The first run installs what it needs and asks a few questions (press Enter
-   to accept each suggestion). **Copy the admin key it prints**: it is shown only once.
-3. The dashboard opens in your browser. Paste the admin key. Done.
+```powershell
+irm https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.ps1 | iex
+```
 
-### Mac
+**Mac or Linux**: open **Terminal**, paste this line and press Enter:
 
-1. Download and unzip this repository.
-2. Double-click **`start-mac.command`**. If macOS says it cannot be opened, right-click it, choose **Open**, then
-   **Open** again (only the first time). Answer the questions and **copy the admin key** it prints.
-3. The dashboard opens in your browser. Paste the admin key. Done.
+```sh
+curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.sh | sh
+```
+
+Afterwards, start it like any app: **Mr Chartist Bridge** in the Start menu or on the Desktop (Windows), in
+Spotlight or Launchpad (Mac), or in your applications menu (Linux). Run the same line again to update; your settings
+are kept.
+
+**Prefer a download?** Each [release](https://github.com/MrChartist/api-bridge/releases/latest) has a ready-to-run
+ZIP per system with everything inside. Unzip it and double-click `start-windows.bat`, `start-mac.command` or
+`start-linux.sh`. The [install guide](docs/guides/install.md#ready-to-run-download) covers the one-time Windows and
+macOS security prompt.
 
 ### Docker
 
