@@ -1,5 +1,7 @@
 // Mr. Chartist API Bridge — local dashboard. Talks only to this Bridge (same origin). The API key lives in
 // sessionStorage for this tab and is sent as a Bearer header; it is never put in a URL.
+// Opened from `mc-bridge start --open` or `mc-bridge open`, the URL carries a one-time sign-in code in its fragment
+// (#signin=<code>): it is removed from the address bar before anything else and exchanged for a key (POST /v1/sign-in).
 // Pure helpers (ticketFields, confirmCodeNotice, friendlyError ...) are exported for tests; DOM code runs only in a browser.
 
 import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, installPressFeedback, pulse, sheetIn, sheetOut, shake } from "./motion.js";
@@ -8,6 +10,64 @@ import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, in
 export { animateNav, animatePage };
 
 const KEY_SLOT = "mcb.dashboard.key";
+
+// ── One-time sign-in link ──
+
+/**
+ * The sign-in code in a URL fragment (#signin=<code>), or null when there is none. Whatever follows signin= is
+ * returned as it is (the Bridge refuses a malformed code with the same answer as a used one). Pure.
+ * @param {string} hash  location.hash
+ */
+export function signInCodeFromHash(hash) {
+  const m = /^#\/?signin=([^&]*)/.exec(String(hash ?? ""));
+  if (!m) return null;
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return m[1];
+  }
+}
+
+/** Label of the keys POST /v1/sign-in creates (server/bridge/auth/module.mjs). */
+export const SIGN_IN_KEY_LABEL = "Dashboard sign-in";
+/** The message shown when a sign-in link does not work (the Bridge says the same). */
+export const SIGN_IN_FAILED = { title: "This sign-in link did not work", detail: "This sign-in link has expired or was already used. Open the Bridge again from its shortcut, or run mc-bridge open." };
+
+/**
+ * Exchange a sign-in code for a key. Never throws. Pure apart from the injected fetch.
+ * @param {string} code @param {typeof fetch} [fetchImpl]
+ * @returns {Promise<{ key: string } | { error: { title: string, detail: string } | { network: true } }>}
+ */
+export async function redeemSignIn(code, fetchImpl = globalThis.fetch) {
+  let res;
+  try {
+    res = await fetchImpl("/v1/sign-in", { method: "POST", headers: { "Content-Type": "application/json", "X-MCB-Client": "dashboard" }, body: JSON.stringify({ code }), cache: "no-store" });
+  } catch {
+    return { error: { network: true } };
+  }
+  const body = await res.json().catch(() => null);
+  if (res.ok && typeof body?.data?.key === "string") return { key: body.data.key };
+  // Show the Bridge's own words (expired or used, too many attempts, only from this computer) when it gave any.
+  return { error: { title: SIGN_IN_FAILED.title, detail: typeof body?.detail === "string" && body.detail ? body.detail : SIGN_IN_FAILED.detail } };
+}
+
+/**
+ * Take the sign-in code out of the address bar at once (history.replaceState, so it is not kept in history either)
+ * and return it, or null when the page was opened without one.
+ */
+function takeSignInCode() {
+  if (typeof location === "undefined" || typeof history === "undefined") return null;
+  const code = signInCodeFromHash(location.hash);
+  if (code === null) return null;
+  try {
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
+  } catch {
+    location.hash = "";
+  }
+  return code;
+}
+// First thing in the browser, before any other code runs or the page is drawn.
+const pendingSignInCode = takeSignInCode();
 const THEME_SLOT = "mcb.dashboard.theme";
 export const fmtInt = new Intl.NumberFormat("en-IN");
 export const fmtRs = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 });
@@ -63,7 +123,7 @@ export function friendlyError(err) {
   if (err?.network) return { title: "Cannot reach the Bridge", detail: "Is it still running? Start it again with npm start (or the start file you double-clicked), then refresh this page." };
   switch (err?.code) {
     case "UNAUTHENTICATED":
-      return { title: "That key was not accepted", detail: "It may be mistyped, expired or revoked. Create a new one with: npm run bridge -- keys create --label me --scope admin,paper" };
+      return { title: "That key was not accepted", detail: "It may be mistyped, expired or revoked. Open the Bridge again from its shortcut (or run mc-bridge open) to sign in without a key, or create a new one with: npm run bridge -- keys create --label me --scope admin,paper" };
     case "SCOPE_REQUIRED":
       return { title: "This key is not allowed to do that", detail: `${detail} Sign in with an admin key to manage the Bridge.` };
     case "LOOPBACK_ONLY":
@@ -401,7 +461,8 @@ export function confirmCodeNotice(ticketId, result) {
  */
 export function checklistState({ demo = false, accounts = [], keys = [], copied = false, tested = false }) {
   const brokerConnected = accounts.some((a) => a.broker !== "paper" && a.session?.state === "connected");
-  const activeKeys = keys.filter((k) => !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) < Date.now()));
+  // Keys made by sign-in links are the dashboard's own, not a key for a tool.
+  const activeKeys = keys.filter((k) => !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) < Date.now()) && !(k.clientKind === "ui" && k.label === SIGN_IN_KEY_LABEL));
   return [
     { id: "broker", done: demo || brokerConnected },
     { id: "key", done: activeKeys.length >= 2 },
@@ -459,7 +520,8 @@ async function signIn() {
   if (!signIn.pulsing) signIn.pulsing = pulse(document.querySelector(".who .dot"));
   document.getElementById("who").textContent = `Key ${memoryKey.split("_")[1] ?? ""} · v${app.state.health?.version ?? ""}`;
   const { startRouter } = await import("./views.js");
-  startRouter();
+  // Awaited so a banner shown after sign-in comes after the first page draw (which clears #toast).
+  await startRouter();
 }
 
 if (typeof document !== "undefined" && document.getElementById("login-form")) {
@@ -488,5 +550,20 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
     location.hash = "";
     location.reload();
   });
-  signIn();
+  boot();
+}
+
+/** Start-up: redeem a sign-in link first (when the page was opened with one), then sign in as usual. */
+async function boot() {
+  if (pendingSignInCode === null) return signIn();
+  const result = await redeemSignIn(pendingSignInCode);
+  if ("key" in result) setKey(result.key);
+  await signIn();
+  if ("key" in result) {
+    if (!document.getElementById("app").hidden) toast("Signed in. Welcome to your Bridge.");
+  } else if (!memoryKey) {
+    // Already signed in in this tab: the older key keeps working, so an old link needs no error.
+    document.getElementById("login-error").replaceChildren(alertBox(result.error));
+    shake(document.querySelector("#login .login-card") ?? document.getElementById("login-form"));
+  }
 }

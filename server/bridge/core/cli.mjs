@@ -10,6 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { createBrokerRegistry } from "../../brokers/registry.mjs";
 import { SERVICE_CONTRACTS, isStub } from "./contracts.mjs";
 import { readControlToken } from "./controlToken.mjs";
+import { SIGN_IN_TTL_MS, createSignInCode } from "../auth/signIn.mjs";
 import { BridgeError, NotImplementedError } from "./errors.mjs";
 import { isLoopbackHost, loadConfig } from "./config.mjs";
 import { createLogger } from "./logger.mjs";
@@ -20,7 +21,9 @@ Usage:
   mc-bridge init [--yes] [--demo] [--broker <id> [--account <id>] [--label <text>]] [--no-paper] [--force]
                                    first-run setup (alias: setup); asks questions unless --yes
   mc-bridge start [--config <file>] [--demo] [--open]
-                                   --demo: sample data, no broker, live trading off; --open: open the dashboard
+                                   --demo: sample data, no broker, live trading off; --open: open the dashboard,
+                                   already signed in (if the Bridge is already running, just opens the dashboard)
+  mc-bridge open [--config <file>] open the dashboard of the running Bridge, already signed in (no key to copy)
   mc-bridge keys create --label <name> --scope read[,paper,live,admin] [--accounts a,b|*] [--expires 30d] [--allow-query] [--client <kind>]
   mc-bridge keys list
   mc-bridge keys revoke <keyId>
@@ -204,8 +207,10 @@ export async function startHints({ app, port }) {
  * opener could be started (for example on a server without a desktop).
  * @param {string} url  http(s) URL built by the Bridge itself
  */
-export function openInBrowser(url, { platform = process.platform, spawnImpl } = {}) {
+export function openInBrowser(url, { platform = process.platform, env = process.env, spawnImpl } = {}) {
   if (!/^https?:\/\/[^\s"']+$/.test(url)) return false;
+  // Linux and other Unix systems without a graphical session (a server over SSH): there is no browser to open.
+  if (platform !== "darwin" && platform !== "win32" && !env.DISPLAY && !env.WAYLAND_DISPLAY) return false;
   const [cmd, args] = platform === "darwin" ? ["open", [url]] : platform === "win32" ? ["cmd", ["/c", "start", "", url]] : ["xdg-open", [url]];
   try {
     const run = spawnImpl ?? spawn;
@@ -217,6 +222,57 @@ export function openInBrowser(url, { platform = process.platform, spawnImpl } = 
     return false;
   }
 }
+
+/** http://<host>:<port> for this computer's browser: a wildcard listen address becomes loopback. */
+export function localBaseUrl(host, port) {
+  const h = host === "0.0.0.0" ? "127.0.0.1" : host === "::" ? "::1" : host;
+  return `http://${h.includes(":") ? `[${h}]` : h}:${port}`;
+}
+
+/**
+ * Health of a Bridge at `baseUrl`: its /v1/health answer when a Bridge answers there, else null (nothing listening,
+ * or another program that does not speak the Bridge's health format).
+ * @returns {Promise<{ status: string, version?: string, demo?: boolean } | null>}
+ */
+export async function probeBridge(baseUrl) {
+  try {
+    const res = await fetch(`${baseUrl}/v1/health`, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body?.status === "ok" && typeof body.apiVersion === "string" ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Create a one-time sign-in code in `dataDir` and open <baseUrl>/dashboard#signin=<code>. The code travels in the URL
+ * fragment, which browsers never send to the server, so it does not reach any request log. When no browser can be
+ * opened the link is printed, with a note that it works once and expires.
+ * @returns {Promise<boolean>} whether a browser was asked to open it
+ */
+export async function openSignedInDashboard({ dataDir, baseUrl, io }) {
+  const { code } = await createSignInCode(dataDir);
+  const url = `${baseUrl}/dashboard#signin=${code}`;
+  const opened = (io.openUrl ?? openInBrowser)(url);
+  const minutes = Math.round(SIGN_IN_TTL_MS / 60_000);
+  if (opened) {
+    io.err("Opening the dashboard in your browser (already signed in).");
+    io.err(`If it does not open, use this link. It works once and expires in ${minutes} minutes: ${url}`);
+  } else {
+    io.err(`Open this link in your browser to see the dashboard, already signed in. It works once and expires in ${minutes} minutes:`);
+    io.err(`  ${url}`);
+  }
+  return opened;
+}
+
+/**
+ * Whether a running Bridge keeps its files in `dataDir`: while it listens it holds its control token there
+ * (controlToken.mjs). A sign-in code only works for the Bridge that reads the same folder.
+ */
+const usesDataDir = (dataDir) => readControlToken(dataDir) !== null;
+const otherFolderMessage = (baseUrl, dataDir) =>
+  `A Bridge is running at ${baseUrl}, but it keeps its files in another folder than ${dataDir}, so a sign-in link from here would not work for it. Run this from the folder you started that Bridge in (or pass --config), or stop it and start it again.`;
 
 async function audit(deps, io, input) {
   try {
@@ -269,8 +325,37 @@ export async function runCli(positionals, flags, io) {
         });
       }
       case "start": {
+        // Double-clicking the start file a second time: if this Bridge is already running on its port, open its
+        // dashboard instead of failing on the busy port.
+        const planned = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd, knownBrokers: createBrokerRegistry().list(), demo: flags.demo === true }).config;
+        const plannedUrl = localBaseUrl(planned.server.host, planned.server.port);
+        const running = planned.server.port === 0 ? null : await probeBridge(plannedUrl);
+        if (running) {
+          if (!usesDataDir(planned.dataDir)) {
+            io.err(`Error: ${otherFolderMessage(plannedUrl, planned.dataDir)}`);
+            return 1;
+          }
+          if (!flags.open) {
+            io.err(`The Bridge is already running at ${plannedUrl}. To open its dashboard, run: mc-bridge open`);
+            return 1;
+          }
+          io.err("The Bridge is already running; opening the dashboard.");
+          if (flags.demo === true && !running.demo) io.err("Note: the running Bridge is not in demo mode. To try demo mode, stop it first (Ctrl+C in its window), then start again with --demo.");
+          await openSignedInDashboard({ dataDir: planned.dataDir, baseUrl: plannedUrl, io });
+          return 0;
+        }
         const { app } = await bootServices(flags, io, { server: true });
-        const { port, publicPort } = await app.listen();
+        let port;
+        let publicPort;
+        try {
+          ({ port, publicPort } = await app.listen());
+        } catch (err) {
+          await app.close().catch(() => {});
+          if (err?.code === "EADDRINUSE") {
+            throw new BridgeError("VALIDATION_FAILED", `Port ${err.port ?? app.config.server.port} is already in use by another program (not this Bridge). Close that program, or choose another port under "server" in bridge.config.json (for example "port": 4301).`);
+          }
+          throw err;
+        }
         if (app.config.demo) {
           io.err("");
           io.err("  ************************************************************");
@@ -282,13 +367,13 @@ export async function runCli(positionals, flags, io) {
         io.err(`Mr. Chartist API Bridge listening on http://${app.config.server.host}:${port}${publicPort ? ` (public ingress on ${publicPort})` : ""}`);
         io.err(`Data folder: ${app.config.dataDir}`);
         for (const line of await startHints({ app, port })) io.err(line);
-        if (flags.open) {
-          const host = app.config.server.host === "0.0.0.0" || app.config.server.host === "::" ? "127.0.0.1" : app.config.server.host;
-          const url = `http://${host.includes(":") ? `[${host}]` : host}:${port}/dashboard`;
-          const opened = (io.openUrl ?? openInBrowser)(url);
-          io.err(opened ? `Opening ${url} in your browser.` : `Open ${url} in your browser.`);
-        }
+        if (flags.open) await openSignedInDashboard({ dataDir: app.config.dataDir, baseUrl: localBaseUrl(app.config.server.host, port), io });
         io.err("Press Ctrl+C to stop.");
+        // Tests close the app themselves; the real CLI stops on Ctrl+C or a termination signal.
+        if (typeof io.onListening === "function") {
+          io.onListening(app);
+          return null;
+        }
         const stop = async () => {
           await app.close();
           process.exit(0);
@@ -296,6 +381,21 @@ export async function runCli(positionals, flags, io) {
         process.once("SIGINT", stop);
         process.once("SIGTERM", stop);
         return null;
+      }
+      case "open": {
+        // Open the running Bridge's dashboard, signed in with a fresh one-time code (needs this computer's data folder).
+        const { config } = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd });
+        const baseUrl = bridgeUrl(flags, io, config);
+        if (!(await probeBridge(baseUrl))) {
+          io.err(`The Bridge is not running at ${baseUrl}. Start it by double-clicking its shortcut, or run: mc-bridge start --open`);
+          return 1;
+        }
+        if (!usesDataDir(config.dataDir)) {
+          io.err(`Error: ${otherFolderMessage(baseUrl, config.dataDir)}`);
+          return 1;
+        }
+        await openSignedInDashboard({ dataDir: config.dataDir, baseUrl, io });
+        return 0;
       }
       case "doctor": {
         // Doctor must not create anything: only boot the services (which create the data folder) when it exists.

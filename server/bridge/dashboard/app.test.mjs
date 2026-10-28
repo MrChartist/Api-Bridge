@@ -68,6 +68,9 @@ describe("dashboard helpers", async () => {
     const accounts = [{ broker: "dhan", session: { state: "connected" } }];
     expect(checklistState({ accounts, keys: [{ id: "a" }, { id: "b" }], copied: "1", tested: "1" }).every((s) => s.done)).toBe(true);
     expect(checklistState({ accounts: [{ broker: "paper", session: { state: "connected" } }] })[0].done).toBe(false);
+    // A key made by a sign-in link is not a key for a tool.
+    const signedIn = [{ id: "a", clientKind: "ui", label: "admin (created by init)" }, { id: "b", clientKind: "ui", label: "Dashboard sign-in" }];
+    expect(checklistState({ keys: signedIn })[1].done).toBe(false);
   });
 
   it("escapes data before highlighting JSON", () => {
@@ -89,5 +92,45 @@ describe("dashboard helpers", async () => {
     expect(JSON.parse(genericAlert({ orderType: "MARKET" })).price).toBeUndefined();
     expect(KEY_PRESETS.webhooks).toBeUndefined(); // the hook URL (and signing secret) is the credential
     for (const p of Object.values(KEY_PRESETS)) expect(p.scopes).not.toContain("admin");
+  });
+});
+
+describe("dashboard sign-in links", async () => {
+  const { SIGN_IN_FAILED, redeemSignIn, signInCodeFromHash } = await import("./app.js");
+  const code = "Ab1_-".padEnd(43, "x");
+
+  it("finds the code in the fragment only", () => {
+    expect(signInCodeFromHash(`#signin=${code}`)).toBe(code);
+    expect(signInCodeFromHash(`#/signin=${code}`)).toBe(code);
+    expect(signInCodeFromHash("#signin=")).toBe("");
+    for (const h of ["", "#", "#/home", "#/console?endpoint=order", `#/keys?signin=${code}`, undefined]) expect(signInCodeFromHash(h)).toBeNull();
+  });
+
+  it("exchanges the code for a key, and explains a refused link in plain words", async () => {
+    const calls = [];
+    const ok = async (path, init) => {
+      calls.push({ path, init });
+      return { ok: true, status: 201, json: async () => ({ data: { key: "mcb_abcdefghij_key", record: {} } }) };
+    };
+    expect(await redeemSignIn(code, ok)).toEqual({ key: "mcb_abcdefghij_key" });
+    expect(calls[0].path).toBe("/v1/sign-in");
+    expect(calls[0].init.method).toBe("POST");
+    expect(JSON.parse(calls[0].init.body)).toEqual({ code });
+    expect(calls[0].init.headers.Authorization).toBeUndefined();
+
+    const refused = async () => ({ ok: false, status: 401, json: async () => ({ code: "UNAUTHENTICATED", detail: SIGN_IN_FAILED.detail }) });
+    const r = await redeemSignIn(code, refused);
+    expect(r.error.title).toBe(SIGN_IN_FAILED.title);
+    expect(r.error.detail).toMatch(/expired or was already used.*mc-bridge open/);
+    const blank = await redeemSignIn(code, async () => ({ ok: false, status: 500, json: async () => { throw new Error("not json"); } }));
+    expect(blank.error.detail).toBe(SIGN_IN_FAILED.detail);
+    expect(await redeemSignIn(code, async () => { throw new TypeError("offline"); })).toEqual({ error: { network: true } });
+  });
+
+  it("matches what the Bridge says and the label of the key it makes", async () => {
+    const { SIGN_IN_KEY_LABEL } = await import("./app.js");
+    const { SIGN_IN_FAILED: serverText, SIGN_IN_KEY_LABEL: serverLabel } = await import("../auth/module.mjs");
+    expect(SIGN_IN_FAILED.detail).toBe(serverText);
+    expect(SIGN_IN_KEY_LABEL).toBe(serverLabel);
   });
 });

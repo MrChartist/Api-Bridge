@@ -180,7 +180,9 @@ let shownPage = null;
 let pendingFocus = null;
 
 async function show() {
-  const id = (location.hash.replace(/^#\/?/, "").split("?")[0] || "home").toLowerCase();
+  const raw = location.hash.replace(/^#\/?/, "").split("?")[0];
+  // A one-time sign-in fragment (#signin=..., app.js removes it at start-up) is never a page name.
+  const id = (raw && !raw.startsWith("signin=") ? raw : "home").toLowerCase();
   const page = PAGES.find((p) => p.id === id) ?? PAGES[0];
   const changed = page.id !== shownPage;
   shownPage = page.id;

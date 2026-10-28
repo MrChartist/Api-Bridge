@@ -496,6 +496,44 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/sign-in:
+    post:
+      tags: [Keys]
+      operationId: signIn
+      summary: Exchange a one-time sign-in code for a dashboard key
+      description: |
+        Used by the dashboard when it is opened from `mc-bridge start --open` or `mc-bridge open`, whose link carries a
+        one-time code in the URL fragment (`/dashboard#signin=<code>`, never sent to the server in a URL). The code is
+        valid for 10 minutes and works once; only its SHA-256 hash is stored. A valid code creates a new admin key
+        (scopes admin and paper, all accounts, label "Dashboard sign-in") that expires in 30 days; audited `key.created`.
+        A wrong, expired or used code gets one generic 401. After 20 failed attempts in a minute the route answers 429
+        for the rest of that minute. No API key needed; this computer only.
+      x-stream: S2
+      x-loopback-only: true
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, pattern: "^[A-Za-z0-9_-]{43}$", description: "The code from the sign-in link." }
+      responses:
+        "201":
+          description: Signed in. The key is shown once.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/KeyCreated" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/limits:
     get:
       tags: [Limits]

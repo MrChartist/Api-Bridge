@@ -101,10 +101,10 @@ describe("openInBrowser", () => {
     };
     expect(openInBrowser("http://127.0.0.1:4300/dashboard", { platform: "darwin", spawnImpl })).toBe(true);
     expect(openInBrowser("http://127.0.0.1:4300/dashboard", { platform: "win32", spawnImpl })).toBe(true);
-    expect(openInBrowser("http://127.0.0.1:4300/dashboard", { platform: "linux", spawnImpl })).toBe(true);
+    expect(openInBrowser("http://127.0.0.1:4300/dashboard", { platform: "linux", env: { DISPLAY: ":0" }, spawnImpl })).toBe(true);
     expect(calls.map((c) => c[0])).toEqual(["open", "cmd", "xdg-open"]);
     expect(openInBrowser("javascript:alert(1)", { spawnImpl })).toBe(false);
     expect(openInBrowser("http://x/\" & calc", { spawnImpl })).toBe(false);
-    expect(openInBrowser("http://x/", { spawnImpl: () => { throw new Error("no"); } })).toBe(false);
+    expect(openInBrowser("http://x/", { platform: "darwin", spawnImpl: () => { throw new Error("no"); } })).toBe(false);
   });
 });

@@ -186,7 +186,8 @@ export async function runInit(flags, io, deps) {
     created = await deps.createKey(configPath);
     if (created) {
       say("");
-      say("Your admin key (for the dashboard and for connecting brokers). Copy it now: it is shown only once.");
+      say("Your admin key, for scripts and tools. It is shown only once; keep it if you will need it. The dashboard does not");
+      say("need it: it opens already signed in when you start with --open, or run mc-bridge open while the Bridge runs.");
       say("");
       say(`  ${created.key}`);
       say("");
@@ -217,7 +218,7 @@ export async function runInit(flags, io, deps) {
   }
   say(`  1. Start the Bridge:        ${cfg.demo ? "npm start -- --open" : "npm start -- --demo --open    (sample data, no broker needed)"}`);
   if (!cfg.demo) say(`                              npm start -- --open           (your real accounts)`);
-  say("  2. Open the dashboard:      http://127.0.0.1:4300/dashboard and paste the admin key");
+  say(`  2. The dashboard opens by itself, already signed in. To open it again later: ${cmd} open`);
   if (brokerAccount) say(`  3. Log in to your broker:   ${cmd} accounts connect ${brokerAccount.id}   (while the Bridge is running)`);
   else say(`  3. Add a broker later:      add it under "accounts" in bridge.config.json (see docs/guides/accounts.md), then restart`);
   say(`  4. Check everything:        ${cmd} doctor`);
