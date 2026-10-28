@@ -3,7 +3,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["server/**/*.{test,spec}.mjs", "src/**/*.{test,spec}.{ts,mjs}"],
+    include: ["server/**/*.{test,spec}.mjs", "src/**/*.{test,spec}.{ts,mjs}", "scripts/**/*.{test,spec}.mjs"],
     testTimeout: 20_000,
     setupFiles: ["./test/pinDate.mjs"],
   },

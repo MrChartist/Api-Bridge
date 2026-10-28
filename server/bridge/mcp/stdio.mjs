@@ -80,7 +80,7 @@ export async function runStdio({ baseUrl, apiKey, stdin, stdout, logger, fetch: 
   let listedWhileDown = false;
   const inflight = new Set();
   const origin = new URL(baseUrl).origin;
-  const downMessage = `The Mr. Chartist Bridge is not running at ${origin}. Start it with 'npm start' (or 'node bin/mc-bridge.mjs start') in the api-bridge folder, then try again.`;
+  const downMessage = `The Mr. Chartist Bridge is not running at ${origin}. Start it from its shortcut (or run: mc-bridge start), then try again.`;
 
   const write = (msg) => {
     stdout.write(`${JSON.stringify(msg)}\n`);

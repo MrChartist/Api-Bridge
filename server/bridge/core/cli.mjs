@@ -9,9 +9,11 @@ import net from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { createBrokerRegistry } from "../../brokers/registry.mjs";
 import { SERVICE_CONTRACTS, isStub } from "./contracts.mjs";
+import { cliCommand } from "./cliName.mjs";
 import { readControlToken } from "./controlToken.mjs";
+import { SIGN_IN_TTL_MS, createSignInCode } from "../auth/signIn.mjs";
 import { BridgeError, NotImplementedError } from "./errors.mjs";
-import { isLoopbackHost, loadConfig } from "./config.mjs";
+import { configFileForWrites, isLoopbackHost, loadConfig } from "./config.mjs";
 import { createLogger } from "./logger.mjs";
 
 export const USAGE = `Mr. Chartist API Bridge
@@ -20,7 +22,9 @@ Usage:
   mc-bridge init [--yes] [--demo] [--broker <id> [--account <id>] [--label <text>]] [--no-paper] [--force]
                                    first-run setup (alias: setup); asks questions unless --yes
   mc-bridge start [--config <file>] [--demo] [--open]
-                                   --demo: sample data, no broker, live trading off; --open: open the dashboard
+                                   --demo: sample data, no broker, live trading off; --open: open the dashboard,
+                                   already signed in (if the Bridge is already running, just opens the dashboard)
+  mc-bridge open [--config <file>] open the dashboard of the running Bridge, already signed in (no key to copy)
   mc-bridge keys create --label <name> --scope read[,paper,live,admin] [--accounts a,b|*] [--expires 30d] [--allow-query] [--client <kind>]
   mc-bridge keys list
   mc-bridge keys revoke <keyId>
@@ -58,7 +62,7 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
   const add = (level, check, message) => out.push({ level, check, message });
   const major = Number(process.versions.node.split(".")[0]);
   add(major >= 22 ? "ok" : "fail", "node", `Node.js ${process.versions.node}${major >= 22 ? "" : " (22 or newer is required)"}`);
-  add(source ? "ok" : "warn", "config", source ? `Loaded ${source}` : "No bridge.config.json yet; using safe defaults. Run: npm run bridge -- init");
+  add(source ? "ok" : "warn", "config", source ? `Loaded ${source}` : `No bridge.config.json yet; using safe defaults. Run: ${cliCommand(env)} init`);
   if (config.demo) add("warn", "demo", "Demo mode is ON: sample prices, no real broker, paper orders only. Remove \"demo\" from the config (or start without --demo) for real accounts.");
   for (const w of warnings) add("warn", "config", w);
   const host = config.server.host;
@@ -88,7 +92,7 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
       const mode = statSync(keyFile).mode & 0o777;
       const tooOpen = process.platform !== "win32" && mode & 0o077;
       add(tooOpen ? "fail" : "ok", "master-key", tooOpen ? `${keyFile} is readable by other users (mode ${mode.toString(8)}); run chmod 600` : `Key file ${keyFile}`);
-    } else add("warn", "master-key", `No master key yet; ${keyFile} will be created (mode 600) when you first connect a broker. 'npm run bridge -- init' creates one outside the data folder now.`);
+    } else add("warn", "master-key", `No master key yet; ${keyFile} will be created (mode 600) when you first connect a broker. '${cliCommand(env)} init' creates one outside the data folder now.`);
     if (sameFolder) {
       add("warn", "master-key", `The master key sits in the data folder next to secrets.enc, so a backup, cloud sync or zip of ${dataDir} carries both and the encryption adds nothing. Move it outside (for example ${process.platform === "win32" ? "%APPDATA%\\MrChartist\\master.key" : "~/.config/mc-bridge/master.key"}) and set "masterKeyFile" in bridge.config.json (or MCB_MASTER_KEY_FILE), or use MCB_MASTER_KEY.`);
     }
@@ -117,7 +121,7 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
     try {
       const keys = (await deps.keyStore.list()).filter((k) => !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) < Date.now()));
       const admin = keys.some((k) => k.scopes.includes("admin"));
-      add(keys.length ? (admin ? "ok" : "warn") : "warn", "api-keys", keys.length ? `${keys.length} active key(s)${admin ? "" : "; none is an admin key (the dashboard and accounts connect need one)"}` : "No API keys yet. Create one: npm run bridge -- keys create --label me --scope admin,paper");
+      add(keys.length ? (admin ? "ok" : "warn") : "warn", "api-keys", keys.length ? `${keys.length} active key(s)${admin ? "" : "; none is an admin key (the dashboard and accounts connect need one)"}` : `No API keys yet. Create one: ${cliCommand(env)} keys create --label me --scope admin,paper`);
     } catch {
       /* key store not available */
     }
@@ -127,7 +131,7 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
       const brokers = deps.accounts.list().filter((a) => a.broker !== "paper");
       const connected = brokers.filter((a) => a.session?.state === "connected");
       if (connected.length) add("ok", "market-data", `Market data from: ${connected.map((a) => a.id).join(", ")}`);
-      else add("warn", "market-data", `No market-data source connected${brokers.length ? ` (log in ${brokers.map((a) => a.id).join(", ")})` : ""}. Quotes, history, option chains, symbol lookups and paper orders all need at least one connected broker account (mc-bridge accounts connect <id>). To try everything without a broker, start with --demo for sample data (mc-bridge start --demo, or npm start -- --demo); if the Bridge is already running with --demo, this check is about your real accounts and you can ignore it.`);
+      else add("warn", "market-data", `No market-data source connected${brokers.length ? ` (log in ${brokers.map((a) => a.id).join(", ")})` : ""}. Quotes, history, option chains, symbol lookups and paper orders all need at least one connected broker account (mc-bridge accounts connect <id>). To try everything without a broker, start with --demo for sample data (${cliCommand(env)} start --demo --open); if the Bridge is already running with --demo, this check is about your real accounts and you can ignore it.`);
     } catch {
       /* account manager not available */
     }
@@ -152,7 +156,7 @@ async function bootServices(flags, io, { server = false } = {}) {
   const { createApp } = await import("./app.mjs");
   // The server logs at the configured level; one-shot commands only show warnings and errors.
   const logger = createLogger({ level: server || config.logging.level === "debug" ? config.logging.level : "warn" });
-  const app = await createApp({ config, logger, warnings });
+  const app = await createApp({ config, logger, warnings, configFile: configFileForWrites(source, io.env) });
   return { app, config: app.config, warnings, source, logger };
 }
 
@@ -175,13 +179,14 @@ export function bridgeUrl(flags, io, config) {
 }
 
 /** Lines printed after `start`: where the dashboard is and what to do next. Exported for tests. */
-export async function startHints({ app, port }) {
+export async function startHints({ app, port, env = process.env }) {
+  const cli = cliCommand(env);
   const lines = [];
   const host = app.config.server.host === "0.0.0.0" ? "127.0.0.1" : app.config.server.host;
   lines.push(`Dashboard (this computer only): http://${host.includes(":") ? `[${host}]` : host}:${port}/dashboard`);
   try {
     const keys = (await app.deps.keyStore.list()).filter((k) => !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) < Date.now()));
-    if (keys.length === 0) lines.push("No API keys yet. In a second terminal, from this same folder: npm run bridge -- init   (or: npm run bridge -- keys create --label me --scope admin,paper)");
+    if (keys.length === 0) lines.push(`No API keys yet. Open the dashboard signed in with: ${cli} open   (or make one: ${cli} keys create --label me --scope admin,paper)`);
     else lines.push(`${keys.length} active API key(s).`);
   } catch {
     /* key store not built */
@@ -190,8 +195,8 @@ export async function startHints({ app, port }) {
     const rows = app.deps.accounts.list().filter((a) => a.broker !== "paper");
     const live = rows.filter((a) => a.session?.state === "connected");
     if (app.config.demo) lines.push("Market data: demo (sample prices generated on this computer).");
-    else if (rows.length === 0) lines.push('No market-data source connected: no broker account is configured. Quotes and even paper orders need one; add it under "accounts" in bridge.config.json (see docs/guides/accounts.md), or try everything with sample data: npm start -- --demo');
-    else if (live.length === 0) lines.push(`No market-data source connected (${rows.map((a) => a.id).join(", ")} not logged in). Quotes and even paper orders need one: mc-bridge accounts connect <id>.`);
+    else if (rows.length === 0) lines.push(`No market-data source connected: no broker account is configured. Quotes and even paper orders need one: on the dashboard, open Accounts and press Add a broker, or try everything with sample data: ${cli} start --demo --open`);
+    else if (live.length === 0) lines.push(`No market-data source connected (${rows.map((a) => a.id).join(", ")} not logged in). Quotes and even paper orders need one: on the dashboard, open Accounts and press Log in (or: ${cli} accounts connect <id>).`);
     else lines.push(`Market data from: ${live.map((a) => a.id).join(", ")}.`);
   } catch {
     /* account manager not built */
@@ -204,8 +209,10 @@ export async function startHints({ app, port }) {
  * opener could be started (for example on a server without a desktop).
  * @param {string} url  http(s) URL built by the Bridge itself
  */
-export function openInBrowser(url, { platform = process.platform, spawnImpl } = {}) {
+export function openInBrowser(url, { platform = process.platform, env = process.env, spawnImpl } = {}) {
   if (!/^https?:\/\/[^\s"']+$/.test(url)) return false;
+  // Linux and other Unix systems without a graphical session (a server over SSH): there is no browser to open.
+  if (platform !== "darwin" && platform !== "win32" && !env.DISPLAY && !env.WAYLAND_DISPLAY) return false;
   const [cmd, args] = platform === "darwin" ? ["open", [url]] : platform === "win32" ? ["cmd", ["/c", "start", "", url]] : ["xdg-open", [url]];
   try {
     const run = spawnImpl ?? spawn;
@@ -217,6 +224,57 @@ export function openInBrowser(url, { platform = process.platform, spawnImpl } = 
     return false;
   }
 }
+
+/** http://<host>:<port> for this computer's browser: a wildcard listen address becomes loopback. */
+export function localBaseUrl(host, port) {
+  const h = host === "0.0.0.0" ? "127.0.0.1" : host === "::" ? "::1" : host;
+  return `http://${h.includes(":") ? `[${h}]` : h}:${port}`;
+}
+
+/**
+ * Health of a Bridge at `baseUrl`: its /v1/health answer when a Bridge answers there, else null (nothing listening,
+ * or another program that does not speak the Bridge's health format).
+ * @returns {Promise<{ status: string, version?: string, demo?: boolean } | null>}
+ */
+export async function probeBridge(baseUrl) {
+  try {
+    const res = await fetch(`${baseUrl}/v1/health`, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body?.status === "ok" && typeof body.apiVersion === "string" ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Create a one-time sign-in code in `dataDir` and open <baseUrl>/dashboard#signin=<code>. The code travels in the URL
+ * fragment, which browsers never send to the server, so it does not reach any request log. When no browser can be
+ * opened the link is printed, with a note that it works once and expires.
+ * @returns {Promise<boolean>} whether a browser was asked to open it
+ */
+export async function openSignedInDashboard({ dataDir, baseUrl, io }) {
+  const { code } = await createSignInCode(dataDir);
+  const url = `${baseUrl}/dashboard#signin=${code}`;
+  const opened = (io.openUrl ?? openInBrowser)(url);
+  const minutes = Math.round(SIGN_IN_TTL_MS / 60_000);
+  if (opened) {
+    io.err("Opening the dashboard in your browser (already signed in).");
+    io.err(`If it does not open, use this link. It works once and expires in ${minutes} minutes: ${url}`);
+  } else {
+    io.err(`Open this link in your browser to see the dashboard, already signed in. It works once and expires in ${minutes} minutes:`);
+    io.err(`  ${url}`);
+  }
+  return opened;
+}
+
+/**
+ * Whether a running Bridge keeps its files in `dataDir`: while it listens it holds its control token there
+ * (controlToken.mjs). A sign-in code only works for the Bridge that reads the same folder.
+ */
+const usesDataDir = (dataDir) => readControlToken(dataDir) !== null;
+const otherFolderMessage = (baseUrl, dataDir) =>
+  `A Bridge is running at ${baseUrl}, but it keeps its files in another folder than ${dataDir}, so a sign-in link from here would not work for it. Run this from the folder you started that Bridge in (or pass --config), or stop it and start it again.`;
 
 async function audit(deps, io, input) {
   try {
@@ -269,8 +327,37 @@ export async function runCli(positionals, flags, io) {
         });
       }
       case "start": {
+        // Double-clicking the start file a second time: if this Bridge is already running on its port, open its
+        // dashboard instead of failing on the busy port.
+        const planned = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd, knownBrokers: createBrokerRegistry().list(), demo: flags.demo === true }).config;
+        const plannedUrl = localBaseUrl(planned.server.host, planned.server.port);
+        const running = planned.server.port === 0 ? null : await probeBridge(plannedUrl);
+        if (running) {
+          if (!usesDataDir(planned.dataDir)) {
+            io.err(`Error: ${otherFolderMessage(plannedUrl, planned.dataDir)}`);
+            return 1;
+          }
+          if (!flags.open) {
+            io.err(`The Bridge is already running at ${plannedUrl}. To open its dashboard, run: mc-bridge open`);
+            return 1;
+          }
+          io.err("The Bridge is already running; opening the dashboard.");
+          if (flags.demo === true && !running.demo) io.err("Note: the running Bridge is not in demo mode. To try demo mode, stop it first (Ctrl+C in its window), then start again with --demo.");
+          await openSignedInDashboard({ dataDir: planned.dataDir, baseUrl: plannedUrl, io });
+          return 0;
+        }
         const { app } = await bootServices(flags, io, { server: true });
-        const { port, publicPort } = await app.listen();
+        let port;
+        let publicPort;
+        try {
+          ({ port, publicPort } = await app.listen());
+        } catch (err) {
+          await app.close().catch(() => {});
+          if (err?.code === "EADDRINUSE") {
+            throw new BridgeError("VALIDATION_FAILED", `Port ${err.port ?? app.config.server.port} is already in use by another program (not this Bridge). Close that program, or choose another port under "server" in bridge.config.json (for example "port": 4301).`);
+          }
+          throw err;
+        }
         if (app.config.demo) {
           io.err("");
           io.err("  ************************************************************");
@@ -281,14 +368,14 @@ export async function runCli(positionals, flags, io) {
         }
         io.err(`Mr. Chartist API Bridge listening on http://${app.config.server.host}:${port}${publicPort ? ` (public ingress on ${publicPort})` : ""}`);
         io.err(`Data folder: ${app.config.dataDir}`);
-        for (const line of await startHints({ app, port })) io.err(line);
-        if (flags.open) {
-          const host = app.config.server.host === "0.0.0.0" || app.config.server.host === "::" ? "127.0.0.1" : app.config.server.host;
-          const url = `http://${host.includes(":") ? `[${host}]` : host}:${port}/dashboard`;
-          const opened = (io.openUrl ?? openInBrowser)(url);
-          io.err(opened ? `Opening ${url} in your browser.` : `Open ${url} in your browser.`);
-        }
+        for (const line of await startHints({ app, port, env: io.env })) io.err(line);
+        if (flags.open) await openSignedInDashboard({ dataDir: app.config.dataDir, baseUrl: localBaseUrl(app.config.server.host, port), io });
         io.err("Press Ctrl+C to stop.");
+        // Tests close the app themselves; the real CLI stops on Ctrl+C or a termination signal.
+        if (typeof io.onListening === "function") {
+          io.onListening(app);
+          return null;
+        }
         const stop = async () => {
           await app.close();
           process.exit(0);
@@ -296,6 +383,21 @@ export async function runCli(positionals, flags, io) {
         process.once("SIGINT", stop);
         process.once("SIGTERM", stop);
         return null;
+      }
+      case "open": {
+        // Open the running Bridge's dashboard, signed in with a fresh one-time code (needs this computer's data folder).
+        const { config } = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd });
+        const baseUrl = bridgeUrl(flags, io, config);
+        if (!(await probeBridge(baseUrl))) {
+          io.err(`The Bridge is not running at ${baseUrl}. Start it by double-clicking its shortcut, or run: mc-bridge start --open`);
+          return 1;
+        }
+        if (!usesDataDir(config.dataDir)) {
+          io.err(`Error: ${otherFolderMessage(baseUrl, config.dataDir)}`);
+          return 1;
+        }
+        await openSignedInDashboard({ dataDir: config.dataDir, baseUrl, io });
+        return 0;
       }
       case "doctor": {
         // Doctor must not create anything: only boot the services (which create the data folder) when it exists.
@@ -354,7 +456,7 @@ export async function runCli(positionals, flags, io) {
         const { app } = await bootServices(flags, io);
         const rows = app.deps.accounts.list();
         if (flags.json) io.out(JSON.stringify(rows, null, 2));
-        else if (rows.length === 0) io.out("No accounts configured. Add them under \"accounts\" in bridge.config.json.");
+        else if (rows.length === 0) io.out("No accounts configured. Add one on the dashboard (Accounts, Add a broker), or under \"accounts\" in bridge.config.json.");
         else for (const a of rows) io.out(`${a.id.padEnd(20)} ${a.broker.padEnd(14)} ${a.session.state.padEnd(10)} ${a.liveAllowedByConfig ? "live-enabled" : "paper"}  ${a.label}`);
         return 0;
       }
@@ -370,7 +472,7 @@ export async function runCli(positionals, flags, io) {
         const alive = await fetch(`${baseUrl}/v1/health`).then((r) => r.ok, () => false);
         // Keep running anyway: the relay answers initialize itself and retries the Bridge on every request, so the AI
         // client does not mark this server as failed when it starts before the Bridge (stderr only; stdout is MCP).
-        if (!alive) io.err(`The Bridge is not running at ${baseUrl} yet. Start it with 'npm start' in the api-bridge folder; the MCP relay will connect when it is up.`);
+        if (!alive) io.err(`The Bridge is not running at ${baseUrl} yet. Start it from its shortcut (or: ${cliCommand(io.env)} start); the MCP relay will connect when it is up.`);
         const { runStdio } = await import("../mcp/stdio.mjs");
         await runStdio({ baseUrl, apiKey: raw, stdin: process.stdin, stdout: process.stdout, logger: createLogger({ level: "warn" }) });
         return 0;
@@ -525,6 +627,6 @@ async function connectCommand(accountId, flags, io) {
     if (v) secrets[f.key] = v;
   }
   const result = await call("POST", `/v1/accounts/${encodeURIComponent(accountId)}/session`, Object.keys(secrets).length ? { values, secrets } : { values });
-  io.out(`Connected ${accountId}: session ${result?.session?.state ?? "saved"}.`);
+  io.out(`Connected ${accountId}: session ${result?.state ?? result?.session?.state ?? "saved"}.`);
   return 0;
 }

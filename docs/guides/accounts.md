@@ -5,6 +5,15 @@ own rate-limit budget and its own credentials; one account's credentials are nev
 
 ## 1. Declare accounts in `bridge.config.json`
 
+The easiest way: on the dashboard, open **Accounts** and press **Add a broker**. The Bridge saves the account to the
+config file it loaded (or creates the per-user `bridge.config.json` when it started without one) and uses it at once,
+no restart. Accounts added this way are paper only; turning live trading on stays an edit of the file. **Remove**
+takes an account out again (not one with live trading set up, and not your last paper account). Over the API:
+`POST /v1/accounts` with `{ "broker": "dhan" }` (optional `id` and `label`) and `DELETE /v1/accounts/{id}`, both
+admin, this computer only, with an admin key that may use every account.
+
+Or edit the file yourself:
+
 ```json
 {
   "accounts": [
@@ -34,7 +43,8 @@ own rate-limit budget and its own credentials; one account's credentials are nev
 
 Credentials never go in the config file. They go to the encrypted SecretStore (`data/secrets.enc`, AES-256-GCM)
 through `POST /v1/accounts/{id}/session`, which answers only on this computer and needs an admin key.
-`mc-bridge accounts connect <accountId>` calls it for you.
+The dashboard's **Log in** button (Accounts page) shows the fields your broker needs and calls it for you;
+`mc-bridge accounts connect <accountId>` does the same in a terminal.
 
 `GET /v1/brokers` lists every broker with its `authKind` and the fields it needs (`credentialFields`). There are four
 kinds of login:

@@ -81,3 +81,6 @@ venv/
 
 # Local output of `mc-bridge openai-tools > tools.json` from the README
 /tools.json
+
+# Private Node.js downloaded by the installer and the start-mac.command / start-linux.sh launchers
+/runtime/

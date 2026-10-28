@@ -3,7 +3,8 @@
  * mc-bridge — command line for the Mr. Chartist API Bridge.
  *
  *   mc-bridge init [--yes] [--demo] [--broker <id>]   (first-run setup; alias: setup)
- *   mc-bridge start [--config <file>] [--demo] [--open]
+ *   mc-bridge start [--config <file>] [--demo] [--open]   (--open: dashboard already signed in; reuses a running Bridge)
+ *   mc-bridge open                       (open the running Bridge's dashboard, already signed in)
  *   mc-bridge keys create --label <name> --scope read[,paper,live,admin] [--accounts a,b|*] [--expires 30d] [--allow-query] [--client excel]
  *   mc-bridge keys list
  *   mc-bridge keys revoke <keyId>

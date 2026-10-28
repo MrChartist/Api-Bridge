@@ -1,0 +1,74 @@
+# Ready-to-run downloads. Pushing a tag like v0.2.0 builds one ZIP per system (the Bridge, its parts and a private
+# Node.js inside; see scripts/release/build-bundles.mjs) and publishes them on the GitHub release for that tag.
+# Run it by hand (Actions -> Release -> Run workflow) to build the ZIPs as a downloadable artifact without releasing.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bundles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # create the release and upload its files (tag pushes only)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Tests
+        run: npx vitest run
+        env:
+          TZ: UTC
+      - name: Tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          want="v$(node -p 'require("./package.json").version')"
+          if [ "$GITHUB_REF_NAME" != "$want" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json ($want). Bump the version first." >&2
+            exit 1
+          fi
+      - name: Build the downloads
+        run: node scripts/release/build-bundles.mjs --out dist
+      - name: Smoke test the Linux download (unzip, start with its own Node.js, health check)
+        run: |
+          set -eu
+          work="$(mktemp -d)"
+          unzip -q dist/mr-chartist-bridge-*-linux-x64.zip -d "$work"
+          cd "$work/Mr Chartist Bridge"
+          env -i HOME="$work/home" PATH=/usr/bin:/bin MCB_IN_TERMINAL=1 MCB_PORT=43210 sh start-linux.sh < /dev/null > "$work/run.log" 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:43210/v1/health > /dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          cat "$work/run.log"
+          curl -fsS http://127.0.0.1:43210/v1/health
+          grep -q "Using the Bridge's own Node.js" "$work/run.log"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bundles
+          path: dist/
+          retention-days: 14
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="$(awk '/^## \[/{n++} n==1' CHANGELOG.md)"
+          [ -n "$notes" ] || notes="See CHANGELOG.md."
+          gh release create "$GITHUB_REF_NAME" dist/*.zip dist/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --title "Mr. Chartist API Bridge $GITHUB_REF_NAME" --notes "$notes" --verify-tag

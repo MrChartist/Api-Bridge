@@ -57,8 +57,9 @@ describe("dashboard helpers", async () => {
   it("explains errors in plain words", () => {
     expect(friendlyError({ network: true }).title).toMatch(/Cannot reach the Bridge/);
     expect(friendlyError({ code: "UNAUTHENTICATED" }).detail).toMatch(/keys create/);
-    expect(friendlyError({ code: "SESSION_EXPIRED", message: "dhan-main: expired" }).detail).toMatch(/accounts connect/);
-    expect(friendlyError({ code: "BROKER_UNAVAILABLE", message: "x" }).detail).toMatch(/--demo/);
+    expect(friendlyError({ code: "SESSION_EXPIRED", message: "dhan-main: expired" }).detail).toMatch(/Accounts page, Log in/);
+    expect(friendlyError({ code: "BROKER_UNAVAILABLE", message: "x" }).detail).toMatch(/Accounts page.*demo mode/);
+    expect(friendlyError({ code: "UPSTREAM_ERROR", message: "Dhan: invalid token" })).toEqual({ title: "The broker did not accept this", detail: "Dhan: invalid token" });
     expect(friendlyError({ status: 418, message: "teapot" })).toEqual({ title: "The Bridge answered 418", detail: "teapot" });
   });
 
@@ -68,6 +69,9 @@ describe("dashboard helpers", async () => {
     const accounts = [{ broker: "dhan", session: { state: "connected" } }];
     expect(checklistState({ accounts, keys: [{ id: "a" }, { id: "b" }], copied: "1", tested: "1" }).every((s) => s.done)).toBe(true);
     expect(checklistState({ accounts: [{ broker: "paper", session: { state: "connected" } }] })[0].done).toBe(false);
+    // A key made by a sign-in link is not a key for a tool.
+    const signedIn = [{ id: "a", clientKind: "ui", label: "admin (created by init)" }, { id: "b", clientKind: "ui", label: "Dashboard sign-in" }];
+    expect(checklistState({ keys: signedIn })[1].done).toBe(false);
   });
 
   it("escapes data before highlighting JSON", () => {
@@ -89,5 +93,143 @@ describe("dashboard helpers", async () => {
     expect(JSON.parse(genericAlert({ orderType: "MARKET" })).price).toBeUndefined();
     expect(KEY_PRESETS.webhooks).toBeUndefined(); // the hook URL (and signing secret) is the credential
     for (const p of Object.values(KEY_PRESETS)) expect(p.scopes).not.toContain("admin");
+  });
+});
+
+describe("dashboard sign-in links", async () => {
+  const { SIGN_IN_FAILED, redeemSignIn, signInCodeFromHash } = await import("./app.js");
+  const code = "Ab1_-".padEnd(43, "x");
+
+  it("finds the code in the fragment only", () => {
+    expect(signInCodeFromHash(`#signin=${code}`)).toBe(code);
+    expect(signInCodeFromHash(`#/signin=${code}`)).toBe(code);
+    expect(signInCodeFromHash("#signin=")).toBe("");
+    for (const h of ["", "#", "#/home", "#/console?endpoint=order", `#/keys?signin=${code}`, undefined]) expect(signInCodeFromHash(h)).toBeNull();
+  });
+
+  it("exchanges the code for a key, and explains a refused link in plain words", async () => {
+    const calls = [];
+    const ok = async (path, init) => {
+      calls.push({ path, init });
+      return { ok: true, status: 201, json: async () => ({ data: { key: "mcb_abcdefghij_key", record: {} } }) };
+    };
+    expect(await redeemSignIn(code, ok)).toEqual({ key: "mcb_abcdefghij_key" });
+    expect(calls[0].path).toBe("/v1/sign-in");
+    expect(calls[0].init.method).toBe("POST");
+    expect(JSON.parse(calls[0].init.body)).toEqual({ code });
+    expect(calls[0].init.headers.Authorization).toBeUndefined();
+
+    const refused = async () => ({ ok: false, status: 401, json: async () => ({ code: "UNAUTHENTICATED", detail: SIGN_IN_FAILED.detail }) });
+    const r = await redeemSignIn(code, refused);
+    expect(r.error.title).toBe(SIGN_IN_FAILED.title);
+    expect(r.error.detail).toMatch(/expired or was already used.*mc-bridge open/);
+    const blank = await redeemSignIn(code, async () => ({ ok: false, status: 500, json: async () => { throw new Error("not json"); } }));
+    expect(blank.error.detail).toBe(SIGN_IN_FAILED.detail);
+    expect(await redeemSignIn(code, async () => { throw new TypeError("offline"); })).toEqual({ error: { network: true } });
+  });
+
+  it("matches what the Bridge says and the label of the key it makes", async () => {
+    const { SIGN_IN_KEY_LABEL } = await import("./app.js");
+    const { SIGN_IN_FAILED: serverText, SIGN_IN_KEY_LABEL: serverLabel } = await import("../auth/module.mjs");
+    expect(SIGN_IN_FAILED.detail).toBe(serverText);
+    expect(SIGN_IN_KEY_LABEL).toBe(serverLabel);
+  });
+});
+
+describe("dashboard broker login form", async () => {
+  const { brokerMatches, fieldLabel, fillLoginUrl, loginBody, loginFormSpec, loginHelp } = await import("./app.js");
+  const { createBrokerRegistry } = await import("../../brokers/registry.mjs");
+  const { BROKER_NAMES } = await import("../accounts/brokerInfo.mjs");
+  const { loginUrlTemplate } = await import("../accounts/routes.mjs");
+  const { isForbiddenSecretKey } = await import("../../brokers/contract.mjs");
+  const reg = createBrokerRegistry();
+  /** The broker entry the dashboard gets from GET /v1/brokers, built the same way. */
+  const info = (id) => {
+    const a = reg.get(id);
+    const loginUrl = loginUrlTemplate(a);
+    return {
+      id,
+      name: BROKER_NAMES[id],
+      authKind: a.capabilities.auth.kind,
+      verified: id === "dhan",
+      credentialFields: [...a.credentialFields],
+      loginFields: (a.capabilities.auth.loginFields ?? []).map((f) => ({ key: f.key, label: f.label ?? f.key, kind: f.kind ?? "secret" })),
+      tokenExpiry: a.capabilities.auth.tokenExpiry ?? null,
+      ...(loginUrl ? { loginUrl } : {}),
+    };
+  };
+
+  it("Dhan: client id shown as typed, access token masked, no one-time fields", () => {
+    const spec = loginFormSpec(info("dhan"));
+    expect(spec.kind).toBe("apiKeyToken");
+    expect(spec.fields.map((f) => [f.key, f.label, f.type, f.group])).toEqual([
+      ["clientId", "Client ID", "text", "values"],
+      ["accessToken", "Access token", "password", "values"],
+    ]);
+    expect(spec.help.join(" ")).toMatch(/Dhan's API or developer page/);
+  });
+
+  it("Zerodha: API key and secret once, the access token daily, and a fillable login page", () => {
+    const z = info("zerodha");
+    const spec = loginFormSpec(z);
+    expect(spec.fields.map((f) => f.key)).toEqual(["apiKey", "apiSecret", "accessToken"]);
+    expect(spec.fields.every((f) => f.type === "password")).toBe(true);
+    expect(spec.fields.find((f) => f.key === "accessToken").hint).toMatch(/every trading day/);
+    expect(spec.help.join(" ")).toMatch(/06:00 IST next day/);
+    expect(fillLoginUrl(z.loginUrl, {})).toBeNull();
+    const url = fillLoginUrl(z.loginUrl, { apiKey: "abc 123" });
+    expect(url).toMatch(/^https:\/\/kite\.zerodha\.com\/connect\/login\?v=3&api_key=abc%20123$/);
+    expect(fillLoginUrl("http://x.example/?k={apiKey}", { apiKey: "a" })).toBeNull();
+  });
+
+  it("session brokers: PIN masked, TOTP numeric with 6 digits, both required and never in values", () => {
+    const spec = loginFormSpec(info("angelone"), { saved: true });
+    const totp = spec.fields.find((f) => f.key === "totpCode");
+    expect(totp).toMatchObject({ group: "secrets", type: "text", inputmode: "numeric", pattern: "[0-9]{6}", maxlength: 6, required: true });
+    expect(spec.fields.find((f) => f.key === "password")).toMatchObject({ group: "secrets", type: "password", required: true });
+    expect(spec.keepHint).toBe(true);
+    expect(loginHelp(info("angelone")).join(" ")).toMatch(/never saved/);
+  });
+
+  it("every broker gets a usable form: labelled fields, no password or TOTP saved as a value", () => {
+    for (const id of reg.list()) {
+      const spec = loginFormSpec(info(id));
+      expect(spec.fields.length).toBeGreaterThan(0);
+      for (const f of spec.fields) {
+        expect(f.label).toMatch(/^[A-Za-z0-9]/);
+        if (f.group === "values") expect(isForbiddenSecretKey(f.key)).toBe(false);
+      }
+      if (spec.kind === "sessionLogin") expect(spec.fields.some((f) => f.group === "secrets")).toBe(true);
+      expect(spec.help.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("the request body leaves out empty fields (saved values are kept) and splits secrets", () => {
+    const spec = loginFormSpec(info("angelone"));
+    const typed = { apiKey: " k1 ", clientId: "", password: "1234", totpCode: "123456" };
+    expect(loginBody(spec, (f) => typed[f.key])).toEqual({ values: { apiKey: "k1" }, secrets: { password: "1234", totpCode: "123456" } });
+    expect(loginBody(loginFormSpec(info("dhan")), () => "")).toEqual({ values: {} });
+  });
+
+  it("labels and search", () => {
+    expect(fieldLabel("interactiveApiSecret")).toBe("Interactive (orders) API secret");
+    expect(fieldLabel("someNewApiId")).toBe("Some new API ID");
+    const b = { id: "angelone", name: "Angel One (SmartAPI)" };
+    expect(brokerMatches(b, "")).toBe(true);
+    expect(brokerMatches(b, "angel one")).toBe(true);
+    expect(brokerMatches(b, "SMART")).toBe(true);
+    expect(brokerMatches(b, "zerodha")).toBe(false);
+  });
+
+  it("no beginner text sends people to the terminal or the config file for accounts", async () => {
+    const { readFileSync } = await import("node:fs");
+    const views = readFileSync(new URL("./views.js", import.meta.url), "utf8");
+    const appJs = readFileSync(new URL("./app.js", import.meta.url), "utf8");
+    for (const src of [views, appJs]) {
+      expect(src).not.toMatch(/bridge -- init/);
+      expect(src).not.toMatch(/npm start -- --demo/);
+      expect(src).not.toMatch(/restart without --demo/);
+      expect(src).not.toMatch(/under "accounts" in bridge\.config\.json/);
+    }
   });
 });

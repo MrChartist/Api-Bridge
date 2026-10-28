@@ -4,6 +4,7 @@ Start with the [main README](../../README.md) for the quick start. These guides 
 
 | Guide | For |
 |---|---|
+| [install.md](install.md) | Installing in one step on Windows, Mac or Linux (no Node.js, no admin password), updating, uninstalling |
 | [accounts.md](accounts.md) | Adding brokers and several accounts, logging in, sessions, family accounts |
 | [rate-limits.md](rate-limits.md) | How the Bridge stays inside every broker's limits, spreading reads over your own accounts |
 | [backup-data.md](backup-data.md) | Yahoo Finance and NSE website as a labelled fallback when no broker can answer |

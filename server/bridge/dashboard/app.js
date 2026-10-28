@@ -1,5 +1,7 @@
 // Mr. Chartist API Bridge — local dashboard. Talks only to this Bridge (same origin). The API key lives in
 // sessionStorage for this tab and is sent as a Bearer header; it is never put in a URL.
+// Opened from `mc-bridge start --open` or `mc-bridge open`, the URL carries a one-time sign-in code in its fragment
+// (#signin=<code>): it is removed from the address bar before anything else and exchanged for a key (POST /v1/sign-in).
 // Pure helpers (ticketFields, confirmCodeNotice, friendlyError ...) are exported for tests; DOM code runs only in a browser.
 
 import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, installPressFeedback, pulse, sheetIn, sheetOut, shake } from "./motion.js";
@@ -8,6 +10,64 @@ import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, in
 export { animateNav, animatePage };
 
 const KEY_SLOT = "mcb.dashboard.key";
+
+// ── One-time sign-in link ──
+
+/**
+ * The sign-in code in a URL fragment (#signin=<code>), or null when there is none. Whatever follows signin= is
+ * returned as it is (the Bridge refuses a malformed code with the same answer as a used one). Pure.
+ * @param {string} hash  location.hash
+ */
+export function signInCodeFromHash(hash) {
+  const m = /^#\/?signin=([^&]*)/.exec(String(hash ?? ""));
+  if (!m) return null;
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return m[1];
+  }
+}
+
+/** Label of the keys POST /v1/sign-in creates (server/bridge/auth/module.mjs). */
+export const SIGN_IN_KEY_LABEL = "Dashboard sign-in";
+/** The message shown when a sign-in link does not work (the Bridge says the same). */
+export const SIGN_IN_FAILED = { title: "This sign-in link did not work", detail: "This sign-in link has expired or was already used. Open the Bridge again from its shortcut, or run mc-bridge open." };
+
+/**
+ * Exchange a sign-in code for a key. Never throws. Pure apart from the injected fetch.
+ * @param {string} code @param {typeof fetch} [fetchImpl]
+ * @returns {Promise<{ key: string } | { error: { title: string, detail: string } | { network: true } }>}
+ */
+export async function redeemSignIn(code, fetchImpl = globalThis.fetch) {
+  let res;
+  try {
+    res = await fetchImpl("/v1/sign-in", { method: "POST", headers: { "Content-Type": "application/json", "X-MCB-Client": "dashboard" }, body: JSON.stringify({ code }), cache: "no-store" });
+  } catch {
+    return { error: { network: true } };
+  }
+  const body = await res.json().catch(() => null);
+  if (res.ok && typeof body?.data?.key === "string") return { key: body.data.key };
+  // Show the Bridge's own words (expired or used, too many attempts, only from this computer) when it gave any.
+  return { error: { title: SIGN_IN_FAILED.title, detail: typeof body?.detail === "string" && body.detail ? body.detail : SIGN_IN_FAILED.detail } };
+}
+
+/**
+ * Take the sign-in code out of the address bar at once (history.replaceState, so it is not kept in history either)
+ * and return it, or null when the page was opened without one.
+ */
+function takeSignInCode() {
+  if (typeof location === "undefined" || typeof history === "undefined") return null;
+  const code = signInCodeFromHash(location.hash);
+  if (code === null) return null;
+  try {
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
+  } catch {
+    location.hash = "";
+  }
+  return code;
+}
+// First thing in the browser, before any other code runs or the page is drawn.
+const pendingSignInCode = takeSignInCode();
 const THEME_SLOT = "mcb.dashboard.theme";
 export const fmtInt = new Intl.NumberFormat("en-IN");
 export const fmtRs = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 });
@@ -60,19 +120,25 @@ export const currentKey = () => memoryKey;
  */
 export function friendlyError(err) {
   const detail = err?.message ?? "";
-  if (err?.network) return { title: "Cannot reach the Bridge", detail: "Is it still running? Start it again with npm start (or the start file you double-clicked), then refresh this page." };
+  if (err?.network) return { title: "Cannot reach the Bridge", detail: "Is it still running? Start it again from its shortcut (or the start file you double-clicked), then refresh this page." };
   switch (err?.code) {
     case "UNAUTHENTICATED":
-      return { title: "That key was not accepted", detail: "It may be mistyped, expired or revoked. Create a new one with: npm run bridge -- keys create --label me --scope admin,paper" };
+      return { title: "That key was not accepted", detail: "It may be mistyped, expired or revoked. Open the Bridge again from its shortcut (or run mc-bridge open) to sign in without a key, or create a new one with: npm run bridge -- keys create --label me --scope admin,paper" };
     case "SCOPE_REQUIRED":
       return { title: "This key is not allowed to do that", detail: `${detail} Sign in with an admin key to manage the Bridge.` };
     case "LOOPBACK_ONLY":
       return { title: "Only from this computer", detail: "This page manages keys and accounts, so it works only at http://127.0.0.1 on the computer running the Bridge." };
     case "SESSION_EXPIRED":
-      return { title: "Broker session expired", detail: `${detail} Log in again: npm run bridge -- accounts connect <account id>.` };
+      return { title: "Broker session expired", detail: `${detail} Log in again: Accounts page, Log in.` };
     case "BROKER_UNAVAILABLE":
     case "NO_ACCOUNT":
-      return { title: "No broker connected for this", detail: `${detail} Connect a broker account (Accounts page), or try everything with sample data: npm start -- --demo.` };
+      return { title: "No broker connected for this", detail: `${detail} Add your broker and log in on the Accounts page, or try everything with sample data in demo mode.` };
+    case "ACCOUNT_FORBIDDEN":
+      return { title: "This key cannot do that", detail };
+    case "UPSTREAM_ERROR":
+      return { title: "The broker did not accept this", detail };
+    case "UPSTREAM_TIMEOUT":
+      return { title: "The broker did not answer", detail: `${detail} Check your internet connection and try again in a moment.` };
     case "RATE_LIMITED":
     case "UPSTREAM_RATE_LIMITED":
       return { title: "Slow down a little", detail: `${detail} The Bridge is keeping you inside the broker's limits; try again in a moment.` };
@@ -401,13 +467,163 @@ export function confirmCodeNotice(ticketId, result) {
  */
 export function checklistState({ demo = false, accounts = [], keys = [], copied = false, tested = false }) {
   const brokerConnected = accounts.some((a) => a.broker !== "paper" && a.session?.state === "connected");
-  const activeKeys = keys.filter((k) => !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) < Date.now()));
+  // Keys made by sign-in links are the dashboard's own, not a key for a tool.
+  const activeKeys = keys.filter((k) => !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) < Date.now()) && !(k.clientKind === "ui" && k.label === SIGN_IN_KEY_LABEL));
   return [
     { id: "broker", done: demo || brokerConnected },
     { id: "key", done: activeKeys.length >= 2 },
     { id: "snippet", done: Boolean(copied) },
     { id: "test", done: Boolean(tested) },
   ];
+}
+
+// ── Broker login form (pure; tested) ──
+
+/** Plain-English names for the fields brokers ask for (GET /v1/brokers credentialFields). */
+const FIELD_LABELS = Object.freeze({
+  apiKey: "API key",
+  apiSecret: "API secret",
+  accessToken: "Access token",
+  clientId: "Client ID",
+  clientCode: "Client code",
+  userId: "User ID",
+  appId: "App ID",
+  appKey: "App key",
+  appCode: "App code",
+  appName: "App name",
+  appSource: "App source",
+  appSecret: "App secret",
+  secretKey: "Secret key",
+  userKey: "User key",
+  encryptionKey: "Encryption key",
+  authCode: "Auth code",
+  authToken: "Auth token",
+  requestToken: "Request token",
+  requestCode: "Request code",
+  userSession: "User session",
+  userSessionId: "User session ID",
+  apiSession: "API session",
+  apiToken: "API token",
+  vendorCode: "Vendor code",
+  mobileNumber: "Mobile number",
+  phone: "Phone number",
+  ucc: "UCC (client code)",
+  applicationId: "Application ID",
+  apiClientId: "API client ID",
+  authorizationKey: "Authorization key",
+  ssoId: "SSO ID",
+  interactiveApiKey: "Interactive (orders) API key",
+  interactiveApiSecret: "Interactive (orders) API secret",
+  interactiveSessionToken: "Interactive session token",
+  marketApiKey: "Market data API key",
+  marketApiSecret: "Market data API secret",
+});
+/** Fields that identify you rather than unlock anything: shown as you type them. Everything else is masked. */
+const PLAIN_FIELDS = new Set(["clientId", "clientCode", "userId", "appId", "appName", "appSource", "applicationId", "apiClientId", "vendorCode", "mobileNumber", "phone", "ucc", "ssoId"]);
+/** Values that belong to one day's session for brokers whose token is minted daily (session.mjs DAILY_TOKEN_VALUE_KEYS, plus the same idea under other names). */
+const DAILY_FIELDS = new Set(["accessToken", "requestToken", "requestCode", "authCode", "userSession", "userSessionId", "interactiveSessionToken", "apiSession", "authToken", "ssoId"]);
+
+/** A readable name for a broker field key: "apiKey" -> "API key". Pure. */
+export function fieldLabel(key) {
+  const k = String(key ?? "");
+  if (FIELD_LABELS[k]) return FIELD_LABELS[k];
+  const words = k.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase().replace(/\bapi\b/g, "API").replace(/\bid\b/g, "ID");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * Plain-language steps for one broker's login, by auth kind (GET /v1/brokers authKind, tokenExpiry, loginUrl). Pure.
+ * @returns {string[]}
+ */
+export function loginHelp(broker) {
+  const name = broker?.name ?? "your broker";
+  const ends = broker?.tokenExpiry ? ` (it ends at ${broker.tokenExpiry})` : "";
+  switch (broker?.authKind) {
+    case "oauthRedirect":
+      return [
+        `Enter your app's API key and secret from ${name}'s developer site once; they are saved, encrypted, on this computer.`,
+        `Each trading day, log in on ${name}'s own page${broker?.loginUrl ? " (button below)" : ""} and paste that day's access token here${ends}.`,
+      ];
+    case "requestTokenExchange":
+      return [
+        `Enter your API details from ${name}'s developer site once; they are saved, encrypted, on this computer.`,
+        `Each trading day, log in on ${name}'s own page${broker?.loginUrl ? " (button below)" : ""}, copy the one-time code it gives you and paste it here. The Bridge swaps it for the day's session.`,
+      ];
+    case "sessionLogin":
+      return [
+        `Enter your API details from ${name} once; they are saved, encrypted, on this computer.`,
+        "Each time you log in, type your PIN or password and the current 6-digit code from your authenticator app. These are used once to log in and are never saved.",
+      ];
+    default:
+      return [
+        `Copy these from ${name}'s API or developer page. They are saved, encrypted, on this computer only, and go nowhere but ${name}.`,
+        "When the broker ends the token, make a new one there and log in here again.",
+      ];
+  }
+}
+
+/**
+ * Everything the Log in sheet draws for one broker: the fields to type (saved keys in `values`, one-time login
+ * secrets in `secrets`) and the help text. `saved`: the account has logged in before, so empty fields keep what was
+ * saved. Pure.
+ * @returns {{ kind: string, help: string[], keepHint: boolean, fields: Array<{ key: string, group: "values"|"secrets",
+ *   label: string, type: "text"|"password", inputmode?: string, pattern?: string, maxlength?: number, hint: string|null, required: boolean }> }}
+ */
+export function loginFormSpec(broker, { saved = false } = {}) {
+  const kind = broker?.authKind ?? "apiKeyToken";
+  const daily = kind === "oauthRedirect" || kind === "requestTokenExchange";
+  const values = (broker?.credentialFields ?? []).map((key) => ({
+    key,
+    group: "values",
+    label: fieldLabel(key),
+    type: PLAIN_FIELDS.has(key) ? "text" : "password",
+    hint: daily && DAILY_FIELDS.has(key) ? "New every trading day" : null,
+    required: false,
+  }));
+  const secrets = (broker?.loginFields ?? []).map((f) =>
+    f.kind === "totp"
+      ? { key: f.key, group: "secrets", label: f.label ?? fieldLabel(f.key), type: "text", inputmode: "numeric", pattern: "[0-9]{6}", maxlength: 6, hint: "From your authenticator app. Used once, never saved", required: true }
+      : { key: f.key, group: "secrets", label: f.label ?? fieldLabel(f.key), type: "password", hint: "Used once to log in, never saved", required: true },
+  );
+  return { kind, help: loginHelp(broker), keepHint: Boolean(saved) && values.length > 0, fields: [...values, ...secrets] };
+}
+
+/**
+ * The connect request body from what was typed: empty fields are left out (so a saved value is kept), `secrets` only
+ * when there are any. Pure. @param {(field) => string} read
+ */
+export function loginBody(spec, read) {
+  const values = {};
+  const secrets = {};
+  for (const f of spec.fields) {
+    const v = String(read(f) ?? "").trim();
+    if (!v) continue;
+    (f.group === "secrets" ? secrets : values)[f.key] = v;
+  }
+  return Object.keys(secrets).length ? { values, secrets } : { values };
+}
+
+/**
+ * The broker's login page with its {field} placeholders filled from what was typed, or null until every one is
+ * filled. Only https addresses. Pure.
+ */
+export function fillLoginUrl(template, values) {
+  if (typeof template !== "string" || !template.startsWith("https://")) return null;
+  let missing = false;
+  const url = template.replace(/\{([A-Za-z0-9_]+)\}/g, (_, k) => {
+    const v = String(values?.[k] ?? "").trim();
+    if (!v) missing = true;
+    return encodeURIComponent(v);
+  });
+  return missing ? null : url;
+}
+
+/** Whether a broker matches a search ("zer", "kite", "angel one" ...). Pure. */
+export function brokerMatches(broker, query) {
+  const q = String(query ?? "").trim().toLowerCase();
+  if (!q) return true;
+  const hay = `${broker?.name ?? ""} ${broker?.id ?? ""}`.toLowerCase();
+  return q.split(/\s+/).every((w) => hay.includes(w));
 }
 
 // ── Theme ──
@@ -459,7 +675,8 @@ async function signIn() {
   if (!signIn.pulsing) signIn.pulsing = pulse(document.querySelector(".who .dot"));
   document.getElementById("who").textContent = `Key ${memoryKey.split("_")[1] ?? ""} · v${app.state.health?.version ?? ""}`;
   const { startRouter } = await import("./views.js");
-  startRouter();
+  // Awaited so a banner shown after sign-in comes after the first page draw (which clears #toast).
+  await startRouter();
 }
 
 if (typeof document !== "undefined" && document.getElementById("login-form")) {
@@ -488,5 +705,20 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
     location.hash = "";
     location.reload();
   });
-  signIn();
+  boot();
+}
+
+/** Start-up: redeem a sign-in link first (when the page was opened with one), then sign in as usual. */
+async function boot() {
+  if (pendingSignInCode === null) return signIn();
+  const result = await redeemSignIn(pendingSignInCode);
+  if ("key" in result) setKey(result.key);
+  await signIn();
+  if ("key" in result) {
+    if (!document.getElementById("app").hidden) toast("Signed in. Welcome to your Bridge.");
+  } else if (!memoryKey) {
+    // Already signed in in this tab: the older key keeps working, so an old link needs no error.
+    document.getElementById("login-error").replaceChildren(alertBox(result.error));
+    shake(document.querySelector("#login .login-card") ?? document.getElementById("login-form"));
+  }
 }

@@ -12,11 +12,16 @@ import { createAccountRoutes, loadRoutePolicies } from "./routes.mjs";
 /** Body cap for the connect route. Saved values are small in practice; 16 KB is ample and bounds abuse. */
 export const SESSION_BODY_LIMIT_BYTES = 16 * 1024;
 
+/** Body cap for adding an account ({ broker, id, label }). */
+export const ADD_BODY_LIMIT_BYTES = 2 * 1024;
+
 /** [method, path, route options, handler name] */
 export const ROUTES = Object.freeze([
   ["GET", "/v1/brokers", { scope: "read" }, "listBrokers"],
   ["GET", "/v1/accounts", { scope: "read" }, "listAccounts"],
+  ["POST", "/v1/accounts", { scope: "admin", loopbackOnly: true, bodyLimitBytes: ADD_BODY_LIMIT_BYTES }, "addAccount"],
   ["GET", "/v1/accounts/:accountId", { scope: "read" }, "getAccount"],
+  ["DELETE", "/v1/accounts/:accountId", { scope: "admin", loopbackOnly: true, body: "none" }, "removeAccount"],
   ["POST", "/v1/accounts/:accountId/session", { scope: "admin", loopbackOnly: true, bodyLimitBytes: SESSION_BODY_LIMIT_BYTES }, "connect"],
   ["DELETE", "/v1/accounts/:accountId/session", { scope: "admin", loopbackOnly: true, body: "none" }, "disconnect"],
   ["POST", "/v1/accounts/:accountId/test", { scope: "read", body: "none" }, "test"],

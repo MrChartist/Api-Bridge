@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { USAGE, bridgeUrl, parseExpiry, runCli, runDoctor, startHints } from "./cli.mjs";
+import { USAGE, bridgeUrl, openInBrowser, parseExpiry, runCli, runDoctor, startHints } from "./cli.mjs";
 import { loadConfig } from "./config.mjs";
 
 function io(env = {}) {
@@ -256,7 +256,12 @@ describe("doctor: market-data source", () => {
     const md = checks.find((c) => c.check === "market-data");
     expect(md).toMatchObject({ level: "warn" });
     expect(md.message).toMatch(/No market-data source connected \(log in dhan-main\)/);
-    expect(md.message).toMatch(/mc-bridge start --demo/);
+    expect(md.message).toMatch(/npm run bridge -- start --demo --open/);
+    // Hints name the command that works in the user's setup: the installers set MCB_CLI_NAME.
+    const installed = await runDoctor({ config, env: { MCB_CLI_NAME: "mc-bridge" }, portCheck: false, deps });
+    expect(installed.find((c) => c.check === "market-data").message).toMatch(/\(mc-bridge start --demo --open\)/);
+    const docker = await runDoctor({ config, env: { MCB_DOCKER: "1" }, portCheck: false, deps });
+    expect(docker.find((c) => c.check === "market-data").message).toMatch(/docker compose exec bridge mc-bridge start --demo/);
   });
 });
 
@@ -267,5 +272,145 @@ describe("doctor: master key location", () => {
     expect(same.some((c) => c.check === "master-key" && /next to secrets.enc/.test(c.message))).toBe(true);
     const apart = await runDoctor({ config, env: { MCB_MASTER_KEY_FILE: "/tmp/elsewhere-mcb/master.key" }, portCheck: false });
     expect(apart.some((c) => /next to secrets.enc/.test(c.message))).toBe(false);
+  });
+});
+
+describe("one-time sign-in links from the CLI", () => {
+  /** A CLI test folder whose config listens on `port` (0: any free port). */
+  function signInIo(port = 0, env = {}) {
+    const a = io(env);
+    writeFileSync(join(a.dir, "bridge.config.json"), JSON.stringify({ dataDir: "data", logging: { level: "silent" }, server: { port } }));
+    a.opened = [];
+    a.io.openUrl = (url) => {
+      a.opened.push(url);
+      return true;
+    };
+    return a;
+  }
+  const codeOf = (url) => /#signin=([A-Za-z0-9_-]{43})$/.exec(url)?.[1];
+  const redeem = (port, code) => fetch(`http://127.0.0.1:${port}/v1/sign-in`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) });
+  async function runningBridge(a) {
+    const { config } = loadConfig({ path: join(a.dir, "bridge.config.json"), env: {}, cwd: a.dir });
+    const { createApp } = await import("./app.mjs");
+    const { createNullLogger } = await import("./logger.mjs");
+    const app = await createApp({ config, logger: createNullLogger() });
+    const { port } = await app.listen();
+    return { app, port };
+  }
+
+  it("start --open opens the dashboard with a one-time code in the fragment, and the code signs in once", async () => {
+    for (const flags of [{ open: true }, { open: true, demo: true }]) {
+      const a = signInIo();
+      let app = null;
+      a.io.onListening = (x) => (app = x);
+      expect(await runCli(["start"], flags, a.io)).toBeNull();
+      try {
+        expect(a.opened).toHaveLength(1);
+        const m = /^http:\/\/127\.0\.0\.1:(\d+)\/dashboard#signin=([A-Za-z0-9_-]{43})$/.exec(a.opened[0]);
+        expect(m).toBeTruthy();
+        expect(a.err.join("\n")).toMatch(/works once and expires in 10 minutes/);
+        const first = await redeem(Number(m[1]), m[2]);
+        expect(first.status).toBe(201);
+        const { data } = await first.json();
+        expect(data.record.scopes).toContain("admin");
+        expect((await redeem(Number(m[1]), m[2])).status).toBe(401);
+        if (flags.demo) expect(app.config.demo).toBe(true);
+      } finally {
+        await app?.close();
+      }
+    }
+  });
+
+  it("start --open with the Bridge already running opens a fresh link and exits 0 (double-click twice)", async () => {
+    const first = signInIo();
+    const { app, port } = await runningBridge(first);
+    try {
+      // Same folder and config, now with the port the first Bridge took.
+      writeFileSync(join(first.dir, "bridge.config.json"), JSON.stringify({ dataDir: "data", logging: { level: "silent" }, server: { port } }));
+      expect(await runCli(["start"], { open: true }, first.io)).toBe(0);
+      expect(first.err.join("\n")).toMatch(/The Bridge is already running; opening the dashboard\./);
+      expect(first.opened).toHaveLength(1);
+      expect(first.opened[0]).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${port}/dashboard#signin=`));
+      expect((await redeem(port, codeOf(first.opened[0]))).status).toBe(201);
+      // Without --open it says how to open the dashboard instead of failing on the port.
+      expect(await runCli(["start"], {}, first.io)).toBe(1);
+      expect(first.err.at(-1)).toMatch(/already running.*mc-bridge open/);
+      // demo mode asked for, but the running Bridge is not in demo mode: still opens, with a note.
+      expect(await runCli(["start"], { open: true, demo: true }, first.io)).toBe(0);
+      expect(first.err.join("\n")).toMatch(/not in demo mode/);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("start keeps a clear error when the port belongs to another program", async () => {
+    const other = http.createServer((req, res) => {
+      res.statusCode = 404;
+      res.end("not the Bridge");
+    });
+    await new Promise((r) => other.listen(0, "127.0.0.1", r));
+    try {
+      const a = signInIo(other.address().port);
+      expect(await runCli(["start"], { open: true }, a.io)).toBe(1);
+      expect(a.err.at(-1)).toMatch(/already in use by another program/);
+      expect(a.opened).toEqual([]);
+    } finally {
+      other.close();
+    }
+  });
+
+  it("open: signs in to the running Bridge, or says how to start it", async () => {
+    const a = signInIo(0, { MCB_BRIDGE_URL: "http://127.0.0.1:9" });
+    expect(await runCli(["open"], {}, a.io)).toBe(1);
+    expect(a.err.at(-1)).toMatch(/not running.*mc-bridge start --open/);
+    expect(a.opened).toEqual([]);
+
+    const { app, port } = await runningBridge(a);
+    try {
+      a.io.env = { MCB_BRIDGE_URL: `http://127.0.0.1:${port}` };
+      expect(await runCli(["open"], {}, a.io)).toBe(0);
+      expect(a.opened).toHaveLength(1);
+      expect((await redeem(port, codeOf(a.opened[0]))).status).toBe(201);
+
+      // A Bridge that keeps its files elsewhere would not know the code: say so instead of opening a dead link.
+      const elsewhere = signInIo(0, { MCB_BRIDGE_URL: `http://127.0.0.1:${port}` });
+      expect(await runCli(["open"], {}, elsewhere.io)).toBe(1);
+      expect(elsewhere.err.at(-1)).toMatch(/another folder/);
+      expect(elsewhere.opened).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("prints the link, with its limits, when no browser can be opened", async () => {
+    const a = signInIo(0, { MCB_BRIDGE_URL: "http://127.0.0.1:9" });
+    const { app, port } = await runningBridge(a);
+    try {
+      a.io.env = { MCB_BRIDGE_URL: `http://127.0.0.1:${port}` };
+      a.io.openUrl = () => false;
+      expect(await runCli(["open"], {}, a.io)).toBe(0);
+      expect(a.err.join("\n")).toMatch(/It works once and expires in 10 minutes/);
+      expect(a.err.at(-1)).toMatch(new RegExp(`http://127\\.0\\.0\\.1:${port}/dashboard#signin=[A-Za-z0-9_-]{43}$`));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("openInBrowser does not pretend to open a browser on a machine without a desktop", () => {
+    const calls = [];
+    const spawnImpl = (cmd, args) => {
+      calls.push([cmd, ...args]);
+      return { on() {}, unref() {} };
+    };
+    const url = "http://127.0.0.1:4300/dashboard#signin=abc";
+    expect(openInBrowser(url, { platform: "linux", env: {}, spawnImpl })).toBe(false);
+    expect(openInBrowser(url, { platform: "linux", env: { DISPLAY: ":0" }, spawnImpl })).toBe(true);
+    expect(openInBrowser(url, { platform: "darwin", env: {}, spawnImpl })).toBe(true);
+    expect(calls).toEqual([["xdg-open", url], ["open", url]]);
+    expect(openInBrowser("javascript:alert(1)", { platform: "darwin", env: {}, spawnImpl })).toBe(false);
+  });
+
+  it("lists the open command in the usage text", () => {
+    expect(USAGE).toMatch(/mc-bridge open/);
   });
 });

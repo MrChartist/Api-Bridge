@@ -13,7 +13,8 @@
   <script type="module" src="/dashboard/app.js"></script>
 </head>
 <body>
-  <!-- Sign-in: the API key stays in this browser tab only (sessionStorage) and is never put in a URL. -->
+  <!-- Sign-in: the API key stays in this browser tab only (sessionStorage) and is never put in a URL. A one-time
+       sign-in link (#signin=..., from mc-bridge start --open or mc-bridge open) skips this screen; see app.js. -->
   <section id="login" class="login" hidden>
     <div class="card login-card">
       <div class="traffic" aria-hidden="true"><span></span><span></span><span></span></div>
@@ -39,7 +40,7 @@
           <li>In the Bridge folder, run <code>npm run bridge -- init</code> (first time), or</li>
           <li><code>npm run bridge -- keys create --label me --scope admin,paper</code></li>
         </ol>
-        <p class="muted">Lost your key? Create a new one the same way and revoke the old one on the Keys page.</p>
+        <p class="muted">Lost your key? You do not need it here: open the Bridge again from its shortcut, or run <code>mc-bridge open</code> (in the Bridge folder: <code>npm run bridge -- open</code>). The dashboard then opens already signed in.</p>
       </div>
     </div>
   </section>
