@@ -31,7 +31,7 @@ import {
   toast,
 } from "./app.js";
 import { DASH, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
-import { renderOptionDesk } from "./desk.js";
+import { renderChainPage, renderOiPage, renderPositionsPage, renderStrategyPage } from "./desk.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
@@ -187,7 +187,10 @@ export const PAGES = [
   { id: "console", label: "Test console", icon: "console", tint: "teal", group: "Overview", title: "Test console", sub: "Try any call and see exactly what comes back", render: renderConsole },
   { id: "limits", label: "Rate limits", icon: "limits", tint: "purple", group: "Overview", title: "Rate limits", sub: "Live usage against each broker's limits, and the calls the Bridge saved", render: renderLimits },
   { id: "scanner", label: "Scanner", icon: "scan", tint: "mint", group: "Overview", title: "Scanner", sub: "Scan big universes with a readable condition, shared out over your accounts", render: renderScanner },
-  { id: "desk", label: "Option Desk", short: "Desk", icon: "chart", tint: "green", tab: true, group: "Trading", title: "Option Desk", headline: ["Option ", { serif: "Desk" }], sub: "Live option chain with OI, IV and Greeks. Click a bid or ask to trade; paper unless you choose live", render: renderOptionDesk },
+  { id: "chain", label: "Option Chain", short: "Chain", icon: "chart", tint: "green", tab: true, group: "Options", layout: "desk", title: "Option Chain", sub: "Live chain with OI, IV and Greeks. Click a bid or ask to trade", render: renderChainPage },
+  { id: "strategy", label: "Strategy Builder", icon: "strategy", tint: "purple", group: "Options", layout: "desk", title: "Strategy Builder", sub: "Payoff, breakevens and win chance before you trade", render: renderStrategyPage },
+  { id: "oi", label: "OI Analysis", icon: "bars", tint: "orange", group: "Options", layout: "desk", title: "OI Analysis", sub: "Open interest and its change by strike, build-up and walls", render: renderOiPage },
+  { id: "positions", label: "Positions", icon: "wallet", tint: "teal", group: "Options", layout: "desk", title: "Option positions", sub: "Open option positions with P&L and Greeks", render: renderPositionsPage },
   { id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, group: "Trading", title: "Orders and positions", sub: "Paper by default. Pending confirmations wait here", render: renderOrders },
   { id: "safety", label: "Safety", icon: "safety", tint: "red", tab: true, group: "Trading", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
   { id: "keys", label: "API keys", icon: "keys", tint: "pink", group: "Connect", title: "API keys", sub: "One key per tool, with only the access it needs", render: renderKeys },
@@ -371,6 +374,7 @@ async function show() {
   nav(page.id);
   // Pages can restyle the shell (the Option Desk hides the large title and runs edge to edge).
   document.documentElement.dataset.page = page.id;
+  document.documentElement.dataset.layout = page.layout ?? "";
   document.title = `${page.label} · Mr. Chartist API Bridge`;
   $("toolbar-icon").replaceChildren(pageGlyph(page));
   $("toolbar-label").textContent = page.label;

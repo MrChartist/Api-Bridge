@@ -248,6 +248,8 @@ export const ICONS = {
   wallet: '<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18"/><circle cx="16" cy="15" r="1.2"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+  strategy: '<path d="M3 17h5l4-10 4 10h5"/><path d="M3 21h18"/>',
+  bars: '<path d="M4 20V10M9 20V4M14 20v-7M19 20V8"/>',
 };
 export function icon(name) {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");

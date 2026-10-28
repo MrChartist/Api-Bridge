@@ -57,7 +57,14 @@ function bindKeys() {
   });
 }
 
-export async function renderOptionDesk() {
+/** The four Options pages share one state (underlying, expiry, account, strategy), kept in localStorage. */
+export const renderChainPage = () => renderDesk("chain");
+export const renderStrategyPage = () => renderDesk("strategy");
+export const renderOiPage = () => renderDesk("oi");
+export const renderPositionsPage = () => renderDesk("positions");
+
+/** @param {"chain"|"strategy"|"oi"|"positions"} kind */
+async function renderDesk(kind) {
   const accounts = (await api("/v1/accounts")).data.data ?? [];
   const tradable = accounts.filter((a) => a.enabled && (a.capabilities ?? []).includes("placeOrder"));
   const prefs = readPrefs();
@@ -113,7 +120,9 @@ export async function renderOptionDesk() {
     ),
   );
   const builderEl = h("div");
+  const adderEl = h("div");
   const profileEl = h("div");
+  const oiMoreEl = h("div", { class: "grid desk-split" });
   const posEl = h("div");
 
   // ── Data ──
@@ -206,13 +215,20 @@ export async function renderOptionDesk() {
       chainEl.replaceChildren(st.error ? h("div", { class: "desk-pad" }, alertBox(st.error)) : h("p", { class: "muted desk-pad" }, "Loading the chain…"));
       builderEl.replaceChildren();
       profileEl.replaceChildren();
+      oiMoreEl.replaceChildren();
       return;
     }
     const x = context();
     drawStats(x);
-    chain.draw(x);
-    drawBuilder(x);
-    drawProfile(x);
+    if (kind === "chain") chain.draw(x);
+    if (kind === "strategy") {
+      drawAdder(x);
+      drawBuilder(x);
+    }
+    if (kind === "oi") {
+      drawProfile(x);
+      drawOiMore(x);
+    }
   }
   function drawClock() {
     const asOf = st.freshness?.asOf;
@@ -260,6 +276,8 @@ export async function renderOptionDesk() {
     },
   });
 
+  function drawAdder() {}
+  function drawOiMore() {}
   function drawProfile(x) {
     profileEl.replaceChildren(oiProfile(x, st.profile, (p) => {
       st.profile = p;
@@ -361,8 +379,7 @@ export async function renderOptionDesk() {
     if (!legs.length) return toast(`Positions on other expiries: switch the expiry to analyse them.`);
     st.baskets[basketKey()] = legs;
     save();
-    drawBuilder(context());
-    builderEl.scrollIntoView({ behavior: "smooth", block: "start" });
+    location.hash = "#/strategy";
   }
 
   /** Send orders one by one (hedges first is the caller's job); stop at the first refusal. Returns a summary line. */
@@ -394,8 +411,8 @@ export async function renderOptionDesk() {
     if (same) same.lots += leg.lots ?? 1;
     else legs.push({ right: leg.right, strike: leg.strike, side: leg.side, lots: leg.lots ?? 1 });
     save();
-    drawBuilder(context());
-    toast(`${leg.side === "BUY" ? "Buy" : "Sell"} ${formatInt(leg.strike)} ${leg.right} added to the strategy`);
+    if (kind === "strategy") drawBuilder(context());
+    toast(`${leg.side === "BUY" ? "Buy" : "Sell"} ${formatInt(leg.strike)} ${leg.right} added${kind === "strategy" ? "" : " to Strategy Builder"}`);
   }
   function drawBuilder(x) {
     const legs = pricedLegs();
@@ -694,7 +711,7 @@ export async function renderOptionDesk() {
       return false;
     },
   };
-  activeDesk = desk;
+  activeDesk = kind === "chain" ? desk : null;
   bindKeys();
 
   // ── Wiring ──
@@ -745,15 +762,14 @@ export async function renderOptionDesk() {
     "div",
     { class: "desk-bar" },
     h("div", { class: "desk-pick" }, uSel, eSel),
-    h("div", { class: "desk-opts" }, strikesSeg, viewSeg),
-    h("div", { class: "desk-acct", title: "Orders from this desk go to this account" }, aSel),
+    kind === "chain" ? h("div", { class: "desk-opts" }, strikesSeg, viewSeg) : null,
+    h("div", { class: "desk-acct", title: "Orders from these pages go to this account" }, aSel),
     h("div", { class: "desk-live" }, clock, liveBtn),
   );
-  return [
-    h("section", { class: "desk-panel" }, bar, statsEl, chainEl, keysEl),
-    builderEl,
-    h("div", { class: "grid desk-split" }, profileEl, posEl),
-  ];
+  if (kind === "chain") return [h("section", { class: "desk-panel" }, bar, statsEl, chainEl, keysEl)];
+  if (kind === "strategy") return [h("section", { class: "desk-panel" }, bar, statsEl), adderEl, builderEl];
+  if (kind === "oi") return [h("section", { class: "desk-panel" }, bar, statsEl), profileEl, oiMoreEl];
+  return [h("section", { class: "desk-panel" }, bar), posEl];
 }
 
 // ── Chain table (built once, patched on every refresh) ──
