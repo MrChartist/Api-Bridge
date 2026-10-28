@@ -287,6 +287,47 @@ paths:
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Accounts]
+      operationId: addAccount
+      summary: Add a broker or paper account (saved to the config file, usable at once)
+      description: |
+        Adds the account to the config file the Bridge loaded (or creates the per-user bridge.config.json when it started
+        without one), keeping the file's other content, and starts using it without a restart. New accounts are always
+        paper only: live trading is turned on only by editing the config file. Without `id` the Bridge picks
+        `<broker>-main`, then `<broker>-2` ... (`paper`, `paper-2` ... for paper accounts). Log in afterwards with
+        POST /v1/accounts/{accountId}/session. Admin scope with an admin key that may use every account, this computer
+        only. Refused in demo mode. Audited as `account.added`.
+      x-stream: S1
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AccountCreateRequest" }
+      responses:
+        "201":
+          description: The account was saved. `restartNeeded` is true only when it could not be loaded into the running Bridge.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [account, restartNeeded, configFile]
+                    properties:
+                      account:
+                        oneOf:
+                          - $ref: "#/components/schemas/AccountSummary"
+                          - type: "null"
+                      restartNeeded: { type: boolean }
+                      configFile: { type: string, description: "The config file the account was saved to." }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
 
   /v1/accounts/{accountId}:
     parameters:
@@ -307,6 +348,39 @@ paths:
                 required: [data, meta]
                 properties:
                   data: { $ref: "#/components/schemas/AccountSummary" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Accounts]
+      operationId: removeAccount
+      summary: Remove an account (from the config file and the running Bridge)
+      description: |
+        For an account added by mistake. Removes it from the config file and the running Bridge and deletes its saved
+        keys and session from the encrypted store; its paper-trading history stays in the data folder. Refuses an
+        account with live trading set up in the config file (remove those in the file, on purpose) and the last paper
+        account. Admin scope with an admin key that may use every account, this computer only. Refused in demo mode.
+        Audited as `account.removed`.
+      x-stream: S1
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: The account was removed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [id, removed, savedKeysDeleted, restartNeeded]
+                    properties:
+                      id: { type: string }
+                      removed: { type: boolean }
+                      savedKeysDeleted: { type: boolean }
+                      restartNeeded: { type: boolean }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -3647,6 +3721,9 @@ components:
               label: { type: string }
               kind: { type: string, enum: [secret, totp] }
         tokenExpiry: { type: [string, "null"], description: "When the broker's session usually ends, as the broker documents it." }
+        loginUrl:
+          type: string
+          description: "The broker's own login page, with {field} placeholders that are all credentialFields (e.g. {apiKey}). Only for brokers that declare one."
         policy: { $ref: "#/components/schemas/BrokerPolicy" }
     BrokerPolicy:
       type: object
@@ -3690,6 +3767,15 @@ components:
         pooling: { type: boolean, description: "This account's market-data budget may serve requests that did not name an account." }
         capabilities: { type: array, items: { type: string } }
         authKind: { type: [string, "null"] }
+    AccountCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [broker]
+      properties:
+        broker: { type: string, description: "An adapter id from GET /v1/brokers, or paper." }
+        id: { type: string, pattern: "^[a-z0-9][a-z0-9-]{1,31}$", description: "Optional; the Bridge picks one when it is left out." }
+        label: { type: string, maxLength: 60, description: "A name you will recognise. Optional." }
+
     SessionConnectRequest:
       type: object
       additionalProperties: false

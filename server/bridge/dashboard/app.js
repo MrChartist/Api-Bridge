@@ -120,7 +120,7 @@ export const currentKey = () => memoryKey;
  */
 export function friendlyError(err) {
   const detail = err?.message ?? "";
-  if (err?.network) return { title: "Cannot reach the Bridge", detail: "Is it still running? Start it again with npm start (or the start file you double-clicked), then refresh this page." };
+  if (err?.network) return { title: "Cannot reach the Bridge", detail: "Is it still running? Start it again from its shortcut (or the start file you double-clicked), then refresh this page." };
   switch (err?.code) {
     case "UNAUTHENTICATED":
       return { title: "That key was not accepted", detail: "It may be mistyped, expired or revoked. Open the Bridge again from its shortcut (or run mc-bridge open) to sign in without a key, or create a new one with: npm run bridge -- keys create --label me --scope admin,paper" };
@@ -129,10 +129,16 @@ export function friendlyError(err) {
     case "LOOPBACK_ONLY":
       return { title: "Only from this computer", detail: "This page manages keys and accounts, so it works only at http://127.0.0.1 on the computer running the Bridge." };
     case "SESSION_EXPIRED":
-      return { title: "Broker session expired", detail: `${detail} Log in again: npm run bridge -- accounts connect <account id>.` };
+      return { title: "Broker session expired", detail: `${detail} Log in again: Accounts page, Log in.` };
     case "BROKER_UNAVAILABLE":
     case "NO_ACCOUNT":
-      return { title: "No broker connected for this", detail: `${detail} Connect a broker account (Accounts page), or try everything with sample data: npm start -- --demo.` };
+      return { title: "No broker connected for this", detail: `${detail} Add your broker and log in on the Accounts page, or try everything with sample data in demo mode.` };
+    case "ACCOUNT_FORBIDDEN":
+      return { title: "This key cannot do that", detail };
+    case "UPSTREAM_ERROR":
+      return { title: "The broker did not accept this", detail };
+    case "UPSTREAM_TIMEOUT":
+      return { title: "The broker did not answer", detail: `${detail} Check your internet connection and try again in a moment.` };
     case "RATE_LIMITED":
     case "UPSTREAM_RATE_LIMITED":
       return { title: "Slow down a little", detail: `${detail} The Bridge is keeping you inside the broker's limits; try again in a moment.` };
@@ -469,6 +475,155 @@ export function checklistState({ demo = false, accounts = [], keys = [], copied 
     { id: "snippet", done: Boolean(copied) },
     { id: "test", done: Boolean(tested) },
   ];
+}
+
+// ── Broker login form (pure; tested) ──
+
+/** Plain-English names for the fields brokers ask for (GET /v1/brokers credentialFields). */
+const FIELD_LABELS = Object.freeze({
+  apiKey: "API key",
+  apiSecret: "API secret",
+  accessToken: "Access token",
+  clientId: "Client ID",
+  clientCode: "Client code",
+  userId: "User ID",
+  appId: "App ID",
+  appKey: "App key",
+  appCode: "App code",
+  appName: "App name",
+  appSource: "App source",
+  appSecret: "App secret",
+  secretKey: "Secret key",
+  userKey: "User key",
+  encryptionKey: "Encryption key",
+  authCode: "Auth code",
+  authToken: "Auth token",
+  requestToken: "Request token",
+  requestCode: "Request code",
+  userSession: "User session",
+  userSessionId: "User session ID",
+  apiSession: "API session",
+  apiToken: "API token",
+  vendorCode: "Vendor code",
+  mobileNumber: "Mobile number",
+  phone: "Phone number",
+  ucc: "UCC (client code)",
+  applicationId: "Application ID",
+  apiClientId: "API client ID",
+  authorizationKey: "Authorization key",
+  ssoId: "SSO ID",
+  interactiveApiKey: "Interactive (orders) API key",
+  interactiveApiSecret: "Interactive (orders) API secret",
+  interactiveSessionToken: "Interactive session token",
+  marketApiKey: "Market data API key",
+  marketApiSecret: "Market data API secret",
+});
+/** Fields that identify you rather than unlock anything: shown as you type them. Everything else is masked. */
+const PLAIN_FIELDS = new Set(["clientId", "clientCode", "userId", "appId", "appName", "appSource", "applicationId", "apiClientId", "vendorCode", "mobileNumber", "phone", "ucc", "ssoId"]);
+/** Values that belong to one day's session for brokers whose token is minted daily (session.mjs DAILY_TOKEN_VALUE_KEYS, plus the same idea under other names). */
+const DAILY_FIELDS = new Set(["accessToken", "requestToken", "requestCode", "authCode", "userSession", "userSessionId", "interactiveSessionToken", "apiSession", "authToken", "ssoId"]);
+
+/** A readable name for a broker field key: "apiKey" -> "API key". Pure. */
+export function fieldLabel(key) {
+  const k = String(key ?? "");
+  if (FIELD_LABELS[k]) return FIELD_LABELS[k];
+  const words = k.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase().replace(/\bapi\b/g, "API").replace(/\bid\b/g, "ID");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * Plain-language steps for one broker's login, by auth kind (GET /v1/brokers authKind, tokenExpiry, loginUrl). Pure.
+ * @returns {string[]}
+ */
+export function loginHelp(broker) {
+  const name = broker?.name ?? "your broker";
+  const ends = broker?.tokenExpiry ? ` (it ends at ${broker.tokenExpiry})` : "";
+  switch (broker?.authKind) {
+    case "oauthRedirect":
+      return [
+        `Enter your app's API key and secret from ${name}'s developer site once; they are saved, encrypted, on this computer.`,
+        `Each trading day, log in on ${name}'s own page${broker?.loginUrl ? " (button below)" : ""} and paste that day's access token here${ends}.`,
+      ];
+    case "requestTokenExchange":
+      return [
+        `Enter your API details from ${name}'s developer site once; they are saved, encrypted, on this computer.`,
+        `Each trading day, log in on ${name}'s own page${broker?.loginUrl ? " (button below)" : ""}, copy the one-time code it gives you and paste it here. The Bridge swaps it for the day's session.`,
+      ];
+    case "sessionLogin":
+      return [
+        `Enter your API details from ${name} once; they are saved, encrypted, on this computer.`,
+        "Each time you log in, type your PIN or password and the current 6-digit code from your authenticator app. These are used once to log in and are never saved.",
+      ];
+    default:
+      return [
+        `Copy these from ${name}'s API or developer page. They are saved, encrypted, on this computer only, and go nowhere but ${name}.`,
+        "When the broker ends the token, make a new one there and log in here again.",
+      ];
+  }
+}
+
+/**
+ * Everything the Log in sheet draws for one broker: the fields to type (saved keys in `values`, one-time login
+ * secrets in `secrets`) and the help text. `saved`: the account has logged in before, so empty fields keep what was
+ * saved. Pure.
+ * @returns {{ kind: string, help: string[], keepHint: boolean, fields: Array<{ key: string, group: "values"|"secrets",
+ *   label: string, type: "text"|"password", inputmode?: string, pattern?: string, maxlength?: number, hint: string|null, required: boolean }> }}
+ */
+export function loginFormSpec(broker, { saved = false } = {}) {
+  const kind = broker?.authKind ?? "apiKeyToken";
+  const daily = kind === "oauthRedirect" || kind === "requestTokenExchange";
+  const values = (broker?.credentialFields ?? []).map((key) => ({
+    key,
+    group: "values",
+    label: fieldLabel(key),
+    type: PLAIN_FIELDS.has(key) ? "text" : "password",
+    hint: daily && DAILY_FIELDS.has(key) ? "New every trading day" : null,
+    required: false,
+  }));
+  const secrets = (broker?.loginFields ?? []).map((f) =>
+    f.kind === "totp"
+      ? { key: f.key, group: "secrets", label: f.label ?? fieldLabel(f.key), type: "text", inputmode: "numeric", pattern: "[0-9]{6}", maxlength: 6, hint: "From your authenticator app. Used once, never saved", required: true }
+      : { key: f.key, group: "secrets", label: f.label ?? fieldLabel(f.key), type: "password", hint: "Used once to log in, never saved", required: true },
+  );
+  return { kind, help: loginHelp(broker), keepHint: Boolean(saved) && values.length > 0, fields: [...values, ...secrets] };
+}
+
+/**
+ * The connect request body from what was typed: empty fields are left out (so a saved value is kept), `secrets` only
+ * when there are any. Pure. @param {(field) => string} read
+ */
+export function loginBody(spec, read) {
+  const values = {};
+  const secrets = {};
+  for (const f of spec.fields) {
+    const v = String(read(f) ?? "").trim();
+    if (!v) continue;
+    (f.group === "secrets" ? secrets : values)[f.key] = v;
+  }
+  return Object.keys(secrets).length ? { values, secrets } : { values };
+}
+
+/**
+ * The broker's login page with its {field} placeholders filled from what was typed, or null until every one is
+ * filled. Only https addresses. Pure.
+ */
+export function fillLoginUrl(template, values) {
+  if (typeof template !== "string" || !template.startsWith("https://")) return null;
+  let missing = false;
+  const url = template.replace(/\{([A-Za-z0-9_]+)\}/g, (_, k) => {
+    const v = String(values?.[k] ?? "").trim();
+    if (!v) missing = true;
+    return encodeURIComponent(v);
+  });
+  return missing ? null : url;
+}
+
+/** Whether a broker matches a search ("zer", "kite", "angel one" ...). Pure. */
+export function brokerMatches(broker, query) {
+  const q = String(query ?? "").trim().toLowerCase();
+  if (!q) return true;
+  const hay = `${broker?.name ?? ""} ${broker?.id ?? ""}`.toLowerCase();
+  return q.split(/\s+/).every((w) => hay.includes(w));
 }
 
 // ── Theme ──

@@ -19,6 +19,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createBrokerRegistry } from "../../brokers/registry.mjs";
 import { CONTRACT_VERSION } from "../../brokers/contract.mjs";
+import { cliCommand } from "./cliName.mjs";
+import { withAddableAccounts } from "./config.mjs";
 import { SERVICE_CONTRACTS, isStub } from "./contracts.mjs";
 import { createHttpContext, expandScopes, newRequestId } from "./context.mjs";
 import { BridgeError, problemHeaders, toProblem } from "./errors.mjs";
@@ -65,12 +67,14 @@ export function safeLogPath(pathname, isPublic = false) {
 
 /**
  * @param {{ config: any, modules?: any[], overrides?: Record<string, object>, logger?: any, clock?: { now(): number },
- *   brokers?: any, warnings?: string[] }} opts
+ *   brokers?: any, warnings?: string[], configFile?: string | null }} opts
+ *   configFile: where accounts added from the dashboard are saved (config.mjs configFileForWrites). Without it the
+ *   Bridge cannot add or remove accounts at run time.
  */
-export async function createApp({ config: baseConfig, modules, overrides = {}, logger, clock, brokers, warnings = [] }) {
+export async function createApp({ config: baseConfig, modules, overrides = {}, logger, clock, brokers, warnings = [], configFile = null }) {
   const mods = modules ?? (await import("./builtinModules.mjs")).BUILTIN_MODULES;
   validateModules(mods);
-  const config = applyModuleConfig(baseConfig, mods);
+  const config = withAddableAccounts(applyModuleConfig(baseConfig, mods));
   const log = logger ?? createLogger({ level: config.logging.level });
   const bus = createEventBus({ logger: log });
   mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
@@ -79,7 +83,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     logger: log,
     bus,
     clock: clock ?? { now: () => Date.now() },
-    paths: Object.freeze({ root: ROOT, dataDir: config.dataDir }),
+    paths: Object.freeze({ root: ROOT, dataDir: config.dataDir, configFile: typeof configFile === "string" && configFile ? configFile : null }),
     // Demo mode loads ONLY the demo adapter, so no request can reach a real broker.
     brokers: brokers ?? (config.demo ? createDemoRegistry() : createBrokerRegistry()),
   };
@@ -140,8 +144,9 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     "/v1/meta",
     (ctx) => ({
       bridgeVersion: BRIDGE_VERSION,
-      // The install folder, for this computer only: the dashboard fills it into the MCP (stdio) snippets.
-      ...(ctx.loopback ? { installDir: ROOT } : {}),
+      // For this computer only: the install folder (the dashboard fills it into the MCP (stdio) snippets) and how to run
+      // a Bridge command here (the dashboard's "Prefer the terminal?" hints).
+      ...(ctx.loopback ? { installDir: ROOT, cliCommand: cliCommand() } : {}),
       apiVersion: API_VERSION,
       brokerContractVersion: CONTRACT_VERSION,
       brokers: coreDeps.brokers.list(),

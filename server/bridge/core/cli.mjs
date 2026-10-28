@@ -13,7 +13,7 @@ import { cliCommand } from "./cliName.mjs";
 import { readControlToken } from "./controlToken.mjs";
 import { SIGN_IN_TTL_MS, createSignInCode } from "../auth/signIn.mjs";
 import { BridgeError, NotImplementedError } from "./errors.mjs";
-import { isLoopbackHost, loadConfig } from "./config.mjs";
+import { configFileForWrites, isLoopbackHost, loadConfig } from "./config.mjs";
 import { createLogger } from "./logger.mjs";
 
 export const USAGE = `Mr. Chartist API Bridge
@@ -156,7 +156,7 @@ async function bootServices(flags, io, { server = false } = {}) {
   const { createApp } = await import("./app.mjs");
   // The server logs at the configured level; one-shot commands only show warnings and errors.
   const logger = createLogger({ level: server || config.logging.level === "debug" ? config.logging.level : "warn" });
-  const app = await createApp({ config, logger, warnings });
+  const app = await createApp({ config, logger, warnings, configFile: configFileForWrites(source, io.env) });
   return { app, config: app.config, warnings, source, logger };
 }
 
@@ -195,8 +195,8 @@ export async function startHints({ app, port, env = process.env }) {
     const rows = app.deps.accounts.list().filter((a) => a.broker !== "paper");
     const live = rows.filter((a) => a.session?.state === "connected");
     if (app.config.demo) lines.push("Market data: demo (sample prices generated on this computer).");
-    else if (rows.length === 0) lines.push(`No market-data source connected: no broker account is configured. Quotes and even paper orders need one; add it under "accounts" in bridge.config.json (see docs/guides/accounts.md), or try everything with sample data: ${cli} start --demo --open`);
-    else if (live.length === 0) lines.push(`No market-data source connected (${rows.map((a) => a.id).join(", ")} not logged in). Quotes and even paper orders need one: ${cli} accounts connect <id>.`);
+    else if (rows.length === 0) lines.push(`No market-data source connected: no broker account is configured. Quotes and even paper orders need one: on the dashboard, open Accounts and press Add a broker, or try everything with sample data: ${cli} start --demo --open`);
+    else if (live.length === 0) lines.push(`No market-data source connected (${rows.map((a) => a.id).join(", ")} not logged in). Quotes and even paper orders need one: on the dashboard, open Accounts and press Log in (or: ${cli} accounts connect <id>).`);
     else lines.push(`Market data from: ${live.map((a) => a.id).join(", ")}.`);
   } catch {
     /* account manager not built */
@@ -456,7 +456,7 @@ export async function runCli(positionals, flags, io) {
         const { app } = await bootServices(flags, io);
         const rows = app.deps.accounts.list();
         if (flags.json) io.out(JSON.stringify(rows, null, 2));
-        else if (rows.length === 0) io.out("No accounts configured. Add them under \"accounts\" in bridge.config.json.");
+        else if (rows.length === 0) io.out("No accounts configured. Add one on the dashboard (Accounts, Add a broker), or under \"accounts\" in bridge.config.json.");
         else for (const a of rows) io.out(`${a.id.padEnd(20)} ${a.broker.padEnd(14)} ${a.session.state.padEnd(10)} ${a.liveAllowedByConfig ? "live-enabled" : "paper"}  ${a.label}`);
         return 0;
       }
@@ -627,6 +627,6 @@ async function connectCommand(accountId, flags, io) {
     if (v) secrets[f.key] = v;
   }
   const result = await call("POST", `/v1/accounts/${encodeURIComponent(accountId)}/session`, Object.keys(secrets).length ? { values, secrets } : { values });
-  io.out(`Connected ${accountId}: session ${result?.session?.state ?? "saved"}.`);
+  io.out(`Connected ${accountId}: session ${result?.state ?? result?.session?.state ?? "saved"}.`);
   return 0;
 }

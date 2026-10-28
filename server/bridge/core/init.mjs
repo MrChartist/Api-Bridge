@@ -220,8 +220,8 @@ export async function runInit(flags, io, deps) {
   say(`  1. Start the Bridge:        ${cfg.demo ? `${cmd} start --demo --open` : `${cmd} start --demo --open    (sample data, no broker needed)`}`);
   if (!cfg.demo) say(`                              ${cmd} start --open           (your real accounts)`);
   say(`  2. The dashboard opens by itself, already signed in. To open it again later: ${cmd} open`);
-  if (brokerAccount) say(`  3. Log in to your broker:   ${cmd} accounts connect ${brokerAccount.id}   (while the Bridge is running)`);
-  else say(`  3. Add a broker later:      add it under "accounts" in bridge.config.json (see docs/guides/accounts.md), then restart`);
+  if (brokerAccount) say(`  3. Log in to your broker:   on the dashboard, open Accounts and press Log in (or: ${cmd} accounts connect ${brokerAccount.id})`);
+  else say(`  3. Add a broker later:      on the dashboard, open Accounts and press Add a broker (no restart needed)`);
   say(`  4. Check everything:        ${cmd} doctor`);
   say("");
   say("Paper trading is the default. Live orders stay off until you switch them on in bridge.config.json.");

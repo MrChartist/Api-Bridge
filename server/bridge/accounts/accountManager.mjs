@@ -22,6 +22,8 @@
  *    because a family member is a different user under the brokers' personal-use terms), else the single primary
  *    account, in config order. A caller's account restriction (`allowedAccounts`) is applied first, so a key limited
  *    to some accounts never spends another account's market-data entitlement or rate budget.
+ *  - addAccount()/removeAccount() (POST/DELETE /v1/accounts, after routes.mjs saved the change to the config file)
+ *    start or stop using an account without a restart, through the accounts list the app shares with its services.
  *  - Re-reads SecretStore when its file changes (e.g. the `mc-bridge` CLI in another process), with fs.watch plus a
  *    slow stat poll as a fallback. start()/stop() (called by module.mjs) run the watcher and expiry timers.
  *
@@ -111,9 +113,14 @@ export async function createAccountManager(deps, options = {}) {
   const loginLimiter = options.loginLimiter ?? createLoginRateLimiter({ max: LOGIN_ATTEMPTS_PER_WINDOW, windowMs: LOGIN_WINDOW_MS });
   const pollMs = options.pollMs ?? 5000;
 
-  /** Accounts in config order. */
+  /** Accounts in config order (plus any added at run time, in the order they were added). */
   const accounts = [...config.accounts];
   const byId = new Map(accounts.map((a) => [a.id, a]));
+  /**
+   * The app shares one accounts list between its services (config.mjs withAddableAccounts). When it does, an account
+   * added here is visible to them at once; otherwise (a manager built on a plain frozen config) it cannot be hot-added.
+   */
+  const sharedAccounts = Array.isArray(config.accounts) && !Object.isFrozen(config.accounts) ? config.accounts : null;
 
   /**
    * Per-account in-memory state. Holds no secret.
@@ -122,9 +129,8 @@ export async function createAccountManager(deps, options = {}) {
    *   lastKey: string | null, timer: NodeJS.Timeout | null }>}
    */
   const mem = new Map();
-  for (const a of accounts) {
-    mem.set(a.id, { facts: describeRecord(null, null), rejectedStamp: null, error: null, checking: false, checkedAt: null, lastKey: null, timer: null });
-  }
+  const freshMem = () => ({ facts: describeRecord(null, null), rejectedStamp: null, error: null, checking: false, checkedAt: null, lastKey: null, timer: null });
+  for (const a of accounts) mem.set(a.id, freshMem());
   const locks = new Map();
   let started = false;
   let storeWarned = false;
@@ -245,6 +251,7 @@ export async function createAccountManager(deps, options = {}) {
   /** Apply freshly read record facts. A different record (new connect, CLI change) clears stale flags. */
   function applyFacts(account, facts) {
     const m = mem.get(account.id);
+    if (!m) return; // removed while the store was being read
     if (facts.stamp !== m.facts.stamp) {
       m.rejectedStamp = null;
       m.error = null;
@@ -270,7 +277,8 @@ export async function createAccountManager(deps, options = {}) {
     reloading = (async () => {
       do {
         reloadAgain = false;
-        for (const account of accounts) {
+        for (const account of [...accounts]) {
+          if (!byId.has(account.id)) continue; // removed meanwhile
           if (account.broker !== PAPER_BROKER && adapterOf(account)) {
             try {
               await readRecord(account);
@@ -281,7 +289,7 @@ export async function createAccountManager(deps, options = {}) {
               }
             }
           }
-          evaluate(account, { emit });
+          if (byId.has(account.id)) evaluate(account, { emit });
         }
       } while (reloadAgain);
     })();
@@ -558,6 +566,66 @@ export async function createAccountManager(deps, options = {}) {
 
     /** Re-read SecretStore now (also runs automatically when the store file changes). */
     reload,
+
+    /** Whether addAccount() can make a new account usable without a restart (see sharedAccounts above). */
+    canAddAccounts() {
+      return sharedAccounts !== null;
+    },
+
+    /**
+     * Start using an account that was just saved to the config file (POST /v1/accounts), without a restart. `entry`
+     * is a parsed, frozen accountSchema object; live trading stays whatever it says (the route always adds paper-only
+     * accounts). Picks up a session already saved for this id, if any. Returns the new AccountSummary.
+     * @param {Readonly<any>} entry
+     */
+    async addAccount(entry) {
+      if (!sharedAccounts) throw new BridgeError("NOT_IMPLEMENTED", "This Bridge cannot add accounts while it runs. Restart it to load the new account.");
+      if (!entry || typeof entry.id !== "string" || byId.has(entry.id)) throw new BridgeError("VALIDATION_FAILED", `The account id "${String(entry?.id).slice(0, 40)}" is already used.`);
+      accounts.push(entry);
+      byId.set(entry.id, entry);
+      mem.set(entry.id, freshMem());
+      sharedAccounts.push(entry);
+      if (entry.broker !== PAPER_BROKER && adapterOf(entry)) {
+        try {
+          await readRecord(entry);
+        } catch (err) {
+          log.warn("could not read a saved session for the new account", { accountId: entry.id, code: err?.code });
+        }
+      }
+      evaluate(entry, { emit: false });
+      if (started) armTimer(entry, compute(entry));
+      log.info("account added", { accountId: entry.id, broker: entry.broker });
+      return summary(entry);
+    },
+
+    /**
+     * Stop using an account that was just removed from the config file (DELETE /v1/accounts/{id}) and delete what
+     * SecretStore holds for it (saved keys and session). Waits for a login in progress on it to finish first.
+     * @param {string} accountId
+     */
+    async removeAccount(accountId) {
+      const account = mustAccount(accountId);
+      return withLock(account.id, async () => {
+        const m = mem.get(account.id);
+        if (m?.timer) clearTimeout(m.timer);
+        mem.delete(account.id);
+        byId.delete(account.id);
+        accounts.splice(accounts.indexOf(account), 1);
+        const i = sharedAccounts ? sharedAccounts.findIndex((a) => a.id === account.id) : -1;
+        if (i >= 0) sharedAccounts.splice(i, 1);
+        let secretsDeleted = true;
+        if (account.broker !== PAPER_BROKER) {
+          try {
+            await secrets.delete(secretName(account.id));
+          } catch (err) {
+            secretsDeleted = false;
+            log.warn("could not delete the saved keys of a removed account", { accountId: account.id, code: err?.code });
+          }
+        }
+        log.info("account removed", { accountId: account.id, broker: account.broker });
+        return { id: account.id, broker: account.broker, secretsDeleted };
+      });
+    },
 
     /** Start the store watcher and expiry timers. Idempotent. */
     start() {

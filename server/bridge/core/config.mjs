@@ -167,6 +167,25 @@ export function userBridgeDir(env = process.env, platform = process.platform) {
   return join(env.HOME || env.USERPROFILE || homedir(), ".mc-bridge");
 }
 
+/**
+ * Where the dashboard saves accounts it adds: the file this Bridge loaded, else the per-user file loadConfig looks for
+ * last (so a Bridge started without any config file finds the new file on its next start, from any folder).
+ * @param {string | null} source  loadConfig's `source`
+ */
+export function configFileForWrites(source, env = process.env) {
+  return source ?? join(userBridgeDir(env), DEFAULT_CONFIG_FILE);
+}
+
+/**
+ * The config the running app shares with its services: frozen like the loaded one, except that `accounts` is a plain
+ * array of frozen entries, so an account added from the dashboard (AccountManager.addAccount) is seen at once by every
+ * service that reads config.accounts (safety limits, the paper engine, rate-limit routes). Only AccountManager changes
+ * it; nothing else may.
+ */
+export function withAddableAccounts(config) {
+  return Object.freeze({ ...config, accounts: [...config.accounts] });
+}
+
 function readConfigFile(path) {
   try {
     return JSON.parse(readFileSync(path, "utf8"));

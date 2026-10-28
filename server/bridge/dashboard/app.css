@@ -647,6 +647,37 @@ label.check { display: flex; align-items: center; gap: 7px; font-size: 13px; col
 .broker .names { flex: 1; min-width: 0; }
 .broker .nm { font-weight: 600; font-size: 13px; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .broker .id { font-size: 11px; color: var(--text-3); font-family: var(--mono); }
+.broker-foot { gap: 8px; flex-wrap: nowrap; align-items: flex-end; }
+.row.nowrap { flex-wrap: nowrap; gap: 6px; }
+
+/* ── Add a broker / Log in sheets ── */
+.pick-list {
+  display: flex; flex-direction: column;
+  max-height: min(300px, 38vh); overflow-y: auto;
+  border-radius: 8px; background: var(--card-2); box-shadow: inset 0 0 0 0.5px var(--line);
+  padding: 4px;
+}
+.pick-row {
+  display: grid; grid-template-columns: auto 26px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  padding: 6px 9px; border-radius: 6px; cursor: default;
+  transition: background-color var(--dur) var(--ease);
+}
+.pick-row:hover { background: var(--row-hover); }
+.pick-row:has(input:checked) { background: var(--accent-wash); }
+.pick-row .avatar { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; font-weight: 700; font-size: 10.5px; background: linear-gradient(#5aa8ff, var(--accent)); color: #fff; box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.1); }
+.pick-row .names { display: flex; flex-direction: column; min-width: 0; }
+.pick-row .nm { font-weight: 600; font-size: 13px; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-row .sub { font-size: 11px; color: var(--text-3); }
+.pick-empty { padding: 14px 10px; }
+.disclosure > summary { cursor: default; font-size: 12px; font-weight: 500; color: var(--accent-ink); width: max-content; border-radius: 4px; list-style-position: inside; }
+.disclosure > summary:focus-visible { box-shadow: var(--focus); }
+.disclosure[open] > summary { margin-bottom: 8px; }
+.login-help { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--text-2); line-height: 1.5; }
+.login-form .form-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); align-items: start; }
+.secret-fields { padding: 10px 12px 12px; border-radius: 8px; background: var(--card-2); box-shadow: inset 0 0 0 0.5px var(--line); }
+.group-label { font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+.field-errors { margin: 6px 0 0; padding-left: 18px; color: var(--text-2); }
+dialog .dialog-body { overflow-y: auto; max-height: calc(100vh - 140px); }
 
 /* ── Kill switch ── */
 .kill { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 16px 18px; border-radius: var(--radius); }
@@ -764,6 +795,19 @@ dialog::backdrop { background: rgb(0 0 0 / 0.22); -webkit-backdrop-filter: blur(
   input, select { min-height: 34px; font-size: 16px; }
   textarea { font-size: 13px; }
   .toast, .banner { left: 12px; right: 12px; top: 10px; max-width: none; min-width: 0; }
+  /* Accounts: one stacked row per account, so Log in is never scrolled out of sight. "Can do" is left out. */
+  .accounts-card table, .accounts-card tbody { display: block; }
+  .accounts-card thead, .accounts-card td:nth-child(5) { display: none; }
+  .accounts-card tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; padding: 11px 16px; position: relative; }
+  .accounts-card tbody tr + tr::before { content: ""; position: absolute; top: 0; left: 16px; right: 16px; border-top: 0.5px solid var(--separator); }
+  .accounts-card tbody tr:nth-child(even) td, .accounts-card tbody tr:hover td { background: transparent; }
+  .accounts-card td, .accounts-card td:first-child, .accounts-card td:last-child { display: block; height: auto; padding: 0; white-space: normal; }
+  .accounts-card td:nth-child(1) { grid-column: 1; grid-row: 1; }
+  .accounts-card td:nth-child(2) { grid-column: 1; grid-row: 2; color: var(--text-2); font-size: 12.5px; }
+  .accounts-card td:nth-child(3) { grid-column: 2; grid-row: 1; justify-self: end; text-align: right; }
+  .accounts-card td:nth-child(4) { grid-column: 2; grid-row: 2; justify-self: end; }
+  .accounts-card td:nth-child(6) { grid-column: 1 / -1; grid-row: 3; padding-top: 6px; }
+  .accounts-card td:nth-child(6) .row { flex-wrap: wrap; }
 }
 
 /* ── Accessibility preferences ── */

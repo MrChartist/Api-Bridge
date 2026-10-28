@@ -4,6 +4,7 @@ import {
   alertBox,
   api,
   app,
+  brokerMatches,
   card,
   checklistState,
   codeBlock,
@@ -11,6 +12,7 @@ import {
   copyText,
   currentKey,
   emptyState,
+  fillLoginUrl,
   fmtInt,
   fmtNum,
   fmtRs,
@@ -19,6 +21,8 @@ import {
   icon,
   istDateTime,
   istTime,
+  loginBody,
+  loginFormSpec,
   meterRow,
   modal,
   optional,
@@ -440,8 +444,14 @@ async function renderHome() {
   if (!local.get(FLAG.hideChecklist)) {
     const state = checklistState({ demo: app.state.demo, accounts: accs, keys: keyRows, copied: local.get(FLAG.copied), tested: local.get(FLAG.tested) });
     const done = state.filter((s) => s.done).length;
+    // The broker step goes straight to the next action: add a broker when there is none, else log in.
+    const hasBroker = accs.some((a) => a.broker !== "paper");
     const ITEMS = {
-      broker: { title: app.state.demo ? "Demo mode is on: sample data is ready" : "Connect a broker, or try demo mode", text: app.state.demo ? "Everything works with sample prices. When you are ready, restart without --demo and connect your broker." : "Log in to one broker account (npm run bridge -- accounts connect <id>), or restart with npm start -- --demo to try everything first.", go: "accounts", cta: "Accounts" },
+      broker: app.state.demo
+        ? { title: "Demo mode is on: sample data is ready", text: "Everything works with sample prices. When you are ready, close the Bridge and start it normally to add your broker.", go: "accounts", cta: "Accounts" }
+        : hasBroker
+          ? { title: "Log in to your broker", text: "Open Accounts and press Log in. Most brokers ask again every morning; it takes a few seconds.", go: "accounts", cta: "Log in" }
+          : { title: "Add your broker and log in", text: "Choose your broker, then log in with its API details, right here. Nothing is sent anywhere but your broker.", go: "accounts?add=1", cta: "Add a broker" },
       key: { title: "Create a key for each tool", text: "A read-only key for spreadsheets and AI, a paper key for scripts. Never share your admin key.", go: "keys", cta: "Create a key" },
       snippet: { title: "Copy a snippet for Python, Excel, Claude or webhooks", text: "Ready-made setup with your Bridge address filled in.", go: "integrations", cta: "Integrations" },
       test: { title: "Make your first call", text: "Fetch a quote or an option chain in the test console and see the rate-limit headers.", go: "console", cta: "Test console" },
@@ -489,7 +499,7 @@ async function renderHome() {
       sub: marketAccount ? `From ${marketAccount.label}, through the rate-limit engine` : "Connect a broker to see prices",
       actions: demoPill(),
       flush: true,
-      body: marketAccount ? snapshot : emptyState("plug", "No market data yet", "Quotes, charts and paper orders need one connected broker account, or demo mode.", h("button", { type: "button", class: "primary", onclick: () => (location.hash = "#/accounts") }, "Connect a broker")),
+      body: marketAccount ? snapshot : emptyState("plug", "No market data yet", "Quotes, charts and paper orders need one connected broker account, or demo mode.", h("button", { type: "button", class: "primary", onclick: () => (location.hash = accs.some((a) => a.broker !== "paper") || app.state.demo ? "#/accounts" : "#/accounts?add=1") }, "Connect a broker")),
     }),
   );
 
@@ -529,7 +539,7 @@ async function renderHome() {
             { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("live enabled", "bad") : pill("paper", "accent")) },
           ],
           accs,
-          emptyState("accounts", "No accounts yet", 'Add one under "accounts" in bridge.config.json, or run npm run bridge -- init.', nextStep("Copy the setup command", () => copyText("npm run bridge -- init", "Command copied"))),
+          emptyState("accounts", "No accounts yet", "Add your broker: choose it, then log in with its API details.", app.state.demo ? null : nextStep("Add a broker", "#/accounts?add=1")),
         ),
       }),
       card({
@@ -550,10 +560,287 @@ async function renderHome() {
 
 // ── Accounts ──
 
+const AUTH_KIND_LABEL = { apiKeyToken: "API key", oauthRedirect: "OAuth login", requestTokenExchange: "One-time code", sessionLogin: "Session login" };
+/** The paper simulator as an entry in the "Add a broker" list. */
+const PAPER_CHOICE = { id: "paper", name: "Paper account (practice, no broker)", authKind: null, verified: false, paper: true };
+/** The 41 real brokers, by the name people see (the API lists by id, which put "5paisa" between Firstock and Flattrade). */
+const realBrokers = (list) => list.filter((b) => b.id !== "demo").sort((a, b) => String(a.name ?? a.id).localeCompare(String(b.name ?? b.id), undefined, { sensitivity: "base", numeric: true }));
+const cliHint = () => app.state.meta?.cliCommand || "npm run bridge --";
+const field = (labelText, input, hint) => h("label", { class: "field", for: input.id }, h("span", {}, labelText), input, hint ? h("span", { class: "hint" }, hint) : null);
+
+/** A failed call as an alert, with the Bridge's per-field messages (field names only, never values) when it sent any. */
+function errorBox(err, labels = {}) {
+  const box = alertBox(err);
+  const errors = Array.isArray(err?.body?.errors) ? err.body.errors : [];
+  if (errors.length) {
+    const list = h("ul", { class: "field-errors" }, errors.slice(0, 6).map((e) => {
+      const key = String(e.path ?? "").split(".").pop();
+      return h("li", {}, labels[key] ? `${labels[key]}: ${e.message}` : e.message);
+    }));
+    box.querySelector("div")?.append(list);
+  }
+  return box;
+}
+
+/**
+ * "Add a broker" sheet: a searchable list of the brokers (verified / beta), an optional name and id. Resolves with
+ * the POST /v1/accounts answer ({ account, restartNeeded, configFile }) or null when cancelled.
+ */
+function addBrokerSheet(list, { preselect } = {}) {
+  if (app.state.demo) {
+    return modal({
+      title: "Add a broker",
+      body: alertBox({ title: "Demo mode is on", detail: "Demo mode uses sample accounts only. Close the Bridge and start it normally (not in demo mode) to add your own broker." }, "info"),
+      buttons: [{ label: "OK", cls: "primary", value: null }],
+    });
+  }
+  const brokers = [...realBrokers(list).filter((b) => b.available !== false), PAPER_CHOICE];
+  let chosen = brokers.some((b) => b.id === preselect) ? preselect : null;
+  const search = h("input", { type: "search", placeholder: `Search ${brokers.length - 1} brokers…`, "aria-label": "Search brokers", autocomplete: "off", spellcheck: "false" });
+  const picker = h("div", { class: "pick-list", role: "radiogroup", "aria-label": "Broker" });
+  const nameInput = h("input", { id: "add-label", type: "text", maxlength: "60", autocomplete: "off", placeholder: "A name you will recognise" });
+  const idInput = h("input", { id: "add-id", type: "text", maxlength: "32", autocomplete: "off", spellcheck: "false", autocapitalize: "off", placeholder: "Picked for you, e.g. zerodha-main" });
+  const err = h("div", { "aria-live": "polite" });
+  const describe = () => {
+    const b = brokers.find((x) => x.id === chosen);
+    nameInput.placeholder = b ? (b.paper ? "Paper account" : `${b.name} (main)`) : "A name you will recognise";
+    idInput.placeholder = b ? `Picked for you, e.g. ${b.paper ? "paper-2" : `${b.id}-main`}` : "Picked for you, e.g. zerodha-main";
+  };
+  const option = (b) => {
+    const radio = h("input", { type: "radio", name: "add-broker", value: b.id, checked: b.id === chosen });
+    radio.addEventListener("change", () => {
+      chosen = b.id;
+      err.replaceChildren();
+      describe();
+    });
+    return h(
+      "label",
+      { class: "pick-row" },
+      radio,
+      h("span", { class: "avatar" }, b.paper ? "P" : initials(b.name)),
+      h("span", { class: "names" }, h("span", { class: "nm" }, b.name), h("span", { class: "sub" }, b.paper ? "Simulated orders with real prices" : AUTH_KIND_LABEL[b.authKind] ?? b.authKind)),
+      b.paper ? pill("Simulator", "accent") : b.verified ? pill("Verified", "ok") : pill("Beta", "warn"),
+    );
+  };
+  const draw = () => {
+    const rows = brokers.filter((b) => brokerMatches(b, search.value));
+    picker.replaceChildren(...rows.map(option));
+    if (!rows.length) picker.replaceChildren(h("p", { class: "muted small pick-empty" }, `No broker matches “${search.value}”.`));
+  };
+  search.addEventListener("input", draw);
+  draw();
+  describe();
+  return modal({
+    title: "Add a broker",
+    body: h(
+      "div",
+      { class: "stack" },
+      h("p", { class: "muted" }, "Choose your broker. You log in on the next step; nothing is sent to the broker yet. New accounts are paper only."),
+      search,
+      picker,
+      field("Name (optional)", nameInput),
+      h("details", { class: "disclosure" }, h("summary", {}, "Account id (optional)"), field("Account id", idInput, "Used by scripts and spreadsheets to pick this account: 2-32 lowercase letters, digits or hyphens.")),
+      err,
+    ),
+    buttons: [
+      { label: "Cancel", value: null },
+      {
+        label: "Add",
+        cls: "primary",
+        onClick: async () => {
+          if (!chosen) {
+            err.replaceChildren(alertBox({ title: "Choose a broker", detail: "Pick your broker from the list first." }, "warn"));
+            return false;
+          }
+          const body = { broker: chosen };
+          if (nameInput.value.trim()) body.label = nameInput.value.trim();
+          if (idInput.value.trim()) body.id = idInput.value.trim();
+          try {
+            const r = await api("/v1/accounts", { method: "POST", body });
+            return r.data.data;
+          } catch (e) {
+            err.replaceChildren(errorBox(e, { id: "Account id", label: "Name", broker: "Broker" }));
+            return false;
+          }
+        },
+      },
+    ],
+  });
+}
+
+/** Add an account, then go straight on to logging in to it. */
+async function addAccountFlow(list, opts) {
+  const added = await addBrokerSheet(list, opts);
+  if (!added) return;
+  if (added.restartNeeded || !added.account) {
+    await modal({
+      title: "Saved",
+      body: alertBox({ title: "Restart the Bridge to use the new account", detail: `It was saved to ${added.configFile}. Close the Bridge and start it again, then log in on this page.` }, "info"),
+      buttons: [{ label: "OK", cls: "primary", value: true }],
+    });
+    return show();
+  }
+  await show();
+  toast(`Added ${added.account.label}`);
+  if (added.account.broker !== "paper") await loginSheet(added.account, list.find((b) => b.id === added.account.broker));
+}
+
+/**
+ * "Log in" sheet: the broker's fields (saved keys) and one-time login fields (PIN / password, TOTP), sent to
+ * POST /v1/accounts/{id}/session. What was typed is cleared from the form as soon as it is sent and is never put in
+ * storage or a URL; only the broker's login page address may carry the (public) API key, as the broker designs it.
+ */
+function loginSheet(a, broker) {
+  if (!broker) {
+    return modal({ title: `Log in to ${a.label}`, body: alertBox({ title: "Unknown broker", detail: `This Bridge does not know the broker ${a.broker}.` }), buttons: [{ label: "Close", value: null }] });
+  }
+  const spec = loginFormSpec(broker, { saved: a.session?.state && a.session.state !== "missing" });
+  const labels = Object.fromEntries(spec.fields.map((f) => [f.key, f.label]));
+  const inputs = new Map();
+  const groups = { values: [], secrets: [] };
+  for (const f of spec.fields) {
+    const input = h("input", {
+      id: `login-${f.key}`,
+      type: f.type,
+      autocomplete: "off",
+      autocapitalize: "off",
+      spellcheck: "false",
+      inputmode: f.inputmode,
+      pattern: f.pattern,
+      maxlength: f.maxlength,
+      required: f.required,
+      placeholder: f.group === "values" && spec.keepHint ? "Saved: leave empty to keep" : undefined,
+      "data-1p-ignore": "true",
+      "data-lpignore": "true",
+    });
+    inputs.set(f, input);
+    groups[f.group].push(field(f.label, input, f.hint));
+  }
+  const result = h("div", { "aria-live": "polite" });
+  const typed = () => Object.fromEntries([...inputs].map(([f, i]) => [f.key, i.value]));
+  // The broker's own login page (where it declares one), filled in from what was typed (usually the API key).
+  let loginLink = null;
+  if (broker.loginUrl) {
+    const needs = [...broker.loginUrl.matchAll(/\{([A-Za-z0-9_]+)\}/g)].map((m) => labels[m[1]] ?? m[1]);
+    const note = h("span", { class: "hint" }, `Type your ${needs.join(" and ")} above first.`);
+    const open = h("button", { type: "button", class: "small", disabled: true }, icon("external"), `Open ${broker.name} login page`);
+    const sync = () => {
+      const ok = fillLoginUrl(broker.loginUrl, typed()) !== null;
+      open.disabled = !ok;
+      note.hidden = ok;
+    };
+    open.addEventListener("click", () => {
+      const url = fillLoginUrl(broker.loginUrl, typed());
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
+    });
+    for (const i of inputs.values()) i.addEventListener("input", sync);
+    loginLink = h("div", { class: "row" }, open, note);
+  }
+  const form = h(
+    "form",
+    { class: "stack login-form", autocomplete: "off", novalidate: true },
+    groups.values.length ? h("div", { class: "form-grid" }, groups.values) : null,
+    loginLink,
+    groups.secrets.length ? h("div", { class: "secret-fields stack" }, h("div", { class: "group-label" }, "To log in now"), h("div", { class: "form-grid" }, groups.secrets)) : null,
+  );
+  let busy = false;
+  const submit = async () => {
+    if (busy) return false;
+    let body = loginBody(spec, (f) => inputs.get(f).value);
+    // Off the page at once, whatever happens next.
+    for (const i of inputs.values()) i.value = "";
+    if (!Object.keys(body.values).length && !body.secrets) {
+      result.replaceChildren(alertBox({ title: "Nothing to send", detail: spec.keepHint ? "Type at least the fields that changed (for most brokers: today's token or code)." : "Fill in the fields above first." }, "warn"));
+      return false;
+    }
+    busy = true;
+    result.replaceChildren(h("p", { class: "muted small" }, `Logging in to ${broker.name}…`));
+    let state;
+    try {
+      state = (await api(`/v1/accounts/${encodeURIComponent(a.id)}/session`, { method: "POST", body })).data.data;
+    } catch (err) {
+      result.replaceChildren(errorBox(err, labels));
+      return false;
+    } finally {
+      body = null;
+      busy = false;
+    }
+    if (state?.state === "connected") {
+      show().then(() => toast(`${a.label}: logged in${state.expiresAt ? `, until ${istDateTime(state.expiresAt)}` : ""}`));
+      return true;
+    }
+    result.replaceChildren(alertBox({ title: "The broker did not accept this", detail: `${state?.message ?? "No reason given."} Check the fields and try again.` }));
+    return false;
+  };
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    document.querySelector("#dialog .dialog-actions button.primary")?.click();
+  });
+  return modal({
+    title: `Log in to ${a.label}`,
+    body: h(
+      "div",
+      { class: "stack" },
+      h("div", { class: "row" }, pill(broker.name, "accent"), broker.verified ? pill("Verified", "ok") : pill("Beta", "warn"), sessionPill(a.session?.state)),
+      h("div", { class: "login-help" }, spec.help.map((t) => h("p", {}, t))),
+      spec.fields.length ? form : alertBox({ title: "Nothing to type", detail: "This broker needs no fields." }, "info"),
+      result,
+      h(
+        "details",
+        { class: "disclosure" },
+        h("summary", {}, "Prefer the terminal?"),
+        h("div", { class: "stack" }, h("p", { class: "muted small" }, "With the Bridge running, this asks for the same fields with hidden input:"), codeBlock(`${cliHint()} accounts connect ${a.id} --key <your admin key>`)),
+      ),
+      h("p", { class: "muted small" }, "Everything you type goes only to the Bridge on this computer, and from there only to your broker."),
+    ),
+    buttons: [
+      { label: "Cancel", value: null },
+      { label: "Log in", cls: "primary", onClick: submit },
+    ],
+  }).finally(() => {
+    for (const i of inputs.values()) i.value = "";
+  });
+}
+
+/** Confirm, then DELETE /v1/accounts/{id}. */
+function removeAccountSheet(a) {
+  const err = h("div", { "aria-live": "polite" });
+  return modal({
+    title: `Remove ${a.label}?`,
+    body: h(
+      "div",
+      { class: "stack" },
+      h("p", {}, `This takes ${a.id} out of your config file and deletes its saved keys from this computer. You can add it again any time.`),
+      a.broker === "paper" ? h("p", { class: "muted small" }, "Its practice orders and positions stay in the data folder.") : null,
+      err,
+    ),
+    buttons: [
+      { label: "Cancel", value: false },
+      {
+        label: "Remove",
+        cls: "danger",
+        onClick: async () => {
+          try {
+            await api(`/v1/accounts/${encodeURIComponent(a.id)}`, { method: "DELETE" });
+            return true;
+          } catch (e) {
+            err.replaceChildren(errorBox(e));
+            return false;
+          }
+        },
+      },
+    ],
+  }).then((removed) => {
+    if (removed) show().then(() => toast(`Removed ${a.label}`));
+  });
+}
+
 async function renderAccounts() {
   const [accounts, brokers] = await Promise.all([api("/v1/accounts"), api("/v1/brokers")]);
   const accs = accounts.data.data ?? [];
   const list = brokers.data.data ?? [];
+  const brokerOf = (a) => list.find((b) => b.id === a.broker);
+  const paperCount = accs.filter((a) => a.broker === "paper").length;
   const testAccount = async (a, btn) => {
     btn.disabled = true;
     try {
@@ -565,60 +852,63 @@ async function renderAccounts() {
       btn.disabled = false;
     }
   };
-  const howTo = (a) =>
-    modal({
-      title: `Log in to ${a.label}`,
-      body: h(
-        "div",
-        { class: "stack" },
-        h("p", {}, "With the Bridge running, open a terminal in the api-bridge folder and run the command below. It asks for each field your broker needs; what you type is hidden and goes only to the Bridge on this computer."),
-        codeBlock(`npm run bridge -- accounts connect ${a.id} --key <your admin key>`),
-        h("p", { class: "muted small" }, "Passwords, PINs and TOTP codes are used once to log in and never stored. Most brokers end the session every morning; run the command again then."),
-      ),
-      buttons: [{ label: "Done", cls: "primary", value: true }],
-    });
+  const addButton = (cls = "primary", text = "Add a broker") => h("button", { type: "button", class: cls, onclick: () => addAccountFlow(list) }, icon("plus"), text);
+  const removeButton = (a) => h("button", { type: "button", class: "small ghost", "aria-label": `Remove ${a.label}`, onclick: () => removeAccountSheet(a) }, "Remove");
 
   const accountsCard = card({
+    cls: "accounts-card",
     title: "Your accounts",
-    sub: "From bridge.config.json. Several brokers and several accounts per broker are fine.",
+    sub: "Several brokers and several accounts per broker are fine. New accounts are paper only.",
+    actions: app.state.demo ? null : addButton("small primary"),
     flush: true,
     body: table(
       [
         { label: "Account", cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
-        { label: "Broker", cell: (a) => (a.broker === "paper" ? "Paper (simulator)" : list.find((b) => b.id === a.broker)?.name ?? a.broker) },
+        { label: "Broker", cell: (a) => (a.broker === "paper" ? "Paper (simulator)" : brokerOf(a)?.name ?? a.broker) },
         { label: "Session", cell: (a) => h("div", {}, sessionPill(a.session?.state), a.session?.expiresAt ? h("div", { class: "muted small" }, `until ${istDateTime(a.session.expiresAt)}`) : null) },
         { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("live enabled", "bad") : pill("paper", "accent")) },
         { label: "Can do", wrap: true, cell: (a) => h("div", { class: "chips" }, (a.capabilities ?? []).slice(0, 6).map((c) => h("span", { class: "chip" }, c)), (a.capabilities?.length ?? 0) > 6 ? h("span", { class: "chip" }, `+${a.capabilities.length - 6}`) : null) },
         {
           label: "",
           cell: (a) => {
-            if (a.broker === "paper") return h("span", { class: "muted small" }, "simulator");
+            if (a.broker === "paper") return h("div", { class: "row" }, h("span", { class: "muted small" }, "simulator"), !app.state.demo && paperCount > 1 ? removeButton(a) : null);
             const t = h("button", { type: "button", class: "small", "aria-label": `Test ${a.id}` }, "Test");
             t.addEventListener("click", () => testAccount(a, t));
-            return h("div", { class: "row" }, t, a.session?.state !== "connected" ? h("button", { type: "button", class: "small primary", "aria-label": `How to log in to ${a.label}`, onclick: () => howTo(a) }, "How to log in") : null);
+            if (app.state.demo) return t;
+            const connected = a.session?.state === "connected";
+            return h(
+              "div",
+              { class: "row nowrap" },
+              t,
+              h("button", { type: "button", class: connected ? "small" : "small primary", "aria-label": `${connected ? "Log in again to" : "Log in to"} ${a.label}`, onclick: () => loginSheet(a, brokerOf(a)) }, connected ? "Log in again" : "Log in"),
+              a.liveAllowedByConfig ? null : removeButton(a),
+            );
           },
         },
       ],
       accs,
-      emptyState("accounts", "No accounts in your config", 'Run npm run bridge -- init to add a paper account and a broker, or add them under "accounts" in bridge.config.json.', nextStep("Copy the setup command", () => copyText("npm run bridge -- init", "Command copied"))),
+      emptyState("accounts", "No accounts yet", "Add your broker to get started: choose it, then log in with its API details. It takes a minute.", app.state.demo ? null : addButton()),
     ),
   });
 
   // Directory
   const search = h("input", { type: "search", placeholder: "Search 41 brokers…", "aria-label": "Search brokers" });
   const grid = h("div", { class: "brokers" });
-  // By the name people see (the API lists by id, which put "5paisa" between Firstock and Flattrade).
-  const real = list.filter((b) => b.id !== "demo").sort((a, b) => String(a.name ?? a.id).localeCompare(String(b.name ?? b.id), undefined, { sensitivity: "base", numeric: true }));
+  const real = realBrokers(list);
   const draw = () => {
-    const q = search.value.trim().toLowerCase();
-    const rows = real.filter((b) => !q || b.name.toLowerCase().includes(q) || b.id.includes(q));
+    const rows = real.filter((b) => brokerMatches(b, search.value));
     grid.replaceChildren(
       ...rows.map((b) =>
         h(
           "div",
           { class: "broker" },
           h("div", { class: "top" }, h("span", { class: "avatar" }, initials(b.name)), h("div", { class: "names" }, h("div", { class: "nm", title: b.name }, b.name), h("div", { class: "id" }, b.id)), b.verified ? pill("Verified", "ok") : pill("Beta", "warn")),
-          h("div", { class: "chips" }, h("span", { class: "chip" }, { apiKeyToken: "API key", oauthRedirect: "OAuth login", requestTokenExchange: "One-time code", sessionLogin: "Session login" }[b.authKind] ?? b.authKind), b.capabilities.includes("feed") ? h("span", { class: "chip" }, "live feed") : null, b.capabilities.includes("historical") ? h("span", { class: "chip" }, "history") : null, b.capabilities.includes("placeOrder") ? h("span", { class: "chip" }, "orders") : null),
+          h(
+            "div",
+            { class: "row broker-foot" },
+            h("div", { class: "chips grow" }, h("span", { class: "chip" }, AUTH_KIND_LABEL[b.authKind] ?? b.authKind), b.capabilities.includes("feed") ? h("span", { class: "chip" }, "live feed") : null, b.capabilities.includes("historical") ? h("span", { class: "chip" }, "history") : null, b.capabilities.includes("placeOrder") ? h("span", { class: "chip" }, "orders") : null),
+            app.state.demo ? null : h("button", { type: "button", class: "small", "aria-label": `Add a ${b.name} account`, onclick: () => addAccountFlow(list, { preselect: b.id }) }, "Add"),
+          ),
         ),
       ),
     );
@@ -633,6 +923,13 @@ async function renderAccounts() {
     flush: true,
     body: grid,
   });
+
+  // #/accounts?add=1 (or ?add=<broker id>), from the Home page: open the sheet once the page is drawn.
+  const want = /[?&]add=([a-z0-9]+)/.exec(location.hash)?.[1];
+  if (want) {
+    history.replaceState(null, "", "#/accounts");
+    setTimeout(() => addAccountFlow(list, { preselect: want }), 0);
+  }
   return [accountsCard, dirCard];
 }
 
