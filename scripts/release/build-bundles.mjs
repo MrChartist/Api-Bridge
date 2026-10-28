@@ -9,7 +9,7 @@
 // Needs `zip` and `tar` on the build machine (GitHub's ubuntu runners have both).
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -87,25 +87,35 @@ async function main() {
     const sums = (await download(`${NODE_DIST}/${nodeVersion}/SHASUMS256.txt`)).toString("utf8");
     console.log(`Bridge ${version}, Node.js ${nodeVersion}`);
 
-    for (const t of TARGETS) {
-      if (ONLY.length && !ONLY.includes(t.id)) continue;
-      const name = `node-${nodeVersion}-${t.node}.${t.archive}`;
+    // Each Node.js archive is downloaded, checked against SHASUMS256.txt and unpacked once; returns the unpacked folder.
+    const unpacked = new Map();
+    const nodeFor = async (platform, archive) => {
+      const key = `${platform}.${archive}`;
+      if (unpacked.has(key)) return unpacked.get(key);
+      const name = `node-${nodeVersion}-${platform}.${archive}`;
       const expected = sums.split("\n").find((l) => l.trim().endsWith(`  ${name}`))?.split(/\s+/)[0];
       if (!expected) throw new Error(`${name} is not in SHASUMS256.txt`);
-      const archive = await download(`${NODE_DIST}/${nodeVersion}/${name}`);
-      const got = createHash("sha256").update(archive).digest("hex");
+      const data = await download(`${NODE_DIST}/${nodeVersion}/${name}`);
+      const got = createHash("sha256").update(data).digest("hex");
       if (got !== expected) throw new Error(`${name}: SHA-256 ${got} does not match nodejs.org (${expected})`);
+      const dir = join(work, "node", key);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, name), data);
+      if (archive === "zip") run("unzip", ["-q", join(dir, name), "-d", dir]);
+      else run("tar", ["-xzf", join(dir, name), "-C", dir]);
+      rmSync(join(dir, name));
+      const root = join(dir, name.replace(/\.(zip|tar\.gz)$/, ""));
+      unpacked.set(key, root);
+      return root;
+    };
 
+    for (const t of TARGETS) {
+      if (ONLY.length && !ONLY.includes(t.id)) continue;
       // The folder people see after unzipping, with Node.js where the launchers look for it (<app>/runtime).
       const stage = join(work, t.id);
       const top = join(stage, "Mr Chartist Bridge");
       cpSync(app, top, { recursive: true });
-      const unpack = join(work, `${t.id}-node`);
-      mkdirSync(unpack, { recursive: true });
-      writeFileSync(join(unpack, name), archive);
-      if (t.archive === "zip") run("unzip", ["-q", join(unpack, name), "-d", unpack]);
-      else run("tar", ["-xzf", join(unpack, name), "-C", unpack]);
-      renameSync(join(unpack, name.replace(/\.(zip|tar\.gz)$/, "")), join(top, "runtime"));
+      cpSync(await nodeFor(t.node, t.archive), join(top, "runtime"), { recursive: true, verbatimSymlinks: true });
       writeFileSync(join(top, "READ ME FIRST.txt"), readMe(t, version, nodeVersion), "utf8");
 
       const zipName = `mr-chartist-bridge-${version}-${t.id}.zip`;
@@ -113,8 +123,24 @@ async function main() {
       // -X: no extra file attributes; -y: keep Node's symlinks (bin/npm) as links. Unix modes are kept for macOS/Linux.
       run("zip", ["-q", "-r", "-X", "-y", join(OUT, zipName), "Mr Chartist Bridge"], { cwd: stage });
       rmSync(stage, { recursive: true, force: true });
-      rmSync(unpack, { recursive: true, force: true });
       console.log(`  ${zipName}`);
+    }
+
+    // The Windows Setup .exe (build-exe.mjs). Its blob is made by a Linux Node.js of the same version.
+    if (!ONLY.length || ONLY.includes("windows-x64") || ONLY.includes("windows-exe")) {
+      if (process.platform !== "linux" || process.arch !== "x64") throw new Error("build the Windows .exe on Linux x64 (as the Release workflow does), or pass --only without windows-x64");
+      const { buildExe } = await import("./build-exe.mjs");
+      const exeName = `Mr-Chartist-Bridge-Setup-${version}.exe`;
+      await buildExe({
+        app,
+        nodeBinary: join(await nodeFor("win-x64", "zip"), "node.exe"),
+        blobNode: join(await nodeFor("linux-x64", "tar.gz"), "bin", "node"),
+        out: join(OUT, exeName),
+        version,
+        windows: true,
+        work: join(work, "exe"),
+      });
+      console.log(`  ${exeName}`);
     }
     writeFileSync(join(OUT, "SHA256SUMS.txt"), checksums(OUT), "utf8");
   } finally {
@@ -124,7 +150,7 @@ async function main() {
 
 function checksums(dir) {
   return readdirSync(dir)
-    .filter((f) => f.endsWith(".zip"))
+    .filter((f) => f.endsWith(".zip") || f.endsWith(".exe"))
     .sort()
     .map((f) => `${createHash("sha256").update(readFileSync(join(dir, f))).digest("hex")}  ${f}\n`)
     .join("");

@@ -67,7 +67,9 @@ No programming needed, no admin password, and nothing else to install first: the
 your computer does not have it. When it finishes, the dashboard opens in your browser **already signed in**.
 Step-by-step guide, with what to click on each system: **[docs/guides/install.md](docs/guides/install.md)**.
 
-**Windows 10 / 11**: open **PowerShell** (Start → type *PowerShell*), paste this line and press Enter:
+**Windows 10 / 11**: download **`Mr-Chartist-Bridge-Setup-….exe`** from the
+[latest release](https://github.com/MrChartist/api-bridge/releases/latest) and double-click it. Or open
+**PowerShell** (Start → type *PowerShell*), paste this line and press Enter:
 
 ```powershell
 irm https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.ps1 | iex

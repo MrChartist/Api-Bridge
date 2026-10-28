@@ -11,6 +11,10 @@ All notable changes to this project are listed here. The format follows [Keep a 
   nodejs.org and checked against its SHA-256. They set up paper trading, add a **Mr Chartist Bridge** app or shortcut
   (Start menu and Desktop; Spotlight and Launchpad; applications menu) and an `mc-bridge` command, then open the
   dashboard. Running them again upgrades in place; both can uninstall.
+- **Windows Setup.exe.** `Mr-Chartist-Bridge-Setup-<version>.exe` installs with a double-click (no admin, Node.js
+  inside), adds Start-menu and Desktop shortcuts with the Bridge icon and an entry under Settings > Apps, and is then
+  the app itself. Built on Linux as a Node.js single executable application (`scripts/release/build-exe.mjs`) and
+  tested on real Windows by the Release workflow before publishing.
 - **Ready-to-run downloads.** Each release has one ZIP per system (Windows x64, macOS arm64/x64, Linux x64/arm64) with
   the Bridge, its parts and Node.js inside: unzip and double-click, even offline. Built and smoke-tested by the new
   Release workflow.

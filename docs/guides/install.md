@@ -9,9 +9,23 @@ yourself in the settings file.
 
 | Your computer | Easiest way |
 |---|---|
-| Windows 10 or 11 | [The ready-to-run download](#ready-to-run-download) or [one line in PowerShell](#windows-one-line) |
+| Windows 10 or 11 | [Setup.exe](#windows-setupexe) (double-click) or [one line in PowerShell](#windows-one-line) |
 | Mac | [One line in Terminal](#mac-and-linux-one-line) (no security prompts) or [the ready-to-run download](#ready-to-run-download) |
 | Linux | [One line in a terminal](#mac-and-linux-one-line) or [the ready-to-run download](#ready-to-run-download) |
+
+---
+
+## Windows: Setup.exe
+
+1. Open the [latest release](https://github.com/MrChartist/api-bridge/releases/latest) and download
+   **`Mr-Chartist-Bridge-Setup-….exe`**.
+2. Double-click it. If Windows says *"Windows protected your PC"*, click **More info**, then **Run anyway** (the file
+   is not signed yet; this happens only once).
+3. A small window shows the progress, then the Bridge starts and your browser opens the dashboard, already signed in.
+
+That is all: no admin password, nothing else to install (Node.js is inside the .exe). Next time, open
+**Mr Chartist Bridge** from the Start menu or the Desktop. To remove it: **Settings → Apps → Installed apps →
+Mr. Chartist API Bridge → Uninstall** (your settings and data are kept). Running a newer Setup.exe updates it.
 
 ---
 
@@ -99,6 +113,7 @@ Next time, start it from the **Mr Chartist Bridge** shortcut on your Desktop or 
 |---|---|
 | One line on Mac or Linux | `curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.sh \| sh -s -- --uninstall` (your settings and data stay in `~/.mc-bridge`; add `--purge` to delete them too) |
 | One line on Windows | `$env:MCB_UNINSTALL = "1"; irm https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.ps1 \| iex` (your settings and data stay in `%APPDATA%\MrChartist\Bridge`) |
+| Setup.exe on Windows | **Settings → Apps → Installed apps → Mr. Chartist API Bridge → Uninstall** (your settings and data stay in `%APPDATA%\MrChartist\Bridge`) |
 | Ready-to-run download | Delete the **Mr Chartist Bridge** folder. |
 
 ## If something goes wrong

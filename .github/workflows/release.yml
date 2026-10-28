@@ -1,6 +1,7 @@
-# Ready-to-run downloads. Pushing a tag like v0.2.0 builds one ZIP per system (the Bridge, its parts and a private
-# Node.js inside; see scripts/release/build-bundles.mjs) and publishes them on the GitHub release for that tag.
-# Run it by hand (Actions -> Release -> Run workflow) to build the ZIPs as a downloadable artifact without releasing.
+# Ready-to-run downloads. Pushing a tag like v0.2.0 builds Mr-Chartist-Bridge-Setup-<version>.exe for Windows and one
+# ZIP per system (the Bridge, its parts and a private Node.js inside; see scripts/release/build-bundles.mjs), tests the
+# Linux ZIP and the .exe on real Windows, then publishes them on the GitHub release for that tag.
+# Run it by hand (Actions -> Release -> Run workflow) to build them as a downloadable artifact without releasing.
 name: Release
 
 on:
@@ -19,8 +20,6 @@ jobs:
   bundles:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions:
-      contents: write # create the release and upload its files (tag pushes only)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -63,12 +62,66 @@ jobs:
           name: bundles
           path: dist/
           retention-days: 14
+
+  # The Setup .exe on real Windows: install, shortcuts and Settings > Apps entry, start, uninstall.
+  windows-exe:
+    needs: bundles
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bundles
+          path: dist
+      - name: Setup.exe installs, starts and uninstalls
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Get-ChildItem dist\Mr-Chartist-Bridge-Setup-*.exe).FullName
+          $p = Start-Process $setup -ArgumentList '--install-only', '--no-pause' -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "Setup exited $($p.ExitCode)" }
+          $app = Join-Path $env:LOCALAPPDATA 'MrChartist\Bridge\app'
+          $exe = Join-Path $app 'Mr Chartist Bridge.exe'
+          foreach ($f in @($exe, (Join-Path $app 'mc-bridge.cmd'), (Join-Path $env:APPDATA 'MrChartist\Bridge\bridge.config.json'),
+                           (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Mr Chartist Bridge.lnk'),
+                           (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Mr Chartist Bridge.lnk'))) {
+            if (-not (Test-Path $f)) { throw "missing: $f" }
+          }
+          if (-not (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\MrChartistBridge' -ErrorAction SilentlyContinue)) { throw 'no Settings > Apps entry' }
+          $run = Start-Process $exe -ArgumentList '--no-pause' -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 60 -and -not $ok; $i++) {
+            Start-Sleep -Seconds 1
+            try { $ok = (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4300/v1/health).StatusCode -eq 200 } catch { }
+          }
+          Stop-Process -Id $run.Id -Force -ErrorAction SilentlyContinue
+          if (-not $ok) { throw 'the installed app did not start the Bridge' }
+          Start-Sleep -Seconds 2
+          $u = Start-Process $setup -ArgumentList '--uninstall', '--yes', '--no-pause' -Wait -PassThru -NoNewWindow
+          if ($u.ExitCode -ne 0) { throw "uninstall exited $($u.ExitCode)" }
+          if (Test-Path $app) { throw 'program folder still there' }
+          if (-not (Test-Path (Join-Path $env:APPDATA 'MrChartist\Bridge\bridge.config.json'))) { throw 'settings were removed' }
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [bundles, windows-exe]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the release and upload its files
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bundles
+          path: dist
       - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           notes="$(awk '/^## \[/{n++} n==1' CHANGELOG.md)"
           [ -n "$notes" ] || notes="See CHANGELOG.md."
-          gh release create "$GITHUB_REF_NAME" dist/*.zip dist/SHA256SUMS.txt \
+          gh release create "$GITHUB_REF_NAME" dist/*.exe dist/*.zip dist/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --title "Mr. Chartist API Bridge $GITHUB_REF_NAME" --notes "$notes" --verify-tag
