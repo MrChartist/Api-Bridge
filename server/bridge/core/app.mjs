@@ -14,7 +14,7 @@
  *   8. access log line (method, path WITHOUT query string, status, ms, key id) — never bodies, never keys
  */
 import http from "node:http";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createBrokerRegistry } from "../../brokers/registry.mjs";
@@ -177,7 +177,22 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     "logo.svg": "image/svg+xml",
   });
   const DASHBOARD_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+  // Broker logos (dashboard/brokers/<id>.png, see its README), served as /dashboard/broker-<id>.png. Only ids with a
+  // file present when the Bridge starts can be asked for, so no request can name another path.
+  const BROKER_LOGOS = new Set(
+    (() => {
+      try {
+        return readdirSync(resolve(ROOT, "server/bridge/dashboard/brokers")).filter((f) => /^[a-z0-9]{2,32}\.png$/.test(f)).map((f) => f.slice(0, -4));
+      } catch {
+        return [];
+      }
+    })(),
+  );
   const dashboardFile = (name) => {
+    const logo = /^broker-([a-z0-9]{2,32})\.png$/.exec(name);
+    if (logo && BROKER_LOGOS.has(logo[1])) {
+      return new Reply(200, readFileSync(resolve(ROOT, "server/bridge/dashboard/brokers", `${logo[1]}.png`)), { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400", "Content-Security-Policy": DASHBOARD_CSP });
+    }
     // Object.hasOwn: inherited names such as "constructor" or "__proto__" must not pass the allowlist.
     const type = Object.hasOwn(DASHBOARD_FILES, name) ? DASHBOARD_FILES[name] : undefined;
     if (!type) throw new BridgeError("NOT_FOUND", `No dashboard file ${name}.`);
