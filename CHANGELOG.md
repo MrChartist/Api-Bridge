@@ -25,6 +25,8 @@ All notable changes to this project are listed here. The format follows [Keep a 
   while it runs just reopens the dashboard.
 - **Add a broker and log in from the dashboard**: an Add a broker sheet and a Log in form per broker
   (`POST`/`DELETE /v1/accounts`); no config file, terminal or restart.
+- **Android**: the one-line installer works in Termux (Node.js from Termux's own packages, a Termux:Widget shortcut,
+  a wake lock while running, links opened with termux-open-url).
 - **Broker logos** on the Accounts page, the Add a broker list and the account tables: each broker's own site icon,
   shipped with the Bridge (no outside requests) and served as `/dashboard/broker-<id>.png`; initials when a logo is missing.
 - Hints name the command that works in your setup (`mc-bridge …`, `npm run bridge -- …` or `docker compose exec …`).

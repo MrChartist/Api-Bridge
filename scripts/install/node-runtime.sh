@@ -136,12 +136,43 @@ mcb_install_private_node() {
   return 0
 }
 
+# Android: running inside Termux (MCB_TEST_OS=android pretends, for the installer's tests).
+mcb_is_termux() {
+  [ "${MCB_TEST_OS:-}" = android ] && return 0
+  [ -n "${MCB_TEST_OS:-}" ] && return 1
+  [ -n "${TERMUX_VERSION:-}" ] || [ "$(uname -o 2>/dev/null)" = Android ]
+}
+
+# Keep Android from pausing the Bridge while it runs (Termux's wake lock; harmless elsewhere).
+mcb_wake_lock() {
+  if mcb_is_termux && command -v termux-wake-lock >/dev/null 2>&1; then
+    termux-wake-lock >/dev/null 2>&1 || true
+    mcb_say "    Android is asked to keep the Bridge awake (Termux wake lock) while it runs."
+  fi
+}
+
 # Make node and npm (version 22 or newer) available on PATH for the rest of this script.
 mcb_ensure_node() {
   _mcb_app=${1:?mcb_ensure_node needs the app folder}
   _mcb_major=$(mcb_node_major node)
   if [ -n "$_mcb_major" ] && [ "$_mcb_major" -ge "$MCB_NODE_MAJOR" ] && command -v npm >/dev/null 2>&1; then
     mcb_say "    Using the Node.js already on this computer ($(node -v))."
+    return 0
+  fi
+  # Android (Termux): nodejs.org's Linux builds do not run there; Termux's own package does, and needs no root.
+  if mcb_is_termux; then
+    command -v pkg >/dev/null 2>&1 || { mcb_warn "Install Node.js in Termux first:  pkg install nodejs-lts   then run this again."; return 1; }
+    mcb_say "    Installing Node.js with Termux's package manager (pkg install nodejs-lts) ..."
+    pkg install -y nodejs-lts >/dev/null 2>&1 || pkg install -y nodejs >/dev/null 2>&1 || {
+      mcb_warn "Termux could not install Node.js. Run  pkg update && pkg install nodejs-lts  and then this again."
+      return 1
+    }
+    _mcb_major=$(mcb_node_major node)
+    if [ -z "$_mcb_major" ] || [ "$_mcb_major" -lt "$MCB_NODE_MAJOR" ]; then
+      mcb_warn "Termux's Node.js is older than $MCB_NODE_MAJOR. Run  pkg update && pkg upgrade  and then this again."
+      return 1
+    fi
+    mcb_say "    Node.js $(node -v) is ready."
     return 0
   fi
   _mcb_major=$(mcb_node_major "$_mcb_app/runtime/bin/node")

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Mr. Chartist API Bridge: one-line installer for macOS and Linux. No admin password needed.
+# Mr. Chartist API Bridge: one-line installer for macOS, Linux and Android (Termux). No admin password needed.
 #
 #   curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.sh | sh
 #
@@ -41,8 +41,12 @@ mcb_main() {
 
   [ -n "${HOME:-}" ] && [ -d "$HOME" ] || mcb_fail "Your home folder could not be found (HOME is not set)."
   # MCB_TEST_OS=mac|linux makes the other system's shortcuts (for the installer's own tests on one system).
-  case "${MCB_TEST_OS:-$(uname -s)}" in
+  # Android: Termux (from F-Droid) reports Linux; its "uname -o" says Android and it sets TERMUX_VERSION.
+  _os=${MCB_TEST_OS:-$(uname -s)}
+  if [ -z "${MCB_TEST_OS:-}" ] && { [ -n "${TERMUX_VERSION:-}" ] || [ "$(uname -o 2>/dev/null)" = Android ]; }; then _os=android; fi
+  case "$_os" in
     Darwin | mac) OS=mac ;;
+    android) OS=android ;;
     Linux | linux) OS=linux ;;
     *) mcb_fail "This installer is for macOS and Linux. On Windows, use install.ps1 (see the README)." ;;
   esac
@@ -58,7 +62,11 @@ mcb_main() {
   # The Bridge words its hints with this name (init and start run below; the mc-bridge command is made in step 4).
   MCB_CLI_NAME=mc-bridge; export MCB_CLI_NAME
   BIN_DIR="$HOME/.local/bin"
+  # Termux puts its own bin folder on PATH already.
+  if [ "$OS" = android ] && [ -n "${PREFIX:-}" ] && [ -d "$PREFIX/bin" ] && [ -w "$PREFIX/bin" ]; then BIN_DIR="$PREFIX/bin"; fi
   SHIM="$BIN_DIR/mc-bridge"
+  # Android: a home-screen shortcut through the Termux:Widget add-on (it lists the scripts in ~/.shortcuts).
+  ANDROID_SHORTCUT="$HOME/.shortcuts/Mr Chartist Bridge"
   LINUX_ENTRY="$HOME/.local/share/applications/mr-chartist-bridge.desktop"
   MAC_APP="$HOME/Applications/Mr Chartist Bridge.app"
   # Earlier test versions of this installer made a .command file here instead of the app; removed on upgrade.
@@ -125,12 +133,21 @@ mcb_main() {
     [ "$rc" -eq 0 ] || mcb_fail "Setting up failed (see the message above)."
   fi
   mcb_make_shim
-  if [ "$OS" = linux ]; then mcb_make_linux_shortcuts; else mcb_make_mac_shortcuts; fi
+  case "$OS" in
+    linux) mcb_make_linux_shortcuts ;;
+    android) mcb_make_android_shortcuts ;;
+    *) mcb_make_mac_shortcuts ;;
+  esac
 
   # 5. Start
   echo
   echo "Installed. Paper (practice) trading is on; real orders stay off until you switch them on."
-  echo "Start it any time from the \"Mr Chartist Bridge\" shortcut$( [ "$OS" = mac ] && echo " (Applications folder, Spotlight or Launchpad)" || echo " (applications menu or Desktop)"),"
+  case "$OS" in
+    mac) where=" (Applications folder, Spotlight or Launchpad)" ;;
+    android) where=" (Termux:Widget on your home screen)" ;;
+    *) where=" (applications menu or Desktop)" ;;
+  esac
+  echo "Start it any time from the \"Mr Chartist Bridge\" shortcut$where,"
   echo "or by typing:  mc-bridge start --open"
   mcb_path_hint
   if [ "$OPT_NO_START" = 1 ]; then
@@ -145,6 +162,7 @@ mcb_main() {
   mcb_cleanup
   trap - EXIT INT TERM
   cd "$MCB_DIR" || exit 1
+  mcb_wake_lock
   set -- start --open
   [ "$OPT_DEMO" = 1 ] && set -- "$@" --demo
   # When piped from curl, standard input is the download; give the Bridge the keyboard instead.
@@ -253,6 +271,16 @@ mcb_dq() { printf '%s' "$1" | sed 's/[\\"$`]/\\&/g'; }
 # The command a shortcut runs: the launcher, which starts the Bridge and keeps the window open at the end.
 mcb_launch_cmd() {
   printf "/bin/sh '%s' '%s' '%s'" "$(mcb_sq "$APP/scripts/install/launch.sh")" "$(mcb_sq "$APP")" "$(mcb_sq "$MCB_DIR")"
+}
+
+mcb_make_android_shortcuts() {
+  mkdir -p "$HOME/.shortcuts" 2>/dev/null || return 0
+  {
+    echo '#!/bin/sh'
+    echo '# Mr. Chartist API Bridge: Termux:Widget shortcut (made by install.sh).'
+    echo "exec $(mcb_launch_cmd)"
+  } > "$ANDROID_SHORTCUT" && chmod 755 "$ANDROID_SHORTCUT"
+  echo "    Added a home-screen shortcut for the Termux:Widget add-on (install it from F-Droid, then add its widget)."
 }
 
 mcb_make_linux_shortcuts() {
@@ -372,6 +400,7 @@ mcb_uninstall() {
   # (On macOS the Desktop is not looked at: that would make macOS ask for permission. Nothing is put there.)
   desk=""
   [ "$OS" = linux ] && desk=$(mcb_desktop_dir)
+  [ -f "$ANDROID_SHORTCUT" ] && grep -q "Mr. Chartist API Bridge" "$ANDROID_SHORTCUT" 2>/dev/null && rm -f "$ANDROID_SHORTCUT" && removed=1
   for p in "$LINUX_ENTRY" "$MAC_LAUNCHER_OLD" ${desk:+"$desk/mr-chartist-bridge.desktop"}; do
     [ -f "$p" ] && grep -q "Mr. Chartist API Bridge" "$p" 2>/dev/null && rm -f "$p" && removed=1
   done
