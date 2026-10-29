@@ -184,6 +184,36 @@ describe("strategies", () => {
     expect(s.pop).toBeNull();
   });
 
+  it("diagonal put: a short front put over a long back put has a finite, sane worst case", () => {
+    const legs = [
+      { right: "PE", strike: 26000, side: "SELL", price: 120, lots: 1, iv: 12, years: 5 / 365 },
+      { right: "PE", strike: 25900, side: "BUY", price: 110, lots: 1, iv: 12, years: 12 / 365 },
+    ];
+    const s = strategyStats(legs, 75, { forward: 26000, ivPct: 12, years: 5 / 365, spot: 26000 });
+    const net = netPremium(legs, 75);
+    expect(Number.isFinite(s.maxLoss)).toBe(true);
+    // Far below the strikes the back put is worth about its strike: the loss is the strike gap less the credit, not S = 0.
+    expect(s.maxLoss).toBeGreaterThan(-(26000 - 25900) * 75 + net - 75);
+    expect(s.maxLoss).toBeLessThan(0);
+    expect(black76(0, 25900, 0.1, 12, "PE")).toBe(25900);
+    expect(black76(0, 25900, 0.1, 12, "CE")).toBe(0);
+  });
+
+  it("coverLevels: the P&L rows span the wings, the breakevens and ±1σ, with every breakeven listed", () => {
+    const strikes = Array.from({ length: 81 }, (_, i) => 24500 + i * 50);
+    const lv = O.coverLevels({ strikes, legStrikes: [25950, 26100, 26900, 27250], breakevens: [26112, 27088], spot: 26408.5, band: [26100, 26720], rows: 13 });
+    const grid = lv.filter((r) => r.kind === "strike");
+    expect(grid.length).toBeGreaterThanOrEqual(13);
+    expect(grid.length).toBeLessThanOrEqual(14);
+    expect(grid[0].price).toBeLessThanOrEqual(25950);
+    expect(grid[grid.length - 1].price).toBeGreaterThanOrEqual(27250);
+    expect(grid[1].price - grid[0].price).toBe(150);
+    expect(lv.filter((r) => r.kind === "be").map((r) => r.price)).toEqual([26112, 27088]);
+    expect(lv.filter((r) => r.kind === "spot")).toHaveLength(1);
+    expect(lv.map((r) => r.price)).toEqual([...lv.map((r) => r.price)].sort((a, b) => a - b));
+    expect(O.coverLevels({ strikes: [], spot: 1 })).toEqual([]);
+  });
+
   it("long call: unlimited profit; lots scale P&L", () => {
     const s = strategyStats([L("CE", 26000, "BUY", 110, 2)], 75);
     expect(s.maxProfit).toBeNull();

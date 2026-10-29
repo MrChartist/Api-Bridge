@@ -245,7 +245,9 @@ export function black76(forward, strike, years, ivPct, right) {
   const F = num(forward);
   const K = num(strike);
   const sig = (num(ivPct) ?? 0) / 100;
-  if (F === null || K === null || F <= 0 || K <= 0) return null;
+  if (F === null || K === null || K <= 0) return null;
+  // A forward at (or below) 0: the call is worthless, the put is worth its strike (r = 0, so no discounting).
+  if (F <= 0) return right === "CE" ? 0 : K;
   const intrinsic = right === "CE" ? Math.max(0, F - K) : Math.max(0, K - F);
   if (!(years > 0) || !(sig > 0)) return intrinsic;
   const sd = sig * Math.sqrt(years);
@@ -435,11 +437,12 @@ export function strategyStats(legs, lotSize, { forward = null, ivPct = null, yea
     const F0 = num(forward) ?? (ref > 0 ? ref : null);
     const Tmax = Math.max(T, ...act.map((l) => num(l.years) ?? 0));
     const w = F0 && sig0 && Tmax > 0 ? 6 * sig0 * Math.sqrt(Tmax) : null;
-    const lo = w !== null ? Math.max(0, F0 * Math.exp(-w)) : 0;
+    // Never S = 0: there a later leg's Black-76 value collapses and the sampled worst case is fiction.
+    const lo = Math.max(w !== null ? F0 * Math.exp(-w) : 0, 0.01 * (F0 ?? Math.max(ref, 1)));
     if (w !== null) hi = Math.max(F0 * Math.exp(w), strikes.length ? strikes[strikes.length - 1] * 1.01 : 0);
     const n = 400;
     const grid = Array.from({ length: n + 1 }, (_, i) => lo + ((hi - lo) * i) / n);
-    pts = [...new Set([0, ...grid, ...strikes.filter((k) => k < hi)])].sort((a, b) => a - b);
+    pts = [...new Set([...grid, ...strikes.filter((k) => k > lo && k < hi)])].sort((a, b) => a - b);
   } else pts = [0, ...strikes.filter((k) => k < hi), hi];
   const vals = pts.map(f);
   let upSlope = act.reduce((a, l) => a + (isFut(l) || l.right === "CE" ? legSign(l) * legUnits(l, lotSize) : 0), 0);
@@ -4791,6 +4794,37 @@ export function spotLevels({ strikes = [], spot = null, n = 6, breakevens = [] }
   else rows.find((r) => Math.abs(r.price - S) < 1e-9).kind = "spot";
   for (const b of breakevens) if (num(b) !== null && b > lo && b < hi && !rows.some((r) => Math.abs(r.price - b) < 0.5)) rows.push({ price: b, kind: "be" });
   return rows.sort((a, b) => a.price - b.price);
+}
+/**
+ * Rows of the P&L table that cover the whole story (§5.2): an even grid from the lowest to the highest of the legs'
+ * strikes, the breakevens, spot and the ±1σ band, `rows` rows apart by step = max(strike step, roundUp(span / (rows − 1),
+ * strike step)), so the wings and the loss side always show; spot and every breakeven inserted.
+ * [{ price, kind: "strike" | "spot" | "be" }], sorted. Pure.
+ */
+export function coverLevels({ strikes = [], legStrikes = [], breakevens = [], spot = null, band = null, rows = 13 } = {}) {
+  const S = num(spot);
+  const ks = [...new Set(strikes.map(num).filter((k) => k !== null && k > 0))].sort((a, b) => a - b);
+  if (S === null || !ks.length) return [];
+  const gaps = ks.slice(1).map((k, i) => k - ks[i]).filter((g) => g > 0);
+  const unit = gaps.length ? Math.min(...gaps) : Math.max(1, Math.round(S * 0.005));
+  const marks = [S, ...legStrikes, ...breakevens, ...(band ?? [])].map(num).filter((v) => v !== null && v > 0);
+  const lo = Math.min(...marks);
+  const hi = Math.max(...marks);
+  const n = Math.max(3, Math.floor(rows));
+  const step = Math.max(unit, Math.ceil((hi - lo) / (n - 1) / unit - 1e-9) * unit);
+  let a = Math.floor(lo / step) * step;
+  let b = Math.ceil(hi / step) * step;
+  for (let k = Math.round((b - a) / step) + 1, i = 0; k < n; k += 1, i += 1) {
+    if (i % 2 === 0 && a - step > 0) a -= step;
+    else b += step;
+  }
+  const out = [];
+  for (let p = a; p <= b + step * 1e-9; p += step) out.push({ price: Math.round(p * 100) / 100, kind: "strike" });
+  const same = (p) => out.find((r) => Math.abs(r.price - p) < 0.5);
+  if (same(S)) same(S).kind = "spot";
+  else out.push({ price: S, kind: "spot" });
+  for (const be of breakevens.map(num).filter((v) => v !== null && v > 0)) if (!same(be)) out.push({ price: be, kind: "be" });
+  return out.sort((p, q) => p.price - q.price);
 }
 /** Columns of the price × date grid: now, then each day to the expiry (≤ max columns, evenly spaced past that); the last is the expiry. */
 export function gridDates(nowMs, expMs, max = 8) {

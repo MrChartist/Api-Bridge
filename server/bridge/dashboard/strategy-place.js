@@ -437,17 +437,26 @@ export function openPlacement(o) {
     );
   }
 
+  // The mode badge follows the sheet's own Mode switch (that is what the orders are sent as), not the account alone.
+  const modeBadge = h("span", { class: "acct-badge place-mode" });
+  const drawMode = () => {
+    const lv = isLive();
+    modeBadge.textContent = lv ? "Live" : "Paper";
+    modeBadge.dataset.mode = lv ? "live" : "paper";
+  };
+  drawMode();
   const form = h(
     "div",
     { class: "place-form" },
     h("div", { class: "ticket-grid" }, segField("Product", prodSeg), segField("Hedge wait", waitSeg)),
     // Orders go to: the account is chosen here, where it matters (strategy.md §3.1); a change reopens the sheet.
-    o.accountRow ? h("div", { class: "place-acct" }, o.accountRow(() => closeSheet?.({ reopen: true }))) : h("p", { class: "muted small ticket-acct one-line" }, h("span", { class: "acct-name" }, a.label)),
+    o.accountRow ? h("div", { class: "place-acct" }, o.accountRow(() => closeSheet?.({ reopen: true })), modeBadge) : h("p", { class: "muted small ticket-acct one-line" }, h("span", { class: "acct-name" }, a.label), " ", modeBadge),
     liveSeg ? segField("Mode", liveSeg) : null,
     ackRow,
   );
   liveSeg?.addEventListener("change", () => {
     ackRow.hidden = !isLive();
+    drawMode();
     for (const r of rows) r.preview = null;
     legTable();
     drawButtons();

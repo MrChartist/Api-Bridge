@@ -15,6 +15,7 @@ const SAVES = "mcb.dashboard.strategies";
 const NAMES = "mcb.dashboard.strategyNames";
 const YEAR_MS = 365 * 86400000;
 const DAY_MS = 86400000;
+const NO_CHANGE = Symbol("no change");
 const HERO = ["net", "maxProfit", "maxLoss", "pop", "breakevens"];
 const KEYS = [
   [["A"], "Add a leg: the strike picker"],
@@ -153,14 +154,17 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     changed();
     if (undoLabel) undoToast(undoLabel);
   }
+  /** fn edits a copy of the legs; returning NO_CHANGE aborts (any other value, false included, commits). */
   function mutate(fn, opts) {
     const next = structuredClone(legs());
-    if (fn(next) === false) return;
+    if (fn(next) === NO_CHANGE) return;
     setLegs(next, opts);
   }
   const mutateLeg = (id, fn, opts) => mutate((ls) => {
     const l = ls.find((y) => y.id === id);
-    return l ? fn(l, ls) : false;
+    if (!l) return NO_CHANGE;
+    fn(l, ls);
+    return true;
   }, opts);
   function undoToast(label) {
     toast(h("span", { class: "toast-undo-row" }, `${label} · `, h("button", { type: "button", class: "toast-undo", onclick: () => doUndo() }, "Undo")));
@@ -208,11 +212,15 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
   }
   function syncChains() {
     if (!x) return;
-    const want = [...new Set(legs().filter((l) => l.kind === "OPT" && l.expiry && l.expiry !== x.c.expiry).map((l) => l.expiry))].slice(0, 3);
+    const today = ISO_IST(Date.now());
+    // A past expiry has no chain to fetch: its leg shows "expired" with Roll / Remove (compute()).
+    const want = [...new Set(legs().filter((l) => l.kind === "OPT" && l.expiry && l.expiry !== x.c.expiry && l.expiry >= today).map((l) => l.expiry))].slice(0, 3);
     for (const [k, c] of chains) if ((!want.includes(k) && k !== sg.back) || c.u !== st.underlying) chains.delete(k);
     for (const e of want) {
       const c = chains.get(e);
-      if (c?.loading || (c && Date.now() - c.at < 2500) || (c?.chain && !st.live)) continue;
+      const age = c ? Date.now() - c.at : Infinity;
+      // Fresh enough, failing (retry after 30 s), or paused with an answer in hand: no fetch on this tick.
+      if (c?.loading || age < 2500 || (c?.error && !c.chain && age < 30000) || (c?.at && !st.live)) continue;
       fetchChain(e);
     }
   }
@@ -244,8 +252,11 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
   function price(xx) {
     const atmIv = num(xx.sm.atmIv);
     const now = Date.now();
+    const today = ISO_IST(now);
     return legs().map((l) => {
       const ch = l.kind === "OPT" ? chainFor(l.expiry) : null;
+      const later = l.kind === "OPT" && l.expiry && l.expiry !== xx.c.expiry ? chains.get(l.expiry) : null;
+      const expired = l.kind === "OPT" && Boolean(l.expiry) && l.expiry < today;
       const q = quoteOf(l);
       const row = ch?.rows.find((r) => r.strike === l.strike) ?? null;
       const live = O.basisPrice(q, l.side, cfg().basis);
@@ -265,7 +276,9 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
         iv: iv ?? atmIv,
         ivFallback: iv === null && l.kind === "OPT",
         years: O.yearsToExpiry(l.expiry ?? xx.c.expiry, now),
-        loading: l.kind === "OPT" && !ch,
+        loading: l.kind === "OPT" && !ch && !expired && Boolean(later?.loading || (!later && l.expiry !== xx.c.expiry)),
+        expired,
+        chainError: l.kind === "OPT" && !ch && !expired && Boolean(later?.error) && !later?.loading,
         inChain: l.kind === "FUT" || Boolean(row) || !ch,
         spreadPct: O.spreadPct(q),
         freezeQty: pv.freeze.get(symbol) ?? null,
@@ -334,11 +347,18 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const age = staleAge();
     const stale = age !== null && age > O.STALE_MS && (staleInfo.live || staleInfo.error);
     const warnings = O.strategyWarnings({ legs: act, strikes: allStrikes(), stats, spot: xx.spot, band1: b1, margin: exit ? null : { required: margin, free: funds.free, source: acct !== null ? "account" : "estimate" }, live: false, expiryToday: expiryToday && !multi, lotSize: lot, legCount: all.length, chainAgeMs: stale ? age : null, today: ISO_IST(now) });
-    const pMax = model && ivNow ? O.probMaxProfit(model.xs, model.expiry, xx.F, T, ivNow) : null;
+    // A leg past its expiry, or whose chain failed to load, blocks with a reason and a way out (Roll / Remove).
+    const dead = act.filter((l) => l.expired || l.chainError);
+    if (dead.length) {
+      const names = new Set(dead.map((l) => l.label));
+      for (let i = warnings.length - 1; i >= 0; i -= 1) if ([...names].some((n) => warnings[i].text.startsWith(n))) warnings.splice(i, 1);
+      warnings.unshift(...dead.map((l) => ({ code: "EXPIRED_LEG", severity: "block", legId: l.id, text: l.expired ? `${l.label} ${expiryText(l.expiry)} has expired` : `No chain for ${expiryText(l.expiry)}: ${l.label} has no price` })));
+    }
+    const pMax = model && ivNow && stats?.maxProfit !== null && stats?.maxProfit !== undefined ? O.probMaxProfit(model.xs, model.expiry, xx.F, T, ivNow) : null;
     const bes = stats?.breakevens ?? [];
     const beNear = bes.length && xx.spot !== null ? bes.reduce((b, v) => (Math.abs(v - xx.spot) < Math.abs(b - xx.spot) ? v : b), bes[0]) : null;
     const pTouch = beNear !== null && ivNow ? O.probTouch(beNear, xx.F, T, ivNow) : null;
-    return { all, act, missing, ok, T, el, expMs, targetMs, shift, lot, ch, net, stats, est, acct, margin, atTarget, greeks, ev, ratios, model, warnings, expiryToday, b1, ivNow, exit, front, multi, basis, pMax, beNear, pTouch, stale, age };
+    return { dead, all, act, missing, ok, T, el, expMs, targetMs, shift, lot, ch, net, stats, est, acct, margin, atTarget, greeks, ev, ratios, model, warnings, expiryToday, b1, ivNow, exit, front, multi, basis, pMax, beNear, pTouch, stale, age };
   }
   const sigOf = (act) => JSON.stringify([st.account, cfg().product, act.map((l) => [l.symbol, l.side, l.lots, isHeld(l)])]);
 
@@ -432,8 +452,29 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     return { b, value, sub, spark };
   };
   const gks = { delta: greekCell("delta", "Δ Delta"), gamma: greekCell("gamma", "Γ Gamma"), theta: greekCell("theta", "Θ Theta"), vega: greekCell("vega", "ν Vega") };
-  const retLine = h("div", { class: "risk-line ret" });
-  const probLine = h("div", { class: "risk-line prob" });
+  // Return and probability lines: built once, only their values are patched (focus on Charges survives every tick).
+  const fig = (label, title) => {
+    const b = h("b", {});
+    const el = h("span", title ? { title } : {}, label, b);
+    return { el, b, label: el.firstChild };
+  };
+  const romF = fig("ROM ");
+  const rrF = fig("R:R ");
+  const evF = fig("EV ", "Expected P&L under the model the options are priced with: close to −(spreads + charges) by construction");
+  const popF = fig("POP ");
+  const pMaxF = fig("P(max profit) ", "Chance the expiry price lands where the strategy makes its maximum");
+  const touchF = fig("P(touch) ", "Chance the price touches the nearest breakeven before expiry: about twice the chance it closes beyond it (reflection approximation)");
+  const chargesB = h("button", { type: "button", class: "link-btn", "aria-haspopup": "dialog", onclick: () => openCharges(chargesB) }, "Charges");
+  const retLine = h("div", { class: "risk-line ret" }, romF.el, rrF.el, evF.el, chargesB);
+  const probLine = h("div", { class: "risk-line prob" }, popF.el, pMaxF.el, touchF.el);
+  /** Patch a figure's value (text node only) and its colour class. */
+  const setFig = (f, t, cls = "") => {
+    if (f.b.textContent !== t) f.b.textContent = t;
+    if (f.b.className !== cls) f.b.className = cls;
+  };
+  const setText = (node, t) => {
+    if (node.textContent !== t) node.textContent = t;
+  };
   const riskBody = h("div", { class: "risk-body" }, h("div", { class: "risk-sec margin" }, h("div", { class: "mb-head" }, mLeft, mRight), mBar, mSub), h("div", { class: "risk-sec greeks" }, ...Object.values(gks).map((g) => g.b)), h("div", { class: "risk-sec lines" }, retLine, probLine));
   const riskToggle = h("button", { type: "button", class: "sec-toggle", "aria-expanded": String(cfg().riskOpen) }, h("span", { class: "sec-title" }, "Risk & capital"), h("span", { class: "sec-sum" }), icon("down"));
   riskToggle.addEventListener("click", () => setCfg({ riskOpen: !cfg().riskOpen }));
@@ -695,7 +736,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const off = l.on === false;
     const id = l.id;
     const isFut = l.kind === "FUT";
-    const onBtn = h("button", { type: "button", class: `leg-on${off ? "" : " on"}`, role: "switch", "aria-checked": String(!off), "aria-label": `Include ${name}`, title: off ? "Switched off: not in the figures" : "Included", onclick: () => mutateLeg(id, (y) => (y.on = y.on === false)) }, h("i", { "aria-hidden": "true" }));
+    const onBtn = h("button", { type: "button", class: `leg-on${off ? "" : " on"}`, role: "switch", "aria-checked": String(!off), "aria-label": `Include ${name}`, title: off ? "Switched off: not in the figures" : "Included", onclick: () => mutateLeg(id, (y) => { y.on = y.on === false; return true; }) }, h("i", { "aria-hidden": "true" }));
     const side = h("button", { type: "button", class: `side-tag ${l.side === "BUY" ? "buy" : "sell"}`, "aria-label": `${l.side === "BUY" ? "Buy" : "Sell"} ${name}: switch to ${l.side === "BUY" ? "sell" : "buy"}`, onclick: () => mutateLeg(id, (y) => ((y.side = y.side === "BUY" ? "SELL" : "BUY"), delete y.entry, delete y.entryTag)) }, l.side === "BUY" ? "B" : "S");
     const ks = strikesOf(l.expiry);
     let strike;
@@ -833,7 +874,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       if (pc) {
         const tag = p.manual ? "✎" : isFigure(p.entry) ? p.entryTag ?? "avg" : p.fallback ? "LTP" : null;
         const prev = num(pc.__p);
-        setCell(pc, `${formatFixed(p.price, 2)}|${tag}|${p.loading}|${formatFixed(p.iv, 1)}`, () => [p.price === null ? h("span", { class: p.loading ? "px-load" : "px-none" }, DASH) : formatFixed(p.price, 2), tag ? h("small", { class: `ptag${p.manual ? " manual" : ""}` }, tag) : null, p.kind === "OPT" ? h("small", { class: "pt-iv" }, `IV ${formatFixed(p.iv, 1)}`) : null], p.price === null ? (p.loading ? `Loading the ${expiryText(p.expiry)} chain` : `${p.label} has no price`) : p.manual ? `Your entry price; live ${formatFixed(p.livePrice, 2)}` : "Click to set your own entry price");
+        setCell(pc, `${formatFixed(p.price, 2)}|${tag}|${p.loading}|${p.expired}|${p.chainError}|${formatFixed(p.iv, 1)}`, () => [p.price === null ? (p.expired || p.chainError ? h("span", { class: "px-dead" }, p.expired ? "Expired" : "No chain") : h("span", { class: p.loading ? "px-load" : "px-none" }, DASH)) : formatFixed(p.price, 2), tag ? h("small", { class: `ptag${p.manual ? " manual" : ""}` }, tag) : null, p.kind === "OPT" ? h("small", { class: "pt-iv" }, `IV ${formatFixed(p.iv, 1)}`) : null], p.price === null ? (p.expired ? `${p.label} ${expiryText(p.expiry)} has expired: roll or remove it` : p.chainError ? `The ${expiryText(p.expiry)} chain did not load` : p.loading ? `Loading the ${expiryText(p.expiry)} chain` : `${p.label} has no price`) : p.manual ? `Your entry price; live ${formatFixed(p.livePrice, 2)}` : "Click to set your own entry price");
         pc.classList.toggle("manual", p.manual);
         if (prev !== null && isFigure(p.price) && p.price !== prev && !p.manual) inkFlash(pc, p.price > prev ? 1 : -1);
         pc.__p = p.price;
@@ -852,12 +893,18 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     else if (title === null) td.removeAttribute("title");
   }
 
-  /** The sticky build column only sticks while it fits the screen; a taller one scrolls with the page. */
+  /**
+   * The build column sticks at the top while it fits the screen; a taller one scrolls until its bottom reaches the
+   * screen's bottom and sticks there, so the left column never runs out while the table scrolls on the right.
+   */
   function syncStick() {
-    build.classList.remove("no-stick");
-    if (build.offsetHeight > innerHeight - 24) build.classList.add("no-stick");
+    const tall = build.offsetHeight > innerHeight - 24;
+    build.classList.toggle("no-stick", tall);
+    build.style.top = tall ? `${Math.round(innerHeight - build.offsetHeight - 12)}px` : "";
   }
   addEventListener("resize", syncStick);
+  const buildRo = typeof ResizeObserver === "function" ? new ResizeObserver(() => syncStick()) : null;
+  buildRo?.observe(build);
 
   // ── Presets: chips (with legs), cards (empty draft, and the phone sheet) ──
   function presetItems(g) {
@@ -988,7 +1035,10 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const lotsN = r.act.reduce((a, l) => a + l.lots, 0);
     const n = s.net;
     const afterCh = r.ch ? n - r.ch.total : null;
-    setHero(hero.net, `${n > 0.5 ? "Credit" : n < -0.5 ? "Debit" : "Even"} ${rupees(Math.abs(n))}`, `${plural(lotsN, "lot")}${afterCh !== null && cfg().net ? ` · after charges ${rupees(afterCh, true)}` : ""}`, { cls: "neutral" });
+    // Figures never break inside: each sits in a nowrap span; the sub may wrap between parts (two lines at most).
+    const nw = (t) => h("span", { class: "nw" }, t);
+    const netSub = h("span", {}, nw(plural(lotsN, "lot")), afterCh !== null && cfg().net ? [" ", nw(`· ${isPhone() ? "net" : "after charges"} ${rupees(afterCh)}`)] : null);
+    setHero(hero.net, `${n > 0.5 ? "Credit" : n < -0.5 ? "Debit" : "Even"} ${rupees(Math.abs(n))}`, netSub, { cls: "neutral" });
     const m = r.model;
     const sfx = s.approx ? " · sampled" : "";
     if (s.locked !== null && s.locked !== undefined) {
@@ -1021,13 +1071,27 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
 
   // ── Warnings: one line, severity dot + first + "+N more" ──
   let warnOpen = false;
+  /** True while the account's margin preview for the current legs has not answered yet. */
+  const previewPending = () => Boolean(account()) && pv.sig !== sigOf(priced.filter((l) => l.on !== false && l.symbol && isFigure(l.price)));
   function drawWarnings() {
     const w = R?.warnings ?? [];
     const sig = JSON.stringify([w.map((x2) => x2.text), warnOpen]);
     if (warnEl.__sig === sig) return;
+    // Keep the last line while the margin preview is in flight: the estimate-only list in between would collapse the
+    // row for ~400 ms and bounce the chart in the middle of its morph.
+    if (R?.ok && warnEl.__sig && !warnEl.hidden && previewPending()) return;
     warnEl.__sig = sig;
     warnEl.hidden = !w.length;
-    const li = (x2) => h("li", { class: x2.severity === "block" ? "bad" : x2.severity === "warn" ? "warn" : "info" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, x2.text));
+    const fix = (x2) =>
+      x2.code === "EXPIRED_LEG" && x2.legId
+        ? h(
+            "span",
+            { class: "warn-acts" },
+            x && legs().some((l) => l.id === x2.legId && l.expiry !== x.c.expiry) ? h("button", { type: "button", class: "small plain", onclick: () => setLegExpiry(x2.legId, x.c.expiry) }, `Roll to ${expiryText(x.c.expiry)}`) : null,
+            h("button", { type: "button", class: "small plain", onclick: () => mutate((ls) => ls.splice(ls.findIndex((y) => y.id === x2.legId), 1), { undoLabel: "Leg removed" }) }, "Remove"),
+          )
+        : null;
+    const li = (x2) => h("li", { class: x2.severity === "block" ? "bad" : x2.severity === "warn" ? "warn" : "info" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, x2.text), fix(x2));
     warnEl.replaceChildren(
       ...[
         h("ul", { class: "warn-line" }, li(w[0] ?? { severity: "info", text: "" }), w.length > 1 ? h("li", { class: "more" }, h("button", { type: "button", class: "small plain", "aria-expanded": String(warnOpen), onclick: () => ((warnOpen = !warnOpen), drawWarnings()) }, warnOpen ? "Fewer" : `+${formatInt(w.length - 1)} more`, icon("down"))) : null),
@@ -1114,7 +1178,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
         .filter(([, ms]) => ms === null || (ms > now && ms <= R.expMs))
         .map(([t, ms]) => h("button", { type: "button", class: "small chip-btn", onclick: () => setT(ms) }, t)),
     );
-    const resetB = h("button", { type: "button", class: "small plain", onclick: () => ((wi.target = null), (wi.ivShift = 0), (ivSlider.value = "0"), save(), drawAnalysis()) }, "Reset");
+    const resetB = h("button", { type: "button", class: "small plain wi-sheet-reset", onclick: () => ((wi.target = null), (wi.ivShift = 0), (ivSlider.value = "0"), save(), drawAnalysis()) }, "Reset");
     const bodyEl = h("div", { class: "wi-sheet" }, wiT, quick, wiIv, resetB);
     sheetPopover({
       trigger,
@@ -1150,9 +1214,11 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const lv = levels();
     return lv.map((r) => ({ ...r, g: O.netGreeksModel(R.act, r.price, { lotSize: R.lot, basis: R.basis, el: R.el, ivShift: R.shift }) }));
   }
+  /** Price rows for the tables: an even grid over the wings, breakevens and ±1σ (never only the plateau). */
   function levels() {
-    const n = isPhone() || media("(min-width: 1024px) and (max-width: 1279px)") ? 4 : 6;
-    return O.spotLevels({ strikes: x.c.rows.map((r) => r.strike), spot: x.spot, n, breakevens: R?.stats?.breakevens ?? [] });
+    const rows = isPhone() || media("(min-width: 1024px) and (max-width: 1279px)") ? 9 : 13;
+    const b1 = R?.b1;
+    return O.coverLevels({ strikes: allStrikes(), legStrikes: (R?.act ?? legs()).filter((l) => l.kind === "OPT").map((l) => l.strike), breakevens: R?.stats?.breakevens ?? [], spot: x.spot, band: b1 ? [b1.lo, b1.hi] : null, rows });
   }
   let chargesPop = null;
   function drawRisk() {
@@ -1164,6 +1230,8 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     if (!r?.ok) {
       riskEl.hidden = !legs().length;
       sum.textContent = "";
+      for (const f of [romF, rrF, evF, popF, pMaxF, touchF]) setFig(f, DASH);
+      setText(chargesB, `Charges ${DASH}`);
       return;
     }
     riskEl.hidden = false;
@@ -1212,20 +1280,16 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     setG(gks.vega, isFigure(g?.vega) ? money(g.vega) : DASH, "per vol pt", g?.vega > 0.5 ? "up" : g?.vega < -0.5 ? "down" : "", gr?.map((q) => (q.g ? q.g.vega : null)));
     // Return and probability lines.
     const rr = r.ratios.rr;
-    const chargesB = h("button", { type: "button", class: "link-btn", "aria-haspopup": "dialog", onclick: (e) => openCharges(e.currentTarget) }, `Charges ${r.ch ? rupees(r.ch.total) : DASH}`);
-    retLine.replaceChildren(
-      h("span", {}, "ROM ", h("b", {}, isFigure(r.ratios.rom) ? formatPercent(r.ratios.rom * 100, 1) : DASH)),
-      h("span", {}, "R:R ", h("b", {}, isFigure(rr) && rr > 0 ? `1 : ${formatFixed(1 / rr, 1)}` : DASH)),
-      h("span", { title: "Expected P&L under the model the options are priced with: close to −(spreads + charges) by construction" }, "EV ", h("b", { class: r.ev > 0.5 ? "up" : r.ev < -0.5 ? "down" : undefined }, money(r.ev))),
-      chargesB,
-    );
-    probLine.replaceChildren(
-      ...[
-        h("span", {}, "POP ", h("b", {}, isFigure(r.stats?.pop) ? formatPercent(r.stats.pop * 100, 0) : DASH)),
-        h("span", { title: "Chance the expiry price lands where the strategy makes its maximum" }, "P(max profit) ", h("b", {}, isFigure(r.pMax) ? formatPercent(r.pMax * 100, 0) : DASH)),
-        r.beNear !== null ? h("span", { title: "Chance the price touches the nearest breakeven before expiry: about twice the chance it closes beyond it (reflection approximation)" }, `P(touch ${formatInt(r.beNear)}) `, h("b", {}, isFigure(r.pTouch) ? formatPercent(r.pTouch * 100, 0) : DASH)) : null,
-      ].filter(Boolean),
-    );
+    setFig(romF, isFigure(r.ratios.rom) ? formatPercent(r.ratios.rom * 100, 1) : DASH);
+    setFig(rrF, isFigure(rr) && rr > 0 ? `1 : ${formatFixed(1 / rr, 1)}` : DASH);
+    setFig(evF, money(r.ev), r.ev > 0.5 ? "up" : r.ev < -0.5 ? "down" : "");
+    setText(chargesB, `Charges ${r.ch ? rupees(r.ch.total) : DASH}`);
+    setFig(popF, isFigure(r.stats?.pop) ? formatPercent(r.stats.pop * 100, 0) : DASH);
+    // No maximum to land on when the profit is unlimited.
+    setFig(pMaxF, r.stats?.maxProfit === null ? "Unlimited" : isFigure(r.pMax) ? formatPercent(r.pMax * 100, 0) : DASH);
+    touchF.el.hidden = r.beNear === null;
+    setText(touchF.label, r.beNear !== null ? `P(touch ${formatInt(r.beNear)}) ` : "P(touch) ");
+    setFig(touchF, isFigure(r.pTouch) ? formatPercent(r.pTouch * 100, 0) : DASH);
     sum.textContent = isFigure(req) ? `${acctFig ? "" : "≈ "}${rupees(req)}${sh ? " · short" : ""}` : "";
   }
   function openCharges(trigger) {
@@ -1236,6 +1300,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     chargesPop = sheetPopover({
       trigger,
       title: "Charges to enter",
+      within: build,
       body: h(
         "div",
         { class: "charges-pop" },
@@ -1439,7 +1504,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     if (tableBody.__sig !== sig) {
       tableBody.__sig = sig;
       const th = (t) => h("th", { scope: "col", class: "num" }, t);
-      tableBody.replaceChildren(h("div", { class: "table-wrap" }, h("table", { class: "desk-table pnl-table greeks-table" }, h("caption", { class: "sr-only" }, "Net greeks across price"), h("thead", {}, h("tr", {}, th("Price"), th("Δ lots"), th(""), th("Γ per 1%"), th("Θ ₹/day"), th("ν ₹/pt"))), h("tbody", {}, gr.map(() => h("tr", {}, h("td", { class: "num" }), h("td", { class: "num" }), h("td", { class: "c-bar" }, h("span", { class: "ebar" }, h("i", { class: "neg" }), h("i", { class: "pos" }))), h("td", { class: "num" }), h("td", { class: "num" }), h("td", { class: "num" })))))));
+      tableBody.replaceChildren(h("div", { class: "table-wrap" }, h("table", { class: "desk-table pnl-table greeks-table" }, h("caption", { class: "sr-only" }, "Net greeks across price"), h("thead", {}, h("tr", {}, th("Price"), th("Δ lots"), th(""), th("Γ per 1%"), th("Θ ₹/day"), th("ν ₹/pt"))), h("tbody", {}, gr.map(() => h("tr", {}, h("td", { class: "num" }), h("td", { class: "num" }), h("td", { class: "c-bar" }, h("span", { class: "ebar delta" }, h("i", { class: "neg" }), h("i", { class: "pos" }))), h("td", { class: "num" }), h("td", { class: "num" }), h("td", { class: "num" })))))));
     }
     const trs = tableBody.querySelectorAll("tbody tr");
     gr.forEach((q, i) => {
@@ -1468,7 +1533,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const s = R?.stats;
     barSub.textContent = R?.ok ? [s.maxLoss === null ? "Max loss unlimited" : `Max loss ${rupees(s.maxLoss, true)}`, isFigure(s.pop) ? `POP ${formatPercent(s.pop * 100, 0)}` : null].filter(Boolean).join(" · ") : "";
     const nAct = R?.act.length ?? 0;
-    const blockedWhy = !R ? (noChain ? "The chain is unavailable" : "Waiting for the chain") : !account() ? "Choose an account that can place orders" : !nAct ? "Add a leg first" : !R.ok ? "Every leg needs a price" : R.warnings.some((w) => w.severity === "block") ? R.warnings.find((w) => w.severity === "block").text : null;
+    const blockedWhy = !R ? (noChain ? "The chain is unavailable" : "Waiting for the chain") : !account() ? "Choose an account that can place orders" : !nAct ? "Add a leg first" : R.dead.length ? R.warnings[0].text : !R.ok ? "Every leg needs a price" : R.warnings.some((w) => w.severity === "block") ? R.warnings.find((w) => w.severity === "block").text : null;
     const warned = !blockedWhy && R?.warnings.some((w) => w.severity === "warn");
     const placeable = Boolean(R?.ok) && nAct > 0;
     const label = exit ? "Close legs" : placeable ? `Place ${formatInt(nAct)}` : "Place";
@@ -1477,7 +1542,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       if (b.textContent !== t) b.textContent = t;
       // Only a block greys the button (aria-disabled keeps the reason reachable); a warning keeps it solid with a dot.
       b.classList.toggle("blocked", Boolean(blockedWhy));
-      b.setAttribute("aria-disabled", String(Boolean(blockedWhy)));
+      b.removeAttribute("aria-disabled");
       b.classList.toggle("has-warn", Boolean(warned));
       if (blockedWhy) b.title = blockedWhy;
       else if (warned) b.title = R.warnings.find((w) => w.severity === "warn").text;
@@ -1562,7 +1627,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     else if (!R.act.length) {
       const sugg = h("button", { type: "button", class: "link-btn", onclick: () => openSuggest() }, "Suggest from my view →");
       chart.empty({ text: R.all.length ? "All legs are switched off" : "Pick a strategy or add a leg", sub: R.all.length ? null : h("span", {}, "or "), action: R.all.length ? null : sugg });
-    } else chart.empty({ text: R.missing.some((l) => l.loading) ? "Loading the later expiry's prices…" : `${R.missing.map((l) => l.label).join(", ")} ${R.missing.length === 1 ? "has" : "have"} no price`, sub: h("span", {}, "The figures wait for every leg's price.") });
+    } else chart.empty({ text: R.dead.length ? R.warnings[0].text : R.missing.some((l) => l.loading) ? "Loading the later expiry's prices…" : `${R.missing.map((l) => l.label).join(", ")} ${R.missing.length === 1 ? "has" : "have"} no price`, sub: h("span", {}, R.dead.length ? "Roll it to a live expiry or remove it (in the line above)." : "The figures wait for every leg's price.") });
     animateNext = false;
     if (curvesSeg.value !== String(cfg().curves)) curvesSeg.value = String(cfg().curves);
   }
@@ -1644,6 +1709,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const wing = l.kind === "OPT" && l.side === "SELL" ? O.wingStrike(ks, { ...l, price: p?.price }, pxOf) : null;
     const roll = (k) => mutateLeg(id, (y) => ((y.strike = k), (y.symbol = symOf({ ...y, strike: k })), delete y.entry, delete y.entryTag), { undoLabel: `${name} rolled to ${formatInt(k)}` });
     menu(trigger, `${l.side === "BUY" ? "Buy" : "Sell"} ${name} · ${expiryText(l.expiry)}`, [
+      [l.on === false ? "Switch on" : "Switch off", () => mutateLeg(id, (y) => (y.on = y.on === false)), { sub: l.on === false ? "back in the figures" : "keeps the leg, leaves it out of the figures" }],
       ["Duplicate", () => (legs().length >= O.MAX_LEGS ? toast(`Up to ${O.MAX_LEGS} legs`) : mutate((ls) => ls.splice(ls.findIndex((y) => y.id === id) + 1, 0, { ...structuredClone(l), id: undefined }), { undoLabel: `${name} duplicated` }))],
       l.kind === "OPT" ? ["Roll strike out", () => roll(outK), { disabled: outK === null, sub: outK !== null ? `to ${formatInt(outK)}, away from spot` : "at the edge" }] : null,
       l.kind === "OPT" ? ["Roll strike in", () => roll(inK), { disabled: inK === null, sub: inK !== null ? `to ${formatInt(inK)}, towards spot` : "at spot" }] : null,
@@ -1843,7 +1909,9 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
             "button",
             { type: "button", class: "sg-card", title: "Load into the builder (Undo in the toast)" },
             h("span", { class: "pc-glyph" }, gl ? glyphSvg(gl, { w: 64, hgt: 28, target: glyphX(c.legs, sg.target) }) : null),
-            h("span", { class: "sg-text" }, h("strong", {}, `${c.name} ${ks.map((k) => formatInt(k)).join(" / ")}`), h("span", { class: "sg-pnl up" }, `${money(c.pnlT)} at target`), h("small", {}, `Max loss ${c.maxLoss === null ? "unlimited" : money(c.maxLoss)} · POP ${isFigure(c.pop) ? formatPercent(c.pop * 100, 0) : DASH} · ${rupees(c.capital)} capital`)),
+            h("strong", { class: "sg-name", title: `${c.name} ${ks.map((k) => formatInt(k)).join(" / ")}` }, `${c.name} `, h("span", { class: "sg-k" }, ks.map((k) => formatInt(k)).join(" / "))),
+            h("span", { class: "sg-pnl up", title: "P&L at the target price and date" }, money(c.pnlT)),
+            h("small", { class: "sg-meta" }, `at target · max loss ${c.maxLoss === null ? "unlimited" : money(c.maxLoss)} · POP ${isFigure(c.pop) ? formatPercent(c.pop * 100, 0) : DASH} · ${rupees(c.capital)} capital`),
           );
           card.addEventListener("click", () => loadSuggestion(c));
           if (!reducedMotion()) card.style.setProperty("--i", String(idx));
@@ -1911,8 +1979,9 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const a = account();
     if (!a) return toast("Choose an account that can place orders first.");
     if (!R.act.length) return;
-    const block = R.warnings.find((w) => w.severity === "block");
-    if (!R.ok || block) return toast(block?.text ?? "Every leg needs a price");
+    // A block still opens the sheet (Confirm disabled, the reason listed, the account switchable there); only legs
+    // without a price stop here, since there is nothing to send.
+    if (!R.ok) return toast(R.dead.length ? R.warnings[0].text : "Every leg needs a price");
     const exit = closeMode();
     const plan = O.placementPlan(R.act, exit ? "exit" : "entry", { spot: x.spot });
     const items = plan.map((p) => {
@@ -1939,7 +2008,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       title,
       mode: exit ? "exit" : "entry",
       account: a,
-      accountRow: acctPicker ? (reopen) => acctPicker(reopen) : null,
+      accountRow: acctPicker ? (reopen) => acctPicker(reopen, { badge: false }) : null,
       items,
       summary: exit ? null : { net: R.stats?.net ?? null, maxLoss: R.stats ? R.stats.maxLoss : undefined, margin: R.margin, marginEst: R.acct === null, free: funds.free },
       warnings: R.warnings,
@@ -1949,7 +2018,10 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       announce,
     });
     if (r.reopen) {
-      setTimeout(() => place(), 350);
+      // The account changed in the sheet: fresh funds and margin first, so the reopened sheet checks the new account.
+      clearTimeout(pvTimer);
+      await Promise.all([loadFunds(), runPreviews(true)]);
+      place();
       return;
     }
     if (r.placed) {
@@ -2493,6 +2565,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     destroy() {
       document.removeEventListener("keydown", onCtrl);
       removeEventListener("resize", syncStick);
+      buildRo?.disconnect();
       clearTimeout(pvTimer);
       cancelAnimationFrame(raf);
       sg.job += 1;

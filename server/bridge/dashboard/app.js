@@ -493,7 +493,7 @@ export function chartSlot(label, sub = "") {
  * on Esc and return focus to the trigger. Returns { el, close() }; `onClose` runs once.
  */
 const OPEN_POPS = new WeakMap();
-export function sheetPopover({ trigger, title, body, head = [], cls = "", onClose = null }) {
+export function sheetPopover({ trigger, title, body, head = [], cls = "", onClose = null, within = null }) {
   // One popover per trigger: clicking the trigger again while its popover is open closes it (no second copy).
   const open = trigger ? OPEN_POPS.get(trigger) : null;
   if (open) {
@@ -545,7 +545,11 @@ export function sheetPopover({ trigger, title, body, head = [], cls = "", onClos
       const r = trigger.getBoundingClientRect();
       const w = el.offsetWidth;
       const hgt = el.offsetHeight;
-      const left = Math.max(8, Math.min(innerWidth - w - 8, r.right - w));
+      // `within`: an element (a column, a panel) the popover stays inside; it opens from the trigger's left then.
+      const b = within?.isConnected ? within.getBoundingClientRect() : null;
+      const minL = Math.max(8, b ? b.left : 8);
+      const maxL = Math.max(minL, Math.min(innerWidth - w - 8, b ? b.right - w : innerWidth));
+      const left = Math.max(minL, Math.min(maxL, b ? r.left : r.right - w));
       let top = r.bottom + 6;
       if (top + hgt > innerHeight - 8) top = Math.max(8, Math.min(innerHeight - hgt - 8, r.top - hgt - 6));
       el.style.left = `${Math.round(left)}px`;

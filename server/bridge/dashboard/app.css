@@ -2401,8 +2401,13 @@ button.leg-price.manual { color: hsl(var(--c-atm-ink)); }
 .leg-price .ptag.manual { color: hsl(var(--c-atm-ink)); text-transform: none; font-size: 11px; }
 .leg-price .pt-iv { font: 500 10.5px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
 .leg-price .px-load { display: inline-block; min-width: 36px; color: transparent; border-radius: 4px; background: linear-gradient(90deg, var(--mat-fill-2) 0 40%, var(--mat-fill-3) 50%, var(--mat-fill-2) 60% 100%); background-size: 300% 100%; animation: dv-shimmer 1.2s linear infinite; }
+.leg-price .px-dead { font: 600 11.5px/1 var(--font-body); color: hsl(var(--warn-ink)); }
+.strat-warns .warn-acts { display: inline-flex; gap: 4px; margin-left: auto; }
+.strat-warns .warn-acts button { min-height: 26px; padding: 0 8px; font-size: 12px; }
+.hero-s .nw { white-space: nowrap; }
+.ebar.delta i.neg, .ebar.delta i.pos { background: hsl(var(--foreground) / 0.42); }
 .leg-price .px-none::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 4px; border-radius: 50%; background: hsl(var(--warn)); vertical-align: middle; }
-.leg-row.leg-head .leg-price { min-height: 0; padding-right: 4px; }
+.leg-row.leg-head .leg-price { grid-area: price; min-height: 0; padding-right: 4px; text-align: right; }
 input.price-in { grid-area: price; width: 100%; min-height: 30px; padding: 2px 6px; text-align: right; font: 600 13px/1 var(--font-numeric); border-radius: 7px; }
 .leg-iv { display: none; grid-area: iv; text-align: right; color: hsl(var(--foreground) / var(--a-label)); }
 .leg-price .pt-iv { display: block; }
@@ -2479,6 +2484,11 @@ button.gk:hover { background: var(--mat-fill-2); }
 .risk-line b { font-weight: 700; color: hsl(var(--foreground)); }
 .risk-line b.up { color: var(--ink-pos); } .risk-line b.down { color: var(--ink-neg); }
 .risk-line button.link-btn { font: 600 12.5px/1.5 var(--font-numeric); color: hsl(var(--foreground)); text-decoration: underline dotted hsl(var(--foreground) / 0.4); text-underline-offset: 3px; }
+.charges-pop { padding: 2px 14px 10px; min-width: 240px; }
+.charges-t { width: 100%; }
+.charges-t th, .charges-t td { padding: 6px 0; }
+.charges-t th { text-align: left; font-weight: 500; color: hsl(var(--foreground) / var(--a-label)); }
+.charges-pop p { margin: 8px 0 0; }
 .charges-t td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .charges-t tr.total th, .charges-t tr.total td { font-weight: 700; }
 
@@ -2501,11 +2511,15 @@ select.sg-date { min-height: 30px; padding: 0 28px 0 10px; font: 600 12.5px/1 va
 input.sg-cap { width: 96px; min-height: 30px; padding: 0 8px; font: 600 13px/1 var(--font-numeric); border-radius: 8px; }
 .sg-out { min-height: 20px; transition: opacity var(--dur-2); }
 .sg-out.busy { opacity: 0.55; }
-.sg-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-button.sg-card { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; text-align: left; background: var(--mat-fill-1); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); animation: st-card-in 280ms var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 40ms); }
+.sg-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+button.sg-card { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; grid-template-areas: "g n f" "g m m"; align-items: center; gap: 2px 10px; padding: 8px 12px; border-radius: 12px; text-align: left; background: var(--mat-fill-1); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); animation: st-card-in 280ms var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 40ms); }
 button.sg-card:hover { background: var(--mat-fill-2); }
 @keyframes st-card-in { from { opacity: 0; transform: translateY(4px); } }
-button.sg-card .pc-glyph { grid-area: auto; }
+button.sg-card .pc-glyph { grid-area: g; display: flex; align-items: center; justify-content: center; width: 56px; height: 32px; }
+button.sg-card .sg-name { grid-area: n; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 650 13px/1.25 var(--font-body); }
+button.sg-card .sg-name .sg-k { font: 500 12px/1.25 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); }
+button.sg-card .sg-pnl { grid-area: f; white-space: nowrap; font: 700 13.5px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; }
+button.sg-card .sg-meta { grid-area: m; min-width: 0; font: 500 11.5px/1.3 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); }
 .sg-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; white-space: normal; }
 .sg-text strong { font: 650 12.5px/1.3 var(--font-body); }
 .sg-pnl { font: 700 15px/1.2 var(--font-numeric); }
@@ -2568,7 +2582,12 @@ button.chart-more { width: 30px; height: 30px; min-height: 30px; }
 .strat-payoff .payoff-svg .plot-bg { fill: transparent; }
 .strat-payoff .payoff-svg .band1, .lg-sw .band1 { fill: hsl(var(--foreground) / var(--band1-a)); }
 .strat-payoff .payoff-svg .band2, .lg-sw .band2 { fill: hsl(var(--foreground) / var(--band2-a)); }
-.lg-sw .band1, .lg-sw .band2 { stroke: hsl(var(--foreground) / 0.12); stroke-width: 1; }
+/* Legend band swatches: filled like the bands (a touch stronger so a 12 × 8 chip reads), no outline: not checkboxes. */
+.lg-sw .sw-band { stroke: none; }
+.lg-sw .band1.sw-band { fill: hsl(var(--foreground) / calc(var(--band1-a) * 2.6)); }
+.lg-sw .band2.sw-band { fill: hsl(var(--foreground) / calc(var(--band2-a) * 2.6)); }
+/* Chart pills sit on an opaque chip under their role tint, so a curve or guide never shows through the text. */
+.strat-payoff .payoff-svg .cpill .cp-bg { fill: var(--surface-2); }
 .strat-payoff .payoff-svg .band-text { font: 600 10px/1 var(--font-numeric); fill: hsl(var(--foreground) / var(--a-quiet)); }
 .strat-payoff .payoff-svg .grid { stroke: hsl(var(--foreground) / 0.06); stroke-width: 1; shape-rendering: crispEdges; }
 .strat-payoff .payoff-svg .axis { font: 500 10.5px/1 var(--font-numeric); fill: hsl(var(--foreground) / var(--a-quiet)); }
@@ -2595,7 +2614,7 @@ button.chart-more { width: 30px; height: 30px; min-height: 30px; }
 .strat-payoff .payoff-svg .line-exp, .lg-sw .line-exp { fill: none; stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
 .strat-payoff .payoff-svg .line-exp.up, .lg-sw .line-exp.up { stroke: hsl(var(--pos)); }
 .strat-payoff .payoff-svg .line-exp.dn, .lg-sw .line-exp.dn { stroke: hsl(var(--neg)); }
-.strat-payoff .payoff-svg .line-target, .lg-sw .line-target { fill: none; stroke: hsl(var(--c-atm)); stroke-width: 1.75; stroke-linejoin: round; }
+.strat-payoff .payoff-svg .line-target, .lg-sw .line-target { fill: none; stroke: hsl(var(--c-atm)); stroke-width: 1.75; stroke-dasharray: none; stroke-linejoin: round; }
 .strat-payoff .payoff-svg .line-mid, .lg-sw .line-mid { fill: none; stroke: hsl(var(--c-atm) / 0.55); stroke-width: 1.25; stroke-dasharray: 4 3; }
 .strat-payoff .payoff-svg .cmp-line, .lg-sw .cmp-line { fill: none; stroke: hsl(var(--foreground) / 0.45); stroke-width: 1; stroke-dasharray: 5 4; }
 .strat-payoff .payoff-svg .leg-line { fill: none; stroke-width: 1; opacity: 0.6; transition: opacity var(--dur-1); }
@@ -2617,8 +2636,18 @@ button.chart-more { width: 30px; height: 30px; min-height: 30px; }
 :root[data-theme="dark"] .payoff-tip { box-shadow: 0 0 0 1px var(--mat-separator), 0 8px 24px hsl(0 0% 0% / 0.35); }
 .payoff-tip.on { opacity: 1; }
 .payoff-tip.pinned { box-shadow: 0 0 0 1px hsl(var(--sel-bg)), 0 8px 24px hsl(0 0% 0% / 0.2); pointer-events: auto; }
-.payoff-tip.docked { left: 6px; right: 6px; top: 4px; width: auto; transform: none; }
-.payoff-tip.docked .tip-rows { display: flex; flex-wrap: wrap; gap: 2px 12px; }
+/* Touch: a two-line, full-width card docked over the chart head row, never over the plot it describes. */
+.payoff-tip.docked { left: 0; right: 0; top: auto; bottom: calc(100% + 2px); width: auto; max-height: 44px; padding: 4px 10px; overflow: hidden; transform: none; border-radius: 8px; background: var(--surface-2); font-size: 11.5px; line-height: 1.3; }
+.payoff-tip.docked .tip-head { margin-bottom: 1px; gap: 6px; }
+.payoff-tip.docked .tip-head strong { font-size: 12px; }
+.payoff-tip.docked .tip-move { margin-left: 0; font-size: 11.5px; }
+/* The unpin × spans the card's full height on the right: a 44 px target that does not push the second line out. */
+.payoff-tip.docked { padding-right: 46px; }
+.payoff-tip.docked button.tip-x { position: absolute; top: 0; right: 0; width: 44px; height: 100%; min-height: 0; border-radius: 0 8px 8px 0; }
+.payoff-tip.docked .tip-rows { display: flex; flex-wrap: nowrap; gap: 0 10px; white-space: nowrap; overflow: hidden; }
+.payoff-tip.docked .tip-row { gap: 4px; justify-content: flex-start; }
+.payoff-tip.docked .tip-sw { display: none; }
+.payoff-tip.docked .tip-row.prob { margin: 0; padding: 0; box-shadow: none; }
 .tip-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
 .tip-head strong { font: 700 13px/1.2 var(--font-numeric); }
 .tip-move { margin-left: auto; color: hsl(var(--foreground) / var(--a-label)); font-size: 11.5px; }
@@ -2662,7 +2691,11 @@ input.wi-range:focus-visible { outline: 2px solid hsl(var(--c-atm) / 0.6); outli
 button.wi-reset { min-height: 30px; }
 button.wi-reset[hidden] { display: none; }
 .wi-chips { display: none; gap: 8px; }
-.wi-sheet { display: flex; flex-direction: column; gap: 14px; padding: 4px 0 12px; }
+.wi-sheet { flex: none; display: flex; flex-direction: column; gap: 10px; padding: 4px 16px 16px; }
+.wi-sheet > * { flex: none; }
+.wi-sheet > .wi { display: flex; flex-direction: column; gap: 2px; }
+.wi-sheet > .wi .wi-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.wi-sheet > button.wi-sheet-reset { align-self: flex-end; margin-top: -4px; }
 .wi-sheet input.wi-range { height: 44px; min-height: 44px; }
 .wi-sheet input.wi-range::-webkit-slider-thumb { width: 26px; height: 26px; margin-top: -11px; }
 .wi-quick { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -2707,8 +2740,9 @@ table.grid-table tbody th { font-weight: 650; color: hsl(var(--foreground)); bac
 table.grid-table tbody tr.spot th { box-shadow: inset 3px 0 0 hsl(var(--sel-bg)), inset calc(-1 * var(--hl)) 0 0 var(--mat-separator); }
 table.grid-table thead th.tcol { box-shadow: inset 0 2px 0 hsl(var(--c-atm)), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); color: hsl(var(--c-atm-ink)); }
 table.grid-table td.hc { cursor: pointer; box-shadow: inset 0 0 0 0.5px hsl(var(--foreground) / 0.04); transition: background-color var(--dur-2); }
-table.grid-table td.hc.pos { color: var(--ink-pos); background: hsl(var(--pos) / calc(var(--heat-a0) + var(--heat-a1) * var(--hx, 0))); }
-table.grid-table td.hc.neg { color: var(--ink-neg); background: hsl(var(--neg) / calc(var(--heat-a0) + var(--heat-a1) * var(--hx, 0))); }
+/* Heat cells: the sign lives in the tint and the ± prefix; the text is plain ink so it reads on every strength. */
+table.grid-table td.hc.pos { color: hsl(var(--foreground)); background: hsl(var(--pos) / calc(var(--heat-a0) + var(--heat-a1) * var(--hx, 0))); }
+table.grid-table td.hc.neg { color: hsl(var(--foreground)); background: hsl(var(--neg) / calc(var(--heat-a0) + var(--heat-a1) * var(--hx, 0))); }
 table.grid-table td.hc.tcol { box-shadow: inset 1px 0 0 hsl(var(--c-atm) / 0.5), inset -1px 0 0 hsl(var(--c-atm) / 0.5); }
 table.grid-table td.hc:hover, table.grid-table td.hc:focus-visible { outline: 2px solid hsl(var(--sel-bg)); outline-offset: -2px; }
 
@@ -2821,7 +2855,7 @@ button.chart-slot-toggle[aria-expanded="true"] svg { transform: rotate(180deg); 
 /* Desktop: the build column (legs, risk, suggest) stays in view while the analysis scrolls; .no-stick when taller. */
 @media (min-width: 1024px) {
   .strat-build { position: sticky; top: 12px; align-self: start; }
-  .strat-build.no-stick { position: static; }
+  .strat-build.no-stick { position: sticky; }
   .strat-risk > .sec-toggle { pointer-events: none; }
   .strat-risk > .sec-toggle svg { display: none; }
   :root[data-page="strategy"] .toast { bottom: 24px; left: auto; right: 32px; transform: none; }
@@ -2862,10 +2896,10 @@ button.chart-slot-toggle[aria-expanded="true"] svg { transform: rotate(180deg); 
 @media (min-width: 720px) and (max-width: 1023px) {
   .strat-hero .hero-v { font-size: 17px; }
   .strat-hero { padding-top: 10px; padding-bottom: 10px; }
-  .leg-row { grid-template-columns: 40px 36px 132px 48px 72px 124px minmax(72px, 1fr) 52px 52px 44px; grid-template-areas: "on side strike right exp lots price iv delta more"; }
+  /* One fixed grid for the head and the rows; the spare width goes to the strike, never a gap before Price. */
+  .leg-row { grid-template-columns: 44px 44px minmax(140px, 1fr) 48px 72px 136px 72px 52px 52px 44px; grid-template-areas: "on side strike right exp lots price iv delta more"; }
   .leg-iv { display: block; }
   .leg-price .pt-iv { display: none; }
-  .leg-row button.step { width: 32px; min-width: 32px; }
   .risk-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); column-gap: 20px; }
   .risk-sec.lines { grid-column: 1 / -1; }
   .risk-sec.greeks { box-shadow: none; }
@@ -2879,7 +2913,10 @@ button.chart-slot-toggle[aria-expanded="true"] svg { transform: rotate(180deg); 
   button.leg-on, .leg-row .leg-more, button.leg-exp, button.leg-price { min-height: 44px; height: 44px; }
   button.leg-on { width: 40px; }
   .leg-row .leg-more { width: 44px; }
-  .leg-row > .side-tag { width: 34px; height: 44px; min-height: 44px; padding: 11px 2px; background-clip: content-box; }
+  .leg-row > .side-tag { width: 44px; min-width: 44px; height: 44px; min-height: 44px; padding: 11px 5px; background-clip: content-box; }
+  .leg-row button.step, .leg-lots button.step, button.leg-on, .leg-lots .lots-in, input.size-in { width: 44px; min-width: 44px; }
+  /* The movable-panel grip and maximise stay off the builder's head on touch: one clean head line. */
+  :root #content > .strat-panel > .panel-tools, :root #content > .strat-panel .panel-tools.in-head, :root[data-layout="desk"] #content > .movable.strat-panel .panel-tools.in-head, :root[data-layout="desk"] #content > .movable.strat-panel > .panel-tools { display: none; }
   button.leg-right { height: 44px; min-height: 44px; padding: 11px 6px; background-clip: content-box; }
   .tool-group button.small, button.add-leg, button.strat-sheet-btn, button.tools-more, .group-seg button, button.preset-chip, .tbl-head .segmented button, .curves-seg button, button.chart-more, button.wi-reset, .strat-actions button.small, .strat-actions .icon-btn, .saved-acts button, .saved-foot button, .touch-btns.mini button, button.toast-undo, .strat-panel button.chip-btn, .sg-tp button.step-btn, button.sec-toggle, button.gk, .menu-list button.menu-item, .strat-panel button.link-btn, input.sg-target, select.sg-date, input.sg-cap, input.size-in, button.strat-name, .step-btn { min-height: 44px; }
   .strat-panel input.wi-range { min-height: 44px; height: 44px; }
@@ -2918,7 +2955,7 @@ button.chart-slot-toggle[aria-expanded="true"] svg { transform: rotate(180deg); 
   .hero-c:nth-child(1) { padding-left: 0; }
   .hero-v { font-size: 17px; }
   .hero-k { font-size: 10.5px; letter-spacing: 0.04em; }
-  .hero-s { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hero-s { font-size: 11px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .hero-breakevens .hero-v .be-list.many { font-size: 14px; }
   .pop-ring { right: 8px; margin-top: -6px; }
   .strat-payoff { padding-top: 6px; }
@@ -2933,7 +2970,7 @@ button.chart-slot-toggle[aria-expanded="true"] svg { transform: rotate(180deg); 
   .wi-chips button.chip-btn { min-height: 44px; padding: 0 14px; font-size: 13px; }
   .model-note { font-size: 11px; }
   /* Leg cards: stripe, B / S, strike + right + expiry, ×lots and price; a tap opens the second row. */
-  .leg-row { grid-template-columns: 36px minmax(0, 1fr) auto 76px 44px; grid-template-areas: "side sum lotsx price more"; gap: 2px 6px; min-height: 52px; padding: 2px 0 2px 10px; }
+  .leg-row { grid-template-columns: 44px minmax(0, 1fr) auto 76px 44px; grid-template-areas: "side sum lotsx price more"; gap: 2px 6px; min-height: 52px; padding: 2px 0 2px 8px; }
   .leg-row.leg-head { display: none; }
   .leg-row > .side-tag { grid-area: side; }
   .leg-sum { grid-area: sum; display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; }
@@ -2945,14 +2982,16 @@ button.chart-slot-toggle[aria-expanded="true"] svg { transform: rotate(180deg); 
   .leg-lotsx { grid-area: lotsx; display: inline; color: hsl(var(--foreground) / var(--a-label)); }
   .leg-iv, .leg-delta { display: none; }
   .leg-row > button.leg-on, .leg-row > .leg-strike, .leg-row > .leg-right, .leg-row > .leg-lots, .leg-row > .leg-exp { display: none; }
-  .leg-row.open { grid-template-columns: 36px minmax(0, 1fr) auto 76px 44px; grid-template-areas: "side sum lotsx price more" "x2 x2 x2 x2 x2"; padding-bottom: 8px; animation: st-open 200ms var(--ease-out); }
-  .leg-row.open > .leg-strike, .leg-row.open > .leg-right, .leg-row.open > .leg-lots, .leg-row.open > .leg-exp, .leg-row.open > button.leg-on { display: inline-flex; grid-area: auto; grid-row: 2; }
-  .leg-row.open > button.leg-on { grid-column: 1; justify-self: start; }
-  .leg-row.open > .leg-strike { grid-column: 2 / 3; justify-self: start; }
-  .leg-row.open > .leg-right { grid-column: 3; }
+  /* Open card: row 1 = side · expiry pill · ×lots · price · ⋯; row 2 = ‹ strike › · CE / PE · − lots +, one line. */
+  .leg-row.open { grid-template-columns: 44px minmax(0, 1fr) auto 82px 44px; grid-template-areas: "side sum lotsx price more" "x2 x2 x2 x2 x2"; padding-bottom: 6px; animation: st-open 200ms var(--ease-out); }
+  .leg-row.open > .leg-sum { display: none; }
+  .leg-row.open > .leg-exp { display: inline-flex; grid-area: sum; justify-self: start; }
+  .leg-row.open > .leg-strike, .leg-row.open > .leg-right, .leg-row.open > .leg-lots { display: inline-flex; grid-area: auto; grid-row: 2; }
+  .leg-row.open > .leg-strike { grid-column: 1 / 3; justify-self: start; min-width: 0; }
+  .leg-row.open > .leg-strike button.k { min-width: 44px; }
+  .leg-row.open > .leg-right { grid-column: 3; width: 44px; }
   .leg-row.open > .leg-lots { grid-column: 4 / 6; justify-self: end; }
   .leg-row.open::after { content: ""; display: none; }
-  .leg-row.open > .leg-exp { grid-row: 3; grid-column: 2 / 4; justify-self: start; margin-top: 4px; }
   @keyframes st-open { from { background: var(--mat-fill-2); } }
   .preset-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   button.preset-card { grid-template-columns: minmax(0, 1fr); grid-template-areas: "g" "t" "r"; padding: 10px; }

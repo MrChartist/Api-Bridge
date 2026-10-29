@@ -226,7 +226,7 @@ async function renderDesk(kind) {
    * "Orders go to": the account picker for the order ticket and the action sheet (the chain's line has none: it is
    * read-only until an order is placed). A live account carries a red LIVE badge; paper shows its name only.
    */
-  function acctPicker(onChange = null, { label = true } = {}) {
+  function acctPicker(onChange = null, { label = true, badge: withBadge = true } = {}) {
     if (!tradable.length) return h("a", { href: "#/accounts", class: "acct-connect" }, icon("plug"), "Connect an account");
     const sel = h("select", { class: "acct-pick", "aria-label": "Orders go to" }, tradable.map((a) => h("option", { value: a.id, selected: a.id === st.account }, a.label)));
     const isLive = () => {
@@ -242,7 +242,8 @@ async function renderDesk(kind) {
       badge.hidden = !isLive();
       onChange?.();
     });
-    return h("span", { class: "acct-pick-row" }, label ? h("span", { class: "acct-pick-k" }, "Orders go to") : null, sel, badge);
+    // badge: false when the host shows its own mode (the strategy confirm sheet: its Mode switch decides paper / live).
+    return h("span", { class: "acct-pick-row" }, label ? h("span", { class: "acct-pick-k" }, "Orders go to") : null, sel, withBadge ? badge : null);
   }
 
   // ── The compact top bar (docs/design/foundation.md §5): mounted into the app toolbar's #toolbar-ctx. One glass
@@ -321,7 +322,8 @@ async function renderDesk(kind) {
     if (eShort.data !== day) eShort.data = day;
     // Chain on a phone: the ATM IV tile's sub line carries the lot, so the expiry pill does not repeat it.
     const lotHere = lot && !(kind === "chain" && device().phone);
-    const sub = e ? `${exTag} · ${mk}${lotHere ? ` · lot ${formatInt(lot)}` : ""}` : "";
+    // Strategy on a phone: "3 Nov · 5d" only (the lot is in each leg's qty title; W / M would clip the pill).
+    const sub = !e ? "" : kind === "strategy" && device().phone ? exTag : `${exTag} · ${mk}${lotHere ? ` · lot ${formatInt(lot)}` : ""}`;
     if (eSub.data !== sub) eSub.data = sub;
     if (spotV.data !== spotText) spotV.data = spotText;
     const chText = ch === null ? "" : `${formatSigned(ch, 2)}${chp !== null ? ` (${formatSigned(chp, 2)}%)` : ""}`;

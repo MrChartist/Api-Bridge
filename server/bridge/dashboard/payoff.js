@@ -39,19 +39,34 @@ const text = (el, t) => {
 /** Round axis values (options.js; re-exported for positions.js). */
 export { niceTicks };
 
-/** Rupees with a sign and no decimals; long values in Indian compact form (₹1.2L). */
+/** Rupees with a sign (a true minus, U+2212) and no decimals; a lakh and above in Indian compact form (₹6.02L). */
 export function money(v, { signed = true } = {}) {
   if (!isFigure(v)) return DASH;
   const n = Math.round(Number(v));
-  const plain = formatRupee(Math.abs(n), 0);
-  const body = plain.length > 7 ? `₹${formatCompact(Math.abs(n))}` : plain;
-  return n > 0 && signed ? `+${body}` : n < 0 ? `-${body}` : body;
+  const body = Math.abs(n) >= 1e5 ? `₹${formatCompact(Math.abs(n))}` : formatRupee(Math.abs(n), 0);
+  return n > 0 && signed ? `+${body}` : n < 0 ? `\u2212${body}` : body;
 }
 /** The same with the gain / loss colour. */
 export const moneyEl = (v, opts) => h("span", { class: isFigure(v) && Math.round(v) > 0 ? "up" : isFigure(v) && Math.round(v) < 0 ? "down" : undefined }, money(v, opts));
 /** Axis rupees: "+₹5K", "-₹10K", "0". */
-const axisMoney = (v) => (Math.abs(v) < 1e-9 ? "0" : `${v > 0 ? "+" : "-"}₹${formatCompact(Math.abs(v))}`);
+const axisMoney = (v) => (Math.abs(v) < 1e-9 ? "0" : `${v > 0 ? "+" : "\u2212"}₹${formatCompact(Math.abs(v)).replace(/\.0(?=[KLC])/, "")}`);
 
+/**
+ * Price ticks: about one per 90 px of plot (at least 4), on a multiple of the strike step when one fits
+ * (50 → 100, 200, 250, 400 …), else round numbers.
+ */
+function xTicks(lo, hi, plotW, unit) {
+  const want = Math.max(4, Math.floor(plotW / 90));
+  if (unit > 0 && hi > lo) {
+    for (const m of [1, 2, 4, 5, 8, 10, 20, 25, 40, 50, 100, 200, 250, 500, 1000]) {
+      const st = unit * m;
+      const a = Math.ceil(lo / st);
+      const b = Math.floor(hi / st);
+      if (b - a + 1 <= want) return Array.from({ length: Math.max(0, b - a + 1) }, (_, i) => (a + i) * st);
+    }
+  }
+  return niceTicks(lo, hi, want);
+}
 const mq = (q) => typeof matchMedia === "function" && matchMedia(q).matches;
 const coarse = () => mq("(pointer: coarse)");
 /** 340 px on desktop, 280 on tablet, 232 on phone (§3). */
@@ -106,6 +121,9 @@ export function drawPayoff(host, { onPin } = {}) {
   const xAxis = s("g", { class: "x-axis" });
   const areaUp = s("path", { class: "area-up", fill: `url(#${id}-gp)`, "clip-path": `url(#${id}-up)` });
   const areaDn = s("path", { class: "area-dn", fill: `url(#${id}-gn)`, "clip-path": `url(#${id}-dn)` });
+  // An inline style outranks any stylesheet fill on .area-up / .area-dn, so the gradients always apply.
+  areaUp.style.fill = `url(#${id}-gp)`;
+  areaDn.style.fill = `url(#${id}-gn)`;
   const ribbon = s("path", { class: "ribbon" });
   const ribbonPos = s("path", { class: "ribbon-pos", "clip-path": `url(#${id}-pz)` });
   const zero = s("line", { class: "zero" });
@@ -113,10 +131,11 @@ export function drawPayoff(host, { onPin } = {}) {
   const guideMin = s("line", { class: "guide min" });
   const pill = (cls) => {
     const g = s("g", { class: `cpill ${cls}` });
+    const bg = s("rect", { rx: 9, height: 18, class: "cp-bg" });
     const r = s("rect", { rx: 9, height: 18 });
     const t = s("text", { "text-anchor": "middle" });
-    g.append(r, t);
-    return { g, r, t };
+    g.append(bg, r, t);
+    return { g, bg, r, t };
   };
   const pMax = pill("pos");
   const pMin = pill("neg");
@@ -179,8 +198,8 @@ export function drawPayoff(host, { onPin } = {}) {
   const lgExp = lgItem(swatch(s("line", { class: "line-exp up", x1: 0, x2: 8, y1: 4, y2: 4 }), s("line", { class: "line-exp dn", x1: 8, x2: 16, y1: 6, y2: 6 })), "Expiry");
   const lgT = lgItem(swatch(s("line", { class: "line-target", x1: 0, x2: 16, y1: 5, y2: 5 })), "Target");
   const lgM = lgItem(swatch(s("line", { class: "line-mid", x1: 0, x2: 16, y1: 5, y2: 5 })), "Mid-date");
-  const lgB1 = lgItem(swatch(s("rect", { class: "band1", x: 0, y: 0, width: 16, height: 10, rx: 2 })), "±1σ");
-  const lgB2 = lgItem(swatch(s("rect", { class: "band2", x: 0, y: 0, width: 16, height: 10, rx: 2 })), "±2σ");
+  const lgB1 = lgItem(swatch(s("rect", { class: "band1 sw-band", x: 2, y: 1, width: 12, height: 8, rx: 1.5 })), "±1σ");
+  const lgB2 = lgItem(swatch(s("rect", { class: "band2 sw-band", x: 2, y: 1, width: 12, height: 8, rx: 1.5 })), "±2σ");
   const lgC = lgItem(swatch(s("line", { class: "cmp-line", x1: 0, x2: 16, y1: 5, y2: 5 })), "Saved");
   const legend = h("span", { class: "legend" }, lgExp.el, lgT.el, lgM.el, lgB1.el, lgB2.el, lgC.el);
   const tools = h("span", { class: "payoff-tools" });
@@ -267,7 +286,7 @@ export function drawPayoff(host, { onPin } = {}) {
     }
   }
   function paintX() {
-    const xt = niceTicks(d.lo, d.hi, Math.max(4, Math.min(8, Math.floor((W - L - R) / 96)))).filter((p) => p > d.lo && p < d.hi);
+    const xt = xTicks(d.lo, d.hi, W - L - R, step()).filter((p) => p > d.lo && p < d.hi);
     const key = `${W}|${xt.join(",")}|${r1(d.lo)}|${r1(d.hi)}`;
     if (xAxis.__sig === key) return;
     xAxis.__sig = key;
@@ -280,8 +299,56 @@ export function drawPayoff(host, { onPin } = {}) {
     const left = anchor === "end" ? x - w : anchor === "start" ? x : x - w / 2;
     const cl = Math.max(L, Math.min(W - R - w, left));
     set(p.r, { x: r1(cl), y: r1(y - 9), width: w });
+    set(p.bg, { x: r1(cl), y: r1(y - 9), width: w });
     set(p.t, { x: r1(cl + w / 2), y: r1(y + 3.6) });
     set(p.g, { visibility: "visible" });
+  }
+  /** How many drawn curves (and horizontal guide lines, px) pass through the box [x0, x1] × [y0, y1] (3 px margin)? */
+  function hitsCurve(x0, x1, y0, y1, lines = []) {
+    const curves = [d.expiry, d.target, d.mid].filter(Boolean);
+    const p0 = P(x0);
+    const p1 = P(x1);
+    let n = lines.filter((ly) => ly >= y0 - 3 && ly <= y1 + 3).length;
+    for (const vals of curves) {
+      const ys = [atOn(d.xs, vals, p0), atOn(d.xs, vals, p1)];
+      d.xs.forEach((q, i) => (q > p0 && q < p1 ? ys.push(vals[i]) : null));
+      const px = ys.filter((val) => val !== null).map((val) => Y(Math.max(d.yMin, Math.min(d.yMax, val))));
+      if (!px.length) continue;
+      if (Math.max(...px) >= y0 - 3 && Math.min(...px) <= y1 + 3) n += 1;
+    }
+    return n;
+  }
+  /**
+   * A Max pill beside its guide, never on a curve: tried right edge on its own side of the guide (above for max,
+   * below for min), then the other side, then the left edge; the first box clear of every curve wins.
+   */
+  function placeGuidePill(p, gy, label, dir, bottom) {
+    const w = Math.max(28, Math.round(label.length * 6.1 + 14));
+    const top = T + 10;
+    const spots = [];
+    for (const edge of ["end", "start"]) for (const side of [dir, -dir]) spots.push({ edge, y: gy + side * 19 });
+    const ok = spots.filter((c) => c.y >= top && c.y <= bottom);
+    const box = (c) => (c.edge === "end" ? [W - R - 4 - w, W - R - 4] : [L + 4, L + 4 + w]);
+    // The first clear spot; when none is clear, the one crossed by the fewest curves (the pill is opaque anyway).
+    const scored = ok.map((c) => ({ c, n: hitsCurve(...box(c), c.y - 9, c.y + 9) }));
+    const best = scored.find((q) => q.n === 0) ?? scored.reduce((a, q) => (q.n < a.n ? q : a), scored[0] ?? { n: 0 });
+    const pick = best?.c ?? { edge: "end", y: Math.max(top, Math.min(bottom, gy + dir * 19)) };
+    paintPill(p, pick.edge === "end" ? W - R - 4 : L + 4, pick.y, label, { anchor: pick.edge });
+  }
+  /** The first-visit hint goes in a corner of the plot that no curve or pill crosses. */
+  function placeHint() {
+    if (hint.hidden) return;
+    const hw = hint.offsetWidth || 180;
+    const hh = 22;
+    const ys = [H - B - hh - 26, T + 6, T + 30, (T + H - B - hh) / 2];
+    const corners = [L + 8, W - R - hw - 8].flatMap((x0) => ys.map((y0) => [x0, y0]));
+    const lines = [guideMax, guideMin, zero].filter((g) => g.getAttribute("visibility") !== "hidden").map((g) => Number(g.getAttribute("y1"))).filter(Number.isFinite);
+    const pills = [pMax, pMin].filter((q) => q.g.getAttribute("visibility") === "visible").map((q) => [Number(q.r.getAttribute("x")), Number(q.r.getAttribute("y"))]);
+    const overPill = (x0, y0) => pills.some(([px, py]) => px < x0 + hw && px + 100 > x0 && py < y0 + hh && py + 18 > y0);
+    const cost = ([x0, y0]) => hitsCurve(x0, x0 + hw, y0, y0 + hh, lines) + (overPill(x0, y0) ? 5 : 0);
+    const free = corners.reduce((a, c) => (cost(c) < cost(a) ? c : a), corners[0]);
+    hint.style.left = `${Math.round(free[0])}px`;
+    hint.style.top = `${Math.round(free[1])}px`;
   }
   function paint() {
     if (!d) return;
@@ -341,9 +408,10 @@ export function drawPayoff(host, { onPin } = {}) {
     const ml = st?.locked === null || st?.locked === undefined ? st?.maxLoss : null;
     const inY = (val) => val !== null && val !== undefined && val <= d.yMax && val >= d.yMin;
     const sfx = d.approx ? " ≈" : "";
+    const pillBottom = H - B - (bandLabels.childNodes.length ? 24 : 12);
     if (mp !== null && mp !== undefined && mp > 0 && inY(mp)) {
       set(guideMax, { x1: L, x2: W - R, y1: r1(Y(mp)), y2: r1(Y(mp)), visibility: "visible" });
-      paintPill(pMax, W - R - 4, Math.max(T + 10, Y(mp) - 12), `Max ${money(mp)}${sfx}`, { anchor: "end" });
+      placeGuidePill(pMax, Y(mp), `Max ${money(mp)}${sfx}`, -1, pillBottom);
     } else {
       set(guideMax, { visibility: "hidden" });
       paintPill(pMax, W - R - 4, T + 10, st && mp === null && st.maxProfit === null ? "↗ Unlimited" : "", { anchor: "end", show: Boolean(st && st.maxProfit === null) });
@@ -351,7 +419,7 @@ export function drawPayoff(host, { onPin } = {}) {
     const lossBelow = ml !== null && ml !== undefined && ml < 0;
     if (lossBelow && inY(ml)) {
       set(guideMin, { x1: L, x2: W - R, y1: r1(Y(ml)), y2: r1(Y(ml)), visibility: "visible" });
-      paintPill(pMin, W - R - 4, Math.min(H - B - 10, Y(ml) + 12), `Max ${money(ml)}${sfx}`, { anchor: "end" });
+      placeGuidePill(pMin, Y(ml), `Max ${money(ml)}${sfx}`, 1, pillBottom);
     } else {
       set(guideMin, { visibility: "hidden" });
       const unl = st && st.maxLoss === null;
@@ -425,6 +493,7 @@ export function drawPayoff(host, { onPin } = {}) {
         }),
       );
     }
+    placeHint();
     showCross(pinned ?? hover);
   }
 
@@ -461,16 +530,18 @@ export function drawPayoff(host, { onPin } = {}) {
     text(tipPrice, formatInt(p));
     text(tipMove, `${formatSigned(pct, 1)}%${isFigure(z) ? ` · ${formatSigned(z, 1)}σ` : ""}`);
     const above = O.probAbove(p, v.forward, v.horizon, v.ivPct);
+    const docked = coarse();
+    const short = (t) => (docked ? String(t).replace(/ \(.*\)$/, "") : t);
     const rows = [
-      vt !== null ? ["target", v.labels?.target ?? "Target", vt] : null,
-      vm !== null ? ["mid", v.labels?.mid ?? "Mid-date", vm] : null,
+      vt !== null ? ["target", short(v.labels?.target ?? "Target"), vt] : null,
+      vm !== null ? ["mid", short(v.labels?.mid ?? "Mid-date"), vm] : null,
       ["expiry", v.labels?.expiryShort ?? "Expiry", ve],
       v.compare ? ["cmp", v.compare.label, atOn(d.xs, d.compare.vals, p)] : null,
     ].filter(Boolean);
-    const sig = rows.map((r) => r[0]).join() + (above !== null ? "|p" : "");
+    const sig = rows.map((r) => `${r[0]}:${r[1]}`).join() + (above !== null ? `|p${docked}` : "");
     if (tipRowsSig !== sig) {
       tipRowsSig = sig;
-      tipRows.replaceChildren(...rows.map((r) => h("div", { class: `tip-row ${r[0]}` }, h("span", { class: "tip-k" }, h("i", { class: `tip-sw ${r[0]}` }), r[1]), h("span", { class: "tip-v" }))), ...(above !== null ? [h("div", { class: "tip-row prob" }, h("span", { class: "tip-k" }, "P(close above)"), h("span", { class: "tip-v" }))] : []));
+      tipRows.replaceChildren(...rows.map((r) => h("div", { class: `tip-row ${r[0]}` }, h("span", { class: "tip-k" }, h("i", { class: `tip-sw ${r[0]}` }), r[1]), h("span", { class: "tip-v" }))), ...(above !== null ? [h("div", { class: "tip-row prob" }, h("span", { class: "tip-k", title: "Chance of closing above this price" }, docked ? "P↑" : "P(close above)"), h("span", { class: "tip-v" }))] : []));
     }
     rows.forEach((r, i) => {
       const cell = tipRows.children[i].lastChild;
@@ -480,7 +551,6 @@ export function drawPayoff(host, { onPin } = {}) {
     if (above !== null) text(tipRows.lastChild.lastChild, `${formatInt(Math.round(above * 100))}%`);
     tip.classList.add("on");
     tip.classList.toggle("pinned", pinned !== null);
-    const docked = coarse();
     tip.classList.toggle("docked", docked);
     if (!docked) {
       const rect = svg.getBoundingClientRect();
@@ -637,6 +707,7 @@ export function drawPayoff(host, { onPin } = {}) {
         drawIn();
         hint.hidden = hinted();
         hint.textContent = coarse() ? `${touchWord()} or drag to read P&L` : `Hover to read P&L${keyHint(" · ← → on the chart")}`;
+        if (d) placeHint();
       } else if (!tween && !reducedMotion()) {
         if (v.target && !hadT && prev) lineReveal(lineT);
         if (v.mid && !hadM && prev) lineReveal(lineM);
