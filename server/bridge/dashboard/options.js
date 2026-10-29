@@ -479,6 +479,7 @@ export function strategyStats(legs, lotSize, { forward = null, ivPct = null, yea
   const sigPct = ivp !== null && ivp > 0 ? Math.max(1, ivp + (num(ivShift) ?? 0)) : null;
   let pop = null;
   if (F && F > 0 && T !== null && T <= 0) pop = f(num(spot) ?? F) > 0 ? 1 : 0;
+  else if (F && F > 0 && sigPct && T > 0 && laterLegs) pop = probProfit(f, { forward: F, ivPct: sigPct, years: T });
   else if (F && F > 0 && sigPct && T > 0) {
     const sig = sigPct / 100;
     const cuts = [0, ...breakevens, Infinity];
@@ -498,7 +499,7 @@ export function strategyStats(legs, lotSize, { forward = null, ivPct = null, yea
   }
   const net = netPremium(act, lotSize);
   const locked = maxProfit !== null && maxLoss !== null && maxProfit - maxLoss < Math.max(1, 0.001 * Math.abs(net)) ? (maxProfit + maxLoss) / 2 : null;
-  return { maxProfit, maxLoss, breakevens, pop, net, upSlope, stress, locked, topStrike: strikes.length ? strikes[strikes.length - 1] : null };
+  return { maxProfit, maxLoss, breakevens, pop, net, upSlope, stress, locked, topStrike: strikes.length ? strikes[strikes.length - 1] : null, approx: laterLegs };
 }
 /** Net Greeks of a basket from the chain's own greeks (delta in units of the underlying, theta and vega in rupees). */
 export function netGreeks(legs, chain) {
@@ -527,7 +528,7 @@ export const PRESET_GROUPS = Object.freeze([
   ["vol", "Volatile"],
   ["hedge", "Hedge & arb"],
 ]);
-const P = (id, name, group, risk, hint, needsFut = false) => Object.freeze({ id, name, group, risk, needsFut, hint, view: hint });
+const P = (id, name, group, risk, hint, needsFut = false, multi = false) => Object.freeze({ id, name, group, risk, needsFut, multi, hint, view: hint });
 export const PRESETS = Object.freeze([
   P("long-call", "Long call", "bull", "defined", "Up, with leverage"),
   P("bull-call", "Bull call spread", "bull", "defined", "Moderately up, cheaper"),
@@ -549,6 +550,11 @@ export const PRESETS = Object.freeze([
   P("iron-fly", "Iron fly", "neutral", "defined", "Pins near ATM, defined risk"),
   P("long-call-fly", "Long call butterfly", "neutral", "defined", "Pins at ATM, cheap"),
   P("jade-lizard", "Jade lizard", "neutral", "undefined", "Range to up, no upside risk"),
+  P("call-calendar", "Long calendar (call)", "neutral", "defined", "Pins near the strike; gains on time", false, true),
+  P("put-calendar", "Long calendar (put)", "neutral", "defined", "Pins near the strike; gains on time", false, true),
+  P("call-diagonal", "Diagonal (call)", "neutral", "defined", "Drifts up slowly; gains on time", false, true),
+  P("double-calendar", "Double calendar", "neutral", "defined", "A wide range; gains on time", false, true),
+  P("double-diagonal", "Double diagonal", "neutral", "defined", "A range; time decay, defined risk", false, true),
   P("long-straddle", "Long straddle", "vol", "defined", "A big move either way"),
   P("long-strangle", "Long strangle", "vol", "defined", "A bigger move, cheaper"),
   P("reverse-iron-condor", "Reverse iron condor", "vol", "defined", "Breaks out of a range"),
@@ -564,16 +570,18 @@ export const PRESETS = Object.freeze([
 /**
  * Legs for a preset around the forward: OPT legs { right, strike, side, lots } and, for futures presets,
  * { kind: "FUT", right: null, strike: null, side, lots, symbol, expiry, lotSize } from `fut`. Strikes beyond the
- * fetched rows are clamped to the outermost listed one. A futures preset without `fut` returns [].
- * @param {{ move?: number|null, forward?: number|null, fut?: { symbol: string, expiry: string, lotSize?: number }|null }} [o]
+ * fetched rows are clamped to the outermost listed one. A futures preset without `fut` returns []. Calendar presets
+ * (`multi`) sell the chain's expiry and buy `back` (a later expiry: its legs carry `expiry`); without `back`, [].
+ * @param {{ move?: number|null, forward?: number|null, fut?: { symbol: string, expiry: string, lotSize?: number }|null, back?: string|null }} [o]
  */
-export function presetLegs(id, chain, { move = null, forward = null, fut = null } = {}) {
+export function presetLegs(id, chain, { move = null, forward = null, fut = null, back = null } = {}) {
   const rows = chain?.rows ?? [];
   const atm = atmRow(chain);
   if (!atm || !rows.length) return [];
   const meta = PRESETS.find((p) => p.id === id);
   if (!meta) return [];
   if (meta.needsFut && !fut?.symbol) return [];
+  if (meta.multi && !(typeof back === "string" && DATE_RE.test(back))) return [];
   const strikes = rows.map((r) => r.strike).sort((a, b) => a - b);
   const step = strikes.length > 1 ? Math.min(...strikes.slice(1).map((s, i) => s - strikes[i]).filter((d) => d > 0)) : 50;
   const near = (x) => strikes.reduce((b, s) => (Math.abs(s - x) < Math.abs(b - x) ? s : b), strikes[0]);
@@ -587,6 +595,9 @@ export function presetLegs(id, chain, { move = null, forward = null, fut = null 
   const W = Math.max(step, Math.round(m / step) * step);
   const L = (right, strike, side, lots = 1) => ({ right, strike: clamp(near(strike)), side, lots });
   const FUT = (side) => ({ kind: "FUT", right: null, strike: null, side, lots: 1, symbol: fut.symbol, expiry: fut.expiry ?? null, lotSize: num(fut.lotSize) ?? null });
+  const front = DATE_RE.test(String(chain?.expiry ?? "")) ? chain.expiry : null;
+  const FR = (right, strike, side) => ({ ...L(right, strike, side), expiry: front });
+  const BK = (right, strike, side) => ({ ...L(right, strike, side), expiry: back });
   switch (id) {
     case "long-call": return [L("CE", K0, "BUY")];
     case "bull-call": return [L("CE", K0, "BUY"), L("CE", Kc1, "SELL")];
@@ -618,6 +629,11 @@ export function presetLegs(id, chain, { move = null, forward = null, fut = null 
     case "conversion": return [FUT("BUY"), L("PE", K0, "BUY"), L("CE", K0, "SELL")];
     case "reversal": return [FUT("SELL"), L("PE", K0, "SELL"), L("CE", K0, "BUY")];
     case "box": return [L("CE", K0, "BUY"), L("CE", Kc1, "SELL"), L("PE", Kc1, "BUY"), L("PE", K0, "SELL")];
+    case "call-calendar": return [FR("CE", K0, "SELL"), BK("CE", K0, "BUY")];
+    case "put-calendar": return [FR("PE", K0, "SELL"), BK("PE", K0, "BUY")];
+    case "call-diagonal": return [FR("CE", Kc1, "SELL"), BK("CE", K0, "BUY")];
+    case "double-calendar": return [FR("PE", Kp1, "SELL"), BK("PE", Kp1, "BUY"), FR("CE", Kc1, "SELL"), BK("CE", Kc1, "BUY")];
+    case "double-diagonal": return [FR("PE", Kp1, "SELL"), BK("PE", Kp1 - w, "BUY"), FR("CE", Kc1, "SELL"), BK("CE", Kc1 + w, "BUY")];
     default: return [];
   }
 }
@@ -1423,7 +1439,7 @@ export function migrateLegs(legs, expiry, { lotSize = null } = {}) {
     };
     if (num(l.entry) !== null) {
       leg.entry = num(l.entry);
-      if (l.entryTag === "avg" || l.entryTag === "saved") leg.entryTag = l.entryTag;
+      if (l.entryTag === "avg" || l.entryTag === "saved" || l.entryTag === "manual") leg.entryTag = l.entryTag;
     }
     if (["INTRADAY", "MARGIN", "CNC"].includes(l.product)) leg.product = l.product;
     if (Number.isInteger(num(l.units)) && num(l.units) > 0) leg.units = num(l.units);
@@ -1438,7 +1454,8 @@ export function legsMatch(a, b) {
   if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length || !a.length) return false;
   return a.every((l, i) => {
     const m = b[i];
-    return (l.kind === "FUT") === (m.kind === "FUT") && (l.kind === "FUT" || (l.right === m.right && l.strike === m.strike)) && l.side === m.side && Math.floor(l.lots) === Math.floor(m.lots) && l.on !== false;
+    const sameExp = !l.expiry || !m.expiry || l.expiry === m.expiry;
+    return (l.kind === "FUT") === (m.kind === "FUT") && (l.kind === "FUT" || (l.right === m.right && l.strike === m.strike && sameExp)) && l.side === m.side && Math.floor(l.lots) === Math.floor(m.lots) && l.on !== false;
   });
 }
 
@@ -1682,23 +1699,27 @@ export function sigmaZ(x, forward, ivPct, years) {
 }
 
 /**
- * The payoff chart's x-range: wide enough for 2.6 expected moves, every strike (×1.35 its distance) and ±1.5% of
- * spot. Depends only on the legs' strikes, spot and the move, so it holds still across ticks.
+ * The payoff chart's x-range: wide enough for 2.6 expected moves, every strike (×1.35 its distance), ±1.5% of spot
+ * and `sd2` (2.2σ, so the ±2σ band is always inside). Depends only on the legs' strikes, spot and the move, so it
+ * holds still across ticks.
  */
-export function payoffRange(legs, { spot, move = null }) {
+export function payoffRange(legs, { spot, move = null, sd2 = null }) {
   const S = num(spot);
   if (!S) return null;
   const ks = activeLegs(legs).filter((l) => !isFut(l)).map((l) => l.strike);
-  const span = Math.max((num(move) ?? S * 0.02) * 2.6, ...ks.map((k) => Math.abs(k - S) * 1.35), S * 0.015);
+  const span = Math.max((num(move) ?? S * 0.02) * 2.6, ...ks.map((k) => Math.abs(k - S) * 1.35), S * 0.015, num(sd2) ?? 0);
   return { lo: Math.max(0, S - span), hi: S + span };
 }
 
 /**
- * Everything the payoff chart draws (PRD 02 §9.1), pure: sample prices, the expiry and target curves (null when the
- * target is the expiry or a leg has no IV), breakevens, ±1σ / ±2σ bands, y-range.
+ * Everything the payoff chart draws (PRD 02 §9.1, docs/design/strategy.md §4.4), pure: sample prices, the expiry
+ * curve (at the first expiry `years`: legs that expire later are valued by Black-76, so a calendar bends), the target
+ * curve (null when the target is the expiry or a leg has no IV) and, with `curves: 3`, a mid-date curve; breakevens,
+ * ±1σ / ±2σ bands and the log-normal density at the curve horizon; the argmax / argmin prices of the expiry curve; the
+ * profitable intervals; and a y-range with a 4× clamp (a far tail would flatten the rest; `clip` says what was cut).
  * @param {{ lotSize: number, spot: number, forward: number, years: number, el?: number, ivShift?: number,
  *   ivPct?: number|null, charges?: { entry: number, exit: (S: number) => number }|null, range?: { lo, hi }|null,
- *   samples?: number }} m
+ *   samples?: number, curves?: 1|2|3, clamp?: boolean }} m
  */
 export function payoffModel(legs, m) {
   const act = activeLegs(legs);
@@ -1708,42 +1729,81 @@ export function payoffModel(legs, m) {
   const T = num(m.years) ?? 0;
   const el = Math.max(0, num(m.el) ?? 0);
   const shift = num(m.ivShift) ?? 0;
+  const curves = [1, 2, 3].includes(m.curves) ? m.curves : 2;
   const iv = num(m.ivPct) !== null && m.ivPct > 0 ? Math.max(1, m.ivPct + shift) : null;
-  const range = m.range ?? payoffRange(act, { spot, move: sigmaMove(F, iv, T) });
+  const range = m.range ?? payoffRange(act, { spot, move: sigmaMove(F, iv, T), sd2: sigmaMove(F, iv, T) ? 2.2 * sigmaMove(F, iv, T) : null });
   const { lo, hi } = range;
-  const n = Math.max(20, Math.min(240, num(m.samples) ?? 240));
+  const n = Math.max(20, Math.min(260, num(m.samples) ?? 240));
   const strikes = [...new Set(act.filter((l) => !isFut(l)).map((l) => l.strike))].sort((a, b) => a - b);
   const xs = [...new Set([...Array.from({ length: n + 1 }, (_, i) => lo + ((hi - lo) * i) / n), ...strikes.filter((k) => k > lo && k < hi)])].sort((a, b) => a - b);
   const f = strategyPayoff(act, m.lotSize, { years: T, ivShift: shift, charges: m.charges ?? null });
   const expiry = xs.map(f);
-  let target = null;
-  if (T > 0 && el < T - 1e-7) {
-    const basis = F - spot;
-    const entry = num(m.charges?.entry) ?? 0;
-    target = xs.map((S) => {
-      const v = valueAt(act, S, m.lotSize, null, basis, { el, ivShift: shift });
-      return v === null ? null : v - entry;
+  const basis = F - spot;
+  const entry = num(m.charges?.entry) ?? 0;
+  const curveAt = (e) => {
+    const v = xs.map((S) => {
+      const x = valueAt(act, S, m.lotSize, null, basis, { el: e, ivShift: shift });
+      return x === null ? null : x - entry;
     });
-    if (target.some((v) => v === null)) target = null;
-  }
+    return v.some((x) => x === null) ? null : v;
+  };
+  const target = curves >= 2 && T > 0 && el < T - 1e-7 ? curveAt(el) : null;
+  const midEl = (el + T) / 2;
+  const mid = curves === 3 && target && T - el > 1 / 365 ? curveAt(midEl) : null;
   const stats = strategyStats(act, m.lotSize, { forward: F, ivPct: m.ivPct, years: T, ivShift: shift, spot, charges: m.charges ?? null });
-  const all = [...expiry, ...(target ?? []), 0];
+  let iMax = 0;
+  let iMin = 0;
+  expiry.forEach((v, i) => {
+    if (v > expiry[iMax]) iMax = i;
+    if (v < expiry[iMin]) iMin = i;
+  });
+  const all = [...expiry, ...(target ?? []), ...(mid ?? []), 0];
   let yMin = Math.min(...all);
   let yMax = Math.max(...all);
+  // Symmetric clamp: the dominant side stops at 4× the other, so the profitable part keeps its height.
+  let clip = null;
+  if (m.clamp !== false && yMax > 0 && yMin < 0) {
+    if (-yMin > 4 * yMax) {
+      clip = { side: "low", value: expiry[iMin] < Math.min(...(target ?? [0])) ? expiry[iMin] : Math.min(...all), at: xs[iMin] };
+      yMin = -4 * yMax;
+    } else if (yMax > 4 * -yMin) {
+      clip = { side: "high", value: Math.max(...all), at: xs[iMax] };
+      yMax = 4 * -yMin;
+    }
+  }
   const pad = (yMax - yMin || Math.abs(yMax) || 1) * 0.12;
   yMin -= pad;
   yMax += pad;
-  const b1 = sigmaBand(F, iv, T, 1);
-  const b2 = sigmaBand(F, iv, T, 2);
+  // The bands and the density belong to the horizon the user reads: the target date when it is later than now and
+  // a target curve shows, else the first expiry.
+  const horizon = curves >= 2 && target && el > 1e-6 ? el : T;
+  const b1 = sigmaBand(F, iv, horizon, 1);
+  const b2 = sigmaBand(F, iv, horizon, 2);
+  let density = null;
+  if (iv !== null && horizon > 0) {
+    const d = xs.map((S) => lognormalPdf(S, F, iv / 100, horizon));
+    const top = Math.max(...d);
+    density = top > 0 ? d.map((v) => v / top) : null;
+  }
   return {
     xs,
     expiry,
     target,
+    mid,
+    curves: [{ id: "expiry", vals: expiry, el: T }, ...(target ? [{ id: "target", vals: target, el }] : []), ...(mid ? [{ id: "mid", vals: mid, el: midEl }] : [])],
     breakevens: stats?.breakevens ?? [],
     band1: b1 ? [b1.lo, b1.hi] : null,
     band2: b2 ? [b2.lo, b2.hi] : null,
+    density,
+    horizon,
+    profitIntervals: intervalsWhere(xs, expiry, (v) => v > 0),
+    maxProfitAt: xs[iMax],
+    maxLossAt: xs[iMin],
+    approx: Boolean(stats?.approx),
+    clip,
     spot,
     forward: F,
+    ivPct: iv,
     strikes,
     yMin,
     yMax,
@@ -1809,7 +1869,7 @@ export const legLabel = (l) => (isFut(l) ? `FUT ${dayMonth(l.expiry)}` : `${form
  * Warnings before a strategy is placed (PRD 02 §10): [{ code, severity: "block"|"warn"|"info", text }], blocks first.
  * @param {{ legs: object[], strikes?: number[], stats?: object|null, spot?: number|null, band1?: { lo, hi }|null,
  *   margin?: { required: number|null, free: number|null, source?: "account"|"estimate" }|null, live?: boolean, expiryToday?: boolean,
- *   lotSize?: number, legCount?: number, rates?: object }} c
+ *   lotSize?: number, legCount?: number, rates?: object, chainAgeMs?: number|null, today?: string }} c
  */
 export function strategyWarnings(c) {
   const out = [];
@@ -1819,6 +1879,8 @@ export function strategyWarnings(c) {
   const listed = new Set(c?.strikes ?? []);
   const rates = c?.rates ?? CHARGE_RATES;
   const S = num(c?.spot);
+  const age = num(c?.chainAgeMs);
+  if (age !== null && age > STALE_MS) add("STALE", "block", `Prices are ${formatInt(Math.round(age / 1000))} s old`);
   for (const l of legs) if (num(l.price) === null) add("NO_PRICE", "block", `${legLabel(l)} has no price`);
   for (const l of legs) if (!isFut(l) && c?.strikes && !listed.has(l.strike)) add("NOT_IN_CHAIN", "block", `${legLabel(l)} is outside the loaded strikes`);
   for (const l of legs) if (!l.symbol && (isFut(l) || !c?.strikes || listed.has(l.strike))) add("NO_SYMBOL", "block", `${legLabel(l)}: contract not found`);
@@ -1861,6 +1923,18 @@ export function strategyWarnings(c) {
   const futExp = legs.filter(isFut).map((l) => l.expiry).filter(Boolean).sort().pop();
   const optFirst = legs.filter((l) => !isFut(l)).map((l) => l.expiry).filter(Boolean).sort()[0];
   if (futExp && optFirst && optFirst < futExp) add("HEDGE_EXPIRES_FIRST", "warn", `The hedge expires before the future (${dayMonth(optFirst)} vs ${dayMonth(futExp)})`);
+  // Calendars and diagonals (option legs in two or more expiries).
+  const optExps = [...new Set(legs.filter((l) => !isFut(l) && l.expiry).map((l) => l.expiry))].sort();
+  if (optExps.length > 1) {
+    if (c?.today && optExps[0] === c.today) add("CAL_EXPIRY_DAY", "warn", "Front leg expires today: no calendar benefit left");
+    const ivOf = (e) => {
+      const v = legs.filter((l) => !isFut(l) && l.expiry === e && num(l.iv) !== null).map((l) => l.iv);
+      return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+    };
+    const f0 = ivOf(optExps[0]);
+    const b0 = ivOf(optExps[optExps.length - 1]);
+    if (f0 !== null && b0 !== null && b0 < f0 - 2) add("BACK_IV_LOWER", "info", "Back month IV below front: calendars lose on IV convergence");
+  }
   if ((num(c?.legCount) ?? (c?.legs ?? []).length) >= MAX_LEGS) add("LEGS_CAP", "info", `Up to ${MAX_LEGS} legs`);
   const rank = { block: 0, warn: 1, info: 2 };
   return out.sort((a, b) => rank[a.severity] - rank[b.severity]);
@@ -1911,10 +1985,17 @@ export const STRATEGY_DEFAULTS = Object.freeze({
   basis: "touch",
   net: true,
   metrics: Object.freeze(["net", "maxProfit", "maxLoss", "breakevens", "pop", "margin", "atTarget", "theta"]),
-  scenario: "pct",
+  scenario: "strikes",
   product: "MARGIN",
   hedgeWait: 15,
   moreOpen: false,
+  curves: 2,
+  dist: true,
+  perLeg: false,
+  yMode: "rupee",
+  table: "spot",
+  riskOpen: true,
+  suggestOpen: false,
 });
 /** Settings with defaults: unknown keys dropped, bad values replaced, at least one metric kept. */
 export function strategyConfig(saved) {
@@ -1922,15 +2003,23 @@ export function strategyConfig(saved) {
   const c = saved && typeof saved === "object" ? saved : {};
   const known = new Set(STRATEGY_METRICS.map(([k]) => k));
   const metrics = Array.isArray(c.metrics) ? c.metrics.filter((k, i, a) => known.has(k) && a.indexOf(k) === i) : [...d.metrics];
+  const bool = (k) => (typeof c[k] === "boolean" ? c[k] : d[k]);
   return {
     group: PRESET_GROUPS.some(([g]) => g === c.group) ? c.group : d.group,
     basis: ["touch", "mid", "ltp"].includes(c.basis) ? c.basis : d.basis,
-    net: typeof c.net === "boolean" ? c.net : d.net,
+    net: bool("net"),
     metrics: metrics.length ? metrics : [...d.metrics],
-    scenario: c.scenario === "sigma" ? "sigma" : d.scenario,
+    scenario: ["strikes", "pct", "sigma"].includes(c.scenario) ? c.scenario : d.scenario,
     product: c.product === "INTRADAY" ? "INTRADAY" : d.product,
     hedgeWait: [5, 15, 30].includes(c.hedgeWait) ? c.hedgeWait : d.hedgeWait,
-    moreOpen: typeof c.moreOpen === "boolean" ? c.moreOpen : d.moreOpen,
+    moreOpen: bool("moreOpen"),
+    curves: [1, 2, 3].includes(c.curves) ? c.curves : d.curves,
+    dist: bool("dist"),
+    perLeg: bool("perLeg"),
+    yMode: c.yMode === "pct" ? "pct" : d.yMode,
+    table: ["spot", "grid", "greeks"].includes(c.table) ? c.table : d.table,
+    riskOpen: bool("riskOpen"),
+    suggestOpen: bool("suggestOpen"),
   };
 }
 
@@ -4570,4 +4659,421 @@ export function withOiWindow(chain, snap) {
       return { ...r, ce: leg("ce"), pe: leg("pe") };
     }),
   };
+}
+
+// ── Strategy builder, round 2 (docs/design/strategy.md): probabilities, P&L table rows, sizing, multi-expiry drafts,
+// adjustments, auto-naming and suggestions by view. Pure, tested in strategy.test.mjs. ──
+
+/** Chain prices older than this block placing (STALE). */
+export const STALE_MS = 15000;
+const PHI = (z) => Math.exp((-z * z) / 2) / Math.sqrt(2 * Math.PI);
+/** Log-normal density of S at `t` years (forward measure, σ as a decimal): φ(z) / (S·σ·√t), z = (ln(S/F) + σ²t/2)/(σ√t). */
+export function lognormalPdf(S, F, sig, t) {
+  if (!(S > 0) || !(F > 0) || !(sig > 0) || !(t > 0)) return 0;
+  const sd = sig * Math.sqrt(t);
+  return PHI((Math.log(S / F) + (sd * sd) / 2) / sd) / (S * sd);
+}
+/** P(price at `years` > x): 1 − probBelow. Null without a forward, time or vol. */
+export function probAbove(x, forward, years, ivPct) {
+  const b = probBelow(x, forward, years, ivPct);
+  return b === null ? null : 1 - b;
+}
+/**
+ * P(f(S_T) > 0) under the log-normal (S = F·e^(−σ²T/2 + σ√T·z)): f is sampled on n + 1 points of z ∈ [−6, 6], every
+ * sign change is refined by bisection and the normal mass of each profitable z-interval is summed. The POP of a
+ * curved payoff (calendars), whose breakevens are only sampled.
+ */
+export function probProfit(f, { forward, ivPct, years, n = 600 } = {}) {
+  const F = num(forward);
+  const sig = (num(ivPct) ?? 0) / 100;
+  if (!(F > 0) || !(sig > 0) || !(years > 0)) return null;
+  const sd = sig * Math.sqrt(years);
+  const ok = (z) => f(F * Math.exp((-sd * sd) / 2 + sd * z)) > 0;
+  const h = 12 / n;
+  let p = 0;
+  let z0 = -6;
+  let in0 = ok(z0);
+  let from = in0 ? -Infinity : null;
+  for (let i = 1; i <= n; i += 1) {
+    const z1 = -6 + i * h;
+    const in1 = ok(z1);
+    if (in1 !== in0) {
+      let a = z0;
+      let b = z1;
+      for (let k = 0; k < 50 && b - a > 1e-9; k += 1) {
+        const m = (a + b) / 2;
+        if (ok(m) === in0) a = m;
+        else b = m;
+      }
+      const zc = (a + b) / 2;
+      if (in1) from = zc;
+      else {
+        p += normCdf(zc) - (from === -Infinity ? 0 : normCdf(from));
+        from = null;
+      }
+    }
+    z0 = z1;
+    in0 = in1;
+  }
+  if (from !== null) p += 1 - (from === -Infinity ? 0 : normCdf(from));
+  return Math.max(0, Math.min(1, p));
+}
+/**
+ * The price intervals where `test(value)` holds on a sampled curve: [[a, b]], ends found by linear interpolation; an
+ * interval that reaches the first sample starts at 0 and one that reaches the last runs to Infinity.
+ */
+export function intervalsWhere(xs, vals, test) {
+  const out = [];
+  let start = null;
+  const cross = (i) => {
+    const a = vals[i - 1];
+    const b = vals[i];
+    if (a === null || b === null || a === b) return xs[i];
+    // Linear root of (v − level) where the test flips: the curve crosses zero for v > 0 tests and near-max tests alike.
+    const lvl = test.level ?? 0;
+    const t = (lvl - a) / (b - a);
+    return xs[i - 1] + (xs[i] - xs[i - 1]) * Math.max(0, Math.min(1, t));
+  };
+  for (let i = 0; i < xs.length; i += 1) {
+    const ok = vals[i] !== null && test(vals[i]);
+    if (ok && start === null) start = i === 0 ? 0 : cross(i);
+    if (!ok && start !== null) {
+      out.push([start, cross(i)]);
+      start = null;
+    }
+  }
+  if (start !== null) out.push([start, Infinity]);
+  return out;
+}
+/** P(S_T inside any of the intervals) under the log-normal. */
+export function probIntervals(intervals, forward, years, ivPct) {
+  let p = 0;
+  for (const [a, b] of intervals ?? []) {
+    const hi = b === Infinity ? 1 : probBelow(b, forward, years, ivPct);
+    const lo = a <= 0 ? 0 : probBelow(a, forward, years, ivPct);
+    if (hi === null || lo === null) return null;
+    p += hi - lo;
+  }
+  return Math.max(0, Math.min(1, p));
+}
+/** P(max profit): the chance the expiry price lands where the curve is within 0.5% (₹1 at least) of its top. */
+export function probMaxProfit(xs, vals, forward, years, ivPct) {
+  const top = Math.max(...vals.filter((v) => v !== null));
+  if (!Number.isFinite(top) || top <= 0) return null;
+  const eps = Math.max(1, Math.abs(top) * 0.005);
+  const test = (v) => v >= top - eps;
+  test.level = top - eps;
+  return probIntervals(intervalsWhere(xs, vals, test), forward, years, ivPct);
+}
+/** P(the price touches x before `years`) ≈ min(1, 2·P(close beyond x)) (the reflection approximation). */
+export function probTouch(x, forward, years, ivPct) {
+  const F = num(forward);
+  if (num(x) === null || !(F > 0)) return null;
+  const beyond = x >= F ? probAbove(x, F, years, ivPct) : probBelow(x, F, years, ivPct);
+  return beyond === null ? null : Math.min(1, 2 * beyond);
+}
+
+/**
+ * Rows of the P&L table by spot (§5.2): the listed strikes from n steps below the strike nearest spot to n above,
+ * the spot itself and the breakevens, sorted: [{ price, kind: "strike" | "spot" | "be" }].
+ */
+export function spotLevels({ strikes = [], spot = null, n = 6, breakevens = [] } = {}) {
+  const S = num(spot);
+  const ks = [...new Set(strikes.filter((k) => num(k) !== null))].sort((a, b) => a - b);
+  if (S === null || !ks.length) return [];
+  let i = 0;
+  ks.forEach((k, j) => (Math.abs(k - S) < Math.abs(ks[i] - S) ? (i = j) : null));
+  const from = Math.max(0, Math.min(i - n, ks.length - (2 * n + 1)));
+  const rows = ks.slice(from, from + 2 * n + 1).map((price) => ({ price, kind: "strike" }));
+  const lo = rows[0].price;
+  const hi = rows[rows.length - 1].price;
+  if (!rows.some((r) => Math.abs(r.price - S) < 1e-9)) rows.push({ price: S, kind: "spot" });
+  else rows.find((r) => Math.abs(r.price - S) < 1e-9).kind = "spot";
+  for (const b of breakevens) if (num(b) !== null && b > lo && b < hi && !rows.some((r) => Math.abs(r.price - b) < 0.5)) rows.push({ price: b, kind: "be" });
+  return rows.sort((a, b) => a.price - b.price);
+}
+/** Columns of the price × date grid: now, then each day to the expiry (≤ max columns, evenly spaced past that); the last is the expiry. */
+export function gridDates(nowMs, expMs, max = 8) {
+  if (!(expMs > nowMs)) return [nowMs];
+  const DAY = 86400000;
+  const days = Math.ceil((expMs - nowMs) / DAY);
+  const n = Math.min(max - 1, days);
+  const out = [nowMs];
+  for (let i = 1; i < n; i += 1) out.push(days + 1 <= max ? nowMs + i * DAY : Math.round(nowMs + ((expMs - nowMs) * i) / n));
+  out.push(expMs);
+  return out;
+}
+
+const gcd2 = (a, b) => (b ? gcd2(b, a % b) : a);
+/** The size multiplier of a draft: the gcd of the legs' lots (1 for an empty draft). */
+export const legsGcd = (legs) => (legs ?? []).reduce((g, l) => gcd2(Math.max(1, Math.floor(num(l.lots) ?? 1)), g), 0) || 1;
+/** Every leg at size g (§5.6): lots_i = (lots_i / gcd) × g, ratios kept; g is clamped to 1 … floor(maxLots / the largest ratio). */
+export function sizeLegs(legs, g, { maxLots = 10000 } = {}) {
+  const g0 = legsGcd(legs);
+  const ratios = (legs ?? []).map((l) => Math.max(1, Math.floor(num(l.lots) ?? 1)) / g0);
+  const cap = Math.max(1, Math.floor(maxLots / Math.max(1, ...ratios)));
+  const k = Math.max(1, Math.min(cap, Math.floor(num(g) ?? 1)));
+  return (legs ?? []).map((l, i) => ({ ...l, lots: ratios[i] * k }));
+}
+/** Buy ↔ sell on every leg (a credit structure becomes its debit mirror); entry prices are cleared. */
+export const flipSides = (legs) =>
+  (legs ?? []).map((l) => {
+    const { entry, entryTag, ...rest } = l;
+    void entry;
+    void entryTag;
+    return { ...rest, side: l.side === "BUY" ? "SELL" : "BUY" };
+  });
+
+/**
+ * Drafts keyed by underlying (§5.1). Old `UNDERLYING|EXPIRY` drafts move into `UNDERLYING`, their legs keeping that
+ * expiry. A draft of held legs (Positions → Analyse: every leg has an average entry) replaces the draft; others merge
+ * (same contract and side add up), capped at MAX_LEGS. Returns a new object; legs come back unmigrated otherwise.
+ */
+export function migrateBaskets(baskets) {
+  const src = baskets && typeof baskets === "object" ? baskets : {};
+  const out = {};
+  for (const [k, v] of Object.entries(src)) if (!k.includes("|")) out[k] = Array.isArray(v) ? v : [];
+  for (const [k, v] of Object.entries(src)) {
+    if (!k.includes("|") || !Array.isArray(v) || !v.length) continue;
+    const [u, e] = k.split("|");
+    const legs = v.map((l) => ({ ...l, expiry: l?.expiry ?? (DATE_RE.test(e ?? "") ? e : null) }));
+    const held = legs.every((l) => num(l?.entry) !== null && l?.entryTag === "avg");
+    if (held || !out[u]?.length) {
+      out[u] = legs.slice(0, MAX_LEGS);
+      continue;
+    }
+    const cur = [...out[u]];
+    for (const l of legs) {
+      const same = cur.find((c) => (c.kind ?? "OPT") === (l.kind ?? "OPT") && c.right === l.right && c.strike === l.strike && c.side === l.side && (c.expiry ?? e) === l.expiry && num(c.entry) === null && num(l.entry) === null && (c.kind !== "FUT" || c.symbol === l.symbol));
+      if (same) same.lots = (num(same.lots) ?? 1) + (num(l.lots) ?? 1);
+      else if (cur.length < MAX_LEGS) cur.push(l);
+    }
+    out[u] = cur;
+  }
+  return out;
+}
+/** The back month for a calendar: the first listed expiry ≥ minDays after the front, else the next listed one. */
+export function backExpiry(expiries, front, minDays = 7) {
+  const ex = [...new Set((expiries ?? []).filter((e) => DATE_RE.test(e)))].sort();
+  const later = ex.filter((e) => e > front);
+  if (!later.length) return null;
+  const f = Date.parse(`${front}T00:00:00Z`);
+  return later.find((e) => Date.parse(`${e}T00:00:00Z`) - f >= minDays * 86400000) ?? later[0];
+}
+/** The next listed expiry after `e` (null at the end). */
+export const nextExpiry = (expiries, e) => [...new Set(expiries ?? [])].sort().find((x) => x > e) ?? null;
+
+const listed = (strikes) => [...new Set((strikes ?? []).filter((k) => num(k) !== null))].sort((a, b) => a - b);
+/** Roll a leg's strike one listed step away from spot ("out") or towards it ("in"); null at the edge or when already at spot. */
+export function rollStrike(strikes, leg, spot, dir = "out") {
+  const ks = listed(strikes);
+  const i = ks.indexOf(leg?.strike);
+  const S = num(spot);
+  if (i < 0 || S === null) return null;
+  let away = leg.strike > S ? 1 : leg.strike < S ? -1 : leg.right === "CE" ? 1 : -1;
+  if (dir === "in") {
+    if (leg.strike === S) return null;
+    away = -away;
+  }
+  const j = i + away;
+  return j < 0 || j >= ks.length ? null : ks[j];
+}
+/**
+ * A wing for a sold option (§5.5): the same right `w` steps further out of the money, w = the smallest step count
+ * (at least `minSteps`) whose premium is ≤ maxFrac of the short's; the outermost listed strike when none is cheap
+ * enough. `priceOf(strike)` gives the wing's premium. Null for a bought leg or a strike outside the list.
+ */
+export function wingStrike(strikes, leg, priceOf, { maxFrac = 0.25, minSteps = 2 } = {}) {
+  const ks = listed(strikes);
+  const i = ks.indexOf(leg?.strike);
+  if (i < 0 || leg.side !== "SELL" || leg.kind === "FUT") return null;
+  const dir = leg.right === "CE" ? 1 : -1;
+  const short = num(priceOf?.(leg.strike)) ?? num(leg.price);
+  let last = null;
+  for (let w = minSteps; ; w += 1) {
+    const j = i + dir * w;
+    if (j < 0 || j >= ks.length) return last;
+    last = ks[j];
+    const p = num(priceOf?.(ks[j]));
+    if (short === null || (p !== null && p <= maxFrac * short)) return ks[j];
+  }
+}
+/**
+ * Delta-neutralise (§5.8): with `deltaUnits` the net delta in units, the futures lots that cancel it (when a future
+ * is given) or else ATM options: n = round(−Δ / (|δ_ATM| × lot)), buying a call to add delta and a put to cut it.
+ * → { kind: "FUT"|"OPT", side, lots, right?, strike?, after } (after = the delta left, in units) or null when nothing
+ * whole is needed.
+ */
+export function neutraliseDelta({ deltaUnits, lot = 1, fut = null, atm = null } = {}) {
+  const d = num(deltaUnits);
+  if (d === null) return null;
+  if (fut && num(fut.lotSize) > 0) {
+    const lots = Math.round(-d / fut.lotSize);
+    if (!lots) return null;
+    return { kind: "FUT", side: lots > 0 ? "BUY" : "SELL", lots: Math.abs(lots), after: d + lots * fut.lotSize };
+  }
+  if (!atm || !(num(atm.strike) > 0)) return null;
+  const right = d < 0 ? "CE" : "PE";
+  const dl = Math.abs(num(right === "CE" ? atm.ceDelta : atm.peDelta) ?? 0.5);
+  if (!(dl > 0)) return null;
+  const n = Math.round(Math.abs(d) / (dl * lot));
+  if (!n) return null;
+  return { kind: "OPT", side: "BUY", right, strike: atm.strike, lots: n, after: d + (right === "CE" ? 1 : -1) * n * dl * lot };
+}
+/**
+ * Convert a structure (§5.8): short strangle → iron condor and short straddle → iron fly (wings `w` listed steps
+ * outside the shorts), a naked short option → a credit spread (`w` steps further out). → { name, legs } (the whole new
+ * draft) or null when the draft is none of these.
+ */
+export function convertStructure(legs, strikes, { w = 2 } = {}) {
+  const ks = listed(strikes);
+  const act = (legs ?? []).filter((l) => l && l.on !== false);
+  const opts = act.filter((l) => !isFut(l));
+  if (opts.length !== act.length || !opts.length) return null;
+  const out = (l, steps) => {
+    const i = ks.indexOf(l.strike);
+    if (i < 0) return null;
+    const j = Math.max(0, Math.min(ks.length - 1, i + (l.right === "CE" ? steps : -steps)));
+    return j === i ? null : ks[j];
+  };
+  const wing = (l) => {
+    const k = out(l, w);
+    return k === null ? null : { kind: "OPT", right: l.right, strike: k, side: "BUY", lots: l.lots, expiry: l.expiry ?? null, symbol: null, lotSize: l.lotSize ?? null };
+  };
+  if (opts.length === 1 && opts[0].side === "SELL") {
+    const b = wing(opts[0]);
+    return b ? { name: opts[0].right === "CE" ? "Bear call spread" : "Bull put spread", legs: [...legs, b] } : null;
+  }
+  if (opts.length === 2 && opts.every((l) => l.side === "SELL") && opts[0].right !== opts[1].right && opts[0].lots === opts[1].lots && opts[0].expiry === opts[1].expiry) {
+    const ce = opts.find((l) => l.right === "CE");
+    const pe = opts.find((l) => l.right === "PE");
+    if (pe.strike > ce.strike) return null;
+    const a = wing(pe);
+    const b = wing(ce);
+    if (!a || !b) return null;
+    return { name: pe.strike === ce.strike ? "Iron fly" : "Iron condor", legs: [a, ...legs, b] };
+  }
+  return null;
+}
+
+const shortNum = (k) => formatInt(Math.round(k));
+/**
+ * A draft's name (§5.9): calendars and diagonals by their expiries, else detectStructure, with the strikes:
+ * "Iron condor 25800/26000/26850/27050", "Long calendar (call) 26000", "Custom 3-leg".
+ */
+export function strategyName(legs) {
+  const act = (legs ?? []).filter((l) => l && l.on !== false);
+  if (!act.length) return "New strategy";
+  const opts = act.filter((l) => !isFut(l));
+  const ks = [...new Set(opts.map((l) => l.strike))].sort((a, b) => a - b);
+  const tail = ks.length ? ` ${ks.map(shortNum).join("/")}` : "";
+  const exps = new Set(opts.map((l) => l.expiry).filter(Boolean));
+  if (exps.size > 1 && opts.length === act.length) {
+    const sameLots = opts.every((l) => l.lots === opts[0].lots);
+    const pairs = ["CE", "PE"].map((r) => opts.filter((l) => l.right === r)).filter((p) => p.length);
+    const kindOf = (p) => (p.length === 2 && p[0].expiry !== p[1].expiry && p[0].side !== p[1].side ? (p[0].strike === p[1].strike ? "calendar" : "diagonal") : null);
+    const kinds = pairs.map(kindOf);
+    if (sameLots && kinds.every(Boolean)) {
+      const far = (p) => (p[0].expiry > p[1].expiry ? p[0] : p[1]);
+      const long = pairs.every((p) => far(p).side === "BUY");
+      if (pairs.length === 2) return `${long ? "Double" : "Short double"} ${kinds.includes("diagonal") ? "diagonal" : "calendar"}${tail}`;
+      const r = pairs[0][0].right === "CE" ? "call" : "put";
+      return kinds[0] === "calendar" ? `${long ? "Long" : "Short"} calendar (${r})${tail}` : `Diagonal (${r})${tail}`;
+    }
+    return `Custom ${formatInt(act.length)}-leg`;
+  }
+  const st = detectStructure(act.map((l) => ({ kind: l.kind, right: l.right, strike: l.strike, q: (l.side === "SELL" ? -1 : 1) * Math.max(1, num(l.lots) ?? 1) })));
+  if (/^Custom/.test(st.name)) {
+    if (opts.length === 3 && opts.every((l) => l.right === opts[0].right) && ks.length === 3) {
+      const mid = opts.find((l) => l.strike === ks[1]);
+      if (mid && mid.lots === 2 * opts.find((l) => l.strike === ks[0]).lots) return `${mid.side === "SELL" ? "Long" : "Short"} ${mid.right === "CE" ? "call" : "put"} butterfly${tail}`;
+    }
+    return `Custom ${formatInt(act.length)}-leg`;
+  }
+  return `${st.name}${st.name.includes("future") ? "" : tail}`;
+}
+
+/** The view a target price implies (§5.7): beyond ±0.25 of the expected move from spot is directional. */
+export function inferView(target, spot, move) {
+  const T = num(target);
+  const S = num(spot);
+  const m = num(move) ?? 0;
+  if (T === null || S === null) return "neutral";
+  if (T > S + 0.25 * m) return "bull";
+  if (T < S - 0.25 * m) return "bear";
+  return "neutral";
+}
+/**
+ * Candidate strategies for a view (§5.7): every preset of the group (futures presets and ratio back spreads are
+ * skipped; calendars only with `back`), at spread widths of 1–4 strike steps and anchors shifted 0, ±1, ±2 steps
+ * from the strike nearest the target (directional) or the forward (neutral). De-duplicated, at most `cap`.
+ * → [{ id, name, risk, legs }] with legs { right, strike, side, lots, expiry? }.
+ */
+export function suggestCandidates(chain, { target, spot = null, forward = null, move = null, group = null, back = null, cap = 400 } = {}) {
+  const rows = chain?.rows ?? [];
+  if (!rows.length) return [];
+  const ks = listed(rows.map((r) => r.strike));
+  const step = ks.length > 1 ? Math.min(...ks.slice(1).map((k, i) => k - ks[i]).filter((d) => d > 0)) : 50;
+  const F = num(forward) ?? num(spot) ?? num(chain.underlyingLtp);
+  const g = group ?? inferView(target, spot ?? F, move);
+  const anchor0 = g === "neutral" ? F : num(target) ?? F;
+  const near = (x) => ks.reduce((b, k) => (Math.abs(k - x) < Math.abs(b - x) ? k : b), ks[0]);
+  const presets = PRESETS.filter((p) => p.group === g && !p.needsFut && !/ratio|synthetic/.test(p.id) && (!p.multi || back));
+  const out = [];
+  const seen = new Set();
+  for (const p of presets) {
+    for (const wk of [1, 2, 3, 4]) {
+      for (const off of [0, 1, -1, 2, -2]) {
+        if (out.length >= cap) return out;
+        const a = near(anchor0 + off * step);
+        const legs = presetLegs(p.id, { ...chain, atmStrike: a }, { move: 2 * wk * step, forward: a, back });
+        if (!legs.length) continue;
+        const sig = `${p.id}|${legs.map((l) => `${l.side}${l.right}${l.strike}${l.lots}${l.expiry ?? ""}`).join(",")}`;
+        if (seen.has(sig)) continue;
+        seen.add(sig);
+        out.push({ id: p.id, name: p.name, risk: p.risk, legs });
+      }
+    }
+  }
+  return out;
+}
+/**
+ * Score one candidate (§5.7): legs priced at mid (LTP fallback) with their row's IV; pnlT = P&L at (target, date)
+ * by Black-76 with the ATM IV fallback; capital = max(margin estimate, |max loss|, debit); score = pnlT / capital.
+ * `ctx`: { chain, backChain?, lot, forward, spot, ivPct, years (first expiry), backYears?, el (years to the date),
+ * target }. Null when a leg cannot be priced.
+ */
+export function scoreCandidate(cand, ctx) {
+  const rowsOf = (e) => (e && ctx.backChain && e === ctx.backChain.expiry ? ctx.backChain : ctx.chain).rows;
+  const legs = [];
+  for (const l of cand.legs) {
+    const row = rowsOf(l.expiry).find((r) => r.strike === l.strike);
+    const q = row?.[l.right === "CE" ? "ce" : "pe"];
+    const price = mid(q) ?? (num(q?.ltp) > 0 ? num(q.ltp) : null);
+    if (price === null) return null;
+    const back = l.expiry && ctx.backChain && l.expiry === ctx.backChain.expiry;
+    legs.push({ kind: "OPT", right: l.right, strike: l.strike, side: l.side, lots: l.lots, price, iv: num(q?.iv) ?? ctx.ivPct, years: back ? ctx.backYears : ctx.years, expiry: l.expiry ?? null, on: true });
+  }
+  const basis = (num(ctx.forward) ?? ctx.spot) - ctx.spot;
+  const pnlT = valueAt(legs, ctx.target, ctx.lot, null, basis, { el: Math.min(ctx.el, ctx.years) });
+  if (pnlT === null) return null;
+  const stats = strategyStats(legs, ctx.lot, { forward: ctx.forward, ivPct: ctx.ivPct, years: ctx.years, spot: ctx.spot });
+  const margin = marginEstimate(legs, ctx.lot, { forward: ctx.forward, years: ctx.years })?.required ?? null;
+  const debit = stats.net < 0 ? -stats.net : 0;
+  const capital = Math.max(margin ?? 0, stats.maxLoss !== null ? -Math.min(0, stats.maxLoss) : 0, debit);
+  return { ...cand, legs, pnlT, maxLoss: stats.maxLoss, maxProfit: stats.maxProfit, pop: stats.pop, margin, capital, net: stats.net, score: capital > 0 ? pnlT / capital : null };
+}
+/** Keep the money-makers within the limits and rank them: score, then POP. Top `top`. */
+export function rankSuggestions(scored, { risk = "defined", maxCapital = null, top = 6 } = {}) {
+  const cap = num(maxCapital);
+  return scored
+    .filter((c) => c && c.pnlT > 0 && c.score !== null && (cap === null || cap <= 0 || c.capital <= cap) && (risk !== "defined" || (c.risk === "defined" && c.maxLoss !== null)))
+    .sort((a, b) => b.score - a.score || (b.pop ?? 0) - (a.pop ?? 0))
+    .slice(0, top);
+}
+/** All of §5.7 at once (the page runs the same steps in idle chunks). */
+export function suggestStrategies(chain, view, opts = {}) {
+  const cands = suggestCandidates(chain, { target: view.target, spot: view.spot, forward: view.forward, move: view.move, group: view.group ?? null, back: opts.backChain?.expiry ?? null });
+  const ctx = { chain, backChain: opts.backChain ?? null, lot: view.lot, forward: view.forward, spot: view.spot, ivPct: view.ivPct, years: view.years, backYears: opts.backYears ?? null, el: view.el ?? view.years, target: view.target };
+  return rankSuggestions(cands.map((c) => scoreCandidate(c, ctx)), { risk: view.risk ?? "defined", maxCapital: view.maxCapital ?? null, top: opts.top ?? 6 });
 }

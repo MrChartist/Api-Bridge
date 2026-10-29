@@ -272,16 +272,18 @@ describe("margin estimate", () => {
 
 describe("presets", () => {
   const fut = { symbol: "NFO:NIFTY-2026-11-24-FUT", expiry: "2026-11-24", lotSize: 75 };
-  it("30 presets in 5 groups (7, 7, 6, 4, 6)", () => {
-    expect(O.PRESETS).toHaveLength(30);
+  it("35 presets in 5 groups (7, 7, 11, 4, 6); five calendars", () => {
+    expect(O.PRESETS).toHaveLength(35);
     const n = (g) => O.PRESETS.filter((p) => p.group === g).length;
-    expect([n("bull"), n("bear"), n("neutral"), n("vol"), n("hedge")]).toEqual([7, 7, 6, 4, 6]);
+    expect([n("bull"), n("bear"), n("neutral"), n("vol"), n("hedge")]).toEqual([7, 7, 11, 4, 6]);
+    expect(O.PRESETS.filter((p) => p.multi).map((p) => p.id)).toEqual(["call-calendar", "put-calendar", "call-diagonal", "double-calendar", "double-diagonal"]);
   });
   it("every preset builds listed strikes, the right sides and ratios", () => {
     const listed = new Set(STRIKES);
     for (const p of O.PRESETS) {
-      const legs = O.presetLegs(p.id, chain, { move: 150, forward: 26010, fut });
+      const legs = O.presetLegs(p.id, chain, { move: 150, forward: 26010, fut, back: "2026-11-10" });
       expect(legs.length, p.id).toBeGreaterThan(0);
+      if (p.multi) expect(new Set(legs.map((l) => l.expiry))).toEqual(new Set(["2026-11-03", "2026-11-10"]));
       for (const l of legs) {
         if (l.kind === "FUT") expect(l.symbol).toBe(fut.symbol);
         else expect(listed.has(l.strike), `${p.id} ${l.strike}`).toBe(true);
@@ -292,6 +294,8 @@ describe("presets", () => {
     expect(O.presetLegs("call-ratio-back", chain, { move: 150 }).map((l) => `${l.side}${l.lots}${l.right}`)).toEqual(["SELL1CE", "BUY2CE"]);
     expect(O.presetLegs("long-call-fly", chain, { move: 150 }).map((l) => l.lots)).toEqual([1, 2, 1]);
     expect(O.presetLegs("collar", chain, { move: 150 })).toEqual([]);
+    expect(O.presetLegs("call-calendar", chain, { move: 150 })).toEqual([]);
+    expect(O.presetLegs("call-calendar", chain, { move: 150, back: "2026-11-10" }).map((l) => `${l.side} ${l.strike} ${l.expiry}`)).toEqual(["SELL 26000 2026-11-03", "BUY 26000 2026-11-10"]);
     const box = O.presetLegs("box", chain, { move: 150, forward: 26010 });
     expect(box.map((l) => `${l.side} ${l.right} ${l.strike}`)).toEqual(["BUY CE 26000", "SELL CE 26150", "BUY PE 26150", "SELL PE 26000"]);
   });
@@ -302,7 +306,7 @@ describe("presets", () => {
   });
   it("presetGlyph: ≤ 8 points inside the 32 × 16 box", () => {
     for (const p of O.PRESETS) {
-      const legs = O.presetLegs(p.id, chain, { move: 150, fut }).map((l) => ({ ...l, price: 50 }));
+      const legs = O.presetLegs(p.id, chain, { move: 150, fut, back: "2026-11-10" }).map((l) => ({ ...l, price: 50 }));
       const g = O.presetGlyph(legs, 75);
       expect(g.points.length).toBeLessThanOrEqual(8);
       for (const [x, y] of g.points) {
@@ -419,7 +423,9 @@ describe("settings and saves", () => {
   it("strategyConfig: defaults, validation, unknown keys dropped", () => {
     expect(O.strategyConfig(null)).toEqual({ ...O.STRATEGY_DEFAULTS, metrics: [...O.STRATEGY_DEFAULTS.metrics] });
     const c = O.strategyConfig({ group: "vol", basis: "mid", net: false, metrics: ["ev", "nope", "ev", "rom"], scenario: "sigma", product: "INTRADAY", hedgeWait: 30, junk: 1 });
-    expect(c).toEqual({ group: "vol", basis: "mid", net: false, metrics: ["ev", "rom"], scenario: "sigma", product: "INTRADAY", hedgeWait: 30, moreOpen: false });
+    expect(c).toEqual({ ...O.STRATEGY_DEFAULTS, group: "vol", basis: "mid", net: false, metrics: ["ev", "rom"], scenario: "sigma", product: "INTRADAY", hedgeWait: 30, moreOpen: false });
+    expect(O.strategyConfig({ curves: 3, dist: false, table: "grid", yMode: "pct", scenario: "strikes" })).toMatchObject({ curves: 3, dist: false, table: "grid", yMode: "pct", scenario: "strikes" });
+    expect(O.strategyConfig({ curves: 7, table: "x", yMode: "x" })).toMatchObject({ curves: 2, table: "spot", yMode: "rupee" });
     expect(O.strategyConfig({ metrics: [], hedgeWait: 7, basis: "x" })).toMatchObject({ metrics: [...O.STRATEGY_DEFAULTS.metrics], hedgeWait: 15, basis: "touch" });
   });
   it("normaliseSaved: rejects bad enums, NaN and > 12 legs; caps strings; regenerates clashing ids", () => {
@@ -437,5 +443,200 @@ describe("settings and saves", () => {
   it("expiryCloseMs is 15:30 IST", () => {
     expect(new Date(O.expiryCloseMs("2026-11-03")).toISOString()).toBe("2026-11-03T10:00:00.000Z");
     expect(O.expiryCloseMs("bad")).toBeNull();
+  });
+});
+
+describe("round 2: chart model, probabilities, table rows", () => {
+  const T = 7 / 365;
+  const condor = [L("PE", 25700, "BUY", 15, 1, { years: T }), L("PE", 25850, "SELL", 30, 1, { years: T }), L("CE", 26150, "SELL", 30, 1, { years: T }), L("CE", 26300, "BUY", 15, 1, { years: T })];
+  it("payoffModel: curves list, extremes, density, profit intervals, ±2σ inside the range", () => {
+    const m = O.payoffModel(condor, { lotSize: 75, spot: 26000, forward: 26000, years: T, el: 2 / 365, ivPct: 12, curves: 3 });
+    expect(m.curves.map((c) => c.id)).toEqual(["expiry", "target", "mid"]);
+    expect(m.mid).toHaveLength(m.xs.length);
+    expect(m.maxProfitAt).toBeGreaterThanOrEqual(25850);
+    expect(m.maxProfitAt).toBeLessThan(26150);
+    expect(m.maxLossAt < 25700 || m.maxLossAt > 26300).toBe(true);
+    expect(Math.max(...m.density)).toBeCloseTo(1, 9);
+    expect(m.profitIntervals).toHaveLength(1);
+    const [a, b] = m.profitIntervals[0];
+    expect(a).toBeCloseTo(m.breakevens[0], -1);
+    expect(b).toBeCloseTo(m.breakevens[1], -1);
+    expect(m.lo).toBeLessThanOrEqual(m.band2[0]);
+    expect(m.hi).toBeGreaterThanOrEqual(m.band2[1]);
+    const one = O.payoffModel(condor, { lotSize: 75, spot: 26000, forward: 26000, years: T, el: 2 / 365, ivPct: 12, curves: 1 });
+    expect(one.target).toBeNull();
+    expect(one.horizon).toBe(T);
+  });
+  it("payoffModel: a far tail is clamped to 4× the other side, with what was cut", () => {
+    const naked = [L("CE", 26000, "SELL", 40, 1, { years: T })];
+    const m = O.payoffModel(naked, { lotSize: 75, spot: 26000, forward: 26000, years: T, ivPct: 12, range: { lo: 25000, hi: 29000 } });
+    expect(m.clip).toMatchObject({ side: "low" });
+    expect(m.clip.value).toBeLessThan(-4 * 40 * 75);
+    expect(m.yMin).toBeGreaterThan(m.clip.value);
+  });
+  it("calendar: approx stats and a POP from the sampled curve", () => {
+    const legs = [L("CE", 26000, "SELL", 120, 1, { iv: 14, years: 5 / 365 }), L("CE", 26000, "BUY", 300, 1, { iv: 14, years: 33 / 365 })];
+    const s = O.strategyStats(legs, 75, { forward: 26000, ivPct: 14, years: 5 / 365 });
+    expect(s.approx).toBe(true);
+    const f = O.strategyPayoff(legs, 75, { years: 5 / 365 });
+    expect(O.probProfit(f, { forward: 26000, ivPct: 14, years: 5 / 365 })).toBeCloseTo(s.pop, 6);
+    expect(O.strategyStats(condor, 75, { forward: 26000, ivPct: 12, years: T }).approx).toBe(false);
+  });
+  it("lognormalPdf integrates to 1; probAbove + probBelow = 1; touch ≈ 2 × beyond", () => {
+    let area = 0;
+    for (let S = 20000; S <= 32000; S += 5) area += O.lognormalPdf(S, 26000, 0.14, 30 / 365) * 5;
+    expect(area).toBeCloseTo(1, 3);
+    expect(O.probAbove(26500, 26000, T, 12) + O.probBelow(26500, 26000, T, 12)).toBeCloseTo(1, 12);
+    expect(O.probTouch(26500, 26000, T, 12)).toBeCloseTo(2 * O.probAbove(26500, 26000, T, 12), 12);
+    expect(O.probTouch(25500, 26000, T, 12)).toBeCloseTo(2 * O.probBelow(25500, 26000, T, 12), 12);
+    expect(O.probTouch(26000.0001, 26000, T, 12)).toBeLessThanOrEqual(1);
+  });
+  it("intervalsWhere and probMaxProfit", () => {
+    const xs = [0, 1, 2, 3, 4, 5];
+    expect(O.intervalsWhere(xs, [-1, -1, 1, 1, -1, -1], (v) => v > 0)).toEqual([[1.5, 3.5]]);
+    expect(O.intervalsWhere(xs, [1, 1, -1, -1, 1, 1], (v) => v > 0)).toEqual([[0, 1.5], [3.5, Infinity]]);
+    const m = O.payoffModel(condor, { lotSize: 75, spot: 26000, forward: 26000, years: T, ivPct: 12 });
+    const pm = O.probMaxProfit(m.xs, m.expiry, 26000, T, 12);
+    expect(pm).toBeCloseTo(O.probBelow(26150, 26000, T, 12) - O.probBelow(25850, 26000, T, 12), 2);
+    expect(pm).toBeLessThan(m.stats.pop);
+  });
+  it("spotLevels: 13 strikes around spot, the spot row and breakevens inside", () => {
+    const rows = O.spotLevels({ strikes: STRIKES, spot: 26010, n: 6, breakevens: [25777, 30000] });
+    expect(rows.filter((r) => r.kind === "strike")).toHaveLength(13);
+    expect(rows.find((r) => r.kind === "spot").price).toBe(26010);
+    expect(rows.filter((r) => r.kind === "be").map((r) => r.price)).toEqual([25777]);
+    expect(rows.map((r) => r.price)).toEqual([...rows.map((r) => r.price)].sort((a, b) => a - b));
+    const edge = O.spotLevels({ strikes: STRIKES, spot: 25510, n: 6 });
+    expect(edge[0].price).toBe(25500);
+    expect(edge.filter((r) => r.kind !== "spot")).toHaveLength(13);
+  });
+  it("gridDates: now, daily, the expiry last; evenly spaced past 8 columns", () => {
+    const now = Date.UTC(2026, 9, 29, 4);
+    const exp = now + 3.5 * 86400000;
+    const d = O.gridDates(now, exp);
+    expect(d[0]).toBe(now);
+    expect(d[d.length - 1]).toBe(exp);
+    expect(d).toHaveLength(5);
+    const long = O.gridDates(now, now + 30 * 86400000);
+    expect(long).toHaveLength(8);
+    expect(long[long.length - 1]).toBe(now + 30 * 86400000);
+  });
+});
+
+describe("round 2: sizing, drafts, adjustments", () => {
+  it("legsGcd / sizeLegs keep the ratios; flipSides mirrors and clears entries", () => {
+    const legs = [{ lots: 2 }, { lots: 4 }, { lots: 2 }];
+    expect(O.legsGcd(legs)).toBe(2);
+    expect(O.sizeLegs(legs, 3).map((l) => l.lots)).toEqual([3, 6, 3]);
+    expect(O.sizeLegs(legs, 0).map((l) => l.lots)).toEqual([1, 2, 1]);
+    expect(O.sizeLegs([{ lots: 1 }, { lots: 2 }], 99999, { maxLots: 100 }).map((l) => l.lots)).toEqual([50, 100]);
+    expect(O.legsGcd([])).toBe(1);
+    const f = O.flipSides([{ side: "BUY", entry: 5, entryTag: "avg" }, { side: "SELL" }]);
+    expect(f.map((l) => l.side)).toEqual(["SELL", "BUY"]);
+    expect(f[0].entry).toBeUndefined();
+  });
+  it("migrateBaskets: per-expiry drafts move to the underlying; held drafts replace, others merge", () => {
+    const b = O.migrateBaskets({
+      NIFTY: [{ right: "CE", strike: 26000, side: "SELL", lots: 1, expiry: "2026-11-03" }],
+      "NIFTY|2026-11-03": [{ right: "CE", strike: 26000, side: "SELL", lots: 2 }, { right: "PE", strike: 25800, side: "SELL", lots: 1 }],
+      "BANKNIFTY|2026-11-24": [{ right: "PE", strike: 52000, side: "BUY", lots: 1 }],
+    });
+    expect(Object.keys(b).sort()).toEqual(["BANKNIFTY", "NIFTY"]);
+    expect(b.NIFTY.map((l) => `${l.right}${l.lots}${l.expiry}`)).toEqual(["CE3" + "2026-11-03", "PE12026-11-03"]);
+    expect(b.BANKNIFTY[0].expiry).toBe("2026-11-24");
+    const held = O.migrateBaskets({ NIFTY: [{ right: "CE", strike: 1, side: "BUY", lots: 1 }], "NIFTY|2026-11-10": [{ right: "PE", strike: 26000, side: "SELL", lots: 1, entry: 50, entryTag: "avg" }] });
+    expect(held.NIFTY).toHaveLength(1);
+    expect(held.NIFTY[0]).toMatchObject({ strike: 26000, expiry: "2026-11-10" });
+    expect(O.migrateBaskets(null)).toEqual({});
+  });
+  it("backExpiry and nextExpiry", () => {
+    const ex = ["2026-11-03", "2026-11-10", "2026-11-17", "2026-11-24"];
+    expect(O.backExpiry(ex, "2026-11-03")).toBe("2026-11-10");
+    expect(O.backExpiry(ex, "2026-11-03", 10)).toBe("2026-11-17");
+    expect(O.backExpiry(ex, "2026-11-24")).toBeNull();
+    expect(O.backExpiry(["2026-11-03", "2026-11-05"], "2026-11-03")).toBe("2026-11-05");
+    expect(O.nextExpiry(ex, "2026-11-10")).toBe("2026-11-17");
+    expect(O.nextExpiry(ex, "2026-11-24")).toBeNull();
+  });
+  it("rollStrike: out = away from spot, in = towards it", () => {
+    expect(O.rollStrike(STRIKES, { strike: 26200, right: "CE" }, 26000, "out")).toBe(26250);
+    expect(O.rollStrike(STRIKES, { strike: 26200, right: "CE" }, 26000, "in")).toBe(26150);
+    expect(O.rollStrike(STRIKES, { strike: 25800, right: "PE" }, 26000, "out")).toBe(25750);
+    expect(O.rollStrike(STRIKES, { strike: 26500, right: "CE" }, 26000, "out")).toBeNull();
+    expect(O.rollStrike(STRIKES, { strike: 26000, right: "PE" }, 26000, "out")).toBe(25950);
+  });
+  it("wingStrike: the nearest wing at ≤ 25% of the short's premium, at least 2 steps out", () => {
+    const px = (k) => Math.max(1, 120 - (k - 26000) * 0.6);
+    expect(O.wingStrike(STRIKES, { strike: 26000, right: "CE", side: "SELL" }, px)).toBe(26150);
+    expect(O.wingStrike(STRIKES, { strike: 26000, right: "CE", side: "SELL" }, () => 100)).toBe(26500);
+    expect(O.wingStrike(STRIKES, { strike: 26000, right: "PE", side: "SELL" }, (k) => (k <= 25800 ? 5 : 80))).toBe(25800);
+    expect(O.wingStrike(STRIKES, { strike: 26000, right: "CE", side: "BUY" }, px)).toBeNull();
+  });
+  it("neutraliseDelta: futures lots, else ATM options", () => {
+    expect(O.neutraliseDelta({ deltaUnits: 160, lot: 75, fut: { lotSize: 75 } })).toMatchObject({ kind: "FUT", side: "SELL", lots: 2, after: 10 });
+    expect(O.neutraliseDelta({ deltaUnits: 20, lot: 75, fut: { lotSize: 75 } })).toBeNull();
+    const o = O.neutraliseDelta({ deltaUnits: -80, lot: 75, atm: { strike: 26000, ceDelta: 0.52, peDelta: -0.48 } });
+    expect(o).toMatchObject({ kind: "OPT", side: "BUY", right: "CE", strike: 26000, lots: 2 });
+    expect(Math.abs(o.after)).toBeLessThan(80);
+  });
+  it("convertStructure: strangle → condor, straddle → fly, naked → spread", () => {
+    const strangle = [{ kind: "OPT", right: "PE", strike: 25800, side: "SELL", lots: 1, expiry: "2026-11-03" }, { kind: "OPT", right: "CE", strike: 26200, side: "SELL", lots: 1, expiry: "2026-11-03" }];
+    const c = O.convertStructure(strangle, STRIKES);
+    expect(c.name).toBe("Iron condor");
+    expect(c.legs.map((l) => `${l.side[0]}${l.right}${l.strike}`)).toEqual(["BPE25700", "SPE25800", "SCE26200", "BCE26300"]);
+    const fly = O.convertStructure([{ ...strangle[0], strike: 26000 }, { ...strangle[1], strike: 26000 }], STRIKES, { w: 4 });
+    expect(fly.name).toBe("Iron fly");
+    expect(O.convertStructure([strangle[1]], STRIKES).name).toBe("Bear call spread");
+    expect(O.convertStructure([{ ...strangle[0], side: "BUY" }], STRIKES)).toBeNull();
+  });
+  it("strategyName: structures with strikes, calendars by expiry", () => {
+    const ic = [L("PE", 25800, "BUY", 1), L("PE", 26000, "SELL", 1), L("CE", 26850, "SELL", 1), L("CE", 27050, "BUY", 1)];
+    expect(O.strategyName(ic)).toBe("Iron condor 25800/26000/26850/27050");
+    expect(O.strategyName([L("CE", 26000, "SELL", 1, 1, { expiry: "2026-11-03" }), L("CE", 26000, "BUY", 1, 1, { expiry: "2026-11-10" })])).toBe("Long calendar (call) 26000");
+    expect(O.strategyName([L("CE", 26200, "SELL", 1, 1, { expiry: "2026-11-03" }), L("CE", 26000, "BUY", 1, 1, { expiry: "2026-11-10" })])).toBe("Diagonal (call) 26000/26200");
+    expect(O.strategyName([L("CE", 26000, "BUY", 1), L("CE", 26100, "SELL", 1, 2), L("CE", 26200, "BUY", 1)])).toBe("Long call butterfly 26000/26100/26200");
+    expect(O.strategyName([])).toBe("New strategy");
+    expect(O.strategyName([L("CE", 26000, "BUY", 1), L("PE", 25000, "BUY", 1, 3), L("CE", 27000, "SELL", 1)])).toBe("Custom 3-leg");
+  });
+  it("calendar warnings: front expiring today, back IV below front", () => {
+    const legs = [L("CE", 26000, "SELL", 50, 1, { symbol: "S", expiry: "2026-11-03", iv: 16 }), L("CE", 26000, "BUY", 90, 1, { symbol: "S", expiry: "2026-11-10", iv: 13 })];
+    const w = O.strategyWarnings({ legs, today: "2026-11-03" }).map((x) => x.code);
+    expect(w).toEqual(["CAL_EXPIRY_DAY", "BACK_IV_LOWER"]);
+    expect(O.strategyWarnings({ legs: [legs[0]], today: "2026-11-03" }).map((x) => x.code)).toEqual([]);
+    expect(O.strategyWarnings({ legs, chainAgeMs: 20000 })[0]).toMatchObject({ code: "STALE", severity: "block", text: "Prices are 20 s old" });
+  });
+});
+
+describe("round 2: suggestions by view", () => {
+  const view = { spot: 26010, forward: 26010, ivPct: 12, years: 7 / 365, lot: 75, risk: "defined" };
+  it("inferView: ±0.25 of the move", () => {
+    expect(O.inferView(26200, 26000, 400)).toBe("bull");
+    expect(O.inferView(25800, 26000, 400)).toBe("bear");
+    expect(O.inferView(26050, 26000, 400)).toBe("neutral");
+  });
+  it("candidates: listed strikes, de-duplicated, capped", () => {
+    const c = O.suggestCandidates(chain, { target: 26300, spot: 26010, forward: 26010, move: 150 });
+    expect(c.length).toBeGreaterThan(5);
+    expect(c.length).toBeLessThanOrEqual(400);
+    expect(new Set(c.map((x) => x.id)).has("bull-call")).toBe(true);
+    expect(c.every((x) => x.legs.every((l) => STRIKES.includes(l.strike)))).toBe(true);
+    const sigs = c.map((x) => JSON.stringify(x.legs));
+    expect(new Set(sigs).size).toBe(sigs.length);
+    expect(O.suggestCandidates(chain, { target: 26300, spot: 26010, forward: 26010, move: 150, cap: 7 })).toHaveLength(7);
+  });
+  it("suggestStrategies: money-makers at the target, ranked by return on capital, defined risk only", () => {
+    const top = O.suggestStrategies(chain, { ...view, target: 26300, move: 150 });
+    expect(top.length).toBeGreaterThan(0);
+    expect(top.length).toBeLessThanOrEqual(6);
+    for (const t of top) {
+      expect(t.pnlT).toBeGreaterThan(0);
+      expect(t.maxLoss).not.toBeNull();
+      expect(t.capital).toBeGreaterThan(0);
+    }
+    for (let i = 1; i < top.length; i += 1) expect(top[i - 1].score).toBeGreaterThanOrEqual(top[i].score);
+    const capped = O.suggestStrategies(chain, { ...view, target: 26300, move: 150, maxCapital: 1 });
+    expect(capped).toEqual([]);
+    const bear = O.suggestStrategies(chain, { ...view, target: 25700, move: 150 });
+    expect(bear.every((t) => O.PRESETS.find((p) => p.id === t.id).group === "bear")).toBe(true);
   });
 });

@@ -20,7 +20,7 @@ const tickOf = (it) => (Number(it.tickSize) > 0 ? Number(it.tickSize) : 0.05);
  * Open the confirm sheet. Resolves when it closes, with { placed: number } (legs that reached the exchange book).
  * @param {{ title: string, mode?: "entry"|"exit", account: object, items: object[], summary?: object, warnings?: object[],
  *   cfg: { product: string, hedgeWait: number }, onCfg?: (patch: object) => void, live?: () => boolean,
- *   onPositions?: () => void, announce?: (text: string) => void }} o
+ *   onPositions?: () => void, announce?: (text: string) => void, accountRow?: (reopen: () => void) => Node }} o
  *   items: [{ leg, side, phase, symbol, label, lots, lotSize, price, product?, quote: () => quote|null, freezeQty? }]
  */
 export function openPlacement(o) {
@@ -441,7 +441,9 @@ export function openPlacement(o) {
     "div",
     { class: "place-form" },
     h("div", { class: "ticket-grid" }, segField("Product", prodSeg), segField("Hedge wait", waitSeg)),
-    liveSeg ? segField("Mode", liveSeg) : h("p", { class: "muted small ticket-acct one-line" }, h("span", { class: "acct-name" }, a.label), /paper/i.test(a.label ?? "") ? null : h("span", { class: "acct-badge", "data-mode": "paper" }, "Paper")),
+    // Orders go to: the account is chosen here, where it matters (strategy.md §3.1); a change reopens the sheet.
+    o.accountRow ? h("div", { class: "place-acct" }, o.accountRow(() => closeSheet?.({ reopen: true }))) : h("p", { class: "muted small ticket-acct one-line" }, h("span", { class: "acct-name" }, a.label)),
+    liveSeg ? segField("Mode", liveSeg) : null,
     ackRow,
   );
   liveSeg?.addEventListener("change", () => {
@@ -477,7 +479,7 @@ export function openPlacement(o) {
   });
   return done.then((v) => {
     clearInterval(quoteTimer);
-    return { placed: placedCount, result: v };
+    return { placed: placedCount, result: v, reopen: Boolean(v?.reopen) };
   });
 }
 

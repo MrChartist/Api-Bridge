@@ -153,7 +153,8 @@ async function renderDesk(kind) {
   const pageKind = kind;
   const save = () => local.set(SLOT, JSON.stringify({ underlying: st.underlying, expiry: st.expiry, strikes: st.strikes, chain: st.cfg, account: st.account, live: st.live, baskets: st.baskets, oi: st.oi, strategy: st.scfg ?? undefined, whatIf: st.whatIf ?? undefined, pos: st.pos, vol: st.vol, arb: st.arb }));
   const account = () => tradable.find((a) => a.id === st.account) ?? null;
-  const basketKey = () => `${st.underlying}|${st.expiry}`;
+  // Strategy drafts are keyed by underlying; each leg carries its own expiry (docs/design/strategy.md §5.1).
+  const basketKey = () => st.underlying;
   const basket = () => (st.baskets[basketKey()] ??= []);
 
   // ── Toolbar ──
@@ -269,6 +270,9 @@ async function renderDesk(kind) {
   const futItem = h("span", { class: "ctx-item ctx-fut", title: "Same-expiry future and its basis to spot" }, h("span", { class: "ctx-main" }, h("span", { class: "ctx-k" }, futK), h("b", {}, futV), futB));
   const ivV = document.createTextNode(DASH);
   const ivItem = h("span", { class: "ctx-item ctx-iv", title: "ATM IV: average of the ATM call and put IV" }, h("span", { class: "ctx-main" }, h("span", { class: "ctx-k" }, "ATM IV"), h("b", {}, ivV)));
+  // The Strategy Builder's line also carries the expected move (±1σ to expiry).
+  const sigV = document.createTextNode(DASH);
+  const sigItem = h("span", { class: "ctx-item ctx-sig", title: "Expected move: ±1σ to expiry at ATM IV" }, h("span", { class: "ctx-main" }, h("span", { class: "ctx-k" }, "±1σ"), h("b", {}, sigV)));
   /** A solid red pill only when orders would go to a live broker account (paper shows nothing). */
   const liveOrders = h("span", { class: "ctx-live-orders", hidden: true, title: "Orders from this page go to a live broker account" }, "LIVE orders");
   // Tablets and phones: the one demo indicator is a small "Demo" pill of its own before the live control (a safety
@@ -302,7 +306,7 @@ async function renderDesk(kind) {
     const ch = qLtp === null ? null : num(q?.change);
     const chp = qLtp === null ? null : num(q?.changePct);
     const sig = JSON.stringify([st.underlying, e, exTag, monthly, lot, spot, ch, chp, device().phone]);
-    if (kind === "chain") drawCtxChain(spot);
+    if (kind === "chain" || kind === "strategy") drawCtxChain(spot);
     if (sig === ctxSig) return;
     const prevSpot = Number(spotItem.dataset.v);
     ctxSig = sig;
@@ -340,9 +344,10 @@ async function renderDesk(kind) {
     const basis = fwd !== null && spot !== null ? fwd - spot : null;
     const a = account();
     const live = Boolean(a && a.broker !== "paper" && a.liveAllowedByConfig);
-    const sig = JSON.stringify([fut ? 1 : 0, fwd, basis, x?.sm.atmIv, live]);
+    const sig = JSON.stringify([fut ? 1 : 0, fwd, basis, x?.sm.atmIv, live, x?.move ?? null]);
     if (sig === ctxChainSig) return;
     ctxChainSig = sig;
+    sigV.data = isFigure(x?.move) ? formatInt(Math.round(x.move)) : DASH;
     futK.data = fut ? "Fut" : "F";
     futV.data = fwd === null ? DASH : formatFixed(fwd, 1);
     futB.textContent = basis === null ? "" : `(${formatSigned(basis, 1)})`;
@@ -352,10 +357,10 @@ async function renderDesk(kind) {
     fitCtx();
   }
   /** Drop the line's figures in order (ATM IV, Lot, the basis, Fut / F, the absolute change) until it fits. */
-  const CTX_DROP = ["d-iv", "d-lot", "d-basis", "d-fut", "d-chg"];
+  const CTX_DROP = ["d-sig", "d-iv", "d-lot", "d-basis", "d-fut", "d-chg"];
   function fitCtx() {
     const cap = capsule;
-    if (!cap?.isConnected || kind !== "chain") return;
+    if (!cap?.isConnected || (kind !== "chain" && kind !== "strategy")) return;
     cap.classList.remove(...CTX_DROP);
     // The page pill is always its icon here (the sidebar and the tab bar name the page), in every state, so the line
     // never shifts when the data arrives; then figures drop.
@@ -818,7 +823,7 @@ async function renderDesk(kind) {
       sheet?.update();
       drawClock();
     }
-    if (kind === "strategy") builder.draw(x);
+    if (kind === "strategy") builder.draw(x, { stale: st.error ?? null, lastOk: st.lastOk ?? null, live: st.live, onRetry: () => refresh() });
     if (kind === "oi") {
       oiPage.draw(x);
       st.patchMs = Math.round((performance.now() - t0) * 10) / 10;
@@ -1044,7 +1049,7 @@ async function renderDesk(kind) {
       const same = legs.find((l) => (l.kind ?? "OPT") === "OPT" && l.strike === it.strike && l.right === right && l.side === side && (l.entry === undefined || l.entry === null));
       if (same) same.lots += 1;
       else if (legs.length >= O.MAX_LEGS) continue;
-      else legs.push({ right, strike: it.strike, side, lots: 1 });
+      else legs.push({ right, strike: it.strike, side, lots: 1, expiry: st.expiry });
       n += 1;
     }
     const skipped = items.length - n;
@@ -1208,6 +1213,7 @@ async function renderDesk(kind) {
           st,
           save,
           account,
+          acctPicker: (onChange) => acctPicker(onChange),
           refresh: () => refresh(),
           onPositions: () => (location.hash = "#/positions"),
           switchTo: async (u, e) => {
@@ -1226,7 +1232,7 @@ async function renderDesk(kind) {
     const same = legs.find((l) => (l.kind ?? "OPT") === "OPT" && l.strike === leg.strike && l.right === leg.right && l.side === leg.side && (l.entry === undefined || l.entry === null));
     if (same) same.lots += leg.lots ?? 1;
     else if (legs.length >= O.MAX_LEGS) return toast(`The strategy holds up to ${O.MAX_LEGS} legs`);
-    else legs.push({ right: leg.right, strike: leg.strike, side: leg.side, lots: leg.lots ?? 1 });
+    else legs.push({ right: leg.right, strike: leg.strike, side: leg.side, lots: leg.lots ?? 1, expiry: st.expiry });
     save();
     toast(`${leg.side === "BUY" ? "Buy" : "Sell"} ${formatInt(leg.strike)} ${leg.right} added to Strategy Builder`);
   }
@@ -1238,7 +1244,7 @@ async function renderDesk(kind) {
     const same = legs.find(match);
     if (same) same.lots += 1;
     else if (legs.length >= O.MAX_LEGS) return toast(`The strategy holds up to ${O.MAX_LEGS} legs`);
-    else legs.push({ right: leg.right, strike: leg.strike, side: leg.side, lots: 1 });
+    else legs.push({ right: leg.right, strike: leg.strike, side: leg.side, lots: 1, expiry: st.expiry });
     save();
     const undo = () => {
       const now = basket();
@@ -1907,13 +1913,16 @@ async function renderDesk(kind) {
 
   drawAcct();
   // The top bar: one capsule, then (trading pages) the account and its mode, the live control and the ⋯ sheet.
-  capsule = h("div", { class: `ctx-cap glass${kind === "chain" ? " ctx-chain" : ""}` }, uItem, kind === "positions" ? null : eItem, spotItem, kind === "chain" ? futItem : null, kind === "positions" ? null : lotItem, kind === "chain" ? ivItem : null);
+  // The chain and the Strategy Builder carry the future, ATM IV (and, on the builder, ±1σ) on their one line.
+  const wide = kind === "chain" || kind === "strategy";
+  capsule = h("div", { class: `ctx-cap glass${wide ? " ctx-chain" : ""}` }, uItem, kind === "positions" ? null : eItem, spotItem, wide ? futItem : null, kind === "positions" ? null : lotItem, wide ? ivItem : null, kind === "strategy" ? sigItem : null);
   // The chain is read-only until an order is placed: its account picker lives in the ticket and the action sheet
   // ("Orders go to"), and the line shows only a red LIVE-orders pill when orders would go to a live account.
-  const acctItem = TRADING.has(kind) && kind !== "chain" ? h("span", { class: "ctx-acct glass" }, tradable.length ? [aSel, acctBadge] : h("a", { href: "#/accounts", class: "acct-connect" }, icon("plug"), "Connect an account")) : null;
-  mountToolbarCtx(kind, capsule, expiryChip, h("span", { class: "ctx-spacer" }), acctItem, kind === "chain" ? liveOrders : null, demoPill, liveBtn.el, moreBtn);
-  if (kind === "chain") document.querySelector(".toolbar-title")?.classList.add("icon-only");
-  if (kind === "chain" && typeof ResizeObserver === "function") {
+  // The Strategy Builder picks the account in its confirm sheet ("Orders go to"), like the chain's ticket.
+  const acctItem = TRADING.has(kind) && kind !== "chain" && kind !== "strategy" ? h("span", { class: "ctx-acct glass" }, tradable.length ? [aSel, acctBadge] : h("a", { href: "#/accounts", class: "acct-connect" }, icon("plug"), "Connect an account")) : null;
+  mountToolbarCtx(kind, capsule, expiryChip, h("span", { class: "ctx-spacer" }), acctItem, wide ? liveOrders : null, demoPill, liveBtn.el, moreBtn);
+  if (wide) document.querySelector(".toolbar-title")?.classList.add("icon-only");
+  if (wide && typeof ResizeObserver === "function") {
     ctxRo = new ResizeObserver(() => fitCtx());
     ctxRo.observe(capsule);
     if (capsule.parentNode) ctxRo.observe(capsule.parentNode);
@@ -1947,8 +1956,8 @@ async function renderDesk(kind) {
     if (headRo) queueMicrotask(() => chainTools?.parentNode && headRo.observe(chainTools.parentNode));
     return out;
   }
-  const summary = h("section", { class: "desk-panel", "data-panel": "summary", "data-fixed": "", "aria-label": "Chain summary" }, statsEl);
-  if (kind === "strategy") return [summary, builder.panel, builder.slot];
+  // The builder's own hero strip and the one top line replace the chain summary here (strategy.md §3.1).
+  if (kind === "strategy") return [builder.panel, builder.slot];
   if (kind === "oi") return [...oiPage.panels];
   // Volatility: its own KPI strip, so no shared summary.
   if (kind === "vol") return [...volPage.panels];

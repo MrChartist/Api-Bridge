@@ -1,15 +1,19 @@
-// The strategy payoff chart: the only code that knows SVG for it. It draws a model from O.payoffModel (pure, tested)
-// and patches the same nodes on every update (paths, ticks, markers), so a slider can redraw it every frame. When the
-// owner's chart engine arrives it replaces drawPayoff() without touching the maths.
+// The strategy payoff chart (docs/design/strategy.md §4): the only code that knows SVG for it. It draws a view built
+// from O.payoffModel (pure, tested) and patches the same nodes on every update, so a slider can redraw it every frame.
+// Back to front: plot, ±2σ / ±1σ bands with bottom labels, grid, gradient profit / loss areas, the distribution ribbon,
+// the zero line, max profit / loss guides with right-edge pills, per-leg and saved overlays, the mid and target curves,
+// the expiry curve split by sign, strike markers, the spot contrast pill, breakeven rings with their pills below the
+// axis, the crosshair and a floating tooltip. A model change morphs (360 ms) unless the user prefers reduced motion;
+// slider drags and live ticks patch in place. When the owner's chart engine arrives it replaces drawPayoff() only.
 //
-// drawPayoff(host, model, { onPin }) -> { update(model), destroy() }
-//   Fine pointer: hover reads P&L at a price. Coarse pointer: tap pins the crosshair, drag moves it (vertical page
-//   scroll still works: touch-action pan-y), a tap outside unpins. Keyboard: the chart is focusable; ← / → move the
-//   pinned price one strike step (Shift: 5), Esc unpins.
+// drawPayoff(host, { onPin }) -> { update(view, { animate }), empty({ text, sub, action }), pin(price), highlight(id),
+//   tools, destroy() }
+//   Fine pointer: the card follows the pointer, click pins. Coarse pointer: tap / drag pins and the card docks at the
+//   top of the plot. Keyboard: ← → one strike step (Shift: 5), Esc unpins.
 import { h, keyHint, touchWord } from "./app.js";
-import { DASH, formatCompact, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
+import { DASH, formatCompact, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
-import { lineReveal } from "./motion.js";
+import { lineReveal, reducedMotion } from "./motion.js";
 
 const { niceTicks } = O;
 
@@ -45,80 +49,170 @@ export function money(v, { signed = true } = {}) {
 }
 /** The same with the gain / loss colour. */
 export const moneyEl = (v, opts) => h("span", { class: isFigure(v) && Math.round(v) > 0 ? "up" : isFigure(v) && Math.round(v) < 0 ? "down" : undefined }, money(v, opts));
+/** Axis rupees: "+₹5K", "-₹10K", "0". */
+const axisMoney = (v) => (Math.abs(v) < 1e-9 ? "0" : `${v > 0 ? "+" : "-"}₹${formatCompact(Math.abs(v))}`);
 
-const coarse = () => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 const mq = (q) => typeof matchMedia === "function" && matchMedia(q).matches;
-/** 300 px on desktop, 260 on tablet, 220 on phone (PRD 02 §9). */
-const heightFor = () => (mq("(max-width: 719px)") ? 220 : mq("(max-width: 1023px)") ? 260 : 300);
+const coarse = () => mq("(pointer: coarse)");
+/** 340 px on desktop, 280 on tablet, 232 on phone (§3). */
+const heightFor = () => (mq("(max-width: 719px)") ? 232 : mq("(max-width: 1023px)") ? 280 : 340);
+const ease = (t) => 1 - (1 - t) ** 3;
+const MORPH_MS = 360;
+const HINT_KEY = "mcb.payoff.hinted";
+const hinted = () => {
+  try {
+    return sessionStorage.getItem(HINT_KEY) === "1";
+  } catch {
+    return true;
+  }
+};
+const markHinted = () => {
+  try {
+    sessionStorage.setItem(HINT_KEY, "1");
+  } catch {
+    /* fine without storage */
+  }
+};
 
 /**
  * @param {HTMLElement} host
- * @param {object|null} model  O.payoffModel(...) or null (nothing to draw)
- * @param {{ onPin?: (price: number|null) => void, step?: number }} [opts]
+ * @param {{ onPin?: (price: number|null) => void }} [opts]
  */
-export function drawPayoff(host, model, { onPin } = {}) {
-  let m = model;
+export function drawPayoff(host, { onPin } = {}) {
+  let v = null; // the view being shown (the tween target)
+  let d = null; // what is drawn this frame (v, or an in-between during a morph)
   let W = 720;
-  let H = 300;
-  const L = 58;
+  let H = 340;
+  let L = 56;
   const R = 12;
-  const T = 18;
-  const B = 44;
+  const T = 26;
+  const B = 56;
   let pinned = null;
   let hover = null;
+  let tween = 0;
   const id = `po${Math.random().toString(36).slice(2, 7)}`;
   const clipUp = s("rect", { x: 0, y: 0, width: 0, height: 0 });
   const clipDn = s("rect", { x: 0, y: 0, width: 0, height: 0 });
-  const band1 = s("rect", { class: "band", visibility: "hidden" });
+  const clipPlot = s("rect", { x: 0, y: 0, width: 0, height: 0 });
+  const ribbonClip = s("clipPath", { id: `${id}-pz` });
+  const stop = (cls, off) => s("stop", { class: cls, offset: off });
+  const gPos = s("linearGradient", { id: `${id}-gp`, gradientUnits: "userSpaceOnUse", x1: 0, x2: 0, y1: 0, y2: 1 }, stop("gp-0", "0"), stop("gp-1", "1"));
+  const gNeg = s("linearGradient", { id: `${id}-gn`, gradientUnits: "userSpaceOnUse", x1: 0, x2: 0, y1: 0, y2: 1 }, stop("gn-0", "0"), stop("gn-1", "1"));
+  const plotBg = s("rect", { class: "plot-bg", rx: 8 });
   const band2 = s("rect", { class: "band2", visibility: "hidden" });
+  const band1 = s("rect", { class: "band1", visibility: "hidden" });
+  const bandLabels = s("g", { class: "band-lbl" });
   const grid = s("g", { class: "grid-g" });
   const xAxis = s("g", { class: "x-axis" });
-  const areaUp = s("path", { class: "area-up", "clip-path": `url(#${id}-up)` });
-  const areaDn = s("path", { class: "area-dn", "clip-path": `url(#${id}-dn)` });
+  const areaUp = s("path", { class: "area-up", fill: `url(#${id}-gp)`, "clip-path": `url(#${id}-up)` });
+  const areaDn = s("path", { class: "area-dn", fill: `url(#${id}-gn)`, "clip-path": `url(#${id}-dn)` });
+  const ribbon = s("path", { class: "ribbon" });
+  const ribbonPos = s("path", { class: "ribbon-pos", "clip-path": `url(#${id}-pz)` });
   const zero = s("line", { class: "zero" });
-  const lineT = s("path", { class: "line-today" });
-  const lineE = s("path", { class: "line-exp" });
-  let revealed = false;
-  const spotLine = s("line", { class: "mark-spot" });
-  const spotLabel = s("text", { class: "mark-label spot", "text-anchor": "middle" });
-  const beG = s("g", { class: "be-g" });
+  const guideMax = s("line", { class: "guide max" });
+  const guideMin = s("line", { class: "guide min" });
+  const pill = (cls) => {
+    const g = s("g", { class: `cpill ${cls}` });
+    const r = s("rect", { rx: 9, height: 18 });
+    const t = s("text", { "text-anchor": "middle" });
+    g.append(r, t);
+    return { g, r, t };
+  };
+  const pMax = pill("pos");
+  const pMin = pill("neg");
+  const pSpot = pill("spot");
+  const clipNote = s("text", { class: "clip-note", "text-anchor": "middle" });
+  const legsG = s("g", { class: "leg-lines", "clip-path": `url(#${id}-plot)` });
+  const cmpLine = s("path", { class: "cmp-line", "clip-path": `url(#${id}-plot)` });
+  const lineM = s("path", { class: "line-mid", "clip-path": `url(#${id}-plot)` });
+  const lineT = s("path", { class: "line-target", "clip-path": `url(#${id}-plot)` });
+  const lineEUp = s("path", { class: "line-exp up", "clip-path": `url(#${id}-up)` });
+  const lineEDn = s("path", { class: "line-exp dn", "clip-path": `url(#${id}-dn)` });
+  const marks = s("g", { class: "strike-marks" });
+  const spotLine = s("line", { class: "spot-line" });
+  const beDots = s("g", { class: "be-dots" });
+  const bePills = s("g", { class: "be-pills" });
   const cross = s("line", { class: "cross", visibility: "hidden" });
-  const dotE = s("circle", { r: 3.5, class: "dot-exp", visibility: "hidden" });
-  const dotT = s("circle", { r: 3.5, class: "dot-today", visibility: "hidden" });
+  const dotE = s("circle", { r: 4, class: "dot-exp", visibility: "hidden" });
+  const dotT = s("circle", { r: 4, class: "dot-target", visibility: "hidden" });
   const svg = s(
     "svg",
-    { class: "payoff-svg", role: "img", tabindex: "0", focusable: "true", preserveAspectRatio: "none" },
-    s("defs", {}, s("clipPath", { id: `${id}-up` }, clipUp), s("clipPath", { id: `${id}-dn` }, clipDn)),
+    { class: "payoff-svg", role: "img", tabindex: "0", focusable: "true" },
+    s("defs", {}, s("clipPath", { id: `${id}-up` }, clipUp), s("clipPath", { id: `${id}-dn` }, clipDn), s("clipPath", { id: `${id}-plot` }, clipPlot), ribbonClip, gPos, gNeg),
+    plotBg,
     band2,
     band1,
     grid,
-    xAxis,
     areaUp,
     areaDn,
+    ribbon,
+    ribbonPos,
     zero,
+    guideMax,
+    guideMin,
+    legsG,
+    cmpLine,
+    lineM,
     lineT,
-    lineE,
+    lineEUp,
+    lineEDn,
+    bandLabels,
+    xAxis,
+    marks,
     spotLine,
-    spotLabel,
-    beG,
+    pSpot.g,
+    beDots,
+    bePills,
+    pMax.g,
+    pMin.g,
+    clipNote,
     cross,
     dotE,
     dotT,
   );
-  const readout = h("div", { class: "payoff-readout", "aria-live": "off" });
-  const legend = h("span", { class: "legend" }, h("i", { class: "exp" }), "Expiry", h("span", { class: "lg-target" }, h("i", { class: "today" }), "Target"), h("span", { class: "lg-band" }, h("i", { class: "band" }), "±1σ"));
-  const empty = h("p", { class: "payoff-empty muted", hidden: true });
-  const headEl = h("div", { class: "payoff-head" }, legend, readout);
-  host.replaceChildren(headEl, svg, empty);
+  // Legend (swatches drawn with the chart's own classes, so they always match) and a slot for the page's controls.
+  const swatch = (...kids) => s("svg", { class: "lg-sw", viewBox: "0 0 16 10", width: 16, height: 10, "aria-hidden": "true" }, ...kids);
+  const lgItem = (sw, label) => {
+    const t = h("span", { class: "lg-t" }, label);
+    return { el: h("span", { class: "lg-i" }, sw, t), t };
+  };
+  const lgExp = lgItem(swatch(s("line", { class: "line-exp up", x1: 0, x2: 8, y1: 4, y2: 4 }), s("line", { class: "line-exp dn", x1: 8, x2: 16, y1: 6, y2: 6 })), "Expiry");
+  const lgT = lgItem(swatch(s("line", { class: "line-target", x1: 0, x2: 16, y1: 5, y2: 5 })), "Target");
+  const lgM = lgItem(swatch(s("line", { class: "line-mid", x1: 0, x2: 16, y1: 5, y2: 5 })), "Mid-date");
+  const lgB1 = lgItem(swatch(s("rect", { class: "band1", x: 0, y: 0, width: 16, height: 10, rx: 2 })), "±1σ");
+  const lgB2 = lgItem(swatch(s("rect", { class: "band2", x: 0, y: 0, width: 16, height: 10, rx: 2 })), "±2σ");
+  const lgC = lgItem(swatch(s("line", { class: "cmp-line", x1: 0, x2: 16, y1: 5, y2: 5 })), "Saved");
+  const legend = h("span", { class: "legend" }, lgExp.el, lgT.el, lgM.el, lgB1.el, lgB2.el, lgC.el);
+  const tools = h("span", { class: "payoff-tools" });
+  const headEl = h("div", { class: "payoff-head" }, legend, tools);
+  // Tooltip card
+  const tipPrice = h("strong", {});
+  const tipMove = h("span", { class: "tip-move" });
+  const tipRows = h("div", { class: "tip-rows" });
+  const tipX = h("button", { type: "button", class: "tip-x", "aria-label": "Unpin", onclick: () => setPin(null) }, "×");
+  const tip = h("div", { class: "payoff-tip", "aria-hidden": "true" }, h("div", { class: "tip-head" }, tipPrice, tipMove, tipX), tipRows);
+  const hint = h("span", { class: "payoff-hint", "aria-hidden": "true" });
+  const plotWrap = h("div", { class: "payoff-plot" }, svg, tip, hint);
+  // Empty: a ghost iron condor, a line of text and an optional action (§6.1).
+  const ghostText = h("strong", {});
+  const ghostSub = h("span", { class: "ghost-sub" });
+  const empty = h(
+    "div",
+    { class: "payoff-empty", hidden: true },
+    s("svg", { class: "ghost-svg", viewBox: "0 0 600 200", preserveAspectRatio: "none", "aria-hidden": "true" }, s("rect", { class: "ghost-band", x: 210, y: 0, width: 180, height: 200 }), s("line", { class: "ghost-zero", x1: 0, x2: 600, y1: 110, y2: 110 }), s("polyline", { class: "ghost-line", points: "0,170 150,170 220,70 380,70 450,170 600,170" })),
+    h("div", { class: "ghost-copy" }, ghostText, ghostSub),
+  );
+  const live = h("div", { class: "sr-only", "aria-live": "off" });
+  host.replaceChildren(headEl, plotWrap, empty, live);
 
-  const X = (p) => L + ((p - m.lo) / (m.hi - m.lo)) * (W - L - R);
-  const Y = (v) => T + ((m.yMax - v) / (m.yMax - m.yMin)) * (H - T - B);
-  const P = (px) => m.lo + ((Math.max(L, Math.min(W - R, px)) - L) / (W - L - R)) * (m.hi - m.lo);
-  const path = (vals) => vals.map((v, i) => (v === null ? "" : `${i === 0 || vals[i - 1] === null ? "M" : "L"}${r1(X(m.xs[i]))},${r1(Y(v))}`)).join("");
-  /** P&L at a price by linear interpolation of the sampled curve (exact between kinks; strikes are samples). */
-  const at = (vals, p) => {
+  const X = (p) => L + ((p - d.lo) / (d.hi - d.lo)) * (W - L - R);
+  const ky = () => (d.yScale ?? 1);
+  const Y = (val) => T + ((d.yMax - val) / (d.yMax - d.yMin)) * (H - T - B);
+  const P = (px) => d.lo + ((Math.max(L, Math.min(W - R, px)) - L) / (W - L - R)) * (d.hi - d.lo);
+  const path = (vals, xs = d.xs) => vals.map((val, i) => (val === null ? "" : `${i === 0 || vals[i - 1] === null ? "M" : "L"}${r1(X(xs[i]))},${r1(Y(Math.max(d.yMin - (d.yMax - d.yMin), Math.min(d.yMax + (d.yMax - d.yMin), val))))}`)).join("");
+  /** A value at price p by linear interpolation of a sampled curve. */
+  const atOn = (xs, vals, p) => {
     if (!vals) return null;
-    const xs = m.xs;
     let i = 1;
     while (i < xs.length - 1 && xs[i] < p) i += 1;
     const a = vals[i - 1];
@@ -127,212 +221,457 @@ export function drawPayoff(host, model, { onPin } = {}) {
     const t = xs[i] === xs[i - 1] ? 0 : (p - xs[i - 1]) / (xs[i] - xs[i - 1]);
     return a + (b - a) * Math.max(0, Math.min(1, t));
   };
+  const at = (vals, p) => atOn(v.xs, vals, p);
   const step = () => {
-    const ks = m?.strikes ?? [];
-    const gaps = ks.slice(1).map((k, i) => k - ks[i]).filter((d) => d > 0);
-    return gaps.length ? Math.min(...gaps) : Math.max(1, Math.round((m.hi - m.lo) / 60));
+    const ks = v?.chainStrikes?.length ? v.chainStrikes : v?.strikes ?? [];
+    const gaps = ks.slice(1).map((k, i) => k - ks[i]).filter((x) => x > 0);
+    return gaps.length ? Math.min(...gaps) : Math.max(1, Math.round((v.hi - v.lo) / 60));
   };
 
   function sizeOf() {
-    const w = Math.max(280, Math.round(host.clientWidth || 720));
-    W = w;
+    W = Math.max(280, Math.round(plotWrap.clientWidth || host.clientWidth || 720));
     H = heightFor();
+    L = W < 480 ? 46 : 56;
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     svg.setAttribute("width", String(W));
     svg.setAttribute("height", String(H));
   }
 
-  function paint() {
-    // Nothing to draw: only the outlined placeholder shows, at the chart's own height (no blank SVG, legend or readout).
-    if (!m) {
-      svg.style.display = "none";
-      headEl.hidden = true;
-      empty.style.height = `${heightFor()}px`;
-      empty.hidden = false;
-      return;
+  // ── Painting one frame ──
+  let gridKey = "";
+  let gridEls = [];
+  function paintGrid() {
+    const k = ky();
+    let yt = niceTicks(v.yMin * k, v.yMax * k, 5);
+    if (yt.length < 3) yt = niceTicks(v.yMin * k, v.yMax * k, 8);
+    const key = `${yt.join(",")}|${v.yMode}`;
+    if (key !== gridKey) {
+      // Labels cross-fade: the old group fades out, the new one fades in (CSS; none under reduced motion).
+      const old = gridKey ? grid.cloneNode(true) : null;
+      gridKey = key;
+      gridEls = yt.map((t) => ({ t, line: s("line", { class: "grid" }), label: s("text", { class: "axis", "text-anchor": "end" }, v.yMode === "pct" ? `${formatSigned(t, Math.abs(t) < 10 && t % 1 ? 1 : 0)}%`.replace(/^\+0%$/, "0") : axisMoney(t)) }));
+      grid.replaceChildren(...gridEls.flatMap((g) => [g.line, g.label]));
+      if (old && !reducedMotion()) {
+        old.classList.add("grid-out");
+        grid.parentNode.insertBefore(old, grid);
+        grid.classList.remove("grid-in");
+        void grid.getBBox?.();
+        grid.classList.add("grid-in");
+        setTimeout(() => old.remove(), 140);
+      }
     }
-    svg.style.display = "";
-    headEl.hidden = false;
-    empty.hidden = true;
-    const zy = Y(0);
-    set(clipUp, { width: W, height: Math.max(0, zy) });
-    set(clipDn, { y: zy, width: W, height: Math.max(0, H - zy) });
+    for (const g of gridEls) {
+      const y = r1(Y(g.t / k));
+      set(g.line, { x1: L, x2: W - R, y1: y, y2: y, visibility: y < T - 1 || y > H - B + 1 ? "hidden" : "visible" });
+      set(g.label, { x: L - 8, y: r1(y + 3.5), visibility: y < T - 1 || y > H - B + 1 ? "hidden" : "visible" });
+    }
+  }
+  function paintX() {
+    const xt = niceTicks(d.lo, d.hi, Math.max(4, Math.min(8, Math.floor((W - L - R) / 96)))).filter((p) => p > d.lo && p < d.hi);
+    const key = `${W}|${xt.join(",")}|${r1(d.lo)}|${r1(d.hi)}`;
+    if (xAxis.__sig === key) return;
+    xAxis.__sig = key;
+    xAxis.replaceChildren(s("line", { class: "x-base", x1: L, x2: W - R, y1: H - B, y2: H - B }), ...xt.map((p) => s("text", { x: r1(X(p)), y: H - B + 24, class: "axis", "text-anchor": "middle" }, formatInt(p))));
+  }
+  function paintPill(p, x, y, label, { anchor = "middle", show = true } = {}) {
+    if (!show) return set(p.g, { visibility: "hidden" });
+    text(p.t, label);
+    const w = Math.max(28, Math.round(label.length * 6.1 + 14));
+    const left = anchor === "end" ? x - w : anchor === "start" ? x : x - w / 2;
+    const cl = Math.max(L, Math.min(W - R - w, left));
+    set(p.r, { x: r1(cl), y: r1(y - 9), width: w });
+    set(p.t, { x: r1(cl + w / 2), y: r1(y + 3.6) });
+    set(p.g, { visibility: "visible" });
+  }
+  function paint() {
+    if (!d) return;
+    const plotW = W - L - R;
+    const zy = Math.max(T, Math.min(H - B, Y(0)));
+    set(plotBg, { x: L, y: T, width: plotW, height: H - T - B });
+    set(clipPlot, { x: L, y: T, width: plotW, height: H - T - B });
+    set(clipUp, { x: L, y: T, width: plotW, height: Math.max(0, zy - T) });
+    set(clipDn, { x: L, y: zy, width: plotW, height: Math.max(0, H - B - zy) });
+    // Gradients: strongest at the extreme, fading to zero at the zero line.
+    const topV = Math.max(0, ...d.expiry);
+    set(gPos, { y1: r1(Y(Math.min(d.yMax, topV))), y2: r1(zy) });
+    set(gNeg, { y1: r1(zy), y2: r1(Y(Math.max(d.yMin, Math.min(0, ...d.expiry)))) });
     const band = (el, b) => {
       if (!b) return set(el, { visibility: "hidden" });
-      const a = X(Math.max(m.lo, b[0]));
-      const z = X(Math.min(m.hi, b[1]));
+      const a = X(Math.max(d.lo, b[0]));
+      const z = X(Math.min(d.hi, b[1]));
       set(el, { visibility: z > a ? "visible" : "hidden", x: r1(a), y: T, width: r1(Math.max(0, z - a)), height: H - T - B });
     };
-    band(band1, m.band1);
-    band(band2, m.band2);
-    // y grid + labels
-    let yt = niceTicks(m.yMin, m.yMax, 5);
-    if (yt.length < 3) yt = niceTicks(m.yMin, m.yMax, 8);
-    const ysig = `${W}x${H}|${yt.join(",")}|${m.yMin}|${m.yMax}`;
-    if (grid.__sig !== ysig) {
-      grid.__sig = ysig;
-      grid.replaceChildren(...yt.map((v) => [s("line", { x1: L, x2: W - R, y1: r1(Y(v)), y2: r1(Y(v)), class: "grid" }), s("text", { x: L - 8, y: r1(Y(v) + 3.5), class: "axis", "text-anchor": "end" }, v === 0 ? "0" : formatCompact(v))]).flat());
+    band(band2, d.band2);
+    band(band1, d.band1);
+    paintGrid();
+    paintX();
+    // Band labels at the bottom of the plot, inside the ±1σ edges; hidden when they would collide.
+    const bl = d.band1 ? [[`−1σ ${formatInt(d.band1[0])}`, X(d.band1[0]) + 4, "start"], [`+1σ ${formatInt(d.band1[1])}`, X(d.band1[1]) - 4, "end"]] : [];
+    const blKey = bl.map((x) => `${x[0]}${r1(x[1])}`).join("|");
+    if (bandLabels.__sig !== blKey) {
+      bandLabels.__sig = blKey;
+      const room = bl.length === 2 ? bl[1][1] - bl[0][1] > (bl[0][0].length + bl[1][0].length) * 6 + 12 : false;
+      bandLabels.replaceChildren(...(room ? bl.filter((b) => b[1] > L + 2 && b[1] < W - R - 2).map(([t, x, a]) => s("text", { x: r1(x), y: H - B - 6, class: "band-text", "text-anchor": a }, t)) : []));
     }
-    // x ticks: round numbers, about one per 110 px
-    const xt = niceTicks(m.lo, m.hi, Math.max(4, Math.min(8, Math.floor((W - L - R) / 90)))).filter((p) => p > m.lo && p < m.hi);
-    const xsig = `${W}x${H}|${xt.join(",")}|${m.lo}|${m.hi}`;
-    if (xAxis.__sig !== xsig) {
-      xAxis.__sig = xsig;
-      xAxis.replaceChildren(...xt.map((p) => s("text", { x: r1(X(p)), y: H - 26, class: "axis", "text-anchor": "middle" }, formatInt(p))));
-    }
-    const area = `M${r1(X(m.xs[0]))},${r1(zy)}${m.expiry.map((v, i) => `L${r1(X(m.xs[i]))},${r1(Y(v))}`).join("")}L${r1(X(m.xs[m.xs.length - 1]))},${r1(zy)}Z`;
+    const xs = d.xs;
+    const area = `M${r1(X(xs[0]))},${r1(zy)}${d.expiry.map((val, i) => `L${r1(X(xs[i]))},${r1(Y(Math.max(d.yMin - 1e9, val)))}`).join("")}L${r1(X(xs[xs.length - 1]))},${r1(zy)}Z`;
     set(areaUp, { d: area });
     set(areaDn, { d: area });
-    set(zero, { x1: L, x2: W - R, y1: r1(zy), y2: r1(zy) });
-    set(lineE, { d: path(m.expiry) });
-    // First draw only: the expiry line draws itself and the profit / loss areas fade in (motion.js; none on refresh).
-    if (!revealed && lineE.getAttribute("d")) {
-      revealed = true;
-      lineReveal(lineE, [areaUp, areaDn]);
+    // Distribution ribbon along the bottom 18 % of the plot; the part over profitable prices tinted.
+    if (d.density && d.showDist) {
+      const base = H - B;
+      const hgt = (H - T - B) * 0.18;
+      const rp = `M${r1(X(xs[0]))},${base}${d.density.map((q, i) => `L${r1(X(xs[i]))},${r1(base - q * hgt)}`).join("")}L${r1(X(xs[xs.length - 1]))},${base}Z`;
+      set(ribbon, { d: rp, visibility: "visible" });
+      set(ribbonPos, { d: rp, visibility: "visible" });
+      const pz = (d.profitIntervals ?? []).map(([a, b]) => [Math.max(d.lo, a), Math.min(d.hi, b)]).filter(([a, b]) => b > a);
+      const pk = pz.map(([a, b]) => `${r1(X(a))}-${r1(X(b))}`).join();
+      if (ribbonClip.__sig !== pk) {
+        ribbonClip.__sig = pk;
+        ribbonClip.replaceChildren(...pz.map(([a, b]) => s("rect", { x: r1(X(a)), y: T, width: r1(X(b) - X(a)), height: H - T - B })));
+      }
+    } else {
+      set(ribbon, { visibility: "hidden" });
+      set(ribbonPos, { visibility: "hidden" });
     }
-    set(lineT, { d: m.target ? path(m.target) : "", visibility: m.target ? "visible" : "hidden" });
-    legend.querySelector(".lg-target").hidden = !m.target;
-    legend.querySelector(".lg-band").hidden = !m.band1;
-    const sx = X(m.spot);
-    set(spotLine, { x1: r1(sx), x2: r1(sx), y1: T, y2: H - B });
-    set(spotLabel, { x: r1(Math.max(L + 20, Math.min(W - R - 20, sx))), y: T - 6 });
-    text(spotLabel, formatInt(m.spot));
-    // Breakevens: dots on zero, labels just above the zero line; labels nudged apart (4 px gap) or merged
-    // ("BE 25906 · 26420") when they would collide (options.js placeLabels).
-    const bes = m.breakevens.filter((b) => b > m.lo && b < m.hi);
-    const besig = `${W}x${H}|${bes.map((b) => Math.round(b)).join(",")}|${r1(zy)}`;
-    if (beG.__sig !== besig) {
-      beG.__sig = besig;
-      const ly = zy - 8 < T + 10 ? zy + 16 : zy - 8;
-      const labels = O.placeLabels(bes.map((b) => ({ x: X(b), w: 7 * formatInt(Math.round(b)).length + 6, text: formatInt(Math.round(b)) })), { gap: 4, lo: L, hi: W - R, prefix: "BE " });
-      beG.replaceChildren(
-        ...bes.flatMap((b) => [s("circle", { cx: r1(X(b)), cy: r1(zy), r: 3.5, class: "be" })]),
-        ...labels.map((l) => s("text", { x: r1(l.x), y: r1(ly), class: "mark-label be-label", "text-anchor": "middle" }, l.text)),
+    set(zero, { x1: L, x2: W - R, y1: r1(zy), y2: r1(zy) });
+    // Max profit / loss guides and pills.
+    const st = d.stats;
+    const mp = st?.locked === null || st?.locked === undefined ? st?.maxProfit : null;
+    const ml = st?.locked === null || st?.locked === undefined ? st?.maxLoss : null;
+    const inY = (val) => val !== null && val !== undefined && val <= d.yMax && val >= d.yMin;
+    const sfx = d.approx ? " ≈" : "";
+    if (mp !== null && mp !== undefined && mp > 0 && inY(mp)) {
+      set(guideMax, { x1: L, x2: W - R, y1: r1(Y(mp)), y2: r1(Y(mp)), visibility: "visible" });
+      paintPill(pMax, W - R - 4, Math.max(T + 10, Y(mp) - 12), `Max ${money(mp)}${sfx}`, { anchor: "end" });
+    } else {
+      set(guideMax, { visibility: "hidden" });
+      paintPill(pMax, W - R - 4, T + 10, st && mp === null && st.maxProfit === null ? "↗ Unlimited" : "", { anchor: "end", show: Boolean(st && st.maxProfit === null) });
+    }
+    const lossBelow = ml !== null && ml !== undefined && ml < 0;
+    if (lossBelow && inY(ml)) {
+      set(guideMin, { x1: L, x2: W - R, y1: r1(Y(ml)), y2: r1(Y(ml)), visibility: "visible" });
+      paintPill(pMin, W - R - 4, Math.min(H - B - 10, Y(ml) + 12), `Max ${money(ml)}${sfx}`, { anchor: "end" });
+    } else {
+      set(guideMin, { visibility: "hidden" });
+      const unl = st && st.maxLoss === null;
+      paintPill(pMin, W - R - 4, H - B - 24, unl ? "↘ Unlimited" : lossBelow ? `Max ${money(ml)} ▾` : "", { anchor: "end", show: Boolean(unl || lossBelow) });
+    }
+    // Clamp arrow: a far tail clipped at the plot edge.
+    // The clamp arrow only when no Max pill already names the clipped value.
+    const pillSays = d.clip && ((d.clip.side === "low" && st && st.maxLoss !== null) || (d.clip.side === "high" && st && st.maxProfit !== null));
+    if (d.clip && !pillSays && d.clip.at >= d.lo && d.clip.at <= d.hi) {
+      const cx = Math.max(L + 60, Math.min(W - R - 120, X(d.clip.at)));
+      set(clipNote, { x: r1(cx), y: d.clip.side === "low" ? H - B - 26 : T + 14, visibility: "visible" });
+      text(clipNote, `${d.clip.side === "low" ? "▼" : "▲"} ${money(d.clip.value)} at ${formatInt(d.clip.at)}`);
+    } else set(clipNote, { visibility: "hidden" });
+    // Overlays: per-leg payoffs and a saved strategy.
+    const pl = d.perLeg ?? [];
+    if (legsG.childNodes.length !== pl.length) legsG.replaceChildren(...pl.map(() => s("path", {})));
+    pl.forEach((leg, i) => set(legsG.childNodes[i], { d: path(leg.vals), class: `leg-line ${leg.right === "PE" ? "put" : leg.right === "CE" ? "call" : "fut"} ${leg.side === "SELL" ? "sell" : "buy"}${d.highlight ? (d.highlight === leg.id ? " hi" : " lo") : ""}`, "data-id": leg.id }));
+    set(cmpLine, { d: d.compare ? path(d.compare.vals) : "", visibility: d.compare ? "visible" : "hidden" });
+    set(lineM, { d: d.mid ? path(d.mid) : "", visibility: d.mid ? "visible" : "hidden" });
+    set(lineT, { d: d.target ? path(d.target) : "", visibility: d.target ? "visible" : "hidden" });
+    const pe = path(d.expiry);
+    set(lineEUp, { d: pe });
+    set(lineEDn, { d: pe });
+    // Strike markers on the baseline: triangles by right (call / put colour), filled = buy, outline = sell.
+    const mk = d.markers ?? [];
+    const mkKey = `${W}|${r1(d.lo)}|${r1(d.hi)}|${mk.map((m) => `${m.kind}${m.right}${m.side}${m.strike ?? m.price}${m.title}`).join(",")}`;
+    if (marks.__sig !== mkKey) {
+      marks.__sig = mkKey;
+      const seen = new Map();
+      marks.replaceChildren(
+        ...mk
+          .filter((m) => (m.kind === "FUT" ? m.price : m.strike) >= d.lo && (m.kind === "FUT" ? m.price : m.strike) <= d.hi)
+          .map((m) => {
+            const p = m.kind === "FUT" ? m.price : m.strike;
+            const n = seen.get(p) ?? 0;
+            seen.set(p, n + 1);
+            const x = r1(X(p));
+            const y = H - B + 2 + n * 8;
+            const el =
+              m.kind === "FUT"
+                ? s("rect", { x: x - 3, y: y + 1, width: 6, height: 6, class: `mk fut ${m.side === "SELL" ? "sell" : "buy"}` })
+                : s("path", { d: `M${x - 4.5},${y + 7.5}L${x},${y}L${x + 4.5},${y + 7.5}Z`, class: `mk ${m.right === "CE" ? "call" : "put"} ${m.side === "SELL" ? "sell" : "buy"}`, "data-id": m.id ?? "" });
+            el.append(s("title", {}, m.title ?? ""));
+            return el;
+          }),
       );
     }
-    const label = summaryLabel();
-    if (svg.getAttribute("aria-label") !== label) svg.setAttribute("aria-label", label);
+    // Spot: a thin solid line and a contrast pill at the top.
+    const sx = X(d.spot);
+    const spotIn = d.spot >= d.lo && d.spot <= d.hi;
+    set(spotLine, { x1: r1(sx), x2: r1(sx), y1: T, y2: H - B, visibility: spotIn ? "visible" : "hidden" });
+    paintPill(pSpot, sx, T - 13, formatFixed(d.spot, 1), { show: spotIn });
+    // Breakevens: rings on the zero line; labels in a pill row below the axis (never on a curve).
+    const bes = (d.breakevens ?? []).filter((b) => b > d.lo && b < d.hi);
+    const beKey = `${W}|${bes.map((b) => r1(X(b))).join(",")}|${r1(zy)}`;
+    if (beDots.__sig !== beKey) {
+      beDots.__sig = beKey;
+      beDots.replaceChildren(...bes.map((b) => s("circle", { cx: r1(X(b)), cy: r1(zy), r: 3.5, class: "be-dot" })));
+      const items = bes.map((b) => {
+        const pct = d.spot ? ((b - d.spot) / d.spot) * 100 : null;
+        const t = W < 480 ? formatInt(b) : `${formatInt(b)} (${formatSigned(pct, 1)}%)`;
+        return { x: X(b), w: t.length * 6.1 + 18, text: t };
+      });
+      const placed = O.placeLabels(items, { gap: 6, maxShift: 30, lo: L, hi: W - R, prefix: "" });
+      bePills.replaceChildren(
+        ...placed.map((p) => {
+          const label = `BE ${p.text}`;
+          const w = Math.round(label.length * 6.1 + 14);
+          const x = Math.max(L, Math.min(W - R - w, p.x - w / 2));
+          return s("g", { class: "cpill bep" }, s("rect", { x: r1(x), y: H - 19, width: w, height: 17, rx: 8.5 }), s("text", { x: r1(x + w / 2), y: H - 6.8, "text-anchor": "middle" }, label));
+        }),
+      );
+    }
     showCross(pinned ?? hover);
   }
 
   function summaryLabel() {
-    const st = m.stats;
+    const st = v.stats;
     if (!st) return "Payoff chart";
     const mp = st.maxProfit === null ? "unlimited" : money(st.maxProfit, { signed: false });
     const ml = st.maxLoss === null ? "unlimited" : money(st.maxLoss, { signed: false });
     const be = st.breakevens.length ? `breakevens ${st.breakevens.map((b) => formatInt(Math.round(b))).join(" and ")}` : "no breakeven";
-    return `Payoff at expiry: max profit ${mp}, max loss ${ml}, ${be}. The key numbers and the scenario table have the same figures.`;
+    return `Payoff at expiry: max profit ${mp}, max loss ${ml}, ${be}. The hero figures and the P&L table have the same numbers.`;
   }
 
+  // ── Crosshair and tooltip ──
+  let tipRowsSig = "";
   function showCross(p) {
-    if (!m || p === null || p === undefined) {
+    if (!d || p === null || p === undefined || !v) {
       for (const el of [cross, dotE, dotT]) el.setAttribute("visibility", "hidden");
-      readout.replaceChildren(h("span", { class: "muted" }, `${coarse() ? `${touchWord()} or drag on the chart` : "Hover or click the chart"} to read P&L at a price${keyHint(" (← → on the chart)")}`));
+      tip.classList.remove("on", "pinned");
       return;
     }
-    const ve = at(m.expiry, p);
-    const vt = at(m.target, p);
+    const ve = atOn(d.xs, d.expiry, p);
+    const vt = atOn(d.xs, d.target, p);
+    const vm = atOn(d.xs, d.mid, p);
     const cx = r1(X(p));
     set(cross, { x1: cx, x2: cx, y1: T, y2: H - B, visibility: "visible" });
-    for (const [el, v] of [[dotE, ve], [dotT, vt]]) {
-      if (v === null) el.setAttribute("visibility", "hidden");
-      else set(el, { cx, cy: r1(Y(Math.max(m.yMin, Math.min(m.yMax, v)))), visibility: "visible" });
+    const clampY = (val) => r1(Y(Math.max(d.yMin, Math.min(d.yMax, val))));
+    if (ve === null) dotE.setAttribute("visibility", "hidden");
+    else set(dotE, { cx, cy: clampY(ve), visibility: "visible", class: `dot-exp ${ve >= 0 ? "pos" : "neg"}` });
+    if (vt === null) dotT.setAttribute("visibility", "hidden");
+    else set(dotT, { cx, cy: clampY(vt), visibility: "visible" });
+    // The card: price, move and σ; the curves; P(close above).
+    const pct = v.spot ? ((p - v.spot) / v.spot) * 100 : null;
+    const z = O.sigmaZ(p, v.forward, v.ivPct, v.horizon);
+    text(tipPrice, formatInt(p));
+    text(tipMove, `${formatSigned(pct, 1)}%${isFigure(z) ? ` · ${formatSigned(z, 1)}σ` : ""}`);
+    const above = O.probAbove(p, v.forward, v.horizon, v.ivPct);
+    const rows = [
+      vt !== null ? ["target", v.labels?.target ?? "Target", vt] : null,
+      vm !== null ? ["mid", v.labels?.mid ?? "Mid-date", vm] : null,
+      ["expiry", v.labels?.expiryShort ?? "Expiry", ve],
+      v.compare ? ["cmp", v.compare.label, atOn(d.xs, d.compare.vals, p)] : null,
+    ].filter(Boolean);
+    const sig = rows.map((r) => r[0]).join() + (above !== null ? "|p" : "");
+    if (tipRowsSig !== sig) {
+      tipRowsSig = sig;
+      tipRows.replaceChildren(...rows.map((r) => h("div", { class: `tip-row ${r[0]}` }, h("span", { class: "tip-k" }, h("i", { class: `tip-sw ${r[0]}` }), r[1]), h("span", { class: "tip-v" }))), ...(above !== null ? [h("div", { class: "tip-row prob" }, h("span", { class: "tip-k" }, "P(close above)"), h("span", { class: "tip-v" }))] : []));
     }
-    const pct = m.spot ? ((p - m.spot) / m.spot) * 100 : null;
-    readout.replaceChildren(
-      h("strong", {}, formatInt(Math.round(p))),
-      h("span", { class: "muted" }, ` (${formatSigned(pct, 1)}%)`),
-      ...(vt !== null ? [h("span", { class: "muted" }, " Target "), moneyEl(vt)] : []),
-      h("span", { class: "muted" }, " Expiry "),
-      moneyEl(ve),
-    );
+    rows.forEach((r, i) => {
+      const cell = tipRows.children[i].lastChild;
+      text(cell, money(r[2]));
+      cell.className = `tip-v ${r[2] > 0.5 ? "up" : r[2] < -0.5 ? "down" : ""}`.trim();
+    });
+    if (above !== null) text(tipRows.lastChild.lastChild, `${formatInt(Math.round(above * 100))}%`);
+    tip.classList.add("on");
+    tip.classList.toggle("pinned", pinned !== null);
+    const docked = coarse();
+    tip.classList.toggle("docked", docked);
+    if (!docked) {
+      const rect = svg.getBoundingClientRect();
+      const sc = rect.width ? rect.width / W : 1;
+      const tw = tip.offsetWidth || 180;
+      const th = tip.offsetHeight || 90;
+      let left = cx * sc + 14;
+      if (left + tw > rect.width - 4) left = cx * sc - tw - 14;
+      const yy = Math.min(H - B, Math.max(T, ve === null ? T : clampY(ve))) * sc;
+      let top = yy - th - 12;
+      if (top < 4) top = yy + 14;
+      tip.style.transform = `translate(${Math.round(Math.max(4, left))}px, ${Math.round(Math.max(4, Math.min(rect.height - th - 4, top)))}px)`;
+    } else tip.style.transform = "";
+    live.textContent = `${formatInt(p)}: expiry ${money(ve)}${vt !== null ? `, target ${money(vt)}` : ""}`;
+  }
+  function setPin(p) {
+    pinned = p;
+    showCross(pinned ?? hover);
+    onPin?.(pinned);
   }
 
   const priceAt = (e) => {
     const r = svg.getBoundingClientRect();
     return P(((e.clientX - r.left) / r.width) * W);
   };
+  const dropHint = () => {
+    if (!hint.hidden) {
+      hint.hidden = true;
+      markHinted();
+    }
+  };
   let dragging = false;
   svg.addEventListener("pointermove", (e) => {
-    if (!m) return;
+    if (!v) return;
     if (e.pointerType === "mouse" && pinned === null) {
       hover = priceAt(e);
+      dropHint();
       showCross(hover);
-    } else if (dragging) {
-      pinned = priceAt(e);
-      showCross(pinned);
-      onPin?.(pinned);
-    }
+    } else if (dragging) setPin(priceAt(e));
   });
   svg.addEventListener("pointerleave", () => {
     hover = null;
     if (pinned === null) showCross(null);
   });
   svg.addEventListener("pointerdown", (e) => {
-    if (!m || e.pointerType === "mouse") return;
+    if (!v || e.pointerType === "mouse") return;
     dragging = true;
-    pinned = priceAt(e);
-    showCross(pinned);
-    onPin?.(pinned);
+    dropHint();
+    setPin(priceAt(e));
   });
   const stopDrag = () => (dragging = false);
   svg.addEventListener("pointerup", stopDrag);
   svg.addEventListener("pointercancel", stopDrag);
   svg.addEventListener("click", (e) => {
-    if (!m || e.pointerType !== "mouse") return;
-    pinned = pinned === null ? priceAt(e) : null;
-    showCross(pinned ?? priceAt(e));
-    onPin?.(pinned);
+    if (!v || e.pointerType !== "mouse") return;
+    setPin(pinned === null ? priceAt(e) : null);
+    if (pinned === null) showCross(priceAt(e));
   });
   const outside = (e) => {
-    if (pinned !== null && !svg.contains(e.target) && e.pointerType !== "mouse") {
-      pinned = null;
-      showCross(null);
-      onPin?.(null);
-    }
+    if (pinned !== null && !plotWrap.contains(e.target) && e.pointerType !== "mouse" && !e.target.closest?.(".scen-grid, .sg-card")) setPin(null);
   };
   document.addEventListener("pointerdown", outside, true);
   svg.addEventListener("keydown", (e) => {
-    if (!m) return;
+    if (!v) return;
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       e.preventDefault();
-      const base = pinned ?? m.spot;
-      pinned = Math.max(m.lo, Math.min(m.hi, base + (e.key === "ArrowRight" ? 1 : -1) * step() * (e.shiftKey ? 5 : 1)));
-      showCross(pinned);
-      onPin?.(pinned);
+      const base = pinned ?? v.spot;
+      setPin(Math.max(v.lo, Math.min(v.hi, base + (e.key === "ArrowRight" ? 1 : -1) * step() * (e.shiftKey || e.altKey ? 5 : 1))));
     } else if (e.key === "Escape" && pinned !== null) {
       e.preventDefault();
       e.stopPropagation();
-      pinned = null;
-      showCross(null);
-      onPin?.(null);
+      setPin(null);
     }
   });
-  const ro = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
-    const w = Math.round(host.clientWidth);
-    if (w && w !== W) {
-      sizeOf();
-      grid.__sig = xAxis.__sig = beG.__sig = "";
+
+  // ── Morph (§4.5): resample the drawn curves onto the new xs and tween values and ranges together ──
+  function startMorph(from, to) {
+    cancelAnimationFrame(tween);
+    const rs = (vals) => (vals ? to.xs.map((p) => atOn(from.xs, vals, p)) : null);
+    const a = { lo: from.lo, hi: from.hi, yMin: from.yMin, yMax: from.yMax, expiry: rs(from.expiry), target: rs(from.target), mid: rs(from.mid), density: rs(from.density) };
+    const t0 = performance.now();
+    const lerp = (x, y, t) => x + (y - x) * t;
+    const lerpA = (x, y, t) => (x && y ? y.map((val, i) => (val === null || x[i] === null ? val : lerp(x[i], val, t))) : y);
+    const frame = (now) => {
+      const t = ease(Math.min(1, (now - t0) / MORPH_MS));
+      d = { ...to, lo: lerp(a.lo, to.lo, t), hi: lerp(a.hi, to.hi, t), yMin: lerp(a.yMin, to.yMin, t), yMax: lerp(a.yMax, to.yMax, t), expiry: lerpA(a.expiry, to.expiry, t), target: lerpA(a.target, to.target, t), mid: lerpA(a.mid, to.mid, t), density: lerpA(a.density, to.density, t) };
       paint();
-    }
-  }) : null;
+      if (t < 1) tween = requestAnimationFrame(frame);
+      else {
+        tween = 0;
+        d = v;
+        paint();
+      }
+    };
+    tween = requestAnimationFrame(frame);
+  }
+  /** First legs: the expiry line draws itself, the areas fade in and the markers pop, staggered. */
+  function drawIn() {
+    lineReveal([lineEUp, lineEDn], [areaUp, areaDn, ribbon, ribbonPos]);
+    if (reducedMotion()) return;
+    [...marks.childNodes].forEach((m, i) => m.animate?.([{ opacity: 0, transform: "scale(.6)" }, { opacity: 1, transform: "scale(1)" }], { duration: 240, delay: 120 + i * 30, easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "backwards" }));
+  }
+
+  const ro =
+    typeof ResizeObserver === "function"
+      ? new ResizeObserver(() => {
+          const w = Math.round(plotWrap.clientWidth);
+          if (w && (w !== W || heightFor() !== H)) {
+            sizeOf();
+            xAxis.__sig = beDots.__sig = marks.__sig = bandLabels.__sig = ribbonClip.__sig = "";
+            gridKey = "";
+            if (d) paint();
+          }
+        })
+      : null;
   ro?.observe(host);
   sizeOf();
-  paint();
 
   return {
-    update(model2) {
-      m = model2;
-      if (m && pinned !== null && (pinned < m.lo || pinned > m.hi)) pinned = null;
-      if (Math.round(host.clientWidth) && Math.round(host.clientWidth) !== W) sizeOf();
-      paint();
+    tools,
+    /** @param {object} view payoffModel output plus markers, perLeg, compare, labels, showDist, yMode, yScale, highlight */
+    update(view, { animate = false } = {}) {
+      const prev = d;
+      const wasEmpty = !v;
+      v = view;
+      plotWrap.hidden = false;
+      headEl.hidden = false;
+      empty.hidden = true;
+      if (Math.round(plotWrap.clientWidth) && (Math.round(plotWrap.clientWidth) !== W || heightFor() !== H)) {
+        sizeOf();
+        xAxis.__sig = beDots.__sig = marks.__sig = bandLabels.__sig = "";
+        gridKey = "";
+      }
+      if (pinned !== null && (pinned < v.lo || pinned > v.hi)) pinned = null;
+      lgT.el.hidden = !v.target;
+      lgM.el.hidden = !v.mid;
+      lgB1.el.hidden = !v.band1;
+      lgB2.el.hidden = !v.band2;
+      lgC.el.hidden = !v.compare;
+      text(lgExp.t, v.labels?.expiry ?? "Expiry");
+      text(lgT.t, v.labels?.target ?? "Target");
+      text(lgM.t, v.labels?.mid ?? "Mid-date");
+      text(lgC.t, v.compare?.label ?? "Saved");
+      const hadT = Boolean(prev?.target);
+      const hadM = Boolean(prev?.mid);
+      if (animate && prev && !wasEmpty && !reducedMotion() && typeof requestAnimationFrame === "function") startMorph(prev, v);
+      else {
+        cancelAnimationFrame(tween);
+        tween = 0;
+        d = v;
+        paint();
+      }
+      if (wasEmpty) {
+        drawIn();
+        hint.hidden = hinted();
+        hint.textContent = coarse() ? `${touchWord()} or drag to read P&L` : `Hover to read P&L${keyHint(" · ← → on the chart")}`;
+      } else if (!tween && !reducedMotion()) {
+        if (v.target && !hadT && prev) lineReveal(lineT);
+        if (v.mid && !hadM && prev) lineReveal(lineM);
+      }
+      const label = summaryLabel();
+      if (svg.getAttribute("aria-label") !== label) svg.setAttribute("aria-label", label);
     },
-    empty(msg) {
-      m = null;
-      empty.textContent = msg;
-      paint();
+    /** Nothing to draw: a ghost payoff with a line of text and an optional action (a node). */
+    empty({ text: t = "", sub = null, action = null } = {}) {
+      cancelAnimationFrame(tween);
+      v = null;
+      d = null;
+      pinned = null;
+      plotWrap.hidden = true;
+      headEl.hidden = true;
+      empty.hidden = false;
+      empty.style.height = `${heightFor()}px`;
+      ghostText.textContent = t;
+      ghostSub.replaceChildren(...[sub, action].filter(Boolean));
+      tip.classList.remove("on");
+    },
+    /** Pin the crosshair at a price (a grid cell, a suggestion's target), or unpin with null. */
+    pin(p) {
+      if (!v) return;
+      pinned = p === null || p === undefined ? null : Math.max(v.lo, Math.min(v.hi, p));
+      showCross(pinned ?? hover);
+    },
+    highlight(legId) {
+      if (!v || v.highlight === legId) return;
+      v.highlight = legId;
+      if (d && d !== v) d.highlight = legId;
+      if (!tween && d) paint();
     },
     destroy() {
+      cancelAnimationFrame(tween);
       ro?.disconnect();
       document.removeEventListener("pointerdown", outside, true);
     },

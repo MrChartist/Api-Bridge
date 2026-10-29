@@ -62,7 +62,7 @@ P1-10 answers three questions before any multi-leg send: **"What will my broker 
 | Position-limit / MWPL / FutEq checks (F6) | P2 in the BRD. | P2 |
 | Charge plans from the broker's own contract-note API (Kite `/charges/orders`, **needs verification**) | One more broker call per check. The plan model is enough for P1. | P2 |
 | Roll builder UI | No roll feature exists yet. `check` accepts `intent: "roll"` now, so the roll builder only has to call it. | P2 |
-| Compat parity for the check (`/api/v1/...`) | No OpenAlgo equivalent exists. MCP covers it. | — |
+| Compat parity for the check (`/api/v1/...`) | No compat-API equivalent exists. MCP covers it. | — |
 
 ### 1.3 Honest fallbacks (where the acceptance criteria meet our data)
 
@@ -148,7 +148,7 @@ Changed:
 | `paper/fillModel.mjs`, `paper/paperEngine.mjs` | S8 | `brokerageFor` accepts a plan (§7.7); the engine asks `deps.chargePlans.planFor(accountId)` at fill time; falls back to `cfg.brokerage` when the service is a stub |
 | `orders/orderService.mjs` | S7 | None in behaviour. Exports `previewLegs(p)` (the existing freeze slicing, made pure) so `rules.mjs` reuses the exact slicing, not a copy. |
 | `demo/demoAdapter.mjs` | demo | `fetchBasketMargin`, `slicing`, circuit limits on quotes (§5) |
-| `compat/handlers.mjs` | S14 | `margin()` calls `deps.margin.basket` and maps the result to the OpenAlgo shape (§3.7) |
+| `compat/handlers.mjs` | S14 | `margin()` calls `deps.margin.basket` and maps the result to the compat-API shape (§3.7) |
 | `mcp/tools.mjs` | S11 | Two read tools (§3.8) |
 | `dashboard/options.js` | dashboard | `charges()`, `exitCharges()`, `strategyCharges()` take `{ profile }` and use `brokerageFor(…, profile)`, never a brokerage literal: P1-2 removed `brokeragePerOrder` from `options.js` (its `noConstants` test forbids it). With no profile passed they use `REF_DEFAULTS.charges.brokerage` from `reference.js`. `strategyWarnings()` keeps `SHORTFALL` and `FREEZE` as the offline fallback, used only when `/v1/margin/check` is unavailable. |
 | `dashboard/strategy.js`, `strategy-place.js`, `desk.js`, `positions.js`, `arbitrage.js`, `views.js` | dashboard | §6 |
@@ -511,14 +511,14 @@ Body `{ "scenario": "normal" | "no-api" | "slow" | "error" | "tight-funds" | "ex
 
 ### 3.7 Compat `/api/v1/margin` (S14)
 
-The OpenAlgo-style request is `{ apikey, positions: [{ symbol, exchange, action, quantity, product, pricetype, price }] }`. It is mapped to `margin.basket`. The reply is:
+The compat-API request is `{ apikey, positions: [{ symbol, exchange, action, quantity, product, pricetype, price }] }`. It is mapped to `margin.basket`. The reply is:
 
 ```json
 { "status": "success", "data": { "total_margin_required": 41210.5, "span_margin": 28650.0, "exposure_margin": 9010.5,
   "source": "broker", "as_of": "…" } }
 ```
 
-With `broker: null`, the reply is `{ status: "success", data: { total_margin_required: <estimate>, source: "estimate", reason } }`. The field names follow OpenAlgo (**needs verification** against the OpenAlgo docs); the `source` and `reason` extras are Bridge extensions, documented as such.
+With `broker: null`, the reply is `{ status: "success", data: { total_margin_required: <estimate>, source: "estimate", reason } }`. The field names follow the compat API (**needs verification** against its reference); the `source` and `reason` extras are Bridge extensions, documented as such.
 
 ### 3.8 MCP (read tools only)
 
