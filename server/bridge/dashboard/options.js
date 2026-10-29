@@ -3923,11 +3923,15 @@ export function median(values) {
 }
 
 /**
- * strike → (volume ÷ OI) ÷ the median volume ÷ OI of the same side, over legs with volume > 0 and OI > 0. Fewer than
- * 5 such legs: an empty map (a median of three strikes says nothing).
+ * strike → (volume ÷ OI) ÷ the median volume ÷ OI of the same side, over legs with volume > 0 and OI ≥ `minOi`
+ * (at least 1). A leg below `minOi` (a lot or two on a far wing) gets no ratio: Vol/OI on a sliver of OI is noise.
+ * Fewer than 5 such legs: an empty map (a median of three strikes says nothing).
  */
-export function volOiRelative(rows, side) {
-  const legs = (rows ?? []).map((r) => ({ k: r.strike, q: r[side] })).filter((x) => num(x.q?.volume) > 0 && num(x.q?.oi) > 0).map((x) => ({ k: x.k, r: x.q.volume / x.q.oi }));
+/** Legs with less OI than this many lots get no Vol/OI-to-median ratio in the screener. */
+export const VOL_OI_MIN_LOTS = 5;
+export function volOiRelative(rows, side, minOi = 0) {
+  const floor = Math.max(1e-9, num(minOi) ?? 0);
+  const legs = (rows ?? []).map((r) => ({ k: r.strike, q: r[side] })).filter((x) => num(x.q?.volume) > 0 && num(x.q?.oi) >= floor).map((x) => ({ k: x.k, r: x.q.volume / x.q.oi }));
   const out = new Map();
   if (legs.length < 5) return out;
   const med = median(legs.map((l) => l.r));
@@ -4040,7 +4044,10 @@ export function arbCosts(hit, lot, exchange = "NFO", charges = CHARGES) {
   const c = charges ?? CHARGES;
   const out = zeroCosts();
   for (const l of hit?.legs ?? []) addCosts(out, legCosts({ side: l.side, price: l.price, qty: (num(l.qty) ?? 1) * (num(lot) ?? 1), exchange }, c));
-  if (/box/i.test(String(hit?.kind ?? "")) && hit.legs?.length) {
+  // Settlement STT is paid on the intrinsic of an exercised long. A bought box (long K1 call, long K2 put) always has
+  // one long ITM worth the width. A sold box is long the K2 call and the K1 put, both OTM when settlement lands
+  // between the strikes (its short legs are assigned and pay none), so it adds nothing here.
+  if (/box \(buy\)/i.test(String(hit?.kind ?? "")) && hit.legs?.length) {
     const ks = hit.legs.map((l) => l.strike);
     const settle = ((Math.max(...ks) - Math.min(...ks)) * (num(lot) ?? 1) * c.sttExercisePct) / 100;
     out.stt += settle;
@@ -4083,7 +4090,7 @@ export function chainContext(chain, { now = Date.now(), hv20 = null, charges = C
     em: sigmaMove(F, atmIv, T),
     sm,
     ranks: { ce: volumeRanks(rows, "ce"), pe: volumeRanks(rows, "pe") },
-    volOi: { ce: volOiRelative(rows, "ce"), pe: volOiRelative(rows, "pe") },
+    volOi: { ce: volOiRelative(rows, "ce", VOL_OI_MIN_LOTS * (num(chain?.lotSize) || 1)), pe: volOiRelative(rows, "pe", VOL_OI_MIN_LOTS * (num(chain?.lotSize) || 1)) },
     hv20: num(hv20),
     exchange: /^BFO:/.test(String(sym?.ce?.symbol ?? sym?.pe?.symbol ?? "")) ? "BFO" : "NFO",
     step,

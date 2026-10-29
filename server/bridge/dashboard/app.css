@@ -2895,12 +2895,15 @@ table.arb-pv small.block { display: block; margin-top: 3px; white-space: normal;
   :root[data-layout="desk"] .content:has(> .scr-main) > .scr-main { flex: 1 1 calc(100% - 356px); }
   :root[data-layout="desk"] .content:has(> .scr-main) > .scr-detail { flex: 0 0 340px; }
   :root[data-layout="desk"] #content > .scr-detail.movable:not(.panel-max) { position: sticky; top: calc(var(--toolbar-h) + var(--safe-t) + 12px); }
+  /* Nothing selected: the column folds away and the results take the full width (priority-3 columns fit). */
+  .scr-detail.scr-detail-empty:not(.panel-max) { display: none; }
 }
 @media (max-width: 1279px) { .scr-detail { display: none; } }
 
 .scr-main { overflow: clip; }
 .scr-head { background: var(--mat-grouped-solid); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 .scr-bar { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
+.scr-tabrow { display: flex; min-width: 0; max-width: 100%; }
 .scr-tabs { display: flex; gap: 2px; padding: 2px; border-radius: 999px; background: var(--mat-fill-2); overflow-x: auto; scrollbar-width: none; max-width: 100%; align-self: flex-start; scroll-snap-type: x proximity; }
 .scr-tabs::-webkit-scrollbar { display: none; }
 .scr-tabs button { flex: none; min-height: 30px; padding: 0 12px; border-radius: 999px; background: transparent; box-shadow: none; font: 600 13px/1 var(--font-body); color: hsl(var(--foreground) / 0.7); scroll-snap-align: start; }
@@ -2949,7 +2952,7 @@ button.scr-reset { min-height: 26px; padding: 0 8px; font-size: 12.5px; color: h
 .scr-wrap { max-height: min(70vh, 860px); overflow: auto; overscroll-behavior: contain; }
 .scr-wrap[hidden], .scr-cards[hidden], .scr-empty[hidden] { display: none; }
 table.scr-table { width: 100%; border-collapse: separate; border-spacing: 0; font: 450 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums slashed-zero; }
-table.scr-table :is(th, td) { height: var(--desk-row); padding: 4px 6px; text-align: left; white-space: nowrap; vertical-align: middle; font-weight: 450; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+table.scr-table :is(th, td) { height: var(--desk-row); padding: 4px 5px; text-align: left; white-space: nowrap; vertical-align: middle; font-weight: 450; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 table.scr-table :is(th, td):last-child { padding-right: 12px; }
 table.scr-table .num { text-align: right; }
 table.scr-table thead th { position: sticky; top: 0; z-index: 2; height: 34px; padding-top: 0; padding-bottom: 0; background: var(--mat-grouped-solid); font: 600 11.5px/1.1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
@@ -2961,7 +2964,7 @@ table.scr-table .v { display: block; }
 table.scr-table .lead .v { font: 650 13px/1.2 var(--font-numeric); }
 table.scr-table .s { display: block; margin-top: 3px; font: 500 10.5px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
 table.scr-table .s[hidden] { display: none; }
-button.scr-sort-btn { min-height: 26px; margin: 0 -6px; padding: 0 6px; gap: 3px; border-radius: 6px; background: transparent; box-shadow: none; font: inherit; color: inherit; }
+button.scr-sort-btn { min-height: 26px; margin: 0 -5px; padding: 0 5px; gap: 3px; border-radius: 6px; background: transparent; box-shadow: none; font: inherit; color: inherit; }
 button.scr-sort-btn:hover { color: hsl(var(--foreground)); background: var(--mat-fill-1); }
 th[aria-sort] button.scr-sort-btn { color: hsl(var(--ios-blue-ink)); }
 .scr-sort-i { font-size: 8px; min-width: 8px; }
@@ -3055,6 +3058,8 @@ button.scr-more[hidden], .scr-issues[hidden] { display: none; }
 .scr-warns li { display: flex; align-items: flex-start; gap: 8px; }
 .scr-warns svg { flex: none; width: 14px; height: 14px; margin-top: 2px; fill: none; stroke: hsl(var(--ios-orange)); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .scr-d-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px 14px; }
+/* The desktop column pins its actions to the bottom of its own scroll, as the sheets do. */
+.scr-pane .scr-d-actions { position: sticky; bottom: 0; z-index: 2; padding-top: 10px; background: var(--mat-grouped-solid); box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
 .scr-d-actions button.small { min-height: 32px; font-size: 12.5px; }
 .scr-detail-body.in-sheet :is(.scr-d-head, .scr-d-sec, .scr-d-note) { padding-left: 0; padding-right: 0; }
 .scr-detail-body.in-sheet .scr-d-head { padding-top: 0; }
@@ -3088,12 +3093,20 @@ dialog.sheet.scr-sheet { height: min(90dvh, 900px); max-height: 90dvh; }
 .scr-set { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; font: 500 12.5px/1.25 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .scr-set-l { display: flex; flex-direction: column; gap: 2px; }
 .pop-body .scr-set .segmented { width: auto; flex: 0 1 200px; }
+/* The phone sheet: a segmented setting takes its own full-width row under its label, segments share it evenly. */
+.scr-sheet-body .scr-set:has(> .segmented) { flex-direction: column; align-items: stretch; gap: 6px; }
+.scr-sheet-body .scr-set > .segmented { display: flex; width: 100%; flex: none; }
+.scr-sheet-body .scr-set > .segmented button { flex: 1 1 0; min-width: 0; }
 .scr-set input { width: 86px; min-height: 32px; padding: 4px 10px; text-align: right; font: 500 13.5px/1.2 var(--font-numeric); }
 .scr-fixed, .scr-p3 { font: 500 11px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .scr-sheet-body { padding: 0; margin: 0 -4px; }
 .scr-sheet-body section { padding: 10px 16px; }
 
-/* Tablet and narrow desktop: labels stay to 820 px, then icon-only buttons. */
+/* Tablet and narrow desktop: labels stay to 820 px (Customise too, which the desk folds below 1100), then icon-only. */
+@media (min-width: 820px) {
+  .scr-tools .gear-label { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+  .scr-tools button.gear-btn { padding: 0 11px; }
+}
 @media (max-width: 819px) {
   .scr-tools .scr-lbl { display: none; }
   .scr-tools button.scr-btn, .scr-tools .gear-btn { width: 34px; padding: 0; }
@@ -3101,9 +3114,12 @@ dialog.sheet.scr-sheet { height: min(90dvh, 900px); max-height: 90dvh; }
 }
 /* Phone: a sticky chip bar of presets, cards, the Sort select, sheets. */
 @media (max-width: 719px) {
-  .scr-head { position: sticky; top: calc(var(--toolbar-h) + var(--safe-t)); z-index: 6; }
-  .scr-bar { padding: 8px 12px; }
-  .scr-tabs { align-self: stretch; background: transparent; padding: 0; gap: 6px; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent); padding-inline: 2px 14px; }
+  /* Only the preset chip row sticks; the status and tools scroll away with the results. Its opaque band reaches up
+     under the top bar so nothing scrolls through the gap above it. */
+  .scr-head, .scr-bar { display: contents; }
+  .scr-tabrow { position: sticky; top: calc(var(--toolbar-h) + var(--safe-t)); z-index: 6; padding: 8px 12px; background: var(--mat-grouped-solid); box-shadow: 0 -12px 0 var(--mat-grouped-solid), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+  .scr-tools { padding: 8px 12px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+  .scr-tabs { flex: 1 1 auto; align-self: stretch; background: transparent; padding: 0; gap: 6px; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent); padding-inline: 2px 14px; }
   .scr-tabs button { min-height: 36px; padding: 0 14px; background: var(--mat-fill-1); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
   .scr-tabs button[aria-selected="true"] { color: hsl(var(--ios-blue-ink)); background: hsl(var(--ios-blue) / 0.12); box-shadow: inset 0 0 0 1px hsl(var(--ios-blue) / 0.35); }
   .scr-tools { flex-wrap: wrap; gap: 6px 8px; }

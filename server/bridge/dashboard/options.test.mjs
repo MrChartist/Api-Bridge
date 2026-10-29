@@ -1892,6 +1892,12 @@ describe("Option Screener maths (PRD 07)", () => {
     expect(m.get(5)).toBeCloseTo(5 / 3, 12);
     expect(m.has(6)).toBe(false);
     expect(A.volOiRelative(rows.slice(0, 4), "ce").size).toBe(0);
+    // An OI floor leaves thin legs out of the median and the result.
+    const thin = [...rows.slice(0, 5), { strike: 7, ce: { volume: 5000, oi: 2 } }];
+    expect(A.volOiRelative(thin, "ce").get(7)).toBeGreaterThan(100);
+    const floored = A.volOiRelative(thin, "ce", 50);
+    expect(floored.has(7)).toBe(false);
+    expect(floored.get(3)).toBeCloseTo(1, 12);
   });
 
   it("neighbourIv: two each side, iv ≤ 0 skipped, edges use one side", () => {
@@ -2031,6 +2037,10 @@ describe("Option Screener maths (PRD 07)", () => {
     const box = { kind: "Box (buy)", legs: [{ side: "BUY", right: "CE", strike: 100, price: 5 }, { side: "SELL", right: "CE", strike: 110, price: 1 }, { side: "BUY", right: "PE", strike: 110, price: 6 }, { side: "SELL", right: "PE", strike: 100, price: 1 }] };
     const legsOnly = box.legs.reduce((a, l) => a + A.legCosts({ side: l.side, price: l.price, qty: 10 }).total, 0);
     expect(A.arbCosts(box, 10).total).toBeCloseTo(legsOnly + 10 * 10 * 0.0015, 10);
+    // A sold box is long the K2 call and the K1 put: both OTM between the strikes, so no exercise STT.
+    const sbox = { kind: "Box (sell)", legs: [{ side: "SELL", right: "CE", strike: 100, price: 5 }, { side: "BUY", right: "CE", strike: 110, price: 1 }, { side: "SELL", right: "PE", strike: 110, price: 6 }, { side: "BUY", right: "PE", strike: 100, price: 1 }] };
+    const sLegs = sbox.legs.reduce((a, l) => a + A.legCosts({ side: l.side, price: l.price, qty: 10 }).total, 0);
+    expect(A.arbCosts(sbox, 10).total).toBeCloseTo(sLegs, 10);
     const fly = { kind: "Butterfly", legs: [{ side: "BUY", price: 5, strike: 1 }, { side: "SELL", price: 3, strike: 2, qty: 2 }, { side: "BUY", price: 2, strike: 3 }] };
     expect(A.arbCosts(fly, 10).total).toBeCloseTo(A.legCosts({ side: "BUY", price: 5, qty: 10 }).total + A.legCosts({ side: "SELL", price: 3, qty: 20 }).total + A.legCosts({ side: "BUY", price: 2, qty: 10 }).total, 10);
   });

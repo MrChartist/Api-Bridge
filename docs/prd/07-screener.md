@@ -119,7 +119,7 @@ The page is three top-level panels. All are movable (`data-panel`), so `arrangeP
 └───────────────────────────────────────────────────────────────────────────────┴ [+Buy] [+Sell]  ┘
 ┌ screener-chart: "Chart engine slot · price and IV history for NIFTY" (160px, dashed hairline) ┐
 ```
-- Main and detail sit side by side in a grid (`minmax(0,1fr) 340px`) only at ≥ 1280 px. With nothing selected, the detail column shows a muted hint, "Select a row to see every number, the score breakdown and actions."
+- Main and detail sit side by side in a grid (`minmax(0,1fr) 340px`) only at ≥ 1280 px. With nothing selected, the detail column folds away and the results take the full width (so priority-3 columns fit); selecting a row brings it back. Its actions are a sticky footer inside the column, as in the sheets.
 - **Toolbar row 1** (`.desk-bar`):
   - Left: preset tabs (`.segmented`, scrolls horizontally if needed, never wraps).
   - Right: scan status, Rescan, Auto, Filters, Customise.
@@ -137,7 +137,7 @@ The page is three top-level panels. All are movable (`data-panel`), so `arrangeP
   - The methodology `<details>`.
 
 ### 3.2 Tablet (720–1279 px; target 820 × 1180, content about 788 px)
-- Same table. Columns of priority 3 are hidden below 1100 px (each column has `p: 1 | 2 | 3`). The lead column stays sticky.
+- Same table. Columns of priority 3 are hidden while the results panel is narrower than 1100 px (each column has `p: 1 | 2 | 3`): on tablets, and on desktop while the detail column is open. The p1 + p2 set of every tab fits 760 px with no sideways scroll. The lead column stays sticky.
 - No detail column. Selecting a row (click, Enter) opens the detail as a **bottom sheet** (`<dialog class="scr-sheet">`: 70 vh, drag handle, Esc and a close button). The same sheet component serves phones.
 - Toolbar: tabs on line 1 (full width, horizontal scroll); status and buttons on line 2. Button labels are kept down to 820 px; below that, icon-only with `aria-label` and `title`.
 
@@ -227,7 +227,7 @@ Row actions (detail): Open in Option Chain; "Straddle → Strategy" (adds ATM CE
 | IV | 3 | leg iv |
 | Δ | 3 | leg delta |
 
-Default filters: `× median ≥ 3`, volume ≥ 20 lots, turnover ≥ ₹10 L, mid ≥ ₹1, oi > 0 (or include fresh strikes: toggle, default off).
+Default filters: OI ≥ 50 lots, `× median ≥ 3`, volume ≥ 20 lots, turnover ≥ ₹10 L, mid ≥ ₹1, oi > 0 (or include fresh strikes: toggle, default off). Legs with less than 5 lots of OI get no × median ratio and are left out of the median (Vol/OI on a lot or two of OI is noise).
 Card: **× median · Turnover · Build-up**. Reason: "Vol/OI 4.2× chain median · ₹3.10Cr traded · call writing".
 
 **3. OI build-up**
@@ -307,7 +307,7 @@ Card: **Capital · BE σ · θ %/day**. Reason: "BE 0.6σ away · θ 4.1%/day ·
 | Spread % | 2 | |
 | Liq | 3 | |
 
-Default filters: |bump| ≥ 1.0 pt; spread ≤ 5%; liquidity ≥ 2; direction Rich / Cheap / Both (default Both).
+Default filters: |Δ| ≤ 0.60 (deep ITM legs have no vega, so a bump there means nothing); exclude expiry day; |bump| ≥ 1.0 pt; |rich ₹/lot| ≥ ₹50; spread ≤ 5%; liquidity ≥ 2; two-sided quotes; direction Rich / Cheap / Both (default Both). A smooth smile (the demo's) correctly shows the empty state.
 Rows whose price came from LTP (one-sided quote) are excluded by default ("Two-sided quotes only" toggle on), because stale prints make fake bumps.
 Card: **Bump · Rich ₹/lot · Spread**.
 
@@ -348,7 +348,7 @@ Card: **Depth · Annualised · Payout @−2σ**.
 | Age | 2 | chain age |
 
 `arbChecks` is run with `minEdge = −2` pts on every scanned chain (ATM ±20, two-sided only). Calendar rows come from consecutive scanned expiries of the same U where `forwardVol(...).inverted`; they are model-based, have no net edge, and their Status is "Check".
-Default filter: "Near misses" on, showing net ≥ −₹500/lot.
+Default filters: exclude expiry day; min leg ₹1; "Near misses" on, showing only the closest near miss of each type per chain, within gross ≥ −0.5 pts and net ≥ −₹500/lot (so ordinary debit spreads do not bury a real edge).
 With zero rows: "No executable edge after costs across {n} strikes in {m} chains."
 Footer note: "Costs are estimates (§methodology). Quotes move; re-check in the chain before trading."
 Card: **Net ₹/lot · Gross pts · Status**.
@@ -504,7 +504,7 @@ CHARGES = { asOf: "2026-04-01", brokeragePerOrder: 20, sttSellPct: 0.15, sttExer
   - `total` = the sum.
   - Every figure is in ₹, unrounded; only display rounds.
 - `roundTripCosts(price, lot, exch)` = `legCosts(BUY) + legCosts(SELL)` at the same price for one lot.
-- `arbCosts(hit, lot, exch)` = Σ `legCosts` over the hit's legs (open only). For boxes, add settlement STT: `0.15% × (K2 − K1) × lot`, the intrinsic of the ITM long leg at expiry.
+- `arbCosts(hit, lot, exch)` = Σ `legCosts` over the hit's legs (open only). For a **bought** box (long K1 call, long K2 put), add settlement STT: `0.15% × (K2 − K1) × lot`, the intrinsic of the ITM long leg at expiry. A sold box is long the K2 call and the K1 put, both OTM when settlement lands between the strikes (its short legs are assigned and pay none), so it adds nothing.
 - The methodology note lists the rates and says "Brokerage is your setting; check your broker's contract note."
 
 ### 5.8 Hedge rows
@@ -585,7 +585,7 @@ CHARGES = { asOf: "2026-04-01", brokeragePerOrder: 20, sttSellPct: 0.15, sttExer
   - Toggles use `segmented`.
   - Multi-selects are chip groups (`aria-pressed`).
 - Filter changes re-run `runPreset` within one animation frame (no network).
-- **Empty result** shows "No contracts pass these filters", then the top 2 entries of `funnel` by `removed` ("Spread ≤ 3% removed 210 · Δ band removed 80"), each with a one-click "Relax" button (resets that filter to default or widens it by one step), plus "Reset all".
+- **Empty result** shows "No contracts pass these filters", then up to 2 filters ranked **leave-one-out**: for each active filter, the rows that pass with only that filter switched off (`funnel[i].without`). Those with a count above 0 are listed ("Switching off one filter brings rows back: Δ 0.95–0.95 (116) · POP ≥ 65% (12)"), each with a "Turn off" button; when none is, "No single filter is the cause". Plus "Reset all". (A sequential "removed" count blames the earliest default filters, whose removal alone often still leaves nothing.)
 
 ---
 
@@ -639,7 +639,7 @@ CHARGES = { asOf: "2026-04-01", brokeragePerOrder: 20, sttSellPct: 0.15, sttExer
 |---|---|
 | First visit, scanning | 6 skeleton rows (or 4 skeleton cards), progress "Scanning 1/8 · NIFTY 3 Nov". Rows replace the skeleton as chains land |
 | No underlying selected | Prevented: the last chip cannot be turned off (it shakes, with title "Keep at least one") |
-| No matches | Funnel message and Relax buttons (§7) |
+| No matches | Leave-one-out funnel message and Turn off buttons (§7) |
 | Some chains failed | Results from the others, plus "Scan issues (k)" in the footer listing `U E: message` (rate limited / no contracts / broker error) and a Retry per item |
 | All chains failed | `alertBox(firstError)` with "Retry" in place of the results; status "Not updating" in red ink |
 | Not signed in / no market data account | `alertBox` with the API's message (e.g. no account can serve option chains) and a link to Accounts |
@@ -731,10 +731,10 @@ CHARGES = { asOf: "2026-04-01", brokeragePerOrder: 20, sttSellPct: 0.15, sttExer
 3. **Scan engine** in `screener.js`: universe and expiry selection (nearest N + monthly), the sequential queue (300/1100 ms gap, `RateLimit` header, 429 backoff), `maxAgeMs=5000`, cache and TTL, progressive render, cancel on leave, pause when hidden, auto refresh (Off/1/2/5 min), HV fetch with a daily cache, the daily baseline.
 4. **Page shell:** PAGES entry, `radar` icon, toolbar (tabs, status and progress, Rescan, Auto, Filters, Customise), underlying chips, active filter chips, description line, footer (count, Show more, Scan issues, methodology), chart engine slot panel.
 5. **Eight tabs** with the columns, defaults and sorts in §4.1: Overview, Unusual volume, OI build-up, Sell premium, Buy options, IV outliers, Hedge, Arbitrage (net of costs, near misses).
-6. **Responsive results:** table ≥ 720 px (sticky header and lead column, internal scroll, priority-3 columns hidden < 1100 px); cards < 720 px with the §4.3 keys and the reason; phone Sort select.
+6. **Responsive results:** table ≥ 720 px (sticky header and lead column, internal scroll, priority-3 columns hidden while the results panel is < 1100 px); cards < 720 px with the §4.3 keys and the reason; phone Sort select.
 7. **Detail:** desktop column ≥ 1280 px, bottom sheet below. Score bars, metrics grid, risk box (max loss always with POP; wing for sells), costs breakdown, warnings, actions.
 8. **Hand-off:** desk.js C2 and C3 (exported lists, one-shot focus with scroll into view), C1 (desk uses `O.unusualVolume`); "Open in Option Chain" and "Add Buy/Sell (with wing) to Strategy"; Overview straddle and 16Δ strangle to Strategy.
-9. **Filters sheet** with per-preset values, live apply, and the empty-result funnel with Relax buttons.
+9. **Filters sheet** with per-preset values, live apply, and the empty-result leave-one-out funnel with Turn off buttons.
 10. **Customise:** per-preset show/hide/reorder of columns plus scan settings, persisted and validated.
 11. **Keyboard and accessibility** (§8, §12).
 12. **States** (§10), including the OI-change-missing banner, HV-missing fallback and Scan issues.

@@ -68,7 +68,32 @@ describe("chain records and runPreset", () => {
     // Δ min 0.95 leaves nothing; the funnel says why
     const none = S.runPreset(S.recordsFor(s, sell), sell, { ...S.defaultFilters(sell), absDelta: [0.95, 0.99] });
     expect(none.total).toBe(0);
-    expect(S.topBlockers(none.funnel)[0].removed).toBeGreaterThan(0);
+    // Leave-one-out: the blocker named first is the one whose removal alone brings rows back (the Δ band).
+    const top = S.topBlockers(none.funnel);
+    expect(top[0].filter).toBe("absDelta");
+    expect(top[0].without).toBeGreaterThan(0);
+    expect(top.every((b) => b.without > 0)).toBe(true);
+  });
+
+  it("a multi-select holding every option is not an active filter", () => {
+    expect(S.filterActive("tags", ["LB", "SB", "SC", "LU"])).toBe(false);
+    expect(S.filterActive("tags", ["SB", "LB", "LU", "SC"])).toBe(false);
+    expect(S.filterActive("tags", ["LB"])).toBe(true);
+    expect(S.filterActive("tags", null)).toBe(false);
+  });
+
+  it("near misses: within 0.5 pts gross and ₹500/lot net, the closest one per type and chain", () => {
+    const arb = S.presetById("arb");
+    const r = (net, gross, type = "Vertical", expiry = "2026-11-03") => ({ kind: "arb", key: `${type}${net}${expiry}`, name: type, type, underlying: "NIFTY", expiry, days: 5, minLeg: 5, net, gross });
+    const recs = [r(120, 3), r(-40, -0.1), r(-20, -0.05), r(-90, -0.4), r(-600, -0.2), r(-10, -0.6), r(-60, -0.2, "Butterfly"), r(null, null, "Calendar")];
+    const on = S.runPreset(recs, arb, { ...S.defaultFilters(arb), minLeg: null });
+    expect(on.rows.map((x) => [x.type, x.net])).toEqual([["Vertical", 120], ["Vertical", -20], ["Butterfly", -60], ["Calendar", null]]);
+    const off = S.runPreset(recs, arb, { ...S.defaultFilters(arb), minLeg: null, nearMiss: false });
+    expect(off.rows.map((x) => x.net)).toEqual([120, null]);
+  });
+
+  it("says 1 lot, not 1 lots", () => {
+    expect(S.reason({ volOi: 20, oiLots: 1 }, "unusual")).toBe("Vol/OI 20.0× on 1 lot OI");
   });
 
   it("sorts asc / desc with ties broken by the lead text and missing values last", () => {
@@ -143,7 +168,7 @@ describe("screenerConfig", () => {
     expect(c.preset).toBe("overview");
     expect(c.underlyings).toEqual(["NIFTY"]);
     expect([c.expiries, c.strikes, c.auto, c.rows, c.brokerage, c.wingStrikes]).toEqual([3, 30, 60, 50, 0, 10]);
-    expect(c.filters.sell.absDelta).toEqual([0.2, 0.4]);
+    expect(c.filters.sell.absDelta).toEqual([0.4, 0.4]); // never swapped: narrowed to the lower end
     expect(c.filters.sell.spread).toBe(3);
     expect(c.filters.sell.otm).toBe(true);
     expect(c.filters.sell.side).toBe("PE");
@@ -159,10 +184,15 @@ describe("screenerConfig", () => {
   });
 
   it("picks the nearest N expiries plus the monthly, in sweep order", () => {
-    expect(S.scanExpiries(["2026-11-03", "2026-11-10", "2026-11-17", "2026-11-24"], { n: 2 })).toEqual(["2026-11-03", "2026-11-10", "2026-11-24"]);
-    expect(S.scanExpiries(["2026-11-24", "2026-12-29"], { n: 2 })).toEqual(["2026-11-24", "2026-12-29"]);
-    expect(S.scanExpiries(["2026-10-29", "2026-11-05", "2026-11-19"], { n: 2, monthly: true })).toEqual(["2026-10-29", "2026-11-05"]);
-    expect(S.scanExpiries(["2026-11-03", "2026-11-10", "2026-11-24"], { n: 1, monthly: false })).toEqual(["2026-11-03"]);
+    const now = NOW;
+    expect(S.scanExpiries(["2026-11-03", "2026-11-10", "2026-11-17", "2026-11-24"], { n: 2, now })).toEqual(["2026-11-03", "2026-11-10", "2026-11-24"]);
+    expect(S.scanExpiries(["2026-11-24", "2026-12-29"], { n: 2, now })).toEqual(["2026-11-24", "2026-12-29"]);
+    expect(S.scanExpiries(["2026-10-29", "2026-11-05", "2026-11-19"], { n: 2, monthly: true, now })).toEqual(["2026-10-29", "2026-11-05"]);
+    expect(S.scanExpiries(["2026-11-03", "2026-11-10", "2026-11-24"], { n: 1, monthly: false, now })).toEqual(["2026-11-03"]);
+    // 16:00 IST on an expiry day: today's contract is still listed but expired, so it is skipped (and the monthly
+    // comes from what is left).
+    const evening = Date.UTC(2026, 9, 29, 10, 30);
+    expect(S.scanExpiries(["2026-10-29", "2026-11-05", "2026-11-12", "2026-11-26"], { n: 1, monthly: true, now: evening })).toEqual(["2026-11-05", "2026-11-26"]);
     const order = S.scanOrder(new Map([["A", ["a1", "a2", "a3"]], ["B", ["b1"]]]));
     expect(order.map((x) => x.expiry)).toEqual(["a1", "b1", "a2", "a3"]);
   });

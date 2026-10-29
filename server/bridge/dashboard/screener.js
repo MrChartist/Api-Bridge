@@ -217,14 +217,36 @@ function bindKeys() {
     if (e.ctrlKey || e.metaKey || e.altKey || document.querySelector("dialog[open]")) return;
     const t = e.target;
     if (t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName))) return;
+    // Enter and Space belong to the focused control (a button, link, tab or disclosure), never to the page shortcuts.
+    if ((e.key === "Enter" || e.key === " ") && t instanceof Element && t.matches(ACTIVATES)) return;
     if (p.onKey(e)) e.preventDefault();
   });
+}
+
+const ACTIVATES = "button, a[href], summary, [role=tab], [role=button], [role=link], [role=menuitem], [role=option], [role=checkbox], [role=switch], [role=radio]";
+/**
+ * Replace a host's children and keep keyboard focus: a focused element carrying `data-fk` is refocused on the new node
+ * with the same key, else the one at the same position, else `fallback`.
+ */
+function swapKeepFocus(host, nodes, fallback = null) {
+  const a = document.activeElement;
+  const inside = a && host.contains(a) && a !== host;
+  const key = inside ? a.getAttribute("data-fk") : null;
+  const idx = inside ? [...host.querySelectorAll("[data-fk]")].indexOf(a) : -1;
+  host.replaceChildren(...nodes.filter((n) => n !== null && n !== undefined && n !== false));
+  if (!inside) return;
+  const list = [...host.querySelectorAll("[data-fk]")];
+  const t = list.find((x) => x.getAttribute("data-fk") === key) ?? (idx >= 0 && list.length ? list[Math.min(idx, list.length - 1)] : null) ?? fallback;
+  t?.focus({ preventScroll: true });
 }
 
 const KEY_HINTS = [[["[", "]"], "tabs"], [["J", "K"], "row"], [["↵"], "detail"], [["C"], "chain"], [["B", "S"], "strategy"], [["R"], "rescan"], [["F"], "filters"], [["A"], "auto"], [["Esc"], "close"]];
 
 /** The Option Screener page: three movable panels (results, detail column, chart engine slot). */
 export function renderScreenerPage() {
+  // A reload of the same route (header Reload, palette, go() to this page) renders again without a hashchange:
+  // retire the previous instance first so its listeners, timers and sweep do not outlive it.
+  activePage?.cleanup?.();
   const list = app.state.demo ? DEMO_UNDERLYINGS : UNDERLYINGS;
   let cfg = S.screenerConfig(read(SLOT), { list, demo: Boolean(app.state.demo) });
   const saved = read(SLOT);
@@ -282,7 +304,7 @@ export function renderScreenerPage() {
   const head = h(
     "div",
     { class: "scr-head" },
-    h("div", { class: "scr-bar" }, tabs, h("div", { class: "scr-tools" }, status, rescanBtn, autoBtn, filtersBtn, sortSel, gearBtn)),
+    h("div", { class: "scr-bar" }, h("div", { class: "scr-tabrow" }, tabs), h("div", { class: "scr-tools" }, status, rescanBtn, autoBtn, filtersBtn, sortSel, gearBtn)),
     progressEl,
   );
   const main = h(
@@ -548,52 +570,62 @@ export function renderScreenerPage() {
   }
 
   // ── Chips ──
+  // Underlying chips are built once and patched, so a focused chip keeps focus through every redraw.
+  const uBtns = list.map((u) => {
+    const b = h("button", { type: "button", class: "scr-uchip", "data-u": u }, u);
+    b.addEventListener("click", () => {
+      const on = cfg.underlyings.includes(u);
+      if (on && cfg.underlyings.length === 1) {
+        b.classList.remove("shake");
+        requestAnimationFrame(() => b.classList.add("shake"));
+        return;
+      }
+      shown = cfg.rows;
+      setCfg({ underlyings: on ? cfg.underlyings.filter((x) => x !== u) : list.filter((x) => x === u || cfg.underlyings.includes(x)) }, { rescan: !on });
+    });
+    return b;
+  });
+  uChips.append(...uBtns);
+  let fChipSig = "";
   function drawChips() {
-    uChips.replaceChildren(
-      ...list.map((u) => {
-        const on = cfg.underlyings.includes(u);
-        return h(
-          "button",
-          {
-            type: "button",
-            class: `scr-uchip${on ? " on" : ""}`,
-            "aria-pressed": String(on),
-            title: on && cfg.underlyings.length === 1 ? "Keep at least one" : on ? `Leave ${u} out of the scan` : `Scan ${u}`,
-            onclick: (e) => {
-              if (on && cfg.underlyings.length === 1) {
-                const b = e.currentTarget;
-                b.classList.remove("shake");
-                requestAnimationFrame(() => b.classList.add("shake"));
-                return;
-              }
-              shown = cfg.rows;
-              setCfg({ underlyings: on ? cfg.underlyings.filter((x) => x !== u) : list.filter((x) => x === u || cfg.underlyings.includes(x)) }, { rescan: !on });
-            },
-          },
-          u,
-        );
-      }),
-    );
+    for (const b of uBtns) {
+      const u = b.dataset.u;
+      const on = cfg.underlyings.includes(u);
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", String(on));
+      b.title = on && cfg.underlyings.length === 1 ? "Keep at least one" : on ? `Leave ${u} out of the scan` : `Scan ${u}`;
+    }
     const p = preset();
     const f = filters();
     const active = p.filters.filter((id) => S.filterActive(id, f[id]));
+    // A chip only for a value that differs from the preset's default (the defaults are listed in Filters).
+    const shownChips = active.filter((id) => JSON.stringify(f[id]) !== JSON.stringify(S.filterDefault(p, id)));
     const changed = p.filters.some((id) => JSON.stringify(f[id]) !== JSON.stringify(S.filterDefault(p, id)));
     const ctx = { expiries: scannedExpiries() };
-    fChips.replaceChildren(
-      ...active.map((id) =>
-        h(
-          "span",
-          { class: "scr-chip" },
-          h("button", { type: "button", class: "scr-chip-body", title: "Change in Filters", onclick: () => openFilters(id) }, S.filterText(id, f[id], ctx)),
-          h("button", { type: "button", class: "scr-chip-x", "aria-label": `Remove filter ${S.filterText(id, f[id], ctx)}`, onclick: () => setFilter(id, offValue(id)) }, icon("close")),
-        ),
-      ),
-      ...(changed ? [h("button", { type: "button", class: "small plain scr-reset", onclick: () => resetFilters() }, "Reset")] : []),
-    );
+    const sig = JSON.stringify([p.id, shownChips.map((id) => [id, S.filterText(id, f[id], ctx)]), changed]);
+    if (sig !== fChipSig) {
+      fChipSig = sig;
+      swapKeepFocus(
+        fChips,
+        [
+          ...shownChips.map((id) =>
+            h(
+              "span",
+              { class: "scr-chip" },
+              h("button", { type: "button", class: "scr-chip-body", "data-fk": `${id}:body`, title: "Change in Filters", onclick: () => openFilters(id) }, S.filterText(id, f[id], ctx)),
+              h("button", { type: "button", class: "scr-chip-x", "data-fk": `${id}:x`, "aria-label": `Remove filter ${S.filterText(id, f[id], ctx)}`, onclick: () => setFilter(id, offValue(id)) }, icon("close")),
+            ),
+          ),
+          ...(changed ? [h("button", { type: "button", class: "small plain scr-reset", "data-fk": "reset", onclick: () => resetFilters() }, "Reset")] : []),
+        ],
+        filtersBtn,
+      );
+    }
     const badge = filtersBtn.querySelector(".scr-badge");
-    badge.hidden = !active.length;
-    badge.textContent = formatInt(active.length);
-    filtersBtn.setAttribute("aria-label", `Filters${active.length ? `, ${active.length} on` : ""}`);
+    // The badge counts the changed filters (the chips, which phones fold away).
+    badge.hidden = !shownChips.length;
+    badge.textContent = formatInt(shownChips.length);
+    filtersBtn.setAttribute("aria-label", `Filters${shownChips.length ? `, ${shownChips.length} changed` : ""}`);
   }
   const offValue = (id) => {
     const f = S.FILTERS[id];
@@ -838,69 +870,95 @@ export function renderScreenerPage() {
   }
 
   // ── Empty, banners, footer ──
+  let emptySig = "";
   function drawEmpty() {
+    // Leave-one-out: name only the filters whose removal alone brings rows back, with how many.
     const blockers = S.topBlockers(result.funnel);
     const p = preset();
+    const sig = JSON.stringify([p.id, blockers.map((b) => [b.filter, b.label, b.without]), scan?.strikes, scan?.chains]);
+    if (sig === emptySig) return;
+    emptySig = sig;
     const arbNote = p.id === "arb" ? h("p", { class: "scr-empty-note" }, `No executable edge after costs across ${formatInt(scan?.strikes ?? 0)} strikes in ${formatInt(scan?.chains ?? 0)} chains.`) : null;
-    emptyEl.replaceChildren(
-      ...[
+    swapKeepFocus(
+      emptyEl,
+      [
         h("strong", {}, "No contracts pass these filters"),
         arbNote,
-        blockers.length ? h("p", { class: "scr-empty-why" }, blockers.map((b) => `${b.label} removed ${formatInt(b.removed)}`).join(" · ")) : null,
+        h("p", { class: "scr-empty-why" }, blockers.length ? `Switching off one filter brings rows back: ${blockers.map((b) => `${b.label} (${formatInt(b.without)})`).join(" · ")}` : "No single filter is the cause: reset to this tab's defaults."),
         h(
           "div",
           { class: "scr-empty-btns" },
-          blockers.map((b) => h("button", { type: "button", class: "small tinted", onclick: () => setFilter(b.filter, S.relaxValue(b.filter, filters()[b.filter], S.filterDefault(p, b.filter))) }, `Relax ${S.FILTERS[b.filter].short ?? S.FILTERS[b.filter].label}`)),
-          h("button", { type: "button", class: "small", onclick: () => resetFilters() }, "Reset all"),
+          blockers.map((b) => h("button", { type: "button", class: "small tinted", "data-fk": `off:${b.filter}`, onclick: () => setFilter(b.filter, offValue(b.filter)) }, `Turn off ${S.FILTERS[b.filter].short ?? S.FILTERS[b.filter].label}`)),
+          h("button", { type: "button", class: "small", "data-fk": "reset", onclick: () => resetFilters() }, "Reset all"),
         ),
-      ].filter(Boolean),
+      ],
+      filtersBtn,
     );
   }
+  let bannerSig = "";
   function drawBanners() {
     const p = preset();
     const out = [];
+    const sig = [];
     if (lastSweepFailed && !scan?.chains) {
       out.push(
         h(
           "div",
           { class: "scr-alert" },
           alertBox(firstError ?? { title: "No chain could be scanned", detail: "Check that an account can serve option chains." }),
-          h("div", { class: "scr-alert-btns" }, h("button", { type: "button", class: "small", onclick: () => startSweep(true) }, icon("refresh"), "Retry"), h("a", { href: "#/accounts", class: "scr-link" }, "Accounts")),
+          h("div", { class: "scr-alert-btns" }, h("button", { type: "button", class: "small", "data-fk": "retry", onclick: () => startSweep(true) }, icon("refresh"), "Retry"), h("a", { href: "#/accounts", class: "scr-link", "data-fk": "accounts" }, "Accounts")),
         ),
       );
+      sig.push(`alert|${firstError?.message ?? firstError?.title ?? ""}`);
     }
-    if (p.id === "buildup" && scan?.oiMissing?.length)
-      for (const k of scan.oiMissing) {
-        const [u, e] = k.split("|");
-        out.push(h("p", { class: "scr-banner warn" }, `OI change unavailable for ${S.chainName(u, e)} from this broker`));
-      }
-    if (p.id === "arb" && scan?.chains) out.push(h("p", { class: "scr-banner info" }, "Costs are estimates (How it works). Quotes move; re-check in the chain before trading."));
+    const text = (cls, t) => {
+      out.push(h("p", { class: `scr-banner ${cls}` }, t));
+      sig.push(t);
+    };
+    if (p.id === "buildup" && scan?.oiMissing?.length) {
+      // One line, however many chains lack it.
+      const names = scan.oiMissing.map((k) => k.split("|")).sort();
+      const list = names.map(([u, e], i) => (i && names[i - 1][0] === u ? S.expiryText(e) : S.chainName(u, e))).join(", ");
+      text("warn", scan.oiMissing.length === scan.chains ? "OI change unavailable from this broker for all scanned chains" : `OI change unavailable from this broker for ${list}`);
+    }
+    if (p.id === "arb" && scan?.chains) text("info", "Costs are estimates (How it works). Quotes move; re-check in the chain before trading.");
     if (["overview", "sell", "buy"].includes(p.id) && plan && scan?.chains) {
       const hv = hvStore().values;
       const missing = [...plan.keys()].filter((u) => cfg.underlyings.includes(u) && !num(hv[u]?.hv20) && (hvFailed.has(u) || hv[u]));
-      if (missing.length) out.push(h("p", { class: "scr-banner info" }, `No daily history for ${missing.join(", ")}: IV/HV and IV − HV show --, verdicts use the other chains, scores renormalise.`));
+      if (missing.length) text("info", `No daily history for ${missing.join(", ")}: IV/HV and IV − HV show --, verdicts use the other chains, scores renormalise.`);
     }
-    banners.replaceChildren(...out);
+    const key = sig.join("\n");
+    if (key === bannerSig) return;
+    bannerSig = key;
+    swapKeepFocus(banners, out, filtersBtn);
   }
+  let issuesSig = "";
   function drawIssues() {
     const list = [...issues.values()];
+    const sig = JSON.stringify(list.map((i) => [i.key, i.label, i.message]));
+    if (sig === issuesSig) return;
+    issuesSig = sig;
     issuesEl.hidden = !list.length;
     if (!list.length) return issuesEl.replaceChildren();
     const open = issuesEl.open;
-    issuesEl.replaceChildren(
-      h("summary", {}, `Scan issues (${formatInt(list.length)})`),
-      h(
-        "ul",
-        {},
-        list.map((i) =>
-          h(
-            "li",
-            {},
-            h("span", {}, `${i.label}: ${i.message}`),
-            i.retry ? h("button", { type: "button", class: "small plain", onclick: () => retryChain(i.retry) }, "Retry") : h("button", { type: "button", class: "small plain", onclick: () => startSweep(true) }, "Retry"),
+    swapKeepFocus(
+      issuesEl,
+      [
+        h("summary", { "data-fk": "summary" }, `Scan issues (${formatInt(list.length)})`),
+        h(
+          "ul",
+          {},
+          list.map((i) =>
+            h(
+              "li",
+              {},
+              h("span", {}, `${i.label}: ${i.message}`),
+              h("button", { type: "button", class: "small plain", "data-fk": `retry:${i.key}`, onclick: () => (i.retry ? retryChain(i.retry) : startSweep(true)) }, "Retry"),
+            ),
           ),
         ),
-      ),
+      ],
+      filtersBtn,
     );
     issuesEl.open = open;
   }
@@ -908,20 +966,29 @@ export function renderScreenerPage() {
     cache.delete(`${u}|${e}`);
     startSweep(false);
   }
-  function drawMethod() {
-    if (methodEl.childElementCount) return;
+  let costsLi = null;
+  const costsText = () => {
     const c = O.CHARGES;
+    return `Costs (estimates, as of ${c.asOf}): STT ${formatFixed(c.sttSellPct, 2)}% on sell premium and on the intrinsic of exercised longs, exchange ${formatFixed(c.txnPct.NFO, 5)}% NSE / ${formatFixed(c.txnPct.BFO, 4)}% BSE, SEBI ₹${formatInt(c.sebiPerCrore)}/crore, stamp ${formatFixed(c.stampBuyPct, 3)}% on buys, GST ${formatInt(c.gstPct)}% on brokerage + exchange + SEBI. Brokerage is your setting (₹${formatInt(cfg.brokerage)} per order); check your broker's contract note.`;
+  };
+  function drawMethod() {
+    if (methodEl.childElementCount) {
+      const t = costsText();
+      if (costsLi.textContent !== t) costsLi.textContent = t;
+      return;
+    }
+    costsLi = h("li", {}, costsText());
     methodEl.append(
       h("summary", { id: "scr-how" }, "How it works"),
       h(
         "ul",
         { class: "scr-method-list" },
         h("li", {}, "Each underlying's nearest expiries plus the current monthly are fetched once per sweep, one call at a time within the broker's rate limit; tabs re-rank the same data without new calls."),
-        h("li", {}, "Unusual means Vol/OI against the median of the same side of the same chain (Indian index options routinely trade 5–50× their OI), with floors on volume, turnover and price."),
+        h("li", {}, `Unusual means Vol/OI against the median of the same side of the same chain (Indian index options routinely trade 5–50× their OI), with floors on OI, volume, turnover and price; strikes under ${formatInt(O.VOL_OI_MIN_LOTS)} lots of OI get no ratio.`),
         h("li", {}, "Cheap or rich is judged against 20-day realised vol (HV20) from daily closes. IV rank and IV percentile are not shown: there is no IV history yet."),
         h("li", {}, "POP is a log-normal probability on the forward at the leg's IV; it is always shown with the maximum loss. ±1σ = F·(e^{σ√T} − e^{−σ√T})/2 at ATM IV; an ATM straddle ≈ 0.8 × 1σ."),
-        h("li", {}, `Costs (estimates, as of ${c.asOf}): STT ${formatFixed(c.sttSellPct, 2)}% on sell premium and on the intrinsic of exercised longs, exchange ${formatFixed(c.txnPct.NFO, 5)}% NSE / ${formatFixed(c.txnPct.BFO, 4)}% BSE, SEBI ₹${formatInt(c.sebiPerCrore)}/crore, stamp ${formatFixed(c.stampBuyPct, 3)}% on buys, GST ${formatInt(c.gstPct)}% on brokerage + exchange + SEBI. Brokerage is your setting (₹${formatInt(cfg.brokerage)} per order); check your broker's contract note.`),
-        h("li", {}, "Arbitrage is checked at asks to buy and bids to sell over ATM ±20 strikes, net of the opening charges (boxes add settlement STT). Quotes move; re-check in the chain before trading."),
+        costsLi,
+        h("li", {}, "Arbitrage is checked at asks to buy and bids to sell over ATM ±20 strikes, net of the opening charges (a bought box adds settlement STT on its width). Near misses are the closest of each type per chain, within 0.5 pts gross and ₹500/lot net; expiry-day chains are left out by default. Quotes move; re-check in the chain before trading."),
         h("li", {}, "Context, not advice. There is no order button here: open a contract in the Option Chain to trade it through the ticket and its safety checks."),
       ),
     );
@@ -957,6 +1024,8 @@ export function renderScreenerPage() {
     const sig = r ? `${cfg.preset}|${r.key}|${r.fetchedAt}|${cfg.brokerage}|${cfg.wingStrikes}` : `none|${cfg.preset}`;
     if (sig === paneSig) return;
     paneSig = sig;
+    // With nothing selected the column folds away (CSS) and the results take the full width.
+    detail.classList.toggle("scr-detail-empty", !r);
     if (!r) {
       paneBody.replaceChildren(h("p", { class: "scr-pane-hint" }, "Select a row to see every number, the score breakdown and actions."));
       return;
@@ -1115,7 +1184,7 @@ export function renderScreenerPage() {
       ["Term", num(r.term) === null ? DASH : `${formatSigned(r.term, 1)} pts${r.termInfo?.inverted ? " · inverted" : r.termInfo?.vol ? ` · fwd vol ${formatFixed(r.termInfo.vol, 1)}` : ""}`],
       ["Straddle", `${formatFixed(r.straddle, 2)} · ${formatRupee(r.straddleLot, 0)}/lot · ${formatPercent(r.straddlePct, 2)}`],
       ["±1σ move", `${formatFixed(r.em, 0)} · ${formatPercent(r.emPct, 2)}`],
-      ["PCR", `${formatFixed(r.pcr, 2)}${num(r.pcrChange) !== null ? ` · Δ ${formatFixed(r.pcrChange, 2)}` : ""}`],
+      ["PCR", `${formatFixed(r.pcr, 2)}${num(r.pcrChange) !== null ? ` · chg PCR ${formatFixed(r.pcrChange, 2)}` : ""}`],
       ["Max pain", `${formatInt(r.maxPain)} (${formatSigned(r.mpDiff, 0)})`],
       ["Put wall / call wall", `${formatInt(r.support)} / ${formatInt(r.resistance)}`],
       ["Build-up", r.oiMissing ? "OI change unavailable" : r.build?.text ?? DASH],
@@ -1212,16 +1281,25 @@ export function renderScreenerPage() {
   function openFilters(focusId = null) {
     const p = preset();
     const host = h("div", { class: "scr-filters" });
-    const render = () => {
+    const build = () => {
       const f = filters();
       const ctx = { expiries: scannedExpiries() };
-      host.replaceChildren(
-        h("p", { class: "scr-f-intro" }, `${p.label}: changes apply as you go. ${formatInt(recompute().total)} match.`),
-        ...p.filters.map((id) => filterControl(id, f[id], render, ctx)),
-        p.id === "hedge" ? notionalControl(render) : null,
-      );
+      const rows = [...p.filters.map((id) => filterControl(id, f[id], render, ctx)), ...(p.id === "hedge" ? [notionalControl(render)] : [])];
+      // Keys for focus: "<filter>:<n>" on each control, so a rebuild puts focus back where it was.
+      for (const row of rows) row.querySelectorAll("input, button, select").forEach((el, i) => el.setAttribute("data-fk", `${row.dataset.filter}:${i}`));
+      swapKeepFocus(host, [h("p", { class: "scr-f-intro" }, `${p.label}: changes apply as you go. ${formatInt(recompute().total)} match.`), ...rows]);
     };
-    render();
+    // Rebuild after the event that changed a value has finished moving focus (Tab, Enter or a tap), then refocus.
+    let queued = false;
+    const render = () => {
+      if (queued) return;
+      queued = true;
+      setTimeout(() => {
+        queued = false;
+        if (host.isConnected) build();
+      }, 0);
+    };
+    build();
     modal({
       title: "Filters",
       body: host,
@@ -1230,7 +1308,9 @@ export function renderScreenerPage() {
         { label: "Done", cls: "primary", value: true },
       ],
     }).then(() => filtersBtn.isConnected && filtersBtn.focus({ preventScroll: true }));
+    // Focus a field only when a chip asked for it; otherwise Close, so no soft keyboard covers the sheet on touch.
     if (focusId) requestAnimationFrame(() => host.querySelector(`[data-filter="${focusId}"] :is(input, button, select)`)?.focus());
+    else document.querySelector("#dialog .sheet-close")?.focus({ preventScroll: true });
   }
   function notionalControl(render) {
     const input = h("input", { type: "number", inputmode: "decimal", min: "0", step: "100000", value: cfg.hedgeNotional ?? "", placeholder: "None", "aria-label": "Notional to hedge (₹)" });
@@ -1265,7 +1345,15 @@ export function renderScreenerPage() {
     if (f.type === "min" || f.type === "max") ctl = h("span", { class: "scr-f-num" }, h("span", { class: "scr-f-op" }, f.type === "min" ? "≥" : "≤"), numIn(v, f.label, (x) => apply(x)), unit);
     else if (f.type === "range") {
       const [lo, hi] = v ?? [null, null];
-      ctl = h("span", { class: "scr-f-num" }, numIn(lo, `${f.label} from`, (x) => apply([x, hi])), h("span", { class: "scr-f-op" }, "to"), numIn(hi, `${f.label} to`, (x) => apply([lo, x])), unit);
+      // A crossing edit carries the other end with it (never a silent swap): from 0.95 with to 0.30 gives 0.95–0.95.
+      ctl = h(
+        "span",
+        { class: "scr-f-num" },
+        numIn(lo, `${f.label} from`, (x) => apply([x, x !== null && hi !== null && x > hi ? x : hi])),
+        h("span", { class: "scr-f-op" }, "to"),
+        numIn(hi, `${f.label} to`, (x) => apply([x !== null && lo !== null && x < lo ? x : lo, x])),
+        unit,
+      );
     } else if (f.type === "toggle") {
       const input = h("input", { type: "checkbox", checked: Boolean(v) });
       input.addEventListener("change", () => apply(input.checked));
@@ -1332,7 +1420,7 @@ export function renderScreenerPage() {
         "div",
         { class: `col-row${on ? " on" : ""}` },
         h("span", {}),
-        h("label", { class: "col-check", title: c.title }, box, c.label, c.p === 3 ? h("small", { class: "scr-p3" }, " · wide screens") : null),
+        h("label", { class: "col-check", title: c.title }, box, c.label, c.p === 3 ? h("small", { class: "scr-p3", title: "Hidden while the table is narrower than 1100 px (for example beside the detail column)" }, " · wide tables") : null),
         lead
           ? h("span", { class: "scr-fixed" }, "Fixed")
           : h(
@@ -1490,7 +1578,12 @@ export function renderScreenerPage() {
     drawStatus();
     drawChips();
     drawSort();
-    desc.replaceChildren(p.description, " ", h("a", { href: "#scr-how", class: "scr-how", onclick: (e) => (e.preventDefault(), (methodEl.open = true), methodEl.scrollIntoView({ block: "nearest" })) }, "How it works"));
+    if (desc.__p !== p.id) {
+      desc.__p = p.id;
+      if (!desc.__how) desc.__how = h("a", { href: "#scr-how", class: "scr-how", onclick: (e) => (e.preventDefault(), (methodEl.open = true), methodEl.scrollIntoView({ block: "nearest" })) }, "How it works");
+      if (!desc.__text) desc.append((desc.__text = document.createTextNode("")), " ", desc.__how);
+      desc.__text.data = p.description;
+    }
     slotText.textContent = `Price and IV history for ${recByKey(selKey)?.underlying ?? cfg.underlyings[0]}. Your chart engine plugs in here.`;
     const hasData = [...cache.keys()].some((k) => cfg.underlyings.includes(k.split("|")[0]) && cache.get(k)?.chain);
     recompute();
@@ -1572,7 +1665,7 @@ export function renderScreenerPage() {
   }
 
   // ── Life cycle ──
-  const page = { root, onKey };
+  const page = { root, onKey, cleanup: () => cleanup() };
   activePage = page;
   bindKeys();
   const mqs = [media(MQ_PHONE), media(MQ_WIDE)];
