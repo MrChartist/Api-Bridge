@@ -237,15 +237,15 @@
     --ios-red-fill: 3 80% 48%;
 
     /* Semantics: near-black neutral canvas (#050506), cards #0D0D0F, raised #16161A */
-    --background: 240 9.1% 2.2%;
+    --background: 0 0% 1.6%;
     --foreground: 240 10% 96.1%;
-    --card: 240 7.1% 5.5%;
+    --card: 0 0% 5.1%;
     --a-label: 0.70;
     --a-quiet: 0.54;
 
     /* Materials: no warm tint, no drop shadows on black (a hairline ring carries the edge) */
-    --mat-grouped: hsl(240 7.1% 5.5% / 0.94);
-    --mat-grouped-solid: hsl(240 7.1% 5.5%);
+    --mat-grouped: hsl(0 0% 5.1% / 0.94);
+    --mat-grouped-solid: hsl(0 0% 5.1%);
     --mat-grouped-hover: hsl(240 7% 8% / 0.96);
     --mat-fill-1: hsl(0 0% 100% / 0.045);
     --mat-fill-2: hsl(0 0% 100% / 0.075);
@@ -343,15 +343,15 @@
   --ios-red-fill: 3 80% 48%;
 
   /* Semantics: near-black neutral canvas (#050506), cards #0D0D0F, raised #16161A */
-  --background: 240 9.1% 2.2%;
+  --background: 0 0% 1.6%;
   --foreground: 240 10% 96.1%;
-  --card: 240 7.1% 5.5%;
+  --card: 0 0% 5.1%;
   --a-label: 0.70;
   --a-quiet: 0.54;
 
   /* Materials: no warm tint, no drop shadows on black (a hairline ring carries the edge) */
-  --mat-grouped: hsl(240 7.1% 5.5% / 0.94);
-  --mat-grouped-solid: hsl(240 7.1% 5.5%);
+  --mat-grouped: hsl(0 0% 5.1% / 0.94);
+  --mat-grouped-solid: hsl(0 0% 5.1%);
   --mat-grouped-hover: hsl(240 7% 8% / 0.96);
   --mat-fill-1: hsl(0 0% 100% / 0.045);
   --mat-fill-2: hsl(0 0% 100% / 0.075);
@@ -706,6 +706,21 @@ button.toolbar-demo:hover { background: var(--mat-glass-strong); }
 .ctx-acct a.acct-connect { padding: 0 12px; }
 .ctx-scr .ctx-main { font: 600 13px/1.1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .ctx-scr .ctx-main b { font-weight: 700; color: hsl(var(--foreground)); }
+/* The chain's line (§3.1): … │ Fut 26 452.3 (+24.9) │ Lot 75 │ ATM IV 13.5% … ● 08:52:04. Figures drop in order
+   (desk.js fitCtx adds d-*) so the line never wraps; underlying, expiry, spot and freshness always stay. */
+.ctx-fut .ctx-main, .ctx-iv .ctx-main { gap: 5px; font: 600 13px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground)); }
+.ctx-fut b, .ctx-iv b { font-weight: 650; }
+.ctx-k { font: 600 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.ctx-basis { font: 500 12px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
+.ctx-iv b { color: hsl(var(--dv-iv-ink)); }
+.ctx-cap.d-iv .ctx-iv, .ctx-cap.d-lot .ctx-lot, .ctx-cap.d-basis .ctx-basis, .ctx-cap.d-fut .ctx-fut, .ctx-cap.d-chg .chg-abs { display: none; }
+.toolbar-title.icon-only { width: 40px; padding: 0; justify-content: center; }
+.toolbar-title.icon-only > span:last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.ctx-live-orders { flex: none; display: inline-flex; align-items: center; height: 28px; padding: 0 11px; border-radius: 99px; font: 700 11.5px/1 var(--font-body); letter-spacing: 0.04em; color: #fff; background: hsl(var(--neg)); }
+.ctx-live-orders[hidden] { display: none; }
+@media (max-width: 1023px) { .ctx-chain :is(.ctx-fut, .ctx-iv) { display: none; } }
+/* Phones: the one demo indicator is a word on the ⋯ button, not a bare dot. */
+.ctx-more .demo-badge.demo-word { top: auto; bottom: -3px; right: 50%; width: auto; height: 14px; padding: 0 5px; border-radius: 99px; transform: translateX(50%); display: inline-flex; align-items: center; font: 700 10px/1 var(--font-body); color: hsl(var(--warn-ink)); background: hsl(var(--warn) / 0.22); box-shadow: 0 0 0 1px hsl(var(--warn) / 0.6); }
 /* Live control: a status, not a selection (green dot + data time on a glass pill). */
 button.live-ctl { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 40px; min-height: 40px; padding: 0 14px 0 12px; border-radius: 999px;
   font: 600 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground)); background: var(--mat-glass); box-shadow: var(--shadow-1);
@@ -1491,85 +1506,362 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
 .desk-stat .sub { font: 450 11.5px/1.3 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .desk-stats.compact { border-radius: var(--r-md); box-shadow: 0 0 0 var(--hl) var(--mat-separator); }
 
-/* The chain. */
+/* ── The chain (docs/design/chain.md, round 2): one calm, black, precise instrument. Colour carries meaning only:
+   calls sky, puts violet (OI bars, side headers, walls); green / red = change (OI added / cut, price up / down);
+   amber = caution; blue = ATM and spot; buy blue / sell red on the trade buttons. ── */
+:root {
+  --c-call: 201 90% 40%; --c-call-ink: 201 90% 32%;
+  --c-put: 266 60% 50%; --c-put-ink: 266 60% 44%;
+  --c-atm: 211 100% 42%; --c-atm-ink: 211 100% 40%;
+  --c-buy: 211 100% 43%; --c-buy-ink: 211 100% 40%;
+  --c-sell: 3 82% 47%; --c-sell-ink: 356 78% 42%;
+  --itm-wash: hsl(240 6% 10% / 0.035);
+  --em-wash: hsl(211 100% 42% / 0.04);
+  --surface-2: hsl(240 5% 96.6%);
+  --c-neutral: hsl(240 6% 10% / 0.34);
+  --bar-a: 0.75; --heat-a0: 0.05; --heat-a1: 0.32;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --c-call: 199 92% 58%; --c-call-ink: 199 92% 64%;
+    --c-put: 266 85% 72%; --c-put-ink: 266 85% 76%;
+    --c-atm: 211 100% 60%; --c-atm-ink: 211 100% 66%;
+    --c-buy: 211 100% 50%; --c-buy-ink: 211 100% 66%;
+    --c-sell: 3 82% 52%; --c-sell-ink: 3 92% 68%;
+    --itm-wash: hsl(0 0% 100% / 0.05);
+    --em-wash: hsl(211 100% 60% / 0.045);
+    --surface-2: hsl(0 0% 8%);
+    --c-neutral: hsl(0 0% 100% / 0.34);
+    --bar-a: 0.6; --heat-a0: 0.06; --heat-a1: 0.42;
+  }
+}
+:root[data-theme="dark"] {
+  --c-call: 199 92% 58%; --c-call-ink: 199 92% 64%;
+  --c-put: 266 85% 72%; --c-put-ink: 266 85% 76%;
+  --c-atm: 211 100% 60%; --c-atm-ink: 211 100% 66%;
+  --c-buy: 211 100% 50%; --c-buy-ink: 211 100% 66%;
+  --c-sell: 3 82% 52%; --c-sell-ink: 3 92% 68%;
+  --itm-wash: hsl(0 0% 100% / 0.05);
+  --em-wash: hsl(211 100% 60% / 0.045);
+  --surface-2: hsl(0 0% 8%);
+  --c-neutral: hsl(0 0% 100% / 0.34);
+  --bar-a: 0.6; --heat-a0: 0.06; --heat-a1: 0.42;
+}
+
+.chain-panel { position: relative; }
 .chain-wrap { max-height: min(70vh, 860px); overflow: auto; overscroll-behavior: contain; }
-table.chain { width: 100%; border-collapse: separate; border-spacing: 0; font: 450 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums slashed-zero; }
-table.chain th, table.chain td { height: var(--desk-row); padding: 0 5px; border: 0; white-space: nowrap; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
-table.chain th:first-child, table.chain td:first-child { padding-left: 10px; }
-table.chain th:last-child, table.chain td:last-child { padding-right: 10px; }
+table.chain { --desk-row: 40px; width: 100%; border-collapse: separate; border-spacing: 0; font: 500 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums slashed-zero; }
+table.chain.dense { --desk-row: 30px; }
+table.chain th, table.chain td { height: var(--desk-row); padding: 0 8px; border: 0; white-space: nowrap; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+table.chain th:first-child, table.chain td:first-child { padding-left: 12px; }
+table.chain th:last-child, table.chain td:last-child { padding-right: 12px; }
+/* Mirror around the strike: figures right-aligned before it (calls), left-aligned after it (puts). */
+table.chain td, table.chain thead th { text-align: right; }
+table.chain th.strike-col ~ :is(td, th) { text-align: left; }
+table.chain :is(td, th).mid-col { text-align: center; }
+
+/* The baseline grid (§3.4): line 1 the figure (16 px), line 2 a sub figure or a bar (12 px), in every cell, so the
+   main figures of a row share one baseline. */
+table.chain .cg { display: grid; grid-template-rows: 16px 12px; align-items: center; justify-items: end; }
+table.chain th.strike-col ~ td .cg { justify-items: start; }
+table.chain td.mid-col .cg, table.chain .strike-cg { justify-items: center; }
+table.chain .cg > .l1 { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; height: 16px; line-height: 16px; }
+table.chain .cg > .l2 { font: 500 10.5px/12px var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
+table.chain .cg > small.l2.up { color: hsl(var(--pos-ink)); }
+table.chain .cg > small.l2.down { color: hsl(var(--neg-ink)); }
+table.chain .cg > small.l2.warn-ink { color: hsl(var(--warn-ink)); font-weight: 650; }
+table.chain.dense .cg { grid-template-rows: 16px; }
+table.chain.dense .cg > .l2 { display: none; }
+table.chain .l1 strong { font-weight: 650; }
+table.chain .l1.up { color: hsl(var(--pos-ink)); }
+table.chain .l1.down { color: hsl(var(--neg-ink)); }
+table.chain .l1.warn-ink { color: hsl(var(--warn-ink)); }
+table.chain .l1.call-ink { color: hsl(var(--c-call-ink)); font-weight: 650; }
+table.chain .l1.put-ink { color: hsl(var(--c-put-ink)); font-weight: 650; }
+table.chain .l1.quiet { color: hsl(var(--foreground) / var(--a-quiet)); }
+table.chain .l1.pos-accent { color: hsl(var(--pos-ink)); font-weight: 700; }
+table.chain .l1.wall { font-weight: 700; }
+table.chain .l1.hot { color: hsl(var(--warn-ink)); font-weight: 650; }
+table.chain .l1.hot::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: hsl(var(--warn)); }
+
+/* Header: CALLS / PUTS in their side ink with a 2 px side-colour underline (the legend), then the column names. A
+   10 px fade under the header, so a half-scrolled row never looks cut. */
 table.chain thead th { position: sticky; z-index: 3; background: var(--mat-grouped-solid); font: 600 11.5px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
-table.chain thead tr.side-head th { top: 0; height: 26px; text-align: center; font: 700 11px/1 var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; color: hsl(var(--foreground) / var(--a-label)); }
-/* CALLS / PUTS group headers in the side colours, with a 2 px underline (§4.6). */
-table.chain thead tr.side-head th.sh-ce { color: hsl(var(--dv-call-ink)); box-shadow: inset 0 -2px 0 hsl(var(--dv-call)); }
-table.chain thead tr.side-head th.sh-pe { color: hsl(var(--dv-put-ink)); box-shadow: inset 0 -2px 0 hsl(var(--dv-put)); }
+table.chain thead tr.side-head th { top: 0; height: 24px; text-align: center; font: 700 11px/1 var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; color: hsl(var(--foreground) / var(--a-label)); }
+table.chain thead tr.side-head th.sh-ce { color: hsl(var(--c-call-ink)); box-shadow: inset 0 -2px 0 hsl(var(--c-call)); }
+table.chain thead tr.side-head th.sh-pe { color: hsl(var(--c-put-ink)); box-shadow: inset 0 -2px 0 hsl(var(--c-put)); }
+table.chain thead tr.side-head th.mid-col { color: hsl(var(--foreground) / var(--a-quiet)); }
+table.chain thead tr.col-head th { top: 24px; height: 28px; white-space: nowrap; box-shadow: inset 0 -1px 0 var(--mat-separator); cursor: help; }
 table.chain thead tr.col-head.first th { top: 0; }
-table.chain thead tr.col-head th { white-space: normal; line-height: 1.05; }
-@media (min-width: 1024px) { table.chain thead tr.col-head th { white-space: nowrap; } }
+table.chain thead tr.col-head th::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 10px; background: linear-gradient(var(--mat-grouped-solid), transparent); pointer-events: none; }
+table.chain thead tr.col-head.edge-ce th { box-shadow: inset 0 3px 0 hsl(var(--c-call)), inset 0 -1px 0 var(--mat-separator); color: hsl(var(--foreground) / var(--a-label)); }
+table.chain thead tr.col-head.edge-pe th { box-shadow: inset 0 3px 0 hsl(var(--c-put)), inset 0 -1px 0 var(--mat-separator); color: hsl(var(--foreground) / var(--a-label)); }
 table.chain .lbl-short { display: none; }
-table.chain thead tr.col-head th { top: 26px; height: 28px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline), inset 0 -1px 0 var(--mat-separator); cursor: help; }
-table.chain tfoot td, table.chain tfoot th { position: sticky; bottom: 0; z-index: 3; height: 30px; background: var(--mat-grouped-solid); font: 650 12px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); box-shadow: inset 0 var(--hl) 0 var(--mat-separator), inset 0 1px 0 var(--mat-separator); }
+table.chain .side-btn { min-height: 22px; padding: 0 8px; border-radius: 6px; background: transparent; box-shadow: none; font: 700 11px/1 var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; color: inherit; }
+table.chain .side-btn:not(.on):hover { background: var(--mat-fill-2); }
+
+/* Footer: always on screen (the table's height comes from the viewport, desk.js fitHeight). */
+table.chain tfoot td, table.chain tfoot th { position: sticky; bottom: 0; z-index: 3; height: 36px; background: var(--mat-grouped-solid); font: 650 12px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); box-shadow: inset 0 1px 0 var(--mat-separator); }
+table.chain tfoot td.up { color: hsl(var(--pos-ink)); }
+table.chain tfoot td.down { color: hsl(var(--neg-ink)); }
 table.chain tfoot th small { font: 500 10.5px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
-/* The strike column stays in view whichever way the table scrolls (left for one side; left and right for both). Its
-   fill is opaque so values scrolling under it never show through. */
-table.chain .strike-col { position: sticky; left: 0; right: 0; z-index: 2; text-align: center; min-width: 82px; background: linear-gradient(var(--mat-fill-1), var(--mat-fill-1)), var(--mat-grouped-solid); box-shadow: inset var(--hl) 0 0 var(--mat-separator), inset calc(-1 * var(--hl)) 0 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+table.chain tfoot th.strike-col { line-height: 1.1; }
+table.chain tfoot .foot-total { display: block; font: 650 11px/1.1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+table.chain tfoot .foot-pcr { white-space: nowrap; color: hsl(var(--foreground)); }
+
+/* The strike column: a raised neutral slab with group rules either side; sticky only when the table scrolls. */
+table.chain .strike-col { position: sticky; left: 0; right: 0; z-index: 2; width: 96px; min-width: 96px; text-align: center; background: var(--surface-2); box-shadow: inset 1px 0 0 var(--mat-separator), inset -1px 0 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+table.chain:not(.side-both) .strike-col { box-shadow: inset -1px 0 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 table.chain thead .strike-col, table.chain tfoot .strike-col { z-index: 4; background: var(--mat-grouped-solid); }
 table.chain .mid-col { background-color: var(--mat-fill-1); }
 table.chain thead .mid-col, table.chain tfoot .mid-col { background: var(--mat-grouped-solid); }
-table.chain thead tr.side-head th.mid-col { color: hsl(var(--foreground) / var(--a-quiet)); }
-table.chain tbody .strike-col .k { display: block; font: 700 13.5px/1 var(--font-numeric); color: hsl(var(--foreground)); }
-table.chain .tags { display: flex; justify-content: center; gap: 3px; margin-top: 3px; }
-table.chain .tag { padding: 1px 4px; border-radius: 3px; font: 650 10px/1.2 var(--font-body); letter-spacing: 0.02em; white-space: nowrap; cursor: help; color: hsl(var(--foreground) / var(--a-label)); box-shadow: inset 0 0 0 var(--hl) hsl(var(--foreground) / 0.2); }
-table.chain .tag.atm { color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); box-shadow: none; }
-table.chain .tag.mp { color: hsl(var(--warn-ink)); box-shadow: inset 0 0 0 var(--hl) hsl(var(--warn) / 0.7); }
-table.chain .tag.cw { color: hsl(var(--dv-call-ink)); box-shadow: inset 0 0 0 var(--hl) hsl(var(--dv-call) / 0.6); }
-table.chain .tag.pw { color: hsl(var(--dv-put-ink)); box-shadow: inset 0 0 0 var(--hl) hsl(var(--dv-put) / 0.6); }
-table.chain .tag.em { color: hsl(var(--dv-iv-ink)); box-shadow: inset 0 0 0 var(--hl) hsl(var(--dv-iv) / 0.5); }
-table.chain .tag.em2 { color: hsl(var(--dv-iv-ink) / 0.85); box-shadow: inset 0 0 0 var(--hl) hsl(var(--dv-iv) / 0.3); }
-table.chain tbody tr { cursor: pointer; scroll-margin: 64px 0 40px; }
+table.chain .strike-col .k { font: 700 14px/16px var(--font-numeric); color: hsl(var(--foreground)); letter-spacing: -0.01em; }
+table.chain .tags { display: flex; justify-content: center; gap: 3px; height: 12px; overflow: visible; }
+table.chain .tag { display: inline-flex; align-items: center; height: 15px; padding: 0 5px; border-radius: 4px; font: 700 10px/1 var(--font-body); letter-spacing: 0.02em; white-space: nowrap; cursor: help; color: hsl(var(--foreground) / var(--a-label)); box-shadow: inset 0 0 0 1px var(--mat-separator); }
+table.chain .tag.atm { color: hsl(var(--sel-fg)); background: hsl(var(--c-atm)); box-shadow: none; }
+table.chain .tag.mp { gap: 4px; }
+table.chain .tag.mp::before { content: ""; width: 5px; height: 5px; transform: rotate(45deg); background: hsl(var(--foreground) / 0.55); }
+table.chain .tag.cw { color: hsl(var(--c-call-ink)); box-shadow: inset 0 0 0 1px hsl(var(--c-call) / 0.7); }
+table.chain .tag.pw { color: hsl(var(--c-put-ink)); box-shadow: inset 0 0 0 1px hsl(var(--c-put) / 0.7); }
+table.chain .tag.em, table.chain .tag.em2 { padding: 0 2px; box-shadow: none; color: hsl(var(--c-atm-ink) / 0.85); }
+table.chain .tag.em2 { color: hsl(var(--c-atm-ink) / 0.65); }
+table.chain .tag.pop { animation: chain-tag-pop 160ms var(--ease-out); }
+@keyframes chain-tag-pop { from { transform: scale(0.8); opacity: 0; } }
+
+/* Rows: hairline rules only; ITM a neutral lift; ATM strike in the ATM blue at 12 %; the ±1σ band a faint blue wash on
+   the strike column with an edge mark at its first and last strike. */
+table.chain tbody tr { cursor: pointer; scroll-margin: 64px 0 44px; }
 table.chain tbody tr:focus { outline: none; }
-table.chain tbody tr:focus-visible:not(.focus) th { box-shadow: inset 0 0 0 2px hsl(var(--ios-blue) / 0.6); }
-table.chain tr.jump > td, table.chain tr.jump > th { animation: chain-jump var(--dur-4) var(--ease-out); }
-@keyframes chain-jump { from { box-shadow: inset 0 0 0 999px hsl(var(--foreground) / 0.12); } }
-/* ITM: a quiet but visible fill in both themes (fill-1 is ~1.03:1 on #0D0D0F, so dark uses fill-2). */
-table.chain td.itm { background: var(--itm-fill, var(--mat-fill-1)); }
-/* ATM: the strike is a contrast pill, the row has top and bottom rules; no tint (§4.6). */
-table.chain tr.atm > td, table.chain tr.atm > th { box-shadow: inset 0 1px 0 hsl(var(--foreground) / 0.25), inset 0 -1px 0 hsl(var(--foreground) / 0.25); }
-table.chain tr.atm .strike-col .k { display: inline-block; padding: 3px 8px; border-radius: 999px; color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); }
-table.chain tbody tr:hover td { background-image: linear-gradient(var(--mat-fill-1), var(--mat-fill-1)); }
-table.chain tr.focus > td, table.chain tr.focus > th { background-image: linear-gradient(var(--mat-fill-2), var(--mat-fill-2)); }
-table.chain tr.focus > :first-child { box-shadow: inset 2px 0 0 hsl(var(--sel-bg)), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
-table.chain td.fside { background-image: linear-gradient(var(--mat-fill-3), var(--mat-fill-3)); }
-table.chain td.dt { background: hsl(var(--dv-iv) / 0.1); font-weight: 700; }
-table.chain .two { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; }
-table.chain .two small { font: 500 10.5px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); min-height: 10px; }
-table.chain .two small.up { color: hsl(var(--pos-ink)); }
-table.chain .two small.down { color: hsl(var(--neg-ink)); }
-table.chain .two strong { font-weight: 650; }
-table.chain .two.quiet { color: hsl(var(--foreground) / var(--a-quiet)); }
-table.chain .pos-accent { color: hsl(var(--ios-blue-ink)); font-weight: 700; }
-/* LTP flashes use the shared dv-flash keyframes (§6.2, in 12m · MOTION); the chain alternates data-flash a / b on
-   the cell to restart them without a reflow. */
-@media (prefers-reduced-motion: reduce) { table.chain tr.jump > * { animation: none; } }
-table.chain .bu { display: inline-block; min-width: 24px; padding: 2px 4px; border-radius: 4px; font: 700 10px/1.2 var(--font-body); letter-spacing: 0.03em; text-align: center; cursor: help; }
-/* Build-up by price direction: long build-up and short covering are bullish (gain ink), short build-up and long
-   unwinding bearish (loss ink). The letters stay, so colour is not the only carrier. */
-table.chain .bu-LB, table.chain .bu-SC { color: hsl(var(--pos-ink)); background: hsl(var(--pos) / 0.14); }
-table.chain .bu-SB, table.chain .bu-LU { color: hsl(var(--neg-ink)); background: hsl(var(--neg) / 0.13); }
-table.chain .bu-SC, table.chain .bu-LU { box-shadow: inset 0 0 0 1px currentColor; background: transparent; }
-table.chain .hot { font-weight: 700; color: hsl(var(--dv-iv-ink)); }
-table.chain .warn-ink { color: hsl(var(--warn-ink)); }
+table.chain tbody tr:focus-visible:not(.focus) th { box-shadow: inset 0 0 0 2px hsl(var(--c-atm) / 0.7); }
+table.chain td.itm { background-color: var(--itm-wash); }
+table.chain tr.in-em > th.strike-col { background-image: linear-gradient(var(--em-wash), var(--em-wash)); }
+table.chain tr.em-edge > th.strike-col { box-shadow: inset 2px 0 0 hsl(var(--c-atm) / 0.5), inset -1px 0 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+table.chain tr.atm > th.strike-col { background-image: linear-gradient(hsl(var(--c-atm) / 0.12), hsl(var(--c-atm) / 0.12)); transition: background-image 200ms var(--ease-out); }
+table.chain tr.atm .strike-col .k { color: hsl(var(--c-atm-ink)); }
+@media (hover: hover) and (pointer: fine) { table.chain tbody tr:not(.spot-row):hover > td { background-image: linear-gradient(var(--mat-fill-1), var(--mat-fill-1)); } }
+table.chain tr.focus > td, table.chain tr.focus > th { box-shadow: inset 0 1.5px 0 hsl(var(--c-atm)), inset 0 -1.5px 0 hsl(var(--c-atm)); }
+table.chain td.fside { background-image: linear-gradient(hsl(var(--c-atm) / 0.07), hsl(var(--c-atm) / 0.07)); }
+table.chain tr.jump > td, table.chain tr.jump > th { animation: chain-jump 600ms var(--ease-out); }
+@keyframes chain-jump { from { box-shadow: inset 0 0 0 999px hsl(var(--c-atm) / 0.18); } }
+table.chain tr.row-in > * { animation: chain-row-in 180ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 8ms); }
+@keyframes chain-row-in { from { opacity: 0; } }
+
+/* Bars in line 2 (§4.1–4.3): OI in the side colour on one scale for both sides (the wall brightest, ringed); OI change
+   green / red; volume neutral. They grow away from the strike and resize from the old length (420 ms). */
+table.chain .vbar { display: block; width: 100%; min-width: 44px; height: 5px; border-radius: 3px; background: var(--mat-fill-1); overflow: hidden; }
+table.chain .vbar > span { display: block; width: 100%; height: 100%; border-radius: 3px; background: var(--c-neutral); transform-origin: right center; transition: transform 420ms var(--ease-out); }
+table.chain th.strike-col ~ td .vbar > span { transform-origin: left center; }
+table.chain .vbar.oi.ce > span { background: hsl(var(--c-call) / var(--bar-a)); }
+table.chain .vbar.oi.pe > span { background: hsl(var(--c-put) / var(--bar-a)); }
+table.chain .vbar.oi.ce.r2 > span { background: hsl(var(--c-call) / 0.85); }
+table.chain .vbar.oi.pe.r2 > span { background: hsl(var(--c-put) / 0.85); }
+table.chain .vbar.oi.ce.r1 > span { background: hsl(var(--c-call)); }
+table.chain .vbar.oi.pe.r1 > span { background: hsl(var(--c-put)); }
+table.chain .vbar.oi.ce.r1 { box-shadow: 0 0 0 1px hsl(var(--c-call-ink) / 0.55); }
+table.chain .vbar.oi.pe.r1 { box-shadow: 0 0 0 1px hsl(var(--c-put-ink) / 0.55); }
+table.chain .vbar.pos > span { background: hsl(var(--pos) / 0.85); }
+table.chain .vbar.neg > span { background: hsl(var(--neg) / 0.85); }
+table.chain .vbar.vol { height: 3px; }
+/* Cell-fill heat (Customise → Bar style): side colour (OI) or the change's sign (OI chg), alpha a0 + a1·frac^0.75. */
+table.chain td.heat-call { background-color: hsl(var(--c-call) / calc(var(--heat-a0) + var(--heat-a1) * var(--hf, 0))); }
+table.chain td.heat-put { background-color: hsl(var(--c-put) / calc(var(--heat-a0) + var(--heat-a1) * var(--hf, 0))); }
+table.chain td.heat-pos { background-color: hsl(var(--pos) / calc(var(--heat-a0) + var(--heat-a1) * var(--hf, 0))); }
+table.chain td.heat-neg { background-color: hsl(var(--neg) / calc(var(--heat-a0) + var(--heat-a1) * var(--hf, 0))); }
+table.chain td:is(.heat-call, .heat-put, .heat-pos, .heat-neg) { transition: background-color 420ms var(--ease-out); }
+table.chain td:is(.heat-pos, .heat-neg) .l1 { color: hsl(var(--foreground)); }
+
+/* Build-up by meaning (§4.9): filled = new positions (LB, SB), outline = closing (SC, LU); green = price up. */
+table.chain .bu, .cs-m .bu { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 16px; padding: 0 4px; border-radius: 4px; font: 700 10px/1 var(--font-body); letter-spacing: 0.03em; cursor: help; }
+:is(table.chain, .cs-m) .bu-LB { color: hsl(var(--pos-ink)); background: hsl(var(--pos) / 0.16); }
+:is(table.chain, .cs-m) .bu-SB { color: hsl(var(--neg-ink)); background: hsl(var(--neg) / 0.16); }
+:is(table.chain, .cs-m) .bu-SC { color: hsl(var(--pos-ink)); box-shadow: inset 0 0 0 1px hsl(var(--pos) / 0.8); }
+:is(table.chain, .cs-m) .bu-LU { color: hsl(var(--neg-ink)); box-shadow: inset 0 0 0 1px hsl(var(--neg) / 0.8); }
+/* 16Δ / 30Δ: a superscript chip after the delta (no block of colour). */
+table.chain sup.dt { margin-left: 1px; font: 700 10px/1 var(--font-numeric); color: hsl(var(--c-atm-ink)); vertical-align: 4px; cursor: help; }
+table.chain .held { display: inline-flex; align-items: center; height: 16px; padding: 0 5px; border-radius: 4px; font: 700 10px/1 var(--font-numeric); }
+table.chain .held.long { color: hsl(var(--c-buy-ink)); background: hsl(var(--c-buy) / 0.16); }
+table.chain .held.short { color: hsl(var(--c-sell-ink)); background: hsl(var(--c-sell) / 0.16); }
 table.chain .liq { display: inline-flex; gap: 2px; }
 table.chain .liq i { width: 5px; height: 5px; border-radius: 99px; background: hsl(var(--foreground) / 0.14); }
 table.chain .liq i.on { background: hsl(var(--seq-4)); }
+table.chain .muted { color: hsl(var(--foreground) / var(--a-quiet)); }
+/* Multi-select tick (m): the contrast pair when on. */
+table.chain .pick { width: 14px; height: 14px; flex: none; border-radius: 4px; box-shadow: inset 0 0 0 1.5px hsl(var(--foreground) / 0.4); }
+table.chain .pick.on { background: hsl(var(--sel-bg)); box-shadow: none; -webkit-mask: none; position: relative; }
+table.chain .pick.on::after { content: ""; position: absolute; inset: 1px; background: hsl(var(--sel-fg)); -webkit-mask: var(--tick-mask) center / 12px 12px no-repeat; mask: var(--tick-mask) center / 12px 12px no-repeat; }
+
+/* LTP ticks: a calm tint (0.14) that fades in 600 ms; the shared dv-flash classes drive it. */
+table.chain td.dv-flash-up[data-flash="a"] { animation: chain-tick-up 600ms var(--ease-out); }
+table.chain td.dv-flash-up[data-flash="b"] { animation: chain-tick-up-b 600ms var(--ease-out); }
+table.chain td.dv-flash-down[data-flash="a"] { animation: chain-tick-down 600ms var(--ease-out); }
+table.chain td.dv-flash-down[data-flash="b"] { animation: chain-tick-down-b 600ms var(--ease-out); }
+@keyframes chain-tick-up { from { background-color: hsl(var(--pos) / 0.14); } }
+@keyframes chain-tick-up-b { from { background-color: hsl(var(--pos) / 0.14); } }
+@keyframes chain-tick-down { from { background-color: hsl(var(--neg) / 0.14); } }
+@keyframes chain-tick-down-b { from { background-color: hsl(var(--neg) / 0.14); } }
+
+/* Spot divider (§4.5): an 18 px row with a 1 px ATM-blue line and a neutral pill (spot in the foreground ink, the
+   change in gain / loss ink, the future quiet). It glides to a new gap (FLIP, 280 ms spring). */
 table.chain tr.spot-row { cursor: default; }
-table.chain tr.spot-row td { height: 20px; padding: 0; position: relative; text-align: center; background: none; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
-/* Spot row: a 1 px foreground rule with a raised capsule "NIFTY 26421.45 +1.85 (+0.01 %)" (change in gain / loss ink). */
-table.chain tr.spot-row td::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: hsl(var(--dv-spot) / 0.55); }
-table.chain .spot-tag { position: relative; z-index: 1; display: inline-block; padding: 4px 11px; border-radius: 99px; font: 600 11.5px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground)); background: var(--surface-raised); box-shadow: 0 0 0 1px hsl(var(--foreground) / 0.28), var(--shadow-1); white-space: nowrap; pointer-events: none; }
-table.chain .spot-tag { max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
-table.chain .spot-tag strong { color: hsl(var(--foreground)); font-weight: 700; }
+table.chain tr.spot-row td { height: 18px; padding: 0; position: relative; text-align: center; background: none; box-shadow: none; }
+table.chain tr.spot-row td.flip { transition: transform 280ms var(--ease-spring); }
+table.chain tr.spot-row td::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: hsl(var(--c-atm)); }
+table.chain .spot-tag { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 7px; height: 22px; max-width: calc(100% - 16px); padding: 0 11px; border-radius: 99px; overflow: hidden; vertical-align: middle; font: 600 11.5px/1 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; color: hsl(var(--foreground)); background: var(--mat-grouped-solid); box-shadow: 0 0 0 1px hsl(var(--c-atm)); pointer-events: none; }
+table.chain .spot-tag .sp-u { margin-right: -4px; font-weight: 600; color: hsl(var(--foreground) / var(--a-label)); }
+table.chain .spot-tag strong { font-weight: 700; color: hsl(var(--foreground)); }
 table.chain .spot-tag .up { color: hsl(var(--pos-ink)); }
 table.chain .spot-tag .down { color: hsl(var(--neg-ink)); }
+table.chain .spot-tag .fut { color: hsl(var(--foreground) / var(--a-quiet)); }
+
+/* Bid / Ask (§4.11): you sell at the bid (sell ink), buy at the ask (buy ink); hover or focus = a solid capsule with an
+   S / B prefix. */
+button.q-btn { min-height: 24px; padding: 0 6px; margin: 0 -6px; border-radius: 6px; font: 600 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; background: transparent; box-shadow: none; }
+button.q-btn.sell { color: hsl(var(--c-sell-ink) / 0.8); font-weight: 550; }
+button.q-btn.buy { color: hsl(var(--c-buy-ink) / 0.8); font-weight: 550; }
+button.q-btn:is(:hover, :focus-visible):not(:disabled) { color: #fff; }
+button.q-btn.buy:is(:hover, :focus-visible):not(:disabled) { background: hsl(var(--c-buy)); }
+button.q-btn.sell:is(:hover, :focus-visible):not(:disabled) { background: hsl(var(--c-sell)); }
+button.q-btn.buy:is(:hover, :focus-visible):not(:disabled)::before { content: "B"; margin-right: 5px; font-size: 10px; opacity: 0.85; }
+button.q-btn.sell:is(:hover, :focus-visible):not(:disabled)::before { content: "S"; margin-right: 5px; font-size: 10px; opacity: 0.85; }
+/* The hover B / S pair on the LTP cell (fine pointers). */
+.bs-cluster { position: absolute; z-index: 5; display: flex; gap: 3px; padding: 3px; border-radius: 99px; transform: translate(-100%, -50%); background: var(--surface-raised); box-shadow: 0 0 0 var(--hl) var(--mat-separator), var(--shadow-1); }
+.bs-cluster.at-right { transform: translate(0, -50%); }
+.bs-cluster[hidden] { display: none; }
+button.bs-btn { width: 22px; height: 22px; min-height: 22px; padding: 0; border-radius: 99px; font: 700 11px/1 var(--font-body); color: #fff; box-shadow: 0 1px 4px hsl(0 0% 0% / 0.3); }
+button.bs-btn.buy { background: hsl(var(--c-buy)); }
+button.bs-btn.sell { background: hsl(var(--c-sell)); }
+button.bs-btn:hover { filter: brightness(1.1); }
+
+/* The selection bar (multi-select), floating above the sticky totals. */
+.pick-bar { position: absolute; left: 50%; bottom: 46px; z-index: 6; display: flex; align-items: center; gap: 10px; max-width: calc(100% - 24px); padding: 6px 6px 6px 16px; border-radius: 99px; transform: translateX(-50%); background: var(--surface-raised); box-shadow: 0 0 0 var(--hl) var(--mat-separator), var(--shadow-float); }
+.pick-bar[hidden] { display: none; }
+.pick-text { font: 650 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pick-bar .segmented button { min-height: 30px; padding: 0 12px; }
+.pick-bar button.small { min-height: 32px; white-space: nowrap; }
+
+/* Chain head: one row (search, strikes, presets, OI-change window … hidden columns, Select, Customise). */
+.chain-head .chain-tools { flex: 1 1 auto; flex-wrap: nowrap; min-width: 0; }
+.chain-tools .tools-spacer { flex: 1 1 0; min-width: 0; }
+.chain-tools .win-seg[hidden], .hidden-chip[hidden] { display: none; }
+button.hidden-chip { flex: none; min-height: 30px; padding: 0 10px; font: 600 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-1); box-shadow: none; }
+button.select-btn { flex: none; min-height: 32px; gap: 6px; padding: 0 12px; font-size: 13px; background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); }
+button.select-btn svg { width: 15px; height: 15px; }
+button.select-btn[aria-pressed="true"] { color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); box-shadow: none; }
+.chain-tools button.gear-btn { margin-left: 0; }
+.strikes-pick { display: none; }
+.search-hint { position: absolute; top: calc(100% + 6px); left: 0; z-index: 8; padding: 6px 10px; border-radius: 8px; font: 500 12px/1.3 var(--font-body); white-space: nowrap; color: hsl(var(--neg-ink)); background: var(--surface-raised); box-shadow: 0 0 0 var(--hl) var(--mat-separator), var(--shadow-1); }
+.search-hint[hidden] { display: none; }
+input.strike-search[aria-invalid="true"] { box-shadow: inset 0 0 0 1px hsl(var(--neg)); }
+@media (max-width: 1279px) { .chain-head .chain-tools { flex-wrap: wrap; } .desk-keys { display: none; } .select-btn .gear-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } }
+/* Tablets: search folds to its icon and the presets to a select, so the head stays one row. */
+@media (max-width: 1023px) {
+  .chain-head .chain-tools { flex-wrap: nowrap; }
+  .chain-tools .preset-seg { display: none; }
+  .chain-tools select.preset-sel { display: block; flex: 0 1 auto; min-width: 0; }
+  .chain-tools .chain-search .search-btn { display: inline-flex; }
+  .chain-tools .chain-search :is(input.strike-search, .search-kbd) { display: none; }
+  .chain-tools .chain-search.open { flex: 1 1 auto; }
+  .chain-tools .chain-search.open .search-btn { display: none; }
+  .chain-tools .chain-search.open input.strike-search { display: block; width: 100%; }
+  .chain-search.open ~ :is(.strikes-seg, .preset-sel, .phone-side, .win-seg, .hidden-chip, .select-btn) { display: none; }
+}
+
+/* Expiry chips under the line (desktop and tablet). */
+.exp-strip { display: flex; gap: 6px; padding: 8px 12px 0; overflow-x: auto; scrollbar-width: none; }
+.exp-strip::-webkit-scrollbar { display: none; }
+.exp-strip:empty { display: none; }
+button.exp-chip { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 11px; border-radius: 99px; font: 650 12.5px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+button.exp-chip:not([aria-pressed="true"]) { background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); }
+button.exp-chip .ec-t { font: 500 11.5px/1 var(--font-numeric); opacity: 0.75; }
+@media (max-width: 719px) { .exp-strip { display: none; } }
+
+/* Stale data (§8): the table dims (0.7, shared), and a 2 px amber bar runs along the top of the panel. */
+#content[data-stale] .chain-panel::before { content: ""; position: absolute; top: 0; left: 0; right: 0; z-index: 8; height: 2px; background: hsl(var(--warn)); }
+
+/* Loading: a skeleton shaped like the chain (header, strike rows with a figure and a bar slot, totals). */
+.chain-skel { padding: 0 12px 10px; }
+.sk-head { display: flex; gap: 12px; padding: 12px 0 10px; box-shadow: inset 0 -1px 0 var(--mat-separator); }
+.sk-head i { flex: 1; height: 10px; border-radius: 4px; }
+.sk-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px minmax(0, 1fr); align-items: center; height: 40px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+.sk-side { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding: 0 10px; }
+.sk-cell { display: grid; gap: 6px; justify-items: end; }
+.sk-side + .sk-strike + .sk-side .sk-cell { justify-items: start; }
+.sk-fig { width: 64%; height: 9px; border-radius: 4px; }
+.sk-bar { width: 100%; height: 4px; border-radius: 2px; }
+.sk-strike { display: flex; align-items: center; justify-content: center; align-self: stretch; background: var(--surface-2); }
+.sk-k { width: 46px; height: 11px; border-radius: 4px; }
+.sk-foot { padding: 12px 0 0; }
+.sk-foot i { display: block; height: 12px; border-radius: 4px; }
+@media (max-width: 719px) { .sk-side { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sk-cell:nth-child(3) { display: none; } .sk-row { grid-template-columns: minmax(0, 1fr) 68px minmax(0, 1fr); } }
+
+/* KPI strip (§3.2): seven tiles of 56 px with micro-visuals; values never truncate (the sub line does). Desktop one
+   row; below 1280 one snapping row that scrolls inside itself. */
+.desk-stats.sum-strip.chain-kpis { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.chain-kpis .desk-stat { position: relative; min-height: 56px; gap: 2px; padding: 7px 12px 7px 14px; }
+.chain-kpis .desk-stat .label { font-size: 11px; }
+.chain-kpis .desk-stat .value { font: 700 16px/1.15 var(--font-numeric); overflow: visible; text-overflow: clip; }
+.chain-kpis .desk-stat .sub { font-size: 11px; }
+.chain-kpis .desk-stat.has-mv .mv { position: absolute; right: 12px; top: 22px; width: 64px; height: 16px; }
+.chain-kpis .desk-stat .value.ink-call { color: hsl(var(--c-call-ink)); }
+.chain-kpis .desk-stat .value.ink-put { color: hsl(var(--c-put-ink)); }
+.mv-svg { display: block; overflow: visible; }
+.mv-track { fill: var(--mat-fill-2); }
+.mv-band { fill: hsl(var(--foreground) / 0.22); }
+.mv-spot { fill: hsl(var(--c-atm)); }
+.mv-mp { fill: hsl(var(--foreground) / 0.6); }
+.mv-call { fill: hsl(var(--c-call)); }
+.mv-put { fill: hsl(var(--c-put)); }
+.mv-mid { fill: hsl(var(--foreground) / 0.45); }
+@media (max-width: 1279px) {
+  .desk-stats.sum-strip.chain-kpis { display: flex; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent); }
+  .desk-stats.sum-strip.chain-kpis::-webkit-scrollbar { display: none; }
+  .chain-kpis .desk-stat { flex: 0 0 152px; scroll-snap-align: start; }
+}
+@media (max-width: 719px) {
+  .chain-kpis .desk-stat { flex: 0 0 128px; min-height: 52px; padding: 6px 10px 6px 12px; }
+  .chain-kpis .desk-stat.has-mv .mv { right: 10px; top: 21px; width: 48px; }
+  .chain-kpis .desk-stat.has-mv .mv svg { width: 48px; }
+}
+
+/* Customise: sections with eyebrows, the fit note, preset chips in the contrast colour, a Bar style capsule. */
+.pop-body .fit-note { margin: 0 0 8px; font: 500 12px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.pop-body .fit-note strong { font-weight: 650; color: hsl(var(--foreground) / var(--a-label)); }
+.pop-body .preset-row { gap: 6px; }
+.pop-body button.preset-chip { min-height: 30px; padding: 0 12px; border-radius: 99px; }
+.pop-body .preset-custom { align-self: center; padding: 0 8px; font: 600 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.col-row.cut { color: hsl(var(--foreground) / var(--a-label)); }
+.col-cut { font: 500 11px/1 var(--font-body); color: hsl(var(--warn-ink)); }
+.pop-body .seg-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; font: 500 13.5px/1.25 var(--font-body); }
+.pop-body .seg-field .segmented { width: auto; }
+
+/* Phones: one head row — search, Calls | Puts | Both, the strikes menu, Customise. */
+@media (max-width: 719px) {
+  table.chain th, table.chain td { padding: 0 6px; }
+  table.chain th:first-child, table.chain td:first-child { padding-left: 10px; }
+  table.chain th:last-child, table.chain td:last-child { padding-right: 10px; }
+  table.chain .strike-col { width: 68px; min-width: 68px; }
+  table.chain .vbar { min-width: 36px; }
+  .strikes-pick { position: relative; display: inline-flex; align-items: center; gap: 4px; flex: none; height: 44px; padding: 0 12px; border-radius: 999px; font: 650 13px/1 var(--font-numeric); background: var(--seg-track); }
+  .strikes-pick::after { content: ""; width: 12px; height: 12px; background: hsl(var(--foreground) / var(--a-label)); -webkit-mask: var(--chev-mask) center / 12px 12px no-repeat; mask: var(--chev-mask) center / 12px 12px no-repeat; }
+  .strikes-pick select { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; opacity: 0; font-size: 16px; }
+  .chain-tools button.select-btn, .chain-tools .hidden-chip, .chain-tools .tools-spacer, .chain-tools select.preset-sel { display: none; }
+  .chain-head .chain-tools { gap: 6px; }
+  .phone-side { gap: 6px; }
+  .phone-side .segmented button { padding: 0 8px; }
+  .strikes-pick { padding: 0 10px; }
+  .chain-search.open ~ .strikes-pick { display: none; }
+  .pick-bar { bottom: 44px; gap: 6px; padding-left: 12px; }
+}
+@media (pointer: coarse) {
+  button.select-btn, button.hidden-chip, button.exp-chip { min-height: 44px; }
+  table.chain thead tr.side-head th { height: 44px; }
+  table.chain thead tr.col-head th { top: 44px; }
+  table.chain thead tr.col-head.first th { top: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  table.chain .tag.pop, table.chain tr.row-in > *, table.chain tr.jump > *, table.chain td.dv-flash-up, table.chain td.dv-flash-down { animation: none; }
+  table.chain .vbar > span, table.chain tr.spot-row td.flip, table.chain tr.atm > th.strike-col, table.chain td:is(.heat-call, .heat-put, .heat-pos, .heat-neg) { transition: none; }
+}
 
 /* Panel heads (chain), Customise popover, value bars. */
 .panel-head { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px 14px; flex-wrap: wrap; padding: 8px 12px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
@@ -1607,40 +1899,7 @@ button.gear-btn[aria-expanded="true"] { background: var(--mat-fill-2); }
 .icon-btn.tiny { width: 26px; height: 26px; min-height: 26px; padding: 0; border-radius: 7px; background: transparent; box-shadow: none; }
 .icon-btn.tiny svg { width: 14px; height: 14px; }
 .icon-btn.tiny:disabled { opacity: 0.25; }
-table.chain .side-btn { min-height: 22px; padding: 0 8px; border-radius: 6px; background: transparent; box-shadow: none; font: 700 11px/1 var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; color: hsl(var(--foreground) / var(--a-label)); }
-table.chain .side-btn:hover { background: var(--mat-fill-2); color: hsl(var(--foreground)); }
-table.chain.side-ce .strike-col, table.chain.side-pe .strike-col, table.chain.side-none .strike-col { min-width: 82px; width: 96px; }
-table.chain .barred { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 50px; }
-table.chain .vbar { display: block; width: 100%; height: 3px; border-radius: 2px; background: var(--mat-fill-1); overflow: hidden; }
-table.chain .vbar > span { display: block; width: 100%; height: 100%; border-radius: 2px; background: hsl(var(--foreground) / 0.3); transform-origin: right center; }
-table.chain .vbar > span { transition: transform var(--dur-3) var(--ease-std); }
-/* OI bars: calls blue, puts orange at --dv-bar-a (full on white so they hold 3:1); the walls at full strength, the
-   top wall in the side's deeper ink (darker on white, brighter on black), so emphasis is saturation, not fading. */
-table.chain .vbar.oi > span { background: hsl(var(--dv-call) / var(--dv-bar-a)); }
-table.chain td.s-pe .vbar.oi > span { background: hsl(var(--dv-put) / var(--dv-bar-a)); }
-table.chain .vbar.oi.wall > span { background: hsl(var(--dv-call-ink)); }
-table.chain td.s-pe .vbar.oi.wall > span { background: hsl(var(--dv-put-ink)); }
-table.chain .vbar.oi.wall2 > span { background: hsl(var(--dv-call)); }
-table.chain td.s-pe .vbar.oi.wall2 > span { background: hsl(var(--dv-put)); }
-table.chain .vbar.pos > span { background: hsl(var(--pos)); }
-table.chain .vbar.neg > span { background: hsl(var(--neg)); }
-table.chain .vbar.vol > span { background: hsl(var(--dv-iv) / 0.6); }
-/* Bars grow away from the strike: right-aligned on the call side, left-aligned on the put side. */
-table.chain tbody tr > th.strike-col ~ td .barred { align-items: flex-start; }
-table.chain tbody tr > th.strike-col ~ td .vbar > span { transform-origin: left center; }
-table.chain .held { display: inline-block; margin-right: 6px; padding: 1px 5px; border-radius: 4px; font: 700 10px/1.3 var(--font-numeric); vertical-align: 1px; }
-table.chain .held.long { color: hsl(var(--pos-ink)); background: hsl(var(--pos) / 0.14); }
-table.chain .held.short { color: hsl(var(--neg-ink)); background: hsl(var(--neg) / 0.13); }
-table.chain.dense { --desk-row: 28px; }
-table.chain.dense .two small, table.chain.dense .vbar { display: none; }
-table.chain.dense .barred { gap: 0; }
-
-/* Bid / ask: quiet until you point at them. Buy blue, sell pink (actions, not gain / loss). */
-button.q-btn { min-height: 24px; padding: 0 6px; margin: 0 -6px; border-radius: 6px; font: 600 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; background: transparent; box-shadow: none; }
-button.q-btn { color: hsl(var(--foreground) / 0.86); }
-button.q-btn.buy:hover, button.q-btn.buy:focus-visible { color: #fff; background: hsl(var(--ios-blue-fill)); }
-button.q-btn.sell:hover, button.q-btn.sell:focus-visible { color: #fff; background: hsl(var(--ios-pink-ink)); }
-.desk-keys { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 8px 12px; font: 500 11.5px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+.desk-keys { display: flex; align-items: center; flex-wrap: nowrap; overflow: hidden; height: 30px; gap: 6px 10px; padding: 0 12px; font: 500 11.5px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
 .desk-keys .kbd-pair { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .desk-keys kbd { min-width: 18px; height: 18px; padding: 0 5px; font-size: 10.5px; box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
@@ -1700,7 +1959,25 @@ dialog.chain-sheet::backdrop { background: hsl(240 20% 4% / 0.38); }
 .cs-pos .up { color: hsl(var(--ios-green-ink)); }
 .cs-pos .down { color: hsl(var(--ios-red-ink)); }
 .cs-trade { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-.cs-trade button { min-height: 48px; padding: 0 10px; font: 650 15px/1 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.cs-trade button { min-height: 48px; padding: 0 10px; font: 650 15px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: #fff; box-shadow: none; }
+/* Buy / sell are solid (§7): buy blue, sell red; never pink. */
+.cs-trade button.cs-buy { background: hsl(var(--c-buy)); }
+.cs-trade button.cs-sell { background: hsl(var(--c-sell)); }
+.cs-trade button:hover:not(:disabled) { filter: brightness(1.08); }
+.cs-trade button:disabled { color: hsl(var(--foreground) / var(--a-quiet)); background: var(--mat-fill-2); }
+.cs-acct { padding-top: 8px; }
+.acct-pick-row { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; font: 500 12.5px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.acct-pick-k { white-space: nowrap; }
+select.acct-pick { width: auto; min-width: 0; max-width: 220px; min-height: 32px; padding: 0 30px 0 12px; border-radius: 99px; font: 600 13px/1 var(--font-body); text-overflow: ellipsis; }
+.cs-groups { display: flex; flex-direction: column; gap: 12px; }
+.cs-group h3 { margin: 0 0 6px; font: 650 11px/1.2 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--foreground) / var(--a-quiet)); }
+.cs-m dd.sell-ink { color: hsl(var(--c-sell-ink)); }
+.cs-m dd.buy-ink { color: hsl(var(--c-buy-ink)); }
+.cs-bar { display: block; height: 4px; margin-top: 5px; border-radius: 2px; background: var(--mat-fill-2); overflow: hidden; }
+.cs-bar > span { display: block; height: 100%; border-radius: 2px; transform-origin: left center; transition: transform 420ms var(--ease-out); }
+.cs-m dd.oi-call .cs-bar > span { background: hsl(var(--c-call)); }
+.cs-m dd.oi-put .cs-bar > span { background: hsl(var(--c-put)); }
+.cs-chart-slot { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 96px; border-radius: var(--r-md); font: 500 12.5px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); outline: max(1px, var(--hl)) dashed hsl(var(--foreground) / 0.22); outline-offset: -1px; background: var(--mat-fill-1); }
 .cs-reason { margin: -4px 0 0; font: 500 12.5px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .cs-reason[hidden] { display: none; }
 .cs-more { display: flex; gap: 8px; }
@@ -1709,9 +1986,9 @@ dialog.chain-sheet::backdrop { background: hsl(240 20% 4% / 0.38); }
 .cs-m { min-width: 0; padding: 8px 10px; box-shadow: inset calc(-1 * var(--hl)) 0 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 .cs-m dt { margin-bottom: 4px; font: 600 10.5px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .cs-m dd { margin: 0; font: 650 13.5px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.cs-m dd.up { color: hsl(var(--ios-green-ink)); }
-.cs-m dd.down { color: hsl(var(--ios-red-ink)); }
-.cs-m dd.warn-ink { color: hsl(var(--ios-orange-ink)); }
+.cs-m dd.up { color: hsl(var(--pos-ink)); }
+.cs-m dd.down { color: hsl(var(--neg-ink)); }
+.cs-m dd.warn-ink { color: hsl(var(--warn-ink)); }
 .cs-warns[hidden] { display: none; }
 @media (min-width: 720px) {
   dialog.chain-sheet { inset: 12px 12px 12px auto; width: 380px; max-height: none; height: auto; padding-bottom: 0; border-radius: var(--r-lg); }
@@ -1723,7 +2000,7 @@ dialog.chain-sheet::backdrop { background: hsl(240 20% 4% / 0.38); }
 @media (pointer: coarse) {
   .cs-side button, .cs-more button { min-height: 44px; }
   .icon-btn.cs-close { width: 44px; height: 44px; min-height: 44px; }
-  table.chain, table.chain.dense { --desk-row: 44px; }
+  table.chain, table.chain.dense { --desk-row: 48px; }
   .atm-pill { min-height: 44px; }
   input.strike-search, select.preset-sel, .chain-search .search-btn { min-height: 44px; }
   .chain-tools .segmented button, button.gear-btn { min-height: 44px; }
@@ -1795,8 +2072,8 @@ button.preset:hover { background: var(--mat-fill-1); }
 .ticket-quote { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-radius: var(--r-md); box-shadow: 0 0 0 var(--hl) var(--mat-separator); overflow: hidden; }
 .ticket-quote > span { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; font: 650 14px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; box-shadow: calc(-1 * var(--hl)) 0 0 var(--mat-separator); }
 .ticket-quote small { font: 600 10.5px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
-.ticket-quote .bid { color: hsl(var(--ios-pink-ink)); }
-.ticket-quote .ask { color: hsl(var(--ios-blue-ink)); }
+.ticket-quote .bid { color: hsl(var(--c-sell-ink)); }
+.ticket-quote .ask { color: hsl(var(--c-buy-ink)); }
 .ticket-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: end; }
 .price-row { display: flex; gap: 8px; align-items: center; }
 .price-row input { flex: 1 1 auto; font: 650 16px/1 var(--font-numeric); font-variant-numeric: tabular-nums; }
@@ -1817,12 +2094,11 @@ button.preset:hover { background: var(--mat-fill-1); }
 .ticket-checks .warn .dot { background: hsl(var(--ios-orange)); }
 .ticket-acct { display: inline-flex; flex-wrap: wrap; align-items: center; column-gap: 4px; min-height: 40px; font: 600 14px/1.2 var(--font-body); color: hsl(var(--foreground)); }
 .live-ack { padding: 10px 12px; border-radius: var(--r-sm); background: hsl(var(--ios-red) / 0.08); color: hsl(var(--ios-red-ink)); font-weight: 600; }
-button.primary.sell { background: hsl(var(--ios-pink-ink)); box-shadow: 0 6px 18px hsl(var(--ios-pink) / 0.28), inset 0 1px 0 hsl(0 0% 100% / 0.2); }
+button.primary.sell { background: hsl(var(--c-sell)); box-shadow: 0 6px 18px hsl(var(--c-sell) / 0.24), inset 0 1px 0 hsl(0 0% 100% / 0.2); }
 
 @media (max-width: 1023px) {
   .builder { grid-template-columns: minmax(0, 1fr); }
   .desk-split { grid-template-columns: minmax(0, 1fr); }
-  table.chain .opt-x { display: none; }
   table.chain { font-size: 12.5px; }
   table.chain th, table.chain td { padding: 0 4px; }
   table.chain th:first-child, table.chain td:first-child { padding-left: 8px; }
@@ -3613,11 +3889,7 @@ dialog.sheet.scr-sheet { height: min(90dvh, 900px); max-height: 90dvh; }
 table.chain tfoot th.strike-col { line-height: 1.1; }
 table.chain tfoot .foot-total { display: block; font: 650 11px/1.1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 table.chain tfoot .foot-pcr { white-space: nowrap; }
-table.chain tfoot td, table.chain tfoot th { height: 36px; }
 
-/* Non-colour cues: an ITM cell next to the strike carries a 2 px edge; ATM keeps its tag. */
-table.chain tr > td.itm:has(+ th.strike-col) { box-shadow: inset -2px 0 0 var(--itm-edge), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
-table.chain tr > th.strike-col + td.itm:not(.mid-col), table.chain tr > td.mid-col + td.itm:not(.mid-col) { box-shadow: inset 2px 0 0 var(--itm-edge), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 
 /* Ticket: five compact quote cells on phones; account and badge on one line. */
 .ticket-acct.one-line { flex-wrap: nowrap; min-width: 0; gap: 8px; }

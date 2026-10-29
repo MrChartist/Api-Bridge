@@ -2168,3 +2168,34 @@ describe("colour scales (seqStep, divStep, scaleRange)", () => {
     expect(A.scaleRange([-4, 2, null, Number.NaN]).m).toBeCloseTo(3.9, 6);
   });
 });
+
+describe("chain round 2 helpers", () => {
+  it("heatAlpha follows a0 + a1·frac^0.75, clamped", () => {
+    expect(A.heatAlpha(0)).toBe(0);
+    expect(A.heatAlpha(null)).toBe(0);
+    expect(A.heatAlpha(1)).toBeCloseTo(0.48, 9);
+    expect(A.heatAlpha(2)).toBeCloseTo(0.48, 9);
+    expect(A.heatAlpha(0.5, 0.05, 0.32)).toBeCloseTo(0.05 + 0.32 * 0.5 ** 0.75, 9);
+    expect(A.heatShape(0.5)).toBeCloseTo(0.5 ** 0.75, 9);
+  });
+  it("strike PCR and straddle", () => {
+    const row = { strike: 100, ce: { oi: 200, bid: 4, ask: 6 }, pe: { oi: 300, ltp: 3 } };
+    expect(A.strikePcr(row)).toBeCloseTo(1.5, 9);
+    expect(A.strikePcr({ ce: { oi: 0 }, pe: { oi: 5 } })).toBeNull();
+    expect(A.strikeStraddle(row)).toBeCloseTo(8, 9);
+    expect(A.strikeStraddle({ ce: { ltp: 1 } })).toBeNull();
+  });
+  it("withOiWindow measures OI change against a snapshot", () => {
+    const chain = { rows: [{ strike: 100, ce: { oi: 150, ltp: 12, oiChange: 999, change: 5 }, pe: { oi: 80, ltp: 4 } }, { strike: 110, ce: { oi: 10, ltp: 1 }, pe: null }] };
+    const snap = { k: [100], co: [100], po: [100], cl: [10], pl: [5], cv: [null], pv: [null] };
+    const w = A.withOiWindow(chain, snap);
+    expect(w.rows[0].ce.oiChange).toBe(50);
+    expect(w.rows[0].ce.winChange).toBe(2);
+    expect(w.rows[0].ce.change).toBe(5);
+    expect(w.rows[0].pe.oiChange).toBe(-20);
+    expect(w.rows[1].ce.oiChange).toBe(10);
+    expect(w.rows[1].pe).toBeNull();
+    expect(A.withOiWindow(chain, null)).toBe(chain);
+    expect(chain.rows[0].ce.oiChange).toBe(999);
+  });
+});

@@ -4520,3 +4520,52 @@ export function scaleRange(values) {
   const v = (values ?? []).filter((x) => typeof x === "number" && Number.isFinite(x));
   return { lo: percentileOf(v, 0.05), hi: percentileOf(v, 0.95), m: percentileOf(v.map(Math.abs), 0.95) };
 }
+
+// ── Option chain round 2 (docs/design/chain.md) ──
+
+/**
+ * Heat-cell alpha for the chain's "Cell fill" bar style: a0 + a1 · frac^0.75 (frac clamped to 0..1). Dark uses
+ * a0 0.06 / a1 0.42, light 0.05 / 0.32; the curve lifts small values so mid-sized OI still reads. Missing → 0.
+ */
+export function heatAlpha(frac, a0 = 0.06, a1 = 0.42) {
+  const f = num(frac);
+  if (f === null || f <= 0) return 0;
+  return a0 + a1 * Math.min(1, f) ** 0.75;
+}
+/** frac^0.75 (clamped 0..1): the shape heatAlpha applies, for CSS to scale per theme. */
+export const heatShape = (frac) => {
+  const f = num(frac);
+  return f === null || f <= 0 ? 0 : Math.min(1, f) ** 0.75;
+};
+
+/** PCR at one strike: put OI ÷ call OI (null without both, or with no call OI). */
+export function strikePcr(row) {
+  const c = num(row?.ce?.oi);
+  const p = num(row?.pe?.oi);
+  return c === null || p === null || c <= 0 ? null : p / c;
+}
+
+/** The straddle at one strike: mid(CE) + mid(PE) (null when either side has no price). */
+export function strikeStraddle(row) {
+  const c = mid(row?.ce);
+  const p = mid(row?.pe);
+  return c === null || p === null ? null : c + p;
+}
+
+/**
+ * The chain with each leg's oiChange measured over a window instead of the day: OI now minus the OI in the reference
+ * snapshot `snap` (oi-store), and `winChange` the price change over the same window (build-up reads both). A strike the
+ * snapshot does not have keeps a null change. Without a snapshot the chain is returned as is.
+ */
+export function withOiWindow(chain, snap) {
+  if (!chain?.rows || !snap?.k) return chain;
+  const w = new Map(oiWindowRows(chain, snap).map((r) => [r.strike, r]));
+  return {
+    ...chain,
+    rows: chain.rows.map((r) => {
+      const o = w.get(r.strike);
+      const leg = (side) => (r[side] ? { ...r[side], oiChange: o?.[side]?.d ?? null, winChange: o?.[side]?.dLtp ?? null } : r[side]);
+      return { ...r, ce: leg("ce"), pe: leg("pe") };
+    }),
+  };
+}

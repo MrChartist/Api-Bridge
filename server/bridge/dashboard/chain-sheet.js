@@ -16,8 +16,10 @@ const rupees = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? "-"
 const pct = (p) => formatPercent(p === null || p === undefined ? null : p * 100, 0);
 
 /**
- * The metric grid for one leg: [label, value, class?]. Same formulas as the chain's columns.
- * @returns {Array<[string, string, string?]>}
+ * The metric groups for one leg (docs/design/chain.md §7): Price, Greeks, Odds and size, OI. Each item is
+ * [label, value, class?, bar?] where `bar` (0..1) draws a mini OI bar (share of the chain's largest OI). Same formulas
+ * as the chain's columns.
+ * @returns {Array<{ title: string, items: Array<[string, string, string?, number?]> }>}
  */
 export function sheetMetrics(q, row, side, x) {
   const right = side === "ce" ? "CE" : "PE";
@@ -34,25 +36,47 @@ export function sheetMetrics(q, row, side, x) {
   const ivx = iv !== null && atmIv !== null ? iv - atmIv : null;
   const bu = O.buildup(q);
   const chg = num(q?.oiChange);
+  const oi = num(q?.oi);
+  const maxOi = num(x?.sm?.maxOi);
   return [
-    ["Bid", g(q?.bid, 2)],
-    ["Ask", g(q?.ask, 2)],
-    ["Spread", formatPercent(sp, 1), sp > 10 ? "down" : sp > 5 ? "warn-ink" : undefined],
-    ["IV", g(iv, 1)],
-    ["IV − ATM", isFigure(ivx) ? formatSigned(ivx, 1) : DASH],
-    ["Delta", g(q?.delta, 2)],
-    ["Gamma", g(q?.gamma, 4)],
-    ["θ / lot", rupees(num(q?.theta) === null ? null : q.theta * lot)],
-    ["Vega", g(q?.vega, 1)],
-    ["OI", formatCompact(q?.oi)],
-    ["OI chg", formatCompact(chg, { signed: true }), chg > 0 ? "up" : chg < 0 ? "down" : undefined],
-    ["Volume", formatCompact(q?.volume)],
-    ["Breakeven", be === null ? DASH : `${formatInt(be)}${move === null ? "" : ` (${formatSigned(move, 1)}%)`}`],
-    ["PoP buy", pct(pop)],
-    ["P(ITM)", pct(pitm)],
-    ["Prem / lot", rupees(P === null ? null : P * lot)],
-    ["Lot", formatInt(lot)],
-    ["Build-up", bu ? O.BUILDUP_NAMES[bu] : DASH],
+    {
+      title: "Price",
+      items: [
+        ["Bid", g(q?.bid, 2), "sell-ink"],
+        ["Ask", g(q?.ask, 2), "buy-ink"],
+        ["Spread", formatPercent(sp, 1), sp > 10 ? "down" : sp > 5 ? "warn-ink" : undefined],
+        ["IV", g(iv, 1)],
+        ["IV − ATM", isFigure(ivx) ? formatSigned(ivx, 1) : DASH],
+      ],
+    },
+    {
+      title: "Greeks",
+      items: [
+        ["Delta", g(q?.delta, 2)],
+        ["Gamma", g(q?.gamma, 4)],
+        ["θ / lot", rupees(num(q?.theta) === null ? null : q.theta * lot), num(q?.theta) < 0 ? "down" : undefined],
+        ["Vega", g(q?.vega, 1)],
+      ],
+    },
+    {
+      title: "Odds and size",
+      items: [
+        ["Breakeven", be === null ? DASH : `${formatInt(be)}${move === null ? "" : ` (${formatSigned(move, 1)}%)`}`],
+        ["PoP buy", pct(pop)],
+        ["P(ITM)", pct(pitm)],
+        ["Prem / lot", rupees(P === null ? null : P * lot)],
+        ["Lot", formatInt(lot)],
+      ],
+    },
+    {
+      title: "OI",
+      items: [
+        ["OI", formatCompact(oi), side === "ce" ? "oi-call" : "oi-put", oi !== null && maxOi ? oi / maxOi : null],
+        ["OI chg", formatCompact(chg, { signed: true }), chg > 0 ? "up" : chg < 0 ? "down" : undefined],
+        ["Volume", formatCompact(q?.volume)],
+        ["Build-up", bu ? O.BUILDUP_NAMES[bu] : DASH, bu ? `bu:${bu}` : undefined],
+      ],
+    },
   ];
 }
 
@@ -62,7 +86,7 @@ let current = null;
  * Open the sheet for one strike and side. Returns { update(), close(), strike, side }; opening another closes this.
  * @param {{ strike: number, side: "ce"|"pe", read: Function, onTrade: Function, onLeg: Function, onExit: Function, onClose: Function }} o
  */
-export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onClose }) {
+export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onClose, acct = null }) {
   current?.close();
   let s = side === "pe" ? "pe" : "ce";
   let closed = false;
@@ -80,21 +104,23 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
   const posText = h("span", { class: "cs-pos-text" });
   const exitBtn = h("button", { type: "button", class: "small cs-exit" }, "Exit");
   const pos = h("div", { class: "cs-pos", hidden: true }, posText, exitBtn);
-  const buyBtn = h("button", { type: "button", class: "primary cs-buy" });
-  const sellBtn = h("button", { type: "button", class: "primary sell cs-sell" });
+  const buyBtn = h("button", { type: "button", class: "cs-buy" });
+  const sellBtn = h("button", { type: "button", class: "cs-sell" });
   const reason = h("p", { class: "cs-reason", hidden: true });
   const legBuy = h("button", { type: "button", class: "small" }, "Add buy leg");
   const legSell = h("button", { type: "button", class: "small" }, "Add sell leg");
-  const chartBtn = h("button", { type: "button", class: "small cs-chart", disabled: true, title: "Chart engine slot: coming soon" }, "Chart");
-  const grid = h("dl", { class: "cs-grid" });
+  // The owner's chart engine plugs in here; until then a labelled placeholder (no fake chart).
+  const chartSlotEl = h("div", { class: "cs-chart-slot", role: "img", "aria-label": "Chart engine slot: price chart of this contract" }, h("span", { class: "chart-slot-kicker" }, "Chart engine slot"), h("span", {}, "Price chart of this contract"));
+  const grid = h("div", { class: "cs-groups" });
   const warns = h("ul", { class: "ticket-checks cs-warns", "aria-label": "Before you trade", hidden: true });
   const grab = h("div", { class: "cs-grab", "aria-hidden": "true" });
-  const head = h("div", { class: "cs-head" }, grab, h("div", { class: "cs-top" }, h("div", { class: "cs-name" }, title, h("div", { class: "cs-sub" }, quote, paused)), sideSeg, closeBtn));
+  // Header: the contract and CE | PE; then the price and, since the chain's line has no account picker, where orders go.
+  const head = h("div", { class: "cs-head" }, grab, h("div", { class: "cs-top" }, h("div", { class: "cs-name" }, title, h("div", { class: "cs-sub" }, quote, paused)), sideSeg, closeBtn), acct ? h("div", { class: "cs-acct" }, acct()) : null);
   const dlg = h(
     "dialog",
     { class: "chain-sheet", "aria-labelledby": titleId, tabindex: "-1" },
     head,
-    h("div", { class: "cs-body" }, pos, h("div", { class: "cs-trade" }, buyBtn, sellBtn), reason, h("div", { class: "cs-more" }, legBuy, legSell, chartBtn), grid, warns),
+    h("div", { class: "cs-body" }, pos, h("div", { class: "cs-trade" }, buyBtn, sellBtn), reason, h("div", { class: "cs-more" }, legBuy, legSell), grid, warns, chartSlotEl),
   );
 
   const state = () => read(strike, s) ?? {};
@@ -138,8 +164,8 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
     const ask = num(q?.ask);
     const bid = num(q?.bid);
     const why = !d.canTrade ? "Choose an account that can place orders" : !q ? "No quote for this contract" : "";
-    buyBtn.textContent = ask !== null ? `Buy at ${formatFixed(ask, 2)}` : "Buy";
-    sellBtn.textContent = bid !== null ? `Sell at ${formatFixed(bid, 2)}` : "Sell";
+    buyBtn.textContent = ask !== null ? `Buy ${formatFixed(ask, 2)}` : "Buy";
+    sellBtn.textContent = bid !== null ? `Sell ${formatFixed(bid, 2)}` : "Sell";
     buyBtn.setAttribute("aria-label", `Buy ${formatInt(strike)} ${right}${ask !== null ? ` at ${formatFixed(ask, 2)}` : ""}`);
     sellBtn.setAttribute("aria-label", `Sell ${formatInt(strike)} ${right}${bid !== null ? ` at ${formatFixed(bid, 2)}` : ""}`);
     buyBtn.disabled = Boolean(why);
@@ -148,19 +174,31 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
     sellBtn.title = why || (bid === null ? "No bid: the ticket starts at the last price" : "");
     reason.hidden = !why;
     if (reason.textContent !== why) reason.textContent = why;
-    // Metrics, patched cell by cell.
-    const m = q && row ? sheetMetrics(q, row, s, x) : [];
-    if (grid.children.length !== m.length * 1) {
-      grid.replaceChildren(...m.map(() => h("div", { class: "cs-m" }, h("dt", {}), h("dd", {}))));
+    // Metrics in groups, patched cell by cell (built once per shape).
+    const groups = q && row ? sheetMetrics(q, row, s, x) : [];
+    const shape = groups.map((gr) => `${gr.title}:${gr.items.length}`).join("|");
+    if (grid.__shape !== shape) {
+      grid.__shape = shape;
+      grid.replaceChildren(...groups.map((gr) => h("section", { class: "cs-group" }, h("h3", {}, gr.title), h("dl", { class: "cs-grid" }, gr.items.map(() => h("div", { class: "cs-m" }, h("dt", {}), h("dd", {})))))));
     }
-    m.forEach(([label, value, cls], i) => {
-      const cell = grid.children[i];
-      const sig = `${label}|${value}|${cls ?? ""}`;
-      if (cell.__sig === sig) return;
-      cell.__sig = sig;
-      cell.children[0].textContent = label;
-      cell.children[1].textContent = value;
-      cell.children[1].className = cls ?? "";
+    groups.forEach((gr, gi) => {
+      const dl = grid.children[gi]?.lastChild;
+      gr.items.forEach(([label, value, cls, frac], i) => {
+        const cell = dl?.children[i];
+        if (!cell) return;
+        const sig = `${label}|${value}|${cls ?? ""}|${frac ?? ""}`;
+        if (cell.__sig === sig) return;
+        cell.__sig = sig;
+        cell.children[0].textContent = label;
+        const dd = cell.children[1];
+        dd.className = cls && !cls.startsWith("bu:") ? cls : "";
+        if (frac !== undefined && frac !== null) {
+          const bar = h("span", { class: "cs-bar", "aria-hidden": "true" }, h("span"));
+          bar.firstChild.style.transform = `scaleX(${Math.max(0, Math.min(1, frac))})`;
+          dd.replaceChildren(h("span", {}, value), bar);
+        } else if (cls?.startsWith("bu:")) dd.replaceChildren(h("span", { class: `bu bu-${cls.slice(3)}` }, cls.slice(3)), ` ${value}`);
+        else dd.textContent = value;
+      });
     });
     // Warnings (advisory).
     const w = d.warnings ?? [];
