@@ -134,9 +134,11 @@ export function createUniverse(deps) {
       let spot = null;
       let opts = [];
       try {
-        const res = await symbols.search({ q: u, underlying: u, limit: 5 });
+        // An explicit exchange always: the free text `q` alone would read underlyings named BSE or MCX as exchange
+        // filters and drop every row.
+        const res = await symbols.search({ q: u, underlying: u, exchange: exchange === "BFO" ? "BSE" : "NSE", limit: 5 });
         spot = (res?.items ?? []).find((r) => r.underlying === u && (r.kind === "INDEX" || r.kind === "EQ")) ?? null;
-        opts = (await searchAll({ q: u, underlying: u, kind: "OPT", limit: PAGE })).filter((r) => r.underlying === u && r.expiry >= today);
+        opts = (await searchAll({ q: u, underlying: u, exchange, kind: "OPT", limit: PAGE })).filter((r) => r.underlying === u && r.expiry >= today);
       } catch {
         // skip this underlying
       }
@@ -215,7 +217,7 @@ export function createUniverse(deps) {
       let freezeQty = null;
       if (reference?.freezeFor && m.nearest) {
         try {
-          const sample = (await symbols?.search({ q: u, underlying: u, kind: "FUT", limit: 1 }))?.items?.[0]?.canonical;
+          const sample = (await symbols?.search({ q: u, underlying: u, exchange: m.exchange ?? "NFO", kind: "FUT", limit: 1 }))?.items?.[0]?.canonical;
           freezeQty = sample ? (await reference.freezeFor(sample))?.freezeQty ?? null : null;
         } catch {
           freezeQty = null;

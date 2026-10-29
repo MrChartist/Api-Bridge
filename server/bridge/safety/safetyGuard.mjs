@@ -487,7 +487,8 @@ export function createSafetyGuard(deps, opts = {}) {
       // F&O ban period (stock derivatives): orders supply heldQty only when the underlying is in ban.
       if ((action === "place" || action === "modify") && i.ban && i.ban.inBan === true && i.underlyingKind === "stock") {
         const side = order?.side === "SELL" ? "SELL" : "BUY";
-        const qty = finitePos(i.quantity) ? i.quantity : finitePos(order?.quantity) ? order.quantity : 0;
+        // A modify sends banQuantity: the order's unfilled remainder (the filled part is already in heldQty).
+        const qty = finitePos(i.banQuantity) ? i.banQuantity : finitePos(i.quantity) ? i.quantity : finitePos(order?.quantity) ? order.quantity : 0;
         const blockOpening = config?.fno?.ban?.blockOpening !== false;
         const c = fnoBanCheck({ underlying: i.underlying ?? order?.symbol ?? "This stock", side, qty, heldQty: i.heldQty ?? null, ban: i.ban, blockOpening });
         if (c?.severity === "block") block("FNO_BAN", "fnoBan", c.message);

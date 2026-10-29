@@ -26,7 +26,7 @@
 import { z } from "zod";
 import { PRIORITIES, isStub } from "../core/contracts.mjs";
 import { BridgeError, fromBrokerError, fromValidation } from "../core/errors.mjs";
-import { parseSymbol } from "../core/symbolFormat.mjs";
+import { EXCHANGES, parseSymbol } from "../core/symbolFormat.mjs";
 import { recordSaving as recordSavingGlobal } from "../ratelimit/scheduler.mjs";
 import { DEFAULT_RATE } from "../reference/defaults.mjs";
 import { createBatcher } from "./batcher.mjs";
@@ -893,7 +893,8 @@ export function createMarketDataService(deps) {
       let cursor;
       for (let page = 0; page < MASTER_MAX_PAGES; page += 1) {
         const q = { q: underlying, underlying, kind, limit: MASTER_PAGE_LIMIT };
-        if (exchange) q.exchange = exchange;
+        const ex = exchange ?? derivExchangeHint(underlying);
+        if (ex) q.exchange = ex;
         if (cursor) q.cursor = cursor;
         const res = await symbols.search(q);
         for (const r of res?.items ?? []) if (r?.underlying === underlying && r.expiry && r.expiry >= today) set.add(r.expiry);
@@ -997,12 +998,23 @@ export function createMarketDataService(deps) {
   // ── option chain ──
 
   /** Option legs for an underlying and expiry from the instrument master. */
+  /**
+   * Master searches pass the underlying as free text `q`, and the search reads exchange words as filters: an
+   * underlying named BSE or MCX (both NSE F&O stocks) would filter every row away. Such underlyings get an explicit
+   * derivatives exchange (the query's exchange wins over the parsed word).
+   */
+  const derivExchangeHint = (underlying) => (EXCHANGES.includes(String(underlying).toUpperCase()) ? defaultOptionExchange(underlying) : undefined);
+  /** The cash exchange of an underlying's spot row (always explicit: spot rows live only on NSE and BSE). */
+  const cashExchangeOf = (underlying) => (defaultOptionExchange(underlying) === "BFO" ? "BSE" : "NSE");
+
   async function masterLegs(underlying, expiry) {
     if (!usable(symbols)) return [];
     const legs = [];
     let cursor;
     for (let page = 0; page < MASTER_MAX_PAGES; page += 1) {
       const q = { q: underlying, underlying, kind: "OPT", expiry, limit: MASTER_PAGE_LIMIT };
+      const ex = derivExchangeHint(underlying);
+      if (ex) q.exchange = ex;
       if (cursor) q.cursor = cursor;
       const res = await symbols.search(q);
       for (const r of res?.items ?? []) {
@@ -1020,7 +1032,8 @@ export function createMarketDataService(deps) {
   async function chainMeta(underlying, expiry) {
     try {
       if (usable(symbols)) {
-        const res = await symbols.search({ q: underlying, underlying, kind: "OPT", expiry, limit: 1 });
+        const ex = derivExchangeHint(underlying);
+        const res = await symbols.search({ q: underlying, underlying, kind: "OPT", expiry, limit: 1, ...(ex ? { exchange: ex } : {}) });
         const r = res?.items?.[0];
         if (r) return { exchange: r.exchange, lotSize: Number.isFinite(r.lotSize) ? r.lotSize : null };
       }
@@ -1045,7 +1058,7 @@ export function createMarketDataService(deps) {
     try {
       if (usable(symbols)) {
         legs = await masterLegs(underlying, expiry);
-        const res = await symbols.search({ q: underlying, underlying, limit: 5 });
+        const res = await symbols.search({ q: underlying, underlying, exchange: cashExchangeOf(underlying), limit: 5 });
         const spot = (res?.items ?? []).find((r) => r?.underlying === underlying && (r.kind === "INDEX" || r.kind === "EQ"));
         if (spot) kind = spot.kind === "INDEX" ? "index" : "stock";
       }

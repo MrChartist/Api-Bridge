@@ -93,10 +93,11 @@ import { NotImplementedError } from "./errors.mjs";
  *   checks?: Array<{ code: string, message: string }> }} Verdict   checks: warnings that carry their own code (p1-06 ban rule)
  * @typedef {{ accountId: string, mode: "paper"|"live", action: "place"|"modify"|"cancel", order: OrderRequest | null,
  *   orderId?: string, source: string, keyId: string | null, quantity: number | null, value: number | null, ltp: number | null,
- *   underlyingKind?: "stock"|"index"|null, underlying?: string, heldQty?: number | null,
+ *   underlyingKind?: "stock"|"index"|null, underlying?: string, heldQty?: number | null, banQuantity?: number,
  *   ban?: { inBan: boolean, mwplPct?: number|null, forDate?: string|null } | null }} SafetyIntent
  *   underlyingKind/underlying/ban/heldQty (p1-06 §2.8): set for NFO/BFO derivatives; heldQty (signed units held in that
- *   contract, null when unreadable) only when the stock is in the F&O ban period.
+ *   contract, null when unreadable) only when the stock is in the F&O ban period. banQuantity (modify only): the
+ *   order's unfilled remainder, the quantity the ban rule weighs against heldQty.
  * @typedef {{ engaged: boolean, reason: string | null, by: string | null, at: string | null }} KillSwitchState
  * @typedef {{ type: string, actor: { kind: string, id: string }, source: string, accountId?: string | null, requestId?: string | null,
  *   data?: object }} AuditInput

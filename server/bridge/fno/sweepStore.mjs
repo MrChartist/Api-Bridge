@@ -81,11 +81,11 @@ export function createSweepStore(dir, { now = () => Date.now(), logger, memory =
       if (r.corrupt || r.tornTail) logger?.warn?.("fno: skipped unreadable sweep lines", { jobId, corrupt: r.corrupt, tornTail: r.tornTail });
       return { items: r.items.filter((x) => x && typeof x === "object" && typeof x.key === "string"), corrupt: r.corrupt, tornTail: r.tornTail };
     },
-    /** Keep only the newest `keep` job files (by modification time; `current` always kept). */
+    /** Keep `keep` job files in all (by modification time): `current` always, plus the newest others. */
     pruneJobs(keep, current = null) {
       if (!onDisk) {
-        const ids = [...mem.lines.keys()].reverse();
-        const keepIds = new Set(ids.slice(0, keep));
+        const ids = [...mem.lines.keys()].reverse().filter((id) => id !== current);
+        const keepIds = new Set(ids.slice(0, current ? Math.max(0, keep - 1) : keep));
         if (current) keepIds.add(current);
         for (const id of ids) if (!keepIds.has(id)) mem.lines.delete(id);
         return;
@@ -97,7 +97,8 @@ export function createSweepStore(dir, { now = () => Date.now(), logger, memory =
         names = [];
       }
       const withTime = names.map((n) => ({ n, id: JOB_FILE.exec(n)[1], t: statSync(join(sweepDir, n)).mtimeMs })).sort((a, b) => b.t - a.t || (a.n < b.n ? 1 : -1));
-      const keepIds = new Set(withTime.slice(0, keep).map((f) => f.id));
+      // `keep` files in all: the current job's plus the newest keep − 1 others (keepJobs 2 = current + previous).
+      const keepIds = new Set(withTime.filter((f) => f.id !== current).slice(0, current ? Math.max(0, keep - 1) : keep).map((f) => f.id));
       if (current) keepIds.add(current);
       for (const f of withTime) if (!keepIds.has(f.id)) rmSync(join(sweepDir, f.n), { force: true });
     },

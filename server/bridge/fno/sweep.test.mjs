@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { redact } from "../core/logger.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { createManualClock } from "../ratelimit/fake.mjs";
-import { T0, sweepHarness } from "./__fixtures__/sweepHarness.mjs";
+import { T0, fakeUniverse, legRows, sweepHarness } from "./__fixtures__/sweepHarness.mjs";
 
 const keysOf = (h) => {
   const out = [];
@@ -207,5 +207,93 @@ describe("store safety", () => {
     expect(files.length).toBeGreaterThanOrEqual(4);
     expect(tokenShaped("key mcb_abcdefgh12_secretpart")).toBe(true);
     for (const f of files) expect(tokenShaped(readFileSync(f, "latin1")), f).toBe(false);
+  });
+});
+
+describe("master lookups, ΔOI basis, HV sources, spot reads", () => {
+  /** A symbols fake with the real search's free-text rule: an exchange word in q filters unless exchange is given. */
+  const wordAwareSymbols = () => ({
+    async search(q) {
+      const word = ["NSE", "BSE", "NFO", "BFO", "MCX", "CDS"].includes(String(q.q).toUpperCase()) ? String(q.q).toUpperCase() : null;
+      const exchange = q.exchange ?? word;
+      return { items: q.kind === "OPT" && (!exchange || exchange === "NFO") ? legRows(q.underlying, q.expiry) : [], nextCursor: null };
+    },
+  });
+
+  it("stocks named BSE and MCX get their option legs (an explicit exchange beats the parsed word)", async () => {
+    const h = sweepHarness({ universe: fakeUniverse({ indices: [], stocks: ["BSE", "MCX"] }), symbols: wordAwareSymbols(), cfg: { sweep: { hv: { source: "off" } } } });
+    await h.sweeper.start({ method: "quotes" });
+    await h.settle();
+    expect(h.sweeper.current()).toMatchObject({ status: "done", progress: { done: 4, failed: 0 } });
+    expect(keysOf(h).keys.sort()).toEqual(["BSE|2026-11-23", "BSE|2026-12-29", "MCX|2026-11-23", "MCX|2026-12-29"]);
+  });
+
+  it("ΔOI on the quotes path uses the recorder's previous-day OI (basis recorder, §6.11 worked figure)", async () => {
+    const reads = [];
+    const recorder = {
+      async snapshots(p) {
+        reads.push(p);
+        // 18 Nov 15:29: 12,45,000 on every strike of the window
+        const k = Array.from({ length: 41 }, (_, i) => 1260 + i * 20);
+        return { snapshots: [{ slot: p.toMs - 60_000, k, ce: { oi: k.map(() => 1_245_000) }, pe: { oi: k.map(() => 1_245_000) } }] };
+      },
+    };
+    const calendar = () => ({ prevTradingDay: (d) => (d === "2026-11-19" ? "2026-11-18" : null) });
+    const h = sweepHarness({ universe: fakeUniverse({ indices: [], stocks: ["RELIANCE"] }), recorder, oi: 1_302_500, reference: { calendar }, cfg: { sweep: { hv: { source: "off" } } } });
+    await h.sweeper.start({ method: "quotes" });
+    await h.settle();
+    const line = h.sweeper.chains({ since: 0, limit: 40 }).items.find((x) => x.key === "RELIANCE|2026-11-23");
+    expect(line.method).toBe("quotes");
+    const leg = line.chain.rows[0].ce;
+    expect(leg).toMatchObject({ oiChange: 57_500, oiChangeBasis: "recorder" });
+    // one in-process read per key, ending at the previous trading day's close
+    expect(reads.length).toBe(2);
+    expect(reads[0]).toMatchObject({ underlying: "RELIANCE", expiry: "2026-11-23", toMs: Date.parse("2026-11-18T15:30:00+05:30"), fields: ["oi"] });
+  });
+
+  it("without a recorder the quotes path falls back to the day baseline", async () => {
+    const h = sweepHarness({ universe: fakeUniverse({ indices: [], stocks: ["RELIANCE"] }), cfg: { sweep: { hv: { source: "off" } } } });
+    await h.sweeper.start({ method: "quotes" });
+    await h.settle();
+    const line = h.sweeper.chains({ since: 0, limit: 40 }).items[0];
+    expect(line.chain.rows[0].ce.oiChangeBasis).toBe("day-baseline");
+  });
+
+  for (const source of ["backup", "auto"]) {
+    it(`hv.source "${source}": HV20 from the backup service's time-range history, no broker history call`, async () => {
+      const asked = [];
+      const backupData = {
+        status: () => ({ enabled: true }),
+        async history(p) {
+          asked.push(p);
+          const closes = Array.from({ length: 40 }, (_, i) => 100 * Math.exp(0.01 * Math.sin(i)));
+          return { candles: closes.map((close, i) => ({ time: Math.floor(p.fromMs / 1000) + i * 86_400, close })) };
+        },
+      };
+      const h = sweepHarness({ backupData, cfg: { sweep: { hv: { source } } } });
+      await h.sweeper.start({});
+      await h.settle();
+      const page = keysOf(h).page;
+      for (const u of ["NIFTY", "RELIANCE", "SBIN"]) expect(Number.isFinite(page.hv[u])).toBe(true);
+      expect(h.marketData.calls.filter((c) => c.kind === "history")).toHaveLength(0);
+      expect(asked[0]).toMatchObject({ interval: "1d", toMs: expect.any(Number) });
+      expect(asked[0].fromMs).toBeLessThan(asked[0].toMs);
+      expect(asked[0]).not.toHaveProperty("countback");
+    });
+  }
+
+  it("hv.source auto uses the broker when the backup service is off", async () => {
+    const backupData = { status: () => ({ enabled: false }), history: async () => ({ candles: [] }) };
+    const h = sweepHarness({ backupData });
+    await h.sweeper.start({});
+    await h.settle();
+    expect(h.marketData.calls.filter((c) => c.kind === "history")).toHaveLength(3);
+  });
+
+  it("the chain method reads no spots (each chain call carries its own)", async () => {
+    const h = sweepHarness({ cfg: { sweep: { hv: { source: "off" } } } });
+    await h.sweeper.start({ method: "chain" });
+    await h.settle();
+    expect(h.marketData.calls.filter((c) => c.kind === "quote")).toHaveLength(0);
   });
 });

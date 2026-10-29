@@ -51,7 +51,7 @@ export const legRows = (u, e) => STRIKES.flatMap((k) => ["CE", "PE"].map((right)
 /**
  * @param {{ scheduler: ReturnType<typeof windowScheduler>, clock: any, fail?: (kind: string, args: any) => Error | null }} o
  */
-export function fakeMarketData({ scheduler, clock, fail = () => null }) {
+export function fakeMarketData({ scheduler, clock, fail = () => null, oi = 50_000 }) {
   const calls = [];
   const take = (cls, cost, opts) => scheduler.take(cls, cost, { background: opts?.priority === "background" });
   return {
@@ -70,7 +70,7 @@ export function fakeMarketData({ scheduler, clock, fail = () => null }) {
       const e = fail("quote", list);
       if (e) throw e;
       take("quote", Math.ceil(list.length / scheduler.policy.maxQuoteBatch), opts);
-      return { items: list.map((symbol) => ({ symbol, ltp: symbol.startsWith("NSE:") ? 1652.3 : 12, bid: 11.9, ask: 12.1, oi: 50_000, volume: 10, close: 11, freshness: { source: "broker", accountId: "acc-1" } })), errors: [] };
+      return { items: list.map((symbol) => ({ symbol, ltp: symbol.startsWith("NSE:") ? 1652.3 : 12, bid: 11.9, ask: 12.1, oi, volume: 10, close: 11, freshness: { source: "broker", accountId: "acc-1" } })), errors: [] };
     },
     async history(p, opts) {
       calls.push({ kind: "history", p, opts, at: clock.now() });
@@ -103,20 +103,22 @@ export const fakeAccounts = (broker = "dhan") => ({
 });
 
 /** A sweeper wired to the fakes. */
-export function sweepHarness({ cfg = {}, dir = null, clock = createManualClock(T0), perSecond = 10, shared = false, broker = "dhan", fail, universe, bus, maxQuoteBatch } = {}) {
+export function sweepHarness({ cfg = {}, dir = null, clock = createManualClock(T0), perSecond = 10, shared = false, broker = "dhan", fail, universe, bus, maxQuoteBatch, symbols, recorder, backupData, oi, reference: refExtra = {} } = {}) {
   const scheduler = windowScheduler(clock, { perSecond, shared, broker, maxQuoteBatch });
-  const marketData = fakeMarketData({ scheduler, clock, fail });
+  const marketData = fakeMarketData({ scheduler, clock, fail, oi });
   const events = [];
   const store = createSweepStore(dir, { now: () => clock.now(), memory: !dir });
-  const reference = { session: () => ({ state: "OPEN", open: "09:15", close: "15:30" }), rate: () => ({ value: 0.065 }) };
+  const reference = { session: () => ({ state: "OPEN", open: "09:15", close: "15:30" }), rate: () => ({ value: 0.065 }), ...refExtra };
   const sweeper = createSweeper({
     cfg: parseFnoConfig(cfg),
     clock,
     scheduler,
     accounts: fakeAccounts(broker),
     marketData,
-    symbols: fakeSymbols(),
+    symbols: symbols ?? fakeSymbols(),
     reference,
+    recorder,
+    backupData,
     universe: universe ?? fakeUniverse(),
     store,
     bus: bus ?? { emit: (topic, payload) => events.push({ topic, payload, at: clock.now() }) },

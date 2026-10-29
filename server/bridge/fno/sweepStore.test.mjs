@@ -44,7 +44,7 @@ describe("sweep store", () => {
     expect(readdirSync(join(dir, "sweep")).filter((n) => n.includes(".tmp"))).toEqual([]);
   });
 
-  it("keeps only the newest keepJobs job files (and always the current one)", () => {
+  it("keeps keepJobs job files in all: the current one plus the newest others", () => {
     const dir = dirOf();
     const s = createSweepStore(dir);
     const ids = ["swp_1", "swp_2", "swp_3", "swp_4"];
@@ -54,7 +54,7 @@ describe("sweep store", () => {
       utimesSync(join(dir, "sweep", `${id}.ndjson`), t, t);
     });
     s.pruneJobs(2, "swp_1");
-    expect(readdirSync(join(dir, "sweep")).filter((n) => n.endsWith(".ndjson")).sort()).toEqual(["swp_1.ndjson", "swp_3.ndjson", "swp_4.ndjson"]);
+    expect(readdirSync(join(dir, "sweep")).filter((n) => n.endsWith(".ndjson")).sort()).toEqual(["swp_1.ndjson", "swp_4.ndjson"]);
   });
 
   it("dated retention for oi-base and hv", () => {

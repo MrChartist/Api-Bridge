@@ -760,13 +760,20 @@ export function createOrderService(deps) {
   // ───────────────────────────── stock derivatives (p1-06) ─────────────────────────────
 
   const kindCache = new Map();
-  /** "stock" | "index" | null for an underlying, from the master's spot row (INDEX vs EQ), else the reference universe. */
+  /** An unknown kind (master still loading, reference not built) is retried after this long, never kept for good. */
+  const UNKNOWN_KIND_TTL_MS = 60_000;
+  /**
+   * "stock" | "index" | null for an underlying, from the master's spot row (INDEX vs EQ), else the reference universe.
+   * The spot search names its cash exchange: free text alone would read an underlying named BSE or MCX as an
+   * exchange filter and find nothing.
+   */
   async function underlyingKindOf(underlying, exchange) {
     const key = `${exchange}|${underlying}`;
-    if (kindCache.has(key)) return kindCache.get(key);
+    const hit = kindCache.get(key);
+    if (hit && (hit.kind !== null || now() - hit.at < UNKNOWN_KIND_TTL_MS)) return hit.kind;
     let kind = null;
     try {
-      const res = await deps.symbols.search({ q: underlying, underlying, limit: 5 });
+      const res = await deps.symbols.search({ q: underlying, underlying, exchange: exchange === "BFO" ? "BSE" : "NSE", limit: 5 });
       const spot = (res?.items ?? []).find((r) => r?.underlying === underlying && (r.kind === "INDEX" || r.kind === "EQ"));
       if (spot) kind = spot.kind === "INDEX" ? "index" : "stock";
     } catch {
@@ -780,7 +787,8 @@ export function createOrderService(deps) {
         kind = null;
       }
     }
-    kindCache.set(key, kind);
+    kindCache.delete(key);
+    kindCache.set(key, { kind, at: now() });
     if (kindCache.size > 500) kindCache.delete(kindCache.keys().next().value);
     return kind;
   }
@@ -837,32 +845,40 @@ export function createOrderService(deps) {
     let heldQty = null;
     const inBan = ban?.inBan === true;
     if (inBan) heldQty = await heldQtyOf(summary, resolved.canonical, { wantsLive, readLivePositions });
-    if (physical && resolved.kind === "OPT") await physicalSettlementCheck(body, resolved, heldQty, checks).catch(() => {});
+    // The delivery warning is for opening orders only (§3.7). Inside the window, a paper order's holding is read from
+    // the engine (memory, no broker cost); a live order's stays unknown unless the ban already read it.
+    const heldForWarning = async () => (heldQty !== null || wantsLive ? heldQty : heldQtyOf(summary, resolved.canonical, { wantsLive, readLivePositions }));
+    if (physical && resolved.kind === "OPT") await physicalSettlementCheck(body, resolved, heldForWarning, checks).catch(() => {});
     return { underlyingKind: "stock", ban: inBan ? { inBan: true, mwplPct: ban.mwplPct ?? null, forDate: ban.forDate ?? null, band: ban.band ?? "ban", source: ban.source ?? null } : ban ? { inBan: false } : null, heldQty };
   }
 
   /**
-   * Ban inputs for a modify that changes the quantity of an order in a stock derivative (p1-06 §2.8): the new quantity
-   * is checked like a new order. Empty when the order is not a stock derivative or nothing can be read.
+   * Ban inputs for a modify that raises the quantity of an order in a stock derivative (p1-06 §2.8), the same rule on
+   * paper and live. The held quantity already includes the order's filled part, so the order's signed effect is its
+   * unfilled remainder: new quantity − filled quantity (banQuantity). Empty when the quantity does not rise, nothing
+   * is left to fill, the order is not a stock derivative, or nothing can be read.
    */
   async function modifyBanIntent(ctx, accountId, orderId, quantity, live, liveOrder = null) {
     try {
       const o = liveOrder ?? (await deps.paper.order(accountId, orderId));
       if (!o?.symbol) return {};
+      if (!(Number(quantity) > Number(o.quantity))) return {};
+      const remaining = Number(quantity) - (Number(o.filledQuantity) || 0);
+      if (!(remaining > 0)) return {};
       const resolved = await deps.symbols.resolve(o.symbol);
       const summary = deps.accounts.get(accountId);
       let livePositions = null;
       const readLivePositions = () => (livePositions ??= brokerRead(accountId, "fetchPositions", [], "positions", { priority: "order" }));
-      const stock = await stockDerivativeContext({ side: o.side, quantity }, resolved, summary, { wantsLive: live, readLivePositions, checks: [], physical: false });
+      const stock = await stockDerivativeContext({ side: o.side, quantity: remaining }, resolved, summary, { wantsLive: live, readLivePositions, checks: [], physical: false });
       if (!stock) return {};
-      return { order: { symbol: o.symbol, side: o.side, quantity }, extra: { underlyingKind: stock.underlyingKind, underlying: resolved.underlying, ban: stock.ban, heldQty: stock.heldQty } };
+      return { order: { symbol: o.symbol, side: o.side, quantity }, extra: { underlyingKind: stock.underlyingKind, underlying: resolved.underlying, ban: stock.ban, heldQty: stock.heldQty, banQuantity: remaining } };
     } catch {
       return {};
     }
   }
 
   /** PHYSICAL_SETTLEMENT (warn): from E-4, an opening order in an ITM or close-to-money stock option. */
-  async function physicalSettlementCheck(body, resolved, heldQty, checks) {
+  async function physicalSettlementCheck(body, resolved, heldFor, checks) {
     const ref = referenceService();
     if (!ref || typeof ref.calendar !== "function") return;
     const warnFrom = config?.fno?.expiry?.warnFromTradingDays ?? 4;
@@ -871,12 +887,17 @@ export function createOrderService(deps) {
     if (!d.inWindow) return;
     const qty = Number(body.quantity ?? (body.lots ?? 0) * resolved.lotSize) || 0;
     const x = body.side === "BUY" ? qty : -qty;
-    if (heldQty !== null && Math.abs(heldQty + x) <= Math.abs(heldQty)) return; // closing
+    const heldQty = await heldFor();
+    // Closing (the ban rule's reading, §6.8): |n| ≤ |h| without crossing zero. A flip from long to short opens.
+    if (heldQty !== null) {
+      const n = heldQty + x;
+      if (Math.abs(n) <= Math.abs(heldQty) && (n === 0 || Math.sign(n) === Math.sign(heldQty))) return;
+    }
     const spot = await ltpOf(`${resolved.exchange === "BFO" ? "BSE" : "NSE"}:${resolved.underlying}`);
     if (spot === null) return;
     let step = null;
     try {
-      const res = await deps.symbols.search({ q: resolved.underlying, underlying: resolved.underlying, kind: "OPT", expiry: resolved.expiry, limit: 500 });
+      const res = await deps.symbols.search({ q: resolved.underlying, underlying: resolved.underlying, exchange: resolved.exchange, kind: "OPT", expiry: resolved.expiry, limit: 500 });
       step = strikeStepOf((res?.items ?? []).filter((r) => r.underlying === resolved.underlying).map((r) => r.strike));
     } catch {
       step = null;
@@ -893,7 +914,9 @@ export function createOrderService(deps) {
     }
     const what = ob.buyer ? `you buy ${ob.shares} ${resolved.underlying} at ${resolved.strike}` : `you deliver ${ob.shares} ${resolved.underlying} shares at ${resolved.strike}`;
     const margin = pct !== null ? ` Delivery margin today: ${pct} % (${d.day}).` : "";
-    checks.push({ code: "PHYSICAL_SETTLEMENT", message: `Physically settled: if ITM at expiry ${what} (₹${Math.round(ob.value)}).${margin}`, severity: "warn" });
+    // Unknown holding (live, not in ban): the order may be closing, so the obligation is stated as conditional.
+    const lead = heldQty === null ? "Physically settled: if this order opens a position and it is ITM at expiry," : "Physically settled: if ITM at expiry";
+    checks.push({ code: "PHYSICAL_SETTLEMENT", message: `${lead} ${what} (₹${Math.round(ob.value)}).${margin}`, severity: "warn" });
   }
 
   const publicInstrument = (r) =>
@@ -1403,7 +1426,7 @@ export function createOrderService(deps) {
         next = { ...next, ...m.order };
         mpPct = m.marketProtectionPct;
       }
-      const banIntent = changes.quantity !== undefined && changes.quantity > o.quantity ? await modifyBanIntent(ctx, o.accountId, orderId, next.quantity, true, o) : {};
+      const banIntent = changes.quantity !== undefined ? await modifyBanIntent(ctx, o.accountId, orderId, next.quantity, true, o) : {};
       const verdict = await deps.safety.check(ctx, {
         ...banIntent.extra,
         accountId: o.accountId,

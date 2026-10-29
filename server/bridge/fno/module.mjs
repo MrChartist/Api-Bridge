@@ -91,6 +91,7 @@ export function createFno(deps) {
     symbols,
     reference,
     backupData: optional(deps, "backupData"),
+    recorder: optional(deps, "recorder"),
     universe,
     store,
     demoBaseline,

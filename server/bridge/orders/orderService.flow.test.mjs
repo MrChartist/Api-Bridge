@@ -349,6 +349,60 @@ describe("F&O ban and physical settlement (p1-06 §2.8, §3.7)", async () => {
     expect(r.checks.find((c) => c.code === "BAN_DATA_UNAVAILABLE")).toMatchObject({ severity: "warn" });
   });
 
+  it("PHYSICAL_SETTLEMENT is for opening orders only: a paper SELL closing a held long ITM call gets no delivery warning", async () => {
+    const h = buildHarness({ instruments, prices, reference: reference(NOT_IN_BAN) });
+    h.paper.positions = async () => [{ symbol: SYM, netQty: 500, product: "MARGIN" }];
+    const close = await h.svc.preview(h.ctx(), order({ side: "SELL" }));
+    expect(close.checks.some((c) => c.code === "PHYSICAL_SETTLEMENT")).toBe(false);
+    // Selling twice the holding flips to 500 short: that opens a short call → deliver 500
+    const flip = await h.svc.preview(h.ctx(), order({ side: "SELL", quantity: 1000 }));
+    expect(flip.checks.find((c) => c.code === "PHYSICAL_SETTLEMENT").message).toMatch(/^Physically settled: if ITM at expiry you deliver 500 RELIANCE shares at 1400/);
+  });
+
+  it("live, not in ban (holding not read): the delivery warning is conditional on opening", async () => {
+    const safety = { ...createStubSafety(), syncDayPnl() {} };
+    const h = buildHarness({ instruments, prices, reference: reference(NOT_IN_BAN), safety });
+    const r = await h.svc.preview(h.ctx(), order({ mode: "live", side: "SELL" }));
+    expect(r.checks.find((c) => c.code === "PHYSICAL_SETTLEMENT").message).toMatch(/^Physically settled: if this order opens a position and it is ITM at expiry, you deliver 500 RELIANCE shares at 1400/);
+  });
+
+  it("a failed first master lookup is not cached for good: a later order in ban is still refused", async () => {
+    const h = buildHarness({ instruments, prices, reference: reference(IN_BAN) });
+    h.deps.safety = realSafety(h);
+    const search = h.deps.symbols.search.bind(h.deps.symbols);
+    let fail = true;
+    h.deps.symbols = { ...h.deps.symbols, search: async (q) => (fail ? Promise.reject(new Error("master loading")) : search(q)) };
+    const svc = (await import("./orderService.mjs")).createOrderService(h.deps);
+    const first = await svc.preview(h.ctx(), order({ side: "BUY" }));
+    expect(first.checks.some((c) => c.code === "FNO_BAN")).toBe(false); // kind unknown: the gate could not apply
+    fail = false;
+    await h.clock.advance(61_000);
+    const later = await svc.preview(h.ctx(), order({ side: "BUY" }));
+    expect(later.ok).toBe(false);
+    expect(later.checks.some((c) => c.code === "FNO_BAN")).toBe(true);
+  });
+
+  it("modify in ban (paper): only a raise is checked, against the unfilled remainder (the filled part is already held)", async () => {
+    const h = buildHarness({ instruments, prices, reference: reference(IN_BAN) });
+    h.deps.safety = realSafety(h);
+    const svc = (await import("./orderService.mjs")).createOrderService(h.deps);
+    let held = -2500;
+    h.paper.positions = async () => [{ symbol: SYM, netQty: held, product: "MARGIN" }];
+    const { order: placed } = await svc.place(h.ctx(), order({ side: "BUY", quantity: 1500 }));
+    // 500 of the closing BUY 1500 fill: held −2500 → −2000
+    await h.paper.modify(placed.accountId, placed.orderId, { filledQuantity: 500 });
+    held = -2000;
+    // 2500: the remaining 2000 takes −2000 to 0, closing (counting the fill twice would give +500 and refuse)
+    const ok = await svc.modify(h.ctx(), placed.orderId, { quantity: 2500 });
+    expect(ok.order.quantity).toBe(2500);
+    // 3500: the remaining 3000 would end at +1000, an opening position
+    const e = await reject(svc.modify(h.ctx(), placed.orderId, { quantity: 3500 }));
+    expect(e).toMatchObject({ code: "INVALID_ORDER" });
+    expect(e.errors[0].path).toBe("FNO_BAN");
+    // a cut is never checked
+    expect((await svc.modify(h.ctx(), placed.orderId, { quantity: 1000 })).order.quantity).toBe(1000);
+  });
+
   it("PHYSICAL_SETTLEMENT from E-4 on an opening ITM or close-to-money stock option; not for index options or OTM legs", async () => {
     const h = buildHarness({ instruments, prices, reference: reference(NOT_IN_BAN) });
     const itm = await h.svc.preview(h.ctx(), order());

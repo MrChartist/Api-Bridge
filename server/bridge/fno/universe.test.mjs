@@ -106,6 +106,24 @@ describe("createUniverse", () => {
     expect(l.items.find((i) => i.underlying === "HDFCBANK").strikeStep).toBeNull();
   });
 
+  it("underlyings named like an exchange word (BSE Ltd, MCX Ltd) keep their spot, options and strike step", async () => {
+    const instruments = [
+      ...INSTRUMENTS,
+      { symbol: "NSE:BSE", lotSize: 1, tickSize: 0.1, name: "BSE Limited" },
+      { symbol: "NSE:MCX", lotSize: 1, tickSize: 0.1, name: "Multi Commodity Exchange" },
+      { symbol: "NFO:BSE-2026-11-23-FUT", lotSize: 375, tickSize: 0.1 },
+      { symbol: "NFO:MCX-2026-11-23-FUT", lotSize: 125, tickSize: 0.1 },
+      ...opts("BSE", "2026-11-23", [2500, 2550, 2600, 2650], 375),
+      ...opts("MCX", "2026-11-23", [9000, 9100, 9200, 9300], 125),
+    ];
+    const symbols = createFakeSymbolService({ instruments, today: "2026-11-19" });
+    const u = createUniverse({ reference: refStub({ coverage: "off" }), symbols, clock: { now: () => NOW }, cfg: parseFnoConfig({}) });
+    const items = (await u.list({ kind: "stock" })).items;
+    expect(items.find((i) => i.underlying === "BSE")).toMatchObject({ kind: "stock", spot: "NSE:BSE", strikeStep: 50 });
+    expect(items.find((i) => i.underlying === "MCX")).toMatchObject({ kind: "stock", spot: "NSE:MCX", strikeStep: 100 });
+    expect((await u.facts("BSE")).expiries).toEqual(["2026-11-23"]);
+  });
+
   it("nonStandard from an inferred corporate action", async () => {
     const u = build(refStub({ inferred: [{ symbol: "SBIN", origin: "inferred", nonStandard: true }] }));
     expect((await u.list()).items.find((i) => i.underlying === "SBIN").nonStandard).toBe(true);

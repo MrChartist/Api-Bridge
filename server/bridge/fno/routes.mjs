@@ -110,12 +110,23 @@ export function expiryCostsRequest(body) {
   return { underlying, legs, asOf: b.asOf ?? null, spot: b.spot ?? null, varElmPct: b.varElmPct ?? null, account: b.account ?? null };
 }
 
-/** A cached quote (no broker call): the market service's cache when it exposes one, else null. */
-function cachedQuote(marketData, symbol) {
+/** Cached quotes older than this are not used for expiry costs (moneyness, obligations, square-off). */
+export const CACHED_QUOTE_MAX_AGE_MS = 15 * 60_000;
+const IST_OFFSET_MS = 330 * 60_000;
+const hhmm = (ms) => new Date(ms + IST_OFFSET_MS).toISOString().slice(11, 16);
+
+/**
+ * A cached quote (no broker call) at most CACHED_QUOTE_MAX_AGE_MS old, with the time it was read (`at`, epoch ms) so
+ * the response can say where the figure came from; else null.
+ */
+function cachedQuote(marketData, symbol, nowMs) {
   try {
-    const hit = marketData?.cache?.peek?.(`q|${symbol}`);
-    const fields = hit?.value?.fields ?? null;
-    return fields ? { ltp: fields.ltp ?? null, bid: fields.bid ?? null, ask: fields.ask ?? null } : null;
+    const cache = marketData?.cache;
+    const key = `q|${symbol}`;
+    const hit = typeof cache?.getStale === "function" ? cache.getStale(key, CACHED_QUOTE_MAX_AGE_MS) : cache?.peek?.(key);
+    if (!hit || !Number.isFinite(hit.at) || nowMs - hit.at > CACHED_QUOTE_MAX_AGE_MS) return null;
+    const fields = hit.value?.fields ?? null;
+    return fields ? { ltp: fields.ltp ?? null, bid: fields.bid ?? null, ask: fields.ask ?? null, at: hit.at } : null;
   } catch {
     return null;
   }
@@ -145,7 +156,9 @@ export async function readExpiryCosts(f, deps, req, { ctx = null } = {}) {
   }
   const asOf = req.asOf ?? istDate(f.now());
   const spotSym = item.spot;
-  const spot = req.spot ?? cachedQuote(deps.marketData, spotSym)?.ltp ?? null;
+  const spotQuote = req.spot === null ? cachedQuote(deps.marketData, spotSym, f.now()) : null;
+  const spot = req.spot ?? spotQuote?.ltp ?? null;
+  let oldestLegQuote = null;
   const rates = ref.charges();
   const cal = ref.calendar();
   // Holdings: only to say whether a delivering leg is covered (one read, cached 60 s).
@@ -154,7 +167,8 @@ export async function readExpiryCosts(f, deps, req, { ctx = null } = {}) {
   const legs = [];
   let first = null;
   for (const l of resolved) {
-    const q = l.bid === null || l.ask === null ? cachedQuote(deps.marketData, l.r.canonical) : null;
+    const q = l.bid === null || l.ask === null ? cachedQuote(deps.marketData, l.r.canonical, f.now()) : null;
+    if (q && ((l.bid === null && q.bid !== null) || (l.ask === null && q.ask !== null))) oldestLegQuote = oldestLegQuote === null ? q.at : Math.min(oldestLegQuote, q.at);
     const d = expiryDay({ asOf, expiry: l.r.expiry, cal, warnFrom: f.cfg.expiry.warnFromTradingDays });
     first ??= { d, expiry: l.r.expiry };
     const schedule = item.kind === "stock" ? ref.deliveryMargin(l.r.expiry, l.r.exchange).items : [];
@@ -168,6 +182,8 @@ export async function readExpiryCosts(f, deps, req, { ctx = null } = {}) {
   const notes = [EXPIRY_COSTS_NOTE];
   if (item.kind === "stock") notes.push("Delivery STT basis and rates need verification against the Finance Act schedule.", "Broker's physical-delivery charge not included.");
   if (spot === null) notes.push("No spot price was given or cached: moneyness and delivery figures need spot.");
+  else if (req.spot === null && spotQuote) notes.push(`Spot from a cached quote at ${hhmm(spotQuote.at)} IST.`);
+  if (oldestLegQuote !== null) notes.push(`Bid and ask from cached quotes (oldest at ${hhmm(oldestLegQuote)} IST).`);
   if (req.asOf && req.asOf !== istDate(f.now())) notes.push(`What-if as of ${req.asOf}.`);
   return {
     asOf,

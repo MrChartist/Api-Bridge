@@ -40,7 +40,7 @@ const TERMINAL = new Set(["done", "partial", "cancelled", "failed", "interrupted
 
 /**
  * @param {{ cfg: object, demo?: boolean, clock?: object, logger?: any, bus?: any, scheduler: any, accounts: any,
- *   marketData: any, symbols?: any, reference?: any, backupData?: any, universe: any, store: any,
+ *   marketData: any, symbols?: any, reference?: any, backupData?: any, recorder?: any, universe: any, store: any,
  *   demoBaseline?: (canonical: string, date: string) => Promise<[string, number] | null> }} deps
  */
 export function createSweeper(deps) {
@@ -258,10 +258,19 @@ export function createSweeper(deps) {
     };
   }
 
+  /** BackupDataService reports its switch through status().enabled (it has no enabled() method). */
+  function backupEnabled() {
+    try {
+      return usable(deps.backupData) && deps.backupData.status?.()?.enabled === true;
+    } catch {
+      return false;
+    }
+  }
+
   function hvSource() {
     if (sc.hv.source === "off") return "off";
     if (sc.hv.source === "backup") return "backup";
-    if (sc.hv.source === "auto" && usable(deps.backupData) && deps.backupData?.enabled?.() === true) return "backup";
+    if (sc.hv.source === "auto" && backupEnabled()) return "backup";
     return "broker";
   }
 
@@ -497,17 +506,67 @@ export function createSweeper(deps) {
     }
   }
 
-  async function legsFor(underlying, expiry) {
+  async function legsFor(underlying, expiry, exchange = "NFO") {
     const out = [];
     let cursor;
     for (let page = 0; page < 20; page += 1) {
-      const res = await deps.symbols.search({ q: underlying, underlying, kind: "OPT", expiry, limit: 500, ...(cursor ? { cursor } : {}) });
+      // The explicit exchange keeps an underlying named like an exchange word (BSE, MCX) from filtering the master.
+      const res = await deps.symbols.search({ q: underlying, underlying, exchange, kind: "OPT", expiry, limit: 500, ...(cursor ? { cursor } : {}) });
       for (const r of res?.items ?? []) if (r.underlying === underlying && r.expiry === expiry && (r.right === "CE" || r.right === "PE")) out.push({ canonical: r.canonical, strike: r.strike, right: r.right, lotSize: r.lotSize, tickSize: r.tickSize });
       cursor = res?.nextCursor;
       if (!cursor) break;
     }
     return out;
   }
+
+  /**
+   * ΔOI basis 2 (§6.11): the last OI the recorder holds for each contract on the previous trading day, read in-process
+   * (no broker call), once per key and day. Returns strike|right -> OI, or null without a recorder or a record.
+   */
+  const recorderPrevCache = new Map();
+  async function recorderPrevFor(underlying, expiry) {
+    const rec = deps.recorder;
+    if (!usable(rec) || typeof rec.snapshots !== "function") return null;
+    const day = today();
+    const ck = `${day}|${underlying}|${expiry}`;
+    if (recorderPrevCache.has(ck)) return recorderPrevCache.get(ck);
+    let out = null;
+    try {
+      const cal = deps.reference?.calendar?.();
+      const prev = typeof cal?.prevTradingDay === "function" ? cal.prevTradingDay(day, "NFO") : null;
+      if (prev) {
+        // The previous day's close from the reference sessions (no session, no read).
+        let close = null;
+        try {
+          const s = deps.reference?.session?.("NFO", Date.parse(`${prev}T12:00:00+05:30`));
+          if (/^\d{2}:\d{2}$/.test(String(s?.close ?? ""))) close = s.close;
+        } catch {
+          close = null;
+        }
+        const toMs = close ? Date.parse(`${prev}T${close}:00+05:30`) : NaN;
+        const page = Number.isFinite(toMs) && (await rec.snapshots({ underlying, expiry, fromMs: toMs - 10 * 60_000, toMs, fields: ["oi"], limit: 400 }));
+        const snap = (page?.snapshots ?? []).at(-1);
+        if (snap && Array.isArray(snap.k)) {
+          out = new Map();
+          snap.k.forEach((k, i) => {
+            const ce = snap.ce?.oi?.[i];
+            const pe = snap.pe?.oi?.[i];
+            if (Number.isFinite(ce)) out.set(`${k}|CE`, ce);
+            if (Number.isFinite(pe)) out.set(`${k}|PE`, pe);
+          });
+          if (!out.size) out = null;
+        }
+      }
+    } catch {
+      out = null;
+    }
+    recorderPrevCache.set(ck, out);
+    if (recorderPrevCache.size > 2000) recorderPrevCache.delete(recorderPrevCache.keys().next().value);
+    return out;
+  }
+
+  /** recorderPrev keyed by contract symbol for chainFromQuotes / withBrokerBasis. */
+  const prevBySymbol = (prev, legs) => (prev ? new Map(legs.filter((l) => prev.has(`${l.strike}|${l.right}`)).map((l) => [l.canonical, prev.get(`${l.strike}|${l.right}`)])) : null);
 
   // ── the runner ──
 
@@ -518,10 +577,11 @@ export function createSweeper(deps) {
     job.current = k.key;
     const chain = await withRetry(acc, () => deps.marketData.optionChain({ underlying: k.underlying, expiry: k.expiry, strikes, greeks: true }, { priority: "background", accountId: acc.id, maxAgeMs: 5000, backgroundShare: shareFor(mode), signal }), signal);
     bump(cls, acc.caps.optionChain ? 1 : 2);
-    const legs = chain.rows.flatMap((r) => [r.ce, r.pe].filter(Boolean).map((l) => ({ canonical: l.symbol })));
+    const legs = chain.rows.flatMap((r) => [["CE", r.ce], ["PE", r.pe]].filter(([, l]) => l).map(([right, l]) => ({ canonical: l.symbol, strike: r.strike, right })));
     const quotes = new Map(chain.rows.flatMap((r) => [r.ce, r.pe].filter(Boolean).map((l) => [l.symbol, l])));
     const base = await baselineFor(legs, quotes, now());
-    return withBrokerBasis(chain, { dayBase: base });
+    const recorderPrev = prevBySymbol(await recorderPrevFor(k.underlying, k.expiry), legs);
+    return withBrokerBasis(chain, { dayBase: base, recorderPrev });
   }
 
   async function run(plan, signal) {
@@ -532,16 +592,19 @@ export function createSweeper(deps) {
     const fail = (key, err) => {
       job.failedKeys[key] = err?.code ?? "UPSTREAM_ERROR";
     };
-    // 1. Spots first (one batched read for every stock and index spot).
+    // 1. Spots first: one batched read, only for the quotes path (a chain call carries its own spot). As planned
+    //    (plan.mjs): the stocks' spots, plus the index spots when index chains are not served by a chain endpoint.
     job.phase = "spots";
     emitProgress(true);
-    const spotSymbols = [...new Set(todo.map((k) => plan.spotOf.get(k.underlying)).filter(Boolean))];
     let spots = new Map();
-    try {
-      spots = await readQuotes(acc, spotSymbols, signal);
-    } catch (err) {
-      if (signal.aborted) throw err;
-      log?.warn?.("fno: the spot read failed; chains read their own spots", { code: err?.code });
+    if (plan.stockMethod === "quotes") {
+      const spotSymbols = [...new Set(todo.filter((k) => k.kind === "stock" || !acc.caps.optionChain).map((k) => plan.spotOf.get(k.underlying)).filter(Boolean))];
+      try {
+        spots = await readQuotes(acc, spotSymbols, signal);
+      } catch (err) {
+        if (signal.aborted) throw err;
+        log?.warn?.("fno: the spot read failed; chains read their own spots", { code: err?.code });
+      }
     }
     // 2. Index chains.
     job.phase = "index-chains";
@@ -599,8 +662,9 @@ export function createSweeper(deps) {
             continue;
           }
           const dayBase = await baselineFor(w.legs, quotes, t);
+          const recorderPrev = prevBySymbol(await recorderPrevFor(w.k.underlying, w.k.expiry), w.legs);
           const freshness = quotes.get(got[0].canonical)?.freshness ?? null;
-          const chain = chainFromQuotes({ legs: w.legs, quotes, spot: w.spot, expiry: w.k.expiry, underlying: w.k.underlying, lotSize: w.lot, tickSize: w.tick, strikeStep: w.step, kind: "stock", nowMs: t, rate: plan.rate, dayBase, freshness });
+          const chain = chainFromQuotes({ legs: w.legs, quotes, spot: w.spot, expiry: w.k.expiry, underlying: w.k.underlying, lotSize: w.lot, tickSize: w.tick, strikeStep: w.step, kind: "stock", nowMs: t, rate: plan.rate, dayBase, recorderPrev, freshness });
           putChain(w.k.key, "quotes", chain);
           job.done += 1;
         }
@@ -608,9 +672,10 @@ export function createSweeper(deps) {
       };
       for (const k of stockKeys) {
         if (signal.aborted) throw abortErr();
+        const f = await deps.universe.facts(k.underlying);
         let legs = [];
         try {
-          legs = await legsFor(k.underlying, k.expiry);
+          legs = await legsFor(k.underlying, k.expiry, f?.exchange ?? "NFO");
         } catch (err) {
           fail(k.key, err);
           continue;
@@ -627,7 +692,6 @@ export function createSweeper(deps) {
         for (const l of windowed) lots.set(l.lotSize, (lots.get(l.lotSize) ?? 0) + 1);
         const lot = [...lots.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
         const ticks = windowed.map((l) => l.tickSize).filter((x) => x > 0);
-        const f = await deps.universe.facts(k.underlying);
         batch.push({ k, legs: windowed, spot, lot, tick: ticks.length ? Math.max(...ticks) : null, step: f?.strikeStep ?? null });
         batchLegs += windowed.length;
         if (batchLegs >= 4 * B) await flush();
@@ -644,11 +708,18 @@ export function createSweeper(deps) {
       for (const u of need) {
         if (signal.aborted) throw abortErr();
         try {
-          const mode = await gated(acc, "history", 1, signal);
+          const useBackup = hvSource() === "backup" && typeof deps.backupData?.history === "function";
+          // Only the broker read draws on the account's budget.
+          const mode = useBackup ? null : await gated(acc, "history", 1, signal);
           await pace(signal);
-          const useBackup = hvSource() === "backup";
-          const params = { symbol: plan.spotOf.get(u), interval: "1d", countback: sc.hv.candles };
-          const res = useBackup && typeof deps.backupData?.history === "function" ? await deps.backupData.history(params) : await deps.marketData.history(params, { priority: "background", accountId: acc.id, backgroundShare: shareFor(mode), signal });
+          const symbol = plan.spotOf.get(u);
+          // The backup service takes a time range, not a countback: ~1.6 calendar days per daily candle covers weekends
+          // and holidays.
+          const t = now();
+          const res =
+            useBackup
+              ? await deps.backupData.history({ symbol, interval: "1d", fromMs: t - Math.ceil(sc.hv.candles * 1.6 + 5) * 86_400_000, toMs: t })
+              : await deps.marketData.history({ symbol, interval: "1d", countback: sc.hv.candles }, { priority: "background", accountId: acc.id, backgroundShare: shareFor(mode), signal });
           if (!useBackup) bump("history");
           const candles = res?.candles ?? res?.items ?? [];
           const closes = candles.map((c) => (Array.isArray(c) ? c[4] : c?.close)).filter((x) => Number.isFinite(x));
