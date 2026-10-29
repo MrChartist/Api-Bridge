@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { createFakeAccountManager } from "../accounts/fake.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { createEventBus } from "../core/eventBus.mjs";
-import { EXPIRY, IST, fakeChain, makeRecorder } from "./testkit.mjs";
+import { EXPIRY, IST, fakeChain, fakeSymbols, makeRecorder } from "./testkit.mjs";
 
 const readAll = async (svc, from, to) => svc.store.read({ u: "NIFTY", x: EXPIRY, fromMs: from, toMs: to, limit: 500 });
 
@@ -251,6 +251,152 @@ describe("holiday detector (§6.13)", () => {
     r.svc.clearHoliday();
     await r.minutes(1);
     expect(r.svc.status().state).toBe("recording");
+    await r.svc.stop();
+  });
+});
+
+describe("one read per chain-slot", () => {
+  it("a re-plan's quick slot during the REST spread reads no chain twice and writes no false gap", async () => {
+    const r = makeRecorder({
+      start: IST("2026-10-19T10:00:30"),
+      symbols: fakeSymbols({ underlyings: ["NIFTY", "BANKNIFTY"] }),
+      recorder: { indices: ["NIFTY", "BANKNIFTY"], sources: { stream: false }, restSpreadMs: 40_000 },
+    });
+    await r.svc.start();
+    await r.clock.advance(1000); // the start's quick slot spaces its two reads by the per-second cap
+    await r.svc.idle();
+    await r.clock.advance(31_000); // 10:01:02: the 10:01 slot reads NIFTY now and BANKNIFTY 20 s later
+    await r.clock.advance(3000); // 10:01:05: BANKNIFTY's read is still spread
+    r.bus.emit("stream.status", { accountId: "acc-1", state: "up" });
+    await r.clock.advance(2000); // the re-plan runs its quick slot for 10:01
+    await r.clock.flush();
+    await r.clock.advance(30_000); // 10:01:37: the spread read is due
+    await r.svc.idle();
+    const slot = IST("2026-10-19T10:01:00");
+    const reads = r.calls.filter((c) => c.at >= slot && c.at < slot + 60_000);
+    expect(reads.map((c) => c.p.underlying).sort()).toEqual(["BANKNIFTY", "NIFTY"]);
+    for (const u of ["NIFTY", "BANKNIFTY"]) {
+      const page = await r.svc.store.read({ u, x: EXPIRY, fromMs: slot, toMs: slot, limit: 10 });
+      expect(page.snaps.map((s) => s.slot), u).toEqual([slot]);
+      expect(page.gaps, u).toEqual([]);
+    }
+    expect(r.svc.status().today.snapshots).toBe(4); // 10:00 and 10:01 for each chain, counted once
+    await r.svc.stop();
+  });
+});
+
+describe("holiday detector across days", () => {
+  it("a suspected holiday holds for its own day only: the next trading day runs the detector again", async () => {
+    const r = makeRecorder({
+      start: IST("2026-10-19T09:14:30"),
+      recorder: { sources: { stream: false } },
+      marketData: {
+        async optionChain(_p, opts) {
+          return fakeChain({ t: r.clock.now(), spot: 25010, volume: 0, accountId: opts.accountId });
+        },
+      },
+    });
+    await r.svc.start();
+    await r.minutes(8);
+    expect(r.svc.status().holidaySuspected?.date).toBe("2026-10-19");
+    // Tue 20 Oct is a listed holiday; Wed 21 Oct opens flat again with no volume.
+    await r.clock.set(IST("2026-10-21T09:14:30"));
+    await r.svc.idle();
+    await r.minutes(8);
+    const st = r.svc.status();
+    expect(st.state).toBe("holiday-suspected");
+    expect(st.holidaySuspected?.date).toBe("2026-10-21");
+    await r.svc.stop();
+  });
+
+  it("the previous day's suspicion is dropped on the next day while the Bridge keeps running", async () => {
+    let volume = 0;
+    const r = makeRecorder({
+      start: IST("2026-10-19T09:14:30"),
+      recorder: { sources: { stream: false } },
+      marketData: {
+        async optionChain(_p, opts) {
+          return fakeChain({ t: r.clock.now(), spot: 25010 + (volume ? (r.clock.now() / 60_000) % 7 : 0), volume, accountId: opts.accountId });
+        },
+      },
+    });
+    await r.svc.start();
+    await r.minutes(8);
+    expect(r.svc.status().holidaySuspected?.date).toBe("2026-10-19");
+    volume = 1500;
+    await r.clock.set(IST("2026-10-21T09:14:30"));
+    await r.svc.idle();
+    await r.minutes(8);
+    const st = r.svc.status();
+    expect(st.state).toBe("recording");
+    expect(st.holidaySuspected).toBe(null);
+    await r.svc.stop();
+  });
+});
+
+describe("ΔOI basis (§6.10)", () => {
+  it("uses the previous TRADING day only; a one-day hole falls back to the broker's change", async () => {
+    const a = makeRecorder({ start: IST("2026-10-19T10:00:30"), recorder: { sources: { stream: false } } });
+    await a.svc.start();
+    await a.minutes(3);
+    await a.svc.stop();
+    // Wed 21 Oct: the previous trading day (Tue 20 is a holiday) is Mon 19, recorded.
+    const b = makeRecorder({ start: IST("2026-10-21T10:00:30"), dataDir: a.dataDir, recorder: { sources: { stream: false } } });
+    await b.svc.start();
+    await b.minutes(2);
+    await b.svc.runDaily("2026-10-21");
+    expect((await b.svc.daily({ underlying: "NIFTY", from: "2026-10-21", to: "2026-10-21" }))[0].dOiBasis).toBe("prev-recorded");
+    await b.svc.stop();
+    // Fri 23 Oct: Thu 22 was not recorded, so Wed 21 is NOT used.
+    const c = makeRecorder({ start: IST("2026-10-23T10:00:30"), dataDir: a.dataDir, recorder: { sources: { stream: false } } });
+    await c.svc.start();
+    await c.minutes(2);
+    await c.svc.runDaily("2026-10-23");
+    expect((await c.svc.daily({ underlying: "NIFTY", from: "2026-10-23", to: "2026-10-23" }))[0].dOiBasis).toBe("broker-prev-close");
+    await c.svc.stop();
+  });
+});
+
+describe("daily job retry", () => {
+  it("retries once at 15:45 and then waits for the next start", async () => {
+    const r = makeRecorder({ start: IST("2026-10-19T15:25:30"), recorder: { sources: { stream: false } } });
+    await r.svc.start();
+    await r.minutes(3);
+    let reads = 0;
+    const orig = r.svc.store.readDay;
+    r.svc.store.readDay = async (date, ...rest) => {
+      if (date === "2026-10-19" && r.clock.now() >= IST("2026-10-19T15:31:00")) {
+        reads += 1;
+        throw new Error("disk read failed");
+      }
+      return orig(date, ...rest);
+    };
+    await r.minutes(30); // to 15:58:30
+    expect(reads).toBe(2); // 15:31 and the 15:45 retry, nothing after
+    await r.svc.stop();
+  });
+});
+
+describe("strike buffer", () => {
+  it("a one-strike ATM drift is recorded from the buffer's legs, not cut at the window edge", async () => {
+    const legSym = (k, r) => `NFO:NIFTY-${EXPIRY}-${k}-${r}`;
+    const tick = (hub, spot) => {
+      hub.pushTick({ symbol: "NSE:NIFTY", ltp: spot });
+      for (let k = 24850; k <= 25150; k += 50) {
+        hub.pushTick({ symbol: legSym(k, "CE"), ltp: 120, bid: 119.5, ask: 120.5, oi: 7500, volume: 7500 });
+        hub.pushTick({ symbol: legSym(k, "PE"), ltp: 110, bid: 109.5, ask: 110.5, oi: 6750, volume: 7500 });
+      }
+    };
+    const r = makeRecorder({ start: IST("2026-10-19T09:59:30"), recorder: { sources: { rest: false }, strikeBuffer: 2 } });
+    await r.svc.start();
+    tick(r.hub, 25010);
+    await r.minutes(1); // 10:00: window 24900–25100 plus the buffer subscribed
+    tick(r.hub, 25060); // ATM 25050: one strike up, below the re-centre threshold
+    await r.minutes(1); // 10:01
+    const page = await readAll(r.svc, IST("2026-10-19T10:01:00"), IST("2026-10-19T10:01:00"));
+    expect(page.snaps).toHaveLength(1);
+    expect(page.snaps[0]).toMatchObject({ atm: 25050, missingLegs: 0 });
+    expect(page.snaps[0].k).toEqual([24950, 25000, 25050, 25100, 25150]);
     await r.svc.stop();
   });
 });

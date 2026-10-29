@@ -39,11 +39,15 @@ import { createStreamSource } from "./streamSource.mjs";
 const REPLAN_MS = 5 * MINUTE_MS;
 const STATUS_EMIT_MS = 1000;
 const RECENTRE_STRIKES = 2;
+/** The daily job's one retry (§3.2), minutes after IST midnight. */
+const RETRY_MIN = 15 * 60 + 45;
 const JOB_TIMEOUT_MS = 55_000;
 const DEMO_RETENTION_DAYS = 3;
 const MASTER_PAGE_LIMIT = 500;
 const MASTER_MAX_PAGES = 20;
 const BSE_INDICES = new Set(["SENSEX", "BANKEX", "SENSEX50"]);
+/** Key of the accounts a dry-run plan names (non-enumerable; see routes.mjs redactPlan). */
+export const PLAN_ACCOUNTS = Symbol.for("mcb.recorder.planAccounts");
 /** Stock underlyings the demo adapter lists options for (P1-1 §8; P1-6 extends to all 50). */
 export const DEMO_OPTION_STOCKS = Object.freeze(["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "SBIN"]);
 
@@ -118,7 +122,8 @@ export function createRecorderService(deps) {
   let lastStatusEmit = 0;
   let lastStatusState = null;
   let statusTimer = null;
-  const warnings = new Set();
+  /** The live feed's refusal of some recorder symbols, rebuilt on every subscription sync (null when none). */
+  let feedWarning = null;
   /** Why the configured account cannot be used (set by the applied plan only, so a dry run never leaves one). */
   let accountWarning = null;
   let error = null;
@@ -296,7 +301,7 @@ export function createRecorderService(deps) {
         budget.shareRef = eff.budgetShare;
       }
     }
-    return { plan: p, acc: { ...acc, broker }, policy: pol, available };
+    return { plan: p, acc: { ...acc, broker }, policy: pol, available, feedAccountId: f.accountId };
   }
 
   async function replan(reason = "timer") {
@@ -306,6 +311,7 @@ export function createRecorderService(deps) {
       plan = null;
       chains.clear();
       stream?.clear();
+      feedWarning = null;
       emitStatus();
       return;
     }
@@ -392,6 +398,7 @@ export function createRecorderService(deps) {
     const streamChains = [...chains.values()].filter((c) => c.source === "stream");
     if (!streamChains.length) {
       stream.clear();
+      feedWarning = null;
       return;
     }
     const desired = new Set();
@@ -422,7 +429,7 @@ export function createRecorderService(deps) {
     }
     if (stopped) return;
     const res = await stream.setDesired(desired);
-    if (res.rejected.length) warnings.add(`The live feed refused ${res.rejected.length} of the recorder's symbols (${res.rejected[0].code ?? "refused"}); those legs record as missing.`);
+    feedWarning = res.rejected.length ? `The live feed refused ${res.rejected.length} of the recorder's symbols (${res.rejected[0].code ?? "refused"}); those legs record as missing.` : null;
   }
 
   // ── today's counters ──
@@ -476,8 +483,16 @@ export function createRecorderService(deps) {
     }
     const key = chainKey(rec.u, rec.x);
     const c = counter(key);
-    if (c.slots.has(rec.slot)) return false;
-    const res = await store.append(rec);
+    const id = claimId(key, rec.slot);
+    if (c.slots.has(rec.slot) || writing.has(id)) return false;
+    writing.add(id);
+    let res;
+    try {
+      res = await store.append(rec);
+    } finally {
+      writing.delete(id);
+    }
+    if (c !== today.byChain.get(key)) return res.ok; // the day rolled while appending
     if (!res.ok) {
       if (res.reason === "disk-full") {
         await store.append(gapRecord({ u: rec.u, x: rec.x, slot: rec.slot, reason: "disk-full", detail: "The recorder's disk limit is reached; nothing new is written until space is freed or the limit raised." }));
@@ -551,8 +566,12 @@ export function createRecorderService(deps) {
     if (!c.window?.length) return writeRecord(gapRecord({ u: c.underlying, x: c.expiry, slot, reason: "not-subscribed-yet", detail: "Waiting for the first spot tick to choose strikes." }));
     const spot = spotOf(c);
     const centre = spot ?? c.atm;
-    const atm = nearestStrike(c.window, centre);
-    const strikes = windowStrikes({ strikes: c.window }, atm, c.strikesEachSide);
+    // The rows sit around the current ATM over all listed strikes, so a drift of one strike (below the re-centre
+    // threshold) is covered by the strike buffer's legs instead of cutting the snapshot at the window edge. A leg is
+    // read only when the recorder holds it (window or buffer) or it is in the subscribed window.
+    const atm = nearestStrike(c.strikes, centre);
+    const strikes = windowStrikes(c, atm, c.strikesEachSide);
+    const inWindow = new Set(c.window);
     // Each leg names the feed account its tick came from (the hub places symbols on any candidate feed). Legs from
     // another holder's account are never recorded (they count as missing); legs from more than one account are
     // listed in `accounts` (§3.3).
@@ -565,7 +584,11 @@ export function createRecorderService(deps) {
       counts.set(id, (counts.get(id) ?? 0) + 1);
       return leg;
     };
-    const rows = strikes.map((k) => ({ strike: k, ce: own(stream.leg(legSymbol(c.exchange, c.underlying, c.expiry, k, "CE"))), pe: own(stream.leg(legSymbol(c.exchange, c.underlying, c.expiry, k, "PE"))) }));
+    const legOf = (k, r) => {
+      const sym = legSymbol(c.exchange, c.underlying, c.expiry, k, r);
+      return inWindow.has(k) || stream.holds(sym) ? own(stream.leg(sym)) : null;
+    };
+    const rows = strikes.map((k) => ({ strike: k, ce: legOf(k, "CE"), pe: legOf(k, "PE") }));
     if (rows.every((r) => !r.ce && !r.pe)) return writeRecord(gapRecord({ u: c.underlying, x: c.expiry, slot, reason: "not-subscribed-yet", detail: "No tick has arrived for this chain yet." }));
     const ts = now();
     const accounts = counts.size > 1 || (counts.size === 1 && !counts.has(account.id)) ? Object.fromEntries(counts) : null;
@@ -612,6 +635,15 @@ export function createRecorderService(deps) {
   const pending = new Set();
   /** Spread REST reads not started yet: timer handle -> the job's resolve. */
   const spreadTimers = new Map();
+  /**
+   * Chain-slots dispatched and not yet finished (`key|slot`): claimed synchronously when runSlot decides a chain is
+   * due, so a quick slot after a re-plan or an overlapping tick never reads the same chain-slot twice while its REST
+   * read is still spread or in flight. Released when the job ends (written, failed or cancelled by stop()).
+   */
+  const claims = new Set();
+  const claimId = (key, slot) => `${key}|${slot}`;
+  /** Records being appended (`key|slot`): writeRecord's check and its append are not split by another write. */
+  const writing = new Set();
 
   /** Minimum spacing between REST reads so the recorder's per-second cap is never the reason for a gap. */
   function restSpacingMs() {
@@ -624,22 +656,36 @@ export function createRecorderService(deps) {
     if (!plan || !account || !settings.enabled) return;
     if (holidaySuspect && holidaySuspect.date === day.date) return;
     // Chains already written for this slot (a re-plan in the same minute, a restart's bridge-down gap) are skipped.
-    const due = [...chains.values()].filter((c) => isDue(day.plan, slot, c.kind, c.everyMinutes) && !(day.date === today.date && counter(c.key).slots.has(slot)));
+    const due = [...chains.values()].filter((c) => isDue(day.plan, slot, c.kind, c.everyMinutes) && !claims.has(claimId(c.key, slot)) && !(day.date === today.date && counter(c.key).slots.has(slot)));
     if (!due.length) return;
+    // Claimed before the first await: a second runSlot for this slot (a re-plan's quick slot, the regular tick) skips them.
+    for (const c of due) claims.add(claimId(c.key, slot));
+    const release = (c) => claims.delete(claimId(c.key, slot));
     // Re-centre stream chains before reading them.
-    await syncStream();
+    try {
+      await syncStream();
+    } catch (err) {
+      for (const c of due) release(c);
+      throw err;
+    }
     const streamDue = due.filter((c) => c.source === "stream");
     const restDue = due.filter((c) => c.source !== "stream");
     for (const c of streamDue) {
       await sleepTurn();
-      await recordStream(c, slot).catch((err) => log?.warn?.("recorder stream snapshot failed", { chain: c.key, err: err?.message }));
+      await recordStream(c, slot)
+        .catch((err) => log?.warn?.("recorder stream snapshot failed", { chain: c.key, err: err?.message }))
+        .finally(() => release(c));
     }
     const spacing = restSpacingMs();
     const total = Math.min(55_000, Math.max(quick ? 0 : settings.restSpreadMs, spacing * restDue.length));
     const step = restDue.length > 1 ? Math.max(spacing, total / restDue.length) : 0;
     const jobs = restDue.map(
       (c, i) =>
-        new Promise((resolve) => {
+        new Promise((settle) => {
+          const resolve = () => {
+            release(c);
+            settle();
+          };
           const go = () => {
             if (stopped) return resolve();
             recordRest(c, slot)
@@ -700,14 +746,27 @@ export function createRecorderService(deps) {
 
   // ── daily job, roll, retention ──
 
-  async function prevRecordedLast(date, u, x) {
-    const days = store.days("0000-00-00", date).filter((d) => d < date);
-    for (let i = days.length - 1; i >= Math.max(0, days.length - 10); i--) {
-      const recs = await store.readDay(days[i], u, x);
-      const snaps = recs.filter((r) => r?.kind === "snap");
-      if (snaps.length) return snaps.reduce((a, b) => (b.slot > a.slot ? b : a));
+  /** The trading day before `date` by the exchange calendar (the demo's "always open" clock is not a calendar). */
+  function prevTradingDate(date) {
+    let d = date;
+    for (let i = 0; i < 15; i++) {
+      d = istDateOf(istMidnight(d) - 12 * 3_600_000);
+      const r = resolveDay({ reference: deps.reference, exchange: "NFO", t: istMidnight(d) + 12 * 3_600_000, recordSpecialSessions: settings.recordSpecialSessions });
+      if (r.tradingDay) return d;
     }
     return null;
+  }
+
+  /**
+   * The last snapshot of the PREVIOUS trading day (§6.10 ΔOI, §6.13 volume), or null when that day was not recorded:
+   * an older recorded day is never used, so ΔOI then falls back to the broker's change since the previous close.
+   */
+  async function prevRecordedLast(date, u, x) {
+    const prev = prevTradingDate(date);
+    if (!prev) return null;
+    const recs = await store.readDay(prev, u, x);
+    const snaps = recs.filter((r) => r?.kind === "snap" && r.quality !== "suspect-holiday");
+    return snaps.length ? snaps.reduce((a, b) => (b.slot > a.slot ? b : a)) : null;
   }
 
   let futuresBudget = null;
@@ -820,6 +879,11 @@ export function createRecorderService(deps) {
     if (lastDay !== date && !backfill) {
       lastDay = date;
       rollToday(date);
+      // A suspected holiday holds for its own day only: the next day runs the detector again (§6.13).
+      if (holidaySuspect && holidaySuspect.date !== date) {
+        holidaySuspect = null;
+        saveState({ holidaySuspected: null });
+      }
       await rollPastDays();
       prune(date);
       await catchUpDaily();
@@ -834,8 +898,14 @@ export function createRecorderService(deps) {
         log?.warn?.("recorder daily job failed; retrying at 15:45", { err: err?.message });
       }
     }
-    if (dailyDone.get(date) === "failed" && minNow >= 15 * 60 + 45) {
-      dailyDone.delete(date);
+    // One retry at 15:45 (§3.2); a second failure is left to the next start's catch-up.
+    if (dailyDone.get(date) === "failed" && minNow >= Math.max(RETRY_MIN, dailyMin + 1)) {
+      try {
+        await runDaily(date);
+      } catch (err) {
+        dailyDone.set(date, "retried");
+        log?.warn?.("recorder daily job failed again; it runs at the next start", { err: err?.message });
+      }
     }
     if (day.plan && !day.plan.alwaysOpen) {
       const rollMin = Math.max(15 * 60 + 40, day.plan.closeMin + 10);
@@ -853,7 +923,7 @@ export function createRecorderService(deps) {
   // ── holiday detector (§6.13) ──
 
   async function watchHoliday(slot, day) {
-    if (demo || !day.plan || day.plan.alwaysOpen || holidaySuspect) return;
+    if (demo || !day.plan || day.plan.alwaysOpen || holidaySuspect?.date === day.date) return;
     const idx = Math.round((slot - day.plan.startMs) / MINUTE_MS);
     if (idx !== HOLIDAY_DETECT_SLOTS - 1) return;
     const inputs = [];
@@ -1002,7 +1072,7 @@ export function createRecorderService(deps) {
       partial += c.partial;
     }
     const next = day.plan ? nextSlotAfter(day.plan, t) : null;
-    const w = new Set([...warnings, ...(accountWarning ? [accountWarning] : []), ...(plan?.warnings ?? [])]);
+    const w = new Set([...(feedWarning ? [feedWarning] : []), ...(accountWarning ? [accountWarning] : []), ...(plan?.warnings ?? [])]);
     if (account && !oiUnitVerified(account.broker)) w.add(`Open interest units for ${account.broker} are not verified against a recorded response; OI is recorded as sent (marked oiUnitVerified: false).`);
     for (const d of health.unreadableDays) w.add(`The recordings of ${d.date} could not be read (${d.detail}); that day is skipped.`);
     if (demo) w.add("Demo clock: always open. Demo recordings are sample data and are kept for 3 days in a separate folder.");
@@ -1279,8 +1349,11 @@ export function createRecorderService(deps) {
         const errors = parsed.error.issues.map((i) => ({ path: ["recorder", ...i.path].join("."), message: i.message }));
         throw new BridgeError("VALIDATION_FAILED", `The recorder settings are not valid: ${errors.map((e) => `${e.path}: ${e.message}`).join("; ")}`, { errors });
       }
-      const { plan: p } = await computePlan(parsed.data);
-      return { ok: p.ok, message: p.message, plan: { chains: p.chains, refused: p.refused, warnings: p.warnings }, budget: p.budget, capacity: p.capacity };
+      const { plan: p, acc, feedAccountId } = await computePlan(parsed.data);
+      const out = { ok: p.ok, message: p.message, plan: { chains: p.chains, refused: p.refused, warnings: p.warnings }, budget: p.budget, capacity: p.capacity };
+      // The accounts this dry run names (routes redact them for restricted keys); not part of the JSON body.
+      Object.defineProperty(out, PLAN_ACCOUNTS, { value: { id: acc?.id ?? null, broker: acc?.broker ?? null, feedAccountId: feedAccountId ?? null, configured: parsed.data.account ?? null } });
+      return out;
     },
     snapshots,
     latest,

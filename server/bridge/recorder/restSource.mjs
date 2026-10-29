@@ -63,7 +63,8 @@ export function createRestSource({ marketData, scheduler, backupData }) {
       if (gate && !gate.allow(accountId, endpointClass, { share, cost: n })) {
         return { ok: false, reason: "budget", detail: "The broker's rate window is more than half used; the recorder waits for your own requests." };
       }
-      if (!budget.tryTake(n)) return { ok: false, reason: "budget", detail: "The recorder's half of the broker budget is used up for this window." };
+      const taken = budget.tryTake(n);
+      if (!taken) return { ok: false, reason: "budget", detail: "The recorder's half of the broker budget is used up for this window." };
       let chain;
       try {
         chain = await marketData.optionChain(
@@ -74,7 +75,7 @@ export function createRestSource({ marketData, scheduler, backupData }) {
         return { ok: false, reason: gapReasonFor(err), detail: String(err?.detail ?? err?.message ?? "The broker did not answer.").slice(0, 200), code: err?.code ?? null };
       }
       const cached = chain?.freshness?.source === "cache";
-      if (cached) budget.refund(n); // served from the cache: no broker call was made
+      if (cached) budget.refund(taken); // served from the cache: no broker call was made
       const asOf = Date.parse(chain?.freshness?.asOf ?? "");
       const ts = Number.isFinite(asOf) ? asOf : null;
       return {

@@ -73,7 +73,7 @@ describe("limiter", () => {
     expect(n).toBe(25);
     expect(b.waitMs()).toBe(1000);
     clock.t = 1000;
-    expect(b.tryTake()).toBe(true);
+    expect(b.tryTake()).toBeTruthy();
     expect(b.usedLastMinute()).toBe(26);
   });
   it("rule 7: an upstream throttle halves every cap for 10 minutes", () => {
@@ -142,10 +142,24 @@ describe("limiter state across re-plans", () => {
   it("refund gives back calls served from the cache", () => {
     const clock = mkClock(0);
     const b = createRecorderBudget({ policy: resolvePolicy("upstox"), endpointClass: "chain", share: 0.5, clock });
-    expect(b.tryTake(3)).toBe(true);
+    const token = b.tryTake(3);
+    expect(token).toBeTruthy();
     expect(b.usedLastMinute()).toBe(3);
-    b.refund(3);
+    b.refund(token);
     expect(b.usedLastMinute()).toBe(0);
+  });
+  it("refund removes the refunded read's own entries, not a later overlapping read's", () => {
+    const clock = mkClock(0);
+    const b = createRecorderBudget({ policy: resolvePolicy("upstox"), endpointClass: "chain", share: 0.5, clock });
+    clock.t = 100;
+    const a = b.tryTake(1); // read A starts
+    clock.t = 900;
+    b.tryTake(1); // read B starts while A waits
+    b.refund(a); // A came from the cache
+    expect(b.counts(900).find((w) => w.windowMs === 1000).used).toBe(1);
+    // B's t = 900 entry is the one left: at t = 1,150 (A's entry would have expired) it still counts.
+    expect(b.counts(1150).find((w) => w.windowMs === 1000).used).toBe(1);
+    expect(b.counts(1901).find((w) => w.windowMs === 1000).used).toBe(0);
   });
   it("a replacing limiter carries the call logs and the rule-7 halving over", () => {
     const clock = mkClock(0);
@@ -160,7 +174,7 @@ describe("limiter state across re-plans", () => {
   it("setShare changes the caps in place and keeps the logs", () => {
     const clock = mkClock(0);
     const b = createRecorderBudget({ policy: resolvePolicy("upstox"), endpointClass: "chain", share: 0.5, clock });
-    expect(b.tryTake(5)).toBe(true);
+    expect(b.tryTake(5)).toBeTruthy();
     b.setShare(0.2);
     expect(b.usedLastMinute()).toBe(5);
     expect(b.caps.perMinute).toBeLessThan(33);

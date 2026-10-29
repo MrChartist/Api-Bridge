@@ -185,6 +185,32 @@ describe("latest, daily, status, plan", () => {
   });
 });
 
+describe("POST /v1/options/recorder/plan for a restricted key", () => {
+  it("hides the data and feed account ids and the broker; refuses probing an account the key cannot use", async () => {
+    const PLAN_ACCOUNTS = Symbol.for("mcb.recorder.planAccounts");
+    const stub = {
+      async plan() {
+        const out = { ok: true, message: "Upstox can carry all 1 index chain.", plan: { chains: [], refused: [], warnings: ["The live feed runs on feed-9; the recorder's account up-1 is used for REST only."] }, budget: {}, capacity: {} };
+        Object.defineProperty(out, PLAN_ACCOUNTS, { value: { id: "up-1", broker: "upstox", feedAccountId: "feed-9", configured: null } });
+        return out;
+      },
+    };
+    const routes = createRecorderRoutes(stub, { clock: { now: () => IST("2026-10-19T10:00:00") }, config: {} });
+    const restricted = await routes.plan(ctxFor({ accounts: ["other"], body: {} }));
+    const text = JSON.stringify(restricted.data);
+    expect(text).not.toMatch(/up-1|feed-9|upstox/i);
+    expect(restricted.data.plan.warnings[0]).toBe("The live feed runs on (hidden account); the recorder's account (hidden account) is used for REST only.");
+    expect(restricted.data.message).toBe("the broker can carry all 1 index chain.");
+    // A key that may use the data account but not the feed account sees its own id only.
+    const own = await routes.plan(ctxFor({ accounts: ["up-1"], body: {} }));
+    expect(own.data.plan.warnings[0]).toBe("The live feed runs on (hidden account); the recorder's account up-1 is used for REST only.");
+    expect((await routes.plan(ctxFor({ body: {} }))).data.plan.warnings[0]).toMatch(/feed-9/);
+    // Probing another account's eligibility with a dry run is refused.
+    expect((await codeOf(routes.plan(ctxFor({ accounts: ["other"], body: { account: "up-1" } })))).code).toBe("ACCOUNT_FORBIDDEN");
+    expect((await routes.plan(ctxFor({ local: true, body: { account: "up-1" } }))).data.ok).toBe(true);
+  });
+});
+
 describe("PUT /v1/options/recorder/config", () => {
   it("CAPACITY_EXCEEDED with canCarry when a 1/s broker is asked for 200 stocks; nothing saved", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mcb-rec-cfg-"));

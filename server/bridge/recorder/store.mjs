@@ -113,6 +113,8 @@ export function createSnapshotStore({ root, clock = { now: () => Date.now() }, l
   /** Past-day cache: file path -> { records, bytes }. */
   const lru = new Map();
   let lruBytes = 0;
+  /** .gz path -> its read in progress. */
+  const gzReads = new Map();
   let corruptLines = 0;
   /** Day folders that could not be read: date -> message. */
   const unreadable = new Map();
@@ -136,6 +138,12 @@ export function createSnapshotStore({ root, clock = { now: () => Date.now() }, l
   }
   function cachePut(path, records, bytes) {
     if (bytes > LRU_BYTES) return;
+    // Two readers that missed at once both put the same file: replace the entry, never count its bytes twice.
+    const old = lru.get(path);
+    if (old) {
+      lru.delete(path);
+      lruBytes -= old.bytes;
+    }
     lru.set(path, { records, bytes });
     lruBytes += bytes;
     for (const [k, v] of lru) {
@@ -193,12 +201,20 @@ export function createSnapshotStore({ root, clock = { now: () => Date.now() }, l
         const cached = cacheGet(gz);
         if (cached) return cached;
         try {
-          const buf = await gunzipAsync(await readFile(gz));
-          const text = buf.toString("utf8");
-          const { items, bad } = await parseYielding(text);
-          corruptLines += bad;
-          if (date !== today) cachePut(gz, items, text.length);
-          return items;
+          // Concurrent readers of one past-day file share one gunzip.
+          let job = gzReads.get(gz);
+          if (!job) {
+            job = (async () => {
+              const buf = await gunzipAsync(await readFile(gz));
+              const text = buf.toString("utf8");
+              const { items, bad } = await parseYielding(text);
+              corruptLines += bad;
+              if (date !== today) cachePut(gz, items, text.length);
+              return items;
+            })().finally(() => gzReads.delete(gz));
+            gzReads.set(gz, job);
+          }
+          return await job;
         } catch (err) {
           // A broken .gz next to its plain file (a roll that failed half way): the plain file is the record.
           if (!existsSync(plain)) throw err;

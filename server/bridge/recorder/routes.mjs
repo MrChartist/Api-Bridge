@@ -283,6 +283,25 @@ export function redactStatus(st, ctx) {
   return out;
 }
 
+/** The accounts a dry-run plan names (recorderService.mjs PLAN_ACCOUNTS; Symbol.for keeps this file import-free). */
+const PLAN_ACCOUNTS = Symbol.for("mcb.recorder.planAccounts");
+
+/**
+ * A dry-run plan with account ids and the broker redacted for restricted keys (§4, §9), like redactStatus: the plan's
+ * warnings name the data and feed accounts ("The live feed runs on …").
+ */
+export function redactPlan(out, ctx) {
+  const acc = out?.[PLAN_ACCOUNTS];
+  if (!acc) return out;
+  const ids = [...new Set([acc.id, acc.feedAccountId, acc.configured].filter(Boolean))];
+  const hidden = ids.filter((id) => !canSeeAccount(ctx, id));
+  if (!hidden.length) return out;
+  const pairs = hidden.sort((a, b) => b.length - a.length).map((id) => [new RegExp(escapeRe(id), "g"), "(hidden account)"]);
+  const broker = !acc.id || hidden.includes(acc.id) ? acc.broker : null;
+  if (broker && broker !== "demo") pairs.push([new RegExp(`\\b${escapeRe(broker)}\\b`, "gi"), "the broker"]);
+  return scrubStrings(out, pairs);
+}
+
 /**
  * @param {object} recorder  deps.recorder
  * @param {{ clock: { now(): number }, paths?: { configFile: string | null }, config: object }} deps
@@ -346,7 +365,9 @@ export function createRecorderRoutes(recorder, deps) {
     async plan(ctx) {
       const body = ctx.body ?? {};
       if (!body || typeof body !== "object" || Array.isArray(body)) throw invalid("(body)", "Send the recorder settings to check as a JSON object.");
-      return { data: await recorder.plan(body), meta: meta(ctx) };
+      // A key limited to other accounts cannot dry-run (probe) an account it may not use: 403 ACCOUNT_FORBIDDEN.
+      if (typeof body.account === "string" && body.account && ctx?.principal?.kind !== "local") ctx.requireAccountAccess(body.account);
+      return { data: redactPlan(await recorder.plan(body), ctx), meta: meta(ctx) };
     },
 
     async setConfig(ctx) {

@@ -132,15 +132,30 @@ export function createRecorderBudget({ policy, endpointClass, share, clock, carr
   return {
     caps,
     canTake,
-    /** Take n calls now when every window has room; false (nothing taken) otherwise. */
+    /**
+     * Take n calls now when every window has room: a token naming them (for refund), or false (nothing taken).
+     * @returns {{ t: number, n: number } | false}
+     */
     tryTake(n = 1, t = now()) {
       if (!canTake(n, t)) return false;
       for (const log of logs) for (let k = 0; k < n; k++) log.push(t);
-      return true;
+      return { t, n };
     },
-    /** Give back the last n calls taken (the read was served from the cache and cost the broker nothing). */
-    refund(n = 1) {
-      for (const log of logs) log.splice(Math.max(0, log.length - n), n);
+    /**
+     * Give back the calls a token took (the read was served from the cache and cost the broker nothing). Reads
+     * overlap, so it removes that take's own entries (its timestamp), never another read's later ones.
+     */
+    refund(token) {
+      if (!token || typeof token !== "object") return;
+      for (const log of logs) {
+        let left = token.n;
+        for (let i = log.length - 1; i >= 0 && left > 0; i--) {
+          if (log[i] === token.t) {
+            log.splice(i, 1);
+            left -= 1;
+          }
+        }
+      }
     },
     /** Change the share in place (the logs and halving stay). */
     setShare(next) {
