@@ -28,6 +28,7 @@ import { PRIORITIES, isStub } from "../core/contracts.mjs";
 import { BridgeError, fromBrokerError, fromValidation } from "../core/errors.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
 import { recordSaving as recordSavingGlobal } from "../ratelimit/scheduler.mjs";
+import { DEFAULT_RATE } from "../reference/defaults.mjs";
 import { createBatcher } from "./batcher.mjs";
 import { atmStrike, defaultOptionExchange, finishLeg, legSymbol, rowsFromBrokerChain, rowsFromQuotes, trimStrikes } from "./chain.mjs";
 import { DEPTH_STALE_CAP_MS, parseMarketConfig } from "./config.mjs";
@@ -122,6 +123,30 @@ export function createMarketDataService(deps) {
     }
   })();
   const now = () => clock.now();
+  /** Optional (stream S16): the reference rate. Absent in tests and tools that build the service by hand. */
+  const reference = (() => {
+    try {
+      return deps.reference;
+    } catch {
+      return undefined;
+    }
+  })();
+  if (cfg.chain.riskFreeRate !== undefined) {
+    log?.warn?.("market.chain.riskFreeRate is deprecated: set the rate on the Market calendar page or in reference.rate. The configured value still overrides the reference rate.", { riskFreeRate: cfg.chain.riskFreeRate });
+  }
+  /** Rate for computed Greeks: the deprecated config override, else the reference rate, else the reference default. */
+  const riskFreeRate = () => {
+    if (cfg.chain.riskFreeRate !== undefined) return cfg.chain.riskFreeRate;
+    if (usable(reference)) {
+      try {
+        const v = reference.rate()?.value;
+        if (typeof v === "number" && Number.isFinite(v)) return v;
+      } catch {
+        // fall through to the default
+      }
+    }
+    return DEFAULT_RATE;
+  };
   const setTimer = typeof clock.setTimeout === "function" ? (fn, ms) => clock.setTimeout(fn, ms) : undefined;
   const clearTimer = typeof clock.clearTimeout === "function" ? (h) => clock.clearTimeout(h) : undefined;
   const cache = createFreshnessCache({ maxEntries: cfg.cache.maxEntries, now });
@@ -979,7 +1004,7 @@ export function createMarketDataService(deps) {
       ),
       signal,
     );
-    const built = rowsFromBrokerChain(res, { underlying, expiry, exchange: meta.exchange, declared, greeks, nowMs: now(), rate: cfg.chain.riskFreeRate });
+    const built = rowsFromBrokerChain(res, { underlying, expiry, exchange: meta.exchange, declared, greeks, nowMs: now(), rate: riskFreeRate() });
     if (!built.rows.length) throw new BridgeError("SYMBOL_NOT_FOUND", `No options were found for ${underlying} expiring ${expiry}.`);
     return { value: { underlyingLtp: built.underlyingLtp, rows: built.rows, lotSize: meta.lotSize }, at: now(), accountId, broker, source: "broker" };
   }
@@ -1002,7 +1027,7 @@ export function createMarketDataService(deps) {
       throw new BridgeError(first.code, first.message);
     }
     const quotes = new Map(read.items.map((i) => [i.symbol, i]));
-    const built = rowsFromQuotes(legs, quotes, { spot, expiry, greeks, nowMs: now(), rate: cfg.chain.riskFreeRate });
+    const built = rowsFromQuotes(legs, quotes, { spot, expiry, greeks, nowMs: now(), rate: riskFreeRate() });
     const fresh = [...read.items.map((i) => i.freshness), ...spotRead.items.map((i) => i.freshness)];
     const oldestAge = fresh.reduce((m, f) => Math.max(m, f.ageMs), 0);
     const sources = new Set(fresh.map((f) => f.source));
@@ -1056,7 +1081,7 @@ export function createMarketDataService(deps) {
           expiry: p.expiry,
           right,
           nowMs: now(),
-          rate: cfg.chain.riskFreeRate,
+          rate: riskFreeRate(),
         });
       }
       return row;

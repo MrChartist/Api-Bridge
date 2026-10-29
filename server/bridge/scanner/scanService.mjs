@@ -23,6 +23,7 @@ import { BridgeError, fromValidation } from "../core/errors.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
 import { INTERVALS, countbackRange } from "../market/history.mjs";
 import { marketSession } from "../../lib/marketHours.mjs";
+import { isStub } from "../core/contracts.mjs";
 import { parseScannerConfig } from "./config.mjs";
 import { columns, lastValue, lookbackOf, matchesLast, parseExpression } from "./expr.mjs";
 import { createUniverses } from "./universes.mjs";
@@ -439,10 +440,22 @@ export function createScanner(deps) {
 
   // ── scheduling saved scans ──
 
+  /** NSE session state from deps.reference (holidays included), or null when no reference service is running. */
+  function referenceSessionState(t) {
+    const ref = deps.reference;
+    if (!ref || isStub(ref) || typeof ref.session !== "function") return null;
+    try {
+      return ref.session("NSE", t).state;
+    } catch {
+      return null;
+    }
+  }
+
   function due(s, t) {
     if (!s.everyMinutes || s.disabledReason) return false;
     if (s.marketHoursOnly !== false) {
-      const st = marketSession(new Date(t)).state;
+      // Holiday-aware when the reference calendar (stream S16) is running; lib/marketHours otherwise.
+      const st = referenceSessionState(t) ?? marketSession(new Date(t)).state;
       if (st !== "OPEN" && st !== "SPECIAL") return false;
     }
     const last = s.lastStartedAt ? Date.parse(s.lastStartedAt) : 0;

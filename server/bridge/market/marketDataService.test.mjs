@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { SERVICE_CONTRACTS, assertService } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
+import { createNullLogger } from "../core/logger.mjs";
 import { createFakeScheduler } from "../ratelimit/fake.mjs";
 import { FIFTY, T0, buildMarket, priceForToken, stubAdapter, stubStreamHub } from "./__fixtures__/helpers.mjs";
 
@@ -558,6 +559,23 @@ describe("option chain", () => {
     expect(atm.pe.delta).toBeLessThan(0);
     expect(atm.pe.oiChange).toBe(150);
     expect(c.freshness).toMatchObject({ source: "broker", accountId: "zerodha-main" });
+  });
+
+  it("computed Greeks use the reference rate; the deprecated market.chain.riskFreeRate override wins and warns once", async () => {
+    const pe = async (opts) => (await buildMarket(opts).md.optionChain({ underlying: "NIFTY", expiry: "2026-10-27" })).rows[2].pe;
+    const fakeRef = (value) => ({ rate: () => ({ value, asOf: "2026-10-28", source: "test", quality: "user", stale: false }) });
+    const low = await pe({ reference: fakeRef(0) });
+    const high = await pe({ reference: fakeRef(0.25) });
+    expect(low.greeksSource).toBe("computed");
+    expect(high.iv).not.toBe(low.iv);
+    const warns = [];
+    const logger = { ...createNullLogger(), warn: (msg) => warns.push(msg), child() { return this; } };
+    const overridden = await pe({ reference: fakeRef(0), market: { chain: { riskFreeRate: 0.25 } }, logger });
+    expect(overridden.iv).toBe(high.iv);
+    expect(warns.filter((w) => /deprecated/.test(w))).toHaveLength(1);
+    const fallback = await pe({});
+    const dflt = await pe({ reference: fakeRef(0.065) });
+    expect(fallback.iv).toBe(dflt.iv);
   });
 
   it("trims to N strikes each side of ATM and strips greeks when asked", async () => {

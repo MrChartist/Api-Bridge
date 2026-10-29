@@ -7,7 +7,7 @@
  *     "batch":     { "windowMs": 25, "maxSymbols": 1000 },
  *     "streamFirst": true,
  *     "history":   { "maxChunks": 40, "maxSpanDays": { "intraday": 60, "daily": 2000 }, "brokers": { "dhan": { "intraday": 90 } } },
- *     "chain":     { "source": "auto", "riskFreeRate": 0.065 },
+ *     "chain":     { "source": "auto" },          // riskFreeRate: deprecated override of reference.rate
  *     "cache":     { "maxEntries": 20000 }
  *   }
  *
@@ -97,8 +97,12 @@ export const MARKET_CONFIG_SCHEMA = z
       .object({
         /** auto: the broker's chain where the account declares one, else built from the master plus quotes. */
         source: z.enum(["auto", "broker", "built"]).default("auto"),
-        /** Risk-free rate for computed Greeks (annual, decimal). */
-        riskFreeRate: z.number().min(0).max(0.25).default(0.065),
+        /**
+         * DEPRECATED (use reference.rate or the Market calendar page): risk-free rate for computed Greeks (annual,
+         * decimal). When set it overrides the reference rate and a warning is logged once. No default: unset means
+         * "use deps.reference.rate()" (docs/spec/p1-02-reference.md §10).
+         */
+        riskFreeRate: z.number().min(0).max(0.25).optional(),
         /** Most option instruments a built chain will quote. */
         maxBuiltLegs: z.number().int().min(2).max(2000).default(400),
       })

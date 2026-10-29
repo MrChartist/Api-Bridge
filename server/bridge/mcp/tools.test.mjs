@@ -44,7 +44,7 @@ describe("registry shape", () => {
     const names = registry.listTools(ctxFor(["read"])).map((t) => t.name);
     expect(names.length).toBeLessThan(20);
     expect(names).toEqual(DEFAULT_TOOL_NAMES);
-    expect(names).toEqual(TOOL_DEFS.filter((t) => t.toolset !== "orders").map((t) => t.name));
+    expect(names).toEqual(TOOL_DEFS.filter((t) => t.toolset !== "orders" && t.toolset !== "options").map((t) => t.name));
   });
 
   it("lists exactly the 18 default tools; the opt-in options toolset stays at 19 tools or fewer", () => {
@@ -310,5 +310,41 @@ describe("market reads keep to the key's accounts", () => {
     const ltpCalls = deps.marketData.calls.filter((c) => c[0] === "ltp");
     expect(ltpCalls[0][2]).toMatchObject({ allowedAccounts: ["dhan-main"] });
     expect(ltpCalls[1][2]?.allowedAccounts).toBeUndefined();
+  });
+});
+
+describe("get_reference (options toolset)", () => {
+  const refSetup = async () => {
+    const { createReferenceService } = await import("../reference/referenceService.mjs");
+    const { parseReferenceConfig } = await import("../reference/config.mjs");
+    const { demoInstruments } = await import("../demo/demoAdapter.mjs");
+    const t = Date.parse("2026-10-29T10:00:00+05:30");
+    const reference = createReferenceService({ config: { demo: true, reference: parseReferenceConfig({}) }, logger: createNullLogger(), clock: { now: () => t }, paths: {}, symbols: createFakeSymbolService({ masters: { fake: demoInstruments(t) } }) });
+    const registry = createToolRegistry({ deps: { config: { mcp: { toolsets: ["market", "analytics", "account", "options"] } }, reference }, now: () => t });
+    return { reference, registry, t };
+  };
+
+  it("returns the same data as the REST route for bundle and lots", async () => {
+    const { reference, registry, t } = await refSetup();
+    const { readReference } = await import("../reference/routes.mjs");
+    for (const [dataset, params] of [
+      ["bundle", { underlying: "NIFTY" }],
+      ["lots", { underlying: "BANKNIFTY" }],
+    ]) {
+      const out = await registry.call("get_reference", { dataset, ...params }, ctxFor(["read"]));
+      expect(out.isError, JSON.stringify(out.content)).toBeUndefined();
+      const rest = await readReference(reference, dataset, params, { now: () => t });
+      expect(out.structuredContent.data).toEqual(JSON.parse(JSON.stringify(rest)));
+    }
+  });
+
+  it("is read-only, opt-in, and there is no reference write tool", async () => {
+    const { registry } = await refSetup();
+    const def = TOOL_DEFS.find((t) => t.name === "get_reference");
+    expect(def).toMatchObject({ toolset: "options", annotations: { readOnlyHint: true, destructiveHint: false } });
+    expect(DEFAULT_TOOL_NAMES).not.toContain("get_reference");
+    expect(TOOL_DEFS.filter((t) => /reference|rate|corporate|sources/.test(t.name)).map((t) => t.name)).toEqual(["get_reference"]);
+    const bad = await registry.call("get_reference", { dataset: "set-rate" }, ctxFor(["read"]));
+    expect(bad.isError).toBe(true);
   });
 });

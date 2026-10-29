@@ -26,7 +26,7 @@ export const ROUTES = Object.freeze([
 ]);
 
 /** The services the scanner reads. Nothing here may reach orders, paper or safety. */
-export const USED_SERVICES = Object.freeze(["marketData", "accounts", "scheduler", "symbols", "backupData"]);
+export const USED_SERVICES = Object.freeze(["marketData", "accounts", "scheduler", "symbols", "backupData", "reference"]);
 
 /** One scanner per app (tests build many apps in one process). */
 const scanners = new WeakMap();
@@ -49,6 +49,7 @@ export default defineModule({
       scheduler: deps.scheduler,
       symbols: deps.symbols,
       backupData: deps.backupData,
+      reference: deps.reference,
       bus: deps.bus,
       clock: deps.clock,
       paths: deps.paths,

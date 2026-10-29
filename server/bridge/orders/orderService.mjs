@@ -31,6 +31,7 @@
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { issueOrderGate } from "../../brokers/orderGate.mjs";
+import { isStub } from "../core/contracts.mjs";
 import { BridgeError, ERROR_CODES, fromBrokerError } from "../core/errors.mjs";
 import { isAutomatedContext } from "../core/context.mjs";
 import { assertLiveSupport, liveSupport, unverifiedWarning } from "./brokerOrders.mjs";
@@ -594,6 +595,8 @@ export function createOrderService(deps) {
     const inst = checkInstrumentOrder(body, resolved, q.quantity, cfg);
     checks.push(...inst.checks);
     p.legs = inst.legs;
+    const lotCheck = await lotSizeCheck(body, resolved);
+    if (lotCheck) checks.push(lotCheck);
 
     if (wantsLive) {
       let adapter = null;
@@ -625,9 +628,10 @@ export function createOrderService(deps) {
     p.ltp = await ltpOf(resolved.canonical);
     const policy = config?.safety?.marketOrders ?? "protect";
     const defaultPct = config?.safety?.marketProtectionPct ?? 2;
-    const { lots, quantity, ...rest } = body;
+    const { lots, quantity, lotSizeConfirmed, ...rest } = body;
     void lots;
     void quantity;
+    void lotSizeConfirmed;
     if (wantsLive) {
       const m = applyMarketPolicy(rest, { policy, defaultPct, nativeProtection: Boolean(p.mapper?.nativeMarketProtection), ltp: p.ltp, tickSize: resolved.tickSize });
       checks.push(...m.checks);
@@ -852,6 +856,39 @@ export function createOrderService(deps) {
   function paperSlot(accountId) {
     const s = deps.safety.acquireOrderSlot(accountId, { mode: "paper" });
     if (s && s.ok === false) throw new BridgeError("ORDER_RATE_LIMITED", `The order-rate cap for ${accountId} was reached (paper orders are paced like live ones). Try again in a moment.`, { retryAfterMs: s.retryAfterMs });
+  }
+
+  /**
+   * LOT_SIZE_STALE (p1-02 §3.6): an order sent in lots whose reference lot data is stale (more than
+   * reference.staleAfterTradingDays trading days old) or disagrees with the broker master. A warning by default; a block
+   * when reference.blockLotsWhenStale is true. lotSizeConfirmed equal to the resolved lot clears it; orders sent as
+   * quantity are never checked. The master's lot is always the one used (orderValidation is unchanged).
+   */
+  async function lotSizeCheck(body, resolved) {
+    if (body.lots === undefined || (resolved.kind !== "FUT" && resolved.kind !== "OPT")) return null;
+    let reference = null;
+    try {
+      reference = deps.reference;
+    } catch {
+      reference = null;
+    }
+    if (!reference || isStub(reference) || typeof reference.lotFor !== "function") return null;
+    let info;
+    try {
+      info = await reference.lotFor(resolved.underlying, resolved.expiry, { exchange: resolved.exchange });
+    } catch {
+      return null;
+    }
+    if (!info || !(info.stale || info.conflict)) return null;
+    const lot = resolved.lotSize;
+    if (body.lotSizeConfirmed === lot) return null;
+    const asOf = typeof info.asOf === "string" ? info.asOf : null;
+    const day = asOf ? `${Number(asOf.slice(8, 10))} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(asOf.slice(5, 7)) - 1]}` : "an unknown date";
+    const why = info.conflict
+      ? `Lot size for ${resolved.underlying} differs between the broker master (${info.conflict.master}) and the reference file (${info.conflict.reference})`
+      : `Lot size for ${resolved.underlying} is from ${day} (${info.staleTradingDays} trading day${info.staleTradingDays === 1 ? "" : "s"} old)`;
+    const mismatch = body.lotSizeConfirmed !== undefined ? ` lotSizeConfirmed ${body.lotSizeConfirmed} does not match.` : "";
+    return { code: "LOT_SIZE_STALE", message: `${why}. Confirm ${lot} units per lot or send quantity in units.${mismatch}`, severity: info.blockWhenStale ? "block" : "warn" };
   }
 
   async function placePaper(ctx, body, p, { tag, warnings }) {

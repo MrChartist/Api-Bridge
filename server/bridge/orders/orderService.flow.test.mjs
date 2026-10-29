@@ -40,6 +40,60 @@ describe("preview", () => {
   });
 });
 
+describe("LOT_SIZE_STALE (p1-02 §3.6)", () => {
+  const staleRef = ({ block = false, conflict = null, stale = true } = {}) => {
+    const calls = [];
+    return {
+      calls,
+      lotFor: async (underlying, expiry, o) => {
+        calls.push([underlying, expiry, o]);
+        return { lot: 65, asOf: "2026-10-27", stale, staleTradingDays: 2, conflict, staleAfterTradingDays: 1, blockWhenStale: block };
+      },
+    };
+  };
+  const inLots = (over = {}) => liveOrder({ symbol: "NFO:NIFTY-2026-10-27-25000-CE", quantity: undefined, lots: 1, product: "INTRADAY", price: 120.5, mode: "paper", ...over });
+
+  it("is a warning by default, with the date and age of the lot data", async () => {
+    const reference = staleRef();
+    const h = buildHarness({ reference });
+    const r = await h.svc.preview(h.ctx(), inLots());
+    expect(r.ok).toBe(true);
+    const c = r.checks.find((x) => x.code === "LOT_SIZE_STALE");
+    expect(c).toEqual({ code: "LOT_SIZE_STALE", severity: "warn", message: "Lot size for NIFTY is from 27 Oct (2 trading days old). Confirm 65 units per lot or send quantity in units." });
+    expect(reference.calls[0]).toEqual(["NIFTY", "2026-10-27", { exchange: "NFO" }]);
+  });
+
+  it("blocks when reference.blockLotsWhenStale is on; lotSizeConfirmed equal to the lot clears it", async () => {
+    const h = buildHarness({ reference: staleRef({ block: true }) });
+    const blocked = await h.svc.preview(h.ctx(), inLots());
+    expect(blocked.ok).toBe(false);
+    expect(blocked.checks.find((x) => x.code === "LOT_SIZE_STALE").severity).toBe("block");
+    const wrong = await h.svc.preview(h.ctx(), inLots({ lotSizeConfirmed: 75 }));
+    expect(wrong.ok).toBe(false);
+    expect(wrong.checks.find((x) => x.code === "LOT_SIZE_STALE").message).toMatch(/lotSizeConfirmed 75 does not match/);
+    const ok = await h.svc.preview(h.ctx(), inLots({ lotSizeConfirmed: 65 }));
+    expect(ok.ok).toBe(true);
+    expect(ok.checks.some((x) => x.code === "LOT_SIZE_STALE")).toBe(false);
+    const placed = await h.svc.place(h.ctx(), inLots({ lotSizeConfirmed: 65 }));
+    expect(placed.order).toMatchObject({ mode: "paper", quantity: 65 });
+  });
+
+  it("a master/reference conflict needs the same confirmation", async () => {
+    const h = buildHarness({ reference: staleRef({ block: true, stale: false, conflict: { master: 65, reference: 75 } }) });
+    const r = await h.svc.preview(h.ctx(), inLots());
+    expect(r.checks.find((x) => x.code === "LOT_SIZE_STALE").message).toMatch(/differs between the broker master \(65\) and the reference file \(75\)/);
+  });
+
+  it("orders sent as quantity, fresh lot data and equity orders are never checked", async () => {
+    const reference = staleRef({ block: true });
+    const h = buildHarness({ reference });
+    expect((await h.svc.preview(h.ctx(), inLots({ lots: undefined, quantity: 65 }))).checks.some((x) => x.code === "LOT_SIZE_STALE")).toBe(false);
+    expect((await h.svc.preview(h.ctx(), liveOrder({ mode: "paper" }))).checks.some((x) => x.code === "LOT_SIZE_STALE")).toBe(false);
+    const fresh = buildHarness({ reference: staleRef({ block: true, stale: false }) });
+    expect((await fresh.svc.preview(fresh.ctx(), inLots())).checks.some((x) => x.code === "LOT_SIZE_STALE")).toBe(false);
+  });
+});
+
 describe("human confirmation tickets (AI assistants)", () => {
   const mcp = (h) => h.ctx("mcp", { source: "mcp" });
 

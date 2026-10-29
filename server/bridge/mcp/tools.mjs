@@ -625,6 +625,34 @@ export const TOOL_DEFS = Object.freeze([
       return { data: { order: r.order, replayed: Boolean(r.replayed) }, meta: { accountId: r.order?.accountId ?? null, mode: r.order?.mode } };
     },
   },
+
+  // ── options (opt-in toolset "options": Phase 1 options platform) ──
+  {
+    name: "get_reference",
+    title: "Contract reference data",
+    toolset: "options",
+    description:
+      "Read-only contract facts with their source and as-of date: the bundle for an underlying (session, holidays, rate, expiries with lot and holiday shift, lots, freeze quantity, ban/MWPL, events, charges), or one dataset: expiries, sessions, holidays, lots, ban, mwpl, fno-universe, corporate-actions, rate, charges, delivery-margin, events, status. " +
+      "Unavailable data says available: false with a reason; values marked default, inferred or unverified are not exchange facts. It cannot change the rate, add actions or switch sources.",
+    input: () =>
+      z.strictObject({
+        dataset: z.enum(["bundle", "expiries", "sessions", "holidays", "lots", "ban", "mwpl", "fno-universe", "corporate-actions", "rate", "charges", "delivery-margin", "events", "status"]),
+        underlying: z.string().min(1).max(30).nullable().describe("NIFTY, BANKNIFTY, SENSEX or a stock; needed for bundle, expiries, lots and delivery-margin."),
+        symbol: z.string().min(1).max(30).nullable().describe("A stock symbol, for mwpl and corporate-actions; null for all."),
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().describe("YYYY-MM-DD (IST) for sessions, ban, mwpl and fno-universe; null for today."),
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+        days: z.number().int().min(1).max(30).nullable().describe("Events window in days; null for 7."),
+        expiry: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().describe("For delivery-margin."),
+      }),
+    output: z.strictObject({ data: anyObj, meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_LOCAL,
+    handler: async (a, _ctx, rt) => {
+      const { readReference } = await import("../reference/routes.mjs");
+      const { dataset, ...params } = a;
+      return { data: await readReference(svc(rt.deps, "reference"), dataset, params, { now: rt.now }) };
+    },
+  },
 ]);
 
 /** Tools listed when nothing is configured (must stay under 20). */

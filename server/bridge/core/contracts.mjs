@@ -240,6 +240,37 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
+   * ReferenceData — S16 (docs/spec/p1-02-reference.md §2.2). Contract calendar, sessions, holidays, lots with effective
+   * dates, freeze quantities, ban list, MWPL, F&O universe by date, corporate actions, delivery-margin schedule, rate and
+   * charges, from the masters (via symbols), shipped files, config and (opt-in) NSE archive files. Never calls a broker.
+   * Every dataset value carries source, asOf and quality; unavailable data answers available: false with a reason.
+   *  session(exchange, tMs) -> { state: "CLOSED"|"PRE_OPEN"|"OPEN"|"SPECIAL"|"HOLIDAY", label, date, open, close, preOpen,
+   *      holiday: { label, verified } | null, special | null, tradingDay, source }      (times "HH:MM" IST)
+   *  calendar() -> { isTradingDay(date, exch), prevTradingDay(date, exch), nextTradingDay(date, exch),
+   *      tradingDaysBetween(a, b, exch), holidays: [...] }
+   *  rate(atDate?) -> { value, asOf, source, quality: "user"|"config"|"default"|"demo", stale }
+   *  lotFor(underlying, expiry, { exchange }) -> Promise<{ lot, effectiveFrom, previousLot, source, asOf,
+   *      conflict: null | { master, reference }, stale, staleTradingDays, staleAfterTradingDays, blockWhenStale }>
+   *  freezeFor(canonical) -> Promise<{ freezeQty | null, source: "master"|"exchange-list"|"config"|null, verified }>
+   *  banStatus(symbol, date?) -> { inBan, mwplPct, mwpl, oi, band: "ban"|"high"|"normal"|null, forDate, asOf, source }
+   *  universe({ date, kind }) -> { date, coverage: "recorded"|"not-recorded", knownSince, items: [{ symbol, kind, exchange }] }
+   *  corporateActions({ symbol, from, to }) -> CorporateAction[]
+   *  events({ days = 7, underlying }) -> Promise<[{ kind: "lot-revision"|"corporate-action"|"holiday-expiry-shift",
+   *      underlying, effectiveOn, daysAway, text, ref }]>
+   *  charges() -> statutory table (the dashboard's CHARGE_RATES shape) + brokerage from config
+   *  deliveryMargin(expiry, exch) -> { expiry, items: [{ day: "E-4", date, pct }], verified, source }
+   *  status() -> per-dataset sync state
+   *  bundle({ underlying, exchange, now }) -> Promise<everything one page needs>
+   *  sync({ datasets, reason }) -> Promise<{ jobId, results }>   (CAPABILITY_UNSUPPORTED in demo mode)
+   */
+  reference: {
+    iface: "ReferenceData",
+    stream: "S16",
+    requires: ["symbols"],
+    methods: ["session", "calendar", "rate", "lotFor", "freezeFor", "banStatus", "universe", "corporateActions", "events", "charges", "deliveryMargin", "status", "bundle", "sync"],
+  },
+
+  /**
    * StreamHub — S6. One upstream feed per account (adapter.createFeed), reference-counted subscriptions across all
    * local clients, mode = max demand, broker subscription caps enforced (SUBSCRIPTION_LIMIT, never silent drops),
    * resubscribe after reconnect/re-login. Emits "tick" and "stream.status".
@@ -285,7 +316,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   marketData: {
     iface: "MarketDataService",
     stream: "S5",
-    requires: ["accounts", "scheduler", "symbols", "streamHub", "backupData"],
+    requires: ["accounts", "scheduler", "symbols", "streamHub", "backupData", "reference"],
     methods: ["ltp", "quotes", "depth", "history", "expiries", "optionChain"],
   },
 
@@ -309,7 +340,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   safety: {
     iface: "SafetyGuard",
     stream: "S9",
-    requires: ["audit", "accounts"],
+    requires: ["audit", "accounts", "reference"],
     methods: ["check", "acquireOrderSlot", "recordOrderEvent", "killSwitchStatus", "engageKillSwitch", "releaseKillSwitch", "limits"],
   },
 
@@ -330,7 +361,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   paper: {
     iface: "PaperEngine",
     stream: "S8",
-    requires: ["marketData", "symbols"],
+    requires: ["marketData", "symbols", "reference"],
     methods: ["place", "modify", "cancel", "order", "orders", "trades", "positions", "funds", "account", "reset"],
   },
 
@@ -359,7 +390,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   orders: {
     iface: "OrderService",
     stream: "S7",
-    requires: ["accounts", "scheduler", "symbols", "safety", "audit", "paper", "marketData"],
+    requires: ["accounts", "scheduler", "symbols", "safety", "audit", "paper", "marketData", "reference"],
     methods: ["preview", "place", "modify", "cancel", "cancelAll", "get", "getByClientId", "list", "trades", "positions", "holdings", "funds", "tickets", "confirmTicket"],
   },
 });

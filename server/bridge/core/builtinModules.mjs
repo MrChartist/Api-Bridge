@@ -6,6 +6,7 @@ import accounts from "../accounts/module.mjs";
 import auth from "../auth/module.mjs";
 import ratelimit from "../ratelimit/module.mjs";
 import symbols from "../symbols/module.mjs";
+import reference from "../reference/module.mjs";
 import market from "../market/module.mjs";
 import stream from "../stream/module.mjs";
 import orders from "../orders/module.mjs";
@@ -19,4 +20,4 @@ import scanner from "../scanner/module.mjs";
 import compat from "../compat/module.mjs";
 import notify from "../notify/module.mjs";
 
-export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, market, stream, orders, paper, safety, integrations, hooks, mcp, backup, scanner, compat, notify]);
+export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, reference, market, stream, orders, paper, safety, integrations, hooks, mcp, backup, scanner, compat, notify]);

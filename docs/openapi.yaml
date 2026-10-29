@@ -117,6 +117,8 @@ tags:
     description: Push saved-scan alerts, live fills, the kill switch and expired sessions to Telegram, Discord, Slack or a signed webhook.
   - name: Backup data
     description: Free public sources (Yahoo Finance, NSE website) used as a labelled fallback when no broker account can answer.
+  - name: Reference data
+    description: Contract calendar, lots, ban list, MWPL, F&O universe, corporate actions, rate and charges (stream S16). Every value carries source and asOf.
 
 paths:
   /v1/health:
@@ -933,6 +935,7 @@ paths:
       tags: [Market data]
       operationId: getExpiries
       summary: Expiry dates for an underlying
+      description: See /v1/reference/expiries for kind, lot and holiday shifts.
       x-stream: S5
       x-scope: read
       parameters:
@@ -3394,6 +3397,507 @@ paths:
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/reference/status:
+    get:
+      tags: [Reference data]
+      operationId: getReferenceStatus
+      summary: Sync state per dataset and which sources are on
+      description: >-
+        Datasets lots, universe, ban, mwpl, holidays, rate and corporateActions with asOf, source, last success and attempt, next run and the last error. NSE archive downloads are off until turned on.
+      x-stream: S16
+      x-scope: read
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RefStatus" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/bundle:
+    get:
+      tags: [Reference data]
+      operationId: getReferenceBundle
+      summary: Everything one Options page needs for an underlying
+      description: >-
+        Session, next and previous trading day, holidays ahead, rate, listed expiries (kind, lot, holiday shift), lots, freeze quantity, ban/MWPL for stocks, events within the banner window, delivery margin for stocks, charges and warnings. Every value carries its source and asOf.
+      x-stream: S16
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: exchange, in: query, schema: { type: string, enum: [NFO, BFO] } }
+        - { name: demoStale, in: query, description: "Demo mode only: 1 reports lots as 2 trading days old, so the stale banner and ticket confirmation can be tried.", schema: { type: string, enum: ["0", "1"] } }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RefBundle" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/expiries:
+    get:
+      tags: [Reference data]
+      operationId: getReferenceExpiries
+      summary: Listed expiries with kind, lot and holiday shift
+      description: >-
+        kind is monthly when the date is the last listed expiry of its calendar month. shifted/ruleDate/reason explain a date that moved for a holiday; the listed date always wins.
+      x-stream: S16
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: exchange, in: query, schema: { type: string, enum: [NFO, BFO] } }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RefExpiries" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/sessions:
+    get:
+      tags: [Reference data]
+      operationId: getReferenceSession
+      summary: Session for a date and exchange
+      x-stream: S16
+      x-scope: read
+      parameters:
+        - { name: date, in: query, schema: { type: string, format: date } }
+        - { name: exchange, in: query, schema: { type: string, enum: [NFO, BFO, NSE, BSE], default: NFO } }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RefSession" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/holidays:
+    get:
+      tags: [Reference data]
+      operationId: getReferenceHolidays
+      summary: Exchange holidays in a range
+      description: >-
+        Shipped list (needs verification; a row blocks live orders only when verified) plus config additions. The range is at most 400 days.
+      x-stream: S16
+      x-scope: read
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: exchange, in: query, schema: { type: string, enum: [NSE, BSE, NFO, BFO] } }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RefHolidays" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/lots:
+    get:
+      tags: [Reference data]
+      operationId: getReferenceLots
+      summary: Lot size history with effective dates, and the freeze quantity
+      x-stream: S16
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: exchange, in: query, schema: { type: string, enum: [NFO, BFO] } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+      responses:
+        "200":
+          description: Lot history, newest last. Lots are units per lot.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RefLots" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/ban:
+    get:
+      tags: [Reference data]
+      operationId: getReferenceBan
+      summary: Ban list for a trading date
+      description: >-
+        available false with a reason (SOURCE_OFF, NEVER_FETCHED, NOT_RECORDED) when there is no list for the date.
+      x-stream: S16
+      x-scope: read
+      parameters:
+        - { name: date, in: query, schema: { type: string, format: date } }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RefBan" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/mwpl:
+    get:
+      tags: [Reference data]
+      operationId: getReferenceMwpl
+      summary: MWPL % per stock for a date
+      x-stream: S16
+      x-scope: read
+      parameters:
+        - { name: date, in: query, schema: { type: string, format: date } }
+        - { name: symbol, in: query, schema: { type: string, maxLength: 30 } }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RefMwpl" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/fno-universe:
+    get:
+      tags: [Reference data]
+      operationId: getReferenceFnoUniverse
+      summary: Point-in-time F&O membership
+      description: >-
+        Membership is recorded from the first successful market-lots fetch on this Bridge (knownSince). Earlier dates answer coverage not-recorded with an empty list.
+      x-stream: S16
+      x-scope: read
+      parameters:
+        - { name: date, in: query, schema: { type: string, format: date } }
+        - { name: kind, in: query, schema: { type: string, enum: [stock, index, all], default: all } }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RefUniverse" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/corporate-actions:
+    get:
+      tags: [Reference data]
+      operationId: listReferenceCorporateActions
+      summary: Curated, user-entered and inferred corporate actions
+      x-stream: S16
+      x-scope: read
+      parameters:
+        - { name: symbol, in: query, schema: { type: string, maxLength: 30 } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: origin, in: query, schema: { type: string, enum: [shipped, user, inferred] } }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RefCorporateActions" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Reference data]
+      operationId: addReferenceCorporateAction
+      summary: Add a corporate action entered on this computer
+      description: >-
+        The Bridge computes the factor; id, factor, origin and verified are never taken from the body. Audited as reference.corporate_action.added.
+      x-stream: S16
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CorporateActionInput" }
+      responses:
+        "201":
+          description: The stored action (origin user, verified true, factor computed).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/CorporateAction" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/corporate-actions/preview:
+    post:
+      tags: [Reference data]
+      operationId: previewReferenceCorporateAction
+      summary: Adjusted strikes and lot for an action (pure maths, stores nothing)
+      x-stream: S16
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CorporateActionPreviewRequest" }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/CorporateActionPreview" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/corporate-actions/{id}:
+    delete:
+      tags: [Reference data]
+      operationId: deleteReferenceCorporateAction
+      summary: Remove a corporate action entered on this Bridge
+      x-stream: S16
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, maxLength: 120 } }
+      responses:
+        "204":
+          description: Removed. Shipped and inferred rows cannot be removed (404).
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/rate:
+    get:
+      tags: [Reference data]
+      operationId: getReferenceRate
+      summary: Risk-free rate in use, with its source
+      description: >-
+        With nothing entered the rate is the 6.5 % default, labelled quality default and source "default (not sourced)".
+      x-stream: S16
+      x-scope: read
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RefRate" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [Reference data]
+      operationId: setReferenceRate
+      summary: Set the risk-free rate with its as-of date and source
+      description: >-
+        Stored in dataDir/reference/settings.json and audited. Used for forwards, IV and Greeks; never for orders.
+      x-stream: S16
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefRateInput" }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RefRate" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/charges:
+    get:
+      tags: [Reference data]
+      operationId: getReferenceCharges
+      summary: Statutory charges and the default brokerage
+      x-stream: S16
+      x-scope: read
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RefCharges" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/delivery-margin:
+    get:
+      tags: [Reference data]
+      operationId: getReferenceDeliveryMargin
+      summary: Physical-settlement margin schedule (E-n dates) for an expiry
+      description: >-
+        Index underlyings answer available false with reason INDEX_CASH_SETTLED. The percentages need verification.
+      x-stream: S16
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RefDeliveryMargin" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/events:
+    get:
+      tags: [Reference data]
+      operationId: getReferenceEvents
+      summary: Lot revisions, corporate actions and expiry shifts within N days
+      x-stream: S16
+      x-scope: read
+      parameters:
+        - { name: days, in: query, schema: { type: integer, minimum: 1, maximum: 30, default: 7 } }
+        - { name: underlying, in: query, schema: { type: string, maxLength: 30 } }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/RefEvent" } } } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/sources:
+    put:
+      tags: [Reference data]
+      operationId: setReferenceSources
+      summary: Turn NSE archive downloads on or off
+      description: >-
+        Off by default: a fresh install calls no third-party site. On, the Bridge downloads three public NSE archive files (market lots, ban list, combined OI) once or twice a day, at most 20 requests a day. Refused in demo mode (CAPABILITY_UNSUPPORTED). Audited.
+      x-stream: S16
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [nseArchives], additionalProperties: false, properties: { nseArchives: { type: boolean } } }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, properties: { nseArchives: { type: object, properties: { enabled: { type: boolean }, setBy: { type: string }, setAt: { type: [string, "null"] } } } } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/reference/sync:
+    post:
+      tags: [Reference data]
+      operationId: runReferenceSync
+      summary: Run a reference sync now
+      description: >-
+        Starts a sync and answers at once; progress is on /v1/reference/status. 409 IDEMPOTENCY_IN_PROGRESS while a sync runs; 422 CAPABILITY_UNSUPPORTED in demo mode.
+      x-stream: S16
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, properties: { datasets: { type: array, maxItems: 10, items: { type: string, enum: [lots, ban, mwpl, corporateActions, universe] } } } }
+      responses:
+        "202":
+          description: Sync started.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, required: [jobId, datasets, startedAt], properties: { jobId: { type: string }, datasets: { type: array, items: { type: string } }, startedAt: { type: string } } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -4067,6 +4571,7 @@ components:
         side: { type: string, enum: [BUY, SELL] }
         quantity: { type: integer, minimum: 1, description: "Units; must be a multiple of the lot size. Send this or lots." }
         lots: { type: integer, minimum: 1 }
+        lotSizeConfirmed: { type: integer, minimum: 1, description: "The lot size (units per lot) the caller has checked; used only when reference lot data is stale or conflicts with the master (preview check LOT_SIZE_STALE)." }
         product: { type: string, enum: [CNC, INTRADAY, MARGIN, MTF], description: "No default." }
         orderType: { type: string, enum: [LIMIT, MARKET, SL, SL-M], description: "No default." }
         price: { type: number, exclusiveMinimum: 0, description: "Required for LIMIT and SL." }
@@ -4340,3 +4845,319 @@ components:
         side: { type: string, enum: [BUY, SELL], description: "Fix the side for every signal (needed for ChartInk, whose alerts carry no side)." }
         allowSourceIps: { type: array, items: { type: string }, description: "Optional allowlist of sender IP addresses or IPv4 CIDR blocks." }
         acknowledgeUnsignedLive: { type: boolean, default: false, description: "Live mode on an unsigned source (chartink, gocharting) needs allowSourceIps, requireConfirmation or this acknowledgement." }
+    RefMeta:
+      type: object
+      properties:
+        source: { type: [string, "null"] }
+        asOf: { type: [string, "null"] }
+        quality: { type: string, enum: [exchange, master, curated, user, config, default, inferred, demo] }
+        verified: { type: boolean }
+        stale: { type: boolean }
+        staleTradingDays: { type: [integer, "null"] }
+    RefUnavailable:
+      type: object
+      description: A dataset that is unavailable is not an error. reason is open-ended (SOURCE_OFF, NEVER_FETCHED, NOT_RECORDED, PARSE_FAILED, NO_MASTER, INDEX_CASH_SETTLED).
+      properties:
+        available: { type: boolean, enum: [false] }
+        reason: { type: string }
+    RefSession:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        exchange: { type: string }
+        state: { type: string, enum: [CLOSED, PRE_OPEN, OPEN, SPECIAL, HOLIDAY] }
+        label: { type: string }
+        preOpen: { type: string, description: "HH:MM IST" }
+        open: { type: string }
+        close: { type: string }
+        holiday: { type: [object, "null"], properties: { label: { type: string }, verified: { type: boolean } } }
+        special: { type: [object, "null"], properties: { label: { type: string }, open: { type: [string, "null"] }, close: { type: [string, "null"] }, verified: { type: boolean } } }
+        tradingDay: { type: boolean }
+        source: { type: string }
+        asOf: { type: string }
+    RefHoliday:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        label: { type: string }
+        exchanges: { type: array, items: { type: string, enum: [NSE, BSE] } }
+        verified: { type: boolean }
+        origin: { type: string, enum: [shipped, config] }
+    RefHolidays:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/RefHoliday" } }
+        source: { type: string }
+        asOf: { type: string }
+    RefExpiry:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        kind: { type: string, enum: [weekly, monthly] }
+        lot: { type: [integer, "null"], description: "Units per lot (the master's contract lot)." }
+        shifted: { type: boolean }
+        ruleDate: { type: string, format: date }
+        reason: { type: string }
+        source: { type: string }
+    RefExpiries:
+      type: object
+      properties:
+        underlying: { type: string }
+        exchange: { type: string }
+        kind: { type: [string, "null"], enum: [index, stock, null] }
+        expiries: { type: array, items: { $ref: "#/components/schemas/RefExpiry" } }
+        source: { type: string }
+        asOf: { type: [string, "null"] }
+    RefLotRow:
+      type: object
+      properties:
+        expiryMonth: { type: string, description: "YYYY-MM" }
+        lot: { type: integer }
+        effectiveFrom: { type: [string, "null"], format: date }
+        lastOldExpiry: { type: [string, "null"], format: date }
+        source: { type: string }
+    RefFreeze:
+      type: object
+      properties:
+        freezeQty: { type: [integer, "null"], description: "Units; null means unknown (slicing is not checked)." }
+        source: { type: [string, "null"], enum: [master, exchange-list, config, null] }
+        verified: { type: boolean }
+    RefLots:
+      type: object
+      properties:
+        underlying: { type: string }
+        exchange: { type: string }
+        history: { type: array, items: { $ref: "#/components/schemas/RefLotRow" } }
+        current: { type: [integer, "null"] }
+        next: { type: object, properties: { lot: { type: [integer, "null"] }, from: { type: [string, "null"] } } }
+        freeze: { $ref: "#/components/schemas/RefFreeze" }
+        source: { type: [string, "null"] }
+        asOf: { type: [string, "null"] }
+        stale: { type: boolean }
+        staleTradingDays: { type: [integer, "null"] }
+        conflict: { type: [object, "null"], properties: { master: { type: integer }, reference: { type: integer } } }
+    RefBanItem:
+      type: object
+      properties:
+        symbol: { type: string }
+        mwplPct: { type: [number, "null"] }
+    RefBan:
+      type: object
+      properties:
+        forDate: { type: string, format: date }
+        items: { type: array, items: { $ref: "#/components/schemas/RefBanItem" } }
+        available: { type: boolean }
+        reason: { type: string }
+        asOf: { type: [string, "null"] }
+        source: { type: [string, "null"] }
+    RefMwplItem:
+      type: object
+      properties:
+        symbol: { type: string }
+        mwpl: { type: number, description: "Shares." }
+        oi: { type: number, description: "Combined open interest, shares." }
+        mwplPct: { type: [number, "null"] }
+        band: { type: [string, "null"], enum: [ban, high, normal, null], description: "ban: on the ban list (the authority); high: 80 % or more (a display band, not an exchange status)." }
+        limitNextDay: { type: [number, "null"] }
+    RefMwpl:
+      type: object
+      properties:
+        forDate: { type: string, format: date }
+        items: { type: array, items: { $ref: "#/components/schemas/RefMwplItem" } }
+        available: { type: boolean }
+        reason: { type: string }
+        asOf: { type: [string, "null"] }
+        source: { type: [string, "null"] }
+    RefUniverseItem:
+      type: object
+      properties:
+        symbol: { type: string }
+        kind: { type: string, enum: [index, stock] }
+        exchange: { type: string }
+        since: { type: string, format: date }
+        sinceIsFirstFetch: { type: boolean, description: "A member on the first fetch: the true entry date is earlier and unknown." }
+    RefUniverse:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        coverage: { type: string, enum: [recorded, not-recorded] }
+        knownSince: { type: [string, "null"], format: date }
+        items: { type: array, items: { $ref: "#/components/schemas/RefUniverseItem" } }
+        count: { type: integer }
+        changes: { type: array, items: { type: object, properties: { date: { type: string }, symbol: { type: string }, change: { type: string, enum: [added, removed] } } } }
+        source: { type: string }
+        available: { type: boolean }
+        reason: { type: string }
+    CorporateAction:
+      type: object
+      properties:
+        id: { type: string }
+        symbol: { type: string }
+        exchange: { type: string, enum: [NSE, BSE] }
+        type: { type: string, enum: [bonus, split, consolidation, rights, dividend, other] }
+        ratio: { type: [object, "null"], properties: { new: { type: integer }, held: { type: integer } } }
+        exDate: { type: [string, "null"], format: date }
+        subscriptionPrice: { type: [number, "null"] }
+        cumPrice: { type: [number, "null"] }
+        dividend: { type: [number, "null"] }
+        fv: { type: [object, "null"], properties: { from: { type: number }, to: { type: number } } }
+        factor: { type: [number, "null"], description: "Computed by the Bridge (never taken from input)." }
+        lotRule: { type: string }
+        strikeTick: { type: number }
+        source: { type: string }
+        verified: { type: boolean }
+        illustrative: { type: boolean }
+        origin: { type: string, enum: [shipped, user, inferred] }
+        quality: { type: string }
+        nonStandard: { type: boolean }
+        text: { type: string }
+        contract: { type: object }
+        adjusted: { type: object, properties: { exampleStrikes: { type: array, items: { type: object } }, lotBefore: { type: [integer, "null"] }, lotAfter: { type: [integer, "null"] } } }
+        addedAt: { type: string }
+    CorporateActionInput:
+      type: object
+      required: [symbol, type, exDate]
+      additionalProperties: false
+      properties:
+        symbol: { type: string, maxLength: 30 }
+        exchange: { type: string, enum: [NSE, BSE] }
+        type: { type: string, enum: [bonus, split, consolidation, rights, dividend, other] }
+        ratio: { type: object, properties: { new: { type: integer, minimum: 1 }, held: { type: integer, minimum: 1 } } }
+        exDate: { type: string, format: date }
+        subscriptionPrice: { type: number, exclusiveMinimum: 0 }
+        cumPrice: { type: number, exclusiveMinimum: 0 }
+        dividend: { type: number, exclusiveMinimum: 0 }
+        fv: { type: object, properties: { from: { type: number, exclusiveMinimum: 0 }, to: { type: number, exclusiveMinimum: 0 } } }
+        strikeTick: { type: number, exclusiveMinimum: 0 }
+        source: { type: string, maxLength: 200 }
+        lotRule: { type: string, enum: [round] }
+    RefCorporateActions:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/CorporateAction" } }
+    CorporateActionPreviewRequest:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string, enum: [bonus, split, consolidation, rights, dividend] }
+        ratio: { type: object, properties: { new: { type: integer, minimum: 1 }, held: { type: integer, minimum: 1 } } }
+        fv: { type: object, properties: { from: { type: number }, to: { type: number } } }
+        subscriptionPrice: { type: number }
+        cumPrice: { type: number }
+        dividend: { type: number }
+        lot: { type: integer, minimum: 1 }
+        strikes: { type: array, maxItems: 50, items: { type: number } }
+        strikeTick: { type: number, default: 0.05 }
+    CorporateActionPreview:
+      type: object
+      properties:
+        factor: { type: [number, "null"] }
+        terp: { type: [number, "null"] }
+        lotAfter: { type: [integer, "null"] }
+        lotExact: { type: [number, "null"] }
+        nonStandardLot: { type: boolean }
+        strikes: { type: array, items: { type: object, properties: { before: { type: number }, after: { type: number } } } }
+        method: { type: string }
+        adjusted: { type: boolean }
+        dividendPct: { type: number }
+    RefRate:
+      type: object
+      properties:
+        value: { type: number, description: "Decimal, e.g. 0.065." }
+        asOf: { type: [string, "null"], format: date }
+        source: { type: string }
+        quality: { type: string, enum: [user, config, default, demo] }
+        stale: { type: boolean }
+        setBy: { type: string, enum: [dashboard, config, default, demo] }
+    RefRateInput:
+      type: object
+      required: [value, source]
+      additionalProperties: false
+      properties:
+        value: { type: number, minimum: 0, maximum: 0.25 }
+        asOf: { type: string, format: date }
+        source: { type: string, minLength: 3, maxLength: 120 }
+    RefCharges:
+      type: object
+      properties:
+        asOf: { type: string }
+        source: { type: string }
+        verified: { type: boolean }
+        opt: { type: object }
+        fut: { type: object }
+        sebiPerCrore: { type: number }
+        ipftPerCrore: { type: number }
+        gst: { type: number }
+        notes: { type: object }
+        brokerage: { type: object, properties: { kind: { type: string }, perOrder: { type: number }, source: { type: string } } }
+    RefDeliveryMarginItem:
+      type: object
+      properties:
+        day: { type: string, description: "E-n: the n-th trading day before the expiry." }
+        date: { type: string, format: date }
+        pct: { type: number }
+    RefDeliveryMargin:
+      type: object
+      properties:
+        expiry: { type: string, format: date }
+        items: { type: array, items: { $ref: "#/components/schemas/RefDeliveryMarginItem" } }
+        verified: { type: boolean }
+        source: { type: [string, "null"] }
+        asOf: { type: string }
+        appliesTo: { type: string }
+        available: { type: boolean }
+        reason: { type: string }
+    RefEvent:
+      type: object
+      properties:
+        kind: { type: string, enum: [lot-revision, corporate-action, holiday-expiry-shift] }
+        underlying: { type: string }
+        effectiveOn: { type: string, format: date }
+        daysAway: { type: integer }
+        text: { type: string }
+        ref: { type: object }
+    RefDatasetStatus:
+      type: object
+      properties:
+        available: { type: boolean }
+        reason: { type: string }
+        asOf: { type: [string, "null"] }
+        source: { type: [string, "null"] }
+        quality: { type: string }
+        lastSuccessAt: { type: [string, "null"] }
+        lastAttemptAt: { type: [string, "null"] }
+        nextRunAt: { type: [string, "null"] }
+        stale: { type: boolean }
+        staleTradingDays: { type: [integer, "null"] }
+        error: { type: [object, "null"], properties: { code: { type: string }, detail: { type: string } } }
+        rows: { type: integer }
+        verified: { type: boolean }
+    RefStatus:
+      type: object
+      properties:
+        demo: { type: boolean }
+        sources: { type: object, properties: { nseArchives: { type: object, properties: { enabled: { type: boolean }, setBy: { type: string }, setAt: { type: [string, "null"] } } } } }
+        datasets: { type: object, additionalProperties: { $ref: "#/components/schemas/RefDatasetStatus" } }
+        knownSince: { type: [string, "null"] }
+        requestsToday: { type: integer }
+        syncing: { type: [object, "null"] }
+    RefBundle:
+      type: object
+      properties:
+        underlying: { type: string }
+        exchange: { type: string }
+        kind: { type: [string, "null"], enum: [index, stock, null] }
+        now: { type: string }
+        session: { $ref: "#/components/schemas/RefSession" }
+        nextTradingDay: { type: string, format: date }
+        prevTradingDay: { type: string, format: date }
+        holidays: { type: array, items: { $ref: "#/components/schemas/RefHoliday" } }
+        rate: { $ref: "#/components/schemas/RefRate" }
+        expiries: { type: array, items: { $ref: "#/components/schemas/RefExpiry" } }
+        lots: { type: object, properties: { current: { type: [integer, "null"] }, next: { type: object }, source: { type: [string, "null"] }, asOf: { type: [string, "null"] }, quality: { type: string }, stale: { type: boolean }, staleTradingDays: { type: [integer, "null"] }, conflict: { type: [object, "null"] } } }
+        freeze: { $ref: "#/components/schemas/RefFreeze" }
+        ban: { type: [object, "null"], properties: { inBan: { type: [boolean, "null"] }, mwplPct: { type: [number, "null"] }, band: { type: [string, "null"] }, forDate: { type: string }, asOf: { type: [string, "null"] }, source: { type: [string, "null"] } } }
+        events: { type: array, items: { $ref: "#/components/schemas/RefEvent" } }
+        deliveryMargin: { oneOf: [{ $ref: "#/components/schemas/RefDeliveryMargin" }, { type: "null" }] }
+        charges: { $ref: "#/components/schemas/RefCharges" }
+        warnings: { type: array, items: { type: string } }

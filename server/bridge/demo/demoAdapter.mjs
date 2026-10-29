@@ -19,14 +19,18 @@ export const DEMO_BROKER_ID = "demo";
 export const DEMO_BROKER_NAME = "Demo market data (sample, not live)";
 export const DEMO_NOTICE = "Demo data: sample prices generated on this computer. Not live market data; no broker is connected.";
 
+import { DEFAULT_RATE } from "../reference/defaults.mjs";
+import { demoCalendar, demoLotFor } from "../reference/demoTables.mjs";
+
 const IST_OFFSET_MS = 330 * 60_000;
 const DAY_MS = 86_400_000;
-const RATE = 0.065;
+/** The demo prices with the reference default rate (reference/defaults.mjs), the same value demo reference reports. */
+const RATE = DEFAULT_RATE;
 
 /** Spot instruments. base = the level the slow waves move around. */
 export const DEMO_UNDERLYINGS = Object.freeze([
-  { symbol: "NIFTY", exchange: "NSE", kind: "INDEX", name: "NIFTY 50 (Demo)", base: 25150, tick: 0.05, step: 50, lot: 75, iv: 0.12, deriv: "NFO", expiry: "weekly-tue" },
-  { symbol: "BANKNIFTY", exchange: "NSE", kind: "INDEX", name: "NIFTY BANK (Demo)", base: 56400, tick: 0.05, step: 100, lot: 35, iv: 0.14, deriv: "NFO", expiry: "monthly-tue" },
+  { symbol: "NIFTY", exchange: "NSE", kind: "INDEX", name: "NIFTY 50 (Demo)", base: 25150, tick: 0.05, step: 50, lot: 65, iv: 0.12, deriv: "NFO", expiry: "weekly-tue" },
+  { symbol: "BANKNIFTY", exchange: "NSE", kind: "INDEX", name: "NIFTY BANK (Demo)", base: 56400, tick: 0.05, step: 100, lot: 30, iv: 0.14, deriv: "NFO", expiry: "monthly-tue" },
   { symbol: "SENSEX", exchange: "BSE", kind: "INDEX", name: "S&P BSE SENSEX (Demo)", base: 82300, tick: 0.01, step: 100, lot: 20, iv: 0.125, deriv: "BFO", expiry: "weekly-thu" },
   { symbol: "RELIANCE", exchange: "NSE", kind: "EQ", name: "Reliance Industries (Demo)", base: 1418, tick: 0.1 },
   { symbol: "HDFCBANK", exchange: "NSE", kind: "EQ", name: "HDFC Bank (Demo)", base: 1002, tick: 0.05 },
@@ -152,18 +156,31 @@ function sessionOpen(t) {
 
 // ── Expiries ──
 
-/** Next `count` expiry dates (YYYY-MM-DD, IST) on or after the IST date of `t`. */
+/**
+ * An expiry that lands on an exchange holiday moves to the previous trading day (the demo calendar: the shipped
+ * holiday list, reference/demoTables.mjs), so the reference "shifted" explanation can be seen in demo mode.
+ */
+function shiftForHoliday(date, exchange) {
+  const cal = demoCalendar();
+  return cal.isTradingDay(date, exchange) ? date : cal.prevTradingDay(date, exchange);
+}
+
+/** Next `count` expiry dates (YYYY-MM-DD, IST) on or after the IST date of `t`, holiday-shifted. */
 export function expiriesFor(symbol, t, count) {
   const u = BY_SYMBOL.get(symbol);
   if (!u?.expiry) return [];
   const start = ist(t);
+  const today = isoDate(start.y, start.m, start.day);
   const out = [];
   if (u.expiry.startsWith("weekly")) {
     const target = u.expiry.endsWith("tue") ? 2 : 4;
     let x = Date.UTC(start.y, start.m, start.day);
     while (out.length < (count ?? 4)) {
       const d = new Date(x);
-      if (d.getUTCDay() === target) out.push(isoDate(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+      if (d.getUTCDay() === target) {
+        const e = shiftForHoliday(isoDate(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()), u.deriv);
+        if (e >= today) out.push(e);
+      }
       x += DAY_MS;
     }
     return out;
@@ -174,8 +191,8 @@ export function expiriesFor(symbol, t, count) {
   while (out.length < (count ?? 3)) {
     const last = new Date(Date.UTC(y, m + 1, 0));
     while (last.getUTCDay() !== 2) last.setUTCDate(last.getUTCDate() - 1);
-    const iso = isoDate(last.getUTCFullYear(), last.getUTCMonth(), last.getUTCDate());
-    if (iso >= isoDate(start.y, start.m, start.day)) out.push(iso);
+    const iso = shiftForHoliday(isoDate(last.getUTCFullYear(), last.getUTCMonth(), last.getUTCDate()), u.deriv);
+    if (iso >= today) out.push(iso);
     m += 1;
     if (m > 11) {
       m = 0;
@@ -241,6 +258,15 @@ function openInterest(u, spot, strike, right, expiry) {
 
 // ── Instruments ──
 
+/**
+ * Lot of one demo contract: the demo reference lot table (reference/demoTables.mjs), including the rolling BANKNIFTY
+ * revision for contracts after the next monthly expiry, so masters and reference agree.
+ */
+export function contractLot(u, expiry, t) {
+  const nextMonthly = monthlyExpiries(u, t)[0] ?? null;
+  return demoLotFor(u.symbol, expiry, nextMonthly) ?? u.lot;
+}
+
 /** Every demo instrument for the IST day of `t` (Instrument rows of the broker contract, plus `name`). */
 export function demoInstruments(t) {
   const rows = [];
@@ -248,14 +274,15 @@ export function demoInstruments(t) {
     rows.push({ token: `DM-${u.symbol}`, exchange: u.exchange, tradingSymbol: u.symbol, underlying: u.symbol, instrumentType: u.kind, expiry: null, strike: null, optionType: null, lotSize: 1, tickSize: u.tick, name: u.name });
     if (!u.deriv) continue;
     for (const e of monthlyExpiries(u, t)) {
-      rows.push({ token: `DM-${u.symbol}-${e}-FUT`, exchange: u.deriv, tradingSymbol: `${u.symbol}-${e}-FUT`, underlying: u.symbol, instrumentType: "FUTIDX", expiry: e, strike: null, optionType: null, lotSize: u.lot, tickSize: 0.05, name: `${u.name} future` });
+      rows.push({ token: `DM-${u.symbol}-${e}-FUT`, exchange: u.deriv, tradingSymbol: `${u.symbol}-${e}-FUT`, underlying: u.symbol, instrumentType: "FUTIDX", expiry: e, strike: null, optionType: null, lotSize: contractLot(u, e, t), tickSize: 0.05, name: `${u.name} future` });
     }
     const centre = Math.round(spotAt(u.symbol, t) / u.step) * u.step;
     for (const e of expiriesFor(u.symbol, t)) {
+      const lot = contractLot(u, e, t);
       for (let i = -STRIKES_EACH_SIDE * 2; i <= STRIKES_EACH_SIDE * 2; i += 1) {
         const k = centre + i * u.step;
         for (const r of ["CE", "PE"]) {
-          rows.push({ token: `DM-${u.symbol}-${e}-${k}-${r}`, exchange: u.deriv, tradingSymbol: `${u.symbol}-${e}-${k}-${r}`, underlying: u.symbol, instrumentType: "OPTIDX", expiry: e, strike: k, optionType: r, lotSize: u.lot, tickSize: 0.05, name: `${u.name} ${k} ${r}` });
+          rows.push({ token: `DM-${u.symbol}-${e}-${k}-${r}`, exchange: u.deriv, tradingSymbol: `${u.symbol}-${e}-${k}-${r}`, underlying: u.symbol, instrumentType: "OPTIDX", expiry: e, strike: k, optionType: r, lotSize: lot, tickSize: 0.05, name: `${u.name} ${k} ${r}` });
         }
       }
     }
@@ -273,7 +300,7 @@ function monthlyExpiries(u, t) {
   while (out.length < 2) {
     const last = new Date(Date.UTC(y, m + 1, 0));
     while (last.getUTCDay() !== target) last.setUTCDate(last.getUTCDate() - 1);
-    const iso = isoDate(last.getUTCFullYear(), last.getUTCMonth(), last.getUTCDate());
+    const iso = shiftForHoliday(isoDate(last.getUTCFullYear(), last.getUTCMonth(), last.getUTCDate()), u.deriv);
     if (iso >= isoDate(start.y, start.m, start.day)) out.push(iso);
     m += 1;
     if (m > 11) {
@@ -483,7 +510,8 @@ export function createDemoAdapter({ now = () => Date.now(), tickMs = 1000 } = {}
       const token = `DM-NIFTY-${e}-${k}-CE`;
       const ltp = priceOf(token, t);
       const avg = fix(ltp * 0.94, 0.05);
-      return ok([{ tradingSymbol: `NIFTY-${e}-${k}-CE`, exchange: "NFO", token, product: "MARGIN", netQty: 75, avgPrice: avg, ltp, pnl: round2((ltp - avg) * 75), realisedPnl: 0, unrealisedPnl: round2((ltp - avg) * 75) }]);
+      const qty = contractLot(BY_SYMBOL.get("NIFTY"), e, t);
+      return ok([{ tradingSymbol: `NIFTY-${e}-${k}-CE`, exchange: "NFO", token, product: "MARGIN", netQty: qty, avgPrice: avg, ltp, pnl: round2((ltp - avg) * qty), realisedPnl: 0, unrealisedPnl: round2((ltp - avg) * qty) }]);
     },
 
     async fetchHoldings() {

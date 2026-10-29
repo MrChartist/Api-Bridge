@@ -40,7 +40,8 @@ describe("demo adapter", () => {
     const rows = demoInstruments(T);
     for (const u of ["NIFTY", "BANKNIFTY", "SENSEX", "RELIANCE", "TCS"]) expect(rows.some((r) => r.underlying === u)).toBe(true);
     expect(rows.every((r) => r.name.includes("(Demo)"))).toBe(true);
-    expect(expiriesFor("NIFTY", T)[0]).toBe("2026-10-20");
+    // Tue 20 Oct 2026 is in the shipped holiday list (Dussehra), so the demo expiry moves to Mon 19 Oct.
+    expect(expiriesFor("NIFTY", T)[0]).toBe("2026-10-19");
     expect(expiriesFor("SENSEX", T)[0]).toBe("2026-10-22");
     expect(expiriesFor("BANKNIFTY", T)[0]).toBe("2026-10-27");
   });
@@ -56,7 +57,7 @@ describe("demo adapter", () => {
   });
 
   it("builds an option chain around the spot and candles in market hours", async () => {
-    const chain = (await a.fetchOptionChain({}, "NIFTY", "2026-10-20")).data;
+    const chain = (await a.fetchOptionChain({}, "NIFTY", "2026-10-19")).data;
     expect(Object.keys(chain.oc)).toHaveLength(61);
     expect(chain.last_price).toBe(spotAt("NIFTY", T));
     const bars = candles("DM-NIFTY", "15m", Date.UTC(2026, 9, 16, 3, 45), Date.UTC(2026, 9, 16, 10, 0));

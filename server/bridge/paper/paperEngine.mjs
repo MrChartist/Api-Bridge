@@ -27,6 +27,8 @@
 import { join } from "node:path";
 import { BridgeError } from "../core/errors.mjs";
 import { CAPITAL_MAX, CAPITAL_MIN, EXCHANGE_SESSION_END, EXCHANGE_SQUARE_OFF, paperConfig } from "./config.mjs";
+import { DEFAULT_SESSIONS, defaultSessionFor } from "../reference/defaults.mjs";
+import { isStub } from "../core/contracts.mjs";
 import { applyFill, brokerageFor, evaluate, isTickMultiple, marginFor, marketFillPrice, round2, round4, stopTriggered } from "./fillModel.mjs";
 import { ACCOUNT_ID_RE, STATE_VERSION, createFileStore } from "./paperStore.mjs";
 import { istDay, istDayCompact, istTimeOnDay, toIstIso } from "./time.mjs";
@@ -102,7 +104,26 @@ export function createPaperEngine(deps, options = {}) {
   const sessionEndTimes = { ...EXCHANGE_SESSION_END, ...(cfg.sessionEnd.times ?? {}) };
   const squareOffLabel = (exchange) => squareOffTimes[exchange] ?? cfg.squareOff.time;
   const squareOffAt = (exchange, t) => istTimeOnDay(t, squareOffLabel(exchange));
-  const sessionEndAt = (exchange, t) => istTimeOnDay(t, sessionEndTimes[exchange] ?? cfg.sessionEnd.time);
+  /** Optional (stream S16): the reference session close; absent in tests that build the engine by hand. */
+  const reference = (() => {
+    try {
+      const r = deps.reference;
+      return r && !isStub(r) && typeof r.session === "function" ? r : null;
+    } catch {
+      return null;
+    }
+  })();
+  /** Session close for an exchange on the IST day of t: config, else the reference session, else the S5 default. */
+  const referenceClose = (exchange, t) => {
+    try {
+      const close = reference?.session(exchange, t)?.close;
+      if (typeof close === "string" && /^\d{2}:\d{2}$/.test(close)) return close;
+    } catch {
+      // fall back to the default below
+    }
+    return (defaultSessionFor(exchange) ?? DEFAULT_SESSIONS.NSE).close;
+  };
+  const sessionEndAt = (exchange, t) => istTimeOnDay(t, sessionEndTimes[exchange] ?? cfg.sessionEnd.time ?? referenceClose(exchange, t));
 
   /** accountId -> state */
   const books = new Map();

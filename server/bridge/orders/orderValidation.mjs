@@ -35,6 +35,8 @@ export const orderRequestSchema = z
     side: z.enum(["BUY", "SELL"]),
     quantity: z.number().int().min(1).max(100_000_000).optional(),
     lots: z.number().int().min(1).max(100_000).optional(),
+    /** The lot size the caller has checked; used only when reference lot data is stale (p1-02 §3.6, LOT_SIZE_STALE). */
+    lotSizeConfirmed: z.number().int().min(1).max(10_000_000).optional(),
     product: z.enum(PRODUCTS),
     orderType: z.enum(ORDER_TYPES),
     price: positivePrice.optional(),

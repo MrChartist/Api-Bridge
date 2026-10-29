@@ -7,7 +7,7 @@
  *     "useDepth": true,                    // MARKET fills at the opposite best price when depth is available
  *     "pollIntervalMs": 2000,              // pending orders are re-priced at least this often without ticks
  *     "squareOff": { "enabled": true, "time": "15:20", "times": {} },   // times: per-exchange HH:MM overrides
- *     "sessionEnd": { "time": "15:30", "times": {} },
+ *     "sessionEnd": { "time": null, "times": {} },   // null: the reference session close (reference module)
  *     "margin": { "intradayEquityPct": 20, "futuresPct": 15, "optionSellPct": 15 },
  *     "brokerage": { "perOrder": 0, "pct": 0, "maxPerOrder": null },
  *     "historyLimit": 1000
@@ -25,7 +25,8 @@ export const PAPER_DEFAULTS = Object.freeze({
   slippageBps: 5,
   pollIntervalMs: 2000,
   squareOffTime: "15:20",
-  sessionEndTime: "15:30",
+  /** null: the reference session close for the exchange (deps.reference, else reference/defaults.mjs). */
+  sessionEndTime: null,
 });
 
 /**
@@ -60,8 +61,11 @@ export const PAPER_CONFIG_SCHEMA = z
       .prefault({}),
     sessionEnd: z
       .object({
-        /** Pending DAY orders expire at this IST time (and any left over from an earlier day expire at once). */
-        time: hhmm.default(PAPER_DEFAULTS.sessionEndTime),
+        /**
+         * Pending DAY orders expire at this IST time (and any left over from an earlier day expire at once). null (the
+         * default) means the reference session close for the order's exchange.
+         */
+        time: hhmm.nullable().default(PAPER_DEFAULTS.sessionEndTime),
         times: z.partialRecord(exchange, hhmm).default({}),
       })
       .strict()

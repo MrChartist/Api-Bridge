@@ -171,6 +171,7 @@ function makeScanner(f, extra = {}) {
     bus,
     clock: { now: () => extra.now?.() ?? T },
     paths: { dataDir: extra.dataDir ?? mkdtempSync(join(tmpdir(), "mcb-scan-")) },
+    ...(extra.reference ? { reference: extra.reference } : {}),
   });
   return { scanner, events, bus };
 }
@@ -340,6 +341,16 @@ describe("scan jobs", () => {
     expect(scanner.view(job2).newMatches).toEqual([]);
     scanner.removeSaved(s.id);
     expect(scanner.saved()).toEqual([]);
+  });
+
+  it("market-hours scans follow the reference calendar: nothing runs on an exchange holiday", async () => {
+    const t = Date.UTC(2026, 9, 26, 5, 0); // Monday 10:30 IST
+    const reference = { session: (exch, at) => ({ state: at === t ? "HOLIDAY" : "OPEN", label: "Test holiday" }) };
+    const f = fakes({ candidates: ["acc-a"] });
+    const { scanner } = makeScanner(f, { now: () => t, reference });
+    await scanner.save({ name: "Risers", request: { symbols: ["NSE:UP1"], condition: "close > 0" }, everyMinutes: 5 });
+    await scanner.tick();
+    expect(scanner.list()).toHaveLength(0);
   });
 
   it("emits scan.alert with the symbols a saved scan newly matches", async () => {

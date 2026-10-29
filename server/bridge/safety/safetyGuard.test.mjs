@@ -14,6 +14,8 @@ import { createEventBus } from "../core/eventBus.mjs";
 import { createLogger, createNullLogger } from "../core/logger.mjs";
 import { createAuditLog } from "./auditLog.mjs";
 import { createSafetyGuard, rupees } from "./safetyGuard.mjs";
+import { parseReferenceConfig } from "../reference/config.mjs";
+import { createReferenceService } from "../reference/referenceService.mjs";
 
 const MON_1000 = Date.UTC(2026, 9, 19, 4, 30); // Monday 2026-10-19 10:00 IST (market open)
 const MON_0800 = Date.UTC(2026, 9, 19, 2, 30); // 08:00 IST (closed)
@@ -35,13 +37,13 @@ function makeConfig({ safety = {}, accounts } = {}) {
   }).config;
 }
 
-function setup({ t = MON_1000, config = makeConfig(), dataDir = mkdtempSync(join(tmpdir(), "mcb-safety-")), env = {}, audit, bus = createEventBus(), egressIp, logger = createNullLogger() } = {}) {
+function setup({ t = MON_1000, config = makeConfig(), dataDir = mkdtempSync(join(tmpdir(), "mcb-safety-")), env = {}, audit, bus = createEventBus(), egressIp, logger = createNullLogger(), reference } = {}) {
   const clock = { t, now: () => clock.t };
   const auditLog = audit ?? createAuditLog({ logger, bus, clock, paths: { dataDir } });
   const events = [];
   bus.on("safety.kill_switch", (p) => events.push({ topic: "safety.kill_switch", ...p }));
   bus.on("safety.limit", (p) => events.push({ topic: "safety.limit", ...p }));
-  const make = () => createSafetyGuard({ config, logger, bus, clock, paths: { dataDir }, audit: auditLog, accounts: notImplementedService("accounts") }, { env, egressIp });
+  const make = () => createSafetyGuard({ config, logger, bus, clock, paths: { dataDir }, audit: auditLog, accounts: notImplementedService("accounts"), ...(reference ? { reference } : {}) }, { env, egressIp });
   return { guard: make(), make, clock, dataDir, audit: auditLog, events, bus, config };
 }
 
@@ -208,6 +210,45 @@ describe("check(): market hours", () => {
     clock.t = Date.UTC(2026, 9, 19, 12, 0); // 17:30 IST: CDS closed, MCX open
     expect(codes(await guard.check(keyCtx({ scopes: ["live"] }), intent({ mode: "live", order: limitOrder({ symbol: "CDS:USDINR-2026-10-28-FUT" }) })))).toContain("MARKET_CLOSED");
     expect(codes(await guard.check(keyCtx({ scopes: ["live"] }), mcx))).not.toContain("MARKET_CLOSED");
+  });
+});
+
+describe("check(): reference holidays (p1-02 §7.1)", () => {
+  const withHoliday = (verified) => {
+    const clock = { now: () => MON_1000 };
+    const reference = createReferenceService({ config: { reference: parseReferenceConfig({ holidays: { add: [{ date: "2026-10-19", label: "Test holiday", exchanges: ["NSE", "BSE"], verified }] } }) }, logger: createNullLogger(), clock, paths: {} });
+    return setup({ reference });
+  };
+
+  it("a verified holiday blocks live NSE/NFO orders with MARKET_CLOSED", async () => {
+    const { guard } = withHoliday(true);
+    const v = await guard.check(keyCtx({ scopes: ["live"] }), intent({ mode: "live" }));
+    expect(codes(v)).toEqual(["MARKET_CLOSED"]);
+    expect(v.reasons[0].message).toMatch(/NSE is closed today \(Test holiday\)/);
+    const nfo = await guard.check(keyCtx({ scopes: ["live"] }), intent({ mode: "live", order: limitOrder({ symbol: "NFO:NIFTY-2026-10-27-25000-CE", quantity: 65 }), quantity: 65 }));
+    expect(codes(nfo)).toContain("MARKET_CLOSED");
+  });
+
+  it("an unverified holiday only warns live orders", async () => {
+    const { guard } = withHoliday(false);
+    const v = await guard.check(keyCtx({ scopes: ["live"] }), intent({ mode: "live" }));
+    expect(codes(v)).not.toContain("MARKET_CLOSED");
+    expect(v.warnings.join(" ")).toMatch(/may be an exchange holiday \(Test holiday, unverified\); the broker will refuse the order if so/);
+  });
+
+  it("paper orders are warned, not refused, on a verified holiday", async () => {
+    const { guard } = withHoliday(true);
+    const p = await guard.check(keyCtx(), intent());
+    expect(p.ok).toBe(true);
+    expect(p.warnings.join(" ")).toMatch(/NSE is closed today \(Test holiday\); a paper order fills only/);
+  });
+
+  it("a stub reference falls back to lib/marketHours alone", async () => {
+    const { guard } = setup({ reference: notImplementedService("reference") });
+    const v = await guard.check(keyCtx({ scopes: ["live"] }), intent({ mode: "live" }));
+    expect(codes(v)).not.toContain("MARKET_CLOSED");
+    const closed = setup({ t: MON_0800, reference: notImplementedService("reference") });
+    expect(codes(await closed.guard.check(keyCtx({ scopes: ["live"] }), intent({ mode: "live" })))).toContain("MARKET_CLOSED");
   });
 });
 

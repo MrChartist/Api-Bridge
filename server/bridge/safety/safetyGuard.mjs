@@ -104,6 +104,18 @@ export function createSafetyGuard(deps, opts = {}) {
   const dir = opts.dir ?? join(deps.paths.dataDir, "safety");
   const env = opts.env ?? process.env;
   const sessionAt = opts.marketSession ?? libMarketSession;
+  /**
+   * Reference calendar (stream S16): holiday-aware sessions for NSE/BSE/NFO/BFO. Optional: a stub or missing service
+   * falls back to lib/marketHours alone. It only tightens: the guard takes the stricter of the two answers.
+   */
+  const reference = (() => {
+    try {
+      const r = deps.reference;
+      return r && !isStub(r) && typeof r.session === "function" ? r : null;
+    } catch {
+      return null;
+    }
+  })();
   let egressIp = typeof opts.egressIp === "string" && opts.egressIp ? opts.egressIp : null;
 
   const killSwitch = createKillSwitchStore({ dir, logger });
@@ -392,9 +404,32 @@ export function createSafetyGuard(deps, opts = {}) {
         const exch = exchangeOf(order?.symbol);
         if (exch && EQUITY_SESSION_EXCHANGES.has(exch)) {
           const sess = sessionAt(new Date(t));
+          let ref = null;
+          try {
+            ref = reference ? reference.session(exch, t) : null;
+          } catch {
+            ref = null;
+          }
+          const exchangeName = exch === "BFO" || exch === "BSE" ? "BSE" : "NSE";
           if (sess.state !== "OPEN" && sess.state !== "SPECIAL") {
             if (mode === "live") block("MARKET_CLOSED", "marketHours", `The ${exch} market is not open for orders now (${sess.label}).`);
             else if (warnClosed) warnings.push(`The ${exch} market is not open now (${sess.label}); ${PAPER_CLOSED_NOTE}.`);
+          } else if (ref?.state === "HOLIDAY") {
+            // A holiday blocks live orders only when the row is verified (user config, a release-verified row, demo);
+            // an unverified row warns, because a wrong holiday that blocks trading is worse than none.
+            const label = ref.holiday?.label ?? "an exchange holiday";
+            if (ref.holiday?.verified) {
+              if (mode === "live") block("MARKET_CLOSED", "marketHours", `${exchangeName} is closed today (${label}).`);
+              else if (warnClosed) warnings.push(`${exchangeName} is closed today (${label}); ${PAPER_CLOSED_NOTE}.`);
+            } else if (mode === "live") {
+              warnings.push(`Today may be an exchange holiday (${label}, unverified); the broker will refuse the order if so.`);
+            } else if (warnClosed) {
+              warnings.push(`Today may be an exchange holiday (${label}, unverified); ${PAPER_CLOSED_NOTE}.`);
+            }
+          } else if (ref && ref.state !== "OPEN" && ref.state !== "SPECIAL") {
+            // The reference session (configured times) is closed although lib/marketHours says open: the stricter wins.
+            if (mode === "live") block("MARKET_CLOSED", "marketHours", `The ${exch} market is not open for orders now (${ref.label}).`);
+            else if (warnClosed) warnings.push(`The ${exch} market is not open now (${ref.label}); ${PAPER_CLOSED_NOTE}.`);
           }
         } else if (exch === "MCX" || exch === "CDS") {
           if (!windowOpen(exch, t)) {

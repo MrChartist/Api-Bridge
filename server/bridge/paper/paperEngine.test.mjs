@@ -45,7 +45,7 @@ function fakeTimers() {
 /**
  * A full engine over a temp dir. `rig.restart()` builds a new engine on the same dir, clock, bus and market data.
  */
-function rig({ dir = mkdtempSync(join(tmpdir(), "mcb-paper-")), paper = {}, prices = { [RELIANCE]: 1400, [NIFTY_CE]: 120, [NIFTY_FUT]: 25_000, [CRUDE]: 6000 }, t0 = at("2026-10-19T10:00:00") } = {}) {
+function rig({ dir = mkdtempSync(join(tmpdir(), "mcb-paper-")), paper = {}, prices = { [RELIANCE]: 1400, [NIFTY_CE]: 120, [NIFTY_FUT]: 25_000, [CRUDE]: 6000 }, t0 = at("2026-10-19T10:00:00"), reference } = {}) {
   const clock = { t: t0, now() { return this.t; } };
   const config = {
     accounts: [
@@ -63,7 +63,7 @@ function rig({ dir = mkdtempSync(join(tmpdir(), "mcb-paper-")), paper = {}, pric
   const md = createFakeMarketData({ prices, clock });
   const symbols = createFakeSymbolService();
   const timers = fakeTimers();
-  const make = () => createPaperEngine({ config, logger: createNullLogger(), bus, clock, paths: { dataDir: dir }, marketData: md, symbols }, { timers });
+  const make = () => createPaperEngine({ config, logger: createNullLogger(), bus, clock, paths: { dataDir: dir }, marketData: md, symbols, ...(reference ? { reference } : {}) }, { timers });
   const r = { dir, clock, config, bus, events, warnings, md, symbols, timers, engine: make() };
   r.engine.start(); // as the module does at boot: restore books, listen to ticks, poll timer (fake)
   r.restart = ({ stopOld = true } = {}) => {
@@ -495,6 +495,19 @@ describe("time-based behaviour (fake clock)", () => {
     r.clock.t = at("2026-10-19T15:30:00");
     await r.engine.runOnce();
     expect(await r.engine.order("paper-1", o.orderId)).toMatchObject({ status: "expired", statusMessage: expect.stringMatching(/session/) });
+  });
+
+  it("with no sessionEnd.time configured, DAY orders expire at the reference session close", async () => {
+    const reference = { session: () => ({ close: "15:00" }) };
+    const r = rig({ t0: at("2026-10-19T14:00:00"), reference });
+    const o = await r.engine.place("paper-1", { ...buy(RELIANCE, 1), product: "CNC", orderType: "LIMIT", price: 1300 });
+    r.clock.t = at("2026-10-19T14:59:00");
+    await r.engine.runOnce();
+    expect((await r.engine.order("paper-1", o.orderId)).status).toBe("open");
+    r.clock.t = at("2026-10-19T15:00:00");
+    await r.engine.runOnce();
+    expect((await r.engine.order("paper-1", o.orderId)).status).toBe("expired");
+    expect(paperConfig({}).sessionEnd.time).toBe(null);
   });
 
   it("rolls the day: expires leftovers, resets the counters, drops flat positions and keeps carried ones", async () => {

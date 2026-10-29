@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "asOf": "2026-10-29",
+  "source": "Curated by release; each row says whether it was checked against the exchange circular.",
+  "items": [
+    {
+      "id": "ca_RELIANCE_2024-10-28_bonus",
+      "symbol": "RELIANCE",
+      "exchange": "NSE",
+      "type": "bonus",
+      "ratio": {
+        "new": 1,
+        "held": 1
+      },
+      "exDate": "2024-10-28",
+      "subscriptionPrice": null,
+      "cumPrice": null,
+      "dividend": null,
+      "fv": null,
+      "lotRule": "round",
+      "strikeTick": 0.05,
+      "source": "curated: NSE F&O adjustment circular (number to be filled)",
+      "verified": false,
+      "illustrative": true
+    }
+  ]
+}
