@@ -311,6 +311,27 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
+   * OptionsRecorder — S17 (docs/spec/p1-01-recorder.md §2.1, §4). Records configured option chains every minute
+   * (indices) or every 5 minutes (opted-in stocks) in session from ONE data account, stream first, REST inside a hard
+   * 50 % slice of the broker budget; S1 snapshots and gaps on disk, S3 daily rows. Never places orders.
+   *  status() -> RecorderStatus (state, account, session, plan, budget, today, disk, coverage, sources, warnings)
+   *  plan(section?) -> { ok, message, plan, budget, capacity }      dry run over the current config merged with section
+   *  snapshots({ underlying, expiry, fromMs?, toMs?, fields?, strikes?, every?, includeSuspect?, limit?, cursor? })
+   *      -> { underlying, expiry, exchange, units, fields, snapshots, gaps, coverage, unavailable, method, nextCursor }
+   *      (stored records; slots and ts as epoch ms; routes render IST ISO strings)
+   *  latest({ underlying, expiry, fields?, strikes? }) -> snapshot | null   from memory
+   *  daily({ underlying, from, to, expiry? }) -> S3 rows, oldest first
+   *  configure(section, { persist }) -> Promise<{ persisted, status }>   CAPACITY_EXCEEDED / CONFIRMATION_REQUIRED
+   *  Extras: start(), stop(), demo(), events for "recorder.status" and "recorder.snapshot".
+   */
+  recorder: {
+    iface: "OptionsRecorder",
+    stream: "S17",
+    requires: ["marketData", "streamHub", "accounts", "scheduler", "symbols", "reference", "backupData"],
+    methods: ["status", "plan", "snapshots", "latest", "daily", "configure"],
+  },
+
+  /**
    * StreamHub — S6. One upstream feed per account (adapter.createFeed), reference-counted subscriptions across all
    * local clients, mode = max demand, broker subscription caps enforced (SUBSCRIPTION_LIMIT, never silent drops),
    * resubscribe after reconnect/re-login. Emits "tick" and "stream.status".

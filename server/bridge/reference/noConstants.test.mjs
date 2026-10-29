@@ -4,7 +4,7 @@
  * reference bundle). Only these files may hold the S5 default literals:
  *  - reference/defaults.mjs (server) and dashboard/reference.js (the dashboard fallback, REF_DEFAULTS);
  *  - reference/data/* (the shipped tables) and __fixtures__ (parser fixtures);
- *  - tests.
+ *  - tests and test kits (`testkit.mjs`, helpers imported only by tests).
  * Known exemptions, each with its reason:
  *  - server/brokers/*: adapters format broker request times; that is wire format, not policy (outside server/bridge
  *    anyway, listed so nobody widens the scan to it by accident);
@@ -36,7 +36,7 @@ export const PATTERNS = [
 ];
 
 /** Files (relative to server/bridge, "/" separated) that may hold the literals. */
-const ALLOWED = [/^reference\/defaults\.mjs$/, /^reference\/data\//, /^dashboard\/reference\.js$/, /(^|\/)__fixtures__\//, /\.test\.m?js$/, /^symbols\/fake\.mjs$/];
+const ALLOWED = [/^reference\/defaults\.mjs$/, /^reference\/data\//, /^dashboard\/reference\.js$/, /(^|\/)__fixtures__\//, /\.test\.m?js$/, /(^|\/)testkit\.mjs$/, /^symbols\/fake\.mjs$/];
 /** Per-file exemptions for one pattern: the demo underlying table's lots. */
 const PATTERN_EXEMPT = { "demo/demoAdapter.mjs": ["lot: nn"] };
 

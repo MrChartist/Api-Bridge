@@ -72,7 +72,10 @@ export class BridgeError extends Error {
    * @param {keyof typeof ERROR_CODES | string} code
    * @param {string} [detail] Human text in Indian English. Clients must not parse it.
    * @param {{ status?: number, retryable?: boolean, retryAfterMs?: number, broker?: { id?: string, code?: string, message?: string },
-   *           errors?: Array<{ path: string, message: string }>, headers?: Record<string, string>, cause?: unknown }} [extra]
+   *           errors?: Array<{ path: string, message: string }>, headers?: Record<string, string>, cause?: unknown,
+   *           fields?: Record<string, unknown> }} [extra]
+   *   fields: extra documented problem members for one code (CAPACITY_EXCEEDED: canCarry, refused); they never
+   *   replace the standard members.
    */
   constructor(code, detail, extra = {}) {
     const spec = ERROR_CODES[code] ?? ERROR_CODES.INTERNAL;
@@ -86,6 +89,7 @@ export class BridgeError extends Error {
     if (extra.broker) this.broker = extra.broker;
     if (extra.errors) this.errors = extra.errors;
     if (extra.headers) this.headers = extra.headers;
+    if (extra.fields && typeof extra.fields === "object") this.fields = extra.fields;
   }
 }
 
@@ -148,6 +152,7 @@ export function toProblem(err, { requestId, instance } = {}) {
   if (e.retryAfterMs !== undefined) problem.retryAfterMs = e.retryAfterMs;
   if (e.broker) problem.broker = e.broker;
   if (e.errors) problem.errors = e.errors;
+  if (e.fields) for (const [k, v] of Object.entries(e.fields)) if (!(k in problem)) problem[k] = v;
   return problem;
 }
 

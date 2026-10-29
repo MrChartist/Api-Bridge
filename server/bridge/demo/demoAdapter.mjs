@@ -3,12 +3,14 @@
  * NO network calls. It serves deterministic sample data so anyone can try the Bridge without a broker account, and
  * so screenshots look the same every time:
  *
- *  - instruments: NIFTY, BANKNIFTY and SENSEX (index, futures, options) plus the NIFTY 50 stocks;
+ *  - instruments: NIFTY, BANKNIFTY, SENSEX, FINNIFTY and MIDCPNIFTY (index, futures, options), the NIFTY 50 stocks, and
+ *    stock futures and options for RELIANCE, HDFCBANK, ICICIBANK, INFY and SBIN (lots from the demo reference table);
  *  - prices: a smooth function of wall-clock time per symbol (slow multi-day waves plus minute-scale wiggles), so the
  *    same instant always gives the same price and ticks keep moving even when the real market is shut;
  *  - option chains: Black-76 prices on the vol-time clock (dashboard/pricing.js, the same core the server and pages
  *    use) from a smile around a time-varying IV level anchored to the demo's own realised vol, with open interest
- *    peaking near the money; INDIA VIX (Demo) follows NIFTY's 30-day IV;
+ *    peaking near the money that changes through the day (whole lots), and bid/ask sizes; ±45 strikes per chain;
+ *    INDIA VIX (Demo) follows NIFTY's 30-day IV;
  *  - history: OHLC candles sampled from the same price function, during NSE hours on weekdays;
  *  - a live feed that ticks once a second, and a small sample portfolio.
  *
@@ -23,7 +25,7 @@ export const DEMO_NOTICE = "Demo data: sample prices generated on this computer.
 
 import { black76, realisedVol, volTime } from "../dashboard/pricing.js";
 import { DEFAULT_RATE, DEFAULT_SESSIONS } from "../reference/defaults.mjs";
-import { demoCalendar, demoLotFor } from "../reference/demoTables.mjs";
+import { DEMO_STOCK_LOT, demoCalendar, demoLotFor } from "../reference/demoTables.mjs";
 import { clockSettings } from "../vol/config.mjs";
 import { buildClockContext, holidayDates } from "../vol/context.mjs";
 
@@ -37,14 +39,16 @@ export const DEMO_UNDERLYINGS = Object.freeze([
   { symbol: "NIFTY", exchange: "NSE", kind: "INDEX", name: "NIFTY 50 (Demo)", base: 25150, tick: 0.05, step: 50, lot: 65, iv: 0.12, deriv: "NFO", expiry: "weekly-tue" },
   { symbol: "BANKNIFTY", exchange: "NSE", kind: "INDEX", name: "NIFTY BANK (Demo)", base: 56400, tick: 0.05, step: 100, lot: 30, iv: 0.14, deriv: "NFO", expiry: "monthly-tue" },
   { symbol: "SENSEX", exchange: "BSE", kind: "INDEX", name: "S&P BSE SENSEX (Demo)", base: 82300, tick: 0.01, step: 100, lot: 20, iv: 0.125, deriv: "BFO", expiry: "weekly-thu" },
+  { symbol: "FINNIFTY", exchange: "NSE", kind: "INDEX", name: "NIFTY FIN SERVICE (Demo)", base: 26900, tick: 0.05, step: 50, lot: 60, iv: 0.13, deriv: "NFO", expiry: "monthly-tue" },
+  { symbol: "MIDCPNIFTY", exchange: "NSE", kind: "INDEX", name: "NIFTY MIDCAP SELECT (Demo)", base: 13100, tick: 0.05, step: 25, lot: 120, iv: 0.16, deriv: "NFO", expiry: "monthly-tue" },
   // INDIA VIX: an index with no derivatives, priced from NIFTY's 30-day IV (vixAt below).
   { symbol: "INDIAVIX", exchange: "NSE", kind: "INDEX", name: "India VIX (Demo)", base: 13, tick: 0.0025 },
-  { symbol: "RELIANCE", exchange: "NSE", kind: "EQ", name: "Reliance Industries (Demo)", base: 1418, tick: 0.1 },
-  { symbol: "HDFCBANK", exchange: "NSE", kind: "EQ", name: "HDFC Bank (Demo)", base: 1002, tick: 0.05 },
-  { symbol: "ICICIBANK", exchange: "NSE", kind: "EQ", name: "ICICI Bank (Demo)", base: 1395, tick: 0.1 },
-  { symbol: "INFY", exchange: "NSE", kind: "EQ", name: "Infosys (Demo)", base: 1512, tick: 0.1 },
+  { symbol: "RELIANCE", exchange: "NSE", kind: "EQ", name: "Reliance Industries (Demo)", base: 1418, tick: 0.1, step: 20, lot: DEMO_STOCK_LOT.RELIANCE, iv: 0.22, deriv: "NFO", expiry: "monthly-tue" },
+  { symbol: "HDFCBANK", exchange: "NSE", kind: "EQ", name: "HDFC Bank (Demo)", base: 1002, tick: 0.05, step: 10, lot: DEMO_STOCK_LOT.HDFCBANK, iv: 0.19, deriv: "NFO", expiry: "monthly-tue" },
+  { symbol: "ICICIBANK", exchange: "NSE", kind: "EQ", name: "ICICI Bank (Demo)", base: 1395, tick: 0.1, step: 10, lot: DEMO_STOCK_LOT.ICICIBANK, iv: 0.2, deriv: "NFO", expiry: "monthly-tue" },
+  { symbol: "INFY", exchange: "NSE", kind: "EQ", name: "Infosys (Demo)", base: 1512, tick: 0.1, step: 20, lot: DEMO_STOCK_LOT.INFY, iv: 0.24, deriv: "NFO", expiry: "monthly-tue" },
   { symbol: "TCS", exchange: "NSE", kind: "EQ", name: "Tata Consultancy Services (Demo)", base: 3086, tick: 0.1 },
-  { symbol: "SBIN", exchange: "NSE", kind: "EQ", name: "State Bank of India (Demo)", base: 872, tick: 0.05 },
+  { symbol: "SBIN", exchange: "NSE", kind: "EQ", name: "State Bank of India (Demo)", base: 872, tick: 0.05, step: 5, lot: DEMO_STOCK_LOT.SBIN, iv: 0.25, deriv: "NFO", expiry: "monthly-tue" },
   // The rest of NIFTY 50, so demo scans cover a whole universe
   { symbol: "ADANIENT", exchange: "NSE", kind: "EQ", name: "Adani Enterprises (Demo)", base: 2450, tick: 0.1 },
   { symbol: "ADANIPORTS", exchange: "NSE", kind: "EQ", name: "Adani Ports and SEZ (Demo)", base: 1420, tick: 0.1 },
@@ -94,6 +98,10 @@ export const DEMO_UNDERLYINGS = Object.freeze([
 
 const BY_SYMBOL = new Map(DEMO_UNDERLYINGS.map((u) => [u.symbol, u]));
 const STRIKES_EACH_SIDE = 30;
+/** Strikes each side of ATM in a broker-style chain (fetchOptionChain); instruments list ±60. */
+export const CHAIN_STRIKES_EACH_SIDE = 45;
+/** Underlyings with listed options: indices first, then the demo option stocks. */
+export const DEMO_OPTION_UNDERLYINGS = Object.freeze(DEMO_UNDERLYINGS.filter((u) => u.deriv).map((u) => u.symbol));
 
 // ── Deterministic helpers ──
 
@@ -328,14 +336,23 @@ const MIN_SMILE_YEARS = 1 / CAL_DAYS;
  * smile vol (up to tick rounding). After the settlement the price is intrinsic (never below one tick).
  */
 export function optionPrice(symbol, expiry, strike, right, t) {
+  const ctx = priceContext(symbol, expiry, t);
+  return ctx ? priceWith(ctx, strike, right) : null;
+}
+
+/** What every strike of one (underlying, expiry, instant) shares: spot, clock, discount, IV level. */
+function priceContext(symbol, expiry, t) {
   const u = BY_SYMBOL.get(symbol);
   const spot = spotAt(symbol, t);
   if (!u?.deriv || spot === null) return null;
   const { T, Tcal } = clockTo(u.deriv, expiry, t);
   const df = Math.exp(-RATE * Tcal);
-  const F = spot / df;
-  const vol = smileVol(u, spot, strike, T, ivLevel(symbol, t));
-  const p = df * black76(F, strike, T, vol * 100, right);
+  return { u, spot, T, df, F: spot / df, level: ivLevel(symbol, t) };
+}
+
+function priceWith(ctx, strike, right) {
+  const vol = smileVol(ctx.u, ctx.spot, strike, ctx.T, ctx.level);
+  const p = ctx.df * black76(ctx.F, strike, ctx.T, vol * 100, right);
   return fix(Math.max(0.05, p), 0.05);
 }
 
@@ -345,13 +362,67 @@ function futurePrice(symbol, expiry, t) {
   return fix(spot * Math.exp(RATE * clockTo(u.deriv, expiry, t).Tcal), 0.05);
 }
 
-/** Open interest in units, peaking near the money and at round strikes. */
-function openInterest(u, spot, strike, right, expiry) {
+/** The day's base open interest in LOTS (fractional), peaking near the money and at round strikes. */
+function baseOiLots(u, spot, strike, right, expiry) {
   const dist = (strike - spot) / (u.step * 6);
   const side = right === "CE" ? (strike >= spot ? 1.15 : 0.55) : strike <= spot ? 1.15 : 0.55;
   const round = strike % (u.step * 10) === 0 ? 1.8 : strike % (u.step * 2) === 0 ? 1.2 : 1;
-  const lots = Math.round(9000 * Math.exp(-dist * dist) * side * round * (0.85 + 0.3 * unit(`${u.symbol}:${expiry}:${strike}:${right}`)));
-  return Math.max(1, lots) * u.lot;
+  const scale = u.kind === "EQ" ? 600 : 9000;
+  return scale * Math.exp(-dist * dist) * side * round * (0.85 + 0.3 * unit(`${u.symbol}:${expiry}:${strike}:${right}`));
+}
+
+/** Fraction of the demo day elapsed at `t`: the IST calendar day (the demo recorder's "always open" clock). */
+const dayFraction = (t) => (((t + IST_OFFSET_MS) % DAY_MS) + DAY_MS) % DAY_MS / DAY_MS;
+
+/**
+ * Open interest in UNITS at `t` (docs/spec/p1-01-recorder.md §8): base × (1 + a·s(t) + 0.03·sin(2π·min/47 + φ)),
+ * where base is the day's profile peaking near the money (centred on the spot, so the profile follows the demo's
+ * multi-day price waves; "previous OI" is this same function at the previous close), s(t) the fraction of the demo
+ * day elapsed, and
+ * a ∈ [−0.15, +0.35] per (strike, right, expiry), biased so out-of-the-money calls build while the slow price wave
+ * falls and out-of-the-money puts build while it rises. Deterministic (the same instant gives the same OI) and always a
+ * whole number of lots. P1-7 (day story) and P1-8 (writer-structured base) multiply into this; rounding happens once.
+ */
+export function openInterestAt(symbol, strike, right, expiry, t) {
+  const ctx = oiContext(symbol, expiry, t);
+  return ctx ? oiWith(ctx, strike, right) : null;
+}
+
+/** What every strike of one (underlying, expiry, instant) shares for OI. */
+function oiContext(symbol, expiry, t) {
+  const u = BY_SYMBOL.get(symbol);
+  if (!u?.deriv) return null;
+  const d = (t + IST_OFFSET_MS) / DAY_MS;
+  return {
+    u,
+    symbol,
+    expiry,
+    t,
+    spot: spotAt(symbol, t),
+    wave: Math.cos((2 * Math.PI * d) / 9.3 + phase(`${symbol}:b`)), // > 0 while the 9.3-day wave rises
+    lot: contractLot(u, expiry, t),
+    fraction: dayFraction(t),
+    minute: Math.floor(t / 60_000),
+  };
+}
+
+function oiWith(ctx, strike, right) {
+  const { u, symbol, expiry, spot, wave } = ctx;
+  const base = baseOiLots(u, spot, strike, right, expiry);
+  const otm = right === "CE" ? strike > spot : strike < spot;
+  const bias = otm ? (right === "CE" ? -0.12 * wave : 0.12 * wave) : 0;
+  const a = Math.min(0.35, Math.max(-0.15, -0.15 + 0.5 * unit(`${symbol}:${expiry}:${strike}:${right}:a`) + bias));
+  const wobble = 0.03 * Math.sin((2 * Math.PI * ctx.minute) / 47 + phase(`${symbol}:${strike}:${right}:w`));
+  return Math.max(1, Math.round(base * (1 + a * ctx.fraction + wobble))) * ctx.lot;
+}
+
+/**
+ * Bid and ask sizes in units: whole lots, deterministic per token. The resting size at the touch holds for 15 minutes,
+ * then moves, like a quiet order book (and so the recorded minutes compress well).
+ */
+function depthSizes(token, lot, t) {
+  const k = Math.floor((t + 300_000 * unit(`${token}:k`)) / 900_000);
+  return { bidQty: (1 + Math.round(40 * unit(`${token}:bq:${k}`))) * lot, askQty: (1 + Math.round(40 * unit(`${token}:aq:${k}`))) * lot };
 }
 
 // ── Instruments ──
@@ -371,16 +442,18 @@ export function demoInstruments(t) {
   for (const u of DEMO_UNDERLYINGS) {
     rows.push({ token: `DM-${u.symbol}`, exchange: u.exchange, tradingSymbol: u.symbol, underlying: u.symbol, instrumentType: u.kind, expiry: null, strike: null, optionType: null, lotSize: 1, tickSize: u.tick, name: u.name });
     if (!u.deriv) continue;
+    const stock = u.kind === "EQ";
     for (const e of monthlyExpiries(u, t)) {
-      rows.push({ token: `DM-${u.symbol}-${e}-FUT`, exchange: u.deriv, tradingSymbol: `${u.symbol}-${e}-FUT`, underlying: u.symbol, instrumentType: "FUTIDX", expiry: e, strike: null, optionType: null, lotSize: contractLot(u, e, t), tickSize: 0.05, name: `${u.name} future` });
+      rows.push({ token: `DM-${u.symbol}-${e}-FUT`, exchange: u.deriv, tradingSymbol: `${u.symbol}-${e}-FUT`, underlying: u.symbol, instrumentType: stock ? "FUTSTK" : "FUTIDX", expiry: e, strike: null, optionType: null, lotSize: contractLot(u, e, t), tickSize: 0.05, name: `${u.name} future` });
     }
     const centre = Math.round(spotAt(u.symbol, t) / u.step) * u.step;
     for (const e of expiriesFor(u.symbol, t)) {
       const lot = contractLot(u, e, t);
       for (let i = -STRIKES_EACH_SIDE * 2; i <= STRIKES_EACH_SIDE * 2; i += 1) {
         const k = centre + i * u.step;
+        if (k <= 0) continue;
         for (const r of ["CE", "PE"]) {
-          rows.push({ token: `DM-${u.symbol}-${e}-${k}-${r}`, exchange: u.deriv, tradingSymbol: `${u.symbol}-${e}-${k}-${r}`, underlying: u.symbol, instrumentType: "OPTIDX", expiry: e, strike: k, optionType: r, lotSize: lot, tickSize: 0.05, name: `${u.name} ${k} ${r}` });
+          rows.push({ token: `DM-${u.symbol}-${e}-${k}-${r}`, exchange: u.deriv, tradingSymbol: `${u.symbol}-${e}-${k}-${r}`, underlying: u.symbol, instrumentType: stock ? "OPTSTK" : "OPTIDX", expiry: e, strike: k, optionType: r, lotSize: lot, tickSize: 0.05, name: `${u.name} ${k} ${r}` });
         }
       }
     }
@@ -451,7 +524,8 @@ export function quoteOf(token, exchange, t) {
   const ask = Number(Math.max(up(ltp + spread / 2), bid + tick).toFixed(4));
   const perMinute = p.kind === "spot" ? 5200 : p.kind === "fut" ? 30 : 4 + 200 * near;
   const volume = p.kind === "spot" && u.kind === "INDEX" ? 0 : Math.round(perMinute * minutes * (0.7 + 0.6 * unit(`${token}:vol`))) * (p.kind === "spot" ? 1 : u.lot);
-  const oi = p.kind === "opt" ? openInterest(u, spotAt(p.symbol, t), p.strike, p.right, p.expiry) : p.kind === "fut" ? Math.round(120_000 * (0.8 + 0.4 * unit(`${token}:oi`))) * u.lot : null;
+  const oi = p.kind === "opt" ? openInterestAt(p.symbol, p.strike, p.right, p.expiry, t) : p.kind === "fut" ? Math.round((u.kind === "EQ" ? 9000 : 120_000) * (0.8 + 0.4 * unit(`${token}:oi`))) * contractLot(u, p.expiry, t) : null;
+  const sizes = p.kind === "spot" && u.kind === "INDEX" ? { bidQty: null, askQty: null } : depthSizes(token, p.kind === "spot" ? 1 : contractLot(u, p.expiry, t), t);
   return {
     token,
     exchange,
@@ -464,6 +538,8 @@ export function quoteOf(token, exchange, t) {
     oi,
     bid,
     ask,
+    bidQty: sizes.bidQty,
+    askQty: sizes.askQty,
   };
 }
 
@@ -473,25 +549,30 @@ export function quoteOf(token, exchange, t) {
  * in well under a millisecond each. Null for a symbol without options.
  */
 export function demoChainAt(symbol, expiry, t, strikesEachSide = STRIKES_EACH_SIDE) {
-  const u = BY_SYMBOL.get(symbol);
-  const spot = spotAt(symbol, t);
-  if (!u?.deriv || spot === null) return null;
+  const pctx = priceContext(symbol, expiry, t);
+  if (!pctx) return null;
+  const { u, spot } = pctx;
+  const octx = oiContext(symbol, expiry, t);
+  const lot = octx.lot;
+  const minutes = Math.max(1, Math.min(375, (t - sessionOpen(t)) / 60_000));
   const centre = Math.round(spot / u.step) * u.step;
   const rows = [];
   for (let i = -strikesEachSide; i <= strikesEachSide; i += 1) {
     const k = centre + i * u.step;
+    if (k <= 0) continue;
     const near = Math.exp(-(((k - spot) / (u.step * 8)) ** 2));
     const leg = (right) => {
-      const ltp = optionPrice(symbol, expiry, k, right, t);
+      const ltp = priceWith(pctx, k, right);
       const spread = Math.max(0.05 * (1 + Math.round(3 * (1 - near))), ltp * 0.0015);
       const bid = Number(Math.max(0, Math.floor((ltp - spread / 2) / 0.05 + 1e-9) * 0.05).toFixed(2));
       const ask = Number(Math.max(Math.ceil((ltp + spread / 2) / 0.05 - 1e-9) * 0.05, bid + 0.05).toFixed(2));
-      const volume = Math.round((4 + 200 * near) * 375 * (0.7 + 0.6 * unit(`${symbol}:${expiry}:${k}:${right}:vol`))) * u.lot;
-      return { symbol: `${u.deriv}:${symbol}-${expiry}-${k}-${right}`, ltp, bid, ask, oi: openInterest(u, spot, k, right, expiry), volume };
+      const volume = Math.round((4 + 200 * near) * minutes * (0.7 + 0.6 * unit(`${symbol}:${expiry}:${k}:${right}:vol`))) * lot;
+      const sizes = depthSizes(`DM-${symbol}-${expiry}-${k}-${right}`, lot, t);
+      return { symbol: `${u.deriv}:${symbol}-${expiry}-${k}-${right}`, ltp, bid, ask, bidQty: sizes.bidQty, askQty: sizes.askQty, oi: oiWith(octx, k, right), volume };
     };
     rows.push({ strike: k, ce: leg("CE"), pe: leg("PE") });
   }
-  return { underlying: symbol, expiry, underlyingLtp: spot, atmStrike: centre, lotSize: contractLot(u, expiry, t), rows };
+  return { underlying: symbol, expiry, underlyingLtp: spot, atmStrike: centre, lotSize: lot, rows };
 }
 
 // ── The adapter ──
@@ -558,12 +639,15 @@ export function createDemoAdapter({ now = () => Date.now(), tickMs = 1000 } = {}
       const spot = spotAt(u.symbol, t);
       const centre = Math.round(spot / u.step) * u.step;
       const oc = {};
-      for (let i = -STRIKES_EACH_SIDE; i <= STRIKES_EACH_SIDE; i += 1) {
+      const pc = previousClose(t);
+      for (let i = -CHAIN_STRIKES_EACH_SIDE; i <= CHAIN_STRIKES_EACH_SIDE; i += 1) {
         const k = centre + i * u.step;
+        if (k <= 0) continue;
         const leg = (r) => {
           const q = quoteOf(`DM-${u.symbol}-${expiry}-${k}-${r}`, u.deriv, t);
-          const prevOi = Math.round(q.oi * (0.88 + 0.2 * unit(`${u.symbol}:${expiry}:${k}:${r}:prev`)));
-          return { last_price: q.ltp, oi: q.oi, previous_oi: prevOi, oi_chg: q.oi - prevOi, volume: q.volume, top_bid_price: q.bid, top_ask_price: q.ask, previous_close_price: q.close, security_id: `DM-${u.symbol}-${expiry}-${k}-${r}` };
+          // "Prev close" OI is the same function at the previous close, so recorded windows and the chain agree.
+          const prevOi = openInterestAt(u.symbol, k, r, expiry, pc);
+          return { last_price: q.ltp, oi: q.oi, previous_oi: prevOi, oi_chg: q.oi - prevOi, volume: q.volume, top_bid_price: q.bid, top_ask_price: q.ask, top_bid_quantity: q.bidQty, top_ask_quantity: q.askQty, previous_close_price: q.close, security_id: `DM-${u.symbol}-${expiry}-${k}-${r}` };
         };
         oc[k.toFixed(6)] = { ce: leg("CE"), pe: leg("PE") };
       }
