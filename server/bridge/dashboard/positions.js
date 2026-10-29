@@ -9,7 +9,7 @@
 // The maths is in options.js (pure, tested); numbers become text through format.js only. Orders always go through
 // POST /v1/orders/preview and /v1/orders, so the Bridge's safety gates apply unchanged.
 import { alertBox, api, chartSlot, emptyState, errorState, h, icon, istTime, loadingState, modal, optional, toast, touchWord, keyHint } from "./app.js";
-import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
+import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { barsEnter, countUp, flashValue, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
 import { drawPayoff } from "./payoff.js";
@@ -36,8 +36,8 @@ const isNarrow = () => media("(max-width: 1023px)").matches;
 const r1 = (v) => Math.round(v * 10) / 10;
 /** σ distances floor to 0.1, so a tested leg (< 0.5σ) never reads "0.5σ". */
 const sig1 = (v) => (isFigure(v) ? formatFixed(Math.floor(v * 10 + 1e-9) / 10, 1) : DASH);
-/** Signed rupees, no decimals: "+₹1958", "-₹310", "₹0". */
-const rs = (v, dp = 0) => (!isFigure(v) ? DASH : Number(formatFixed(v, dp)) > 0 ? `+${formatRupee(v, dp)}` : formatRupee(v, dp));
+/** Signed rupees, no decimals: "+₹1958", "−₹310", "₹0". */
+const rs = (v, dp = 0) => formatSignedRupee(v, dp);
 /** Signed compact rupees for big figures: "+₹1.42L". */
 const rc = (v) => (!isFigure(v) ? DASH : `${v > 0.5 ? "+" : v < -0.5 ? "\u2212" : ""}₹${formatCompact(Math.abs(v))}`);
 /** Heat cells and stress chips: whole thousands from ₹10K ("−₹71K"), else compact ("−₹9.0K", "+₹456"). */

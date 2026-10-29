@@ -4,7 +4,7 @@
  * "why" reasons, the hand-off into the desk's saved state and the daily IV baseline. No DOM, no fetch: tested in
  * screens.test.mjs. Every number becomes text through format.js.
  */
-import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
+import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
@@ -55,7 +55,7 @@ const pts = (v) => (num(v) === null ? DASH : `${formatSigned(v, 1)} pts`);
 const pct1 = (v) => formatPercent(v, 1);
 const pop = (v) => (num(v) === null ? DASH : formatPercent(v * 100, 0));
 const rupee = (v) => formatRupee(v, 0);
-const bigRupee = (v) => (num(v) === null ? DASH : `${v < 0 ? "-" : ""}₹${formatCompact(Math.abs(v))}`);
+const bigRupee = (v) => (num(v) === null ? DASH : `${v < 0 ? MINUS : ""}₹${formatCompact(Math.abs(v))}`);
 const times = (v) => (num(v) === null ? DASH : `${formatFixed(v, 2)}×`);
 const sigma = (v) => (num(v) === null ? DASH : `${formatFixed(v, 2)}σ`);
 const compact = (v) => formatCompact(v);

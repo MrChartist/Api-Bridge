@@ -33,7 +33,7 @@ import {
   sheetPopover,
   DEMO_EXPLAINER,
 } from "./app.js";
-import { DASH, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
+import { DASH, formatFixed, formatInt, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { renderArbPage, renderChainPage, renderOiPage, renderPositionsPage, renderStrategyPage, renderVolPage } from "./desk.js";
 import { renderScreenerPage } from "./screener.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
@@ -79,9 +79,9 @@ function delta(value, text) {
 /** Money with the gain / loss colour and an explicit sign (P&L). */
 export function pnl(v) {
   if (!isFigure(v)) return DASH;
-  const text = formatRupee(Math.abs(Number(v)));
-  const n = Number(formatFixed(v, 2));
-  return h("span", { class: n > 0 ? "up" : n < 0 ? "down" : undefined }, n > 0 ? `+${text}` : n < 0 ? `-${text}` : text);
+  const text = formatSignedRupee(v);
+  const n = Number(v);
+  return h("span", { class: text.startsWith("₹") ? undefined : n > 0 ? "up" : "down" }, text);
 }
 /** A button for an empty state's next step: goes to a page (hash) or runs a function. */
 const nextStep = (label, to, cls = "primary") => h("button", { type: "button", class: cls, onclick: typeof to === "function" ? to : () => (location.hash = to) }, label);

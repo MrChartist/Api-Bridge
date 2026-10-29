@@ -6,7 +6,7 @@
 // then patched cell by cell, so nothing flickers, scroll and keyboard focus stay put, and only cells that changed
 // flash. The maths lives in options.js (pure, tested); numbers are formatted by format.js only.
 import { DEMO_EXPLAINER, alertBox, api, app, emptyState, errorState, h, icon, liveControl, loadingState, modal, mountToolbarCtx, optional, sheetPopover, toast, touchWord } from "./app.js";
-import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { arbPanels } from "./arbitrage.js";
 import { openChainSheet } from "./chain-sheet.js";
 import { createOiPage, oiConfig } from "./oi.js";
@@ -253,13 +253,14 @@ async function renderDesk(kind) {
   const expiryChip = h("span", { class: "ctx-chip expiry-chip", title: EXPIRY_DAY_NOTE, hidden: true }, "Expiry today");
   const uMain = document.createTextNode(st.underlying);
   const uSub = document.createTextNode("");
+  const uChg = document.createTextNode(""); // the day's change after the spot; phones drop it (app.css .ctx-sub-chg)
   const eLong = document.createTextNode("");
   const eShort = document.createTextNode("");
   const eSub = document.createTextNode("");
   const spotV = document.createTextNode(DASH);
   const spotChg = h("span", { class: "ctx-chg" });
   const lotV = document.createTextNode(DASH);
-  const uItem = h("label", { class: "ctx-item ctx-pick ctx-u", title: "Underlying" }, h("span", { class: "ctx-main" }, uMain), h("span", { class: "ctx-sub", "aria-hidden": "true" }, uSub), uSel);
+  const uItem = h("label", { class: "ctx-item ctx-pick ctx-u", title: "Underlying" }, h("span", { class: "ctx-main" }, uMain), h("span", { class: "ctx-sub", "aria-hidden": "true" }, uSub, h("span", { class: "ctx-sub-chg" }, uChg)), uSel);
   const eItem = h("label", { class: "ctx-item ctx-pick ctx-e", title: "Expiry ([ and ])" }, h("span", { class: "ctx-main" }, h("span", { class: "ctx-long" }, eLong), h("span", { class: "ctx-short" }, eShort)), h("span", { class: "ctx-sub", "aria-hidden": "true" }, eSub), eSel);
   const spotItem = h("span", { class: "ctx-item ctx-spot", title: "Spot (the index) and its change today" }, h("span", { class: "ctx-main" }, h("span", {}, spotV), spotChg));
   const lotItem = h("span", { class: "ctx-item ctx-lot", title: "Lot size" }, h("span", { class: "ctx-main" }, "Lot ", h("b", {}, lotV)));
@@ -313,8 +314,10 @@ async function renderDesk(kind) {
     ctxSig = sig;
     if (uMain.data !== st.underlying) uMain.data = st.underlying;
     const spotText = spot === null ? DASH : formatFixed(spot, 2);
-    const uSubText = spot === null ? "" : `${spotText}${chp !== null ? ` ${formatSigned(chp, 2)}%` : ""}`;
+    const uSubText = spot === null ? "" : spotText;
+    const uChgText = spot === null || chp === null ? "" : ` ${formatSigned(chp, 2)}%`;
     if (uSub.data !== uSubText) uSub.data = uSubText;
+    if (uChg.data !== uChgText) uChg.data = uChgText;
     const day = e ? expiryText(e) : DASH;
     const mk = monthly ? "M" : "W";
     const long = e ? `${day} · ${exTag} · ${mk}` : DASH;
@@ -2190,7 +2193,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
 
   const g = (v, dp) => (isFigure(v) ? formatFixed(v, dp) : DASH);
   const pct1 = (v) => (isFigure(v) ? `${formatSigned(v, 1)}%` : DASH);
-  const rupees = (v, signed = false) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? "-" : signed && v > 0 ? "+" : ""}₹${formatCompact(Math.abs(v))}` : signed ? formatSignedRupee(v, 0) : formatRupee(v, 0));
+  const rupees = (v, signed = false) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? MINUS : signed && v > 0 ? "+" : ""}₹${formatCompact(Math.abs(v))}` : signed ? formatSignedRupee(v, 0) : formatRupee(v, 0));
   const dots = (n) => h("span", { class: "liq", title: `Liquidity ${n} of 5`, "aria-label": `Liquidity ${n} of 5` }, [1, 2, 3, 4, 5].map((i) => h("i", { class: i <= n ? "on" : undefined })));
   /**
    * The baseline grid (§3.4): every cell is two fixed rows, line 1 the main figure (16 px) and line 2 a sub figure or a
