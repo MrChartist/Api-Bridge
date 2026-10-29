@@ -124,6 +124,7 @@
   --dv-call-ink: 212 90.5% 41.4%;
   --dv-put: 32 100% 43.9%;
   --dv-put-ink: 30 100% 32.5%;
+  --dv-bar-a: 1;  /* OI bar fill alpha: full on white (3:1), 0.85 on near-black */
   --pos: 138 68% 38%;
   --pos-ink: 142 84.8% 25.9%;
   --neg: 3 75.6% 53.3%;
@@ -278,6 +279,8 @@
     --dv-call-ink: 209 100% 64.5%;
     --dv-put: 31 89.3% 52.5%;
     --dv-put-ink: 32 100% 59%;
+    --dv-bar-a: 0.85;  /* OI bar fill alpha: full on white (3:1), 0.85 on near-black */
+    --itm-fill: hsl(0 0% 100% / 0.075);
     --pos: 135 63.6% 50.4%;
     --pos-ink: 135 63.6% 50.4%;
     --neg: 3 100% 65.7%;
@@ -382,6 +385,8 @@
   --dv-call-ink: 209 100% 64.5%;
   --dv-put: 31 89.3% 52.5%;
   --dv-put-ink: 32 100% 59%;
+  --dv-bar-a: 0.85;  /* OI bar fill alpha: full on white (3:1), 0.85 on near-black */
+    --itm-fill: hsl(0 0% 100% / 0.075);
   --pos: 135 63.6% 50.4%;
   --pos-ink: 135 63.6% 50.4%;
   --neg: 3 100% 65.7%;
@@ -625,9 +630,10 @@ code { font-size: 0.92em; padding: 1px 6px; border-radius: 6px; background: var(
 }
 .toolbar-title {
   display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px 0 12px; border-radius: 999px; min-width: 0; flex-shrink: 1;
-  font: 650 15px/1 var(--font-display); letter-spacing: -0.014em;
+  font: 650 15px/1.25 var(--font-display); letter-spacing: -0.014em;
 }
-.toolbar-title > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* line-height 1.25 + 1 px block padding: descenders (g, y) are not clipped by the ellipsis overflow. */
+.toolbar-title > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-block: 1px; }
 .toolbar-icon { display: inline-grid; flex: none; }
 .toolbar-icon svg { width: 18px; height: 18px; fill: none; stroke: hsl(var(--tint, var(--ios-blue))); stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
 .toolbar-spacer { flex: 1; }
@@ -818,7 +824,10 @@ button.live-ctl:hover { background: var(--mat-glass-strong); }
 .content { display: flex; flex-direction: column; gap: clamp(16px, 2vw, 24px); min-width: 0; }
 .content > p.muted:only-child { padding: 24px 4px; }
 .app-foot { margin-top: 32px; padding: 0 4px 16px; font: 400 12.5px/1.5 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
-@media (max-width: 1023px) { .app-foot { padding-bottom: calc(var(--tabbar-h) + 44px + var(--safe-b)); } }
+/* Data kept while refreshes fail (§9): the figures dim to 0.7 so they do not read as live (opacity only). */
+#content :is(tbody, .desk-stats .value, .sum-strip .value) { transition: opacity var(--dur-2) var(--ease-std); }
+#content[data-stale] :is(tbody, .desk-stats .value, .sum-strip .value) { opacity: 0.7; }
+@media (max-width: 1023px) { .app-foot { padding-bottom: calc(var(--tabbar-h) + 44px + var(--safe-b)); } :root[data-layout="desk"] .app-foot { display: none; } }
 
 /* Numbered section eyebrow: "01  GET STARTED ————". */
 .sec-eyebrow { display: flex; align-items: center; gap: 14px; margin: 8px 0 -4px; font: 700 12px/1 var(--font-body); letter-spacing: 0.15em; text-transform: uppercase; color: hsl(var(--foreground) / 0.74); }
@@ -1039,6 +1048,11 @@ button.primary:hover { background: hsl(var(--ios-blue-fill-hover)); }
 button.primary:disabled { opacity: 1; background: var(--mat-fill-2); color: hsl(var(--foreground) / var(--a-quiet)); box-shadow: none; }
 button.small.primary { box-shadow: 0 3px 10px hsl(var(--ios-blue) / 0.26), inset 0 1px 0 hsl(0 0% 100% / 0.22); }
 button.tinted { background: hsl(var(--ios-blue) / 0.1); color: hsl(var(--ios-blue-ink)); }
+/* Disabled (§3.3): never a faded blue slab or a faded blue link. A primary drops its glow and becomes fill-2 with quiet
+   text; a text button turns neutral at 0.38. */
+button.primary:disabled, button.small.primary:disabled { opacity: 1; background: var(--mat-fill-2); color: hsl(var(--foreground) / var(--a-quiet)); box-shadow: none; }
+:is(button.plain, button.ghost):disabled { opacity: 1; color: hsl(var(--foreground) / 0.38); }
+button.tinted:disabled { opacity: 1; background: var(--mat-fill-1); color: hsl(var(--foreground) / 0.38); }
 button.tinted:hover { background: hsl(var(--ios-blue) / 0.16); }
 button.danger { background: hsl(var(--ios-red-fill)); color: #fff; box-shadow: 0 6px 18px hsl(var(--ios-red) / 0.28), inset 0 1px 0 hsl(0 0% 100% / 0.2); }
 button.danger:hover { background: hsl(var(--ios-red-fill) / 0.88); }
@@ -1112,6 +1126,12 @@ label.check { display: flex; align-items: center; gap: 10px; min-height: 32px; f
 :is(button.preset-chip.on, button.scr-uchip.on, button.chip-btn[aria-pressed="true"]) :is(.glyph, svg) { color: currentColor; stroke: currentColor; }
 @media (hover: hover) and (pointer: fine) {
   :is(.segmented, .tabs, .scr-tabs) button:not([aria-pressed="true"]):not([aria-selected="true"]):hover { color: hsl(var(--foreground)); background: var(--mat-fill-1); }
+}
+/* Every capsule-bar button is a 44 px target on touch screens (§3.3), on every page. */
+@media (pointer: coarse) {
+  .segmented button, .tabs button, .scr-tabs button, button.preset-chip, button.chip-btn { min-height: 44px; }
+  button.toolbar-demo { min-height: 44px; min-width: 44px; height: 44px; }
+  button.vol-select, button.scr-sort-btn { min-width: 44px; }
 }
 :is(.segmented, .tabs, .scr-tabs) button:active:not(:disabled) { transform: scale(0.97); }
 :is(.segmented, .tabs, .scr-tabs) button:disabled { opacity: 0.38; }
@@ -1510,8 +1530,8 @@ table.chain tbody tr:focus { outline: none; }
 table.chain tbody tr:focus-visible:not(.focus) th { box-shadow: inset 0 0 0 2px hsl(var(--ios-blue) / 0.6); }
 table.chain tr.jump > td, table.chain tr.jump > th { animation: chain-jump var(--dur-4) var(--ease-out); }
 @keyframes chain-jump { from { box-shadow: inset 0 0 0 999px hsl(var(--foreground) / 0.12); } }
-table.chain td.itm { background: var(--mat-fill-1); }
-table.chain tr.in-em .strike-col { background: linear-gradient(hsl(var(--dv-iv) / 0.07), hsl(var(--dv-iv) / 0.07)), var(--mat-grouped-solid); }
+/* ITM: a quiet but visible fill in both themes (fill-1 is ~1.03:1 on #0D0D0F, so dark uses fill-2). */
+table.chain td.itm { background: var(--itm-fill, var(--mat-fill-1)); }
 /* ATM: the strike is a contrast pill, the row has top and bottom rules; no tint (§4.6). */
 table.chain tr.atm > td, table.chain tr.atm > th { box-shadow: inset 0 1px 0 hsl(var(--foreground) / 0.25), inset 0 -1px 0 hsl(var(--foreground) / 0.25); }
 table.chain tr.atm .strike-col .k { display: inline-block; padding: 3px 8px; border-radius: 999px; color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); }
@@ -1530,19 +1550,6 @@ table.chain .pos-accent { color: hsl(var(--ios-blue-ink)); font-weight: 700; }
 /* LTP flashes use the shared dv-flash keyframes (§6.2, in 12m · MOTION); the chain alternates data-flash a / b on
    the cell to restart them without a reflow. */
 @media (prefers-reduced-motion: reduce) { table.chain tr.jump > * { animation: none; } }
-table.chain .oi-cell { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 58px; }
-table.chain .oi-bar { position: relative; display: block; width: 100%; height: 6px; }
-table.chain .oi-bar > span { position: absolute; right: 0; display: block; border-radius: 2px; }
-/* OI bar: calls blue, puts orange (0.85; the max-OI strike at full opacity, the rest 0.6), with a 1.5 px OI-change
-   micro-bar in gain / loss colours. */
-table.chain .oi-bar > span:first-child { top: 0; height: 4px; background: hsl(var(--dv-call) / 0.6); transition: width var(--dur-3) var(--ease-std); }
-table.chain td.c-oi:not(:first-child) .oi-bar > span:first-child { background: hsl(var(--dv-put) / 0.6); }
-table.chain .oi-bar.max > span:first-child { background: hsl(var(--dv-call)); }
-table.chain td.c-oi:not(:first-child) .oi-bar.max > span:first-child { background: hsl(var(--dv-put)); }
-table.chain .oi-bar > span.chg { bottom: 0; height: 1.5px; background: hsl(var(--pos)); transition: width var(--dur-3) var(--ease-std); }
-table.chain .oi-bar > span.chg.neg { background: hsl(var(--neg)); }
-table.chain td.c-oi:not(:first-child) .oi-cell { align-items: flex-start; }
-table.chain td.c-oi:not(:first-child) .oi-bar > span { right: auto; left: 0; }
 table.chain .bu { display: inline-block; min-width: 24px; padding: 2px 4px; border-radius: 4px; font: 700 10px/1.2 var(--font-body); letter-spacing: 0.03em; text-align: center; cursor: help; }
 /* Build-up by price direction: long build-up and short covering are bullish (gain ink), short build-up and long
    unwinding bearish (loss ink). The letters stay, so colour is not the only carrier. */
@@ -1607,12 +1614,14 @@ table.chain .barred { display: inline-flex; flex-direction: column; align-items:
 table.chain .vbar { display: block; width: 100%; height: 3px; border-radius: 2px; background: var(--mat-fill-1); overflow: hidden; }
 table.chain .vbar > span { display: block; width: 100%; height: 100%; border-radius: 2px; background: hsl(var(--foreground) / 0.3); transform-origin: right center; }
 table.chain .vbar > span { transition: transform var(--dur-3) var(--ease-std); }
-table.chain .vbar.oi > span { background: hsl(var(--dv-call) / 0.6); }
-table.chain td.s-pe .vbar.oi > span { background: hsl(var(--dv-put) / 0.6); }
-table.chain .vbar.oi.wall > span { background: hsl(var(--dv-call)); }
-table.chain td.s-pe .vbar.oi.wall > span { background: hsl(var(--dv-put)); }
-table.chain .vbar.oi.wall2 > span { background: hsl(var(--dv-call) / 0.85); }
-table.chain td.s-pe .vbar.oi.wall2 > span { background: hsl(var(--dv-put) / 0.85); }
+/* OI bars: calls blue, puts orange at --dv-bar-a (full on white so they hold 3:1); the walls at full strength, the
+   top wall in the side's deeper ink (darker on white, brighter on black), so emphasis is saturation, not fading. */
+table.chain .vbar.oi > span { background: hsl(var(--dv-call) / var(--dv-bar-a)); }
+table.chain td.s-pe .vbar.oi > span { background: hsl(var(--dv-put) / var(--dv-bar-a)); }
+table.chain .vbar.oi.wall > span { background: hsl(var(--dv-call-ink)); }
+table.chain td.s-pe .vbar.oi.wall > span { background: hsl(var(--dv-put-ink)); }
+table.chain .vbar.oi.wall2 > span { background: hsl(var(--dv-call)); }
+table.chain td.s-pe .vbar.oi.wall2 > span { background: hsl(var(--dv-put)); }
 table.chain .vbar.pos > span { background: hsl(var(--pos)); }
 table.chain .vbar.neg > span { background: hsl(var(--neg)); }
 table.chain .vbar.vol > span { background: hsl(var(--dv-iv) / 0.6); }
@@ -1736,8 +1745,9 @@ table.desk-table th, table.desk-table td { padding: 9px 12px; box-shadow: inset 
 table.desk-table th:first-child, table.desk-table td:first-child { padding-left: var(--card-pad); }
 table.desk-table tbody tr:last-child td { box-shadow: none; }
 .side-tag { display: inline-flex; align-items: center; justify-content: center; width: 22px; min-width: 22px; height: 22px; min-height: 22px; padding: 0; border-radius: 6px; font: 700 11px/1 var(--font-body); }
-.side-tag.buy { color: hsl(var(--ios-blue-ink)); background: hsl(var(--ios-blue) / 0.13); }
-.side-tag.sell { color: hsl(var(--ios-pink-ink)); background: hsl(var(--ios-pink) / 0.13); }
+/* Buy / sell are direction (§4.2): gain ink on a gain tint and loss ink on a loss tint; blue means calls only. */
+.side-tag.buy { color: hsl(var(--pos-ink)); background: hsl(var(--pos) / 0.14); }
+.side-tag.sell { color: hsl(var(--neg-ink)); background: hsl(var(--neg) / 0.14); }
 button.side-tag:hover { filter: brightness(0.94); }
 .lots-in { width: 64px; min-height: 30px; padding: 4px 8px; text-align: right; font: 600 13.5px/1 var(--font-numeric); border-radius: 8px; }
 .icon-btn.small-x { width: 28px; height: 28px; min-height: 28px; padding: 0; background: transparent; box-shadow: none; }
@@ -1765,9 +1775,9 @@ button.preset:hover { background: var(--mat-fill-1); }
 .payoff-svg .area-dn { fill: hsl(var(--neg) / 0.14); }
 .payoff-svg .line-exp { fill: none; stroke: hsl(var(--foreground) / 0.88); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .payoff-svg .line-today { fill: none; stroke: hsl(var(--dv-today)); stroke-width: 1.5; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
-.payoff-svg .mark-spot { stroke: hsl(var(--ios-blue) / 0.8); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.payoff-svg .mark-spot { stroke: hsl(var(--dv-spot) / 0.55); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
 .payoff-svg .mark-label { font: 650 10.5px var(--font-numeric); fill: hsl(var(--foreground) / var(--a-label)); }
-.payoff-svg .mark-label.spot { fill: hsl(var(--ios-blue-ink)); }
+.payoff-svg .mark-label.spot { fill: hsl(var(--dv-spot)); font-weight: 700; }
 .payoff-svg .be { fill: var(--mat-grouped-solid); stroke: hsl(var(--foreground) / 0.8); stroke-width: 1.5; }
 .payoff-svg .cross { stroke: hsl(var(--foreground) / 0.35); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .payoff-svg .dot-exp { fill: hsl(var(--foreground)); }
@@ -1860,7 +1870,6 @@ button.primary.sell { background: hsl(var(--ios-pink-ink)); box-shadow: 0 6px 18
   .table-wrap .opt-x { display: none; }
   .payoff-svg .axis, .payoff-svg .mark-label { font-size: 19px; }
 }
-@media (max-width: 719px) and (pointer: coarse) { .phone-side .segmented button { min-height: 44px; } }
 /* With the floating tab bar (< 1024 px) the table is sized to the screen left above it, so its totals row and last
    strikes are reachable without scrolling the page under the bar. */
 @media (max-width: 1023px) {
@@ -1915,6 +1924,9 @@ html.panel-max-open { overflow: hidden; }
 .strat-grid { display: grid; grid-template-columns: minmax(400px, 490px) minmax(0, 1fr); gap: 0; align-items: start; }
 .strat-build { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px; box-shadow: inset calc(-1 * var(--hl)) 0 0 var(--mat-separator); }
 .strat-analysis { display: flex; flex-direction: column; min-width: 0; padding: 0 0 4px; }
+.strat-analysis.has-err > :not(.strat-err) { display: none; }
+.strat-err { padding: 16px 12px; }
+.strat-err[hidden] { display: none; }
 
 /* Presets: group tabs, then chips with a mini payoff. */
 .strat-presets { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -2150,8 +2162,9 @@ button.chart-slot-toggle[aria-expanded="true"] svg { transform: rotate(180deg); 
   .strat-actions .head-place { display: none; }
   .strat-bar {
     position: sticky; bottom: 12px; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; margin: 0; padding: 8px 12px 8px 16px;
-    background: var(--mat-thick); -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur); box-shadow: inset 0 var(--hl) 0 var(--mat-separator); border-radius: 0 0 var(--r-lg) var(--r-lg);
+    background: var(--surface-raised); box-shadow: inset 0 var(--hl) 0 var(--mat-separator), 0 -8px 24px hsl(0 0% 0% / 0.12); border-radius: var(--r-lg);
   }
+  .strat-bar[hidden] { display: none; }
   .bar-figs { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .bar-net { font: 700 15px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; }
   .bar-sub { font: 500 12px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-label)); }
@@ -2357,8 +2370,10 @@ table.oi-ladder .ob.pe .now { transform-origin: left center; }
    an outline. In OI chg mode, added = gain green, removed = loss red hatched. */
 table.oi-ladder .ob.ce { color: hsl(var(--dv-call)); }
 table.oi-ladder .ob.pe { color: hsl(var(--dv-put)); }
-table.oi-ladder .ob .now { background: currentColor; opacity: 0.7; }
+table.oi-ladder .ob .now { background: currentColor; opacity: var(--dv-bar-a); }
 table.oi-ladder td.ob.wall .now { background: currentColor; opacity: 1; }
+table.oi-ladder:not(.m-chg) td.ob.ce.wall { color: hsl(var(--dv-call-ink)); }
+table.oi-ladder:not(.m-chg) td.ob.pe.wall { color: hsl(var(--dv-put-ink)); }
 table.oi-ladder.m-chg .ob { color: hsl(var(--pos)); }
 table.oi-ladder.m-chg .ob:has(.now.neg) { color: hsl(var(--neg)); }
 table.oi-ladder td.ob .now.neg, table.oi-ladder td.ob.wall .now.neg, table.oi-ladder .ghost { opacity: 1; background: repeating-linear-gradient(-45deg, currentColor 0 1.5px, transparent 1.5px 5px); box-shadow: inset 0 0 0 1px currentColor; }
@@ -2472,8 +2487,11 @@ table.oi-help-table thead th { font-size: 11.5px; color: hsl(var(--foreground) /
 
 /* Phone. */
 @media (max-width: 719px) {
-  .oi-verdict { -webkit-line-clamp: 3; padding: 10px 12px; font-size: 13.5px; }
-  .desk-stats.oi-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* The top space counts (§5.3): one truncated headline line and one 52 px scroll-snap strip of 132 px tiles. */
+  .oi-verdict { display: block; padding: 8px 12px; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .desk-stats.oi-tiles { display: flex; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent); }
+  .desk-stats.oi-tiles::-webkit-scrollbar { display: none; }
+  .oi-tiles .desk-stat { flex: 0 0 132px; min-height: 52px; padding: 6px 12px; scroll-snap-align: start; }
   .oi-tiles .t-spot, .oi-tiles .t-vol, .oi-tiles .oi-wide { display: none; }
   .oi-head { padding: 8px 10px; }
   .oi-controls, .oi-ctl-row { width: 100%; }
@@ -2847,28 +2865,29 @@ table.pos-bca tbody th { text-align: left; font: 500 12.5px/1.2 var(--font-body)
 .vol-svg { display: block; width: 100%; height: auto; overflow: visible; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
 .vol-svg .grid line { stroke: var(--mat-separator); stroke-width: 1; }
 .vol-svg .axis { font: 500 10.5px var(--font-numeric); font-variant-numeric: tabular-nums; fill: hsl(var(--foreground) / var(--a-quiet)); }
-.vol-svg .band { fill: hsl(var(--ios-blue) / 0.07); }
+.vol-svg .band { fill: hsl(var(--dv-band)); }
 .vol-svg .band-label, .vol-svg .f-line-label, .vol-svg .spot-line-label { font: 600 10px var(--font-numeric); fill: hsl(var(--foreground) / var(--a-quiet)); }
 .vol-svg .f-line { stroke: hsl(var(--foreground) / 0.45); stroke-width: 1; }
 .vol-svg .spot-line { stroke: hsl(var(--foreground) / 0.35); stroke-width: 1; stroke-dasharray: 2 3; }
-.vol-svg .series { fill: none; stroke: hsl(var(--ios-blue)); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
+.vol-svg .series { fill: none; stroke: hsl(var(--dv-iv)); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
 .vol-svg .series.ce { stroke-width: 1.4; stroke-dasharray: 6 4; }
 .vol-svg .series.pe { stroke-width: 1.6; stroke-dasharray: 1.5 3.5; }
 .vol-svg .series.compare { stroke: hsl(var(--foreground) / var(--a-label)); stroke-width: 1.4; stroke-dasharray: 5 4; }
 .vol-svg .series.wing { stroke: hsl(var(--foreground) / var(--a-label)); stroke-width: 1.3; stroke-dasharray: 1.5 3.5; }
 .vol-svg .end-label { font: 650 10px var(--font-numeric); fill: hsl(var(--foreground) / var(--a-label)); paint-order: stroke; stroke: var(--mat-grouped-solid); stroke-width: 3px; stroke-linejoin: round; }
 .vol-svg .leader { stroke: hsl(var(--foreground) / 0.3); stroke-width: 1; }
-.vol-svg .end-label.otm, .vol-svg .end-label.ce, .vol-svg .end-label.pe { fill: hsl(var(--ios-blue-ink)); }
-.vol-svg .dot { fill: hsl(var(--ios-blue)); stroke: none; }
-.vol-svg .dot.ce, .vol-svg .dot.pe { fill: hsl(var(--ios-blue) / 0.55); }
-.vol-svg .dot.hollow { fill: var(--mat-grouped-solid); stroke: hsl(var(--ios-blue)); stroke-width: 1.5; }
+.vol-svg .end-label.otm, .vol-svg .end-label.ce, .vol-svg .end-label.pe { fill: hsl(var(--dv-iv-ink)); }
+/* IV is violet everywhere (§4): the smile and term curves, their dots and the ±1σ band (--dv-band). */
+.vol-svg .dot { fill: hsl(var(--dv-iv)); stroke: none; }
+.vol-svg .dot.ce, .vol-svg .dot.pe { fill: hsl(var(--dv-iv) / 0.6); }
+.vol-svg .dot.hollow { fill: var(--mat-grouped-solid); stroke: hsl(var(--dv-iv)); stroke-width: 1.5; }
 .vol-svg .hl-line { stroke: hsl(var(--foreground) / 0.5); stroke-width: 1; stroke-dasharray: 3 3; }
 .vol-svg .hl-ring { fill: none; stroke: hsl(var(--foreground) / 0.85); stroke-width: 1.5; }
 .vol-svg-empty { font: 500 12.5px var(--font-body); fill: hsl(var(--foreground) / var(--a-quiet)); }
 .vol-svg .term-pt { cursor: pointer; }
 .vol-svg .term-pt .hit { fill: transparent; }
-.vol-svg .term-pt .ring { fill: none; stroke: hsl(var(--ios-blue)); stroke-width: 1.5; }
-.vol-svg .term-pt:hover .dot { fill: hsl(var(--ios-blue-ink)); }
+.vol-svg .term-pt .ring { fill: none; stroke: hsl(var(--foreground) / 0.85); stroke-width: 1.5; }
+.vol-svg .term-pt:hover .dot { fill: hsl(var(--dv-iv-ink)); }
 .vol-svg .m-tag { font: 700 10px var(--font-body); fill: hsl(var(--foreground) / var(--a-quiet)); }
 
 /* Tables: dense, tabular, hairline rules; the first column sticks when a table scrolls sideways. */
@@ -2924,12 +2943,12 @@ button.vol-select svg { width: 14px; height: 14px; fill: none; stroke: currentCo
 .vol-strikes-table tbody tr.hl > * { box-shadow: inset 0 1.5px 0 hsl(var(--ios-blue) / 0.6), inset 0 -1.5px 0 hsl(var(--ios-blue) / 0.6); }
 .vol-strikes-table th.k { font-weight: 650; }
 .vol-strikes-table .vol-k { margin-right: 4px; }
-.vol-strikes-table tr.atm .vol-k { color: hsl(var(--ios-blue-ink)); }
-.vol-strikes-table tr.atm > * { background-color: hsl(var(--ios-blue) / 0.06); }
+/* ATM (§4.6): the strike is the shared contrast pill (as in the chain), no row tint and no blue. */
+.vol-strikes-table tr.atm .vol-k, table.arb-table tr.atm td:first-child .arb-k strong, table.arb-table tr.cur td:first-child .arb-k strong { display: inline-block; padding: 3px 8px; border-radius: 999px; color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); }
 .vol-strikes-table tr.f-above > * { box-shadow: inset 0 1px 0 hsl(var(--foreground) / 0.45), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 .vol-strikes-table tr.out > *:not(.flag):not(.k) { color: hsl(var(--foreground) / var(--a-quiet)); }
 .vol-chip { display: inline-block; margin-left: 3px; padding: 1px 4px; border-radius: 4px; font: 700 10px/1.25 var(--font-body); letter-spacing: 0.02em; color: hsl(var(--foreground) / var(--a-label)); box-shadow: inset 0 0 0 var(--hl) hsl(var(--foreground) / 0.25); vertical-align: 1px; }
-.vol-chip.atm { color: hsl(var(--ios-blue-ink)); box-shadow: inset 0 0 0 var(--hl) hsl(var(--ios-blue) / 0.6); }
+.vol-chip.atm { color: hsl(var(--foreground) / var(--a-label)); }
 .vol-flag { display: inline-block; margin-right: 6px; font: 600 11.5px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); cursor: help; }
 .vol-strike-seg { display: none; }
 
@@ -3069,7 +3088,7 @@ table.arb-table td.tagged .two small { color: hsl(var(--ios-indigo-ink)); font-w
 .arb-k small { font: 500 10.5px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
 .arb-tags { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: middle; }
 .arb-tag { display: inline-block; padding: 1px 4px; border-radius: 3px; font: 700 10px/1.25 var(--font-body); letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; vertical-align: 1px; }
-.arb-tag.atm { color: #fff; background: hsl(var(--ios-blue-fill)); }
+.arb-tag.atm { color: hsl(var(--foreground) / var(--a-label)); box-shadow: inset 0 0 0 var(--hl) hsl(var(--foreground) / 0.3); }
 .arb-tag.edge { color: hsl(var(--ios-blue-ink)); box-shadow: inset 0 0 0 var(--hl) hsl(var(--ios-blue) / 0.6); }
 .arb-tag.stale { color: hsl(var(--ios-orange-ink)); background: hsl(var(--ios-orange) / 0.15); }
 .arb-tag.bad { color: hsl(var(--ios-red-ink)); background: hsl(var(--ios-red) / 0.12); }
@@ -3084,7 +3103,6 @@ table.arb-table tbody tr:hover td { background-image: linear-gradient(var(--mat-
 table.arb-table tr.opp td { background-color: hsl(var(--ios-blue) / 0.08); }
 table.arb-table tr.opp td:first-child { box-shadow: inset 2px 0 0 hsl(var(--ios-blue)), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 table.arb-table tr.stale td { opacity: 0.55; }
-table.arb-table tr.atm td:first-child .arb-k strong, table.arb-table tr.cur td:first-child .arb-k strong { color: hsl(var(--ios-blue-ink)); }
 table.arb-table tr.sel > td { background-image: linear-gradient(var(--mat-fill-2), var(--mat-fill-2)); }
 table.arb-table tr.sel > :first-child { box-shadow: inset 2px 0 0 hsl(var(--sel-bg)), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 table.arb-table tr.cal-row td { height: auto; padding-top: 6px; padding-bottom: 6px; background: var(--mat-fill-1); }
@@ -3508,7 +3526,7 @@ dialog.sheet.scr-sheet { height: min(90dvh, 900px); max-height: 90dvh; }
   .scr-tabrow { position: sticky; top: calc(var(--toolbar-h) + var(--safe-t)); z-index: 6; padding: 8px 12px; background: var(--mat-grouped-solid); box-shadow: 0 -12px 0 var(--mat-grouped-solid), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
   .scr-tools { padding: 8px 12px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
   .scr-tabs { flex: 1 1 auto; align-self: stretch; background: transparent; padding: 0; gap: 6px; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent); padding-inline: 2px 14px; }
-  .scr-tabs button { min-height: 36px; padding: 0 14px; background: var(--mat-fill-1); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
+  .scr-tabs button { min-height: 36px; padding: 0 14px; }
   .scr-tools { flex-wrap: wrap; gap: 6px 8px; }
   .scr-status { flex: 1 1 100%; }
   .scr-tools .scr-auto { display: none; }
@@ -3581,7 +3599,7 @@ dialog.sheet.scr-sheet { height: min(90dvh, 900px); max-height: 90dvh; }
   .desk-stats.sum-strip { display: flex; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent); }
   .desk-stats.sum-strip::-webkit-scrollbar { display: none; }
   .sum-strip .desk-stat { flex: 0 0 132px; min-height: 52px; padding: 6px 12px; scroll-snap-align: start; }
-  .sum-strip .desk-stat.t-spot { display: none; }
+  .sum-strip .desk-stat.t-fut { display: none; }
   .sum-strip .desk-stat .value { font-size: 16px; }
 }
 

@@ -2,7 +2,7 @@
 // file builds the builder once per visit and patches it on every tick: leg prices, figures, the payoff paths and the
 // scenario cells change in place, so sliders, focus and scroll never reset. The maths is in options.js (pure, tested),
 // drawing in payoff.js, placement in strategy-place.js. Numbers become text only through format.js.
-import { api, app, chartSlot, emptyState, h, icon, keyHint, modal, optional, toast, touchWord } from "./app.js";
+import { api, app, chartSlot, emptyState, errorState, h, icon, keyHint, modal, optional, toast, touchWord } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
 import { drawPayoff, money, moneyEl } from "./payoff.js";
@@ -263,7 +263,9 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
   scenTools.addEventListener("click", (e) => e.preventDefault());
   const scen = h("details", { class: "strat-scen" }, h("summary", {}, h("span", { class: "scen-title" }, "Scenarios"), h("span", { class: "scen-sub muted" }, "P&L at nine prices"), scenTools), scenTable);
   if (media("(min-width: 1280px)")) scen.open = true;
-  const analysis = h("div", { class: "strat-analysis" }, metricsEl, moreFigs, warnEl, chartHost, whatIf, note, scen);
+  // First load failed (no chain at all): one error card (§9) in place of eight empty tiles and an empty chart.
+  const errHost = h("div", { class: "strat-err", hidden: true });
+  const analysis = h("div", { class: "strat-analysis" }, errHost, metricsEl, moreFigs, warnEl, chartHost, whatIf, note, scen);
   // Sticky action bar (phone and tablet)
   const barNet = h("strong", { class: "bar-net" });
   const barSub = h("small", { class: "bar-sub" });
@@ -760,6 +762,8 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
   }
 
   function drawBar() {
+    // Phone / tablet: the sticky bar appears once there is a leg; with none, the "Add leg" call to action is enough.
+    if (bar.hidden !== !legs().length) bar.hidden = !legs().length;
     const n = R?.stats?.net;
     const exit = closeMode();
     barNet.textContent = !R ? (noChain ? "No chain" : "…") : !R.ok ? (R.act.length ? "Needs prices" : "No legs") : `${n > 0.5 ? "Credit" : n < -0.5 ? "Debit" : "Even"} ${money(Math.abs(n), { signed: false })}`;
@@ -1403,12 +1407,17 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
     panel,
     slot,
     /** The desk's context for this tick (null while there is no chain). */
-    draw(xx0, { error = null } = {}) {
+    draw(xx0, { error = null, onRetry = null } = {}) {
       // A chain with no strikes is a loaded state, not a loading one: "--" figures and a plain reason.
       const noRows = Boolean(xx0) && !xx0.c?.rows?.length;
       const xx = noRows ? null : xx0;
       noChain = noRows ? `No strikes for ${xx0.c.underlying ?? st.underlying} ${expiryText(xx0.c.expiry ?? st.expiry)}.` : error ? "error" : null;
       x = xx;
+      const failed = !xx && !noRows && Boolean(error);
+      analysis.classList.toggle("has-err", failed);
+      errHost.hidden = !failed;
+      if (failed) errHost.replaceChildren(errorState(error, { onRetry }));
+      else if (errHost.firstChild) errHost.replaceChildren();
       if (!xx) {
         R = null;
         priced = [];

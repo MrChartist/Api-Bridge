@@ -13,6 +13,7 @@ import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee
 import * as O from "./options.js";
 import { niceTicks } from "./payoff.js";
 import { segField, segmented } from "./views.js";
+import { spotPill } from "./viz.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const CHAIN_STRIKES = 40;
@@ -1840,11 +1841,12 @@ function createBookPayoff(host, fill = () => null) {
   const offScale = svg("text", { class: "mark-label off-scale", "text-anchor": "end", visibility: "hidden" });
   const lineN = svg("path", { class: "line-now" });
   const spotLine = svg("line", { class: "mark-spot" });
-  const spotLabel = svg("text", { class: "mark-label spot", "text-anchor": "middle" });
+  // Spot (§4.5): a --dv-spot line with the shared contrast pill above the plot (viz.js spotPill), not a blue label.
+  let spotG = null;
   const beG = svg("g", {});
   const cross = svg("line", { class: "cross", visibility: "hidden" });
   const dot = svg("circle", { r: 3.5, class: "dot-today", visibility: "hidden" });
-  const el = svg("svg", { class: "payoff-svg pos-payoff-svg", role: "img", tabindex: "0", focusable: "true" }, svg("defs", {}, svg("clipPath", { id: `${id}-up` }, clipUp), svg("clipPath", { id: `${id}-dn` }, clipDn), svg("clipPath", { id: `${id}-plot` }, clipPlot)), band2, band1, grid, xAxis, areaUp, areaDn, zero, lineE, lineT, lineH, lineN, spotLine, spotLabel, beG, offScale, cross, dot);
+  const el = svg("svg", { class: "payoff-svg pos-payoff-svg", role: "img", tabindex: "0", focusable: "true" }, svg("defs", {}, svg("clipPath", { id: `${id}-up` }, clipUp), svg("clipPath", { id: `${id}-dn` }, clipDn), svg("clipPath", { id: `${id}-plot` }, clipPlot)), band2, band1, grid, xAxis, areaUp, areaDn, zero, lineE, lineT, lineH, lineN, spotLine, beG, offScale, cross, dot);
   const readout = h("div", { class: "payoff-readout pos-readout" });
   const live = h("p", { class: "sr-only", "aria-live": "polite" });
   const legend = h(
@@ -1928,8 +1930,7 @@ function createBookPayoff(host, fill = () => null) {
     host.querySelector(".lg-hedge").hidden = !m.hedge;
     const sx = X(m.spot);
     setA(spotLine, { x1: r1(sx), x2: r1(sx), y1: T, y2: H - B });
-    setA(spotLabel, { x: r1(Math.max(L + 20, Math.min(W - R - 20, sx))), y: T - 5 });
-    spotLabel.textContent = formatInt(m.spot);
+    spotG = spotPill(el, r1(Math.max(L, Math.min(W - R, sx))), formatInt(m.spot), { y: 0, width: W, g: spotG });
     const marks = [...m.bes.map((b) => ["now", b]), ...m.besT.map((b) => ["t", b])].filter(([, b]) => b > m.lo && b < m.hi);
     let lastX = -1e9;
     let lane = 0;

@@ -2084,6 +2084,15 @@ describe("PRD 08 display helpers", () => {
     const clamped = O.placeLabels([{ x: 5, w: 40, text: "A" }], { lo: 0, hi: 200 });
     expect(clamped[0].x).toBe(20);
   });
+  it("placeLabels re-checks a merged label against the one before it", () => {
+    // Three marks 10 px apart after a fourth far left: the merged "b · c · d" would overlap "a", so all four merge.
+    const four = O.placeLabels([{ x: 0, w: 40, text: "a" }, { x: 60, w: 40, text: "b" }, { x: 70, w: 40, text: "c" }, { x: 80, w: 40, text: "d" }]);
+    expect(four.map((l) => l.text)).toEqual(["a · b · c · d"]);
+    // A merged pair that clears the earlier label keeps it separate, and does not overlap it.
+    const two = O.placeLabels([{ x: 0, w: 40, text: "a" }, { x: 100, w: 40, text: "b" }, { x: 105, w: 40, text: "c" }]);
+    expect(two.map((l) => l.text)).toEqual(["a", "b · c"]);
+    expect(two[1].x - 46).toBeGreaterThanOrEqual(two[0].x + 20 + 4);
+  });
   it("expiryTag reads days and weekly / monthly", () => {
     const now = Date.parse("2026-10-29T03:00:00Z");
     const ex = ["2026-11-03", "2026-11-10", "2026-11-24"];

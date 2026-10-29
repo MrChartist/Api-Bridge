@@ -15,7 +15,7 @@ import * as O from "./options.js";
 import { createPositionsPage } from "./positions.js";
 import { cap, every, segField, segmented, stopTimer } from "./views.js";
 import { createVolPage, volConfig } from "./vol.js";
-import { animatePage, barsEnter, countUp, flashValue } from "./motion.js";
+import { animatePage, barsEnter, countUp, flashValue, stopCount } from "./motion.js";
 
 const SLOT = "mcb.dashboard.desk";
 /** The index underlyings the Options pages list (live) and the three the demo serves; the Option Screener shares them. */
@@ -221,9 +221,12 @@ async function renderDesk(kind) {
       spot = p.spot ?? spot;
       q = p.quote ?? q;
     }
-    spot = spot ?? num(q?.ltp);
-    const ch = num(q?.change);
-    const chp = num(q?.changePct);
+    // One source for the number and its change: the index quote when there is one (its ltp, change and % move
+    // together), else the chain's spot with no change.
+    const qLtp = num(q?.ltp);
+    spot = qLtp ?? spot;
+    const ch = qLtp === null ? null : num(q?.change);
+    const chp = qLtp === null ? null : num(q?.changePct);
     const sig = JSON.stringify([st.underlying, e, exTag, monthly, lot, spot, ch, chp]);
     if (sig === ctxSig) return;
     const prevSpot = Number(spotItem.dataset.v);
@@ -250,7 +253,10 @@ async function renderDesk(kind) {
     lotItem.title = lot ? "Lot size" : "Lot size unavailable";
   }
   /** Phones and tablets: account, refresh, live, search, theme and (in demo mode) what the demo data is. */
+  let ctxSheet = null;
   function openCtxSheet() {
+    // One sheet per trigger: a second click on ⋯ closes it instead of stacking another.
+    if (ctxSheet) return ctxSheet.close();
     const home = aSel.parentNode;
     const next = aSel.nextSibling;
     const theme = document.documentElement.getAttribute("data-theme") ?? "auto";
@@ -273,15 +279,16 @@ async function renderDesk(kind) {
       ),
       app.state.demo ? h("p", { class: "ctx-demo-note" }, h("i", { class: "demo-badge", "aria-hidden": "true" }), h("span", {}, h("strong", {}, "Demo data: "), DEMO_EXPLAINER)) : null,
     );
-    const sheetRef = sheetPopover({
+    const sheetRef = (ctxSheet = sheetPopover({
       trigger: moreBtn,
       title: `${st.underlying} ${expiryText(st.expiry) || ""}`.trim(),
       body,
       onClose: () => {
+        ctxSheet = null;
         if (home && aSel.parentNode !== home) home.insertBefore(aSel, next && next.parentNode === home ? next : null);
         if (home && acctBadge.parentNode !== home) home.append(acctBadge);
       },
-    });
+    }));
   }
   function toggleLive() {
     st.live = !st.live;
@@ -419,9 +426,10 @@ async function renderDesk(kind) {
     const seq = st.seq;
     const t0 = performance.now();
     try {
-      // The Volatility page recomputes IVs and deltas itself: no server Greeks, no index / futures quotes here.
+      // The Volatility page recomputes IVs and deltas itself (no server Greeks); every page loads the index quote,
+      // which the top bar's spot and its change come from.
       const strikes = kind === "oi" ? OI_FETCH_STRIKES : kind === "vol" ? VOL_STRIKES : FETCH_STRIKES;
-      const [r] = await Promise.all([api(`/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(st.expiry)}&strikes=${strikes}&greeks=${kind === "vol" ? "false" : "true"}`), kind === "vol" ? null : loadQuotes()]);
+      const [r] = await Promise.all([api(`/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(st.expiry)}&strikes=${strikes}&greeks=${kind === "vol" ? "false" : "true"}`), loadQuotes()]);
       if (seq !== st.seq) return;
       st.chain = r.data.data;
       st.freshness = r.data.data?.freshness ?? r.data.meta?.freshness ?? null;
@@ -446,9 +454,11 @@ async function renderDesk(kind) {
   const refresh = () => (posPage ? posPage.tick() : volPage ? Promise.all([loadChain(), volPage.tick()]) : arbPage ? Promise.all([loadChain({ draw: false }), arbPage.tick()]).then(() => drawAll()) : Promise.all([loadChain(), loadPositions(), oiPage?.tick()]));
   let timerMs = REFRESH_MS;
   let timerReady = false;
+  /** The refresh period: one predicate (is the market open) for both startTimer and drawClock, so an error
+   *  outside market hours cannot make them disagree and reset the interval every second. */
+  const wantMs = () => (O.freshnessState({ marketOpen: st.freshness?.marketOpen, demo: Boolean(app.state.demo) }).kind === "closed" ? CLOSED_REFRESH_MS : REFRESH_MS);
   const startTimer = () => {
-    const closed = O.freshnessState({ marketOpen: st.freshness?.marketOpen, demo: Boolean(app.state.demo) }).kind === "closed";
-    timerMs = closed ? CLOSED_REFRESH_MS : REFRESH_MS;
+    timerMs = wantMs();
     return st.live ? every(timerMs, refresh) : stopTimer();
   };
   async function reloadAll() {
@@ -574,6 +584,8 @@ async function renderDesk(kind) {
       chain.reset();
       lastX = null;
       if (kind !== "oi") drawStats(null);
+      // Nothing loaded and the load failed: no strip of empty "--" tiles above the error card.
+      showStats(!st.error);
       const waiting = !st.error && !st.empty;
       chainEl.toggleAttribute("aria-busy", waiting);
       chainEl.replaceChildren(
@@ -583,7 +595,7 @@ async function renderDesk(kind) {
             ? emptyState("clock", "No expiries", st.empty, null, { compact: true })
             : loadingState({ rows: 12, cols: 7, label: `Loading the ${st.underlying} ${expiryText(st.expiry)} chain` }),
       );
-      builder?.draw(null, { error: st.error });
+      builder?.draw(null, { error: st.error, onRetry: () => reloadAll() });
       oiPage?.draw(null);
       return;
     }
@@ -591,6 +603,7 @@ async function renderDesk(kind) {
     const x = context();
     lastX = x;
     if (kind !== "oi") drawStats(x);
+    showStats(true);
     chainEl.removeAttribute("aria-busy");
     if (kind === "chain") {
       chain.draw(x);
@@ -632,10 +645,13 @@ async function renderDesk(kind) {
       lastTick = st.lastOk;
       liveBtn.tick();
     }
+    // Stale or failing data dims to 0.7 (§9) so old prices do not read as live; the live control says why.
+    const content = document.getElementById("content");
+    const staleNow = (f.kind === "stale" || f.kind === "error") && Boolean(st.lastOk);
+    if (content && content.hasAttribute("data-stale") !== staleNow) content.toggleAttribute("data-stale", staleNow);
     const today = O.isExpiryDay(st.expiry);
     if (expiryChip.hidden === today) expiryChip.hidden = !today;
-    const want = f.kind === "closed" ? CLOSED_REFRESH_MS : REFRESH_MS;
-    if (st.live && want !== timerMs && timerReady) startTimer();
+    if (st.live && timerReady && wantMs() !== timerMs) startTimer();
   }
 
   // ── Summary strip (built once, then patched) ──
@@ -643,6 +659,10 @@ async function renderDesk(kind) {
     return h("div", { class: `desk-stat ${cls ?? ""}`.trim(), title }, h("span", { class: "label" }, label), h("span", { class: "value" }, value), h("span", { class: "sub" }, sub ?? " "));
   }
   const tiles = new Map();
+  /** Show or hide the summary panel (with its movable-panel frame, once mounted). */
+  const showStats = (on) => {
+    for (const el of new Set([statsEl, statsEl.closest(".desk-panel"), statsEl.closest(".movable")])) if (el && el.hidden === on) el.hidden = !on;
+  };
   /** One tile, patched in place. `n` + `fmt`: the figure counts up on its first real paint (after a page or
    *  underlying change) and flashes up / down when a later refresh changes it. */
   function setTile(key, label, value, sub, { cls, title, n = null, fmt = null, vcls = "" } = {}) {
@@ -664,6 +684,7 @@ async function renderDesk(kind) {
     const real = value !== DASH && Number.isFinite(n);
     if (real && !t.painted && fmt) countUp(t.value, 0, n, fmt, value);
     else {
+      stopCount(t.value);
       if (real && t.painted && t.value.textContent !== value && Number.isFinite(t.n) && n !== t.n) flashValue(t.value, n > t.n ? "up" : "down");
       t.value.textContent = value;
     }
@@ -675,7 +696,7 @@ async function renderDesk(kind) {
   }
   function drawStats(x) {
     if (!x) {
-      for (const [k, l] of [["spot", st.underlying], ["iv", "ATM IV"], ["em", "Expected move"], ["straddle", "Straddle"], ["pcr", "PCR"], ["mp", "Max Pain"], ["pw", "Put wall"], ["cw", "Call wall"]]) setTile(k, l, DASH, "", { cls: k === "spot" ? "t-spot" : "" });
+      for (const [k, l] of [["fut", "Future"], ["iv", "ATM IV"], ["em", "Expected move"], ["straddle", "Straddle"], ["pcr", "PCR"], ["mp", "Max Pain"], ["pw", "Put wall"], ["cw", "Call wall"]]) setTile(k, l, DASH, "", { cls: k === "fut" ? "t-fut" : "" });
       return;
     }
     const { sm, c, F, move } = x;
@@ -684,12 +705,14 @@ async function renderDesk(kind) {
     const n = c.rows.length;
     const pcrWord = sm.pcr === null ? "" : sm.pcr >= 1.2 ? "put-heavy" : sm.pcr <= 0.8 ? "call-heavy" : "balanced";
     const fut = x.sameFut;
+    // The spot is in the top bar: this tile is the future (or the synthetic forward) and its basis to spot.
+    const fwd = fut ? num(fut.ltp) : F;
     setTile(
-      "spot",
-      c.underlying,
-      formatFixed(sm.spot, 2),
-      `${num(c.lotSize) ? "" : "lot size unavailable · "}${fut ? `Fut ${formatFixed(fut.ltp, 1)} (${formatSigned(fut.ltp - sm.spot, 1)})` : F !== null ? `F ${formatInt(F)} (synthetic)` : ""}`,
-      { cls: "t-spot", title: `${fut ? "The same-expiry future and its basis to spot" : "Synthetic future from put-call parity (K + (C − P)·e^(rT)); no future is listed for this expiry"}` },
+      "fut",
+      fut ? "Future" : "Synthetic F",
+      fwd === null ? DASH : formatFixed(fwd, fut ? 2 : 0),
+      `${num(c.lotSize) ? "" : "lot size unavailable · "}${fwd !== null && sm.spot !== null ? `Basis ${formatSigned(fwd - sm.spot, 1)}` : ""}`,
+      { cls: "t-fut", title: `${fut ? "The same-expiry future and its basis to spot" : "Synthetic future from put-call parity (K + (C − P)·e^(rT)); no future is listed for this expiry"}` },
     );
     setTile("iv", "ATM IV", formatPercent(sm.atmIv, 2), day ? `1-day ±${formatInt(day)}` : t.label, { title: "Average of the ATM call and put IV; the 1-day 1σ move it implies", n: sm.atmIv, fmt: (v) => formatPercent(v, 2), vcls: "ink-iv" });
     setTile("em", "Expected move", move ? `±${formatInt(move)}` : DASH, x.band1 ? `${formatInt(x.band1.lo)} – ${formatInt(x.band1.hi)}` : "", { title: `Log-normal 1σ band to expiry at ATM IV (${t.label}): about 68% of outcomes land inside` });
@@ -719,9 +742,11 @@ async function renderDesk(kind) {
     },
     onOpen: (strike, side) => openSheet(strike, side),
     onWindowAll: () => showAllStrikes(),
+    // null on the last listed expiry: the empty state then shows no button that would do nothing.
     onNextExpiry: () => {
       const i = st.expiries.indexOf(st.expiry);
-      if (i >= 0 && i + 1 < st.expiries.length) selectExpiry(st.expiries[i + 1]);
+      if (i < 0 || i + 1 >= st.expiries.length) return null;
+      return () => selectExpiry(st.expiries[i + 1]);
     },
   });
   let windowLock = false;
@@ -1443,7 +1468,10 @@ async function renderDesk(kind) {
   // Back to the tab: refresh at once instead of on the next tick. Device class changes (rotation, a phone-width
   // window, a touch screen) re-lay the chain. Both listeners go when the page does.
   const pageRoot = kind === "chain" ? chainEl : kind === "strategy" ? builder.panel : kind === "oi" ? oiPage.root : kind === "vol" ? volPage.root : kind === "arb" ? arbPage.root : posPage.root;
+  let ageTimer = 0;
+  let mounted = false;
   const onVisible = () => {
+    if (!mounted) return;
     if (!pageRoot.isConnected) return cleanup();
     if (!document.hidden && st.live) refresh();
   };
@@ -1453,9 +1481,13 @@ async function renderDesk(kind) {
     setCfg({});
   };
   // Leaving the page: the router swaps #content on hashchange, so check once it has.
-  const onRoute = () => setTimeout(() => !pageRoot.isConnected && cleanup(), 0);
+  // Before the first load finishes the page is not in the document yet: wait for it, then check.
+  const onRoute = () => setTimeout(() => mounted && !pageRoot.isConnected && cleanup(), 0);
   function cleanup() {
     clearInterval(ageTimer);
+    document.getElementById("content")?.removeAttribute("data-stale");
+    custom?.close();
+    ctxSheet?.close();
     document.removeEventListener("visibilitychange", onVisible);
     window.removeEventListener("hashchange", onRoute);
     for (const m of mqs) m.removeEventListener("change", onDevice);
@@ -1477,10 +1509,11 @@ async function renderDesk(kind) {
   mountToolbarCtx(kind, capsule, expiryChip, h("span", { class: "ctx-spacer" }), acctItem, liveBtn.el, moreBtn);
   drawCtx();
   await reloadAll();
+  mounted = true;
   startTimer();
   timerReady = true;
   // The pill's age ticks once a second (text node only); cleared when the page goes.
-  const ageTimer = setInterval(() => (pageRoot.isConnected ? drawClock() : clearInterval(ageTimer)), 1000);
+  ageTimer = setInterval(() => (pageRoot.isConnected ? drawClock() : clearInterval(ageTimer)), 1000);
 
   if (kind === "chain") {
     const out = [
@@ -2268,6 +2301,11 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     const top = w.getBoundingClientRect().top + (built.thead.offsetHeight || 0);
     const view = w.clientHeight - (built.thead.offsetHeight || 0) - 30;
     w.scrollTop += tr.getBoundingClientRect().top - top - (view - tr.offsetHeight) / 2;
+    // Snap so the first visible row starts right under the sticky header, not cut in half (rows differ in height:
+    // the spot row is shorter, so this looks at the actual row there).
+    const first = [...tr.parentNode.children].find((r) => r.offsetHeight && r.getBoundingClientRect().bottom > top + 1);
+    const cut = first ? top - first.getBoundingClientRect().top : 0;
+    if (cut > 0.5) w.scrollTop -= cut;
   };
 
   const self = {
@@ -2284,7 +2322,8 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     draw(x) {
       lastX = x;
       if (!x.c.rows.length) {
-        host.replaceChildren(emptyState("chart", `No strikes for ${x.c.underlying} ${expiryText(x.c.expiry)}`, "This expiry has no listed strikes yet. Pick another expiry.", onNextExpiry ? h("button", { type: "button", class: "small", onclick: () => onNextExpiry() }, "Next expiry") : null, { compact: true }));
+        const next = onNextExpiry?.();
+        host.replaceChildren(emptyState("chart", `No strikes for ${x.c.underlying} ${expiryText(x.c.expiry)}`, "This expiry has no listed strikes yet. Pick another expiry.", next ? h("button", { type: "button", class: "small", onclick: next }, "Next expiry") : null, { compact: true }));
         built = null;
         return;
       }

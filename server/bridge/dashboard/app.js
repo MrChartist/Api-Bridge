@@ -445,7 +445,10 @@ export function liveControl({ onToggle, refreshMs = 3000 } = {}) {
       glyph.replaceChildren(live ? "" : icon("pause"));
       const what = live ? `Live: refreshing every ${refreshMs / 1000} s. ${touchWord()} to pause${keyHint(" (P)")}` : `Paused. ${touchWord()} to resume${keyHint(" (P)")}`;
       el.title = [what, source ? `Data from ${source}` : "", asOf ? `${istDateTime(asOf)} IST` : ""].filter(Boolean).join(" · ");
-      el.setAttribute("aria-label", `${live ? "Live" : "Paused"}, data ${kind === "live" && asOf ? `as of ${t}` : words}. ${live ? "Pause" : "Resume"} updates`);
+      // The state word comes first, then what the data is, then the action: "Not updating, data 15 s old. Pause updates".
+      const state = kind === "error" ? "Not updating" : kind === "stale" ? "Stale" : kind === "closed" ? "Market closed" : live ? "Live" : "Paused";
+      const data = kind === "live" || kind === "closed" ? (asOf ? `data as of ${t}` : "waiting for data") : age ? `data ${age}` : "no data yet";
+      el.setAttribute("aria-label", `${state}, ${data}. ${live ? "Pause" : "Resume"} updates`);
     },
     /** One ring pulse on the dot (re-added per successful refresh, never an endless loop). */
     tick() {
@@ -481,7 +484,14 @@ export function chartSlot(label, sub = "") {
  * 720 px up, placed against the trigger and clamped to the viewport (never clipped by a panel). Both trap Tab, close
  * on Esc and return focus to the trigger. Returns { el, close() }; `onClose` runs once.
  */
+const OPEN_POPS = new WeakMap();
 export function sheetPopover({ trigger, title, body, head = [], cls = "", onClose = null }) {
+  // One popover per trigger: clicking the trigger again while its popover is open closes it (no second copy).
+  const open = trigger ? OPEN_POPS.get(trigger) : null;
+  if (open) {
+    open.close();
+    return open;
+  }
   const phone = mm("(max-width: 719px)");
   let closed = false;
   const closeBtn = h("button", { type: "button", class: "icon-btn tiny", "aria-label": "Close", onclick: () => close() }, icon("close"));
@@ -492,7 +502,9 @@ export function sheetPopover({ trigger, title, body, head = [], cls = "", onClos
     trigger?.setAttribute("aria-expanded", "false");
     removeEventListener("resize", place);
     removeEventListener("scroll", onScroll, true);
+    removeEventListener("hashchange", close);
     document.removeEventListener("pointerdown", outside, true);
+    if (trigger && OPEN_POPS.get(trigger) === handle) OPEN_POPS.delete(trigger);
     onClose?.();
     if (trigger?.isConnected) trigger.focus({ preventScroll: true });
   };
@@ -586,8 +598,12 @@ export function sheetPopover({ trigger, title, body, head = [], cls = "", onClos
     addEventListener("scroll", onScroll, true);
     setTimeout(() => !closed && document.addEventListener("pointerdown", outside, true));
   }
+  // A route change (palette, keyboard back, a hash link) closes it too, not only a pointerdown outside.
+  addEventListener("hashchange", close);
   (body.querySelector?.("button, input, select") ?? closeBtn).focus({ preventScroll: true });
-  return { el, close, place };
+  const handle = { el, close, place };
+  if (trigger) OPEN_POPS.set(trigger, handle);
+  return handle;
 }
 
 export function alertBox(err, cls = "bad") {

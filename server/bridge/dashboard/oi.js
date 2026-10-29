@@ -372,7 +372,10 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
 
     // Verdict.
     const verdict = O.oiVerdict({ walls: { r1: R1?.strike, s1: S1?.strike }, pcr: pcrChain.oi, buildup: bu, maxPain: mp?.strike, relevance }) ?? "Not enough OI to read";
-    if (verdictText.textContent !== verdict) verdictText.textContent = verdict;
+    if (verdictText.textContent !== verdict) {
+      verdictText.textContent = verdict;
+      verdictEl.title = verdict; // the phone shows one truncated line
+    }
     // The polite region speaks at most once a minute, but at once for a new underlying, expiry or scope.
     const ctx = `${c.underlying}|${c.expiry}|${combined ? "all" : "one"}`;
     if (ctx !== liveCtx) {
@@ -986,7 +989,7 @@ function createLadder({ detailFor, onOpenChain, onAtmVisible }) {
     const caption = h("caption", { class: "sr-only" }, m.caption);
     const hce = h("span", {});
     const hpe = h("span", {});
-    const head = h("tr", {}, h("th", { scope: "col", class: "d ce" }, "OI chg"), h("th", { scope: "col", class: "ob ce" }, hce), h("th", { scope: "col", class: "k" }, "Strike"), h("th", { scope: "col", class: "ob pe" }, hpe), h("th", { scope: "col", class: "d pe" }, "OI chg"));
+    const head = h("tr", {}, h("th", { scope: "col", class: "d ce", "aria-label": "Call OI chg" }, "OI chg"), h("th", { scope: "col", class: "ob ce" }, hce), h("th", { scope: "col", class: "k" }, "Strike"), h("th", { scope: "col", class: "ob pe" }, hpe), h("th", { scope: "col", class: "d pe", "aria-label": "Put OI chg" }, "OI chg"));
     const tbody = h("tbody");
     const rows = new Map();
     for (const r of m.rows) {
@@ -1085,8 +1088,12 @@ function createLadder({ detailFor, onOpenChain, onAtmVisible }) {
     const b = built.rows.get(atm);
     if (!b) return;
     const top = b.tr.offsetTop - wrap.clientHeight / 2 + b.tr.offsetHeight / 2;
-    if (smooth && typeof wrap.scrollTo === "function") wrap.scrollTo({ top, behavior: "smooth" });
-    else wrap.scrollTop = top;
+    // Whole rows under the sticky header: the first visible row is never cut in half.
+    const head = wrap.querySelector("thead")?.offsetHeight ?? 0;
+    const first = [...b.tr.parentNode.children].find((r) => r.offsetHeight && r.offsetTop + r.offsetHeight - head > top);
+    const snapped = Math.max(0, first ? first.offsetTop - head : top);
+    if (smooth && typeof wrap.scrollTo === "function") wrap.scrollTo({ top: snapped, behavior: "smooth" });
+    else wrap.scrollTop = snapped;
     if (focusRow) select(atm, false);
   }
   let rafPending = false;

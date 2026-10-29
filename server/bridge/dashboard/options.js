@@ -4415,19 +4415,26 @@ export function niceTicks(lo, hi, count) {
 export function placeLabels(items, { gap = 4, maxShift = 18, lo = -Infinity, hi = Infinity, join = " · ", prefix = "" } = {}) {
   const list = [...(items ?? [])].filter((i) => Number.isFinite(i?.x)).sort((p, q) => p.x - q.x);
   const out = [];
-  for (const it of list) {
-    const prev = out[out.length - 1];
-    if (prev) {
-      const need = prev.x + prev.w / 2 + gap + it.w / 2;
-      if (it.x < need && need - it.x > maxShift) {
-        const parts = [...prev.parts, it.text];
-        const w = prev.w + it.w + 12;
-        const xs = [...prev.xs, it.x];
-        out[out.length - 1] = { x: (xs[0] + xs[xs.length - 1]) / 2, w, parts, xs };
-        continue;
+  // Settle the last label against the one before it: nudge it right (up to maxShift from its marks) or merge the
+  // two, then re-check the merged label against the one before that, so a merge never lands on an earlier label.
+  const settle = () => {
+    while (out.length > 1) {
+      const cur = out[out.length - 1];
+      const prev = out[out.length - 2];
+      const need = prev.x + prev.w / 2 + gap + cur.w / 2;
+      if (cur.x >= need) return;
+      const home = (cur.xs[0] + cur.xs[cur.xs.length - 1]) / 2;
+      if (need - home <= maxShift) {
+        cur.x = need;
+        return;
       }
-      out.push({ x: Math.max(it.x, need), w: it.w, parts: [it.text], xs: [it.x] });
-    } else out.push({ x: it.x, w: it.w, parts: [it.text], xs: [it.x] });
+      const xs = [...prev.xs, ...cur.xs];
+      out.splice(-2, 2, { x: (xs[0] + xs[xs.length - 1]) / 2, w: prev.w + cur.w + 12, parts: [...prev.parts, ...cur.parts], xs });
+    }
+  };
+  for (const it of list) {
+    out.push({ x: it.x, w: it.w, parts: [it.text], xs: [it.x] });
+    settle();
   }
   return out.map((o) => {
     const x = Math.max(lo + o.w / 2, Math.min(hi - o.w / 2, o.x));

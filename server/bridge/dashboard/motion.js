@@ -375,8 +375,16 @@ const fmtDefault = { format: (v) => formatInt(v) };
  * Count a number up from `from` to `to`, writing format(value) into el. The final text is exactly format(to)
  * (or `finalText` when given), even if the animation is skipped or cut short.
  */
+const COUNTS = new WeakMap();
+/** Cancel a running countUp on `el` so a later textContent write is not overwritten by it. */
+export function stopCount(el) {
+  if (isEl(el)) COUNTS.delete(el);
+}
 export function countUp(el, from, to, format = (v) => fmtDefault.format(Math.round(v)), finalText) {
   if (!isEl(el)) return done();
+  const tok = {};
+  COUNTS.set(el, tok);
+  const mine = () => COUNTS.get(el) === tok;
   const end = finalText ?? format(to);
   const m = live();
   if (!m || !Number.isFinite(from) || !Number.isFinite(to) || from === to) {
@@ -385,7 +393,7 @@ export function countUp(el, from, to, format = (v) => fmtDefault.format(Math.rou
   }
   let anim;
   try {
-    anim = m.animate(from, to, { duration: Math.min(0.9, 0.4 + Math.log10(Math.abs(to - from) + 1) * 0.12), ease: [0.16, 1, 0.3, 1], onUpdate: (v) => (el.textContent = format(v)) });
+    anim = m.animate(from, to, { duration: Math.min(0.9, 0.4 + Math.log10(Math.abs(to - from) + 1) * 0.12), ease: [0.16, 1, 0.3, 1], onUpdate: (v) => mine() && (el.textContent = format(v)) });
   } catch {
     el.textContent = end;
     return done();
@@ -399,7 +407,10 @@ export function countUp(el, from, to, format = (v) => fmtDefault.format(Math.rou
     } catch {
       /* ignore */
     }
-    el.textContent = end;
+    if (mine()) {
+      COUNTS.delete(el);
+      el.textContent = end;
+    }
   });
 }
 

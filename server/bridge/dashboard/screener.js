@@ -535,7 +535,8 @@ export function renderScreenerPage() {
     let cls = "";
     if (running) {
       const label = progress.phase === "expiries" ? `expiries · ${progress.label}` : progress.phase === "history" ? `history · ${progress.label}` : progress.label;
-      text = `Scanning ${formatInt(Math.min(progress.done + (progress.current ? 1 : 0), progress.total || 0))}/${formatInt(progress.total || 0)}${label ? ` · ${label}` : ""}`;
+      const at = Math.min(progress.done + (progress.current ? 1 : 0), progress.total || 0);
+      text = `Scanning ${formatInt(at)}/${formatInt(progress.total || 0)}${label ? ` · ${label}` : ""}`;
     } else if (lastSweepFailed) {
       text = "Not updating";
       cls = "bad";
@@ -553,9 +554,12 @@ export function renderScreenerPage() {
       // " chains" and "Scanning" fold away on phones; the full text stays in the title.
       status.replaceChildren(...text.split(/( chains|Scanning )/).map((part) => (part === " chains" || part === "Scanning " ? h("span", { class: "scr-st-w" }, part) : part)));
     }
-    // The top bar's summary (foundation §5.1): "3 underlyings · 7 chains".
+    // The top bar's summary (foundation §5.1): "3 underlyings · 6 chains", counted from the chains actually loaded (the
+    // same set as the table's footer); "6 of 7 chains" when one failed or was skipped (the issues list says which).
     const n = cfg.underlyings.length;
-    const ctxText = `${formatInt(n)} underlying${n === 1 ? "" : "s"}${plan ? ` · ${formatInt(total)} chain${total === 1 ? "" : "s"}` : ""}`;
+    const got = entries.length;
+    const chainsText = running || got === total ? `${formatInt(total)} chain${total === 1 ? "" : "s"}` : `${formatInt(got)} of ${formatInt(total)} chains`;
+    const ctxText = `${formatInt(n)} underlying${n === 1 ? "" : "s"}${plan ? ` · ${chainsText}` : ""}`;
     if (ctxMain.textContent !== ctxText) ctxMain.textContent = ctxText;
     status.classList.toggle("bad", cls === "bad");
     status.classList.toggle("stale", cls === "stale");
@@ -563,7 +567,8 @@ export function renderScreenerPage() {
     progressEl.hidden = !running;
     if (running) {
       const t = progress.total || 1;
-      const d = Math.min(t, progress.done);
+      // The bar matches the "Scanning n/m" text: the chain being fetched counts.
+      const d = Math.min(t, progress.done + (progress.current ? 1 : 0));
       progressEl.setAttribute("aria-valuemax", String(t));
       progressEl.setAttribute("aria-valuenow", String(d));
       progressEl.firstChild.style.width = `${Math.round((100 * d) / t)}%`;
