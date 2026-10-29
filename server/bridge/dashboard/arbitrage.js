@@ -10,6 +10,7 @@ import { api, chartSlot, copyText, emptyState, errorState, h, icon, istTime, mod
 import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import { flashValue, lineReveal, reducedMotion } from "./motion.js";
 import * as O from "./options.js";
+import { refCharges, refSession } from "./reference.js";
 import { segmented } from "./views.js";
 import { legend, setBar, spotPill, svgEl } from "./viz.js";
 
@@ -195,10 +196,11 @@ export function arbPanels(ctx) {
   let extraAt = 0;
   let extraLoading = false;
   let lastAnnounce = { id: "", at: 0 };
-  let ratesMemo = { key: null, rates: O.CHARGE_RATES };
+  // The statutory table is the reference one (refCharges of the page's bundle), with the user's edits on top.
+  let ratesMemo = { key: null, base: null, rates: null };
   const rates = () => {
     const key = JSON.stringify(cfg().rates);
-    if (ratesMemo.key !== key) ratesMemo = { key, rates: O.ratesWith(cfg().rates) };
+    if (ratesMemo.key !== key || ratesMemo.base !== st.ref) ratesMemo = { key, base: st.ref, rates: O.ratesWith(cfg().rates, refCharges(st.ref)) };
     return ratesMemo.rates;
   };
   const setCfg = (patch) => {
@@ -426,7 +428,7 @@ export function arbPanels(ctx) {
     if (!c) return null;
     const conf = cfg();
     const now = Date.now();
-    const days = O.timeToExpiry(c.expiry, now).days;
+    const days = O.timeToExpiry(c.expiry, now, refSession(st.ref).close).days;
     const hRate = conf.hurdle / 100;
     const R = rates();
     const profile = conf.profile;
@@ -1483,7 +1485,7 @@ export function arbPanels(ctx) {
   }
   function flagCtx(m, s, topQ) {
     const freeze = new Map((s.legs ?? []).map((l) => [l.symbol, freezeOf(l)]));
-    return { stale: m.stale, ageMs: m.fresh.ageMs, days: m.days, hold: cfg().hold, noFuture: m.noFuture, lotMismatch: s.kind === "cal" ? Boolean(s.cal?.lotMismatch) : m.par.lotMismatch && s.kind !== "lbox" && s.kind !== "sbox", topQty: topQ, freezeQty: freeze, nowMs: m.nowMs, demo: ctx.demo() };
+    return { stale: m.stale, ageMs: m.fresh.ageMs, days: m.days, hold: cfg().hold, noFuture: m.noFuture, lotMismatch: s.kind === "cal" ? Boolean(s.cal?.lotMismatch) : m.par.lotMismatch && s.kind !== "lbox" && s.kind !== "sbox", topQty: topQ, freezeQty: freeze, nowMs: m.nowMs, demo: ctx.demo(), session: refSession(st.ref) };
   }
   function freezeOf(l) {
     if (l.kind === "FUT") return num(st.futures.find((f) => f.symbol === l.symbol)?.freezeQty);
@@ -1759,7 +1761,7 @@ export function arbPanels(ctx) {
     if (p.brokerage === "perLot") brokerFields.push(numField("₹ per lot", p.value, { step: "1", min: "0", onSet: (v) => setP({ value: v }) }));
     if (p.brokerage === "pct") brokerFields.push(numField("% of turnover", formatFixed(p.pct * 100, 3), { step: "0.005", min: "0", max: "5", onSet: (v) => setP({ pct: v / 100 }) }), numField("Cap, ₹ per order", p.cap, { step: "1", min: "0", onSet: (v) => setP({ cap: v }) }));
     const rateRows = O.RATE_FIELDS.map(([path, label, unit]) => {
-      const cur = c.rates[path] ?? O.rateDefault(path);
+      const cur = c.rates[path] ?? O.rateDefault(path, refCharges(st.ref));
       const changed = c.rates[path] !== undefined;
       return numField(`${label}${unit === "pct" ? ", %" : ""}`, unit === "pct" ? formatFixed(cur * 100, 5).replace(/0+$/, "").replace(/\.$/, "") : formatFixed(cur, 2), {
         step: "any",

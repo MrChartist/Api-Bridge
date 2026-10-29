@@ -173,12 +173,15 @@ export async function runInit(flags, io, deps) {
       const label = String(typeof flags.label === "string" ? flags.label : await ask("A name you will recognise", `${deps.brokerNames[broker] ?? broker} (main)`)).slice(0, 60);
       accounts.push({ id, broker, label, holder: "self", live: { enabled: false, allowedSources: ["rest"] }, marketData: { pooling: false } });
     }
+    // Reference data (docs/spec/p1-02-reference.md §2.5): off unless asked, so a fresh install calls no third-party site.
+    const nseArchives = !demo && (flags["nse-archives"] === true || (interactive && (await yes("Download NSE's public F&O reference files (lot sizes, ban list, MWPL) once or twice a day?", false))));
     const docker = io.env.MCB_DOCKER === "1";
     const cfg = buildConfig({ example, accounts, masterKeyFile: io.env.MCB_MASTER_KEY ? keyPath : mk.path, configDir, demo, docker });
+    if (nseArchives && cfg.reference) cfg.reference = { ...cfg.reference, sources: { ...cfg.reference.sources, nseArchives: { ...cfg.reference.sources?.nseArchives, enabled: true } } };
     if (io.env.MCB_MASTER_KEY) delete cfg.masterKeyFile;
     mkdirSync(configDir, { recursive: true });
     writeFileSync(configPath, `${JSON.stringify(cfg, null, 2)}\n`, { mode: 0o600 });
-    say(`Config: wrote ${configPath} (${accounts.length} account(s)${demo ? ", demo mode on" : ""}; live trading off).`);
+    say(`Config: wrote ${configPath} (${accounts.length} account(s)${demo ? ", demo mode on" : ""}${nseArchives ? ", NSE reference files on" : ""}; live trading off).`);
   }
 
   // 3. First admin key

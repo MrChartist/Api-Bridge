@@ -214,9 +214,10 @@ export function openStore({ backend = memoryBackend(), nowMs = Date.now() } = {}
     return true;
   }
   /** Whether a chain would be recorded now (without reading the store). */
-  const allowed = (nowMs, demo) => Boolean(demo) || marketSession(nowMs).phase === "open";
-  async function offer(chain, nowMs = Date.now(), { demo = false } = {}) {
-    if (!allowed(nowMs, demo)) return false;
+  /** `session` / `isTradingDay`: the page's reference session and calendar (holidays record nothing). */
+  const allowed = (nowMs, demo, session, isTradingDay) => Boolean(demo) || marketSession(nowMs, session ?? undefined, { isTradingDay }).phase === "open";
+  async function offer(chain, nowMs = Date.now(), { demo = false, session = null, isTradingDay = null } = {}) {
+    if (!allowed(nowMs, demo, session, isTradingDay)) return false;
     const snap = snapshotOf(chain, nowMs);
     if (!snap) return false;
     const snaps = await list(snap.key);

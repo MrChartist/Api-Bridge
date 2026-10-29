@@ -1,6 +1,10 @@
 /** Strategy builder maths (options.js, PRD 02): legs v2, payoffs with futures, stats, greeks, charges, margin, presets. */
 import { describe, expect, it } from "vitest";
 import * as O from "./options.js";
+import { refCharges } from "./reference.js";
+
+/** The reference charge table (reference.js fallback: the shipped figures). */
+const RATES = refCharges(null);
 
 const L = (right, strike, side, price, lots = 1, extra = {}) => ({ kind: "OPT", right, strike, side, price, lots, iv: 12, on: true, ...extra });
 const FUT = (side, price, extra = {}) => ({ kind: "FUT", right: null, strike: null, side, price, lots: 1, on: true, basis0: 0, futYears: 0, ...extra });
@@ -105,7 +109,7 @@ describe("strategyStats", () => {
   it("charges move a long straddle's breakevens outward", () => {
     const legs = [L("CE", 26000, "BUY", 110), L("PE", 26000, "BUY", 100)];
     const gross = O.strategyStats(legs, 75);
-    const ch = { entry: O.charges(legs, O.CHARGE_RATES, { lotSize: 75 }).total, exit: (S) => O.exitCharges(legs, S, O.CHARGE_RATES, { lotSize: 75 }) };
+    const ch = { entry: O.charges(legs, RATES, { lotSize: 75 }).total, exit: (S) => O.exitCharges(legs, S, RATES, { lotSize: 75 }) };
     const net = O.strategyStats(legs, 75, { charges: ch });
     expect(net.breakevens[0]).toBeLessThan(gross.breakevens[0]);
     expect(net.breakevens[1]).toBeGreaterThan(gross.breakevens[1]);
@@ -131,7 +135,7 @@ describe("strategyStats: charges and calendars", () => {
     const legs = [L("PE", 25800, "BUY", 20), L("PE", 26000, "SELL", 45), L("CE", 26800, "SELL", 30), L("CE", 27000, "BUY", 15)];
     const opts = { forward: 26400, ivPct: 12, years: 6 / 365 };
     const gross = O.strategyStats(legs, 75, opts);
-    const ch = O.strategyCharges(legs, O.CHARGE_RATES, { lotSize: 75, ...opts });
+    const ch = O.strategyCharges(legs, RATES, { lotSize: 75, ...opts });
     const net = O.strategyStats(legs, 75, { ...opts, charges: ch });
     expect(net.maxLoss).toBeLessThan(gross.maxLoss);
     expect(gross.maxLoss - net.maxLoss).toBeLessThan(ch.entry + 200);
@@ -140,9 +144,9 @@ describe("strategyStats: charges and calendars", () => {
     const legs = [FUT("BUY", 26400), L("PE", 26000, "BUY", 60), L("CE", 26800, "SELL", 50)];
     const opts = { forward: 26400, ivPct: 12, years: 6 / 365 };
     const gross = O.strategyStats(legs, 75, opts);
-    const ch = O.strategyCharges(legs, O.CHARGE_RATES, { lotSize: 75, ...opts });
+    const ch = O.strategyCharges(legs, RATES, { lotSize: 75, ...opts });
     const net = O.strategyStats(legs, 75, { ...opts, charges: ch });
-    const sttAtZero = 26000 * 75 * O.CHARGE_RATES.opt.exerciseStt;
+    const sttAtZero = 26000 * 75 * RATES.opt.exerciseStt;
     expect(gross.maxLoss - net.maxLoss).toBeCloseTo(ch.entry + ch.exit(0), 0);
     expect(gross.maxLoss - net.maxLoss).toBeLessThan(ch.entry + ch.exit(26400) + sttAtZero / 2);
   });
@@ -211,7 +215,7 @@ describe("expected value and greeks", () => {
 
 describe("charges", () => {
   it("a 1-lot NSE option sell, by hand", () => {
-    const c = O.charges([L("CE", 26000, "SELL", 100, 1, { symbol: "NFO:NIFTY-2026-11-03-26000-CE" })], O.CHARGE_RATES, { lotSize: 75 });
+    const c = O.charges([L("CE", 26000, "SELL", 100, 1, { symbol: "NFO:NIFTY-2026-11-03-26000-CE" })], RATES, { lotSize: 75 });
     const t = 7500;
     expect(c.brokerage).toBe(20);
     expect(c.stt).toBeCloseTo(t * 0.0015, 9);
@@ -222,14 +226,14 @@ describe("charges", () => {
     expect(c.total).toBeCloseTo(20 + t * 0.0015 + t * 0.0003503 + t * 1e-6 + 0.18 * (20 + t * 0.0003503 + t * 1e-6), 9);
   });
   it("a BSE buy pays stamp and the BSE rate, no STT", () => {
-    const c = O.charges([L("PE", 80000, "BUY", 200, 1, { symbol: "BFO:SENSEX-2026-11-06-80000-PE", lotSize: 20 })], O.CHARGE_RATES);
+    const c = O.charges([L("PE", 80000, "BUY", 200, 1, { symbol: "BFO:SENSEX-2026-11-06-80000-PE", lotSize: 20 })], RATES);
     expect(c.stt).toBe(0);
     expect(c.stamp).toBeCloseTo(4000 * 0.00003, 9);
     expect(c.txn).toBeCloseTo(4000 * 0.000325, 9);
   });
   it("exercise STT on a long ITM option at expiry", () => {
-    expect(O.exitCharges([L("CE", 26000, "BUY", 50)], 26200, O.CHARGE_RATES, { lotSize: 75 })).toBeCloseTo(200 * 75 * 0.0015, 9);
-    expect(O.exitCharges([L("CE", 26000, "SELL", 50)], 26200, O.CHARGE_RATES, { lotSize: 75 })).toBe(0);
+    expect(O.exitCharges([L("CE", 26000, "BUY", 50)], 26200, RATES, { lotSize: 75 })).toBeCloseTo(200 * 75 * 0.0015, 9);
+    expect(O.exitCharges([L("CE", 26000, "SELL", 50)], 26200, RATES, { lotSize: 75 })).toBe(0);
   });
 });
 

@@ -19,7 +19,7 @@ import { createLogger } from "./logger.mjs";
 export const USAGE = `Mr. Chartist API Bridge
 
 Usage:
-  mc-bridge init [--yes] [--demo] [--broker <id> [--account <id>] [--label <text>]] [--no-paper] [--force]
+  mc-bridge init [--yes] [--demo] [--broker <id> [--account <id>] [--label <text>]] [--no-paper] [--nse-archives] [--force]
                                    first-run setup (alias: setup); asks questions unless --yes
   mc-bridge start [--config <file>] [--demo] [--open]
                                    --demo: sample data, no broker, live trading off; --open: open the dashboard,

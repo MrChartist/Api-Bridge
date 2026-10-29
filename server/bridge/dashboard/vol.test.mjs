@@ -20,7 +20,8 @@ describe("Volatility page settings", () => {
         expiries: 6,
         hedgePct: 97,
         basis: "mid",
-        rate: 6.5,
+        rate: null,
+        rateV: 2,
         bidAsk: false,
       });
     }
@@ -31,8 +32,11 @@ describe("Volatility page settings", () => {
     const ok = volConfig({ x: "delta", series: { otm: false, ce: true, pe: true, wings: true }, range: "all", compare: "monthly", tab: "term", cols: ["hedge", "dte"], expiries: 12, hedgePct: 95, basis: "ltp", rate: 7.25, bidAsk: true });
     expect(ok).toMatchObject({ x: "delta", series: { otm: false, ce: true, pe: true, wings: true }, range: "all", compare: "monthly", tab: "term", cols: ["hedge", "dte"], expiries: 12, hedgePct: 95, basis: "ltp", rate: 7.25, bidAsk: true });
     const bad = volConfig({ x: "time", series: { otm: "yes" }, range: 20, compare: "prev", tab: "x", expiries: 5, hedgePct: 90, basis: "bid", rate: 40, bidAsk: "true" });
-    expect(bad).toMatchObject({ x: "strike", series: { otm: true }, range: "20", compare: "none", tab: "smile", expiries: 6, hedgePct: 97, basis: "mid", rate: 6.5, bidAsk: false });
-    expect(volConfig({ rate: -1 }).rate).toBe(6.5);
+    expect(bad).toMatchObject({ x: "strike", series: { otm: true }, range: "20", compare: "none", tab: "smile", expiries: 6, hedgePct: 97, basis: "mid", rate: null, bidAsk: false });
+    expect(volConfig({ rate: -1 }).rate).toBeNull();
+    // The rate follows the reference (null) unless set; old saves of the built-in 6.5 follow the reference too.
+    expect(volConfig({ rate: 6.5 }).rate).toBeNull();
+    expect(volConfig({ rate: 6.5, rateV: 2 }).rate).toBe(6.5);
     expect(volConfig({ rate: 0 }).rate).toBe(0);
   });
 
