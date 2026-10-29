@@ -1265,6 +1265,50 @@ describe("volatility", () => {
     });
   });
 
+  describe("ivAtMny, smileSpark and twoSigma (vol round 2)", () => {
+    const P = (strike, m, iv) => ({ strike, m, otm: iv === null ? null : { iv } });
+    const pts = [P(100, -2, 18), P(101, -1, 16), P(102, 0, 14), P(103, 1, 15), P(104, 2, 16)];
+    it("interpolates linearly in moneyness and is monotone between the points", () => {
+      expect(O.ivAtMny(pts, 0)).toBe(14);
+      expect(O.ivAtMny(pts, -1.5)).toBeCloseTo(17, 9);
+      expect(O.ivAtMny(pts, 0.5)).toBeCloseTo(14.5, 9);
+      let prev = Infinity;
+      for (let m = -2; m <= 0; m += 0.25) {
+        const v = O.ivAtMny(pts, m);
+        expect(v).toBeLessThanOrEqual(prev + 1e-12);
+        prev = v;
+      }
+    });
+    it("is null outside the loaded range and across a gap of more than 2 strike steps", () => {
+      expect(O.ivAtMny(pts, -2.5)).toBeNull();
+      expect(O.ivAtMny(pts, 2.1)).toBeNull();
+      expect(O.ivAtMny(pts, null)).toBeNull();
+      const gap = [P(100, -2, 18), P(101, -1, null), P(102, 0, null), P(103, 1, null), P(104, 2, 16)];
+      expect(O.ivAtMny(gap, 0)).toBeNull();
+      const small = [P(100, -2, 18), P(101, -1, null), P(102, 0, 14)];
+      expect(O.ivAtMny(small, -1)).toBeCloseTo(16, 9);
+    });
+    it("sparkline: n points ascending in m inside the window; a 1-point chain gives []", () => {
+      const s = O.smileSpark(pts, { n: 9 });
+      expect(s).toHaveLength(9);
+      for (let i = 1; i < s.length; i++) expect(s[i].m).toBeGreaterThan(s[i - 1].m);
+      expect(s[0]).toEqual({ m: -2, iv: 18 });
+      const w = O.smileSpark(pts, { n: 5, half: 1 });
+      expect(w.map((x) => x.m)).toEqual([-1, -0.5, 0, 0.5, 1]);
+      expect(O.smileSpark([P(100, 0, 14)])).toEqual([]);
+      expect(O.smileSpark([])).toEqual([]);
+    });
+    it("twoSigma is symmetric in log space around the forward and wider than 1σ", () => {
+      const r = O.twoSigma(25000, 16, 30 / 365);
+      expect(Math.log(r.hi / 25000)).toBeCloseTo(-Math.log(r.lo / 25000), 12);
+      expect(Math.log(r.hi / 25000)).toBeCloseTo(2 * 0.16 * Math.sqrt(30 / 365), 12);
+      expect(O.twoSigma(25000, null, 0.1)).toBeNull();
+      expect(O.twoSigma(0, 15, 0.1)).toBeNull();
+      // The same quarter-day floor as the 1σ maths.
+      expect(O.twoSigma(25000, 15, 0)).toEqual(O.twoSigma(25000, 15, 0.25 / 365));
+    });
+  });
+
   describe("termRow", () => {
     it("prices the straddle, ₹/lot, breakevens, ratio and hedge put; dims expiry day", () => {
       const e = "2026-11-12";

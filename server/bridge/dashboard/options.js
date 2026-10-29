@@ -3134,6 +3134,61 @@ export function forwardVol(a, b) {
   return v > 0 ? { vol: Math.sqrt(v) * 100, inverted: false } : { vol: null, inverted: true };
 }
 
+/**
+ * The OTM composite IV at moneyness `m` (percent, K/F − 1): linear in m between the two bracketing points with an OTM
+ * IV. Null outside the loaded range, or when the bracket spans more than 2 strike steps (missing strikes in between).
+ */
+export function ivAtMny(points, m) {
+  const t = num(m);
+  if (t === null) return null;
+  const all = (points ?? []).filter((p) => num(p?.strike) !== null).sort((a, b) => a.strike - b.strike);
+  const step = strikeStep(all.map((p) => p.strike));
+  const pts = all.filter((p) => num(p.m) !== null && num(p.otm?.iv) !== null);
+  if (!pts.length) return null;
+  const exact = pts.find((p) => Math.abs(p.m - t) < 1e-9);
+  if (exact) return exact.otm.iv;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    if (t < a.m || t > b.m) continue;
+    if (step !== null && b.strike - a.strike > 2 * step + 1e-9) return null;
+    return a.otm.iv + ((b.otm.iv - a.otm.iv) * (t - a.m)) / (b.m - a.m);
+  }
+  return null;
+}
+
+/**
+ * A down-sampled OTM smile for a sparkline: `n` points evenly spaced in moneyness across ±`half` % (default: the
+ * loaded range), each from ivAtMny; points without an IV are left out. Ascending in m. Fewer than 2 points → [].
+ * @returns {{ m: number, iv: number }[]}
+ */
+export function smileSpark(points, { n = 24, half = null } = {}) {
+  const pts = (points ?? []).filter((p) => num(p?.m) !== null && num(p?.otm?.iv) !== null);
+  if (pts.length < 2 || !(n >= 2)) return [];
+  const ms = pts.map((p) => p.m);
+  const h = num(half);
+  const lo = h !== null && h > 0 ? Math.max(Math.min(...ms), -h) : Math.min(...ms);
+  const hi = h !== null && h > 0 ? Math.min(Math.max(...ms), h) : Math.max(...ms);
+  if (!(hi > lo)) return [];
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const m = lo + ((hi - lo) * i) / (n - 1);
+    const iv = ivAtMny(pts, m);
+    if (iv !== null) out.push({ m, iv });
+  }
+  return out;
+}
+
+/** The ±2σ range at expiry: F·exp(∓2σ√T), σ = atmIv / 100, T floored at a quarter day. Null without inputs. */
+export function twoSigma(forward, atmIv, years) {
+  const F = num(forward);
+  const s = num(atmIv);
+  if (F === null || F <= 0 || s === null || !(s > 0)) return null;
+  const T = Math.max(num(years) ?? 0, T_FLOOR);
+  const sd = (s / 100) * Math.sqrt(T);
+  return { lo: F * Math.exp(-2 * sd), hi: F * Math.exp(2 * sd) };
+}
+
 const SHAPE_LABEL = Object.freeze({ contango: "Contango · back richer", backwardation: "Inverted · front richer", flat: "Flat", humped: "Humped", insufficient: "Needs 2 expiries" });
 /**
  * The term structure's shape from ATM IVs (expiry-day rows left out): contango (back ≥ 0.5 pts over front),
