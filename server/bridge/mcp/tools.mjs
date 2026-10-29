@@ -665,6 +665,39 @@ export const TOOL_DEFS = Object.freeze([
       return { data: await readReference(svc(rt.deps, "reference"), dataset, params, { now: rt.now }) };
     },
   },
+  {
+    name: "get_book",
+    title: "Positions book per holder, or the family view",
+    toolset: "options",
+    description:
+      "Read-only positions across the accounts this key may use, grouped by holder (whose account it is), with per-leg account, P&L, IV and Greeks, per-underlying Δ, ₹Δ, Θ and Vega, and broker-reported margin per account. " +
+      "view family keeps holders inside the configured family definition and lists the others under outsideFamily. Each holder is priced only from its own market data; totals add separate accounts and margin is not shared. Legs are capped at 200 (truncated: true). It cannot place or exit anything.",
+    input: () =>
+      z.strictObject({
+        view: z.enum(["holders", "family"]).nullable().describe("holders (default) or family."),
+        underlying: z.string().regex(/^[A-Z0-9&-]{1,20}$/).nullable().describe("Only this underlying, e.g. NIFTY; null for all."),
+      }),
+    output: z.strictObject({ data: anyObj, meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_BROKER,
+    handler: async (a, ctx, rt) => {
+      const { bookFor } = await import("../book/module.mjs");
+      const book = bookFor(rt.deps);
+      if (!book) throw new BridgeError("NOT_IMPLEMENTED", "The book is not running on this Bridge.");
+      const body = await book.service.read(ctx, { view: a.view ?? "holders", underlying: a.underlying ?? null });
+      let left = 200;
+      let truncated = false;
+      const holders = body.holders.map((h) => ({
+        ...h,
+        underlyings: h.underlyings.map((u) => {
+          const legs = u.legs.slice(0, Math.max(0, left));
+          if (legs.length < u.legs.length) truncated = true;
+          left -= legs.length;
+          return { ...u, legs };
+        }),
+      }));
+      return { data: { ...body, holders, truncated } };
+    },
+  },
 ]);
 
 /** Tools listed when nothing is configured (must stay under 20). */

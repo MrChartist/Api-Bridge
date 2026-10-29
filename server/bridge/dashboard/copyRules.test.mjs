@@ -14,6 +14,8 @@ const NEUTRAL_COPY_FILES = Object.freeze({
   "viz.js": [],
   "vol-curves.js": [],
   "motion.js": [],
+  "book-core.js": [],
+  "book-view.js": ["BUY", "SELL"],
 });
 
 describe("banned-word list", () => {

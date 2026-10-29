@@ -19,7 +19,8 @@ import mcp from "../mcp/module.mjs";
 import backup from "../backup/module.mjs";
 import scanner from "../scanner/module.mjs";
 import vol from "../vol/module.mjs";
+import book from "../book/module.mjs";
 import compat from "../compat/module.mjs";
 import notify from "../notify/module.mjs";
 
-export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, reference, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, backup, scanner, vol, compat, notify]);
+export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, reference, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, backup, scanner, vol, book, compat, notify]);

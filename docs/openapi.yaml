@@ -103,6 +103,10 @@ tags:
     description: Kill switch, safety counters and the audit log.
   - name: Readiness
     description: "Whether each live account can trade now: session, static IP, order headroom, kill switch (H5)."
+  - name: Book
+    description: >-
+      One positions book per holder and a family view (F2/F11). Each holder is priced only from that holder's own market
+      data; every leg keeps its account and every exit goes to that account. Margin is per account, never pooled.
   - name: Spreadsheets
     description: Plain-text and CSV endpoints for Excel, Google Sheets and AmiBroker.
   - name: Webhooks
@@ -1744,6 +1748,101 @@ paths:
                   data: { $ref: "#/components/schemas/Readiness" }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/book:
+    get:
+      tags: [Book]
+      operationId: getBook
+      summary: One book per holder, or the family view (never pooled for orders; each leg keeps its account)
+      x-stream: S27
+      x-scope: read
+      description: >-
+        Positions and funds of every account this key may see (or the named ones), grouped by holder. Each holder is
+        priced only from that holder's own sources (a connected account of the holder with quotes; the paper engine's
+        source for paper-only holders; otherwise broker-reported P&L and no Greeks, with the reason). view=family keeps
+        the holders whose relationship is inside book.family.relationships and lists the others under outsideFamily.
+        Totals add separate accounts on this computer; margin is not shared between accounts. A key limited to some
+        accounts gets partial: true. A per-account failure appears in accounts[].error and never fails the response.
+        format=csv returns one row per leg.
+      parameters:
+        - { name: view, in: query, required: false, schema: { type: string, enum: [holders, family], default: holders } }
+        - { name: underlying, in: query, required: false, schema: { type: string, examples: [NIFTY] } }
+        - { name: account, in: query, required: false, schema: { type: array, maxItems: 50, items: { $ref: "#/components/schemas/AccountId" } }, style: form, explode: true }
+        - { name: mode, in: query, required: false, schema: { type: string, enum: [live, paper, all], default: all } }
+        - { name: format, in: query, required: false, schema: { type: string, enum: [json, csv], default: json } }
+      responses:
+        "200":
+          description: The book.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Book" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+            text/csv:
+              schema: { type: string, description: "holder, relationship, inFamily, account, underlying, symbol, qty, avg, mark, markSource, pnl, iv, delta, gamma, theta, vega" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/book/holders:
+    get:
+      tags: [Book]
+      operationId: listHolders
+      summary: Holders, their relationships, family membership and accounts
+      x-stream: S27
+      x-scope: read
+      description: >-
+        Every holder (an account's `holder`, else book.untaggedHolder) with its relationship tag (from book.holders in
+        the config file, else holders.json), whether it is inside the family definition, and the account ids this key
+        may see. A key limited to some accounts sees only holders with at least one of its accounts.
+      responses:
+        "200":
+          description: Holders.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/BookHolders" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/book/holders/{holder}:
+    put:
+      tags: [Book]
+      operationId: setHolderTag
+      summary: Set a holder's relationship and label (this computer, admin)
+      x-stream: S27
+      x-scope: admin
+      x-loopback-only: true
+      description: >-
+        Saves the tag in holders.json. The relationship decides family membership, and with it whether guards and alert
+        actions may act on the holder's accounts. 409 STATE_CONFLICT when the holder is set in bridge.config.json
+        (book.holders); change it there.
+      parameters:
+        - { name: holder, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9 _.:-]{1,64}$" } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HolderTag" }
+      responses:
+        "200":
+          description: The holder after the change.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/BookHolder" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
 
   /v1/audit:
     get:
@@ -5349,6 +5448,68 @@ components:
             dailyLoss: { $ref: "#/components/schemas/ReadinessCheck" }
             killSwitch: { $ref: "#/components/schemas/ReadinessCheck" }
         automations: { type: array, items: { $ref: "#/components/schemas/ReadinessAutomation" } }
+    HolderTag:
+      type: object
+      additionalProperties: false
+      required: [relationship]
+      properties:
+        relationship: { type: string, enum: [self, spouse, dependent-child, dependent-parent, huf, other], description: "Closed in this version; read it as open (new values may be added)." }
+        label: { type: string, maxLength: 40 }
+    BookHolder:
+      type: object
+      required: [holder, label, relationship, inFamily, accounts]
+      properties:
+        holder: { type: string }
+        label: { type: string }
+        relationship: { type: [string, "null"], description: "null: no tag (outside the family until tagged)" }
+        inFamily: { type: boolean }
+        source: { type: [string, "null"], enum: [config, file, default, null] }
+        locked: { type: boolean, description: "Set in bridge.config.json (book.holders); read-only here." }
+        accounts: { type: array, items: { type: string }, description: "Account ids this key may see." }
+        accountCount: { type: integer }
+    BookHolders:
+      type: object
+      required: [family, relationships, holders]
+      properties:
+        family: { type: object, properties: { name: { type: string }, relationships: { type: array, items: { type: string } } } }
+        relationships: { type: array, items: { type: object, properties: { value: { type: string }, label: { type: string }, inFamily: { type: boolean } } } }
+        untaggedHolder: { type: string }
+        holders: { type: array, items: { $ref: "#/components/schemas/BookHolder" } }
+        note: { type: string }
+    BookLeg:
+      type: object
+      required: [account, symbol, q]
+      properties:
+        account: { type: string, description: "The leg's own account; every exit goes here." }
+        symbol: { type: string }
+        kind: { type: string, enum: [OPT, FUT] }
+        q: { type: number, description: "Signed units (negative = short)." }
+        avg: { type: [number, "null"] }
+        mark: { type: [number, "null"] }
+        markSource: { type: [string, "null"], description: "mid | ltp | position" }
+        pnl: { type: [number, "null"] }
+        iv: { type: [number, "null"], description: "Percent, solved from the mark on the forward." }
+        greeks: { type: [object, "null"], description: "Per unit: delta, gamma, theta (₹ per day), vega (₹ per vol point)." }
+        guarded: { type: array, items: { type: string }, description: "Guard ids watching this leg." }
+    Book:
+      type: object
+      required: [view, asOf, holders, outsideFamily, method, disclaimer]
+      description: >-
+        docs/spec/p1-12-guard-participants.md §4.3.1. holders[]: { holder, label, relationship, inFamily, priceSource,
+        accounts[] (account, broker, label, mode, tags, positions, pnl, margin { used, available, asOf, source }, error),
+        underlyings[] (underlying, spot, lot, greeks { delta, deltaLots, rupeeDelta, gamma, theta, vega, missing } | null,
+        legs[] BookLeg), totals { pnl, theta, vega, rupeeDelta, marginUsed, marginAvailable } }. family (view=family):
+        { name, relationships, holders, totals { pnl, realised, unrealised, theta, vega, rupeeDelta, marginUsed,
+        marginAvailable, accounts, partial }, notes }.
+      properties:
+        view: { type: string, enum: [holders, family] }
+        asOf: { type: string, format: date-time }
+        family: { type: [object, "null"] }
+        holders: { type: array, items: { type: object } }
+        outsideFamily: { type: array, items: { type: object, properties: { holder: { type: string }, label: { type: string }, relationship: { type: [string, "null"] }, accounts: { type: integer }, note: { type: string } } } }
+        partial: { type: boolean }
+        method: { type: string }
+        disclaimer: { type: string }
     Readiness:
       type: object
       required: [overall, summary, accounts, paperOnly, method]
