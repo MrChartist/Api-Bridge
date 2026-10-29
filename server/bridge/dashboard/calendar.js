@@ -354,7 +354,7 @@ export async function renderCalendarPage() {
     const subEl = h("span", { class: "cal-sub" }, sub ?? "");
     const help = h("button", { type: "button", class: "icon-btn tiny cal-help", "aria-label": `How ${title.toLowerCase()} is read`, title: "Method" }, h("span", { "aria-hidden": "true" }, "?"));
     help.addEventListener("click", () => sheetPopover({ trigger: help, title, body: h("p", { class: "cal-method" }, METHODS[id] ?? "") }));
-    const csvBtn = csv ? h("button", { type: "button", class: "small cal-csv", title: "Download as CSV" }, icon("external"), "CSV") : null;
+    const csvBtn = csv ? h("button", { type: "button", class: "small cal-csv", title: "Download as CSV", "aria-label": "Download as CSV" }, icon("external"), h("span", { class: "cal-csv-t" }, "CSV")) : null;
     csvBtn?.addEventListener("click", () => {
       const rows = csv.rows();
       if (!rows.length) return toast("Nothing to export yet");
