@@ -30,7 +30,7 @@ import { Reply, noContent, parseBody, readBody, send, sendProblem, text } from "
 import { createLogger } from "./logger.mjs";
 import { applyModuleConfig, buildServices, validateModules } from "./modules.mjs";
 import { createRouter } from "./router.mjs";
-import { BASE_HEADERS, assertTransportAllowed, createCors, createHostCheck, isLocalRequest } from "./security.mjs";
+import { BASE_HEADERS, assertNotCrossSiteWrite, assertTransportAllowed, createCors, createHostCheck, isLocalRequest } from "./security.mjs";
 import { registerDemoRoutes } from "../demo/routes.mjs";
 import { DEMO_ACCOUNT_HINT, DEMO_HEADER, DEMO_MARKET_ACCOUNT, DEMO_NOTICE, createDemoRegistry, labelDemoResult } from "../demo/demoMode.mjs";
 
@@ -276,6 +276,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       // miss on /hooks/... fails before the route's pattern is known.
       path = safeLogPath(url.pathname, listener.public);
       assertTransportAllowed(req, { hostCheck: listener.hostCheck, cors });
+      assertNotCrossSiteWrite(req, cors);
       const origin = req.headers.origin;
       if (origin !== undefined) Object.assign(headers, cors.headersFor(origin));
       if (req.method === "OPTIONS") {
@@ -427,6 +428,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     config,
     router,
     warnings,
+    /** Registered WebSocket upgrade paths (security tests check every one). */
+    upgradePaths: () => [...upgrades.keys()],
     /** Bind the listeners and start modules. Resolves with the bound ports. */
     async listen() {
       if (started) throw new Error("already listening");

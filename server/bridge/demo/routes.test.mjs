@@ -21,8 +21,8 @@ function fakeFacade() {
 }
 
 describe("demo-only routes", () => {
-  it("ships no demo routes yet (F0 only creates the place for them)", () => {
-    expect(DEMO_ROUTES).toEqual([]);
+  it("ships the planned demo routes", () => {
+    expect(demoRouteKeys(DEMO_ROUTES)).toEqual(["POST /v1/demo/readiness"]);
     expect(demoRouteKeys([probe])).toEqual(["POST /v1/demo/probe/{id}"]);
   });
 

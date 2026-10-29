@@ -42,6 +42,7 @@ import { SEBI_UNREGISTERED_OPS_CEILING, effectiveAccountLimits, liveAllowedByCon
 import { isStub } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { marketSession as libMarketSession } from "../../lib/marketHours.mjs";
+import { sameIp } from "../readiness/ip.mjs";
 import { createDailyCounters } from "./dailyCounters.mjs";
 import { createKillSwitchStore } from "./killSwitch.mjs";
 import { createOrderRateWindow, windowFor } from "./orderRate.mjs";
@@ -317,8 +318,12 @@ export function createSafetyGuard(deps, opts = {}) {
           for (const s of sources) {
             if (!allowed.includes(s)) block("PAPER_ONLY", "allowedSources", `Live orders from ${s} are not allowed for account ${accountId}. Allowed sources: ${allowed.join(", ") || "none"}.`);
           }
-          if (account.live?.registeredIp && egressIp && egressIp !== account.live.registeredIp) {
-            warnings.push(`This computer's internet address looks like ${egressIp}, but ${accountId} is registered with ${account.live.registeredIp}. The broker may refuse the order (static IP rule).`);
+          // Compared after normalising (IPv6 spellings), against the backup IP too. The text carries no address: it
+          // reaches order records, MCP results and notifications, where the IP must never appear (p1-05 §9).
+          const reg = account.live?.registeredIp;
+          const bak = account.live?.backupIp;
+          if ((reg || bak) && egressIp && !sameIp(egressIp, reg) && !sameIp(egressIp, bak)) {
+            warnings.push(`This computer's internet address does not match the static IP registered for ${accountId} (see readiness). The broker may refuse the order.`);
           }
         }
         if (!ctx?.scopes?.has?.("live")) block("SCOPE_REQUIRED", "liveScope", 'Live orders need an API key with the "live" scope.');
@@ -704,7 +709,10 @@ export function createSafetyGuard(deps, opts = {}) {
       offFills();
     },
 
-    /** Record the egress IP a best-effort detector found (e.g. `mc-bridge doctor`). null clears it. Warnings only. */
+    /**
+     * Record the egress IP a best-effort detector found. Fed by the readiness monitor (readiness/monitor.mjs) when
+     * readiness.egressIp is "lookup" or "manual"; null clears it. Warnings only.
+     */
     setDetectedEgressIp(ip) {
       egressIp = typeof ip === "string" && ip ? ip : null;
     },
