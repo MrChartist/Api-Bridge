@@ -11,6 +11,7 @@ import { drawPayoff, money, moneyEl } from "./payoff.js";
 import { openPlacement } from "./strategy-place.js";
 import { keepFocus, segmented } from "./views.js";
 import { reducedMotion } from "./motion.js";
+import { nextSessionUnits } from "./vol-context.js";
 
 const SAVES = "mcb.dashboard.strategies";
 const NAMES = "mcb.dashboard.strategyNames";
@@ -317,7 +318,8 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const expMs = O.expiryCloseMs(front, refSession(st.ref).close) ?? now;
     if (wi.target !== null && wi.target <= now) wi.target = null;
     const targetMs = wi.target === null ? now : Math.min(wi.target, expMs);
-    const el = Math.max(0, Math.min(T, (targetMs - now) / YEAR_MS));
+    // Vol-time that passes before the target date (the clock: a weekend costs its weight, not two full days).
+    const el = Math.max(0, Math.min(T, O.elapsedVolYears(front, now, targetMs, refSession(st.ref).close) ?? (targetMs - now) / YEAR_MS));
     const shift = wi.ivShift;
     const lot = xx.lot;
     const ivNow = num(xx.sm.atmIv) !== null ? Math.max(1, xx.sm.atmIv + shift) : null;
@@ -462,9 +464,9 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
   const romF = fig("ROM ");
   const rrF = fig("R:R ");
   const evF = fig("EV ", "Expected P&L under the model the options are priced with: close to −(spreads + charges) by construction");
-  const popF = fig("POP ");
-  const pMaxF = fig("P(max profit) ", "Chance the expiry price lands where the strategy makes its maximum");
-  const touchF = fig("P(touch) ", "Chance the price touches the nearest breakeven before expiry: about twice the chance it closes beyond it (reflection approximation)");
+  const popF = fig("POP ", "Model probability · uncalibrated: the chance of a profit at expiry from a log-normal model at the ATM IV. Calibration: not yet measured");
+  const pMaxF = fig("P(max profit) ", "Model probability · uncalibrated: the chance the expiry price lands where the strategy makes its maximum");
+  const touchF = fig("P(touch) ", "Model probability · uncalibrated: the chance the price touches the nearest breakeven before expiry, about twice the chance it closes beyond it (reflection approximation)");
   const chargesB = h("button", { type: "button", class: "link-btn", "aria-haspopup": "dialog", onclick: () => openCharges(chargesB) }, "Charges");
   const retLine = h("div", { class: "risk-line ret" }, romF.el, rrF.el, evF.el, chargesB);
   const probLine = h("div", { class: "risk-line prob" }, popF.el, pMaxF.el, touchF.el);
@@ -1056,7 +1058,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       { cls: s.maxLoss === null || s.maxLoss < 0 ? "down" : "up", flash: -1 },
     );
     const pop = s.pop;
-    setHero(hero.pop, isFigure(pop) ? formatPercent(pop * 100, 0) : DASH, `at expiry · IV model${sfx}`, { title: "Probability the strategy finishes in profit, from a log-normal model at ATM IV (plus the IV shift)" });
+    setHero(hero.pop, isFigure(pop) ? formatPercent(pop * 100, 0) : DASH, `at expiry · IV model${sfx}`, { title: "Model probability · uncalibrated: the chance the strategy finishes in profit, from a log-normal model at ATM IV (plus the IV shift) on the vol-time clock. Calibration: not yet measured" });
     const off = isFigure(pop) ? 69.12 * (1 - pop) : 69.12;
     ringArc.setAttribute("stroke-dashoffset", String(Math.round(off * 100) / 100));
     ringArc.classList.toggle("warn", isFigure(pop) && pop < 0.5);
@@ -1277,7 +1279,10 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const lot = r.lot;
     setG(gks.delta, isFigure(g?.delta) ? `${formatSigned(g.delta / lot, 2)} lot` : DASH, isFigure(g?.delta) ? `${money(g.delta)}/pt` : "", "", gr?.map((q) => (q.g ? q.g.delta / lot : null)));
     setG(gks.gamma, isFigure(g?.gamma) && x.F ? `${formatSigned((g.gamma * x.F * 0.01) / lot, 2)}` : DASH, "Δ lots per 1%", "", gr?.map((q) => (q.g ? q.g.gamma : null)));
-    setG(gks.theta, isFigure(g?.theta) ? money(g.theta) : DASH, "per day", g?.theta > 0.5 ? "up" : g?.theta < -0.5 ? "down" : "", gr?.map((q) => (q.g ? q.g.theta : null)));
+    setG(gks.theta, isFigure(g?.theta) ? money(g.theta) : DASH, "per trading day", g?.theta > 0.5 ? "up" : g?.theta < -0.5 ? "down" : "", gr?.map((q) => (q.g ? q.g.theta : null)));
+    // Θ is per trading-day unit of the vol-time clock: say how many units the next session takes (1.3 over a weekend).
+    const nsu = nextSessionUnits();
+    gks.theta.b.title = `Θ per trading day (one unit of the vol-time clock).${isFigure(nsu) && Math.abs(nsu - 1) > 0.05 ? ` Next session decays ${formatFixed(nsu, 1)} trading days (weekend and holiday days count at their weight).` : ""} Greeks across price: open the Greeks table`;
     setG(gks.vega, isFigure(g?.vega) ? money(g.vega) : DASH, "per vol pt", g?.vega > 0.5 ? "up" : g?.vega < -0.5 ? "down" : "", gr?.map((q) => (q.g ? q.g.vega : null)));
     // Return and probability lines.
     const rr = r.ratios.rr;
@@ -1427,7 +1432,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const f = O.strategyPayoff(R.act, R.lot, { years: R.T, ivShift: R.shift, charges: R.net });
     const entry = R.net?.entry ?? 0;
     const cells = lv.map((lvl) => dates.map((ms, j) => (j === dates.length - 1 ? f(lvl.price) : (() => {
-      const v = O.valueAt(R.act, lvl.price, R.lot, null, R.basis, { el: Math.max(0, (ms - now) / YEAR_MS), ivShift: R.shift });
+      const v = O.valueAt(R.act, lvl.price, R.lot, null, R.basis, { el: Math.max(0, Math.min(R.T, O.elapsedVolYears(R.front, now, ms, refSession(st.ref).close) ?? (ms - now) / YEAR_MS)), ivShift: R.shift });
       return v === null ? null : v - entry;
     })())));
     const maxAbs = Math.max(1, ...cells.flat().filter(isFigure).map(Math.abs));
@@ -1505,7 +1510,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     if (tableBody.__sig !== sig) {
       tableBody.__sig = sig;
       const th = (t) => h("th", { scope: "col", class: "num" }, t);
-      tableBody.replaceChildren(h("div", { class: "table-wrap" }, h("table", { class: "desk-table pnl-table greeks-table" }, h("caption", { class: "sr-only" }, "Net greeks across price"), h("thead", {}, h("tr", {}, th("Price"), th("Δ lots"), th(""), th("Γ per 1%"), th("Θ ₹/day"), th("ν ₹/pt"))), h("tbody", {}, gr.map(() => h("tr", {}, h("td", { class: "num" }), h("td", { class: "num" }), h("td", { class: "c-bar" }, h("span", { class: "ebar delta" }, h("i", { class: "neg" }), h("i", { class: "pos" }))), h("td", { class: "num" }), h("td", { class: "num" }), h("td", { class: "num" })))))));
+      tableBody.replaceChildren(h("div", { class: "table-wrap" }, h("table", { class: "desk-table pnl-table greeks-table" }, h("caption", { class: "sr-only" }, "Net greeks across price"), h("thead", {}, h("tr", {}, th("Price"), th("Δ lots"), th(""), th("Γ per 1%"), th("Θ ₹/trading day"), th("ν ₹/pt"))), h("tbody", {}, gr.map(() => h("tr", {}, h("td", { class: "num" }), h("td", { class: "num" }), h("td", { class: "c-bar" }, h("span", { class: "ebar delta" }, h("i", { class: "neg" }), h("i", { class: "pos" }))), h("td", { class: "num" }), h("td", { class: "num" }), h("td", { class: "num" })))))));
     }
     const trs = tableBody.querySelectorAll("tbody tr");
     gr.forEach((q, i) => {

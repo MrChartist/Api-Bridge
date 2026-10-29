@@ -199,7 +199,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   async function loadChain(expiry, seq) {
     const t0 = performance.now();
     const u = st.underlying;
-    const r = await optional(api(`/v1/optionchain?underlying=${encodeURIComponent(u)}&expiry=${encodeURIComponent(expiry)}&strikes=${CHAIN_STRIKES}&greeks=true`));
+    const r = await optional(api(`/v1/optionchain?underlying=${encodeURIComponent(u)}&expiry=${encodeURIComponent(expiry)}&strikes=${CHAIN_STRIKES}&greeks=true&ivModel=b76-forward`));
     if (seq !== st.seq) return;
     const prev = d.chains.get(expiry);
     // A 404, or a 400 for an expiry the source does not list, will not change on a retry: remember it for the session and
@@ -383,7 +383,8 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const m = O.sigmaMove(spot, n.atmIv ?? n.iv, n.T);
     return m ? (m / spot) * 100 : null;
   };
-  const daysTo = (e) => Math.max(0, Math.round((O.yearsToExpiry(e, Date.now(), refSession(st.ref).close) ?? 0) * 365));
+  // Calendar days for display; pricing T comes from the vol-time clock (options.js yearsToExpiry).
+  const daysTo = (e) => Math.max(0, Math.round(O.timeToExpiry(e, Date.now(), refSession(st.ref).close).days ?? 0));
   const maxDays = () => Math.max(0, ...included().map((l) => daysTo(l.expiry)));
   const firstDays = () => {
     const n = nearest();
@@ -433,7 +434,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     }
   }
   // Greeks: four diverging gauges (Δ with its band, Γ per 1 %, Θ and ν on one shared scale) and a footer.
-  const GAUGES = [["delta", "Δ", "Net delta (units)"], ["gamma", "Γ", "Gamma: Δ change for a 1% move"], ["theta", "Θ", "Theta: ₹ a day"], ["vega", "ν", "Vega: ₹ per vol point"]];
+  const GAUGES = [["delta", "Δ", "Net delta (units)"], ["gamma", "Γ", "Gamma: Δ change for a 1% move"], ["theta", "Θ", "Theta: ₹ per trading day"], ["vega", "ν", "Vega: ₹ per vol point"]];
   const gauges = new Map(
     GAUGES.map(([k, sym, name]) => {
       const bar = divBar("pos-gbar");
@@ -693,7 +694,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       bar: none ? 0 : g.theta,
       M: sc0.Mtv,
       tone: toneOf(g?.theta),
-      title: "Time decay in rupees per calendar day. Weekends and holidays decay more in the next session. Θ and ν share one scale",
+      title: "₹ per trading day: time decay over one unit of the vol-time clock. Weekends and holidays count at their weight in the next session. Θ and ν share one scale",
       fmt: (v) => `${rs(v)}${isPhone() ? "" : "/d"}`,
     });
     set("vega", {
@@ -716,7 +717,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const tv = !none && g.vega ? Math.abs(g.theta) / Math.abs(g.vega) : null;
     const foot = `POP ≈ ${pop === null || pop === undefined ? DASH : formatPercent(pop * 100, 0)}${n ? ` at ${expiryText(n.expiry)}` : ""}${tv !== null ? ` · Θ/ν ${formatFixed(tv, 2)}` : ""}`;
     if (greeksFoot.textContent !== foot) greeksFoot.textContent = foot;
-    greeksFoot.title = "Probability that the book is in profit at the first expiry, lognormal at the ATM IV. Later-expiry legs are valued by the model. Θ/ν: days of decay one vol point is worth";
+    greeksFoot.title = "Model probability · uncalibrated: the chance the book is in profit at the first expiry, lognormal at the ATM IV. Later-expiry legs are valued by the model. Θ/ν: trading days of decay one vol point is worth";
   }
   function drawCapital() {
     const f = d.funds;
@@ -1375,7 +1376,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const first = inc.map((x) => x.expiry).sort()[0];
     const ref = inc.find((x) => x.expiry === first && x.kind === "OPT") ?? inc[0];
     const F = ref.F ?? spot;
-    const sd = ((ref.atmIv ?? ref.iv ?? 12) / 100) * Math.sqrt(Math.max(ref.T ?? 0, 1 / 365));
+    const sd = ((ref.atmIv ?? ref.iv ?? 12) / 100) * Math.sqrt(Math.max(ref.T ?? 0, O.tradingDayYears()));
     const xs = [];
     for (let i = 0; i <= 200; i++) xs.push(F * Math.exp(-4 * sd + (8 * sd * i) / 200));
     for (const x of inc) if (x.kind === "OPT" && x.strike > xs[0] && x.strike < xs[200]) xs.push(x.strike);
@@ -1391,7 +1392,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     if (!toExp) return toast("No later expiry is listed for this underlying");
     let chain = d.chains.get(toExp)?.chain ?? null;
     if (!chain) {
-      const r = await optional(api(`/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(toExp)}&strikes=${CHAIN_STRIKES}&greeks=true`));
+      const r = await optional(api(`/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(toExp)}&strikes=${CHAIN_STRIKES}&greeks=true&ivModel=b76-forward`));
       chain = r.data?.data ?? null;
     }
     if (!chain?.rows?.length) return toast(`Couldn't load the ${expiryText(toExp)} chain`);
@@ -1428,7 +1429,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         "div",
         { class: "pos-roll" },
         h("ul", { class: "pos-roll-legs" }, kind === "wing" ? legLine(openLeg, `at ${formatFixed(mk, 2)} · caps the short`) : [legLine(closeLeg, `close at ${formatFixed(l.mark, 2)}`), legLine(openLeg, `open at ${formatFixed(mk, 2)}`)]),
-        h("div", { class: "pos-roll-cmp", role: "table", "aria-label": "Before and after" }, ...cmp("Δ", (r) => r.delta, (v) => formatSigned(v, 0)), ...cmp("Θ ₹/day", (r) => r.theta, (v) => rs(v)), ...cmp(`Max loss at ${expiryText(b0?.first ?? l.expiry)}`, (r) => lossOf(r), lossFmt)),
+        h("div", { class: "pos-roll-cmp", role: "table", "aria-label": "Before and after" }, ...cmp("Δ", (r) => r.delta, (v) => formatSigned(v, 0)), ...cmp("Θ ₹/trading day", (r) => r.theta, (v) => rs(v)), ...cmp(`Max loss at ${expiryText(b0?.first ?? l.expiry)}`, (r) => lossOf(r), lossFmt)),
         h("p", { class: "muted small" }, "Opens these legs in the Strategy Builder (it replaces the builder's legs). Nothing is sent from Positions; review and place from the builder. Max loss is sampled at the first expiry (≈)."),
       ),
       buttons: [
@@ -2179,7 +2180,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       const px = S * (1 + r.pct / 100);
       return { r, vals: [g.delta / Lf, g.gamma * px * 0.01, g.theta, g.vega] };
     });
-    const COLS = [["Δ lots", "fg", (v) => formatSigned(v, 1)], ["Γ /1%", "fg", (v) => formatSigned(v, 0)], ["Θ ₹/d", null, (v) => rc(v)], ["ν ₹/pt", "iv", (v) => rc(v)]];
+    const COLS = [["Δ lots", "fg", (v) => formatSigned(v, 1)], ["Γ /1%", "fg", (v) => formatSigned(v, 0)], ["Θ ₹/td", null, (v) => rc(v)], ["ν ₹/pt", "iv", (v) => rc(v)]];
     const Ms = COLS.map((_, i) => Math.max(1e-9, ...rows.map((x) => Math.abs(x.vals[i]))));
     const shape = JSON.stringify(["greeks", cfg().ladder, grid.rows.length]);
     if (matrixSig !== shape) {
@@ -2407,7 +2408,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       const q = (l.side === "BUY" ? 1 : -1) * l.units;
       if (l.kind === "FUT") return { symbol: l.symbol, kind: "FUT", q, avg: l.mark, mark: l.mark, F: l.mark, T: O.yearsToExpiry(l.expiry, Date.now(), refSession(st.ref).close) ?? 0, priced: num(l.mark) !== null, inc: true };
       const o = l.right === "CE" ? atm?.ce : atm?.pe;
-      const F = (atm?.chain ? O.forwardPrice(atm.chain, O.parityGrowth(O.yearsToExpiry(l.expiry, Date.now(), refSession(st.ref).close), refRate(st.ref).value)) : null) ?? spot;
+      const F = (atm?.chain ? O.forwardPrice(atm.chain, O.parityGrowth(O.calendarYearsToExpiry(l.expiry, Date.now(), refSession(st.ref).close), refRate(st.ref).value)) : null) ?? spot;
       return { symbol: l.symbol, kind: "OPT", right: l.right, strike: l.strike, q, avg: l.mark, mark: l.mark, iv: num(o?.iv), F, T: O.yearsToExpiry(l.expiry, Date.now(), refSession(st.ref).close) ?? 0, priced: num(l.mark) !== null && num(o?.iv) !== null, inc: true };
     });
     // Head: the one-line suggestion.
@@ -2445,7 +2446,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const rows = [
       ["Δ (units)", (g) => formatSigned(g.delta, 0)],
       ["Γ (Δ per 1%)", (g) => formatSigned(g.gamma * S * 0.01, 0)],
-      ["Θ ₹/day", (g) => rs(g.theta)],
+      ["Θ ₹/trading day", (g) => rs(g.theta)],
       ["Vega ₹/pt", (g) => rs(g.vega)],
     ];
     const before = { delta: book.delta, gamma: book.gamma, theta: book.theta, vega: book.vega };

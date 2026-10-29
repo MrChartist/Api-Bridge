@@ -17,6 +17,7 @@ import { createPositionsPage } from "./positions.js";
 import { cap, every, segField, segmented, stopTimer } from "./views.js";
 import { createVolPage, volConfig } from "./vol.js";
 import { demoStaleAsked, lotConfirmGate, loadReference, refBanners, refCalendar, refChip, refRate, refSession, refSignature } from "./reference.js";
+import { clockNote, loadPricingContext } from "./vol-context.js";
 import { animatePage, barsEnter, countUp, flashValue, stopCount } from "./motion.js";
 
 const SLOT = "mcb.dashboard.desk";
@@ -578,7 +579,7 @@ async function renderDesk(kind) {
       // The Volatility page recomputes IVs and deltas itself (no server Greeks); every page loads the index quote,
       // which the top bar's spot and its change come from.
       const strikes = kind === "oi" ? OI_FETCH_STRIKES : kind === "vol" ? VOL_STRIKES : FETCH_STRIKES;
-      const [r] = await Promise.all([api(`/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(st.expiry)}&strikes=${strikes}&greeks=${kind === "vol" ? "false" : "true"}`), loadQuotes()]);
+      const [r] = await Promise.all([api(`/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(st.expiry)}&strikes=${strikes}&greeks=${kind === "vol" ? "false" : "true"}&ivModel=b76-forward`), loadQuotes()]);
       if (seq !== st.seq) return;
       st.chain = r.data.data;
       st.freshness = r.data.data?.freshness ?? r.data.meta?.freshness ?? null;
@@ -606,11 +607,13 @@ async function renderDesk(kind) {
   const refBannersEl = refBanners({ rateNote: kind === "vol" || kind === "arb", onMore: () => refChipEl.open() });
   async function loadRef() {
     const u = st.underlying;
-    const b = await loadReference(u, { demoStale: Boolean(app.state.demo) && demoStaleAsked() });
+    // The reference bundle and the vol-time clock (GET /v1/vol/clock: every page prices on the Bridge's clock).
+    const [b, clock] = await Promise.all([loadReference(u, { demoStale: Boolean(app.state.demo) && demoStaleAsked() }), loadPricingContext(u)]);
     if (u !== st.underlying) return;
     // Compare what the bundle says, not the object: a re-read fallback (or the same data) does not redraw the page.
-    const changed = refSignature(b) !== refSignature(st.ref);
+    const changed = refSignature(b) !== refSignature(st.ref) || clock !== st.clock;
     st.ref = b;
+    st.clock = clock;
     refChipEl.update();
     if (!changed) return;
     refBannersEl.update(b);
@@ -703,7 +706,7 @@ async function renderDesk(kind) {
     const sm = O.chainSummary(c);
     const ses = refSession(st.ref);
     const years = O.yearsToExpiry(c.expiry, Date.now(), ses.close);
-    const growth = O.parityGrowth(years, refRate(st.ref).value);
+    const growth = O.parityGrowth(O.calendarYearsToExpiry(c.expiry, Date.now(), ses.close), refRate(st.ref).value);
     const F = O.forwardPrice(c, growth) ?? sm.spot;
     const move = O.sigmaMove(F, sm.atmIv, years);
     const strikes = c.rows.map((r) => r.strike);
@@ -939,7 +942,7 @@ async function renderDesk(kind) {
       return;
     }
     const { sm, c, F, move } = x;
-    const day = O.sigmaMove(F, sm.atmIv, 1 / 365);
+    const day = O.sigmaMove(F, sm.atmIv, O.tradingDayYears());
     const t = O.timeToExpiry(c.expiry, Date.now(), refSession(st.ref).close);
     const n = c.rows.length;
     const pcrWord = O.pcrBand(sm.pcr)?.word ?? "";
@@ -953,7 +956,7 @@ async function renderDesk(kind) {
       `${num(c.lotSize) ? "" : "lot size unavailable · "}${fwd !== null && sm.spot !== null ? `Basis ${formatSigned(fwd - sm.spot, 1)}` : ""}`,
       { cls: "t-fut", title: `${fut ? "The same-expiry future and its basis to spot" : "Synthetic future from put-call parity (K + (C − P)·e^(rT)); no future is listed for this expiry"}` },
     );
-    setTile("iv", "ATM IV", formatPercent(sm.atmIv, 2), day ? `1-day ±${formatInt(day)}` : t.label, { title: "Average of the ATM call and put IV; the 1-day 1σ move it implies", n: sm.atmIv, fmt: (v) => formatPercent(v, 2), vcls: "ink-iv" });
+    setTile("iv", "ATM IV", formatPercent(sm.atmIv, 2), day ? `1 trading day ±${formatInt(day)}` : t.label, { title: `Average of the ATM call and put IV; the 1σ move over one trading day it implies. ${clockNote().join(" ")}`, n: sm.atmIv, fmt: (v) => formatPercent(v, 2), vcls: "ink-iv" });
     setTile("em", "Expected move", move ? `±${formatInt(move)}` : DASH, x.band1 ? `${formatInt(x.band1.lo)} – ${formatInt(x.band1.hi)}` : "", { title: `Log-normal 1σ band to expiry at ATM IV (${t.label}): about 68% of outcomes land inside` });
     setTile("straddle", "Straddle", formatFixed(sm.straddle, 2), sm.straddle && sm.spot ? `${formatPercent((sm.straddle / sm.spot) * 100, 2)} of spot` : "", { title: "ATM call + put. The market's price for a move either way", n: sm.straddle, fmt: (v) => formatFixed(v, 2) });
     setTile("pcr", "PCR", formatFixed(sm.pcr, 2), `Net OI chg ${formatCompact(sm.netOiChange, { signed: true })}`, {
@@ -1007,7 +1010,7 @@ async function renderDesk(kind) {
       return;
     }
     const { sm, c, F, move } = x;
-    const day = O.sigmaMove(F, sm.atmIv, 1 / 365);
+    const day = O.sigmaMove(F, sm.atmIv, O.tradingDayYears());
     const t = O.timeToExpiry(c.expiry, Date.now(), refSession(st.ref).close);
     const n = c.rows.length;
     const pcrWord = O.pcrBand(sm.pcr)?.word ?? "";
@@ -1016,9 +1019,9 @@ async function renderDesk(kind) {
     const fwd = fut ? num(fut.ltp) : F;
     const lot = num(c.lotSize);
     // Phones: the line has no room for the lot and the future, so the first tile's sub line carries them.
-    const ivSub = phone ? `${lot ? `Lot ${formatInt(lot)}` : "Lot --"}${fwd !== null ? ` · ${fut ? "Fut" : "F"} ${formatInt(fwd)}` : ""}` : day ? `1-day ±${formatInt(day)}` : t.label;
+    const ivSub = phone ? `${lot ? `Lot ${formatInt(lot)}` : "Lot --"}${fwd !== null ? ` · ${fut ? "Fut" : "F"} ${formatInt(fwd)}` : ""}` : day ? `1 trading day ±${formatInt(day)}` : t.label;
     // Foreground ink: on the chain violet means "put" (bars, header, the put wall), so IV takes no hue.
-    setTile("iv", "ATM IV", formatPercent(sm.atmIv, 2), ivSub, { title: `Average of the ATM call and put IV${day ? `; 1-day 1σ move ±${formatInt(day)}` : ""}`, n: sm.atmIv, fmt: (v) => formatPercent(v, 2) });
+    setTile("iv", "ATM IV", formatPercent(sm.atmIv, 2), ivSub, { title: `Average of the ATM call and put IV${day ? `; 1σ move over one trading day ±${formatInt(day)}` : ""}. ${clockNote().join(" ")}`, n: sm.atmIv, fmt: (v) => formatPercent(v, 2) });
     setTile("em", "Expected move", move ? `±${formatInt(move)}` : DASH, x.band1 ? `${formatInt(x.band1.lo)} – ${formatInt(x.band1.hi)}` : "", {
       title: `Log-normal 1σ band to expiry at ATM IV (${t.label}): about 68% of outcomes land inside. Bar: the band, the tick is spot, the thin mark max pain`,
       mv: (el) => emViz(el, x.band1?.lo ?? null, x.band1?.hi ?? null, sm.spot, sm.maxPain),

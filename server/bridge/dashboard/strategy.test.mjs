@@ -189,7 +189,8 @@ describe("expected value and greeks", () => {
       expect(g.gamma / ((p(F + 5) - 2 * p(F) + p(F - 5)) / 25)).toBeCloseTo(1, 2);
       expect(g.vega / ((p(F, T, iv + 0.01) - p(F, T, iv - 0.01)) / 0.02)).toBeCloseTo(1, 3);
       const dt = 1e-5;
-      expect(g.theta / (-(p(F, T + dt) - p(F, T - dt)) / (2 * dt) / 365)).toBeCloseTo(1, 3);
+      // Theta is per trading-day unit of the (default, weighted) clock: 1 / 268.95 of a year.
+      expect(g.theta / (-(p(F, T + dt) - p(F, T - dt)) / (2 * dt) / 268.95)).toBeCloseTo(1, 3);
     }
     expect(O.black76Greeks(F, K, T, iv, "CE").delta - O.black76Greeks(F, K, T, iv, "PE").delta).toBeCloseTo(1, 10);
     expect(O.black76Greeks(F, K, 0, iv, "PE")).toEqual({ delta: -1, gamma: 0, theta: 0, vega: 0 });

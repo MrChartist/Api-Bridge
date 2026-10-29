@@ -306,7 +306,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   vol: {
     iface: "VolService",
     stream: "S18",
-    requires: ["marketData", "reference", "symbols", "scheduler"],
+    requires: ["marketData", "reference", "symbols", "scheduler", "recorder"],
     methods: ["clock", "snapshot", "history", "rank", "summary", "status", "capture", "backfill", "cancelBackfill", "predictions", "logPredictions"],
   },
 

@@ -4345,7 +4345,7 @@ paths:
       operationId: getVolClock
       summary: Vol-time clock settings, holidays ahead and T for expiries with the breakdown
       description: >-
-        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+        Memory only, no broker call. T for each listed expiry (100 days ahead without expiry) on the installation's clock, with calendar and trading-day T and the blocks that make it up; holidays for the next 400 days so a page can rebuild the same clock.
       x-stream: S18
       x-scope: read
       parameters:
@@ -4372,11 +4372,12 @@ paths:
       operationId: getVolSnapshot
       summary: Live vol rows for an underlying (front and 30-day pair), cm30 and a quick rank
       description: >-
-        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+        Front expiry and the 30-day bracketing pair from live chains (background priority, reused for snapshotTtlSeconds), the 30-day constant-maturity ATM IV and a quick 252-day rank. Served stale (stale true) when the budget has no room. Demo mode only: demoPartial=1 ranks against the live days alone.
       x-stream: S18
       x-scope: read
       parameters:
         - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: demoPartial, in: query, description: "Demo mode only (ignored otherwise): rank against the live days alone.", schema: { type: string, enum: ["0", "1", "true", "false"] } }
       responses:
         "200":
           description: OK. Unavailable data is not an error: available false with a reason.
@@ -4397,7 +4398,7 @@ paths:
       operationId: getVolHistory
       summary: Daily IV series (30-day, front, one expiry) with VIX and HV; JSON or CSV
       description: >-
-        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+        Memory and disk only. Daily rows with quality (live, backfill-eod) and roll markers; missed days are listed in gaps, never interpolated. clock= converts IVs exactly through total variance. format=csv returns the same columns as an attachment.
       x-stream: S18
       x-scope: read
       parameters:
@@ -4432,7 +4433,7 @@ paths:
       operationId: getVolRank
       summary: IV rank and IV percentile over 30/90/252 days, same-DTE rank and VIX percentile
       description: >-
-        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+        Memory only. IV rank = (current − lowest) ÷ (highest − lowest) × 100 and IV percentile = share of days below current, over the stored days before today (n of N, partial). Fewer than vol.minRankDays days: ivr and ivp null with reason COLLECTING. Same-DTE rank for an expiry against past days with the same time left. Demo mode only: demoPartial=1 ranks against the live days alone.
       x-stream: S18
       x-scope: read
       parameters:
@@ -4442,6 +4443,7 @@ paths:
         - { name: expiry, in: query, schema: { type: string, format: date } }
         - { name: quality, in: query, schema: { type: string, enum: [all, live], default: all } }
         - { name: clock, in: query, schema: { type: string, enum: [weighted, trading, calendar] } }
+        - { name: demoPartial, in: query, description: "Demo mode only (ignored otherwise): rank against the live days alone.", schema: { type: string, enum: ["0", "1", "true", "false"] } }
       responses:
         "200":
           description: OK. Unavailable data is not an error: available false with a reason.
@@ -4462,7 +4464,7 @@ paths:
       operationId: getVolSummary
       summary: Rank lines for up to 200 underlyings (memory only, no broker calls)
       description: >-
-        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+        Memory only, no broker calls: one rank line per underlying for the screener.
       x-stream: S18
       x-scope: read
       parameters:
@@ -4488,7 +4490,7 @@ paths:
       operationId: getVolStatus
       summary: Capture state, coverage, capacity, sources, back-fill job and disk use
       description: >-
-        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+        Capture state per underlying (live and back-fill days, last capture, missed days, next run), capacity, sources and disk. Never returns an account id.
       x-stream: S18
       x-scope: read
       responses:
@@ -4511,7 +4513,7 @@ paths:
       operationId: getVolPredictions
       summary: Logged model probabilities (store S9)
       description: >-
-        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+        Store S9: model probabilities logged at each capture (band1, band2, eam, pItmBand), oldest first; outcome stays null until the calibration job joins it.
       x-stream: S18
       x-scope: read
       parameters:
@@ -4519,6 +4521,8 @@ paths:
         - { name: to, in: query, schema: { type: string, format: date } }
         - { name: underlying, in: query, schema: { type: string, maxLength: 30 } }
         - { name: metric, in: query, schema: { type: string, maxLength: 40 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 2000, default: 500 } }
+        - { name: cursor, in: query, schema: { type: string, maxLength: 200 } }
       responses:
         "200":
           description: OK. Unavailable data is not an error: available false with a reason.
@@ -4539,7 +4543,7 @@ paths:
       operationId: startVolCapture
       summary: Capture the daily vol rows now
       description: >-
-        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then. Spends broker budget, so admin and this computer only; audited.
+        Starts a capture now (rows get trigger manual); 202 with the job. Without replace, an underlying that already has today's row is skipped. 409 IDEMPOTENCY_IN_PROGRESS while a capture runs. Spends broker budget, so admin and this computer only; audited (vol.capture.manual). Demo mode captures at any time of day.
       x-stream: S18
       x-scope: admin
       x-loopback-only: true
@@ -4568,7 +4572,7 @@ paths:
       operationId: startVolBackfill
       summary: Start or resume the bhavcopy and VIX back-fill
       description: >-
-        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then. Needs NSE archive downloads turned on (reference sources); admin and this computer only; audited.
+        Not built yet (step P1-3c): answers 501 NOT_IMPLEMENTED until then. Needs NSE archive downloads turned on (reference sources); admin and this computer only; audited.
       x-stream: S18
       x-scope: admin
       x-loopback-only: true
@@ -4595,7 +4599,7 @@ paths:
       operationId: cancelVolBackfill
       summary: Cancel the running back-fill after the current file
       description: >-
-        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+        Not built yet (step P1-3c): answers 501 NOT_IMPLEMENTED until then.
       x-stream: S18
       x-scope: admin
       x-loopback-only: true
