@@ -18,6 +18,7 @@ import { countUp, flashValue, lineReveal, reducedMotion, stopCount } from "./mot
 import * as O from "./options.js";
 import { refCalendar, refSession } from "./reference.js";
 import { oiStore, snapKey } from "./oi-store.js";
+import { oiParticipantLine } from "./participants.js";
 import { segmented } from "./views.js";
 import { legend, scrubber, setBar, spotPill, svgEl } from "./viz.js";
 
@@ -170,6 +171,8 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
   const verdictText = h("span", { class: "oi-verdict-text" }, "Reading the chain…");
   const verdictEl = h("p", { class: "oi-verdict" }, tonePill, verdictText, h("span", { class: "oi-quiet" }, " Context, not advice."));
   const liveEl = h("p", { class: "sr-only", "aria-live": "polite" });
+  // One line from NSE participant OI (P1-13a): FII index-futures long % for NSE underlyings, a note for BSE ones.
+  const partLine = oiParticipantLine();
 
   /** A tile: label, value (+ trend), a 12 px micro-visual and a sub-line. Built once; setTile patches it. */
   function makeTile(key, label, mv, { jump = false } = {}) {
@@ -260,7 +263,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     t.el.title = title;
     t.el.classList.toggle("warn", warn);
   }
-  const summaryEl = h("section", { class: "desk-panel oi-summary", "data-panel": "oi-summary", "data-fixed": "", "aria-label": "OI summary" }, verdictEl, liveEl, tilesEl);
+  const summaryEl = h("section", { class: "desk-panel oi-summary", "data-panel": "oi-summary", "data-fixed": "", "aria-label": "OI summary" }, verdictEl, liveEl, tilesEl, partLine.el);
 
   // ── Controls ──
   const winChips = h("div", { class: "segmented oi-win", role: "group", "aria-label": "Window" });
@@ -680,6 +683,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     if (tonePill.hidden === showPill) tonePill.hidden = !showPill;
     const fullVerdict = `${pillTxt ? `${pillTxt} · ` : ""}${vText}`;
     if (verdictEl.title !== fullVerdict) verdictEl.title = fullVerdict;
+    partLine.update(st.underlying).catch(() => {});
     // The polite region speaks at most once a minute, but at once for a new underlying, expiry or scope, and for a
     // wall that moved.
     if (ctx !== liveCtx) {

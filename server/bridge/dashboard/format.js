@@ -73,9 +73,22 @@ export function formatCompact(value, { signed = false } = {}) {
   if (!isFigure(value)) return DASH;
   const n = Number(value);
   const a = Math.abs(n);
-  const [div, unit, dp] = a >= 1e7 ? [1e7, "Cr", 2] : a >= 1e5 ? [1e5, "L", 2] : a >= 1e3 ? [1e3, "K", 1] : [1, "", 0];
+  // The unit is checked again after rounding: 99,957 is "1.00L", not "100.0K"; 9,999,999 is "1.00Cr", not "100.00L".
+  const UNITS = [[1, "", 0, 1e3], [1e3, "K", 1, 100], [1e5, "L", 2, 100], [1e7, "Cr", 2, Infinity]];
+  let k = a >= 1e7 ? 3 : a >= 1e5 ? 2 : a >= 1e3 ? 1 : 0;
+  while (k < 3 && Math.abs(Number(fixedPlain(a / UNITS[k][0], UNITS[k][2]))) >= UNITS[k][3]) k += 1;
+  const [div, unit, dp] = UNITS[k];
   const text = `${fixedPlain(n / div, dp)}${unit}`;
   return signed && Number(fixedPlain(n / div, dp)) > 0 ? `+${text}` : trueMinus(text.replace(/^-(0(?:\.0+)?)(\D*)$/, "$1$2"));
+}
+
+/**
+ * An axis tick in compact units with the padded zeros trimmed: "6L", "−1L", "2.5L", "500K", "1.25Cr", "0". Ticks are
+ * round numbers, so the trailing zeros formatCompact keeps for column alignment only add noise on an axis.
+ */
+export function formatCompactTick(value) {
+  const t = formatCompact(value);
+  return t === DASH ? t : t.replace(/(\.\d*?)0+(?=\D*$)/, "$1").replace(/\.(?=\D*$)/, "");
 }
 
 /**

@@ -665,6 +665,30 @@ export const TOOL_DEFS = Object.freeze([
       return { data: await readReference(svc(rt.deps, "reference"), dataset, params, { now: rt.now }) };
     },
   },
+  {
+    name: "get_participant_oi",
+    title: "NSE participant-wise open interest",
+    toolset: "options",
+    description:
+      "Read-only NSE participant-wise open interest (Client, DII, FII, Pro), in contracts, summed over all strikes and expiries, published by NSE after the close. " +
+      "Without from/to: one day's table (default the latest) with long, short, net, day-on-day change, long % and share of OI, plus the FII index-futures headline and its formula. " +
+      "With from and/or to: the daily series (at most 250 days; CSV via REST). NSE only (no BSE file). Descriptive data, not a signal or advice.",
+    input: () =>
+      z.strictObject({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().describe("YYYY-MM-DD for one day's table; null for the latest."),
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().describe("Series start, YYYY-MM-DD."),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().describe("Series end, YYYY-MM-DD."),
+        participants: z.array(z.enum(["CLIENT", "DII", "FII", "PRO", "TOTAL"])).max(5).nullable(),
+        instruments: z.array(z.enum(["IDX_FUT", "IDX_CE", "IDX_PE", "STK_FUT", "STK_CE", "STK_PE"])).max(6).nullable(),
+      }),
+    output: z.strictObject({ data: anyObj, meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_LOCAL,
+    handler: async (a, _ctx, rt) => {
+      const { readParticipantOi } = await import("../participants/routes.mjs");
+      const p = Object.fromEntries(Object.entries(a).filter(([, v]) => v !== null && v !== undefined));
+      return { data: readParticipantOi(svc(rt.deps, "participants"), p) };
+    },
+  },
 ]);
 
 /** Tools listed when nothing is configured (must stay under 20). */

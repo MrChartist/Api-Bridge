@@ -1021,6 +1021,11 @@ export function createReferenceService(deps, opts = {}) {
     },
     demoLotsStale: () => demo && demoLotsStale,
     config: () => cfg,
+    /**
+     * For P1-13a participants (and other archive users): whether NSE archive downloads are on, and the one shared
+     * polite client (one request in flight across every user), or null in demo mode or when downloads are off.
+     */
+    archives: () => ({ enabled: archivesEnabled(), setBy: demo ? "demo" : effectiveSettings(cfg, settings).nseArchives.setBy, client: archivesEnabled() ? clientFor() : null }),
     expiries,
     holidays({ from, to, exchange } = {}) {
       const items = cal.holidaysIn(from, to, exchange).map((h) => ({ date: h.date, label: h.label, exchanges: [...h.exchanges], verified: h.verified, origin: h.origin === "config" ? "config" : "shipped" }));

@@ -4,7 +4,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DASH, MINUS, ageText, formatCompact, formatFixed, formatInput, formatInt, formatNumber, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, MINUS, ageText, formatCompact, formatCompactTick, formatFixed, formatInput, formatInt, formatNumber, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 
 describe("dashboard number format", () => {
   it("prints figures without grouping commas", () => {
@@ -80,6 +80,19 @@ describe("dashboard number format", () => {
     expect(formatCompact(1_586_850)).toBe("15.87L");
     expect(formatCompact(8_540)).toBe("8.5K");
     expect(formatCompact(950)).toBe("950");
+    // The unit is picked after rounding.
+    expect(formatCompact(-99_957)).toBe("\u22121.00L");
+    expect(formatCompact(99_957, { signed: true })).toBe("+1.00L");
+    expect(formatCompact(9_999_999)).toBe("1.00Cr");
+    expect(formatCompact(999.6)).toBe("1.0K");
+    expect(formatCompact(99_940)).toBe("99.9K");
+    expect(formatCompactTick(600_000)).toBe("6L");
+    expect(formatCompactTick(-100_000)).toBe("\u22121L");
+    expect(formatCompactTick(250_000)).toBe("2.5L");
+    expect(formatCompactTick(500_000_00)).toBe("5Cr");
+    expect(formatCompactTick(12_500_000)).toBe("1.25Cr");
+    expect(formatCompactTick(50_000)).toBe("50K");
+    expect(formatCompactTick(0)).toBe("0");
     expect(formatCompact(-31_382)).toBe("−31.4K");
     expect(formatCompact(31_382, { signed: true })).toBe("+31.4K");
     expect(formatCompact(0, { signed: true })).toBe("0");
@@ -94,7 +107,7 @@ describe("dashboard number format", () => {
   });
 
   it("no other dashboard file formats numbers with the locale formatter", () => {
-    for (const f of ["app.js", "views.js", "palette.js", "motion.js", "snippets.js", "options.js", "pricing.js", "desk.js", "chain-sheet.js", "oi.js", "oi-store.js", "strategy.js", "strategy-place.js", "payoff.js", "positions.js", "vol.js", "vol-curves.js", "arbitrage.js", "screener.js", "screens.js", "viz.js", "reference.js", "calendar.js"]) {
+    for (const f of ["app.js", "views.js", "palette.js", "motion.js", "snippets.js", "options.js", "pricing.js", "desk.js", "chain-sheet.js", "oi.js", "oi-store.js", "strategy.js", "strategy-place.js", "payoff.js", "positions.js", "vol.js", "vol-curves.js", "arbitrage.js", "screener.js", "screens.js", "viz.js", "reference.js", "calendar.js", "participants.js"]) {
       const src = readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
       expect(src, f).not.toMatch(/Intl\.NumberFormat|\.toLocaleString\(|toLocaleTimeString|toFixed\(/);
       expect(src, f).not.toMatch(/₹\d{1,3},\d/);

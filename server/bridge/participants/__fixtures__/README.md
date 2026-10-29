@@ -1,0 +1,1 @@
+Illustrative fixtures (illustrative: true). The layout follows NSE's participant-wise OI file as described in docs/spec/p1-12-guard-participants.md §7.11 and NEEDS VERIFICATION (register V1) against a real download. Replace them with real files once checked.

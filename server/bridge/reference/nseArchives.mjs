@@ -19,7 +19,12 @@ export const ARCHIVE_FILES = Object.freeze({
   mktlots: Object.freeze({ path: () => "/content/fo/fo_mktlots.csv", name: "fo_mktlots.csv" }),
   secban: Object.freeze({ path: (date) => `/archives/fo/sec_ban/fo_secban_${nseFileDate(date)}.csv`, name: "fo_secban.csv" }),
   combineoi: Object.freeze({ path: (date) => `/archives/nsccl/mwpl/combineoi_${nseFileDate(date)}.zip`, name: "combineoi.zip" }),
+  /** Participant-wise OI (P1-13a, stream S26). The participants module may pass its own path template (config). */
+  participantoi: Object.freeze({ path: (date) => `/content/nsccl/fao_participant_oi_${nseFileDate(date)}.csv`, name: "fao_participant_oi.csv" }),
 });
+
+/** Paths a caller may pass: relative to the archives host, no scheme, no "..", no query. */
+const SAFE_PATH = /^\/(?!.*\.\.)[A-Za-z0-9_./-]{1,200}$/;
 
 /**
  * @param {{ baseUrl: string, gapMs: number, timeoutMs: number, maxBytes: number, fetchImpl?: typeof fetch,
@@ -30,14 +35,15 @@ export function createNseArchiveClient({ baseUrl, gapMs, timeoutMs, maxBytes, fe
   let lastAt = 0;
   let requests = 0;
 
-  async function fetchOnce(kind, date) {
+  async function fetchOnce(kind, date, pathOverride) {
     const spec = ARCHIVE_FILES[kind];
     if (!spec) throw new BridgeError("VALIDATION_FAILED", `Unknown archive file ${kind}.`);
+    if (pathOverride !== undefined && !SAFE_PATH.test(String(pathOverride))) throw new BridgeError("VALIDATION_FAILED", "Archive path must be a plain path on the archives host.");
     const wait = lastAt + gapMs - now();
     if (wait > 0) await sleep(wait);
     lastAt = now();
     requests += 1;
-    const url = `${baseUrl.replace(/\/+$/, "")}${spec.path(date)}`;
+    const url = `${baseUrl.replace(/\/+$/, "")}${pathOverride ?? spec.path(date)}`;
     if (typeof fetchImpl !== "function") throw new BridgeError("BROKER_UNAVAILABLE", "NSE archives: no fetch() in this Node.js runtime.");
     let res;
     try {
@@ -49,7 +55,11 @@ export function createNseArchiveClient({ baseUrl, gapMs, timeoutMs, maxBytes, fe
       lastAt = now();
     }
     if (res.status === 429) throw new BridgeError("UPSTREAM_RATE_LIMITED", "NSE archives are rate limiting requests; the next scheduled run will try again.");
-    if (res.status === 404) throw new BridgeError("UPSTREAM_ERROR", `NSE has not published ${spec.name} for ${date} yet (HTTP 404).`);
+    if (res.status === 404) {
+      const err = new BridgeError("UPSTREAM_ERROR", `NSE has not published ${spec.name} for ${date} yet (HTTP 404).`);
+      err.httpStatus = 404;
+      throw err;
+    }
     if (res.status < 200 || res.status >= 300) throw new BridgeError("UPSTREAM_ERROR", `NSE archives answered HTTP ${res.status} for ${spec.name}.`);
     let buf;
     try {
@@ -65,11 +75,12 @@ export function createNseArchiveClient({ baseUrl, gapMs, timeoutMs, maxBytes, fe
   return {
     /**
      * Download one file (queued behind any request in flight).
-     * @param {"mktlots"|"secban"|"combineoi"} kind
+     * @param {"mktlots"|"secban"|"combineoi"|"participantoi"} kind
      * @param {string} date  IST trading date (ignored for mktlots)
+     * @param {{ path?: string }} [o]  a path on the archives host instead of the kind's default (participants config)
      */
-    fetchFile(kind, date) {
-      const run = chain.then(() => fetchOnce(kind, date));
+    fetchFile(kind, date, { path } = {}) {
+      const run = chain.then(() => fetchOnce(kind, date, path));
       chain = run.catch(() => {});
       return run;
     },

@@ -6180,6 +6180,139 @@ svg :is(.scr-risk-bet, .scr-risk-unl) { paint-order: stroke; stroke: hsl(var(--c
 /* Match map: dots grow on hover. */
 svg .scr-dot:hover { r: 5px; }
 
+/* ───────────────────────── 12p · PARTICIPANT OI (P1-13a) ─────────────────────────
+   NSE participant-wise OI (participants.js). Tokens only: net / Δ use the gain-loss inks (direction), the long % bar
+   and the FII lines use the contrast foreground, client calls / puts the call / put pair. Hairlines are inset shadows. */
+.pt-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0; padding: 9px 14px 0; font: 500 12.5px/20px var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.pt-chip { display: inline-flex; align-items: center; min-height: 22px; padding: 0 9px; border-radius: 99px; font: 600 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-2); }
+.pt-chip.warn { color: hsl(var(--warn-ink)); background: hsl(var(--warn) / 0.16); }
+:root .desk-stats.pt-tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); margin-top: 8px; overflow: visible; scroll-snap-type: none; -webkit-mask-image: none; mask-image: none; box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+:root .pt-tiles .desk-stat { min-width: 0; min-height: 66px; padding: 9px 14px 10px; cursor: help; }
+.pt-tiles .desk-stat .value.up, .pt-table td.up, .pt-card-grid dd.up, .pt-m-val b.up { color: hsl(var(--pos-ink)); }
+.pt-tiles .desk-stat .value.down, .pt-table td.down, .pt-card-grid dd.down, .pt-m-val b.down { color: hsl(var(--neg-ink)); }
+.pt-lp { position: relative; display: block; height: 4px; margin: 2px 0 1px; border-radius: 2px; background: var(--mat-fill-2); overflow: hidden; }
+.pt-lp .fill { position: absolute; inset: 0; border-radius: 2px; background: hsl(var(--foreground) / 0.78); transform-origin: left center; transform: scaleX(var(--v, 0)); transition: transform var(--dur-3) var(--ease-std); }
+.pt-lp .mid { position: absolute; top: -1px; bottom: -1px; left: 50%; width: 1.5px; margin-left: -0.75px; background: hsl(var(--card)); }
+.pt-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; min-width: 0; }
+.pt-title strong { font: 600 15px/1.2 var(--font-display); letter-spacing: -0.01em; }
+.pt-sub { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.pt-ctl { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.pt-ctl button.small { min-height: 32px; padding: 0 12px; }
+.pt-tbl-btn[aria-pressed="true"] { background: hsl(var(--sel-bg)); color: hsl(var(--sel-fg)); box-shadow: none; }
+.pt-tables { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
+.pt-group + .pt-group { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+.pt-group-h { margin: 0; padding: 10px 14px 4px; font: 600 12px/1.2 var(--font-body); letter-spacing: 0.02em; text-transform: uppercase; color: hsl(var(--foreground) / var(--a-quiet)); }
+.pt-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
+.pt-wrap:focus-visible { outline: 2px solid var(--sel-ring); outline-offset: -2px; }
+table.pt-table { width: 100%; min-width: max-content; border-collapse: separate; border-spacing: 0; font: 500 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.pt-table :is(th, td) { height: 36px; padding: 0 9px; text-align: right; white-space: nowrap; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+.pt-table thead th { height: 28px; font: 600 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.pt-table thead th.pt-g { text-align: center; color: hsl(var(--foreground) / var(--a-label)); box-shadow: inset var(--hl) 0 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+.pt-table :is(th, td).g0 { box-shadow: inset var(--hl) 0 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+.pt-table .pt-p { position: sticky; left: 0; z-index: 1; min-width: 72px; padding-left: 14px; text-align: left; font: 600 13px/1.2 var(--font-body); color: hsl(var(--foreground)); background: var(--mat-grouped-solid); }
+.pt-table thead .pt-p { font: 600 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.pt-table tbody tr:hover :is(td, th) { background-color: var(--mat-fill-1); }
+.pt-table tbody tr:hover th.pt-p { background: linear-gradient(var(--mat-fill-1), var(--mat-fill-1)), var(--mat-grouped-solid); }
+.pt-table tr.pt-total :is(td, th) { font-weight: 600; background: var(--mat-fill-1); }
+.pt-table tr.pt-total th.pt-p { background: linear-gradient(var(--mat-fill-1), var(--mat-fill-1)), var(--mat-grouped-solid); }
+.pt-phone { display: none; }
+.pt-picker { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+.pt-picker .segmented { flex: 1 1 auto; }
+.pt-card-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.pt-card { display: grid; gap: 6px; padding: 12px 14px; box-shadow: inset 0 var(--hl) 0 var(--mat-hairline); }
+.pt-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.pt-card-head strong { font: 600 15px/1.2 var(--font-display); }
+.pt-card-lp { font: 600 12.5px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-label)); }
+.pt-card-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px 8px; margin: 2px 0 0; }
+.pt-card-grid div { min-width: 0; }
+.pt-card-grid dt { font: 600 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.pt-card-grid dd { margin: 0; font: 600 14px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pt-card-share, .pt-card-total { margin: 0; font: 500 12px/1.4 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
+.pt-card-total { padding: 10px 14px 12px; box-shadow: inset 0 var(--hl) 0 var(--mat-hairline); }
+.pt-hist-body { min-height: 120px; }
+.pt-multiples { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pt-multiple { margin: 0; padding: 10px 14px 8px; min-width: 0; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+.pt-multiple:nth-child(odd) { box-shadow: inset calc(-1 * var(--hl)) 0 0 var(--mat-hairline), inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+.pt-multiple figcaption { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 2px 10px; margin-bottom: 4px; }
+.pt-m-label { display: inline-flex; align-items: center; gap: 7px; font: 600 12.5px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.pt-m-val { font: 500 12px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; }
+.pt-m-val b { font: 600 15px/1.2 var(--font-numeric); color: hsl(var(--foreground)); }
+.pt-chart { position: relative; height: 136px; min-width: 0; border-radius: 6px; }
+.pt-chart:focus-visible { outline: 2px solid var(--sel-ring); outline-offset: 2px; }
+.pt-svg { display: block; overflow: visible; }
+svg .pt-line { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
+svg .pt-dot { fill: currentColor; stroke: hsl(var(--card)); stroke-width: 1.5; }
+svg .pt-rev { stroke: hsl(var(--foreground) / 0.38); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+svg .pt-rev-t { fill: hsl(var(--foreground) / var(--a-quiet)); paint-order: stroke; stroke: hsl(var(--card)); stroke-width: 3px; stroke-linejoin: round; }
+.pt-slot-wrap .chart-slot-box { aspect-ratio: auto; height: 88px; margin: 10px 14px 4px; padding: 10px 16px; }
+.pt-label-row { display: inline-flex; align-items: center; gap: 4px; }
+.pt-info.icon-btn.tiny { width: 22px; height: 22px; min-height: 22px; margin: -4px 0; color: hsl(var(--foreground) / var(--a-quiet)); }
+.pt-info.icon-btn.tiny:hover { color: hsl(var(--foreground)); background: var(--mat-fill-1); }
+.pt-info-text { margin: 0; padding: 4px 16px 16px; max-width: 360px; font: 450 13.5px/1.5 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.pt-empty-note { margin: 4px 0 0; font: 500 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.pt-rev-note { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 10px 14px; font: 500 12px/1.45 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+.pt-rev-note svg { flex: none; width: 14px; height: 14px; margin-top: 1px; stroke: currentColor; fill: none; stroke-width: 2; }
+.pt-hist-table { max-height: 360px; overflow-y: auto; }
+.pt-hist-table thead th { position: sticky; top: 0; z-index: 2; background: var(--mat-grouped-solid); }
+.pt-notes-list { display: grid; gap: 6px; margin: 0; padding: 12px 14px 4px 30px; font: 450 13px/1.5 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.pt-notes-list strong { color: hsl(var(--foreground)); font-weight: 600; }
+.pt-disclaimer { margin: 0; padding: 6px 14px 14px; font: 500 12px/1.5 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.pt-empty .empty { padding: 36px 16px; }
+.pt-src { flex: none; display: inline-flex; align-items: center; height: 28px; padding: 0 11px; border-radius: 99px; font: 600 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-2); white-space: nowrap; cursor: help; }
+.pt-src.warn { color: hsl(var(--warn-ink)); background: hsl(var(--warn) / 0.16); }
+.ctx-pt-day b, .ctx-pt-at b { font: 600 13px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.ctx-pt-day .ctx-main, .ctx-pt-at .ctx-main { gap: 5px; }
+.ctx-pt-ex .ctx-main { font: 600 15px/1.1 var(--font-display); letter-spacing: -0.01em; }
+/* The OI page's participant line (oi.js). */
+.oi-part { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0; padding: 7px 14px 9px; font: 500 12.5px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); text-decoration: none; box-shadow: inset 0 var(--hl) 0 var(--mat-hairline); }
+.oi-part[hidden] { display: none; }
+.oi-part svg { flex: none; width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+.oi-part-text { font-variant-numeric: tabular-nums; }
+.oi-part-text b { font-weight: 600; }
+.oi-part-text b.up { color: hsl(var(--pos-ink)); }
+.oi-part-text b.down { color: hsl(var(--neg-ink)); }
+.oi-part-go { font-weight: 600; color: hsl(var(--ios-blue-ink)); white-space: nowrap; }
+.oi-part-sep { font-weight: 500; color: hsl(var(--foreground) / var(--a-quiet)); }
+.pt-ctl .pt-off { opacity: 0.45; cursor: not-allowed; }
+.pt-ctl .segmented.pt-off { pointer-events: none; }
+.pt-skel .pt-multiple { min-height: 160px; }
+/* History skeleton: an axis label and a plot bar per row, like the small multiples it stands in for. */
+.pt-skel .skel-row { grid-auto-flow: row; grid-template-columns: 32px minmax(0, 1fr); padding: 0; }
+.pt-skel .skel-row i:nth-child(odd) { width: 100%; justify-self: stretch; }
+.oi-part:hover { text-decoration: none; background: var(--mat-fill-1); }
+.oi-part:hover .oi-part-go { text-decoration: underline; }
+@media (max-width: 1279px) {
+  :root .desk-stats.pt-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+/* Tablet: the shared panel chrome (move / maximise) sits at the top centre of the head; the long subtitle goes on its
+   own line under the title so it never runs under those handles. */
+@media (min-width: 720px) and (max-width: 1279px) {
+  .pt-table-panel .pt-title, .pt-hist .pt-title { flex-direction: column; align-items: flex-start; max-width: calc(50% - 40px); }
+}
+@media (max-width: 719px) {
+  :root .desk-stats.pt-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :root .pt-tiles .desk-stat { padding: 9px 12px 10px; }
+  .pt-tables { display: none; }
+  .pt-phone { display: block; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+  .pt-multiples { grid-template-columns: minmax(0, 1fr); }
+  .pt-multiple:nth-child(odd) { box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+  .pt-top { padding: 8px 12px 0; }
+  .pt-hist .pt-ctl { display: grid; grid-template-columns: 1fr 1fr; margin-left: 0; width: 100%; }
+  .pt-hist .pt-ctl .segmented { grid-column: 1 / -1; }
+  .pt-hist .pt-ctl button.small { justify-content: center; }
+  .pt-slot-wrap .chart-slot-box { height: 72px; margin: 10px 12px 4px; }
+  /* The source pill stays only when it warns (stale or off), as a compact chip; the fetch time is in the notes. */
+  .ctx-pt-at, .ctx-pt-day .ctx-k, .pt-src:not(.warn) { display: none; }
+  .oi-part-sep { display: none; }
+  .pt-src.warn { flex: 0 1 auto; min-width: 0; max-width: 40vw; height: 24px; padding: 0 8px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+  .ctx-pt-day, .ctx-pt-day b { flex: none; white-space: nowrap; }
+}
+@media (pointer: coarse) {
+  .pt-ctl button.small, .pt-csv, .pt-tbl-btn { min-height: 44px; min-width: 44px; }
+  .pt-info.icon-btn.tiny { width: 44px; height: 44px; min-height: 44px; margin: -12px -10px -12px -8px; }
+  .oi-part { min-height: 44px; }
+}
+
 /* ───────────────────────── 12y · OPTIONS POLISH (PRD 08) ─────────────────────────
    One look for every state, the strip and chain head per device, touch targets, focus and hairline cues. Breakpoints
    in the Options sections are 720, 1024 and 1280 only (plus 360 for very small phones). */

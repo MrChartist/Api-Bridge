@@ -123,6 +123,11 @@ tags:
     description: Contract calendar, lots, ban list, MWPL, F&O universe, corporate actions, rate and charges (stream S16). Every value carries source and asOf.
   - name: Volatility
     description: Vol-time clock, daily ATM IV store, IV rank and percentile, IV history and VIX (stream S18). IV in vol points; every series carries quality and source.
+  - name: Participant OI
+    description: >-
+      NSE participant-wise open interest (stream S26, store S4): Client, DII, FII and Pro long and short contracts in index
+      and stock futures and options, one file a day after the close. NSE only; summed over all strikes and expiries;
+      number of contracts. Fetched from the NSE archives only when archive downloads are on. Descriptive data, not advice.
 
 paths:
   /v1/health:
@@ -4330,6 +4335,127 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/participants/oi:
+    get:
+      tags: [Participant OI]
+      operationId: getParticipantOi
+      summary: NSE participant-wise OI by day (contracts; NSE only; all strikes and expiries)
+      description: >-
+        One row per published day, oldest first. Default range: the last 60 calendar days; at most 750. Pairs are
+        [long, short] in contracts as published (never corrected); quality says when NSE's totals did not add up.
+        `format=csv` returns one line per date × participant × instrument.
+      x-stream: S26
+      x-scope: read
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: participants, in: query, description: "Comma list of CLIENT, DII, FII, PRO, TOTAL", schema: { type: string } }
+        - { name: instruments, in: query, description: "Comma list of IDX_FUT, IDX_CE, IDX_PE, STK_FUT, STK_CE, STK_PE", schema: { type: string } }
+        - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
+      responses:
+        "200":
+          description: Days in the range (JSON), or CSV with `format=csv`.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, properties: { exchange: { type: string }, unit: { type: string }, note: { type: string }, days: { type: array, items: { $ref: "#/components/schemas/ParticipantDay" } } } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+            text/csv:
+              schema: { type: string }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/participants/oi/summary:
+    get:
+      tags: [Participant OI]
+      operationId: getParticipantOiSummary
+      summary: One day's participant OI table with day-on-day change, long %, shares and the FII headline
+      description: >-
+        Default: the latest day. With archive downloads off and nothing stored, answers 200 with available false and
+        reason SOURCE_OFF so a page can show its hint. 404 NOT_FOUND for a date with no file (likely a holiday).
+      x-stream: S26
+      x-scope: read
+      parameters:
+        - { name: date, in: query, schema: { type: string, format: date } }
+      responses:
+        "200":
+          description: The summary, or available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/ParticipantSummary" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/participants/status:
+    get:
+      tags: [Participant OI]
+      operationId: getParticipantStatus
+      summary: Source switch, latest day, next run, last error and back-fill progress
+      x-stream: S26
+      x-scope: read
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/ParticipantStatus" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/participants/sync:
+    post:
+      tags: [Participant OI]
+      operationId: syncParticipantOi
+      summary: Fetch one day's participant OI now (and optionally run a back-fill batch)
+      description: >-
+        Fetches `date` (default: the newest day a file can exist for) through the NSE archive client. With
+        `backfill: true` a back-fill batch continues in the background (202). 422 CAPABILITY_UNSUPPORTED in demo mode
+        or when NSE archive downloads are off.
+      x-stream: S26
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, properties: { date: { type: string, format: date }, backfill: { type: boolean } } }
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/ParticipantSyncResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "202":
+          description: Back-fill started; progress is on /v1/participants/status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/ParticipantSyncResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -5813,3 +5939,70 @@ components:
         deliveryMargin: { oneOf: [{ $ref: "#/components/schemas/RefDeliveryMargin" }, { type: "null" }] }
         charges: { $ref: "#/components/schemas/RefCharges" }
         warnings: { type: array, items: { type: string } }
+    ParticipantDay:
+      type: object
+      description: "One published day. rows: { CLIENT|DII|FII|PRO|TOTAL: { IDX_FUT|IDX_CE|IDX_PE|STK_FUT|STK_CE|STK_PE: [long, short] } } in contracts."
+      properties:
+        date: { type: string, format: date }
+        exchange: { type: string, enum: [NSE] }
+        unit: { type: string, enum: [contracts] }
+        quality: { type: string, description: "ok | totals-mismatch | partial (open)" }
+        lotRegime: { type: [string, "null"], description: "Contract-size regime in force; counts are not like for like across a change" }
+        source: { type: string }
+        rows: { type: object, additionalProperties: { type: object, additionalProperties: { type: array, minItems: 2, maxItems: 2, items: { type: integer } } } }
+    ParticipantRow:
+      type: object
+      properties:
+        participant: { type: string }
+        instrument: { type: string }
+        long: { type: integer }
+        short: { type: integer }
+        net: { type: integer }
+        netChange: { type: [integer, "null"] }
+        longPct: { type: [number, "null"] }
+        longPctChange: { type: [number, "null"] }
+        shareOfLong: { type: [number, "null"] }
+        shareOfShort: { type: [number, "null"] }
+    ParticipantSummary:
+      type: object
+      description: "§4.2.2 of docs/spec/p1-12-guard-participants.md. When available is false only reason, detail, exchange, unit and demo are set."
+      properties:
+        available: { type: boolean }
+        reason: { type: string, description: "NO_PARTICIPANT_DATA | PARTICIPANT_STALE | SOURCE_OFF (when available is false)" }
+        detail: { type: string }
+        date: { type: string, format: date }
+        previousDate: { type: [string, "null"], format: date }
+        exchange: { type: string }
+        unit: { type: string }
+        quality: { type: string }
+        mismatches: { type: array, items: { type: string } }
+        lotRegime: { type: [string, "null"] }
+        publishedNote: { type: string }
+        table: { type: array, items: { $ref: "#/components/schemas/ParticipantRow" } }
+        headline: { type: object, description: "fiiIndexFutLongPct, fiiIndexFutLongPctChange, fiiIndexFutNet, fiiIndexFutNetChange, clientIndexCall, clientIndexPut, proIndexCall, proIndexPut ({ net, netChange }), formula" }
+        history: { type: object, properties: { fiiIndexFutLongPct: { type: array, items: { type: object, properties: { date: { type: string }, value: { type: number } } } }, days: { type: integer } } }
+        revisions: { type: array, items: { type: object, properties: { date: { type: string }, text: { type: string } } } }
+        source: { type: string }
+        fetchedAt: { type: [string, "null"] }
+        demo: { type: boolean }
+    ParticipantStatus:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        demo: { type: boolean }
+        source: { type: object, properties: { nseArchives: { type: string, description: "on | off | demo | unavailable" }, setBy: { type: [string, "null"] }, verified: { type: boolean } } }
+        latestDate: { type: [string, "null"] }
+        lastAttemptAt: { type: [string, "null"] }
+        lastError: { type: [object, "null"], properties: { code: { type: string }, detail: { type: string }, date: { type: string }, at: { type: string } } }
+        nextRunAt: { type: [string, "null"] }
+        backfill: { type: object, properties: { enabled: { type: boolean }, target: { type: integer }, have: { type: integer }, noFile: { type: integer }, failed: { type: integer }, running: { type: boolean }, cursor: { type: [string, "null"] }, done: { type: boolean } } }
+        rows: { type: integer }
+        diskBytes: { type: integer }
+    ParticipantSyncResult:
+      type: object
+      properties:
+        started: { type: boolean }
+        done: { type: boolean }
+        fetched: { type: array, items: { type: string, format: date } }
+        noFile: { type: array, items: { type: string, format: date } }
+        failed: { type: array, items: { type: object, properties: { date: { type: string }, code: { type: string } } } }

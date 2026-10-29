@@ -349,6 +349,37 @@ describe("get_reference (options toolset)", () => {
   });
 });
 
+describe("get_participant_oi (options toolset)", () => {
+  const partSetup = async () => {
+    const { createParticipantsService } = await import("../participants/service.mjs");
+    const t = Date.parse("2026-10-29T12:00:00+05:30");
+    const participants = createParticipantsService({ config: { demo: true }, clock: { now: () => t }, paths: {} });
+    const registry = createToolRegistry({ deps: { config: { mcp: { toolsets: ["market", "analytics", "account", "options"] } }, participants }, now: () => t });
+    return { participants, registry };
+  };
+
+  it("returns the same summary as the REST read, and a series with from/to (capped at 250 days)", async () => {
+    const { participants, registry } = await partSetup();
+    const { readParticipantOi } = await import("../participants/routes.mjs");
+    const out = await registry.call("get_participant_oi", {}, ctxFor(["read"]));
+    expect(out.isError, JSON.stringify(out.content)).toBeUndefined();
+    expect(out.structuredContent.data).toEqual(JSON.parse(JSON.stringify(readParticipantOi(participants, {}))));
+    expect(out.structuredContent.data).toMatchObject({ kind: "summary", available: true, date: "2026-10-28", unit: "contracts" });
+    const s = await registry.call("get_participant_oi", { from: "2025-01-01", to: "2026-10-28", participants: ["FII"], instruments: ["IDX_FUT"] }, ctxFor(["read"]));
+    expect(s.structuredContent.data.kind).toBe("series");
+    expect(s.structuredContent.data.days).toHaveLength(250);
+    expect(s.structuredContent.data.truncated).toBe(true);
+    expect(Object.keys(s.structuredContent.data.days[0].rows)).toEqual(["FII"]);
+  });
+
+  it("is read-only and opt-in", () => {
+    const def = TOOL_DEFS.find((t) => t.name === "get_participant_oi");
+    expect(def).toMatchObject({ toolset: "options", annotations: { readOnlyHint: true, destructiveHint: false } });
+    expect(def.requiredScope).toBeUndefined();
+    expect(DEFAULT_TOOL_NAMES).not.toContain("get_participant_oi");
+  });
+});
+
 describe("get_safety_status readiness (p1-05 §4.6)", () => {
   it("adds readiness per account: state, reason codes and messages, checkedAt; never an IP address", async () => {
     const { deps, registry } = setup();
