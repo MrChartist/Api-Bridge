@@ -114,7 +114,10 @@ describe("stock options end to end (demo)", () => {
     expect([join.status, join.json.data.joined]).toEqual([200, true]);
     let status = "running";
     let limit = null;
-    for (let i = 0; i < 600 && status === "running"; i += 1) {
+    // The demo chain class has a 32-a-minute window (the recorder work) and background calls keep half of it free,
+    // so after steps 1 and 2 the index chains can wait for the minute to roll over: poll by time, not by count.
+    const deadline = Date.now() + 200_000;
+    while (Date.now() < deadline && status === "running") {
       const u = await http("/v1/usage");
       limit ??= (u.json.data.accounts.find((a) => a.accountId === "demo" || a.id === "demo") ?? u.json.data.accounts[0]).classes.quote.limit;
       status = (await http("/v1/options/sweeps/current?lease=1")).json.data.status;
@@ -140,7 +143,7 @@ describe("stock options end to end (demo)", () => {
     expect(stockChains.length).toBeGreaterThanOrEqual(50);
     expect(stockChains.every((x) => x.chain.rows.some((r) => r.ce?.oiChangeBasis))).toBe(true);
     expect(Object.keys(last.hv).length).toBeGreaterThanOrEqual(50);
-  }, 120_000);
+  }, 240_000);
 
   it("4. ban gate: buy opens; after a forced ban another buy is FNO_BAN, a sell closes with a warning, then a sell is FNO_BAN", async () => {
     const chain = (await http(`/v1/optionchain?underlying=RELIANCE&expiry=${relExpiry}&strikes=1`)).json.data;

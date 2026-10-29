@@ -157,6 +157,8 @@ describe("demo Bridge", () => {
     expect(notOpt.status).toBe(400);
   });
 
+  // The demo chain class has a 32-a-minute window (the recorder work) and background calls keep half of it free,
+  // so after the earlier tests' chain reads the index chains can wait for the minute to roll over.
   it("sweeps: plan, start 202, join 200, chains pages, reuse, cancel; NOT_FOUND before; keys documented", async () => {
     const plan = await h.call("POST", "/v1/options/sweeps/plan", { body: {} });
     expect(plan.status).toBe(200);
@@ -191,7 +193,7 @@ describe("demo Bridge", () => {
     expect([c.status, c.json.data.reused]).toEqual([200, true]);
     const del = await h.call("DELETE", "/v1/options/sweeps/current");
     expect(del.status).toBe(200);
-  });
+  }, 120_000);
 
   it("settings: admin from this computer, audited; read key refused; proxied refused; demo applies in memory", async () => {
     const ro = await h.call("PUT", "/v1/options/sweeps/settings", { body: { optIn: ["RELIANCE"] } });
