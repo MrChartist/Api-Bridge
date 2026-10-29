@@ -292,7 +292,8 @@ async function renderDesk(kind) {
     const exTag = e && ex.length ? O.expiryTag(e, ex).days : "";
     const futs = st.futures.length ? new Set(st.futures.map((f) => f.expiry)) : null;
     const monthly = e && ex.length ? (futs ? futs.has(e) : O.isMonthlyExpiry(e, ex)) : false;
-    const lot = num(c?.lotSize);
+    // Positions covers every expiry (no chain of its own here): its lot is the underlying's futures lot.
+    const lot = num(c?.lotSize) ?? (posPage ? num(posPage.lot?.()) : null);
     let spot = x?.spot ?? (c ? num(c.underlyingLtp) : null);
     let q = st.quotes.get(INDEX_SYMBOL[st.underlying] ?? "") ?? null;
     if (posPage) {
@@ -398,7 +399,6 @@ async function renderDesk(kind) {
         { class: "segmented", role: "group", "aria-label": "Appearance" },
         [["light", "Light", "sun"], ["dark", "Dark", "moon"], ["auto", "Auto", "monitor"]].map(([v, label, ic]) => h("button", { type: "button", "data-theme-choice": v, "aria-pressed": String(theme === v) }, icon(ic), label)),
       ),
-      app.state.demo ? h("p", { class: "ctx-demo-note" }, h("i", { class: "demo-badge", "aria-hidden": "true" }), h("span", {}, h("strong", {}, "Demo data: "), DEMO_EXPLAINER)) : null,
     );
     const sheetRef = (ctxSheet = sheetPopover({
       trigger: moreBtn,
@@ -1324,16 +1324,17 @@ async function renderDesk(kind) {
       h("span", {}, "Limit price"),
       h("div", { class: "price-row" }, price, h("div", { class: "touch-btns", role: "group", "aria-label": "Use a quote" }, [["Bid", "bid"], ["Mid", "mid"], ["Ask", "ask"]].map(([l, k]) => h("button", { type: "button", class: "small", onclick: () => (k === "mid" ? ((price.value = String(midPx(sideSeg.value) ?? "")), changed()) : touch(k)) }, l)))),
     );
-    // Exit size: 25 / 50 / 75 % in whole lots (at least one), 100 % the exact quantity held.
+    // Exit size: 25 / 50 / 75 % as floor(lots · p) whole lots, 100 % the exact quantity held. A part that rounds to
+    // 0 lots (a 1-lot leg at 50 %) is disabled, never widened to a full exit.
+    const partLots = (pct) => (held === null ? 0 : Math.floor((Math.floor(held / lotSize) * pct) / 100 + 1e-9));
     const sizeFor = (pct) => {
       if (held === null) return null;
       if (pct >= 100) return inUnits ? held : Math.max(1, Math.round(held / lotSize));
-      const whole = Math.floor(held / lotSize);
-      if (whole < 1) return inUnits ? held : 1;
-      const l = Math.min(whole, Math.max(1, Math.floor((whole * pct) / 100 + 0.5)));
+      const l = partLots(pct);
+      if (l < 1) return null;
       return inUnits ? l * lotSize : l;
     };
-    const pctBtns = exit && held !== null ? [25, 50, 75, 100].map((p) => h("button", { type: "button", class: "small", "data-pct": String(p), "aria-pressed": String(p === 100), onclick: () => ((lots.value = String(sizeFor(p))), changed()) }, `${p}%`)) : [];
+    const pctBtns = exit && held !== null ? [25, 50, 75, 100].map((p) => h("button", { type: "button", class: "small", "data-pct": String(p), "aria-pressed": String(p === 100), disabled: p < 100 && partLots(p) < 1, title: p < 100 && partLots(p) < 1 ? "Cannot split: less than one whole lot" : null, onclick: () => sizeFor(p) !== null && ((lots.value = String(sizeFor(p))), changed()) }, `${p}%`)) : [];
     const pctRow = pctBtns.length ? h("div", { class: "touch-btns pct-btns", role: "group", "aria-label": "Exit size" }, pctBtns) : null;
     const live = () => modeSeg?.value === "live";
     const body = () => {

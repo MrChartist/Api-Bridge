@@ -213,12 +213,13 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       }
     })(),
   );
-  // The dashboard's three self-hosted typefaces (dashboard/fonts/, SIL Open Font Licence files beside them), served as
+  // The dashboard's self-hosted Chartist typefaces (dashboard/fonts/, SIL Open Font Licence files beside them), served as
   // /dashboard/font-<file>.woff2. A fixed list, so no request can name another path.
   const DASHBOARD_FONTS = Object.freeze({
-    "font-inter-var-v3.woff2": "inter-var-v3.woff2",
-    "font-plus-jakarta-sans-var.woff2": "plus-jakarta-sans-var.woff2",
-    "font-dm-serif-display-italic.woff2": "dm-serif-display-italic.woff2",
+    "font-chartist-sans-flex.woff2": "chartist-sans-flex.woff2",
+    "font-chartist-sans-flex-symbols.woff2": "chartist-sans-flex-symbols.woff2",
+    "font-chartist-sans.woff2": "chartist-sans.woff2",
+    "font-chartist-serif-italic.woff2": "chartist-serif-italic.woff2",
   });
   const dashboardFile = (name) => {
     if (Object.hasOwn(DASHBOARD_FONTS, name)) {

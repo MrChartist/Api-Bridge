@@ -952,9 +952,20 @@ describe("exit plan", () => {
   it("slices above the freeze quantity and exits partial whole lots", () => {
     const big = O.exitPlan([{ symbol: "B", kind: "OPT", q: -4000, avg: 1, lot: 75, freeze: 1800, quote: q(1, 1.1) }]).orders[0];
     expect(big.slices).toEqual([1800, 1800, 400]);
-    expect(O.exitPlan([{ ...legs[0], q: 225 }], { pct: 50 }).orders[0].qty).toBe(150);
-    expect(O.exitPlan([{ ...legs[0], q: 75 }], { pct: 25 }).orders[0].qty).toBe(75);
-    expect(O.exitPlan([{ ...legs[0], q: 37 }], { pct: 50 }).orders[0].qty).toBe(37);
+    // A part exit never sends more than asked: floor(lots · p); a leg that cannot be split is skipped, not exited in full.
+    expect(O.exitPlan([{ ...legs[0], q: 225 }], { pct: 50 }).orders[0].qty).toBe(75);
+    expect(O.exitPlan([{ ...legs[0], q: 300 }], { pct: 50 }).orders[0].qty).toBe(150);
+    expect(O.exitPlan([{ ...legs[0], q: 300 }], { pct: 75 }).orders[0].qty).toBe(225);
+    const one = O.exitPlan([{ ...legs[0], q: 75 }, { ...legs[1], q: 150 }], { pct: 50 });
+    expect(one.orders.map((o) => o.qty)).toEqual([75]);
+    expect(one.skipped.map((l) => l.symbol)).toEqual([legs[0].symbol]);
+    expect(O.exitPlan([{ ...legs[0], q: 75 }], { pct: 25 }).orders).toEqual([]);
+    expect(O.exitPlan([{ ...legs[0], q: 37 }], { pct: 50 }).skipped.length).toBe(1);
+    expect(O.exitPlan([{ ...legs[0], q: 37 }]).orders[0].qty).toBe(37);
+    expect(O.canPartExit({ q: -75, lot: 75 }, 50)).toBe(false);
+    expect(O.canPartExit({ q: -75, lot: 75 }, 100)).toBe(true);
+    expect(O.canPartExit({ q: 150, lot: 75 }, 50)).toBe(true);
+    expect(O.canPartExit({ q: 150, lot: 75 }, 25)).toBe(false);
   });  it("never turns a quote-less leg into a market order unless market was chosen", () => {
     const bare = { symbol: "W", kind: "OPT", q: -75, avg: 2, lot: 75, quote: null, mark: null, greeks: { delta: -0.02 } };
     for (const type of ["mid", "touch"]) {
@@ -1057,9 +1068,147 @@ describe("book warnings and settings", () => {
     const d = O.positionsConfig(undefined);
     expect(d).toEqual({ ...O.POSITIONS_DEFAULTS, cols: [...O.POSITIONS_DEFAULTS.cols], hedge: { ...O.POSITIONS_DEFAULTS.hedge }, excluded: {} });
     const c = O.positionsConfig({ cols: ["pnl", "nope", "pnl", "gamma"], group: "x", ladder: "wide", axis: "days", lossLimit: "5000", exitType: "touch", hedge: { method: "gamma", side: "SELL" }, excluded: { "demo-paper": ["NFO:NIFTY-2026-11-03-26000-CE", "junk", 4], "bad acct!": ["NFO:NIFTY-2026-11-24-FUT"] }, chartSlot: true, extra: 1 });
-    expect(c).toEqual({ cols: ["pnl", "gamma"], group: "expiry", closed: false, ladder: "wide", axis: "days", lossLimit: 5000, exitType: "touch", hedge: { method: "gamma", side: "SELL" }, excluded: { "demo-paper": ["NFO:NIFTY-2026-11-03-26000-CE"] }, chartSlot: true });
+    expect(c).toEqual({ cols: ["pnl", "gamma"], group: "expiry", closed: false, ladder: "wide", axis: "days", lossLimit: 5000, exitType: "touch", hedge: { method: "gamma", side: "SELL" }, excluded: { "demo-paper": ["NFO:NIFTY-2026-11-03-26000-CE"] }, chartSlot: true, deltaBand: null, curves: "exp", heatCols: "auto", bars: true, gauges: true });
     expect(O.positionsConfig({ cols: [], lossLimit: -3 }).cols).toEqual([...O.POSITIONS_DEFAULTS.cols]);
     expect(O.positionsConfig({ lossLimit: -3 }).lossLimit).toBeNull();
+  });
+  it("positionsConfig: delta band, curves, heatmap columns, bars and gauges", () => {
+    const c = O.positionsConfig({ deltaBand: "150", curves: "target", heatCols: 3, bars: false, gauges: false });
+    expect(c).toMatchObject({ deltaBand: 150, curves: "target", heatCols: 3, bars: false, gauges: false });
+    for (const bad of [0, -5, "x", Infinity, null]) expect(O.positionsConfig({ deltaBand: bad }).deltaBand).toBeNull();
+    expect(O.positionsConfig({ curves: "all", heatCols: 4, bars: "yes" })).toMatchObject({ curves: "exp", heatCols: "auto", bars: true });
+    expect(O.positionsConfig({ heatCols: 5 }).heatCols).toBe(5);
+  });
+  it("warns when net Δ leaves the delta band", () => {
+    const legs = priced(condorPositions);
+    expect(O.bookWarnings(legs, { spot: 26000, now: NOW, band: { delta: 312, band: 75 } }).find((x) => x.id === "band").text).toBe("Δ +312 outside ±75 band");
+    expect(O.bookWarnings(legs, { spot: 26000, now: NOW, band: { delta: -40, band: 75 } }).some((x) => x.id === "band")).toBe(false);
+  });
+});
+
+describe("positions round 2: book read-outs", () => {
+  const condor = priced(condorPositions);
+  const T1 = condor[0].T;
+  const days1 = T1 * 365;
+  const fExp = (legs) => (x) => O.scenarioPnl(legs, { dS: x / 26000 - 1, days: days1 });
+  const range = (n = 240, lo = 24800, hi = 27200) => {
+    const xs = Array.from({ length: n + 1 }, (_, i) => lo + ((hi - lo) * i) / n);
+    for (const k of [25500, 25700, 26300, 26500]) xs.push(k);
+    return [...new Set(xs)].sort((a, b) => a - b);
+  };
+  it("bookCurveStats: an iron condor's sampled max and min match strategyStats", () => {
+    const st = O.bookCurveStats(fExp(condor), range());
+    const asStrat = condor.map((l) => ({ kind: "OPT", right: l.right, strike: l.strike, side: l.q > 0 ? "BUY" : "SELL", lots: Math.abs(l.q) / 75, lotSize: 75, price: l.avg }));
+    const exact = O.strategyStats(asStrat, 75, { spot: 26000 });
+    expect(st.max).toBeCloseTo(exact.maxProfit, 0);
+    expect(st.min).toBeCloseTo(exact.maxLoss, 0);
+    expect(Math.abs(st.max - exact.maxProfit)).toBeLessThan(1);
+    expect(st.unlimitedUp).toBe(false);
+    expect(st.unlimitedDown).toBe(false);
+    expect(st.roots).toHaveLength(2);
+    expect(st.profitIntervals).toHaveLength(1);
+    expect(st.approx).toBe(true);
+  });
+  it("bookCurveStats: a short call is unlimited down on the right; a calendar stays finite", () => {
+    const sc = priced([{ symbol: "NFO:NIFTY-2026-11-03-26200-CE", netQty: -75, avgPrice: 60 }]);
+    const s1 = O.bookCurveStats(fExp(sc), range());
+    expect(s1.unlimitedDown).toBe(true);
+    expect(s1.downSide).toBe("right");
+    expect(s1.unlimitedUp).toBe(false);
+    expect(s1.upSide).toBe(null);
+    const sp = priced([{ symbol: "NFO:NIFTY-2026-11-03-26200-PE", netQty: -75, avgPrice: 60 }]);
+    const s3 = O.bookCurveStats(fExp(sp), range());
+    expect(s3.unlimitedDown).toBe(true);
+    expect(s3.downSide).toBe("left");
+    expect(s1.profitIntervals[0][0]).toBe(0);
+    const cal = priced([{ symbol: "NFO:NIFTY-2026-11-03-26000-CE", netQty: -75, avgPrice: 60 }, { symbol: "NFO:NIFTY-2026-11-24-26000-CE", netQty: 75, avgPrice: 160 }]);
+    const s2 = O.bookCurveStats(fExp(cal), range(240, 23000, 29000));
+    expect(Number.isFinite(s2.max) && Number.isFinite(s2.min)).toBe(true);
+    expect(s2.unlimitedDown).toBe(false);
+    expect(s2.max).toBeGreaterThan(0);
+  });
+  it("book POP: a long ATM call below 50 %, a short strangle above, complements sum to 1", () => {
+    const F = 26000;
+    const iv = 12;
+    const call = (x) => Math.max(0, x - 26000) - 200;
+    const xs = range(400, 22000, 30000);
+    const pc = O.bookPop(O.bookCurveStats(call, xs).profitIntervals, { forward: F, years: T1, ivPct: iv });
+    expect(pc).toBeLessThan(0.5);
+    const strangle = (x) => 150 - Math.max(0, x - 26300) - Math.max(0, 25700 - x);
+    const st = O.bookCurveStats(strangle, xs);
+    const ps = O.bookPop(st.profitIntervals, { forward: F, years: T1, ivPct: iv });
+    expect(ps).toBeGreaterThan(0.5);
+    const loss = O.bookPop(O.intervalsWhere(st.xs, st.vals, (v) => v <= 0), { forward: F, years: T1, ivPct: iv });
+    expect(ps + loss).toBeCloseTo(1, 6);
+    expect(O.bookPop([], { forward: F, years: T1, ivPct: iv })).toBeNull();
+    expect(O.bookPop(st.profitIntervals, { forward: F, years: T1, ivPct: null })).toBeNull();
+  });
+  it("stressPnl matches scenarioPnl at e^(kσ√T) − 1", () => {
+    const s = O.stressPnl(condor, 0.02, [-2, -1, 1, 2], { spot: 26000 });
+    expect(s.map((x) => x.k)).toEqual([-2, -1, 1, 2]);
+    for (const x of s) {
+      const dS = Math.exp(x.k * 0.02) - 1;
+      expect(x.v).toBeCloseTo(O.scenarioPnl(condor, { dS }), 9);
+      expect(x.pct).toBeCloseTo(dS * 100, 9);
+      expect(x.price).toBeCloseTo(26000 * (1 + dS), 6);
+    }
+    expect(O.stressPnl(condor, null)).toEqual([]);
+  });
+  it("pnlComposition sums to bookPnl().total", () => {
+    const pos = [
+      { symbol: "NFO:NIFTY-2026-11-03-26400-CE", netQty: 0, avgPrice: 0, realisedPnl: -1492, pnl: -1492 },
+      { symbol: "NFO:NIFTY-2026-11-03-26000-PE", netQty: -75, avgPrice: 100, realisedPnl: 0 },
+      { symbol: "NFO:NIFTY-2026-11-03-26600-CE", netQty: -75, avgPrice: 80, realisedPnl: 0 },
+    ];
+    const legs = O.bookLegs(pos, "NIFTY", { closed: true }).map((l) => (l.right === "PE" ? { ...l, mark: 90 } : l.q ? { ...l, mark: 150 } : l));
+    const c = O.pnlComposition(legs);
+    expect(c.won).toBeCloseTo(750, 6);
+    expect(c.lost).toBeCloseTo(-5250, 6);
+    expect(c.realised).toBeCloseTo(-1492, 6);
+    expect(c.won + c.lost + c.realised).toBeCloseTo(O.bookPnl(legs).total, 6);
+  });
+  it("closeCharges: a short's exit is a buy (no STT); totals are non-negative", () => {
+    const short = [{ kind: "OPT", right: "CE", strike: 26000, q: -75, mark: 100, symbol: "NFO:NIFTY-2026-11-03-26000-CE" }];
+    const c = O.closeCharges(short);
+    expect(c.stt).toBe(0);
+    expect(c.stamp).toBeGreaterThan(0);
+    expect(c.total).toBeGreaterThan(0);
+    const long = O.closeCharges([{ ...short[0], q: 75 }]);
+    expect(long.stt).toBeCloseTo(100 * 75 * O.CHARGE_RATES.opt.sttSell, 9);
+    expect(O.closeCharges([]).total).toBe(0);
+  });
+  it("bookMargin sums per-expiry estimates; greekScales share Δ/Γ and Θ/ν scales", () => {
+    const m = O.bookMargin(condor, { now: NOW });
+    expect(m.required).toBeGreaterThan(0);
+    const asStrat = condor.map((l) => ({ kind: "OPT", right: l.right, strike: l.strike, side: l.q > 0 ? "BUY" : "SELL", lots: Math.abs(l.q), lotSize: 1, price: l.avg }));
+    expect(m.required).toBeCloseTo(O.marginEstimate(asStrat, 1, { forward: condor[0].F, years: T1 }).required, 6);
+    expect(O.bookMargin([])).toBeNull();
+    const g = O.greekScales({ delta: 16, gamma1: -17, theta: 966, vega: -1591, lot: 75 });
+    expect(g.M).toBe(150);
+    expect(g.Mtv).toBeCloseTo(1.15 * 1591, 9);
+    expect(g.outside).toBe(false);
+    expect(O.greekScales({ delta: 312, band: 75 })).toMatchObject({ outside: true, M: 1.15 * 312 });
+  });
+  it("scenarioGrid: explicit columns, dedup at a near expiry, m95 ignores one outlier", () => {
+    const g = O.scenarioGrid(condor, { axis: "iv", ivCols: [-10, -5, 0, 5, 10], F: 26000 });
+    expect(g.cols.map((c) => c.dIv)).toEqual([-10, -5, 0, 5, 10]);
+    expect(g.cols.map((c) => c.short)).toEqual(["\u221210", "\u22125", "now", "+5", "+10"]);
+    expect(g.rows.every((r) => r.cells.length === 5)).toBe(true);
+    const d = O.scenarioGrid(condor, { axis: "days", dayCols: [0, 1, 2, 3, 5], firstDays: 2 });
+    expect(d.cols.map((c) => c.days)).toEqual([0, 1, 2]);
+    expect(d.cols.map((c) => c.short)).toEqual(["Today", "+1d", "Exp"]);
+    const all = g.rows.flatMap((r) => r.cells.map(Math.abs));
+    expect(g.m95).toBeCloseTo(O.percentileOf(all, 0.95), 9);
+    expect(g.m95).toBeLessThanOrEqual(Math.max(...all));
+  });
+  it("payoffYRange clamps the dominant side to 4× and names the clip", () => {
+    const xs = [1, 2, 3, 4];
+    const main = [-60000, -1000, 5000, 5000];
+    const r = O.payoffYRange([main], { main, xs, pad: 0 });
+    expect(r.yMin).toBe(-20000);
+    expect(r.yMax).toBe(5000);
+    expect(r.clip).toEqual({ side: "low", value: -60000, at: 1 });
+    expect(O.payoffYRange([[-100, 100]], { pad: 0 }).clip).toBeNull();
   });
 });
 

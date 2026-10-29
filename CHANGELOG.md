@@ -28,8 +28,9 @@ All notable changes to this project are listed here. The format follows [Keep a 
 - **Dashboard redesigned in the IPO Decode design system** (Liquid Glass): a floating glass sidebar on wide
   screens and a floating tab bar with a More sheet on phones and tablets, a glass toolbar with an IST clock, calm
   grouped cards with tinted icon tiles, large-title page headers and numbered section eyebrows, warm paper and warm
-  charcoal canvases, bottom sheets on phones, and a Spotlight-style search. The house fonts (Plus Jakarta Sans,
-  Inter, DM Serif Display) are self-hosted; numbers print without grouping commas, with fixed decimals and `--` for
+  charcoal canvases, bottom sheets on phones, and a Spotlight-style search. The house fonts follow the Mr. Chartist
+  type system (`docs/theme/TYPE-SYSTEM.md`): Chartist Sans for headings, Chartist Sans Flex for text and numbers,
+  Chartist Serif for the one accent word, all self-hosted under the SIL Open Font License with no slashed zero; numbers print without grouping commas, with fixed decimals and `--` for
   missing values. Checked at 320 to 2560 px in light and dark with no horizontal overflow.
 - **Android**: the one-line installer works in Termux (Node.js from Termux's own packages, a Termux:Widget shortcut,
   a wake lock while running, links opened with termux-open-url).
