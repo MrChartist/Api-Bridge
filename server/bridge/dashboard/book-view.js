@@ -260,7 +260,7 @@ export function createBookView({ openTicket }) {
     return h(
       "div",
       { class: "bk-acts" },
-      h("button", { type: "button", class: "small", "aria-label": `Exit ${l.name} on ${l.accountLabel}`, onclick: () => exitLeg(l) }, "Exit"),
+      h("button", { type: "button", class: "xs", "aria-label": `Exit ${l.name} on ${l.accountLabel}`, onclick: () => exitLeg(l) }, "Exit"),
     );
   }
   const check = (l) => h("input", { type: "checkbox", class: "bk-check", "data-focus-key": `sel|${l.key}`, checked: isSel(l), "aria-label": `Select ${l.name} on ${l.accountLabel}`, onchange: () => toggleSelect(l) });
