@@ -1325,7 +1325,7 @@ async function renderDesk(kind) {
       "div",
       { class: "field" },
       h("span", {}, "Limit price"),
-      h("div", { class: "price-row" }, price, h("div", { class: "touch-btns", role: "group", "aria-label": "Use a quote" }, [["Bid", "bid"], ["Mid", "mid"], ["Ask", "ask"]].map(([l, k]) => h("button", { type: "button", class: "small", onclick: () => (k === "mid" ? ((price.value = String(midPx(sideSeg.value) ?? "")), changed()) : touch(k)) }, l)))),
+      h("div", { class: "price-row" }, price, h("div", { class: "join touch-btns", role: "group", "aria-label": "Use a quote" }, [["Bid", "bid"], ["Mid", "mid"], ["Ask", "ask"]].map(([l, k]) => h("button", { type: "button", class: "small", onclick: () => (k === "mid" ? ((price.value = String(midPx(sideSeg.value) ?? "")), changed()) : touch(k)) }, l)))),
     );
     // Exit size: 25 / 50 / 75 % as floor(lots · p) whole lots, 100 % the exact quantity held. A part that rounds to
     // 0 lots (a 1-lot leg at 50 %) is disabled, never widened to a full exit.
@@ -1338,7 +1338,7 @@ async function renderDesk(kind) {
       return inUnits ? l * lotSize : l;
     };
     const pctBtns = exit && held !== null ? [25, 50, 75, 100].map((p) => h("button", { type: "button", class: "small", "data-pct": String(p), "aria-pressed": String(p === 100), disabled: p < 100 && partLots(p) < 1, title: p < 100 && partLots(p) < 1 ? "Cannot split: less than one whole lot" : null, onclick: () => sizeFor(p) !== null && ((lots.value = String(sizeFor(p))), changed()) }, `${p}%`)) : [];
-    const pctRow = pctBtns.length ? h("div", { class: "touch-btns pct-btns", role: "group", "aria-label": "Exit size" }, pctBtns) : null;
+    const pctRow = pctBtns.length ? h("div", { class: "segmented pct-btns", role: "group", "aria-label": "Exit size" }, pctBtns) : null;
     const live = () => modeSeg?.value === "live";
     const body = () => {
       const b = { account: a.id, symbol: sym, side: sideSeg.value, product: prodSeg.value, orderType: typeSeg.value };
@@ -1355,7 +1355,7 @@ async function renderDesk(kind) {
       const b = body();
       const blocked = (last?.checks ?? []).some((x) => x?.severity === "block");
       placeBtn.textContent = `${b.side === "BUY" ? "Buy" : "Sell"} ${inUnits ? `${formatInt(b.quantity)} qty` : `${formatInt(b.lots)} lot${b.lots === 1 ? "" : "s"}`}${live() ? " · LIVE" : ""}`;
-      placeBtn.className = live() ? "danger" : b.side === "BUY" ? "primary" : "primary sell";
+      placeBtn.className = b.side === "BUY" ? "btn buy" : "btn sell";
       placeBtn.disabled = blocked || (live() && !ack.checked) || (typeSeg.value === "LIMIT" && !isFigure(price.value));
     };
     const drawQuote = () => {

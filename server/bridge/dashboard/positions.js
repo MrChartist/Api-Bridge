@@ -1621,6 +1621,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       if (finished) {
         sendBtn.textContent = "Done";
         sendBtn.disabled = false;
+        sendBtn.removeAttribute("aria-busy");
         sendBtn.className = "primary";
         // Nothing left to cancel or change once the orders are out.
         sendBtn.previousElementSibling?.remove();
@@ -1628,8 +1629,11 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         return;
       }
       const blocked = checks.some((x) => x.severity === "block");
-      sendBtn.textContent = sending ? "Sending…" : `Send ${plural(plan?.count ?? 0, "order")}${live() ? " · LIVE" : ""}`;
-      sendBtn.className = live() ? "danger" : "primary";
+      // Sending: the label stays (so the width does) and gives way to a turning ring (BUTTON-SYSTEM.md §9).
+      sendBtn.textContent = `Send ${plural(plan?.count ?? 0, "order")}${live() ? " · LIVE" : ""}`;
+      sendBtn.className = "primary";
+      if (sending) sendBtn.setAttribute("aria-busy", "true");
+      else sendBtn.removeAttribute("aria-busy");
       sendBtn.disabled = sending || blocked || pvPending || Boolean(plan?.unpriced) || !plan?.count || (live() && !ack.checked);
       sendBtn.title = plan?.unpriced ? "A leg has no quote to price a limit order: exit it from its own ticket" : pvPending ? "Checking with the Bridge…" : "";
     };

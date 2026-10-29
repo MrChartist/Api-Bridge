@@ -97,7 +97,7 @@ export function openPlacement(o) {
               drawButtons();
             };
             const touch = showTouch && phase === "confirm" && !r.fut
-              ? h("span", { class: "touch-btns mini", role: "group", "aria-label": `Use a quote for ${r.label}` }, [["Bid", () => q()?.bid], ["Mid", () => O.mid(q())], ["Ask", () => q()?.ask]].map(([l, f]) => h("button", { type: "button", class: "small plain", onclick: () => set(f()) }, l)))
+              ? h("span", { class: "join touch-btns mini", role: "group", "aria-label": `Use a quote for ${r.label}` }, [["Bid", () => q()?.bid], ["Mid", () => O.mid(q())], ["Ask", () => q()?.ask]].map(([l, f]) => h("button", { type: "button", class: "xs", onclick: () => set(f()) }, l)))
               : null;
             const dot = r.preview ? h("span", { class: `pv-dot ${r.preview.block ? "bad" : r.preview.warn ? "warn" : "ok"}`, title: r.preview.text || "Checks passed", "aria-label": r.preview.block ? `Blocked: ${r.preview.text}` : r.preview.text || "Checks passed" }) : h("span", { class: "pv-dot wait", "aria-label": "Checking" });
             return h(
@@ -141,7 +141,7 @@ export function openPlacement(o) {
     const hedged = rows.some((r) => r.phase === "hedge") && rows.some((r) => r.phase === "short");
     const btn = h(
       "button",
-      { type: "button", class: isLive() ? "danger" : "primary", disabled: blocked() || (isLive() && !ack.checked) || !rows.every((r) => r.preview) },
+      { type: "button", class: "primary", disabled: blocked() || (isLive() && !ack.checked) || !rows.every((r) => r.preview) },
       exit ? `Close ${formatInt(n)} leg${n === 1 ? "" : "s"} · shorts first${isLive() ? " · LIVE" : ""}` : `Place ${formatInt(n)} leg${n === 1 ? "" : "s"}${hedged ? " · hedges first" : ""}${isLive() ? " · LIVE" : ""}`,
     );
     btn.addEventListener("click", () => run());
@@ -191,7 +191,7 @@ export function openPlacement(o) {
         h("span", {}, `Prices moved on ${formatInt(away.length)} leg${away.length === 1 ? "" : "s"}`),
         h("button", {
           type: "button",
-          class: "small tinted",
+          class: "small",
           onclick: () => {
             for (const r of away) r.limit = O.basisPrice(r.quote?.() ?? null, r.side, "touch").price;
             for (const r of rows) r.preview = null;
@@ -280,7 +280,7 @@ export function openPlacement(o) {
       const verb = exit ? (r.side === "BUY" ? "Buy back" : "Sell") : r.side === "BUY" ? "Buy" : "Sell";
       status.replaceChildren(h("p", { class: "warn-text" }, `${verb} ${r.label} is not filled after ${secs}. ${shortsWait ? "The short legs have not been sent." : "The remaining legs have not been sent."}`));
       let armed = false;
-      const anyway = h("button", { type: "button", class: "danger-plain" }, exit ? "Close the rest anyway" : shortsWait ? "Send the shorts anyway" : "Send the rest anyway");
+      const anyway = h("button", { type: "button", class: "small" }, exit ? "Close the rest anyway" : shortsWait ? "Send the shorts anyway" : "Send the rest anyway");
       anyway.addEventListener("click", () => {
         if (!armed) {
           armed = true;
@@ -372,7 +372,7 @@ export function openPlacement(o) {
     actions.replaceChildren(
       ...(retryAt >= 0 ? [h("button", { type: "button", class: "primary", onclick: () => retry(retryAt) }, `Retry leg ${formatInt(retryAt + 1)}`)] : []),
       ...(open.length ? [h("button", { type: "button", onclick: () => cancelOpen(open) }, "Cancel open orders")] : []),
-      ...(filled.length ? [h("button", { type: "button", class: "danger-plain", onclick: () => unwind(filled) }, "Unwind filled legs")] : []),
+      ...(filled.length ? [h("button", { type: "button", class: "small", onclick: () => unwind(filled) }, "Unwind filled legs")] : []),
       h("button", { type: "button", class: "plain", onclick: () => closeSheet?.(true) }, "Keep as is"),
     );
   }
@@ -406,7 +406,7 @@ export function openPlacement(o) {
       h("button", { type: "button", class: "plain", onclick: () => partial() }, "Back"),
       h("button", {
         type: "button",
-        class: "danger",
+        class: "primary",
         onclick: async () => {
           if (isLive() && !liveAck.checked) return;
           actions.replaceChildren(h("span", { class: "muted" }, "Unwinding…"));

@@ -103,7 +103,10 @@ describe("PRD 08: Options CSS sections", () => {
       .filter((r) => r.media.includes("pointer: coarse") && /min-height:\s*44px/.test(r.body))
       .map((r) => r.selector)
       .join(" ");
-    for (const sel of ["button.q-btn", ".side-btn", ".chain-tools .segmented button", "button.preset", "button.live-ctl", ".panel-tools button", ".atm-pill", ".col-move .reorder", ".step-btn"]) expect(coarse, sel).toContain(sel);
+    // A <button> may instead take the button system's invisible 44 px hit area (app.css 8a), so its paint stays dense.
+    const hitArea = rules(css).some((r) => r.media.includes("pointer: coarse") && /^:where\(button, \.btn\)[^,]*::after$/.test(r.selector) && /width:\s*max\(100%, 44px\)/.test(r.body) && /height:\s*max\(100%, 44px\)/.test(r.body));
+    expect(hitArea, "the 44 px hit area on every button").toBe(true);
+    for (const sel of ["button.q-btn", ".side-btn", ".chain-tools .segmented button", "button.preset", "button.live-ctl", ".panel-tools button", ".atm-pill", ".col-move .reorder", ".step-btn"]) expect(coarse.includes(sel) || (hitArea && sel.startsWith("button.")), sel).toBe(true);
   });
 });
 

@@ -1603,7 +1603,7 @@ export function arbPanels(ctx) {
       if (!placeBtn) return;
       const blocked = items.some((it) => it.preview?.block) || items.some((it) => !it.preview) || items.some((it) => !isFigure(it.price) || it.price <= 0);
       placeBtn.textContent = phase === "confirm" ? `Place ${formatInt(items.length)} order${items.length === 1 ? "" : "s"}${isLive() ? " · LIVE" : ""}` : "Done";
-      placeBtn.className = isLive() ? "danger" : "primary";
+      placeBtn.className = "primary";
       placeBtn.disabled = phase === "running" || (phase === "confirm" && (blocked || (isLive() && !ack.checked)));
     }
     // Each run has a generation: a mode change starts a new run, and an older run's answers (asked in the old mode)

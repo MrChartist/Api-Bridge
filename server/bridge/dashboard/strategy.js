@@ -412,7 +412,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
 
   // Legs
   const legsEl = h("div", { class: "strat-legs sx", role: "list", "aria-label": "Legs" });
-  const addBtn = h("button", { type: "button", class: "small tinted add-leg", "aria-haspopup": "dialog", title: "Add a leg (A)" }, icon("plus"), "Add leg");
+  const addBtn = h("button", { type: "button", class: "small add-leg", "aria-haspopup": "dialog", title: "Add a leg (A)" }, icon("plus"), "Add leg");
   addBtn.addEventListener("click", () => openPicker());
   const stratBtn = h("button", { type: "button", class: "small plain strat-sheet-btn", "aria-haspopup": "dialog", onclick: () => openPresetSheet(stratBtn) }, "Strategies");
   const shiftDn = h("button", { type: "button", class: "small plain step-btn", "aria-label": "Shift every strike down one step", title: "Shift strikes down ([)", onclick: () => shift(-1) }, "‹");
@@ -1547,7 +1547,6 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       if (blockedWhy) b.title = blockedWhy;
       else if (warned) b.title = R.warnings.find((w) => w.severity === "warn").text;
       else b.removeAttribute("title");
-      b.classList.toggle("sell", exit);
     }
   }
   const closeMode = () => {
@@ -1664,7 +1663,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const what = p.kind === "FUT" ? `${p.side === "BUY" ? "Buy" : "Sell"} ${formatInt(p.lots)} FUT ${expiryText(p.fut?.expiry)}` : `${p.side === "BUY" ? "Buy" : "Sell"} ${formatInt(p.lots)} × ${formatInt(p.strike)} ${p.right}`;
     adjustEl.replaceChildren(
       h("span", { class: "adj-t" }, `Adds ${what} · Δ ${formatSigned((R.greeks?.delta ?? 0) / R.lot, 2)} → ${formatSigned(p.after / R.lot, 2)} lots`),
-      h("button", { type: "button", class: "small tinted", onclick: () => applyNeutral() }, "Apply"),
+      h("button", { type: "button", class: "small", onclick: () => applyNeutral() }, "Apply"),
       h("button", { type: "button", class: "small plain", onclick: () => ((neutral = null), drawAdjust()) }, "Cancel"),
     );
   }
@@ -1689,7 +1688,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const body = h(
       "div",
       { class: "menu-list stack" },
-      items.filter(Boolean).map(([label, fn, opts = {}]) => h("button", { type: "button", class: `menu-item${opts.danger ? " danger" : ""}`, disabled: opts.disabled, title: opts.title, onclick: () => (handle?.close(), setTimeout(fn, 0)) }, label, opts.sub ? h("small", {}, opts.sub) : null)),
+      items.filter(Boolean).map(([label, fn, opts = {}]) => h("button", { type: "button", class: `menu-item${opts.danger ? " destructive" : ""}`, disabled: opts.disabled, title: opts.title, onclick: () => (handle?.close(), setTimeout(fn, 0)) }, label, opts.sub ? h("small", {}, opts.sub) : null)),
     );
     handle = sheetPopover({ trigger, title, body, cls: "menu-pop" });
   }
@@ -2394,7 +2393,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
                 h(
                   "div",
                   { class: "saved-acts" },
-                  h("button", { type: "button", class: "small tinted", disabled: expired, title: expired ? "This expiry has settled: the save is read-only" : undefined, onclick: () => (closeFn?.(), loadSaved(it, pricesSeg.value === "saved")) }, "Load"),
+                  h("button", { type: "button", class: "small", disabled: expired, title: expired ? "This expiry has settled: the save is read-only" : undefined, onclick: () => (closeFn?.(), loadSaved(it, pricesSeg.value === "saved")) }, "Load"),
                   h("button", { type: "button", class: "small plain", "aria-pressed": String(comparing), disabled: !x || it.underlying !== x.c.underlying, title: "Draw its expiry curve over the chart", onclick: () => ((compareItem = comparing ? null : it), draw(), drawAnalysis()) }, comparing ? "Comparing" : "Compare"),
                   h("button", { type: "button", class: "small plain", onclick: rename }, "Rename"),
                   h("button", { type: "button", class: "small plain", onclick: del }, "Delete"),

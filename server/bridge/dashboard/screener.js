@@ -1666,8 +1666,8 @@ export function renderScreenerPage() {
           : p.description;
     const why = blockers.length ? "Switching off one filter brings rows back:" : quiet ? (p.id === "arb" ? "Edges this small rarely survive charges; the scan keeps looking." : "These are the tab's default filters; the scan keeps looking.") : "No single filter is the cause: reset to this tab's defaults.";
     const btns = [
-      nearOff ? h("button", { type: "button", class: "small tinted", "data-fk": "near", onclick: () => setFilter("nearMiss", true) }, "Show near misses") : null,
-      ...blockers.map((b) => h("button", { type: "button", class: "small tinted", "data-fk": `off:${b.filter}`, onclick: () => setFilter(b.filter, offValue(b.filter)) }, `Turn off ${S.FILTERS[b.filter].short ?? S.FILTERS[b.filter].label} (+${formatInt(b.without)})`)),
+      nearOff ? h("button", { type: "button", class: "small", "data-fk": "near", onclick: () => setFilter("nearMiss", true) }, "Show near misses") : null,
+      ...blockers.map((b) => h("button", { type: "button", class: "small", "data-fk": `off:${b.filter}`, onclick: () => setFilter(b.filter, offValue(b.filter)) }, `Turn off ${S.FILTERS[b.filter].short ?? S.FILTERS[b.filter].label} (+${formatInt(b.without)})`)),
       atDefaults ? null : h("button", { type: "button", class: "small", "data-fk": "reset", onclick: () => resetFilters() }, "Reset all"),
     ].filter(Boolean);
     swapKeepFocus(
@@ -2212,10 +2212,10 @@ export function renderScreenerPage() {
   }
   /** Sticky actions: Open in Option Chain first; then the tab's side in its fill; the other side as a text button. */
   function actions(r, pid) {
-    const chainBtn = (strike, side) => h("button", { type: "button", class: "primary scr-a-chain", onclick: () => openInChain(r.underlying, r.expiry, strike, side) }, icon("chart"), "Open in Option Chain");
-    const fill = (side, label, legs, name = null) => h("button", { type: "button", class: `scr-a-side ${side === "SELL" ? "sell" : "buy"}`, onclick: () => toStrategy(r, legs, name) }, label);
+    const chainBtn = (strike, side) => h("button", { type: "button", class: "primary full scr-a-chain", onclick: () => openInChain(r.underlying, r.expiry, strike, side) }, icon("chart"), "Open in Option Chain");
+    const fill = (side, label, legs, name = null) => h("button", { type: "button", class: `btn full scr-a-side ${side === "SELL" ? "sell" : "buy"}`, onclick: () => toStrategy(r, legs, name) }, label);
     const text = (label, legs, name = null) => h("button", { type: "button", class: "plain small scr-a-alt", onclick: () => toStrategy(r, legs, name) }, label);
-    const sec = (label, legs, name = null) => h("button", { type: "button", class: "scr-a-sec", onclick: () => toStrategy(r, legs, name) }, label);
+    const sec = (label, legs, name = null) => h("button", { type: "button", class: "full scr-a-sec", onclick: () => toStrategy(r, legs, name) }, label);
     let first = null;
     const grid = [];
     const alt = [];

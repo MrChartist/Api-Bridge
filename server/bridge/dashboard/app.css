@@ -137,6 +137,15 @@ html { font-synthesis-weight: none; }
   --sel-bg: 240 4.8% 4.1%;
   --sel-fg: 0 0% 100%;
   --sel-ring: hsl(211 100% 45%);
+  /* Buttons (docs/theme/BUTTON-SYSTEM.md, §8 below): the ink and the paper are pure black and pure white, never the
+     canvas grey. Buy and sell are the gain and loss colours, with a white label on light and a black one on dark. */
+  --btn-ink: 0 0% 0%;
+  --btn-paper: 0 0% 100%;
+  --btn-edge: hsl(0 0% 0% / 0.14);
+  --btn-edge-hover: hsl(0 0% 0% / 0.26);
+  --btn-buy: var(--pos-ink);
+  --btn-sell: var(--neg-ink);
+  --btn-trade-fg: 0 0% 100%;
 
   --shadow-1: 0 1px 2px hsl(240 10% 10% / 0.05), 0 1px 1px hsl(240 10% 10% / 0.03);
   --shadow-2: 0 1px 2px hsl(240 10% 10% / 0.05), 0 8px 24px hsl(240 10% 10% / 0.06);
@@ -211,6 +220,12 @@ html { font-synthesis-weight: none; }
   --dur-flash: 900ms;
   --dur-fast: var(--dur-1);
   --dur: var(--dur-3);
+  /* Buttons (BUTTON-SYSTEM.md §7): hover cross-fades; a press settles in 0.1 s and springs back over 0.4 s with a 2 %
+     overshoot (the curve's peak is 1.02 of the travel). */
+  --dur-hover: 150ms;
+  --dur-press: 100ms;
+  --dur-spring: 400ms;
+  --ease-press: cubic-bezier(0.3, 1.25, 0.5, 1);
 
   /* Shell */
   --sidebar-w: 264px;
@@ -338,6 +353,13 @@ html { font-synthesis-weight: none; }
     --sel-bg: 0 0% 100%;
     --sel-fg: 0 0% 0%;
     --sel-ring: hsl(211 100% 62%);
+    --btn-ink: 0 0% 100%;
+    --btn-paper: 0 0% 0%;
+    --btn-edge: hsl(0 0% 100% / 0.2);
+    --btn-edge-hover: hsl(0 0% 100% / 0.34);
+    --btn-buy: var(--pos);
+    --btn-sell: var(--neg);
+    --btn-trade-fg: 0 0% 0%;
 
     --shadow-1: 0 0 0 var(--hl, 1px) hsl(0 0% 100% / 0.06);
     --shadow-2: 0 0 0 var(--hl, 1px) hsl(0 0% 100% / 0.06), 0 10px 28px hsl(0 0% 0% / 0.5);
@@ -449,6 +471,13 @@ html { font-synthesis-weight: none; }
   --sel-bg: 0 0% 100%;
   --sel-fg: 0 0% 0%;
   --sel-ring: hsl(211 100% 62%);
+  --btn-ink: 0 0% 100%;
+  --btn-paper: 0 0% 0%;
+  --btn-edge: hsl(0 0% 100% / 0.2);
+  --btn-edge-hover: hsl(0 0% 100% / 0.34);
+  --btn-buy: var(--pos);
+  --btn-sell: var(--neg);
+  --btn-trade-fg: 0 0% 0%;
 
   --shadow-1: 0 0 0 var(--hl, 1px) hsl(0 0% 100% / 0.06);
   --shadow-2: 0 0 0 var(--hl, 1px) hsl(0 0% 100% / 0.06), 0 10px 28px hsl(0 0% 0% / 0.5);
@@ -722,8 +751,7 @@ code { font-size: 0.92em; padding: 1px 6px; border-radius: 6px; background: var(
   display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 13px; border-radius: 999px; flex: none; white-space: nowrap;
   font: 500 13px/1 var(--font-body); color: hsl(var(--foreground) / 0.8);
 }
-button.toolbar-demo { min-height: 34px; background: var(--mat-glass); box-shadow: var(--shadow-1); color: hsl(var(--warn-ink)); font: 500 12.5px/1 var(--font-body); }
-button.toolbar-demo:hover { background: var(--mat-glass-strong); }
+button.toolbar-demo { --btn-h: 34px; --btn-px: 13px; --btn-fs: 12.5px; --btn-bg: var(--mat-glass); --btn-line: transparent; height: auto; color: hsl(var(--foreground)); }
 .toolbar-demo i, .demo-badge { width: 8px; height: 8px; border-radius: 50%; background: hsl(var(--warn)); box-shadow: 0 0 0 1px hsl(var(--warn-ink) / 0.6); }
 .toolbar-clock { display: none; font-family: var(--font-numeric); color: hsl(var(--foreground)); }
 .toolbar-clock small { font: 500 12px/1 var(--font-body); letter-spacing: 0.04em; color: hsl(var(--foreground) / var(--a-quiet)); }
@@ -731,9 +759,10 @@ button.toolbar-demo:hover { background: var(--mat-glass-strong); }
 .toolbar-actions { display: inline-flex; align-items: center; gap: 10px; flex: 0 1 auto; min-width: 0; }
 .toolbar-search {
   display: none; align-items: center; gap: 8px; height: 40px; min-height: 40px; padding: 0 14px; border-radius: 999px; min-width: 0; flex: 0 1 auto;
-  font: 500 14px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); background: var(--mat-glass); box-shadow: var(--shadow-2);
+  font: 500 14px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); --btn-bg: var(--mat-glass); --btn-line: transparent;
+  -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur);
 }
-.toolbar-search:hover { background: var(--mat-glass-strong); }
+@media (hover: hover) { .toolbar-search:hover { --btn-bg: var(--mat-glass-strong); --btn-line: transparent; } }
 .toolbar-search svg { width: 16px; height: 16px; }
 .toolbar-search .kbd-group { margin-left: auto; }
 /* The label gives way first, so Refresh never falls off the right edge (the wider text face, 1024 to 1440 px). */
@@ -806,10 +835,10 @@ button.toolbar-demo:hover { background: var(--mat-glass-strong); }
 .ctx-demo { display: none; flex: none; align-items: center; height: 24px; padding: 0 8px; border-radius: 99px; font: 500 12px/1 var(--font-body); letter-spacing: 0.02em; color: hsl(var(--warn-ink)); box-shadow: inset 0 0 0 1px hsl(var(--warn)); }
 @media (max-width: 1023px) { .ctx-demo { display: inline-flex; } }
 /* Live control: a status, not a selection (green dot + data time on a glass pill). */
-button.live-ctl { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 40px; min-height: 40px; padding: 0 14px 0 12px; border-radius: 999px;
-  font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground)); background: var(--mat-glass); box-shadow: var(--shadow-1);
+button.live-ctl { --btn-h: 40px; --btn-bg: var(--mat-glass); --btn-line: transparent; flex: none; gap: 7px; height: 40px; padding: 0 14px 0 12px;
+  font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground));
   -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur); }
-button.live-ctl:hover { background: var(--mat-glass-strong); }
+@media (hover: hover) { button.live-ctl:hover { --btn-bg: var(--mat-glass-strong); --btn-line: transparent; } }
 .live-ctl .live-dot { width: 7px; height: 7px; border-radius: 99px; flex: none; background: hsl(var(--pos)); }
 .live-ctl .live-glyph:empty { display: none; }
 .live-ctl .live-glyph svg { width: 13px; height: 13px; stroke-width: 2.6; }
@@ -884,18 +913,9 @@ button.live-ctl:hover { background: var(--mat-glass-strong); }
   .toolbar-demo > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 
-/* Glass icon button — the floating circular toolbar button. */
-.icon-btn {
-  position: relative; display: inline-grid; place-items: center; flex: none;
-  width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 999px;
-  color: hsl(var(--foreground) / 0.9);
-  background: var(--mat-glass);
-  -webkit-backdrop-filter: var(--mat-blur);
-  backdrop-filter: var(--mat-blur);
-  box-shadow: var(--shadow-1);
-}
-.icon-btn:hover { background: var(--mat-glass-strong); }
-.icon-btn svg { width: 18px; height: 18px; }
+/* Glass icon button: the floating circular toolbar button (drawn by 8a: glass intent, a circle). The toolbar row is
+   40 px (its title, search and context capsules), so its icons are too. */
+.icon-btn { display: inline-grid; place-items: center; }
 
 /* Tab bar (below 1024px): floating glass, four pages and More. */
 .tabbar {
@@ -917,7 +937,6 @@ button.live-ctl:hover { background: var(--mat-glass-strong); }
 .tab[aria-current="page"] svg, .tab[aria-expanded="true"] svg { background: hsl(var(--sel-bg)); color: hsl(var(--sel-fg)); }
 .tab[aria-current="page"] svg { stroke-width: 2.4; }
 .tab .count { position: absolute; top: 5px; left: calc(50% + 6px); margin: 0; min-width: 18px; height: 18px; font-size: 12px; background: hsl(var(--ios-orange)); color: #fff; }
-.tab:active { transform: scale(0.96); }
 @media (min-width: 1024px) { .tabbar { display: none; } }
 
 /* Page header: eyebrow, one large title (h1), subtitle. */
@@ -1055,11 +1074,12 @@ button.live-ctl:hover { background: var(--mat-glass-strong); }
 .pill.warn .pdot { background: hsl(var(--ios-orange)); }
 .pill.info { color: hsl(var(--ios-blue-ink)); background: hsl(var(--ios-blue) / 0.14); }
 .pill.demo { color: hsl(var(--ios-orange-ink)); background: hsl(var(--ios-orange) / 0.16); box-shadow: inset 0 0 0 1px hsl(var(--ios-orange) / 0.3); }
-/* A signed change: ▲ / ▼ with the gain / loss colour (never colour alone). */
-.delta { display: inline-flex; align-items: center; gap: 3px; padding: 3px 8px; border-radius: 999px; font: 500 13px/1.1 var(--font-numeric); white-space: nowrap; }
-.delta.up { color: hsl(var(--ios-green-ink)); background: hsl(var(--ios-green) / 0.15); }
-.delta.down { color: hsl(var(--ios-red-ink)); background: hsl(var(--ios-red) / 0.15); }
-.delta.flat { color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-2); }
+/* A signed change: ▲ / ▼ with the gain / loss colour (never colour alone), as plain text: never a filled pill behind a
+   figure (BUTTON-SYSTEM.md §11). */
+.delta { display: inline-flex; align-items: center; gap: 3px; font: 500 13px/1.1 var(--font-numeric); white-space: nowrap; }
+.delta.up { color: hsl(var(--pos-ink)); }
+.delta.down { color: hsl(var(--neg-ink)); }
+.delta.flat { color: hsl(var(--foreground) / var(--a-label)); }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
 .chip {
   display: inline-flex; align-items: center; min-height: 22px; padding: 0 9px; border-radius: 999px; white-space: nowrap;
@@ -1144,36 +1164,136 @@ td strong { font-weight: 600; }
 .empty button, .empty .nav-btn { margin-top: 8px; }
 
 /* ───────────────────────── 8 · CONTROLS ───────────────────────── */
-/* Buttons: round. Default = gray fill, .primary = prominent blue, .tinted = blue wash, .ghost / .plain = text only,
-   .danger = red fill (destructive), .small = compact. Every one reaches 44px on a touch screen. */
-button {
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 20px; border-radius: 999px;
-  font: var(--t-button); letter-spacing: -0.008em; white-space: nowrap; color: hsl(var(--foreground)); background: var(--mat-fill-2);
-  border: 0; cursor: pointer; text-align: center;
-  transition: background-color var(--dur-fast) var(--ease-out), opacity var(--dur-fast), color var(--dur-fast);
+/* 8a · BUTTONS: the Mr Chartist button system (docs/theme/BUTTON-SYSTEM.md; its "Dashboard adaptation" lists the
+   class mapping). Every pressable thing is one kind: a button (<button>, or .btn on a link), a connected bar (.join),
+   a segmented control (.segmented, .tabs, .scr-tabs), a chip (button.chip-btn and the preset and filter chips), an
+   icon button (.icon-btn, a circle) or a link (a, .lk). Six intents, nothing else:
+     secondary        the default: the page colour (pure white on light, pure black on dark) with a hairline
+     .primary         the ink: pure black on light, pure white on dark; the one main action of a section
+     .quiet           no fill until hover (.ghost and .plain are its older names)
+     .glass           translucent glass: the control floating over a chart or the page (.icon-btn, .copy, the ATM pills)
+     .btn.buy/.sell   gain green / loss red, a white label on light and a black one on dark (on .btn only: .buy and
+                      .sell also name rows, tags and the chain's own quote cells)
+   Sizes: .xs 30, .small (or .sm) 36, the default 44, .lg 52, .xl 64; labels are Chartist Sans Flex 600 in every size.
+   Shape: a capsule, however long the label; a rounded rectangle (22 % of the height: 6 / 8 / 10 / 12 / 14) only for
+   .lg, .xl, full width (.full, .wide) and .rect (beside a field). Intents, sizes and states set only the --btn-*
+   properties; the rule below draws them. Page sections give a button its layout (width, flex, margins, a size), never
+   a background, edge, radius or shadow of its own (buttonSystem.test.mjs). */
+button, .btn {
+  --btn-h: 44px; --btn-px: 18px; --btn-fs: 14px; --btn-ic: 16px; --btn-rr: 10px; --btn-r: 999px; --press: 0.97;
+  /* The finish (§6), iOS glass: --fin 1 is all of it, 0.6 on a wide button, 0 on a quiet one until hover. The fill
+     stays exactly the paper or the ink; the sheen (top 46 %), the rim, the base shade and the shadow are light and
+     shade laid on top. --btn-lift doubles the shadow on hover. */
+  --fin: 1;
+  --btn-lift: 1;
+  --btn-bg: hsl(var(--btn-paper));
+  --btn-fg: hsl(var(--btn-ink));
+  --btn-line: var(--btn-edge);
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
+  font: 600 var(--btn-fs)/1 var(--font-body); letter-spacing: -0.006em; white-space: nowrap; text-align: center; text-decoration: none;
+  color: var(--btn-fg); cursor: pointer;
+  background-color: var(--btn-bg);
+  background-image: linear-gradient(hsl(0 0% 100% / calc(0.16 * var(--fin))), hsl(0 0% 100% / 0) 46%);
+  box-shadow:
+    inset 0 0 0 1px var(--btn-line),
+    inset 0 var(--hl) 0 hsl(0 0% 100% / calc(0.34 * var(--fin))),
+    inset 0 -1px 0 hsl(0 0% 0% / calc(0.08 * var(--fin))),
+    0 1px 2px hsl(0 0% 0% / calc(0.06 * var(--fin) * var(--btn-lift))),
+    0 2px 6px -2px hsl(0 0% 0% / calc(0.12 * var(--fin) * var(--btn-lift)));
+  transition: background-color var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out), box-shadow var(--dur-hover) var(--ease-out), opacity var(--dur-hover) var(--ease-out), scale var(--dur-spring) var(--ease-press);
 }
-button:hover { background: var(--mat-fill-3); }
-button:disabled { opacity: 0.45; cursor: default; }
-button svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-button.small { min-height: 34px; padding: 0 14px; font-size: 13.5px; gap: 6px; }
-button.small svg { width: 14px; height: 14px; }
-button.primary { background: hsl(var(--ios-blue-fill)); color: #fff; box-shadow: 0 6px 18px hsl(var(--ios-blue) / 0.3), inset 0 1px 0 hsl(0 0% 100% / 0.22); }
-button.primary:hover { background: hsl(var(--ios-blue-fill-hover)); }
-button.primary:disabled { opacity: 1; background: var(--mat-fill-2); color: hsl(var(--foreground) / var(--a-quiet)); box-shadow: none; }
-button.small.primary { box-shadow: 0 3px 10px hsl(var(--ios-blue) / 0.26), inset 0 1px 0 hsl(0 0% 100% / 0.22); }
-button.tinted { background: hsl(var(--ios-blue) / 0.1); color: hsl(var(--ios-blue-ink)); }
-/* Disabled (§3.3): never a faded blue slab or a faded blue link. A primary drops its glow and becomes fill-2 with quiet
-   text; a text button turns neutral at 0.38. */
-button.primary:disabled, button.small.primary:disabled { opacity: 1; background: var(--mat-fill-2); color: hsl(var(--foreground) / var(--a-quiet)); box-shadow: none; }
-:is(button.plain, button.ghost):disabled { opacity: 1; color: hsl(var(--foreground) / 0.38); }
-button.tinted:disabled { opacity: 1; background: var(--mat-fill-1); color: hsl(var(--foreground) / 0.38); }
-button.tinted:hover { background: hsl(var(--ios-blue) / 0.16); }
-button.danger { background: hsl(var(--ios-red-fill)); color: #fff; box-shadow: 0 6px 18px hsl(var(--ios-red) / 0.28), inset 0 1px 0 hsl(0 0% 100% / 0.2); }
-button.danger:hover { background: hsl(var(--ios-red-fill) / 0.88); }
-button.ghost, button.plain { background: transparent; color: hsl(var(--ios-blue-ink)); box-shadow: none; }
-button.ghost:hover, button.plain:hover { background: var(--mat-fill-1); }
-button.wide { width: 100%; }
-button.copy { background: var(--mat-glass-strong); box-shadow: var(--shadow-1); }
+a.btn:hover { text-decoration: none; }
+button svg, .btn svg { width: var(--btn-ic); height: var(--btn-ic); flex: none; fill: none; stroke: currentColor; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
+/* Labels never clip: .trunc keeps one line with an ellipsis (wrap the text in a span). */
+:where(button, .btn).trunc { min-width: 0; max-width: 100%; }
+:where(button, .btn).trunc > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* Sizes (§3). */
+:where(button, .btn).xs { --btn-h: 30px; --btn-px: 12px; --btn-fs: 12.5px; --btn-ic: 14px; --btn-rr: 6px; gap: 6px; }
+:where(button, .btn):is(.small, .sm) { --btn-h: 36px; --btn-px: 14px; --btn-fs: 13px; --btn-rr: 8px; gap: 6px; }
+:where(button, .btn).lg { --btn-h: 52px; --btn-px: 22px; --btn-fs: 15px; --btn-rr: 12px; --press: 0.985; }
+:where(button, .btn).xl { --btn-h: 64px; --btn-px: 28px; --btn-fs: 17px; --btn-ic: 20px; --btn-rr: 14px; --press: 0.985; }
+/* Shape (§4): a rectangle only where the place asks for one; a wide one takes 60 % of the finish. */
+:where(button, .btn):is(.lg, .xl, .full, .wide, .rect) { --btn-r: var(--btn-rr); }
+:where(button, .btn):is(.full, .wide) { width: 100%; --fin: 0.6; --press: 0.985; }
+:where(button, .btn).rect { --fin: 0.6; }
+
+/* Intents (§2). */
+:where(button, .btn).primary { --btn-bg: hsl(var(--btn-ink)); --btn-fg: hsl(var(--btn-paper)); --btn-line: transparent; }
+:where(button, .btn):is(.quiet, .ghost, .plain) { --btn-bg: transparent; --btn-line: transparent; --fin: 0; }
+:where(button, .btn):is(.glass, .copy), .icon-btn { --btn-bg: var(--mat-glass); --btn-line: transparent; -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur); }
+.btn:is(.buy, .sell) { --btn-fg: hsl(var(--btn-trade-fg)); --btn-line: transparent; }
+.btn.buy { --btn-bg: hsl(var(--btn-buy)); }
+.btn.sell { --btn-bg: hsl(var(--btn-sell)); }
+/* Icon buttons (§1) are circles: one icon and an aria-label. */
+.icon-btn { --btn-h: 40px; --btn-ic: 18px; width: var(--btn-h); height: var(--btn-h); padding: 0; flex: none; color: hsl(var(--foreground) / 0.9); }
+
+/* Hover fades (§7): the edge, the shadow and a quiet button's fill cross-fade; nothing moves. Fine pointers only, so
+   a tap never leaves a hover look behind. */
+@media (hover: hover) {
+  :where(button, .btn):hover:not(:disabled) { --btn-line: var(--btn-edge-hover); --btn-lift: 2; }
+  :where(button, .btn):is(.primary, .buy, .sell, .glass, .copy, .icon-btn):hover:not(:disabled) { --btn-line: transparent; }
+  :where(button, .btn):is(.quiet, .ghost, .plain):hover:not(:disabled) { --btn-bg: hsl(var(--btn-paper)); --fin: 1; }
+  :where(button, .btn):is(.glass, .copy, .icon-btn):hover:not(:disabled) { --btn-bg: var(--mat-glass-strong); }
+}
+
+/* States (§9). Focus: a 2 px ring in the button's own ink, inside the shape; no outer ring. Disabled: the fill stays
+   pure (on its card a dimmed paper button is still paper), the label and edge dim; an ink button keeps its ink; buy
+   and sell dim as a whole. Loading (aria-busy): the label gives way to a turning ring, the width stays. A pressed
+   toggle draws the ink (the selection pair). A count is a small round number in the button's ink, inverted. */
+:where(button, .btn):focus-visible { outline: 2px solid currentColor; outline-offset: -4px; }
+:where(button, .btn):is(:disabled, [aria-disabled="true"], .blocked) { opacity: 0.42; cursor: default; --btn-lift: 0; }
+:where(button, .btn).primary:is(:disabled, [aria-disabled="true"], .blocked) { opacity: 1; --btn-fg: hsl(var(--btn-paper) / 0.45); }
+:is(button, .btn)[aria-pressed="true"]:not(.live-ctl, .live-toggle, .vol-select) { --btn-bg: hsl(var(--sel-bg)); --btn-fg: hsl(var(--sel-fg)); --btn-line: transparent; }
+:where(button, .btn)[aria-busy="true"] { color: transparent; pointer-events: none; }
+:where(button, .btn)[aria-busy="true"]::before {
+  content: ""; position: absolute; left: 50%; top: 50%; width: var(--btn-ic); height: var(--btn-ic); margin: calc(var(--btn-ic) / -2) 0 0 calc(var(--btn-ic) / -2);
+  border-radius: 50%; border: 2px solid var(--btn-fg); border-right-color: transparent; animation: btn-turn 0.7s linear infinite;
+}
+@keyframes btn-turn { to { rotate: 1turn; } }
+:where(button, .btn) .btn-count, .scr-badge {
+  display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  font: 600 12px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: var(--btn-bg); background: var(--btn-fg);
+}
+
+/* Connected bar (§5): halves edge to edge, overlapping by their 1 px edge, so every seam is one line; the bar is one
+   shape (its ends follow it), casts one shadow, lights up as one on hover and settles as one when either half is
+   pressed. Halves share the width; .join.rect (or a .full bar) is a rounded rectangle. Buy and Sell side by side are
+   the same height and width, 8 px apart, or share one .join. */
+.join {
+  display: inline-flex; align-items: stretch; gap: 0; min-width: 0; border-radius: 999px;
+  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.06), 0 2px 6px -2px hsl(0 0% 0% / 0.12);
+  transition: scale var(--dur-spring) var(--ease-press);
+}
+.join > :where(button, .btn) { --btn-lift: 0; --press: 1; flex: 1 1 0; min-width: 0; }
+.join > * + * { margin-inline-start: -1px; }
+.join > :not(:first-child) { border-start-start-radius: 0; border-end-start-radius: 0; }
+.join > :not(:last-child) { border-start-end-radius: 0; border-end-end-radius: 0; }
+.join:is(.rect, .full) { border-radius: 10px; }
+.join:is(.rect, .full) > :where(button, .btn) { --btn-r: var(--btn-rr); --fin: 0.6; }
+.join.full { display: flex; width: 100%; }
+.join:has(> :active:not(:disabled)) { scale: 0.985; transition-duration: var(--dur-press); transition-timing-function: var(--ease-out); }
+@media (hover: hover) { .join:hover > :where(button, .btn):not(:disabled) { --btn-line: var(--btn-edge-hover); } }
+/* Buy and Sell as a pair: the same size, 8 px apart. */
+.trade-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+
+/* A press settles and springs back (§7): to 97 % in 0.1 s, then back over 0.4 s with a 2 % overshoot; .lg, .xl and
+   full-width buttons settle to 98.5 %. Uses the `scale` property, so it composes with any transform a page sets.
+   This is the only press animation (motion.js has none). Segments, chips, and the rows and cards pressable as a whole
+   never move. Under reduced motion every answer is instant (section 14). */
+:where(button, .btn, .tab):active:not(:disabled):not([aria-disabled="true"]) { scale: var(--press, 0.97); transition-duration: var(--dur-hover), var(--dur-hover), var(--dur-hover), var(--dur-hover), var(--dur-press); transition-timing-function: var(--ease-out); }
+.tab { transition: scale var(--dur-spring) var(--ease-press); }
+:is(.segmented, .tabs, .scr-tabs, .tool-group, .join) button,
+button:is(.chip-btn, .preset-chip, .preset, .scr-uchip, .pos-uchip, .pos-schip, .exp-chip, .hidden-chip, .list-row, .menu-item, .pos-mi, .pos-card, .scr-card, .preset-card, .sg-card, .gk, .oi-t, .oi-wrow, .oi-mrow, .pos-gauge, .pos-cghead, .pos-hedge-head, .sec-toggle, .chart-slot-toggle, .scr-sort-pick, .q-btn, .bs-btn, .side-btn, .link-btn, .pos-comp-b, .arb-wf-more, .arb-sort, .scr-sort-btn, .leg-price, .leg-exp, .leg-on, .strat-name, .oi-prof-collapsed, .palette-option) { --press: 1; }
+
+/* Touch (§3): every button reaches a 44 px target through an invisible area outside its painted edge, so dense
+   toolbars keep their xs / small buttons and table rows keep their height. Segments and chips that sit in scrolling
+   tracks (which would clip that area) grow their own box instead (3b and the page sections). */
+@media (pointer: coarse) {
+  :where(button, .btn):not(.has-warn)::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); translate: -50% -50%; }
+}
 
 input, select, textarea {
   width: 100%; min-height: 44px; padding: 10px 14px; border-radius: var(--r-sm); border: 0;
@@ -1206,15 +1326,16 @@ label.check { display: flex; align-items: center; gap: 10px; min-height: 32px; f
 .segmented button, .tabs button {
   position: relative; z-index: 1; flex: 1 0 auto; min-height: 32px; padding: 0 14px; border-radius: 999px; background: transparent; box-shadow: none;
   font: 500 13px/1 var(--font-body); letter-spacing: -0.006em; color: hsl(var(--foreground) / var(--a-label));
-  transition: color var(--dur-1) var(--ease-std), background-color var(--dur-2) var(--ease-std), transform var(--dur-1) var(--ease-std);
+  transition: color var(--dur-1) var(--ease-std), background-color var(--dur-2) var(--ease-std);
 }
 .segmented button svg { width: 14px; height: 14px; }
 .segmented.has-thumb::before {
   content: ""; position: absolute; z-index: 0; top: 2px; bottom: 2px; left: 0; width: var(--seg-w, 0px); border-radius: 999px;
-  background: hsl(var(--sel-bg)); transform: translateX(var(--seg-x, 0px));
-  transition: transform var(--dur-2) var(--ease-std), width var(--dur-2) var(--ease-std);
+  background: hsl(var(--sel-bg)); transform: translateX(var(--seg-x, 0px)); transform-origin: calc(var(--seg-x, 0px) + var(--seg-w, 0px) / 2) 50%;
+  transition: transform var(--dur-2) var(--ease-std), width var(--dur-2) var(--ease-std), scale var(--dur-spring) var(--ease-press);
   pointer-events: none;
 }
+:is(.segmented, .scr-tabs).has-thumb:has(> button:active:not(:disabled))::before { scale: 0.94; transition-duration: var(--dur-2), var(--dur-2), var(--dur-press); }
 .segmented.has-thumb.no-anim::before { transition: none; }
 .segmented.has-thumb button[aria-pressed="true"] { background: transparent; }
 .segmented.custom::before { display: none; }
@@ -1243,13 +1364,12 @@ label.check { display: flex; align-items: center; gap: 10px; min-height: 32px; f
 }
 /* Every capsule-bar button is a 44 px target on touch screens (§3.3), on every page. */
 @media (pointer: coarse) {
-  .segmented button, .tabs button, .scr-tabs button, button.preset-chip, button.chip-btn { min-height: 44px; }
+  .segmented button, .tabs button, .scr-tabs button { min-height: 44px; }
   button.toolbar-demo { min-height: 44px; min-width: 44px; height: 44px; }
   button.vol-select, button.scr-sort-btn { min-width: 44px; }
 }
-:is(.segmented, .tabs, .scr-tabs) button:active:not(:disabled) { transform: scale(0.97); }
 :is(.segmented, .tabs, .scr-tabs) button:disabled { opacity: 0.38; }
-:is(.segmented button[aria-pressed="true"], .tabs button[aria-selected="true"], [role="tab"][aria-selected="true"], .sel-on):focus-visible { outline: 2px solid var(--sel-ring); outline-offset: 2px; }
+:is(.segmented button[aria-pressed="true"], .tabs button[aria-selected="true"], [role="tab"][aria-selected="true"], .sel-on):focus-visible { outline: 2px solid hsl(var(--sel-fg)); outline-offset: -4px; }
 /* Multi-select chips: a 12 px tick before the label when on, so the state is not carried by colour alone. */
 :is(button.scr-uchip.on, button.chip-btn.multi[aria-pressed="true"])::before {
   content: ""; width: 12px; height: 12px; flex: none; background: currentColor;
@@ -1630,13 +1750,13 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
 
 /* ── The chain (docs/design/chain.md, round 2): one calm, black, precise instrument. Colour carries meaning only:
    calls sky, puts violet (OI bars, side headers, walls); green / red = change (OI added / cut, price up / down);
-   amber = caution; blue = ATM and spot; buy blue / sell red on the trade buttons. ── */
+   amber = caution; blue = ATM and spot; buy green / sell red (the button system's trade intents). ── */
 :root {
   --c-call: 201 90% 40%; --c-call-ink: 201 90% 32%;
   --c-put: 266 60% 50%; --c-put-ink: 266 60% 44%;
   --c-atm: 211 100% 42%; --c-atm-ink: 211 100% 40%;
-  --c-buy: 211 100% 43%; --c-buy-ink: 211 100% 40%;
-  --c-sell: 3 82% 47%; --c-sell-ink: 356 78% 42%;
+  --c-buy: var(--btn-buy); --c-buy-ink: var(--pos-ink);
+  --c-sell: var(--btn-sell); --c-sell-ink: var(--neg-ink);
   --itm-wash: hsl(240 6% 10% / 0.035);
   --em-wash: hsl(211 100% 42% / 0.04);
   --surface-2: hsl(240 5% 96.6%);
@@ -1648,8 +1768,8 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
     --c-call: 199 92% 58%; --c-call-ink: 199 92% 64%;
     --c-put: 266 85% 72%; --c-put-ink: 266 85% 76%;
     --c-atm: 211 100% 60%; --c-atm-ink: 211 100% 66%;
-    --c-buy: 211 100% 50%; --c-buy-ink: 211 100% 66%;
-    --c-sell: 3 82% 52%; --c-sell-ink: 3 92% 68%;
+    --c-buy: var(--btn-buy); --c-buy-ink: var(--pos-ink);
+    --c-sell: var(--btn-sell); --c-sell-ink: var(--neg-ink);
     --itm-wash: hsl(0 0% 100% / 0.05);
     --em-wash: hsl(211 100% 60% / 0.045);
     --surface-2: hsl(0 0% 8%);
@@ -1661,8 +1781,8 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
   --c-call: 199 92% 58%; --c-call-ink: 199 92% 64%;
   --c-put: 266 85% 72%; --c-put-ink: 266 85% 76%;
   --c-atm: 211 100% 60%; --c-atm-ink: 211 100% 66%;
-  --c-buy: 211 100% 50%; --c-buy-ink: 211 100% 66%;
-  --c-sell: 3 82% 52%; --c-sell-ink: 3 92% 68%;
+  --c-buy: var(--btn-buy); --c-buy-ink: var(--pos-ink);
+  --c-sell: var(--btn-sell); --c-sell-ink: var(--neg-ink);
   --itm-wash: hsl(0 0% 100% / 0.05);
   --em-wash: hsl(211 100% 60% / 0.045);
   --surface-2: hsl(0 0% 8%);
@@ -1856,9 +1976,8 @@ table.chain .spot-tag .fut { color: hsl(var(--foreground) / var(--a-quiet)); }
 button.q-btn { min-height: 24px; padding: 0 6px; margin: 0 -6px; border-radius: 6px; font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; background: transparent; box-shadow: none; }
 button.q-btn.sell { color: hsl(var(--c-sell-ink) / 0.8); font-weight: 500; }
 button.q-btn.buy { color: hsl(var(--c-buy-ink) / 0.8); font-weight: 500; }
-button.q-btn:is(:hover, :focus-visible):not(:disabled) { color: #fff; }
-button.q-btn.buy:is(:hover, :focus-visible):not(:disabled) { background: hsl(var(--c-buy)); }
-button.q-btn.sell:is(:hover, :focus-visible):not(:disabled) { background: hsl(var(--c-sell)); }
+button.q-btn.buy:is(:hover, :focus-visible):not(:disabled) { background: hsl(var(--btn-buy)); color: hsl(var(--btn-trade-fg)); }
+button.q-btn.sell:is(:hover, :focus-visible):not(:disabled) { background: hsl(var(--btn-sell)); color: hsl(var(--btn-trade-fg)); }
 button.q-btn.buy:is(:hover, :focus-visible):not(:disabled)::before { content: "B"; margin-right: 5px; font-size: 12px; opacity: 0.85; }
 button.q-btn.sell:is(:hover, :focus-visible):not(:disabled)::before { content: "S"; margin-right: 5px; font-size: 12px; opacity: 0.85; }
 /* The hover B / S pair on the LTP cell (fine pointers). */
@@ -1867,10 +1986,9 @@ button.q-btn.sell:is(:hover, :focus-visible):not(:disabled)::before { content: "
 .bs-cluster.at-right { transform: translate(-100%, -50%); }
 .bs-cluster[hidden] { display: none; }
 table.chain td.bs-host .cg > .l2 { visibility: hidden; }
-button.bs-btn { width: 22px; height: 16px; min-height: 16px; padding: 0; border-radius: 5px; font: 500 12px/1 var(--font-body); color: #fff; box-shadow: 0 1px 3px hsl(0 0% 0% / 0.3); }
-button.bs-btn.buy { background: hsl(var(--c-buy)); }
-button.bs-btn.sell { background: hsl(var(--c-sell)); }
-button.bs-btn:hover { filter: brightness(1.1); }
+button.bs-btn { width: 22px; height: 16px; min-height: 16px; padding: 0; border-radius: 5px; font: 600 12px/1 var(--font-body); color: hsl(var(--btn-trade-fg)); box-shadow: 0 1px 3px hsl(0 0% 0% / 0.3); }
+button.bs-btn.buy { background: hsl(var(--btn-buy)); }
+button.bs-btn.sell { background: hsl(var(--btn-sell)); }
 
 /* The selection bar (multi-select), floating above the sticky totals. */
 .pick-bar { position: absolute; left: 50%; bottom: 46px; z-index: 6; display: flex; align-items: center; gap: 10px; max-width: calc(100% - 24px); padding: 6px 6px 6px 16px; border-radius: 99px; transform: translateX(-50%); background: var(--surface-raised); box-shadow: 0 0 0 var(--hl) var(--mat-separator), var(--shadow-float); }
@@ -1881,7 +1999,7 @@ button.bs-btn:hover { filter: brightness(1.1); }
 /* Touch: 44 px targets in the selection bar too (these rules outrank the global coarse-pointer minimum). */
 @media (pointer: coarse) {
   .pick-bar { bottom: 52px; padding: 4px 4px 4px 14px; }
-  .pick-bar .segmented button, .pick-bar button.small { min-height: 44px; }
+  .pick-bar .segmented button { min-height: 44px; }
 }
 
 /* Chain head: one row (search, strikes, presets, OI-change window … hidden columns, Select, Customise). */
@@ -1889,7 +2007,7 @@ button.bs-btn:hover { filter: brightness(1.1); }
 .chain-tools .tools-spacer { flex: 1 1 0; min-width: 0; }
 .chain-tools .win-seg[hidden], .hidden-chip[hidden] { display: none; }
 button.hidden-chip { flex: none; min-height: 30px; padding: 0 10px; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-1); box-shadow: none; }
-button.select-btn { flex: none; min-height: 32px; gap: 6px; padding: 0 12px; font-size: 13px; background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); }
+button.select-btn { --btn-h: 32px; --btn-px: 12px; --btn-fs: 13px; flex: none; gap: 6px; }
 button.select-btn svg { width: 15px; height: 15px; }
 button.select-btn[aria-pressed="true"] { color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); box-shadow: none; }
 .chain-tools button.gear-btn { margin-left: 0; }
@@ -2020,7 +2138,7 @@ button.exp-chip .ec-t { font: 500 12px/1 var(--font-numeric); opacity: 0.75; }
   .pick-bar { bottom: 44px; gap: 6px; padding-left: 12px; }
 }
 @media (pointer: coarse) {
-  button.select-btn, button.hidden-chip, button.exp-chip { min-height: 44px; }
+  button.exp-chip { min-height: 44px; }
   table.chain thead tr.side-head th { height: 44px; }
   table.chain thead tr.col-head th { top: 44px; }
   table.chain thead tr.col-head.first th { top: 0; }
@@ -2036,8 +2154,8 @@ button.exp-chip .ec-t { font: 500 12px/1 var(--font-numeric); opacity: 0.75; }
 .chain-tools.off { opacity: 0.4; }
 .chain-tools .segmented { padding: 2px; }
 .chain-tools .segmented button { min-height: 30px; padding: 0 11px; font-size: 13px; }
-button.gear-btn { min-height: 32px; gap: 6px; padding: 0 12px; font-size: 13px; background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); }
-button.gear-btn[aria-expanded="true"] { background: var(--mat-fill-2); }
+button.gear-btn { --btn-h: 32px; --btn-px: 12px; --btn-fs: 13px; gap: 6px; }
+button.gear-btn[aria-expanded="true"] { --btn-line: var(--btn-edge-hover); --btn-lift: 2; }
 .popover { position: absolute; top: calc(100% + 6px); right: 10px; z-index: 30; width: min(360px, calc(100vw - 32px)); max-height: min(72vh, 680px); display: flex; flex-direction: column; border-radius: var(--r-md); background: var(--mat-thick); -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur); box-shadow: 0 0 0 var(--hl) var(--mat-separator), var(--shadow-float); overflow: hidden; }
 .pop-head { display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 16px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 .pop-head strong { flex: 1; font: 600 15px/1 var(--font-display); }
@@ -2063,7 +2181,7 @@ button.gear-btn[aria-expanded="true"] { background: var(--mat-fill-2); }
 .col-row:not(.on) { color: hsl(var(--foreground) / var(--a-label)); }
 .col-check { display: flex; align-items: center; gap: 8px; font: 500 13px/1.2 var(--font-body); cursor: pointer; }
 .col-move { display: inline-flex; gap: 2px; }
-.icon-btn.tiny { width: 26px; height: 26px; min-height: 26px; padding: 0; border-radius: 7px; background: transparent; box-shadow: none; }
+.icon-btn.tiny { width: 26px; height: 26px; min-height: 26px; padding: 0; background: transparent; box-shadow: none; }
 .icon-btn.tiny svg { width: 14px; height: 14px; }
 .icon-btn.tiny:disabled { opacity: 0.25; }
 .desk-keys { display: flex; align-items: center; flex-wrap: nowrap; overflow: hidden; height: 30px; gap: 6px 10px; padding: 0 12px; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
@@ -2078,7 +2196,7 @@ button.gear-btn[aria-expanded="true"] { background: var(--mat-fill-2); }
 .chain-note { padding: 7px 12px; font: 500 12px/1.3 var(--font-body); color: hsl(var(--ios-orange-ink)); background: hsl(var(--ios-orange) / 0.1); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 .expiry-chip { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 99px; font: 500 12px/1.4 var(--font-body); color: hsl(var(--warn-ink)); background: hsl(var(--warn) / 0.16); vertical-align: 1px; cursor: help; white-space: nowrap; }
 .chain-search { position: relative; display: flex; align-items: center; }
-.chain-search .search-btn { display: none; width: 34px; height: 34px; min-height: 34px; padding: 0; background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); }
+.chain-search .search-btn { --btn-bg: hsl(var(--btn-paper)); --btn-line: var(--btn-edge); display: none; width: 34px; height: 34px; min-height: 34px; padding: 0; }
 .chain-search .search-btn svg { width: 16px; height: 16px; }
 input.strike-search { width: 140px; min-height: 32px; padding: 4px 26px 4px 10px; border-radius: 9px; font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; }
 
@@ -2127,13 +2245,9 @@ dialog.chain-sheet::backdrop { background: hsl(240 20% 4% / 0.38); }
 .cs-pos[hidden] { display: none; }
 .cs-pos .up { color: hsl(var(--ios-green-ink)); }
 .cs-pos .down { color: hsl(var(--ios-red-ink)); }
-.cs-trade { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-.cs-trade button { min-height: 48px; padding: 0 10px; font: 500 15px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: #fff; box-shadow: none; }
+.cs-trade { gap: 8px; }
+.cs-trade button { --btn-px: 10px; font-family: var(--font-numeric); font-variant-numeric: tabular-nums; }
 /* Buy / sell are solid (§7): buy blue, sell red; never pink. */
-.cs-trade button.cs-buy { background: hsl(var(--c-buy)); }
-.cs-trade button.cs-sell { background: hsl(var(--c-sell)); }
-.cs-trade button:hover:not(:disabled) { filter: brightness(1.08); }
-.cs-trade button:disabled { color: hsl(var(--foreground) / var(--a-quiet)); background: var(--mat-fill-2); }
 .cs-acct { padding-top: 8px; }
 .acct-pick-row { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; font: 500 12.5px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .acct-pick-k { white-space: nowrap; }
@@ -2170,12 +2284,12 @@ select.acct-pick { width: auto; min-width: 0; max-width: 220px; min-height: 32px
   .cs-head { padding-top: 6px; touch-action: auto; }
 }
 @media (pointer: coarse) {
-  .cs-side button, .cs-more button { min-height: 44px; }
+  .cs-side button { min-height: 44px; }
   .icon-btn.cs-close { width: 44px; height: 44px; min-height: 44px; }
   table.chain, table.chain.dense { --desk-row: 48px; }
   .atm-pill { min-height: 44px; }
   input.strike-search, select.preset-sel, .chain-search .search-btn { min-height: 44px; }
-  .chain-tools .segmented button, button.gear-btn { min-height: 44px; }
+  .chain-tools .segmented button { min-height: 44px; }
   table.chain thead tr.side-head th { height: 44px; }
   table.chain thead tr.col-head th { top: 44px; }
   table.chain thead tr.col-head.first th { top: 0; }
@@ -2249,8 +2363,8 @@ button.preset:hover { background: var(--mat-fill-1); }
 .ticket-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: end; }
 .price-row { display: flex; gap: 8px; align-items: center; }
 .price-row input { flex: 1 1 auto; font: 500 16px/1 var(--font-numeric); font-variant-numeric: tabular-nums; }
-.touch-btns { display: flex; gap: 4px; }
-.touch-btns button { min-height: 36px; padding: 0 10px; }
+.touch-btns { display: flex; flex: none; }
+.touch-btns button { --btn-px: 12px; }
 .ticket-preview { border-radius: var(--r-md); box-shadow: 0 0 0 var(--hl) var(--mat-separator); overflow: hidden; }
 .ticket-preview:empty { display: none; }
 .ticket-preview .pad, .ticket-preview > .alert { margin: 10px 12px; }
@@ -2266,7 +2380,6 @@ button.preset:hover { background: var(--mat-fill-1); }
 .ticket-checks .warn .dot { background: hsl(var(--ios-orange)); }
 .ticket-acct { display: inline-flex; flex-wrap: wrap; align-items: center; column-gap: 4px; min-height: 40px; font: 500 14px/1.2 var(--font-body); color: hsl(var(--foreground)); }
 .live-ack { padding: 10px 12px; border-radius: var(--r-sm); background: hsl(var(--ios-red) / 0.08); color: hsl(var(--ios-red-ink)); font-weight: 600; }
-button.primary.sell { background: hsl(var(--c-sell)); box-shadow: 0 6px 18px hsl(var(--c-sell) / 0.24), inset 0 1px 0 hsl(0 0% 100% / 0.2); }
 
 @media (max-width: 1023px) {
   .builder { grid-template-columns: minmax(0, 1fr); }
@@ -2390,10 +2503,7 @@ input.strat-name-in { min-height: 30px; width: min(360px, 60vw); padding: 2px 8p
 .strat-actions .icon-btn { width: 32px; height: 32px; min-height: 32px; }
 .strat-actions .head-place { margin-left: 6px; padding: 0 16px; }
 /* Place: solid buy blue with white text whenever placing is possible; a warning adds an amber dot; only a block greys it. */
-.strat-panel button.place-btn { position: relative; background: hsl(var(--c-buy)); color: #fff; box-shadow: none; font-weight: 600; }
-.strat-panel button.place-btn:hover { background: hsl(var(--c-buy) / 0.9); }
-.strat-panel button.place-btn.sell { background: hsl(var(--c-sell)); }
-.strat-panel button.place-btn.blocked { background: var(--mat-fill-2); color: hsl(var(--foreground) / var(--a-quiet)); cursor: not-allowed; }
+.strat-panel button.place-btn.blocked { cursor: not-allowed; }
 .strat-panel button.place-btn.has-warn::after { content: ""; position: absolute; top: -2px; right: -2px; width: 9px; height: 9px; border-radius: 50%; background: hsl(var(--warn)); box-shadow: 0 0 0 2px var(--mat-grouped-solid); }
 .strat-stale { display: flex; align-items: center; gap: 10px; padding: 6px var(--sp-x); font: 500 12.5px/1.3 var(--font-body); color: hsl(var(--warn-ink)); box-shadow: inset 0 2px 0 hsl(var(--warn)), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); border-radius: var(--r-panel, 16px) var(--r-panel, 16px) 0 0; }
 .strat-stale[hidden] { display: none; }
@@ -2440,7 +2550,6 @@ button.preset-chip:hover:not(.on) { background: var(--mat-fill-1); }
 .preset-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 button.preset-card { display: grid; grid-template-columns: 64px minmax(0, 1fr); grid-template-areas: "g t" "g r"; align-items: center; gap: 2px 10px; min-height: 64px; padding: 10px 12px; border-radius: 12px; text-align: left; background: var(--mat-fill-1); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); transition: transform var(--dur-1) var(--ease-out), background var(--dur-1); }
 button.preset-card:hover:not(:disabled) { background: var(--mat-fill-2); }
-button.preset-card:active:not(:disabled) { transform: scale(0.98); }
 button.preset-card.on { background: hsl(var(--sel-bg)); color: hsl(var(--sel-fg)); }
 button.preset-card.on .glyph-svg .g-line { stroke: currentColor; }
 .pc-glyph { grid-area: g; display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 36px; border-radius: 8px; background: hsl(var(--foreground) / 0.035); }
@@ -2487,12 +2596,13 @@ button.leg-on:hover i { box-shadow: inset 0 0 0 1.5px hsl(var(--foreground)); }
 .leg-row button.step:hover:not(:disabled) { background: var(--mat-fill-2); color: hsl(var(--foreground)); }
 .leg-row button.step:disabled { opacity: 0.2; }
 .leg-right { grid-area: right; display: inline-flex; align-items: center; justify-content: center; min-height: 22px; height: 22px; padding: 0 6px; border-radius: 6px; font: 500 12px/1 var(--font-body); letter-spacing: 0.02em; }
-button.leg-right.ce { color: hsl(var(--c-call-ink)); background: hsl(var(--c-call) / 0.13); box-shadow: none; }
-button.leg-right.pe { color: hsl(var(--c-put-ink)); background: hsl(var(--c-put) / 0.13); box-shadow: none; }
+button.leg-right:is(.ce, .pe) { background: transparent; box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
+button.leg-right.ce { color: hsl(var(--c-call-ink)); }
+button.leg-right.pe { color: hsl(var(--c-put-ink)); }
 .leg-right.fut { color: hsl(var(--foreground) / var(--a-label)); background: hsl(var(--foreground) / 0.07); }
 .leg-row.leg-head .leg-right { background: none; }
 button.leg-exp { grid-area: exp; min-height: 24px; height: 24px; padding: 0 7px; border-radius: 99px; font: 500 12px/1 var(--font-numeric); background: var(--surface-2); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); color: hsl(var(--foreground) / 0.85); white-space: nowrap; }
-button.leg-exp.other { color: hsl(var(--c-atm-ink)); box-shadow: inset 0 0 0 1px hsl(var(--c-atm) / 0.45); }
+button.leg-exp.other { color: hsl(var(--foreground)); box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.45); }
 button.leg-exp[aria-expanded="true"] { background: hsl(var(--sel-bg)); color: hsl(var(--sel-fg)); box-shadow: none; }
 button.leg-exp:disabled { opacity: 0.5; }
 .leg-row.leg-head .leg-exp { grid-area: exp; text-align: center; }
@@ -2760,7 +2870,7 @@ button.chart-more { width: 30px; height: 30px; min-height: 30px; }
 .tip-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
 .tip-head strong { font: 500 13px/1.2 var(--font-numeric); }
 .tip-move { margin-left: auto; color: hsl(var(--foreground) / var(--a-label)); font-size: 12px; }
-button.tip-x { display: none; min-height: 20px; width: 20px; height: 20px; padding: 0; border-radius: 6px; background: transparent; box-shadow: none; font: 500 14px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+button.tip-x { display: none; min-height: 20px; width: 20px; height: 20px; padding: 0; background: transparent; box-shadow: none; font: 500 14px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .payoff-tip.pinned button.tip-x { display: inline-flex; align-items: center; justify-content: center; }
 .tip-row { display: flex; justify-content: space-between; gap: 10px; }
 .tip-k { display: inline-flex; align-items: center; gap: 6px; color: hsl(var(--foreground) / var(--a-label)); }
@@ -2894,7 +3004,7 @@ input.picker-filter { width: 96px; min-height: 30px; padding: 4px 10px; border-r
 .menu-list button.menu-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 36px; padding: 6px 10px; border-radius: 8px; background: transparent; box-shadow: none; text-align: left; font: 500 13px/1.25 var(--font-body); }
 .menu-list button.menu-item:hover:not(:disabled) { background: var(--mat-fill-2); }
 .menu-list button.menu-item small { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
-.menu-list button.menu-item.danger { color: hsl(var(--neg-ink)); }
+.menu-list button.menu-item.destructive { color: hsl(var(--neg-ink)); }
 .popover.chart-pop { width: min(320px, calc(100vw - 32px)); }
 
 /* Confirm sheet */
@@ -2908,8 +3018,8 @@ table.place-table th, table.place-table td { padding: 7px 8px; vertical-align: m
 table.place-table td.num .block { white-space: nowrap; }
 .place-table .block { display: block; margin-top: 2px; font-size: 12px; font-weight: 500; white-space: normal; }
 .place-table input.limit-in { width: 84px; min-height: 30px; padding: 4px 8px; text-align: right; font: 500 13px/1 var(--font-numeric); border-radius: 8px; }
-.touch-btns.mini { display: inline-flex; margin-left: 4px; }
-.touch-btns.mini button { min-height: 26px; padding: 0 6px; font-size: 12px; }
+.touch-btns.mini { display: inline-flex; margin-left: 4px; }  /* a margin outside the bar, never between its halves */
+.touch-btns.mini button { --btn-h: 26px; --btn-px: 8px; --btn-fs: 12px; }
 .pv-dot { display: inline-block; width: 8px; height: 8px; border-radius: 99px; background: hsl(var(--foreground) / 0.25); }
 .pv-dot.ok { background: hsl(var(--pos)); }
 .pv-dot.warn { background: hsl(var(--warn)); }
@@ -2924,7 +3034,6 @@ table.place-table td.num .block { white-space: nowrap; }
 .place-moved[hidden] { display: none; }
 .place-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .place-status p { margin: 0 0 6px; }
-button.danger-plain { background: transparent; color: hsl(var(--neg-ink)); box-shadow: inset 0 0 0 1px hsl(var(--neg) / 0.4); }
 .strat-warn-list { border-radius: var(--r-md); box-shadow: 0 0 0 var(--hl) var(--mat-separator); }
 .strat-warn-list[hidden] { display: none; }
 
@@ -2948,7 +3057,7 @@ button.danger-plain { background: transparent; color: hsl(var(--neg-ink)); box-s
 .saved-foot { display: flex; gap: 8px; justify-content: flex-end; }
 .menu-list button { width: 100%; justify-content: flex-start; }
 .toast-undo-row { display: inline-flex; align-items: center; gap: 4px; }
-button.toast-undo { min-height: 28px; padding: 0 10px; font-size: 13px; color: hsl(var(--ios-blue-ink)); background: transparent; box-shadow: none; }
+button.toast-undo { --btn-h: 28px; --btn-px: 10px; --btn-fs: 13px; --btn-bg: transparent; --btn-line: transparent; --fin: 0; }
 .chart-slot { overflow: hidden; }
 button.chart-slot-toggle { width: 100%; min-height: 44px; justify-content: flex-start; gap: 10px; padding: 0 14px; border-radius: 0; background: transparent; text-align: left; flex-wrap: wrap; row-gap: 2px; }
 button.chart-slot-toggle .slot-title { font: 500 13.5px/1.2 var(--font-body); }
@@ -2998,7 +3107,7 @@ button.chart-slot-toggle[aria-expanded="true"] svg { transform: rotate(180deg); 
   .bar-figs { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .bar-net { font: 500 15px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; }
   .bar-sub { font: 500 12px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .strat-panel button.bar-place { flex: none; min-height: 44px; padding: 0 22px; border-radius: 12px; }
+  .strat-panel button.bar-place { flex: none; --btn-px: 22px; }
   .strat-keys { display: none; }
   .strat-risk > .sec-toggle { min-height: 44px; }
 }
@@ -3027,7 +3136,7 @@ button.chart-slot-toggle[aria-expanded="true"] svg { transform: rotate(180deg); 
   /* The movable-panel grip and maximise stay off the builder's head on touch: one clean head line. */
   :root #content > .strat-panel > .panel-tools, :root #content > .strat-panel .panel-tools.in-head, :root[data-layout="desk"] #content > .movable.strat-panel .panel-tools.in-head, :root[data-layout="desk"] #content > .movable.strat-panel > .panel-tools { display: none; }
   button.leg-right { height: 44px; min-height: 44px; padding: 11px 6px; background-clip: content-box; }
-  .tool-group button.small, button.add-leg, button.strat-sheet-btn, button.tools-more, .group-seg button, button.preset-chip, .tbl-head .segmented button, .curves-seg button, button.chart-more, button.wi-reset, .strat-actions button.small, .strat-actions .icon-btn, .saved-acts button, .saved-foot button, .touch-btns.mini button, button.toast-undo, .strat-panel button.chip-btn, .sg-tp button.step-btn, button.sec-toggle, button.gk, .menu-list button.menu-item, .strat-panel button.link-btn, input.sg-target, select.sg-date, input.sg-cap, input.size-in, button.strat-name, .step-btn { min-height: 44px; }
+  .tool-group button.small, .group-seg button, .tbl-head .segmented button, .curves-seg button, .strat-actions .icon-btn, .sg-tp button.step-btn, button.sec-toggle, button.gk, .menu-list button.menu-item, .strat-panel button.link-btn, input.sg-target, select.sg-date, input.sg-cap, input.size-in, button.strat-name, .step-btn { min-height: 44px; }
   .strat-panel input.wi-range { min-height: 44px; height: 44px; }
   .pk-btns button.side-tag { width: 40px; height: 44px; min-height: 44px; }
   .pk-row, .pk-head { grid-template-columns: minmax(0, 1fr) 84px 76px 84px minmax(0, 1fr); }
@@ -3725,8 +3834,8 @@ table.oi-help-table thead th { font-size: 12px; color: hsl(var(--foreground) / v
 }
 @media (pointer: coarse) {
   table.oi-ladder { --desk-row: 44px; }
-  .oi-controls select, .oi-controls button.small, .oi-controls .segmented button { min-height: 44px; }
-  .oi-help-btn, .oi-gear-btn, .oi-legend-info { min-width: 44px; min-height: 44px; }
+  .oi-controls select, .oi-controls .segmented button { min-height: 44px; }
+  .oi-legend-info { min-width: 44px; min-height: 44px; }
   button.link-btn, button.oi-atm-pill, button.oi-prof-collapsed { min-height: 44px; }
   .oi-exp-body input.oi-inc { width: 22px; height: 22px; }
   .oi-err .icon-btn { width: 44px; height: 44px; }
@@ -3803,7 +3912,7 @@ button.pos-uchip:hover { background: var(--mat-fill-1); }
 .pos-comp-cap .sep { color: hsl(var(--foreground) / var(--a-quiet)); }
 button.pos-comp-b { display: inline-flex; align-items: baseline; gap: 3px; min-height: 0; height: auto; padding: 0; border-radius: 4px; font: inherit; color: inherit; white-space: nowrap; background: none; box-shadow: none; cursor: pointer; }
 button.pos-comp-b:hover .w { color: hsl(var(--foreground)); }
-button.pos-comp-b:focus-visible { outline: 2px solid var(--sel-ring); outline-offset: 2px; }
+button.pos-comp-b:focus-visible { outline: 2px solid currentColor; outline-offset: 0; }
 button.pos-comp-b .f { font-weight: 600; white-space: nowrap; }
 button.pos-comp-b .f.up { color: hsl(var(--pos-ink)); } button.pos-comp-b .f.down { color: hsl(var(--neg-ink)); }
 .pos-kept { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
@@ -3884,7 +3993,7 @@ button.pos-gauge:focus-visible { outline: 2px solid var(--sel-ring); outline-off
 button.pos-schip { flex: 1 1 0; min-width: 0; min-height: 26px; height: 26px; padding: 0 6px; gap: 4px; font-size: 12px; justify-content: center; border-radius: 999px; box-shadow: none; font: 500 12px/1 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
 button.pos-schip .k { opacity: 0.78; font-weight: 600; }
 button.pos-schip:hover { filter: brightness(1.06); }
-button.pos-schip:focus-visible { outline: 2px solid var(--sel-ring); outline-offset: 2px; }
+button.pos-schip:focus-visible { outline: 2px solid currentColor; outline-offset: -3px; }
 .pos-stress.in > *, .pos-warn.fresh { animation: pos-rise 180ms var(--ease-out) both; }
 @keyframes pos-rise { from { opacity: 0; transform: translateY(4px); } }
 .pos-book.loading .pos-hero-v, .pos-book.loading .pos-gv, .pos-book.loading .pos-cap-top { color: transparent; border-radius: 6px; background: linear-gradient(90deg, var(--mat-fill-2) 0 40%, var(--mat-fill-3) 50%, var(--mat-fill-2) 60% 100%); background-size: 300% 100%; animation: dv-shimmer 1.4s linear infinite; }
@@ -3899,8 +4008,8 @@ button.pos-schip:focus-visible { outline: 2px solid var(--sel-ring); outline-off
 .pos-warn.warn .dot { background: hsl(var(--warn)); }
 button.pos-warn { min-height: 24px; box-shadow: none; }
 button.pos-warn:hover { background: var(--mat-fill-2); }
-button.pos-warn-toggle { min-height: 30px; padding: 0 10px; gap: 6px; font-size: 12.5px; color: hsl(var(--warn-ink)); background: hsl(var(--warn) / var(--tint-a, 0.12)); box-shadow: none; }
-button.pos-warn-toggle svg { width: 14px; height: 14px; }
+button.pos-warn-toggle { --btn-h: 30px; --btn-px: 10px; --btn-fs: 12.5px; --btn-ic: 14px; gap: 6px; }
+button.pos-warn-toggle svg { color: hsl(var(--warn-ink)); }
 button.pos-warn-toggle .chev { font-weight: 600; }
 
 /* Positions: one table, a header row per expiry group. */
@@ -4317,7 +4426,7 @@ table.pos-bca tbody th { text-align: left; font: 500 12.5px/1.2 var(--font-body)
   .pos-roll-cmp .arrow { display: none; }
 }
 @media (pointer: coarse) {
-  .pos-riskp > .panel-head .segmented button, button.pos-uchip, button.chip-btn, .pos-gacts button, .pos-acts button.small, .pos-matrix-head > button, .pos-matrix-head .segmented button, button.pos-warn, button.pos-warn-toggle, .pos-bulk button, .pos-menu button, button.pos-schip, .pos-payoff .curves-seg button, .pos-cacts button { min-height: 44px; }
+  .pos-riskp > .panel-head .segmented button, .pos-matrix-head .segmented button, button.pos-warn, .pos-menu button, button.pos-schip, .pos-payoff .curves-seg button { min-height: 44px; }
   button.pos-schip { height: 44px; }
   input.pos-range { min-height: 44px; height: 44px; }
   /* The include box's whole cell is its 44 px target (a missed tap must not select the row). */
@@ -4809,8 +4918,7 @@ input.vol-rate { width: 90px; min-height: 34px; text-align: right; }
 }
 @keyframes vol-tab-in { from { opacity: 0; transform: translateY(6px); } }
 @media (pointer: coarse) {
-  .vol-ctl .segmented button, .vol-ctl select, .vol-ctl button.small, .vol-menu > summary, .vol-tabbar .segmented button, button.vol-select, .vol-err button.small, .vol-surf-ctl .segmented button, .vol-surf-ctl button.chip-btn, .vol-legend button, button.vol-more-btn { min-height: 44px; }
-  button.vol-more-btn { min-width: 44px; }
+  .vol-ctl .segmented button, .vol-ctl select, .vol-menu > summary, .vol-tabbar .segmented button, button.vol-select, .vol-surf-ctl .segmented button, .vol-legend button { min-height: 44px; }
   .vol-check { min-height: 44px; }
   .vol-persona > summary { min-height: 44px; }
   table.vol-table th, table.vol-table td { height: 44px; }
@@ -5384,9 +5492,7 @@ table.arb-pv small.block { display: block; margin-top: 3px; white-space: normal;
   .arb-keys { display: none; }
   .arb-lots .arb-step { width: 44px; height: 44px; min-height: 44px; }
   .arb-head .segmented button, .arb-kind-seg .segmented button, .arb-viz-head .segmented button { min-height: 44px; }
-  .arb-head .sw-row, .arb-filters-btn, .arb-gear { min-height: 44px; }
-  .arb-gear { min-width: 44px; }
-  .arb-o-btn { min-height: 44px; }
+  .arb-head .sw-row { min-height: 44px; }
   .arb-wf-unit.segmented button { min-height: 36px; }
   button.arb-wf-more { min-height: 32px; }
   .arb-field input, .arb-field select, .arb-calc-row input { min-height: 44px; }
@@ -5419,9 +5525,9 @@ table.arb-pv small.block { display: block; margin-top: 3px; white-space: normal;
 .scr-grow { flex: 1 1 auto; min-width: 0; }
 
 /* Toolbar: "3 underlyings · 7 chains" (opens the underlying chips) and the live control (auto + time + scan). */
-button.scr-ctx { min-height: 40px; color: inherit; font: inherit; cursor: pointer; background: var(--mat-glass); }
+button.scr-ctx { --btn-h: 40px; --btn-bg: var(--mat-glass); --btn-line: transparent; color: inherit; font: inherit; }
 button.scr-ctx .ctx-main::after { content: ""; width: 12px; height: 12px; flex: none; background: hsl(var(--foreground) / var(--a-label)); -webkit-mask: var(--chev-mask) center / 12px 12px no-repeat; mask: var(--chev-mask) center / 12px 12px no-repeat; }
-button.scr-ctx:hover { background: var(--mat-glass-strong); }
+@media (hover: hover) { button.scr-ctx:hover { --btn-bg: var(--mat-glass-strong); --btn-line: transparent; } }
 .scr-live { flex: none; display: inline-flex; align-items: center; height: 40px; padding: 0 2px; border-radius: 999px; box-shadow: var(--shadow-1); }
 .scr-live button { height: 36px; min-height: 36px; padding: 0; border-radius: 999px; background: transparent; box-shadow: none; color: hsl(var(--foreground)); }
 .scr-live button:hover { background: var(--mat-fill-1); }
@@ -5485,7 +5591,7 @@ button.scr-live-rescan kbd { margin-left: 4px; opacity: 0.8; }
 .scr-tabwrap.fade-l .scr-tabs { -webkit-mask-image: linear-gradient(90deg, transparent, #000 16px); mask-image: linear-gradient(90deg, transparent, #000 16px); }
 .scr-tabwrap.fade-l.fade-r .scr-tabs { -webkit-mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent); mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent); }
 .scr-tabs button { position: relative; z-index: 1; flex: none; min-height: 32px; padding: 0 12px; border-radius: 999px; background: transparent; box-shadow: none; font: 500 13px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); transition: color var(--dur-2) var(--ease-std), background-color var(--dur-2) var(--ease-std); }
-.scr-tabs.has-thumb::before { content: ""; position: absolute; z-index: 0; top: 2px; bottom: 2px; left: 0; width: var(--seg-w, 0px); border-radius: 999px; background: hsl(var(--sel-bg)); transform: translateX(var(--seg-x, 0px)); transition: transform var(--dur-2) var(--ease-std), width var(--dur-2) var(--ease-std); pointer-events: none; }
+.scr-tabs.has-thumb::before { content: ""; position: absolute; z-index: 0; top: 2px; bottom: 2px; left: 0; width: var(--seg-w, 0px); border-radius: 999px; background: hsl(var(--sel-bg)); transform: translateX(var(--seg-x, 0px)); transform-origin: calc(var(--seg-x, 0px) + var(--seg-w, 0px) / 2) 50%; transition: transform var(--dur-2) var(--ease-std), width var(--dur-2) var(--ease-std), scale var(--dur-spring) var(--ease-press); pointer-events: none; }
 .scr-tabs.has-thumb.no-anim::before { transition: none; }
 .scr-tabs.has-thumb button[aria-selected="true"] { background: transparent; }
 .scr-tabs button:focus-visible { outline: 2px solid var(--sel-ring); outline-offset: -2px; }
@@ -5493,12 +5599,9 @@ button.scr-live-rescan kbd { margin-left: 4px; opacity: 0.8; }
 .scr-tools { display: flex; align-items: center; gap: 6px; flex: none; margin-left: auto; }
 .scr-head > .panel-tools.in-head { order: 5; }
 @media (pointer: coarse) { .scr-tools .scr-keys-btn { display: none; } }
-.scr-tools button.small { min-height: 32px; padding: 0 11px; gap: 6px; font-size: 13px; }
-.scr-btn { position: relative; background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); color: hsl(var(--foreground)); }
-.scr-btn:hover { background: var(--mat-fill-1); }
+.scr-tools button.small { --btn-h: 32px; --btn-px: 11px; --btn-fs: 13px; gap: 6px; }
 .scr-tools button.scr-gear, .scr-tools button.scr-keys-btn { width: 32px; padding: 0; justify-content: center; }
 .scr-keys-btn span { font: 500 13.5px/1 var(--font-body); }
-.scr-badge { display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 99px; font: 500 12px/1 var(--font-numeric); color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); }
 .scr-badge[hidden] { display: none; }
 button.scr-sortchip, .scr-count-m { display: none; }
 @container scr (max-width: 900px) {
@@ -5753,6 +5856,9 @@ button.scr-card.gone { opacity: 0.45; }
 .scr-c-badge { grid-area: badge; align-self: start; }
 .scr-c-badge.box { display: inline-grid; place-items: center; min-width: 38px; height: 28px; padding: 0 6px; border-radius: 8px; font: 500 13.5px/1 var(--font-numeric); font-variant-numeric: tabular-nums; }
 .scr-c-badge.box:not([data-seq]):not([data-div]):not(.t-iv) { background: var(--mat-fill-2); }
+.scr-c-badge.box[data-div] { min-width: 0; padding: 0; background: none; color: hsl(var(--foreground)); }
+.scr-c-badge.box:is([data-div="1"], [data-div="2"], [data-div="3"]) { color: hsl(var(--pos-ink)); }
+.scr-c-badge.box:is([data-div="-1"], [data-div="-2"], [data-div="-3"]) { color: hsl(var(--neg-ink)); }
 .scr-c-badge.box.t-iv { color: hsl(var(--dv-iv-ink)); background: hsl(var(--dv-iv) / 0.14); }
 .scr-c-badge.box.t-iv.outline { background: transparent; box-shadow: inset 0 0 0 1px hsl(var(--dv-iv)); }
 .scr-c-badge.chip { padding-top: 2px; }
@@ -5889,10 +5995,6 @@ svg .scr-risk-unl.profit { fill: hsl(var(--pos-ink)); }
 .scr-d-actions button { min-height: 40px; justify-content: center; font-size: 13.5px; }
 .scr-a-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .scr-a-grid.n1 { grid-template-columns: minmax(0, 1fr); }
-button.scr-a-side { font: 500 14px/1 var(--font-body); color: hsl(var(--sel-fg)); box-shadow: none; }
-button.scr-a-side.buy { background: hsl(var(--pos)); }
-button.scr-a-side.sell { background: hsl(var(--neg)); }
-button.scr-a-side:hover { filter: brightness(1.06); }
 .scr-a-alts { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 12px; }
 .scr-a-alts button.scr-a-alt { min-height: 32px; font-size: 12.5px; color: hsl(var(--foreground) / var(--a-label)); }
 .scr-detail-body.in-sheet :is(.scr-d-head, .scr-d-sec, .scr-d-note, .scr-d-costs, .scr-d-slot) { padding-left: 0; padding-right: 0; }
@@ -5965,7 +6067,7 @@ button.scr-sort-dir { width: 44px; min-height: 44px; padding: 0; justify-content
 @media (max-width: 1023px) {
   .scr-tools .scr-lbl { display: none; }
   .scr-tools button.scr-btn { width: 34px; padding: 0; justify-content: center; }
-  .scr-tools .scr-btn .scr-badge { position: absolute; top: -5px; right: -5px; }
+  .scr-tools button.scr-btn:has(.scr-badge:not([hidden])) { width: auto; padding: 0 8px; }  /* the count stays inside (BUTTON-SYSTEM.md §9) */
 }
 /* Phone: a sticky sub-head (tabs; sort chip, Filters, Rescan, the count), cards, sheets. */
 @media (max-width: 719px) {
@@ -5988,8 +6090,7 @@ button.scr-sort-dir { width: 44px; min-height: 44px; padding: 0; justify-content
   .scr-slot.chart-slot-box { height: 160px; }
 }
 @media (pointer: coarse) {
-  .scr-tabs button, .scr-tools button.small, button.scr-uchip, .scr-chip button, button.scr-more, .scr-d-actions button, .scr-issues li button, button.scr-reset, .scr-a-alts button.scr-a-alt { min-height: 44px; }
-  .scr-tools button.scr-btn { min-width: 44px; }
+  .scr-tabs button, .scr-chip button, .scr-issues li button { min-height: 44px; }
   .scr-tools button.scr-sortchip { min-width: 0; }
   .scr-chip-x { width: 44px; }
   .scr-issues > summary, .scr-method > summary, .scr-d-costs > summary, button.scr-map-btn { min-height: 44px; }
@@ -6002,7 +6103,7 @@ button.scr-sort-dir { width: 44px; min-height: 44px; padding: 0; justify-content
 @media (prefers-reduced-motion: reduce) {
   .scr-map { animation: none; }
   .scr-progress > span, .scr-issues > summary::after, .scr-method > summary::after, .scr-d-costs > summary::after, .scr-tabs.has-thumb::before, .scr-tabs button, .scr-cbar-f, .scr-comp i b, .scr-pt-f, .scr-sig-d, .scr-ring-arc, svg .scr-dot { transition: none; }
-  button.scr-uchip.shake { animation: none; box-shadow: inset 0 0 0 2px hsl(var(--warn)); }
+  button.scr-uchip.shake { animation: none; box-shadow: inset 0 0 0 2px hsl(var(--foreground)); }
   .scr-live[data-kind="scanning"] .scr-ldot, .scr-live-now.k-scanning .scr-ldot, .scr-ldot.tick-a, .scr-ldot.tick-b, .scr-live[data-kind="scanning"] .scr-ldot.tick-a, .scr-cg.fetching i { animation: none; }
 }
 @media (forced-colors: active) {
@@ -6152,7 +6253,7 @@ table.chain tfoot .foot-pcr { white-space: nowrap; }
 #dialog .pop-sheet > .pop-body { flex: 1 1 auto; min-height: 0; }
 
 /* Focus: one ring on every control; inside tables it is drawn inward so sticky neighbours never clip it. */
-:root[data-layout="desk"] :is(#content, #dialog, .popover) :is(button, select, input, a[href], summary, [tabindex="0"]:not(tr)):focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+:root[data-layout="desk"] :is(#content, #dialog, .popover) :is(select, input, a[href], summary, [tabindex="0"]:not(tr)):not(button, .btn):focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 :root[data-layout="desk"] #content :is(table, .table-wrap) :is(button, a[href], input):focus-visible { outline-offset: -2px; }
 /* Sticky bars never hide focus: the page scroll keeps clear of the top bar and the floating tab bar. */
 :root[data-layout="desk"] { scroll-padding-top: calc(var(--toolbar-h, 56px) + 8px); }
@@ -6170,11 +6271,11 @@ table.chain tfoot .foot-pcr { white-space: nowrap; }
 
 /* Touch targets: 44 × 44 on coarse pointers for every Options control (PRD 08 §9.4). */
 @media (pointer: coarse) {
-  button.q-btn, table.chain .side-btn, .chain-tools .segmented button, button.preset, button.live-toggle, .panel-tools button, .atm-pill, .col-move .reorder, .step-btn, button.preset-chip, button.gear-btn { min-height: 44px; }
-  .col-move .reorder, .step-btn, button.gear-btn, .icon-btn.tiny { min-width: 44px; min-height: 44px; }
-  :root[data-layout="desk"] :is(#content, #dialog, .popover) :is(button, select, input:not([type="checkbox"]):not([type="radio"]):not([type="range"])) { min-height: 44px; }
+  button.q-btn, table.chain .side-btn, .chain-tools .segmented button, .panel-tools button, .atm-pill, .col-move .reorder, .step-btn { min-height: 44px; }
+  .col-move .reorder, .step-btn, .icon-btn.tiny { min-width: 44px; min-height: 44px; }
+  :root[data-layout="desk"] :is(#content, #dialog, .popover) :is(select, input:not([type="checkbox"]):not([type="radio"]):not([type="range"])) { min-height: 44px; }
   /* Narrow controls get a 44 px width too (named, so flex items keep their content width: min-width auto). */
-  :root[data-layout="desk"] :is(#content, #dialog, .popover) :is(.icon-btn, .tool-group button, .scen-tools .segmented button, .oi-help-btn, .touch-btns button, .segmented button, .pos-acts button) { min-width: 44px; }
+  :root[data-layout="desk"] :is(#content, #dialog, .popover) :is(.icon-btn, .scen-tools .segmented button, .segmented button, .pos-acts button) { min-width: 44px; }
   :root[data-layout="desk"] :is(#content, #dialog) input[type="range"] { min-height: 44px; }
   :root[data-layout="desk"] #content .segmented button { min-height: 44px; }
 }
@@ -6227,7 +6328,7 @@ a.small-link:hover { text-decoration: underline; }
 /* Touch screens: every control reaches the 44px target (Apple HIG); only the box grows. Inputs use 16px text so iOS
    does not zoom in on focus. */
 @media (pointer: coarse) {
-  button.small, .segmented button, .tabs button, .sheet-close, .sb-search { min-height: 44px; }
+  .segmented button, .tabs button, .sheet-close, .sb-search { min-height: 44px; }
   .icon-btn { width: 44px; height: 44px; }
   .sheet-close { width: 44px; }
   input, select, textarea { font-size: 16px; }
@@ -6240,6 +6341,8 @@ a.small-link:hover { text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  /* Buttons answer at once (the press, the hover fade, the thumb); a loading ring holds still, its gap still says busy. */
+  button[aria-busy="true"]::before, .btn[aria-busy="true"]::before { animation: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .card, .glass, .icon-btn, dialog.sheet, .scroll-edge, .toast, .toolbar-search {
