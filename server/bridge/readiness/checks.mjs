@@ -33,7 +33,7 @@ export const hhmmMinutes = (s) => Number(String(s).slice(0, 2)) * 60 + Number(St
 /** 0 = Sunday … 6 = Saturday, for an IST date. */
 export const weekdayOf = (date) => new Date(`${date}T00:00:00Z`).getUTCDay();
 export const addDays = (date, n) => new Date(Date.parse(`${date}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
-/** Weekday rule used until the reference calendar (P1-2) is present: Monday to Friday. */
+/** Plain Monday-to-Friday rule (the monitor falls back to lib/marketHours.mjs, which also knows special sessions). */
 export const isWeekday = (date) => {
   const d = weekdayOf(date);
   return d >= 1 && d <= 5;
@@ -123,7 +123,7 @@ export function sessionCheck({ session, probe, probeRequired = true, now, warnMi
 
 /**
  * @param {{ mode: "off"|"lookup"|"manual", registeredIp?: string | null, backupIp?: string | null, manualIp?: string | null,
- *   detected: { ip?: string | null, family?: string | null, at?: number | null, seenBy?: string | null, error?: string | null, clockSkewMs?: number | null } | null,
+ *   detected: { ip?: string | null, family?: string | null, at?: number | null, okAt?: number | null, seenBy?: string | null, error?: string | null, clockSkewMs?: number | null } | null,
  *   now: number, intervalMinutes: number, maxSkewMs?: number, who?: { label?: string, brokerName?: string } }} input
  */
 export function egressCheck({ mode, registeredIp, backupIp, manualIp, detected, now, intervalMinutes, maxSkewMs = 5000, who = {} }) {
@@ -183,9 +183,21 @@ export function egressCheck({ mode, registeredIp, backupIp, manualIp, detected, 
   check.seenBy = d?.seenBy ?? null;
   check.detectedIp = det?.ip ?? null;
   check.family = det?.family ?? null;
+  const families = [reg?.family, bak?.family].filter(Boolean);
+  const isMatch = (x) => Boolean((reg && reg.ip === x.ip) || (bak && bak.ip === x.ip));
+  const mismatch = () => reason("egress", "IP_MISMATCH", "fail", `This computer's internet address does not match the static IP registered for ${name}. Live orders will be refused by ${who.brokerName ?? "the broker"}.`);
   const tooOld = mode === "lookup" && (!Number.isFinite(d?.at) || now - d.at > 2 * intervalMinutes * MINUTE);
   if (!det || d?.error || tooOld) {
-    reasons.push(reason("egress", "IP_LOOKUP_FAILED", "warn", d?.error ? `The egress IP lookup failed (${d.error}).` : "The egress IP has not been looked up recently."));
+    const failed = reason("egress", "IP_LOOKUP_FAILED", "warn", d?.error ? `The egress IP lookup failed (${d.error}).` : "The egress IP has not been looked up recently.");
+    // A failed lookup does not show that the address changed back: a mismatch from the last good answer stands while
+    // that answer is fresh (≤ 2 × interval), so one timeout never turns cannot_trade into "ready again".
+    const lastGoodFresh = mode === "lookup" && det && Number.isFinite(d?.okAt) && now - d.okAt <= 2 * intervalMinutes * MINUTE;
+    if (lastGoodFresh && families.includes(det.family) && !isMatch(det)) {
+      check.matches = false;
+      reasons.push(mismatch(), failed);
+      return done("fail");
+    }
+    reasons.push(failed);
     return done("warn");
   }
   if (mode === "lookup" && Number.isFinite(d.clockSkewMs)) {
@@ -194,15 +206,14 @@ export function egressCheck({ mode, registeredIp, backupIp, manualIp, detected, 
       reasons.push(reason("egress", "CLOCK_SKEW", "warn", `This computer's clock is off by about ${Math.round(Math.abs(d.clockSkewMs) / 1000)} s. Times in orders and the 09:00 check may be wrong.`));
     }
   }
-  const families = [reg?.family, bak?.family].filter(Boolean);
   if (!families.includes(det.family)) {
     reasons.unshift(reason("egress", "IP_FAMILY_DIFFERS", "warn", `Your lookup service answered over ${det.family === "ipv6" ? "IPv6" : "IPv4"}; the registered IP is ${families[0] === "ipv6" ? "IPv6" : "IPv4"}, so they cannot be compared. Choose an ${families[0] === "ipv6" ? "IPv6" : "IPv4"}-only lookup URL.`));
     return done("warn");
   }
-  const matches = (reg && reg.ip === det.ip) || (bak && bak.ip === det.ip);
-  check.matches = Boolean(matches);
+  const matches = isMatch(det);
+  check.matches = matches;
   if (!matches) {
-    reasons.unshift(reason("egress", "IP_MISMATCH", "fail", `This computer's internet address does not match the static IP registered for ${name}. Live orders will be refused by ${who.brokerName ?? "the broker"}.`));
+    reasons.unshift(mismatch());
     return done("fail");
   }
   return done(reasons.length ? "warn" : "pass");
@@ -303,7 +314,16 @@ export function notifyKey(state, reasons) {
 }
 
 /**
+ * state + ":" + sorted failing reason codes: what the cannot_trade cooldown compares. Warn reasons (PROBE_FAILED,
+ * RATE_CAP_REACHED, CLOCK_SKEW …) come and go while the same failure stands; they must not bypass the cooldown (R5).
+ */
+export function notifyFailKey(state, reasons) {
+  return `${state}:${[...new Set((reasons ?? []).filter((r) => r.severity === "fail").map((r) => r.code))].sort().join(",")}`;
+}
+
+/**
  * Whether a change (state or reason set) is pushed to the notification targets.
+ * `key` / `lastKey` are notifyFailKey() values (the fail set), so warn-only changes stay inside the cooldown.
  * @param {{ from: string, to: string, key: string, lastKey: string | null, lastAt: number | null, now: number,
  *   cooldownMinutes: number, onRecovery: boolean }} input
  * @returns {{ notify: boolean, kind: "change"|"recovered" }}

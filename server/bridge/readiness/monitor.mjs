@@ -26,6 +26,7 @@ import { BROKER_NAMES } from "../accounts/brokerInfo.mjs";
 import { createBackgroundGate, MAX_BACKGROUND_SHARE } from "../ratelimit/backgroundGate.mjs";
 import { formatEvent } from "../notify/format.mjs";
 import { createDemoReadiness, DEMO_SAMPLE_AUTOMATIONS } from "../demo/demoReadiness.mjs";
+import { marketSession } from "../../lib/marketHours.mjs";
 import { createAutomationRegistry } from "./automations.mjs";
 import {
   combine,
@@ -39,12 +40,12 @@ import {
   istInstant,
   istIso,
   isStale,
-  isWeekday,
   jitterSecondsFor,
   killSwitchCheck,
   liveConfigCheck,
   nextCycleAt,
   nextPreOpenAt,
+  notifyFailKey,
   notifyKey,
   preopenDue,
   probeCooldownSeconds,
@@ -113,6 +114,7 @@ export function createReadinessService(deps, opts = {}) {
     let m = mem.get(id);
     if (!m) {
       const p = persisted.accounts[id] ?? {};
+      const restoredState = typeof p.state === "string" ? p.state : null;
       m = {
         result: null,
         prevState: typeof p.state === "string" ? p.state : "unknown",
@@ -121,7 +123,9 @@ export function createReadinessService(deps, opts = {}) {
         lastProbe: p.lastProbe && Number.isFinite(p.lastProbe.at) && p.lastProbe.result === "ok" ? { at: p.lastProbe.at, result: "ok" } : null,
         lastNotifiedAt: Number.isFinite(p.lastNotifiedAt) ? p.lastNotifiedAt : null,
         lastNotifiedKey: typeof p.lastNotifiedKey === "string" ? p.lastNotifiedKey : null,
-        key: null,
+        // The key of the restored state, so a restart while the same failure stands is not a "change" (§7.7).
+        key: restoredState ? notifyKey(restoredState, Array.isArray(p.reasons) ? p.reasons : []) : null,
+        probing: false,
         inflight: null,
         debounce: null,
         pendingProbe: false,
@@ -131,7 +135,7 @@ export function createReadinessService(deps, opts = {}) {
     return m;
   };
 
-  const egress = { ip: null, family: persisted.egress?.family ?? null, at: null, seenBy: persisted.egress?.seenBy ?? detector.seenBy ?? null, error: null, clockSkewMs: null, lastLookupAt: null, inflight: null };
+  const egress = { ip: null, family: persisted.egress?.family ?? null, at: null, okAt: null, seenBy: persisted.egress?.seenBy ?? detector.seenBy ?? null, error: null, clockSkewMs: null, lastLookupAt: null, inflight: null };
   let preopenLastRunDate = persisted.preopen?.lastRunDate ?? null;
   let transitions = [...(persisted.transitions ?? [])];
   let lastCycleAt = null;
@@ -175,7 +179,13 @@ export function createReadinessService(deps, opts = {}) {
         /* fall back */
       }
     }
-    return isWeekday(date);
+    // lib/marketHours.mjs: weekdays, plus any special session (a Saturday budget day, Muhurat) the operator listed.
+    try {
+      return marketSession(new Date(istInstant(date, "12:00"))).label !== "Weekend";
+    } catch {
+      const d = new Date(`${date}T00:00:00Z`).getUTCDay();
+      return d >= 1 && d <= 5;
+    }
   }
   function closeMsFor(t) {
     const d = istDate(t);
@@ -249,7 +259,7 @@ export function createReadinessService(deps, opts = {}) {
     const run = (async () => {
       const r = await detector.lookup();
       if (r.ok) {
-        Object.assign(egress, { ip: r.ip, family: r.family, at: r.at, seenBy: r.seenBy ?? detector.seenBy ?? null, error: null, clockSkewMs: r.clockSkewMs ?? null });
+        Object.assign(egress, { ip: r.ip, family: r.family, at: r.at, okAt: r.at ?? now(), seenBy: r.seenBy ?? detector.seenBy ?? null, error: null, clockSkewMs: r.clockSkewMs ?? null });
         feedSafety();
       } else {
         Object.assign(egress, { at: r.at ?? now(), error: r.error ?? "lookup failed", seenBy: r.seenBy ?? egress.seenBy });
@@ -302,6 +312,15 @@ export function createReadinessService(deps, opts = {}) {
       }
     }
     const run = () => accounts.testConnection(account.id);
+    m.probing = true;
+    try {
+      m.lastProbe = { at: now(), result: await probeResult(account, run, cls, local) };
+    } finally {
+      m.probing = false;
+    }
+  }
+
+  async function probeResult(account, run, cls, local) {
     const call = scheduler && !local
       ? scheduler.schedule({ accountId: account.id, endpointClass: cls, priority: "background", backgroundShare: MAX_BACKGROUND_SHARE, coalesceKey: `readiness-probe:${account.id}`, maxWaitMs: cfg.probe.timeoutMs }, run)
       : run();
@@ -318,7 +337,7 @@ export function createReadinessService(deps, opts = {}) {
       const code = r?.error?.code;
       result = after === "expired" || code === "SESSION_EXPIRED" || code === "SESSION_LOGIN_REQUIRED" || code === "UPSTREAM_AUTH" ? "rejected" : "error";
     }
-    m.lastProbe = { at: now(), result };
+    return result;
   }
 
   // ───────────────────────────── evaluate ─────────────────────────────
@@ -378,7 +397,7 @@ export function createReadinessService(deps, opts = {}) {
           mode: cfg.egressIp.mode,
           registeredIp: account.live?.registeredIp ?? null,
           backupIp: account.live?.backupIp ?? null,
-          detected: cfg.egressIp.mode === "lookup" ? { ip: egress.ip, family: egress.family, at: egress.at, seenBy: egress.seenBy, error: egress.error, clockSkewMs: egress.clockSkewMs } : { at: null, seenBy: "as entered" },
+          detected: cfg.egressIp.mode === "lookup" ? { ip: egress.ip, family: egress.family, at: egress.at, okAt: egress.okAt, seenBy: egress.seenBy, error: egress.error, clockSkewMs: egress.clockSkewMs } : { at: null, seenBy: "as entered" },
         };
     return { session, live, lim, broker, backoffMs, eg, simulated };
   }
@@ -411,6 +430,7 @@ export function createReadinessService(deps, opts = {}) {
     const c = combine({ allowedByConfig: inp.live.allowedByConfig, checks, reasons, checkedAt: t, now: t, staleAfterMinutes: cfg.staleAfterMinutes });
     const from = m.result?.state ?? m.prevState ?? "unknown";
     const key = notifyKey(c.state, c.reasons);
+    const failKey = notifyFailKey(c.state, c.reasons);
     if (c.state !== from || !m.since) m.since = istIso(t);
     m.result = {
       accountId: id,
@@ -436,7 +456,7 @@ export function createReadinessService(deps, opts = {}) {
       registry.notify({ accountId: id, state: c.state, reasons: c.reasons, at: istIso(t) });
     }
     if (c.state !== from || key !== m.key) {
-      const d = shouldNotify({ from, to: c.state, key, lastKey: m.lastNotifiedKey, lastAt: m.lastNotifiedAt, now: t, cooldownMinutes: cfg.notify.cooldownMinutes, onRecovery: cfg.notify.onRecovery });
+      const d = shouldNotify({ from, to: c.state, key: failKey, lastKey: m.lastNotifiedKey, lastAt: m.lastNotifiedAt, now: t, cooldownMinutes: cfg.notify.cooldownMinutes, onRecovery: cfg.notify.onRecovery });
       const autos = registry.byAccount(id);
       const payload = {
         accountId: id,
@@ -454,7 +474,7 @@ export function createReadinessService(deps, opts = {}) {
       };
       if (d.notify && c.state === "cannot_trade") {
         m.lastNotifiedAt = t;
-        m.lastNotifiedKey = key;
+        m.lastNotifiedKey = failKey;
         dirty = true;
       }
       emit(payload);
@@ -478,8 +498,8 @@ export function createReadinessService(deps, opts = {}) {
     if (m.inflight) return m.inflight;
     const run = (async () => {
       try {
-        if (doEgress) await refreshEgress(skipped);
-        if (doProbe) await probe(account, skipped);
+        // Side by side: one evaluation takes max(probe, egress) time, not their sum (§7.5).
+        await Promise.all([doEgress ? refreshEgress(skipped) : null, doProbe ? probe(account, skipped) : null]);
         return computeAndApply(account);
       } catch (err) {
         log?.warn?.("readiness evaluation failed", { accountId: account.id, err: err?.message });
@@ -591,9 +611,9 @@ export function createReadinessService(deps, opts = {}) {
       m.debounce = null;
       const p = m.pendingProbe;
       m.pendingProbe = false;
-      const t = now();
-      const window = sim ? true : inWindow(t, cfg.window);
-      void evaluate(account, { probe: p && window, egress: false }).then(() => persist());
+      // Bus triggers probe whenever asked (a login at 08:30 or after the close is the normal case): the probe cooldown
+      // and the background gate bound the cost. Only the startup run is limited to the window.
+      void evaluate(account, { probe: p, egress: false }).then(() => persist());
     }, DEBOUNCE_MS);
     m.debounce?.unref?.();
   }
@@ -754,11 +774,29 @@ export function createReadinessService(deps, opts = {}) {
       }
     }
     void reason;
+    let timedOut = false;
     if (cfg.enabled) {
       const work = Promise.all(list.map((a) => evaluate(a, { probe: true, egress: true, skipped }))).then(() => persist());
-      await withTimeout(work, CHECK_WAIT_MS, () => null);
+      await withTimeout(work, CHECK_WAIT_MS, () => {
+        timedOut = true;
+        return null;
+      });
     }
-    return { snapshot: status({ accountIds: accountId ? [accountId] : undefined }), skipped: [...skipped] };
+    const snapshot = status({ accountIds: accountId ? [accountId] : undefined });
+    if (timedOut) {
+      // §4.2: the parts still running carry status unknown / "Still checking" (not the previous answer).
+      const still = { status: "unknown", message: "Still checking" };
+      snapshot.accounts = snapshot.accounts.map((v) => {
+        const probing = memFor(v.accountId).probing;
+        const looking = Boolean(egress.inflight) && cfg.egressIp.mode === "lookup" && !v.simulated;
+        if (!probing && !looking) return v;
+        const checks = { ...v.checks };
+        if (probing) checks.session = { ...checks.session, ...still };
+        if (looking) checks.egress = { ...checks.egress, ...still };
+        return { ...v, checks };
+      });
+    }
+    return { snapshot, skipped: [...skipped] };
   }
 
   const service = {

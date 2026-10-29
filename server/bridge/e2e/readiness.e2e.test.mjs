@@ -231,7 +231,9 @@ describe("trading readiness end to end", () => {
     expect(p.status).toBe(200);
     const messages = p.json.data.checks.map((c) => `${c.code}: ${c.message}`).join("\n");
     expect(messages).toMatch(/READINESS: Readiness: cannot trade: This computer's internet address does not match/);
-    expect(messages).toMatch(new RegExp(`looks like ${CHANGED.replaceAll(".", "\\.")}, but stub-live is registered with ${REGISTERED.replaceAll(".", "\\.")}`));
+    expect(messages).toMatch(/does not match the static IP registered for stub-live \(see readiness\)/);
+    // A non-admin key's preview never carries either address (§9).
+    expect(JSON.stringify(p.json)).not.toMatch(/198\.51\.100\.23|203\.0\.113\.10/);
     expect(JSON.stringify(notifications)).not.toMatch(/198\.51\.100\.23|203\.0\.113\.10/);
   });
 

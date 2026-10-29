@@ -12,6 +12,7 @@ import {
   killSwitchCheck,
   liveConfigCheck,
   nextPreOpenAt,
+  notifyFailKey,
   notifyKey,
   preopenDue,
   probeCooldownSeconds,
@@ -144,6 +145,17 @@ describe("§7.3 egress", () => {
     expect(egressCheck({ mode: "lookup", registeredIp: "203.0.113.10", detected: { ip: "203.0.113.10", at: now - 9 * MIN }, now, intervalMinutes: 4 }).reasons[0].code).toBe("IP_LOOKUP_FAILED");
     expect(egressCheck({ mode: "lookup", registeredIp: "203.0.113.10", detected: null, now, intervalMinutes: 4 }).reasons[0].code).toBe("IP_LOOKUP_FAILED");
   });
+  it("a failed lookup keeps a fresh mismatch (fail + IP_LOOKUP_FAILED); it never claims the address is back", () => {
+    const failed = (okAt) => egressCheck({ mode: "lookup", registeredIp: "203.0.113.10", detected: { ip: "198.51.100.23", at: now, okAt, error: "timed out" }, now, intervalMinutes: 4, who });
+    const fresh = failed(now - 4 * MIN);
+    expect(fresh.check).toMatchObject({ status: "fail", matches: false });
+    expect(fresh.reasons.map((r) => `${r.code}:${r.severity}`)).toEqual(["IP_MISMATCH:fail", "IP_LOOKUP_FAILED:warn"]);
+    expect(failed(now - 9 * MIN).check.status).toBe("warn");
+    // A matching last answer is not reused as a pass.
+    const ok = egressCheck({ mode: "lookup", registeredIp: "203.0.113.10", detected: { ip: "203.0.113.10", at: now, okAt: now - MIN, error: "timed out" }, now, intervalMinutes: 4, who });
+    expect(ok.check.status).toBe("warn");
+    expect(ok.reasons.map((r) => r.code)).toEqual(["IP_LOOKUP_FAILED"]);
+  });
   it("manual mode compares the stated address and never fails on age", () => {
     expect(egressCheck({ mode: "manual", registeredIp: "203.0.113.10", manualIp: "203.0.113.10", detected: null, now, intervalMinutes: 4 }).check).toMatchObject({ status: "pass", seenBy: "as entered" });
     expect(egressCheck({ mode: "manual", registeredIp: "203.0.113.10", manualIp: "198.51.100.23", detected: null, now, intervalMinutes: 4 }).check.status).toBe("fail");
@@ -212,6 +224,7 @@ describe("§7.7 notification dedupe (worked example, step by step)", () => {
     expect(shouldNotify({ from: "ready", to: "warn", key: "warn:X", lastKey: null, lastAt: null, now: 0, ...cfg }).notify).toBe(false);
     expect(shouldNotify({ from: "cannot_trade", to: "ready", key: "ready:", lastKey: null, lastAt: null, now: 0, cooldownMinutes: 15, onRecovery: false }).notify).toBe(false);
     expect(notifyKey("cannot_trade", [{ code: "B", severity: "fail" }, { code: "A", severity: "warn" }])).toBe("cannot_trade:A,B");
+    expect(notifyFailKey("cannot_trade", [{ code: "B", severity: "fail" }, { code: "A", severity: "warn" }])).toBe("cannot_trade:B");
   });
 });
 

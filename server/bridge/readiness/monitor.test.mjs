@@ -10,6 +10,7 @@ import { createEventBus } from "../core/eventBus.mjs";
 import { createNullLogger } from "../core/logger.mjs";
 import { parseReadinessConfig } from "./config.mjs";
 import { createReadinessService } from "./monitor.mjs";
+import { setSpecialSessions } from "../../lib/marketHours.mjs";
 
 const T = (s) => Date.parse(s);
 const MON_0840 = T("2026-10-19T08:40:00+05:30");
@@ -358,5 +359,106 @@ describe("readiness contract helpers", () => {
     await new Promise((r) => setTimeout(r, 5));
     expect(seen).toEqual(["warn", "cannot_trade"]);
     expect(svc.status().automations).toEqual({ total: 1, live: 1, cannotTrade: 1 });
+  });
+});
+
+describe("readiness review fixes", () => {
+  const DHAN = [{ id: "dhan-main", broker: "dhan", label: "Main", enabled: true, live: { enabled: true, allowedSources: ["rest", "webhook"] } }];
+  const LOOKUP = { egressIp: { mode: "lookup", lookupUrl: "https://api.ipify.org" } };
+
+  it("a login before the window (08:30) probes at once: ready, with a 'recovered' push", async () => {
+    vi.setSystemTime(T("2026-10-19T08:30:00+05:30"));
+    const h = harness({ accounts: DHAN });
+    const svc = h.make();
+    svc.start();
+    await vi.advanceTimersByTimeAsync(20_100); // startup outside the window: no probe
+    expect(h.accounts.testConnection).not.toHaveBeenCalled();
+    h.bus.emit("account.session_rejected", { accountId: "dhan-main", broker: "dhan", code: "SESSION_EXPIRED" });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(svc.status().accounts[0].state).toBe("cannot_trade");
+    h.bus.emit("account.status", { accountId: "dhan-main", broker: "dhan", session: "connected" });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(h.accounts.testConnection).toHaveBeenCalledTimes(1);
+    expect(svc.status().accounts[0].state).toBe("ready");
+    expect(h.events.at(-1)).toMatchObject({ state: "ready", previous: "cannot_trade", kind: "recovered", notify: true });
+    svc.stop();
+  });
+
+  it("a restart while the same failure stands does not notify again, even after the cooldown", async () => {
+    vi.setSystemTime(MON_1000);
+    const h = harness({ accounts: DHAN });
+    h.setKillSwitch({ engaged: true, reason: "manual", by: "me", at: "x" });
+    const svc = h.make();
+    await svc.check({});
+    expect(h.events.filter((e) => e.notify)).toHaveLength(1);
+    svc.stop();
+    vi.setSystemTime(MON_1000 + 20 * 60_000);
+    const svc2 = h.make();
+    await svc2.check({});
+    expect(svc2.status().accounts[0].state).toBe("cannot_trade");
+    expect(h.events.filter((e) => e.notify)).toHaveLength(1);
+  });
+
+  it("warn reasons flapping next to the same failure stay inside the cooldown (one push)", async () => {
+    vi.setSystemTime(MON_1000);
+    const h = harness({ readiness: LOOKUP, egress: fakeEgress(() => ({ ok: true, ip: "198.51.100.23", family: "ipv4", at: Date.now(), seenBy: "api.ipify.org" })) });
+    let n = 0;
+    h.accounts.testConnection.mockImplementation(async () => (n++ % 2 ? { ok: false, error: { code: "UPSTREAM_TIMEOUT" } } : { ok: true }));
+    const svc = h.make();
+    const codes = [];
+    for (let i = 0; i < 4; i += 1) {
+      vi.setSystemTime(MON_1000 + i * 4 * 60_000);
+      await svc.check({});
+      codes.push(svc.status().accounts[0].reasons.map((r) => r.code).join(","));
+    }
+    expect(codes).toEqual(["IP_MISMATCH", "IP_MISMATCH,PROBE_FAILED", "IP_MISMATCH", "IP_MISMATCH,PROBE_FAILED"]);
+    expect(h.events.filter((e) => e.notify)).toHaveLength(1);
+  });
+
+  it("one failed lookup while a mismatch is known stays cannot_trade: no 'ready again' push", async () => {
+    vi.setSystemTime(MON_1000);
+    let fail = false;
+    const h = harness({ readiness: LOOKUP, accounts: [{ ...DHAN[0], live: { ...DHAN[0].live, registeredIp: "203.0.113.10" } }], egress: fakeEgress(() => (fail ? { ok: false, error: "timed out", at: Date.now() } : { ok: true, ip: "198.51.100.23", family: "ipv4", at: Date.now(), seenBy: "api.ipify.org" })) });
+    const svc = h.make();
+    await svc.check({});
+    expect(svc.status().accounts[0].state).toBe("cannot_trade");
+    fail = true;
+    vi.setSystemTime(MON_1000 + 4 * 60_000);
+    await svc.check({});
+    expect(svc.status().accounts[0].state).toBe("cannot_trade");
+    expect(svc.status().accounts[0].reasons.map((r) => r.code)).toEqual(["IP_MISMATCH", "IP_LOOKUP_FAILED"]);
+    expect(h.events.some((e) => e.kind === "recovered")).toBe(false);
+  });
+
+  it("the probe and the egress lookup run side by side; checkNow's 12 s answer marks what is still running", async () => {
+    vi.setSystemTime(MON_1000);
+    const slow = (v, ms) => () => new Promise((r) => setTimeout(() => r(v), ms));
+    const h = harness({ readiness: { ...LOOKUP, probe: { timeoutMs: 30_000 }, egressIp: { ...LOOKUP.egressIp, timeoutMs: 8000 } }, egress: fakeEgress(slow({ ok: true, ip: "203.0.113.10", family: "ipv4", at: MON_1000, seenBy: "api.ipify.org" }, 7000)) });
+    h.accounts.testConnection.mockImplementation(slow({ ok: true }, 7000));
+    const svc = h.make();
+    let done = null;
+    svc.checkNow({}).then((r) => (done = r));
+    await vi.advanceTimersByTimeAsync(7100);
+    expect(done?.snapshot.accounts[0].state).toBe("ready"); // 7 s, not 14 s
+
+    h.accounts.testConnection.mockImplementation(() => new Promise(() => {}));
+    vi.setSystemTime(MON_1000 + 60_000);
+    done = null;
+    svc.checkNow({}).then((r) => (done = r));
+    await vi.advanceTimersByTimeAsync(12_100);
+    expect(done.snapshot.accounts[0].checks.session).toMatchObject({ status: "unknown", message: "Still checking" });
+    expect(svc.status().accounts[0].checks.session.status).toBe("pass"); // the stored answer is untouched
+  });
+
+  it("without a reference calendar, a weekend special session (lib/marketHours) is a trading day", async () => {
+    vi.setSystemTime(T("2026-10-24T10:00:00+05:30")); // Saturday
+    const h = harness();
+    try {
+      expect(h.make().status().schedule.tradingDay).toBe(false);
+      setSpecialSessions({ "2026-10-24": { startMinute: 555, endMinute: 930, label: "Special session" } });
+      expect(h.make().status().schedule.tradingDay).toBe(true);
+    } finally {
+      setSpecialSessions({});
+    }
   });
 });
