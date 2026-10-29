@@ -2651,11 +2651,13 @@ input.vol-rate { width: 90px; min-height: 34px; text-align: right; }
 .arb-chip.stale { color: hsl(var(--ios-orange-ink)); background: hsl(var(--ios-orange) / 0.15); }
 
 .arb-body { display: grid; grid-template-columns: minmax(0, 1fr) 360px; align-items: start; }
+/* Up to 1440 the default parity columns must fit beside the pane without an inner scroll. */
+@media (max-width: 1440px) { .arb-body { grid-template-columns: minmax(0, 1fr) 340px; } }
 .arb-main { min-width: 0; box-shadow: inset calc(-1 * var(--hl)) 0 0 var(--mat-separator); }
 .arb-wrap { max-height: max(360px, calc(100vh - 260px)); overflow: auto; overscroll-behavior: contain; }
 .arb-wrap[hidden], .arb-cards[hidden], .arb-empty[hidden] { display: none; }
 table.arb-table { width: 100%; border-collapse: separate; border-spacing: 0; font: 450 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; }
-table.arb-table th, table.arb-table td { height: 42px; padding: 0 6px; text-align: left; white-space: nowrap; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+table.arb-table th, table.arb-table td { height: 42px; padding: 0 5px; text-align: left; white-space: nowrap; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 table.arb-table th:first-child, table.arb-table td:first-child { padding-left: 12px; }
 table.arb-table th:last-child, table.arb-table td:last-child { padding-right: 12px; }
 table.arb-table .num { text-align: right; }
@@ -2722,7 +2724,7 @@ table.arb-table tr.shimmer td { height: 42px; }
 .arb-d-head { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 10px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 .arb-d-eyebrow { font: 650 10.5px/1 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--foreground) / var(--a-quiet)); }
 .arb-d-title { margin: 0; font: 700 15px/1.25 var(--font-display); letter-spacing: -0.01em; }
-.arb-d-title:focus { outline: none; }
+.arb-d-title:focus, .arb-d-title:focus:not(:focus-visible) { outline: none; }
 .arb-d-title:focus-visible { outline: 2px solid hsl(var(--ios-blue) / 0.6); outline-offset: 2px; border-radius: 4px; }
 .arb-d-pills { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .arb-kind { display: inline-block; padding: 2px 8px; border-radius: 99px; font: 650 11px/1.4 var(--font-body); color: hsl(var(--ios-indigo-ink)); background: hsl(var(--ios-indigo) / 0.12); }
@@ -2773,8 +2775,11 @@ table.arb-legs .side-tag { width: 20px; min-width: 20px; height: 20px; min-heigh
 .arb-d-actions .primary { margin-left: auto; }
 .arb-detail.empty .arb-d-head { box-shadow: none; }
 .arb-detail.in-sheet .arb-d-head { padding: 0 0 10px; }
-.arb-detail.in-sheet .arb-d-eyebrow { display: none; }
-.arb-detail.in-sheet .arb-d-actions { position: sticky; bottom: 0; z-index: 2; margin: 0 -4px; padding: 10px 4px calc(10px + var(--safe-b, 0px)); background: var(--mat-thick); box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+.arb-detail.in-sheet .arb-d-eyebrow, .arb-detail.in-sheet .arb-d-title { display: none; } /* the sheet's own heading is the title */
+.arb-detail.in-sheet .arb-d-head:not(:has(.arb-kind:not(:empty), .arb-kind-seg > *)) { display: none; }
+/* The sheet's actions stick to its real bottom edge: the body's bottom padding moves into the footer, opaque. */
+.dialog-body:has(> .arb-detail.in-sheet) { padding-bottom: 0; }
+.arb-detail.in-sheet .arb-d-actions { position: sticky; bottom: 0; z-index: 2; margin: 0 -4px; padding: 10px 4px calc(14px + var(--safe-b, 0px)); background: linear-gradient(var(--mat-thick), var(--mat-thick)), var(--mat-grouped-solid); box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
 .arb-detail.in-sheet .arb-d-sec, .arb-detail.in-sheet .arb-d-note, .arb-detail.in-sheet .arb-d-pay, .arb-detail.in-sheet .arb-flags, .arb-detail.in-sheet .arb-d-msg { padding-left: 0; padding-right: 0; }
 
 /* Phone cards: one 56 px row per item, hairline-separated, not boxed. */
@@ -2853,7 +2858,9 @@ table.arb-pv small.block { display: block; margin-top: 3px; white-space: normal;
   .arb-body { display: block; }
   .arb-main { box-shadow: none; }
   .arb-pane { display: none; }
-  .arb-head { position: sticky; top: 0; z-index: 6; background: var(--mat-grouped-solid); }
+  /* Sticks below the floating glass toolbar (as the Positions group headers do), opaque. */
+  .arb-head { position: sticky; top: calc(var(--toolbar-h) + var(--safe-t)); z-index: 6; background: var(--mat-grouped-solid); }
+  .arb-tiles .arb-t-fut .value { font-size: 16px; white-space: nowrap; }
   .arb-head-l .arb-tabs { flex: 1 1 100%; }
   .arb-head-l .arb-tabs button { flex: 1 1 0; }
   .arb-head-r { justify-content: space-between; }

@@ -255,7 +255,7 @@ async function renderDesk(kind) {
       st.empty = null;
       if (!ex.includes(st.expiry)) st.expiry = ex[0];
       st.expiries = ex;
-      eSel.replaceChildren(...ex.map((e) => h("option", { value: e, selected: e === st.expiry }, `${expiryText(e)} · ${O.isExpiryDay(e) ? "today" : O.timeToExpiry(e).label}${O.isMonthlyExpiry(e, ex) ? " · M" : ""}`)));
+      drawExpiryOptions();
       eSel.disabled = false;
       oiPage?.expiriesLoaded();
       volPage?.expiriesLoaded();
@@ -270,12 +270,21 @@ async function renderDesk(kind) {
       return false;
     }
   }
+  /** The expiry picker. "M" marks a monthly expiry: one with a listed future when the futures are known (the last
+   *  expiry in a truncated list is not necessarily the monthly), else the last expiry of its month. */
+  function drawExpiryOptions() {
+    const ex = st.expiries;
+    const futs = st.futures.length ? new Set(st.futures.map((f) => f.expiry)) : null;
+    const monthly = (e) => (futs ? futs.has(e) : O.isMonthlyExpiry(e, ex));
+    eSel.replaceChildren(...ex.map((e) => h("option", { value: e, selected: e === st.expiry }, `${expiryText(e)} · ${O.isExpiryDay(e) ? "today" : O.timeToExpiry(e).label}${monthly(e) ? " · M" : ""}`)));
+  }
   /** The underlying's futures (once per underlying): the same-expiry one is the arbitrage reference. */
   async function loadFutures() {
     const u = st.underlying;
     const r = await optional(api(`/v1/instruments/search?q=${encodeURIComponent(u)}&kind=FUT&underlying=${encodeURIComponent(u)}`));
     if (u !== st.underlying) return;
     st.futures = (r.data?.data ?? []).filter((f) => f.kind === "FUT" && f.underlying === u && /^\d{4}-\d{2}-\d{2}$/.test(f.expiry ?? "")).sort((a, b) => (a.expiry < b.expiry ? -1 : 1));
+    if (st.futures.length && st.expiries.length) drawExpiryOptions();
   }
   /** The index and its futures, for the spot row: a failed call leaves the page as it was. */
   async function loadQuotes() {
@@ -286,7 +295,7 @@ async function renderDesk(kind) {
     if (r.error) return;
     for (const q of r.data?.data ?? []) if (q?.symbol) st.quotes.set(q.symbol, q);
   }
-  async function loadChain() {
+  async function loadChain({ draw = true } = {}) {
     if (!st.expiry) return;
     const seq = st.seq;
     const t0 = performance.now();
@@ -304,7 +313,7 @@ async function renderDesk(kind) {
       if (seq !== st.seq) return;
       st.error = err;
     }
-    drawAll();
+    if (draw) drawAll();
   }
   async function loadPositions() {
     if (!st.account) return;
@@ -315,7 +324,7 @@ async function renderDesk(kind) {
     st.futPositions = all.filter((p) => fut.test(String(p.symbol ?? "")) && Number(p.netQty));
     st.positionsError = r.error ?? null;
   }
-  const refresh = () => (posPage ? posPage.tick() : volPage ? Promise.all([loadChain(), volPage.tick()]) : arbPage ? Promise.all([loadChain(), arbPage.tick()]) : Promise.all([loadChain(), loadPositions(), oiPage?.tick()]));
+  const refresh = () => (posPage ? posPage.tick() : volPage ? Promise.all([loadChain(), volPage.tick()]) : arbPage ? Promise.all([loadChain({ draw: false }), arbPage.tick()]).then(() => drawAll()) : Promise.all([loadChain(), loadPositions(), oiPage?.tick()]));
   const startTimer = () => (st.live ? every(REFRESH_MS, refresh) : stopTimer());
   async function reloadAll() {
     if (posPage) {

@@ -3283,7 +3283,11 @@ export function structureCharges(legs, profile = DEFAULT_PROFILE, { hold = "expi
     for (const l of legs) {
       if (l.kind === "FUT" || !(legIntrinsic(l, S) > 0)) continue;
       exercised += 1;
-      if (profile?.exerciseBrokerage !== false) exit.brokerage += brokerageFor({ kind: "OPT", turnover: legIntrinsic(l, S) * l.units, lots: l.lots ?? 1 }, profile);
+      if (profile?.exerciseBrokerage === false) continue;
+      // GST applies to the exercise brokerage too (its base is brokerage + txn + SEBI + IPFT).
+      const b = brokerageFor({ kind: "OPT", turnover: legIntrinsic(l, S) * l.units, lots: l.lots ?? 1 }, profile);
+      exit.brokerage += b;
+      exit.gst += b * (num(rates?.gst) ?? CHARGE_RATES.gst);
     }
   }
   exit.total = linesTotal(exit);
@@ -3390,7 +3394,28 @@ export function waterfall(s) {
   );
   if (exp) lines.push({ key: "exStt", label: "Exercise STT", value: -c.exerciseStt });
   else lines.push({ key: "exit", label: "Exit charges", value: -c.exit.total }, { key: "spread", label: "Exit spread", value: -c.exitSpread });
-  return { lines, net: lines.reduce((a, l) => a + l.value, 0) };
+  const net = lines.reduce((a, l) => a + l.value, 0);
+  const shown = roundToSum(lines.map((l) => l.value));
+  lines.forEach((l, i) => (l.shown = shown.values[i]));
+  return { lines, net, netShown: shown.total };
+}
+
+/**
+ * Whole numbers for display that add up to the rounded total (largest remainder): each value is floored, then the
+ * ones with the largest fractional parts get +1 until the parts sum to round(Σ values). { values, total }.
+ */
+export function roundToSum(values, dp = 0) {
+  const f = 10 ** dp;
+  const xs = (values ?? []).map((v) => (num(v) ?? 0) * f);
+  const sum = xs.reduce((a, x) => a + x, 0);
+  const total = Math.sign(sum) * Math.round(Math.abs(sum)); // half away from zero, as formatFixed prints the net
+  const floors = xs.map((x) => Math.floor(x));
+  let k = total - floors.reduce((a, x) => a + x, 0);
+  const order = xs.map((x, i) => [x - floors[i], i]).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+  const out = [...floors];
+  for (let j = 0; k > 0 && j < order.length; j++, k--) out[order[j][1]] += 1;
+  const fix = (x) => (x === 0 ? 0 : x / f); // never -0
+  return { values: out.map(fix), total: fix(total) };
 }
 
 /**
@@ -3408,7 +3433,9 @@ export function parityRows(chain, { fut = null, rate = 0.06, days = null, lots =
   const g = carryFactor(rate, days) ?? 1;
   const futOk = Boolean(fut) && twoSided(fut);
   const lotMismatch = Boolean(fut) && num(fut.lotSize) !== null && num(fut.lotSize) !== lot;
-  const ref = futOk ? { kind: "fut", bid: Number(fut.bid), ask: Number(fut.ask), mid: (Number(fut.bid) + Number(fut.ask)) / 2 } : F ? { kind: "fwd", bid: F.forward, ask: F.forward, mid: F.forward } : null;
+  // Without a future the reference is the implied forward, and its band is the spread of the near-the-money synthetics
+  // (lo..hi): a synthetic only gets a rich tag when it sits outside that band, not 0.05 off a single point.
+  const ref = futOk ? { kind: "fut", bid: Number(fut.bid), ask: Number(fut.ask), mid: (Number(fut.bid) + Number(fut.ask)) / 2 } : F ? { kind: "fwd", bid: Math.min(num(F.lo) ?? F.forward, F.forward), ask: Math.max(num(F.hi) ?? F.forward, F.forward), mid: F.forward } : null;
   const settle = F?.forward ?? ref?.mid ?? num(chain?.underlyingLtp);
   const centre = F?.atm ?? num(chain?.underlyingLtp) ?? num(chain?.atmStrike);
   const all = chain?.rows ?? [];
@@ -3673,6 +3700,8 @@ export function futuresTerm(spot, futs, { now = Date.now(), rate = 0.06, profile
     const b = futures[i + 1];
     const ok = a.twoSided && b.twoSided;
     const dd = a.days !== null && b.days !== null ? b.days - a.days : null;
+    // NSE revises lot sizes series by series: when the two lots differ there is no one-for-one roll.
+    const lotMismatch = a.lot !== b.lot;
     const u = a.lot;
     const ex = exchangeOfSymbol(a.symbol);
     const ch = (legs) => legs.reduce((t, l) => t + (orderCharges({ kind: "FUT", units: u, exchange: ex, ...l }, profile, rates)?.total ?? 0), 0);
@@ -3684,15 +3713,16 @@ export function futuresTerm(spot, futs, { now = Date.now(), rate = 0.06, profile
       from: a.expiry,
       to: b.expiry,
       lot: u,
-      buyFar: ok ? b.ask - a.bid : null,
-      sellFar: ok ? b.bid - a.ask : null,
+      lotMismatch,
+      buyFar: ok && !lotMismatch ? b.ask - a.bid : null,
+      sellFar: ok && !lotMismatch ? b.bid - a.ask : null,
       fwdRate: ok && dd !== null && dd > 0 ? (b.mid / a.mid - 1) * (365 / dd) : null,
       fair,
       midSpread,
       vsFair,
       tag: vsFair === null ? null : vsFair > 0 ? "rich" : vsFair < 0 ? "cheap" : null,
-      rollLong: ok ? (b.ask - a.bid) * u + ch([{ side: "SELL", price: a.bid }, { side: "BUY", price: b.ask }]) : null,
-      rollShort: ok ? (a.ask - b.bid) * u + ch([{ side: "BUY", price: a.ask }, { side: "SELL", price: b.bid }]) : null,
+      rollLong: ok && !lotMismatch ? (b.ask - a.bid) * u + ch([{ side: "SELL", price: a.bid }, { side: "BUY", price: b.ask }]) : null,
+      rollShort: ok && !lotMismatch ? (a.ask - b.bid) * u + ch([{ side: "BUY", price: a.ask }, { side: "SELL", price: b.bid }]) : null,
     });
   }
   return { futures, calendars };
@@ -3714,7 +3744,7 @@ export function staleness({ chainAsOf = null, futAsOf = null, now = Date.now(), 
 /** Minutes past midnight IST. */
 const istMinutes = (ms) => Math.floor((((ms + IST_OFFSET_MS) % 86400000) + 86400000) % 86400000 / 60000);
 /** Flag codes, in priority order (most important first). */
-export const ARB_FLAGS = Object.freeze(["LOT_MISMATCH", "CROSSED", "ORDER_LIMIT", "STALE", "EXPIRY_DAY", "NEAR_CLOSE", "WIDE", "THIN", "ONE_SIDED", "NO_FUTURE", "FREEZE", "EXERCISE_STT"]);
+export const ARB_FLAGS = Object.freeze(["LOT_MISMATCH", "CROSSED", "ORDER_LIMIT", "STALE", "EXPIRY_DAY", "MARKET_CLOSED", "NEAR_CLOSE", "WIDE", "THIN", "ONE_SIDED", "NO_FUTURE", "FREEZE", "EXERCISE_STT"]);
 /**
  * The risk flags that apply to one structure: [{ code, sev: "bad"|"warn"|"info", text }], most important first.
  * ctx: { stale, ageMs, days, hold, noFuture, lotMismatch, oneSided, topQty: Map symbol → qty, freezeQty: Map symbol
@@ -3731,8 +3761,11 @@ export function arbFlags(s, ctx = {}) {
   if (ctx.stale) add("STALE", "warn", `Quotes are stale${num(ctx.ageMs) !== null ? ` (${formatInt(ctx.ageMs / 1000)} s)` : ""}: excluded from Best`);
   if (num(ctx.days) !== null && ctx.days < 1) add("EXPIRY_DAY", "warn", "Expiry day: +2% ELM on short options, no annualised figures");
   if (!ctx.demo && num(ctx.nowMs) !== null) {
+    // NSE / BSE equity derivatives: pre-open 09:00-09:15, continuous 09:15-15:30 IST.
     const m = istMinutes(ctx.nowMs);
-    if (m < 9 * 60 + 15 || (m >= 15 * 60 && m < 15 * 60 + 30)) add("NEAR_CLOSE", "warn", "Pre-open / last 30 min: quotes thin");
+    if (m < 9 * 60 || m >= 15 * 60 + 30) add("MARKET_CLOSED", "warn", "Market closed: quotes are frozen at the last trade, nothing is executable now");
+    else if (m < 9 * 60 + 15) add("NEAR_CLOSE", "warn", "Pre-open: quotes thin until 09:15");
+    else if (m >= 15 * 60) add("NEAR_CLOSE", "warn", "Last 30 min: quotes thin");
   }
   const wide = legs.filter((l) => l.kind !== "FUT" && (spreadPct(l.quote) ?? 0) > 5);
   if (wide.length) add("WIDE", "warn", `Wide spread on ${wide.map((l) => `${formatInt(l.strike)} ${l.right}`).join(", ")} (over 5%)`);

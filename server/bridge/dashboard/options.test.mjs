@@ -1475,7 +1475,8 @@ describe("charges model (PRD 06 §6)", () => {
     expect(on.entry.total).toBeCloseTo(226.9, 2);
     expect(on.exerciseStt).toBe(0); // the long PE expires OTM
     expect(on.exercised).toBe(1); // the short CE is assigned
-    expect(on.total).toBeCloseTo(246.9, 2);
+    expect(on.total).toBeCloseTo(226.9 + 20 * 1.18, 2); // ₹20 exercise brokerage + 18% GST on it
+    expect(on.exit.gst).toBeCloseTo(0.18 * on.exit.brokerage, 9);
     const off = A.structureCharges(conv, { ...A.DEFAULT_PROFILE, exerciseBrokerage: false }, { hold: "expiry", settle: 26628 });
     expect(off.total).toBeCloseTo(226.9, 2);
     const quotes = new Map([
@@ -1748,7 +1749,80 @@ describe("arbitrage maths (PRD 06 §7)", () => {
     const codes = A.arbFlags(s, { stale: true, ageMs: 7000, days: 0.5, freezeQty: new Map(s.legs.map((l) => [l.symbol, 1800])), demo: true }).map((f) => f.code);
     expect(codes).toEqual(expect.arrayContaining(["STALE", "EXPIRY_DAY", "WIDE", "FREEZE", "EXERCISE_STT"]));
     expect(A.arbFlags(null, { noFuture: true }).map((f) => f.code)).toEqual(["NO_FUTURE"]);
-    expect(A.arbFlags(s, { nowMs: Date.parse("2026-10-29T02:00:00Z") }).map((f) => f.code)).toContain("NEAR_CLOSE");
+    // Market hours (IST = UTC + 5:30): closed before 09:00 and from 15:30; pre-open 09:00-09:15; last 30 min 15:00-15:30.
+    const at = (ist) => A.arbFlags(s, { nowMs: Date.parse(`2026-10-29T${ist}:00+05:30`) }).map((f) => f.code);
+    expect(at("08:00")).toContain("MARKET_CLOSED");
+    expect(at("08:00")).not.toContain("NEAR_CLOSE");
+    expect(at("09:10")).toContain("NEAR_CLOSE");
+    expect(at("09:10")).not.toContain("MARKET_CLOSED");
+    expect(at("12:00")).not.toEqual(expect.arrayContaining(["NEAR_CLOSE"]));
+    expect(at("12:00")).not.toContain("MARKET_CLOSED");
+    expect(at("15:10")).toContain("NEAR_CLOSE");
+    expect(at("16:00")).toContain("MARKET_CLOSED");
+    expect(at("16:00")).not.toContain("NEAR_CLOSE");
+  });
+
+  it("the waterfall's displayed (whole-rupee) lines add up to the displayed net (200 random structures)", () => {
+    let seed = 11;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 200; i++) {
+      const row = one({ bid: 400 + rnd() * 100, ask: 0 }, { bid: 200 + rnd() * 100, ask: 0 });
+      row.ce.ask = row.ce.bid + 0.05 + rnd() * 2;
+      row.pe.ask = row.pe.bid + 0.05 + rnd() * 2;
+      const f = { ...fut, bid: 26550 + rnd() * 100 };
+      f.ask = f.bid + 0.05 + rnd() * 5;
+      const res = A.parityRows(chainAt(row), { fut: f, rate: rnd() * 0.1, days: 1 + rnd() * 60, lots: 1 + Math.floor(rnd() * 10), hold: rnd() > 0.5 ? "close" : "expiry", window: 5 });
+      for (const s of [res.rows[0].conv, res.rows[0].rev]) {
+        const w = A.waterfall(s);
+        for (const l of w.lines) {
+          expect(Number.isInteger(l.shown)).toBe(true);
+          expect(Math.abs(l.shown - l.value)).toBeLessThan(1);
+        }
+        expect(w.lines.reduce((a, l) => a + l.shown, 0)).toBe(w.netShown);
+        expect(Math.abs(w.netShown - w.net)).toBeLessThanOrEqual(0.5);
+      }
+    }
+    // The reviewer's case: nine lines rounded on their own summed to -461 against a -463 net.
+    expect(A.roundToSum([-291.62, 80.58, -80.41, -53.55, -53.33, -2.47, -40.36, -21.44, 0.2])).toEqual({ values: [-292, 81, -80, -54, -53, -3, -40, -21, 0], total: -462 });
+    expect(A.roundToSum([0.4, 0.4, 0.4])).toEqual({ values: [1, 0, 0], total: 1 });
+  });
+
+  it("structureCharges: exercise brokerage on hold-to-expiry carries GST", () => {
+    const leg = { kind: "OPT", side: "BUY", right: "PE", strike: 26400, price: 100, units: 75, lots: 1, symbol: "NFO:NIFTY-2026-11-24-26400-PE" };
+    const c = A.structureCharges([leg], undefined, { hold: "expiry", settle: 26300 });
+    expect(c.exercised).toBe(1);
+    expect(c.exit.brokerage).toBeGreaterThan(0);
+    expect(c.exit.gst).toBeCloseTo(0.18 * c.exit.brokerage, 9);
+    expect(c.exit.total).toBeCloseTo(c.exit.brokerage * 1.18, 9);
+    const otm = A.structureCharges([leg], undefined, { hold: "expiry", settle: 26500 });
+    expect(otm.exit.gst).toBe(0);
+  });
+
+  it("parityRows: against the implied forward, no rich tag while the synthetic sits inside the forward band", () => {
+    const row = one({ bid: 450.15, ask: 450.25 }, { bid: 254.35, ask: 254.45 }); // g = 1: SynS 26595.7, SynB 26595.9
+    const at = (fwd) => A.parityRows(chainAt(row), { fut: null, rate: 0, days: 27, window: 5, fwd: { atm: 26400, n: 3, ...fwd } }).rows.find((x) => x.strike === 26400);
+    const inside = at({ forward: 26595.6, lo: 26595, hi: 26596.5 });
+    expect(inside.dev).toBeCloseTo(0.2, 9);
+    expect(inside.tag).toBeNull();
+    expect(at({ forward: 26590, lo: 26589, hi: 26591 }).tag).toBe("callsRich");
+    expect(at({ forward: 26600, lo: 26599, hi: 26601 }).tag).toBe("putsRich");
+  });
+
+  it("futuresTerm: calendars with different lot sizes have no roll figures", () => {
+    const now = Date.parse("2026-10-29T06:00:00Z");
+    const futs = [
+      { symbol: "NFO:NIFTY-2026-11-24-FUT", expiry: "2026-11-24", lotSize: 75, bid: 26600, ask: 26600.5 },
+      { symbol: "NFO:NIFTY-2026-12-29-FUT", expiry: "2026-12-29", lotSize: 65, bid: 26750, ask: 26751 },
+    ];
+    const [cal] = A.futuresTerm(26500, futs, { now }).calendars;
+    expect(cal.lotMismatch).toBe(true);
+    expect(cal.rollLong).toBeNull();
+    expect(cal.rollShort).toBeNull();
+    expect(cal.buyFar).toBeNull();
+    expect(cal.fwdRate).not.toBeNull();
+    const [same] = A.futuresTerm(26500, futs.map((f) => ({ ...f, lotSize: 75 })), { now }).calendars;
+    expect(same.lotMismatch).toBe(false);
+    expect(same.rollLong).not.toBeNull();
   });
 
   it("sendOrder: least liquid option first, future last; freezeSlices; maxLotsAtTouch", () => {

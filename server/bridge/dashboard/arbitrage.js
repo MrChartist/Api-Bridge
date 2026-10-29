@@ -34,6 +34,14 @@ export function rupeeSigned(v) {
 /** Rupees, whole, compact from 1 lakh up ("₹3.12L"). */
 const money = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? "-" : ""}₹${formatCompact(Math.abs(v))}` : formatRupee(v, 0));
 const pct = (v, dp = 1) => (num(v) === null ? DASH : formatPercent(v * 100, dp));
+/** The ask with the digits it shares with the bid dropped, for narrow tiles: (26537.65, 26542.95) → "42.95". */
+export function shortAsk(bid, ask) {
+  const b = formatFixed(bid, 2);
+  const a = formatFixed(ask, 2);
+  if (b.length !== a.length || b.length <= 5) return a;
+  const keep = a.length - 5; // two integer digits + ".dd"
+  return a.slice(0, keep) === b.slice(0, keep) ? a.slice(keep) : a;
+}
 const pts = (v, dp = 2) => (num(v) === null ? DASH : `${formatSigned(v, dp)} pts`);
 const KIND_NAME = { conv: "Conversion", rev: "Reversal", lbox: "Long box", sbox: "Short box", cal: "Calendar", fut: "Futures basis" };
 const dots = (n) => h("span", { class: "liq", role: "img", "aria-label": n ? `Liquidity ${n} of 5` : "No quote" }, n ? [1, 2, 3, 4, 5].map((i) => h("i", { class: i <= n ? "on" : "" })) : h("span", { class: "bad-ink" }, "No quote"));
@@ -96,7 +104,7 @@ export function arbPanels(ctx) {
   ];
   const tiles = new Map(
     TILES.map(([k, label, btn]) => {
-      const el = h("div", { class: `desk-stat arb-t-${k} skel`, ...(btn ? { role: "button", tabindex: "0" } : { role: "group" }), "aria-label": label }, h("span", { class: "label" }, label), h("span", { class: "value" }, DASH), h("span", { class: "sub" }, " "));
+      const el = h("div", { class: `desk-stat arb-t-${k} skel`, role: "group", "aria-label": label }, h("span", { class: "label" }, label), h("span", { class: "value" }, DASH), h("span", { class: "sub" }, " "));
       if (btn) {
         const go = () => tileGo(k);
         el.addEventListener("click", go);
@@ -107,12 +115,26 @@ export function arbPanels(ctx) {
           }
         });
       }
-      return [k, { el, label, value: el.children[1], sub: el.children[2], sig: "", target: null }];
+      return [k, { el, label, btn, value: el.children[1], sub: el.children[2], sig: "", target: null }];
     }),
   );
   function setTile(k, { value = DASH, sub = "", title = "", cls = "", target = null } = {}) {
     const t = tiles.get(k);
     t.target = target;
+    // Only a tile with somewhere to go is a button (keyboard and screen readers); otherwise a plain group.
+    if (t.btn) {
+      const on = Boolean(target);
+      if (t.el.getAttribute("role") !== (on ? "button" : "group")) {
+        t.el.setAttribute("role", on ? "button" : "group");
+        if (on) {
+          t.el.tabIndex = 0;
+          t.el.removeAttribute("aria-disabled");
+        } else {
+          t.el.removeAttribute("tabindex");
+          t.el.setAttribute("aria-disabled", "true");
+        }
+      }
+    }
     const sig = JSON.stringify([value, sub, title, cls]);
     if (t.sig === sig) return;
     t.sig = sig;
@@ -128,7 +150,8 @@ export function arbPanels(ctx) {
     const { tab, key } = t.target;
     if (tab === "boxes" && cfg().boxMode !== "lend") st.arb = O.arbConfig({ ...cfg(), boxMode: "lend" });
     if (cfg().tab !== tab) setCfg({ tab });
-    select(key, { scroll: true });
+    // Phones have no pane beside the list: open the sheet for the row, as the pane shows it on wider screens.
+    select(key, { scroll: true, open: phone() });
   }
   const figuresEl = h("section", { class: "desk-panel arb-figures", "data-panel": "figures", "aria-label": "Arbitrage figures" }, h("div", { class: "desk-stats arb-tiles" }, [...tiles.values()].map((t) => t.el)));
 
@@ -379,7 +402,8 @@ export function arbPanels(ctx) {
     const U = cal.lot * N;
     const instOf = (e) => st.futures.find((x) => x.expiry === e) ?? {};
     const leg = (side, f) => ({ kind: "FUT", side, symbol: f?.symbol ?? null, price: side === "BUY" ? f?.ask : f?.bid, units: U, lots: N, quote: f ? { bid: f.bid, ask: f.ask } : null, tick: num(instOf(f?.expiry).tickSize) || 0.05, exchange: O.exchangeOfSymbol(f?.symbol), expiry: f?.expiry });
-    const legs = near?.twoSided && far?.twoSided ? [leg("SELL", near), leg("BUY", far)] : [];
+    // Different lot sizes: the far quantity would not be a whole number of its lots, so no orders (LOT_MISMATCH).
+    const legs = near?.twoSided && far?.twoSided && !cal.lotMismatch ? [leg("SELL", near), leg("BUY", far)] : [];
     return { kind: "cal", key: cal.key, cal, legs, U, lot: cal.lot, lots: N };
   }
 
@@ -535,8 +559,9 @@ export function arbPanels(ctx) {
         pair("Spread buy·sell far", cal.buyFar === null ? DASH : `${formatFixed(cal.buyFar, 2)} · ${formatFixed(cal.sellFar, 2)}`),
         pair("Fwd rate", pct(cal.fwdRate, 2), "(F2m/F1m − 1)·365/(d2 − d1)"),
         pair("Fair spread", cal.fair === null ? DASH : `${formatFixed(cal.fair, 2)} (${formatSigned(cal.vsFair, 1)} ${cal.tag ?? ""})`.trim(), "F1m·(e^(h·Δd/365) − 1) at your hurdle; mid spread minus fair"),
-        pair("Roll long", cal.rollLong === null ? DASH : `${formatRupee(cal.rollLong, 0)}/lot`, "Sell near at its bid, buy far at its ask, plus charges. The spread is carry you pay or receive by holding the later contract: compare it with the fair spread"),
-        pair("Roll short", cal.rollShort === null ? DASH : `${formatRupee(cal.rollShort, 0)}/lot`, "Buy near at its ask, sell far at its bid, plus charges"),
+        cal.lotMismatch
+          ? pair("Roll", "lot sizes differ", "The two futures have different lot sizes: there is no one-for-one roll")
+          : pair("Roll long · short ₹/lot", cal.rollLong === null ? DASH : `${formatRupee(cal.rollLong, 0)} · ${formatRupee(cal.rollShort, 0)}`, "Roll long: sell near at its bid, buy far at its ask. Roll short: buy near at its ask, sell far at its bid. Both include charges. The spread is carry you pay or receive by holding the later contract: compare it with the fair spread"),
       ),
     );
   }
@@ -603,9 +628,9 @@ export function arbPanels(ctx) {
       return {
         l1: `${formatInt(r.strike)}${s ? ` · ${KIND_NAME[s.kind]}` : ""}`,
         r1: s ? rupeeSigned(s.net) : r.dev === null ? DASH : `${formatSigned(r.dev, 1)} pts`,
-        r1cls: s && s.net < 0 ? "neg" : "",
+        r1cls: s && s.net < 0 ? "neg" : !s && (m.oneSidedMarket || r.oneSided) ? "neg" : "",
         l2: `Syn ${formatFixed(r.synMid, 1)} · Dev ${formatSigned(r.dev, 1)}${r.tag ? ` · ${r.tag === "callsRich" ? "Calls rich" : "Puts rich"}` : ""}`,
-        r2: s ? (a ? `${pct(a.v, 1)}/yr` : DASH) : m.noFuture ? "vs implied fwd" : DASH,
+        r2: s ? (a ? `${pct(a.v, 1)}/yr` : DASH) : (m.oneSidedMarket || r.oneSided) && r.dev !== null ? "indicative (mid)" : m.noFuture ? "vs implied fwd" : DASH,
         liq: r.liq,
         tags: [r.atm ? "ATM" : null, x.opp ? "Edge" : null, m.stale && s ? "Stale" : null].filter(Boolean),
       };
@@ -627,7 +652,7 @@ export function arbPanels(ctx) {
       return { l1: `${dayMon(f.expiry)} · ${f.days === null ? DASH : formatInt(Math.max(0, f.days))} d`, r1: `${pct(f.carry, 2)}/yr`, r1cls: "", l2: `Basis ${formatSigned(f.basis, 2)}${f.fwdTag ? ` · Fut ${f.fwdTag}` : ""}`, r2: f.cheaper ? `Long via ${f.cheaper.long.pick}` : `${formatFixed(f.bid, 2)} · ${formatFixed(f.ask, 2)}`, liq: null, tags: f.expiry === m.c.expiry ? ["Selected"] : [] };
     }
     const c = x.cal;
-    return { l1: `${mon(c.from)} → ${mon(c.to)}`, r1: `${pct(c.fwdRate, 2)}`, r1cls: "", l2: `Roll long ${c.rollLong === null ? DASH : formatRupee(c.rollLong, 0)}/lot`, r2: c.fair === null ? DASH : `fair ${formatFixed(c.fair, 1)} · ${c.tag ?? ""}`, liq: null, tags: [], cal: true };
+    return { l1: `${mon(c.from)} → ${mon(c.to)}`, r1: `${pct(c.fwdRate, 2)}`, r1cls: "", l2: c.lotMismatch ? "Lot sizes differ: no roll" : c.rollLong === null ? `Roll long ${DASH}` : `Roll long ${formatRupee(c.rollLong, 0)}/lot`, r2: c.fair === null ? DASH : `fair ${formatFixed(c.fair, 1)} · ${c.tag ?? ""}`, liq: null, tags: [], cal: true };
   }
   function drawCards(m, list) {
     const sig = JSON.stringify([cfg().tab, m.c.underlying, m.c.expiry, cfg().boxMode]);
@@ -699,7 +724,7 @@ export function arbPanels(ctx) {
   }
 
   // ── Detail (the pane on desktop / tablet, the bottom sheet on phones) ──
-  function createDetail({ pane = false } = {}) {
+  function createDetail({ pane = false, onTitle = null } = {}) {
     const title = h("h3", { class: "arb-d-title", tabindex: "-1" });
     const kindPill = h("span", { class: "arb-kind" });
     const kindSeg = h("div", { class: "arb-kind-seg" });
@@ -739,15 +764,17 @@ export function arbPanels(ctx) {
       const L = O.boxLimit({ mode: s.mode, width: s.width, units: s.U, cin: s.cin, x: s.x, target: t === null ? null : t / 100, days: cur.m.days, tick: 0.05 });
       targetOut.textContent = L ? `${s.mode === "lend" ? "Max debit" : "Min credit"} ${formatFixed(L.limit, 2)} per unit` : cur.m.expiryDay ? "Not on expiry day" : DASH;
     }
-    function update(item, m, { best = false } = {}) {
+    function update(item, m, { best = false, failed = false, none = false } = {}) {
       if (!item || !m) {
         cur = null;
         el.classList.add("empty");
         eyebrow.textContent = "";
-        title.textContent = m ? "Nothing to show" : "Loading…";
+        // Loading only while a load is in flight: a failed or empty load settles to an empty state.
+        title.textContent = failed ? "No data" : none ? "Nothing to show" : m ? "Nothing to show" : "Loading…";
         kindPill.textContent = "";
         kindSeg.replaceChildren();
-        msg.replaceChildren(m ? h("p", { class: "muted" }, "Pick a row to see its legs, costs and orders.") : "");
+        sigs.delete("msg");
+        msg.replaceChildren(failed ? h("p", { class: "muted" }, "The chain did not load. Retry it from the scanner.") : none ? h("p", { class: "muted" }, none) : m ? h("p", { class: "muted" }, "Pick a row to see its legs, costs and orders.") : "");
         body.hidden = true;
         actions.hidden = true;
         return;
@@ -788,6 +815,7 @@ export function arbPanels(ctx) {
         kindPill.textContent = KIND_NAME.cal;
         kindSeg.replaceChildren();
       }
+      onTitle?.(title.textContent);
       const structural = s && s.legs?.length;
       holdNote.textContent = item.type === "fut" || item.type === "cal" ? "Futures settle daily (MTM) and at the final settlement price." : cfg().hold === "close" ? "Closed before expiry at today's spreads" : "Held to expiry (cash-settled)";
       // Messages (no future, one-sided)
@@ -801,6 +829,10 @@ export function arbPanels(ctx) {
         msgs.push(kv([["Synthetic sell · buy", r.synSell === null ? DASH : `${formatFixed(r.synSell, 2)} · ${formatFixed(r.synBuy, 2)}`], ["Synthetic mid", formatFixed(r.synMid, 2)], ["Dev", r.dev === null ? DASH : `${formatSigned(r.dev, 2)} pts (${formatSigned(r.devBp, 0)} bp)`], ["Call bid · ask", quoteCell(r.ce).main], ["Put bid · ask", quoteCell(r.pe).main], ["IV P−C", formatSigned(r.ivDiff, 2)]]));
       }
       if (item.type === "fut") msgs.push(futDetail(item.f, m));
+      if (item.type === "cal" && item.cal.lotMismatch) {
+        const lotOf = (e) => m.term.futures.find((f) => f.expiry === e)?.lot;
+        msgs.push(h("p", { class: "bad-ink" }, `Lot sizes differ (${mon(item.cal.from)} ${formatInt(lotOf(item.cal.from))}, ${mon(item.cal.to)} ${formatInt(lotOf(item.cal.to))}): there is no one-for-one roll, so no orders.`));
+      }
       put(msg, "msg", JSON.stringify([item.key, msgs.length ? msgs.map((x) => x.textContent) : []]), () => msgs);
       body.hidden = !structural;
       actions.hidden = !(structural || item.type === "fut");
@@ -855,13 +887,14 @@ export function arbPanels(ctx) {
       // Waterfall / roll cost
       if (s.kind === "cal") {
         const c = s.cal;
-        const charges = c.rollLong === null ? null : c.rollLong - c.buyFar * c.lot;
+        // Whole rupees that add up to the shown roll cost.
+        const parts = c.rollLong === null ? null : O.roundToSum([c.buyFar * c.lot, c.rollLong - c.buyFar * c.lot]);
         put(wfHost, "wf", JSON.stringify([c.rollLong, s.lots]), () => [
           h("h4", {}, "Roll a long ", h("small", {}, "₹ per lot")),
           wfList([
-            ["Spread paid (far ask − near bid)", c.buyFar === null ? null : c.buyFar * c.lot],
-            ["Charges", charges],
-          ], c.rollLong, "Roll cost"),
+            ["Spread paid (far ask − near bid)", parts ? parts.values[0] : null],
+            ["Charges", parts ? parts.values[1] : null],
+          ], parts ? parts.total : null, "Roll cost"),
           h("p", { class: "arb-d-fine" }, `Fair spread at your hurdle ${formatFixed(c.fair, 2)} pts; mid spread ${formatFixed(c.midSpread, 2)} (${formatSigned(c.vsFair, 2)}${c.tag ? `, ${c.tag}` : ""}). Roll short ${formatRupee(c.rollShort, 0)}/lot.`),
         ]);
         retHost.replaceChildren();
@@ -870,17 +903,18 @@ export function arbPanels(ctx) {
       } else {
         const w = O.waterfall(s);
         const settle = s.charges.settle;
-        put(wfHost, "wf", JSON.stringify([w.lines.map((l) => l.value), w.net, settle]), () => [
+        // Whole rupees that add up exactly to the shown net (largest remainder), not each line rounded on its own.
+        put(wfHost, "wf", JSON.stringify([w.lines.map((l) => [l.label, l.shown]), w.netShown, settle]), () => [
           h("h4", {}, "Waterfall ", h("small", {}, `₹ for ${formatInt(s.U)} units`)),
           h(
             "dl",
             { class: "arb-wf" },
             w.lines.map((l, i) => [
               h("dt", {}, `${l.label}${l.key === "exStt" && settle !== null ? ` (est. at ${formatInt(settle)})` : ""}`),
-              h("dd", { class: l.value > 0 && i > 0 ? "earn" : undefined }, rupeeSigned(l.value)),
+              h("dd", { class: l.shown > 0 && i > 0 ? "earn" : undefined, title: `${formatRupee(l.value, 2)}` }, rupeeSigned(l.shown)),
             ]),
             h("dt", { class: "arb-wf-net" }, "= Net"),
-            h("dd", { class: `arb-wf-net ${w.net < 0 ? "neg" : ""}`, "data-net": "" }, rupeeSigned(w.net)),
+            h("dd", { class: `arb-wf-net ${w.netShown < 0 ? "neg" : ""}`, "data-net": "", title: formatRupee(w.net, 2) }, rupeeSigned(w.netShown)),
           ),
         ]);
         const isBox = s.kind === "lbox" || s.kind === "sbox";
@@ -905,13 +939,13 @@ export function arbPanels(ctx) {
           }
           drawCalc();
         }
-        payHost.textContent = `Flat: ${rupeeSigned(w.net)} at every settlement price${cfg().hold === "close" ? " (if closed at today's spreads)" : ""}`;
+        payHost.textContent = `Flat: ${rupeeSigned(w.netShown)} at every settlement price${cfg().hold === "close" ? " (if closed at today's spreads)" : ""}`;
       }
       // Flags
       const flags = O.arbFlags(s, flagCtx(m, s, topQ));
       put(flagsHost, "flags", JSON.stringify(flags), () => flags.map((f) => h("li", { class: f.sev }, h("span", { class: "dot", "aria-hidden": "true" }), f.text)));
     }
-    return { el, update, focus: () => title.focus() };
+    return { el, update, focus: () => title.focus(), titleText: () => title.textContent };
   }
   const kv = (pairs) => h("dl", { class: "arb-kvs" }, pairs.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]));
   const wfList = (pairs, total, label) => h("dl", { class: "arb-wf" }, pairs.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v === null ? DASH : formatRupee(v, 0))]), h("dt", { class: "arb-wf-net" }, `= ${label}`), h("dd", { class: "arb-wf-net" }, total === null ? DASH : formatRupee(total, 0)));
@@ -928,7 +962,7 @@ export function arbPanels(ctx) {
       kv([
         ["Bid · ask", f.twoSided ? `${formatFixed(f.bid, 2)} · ${formatFixed(f.ask, 2)}` : DASH],
         ["Basis", `${formatSigned(f.basis, 2)} pts (${formatPercent(f.basisPct, 2)})`],
-        ["Carry", `${pct(f.carry, 2)}/yr (${f.carryVsBp === null ? DASH : `${formatSigned(f.carryVsBp, 0)} bp vs hurdle`})`],
+        f.days === null || f.days < 1 || f.carry === null ? ["Carry", h("span", { title: "Annualised figures are not meaningful on expiry day" }, DASH)] : ["Carry", `${pct(f.carry, 2)}/yr (${f.carryVsBp === null ? DASH : `${formatSigned(f.carryVsBp, 0)} bp vs hurdle`})`],
         ["Options forward", f.fwd ? `${formatFixed(f.fwd.forward, 2)} (fut ${formatSigned(f.fwdGap, 2)} pts${f.fwdTag ? `, ${f.fwdTag}` : ""})` : DASH],
         ["Cheaper long", ch ? `${ch.long.pick === "future" ? "Future" : "Synthetic"} by ${formatFixed(ch.long.diffPts, 2)} pts · ${formatRupee(ch.long.diffPerLot, 0)}/lot` : DASH],
         ["Cheaper short", ch ? `${ch.short.pick === "future" ? "Future" : "Synthetic"} by ${formatFixed(ch.short.diffPts, 2)} pts · ${formatRupee(ch.short.diffPerLot, 0)}/lot` : DASH],
@@ -936,23 +970,29 @@ export function arbPanels(ctx) {
       h("p", { class: "arb-d-fine" }, `Synthetic at the ATM-forward strike${ch ? ` ${formatInt(ch.strike)}` : ""}, after entry charges and exercise STT. ${f.expiry === m.c.expiry ? "This expiry's chain." : ex?.at ? `Options forward updated ${formatInt((Date.now() - ex.at) / 1000)} s ago.` : "Options forward loads every 15 s on this tab."} Cash-and-carry needs a tradable underlying (stock or ETF): LATER.`),
     );
   }
+  /** The option expiry to offer instead: the first later one with a listed future, else any listed one with a future. */
+  function futureExpiry(m) {
+    const listed = st.futures.map((f) => f.expiry).filter((e) => st.expiries.includes(e));
+    return listed.find((e) => e >= m.c.expiry) ?? listed[listed.length - 1] ?? null;
+  }
   function noFutureNote(m, short = false) {
-    const monthly = m.nearestFut?.expiry;
+    const monthly = futureExpiry(m);
+    const why = " Deviations are relative to the chain's implied forward: they show which strikes are out of line, not a futures arbitrage.";
     return h(
       "div",
       { class: "arb-callout" },
-      h("p", {}, h("strong", {}, `No listed future for ${dayMon(m.c.expiry)}.`), short ? " Deviations are measured against the chain's implied forward; they are not a futures arbitrage." : " Deviations are relative to the chain's implied forward: they show which strikes are out of line, not a futures arbitrage. Pick a monthly expiry for conversions and reversals."),
+      h("p", {}, h("strong", {}, `No listed future for ${dayMon(m.c.expiry)}.`), short ? " Deviations are measured against the chain's implied forward; they are not a futures arbitrage." : monthly ? `${why} Pick an expiry with a future for conversions and reversals.` : `${why} No ${m.c.underlying} option expiry in the list has a listed future; use the Boxes tab.`),
       h(
         "div",
         { class: "arb-callout-btns" },
-        monthly && st.expiries.includes(monthly) ? h("button", { type: "button", class: "small", onclick: () => ctx.selectExpiry(monthly) }, `Use ${dayMon(monthly)} (monthly)`) : null,
+        monthly ? h("button", { type: "button", class: "small", onclick: () => ctx.selectExpiry(monthly) }, `Use ${dayMon(monthly)} (has a future)`) : null,
         cfg().tab === "parity" ? h("button", { type: "button", class: "small", onclick: () => setCfg({ tab: "boxes" }) }, "Boxes tab") : null,
       ),
     );
   }
   function flagCtx(m, s, topQ) {
     const freeze = new Map((s.legs ?? []).map((l) => [l.symbol, freezeOf(l)]));
-    return { stale: m.stale, ageMs: m.fresh.ageMs, days: m.days, hold: cfg().hold, noFuture: m.noFuture, lotMismatch: m.par.lotMismatch && s.kind !== "lbox" && s.kind !== "sbox", topQty: topQ, freezeQty: freeze, nowMs: m.nowMs, demo: ctx.demo() };
+    return { stale: m.stale, ageMs: m.fresh.ageMs, days: m.days, hold: cfg().hold, noFuture: m.noFuture, lotMismatch: s.kind === "cal" ? Boolean(s.cal?.lotMismatch) : m.par.lotMismatch && s.kind !== "lbox" && s.kind !== "sbox", topQty: topQ, freezeQty: freeze, nowMs: m.nowMs, demo: ctx.demo() };
   }
   function freezeOf(l) {
     if (l.kind === "FUT") return num(st.futures.find((f) => f.symbol === l.symbol)?.freezeQty);
@@ -979,16 +1019,21 @@ export function arbPanels(ctx) {
     const item = itemOf(sel) ?? bestItem();
     if (!item) return;
     sel = item.key;
-    const d = createDetail();
+    // The structure title is the sheet's own heading (no generic "Structure" above it); it follows the detail.
+    const d = createDetail({
+      onTitle: (t) => {
+        const el = sheet ? document.getElementById("dialog-title") : null;
+        if (el && el.textContent !== t) el.textContent = t;
+      },
+    });
     d.el.classList.add("in-sheet");
     const opener = cardEls.get(item.key) ?? null;
-    sheet = { detail: d };
     d.update(item, last);
-    modal({ title: "Structure", body: d.el, buttons: [] }).then(() => {
+    sheet = { detail: d };
+    modal({ title: d.titleText(), body: d.el, buttons: [] }).then(() => {
       sheet = null;
       if (opener?.isConnected) opener.focus();
     });
-    d.focus();
   }
 
   // ── Order preview, then place (safety gates unchanged: every leg previewed, then POST /v1/orders) ──
@@ -1059,6 +1104,7 @@ export function arbPanels(ctx) {
                   h("strong", {}, "Nothing can be sent: a leg is blocked."),
                   h("span", { class: "detail" }, blocks.map((b) => `${legName(b.leg, m)}: ${b.preview.text}`).join(" · ")),
                   blocks.some((b) => /per-order limit/i.test(b.preview.text)) ? h("span", { class: "detail" }, "The per-order value limit is set on the Safety page. Sending the other legs alone would leave an unhedged position.") : null,
+                  blocks.some((b) => /limit/i.test(b.preview.text)) ? h("button", { type: "button", class: "small arb-pv-safety", onclick: openSafety }, icon("safety"), "Open Safety") : null,
                 ),
               ),
             ]
@@ -1073,16 +1119,21 @@ export function arbPanels(ctx) {
       placeBtn.className = isLive() ? "danger" : "primary";
       placeBtn.disabled = phase === "running" || (phase === "confirm" && (blocked || (isLive() && !ack.checked)));
     }
+    // Each run has a generation: a mode change starts a new run, and an older run's answers (asked in the old mode)
+    // are dropped, so "every leg previewed in this mode" holds before Place is enabled.
+    let gen = 0;
     async function previewAll() {
+      const my = ++gen;
       let i = 0;
       const worker = async () => {
-        while (i < items.length) {
+        while (i < items.length && my === gen) {
           const it = items[i++];
           if (!it.leg.symbol || !isFigure(it.price)) {
             it.preview = { block: true, text: it.leg.symbol ? "No limit price" : "Contract not found" };
             continue;
           }
           const r = await optional(api("/v1/orders/preview", { method: "POST", body: body(it) }));
+          if (my !== gen) return;
           if (r.error) it.preview = { block: true, text: ungroup(r.error.message) };
           else {
             const checks = r.data?.data?.checks ?? [];
@@ -1093,7 +1144,12 @@ export function arbPanels(ctx) {
         }
       };
       await Promise.all([worker(), worker(), worker(), worker()]);
-      if (phase === "confirm") drawList();
+      if (my === gen && phase === "confirm") drawList();
+    }
+    function openSafety() {
+      if (phase === "running") return;
+      document.querySelector("#dialog .sheet-close")?.click();
+      location.hash = "#/safety";
     }
     const modeRow = modeSeg ? h("div", { class: "field seg-field" }, h("span", {}, "Mode"), modeSeg) : h("p", { class: "arb-pv-mode" }, h("span", { class: "pill" }, "Paper"), ` ${a.label}`);
     modeSeg?.addEventListener("change", () => {
@@ -1430,7 +1486,7 @@ export function arbPanels(ctx) {
     const fut = m.fut;
     if (m.noFuture) setTile("fut", { value: "No listed future", sub: m.nearestFut ? `Nearest: ${dayMon(m.nearestFut.expiry)}` : "", title: "Weekly expiries have no future. Conversions and reversals need a same-expiry future; pick a monthly expiry", cls: "muted-v" });
     else if (m.futError || !O.twoSided(fut)) setTile("fut", { value: DASH, sub: "Quote unavailable", title: "Could not load the future's bid and ask" });
-    else setTile("fut", { value: `${formatFixed(fut.bid, 2)}\u2009–\u2009${formatFixed(fut.ask, 2)}`, sub: `${dayMon(fut.expiry)} · ${formatInt(m.days)} d · spread ${formatFixed(fut.ask - fut.bid, 2)}`, title: "Same-expiry future: bid – ask" });
+    else setTile("fut", { value: phone() ? `${formatFixed(fut.bid, 2)} – ${shortAsk(fut.bid, fut.ask)}` : `${formatFixed(fut.bid, 2)}\u2009–\u2009${formatFixed(fut.ask, 2)}`, sub: `${dayMon(fut.expiry)} · ${formatInt(m.days)} d · spread ${formatFixed(fut.ask - fut.bid, 2)}`, title: "Same-expiry future: bid – ask" });
     if (m.fwd) setTile("fwd", { value: formatFixed(m.fwd.forward, 2), sub: `band ${formatFixed(m.fwd.lo, 1)} – ${formatFixed(m.fwd.hi, 1)} · ${formatInt(m.fwd.n)} strikes`, title: "Median of K + (mid C − mid P)·e^(hT) over two-sided strikes near the money" });
     else setTile("fwd", { value: DASH, sub: "Parity unreadable (one-sided quotes)" });
     const hurdle = formatPercent(m.hRate * 100, 2);
@@ -1459,7 +1515,11 @@ export function arbPanels(ctx) {
     else {
       const b = m.lendBoxes.find((x) => !x.crossed && x.rate !== null && x.liq >= cfg().minLiq);
       if (!b) setTile("box", { value: DASH, sub: "No eligible box" });
-      else setTile("box", { value: `${formatPercent(b.rate * 100, 2)}/yr`, sub: `Lend ${formatInt(b.k1)}/${formatInt(b.k2)} · ${formatSigned(b.vsHurdleBp, 0)} bp vs hurdle`, target: { tab: "boxes", key: b.key }, title: "Highest net long-box lending rate after charges. Click to select" });
+      else {
+        // The conv/rev rule: below your minimum it is the closest, muted, not an opportunity.
+        const beats = b.vsHurdleBp !== null && b.vsHurdleBp >= cfg().minBoxBp;
+        setTile("box", { value: `${formatPercent(b.rate * 100, 2)}/yr`, sub: `${beats ? "" : "Closest: "}Lend ${formatInt(b.k1)}/${formatInt(b.k2)} · ${formatSigned(b.vsHurdleBp, 0)} bp${beats ? " vs hurdle" : ""}`, cls: beats ? "" : "muted-v", target: { tab: "boxes", key: b.key }, title: "Highest net long-box lending rate after charges. Click to select" });
+      }
     }
   }
   function announce(id, text) {
@@ -1510,7 +1570,7 @@ export function arbPanels(ctx) {
     let closest = null;
     if (tab === "parity") {
       const best = m.par.rows.filter((r) => r.best).sort((a, b) => b.best.net - a.best.net)[0];
-      if (best) closest = `Closest: ${KIND_NAME[best.best.kind]} ${formatInt(best.strike)}, ${rupeeSigned(best.best.net)}${best.best.net < conf.minNet ? ` (needs ${formatFixed((conf.minNet - best.best.net) / best.best.U, 1)} pt more)` : m.stale ? " (quotes stale)" : best.liq < conf.minLiq ? " (liquidity too low)" : ""}`;
+      if (best) closest = `Closest: ${KIND_NAME[best.best.kind]} ${formatInt(best.strike)}, ${rupeeSigned(best.best.net)}${best.best.net < conf.minNet ? ` (needs ${formatFixed((conf.minNet - best.best.net) / best.best.U, 1)} pts more per unit)` : m.stale ? " (quotes stale)" : best.liq < conf.minLiq ? " (liquidity too low)" : ""}`;
     } else if (tab === "boxes") {
       const b = m.boxes.find((x) => !x.crossed && x.vsHurdleBp !== null);
       if (b) closest = `Closest: ${formatInt(b.k1)}/${formatInt(b.k2)} at ${pct(b.rate, 2)}/yr, ${formatSigned(b.vsHurdleBp, 0)} bp vs hurdle`;
@@ -1565,7 +1625,7 @@ export function arbPanels(ctx) {
         noteEl.replaceChildren();
         shimmer();
       }
-      paneDetail.update(null, null);
+      paneDetail.update(null, null, { failed: Boolean(st.error), none: st.empty || false });
       return;
     }
     if (errorShown) {
@@ -1637,7 +1697,8 @@ export function arbPanels(ctx) {
     }
     if (cfg().tab === "futures" && !extraLoading && Date.now() - extraAt >= EXTRA_EVERY_MS) jobs.push(loadExtra());
     await Promise.all(jobs);
-    if (jobs.length) draw();
+    // No draw here: desk.js runs this beside the chain load and draws once when both have settled.
+    return jobs.length > 0;
   }
   async function loadExtra() {
     const u = st.underlying;
@@ -1670,8 +1731,11 @@ export function arbPanels(ctx) {
     if (k === "Escape") {
       if (closePop) return closePop(), true;
       if (sel === null) return false;
+      // Focus goes back to the row (PRD §15), not left on the detail heading.
+      const back = rowEls.get(sel)?.tr ?? null;
       sel = null;
       draw();
+      if (!phone() && back?.isConnected) back.focus({ preventScroll: true });
       return true;
     }
     if (k === "o") return setCfg({ onlyOpps: !cfg().onlyOpps }), true;
