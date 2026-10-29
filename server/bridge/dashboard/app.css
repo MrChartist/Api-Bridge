@@ -744,6 +744,14 @@ button.live-ctl:hover { background: var(--mat-glass-strong); }
 .ctx-more .demo-badge { position: absolute; top: 7px; right: 7px; width: 7px; height: 7px; }
 /* Desktop 1024–1279: the account label truncates at 180 px. */
 @media (max-width: 1279px) { .ctx-acct select { max-width: 180px; } .ctx-lot { display: none; } }
+/* OI Analysis reads in lots: tablets keep the Lot item on the line (phones carry it in the expiry's sub-line). */
+@media (min-width: 720px) and (max-width: 1279px) { :root[data-page="oi"] .ctx-lot { display: inline-flex; } }
+/* …and the live control is just its dot while live (the data time is in its title and label); a stale, paused or
+   failing state still says so in words. */
+@media (min-width: 720px) and (max-width: 1023px) {
+  :root[data-page="oi"] button.live-ctl[data-kind="live"] { min-width: 44px; padding: 0 14px; justify-content: center; }
+  :root[data-page="oi"] button.live-ctl[data-kind="live"] .live-txt { display: none; }
+}
 /* Tablet and phone: lot, account, demo text, search and refresh live in the ⋯ sheet. */
 @media (max-width: 1023px) {
   :root[data-layout="desk"] .toolbar:has(.ctx-more) :is(.toolbar-title, .toolbar-search-m, #toolbar-demo) { display: none !important; }
@@ -1461,6 +1469,8 @@ dialog.sheet::backdrop { background: hsl(240 20% 4% / 0.42); -webkit-backdrop-fi
 }
 .toast-icon { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; flex: none; background: hsl(var(--ios-green)); }
 .toast-icon svg { width: 12px; height: 12px; fill: none; stroke: #fff; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.toast-icon.info { background: hsl(var(--foreground)); }
+.toast-icon.info svg { width: 14px; height: 14px; stroke: hsl(var(--background)); stroke-width: 2.4; }
 .toast-text { min-width: 0; }
 @media (min-width: 1024px) { .toast { bottom: 32px; left: calc(50% + (var(--sidebar-w) + 28px) / 2); max-width: min(560px, calc(100vw - var(--sidebar-w) - 80px)); } }
 
@@ -3042,8 +3052,10 @@ button.chart-slot-toggle[aria-expanded="true"] svg { transform: rotate(180deg); 
 .oi-tiles button.oi-t { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; height: auto; border-radius: 0; text-align: left; white-space: normal; color: inherit; background: transparent; font: inherit; letter-spacing: 0; cursor: pointer; }
 @media (hover: hover) and (pointer: fine) { .oi-tiles button.oi-t:hover { background: var(--mat-fill-1); } }
 .oi-tiles button.oi-t:focus-visible { outline: 2px solid var(--sel-ring); outline-offset: -2px; }
-.oi-tiles .oi-t.sel { background: var(--mat-fill-2); }
-.oi-tiles .oi-t.sel::after { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; border-radius: 1px; background: hsl(var(--sel-bg)); }
+/* Linked to the selected strike: a light fill and the value underlined (no bar on the tile separators). */
+.oi-tiles .oi-t.sel { background: hsl(var(--sel-bg) / 0.08); }
+.oi-tiles .oi-t.sel .vt { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px; }
+.oi-tiles .oi-t.sel .value { padding-bottom: 3px; margin-bottom: -3px; }
 .oi-tiles .oi-t .value { display: flex; align-items: baseline; gap: 4px; border-radius: 4px; }
 .oi-tiles .oi-t .vtr { font: 600 12px/1 var(--font-body); }
 .oi-tiles .oi-t .sub { display: block; }
@@ -3103,6 +3115,10 @@ button.chart-slot-toggle[aria-expanded="true"] svg { transform: rotate(180deg); 
 .oi-controls button.small { min-height: 32px; padding: 0 11px; font-size: 13px; }
 .oi-help-btn, .oi-gear-btn { min-width: 32px; padding: 0 !important; justify-content: center; font-weight: 700; }
 .oi-metric .ms { display: none; }
+.oi-win .ws { display: none; }
+/* A window that is not ready yet: a short shake when pressed (the toast says why). */
+.oi-win button.oi-nudge { animation: oi-nudge 380ms var(--ease-out); }
+@keyframes oi-nudge { 20% { transform: translateX(-3px); } 45% { transform: translateX(3px); } 70% { transform: translateX(-2px); } 100% { transform: none; } }
 .oi-win-sel, .oi-gear-btn { display: none !important; }
 .oi-err-bar { margin: 0; }
 .oi-sheet { display: grid; gap: 14px; padding: 4px 16px 12px; }
@@ -3171,6 +3187,13 @@ svg .oi-wl.ce { fill: hsl(var(--dv-call-ink)); }
 svg .oi-wl.pe { fill: hsl(var(--dv-put-ink)); }
 svg .oi-atm-pill text { font: 650 10.5px/1 var(--font-numeric); }
 svg g.spot { transition: transform var(--dur-2) var(--ease-std); }
+/* One group per strike: when ATM moves the columns slide to their new x (bars and their marks together). */
+svg g.oi-col { transition: transform var(--dur-3) var(--ease-std); }
+svg g.oi-col.still { transition: none; }
+/* The selected strike: a column highlight behind its bars and an outlined pill on the axis. */
+svg .oi-selcol { fill: hsl(var(--foreground) / 0.09); stroke: hsl(var(--foreground) / 0.28); stroke-width: 1; vector-effect: non-scaling-stroke; }
+svg .oi-sel-pill rect { fill: var(--mat-grouped-solid); stroke: hsl(var(--foreground)); stroke-width: 1.25; }
+svg .oi-sel-pill text { fill: hsl(var(--foreground)); font: 650 10.5px/1 var(--font-numeric); font-variant-numeric: tabular-nums; }
 .oi-prof .marks { transition: opacity var(--dur-2) var(--ease-std); }
 .oi-prof.enter .oi-b { transform: scaleY(0) !important; transition: none !important; }
 .oi-prof.entering .oi-b { transition: transform var(--dur-3) var(--ease-out) min(calc(var(--i, 0) * 12ms), 240ms) !important; }
@@ -3194,6 +3217,11 @@ button.oi-prof-collapsed { width: 100%; min-height: 28px; justify-content: flex-
 .oi-side > .oi-block:nth-child(n + 3) { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
 .oi-side > .oi-block:nth-child(4) { box-shadow: inset var(--hl) 0 0 var(--mat-separator), inset 0 var(--hl) 0 var(--mat-separator); }
 @container (min-width: 1100px) {
+  /* One head line: the title and its coverage (ellipsised, full text in its title) beside the controls. */
+  .oi-main > .oi-head { flex-wrap: nowrap; }
+  .oi-main > .oi-head .oi-title { flex: 1 1 auto; flex-wrap: nowrap; overflow: hidden; }
+  .oi-main > .oi-head .oi-cover { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .oi-main > .oi-head .oi-controls { flex: none; }
   .oi-body { display: grid; grid-template-columns: minmax(0, 7fr) minmax(340px, 5fr); align-items: start; }
   .oi-ladder-col { position: sticky; top: 72px; display: flex; flex-direction: column; }
   .oi-ladder-host { height: max(480px, calc(100dvh - 128px)); }
@@ -3237,17 +3265,23 @@ table.oi-ladder .tag { display: inline-flex; align-items: center; height: 14px; 
 table.oi-ladder .tag.wall.ce { color: hsl(var(--dv-call-ink)); background: hsl(var(--dv-call) / 0.14); --ring: var(--dv-call); }
 table.oi-ladder .tag.wall.pe { color: hsl(var(--dv-put-ink)); background: hsl(var(--dv-put) / 0.16); --ring: var(--dv-put); }
 table.oi-ladder .tag.mp { color: hsl(var(--foreground)); box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.4); }
-table.oi-ladder .tag.held { color: hsl(var(--foreground)); background: var(--mat-fill-3); border-radius: 999px; }
+table.oi-ladder .tag.held { color: hsl(var(--foreground)); background: var(--mat-fill-2); border-radius: 999px; box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.4); white-space: nowrap; }
+table.oi-ladder .tag.held.ce { color: hsl(var(--dv-call-ink)); box-shadow: inset 0 0 0 1px hsl(var(--dv-call)); }
+table.oi-ladder .tag.held.pe { color: hsl(var(--dv-put-ink)); box-shadow: inset 0 0 0 1px hsl(var(--dv-put)); }
 table.oi-ladder .tag.em { padding: 0 2px; color: hsl(var(--dv-iv-ink)); }
 table.oi-ladder .tag.more { padding: 0 2px; color: hsl(var(--foreground) / var(--a-quiet)); }
-/* Spot: a row-border line on the first strike above spot with a centred contrast pill (no row grows). */
-table.oi-ladder tr.spot-line > td { box-shadow: inset 0 1px 0 hsl(var(--dv-spot)), inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
-table.oi-ladder tr.spot-line > th.k { box-shadow: inset 0 1px 0 hsl(var(--dv-spot)), inset var(--hl) 0 0 var(--mat-separator), inset calc(-1 * var(--hl)) 0 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
-table.oi-ladder th.k[data-spot]::before { content: attr(data-spot); position: absolute; top: 0; left: 50%; z-index: 2; transform: translate(-50%, -50%); padding: 1px 6px; border-radius: 999px; font: 650 10px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); pointer-events: none; }
-/* The spot pill sits on the row's top border: the strike text in that row starts below it. */
-table.oi-ladder tr.spot-line .kv { margin-top: 3px; }
-table.oi-ladder tr.spot-line .tags { margin-top: 0; }
-table.oi-ladder th.k.spot-in::before { animation: oi-fade var(--dur-2) var(--ease-std); }
+/* Spot: a contrast line on the border between the two strikes it sits between, with two small notches at the strike
+   column's edges; its value is the pill in the strike column's head. Nothing covers a row's tags or the ATM pill. */
+table.oi-ladder tr.spot-line > td { box-shadow: inset 0 1.5px 0 hsl(var(--dv-spot)), inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+table.oi-ladder tr.spot-line > th.k { box-shadow: inset 0 1.5px 0 hsl(var(--dv-spot)), inset var(--hl) 0 0 var(--mat-separator), inset calc(-1 * var(--hl)) 0 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+table.oi-ladder tr.spot-line > th.k::before, table.oi-ladder tr.spot-line > th.k::after { content: ""; position: absolute; top: -4.5px; z-index: 2; width: 6px; height: 10px; background: hsl(var(--dv-spot)); pointer-events: none; }
+table.oi-ladder tr.spot-line > th.k::before { left: 0; clip-path: polygon(0 0, 100% 50%, 0 100%); }
+table.oi-ladder tr.spot-line > th.k::after { right: 0; clip-path: polygon(100% 0, 0 50%, 100% 100%); }
+table.oi-ladder th.k.spot-in::before, table.oi-ladder th.k.spot-in::after { animation: oi-fade var(--dur-2) var(--ease-std); }
+table.oi-ladder thead th.k { height: 40px; padding: 0 2px; line-height: 1; }
+table.oi-ladder thead th.k .kt { display: block; }
+.oi-kspot { display: inline-block; max-width: 100%; margin-top: 3px; padding: 2px 5px; border-radius: 999px; font: 650 10.5px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); vertical-align: top; }
+.oi-kspot[hidden] { display: none; }
 @keyframes oi-fade { from { opacity: 0; } }
 
 /* Bars: the OI now (12 px, side colour), a 3 px change micro-bar under it on the same scale (green added, red cut),
@@ -3295,6 +3329,8 @@ table.oi-ladder .dp { font: 500 10.5px/1 var(--font-numeric); color: hsl(var(--f
 /* Back to ATM: a floating contrast pill over the ladder's foot while the ATM row is out of view. */
 button.oi-atm-pill { position: absolute; left: 50%; bottom: 10px; z-index: 4; min-height: 30px; padding: 0 12px; transform: translateX(-50%); border-radius: 999px; font: 650 12.5px/1 var(--font-numeric); color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); box-shadow: var(--shadow-3); }
 button.oi-atm-pill:hover { background: hsl(var(--sel-bg)); }
+button.oi-atm-pill[hidden] { display: none; }
+table.oi-ladder tr.oi-detail { scroll-margin: 44px 0 16px; }
 /* Detail row: a CE | PE card that expands (grid rows 0fr → 1fr). */
 table.oi-ladder tr.oi-detail { cursor: default; }
 table.oi-ladder tr.oi-detail > td { height: auto; padding: 0; white-space: normal; background: var(--mat-fill-1); }
@@ -3305,7 +3341,9 @@ table.oi-ladder tr.oi-detail > td { height: auto; padding: 0; white-space: norma
 .oi-dside p { margin: 0 0 4px; font: 500 12.5px/1.45 var(--font-numeric); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .oi-dside b { font-weight: 650; }
 .oi-dh { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; font: 650 13px/1.2 var(--font-numeric); }
-.oi-held-b { padding: 1px 6px; border-radius: 999px; font: 600 10.5px/1.3 var(--font-body); background: var(--mat-fill-3); }
+.oi-held-b { padding: 1px 6px; border-radius: 999px; font: 600 10.5px/1.3 var(--font-body); background: var(--mat-fill-2); box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.4); }
+.oi-held-b.ce { color: hsl(var(--dv-call-ink)); box-shadow: inset 0 0 0 1px hsl(var(--dv-call)); }
+.oi-held-b.pe { color: hsl(var(--dv-put-ink)); box-shadow: inset 0 0 0 1px hsl(var(--dv-put)); }
 .oi-dfoot { margin: 0; padding: 0 14px 10px; font: 450 11.5px/1.3 var(--font-body); }
 button.link-btn { min-height: 28px; padding: 0; background: none; box-shadow: none; border-radius: 6px; font: 600 12.5px/1.2 var(--font-body); color: hsl(var(--foreground)); text-decoration: underline; text-decoration-color: hsl(var(--foreground) / 0.3); text-underline-offset: 3px; }
 button.link-btn:hover { background: none; text-decoration-color: currentColor; }
@@ -3372,16 +3410,26 @@ button.oi-wrow.sel, button.oi-mrow.sel { background: var(--mat-fill-2); box-shad
 table.oi-matrix { width: 100%; border-collapse: separate; border-spacing: 3px; margin: 0 -3px; font: 450 12.5px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; table-layout: fixed; }
 table.oi-matrix th, table.oi-matrix td { padding: 0 4px; border: 0; white-space: nowrap; }
 table.oi-matrix thead th { height: 30px; text-align: center; vertical-align: bottom; cursor: help; font: 650 11px/1.1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
-table.oi-matrix thead th small { display: block; font: 500 10px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); overflow: hidden; text-overflow: ellipsis; }
+table.oi-matrix thead th small { display: block; font: 500 10px/1.2 var(--font-body); letter-spacing: -0.02em; margin: 0 -2px; color: hsl(var(--foreground) / var(--a-quiet)); overflow: hidden; text-overflow: ellipsis; }
 table.oi-matrix thead td { width: 70px; }
 table.oi-matrix tbody th { text-align: left; font: 600 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 table.oi-matrix tbody th .oi-sc { margin-right: 6px; }
 table.oi-matrix td.oi-heat { height: 40px; border-radius: 6px; text-align: center; background-color: var(--mat-fill-1); color: hsl(var(--foreground)); }
 table.oi-matrix td.oi-heat[data-ch="1"] { background-color: var(--mat-fill-2); }
 table.oi-matrix td.oi-heat[data-ch="2"], table.oi-matrix td.oi-heat[data-ch="3"] { background-color: var(--mat-fill-3); }
+/* Coloured by the effect on the underlying (green supportive / bullish, red capping / bearish), stepped by lots on the
+   diverging scale; Churn stays neutral. The figures take each step's own ink. */
+table.oi-matrix td.oi-heat[data-div="-3"] { background-color: hsl(var(--div-n3)); color: hsl(var(--div-ink-n3)); }
+table.oi-matrix td.oi-heat[data-div="-2"] { background-color: hsl(var(--div-n2)); color: hsl(var(--div-ink-n2)); }
+table.oi-matrix td.oi-heat[data-div="-1"] { background-color: hsl(var(--div-n1)); color: hsl(var(--div-ink-n1)); }
+table.oi-matrix td.oi-heat[data-div="1"] { background-color: hsl(var(--div-p1)); color: hsl(var(--div-ink-p1)); }
+table.oi-matrix td.oi-heat[data-div="2"] { background-color: hsl(var(--div-p2)); color: hsl(var(--div-ink-p2)); }
+table.oi-matrix td.oi-heat[data-div="3"] { background-color: hsl(var(--div-p3)); color: hsl(var(--div-ink-p3)); }
+table.oi-matrix td.oi-heat[data-div] small { opacity: 0.85; }
+table.oi-matrix td.oi-heat { transition: background-color var(--dur-3) var(--ease-std), color var(--dur-3) var(--ease-std); }
 table.oi-matrix td strong { display: block; font: 650 13px/1.1 var(--font-numeric); }
 table.oi-matrix td small { display: block; font: 500 10.5px/1.15 var(--font-numeric); opacity: 0.8; }
-table.oi-matrix td.dom { box-shadow: inset 0 0 0 1.5px hsl(var(--foreground)); }
+table.oi-matrix td.dom { box-shadow: inset 0 0 0 2px hsl(var(--foreground)), inset 0 0 0 3px hsl(var(--background) / 0.6); }
 table.oi-matrix td.dom strong { font-weight: 800; }
 .oi-bu-line { font-family: var(--font-body); }
 /* Movers: side chip + strike (+ wall), a magnitude bar (adds solid green, unwinds hatched red), Δ, then a sub-line. */
@@ -3394,14 +3442,17 @@ button.oi-mrow { display: grid; grid-template-columns: auto minmax(24px, 1fr) au
 .oi-mrow .m-k { font: 650 13px/1 var(--font-numeric); }
 .oi-mrow .m-bar { grid-area: bar; display: flex; min-width: 0; }
 .oi-mrow .m-d { grid-area: d; font-weight: 650; white-space: nowrap; }
-.oi-mrow .m-d small { font: 500 11px/1 var(--font-numeric); opacity: 0.85; }
+.oi-mrow .m-d small { font: 550 12px/1 var(--font-numeric); }
 .oi-mrow .m-sub { grid-area: s; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 11px; color: hsl(var(--foreground) / var(--a-label)); }
 .oi-mrow .m-sub:empty { display: none; }
 /* Max pain curve: a valley, line fg / 0.7 over a faint area, the ±1σ band behind, spot dashed. */
 .oi-pain-box { position: relative; height: 120px; }
 .oi-pain-svg { display: block; overflow: visible; }
 svg .oi-pain-line { fill: none; stroke: hsl(var(--foreground) / 0.7); stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-svg .oi-pain-area { fill: hsl(var(--foreground) / 0.05); }
+svg .oi-pain-area { fill: hsl(var(--foreground) / 0.06); }
+svg .oi-pg-a { stop-color: hsl(var(--neg)); stop-opacity: 0.22; }
+svg .oi-pg-b { stop-color: hsl(var(--neg)); stop-opacity: 0.02; }
+svg .oi-pain-spot-l { fill: hsl(var(--foreground)); font-weight: 650; }
 svg .oi-pain-spot { stroke: hsl(var(--foreground) / 0.4); stroke-width: 1; stroke-dasharray: 3 3; }
 svg .oi-edge-dot { fill: hsl(var(--warn)); stroke: hsl(var(--warn-ink) / 0.5); }
 .oi-rel { padding: 1px 6px; border-radius: 999px; font: 600 10.5px/1.3 var(--font-body); letter-spacing: 0; color: hsl(var(--foreground) / var(--a-label)); box-shadow: inset 0 0 0 1px var(--mat-separator); }
@@ -3480,6 +3531,17 @@ table.oi-help-table thead th { font-size: 11.5px; color: hsl(var(--foreground) /
   .oi-ctl-row > * { flex: none; }
   .oi-ctl-row > .oi-win { flex: 0 1 auto; min-width: 0; }
   .oi-ctl-row > .oi-help-btn { margin-left: auto; }
+  .oi-win .wl { display: none; }
+  .oi-win .ws { display: inline; }
+  /* The ATM pill floats just above the tab bar while some of the ladder is on screen (the page scrolls here). */
+  button.oi-atm-pill { position: fixed; z-index: 48; bottom: calc(var(--tabbar-h) + 18px + var(--safe-b, 0px)); }
+  table.oi-ladder tr.oi-detail { scroll-margin: 44px 0 calc(var(--tabbar-h) + 16px + var(--safe-b, 0px)); }
+}
+
+/* Tablet: the ladder box is a little shorter than the viewport, so it can always scroll ATM up into the first view
+   (above the tab bar) under the chart, not leave it just below the fold. */
+@media (min-width: 720px) and (max-width: 1023px) {
+  .oi-ladder-wrap { max-height: max(360px, calc(100dvh - 52px - var(--tabbar-h) - 300px)); }
 }
 
 /* Phone. */
@@ -3528,7 +3590,7 @@ table.oi-help-table thead th { font-size: 11.5px; color: hsl(var(--foreground) /
   table.oi-ladder .dp { display: none; }
   table.oi-ladder .dv { font-size: 12px; }
   table.oi-ladder .kv { padding: 1px 5px; font-size: 12.5px; }
-  table.oi-ladder th.k[data-spot]::before { content: attr(data-spot-short); }
+  .oi-kspot { padding: 2px 2px; font-size: 10px; letter-spacing: -0.03em; }
   /* The OI figure: inside the bar's far end when the bar fills ≥ 40 % of the track, else just past its end. */
   table.oi-ladder td.ob { --oi-vw: 0px; }
   table.oi-ladder .ob.ce .trk { left: 2px; right: 2px; }
@@ -3536,9 +3598,11 @@ table.oi-help-table thead th { font-size: 11.5px; color: hsl(var(--foreground) /
   table.oi-ladder td.ob .v { position: absolute; top: calc(50% - 8px); height: 12px; font: 600 11px/12px var(--font-numeric); }
   table.oi-ladder td.ob.ce .v { right: calc(2px + var(--v, 0) * (100% - 4px) + 3px); }
   table.oi-ladder td.ob.pe .v { left: calc(2px + var(--v, 0) * (100% - 4px) + 3px); }
-  table.oi-ladder td.ob.ce.vin .v { right: auto; left: calc(2px + (1 - var(--v, 0)) * (100% - 4px) + 3px); }
-  table.oi-ladder td.ob.pe.vin .v { left: auto; right: calc(2px + (1 - var(--v, 0)) * (100% - 4px) + 3px); }
-  table.oi-ladder:not(.m-chg) td.ob.vin .v { color: #000; }
+  table.oi-ladder td.ob.ce.vin .v { right: auto; left: calc(2px + (1 - var(--v, 0)) * (100% - 4px)); }
+  table.oi-ladder td.ob.pe.vin .v { left: auto; right: calc(2px + (1 - var(--v, 0)) * (100% - 4px)); }
+  /* Inside the bar the figure sits on a solid chip of the bar's own colour with dark ink (≥ 4.5:1 on every side and
+     metric colour, both themes), whatever the bar's alpha. */
+  table.oi-ladder td.ob.vin .v { padding: 0 3px; border-radius: 2px; color: #0a0a0b; background: hsl(var(--sc)); }
   .oi-side { display: block; }
   .oi-side > .oi-block:nth-child(n) { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
   .oi-whead, button.oi-wrow { grid-template-columns: 28px 58px minmax(0, 1fr) 48px 40px; gap: 0 6px; }
@@ -3558,15 +3622,6 @@ table.oi-help-table thead th { font-size: 11.5px; color: hsl(var(--foreground) /
   .oi-help-dl dd { margin-bottom: 6px; }
   .oi-exp-cards dl { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
-/* Light theme: text inside a bar is white on calls and the foreground on puts (white on orange is only 3.1:1). */
-@media (max-width: 719px) and (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) table.oi-ladder:not(.m-chg) td.ob.ce.vin .v { color: #fff; }
-  :root:not([data-theme="dark"]) table.oi-ladder:not(.m-chg) td.ob.pe.vin .v { color: #0a0a0b; }
-}
-@media (max-width: 719px) {
-  :root[data-theme="light"] table.oi-ladder:not(.m-chg) td.ob.ce.vin .v { color: #fff; }
-  :root[data-theme="light"] table.oi-ladder:not(.m-chg) td.ob.pe.vin .v { color: #0a0a0b; }
-}
 @media (pointer: coarse) {
   table.oi-ladder { --desk-row: 44px; }
   .oi-controls select, .oi-controls button.small, .oi-controls .segmented button { min-height: 44px; }
@@ -3576,9 +3631,9 @@ table.oi-help-table thead th { font-size: 11.5px; color: hsl(var(--foreground) /
   .oi-err .icon-btn { width: 44px; height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  table.oi-ladder .trk > span, svg .oi-b, .oi-mk, .oi-split .b, .oi-share .b, .oi-meter-trk .f, svg g.spot, .oi-dx, .oi-dx.in, .oi-prof .marks { transition: none; }
+  table.oi-ladder .trk > span, svg .oi-b, .oi-mk, .oi-split .b, .oi-share .b, .oi-meter-trk .f, svg g.spot, svg g.oi-col, table.oi-matrix td.oi-heat, .oi-dx, .oi-dx.in, .oi-prof .marks { transition: none; }
   .oi-prof.entering .oi-b, table.oi-ladder.entering .trk > span { transition: none !important; }
-  table.oi-ladder th.k.spot-in::before, .oi-ring-svg { animation: none; }
+  table.oi-ladder th.k.spot-in::before, table.oi-ladder th.k.spot-in::after, .oi-ring-svg, .oi-win button.oi-nudge { animation: none; }
   .oi-ring { animation: none; outline: 2px solid hsl(var(--ring, var(--foreground))); outline-offset: 1px; }
 }
 

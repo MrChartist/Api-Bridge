@@ -107,7 +107,7 @@ export function spotPill(svg, x, label, { y = 2, width = null, g = null } = {}) 
  * A crosshair over a chart that follows the pointer (mouse, pen, touch) and the keyboard, with a tooltip that a click
  * or tap pins (Esc unpins). `host` is the positioned box that holds the chart. `steps` = number of x positions (a
  * number or a function); `at(i)` returns { x: px from the host's left, content: Node | string | Node[] } or null.
- * Keys: ← → one step, Shift + ← → ten, Home / End. Returns { set(i), pin(i), clear(), destroy(), get index() }.
+ * Keys: ← → one step, Shift + ← → ten, Home / End. Returns { set(i), pin(i), unpin(), clear(), destroy(), get index() }.
  */
 export function scrubber(host, { steps, at, label = "Chart: use the arrow keys to read values", bigStep = 10 } = {}) {
   const count = () => Math.max(0, Math.floor(typeof steps === "function" ? steps() : steps) || 0);
@@ -197,6 +197,11 @@ export function scrubber(host, { steps, at, label = "Chart: use the arrow keys t
       if (index < 0) return;
       pinned = true;
       tip.classList.add("pinned");
+    },
+    /** Let go of a pin but keep the tooltip while the pointer is still over the chart (it then follows the pointer). */
+    unpin() {
+      pinned = false;
+      tip.classList.remove("pinned");
     },
     get pinned() {
       return pinned;

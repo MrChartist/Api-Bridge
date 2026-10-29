@@ -249,9 +249,11 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       }
       if (!firstTiles && prevN !== null && n !== null && prevN !== n && prevText !== DASH) flashValue(t.value, n > prevN ? "up" : "down");
     }
-    t.value.className = `value ${vcls}`.trim();
-    t.trend.textContent = trend;
-    t.trend.className = `vtr ${tcls}`.trim();
+    const vc = `value ${vcls}`.trim();
+    if (t.value.className !== vc) t.value.className = vc;
+    if (t.trend.textContent !== trend) t.trend.textContent = trend;
+    const tc = `vtr ${tcls}`.trim();
+    if (t.trend.className !== tc) t.trend.className = tc;
     if (Array.isArray(sub)) t.sub.replaceChildren(...sub.filter(Boolean).map((p) => (Array.isArray(p) ? (p[0] ? h("span", { class: p[0] }, p[1]) : p[1]) : p)));
     else t.sub.textContent = sub || " ";
     t.el.title = title;
@@ -263,7 +265,9 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
   const winChips = h("div", { class: "segmented oi-win", role: "group", "aria-label": "Window" });
   const winBtns = new Map(
     O.OI_WINDOWS.map(([id, name]) => {
-      const b = h("button", { type: "button", "data-value": id, "aria-pressed": "false" }, name);
+      // Tablets show "Open" for "Since open", so all six windows fit without a scroll mask.
+      const short = id === "open" ? "Open" : name;
+      const b = h("button", { type: "button", "data-value": id, "aria-pressed": "false", "aria-label": name }, h("span", { class: "wl" }, name), h("span", { class: "ws", "aria-hidden": "true" }, short));
       b.addEventListener("click", () => pickWindow(id, true));
       winChips.append(b);
       return [id, b];
@@ -304,7 +308,18 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
   function pickWindow(id, user) {
     const av = model?.avail?.get(id);
     if (av && !av.ok) {
-      if (user) toast(av.reason);
+      if (user) {
+        // Refused, not done: a neutral toast and a short nudge on the segment that is not ready yet.
+        toast(av.reason, { tone: "info" });
+        const b = winBtns.get(id);
+        if (b && !reducedMotion()) {
+          b.classList.remove("oi-nudge");
+          requestAnimationFrame(() => {
+            b.classList.add("oi-nudge");
+            setTimeout(() => b.classList.remove("oi-nudge"), 420);
+          });
+        }
+      }
       syncWindowControls();
       return;
     }
@@ -452,6 +467,17 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
   // ── Linking: one selected strike for the chart, ladder, walls, movers and tiles ──
   function selectStrike(k, from) {
     if (k === null || k === undefined) return;
+    // Walls, max pain and movers read every strike loaded: one outside the band widens it to the smallest that shows it.
+    if (model) {
+      const i = model.rows.findIndex((r) => r.strike === k);
+      const N = cfg().band === "all" ? Infinity : Number(cfg().band);
+      if (i >= 0 && model.ai >= 0 && Math.abs(i - model.ai) > N) {
+        const d = Math.abs(i - model.ai);
+        const band = BANDS.find(([v]) => v === "all" || Number(v) >= d)[0];
+        toast(`${formatInt(k)} is outside ±${N}: band widened to ${band === "all" ? "All" : `±${band}`}`, { tone: "info" });
+        setCfg({ band });
+      }
+    }
     selK = k;
     if (from !== "ladder") ladder.select(k, true, false);
     if (from !== "chart") profile.pin(k);
@@ -477,6 +503,21 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     }
   }
 
+  /**
+   * Replace a block's content, keeping keyboard focus on the same control (matched by data-fk), so a refresh that
+   * changes a figure never drops focus to <body> mid-Tab or mid-Enter.
+   */
+  function rebuild(host, nodes) {
+    const a = document.activeElement;
+    const fk = a && a !== document.body && host.contains(a) ? a.getAttribute("data-fk") : null;
+    host.replaceChildren(...nodes);
+    if (fk === null) return;
+    const next = [...host.querySelectorAll("[data-fk]")].find((n) => n.getAttribute("data-fk") === fk && n.getClientRects().length);
+    next?.focus({ preventScroll: true });
+  }
+  const sign = (v) => (v === null || v === undefined || !Number.isFinite(v) ? null : Math.sign(v));
+  const r3 = (v) => (v === null || v === undefined || !Number.isFinite(v) ? null : Math.round(v * 1000) / 1000);
+
   // ── Extra expiries ──
   const extraList = () => (cfg().extra[st.underlying] ?? []).filter((e) => e !== st.expiry && st.expiries.includes(e)).slice(0, EXTRA_MAX);
   async function loadExtra(expiry) {
@@ -500,7 +541,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const all = { ...cfg().extra };
     const list = new Set(all[st.underlying] ?? []);
     if (on) {
-      if (extraList().length >= EXTRA_MAX) return toast(`Up to ${EXTRA_MAX} more expiries`);
+      if (extraList().length >= EXTRA_MAX) return toast(`Up to ${EXTRA_MAX} more expiries`, { tone: "info" });
       list.add(expiry);
     } else list.delete(expiry);
     all[st.underlying] = [...list].filter((e) => st.expiries.includes(e)).slice(0, EXTRA_MAX);
@@ -532,7 +573,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       // default (Prev close) falling back to Since open is how a source without oiChange works: no toast for that.
       if (fb && fb !== win && win !== OI_DEFAULTS.window && toastSig !== sig && snaps.length) {
         toastSig = sig;
-        toast(`${WINDOW_NAME[win]} is not available here: showing ${WINDOW_NAME[fb]}`);
+        toast(`${WINDOW_NAME[win]} is not available here: showing ${WINDOW_NAME[fb]}`, { tone: "info" });
       }
       win = fb ?? (hasPrev ? "prev" : "open");
     }
@@ -581,7 +622,9 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const rows = combined ? O.cumulativeOi(chains, now).rows : O.oiWindowRows(c, w.ref?.ok ? w.ref.snap : null);
     const th = { lot, ...cfg().th };
     O.annotateBuildup(rows, th);
-    const spot = x.spot;
+    // The toolbar shows the index quote's last price when there is one: use the same figure here (chart pill, ladder,
+    // distances), so the page never shows two spots at once.
+    const spot = num(x.indexQuote?.ltp) ?? x.spot;
     const atm = O.atmRow(c)?.strike ?? null;
     const ai = rows.findIndex((r) => r.strike === atm);
     const N = cfg().band === "all" ? Infinity : Number(cfg().band);
@@ -620,7 +663,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       if (S1 && wallPrev.s1 !== null && S1.strike !== wallPrev.s1) moved.pe = S1.strike > wallPrev.s1 ? "up" : "down";
     }
     wallPrev = { ctx, r1: R1?.strike ?? null, s1: S1?.strike ?? null };
-    model = { avail, win: w.win, combined, lot, div, unit, rows, walls, wallMap, R1, S1, mp, x, fq, fd, th, refLabel, winLabel };
+    model = { avail, win: w.win, combined, lot, div, unit, rows, ai, walls, wallMap, R1, S1, mp, x, fq, fd, th, refLabel, winLabel };
 
     // Verdict: the tone pill carries the direction (or the range); the text drops what the pill already says.
     const verdict = O.oiVerdict({ walls: { r1: R1?.strike, s1: S1?.strike }, pcr: pcrChain.oi, buildup: bu, maxPain: mp?.strike, relevance }) ?? "Not enough OI to read";
@@ -725,7 +768,8 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const vs = w.ref?.ok ? (w.win === "prev" ? "vs Prev close" : `vs ${refLabel.replace(/^since /, "")} (${plural(snaps.length, "snap")})`) : snaps.length ? `Recording · ${plural(snaps.length, "snap")} since ${O.istHm(snaps[0].t)}` : "Recording starts now";
     const cover = `${formatInt(rows.length)} strikes · ${formatInt(lo)}–${formatInt(hi)} · ${unit}${combined ? ` · ${formatInt(chains.length)} expiries` : ""} · ${vs}`;
     if (coverEl.textContent !== cover) coverEl.textContent = cover;
-    coverEl.title = `${coverage(snaps, session)}${store.persistent ? "" : " · Not saved: browser storage unavailable"}`;
+    const coverTitle = `${cover} · ${coverage(snaps, session)}${store.persistent ? "" : " · Not saved: browser storage unavailable"}`;
+    if (coverEl.title !== coverTitle) coverEl.title = coverTitle;
     syncWindowControls();
 
     // The chart and the ladder share one model of the band.
@@ -795,7 +839,8 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       if (mp && r.strike === mp.strike) tags.push({ t: "◆ MP", cls: "mp", title: "Max Pain" });
       for (const s of ["ce", "pe"]) {
         const l = held.get(`${r.strike}|${s}`);
-        if (l) tags.push({ t: `${l > 0 ? "+" : "−"}${formatNumberLots(Math.abs(l))}L`, cls: "held", title: `You hold ${l > 0 ? "+" : "−"}${formatNumberLots(Math.abs(l))} lots of ${formatInt(r.strike)} ${SIDE[s]}` });
+        // "+1 CE" / "−2 PE": lots held, with the side (never "L", which reads as lakh beside OI figures).
+        if (l) tags.push({ t: `${l > 0 ? "+" : "−"}${formatNumberLots(Math.abs(l))} ${SIDE[s]}`, cls: `held ${s}`, title: `You hold ${l > 0 ? "+" : "−"}${formatNumberLots(Math.abs(l))} ${Math.abs(l) === 1 ? "lot" : "lots"} of ${formatInt(r.strike)} ${SIDE[s]}` });
       }
       if (hasEm && r.strike === em.hi) tags.push({ t: "+1σ", cls: "em", title: "Upper edge of the ±1σ expected move to expiry" });
       if (hasEm && r.strike === em.lo) tags.push({ t: "−1σ", cls: "em", title: "Lower edge of the ±1σ expected move to expiry" });
@@ -835,9 +880,14 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         pe: side("pe"),
       };
     });
+    const ctxKey = `${x.c.underlying}|${x.c.expiry}|${combined ? "all" : "one"}`;
     return {
-      key: `${x.c.underlying}|${x.c.expiry}|${combined ? "all" : "one"}|${rows.map((r) => r.strike).join(",")}|${metric}|${unit}`,
-      caption: `Open interest by strike, ${winLabel}, ${unit}`,
+      // The table's structure: the strikes are not in it (when ATM moves the ladder slides its rows, oi.md §8).
+      key: `${ctxKey}|${metric}|${unit}`,
+      ks: rows.map((r) => r.strike).join(","),
+      ekey: `${ctxKey}|${metric}`,
+      spotTxt: spot === null ? "" : formatFixed(spot, 2),
+      caption: `Open interest by strike, ${winLabel}, ${unit}${spot === null ? "" : `. Spot ${formatFixed(spot, 2)}`}`,
       head: { ce: metric === "chg" ? "Calls OI chg" : `Calls ${metricName}`, pe: metric === "chg" ? "Puts OI chg" : `Puts ${metricName}`, unit, tail: metric === "chg" ? " · OI" : "" },
       rows: out,
       metric,
@@ -871,6 +921,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const aria = `OI by strike, ±${n} around ${formatInt(atm)}. Largest call OI ${formatInt(tc?.k)} (${fq(tc?.ce.oi)} ${unit}), largest put OI ${formatInt(tp?.k)} (${fq(tp?.pe.oi)} ${unit}).${spot !== null ? ` Spot ${formatFixed(spot, 2)}.` : ""}`;
     return {
       key: `${lm.key}|${n}`,
+      ekey: lm.ekey,
       metric,
       pts,
       atm,
@@ -914,7 +965,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         vol: leg.v !== null ? m.fq(leg.v) : null,
         cls: leg.cls,
         wall: m.wallMap[s].get(strike) ?? null,
-        held: lots ? `${lots > 0 ? "+" : "−"}${formatNumberLots(Math.abs(lots))}L held` : null,
+        held: lots ? `You ${lots > 0 ? "+" : "−"}${formatNumberLots(Math.abs(lots))} ${Math.abs(lots) === 1 ? "lot" : "lots"}` : null,
       };
     });
     return { sides, unit: m.unit, window: m.refLabel || WINDOW_NAME[m.win] };
@@ -925,7 +976,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const fwC = O.freshWall(rows, "ce");
     const fwP = O.freshWall(rows, "pe");
     const shift = (now, ref) => (now && ref !== null && now.strike !== ref ? { up: now.strike > ref, from: formatInt(ref) } : null);
-    const maxShare = Math.max(0, ...walls.ce.map((v) => v.share ?? 0), ...walls.pe.map((v) => v.share ?? 0));
+    const maxShare = r3(Math.max(0, ...walls.ce.map((v) => v.share ?? 0), ...walls.pe.map((v) => v.share ?? 0)));
     const sideRows = (list, s) =>
       list.map((v) => ({
         tag: tagOf(s, v.rank),
@@ -933,9 +984,9 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         rank: v.rank,
         strike: formatInt(v.strike),
         oi: fq(v.oi),
-        share: v.share,
+        share: r3(v.share),
         shareTxt: v.share === null ? DASH : `${formatFixed(v.share * 100, 0)}%`,
-        d: v.d,
+        d: sign(v.d),
         dTxt: fd(v.d),
         dist: formatSigned(v.dist, 0),
         sigma: v.sigma !== null ? `${formatFixed(v.sigma, 1)}σ` : "",
@@ -962,7 +1013,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       setBar(bar, r.share ?? 0, maxShare || 1);
       const b = h(
         "button",
-        { type: "button", class: "oi-wrow", "data-k": String(r.k), "aria-label": `${r.tag} ${r.strike}: OI ${r.oi}, ${r.shareTxt} share, change ${r.dTxt}${r.fresh ? `, ${r.fresh}` : ""}. Show in the ladder`, title: r.title, onclick: () => selectStrike(r.k, "walls") },
+        { type: "button", class: "oi-wrow", "data-k": String(r.k), "data-fk": `w|${s}|${r.k}`, "aria-label": `${r.tag} ${r.strike}: OI ${r.oi}, ${r.shareTxt} share, change ${r.dTxt}${r.fresh ? `, ${r.fresh}` : ""}. Show in the ladder`, title: r.title, onclick: () => selectStrike(r.k, "walls") },
         h("span", { class: "c-rk" }, wallChip(r.tag)),
         h("span", { class: "c-k" }, h("span", { class: `oi-wk${r.rank === 1 ? ` ink-${SIDE_DV[s]}` : ""}${r.strong ? " strong" : ""}` }, r.strike), r.fresh ? h("span", { class: `oi-fr ${r.fresh === "fresh" ? "ink-pos" : r.fresh === "unwinding" ? "ink-neg" : ""}` }, r.fresh === "fresh" ? "▲ fresh" : r.fresh === "unwinding" ? "▼ unwinding" : "steady") : null),
         h("span", { class: "c-bar" }, h("span", { class: "dv-track" }, bar), h("span", { class: "oi-woi" }, r.oi)),
@@ -979,7 +1030,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         h("div", { class: "oi-whead", "aria-hidden": "true" }, h("span", {}), h("span", {}, "Strike"), h("span", {}, `Share · OI`), h("span", {}, "Δ"), h("span", {}, "Dist")),
         list.length ? list.map((r) => row(r, s)) : h("p", { class: "oi-none" }, "No OI on this side of spot"),
       );
-    wallsEl.replaceChildren(
+    rebuild(wallsEl, [
       h("h3", { class: "oi-block-head" }, "Walls", h("small", {}, `OI in ${unit} · Δ vs ${winLabel}`)),
       group("Call walls (resistance)", data.ce, "ce", data.shiftC),
       group("Put walls (support)", data.pe, "pe", data.shiftP),
@@ -987,7 +1038,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         data.fresh.length ? h("p", { class: "oi-foot" }, "Most added: ", data.fresh.map((f, i) => [i ? " · " : "", h("span", { class: `ink-${SIDE_DV[f.s]} oi-fk` }, `${formatInt(f.k)} ${SIDE[f.s]}`), " ", h("span", { class: "ink-pos" }, f.d)])) : null,
         data.pin ? h("p", { class: "oi-foot oi-pin", title: "OI on the 3 strikes nearest spot ÷ all OI: the higher, the stronger the pull to pin near expiry" }, h("span", { class: "oi-warn-dot", "aria-hidden": "true" }), data.pin) : null,
       ].filter(Boolean),
-    );
+    ]);
   }
 
   // ── Build-up: a direction meter and heat cells ──
@@ -1049,12 +1100,12 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const sig = JSON.stringify(data);
     if (buildEl.__sig === sig) return;
     buildEl.__sig = sig;
-    const NAMES = { LB: "Long bu", SB: "Short bu", SC: "Short cov", LU: "Long unw", CH: "No dir." };
+    const NAMES = { LB: "Long build", SB: "Short build", SC: "Short cover", LU: "Long unwind", CH: "Churn" };
     const head = (k) =>
       h(
         "th",
         { scope: "col", title: k === "CH" ? "Churn: heavy volume, but OI or price barely moved. No direction." : `${O.BUILDUP_NAMES[k]}. On calls = ${O.BUILDUP_READ.ce[k].join(": ")}. On puts = ${O.BUILDUP_READ.pe[k].join(": ")}.` },
-        h("span", {}, k === "CH" ? "Churn" : k),
+        h("span", {}, k),
         h("small", {}, NAMES[k]),
       );
     const cell = (s, k) => {
@@ -1079,20 +1130,22 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
   // ── Movers ──
   function drawMovers(movers, { fd, winLabel }) {
     const maxAbs = Math.max(0, ...movers.adds.map((m) => Math.abs(m.d)), ...movers.unwinds.map((m) => Math.abs(m.d)));
-    const item = (m) => ({ k: m.strike, side: m.side, d: m.d, dTxt: fd(m.d), pct: m.dPct === null ? "new" : signedPct(m.dPct, 0), dLtp: m.dLtp, ltp: m.dLtp === null ? "" : formatSigned(m.dLtp, 1), cls: m.cls, wall: m.wall ?? "" });
-    const data = { adds: movers.adds.map(item), unwinds: movers.unwinds.map(item), winLabel, tab: moverTab, maxAbs };
+    // Only what is shown goes into the signature (formatted text, the bar's rounded share, signs), so a tick that moves
+    // a raw figure without changing what reads on screen rebuilds nothing.
+    const item = (m) => ({ k: m.strike, side: m.side, d: sign(m.d), f: r3(maxAbs ? Math.abs(m.d) / maxAbs : 0), dTxt: fd(m.d), pct: m.dPct === null ? "new" : signedPct(m.dPct, 0), dLtp: sign(m.dLtp), ltp: m.dLtp === null ? "" : formatSigned(m.dLtp, 1), cls: m.cls, wall: m.wall ?? "" });
+    const data = { adds: movers.adds.map(item), unwinds: movers.unwinds.map(item), winLabel, tab: moverTab };
     const sig = JSON.stringify(data);
     if (moversEl.__sig === sig) return;
     moversEl.__sig = sig;
     const row = (it) => {
       const bar = h("span", { class: `dv-bar${it.d < 0 ? " dec" : ""}`, "data-dv": it.d < 0 ? "neg" : "pos" });
-      setBar(bar, it.d, maxAbs || 1);
+      setBar(bar, it.d < 0 ? -it.f : it.f, 1);
       return h(
         "li",
         {},
         h(
           "button",
-          { type: "button", class: "oi-mrow", "data-k": String(it.k), "aria-label": `${formatInt(it.k)} ${SIDE[it.side]} ${it.dTxt} (${it.pct}). Show in the ladder`, onclick: () => selectStrike(it.k, "movers") },
+          { type: "button", class: "oi-mrow", "data-k": String(it.k), "data-fk": `m|${it.side}|${it.k}`, "aria-label": `${formatInt(it.k)} ${SIDE[it.side]} ${it.dTxt} (${it.pct}). Show in the ladder`, onclick: () => selectStrike(it.k, "movers") },
           h("span", { class: "m-l" }, sideChip(it.side), h("span", { class: "m-k" }, formatInt(it.k)), it.wall ? h("span", { title: it.side === "ce" ? "A call wall: unwinding here is the breakout cue" : "A put wall: unwinding here is the breakdown cue" }, wallChip(it.wall)) : null),
           h("span", { class: "m-bar" }, h("span", { class: "dv-track" }, bar)),
           h("span", { class: `m-d ${signCls(it.d)}` }, it.dTxt, h("small", {}, ` (${it.pct})`)),
@@ -1115,7 +1168,8 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       drawMovers(movers, { fd, winLabel });
       moversEl.querySelector(".oi-mseg button[aria-pressed=true]")?.focus();
     });
-    moversEl.replaceChildren(h("h3", { class: "oi-block-head" }, "Movers", h("small", {}, `Top 5 · vs ${winLabel} · all strikes`)), seg, h("div", { class: "oi-mlists" }, list("Biggest additions ▲", data.adds, "adds"), list("Biggest unwinds ▼", data.unwinds, "unwinds")));
+    for (const b of seg.querySelectorAll("button")) b.setAttribute("data-fk", `seg|${b.dataset.value}`);
+    rebuild(moversEl, [h("h3", { class: "oi-block-head" }, "Movers", h("small", {}, `Top 5 · vs ${winLabel} · all strikes`)), seg, h("div", { class: "oi-mlists" }, list("Biggest additions ▲", data.adds, "adds"), list("Biggest unwinds ▼", data.unwinds, "unwinds"))]);
   }
 
   // ── Expiries ──
@@ -1124,7 +1178,18 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const rowsFor = [c.expiry, ...st.expiries.filter((e) => e !== c.expiry)];
     const stats = new Map(O.cumulativeOi([c, ...[...included].map((e) => extras.get(e)?.chain).filter(Boolean)], now).perExpiry.map((p) => [p.expiry, p]));
     let maxTotal = 0;
-    for (const p of stats.values()) maxTotal = Math.max(maxTotal, (p.ceOi ?? 0) + (p.peOi ?? 0));
+    let maxSide = 0;
+    for (const p of stats.values()) {
+      maxTotal = Math.max(maxTotal, (p.ceOi ?? 0) + (p.peOi ?? 0));
+      maxSide = Math.max(maxSide, p.ceOi ?? 0, p.peOi ?? 0);
+    }
+    // One compact scale for every CE / PE OI figure in the table (100K beside 93.5K, never 1.00L beside 93.5K).
+    const scale = maxSide >= 1e8 ? [1e7, "Cr"] : maxSide >= 1e6 ? [1e5, "L"] : maxSide >= 1e3 ? [1e3, "K"] : [1, ""];
+    const fOi = (v) => {
+      if (v === null || v === undefined || !isFigure(v)) return DASH;
+      const q = Number(v) / scale[0];
+      return `${formatFixed(q, q >= 100 || scale[0] === 1 ? 0 : 1)}${scale[1]}`;
+    };
     const data = rowsFor.map((e) => {
       const p = stats.get(e);
       const ex = extras.get(e);
@@ -1132,19 +1197,20 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         e,
         main: e === c.expiry,
         on: e === c.expiry || included.has(e),
-        p: p ? { dte: p.dte, lot: formatInt(p.lot), ce: p.ceOi ?? 0, pe: p.peOi ?? 0, ceT: formatCompact(p.ceOi), peT: formatCompact(p.peOi), pcr: p.pcr, pcrT: formatFixed(p.pcr, 2), mp: `${formatInt(p.maxPain)}${p.edge ? " (edge)" : ""}`, s1: formatInt(p.s1), r1: formatInt(p.r1) } : null,
+        p: p ? { dte: p.dte, lot: formatInt(p.lot), ce: Math.round(p.ceOi ?? 0), pe: Math.round(p.peOi ?? 0), ceT: fOi(p.ceOi), peT: fOi(p.peOi), pcr: p.pcr, pcrT: formatFixed(p.pcr, 2), mp: `${formatInt(p.maxPain)}${p.edge ? " (edge)" : ""}`, s1: formatInt(p.s1), r1: formatInt(p.r1) } : null,
         err: Boolean(ex?.error),
         loading: Boolean(ex?.loading) && !ex?.chain,
         monthly: O.isMonthlyExpiry(e, st.expiries),
       };
     });
-    const sig = JSON.stringify([data, maxTotal]);
+    const sig = JSON.stringify([data, Math.round(maxTotal)]);
     if (expBody.__sig === sig) return;
     expBody.__sig = sig;
-    const check = (d) =>
+    const check = (d, where) =>
       h("input", {
         type: "checkbox",
         class: "oi-inc",
+        "data-fk": `e|${d.e}|${where}`,
         checked: d.on,
         disabled: d.main || (!d.on && included.size >= EXTRA_MAX),
         "aria-label": d.main ? `${expiryText(d.e)}: the toolbar expiry` : `Include ${expiryText(d.e)}`,
@@ -1174,7 +1240,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         h(
           "tr",
           { class: d.on ? "on" : "off" },
-          h("td", { class: "inc" }, check(d)),
+          h("td", { class: "inc" }, check(d, "t")),
           h("td", {}, name(d)),
           ...(d.p
             ? [
@@ -1199,7 +1265,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         h(
           "li",
           { class: d.on ? "on" : undefined },
-          h("label", { class: "oi-exp-card-head" }, check(d), name(d), d.p ? h("span", { class: "oi-q" }, d.p.dte) : h("span", { class: "oi-q" }, status(d))),
+          h("label", { class: "oi-exp-card-head" }, check(d, "c"), name(d), d.p ? h("span", { class: "oi-q" }, d.p.dte) : h("span", { class: "oi-q" }, status(d))),
           d.p ? h("div", { class: "oi-ecard-bar" }, split(d.p)) : null,
           d.p
             ? h(
@@ -1219,7 +1285,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         ),
       ),
     );
-    expBody.replaceChildren(t, cards);
+    rebuild(expBody, [t, cards]);
     const n = 1 + extraList().filter((e) => extras.get(e)?.chain).length;
     const allBtn = scopeSeg.querySelector('[data-value="all"]');
     if (allBtn) allBtn.textContent = `Combined (${formatInt(n)})`;
@@ -1247,7 +1313,8 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         const ink = p.startsWith("Call wall") ? "ink-call" : p.startsWith("Put wall") ? "ink-put" : "";
         if (!ink) return p;
         const [name, rest] = [p.slice(0, p.indexOf(":") + 1), p.slice(p.indexOf(":") + 1)];
-        return [name, ...rest.split(/(\d[\d,]*(?= \(| since|$))/).map((s, i) => (i % 2 ? h("span", { class: ink }, s) : s))];
+        // Strikes only: a run of 3+ digits not touching a ":" (so the "26" of "13:26" stays plain).
+        return [name, ...rest.split(/((?<![\d:])\d[\d,]{2,}(?![\d:]))/).map((s, i) => (i % 2 ? h("span", { class: ink }, s) : s))];
       });
       migrateEl.replaceChildren(...parts.flatMap((p, i) => (i ? [" · ", p] : [p])).flat());
     }
@@ -1363,17 +1430,20 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     for (const [id, b] of winBtns) {
       const a = model?.avail?.get(id);
       const off = Boolean(a && !a.ok);
-      b.setAttribute("aria-pressed", String(id === win));
-      b.tabIndex = id === win ? 0 : -1;
-      if (off) b.setAttribute("aria-disabled", "true");
-      else b.removeAttribute("aria-disabled");
+      if (b.getAttribute("aria-pressed") !== String(id === win)) b.setAttribute("aria-pressed", String(id === win));
+      if (b.tabIndex !== (id === win ? 0 : -1)) b.tabIndex = id === win ? 0 : -1;
+      if (off !== b.hasAttribute("aria-disabled")) {
+        if (off) b.setAttribute("aria-disabled", "true");
+        else b.removeAttribute("aria-disabled");
+      }
       const title = off ? a.reason : a?.label ? `${WINDOW_NAME[id]}: ${a.label}` : WINDOW_NAME[id];
       if (b.title !== title) b.title = title;
     }
     for (const o of winSel.options) {
       const a = model?.avail?.get(o.value);
-      o.disabled = Boolean(a && !a.ok);
-      o.title = a && !a.ok ? a.reason : "";
+      if (o.disabled !== Boolean(a && !a.ok)) o.disabled = Boolean(a && !a.ok);
+      const ot = a && !a.ok ? a.reason : "";
+      if (o.title !== ot) o.title = ot;
     }
     if (winSel.value !== win) winSel.value = win;
   }
@@ -1475,7 +1545,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       return setCfg({ band: BANDS[j][0] }), true;
     }
     if (k === "u" || k === "U") {
-      if (cfg().scope === "all" && extraList().length) return toast("Combined OI is in lots: lot sizes differ by expiry"), true;
+      if (cfg().scope === "all" && extraList().length) return toast("Combined OI is in lots: lot sizes differ by expiry", { tone: "info" }), true;
       return setCfg({ unit: cfg().unit === "lots" ? "qty" : "lots" }), true;
     }
     if (e.target instanceof Element && e.target.closest(".oi-prof-hit")) return false;
@@ -1526,13 +1596,15 @@ const PAD = { l: 40, r: 8, t: 31, b: 30 };
 function createProfile({ onPick, onToggle, onJump }) {
   const svg = svgEl("svg", { class: "oi-prof-svg", role: "img", "aria-label": "OI by strike", focusable: "false" });
   const gBand = svgEl("g", { class: "band" });
+  const gSel = svgEl("g", { class: "sel" });
   const gGrid = svgEl("g", { class: "grid" });
   const gBars = svgEl("g", { class: "bars" });
   const gMarks = svgEl("g", { class: "marks" });
   const gAxis = svgEl("g", { class: "axis" });
+  const gSelAx = svgEl("g", { class: "sel-ax" });
   const gLabels = svgEl("g", { class: "labels" });
   const gSpot = svgEl("g", { class: "spot" });
-  svg.append(gBand, gGrid, gBars, gMarks, gAxis, gLabels, gSpot);
+  svg.append(gBand, gSel, gGrid, gBars, gMarks, gAxis, gSelAx, gLabels, gSpot);
   const hit = h("div", { class: "oi-prof-hit" });
   const caption = h("span", { class: "oi-prof-cap" });
   const jump = h("button", { type: "button", class: "link-btn oi-prof-jump", onclick: () => onJump() }, "Jump to the OI table");
@@ -1548,27 +1620,32 @@ function createProfile({ onPick, onToggle, onJump }) {
   let ymax = 0;
   let entered = new Set();
   let pinK = null;
+  let touchTimer = 0;
   const scrub = scrubber(hit, {
     steps: () => built?.n ?? 0,
     bigStep: 5,
     label: "OI profile: use the arrow keys to read each strike, Enter to select it in the ladder",
     at: (i) => (built && m ? { x: i * built.slot, content: tip(i) } : null),
   });
-  hit.addEventListener("pointerdown", () => {
-    // The scrubber pinned (or unpinned) on this pointerdown; a pin selects the strike in the ladder.
+  // The tooltip shows only while the pointer or the keyboard is reading the chart. A click or tap selects the strike
+  // (a column highlight and an axis pill mark it); the tip then follows the pointer again, or on touch fades after 1.5 s.
+  hit.addEventListener("pointerdown", (e) => {
     queueMicrotask(() => {
-      if (scrub.pinned && scrub.index >= 0 && built) {
-        pinK = built.ks[scrub.index];
-        onPick(pinK);
-      }
+      if (!(scrub.pinned && scrub.index >= 0 && built)) return;
+      pinK = built.ks[scrub.index];
+      onPick(pinK);
+      paintSel();
+      clearTimeout(touchTimer);
+      if (e.pointerType === "touch") touchTimer = setTimeout(() => scrub.clear(), 1500);
+      else scrub.unpin();
     });
   });
   hit.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && scrub.index >= 0 && built) {
       e.preventDefault();
-      scrub.pin(scrub.index);
       pinK = built.ks[scrub.index];
       onPick(pinK);
+      paintSel();
     }
   });
   if (typeof ResizeObserver === "function") {
@@ -1600,6 +1677,27 @@ function createProfile({ onPick, onToggle, onJump }) {
     return [h("div", { class: "oi-tip-head" }, h("b", {}, formatInt(p.k)), ...p.tags.map((t) => [" · ", t])), line("ce"), line("pe"), h("div", { class: "oi-tip-foot" }, `PCR ${pcr}`)];
   }
   const fmtTick = (v) => formatCompact(v / (m?.div ?? 1));
+  /** One strike's column: its bars (in the bars layer) and marks (ghost, window-start dash, OI-added cap), each a
+   *  group translated to the strike's x, so when ATM moves the columns slide instead of being rebuilt. */
+  function makeCol(p, { bw, span, zeroY, metric }) {
+    const gb = svgEl("g", { class: "oi-col" });
+    const gm = svgEl("g", { class: "oi-col" });
+    const mk = (s, dx) => {
+      const cls = `oi-b ${s}`;
+      // Drawn at the full half / plot height and scaled (scaleY(var(--v))): a refresh resizes from the old value.
+      const up = svgEl("rect", { class: `${cls} up`, x: dx, y: PAD.t, width: bw, height: span, rx: 1 });
+      const dn = metric === "chg" ? svgEl("rect", { class: `${cls} dn`, x: dx, y: zeroY, width: bw, height: span, rx: 1, fill: `url(#dv-hatch-${SIDE_DV[s]})` }) : null;
+      const ghost = metric === "oi" ? svgEl("rect", { class: `oi-ghost ${s}`, x: dx, y: 0, width: bw, height: 0, visibility: "hidden", fill: `url(#dv-hatch-${SIDE_DV[s]})` }) : null;
+      const ref = metric === "oi" ? svgEl("line", { class: "oi-ref", x1: dx - 2, x2: dx + bw + 2, y1: 0, y2: 0, visibility: "hidden" }) : null;
+      const cap = metric === "oi" ? svgEl("rect", { class: "oi-cap", x: dx, y: 0, width: bw, height: 2, visibility: "hidden" }) : null;
+      gb.append(...[up, dn].filter(Boolean));
+      gm.append(...[ghost, ref, cap].filter(Boolean));
+      return { up, dn, ghost, ref, cap, v: -1, gy: "", ry: "", cy: "" };
+    };
+    gBars.append(gb);
+    gMarks.append(gm);
+    return { k: p.k, gb, gm, ce: mk("ce", -bw - 0.5), pe: mk("pe", 0.5), x: null };
+  }
   function render(refresh) {
     if (!m) return;
     W = W || Math.round(box.clientWidth);
@@ -1613,8 +1711,11 @@ function createProfile({ onPick, onToggle, onJump }) {
     const slot = plotW / Math.max(1, n);
     const bw = Math.max(3, Math.min(14, slot * 0.36));
     const xOf = (i) => PAD.l + slot * (i + 0.5);
-    const key = `${m.key}|${W}|${H}`;
-    // y scale (10 % hysteresis, so a 3 s tick does not rescale).
+    const key = `${m.key}|${W}|${H}|${n}`;
+    const ks = m.pts.map((p) => p.k);
+    const ksSig = ks.join(",");
+    // y scale: 12 % headroom over the tallest bar, so no bar reaches the label lane (spot pill, R / S labels). It grows
+    // at once when the data needs more room (a bar is never clamped) and shrinks only on a 15 % drop (no jitter).
     let top = 0;
     for (const p of m.pts) {
       for (const s of ["ce", "pe"]) {
@@ -1625,7 +1726,8 @@ function createProfile({ onPick, onToggle, onJump }) {
       }
     }
     const fresh = !built || built.key !== key;
-    if (fresh || !ymax || Math.abs(top - ymax) > ymax * 0.1) ymax = top || 1;
+    const want = (top || 1) * 1.12;
+    if (fresh || !ymax || top * 1.04 > ymax || want < ymax * 0.85) ymax = want;
     // Ticks are round in the unit shown (lots or qty), not in raw quantity.
     const dv = m.div || 1;
     const ticks = O.niceTicks(0, ymax / dv, 4).map((t) => t * dv);
@@ -1637,33 +1739,38 @@ function createProfile({ onPick, onToggle, onJump }) {
       svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
       svg.setAttribute("width", String(W));
       svg.setAttribute("height", String(H));
-      for (const g of [gBand, gGrid, gBars, gMarks, gAxis, gLabels, gSpot]) g.replaceChildren();
-      const bars = [];
-      m.pts.forEach((p, i) => {
-        const x = xOf(i);
-        const mk = (s, dx) => {
-          const cls = `oi-b ${s}`;
-          // Drawn at the full half / plot height and scaled (scaleY(var(--v))): a refresh resizes from the old value.
-          const up = svgEl("rect", { class: `${cls} up`, x: x + dx, y: metric === "chg" ? PAD.t : PAD.t, width: bw, height: span, rx: 1 });
-          const dn = metric === "chg" ? svgEl("rect", { class: `${cls} dn`, x: x + dx, y: zeroY, width: bw, height: span, rx: 1, fill: `url(#dv-hatch-${SIDE_DV[s]})` }) : null;
-          const ghost = metric === "oi" ? svgEl("rect", { class: `oi-ghost ${s}`, x: x + dx, y: 0, width: bw, height: 0, visibility: "hidden", fill: `url(#dv-hatch-${SIDE_DV[s]})` }) : null;
-          const ref = metric === "oi" ? svgEl("line", { class: "oi-ref", x1: x + dx - 2, x2: x + dx + bw + 2, y1: 0, y2: 0, visibility: "hidden" }) : null;
-          const cap = metric === "oi" ? svgEl("rect", { class: "oi-cap", x: x + dx, y: 0, width: bw, height: 2, visibility: "hidden" }) : null;
-          gBars.append(...[up, dn].filter(Boolean));
-          gMarks.append(...[ghost, ref, cap].filter(Boolean));
-          return { up, dn, ghost, ref, cap, v: -1, w: -1, gy: "", ry: "", cy: "" };
-        };
-        const ce = mk("ce", -bw - 0.5);
-        const pe = mk("pe", 0.5);
-        bars.push({ ce, pe, i });
-      });
-      built = { key, n, slot, bars, ks: m.pts.map((p) => p.k), H, phone };
+      for (const g of [gBand, gSel, gGrid, gBars, gMarks, gAxis, gSelAx, gLabels, gSpot]) g.replaceChildren();
+      const cols = new Map();
+      for (const p of m.pts) cols.set(p.k, makeCol(p, { bw, span, zeroY, metric }));
+      built = { key, n, slot, cols, ks, ksSig, H, phone };
       hit.style.left = `${Math.round(PAD.l + slot / 2)}px`;
       hit.style.right = `${Math.round(PAD.r + slot / 2)}px`;
       hit.style.setProperty("--slot", `${Math.round(slot)}px`);
       box.style.height = `${H}px`;
+    } else if (built.ksSig !== ksSig) {
+      // The strikes slid (ATM moved): drop the columns that left, add the edge ones; the rest slide to their new x.
+      const keep = new Set(ks);
+      for (const [k, c] of built.cols) {
+        if (keep.has(k)) continue;
+        c.gb.remove();
+        c.gm.remove();
+        built.cols.delete(k);
+      }
+      for (const p of m.pts) if (!built.cols.has(p.k)) built.cols.set(p.k, makeCol(p, { bw, span, zeroY, metric }));
+      built.ks = ks;
+      built.ksSig = ksSig;
     }
     built.yTop = yTop;
+    m.pts.forEach((p, i) => {
+      const c = built.cols.get(p.k);
+      const x = Math.round(xOf(i) * 10) / 10;
+      if (c.x === x) return;
+      // A new column takes its place at once; one that already stood somewhere slides there.
+      if (c.x === null) c.gb.classList.add("still"), c.gm.classList.add("still");
+      c.x = x;
+      c.gb.style.transform = `translateX(${x}px)`;
+      c.gm.style.transform = `translateX(${x}px)`;
+    });
     // Grid and y ticks (rebuilt when the scale changes).
     const gridSig = `${key}|${yTop}|${ticks.join(",")}`;
     if (built.gridSig !== gridSig) {
@@ -1684,8 +1791,8 @@ function createProfile({ onPick, onToggle, onJump }) {
     };
     const emLo = m.em?.lo ?? null;
     const emHi = m.em?.hi ?? null;
-    m.pts.forEach((p, i) => {
-      const b = built.bars[i];
+    m.pts.forEach((p) => {
+      const b = built.cols.get(p.k);
       for (const s of ["ce", "pe"]) {
         const q = p[s];
         const e = b[s];
@@ -1710,34 +1817,41 @@ function createProfile({ onPick, onToggle, onJump }) {
           const ref = q.ref;
           const has = ref !== null && ref !== undefined;
           const gy = has && ref > (q.oi ?? 0) ? `${Math.round(yOf(ref) * 10) / 10}|${Math.round((yOf(q.oi ?? 0) - yOf(ref)) * 10) / 10}` : "";
+          // Hidden marks keep their last geometry: only a visible one is moved.
           if (e.gy !== gy) {
-            e.gy = gy;
             if (gy) {
               const [y, hh] = gy.split("|");
-              e.ghost.setAttribute("y", y);
-              e.ghost.setAttribute("height", hh);
-            } else e.ghost.setAttribute("height", "0");
-            e.ghost.setAttribute("visibility", gy ? "visible" : "hidden");
+              setAttr(e.ghost, "y", y);
+              setAttr(e.ghost, "height", hh);
+            }
+            setAttr(e.ghost, "visibility", gy ? "visible" : "hidden");
+            e.gy = gy;
           }
           const ry = has ? String(Math.round(yOf(ref)) + 0.5) : "";
           if (e.ry !== ry) {
             e.ry = ry;
-            e.ref.setAttribute("y1", ry || "0");
-            e.ref.setAttribute("y2", ry || "0");
-            e.ref.setAttribute("visibility", ry ? "visible" : "hidden");
+            if (ry) {
+              setAttr(e.ref, "y1", ry);
+              setAttr(e.ref, "y2", ry);
+            }
+            setAttr(e.ref, "visibility", ry ? "visible" : "hidden");
           }
           const cy = has && (q.oi ?? 0) > ref ? String(Math.round(yOf(q.oi) * 10) / 10) : "";
           if (e.cy !== cy) {
             e.cy = cy;
-            e.cap.setAttribute("y", cy || "0");
-            e.cap.setAttribute("visibility", cy ? "visible" : "hidden");
+            if (cy) setAttr(e.cap, "y", cy);
+            setAttr(e.cap, "visibility", cy ? "visible" : "hidden");
           }
         }
       }
     });
+    if (typeof requestAnimationFrame === "function") {
+      const still = [...gBars.querySelectorAll(".still"), ...gMarks.querySelectorAll(".still")];
+      if (still.length) requestAnimationFrame(() => requestAnimationFrame(() => still.forEach((g) => g.classList.remove("still"))));
+    }
     // Overlays: ±1σ band, axis labels (ATM pill, MP ◆, held dots), wall labels, spot line + pill.
     const iOf = (k) => m.pts.findIndex((p) => p.k === k);
-    const oSig = `${key}|${emLo}|${emHi}|${m.atm}|${m.mp}|${m.pts.map((p) => `${p.held ? 1 : 0}${p.tags.join("")}`).join(",")}`;
+    const oSig = `${key}|${ksSig}|${emLo}|${emHi}|${m.atm}|${m.mp}|${m.pts.map((p) => `${p.held ? 1 : 0}${p.tags.join("")}`).join(",")}`;
     if (built.oSig !== oSig) {
       built.oSig = oSig;
       gBand.replaceChildren();
@@ -1755,31 +1869,38 @@ function createProfile({ onPick, onToggle, onJump }) {
       const every = Math.max(1, Math.ceil(48 / slot));
       const want = [iOf(m.atm), ...m.pts.map((p, i) => (p.tags.includes("R1") || p.tags.includes("S1") ? i : -1)), ...m.pts.map((_, i) => (i % every === 0 ? i : -1))].filter((i) => i >= 0);
       const taken = [];
+      const y = H - PAD.b + 19;
+      let atmW = 0;
       for (const i of want) {
         if (taken.includes(i)) continue;
         const x = xOf(i);
         if (taken.some((j) => Math.abs(xOf(j) - x) < 44)) continue;
         taken.push(i);
         const txt = formatInt(m.pts[i].k);
-        const y = H - PAD.b + 19;
         if (m.pts[i].k === m.atm) {
-          const w = Math.round(txt.length * 6.4 + 12);
-          gAxis.append(svgEl("g", { class: "dv-pill oi-atm-pill" }, svgEl("rect", { x: x - w / 2, y: y - 9.5, width: w, height: 15, rx: 7.5 }), svgEl("text", { x, y: y - 1.5, "text-anchor": "middle", "dominant-baseline": "central" }, txt)));
+          // Max pain on the ATM strike: its ◆ goes inside the ATM pill ("◆ 26450"), never on top of it.
+          const t2 = m.mp === m.atm ? `◆ ${txt}` : txt;
+          atmW = Math.round(t2.length * 6.4 + 12);
+          const cx = Math.max(atmW / 2, Math.min(W - atmW / 2, x));
+          gAxis.append(svgEl("g", { class: "dv-pill oi-atm-pill" }, svgEl("title", {}, m.mp === m.atm ? `ATM ${txt} · Max pain` : `ATM ${txt}`), svgEl("rect", { x: cx - atmW / 2, y: y - 9.5, width: atmW, height: 15, rx: 7.5 }), svgEl("text", { x: cx, y: y - 1.5, "text-anchor": "middle", "dominant-baseline": "central" }, t2)));
         } else gAxis.append(svgEl("text", { class: "dv-tick", x, y: y + 2, "text-anchor": "middle" }, txt));
       }
+      // Max pain: a ◆ under the plot at its strike. On the ATM strike it sits beside the ATM pill (never on it); the
+      // "MP" word only where no strike label is near.
       const mi = iOf(m.mp);
-      if (mi >= 0) {
+      if (mi >= 0 && !(m.mp === m.atm && atmW > 0)) {
         const x = xOf(mi);
-        const y = H - PAD.b + 1;
-        gAxis.append(svgEl("path", { class: "oi-mp", d: `M${x} ${y - 4}L${x + 4} ${y}L${x} ${y + 4}L${x - 4} ${y}Z` }));
-        if (!taken.includes(mi)) gAxis.append(svgEl("text", { class: "oi-mp-l", x, y: y + 15, "text-anchor": "middle" }, "MP"));
+        const dy = H - PAD.b + 1;
+        gAxis.append(svgEl("path", { class: "oi-mp", d: `M${x} ${dy - 4}L${x + 4} ${dy}L${x} ${dy + 4}L${x - 4} ${dy}Z` }, svgEl("title", {}, `Max pain ${formatInt(m.mp)}`)));
+        // The word only where no strike label is near (beside one it would read as that strike's label).
+        if (!taken.some((j) => Math.abs(xOf(j) - x) < 52)) gAxis.append(svgEl("text", { class: "oi-mp-l", x, y: y + 2, "text-anchor": "middle" }, "MP"));
       }
       m.pts.forEach((p, i) => {
         if (p.held) gAxis.append(svgEl("circle", { class: "oi-held", cx: xOf(i), cy: H - 3, r: 2 }, svgEl("title", {}, "You hold this strike")));
       });
     }
     // Wall labels on the top row, placed so they never overlap (merged when they would).
-    const lSig = `${key}|${m.pts.map((p) => p.tags.filter((t) => /^[RS]\d$/.test(t)).join("")).join(",")}`;
+    const lSig = `${key}|${ksSig}|${m.pts.map((p) => p.tags.filter((t) => /^[RS]\d$/.test(t)).join("")).join(",")}`;
     if (built.lSig !== lSig) {
       built.lSig = lSig;
       gLabels.replaceChildren();
@@ -1794,7 +1915,7 @@ function createProfile({ onPick, onToggle, onJump }) {
       }
     }
     // Spot: a line at the interpolated x with a contrast pill; the group slides (translateX).
-    const fx = O.spotX(m.pts.map((p) => p.k), m.spot);
+    const fx = O.spotX(ks, m.spot);
     if (fx === null || !m.spotTxt) gSpot.setAttribute("visibility", "hidden");
     else {
       gSpot.removeAttribute("visibility");
@@ -1810,21 +1931,40 @@ function createProfile({ onPick, onToggle, onJump }) {
       const tx = `translateX(${x}px)`;
       if (gSpot.style.transform !== tx) gSpot.style.transform = tx;
     }
-    svg.setAttribute("aria-label", m.aria);
-    // First draw of this (underlying, expiry, metric): bars grow from the baseline, outward from ATM.
-    const ekey = m.key;
-    if (!refresh && !entered.has(ekey)) {
-      entered.add(ekey);
+    if (svg.getAttribute("aria-label") !== m.aria) svg.setAttribute("aria-label", m.aria);
+    // First draw of this (underlying, expiry, scope, metric): bars grow from the baseline, outward from ATM. Never on
+    // a refresh, a resize or a strike slide.
+    if (!refresh && !entered.has(m.ekey)) {
+      entered.add(m.ekey);
       grow(iOf(m.atm));
     }
-    if (pinK !== null) {
-      const i = built.ks.indexOf(pinK);
-      if (i >= 0 && scrub.pinned) scrub.pin(i);
-    }
+    paintSel();
+    // A tooltip being read keeps its figures current.
+    if (scrub.index >= 0) scrub.set(scrub.index);
+  }
+  /** The selected strike: a column highlight behind its bars and an outlined pill on the axis (ATM has its own). */
+  function paintSel() {
+    const i = built && m && pinK !== null ? built.ks.indexOf(pinK) : -1;
+    const sig = i < 0 ? "" : `${built.key}|${built.ksSig}|${i}|${m.atm}`;
+    if (!built || built.selSig === sig) return;
+    built.selSig = sig;
+    gSel.replaceChildren();
+    gSelAx.replaceChildren();
+    if (i < 0) return;
+    const H = built.H;
+    const x = PAD.l + built.slot * (i + 0.5);
+    gSel.append(svgEl("rect", { class: "oi-selcol", x: x - built.slot / 2 + 1, y: PAD.t - 4, width: Math.max(2, built.slot - 2), height: H - PAD.t - PAD.b + 4, rx: 3 }));
+    if (pinK === m.atm) return;
+    const txt = formatInt(pinK);
+    const w = Math.round(txt.length * 6.4 + 12);
+    const y = H - PAD.b + 19;
+    const cx = Math.max(w / 2, Math.min(W - w / 2, x));
+    gSelAx.append(svgEl("g", { class: "oi-sel-pill" }, svgEl("rect", { x: cx - w / 2, y: y - 9.5, width: w, height: 15, rx: 7.5 }), svgEl("text", { x: cx, y: y - 1.5, "text-anchor": "middle", "dominant-baseline": "central" }, txt)));
   }
   function grow(ai) {
     if (reducedMotion() || typeof requestAnimationFrame !== "function") return;
-    built.bars.forEach((b, i) => {
+    m.pts.forEach((p, i) => {
+      const b = built.cols.get(p.k);
       const d = String(Math.min(20, Math.abs(i - (ai < 0 ? 0 : ai))));
       for (const s of ["ce", "pe"]) for (const r of [b[s].up, b[s].dn]) r?.style.setProperty("--i", d);
     });
@@ -1871,23 +2011,23 @@ function createProfile({ onPick, onToggle, onJump }) {
           }
         }
     },
-    /** Pin the tooltip on a strike selected elsewhere (ladder, walls, movers, tiles). */
+    /** Mark a strike selected elsewhere (ladder, walls, movers, tiles): a column highlight, no pinned tooltip. */
     pin(k) {
       pinK = k;
-      if (!built || !m || box.hidden) return;
-      const i = built.ks.indexOf(k);
-      if (i >= 0) scrub.pin(i);
-      else scrub.clear();
+      paintSel();
     },
     clear() {
       pinK = null;
+      clearTimeout(touchTimer);
       scrub.clear();
+      paintSel();
     },
     reset() {
       built = null;
       m = null;
       ymax = 0;
       pinK = null;
+      entered = new Set();
       scrub.clear();
     },
     /** No data: a skeleton while loading, nothing otherwise. */
@@ -1904,6 +2044,7 @@ function createProfile({ onPick, onToggle, onJump }) {
 }
 
 // ── The max pain curve (oi.md §7.2): a valley, the minimum at the bottom ──
+let painUid = 0;
 function createPainCurve() {
   const svg = svgEl("svg", { class: "oi-pain-svg", role: "img", focusable: "false" });
   const host = h("div", { class: "oi-pain-box" }, svg);
@@ -1968,20 +2109,42 @@ function createPainCurve() {
       if (a !== null && b !== null && b > a) svg.append(svgEl("rect", { class: "oi-band", x: xOf(a), y: pad.t - 6, width: xOf(b) - xOf(a), height: Hh - pad.t - pad.b + 6 }));
     }
     const d = pts.map((p, i) => `${i ? "L" : "M"}${Math.round(xOf(i) * 10) / 10} ${Math.round(p.y * 10) / 10}`).join("");
-    const area = svgEl("path", { class: "oi-pain-area", d: `${d}L${xOf(n - 1)} ${Hh - pad.b}L${xOf(0)} ${Hh - pad.b}Z` });
+    // The area above the valley, shaded from the rim (most pain) down to the floor: the valley reads at a glance.
+    const gid = `oi-pain-g-${++painUid}`;
+    const grad = svgEl("linearGradient", { id: gid, x1: "0", x2: "0", y1: "0", y2: "1" }, svgEl("stop", { offset: "0", class: "oi-pg-a" }), svgEl("stop", { offset: "1", class: "oi-pg-b" }));
+    const area = svgEl("path", { class: "oi-pain-area", d: `${d}L${xOf(n - 1)} ${Hh - pad.b}L${xOf(0)} ${Hh - pad.b}Z`, fill: `url(#${gid})` });
     const line = svgEl("path", { class: "oi-pain-line", d });
-    svg.append(area, line);
+    svg.append(svgEl("defs", {}, grad), area, line);
     const sx = O.spotX(ks, spot);
-    if (sx !== null) {
-      const x = Math.round(xOf(sx)) + 0.5;
-      svg.append(svgEl("line", { class: "oi-pain-spot", x1: x, x2: x, y1: pad.t - 4, y2: Hh - pad.b }), svgEl("text", { class: "dv-tick", x: x + 4, y: pad.t + 4 }, "Spot"));
-    }
+    const spotPx = sx === null ? null : Math.round(xOf(sx)) + 0.5;
+    if (spotPx !== null) svg.append(svgEl("line", { class: "oi-pain-spot", x1: spotPx, x2: spotPx, y1: pad.t - 4, y2: Hh - pad.b }));
     const vi = curve.findIndex((c) => c.strike === mp.strike);
     const vx = xOf(vi);
     const vy = valley(curve[vi].pain);
     svg.append(svgEl("path", { class: "oi-mp", d: `M${vx} ${vy - 5}L${vx + 5} ${vy}L${vx} ${vy + 5}L${vx - 5} ${vy}Z` }));
     spotPill(svg, vx, `MP ${formatInt(mp.strike)}`, { y: 2, width: W });
-    svg.append(svgEl("text", { class: "dv-tick", x: xOf(0), y: Hh - 4 }, formatInt(ks[0])), svgEl("text", { class: "dv-tick", x: xOf(n - 1), y: Hh - 4, "text-anchor": "end" }, formatInt(ks[n - 1])));
+    // The x axis: spot's value at its line (it never meets the MP pill on top), then 3–4 round strikes that keep clear.
+    const axY = Hh - 4;
+    const used = [];
+    if (spotPx !== null) {
+      const t = `Spot ${formatInt(Math.round(spot))}`;
+      const w = t.length * 6;
+      const cx = Math.max(w / 2, Math.min(W - w / 2, spotPx));
+      used.push([cx - w / 2 - 6, cx + w / 2 + 6]);
+      svg.append(svgEl("text", { class: "dv-tick oi-pain-spot-l", x: cx, y: axY, "text-anchor": "middle" }, t));
+    }
+    for (const t of O.niceTicks(ks[0], ks[n - 1], 4)) {
+      const fxi = O.spotX(ks, t);
+      if (fxi === null) continue;
+      const x = xOf(fxi);
+      const txt = formatInt(t);
+      const w = txt.length * 6;
+      const a = Math.max(0, x - w / 2);
+      const b = Math.min(W, x + w / 2);
+      if (used.some(([u, v]) => b > u && a < v)) continue;
+      used.push([a - 6, b + 6]);
+      svg.append(svgEl("line", { class: "dv-grid oi-pain-tick", x1: Math.round(x) + 0.5, x2: Math.round(x) + 0.5, y1: Hh - pad.b, y2: Hh - pad.b + 3 }), svgEl("text", { class: "dv-tick", x: Math.max(w / 2, Math.min(W - w / 2, x)), y: axY, "text-anchor": "middle" }, txt));
+    }
     if (mp.edge) {
       const ex = vi === 0 ? xOf(0) + 4 : xOf(n - 1) - 4;
       svg.append(svgEl("circle", { class: "oi-edge-dot", cx: ex, cy: pad.t - 14, r: 4 }, svgEl("title", {}, "At the edge of the loaded range: the chain may be partial")));
@@ -2018,8 +2181,35 @@ function createPainCurve() {
   };
 }
 
-// ── The ladder: a mirrored table, built once per (underlying, expiry, scope, strikes, metric, unit), patched after ──
+// ── The ladder: a mirrored table, built once per (underlying, expiry, scope, metric, unit) and patched after. When ATM
+// moves and the loaded strikes slide, rows are added or removed at the ends instead of rebuilding the table ──
 let uid = 0;
+/** Writes only what changed, so a refresh tick stays well under 200 DOM writes (oi.md §8). */
+const setText = (el, t) => {
+  const v = t ?? "";
+  const n = el.firstChild;
+  if (n && n.nodeType === 3 && !n.nextSibling) {
+    if (n.data !== v) n.data = v;
+  } else if (el.textContent !== v) el.textContent = v;
+};
+const setClass = (el, c) => {
+  if (el.className !== c) el.className = c;
+};
+const setTitle = (el, t) => {
+  if (el.title !== t) el.title = t;
+};
+const setAttr = (el, k, v) => {
+  if (el.getAttribute(k) !== v) el.setAttribute(k, v);
+};
+const setProp = (el, k, v) => {
+  if (el.style.getPropertyValue(k) !== v) el.style.setProperty(k, v);
+};
+/** The top of the tab bar (phones and tablets), or the viewport's bottom where there is none. */
+function viewBottom() {
+  const tab = document.getElementById("tabbar");
+  const r = tab?.getBoundingClientRect();
+  return r && r.height > 0 && r.top < innerHeight ? r.top : innerHeight;
+}
 function createLadder({ detailFor, onOpenChain, onSelect }) {
   const wrap = h("div", { class: "oi-ladder-wrap" });
   const atmPill = h("button", { type: "button", class: "oi-atm-pill", hidden: true, onclick: () => centre(true, true) });
@@ -2029,7 +2219,7 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
   let open = null;
   let needCentre = true;
   let atm = null;
-  const entered = new Set();
+  let entered = new Set();
   const coarse = () => media(MQ_COARSE).matches;
 
   function barCell(side) {
@@ -2045,39 +2235,84 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
     const bu = h("span", { class: "obu" });
     return { td: h("td", { class: `d ${side}` }, h("span", { class: "dwrap" }, val, h("span", { class: "dsub" }, pct, bu))), val, pct, bu, sig: "" };
   }
+  function makeRow(k) {
+    const cd = dCell("ce");
+    const cb = barCell("ce");
+    const pb = barCell("pe");
+    const pd = dCell("pe");
+    const tags = h("span", { class: "tags" });
+    const kv = h("span", { class: "kv" }, formatInt(k));
+    const th = h("th", { scope: "row", class: "k" }, kv, tags);
+    const tr = h("tr", { tabindex: "-1", "aria-selected": "false", "aria-expanded": "false", "data-k": String(k) }, cd.td, cb.td, th, pb.td, pd.td);
+    return { tr, th, kv, tags, ce: { d: cd, b: cb }, pe: { d: pd, b: pb }, sig: "", tagSig: "" };
+  }
   function build(m) {
     const caption = h("caption", { class: "sr-only" }, m.caption);
     const hce = h("span", {});
     const hpe = h("span", {});
-    const head = h("tr", {}, h("th", { scope: "col", class: "d ce", "aria-label": "Call OI chg" }, "Δ OI"), h("th", { scope: "col", class: "ob ce" }, hce), h("th", { scope: "col", class: "k" }, "Strike"), h("th", { scope: "col", class: "ob pe" }, hpe), h("th", { scope: "col", class: "d pe", "aria-label": "Put OI chg" }, "Δ OI"));
+    // Spot lives in the strike column's head (a contrast pill) and as a line between the two strikes it sits between,
+    // so no label ever covers a row's tags or the ATM pill.
+    const kSpot = h("span", { class: "oi-kspot", "aria-hidden": "true", hidden: true });
+    const head = h("tr", {}, h("th", { scope: "col", class: "d ce", "aria-label": "Call OI chg" }, "Δ OI"), h("th", { scope: "col", class: "ob ce" }, hce), h("th", { scope: "col", class: "k" }, h("span", { class: "kt" }, "Strike"), kSpot), h("th", { scope: "col", class: "ob pe" }, hpe), h("th", { scope: "col", class: "d pe", "aria-label": "Put OI chg" }, "Δ OI"));
     const tbody = h("tbody");
     const rows = new Map();
     const order = [];
     for (const r of m.rows) {
-      const cd = dCell("ce");
-      const cb = barCell("ce");
-      const pb = barCell("pe");
-      const pd = dCell("pe");
-      const tags = h("span", { class: "tags" });
-      const kv = h("span", { class: "kv" }, formatInt(r.strike));
-      const th = h("th", { scope: "row", class: "k" }, kv, tags);
-      const tr = h("tr", { tabindex: "-1", "aria-selected": "false", "aria-expanded": "false", "data-k": String(r.strike) }, cd.td, cb.td, th, pb.td, pd.td);
-      tbody.append(tr);
-      rows.set(r.strike, { tr, th, kv, tags, ce: { d: cd, b: cb }, pe: { d: pd, b: pb }, sig: "", tagSig: "" });
+      const b = makeRow(r.strike);
+      tbody.append(b.tr);
+      rows.set(r.strike, b);
       order.push(r.strike);
     }
     const detail = h("tr", { class: "oi-detail", id: `oi-detail-${++uid}`, hidden: true }, h("td", { colspan: "5" }));
     const tbl = h("table", { class: `oi-ladder m-${m.metric}`, tabindex: "-1" }, caption, h("thead", {}, head), tbody);
     tbody.addEventListener("click", onClick);
+    tbody.addEventListener("pointerover", (e) => {
+      const td = e.target.closest?.("td.ob");
+      if (td && td.__title !== undefined) setTitle(td, td.__title);
+    });
     const hadFocus = wrap.contains(document.activeElement) && document.activeElement?.matches?.("tr[data-k]");
     wrap.replaceChildren(tbl);
-    built = { key: m.key, tbl, caption, hce, hpe, tbody, rows, order, detail, max: 0, first: true };
+    built = { key: m.key, ks: m.ks, tbl, caption, hce, hpe, kSpot, tbody, rows, order, detail, max: 0, first: true };
     if (sel !== null && !rows.has(sel)) sel = null;
     if (open !== null && !rows.has(open)) open = null;
-    // A rebuild (metric, unit, strikes) keeps the selection: mark it again, keep it tabbable and keep focus on it.
+    // A rebuild (metric, unit, scope) keeps the selection: mark it again, keep it tabbable and keep focus on it.
     // The scroll position carries over (same strikes, same row height); a fresh ladder centres on ATM.
     if (sel !== null) select(sel, false, hadFocus);
     else needCentre = true;
+  }
+  /** The loaded strikes slid (ATM moved): add and drop rows at the ends; the rows that stay keep their state. */
+  function slide(m) {
+    const ks = m.rows.map((r) => r.strike);
+    const keep = new Set(ks);
+    // An anchor row present before and after holds the scroll position steady.
+    const anchor = ks.find((k) => built.rows.has(k) && !built.rows.get(k).tr.hidden);
+    const before = anchor !== undefined ? built.rows.get(anchor).tr.offsetTop : null;
+    for (const [k, b] of built.rows) {
+      if (keep.has(k)) continue;
+      if (open === k) {
+        open = null;
+        built.detail.hidden = true;
+      }
+      if (sel === k) sel = null;
+      b.tr.remove();
+      built.rows.delete(k);
+    }
+    let next = null;
+    for (let i = ks.length - 1; i >= 0; i -= 1) {
+      let b = built.rows.get(ks[i]);
+      if (!b) {
+        b = makeRow(ks[i]);
+        built.rows.set(ks[i], b);
+        built.tbody.insertBefore(b.tr, next);
+      }
+      next = b.tr;
+    }
+    built.order = ks;
+    built.ks = m.ks;
+    if (before !== null) {
+      const d = built.rows.get(anchor).tr.offsetTop - before;
+      if (d) wrap.scrollTop += d;
+    }
   }
   function onClick(e) {
     if (e.target.closest("a, button")) return;
@@ -2105,12 +2340,14 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
       if (b.tr.tabIndex !== ti) b.tr.tabIndex = ti;
     }
     const b = built.rows.get(k);
-    if (!b) return;
+    if (!b || b.tr.hidden) return;
     if (focus) b.tr.focus({ preventScroll: true });
     if (scroll) into(b.tr);
   }
   /** Bring a row into view inside the ladder only (the page does not jump). */
   function into(tr) {
+    // A hidden row (outside the band) has no box: offsetTop 0 would jump the ladder to its top.
+    if (!tr || tr.hidden || !tr.offsetHeight) return;
     const head = wrap.querySelector("thead")?.offsetHeight ?? 0;
     const top = tr.offsetTop;
     const bottom = top + tr.offsetHeight;
@@ -2126,7 +2363,12 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
     open = k;
     if (sel !== k) select(k, false);
     paintDetail(true);
-    into(built.detail);
+    into(built.rows.get(k)?.tr);
+    // Once the card has opened: the whole card in view, in the ladder and on the page (above the tab bar).
+    const d = built.detail;
+    setTimeout(() => {
+      if (open === k && !d.hidden && d.isConnected) d.scrollIntoView({ block: "nearest", behavior: reducedMotion() ? "auto" : "smooth" });
+    }, reducedMotion() ? 0 : 230);
   }
   function close() {
     if (open === null || !built) return false;
@@ -2149,7 +2391,7 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
     return h(
       "div",
       { class: `oi-dside ${s.side}` },
-      h("div", { class: "oi-dh" }, sideChip(s.side), h("strong", {}, `${formatInt(k)} ${SIDE[s.side]}`), wallChip(s.wall), s.held ? h("span", { class: "oi-held-b" }, s.held) : null),
+      h("div", { class: "oi-dh" }, sideChip(s.side), h("strong", {}, `${formatInt(k)} ${SIDE[s.side]}`), wallChip(s.wall), s.held ? h("span", { class: `oi-held-b ${s.side}` }, s.held) : null),
       h("p", {}, "OI ", h("span", { class: "oi-q" }, s.oiFrom), " → ", h("b", {}, s.oiTo), " ", h("span", { class: signCls(s.d) }, s.dTxt), s.pct ? h("span", { class: "oi-q" }, ` (${s.pct})`) : null),
       s.ltp !== null ? h("p", {}, "LTP ", h("b", {}, s.ltp), s.dLtpTxt ? [" ", h("span", { class: signCls(s.dLtp) }, `(${s.dLtpTxt})`)] : null) : null,
       s.vol !== null ? h("p", {}, "Vol ", h("b", {}, s.vol)) : null,
@@ -2163,8 +2405,8 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
     const info = detailFor(open);
     if (!b || !info || b.tr.hidden) return close();
     for (const [, r] of built.rows) if (r.tr.getAttribute("aria-expanded") === "true" && r !== b) r.tr.setAttribute("aria-expanded", "false");
-    b.tr.setAttribute("aria-expanded", "true");
-    b.tr.setAttribute("aria-controls", built.detail.id);
+    if (b.tr.getAttribute("aria-expanded") !== "true") b.tr.setAttribute("aria-expanded", "true");
+    if (b.tr.getAttribute("aria-controls") !== built.detail.id) b.tr.setAttribute("aria-controls", built.detail.id);
     const td = built.detail.firstChild;
     const sig = JSON.stringify([open, info]);
     if (td.__sig !== sig) {
@@ -2174,7 +2416,7 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
       td.replaceChildren(h("div", { class: `oi-dx${wasIn ? " in" : ""}` }, h("div", { class: "oi-dx-in" }, h("div", { class: "oi-dcols" }, info.sides.map((s) => detailSide(s, k))), h("p", { class: "oi-q oi-dfoot" }, `Δ ${/^(vs|since) /.test(info.window) ? info.window : `vs ${info.window}`} · OI in ${info.unit}`))));
     }
     if (b.tr.nextSibling !== built.detail) b.tr.after(built.detail);
-    built.detail.hidden = false;
+    if (built.detail.hidden) built.detail.hidden = false;
     if (opening) {
       const box = td.querySelector(".oi-dx");
       box.classList.remove("in");
@@ -2182,18 +2424,34 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
       else requestAnimationFrame(() => requestAnimationFrame(() => box.classList.add("in")));
     }
   }
-  /** Centre ATM in the rows under the sticky head, snapped to a whole row (the first row is never cut in half). */
+  /**
+   * The part of the ladder the reader can actually see, in viewport px: the wrap under its sticky head, clipped to the
+   * viewport and kept above the tab bar (phones, tablets).
+   */
+  function visible() {
+    const r = wrap.getBoundingClientRect();
+    const head = wrap.querySelector("thead")?.offsetHeight ?? 0;
+    return { top: Math.max(r.top + head, 0), bottom: Math.min(r.bottom, viewBottom()), boxTop: r.top, head };
+  }
+  /**
+   * Centre ATM in the visible part of the ladder (on a phone at first view that is the slice above the tab bar, not
+   * the wrap's own middle below the fold), snapped to a whole row (the first row is never cut in half).
+   */
   function centre(focusRow = false, smooth = false) {
     if (!built || atm === null) return;
     const b = built.rows.get(atm);
-    if (!b) return;
-    const head = wrap.querySelector("thead")?.offsetHeight ?? 0;
-    const top = b.tr.offsetTop - head - (wrap.clientHeight - head) / 2 + b.tr.offsetHeight / 2;
-    const first = [...b.tr.parentNode.children].find((r) => r.offsetHeight && r.offsetTop + r.offsetHeight / 2 > top + head);
-    const snapped = Math.max(0, first ? first.offsetTop - head : top);
+    if (!b || b.tr.hidden) return;
+    const v = visible();
+    const rowH = b.tr.offsetHeight || 36;
+    // Where the ATM row's middle should land, in px from the wrap box's top.
+    const mid = v.bottom - v.top >= rowH * 3 ? (v.top + v.bottom) / 2 - v.boxTop : v.head + (wrap.clientHeight - v.head) / (coarse() ? 3 : 2);
+    const top = b.tr.offsetTop + rowH / 2 - mid;
+    const first = [...b.tr.parentNode.children].find((r) => r.offsetHeight && r.offsetTop + r.offsetHeight / 2 > top + v.head);
+    const snapped = Math.max(0, first ? first.offsetTop - v.head : top);
     if (smooth && !reducedMotion() && typeof wrap.scrollTo === "function") wrap.scrollTo({ top: snapped, behavior: "smooth" });
     else wrap.scrollTop = snapped;
     if (focusRow) select(atm, false);
+    scheduleAtmCheck();
   }
   let rafPending = false;
   function scheduleAtmCheck() {
@@ -2205,30 +2463,38 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
     });
   }
   wrap.addEventListener("scroll", scheduleAtmCheck, { passive: true });
-  /** The floating "↕ ATM 26400" pill: shown while the ATM row is out of view, pointing towards it. */
+  // The page scrolls too (phones and tablets: the ladder sits below the chart): ATM can leave the view either way.
+  const onPageScroll = () => {
+    if (!el.isConnected) return removeEventListener("scroll", onPageScroll);
+    scheduleAtmCheck();
+  };
+  addEventListener("scroll", onPageScroll, { passive: true });
+  /** The floating "↕ ATM 26400" pill: shown while the ATM row is out of the visible part, pointing towards it. */
   function checkAtm() {
     const b = built && atm !== null ? built.rows.get(atm) : null;
-    if (!b || b.tr.hidden) {
-      atmPill.hidden = true;
+    if (!b || b.tr.hidden || !wrap.isConnected) {
+      if (!atmPill.hidden) atmPill.hidden = true;
       return;
     }
-    const head = wrap.querySelector("thead")?.offsetHeight ?? 0;
-    const top = b.tr.offsetTop;
-    const above = top + b.tr.offsetHeight <= wrap.scrollTop + head;
-    const below = top >= wrap.scrollTop + wrap.clientHeight;
-    const vis = !above && !below;
-    atmPill.hidden = vis;
-    if (!vis) {
+    const v = visible();
+    const r = b.tr.getBoundingClientRect();
+    // Only while some of the ladder is on screen (the pill sits on it).
+    const onScreen = v.bottom - v.top > 40;
+    const above = r.bottom <= v.top + 2;
+    const below = r.top >= v.bottom - 2;
+    const show = onScreen && (above || below);
+    if (atmPill.hidden === show) atmPill.hidden = !show;
+    if (show) {
       const t = `${above ? "↑" : "↓"} ATM ${formatInt(atm)}`;
       if (atmPill.textContent !== t) atmPill.textContent = t;
       atmPill.setAttribute("aria-label", `Back to ATM ${formatInt(atm)} (G)`);
     }
   }
-  /** First draw of a ladder key: bars grow outward from ATM (12 ms per row, capped at 240 ms). */
+  /** First draw of an (underlying, expiry, scope, metric): bars grow outward from ATM (12 ms per row, ≤ 240 ms). */
   function grow() {
     if (reducedMotion() || typeof requestAnimationFrame !== "function") return;
     const ai = built.order.indexOf(atm);
-    built.order.forEach((k, i) => built.rows.get(k).tr.style.setProperty("--i", String(Math.min(20, Math.abs(i - (ai < 0 ? 0 : ai))))));
+    built.order.forEach((k, i) => built.rows.get(k)?.tr.style.setProperty("--i", String(Math.min(20, Math.abs(i - (ai < 0 ? 0 : ai))))));
     const t = built.tbl;
     t.classList.add("enter");
     requestAnimationFrame(() =>
@@ -2243,14 +2509,18 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
   const fmt3 = (f) => String(Math.round(f * 1000) / 1000);
   function draw(m, moved = {}) {
     if (!built || built.key !== m.key || !wrap.querySelector("table")) build(m);
+    else if (built.ks !== m.ks) slide(m);
     atm = m.atm;
-    if (built.caption.textContent !== m.caption) built.caption.textContent = m.caption;
-    const hc = `${m.head.ce} (${m.head.unit})${m.head.tail}`;
-    const hp = `${m.head.pe} (${m.head.unit})${m.head.tail}`;
-    if (built.hce.textContent !== hc) built.hce.textContent = hc;
-    if (built.hpe.textContent !== hp) built.hpe.textContent = hp;
-    // Rescale only on a 10% change in the largest value, so bars do not jitter every tick.
-    if (!built.max || Math.abs(m.max - built.max) > built.max * 0.1) built.max = m.max || 1;
+    setText(built.caption, m.caption);
+    setText(built.hce, `${m.head.ce} (${m.head.unit})${m.head.tail}`);
+    setText(built.hpe, `${m.head.pe} (${m.head.unit})${m.head.tail}`);
+    // Spot in the strike head: "Spot 26446.85" (phones: the figure).
+    const ks = built.kSpot;
+    if (ks.hidden === Boolean(m.spotTxt)) ks.hidden = !m.spotTxt;
+    setText(ks, m.spotTxt ? `${isPhone() ? "" : "Spot "}${m.spotTxt}` : "");
+    // Grow at once when the data outgrows the scale (a bar is never clamped); shrink only on a 10 % drop, so bars do
+    // not jitter every tick.
+    if (!built.max || m.max > built.max || m.max < built.max * 0.9) built.max = m.max || 1;
     const max = built.max;
     const first = built.first;
     const phone = isPhone();
@@ -2258,28 +2528,21 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
       const b = built.rows.get(r.strike);
       if (!b) continue;
       if (b.tr.hidden === r.inBand) b.tr.hidden = !r.inBand;
-      const rowSig = `${r.atm}|${r.inEm}|${r.out}|${r.spotLine}`;
+      // Rows outside the band are not drawn: they are patched when the band shows them (their signatures differ then).
+      if (!r.inBand) continue;
+      const isSpot = Boolean(r.spotLine);
+      const rowSig = `${r.atm}|${r.inEm}|${r.out}|${isSpot}`;
       if (b.sig !== rowSig) {
-        const hop = b.sig !== "" && Boolean(r.spotLine) && !b.tr.classList.contains("spot-line");
+        const hop = b.sig !== "" && isSpot && !b.tr.classList.contains("spot-line");
         b.sig = rowSig;
         b.tr.classList.toggle("atm", r.atm);
         b.tr.classList.toggle("in-em", r.inEm);
         b.tr.classList.toggle("out-em", r.out);
-        b.tr.classList.toggle("spot-line", Boolean(r.spotLine));
-        if (r.spotLine) {
-          b.th.setAttribute("data-spot", r.spotLine);
-          b.th.setAttribute("data-spot-short", r.spotLine.replace(/^Spot /, ""));
-        } else {
-          b.th.removeAttribute("data-spot");
-          b.th.removeAttribute("data-spot-short");
-        }
+        b.tr.classList.toggle("spot-line", isSpot);
         if (hop) {
           b.th.classList.remove("spot-in");
           requestAnimationFrame(() => b.th.classList.add("spot-in"));
         }
-      } else if (r.spotLine && b.th.getAttribute("data-spot") !== r.spotLine) {
-        b.th.setAttribute("data-spot", r.spotLine);
-        b.th.setAttribute("data-spot-short", r.spotLine.replace(/^Spot /, ""));
       }
       const tagSig = JSON.stringify(r.tags);
       if (b.tagSig !== tagSig) {
@@ -2298,42 +2561,52 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
         const bc = b[s].b;
         const f = frac(q.val, max);
         const neg = m.metric === "chg" && (q.dNum ?? 0) < 0;
-        const sig = `${fmt3(f)}|${q.ref}|${q.d}|${q.txt}|${q.rank}|${neg}|${max}|${phone}`;
+        const fs = fmt3(f);
+        const sig = `${fs}|${q.ref}|${q.d}|${q.txt}|${q.rank}|${neg}|${max}|${phone}|${r.out}|${q.title}`;
         if (bc.sig !== sig) {
           bc.sig = sig;
-          bc.now.style.setProperty("--v", fmt3(f));
-          bc.td.style.setProperty("--v", fmt3(f));
-          const cls = `ob ${s}${q.rank === 1 ? " r1" : q.rank ? " r2" : ""}${neg ? " neg" : ""}${phone && f >= 0.4 ? " vin" : ""}`;
-          if (bc.td.className !== cls) bc.td.className = cls;
+          // One write: the bar (and the phone figure's position) read --v from the cell.
+          setProp(bc.td, "--v", fs);
+          // Phones: the figure goes inside a long bar, on a solid chip of the bar's colour (dark ink ≥ 4.5:1 on
+          // every side and metric colour, in both themes).
+          setClass(bc.td, `ob ${s}${q.rank === 1 ? " r1" : q.rank ? " r2" : ""}${neg ? " neg" : ""}${phone && f >= 0.4 ? " vin" : ""}`);
           // Ghost: OI cut since the window start (ref > now), the same scale; the change micro-bar under the bar.
           const ref = q.ref;
           const ghostOn = m.metric === "oi" && ref !== null && ref > (q.val ?? 0);
           if (bc.ghost.hidden === ghostOn) bc.ghost.hidden = !ghostOn;
-          if (ghostOn) bc.ghost.style.setProperty("--v", fmt3(frac(ref, max)));
+          if (ghostOn) setProp(bc.ghost, "--v", fmt3(frac(ref, max)));
           const chgOn = m.metric === "oi" && q.d !== null && q.d !== 0;
           if (bc.chg.hidden === chgOn) bc.chg.hidden = !chgOn;
           if (chgOn) {
-            bc.chg.style.setProperty("--v", fmt3(frac(q.d, max)));
+            setProp(bc.chg, "--v", fmt3(frac(q.d, max)));
             bc.chg.classList.toggle("cut", q.d < 0);
           }
-          if (bc.v.textContent !== q.txt) bc.v.textContent = q.txt;
-          bc.td.title = q.title;
+          setText(bc.v, q.txt);
+          // The tooltip text changes with every figure: it is written when the pointer comes over the cell.
+          bc.td.__title = q.title;
+          if (bc.td.matches(":hover")) setTitle(bc.td, q.title);
         }
         const dc = b[s].d;
         const dsig = `${q.dTxt}|${q.pTxt}|${q.bu}`;
         if (dc.sig !== dsig) {
-          const prev = dc.sig ? dc.val.textContent : null;
+          const had = dc.sig !== "";
+          const prev = dc.val.textContent;
           dc.sig = dsig;
-          if (dc.val.textContent !== q.dTxt) {
-            dc.val.textContent = q.dTxt;
-            if (prev !== null && !first && prev !== DASH && q.dNum !== null && dc.n !== undefined && dc.n !== null && dc.n !== q.dNum) flashValue(dc.val, q.dNum > dc.n ? "up" : "down");
+          if (prev !== q.dTxt) {
+            setText(dc.val, q.dTxt);
+            if (had && !first && prev !== DASH && q.dNum !== null && dc.n !== undefined && dc.n !== null && dc.n !== q.dNum) flashValue(dc.val, q.dNum > dc.n ? "up" : "down");
           }
-          dc.val.className = `dv ${q.dNum === null ? "" : q.dNum > 0 ? "pos" : q.dNum < 0 ? "neg" : "zero"}`.trim();
-          dc.pct.textContent = q.pTxt;
-          dc.bu.textContent = q.bu ?? "";
-          dc.bu.hidden = !q.bu;
-          dc.bu.title = q.buTitle ?? "";
-          dc.bu.className = `obu${q.bu ? ` obu-${q.bu}` : ""}`;
+          // Tone by toggles (a className write would also wipe a running flash).
+          const tone = q.dNum === null ? "" : q.dNum > 0 ? "pos" : q.dNum < 0 ? "neg" : "zero";
+          if (dc.tone !== tone) {
+            dc.tone = tone;
+            for (const t of ["pos", "neg", "zero"]) if (dc.val.classList.contains(t) !== (t === tone)) dc.val.classList.toggle(t, t === tone);
+          }
+          setText(dc.pct, q.pTxt);
+          setText(dc.bu, q.bu ?? "");
+          if (dc.bu.hidden === Boolean(q.bu)) dc.bu.hidden = !q.bu;
+          setTitle(dc.bu, q.buTitle ?? "");
+          setClass(dc.bu, `obu${q.bu ? ` obu-${q.bu}` : ""}`);
         }
         dc.n = q.dNum;
       }
@@ -2349,8 +2622,9 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
     if (open !== null) paintDetail();
     if (first) {
       built.first = false;
-      if (!entered.has(m.key)) {
-        entered.add(m.key);
+      // The entrance plays once per (underlying, expiry, scope, metric), never on a refresh or a strike slide.
+      if (!entered.has(m.ekey)) {
+        entered.add(m.ekey);
         grow();
       }
     }
@@ -2366,7 +2640,7 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
   }
   function move(d) {
     if (!built) return false;
-    const vis = [...built.rows.entries()].filter(([, b]) => !b.tr.hidden).map(([k]) => k);
+    const vis = built.order.filter((k) => built.rows.get(k) && !built.rows.get(k).tr.hidden);
     if (!vis.length) return false;
     const i = vis.indexOf(sel ?? atm);
     const j = Math.max(0, Math.min(vis.length - 1, (i < 0 ? vis.indexOf(atm) : i) + d));
@@ -2401,6 +2675,7 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
       sel = null;
       open = null;
       needCentre = true;
+      entered = new Set();
     },
     message(node) {
       built = null;

@@ -284,11 +284,13 @@ export function iconTile(name, tint = "blue", size = "md") {
 }
 
 /** A HUD confirmation in #toast (one at a time; a new one replaces the old). views.js may hide it with `$("toast").hidden = true`. */
-export function toast(text) {
+export function toast(text, { tone = "ok" } = {}) {
   const t = document.getElementById("toast");
   const gen = (toast.gen = (toast.gen ?? 0) + 1);
   const wasHidden = t.hidden;
-  t.replaceChildren(h("span", { class: "toast-icon" }, icon("check")), h("span", { class: "toast-text" }, text));
+  // "info": a refused or not-yet-possible action (a neutral ⓘ, not the success check).
+  const info = tone === "info";
+  t.replaceChildren(h("span", { class: `toast-icon${info ? " info" : ""}` }, icon(info ? "info" : "check")), h("span", { class: "toast-text" }, text));
   t.hidden = false;
   if (wasHidden) bannerIn(t);
   clearTimeout(toast.timer);
