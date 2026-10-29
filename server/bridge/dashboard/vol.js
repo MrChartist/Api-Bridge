@@ -19,7 +19,8 @@ const MQ_PHONE = "(max-width: 719px)";
 const MQ_NARROW = "(max-width: 1099px)";
 const MQ_COARSE = "(pointer: coarse)";
 const media = (q) => (typeof matchMedia === "function" ? matchMedia(q).matches : false);
-const TERM_STRIKES = 40;
+const TERM_STRIKES = 40; // strikes each side of ATM, at least
+const TERM_STRIKES_MAX = 80;
 const CONCURRENCY = 2;
 const FUT_EVERY = 5;
 const HISTORY_TTL = 30 * 60_000;
@@ -59,7 +60,7 @@ export const VOL_TERM_COLUMNS = Object.freeze([
     id: "hedge",
     header: "Put %",
     head: (cfg) => `Put ${formatInt(cfg.hedgePct)}%`,
-    cell: (r) => (r.hedge ? { t: formatFixed(r.hedge.pts, 2), s: `${formatFixed(r.hedge.annualPct, 1)}% a yr`, title: `${formatInt(r.hedge.strike)} PE: ${formatFixed(r.hedge.pctF, 2)}% of the forward` } : { t: "n/a", title: "Strike not in the loaded chain" }),
+    cell: (r) => (r.hedge ? { t: formatFixed(r.hedge.pts, 2), s: `${formatFixed(r.hedge.annualPct, 1)}% a yr`, title: `${formatInt(r.hedge.strike)} PE: ${formatFixed(r.hedge.pctF, r.hedge.pctF < 0.01 ? 3 : 2)}% of the forward` } : { t: "n/a", title: "Strike not in the loaded chain" }),
   },
 ]);
 const COL_IDS = VOL_TERM_COLUMNS.map((c) => c.id);
@@ -119,6 +120,8 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
   const queue = [];
   let active = 0;
   let volSeq = 0;
+  let destroyed = false;
+  let closePop = null; // closes the open Customise popover
   let ticks = 0;
   let futQuotes = new Map();
   let hvMemo = { closes: null };
@@ -164,7 +167,9 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     if (t.sig === sig) return;
     t.sig = sig;
     t.value.textContent = value;
-    t.sub.textContent = sub || " ";
+    // Line breaks fall only between the "·" segments, never inside a figure or a range.
+    if (sub && sub.includes(" · ")) t.sub.replaceChildren(...sub.split(" · ").flatMap((seg, i) => [i ? " · " : null, h("span", { class: "seg" }, seg)].filter(Boolean)));
+    else t.sub.textContent = sub || " ";
     t.el.title = title;
     t.el.setAttribute("aria-label", aria ?? `${TILES.find((x) => x[0] === k)[1]}: ${value}`);
     t.el.className = `desk-stat vol-t-${k}${cls ? ` ${cls}` : ""}`;
@@ -181,6 +186,24 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     return h("label", { class: "vol-check" }, i, label);
   };
   const seriesMenu = h("details", { class: "vol-menu" }, h("summary", { class: "small", "aria-label": "Series to draw" }, "Series"), h("div", { class: "vol-menu-body" }, seriesBox("otm", "OTM composite (solid)"), seriesBox("ce", "CE IV (dashed)"), seriesBox("pe", "PE IV (dotted)")));
+  // The menu closes on Escape and on a press anywhere outside it, as the other desk popovers do.
+  const menuOutside = (e) => !seriesMenu.contains(e.target) && closeMenu();
+  function closeMenu(refocus = false) {
+    if (!seriesMenu.open) return false;
+    seriesMenu.open = false;
+    if (refocus) seriesMenu.querySelector("summary")?.focus();
+    return true;
+  }
+  seriesMenu.addEventListener("toggle", () => {
+    if (seriesMenu.open) document.addEventListener("pointerdown", menuOutside, true);
+    else document.removeEventListener("pointerdown", menuOutside, true);
+  });
+  seriesMenu.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !seriesMenu.open) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeMenu(true);
+  });
   const rangeSel = h("select", { "aria-label": "Strikes shown", class: "vol-range" }, RANGES.map(([v, t]) => h("option", { value: v, selected: v === cfg().range }, t)));
   rangeSel.addEventListener("change", () => setCfg({ range: rangeSel.value }));
   const compareSel = h("select", { "aria-label": "Compare with", class: "vol-compare" }, COMPARES.map(([v, t]) => h("option", { value: v, selected: v === cfg().compare }, t)));
@@ -344,14 +367,16 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
   syncControls();
 
   function openCustomise() {
-    const existing = termEl.querySelector(".popover.vol-pop");
-    if (existing) return existing.__close();
-    const close = () => {
+    if (closePop) return closePop();
+    const close = (refocus = true) => {
       pop.remove();
       document.removeEventListener("pointerdown", outside, true);
       document.removeEventListener("keydown", esc, true);
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+      closePop = null;
       gearBtn.setAttribute("aria-expanded", "false");
-      gearBtn.focus();
+      if (refocus && gearBtn.isConnected) gearBtn.focus();
     };
     const outside = (e) => !pop.contains(e.target) && !gearBtn.contains(e.target) && close();
     const esc = (e) => {
@@ -429,11 +454,40 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       ),
       body,
     );
-    pop.__close = close;
+    // The popover floats over the page (the panel clips its children): fixed, beside the gear, kept on screen.
+    // Phones get the shared bottom sheet from the CSS.
+    function place() {
+      if (!gearBtn.isConnected) return close(false);
+      if (media(MQ_PHONE)) {
+        for (const k of ["top", "bottom", "left", "maxHeight"]) pop.style[k] = "";
+        return;
+      }
+      const b = gearBtn.getBoundingClientRect();
+      const vw = document.documentElement.clientWidth;
+      const vh = window.innerHeight;
+      const w = Math.min(360, vw - 32);
+      pop.style.left = `${Math.round(Math.max(16, Math.min(b.right - w, vw - w - 16)))}px`;
+      const below = vh - b.bottom - 22;
+      const above = b.top - 22;
+      if (below >= 360 || below >= above) {
+        pop.style.top = `${Math.round(Math.max(16, b.bottom + 6))}px`;
+        pop.style.bottom = "";
+        pop.style.maxHeight = `${Math.round(Math.max(200, Math.min(680, below)))}px`;
+      } else {
+        pop.style.top = "";
+        pop.style.bottom = `${Math.round(vh - b.top + 6)}px`;
+        pop.style.maxHeight = `${Math.round(Math.min(680, above))}px`;
+      }
+    }
+    pop.classList.add("vol-pop-float");
+    closePop = () => close();
     render();
     gearBtn.setAttribute("aria-expanded", "true");
-    gearBtn.closest(".panel-head").append(pop);
-    pop.querySelector("button, input")?.focus();
+    document.body.append(pop);
+    place();
+    pop.querySelector("button, input")?.focus({ preventScroll: true });
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
     setTimeout(() => {
       document.addEventListener("pointerdown", outside, true);
       document.addEventListener("keydown", esc, true);
@@ -448,6 +502,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     return list;
   }
   function enqueue(list) {
+    if (destroyed) return;
     for (const e of list) {
       const ent = cache.get(e);
       if (queue.includes(e) || ent?.loading) continue;
@@ -456,7 +511,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     pump();
   }
   function pump() {
-    while (active < CONCURRENCY && queue.length) {
+    while (!destroyed && active < CONCURRENCY && queue.length) {
       const e = queue.shift();
       active += 1;
       loadTerm(e).finally(() => {
@@ -473,7 +528,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     cache.set(e, ent);
     requestDraw();
     try {
-      const r = await api(`/v1/optionchain?underlying=${encodeURIComponent(u)}&expiry=${encodeURIComponent(e)}&strikes=${TERM_STRIKES}&greeks=false`);
+      const r = await api(`/v1/optionchain?underlying=${encodeURIComponent(u)}&expiry=${encodeURIComponent(e)}&strikes=${termStrikes(e)}&greeks=false`);
       if (seq !== volSeq) return;
       ent.chain = r.data.data;
       ent.asOf = r.data.data?.freshness?.asOf ?? r.data.meta?.freshness?.asOf ?? null;
@@ -488,6 +543,28 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
         requestDraw();
       }
     }
+  }
+  /**
+   * Strikes each side of ATM for a term chain: enough to reach the 25-delta wings, sized from the expected move
+   * (2.2·σ√T of the forward, at the nearest loaded expiry's ATM IV, else 20%), between 40 and 80.
+   */
+  function termStrikes(e) {
+    const ref = selectedChain();
+    const steps = (ref?.rows ?? []).map((r) => num(r.strike)).filter((k) => k !== null).sort((a, b) => a - b);
+    let step = null;
+    for (let i = 1; i < steps.length; i++) if (steps[i] > steps[i - 1] && (step === null || steps[i] - steps[i - 1] < step)) step = steps[i] - steps[i - 1];
+    const F = num(ref?.underlyingLtp);
+    const days = O.timeToExpiry(e).days;
+    if (!step || !F || days === null) return TERM_STRIKES;
+    let iv = null;
+    for (const x of termList()) {
+      const c = x === st.expiry ? ref : cache.get(x)?.chain;
+      const row = c ? rowMemo.get(c)?.row : null;
+      if (row?.atmIv) iv = row.atmIv;
+      if (x === e) break;
+    }
+    const need = Math.ceil((2.2 * F * ((iv ?? 20) / 100) * Math.sqrt(days / 365)) / step);
+    return Math.max(TERM_STRIKES, Math.min(TERM_STRIKES_MAX, need));
   }
   /** Load every term expiry not loaded yet (never the selected one: desk.js keeps that fresh). */
   function enqueueMissing() {
@@ -563,10 +640,20 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     const df = T !== null ? Math.exp((-cfg().rate / 100) * T) : 1;
     const two = (leg) => ["mid", "wide"].includes(O.legPrice(leg).q);
     const twoSided = chain ? chain.rows.some((r) => two(r.ce) || two(r.pe)) : false;
-    const arbSig = `${df}|${rows.map((r) => `${r.expiry}:${r.atmIv}`).join()}`;
-    if (chain !== arbMemo.chain || arbSig !== arbMemo.sig) arbMemo = { chain, sig: arbSig, hits: chain && twoSided ? O.arbChecks(chain, { df, term: rows }) : null };
+    // The checks rerun only when a bid or ask (or the term IVs) changed, not on every new chain object.
+    const quotes = chain ? chain.rows.map((x) => `${x.strike}:${x.ce?.bid},${x.ce?.ask},${x.pe?.bid},${x.pe?.ask}`).join(";") : "";
+    const arbSig = `${cfg().rate}|${T === null ? "" : Math.round(T * 8760)}|${chain?.expiry}|${twoSided}|${rows.map((r) => `${r.expiry}:${r.atmIv === null ? "" : Math.round(r.atmIv * 100)}`).join()}|${quotes}`;
+    if (arbSig !== arbMemo.sig) arbMemo = { chain, sig: arbSig, hits: chain && twoSided ? O.arbChecks(chain, { df, term: rows }) : null };
     const hits = arbMemo.hits;
     return { chain, sel, items, rows, shape, hv20, hv10, hvp, hist, df, T, twoSided, hits };
+  }
+
+  /** "· 1 loading · 2 couldn't load" for the term rows not drawn yet. */
+  function pendingText(items) {
+    const n = (k) => items.filter((it) => it.status === k).length;
+    const ld = n("loading");
+    const er = n("error");
+    return `${ld ? ` · ${formatInt(ld)} loading` : ""}${er ? ` · ${formatInt(er)} couldn't load` : ""}`;
   }
 
   // ── Draw ──
@@ -588,6 +675,10 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     let m = null;
     lap("model", () => (m = model()));
     last = m;
+    // No expiries at all: one empty state in the curves panel, nothing else.
+    const none = !st.expiries.length && Boolean(st.empty);
+    for (const el of [kpiEl, termEl, strikesEl, readEl, historyEl, methodEl]) if (el.hidden !== none) el.hidden = none;
+    curvesEl.classList.toggle("no-exp", none);
     lap("kpi", () => drawKpi(m));
     lap("curves", () => drawCurves(m));
     lap("term", () => drawTermTable(m));
@@ -701,20 +792,22 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       const width = boxW(smileHost, 640);
       const height = d.phone ? 200 : d.narrow ? 240 : 280;
       const c = cfg();
-      const sig = [c.x, JSON.stringify(c.series), c.range, width, height, d.coarse].join("|");
-      if (sig !== smileSig || smileEl?.__row !== r || smileEl?.__cmp !== cmp) {
+      const T = Math.max(r.years ?? 0, 0.25 / 365);
+      const pos = (K) => (K === null || K === undefined || !r.F ? null : { strike: K, m: (K / r.F - 1) * 100, delta: r.atmIv ? 1 - (O.b76Delta(r.F, K, T, r.atmIv, "CE") ?? 0.5) : null });
+      const steps = r.points.map((p) => p.strike);
+      const step = steps.length > 1 ? Math.min(...steps.slice(1).map((k, i) => k - steps[i])) : null;
+      const cmpPts = cmp ? cmp.points.filter((p) => inRange(p, cmp)) : null;
+      // Rebuilt only when what is drawn changes (to 0.01 vol point / 0.1 index point), not on every chain object.
+      const q = (v) => (v === null || v === undefined ? null : Math.round(v * 100) / 100);
+      const pt = (p) => [p.strike, q(p.m), q(p.otm?.iv), p.otm?.q, q(p.ce?.iv), p.ce?.q, q(p.pe?.iv), p.pe?.q, q(p.callDelta)];
+      const sig = JSON.stringify([c.x, c.series, c.range, width, height, d.coarse, r.expiry, step, q(r.F), q(r.lo), q(r.hi), q(r.spot), q(r.atmIv), q(r.rr25), pts0.map(pt), cmp ? [cmp.expiry, cmpPts.map(pt)] : null]);
+      if (sig !== smileSig || !smileEl) {
         smileSig = sig;
-        const T = Math.max(r.years ?? 0, 0.25 / 365);
-        const pos = (K) => (K === null || K === undefined || !r.F ? null : { strike: K, m: (K / r.F - 1) * 100, delta: r.atmIv ? 1 - (O.b76Delta(r.F, K, T, r.atmIv, "CE") ?? 0.5) : null });
-        const steps = r.points.map((p) => p.strike);
-        const step = steps.length > 1 ? Math.min(...steps.slice(1).map((k, i) => k - steps[i])) : null;
         const markers = { F: pos(r.F), lo: pos(r.lo), hi: pos(r.hi), spot: r.spot !== null && step && Math.abs(r.F - r.spot) >= step / 2 ? pos(r.spot) : null };
         smileEl = smileSvg(
-          { points: pts0, markers, step, compare: cmp ? { points: cmp.points.filter((p) => inRange(p, cmp)), label: dayMon(cmp.expiry) } : null },
+          { points: pts0, markers, step, compare: cmp ? { points: cmpPts, label: dayMon(cmp.expiry) } : null },
           { x: c.x, series: c.series, width, height, coarse: d.coarse, label: smileLabel({ expiryLabel: dayMon(r.expiry), atmIv: r.atmIv, rr25: r.rr25, n: pts0.length }), onPick: pickFromSmile, empty: "No usable IV in this range" },
         );
-        smileEl.__row = r;
-        smileEl.__cmp = cmp;
         smileHost.replaceChildren(smileEl);
       }
       paintHighlight(false);
@@ -724,10 +817,11 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     const sh = m.shape;
     text(shapeEl, sh.kind === "insufficient" ? sh.label : `${sh.label} · ${formatSigned(sh.slope, 1)} pts`);
     const selRow = m.sel;
-    text(termReadout, selRow ? `${dayMon(selRow.expiry)} · ATM IV ${formatPercent(selRow.atmIv, 1)} · 1σ ±${formatInt(selRow.move)}${loaded.length < m.items.length ? ` · loading ${formatInt(m.items.length - loaded.length)}` : ""}` : " ");
+    text(termReadout, selRow ? `${dayMon(selRow.expiry)} · ATM IV ${formatPercent(selRow.atmIv, 1)} · 1σ ±${formatInt(selRow.move)}${pendingText(m.items)}` : " ");
+    const allFailed = !loaded.length && m.items.length > 0 && m.items.every((it) => it.status === "error");
     const tw = boxW(termHost, 420);
     const th = d.phone ? 200 : d.narrow ? 240 : 280;
-    const tsig = JSON.stringify([loaded.map((it) => [it.e, it.row.atmIv, it.row.days !== null ? Math.round(it.row.days * 10) : null, it.row.skew.put25?.iv ?? null, it.row.skew.call25?.iv ?? null]), st.expiry, cfg().series.wings, tw, th, d.coarse]);
+    const tsig = JSON.stringify([allFailed, loaded.map((it) => [it.e, it.row.atmIv, it.row.days !== null ? Math.round(it.row.days * 10) : null, it.row.skew.put25?.iv ?? null, it.row.skew.call25?.iv ?? null]), st.expiry, cfg().series.wings, tw, th, d.coarse]);
     if (tsig !== termSig) {
       termSig = tsig;
       termHost.replaceChildren(
@@ -735,6 +829,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
           loaded.map((it) => ({ ...it.row, label: dayMon(it.e) })),
           {
             selected: st.expiry,
+            empty: allFailed ? "Couldn't load the chains" : "Loading expiries…",
             wings: cfg().series.wings,
             width: tw,
             height: th,
@@ -852,6 +947,8 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       else rec.tr.removeAttribute("aria-current");
       rec.tr.classList.toggle("dim", Boolean(it.row?.dim));
       if (!it.row) continue;
+      const thin = it.row.quality !== null && it.row.quality !== undefined && it.row.quality < 0.5;
+      if (rec.thin && rec.thin.hidden === thin) rec.thin.hidden = !thin;
       for (const id of cols) patchCell(rec.cells.get(id), colOf(id).cell(it.row, it));
       if (rec.detail) {
         const open = openDetail === it.e;
@@ -864,7 +961,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     }
     text(termHint, dm ? "Tap a row for every figure" : "Click a row to select it");
     const n = m.items.filter((it) => it.row).length;
-    text(termFoot, `${formatInt(n)} of ${formatInt(st.expiries.length)} expiries · shape ${m.shape.label}${n < m.items.length ? ` · ${formatInt(m.items.length - n)} loading` : ""}`);
+    text(termFoot, st.expiries.length ? `${formatInt(n)} of ${formatInt(st.expiries.length)} expiries${n ? ` · shape ${m.shape.label}` : ""}${pendingText(m.items)}` : "");
   }
   function buildTermTable(m, cols, dm) {
     const c = cfg();
@@ -885,9 +982,11 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     const out = [];
     for (const it of m.items) {
       const monthly = O.isMonthly(it.e, st.expiries);
-      const lead = h("th", { scope: "row", class: "lead" }, h("span", { class: "vol-exp" }, h("span", { class: "vol-bar", "aria-hidden": "true" }), h("strong", {}, dayMon(it.e)), h("span", { class: "wd" }, weekday(it.e)), monthly ? h("span", { class: "m-tag", title: "Monthly expiry" }, "M") : null));
+      const lead = h("th", { scope: "row", class: "lead" }, h("span", { class: "vol-exp" }, h("span", { class: "vol-bar", "aria-hidden": "true" }), h("strong", {}, dayMon(it.e)), h("span", { class: "wd" }, weekday(it.e)), monthly ? h("span", { class: "m-tag", title: "Monthly expiry" }, "M") : null, h("span", { class: "thin-tag", hidden: true, title: "Thin quotes: under half of ATM ±10 strikes have a tight two-sided quote" }, "Thin")));
       const detailId = `vol-d-${it.e}`;
-      const tr = h("tr", { "data-e": it.e, tabindex: "0", class: it.status !== "ok" ? "pending" : undefined, "aria-controls": dm ? detailId : undefined, "aria-expanded": dm ? "false" : undefined });
+      const rest = COL_IDS.filter((id) => !cols.includes(id));
+      const hasDetail = it.status === "ok" && rest.length > 0;
+      const tr = h("tr", { "data-e": it.e, tabindex: "0", class: it.status !== "ok" ? "pending" : undefined, "aria-controls": hasDetail ? detailId : undefined, "aria-expanded": hasDetail ? "false" : undefined, title: hasDetail && !dm ? "Enter selects · Space shows the other figures" : undefined });
       const cells = new Map();
       if (it.status === "ok") {
         tr.append(lead);
@@ -907,10 +1006,9 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
           ),
         );
       }
-      const rec = { tr, cells, detail: null, dcells: new Map() };
+      const rec = { tr, cells, detail: null, dcells: new Map(), thin: lead.querySelector(".thin-tag") };
       out.push(tr);
-      if (dm && it.status === "ok") {
-        const rest = COL_IDS.filter((id) => !cols.includes(id));
+      if (hasDetail) {
         const dl = h(
           "dl",
           { class: "vol-detail-grid" },
@@ -963,9 +1061,9 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     if (e.key === "Enter") {
       e.preventDefault();
       if (tr.dataset.e !== st.expiry) selectExpiry(tr.dataset.e);
-    } else if (e.key === " " && detailMode()) {
+    } else if (e.key === " ") {
       e.preventDefault();
-      toggleDetail(tr.dataset.e);
+      if (termRows.get(tr.dataset.e)?.detail) toggleDetail(tr.dataset.e);
     }
   }
   function toggleDetail(ex) {
@@ -1075,11 +1173,16 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
   function drawRead(m) {
     const r = m.sel;
     if (!r) {
-      const sig = "none";
+      const sig = st.error ? "error" : "none";
       if (readBody.__sig !== sig) {
         readBody.__sig = sig;
-        readBody.replaceChildren(h("p", { class: "vol-note" }, "Waiting for the chain."));
+        readBody.replaceChildren(
+          st.error
+            ? h("p", { class: "vol-note vol-err-line" }, "Couldn't load the chain. ", h("button", { type: "button", class: "small plain vol-retry", onclick: () => retry() }, icon("refresh"), "Retry"))
+            : h("p", { class: "vol-note" }, "Waiting for the chain."),
+        );
         arbBody.replaceChildren();
+        arbBody.__sig = "";
       }
       return;
     }
@@ -1133,7 +1236,14 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
             h(
               "details",
               { class: "vol-persona", open: !phone || undefined },
-              h("summary", {}, h("strong", {}, p.persona), phone && p.lines[0] ? h("span", { class: "vol-first" }, p.lines[0]) : null),
+              h(
+                "summary",
+                {},
+                h("strong", {}, p.persona),
+                phone && p.lines[0] ? h("span", { class: "vol-first" }, p.lines[0]) : null,
+                phone && p.lines.length > 1 ? h("span", { class: "vol-more", "aria-label": `${formatInt(p.lines.length - 1)} more` }, `+${formatInt(p.lines.length - 1)}`) : null,
+                phone && p.lines.length > 1 ? h("span", { class: "vol-chev", "aria-hidden": "true" }, icon("chevron")) : null,
+              ),
               p.lines.length ? h("ul", {}, (phone ? p.lines.slice(1) : p.lines).map((l) => h("li", {}, l))) : h("p", { class: "vol-note" }, "Nothing to add from current prices."),
             ),
           ),
@@ -1212,6 +1322,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       return setCfg({ tab: cfg().tab === "smile" ? "term" : "smile" }), true;
     }
     if (k === "Escape") {
+      if (closeMenu(true)) return true;
       if (hl === null && openDetail === null) return false;
       hl = null;
       openDetail = null;
@@ -1280,6 +1391,14 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
         queue.length = 0;
         futQuotes = new Map();
         termStruct = "";
+      } else {
+        // A new selected expiry: the outgoing chain becomes a term row (desk.js has already set st.expiry), and any
+        // term expiry still missing loads now rather than on the next tick (there is none while Live is paused).
+        const out = st.chain;
+        if (out?.expiry && out.expiry !== st.expiry && (out.underlying ?? st.underlying) === st.underlying) {
+          cache.set(out.expiry, { chain: out, at: Date.now(), asOf: st.freshness?.asOf ?? null, error: null, loading: false });
+        }
+        enqueueMissing();
       }
       strikesStruct = "";
       smileSig = "";
@@ -1292,10 +1411,15 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       loadHistory();
     },
     destroy() {
+      destroyed = true;
+      queue.length = 0;
       ro?.disconnect();
       clearTimeout(drawTimer);
       clearTimeout(liveTimer);
       volSeq += 1;
+      closePop?.();
+      closeMenu();
+      document.removeEventListener("pointerdown", menuOutside, true);
     },
   };
 }

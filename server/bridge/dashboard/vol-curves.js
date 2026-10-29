@@ -23,7 +23,44 @@ function niceTicks(lo, hi, count) {
   const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((x) => x >= raw) ?? 10 * mag;
   const out = [];
   for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) out.push(Math.abs(v) < step * 1e-9 ? 0 : v);
+  out.step = step;
   return out;
+}
+
+/** Decimals that print a tick step exactly (2.5 -> 1, 0.25 -> 2, 5 -> 0). */
+function stepDecimals(step) {
+  for (let d = 0; d < 4; d++) {
+    const x = step * 10 ** d;
+    if (Math.abs(x - Math.round(x)) < 1e-6) return d;
+  }
+  return 4;
+}
+
+/** IV axis ticks over the values (at least 1 vol point either side, so a single point still gets distinct ticks). */
+function ivTicks(ys) {
+  const lo = Math.min(...ys) - 1;
+  const hi = Math.max(...ys) + 1;
+  const t = niceTicks(lo, hi, 5);
+  const dp = stepDecimals(t.step);
+  return { ticks: t, y0: Math.min(t[0], lo), y1: Math.max(t[t.length - 1], hi), label: (v) => `${formatFixed(v, dp)}%` };
+}
+
+/**
+ * Direct labels in a right-hand gutter: each { y (the curve end's y), text, cls, px, py }. Sorted by y and pushed
+ * apart to at least `gap` px inside [top, bottom]; a label that moved off its curve gets a leader tick to the end point.
+ */
+function gutterLabels(svg, list, { x, top, bottom, gap = 11, from = 2 }) {
+  const ls = list.filter(Boolean).map((l) => ({ ...l, ly: l.y })).sort((a, b) => a.ly - b.ly);
+  for (let i = 0; i < ls.length; i++) ls[i].ly = Math.max(ls[i].ly, top, i ? ls[i - 1].ly + gap : -Infinity);
+  const over = ls.length ? ls[ls.length - 1].ly - bottom : 0;
+  if (over > 0) {
+    ls[ls.length - 1].ly -= over;
+    for (let i = ls.length - 2; i >= 0; i--) ls[i].ly = Math.min(ls[i].ly, ls[i + 1].ly - gap);
+  }
+  for (const l of ls) {
+    if (Math.abs(l.ly - l.py) > 3 || x - l.px > from + 10) svg.append(s("line", { class: "leader", x1: r1(l.px + from), y1: r1(l.py), x2: r1(x - 2), y2: r1(l.ly) }));
+    svg.append(s("text", { class: `end-label ${l.cls ?? ""}`.trim(), x: r1(x), y: r1(l.ly + 3.5) }, l.text));
+  }
 }
 
 /** Delta-axis ticks: [x, label]; x = 1 − call delta, so puts sit on the left as on the strike axis. */
@@ -47,14 +84,17 @@ export function smileSvg(data, o) {
   const W = Math.max(240, Math.round(o.width));
   const H = Math.max(160, Math.round(o.height));
   const L = 40;
-  const R = 14;
   const T = 14;
   const B = 24;
+  const keys0 = ["otm", "ce", "pe"].filter((k) => o.series[k]);
+  // End labels sit in a right gutter when more than one line is drawn.
+  const labelled = keys0.length > 1 || Boolean(data.compare?.points?.length);
+  const R = labelled ? 44 : 14;
   const svg = s("svg", { class: "vol-svg smile", viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": o.label });
   const axis = o.x;
   const pts = (data.points ?? []).filter((p) => smileX(p, axis) !== null);
   const val = (p, k) => (k === "otm" ? p.otm?.iv ?? null : p[k]?.iv ?? null);
-  const keys = ["otm", "ce", "pe"].filter((k) => o.series[k]);
+  const keys = keys0;
   const comp = (data.compare?.points ?? []).filter((p) => p.otm && smileX(p, axis) !== null);
   const ys = [...pts.flatMap((p) => keys.map((k) => val(p, k))), ...comp.map((p) => p.otm.iv)].filter((v) => v !== null);
   if (!ys.length) {
@@ -70,9 +110,7 @@ export function smileSvg(data, o) {
     x1 = Math.max(x1, 0.95);
   }
   if (x1 === x0) x1 = x0 + 1;
-  const yt0 = niceTicks(Math.min(...ys) - 1, Math.max(...ys) + 1, 5);
-  const y0 = Math.min(yt0[0], Math.min(...ys) - 1);
-  const y1 = Math.max(yt0[yt0.length - 1], Math.max(...ys) + 1);
+  const { ticks: yt0, y0, y1, label: yLabel } = ivTicks(ys);
   const X = (v) => L + ((v - x0) / (x1 - x0)) * (W - L - R);
   const Y = (v) => T + (1 - (v - y0) / (y1 - y0)) * (H - T - B);
   const plotB = H - B;
@@ -80,14 +118,14 @@ export function smileSvg(data, o) {
   // Grid and axes.
   const grid = s("g", { class: "grid" });
   for (const v of yt0.filter((v) => v >= y0 && v <= y1)) {
-    grid.append(s("line", { x1: L, x2: W - R, y1: r1(Y(v)), y2: r1(Y(v)) }), s("text", { x: L - 6, y: r1(Y(v) + 3.5), class: "axis", "text-anchor": "end" }, `${formatInt(v)}%`));
+    grid.append(s("line", { x1: L, x2: W - R, y1: r1(Y(v)), y2: r1(Y(v)) }), s("text", { x: L - 6, y: r1(Y(v) + 3.5), class: "axis", "text-anchor": "end" }, yLabel(v)));
   }
+  const xt = axis === "delta" ? null : niceTicks(x0, x1, Math.max(3, Math.min(8, Math.floor((W - L - R) / 80))));
+  const xdp = xt ? stepDecimals(xt.step) : 0;
   const xticks =
     axis === "delta"
       ? DELTA_TICKS.filter(([v]) => v >= x0 && v <= x1)
-      : niceTicks(x0, x1, Math.max(3, Math.min(8, Math.floor((W - L - R) / 80))))
-          .filter((v) => v > x0 && v < x1)
-          .map((v) => [v, axis === "m" ? `${v > 0 ? "+" : ""}${formatInt(v)}%` : formatInt(v)]);
+      : xt.filter((v) => v > x0 && v < x1).map((v) => [v, axis === "m" ? `${v > 0 ? "+" : ""}${formatFixed(v, xdp)}%` : formatFixed(v, xdp)]);
   for (const [v, t] of xticks) grid.append(s("text", { x: r1(X(v)), y: H - 7, class: "axis", "text-anchor": "middle" }, t));
   svg.append(grid);
 
@@ -127,23 +165,20 @@ export function smileSvg(data, o) {
   const endLabel = (list, key, text, cls) => {
     const last = [...list].reverse().find((p) => val(p, key) !== null);
     if (!last) return null;
-    const x = X(smileX(last, axis));
-    return s("text", { class: `end-label ${cls}`, x: r1(Math.min(x, W - R) - 2), y: r1(Y(val(last, key)) - 6), "text-anchor": "end" }, text);
+    const py = Y(val(last, key));
+    return { y: py, py, px: X(smileX(last, axis)), text, cls };
   };
+  const labels = [];
   if (comp.length) {
     svg.append(s("path", { class: "series compare", d: path(comp, "otm") }));
-    const lab = endLabel(comp, "otm", data.compare.label, "compare");
-    if (lab) svg.append(lab);
+    labels.push(endLabel(comp, "otm", data.compare.label, "compare"));
   }
   const NAMES = { otm: "OTM", ce: "CE", pe: "PE" };
-  const multi = keys.length > 1;
   for (const k of keys) {
     svg.append(s("path", { class: `series ${k}`, d: path(pts, k) }));
-    if (multi || comp.length) {
-      const lab = endLabel(pts, k, NAMES[k], k);
-      if (lab) svg.append(lab);
-    }
+    if (labelled) labels.push(endLabel(pts, k, NAMES[k], k));
   }
+  if (labelled) gutterLabels(svg, labels, { x: W - R + 6, top: T + 4, bottom: plotB - 4 });
   // Points: filled when priced from a tight mid, hollow from a wide quote or the LTP. Out points are not drawn.
   const r = o.coarse ? 3.5 : 2.5;
   const dots = s("g", { class: "dots" });
@@ -217,13 +252,13 @@ export function termSvg(rows, o) {
   const W = Math.max(220, Math.round(o.width));
   const H = Math.max(150, Math.round(o.height));
   const L = 40;
-  const R = 18;
+  const R = o.wings ? 52 : 18;
   const T = 16;
   const B = 26;
   const svg = s("svg", { class: "vol-svg term", viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": o.label });
   const use = rows.filter((r) => r.atmIv !== null && r.days !== null);
   if (!use.length) {
-    svg.append(s("text", { x: W / 2, y: H / 2, class: "vol-svg-empty", "text-anchor": "middle" }, "Loading expiries…"));
+    svg.append(s("text", { x: W / 2, y: H / 2, class: "vol-svg-empty", "text-anchor": "middle" }, o.empty ?? "Loading expiries…"));
     return svg;
   }
   const wing = (r, k) => (o.wings ? r.skew?.[k]?.iv ?? null : null);
@@ -234,13 +269,11 @@ export function termSvg(rows, o) {
   const pad = (x1 - x0) * 0.06 || 0.5;
   x0 = Math.max(0, x0 - pad);
   x1 += pad;
-  const yt = niceTicks(Math.min(...ys) - 1, Math.max(...ys) + 1, 5);
-  const y0 = Math.min(yt[0], Math.min(...ys) - 1);
-  const y1 = Math.max(yt[yt.length - 1], Math.max(...ys) + 1);
+  const { ticks: yt, y0, y1, label: yLabel } = ivTicks(ys);
   const X = (d) => L + ((Math.sqrt(Math.max(d, 0)) - x0) / (x1 - x0)) * (W - L - R);
   const Y = (v) => T + (1 - (v - y0) / (y1 - y0)) * (H - T - B);
   const grid = s("g", { class: "grid" });
-  for (const v of yt.filter((v) => v >= y0 && v <= y1)) grid.append(s("line", { x1: L, x2: W - R, y1: r1(Y(v)), y2: r1(Y(v)) }), s("text", { x: L - 6, y: r1(Y(v) + 3.5), class: "axis", "text-anchor": "end" }, `${formatInt(v)}%`));
+  for (const v of yt.filter((v) => v >= y0 && v <= y1)) grid.append(s("line", { x1: L, x2: W - R, y1: r1(Y(v)), y2: r1(Y(v)) }), s("text", { x: L - 6, y: r1(Y(v) + 3.5), class: "axis", "text-anchor": "end" }, yLabel(v)));
   // Date labels, skipping any that would touch the previous one.
   let lastX = -Infinity;
   for (const r of use) {
@@ -261,10 +294,14 @@ export function termSvg(rows, o) {
   if (o.wings) {
     line("put25", "wing put");
     line("call25", "wing call");
-    const lastP = [...use].reverse().find((r) => wing(r, "put25") !== null);
-    const lastC = [...use].reverse().find((r) => wing(r, "call25") !== null);
-    if (lastP) svg.append(s("text", { class: "end-label", x: r1(X(lastP.days) - 4), y: r1(Y(wing(lastP, "put25")) - 6), "text-anchor": "end" }, "25Δ P"));
-    if (lastC) svg.append(s("text", { class: "end-label", x: r1(X(lastC.days) - 4), y: r1(Y(wing(lastC, "call25")) + 13), "text-anchor": "end" }, "25Δ C"));
+    // Labelled in the right gutter, clear of the points, their rings and the monthly tags.
+    const lab = (k, text) => {
+      const r = [...use].reverse().find((x) => wing(x, k) !== null);
+      if (!r) return null;
+      const py = Y(wing(r, k));
+      return { y: py, py, px: X(r.days), text };
+    };
+    gutterLabels(svg, [lab("put25", "25Δ P"), lab("call25", "25Δ C")], { x: W - R + 14, top: T + 4, bottom: H - B - 4, from: 10 });
   }
   line("atm", "otm");
   const rad = o.coarse ? 4.5 : 3.5;
@@ -275,7 +312,8 @@ export function termSvg(rows, o) {
     g.append(s("title", {}, `${r.label}: ATM IV ${formatPercent(r.atmIv, 1)}${r.dim ? " (expiry day)" : ""}`));
     if (r.expiry === o.selected) g.append(s("circle", { class: "ring", cx, cy, r: rad + 4 }));
     g.append(s("circle", { class: `dot otm${r.dim ? " hollow" : ""}`, cx, cy, r: rad }));
-    if (r.monthly) g.append(s("text", { class: "m-tag", x: cx, y: r1(cy - rad - 5), "text-anchor": "middle" }, "M"));
+    // The monthly tag clears the selection ring when there is one.
+    if (r.monthly) g.append(s("text", { class: "m-tag", x: cx, y: r1(cy - rad - (r.expiry === o.selected ? 9 : 5)), "text-anchor": "middle" }, "M"));
     // A generous invisible target for pointers and fingers.
     g.append(s("circle", { class: "hit", cx, cy, r: o.coarse ? 22 : 14 }));
     svg.append(g);

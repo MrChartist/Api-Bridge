@@ -2752,6 +2752,9 @@ function strikeStep(strikes) {
   return step;
 }
 
+/** The least CE/PE IV separation (vol points) that counts as a parity gap. */
+const GAP_MIN = 0.1;
+
 /**
  * One point per strike with a leg: IVs recomputed with Black-76 on `F` (discounted at `rate`), from `basis` prices.
  * otm = the PE below F, the CE at or above it; `callDelta` = the CE delta at the OTM IV (the smile's delta axis);
@@ -2791,7 +2794,14 @@ export function smilePoints(chain, { F, years, rate = RATE, basis = "mid" } = {}
     const side = K < Fv ? "pe" : "ce";
     const o = side === "pe" ? pe : ce;
     const otm = o && o.iv !== null ? { side, iv: o.iv, delta: o.delta, q: o.q } : null;
-    const gap = Boolean(ce && pe && ((ce.bidIv !== null && pe.askIv !== null && ce.bidIv > pe.askIv) || (pe.bidIv !== null && ce.askIv !== null && pe.bidIv > ce.askIv)));
+    // A parity gap needs real separation: more than 0.1 vol point and more than one tick's worth of IV.
+    const apart = (b, a, aLeg, right) => {
+      if (b === null || a === null || b - a <= GAP_MIN) return false;
+      const ask = num(aLeg?.ask);
+      const tickIv = ask !== null && ask > 0 ? (impliedVolB76(ask + 0.05, Fv, K, T, right, df) ?? a) - a : 0;
+      return b - a > Math.max(GAP_MIN, tickIv);
+    };
+    const gap = Boolean(ce && pe && (apart(ce.bidIv, pe.askIv, r.pe, "PE") || apart(pe.bidIv, ce.askIv, r.ce, "CE")));
     out.push({ strike: K, m: (K / Fv - 1) * 100, ce, pe, otm, callDelta: otm ? b76Delta(Fv, K, T, otm.iv, "CE") : null, gap, out: o ? o.out : "noquote" });
   }
   return out;
@@ -2819,7 +2829,8 @@ export function atmIvAt(points, forward) {
   if (below && above) return below.iv + ((above.iv - below.iv) * (F - below.k)) / (above.k - below.k);
   const step = strikeStep((points ?? []).map((p) => p.strike).sort((a, b) => a - b));
   const one = below ?? above;
-  return step !== null && Math.abs(one.k - F) <= step ? one.iv : null;
+  // A lone strike (no step to judge by) counts when it sits within 0.5% of the forward.
+  return Math.abs(one.k - F) <= (step ?? 0.005 * F) ? one.iv : null;
 }
 
 /**
@@ -2954,7 +2965,7 @@ export function termRow(chain, { now = Date.now(), rate = RATE, basis = "mid", h
     hedge,
     futGap: futPx !== null && F !== null ? futPx - F : null,
     quality,
-    dim: days !== null && days < 1,
+    dim: isExpiryDay(expiry, now) || days === 0,
     points,
     skew,
     lot,
@@ -3110,7 +3121,7 @@ export function volRead(m = {}) {
   else if (has(m.rr25) && m.rr25 <= -2) seller.push(`Calls carry ${f1(-m.rr25)} pts more IV than puts at 25Δ.`);
 
   const hg = m.hedge;
-  if (hg && has(hg.strike, hg.pts, hg.pctF, hg.annualPct)) hedger.push(`${formatInt(hg.pct)}% put (${formatInt(hg.strike)} PE): ${f2(hg.pts)} pts, ${f2(hg.pctF)}% of the forward, ${f1(hg.annualPct)}% a year.`);
+  if (hg && has(hg.strike, hg.pts, hg.pctF, hg.annualPct)) hedger.push(`${formatInt(hg.pct)}% put (${formatInt(hg.strike)} PE): ${f2(hg.pts)} pts, ${hg.pctF < 0.01 ? formatFixed(hg.pctF, 3) : f2(hg.pctF)}% of the forward, ${f1(hg.annualPct)}% a year.`);
   const ch = m.cheapestHedge;
   if (ch && has(ch.annualPct) && ch.expiry !== m.expiry) hedger.push(`Cheapest per year among loaded expiries: ${ch.label ?? ch.expiry} at ${f1(ch.annualPct)}%.`);
   if (has(m.rr25) && m.rr25 >= 0.5) hedger.push(`Downside protection carries ${f1(m.rr25)} pts of skew over calls.`);

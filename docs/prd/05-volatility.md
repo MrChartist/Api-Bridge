@@ -265,7 +265,7 @@ The 25Δ tiles and the HV20 tile set `aria-label` with the full sentence, e.g. "
 ### 5.7 Term structure (`termRow`, `forwardVol`, `termShape`)
 - **TermRow** fields: `{ expiry, weekday, monthly, days, years, F, source, basis: F − S, carryPct: ln(F/S)/T·100, atmStrike, atmIv, ceIv, peIv, straddle, straddlePct, rupee, perDay, move, movePct, lo, hi, beLo, beHi, ratio, rr25, bf25, rr10, hedge, futGap, quality, dim }`.
   - `quality` is the share of points within ATM ±10 strikes that have `q === "mid"`. Below 0.5 the row gets the flag "Thin quotes".
-  - `dim = days < 1` (expiry day).
+  - `dim = isExpiryDay(expiry) || days === 0`: the IST expiry date itself (the same calendar test as the toolbar's "Expires today"), not merely under 24 hours away. The evening before expiry is not dimmed.
 - **Forward vol** between consecutive rows a → b: `v = (σb²·Tb − σa²·Ta) / (Tb − Ta)`, with σ in decimals.
   - `vol = √v · 100` when `v > 0`.
   - If `v ≤ 0`: `{ vol: null, inverted: true }`, shown as "Inverted" with the title "Total variance falls between these expiries: calendar check".
@@ -456,7 +456,7 @@ Row behaviour:
 
 - **Selected expiry**: desk.js `loadChain` on every tick (`strikes=60&greeks=false`). Greeks are not needed because IVs and deltas are recomputed, and this saves server work. The chain page still asks for greeks.
 - **Term expiries**: `vol.js` keeps `cache = Map<expiry, { chain, at, error }>`.
-  - On page load or underlying change, it fetches all capped expiries with **concurrency 2** (`strikes=40&greeks=false`).
+  - On page load or underlying change, it fetches all capped expiries with **concurrency 2** (`greeks=false`, `strikes` sized from the expected move: `clamp(ceil(2.2·F·σ√T / step), 40, 80)` each side, with σ the nearest loaded expiry's ATM IV or 20%, so the 25Δ wings are in the window).
   - After that, each tick refreshes **one** non-selected expiry, round-robin, oldest first. With 6 expiries, each row is at most about 15 s old; the methodology note prints row ages.
   - Underlying change clears the cache and bumps a `volSeq` guard.
   - The selected expiry's entry is always the latest `st.chain`, so no duplicate fetch.

@@ -1184,6 +1184,11 @@ describe("volatility", () => {
       const g = black76(25000, 25100, years, 18, "CE") * Math.exp(-RATE * years);
       Object.assign(r(25100).ce, { bid: g - 0.05, ask: g + 0.05 });
       expect(smilePoints(c, { F: 25000, years }).find((p) => p.strike === 25100).gap).toBe(true);
+      // Rounding noise is not a gap: a CE band a few hundredths of a vol point above the PE band.
+      const n = black76(25000, 25200, years, 15.03, "CE") * Math.exp(-RATE * years);
+      Object.assign(r(25200).ce, { bid: n, ask: n + 0.1 });
+      Object.assign(r(25200).pe, { bid: r(25200).pe.bid, ask: r(25200).pe.bid });
+      expect(smilePoints(c, { F: 25000, years }).find((p) => p.strike === 25200).gap).toBe(false);
     });
   });
 
@@ -1196,6 +1201,10 @@ describe("volatility", () => {
       expect(atmIvAt(pts, 112)).toBe(10);
       expect(atmIvAt(pts, 125)).toBeNull();
       expect(atmIvAt([{ strike: 100, ce: { iv: 10 }, pe: { iv: 12 } }], 100)).toBe(11);
+    });
+    it("accepts a lone strike within 0.5% of the forward", () => {
+      expect(atmIvAt([pt(26000, 14)], 26001)).toBe(14);
+      expect(atmIvAt([pt(26000, 14)], 26200)).toBeNull();
     });
   });
 
@@ -1251,6 +1260,10 @@ describe("volatility", () => {
       const today = termRow({ ...chain({ years: 0.1 / 365, expiry: "2026-10-29" }) }, { now: NOW });
       expect(today.dim).toBe(true);
       expect(today.perDay).toBeCloseTo(today.rupee / 0.25, 6);
+      // The evening before expiry (16:30 IST) is under a day away but not expiry day: not dimmed.
+      const eve = termRow(chain({ years: 23 / 24 / 365, expiry: "2026-11-03" }), { now: Date.parse("2026-11-02T11:00:00Z") });
+      expect(eve.days).toBeLessThan(1);
+      expect(eve.dim).toBe(false);
     });
   });
 
