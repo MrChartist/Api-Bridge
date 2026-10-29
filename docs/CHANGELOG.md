@@ -9,7 +9,8 @@ API changes that need a migration window. Each entry keeps its anchor so `Link` 
 - `ivModel=b76-forward`: every leg's `iv`, `delta`, `gamma`, `theta` and `vega` come from Black-76 on the 5-strike
   put-call-parity forward, mid prices and the vol-time clock (`server/bridge/dashboard/pricing.js`, the same code the
   dashboard runs). Theta is per trading-day unit. The broker's own IV, when it sent one, is kept in `brokerIv`. The
-  chain carries a `pricing` object (forward, rate, clock).
+  chain carries a `pricing` object (forward, rate, clock). A leg without an IV says why in `ivReason` (`SETTLING`
+  inside the expiry-day settlement window, `NOQUOTE`, `TICK`, `INTRINSIC`, `RANGE`, `SETTLED`, `NOFORWARD`).
 - `ivModel=legacy-bs-spot`: Black-Scholes on spot with calendar days to 15:30 IST (at least a quarter day) and theta
   per calendar day. Byte for byte the output before this change.
 - Default: `market.chain.ivModelDefault`, `legacy-bs-spot` until **1 May 2027**, then `b76-forward`. A response that

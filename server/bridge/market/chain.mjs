@@ -141,7 +141,8 @@ export const IV_MODELS = Object.freeze(["b76-forward", "legacy-bs-spot"]);
 /**
  * Reprice a finished chain (OpenAPI OptionChain) with Black-76 on the parity forward (pure). Every leg gets iv, delta,
  * gamma, theta (₹ per trading-day unit) and vega from pricing.js, `greeksSource: "computed"` and `brokerIv` (the IV
- * the broker sent, else null); legs without a usable price get nulls. Adds the chain-level `pricing` object.
+ * the broker sent, else null); legs without an IV get nulls and `ivReason` (SETTLING, NOQUOTE, TICK, INTRINSIC, RANGE,
+ * SETTLED, NOFORWARD; null when the IV solved). Adds the chain-level `pricing` object.
  * @param {object} chain  { underlying, expiry, underlyingLtp, rows, ... }
  * @param {{ ctx: object, nowMs: number, rate: number, rateQuality?: string|null }} p  ctx from vol/context.mjs
  */
@@ -156,10 +157,13 @@ export function applyB76(chain, { ctx, nowMs, rate, rateQuality = null }) {
   const leg = (q, strike, right) => {
     if (!q) return null;
     const brokerIv = q.greeksSource === "broker" && q.iv > 0 ? q.iv : null;
-    const out = { ...q, iv: null, delta: null, gamma: null, theta: null, vega: null, greeksSource: "computed", brokerIv };
-    if (!(F > 0) || !(T > 0)) return out;
+    const out = { ...q, iv: null, delta: null, gamma: null, theta: null, vega: null, greeksSource: "computed", brokerIv, ivReason: null };
+    if (!(T > 0)) return { ...out, ivReason: "SETTLED" };
+    if (!(F > 0)) return { ...out, ivReason: "NOFORWARD" };
     const r = legIv(q, F, strike, right, { years: T, df, basis: "mid", settling: clock.settling });
-    if (!r || r.iv === null) return out;
+    // Why a leg has no IV (§6.1: SETTLING inside the expiry-day settlement window), so clients can tell it from no quote.
+    if (!r) return { ...out, ivReason: "NOQUOTE" };
+    if (r.iv === null) return { ...out, ivReason: String(r.out ?? "noquote").toUpperCase() };
     const g = greeks76(F, strike, T, r.iv, right, { yearBasis });
     // IV is not rounded (the dashboard's own solve on the same JSON must agree to 1e-9); Greeks to 6 decimals.
     out.iv = round(r.iv, 10);

@@ -42,7 +42,18 @@ describe("vol-time clock (§6.1)", () => {
     expect(yearBasisOf({ ...CTX, mode: "trading" })).toBe(252);
     expect(yearBasisOf({ ...CTX, mode: "calendar" })).toBe(365);
     expect(yearBasisOf({ ...CTX, yearBasis: 250 })).toBe(250);
-    expect(clockSettings({})).toMatchObject({ mode: "weighted", nonTradingDayWeight: 0.15, overnightShare: 0.2 });
+    expect(clockSettings({})).toMatchObject({ mode: "weighted", nonTradingDayWeight: 0.15, overnightShare: 0.2, settlementWindowMinutes: 30 });
+    expect(clockSettings({ settlementWindowMinutes: 0 }).settlementWindowMinutes).toBe(0);
+  });
+
+  it("a context without settlementWindowMinutes keeps the 30-minute window (expiry day, example 4 rows)", () => {
+    const { settlementWindowMinutes, ...noW } = CTX;
+    expect(settlementWindowMinutes).toBe(30);
+    for (const [s, u] of [["2026-11-03T14:00:00", 0.14933], ["2026-11-03T15:00:00", 0.02133], ["2026-11-03T15:20:00", 0.00079]]) {
+      const c = volTime(noW, at(s), EXP);
+      expect(c.units).toBeCloseTo(u, 5);
+      expect(c.T).toBe(volTime(CTX, at(s), EXP).T);
+    }
   });
 
   it("example 1: Thu 29 Oct 10:00 → Tue 3 Nov, U = 3.96133 with the block breakdown", () => {
@@ -218,6 +229,21 @@ describe("parity forward (§6.3) and the IV function (§6.4)", () => {
     // On calendar T (0.0143265) every F_k moves by under 0.004.
     const cal = parityForward(chain, { rate: RATE, Tcal: 0.0143265 });
     for (let i = 0; i < 5; i++) expect(Math.abs(cal.values[i].F - f.values[i].F)).toBeLessThan(0.004);
+  });
+
+  it("without spot or atmStrike still computes the parity median from two-sided strikes (centred near the forward)", () => {
+    const noSpot = { underlyingLtp: null, rows: chain.rows };
+    const f = parityForward(noSpot, { rate: RATE, Tcal: 0.0147289 });
+    expect(f).toMatchObject({ source: "parity", strikes: 5 });
+    expect(f.F).toBeCloseTo(25142.49, 2);
+    // A wider chain (11 strikes): the 5 used are the ones around the forward, not the chain's edge.
+    const wide = { underlyingLtp: null, atmStrike: null, rows: [24900, 24950, 25000, 25050, 25100, 25150, 25200, 25250, 25300, 25350, 25400].map((k) => {
+      const c = Math.max(1, 25142.49 - k) + 120 * Math.exp(-(((k - 25142.49) / 300) ** 2));
+      return { strike: k, ...legs(c, c - (25142.49 - k)) };
+    }) };
+    const w = parityForward(wide, { rate: 0, Tcal: 0 });
+    expect(w.values.map((v) => v.strike)).toEqual([25050, 25100, 25150, 25200, 25250]);
+    expect(w.F).toBeCloseTo(25142.49, 6);
   });
 
   it("excludes one-sided strikes and falls back to spot", () => {

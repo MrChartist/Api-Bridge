@@ -15,6 +15,7 @@ import { createNullLogger } from "../core/logger.mjs";
 import { black76, realisedVol, volTime } from "../dashboard/pricing.js";
 import { DEMO_UNDERLYINGS, candles, createDemoAdapter, dailyCloses, demoChainAt, demoClockContext, demoInstruments, expiriesFor, ivLevel, optionPrice, parseToken, smileVol, spotAt } from "./demoAdapter.mjs";
 import { NIFTY50 } from "../scanner/universes.mjs";
+import { demoCalendar } from "../reference/demoTables.mjs";
 import { DEMO_HEADER, createDemoRegistry, labelDemoResult } from "./demoMode.mjs";
 
 const T = Date.UTC(2026, 9, 19, 5, 0, 0); // Monday 10:30 IST
@@ -119,17 +120,38 @@ describe("demo adapter", () => {
   it("lists INDIA VIX (Demo), priced from NIFTY's 30-day IV on calendar time", async () => {
     expect(demoInstruments(T).find((r) => r.tradingSymbol === "INDIAVIX")).toMatchObject({ exchange: "NSE", instrumentType: "INDEX", name: "India VIX (Demo)" });
     const vix = spotAt("INDIAVIX", T);
-    const target = new Date(T + 30 * 86_400_000 + 330 * 60_000).toISOString().slice(0, 10);
-    const c = volTime(demoClockContext("NFO"), T, target);
+    // NIFTY's 30-day calendar vol at the §6.6 target (30 calendar days ahead, rolled back to the previous trading day).
     const nifty = DEMO_UNDERLYINGS.find((x) => x.symbol === "NIFTY");
-    const S = spotAt("NIFTY", T);
-    const cal = 100 * smileVol(nifty, S, S, c.T, ivLevel("NIFTY", T)) * Math.sqrt(c.T / c.Tcal);
-    expect(vix / cal).toBeGreaterThanOrEqual(1.0 - 1e-3);
-    expect(vix / cal).toBeLessThanOrEqual(1.06 + 1e-3);
+    const calVol = (t) => {
+      let target = new Date(t + 30 * 86_400_000 + 330 * 60_000).toISOString().slice(0, 10);
+      const dc = demoCalendar();
+      if (!dc.isTradingDay(target, "NFO")) target = dc.prevTradingDay(target, "NFO");
+      const c = volTime(demoClockContext("NFO"), t, target);
+      const S = spotAt("NIFTY", t);
+      return 100 * smileVol(nifty, S, S, c.T, ivLevel("NIFTY", t)) * Math.sqrt(c.T / c.Tcal);
+    };
+    // 14 consecutive days at 11:00 IST: no weekday sawtooth when the target lands on a weekend or holiday.
+    for (let i = 0; i < 14; i += 1) {
+      const t = Date.UTC(2026, 9, 19 + i, 5, 30, 0);
+      const ratio = spotAt("INDIAVIX", t) / calVol(t);
+      expect(ratio, `day ${i}`).toBeGreaterThanOrEqual(1.0 - 1e-3);
+      expect(ratio, `day ${i}`).toBeLessThanOrEqual(1.06 + 1e-3);
+    }
     expect(Math.round(vix / 0.0025) * 0.0025).toBeCloseTo(vix, 9);
     const q = await a.fetchQuotes({}, [{ token: "DM-INDIAVIX", exchange: "NSE" }]);
     expect(q.data[0].ltp).toBe(vix);
     expect(q.data[0].bid).toBeLessThan(q.data[0].ask);
+  });
+
+  it("INDIA VIX candles keep the OHLC rule on its 0.0025 tick (5m and 1d)", () => {
+    const bars = [...candles("DM-INDIAVIX", "5m", T - 2 * 86_400_000, T), ...candles("DM-INDIAVIX", "1d", T - 200 * 86_400_000, T)];
+    expect(bars.length).toBeGreaterThan(100);
+    for (const b of bars) {
+      expect(b.high, `${b.time}`).toBeGreaterThanOrEqual(Math.max(b.open, b.close));
+      expect(b.low, `${b.time}`).toBeLessThanOrEqual(Math.min(b.open, b.close));
+      expect(Math.round(b.high / 0.0025) * 0.0025).toBeCloseTo(b.high, 9);
+      expect(Math.round(b.low / 0.0025) * 0.0025).toBeCloseTo(b.low, 9);
+    }
   });
 
   it("demoChainAt builds a light OptionChain-shaped chain fast", () => {

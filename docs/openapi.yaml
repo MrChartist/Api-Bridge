@@ -4748,6 +4748,14 @@ components:
         vega: { type: [number, "null"] }
         greeksSource: { type: [string, "null"], enum: [broker, computed, null] }
         brokerIv: { type: [number, "null"], description: "The broker's own IV (percent), when it sent one and ivModel=b76-forward recomputed iv." }
+        ivReason:
+          type: [string, "null"]
+          enum: [SETTLING, NOQUOTE, TICK, INTRINSIC, RANGE, SETTLED, NOFORWARD, null]
+          description: >-
+            ivModel=b76-forward only: why iv is null. SETTLING = expiry day inside the settlement window and the price within
+            2 ticks of intrinsic on the forward; NOQUOTE = no usable price; TICK = price at or below one tick; INTRINSIC = at
+            or below discounted intrinsic; RANGE = solved IV outside 1-300 %; SETTLED = past the settlement; NOFORWARD = no
+            forward. Null when the IV solved.
     OptionChain:
       type: object
       required: [underlying, expiry, rows, freshness]
@@ -4802,7 +4810,16 @@ components:
         at: { type: string, format: date-time }
         settings: { type: object, additionalProperties: true }
         rate: { type: object, additionalProperties: true }
-        holidays: { type: array, items: { type: string, format: date } }
+        holidays:
+          type: array
+          description: Holidays in [at, at + 400 days] for the underlying's exchange; the dashboard builds its client clock from them.
+          items:
+            type: object
+            required: [date, label, verified]
+            properties:
+              date: { type: string, format: date }
+              label: { type: [string, "null"] }
+              verified: { type: boolean }
         expiries: { type: array, items: { $ref: "#/components/schemas/VolClockResult" } }
     VolCaptureRequest:
       type: object

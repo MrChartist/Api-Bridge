@@ -37,7 +37,7 @@ const clientContext = (clock) => ({
   yearBasis: clock.settings.yearBasis,
   settlementWindowMinutes: clock.settings.settlementWindowMinutes,
   session: { open: clock.settings.session.open, close: clock.settings.session.close },
-  holidays: clock.holidays,
+  holidays: clock.holidays.map((h) => h.date),
 });
 
 describe("server and dashboard agree on IV (acceptance criterion 2)", () => {
@@ -81,6 +81,8 @@ describe("server and dashboard agree on IV (acceptance criterion 2)", () => {
           // Same clock, same forward.
           expect(row.years).toBeCloseTo(pricing.clock.T, 9);
           expect(Math.abs(row.F - pricing.forward)).toBeLessThan(1e-3);
+          // Carry is interest: on calendar time (Tcal), never on the vol-time T (§6.3).
+          expect(row.carryPct / ((Math.log(row.F / chain.underlyingLtp) / pricing.clock.Tcal) * 100)).toBeCloseTo(1, 4);
           // Per leg: the server's IV is the dashboard's IV.
           for (const p of row.points) {
             const srv = chain.rows.find((x) => x.strike === p.strike);

@@ -117,31 +117,6 @@ export function bands(forward, ivPct, years) {
 }
 
 /**
- * Implied volatility (percent) from an undiscounted Black-76 price by bisection between 0.5 % and 300 %: 60 steps or
- * a price tolerance of 0.000001. Null when T ≤ 0, inputs are missing or the price is below intrinsic − 0.05.
- */
-export function impliedVol(price, forward, strike, years, right) {
-  const P = num(price);
-  const F = num(forward);
-  const K = num(strike);
-  if (P === null || F === null || K === null || F <= 0 || K <= 0 || !(years > 0)) return null;
-  const intrinsic = right === "CE" ? Math.max(0, F - K) : Math.max(0, K - F);
-  if (P < intrinsic - 0.05) return null;
-  let lo = 0.5;
-  let hi = 300;
-  if (P <= black76(F, K, years, lo, right)) return lo;
-  if (P >= black76(F, K, years, hi, right)) return hi;
-  for (let i = 0; i < 60; i++) {
-    const m = (lo + hi) / 2;
-    const v = black76(F, K, years, m, right);
-    if (Math.abs(v - P) < 1e-6) return m;
-    if (v > P) hi = m;
-    else lo = m;
-  }
-  return (lo + hi) / 2;
-}
-
-/**
  * THE implied-volatility function (percent) of a discounted Black-76 price: solves df·Black76(F, K, T, σ) = price by
  * Newton on vega from the Brenner–Subrahmanyam seed, falling back to bisection on [0.5 %, 500 %] whenever a step leaves
  * the bracket. Null when price ≤ 0, below df·intrinsic − 0.025, at or above df·F (CE) / df·K (PE), T ≤ 0, or no root.
@@ -215,15 +190,18 @@ const twoSidedMid = (leg) => {
 
 /**
  * The parity forward (§6.3): F_k = K + e^(r·Tcal)·(C_mid − P_mid) for the `strikes` (5) strikes nearest spot with both
- * legs two-sided (bid > 0, ask ≥ bid); F = the median. Spot when no strike qualifies (source "spot"); { F: null }
- * without spot either. `Tcal` is calendar time (interest accrues on calendar days).
+ * legs two-sided (bid > 0, ask ≥ bid); F = the median. Without spot (and no atmStrike) the strikes are centred on the
+ * two-sided strike with the smallest |C − P| (the one nearest the forward), so a chain with no underlying price still
+ * gets a parity forward. Spot when no strike qualifies (source "spot"); { F: null } with neither.
+ * `Tcal` is calendar time (interest accrues on calendar days).
  * @returns {{ F: number|null, source: "parity"|"spot"|null, strikes: number, values: { strike: number, F: number }[] }}
  */
 export function parityForward(chain, { rate = 0, Tcal = 0, strikes = 5 } = {}) {
   const spot = num(chain?.underlyingLtp);
   const growth = num(Tcal) > 0 ? Math.exp((num(rate) ?? 0) * Tcal) : 1;
-  const centre = spot ?? num(chain?.atmStrike);
   const rows = (chain?.rows ?? []).map((r) => ({ k: num(r?.strike), c: twoSidedMid(r?.ce), p: twoSidedMid(r?.pe) })).filter((r) => r.k !== null && r.c !== null && r.p !== null);
+  let centre = spot ?? num(chain?.atmStrike);
+  if (centre === null && rows.length) centre = rows.reduce((b, r) => (Math.abs(r.c - r.p) < Math.abs(b.c - b.p) || (Math.abs(r.c - r.p) === Math.abs(b.c - b.p) && r.k < b.k) ? r : b)).k;
   if (rows.length && centre !== null) {
     rows.sort((a, b) => Math.abs(a.k - centre) - Math.abs(b.k - centre) || a.k - b.k);
     const values = rows.slice(0, Math.max(1, strikes)).map((r) => ({ strike: r.k, F: r.k + (r.c - r.p) * growth })).sort((a, b) => a.strike - b.strike);
@@ -425,7 +403,7 @@ export function clockSettings(ctx = {}) {
     overnightShare: phi,
     eventDays: ctx?.eventDays && typeof ctx.eventDays === "object" ? ctx.eventDays : {},
     yearBasis: num(ctx?.yearBasis),
-    settlementWindowMinutes: Math.max(0, num(ctx?.settlementWindowMinutes) ?? 0),
+    settlementWindowMinutes: Math.max(0, num(ctx?.settlementWindowMinutes) ?? 30),
   };
 }
 

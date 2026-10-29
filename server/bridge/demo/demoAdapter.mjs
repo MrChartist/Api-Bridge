@@ -118,6 +118,9 @@ const phase = (s) => unit(s) * 2 * Math.PI;
 const round2 = (n) => Math.round(n * 100) / 100;
 const toTick = (n, tick) => Math.max(tick, Math.round(n / tick) * tick);
 const fix = (n, tick) => Number(toTick(n, tick).toFixed(2));
+/** Round outward onto the tick grid (4 dp clears float noise, enough for the 0.0025 VIX tick). */
+const ceilTick = (n, tick) => Number((Math.ceil(n / tick - 1e-9) * tick).toFixed(4));
+const floorTick = (n, tick) => Number((Math.floor(n / tick + 1e-9) * tick).toFixed(4));
 
 /** Spot price of a demo underlying at epoch ms `t`. Smooth, bounded and the same for the same instant. */
 export function spotAt(symbol, t) {
@@ -287,11 +290,11 @@ export function ivLevel(symbol, t) {
 
 /**
  * INDIA VIX (Demo) at `t`: 100 × NIFTY's 30-day ATM vol on calendar time (the demo smile level and term factor on the
- * vol-time clock to the close 30 calendar days ahead, converted through total variance), × (1.03 + 0.03·sin(2π·d/17)),
- * on a 0.0025 tick.
+ * vol-time clock to the close 30 calendar days ahead, rolled back to the previous trading day as §6.6 does, converted
+ * through total variance), × (1.03 + 0.03·sin(2π·d/17)), on a 0.0025 tick.
  */
 function vixAt(t) {
-  const target = istDateOf(t + 30 * DAY_MS);
+  const target = shiftForHoliday(istDateOf(t + 30 * DAY_MS), "NFO");
   const c = clockTo("NFO", target, t);
   const nifty = BY_SYMBOL.get("NIFTY");
   const S = spotAt("NIFTY", t);
@@ -699,13 +702,15 @@ export function candles(token, interval, fromMs, toMs) {
     for (let i = 0; i <= n; i += 1) pts.push(priceOf(token, start + ((end - start) * i) / n));
     const open = pts[0];
     const close = pts[n];
-    const wick = Math.abs(close - open) * 0.25 + (p.kind === "spot" ? u.tick : 0.05);
+    const tick = p.kind === "spot" ? u.tick : 0.05;
+    const wick = Math.abs(close - open) * 0.25 + tick;
     const vol = indexSpot ? 0 : Math.round((800 + 2400 * unit(`${token}:${start}`)) * ((end - start) / 60_000) ** 0.8) * lotMul;
     return {
       time: Math.floor(start / 1000),
       open,
-      high: round2(Math.max(...pts) + wick * unit(`${token}:${start}:h`)),
-      low: round2(Math.min(...pts) - wick * unit(`${token}:${start}:l`)),
+      // Outward onto the symbol's tick and clamped, so high ≥ every sample and low ≤ every sample on any tick grid.
+      high: Math.max(...pts, ceilTick(Math.max(...pts) + wick * unit(`${token}:${start}:h`), tick)),
+      low: Math.min(...pts, Math.max(tick, floorTick(Math.min(...pts) - wick * unit(`${token}:${start}:l`), tick))),
       close,
       volume: vol,
     };

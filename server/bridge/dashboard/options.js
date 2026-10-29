@@ -14,7 +14,6 @@ import {
   black76,
   calendarYearDays,
   greeks76,
-  impliedVol,
   impliedVolB76,
   ivAtDelta,
   legPrice,
@@ -31,7 +30,15 @@ import {
 
 // The pricing core lives in pricing.js (shared with the server); these names are re-exported so pages keep importing
 // them from here. They are the same function objects.
-export { atmIvAt, b76Delta, black76, impliedVol, impliedVolB76, ivAtDelta, legPrice, normCdf, probItm, realisedVol, sigmaMove, skewMetrics };
+export { atmIvAt, b76Delta, black76, impliedVolB76, ivAtDelta, legPrice, normCdf, probItm, realisedVol, sigmaMove, skewMetrics };
+
+/**
+ * @deprecated Use impliedVolB76. A thin wrapper kept for older callers: the one IV solver (pricing.js impliedVolB76)
+ * on an undiscounted price (df = 1). Null when it cannot be solved (no clamping to the search bounds).
+ */
+export function impliedVol(price, forward, strike, years, right) {
+  return impliedVolB76(price, forward, strike, years, right, 1);
+}
 
 const num = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
 const sum = (rows, pick) => rows.reduce((a, r) => a + (num(pick(r)) ?? 0), 0);
@@ -2808,6 +2815,7 @@ export function termRow(chain, { now = Date.now(), rate = RATE, basis = "mid", h
   const clock = ctx ? volTime(ctx, now, expiry) : null;
   const years = clock ? clock.T : days === null ? null : days / 365;
   const T = clock ? clock.T : Math.max(years ?? 0, T_FLOOR);
+  const Tc = clock ? clock.Tcal : T;
   const S = num(spot) ?? num(chain?.underlyingLtp);
   const fw = clock ? pricingForward(chain, { rate, Tcal: clock.Tcal }) : impliedForward(chain, T, rate);
   const F = fw.F;
@@ -2853,7 +2861,8 @@ export function termRow(chain, { now = Date.now(), rate = RATE, basis = "mid", h
     source: fw.source,
     spot: S,
     basis: F !== null && S !== null ? F - S : null,
-    carryPct: F !== null && S && T > 0 ? (Math.log(F / S) / T) * 100 : null,
+    // Carry is an interest quantity: on the clock path it runs on calendar time (Tcal), not on the vol-time T.
+    carryPct: F !== null && S && Tc > 0 ? (Math.log(F / S) / Tc) * 100 : null,
     atmStrike,
     atmIv,
     ceIv: ap?.ce?.iv ?? null,

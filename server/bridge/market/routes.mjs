@@ -17,6 +17,7 @@
 import { BridgeError } from "../core/errors.mjs";
 import { csv } from "../core/http.mjs";
 import { IV_MODELS } from "./chain.mjs";
+import { parseMarketConfig } from "./config.mjs";
 import { historyCsvRows } from "./history.mjs";
 import { MAX_AGE_LIMIT_MS, MAX_SYMBOLS } from "./marketDataService.mjs";
 
@@ -125,6 +126,18 @@ const meta = (ctx, opts) => ({ requestId: ctx.requestId, accountId: opts.account
  */
 export function createMarketRoutes(deps) {
   const md = () => deps.marketData;
+  /** The chain IV model a request without ivModel gets (market.chain.ivModelDefault), read once. */
+  let ivDefault;
+  const chainIvModelDefault = () => {
+    if (ivDefault === undefined) {
+      try {
+        ivDefault = parseMarketConfig(deps.config?.market).chain.ivModelDefault;
+      } catch {
+        ivDefault = "legacy-bs-spot";
+      }
+    }
+    return ivDefault;
+  };
   const readOptions = (ctx, o = {}) => readOptionsBase(ctx, { ...o, autoBackup: autoBackupFor(deps) });
 
   return {
@@ -201,8 +214,9 @@ export function createMarketRoutes(deps) {
       }
       const opts = readOptions(ctx);
       const data = await md().optionChain(params, opts);
-      // The legacy model chosen by default (not asked for) is deprecated: say so in the headers (RFC 9745 / 8288).
-      if (ivModel === undefined && !data.pricing) for (const [k, v] of Object.entries(LEGACY_IV_HEADERS)) ctx.setHeader?.(k, v);
+      // The legacy model chosen by default (not asked for) is deprecated: say so in the headers (RFC 9745 / 8288). Decided
+      // on the effective model, not on whether `pricing` is present (greeks=false has none under either model).
+      if (ivModel === undefined && chainIvModelDefault() === "legacy-bs-spot") for (const [k, v] of Object.entries(LEGACY_IV_HEADERS)) ctx.setHeader?.(k, v);
       return { data, meta: { ...meta(ctx, opts), freshness: data.freshness } };
     },
   };

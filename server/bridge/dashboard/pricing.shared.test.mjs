@@ -42,8 +42,16 @@ describe("pricing.js is pure and shared", () => {
   });
 
   it("options.js re-exports the moved names as the same function objects", () => {
-    for (const name of ["normCdf", "black76", "probItm", "sigmaMove", "impliedVol", "impliedVolB76", "b76Delta", "legPrice", "atmIvAt", "ivAtDelta", "skewMetrics", "realisedVol"]) {
+    for (const name of ["normCdf", "black76", "probItm", "sigmaMove", "impliedVolB76", "b76Delta", "legPrice", "atmIvAt", "ivAtDelta", "skewMetrics", "realisedVol"]) {
       expect(O[name], name).toBe(P[name]);
+    }
+  });
+
+  it("exports exactly one IV solver, impliedVolB76; options.js impliedVol is a thin wrapper over it (§6.4, AC2)", () => {
+    const solvers = Object.keys(P).filter((k) => /implied/i.test(k));
+    expect(solvers).toEqual(["impliedVolB76"]);
+    for (const [p, F, K, T, right] of [[110.3, 25150, 25150, 0.0084011, "CE"], [0.01, 25150, 26000, 0.01, "CE"], [100, 26300, 26000, 0.02, "CE"], [5000, 25150, 25150, 0.01, "CE"]]) {
+      expect(O.impliedVol(p, F, K, T, right)).toBe(P.impliedVolB76(p, F, K, T, right, 1));
     }
   });
 });
