@@ -36,8 +36,8 @@ const isNarrow = () => media("(max-width: 1023px)").matches;
 const r1 = (v) => Math.round(v * 10) / 10;
 /** σ distances floor to 0.1, so a tested leg (< 0.5σ) never reads "0.5σ". */
 const sig1 = (v) => (isFigure(v) ? formatFixed(Math.floor(v * 10 + 1e-9) / 10, 1) : DASH);
-/** Signed rupees, no decimals: "+₹1958", "-₹310", "₹0". */
-const rs = (v, dp = 0) => (!isFigure(v) ? DASH : Number(formatFixed(v, dp)) > 0 ? `+${formatRupee(v, dp)}` : formatRupee(v, dp));
+/** Signed rupees, no decimals: "+₹1958", "−₹310" (a true minus, as the heatmap and chips print it), "₹0". */
+const rs = (v, dp = 0) => (!isFigure(v) ? DASH : Number(formatFixed(v, dp)) > 0 ? `+${formatRupee(v, dp)}` : formatRupee(v, dp).replace(/^-/, "\u2212"));
 /** Signed compact rupees for big figures: "+₹1.42L". */
 const rc = (v) => (!isFigure(v) ? DASH : `${v > 0.5 ? "+" : v < -0.5 ? "\u2212" : ""}₹${formatCompact(Math.abs(v))}`);
 /** Heat cells and stress chips: whole thousands from ₹10K ("−₹71K"), else compact ("−₹9.0K", "+₹456"). */
@@ -132,6 +132,8 @@ export const POSITION_KEYS = [
 
 /** Instruments (lot size, freeze qty, tick) per symbol for the session: symbol → object | null. */
 const instCache = new Map();
+/** "UNDERLYING|expiry" chains the source refused (400 / 404) this session: not asked for again. */
+const noChain = new Set();
 
 /**
  * The positions page.
@@ -194,9 +196,13 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   }
   async function loadChain(expiry, seq) {
     const t0 = performance.now();
-    const r = await optional(api(`/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(expiry)}&strikes=${CHAIN_STRIKES}&greeks=true`));
+    const u = st.underlying;
+    const r = await optional(api(`/v1/optionchain?underlying=${encodeURIComponent(u)}&expiry=${encodeURIComponent(expiry)}&strikes=${CHAIN_STRIKES}&greeks=true`));
     if (seq !== st.seq) return;
     const prev = d.chains.get(expiry);
+    // A 404, or a 400 for an expiry the source does not list, will not change on a retry: remember it for the session and
+    // price those legs from their quotes (IV solved from the mark) instead of asking again every tick.
+    if (r.error && (r.error.status === 404 || (r.error.status === 400 && d.expiriesFor === u && d.expiries?.length && !d.expiries.includes(expiry)))) noChain.add(`${u}|${expiry}`);
     if (r.error) {
       // Keep the last good chain for 30 s, marked stale; after that its legs are priced from quotes.
       if (prev?.chain && Date.now() - prev.at < KEEP_MS) d.chains.set(expiry, { ...prev, error: r.error, stale: true });
@@ -247,7 +253,9 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       // Chains: every option expiry held, the nearest first; the hedge's ATM expiry too.
       const held = [...new Set(raw.filter((l) => l.kind === "OPT").map((l) => l.expiry))].sort();
       const hedgeExp = hedgeExpiry(held);
-      const want = [...new Set([...held, ...(raw.length && hedgeExp ? [hedgeExp] : [])])].sort();
+      // An expiry the source does not list has no chain to ask for: its legs are priced from their quotes.
+      const listed = d.expiriesFor === u && d.expiries?.length ? new Set(d.expiries) : null;
+      const want = [...new Set([...held, ...(raw.length && hedgeExp ? [hedgeExp] : [])])].filter((e) => !noChain.has(`${u}|${e}`) && (!listed || listed.has(e))).sort();
       const due = want.filter((e, i) => i < CHAIN_CAP || slow || !d.chains.get(e)?.chain);
       await Promise.all(due.map((e) => loadChain(e, seq)));
       if (seq !== st.seq) return;
@@ -384,13 +392,18 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   // Hero: Net P&L, where it came from (won / lost / realised), credit kept, net if closed now.
   const heroLabel = h("span", { class: "pos-lbl" }, "Net P&L");
   const heroValue = h("strong", { class: "pos-hero-v" }, DASH);
+  // The bar's segments are a picture (mouse hover / click light the rows); the caption's three figures are the
+  // buttons (named with their amounts, 44 px tall on touch screens).
   const comp = {
-    won: h("button", { type: "button", class: "pos-comp-s", "data-k": "won", "aria-label": "Legs in profit" }),
-    lost: h("button", { type: "button", class: "pos-comp-s", "data-k": "lost", "aria-label": "Legs in loss" }),
-    realised: h("button", { type: "button", class: "pos-comp-s", "data-k": "realised", "aria-label": "Realised today" }),
+    won: h("span", { class: "pos-comp-s", "data-k": "won" }),
+    lost: h("span", { class: "pos-comp-s", "data-k": "lost" }),
+    realised: h("span", { class: "pos-comp-s", "data-k": "realised" }),
   };
-  const compBar = h("span", { class: "pos-comp dv-bar", role: "group", "aria-label": "Where the P&L came from" }, comp.won, comp.lost, comp.realised);
-  const compCap = h("span", { class: "pos-comp-cap" });
+  const compBar = h("span", { class: "pos-comp dv-bar", "aria-hidden": "true" }, comp.won, comp.lost, comp.realised);
+  const COMP_WORD = { won: "won", lost: "lost", realised: "realised" };
+  const COMP_NAME = { won: "Open legs in profit", lost: "Open legs in loss", realised: "Realised today" };
+  const compBtn = Object.fromEntries(Object.keys(comp).map((k) => [k, h("button", { type: "button", class: "pos-comp-b", "data-k": k }, h("span", { class: "w" }, COMP_WORD[k]), " ", h("span", { class: "f" }))]));
+  const compCap = h("span", { class: "pos-comp-cap", role: "group", "aria-label": "Where the P&L came from" }, compBtn.won, h("span", { class: "sep", "aria-hidden": "true" }, "·"), compBtn.lost, h("span", { class: "sep", "aria-hidden": "true" }, "·"), compBtn.realised);
   const keptFill = h("i", { class: "pos-kept-f" });
   const keptEl = h("span", { class: "pos-kept", hidden: true }, h("span", { class: "pos-kept-t" }), h("span", { class: "pos-kept-track", "aria-hidden": "true" }, keptFill, h("i", { class: "pos-kept-tick k50" }), h("i", { class: "pos-kept-tick k80" })));
   const closedEl = h("span", { class: "pos-closed" });
@@ -404,14 +417,16 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     hoverRows(compKeys[k] ?? [], true);
     compTimer = setTimeout(() => hoverRows(compKeys[k] ?? [], false), 1200);
   };
-  for (const [k, el] of Object.entries(comp)) {
-    el.addEventListener("pointerenter", (e) => e.pointerType === "mouse" && lightRows(k, true));
-    el.addEventListener("pointerleave", (e) => e.pointerType === "mouse" && lightRows(k, false));
-    el.addEventListener("click", () => {
-      lightRows(k, true);
-      const first = rowRefs.get((compKeys[k] ?? [])[0]);
-      first?.el.scrollIntoView?.({ block: "nearest", behavior: reducedMotion() ? "auto" : "smooth" });
-    });
+  for (const k of Object.keys(comp)) {
+    for (const el of [comp[k], compBtn[k]]) {
+      el.addEventListener("pointerenter", (e) => e.pointerType === "mouse" && lightRows(k, true));
+      el.addEventListener("pointerleave", (e) => e.pointerType === "mouse" && lightRows(k, false));
+      el.addEventListener("click", () => {
+        lightRows(k, true);
+        const first = rowRefs.get((compKeys[k] ?? [])[0]);
+        first?.el.scrollIntoView?.({ block: "nearest", behavior: reducedMotion() ? "auto" : "smooth" });
+      });
+    }
   }
   // Greeks: four diverging gauges (Δ with its band, Γ per 1 %, Θ and ν on one shared scale) and a footer.
   const GAUGES = [["delta", "Δ", "Net delta (units)"], ["gamma", "Γ", "Gamma: Δ change for a 1% move"], ["theta", "Θ", "Theta: ₹ a day"], ["vega", "ν", "Vega: ₹ per vol point"]];
@@ -494,7 +509,6 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     if (isFigure(value) && value !== prev) flashValue(el, dirOf(prev, value) >= 0 ? "up" : "down");
   }
   let bookEntered = false;
-  let popShown;
   let compKeys = { won: [], lost: [], realised: [] };
   function drawBook() {
     const others = O.bookUnderlyings(d.all, st.underlying);
@@ -531,19 +545,26 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       if (el.style.getPropertyValue("--f") !== grow) el.style.setProperty("--f", grow);
       el.hidden = grow === "0";
       el.dataset.tone = k === "won" ? "pos" : k === "lost" ? "neg" : v >= 0 ? "pos" : "neg";
-      el.title = `${k === "won" ? "Open legs in profit" : k === "lost" ? "Open legs in loss" : "Realised today"}: ${rs(v)}`;
+      el.title = `${COMP_NAME[k]}: ${rs(v)}`;
+      const b = compBtn[k];
+      const label = `${COMP_NAME[k]}: ${rs(v)}`;
+      if (b.getAttribute("aria-label") !== label) b.setAttribute("aria-label", label);
+      b.title = `${label}. Lights the legs it comes from`;
     }
     compKeys = {
       won: legs.filter((l) => l.q && O.legUnrealised(l) > 0).map((l) => l.symbol),
       lost: legs.filter((l) => l.q && O.legUnrealised(l) < 0).map((l) => l.symbol),
       realised: legs.filter((l) => num(l.realised)).map((l) => l.symbol),
     };
-    const capSig = `${Math.round(c.won)}|${Math.round(c.lost)}|${Math.round(c.realised)}|${isPhone()}`;
-    if (compCap.__sig !== capSig) {
-      compCap.__sig = capSig;
-      const short = isPhone();
-      const fig = (v) => h("span", { class: tone(v) }, short ? rc(v) : rs(v));
-      compCap.replaceChildren(h("span", {}, "won ", fig(c.won)), h("span", {}, " · lost ", fig(c.lost)), h("span", {}, ` · ${short ? "R" : "realised"} `, fig(c.realised)));
+    // Compact figures ("+₹9.7K") so the caption fits the hero at every width; each figure never splits at its sign.
+    const phone = isPhone();
+    for (const [k, v] of parts) {
+      const f = compBtn[k].lastChild;
+      const t = rc(v);
+      if (f.textContent !== t) f.textContent = t;
+      f.className = `f ${tone(v) ?? ""}`.trim();
+      const w = k === "realised" && phone ? "R" : COMP_WORD[k];
+      if (compBtn[k].firstChild.textContent !== w) compBtn[k].firstChild.textContent = w;
     }
     // Credit kept (PRD 04 §5.1): the share of the option credit still kept; 50 / 80 % are the usual targets.
     const optLegs = open.filter((l) => l.kind === "OPT" && num(l.avg) !== null);
@@ -596,7 +617,9 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const B = deltaBand();
     const g1 = none || !S ? 0 : g.gamma * S * 0.01;
     const sc0 = O.greekScales({ delta: none ? 0 : g.delta, gamma1: g1, theta: none ? 0 : g.theta, vega: none ? 0 : g.vega, band: B, lot: Lf });
-    const vOpt = Math.abs(open.filter((l) => l.kind === "OPT" && l.mark !== null).reduce((t, l) => t + l.mark * l.q, 0));
+    // Gross option value (long and short premium both count), so a calendar or a near-balanced spread never reads
+    // "Θ is 4000% of option value". Below ₹500 of premium the share is not shown.
+    const vOpt = open.filter((l) => l.kind === "OPT" && l.mark !== null).reduce((t, l) => t + Math.abs(l.mark * l.q), 0);
     const set = (k, { value, text, sub, bar, M, tone: tn, title, warn = false, fmt }) => {
       const r = gauges.get(k);
       setFigure(r.value, none ? null : value, none ? DASH : text, fmt);
@@ -639,7 +662,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     set("theta", {
       value: none ? 0 : g.theta,
       text: none ? DASH : `${rs(g.theta)}${isPhone() ? "" : "/d"}`,
-      sub: none || !vOpt || isPhone() ? (isPhone() ? "/day" : "") : `${formatPercent((g.theta / vOpt) * 100, 1)} of option value`,
+      sub: none || vOpt < 500 || isPhone() ? (isPhone() ? "/day" : "") : `${formatPercent((g.theta / vOpt) * 100, 1)} of option value`,
       bar: none ? 0 : g.theta,
       M: sc0.Mtv,
       tone: toneOf(g?.theta),
@@ -656,10 +679,13 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       title: "P&L for a one vol point rise in every leg's IV. Vega is not good or bad: its bar is violet, not green / red",
       fmt: (v) => `${rs(v)}${isPhone() ? "" : "/pt"}`,
     });
-    // Footer: POP at the first expiry and Θ/ν (days of decay per vol point).
+  }
+  /** The Greeks cell's footer: POP at the first expiry (from the risk pass) and Θ/ν (days of decay per vol point). */
+  function drawGreeksFoot() {
+    const g = book;
+    const none = !g || g.priced === 0;
     const n = nearest();
     const pop = riskStats.pop;
-    popShown = pop;
     const tv = !none && g.vega ? Math.abs(g.theta) / Math.abs(g.vega) : null;
     const foot = `POP ≈ ${pop === null || pop === undefined ? DASH : formatPercent(pop * 100, 0)}${n ? ` at ${expiryText(n.expiry)}` : ""}${tv !== null ? ` · Θ/ν ${formatFixed(tv, 2)}` : ""}`;
     if (greeksFoot.textContent !== foot) greeksFoot.textContent = foot;
@@ -674,7 +700,9 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const has = used !== null && total > 0;
     const util = has ? used / total : null;
     const mb = has && est ? Math.min(est.required, used) : null;
-    const lvl = util === null ? "none" : util >= 0.9 ? "neg" : util >= 0.7 ? "warn" : "ok";
+    // The colour follows the number the user reads: 89.9 % shows "90%" and is painted as 90 % (neg).
+    const shown = util === null ? null : Math.round(util * 100);
+    const lvl = shown === null ? "none" : shown >= 90 ? "neg" : shown >= 70 ? "warn" : "ok";
     capEl.dataset.level = lvl;
     const top = has ? `${ru(used)} of ${ru(total)}` : "Funds unavailable";
     if (capTop.textContent !== top) capTop.textContent = top;
@@ -702,12 +730,15 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const sp = sigmaPct();
     stressRows = sp && spot ? O.stressPnl(inc, sp / 100, [-2, -1, 1, 2], { spot }) : [];
     const m = heatScale();
+    // Visibility is set on every pass (not behind the signature): the book's chips on desktop / tablet, the
+    // Scenario tab's on phones only, from its first open.
+    stressBook.hidden = !stressRows.length;
+    stressScen.hidden = !isPhone() || !stressRows.length;
     for (const host of [stressBook, stressScen]) {
       const sig = JSON.stringify([stressRows.map((x) => [x.k, Math.round(x.v)]), Math.round(m)]);
       if (host.__sig === sig) continue;
       const fresh = !host.childElementCount;
       host.__sig = sig;
-      host.hidden = !stressRows.length;
       if (host.childElementCount !== stressRows.length) {
         host.replaceChildren(...stressRows.map((x) => h("button", { type: "button", class: "pos-schip", onclick: () => setScenario({ pct: Math.max(-10, Math.min(10, Math.round(x.pct / 0.25) * 0.25)), dIv: 0, days: 0 }) }, h("span", { class: "k" }), h("span", { class: "v" }))));
         if (!fresh) host.classList.add("in");
@@ -875,7 +906,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     }
     exitAllBtn.hidden = !legs.some((l) => l.q);
     // Exit all: say how many legs have a spread wider than 5 % of mid (a market or touch exit costs more there).
-    const wide = O.wideSpreadCount(legs.filter((l) => l.q).map((l) => l.q));
+    const wide = O.wideSpreadCount(legs.filter((l) => l.q && l.quote).map((l) => l.quote));
     const allText = wide ? `Exit all · ${plural(wide, "wide spread")}` : "Exit all";
     if (exitAllBtn.textContent !== allText) {
       exitAllBtn.textContent = allText;
@@ -915,7 +946,25 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       patchRows(cols);
       barsEnter(bodyEl);
     } else patchRows(cols);
+    fitTable();
     drawBulk();
+  }
+  /**
+   * Desktop widths 1100–1366 (and a tablet with many columns): drop the least needed columns until the table fits its panel (no inner sideways
+   * scroll): P&L %, then Vega, IV, the Δ bar, Γ, the σ gauge (its text stays) and last the P&L bars. Tablets
+   * already hide IV, Vega and P&L % (CSS).
+   */
+  const FIT_DROP = ["pnlPct", "vega", "iv", "dbar", "gamma", "sg", "pbars"];
+  function fitTable() {
+    const wrap = bodyEl.querySelector(".pos-wrap");
+    const table = wrap?.querySelector("table.pos-table");
+    if (!table) return;
+    for (const k of FIT_DROP) table.classList.remove(`fit-${k}`);
+    if (!wrap.clientWidth) return;
+    for (const k of FIT_DROP) {
+      if (table.offsetWidth <= wrap.clientWidth) break;
+      table.classList.add(`fit-${k}`);
+    }
   }
   function setBody(mode, build) {
     if (bodyEl.__mode === mode) return;
@@ -1122,6 +1171,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         const stt = groupIncState(g);
         ref.inc.checked = stt !== "off";
         ref.inc.indeterminate = stt === "mixed";
+        ref.inc.setAttribute("aria-checked", stt === "mixed" ? "mixed" : String(stt === "on"));
       }
       const lockedText = g.structure.locked && g.lockedValue !== null ? `Locked at expiry: ${rs(g.lockedValue)}` : "";
       setCell(ref.locked, lockedText, () => lockedText, { hidden: lockedText ? null : "" });
@@ -1261,11 +1311,16 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   /** The row's ⋯ menu (desktop / tablet) and the card's action sheet (phone) share these actions. */
   function legActions(l) {
     const g = groups.find((x) => x.legs.includes(l));
+    // Part exits only when they split into at least one whole lot (a 1-lot leg has "Exit…" alone): never a full
+    // exit behind a "25%" label. Each names the lots it sends.
+    const whole = Math.floor(Math.abs(l.q) / (l.lot || 1));
+    const part = [25, 50, 75].filter((p) => O.canPartExit(l, p)).map((p) => {
+      const n = Math.floor((whole * p) / 100 + 1e-9);
+      return [`Exit ${p}% · ${plural(n, "lot")}`, () => exitLeg(l.symbol, p), "exit"];
+    });
     return [
-      ["Exit…", () => exitLeg(l.symbol)],
-      ["Exit 25%", () => exitLeg(l.symbol, 25)],
-      ["Exit 50%", () => exitLeg(l.symbol, 50)],
-      ["Exit 75%", () => exitLeg(l.symbol, 75)],
+      ["Exit…", () => exitLeg(l.symbol), "exit"],
+      ...part,
       [l.inc ? "Exclude from risk" : "Include in risk", () => toggleInclude([l.symbol], !l.inc)],
       ...(g?.expiry && l.kind === "OPT" ? [["Analyse this expiry", () => analyse(g)]] : []),
       ...(l.kind === "OPT" ? [["Open in chain", () => openInChain(l)]] : []),
@@ -1370,7 +1425,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     closeMenu = close;
     const outside = (e) => !menu.contains(e.target) && close();
     const esc = (e) => e.key === "Escape" && (e.stopPropagation(), close());
-    const menu = h("div", { class: "popover pos-menu menu-list", role: "menu" }, legActions(l).map(([label, fn]) => h("button", { type: "button", role: "menuitem", class: "small plain", onclick: () => (close(), fn()) }, label)));
+    const menu = h("div", { class: "popover pos-menu menu-list", role: "menu" }, legActions(l).map(([label, fn, kind]) => h("button", { type: "button", role: "menuitem", class: `small pos-mi${kind === "exit" ? " exit" : ""}`, onclick: () => (close(), fn()) }, label)));
     const r = btn.getBoundingClientRect();
     const host = posPanel.getBoundingClientRect();
     menu.style.top = `${r.bottom - host.top + 4}px`;
@@ -1393,7 +1448,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
           "div",
           { class: "stack" },
           h("p", { class: "muted" }, `${legSpeech(l)} · ${formatFixed(l.avg, 2)} → ${formatFixed(l.mark, 2)} · P&L `, v.u === null ? DASH : money(v.u)),
-          h("div", { class: "menu-list pos-sheet" }, legActions(l).map(([label, fn], i) => h("button", { type: "button", class: i === 0 ? "primary" : "", onclick: () => close(fn) }, label))),
+          h("div", { class: "menu-list pos-sheet" }, legActions(l).map(([label, fn, kind]) => h("button", { type: "button", class: `pos-mi${kind === "exit" ? " exit" : ""}`, onclick: () => close(fn) }, label))),
         ),
     });
     if (typeof act === "function") act();
@@ -1406,7 +1461,10 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     if (!l || !l.q) return;
     const abs = Math.abs(l.q);
     const whole = Math.floor(abs / l.lot);
-    const qty = pct >= 100 || whole < 1 ? abs : Math.min(whole, Math.max(1, Math.floor((whole * pct) / 100 + 0.5))) * l.lot;
+    const n = Math.floor((whole * pct) / 100 + 1e-9);
+    // A part exit that cannot split into a whole lot is not offered (legActions); never widen it to a full exit here.
+    if (pct < 100 && n < 1) return toast("This leg cannot be split: exit it in full");
+    const qty = pct >= 100 ? abs : n * l.lot;
     openTicket({
       row: { strike: l.strike },
       right: l.right ?? "CE",
@@ -1464,6 +1522,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const ackRow = h("label", { class: "check live-ack", hidden: true }, ack, `I understand these send real orders to ${a.label}.`);
     const mktNote = h("p", { class: "pos-note warn", hidden: true }, "Market orders are sent with protection; illiquid strikes may fill far from mid.");
     const unpricedNote = h("p", { class: "pos-note bad", hidden: true }, "A leg has no bid, ask or LTP, so no limit price can be set. It is never sent at market: exit it from its own ticket, or choose Market.");
+    const skipNote = h("p", { class: "pos-note warn", hidden: true, role: "status" });
     const listEl = h("ol", { class: "pos-plan" });
     const totalsEl = h("div", { class: "ticket-figs pos-plan-tot" });
     const checksEl = h("ul", { class: "ticket-checks", hidden: true });
@@ -1473,7 +1532,22 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const live = () => modeSeg?.value === "live";
     const draw = () => {
       if (sending || finished) return;
+      // 50 % / 25 % only when at least one leg splits into a whole lot; a part exit never sends a full one.
+      for (const b of sizeSeg.querySelectorAll("button")) {
+        const p = Number(b.dataset.value);
+        const can = p >= 100 || current().some((l) => O.canPartExit(l, p));
+        b.disabled = !can;
+        b.title = can ? "" : "No leg can be split: every leg here is a single lot";
+      }
+      if (pct < 100 && !current().some((l) => O.canPartExit(l, pct))) {
+        pct = 100;
+        sizeSeg.value = "100";
+      }
       plan = O.exitPlan(current(), { type, pct });
+      const nSkip = plan.skipped.length;
+      const skipText = nSkip ? `${plural(nSkip, "leg")} skipped: ${nSkip === 1 ? "it cannot" : "they cannot"} be split into whole lots at ${formatInt(pct)}% (${plan.skipped.map((l) => legName(l)).join(", ")})` : "";
+      if (skipNote.textContent !== skipText) skipNote.textContent = skipText;
+      skipNote.hidden = !nSkip;
       const sig = JSON.stringify(plan.orders.map((o) => [o.symbol, o.side, o.qty, o.price, o.unpriced, Math.round(o.slip ?? 0)]));
       // The checks shown (and the Send button) must describe the plan that will be sent: preview it again on change.
       const ps = JSON.stringify([live(), plan.orders.map((o) => [o.symbol, o.side, o.qty, o.price, o.market])]);
@@ -1612,6 +1686,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       unpricedNote,
       h("div", { class: "ticket-grid" }, segField("Size", sizeSeg), modeSeg ? segField("Mode", modeSeg) : h("div", { class: "field" }, h("span", {}, "Account"), h("span", { class: "ticket-acct one-line" }, h("span", { class: "acct-name" }, a.label), /paper/i.test(a.label ?? "") ? null : h("span", { class: "acct-badge", "data-mode": "paper" }, "Paper")))),
       ackRow,
+      skipNote,
       h("div", { class: "field" }, h("span", {}, "Send order: shorts first (largest Δ), then longs, futures last"), listEl),
       totalsEl,
       checksEl,
@@ -1745,8 +1820,8 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const exp = xs.map(fExp);
     const hedge = fHedge ? xs.map(fHedge) : null;
     const showExp = curves !== "now";
-    // Sampled stats of the expiry curve in range (guides) and over F₁·e^(±4σ√T₁) (footer, POP).
-    const st0 = O.bookCurveStats(fExp, xs);
+    // Stats of the first-expiry curve over F₁·e^(±4σ√T₁): one object drives the payoff's Max / Unlimited pills, the
+    // scenario footer and POP, so the chart and the footer never disagree.
     const F1 = near?.F ?? S;
     const iv1 = near?.atmIv ?? near?.iv ?? null;
     const T1 = near?.T ?? 0;
@@ -1766,8 +1841,9 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const chainKs = [...new Set((d.chains.get(near?.expiry)?.chain?.rows ?? []).map((r) => r.strike))].sort((a, c) => a - c);
     const nowAtS = fNow(S);
     const popText = riskStats.pop === null ? "" : `, POP ${formatPercent(riskStats.pop * 100, 0)} at ${expiryText(near?.expiry)}`;
+    const bs = bookStats(inc, wide, S);
     // Drawn first: on desktop the Δ strip under the payoff fills the scenario column's spare height.
-    drawScenario({ inc, S, sp, fd, wide, multi });
+    drawScenario({ inc, S, sp, fd, wide, multi, bs });
     pay.update(
       {
         xs,
@@ -1785,7 +1861,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         band1: sp ? b(1) : null,
         band2: sp ? b(2) : null,
         breakevens: bes,
-        stats: showExp && st0 ? { maxProfit: st0.unlimitedUp ? null : st0.max, maxLoss: st0.unlimitedDown ? null : st0.min, breakevens: bes, locked: null } : null,
+        stats: showExp && bs ? { maxProfit: bs.maxProfit, maxLoss: bs.maxLoss, upSide: bs.upSide, downSide: bs.downSide, breakevens: bes, locked: null } : null,
         approx: multi,
         clip: yr.clip,
         yMin: yr.yMin,
@@ -1887,17 +1963,16 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     input.style.setProperty("--a", `${r1(Math.min(at, zero))}%`);
     input.style.setProperty("--b", `${r1(Math.max(at, zero))}%`);
   }
-  let rafPending = false;
+  let slideRaf = 0;
   const onSlide = () => {
     sc.pct = Number(spotIn.value);
     sc.dIv = Number(ivIn.value);
     sc.days = Number(daysIn.value);
     for (const el of [spotIn, ivIn, daysIn]) paintRange(el);
-    if (rafPending) return;
-    rafPending = true;
-    requestAnimationFrame(() => {
-      rafPending = false;
-      drawRisk();
+    if (slideRaf) return;
+    slideRaf = requestAnimationFrame(() => {
+      slideRaf = 0;
+      if (posPanel.isConnected) drawRisk();
     });
   };
   for (const el of [spotIn, ivIn, daysIn]) el.addEventListener("input", onSlide);
@@ -1917,7 +1992,11 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   const heatScale = () => heatM;
   const heatCols = () => {
     const c = cfg().heatCols;
-    return c === 3 || c === 5 ? c : isNarrow() ? 3 : 5;
+    if (c === 3 || c === 5) return c;
+    if (isNarrow()) return 3;
+    // Auto on desktop: 5 columns while each cell keeps ≥ 72 px beside a ≤ 96 px row head, else 3 (1100–1366 px).
+    const w = scenBox.clientWidth - 24;
+    return w > 0 && (w - 96) / 5 < 72 ? 3 : 5;
   };
   let matrixSig = "";
   let cellRefs = [];
@@ -1961,11 +2040,14 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       return;
     }
     const { inc } = ctx;
+    scenBox.classList.toggle("mode-greeks", matMode === "greeks");
     const shift = { dS: sc.pct / 100, dIv: sc.dIv, days: sc.days };
     const v = O.scenarioPnl(inc, shift);
     const v0 = O.scenarioPnl(inc, {});
     const g = O.scenarioGreeks(inc, shift);
-    outLine.replaceChildren(h("span", {}, "At scenario ", money(v)), h("span", { class: "muted" }, ` (vs now ${rs(v - v0)})`), h("span", { class: "pos-scen-g" }, ` · Δ ${formatSigned(g.delta, 0)} · Θ ${rs(g.theta)} · ν ${rs(g.vega)}`));
+    // Each figure keeps its sign with it on a narrow screen ("ν −₹1586" never breaks after the "−").
+    const nw = (...kids) => h("span", { class: "nowrap" }, ...kids);
+    outLine.replaceChildren(nw("At scenario ", money(v)), " ", h("span", { class: "muted nowrap" }, `(vs now ${rs(v - v0)})`), h("span", { class: "pos-scen-g" }, " · ", nw(`Δ ${formatSigned(g.delta, 0)}`), " · ", nw(`Θ ${rs(g.theta)}`), " · ", nw(`ν ${rs(g.vega)}`)));
     const five = heatCols() === 5;
     const axis = matMode === "greeks" ? cfg().axis : matMode;
     const ivCols = five ? [-10, -5, 0, 5, 10] : [-5, 0, 5];
@@ -2127,26 +2209,42 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     );
     legendEl.setAttribute("aria-label", `Colour scale from ${rc(-m)} to ${rc(m)}`);
   }
+  /**
+   * Max profit / loss at the first expiry, and which edge an unlimited one runs off: exact (strategyStats) for a
+   * single-expiry options book, else sampled over ±4σ (bookCurveStats). Null maxProfit / maxLoss = unlimited.
+   */
+  function bookStats(inc, wide, S) {
+    const single = new Set(inc.map((l) => l.expiry)).size === 1 && inc.every((l) => l.kind === "OPT");
+    if (single) {
+      const asStrat = inc.map((l) => ({ kind: "OPT", right: l.right, strike: l.strike, side: l.q > 0 ? "BUY" : "SELL", lots: 1, lotSize: Math.abs(l.q), price: l.avg }));
+      const st0 = O.strategyStats(asStrat, 1, { spot: S });
+      // One expiry of options: only net calls are open-ended, and they run off the right edge.
+      return { exact: true, maxProfit: st0.maxProfit, maxLoss: st0.maxLoss, upSide: st0.maxProfit === null ? "right" : null, downSide: st0.maxLoss === null ? "right" : null };
+    }
+    if (!wide) return null;
+    return {
+      exact: false,
+      maxProfit: wide.unlimitedUp ? null : wide.max,
+      maxProfitAt: wide.maxAt,
+      maxLoss: wide.unlimitedDown ? null : wide.min,
+      maxLossAt: wide.minAt,
+      lowEdge: wide.minAt <= wide.xs[0] + 1e-9,
+      upSide: wide.upSide,
+      downSide: wide.downSide,
+    };
+  }
+  const unlimitedText = (side, up) => (up ? (side === "left" ? "↖ Unlimited" : "Unlimited ↗") : side === "left" ? "↙ Unlimited" : "Unlimited ↘");
   function drawFooter(inc, grid, ctx) {
     const w = grid.worst;
     const near = nearest();
-    const single = new Set(inc.map((l) => l.expiry)).size === 1 && inc.every((l) => l.kind === "OPT");
     const at = near ? expiryText(near.expiry) : "expiry";
-    let mp;
-    let ml;
-    if (single) {
-      const asStrat = inc.map((l) => ({ kind: "OPT", right: l.right, strike: l.strike, side: l.q > 0 ? "BUY" : "SELL", lots: 1, lotSize: Math.abs(l.q), price: l.avg }));
-      const st0 = O.strategyStats(asStrat, 1, { spot: ctx.S });
-      mp = st0.maxProfit === null ? h("strong", { class: "up" }, "Unlimited ↗") : h("strong", { class: tone(st0.maxProfit) }, rc(st0.maxProfit));
-      ml = st0.maxLoss === null ? h("strong", { class: "down" }, "Unlimited ↘") : h("strong", { class: tone(st0.maxLoss) }, rc(st0.maxLoss));
-    } else {
-      const s = ctx.wide;
-      const lowEdge = s && s.minAt <= s.xs[0] + 1e-9;
-      mp = !s ? h("strong", {}, DASH) : s.unlimitedUp ? h("strong", { class: "up" }, "Unlimited ↗") : h("strong", { class: tone(s.max), title: "Sampled over ±4σ of the first expiry" }, `≈ ${rc(s.max)} at ${formatInt(s.maxAt)}`);
-      ml = !s ? h("strong", {}, DASH) : s.unlimitedDown ? h("strong", { class: "down" }, "Unlimited ↘") : h("strong", { class: tone(s.min), title: "Sampled over ±4σ of the first expiry; later-expiry legs valued by the model" }, `≈ ${rc(s.min)} ${lowEdge ? "below" : "at"} ${formatInt(s.minAt)} (sampled)`);
-    }
+    const s = ctx.bs;
+    const sideWord = (side) => (side === "left" ? " (below the range)" : side === "right" ? " (above the range)" : "");
+    const mp = !s ? h("strong", {}, DASH) : s.maxProfit === null ? h("strong", { class: "up", title: `Profit keeps growing${sideWord(s.upSide)}` }, unlimitedText(s.upSide, true)) : s.exact ? h("strong", { class: tone(s.maxProfit) }, rc(s.maxProfit)) : h("strong", { class: tone(s.maxProfit), title: "Sampled over ±4σ of the first expiry" }, `≈ ${rc(s.maxProfit)} at ${formatInt(s.maxProfitAt)}`);
+    const ml = !s ? h("strong", {}, DASH) : s.maxLoss === null ? h("strong", { class: "down", title: `Loss keeps growing${sideWord(s.downSide)}` }, unlimitedText(s.downSide, false)) : s.exact ? h("strong", { class: tone(s.maxLoss) }, rc(s.maxLoss)) : h("strong", { class: tone(s.maxLoss), title: "Sampled over ±4σ of the first expiry; later-expiry legs valued by the model" }, `≈ ${rc(s.maxLoss)} ${s.lowEdge ? "below" : "at"} ${formatInt(s.maxLossAt)} (sampled)`);
     matrixFoot.replaceChildren(
-      h("div", {}, h("span", {}, "Max loss in grid"), w ? h("strong", { class: tone(w.v) }, `${rc(w.v)} at ${formatSigned(grid.rows[w.r].pct, 1)}%, ${grid.cols[w.c].label}`) : DASH),
+      // The grid's worst cell only under the P&L grid (the Greeks view does not show it).
+      ...(matMode === "greeks" ? [] : [h("div", {}, h("span", {}, "Max loss in grid"), w ? h("strong", { class: tone(w.v) }, `${rc(w.v)} at ${formatSigned(grid.rows[w.r].pct, 1)}%, ${grid.cols[w.c].label}`) : DASH)]),
       h("div", {}, h("span", {}, `Max profit at ${at}`), mp),
       h("div", {}, h("span", {}, `Max loss at ${at}`), ml),
     );
@@ -2497,8 +2595,8 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     hedgePanel.hidden = !has;
     if (has) drawHedge();
     drawRisk();
-    // POP comes from the risk pass: repaint the book's footer once it is known (first paint, legs changed).
-    if (riskStats.pop !== popShown && legs.length) drawBook();
+    // POP comes from the risk pass: only the Greeks footer depends on it (the book is not drawn twice).
+    if (legs.length) drawGreeksFoot();
     slotPanel.hidden = !cfg().chartSlot || !has;
     bookPanel.hidden = !d.loaded ? false : !legs.length && switchEl.hidden;
     onClock();
@@ -2601,6 +2699,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   for (const m of mqs) m.addEventListener("change", onDevice);
   const onResize = () => {
     if (!posPanel.isConnected) return;
+    fitTable();
     riskSig = "";
     drawRisk();
   };
@@ -2653,6 +2752,13 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       for (const m of mqs) m.removeEventListener("change", onDevice);
       window.removeEventListener("resize", onResize);
       clearTimeout(hvTimer);
+      clearTimeout(compTimer);
+      cancelAnimationFrame(slideRaf);
+      slideRaf = 0;
+      // The payoff's document listener, ResizeObserver and any morph frame must not outlive the page.
+      pay.destroy();
     },
+    /** The futures lot (the top bar's ⋯ sheet shows it: there is no chain expiry on this page). */
+    lot: () => futLot(),
   };
 }

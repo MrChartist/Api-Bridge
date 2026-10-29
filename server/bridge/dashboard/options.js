@@ -2641,21 +2641,28 @@ export function hedgePlan(book, { method = "fut", target = 0, side = "BUY", fut 
 /**
  * Exit orders for a set of legs (pure): short options first (largest |Δ| first), then long options, then futures.
  * `type` "mid" (limit at mid, rounded to tick toward a fill), "touch" (bid to sell, ask to buy) or "market" (estimated
- * at the touch). `pct` < 100 exits whole lots (round half up, min 1 lot). Orders above the freeze quantity are split
+ * at the touch). `pct` < 100 exits floor(lots · p) whole lots; a leg that rounds to 0 lots is listed in `skipped`. Orders above the freeze quantity are split
  * into lot-multiple slices with the remainder last. Slippage = |price − mid| × qty. A limit order with no quote to
  * price it has `price` null and `unpriced` true (`market` is true only for type "market").
  * Legs: { symbol, kind, right, strike, expiry, q, avg, lot, freeze, tick, quote, greeks, product }.
  */
 export function exitPlan(legs, { type = "mid", pct = 100 } = {}) {
   const orders = [];
+  const skipped = [];
   for (const l of legs ?? []) {
     const abs = Math.abs(num(l.q) ?? 0);
     if (!abs) continue;
     const L = num(l.lot) || 1;
     let qty = abs;
     if (pct < 100) {
-      const whole = Math.floor(abs / L);
-      if (whole >= 1) qty = Math.min(whole, Math.max(1, Math.floor((whole * pct) / 100 + 0.5))) * L;
+      // A part exit never sends more than asked: floor(lots · p) whole lots. A leg that rounds to 0 (1 lot at 50 %,
+      // an odd-unit leg) cannot be split and is skipped, never exited in full.
+      const n = Math.floor((Math.floor(abs / L) * pct) / 100 + 1e-9);
+      if (n < 1) {
+        skipped.push(l);
+        continue;
+      }
+      qty = n * L;
     }
     const side = l.q > 0 ? "SELL" : "BUY";
     const b = num(l.quote?.bid);
@@ -2694,7 +2701,14 @@ export function exitPlan(legs, { type = "mid", pct = 100 } = {}) {
   }
   orders.sort((x, y) => x.rank - y.rank || y.dAbs - x.dAbs);
   const total = (k) => orders.reduce((t, o) => (o[k] === null ? t : t + o[k]), 0);
-  return { orders, slippage: total("slip"), pnl: total("pnl"), count: orders.reduce((t, o) => t + o.slices.length, 0), unpriced: orders.filter((o) => o.unpriced).length };
+  return { orders, slippage: total("slip"), pnl: total("pnl"), count: orders.reduce((t, o) => t + o.slices.length, 0), unpriced: orders.filter((o) => o.unpriced).length, skipped };
+}
+
+/** Can a part exit of `pct` % split this leg into at least one whole lot (floor(lots · p) ≥ 1)? Pure. */
+export function canPartExit(leg, pct) {
+  const abs = Math.abs(num(leg?.q) ?? 0);
+  const L = num(leg?.lot) || 1;
+  return pct >= 100 ? abs > 0 : Math.floor((Math.floor(abs / L) * pct) / 100 + 1e-9) >= 1;
 }
 
 const IST_MIN = (ms) => istClock(ms).mins + (new Date(ms + IST_OFFSET_MS).getUTCSeconds() / 60);
@@ -2839,15 +2853,20 @@ export function bookCurveStats(f, xs, { slopeEps = 0.005 } = {}) {
   const right = (vals[n - 1] - vals[n - 1 - k]) / k;
   const left = (vals[k] - vals[0]) / k; // slope going right over the first 5 %: falling towards the left edge is -left
   const tol = eps > 0 ? eps : 1e-9;
-  const unlimitedUp = right > tol || -left > tol;
-  const unlimitedDown = right < -tol || left > tol;
+  // Which edge each open end is on: the payoff's "Unlimited" pills and the footer name the same side.
+  const upLeft = -left > tol;
+  const upRight = right > tol;
+  const downLeft = left > tol;
+  const downRight = right < -tol;
   return {
     max,
     maxAt: pts[iMax],
     min,
     minAt: pts[iMin],
-    unlimitedUp,
-    unlimitedDown,
+    unlimitedUp: upLeft || upRight,
+    unlimitedDown: downLeft || downRight,
+    upSide: upRight ? "right" : upLeft ? "left" : null,
+    downSide: downLeft && !downRight ? "left" : downRight ? "right" : null,
     roots: curveRoots(f, pts),
     profitIntervals: intervalsWhere(pts, vals, (v) => v > 0),
     xs: pts,
