@@ -689,6 +689,73 @@ export const TOOL_DEFS = Object.freeze([
       return { data: readParticipantOi(svc(rt.deps, "participants"), p) };
     },
   },
+  {
+    name: "get_option_underlyings",
+    title: "F&O underlyings",
+    toolset: "options",
+    description:
+      "Read-only list of indices and F&O stocks with contract facts: kind, settlement (cash or physical), lot, tick size, strike step (inferred from listed strikes), freeze quantity, F&O ban band (ban / high MWPL / normal), events in the next 7 days and whether the option sweep covers it. " +
+      "q searches by symbol or name. No broker call. Ban data is end-of-day from NSE when archive downloads are on; descriptive, not advice.",
+    input: () =>
+      z.strictObject({
+        kind: z.enum(["all", "index", "stock"]).nullable().describe("null for all."),
+        q: z.string().min(1).max(40).nullable().describe("Search text, for example rel or bank."),
+      }),
+    output: z.strictObject({ data: anyObj, meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_LOCAL,
+    handler: async (a, _ctx, rt) => {
+      const { fnoFor } = await import("../fno/module.mjs");
+      const { readUnderlyings } = await import("../fno/routes.mjs");
+      const f = fnoFor(rt.deps);
+      if (!f) throw new BridgeError("NOT_IMPLEMENTED", "The fno module is not running.");
+      return { data: await readUnderlyings(f, { kind: a.kind ?? "all", q: a.q ?? undefined }) };
+    },
+  },
+  {
+    name: "get_option_sweep",
+    title: "Last option sweep",
+    toolset: "options",
+    description:
+      "Read-only status of today's option sweep (the screener's server-side sweep: progress, plan, method per group, coverage) plus one page of finished chains after `since` (at most 40). " +
+      "It cannot start or cancel a sweep: an AI client reads the last sweep and never spends the account's rate budget. NOT_FOUND when no sweep ran today.",
+    input: () => z.strictObject({ since: z.number().int().min(0).nullable().describe("Sequence cursor; null for the first page.") }),
+    output: z.strictObject({ data: anyObj, meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_LOCAL,
+    handler: async (a, _ctx, rt) => {
+      const { fnoFor } = await import("../fno/module.mjs");
+      const { sweepPage } = await import("../fno/routes.mjs");
+      const f = fnoFor(rt.deps);
+      if (!f) throw new BridgeError("NOT_IMPLEMENTED", "The fno module is not running.");
+      return { data: { job: f.sweeper.current(), page: sweepPage(f, { since: a.since ?? 0, limit: 40 }) } };
+    },
+  },
+  {
+    name: "get_expiry_costs",
+    title: "Expiry and delivery costs",
+    toolset: "options",
+    description:
+      "Read-only maths for option legs near expiry: moneyness (ITM / close to money / OTM), the delivery obligation of physically settled stock options (shares and cash), the delivery-margin schedule percentage (and an indicative rupee figure only when varElmPct is given), and the charges if a leg settles versus squaring it off now. " +
+      "Rates come from the reference charge table (physical delivery rows unverified); broker delivery fees excluded. Not tax or investment advice; nothing is stored or sent.",
+    input: () =>
+      z.strictObject({
+        underlying: z.string().min(1).max(30),
+        legs: z.array(z.strictObject({ symbol: z.string().min(1).max(80), qty: z.number().int().describe("Signed units: + long, - short."), bid: z.number().min(0).nullable(), ask: z.number().min(0).nullable() })).min(1).max(40),
+        asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().describe("YYYY-MM-DD; null for today."),
+        spot: z.number().positive().nullable(),
+        varElmPct: z.number().min(1).max(100).nullable().describe("Your broker's VaR + ELM rate in percent, or null."),
+      }),
+    output: z.strictObject({ data: anyObj, meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_LOCAL,
+    handler: async (a, _ctx, rt) => {
+      const { fnoFor } = await import("../fno/module.mjs");
+      const { expiryCostsRequest, readExpiryCosts } = await import("../fno/routes.mjs");
+      const f = fnoFor(rt.deps);
+      if (!f) throw new BridgeError("NOT_IMPLEMENTED", "The fno module is not running.");
+      const body = { underlying: a.underlying, legs: a.legs.map((l) => Object.fromEntries(Object.entries(l).filter(([, v]) => v !== null))) };
+      for (const k of ["asOf", "spot", "varElmPct"]) if (a[k] !== null && a[k] !== undefined) body[k] = a[k];
+      return { data: await readExpiryCosts(f, rt.deps, expiryCostsRequest(body)) };
+    },
+  },
 ]);
 
 /** Tools listed when nothing is configured (must stay under 20). */

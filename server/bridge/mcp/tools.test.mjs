@@ -445,3 +445,57 @@ describe("T-sec-6: MCP order tools by key scope (p1-05 §3.9 F9)", () => {
     expect(true).toBe(true);
   });
 });
+
+describe("F&O tools (options toolset, p1-06 §3.7)", () => {
+  const boot = async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { createApp } = await import("../core/app.mjs");
+    const { loadConfig } = await import("../core/config.mjs");
+    const { fnoFor } = await import("../fno/module.mjs");
+    const raw = { dataDir: mkdtempSync(join(tmpdir(), "mcb-mcp-fno-")), mcp: { toolsets: ["market", "analytics", "account", "options"] }, fno: { demo: { callDelayMs: 0 }, sweep: { hv: { source: "off" } } } };
+    const { config } = loadConfig({ raw, env: {}, demo: true });
+    const app = await createApp({ config, logger: createNullLogger() });
+    return { app, f: fnoFor(app.deps), registry: createToolRegistry({ deps: app.deps, now: () => Date.now() }) };
+  };
+
+  it("get_option_underlyings and get_expiry_costs return the same data as REST; get_option_sweep reads the last sweep", async () => {
+    const { app, f, registry } = await boot();
+    try {
+      const { readUnderlyings, readExpiryCosts, expiryCostsRequest } = await import("../fno/routes.mjs");
+      const u = await registry.call("get_option_underlyings", { kind: "stock", q: "rel" }, ctxFor(["read"]));
+      expect(u.isError, JSON.stringify(u.content)).toBeUndefined();
+      expect(u.structuredContent.data).toEqual(JSON.parse(JSON.stringify(await readUnderlyings(f, { kind: "stock", q: "rel" }))));
+      const { facts } = await f.universe.detail("RELIANCE");
+      const exp = facts.expiries[0];
+      const chain = await app.deps.marketData.optionChain({ underlying: "RELIANCE", expiry: exp, strikes: 1 });
+      const legs = [{ symbol: chain.rows[0].ce.symbol, qty: 525, bid: 30, ask: 31 }];
+      const body = { underlying: "RELIANCE", asOf: exp, spot: chain.rows[0].strike + 30, legs };
+      const m = await registry.call("get_expiry_costs", { ...body, varElmPct: null, legs: legs.map((l) => ({ ...l })) }, ctxFor(["read"]));
+      expect(m.isError, JSON.stringify(m.content)).toBeUndefined();
+      expect(m.structuredContent.data).toEqual(JSON.parse(JSON.stringify(await readExpiryCosts(f, app.deps, expiryCostsRequest(body)))));
+      expect(m.structuredContent.data.legs[0]).toMatchObject({ moneyness: "ITM", obligation: { kind: "receive-shares", shares: 525 } });
+      const none = await registry.call("get_option_sweep", { since: null }, ctxFor(["read"]));
+      expect(none.isError).toBe(true);
+      await f.sweeper.start({});
+      await f.sweeper.idle();
+      const s2 = await registry.call("get_option_sweep", { since: null }, ctxFor(["read"]));
+      expect(s2.isError, JSON.stringify(s2.content)).toBeUndefined();
+      expect(s2.structuredContent.data.job.status).toBe("done");
+      expect(s2.structuredContent.data.page.items.length).toBeGreaterThan(0);
+    } finally {
+      await app.close();
+    }
+  }, 30_000);
+
+  it("are read-only, opt-in, and no tool starts or cancels a sweep", () => {
+    for (const name of ["get_option_underlyings", "get_option_sweep", "get_expiry_costs"]) {
+      const def = TOOL_DEFS.find((t) => t.name === name);
+      expect(def).toMatchObject({ toolset: "options", annotations: { readOnlyHint: true, destructiveHint: false } });
+      expect(def.requiredScope).toBeUndefined();
+      expect(DEFAULT_TOOL_NAMES).not.toContain(name);
+    }
+    expect(TOOL_DEFS.filter((t) => /sweep/.test(t.name)).map((t) => t.name)).toEqual(["get_option_sweep"]);
+  });
+});

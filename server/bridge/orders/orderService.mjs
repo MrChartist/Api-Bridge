@@ -34,6 +34,8 @@ import { issueOrderGate } from "../../brokers/orderGate.mjs";
 import { isStub } from "../core/contracts.mjs";
 import { BridgeError, ERROR_CODES, fromBrokerError } from "../core/errors.mjs";
 import { isAutomatedContext } from "../core/context.mjs";
+import { deliveryMarginOf, expiryDay, moneynessOf, obligationOf } from "../dashboard/expiry-costs.js";
+import { strikeStepOf } from "../market/chain.mjs";
 import { assertLiveSupport, liveSupport, unverifiedWarning } from "./brokerOrders.mjs";
 import { ordersConfig } from "./config.mjs";
 import { createIdempotencyStore } from "./idempotencyStore.mjs";
@@ -254,7 +256,7 @@ export function createOrderService(deps) {
    * to SafetyGuard, so dailyMaxLoss works for live accounts. When it cannot be read the order is not blocked, but
    * the caller is told plainly that the loss limit was not checked.
    */
-  async function syncLivePnl(summary, checks) {
+  async function syncLivePnl(summary, checks, readPositions = null) {
     if (typeof deps.safety.syncDayPnl !== "function") return;
     let adapter = null;
     try {
@@ -265,7 +267,7 @@ export function createOrderService(deps) {
     const unchecked = (why) => checks.push({ code: "SAFETY_WARNING", message: `Today's loss on ${summary.id} could not be read from the broker (${why}), so the daily loss limit was not checked for this order.`, severity: "warn" });
     if (!adapter || typeof adapter.fetchPositions !== "function") return unchecked("this adapter cannot read positions");
     try {
-      const { data } = await brokerRead(summary.id, "fetchPositions", [], "positions", { priority: "order" });
+      const { data } = readPositions ? await readPositions() : await brokerRead(summary.id, "fetchPositions", [], "positions", { priority: "order" });
       let total = 0;
       for (const row of Array.isArray(data) ? data : []) {
         const pnl = Number(row?.pnl);
@@ -659,6 +661,10 @@ export function createOrderService(deps) {
     p.legs = inst.legs;
     const lotCheck = await lotSizeCheck(body, resolved);
     if (lotCheck) checks.push(lotCheck);
+    // One live positions read per prepare, shared by the ban gate and syncLivePnl (p1-06 §2.8, §7).
+    let livePositions = null;
+    const readLivePositions = () => (livePositions ??= brokerRead(summary.id, "fetchPositions", [], "positions", { priority: "order" }));
+    const stock = await stockDerivativeContext(body, resolved, summary, { wantsLive, readLivePositions, checks });
 
     if (wantsLive) {
       let adapter = null;
@@ -686,7 +692,7 @@ export function createOrderService(deps) {
       }
     }
 
-    if (wantsLive) await syncLivePnl(summary, checks);
+    if (wantsLive) await syncLivePnl(summary, checks, readLivePositions);
     p.ltp = await ltpOf(resolved.canonical);
     const policy = config?.safety?.marketOrders ?? "protect";
     const defaultPct = config?.safety?.marketProtectionPct ?? 2;
@@ -736,6 +742,8 @@ export function createOrderService(deps) {
         ltp: p.ltp,
         // A passing place check reserves a daily-count slot at once (released when the order is recorded).
         reserve: forPlace,
+        // p1-06: stock derivatives carry the underlying kind; heldQty and ban only when the underlying is in ban.
+        ...(stock ? { underlyingKind: stock.underlyingKind, underlying: resolved.underlying, ban: stock.ban, heldQty: stock.heldQty } : {}),
       };
       const verdict = await deps.safety.check(ctx, intent);
       p.verdict = verdict;
@@ -743,9 +751,149 @@ export function createOrderService(deps) {
       const reported = new Set(decision.refusals.map((r) => r.code));
       for (const r of verdict?.reasons ?? []) if (!reported.has(r.code)) checks.push({ code: r.code, message: r.message, severity: "block" });
       for (const w of verdict?.warnings ?? []) checks.push({ code: "SAFETY_WARNING", message: String(w), severity: "warn" });
+      for (const w of verdict?.checks ?? []) checks.push({ code: w.code, message: w.message, severity: "warn" });
       if (!verdict || (verdict.ok !== true && !(verdict.reasons ?? []).length)) checks.push({ code: "INVALID_ORDER", message: "The safety check did not pass.", severity: "block" });
     }
     return finish();
+  }
+
+  // ───────────────────────────── stock derivatives (p1-06) ─────────────────────────────
+
+  const kindCache = new Map();
+  /** "stock" | "index" | null for an underlying, from the master's spot row (INDEX vs EQ), else the reference universe. */
+  async function underlyingKindOf(underlying, exchange) {
+    const key = `${exchange}|${underlying}`;
+    if (kindCache.has(key)) return kindCache.get(key);
+    let kind = null;
+    try {
+      const res = await deps.symbols.search({ q: underlying, underlying, limit: 5 });
+      const spot = (res?.items ?? []).find((r) => r?.underlying === underlying && (r.kind === "INDEX" || r.kind === "EQ"));
+      if (spot) kind = spot.kind === "INDEX" ? "index" : "stock";
+    } catch {
+      kind = null;
+    }
+    if (!kind) {
+      try {
+        const r = referenceService();
+        kind = r?.universe?.({ kind: "all" })?.items?.find((i) => i.symbol === underlying)?.kind ?? null;
+      } catch {
+        kind = null;
+      }
+    }
+    kindCache.set(key, kind);
+    if (kindCache.size > 500) kindCache.delete(kindCache.keys().next().value);
+    return kind;
+  }
+
+  const referenceService = () => {
+    try {
+      const r = deps.reference;
+      return r && !isStub(r) ? r : null;
+    } catch {
+      return null;
+    }
+  };
+
+  /** Net held quantity of one contract in this account: paper engine (memory) or the live positions read. */
+  async function heldQtyOf(summary, canonical, { wantsLive, readLivePositions }) {
+    try {
+      if (!wantsLive) {
+        const items = await deps.paper.positions(summary.id);
+        return (items ?? []).filter((x) => x.symbol === canonical).reduce((a, x) => a + (Number(x.netQty) || 0), 0);
+      }
+      const res = await readLivePositions();
+      let n = 0;
+      for (const row of Array.isArray(res?.data) ? res.data : []) {
+        const { symbol } = await symbolFor(deps.symbols, summary.broker, row);
+        if (symbol === canonical) n += Number(row?.netQty ?? row?.quantity ?? 0) || 0;
+      }
+      return n;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Ban gate inputs and the delivery warnings for an NFO/BFO derivative of a stock (docs/spec/p1-06-stocks.md §2.8,
+   * §3.7). Index and cash orders, and stocks not in ban, cost nothing extra: the positions are read only when the
+   * underlying is in ban. Adds BAN_DATA_UNAVAILABLE and PHYSICAL_SETTLEMENT warnings to `checks`.
+   * @returns {Promise<{ underlyingKind: string, ban: object|null, heldQty: number|null } | null>}
+   */
+  async function stockDerivativeContext(body, resolved, summary, { wantsLive, readLivePositions, checks, physical = true }) {
+    if ((resolved.kind !== "OPT" && resolved.kind !== "FUT") || (resolved.exchange !== "NFO" && resolved.exchange !== "BFO")) return null;
+    const kind = await underlyingKindOf(resolved.underlying, resolved.exchange);
+    if (kind !== "stock") return kind ? { underlyingKind: kind, ban: null, heldQty: null } : null;
+    const ref = referenceService();
+    let ban = null;
+    try {
+      ban = typeof ref?.banStatus === "function" ? ref.banStatus(resolved.underlying) : null;
+    } catch {
+      ban = null;
+    }
+    if (!ban || ban.available === false) {
+      checks.push({ code: "BAN_DATA_UNAVAILABLE", message: "Ban list not loaded (NSE archive downloads are off); the exchange may refuse fresh positions.", severity: "warn" });
+      ban = null;
+    }
+    let heldQty = null;
+    const inBan = ban?.inBan === true;
+    if (inBan) heldQty = await heldQtyOf(summary, resolved.canonical, { wantsLive, readLivePositions });
+    if (physical && resolved.kind === "OPT") await physicalSettlementCheck(body, resolved, heldQty, checks).catch(() => {});
+    return { underlyingKind: "stock", ban: inBan ? { inBan: true, mwplPct: ban.mwplPct ?? null, forDate: ban.forDate ?? null, band: ban.band ?? "ban", source: ban.source ?? null } : ban ? { inBan: false } : null, heldQty };
+  }
+
+  /**
+   * Ban inputs for a modify that changes the quantity of an order in a stock derivative (p1-06 §2.8): the new quantity
+   * is checked like a new order. Empty when the order is not a stock derivative or nothing can be read.
+   */
+  async function modifyBanIntent(ctx, accountId, orderId, quantity, live, liveOrder = null) {
+    try {
+      const o = liveOrder ?? (await deps.paper.order(accountId, orderId));
+      if (!o?.symbol) return {};
+      const resolved = await deps.symbols.resolve(o.symbol);
+      const summary = deps.accounts.get(accountId);
+      let livePositions = null;
+      const readLivePositions = () => (livePositions ??= brokerRead(accountId, "fetchPositions", [], "positions", { priority: "order" }));
+      const stock = await stockDerivativeContext({ side: o.side, quantity }, resolved, summary, { wantsLive: live, readLivePositions, checks: [], physical: false });
+      if (!stock) return {};
+      return { order: { symbol: o.symbol, side: o.side, quantity }, extra: { underlyingKind: stock.underlyingKind, underlying: resolved.underlying, ban: stock.ban, heldQty: stock.heldQty } };
+    } catch {
+      return {};
+    }
+  }
+
+  /** PHYSICAL_SETTLEMENT (warn): from E-4, an opening order in an ITM or close-to-money stock option. */
+  async function physicalSettlementCheck(body, resolved, heldQty, checks) {
+    const ref = referenceService();
+    if (!ref || typeof ref.calendar !== "function") return;
+    const warnFrom = config?.fno?.expiry?.warnFromTradingDays ?? 4;
+    const ctmStrikes = config?.fno?.expiry?.closeToMoneyStrikes ?? 1;
+    const d = expiryDay({ asOf: istDay(now()), expiry: resolved.expiry, cal: ref.calendar(), warnFrom });
+    if (!d.inWindow) return;
+    const qty = Number(body.quantity ?? (body.lots ?? 0) * resolved.lotSize) || 0;
+    const x = body.side === "BUY" ? qty : -qty;
+    if (heldQty !== null && Math.abs(heldQty + x) <= Math.abs(heldQty)) return; // closing
+    const spot = await ltpOf(`${resolved.exchange === "BFO" ? "BSE" : "NSE"}:${resolved.underlying}`);
+    if (spot === null) return;
+    let step = null;
+    try {
+      const res = await deps.symbols.search({ q: resolved.underlying, underlying: resolved.underlying, kind: "OPT", expiry: resolved.expiry, limit: 500 });
+      step = strikeStepOf((res?.items ?? []).filter((r) => r.underlying === resolved.underlying).map((r) => r.strike));
+    } catch {
+      step = null;
+    }
+    const m = moneynessOf({ strike: resolved.strike, right: resolved.right, spot, step, ctmStrikes });
+    if (m.moneyness !== "ITM" && m.moneyness !== "CTM") return;
+    const ob = obligationOf({ strike: resolved.strike, right: resolved.right, qty: (heldQty ?? 0) + x, underlying: resolved.underlying });
+    if (!ob) return;
+    let pct = null;
+    try {
+      pct = deliveryMarginOf({ day: d.day, schedule: ref.deliveryMargin(resolved.expiry, resolved.exchange)?.items ?? [], spot, qty: ob.shares }).pct;
+    } catch {
+      pct = null;
+    }
+    const what = ob.buyer ? `you buy ${ob.shares} ${resolved.underlying} at ${resolved.strike}` : `you deliver ${ob.shares} ${resolved.underlying} shares at ${resolved.strike}`;
+    const margin = pct !== null ? ` Delivery margin today: ${pct} % (${d.day}).` : "";
+    checks.push({ code: "PHYSICAL_SETTLEMENT", message: `Physically settled: if ITM at expiry ${what} (₹${Math.round(ob.value)}).${margin}`, severity: "warn" });
   }
 
   const publicInstrument = (r) =>
@@ -1221,7 +1369,8 @@ export function createOrderService(deps) {
     let committed = false;
     try {
       if (loc.mode === "paper") {
-        const verdict = await deps.safety.check(ctx, { accountId: loc.accountId, mode: "paper", action: "modify", order: null, orderId, source: ctx.source, keyId: ctx.key?.id ?? null, quantity: changes.quantity ?? null, value: null, ltp: null });
+        const banIntent = changes.quantity !== undefined ? await modifyBanIntent(ctx, loc.accountId, orderId, changes.quantity, false) : {};
+        const verdict = await deps.safety.check(ctx, { accountId: loc.accountId, mode: "paper", action: "modify", order: banIntent.order ?? null, orderId, source: ctx.source, keyId: ctx.key?.id ?? null, quantity: changes.quantity ?? null, value: null, ltp: null, ...banIntent.extra });
         if (!verdict?.ok) throw verdictError(verdict);
         paperSlot(loc.accountId);
         const out = await deps.paper.modify(loc.accountId, orderId, changes);
@@ -1254,7 +1403,9 @@ export function createOrderService(deps) {
         next = { ...next, ...m.order };
         mpPct = m.marketProtectionPct;
       }
+      const banIntent = changes.quantity !== undefined && changes.quantity > o.quantity ? await modifyBanIntent(ctx, o.accountId, orderId, next.quantity, true, o) : {};
       const verdict = await deps.safety.check(ctx, {
+        ...banIntent.extra,
         accountId: o.accountId,
         mode: "live",
         action: "modify",

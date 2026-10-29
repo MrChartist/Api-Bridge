@@ -13,7 +13,8 @@ import { createApp } from "../core/app.mjs";
 import { loadConfig } from "../core/config.mjs";
 import { createNullLogger } from "../core/logger.mjs";
 import { black76, realisedVol, volTime } from "../dashboard/pricing.js";
-import { DEMO_UNDERLYINGS, candles, createDemoAdapter, dailyCloses, demoChainAt, demoClockContext, demoInstruments, expiriesFor, ivLevel, optionPrice, parseToken, smileVol, spotAt } from "./demoAdapter.mjs";
+import { DEMO_UNDERLYINGS, candles, createDemoAdapter, dailyCloses, demoChainAt, demoClockContext, demoInstruments, demoOptionOi, demoSplitSymbol, demoStrikeStep, demoUnderlying, expiriesFor, ivLevel, optionPrice, parseToken, smileVol, spotAt } from "./demoAdapter.mjs";
+import { DEMO_STOCK_LOT, demoDatasets } from "../reference/demoReference.mjs";
 import { NIFTY50 } from "../scanner/universes.mjs";
 import { demoCalendar } from "../reference/demoTables.mjs";
 import { DEMO_HEADER, createDemoRegistry, labelDemoResult } from "./demoMode.mjs";
@@ -165,7 +166,96 @@ describe("demo adapter", () => {
     expect(atm.ce.ltp).toBe(optionPrice("NIFTY", e, atm.strike, "CE", T));
     for (const r of ch.rows) for (const leg of [r.ce, r.pe]) expect(leg.bid).toBeLessThan(leg.ask);
     expect(ms).toBeLessThan(250);
-    expect(demoChainAt("RELIANCE", e, T)).toBeNull();
+    expect(demoChainAt("INDIAVIX", e, T)).toBeNull();
+    // Stocks list ±20 strikes (P1-6).
+    expect(demoChainAt("RELIANCE", expiriesFor("RELIANCE", T)[0], T, 30).rows).toHaveLength(41);
+  });
+
+  describe("stock options for all 50 demo stocks (P1-6 §4.1)", () => {
+    const rows = demoInstruments(T);
+    const stocks = Object.keys(DEMO_STOCK_LOT);
+
+    it("every demo stock lists OPTSTK and FUTSTK on 3 monthly expiries with the demo lot", () => {
+      expect(stocks).toHaveLength(50);
+      for (const s of stocks) {
+        const opts = rows.filter((r) => r.underlying === s && r.instrumentType === "OPTSTK" && !r.token.endsWith("-ADJ"));
+        const futs = rows.filter((r) => r.underlying === s && r.instrumentType === "FUTSTK");
+        const exps = [...new Set(opts.map((r) => r.expiry))];
+        expect(exps).toEqual(expiriesFor(s, T));
+        expect(exps).toHaveLength(3);
+        expect(futs.map((r) => r.expiry)).toEqual(exps);
+        for (const r of [...opts, ...futs]) expect(r.lotSize).toBe(DEMO_STOCK_LOT[s]);
+        // ±20 strikes per expiry, CE and PE
+        expect(opts.filter((r) => r.expiry === exps[0])).toHaveLength(82);
+      }
+      expect([DEMO_STOCK_LOT.RELIANCE, DEMO_STOCK_LOT.TATASTEEL, DEMO_STOCK_LOT.MARUTI]).toEqual([525, 4475, 50]);
+      // Indices keep their own types
+      expect(rows.some((r) => r.underlying === "NIFTY" && r.instrumentType === "OPTIDX")).toBe(true);
+      expect(rows.some((r) => r.underlying === "NIFTY" && r.instrumentType === "OPTSTK")).toBe(false);
+    });
+
+    it("demo lots equal the demo reference lots", () => {
+      const ref = demoDatasets(T);
+      for (const s of stocks) expect(ref.lots.find((l) => l.underlying === s)?.lot).toBe(DEMO_STOCK_LOT[s]);
+    });
+
+    it("strike steps follow the table; TATASTEEL lists 167.5", () => {
+      expect([90, 168, 300, 872, 1418, 3086, 7450, 15900].map(demoStrikeStep)).toEqual([1, 2.5, 5, 10, 20, 50, 100, 250]);
+      for (const s of stocks) {
+        const strikes = [...new Set(rows.filter((r) => r.underlying === s && r.instrumentType === "OPTSTK" && !r.token.endsWith("-ADJ")).map((r) => r.strike))].sort((a, b) => a - b);
+        const step = demoUnderlying(s).step;
+        for (let i = 1; i < strikes.length; i += 1) expect(Math.round((strikes[i] - strikes[i - 1]) * 100) / 100).toBe(step);
+      }
+      const tata = rows.filter((r) => r.underlying === "TATASTEEL" && r.instrumentType === "OPTSTK").map((r) => r.strike);
+      expect(tata).toContain(167.5);
+      expect(tata).toContain(165);
+    });
+
+    it("quotes for option tokens carry oi, bid, ask and sizes; OI is a multiple of the lot", async () => {
+      const e = expiriesFor("TATASTEEL", T)[0];
+      const opts = rows.filter((r) => r.underlying === "TATASTEEL" && r.expiry === e && r.instrumentType === "OPTSTK");
+      const q = (await a.fetchQuotes({}, opts.map((r) => ({ token: r.token, exchange: "NFO" })))).data;
+      expect(q).toHaveLength(opts.length);
+      for (const x of q) {
+        expect(x.oi % 4475).toBe(0);
+        expect(x.oi).toBeGreaterThan(0);
+        expect(x.bid).toBeLessThan(x.ask);
+        expect(x.bidQty % 4475).toBe(0);
+        expect(x.askQty % 4475).toBe(0);
+      }
+      const chain = (await a.fetchOptionChain({}, "TATASTEEL", e)).data;
+      expect(Object.keys(chain.oc)).toHaveLength(41);
+      expect(Object.keys(chain.oc).map(Number)).toContain(167.5);
+    });
+
+    it("near-the-money stock OI is about 1,000–2,500 lots and drifts through the session", () => {
+      const e = expiriesFor("RELIANCE", T)[0];
+      const S = spotAt("RELIANCE", T);
+      const k = Math.round(S / 20) * 20;
+      const token = `DM-RELIANCE-${e}-${k}-CE`;
+      const lots = demoOptionOi(token, T) / 525;
+      expect(lots).toBeGreaterThan(500);
+      expect(lots).toBeLessThan(4000);
+      const open = Date.UTC(2026, 9, 19, 3, 45);
+      expect(demoOptionOi(token, open)).not.toBe(demoOptionOi(token, Date.UTC(2026, 9, 19, 10, 0)));
+    });
+
+    it("the split stock's nearest expiry lists 6 adjusted -ADJ contracts with lot × 5 and off-grid strikes", async () => {
+      const split = demoSplitSymbol("2026-10-19");
+      const adj = rows.filter((r) => r.token.endsWith("-ADJ"));
+      expect(adj).toHaveLength(6);
+      expect(new Set(adj.map((r) => r.underlying))).toEqual(new Set([split]));
+      expect(new Set(adj.map((r) => r.expiry))).toEqual(new Set([expiriesFor(split, T)[0]]));
+      for (const r of adj) {
+        expect(r.lotSize).toBe(DEMO_STOCK_LOT[split] * 5);
+        expect(Math.abs(r.strike / 20 - Math.round(r.strike / 20))).toBeGreaterThan(1e-6);
+        expect(parseToken(r.token)).toMatchObject({ kind: "opt", adjusted: true, strike: r.strike });
+      }
+      const q = (await a.fetchQuotes({}, [{ token: adj[0].token, exchange: "NFO" }])).data[0];
+      expect(q.oi % (DEMO_STOCK_LOT[split] * 5)).toBe(0);
+      const chain = (await a.fetchOptionChain({}, split, adj[0].expiry)).data;
+      expect(Object.keys(chain.oc)).toHaveLength(44);
+    });
   });
 
   it("the demo registry holds only the demo broker", () => {

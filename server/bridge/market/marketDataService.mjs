@@ -30,7 +30,7 @@ import { parseSymbol } from "../core/symbolFormat.mjs";
 import { recordSaving as recordSavingGlobal } from "../ratelimit/scheduler.mjs";
 import { DEFAULT_RATE } from "../reference/defaults.mjs";
 import { createBatcher } from "./batcher.mjs";
-import { IV_MODELS, applyB76, atmStrike, defaultOptionExchange, finishLeg, legSymbol, rowsFromBrokerChain, rowsFromQuotes, trimStrikes } from "./chain.mjs";
+import { IV_MODELS, applyB76, atmStrike, defaultOptionExchange, finishLeg, legSymbol, rowsFromBrokerChain, rowsFromQuotes, settlementOfKind, strikeStepOf, trimStrikes } from "./chain.mjs";
 import { kindOf, pricingContext } from "../vol/context.mjs";
 import { DEPTH_STALE_CAP_MS, parseMarketConfig } from "./config.mjs";
 import { createFreshnessCache } from "./freshnessCache.mjs";
@@ -78,6 +78,11 @@ const readOptionsSchema = z
     allowBackup: z.boolean().optional(),
     /** The caller's account restriction (a key's accounts list); "*" or absent = any. Unpinned reads stay inside it. */
     allowedAccounts: z.union([z.literal("*"), z.array(z.string().min(1).max(64))]).optional(),
+    /**
+     * Background jobs (fno sweep, P1-6): the share of every window the call may leave used (≤ 0.5). Passed to the
+     * scheduler, which starts the call only while every window stays at or above (1 − share) of its limit (F0 C12).
+     */
+    backgroundShare: z.number().min(0).max(0.5).optional(),
   })
   .passthrough();
 
@@ -224,6 +229,7 @@ export function createMarketDataService(deps) {
       exchange: o.exchange ?? undefined,
       allowedAccounts,
       allowBackup: o.allowBackup === true && !o.accountId,
+      backgroundShare: priority === "background" && typeof o.backgroundShare === "number" ? o.backgroundShare : null,
     };
   }
 
@@ -345,8 +351,9 @@ export function createMarketDataService(deps) {
    * Run one broker call through the scheduler. The adapter and credentials are fetched inside the scheduled function.
    * @returns {Promise<any>} the adapter result
    */
-  async function callBroker({ accountId, broker, endpointClass, priority, coalesceKey, signal, maxWaitMs, cost = 1 }, fn) {
+  async function callBroker({ accountId, broker, endpointClass, priority, coalesceKey, signal, maxWaitMs, cost = 1, backgroundShare = null }, fn) {
     const opts = { accountId, endpointClass, priority, coalesceKey, cost };
+    if (priority === "background" && typeof backgroundShare === "number") opts.backgroundShare = backgroundShare;
     if (signal) opts.signal = signal;
     if (maxWaitMs !== undefined) opts.maxWaitMs = maxWaitMs;
     try {
@@ -451,7 +458,8 @@ export function createMarketDataService(deps) {
 
   /** Batch flush: one account, one priority; fetch every id through fetchQuotes in maxQuoteBatch chunks. */
   async function runQuoteBatch(group, ids) {
-    const [accountId, priority, staleFlag] = group.split("|");
+    const [accountId, priority, staleFlag, shareText] = group.split("|");
+    const backgroundShare = shareText ? Number(shareText) : null;
     const results = new Map();
     let broker;
     try {
@@ -495,6 +503,7 @@ export function createMarketDataService(deps) {
               priority,
               coalesceKey: `quote:${accountId}:${chunk.map((c) => c.symbol).join(",")}`,
               maxWaitMs: staleFlag === "s" ? cfg.stale.waitMs : undefined,
+              backgroundShare,
             },
             (adapter, creds) => {
               if (typeof adapter.fetchQuotes !== "function") throw new BridgeError("CAPABILITY_UNSUPPORTED", `${broker} offers no quotes API.`);
@@ -534,20 +543,20 @@ export function createMarketDataService(deps) {
   });
 
   /** Fetch full quotes for one symbol on one account (joins an in-flight fetch). */
-  function fetchQuote(accountId, symbol, priority, hasStale) {
+  function fetchQuote(accountId, symbol, priority, hasStale, backgroundShare = null) {
     const key = `${accountId}|q|${symbol}`;
     const running = inflight.get(key);
     if (running) {
       saving("coalesced");
       return running;
     }
-    const p = batcher.add(`${accountId}|${priority}|${hasStale ? "s" : "n"}`, symbol).finally(() => inflight.delete(key));
+    const p = batcher.add(`${accountId}|${priority}|${hasStale ? "s" : "n"}|${backgroundShare ?? ""}`, symbol).finally(() => inflight.delete(key));
     inflight.set(key, p);
     return p;
   }
 
   /** Fetch an LTP through the adapter's fetchLTP (brokers without a quotes API; indices and stocks only). */
-  function fetchLtpOnly(accountId, symbol, priority, hasStale) {
+  function fetchLtpOnly(accountId, symbol, priority, hasStale, backgroundShare = null) {
     const key = `${accountId}|l|${symbol}`;
     const running = inflight.get(key);
     if (running) {
@@ -565,7 +574,7 @@ export function createMarketDataService(deps) {
         throw new BridgeError("CAPABILITY_UNSUPPORTED", `${broker} offers no quotes API, and its last-price lookup covers NSE stocks only, so ${symbol} cannot be priced.`);
       }
       const res = await callBroker(
-        { accountId, broker, endpointClass: "quote", priority, coalesceKey: `ltp:${accountId}:${symbol}`, maxWaitMs: hasStale ? cfg.stale.waitMs : undefined },
+        { accountId, broker, endpointClass: "quote", priority, coalesceKey: `ltp:${accountId}:${symbol}`, maxWaitMs: hasStale ? cfg.stale.waitMs : undefined, backgroundShare },
         (adapter, creds) => adapter.fetchLTP(creds, parsed.underlying),
       );
       const fields = ltpOnlyFields(res?.data?.last_price ?? res?.data?.ltp ?? res?.last_price);
@@ -656,7 +665,7 @@ export function createMarketDataService(deps) {
           // The HTTP caller has gone away (closed tab, cancelled poll): do not queue for broker budget on its behalf.
           if (o.signal?.aborted) throw abortError(o.signal);
           try {
-            const entry = quotesAccount ? await fetchQuote(accountId, symbol, o.priority, Boolean(staleOk)) : await fetchLtpOnly(accountId, symbol, o.priority, Boolean(staleOk));
+            const entry = quotesAccount ? await fetchQuote(accountId, symbol, o.priority, Boolean(staleOk), o.backgroundShare ?? null) : await fetchLtpOnly(accountId, symbol, o.priority, Boolean(staleOk), o.backgroundShare ?? null);
             if (wantQuote && !entry.value.full) throw new BridgeError("CAPABILITY_UNSUPPORTED", `Only a last price is available for ${symbol}.`);
             items.set(symbol, toItem(symbol, entry.value.fields, freshness({ source: "broker", at: entry.at, now: now(), targetMs, accountId: entry.accountId, broker: entry.broker })));
           } catch (err) {
@@ -835,7 +844,7 @@ export function createMarketDataService(deps) {
         Promise.allSettled(
           chunks.map((c) =>
             callBroker(
-              { accountId, broker, endpointClass: "history", priority: o.priority, coalesceKey: `history:${accountId}:${symbol}:${plan.base}:${c.from}:${c.to}` },
+              { accountId, broker, endpointClass: "history", priority: o.priority, coalesceKey: `history:${accountId}:${symbol}:${plan.base}:${c.from}:${c.to}`, backgroundShare: o.backgroundShare },
               (adapter, creds) => {
                 if (typeof adapter.fetchHistorical !== "function") throw new BridgeError("CAPABILITY_UNSUPPORTED", `${broker} offers no historical candles.`);
                 return adapter.fetchHistorical(creds, { instrument: ref, interval: plan.base, from: c.from, to: c.to });
@@ -991,7 +1000,7 @@ export function createMarketDataService(deps) {
       const res = await symbols.search(q);
       for (const r of res?.items ?? []) {
         if (r?.underlying === underlying && r.expiry === expiry && (r.right === "CE" || r.right === "PE") && r.strike > 0) {
-          legs.push({ canonical: r.canonical, strike: r.strike, right: r.right, exchange: r.exchange, lotSize: r.lotSize ?? null });
+          legs.push({ canonical: r.canonical, strike: r.strike, right: r.right, exchange: r.exchange, lotSize: r.lotSize ?? null, tickSize: r.tickSize ?? null });
         }
       }
       cursor = res?.nextCursor;
@@ -1014,7 +1023,43 @@ export function createMarketDataService(deps) {
     return { exchange: defaultOptionExchange(underlying), lotSize: null };
   }
 
-  async function brokerChain({ underlying, expiry, greeks, pinned, priority, signal, stale, allowedAccounts }) {
+  /**
+   * Contract facts for a chain (docs/spec/p1-06-stocks.md §6.1), from the master only (no broker call): underlyingKind
+   * from the master's spot row (INDEX vs EQ; else the reference universe), strikeStep inferred from the listed
+   * strikes of the expiry, tickSize the largest option tick of the expiry. Memoised for 5 minutes per expiry.
+   */
+  const factsMemo = new Map();
+  async function chainFacts(underlying, expiry) {
+    const key = `${underlying}|${expiry}`;
+    const hit = factsMemo.get(key);
+    if (hit && now() - hit.at < 300_000) return hit.value;
+    let kind = null;
+    let legs = [];
+    try {
+      if (usable(symbols)) {
+        legs = await masterLegs(underlying, expiry);
+        const res = await symbols.search({ q: underlying, underlying, limit: 5 });
+        const spot = (res?.items ?? []).find((r) => r?.underlying === underlying && (r.kind === "INDEX" || r.kind === "EQ"));
+        if (spot) kind = spot.kind === "INDEX" ? "index" : "stock";
+      }
+    } catch {
+      // master not loaded: facts unknown
+    }
+    if (!kind && usable(reference) && typeof reference.universe === "function") {
+      try {
+        kind = reference.universe({ kind: "all" })?.items?.find((i) => i.symbol === underlying)?.kind ?? null;
+      } catch {
+        kind = null;
+      }
+    }
+    const ticks = legs.map((l) => l.tickSize).filter((t) => Number.isFinite(t) && t > 0);
+    const value = { underlyingKind: kind, settlement: settlementOfKind(kind), strikeStep: strikeStepOf(legs.map((l) => l.strike)), tickSize: ticks.length ? Math.max(...ticks) : null };
+    factsMemo.set(key, { at: now(), value });
+    if (factsMemo.size > 500) factsMemo.delete(factsMemo.keys().next().value);
+    return value;
+  }
+
+  async function brokerChain({ underlying, expiry, greeks, pinned, priority, signal, stale, allowedAccounts, backgroundShare = null }) {
     const accountId = chooseAccount("optionChain", "chain", pinned, allowedAccounts);
     if (!accountId) return null;
     const broker = brokerOf(accountId);
@@ -1024,7 +1069,7 @@ export function createMarketDataService(deps) {
     const meta = await chainMeta(underlying, expiry);
     const res = await raceSignal(
       callBroker(
-        { accountId, broker, endpointClass: "chain", priority, coalesceKey: `chain:${accountId}:${underlying}:${expiry}`, maxWaitMs: stale ? cfg.stale.waitMs : undefined },
+        { accountId, broker, endpointClass: "chain", priority, coalesceKey: `chain:${accountId}:${underlying}:${expiry}`, maxWaitMs: stale ? cfg.stale.waitMs : undefined, backgroundShare },
         (adapter, creds) => adapter.fetchOptionChain(creds, underlying, expiry),
       ),
       signal,
@@ -1034,10 +1079,10 @@ export function createMarketDataService(deps) {
     return { value: { underlyingLtp: built.underlyingLtp, rows: built.rows, lotSize: meta.lotSize }, at: now(), accountId, broker, source: "broker" };
   }
 
-  async function builtChain({ underlying, expiry, greeks, pinned, priority, targetMs, allowedAccounts }) {
+  async function builtChain({ underlying, expiry, greeks, pinned, priority, targetMs, allowedAccounts, backgroundShare = null }) {
     let legs = await masterLegs(underlying, expiry);
     if (!legs.length) throw new BridgeError("SYMBOL_NOT_FOUND", `No options were found for ${underlying} expiring ${expiry}.`);
-    const spotRead = await readPrices("ltp", [spotSymbol(underlying)], { accountId: pinned, maxAgeMs: targetMs, priority, allowedAccounts });
+    const spotRead = await readPrices("ltp", [spotSymbol(underlying)], { accountId: pinned, maxAgeMs: targetMs, priority, allowedAccounts, backgroundShare });
     const spot = spotRead.items[0]?.ltp ?? null;
     if (legs.length > cfg.chain.maxBuiltLegs) {
       // Keep the strikes nearest the money so a built chain never floods the quote budget.
@@ -1046,7 +1091,7 @@ export function createMarketDataService(deps) {
       const keep = new Set([...strikes].sort((a, b) => Math.abs(a - centre) - Math.abs(b - centre)).slice(0, Math.floor(cfg.chain.maxBuiltLegs / 2)));
       legs = legs.filter((l) => keep.has(l.strike));
     }
-    const read = await readPrices("quote", legs.map((l) => l.canonical), { accountId: pinned, maxAgeMs: targetMs, priority, allowedAccounts });
+    const read = await readPrices("quote", legs.map((l) => l.canonical), { accountId: pinned, maxAgeMs: targetMs, priority, allowedAccounts, backgroundShare });
     if (!read.items.length && read.errors.length) {
       const first = read.errors[0];
       throw new BridgeError(first.code, first.message);
@@ -1067,7 +1112,7 @@ export function createMarketDataService(deps) {
     };
   }
 
-  function chainResult(underlying, expiry, value, strikes, fresh) {
+  function chainResult(underlying, expiry, value, strikes, fresh, facts) {
     const atm = atmStrike(value.rows.map((r) => r.strike), value.underlyingLtp);
     return {
       underlying,
@@ -1075,6 +1120,11 @@ export function createMarketDataService(deps) {
       underlyingLtp: value.underlyingLtp,
       atmStrike: atm,
       lotSize: value.lotSize ?? null,
+      // P1-6 contract facts (additive; null when the master does not say)
+      underlyingKind: facts?.underlyingKind ?? null,
+      settlement: facts?.settlement ?? null,
+      strikeStep: facts?.strikeStep ?? null,
+      tickSize: facts?.tickSize ?? null,
       rows: trimStrikes(value.rows, atm, strikes),
       freshness: fresh,
     };
@@ -1112,7 +1162,7 @@ export function createMarketDataService(deps) {
       return row;
     });
     const value = { underlyingLtp: spot, rows, lotSize: null };
-    return chainResult(underlying, p.expiry, value, p.strikes, freshness({ source: "backup", at: b.at, now: now(), targetMs, provider: b.provider }));
+    return chainResult(underlying, p.expiry, value, p.strikes, freshness({ source: "backup", at: b.at, now: now(), targetMs, provider: b.provider }), await chainFacts(underlying, p.expiry));
   }
 
   async function optionChain(params, opts) {
@@ -1133,19 +1183,20 @@ export function createMarketDataService(deps) {
     const pinned = o.accountId;
     checkPinned(pinned);
     const targetMs = o.maxAgeMs ?? cfg.freshness.chainMs;
+    const facts = await chainFacts(underlying, p.expiry);
     const key = `c|${underlying}|${p.expiry}|${greeks ? "g" : "n"}`;
     const hit = freshEntry(key, targetMs, pinned);
     if (hit) {
       saving("cache");
-      return chainResult(underlying, p.expiry, hit.value, p.strikes, freshness({ source: "cache", at: hit.at, now: now(), targetMs, accountId: hit.accountId, broker: hit.broker }));
+      return chainResult(underlying, p.expiry, hit.value, p.strikes, freshness({ source: "cache", at: hit.at, now: now(), targetMs, accountId: hit.accountId, broker: hit.broker }), facts);
     }
     const stale = staleEntry(key, pinned);
     const serveStale = () => {
       stats.stale += 1;
       saving("cache");
-      return chainResult(underlying, p.expiry, stale.value, p.strikes, freshness({ source: "cache", at: stale.at, now: now(), targetMs, stale: true, accountId: stale.accountId, broker: stale.broker }));
+      return chainResult(underlying, p.expiry, stale.value, p.strikes, freshness({ source: "cache", at: stale.at, now: now(), targetMs, stale: true, accountId: stale.accountId, broker: stale.broker }), facts);
     };
-    const args = { underlying, expiry: p.expiry, greeks, pinned, priority: o.priority, signal: o.signal, stale: Boolean(stale), targetMs, allowedAccounts: o.allowedAccounts };
+    const args = { underlying, expiry: p.expiry, greeks, pinned, priority: o.priority, signal: o.signal, stale: Boolean(stale), targetMs, allowedAccounts: o.allowedAccounts, backgroundShare: o.backgroundShare };
     let got = null;
     try {
       if (cfg.chain.source !== "built") {
@@ -1166,7 +1217,7 @@ export function createMarketDataService(deps) {
     }
     cache.set(key, got.value, { at: got.at, accountId: got.accountId, broker: got.broker });
     const fresh = freshness({ source: got.source, at: got.at, now: now(), targetMs, accountId: got.accountId, broker: got.broker, ...(got.anyStale ? { stale: true } : {}) });
-    return chainResult(underlying, p.expiry, got.value, p.strikes, fresh);
+    return chainResult(underlying, p.expiry, got.value, p.strikes, fresh, facts);
   }
 
   // ── the service ──

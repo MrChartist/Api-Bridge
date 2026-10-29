@@ -566,3 +566,63 @@ describe("review regressions", () => {
     expect(events.at(-1)).toMatchObject({ cancelOpenOrders: true, cancelScope: { accounts: "*", includeExternal: true } });
   });
 });
+
+describe("fnoBan (p1-06 §2.8, §6.8)", async () => {
+  const { fnoBanCheck } = await import("./safetyGuard.mjs");
+  const BAN = { inBan: true, mwplPct: 96.2, forDate: "2026-11-19" };
+  const optOrder = (side, quantity, symbol = "NFO:ADANIENT-2026-11-23-2400-CE") => limitOrder({ symbol, side, quantity, price: 50 });
+  const banIntent = (side, quantity, heldQty, over = {}) => intent({ order: optOrder(side, quantity), quantity, value: 50 * quantity, ltp: 50, lots: quantity / 300, lotSize: 300, underlyingKind: "stock", underlying: "ADANIENT", ban: BAN, heldQty, ...over });
+
+  it.each([
+    ["BUY", 600, -600, true],
+    ["BUY", 300, -600, true],
+    ["BUY", 900, -600, false],
+    ["SELL", 300, -600, false],
+    ["BUY", 300, 0, false],
+  ])("§6.8: %s %i with h = %i → allowed %s", async (side, qty, h, allowed) => {
+    const { guard } = setup();
+    const v = await guard.check(keyCtx(), banIntent(side, qty, h));
+    expect(codes(v).includes("FNO_BAN")).toBe(!allowed);
+    if (allowed) expect(v.checks?.map((c) => c.message)).toContain("Closing order in a ban-period stock.");
+  });
+
+  it("the message names the band, the date and the largest closing quantity", () => {
+    expect(fnoBanCheck({ underlying: "RELIANCE", side: "BUY", qty: 900, heldQty: -600, ban: BAN }).message).toBe(
+      "RELIANCE is in the F&O ban period (MWPL 96.2 %, 19 Nov). Only orders that reduce your position are allowed. You hold -600 of this contract: you can buy up to 600.",
+    );
+    expect(fnoBanCheck({ underlying: "RELIANCE", side: "BUY", qty: 300, heldQty: 0, ban: BAN }).message).toMatch(/fresh position/);
+  });
+
+  it("heldQty null → warn only (FNO_BAN_UNCONFIRMED); not in ban → pass; index → pass", async () => {
+    const { guard } = setup();
+    const unknown = await guard.check(keyCtx(), banIntent("BUY", 300, null));
+    expect(unknown.ok).toBe(true);
+    expect(unknown.checks.map((c) => c.code)).toEqual(["FNO_BAN_UNCONFIRMED"]);
+    const free = await guard.check(keyCtx(), banIntent("BUY", 300, 0, { ban: { inBan: false } }));
+    expect(free).toMatchObject({ ok: true });
+    expect(free.checks).toBeUndefined();
+    const index = await guard.check(keyCtx(), banIntent("BUY", 300, 0, { underlyingKind: "index" }));
+    expect(codes(index)).not.toContain("FNO_BAN");
+  });
+
+  it("a cancel is never blocked; a modify that raises the quantity is checked with the new quantity", async () => {
+    const { guard } = setup();
+    const cancel = await guard.check(keyCtx(), banIntent("BUY", 900, -600, { action: "cancel", order: null }));
+    expect(codes(cancel)).not.toContain("FNO_BAN");
+    const modify = await guard.check(keyCtx(), banIntent("BUY", 900, -600, { action: "modify" }));
+    expect(codes(modify)).toContain("FNO_BAN");
+    const modifyOk = await guard.check(keyCtx(), banIntent("BUY", 600, -600, { action: "modify" }));
+    expect(codes(modifyOk)).not.toContain("FNO_BAN");
+  });
+
+  it("fno.ban.blockOpening false → a warning, and the order is audited", async () => {
+    const config = { ...makeConfig(), fno: { ban: { blockOpening: false } } };
+    const { guard, audit } = setup({ config });
+    const v = await guard.check(keyCtx(), banIntent("BUY", 300, 0));
+    expect(v.ok).toBe(true);
+    expect(v.checks.map((c) => c.code)).toEqual(["FNO_BAN"]);
+    await new Promise((r) => setTimeout(r, 20));
+    const rows = await audit.query({ limit: 20 });
+    expect((rows.items ?? rows).map((x) => x.type)).toContain("safety.fno_ban_not_blocked");
+  });
+});

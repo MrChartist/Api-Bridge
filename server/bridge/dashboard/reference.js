@@ -34,6 +34,9 @@ export const REF_DEFAULTS = Object.freeze({
     ipftPerCrore: 0,
     gst: 0.18,
     brokerage: Object.freeze({ kind: "flat", perOrder: 20, source: FALLBACK_SOURCE }),
+    // Physically settled stock options (P1-6) and the expiry-day ELM on short index options: unverified rows.
+    physical: Object.freeze({ sttDelivery: 0.001, stampBuy: 0.00015, txn: Object.freeze({ NSE: 0.0000297, BSE: 0.0000375 }), verified: false, source: FALLBACK_SOURCE }),
+    margin: Object.freeze({ expiryDayElmIndexShort: 0.02, verified: false, source: FALLBACK_SOURCE }),
   }),
 });
 
@@ -219,6 +222,8 @@ export function refCharges(b) {
     brokerage: { kind: c.brokerage?.kind ?? "flat", perOrder: per ?? REF_DEFAULTS.charges.brokerage.perOrder, source: c.brokerage?.source ?? c.source ?? FALLBACK_SOURCE },
     opt: { ...c.opt, txn: { ...c.opt.txn } },
     fut: { ...c.fut, txn: { ...c.fut.txn } },
+    physical: c.physical?.txn ? { ...c.physical, txn: { ...c.physical.txn } } : { ...REF_DEFAULTS.charges.physical, txn: { ...REF_DEFAULTS.charges.physical.txn } },
+    margin: c.margin && Number.isFinite(c.margin.expiryDayElmIndexShort) ? { ...c.margin } : { ...REF_DEFAULTS.charges.margin },
     sebiPerCrore: num(c.sebiPerCrore) ?? 0,
     ipftPerCrore: num(c.ipftPerCrore) ?? 0,
     gst: num(c.gst) ?? 0,

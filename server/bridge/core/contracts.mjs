@@ -89,9 +89,14 @@ import { NotImplementedError } from "./errors.mjs";
  * @typedef {{ ok: boolean, mode: "paper"|"live", checks: Check[], resolved: ResolvedInstrument | null, quantity: number | null,
  *   estimatedValue: number | null, ltp: number | null, confirmToken: string | null, confirmExpiresAt: string | null,
  *   requiresHumanConfirmation: boolean, ticketId: string | null }} PreviewResult
- * @typedef {{ ok: boolean, mode: "paper"|"live", reasons: Array<{ code: string, message: string }>, warnings: string[] }} Verdict
+ * @typedef {{ ok: boolean, mode: "paper"|"live", reasons: Array<{ code: string, message: string }>, warnings: string[],
+ *   checks?: Array<{ code: string, message: string }> }} Verdict   checks: warnings that carry their own code (p1-06 ban rule)
  * @typedef {{ accountId: string, mode: "paper"|"live", action: "place"|"modify"|"cancel", order: OrderRequest | null,
- *   orderId?: string, source: string, keyId: string | null, quantity: number | null, value: number | null, ltp: number | null }} SafetyIntent
+ *   orderId?: string, source: string, keyId: string | null, quantity: number | null, value: number | null, ltp: number | null,
+ *   underlyingKind?: "stock"|"index"|null, underlying?: string, heldQty?: number | null,
+ *   ban?: { inBan: boolean, mwplPct?: number|null, forDate?: string|null } | null }} SafetyIntent
+ *   underlyingKind/underlying/ban/heldQty (p1-06 §2.8): set for NFO/BFO derivatives; heldQty (signed units held in that
+ *   contract, null when unreadable) only when the stock is in the F&O ban period.
  * @typedef {{ engaged: boolean, reason: string | null, by: string | null, at: string | null }} KillSwitchState
  * @typedef {{ type: string, actor: { kind: string, id: string }, source: string, accountId?: string | null, requestId?: string | null,
  *   data?: object }} AuditInput

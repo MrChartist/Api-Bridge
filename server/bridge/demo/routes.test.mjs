@@ -21,8 +21,8 @@ function fakeFacade() {
 }
 
 describe("demo-only routes", () => {
-  it("ships the demo controls each step added, all under /v1/demo/ (p1-05: readiness failure; p1-02: the stale-lots switch)", () => {
-    expect(demoRouteKeys(DEMO_ROUTES)).toEqual(["POST /v1/demo/readiness", "PUT /v1/demo/reference"]);
+  it("ships the demo controls each step added, all under /v1/demo/ (p1-05: readiness failure; p1-02: the stale-lots switch; p1-06: the ban override)", () => {
+    expect(demoRouteKeys(DEMO_ROUTES)).toEqual(["POST /v1/demo/readiness", "PUT /v1/demo/reference", "POST /v1/demo/fno"]);
     expect(DEMO_ROUTES.every((r) => r.path.startsWith("/v1/demo/") && !r.options.public)).toBe(true);
     expect(demoRouteKeys([probe])).toEqual(["POST /v1/demo/probe/{id}"]);
   });

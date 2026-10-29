@@ -80,6 +80,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "format.js": "text/javascript; charset=utf-8",
   "options.js": "text/javascript; charset=utf-8",
   "pricing.js": "text/javascript; charset=utf-8",
+  "expiry-costs.js": "text/javascript; charset=utf-8",
   "reference.js": "text/javascript; charset=utf-8",
   "calendar.js": "text/javascript; charset=utf-8",
   "desk.js": "text/javascript; charset=utf-8",

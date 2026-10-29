@@ -14,7 +14,7 @@
  * The rate is not a demo dataset: demo mode shows the same "6.50 % default, not sourced" as a fresh install
  * (docs/spec/README.md step 1 acceptance), and the demo adapter prices with it.
  */
-import { DEMO_UNDERLYINGS, expiriesFor, hash32, spotAt } from "../demo/demoAdapter.mjs";
+import { DEMO_UNDERLYINGS, demoBonusSymbol, demoSplitSymbol, expiriesFor, hash32, spotAt } from "../demo/demoAdapter.mjs";
 import { addDays, calendarDaysBetween, istDateOf } from "./calendar.mjs";
 import { DEMO_STOCK_LOT, demoCalendar, demoLotFor } from "./demoTables.mjs";
 
@@ -23,8 +23,6 @@ export { DEMO_INDEX_LOT, DEMO_STOCK_LOT, demoLotFor } from "./demoTables.mjs";
 export const DEMO_SOURCE = "demo";
 /** Demo-only symbol that left the universe 30 days ago (never listed in the demo masters). */
 export const DEMO_EXIT_SYMBOL = "DEMOEXIT";
-/** Split-stock candidates whose standard demo lot is 375 (the §4 inferred example: 1,875 vs 375). */
-const SPLIT_CANDIDATES = Object.freeze(["BHARTIARTL", "BAJAJFINSV"]);
 
 const unit = (s) => hash32(s) / 4294967296;
 const round1 = (x) => Math.round(x * 10) / 10;
@@ -33,11 +31,6 @@ const round1 = (x) => Math.round(x * 10) / 10;
 export const DEMO_STOCKS = Object.freeze(Object.keys(DEMO_STOCK_LOT).sort());
 /** Demo index underlyings with derivatives: symbol -> exchange. */
 export const DEMO_INDEX_EXCHANGE = Object.freeze(Object.fromEntries(DEMO_UNDERLYINGS.filter((u) => u.deriv).map((u) => [u.symbol, u.deriv])));
-
-const weekStartOf = (date) => {
-  const wd = new Date(`${date}T00:00:00Z`).getUTCDay();
-  return addDays(date, -((wd + 6) % 7));
-};
 
 /** The trading day on or after `date`. */
 const onOrAfter = (cal, date) => (cal.isTradingDay(date) ? date : cal.nextTradingDay(date));
@@ -102,12 +95,13 @@ export function demoDatasets(tMs) {
   const ban = { forDate, symbols: order.slice(0, nBan).sort() };
 
   // ── corporate actions ──
-  const bonusSym = DEMO_STOCKS[hash32(weekStartOf(today)) % DEMO_STOCKS.length];
+  // One rule with the demo adapter (its split stock lists the adjusted -ADJ contracts).
+  const bonusSym = demoBonusSymbol(today);
   let ex = today;
   for (let i = 0; i < 4; i += 1) ex = cal.nextTradingDay(ex);
   // Keep it inside the 7-day banner window even across a holiday week.
   while (calendarDaysBetween(today, ex) > 7) ex = cal.prevTradingDay(ex);
-  const splitSym = SPLIT_CANDIDATES.find((s) => s !== bonusSym);
+  const splitSym = demoSplitSymbol(today);
   const splitEx = onOrAfter(cal, addDays(today, -60));
   const actions = [
     { id: `ca_${bonusSym}_${ex}_bonus`, symbol: bonusSym, exchange: "NSE", type: "bonus", ratio: { new: 1, held: 1 }, exDate: ex, subscriptionPrice: null, cumPrice: null, dividend: null, fv: null, factor: 2, lotRule: "round", strikeTick: 0.05, source: DEMO_SOURCE, verified: true, origin: "shipped", quality: "demo" },

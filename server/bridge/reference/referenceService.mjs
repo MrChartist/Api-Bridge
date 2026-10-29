@@ -402,8 +402,24 @@ export function createReferenceService(deps, opts = {}) {
     return { forDate: mw.forDate, items, available: true, asOf: mw.asOf, source: mw.source };
   }
 
+  /** Demo only (p1-06 §4.2, POST /v1/demo/fno): stocks forced into the ban on top of the demo list, until a time. */
+  let demoBan = null;
+  function demoBanActive() {
+    if (!demo || !demoBan) return null;
+    if (now() >= demoBan.until) {
+      demoBan = null;
+      return null;
+    }
+    return demoBan;
+  }
+
   function banStatus(symbol, date) {
     const forDate = date ?? defaultBanDate();
+    const forced = date === undefined || date === defaultBanDate() ? demoBanActive() : null;
+    if (forced?.symbols.has(symbol)) {
+      // A forced ban has no MWPL figure of its own (the demo's daily MWPL row would contradict it).
+      return { inBan: true, mwplPct: null, mwpl: null, oi: null, band: "ban", forDate, asOf: today(), source: "demo-override", available: true };
+    }
     const day = banDay(forDate);
     const mw = mwplDay(forDate);
     const row = mw?.rows.find((r) => r.symbol === symbol) ?? null;
@@ -1020,6 +1036,15 @@ export function createReferenceService(deps, opts = {}) {
       return demoLotsStale;
     },
     demoLotsStale: () => demo && demoLotsStale,
+    /**
+     * Demo only (p1-06 §4.2): force stocks into the ban period for `minutes` (memory only), so the "close allowed,
+     * open refused" path can be tried. An empty list clears it. A non-demo Bridge refuses.
+     */
+    setDemoBanOverride({ symbols = [], minutes = 30 } = {}) {
+      if (!demo) throw new BridgeError("CAPABILITY_UNSUPPORTED", "Only a demo Bridge can force a ban list.");
+      demoBan = symbols.length ? { symbols: new Set(symbols), until: now() + minutes * 60_000 } : null;
+      return { ban: symbols.length ? [...demoBan.symbols].sort() : [], until: demoBan ? istIso(demoBan.until) : null, source: "demo-override" };
+    },
     config: () => cfg,
     /**
      * For P1-13a participants (and other archive users): whether NSE archive downloads are on, and the one shared

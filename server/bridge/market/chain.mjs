@@ -30,6 +30,28 @@ export function legSymbol(exchange, underlying, expiry, strike, right) {
   return formatSymbol({ exchange, underlying, expiry, strike, right, kind: "OPT" });
 }
 
+/**
+ * Strike step (docs/spec/p1-06-stocks.md §6.1): the most common positive gap between consecutive distinct listed
+ * strikes of one expiry; the smaller gap wins a tie; null with fewer than 3 strikes. Inferred, so callers label it.
+ * [1360, 1380, 1400, 1410, 1420, 1440, 1460] → 20 (the off-grid 1410 is typical after a corporate action).
+ * @param {number[]} strikes
+ */
+export function strikeStepOf(strikes) {
+  const xs = [...new Set((strikes ?? []).filter((k) => typeof k === "number" && Number.isFinite(k) && k > 0))].sort((a, b) => a - b);
+  if (xs.length < 3) return null;
+  const counts = new Map();
+  for (let i = 1; i < xs.length; i += 1) {
+    const gap = Math.round((xs[i] - xs[i - 1]) * 10_000) / 10_000;
+    if (gap > 0) counts.set(gap, (counts.get(gap) ?? 0) + 1);
+  }
+  let best = null;
+  for (const [gap, n] of counts) if (best === null || n > best[1] || (n === best[1] && gap < best[0])) best = [gap, n];
+  return best ? best[0] : null;
+}
+
+/** "physical" for stock derivatives, "cash" for index derivatives, null when the kind is unknown. */
+export const settlementOfKind = (kind) => (kind === "stock" ? "physical" : kind === "index" ? "cash" : null);
+
 /** The strike nearest to spot (lower strike on a tie), or null. */
 export function atmStrike(strikes, spot) {
   if (!(spot > 0) || !strikes.length) return null;

@@ -74,5 +74,12 @@
   "backup": { "enabled": true, "autoFallback": true, "providers": { "yahoo": { "perSecond": 4 }, "nse": { "perSecond": 2 } } },
   "scanner": { "maxSymbols": 1000, "maxRunning": 2, "perAccountConcurrency": 4, "schedule": true, "universes": {} },
   "compat": { "enabled": true, "analyzer": true },
-  "notify": { "targets": [] }
+  "notify": { "targets": [] },
+  "fno": {
+    "universe": { "indices": null, "exchanges": ["NFO"], "maxStocks": 400 },
+    "sweep": { "budgetShare": 0.5, "accountId": "auto", "maxMinutes": 10, "method": "auto", "indexExpiries": 2, "indexMonthly": true, "indexStrikes": 30, "stockExpiries": 1, "nextExpiryWithinDays": 7, "stockStrikes": 15, "hv": { "source": "auto", "candles": 40 }, "minIntervalSeconds": 120, "leaseSeconds": 180, "resumeWithinMinutes": 30, "keepJobs": 2 },
+    "expiry": { "warnFromTradingDays": 4, "closeToMoneyStrikes": 1 },
+    "ban": { "blockOpening": true },
+    "retentionDays": 5
+  }
 }
