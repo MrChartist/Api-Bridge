@@ -102,13 +102,13 @@ describe("participants service", () => {
 
   it("daily schedule: 19:10, retries every 30 min until 22:10; a daily 404 is not 'noFile'", async () => {
     const d = "2026-10-28";
-    const { service, client, clock } = setup({ at: IST(d, "19:09"), files: {}, participants: { backfill: { enabled: false } } });
+    const { service, client, clock } = setup({ at: IST(d, "19:09"), files: { "2026-10-27": csvFor("2026-10-27") }, participants: { backfill: { enabled: false } } });
     await service.tick();
     expect(client.calls.filter((c) => c.date === d)).toHaveLength(0);
     clock.t = IST(d, "19:10");
     await service.tick();
     expect(client.calls.filter((c) => c.date === d)).toHaveLength(1);
-    expect(client.calls[0].path).toBe("/content/nsccl/fao_participant_oi_28102026.csv");
+    expect(client.calls.find((c) => c.date === d).path).toBe("/content/nsccl/fao_participant_oi_28102026.csv");
     clock.t = IST(d, "19:25");
     await service.tick();
     expect(client.calls.filter((c) => c.date === d)).toHaveLength(1);
@@ -260,25 +260,81 @@ describe("participants service", () => {
   it("back-fill: rate limits and timeouts never count toward the skip threshold; a parse failure does", async () => {
     const limited = Object.assign(new Error("429"), { code: "UPSTREAM_RATE_LIMITED" });
     const timeout = Object.assign(new Error("timeout"), { code: "UPSTREAM_TIMEOUT" });
-    const files = { "2026-10-27": timeout, "2026-10-26": "<html>not the csv</html>" };
+    // The page that is not the CSV is the newer day, so each run reaches it before the timing-out day pauses the run.
+    const files = { "2026-10-27": "<html>not the csv</html>", "2026-10-26": timeout, "2026-10-23": csvFor("2026-10-23") };
     const { service, clock, client } = setup({ at: IST("2026-10-28", "17:00"), files, participants: { backfill: { days: 3 } } });
     const count = (d) => client.calls.filter((c) => c.date === d).length;
-    for (let i = 0; i < 6; i += 1) {
-      clock.t += 3_600_000;
+    const run = async () => {
+      // Step past the pause, as the minute tick would (same IST evening, so the targets do not move).
+      const until = service.status().backfill.pausedUntil;
+      if (until) clock.t = Date.parse(until);
       await service.runBackfill({ max: 3 });
+    };
+    for (let i = 0; i < 4; i += 1) await run();
+    expect(count("2026-10-27")).toBe(3); // skipped after three parse failures
+    const timeoutTries = count("2026-10-26");
+    expect(timeoutTries).toBe(4);
+    files["2026-10-26"] = limited;
+    await run();
+    expect(count("2026-10-27")).toBe(3);
+    expect(count("2026-10-26")).toBe(timeoutTries + 1);
+    expect(service.nextBackfillDate()).toBe("2026-10-26"); // never dropped
+    expect(service.status().backfill).toMatchObject({ failed: 1, lastErrorCode: "UPSTREAM_RATE_LIMITED" });
+  });
+
+  it("back-fill backs off while NSE refuses: an archive that always answers 403 gets a handful of requests over six hours", async () => {
+    const blocked = () => Object.assign(new Error("NSE archives answered HTTP 403"), { code: "UPSTREAM_ERROR", httpStatus: 403 });
+    const files = {};
+    for (let d = "2026-10-01"; d <= "2026-10-28"; d = addDays(d, 1)) files[d] = blocked();
+    const { service, client, clock } = setup({ at: IST("2026-10-28", "16:00"), files, participants: { backfill: { days: 5 } } });
+    const settle = async () => {
+      for (let i = 0; i < 50 && (i === 0 || service.status().backfill.running); i += 1) await new Promise((r) => setTimeout(r, 0));
+    };
+    // A minute tick for six hours, 16:00 to 22:00. From 19:10 the daily fetch asks for the 28th every 30 min; that
+    // is the daily schedule (bounded by retryUntil), so only the other dates are counted as back-fill requests.
+    for (let m = 0; m < 360; m += 1) {
+      clock.t = IST("2026-10-28", "16:00") + m * 60_000;
+      await service.tick();
+      await settle();
     }
-    // The page that is not the CSV is skipped after three tries; the timing-out day keeps coming back.
-    const parseTries = count("2026-10-26");
-    const timeoutTries = count("2026-10-27");
-    expect(parseTries).toBe(3);
-    files["2026-10-27"] = limited;
-    for (let i = 0; i < 3; i += 1) {
-      clock.t += 3_600_000;
-      await service.runBackfill({ max: 3 });
+    const backfillCalls = client.calls.filter((c) => c.date !== "2026-10-28").length;
+    // Pauses of 30 min, 1 h, 2 h, 4 h: at most 4–5 back-fill requests in six hours (it was 720 without the back-off).
+    expect(backfillCalls).toBeLessThanOrEqual(5);
+    expect(backfillCalls).toBeGreaterThanOrEqual(3);
+    const st = service.status().backfill;
+    expect(st.pausedUntil).not.toBeNull();
+    expect(st.lastErrorCode).toBe("UPSTREAM_ERROR");
+    expect(st.done).toBe(false);
+    // The first good answer clears the pause.
+    for (const d of Object.keys(files)) files[d] = csvFor(d);
+    clock.t = Date.parse(st.pausedUntil) + 1000;
+    if (service.status().backfill.pausedUntil) clock.t = Date.parse(service.status().backfill.pausedUntil);
+    await service.runBackfill({ max: 1 });
+    expect(service.status().backfill).toMatchObject({ pausedUntil: null, lastErrorCode: null });
+  });
+
+  it("back-fill backs off on a 429 across ticks instead of asking again every minute", async () => {
+    const limited = () => Object.assign(new Error("429"), { code: "UPSTREAM_RATE_LIMITED", httpStatus: 429 });
+    const files = {};
+    for (let d = "2026-10-01"; d <= "2026-10-28"; d = addDays(d, 1)) files[d] = limited();
+    const { service, client, clock } = setup({ at: IST("2026-10-28", "16:00"), files, participants: { backfill: { days: 5 } } });
+    for (let m = 0; m < 180; m += 1) {
+      clock.t = IST("2026-10-28", "16:00") + m * 60_000;
+      await service.tick();
+      for (let i = 0; i < 20 && (i === 0 || service.status().backfill.running); i += 1) await new Promise((r) => setTimeout(r, 0));
     }
-    expect(count("2026-10-26")).toBe(parseTries);
-    expect(count("2026-10-27")).toBeGreaterThan(timeoutTries);
-    expect(timeoutTries).toBeGreaterThan(3);
+    // 16:00, 16:30, 17:30, 19:30 (pauses of 30 min, 1 h, 2 h); the daily 19:10 fetch of the 28th is not a back-fill.
+    expect(client.calls.filter((c) => c.date !== "2026-10-28").length).toBe(4);
+  });
+
+  it("a Bridge started at 10:30 after a night off fetches the missed previous day once", async () => {
+    const { service, client, clock } = setup({ at: IST("2026-10-29", "10:30"), files: { "2026-10-28": csvFor("2026-10-28") }, participants: { backfill: { days: 5 } } });
+    await service.tick();
+    expect(client.calls.map((c) => c.date)).toEqual(["2026-10-28"]);
+    expect(service.latest({}).asOfDate).toBe("2026-10-28");
+    clock.t = IST("2026-10-29", "11:30");
+    await service.tick();
+    expect(client.calls).toHaveLength(1); // once a day; the back-fill still waits for 15:45
   });
 
   it("with reference data stubbed out, latest() and summary() say SOURCE_UNAVAILABLE (not the source-off hint)", () => {

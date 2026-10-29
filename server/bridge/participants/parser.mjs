@@ -30,12 +30,12 @@ export class ParticipantParseError extends Error {
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 const pad = (n) => String(n).padStart(2, "0");
 
-/** "Oct 28, 2026", "28-Oct-2026", "28 October 2026", "28/10/2026", "28-10-2026", "2026-10-28" → "2026-10-28" (or null). */
+/** "Oct 28, 2026", "Oct 28,2026", "28-Oct-2026", "28 October 2026", "28/10/2026", "28-10-2026", "2026-10-28" → "2026-10-28" (or null). */
 export function parseTitleDate(text) {
   const s = String(text ?? "");
   let m = /(\d{4})-(\d{2})-(\d{2})/.exec(s);
   if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  m = /\b([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})\b/.exec(s);
+  m = /\b([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s*(\d{4})\b/.exec(s);
   if (m && MONTHS[m[1].slice(0, 3).toLowerCase()]) return `${m[3]}-${pad(MONTHS[m[1].slice(0, 3).toLowerCase()])}-${pad(m[2])}`;
   m = /\b(\d{1,2})[\s-]+([A-Za-z]{3,9})[\s-]+(\d{4})\b/.exec(s);
   if (m && MONTHS[m[2].slice(0, 3).toLowerCase()]) return `${m[3]}-${pad(MONTHS[m[2].slice(0, 3).toLowerCase()])}-${pad(m[1])}`;
@@ -152,7 +152,13 @@ export function parseParticipantOi(text, { date } = {}) {
   while (at < lines.length) {
     const cells = splitCsvLine(lines[at]);
     if (cells.filter(Boolean).length >= 5 && headerMeaning(cells[0])?.participant) break;
-    if (/participant\s*wise/i.test(lines[at]) || /open interest/i.test(lines[at])) titleDate ??= parseTitleDate(lines[at]);
+    if (/participant\s*wise/i.test(lines[at]) || /open interest/i.test(lines[at])) {
+      const td = parseTitleDate(lines[at]);
+      // A title that names a day ("as on ...") we cannot read is not trusted: the date check below would be skipped
+      // and a file for another day could be stored under the requested date.
+      if (!td && !titleDate && /\bas\s+(on|of|at)\b\W*\w/i.test(lines[at])) throw new ParticipantParseError(`The title names a date that could not be read: "${lines[at].replace(/"/g, "").trim().slice(0, 120)}".`);
+      titleDate ??= td;
+    }
     at += 1;
     if (at > 5) break;
   }

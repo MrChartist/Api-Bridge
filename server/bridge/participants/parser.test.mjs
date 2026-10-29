@@ -87,7 +87,19 @@ describe("participants parser (§7.11)", () => {
     expect(parseTitleDate("as on 28-Oct-2026")).toBe("2026-10-28");
     expect(parseTitleDate("as on 2 January 2025")).toBe("2025-01-02");
     expect(parseTitleDate("as on 28/10/2026")).toBe("2026-10-28");
+    expect(parseTitleDate("as on Oct 28,2026")).toBe("2026-10-28");
+    expect(parseTitleDate("as on 28-OCT-2026")).toBe("2026-10-28");
     expect(parseTitleDate("no date")).toBeNull();
+  });
+
+  it("a title with no space after the comma still gets the date check; an unreadable title date is PARSE_FAILED", () => {
+    const body = fx("fao_participant_oi_28102026.csv").split(/\r?\n/).slice(1).join("\n");
+    const withTitle = (t) => `"${t}"\n${body}`;
+    expect(() => parseParticipantOi(withTitle("Participant wise Open Interest as on Oct 27,2026"), { date: "2026-10-28" })).toThrow(/date mismatch/);
+    expect(parseParticipantOi(withTitle("Participant wise Open Interest as on Oct 28,2026"), { date: "2026-10-28" }).date).toBe("2026-10-28");
+    expect(() => parseParticipantOi(withTitle("Participant wise Open Interest as on 28th of the month"), { date: "2026-10-28" })).toThrow(ParticipantParseError);
+    // A title without "as on ..." is still accepted (with a warning), since the real layout needs verification.
+    expect(parseParticipantOi(withTitle("Participant wise Open Interest (no. of contracts)"), { date: "2026-10-28" }).warnings.length).toBeGreaterThan(0);
   });
 
   it("validateTotals also requires long = short in the TOTAL row", () => {
