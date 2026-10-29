@@ -21,33 +21,62 @@
 
    Gotcha carried over from IPO Decode: write -webkit-backdrop-filter FIRST, then backdrop-filter. */
 
-/* ───────────────────────── 0 · FONTS — the three approved families, self-hosted ─────────────────────────
-     Plus Jakarta Sans   headings, titles, product names            --font-display
-     Inter               body, navigation, buttons, labels, forms,   --font-body, --font-numeric
-                         tables and every figure (tabular numerals)
-     DM Serif Display    one italic accent word in a page title       --font-serif-accent
-   Files: dashboard/fonts/ (SIL Open Font Licence, OFL-*.txt beside them), served as /dashboard/font-<file>.woff2.
-   Inter is the variable build with weight and optical-size axes; its tnum lookup keeps "--" tight (IPO Decode's cut). */
+/* ───────────────────────── 0 · FONTS: the Mr. Chartist type system (docs/theme/TYPE-SYSTEM.md), self-hosted ─────────────────────────
+     Chartist Sans        headings, titles, product names (600 only)                    --font-display
+     Chartist Sans Flex   body, navigation, buttons, labels, forms, tables and every    --font-body, --font-numeric
+                          figure (tabular numerals); weights 300 to 600
+     Chartist Serif       one italic accent word in a page title                         --font-serif-accent
+   Chartist Sans Flex is Google Sans Flex; it has no Greek or arrows, so a small cut of Inter fills only those code points
+   under the same family name (Δ Γ Θ ν σ, ← ↑ → ↓, ▲ ▼, ✓ and friends). Files: dashboard/fonts/ (renamed and marked as
+   modified, original copyright kept, OFL-*.txt and LICENSE.md beside them), served as /dashboard/font-<file>.woff2.
+   Every face stops at 600 and the browser never fakes bolder, so nothing on any page draws heavier than 600. */
+html { font-synthesis-weight: none; }
 @font-face {
-  font-family: "Inter";
+  font-family: "Chartist Sans Flex";
   font-style: normal;
-  font-weight: 100 900;
+  font-weight: 300 600;
   font-display: swap;
-  src: url("/dashboard/font-inter-var-v3.woff2") format("woff2");
+  size-adjust: 107%;
+  src: url("/dashboard/font-chartist-sans-flex.woff2") format("woff2");
 }
 @font-face {
-  font-family: "Plus Jakarta Sans";
+  font-family: "Chartist Sans Flex";
   font-style: normal;
-  font-weight: 200 800;
+  font-weight: 300 600;
   font-display: swap;
-  src: url("/dashboard/font-plus-jakarta-sans-var.woff2") format("woff2");
+  unicode-range: U+0370-03FF, U+2020-2021, U+2032-2033, U+2190-21FF, U+221E, U+2318, U+25A0-25FF, U+2605-2606, U+2713;
+  src: url("/dashboard/font-chartist-sans-flex-symbols.woff2") format("woff2");
 }
 @font-face {
-  font-family: "DM Serif Display";
+  font-family: "Chartist Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/dashboard/font-chartist-sans.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Chartist Serif";
   font-style: italic;
   font-weight: 400;
   font-display: swap;
-  src: url("/dashboard/font-dm-serif-display-italic.woff2") format("woff2");
+  src: url("/dashboard/font-chartist-serif-italic.woff2") format("woff2");
+}
+/* Size-matched fallbacks: Arial drawn to the same width and line height, so nothing shifts while the fonts load. */
+@font-face {
+  font-family: "Chartist Sans Flex Fallback";
+  src: local("Arial"), local("ArialMT"), local("Liberation Sans");
+  size-adjust: 109.4%;
+  ascent-override: 94.5%;
+  descent-override: 28%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "Chartist Sans Fallback";
+  src: local("Arial Bold"), local("Arial-BoldMT"), local("Arial");
+  size-adjust: 106.7%;
+  ascent-override: 97.2%;
+  descent-override: 20.8%;
+  line-gap-override: 0%;
 }
 
 /* ───────────────────────── 1 · TOKENS — light ───────────────────────── */
@@ -196,13 +225,13 @@
   --safe-r: env(safe-area-inset-right, 0px);
 
   /* Type: the only place families are named (besides the @font-face above). Stacks end in a generic keyword only. */
-  --font-display: "Plus Jakarta Sans", "Inter", sans-serif;
-  --font-body: "Inter", sans-serif;
-  --font-numeric: "Inter", sans-serif;
-  --font-serif-accent: "DM Serif Display", serif;
+  --font-display: "Chartist Sans", "Chartist Sans Fallback", system-ui, sans-serif;
+  --font-body: "Chartist Sans Flex", "Chartist Sans Flex Fallback", system-ui, sans-serif;
+  --font-numeric: "Chartist Sans Flex", "Chartist Sans Flex Fallback", system-ui, sans-serif;
+  --font-serif-accent: "Chartist Serif", Georgia, serif;
   --font-mono: var(--font-numeric);
 
-  /* Code (no monospace face: code is Inter with tabular figures) */
+  /* Code (no monospace face: code is Chartist Sans Flex with tabular figures) */
   --syn-key: var(--ios-blue-ink);
   --syn-str: var(--ios-pink-ink);
   --syn-num: var(--ios-indigo-ink);
@@ -1594,7 +1623,7 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
 
 .chain-panel { position: relative; }
 .chain-wrap { max-height: min(70vh, 860px); overflow: auto; overscroll-behavior: contain; }
-table.chain { --desk-row: 40px; width: 100%; border-collapse: separate; border-spacing: 0; font: 500 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums slashed-zero; }
+table.chain { --desk-row: 40px; width: 100%; border-collapse: separate; border-spacing: 0; font: 500 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; }
 table.chain.dense { --desk-row: 30px; }
 table.chain th, table.chain td { height: var(--desk-row); padding: 0 8px; border: 0; white-space: nowrap; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 table.chain th:first-child, table.chain td:first-child { padding-left: 12px; }
@@ -2382,7 +2411,7 @@ button.preset-card.on .glyph-svg .g-line { stroke: currentColor; }
 .leg-row {
   display: grid; grid-template-columns: 22px 24px minmax(96px, 1fr) 32px 50px 70px 60px 40px 28px;
   grid-template-areas: "on side strike right exp lots price delta more";
-  align-items: center; gap: 2px; min-height: 42px; padding: 2px 0 2px 8px; font: 500 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums slashed-zero;
+  align-items: center; gap: 2px; min-height: 42px; padding: 2px 0 2px 8px; font: 500 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums;
   box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline), inset 3px 0 0 transparent; transition: background var(--dur-1);
 }
 .leg-row.buy { box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline), inset 3px 0 0 hsl(var(--c-buy)); }
@@ -2559,7 +2588,7 @@ button.sg-card .sg-meta { grid-area: m; min-width: 0; font: 500 11.5px/1.3 var(-
 .hero-c:first-child { padding-left: 0; }
 .hero-c:last-child { box-shadow: none; }
 .hero-k { font: 600 11px/1 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; }
-.hero-v { font: 700 20px/1.15 var(--font-numeric); letter-spacing: -0.02em; font-variant-numeric: tabular-nums slashed-zero; white-space: nowrap; }
+.hero-v { font: 700 20px/1.15 var(--font-numeric); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hero-v.neutral { color: hsl(var(--foreground)); }
 .hero-s { font: 500 11.5px/1.3 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); min-width: 0; }
 .hero-breakevens .hero-v .be-list.many { font-size: 15px; }
@@ -2746,7 +2775,7 @@ button.wi-reset[hidden] { display: none; }
 .tbl-note { margin-left: auto; font: 500 11.5px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .tbl-empty { margin: 4px 0 10px; font-size: 12.5px; }
 .strat-table .table-wrap { border-radius: 10px; box-shadow: 0 0 0 var(--hl) var(--mat-separator); overflow: auto; }
-table.pnl-table, table.grid-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums slashed-zero; }
+table.pnl-table, table.grid-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 table.pnl-table th, table.pnl-table td { height: 32px; padding: 0 12px; font: 500 13px/1.2 var(--font-numeric); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 table.pnl-table thead th, table.grid-table thead th { height: 30px; font: 600 11px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); background: var(--surface-2); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); position: sticky; top: 0; z-index: 1; }
 table.pnl-table td.c-move, table.pnl-table td.c-sig { color: hsl(var(--foreground) / var(--a-label)); }
@@ -3250,7 +3279,7 @@ button.oi-prof-collapsed { width: 100%; min-height: 28px; justify-content: flex-
 /* The ladder. */
 .oi-ladder-host { position: relative; }
 .oi-ladder-wrap { max-height: min(72vh, 720px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
-table.oi-ladder { --desk-row: 36px; --oi-a: 0.78; width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; font: 450 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums slashed-zero; outline: none; }
+table.oi-ladder { --desk-row: 36px; --oi-a: 0.78; width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; font: 450 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; outline: none; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) table.oi-ladder { --oi-a: 0.72; } }
 :root[data-theme="dark"] table.oi-ladder { --oi-a: 0.72; }
 table.oi-ladder th, table.oi-ladder td { height: var(--desk-row); padding: 0 8px; border: 0; white-space: nowrap; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
@@ -5423,7 +5452,7 @@ svg .scr-map-n { fill: hsl(var(--foreground) / var(--a-label)); font: 650 10px/1
 .scr-wrap { max-height: max(380px, calc(100dvh - 300px)); overflow: auto; overscroll-behavior: contain; box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
 .scr-wrap.more-x { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent); }
 .scr-wrap[hidden], .scr-cards[hidden], .scr-empty[hidden] { display: none; }
-table.scr-table { width: 100%; border-collapse: separate; border-spacing: 0; font: 450 13.5px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums slashed-zero; }
+table.scr-table { width: 100%; border-collapse: separate; border-spacing: 0; font: 450 13.5px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; }
 table.scr-table :is(th, td) { --edge: transparent; --rx: transparent; height: 40px; padding: 4px 8px; text-align: left; white-space: nowrap; vertical-align: middle; font-weight: 450; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 table.scr-table :is(th, td):last-child { padding-right: 12px; }
 table.scr-table .num { text-align: right; }

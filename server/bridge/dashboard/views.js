@@ -990,6 +990,12 @@ async function renderHome() {
         ),
       }),
     ),
+    // The type credit the SIL Open Font License asks for (dashboard/fonts/LICENSE.md).
+    h(
+      "p",
+      { class: "muted small type-credit" },
+      "Type: Chartist Sans Flex (from Google Sans Flex by Google), Chartist Sans (from Plus Jakarta Sans by Tokotype) and Chartist Serif (from Instrument Serif by Instrument), under the SIL Open Font License 1.1.",
+    ),
   );
   return nodes;
 }
