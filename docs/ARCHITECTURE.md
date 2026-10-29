@@ -51,6 +51,9 @@ data/
   orders/               idempotency records, clientOrderId map, live order index      (S7)
   paper/<accountId>.json  paper books                                                 (S8)
   hooks.json            webhook definitions (token hashes only)                       (S11)
+  reference/            reference data store S5: state.json, settings.json (dashboard choices: archives,
+                        rate), lots.json, universe.json, ban.json, mwpl.json, corporate-actions.json (user
+                        rows) and raw/YYYY-MM-DD/ NSE archive downloads with .sha256              (S16)
 ```
 
 ## 3. Module map
@@ -75,7 +78,7 @@ data/
 | `scanner/` | S13 | (routes only) | `/v1/scanner/*`; `scan` events on the stream |
 | `compat/` | S14 | (routes only) | `/api/v1/*` apikey-in-body REST, WS `/api/v1/ws` |
 | `notify/` | S15 | (routes only) | `/v1/notify`, `/v1/notify/test`; Telegram, Discord, Slack, signed webhooks |
-| `reference/` | S16 | `reference` (planned, `docs/spec/p1-02-reference.md`) | `/v1/reference/*` |
+| `reference/` | S16 | `reference` (ReferenceData, `docs/spec/p1-02-reference.md`); dashboard `reference.js` (bundle, chip, banners, lot gate) and `calendar.js` (Market calendar page) | `/v1/reference/*`, demo-only `PUT /v1/demo/reference` |
 | `recorder/` | S17 | `recorder` (planned, `p1-01`, `p1-07`) | `/v1/options/snapshots*`, `/v1/options/daily`, `/v1/options/recorder/*`, series |
 | `vol/` | S18 | `vol` (planned, `p1-03`) | `/v1/vol/*` |
 | `fno/` | S19 | `fno` (planned, `p1-06`) | F&O universe, sweep |
@@ -294,7 +297,7 @@ These shape the design. None of this is legal advice; items flagged **(needs ver
 
 ## 14. Configuration and environment
 
-`bridge.config.json` (see `bridge.config.example.json`). Core sections: `server`, `cors`, `dataDir`, `logging`, `accounts`, `safety`. Module sections (each validated by its module's zod schema): `ratelimit` (S3), `symbols` (S4), `market` (S5), `stream` (S6), `orders` (S7), `paper` (S8), `integrations` (S10), `hooks` and `mcp` (S11). Unknown sections are errors.
+`bridge.config.json` (see `bridge.config.example.json`). Core sections: `server`, `cors`, `dataDir`, `logging`, `accounts`, `safety`. Module sections (each validated by its module's zod schema): `ratelimit` (S3), `symbols` (S4), `market` (S5), `stream` (S6), `orders` (S7), `paper` (S8), `integrations` (S10), `hooks` and `mcp` (S11), `reference` (S16: NSE archive switch, sync times, rate, sessions, holidays, brokerage default). Unknown sections are errors.
 
 | Variable | Effect |
 |---|---|

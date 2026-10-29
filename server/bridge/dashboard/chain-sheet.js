@@ -6,13 +6,13 @@
 // The desk owns the data: `read(strike, side)` returns { x (the chain context), row, q (the leg), position, name,
 // canTrade, paused, warnings }. Numbers are formatted by format.js only; the maths is options.js.
 import { h, icon } from "./app.js";
-import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
+import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
 import { segmented } from "./views.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const g = (v, dp) => (isFigure(v) ? formatFixed(v, dp) : DASH);
-const rupees = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? "-" : ""}₹${formatCompact(Math.abs(v))}` : formatRupee(v, 0));
+const rupees = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? MINUS : ""}₹${formatCompact(Math.abs(v))}` : formatRupee(v, 0));
 const pct = (p) => formatPercent(p === null || p === undefined ? null : p * 100, 0);
 
 /**
@@ -118,8 +118,8 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
   const posText = h("span", { class: "cs-pos-text" });
   const exitBtn = h("button", { type: "button", class: "small cs-exit" }, "Exit");
   const pos = h("div", { class: "cs-pos", hidden: true }, posText, exitBtn);
-  const buyBtn = h("button", { type: "button", class: "cs-buy" });
-  const sellBtn = h("button", { type: "button", class: "cs-sell" });
+  const buyBtn = h("button", { type: "button", class: "btn buy full cs-buy" });
+  const sellBtn = h("button", { type: "button", class: "btn sell full cs-sell" });
   const reason = h("p", { class: "cs-reason", hidden: true });
   const legBuy = h("button", { type: "button", class: "small" }, "Add buy leg");
   const legSell = h("button", { type: "button", class: "small" }, "Add sell leg");
@@ -134,7 +134,7 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
     "dialog",
     { class: "chain-sheet", "aria-labelledby": titleId, tabindex: "-1" },
     head,
-    h("div", { class: "cs-body" }, pos, h("div", { class: "cs-trade" }, buyBtn, sellBtn), reason, h("div", { class: "cs-more" }, legBuy, legSell), grid, warns, chartSlotEl),
+    h("div", { class: "cs-body" }, pos, h("div", { class: "trade-pair cs-trade" }, buyBtn, sellBtn), reason, h("div", { class: "cs-more" }, legBuy, legSell), grid, warns, chartSlotEl),
   );
 
   const state = () => read(strike, s) ?? {};

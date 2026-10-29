@@ -4,7 +4,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DASH, ageText, formatCompact, formatFixed, formatInt, formatNumber, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, MINUS, ageText, formatCompact, formatFixed, formatInput, formatInt, formatNumber, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 
 describe("dashboard number format", () => {
   it("prints figures without grouping commas", () => {
@@ -18,23 +18,39 @@ describe("dashboard number format", () => {
   });
 
   it("keeps signs and never prints a negative zero", () => {
-    expect(formatRupee(-42)).toBe("-₹42.00");
-    expect(formatRupee(-724, 0)).toBe("-₹724");
+    expect(formatRupee(-42)).toBe("−₹42.00");
+    expect(formatRupee(-724, 0)).toBe("−₹724");
     expect(formatRupee(-0.001, 0)).toBe("₹0");
     expect(formatFixed(-0.004)).toBe("0.00");
     expect(formatSigned(12.3)).toBe("+12.30");
-    expect(formatSigned(-4.1)).toBe("-4.10");
+    expect(formatSigned(-4.1)).toBe("−4.10");
     expect(formatSigned(0)).toBe("0.00");
   });
 
   it("signs money first, one rule everywhere", () => {
     expect(formatSignedRupee(1204.5)).toBe("+₹1204.50");
-    expect(formatSignedRupee(-1204.5)).toBe("-₹1204.50");
+    expect(formatSignedRupee(-1204.5)).toBe("−₹1204.50");
     expect(formatSignedRupee(-0.004)).toBe("₹0.00");
     expect(formatSignedRupee(null)).toBe(DASH);
     expect(formatSignedRupee(1e7, 0)).toBe("+₹10000000");
-    expect(formatRupee(-1204)).toBe("-₹1204.00");
+    expect(formatRupee(-1204)).toBe("−₹1204.00");
     expect(formatRupee(-1204)).not.toMatch(/₹-/);
+  });
+
+  it("starts every negative with the true minus sign U+2212, never a hyphen (TYPE-SYSTEM.md §4)", () => {
+    expect(MINUS).toBe("\u2212");
+    for (const t of [formatNumber(-1.5), formatInt(-3), formatFixed(-2.35), formatPercent(-2.35, 2), formatRupee(-1235.4), formatSigned(-1), formatSignedRupee(-5), formatCompact(-150_000)]) {
+      expect(t, t).toMatch(/^\u2212/);
+      expect(t, t).not.toContain("-");
+    }
+    expect(formatCompact(-40)).toBe("\u221240");
+    expect(formatCompact(-0.2)).toBe("0");
+  });
+
+  it("keeps an editable field's text parseable (ASCII hyphen, no grouping)", () => {
+    expect(formatInput(-0.5)).toBe("-0.50");
+    expect(Number(formatInput(-1234.5, 1))).toBe(-1234.5);
+    expect(formatInput(null)).toBe("");
   });
 
   it("says how old data is in whole units", () => {
@@ -64,14 +80,21 @@ describe("dashboard number format", () => {
     expect(formatCompact(1_586_850)).toBe("15.87L");
     expect(formatCompact(8_540)).toBe("8.5K");
     expect(formatCompact(950)).toBe("950");
-    expect(formatCompact(-31_382)).toBe("-31.4K");
+    expect(formatCompact(-31_382)).toBe("−31.4K");
     expect(formatCompact(31_382, { signed: true })).toBe("+31.4K");
     expect(formatCompact(0, { signed: true })).toBe("0");
     expect(formatCompact(null)).toBe(DASH);
   });
 
+  it("no other dashboard file hand-builds a hyphen sign for a figure (MINUS from format.js instead)", () => {
+    for (const f of ["app.js", "views.js", "options.js", "desk.js", "chain-sheet.js", "oi.js", "strategy.js", "strategy-place.js", "payoff.js", "positions.js", "book-core.js", "book-view.js", "vol.js", "vol-curves.js", "arbitrage.js", "screener.js", "screens.js", "viz.js"]) {
+      const src = readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
+      expect(src, f).not.toMatch(/\? "-" :|: "-"\)|-\$\{(?:format|fmt|rupee|money)|["`]-₹/);
+    }
+  });
+
   it("no other dashboard file formats numbers with the locale formatter", () => {
-    for (const f of ["app.js", "views.js", "palette.js", "motion.js", "snippets.js", "options.js", "pricing.js", "desk.js", "chain-sheet.js", "oi.js", "oi-store.js", "strategy.js", "strategy-place.js", "payoff.js", "positions.js", "book-core.js", "book-view.js", "vol.js", "vol-curves.js", "arbitrage.js", "screener.js", "screens.js", "viz.js"]) {
+    for (const f of ["app.js", "views.js", "palette.js", "motion.js", "snippets.js", "options.js", "pricing.js", "desk.js", "chain-sheet.js", "oi.js", "oi-store.js", "strategy.js", "strategy-place.js", "payoff.js", "positions.js", "book-core.js", "book-view.js", "vol.js", "vol-curves.js", "arbitrage.js", "screener.js", "screens.js", "viz.js", "reference.js", "calendar.js"]) {
       const src = readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
       expect(src, f).not.toMatch(/Intl\.NumberFormat|\.toLocaleString\(|toLocaleTimeString|toFixed\(/);
       expect(src, f).not.toMatch(/₹\d{1,3},\d/);

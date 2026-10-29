@@ -17,6 +17,7 @@
  */
 
 import { createReadinessRoutes } from "../readiness/routes.mjs";
+import { BridgeError } from "../core/errors.mjs";
 
 /**
  * @typedef {{ module: string, method: "GET"|"POST"|"PUT"|"PATCH"|"DELETE", path: string,
@@ -34,6 +35,19 @@ export const DEMO_ROUTES = Object.freeze([
     path: "/v1/demo/readiness",
     options: { scope: "read", summary: "Demo mode only: simulate a readiness failure on the demo account" },
     handler: (deps) => createReadinessRoutes(deps).demoScenario,
+  }),
+  // p1-02 (P1-2b): make the demo's lot data stale, so LOT_SIZE_STALE, the stale banner and the ticket's lot-size
+  // confirmation can be tried end to end (the bundle's ?demoStale=1 only changes that one read).
+  Object.freeze({
+    module: "reference",
+    method: "PUT",
+    path: "/v1/demo/reference",
+    options: { scope: "admin", loopbackOnly: true, summary: "Demo: report the reference lot data as two trading days old" },
+    handler: (deps) => async (ctx) => {
+      const b = ctx.body && typeof ctx.body === "object" && !Array.isArray(ctx.body) ? ctx.body : null;
+      if (!b || typeof b.lotsStale !== "boolean") throw new BridgeError("VALIDATION_FAILED", "Send { lotsStale: true | false }.", { field: "lotsStale" });
+      return { data: { lotsStale: deps.reference.setDemoLotsStale(b.lotsStale) }, meta: { requestId: ctx.requestId } };
+    },
   }),
 ]);
 

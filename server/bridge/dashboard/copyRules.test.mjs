@@ -16,6 +16,9 @@ const NEUTRAL_COPY_FILES = Object.freeze({
   "motion.js": [],
   "book-core.js": [],
   "book-view.js": ["BUY", "SELL"],
+  // P1-2b (docs/spec/p1-02-reference.md §7.2): reference chips, banners and the Market calendar describe facts only.
+  "reference.js": [],
+  "calendar.js": [],
 });
 
 describe("banned-word list", () => {

@@ -4,8 +4,13 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createEventBus } from "../core/eventBus.mjs";
+import { createNullLogger } from "../core/logger.mjs";
 import { bootBridge, stubBroker } from "../e2e/fixtures.mjs";
+import { parseReadinessConfig } from "./config.mjs";
+import { createReadinessService } from "./monitor.mjs";
+import { createReadinessRoutes } from "./routes.mjs";
 
 let bridge;
 const keys = {};
@@ -112,5 +117,46 @@ describe("readiness routes", () => {
 
   it("the demo scenario route does not exist outside demo mode", async () => {
     expect((await bridge.http("/v1/demo/readiness", { method: "POST", key: keys.read, body: { scenario: "ip-changed" } })).status).toBe(404);
+  });
+});
+
+describe("POST /v1/readiness/check 12 s cap (§4.2)", () => {
+  it("a probe that never answers: the reply after 12 s shows session unknown / Still checking, not the earlier pass", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.parse("2026-10-19T10:00:00+05:30"));
+      const config = {
+        demo: false,
+        safety: { liveTrading: true },
+        accounts: [{ id: "zerodha-main", broker: "zerodha", label: "Main", enabled: true, live: { enabled: true, allowedSources: ["rest"], registeredIp: "203.0.113.10" } }],
+        readiness: parseReadinessConfig({ probe: { timeoutMs: 30_000 } }),
+        notify: { targets: [] },
+      };
+      const accounts = { status: () => ({ state: "connected", expiresAt: null, message: null }), testConnection: vi.fn(async () => ({ ok: true })) };
+      const safety = {
+        limits: () => ({ limits: { orderRatePerSecond: 5, dailyMaxOrders: 100, dailyMaxLoss: 10000 }, usage: { ordersToday: 0, realisedPnlToday: 0, ordersLastSecond: 0 } }),
+        killSwitchStatus: () => ({ engaged: false }),
+        setDetectedEgressIp: () => {},
+      };
+      const readiness = createReadinessService({ config, logger: createNullLogger(), bus: createEventBus(), clock: { now: () => Date.now() }, paths: {}, accounts, safety }, { jitterSeconds: 0 });
+      const routes = createReadinessRoutes({ readiness, config });
+      const ctx = (body) => ({ requestId: "r1", body, query: new URLSearchParams(), principal: { kind: "local" }, loopback: true });
+      // A first check passes …
+      const first = await routes.checkReadiness(ctx({}));
+      expect(first.data.accounts[0].checks.session.status).toBe("pass");
+      // … then, past the cooldown, the broker stops answering.
+      vi.setSystemTime(Date.now() + 31_000);
+      accounts.testConnection.mockImplementation(() => new Promise(() => {}));
+      for (const body of [{}, { account: "zerodha-main" }]) {
+        let res = null;
+        void routes.checkReadiness(ctx(body)).then((r) => (res = r));
+        await vi.advanceTimersByTimeAsync(12_100);
+        expect(res).not.toBeNull();
+        expect(res.data.accounts[0].checks.session).toMatchObject({ status: "unknown", message: "Still checking" });
+        expect(res.data.accounts[0].state).not.toBe("ready");
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

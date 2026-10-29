@@ -122,6 +122,15 @@ describe("sync", () => {
     expect(h.svc.mwplList({ date: "2026-10-29", symbol: "GHI" }).items).toEqual([{ symbol: "GHI", mwpl: 50000000, oi: 7500000, limitNextDay: 40000000, mwplPct: 15, band: "normal" }]);
   });
 
+  it("the bundle's ban block says when the ban / MWPL data is older than allowed", async () => {
+    const symbols = createFakeSymbolService({ instruments: [{ symbol: "NSE:DEF", lotSize: 1, tickSize: 0.05 }, { symbol: "NFO:DEF-2026-11-24-FUT", lotSize: 500, tickSize: 0.05 }] });
+    const h = setup({ reference: ON, symbols });
+    await h.svc.sync({ datasets: ["ban", "mwpl"] });
+    expect((await h.svc.bundle({ underlying: "DEF" })).ban).toMatchObject({ mwplPct: 84.2, stale: false, staleTradingDays: 0 });
+    h.clock.t = istInstant("2026-11-03", "10:00"); // Fri 30 Oct, Mon 2 Nov, Tue 3 Nov: no newer files fetched
+    expect((await h.svc.bundle({ underlying: "DEF" })).ban).toMatchObject({ stale: true, staleTradingDays: 3, asOf: "2026-10-29" });
+  });
+
   it("upstream errors map to Bridge codes and leave the data alone", async () => {
     const h = setup({ reference: ON, fetch: fakeFetch({ mktlots: () => 429 }) });
     const r = await h.svc.sync({ datasets: ["lots"] });

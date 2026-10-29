@@ -75,12 +75,26 @@ describe("mc-bridge init", () => {
 
   it("asks questions when interactive", async () => {
     const t = setup();
-    const answers = ["n", "y", "y", "zerodha", "zerodha-me", "My Kite"];
+    const answers = ["n", "y", "y", "zerodha", "zerodha-me", "My Kite", "y"];
+    const asked = [];
     t.io.interactive = true;
-    t.io.prompt = async () => answers.shift() ?? "";
+    t.io.prompt = async (q) => (asked.push(q), answers.shift() ?? "");
     expect(await runCli(["init"], { "no-key": true }, t.io)).toBe(0);
     const cfg = JSON.parse(readFileSync(join(t.dir, "bridge.config.json"), "utf8"));
     expect(cfg.accounts[1]).toMatchObject({ id: "zerodha-me", broker: "zerodha", label: "My Kite" });
+    // The NSE reference files question (p1-02 §2.1): yes turns the archive downloads on.
+    expect(asked.at(-1)).toMatch(/Download NSE's public F&O reference files \(lot sizes, ban list, MWPL\) once or twice a day\?/);
+    expect(cfg.reference.sources.nseArchives.enabled).toBe(true);
+    expect(loadConfig({ path: join(t.dir, "bridge.config.json"), env: {} }).config.reference.sources.nseArchives.enabled).toBe(true);
+  });
+
+  it("leaves NSE archive downloads off unless asked (a fresh install calls no third-party site)", async () => {
+    const t = setup();
+    expect(await runCli(["init"], { yes: true, "no-key": true }, t.io)).toBe(0);
+    expect(JSON.parse(readFileSync(join(t.dir, "bridge.config.json"), "utf8")).reference.sources.nseArchives.enabled).toBe(false);
+    const t2 = setup();
+    expect(await runCli(["init"], { yes: true, "no-key": true, "nse-archives": true }, t2.io)).toBe(0);
+    expect(JSON.parse(readFileSync(join(t2.dir, "bridge.config.json"), "utf8")).reference.sources.nseArchives.enabled).toBe(true);
   });
 
   it("ensureMasterKey never overwrites and builds configs without browser origins", () => {

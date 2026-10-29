@@ -51,7 +51,7 @@ export function money(v, { signed = true } = {}) {
 }
 /** The same with the gain / loss colour. */
 export const moneyEl = (v, opts) => h("span", { class: isFigure(v) && Math.round(v) > 0 ? "up" : isFigure(v) && Math.round(v) < 0 ? "down" : undefined }, money(v, opts));
-/** Axis rupees: "+₹5K", "-₹10K", "0". */
+/** Axis rupees: "+₹5K", "−₹10K", "0". */
 const axisMoney = (v) => (Math.abs(v) < 1e-9 ? "0" : `${v > 0 ? "+" : "\u2212"}₹${formatCompact(Math.abs(v)).replace(/\.0(?=[KLC])/, "")}`);
 
 /**

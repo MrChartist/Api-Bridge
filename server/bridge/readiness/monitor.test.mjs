@@ -415,6 +415,48 @@ describe("readiness review fixes", () => {
     expect(h.events.filter((e) => e.notify)).toHaveLength(1);
   });
 
+  it("warn churn under a fixed fail set is pushed once all day, not again every cooldown", async () => {
+    vi.setSystemTime(MON_1000);
+    let n = 0;
+    const h = harness({ readiness: LOOKUP, egress: fakeEgress(() => (n++ % 2 ? { ok: false, error: "timed out", at: Date.now() } : { ok: true, ip: "198.51.100.23", family: "ipv4", at: Date.now(), seenBy: "api.ipify.org" })) });
+    const svc = h.make();
+    const codes = new Set();
+    for (let i = 0; i < 13; i += 1) {
+      vi.setSystemTime(MON_1000 + i * 4 * 60_000);
+      await svc.check({});
+      expect(svc.status().accounts[0].state).toBe("cannot_trade");
+      codes.add(svc.status().accounts[0].reasons.map((r) => r.code).join(","));
+    }
+    expect([...codes].sort()).toEqual(["IP_MISMATCH", "IP_MISMATCH,IP_LOOKUP_FAILED"]);
+    expect(h.events.filter((e) => e.notify)).toHaveLength(1);
+  });
+
+  it("a passing probe restored from yesterday is not proof: startup outside the window is unknown, no broker call", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "mcb-rd-"));
+    mkdirSync(join(dataDir, "readiness"), { recursive: true });
+    const yesterday = T("2026-10-18T15:44:00+05:30");
+    writeFileSync(
+      join(dataDir, "readiness", "state.json"),
+      JSON.stringify({ version: 1, accounts: { "zerodha-main": { state: "ready", since: "2026-10-18T09:00:00+05:30", checkedAt: "2026-10-18T15:44:00+05:30", reasons: [], lastProbe: { at: yesterday, result: "ok" } } }, preopen: { lastRunDate: "2026-10-18" }, transitions: [] }),
+    );
+    vi.setSystemTime(T("2026-10-19T07:00:00+05:30"));
+    const h = harness({ dataDir });
+    const svc = h.make();
+    svc.start();
+    await vi.advanceTimersByTimeAsync(20_100);
+    expect(h.accounts.testConnection).not.toHaveBeenCalled();
+    let a = svc.status().accounts[0];
+    expect(a.state).toBe("unknown");
+    expect(a.checks.session).toMatchObject({ status: "unknown", message: "Not checked recently" });
+    // A bus-triggered evaluation (no probe) after the close is no fresher.
+    h.bus.emit("safety.kill_switch", { engaged: false });
+    await vi.advanceTimersByTimeAsync(300);
+    a = svc.status().accounts[0];
+    expect(a.state).toBe("unknown");
+    expect(h.accounts.testConnection).not.toHaveBeenCalled();
+    svc.stop();
+  });
+
   it("one failed lookup while a mismatch is known stays cannot_trade: no 'ready again' push", async () => {
     vi.setSystemTime(MON_1000);
     let fail = false;

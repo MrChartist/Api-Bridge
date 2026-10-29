@@ -57,6 +57,7 @@ import {
 import { readinessConfig, readinessWarnings } from "./config.mjs";
 import { createEgressDetector } from "./egress.mjs";
 import { normaliseIp } from "./ip.mjs";
+import { defaultSessionFor } from "../reference/defaults.mjs";
 import { TRANSITIONS_KEPT, createReadinessStore, freshState } from "./store.mjs";
 
 const TICK_MS = 60_000;
@@ -107,6 +108,9 @@ export function createReadinessService(deps, opts = {}) {
   const detector = opts.egress ?? createEgressDetector({ cfg: cfg.egressIp, fetchImpl: opts.fetchImpl, clock: deps.clock, logger: deps.logger });
   const jitter = opts.jitterSeconds ?? (sim ? 0 : jitterSecondsFor(dataDir ?? "bridge"));
   const intervalMinutes = sim ? 1 : cfg.intervalMinutes;
+  // A passing probe proves the session only while it is recent; an older one (restored from state.json, or left from
+  // before the close) is shown as unknown, never as ready (§2.3, §3.2). It is still kept for the probe cooldown.
+  const maxProbeAgeMs = Math.max(cfg.staleAfterMinutes, 2 * intervalMinutes) * 60_000;
 
   /** @type {Map<string, any>} per-account memory */
   const mem = new Map();
@@ -197,7 +201,8 @@ export function createReadinessService(deps, opts = {}) {
         /* fall back */
       }
     }
-    return istInstant(d, "15:30");
+    // No reference store (or no usable session): the reference module's labelled default close.
+    return istInstant(d, defaultSessionFor("NFO").close);
   }
 
   const policyCooldown = (account) => {
@@ -408,7 +413,7 @@ export function createReadinessService(deps, opts = {}) {
     const m = memFor(id);
     const inp = inputsFor(account);
     const who = { label: account.label ?? id, brokerName: brokerNameOf(account.broker) };
-    const s = sessionCheck({ session: inp.session, probe: m.lastProbe, probeRequired: cfg.probe.enabled, now: t, warnMinutes: cfg.warn.sessionExpiresWithinMinutes, closeMs: inp.simulated ? Infinity : closeMsFor(t), expirySource: inp.simulated ? "simulated" : "broker-stated" });
+    const s = sessionCheck({ session: inp.session, probe: m.lastProbe, probeRequired: cfg.probe.enabled, now: t, warnMinutes: cfg.warn.sessionExpiresWithinMinutes, closeMs: inp.simulated ? Infinity : closeMsFor(t), expirySource: inp.simulated ? "simulated" : "broker-stated", maxProbeAgeMs });
     const e = egressCheck({ mode: inp.eg.mode, registeredIp: inp.eg.registeredIp, backupIp: inp.eg.backupIp, manualIp: cfg.egressIp.manualIp, detected: inp.eg.detected, now: t, intervalMinutes, maxSkewMs: cfg.egressIp.maxSkewMs, who });
     const r = rateCheck({ perSecond: inp.lim.perSecond, usedLastSecond: inp.lim.usedLastSecond, broker: inp.broker, backoffMs: inp.backoffMs });
     const o = dailyOrdersCheck({ limit: inp.lim.dailyMaxOrders, used: inp.lim.ordersToday, leftPct: cfg.warn.dailyOrdersLeftPct });
@@ -764,7 +769,10 @@ export function createReadinessService(deps, opts = {}) {
     return canTrade(accountId, {});
   }
 
-  async function checkNow({ accountId, reason = "manual" } = {}) {
+  /**
+   * accountId: one account; accountIds: only these (the route passes the ids the caller's key may see); neither: all.
+   */
+  async function checkNow({ accountId, accountIds, reason = "manual" } = {}) {
     const skipped = new Set();
     let list = tracked();
     if (accountId) {
@@ -772,6 +780,9 @@ export function createReadinessService(deps, opts = {}) {
       if (!list.length) {
         if (!configAccount(accountId)) throw new BridgeError("ACCOUNT_NOT_FOUND", `There is no account "${accountId}" in bridge.config.json.`);
       }
+    } else if (Array.isArray(accountIds)) {
+      const want = new Set(accountIds);
+      list = list.filter((a) => want.has(a.id));
     }
     void reason;
     let timedOut = false;
@@ -782,7 +793,7 @@ export function createReadinessService(deps, opts = {}) {
         return null;
       });
     }
-    const snapshot = status({ accountIds: accountId ? [accountId] : undefined });
+    const snapshot = status({ accountIds: accountId ? [accountId] : Array.isArray(accountIds) ? accountIds : undefined });
     if (timedOut) {
       // §4.2: the parts still running carry status unknown / "Still checking" (not the previous answer).
       const still = { status: "unknown", message: "Still checking" };

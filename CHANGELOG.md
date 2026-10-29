@@ -32,6 +32,10 @@ All notable changes to this project are listed here. The format follows [Keep a 
   type system (`docs/theme/TYPE-SYSTEM.md`): Chartist Sans for headings, Chartist Sans Flex for text and numbers,
   Chartist Serif for the one accent word, all self-hosted under the SIL Open Font License with no slashed zero; numbers print without grouping commas, with fixed decimals and `--` for
   missing values. Checked at 320 to 2560 px in light and dark with no horizontal overflow.
+- **Buttons follow the Mr Chartist button system** (`docs/theme/BUTTON-SYSTEM.md`): pure black or white with an iOS
+  glass finish, only Buy and Sell in colour (gain green, loss red), capsules by default, a focus ring inside the shape,
+  a press that settles and springs back, connected bars with one line per seam, and a 44 px touch area that keeps dense
+  toolbars dense. Price changes are plain coloured text, never a filled pill.
 - **Android**: the one-line installer works in Termux (Node.js from Termux's own packages, a Termux:Widget shortcut,
   a wake lock while running, links opened with termux-open-url).
 - **Broker logos** on the Accounts page, the Add a broker list and the account tables: each broker's own site icon,

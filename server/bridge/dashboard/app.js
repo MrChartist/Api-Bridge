@@ -4,7 +4,7 @@
 // (#signin=<code>): it is removed from the address bar before anything else and exchanged for a key (POST /v1/sign-in).
 // Pure helpers (ticketFields, confirmCodeNotice, friendlyError ...) are exported for tests; DOM code runs only in a browser.
 
-import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, installPressFeedback, pulse, sheetIn, sheetOut, shake } from "./motion.js";
+import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, pulse, reducedMotion, sheetIn, sheetOut, shake } from "./motion.js";
 import { DASH, ageText, formatRupee } from "./format.js";
 
 // Page hooks for views.js (optional: app.js start-up already runs them automatically; both are idempotent).
@@ -264,6 +264,7 @@ export const ICONS = {
   wave: '<path d="M3 12c2-5 4-5 6 0s4 5 6 0 4-5 6 0"/><path d="M3 20h18"/>',
   scale: '<path d="M12 4v16M5 20h14M4 8h16"/><path d="m4 8-2.5 6h5zM20 8l-2.5 6h5z"/>',
   columns: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01"/>',
   radar: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 12 18.4 5.6"/><circle cx="15.5" cy="9.5" r="1.1"/>',
 };
 export function icon(name) {
@@ -1065,8 +1066,7 @@ async function signIn() {
 
 if (typeof document !== "undefined" && document.getElementById("login-form")) {
   applyTheme(local.get(THEME_SLOT) ?? "auto");
-  // Motion: button press feedback, and page / sidebar entrances on navigation.
-  installPressFeedback(document);
+  // Motion: page / sidebar entrances on navigation (a button press is CSS: app.css 8a).
   installAutoAnimations();
   // Appearance buttons (the sidebar's and the More sheet's) and "Forget key", wherever they are drawn.
   document.addEventListener("click", (e) => {
@@ -1074,6 +1074,7 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
     const choice = t?.closest?.("[data-theme-choice]");
     if (choice) chooseTheme(/** @type {HTMLElement} */ (choice).dataset.themeChoice);
     else if (t?.closest?.("[data-action=logout]")) forgetKey();
+    revealInRow(t?.closest?.("button, [role=tab], [role=radio]"));
   });
   document.getElementById("login-form").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -1084,6 +1085,22 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
     signIn();
   });
   boot();
+}
+
+/**
+ * A choice picked in a sideways-scrolling row (phone tab rows, chips, expiry strips) slides fully into view, so the
+ * selected tab is never left half under the row's edge fade.
+ */
+function revealInRow(el) {
+  const row = el?.parentElement;
+  if (!row || row.scrollWidth <= row.clientWidth + 1) return;
+  const x = getComputedStyle(row).overflowX;
+  if (x !== "auto" && x !== "scroll") return;
+  const a = el.getBoundingClientRect();
+  const b = row.getBoundingClientRect();
+  const pad = 24; // clear of the 12 to 16 px edge fades
+  const dx = a.left < b.left + pad ? a.left - b.left - pad : a.right > b.right - pad ? a.right - b.right + pad : 0;
+  if (dx) row.scrollBy({ left: dx, behavior: reducedMotion() ? "auto" : "smooth" });
 }
 
 /** Start-up: redeem a sign-in link first (when the page was opened with one), then sign in as usual. */

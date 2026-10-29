@@ -124,7 +124,7 @@ describe("chain records and runPreset", () => {
         expect(S.reason(rec, p.id)).toBe(t);
       }
     }
-    expect(S.reason({ volOi: 12.5, oiLots: 1200, oiChgPct: 4.2, changePct: -3 }, "unusual")).toBe("Vol/OI 12.5× on 1.2K lots OI · OI +4.2% · price -3.0%");
+    expect(S.reason({ volOi: 12.5, oiLots: 1200, oiChgPct: 4.2, changePct: -3 }, "unusual")).toBe("Vol/OI 12.5× on 1.2K lots OI · OI +4.2% · price −3.0%");
     expect(S.reason({ ivHv: -2, popLong: 0.34, leverage: 39.2 }, "buy")).toBe("IV 2.0 pts under HV · POP 34% · 39× leverage");
     expect(S.reason({ ivHv: 3.1, right: "PE", strike: 26000, support: 26200, thetaLot: 669 }, "sell")).toBe("IV 3.1 pts over HV · beyond put wall · θ ₹669/day");
   });
