@@ -82,7 +82,7 @@ data/
 | `recorder/` | S17 | `recorder` (planned, `p1-01`, `p1-07`) | `/v1/options/snapshots*`, `/v1/options/daily`, `/v1/options/recorder/*`, series |
 | `vol/` | S18 | `vol` (planned, `p1-03`) | `/v1/vol/*` |
 | `fno/` | S19 | `fno` (planned, `p1-06`) | F&O universe, sweep |
-| `readiness/` | S20 | `readiness` (planned, `p1-05`) | trading readiness |
+| `readiness/` | S20 | `readiness` (`p1-05`) | trading readiness: session, static IP, headroom, kill switch per live account; automated-send gate |
 | `exposure/` | S21 | `exposure` (planned, `p1-08`) | `/v1/options/levels`, exposure profile |
 | `strategy/` | S22 | `settlement` (planned, `p1-09`) | `/v1/strategy/*` |
 | `margin/` | S23 | `margin`, `chargePlans` (planned, `p1-10`) | basket margin, `/v1/charges/plans` |
@@ -232,6 +232,22 @@ route (S7, scope paper) ─► validate body (zod) ─► idempotency check (rep
 | Public ingress | core | off by default; a separate listener that serves only `public` routes (webhooks), never the API |
 | AI confirmation | S7, S11 | order tools prepare a ticket; a human confirms it in the dashboard with an admin key from this computer; client-side approval prompts and MCP annotations never count as confirmation; no tool can change paper/live mode, scopes or the kill switch release |
 | Body limits and timeouts | core | 64 KB default bodies (16 KB for hooks), 30 s request timeout, broker calls time out via `brokerFetch` |
+| Cross-site writes | core security | besides the Origin allowlist, a non-GET request with `Sec-Fetch-Site: cross-site` or `same-site` and no allowlisted Origin is refused (`ORIGIN_NOT_ALLOWED`) |
+| Trading readiness | S20 | per live account: session (stated expiry + read call), egress IP vs `live.registeredIp` (opt-in lookup, IP in memory only), headroom, kill switch; automated live sends refused with `CANNOT_TRADE` while `cannot_trade`; it never sends or engages anything |
+
+**Security baseline (BRD §7.9), audited 29 Oct 2026** (`docs/spec/p1-05-readiness.md` §3.9):
+
+| # | Finding | Verdict and test |
+|---|---|---|
+| F1 | No route authenticates from a cookie; the dashboard sends a per-tab bearer key from `sessionStorage` | This is the per-session token: a browser never attaches it on its own, so CSRF cannot carry it. No cookies (T-sec-4) |
+| F2 | The Origin allowlist runs before routing; preflight only for listed origins; `Origin: null` refused | Every non-GET route is tested (T-sec-1) |
+| F3 | The sign-in admin key lives 30 days, though the tab forgets it on close | Acceptable (loopback-only creation, hashed at rest); revoking on tab close is not reliable |
+| F4 | Non-GET `auth: "none"` only `POST /v1/sign-in` (loopback, one-time code); `auth: "custom"` only hooks and `/api/v1/*` | Locked by an allowlist test (T-sec-2) |
+| F5 | `?key=` only on GET routes with `allowQueryKey`, read keys only | Tested (T-sec-2) |
+| F6 | WebSocket upgrades run the same Host and Origin check | Every upgrade path tested (T-sec-3) |
+| F7 | A write with `Sec-Fetch-Site: cross-site` and no Origin passed the Origin check | Fixed: `assertNotCrossSiteWrite` (T-sec-1c) |
+| F8 | `X-Frame-Options: DENY`, `frame-ancestors 'none'`, `script-src 'self'`, CORP, `no-store` on every response | Asserted per module (T-sec-5) |
+| F9 | MCP order tools hidden without config and `paper` scope; `live` mode only with a live key; MCP keys cannot hold `admin` | Matrix test (T-sec-6) |
 
 ## 9. Symbology
 

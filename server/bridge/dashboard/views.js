@@ -31,8 +31,10 @@ import {
   toast,
   touchWord,
   sheetPopover,
+  confirmEngageKillSwitch,
   DEMO_EXPLAINER,
 } from "./app.js";
+import { STATE_TEXT, STATE_TONE, readinessCard, readinessPill, refreshReadiness } from "./readiness.js";
 import { DASH, formatFixed, formatInt, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { renderArbPage, renderChainPage, renderOiPage, renderPositionsPage, renderStrategyPage, renderVolPage } from "./desk.js";
 import { renderCalendarPage } from "./calendar.js";
@@ -962,6 +964,9 @@ async function renderHome() {
 
   // Your Bridge: accounts and safety
   const ks = safety.data?.data?.killSwitch;
+  // Trading readiness, next to the kill-switch pill: the badge's last reading, else a fresh one (local, no broker call).
+  const readySnap = await refreshReadiness();
+  const readyPill = readySnap ? readinessPill(readySnap) : null;
   nodes.push(
     eyebrow("Your Bridge"),
     h(
@@ -992,7 +997,7 @@ async function renderHome() {
         body: h(
           "div",
           { class: "stack" },
-          h("div", { class: "row" }, ks?.engaged ? pill("Kill switch on", "bad") : pill("Kill switch off", "ok"), safety.data?.data?.liveTrading ? pill("Live trading on", "bad") : pill("Paper only")),
+          h("div", { class: "row" }, ks?.engaged ? pill("Kill switch on", "bad") : pill("Kill switch off", "ok"), readyPill, safety.data?.data?.liveTrading ? pill("Live trading on", "bad") : pill("Paper only")),
           h("p", { class: "muted" }, ks?.engaged ? `Engaged ${istDateTime(ks.at)}: ${ks.reason ?? ""}` : "Orders pass every safety check: order-rate cap, daily limits, price band, market-order protection."),
           h("p", { class: "muted small" }, `Bridge ${app.state.health?.version ?? ""} · up ${formatInt((app.state.health?.uptimeSeconds ?? 0) / 60)} min · listening on this computer only`),
         ),
@@ -1752,20 +1757,7 @@ async function renderSafety() {
   const s = (await api("/v1/safety")).data.data;
   const ks = s.killSwitch ?? {};
   const engage = async () => {
-    const reason = h("input", { value: "Stopped from the dashboard", maxlength: "200" });
-    const cancel = h("input", { type: "checkbox" });
-    const go = await modal({
-      title: "Stop all orders?",
-      body: h("div", { class: "stack" }, h("p", {}, "New orders are refused at once, including ones already queued. Cancels still work."), h("label", { class: "field" }, "Reason", reason), h("label", { class: "check" }, cancel, "Also cancel open orders the Bridge placed")),
-      buttons: [{ label: "Keep trading", value: false }, { label: "Stop all orders", cls: "primary", value: true }],
-    });
-    if (!go) return;
-    try {
-      await api("/v1/safety/kill-switch", { method: "POST", body: { reason: reason.value || "manual", cancelOpenOrders: cancel.checked } });
-      toast("Kill switch engaged");
-    } catch (err) {
-      await modal({ title: "Could not engage", body: alertBox(err), buttons: [{ label: "Close", value: true }] });
-    }
+    if (await confirmEngageKillSwitch()) refreshReadiness();
     show();
   };
   const release = async () => {
@@ -1779,6 +1771,7 @@ async function renderSafety() {
     try {
       await api("/v1/safety/kill-switch", { method: "DELETE", body: { confirm: "RELEASE" } });
       toast("Kill switch released");
+      refreshReadiness();
     } catch (err) {
       await modal({ title: "Could not release", body: alertBox(err), buttons: [{ label: "Close", value: true }] });
     }
@@ -1851,7 +1844,9 @@ async function renderSafety() {
       emptyState("safety", "No accounts", "Daily limits appear once an account is configured.", nextStep("Go to Accounts", "#/accounts")),
     ),
   });
-  return [killCard, h("div", { class: "grid side" }, limits, live)];
+  // Trading readiness (docs/spec/p1-05-readiness.md §6.4): between the kill switch and live trading.
+  const ready = await readinessCard({ cardFn: card, demo: app.state.demo }).catch(() => null);
+  return [killCard, ready, h("div", { class: "grid side" }, limits, live)].filter(Boolean);
 }
 
 // ── Keys ──
@@ -2037,6 +2032,8 @@ async function webhookPanel(paperAcc) {
     { label: "Source", cell: (x) => x.source },
     { label: "Account", cell: (x) => x.account },
     { label: "Mode", cell: (x) => (x.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
+    // Live hooks: their account's trading readiness (GET /v1/hooks `readiness`; paper hooks have none).
+    { label: "Readiness", cell: (x) => (x.mode === "live" && x.readiness ? pill(STATE_TEXT[x.readiness] ?? x.readiness, STATE_TONE[x.readiness] ?? "") : h("span", { class: "muted" }, DASH)) },
     { label: "Last alert", cell: (x) => istDateTime(x.lastSignalAt) },
     {
       label: "",

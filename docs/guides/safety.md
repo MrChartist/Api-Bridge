@@ -25,7 +25,25 @@ as little as possible. Everything below is on by default.
 7. an `Idempotency-Key` header or a `clientOrderId` (a live order without one is refused, so a retry cannot double it);
 8. every safety check below.
 
-A request that misses any of them is refused with a clear code, never quietly downgraded. Nothing in the API, the
+A request that misses any of them is refused with a clear code, never quietly downgraded.
+
+### Trading readiness
+
+The Bridge checks every live-enabled account at 09:00 IST on trading days and every 4 minutes from 08:45 to 15:45
+IST: broker session (stated expiry plus a cheap read call), this computer's IP against `live.registeredIp` (only when
+you turn the lookup on), order-rate and daily headroom, and the kill switch. Each account is `ready`, `warn`,
+`cannot_trade`, `paper_only` or `unknown`. `GET /v1/readiness` returns it; the dashboard shows it as a badge on every
+page and a card on the Safety page; `get_safety_status` (MCP) includes it.
+
+| Order | While its account is `cannot_trade` |
+|---|---|
+| Automated live order (webhook; later guards and alert actions) | **Refused** with `CANNOT_TRADE`; no broker call is made. A stale reading is refreshed first (up to 5 s) |
+| Live order a person sends (REST, CLI, a confirmed MCP ticket) | Sent through the usual checks, with a `READINESS` warning |
+| Paper order | No readiness line (paper never needs the broker session) |
+
+Readiness only adds a refusal or a warning: it never engages the kill switch, cancels or sends anything. Turn the
+refusal into a warning with `readiness.gateAutomated: false`. Static IP and the daily login are explained in
+[deployment.md](deployment.md). Nothing in the API, the
 environment (`MCB_PAPER_ONLY=1` can only tighten), an MCP tool or a webhook can switch live trading on.
 
 ## Checks on every order (paper and live)

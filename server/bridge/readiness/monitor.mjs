@@ -24,6 +24,7 @@ import { isStub } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { BROKER_NAMES } from "../accounts/brokerInfo.mjs";
 import { createBackgroundGate, MAX_BACKGROUND_SHARE } from "../ratelimit/backgroundGate.mjs";
+import { DEFAULT_NOTIFY_EVENTS } from "../notify/config.mjs";
 import { formatEvent } from "../notify/format.mjs";
 import { createDemoReadiness, DEMO_SAMPLE_AUTOMATIONS } from "../demo/demoReadiness.mjs";
 import { marketSession } from "../../lib/marketHours.mjs";
@@ -710,12 +711,12 @@ export function createReadinessService(deps, opts = {}) {
         : overall === "ready"
           ? `${counted.length === 1 ? "The live account is" : `All ${counted.length} live accounts are`} ready`
           : overall === "warn"
-            ? `${counted.filter((v) => v.state === "warn").length} of ${counted.length} live account${counted.length === 1 ? "" : "s"} need attention`
+            ? `${counted.filter((v) => v.state === "warn").length} of ${counted.length} live account${counted.length === 1 ? "" : "s"} ${counted.filter((v) => v.state === "warn").length === 1 ? "needs" : "need"} attention`
             : "Still checking";
     const latest = views.reduce((mx, v) => (Number.isFinite(v._checkedAtMs) && v._checkedAtMs > mx ? v._checkedAtMs : mx), -Infinity);
     const autos = registry.list().filter((a) => !want || want.has(a.accountId));
     const stateById = new Map(views.map((v) => [v.accountId, v.state]));
-    const targets = (config.notify?.targets ?? []).filter((x) => x.enabled !== false && Array.isArray(x.events) && x.events.includes("trading.readiness")).map((x) => x.id);
+    const targets = (config.notify?.targets ?? []).filter((x) => x.enabled !== false && (Array.isArray(x.events) && x.events.length ? x.events : DEFAULT_NOTIFY_EVENTS).includes("trading.readiness")).map((x) => x.id);
     const window = sim ? { from: "00:00", to: "23:59" } : cfg.window;
     const egressMode = sim ? (sim.scenario() === "ip-unchecked" ? "off" : "lookup") : cfg.egressIp.mode;
     const simEgress = sim ? sim.egress() : null;

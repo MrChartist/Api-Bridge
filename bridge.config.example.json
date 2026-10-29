@@ -14,7 +14,7 @@
       "broker": "dhan",
       "label": "Dhan (main)",
       "holder": "self",
-      "live": { "enabled": false, "allowedSources": ["rest"] },
+      "live": { "enabled": false, "allowedSources": ["rest"], "registeredIp": "203.0.113.10" },
       "marketData": { "pooling": false }
     },
     {
@@ -74,5 +74,6 @@
   "backup": { "enabled": true, "autoFallback": true, "providers": { "yahoo": { "perSecond": 4 }, "nse": { "perSecond": 2 } } },
   "scanner": { "maxSymbols": 1000, "maxRunning": 2, "perAccountConcurrency": 4, "schedule": true, "universes": {} },
   "compat": { "enabled": true, "analyzer": true },
-  "notify": { "targets": [] }
+  "notify": { "targets": [] },
+  "readiness": { "egressIp": { "mode": "off", "lookupUrl": null }, "gateAutomated": true }
 }

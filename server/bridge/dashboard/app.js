@@ -997,6 +997,31 @@ export function brokerMatches(broker, query) {
   return q.split(/\s+/).every((w) => hay.includes(w));
 }
 
+// ── Kill switch ──
+
+/**
+ * "Stop all orders?": the one confirmation for engaging the kill switch (the Safety page and the readiness badge's
+ * popover both call it). Resolves true once the switch is on.
+ */
+export async function confirmEngageKillSwitch() {
+  const reason = h("input", { value: "Stopped from the dashboard", maxlength: "200" });
+  const cancel = h("input", { type: "checkbox" });
+  const go = await modal({
+    title: "Stop all orders?",
+    body: h("div", { class: "stack" }, h("p", {}, "New orders are refused at once, including ones already queued. Cancels still work."), h("label", { class: "field" }, "Reason", reason), h("label", { class: "check" }, cancel, "Also cancel open orders the Bridge placed")),
+    buttons: [{ label: "Keep trading", value: false }, { label: "Stop all orders", cls: "primary", value: true }],
+  });
+  if (!go) return false;
+  try {
+    await api("/v1/safety/kill-switch", { method: "POST", body: { reason: reason.value || "manual", cancelOpenOrders: cancel.checked } });
+    toast("Kill switch engaged");
+    return true;
+  } catch (err) {
+    await modal({ title: "Could not engage", body: alertBox(err), buttons: [{ label: "Close", value: true }] });
+    return false;
+  }
+}
+
 // ── Theme ──
 
 export function applyTheme(choice) {
@@ -1062,6 +1087,8 @@ async function signIn() {
   const { startRouter } = await import("./views.js");
   // Awaited so a banner shown after sign-in comes after the first page draw (which clears #toast).
   await startRouter();
+  // The trading-readiness badge in the toolbar (every page; docs/spec/p1-05-readiness.md §6.3).
+  import("./readiness.js").then((m) => m.mountReadinessBadge()).catch(() => {});
 }
 
 if (typeof document !== "undefined" && document.getElementById("login-form")) {

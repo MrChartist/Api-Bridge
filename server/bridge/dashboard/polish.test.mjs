@@ -111,7 +111,7 @@ describe("PRD 08: Options CSS sections", () => {
 });
 
 describe("PRD 08: Options modules", () => {
-  const pages = jsFiles.filter((f) => /^(desk|strategy|strategy-place|oi|screener|vol|vol-curves|arbitrage|positions|calendar|reference)\.js$/.test(f));
+  const pages = jsFiles.filter((f) => /^(desk|strategy|strategy-place|oi|screener|vol|vol-curves|arbitrage|positions|calendar|reference|readiness)\.js$/.test(f));
   it("covers the Options page modules", () => expect(pages.length).toBeGreaterThanOrEqual(8));
   for (const f of pages) {
     it(`${f}: no desk-empty, no "Loading the chain", no ms label, no ₹-`, () => {

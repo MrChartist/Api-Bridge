@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { USAGE, bridgeUrl, openInBrowser, parseExpiry, runCli, runDoctor, startHints } from "./cli.mjs";
+import { USAGE, bridgeUrl, openInBrowser, parseExpiry, readinessDoctorChecks, runCli, runDoctor, startHints } from "./cli.mjs";
 import { loadConfig } from "./config.mjs";
 
 function io(env = {}) {
@@ -199,6 +199,37 @@ describe("runDoctor", () => {
     expect(checks.find((c) => c.check === "public-ingress").level).toBe("warn");
     const good = await runDoctor({ config, env: { MCB_MASTER_KEY: Buffer.alloc(32).toString("base64") }, portCheck: false });
     expect(good.find((c) => c.check === "master-key").level).toBe("ok");
+  });
+});
+
+describe("doctor: trading readiness checks (p1-05 T15)", () => {
+  const cfg = (raw) => loadConfig({ raw: { dataDir: mkdtempSync(join(tmpdir(), "mcb-doc-")), ...raw }, env: {} }).config;
+  it("warns about a live-enabled account without live.registeredIp, and passes when every live account has one", async () => {
+    const bad = cfg({ safety: { liveTrading: true }, accounts: [{ id: "a1", broker: "dhan", live: { enabled: true } }, { id: "a2", broker: "zerodha", live: { enabled: true, registeredIp: "203.0.113.10" } }, { id: "a3", broker: "upstox" }] });
+    const c = readinessDoctorChecks(bad).find((x) => x.check === "static-ip");
+    expect(c.level).toBe("warn");
+    expect(c.message).toMatch(/a1/);
+    expect(c.message).not.toMatch(/a2|a3/);
+    expect(c.message).toMatch(/deployment\.md/);
+    const checks = await runDoctor({ config: bad, env: {}, portCheck: false });
+    expect(checks.find((x) => x.check === "static-ip")).toMatchObject({ level: "warn" });
+    const good = cfg({ accounts: [{ id: "a2", broker: "zerodha", live: { enabled: true, registeredIp: "203.0.113.10" } }] });
+    expect(readinessDoctorChecks(good).find((x) => x.check === "static-ip").level).toBe("ok");
+    // No live account: nothing to say.
+    expect(readinessDoctorChecks(cfg({ accounts: [{ id: "a3", broker: "upstox" }] })).find((x) => x.check === "static-ip")).toBeUndefined();
+  });
+  it("warns when notify targets exist but none listens to trading.readiness", () => {
+    const deaf = cfg({ notify: { targets: [{ id: "phone", kind: "webhook", url: "https://n8n.example.com/a", events: ["scan.alert"] }, { id: "off", kind: "webhook", url: "https://n8n.example.com/b", enabled: false }] } });
+    const c = readinessDoctorChecks(deaf).find((x) => x.check === "readiness-notify");
+    expect(c.level).toBe("warn");
+    expect(c.message).toMatch(/trading\.readiness/);
+    // A target without an events list gets the default list, which includes trading.readiness.
+    const dflt = cfg({ notify: { targets: [{ id: "phone", kind: "webhook", url: "https://n8n.example.com/a" }] } });
+    expect(readinessDoctorChecks(dflt).find((x) => x.check === "readiness-notify")).toMatchObject({ level: "ok", message: expect.stringMatching(/phone/) });
+    const explicit = cfg({ notify: { targets: [{ id: "tg", kind: "webhook", url: "https://n8n.example.com/a", events: ["trading.readiness"] }] } });
+    expect(readinessDoctorChecks(explicit).find((x) => x.check === "readiness-notify").level).toBe("ok");
+    // No targets at all: the check stays quiet (notifications are optional).
+    expect(readinessDoctorChecks(cfg({})).find((x) => x.check === "readiness-notify")).toBeUndefined();
   });
 });
 

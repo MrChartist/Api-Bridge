@@ -23,8 +23,9 @@ yourself and the family members SEBI allows. It ships no strategies or signals a
 - **Algo IDs:** the broker tags API orders (a generic tag below the threshold). The Bridge never invents tags.
 - **Static IP:** API orders must come from a static IP registered with the broker (a primary and an optional
   secondary, changeable only occasionally); data and portfolio calls generally work from any IP (**needs
-  verification** against CIR/2025/0000013, NSE/INVG/67858 and your broker's rules). Set `live.registeredIp` per account so the Bridge can warn before an order. A tunnel to a PC with a
-  changing IP cannot place live orders.
+  verification** against CIR/2025/0000013, NSE/INVG/67858 and your broker's rules). Set `live.registeredIp` (and an optional `live.backupIp`) per account so the Bridge can warn before an order;
+  the readiness check compares them with this computer's address when you turn its lookup on. A tunnel to a PC with
+  a changing IP cannot place live orders. Ways to get a fixed address: [deployment.md](deployment.md).
 - **Daily logout:** API sessions must end before the next trading day (**needs verification** per broker and against
   CIR/2025/0000013). The Bridge follows each broker's expiry, never
   stores TOTP secrets and never automates 2FA.

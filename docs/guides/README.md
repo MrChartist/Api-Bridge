@@ -19,6 +19,7 @@ Start with the [main README](../../README.md) for the quick start. These guides 
 | [excel-sheets.md](excel-sheets.md) | Excel `WEBSERVICE`, Power Query, Google Sheets |
 | [mcp.md](mcp.md) | Claude Desktop, Claude Code, Cursor (MCP) |
 | [chatgpt-openai.md](chatgpt-openai.md) | ChatGPT and OpenAI function calling |
+| [deployment.md](deployment.md) | Static IP for live orders (ISP, VPS, VPN), the daily login and the trading-readiness badge |
 | [safety.md](safety.md) | Paper and live modes, keys, limits, kill switch, audit |
 | [compliance.md](compliance.md) | SEBI, exchange and broker rules that shape the design (with needs-verification flags) |
 
