@@ -59,6 +59,23 @@
     "freeze": {},
     "retentionDays": 400
   },
+  "recorder": {
+    "enabled": true,
+    "account": null,
+    "indices": ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX"],
+    "indexExpiries": 3,
+    "indexStrikes": 40,
+    "stocks": [],
+    "stockExpiries": 1,
+    "stockStrikes": 15,
+    "stockEveryMinutes": 5,
+    "sources": { "stream": true, "rest": true, "nseBackup": false },
+    "budgetShare": 0.5,
+    "streamShare": 0.6,
+    "retentionDays": 365,
+    "maxDiskMb": 10240,
+    "dailyAt": "15:31"
+  },
   "market": {
     "freshness": { "ltpMs": 1000, "quoteMs": 2000, "depthMs": 1000, "chainMs": 3000 },
     "stale": { "enabled": true, "maxStaleMs": 60000, "waitMs": 250 },

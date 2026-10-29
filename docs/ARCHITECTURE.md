@@ -54,6 +54,14 @@ data/
   reference/            reference data store S5: state.json, settings.json (dashboard choices: archives,
                         rate), lots.json, universe.json, ban.json, mwpl.json, corporate-actions.json (user
                         rows) and raw/YYYY-MM-DD/ NSE archive downloads with .sha256              (S16)
+  recorder/             option-chain recorder S17 (docs/spec/p1-01-recorder.md §3.4):            (S17)
+    state.json          last slot, plan hash, refused chains, warnings, holiday flag
+    s1/YYYY-MM-DD/<UNDERLYING>/<EXPIRY>.ndjson(.gz)  one line per chain per minute (snapshot or gap
+                        record), append-only; gzipped at the 15:40 IST day roll
+    s1/YYYY-MM-DD/<UNDERLYING>/_und.ndjson(.gz)  spot and futures per minute
+    s1/YYYY-MM-DD/day.json  per-chain counts after the roll
+    s3/<UNDERLYING>/<YYYY>.ndjson  daily derived rows (PCR, max pain, largest OI, ΔOI, basis, rollover)
+  recorder-demo/        the same layout for demo mode only (sample data, kept 3 days; real mode never reads it)
 ```
 
 ## 3. Module map
@@ -79,7 +87,7 @@ data/
 | `compat/` | S14 | (routes only) | `/api/v1/*` apikey-in-body REST, WS `/api/v1/ws` |
 | `notify/` | S15 | (routes only) | `/v1/notify`, `/v1/notify/test`; Telegram, Discord, Slack, signed webhooks |
 | `reference/` | S16 | `reference` (ReferenceData, `docs/spec/p1-02-reference.md`); dashboard `reference.js` (bundle, chip, banners, lot gate) and `calendar.js` (Market calendar page) | `/v1/reference/*`, demo-only `PUT /v1/demo/reference` |
-| `recorder/` | S17 | `recorder` (planned, `p1-01`, `p1-07`) | `/v1/options/snapshots*`, `/v1/options/daily`, `/v1/options/recorder/*`, series |
+| `recorder/` | S17 | `recorder` (RecorderService, `docs/spec/p1-01-recorder.md`; series planned in `p1-07`); dashboard `recorder.js` (Data recorder page) and `oi-store.js` (the OI page's cache of the server series) | `/v1/options/snapshots`, `/v1/options/snapshots/latest`, `/v1/options/daily`, `/v1/options/recorder`, `/v1/options/recorder/plan`, `/v1/options/recorder/config`; MCP `get_option_snapshots` (`options` toolset) |
 | `vol/` | S18 | `vol` (planned, `p1-03`) | `/v1/vol/*` |
 | `fno/` | S19 | `fno` (planned, `p1-06`) | F&O universe, sweep |
 | `readiness/` | S20 | `readiness` (planned, `p1-05`) | trading readiness |

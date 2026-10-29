@@ -59,6 +59,19 @@ the opt-in `options` MCP toolset, `demo/routes.mjs`, `server/lib/jsonl.mjs`, `ra
 | S26 | `participants` | reference |
 | S27 | `book` | orders, marketData, accounts |
 
+### S17 — Options recorder (`docs/spec/p1-01-recorder.md`)
+
+- **Owns:** `server/bridge/recorder/` (planner, budget, stream and REST sources, snapshot builder, NDJSON store, daily
+  S3 job, demo back-fill, routes), `market/oiUnits.mjs`, `dashboard/oi-series.js` (shared with P1-7),
+  `dashboard/recorder.js` (`#/recorder`), the server-backed part of `dashboard/oi-store.js`, and
+  `scripts/recorder-feasibility.mjs` (the broker table in `docs/guides/recorder.md`, also served by
+  `GET /v1/options/recorder?feasibility=true`).
+- **Rules:** one data account, never pooled across holders; at most 50 % of every REST window and 60 % of the feed
+  account's subscriptions; a user's chain request is never delayed more than 200 ms by recorder traffic; gaps are
+  written as gaps, never filled; nothing under `recorder/` imports `orders/`, `paper/` or `safety/`.
+- **Done when:** `recorder.e2e.test.mjs` (steps 1–5) is green, the Data recorder page works at phone, tablet and
+  desktop widths in demo, and the OI page's 15m and Since open windows read "Recorded by the Bridge".
+
 ---
 
 ## S1 — Accounts and broker sessions

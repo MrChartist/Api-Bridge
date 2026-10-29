@@ -1,5 +1,5 @@
 /**
- * Recorder end to end (docs/spec/p1-01-recorder.md §12, steps 1–4; step 5, the demo, is in demo/demo.test.mjs):
+ * Recorder end to end (docs/spec/p1-01-recorder.md §12, steps 1–5):
  * the real Bridge (every module, real scheduler, market data and HTTP) with a clock that starts on Mon 19 Oct 2026
  * at 10:00:58 IST and runs in real time, and stub brokers with an instrument master and an option-chain endpoint.
  *
@@ -8,12 +8,17 @@
  *  3. Stop; boot again at 10:03:58 on the same data folder: 10:01–10:03 are bridge-down gaps and a snapshot is
  *     written at 10:04 (resume within a minute).
  *  4. PUT /v1/options/recorder/config asking a 1 request/s broker for 200 stocks: 422 CAPACITY_EXCEEDED with
- *     canCarry; nothing changes.
+ *     canCarry; nothing changes (status and the config file).
+ *  5. Demo mode with the clock on Mon 19 Oct 2026 at 11:00:30 IST: within 5 s the nearest NIFTY expiry has back-filled
+ *     minutes since 09:15 (quality demo-backfill / demo) and /v1/options/daily has rows for 2 previous weekdays.
  */
 import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { createApp } from "../core/app.mjs";
+import { loadConfig } from "../core/config.mjs";
+import { createNullLogger } from "../core/logger.mjs";
 import { bootBridge, eventually, shiftedClock, stubBroker } from "./fixtures.mjs";
 
 const EXPIRY = "2026-10-27";
@@ -132,6 +137,40 @@ describe("recorder end to end", () => {
     expect(r.json.detail).toMatch(/Nothing was saved/);
     const afterSt = (await b.bridge.http("/v1/options/recorder", { key: b.key })).json.data;
     expect(afterSt.settings.stocks).toEqual(before.settings.stocks);
+    expect(afterSt.plan.chains).toEqual(before.plan.chains);
+    // Nothing written to disk either: no config file appeared beside the data.
+    expect(readdirSync(b.bridge.dataDir).filter((f) => f.endsWith(".json") && f.startsWith("bridge.config"))).toEqual([]);
     await b.bridge.close();
+  }, 30_000);
+
+  it("step 5: demo mode back-fills today's minutes since 09:15 and daily rows for previous weekdays within 5 s", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mcb-rec-e2e5-"));
+    const { config } = loadConfig({ raw: { dataDir: dir, server: { port: 0 }, logging: { level: "silent" } }, env: {}, demo: true });
+    const app = await createApp({ config, logger: createNullLogger(), clock: shiftedClock(Date.parse("2026-10-19T11:00:30+05:30")) });
+    open.push(app);
+    const { port } = await app.listen();
+    const { key } = await app.deps.keyStore.create({ label: "t", scopes: ["read"], accounts: "*" });
+    const get = async (path) => (await fetch(`http://127.0.0.1:${port}${path}`, { headers: { Authorization: `Bearer ${key}` } })).json();
+    const t0 = Date.now();
+    const expiry = (await get("/v1/expiries?underlying=NIFTY")).data.expiries[0];
+    const page = await eventually(
+      async () => {
+        const d = (await get(`/v1/options/snapshots?underlying=NIFTY&expiry=${expiry}&fields=oi,ltp&limit=500`)).data;
+        return d?.snapshots?.length >= 100 ? d : null;
+      },
+      { ms: 5000, every: 100 },
+    );
+    expect(Date.now() - t0).toBeLessThan(5000);
+    // Default range: today's session open (09:15) to now, one snapshot a minute.
+    expect(page.snapshots[0].slot).toBe("2026-10-19T09:15:00.000+05:30");
+    expect(page.snapshots.some((x) => x.quality === "demo-backfill")).toBe(true);
+    expect(page.snapshots.every((x) => x.quality === "demo-backfill" || x.quality === "demo")).toBe(true);
+    expect(page.snapshots.every((x) => x.ce.oi.every((v) => v === null || v % page.snapshots[0].lotSize === 0))).toBe(true);
+    await app.deps.recorder.backfillDone();
+    const daily = (await get("/v1/options/daily?underlying=NIFTY")).data.rows;
+    expect([...new Set(daily.map((r) => r.date))].sort()).toEqual(expect.arrayContaining(["2026-10-15", "2026-10-16"]));
+    expect(existsSync(join(dir, "recorder-demo"))).toBe(true);
+    expect(existsSync(join(dir, "recorder"))).toBe(false);
+    await app.close();
   }, 30_000);
 });

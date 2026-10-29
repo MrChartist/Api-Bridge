@@ -15,6 +15,7 @@ import { parseTimeInput, toIstIso } from "../market/time.mjs";
 import { defaultSessionFor } from "../reference/defaults.mjs";
 import { istDateOf, istMidnight } from "./calendar.mjs";
 import { RECORDER_CONFIG_SCHEMA } from "./config.mjs";
+import { feasibilityTableRows } from "./feasibility.mjs";
 import { API_FIELDS, FIELD_KEYS } from "./snapshot.mjs";
 import { decodeCursor } from "./store.mjs";
 
@@ -151,8 +152,11 @@ export function parseSnapshotQuery(params, { now, defaults = {}, sessionOpen = n
   const fromRaw = q(params, "from");
   const toRaw = q(params, "to");
   const today = istDateOf(now);
-  const fromMs = fromRaw === undefined ? istMidnight(today) + openMinutes(sessionOpen) * 60_000 : parseTimeInput(fromRaw, { field: "from" });
   const toMs = toRaw === undefined ? now : parseTimeInput(toRaw, { endOfDay: true, field: "to" });
+  // The default `from` is today's session open; before it (an early script, the demo's always-open night) it is the
+  // start of today, so a default read never answers "to before from".
+  const open = istMidnight(today) + openMinutes(sessionOpen) * 60_000;
+  const fromMs = fromRaw === undefined ? (open <= toMs ? open : Math.min(istMidnight(today), toMs)) : parseTimeInput(fromRaw, { field: "from" });
   if (toMs < fromMs) throw invalid("to", "to must not be before from.");
   if (toMs - fromMs > MAX_RANGE_MS) throw invalid("to", "The range is at most 31 days per call; page within it with cursor.");
   const fields = fieldsOf(q(params, "fields"), defaults.fields ?? DEFAULT_FIELDS);
@@ -359,7 +363,10 @@ export function createRecorderRoutes(recorder, deps) {
     },
 
     async status(ctx) {
-      return { data: redactStatus(recorder.status(), ctx), meta: meta(ctx) };
+      // ?feasibility=true adds "which brokers can record what" (the Data recorder page asks once, not on every poll).
+      const withTable = boolOf(q(ctx.query, "feasibility"), "feasibility");
+      const data = redactStatus(recorder.status(), ctx);
+      return { data: withTable ? { ...data, feasibility: feasibilityTableRows() } : data, meta: meta(ctx) };
     },
 
     async plan(ctx) {

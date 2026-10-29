@@ -1151,6 +1151,12 @@ paths:
       summary: Recorder state, feeding account, plan, budget, coverage and disk use
       x-stream: S17
       x-scope: read
+      parameters:
+        - name: feasibility
+          in: query
+          required: false
+          description: "true adds `feasibility`: which brokers can record what with the default settings (one row per broker, generated from the code)."
+          schema: { type: boolean, default: false }
       responses:
         "200":
           description: Status.
@@ -5019,6 +5025,23 @@ components:
         backfill: { type: [object, "null"], description: "Demo mode only: the synthetic back-fill." }
         settings: { type: object, description: "The recorder settings in use (RecorderConfig shape)." }
         warnings: { type: array, items: { type: string } }
+        feasibility:
+          type: array
+          description: "Only with ?feasibility=true: one row per broker (default settings), the same words as the table in docs/guides/recorder.md."
+          items:
+            type: object
+            properties:
+              broker: { type: string }
+              label: { type: string }
+              feed: { type: string }
+              rest: { type: string }
+              indices: { type: string }
+              stocks: { type: string }
+              restAllowed: { type: boolean }
+              indexByStream: { type: integer }
+              indexByRest: { type: integer }
+              indexRefused: { type: integer }
+              stocksTotal: { type: integer }
     Problem:
       type: object
       required: [type, title, status, code, retryable]

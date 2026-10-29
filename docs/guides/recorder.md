@@ -2,7 +2,7 @@
 
 The Bridge can record your option chains every minute while the market is open, even with the dashboard closed. It
 reads them from **one** of your own broker accounts, keeps them on this computer, and gives them back through the API,
-MCP and (from the next release) the dashboard's Data recorder page and OI windows. Nothing is uploaded.
+MCP and the dashboard's Data recorder page and OI windows. Nothing is uploaded.
 
 - **What:** each configured chain once a minute (indices) or every 5 minutes (stocks you opt in), during the
   equity-derivatives session from the reference calendar (holidays and Muhurat sessions included).
@@ -14,6 +14,21 @@ MCP and (from the next release) the dashboard's Data recorder page and OI window
   These are over the recorded strikes (±40 for indices by default), not the whole chain.
 - **Gaps stay gaps:** a minute that could not be recorded is written as a gap with its reason (feed down, budget,
   broker error, session expired, Bridge down …). Nothing is filled in.
+
+## On the dashboard
+
+- **Data recorder** (`#/recorder`, under Overview) shows what is being recorded: the state, the account feeding it,
+  today's snapshots and gap minutes, disk use, and one row per chain with recorded / expected minutes, gaps and the
+  last snapshot's age (a row opens its gap list and a link to the OI page). Chains the account cannot carry are listed
+  below with the reason. The Budget card shows the recorder's share of the live feed and of the REST budget.
+- **Settings** on the same page (from this computer, with an admin key; on phones in a sheet): the account, indices,
+  expiries and strikes, opted-in stocks, the two shares, days kept and the NSE website backup. Every edit is checked
+  at once ("This account can carry …"); Save refuses what the account cannot carry and offers "Use what fits".
+- **OI Analysis**: when the recorder records the chain on screen, the 5m … 1h and Since open windows use its minutes
+  ("Recorded by the Bridge every minute", with coverage and gaps). Otherwise the page says so and uses what it records
+  itself while open.
+- **Which brokers can record what** (collapsed at the foot of the page) is the table below, generated from the same
+  code (`GET /v1/options/recorder?feasibility=true`).
 
 ## Turning it on or off
 

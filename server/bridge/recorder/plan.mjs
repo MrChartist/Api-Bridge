@@ -262,18 +262,27 @@ export function feasibilityRow({ broker, policy, hasFeed, cfg, label }) {
   };
 }
 
+/**
+ * The four text cells of one feasibility row (the doc table and the Data recorder page show the same words):
+ * { feed, rest, indices, stocks }.
+ */
+export function feasibilityCells(r) {
+  const feed = r.feedCap ? `${fmt(r.feedCap)} × 0.6 = ${fmt(r.streamCap)}${r.verifiedFeed ? "" : " (default cap)"}` : "no feed in adapter";
+  const unverified = r.restWindows.some((w) => !w.verified) ? " (unverified)" : "";
+  const perSecond = r.restWindows.filter((w) => w.window.endsWith("/s")).map((w) => Number(w.window.replace(/[^\d]/g, "")));
+  const rest = r.restAllowed ? `${r.endpointClass}: ${fmt(r.restPerMinute)} calls/min${unverified}` : `off (${r.endpointClass} ${perSecond.length ? `${Math.min(...perSecond)}/s` : "limits unknown"}${unverified})`;
+  const indices = [r.indexByStream ? `${r.indexByStream} stream` : null, r.indexByRest ? `${r.indexByRest} REST` : null, r.indexRefused ? `${r.indexRefused} refused` : null].filter(Boolean).join(", ") || "none";
+  const n = r.stocksByStream + r.stocksByRest;
+  const stocks = n ? `about ${fmt(n)}${r.stocksByStream && r.stocksByRest ? ` (${fmt(r.stocksByStream)} stream, ${fmt(r.stocksByRest)} REST)` : r.stocksByStream ? " by stream" : " by REST"}` : "0";
+  return { feed, rest, indices, stocks };
+}
+
 /** The Markdown feasibility table (docs/guides/recorder.md §5.3), one row per broker. */
 export function feasibilityMarkdown(rows) {
   const head = ["| Broker | Live feed: recorder share | REST for the recorder | Index chains (18 at ±40) | Stocks at 5 min (±15) |", "|---|---|---|---|---|"];
   const lines = rows.map((r) => {
-    const feed = r.feedCap ? `${fmt(r.feedCap)} × 0.6 = ${fmt(r.streamCap)}${r.verifiedFeed ? "" : " (default cap)"}` : "no feed in adapter";
-    const unverified = r.restWindows.some((w) => !w.verified) ? " (unverified)" : "";
-    const perSecond = r.restWindows.filter((w) => w.window.endsWith("/s")).map((w) => Number(w.window.replace(/[^\d]/g, "")));
-    const rest = r.restAllowed ? `${r.endpointClass}: ${fmt(r.restPerMinute)} calls/min${unverified}` : `off (${r.endpointClass} ${perSecond.length ? `${Math.min(...perSecond)}/s` : "limits unknown"}${unverified})`;
-    const idx = [r.indexByStream ? `${r.indexByStream} stream` : null, r.indexByRest ? `${r.indexByRest} REST` : null, r.indexRefused ? `${r.indexRefused} refused` : null].filter(Boolean).join(", ") || "none";
-    const stocks = r.stocksByStream + r.stocksByRest;
-    const stockText = stocks ? `about ${fmt(stocks)}${r.stocksByStream && r.stocksByRest ? ` (${fmt(r.stocksByStream)} stream, ${fmt(r.stocksByRest)} REST)` : r.stocksByStream ? " by stream" : " by REST"}` : "0";
-    return `| ${r.label} | ${feed} | ${rest} | ${idx} | ${stockText} |`;
+    const c = feasibilityCells(r);
+    return `| ${r.label} | ${c.feed} | ${c.rest} | ${c.indices} | ${c.stocks} |`;
   });
   return [...head, ...lines].join("\n");
 }

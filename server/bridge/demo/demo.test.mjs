@@ -234,6 +234,7 @@ describe("demo realism for the recorder (p1-01 §8)", () => {
   });
 });
 
+const REC_NOW = Date.parse("2026-10-19T11:00:00+05:30");
 describe("demo recorder (p1-01 §8, e2e step 5)", () => {
   let app;
   let base;
@@ -242,7 +243,9 @@ describe("demo recorder (p1-01 §8, e2e step 5)", () => {
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), "mcb-demo-rec-"));
     const { config } = loadConfig({ raw: { dataDir: dir, server: { port: 0 }, logging: { level: "silent" } }, env: {}, demo: true });
-    app = await createApp({ config, logger: createNullLogger() });
+    // A fixed weekday mid-session (Mon 19 Oct 2026, 11:00 IST), so the back-fill has minutes whatever the real time.
+    const offset = REC_NOW - Date.now();
+    app = await createApp({ config, logger: createNullLogger(), clock: { now: () => Date.now() + offset } });
     const { port } = await app.listen();
     base = `http://127.0.0.1:${port}`;
     ({ key } = await app.deps.keyStore.create({ label: "t", scopes: ["admin", "paper"], accounts: "*" }));
@@ -271,7 +274,7 @@ describe("demo recorder (p1-01 §8, e2e step 5)", () => {
     const e = (await get("/v1/expiries?underlying=NIFTY")).body.data.expiries[0];
     let page = null;
     for (let i = 0; i < 100; i++) {
-      page = (await get(`/v1/options/snapshots?underlying=NIFTY&expiry=${e}&from=${new Date(Date.now() + 19_800_000).toISOString().slice(0, 10)}&fields=oi,ltp&limit=500`)).body.data;
+      page = (await get(`/v1/options/snapshots?underlying=NIFTY&expiry=${e}&from=2026-10-19&fields=oi,ltp&limit=500`)).body.data;
       if (page.snapshots.length > 3) break;
       await new Promise((r) => setTimeout(r, 50));
     }
@@ -319,7 +322,9 @@ describe("demo mode end to end", () => {
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), "mcb-demo-"));
     const { config } = loadConfig({ raw: { dataDir: dir, server: { port: 0 }, logging: { level: "silent" } }, env: {}, demo: true });
-    app = await createApp({ config, logger: createNullLogger() });
+    // A fixed weekday mid-session (Mon 19 Oct 2026, 11:00 IST), so the back-fill has minutes whatever the real time.
+    const offset = REC_NOW - Date.now();
+    app = await createApp({ config, logger: createNullLogger(), clock: { now: () => Date.now() + offset } });
     const { port } = await app.listen();
     base = `http://127.0.0.1:${port}`;
     ({ key } = await app.deps.keyStore.create({ label: "t", scopes: ["admin", "paper"], accounts: "*" }));

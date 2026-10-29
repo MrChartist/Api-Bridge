@@ -38,6 +38,7 @@ import { renderArbPage, renderChainPage, renderOiPage, renderPositionsPage, rend
 import { renderCalendarPage } from "./calendar.js";
 import { renderScreenerPage } from "./screener.js";
 import { renderParticipantsPage } from "./participants.js";
+import { renderRecorderPage } from "./recorder.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
@@ -229,6 +230,7 @@ export const PAGES = [
   { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", group: "Overview", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
   { id: "console", label: "Test console", icon: "console", tint: "teal", group: "Overview", title: "Test console", sub: "Try any call and see exactly what comes back", render: renderConsole },
   { id: "limits", label: "Rate limits", icon: "limits", tint: "purple", group: "Overview", title: "Rate limits", sub: "Live usage against each broker's limits, and the calls the Bridge saved", render: renderLimits },
+  { id: "recorder", label: "Data recorder", icon: "clock", tint: "indigo", group: "Overview", title: "Data recorder", sub: "Option chains recorded every minute on this computer, with the browser closed", render: renderRecorderPage },
   { id: "scanner", label: "Scanner", icon: "scan", tint: "mint", group: "Overview", title: "Scanner", sub: "Scan big universes with a readable condition, shared out over your accounts", render: renderScanner },
   { id: "chain", label: "Option Chain", short: "Chain", icon: "chart", tint: "green", tab: true, group: "Options", layout: "desk", title: "Option Chain", get sub() { return `Live chain with OI, IV and Greeks. ${touchWord()} a bid or ask to trade`; }, render: renderChainPage },
   { id: "strategy", label: "Strategy Builder", icon: "strategy", tint: "purple", group: "Options", layout: "desk", title: "Strategy Builder", sub: "Payoff, breakevens, POP and margin before you trade", render: renderStrategyPage },

@@ -78,6 +78,9 @@ describe("GET /v1/options/snapshots", () => {
     }
     const ok = parseSnapshotQuery(new URLSearchParams({ underlying: "nifty", expiry: EXPIRY }), { now });
     expect(ok).toMatchObject({ underlying: "NIFTY", fromMs: IST("2026-10-19T09:15:00"), toMs: now, fields: ["ltp", "oi", "volume", "iv"], every: 1, limit: 400, format: "json" });
+    // Before the session opens the default range starts at today's IST midnight (never "to before from").
+    const early = IST("2026-10-19T00:02:00");
+    expect(parseSnapshotQuery(new URLSearchParams({ underlying: "NIFTY", expiry: EXPIRY }), { now: early })).toMatchObject({ fromMs: IST("2026-10-19T00:00:00"), toMs: early });
   });
 
   it("returns snapshots with IST times, units, coverage and method; pages with a cursor", async () => {
@@ -170,6 +173,22 @@ describe("latest, daily, status, plan", () => {
     for (const query of [{ underlying: "NIFTY", from: "2026-10-20", to: "2026-10-19" }, { underlying: "NIFTY", from: "2020-01-01", to: "2026-10-19" }, { underlying: "NIFTY", to: "2026-13-01" }, {}]) {
       expect((await codeOf(r.routes.daily(ctxFor({ query })))).code, JSON.stringify(query)).toBe("VALIDATION_FAILED");
     }
+    await r.svc.stop();
+  });
+
+  it("status adds the feasibility table only when asked (the same words as the doc table)", async () => {
+    const r = await recorded();
+    const plain = await r.routes.status(ctxFor());
+    expect(plain.data.feasibility).toBeUndefined();
+    const out = await r.routes.status(ctxFor({ query: { feasibility: "true" } }));
+    const rows = out.data.feasibility;
+    expect(rows.length).toBeGreaterThan(30);
+    expect(rows.at(-1)).toMatchObject({ broker: "demo", label: "Demo (sample data)" });
+    const dhan = rows.find((x) => x.broker === "dhan");
+    expect(dhan).toMatchObject({ restAllowed: false, indices: expect.any(String), feed: expect.any(String), rest: expect.stringMatching(/^off/) });
+    const doc = readFileSync(resolve(import.meta.dirname, "../../../docs/guides/recorder.md"), "utf8");
+    expect(doc).toContain(`| ${dhan.label} | ${dhan.feed} | ${dhan.rest} | ${dhan.indices} | ${dhan.stocks} |`);
+    expect((await codeOf(r.routes.status(ctxFor({ query: { feasibility: "maybe" } })))).code).toBe("VALIDATION_FAILED");
     await r.svc.stop();
   });
 
