@@ -4008,6 +4008,7 @@ export const ARB_PARITY_COLUMNS = Object.freeze([
   ["put", "Put bid·ask"],
   ["syn", "Synthetic sell·buy"],
   ["dev", "Dev"],
+  ["edge", "Edge"],
   ["conv", "Conversion"],
   ["rev", "Reversal"],
   ["annual", "Net %/yr"],
@@ -4037,10 +4038,11 @@ export const ARB_DEFAULTS = Object.freeze({
   staleSec: 5,
   window: 10,
   boxMaxSteps: 10,
-  cols: Object.freeze(ARB_PARITY_COLUMNS.slice(0, 9).map((c) => c[0])),
+  cols: Object.freeze(ARB_PARITY_COLUMNS.slice(0, 10).map((c) => c[0])),
   notesOpen: null,
+  boxView: "list",
 });
-const SORT_KEYS = { parity: ["strike", "dev", "conv", "rev", "annual"], boxes: ["vsHurdle", "rate", "locked", "strikes"], futures: ["expiry"] };
+const SORT_KEYS = { parity: ["strike", "dev", "edge", "conv", "rev", "annual"], boxes: ["vsHurdle", "rate", "locked", "strikes"], futures: ["expiry"] };
 /** The Arbitrage page's saved settings (mcb.dashboard.desk → arb), validated: bad values fall back to defaults. */
 export function arbConfig(saved) {
   const d = ARB_DEFAULTS;
@@ -4055,6 +4057,8 @@ export function arbConfig(saved) {
   }
   const ids = ARB_PARITY_COLUMNS.map((c) => c[0]);
   let cols = Array.isArray(s.cols) ? s.cols.filter((k, i, a) => ids.includes(k) && a.indexOf(k) === i) : [...d.cols];
+  // Saved before the Edge column existed (round 2): show it once, after Dev (the user can hide it again).
+  if (Array.isArray(s.cols) && s.colsV !== 2 && !cols.includes("edge")) cols.splice(cols.includes("dev") ? cols.indexOf("dev") + 1 : 1, 0, "edge");
   for (const k of ARB_LOCKED_COLUMNS) if (!cols.includes(k)) cols.push(k);
   if (cols[0] !== "strike") cols = ["strike", ...cols.filter((k) => k !== "strike")];
   const rates = {};
@@ -4087,8 +4091,84 @@ export function arbConfig(saved) {
     window: pick(Number(s.window), [5, 10, 20], d.window),
     boxMaxSteps: Math.round(range(s.boxMaxSteps, 1, 40, d.boxMaxSteps)),
     cols,
+    colsV: 2,
     notesOpen: typeof s.notesOpen === "boolean" ? s.notesOpen : null,
+    boxView: pick(s.boxView, ["list", "matrix"], d.boxView),
   };
+}
+
+// ── Arbitrage display helpers (docs/design/arb.md §10; pure, tested) ──
+
+/**
+ * How much of the total cost the gross edge pays for, in points per unit. gross = grossPts (parity), width − price
+ * (lend box) or price − width (borrow box); cost = breakEvenPts. cover = gross / cost (null when cost ≤ 0); short =
+ * max(0, cost − gross), the points still missing. Missing inputs give all null.
+ */
+export function coverRatio(s) {
+  const none = { cover: null, gross: null, cost: null, short: null };
+  if (!s || typeof s !== "object") return none;
+  const gross = s.kind === "lbox" ? diffOf(s.width, s.price) : s.kind === "sbox" ? diffOf(s.price, s.width) : num(s.grossPts);
+  const cost = num(s.breakEvenPts);
+  if (gross === null || cost === null) return none;
+  return { cover: cost > 0 ? gross / cost : null, gross, cost, short: Math.max(0, cost - gross) };
+}
+const diffOf = (a, b) => (num(a) === null || num(b) === null ? null : Number(a) - Number(b));
+
+/**
+ * Diverging step −3..3 for a rate gap in basis points on fixed trader thresholds (not a percentile, so a colour means
+ * the same thing every day): |bp| < 10 → 0, < 50 → ±1, < 150 → ±2, else ±3. Non-finite → null.
+ */
+export function bpStep(bp) {
+  if (typeof bp !== "number" || !Number.isFinite(bp)) return null;
+  const a = Math.abs(bp);
+  if (a < 10) return 0;
+  return Math.sign(bp) * (a < 50 ? 1 : a < 150 ? 2 : 3);
+}
+
+/**
+ * The parity heat strip: per row { side: "call" | "put" | null, step: 0..5, m }. dev > 0 (synthetic above the
+ * reference) is calls rich, dev < 0 puts rich; step = seqStep(|devBp|, 0, m) with m = max(5 bp, p95 |devBp|), so one
+ * outlier does not wash the rest out. |devBp| < 1 (or missing) is neutral: side null, step 0.
+ */
+export function devHeat(rows) {
+  const list = rows ?? [];
+  const abs = list.map((r) => num(r?.devBp)).filter((v) => v !== null).map(Math.abs);
+  const m = Math.max(5, percentileOf(abs, 0.95) ?? 0);
+  return list.map((r) => {
+    const bp = num(r?.devBp);
+    const dev = num(r?.dev) ?? bp;
+    if (bp === null || Math.abs(bp) < 1 || dev === null || dev === 0) return { side: null, step: 0, m };
+    return { side: dev > 0 ? "call" : "put", step: seqStep(Math.abs(bp), 0, m), m };
+  });
+}
+
+/** The better of a parity row's conversion and reversal returns, any sign: { k: "conv" | "rev", v } or null. */
+export function bestAnnualSigned(r) {
+  const opts = [["conv", num(r?.conv?.annual)], ["rev", num(r?.rev?.annual)]].filter(([, v]) => v !== null);
+  if (!opts.length) return null;
+  const [k, v] = opts.sort((a, b) => b[1] - a[1])[0];
+  return { k, v };
+}
+
+/**
+ * A cost waterfall as floating steps: the first line runs from 0 to its value (gross), each next one from the running
+ * total before it to the total after it. { steps: [{ key, from, to }], net, min, max } where [min, max] spans 0 and
+ * every step, so the drawing needs no maths. Missing values count as 0.
+ */
+export function waterfallSteps(lines) {
+  const steps = [];
+  let run = 0;
+  let min = 0;
+  let max = 0;
+  for (const l of lines ?? []) {
+    const v = num(l?.value) ?? 0;
+    const from = run;
+    run += v;
+    steps.push({ key: l?.key ?? String(steps.length), from, to: run });
+    min = Math.min(min, from, run);
+    max = Math.max(max, from, run);
+  }
+  return { steps, net: run, min, max };
 }
 
 // ── Option Screener (PRD 07): per-leg metrics, scores, costs, skew and hedges over many chains ──

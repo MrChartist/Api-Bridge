@@ -1916,7 +1916,14 @@ describe("arbitrage maths (PRD 06 §7)", () => {
     const d = A.arbConfig(undefined);
     expect(d.tab).toBe("parity");
     expect(d.hurdle).toBe(6);
-    expect(d.cols).toEqual(["strike", "call", "put", "syn", "dev", "conv", "rev", "annual", "liq"]);
+    expect(d.cols).toEqual(["strike", "call", "put", "syn", "dev", "edge", "conv", "rev", "annual", "liq"]);
+    expect(d.boxView).toBe("list");
+    expect(A.arbConfig({ boxView: "matrix" }).boxView).toBe("matrix");
+    expect(A.arbConfig({ boxView: "grid" }).boxView).toBe("list");
+    // A saved column list from before the Edge column gets it once, after Dev; a round-2 list keeps the user's choice.
+    expect(A.arbConfig({ cols: ["strike", "dev", "conv"] }).cols.slice(0, 3)).toEqual(["strike", "dev", "edge"]);
+    expect(A.arbConfig({ cols: ["strike", "dev", "conv"], colsV: 2 }).cols).not.toContain("edge");
+    expect(A.arbConfig({ sort: { parity: { key: "edge", dir: "desc" } } }).sort.parity.key).toBe("edge");
     const c = A.arbConfig({ tab: "boxes", lots: 500, cols: ["dev", "bogus", "oi"], staleSec: 7, rates: { "opt.sttSell": 0.002, gst: 3 }, sort: { parity: { key: "conv", dir: "desc" } } });
     expect(c.tab).toBe("boxes");
     expect(c.lots).toBe(1);
@@ -1926,6 +1933,65 @@ describe("arbitrage maths (PRD 06 §7)", () => {
     expect(c.staleSec).toBe(5);
     expect(c.rates).toEqual({ "opt.sttSell": 0.002 });
     expect(c.sort.parity).toEqual({ key: "conv", dir: "desc" });
+  });
+});
+
+describe("Arbitrage display helpers (arb.md §10)", () => {
+  it("coverRatio: gross over cost, the points short, null-safe", () => {
+    expect(A.coverRatio({ kind: "conv", grossPts: 3, breakEvenPts: 2 })).toEqual({ cover: 1.5, gross: 3, cost: 2, short: 0 });
+    const neg = A.coverRatio({ kind: "rev", grossPts: -1, breakEvenPts: 2 });
+    expect(neg.cover).toBe(-0.5);
+    expect(neg.short).toBe(3);
+    expect(A.coverRatio({ kind: "conv", grossPts: 1, breakEvenPts: 0 }).cover).toBeNull();
+    expect(A.coverRatio({ kind: "lbox", width: 500, price: 497, breakEvenPts: 2 })).toEqual({ cover: 1.5, gross: 3, cost: 2, short: 0 });
+    expect(A.coverRatio({ kind: "sbox", width: 500, price: 499, breakEvenPts: 2 }).gross).toBe(-1);
+    expect(A.coverRatio(null)).toEqual({ cover: null, gross: null, cost: null, short: null });
+    expect(A.coverRatio({ kind: "conv", grossPts: 1 })).toEqual({ cover: null, gross: null, cost: null, short: null });
+  });
+  it("bpStep: fixed thresholds at 10 / 50 / 150 bp, both signs", () => {
+    const cases = [[0, 0], [9.99, 0], [10, 1], [49.99, 1], [50, 2], [149.99, 2], [150, 3], [4000, 3], [-9.99, 0], [-10, -1], [-50, -2], [-150, -3]];
+    for (const [bp, step] of cases) expect(A.bpStep(bp), String(bp)).toBe(step);
+    expect(Object.is(A.bpStep(-5), 0)).toBe(true);
+    expect(A.bpStep(null)).toBeNull();
+    expect(A.bpStep(Number.NaN)).toBeNull();
+    expect(A.bpStep(Infinity)).toBeNull();
+  });
+  it("devHeat: a flat chain is calm; the side follows the sign; one outlier does not wash the rest out", () => {
+    const flat = A.devHeat(Array.from({ length: 21 }, () => ({ dev: 0.01, devBp: 0.4 })));
+    expect(flat.every((c) => c.step === 0 && c.side === null)).toBe(true);
+    const rows = [...Array.from({ length: 20 }, (_, i) => ({ dev: i % 2 ? 2 : -2, devBp: i % 2 ? 10 : -10 })), { dev: 50, devBp: 500 }];
+    const heat = A.devHeat(rows);
+    expect(heat[0].side).toBe("put");
+    expect(heat[1].side).toBe("call");
+    expect(heat[0].m).toBe(10);
+    expect(heat[0].step).toBe(5); // scaled to the 95th percentile, not to the 500 bp outlier
+    expect(heat[20].step).toBe(5);
+    expect(A.devHeat([{ dev: null, devBp: null }])[0]).toEqual({ side: null, step: 0, m: 5 });
+    expect(A.devHeat([{ dev: 0.5, devBp: 2 }])[0].step).toBe(2); // m floors at 5 bp: 1 + floor(4 · 2 / 5)
+  });
+  it("bestAnnualSigned: the larger of conv and rev, negatives included", () => {
+    expect(A.bestAnnualSigned({ conv: { annual: -0.03 }, rev: { annual: -0.05 } })).toEqual({ k: "conv", v: -0.03 });
+    expect(A.bestAnnualSigned({ conv: { annual: 0.01 }, rev: { annual: 0.02 } })).toEqual({ k: "rev", v: 0.02 });
+    expect(A.bestAnnualSigned({ conv: null, rev: { annual: -0.1 } })).toEqual({ k: "rev", v: -0.1 });
+    expect(A.bestAnnualSigned({ conv: { annual: null }, rev: null })).toBeNull();
+  });
+  it("waterfallSteps: the steps chain and end at the net; the domain spans zero", () => {
+    const w = A.waterfallSteps([{ key: "gross", value: 1620 }, { key: "fin", value: -164 }, { key: "brk", value: -80 }, { key: "stt", value: -75 }, { key: "earn", value: 30 }]);
+    for (let i = 0; i + 1 < w.steps.length; i++) expect(w.steps[i].to).toBe(w.steps[i + 1].from);
+    expect(w.steps[0].from).toBe(0);
+    expect(w.steps.at(-1).to).toBe(w.net);
+    expect(w.net).toBe(1331);
+    expect(w.min).toBe(0);
+    expect(w.max).toBe(1620);
+    const n = A.waterfallSteps([{ key: "gross", value: -100 }, { key: "c", value: -50 }]);
+    expect(n).toEqual({ steps: [{ key: "gross", from: 0, to: -100 }, { key: "c", from: -100, to: -150 }], net: -150, min: -150, max: 0 });
+    expect(A.waterfallSteps([]).net).toBe(0);
+  });
+  it("uses the real structures: cover on a parity row and a box", () => {
+    const s = { kind: "conv", grossPts: -4.6, breakEvenPts: 3.32 };
+    const c = A.coverRatio(s);
+    expect(c.short).toBeCloseTo(7.92, 6);
+    expect(c.cover).toBeCloseTo(-4.6 / 3.32, 9);
   });
 });
 
