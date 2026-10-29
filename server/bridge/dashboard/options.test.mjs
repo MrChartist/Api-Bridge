@@ -363,6 +363,9 @@ describe("persona reads", () => {
     expect(O.parityGrowth(years)).toBe(1);
     expect(O.parityGrowth(years, null)).toBe(1);
     expect(O.parityGrowth(years, 0.0571)).toBeCloseTo(Math.exp(0.0571 * years), 12);
+    // The §5.6 rateMissing flag, beside the plain number.
+    expect(O.parityGrowthInfo(years, null)).toEqual({ growth: 1, rateMissing: true });
+    expect(O.parityGrowthInfo(years, RISK)).toEqual({ growth: O.parityGrowth(years, RISK), rateMissing: false });
     const D = Math.exp(-RISK * years);
     const rows = [25400, 26000, 26500, 27000, 27400].map((K) => {
       const c = O.black76(F, K, years, 12, "CE") * D;
@@ -724,6 +727,16 @@ describe("OI analysis maths", () => {
     expect(OA.marketSession(ist(2026, 11, 2, 15, 30))).toMatchObject({ phase: "closed", istDate: "2026-11-02", label: "Market closed · last session" });
     // 23:00 UTC on 1 Nov is 04:30 IST on 2 Nov.
     expect(OA.marketSession(Date.UTC(2026, 10, 1, 23, 0)).istDate).toBe("2026-11-02");
+  });
+
+  it("marketSession: a timed special session is open inside [open, close), even on a Sunday (spec §6.4, §6.5)", () => {
+    const ses = { open: "09:15", close: "15:30", date: "2026-11-08", holiday: null, special: { label: "Muhurat trading", open: "18:00", close: "19:00" } };
+    expect(OA.marketSession(ist(2026, 11, 8, 18, 0), ses)).toMatchObject({ phase: "open", special: true, label: "Market open · Muhurat trading" });
+    expect(OA.marketSession(ist(2026, 11, 8, 18, 59), ses).phase).toBe("open");
+    expect(OA.marketSession(ist(2026, 11, 8, 19, 0), ses).phase).toBe("closed");
+    expect(OA.marketSession(ist(2026, 11, 8, 11, 0), ses).phase).toBe("closed");
+    // Another day's session object does not open today.
+    expect(OA.marketSession(ist(2026, 11, 15, 18, 30), ses).phase).toBe("closed");
   });
 });
 

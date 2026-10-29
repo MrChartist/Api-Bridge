@@ -478,7 +478,7 @@ Every demo value has `source: "demo"`, `quality: "demo"` and `verified: true`. I
 
 | Dataset | Demo behaviour |
 |---|---|
-| Holidays | The shipped real `holidays.json` (so the calendar looks real), treated as `verified: true` in demo only. `expiriesFor()` in the demo adapter shifts an expiry that lands on a holiday to the previous trading day, so the "shifted" flag can be seen (for example 24 Nov 2026 → 23 Nov, if the list has it). |
+| Holidays | The shipped real `holidays.json` (so the calendar looks real), treated as `verified: true` in demo only, except the last holiday of each year (Christmas), which stays unverified so the "unverified" label, mark and order-check warning can be seen. `expiriesFor()` in the demo adapter shifts an expiry that lands on a holiday to the previous trading day, so the "shifted" flag can be seen (for example 24 Nov 2026 → 23 Nov, if the list has it). |
 | Sessions | Defaults. A demo special session on the shipped Muhurat date with `open: "18:00", close: "19:00"`, labelled demo. |
 | Lots | Current demo lots become NIFTY 65, BANKNIFTY 30, SENSEX 20 (today's demo uses 75/35, which predate the Jan 2026 revision). **Rolling demo revision**: BANKNIFTY moves 30 → 35 for contracts in the month after the next monthly expiry. The demo adapter's `demoInstruments()` gives those contracts the new lot, so masters and reference agree, and the banner shows in the 7 days before each monthly expiry. |
 | Stock F&O universe | The NIFTY 50 demo stocks are all members, each with a demo lot (round(₹7.5 lakh / base price) rounded to a multiple of 25, minimum 25). These lots are exported as **`DEMO_STOCK_LOT`** from `demoReference.mjs`: the one table that P1-1 (five demo stock underlyings) and P1-6 (all 50) import into the demo adapter, so masters and reference always agree. History: two stocks show as "added" 20 and 45 days ago, and one demo-only symbol `DEMOEXIT` as "removed" 30 days ago, with `knownSince` = today − 120 days. |
@@ -486,7 +486,7 @@ Every demo value has `source: "demo"`, `quality: "demo"` and `verified: true`. I
 | Corporate actions | One rolling upcoming action: a 1:1 bonus on the demo stock picked by `hash(weekStart) % 50`, ex-date = today + 4 trading days, so a banner is always present. One past split (FV 10 → 2) 60 days ago on another stock, with adjusted strikes shown. One `inferred` non-standard contract (lot 1,875 vs standard 375) on that split stock. |
 | Rate | 0.065, `source: "demo"`, `stale: false`. The demo adapter prices with the same value through `reference/defaults.mjs`. |
 | Delivery margin | Shipped schedule, dated from the nearest monthly expiry. |
-| Status | All datasets `available: true`, `asOf` today 08:20, `nextRunAt` tomorrow 08:20. A query flag `?demoStale=1` on `/v1/reference/bundle` (honoured in demo only) reports lots as 2 trading days old, so the stale banner and ticket confirmation can be tested and screenshotted. |
+| Status | All datasets `available: true`, `asOf` today 08:20, `nextRunAt` tomorrow 08:20. A query flag `?demoStale=1` on `/v1/reference/bundle` (honoured in demo only) reports lots as 2 trading days old, so the stale banner and ticket confirmation can be tested and screenshotted. *As built:* the demo-only `PUT /v1/demo/reference { lotsStale }` does the same for every read (status included: `datasets.lots` turns stale and `demoLotsStale: true`), and the Market calendar status strip has a "Show stale lot data" switch for it (demo, this computer). |
 
 Demo stock option chains are **not** added in this round (P1-6). The demo shows stock reference data on the Market calendar page and in the API only.
 
@@ -553,7 +553,7 @@ Every panel has CSV export (K5) and a "?" method note (K3) with the definitions 
 
 | Today | After |
 |---|---|
-| `options.js` `RISK_FREE = 0.065`; `parityGrowth(years, rate = RISK_FREE)` | `parityGrowth(years, rate)` with `rate` required (returns 1 and flags `rateMissing` if not finite). Callers pass `refRate(bundle).value`. |
+| `options.js` `RISK_FREE = 0.065`; `parityGrowth(years, rate = RISK_FREE)` | `parityGrowth(years, rate)` with `rate` required (returns 1 if not finite). Callers pass `refRate(bundle).value`. *As built:* `parityGrowth` stays a plain number for the maths; the `rateMissing` flag is the companion `rateMissing(rate)` / `parityGrowthInfo(years, rate)` → `{ growth, rateMissing }`, and `reference.test.mjs` checks that every page call site passes the rate. |
 | `options.js:2658` `RATE = 0.065` (vol page) | Removed. The vol functions take `rate` in their options object, and `vol.js` passes it. The method note shows rate, source and age. |
 | `options.js` `SESSION_OPEN/SESSION_CLOSE`, `marketSession(nowMs)`, `sessionsLeft(expiry, now)` | `marketSession(nowMs, session)` and `sessionsLeft(expiry, now, { session, isTradingDay })`. Holidays are skipped. Labels come from `session.holiday?.label`. |
 | `options.js` `expiryCloseMs`, `timeToExpiry` (15:30 literal) | Take `close` from the session. Default `REF_DEFAULTS` only through `reference.js`. |

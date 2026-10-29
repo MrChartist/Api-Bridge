@@ -94,9 +94,15 @@ export function demoSpecialSessions() {
   return Object.fromEntries(Object.entries(shippedSpecialSessions()).map(([d, s]) => [d, { ...s, open: "18:00", close: "19:00", label: `${s.label} (demo times)`, verified: true, origin: "demo" }]));
 }
 
-/** Shipped holidays, treated as verified in demo mode only. */
+/**
+ * Shipped holidays, treated as verified in demo mode only, except the last holiday of each year (Christmas in the
+ * shipped list): it stays unverified so the demo shows the "unverified" label, the calendar's unverified mark and the
+ * order check's warning (not a block) for an unverified holiday.
+ */
 export function demoHolidayRows() {
-  return shippedHolidayRows().map((h) => ({ ...h, verified: true }));
+  const rows = shippedHolidayRows();
+  const lastOfYear = new Set(Object.values(Object.groupBy(rows, (h) => h.date.slice(0, 4))).map((ys) => ys.map((h) => h.date).sort().at(-1)));
+  return rows.map((h) => ({ ...h, verified: !lastOfYear.has(h.date) }));
 }
 
 let cached = null;

@@ -715,6 +715,14 @@ export const twoSided = (q) => num(q?.bid) !== null && num(q?.ask) !== null && q
  */
 export const parityGrowth = (years, rate) => (num(years) !== null && years > 0 && num(rate) !== null ? Math.exp(Number(rate) * years) : 1);
 /**
+ * The rateMissing flag of spec §5.6, kept beside parityGrowth (which stays a plain number for the maths): true when
+ * `rate` is not finite, so parityGrowth fell back to 1 and the forward carries nothing. Every page caller passes
+ * refRate(bundle).value (options.test.mjs checks the call sites); a caller that may lack a rate uses parityGrowthInfo.
+ */
+export const rateMissing = (rate) => num(rate) === null;
+/** { growth, rateMissing }: parityGrowth with its flag. */
+export const parityGrowthInfo = (years, rate) => ({ growth: parityGrowth(years, rate), rateMissing: rateMissing(rate) });
+/**
  * The synthetic future at one strike (put-call parity, F = K + (C − P)·e^(rT)): `mid` from mids (or last prices),
  * and the executable prices when both legs are two-sided: `buy` = K + (C.ask − P.bid)·g (buy the call, sell the
  * put), `sell` = K + (C.bid − P.ask)·g. `growth` = e^(rT) (parityGrowth); 1 ignores carry.
@@ -886,6 +894,10 @@ export function marketSession(nowMs = Date.now(), session = FALLBACK_SESSION, { 
   const s = session ?? FALLBACK_SESSION;
   const weekday = c.dow >= 1 && c.dow <= 5;
   const holiday = s.holiday && (!s.date || s.date === c.date) ? s.holiday : null;
+  // A timed special session today (Muhurat, a weekend session) is a trading window of its own (spec §6.4, §6.5):
+  // open inside [open, close), whatever the weekday or the holiday list says.
+  const sp = s.special && /^\d{2}:\d{2}$/.test(String(s.special.open ?? "")) && /^\d{2}:\d{2}$/.test(String(s.special.close ?? "")) && s.date === c.date ? s.special : null;
+  if (sp && c.mins >= hmOf(sp.open, "open") && c.mins < hmOf(sp.close, "close")) return { phase: "open", istDate: c.date, weekday, holiday: holiday?.label ?? null, label: `Market open · ${sp.label ?? "Special session"}`, special: true };
   const trading = weekday && !holiday && (typeof isTradingDay !== "function" || isTradingDay(c.date));
   const phase = !trading ? "closed" : c.mins < hmOf(s.open, "open") ? "pre" : c.mins < hmOf(s.close, "close") ? "open" : "closed";
   const label = phase === "open" ? "Market open" : phase === "pre" ? "Before the open · last session" : holiday?.label ? `Market closed · ${holiday.label}` : "Market closed · last session";

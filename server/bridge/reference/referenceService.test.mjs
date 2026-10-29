@@ -303,7 +303,21 @@ describe("events", () => {
     const h = setup({ symbols });
     const ev = await h.svc.events({ days: 14 });
     // Tue 10 Nov is a holiday: the weekly expiry moves to Mon 9 Nov.
-    expect(ev.find((e) => e.kind === "holiday-expiry-shift")).toMatchObject({ underlying: "NIFTY", effectiveOn: "2026-11-09" });
+    const shift = ev.find((e) => e.kind === "holiday-expiry-shift");
+    expect(shift).toMatchObject({ underlying: "NIFTY", effectiveOn: "2026-11-09" });
+    // User-facing copy: no ISO dates, and the move is named with both days.
+    for (const e of ev) expect(e.text, e.text).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    expect(shift.text).toBe("NIFTY weekly expiry is on Mon 9 Nov, a day earlier than usual (moved from Tue 10 Nov, an unverified holiday).");
+  });
+
+  it("a shift across a weekend counts the calendar days", async () => {
+    // Usual weekday Monday; Mon 9 Nov is not a holiday, so use a Tuesday rule date moved to the Friday before:
+    // the weekly series is on Tuesdays, Tue 10 Nov is a holiday and the listed expiry is Fri 6 Nov.
+    const opt = (e) => ["CE", "PE"].map((r) => ({ symbol: `NFO:NIFTY-${e}-25000-${r}`, lotSize: 65, tickSize: 0.05 }));
+    const symbols = createFakeSymbolService({ instruments: [{ symbol: "NSE:NIFTY", lotSize: 1, tickSize: 0.05 }, ...["2026-11-03", "2026-11-06", "2026-11-17", "2026-12-01", "2026-12-08", "2026-12-15", "2026-12-29"].flatMap(opt)] });
+    const h = setup({ symbols });
+    const ev = await h.svc.events({ days: 14 });
+    expect(ev.find((e) => e.kind === "holiday-expiry-shift")?.text).toBe("NIFTY weekly expiry is on Fri 6 Nov, 4 days earlier than usual (moved from Tue 10 Nov, an unverified holiday).");
   });
 });
 

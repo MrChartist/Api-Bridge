@@ -10,7 +10,8 @@
  */
 
 /** Where the session defaults come from (shown in API responses and on the Market calendar page). */
-export const DEFAULT_SESSION_SOURCE = "S5 default (equity-derivatives session per NSE/BSE; needs verification)";
+// User-facing words (shown in the Contract facts sheet): no store ids or config keys here (store S5 is the spec's name).
+export const DEFAULT_SESSION_SOURCE = "Standard NSE/BSE F&O hours (default, needs verification)";
 /** Where the default rate comes from: nowhere. Said plainly so no page presents it as a market figure. */
 export const DEFAULT_RATE_SOURCE = "default (not sourced)";
 
@@ -32,7 +33,7 @@ export const DEFAULT_SESSIONS = Object.freeze({
 });
 
 /** Default brokerage per executed order (rupees). Per-account plans arrive with P1-10 (`chargePlans`). */
-export const DEFAULT_BROKERAGE = Object.freeze({ kind: "flat", perOrder: 20, source: "S5 default (flat brokerage per order; set your own in reference.brokerage)" });
+export const DEFAULT_BROKERAGE = Object.freeze({ kind: "flat", perOrder: 20, source: "Default flat brokerage per order" });
 
 /** The session window for an exchange code (NFO/BFO/NSE/BSE), or null for exchanges the reference does not cover. */
 export function defaultSessionFor(exchange) {

@@ -66,6 +66,13 @@ describe("lots: demo masters and demo reference agree", () => {
     expect(demoLotFor("BANKNIFTY", bn[1], bn[0])).toBe(35);
   });
 
+  it("demo holidays are verified except the last one of each year, so the unverified treatment can be seen", () => {
+    const cal = demoCalendar();
+    const y2026 = cal.holidays.filter((x) => x.date.startsWith("2026"));
+    expect(y2026.filter((x) => !x.verified).map((x) => x.date)).toEqual(["2026-12-25"]);
+    expect(cal.holidayOn("2026-11-24", "NFO")).toMatchObject({ verified: true });
+  });
+
   it("holiday expiries move to the previous trading day", () => {
     const t = istInstant("2026-10-29", "10:00");
     expect(expiriesFor("NIFTY", t)).toEqual(["2026-11-03", "2026-11-09", "2026-11-17", "2026-11-23"]);
@@ -91,6 +98,18 @@ describe("the demo service", () => {
     const b = await svc.bundle({ underlying: "NIFTY" });
     expect(b).toMatchObject({ lots: { current: 65, source: "demo", stale: false }, rate: { value: 0.065, source: "default (not sourced)", quality: "default" } });
     expect(svc.status()).toMatchObject({ demo: true, datasets: { lots: { available: true, source: "demo" } } });
+  });
+
+  it("the demo stale switch ages the lots in status() too, so the status strip agrees with the bundle", async () => {
+    const svc = demoService(istInstant("2026-10-29", "10:00"));
+    expect(svc.status()).toMatchObject({ demoLotsStale: false, datasets: { lots: { stale: false, asOf: "2026-10-29" } } });
+    svc.setDemoLotsStale(true);
+    const s = svc.status();
+    expect(s.demoLotsStale).toBe(true);
+    expect(s.datasets.lots).toMatchObject({ stale: true, asOf: "2026-10-27", staleTradingDays: 2 });
+    expect((await svc.bundle({ underlying: "NIFTY" })).lots).toMatchObject({ stale: true, asOf: s.datasets.lots.asOf });
+    svc.setDemoLotsStale(false);
+    expect(svc.status().datasets.lots.stale).toBe(false);
   });
 
   it("the BANKNIFTY revision banner appears in the 7 days before each monthly expiry", async () => {

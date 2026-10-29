@@ -17,6 +17,7 @@ import {
   factsRows,
   fallbackBundle,
   hideEvent,
+  holidayTomorrow,
   loadReference,
   lotConfirmGate,
   rateText,
@@ -146,6 +147,14 @@ describe("values from a bundle", () => {
     expect(cal.label("2026-11-10")).toBe("Diwali Balipratipada");
     // A BSE-only holiday does not close NFO.
     expect(refCalendar({ exchange: "NFO", holidays: [{ date: "2026-11-11", label: "x", exchanges: ["BSE"] }] }).isTradingDay("2026-11-11")).toBe(true);
+    // A timed special session makes its day a trading day (spec §6.4); an untimed one does not.
+    const muhurat = { exchange: "NFO", holidays: [], session: { date: "2026-11-08", open: "09:15", close: "15:30", special: { label: "Muhurat", open: "18:00", close: "19:00" } } };
+    expect(refCalendar(muhurat).isTradingDay("2026-11-08")).toBe(true);
+    expect(refCalendar({ ...muhurat, session: { ...muhurat.session, special: { label: "Muhurat", open: null, close: null } } }).isTradingDay("2026-11-08")).toBe(false);
+    // "Holiday tomorrow" only for a weekday: Friday 6 Nov evening, with a (made-up) Saturday holiday, says nothing.
+    const sat = { exchange: "NFO", holidays: [{ date: "2026-11-07", label: "Sat holiday", exchanges: ["NSE", "BSE"] }, { date: "2026-11-10", label: "Diwali Balipratipada", exchanges: ["NSE", "BSE"] }] };
+    expect(holidayTomorrow(sat, Date.parse("2026-11-06T12:00:00Z"))).toBeNull();
+    expect(holidayTomorrow(sat, Date.parse("2026-11-09T12:00:00Z"))).toBe("Diwali Balipratipada");
     const r = refCharges(BUNDLE);
     expect(r).toMatchObject({ asOf: "Apr 2026", asOfDate: "2026-04-01", brokeragePerOrder: 20, gst: 0.18 });
     expect(refCharges(null).opt).toEqual(REF_DEFAULTS.charges.opt);
@@ -178,8 +187,37 @@ describe("lotConfirmGate (acceptance criterion 4)", () => {
 
   it("the order ticket gates futures in lots as well as options", () => {
     const src = readFileSync(new URL("./desk.js", import.meta.url), "utf8");
-    expect(src).toMatch(/const gate = lotConfirmGate\(st\.ref, lotSize, \{ units: inUnits \}\)/);
+    expect(src).toMatch(/let gate = lotConfirmGate\(st\.ref, lotSize, \{ units: inUnits \}\)/);
     expect(src).not.toMatch(/!fut && !inUnits \? lotConfirmGate/);
+  });
+
+  it("the ticket works the gate out again on its 1 s tick and waits for the first bundle (spec §5.4)", () => {
+    const src = readFileSync(new URL("./desk.js", import.meta.url), "utf8");
+    expect(src).toMatch(/const g = lotConfirmGate\(st\.ref, lotSize, \{ units: inUnits \}\)/);
+    expect(src).toMatch(/setInterval\(\(\) => \(drawQuote\(\), drawWarnings\(\), syncGate\(\)\), 1000\)/);
+    expect(src).toMatch(/const gateOk = \(\) => !refPending\(\) && \(!gate\.needed \|\| gateBox\.checked\)/);
+    expect(src).toMatch(/"Reading contract data"/);
+  });
+
+  it("every page passes the reference rate to parityGrowth (spec §5.6: no caller drops it)", () => {
+    const calls = [];
+    for (const f of ["desk.js", "positions.js", "options.js", "volatility.js", "arbitrage.js", "oi.js", "strategy.js"]) {
+      let src = "";
+      try {
+        src = readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
+      } catch {
+        continue;
+      }
+      for (const m of src.matchAll(/parityGrowth\(([^()]|\([^()]*\))*\)/g)) if (!/export const parityGrowth/.test(src.slice(Math.max(0, m.index - 20), m.index + 14))) calls.push(`${f}: ${m[0]}`);
+    }
+    expect(calls.length).toBeGreaterThan(2);
+    for (const c of calls) expect(c, c).toMatch(/,\s*(refRate\(st\.ref\)\.value|rate)\)$/);
+  });
+
+  it("the strategy basket refuses to run without the lot-size tick, not only through the disabled button", () => {
+    const src = readFileSync(new URL("./strategy-place.js", import.meta.url), "utf8");
+    expect(src).toMatch(/if \(blocked\(\) \|\| !gateOk\(\) \|\| \(isLive\(\) && !ack\.checked\)\) return;/);
+    expect(src).toMatch(/Tick the lot-size check above/);
   });
 });
 

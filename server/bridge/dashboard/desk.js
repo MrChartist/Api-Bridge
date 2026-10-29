@@ -1332,17 +1332,34 @@ async function renderDesk(kind) {
     // Lot-size confirmation (docs/spec/p1-02-reference.md §5.4): when the reference lot data is stale or disagrees
     // with the broker's contract, an order in lots needs this box ticked; the lot is then sent as lotSizeConfirmed.
     // Quantity in units needs no confirmation. Futures in lots get the same gate (the server checks FUT and OPT).
-    const gate = lotConfirmGate(st.ref, lotSize, { units: inUnits });
+    // The gate is re-worked out on every 1 s tick (syncGate): the bundle may arrive after the ticket opened, or the
+    // 10-minute re-read may turn the lots stale or into a conflict while it is open. Until the first bundle has
+    // resolved, an order in lots waits ("Reading contract data") rather than going out unchecked.
+    let gate = lotConfirmGate(st.ref, lotSize, { units: inUnits });
+    const refPending = () => !inUnits && !st.ref;
     const gateBox = h("input", { type: "checkbox", required: true });
-    const gateOk = () => !gate.needed || gateBox.checked;
-    const gateRow = gate.needed
-      ? h(
-          "div",
-          { class: "ticket-lotgate", role: "group", "aria-label": "Lot size check" },
-          h("label", { class: "check lot-gate" }, gateBox, h("span", {}, gate.text)),
-          h("button", { type: "button", class: "small plain lot-gate-units", onclick: () => ((reopen = { row, right, side: sideSeg.value, qty: units(), symbol, product: prodSeg.value, orderType: typeSeg.value, expiry, exit, quote: quoteIn, units: true, lotSize: lotIn, kind, name: nameIn, tick: tickIn, freezeQty, price: isFigure(price.value) ? Number(price.value) : priceIn, held: heldIn }), closeTicket?.(undefined, true)) }, "Enter quantity in units instead"),
-        )
-      : null;
+    const gateOk = () => !refPending() && (!gate.needed || gateBox.checked);
+    const gateText = h("span", {}, gate.text);
+    const gateRow = h(
+      "div",
+      { class: "ticket-lotgate", role: "group", "aria-label": "Lot size check" },
+      h("label", { class: "check lot-gate" }, gateBox, gateText),
+      h("button", { type: "button", class: "small plain lot-gate-units", onclick: () => ((reopen = { row, right, side: sideSeg.value, qty: units(), symbol, product: prodSeg.value, orderType: typeSeg.value, expiry, exit, quote: quoteIn, units: true, lotSize: lotIn, kind, name: nameIn, tick: tickIn, freezeQty, price: isFigure(price.value) ? Number(price.value) : priceIn, held: heldIn }), closeTicket?.(undefined, true)) }, "Enter quantity in units instead"),
+    );
+    gateRow.hidden = !gate.needed;
+    let wasPending = refPending();
+    const syncGate = () => {
+      const g = lotConfirmGate(st.ref, lotSize, { units: inUnits });
+      const pending = refPending();
+      if (g.needed === gate.needed && g.text === gate.text && pending === wasPending) return;
+      // A new or changed question is asked afresh: an earlier tick does not carry over to different words.
+      if (g.text !== gate.text) gateBox.checked = false;
+      gate = g;
+      wasPending = pending;
+      gateText.textContent = g.text;
+      gateRow.hidden = !g.needed;
+      changed();
+    };
     if (freezeQty === null) loadFreeze(sym);
     const units = () => (inUnits ? Math.max(1, Math.floor(Number(lots.value) || 1)) : Math.max(1, Math.floor(Number(lots.value) || 1)) * lotSize);
     const drawWarnings = () => {
@@ -1410,6 +1427,11 @@ async function renderDesk(kind) {
     async function preview() {
       const seq = ++previewSeq;
       const b = body();
+      if (refPending()) {
+        last = null;
+        previewEl.replaceChildren(h("p", { class: "muted small pad" }, "Reading contract data"));
+        return drawButton();
+      }
       if (!gateOk()) {
         last = null;
         previewEl.replaceChildren(h("p", { class: "muted small pad" }, "Check the lot size above to see the order preview."));
@@ -1463,7 +1485,7 @@ async function renderDesk(kind) {
     for (const el of [lots, price]) el.addEventListener("input", changed);
     ack.addEventListener("change", drawButton);
     gateBox.addEventListener("change", changed);
-    const quoteTimer = setInterval(() => (drawQuote(), drawWarnings()), 1000);
+    const quoteTimer = setInterval(() => (drawQuote(), drawWarnings(), syncGate()), 1000);
     drawQuote();
 
     const name = nameIn ?? contractName(c?.underlying ?? st.underlying, ex, row.strike, right);
@@ -1503,6 +1525,8 @@ async function renderDesk(kind) {
           cls: "primary",
           ref: (el) => (placeBtn = el),
           onClick: async () => {
+            syncGate();
+            if (!gateOk()) return (drawButton(), false);
             placeBtn.disabled = true;
             try {
               const r = (await api("/v1/orders", { method: "POST", body: { ...body(), clientOrderId } })).data.data;
