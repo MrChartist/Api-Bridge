@@ -308,6 +308,7 @@ export function renderScreenerPage() {
     return (r && refByU.get(r.underlying)) || ref;
   };
   const refChipEl = refChip({ getBundle: chipBundle, getLot: () => (selKey ? recByKey(selKey)?.lot ?? null : null) });
+  refChipEl.el.classList.add("scr-ref");
   const refBannersEl = refBanners({ onMore: () => refChipEl.open() });
   const pctNow = () => O.chargesPct(refCharges(ref));
   async function loadRefs() {

@@ -6539,6 +6539,8 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
 @media (max-width: 719px) {
   button.ref-chip { height: 44px; padding: 0 12px; gap: 6px; }
   .ref-chip-ic { display: none; }
+  /* The screener's chip names only the selected row's lot; on a phone the underlyings button needs the room. */
+  button.ref-chip.scr-ref { display: none; }
   button.cal-csv { width: 44px; padding: 0; justify-content: center; }
   button.cal-csv .cal-csv-t { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   button.cal-csv svg { width: 15px; height: 15px; }
