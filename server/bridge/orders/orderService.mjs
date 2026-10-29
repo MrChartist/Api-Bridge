@@ -37,7 +37,7 @@ import { isAutomatedContext } from "../core/context.mjs";
 import { assertLiveSupport, liveSupport, unverifiedWarning } from "./brokerOrders.mjs";
 import { ordersConfig } from "./config.mjs";
 import { createIdempotencyStore } from "./idempotencyStore.mjs";
-import { decideMode, effectiveSource } from "./modeDecision.mjs";
+import { AUTOMATED_SOURCES, decideMode, effectiveSource } from "./modeDecision.mjs";
 import {
   IDEMPOTENCY_KEY_RE,
   TERMINAL_STATUSES,
@@ -283,7 +283,62 @@ export function createOrderService(deps) {
   function refusalError(blocks) {
     const first = blocks[0];
     const code = ERROR_CODES[first.code] ? first.code : "INVALID_ORDER";
-    return new BridgeError(code, first.message, { errors: blocks.map((b) => ({ path: b.code, message: b.message })) });
+    return new BridgeError(code, first.message, { errors: blocks.map((b) => ({ path: b.path ?? b.code, message: b.message })) });
+  }
+
+  /** deps.readiness when the readiness module runs (not a stub); null otherwise (back-compat: no readiness line). */
+  const readinessService = () => {
+    try {
+      const r = deps.readiness;
+      return r && !isStub(r) && typeof r.canTrade === "function" ? r : null;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * The readiness line for a LIVE order (docs/spec/p1-05-readiness.md §3.7, §6.9), checked before safety.check:
+   *  - automated sources (webhook, system, guard, alert) with readiness.gateAutomated: refused with CANNOT_TRADE while
+   *    the account cannot trade, or when its state is still unknown or stale after ensureFresh (5 s at most). No
+   *    safety slot is taken and no broker call is made.
+   *  - everyone else (a person): a READINESS warning when the account is cannot_trade or warn.
+   * @returns {Promise<{ code: string, message: string, severity: "block"|"warn", path?: string } | null>}
+   */
+  async function readinessLine(ctx, accountId) {
+    const r = readinessService();
+    if (!r) return null;
+    let v;
+    try {
+      v = r.canTrade(accountId, { mode: "live" });
+    } catch (err) {
+      log.warn("readiness could not be read for an order", { accountId, code: err?.code });
+      return null;
+    }
+    if (!v || v.disabled) return null;
+    const why = (x) => (x.reasons ?? []).filter((y) => y.severity === "fail" || x.state !== "cannot_trade").map((y) => y.message).slice(0, 3).join("; ") || "no reason given";
+    const label = (state) => (state === "cannot_trade" ? "cannot trade" : state === "unknown" ? "not checked" : state);
+    const gate = config?.readiness?.gateAutomated !== false;
+    if (gate && AUTOMATED_SOURCES.includes(effectiveSource(ctx))) {
+      if (v.stale || v.state === "unknown") {
+        try {
+          v = await r.ensureFresh(accountId, { timeoutMs: 5000 });
+        } catch (err) {
+          log.warn("readiness could not be refreshed for an automated order", { accountId, code: err?.code });
+        }
+      }
+      if (v.state === "cannot_trade" || v.state === "unknown" || v.stale) {
+        const first = (v.reasons ?? []).find((y) => y.severity === "fail") ?? (v.reasons ?? [])[0];
+        const message =
+          v.state === "cannot_trade"
+            ? `Readiness: ${accountId} cannot trade right now (${why(v)}). Automated live orders are paused for this account; nothing was sent.`
+            : `Readiness: ${accountId} could not be checked just now, so this automated live order was not sent.`;
+        return { code: "CANNOT_TRADE", message, severity: "block", path: `readiness.${first?.check ?? "state"}` };
+      }
+      if (v.state === "warn") return { code: "READINESS", message: `Readiness: ${label(v.state)}: ${why(v)}`, severity: "warn" };
+      return null;
+    }
+    if (v.state === "cannot_trade" || v.state === "warn") return { code: "READINESS", message: `Readiness: ${label(v.state)}: ${why(v)}`, severity: "warn" };
+    return null;
   }
 
   const verdictError = (verdict) => refusalError(sortByPriority((verdict?.reasons?.length ? verdict.reasons : [{ code: "INVALID_ORDER", message: "The safety check did not pass." }]).map((r) => ({ ...r, severity: "block" }))));
@@ -579,6 +634,13 @@ export function createOrderService(deps) {
       p.blocks = sortByPriority(blocking(checks));
       return p;
     };
+
+    if (decision.mode === "live") {
+      const line = await readinessLine(ctx, summary.id);
+      if (line) checks.push(line);
+      // Refused before anything else: no symbol lookup at the broker, no P&L read, no safety slot, no broker call.
+      if (line?.severity === "block" && forPlace) return finish();
+    }
 
     try {
       p.resolved = await deps.symbols.resolve(body.symbol, wantsLive ? { broker: summary.broker } : {});

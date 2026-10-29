@@ -334,7 +334,7 @@ export function buildHarness(opts = {}) {
   const safety = opts.safety ?? createStubSafety();
   const audit = createStubAudit();
   const paper = createStubPaper({ clock });
-  const deps = { config, logger, bus, clock, paths: { root: process.cwd(), dataDir }, brokers: null, accounts, scheduler, symbols, safety, audit, paper, marketData, ...(opts.reference ? { reference: opts.reference } : {}) };
+  const deps = { config, logger, bus, clock, paths: { root: process.cwd(), dataDir }, brokers: null, accounts, scheduler, symbols, safety, audit, paper, marketData, ...(opts.reference ? { reference: opts.reference } : {}), ...(opts.readiness ? { readiness: opts.readiness } : {}) };
   const rawSvc = createOrderService(deps);
   // Live orders need an Idempotency-Key or a clientOrderId. Most tests are about something else, so give each call a
   // fresh key unless the test sends its own (or a clientOrderId). Tests of the rule itself use rawSvc.

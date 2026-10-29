@@ -4,7 +4,7 @@
  *
  *   "notify": {
  *     "targets": [
- *       { "id": "phone",  "kind": "telegram", "chatId": "123456789", "tokenEnv": "MCB_TELEGRAM_BOT_TOKEN", "events": ["scan.alert", "safety.kill_switch"] },
+ *       { "id": "phone",  "kind": "telegram", "chatId": "123456789", "tokenEnv": "MCB_TELEGRAM_BOT_TOKEN", "events": ["scan.alert", "safety.kill_switch", "trading.readiness"] },
  *       { "id": "n8n",    "kind": "webhook",  "url": "https://n8n.example.com/webhook/bridge", "secretEnv": "MCB_NOTIFY_SECRET", "events": ["scan.alert", "order.updated"] },
  *       { "id": "team",   "kind": "discord",  "urlEnv": "MCB_DISCORD_WEBHOOK_URL", "events": ["scan.alert"] }
  *     ]
@@ -16,7 +16,9 @@
  */
 import { z } from "zod";
 
-export const NOTIFY_EVENTS = Object.freeze(["scan.alert", "scan.completed", "order.updated", "safety.kill_switch", "account.status", "limits.throttled"]);
+export const NOTIFY_EVENTS = Object.freeze(["scan.alert", "scan.completed", "order.updated", "safety.kill_switch", "account.status", "limits.throttled", "trading.readiness"]);
+/** Events a target gets when it lists none. trading.readiness (p1-05) is on by default: an account that cannot trade matters. */
+export const DEFAULT_NOTIFY_EVENTS = Object.freeze(["scan.alert", "safety.kill_switch", "trading.readiness"]);
 const envName = z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/, "an environment variable name such as MCB_TELEGRAM_BOT_TOKEN");
 const url = z
   .string()
@@ -26,7 +28,7 @@ const url = z
 const common = {
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{1,31}$/),
   enabled: z.boolean().default(true),
-  events: z.array(z.enum(NOTIFY_EVENTS)).min(1).default(["scan.alert", "safety.kill_switch"]),
+  events: z.array(z.enum(NOTIFY_EVENTS)).min(1).default([...DEFAULT_NOTIFY_EVENTS]),
   /** order.updated only: these modes (default live only, so paper practice does not flood your phone). */
   orderModes: z.array(z.enum(["paper", "live"])).min(1).default(["live"]),
   /** order.updated only: these statuses (default the final ones). */

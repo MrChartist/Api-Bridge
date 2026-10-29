@@ -387,10 +387,28 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  tickets(ctx) -> Promise<object[]>                             pending human confirmations (OpenAPI Ticket)
    *  confirmTicket(ctx, ticketId) -> Promise<{ confirmToken: string, expiresAt: string }>   human confirmation (loopback admin)
    */
+  /**
+   * Readiness — S20 (docs/spec/p1-05-readiness.md §3.3). Whether each live-enabled account can trade right now (H5),
+   * for people (badge, notify) and for automation (guards, alert actions, webhooks). Never sends or engages anything.
+   *  status({ accountIds? }) -> ReadinessSnapshot                     cached; no I/O
+   *  canTrade(accountId, { mode }) -> { ok, state, reasons, checkedAt, stale }   cached; mode "paper" is always ok
+   *  ensureFresh(accountId, { maxAgeMs? = 60_000, timeoutMs? = 5_000 }) -> Promise<same as canTrade>
+   *  check({ accountId?, reason }) -> Promise<ReadinessSnapshot>      runs evaluate (probe subject to cooldown)
+   *  registerAutomation({ id, kind, accountId, mode, label, onState? }) -> { update(patch), remove() }
+   *      kind: "webhook"|"guard"|"alert"|"sample"; onState(stateObj) is called on every state change of its account
+   *  `reference` and `audit` are optional: a stub reference falls back to the weekday rule, a stub audit log is skipped.
+   */
+  readiness: {
+    iface: "Readiness",
+    stream: "S20",
+    requires: ["accounts", "scheduler", "safety", "audit", "reference"],
+    methods: ["status", "canTrade", "ensureFresh", "check", "registerAutomation"],
+  },
+
   orders: {
     iface: "OrderService",
     stream: "S7",
-    requires: ["accounts", "scheduler", "symbols", "safety", "audit", "paper", "marketData", "reference"],
+    requires: ["accounts", "scheduler", "symbols", "safety", "audit", "paper", "marketData", "reference", "readiness"],
     methods: ["preview", "place", "modify", "cancel", "cancelAll", "get", "getByClientId", "list", "trades", "positions", "holdings", "funds", "tickets", "confirmTicket"],
   },
 });

@@ -102,6 +102,13 @@ describe("loadConfig", () => {
     expect(dflt.accounts[0].live.allowedSources).toEqual(["rest"]);
   });
 
+  it("accepts live.backupIp (optional, ≤ 64 chars) next to registeredIp; registeredIp stays a free string", () => {
+    const { config } = load({ accounts: [{ id: "zz", broker: "zerodha", live: { registeredIp: "203.0.113.10", backupIp: "198.51.100.7" } }] });
+    expect(config.accounts[0].live).toMatchObject({ registeredIp: "203.0.113.10", backupIp: "198.51.100.7" });
+    expect(load({ accounts: [{ id: "zz", broker: "zerodha", live: { registeredIp: "my office" } }] }).config.accounts[0].live.registeredIp).toBe("my office");
+    expect(() => load({ accounts: [{ id: "zz", broker: "zerodha", live: { backupIp: "x".repeat(65) } }] })).toThrow();
+  });
+
   it("keeps module sections for module schemas to validate", () => {
     const { config } = load({ hooks: { x: 1 } });
     expect(moduleSections(config)).toEqual(["hooks"]);

@@ -704,7 +704,10 @@ export function createSafetyGuard(deps, opts = {}) {
       offFills();
     },
 
-    /** Record the egress IP a best-effort detector found (e.g. `mc-bridge doctor`). null clears it. Warnings only. */
+    /**
+     * Record the egress IP a best-effort detector found. Fed by the readiness monitor (readiness/monitor.mjs) when
+     * readiness.egressIp is "lookup" or "manual"; null clears it. Warnings only.
+     */
     setDetectedEgressIp(ip) {
       egressIp = typeof ip === "string" && ip ? ip : null;
     },

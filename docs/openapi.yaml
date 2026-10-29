@@ -101,6 +101,8 @@ tags:
     description: Broker limits, budgets and usage.
   - name: Safety
     description: Kill switch, safety counters and the audit log.
+  - name: Readiness
+    description: "Whether each live account can trade now: session, static IP, order headroom, kill switch (H5)."
   - name: Spreadsheets
     description: Plain-text and CSV endpoints for Excel, Google Sheets and AmiBroker.
   - name: Webhooks
@@ -1608,6 +1610,129 @@ paths:
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/readiness:
+    get:
+      tags: [Readiness]
+      operationId: getReadiness
+      summary: Trading readiness of each live account (cached; no broker call)
+      x-stream: S20
+      x-scope: read
+      description: >-
+        One state per account (ready, warn, cannot_trade, paper_only, unknown) with plain-English reasons and the facts
+        each check used. Cached: no broker call and no lookup. IP addresses (egress.ip, checks.egress.detectedIp,
+        registeredIp, backupIp) and the lookup host (seenBy) are present only for callers on this computer or with the
+        admin scope; others see only whether the address matches.
+      parameters:
+        - { name: account, in: query, required: false, schema: { type: array, maxItems: 20, items: { $ref: "#/components/schemas/AccountId" } }, style: form, explode: true }
+      responses:
+        "200":
+          description: Readiness snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Readiness" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/readiness/check:
+    post:
+      tags: [Readiness]
+      operationId: checkReadiness
+      summary: Re-check now (probe and egress lookup, each with a 30 s cooldown)
+      x-stream: S20
+      x-scope: read
+      description: >-
+        Runs the checks at once for one account (or every account this key may see). The broker read call and the
+        egress lookup each have a 30 s cooldown; skipped parts are listed in meta.skipped. Waits at most 12 s, then
+        answers with what it has.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, properties: { account: { $ref: "#/components/schemas/AccountId" } } }
+      responses:
+        "200":
+          description: Readiness snapshot after the check.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Readiness" }
+                  meta:
+                    allOf:
+                      - { $ref: "#/components/schemas/Meta" }
+                      - { type: object, properties: { skipped: { type: array, items: { type: string }, examples: [["probe:zerodha-main:cooldown", "egress:cooldown"]] } } }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/readiness/history:
+    get:
+      tags: [Readiness]
+      operationId: getReadinessHistory
+      summary: Recent readiness transitions (newest first)
+      x-stream: S20
+      x-scope: read
+      parameters:
+        - { name: account, in: query, required: false, schema: { $ref: "#/components/schemas/AccountId" } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        "200":
+          description: Transitions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/ReadinessTransition" } }
+                  meta:
+                    allOf:
+                      - { $ref: "#/components/schemas/Meta" }
+                      - { type: object, properties: { kept: { type: integer, description: "How many transitions the Bridge keeps (200)." } } }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/demo/readiness:
+    post:
+      tags: [Readiness]
+      operationId: demoReadinessScenario
+      summary: Demo mode only - simulate a readiness failure on the demo account (restores itself after 10 minutes)
+      x-stream: S20
+      x-scope: read
+      x-demo-only: true
+      description: >-
+        Exists only when the Bridge runs in demo mode. Changes only the simulated view of the demo account (no live
+        trading is possible in demo mode). A scenario is shared by everyone viewing the demo and reverts after 10
+        minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [scenario]
+              properties:
+                scenario: { type: string, enum: [session-expired, session-expiring, ip-changed, ip-unchecked, daily-loss-near, daily-orders-exhausted, restore] }
+      responses:
+        "200":
+          description: Readiness snapshot after the scenario.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Readiness" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
 
   /v1/audit:
     get:
@@ -4791,6 +4916,113 @@ components:
               ordersToday: { type: integer }
               realisedPnlToday: { type: number }
               limits: { type: object }
+    ReadinessState:
+      type: string
+      description: "Account trading readiness. Open enum: new values may be added."
+      enum: [ready, warn, cannot_trade, paper_only, unknown]
+    ReadinessReason:
+      type: object
+      required: [check, code, severity, message]
+      properties:
+        check: { type: string, examples: [session, egress, orderRate, dailyOrders, dailyLoss, killSwitch, live, readiness] }
+        code:
+          type: string
+          description: >-
+            Open list: LIVE_OFF, SESSION_EXPIRED, SESSION_MISSING, SESSION_ERROR, SESSION_REJECTED, SESSION_EXPIRES_SOON,
+            PROBE_FAILED, IP_MISMATCH, IP_NOT_REGISTERED, IP_INVALID_CONFIG, IP_FAMILY_DIFFERS, IP_UNCHECKED,
+            IP_LOOKUP_FAILED, CLOCK_SKEW, RATE_CAP_REACHED, BROKER_ORDER_BACKOFF, DAILY_ORDERS_LOW, DAILY_ORDERS_EXHAUSTED,
+            DAILY_LOSS_NEAR, DAILY_LOSS_REACHED, KILL_SWITCH, STALE.
+        severity: { type: string, enum: [warn, fail] }
+        message: { type: string }
+    ReadinessCheck:
+      type: object
+      required: [status]
+      additionalProperties: true
+      properties:
+        status: { type: string, enum: [pass, warn, fail, unknown, n/a] }
+    ReadinessAutomation:
+      type: object
+      required: [id, kind, label, mode, state]
+      properties:
+        id: { type: string }
+        kind: { type: string, examples: [webhook, guard, alert, sample] }
+        label: { type: string }
+        mode: { type: string, enum: [paper, live] }
+        state: { $ref: "#/components/schemas/ReadinessState" }
+    AccountReadiness:
+      type: object
+      required: [accountId, broker, state, reasons, checks, live, simulated, stale]
+      properties:
+        accountId: { $ref: "#/components/schemas/AccountId" }
+        broker: { type: string }
+        brokerName: { type: string }
+        label: { type: [string, "null"] }
+        simulated: { type: boolean, description: "Demo mode: a simulated live account (no real broker)." }
+        live:
+          type: object
+          properties:
+            globalLiveTrading: { type: [boolean, string] }
+            accountLiveEnabled: { type: [boolean, string] }
+            allowedByConfig: { type: boolean }
+        state: { $ref: "#/components/schemas/ReadinessState" }
+        since: { type: [string, "null"], format: date-time }
+        checkedAt: { type: [string, "null"], format: date-time }
+        stale: { type: boolean }
+        reasons: { type: array, items: { $ref: "#/components/schemas/ReadinessReason" } }
+        checks:
+          type: object
+          properties:
+            session: { $ref: "#/components/schemas/ReadinessCheck" }
+            egress: { $ref: "#/components/schemas/ReadinessCheck" }
+            orderRate: { $ref: "#/components/schemas/ReadinessCheck" }
+            dailyOrders: { $ref: "#/components/schemas/ReadinessCheck" }
+            dailyLoss: { $ref: "#/components/schemas/ReadinessCheck" }
+            killSwitch: { $ref: "#/components/schemas/ReadinessCheck" }
+        automations: { type: array, items: { $ref: "#/components/schemas/ReadinessAutomation" } }
+    Readiness:
+      type: object
+      required: [overall, summary, accounts, paperOnly, method]
+      properties:
+        overall: { $ref: "#/components/schemas/ReadinessState" }
+        summary: { type: string, examples: ["1 of 2 live accounts cannot trade"] }
+        checkedAt: { type: [string, "null"], format: date-time }
+        disabled: { type: boolean, description: "readiness.enabled is false." }
+        accounts: { type: array, items: { $ref: "#/components/schemas/AccountReadiness" } }
+        paperOnly: { type: boolean }
+        egress:
+          type: object
+          description: ip and seenBy only for callers on this computer or with the admin scope.
+          properties:
+            mode: { type: string, enum: [off, lookup, manual] }
+            checkedAt: { type: [string, "null"], format: date-time }
+            family: { type: [string, "null"], enum: [ipv4, ipv6, null] }
+            seenBy: { type: [string, "null"] }
+            ip: { type: [string, "null"] }
+            clockSkewMs: { type: [integer, "null"] }
+            lastError: { type: [string, "null"] }
+        schedule: { type: object, additionalProperties: true }
+        automations:
+          type: object
+          properties:
+            total: { type: integer }
+            live: { type: integer }
+            cannotTrade: { type: integer }
+        notifications:
+          type: object
+          properties:
+            targetsListening: { type: array, items: { type: string } }
+            warning: { type: [string, "null"] }
+            demoOff: { type: boolean }
+        method: { type: string }
+    ReadinessTransition:
+      type: object
+      required: [at, accountId, from, to, codes]
+      properties:
+        at: { type: string, format: date-time }
+        accountId: { $ref: "#/components/schemas/AccountId" }
+        from: { $ref: "#/components/schemas/ReadinessState" }
+        to: { $ref: "#/components/schemas/ReadinessState" }
+        codes: { type: array, items: { type: string } }
     AuditRecord:
       type: object
       required: [seq, at, type, actor, source, hash, prevHash]
@@ -4828,6 +5060,11 @@ components:
         allowSourceIps: { type: array, items: { type: string } }
         createdAt: { type: string, format: date-time }
         lastSignalAt: { type: [string, "null"], format: date-time }
+        readiness:
+          description: "Live hooks: the readiness state of the hook's account (orders are refused with CANNOT_TRADE while it is cannot_trade). null for paper hooks."
+          oneOf:
+            - { $ref: "#/components/schemas/ReadinessState" }
+            - { type: "null" }
     HookCreate:
       type: object
       required: [source, label, account]

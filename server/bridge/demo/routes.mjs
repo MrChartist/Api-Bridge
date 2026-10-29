@@ -16,6 +16,8 @@
  *  - `handler(deps)` returns the request handler; it reads only services, never touches files outside dataDir.
  */
 
+import { createReadinessRoutes } from "../readiness/routes.mjs";
+
 /**
  * @typedef {{ module: string, method: "GET"|"POST"|"PUT"|"PATCH"|"DELETE", path: string,
  *   options: { scope?: string, auth?: string, loopbackOnly?: boolean, summary?: string, [k: string]: unknown },
@@ -23,7 +25,17 @@
  */
 
 /** @type {readonly DemoRoute[]} */
-export const DEMO_ROUTES = Object.freeze([]);
+export const DEMO_ROUTES = Object.freeze([
+  // p1-05 §4.4: simulate a readiness failure on the demo account (restores itself after 10 minutes). Scope read, not
+  // loopback-only, so the public demo can use it; it touches only simulated in-memory state.
+  Object.freeze({
+    module: "readiness",
+    method: "POST",
+    path: "/v1/demo/readiness",
+    options: { scope: "read", summary: "Demo mode only: simulate a readiness failure on the demo account" },
+    handler: (deps) => createReadinessRoutes(deps).demoScenario,
+  }),
+]);
 
 const METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 
