@@ -3898,6 +3898,35 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/demo/reference:
+    put:
+      tags: [Reference data]
+      operationId: setDemoReference
+      summary: "Demo only: report the reference lot data as stale"
+      description: >-
+        Exists only when the Bridge runs in demo mode. With lotsStale true, the demo reference reports every lot as two trading days old (the bundle, /v1/reference/lots and the order preview's LOT_SIZE_STALE check), so the stale warning and the order ticket's lot-size confirmation can be tried. false restores current lots.
+      x-stream: S16
+      x-scope: admin
+      x-loopback-only: true
+      x-demo-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [lotsStale], additionalProperties: false, properties: { lotsStale: { type: boolean } } }
+      responses:
+        "200":
+          description: The flag now in force.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, properties: { lotsStale: { type: boolean } } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
 components:
   securitySchemes:
     bearerAuth:

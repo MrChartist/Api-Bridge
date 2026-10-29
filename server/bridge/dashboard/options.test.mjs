@@ -1,6 +1,11 @@
 /** Option Desk maths (options.js): chain reads, pricing and strategy payoffs. */
 import { describe, expect, it } from "vitest";
 import * as A from "./options.js";
+import { REF_DEFAULTS, refCharges } from "./reference.js";
+
+/** The reference values the pages pass in (reference.js fallback: the same figures the demo Bridge serves). */
+const RATES = refCharges(null);
+const RISK = REF_DEFAULTS.rate.value;
 import {
   atmRow,
   black76,
@@ -351,10 +356,14 @@ describe("persona reads", () => {
   it("the synthetic is flat across strikes when the chain is priced with carry (r > 0)", () => {
     const F = 26500;
     const years = 27 / 365;
-    const g = O.parityGrowth(years);
-    expect(g).toBeCloseTo(Math.exp(O.RISK_FREE * years), 12);
-    expect(O.parityGrowth(0)).toBe(1);
-    const D = Math.exp(-O.RISK_FREE * years);
+    const g = O.parityGrowth(years, RISK);
+    expect(g).toBeCloseTo(Math.exp(RISK * years), 12);
+    expect(O.parityGrowth(0, RISK)).toBe(1);
+    // The rate is required: without one there is no carry (never a hidden default).
+    expect(O.parityGrowth(years)).toBe(1);
+    expect(O.parityGrowth(years, null)).toBe(1);
+    expect(O.parityGrowth(years, 0.0571)).toBeCloseTo(Math.exp(0.0571 * years), 12);
+    const D = Math.exp(-RISK * years);
     const rows = [25400, 26000, 26500, 27000, 27400].map((K) => {
       const c = O.black76(F, K, years, 12, "CE") * D;
       const p = c - (F - K) * D;
@@ -1065,8 +1074,8 @@ describe("book warnings and settings", () => {
 
 // ── Volatility (the #/vol page, PRD 05) ──
 describe("volatility", () => {
+  const RATE = RISK;
   const {
-    RATE,
     VOL_READ_FOOTER,
     arbChecks,
     atmIvAt,
@@ -1531,9 +1540,13 @@ describe("charges model (PRD 06 §6)", () => {
   it("one rate table: user overrides apply on a copy, bad values are ignored", () => {
     const r = A.ratesWith({ "opt.sttSell": 0.001, gst: 5, "nope.x": 1 });
     expect(r.opt.sttSell).toBe(0.001);
-    expect(r.gst).toBe(A.CHARGE_RATES.gst);
-    expect(A.CHARGE_RATES.opt.sttSell).toBe(0.0015);
+    expect(r.gst).toBe(RATES.gst);
+    expect(RATES.opt.sttSell).toBe(0.0015);
     expect(A.rateDefault("fut.txn.NSE")).toBe(0.0000173);
+    // Overrides apply to the reference table the page passes in.
+    const base = { ...RATES, opt: { ...RATES.opt, sttSell: 0.002 } };
+    expect(A.ratesWith({}, base).opt.sttSell).toBe(0.002);
+    expect(A.rateDefault("opt.sttSell", base)).toBe(0.002);
   });
 
   it("exerciseStt: long ITM pays on intrinsic; short and OTM pay nothing", () => {
@@ -2205,7 +2218,7 @@ describe("Option Screener maths (PRD 07)", () => {
     expect(sell.total).toBeCloseTo(sell.brokerage + sell.stt + sell.txn + sell.sebi + sell.gst, 12);
     const rt = A.roundTripCosts(100, 75, "NFO");
     expect(rt.total).toBeCloseTo(buy.total + A.legCosts({ side: "SELL", price: 100, qty: 75 }).total, 10);
-    expect(A.legCosts({ side: "BUY", price: 100, qty: 75 }, { ...A.CHARGES, brokeragePerOrder: 0 }).brokerage).toBe(0);
+    expect(A.legCosts({ side: "BUY", price: 100, qty: 75 }, { ...A.chargesPct(RATES), brokeragePerOrder: 0 }).brokerage).toBe(0);
     const box = { kind: "Box (buy)", legs: [{ side: "BUY", right: "CE", strike: 100, price: 5 }, { side: "SELL", right: "CE", strike: 110, price: 1 }, { side: "BUY", right: "PE", strike: 110, price: 6 }, { side: "SELL", right: "PE", strike: 100, price: 1 }] };
     const legsOnly = box.legs.reduce((a, l) => a + A.legCosts({ side: l.side, price: l.price, qty: 10 }).total, 0);
     expect(A.arbCosts(box, 10).total).toBeCloseTo(legsOnly + 10 * 10 * 0.0015, 10);
@@ -2421,5 +2434,74 @@ describe("OI page visuals (pcrGaugePos, buildupHeat, spotX)", () => {
     expect(A.spotX([], 26400)).toBeNull();
     expect(A.spotX(ks, null)).toBeNull();
     expect(A.spotX([26400], 26400)).toBe(0);
+  });
+});
+
+// ── Reference values passed in (docs/spec/p1-02-reference.md §5.6, P1-2b) ──
+describe("reference values are parameters, not constants", () => {
+  const ist = (y, mo, d, hh = 10, mm = 0) => Date.UTC(y, mo - 1, d, hh, mm) - 5.5 * 3600 * 1000;
+  const SESSION = { preOpen: "09:00", open: "09:15", close: "15:30", holiday: null, date: null };
+  // 24 Nov 2026 (Tue) is on the shipped holiday list; 10 Nov too.
+  const holidays = new Set(["2026-11-10", "2026-11-24"]);
+  const isTradingDay = (d) => {
+    const dow = new Date(`${d}T00:00:00Z`).getUTCDay();
+    return dow !== 0 && dow !== 6 && !holidays.has(d);
+  };
+
+  it("marketSession reads the session times and closes on a holiday", () => {
+    expect(A.marketSession(ist(2026, 11, 2, 9, 14), SESSION).phase).toBe("pre");
+    expect(A.marketSession(ist(2026, 11, 2, 9, 15), SESSION).phase).toBe("open");
+    // A later close from the reference (a special day) moves the end.
+    expect(A.marketSession(ist(2026, 11, 2, 15, 45), { ...SESSION, close: "16:00" }).phase).toBe("open");
+    // Today's session is a holiday: closed all day, with its label.
+    const hol = A.marketSession(ist(2026, 11, 10, 11), { ...SESSION, date: "2026-11-10", holiday: { label: "Diwali Balipratipada", verified: false } });
+    expect(hol).toMatchObject({ phase: "closed", holiday: "Diwali Balipratipada", label: "Market closed · Diwali Balipratipada" });
+    // The calendar knows other days' holidays too.
+    expect(A.marketSession(ist(2026, 11, 24, 11), SESSION, { isTradingDay }).phase).toBe("closed");
+    expect(A.marketSession(ist(2026, 11, 23, 11), SESSION, { isTradingDay }).phase).toBe("open");
+  });
+
+  it("sessionsLeft skips holidays when the calendar is given", () => {
+    // Mon 23 Nov 10:00 → Fri 27 Nov: 23, 25, 26, 27 (24 is a holiday) = 4; weekdays only would say 5.
+    expect(A.sessionsLeft("2026-11-27", ist(2026, 11, 23, 10))).toBe(5);
+    expect(A.sessionsLeft("2026-11-27", ist(2026, 11, 23, 10), { session: SESSION, isTradingDay })).toBe(4);
+    expect(A.maxPainRelevance("2026-11-27", ist(2026, 11, 23, 10), { session: SESSION, isTradingDay })).toBe("medium");
+    // After the reference close, today no longer counts.
+    expect(A.sessionsLeft("2026-11-27", ist(2026, 11, 23, 15, 45), { session: SESSION, isTradingDay })).toBe(3);
+    expect(A.sessionsLeft("2026-11-27", ist(2026, 11, 23, 15, 45), { session: { ...SESSION, close: "16:00" }, isTradingDay })).toBe(4);
+  });
+
+  it("timeToExpiry and expiryCloseMs settle at the session close", () => {
+    expect(new Date(A.expiryCloseMs("2026-11-03", "15:30")).toISOString()).toBe("2026-11-03T10:00:00.000Z");
+    expect(new Date(A.expiryCloseMs("2026-11-03", "15:00")).toISOString()).toBe("2026-11-03T09:30:00.000Z");
+    expect(A.timeToExpiry("2026-11-03", ist(2026, 11, 3, 15, 10), "15:00").label).toBe("Expired");
+    expect(A.timeToExpiry("2026-11-03", ist(2026, 11, 3, 15, 10), "15:30").label).toBe("Expires today");
+    expect(A.timeToExpiry("2026-11-03", ist(2026, 11, 3, 14, 30), "15:30").days).toBeCloseTo(1 / 24, 9);
+  });
+
+  it("chargesPct derives the screener's percent table from the reference table (same figures as before)", () => {
+    expect(A.chargesPct(RATES)).toEqual({ asOf: "2026-04-01", brokeragePerOrder: 20, sttSellPct: 0.15, sttExercisePct: 0.15, txnPct: { NFO: 0.03503, BFO: 0.0325 }, sebiPerCrore: 10, stampBuyPct: 0.003, gstPct: 18 });
+    const zero = A.chargesPct({ ...RATES, brokeragePerOrder: 0 });
+    expect(A.legCosts({ side: "BUY", price: 100, qty: 75 }, zero).brokerage).toBe(0);
+    // legCosts on the derived table equals charges() on the same table (one rate table).
+    const viaPct = A.legCosts({ side: "SELL", price: 100, qty: 75, exchange: "NFO" }, A.chargesPct(RATES));
+    const viaRates = A.charges([{ kind: "OPT", side: "SELL", right: "CE", strike: 26000, price: 100, lots: 1, on: true, symbol: "NFO:NIFTY-2026-11-03-26000-CE" }], RATES, { lotSize: 75 });
+    expect(viaPct.total).toBeCloseTo(viaRates.total, 9);
+  });
+
+  it("refCharges reads the server's charge table and its brokerage", () => {
+    const server = { asOf: "2026-04-01", source: "Union Budget 2026 STT", opt: { sttSell: 0.002, exerciseStt: 0.0015, stampBuy: 0.00003, txn: { NSE: 0.0003503, BSE: 0.000325 } }, fut: { sttSell: 0.0005, stampBuy: 0.00002, txn: { NSE: 0.0000173, BSE: 0 } }, sebiPerCrore: 10, ipftPerCrore: 0, gst: 0.18, brokerage: { kind: "flat", perOrder: 15 } };
+    const r = refCharges({ charges: server });
+    expect(r).toMatchObject({ asOf: "Apr 2026", asOfDate: "2026-04-01", brokeragePerOrder: 15, source: "Union Budget 2026 STT" });
+    expect(r.opt.sttSell).toBe(0.002);
+    expect(A.charges([{ kind: "OPT", side: "SELL", right: "CE", strike: 1, price: 100, lots: 1, on: true }], r, { lotSize: 1 }).brokerage).toBe(15);
+  });
+
+  it("arbFlags reads the market hours from the reference session", () => {
+    const flags = (m, ses) => A.arbFlags({ legs: [] }, { nowMs: m, session: ses }).map((f) => f.code);
+    expect(flags(ist(2026, 11, 2, 9, 5), SESSION)).toContain("NEAR_CLOSE");
+    expect(flags(ist(2026, 11, 2, 11), SESSION)).not.toContain("MARKET_CLOSED");
+    expect(flags(ist(2026, 11, 2, 11), { ...SESSION, holiday: { label: "Holiday" } })).toContain("MARKET_CLOSED");
+    expect(flags(ist(2026, 11, 2, 15, 35), SESSION)).toContain("MARKET_CLOSED");
   });
 });

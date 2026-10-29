@@ -6,6 +6,7 @@
 import { api, app, chartSlot, errorState, h, icon, modal, optional, sheetPopover, toast } from "./app.js";
 import { DASH, formatFixed, formatInt, formatPercent, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
+import { lotConfirmGate, refCharges, refSession } from "./reference.js";
 import { drawPayoff, money, moneyEl } from "./payoff.js";
 import { openPlacement } from "./strategy-place.js";
 import { keepFocus, segmented } from "./views.js";
@@ -313,16 +314,16 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const exps = [...new Set(opt.map((l) => l.expiry).filter(Boolean))].sort();
     const front = exps[0] ?? xx.c.expiry;
     const multi = exps.length > 1;
-    const expMs = O.expiryCloseMs(front) ?? now;
+    const expMs = O.expiryCloseMs(front, refSession(st.ref).close) ?? now;
     if (wi.target !== null && wi.target <= now) wi.target = null;
     const targetMs = wi.target === null ? now : Math.min(wi.target, expMs);
     const el = Math.max(0, Math.min(T, (targetMs - now) / YEAR_MS));
     const shift = wi.ivShift;
     const lot = xx.lot;
     const ivNow = num(xx.sm.atmIv) !== null ? Math.max(1, xx.sm.atmIv + shift) : null;
-    const ch = ok ? O.charges(act, O.CHARGE_RATES, { lotSize: lot }) : null;
+    const ch = ok ? O.charges(act, refCharges(st.ref), { lotSize: lot }) : null;
     // Net of charges: exit charges are held inside the strikes ± 3σ, so the S = 0 / 2 × top tails cannot inflate max loss.
-    const net = ok && cfg().net ? O.strategyCharges(act, O.CHARGE_RATES, { lotSize: lot, forward: xx.F, ivPct: ivNow, years: T }) : null;
+    const net = ok && cfg().net ? O.strategyCharges(act, refCharges(st.ref), { lotSize: lot, forward: xx.F, ivPct: ivNow, years: T }) : null;
     const stats = ok ? O.strategyStats(act, lot, { forward: xx.F, ivPct: xx.sm.atmIv, years: T, ivShift: shift, spot: xx.spot, charges: net }) : null;
     const expiryToday = O.isExpiryDay(front);
     const est = ok ? O.marginEstimate(act, lot, { forward: xx.F, years: T, expiryToday }) : null;
@@ -1136,7 +1137,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     wiChipIv.setAttribute("aria-pressed", String(wi.ivShift !== 0));
     resetWi.hidden = wi.target === null && wi.ivShift === 0;
     note.textContent = R.ok
-      ? `Theoretical · Black-76 on forward ${formatInt(Math.round(x.F ?? 0))} · leg IVs ${formatSigned(wi.ivShift, 1)} pts · r 0 · to 15:30 IST${R.multi ? " · later legs keep their time value at the first expiry" : ""}${R.net ? ` · net of charges (rates ${O.CHARGE_RATES.asOf})` : ""}`
+      ? `Theoretical · Black-76 on forward ${formatInt(Math.round(x.F ?? 0))} · leg IVs ${formatSigned(wi.ivShift, 1)} pts · r 0 · to ${refSession(st.ref).close} IST${R.multi ? " · later legs keep their time value at the first expiry" : ""}${R.net ? ` · net of charges (rates ${refCharges(st.ref).asOf})` : ""}`
       : "";
   }
   const dragging = { t: false };
@@ -1296,7 +1297,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     if (!R?.ch) return;
     const c = R.ch;
     const rows = [["Brokerage", c.brokerage], ["STT", c.stt], ["Exchange", c.txn], ["GST", c.gst], ["Stamp", c.stamp], ["SEBI", c.sebi]];
-    const exitAt = x.spot !== null ? O.exitCharges(R.act, x.spot, O.CHARGE_RATES, { lotSize: R.lot }) : null;
+    const exitAt = x.spot !== null ? O.exitCharges(R.act, x.spot, refCharges(st.ref), { lotSize: R.lot }) : null;
     chargesPop = sheetPopover({
       trigger,
       title: "Charges to enter",
@@ -1305,7 +1306,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
         "div",
         { class: "charges-pop" },
         h("table", { class: "keys-table charges-t" }, h("tbody", {}, rows.map(([k, v]) => h("tr", {}, h("th", { scope: "row" }, k), h("td", { class: "num" }, formatFixed(v, 2)))), h("tr", { class: "total" }, h("th", { scope: "row" }, "Total"), h("td", { class: "num" }, formatFixed(c.total, 2))))),
-        h("p", { class: "muted small" }, `${isFigure(exitAt) ? `Exit at spot ≈ ${rupees(exitAt)}. ` : ""}Rates as of ${O.CHARGE_RATES.asOf}: verify with your broker.`),
+        h("p", { class: "muted small" }, `${isFigure(exitAt) ? `Exit at spot ≈ ${rupees(exitAt)}. ` : ""}Rates as of ${refCharges(st.ref).asOf}: verify with your broker.`),
       ),
     });
   }
@@ -1924,7 +1925,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const legsIn = c.legs.map((l) => ({ kind: "OPT", right: l.right, strike: l.strike, side: l.side, lots: l.lots, expiry: l.expiry ?? x.c.expiry, symbol: symOf({ ...l, kind: "OPT", expiry: l.expiry ?? x.c.expiry }), lotSize: x.lot }));
     setName(null);
     // The target date jumps to the first expiry (the date the suggestion was scored at); the crosshair pins at the target.
-    wi.target = O.expiryCloseMs(x.c.expiry);
+    wi.target = O.expiryCloseMs(x.c.expiry, refSession(st.ref).close);
     setLegs(legsIn, { undoLabel: `${c.name} loaded` });
     requestAnimationFrame(() => chart.pin(sg.target));
   }
@@ -2012,6 +2013,8 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       items,
       summary: exit ? null : { net: R.stats?.net ?? null, maxLoss: R.stats ? R.stats.maxLoss : undefined, margin: R.margin, marginEst: R.acct === null, free: funds.free },
       warnings: R.warnings,
+      // Stale or conflicting reference lots: one confirmation for the whole basket (docs/spec/p1-02-reference.md §5.4).
+      lotGate: lotConfirmGate(st.ref, items[0]?.lotSize ?? x.lot),
       cfg: { product: cfg().product, hedgeWait: cfg().hedgeWait },
       onCfg: (patch) => setCfg(patch),
       onPositions,
@@ -2227,7 +2230,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       body.replaceChildren(
         h("section", {}, h("h3", {}, "More figures ", h("small", {}, "a quiet row under the chart")), list),
         h("section", {}, h("h3", {}, "Prices"), basis, h("p", { class: "muted small" }, "Touch: the ask to buy, the bid to sell. Missing quotes fall back to LTP.")),
-        h("section", {}, h("h3", {}, "Charges"), sw("Figures after charges", () => cfg().net, (v) => setCfg({ net: v }), `Brokerage, STT and fees (rates as of ${O.CHARGE_RATES.asOf})`)),
+        h("section", {}, h("h3", {}, "Charges"), sw("Figures after charges", () => cfg().net, (v) => setCfg({ net: v }), `Brokerage, STT and fees (rates as of ${refCharges(st.ref).asOf})`)),
         h("section", {}, h("h3", {}, "Placing"), h("div", { class: "pop-segs" }, h("span", { class: "muted small" }, "Product"), prod, h("span", { class: "muted small" }, "Wait for each hedge"), wait)),
       );
     };

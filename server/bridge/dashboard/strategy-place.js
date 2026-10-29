@@ -20,7 +20,8 @@ const tickOf = (it) => (Number(it.tickSize) > 0 ? Number(it.tickSize) : 0.05);
  * Open the confirm sheet. Resolves when it closes, with { placed: number } (legs that reached the exchange book).
  * @param {{ title: string, mode?: "entry"|"exit", account: object, items: object[], summary?: object, warnings?: object[],
  *   cfg: { product: string, hedgeWait: number }, onCfg?: (patch: object) => void, live?: () => boolean,
- *   onPositions?: () => void, announce?: (text: string) => void, accountRow?: (reopen: () => void) => Node }} o
+ *   onPositions?: () => void, announce?: (text: string) => void, accountRow?: (reopen: () => void) => Node,
+ *   lotGate?: { needed: boolean, text: string } }} o
  *   items: [{ leg, side, phase, symbol, label, lots, lotSize, price, product?, quote: () => quote|null, freezeQty? }]
  */
 export function openPlacement(o) {
@@ -39,6 +40,13 @@ export function openPlacement(o) {
   const liveSeg = a.liveAllowedByConfig ? segmented("Mode", [["paper", "Paper"], ["live", "Live"]], "paper") : null;
   const ack = h("input", { type: "checkbox" });
   const ackRow = h("label", { class: "check live-ack", hidden: true }, ack, `I understand these are real orders to ${a.label}.`);
+  // Lot-size confirmation, once for the basket (docs/spec/p1-02-reference.md §5.4): when the reference lot data is
+  // stale or disagrees with the broker's contract, nothing is sent (or previewed) until it is ticked; each leg then
+  // carries its own lot as lotSizeConfirmed.
+  const gate = o.lotGate?.needed ? o.lotGate : null;
+  const gateBox = h("input", { type: "checkbox", required: true });
+  const gateRow = gate ? h("label", { class: "check lot-gate place-lotgate" }, gateBox, h("span", {}, gate.text)) : null;
+  const gateOk = () => !gate || gateBox.checked;
   const isLive = () => liveSeg?.value === "live";
   const prodSeg = segmented("Product", [["INTRADAY", "Intraday"], ["MARGIN", "Carry (NRML)"]], cfg.product === "INTRADAY" ? "INTRADAY" : "MARGIN");
   const waitSeg = segmented("Hedge wait", [["5", "5 s"], ["15", "15 s"], ["30", "30 s"]], String(cfg.hedgeWait ?? 15));
@@ -67,6 +75,7 @@ export function openPlacement(o) {
   const body = (r, extra = {}) => {
     const b = { account: a.id, symbol: r.symbol, side: r.side, lots: r.lots, product: r.product ?? prodSeg.value, orderType: "LIMIT", price: r.limit, ...extra };
     if (isLive()) b.mode = "live";
+    if (gate && gateBox.checked && Number(r.lotSize) > 0) b.lotSizeConfirmed = Number(r.lotSize);
     return b;
   };
 
@@ -141,7 +150,7 @@ export function openPlacement(o) {
     const hedged = rows.some((r) => r.phase === "hedge") && rows.some((r) => r.phase === "short");
     const btn = h(
       "button",
-      { type: "button", class: isLive() ? "danger" : "primary", disabled: blocked() || (isLive() && !ack.checked) || !rows.every((r) => r.preview) },
+      { type: "button", class: isLive() ? "danger" : "primary", disabled: blocked() || !gateOk() || (isLive() && !ack.checked) || !rows.every((r) => r.preview) },
       exit ? `Close ${formatInt(n)} leg${n === 1 ? "" : "s"} · shorts first${isLive() ? " · LIVE" : ""}` : `Place ${formatInt(n)} leg${n === 1 ? "" : "s"}${hedged ? " · hedges first" : ""}${isLive() ? " · LIVE" : ""}`,
     );
     btn.addEventListener("click", () => run());
@@ -151,6 +160,7 @@ export function openPlacement(o) {
   async function preflight() {
     // A newer preflight (mode, product or prices changed) supersedes this one: its late answers are dropped.
     const gen = ++pfGen;
+    if (!gateOk()) return;
     await Promise.all(
       rows.map(async (r) => {
         if (!r.symbol || !isFigure(r.limit)) {
@@ -452,6 +462,7 @@ export function openPlacement(o) {
     // Orders go to: the account is chosen here, where it matters (strategy.md §3.1); a change reopens the sheet.
     o.accountRow ? h("div", { class: "place-acct" }, o.accountRow(() => closeSheet?.({ reopen: true })), modeBadge) : h("p", { class: "muted small ticket-acct one-line" }, h("span", { class: "acct-name" }, a.label), " ", modeBadge),
     liveSeg ? segField("Mode", liveSeg) : null,
+    gateRow,
     ackRow,
   );
   liveSeg?.addEventListener("change", () => {
@@ -469,6 +480,12 @@ export function openPlacement(o) {
     preflight();
   });
   ack.addEventListener("change", drawButtons);
+  gateBox.addEventListener("change", () => {
+    for (const r of rows) r.preview = null;
+    legTable();
+    drawButtons();
+    preflight();
+  });
 
   legTable();
   drawWarnings();

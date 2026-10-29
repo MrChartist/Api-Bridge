@@ -14,6 +14,7 @@ import * as O from "./options.js";
 import { niceTicks } from "./payoff.js";
 import { segField, segmented } from "./views.js";
 import { spotPill } from "./viz.js";
+import { eventChip, refCharges, refRate, refSession, upcomingEvents } from "./reference.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const CHAIN_STRIKES = 40;
@@ -268,7 +269,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const chains = new Map([...d.chains.entries()].filter(([, c]) => c.chain).map(([e, c]) => [e, c.chain]));
     const nearChain = [...chains.values()][0] ?? null;
     spot = num(nearChain?.underlyingLtp) ?? num(d.quotes.get(INDEX_SYMBOL[st.underlying])?.ltp);
-    legs = O.priceBook(raw, { chains, quotes: d.quotes, inst: instCache, spot, excluded: excludedSet() });
+    legs = O.priceBook(raw, { chains, quotes: d.quotes, inst: instCache, spot, excluded: excludedSet(), rate: refRate(st.ref).value });
     const now = Date.now();
     for (const l of legs) {
       const c = d.chains.get(l.expiry);
@@ -462,7 +463,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   }
   function drawWarnings() {
     const st0 = staleness();
-    const w = legs.length ? O.bookWarnings(legs, { spot, stale: st0 }) : [];
+    const w = legs.length ? O.bookWarnings(legs, { spot, stale: st0, rates: refCharges(st.ref) }) : [];
     const sig = JSON.stringify([w, warnOpen, isPhone()]);
     if (warnEl.__sig === sig) return;
     warnEl.__sig = sig;
@@ -587,7 +588,10 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const cost = -opt.reduce((t, l) => t + (l.mark ?? l.avg) * l.q, 0);
     return { pnl: pnlU, delta, theta, kept: credit > 0 ? Math.max(-999, Math.min(100, ((credit - cost) / credit) * 100)) : null };
   }
-  const groupTitle = (g) => (g.expiry ? `${expiryText(g.expiry)} · ${O.isExpiryDay(g.expiry) ? "Expires today" : O.timeToExpiry(g.expiry).label}` : "All expiries");
+  const groupTitle = (g) => (g.expiry ? `${expiryText(g.expiry)} · ${O.isExpiryDay(g.expiry) ? "Expires today" : O.timeToExpiry(g.expiry, Date.now(), refSession(st.ref).close).label}` : "All expiries");
+  // A lot revision, corporate action or expiry shift on this underlying within 7 days: a chip on every row
+  // (docs/spec/p1-02-reference.md §5.3). Positions keep the lot they opened with.
+  const refEvent = () => upcomingEvents(st.ref?.events).find((e) => e.underlying === st.underlying) ?? null;
   function groupIncState(g) {
     const open = g.legs.filter((l) => l.q);
     const on = open.filter((l) => l.inc).length;
@@ -780,10 +784,12 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       const ref = rowRefs.get(l.symbol);
       if (!ref) continue;
       const v = legVm(l);
+      const ev = refEvent();
+      const evKey = ev ? `${ev.kind}|${ev.effectiveOn}` : "";
       if (phone) {
         const c1 = ref.cells.get("c1");
         const c2 = ref.cells.get("c2");
-        setCell(c1, JSON.stringify([l.q, l.lot, Math.round(v.u ?? 0), l.inc]), () => [h("span", { class: `side-tag ${l.q > 0 ? "buy" : "sell"}` }, l.q > 0 ? "B" : "S"), h("strong", {}, legName(l)), h("span", { class: "pos-clots" }, lotsText(l)), l.inc ? null : h("span", { class: "pos-chip" }, "excluded"), h("span", { class: "pos-cpnl" }, v.u === null ? DASH : money(v.u))]);
+        setCell(c1, JSON.stringify([l.q, l.lot, Math.round(v.u ?? 0), l.inc, evKey]), () => [h("span", { class: `side-tag ${l.q > 0 ? "buy" : "sell"}` }, l.q > 0 ? "B" : "S"), h("strong", {}, legName(l)), h("span", { class: "pos-clots" }, lotsText(l)), l.inc ? null : h("span", { class: "pos-chip" }, "excluded"), ev ? eventChip(ev) : null, h("span", { class: "pos-cpnl" }, v.u === null ? DASH : money(v.u))]);
         const parts = [`${formatFixed(l.avg, 2)} → ${formatFixed(l.mark, 2)}`, v.delta !== null ? `Δ ${formatSigned(v.delta, 0)}` : null, v.theta !== null ? `Θ ${rs(v.theta)}` : null, v.dist ? (l.q < 0 && v.dist.itm ? "ITM" : `${sig1(v.dist.sigma)}σ`) : null].filter(Boolean);
         setCell(c2, parts.join(" · "), () => parts.join(" · "));
         ref.el.setAttribute("aria-label", `${legSpeech(l)}, P&L ${v.u === null ? "unknown" : `${v.u < 0 ? "minus" : "plus"} ${formatInt(Math.abs(v.u))} rupees`}`);
@@ -794,8 +800,8 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       ref.el.classList.toggle("sel", selected.has(l.symbol));
       ref.el.classList.toggle("focus", focusSym === l.symbol);
       ref.el.setAttribute("aria-selected", String(selected.has(l.symbol)));
-      setCell(ref.cells.get("contract"), `${l.q > 0}|${l.product}|${l.expired}`, () =>
-        h("span", { class: "pos-leg" }, h("span", { class: `side-tag ${l.q > 0 ? "buy" : l.q < 0 ? "sell" : ""}` }, l.q > 0 ? "B" : l.q < 0 ? "S" : "·"), h("span", {}, h("strong", {}, legName(l)), h("small", {}, `${expiryText(l.expiry)} · ${l.expired ? "Expired · settles at close" : PRODUCT[l.product] ?? l.product}`))),
+      setCell(ref.cells.get("contract"), `${l.q > 0}|${l.product}|${l.expired}|${evKey}`, () =>
+        h("span", { class: "pos-leg" }, h("span", { class: `side-tag ${l.q > 0 ? "buy" : l.q < 0 ? "sell" : ""}` }, l.q > 0 ? "B" : l.q < 0 ? "S" : "·"), h("span", {}, h("strong", {}, legName(l)), ev ? eventChip(ev) : null, h("small", {}, `${expiryText(l.expiry)} · ${l.expired ? "Expired · settles at close" : PRODUCT[l.product] ?? l.product}`))),
       );
       for (const k of cols) {
         const c = cellFor(k, l, v);
@@ -1464,7 +1470,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       const q = (l.side === "BUY" ? 1 : -1) * l.units;
       if (l.kind === "FUT") return { symbol: l.symbol, kind: "FUT", q, avg: l.mark, mark: l.mark, F: l.mark, T: O.yearsToExpiry(l.expiry) ?? 0, priced: num(l.mark) !== null, inc: true };
       const o = l.right === "CE" ? atm?.ce : atm?.pe;
-      const F = (atm?.chain ? O.forwardPrice(atm.chain, O.parityGrowth(O.yearsToExpiry(l.expiry))) : null) ?? spot;
+      const F = (atm?.chain ? O.forwardPrice(atm.chain, O.parityGrowth(O.yearsToExpiry(l.expiry), refRate(st.ref).value)) : null) ?? spot;
       return { symbol: l.symbol, kind: "OPT", right: l.right, strike: l.strike, q, avg: l.mark, mark: l.mark, iv: num(o?.iv), F, T: O.yearsToExpiry(l.expiry) ?? 0, priced: num(l.mark) !== null && num(o?.iv) !== null, inc: true };
     });
     // Head: the one-line suggestion.
@@ -1803,6 +1809,12 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       tick();
     },
     onKey,
+    /** A new reference bundle (rate, session close, charges, events): reprice and redraw. */
+    refChanged() {
+      layoutSig = "";
+      riskSig = "";
+      draw();
+    },
     destroy() {
       closeMenu?.(false);
       for (const m of mqs) m.removeEventListener("change", onDevice);

@@ -202,7 +202,12 @@ export function createReferenceService(deps, opts = {}) {
   }
 
   /** Lots dataset freshness (reference file when fetched, else the masters). */
-  function lotsMeta({ demoStale = false } = {}) {
+  // Demo only: PUT /v1/demo/reference { lotsStale: true } reports the lots as two trading days old everywhere (the
+  // bundle, lotFor and so the order preview's LOT_SIZE_STALE), so the warning and the ticket's confirmation can be
+  // tried end to end. A real Bridge never sets it.
+  let demoLotsStale = false;
+  function lotsMeta({ demoStale: asked = false } = {}) {
+    const demoStale = asked || (demo && demoLotsStale);
     const t = today();
     let asOf;
     let source;
@@ -1000,6 +1005,13 @@ export function createReferenceService(deps, opts = {}) {
     sync: async (o) => startSync(o).promise,
     // extras for routes, MCP and tests
     isDemo: () => demo,
+    /** Demo only: report the lots as stale (true) or current (false). Returns the flag; a non-demo Bridge refuses. */
+    setDemoLotsStale(on) {
+      if (!demo) throw new BridgeError("CAPABILITY_UNSUPPORTED", "Only a demo Bridge can pretend its lot data is stale.");
+      demoLotsStale = Boolean(on);
+      return demoLotsStale;
+    },
+    demoLotsStale: () => demo && demoLotsStale,
     config: () => cfg,
     expiries,
     holidays({ from, to, exchange } = {}) {

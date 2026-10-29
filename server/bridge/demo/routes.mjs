@@ -16,6 +16,8 @@
  *  - `handler(deps)` returns the request handler; it reads only services, never touches files outside dataDir.
  */
 
+import { BridgeError } from "../core/errors.mjs";
+
 /**
  * @typedef {{ module: string, method: "GET"|"POST"|"PUT"|"PATCH"|"DELETE", path: string,
  *   options: { scope?: string, auth?: string, loopbackOnly?: boolean, summary?: string, [k: string]: unknown },
@@ -23,7 +25,21 @@
  */
 
 /** @type {readonly DemoRoute[]} */
-export const DEMO_ROUTES = Object.freeze([]);
+export const DEMO_ROUTES = Object.freeze([
+  // p1-02 (P1-2b): make the demo's lot data stale, so LOT_SIZE_STALE, the stale banner and the ticket's lot-size
+  // confirmation can be tried end to end (the bundle's ?demoStale=1 only changes that one read).
+  {
+    module: "reference",
+    method: "PUT",
+    path: "/v1/demo/reference",
+    options: { scope: "admin", loopbackOnly: true, summary: "Demo: report the reference lot data as two trading days old" },
+    handler: (deps) => async (ctx) => {
+      const b = ctx.body && typeof ctx.body === "object" && !Array.isArray(ctx.body) ? ctx.body : null;
+      if (!b || typeof b.lotsStale !== "boolean") throw new BridgeError("VALIDATION_FAILED", "Send { lotsStale: true | false }.", { field: "lotsStale" });
+      return { data: { lotsStale: deps.reference.setDemoLotsStale(b.lotsStale) }, meta: { requestId: ctx.requestId } };
+    },
+  },
+]);
 
 const METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 

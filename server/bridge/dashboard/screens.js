@@ -6,6 +6,7 @@
  */
 import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
+import { REF_DEFAULTS } from "./reference.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const DAY_MON = new Intl.DateTimeFormat("en-IN", { timeZone: "UTC", day: "numeric", month: "short" });
@@ -77,9 +78,10 @@ export const ARB_MIN_EDGE = -2;
  * @param {object} chain GET /v1/optionchain data
  * @param {{ now?: number, hv20?: number|null, charges?: object, wingStrikes?: number, fetchedAt?: number, monthly?: boolean, notional?: number|null }} o
  */
-export function chainRecords(chain, { now = Date.now(), hv20 = null, charges = O.CHARGES, wingStrikes = 4, fetchedAt = now, monthly = false, notional = null } = {}) {
+export function chainRecords(chain, { now = Date.now(), hv20 = null, charges = O.chargesPct(), wingStrikes = 4, fetchedAt = now, monthly = false, notional = null, rate = REF_DEFAULTS.rate.value, close = REF_DEFAULTS.session.close } = {}) {
   if (!chain?.rows?.length) return null;
-  const ctx = O.chainContext(chain, { now, hv20, charges });
+  // rate and close are the reference values (refRate / refSession of the page's bundle).
+  const ctx = O.chainContext(chain, { now, hv20, charges, rate, close });
   if (ctx.expired || ctx.T === null) return null;
   const { sm, lot, F, S } = ctx;
   const support = sm.support?.strike ?? null;
@@ -175,7 +177,7 @@ export function chainRecords(chain, { now = Date.now(), hv20 = null, charges = O
     F,
     S,
   }));
-  const df = Math.exp(-O.RATE * ctx.T);
+  const df = Math.exp(-ctx.rate * ctx.T);
   const hits = O.arbChecks(chain, { df, minEdge: ARB_MIN_EDGE, span: 20 });
   const arbs = hits.map((hit) => {
     const gross = hit.edge;
