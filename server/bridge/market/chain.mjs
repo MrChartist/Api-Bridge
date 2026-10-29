@@ -83,7 +83,8 @@ export function finishLeg(fields, p) {
  * Rows from a broker chain (adapter.fetchOptionChain result).
  * @param {object} result { status, data: { oc: { "<strike>": { ce?, pe? } }, last_price } }
  * @param {{ underlying: string, expiry: string, exchange: string, declared: "broker"|"computed"|null, greeks: boolean,
- *   strikes?: number, nowMs: number, rate: number }} p
+ *   strikes?: number, nowMs: number, rate: number, oiUnit?: "units"|"lots", lotSize?: number | null }} p
+ *   oiUnit/lotSize: the broker's OI unit (market/oiUnits.mjs); OI is converted to units
  * @returns {{ underlyingLtp: number | null, atmStrike: number | null, rows: object[] }}
  */
 export function rowsFromBrokerChain(result, p) {
@@ -98,7 +99,7 @@ export function rowsFromBrokerChain(result, p) {
     const pair = oc[key] ?? {};
     const row = { strike, ce: null, pe: null };
     for (const right of ["CE", "PE"]) {
-      const fields = chainLegFields(pair[right.toLowerCase()]);
+      const fields = chainLegFields(pair[right.toLowerCase()], { oiUnit: p.oiUnit ?? "units", lotSize: p.lotSize ?? null });
       row[right.toLowerCase()] = finishLeg(fields, {
         ...p,
         symbol: legSymbol(p.exchange, p.underlying, p.expiry, strike, right),

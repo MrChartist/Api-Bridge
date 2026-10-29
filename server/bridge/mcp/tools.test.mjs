@@ -414,3 +414,31 @@ describe("T-sec-6: MCP order tools by key scope (p1-05 §3.9 F9)", () => {
     expect(true).toBe(true);
   });
 });
+
+describe("get_option_snapshots (options toolset, p1-01 §4.7)", () => {
+  it("returns the REST page shape and units, at most 80 snapshots, defaults oi,ltp ±10 every 5", async () => {
+    const { makeRecorder, IST, EXPIRY } = await import("../recorder/testkit.mjs");
+    const { parseSnapshotQuery, readSnapshots, UNITS } = await import("../recorder/routes.mjs");
+    const r = makeRecorder({ start: IST("2026-10-19T09:14:30"), recorder: { sources: { stream: false } } });
+    await r.svc.start();
+    await r.minutes(120); // 09:15 … 11:14
+    const registry = createToolRegistry({ deps: { config: { mcp: { toolsets: ["market", "analytics", "account", "options"] } }, recorder: r.svc }, now: () => r.clock.now() });
+    const def = TOOL_DEFS.find((t) => t.name === "get_option_snapshots");
+    expect(def).toMatchObject({ toolset: "options", annotations: { readOnlyHint: true, destructiveHint: false } });
+    expect(DEFAULT_TOOL_NAMES).not.toContain("get_option_snapshots");
+    const out = await registry.call("get_option_snapshots", { underlying: "NIFTY", expiry: EXPIRY, every: 1 }, ctxFor(["read"]));
+    expect(out.isError, JSON.stringify(out.content)).toBeUndefined();
+    const d = out.structuredContent.data;
+    expect(d.units).toEqual(UNITS);
+    expect(d.fields).toEqual(["oi", "ltp"]);
+    expect(d.snapshots).toHaveLength(80);
+    expect(d.truncated).toBe(true);
+    const five = await registry.call("get_option_snapshots", { underlying: "NIFTY", expiry: EXPIRY }, ctxFor(["read"]));
+    const rest = await readSnapshots(r.svc, { ...parseSnapshotQuery({ underlying: "NIFTY", expiry: EXPIRY, fields: "oi,ltp", strikes: "10", every: "5" }, { now: r.clock.now() }), limit: 81 }, ctxFor(["read"]));
+    expect(five.structuredContent.data.truncated).toBe(false);
+    expect(five.structuredContent.data.snapshots).toEqual(JSON.parse(JSON.stringify(rest.snapshots)));
+    const bad = await registry.call("get_option_snapshots", { underlying: "NIFTY", expiry: EXPIRY, fields: "theta" }, ctxFor(["read"]));
+    expect(bad.isError).toBe(true);
+    await r.svc.stop();
+  });
+});

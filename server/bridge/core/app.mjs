@@ -90,6 +90,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "vol.js": "text/javascript; charset=utf-8",
   "vol-curves.js": "text/javascript; charset=utf-8",
   "oi-store.js": "text/javascript; charset=utf-8",
+  "oi-series.js": "text/javascript; charset=utf-8",
   "strategy.js": "text/javascript; charset=utf-8",
   "strategy-place.js": "text/javascript; charset=utf-8",
   "payoff.js": "text/javascript; charset=utf-8",

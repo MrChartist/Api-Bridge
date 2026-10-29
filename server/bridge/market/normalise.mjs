@@ -156,17 +156,33 @@ export function mergeCandles(lists) {
 const GREEK_KEYS = ["delta", "gamma", "theta", "vega"];
 
 /**
+ * Open interest in UNITS (docs/spec/p1-01-recorder.md §10). `unit` is what the broker sends (market/oiUnits.mjs):
+ * "units" passes through; "lots" is multiplied by the leg's lot size, and becomes null when the lot size is unknown
+ * (never a guess).
+ * @param {unknown} value
+ * @param {"units"|"lots"} [unit]
+ * @param {number | null} [lotSize]
+ * @returns {number | null}
+ */
+export function oiToUnits(value, unit = "units", lotSize = null) {
+  const n = numOrNull(value);
+  if (n === null || unit !== "lots") return n;
+  return Number.isFinite(lotSize) && lotSize > 0 ? n * lotSize : null;
+}
+
+/**
  * ChainLeg fields (no symbol) from a Dhan-shaped contract leg (the same aliases brokers/contractShapes.mjs
- * toOptionData reads), keeping nulls for missing fields.
+ * toOptionData reads), keeping nulls for missing fields. OI fields are converted to units (`oiUnit`, `lotSize`).
  * @param {object | null | undefined} leg
+ * @param {{ oiUnit?: "units"|"lots", lotSize?: number | null }} [opts]
  * @returns {{ ltp, bid, ask, oi, oiChange, volume, iv, close, change, delta, gamma, theta, vega } | null}
  */
-export function chainLegFields(leg) {
+export function chainLegFields(leg, { oiUnit = "units", lotSize = null } = {}) {
   if (!leg || typeof leg !== "object") return null;
   const g = leg.greeks && typeof leg.greeks === "object" ? leg.greeks : {};
-  const oi = numOrNull(leg.oi);
-  const prevOi = numOrNull(leg.previous_oi);
-  const oiChg = numOrNull(leg.oi_chg ?? leg.oiChange);
+  const oi = oiToUnits(leg.oi, oiUnit, lotSize);
+  const prevOi = oiToUnits(leg.previous_oi, oiUnit, lotSize);
+  const oiChg = oiToUnits(leg.oi_chg ?? leg.oiChange, oiUnit, lotSize);
   const iv = numOrNull(leg.implied_volatility ?? leg.iv);
   const ltp = priceOrNull(leg.last_price ?? leg.ltp);
   // Previous session's close, when the broker sends it: lets clients read price change (and OI build-up) per leg.

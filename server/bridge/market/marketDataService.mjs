@@ -34,6 +34,7 @@ import { IV_MODELS, applyB76, atmStrike, defaultOptionExchange, finishLeg, legSy
 import { kindOf, pricingContext } from "../vol/context.mjs";
 import { DEPTH_STALE_CAP_MS, parseMarketConfig } from "./config.mjs";
 import { createFreshnessCache } from "./freshnessCache.mjs";
+import { oiUnitFor } from "./oiUnits.mjs";
 import { INTERVALS, INTRADAY_MINUTES, aggregate, countbackRange, planChunks, planInterval } from "./history.mjs";
 import {
   depthFields,
@@ -78,6 +79,10 @@ const readOptionsSchema = z
     allowBackup: z.boolean().optional(),
     /** The caller's account restriction (a key's accounts list); "*" or absent = any. Unpinned reads stay inside it. */
     allowedAccounts: z.union([z.literal("*"), z.array(z.string().min(1).max(64))]).optional(),
+    /** Broker option-chain calls only: the longest the call may wait for budget (background jobs such as the recorder). */
+    maxWaitMs: z.number().int().min(0).max(60_000).optional(),
+    /** Priority "background" only: the scheduler keeps every window at or above (1 − share) of its limit (≤ 0.5). */
+    backgroundShare: z.number().min(0).max(0.5).optional(),
   })
   .passthrough();
 
@@ -224,6 +229,8 @@ export function createMarketDataService(deps) {
       exchange: o.exchange ?? undefined,
       allowedAccounts,
       allowBackup: o.allowBackup === true && !o.accountId,
+      maxWaitMs: o.maxWaitMs,
+      backgroundShare: priority === "background" ? o.backgroundShare : undefined,
     };
   }
 
@@ -345,10 +352,11 @@ export function createMarketDataService(deps) {
    * Run one broker call through the scheduler. The adapter and credentials are fetched inside the scheduled function.
    * @returns {Promise<any>} the adapter result
    */
-  async function callBroker({ accountId, broker, endpointClass, priority, coalesceKey, signal, maxWaitMs, cost = 1 }, fn) {
+  async function callBroker({ accountId, broker, endpointClass, priority, coalesceKey, signal, maxWaitMs, backgroundShare, cost = 1 }, fn) {
     const opts = { accountId, endpointClass, priority, coalesceKey, cost };
     if (signal) opts.signal = signal;
     if (maxWaitMs !== undefined) opts.maxWaitMs = maxWaitMs;
+    if (backgroundShare !== undefined && priority === "background") opts.backgroundShare = backgroundShare;
     try {
       return await scheduler.schedule(opts, async () => {
         stats.brokerCalls += 1;
@@ -1014,7 +1022,7 @@ export function createMarketDataService(deps) {
     return { exchange: defaultOptionExchange(underlying), lotSize: null };
   }
 
-  async function brokerChain({ underlying, expiry, greeks, pinned, priority, signal, stale, allowedAccounts }) {
+  async function brokerChain({ underlying, expiry, greeks, pinned, priority, signal, stale, allowedAccounts, maxWaitMs, backgroundShare }) {
     const accountId = chooseAccount("optionChain", "chain", pinned, allowedAccounts);
     if (!accountId) return null;
     const broker = brokerOf(accountId);
@@ -1024,12 +1032,12 @@ export function createMarketDataService(deps) {
     const meta = await chainMeta(underlying, expiry);
     const res = await raceSignal(
       callBroker(
-        { accountId, broker, endpointClass: "chain", priority, coalesceKey: `chain:${accountId}:${underlying}:${expiry}`, maxWaitMs: stale ? cfg.stale.waitMs : undefined },
+        { accountId, broker, endpointClass: "chain", priority, coalesceKey: `chain:${accountId}:${underlying}:${expiry}`, maxWaitMs: maxWaitMs ?? (stale ? cfg.stale.waitMs : undefined), backgroundShare },
         (adapter, creds) => adapter.fetchOptionChain(creds, underlying, expiry),
       ),
       signal,
     );
-    const built = rowsFromBrokerChain(res, { underlying, expiry, exchange: meta.exchange, declared, greeks, nowMs: now(), rate: riskFreeRate() });
+    const built = rowsFromBrokerChain(res, { underlying, expiry, exchange: meta.exchange, declared, greeks, nowMs: now(), rate: riskFreeRate(), oiUnit: oiUnitFor(broker, "chain"), lotSize: meta.lotSize });
     if (!built.rows.length) throw new BridgeError("SYMBOL_NOT_FOUND", `No options were found for ${underlying} expiring ${expiry}.`);
     return { value: { underlyingLtp: built.underlyingLtp, rows: built.rows, lotSize: meta.lotSize }, at: now(), accountId, broker, source: "broker" };
   }
@@ -1145,7 +1153,7 @@ export function createMarketDataService(deps) {
       saving("cache");
       return chainResult(underlying, p.expiry, stale.value, p.strikes, freshness({ source: "cache", at: stale.at, now: now(), targetMs, stale: true, accountId: stale.accountId, broker: stale.broker }));
     };
-    const args = { underlying, expiry: p.expiry, greeks, pinned, priority: o.priority, signal: o.signal, stale: Boolean(stale), targetMs, allowedAccounts: o.allowedAccounts };
+    const args = { underlying, expiry: p.expiry, greeks, pinned, priority: o.priority, signal: o.signal, stale: Boolean(stale), targetMs, allowedAccounts: o.allowedAccounts, maxWaitMs: o.maxWaitMs, backgroundShare: o.backgroundShare };
     let got = null;
     try {
       if (cfg.chain.source !== "built") {

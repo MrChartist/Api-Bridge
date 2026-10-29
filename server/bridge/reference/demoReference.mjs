@@ -32,7 +32,7 @@ const round1 = (x) => Math.round(x * 10) / 10;
 /** Demo stocks in a fixed order. */
 export const DEMO_STOCKS = Object.freeze(Object.keys(DEMO_STOCK_LOT).sort());
 /** Demo index underlyings with derivatives: symbol -> exchange. */
-export const DEMO_INDEX_EXCHANGE = Object.freeze(Object.fromEntries(DEMO_UNDERLYINGS.filter((u) => u.deriv).map((u) => [u.symbol, u.deriv])));
+export const DEMO_INDEX_EXCHANGE = Object.freeze(Object.fromEntries(DEMO_UNDERLYINGS.filter((u) => u.deriv && u.kind === "INDEX").map((u) => [u.symbol, u.deriv])));
 
 const weekStartOf = (date) => {
   const wd = new Date(`${date}T00:00:00Z`).getUTCDay();

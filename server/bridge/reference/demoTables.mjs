@@ -8,7 +8,7 @@ import { createCalendar } from "./calendar.mjs";
 import { shippedHolidayRows, shippedSpecialSessions } from "./shipped.mjs";
 
 /** Current demo index lots (after the Jan 2026 revision). */
-export const DEMO_INDEX_LOT = Object.freeze({ NIFTY: 65, BANKNIFTY: 30, SENSEX: 20 });
+export const DEMO_INDEX_LOT = Object.freeze({ NIFTY: 65, BANKNIFTY: 30, SENSEX: 20, FINNIFTY: 60, MIDCPNIFTY: 120 });
 
 /**
  * The rolling demo lot revision: BANKNIFTY moves 30 -> 35 for contracts in the months after the next monthly expiry,

@@ -665,6 +665,34 @@ export const TOOL_DEFS = Object.freeze([
       return { data: await readReference(svc(rt.deps, "reference"), dataset, params, { now: rt.now }) };
     },
   },
+  {
+    name: "get_option_snapshots",
+    title: "Recorded option-chain snapshots",
+    toolset: "options",
+    description:
+      "Option-chain snapshots the Bridge recorded on this computer (every minute in session for indices, every 5 minutes for opted-in stocks), with gaps and coverage, for one underlying and expiry over a time range. " +
+      "Same fields and units as GET /v1/options/snapshots: OI and volume in units, IV in percent, prices in INR; gaps are never filled. At most 80 snapshots (truncated says so; use every or a shorter range). For CSV use the REST route with format=csv.",
+    input: () =>
+      z.strictObject({
+        underlying: z.string().min(1).max(30).describe("NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, SENSEX or a stock."),
+        expiry: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("YYYY-MM-DD."),
+        from: z.string().max(40).nullable().describe("IST date, IST date-time or epoch seconds; null for today's session start."),
+        to: z.string().max(40).nullable().describe("Null for now. At most 31 days after from."),
+        fields: z.string().max(120).nullable().describe("Comma list of ltp, bid, ask, bidQty, askQty, oi, volume, iv, delta, gamma, age; null for oi,ltp."),
+        strikes: z.number().int().min(1).max(60).nullable().describe("Strikes each side of ATM; null for 10."),
+        every: z.union([z.literal(1), z.literal(3), z.literal(5), z.literal(15), z.literal(30), z.literal(60)]).nullable().describe("Minutes between snapshots; null for 5."),
+      }),
+    output: z.strictObject({ data: anyObj, meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_LOCAL,
+    handler: async (a, ctx, rt) => {
+      const { parseSnapshotQuery, readSnapshots } = await import("../recorder/routes.mjs");
+      const params = Object.fromEntries(Object.entries(a).filter(([, v]) => v !== null && v !== undefined).map(([k, v]) => [k, String(v)]));
+      const query = parseSnapshotQuery(params, { now: rt.now(), defaults: { fields: ["oi", "ltp"], strikes: 10, every: 5 } });
+      const page = await readSnapshots(svc(rt.deps, "recorder"), { ...query, limit: 81 }, ctx);
+      const truncated = page.snapshots.length > 80 || Boolean(page.nextCursor);
+      return { data: { ...page, snapshots: page.snapshots.slice(0, 80), nextCursor: null, truncated } };
+    },
+  },
 ]);
 
 /** Tools listed when nothing is configured (must stay under 20). */
