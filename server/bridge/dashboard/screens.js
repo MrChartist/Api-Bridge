@@ -935,7 +935,7 @@ export const STRIKE_CHOICES = Object.freeze([20, 30, 40]);
 /** Pinned rows per tab (docs/design/screener.md §8.6). */
 export const MAX_PINS = 10;
 /** Defaults (PRD 07 §9); `auto` is 60 s in demo, 120 s live. */
-export const SCREENER_DEFAULTS = Object.freeze({ v: 1, preset: "overview", underlyings: SCAN_UNDERLYINGS, expiries: 2, monthly: true, strikes: 30, auto: 120, rows: 50, brokerage: 20, wingStrikes: 4, hedgeNotional: null });
+export const SCREENER_DEFAULTS = Object.freeze({ v: 1, preset: "overview", underlyings: SCAN_UNDERLYINGS, expiries: 2, monthly: true, strikes: 30, auto: 120, rows: 50, brokerage: null, wingStrikes: 4, hedgeNotional: null });
 
 function validFilter(id, v, def, ctx) {
   const f = FILTERS[id];
@@ -1022,6 +1022,7 @@ export function screenerConfig(saved, { list = SCAN_UNDERLYINGS, demo = false } 
     strikes: pick(s.strikes, STRIKE_CHOICES, d.strikes),
     auto,
     rows: pick(s.rows, ROW_CHOICES, d.rows),
+    // null: the reference default (bundle.charges.brokerage, spec §5.6); a number is the user's own setting.
     brokerage: num(s.brokerage) === null ? d.brokerage : Math.min(100, Math.max(0, Number(s.brokerage))),
     wingStrikes: int(s.wingStrikes, 1, 10, d.wingStrikes),
     hedgeNotional: num(s.hedgeNotional) > 0 ? Math.min(1e11, Number(s.hedgeNotional)) : null,
@@ -1036,9 +1037,9 @@ export function screenerConfig(saved, { list = SCAN_UNDERLYINGS, demo = false } 
  * The expiries one sweep reads for an underlying: the first `n` listed plus the current monthly (the first expiry
  * that is the last of its month among those listed) when `monthly` is on.
  */
-export function scanExpiries(expiries, { n = 2, monthly = true, now = Date.now() } = {}) {
+export function scanExpiries(expiries, { n = 2, monthly = true, now = Date.now(), close = undefined } = {}) {
   // Brokers keep today's contract listed until the next instrument refresh: after 15:30 IST it is skipped.
-  const list = [...(expiries ?? [])].filter((e) => ISO_DAY.test(String(e)) && O.timeToExpiry(e, now).label !== "Expired").sort();
+  const list = [...(expiries ?? [])].filter((e) => ISO_DAY.test(String(e)) && O.timeToExpiry(e, now, close).label !== "Expired").sort();
   const out = list.slice(0, n);
   if (monthly) {
     const m = list.find((e) => O.isMonthly(e, list));

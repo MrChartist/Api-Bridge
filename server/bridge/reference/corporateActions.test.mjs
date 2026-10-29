@@ -2,6 +2,16 @@ import { describe, expect, it } from "vitest";
 import { adjustmentFactor, inferNonStandard, modalStrikeStep, normaliseAction, previewAdjustment, roundToTick } from "./corporateActions.mjs";
 
 describe("§6.1 worked examples", () => {
+  it("the method note matches the action type (not the rights formula for every type)", () => {
+    const m = (x) => previewAdjustment(x).method;
+    expect(m({ type: "bonus", ratio: { new: 1, held: 1 }, lot: 250 })).toMatch(/bonus a:b gives factor = \(a \+ b\) \/ b/);
+    expect(m({ type: "split", fv: { from: 10, to: 2 }, lot: 375 })).toMatch(/face value before \/ face value after/);
+    expect(m({ type: "split", fv: { from: 10, to: 2 }, lot: 375 })).not.toMatch(/TERP/);
+    expect(m({ type: "consolidation", fv: { from: 2, to: 10 }, lot: 375 })).toMatch(/consolidation gives factor = face value before \/ face value after/);
+    expect(m({ type: "rights", ratio: { new: 1, held: 5 }, subscriptionPrice: 100, cumPrice: 250 })).toMatch(/cum \/ TERP, TERP = \(b·P \+ a·S\) \/ \(a \+ b\)/);
+    expect(m({ type: "dividend", dividend: 40, cumPrice: 1000 })).toMatch(/strike minus dividend/);
+  });
+
   it("1. bonus 1:1 (RELIANCE, ex 28 Oct 2024): AF 2, lot 250 -> 500, strikes 2,800/2,820/2,830 -> 1,400/1,410/1,415", () => {
     const p = previewAdjustment({ type: "bonus", ratio: { new: 1, held: 1 }, lot: 250, strikes: [2800, 2820, 2830] });
     expect(p.factor).toBe(2);

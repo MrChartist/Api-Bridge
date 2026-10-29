@@ -1948,6 +1948,9 @@ describe("arbitrage maths (PRD 06 §7)", () => {
 
   it("arbConfig: defaults, validation and the locked columns", () => {
     const d = A.arbConfig(undefined);
+    // The flat brokerage value is null until set: the Arbitrage page then uses the reference brokerage (spec §5.6).
+    expect(d.profile.value).toBe(null);
+    expect(A.arbConfig({ profile: { value: 15 } }).profile.value).toBe(15);
     expect(d.tab).toBe("parity");
     expect(d.hurdle).toBe(6);
     expect(d.cols).toEqual(["strike", "call", "put", "syn", "dev", "edge", "conv", "rev", "annual", "liq"]);

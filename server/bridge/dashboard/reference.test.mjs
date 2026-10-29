@@ -19,7 +19,9 @@ import {
   hideEvent,
   holidayTomorrow,
   loadReference,
+  basketLotGate,
   lotConfirmGate,
+  lotStaleCheck,
   rateText,
   readHidden,
   refCalendar,
@@ -47,7 +49,7 @@ const EVENTS = [
   { kind: "lot-revision", underlying: "BANKNIFTY", effectiveOn: "2026-11-25", daysAway: 5, text: "BANKNIFTY lot size changes from 30 to 35 for contracts from the Dec 2026 series (first trading day 25 Nov, in 5 days). Source: demo data, 29 Oct.", ref: {} },
   { kind: "corporate-action", underlying: "RELIANCE", effectiveOn: "2026-11-04", daysAway: 6, text: "RELIANCE 1:1 bonus, ex-date 4 Nov (in 4 trading days). Strikes halve and lots double on that day.", ref: { type: "bonus" } },
   { kind: "holiday-expiry-shift", underlying: "NIFTY", effectiveOn: "2026-11-09", daysAway: 3, text: "NIFTY weekly expiry is on 9 Nov, a day earlier than usual: 2026-11-10 is a holiday.", ref: {} },
-  { kind: "holiday-expiry-shift", underlying: "NIFTY", effectiveOn: "2026-11-23", daysAway: 25, text: "far away", ref: {} },
+  { kind: "holiday-expiry-shift", underlying: "NIFTY", effectiveOn: "2026-10-27", daysAway: -2, text: "already past", ref: {} },
 ];
 /** A localStorage stand-in (store() shape); `throws` makes every call fail as blocked storage does. */
 const memStore = (throws = false) => {
@@ -176,13 +178,56 @@ describe("lotConfirmGate (acceptance criterion 4)", () => {
     const c = lotConfirmGate({ ...BUNDLE, lots: { ...BUNDLE.lots, conflict: { master: 65, reference: 75 } } }, 65);
     expect(c).toMatchObject({ needed: true, reason: "conflict" });
     expect(c.text).toContain("the reference list says 75");
-    // No reference (fallback) or no lot: nothing to confirm against.
-    expect(lotConfirmGate(fallbackBundle("NIFTY"), 65).needed).toBe(false);
+    // A fallback bundle: staleness is unknown, so lots are confirmed against the broker's contract.
+    const f = lotConfirmGate(fallbackBundle("NIFTY"), 65);
+    expect(f).toMatchObject({ needed: true, reason: "fallback", lots: [65] });
+    expect(f.text).toBe("Reference data unavailable: lot size 65 units from your broker's contract. I have checked it.");
+    // No bundle yet (the ticket waits for it) or no lot: nothing to confirm against.
     expect(lotConfirmGate(null, 65).needed).toBe(false);
     expect(lotConfirmGate(stale(), null).needed).toBe(false);
     expect(lotConfirmGate(stale(), 0).needed).toBe(false);
     // An order in units is never gated; futures in lots are (the ticket passes no options-only exception).
     expect(lotConfirmGate(stale(), 65, { units: true }).needed).toBe(false);
+  });
+
+  it("a per-contract LOT_SIZE_STALE from the order preview opens the gate the bundle did not (truth table)", () => {
+    const server = { code: "LOT_SIZE_STALE", severity: "block", message: "Lot size for NIFTY is from 27 Oct (2 trading days old). Confirm 65 units per lot or send quantity in units." };
+    // [bundle, server check, units] → needed / reason
+    const table = [
+      [BUNDLE, null, false, false, null],
+      [BUNDLE, server, false, true, "server"],
+      [BUNDLE, server, true, false, null],
+      [BUNDLE, { code: "SPREAD_WIDE", message: "x" }, false, false, null],
+      [stale(), server, false, true, "stale"],
+      [fallbackBundle("NIFTY"), null, false, true, "fallback"],
+      [fallbackBundle("NIFTY"), null, true, false, null],
+      [null, server, false, false, null],
+    ];
+    for (const [b, s, units, needed, reason] of table) expect(lotConfirmGate(b, 65, { server: s, units })).toMatchObject({ needed, reason });
+    expect(lotConfirmGate(BUNDLE, 65, { server }).text).toBe("Lot size for NIFTY is from 27 Oct (2 trading days old). Lot size 65 units from your broker's contract. I have checked it.");
+    expect(lotStaleCheck([{ code: "X" }, server])).toBe(server);
+    expect(lotStaleCheck(undefined)).toBe(null);
+  });
+
+  it("the basket gate names every distinct lot, and confirms only those (calendar with different lots)", () => {
+    const legs = [
+      { lotSize: 30, expiry: "2026-11-24" },
+      { lotSize: 30, expiry: "2026-11-24" },
+      { lotSize: 35, expiry: "2026-12-29" },
+    ];
+    const g = basketLotGate(stale(), legs);
+    expect(g).toMatchObject({ needed: true, reason: "stale", lots: [30, 35] });
+    expect(g.text).toBe("Lot sizes 30 units (Nov), 35 units (Dec), from 27 Oct (2 trading days old). I have checked them.");
+    expect(basketLotGate(BUNDLE, legs).needed).toBe(false);
+    expect(basketLotGate(fallbackBundle("BANKNIFTY"), legs)).toMatchObject({ needed: true, reason: "fallback", lots: [30, 35] });
+    const sv = basketLotGate(BUNDLE, legs, { server: [{ code: "LOT_SIZE_STALE", message: "Lot size for BANKNIFTY differs between the broker master (35) and the reference file (30). Confirm 35 units per lot or send quantity in units." }] });
+    expect(sv).toMatchObject({ needed: true, reason: "server", lots: [30, 35] });
+    expect(sv.text).toContain("Lot sizes 30 units (Nov), 35 units (Dec)");
+    // One distinct lot reads like the ticket's gate.
+    expect(basketLotGate(stale(), legs.slice(0, 2)).text).toBe("Lot size 30 units, from 27 Oct (2 trading days old). I have checked it.");
+    // The basket sends lotSizeConfirmed only for a lot in gate.lots.
+    const src = readFileSync(new URL("./strategy-place.js", import.meta.url), "utf8");
+    expect(src).toMatch(/\(gate\.lots \?\? \[\]\)\.includes\(Number\(r\.lotSize\)\)\) b\.lotSizeConfirmed = Number\(r\.lotSize\)/);
   });
 
   it("the order ticket gates futures in lots as well as options", () => {
@@ -193,7 +238,7 @@ describe("lotConfirmGate (acceptance criterion 4)", () => {
 
   it("the ticket works the gate out again on its 1 s tick and waits for the first bundle (spec §5.4)", () => {
     const src = readFileSync(new URL("./desk.js", import.meta.url), "utf8");
-    expect(src).toMatch(/const g = lotConfirmGate\(st\.ref, lotSize, \{ units: inUnits \}\)/);
+    expect(src).toMatch(/const g = lotConfirmGate\(st\.ref, lotSize, \{ units: inUnits, server: serverLot \}\)/);
     expect(src).toMatch(/setInterval\(\(\) => \(drawQuote\(\), drawWarnings\(\), syncGate\(\)\), 1000\)/);
     expect(src).toMatch(/const gateOk = \(\) => !refPending\(\) && \(!gate\.needed \|\| gateBox\.checked\)/);
     expect(src).toMatch(/"Reading contract data"/);
@@ -231,9 +276,11 @@ describe("banners and the chip", () => {
     expect(EVENTS.slice(0, 3).map(eventShort)).toEqual(["Lot change 25 Nov", "Bonus ex 4 Nov", "Expiry on 9 Nov"]);
     // At most `max` show; the rest is counted.
     expect(bannerModel(b, { max: 2 })).toMatchObject({ more: 1 });
-    // Only events within BANNER_DAYS.
+    // The server keeps only events within reference.bannerDays; the client trusts that window (a user's bannerDays of
+    // 10 reaches the banners) and drops only past events.
     expect(BANNER_DAYS).toBe(7);
-    expect(bannerModel(b, { max: 9 }).all.some((x) => x.text === "far away")).toBe(false);
+    expect(bannerModel(b, { max: 9 }).all.some((x) => x.text === "already past")).toBe(false);
+    expect(bannerModel({ ...BUNDLE, events: [{ kind: "lot-revision", underlying: "NIFTY", effectiveOn: "2026-11-08", daysAway: 10, text: "ten days out" }] }, { max: 9 }).all.some((x) => x.text === "ten days out")).toBe(true);
   });
 
   it("put the stale warning first and hide events for the day", () => {
@@ -274,6 +321,10 @@ describe("banners and the chip", () => {
     // The day before a weekday holiday: "Holiday tomorrow".
     expect(chipModel(BUNDLE, { lot: 65, now: Date.UTC(2026, 10, 9, 5) }).text).toBe("Lot 65 · Freeze 1800 · Holiday tomorrow");
     expect(chipModel(BUNDLE, { lot: 65 }).aria).toContain("Open contract facts");
+    // Fallback: with a chain lot it still shows the lot; with none (Market calendar) it says so in words, never "Lot --".
+    expect(chipModel(fallbackBundle("NIFTY"), { lot: 65 })).toMatchObject({ text: "Lot 65 · Defaults", tone: "bad" });
+    expect(chipModel(fallbackBundle("NIFTY"))).toMatchObject({ text: "Reference: defaults", short: "Reference: defaults", tone: "bad" });
+    expect(chipModel(fallbackBundle("NIFTY")).aria).toContain("Reference data unavailable");
   });
 
   it("facts sheet rows carry each value's source", () => {

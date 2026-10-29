@@ -4106,7 +4106,8 @@ export function arbConfig(saved) {
     hurdle: range(s.hurdle, 0, 50, d.hurdle),
     profile: {
       brokerage: pick(p.brokerage, BROKERAGE_MODELS.map((m) => m[0]), DEFAULT_PROFILE.brokerage),
-      value: range(p.value, 0, 10000, DEFAULT_PROFILE.value),
+      // null until the user sets one: the page then uses the reference brokerage (bundle.charges.brokerage, spec §5.6).
+      value: num(p.value) === null ? null : range(p.value, 0, 10000, DEFAULT_PROFILE.value),
       futPct: range(p.futPct, 0, 0.05, DEFAULT_PROFILE.futPct),
       pct: range(p.pct, 0, 0.05, DEFAULT_PROFILE.pct),
       cap: range(p.cap, 0, 10000, DEFAULT_PROFILE.cap),

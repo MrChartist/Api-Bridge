@@ -15,7 +15,15 @@
 import { BridgeError } from "../core/errors.mjs";
 
 export const ACTION_TYPES = Object.freeze(["bonus", "split", "consolidation", "rights", "dividend", "other"]);
-export const METHOD_NOTE = "NSE ratio method: factor = cum / TERP; strike / factor rounded to the tick; lot × factor rounded (needs verification)";
+/** The method line the preview shows, per action type (dividends get their own line in previewAdjustment). */
+export const METHOD_NOTES = Object.freeze({
+  bonus: "NSE ratio method: bonus a:b gives factor = (a + b) / b; strike / factor rounded to the tick; lot × factor rounded (needs verification)",
+  split: "NSE ratio method: split gives factor = face value before / face value after; strike / factor rounded to the tick; lot × factor rounded (needs verification)",
+  consolidation: "NSE ratio method: consolidation gives factor = face value before / face value after (below 1); strike / factor rounded to the tick; lot × factor rounded (needs verification)",
+  rights: "NSE ratio method: rights a:b at S gives factor = cum / TERP, TERP = (b·P + a·S) / (a + b) with P the cum price; strike / factor rounded to the tick; lot × factor rounded (needs verification)",
+});
+/** The method line for an action type. */
+export const methodNote = (type) => METHOD_NOTES[type] ?? "NSE ratio method: strike / factor rounded to the tick; lot × factor rounded (needs verification)";
 const DEFAULT_TICK = 0.05;
 
 const invalid = (msg, path) => new BridgeError("VALIDATION_FAILED", msg, { errors: [{ path, message: msg }] });
@@ -128,7 +136,7 @@ export function previewAdjustment(input, { extraordinaryDividendPct = 2 } = {}) 
     lotExact: lotExact === null ? null : roundDp(lotExact, 3),
     nonStandardLot: lotExact === null ? false : Math.abs(lotExact - Math.round(lotExact)) > 1e-9,
     strikes: strikes.map((k) => ({ before: k, after: roundToTick(k / factor, tick) })),
-    method: METHOD_NOTE,
+    method: methodNote(input.type),
   };
 }
 

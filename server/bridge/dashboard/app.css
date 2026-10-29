@@ -4997,7 +4997,16 @@ table.arb-pv small.block { display: block; margin-top: 3px; white-space: normal;
 .scr-grow { flex: 1 1 auto; min-width: 0; }
 
 /* Toolbar: "3 underlyings · 7 chains" (opens the underlying chips) and the live control (auto + time + scan). */
-button.scr-ctx { min-height: 40px; color: inherit; font: inherit; cursor: pointer; background: var(--mat-glass); }
+button.scr-ctx { min-height: 40px; color: inherit; font: inherit; cursor: pointer; background: var(--mat-glass); flex: none; min-width: max-content; }
+/* Beside the context capsule the reference chip gives way: it shrinks (ellipsis) rather than squeezing the capsule. */
+button.scr-ctx ~ button.ref-chip { flex: 0 1 auto; min-width: 0; }
+button.scr-ctx ~ button.ref-chip .ref-chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Phones: the screener's top bar has room for the scan capsule and the live pill only (390 px: the chip, even as an
+   icon, pushed the live pill under the Demo badge). The chip goes; its facts sheet still opens from the banners'
+   "+N more". */
+@media (max-width: 719px) {
+  button.scr-ctx ~ button.ref-chip { display: none; }
+}
 button.scr-ctx .ctx-main::after { content: ""; width: 12px; height: 12px; flex: none; background: hsl(var(--foreground) / var(--a-label)); -webkit-mask: var(--chev-mask) center / 12px 12px no-repeat; mask: var(--chev-mask) center / 12px 12px no-repeat; }
 button.scr-ctx:hover { background: var(--mat-glass-strong); }
 .scr-live { flex: none; display: inline-flex; align-items: center; height: 40px; padding: 0 2px; border-radius: 999px; box-shadow: var(--shadow-1); }
@@ -5894,14 +5903,20 @@ button.cal-csv svg { width: 13px; height: 13px; }
 .cal-cell.spe { background: hsl(var(--dv-iv) / 0.12); }
 .cal-cell.today { box-shadow: inset 0 0 0 2px hsl(var(--foreground)); }
 .cal-day { display: block; font: 650 13px/1 var(--font-numeric); color: hsl(var(--foreground)); margin-bottom: 4px; }
-.cal-cell.we .cal-day, .cal-cell.hol .cal-day { color: hsl(var(--foreground) / var(--a-quiet)); }
+.cal-cell.we:not(.out) .cal-day, .cal-cell.hol:not(.out) .cal-day { color: hsl(var(--foreground) / var(--a-quiet)); }
 .cal-mark { display: block; margin-top: 2px; font: 600 11px/1.25 var(--font-body); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 .cal-mark em { font-style: normal; font-weight: 500; color: hsl(var(--foreground) / var(--a-quiet)); }
 .cal-mark.hol { color: hsl(var(--warn-ink)); }
 .cal-mark.spe { color: hsl(var(--dv-iv-ink)); }
 .cal-mark.exw, .cal-mark.exm { display: inline-block; padding: 1px 5px; font-size: 10.5px; border-radius: 99px; font-weight: 650; color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); -webkit-line-clamp: 1; white-space: nowrap; max-width: 100%; text-overflow: ellipsis; }
 .cal-mark.hol-u { margin-top: 0; font-weight: 500; color: hsl(var(--foreground) / var(--a-quiet)); -webkit-line-clamp: 1; }
-.cal-mark.spe-t { margin-top: 0; font-weight: 500; -webkit-line-clamp: 1; color: hsl(var(--dv-iv-ink)); }
+.cal-mark.spe-t { margin-top: 0; font-weight: 500; -webkit-line-clamp: unset; display: block; overflow: visible; color: hsl(var(--dv-iv-ink)); }
+.cal-cell.has-marks { cursor: pointer; }
+.cal-cell.has-marks:hover { background-color: hsl(var(--foreground) / 0.04); }
+.cal-cell.has-marks:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.cal-cell-sheet { margin: 0; padding: 6px 16px 14px; list-style: none; display: grid; gap: 6px; font: 500 14px/1.4 var(--font-body); }
+.cal-consent-files { margin: 0; padding: 0 0 0 18px; display: grid; gap: 6px; font: 500 14px/1.4 var(--font-body); }
+.cal-src-off { align-self: flex-start; padding-left: 0; padding-right: 0; }
 .cal-mark.exw { color: hsl(var(--foreground)); background: transparent; box-shadow: inset 0 0 0 1.5px hsl(var(--foreground) / 0.55); }
 .cal-mark.mov { color: hsl(var(--foreground) / var(--a-label)); font-weight: 500; }
 .cal-legend[hidden] { display: none; }
@@ -5934,13 +5949,14 @@ button.cal-csv svg { width: 13px; height: 13px; }
 .cal-kv-i small { font: 500 11.5px/1.25 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); overflow-wrap: anywhere; }
 .cal-scroll { overflow-x: auto; overscroll-behavior-x: contain; min-width: 0; margin: 0 -14px; padding: 0 14px; }
 .cal-table { width: 100%; border-collapse: collapse; font: 500 13px/1.3 var(--font-body); font-variant-numeric: tabular-nums; }
-.cal-table th, .cal-table td { padding: 8px 10px 8px 0; text-align: left; white-space: nowrap; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+.cal-table th, .cal-table td { padding: 8px 10px 8px 0; text-align: left; white-space: nowrap; border: 0; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 .cal-table thead th { padding-top: 0; font: 600 11.5px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .cal-table tbody th { position: sticky; left: 0; z-index: 1; background: var(--mat-grouped-solid); font-weight: 650; }
 /* The first header cell sticks with its column, so the header stays over the right columns when the table scrolls. */
 .cal-table thead th:first-child { position: sticky; left: 0; z-index: 2; background: var(--mat-grouped-solid); }
 .cal-table .num { text-align: right; }
 .cal-table td.wrap { white-space: normal; color: hsl(var(--foreground) / var(--a-label)); min-width: 160px; }
+@media (max-width: 719px) { .cal-table td.wrap { min-width: 0; overflow-wrap: anywhere; } }
 .cal-table tr:last-child > * { box-shadow: none; }
 .cal-kind { display: inline-block; padding: 2px 7px; border-radius: 99px; font: 650 11px/1.2 var(--font-body); box-shadow: inset 0 0 0 1.5px hsl(var(--foreground) / 0.45); }
 .cal-kind.monthly { color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); box-shadow: none; }
@@ -6054,7 +6070,7 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
   .ticket-lotgate { padding: 10px; }
 }
 @media (pointer: coarse) {
-  button.ref-chip, button.cal-tile, button.ref-more, button.cal-help, button.lot-gate-units, .cal-nav .icon-btn, .ref-banner-act, input.cal-search, input.cal-date, button.cal-csv { min-height: 44px; }
+  button.ref-chip, button.cal-tile, button.ref-more, button.cal-help, button.lot-gate-units, button.cal-src-off, .cal-nav .icon-btn, .ref-banner-act, input.cal-search, input.cal-date, button.cal-csv { min-height: 44px; }
   button.cal-help, button.cal-csv, .cal-nav .icon-btn { min-width: 44px; }
   .check.lot-gate { min-height: 44px; align-items: center; }
 }

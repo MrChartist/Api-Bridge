@@ -39,7 +39,7 @@ export const REF_DEFAULTS = Object.freeze({
 
 /** How long one bundle is reused before it is read again (spec §3.3: every 10 minutes). */
 export const REF_TTL_MS = 10 * 60_000;
-/** Events at most this many days away get a banner (reference.bannerDays). */
+/** The default banner window (reference.bannerDays); the server filters by the configured value, the client trusts it. */
 export const BANNER_DAYS = 7;
 /** localStorage slot for "Hide until tomorrow": { [eventId]: "YYYY-MM-DD" (the IST day it was hidden) }. */
 export const HIDDEN_SLOT = "mcb.dashboard.refHidden";
@@ -234,26 +234,90 @@ export function lotsAge(b) {
   return n === 1 ? "1 day old" : `${formatInt(n)} trading days old`;
 }
 
+/** The server's LOT_SIZE_STALE preview check among `checks` (an order sent without lotSizeConfirmed), or null. */
+export const lotStaleCheck = (checks) => (Array.isArray(checks) ? checks.find((c) => c?.code === "LOT_SIZE_STALE") ?? null : null);
+/** "Lot size for NIFTY is from 27 Oct (2 trading days old)": the reason part of a LOT_SIZE_STALE message. */
+const serverWhy = (check) => String(check?.message ?? "").split(/\.\s+Confirm\b/)[0].trim() || "The reference lot data for this contract is stale";
+
+/**
+ * Why lots need confirming for this bundle, or null: "fallback" (the bundle could not be read, so staleness is
+ * unknown), "conflict" (the master and the reference disagree), "stale" (over one trading day old), "server" (the
+ * order preview's LOT_SIZE_STALE check: the server looks at each contract's own expiry, which the bundle's
+ * current-contract view may not cover).
+ */
+function lotGateReason(b, server) {
+  if (b?.fallback) return "fallback";
+  const lots = b?.lots ?? null;
+  if (lots?.conflict && typeof lots.conflict === "object") return "conflict";
+  if (lots?.stale) return "stale";
+  if (lotStaleCheck(server ? [server] : [])) return "server";
+  return null;
+}
+
 /**
  * The order ticket's lot-size gate (spec §5.4, acceptance criterion 4): needed when the reference lot data is stale
- * (over one trading day old) or the broker master and the reference disagree. { needed, text, reason, lot }.
+ * (over one trading day old), the broker master and the reference disagree, the bundle could not be read (fallback),
+ * or the order preview returned LOT_SIZE_STALE (`server`, the check object). { needed, text, reason, lot, lots }.
  * Orders always use the master's lot; this only asks the user to confirm it. Options and futures sent in lots are both
  * gated (the server's LOT_SIZE_STALE check covers FUT and OPT); an order in units (`units: true`) never is.
  */
-export function lotConfirmGate(b, lot, { units = false } = {}) {
+export function lotConfirmGate(b, lot, { units = false, server = null } = {}) {
   const L = num(lot);
-  const lots = b?.lots ?? null;
-  if (units || !lots || b?.fallback || L === null || L <= 0) return { needed: false, text: "", reason: null, lot: L };
-  const conflict = lots.conflict && typeof lots.conflict === "object" ? lots.conflict : null;
-  if (conflict) {
-    const other = num(conflict.reference) ?? num(conflict.master);
-    return { needed: true, reason: "conflict", lot: L, text: `Lot size ${formatInt(L)} units from your broker's contract${other !== null && other !== L ? `; the reference list says ${formatInt(other)}` : ""}. I have checked it.` };
+  const none = { needed: false, text: "", reason: null, lot: L, lots: [] };
+  if (units || !b || L === null || L <= 0) return none;
+  const reason = lotGateReason(b, server);
+  if (!reason) return none;
+  const out = { needed: true, reason, lot: L, lots: [L] };
+  if (reason === "fallback") return { ...out, text: `Reference data unavailable: lot size ${formatInt(L)} units from your broker's contract. I have checked it.` };
+  if (reason === "conflict") {
+    const c = b.lots.conflict;
+    const other = num(c.reference) ?? num(c.master);
+    return { ...out, text: `Lot size ${formatInt(L)} units from your broker's contract${other !== null && other !== L ? `; the reference list says ${formatInt(other)}` : ""}. I have checked it.` };
   }
-  if (lots.stale) {
+  if (reason === "stale") {
     const age = lotsAge(b);
-    return { needed: true, reason: "stale", lot: L, text: `Lot size ${formatInt(L)} units, from ${dayText(lots.asOf)}${age ? ` (${age})` : ""}. I have checked it.` };
+    return { ...out, text: `Lot size ${formatInt(L)} units, from ${dayText(b.lots.asOf)}${age ? ` (${age})` : ""}. I have checked it.` };
   }
-  return { needed: false, text: "", reason: null, lot: L };
+  return { ...out, text: `${serverWhy(server)}. Lot size ${formatInt(L)} units from your broker's contract. I have checked it.` };
+}
+
+/**
+ * The strategy basket's lot-size gate: one confirmation that names every distinct lot among the legs ("Lot sizes:
+ * 30 units (Nov), 35 units (Dec), from 27 Oct (2 trading days old). I have checked them."), so a calendar whose legs
+ * have different lots never confirms a lot the user did not see. `legs`: [{ lotSize, expiry }]; `server`: the legs'
+ * preview checks (any LOT_SIZE_STALE among them opens the gate). `lots` lists the confirmed lots: a leg sends
+ * lotSizeConfirmed only when its own lot is in it. A single distinct lot reads like the desk ticket's gate.
+ */
+export function basketLotGate(b, legs, { server = [] } = {}) {
+  const byLot = new Map();
+  for (const l of legs ?? []) {
+    const L = num(l?.lotSize);
+    if (L === null || L <= 0) continue;
+    const m = /^\d{4}-(\d{2})-\d{2}$/.exec(String(l.expiry ?? ""));
+    const mon = m ? MONTHS[Number(m[1]) - 1] : null;
+    if (!byLot.has(L)) byLot.set(L, []);
+    if (mon && !byLot.get(L).includes(mon)) byLot.get(L).push(mon);
+  }
+  const check = lotStaleCheck(server);
+  if (byLot.size <= 1) return lotConfirmGate(b, [...byLot.keys()][0] ?? null, { server: check });
+  const none = { needed: false, text: "", reason: null, lot: null, lots: [] };
+  if (!b) return none;
+  const reason = lotGateReason(b, check);
+  if (!reason) return none;
+  const list = [...byLot].sort((x, y) => x[0] - y[0]).map(([L, mons]) => `${formatInt(L)} units${mons.length ? ` (${mons.join(", ")})` : ""}`).join(", ");
+  const lots = [...byLot.keys()];
+  const out = { needed: true, reason, lot: null, lots };
+  if (reason === "fallback") return { ...out, text: `Reference data unavailable: lot sizes ${list} from your broker's contracts. I have checked them.` };
+  if (reason === "conflict") {
+    const c = b.lots.conflict;
+    const other = num(c.reference) ?? num(c.master);
+    return { ...out, text: `Lot sizes ${list} from your broker's contracts${other !== null && !lots.includes(other) ? `; the reference list says ${formatInt(other)}` : ""}. I have checked them.` };
+  }
+  if (reason === "stale") {
+    const age = lotsAge(b);
+    return { ...out, text: `Lot sizes ${list}, from ${dayText(b.lots.asOf)}${age ? ` (${age})` : ""}. I have checked them.` };
+  }
+  return { ...out, text: `${serverWhy(check)}. Lot sizes ${list} from your broker's contracts. I have checked them.` };
 }
 
 // ── Events, banners and the stale warning (pure models) ──
@@ -293,8 +357,12 @@ export function eventShort(e) {
   return on;
 }
 
-/** Events within `days` (0 ≤ daysAway ≤ days), nearest first. */
-export function upcomingEvents(events, days = BANNER_DAYS) {
+/**
+ * Events from today on (0 ≤ daysAway ≤ days), nearest first. The server already keeps only those within
+ * reference.bannerDays (the bundle and GET /v1/reference/events), so by default no further cap applies here: a user
+ * who sets bannerDays to 10 sees ten days of events.
+ */
+export function upcomingEvents(events, days = Infinity) {
   return [...(events ?? [])].filter((e) => num(e?.daysAway) !== null && e.daysAway >= 0 && e.daysAway <= days).sort((a, b) => a.daysAway - b.daysAway || String(a.underlying).localeCompare(String(b.underlying)));
 }
 
@@ -348,8 +416,10 @@ export function chipModel(b, { lot = null, now = Date.now() } = {}) {
   const tomorrow = b?.fallback ? null : holidayTomorrow(b, now);
   if (tomorrow) extra.push("Holiday tomorrow");
   const tone = b?.fallback ? "bad" : b?.lots?.stale || b?.lots?.conflict ? "warn" : "normal";
-  const text = b?.fallback ? `${parts[0]} · Defaults` : [...parts, ...extra].join(" · ");
-  const short = [parts[0], ...extra.filter((x) => x !== "Stale" && x !== "Holiday tomorrow").slice(0, 1)].join(" · ");
+  // A fallback with no lot to show (the Market calendar page has no chain): "Reference: defaults", not "Lot --".
+  const noLot = b?.fallback && L === null;
+  const text = noLot ? "Reference: defaults" : b?.fallback ? `${parts[0]} · Defaults` : [...parts, ...extra].join(" · ");
+  const short = noLot ? text : [parts[0], ...extra.filter((x) => x !== "Stale" && x !== "Holiday tomorrow").slice(0, 1)].join(" · ");
   const aria = b?.fallback ? `${parts.join(", ")}. Reference data unavailable: using dashboard defaults. Open contract facts.` : `${[...parts, ...extra].join(", ")}. Open contract facts.`;
   return { text, short, aria, tone, dot: Boolean(events.length || tone !== "normal" || tomorrow), count: events.length };
 }
@@ -379,7 +449,7 @@ export function factsRows(b, { lot = null } = {}) {
   rows.push({ k: "Rate", v: `${formatFixed(r.value * 100, 2)} %`, sub: `${r.isDefault ? "default, not sourced" : r.source}${r.asOf ? ` · ${dayText(r.asOf)}` : ""}${r.stale && !r.isDefault ? " · over 14 days old" : ""}` });
   if (b?.ban) rows.push({ k: "Ban / MWPL", v: b.ban.inBan ? "In ban period" : num(b.ban.mwplPct) !== null ? `MWPL ${formatFixed(b.ban.mwplPct, 1)} %` : DASH, sub: `${b.ban.source ?? DASH}, for ${dayText(b.ban.forDate)}` });
   const ev = upcomingEvents(b?.events);
-  rows.push({ k: "Upcoming", v: ev.length ? ev.map(eventShort).join(" · ") : "Nothing within 7 days", sub: ev.length ? "Lot revisions, corporate actions and expiry shifts" : null });
+  rows.push({ k: "Upcoming", v: ev.length ? ev.map(eventShort).join(" · ") : "Nothing coming up", sub: ev.length ? "Lot revisions, corporate actions and expiry shifts" : null });
   return rows;
 }
 

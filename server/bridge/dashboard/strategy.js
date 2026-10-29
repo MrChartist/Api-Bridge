@@ -6,7 +6,7 @@
 import { api, app, chartSlot, errorState, h, icon, modal, optional, sheetPopover, toast } from "./app.js";
 import { DASH, formatFixed, formatInt, formatPercent, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
-import { lotConfirmGate, refCharges, refSession } from "./reference.js";
+import { basketLotGate, demoStaleAsked, loadReference, refCharges, refSession } from "./reference.js";
 import { drawPayoff, money, moneyEl } from "./payoff.js";
 import { openPlacement } from "./strategy-place.js";
 import { keepFocus, segmented } from "./views.js";
@@ -347,7 +347,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const exit = closeMode();
     const age = staleAge();
     const stale = age !== null && age > O.STALE_MS && (staleInfo.live || staleInfo.error);
-    const warnings = O.strategyWarnings({ legs: act, strikes: allStrikes(), stats, spot: xx.spot, band1: b1, margin: exit ? null : { required: margin, free: funds.free, source: acct !== null ? "account" : "estimate" }, live: false, expiryToday: expiryToday && !multi, lotSize: lot, legCount: all.length, chainAgeMs: stale ? age : null, today: ISO_IST(now) });
+    const warnings = O.strategyWarnings({ legs: act, strikes: allStrikes(), stats, spot: xx.spot, band1: b1, margin: exit ? null : { required: margin, free: funds.free, source: acct !== null ? "account" : "estimate" }, live: false, expiryToday: expiryToday && !multi, lotSize: lot, legCount: all.length, chainAgeMs: stale ? age : null, today: ISO_IST(now), rates: refCharges(st.ref) });
     // A leg past its expiry, or whose chain failed to load, blocks with a reason and a way out (Roll / Remove).
     const dead = act.filter((l) => l.expired || l.chainError);
     if (dead.length) {
@@ -2005,6 +2005,15 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       };
     });
     const title = exit ? `Close ${plural(items.length, "leg")} · ${x.c.underlying}` : `Place ${draftName()} · ${x.c.underlying}`;
+    // Like the desk ticket, nothing is placed before the reference bundle has resolved (a fallback counts: it asks for
+    // the lot-size confirmation); the bundle is read here when the page has not got it yet.
+    let ref = st.ref;
+    if (!ref || ref.underlying !== x.c.underlying) {
+      toast("Reading contract data");
+      ref = await loadReference(x.c.underlying, { demoStale: Boolean(app.state.demo) && demoStaleAsked() });
+      if (!R || !x) return;
+    }
+    const gateLegs = items.map((it) => ({ lotSize: it.lotSize ?? x.lot, expiry: it.leg?.expiry ?? x.c.expiry }));
     const r = await openPlacement({
       title,
       mode: exit ? "exit" : "entry",
@@ -2013,8 +2022,10 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       items,
       summary: exit ? null : { net: R.stats?.net ?? null, maxLoss: R.stats ? R.stats.maxLoss : undefined, margin: R.margin, marginEst: R.acct === null, free: funds.free },
       warnings: R.warnings,
-      // Stale or conflicting reference lots: one confirmation for the whole basket (docs/spec/p1-02-reference.md §5.4).
-      lotGate: lotConfirmGate(st.ref, items[0]?.lotSize ?? x.lot),
+      // Stale or conflicting reference lots: one confirmation for the whole basket that names every distinct lot
+      // (docs/spec/p1-02-reference.md §5.4); a leg's LOT_SIZE_STALE preview opens it too.
+      lotGate: basketLotGate(ref, gateLegs),
+      lotGateFor: (checks) => basketLotGate(ref, gateLegs, { server: checks }),
       cfg: { product: cfg().product, hedgeWait: cfg().hedgeWait },
       onCfg: (patch) => setCfg(patch),
       onPositions,

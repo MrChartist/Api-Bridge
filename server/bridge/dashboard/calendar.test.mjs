@@ -5,7 +5,7 @@ import { checkSource } from "./copyRules.mjs";
 
 // views.js imports desk.js and calendar.js (the router): load it first so the circular import settles as in the browser.
 await import("./views.js");
-const { CAL_DISCLAIMER, CSV_COLUMNS, addMonths, calendarEvents, cellLabel, cellMarks, chargeRows, monthGrid, monthList, monthMode, mwplView, previewBody, runPreview, stateWord, statusTiles, strikesAround, toCsv, universeNote } = await import("./calendar.js");
+const { CAL_DISCLAIMER, CSV_COLUMNS, addMonths, consentText, stampText, calendarEvents, cellLabel, cellMarks, chargeRows, monthGrid, monthList, monthMode, mwplView, previewBody, runPreview, stateWord, statusTiles, strikesAround, toCsv, universeNote } = await import("./calendar.js");
 const { PAGES } = await import("./views.js");
 const { exampleStrikeGrid } = await import("../reference/corporateActions.mjs");
 
@@ -48,7 +48,7 @@ describe("month calendar", () => {
     expect(cellMarks(cell("2026-11-09")).map((m) => m.text)).toEqual(["Weekly", "from Tue 10"]);
     expect(cellMarks(cell("2026-11-09"))[0].full).toBe("Weekly expiry, lot 65");
     expect(cellMarks(cell("2026-11-10")).map((m) => [m.kind, m.text])).toEqual([["hol", "Diwali Balipratipada"], ["hol-u", "unverified"]]);
-    expect(cellMarks(cell("2026-11-08")).map((m) => m.text)).toEqual(["Muhurat trading", "18:00–19:00"]);
+    expect(cellMarks(cell("2026-11-08")).map((m) => m.text)).toEqual(["Muhurat", "18:00–19:00"]);
     expect(cellLabel(cell("2026-11-08"))).toBe("Sun 8 Nov 2026, special session, Muhurat trading 18:00 to 19:00 IST");
     expect(cellLabel(cell("2026-11-09"))).toBe("Mon 9 Nov 2026, trading day, weekly expiry, lot 65, moved from Tue 10 Nov");
     expect(cellLabel(cell("2026-11-10"))).toBe("Tue 10 Nov 2026, holiday, Diwali Balipratipada, unverified");
@@ -114,6 +114,10 @@ describe("CSV export", () => {
     expect(csv.split("\n")[0]).toBe("date,kind,lot,shifted,usual_date,source");
     expect(csv.split("\n")[2]).toBe('2026-11-09,weekly,65,yes,2026-11-10,"demo, NSE"');
     expect(toCsv([["a", (r) => r.a]], [{ a: 'say "x"' }])).toBe('a\n"say ""x"""');
+    // Formula injection: text starting with = + - @ (or a tab) is kept as text; numbers are written as they are.
+    const inj = toCsv([["a", (r) => r.a]], [{ a: "=HYPERLINK(\"x\")" }, { a: "+1" }, { a: "-2+3" }, { a: "@SUM(A1)" }, { a: "\tx" }, { a: -5 }, { a: 1.5 }, { a: "plain" }]);
+    expect(inj.split("\n").slice(1, 6)).toEqual(['"\'=HYPERLINK(""x"")"', "'+1", "'-2+3", "'@SUM(A1)", "'\tx"]);
+    expect(inj.split("\n").slice(6)).toEqual(["-5", "1.5", "plain"]);
     const cal = toCsv(CSV_COLUMNS.calendar, monthGrid("2026-11", { holidays: HOLIDAYS, expiries: EXPIRIES }).flat().filter((c) => c.inMonth));
     expect(cal.split("\n")).toHaveLength(31);
     expect(cal).toContain("2026-11-24,no,Prakash Gurpurb Sri Guru Nanak Dev,yes,,,");
@@ -174,3 +178,30 @@ describe("page registration and copy", () => {
     expect(CAL_DISCLAIMER).toBe("Reference data from the sources shown. Check exchange circulars before acting. Not investment advice.");
   });
 });
+
+describe("Turn on NSE downloads (spec §7.2: name the files and how often)", () => {
+  it("names the host, the three files, the schedule and the cap before anything is fetched", () => {
+    const c = consentText({ host: "nsearchives.nseindia.com", schedule: { morning: "08:20", evening: "19:35" }, dailyRequestCap: 20 });
+    expect(c.lead).toBe("The Bridge will download NSE's public F&O reference files from nsearchives.nseindia.com, about twice a day at 08:20 and 19:35 IST on trading days (one retry each if a file is late):");
+    expect(c.files.join(" | ")).toMatch(/fo_mktlots\.csv.*fo_secban_DDMMYYYY\.csv.*combineoi_DDMMYYYY\.zip/);
+    expect(c.tail).toContain("At most 20 requests a day");
+    expect(consentText(null).lead).toContain("the NSE archives");
+    for (const t of [c.title, c.lead, c.tail, ...c.files]) expect(checkSource(JSON.stringify(t))).toEqual([]);
+    // The button opens the sheet first; PUT /v1/reference/sources runs only after "Turn on downloads".
+    const src = readFileSync(new URL("./calendar.js", import.meta.url), "utf8");
+    const fn = src.slice(src.indexOf("async function turnOn("), src.indexOf("async function turnOff("));
+    expect(fn.indexOf("await modal(")).toBeGreaterThan(0);
+    expect(fn.indexOf("if (ok !== true) return;")).toBeGreaterThan(fn.indexOf("await modal("));
+    expect(fn.indexOf('api("/v1/reference/sources"')).toBeGreaterThan(fn.indexOf("if (ok !== true) return;"));
+  });
+
+  it("dataset times read in the house date style, in IST", () => {
+    expect(stampText("2026-11-02T08:20:00.000+05:30")).toBe("Mon 2 Nov 08:20 IST");
+    expect(stampText("soon")).toBe("soon");
+    const t = statusTilesDetail();
+    expect(t).toContain("Last attempt Fri 30 Oct 08:20 IST · Next Mon 2 Nov 08:20 IST");
+  });
+});
+function statusTilesDetail() {
+  return statusTiles({ datasets: { lots: { available: true, asOf: "2026-10-30", source: "x", lastAttemptAt: "2026-10-30T08:20:41.120+05:30", nextRunAt: "2026-11-02T08:20:00.000+05:30" } } }, { today: "2026-10-30" })[0].detail;
+}
