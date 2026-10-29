@@ -119,6 +119,8 @@ tags:
     description: Free public sources (Yahoo Finance, NSE website) used as a labelled fallback when no broker account can answer.
   - name: Reference data
     description: Contract calendar, lots, ban list, MWPL, F&O universe, corporate actions, rate and charges (stream S16). Every value carries source and asOf.
+  - name: Volatility
+    description: Vol-time clock, daily ATM IV store, IV rank and percentile, IV history and VIX (stream S18). IV in vol points; every series carries quality and source.
 
 paths:
   /v1/health:
@@ -992,6 +994,15 @@ paths:
         - name: greeks
           in: query
           schema: { type: boolean, default: true }
+        - name: ivModel
+          in: query
+          description: >-
+            b76-forward: every leg's IV and Greeks from Black-76 on the 5-strike parity forward, mid prices and the
+            vol-time clock (theta per trading-day unit), the broker's own IV kept as brokerIv, and a chain-level
+            pricing object. legacy-bs-spot: Black-Scholes on spot with calendar days (theta per calendar day). Default:
+            market.chain.ivModelDefault (legacy-bs-spot until 2027-05-01); a response that used the legacy default
+            carries Deprecation and Link headers.
+          schema: { type: string, enum: [b76-forward, legacy-bs-spot] }
         - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
@@ -3898,6 +3909,272 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/vol/clock:
+    get:
+      tags: [Volatility]
+      operationId: getVolClock
+      summary: Vol-time clock settings, holidays ahead and T for expiries with the breakdown
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+      x-stream: S18
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, schema: { type: string, maxLength: 120 } }
+        - { name: at, in: query, schema: { type: string, format: date-time } }
+      responses:
+        "200":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolClock" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/vol/snapshot:
+    get:
+      tags: [Volatility]
+      operationId: getVolSnapshot
+      summary: Live vol rows for an underlying (front and 30-day pair), cm30 and a quick rank
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+      x-stream: S18
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+      responses:
+        "200":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolData" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/vol/history:
+    get:
+      tags: [Volatility]
+      operationId: getVolHistory
+      summary: Daily IV series (30-day, front, one expiry) with VIX and HV; JSON or CSV
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+      x-stream: S18
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: basis, in: query, schema: { type: string, enum: [cm30, front, expiry], default: cm30 } }
+        - { name: expiry, in: query, schema: { type: string, format: date } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: series, in: query, schema: { type: string, maxLength: 200 } }
+        - { name: quality, in: query, schema: { type: string, enum: [all, live], default: all } }
+        - { name: clock, in: query, schema: { type: string, enum: [weighted, trading, calendar] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 2000, default: 500 } }
+        - { name: cursor, in: query, schema: { type: string, maxLength: 200 } }
+        - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
+      responses:
+        "200":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolData" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/vol/rank:
+    get:
+      tags: [Volatility]
+      operationId: getVolRank
+      summary: IV rank and IV percentile over 30/90/252 days, same-DTE rank and VIX percentile
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+      x-stream: S18
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: lookbacks, in: query, schema: { type: string, pattern: "^\\d{1,4}(,\\d{1,4}){0,4}$" } }
+        - { name: basis, in: query, schema: { type: string, enum: [cm30, front, expiry], default: cm30 } }
+        - { name: expiry, in: query, schema: { type: string, format: date } }
+        - { name: quality, in: query, schema: { type: string, enum: [all, live], default: all } }
+        - { name: clock, in: query, schema: { type: string, enum: [weighted, trading, calendar] } }
+      responses:
+        "200":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolData" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/vol/summary:
+    get:
+      tags: [Volatility]
+      operationId: getVolSummary
+      summary: Rank lines for up to 200 underlyings (memory only, no broker calls)
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+      x-stream: S18
+      x-scope: read
+      parameters:
+        - { name: underlyings, in: query, required: true, schema: { type: string, maxLength: 4000 } }
+        - { name: lookback, in: query, schema: { type: integer, minimum: 5, maximum: 1000, default: 252 } }
+      responses:
+        "200":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolData" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/vol/status:
+    get:
+      tags: [Volatility]
+      operationId: getVolStatus
+      summary: Capture state, coverage, capacity, sources, back-fill job and disk use
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+      x-stream: S18
+      x-scope: read
+      responses:
+        "200":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolData" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/vol/predictions:
+    get:
+      tags: [Volatility]
+      operationId: getVolPredictions
+      summary: Logged model probabilities (store S9)
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+      x-stream: S18
+      x-scope: read
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: underlying, in: query, schema: { type: string, maxLength: 30 } }
+        - { name: metric, in: query, schema: { type: string, maxLength: 40 } }
+      responses:
+        "200":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolData" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/vol/capture:
+    post:
+      tags: [Volatility]
+      operationId: startVolCapture
+      summary: Capture the daily vol rows now
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then. Spends broker budget, so admin and this computer only; audited.
+      x-stream: S18
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VolCaptureRequest" }
+      responses:
+        "202":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolData" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/vol/backfill:
+    post:
+      tags: [Volatility]
+      operationId: startVolBackfill
+      summary: Start or resume the bhavcopy and VIX back-fill
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then. Needs NSE archive downloads turned on (reference sources); admin and this computer only; audited.
+      x-stream: S18
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VolBackfillRequest" }
+      responses:
+        "202":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolData" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Volatility]
+      operationId: cancelVolBackfill
+      summary: Cancel the running back-fill after the current file
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+      x-stream: S18
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "204":
+          description: Cancelled.
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -4470,6 +4747,7 @@ components:
         theta: { type: [number, "null"] }
         vega: { type: [number, "null"] }
         greeksSource: { type: [string, "null"], enum: [broker, computed, null] }
+        brokerIv: { type: [number, "null"], description: "The broker's own IV (percent), when it sent one and ivModel=b76-forward recomputed iv." }
     OptionChain:
       type: object
       required: [underlying, expiry, rows, freshness]
@@ -4489,6 +4767,81 @@ components:
               ce: { oneOf: [{ $ref: "#/components/schemas/ChainLeg" }, { type: "null" }] }
               pe: { oneOf: [{ $ref: "#/components/schemas/ChainLeg" }, { type: "null" }] }
         freshness: { $ref: "#/components/schemas/Freshness" }
+        pricing: { $ref: "#/components/schemas/ChainPricing" }
+    VolUnavailable:
+      type: object
+      required: [available, reason]
+      properties:
+        underlying: { type: string }
+        available: { type: boolean, const: false }
+        reason: { type: string, description: "Open enum: NOT_TRACKED, NO_HISTORY, COLLECTING, SOURCE_OFF, NO_CHAIN, NO_DATA_ACCOUNT, NOT_LISTED_IN_DEMO." }
+    VolData:
+      type: object
+      description: Shapes in docs/spec/p1-03-pricing-vol.md §3.4–3.8; the full schemas land with the handlers (P1-3b/P1-3c).
+      additionalProperties: true
+    VolClockPart:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        kind: { type: string, enum: [gap, session] }
+        units: { type: number }
+    VolClockResult:
+      type: object
+      properties:
+        expiry: { type: string, format: date }
+        T: { type: [number, "null"], description: "Years on the configured clock." }
+        units: { type: [number, "null"], description: "Trading-day units (calendar days in calendar mode)." }
+        Tcal: { type: [number, "null"], description: "Calendar years (ACT/365) to the expiry close." }
+        Ttd: { type: [number, "null"], description: "Trading-day years (/252)." }
+        parts: { type: array, items: { $ref: "#/components/schemas/VolClockPart" } }
+    VolClock:
+      type: object
+      properties:
+        underlying: { type: string }
+        exchange: { type: string }
+        at: { type: string, format: date-time }
+        settings: { type: object, additionalProperties: true }
+        rate: { type: object, additionalProperties: true }
+        holidays: { type: array, items: { type: string, format: date } }
+        expiries: { type: array, items: { $ref: "#/components/schemas/VolClockResult" } }
+    VolCaptureRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        underlyings: { type: array, maxItems: 50, items: { type: string, maxLength: 30 } }
+        replace: { type: boolean, default: false }
+    VolBackfillRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        sources: { type: array, items: { type: string, enum: [nse, bse, vix] } }
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        underlyings: { type: array, maxItems: 50, items: { type: string, maxLength: 30 } }
+    ChainPricing:
+      type: object
+      description: How every leg's IV and Greeks were computed (present with ivModel=b76-forward).
+      properties:
+        model: { type: string, const: black76-parity-forward }
+        ivModel: { type: string, const: b76-forward }
+        priceBasis: { type: string, const: mid }
+        forward: { type: [number, "null"] }
+        forwardSource: { type: [string, "null"], enum: [parity, spot, null] }
+        forwardStrikes: { type: integer }
+        rate:
+          type: object
+          properties:
+            value: { type: number }
+            quality: { type: [string, "null"] }
+        clock:
+          type: object
+          properties:
+            version: { type: string }
+            mode: { type: string, enum: [weighted, trading, calendar] }
+            T: { type: number, description: "Years on the vol-time clock (used inside sigma times root T)." }
+            units: { type: number }
+            Tcal: { type: number, description: "Calendar years (interest and discounting)." }
+            yearBasis: { type: number, description: "Clock units a year; theta is per one unit." }
     StreamStats:
       type: object
       properties:

@@ -30,7 +30,8 @@ import { parseSymbol } from "../core/symbolFormat.mjs";
 import { recordSaving as recordSavingGlobal } from "../ratelimit/scheduler.mjs";
 import { DEFAULT_RATE } from "../reference/defaults.mjs";
 import { createBatcher } from "./batcher.mjs";
-import { atmStrike, defaultOptionExchange, finishLeg, legSymbol, rowsFromBrokerChain, rowsFromQuotes, trimStrikes } from "./chain.mjs";
+import { IV_MODELS, applyB76, atmStrike, defaultOptionExchange, finishLeg, legSymbol, rowsFromBrokerChain, rowsFromQuotes, trimStrikes } from "./chain.mjs";
+import { kindOf, pricingContext } from "../vol/context.mjs";
 import { DEPTH_STALE_CAP_MS, parseMarketConfig } from "./config.mjs";
 import { createFreshnessCache } from "./freshnessCache.mjs";
 import { INTERVALS, INTRADAY_MINUTES, aggregate, countbackRange, planChunks, planInterval } from "./history.mjs";
@@ -96,6 +97,7 @@ const chainSchema = z
     expiry: z.string().regex(ISO_DATE_RE, "expiry must be YYYY-MM-DD."),
     strikes: z.number().int().min(1).max(100).optional(),
     greeks: z.boolean().optional(),
+    ivModel: z.enum(IV_MODELS).optional(),
   })
   .strict();
 
@@ -147,6 +149,29 @@ export function createMarketDataService(deps) {
     }
     return DEFAULT_RATE;
   };
+  /** Where the rate came from, for the b76 chain's `pricing.rate.quality`. */
+  const rateQuality = () => {
+    if (cfg.chain.riskFreeRate !== undefined) return "config";
+    if (usable(reference)) {
+      try {
+        return reference.rate()?.quality ?? null;
+      } catch {
+        // fall through
+      }
+    }
+    return "default";
+  };
+  /**
+   * Reprice a finished chain with Black-76 on the parity forward and the vol-time clock (ivModel=b76-forward). The
+   * clock context comes from config `vol.clock` plus the reference calendar, session and rate (vol/context.mjs).
+   */
+  function priceB76(chain) {
+    const first = chain.rows.map((r) => r.ce ?? r.pe).find(Boolean);
+    const exchange = /^(NFO|BFO):/.exec(first?.symbol ?? "")?.[1] ?? defaultOptionExchange(chain.underlying);
+    const nowMs = now();
+    const ctx = pricingContext({ config, reference: usable(reference) ? reference : undefined, exchange, kind: kindOf(chain.underlying), now: nowMs });
+    return applyB76(chain, { ctx, nowMs, rate: riskFreeRate(), rateQuality: rateQuality() });
+  }
   const setTimer = typeof clock.setTimeout === "function" ? (fn, ms) => clock.setTimeout(fn, ms) : undefined;
   const clearTimer = typeof clock.clearTimeout === "function" ? (h) => clock.clearTimeout(h) : undefined;
   const cache = createFreshnessCache({ maxEntries: cfg.cache.maxEntries, now });
@@ -1091,6 +1116,14 @@ export function createMarketDataService(deps) {
   }
 
   async function optionChain(params, opts) {
+    const parsed = chainSchema.safeParse(params ?? {});
+    if (!parsed.success) throw fromValidation(parsed.error);
+    const model = parsed.data.ivModel ?? cfg.chain.ivModelDefault;
+    const chain = await chainFor(params, opts);
+    return model === "b76-forward" && parsed.data.greeks !== false ? priceB76(chain) : chain;
+  }
+
+  async function chainFor(params, opts) {
     const parsed = chainSchema.safeParse(params ?? {});
     if (!parsed.success) throw fromValidation(parsed.error);
     const p = parsed.data;

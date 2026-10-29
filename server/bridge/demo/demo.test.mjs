@@ -12,7 +12,8 @@ import { createBrokerRegistry } from "../../brokers/registry.mjs";
 import { createApp } from "../core/app.mjs";
 import { loadConfig } from "../core/config.mjs";
 import { createNullLogger } from "../core/logger.mjs";
-import { candles, createDemoAdapter, demoInstruments, expiriesFor, optionPrice, parseToken, smileVol, spotAt } from "./demoAdapter.mjs";
+import { black76, realisedVol, volTime } from "../dashboard/pricing.js";
+import { DEMO_UNDERLYINGS, candles, createDemoAdapter, dailyCloses, demoChainAt, demoClockContext, demoInstruments, expiriesFor, ivLevel, optionPrice, parseToken, smileVol, spotAt } from "./demoAdapter.mjs";
 import { NIFTY50 } from "../scanner/universes.mjs";
 import { DEMO_HEADER, createDemoRegistry, labelDemoResult } from "./demoMode.mjs";
 
@@ -80,6 +81,69 @@ describe("demo adapter", () => {
     const u = { iv: 0.12, step: 50 };
     expect(smileVol(u, 25000, 25000, 7 / 365)).toBeGreaterThan(smileVol(u, 25000, 25000, 60 / 365));
     expect(smileVol(u, 25000, 0.95 * 25000, 30 / 365)).toBeGreaterThan(smileVol(u, 25000, 1.05 * 25000, 30 / 365));
+  });
+
+  it("prices options with Black-76 on the vol-time clock at the day's IV level (P1-3a)", () => {
+    const u = DEMO_UNDERLYINGS.find((x) => x.symbol === "NIFTY");
+    const S = spotAt("NIFTY", T);
+    const e = expiriesFor("NIFTY", T)[1];
+    const c = volTime(demoClockContext("NFO"), T, e);
+    const k = Math.round(S / 50) * 50;
+    const df = Math.exp(-0.065 * c.Tcal);
+    const want = df * black76(S / df, k, c.T, 100 * smileVol(u, S, k, c.T, ivLevel("NIFTY", T)), "CE");
+    expect(Math.abs(optionPrice("NIFTY", e, k, "CE", T) - want)).toBeLessThanOrEqual(0.025 + 1e-9);
+    // After the settlement an option is worth its intrinsic value (never below one tick).
+    const after = Date.parse(`${e}T15:31:00+05:30`);
+    const S2 = spotAt("NIFTY", after);
+    const kItm = Math.round(S2 / 50) * 50 - 200;
+    expect(Math.abs(optionPrice("NIFTY", e, kItm, "CE", after) - (S2 - kItm))).toBeLessThanOrEqual(0.05);
+    expect(optionPrice("NIFTY", e, kItm + 400, "CE", after)).toBe(0.05);
+  });
+
+  it("the IV level stays in 6–60 %, moves with the demo's own realised vol and sits above it on most days", () => {
+    let above = 0;
+    const levels = [];
+    for (let i = 0; i < 120; i += 1) {
+      const t = T - i * 86_400_000;
+      const lv = ivLevel("NIFTY", t);
+      levels.push(lv);
+      expect(lv).toBeGreaterThanOrEqual(0.06);
+      expect(lv).toBeLessThanOrEqual(0.6);
+      if (lv * 100 > realisedVol(dailyCloses("NIFTY", t, 21), 20)) above += 1;
+    }
+    expect(above / 120).toBeGreaterThan(0.6);
+    expect(Math.max(...levels) - Math.min(...levels)).toBeGreaterThan(0.02);
+    expect(ivLevel("NIFTY", T)).toBe(ivLevel("NIFTY", T + 3_600_000)); // constant within an IST day
+  });
+
+  it("lists INDIA VIX (Demo), priced from NIFTY's 30-day IV on calendar time", async () => {
+    expect(demoInstruments(T).find((r) => r.tradingSymbol === "INDIAVIX")).toMatchObject({ exchange: "NSE", instrumentType: "INDEX", name: "India VIX (Demo)" });
+    const vix = spotAt("INDIAVIX", T);
+    const target = new Date(T + 30 * 86_400_000 + 330 * 60_000).toISOString().slice(0, 10);
+    const c = volTime(demoClockContext("NFO"), T, target);
+    const nifty = DEMO_UNDERLYINGS.find((x) => x.symbol === "NIFTY");
+    const S = spotAt("NIFTY", T);
+    const cal = 100 * smileVol(nifty, S, S, c.T, ivLevel("NIFTY", T)) * Math.sqrt(c.T / c.Tcal);
+    expect(vix / cal).toBeGreaterThanOrEqual(1.0 - 1e-3);
+    expect(vix / cal).toBeLessThanOrEqual(1.06 + 1e-3);
+    expect(Math.round(vix / 0.0025) * 0.0025).toBeCloseTo(vix, 9);
+    const q = await a.fetchQuotes({}, [{ token: "DM-INDIAVIX", exchange: "NSE" }]);
+    expect(q.data[0].ltp).toBe(vix);
+    expect(q.data[0].bid).toBeLessThan(q.data[0].ask);
+  });
+
+  it("demoChainAt builds a light OptionChain-shaped chain fast", () => {
+    const e = expiriesFor("NIFTY", T)[0];
+    const t0 = performance.now();
+    const ch = demoChainAt("NIFTY", e, T, 30);
+    const ms = performance.now() - t0;
+    expect(ch).toMatchObject({ underlying: "NIFTY", expiry: e, underlyingLtp: spotAt("NIFTY", T), lotSize: 65 });
+    expect(ch.rows).toHaveLength(61);
+    const atm = ch.rows[30];
+    expect(atm.ce.ltp).toBe(optionPrice("NIFTY", e, atm.strike, "CE", T));
+    for (const r of ch.rows) for (const leg of [r.ce, r.pe]) expect(leg.bid).toBeLessThan(leg.ask);
+    expect(ms).toBeLessThan(250);
+    expect(demoChainAt("RELIANCE", e, T)).toBeNull();
   });
 
   it("the demo registry holds only the demo broker", () => {

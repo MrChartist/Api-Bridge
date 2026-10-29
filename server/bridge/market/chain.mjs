@@ -6,9 +6,15 @@
  * Computed Greeks use: the leg's LTP, the underlying LTP from the same read, the strike, calendar days to 15:30 IST on
  * the expiry day (at least 0.25 days), and the configured risk-free rate (default 6.5 %). No dividend yield. IV is in
  * percent; theta per calendar day; vega per one vol point. Every leg says where its Greeks came from (greeksSource).
+ * That is the legacy model (`ivModel=legacy-bs-spot`, still the default until 2027-05-01).
+ *
+ * `ivModel=b76-forward` (docs/spec/p1-03-pricing-vol.md §3.9) prices every leg through dashboard/pricing.js, the same
+ * code the dashboard runs: Black-76 on the 5-strike parity forward, mid prices, the vol-time clock for σ√T and calendar
+ * time for interest. Theta is per trading-day unit. The broker's own IV, if it sent one, is kept as `brokerIv`.
  */
 import { computeIVAndGreeks, daysBetween } from "../../lib/blackScholes.mjs";
 import { formatSymbol } from "../core/symbolFormat.mjs";
+import { greeks76, legIv, parityForward, volTime } from "../dashboard/pricing.js";
 import { GREEK_KEYS, chainLegFields, legLacksGreeks, stripGreeks } from "./normalise.mjs";
 
 /** BSE index underlyings trade on BFO; everything else defaults to NFO. */
@@ -127,4 +133,52 @@ export function rowsFromQuotes(legs, quotes, p) {
   const rows = [...byStrike.values()].sort((a, b) => a.strike - b.strike);
   const atm = atmStrike(rows.map((r) => r.strike), p.spot);
   return { underlyingLtp: p.spot, atmStrike: atm, rows: trimStrikes(rows, atm, p.strikes) };
+}
+
+/** The chain IV models: the new single pricing core and the legacy Black-Scholes-on-spot path. */
+export const IV_MODELS = Object.freeze(["b76-forward", "legacy-bs-spot"]);
+
+/**
+ * Reprice a finished chain (OpenAPI OptionChain) with Black-76 on the parity forward (pure). Every leg gets iv, delta,
+ * gamma, theta (₹ per trading-day unit) and vega from pricing.js, `greeksSource: "computed"` and `brokerIv` (the IV
+ * the broker sent, else null); legs without a usable price get nulls. Adds the chain-level `pricing` object.
+ * @param {object} chain  { underlying, expiry, underlyingLtp, rows, ... }
+ * @param {{ ctx: object, nowMs: number, rate: number, rateQuality?: string|null }} p  ctx from vol/context.mjs
+ */
+export function applyB76(chain, { ctx, nowMs, rate, rateQuality = null }) {
+  const clock = volTime(ctx, nowMs, chain.expiry);
+  const T = clock?.T ?? 0;
+  const Tcal = clock?.Tcal ?? 0;
+  const fw = parityForward(chain, { rate, Tcal });
+  const F = fw.F;
+  const df = Math.exp(-rate * Tcal);
+  const yearBasis = clock?.yearBasis ?? null;
+  const leg = (q, strike, right) => {
+    if (!q) return null;
+    const brokerIv = q.greeksSource === "broker" && q.iv > 0 ? q.iv : null;
+    const out = { ...q, iv: null, delta: null, gamma: null, theta: null, vega: null, greeksSource: "computed", brokerIv };
+    if (!(F > 0) || !(T > 0)) return out;
+    const r = legIv(q, F, strike, right, { years: T, df, basis: "mid", settling: clock.settling });
+    if (!r || r.iv === null) return out;
+    const g = greeks76(F, strike, T, r.iv, right, { yearBasis });
+    // IV is not rounded (the dashboard's own solve on the same JSON must agree to 1e-9); Greeks to 6 decimals.
+    out.iv = round(r.iv, 10);
+    for (const k of GREEK_KEYS) out[k] = round(g[k], 6);
+    return out;
+  };
+  const rows = chain.rows.map((r) => ({ ...r, ce: leg(r.ce, r.strike, "CE"), pe: leg(r.pe, r.strike, "PE") }));
+  return {
+    ...chain,
+    rows,
+    pricing: {
+      model: "black76-parity-forward",
+      ivModel: "b76-forward",
+      priceBasis: "mid",
+      forward: F === null ? null : round(F, 4),
+      forwardSource: fw.source,
+      forwardStrikes: fw.strikes,
+      rate: { value: rate, quality: rateQuality },
+      clock: { version: clock?.version ?? "vt1", mode: clock?.mode ?? ctx.mode, T: round(T, 10), units: round(clock?.units ?? 0, 6), Tcal: round(Tcal, 10), yearBasis },
+    },
+  };
 }
