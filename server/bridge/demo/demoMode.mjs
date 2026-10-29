@@ -79,7 +79,10 @@ export const DEMO_POLICY = Object.freeze({
     quote: Object.freeze({ perSecond: 10, perMinute: 400, verified: true, source: DEMO_SOURCE }),
     depth: Object.freeze({ perSecond: 10, verified: true, source: DEMO_SOURCE }),
     history: Object.freeze({ perSecond: 5, verified: true, source: DEMO_SOURCE }),
-    chain: Object.freeze({ perSecond: 5, verified: true, source: DEMO_SOURCE }),
+    // 32 a minute: the recorder gets 16 (its 50 %), enough for the default demo plan (14 index chains by REST and 5
+    // stocks every 5 min: 15 a minute) but not for every index at 4 expiries (17), so the Data recorder page can show
+    // "This account cannot carry all of it" and "Use what fits".
+    chain: Object.freeze({ perSecond: 5, perMinute: 32, verified: true, source: DEMO_SOURCE }),
     portfolio: Object.freeze({ perSecond: 10, verified: true, source: DEMO_SOURCE }),
     master: Object.freeze({ perSecond: 1, verified: true, source: DEMO_SOURCE }),
     other: Object.freeze({ perSecond: 10, verified: true, source: DEMO_SOURCE }),

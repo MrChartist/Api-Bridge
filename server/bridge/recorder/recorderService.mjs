@@ -26,7 +26,7 @@ import { toIstIso } from "../market/time.mjs";
 import { kindOf, pricingContext } from "../vol/context.mjs";
 import { createRecorderBudget } from "./budget.mjs";
 import { createBackgroundGate } from "../ratelimit/backgroundGate.mjs";
-import { HOLIDAY_DETECT_SLOTS, MINUTE_MS, expectedSlotsBy, holidaySuspected, isDue, istDateOf, istMidnight, nextSlotAfter, resolveDay, slotFloor, slotsOfDay } from "./calendar.mjs";
+import { HOLIDAY_DETECT_SLOTS, MINUTE_MS, cadenceAt, expectedMinutesBetween, expectedSlotsBy, holidaySuspected, isDue, istDateOf, istMidnight, nextSlotAfter, resolveDay, slotFloor, slotsOfDay } from "./calendar.mjs";
 import { RECORDER_CONFIG_SCHEMA, recorderSettings } from "./config.mjs";
 import { dailyRow } from "./daily.mjs";
 import { demoKeepDays, runDemoBackfill } from "./demoBackfill.mjs";
@@ -250,8 +250,16 @@ export function createRecorderService(deps) {
     return { cap: hasFeed ? cap : 0, onDataAccount, accountId: feedIds.find((id) => id !== acc.id) ?? feedIds[0] ?? null, hasFeed };
   }
 
-  /** Settings as planned: in demo, the five demo option stocks when none are configured. */
-  const effectiveSettings = (s) => (demo && s.stocks.length === 0 ? { ...s, stocks: [...DEMO_OPTION_STOCKS] } : s);
+  /** The recorder section in use (the config section merged with the changes saved while running). */
+  let currentRaw = {};
+  /** Whether a saved change gave a stock list (demo: the default five apply until then). */
+  let stocksGiven = false;
+  /**
+   * Settings as planned: in demo, the five demo option stocks until a change saves a stock list (the config section
+   * arrives filled with defaults, so its empty list does not count). A saved list, empty included, is used as given,
+   * so the page can trim or clear the demo stocks.
+   */
+  const effectiveSettings = (s, given = stocksGiven) => (demo && s.stocks.length === 0 && !given ? { ...s, stocks: [...DEMO_OPTION_STOCKS] } : s);
 
   async function availability(s, date) {
     const out = {};
@@ -263,8 +271,8 @@ export function createRecorderService(deps) {
   }
 
   /** Plan for a settings object (dry run when `apply` is false). */
-  async function computePlan(s, { apply = false } = {}) {
-    const eff = effectiveSettings(s);
+  async function computePlan(s, { apply = false, stocksListed } = {}) {
+    const eff = effectiveSettings(s, stocksListed);
     const { acc, warning } = chooseAccount(s);
     if (apply) accountWarning = warning;
     const date = istDateOf(now());
@@ -442,7 +450,7 @@ export function createRecorderService(deps) {
     holidayWatch.clear();
   }
   const counter = (key) => {
-    if (!today.byChain.has(key)) today.byChain.set(key, { snaps: 0, gaps: 0, partial: 0, legRows: 0, firstSlot: null, lastSlot: null, lastTs: null, slots: new Set(), gapList: [] });
+    if (!today.byChain.has(key)) today.byChain.set(key, { snaps: 0, gaps: 0, partial: 0, legRows: 0, firstSlot: null, lastSlot: null, lastTs: null, slots: new Set(), snapSlots: new Set(), gapList: [] });
     return today.byChain.get(key);
   };
 
@@ -457,6 +465,7 @@ export function createRecorderService(deps) {
         if (c.firstSlot === null || r.slot < c.firstSlot) c.firstSlot = r.slot;
         if (r.kind === "snap") {
           c.snaps += 1;
+          c.snapSlots.add(r.slot);
           c.legRows += r.k.length * 2;
           if (r.partial) c.partial += 1;
           if (c.lastSlot === null || r.slot > c.lastSlot) {
@@ -505,6 +514,7 @@ export function createRecorderService(deps) {
     if (c.firstSlot === null || rec.slot < c.firstSlot) c.firstSlot = rec.slot;
     if (rec.kind === "snap") {
       c.snaps += 1;
+      c.snapSlots.add(rec.slot);
       c.legRows += rec.k.length * 2;
       if (rec.partial) c.partial += 1;
       c.lastSlot = Math.max(c.lastSlot ?? 0, rec.slot);
@@ -534,6 +544,7 @@ export function createRecorderService(deps) {
         c.slots.add(rec.slot);
         if (c.firstSlot === null || rec.slot < c.firstSlot) c.firstSlot = rec.slot;
         c.snaps += 1;
+        c.snapSlots.add(rec.slot);
         c.legRows += rec.k.length * 2;
         if (rec.partial) c.partial += 1;
         if (c.lastSlot === null || rec.slot > c.lastSlot) {
@@ -1035,20 +1046,35 @@ export function createRecorderService(deps) {
       // From the chain's first record today: coverage starts when recording started (bridge-down gaps count as missing).
       const first = cnt.firstSlot;
       const expected = day.plan && first !== null ? expectedSlotsBy(day.plan, Math.min(t, day.plan.endMs - 1), c.kind, c.everyMinutes) - expectedSlotsBy(day.plan, first - 1, c.kind, c.everyMinutes) : 0;
+      // Minutes, not slots: each slot stands for its cadence (5-minute chains, the demo's 5-minute night slots).
+      const mins = (slot) => (day.plan ? cadenceAt(day.plan, slot, c.kind, c.everyMinutes) : c.kind === "stock" ? c.everyMinutes : 1);
+      let recordedMinutes = 0;
+      let gapMinutes = 0;
+      for (const s of cnt.slots) {
+        if (cnt.snapSlots.has(s)) recordedMinutes += mins(s);
+        else gapMinutes += mins(s);
+      }
+      const expectedMinutes = day.plan && first !== null ? Math.max(expectedMinutesBetween(day.plan, first, Math.min(t, day.plan.endMs - 1), c.kind, c.everyMinutes), recordedMinutes + gapMinutes) : 0;
+      const nowSlot = day.plan ? Math.min(Math.max(slotFloor(t), day.plan.startMs), day.plan.endMs - MINUTE_MS) : null;
       out.push({
         underlying: c.underlying,
         expiry: c.expiry,
         kind: c.kind,
         source: c.source,
         everyMinutes: c.everyMinutes,
+        everyMinutesNow: nowSlot === null ? c.everyMinutes : mins(nowSlot),
         strikesEachSide: c.strikesEachSide,
+        firstSlot: first === null ? null : toIstIso(first),
         expectedSlots: expected,
         recordedSlots: cnt.snaps,
         gapSlots: cnt.gaps,
+        expectedMinutes,
+        recordedMinutes,
+        gapMinutes,
         partialSlots: cnt.partial,
         lastSlot: cnt.lastSlot === null ? null : toIstIso(cnt.lastSlot),
         lastAgeMs: cnt.lastTs === null ? null : Math.max(0, t - cnt.lastTs),
-        gaps: mergeGaps(cnt.gapList, c.everyMinutes).slice(-20),
+        gaps: mergeGaps(cnt.gapList, mins).slice(-20),
       });
     }
     return out;
@@ -1072,6 +1098,7 @@ export function createRecorderService(deps) {
       partial += c.partial;
     }
     const next = day.plan ? nextSlotAfter(day.plan, t) : null;
+    const coverage = coverageOf(day);
     const w = new Set([...(feedWarning ? [feedWarning] : []), ...(accountWarning ? [accountWarning] : []), ...(plan?.warnings ?? [])]);
     if (account && !oiUnitVerified(account.broker)) w.add(`Open interest units for ${account.broker} are not verified against a recorded response; OI is recorded as sent (marked oiUnitVerified: false).`);
     for (const d of health.unreadableDays) w.add(`The recordings of ${d.date} could not be read (${d.detail}); that day is skipped.`);
@@ -1109,14 +1136,15 @@ export function createRecorderService(deps) {
         share: s.budgetShare,
         throttledUntil: budget && budget.halvedUntil() > t ? toIstIso(budget.halvedUntil()) : null,
       },
-      today: { snapshots: todaySnaps, legRows, gapSlots, partialSnapshots: partial, lastSnapshotAt: today.lastSnapshotAt ? toIstIso(today.lastSnapshotAt) : null, corruptLines: health.corruptLines },
+      today: { snapshots: todaySnaps, legRows, gapSlots, gapMinutes: coverage.reduce((n, c) => n + c.gapMinutes, 0), partialSnapshots: partial, lastSnapshotAt: today.lastSnapshotAt ? toIstIso(today.lastSnapshotAt) : null, corruptLines: health.corruptLines },
       disk: { bytes: usage.bytes, todayBytes: usage.todayBytes, days: usage.days, oldestDay: usage.oldestDay, retentionDays: demo ? DEMO_RETENTION_DAYS : s.retentionDays, maxBytes: usage.maxBytes, freeBytes: usage.freeBytes },
-      coverage: coverageOf(day),
+      coverage,
       sources: { stream: s.sources.stream, rest: s.sources.rest, nseBackup: s.sources.nseBackup && !demo },
       oiUnits: { verified: account ? oiUnitVerified(account.broker) : false, broker: account?.broker ?? null },
       holidaySuspected: holidaySuspect,
       backfill: demo ? { running: Boolean(backfill), doneFor: persisted.demoBackfilledFor ?? null } : null,
-      settings: { ...s, stocks: settings.stocks },
+      // The stocks as recorded (in demo, the default five until a list is saved), so the page edits what it sees.
+      settings: s,
       warnings: [...w],
     };
   }
@@ -1237,7 +1265,8 @@ export function createRecorderService(deps) {
     if (next.sources.nseBackup && !settings.sources.nseBackup && !acknowledgeNseTerms) {
       throw new BridgeError("CONFIRMATION_REQUIRED", "Turning on the NSE website backup needs acknowledgeNseTerms: true. The NSE website's terms may not allow automated reading; use it only for your own use.");
     }
-    const { plan: p } = await computePlan(next);
+    const listed = stocksGiven || Array.isArray(section?.stocks);
+    const { plan: p } = await computePlan(next, { stocksListed: listed });
     if (p.refused.some((r) => r.reason === "capacity")) {
       const body = capacityPayload(p);
       throw new BridgeError("CAPACITY_EXCEEDED", `${p.message} Nothing was saved.`, { fields: body });
@@ -1248,12 +1277,12 @@ export function createRecorderService(deps) {
       saved = true;
     }
     currentRaw = merged;
+    stocksGiven = listed;
     settings = next;
     store.setLimits({ retentionDays: demo ? DEMO_RETENTION_DAYS : next.retentionDays, maxDiskMb: next.maxDiskMb });
     await replan("config");
     return { persisted: saved, status: status() };
   }
-  let currentRaw = {};
 
   // ── lifecycle ──
 
@@ -1298,6 +1327,9 @@ export function createRecorderService(deps) {
       const fresh = [...chains.values()].every((c) => counter(c.key).lastSlot === null && counter(c.key).gaps === 0);
       if (demo && settings.demo.alwaysOpen) {
         backfill = runDemoBackfill({ store, chains: [...chains.values()], day, now: t, backfillDays: settings.demo.backfillDays, state: persisted, clockFor, logger: log, writeMany: writeRecords, stopped: () => stopped, onDone: (date) => saveState({ demoBackfilledFor: date }) })
+          // A restart later the same day: the back-fill already ran, so the minutes the Bridge was off are
+          // bridge-down gaps as in real mode (coverage would otherwise show them missing with no gap).
+          .then(() => (stopped ? null : writeBridgeDownGaps(day, s0)))
           .then(() => catchUpDaily())
           .catch((err) => log?.warn?.("demo back-fill failed", { err: err?.message }))
           .finally(() => {
@@ -1349,7 +1381,7 @@ export function createRecorderService(deps) {
         const errors = parsed.error.issues.map((i) => ({ path: ["recorder", ...i.path].join("."), message: i.message }));
         throw new BridgeError("VALIDATION_FAILED", `The recorder settings are not valid: ${errors.map((e) => `${e.path}: ${e.message}`).join("; ")}`, { errors });
       }
-      const { plan: p, acc, feedAccountId } = await computePlan(parsed.data);
+      const { plan: p, acc, feedAccountId } = await computePlan(parsed.data, { stocksListed: stocksGiven || Array.isArray(section?.stocks) });
       const out = { ok: p.ok, message: p.message, plan: { chains: p.chains, refused: p.refused, warnings: p.warnings }, budget: p.budget, capacity: p.capacity };
       // The accounts this dry run names (routes redact them for restricted keys); not part of the JSON body.
       Object.defineProperty(out, PLAN_ACCOUNTS, { value: { id: acc?.id ?? null, broker: acc?.broker ?? null, feedAccountId: feedAccountId ?? null, configured: parsed.data.account ?? null } });
@@ -1389,16 +1421,17 @@ export function createRecorderService(deps) {
  * consecutive when they are `everyMinutes` apart with the same reason.
  */
 export function mergeGaps(gaps, everyMinutes = 1) {
-  const step = everyMinutes * MINUTE_MS;
+  const minsOf = typeof everyMinutes === "function" ? everyMinutes : () => everyMinutes;
   const sorted = [...gaps].sort((a, b) => a.slot - b.slot);
   const out = [];
   for (const g of sorted) {
     const last = out.at(-1);
     if (last && g.slot === last.to) continue;
-    if (last && last.reason === g.reason && g.slot - last.to === step) {
+    if (last && last.reason === g.reason && g.slot - last.to === minsOf(last.to) * MINUTE_MS) {
       last.to = g.slot;
       last.slots += 1;
-    } else out.push({ from: g.slot, to: g.slot, slots: 1, reason: g.reason, detail: g.detail ?? null });
+      last.minutes += minsOf(g.slot);
+    } else out.push({ from: g.slot, to: g.slot, slots: 1, minutes: minsOf(g.slot), reason: g.reason, detail: g.detail ?? null });
   }
   return out;
 }

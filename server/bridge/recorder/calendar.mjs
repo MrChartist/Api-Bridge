@@ -83,6 +83,26 @@ export function isDue(plan, slot, kind, stockEvery = 5) {
 }
 
 /**
+ * The minutes one due slot stands for: its cadence at that time (1 for an index in the session, the stock cadence for
+ * a stock, 5 or more outside the session in the demo's always-open mode). Coverage counts minutes with this, so a
+ * 5-minute chain's 2 slots read as 10 minutes.
+ */
+export function cadenceAt(plan, slot, kind, stockEvery = 5) {
+  const m = istMinuteOf(slot);
+  const inSession = m >= plan.openMin && m < plan.closeMin;
+  if (!inSession) return kind === "stock" ? Math.max(DEMO_OUTSIDE_EVERY, stockEvery) : DEMO_OUTSIDE_EVERY;
+  return kind === "stock" ? stockEvery : 1;
+}
+
+/** Minutes of the due slots from `fromSlot` up to `t` (both inclusive, by slot), by each slot's cadence. */
+export function expectedMinutesBetween(plan, fromSlot, t, kind, stockEvery = 5) {
+  let n = 0;
+  const last = Math.min(slotFloor(t), plan.endMs - MINUTE_MS);
+  for (let s = Math.max(plan.startMs, fromSlot); s <= last; s += MINUTE_MS) if (isDue(plan, s, kind, stockEvery)) n += cadenceAt(plan, s, kind, stockEvery);
+  return n;
+}
+
+/**
  * Every due slot of the day for a kind, in order.
  * @returns {number[]}
  */

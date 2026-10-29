@@ -75,6 +75,20 @@ All notable changes to this project are listed here. The format follows [Keep a 
   false` or `readiness.enabled: false`.
 - Writes from a browser that says `Sec-Fetch-Site: cross-site` (or `same-site`) without an allowlisted Origin are
   refused (`ORIGIN_NOT_ALLOWED`).
+- **Option chains recorded on this computer, with the browser closed** (stream S17, `docs/guides/recorder.md`). The
+  Bridge records the configured index chains every minute in session (opted-in stocks every 5 minutes) from one data
+  account: live feed first, REST only inside half of every broker window, never more than 200 ms of delay to your own
+  requests. Gaps are written as gaps. Read it with `GET /v1/options/snapshots` (JSON or CSV), `/snapshots/latest`,
+  `/v1/options/daily` (PCR, max pain, largest OI, ΔOI, futures basis and rollover) and the MCP tool
+  `get_option_snapshots`. **On upgrade the recorder starts for indices by default** and may hold up to 60 % of the
+  feed's subscriptions; opt out with `"recorder": { "enabled": false }`.
+- **Data recorder page** (`#/recorder`, Overview): state, feeding account, today's snapshots and disk use; coverage per
+  chain with its gap list; the recorder's share of the feed and REST budget; settings with a live "this account can
+  carry …" verdict (a request the account cannot carry is refused with what fits, and nothing is saved); which
+  brokers can record what.
+- **OI Analysis windows read from the recorder.** When the recorder records the chain on screen, the 5m, 15m, 30m,
+  1h and Since open windows use its minutes ("Recorded by the Bridge every minute", with its coverage and gaps), and
+  the page's own browser snapshots become a cache of them.
 
 - **Spread the work over your own accounts.** Many-symbol quote reads are split in each broker's batch size to the
   pooled account with the most spare budget. `marketData.poolingWhenTermsUnknown` lets you pool your own

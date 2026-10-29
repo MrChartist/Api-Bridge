@@ -2,6 +2,11 @@
 // day), so 5m / 15m / 30m / 1h / since-open windows can be read without any server change. Snapshots live in this
 // browser only (IndexedDB "mcb-oi"; memory when storage is unavailable), 400 per key, and are dropped after 3 IST days.
 //
+// When the Bridge's recorder (GET /v1/options/recorder, stream S17) records a chain, the OI page reads that chain's
+// minutes from GET /v1/options/snapshots instead: fromServerSnapshot() maps them to this record shape (src "server")
+// and markServerBacked(key) makes the key a cache of the server series. A server-backed key takes no snapshots from
+// the page (no mixed series) and keeps its first snapshot of the day when it trims to the cap ("Since open").
+//
 // Pure apart from the IndexedDB backend: Node tests run it with memoryBackend().
 import { istClock, marketSession } from "./options.js";
 
@@ -38,6 +43,90 @@ export function snapshotOf(chain, nowMs) {
     cv: pick("ce", "volume"),
     pv: pick("pe", "volume"),
   };
+}
+
+/**
+ * One recorded snapshot from GET /v1/options/snapshots (fields oi, ltp, volume) as a store record: the slot minute is
+ * `t`, the read time is `asOf`, src "server". Null when it has no strikes.
+ * @param {object} s  one item of data.snapshots
+ */
+export function fromServerSnapshot(s, underlying, expiry) {
+  const t = Date.parse(s?.slot);
+  const k = Array.isArray(s?.strikes) ? s.strikes : [];
+  if (!Number.isFinite(t) || !k.length) return null;
+  const col = (side, f) => k.map((_, i) => num(s[side]?.[f]?.[i]));
+  return {
+    key: snapKey(underlying, expiry, t),
+    t,
+    istDate: istClock(t).date,
+    asOf: s.ts ?? null,
+    spot: num(s.spot),
+    lot: num(s.lotSize) || 1,
+    k: [...k],
+    co: col("ce", "oi"),
+    po: col("pe", "oi"),
+    cl: col("ce", "ltp"),
+    pl: col("pe", "ltp"),
+    cv: col("ce", "volume"),
+    pv: col("pe", "volume"),
+    src: "server",
+  };
+}
+
+/** "HH:MM" IST of an epoch-ms time or an IST ISO string; "" when neither. */
+const hmOf = (v) => {
+  const ms = typeof v === "number" ? v : Date.parse(String(v ?? ""));
+  if (!Number.isFinite(ms)) return "";
+  const m = istClock(ms).mins;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+};
+/** "10:41–10:43" (one minute: "10:41"). */
+const gapHm = (g) => {
+  const x = hmOf(g?.from);
+  const y = hmOf(g?.to ?? g?.from) || x;
+  return x === y ? x : `${x}–${y}`;
+};
+const GAP_WORDS = { "stream-down": "feed down", budget: "REST budget used", "broker-error": "broker error", "session-expired": "session expired", "not-subscribed-yet": "subscribing", "bridge-down": "Bridge not running", "disk-full": "disk full", paused: "paused" };
+
+/**
+ * The OI page's coverage line for a server-backed chain (docs/spec/p1-01-recorder.md §7.2): "Server recording since
+ * 09:15 · 58 of 61 minutes · 3 missing (feed down 10:41–10:43)". The latest gap is named; more are counted.
+ * @param {{ coverage?: object, gaps?: object[] }} page  coverage { expectedSlots, recordedSlots, gapSlots, firstSlot } and
+ *   gaps [{ from, to, reason }] (times as epoch ms or IST ISO strings: the status and the snapshots route differ)
+ * @param {(n: number) => string} fmt  whole-number formatter (format.js formatInt)
+ */
+export function serverCoverageText(page, fmt) {
+  const c = page?.coverage ?? {};
+  const first = hmOf(c.firstSlot);
+  const since = first ? ` since ${first}` : "";
+  const parts = [`Server recording${since}`];
+  // Minutes, not slots: a 5-minute chain's slot is 5 minutes (the status sends *Minutes; else slots × everyMinutes).
+  const per = Number(c.everyMinutes) > 0 ? Number(c.everyMinutes) : 1;
+  const mins = (m, slots) => (Number.isFinite(Number(m)) && m !== null && m !== undefined ? Number(m) : (Number(slots) || 0) * per);
+  const expected = mins(c.expectedMinutes, c.expectedSlots);
+  const recorded = mins(c.recordedMinutes, c.recordedSlots);
+  const missing = mins(c.gapMinutes, c.gapSlots);
+  if (expected > 0) parts.push(`${fmt(recorded)} of ${fmt(expected)} ${expected === 1 ? "minute" : "minutes"}`);
+  const gaps = page?.gaps ?? [];
+  if (missing > 0 && gaps.length) {
+    const g = gaps[gaps.length - 1];
+    const more = gaps.length > 1 ? `; ${fmt(gaps.length - 1)} more` : "";
+    parts.push(`${fmt(missing)} missing (${GAP_WORDS[g.reason] ?? g.reason ?? "gap"} ${gapHm(g)}${more})`);
+  }
+  return parts.join(" · ");
+}
+
+/**
+ * This chain's coverage from the recorder status (GET /v1/options/recorder `coverage[]`): the server's own count for
+ * the whole day so far, so repeated polls never add up (incremental snapshot reads re-list the same gaps while the
+ * feed is down). Null when the status has no row for the chain.
+ * @returns {{ coverage: object, gaps: object[], everyMinutes: number } | null}
+ */
+export function serverCoverageFor(status, underlying, expiry) {
+  const row = (status?.coverage ?? []).find((c) => c.underlying === underlying && c.expiry === expiry);
+  if (!row) return null;
+  const { gaps = [], ...coverage } = row;
+  return { coverage, gaps, everyMinutes: Number(row.everyMinutesNow ?? row.everyMinutes) || 1 };
 }
 
 /** Snapshots kept in this tab only (the Node tests' backend, and the fallback when IndexedDB fails). */
@@ -152,6 +241,7 @@ export function openStore({ backend = memoryBackend(), nowMs = Date.now() } = {}
   const cache = new Map(); // key -> sorted snapshots
   const loading = new Map();
   const listeners = new Set();
+  const server = new Set(); // keys that are a cache of the Bridge recorder's series
   const self = {
     persistent: Boolean(be.persistent),
     failed: false,
@@ -206,12 +296,47 @@ export function openStore({ backend = memoryBackend(), nowMs = Date.now() } = {}
       snaps.sort((a, b) => a.t - b.t);
     }
     await guard((b) => b.put(snap), null);
-    if (snaps.length > SNAP_CAP) {
-      const drop = snaps.splice(0, snaps.length - SNAP_CAP);
-      await guard((b) => b.remove(snap.key, drop.map((s) => s.t)), null);
-    }
+    await trim(snap.key, snaps);
     for (const fn of listeners) fn(snap.key);
     return true;
+  }
+  /** Keep the newest SNAP_CAP; a server-backed key also keeps its first snapshot of the day ("Since open"). */
+  async function trim(key, snaps) {
+    if (snaps.length <= SNAP_CAP) return;
+    const keep = server.has(key) ? 1 : 0;
+    const drop = snaps.splice(keep, snaps.length - SNAP_CAP);
+    await guard((b) => b.remove(key, drop.map((s) => s.t)), null);
+  }
+  /** Add many snapshots of one key (a server page): one sort, one trim, one change event. */
+  async function putMany(recs) {
+    const recsOk = (recs ?? []).filter(Boolean);
+    if (!recsOk.length) return 0;
+    const key = recsOk[0].key;
+    const snaps = await list(key);
+    const byT = new Map(snaps.map((s) => [s.t, s]));
+    for (const r of recsOk) if (r.key === key) byT.set(r.t, r);
+    const merged = [...byT.values()].sort((a, b) => a.t - b.t);
+    snaps.splice(0, snaps.length, ...merged);
+    for (const r of recsOk) if (r.key === key) await guard((b) => b.put(r), null);
+    await trim(key, snaps);
+    for (const fn of listeners) fn(key);
+    return recsOk.length;
+  }
+  /** Is this key a cache of the recorder's series? */
+  const serverBacked = (key) => server.has(key);
+  /**
+   * Make a key a cache of the recorder's series: the page stops recording it (offer() returns false) and drops the
+   * snapshots it recorded itself, so the windows never mix two sources.
+   */
+  async function markServerBacked(key) {
+    if (server.has(key)) return;
+    server.add(key);
+    const snaps = await list(key);
+    const mine = snaps.filter((s) => s.src !== "server");
+    if (!mine.length) return;
+    snaps.splice(0, snaps.length, ...snaps.filter((s) => s.src === "server"));
+    await guard((b) => b.remove(key, mine.map((s) => s.t)), null);
+    for (const fn of listeners) fn(key);
   }
   /** Whether a chain would be recorded now (without reading the store). */
   /** `session` / `isTradingDay`: the page's reference session and calendar (holidays record nothing). */
@@ -219,7 +344,7 @@ export function openStore({ backend = memoryBackend(), nowMs = Date.now() } = {}
   async function offer(chain, nowMs = Date.now(), { demo = false, session = null, isTradingDay = null } = {}) {
     if (!allowed(nowMs, demo, session, isTradingDay)) return false;
     const snap = snapshotOf(chain, nowMs);
-    if (!snap) return false;
+    if (!snap || server.has(snap.key)) return false;
     const snaps = await list(snap.key);
     const last = snaps[snaps.length - 1];
     if (last && nowMs - last.t < SNAP_EVERY_MS) return false;
@@ -238,7 +363,7 @@ export function openStore({ backend = memoryBackend(), nowMs = Date.now() } = {}
   /** Cached snapshots for a key, synchronously (empty until list() has run once). */
   const peek = (key) => cache.get(key) ?? null;
   const onChange = (fn) => (listeners.add(fn), () => listeners.delete(fn));
-  return Object.assign(self, { ready, offer, put, list, latest, clearKey, peek, allowed, onChange });
+  return Object.assign(self, { ready, offer, put, putMany, list, latest, clearKey, peek, allowed, onChange, serverBacked, markServerBacked });
 }
 
 let shared = null;

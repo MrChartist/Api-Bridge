@@ -1151,6 +1151,12 @@ paths:
       summary: Recorder state, feeding account, plan, budget, coverage and disk use
       x-stream: S17
       x-scope: read
+      parameters:
+        - name: feasibility
+          in: query
+          required: false
+          description: "true adds `feasibility`: which brokers can record what with the default settings (one row per broker, generated from the code)."
+          schema: { type: boolean, default: false }
       responses:
         "200":
           description: Status.
@@ -4905,6 +4911,7 @@ components:
         from: { type: string, format: date-time }
         to: { type: string, format: date-time }
         slots: { type: integer }
+        minutes: { type: integer, description: "Minutes the gap stands for (slots times each slot's cadence)." }
         reason: { type: string, enum: [stream-down, budget, broker-error, session-expired, not-subscribed-yet, bridge-down, disk-full, paused], description: "Open enum." }
         detail: { type: [string, "null"] }
     OptionSnapshotPage:
@@ -5012,13 +5019,47 @@ components:
         budget: { type: object }
         today: { type: object }
         disk: { type: object }
-        coverage: { type: array, items: { type: object } }
+        coverage:
+          type: array
+          description: "One row per planned chain today. *Slots counts records; *Minutes weighs each slot by its cadence (a 5-minute chain's slot is 5 minutes); everyMinutesNow is the cadence in force now (the demo's always-open clock uses 5 minutes outside 09:15-15:30)."
+          items:
+            type: object
+            properties:
+              underlying: { type: string }
+              expiry: { type: string, format: date }
+              everyMinutes: { type: integer }
+              everyMinutesNow: { type: integer }
+              firstSlot: { type: [string, "null"], format: date-time }
+              expectedSlots: { type: integer }
+              recordedSlots: { type: integer }
+              gapSlots: { type: integer }
+              expectedMinutes: { type: integer }
+              recordedMinutes: { type: integer }
+              gapMinutes: { type: integer }
+              gaps: { type: array, items: { $ref: "#/components/schemas/SnapshotGap" } }
         sources: { type: object }
         oiUnits: { type: object }
         holidaySuspected: { type: [object, "null"], description: "Set when today looked like an unlisted holiday (flat first six minutes, no volume)." }
         backfill: { type: [object, "null"], description: "Demo mode only: the synthetic back-fill." }
         settings: { type: object, description: "The recorder settings in use (RecorderConfig shape)." }
         warnings: { type: array, items: { type: string } }
+        feasibility:
+          type: array
+          description: "Only with ?feasibility=true: one row per broker (default settings), the same words as the table in docs/guides/recorder.md."
+          items:
+            type: object
+            properties:
+              broker: { type: string }
+              label: { type: string }
+              feed: { type: string }
+              rest: { type: string }
+              indices: { type: string }
+              stocks: { type: string }
+              restAllowed: { type: boolean }
+              indexByStream: { type: integer }
+              indexByRest: { type: integer }
+              indexRefused: { type: integer }
+              stocksTotal: { type: integer }
     Problem:
       type: object
       required: [type, title, status, code, retryable]

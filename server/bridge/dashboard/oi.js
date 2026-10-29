@@ -9,15 +9,16 @@
 // contrast colour, the expected move = violet. Never colour alone: calls left / first, cuts hatched, signs, letters
 // and ▲ ▼ ↔ glyphs. One selected strike is shared by the chart, ladder, walls, movers and tiles.
 //
-// Windows: Prev close uses the broker's oiChange; 5m / 15m / 30m / 1h / Since open use the snapshots this page
-// records (oi-store.js). Everything is built once and patched on each 3 s refresh (bars resize with a transform on
+// Windows: Prev close uses the broker's oiChange; 5m / 15m / 30m / 1h / Since open use recorded snapshots: the
+// Bridge's own recorder (GET /v1/options/snapshots, P1-1) when it records this chain, else the ones this page records
+// while open (oi-store.js, then a cache of the server series). Everything is built once and patched on each 3 s refresh (bars resize with a transform on
 // --v, never regrow). The maths is in options.js (pure, tested); numbers become text through format.js only.
 import { api, chartSlot, emptyState, errorState, h, icon, loadingState, modal, optional, sheetPopover, toast } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatInt, formatSigned, isFigure } from "./format.js";
 import { countUp, flashValue, lineReveal, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
 import { refCalendar, refSession } from "./reference.js";
-import { oiStore, snapKey } from "./oi-store.js";
+import { fromServerSnapshot, oiStore, serverCoverageFor, serverCoverageText, snapKey } from "./oi-store.js";
 import { oiParticipantLine } from "./participants.js";
 import { segmented } from "./views.js";
 import { legend, scrubber, setBar, spotPill, svgEl } from "./viz.js";
@@ -458,10 +459,11 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
   const migrateEl = h("p", { class: "oi-note oi-migrate" });
   const snapBody = h("div", { class: "oi-snaps-body" });
   const snapsEl = h("details", { class: "oi-snaps" }, h("summary", {}, "Show as table"), snapBody);
+  const tlSub = h("span", { class: "oi-cover" }, "From the snapshots this page records");
   const timelineEl = h(
     "section",
     { class: "desk-panel oi-timeline", "data-panel": "oi-timeline", "aria-label": "OI over time" },
-    h("div", { class: "panel-head oi-head" }, h("div", { class: "oi-title" }, h("strong", {}, "OI over time"), h("span", { class: "oi-cover" }, "From the snapshots this page records"))),
+    h("div", { class: "panel-head oi-head" }, h("div", { class: "oi-title" }, h("strong", {}, "OI over time"), tlSub)),
     slot,
     coverageEl,
     migrateEl,
@@ -558,6 +560,70 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     if (lastX) draw(lastX);
   }
 
+  // ── Server recordings (the Bridge recorder, docs/spec/p1-01-recorder.md §7.2) ──
+  // On chain load and every 60 s: if the recorder's plan (cached 60 s) has this chain, read its minutes since the last
+  // one held (today's session open the first time) and keep them in the store, which then takes no page snapshots.
+  const rec = { plan: undefined, status: null, at: 0, loading: null, keys: new Map() };
+  async function recorderPlan() {
+    if (rec.loading) return rec.loading;
+    if (rec.plan !== undefined && Date.now() - rec.at < 60_000) return rec.plan;
+    rec.loading = (async () => {
+      const r = await optional(api("/v1/options/recorder"));
+      rec.at = Date.now();
+      rec.status = r.error ? null : (r.data.data ?? null);
+      rec.plan = r.error ? null : (r.data.data?.plan?.chains ?? []);
+      rec.loading = null;
+      return rec.plan;
+    })();
+    return rec.loading;
+  }
+  async function syncServer(underlying, expiry) {
+    const now = Date.now();
+    const key = snapKey(underlying, expiry, now);
+    const e = rec.keys.get(key) ?? { lastT: null, at: 0, busy: false, inPlan: null, every: 1, cov: null };
+    rec.keys.set(key, e);
+    if (e.busy || now - e.at < 60_000) return;
+    e.busy = true;
+    e.at = now;
+    let changed = false;
+    try {
+      if (!(await recorderPlan())) return;
+      const chain = (rec.plan ?? []).find((c) => c.underlying === underlying && c.expiry === expiry);
+      const was = e.inPlan;
+      e.inPlan = Boolean(chain);
+      changed = was !== e.inPlan;
+      if (!chain) return;
+      // Coverage is the status row for this chain (the server's count for the day, refreshed with the 60 s plan
+      // cache), never a sum of the incremental reads below: those re-list the same gaps while the feed is down.
+      const cov = serverCoverageFor(rec.status, underlying, expiry);
+      if (JSON.stringify(cov) !== JSON.stringify(e.cov)) changed = true;
+      e.cov = cov;
+      e.every = cov?.everyMinutes ?? chain.everyMinutes ?? 1;
+      let cursor = null;
+      for (let page = 0; page < 6; page += 1) {
+        const q = new URLSearchParams({ underlying, expiry, fields: "oi,ltp,volume", limit: "500" });
+        if (e.lastT !== null) q.set("from", String(Math.floor(e.lastT / 1000) + 1)); // epoch seconds, after the last minute held
+        if (cursor) q.set("cursor", cursor);
+        const r = await optional(api(`/v1/options/snapshots?${q}`));
+        if (r.error) break;
+        const d = r.data.data;
+        const recs = (d.snapshots ?? []).map((x) => fromServerSnapshot(x, underlying, expiry)).filter((x) => x && x.key === key);
+        if (recs.length) {
+          // Server-backed only once the server has minutes for it: until then (recorder just started, feed down
+          // since the open, only gaps) this page keeps recording its own snapshots.
+          await store.markServerBacked(key);
+          await store.putMany(recs);
+          e.lastT = Math.max(e.lastT ?? 0, ...recs.map((x) => x.t));
+          changed = true;
+        }
+        cursor = d.nextCursor;
+        if (!cursor) break;
+      }
+    } finally {
+      e.busy = false;
+      if (changed && lastX && lastX.c?.underlying === underlying && lastX.c?.expiry === expiry) draw(lastX);
+    }
+  }
   // ── The draw ──
   function windowState(chain, snaps, now, session) {
     const hasPrev = chain.rows.some((r) => num(r.ce?.oiChange) !== null || num(r.pe?.oiChange) !== null);
@@ -596,6 +662,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const session = O.marketSession(now, ses, cal);
     const noOi = !c.rows.some((r) => num(r.ce?.oi) !== null || num(r.pe?.oi) !== null);
     const key = snapKey(c.underlying, c.expiry, now);
+    syncServer(c.underlying, c.expiry).catch(() => {});
     if (!noOi) store.offer(c, now, { demo: isDemo(), ...cal }).catch(() => {});
     let snaps = store.peek(key);
     if (!snaps) {
@@ -772,7 +839,14 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     // Head: coverage, with the window it is measured against.
     const lo = rows[0]?.strike;
     const hi = rows[rows.length - 1]?.strike;
-    const vs = w.ref?.ok ? (w.win === "prev" ? "vs Prev close" : `vs ${refLabel.replace(/^since /, "")} (${plural(snaps.length, "snap")})`) : snaps.length ? `Recording · ${plural(snaps.length, "snap")} since ${O.istHm(snaps[0].t)}` : "Recording starts now";
+    const byServer = store.serverBacked(key);
+    const vs = w.ref?.ok
+      ? w.win === "prev"
+        ? "vs Prev close"
+        : `vs ${refLabel.replace(/^since /, "")} (${byServer ? "Recorded by the Bridge" : plural(snaps.length, "snap")})`
+      : snaps.length
+        ? `${byServer ? "Recorded by the Bridge" : "Recording"} · ${plural(snaps.length, "snap")} since ${O.istHm(snaps[0].t)}`
+        : "Recording starts now";
     const cover = `${formatInt(rows.length)} strikes · ${formatInt(lo)}–${formatInt(hi)} · ${unit}${combined ? ` · ${formatInt(chains.length)} expiries` : ""} · ${vs}`;
     if (coverEl.textContent !== cover) coverEl.textContent = cover;
     const coverTitle = `${cover} · ${coverage(snaps, session)}${store.persistent ? "" : " · Not saved: browser storage unavailable"}`;
@@ -789,7 +863,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     drawMovers(movers, { fd, winLabel });
     pain.draw({ mp, spot, em, relevance, key: ctx });
     drawExpiries(c, now);
-    drawTimeline(key, snaps, session);
+    drawTimeline(key, snaps, session, c);
     paintLinked();
   }
 
@@ -1299,7 +1373,11 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
   }
 
   // ── Timeline ──
-  function drawTimeline(key, snaps, session) {
+  function drawTimeline(key, snaps, session, c) {
+    const e = rec.keys.get(key);
+    const byServer = store.serverBacked(key);
+    const sub = byServer ? `Recorded by the Bridge every ${e?.every > 1 ? `${formatInt(e.every)} minutes` : "minute"}` : "From the snapshots this page records";
+    if (tlSub.textContent !== sub) tlSub.textContent = sub;
     const sig = `${key}|${snaps.length}|${snaps[snaps.length - 1]?.t ?? 0}`;
     if (seriesCache.sig !== sig) seriesCache = { sig, data: O.oiSeries(snaps) };
     const series = seriesCache.data;
@@ -1310,8 +1388,17 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       slot.setAttribute("aria-label", `Chart engine slot: ${label}`);
     }
     slot.classList.toggle("short", n < 10);
-    const cov = `${coverage(snaps, session)}${store.persistent ? "" : " · Not saved: browser storage unavailable"}`;
-    if (coverageEl.textContent !== cov) coverageEl.textContent = cov;
+    const sc = byServer && e?.cov ? e.cov : null;
+    const notPlanned = !byServer && e?.inPlan === false;
+    const cov = sc
+      ? serverCoverageText(sc, formatInt)
+      : notPlanned
+        ? `The recorder is not recording ${c.underlying} ${expiryText(c.expiry)}, so windows use what this page records while open.`
+        : `${coverage(snaps, session)}${store.persistent ? "" : " · Not saved: browser storage unavailable"}`;
+    if (coverageEl.__sig !== `${cov}|${notPlanned}`) {
+      coverageEl.__sig = `${cov}|${notPlanned}`;
+      coverageEl.replaceChildren(cov, ...(notPlanned ? [" ", h("a", { href: "#/recorder", class: "oi-rec-link" }, "Data recorder →")] : []));
+    }
     const mig = O.wallMigrationText(series) ?? "Wall migration appears once snapshots are recorded";
     if (migrateEl.__sig !== mig) {
       migrateEl.__sig = mig;

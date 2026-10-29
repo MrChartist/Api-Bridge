@@ -4,7 +4,7 @@
  * services, real HTTP listener on an ephemeral 127.0.0.1 port) in-process. No network beyond loopback, no live
  * broker, no sleeps longer than a few batching windows.
  */
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
@@ -158,12 +158,20 @@ export function stubRegistry(brokers) {
 
 /**
  * Boot the real Bridge on 127.0.0.1:<ephemeral> with every built-in module.
- * @param {{ raw: object, brokers: Record<string, ReturnType<typeof stubBroker>>, clock?: { now(): number } }} opts
+ * @param {{ raw: object, brokers: Record<string, ReturnType<typeof stubBroker>>, clock?: { now(): number }, withConfigFile?: boolean }} opts
  */
-export async function bootBridge({ raw, brokers, clock = shiftedClock() }) {
+export async function bootBridge({ raw, brokers, clock = shiftedClock(), withConfigFile = false }) {
   const dataDir = mkdtempSync(join(tmpdir(), "mcb-e2e-"));
-  const { config } = loadConfig({ raw: { dataDir, logging: { level: "silent" }, server: { port: 0 }, ...raw }, env: {} });
-  const app = await createApp({ config, logger: createNullLogger(), clock, brokers: stubRegistry(brokers) });
+  const full = { dataDir, logging: { level: "silent" }, server: { port: 0 }, ...raw };
+  // withConfigFile: the config is a real bridge.config.json loaded from its path and passed as the file to save
+  // to, the way the CLI starts the Bridge (routes that edit the config write it).
+  let configFile = null;
+  if (withConfigFile) {
+    configFile = join(dataDir, "bridge.config.json");
+    writeFileSync(configFile, `${JSON.stringify(full, null, 2)}\n`);
+  }
+  const { config } = configFile ? loadConfig({ path: configFile, env: {} }) : loadConfig({ raw: full, env: {} });
+  const app = await createApp({ config, logger: createNullLogger(), clock, brokers: stubRegistry(brokers), configFile });
   const { port } = await app.listen();
   const base = `http://127.0.0.1:${port}`;
   /**
@@ -184,7 +192,7 @@ export async function bootBridge({ raw, brokers, clock = shiftedClock() }) {
     }
     return { status: res.status, headers: res.headers, text, json };
   };
-  return { app, deps: app.deps, port, base, http, dataDir, close: () => app.close() };
+  return { app, deps: app.deps, port, base, http, dataDir, configFile, close: () => app.close() };
 }
 
 /**
