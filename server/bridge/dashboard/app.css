@@ -6204,6 +6204,10 @@ svg .scr-dot:hover { r: 5px; }
 .pt-group-h { margin: 0; padding: 10px 14px 4px; font: 600 12px/1.2 var(--font-body); letter-spacing: 0.02em; text-transform: uppercase; color: hsl(var(--foreground) / var(--a-quiet)); }
 .pt-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
 .pt-wrap:focus-visible { outline: 2px solid var(--sel-ring); outline-offset: -2px; }
+/* The three group tables share one column grid (Participant 120 px, eight equal value columns), so the columns line
+   up from table to table; under the grid's minimum width the table scrolls sideways. */
+table.pt-table.pt-grid { table-layout: fixed; min-width: 728px; }
+table.pt-table.pt-grid col.pt-col-p { width: 120px; }
 table.pt-table { width: 100%; min-width: max-content; border-collapse: separate; border-spacing: 0; font: 500 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; }
 .pt-table :is(th, td) { height: 36px; padding: 0 9px; text-align: right; white-space: nowrap; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 .pt-table thead th { height: 28px; font: 600 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
@@ -6245,8 +6249,12 @@ svg .pt-dot { fill: currentColor; stroke: hsl(var(--card)); stroke-width: 1.5; }
 svg .pt-rev { stroke: hsl(var(--foreground) / 0.38); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
 svg .pt-rev-t { fill: hsl(var(--foreground) / var(--a-quiet)); paint-order: stroke; stroke: hsl(var(--card)); stroke-width: 3px; stroke-linejoin: round; }
 .pt-slot-wrap .chart-slot-box { aspect-ratio: auto; height: 88px; margin: 10px 14px 4px; padding: 10px 16px; }
-.pt-label-row { display: inline-flex; align-items: center; gap: 4px; }
+/* The label text carries the ellipsis; the row itself is not clipped, so the info button is never cut or overlapped. */
+:root .pt-tiles .desk-stat .label.pt-label-row { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: visible; }
+.pt-label-t { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .pt-info.icon-btn.tiny { width: 22px; height: 22px; min-height: 22px; margin: -4px 0; color: hsl(var(--foreground) / var(--a-quiet)); }
+/* No glass rim on this small inline button (it left a hairline beside the icon); the pseudo-element is the touch target. */
+.pt-info.icon-btn::before { inset: 0; padding: 0; background: none; -webkit-mask: none; mask: none; border-radius: inherit; pointer-events: auto; }
 .pt-info.icon-btn.tiny:hover { color: hsl(var(--foreground)); background: var(--mat-fill-1); }
 .pt-info-text { margin: 0; padding: 4px 16px 16px; max-width: 360px; font: 450 13.5px/1.5 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .pt-empty-note { margin: 4px 0 0; font: 500 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
@@ -6273,6 +6281,7 @@ svg .pt-rev-t { fill: hsl(var(--foreground) / var(--a-quiet)); paint-order: stro
 .oi-part-text b.down { color: hsl(var(--neg-ink)); }
 .oi-part-go { font-weight: 600; color: hsl(var(--ios-blue-ink)); white-space: nowrap; }
 .oi-part-sep { font-weight: 500; color: hsl(var(--foreground) / var(--a-quiet)); }
+.oi-part-flag { font-weight: 600; color: hsl(var(--warn-ink)); }
 .pt-ctl .pt-off { opacity: 0.45; cursor: not-allowed; }
 .pt-ctl .segmented.pt-off { pointer-events: none; }
 .pt-skel .pt-multiple { min-height: 160px; }
@@ -6300,16 +6309,25 @@ svg .pt-rev-t { fill: hsl(var(--foreground) / var(--a-quiet)); paint-order: stro
   .pt-hist .pt-ctl { display: grid; grid-template-columns: 1fr 1fr; margin-left: 0; width: 100%; }
   .pt-hist .pt-ctl .segmented { grid-column: 1 / -1; }
   .pt-hist .pt-ctl button.small { justify-content: center; }
-  .pt-slot-wrap .chart-slot-box { height: 72px; margin: 10px 12px 4px; }
+  .pt-slot-wrap .chart-slot-box { height: auto; min-height: 72px; margin: 10px 12px 4px; }
+  /* Two-line chips (stale file, totals) read as a rounded box, not a crowded pill. */
+  .pt-chip { border-radius: 8px; padding: 3px 9px; line-height: 1.35; }
   /* The source pill stays only when it warns (stale or off), as a compact chip; the fetch time is in the notes. */
   .ctx-pt-at, .ctx-pt-day .ctx-k, .pt-src:not(.warn) { display: none; }
   .oi-part-sep { display: none; }
   .pt-src.warn { flex: 0 1 auto; min-width: 0; max-width: 40vw; height: 24px; padding: 0 8px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
   .ctx-pt-day, .ctx-pt-day b { flex: none; white-space: nowrap; }
 }
+/* Desk pages under 1024 px (Participants, and the OI page that carries the participant line): the floating tab bar
+   covers the page end, so the last panel (and its disclaimer) can scroll clear of it. */
+@media (max-width: 1023px) {
+  :root[data-layout="desk"] .app-main:is(:has(.pt-notes), :has(.oi-summary)) { padding-bottom: calc(var(--tabbar-h) + 16px + var(--safe-b)); }
+}
+.pt-sub-note { white-space: nowrap; }
 @media (pointer: coarse) {
   .pt-ctl button.small, .pt-csv, .pt-tbl-btn { min-height: 44px; min-width: 44px; }
-  .pt-info.icon-btn.tiny { width: 44px; height: 44px; min-height: 44px; margin: -12px -10px -12px -8px; }
+  /* 44 px to the touch, 22 px to the eye: the target grows around the button and never moves or overlaps the text. */
+  .pt-info.icon-btn::before { inset: -11px; }
   .oi-part { min-height: 44px; }
 }
 

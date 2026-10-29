@@ -2,7 +2,7 @@
  * Store S4 on disk (stream S26, docs/spec/p1-12-guard-participants.md §2.4):
  *
  *   <dataDir>/participants/            0700
- *     state.json                       { version, lastFetch, lastSuccessDate, lastError, attempts, backfill: { cursor, done, noFile, failed } }
+ *     state.json                       { version, lastFetch, lastSuccessDate, lastError, attempts, backfill: { cursor, done, noFile, failed, pausedUntil, pauses, lastErrorCode } }
  *     oi/2026.jsonl                    one line per date (the last line for a date wins)
  *     raw/2026-10-28/<file>.csv        the published file as downloaded, plus <file>.csv.sha256 (kept retentionDays)
  *
@@ -17,7 +17,7 @@ import { appendLineSync, lastWinsIndex, pruneDated, quarantine, readLinesSync, w
 const DIR_MODE = 0o700;
 const YEAR_FILE = /^(\d{4})\.jsonl$/;
 
-export const emptyState = () => ({ version: 1, lastFetch: null, lastSuccessDate: null, lastError: null, attempts: {}, backfill: { cursor: null, done: false, noFile: [], failed: {} } });
+export const emptyState = () => ({ version: 1, lastFetch: null, lastSuccessDate: null, lastError: null, attempts: {}, backfill: { cursor: null, done: false, noFile: [], failed: {}, pausedUntil: null, pauses: 0, lastErrorCode: null } });
 
 /**
  * @param {string} dir  <dataDir>/participants

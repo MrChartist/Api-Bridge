@@ -39,7 +39,7 @@ export function createFakeParticipants({ asOfDate = "2026-10-28", latest = null,
       return list.filter((d) => (!from || d.date >= from) && (!to || d.date <= to)).map((d) => ({ exchange: "NSE", unit: "contracts", quality: "ok", lotRegime: null, source: "demo", ...d }));
     },
     status() {
-      return { enabled: true, demo: true, source: { nseArchives: "demo", setBy: "demo", verified: false }, latestDate: asOfDate, lastAttemptAt: null, lastError: null, nextRunAt: null, backfill: { enabled: true, target: 0, have: 0, noFile: 0, failed: 0, running: false, cursor: null, done: true }, rows: list.length, diskBytes: 0 };
+      return { enabled: true, demo: true, source: { nseArchives: "demo", setBy: "demo", verified: false }, latestDate: asOfDate, lastAttemptAt: null, lastError: null, nextRunAt: null, backfill: { enabled: true, target: 0, have: 0, noFile: 0, failed: 0, running: false, cursor: null, done: true, pausedUntil: null, lastErrorCode: null }, rows: list.length, diskBytes: 0 };
     },
     async sync() {
       calls.push(["sync"]);

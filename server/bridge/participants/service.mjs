@@ -24,6 +24,14 @@ import { createParticipantStore } from "./store.mjs";
 
 /** Failure codes a later retry can fix by itself: never counted toward the back-fill skip threshold. */
 const TRANSIENT_CODES = new Set(["UPSTREAM_RATE_LIMITED", "UPSTREAM_TIMEOUT", "UPSTREAM_ERROR", "BROKER_UNAVAILABLE", "SOURCE_OFF", "SOURCE_UNAVAILABLE"]);
+/**
+ * Failures that mean NSE is refusing or not answering (a 429, a 403 block, a lasting 5xx, a timeout): the back-fill
+ * stops and pauses (30 min, doubling to 6 h while it keeps happening; reset on the first success), so the Bridge
+ * never keeps asking a host that is turning it away (§8, §9.2, BRD §8.3).
+ */
+const BACKOFF_CODES = new Set(["UPSTREAM_RATE_LIMITED", "UPSTREAM_TIMEOUT", "UPSTREAM_ERROR", "BROKER_UNAVAILABLE"]);
+export const BACKOFF_FIRST_MS = 30 * 60_000;
+export const BACKOFF_MAX_MS = 6 * 3_600_000;
 
 const SHIPPED_REVISIONS = (() => {
   try {
@@ -430,6 +438,18 @@ export function createParticipantsService(deps, opts = {}) {
   let stopped = false;
   /** Back-fill fetch times in the last hour: the maxPerRun cap is over a rolling 60 minutes (§8: ≤ 120 files an hour). */
   let recentFetches = [];
+  /** True while the back-fill is paused after NSE refused it (state.backfill.pausedUntil). */
+  const backfillPaused = (ms) => {
+    const until = state?.backfill.pausedUntil ? Date.parse(state.backfill.pausedUntil) : NaN;
+    return Number.isFinite(until) && ms < until;
+  };
+  function pauseBackfill(code) {
+    const n = Math.max(0, Number(state.backfill.pauses) || 0) + 1;
+    const ms = Math.min(BACKOFF_MAX_MS, BACKOFF_FIRST_MS * 2 ** Math.min(n - 1, 10));
+    state.backfill.pauses = n;
+    state.backfill.pausedUntil = istIso(now() + ms);
+    state.backfill.lastErrorCode = code;
+  }
   const inQuietHours = (ms) => {
     const t = istClockOf(ms);
     return t >= cfg.backfill.notDuring.from && t < cfg.backfill.notDuring.to;
@@ -465,7 +485,7 @@ export function createParticipantsService(deps, opts = {}) {
         const t = now();
         recentFetches = recentFetches.filter((x) => t - x < 3_600_000);
         if (recentFetches.length >= cfg.backfill.maxPerRun || out.fetched.length + out.noFile.length + out.failed.length >= max) break;
-        if (inQuietHours(t)) break;
+        if (inQuietHours(t) || backfillPaused(t)) break;
         if (!archiveInfo().enabled) break;
         const d = nextBackfillDate();
         if (!d) {
@@ -478,11 +498,23 @@ export function createParticipantsService(deps, opts = {}) {
         const r = await fetchDay(d, "backfill");
         state.backfill.cursor = d;
         save();
-        if (r.ok) out.fetched.push(d);
-        else if (r.noFile) out.noFile.push(d);
+        if (r.ok) {
+          out.fetched.push(d);
+          if (state.backfill.pauses || state.backfill.lastErrorCode) {
+            state.backfill.pauses = 0;
+            state.backfill.pausedUntil = null;
+            state.backfill.lastErrorCode = null;
+            save();
+          }
+        } else if (r.noFile) out.noFile.push(d);
         else {
           out.failed.push({ date: d, code: r.code });
-          if (r.code === "UPSTREAM_RATE_LIMITED" || r.code === "SOURCE_OFF" || r.code === "SOURCE_UNAVAILABLE") break;
+          if (BACKOFF_CODES.has(r.code)) {
+            pauseBackfill(r.code);
+            save();
+            break;
+          }
+          if (r.code === "SOURCE_OFF" || r.code === "SOURCE_UNAVAILABLE") break;
           // A 404 that is not yet "noFile" is retried once later: step the cursor back over it for now.
         }
         if (!stopped) await sleep(cfg.backfill.gapSeconds * 1000);
@@ -513,15 +545,18 @@ export function createParticipantsService(deps, opts = {}) {
         const last = state.lastDaily?.date === d ? Date.parse(state.lastDaily.at) : 0;
         if (!last || t - last >= cfg.retryEveryMinutes * 60_000 - 1000) done.push(await fetchDay(d, "daily"));
       }
-      // Morning catch-up for the previous trading day.
-      if (clock >= cfg.morningCatchUp && clock < cfg.backfill.notDuring.from && catchUpDone !== d) {
+      // Catch-up for the previous trading day: once per IST day, at the first tick between morningCatchUp and
+      // fetchAt (one file through the shared gap-limited client; notDuring is a back-fill rule and does not block
+      // it), so a Bridge started at 10:30 after a night off gets the previous day's file instead of staying stale
+      // until 15:45. From fetchAt on, the daily fetch and the evening back-fill cover a missing day.
+      if (clock >= cfg.morningCatchUp && clock < cfg.fetchAt && catchUpDone !== d) {
         catchUpDone = d;
         const p = c.prevTradingDay(d, "NFO");
         if (!days.has(p) && !isNoFile(p)) done.push(await fetchDay(p, "catchup"));
       }
       // Back-fill whenever a target day is missing, not only until the first pass is done: a day missed while the
       // Bridge was off, or a failed daily fetch, is picked up on a later tick (BRD §7.7).
-      if (cfg.backfill.enabled && !backfilling && !inQuietHours(t) && (!state.backfill.done || nextBackfillDate())) {
+      if (cfg.backfill.enabled && !backfilling && !inQuietHours(t) && !backfillPaused(t) && (!state.backfill.done || nextBackfillDate())) {
         runBackfill().catch((err) => log?.warn?.("participants back-fill failed", { err: String(err?.message ?? err) }));
       }
       if (prunedOn !== d) {
@@ -563,7 +598,7 @@ export function createParticipantsService(deps, opts = {}) {
         lastAttemptAt: null,
         lastError: null,
         nextRunAt: istIso(istInstant(demoHasFile(today()) && istClockOf(now()) < DEMO_PUBLISH ? today() : addDays(today(), 1), DEMO_PUBLISH)),
-        backfill: { enabled: true, target: target.length, have, noFile: target.length - have, failed: 0, running: false, cursor: target[target.length - 1] ?? null, done: true },
+        backfill: { enabled: true, target: target.length, have, noFile: target.length - have, failed: 0, running: false, cursor: target[target.length - 1] ?? null, done: true, pausedUntil: null, lastErrorCode: null },
         rows: have,
         diskBytes: 0,
       };
@@ -588,6 +623,8 @@ export function createParticipantsService(deps, opts = {}) {
         running: backfilling,
         cursor: state?.backfill.cursor ?? null,
         done: Boolean(state?.backfill.done),
+        pausedUntil: state && backfillPaused(now()) ? state.backfill.pausedUntil : null,
+        lastErrorCode: state?.backfill.lastErrorCode ?? null,
       },
       rows: days.size,
       diskBytes: store ? store.diskBytes() : 0,

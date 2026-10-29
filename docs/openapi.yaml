@@ -7113,7 +7113,7 @@ components:
         lastAttemptAt: { type: [string, "null"] }
         lastError: { type: [object, "null"], properties: { code: { type: string }, detail: { type: string }, date: { type: string }, at: { type: string } } }
         nextRunAt: { type: [string, "null"] }
-        backfill: { type: object, properties: { enabled: { type: boolean }, target: { type: integer }, have: { type: integer }, noFile: { type: integer }, failed: { type: integer }, running: { type: boolean }, cursor: { type: [string, "null"] }, done: { type: boolean } } }
+        backfill: { type: object, properties: { enabled: { type: boolean }, target: { type: integer }, have: { type: integer }, noFile: { type: integer }, failed: { type: integer }, running: { type: boolean }, cursor: { type: [string, "null"] }, done: { type: boolean }, pausedUntil: { type: [string, "null"], description: "Set while the back-fill is paused after NSE refused or did not answer (30 min, doubling to 6 h)" }, lastErrorCode: { type: [string, "null"] } } }
         rows: { type: integer }
         diskBytes: { type: integer }
     ParticipantSyncResult:

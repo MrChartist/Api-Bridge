@@ -27,6 +27,7 @@ describe("participant page view-models", () => {
     expect(t[0]).toMatchObject({ value: "31.1%", sub: "−2.04 pts vs 27 Oct", longPct: 31.1 });
     expect(t[0].title).toMatch(/FII held 31\.1% of their index-futures positions long/);
     expect(t[1]).toMatchObject({ value: "−1.37L", tone: "down", sub: "−15.6K vs 27 Oct · net short" });
+    expect(t[1]).toMatchObject({ subMain: "−15.6K vs 27 Oct", subNote: "net short" });
   });
 
   it("table: participants × instruments, TOTAL without net, tones on net and Δ", () => {
@@ -92,10 +93,23 @@ describe("participant page view-models", () => {
   });
 
   it("the OI page line: NSE figure, BSE note, nothing without data", () => {
-    expect(P.oiTileText(summary, "NIFTY")).toMatchObject({ text: "FII index futures: 31.1% long (−2.0 pts)", main: "FII index futures: 31.1% long", delta: "(−2.0 pts)", tone: "" });
+    expect(P.oiTileText(summary, "NIFTY")).toMatchObject({ text: "FII index futures (28 Oct): 31.1% long (−2.0 pts)", main: "FII index futures (28 Oct): 31.1% long", delta: "(−2.0 pts)", tone: "", stale: false });
+    // An old latest file says so in the visible line, not only in the hover title.
+    const old = P.oiTileText({ ...summary, stale: true, expectedDate: "2026-10-30" }, "NIFTY");
+    expect(old).toMatchObject({ text: "FII index futures (28 Oct): 31.1% long (−2.0 pts) · not current", flag: "not current", stale: true });
+    expect(old.title).toMatch(/newer file \(30 Oct\) has not been fetched/);
     expect(P.oiTileText(summary, "SENSEX").text).toBe("No BSE participant file");
     expect(P.oiTileText(null, "NIFTY")).toBeNull();
     expect(P.oiTileText({ available: false, detail: "x" }, "NIFTY").text).toBe("Participant OI not available yet");
+  });
+
+  it("back-fill line says when the back-fill is paused", () => {
+    expect(P.backfillText({ backfill: { target: 500, have: 40, noFile: 0, running: false, pausedUntil: "2026-10-29T17:30:00.000+05:30" } })).toBe("History: 40 of 500 trading days; paused while NSE is not answering (next try 29 Oct, 17:30 IST)");
+  });
+
+  it("totals-mismatch chip names the instruments in its text", () => {
+    expect(P.mismatchText({ mismatches: ["IDX_CE", "STK_PE"] })).toBe("NSE totals did not add up for Index CE, Stock PE on this day; shown as published");
+    expect(P.mismatchText({})).toBe("NSE totals did not add up on this day; shown as published");
   });
 
   it("stale latest file: a warning line naming the day and the expected one", () => {

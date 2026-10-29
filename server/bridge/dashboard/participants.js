@@ -100,6 +100,12 @@ export function pageState(summary, status = null, { hasCalendar = false } = {}) 
   return { kind: "unavailable", title: "Participant OI is not available", text: summary?.detail ?? "" };
 }
 
+/** The totals-mismatch chip: names the instruments, in the text (touch screens have no hover). */
+export function mismatchText(summary) {
+  const xs = (summary?.mismatches ?? []).map((x) => PT_INSTRUMENTS[x] ?? x);
+  return xs.length ? `NSE totals did not add up for ${xs.join(", ")} on this day; shown as published` : "NSE totals did not add up on this day; shown as published";
+}
+
 /** The stale-file line for the headline (summary.stale), or "". */
 export function staleText(summary) {
   if (!summary?.available || !summary.stale) return "";
@@ -115,7 +121,9 @@ export function backfillText(status) {
   if (!b || !b.target) return "";
   const missing = b.noFile ? `; ${b.noFile} not available from NSE` : "";
   const running = b.running ? " (filling in)" : "";
-  return `History: ${b.have} of ${b.target} trading days${missing}${running}`;
+  // The back-fill pauses (30 min, up to 6 h) while NSE refuses or does not answer; say so rather than look stuck.
+  const paused = !b.running && b.pausedUntil ? `; paused while NSE is not answering (next try ${nextCheckText(b.pausedUntil).replace(/^Next check: /, "")})` : "";
+  return `History: ${b.have} of ${b.target} trading days${missing}${running}${paused}`;
 }
 
 /**
@@ -129,8 +137,10 @@ export function tilesModel(summary) {
   const netTile = (key, label, p, x) => {
     const r = rowOf(summary, p, x);
     const value = r ? signedCount(r.net) : DASH;
-    const sub = r ? `${isFigure(r.netChange) ? `${signedCount(r.netChange)} vs ${prev}` : "no previous day"} · ${netWord(r.net)}` : "";
-    return { key, label, value, tone: toneOf(r?.net), sub, title: r ? `${label}: long ${formatCompact(r.long)}, short ${formatCompact(r.short)}, net ${value} contracts` : "", aria: `${label}: ${value}${r ? `, ${netWord(r.net)}` : ""}` };
+    const subMain = r ? (isFigure(r.netChange) ? `${signedCount(r.netChange)} vs ${prev}` : "no previous day") : "";
+    const subNote = r ? netWord(r.net) : "";
+    const sub = r ? `${subMain} · ${subNote}` : "";
+    return { key, label, value, tone: toneOf(r?.net), sub, subMain, subNote, title: r ? `${label}: long ${formatCompact(r.long)}, short ${formatCompact(r.short)}, net ${value} contracts` : "", aria: `${label}: ${value}${r ? `, ${netWord(r.net)}` : ""}` };
   };
   const lp = hd.fiiIndexFutLongPct;
   return [
@@ -334,15 +344,20 @@ export function oiTileText(summary, underlying) {
   if (!summary?.available) return summary ? { text: "Participant OI not available yet", main: "Participant OI not available yet", delta: "", tone: "", title: summary.detail ?? "" } : null;
   const hd = summary.headline ?? {};
   if (!isFigure(hd.fiiIndexFutLongPct)) return null;
-  const main = `FII index futures: ${formatPercent(hd.fiiIndexFutLongPct, 1)} long`;
+  // The day is always in view; an old file (summary.stale) says so and takes the warn tone (§1.3 honesty).
+  const stale = summary.stale === true;
+  const main = `FII index futures (${shortDate(summary.date)}): ${formatPercent(hd.fiiIndexFutLongPct, 1)} long`;
   const delta = isFigure(hd.fiiIndexFutLongPctChange) ? `(${ptsText(hd.fiiIndexFutLongPctChange, 1)})` : "";
+  const flag = stale ? "not current" : "";
   return {
-    text: delta ? `${main} ${delta}` : main,
+    text: [delta ? `${main} ${delta}` : main, flag].filter(Boolean).join(" · "),
     main,
     delta,
+    flag,
     // A change in long % is a fact, not good or bad news: no gain / loss colour (neutral copy, as on the page tile).
     tone: "",
-    title: `${PT_NOTE}, day ended ${longDate(summary.date)}. ${hd.formula ?? ""}`.trim(),
+    stale,
+    title: `${PT_NOTE}, day ended ${longDate(summary.date)}.${stale ? ` ${staleText(summary)}.` : ""} ${hd.formula ?? ""}`.trim(),
   };
 }
 
@@ -390,7 +405,8 @@ export function oiParticipantLine() {
       sig = next;
       el.hidden = !m;
       if (!m) return;
-      text.replaceChildren(...[m.main, m.delta ? " " : null, m.delta ? h("b", { class: m.tone || null }, m.delta) : null].filter((x) => x !== null));
+      text.replaceChildren(...[m.main, m.delta ? " " : null, m.delta ? h("b", { class: m.tone || null }, m.delta) : null, m.flag ? h("span", { class: "oi-part-flag" }, ` · ${m.flag}`) : null].filter((x) => x !== null));
+      el.classList.toggle("stale", Boolean(m.stale));
       el.title = m.title;
     },
   };
@@ -433,6 +449,8 @@ function tileEl(t) {
   const mv = t.key === "fiiLongPct" ? h("span", { class: "pt-lp", "aria-hidden": "true" }, h("i", { class: "fill" }), h("i", { class: "mid" })) : null;
   if (mv && t.longPct !== null) mv.firstChild.style.setProperty("--v", String(Math.max(0, Math.min(100, t.longPct)) / 100));
   let label = h("span", { class: "label" }, t.label);
+  // "+13.1K vs 28 Oct · net short": the net word wraps as one unit, never a lone "short" on the next line.
+  const sub = h("span", { class: "sub" }, ...(t.subNote ? [t.subMain, " ", h("span", { class: "pt-sub-note" }, `· ${t.subNote}`)] : [t.sub || " "]));
   let desc = null;
   if (t.key === "fiiLongPct" && t.title) {
     const id = "pt-lp-formula";
@@ -442,9 +460,9 @@ function tileEl(t) {
       btn.setAttribute("aria-expanded", "true");
       sheetPopover({ trigger: btn, title: "FII index futures long %", body: h("p", { class: "pt-info-text" }, t.title), cls: "pt-info-pop" });
     });
-    label = h("span", { class: "label pt-label-row" }, t.label, btn);
+    label = h("span", { class: "label pt-label-row" }, h("span", { class: "pt-label-t" }, t.label), btn);
   }
-  return h("div", { class: `desk-stat pt-tile pt-t-${t.key}`, role: "group", "aria-label": t.aria, title: t.title || null }, label, value, mv, h("span", { class: "sub" }, t.sub || " "), desc);
+  return h("div", { class: `desk-stat pt-tile pt-t-${t.key}`, role: "group", "aria-label": t.aria, title: t.title || null }, label, value, mv, sub, desc);
 }
 
 /** A long % bar for a card or cell: long share filled, a 50 % tick. */
@@ -473,11 +491,27 @@ function tableEl(model) {
       }),
     ),
   );
-  return h(
+  // One column grid for every group table (see table.pt-grid in app.css), so the columns line up between tables.
+  const cols = h("colgroup", {}, h("col", { class: "pt-col-p" }), model.columns.map(() => [h("col", {}), h("col", {}), h("col", {}), h("col", {})]));
+  const wrap = h(
     "div",
-    { class: "table-wrap pt-wrap", tabindex: "0", role: "region", "aria-label": `${model.label} by participant (scrolls sideways)` },
-    h("table", { class: "pt-table" }, h("caption", { class: "sr-only" }, `${model.label}: long, short, net and change in net by participant, in contracts`), h("thead", {}, head1, head2), h("tbody", {}, body)),
+    { class: "table-wrap pt-wrap", role: "region", "aria-label": `${model.label} by participant` },
+    h("table", { class: "pt-table pt-grid" }, h("caption", { class: "sr-only" }, `${model.label}: long, short, net and change in net by participant, in contracts`), cols, h("thead", {}, head1, head2), h("tbody", {}, body)),
   );
+  wrap.__label = `${model.label} by participant`;
+  return wrap;
+}
+
+/**
+ * A table that scrolls sideways is a tab stop (so the keyboard can scroll it) and says so; one that fits is neither.
+ * Checked after layout and on every resize.
+ */
+export function syncScrollable(wrap) {
+  const label = wrap.__label ?? wrap.getAttribute("aria-label") ?? "";
+  const scrolls = wrap.scrollWidth > wrap.clientWidth + 1;
+  if (scrolls) wrap.setAttribute("tabindex", "0");
+  else wrap.removeAttribute("tabindex");
+  wrap.setAttribute("aria-label", scrolls ? `${label} (scrolls sideways)` : label);
 }
 
 function cardsEl(model) {
@@ -586,7 +620,7 @@ export async function renderParticipantsPage() {
   const tiles = tilesModel(summary);
   const qualityChip =
     summary.quality === "totals-mismatch"
-      ? h("span", { class: "pt-chip warn", title: `Instruments: ${(summary.mismatches ?? []).map((x) => PT_INSTRUMENTS[x] ?? x).join(", ")}` }, "NSE totals did not add up on this day; shown as published")
+      ? h("span", { class: "pt-chip warn", title: mismatchText(summary) }, mismatchText(summary))
       : summary.quality === "partial"
         ? h("span", { class: "pt-chip warn" }, "Some participant rows were missing in NSE's file")
         : null;
@@ -770,6 +804,19 @@ export async function renderParticipantsPage() {
       histBody.removeAttribute("aria-busy");
     }
   })();
+
+  // Tab stops and "(scrolls sideways)" only for group tables that do scroll at this width.
+  const wraps = [...tablePanel.querySelectorAll(".pt-tables .pt-wrap")];
+  const syncWraps = () => {
+    if (!tablePanel.isConnected) return wrapRo?.disconnect();
+    wraps.forEach(syncScrollable);
+  };
+  const wrapRo = typeof ResizeObserver === "function" ? new ResizeObserver(syncWraps) : null;
+  wraps.forEach((w) => {
+    syncScrollable(w);
+    wrapRo?.observe(w);
+  });
+  requestAnimationFrame(syncWraps);
 
   return [kpi, tablePanel, histPanel, notesPanel(summary, status)];
 }
