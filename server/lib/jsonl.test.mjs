@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { appendLine, appendLineSync, compact, fileStamp, istDate, lastWinsIndex, parseLines, pruneDated, quarantine, readLines, readLinesSync } from "./jsonl.mjs";
+import { appendLine, appendLineSync, appendLines, compact, fileStamp, istDate, lastWinsIndex, parseLines, pruneDated, quarantine, readLines, readLinesSync } from "./jsonl.mjs";
 
 let dir;
 beforeEach(() => {
@@ -19,6 +19,16 @@ describe("append and read", () => {
     expect(await readLines(f)).toEqual({ items: [{ id: 1 }, { id: 2 }, { id: 3 }], corrupt: 0, tornTail: false, missing: false });
     expect(readLinesSync(f).items).toHaveLength(3);
     if (process.platform !== "win32") expect(statSync(f).mode & 0o777).toBe(0o600);
+  });
+
+  it("appendLines writes several records in one append, repairing a torn tail first", async () => {
+    const f = join(dir, "many.jsonl");
+    writeFileSync(f, '{"id":0}\n{"id":1,"to');
+    expect(await appendLines(f, [{ id: 2 }, '{"id":3}'])).toMatchObject({ repaired: true, lines: 2 });
+    expect(readFileSync(f, "utf8")).toBe('{"id":0}\n{"id":1,"to\n{"id":2}\n{"id":3}\n');
+    expect((await readLines(f)).items.map((r) => r.id)).toEqual([0, 2, 3]);
+    expect(await appendLines(f, [])).toEqual({ bytes: 0, repaired: false, lines: 0 });
+    await expect(appendLines(f, ["a\nb"])).rejects.toThrow(/newline/);
   });
 
   it("a missing file reads as empty", async () => {

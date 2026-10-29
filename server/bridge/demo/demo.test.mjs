@@ -13,7 +13,7 @@ import { createApp } from "../core/app.mjs";
 import { loadConfig } from "../core/config.mjs";
 import { createNullLogger } from "../core/logger.mjs";
 import { black76, realisedVol, volTime } from "../dashboard/pricing.js";
-import { DEMO_UNDERLYINGS, candles, createDemoAdapter, dailyCloses, demoChainAt, demoClockContext, demoInstruments, demoOptionOi, demoSplitSymbol, demoStrikeStep, demoUnderlying, expiriesFor, ivLevel, optionPrice, parseToken, smileVol, spotAt } from "./demoAdapter.mjs";
+import { DEMO_OPTION_UNDERLYINGS, DEMO_UNDERLYINGS, candles, createDemoAdapter, dailyCloses, demoChainAt, demoClockContext, demoInstruments, demoOptionOi, demoSplitSymbol, demoStrikeStep, demoUnderlying, expiriesFor, ivLevel, openInterestAt, optionPrice, parseToken, quoteOf, smileVol, spotAt } from "./demoAdapter.mjs";
 import { DEMO_STOCK_LOT, demoDatasets } from "../reference/demoReference.mjs";
 import { NIFTY50 } from "../scanner/universes.mjs";
 import { demoCalendar } from "../reference/demoTables.mjs";
@@ -61,7 +61,7 @@ describe("demo adapter", () => {
 
   it("builds an option chain around the spot and candles in market hours", async () => {
     const chain = (await a.fetchOptionChain({}, "NIFTY", "2026-10-19")).data;
-    expect(Object.keys(chain.oc)).toHaveLength(61);
+    expect(Object.keys(chain.oc)).toHaveLength(91); // ±45 strikes (p1-01 §8)
     expect(chain.last_price).toBe(spotAt("NIFTY", T));
     const bars = candles("DM-NIFTY", "15m", Date.UTC(2026, 9, 16, 3, 45), Date.UTC(2026, 9, 16, 10, 0));
     expect(bars).toHaveLength(25);
@@ -271,6 +271,112 @@ describe("demo adapter", () => {
   });
 });
 
+describe("demo realism for the recorder (p1-01 §8)", () => {
+  const a = createDemoAdapter({ now: () => T });
+  const at = (h, m) => Date.UTC(2026, 9, 19, h - 5, m - 30); // IST h:m on Mon 19 Oct 2026
+
+  it("OI changes through the day, is always a whole number of lots, and is the same at the same instant", () => {
+    const e = expiriesFor("NIFTY", T)[1];
+    const k = Math.round(spotAt("NIFTY", T) / 50) * 50;
+    let changed = 0;
+    for (const strike of [k - 200, k - 50, k, k + 100, k + 300]) {
+      for (const right of ["CE", "PE"]) {
+        const ten = openInterestAt("NIFTY", strike, right, e, at(10, 0));
+        const two = openInterestAt("NIFTY", strike, right, e, at(14, 0));
+        expect(ten % 65, `${strike}${right}`).toBe(0);
+        expect(two % 65).toBe(0);
+        expect(openInterestAt("NIFTY", strike, right, e, at(10, 0))).toBe(ten);
+        if (ten !== two) changed += 1;
+      }
+    }
+    expect(changed).toBeGreaterThanOrEqual(8);
+  });
+
+  it("previous_oi is the same function at the previous close; bid and ask sizes are whole lots", async () => {
+    const e = expiriesFor("NIFTY", T)[0];
+    const chain = (await a.fetchOptionChain({}, "NIFTY", e)).data;
+    const [key, row] = Object.entries(chain.oc)[45];
+    const strike = Number(key);
+    const prevClose = Date.UTC(2026, 9, 16, 10, 0); // Fri 16 Oct 15:30 IST
+    expect(row.ce.previous_oi).toBe(openInterestAt("NIFTY", strike, "CE", e, prevClose));
+    expect(row.ce.oi_chg).toBe(row.ce.oi - row.ce.previous_oi);
+    expect(row.ce.top_bid_quantity % 65).toBe(0);
+    expect(row.ce.top_ask_quantity).toBeGreaterThan(0);
+    const q = quoteOf(`DM-NIFTY-${e}-${strike}-PE`, "NFO", T);
+    expect(q.bidQty % 65).toBe(0);
+    expect(q.askQty % 65).toBe(0);
+    expect(quoteOf("DM-NIFTY", "NSE", T)).toMatchObject({ bidQty: null, askQty: null });
+  });
+
+  it("lists FINNIFTY, MIDCPNIFTY and the stock-option underlyings with the reference lots; BANKEX stays absent", () => {
+    const rows = demoInstruments(T);
+    const lotOf = (u, type) => rows.find((r) => r.underlying === u && r.instrumentType === type)?.lotSize;
+    expect(lotOf("FINNIFTY", "OPTIDX")).toBe(60);
+    expect(lotOf("MIDCPNIFTY", "OPTIDX")).toBe(120);
+    for (const [u, lot] of [["RELIANCE", 525], ["HDFCBANK", 750], ["ICICIBANK", 550], ["INFY", 500], ["SBIN", 850]]) {
+      expect(lotOf(u, "OPTSTK"), u).toBe(lot);
+      expect(lotOf(u, "FUTSTK"), u).toBe(lot);
+    }
+    expect(rows.some((r) => r.underlying === "BANKEX")).toBe(false);
+    // P1-6 lists options on every demo stock (it supersedes P1-1's five), indices first.
+    expect(rows.some((r) => r.underlying === "TCS" && r.instrumentType === "OPTSTK")).toBe(true);
+    expect(DEMO_OPTION_UNDERLYINGS.slice(0, 5)).toEqual(["NIFTY", "BANKNIFTY", "SENSEX", "FINNIFTY", "MIDCPNIFTY"]);
+    expect(DEMO_OPTION_UNDERLYINGS).toHaveLength(5 + 50);
+    expect(rows.filter((r) => r.strike !== null).every((r) => r.strike > 0)).toBe(true);
+  });
+});
+
+describe("demo recorder (p1-01 §8, e2e step 5)", () => {
+  let app;
+  let base;
+  let key;
+  let dir;
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), "mcb-demo-rec-"));
+    const { config } = loadConfig({ raw: { dataDir: dir, server: { port: 0 }, logging: { level: "silent" } }, env: {}, demo: true });
+    app = await createApp({ config, logger: createNullLogger() });
+    const { port } = await app.listen();
+    base = `http://127.0.0.1:${port}`;
+    ({ key } = await app.deps.keyStore.create({ label: "t", scopes: ["admin", "paper"], accounts: "*" }));
+  });
+  afterAll(async () => {
+    await app?.close();
+  });
+  const get = async (path) => {
+    const r = await fetch(base + path, { headers: { Authorization: `Bearer ${key}` } });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  };
+
+  it("records into its own folder: 1 chain by stream, the rest by REST, BANKEX refused, five stocks every 5 minutes", async () => {
+    const st = (await get("/v1/options/recorder")).body.data;
+    expect(st).toMatchObject({ demo: true, account: { id: "demo", broker: "demo" }, session: { alwaysOpen: true } });
+    expect(st.plan.capacity.stream).toMatchObject({ cap: 300, feedLimit: 500 });
+    expect(st.plan.chains.filter((c) => c.source === "stream").map((c) => c.underlying)).toEqual(["NIFTY"]);
+    expect(st.plan.chains.filter((c) => c.kind === "index" && c.source === "rest")).toHaveLength(14);
+    expect(st.plan.chains.filter((c) => c.kind === "stock").map((c) => [c.underlying, c.everyMinutes, c.source])).toEqual(["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "SBIN"].map((u) => [u, 5, "rest"]));
+    expect(st.plan.refused).toEqual([expect.objectContaining({ underlying: "BANKEX", reason: "not-offered" })]);
+    expect(existsSync(join(dir, "recorder-demo"))).toBe(true);
+    expect(existsSync(join(dir, "recorder"))).toBe(false);
+  });
+
+  it("within seconds the nearest NIFTY expiry has back-filled minutes since the day start, and daily rows for previous weekdays", async () => {
+    const e = (await get("/v1/expiries?underlying=NIFTY")).body.data.expiries[0];
+    let page = null;
+    for (let i = 0; i < 100; i++) {
+      page = (await get(`/v1/options/snapshots?underlying=NIFTY&expiry=${e}&from=${new Date(Date.now() + 19_800_000).toISOString().slice(0, 10)}&fields=oi,ltp&limit=500`)).body.data;
+      if (page.snapshots.length > 3) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(page.snapshots.length).toBeGreaterThan(3);
+    expect(new Set(page.snapshots.map((s) => s.quality))).toEqual(expect.objectContaining({}));
+    expect(page.snapshots.some((s) => s.quality === "demo-backfill")).toBe(true);
+    expect(page.snapshots.every((s) => s.quality === "demo-backfill" || s.quality === "demo")).toBe(true);
+    await app.deps.recorder.backfillDone();
+    const daily = (await get("/v1/options/daily?underlying=NIFTY")).body.data.rows;
+    expect(new Set(daily.map((r) => r.date)).size).toBeGreaterThanOrEqual(2);
+  }, 30_000);
+});
+
 describe("demo mode config", () => {
   it("replaces accounts, forces live trading off and keeps real brokers out", () => {
     const { config, warnings } = loadConfig({
@@ -281,7 +387,12 @@ describe("demo mode config", () => {
     });
     expect(config.demo).toBe(true);
     expect(config.safety.liveTrading).toBe(false);
-    expect(config.accounts.map((a) => [a.id, a.broker])).toEqual([["demo", "demo"], ["demo-paper", "paper"]]);
+    expect(config.accounts.map((a) => [a.id, a.broker, a.holder])).toEqual([
+      ["demo", "demo", "demo"],
+      ["demo-paper", "paper", "demo"],
+      ["demo-paper-spouse", "paper", "demo-spouse"],
+      ["demo-paper-other", "paper", "demo-other"],
+    ]);
     expect(warnings.join(" ")).toMatch(/DEMO MODE/);
   });
 
@@ -358,6 +469,7 @@ describe("demo mode end to end", () => {
     const r = await get("/v1/positions?account=paper");
     expect(r.body.code).toBe("ACCOUNT_NOT_FOUND");
     expect(r.body.detail).toContain('"demo-paper"');
+    expect(r.body.detail).toContain('"demo-paper-spouse"');
   });
 });
 

@@ -2765,6 +2765,8 @@ export const POSITIONS_DEFAULTS = Object.freeze({
   heatCols: "auto",
   bars: true,
   gauges: true,
+  /** Positions scope (P1-13): this account, all accounts, or the family view. */
+  scope: "account",
 });
 /** The positions page settings (desk prefs → pos), validated: unknown keys dropped, bad values replaced. */
 export function positionsConfig(saved) {
@@ -2799,6 +2801,7 @@ export function positionsConfig(saved) {
     heatCols: s.heatCols === 3 || s.heatCols === 5 ? s.heatCols : pick(s.heatCols, ["auto"], d.heatCols),
     bars: typeof s.bars === "boolean" ? s.bars : d.bars,
     gauges: typeof s.gauges === "boolean" ? s.gauges : d.gauges,
+    scope: pick(s.scope, ["account", "all", "family"], d.scope),
   };
 }
 

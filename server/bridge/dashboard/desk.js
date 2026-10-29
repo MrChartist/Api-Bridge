@@ -1297,9 +1297,10 @@ async function renderDesk(kind) {
    * the live quote), `lotSize`, `units` (an odd quantity: the ticket works in units and sends `quantity`), `kind`, `name`
    * and `tick`. An exit starts as a LIMIT at mid rounded toward a fill, with 25 / 50 / 75 / 100 % chips.
    */
-  async function openTicket({ row, right, side, qty, symbol, product, orderType = "LIMIT", expiry, exit = false, quote: quoteIn = null, units: oddUnits = false, lotSize: lotIn = null, kind = "OPT", name: nameIn = null, tick: tickIn = null, freezeQty = null, price: priceIn = null, held: heldIn = null }) {
-    const a = account();
-    if (!a) return toast("Choose an account that can place orders first.");
+  async function openTicket({ row, right, side, qty, symbol, product, orderType = "LIMIT", expiry, exit = false, quote: quoteIn = null, units: oddUnits = false, lotSize: lotIn = null, kind = "OPT", name: nameIn = null, tick: tickIn = null, freezeQty = null, price: priceIn = null, held: heldIn = null, account: accountIn = null }) {
+    // `account` presets the leg's own account (Positions All accounts / Family: every exit goes to that account).
+    const a = accountIn ? tradable.find((x) => x.id === accountIn) ?? null : account();
+    if (!a) return toast(accountIn ? `${accountIn} cannot place orders from this dashboard.` : "Choose an account that can place orders first.");
     const c = st.chain;
     const ex = expiry ?? c?.expiry;
     const fut = kind === "FUT";

@@ -3,7 +3,8 @@
  * port). Steps share the Bridge and run in order:
  *  1. the F&O underlying list (indices, 50 stocks, lots, steps, ban band);
  *  2. stock expiries and a stock chain with a fractional strike and the contract facts;
- *  3. the server sweep: plan, 202, join, progress to done, chains with ΔOI basis, HV, quote class never above 50 %;
+ *  3. the server sweep: plan, 202, join, progress to done, chains with ΔOI basis, HV; the sweep's own calls never
+ *     take more than 50 % of the quote class in any second (the demo recorder is off here);
  *  4. the ban gate on a paper ticket: open, force a ban, opening refused, closing allowed, then refused again;
  *  5. expiry costs at E-2 (₹842.22 / ₹55.96);
  *  6. sweep settings: admin from this computer (persisted false in demo), refused for a read key;
@@ -60,7 +61,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 beforeAll(async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "mcb-stocks-e2e-"));
-  const { config } = loadConfig({ raw: { dataDir, server: { port: 0 }, logging: { level: "silent" }, fno: { demo: { callDelayMs: 0 } } }, env: {}, demo: true });
+  const { config } = loadConfig({ raw: { dataDir, server: { port: 0 }, logging: { level: "silent" }, fno: { demo: { callDelayMs: 0 } }, recorder: { enabled: false } }, env: {}, demo: true });
   app = await createApp({ config, overrides: { keyStore }, logger: createNullLogger() });
   ({ port } = await app.listen());
 }, 30_000);
@@ -96,25 +97,36 @@ describe("stock options end to end (demo)", () => {
     for (const r of c.json.data.rows) for (const leg of [r.ce, r.pe]) if (leg?.oi) expect(leg.oi % 4475).toBe(0);
   });
 
-  it("3. the sweep: plan fits with two groups, 202 then joined, done with ≥ 50 stock chains, ΔOI basis, HV; quote class ≤ 50 % used", async () => {
+  it("3. the sweep: plan fits with two groups, 202 then joined, done with ≥ 50 stock chains, ΔOI basis, HV; the sweep uses ≤ 50 % of the quote class", async () => {
     const plan = await http("/v1/options/sweeps/plan", { method: "POST", body: {} });
     expect(plan.json.data.fits).toBe(true);
     expect(plan.json.data.groups.map((g) => g.kind)).toEqual(["index", "stock"]);
+    // The sweep's own broker calls (background priority), timed when the scheduler starts them. The demo also has
+    // user-priority traffic of its own (the demo book's paper fills read quotes at "live" priority), which may use the
+    // whole window: users always go first; only the sweep is held to 50 %.
+    const starts = [];
+    const sch = app.deps.scheduler;
+    const orig = sch.schedule.bind(sch);
+    sch.schedule = (o, fn) => (o.priority === "background" ? orig(o, (...args) => (starts.push({ cls: o.endpointClass, at: Date.now(), cost: o.cost ?? 1 }), fn(...args))) : orig(o, fn));
     const start = await http("/v1/options/sweeps", { method: "POST", body: {} });
     expect(start.status).toBe(202);
     const join = await http("/v1/options/sweeps", { method: "POST", body: {} });
     expect([join.status, join.json.data.joined]).toEqual([200, true]);
-    let maxUsedShare = 0;
     let status = "running";
+    let limit = null;
     for (let i = 0; i < 600 && status === "running"; i += 1) {
       const u = await http("/v1/usage");
-      const q = u.json.data.accounts.find((a) => a.accountId === "demo" || a.id === "demo")?.classes?.quote ?? u.json.data.accounts[0].classes.quote;
-      maxUsedShare = Math.max(maxUsedShare, (q.used + (q.queued ?? 0)) / q.limit);
+      limit ??= (u.json.data.accounts.find((a) => a.accountId === "demo" || a.id === "demo") ?? u.json.data.accounts[0]).classes.quote.limit;
       status = (await http("/v1/options/sweeps/current?lease=1")).json.data.status;
       if (status === "running") await sleep(150);
     }
+    sch.schedule = orig;
     expect(status).toBe("done");
-    expect(maxUsedShare).toBeLessThanOrEqual(0.5);
+    // In any one-second window the sweep's quote (and quote-family) calls stay within half of the class's limit.
+    const perWindow = (pred) => Math.max(0, ...starts.filter(pred).map((x) => starts.filter((y) => pred(y) && y.at >= x.at && y.at < x.at + 1000).reduce((a, y) => a + y.cost, 0)));
+    expect(starts.length).toBeGreaterThan(10);
+    expect(perWindow((x) => x.cls === "quote")).toBeLessThanOrEqual(0.5 * limit);
+    expect(perWindow((x) => x.cls === "quote" || x.cls === "chain" || x.cls === "depth")).toBeLessThanOrEqual(0.5 * limit);
     const items = [];
     let since = 0;
     let last;

@@ -4,6 +4,7 @@
  *
  *  - appendLine / appendLineSync: one JSON value per line, written with a single append. If the file does not end in
  *    "\n" (a crash cut the last write short) a newline is written first, so the next record never fuses with a torn one.
+ *    appendLines writes several records in one append, with the same repair.
  *  - readLines / readLinesSync: parse every line; a torn LAST line (no final newline and not valid JSON) is skipped
  *    and reported as `tornTail`; any other line that does not parse is skipped and counted in `corrupt`. A missing
  *    file reads as empty (`missing: true`). Reading never throws for bad content, only for I/O errors.
@@ -87,6 +88,23 @@ export async function appendLine(file, value) {
   const data = `${repaired ? "\n" : ""}${line}\n`;
   await appendFile(file, data, { encoding: "utf8", mode: FILE_MODE });
   return { bytes: Buffer.byteLength(data), repaired };
+}
+
+/**
+ * Append several records, one line each, in ONE write (bulk loads such as the demo recorder's back-fill). Same newline
+ * repair as appendLine.
+ * @param {string} file
+ * @param {unknown[]} values
+ * @returns {Promise<{ bytes: number, repaired: boolean, lines: number }>}
+ */
+export async function appendLines(file, values) {
+  const lines = values.map(toLine);
+  if (!lines.length) return { bytes: 0, repaired: false, lines: 0 };
+  await mkdir(dirname(file), { recursive: true, mode: DIR_MODE });
+  const repaired = await needsNewline(file);
+  const data = `${repaired ? "\n" : ""}${lines.join("\n")}\n`;
+  await appendFile(file, data, { encoding: "utf8", mode: FILE_MODE });
+  return { bytes: Buffer.byteLength(data), repaired, lines: lines.length };
 }
 
 /** Synchronous appendLine (for stores that already write synchronously). */

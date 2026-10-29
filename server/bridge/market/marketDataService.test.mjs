@@ -609,6 +609,15 @@ describe("option chain", () => {
     expect(zerodha.calls.filter((x) => x[0] === "fetchOptionChain")).toHaveLength(1);
   });
 
+  it("a Greeks-off read reuses a fresh chain read with Greeks (Greeks stripped, no broker call)", async () => {
+    const { md, zerodha } = buildMarket();
+    await md.optionChain({ underlying: "NIFTY", expiry: "2026-10-27" });
+    const off = await md.optionChain({ underlying: "NIFTY", expiry: "2026-10-27", greeks: false });
+    expect(off.freshness.source).toBe("cache");
+    expect(off.rows[2].ce).toMatchObject({ delta: null, gamma: null, greeksSource: null, oi: 1000 });
+    expect(zerodha.calls.filter((x) => x[0] === "fetchOptionChain")).toHaveLength(1);
+  });
+
   it("reports an empty chain as SYMBOL_NOT_FOUND", async () => {
     const z = stubAdapter("zerodha", { chain: { status: "success", data: { oc: {}, last_price: 0 } } });
     const { md } = buildMarket({ adapters: { zerodha: z } });
