@@ -2040,6 +2040,7 @@ export function bookLegs(positions, underlying, { closed = false } = {}) {
       avg: num(p.avgPrice),
       product: ["INTRADAY", "MARGIN", "CNC"].includes(p.product) ? p.product : "MARGIN",
       realised: num(p.realisedPnl),
+      unrealised: num(p.unrealisedPnl),
       ltp: num(p.ltp),
       pnl: num(p.pnl),
     });
@@ -2200,6 +2201,32 @@ export function scenarioPnl(legs, shift = {}) {
 }
 /** Unrealised P&L per leg from its mark (no model): (mark − avg) × q, or null. */
 export const legPnl = (l) => (num(l?.mark) !== null && num(l?.avg) !== null ? (l.mark - l.avg) * l.q : null);
+/**
+ * Unrealised P&L of a leg: from its mark, else the broker's unrealised figure, else its total P&L less realised (the
+ * broker `pnl` is realised + unrealised, so it is never used whole). Closed legs (q 0) have none.
+ */
+export function legUnrealised(l) {
+  if (!num(l?.q)) return 0;
+  const u = legPnl(l);
+  if (u !== null) return u;
+  if (num(l.unrealised) !== null) return num(l.unrealised);
+  return num(l.pnl) !== null ? num(l.pnl) - (num(l.realised) ?? 0) : 0;
+}
+/**
+ * The book's P&L (₹) over every leg, today's closed ones (q 0) included: realised R, unrealised U and whether the
+ * broker sent no realised figure for an open leg (`noRealised`).
+ */
+export function bookPnl(legs) {
+  let realised = 0;
+  let unrealised = 0;
+  let noRealised = false;
+  for (const l of legs ?? []) {
+    unrealised += legUnrealised(l);
+    if (num(l.realised) === null) noRealised ||= Boolean(num(l.q));
+    else realised += num(l.realised);
+  }
+  return { realised, unrealised, total: realised + unrealised, noRealised };
+}
 
 /**
  * Book Greeks from the legs' own Greeks (the chain's, else Black-76 on the solved IV): Δ units, Γ per point, Θ ₹ per
@@ -2462,7 +2489,8 @@ export function hedgePlan(book, { method = "fut", target = 0, side = "BUY", fut 
  * Exit orders for a set of legs (pure): short options first (largest |Δ| first), then long options, then futures.
  * `type` "mid" (limit at mid, rounded to tick toward a fill), "touch" (bid to sell, ask to buy) or "market" (estimated
  * at the touch). `pct` < 100 exits whole lots (round half up, min 1 lot). Orders above the freeze quantity are split
- * into lot-multiple slices with the remainder last. Slippage = |price − mid| × qty.
+ * into lot-multiple slices with the remainder last. Slippage = |price − mid| × qty. A limit order with no quote to
+ * price it has `price` null and `unpriced` true (`market` is true only for type "market").
  * Legs: { symbol, kind, right, strike, expiry, q, avg, lot, freeze, tick, quote, greeks, product }.
  */
 export function exitPlan(legs, { type = "mid", pct = 100 } = {}) {
@@ -2483,8 +2511,11 @@ export function exitPlan(legs, { type = "mid", pct = 100 } = {}) {
     const m = b > 0 && a > 0 ? (a + b) / 2 : ltp;
     const tick = num(l.tick) || 0.05;
     const touch = side === "BUY" ? (a > 0 ? a : ltp) : b > 0 ? b : ltp;
-    const price = type === "market" ? null : type === "touch" ? roundToTick(touch, tick, side === "BUY" ? "buy" : "sell") : roundToTick(m, tick, side === "BUY" ? "buy" : "sell");
-    const est = type === "market" ? touch : price;
+    const market = type === "market";
+    const price = market ? null : type === "touch" ? roundToTick(touch, tick, side === "BUY" ? "buy" : "sell") : roundToTick(m, tick, side === "BUY" ? "buy" : "sell");
+    // No quote to price a limit from: the order stays a limit, flagged `unpriced` (never turned into a market order).
+    const unpriced = !market && num(price) === null;
+    const est = market ? touch : price;
     const fz = num(l.freeze);
     const per = fz > 0 && qty > fz ? Math.max(L, Math.floor(fz / L) * L) : qty;
     const slices = [];
@@ -2496,7 +2527,9 @@ export function exitPlan(legs, { type = "mid", pct = 100 } = {}) {
       side,
       qty,
       slices,
-      price,
+      price: unpriced ? null : price,
+      market,
+      unpriced,
       mid: m,
       est,
       slip: est !== null && m !== null ? Math.abs(est - m) * qty : null,
@@ -2508,7 +2541,7 @@ export function exitPlan(legs, { type = "mid", pct = 100 } = {}) {
   }
   orders.sort((x, y) => x.rank - y.rank || y.dAbs - x.dAbs);
   const total = (k) => orders.reduce((t, o) => (o[k] === null ? t : t + o[k]), 0);
-  return { orders, slippage: total("slip"), pnl: total("pnl"), count: orders.reduce((t, o) => t + o.slices.length, 0) };
+  return { orders, slippage: total("slip"), pnl: total("pnl"), count: orders.reduce((t, o) => t + o.slices.length, 0), unpriced: orders.filter((o) => o.unpriced).length };
 }
 
 const IST_MIN = (ms) => istClock(ms).mins + (new Date(ms + IST_OFFSET_MS).getUTCSeconds() / 60);
@@ -2543,7 +2576,7 @@ export function bookWarnings(legs, { spot = null, now = Date.now(), stale = null
   for (const l of inc) {
     const d = l.priced ? legDistance(l) : null;
     if (!d?.tested) continue;
-    add("tested", d.itm ? "bad" : "warn", d.itm ? `Short ${formatInt(l.strike)} ${l.right} is ITM` : `Short ${formatInt(l.strike)} ${l.right} tested (${formatFixed(d.sigma, 1)}σ)`, `${formatSigned(d.pts, 0)} pts from the forward`);
+    add("tested", d.itm ? "bad" : "warn", d.itm ? `Short ${formatInt(l.strike)} ${l.right} is ITM` : `Short ${formatInt(l.strike)} ${l.right} tested (${formatFixed(Math.floor(d.sigma * 10) / 10, 1)}σ)`, `${formatSigned(d.pts, 0)} pts from the forward`);
   }
   const shorts = inc.filter((l) => l.kind === "OPT" && l.q < 0);
   const lastShort = shorts.map((l) => l.expiry).sort().pop();

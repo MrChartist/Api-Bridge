@@ -1410,7 +1410,7 @@ button.preset:hover { background: var(--mat-fill-1); }
 .ticket-checks .bad .dot { background: hsl(var(--ios-red)); }
 .ticket-checks .warn { color: hsl(var(--foreground) / var(--a-label)); }
 .ticket-checks .warn .dot { background: hsl(var(--ios-orange)); }
-.ticket-acct { display: inline-flex; align-items: center; min-height: 40px; font: 600 14px/1.2 var(--font-body); color: hsl(var(--foreground)); }
+.ticket-acct { display: inline-flex; flex-wrap: wrap; align-items: center; column-gap: 4px; min-height: 40px; font: 600 14px/1.2 var(--font-body); color: hsl(var(--foreground)); }
 .live-ack { padding: 10px 12px; border-radius: var(--r-sm); background: hsl(var(--ios-red) / 0.08); color: hsl(var(--ios-red-ink)); font-weight: 600; }
 button.primary.sell { background: hsl(var(--ios-pink-ink)); box-shadow: 0 6px 18px hsl(var(--ios-pink) / 0.28), inset 0 1px 0 hsl(0 0% 100% / 0.2); }
 
@@ -2138,7 +2138,7 @@ table.oi-help-table thead th { font-size: 11.5px; color: hsl(var(--foreground) /
 .pos-switch::-webkit-scrollbar { display: none; }
 .pos-switch[hidden] { display: none; }
 .pos-switch-lbl { flex: none; font: 600 11.5px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
-button.pos-uchip { flex: none; min-height: 28px; padding: 0 10px; gap: 0; border-radius: 99px; font: 500 12.5px/1 var(--font-numeric); font-variant-numeric: tabular-nums; background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); white-space: nowrap; }
+button.pos-uchip { flex: none; min-height: 28px; padding: 0 10px; gap: 4px; border-radius: 99px; font: 500 12.5px/1 var(--font-numeric); font-variant-numeric: tabular-nums; background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); white-space: nowrap; }
 button.pos-uchip strong { font-weight: 700; }
 button.pos-uchip:hover { background: var(--mat-fill-1); }
 .pos-tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); overflow: hidden; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
@@ -2197,6 +2197,7 @@ table.pos-table sup { margin-left: 2px; font: 600 8.5px/1 var(--font-body); }
 .pos-acts button.small { min-height: 26px; padding: 0 9px; font-size: 12.5px; }
 .pos-inc { width: 15px; height: 15px; margin: 0; accent-color: hsl(var(--ios-blue)); cursor: pointer; }
 .strong { font-weight: 700; }
+.nowrap { white-space: nowrap; }
 .warn-ink { color: hsl(var(--ios-orange-ink)); }
 .block { display: block; }
 .pos-bulk { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font: 600 13px/1 var(--font-body); background: hsl(var(--ios-blue) / 0.07); box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
@@ -2256,7 +2257,12 @@ button.pos-card:active { background: var(--mat-fill-1); }
 .legend i.hedge { height: 0; border-top: 2px dotted hsl(var(--ios-teal)); border-radius: 0; }
 .legend .lg-target i.today { border-top-color: hsl(var(--ios-purple)); }
 .legend > span[hidden] { display: none; }
-.pos-readout { min-height: 16px; color: hsl(var(--foreground) / var(--a-label)); }
+.pos-readout { color: hsl(var(--foreground) / var(--a-label)); }
+/* The legend wraps if it must (it does not change on hover); the read-out has its own one-line row, so hovering never moves the chart. */
+.pos-payoff .payoff-head { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.pos-payoff .pos-readout { height: 16px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pos-payoff-svg .off-scale { fill: hsl(var(--ios-teal-ink)); font-weight: 600; }
+label.pos-inc-hit { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .pos-pay-empty { display: grid; place-items: center; min-height: 200px; margin: 0; }
 .pos-pay-empty[hidden] { display: none; }
 .pos-sliders { display: flex; flex-direction: column; gap: 6px; }
@@ -2285,7 +2291,7 @@ table.pos-matrix tbody th small { margin-left: 6px; font: 500 10.5px/1 var(--fon
 table.pos-matrix td { cursor: pointer; }
 table.pos-matrix td.pos { background: hsl(var(--ios-green) / var(--a, 0.1)); color: hsl(var(--ios-green-ink)); }
 table.pos-matrix td.neg { background: hsl(var(--ios-red) / var(--a, 0.1)); color: hsl(var(--ios-red-ink)); }
-table.pos-matrix td.beyond { box-shadow: inset 0 0 0 1px hsl(var(--ios-red)); }
+table.pos-matrix tbody td.beyond, table.pos-matrix tbody tr:last-child > td.beyond { box-shadow: inset 0 0 0 1px hsl(var(--ios-red)); }
 table.pos-matrix td.cur { outline: 2px solid hsl(var(--ios-blue)); outline-offset: -2px; font-weight: 700; }
 table.pos-matrix td:focus-visible { outline: 2px solid hsl(var(--ios-blue) / 0.7); outline-offset: -2px; }
 .pos-matrix-foot { display: grid; gap: 4px; font: 500 12px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; }
@@ -2341,6 +2347,7 @@ table.pos-bca tbody th { text-align: left; font: 500 12.5px/1.2 var(--font-body)
   .pos-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .pos-tiles .desk-stat { box-shadow: calc(-1 * var(--hl)) 0 0 var(--mat-separator), 0 calc(-1 * var(--hl)) 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
   table.pos-table .opt-x { display: none; }
+  table.pos-table .c-delta small { display: none; }
   .pos-riskp > .panel-head .segmented { display: inline-flex; }
   .pos-risk { grid-template-columns: minmax(0, 1fr); }
   .pos-risk.tab-payoff .pos-scen, .pos-risk.tab-scenario .pos-payoff { display: none; }
@@ -2348,6 +2355,8 @@ table.pos-bca tbody th { text-align: left; font: 500 12.5px/1.2 var(--font-body)
   .pos-hedge-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 719px) {
+  /* Group headers stick below the floating glass toolbar, not under it. */
+  button.pos-cghead { top: calc(var(--toolbar-h) + var(--safe-t)); }
   .pos-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pos-tiles .t-pnl, .pos-tiles .t-margin { grid-column: span 2; }
   .pos-tiles .t-delta { order: 1; }
@@ -2377,6 +2386,9 @@ table.pos-bca tbody th { text-align: left; font: 500 12.5px/1.2 var(--font-body)
   .pos-riskp > .panel-head .segmented button, button.pos-uchip, button.chip-btn, .pos-gacts button, .pos-acts button.small, .pos-matrix-head > button, .pos-matrix-head .segmented button, button.pos-warn, button.pos-warn-toggle, .pos-bulk button, .pos-menu button { min-height: 44px; }
   .pos-slider input[type="range"] { min-height: 44px; }
   .pos-inc { width: 22px; height: 22px; }
+  /* The include box's whole cell is its 44 px target (a missed tap must not select the row). */
+  table.pos-table td.c-inc, table.pos-table th[scope="rowgroup"] label.pos-inc-hit { padding: 0; }
+  label.pos-inc-hit { min-width: 44px; min-height: 44px; }
   .pos-acts .icon-btn.tiny { width: 44px; height: 44px; min-height: 44px; }
   table.pos-matrix td, table.pos-matrix th { height: 44px; }
 }

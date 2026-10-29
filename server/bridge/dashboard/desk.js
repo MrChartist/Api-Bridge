@@ -683,7 +683,7 @@ async function renderDesk(kind) {
    * the live quote), `lotSize`, `units` (an odd quantity: the ticket works in units and sends `quantity`), `kind`, `name`
    * and `tick`. An exit starts as a LIMIT at mid rounded toward a fill, with 25 / 50 / 75 / 100 % chips.
    */
-  async function openTicket({ row, right, side, qty, symbol, product, expiry, exit = false, quote: quoteIn = null, units: oddUnits = false, lotSize: lotIn = null, kind = "OPT", name: nameIn = null, tick: tickIn = null, freezeQty = null, price: priceIn = null }) {
+  async function openTicket({ row, right, side, qty, symbol, product, expiry, exit = false, quote: quoteIn = null, units: oddUnits = false, lotSize: lotIn = null, kind = "OPT", name: nameIn = null, tick: tickIn = null, freezeQty = null, price: priceIn = null, held: heldIn = null }) {
     const a = account();
     if (!a) return toast("Choose an account that can place orders first.");
     const c = st.chain;
@@ -695,12 +695,14 @@ async function renderDesk(kind) {
     const tick = num(tickIn) || 0.05;
     const quote = quoteIn ?? (() => (st.chain?.expiry === ex ? st.chain.rows.find((r) => r.strike === row.strike)?.[right.toLowerCase()] : row?.[right.toLowerCase()]) ?? null);
     const clientOrderId = `desk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    const held = num(qty) ? Math.abs(num(qty)) : null;
-    const inUnits = Boolean(oddUnits) || (held !== null && held % lotSize !== 0);
+    // `qty` is the starting size; `held` (exits) the whole position, which the 25-100 % chips are measured from.
+    const start = num(qty) ? Math.abs(num(qty)) : null;
+    const held = num(heldIn) ? Math.abs(num(heldIn)) : start;
+    const inUnits = Boolean(oddUnits) || (held !== null && held % lotSize !== 0) || (start !== null && start % lotSize !== 0);
     const sideSeg = segmented("Side", [["BUY", "Buy"], ["SELL", "Sell"]], side);
     const lots = inUnits
-      ? h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(held ?? lotSize) })
-      : h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(held ? Math.max(1, Math.round(held / lotSize)) : 1) });
+      ? h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(start ?? lotSize) })
+      : h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(start ? Math.max(1, Math.round(start / lotSize)) : 1) });
     const lotHint = h("span", { class: "hint" });
     const typeSeg = segmented("Order type", [["LIMIT", "Limit"], ["MARKET", "Market"]], "LIMIT");
     const midPx = (sd) => O.roundToTick(O.mid(quote()), tick, sd === "BUY" ? "buy" : "sell");
@@ -834,7 +836,8 @@ async function renderDesk(kind) {
         "div",
         { class: "stack ticket" },
         quoteLine,
-        segField("Side", sideSeg),
+        // An exit's side is fixed (the other side would add to the position): a label, not a control.
+        exit ? h("div", { class: "field" }, h("span", {}, "Side"), h("span", { class: "ticket-acct" }, side === "BUY" ? "Buy to close" : "Sell to close", h("span", { class: "muted small" }, "· to add, use the chain"))) : segField("Side", sideSeg),
         h("div", { class: "ticket-grid" }, h("label", { class: "field" }, h("span", {}, inUnits ? "Quantity " : "Lots ", lotHint), lots), segField("Type", typeSeg)),
         pctRow,
         priceField,

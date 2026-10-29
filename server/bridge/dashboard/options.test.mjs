@@ -924,6 +924,39 @@ describe("exit plan", () => {
     expect(O.exitPlan([{ ...legs[0], q: 225 }], { pct: 50 }).orders[0].qty).toBe(150);
     expect(O.exitPlan([{ ...legs[0], q: 75 }], { pct: 25 }).orders[0].qty).toBe(75);
     expect(O.exitPlan([{ ...legs[0], q: 37 }], { pct: 50 }).orders[0].qty).toBe(37);
+  });  it("never turns a quote-less leg into a market order unless market was chosen", () => {
+    const bare = { symbol: "W", kind: "OPT", q: -75, avg: 2, lot: 75, quote: null, mark: null, greeks: { delta: -0.02 } };
+    for (const type of ["mid", "touch"]) {
+      const p = O.exitPlan([legs[1], bare], { type });
+      const o = p.orders.find((x) => x.symbol === "W");
+      expect(o).toMatchObject({ price: null, unpriced: true, market: false });
+      expect(p.unpriced).toBe(1);
+      expect(p.orders.find((x) => x.symbol === "SC")).toMatchObject({ unpriced: false, market: false });
+    }
+    const m = O.exitPlan([bare], { type: "market" });
+    expect(m.orders[0]).toMatchObject({ price: null, market: true, unpriced: false });
+    expect(m.unpriced).toBe(0);
+  });
+});
+
+describe("book P&L", () => {
+  it("counts today's closed legs in realised", () => {
+    const pos = [
+      { symbol: "NFO:NIFTY-2026-11-03-26400-CE", netQty: 0, avgPrice: 0, realisedPnl: 33.75, pnl: 33.75 },
+      { symbol: "NFO:NIFTY-2026-11-03-26000-PE", netQty: -75, avgPrice: 100, realisedPnl: 0, pnl: 150 },
+    ];
+    const legs = O.bookLegs(pos, "NIFTY", { closed: true }).map((l) => (l.q ? { ...l, mark: 98 } : l));
+    const p = O.bookPnl(legs);
+    expect(p.realised).toBeCloseTo(33.75, 6);
+    expect(p.unrealised).toBeCloseTo(150, 6);
+    expect(p.total).toBeCloseTo(183.75, 6);
+  });
+  it("falls back to the broker's unrealised, never the total P&L, for an unpriced leg", () => {
+    const pos = [{ symbol: "NFO:NIFTY-2026-11-03-26000-PE", netQty: -75, avgPrice: 100, realisedPnl: 500, pnl: 650 }];
+    const l = O.bookLegs(pos, "NIFTY");
+    expect(O.bookPnl(l)).toMatchObject({ realised: 500, unrealised: 150, total: 650 });
+    const u = O.bookLegs([{ ...pos[0], unrealisedPnl: 140 }], "NIFTY");
+    expect(O.bookPnl(u)).toMatchObject({ realised: 500, unrealised: 140, total: 640 });
   });
 });
 
