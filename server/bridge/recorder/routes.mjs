@@ -12,6 +12,7 @@ import { setConfigSection } from "../accounts/configFile.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { csv } from "../core/http.mjs";
 import { parseTimeInput, toIstIso } from "../market/time.mjs";
+import { defaultSessionFor } from "../reference/defaults.mjs";
 import { istDateOf, istMidnight } from "./calendar.mjs";
 import { RECORDER_CONFIG_SCHEMA } from "./config.mjs";
 import { API_FIELDS, FIELD_KEYS } from "./snapshot.mjs";
@@ -129,20 +130,28 @@ export function toApiSnapshot(s, ctx) {
   };
 }
 
+/** Minutes after IST midnight of a session open "HH:MM" (the reference default window when missing or bad). */
+function openMinutes(open) {
+  const m = /^(\d{2}):(\d{2})$/.exec(String(open ?? "")) ?? /^(\d{2}):(\d{2})$/.exec(defaultSessionFor("NFO").open);
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
 const isoOrNull = (ms) => (ms === null || ms === undefined ? null : toIstIso(ms));
 
 /**
  * Parse the §4.1 query (URLSearchParams or a plain object) into a service query.
  * @param {any} params
- * @param {{ now: number, defaults?: { fields?: string[], strikes?: number, every?: number } }} env
+ * @param {{ now: number, defaults?: { fields?: string[], strikes?: number, every?: number }, sessionOpen?: string | null }} env
+ *   sessionOpen: today's session open "HH:MM" IST from the reference store (the default `from`); the S5 default
+ *   window when absent.
  */
-export function parseSnapshotQuery(params, { now, defaults = {} }) {
+export function parseSnapshotQuery(params, { now, defaults = {}, sessionOpen = null }) {
   const underlying = underlyingOf(q(params, "underlying"));
   const expiry = dateOf(q(params, "expiry"), "expiry", true);
   const fromRaw = q(params, "from");
   const toRaw = q(params, "to");
   const today = istDateOf(now);
-  const fromMs = fromRaw === undefined ? istMidnight(today) + (9 * 60 + 15) * 60_000 : parseTimeInput(fromRaw, { field: "from" });
+  const fromMs = fromRaw === undefined ? istMidnight(today) + openMinutes(sessionOpen) * 60_000 : parseTimeInput(fromRaw, { field: "from" });
   const toMs = toRaw === undefined ? now : parseTimeInput(toRaw, { endOfDay: true, field: "to" });
   if (toMs < fromMs) throw invalid("to", "to must not be before from.");
   if (toMs - fromMs > MAX_RANGE_MS) throw invalid("to", "The range is at most 31 days per call; page within it with cursor.");
@@ -241,22 +250,59 @@ export function toApiDaily(r) {
 
 const DAILY_CSV = ["date", "underlying", "expiry", "asOf", "quality", "spot", "forward", "atm", "straddle", "pcrOi", "pcrVolume", "maxPain", "largestCallOiStrike", "largestCallOi", "largestPutOiStrike", "largestPutOi", "ceOi", "peOi", "futureExpiry", "futureLtp", "basis", "basisAnnPct", "rolloverPct", "slots", "gapSlots", "partialSlots"];
 
-/** The status with account ids redacted for restricted keys. */
+const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Replace every id (and the broker name) in every string of a JSON value. */
+function scrubStrings(value, pairs) {
+  if (typeof value === "string") return pairs.reduce((s, [re, to]) => s.replace(re, to), value);
+  if (Array.isArray(value)) return value.map((v) => scrubStrings(v, pairs));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, scrubStrings(v, pairs)]));
+  return value;
+}
+
+/**
+ * The status with account ids and the broker redacted for restricted keys (§4): a key limited to other accounts sees
+ * no id of the recorder's accounts anywhere (account, feed, settings, warnings, gap details) and no broker name.
+ */
 export function redactStatus(st, ctx) {
-  if (!st?.account || canSeeAccount(ctx, st.account.id)) return st;
-  return { ...st, account: { ...st.account, id: null, feedAccount: null }, settings: st.settings ? { ...st.settings, account: null } : st.settings };
+  if (!st) return st;
+  const ids = [...new Set([st.account?.id, st.account?.feedAccount, st.settings?.account].filter(Boolean))];
+  const hidden = ids.filter((id) => !canSeeAccount(ctx, id));
+  if (!hidden.length) return st;
+  const dataHidden = !st.account?.id || hidden.includes(st.account.id);
+  const broker = dataHidden ? (st.account?.broker ?? st.oiUnits?.broker ?? null) : null;
+  const pairs = hidden.sort((a, b) => b.length - a.length).map((id) => [new RegExp(escapeRe(id), "g"), "(hidden account)"]);
+  if (broker && broker !== "demo") pairs.push([new RegExp(`\\b${escapeRe(broker)}\\b`, "gi"), "the broker"]);
+  const out = scrubStrings(st, pairs);
+  if (out.account) {
+    out.account = { ...out.account, feedAccount: hidden.includes(st.account.feedAccount) ? null : out.account.feedAccount };
+    if (dataHidden) out.account = { ...out.account, id: null, broker: null, costNote: "Recording uses your broker's market-data APIs; some brokers charge for them (needs verification)." };
+  }
+  if (out.oiUnits && dataHidden) out.oiUnits = { ...out.oiUnits, broker: null };
+  if (out.settings && hidden.includes(st.settings?.account)) out.settings = { ...out.settings, account: null };
+  return out;
 }
 
 /**
  * @param {object} recorder  deps.recorder
  * @param {{ clock: { now(): number }, paths?: { configFile: string | null }, config: object }} deps
  */
+/** Today's session open from the reference store (null when it has none: a holiday, no data). */
+function sessionOpenOf(reference, t) {
+  try {
+    const s = reference?.session?.("NFO", t);
+    return s?.special?.open ?? s?.open ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function createRecorderRoutes(recorder, deps) {
   const now = () => deps.clock.now();
   const meta = (ctx, extra = {}) => ({ requestId: ctx.requestId, ...extra });
   return {
     async snapshots(ctx) {
-      const query = parseSnapshotQuery(ctx.query, { now: now() });
+      const query = parseSnapshotQuery(ctx.query, { now: now(), sessionOpen: sessionOpenOf(deps.reference, now()) });
       const page = await readSnapshots(recorder, query, ctx);
       if (query.format === "csv") {
         const headers = page.nextCursor ? { "X-MCB-Next-Cursor": page.nextCursor } : {};

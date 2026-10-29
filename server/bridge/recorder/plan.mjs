@@ -69,7 +69,9 @@ export function candidateChains(cfg, available) {
  * @param {{ cfg: object, account: { id: string, broker: string } | null, policy: object | null, feedCap: number,
  *   feedOnDataAccount?: boolean, feedAccountId?: string | null, endpointClass?: "chain"|"quote",
  *   available: Record<string, { kind?: string, exchange?: string, expiries: string[] }>, nseBackup?: boolean,
- *   brokerName?: string }} input
+ *   brokerName?: string, callsPerRead?: number }} input
+ *   callsPerRead: broker calls one chain read costs (1 for a broker chain; a chain built from quotes costs its quote
+ *   batches plus a spot read, restSource.mjs builtChainCost).
  */
 export function planRecording(input) {
   const { cfg, account, policy } = input;
@@ -119,14 +121,18 @@ export function planRecording(input) {
   // ── REST (rules 3, 4) ──
   const rule = restRule(policy, endpointClass, { allowSingleTokenRest: cfg.allowSingleTokenRest });
   const caps = budgetCaps(policy, endpointClass, cfg.budgetShare);
-  const restOn = cfg.sources.rest && rule.allowed;
+  const perRead = Math.max(1, Math.ceil(Number(input.callsPerRead) || 1));
+  const perSecondCap = caps.windows.filter((w) => w.windowMs === 1000).reduce((m, w) => Math.min(m, w.cap), Infinity);
+  const fitsOneRead = !(perRead > 1 && perRead > perSecondCap);
+  const restOn = cfg.sources.rest && rule.allowed && fitsOneRead;
+  if (cfg.sources.rest && rule.allowed && !fitsOneRead) rule.why = `too slow for chains built from quotes: one read takes ${perRead} calls and the recorder may use ${perSecondCap} a second.`;
   if (rule.singleToken && rule.allowed) warnings.push(`REST recording is on for a ${rule.perSecond}/s class: your own requests may wait up to 1 s.`);
   // Costs in calls per 15 minutes (integers: an index chain 15, a stock chain 15 / every).
   let restLeft15 = restOn ? caps.perMinute * 15 : 0;
   let restUsed15 = 0;
   const leftAfterRest = [];
   for (const c of left) {
-    const cost = 15 / c.everyMinutes;
+    const cost = (15 / c.everyMinutes) * perRead;
     if (restOn && cost <= restLeft15) {
       restLeft15 -= cost;
       restUsed15 += cost;

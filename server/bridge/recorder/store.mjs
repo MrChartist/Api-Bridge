@@ -6,8 +6,10 @@
  *  - Appends go through server/lib/jsonl.mjs appendLine: one write per record, and a torn last line from a crash is
  *    closed with a newline first, so the next record never fuses with it. A torn or corrupt line is skipped and
  *    counted (`corruptLines`), never fatal.
- *  - Day roll: gzip to `.ndjson.gz.tmp`, fsync, rename to `.ndjson.gz`, verify by a full gunzip-and-count, then delete
- *    the `.ndjson`. Readers prefer `.gz`; a leftover `.ndjson` next to a `.gz` is deleted at the next roll.
+ *  - Day roll: gzip to `.ndjson.gz.tmp`, fsync, verify the `.tmp` by a full gunzip-and-count, rename it to
+ *    `.ndjson.gz`, then delete the `.ndjson`. Readers prefer `.gz` and fall back to the `.ndjson` when the `.gz` cannot
+ *    be read; a leftover `.ndjson` next to a `.gz` is deleted at the next roll only when that `.gz` verifies, else the
+ *    `.gz` is rebuilt from it.
  *  - A day folder that cannot be read (corrupt gzip, permission) is reported and skipped; it never stops recording or
  *    reading other days (BRD §7.7).
  *  - Retention deletes whole day folders older than `retentionDays` (IST dates). Over `maxDiskMb` the store refuses
@@ -180,29 +182,70 @@ export function createSnapshotStore({ root, clock = { now: () => Date.now() }, l
     const gz = `${base}.ndjson.gz`;
     const plain = `${base}.ndjson`;
     const today = istDateOf(clock.now());
+    const readPlain = async () => {
+      const text = await readFile(plain, "utf8");
+      const { items, bad } = await parseYielding(text);
+      corruptLines += bad;
+      return items;
+    };
     try {
       if (existsSync(gz)) {
         const cached = cacheGet(gz);
         if (cached) return cached;
-        const buf = await gunzipAsync(await readFile(gz));
-        const text = buf.toString("utf8");
-        const { items, bad } = await parseYielding(text);
-        corruptLines += bad;
-        if (date !== today) cachePut(gz, items, text.length);
-        return items;
+        try {
+          const buf = await gunzipAsync(await readFile(gz));
+          const text = buf.toString("utf8");
+          const { items, bad } = await parseYielding(text);
+          corruptLines += bad;
+          if (date !== today) cachePut(gz, items, text.length);
+          return items;
+        } catch (err) {
+          // A broken .gz next to its plain file (a roll that failed half way): the plain file is the record.
+          if (!existsSync(plain)) throw err;
+          logger?.warn?.("recorder day file .gz could not be read; reading the plain file", { date, underlying: u, expiry: x, code: err?.code });
+          return await readPlain();
+        }
       }
-      if (existsSync(plain)) {
-        const text = await readFile(plain, "utf8");
-        const { items, bad } = await parseYielding(text);
-        corruptLines += bad;
-        return items;
-      }
+      if (existsSync(plain)) return await readPlain();
       return [];
     } catch (err) {
       unreadable.set(date, `${u} ${x}: ${err?.code ?? err?.message ?? "unreadable"}`);
       logger?.warn?.("recorder day file could not be read; skipped", { date, underlying: u, expiry: x, code: err?.code });
       return [];
     }
+  }
+
+  /** Lines in a gzip file (full gunzip and parse); null when it cannot be read. */
+  async function gzLineCount(path) {
+    try {
+      return parseLines((await gunzipAsync(await readFile(path))).toString("utf8")).items.length;
+    } catch {
+      return null;
+    }
+  }
+
+  /** In-memory S3 index: underlying -> Set("date|expiry"), built once per underlying and kept by writeDaily. */
+  const dailyIndex = new Map();
+  async function dailyKeys(u) {
+    if (dailyIndex.has(u)) return dailyIndex.get(u);
+    const keys = new Set();
+    let files = [];
+    try {
+      files = readdirSync(join(s3, u));
+    } catch {
+      files = [];
+    }
+    for (const f of files) {
+      if (!/^\d{4}\.ndjson$/.test(f)) continue;
+      try {
+        for (const r of parseLines(await readFile(join(s3, u, f), "utf8")).items) keys.add(`${r.date}|${r.x}`);
+      } catch {
+        /* unreadable year file: those days look missing and are rebuilt */
+      }
+      await yieldTurn();
+    }
+    dailyIndex.set(u, keys);
+    return keys;
   }
 
   /** Day folders (sorted) between two IST dates inclusive. */
@@ -423,14 +466,22 @@ export function createSnapshotStore({ root, clock = { now: () => Date.now() }, l
           if (!m) continue;
           const plain = join(udir, name);
           const gz = `${plain}.gz`;
-          if (existsSync(gz)) {
-            rmSync(plain, { force: true });
-            continue;
-          }
           const tmp = `${gz}.tmp`;
+          let createdGz = false;
           try {
             const text = readFileSync(plain, "utf8");
             const expect = parseLines(text).items.length;
+            if (existsSync(gz)) {
+              // A leftover plain file next to a .gz: delete it only when the .gz verifies (it holds at least as many
+              // lines); otherwise the .gz is bad or short and is rebuilt from the plain file.
+              const have = await gzLineCount(gz);
+              if (have !== null && have >= expect) {
+                rmSync(plain, { force: true });
+                continue;
+              }
+              rmSync(gz, { force: true });
+              forgetCache(gz);
+            }
             await pipeline(createReadStream(plain), createGzip(GZIP_OPTIONS), createWriteStream(tmp, { mode: 0o600 }));
             const fd = openSync(tmp, "r");
             try {
@@ -438,13 +489,16 @@ export function createSnapshotStore({ root, clock = { now: () => Date.now() }, l
             } finally {
               closeSync(fd);
             }
+            // Verify BEFORE the rename: a short or corrupt .gz never takes the plain file's place.
+            const back = await gzLineCount(tmp);
+            if (back !== expect) throw new Error(`verify failed: ${back ?? "unreadable"} of ${expect} lines`);
             renameSync(tmp, gz);
-            const back = parseLines((await gunzipAsync(readFileSync(gz))).toString("utf8")).items.length;
-            if (back !== expect) throw new Error(`verify failed: ${back} of ${expect} lines`);
+            createdGz = true;
             rmSync(plain, { force: true });
             files += 1;
           } catch (err) {
             rmSync(tmp, { force: true });
+            if (createdGz && existsSync(plain)) rmSync(gz, { force: true });
             logger?.warn?.("recorder day roll failed for a file; the plain file is kept", { date, file: name, err: err?.message });
           }
         }
@@ -455,7 +509,7 @@ export function createSnapshotStore({ root, clock = { now: () => Date.now() }, l
         const gz = `${fileBase(date, u, x)}.ndjson.gz`;
         const b = existsSync(gz) ? statSync(gz).size : 0;
         bytes += b;
-        summary.chains[chainKey(u, x)] = { snaps: snaps.length, gaps: recs.filter((r) => r?.kind === "gap").length, partial: snaps.filter((r) => r.partial).length, bytes: b };
+        summary.chains[chainKey(u, x)] = { snaps: snaps.length, usable: snaps.filter((r) => r.quality !== "suspect-holiday").length, gaps: recs.filter((r) => r?.kind === "gap").length, partial: snaps.filter((r) => r.partial).length, bytes: b };
       }
       writeFileAtomic(join(dir, "day.json"), `${JSON.stringify(summary)}\n`);
       forgetCache(dir);
@@ -535,6 +589,8 @@ export function createSnapshotStore({ root, clock = { now: () => Date.now() }, l
         const sorted = [...map.values()].sort((a, b) => (a.date === b.date ? (a.x < b.x ? -1 : 1) : a.date < b.date ? -1 : 1));
         mkdirSync(join(s3, add[0].u), { recursive: true, mode: DIR_MODE });
         writeFileAtomic(file, sorted.map((r) => JSON.stringify(r)).join("\n") + "\n");
+        const idx = dailyIndex.get(add[0].u);
+        if (idx) for (const r of add) idx.add(`${r.date}|${r.x}`);
       }
     },
 
@@ -551,20 +607,46 @@ export function createSnapshotStore({ root, clock = { now: () => Date.now() }, l
       return out.sort((a, b) => (a.date === b.date ? (a.x < b.x ? -1 : 1) : a.date < b.date ? -1 : 1));
     },
 
-    /** Dates that have S3 rows for an underlying (catch-up). */
-    dailyDates(u) {
-      const dates = new Set();
-      let files;
+    /** Dates that have S3 rows for an underlying (async, from the in-memory index). */
+    async dailyDates(u) {
+      return new Set([...(await dailyKeys(u))].map((k) => k.slice(0, 10)));
+    },
+    /** Whether S3 has a row for (date, expiry) of an underlying (in-memory index; the year files are read once). */
+    async hasDaily(u, date, x) {
+      return (await dailyKeys(u)).has(`${date}|${x}`);
+    },
+    /** The day.json summary of a rolled day ({ chains: { "U|X": { snaps, gaps, partial, bytes } } }), or null. */
+    daySummary(date) {
       try {
-        files = readdirSync(join(s3, u));
+        return JSON.parse(readFileSync(join(dayDir(date), "day.json"), "utf8"));
       } catch {
-        return dates;
+        return null;
       }
-      for (const f of files) {
-        if (!/^\d{4}\.ndjson$/.test(f)) continue;
-        for (const r of parseLines(readFileSync(join(s3, u, f), "utf8")).items) dates.add(r.date);
+    },
+    /**
+     * Recorded days that miss an S3 row for some (date, expiry) (daily catch-up). A rolled day's chains with no
+     * snapshot (gaps only) need no row. Reads each underlying's S3 year files once (cached index) and yields between
+     * days, so a year of data never blocks the loop.
+     * @param {{ skip?: (date: string) => boolean }} [opts]
+     * @returns {Promise<string[]>}
+     */
+    async missingDailyDays({ skip = () => false } = {}) {
+      const out = [];
+      for (const date of daysIn("0000-00-00", "9999-99-99")) {
+        if (skip(date)) continue;
+        const summary = this.daySummary(date);
+        for (const { u, x } of this.chainsOn(date)) {
+          if (x === UND_FILE) continue;
+          const sum = summary?.chains?.[chainKey(u, x)];
+          if (sum && !((sum.usable ?? sum.snaps) > 0)) continue;
+          if (!(await dailyKeys(u)).has(`${date}|${x}`)) {
+            out.push(date);
+            break;
+          }
+        }
+        await yieldTurn();
       }
-      return dates;
+      return out;
     },
 
     // ── state.json ──

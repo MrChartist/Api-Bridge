@@ -143,3 +143,21 @@ describe("docs/guides/recorder.md", () => {
     expect(tableInDoc()).toBe(feasibilityTable());
   });
 });
+
+describe("chains built from quotes cost their quote batches", () => {
+  it("builtChainCost: ceil(legs / batch) + 1 spot read", async () => {
+    const { builtChainCost } = await import("./restSource.mjs");
+    expect(builtChainCost(400, 500)).toBe(2);
+    expect(builtChainCost(400, 50)).toBe(9);
+    expect(builtChainCost(10, undefined)).toBe(11);
+  });
+  it("REST capacity is charged per call: fewer chains fit, and a read wider than the per-second cap turns REST off", () => {
+    const one = plan("upstox", { sources: { stream: false } });
+    const three = plan("upstox", { sources: { stream: false } }, { callsPerRead: 3 });
+    expect(by(three, "rest")).toBeLessThan(by(one, "rest") + 1);
+    expect(three.capacity.rest.allowed).toBe(true);
+    const wide = plan("upstox", { sources: { stream: false } }, { callsPerRead: 26 });
+    expect(by(wide, "rest")).toBe(0);
+    expect(wide.capacity.rest.why).toMatch(/too slow for chains built from quotes/);
+  });
+});

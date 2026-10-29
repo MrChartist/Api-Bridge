@@ -137,3 +137,35 @@ describe("property: 10,000 random schedules", () => {
     expect(schedules).toBeGreaterThanOrEqual(10_000);
   });
 });
+
+describe("limiter state across re-plans", () => {
+  it("refund gives back calls served from the cache", () => {
+    const clock = mkClock(0);
+    const b = createRecorderBudget({ policy: resolvePolicy("upstox"), endpointClass: "chain", share: 0.5, clock });
+    expect(b.tryTake(3)).toBe(true);
+    expect(b.usedLastMinute()).toBe(3);
+    b.refund(3);
+    expect(b.usedLastMinute()).toBe(0);
+  });
+  it("a replacing limiter carries the call logs and the rule-7 halving over", () => {
+    const clock = mkClock(0);
+    const a = createRecorderBudget({ policy: resolvePolicy("upstox"), endpointClass: "chain", share: 0.5, clock });
+    a.throttle();
+    while (a.tryTake()) {}
+    const b = createRecorderBudget({ policy: resolvePolicy("upstox"), endpointClass: "chain", share: 0.5, clock, carry: a.exportState() });
+    expect(b.tryTake()).toBe(false);
+    expect(b.usedLastMinute()).toBe(12);
+    expect(b.perMinute()).toBe(16);
+  });
+  it("setShare changes the caps in place and keeps the logs", () => {
+    const clock = mkClock(0);
+    const b = createRecorderBudget({ policy: resolvePolicy("upstox"), endpointClass: "chain", share: 0.5, clock });
+    expect(b.tryTake(5)).toBe(true);
+    b.setShare(0.2);
+    expect(b.usedLastMinute()).toBe(5);
+    expect(b.caps.perMinute).toBeLessThan(33);
+    let n = 0;
+    while (b.tryTake()) n++;
+    expect(n).toBe(5); // 0.2 × 50/s = 10 a second, 5 already used
+  });
+});

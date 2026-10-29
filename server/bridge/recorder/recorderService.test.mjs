@@ -29,7 +29,11 @@ describe("a REST-recorded session", () => {
     expect(r.calls.every((c) => c.opts.accountId === "acc-1" && c.opts.priority === "background" && c.opts.maxWaitMs === 1500 && c.opts.backgroundShare === 0.5)).toBe(true);
     const rows = await r.svc.daily({ underlying: "NIFTY", from: "2026-10-19", to: "2026-10-19" });
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ date: "2026-10-19", u: "NIFTY", x: EXPIRY, slots: 375, gapSlots: 0, dOiBasis: "none" });
+    // The first recorded day: no previous day, so ΔOI falls back to the broker's change since the previous close.
+    expect(rows[0]).toMatchObject({ date: "2026-10-19", u: "NIFTY", x: EXPIRY, slots: 375, gapSlots: 0, dOiBasis: "broker-prev-close" });
+    expect(rows[0].topAdds.length).toBeGreaterThan(0);
+    expect(rows[0].topCuts.length).toBeGreaterThan(0);
+    expect(day.snaps[0].ce.oc).toEqual([75, 75, 75, 75, 75]);
     expect(readdirSync(join(r.dataDir, "recorder", "s1", "2026-10-19", "NIFTY"))).toContain(`${EXPIRY}.ndjson.gz`);
     const st = r.svc.status();
     expect(st.state).toBe("idle-closed");

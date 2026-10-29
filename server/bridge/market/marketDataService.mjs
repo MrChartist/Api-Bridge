@@ -43,6 +43,7 @@ import {
   mergeCandles,
   normaliseCandles,
   quoteFields,
+  stripGreeks,
   tickFields,
   tickHasQuote,
   toLtpItem,
@@ -459,7 +460,10 @@ export function createMarketDataService(deps) {
 
   /** Batch flush: one account, one priority; fetch every id through fetchQuotes in maxQuoteBatch chunks. */
   async function runQuoteBatch(group, ids) {
-    const [accountId, priority, staleFlag] = group.split("|");
+    const [accountId, priority, staleFlag, waitRaw, shareRaw] = group.split("|");
+    // A background caller's short wait and dispatch floor (README §3.1 C12) travel in the group key.
+    const callerWait = waitRaw ? Number(waitRaw) : undefined;
+    const share = shareRaw ? Number(shareRaw) : undefined;
     const results = new Map();
     let broker;
     try {
@@ -502,7 +506,8 @@ export function createMarketDataService(deps) {
               endpointClass: "quote",
               priority,
               coalesceKey: `quote:${accountId}:${chunk.map((c) => c.symbol).join(",")}`,
-              maxWaitMs: staleFlag === "s" ? cfg.stale.waitMs : undefined,
+              maxWaitMs: callerWait ?? (staleFlag === "s" ? cfg.stale.waitMs : undefined),
+              backgroundShare: share,
             },
             (adapter, creds) => {
               if (typeof adapter.fetchQuotes !== "function") throw new BridgeError("CAPABILITY_UNSUPPORTED", `${broker} offers no quotes API.`);
@@ -542,20 +547,21 @@ export function createMarketDataService(deps) {
   });
 
   /** Fetch full quotes for one symbol on one account (joins an in-flight fetch). */
-  function fetchQuote(accountId, symbol, priority, hasStale) {
+  function fetchQuote(accountId, symbol, priority, hasStale, { maxWaitMs, backgroundShare } = {}) {
     const key = `${accountId}|q|${symbol}`;
     const running = inflight.get(key);
     if (running) {
       saving("coalesced");
       return running;
     }
-    const p = batcher.add(`${accountId}|${priority}|${hasStale ? "s" : "n"}`, symbol).finally(() => inflight.delete(key));
+    const share = priority === "background" && backgroundShare !== undefined ? backgroundShare : "";
+    const p = batcher.add(`${accountId}|${priority}|${hasStale ? "s" : "n"}|${maxWaitMs ?? ""}|${share}`, symbol).finally(() => inflight.delete(key));
     inflight.set(key, p);
     return p;
   }
 
   /** Fetch an LTP through the adapter's fetchLTP (brokers without a quotes API; indices and stocks only). */
-  function fetchLtpOnly(accountId, symbol, priority, hasStale) {
+  function fetchLtpOnly(accountId, symbol, priority, hasStale, { maxWaitMs, backgroundShare } = {}) {
     const key = `${accountId}|l|${symbol}`;
     const running = inflight.get(key);
     if (running) {
@@ -573,7 +579,7 @@ export function createMarketDataService(deps) {
         throw new BridgeError("CAPABILITY_UNSUPPORTED", `${broker} offers no quotes API, and its last-price lookup covers NSE stocks only, so ${symbol} cannot be priced.`);
       }
       const res = await callBroker(
-        { accountId, broker, endpointClass: "quote", priority, coalesceKey: `ltp:${accountId}:${symbol}`, maxWaitMs: hasStale ? cfg.stale.waitMs : undefined },
+        { accountId, broker, endpointClass: "quote", priority, coalesceKey: `ltp:${accountId}:${symbol}`, maxWaitMs: maxWaitMs ?? (hasStale ? cfg.stale.waitMs : undefined), backgroundShare },
         (adapter, creds) => adapter.fetchLTP(creds, parsed.underlying),
       );
       const fields = ltpOnlyFields(res?.data?.last_price ?? res?.data?.ltp ?? res?.last_price);
@@ -664,7 +670,8 @@ export function createMarketDataService(deps) {
           // The HTTP caller has gone away (closed tab, cancelled poll): do not queue for broker budget on its behalf.
           if (o.signal?.aborted) throw abortError(o.signal);
           try {
-            const entry = quotesAccount ? await fetchQuote(accountId, symbol, o.priority, Boolean(staleOk)) : await fetchLtpOnly(accountId, symbol, o.priority, Boolean(staleOk));
+            const callOpts = { maxWaitMs: o.maxWaitMs, backgroundShare: o.backgroundShare };
+            const entry = quotesAccount ? await fetchQuote(accountId, symbol, o.priority, Boolean(staleOk), callOpts) : await fetchLtpOnly(accountId, symbol, o.priority, Boolean(staleOk), callOpts);
             if (wantQuote && !entry.value.full) throw new BridgeError("CAPABILITY_UNSUPPORTED", `Only a last price is available for ${symbol}.`);
             items.set(symbol, toItem(symbol, entry.value.fields, freshness({ source: "broker", at: entry.at, now: now(), targetMs, accountId: entry.accountId, broker: entry.broker })));
           } catch (err) {
@@ -1042,10 +1049,10 @@ export function createMarketDataService(deps) {
     return { value: { underlyingLtp: built.underlyingLtp, rows: built.rows, lotSize: meta.lotSize }, at: now(), accountId, broker, source: "broker" };
   }
 
-  async function builtChain({ underlying, expiry, greeks, pinned, priority, targetMs, allowedAccounts }) {
+  async function builtChain({ underlying, expiry, greeks, pinned, priority, targetMs, allowedAccounts, maxWaitMs, backgroundShare }) {
     let legs = await masterLegs(underlying, expiry);
     if (!legs.length) throw new BridgeError("SYMBOL_NOT_FOUND", `No options were found for ${underlying} expiring ${expiry}.`);
-    const spotRead = await readPrices("ltp", [spotSymbol(underlying)], { accountId: pinned, maxAgeMs: targetMs, priority, allowedAccounts });
+    const spotRead = await readPrices("ltp", [spotSymbol(underlying)], { accountId: pinned, maxAgeMs: targetMs, priority, allowedAccounts, maxWaitMs, backgroundShare });
     const spot = spotRead.items[0]?.ltp ?? null;
     if (legs.length > cfg.chain.maxBuiltLegs) {
       // Keep the strikes nearest the money so a built chain never floods the quote budget.
@@ -1054,7 +1061,7 @@ export function createMarketDataService(deps) {
       const keep = new Set([...strikes].sort((a, b) => Math.abs(a - centre) - Math.abs(b - centre)).slice(0, Math.floor(cfg.chain.maxBuiltLegs / 2)));
       legs = legs.filter((l) => keep.has(l.strike));
     }
-    const read = await readPrices("quote", legs.map((l) => l.canonical), { accountId: pinned, maxAgeMs: targetMs, priority, allowedAccounts });
+    const read = await readPrices("quote", legs.map((l) => l.canonical), { accountId: pinned, maxAgeMs: targetMs, priority, allowedAccounts, maxWaitMs, backgroundShare });
     if (!read.items.length && read.errors.length) {
       const first = read.errors[0];
       throw new BridgeError(first.code, first.message);
@@ -1131,6 +1138,8 @@ export function createMarketDataService(deps) {
     return model === "b76-forward" && parsed.data.greeks !== false ? priceB76(chain) : chain;
   }
 
+  const withoutGreeks = (leg) => (leg ? { ...stripGreeks(leg), greeksSource: null } : leg);
+
   async function chainFor(params, opts) {
     const parsed = chainSchema.safeParse(params ?? {});
     if (!parsed.success) throw fromValidation(parsed.error);
@@ -1142,7 +1151,12 @@ export function createMarketDataService(deps) {
     checkPinned(pinned);
     const targetMs = o.maxAgeMs ?? cfg.freshness.chainMs;
     const key = `c|${underlying}|${p.expiry}|${greeks ? "g" : "n"}`;
-    const hit = freshEntry(key, targetMs, pinned);
+    let hit = freshEntry(key, targetMs, pinned);
+    // A chain read with Greeks is a superset: a Greeks-off read reuses it (the Greeks stripped) at no broker cost.
+    if (!hit && !greeks) {
+      const g = freshEntry(`c|${underlying}|${p.expiry}|g`, targetMs, pinned);
+      if (g) hit = { ...g, value: { ...g.value, rows: g.value.rows.map((r) => ({ ...r, ce: withoutGreeks(r.ce), pe: withoutGreeks(r.pe) })) } };
+    }
     if (hit) {
       saving("cache");
       return chainResult(underlying, p.expiry, hit.value, p.strikes, freshness({ source: "cache", at: hit.at, now: now(), targetMs, accountId: hit.accountId, broker: hit.broker }));

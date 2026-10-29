@@ -25,12 +25,13 @@ import { oiUnitVerified } from "../market/oiUnits.mjs";
 import { toIstIso } from "../market/time.mjs";
 import { kindOf, pricingContext } from "../vol/context.mjs";
 import { createRecorderBudget } from "./budget.mjs";
+import { createBackgroundGate } from "../ratelimit/backgroundGate.mjs";
 import { HOLIDAY_DETECT_SLOTS, MINUTE_MS, expectedSlotsBy, holidaySuspected, isDue, istDateOf, istMidnight, nextSlotAfter, resolveDay, slotFloor, slotsOfDay } from "./calendar.mjs";
 import { RECORDER_CONFIG_SCHEMA, recorderSettings } from "./config.mjs";
 import { dailyRow } from "./daily.mjs";
 import { demoKeepDays, runDemoBackfill } from "./demoBackfill.mjs";
 import { capacityPayload, feedCapFor, planRecording } from "./plan.mjs";
-import { createRestSource } from "./restSource.mjs";
+import { builtChainCost, createRestSource } from "./restSource.mjs";
 import { buildSnapshot, gapRecord, projectSnapshot } from "./snapshot.mjs";
 import { createSnapshotStore } from "./store.mjs";
 import { createStreamSource } from "./streamSource.mjs";
@@ -102,6 +103,11 @@ export function createRecorderService(deps) {
   let policy = null;
   let budget = null;
   let endpointClass = "chain";
+  /** Broker calls one REST chain read costs (1; a chain built from quotes: its quote batches plus a spot read). */
+  let readCost = 1;
+  /** A chain built from quotes reads every master leg of the expiry, up to market.chain.maxBuiltLegs. */
+  const readCostFor = (cls, pol) => (cls === "quote" ? builtChainCost(config.market?.chain?.maxBuiltLegs ?? 400, pol?.maxQuoteBatch) : 1);
+  const gate = usable(deps.scheduler) && typeof deps.scheduler.headroom === "function" ? createBackgroundGate({ scheduler: deps.scheduler }) : null;
   let feed = { cap: 0, onDataAccount: true, accountId: null, hasFeed: false };
   /** chain key -> runtime chain */
   const chains = new Map();
@@ -113,6 +119,8 @@ export function createRecorderService(deps) {
   let lastStatusState = null;
   let statusTimer = null;
   const warnings = new Set();
+  /** Why the configured account cannot be used (set by the applied plan only, so a dry run never leaves one). */
+  let accountWarning = null;
   let error = null;
   const dailyDone = new Map(); // date -> "ok"|"failed"
   let lastDay = null;
@@ -179,22 +187,29 @@ export function createRecorderService(deps) {
   }
 
   // ── account, policy, feed ──
-  function chooseAccount() {
-    if (!usable(deps.accounts)) return null;
+  /** The data account for a settings object (the one being planned, not only the live one). */
+  function chooseAccount(s) {
+    if (!usable(deps.accounts)) return { acc: null, warning: null };
     if (demo) {
       const ids = deps.accounts.marketDataCandidates({ capability: "optionChain" }) ?? [];
-      return ids[0] ? { id: ids[0], chosen: "auto" } : null;
+      return { acc: ids[0] ? { id: ids[0], chosen: "auto" } : null, warning: null };
     }
-    if (settings.account) {
-      const ids = deps.accounts.marketDataCandidates({ capability: "optionChain", accountId: settings.account }) ?? [];
-      if (!ids.length) {
-        warnings.add(`The recorder account ${settings.account} is not connected or cannot serve option chains.`);
-        return null;
-      }
-      return { id: settings.account, chosen: "config" };
+    if (s.account) {
+      const ids = deps.accounts.marketDataCandidates({ capability: "optionChain", accountId: s.account }) ?? [];
+      if (!ids.length) return { acc: null, warning: `The recorder account ${s.account} is not connected or cannot serve option chains.` };
+      return { acc: { id: s.account, chosen: "config" }, warning: null };
     }
     const ids = deps.accounts.marketDataCandidates({ capability: "optionChain" }) ?? [];
-    return ids[0] ? { id: ids[0], chosen: "auto" } : null;
+    return { acc: ids[0] ? { id: ids[0], chosen: "auto" } : null, warning: null };
+  }
+
+  function holderOf(id) {
+    try {
+      const h = deps.accounts.get(id)?.holder;
+      return typeof h === "string" && h ? h : null;
+    } catch {
+      return null;
+    }
   }
 
   function brokerOf(id) {
@@ -219,12 +234,15 @@ export function createRecorderService(deps) {
     } catch {
       feedIds = [];
     }
-    const onDataAccount = hasFeed && (feedIds.length === 0 || feedIds.includes(acc.id));
+    // The hub places each symbol on whichever feed candidate has the most room, so the stream counts as the data
+    // account's only when every candidate it can place on is the data account or one of the same holder's.
+    const holder = holderOf(acc.id);
+    const onDataAccount = hasFeed && (feedIds.length === 0 || (feedIds.includes(acc.id) && feedIds.every((id) => id === acc.id || (holder !== null && holderOf(id) === holder))));
     // The smaller of what the hub enforces for this feed and what the broker policy states (§5.1 rule 1).
     const health = stream?.health(acc.id);
     const fromPolicy = feedCapFor(pol, hasFeed, config.stream?.maxSubscriptionsPerUpstream ?? null);
     const cap = typeof health?.limit === "number" && health.limit > 0 ? Math.min(health.limit, fromPolicy) : fromPolicy;
-    return { cap: hasFeed ? cap : 0, onDataAccount, accountId: feedIds[0] ?? null, hasFeed };
+    return { cap: hasFeed ? cap : 0, onDataAccount, accountId: feedIds.find((id) => id !== acc.id) ?? feedIds[0] ?? null, hasFeed };
   }
 
   /** Settings as planned: in demo, the five demo option stocks when none are configured. */
@@ -242,7 +260,8 @@ export function createRecorderService(deps) {
   /** Plan for a settings object (dry run when `apply` is false). */
   async function computePlan(s, { apply = false } = {}) {
     const eff = effectiveSettings(s);
-    const acc = chooseAccount();
+    const { acc, warning } = chooseAccount(s);
+    if (apply) accountWarning = warning;
     const date = istDateOf(now());
     if (!acc) return { plan: planRecording({ cfg: eff, account: null, policy: null, feedCap: 0, available: {} }), acc: null };
     const broker = brokerOf(acc.id);
@@ -253,17 +272,27 @@ export function createRecorderService(deps) {
       pol = null;
     }
     const cls = config.market?.chain?.source === "built" ? "quote" : "chain";
+    const perRead = readCostFor(cls, pol);
     const f = feedInfo(acc, pol);
     const available = await availability(eff, date);
-    const p = planRecording({ cfg: eff, account: { id: acc.id, broker }, policy: pol, feedCap: f.cap, feedOnDataAccount: f.onDataAccount, feedAccountId: f.accountId, endpointClass: cls, available, nseBackup: Boolean(eff.sources.nseBackup) && !demo && usable(deps.backupData), brokerName: broker === "demo" ? "Demo" : broker ? broker[0].toUpperCase() + broker.slice(1) : undefined });
+    const p = planRecording({ cfg: eff, callsPerRead: perRead, account: { id: acc.id, broker }, policy: pol, feedCap: f.cap, feedOnDataAccount: f.onDataAccount, feedAccountId: f.accountId, endpointClass: cls, available, nseBackup: Boolean(eff.sources.nseBackup) && !demo && usable(deps.backupData), brokerName: broker === "demo" ? "Demo" : broker ? broker[0].toUpperCase() + broker.slice(1) : undefined });
     if (apply) {
       account = { ...acc, broker };
       policy = pol;
       endpointClass = cls;
+      readCost = perRead;
       feed = f;
-      if (!budget || budget.policyRef !== pol || budget.shareRef !== eff.budgetShare) {
-        budget = createRecorderBudget({ policy: pol, endpointClass: cls, share: eff.budgetShare, clock });
+      // The limiter's windows survive re-plans and config changes: a rebuild (new policy, class or account) carries
+      // the call logs and any rule-7 halving of the same account and class over; a share change is applied in place.
+      if (!budget || budget.policyRef !== pol || budget.classRef !== cls || budget.accountRef !== acc.id) {
+        const carry = budget && budget.classRef === cls && budget.accountRef === acc.id ? budget.exportState() : null;
+        budget = createRecorderBudget({ policy: pol, endpointClass: cls, share: eff.budgetShare, clock, carry });
         budget.policyRef = pol;
+        budget.classRef = cls;
+        budget.accountRef = acc.id;
+        budget.shareRef = eff.budgetShare;
+      } else if (budget.shareRef !== eff.budgetShare) {
+        budget.setShare(eff.budgetShare);
         budget.shareRef = eff.budgetShare;
       }
     }
@@ -359,7 +388,7 @@ export function createRecorderService(deps) {
 
   /** Desired stream symbols for the plan; re-centres a chain when its ATM moved ≥ 2 strikes. */
   async function syncStream() {
-    if (!stream) return;
+    if (!stream || stopped) return;
     const streamChains = [...chains.values()].filter((c) => c.source === "stream");
     if (!streamChains.length) {
       stream.clear();
@@ -391,6 +420,7 @@ export function createRecorderService(deps) {
         for (const k of extra) for (const r of ["CE", "PE"]) desired.add(legSymbol(c.exchange, c.underlying, c.expiry, k, r));
       }
     }
+    if (stopped) return;
     const res = await stream.setDesired(desired);
     if (res.rejected.length) warnings.add(`The live feed refused ${res.rejected.length} of the recorder's symbols (${res.rejected[0].code ?? "refused"}); those legs record as missing.`);
   }
@@ -439,6 +469,7 @@ export function createRecorderService(deps) {
   // ── writing ──
 
   async function writeRecord(rec) {
+    if (stopped) return false; // nothing is written after stop()
     if (istDateOf(rec.slot) !== today.date) {
       // Another day (the demo back-fill of previous weekdays): written as is, not counted in today's figures.
       return (await store.append(rec)).ok;
@@ -506,10 +537,10 @@ export function createRecorderService(deps) {
     return pricingContext({ config, reference: deps.reference, exchange: c.exchange, kind: c.kind, now: now() });
   }
 
-  function snapshotFrom(c, { slot, ts, source, rows, spot, accountId, broker, lot }) {
+  function snapshotFrom(c, { slot, ts, source, rows, spot, accountId, broker, lot, accounts = null }) {
     const ctx = clockFor(c);
     return buildSnapshot(
-      { u: c.underlying, x: c.expiry, ex: c.exchange, slot, ts, source, accountId, broker, accounts: null, quality: quality(), oiUnitVerified: oiUnitVerified(broker), lot: lot ?? c.lot, spot, rows, plannedLegs: 2 * (2 * c.strikesEachSide + 1) },
+      { u: c.underlying, x: c.expiry, ex: c.exchange, slot, ts, source, accountId, broker, accounts, quality: quality(), oiUnitVerified: oiUnitVerified(broker), lot: lot ?? c.lot, spot, rows, plannedLegs: 2 * (2 * c.strikesEachSide + 1) },
       { clock: ctx, rate: ctx.rate?.value ?? 0 },
     );
   }
@@ -522,14 +553,28 @@ export function createRecorderService(deps) {
     const centre = spot ?? c.atm;
     const atm = nearestStrike(c.window, centre);
     const strikes = windowStrikes({ strikes: c.window }, atm, c.strikesEachSide);
-    const rows = strikes.map((k) => ({ strike: k, ce: stream.leg(legSymbol(c.exchange, c.underlying, c.expiry, k, "CE")), pe: stream.leg(legSymbol(c.exchange, c.underlying, c.expiry, k, "PE")) }));
+    // Each leg names the feed account its tick came from (the hub places symbols on any candidate feed). Legs from
+    // another holder's account are never recorded (they count as missing); legs from more than one account are
+    // listed in `accounts` (§3.3).
+    const holder = holderOf(account.id);
+    const counts = new Map();
+    const own = (leg) => {
+      if (!leg) return null;
+      const id = leg.accountId ?? account.id;
+      if (id !== account.id && (holder === null || holderOf(id) !== holder)) return null;
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+      return leg;
+    };
+    const rows = strikes.map((k) => ({ strike: k, ce: own(stream.leg(legSymbol(c.exchange, c.underlying, c.expiry, k, "CE"))), pe: own(stream.leg(legSymbol(c.exchange, c.underlying, c.expiry, k, "PE"))) }));
     if (rows.every((r) => !r.ce && !r.pe)) return writeRecord(gapRecord({ u: c.underlying, x: c.expiry, slot, reason: "not-subscribed-yet", detail: "No tick has arrived for this chain yet." }));
     const ts = now();
-    const snap = snapshotFrom(c, { slot, ts, source: "stream", rows, spot, accountId: account.id, broker: account.broker });
+    const accounts = counts.size > 1 || (counts.size === 1 && !counts.has(account.id)) ? Object.fromEntries(counts) : null;
+    const snap = snapshotFrom(c, { slot, ts, source: "stream", rows, spot, accountId: account.id, broker: account.broker, accounts });
     return writeRecord(snap);
   }
 
   async function recordRest(c, slot) {
+    if (stopped) return false;
     if (c.inFlight) return writeRecord(gapRecord({ u: c.underlying, x: c.expiry, slot, reason: "budget", detail: "The previous read of this chain is still waiting." }));
     c.inFlight = true;
     try {
@@ -537,7 +582,7 @@ export function createRecorderService(deps) {
       const timeout = new Promise((r) => {
         timeoutHandle = setT(() => r({ ok: false, reason: "broker-error", detail: "The broker did not answer within 55 s." }), JOB_TIMEOUT_MS);
       });
-      const read = c.source === "nse-backup" ? rest.readBackup({ underlying: c.underlying, expiry: c.expiry }) : rest.read({ accountId: account.id, underlying: c.underlying, expiry: c.expiry, strikes: c.strikesEachSide, endpointClass, share: effectiveSettings(settings).budgetShare, budget });
+      const read = c.source === "nse-backup" ? rest.readBackup({ underlying: c.underlying, expiry: c.expiry }) : rest.read({ accountId: account.id, underlying: c.underlying, expiry: c.expiry, strikes: c.strikesEachSide, endpointClass, share: effectiveSettings(settings).budgetShare, budget, cost: readCost, stopped: () => stopped });
       const r = await Promise.race([read, timeout]);
       clearT(timeoutHandle);
       if (!r.ok) return writeRecord(gapRecord({ u: c.underlying, x: c.expiry, slot, reason: r.reason, detail: r.detail }));
@@ -565,11 +610,13 @@ export function createRecorderService(deps) {
 
   /** REST jobs still running (they finish in the background; tests and stop() can wait for them). */
   const pending = new Set();
+  /** Spread REST reads not started yet: timer handle -> the job's resolve. */
+  const spreadTimers = new Map();
 
   /** Minimum spacing between REST reads so the recorder's per-second cap is never the reason for a gap. */
   function restSpacingMs() {
     const perSecond = (budget?.caps?.windows ?? []).filter((w) => w.windowMs === 1000).reduce((m, w) => Math.min(m, w.cap), Infinity);
-    return Number.isFinite(perSecond) && perSecond > 0 ? Math.ceil(1000 / perSecond) + 50 : 0;
+    return Number.isFinite(perSecond) && perSecond > 0 ? Math.ceil((1000 * readCost) / perSecond) + 50 : 0;
   }
 
   /** Record every chain due at `slot`. Stream snapshots are written before this resolves; REST reads continue. */
@@ -593,9 +640,21 @@ export function createRecorderService(deps) {
     const jobs = restDue.map(
       (c, i) =>
         new Promise((resolve) => {
-          const go = () => recordRest(c, slot).catch((err) => log?.warn?.("recorder REST snapshot failed", { chain: c.key, err: err?.message })).finally(resolve);
+          const go = () => {
+            if (stopped) return resolve();
+            recordRest(c, slot)
+              .catch((err) => log?.warn?.("recorder REST snapshot failed", { chain: c.key, err: err?.message }))
+              .finally(resolve);
+          };
           if (i === 0 || step === 0) go();
-          else setT(go, Math.round(i * step));
+          else {
+            // Tracked so stop() can cancel the reads not started yet (and settle their promises).
+            const h = setT(() => {
+              spreadTimers.delete(h);
+              go();
+            }, Math.round(i * step));
+            spreadTimers.set(h, resolve);
+          }
         }),
     );
     const byU = new Map();
@@ -605,6 +664,7 @@ export function createRecorderService(deps) {
     }
     const finish = Promise.all(jobs)
       .then(async () => {
+        if (stopped) return;
         for (const [u, list] of byU) await writeUnd(u, slot, list).catch(() => {});
         saveState({ lastSlot: persisted.lastSlot });
         await watchHoliday(slot, day).catch((err) => log?.warn?.("recorder holiday check failed", { err: err?.message }));
@@ -618,11 +678,18 @@ export function createRecorderService(deps) {
   /** Bridge-down gaps for today's slots missed while the Bridge was not running (§3.3). */
   async function writeBridgeDownGaps(day, startSlot) {
     if (!day.plan) return;
+    const recorded = store.days("0000-00-00", day.date).filter((d) => d < day.date);
     for (const c of chains.values()) {
       const cnt = counter(c.key);
-      const lastToday = cnt.lastSlot ?? (cnt.gapList.length ? Math.max(...cnt.gapList.map((g) => g.slot)) : null);
-      const lastKnown = Math.max(lastToday ?? -Infinity, persisted.lastSlot ?? -Infinity);
-      if (!Number.isFinite(lastKnown)) continue; // never recorded before: coverage starts now
+      const lastToday = cnt.slots.size ? Math.max(...cnt.slots) : null;
+      // Only this chain's own last record counts (today's, else its last recorded day's). A chain never recorded
+      // before (just added to the plan, a newly listed expiry) starts its coverage now: no bridge-down gaps.
+      let lastKnown = lastToday;
+      for (let i = recorded.length - 1; lastKnown === null && i >= Math.max(0, recorded.length - 10); i--) {
+        if (!store.chainsOn(recorded[i]).some((x) => x.u === c.underlying && x.x === c.expiry)) continue;
+        lastKnown = await store.lastSlotOn(recorded[i], c.underlying, c.expiry);
+      }
+      if (lastKnown === null || !Number.isFinite(lastKnown)) continue;
       const from = Math.max(lastKnown + MINUTE_MS, day.plan.startMs);
       for (let s = from; s < startSlot; s += MINUTE_MS) {
         if (!isDue(day.plan, s, c.kind, c.everyMinutes)) continue;
@@ -643,19 +710,48 @@ export function createRecorderService(deps) {
     return null;
   }
 
+  let futuresBudget = null;
   async function futuresForDaily(u, und) {
     if (und?.fut?.length || demo || !account || !usable(deps.marketData)) return und;
     const info = await masterInfo(u, istDateOf(now()));
     const c = [...chains.values()].find((x) => x.underlying === u);
     const futs = info.futures.slice(0, 2).map((x) => formatSymbol({ exchange: c?.exchange ?? (BSE_INDICES.has(u) ? "BFO" : "NFO"), underlying: u, expiry: x, kind: "FUT" }));
     if (!futs.length) return und;
+    // A background REST call like any other (README §3.3): the shared gate, the recorder's own budget, the short
+    // wait and the dispatch floor. Refused: the row is written without futures.
+    const share = effectiveSettings(settings).budgetShare;
+    let batch = 1;
     try {
-      const q = await deps.marketData.quotes(futs, { accountId: account.id, priority: "background", maxAgeMs: 120_000 });
+      batch = Math.max(1, Math.floor(Number(deps.scheduler.policyFor(account.broker)?.maxQuoteBatch) || 1));
+    } catch {
+      batch = 1;
+    }
+    const cost = Math.ceil(futs.length / batch);
+    if (endpointClass !== "quote" && (!futuresBudget || futuresBudget.policyRef !== policy || futuresBudget.accountRef !== account.id)) {
+      const carry = futuresBudget && futuresBudget.accountRef === account.id ? futuresBudget.exportState() : null;
+      futuresBudget = createRecorderBudget({ policy, endpointClass: "quote", share, clock, carry });
+      futuresBudget.policyRef = policy;
+      futuresBudget.accountRef = account.id;
+    }
+    const quoteBudget = endpointClass === "quote" ? budget : futuresBudget;
+    if (gate && !gate.allow(account.id, "quote", { share, cost })) return und;
+    if (!quoteBudget || !quoteBudget.tryTake(cost)) return und;
+    try {
+      const q = await deps.marketData.quotes(futs, { accountId: account.id, priority: "background", maxAgeMs: 120_000, maxWaitMs: 1500, backgroundShare: share });
       const fut = (q?.items ?? []).map((it) => ({ x: parseSymbol(it.symbol).expiry, ltp: it.ltp, oi: it.oi ?? null })).filter((f) => f.x);
       return { ...(und ?? { spot: null }), fut };
     } catch {
       return und;
     }
+  }
+
+  /** The broker's OI change (the stored `oc` column) of the day's latest snapshot carrying one, aligned to `last.k`. */
+  function brokerOiChangeOf(snaps, last) {
+    const src = [...snaps].reverse().find((s) => Array.isArray(s.ce?.oc) || Array.isArray(s.pe?.oc));
+    if (!src) return null;
+    const at = new Map(src.k.map((k, i) => [k, i]));
+    const pick = (side) => last.k.map((k) => (at.has(k) ? (src[side]?.oc?.[at.get(k)] ?? null) : null));
+    return { ce: pick("ce"), pe: pick("pe") };
   }
 
   /** Build S3 rows for one day from its S1 files. */
@@ -670,11 +766,14 @@ export function createRecorderService(deps) {
       let und = undLines.length ? undLines.reduce((a, b) => (b.slot > a.slot ? b : a)) : null;
       if (date === istDateOf(now())) und = await futuresForDaily(u, und);
       const gapSlots = new Set(recs.filter((r) => r?.kind === "gap").map((r) => r.slot)).size;
+      const prevLast = await prevRecordedLast(date, u, x);
       rows.push(
         dailyRow({
           date,
           last,
-          prevLast: await prevRecordedLast(date, u, x),
+          prevLast,
+          // The previous day was not recorded: ΔOI falls back to the broker's change since the previous close (§6.10).
+          brokerOiChange: prevLast ? null : brokerOiChangeOf(snaps, last),
           und,
           counts: { slots: new Set(snaps.map((s) => s.slot)).size, gapSlots, partialSlots: snaps.filter((s) => s.partial).length },
         }),
@@ -691,16 +790,16 @@ export function createRecorderService(deps) {
     const todayDate = istDateOf(t);
     const dailyMin = hhmmMinutes(settings.dailyAt);
     const minNow = Math.floor((t - istMidnight(todayDate)) / MINUTE_MS);
-    for (const date of store.days()) {
-      if (date === todayDate && minNow < dailyMin) continue;
-      const missing = store.chainsOn(date).some(({ u }) => !store.dailyDates(u).has(date));
-      if (missing) {
-        try {
-          await runDaily(date);
-        } catch (err) {
-          log?.warn?.("recorder daily catch-up failed", { date, err: err?.message });
-        }
+    // One pass over an in-memory S3 index (each year file read once), per (date, expiry), yielding between days.
+    const missing = await store.missingDailyDays({ skip: (date) => (date === todayDate && minNow < dailyMin) || (date !== todayDate && dailyDone.has(date)) });
+    for (const date of missing) {
+      if (stopped) return;
+      try {
+        await runDaily(date);
+      } catch (err) {
+        log?.warn?.("recorder daily catch-up failed", { date, err: err?.message });
       }
+      await sleepTurn();
     }
   }
 
@@ -762,7 +861,11 @@ export function createRecorderService(deps) {
       if (c.kind !== "index") continue;
       const recs = (await store.readDay(day.date, c.underlying, c.expiry)).filter((r) => r?.kind === "snap").sort((a, b) => a.slot - b.slot);
       if (!recs.length) continue;
-      const vol = (s) => [...(s.ce.vol ?? []), ...(s.pe.vol ?? [])].reduce((a, v) => a + (v ?? 0), 0);
+      // null when no leg carries a volume (a feed that sends none): missing data never suspects a holiday (§6.13).
+      const vol = (s) => {
+        const vs = [...(s.ce?.vol ?? []), ...(s.pe?.vol ?? [])].filter((v) => typeof v === "number" && Number.isFinite(v));
+        return vs.length ? vs.reduce((a, v) => a + v, 0) : null;
+      };
       const prev = await prevRecordedLast(day.date, c.underlying, c.expiry);
       inputs.push({ spots: recs.slice(0, HOLIDAY_DETECT_SLOTS).map((s) => s.spot), volume: vol(recs.at(-1)), prevVolume: prev ? vol(prev) : null });
     }
@@ -899,7 +1002,7 @@ export function createRecorderService(deps) {
       partial += c.partial;
     }
     const next = day.plan ? nextSlotAfter(day.plan, t) : null;
-    const w = new Set([...warnings, ...(plan?.warnings ?? [])]);
+    const w = new Set([...warnings, ...(accountWarning ? [accountWarning] : []), ...(plan?.warnings ?? [])]);
     if (account && !oiUnitVerified(account.broker)) w.add(`Open interest units for ${account.broker} are not verified against a recorded response; OI is recorded as sent (marked oiUnitVerified: false).`);
     for (const d of health.unreadableDays) w.add(`The recordings of ${d.date} could not be read (${d.detail}); that day is skipped.`);
     if (demo) w.add("Demo clock: always open. Demo recordings are sample data and are kept for 3 days in a separate folder.");
@@ -1077,7 +1180,6 @@ export function createRecorderService(deps) {
     currentRaw = merged;
     settings = next;
     store.setLimits({ retentionDays: demo ? DEMO_RETENTION_DAYS : next.retentionDays, maxDiskMb: next.maxDiskMb });
-    budget = null;
     await replan("config");
     return { persisted: saved, status: status() };
   }
@@ -1107,7 +1209,9 @@ export function createRecorderService(deps) {
       offs.push(bus.on("stream.status", (p) => (p?.accountId === account?.id ? scheduleReplan("stream") : null)));
       offs.push(
         bus.on("limits.throttled", (p) => {
-          if (p?.accountId === account?.id && budget) {
+          // Rule 7 reacts to a real broker throttle of the recorder's own class only (not a local queue refusal such
+          // as the recorder's own maxWaitMs, and not orders or another class).
+          if (p?.upstream === true && p.endpointClass === endpointClass && p.accountId === account?.id && budget) {
             budget.throttle(now());
             log?.warn?.("recorder REST use halved for 10 minutes after a broker throttle", { accountId: p.accountId });
           }
@@ -1143,8 +1247,14 @@ export function createRecorderService(deps) {
 
   async function stop() {
     stopped = true;
-    if (startRun) await Promise.race([startRun.catch(() => {}), new Promise((r) => setTimeout(r, 2000).unref?.())]);
+    const bounded = (p) => Promise.race([Promise.resolve(p).catch(() => {}), new Promise((r) => setTimeout(r, 2000).unref?.())]);
+    if (startRun) await bounded(startRun);
     started = false;
+    for (const [h, resolve] of spreadTimers) {
+      clearT(h);
+      resolve();
+    }
+    spreadTimers.clear();
     if (timer) clearT(timer);
     if (replanTimer) clearT(replanTimer);
     if (statusTimer) clearT(statusTimer);
@@ -1152,7 +1262,10 @@ export function createRecorderService(deps) {
     replanTimer = null;
     statusTimer = null;
     for (const off of offs.splice(0)) off();
-    await Promise.race([Promise.allSettled([...pending, backfill ?? Promise.resolve()]), new Promise((r) => setTimeout(r, 2000).unref?.())]);
+    // A tick in progress (housekeeping, a re-plan) checks `stopped` at each step; wait for it before dropping the
+    // stream clients, so nothing subscribes after the clear.
+    if (ticking) await bounded(ticking);
+    await bounded(Promise.allSettled([...pending, backfill ?? Promise.resolve()]));
     stream?.clear();
     saveState({});
   }

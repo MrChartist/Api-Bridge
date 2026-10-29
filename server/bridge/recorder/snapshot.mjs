@@ -16,6 +16,11 @@ export const SNAPSHOT_VERSION = 1;
 export const MODEL = "b76-vt1";
 /** Leg keys of a stored snapshot, per side. */
 export const LEG_KEYS = Object.freeze(["ltp", "bid", "ask", "bq", "aq", "oi", "vol", "iv", "d", "g", "age"]);
+/**
+ * Optional per-side column `oc`: the broker's OI change since the previous close (units), stored only when the read
+ * carried one (REST chains). The daily job uses it for ΔOI when the previous day was not recorded (§6.10).
+ */
+export const OI_CHANGE_KEY = "oc";
 /** API field name -> stored key (§4.1 `fields`). */
 export const FIELD_KEYS = Object.freeze({ ltp: "ltp", bid: "bid", ask: "ask", bidQty: "bq", askQty: "aq", oi: "oi", volume: "vol", iv: "iv", delta: "d", gamma: "g", age: "age" });
 export const API_FIELDS = Object.freeze(Object.keys(FIELD_KEYS));
@@ -127,6 +132,8 @@ export function buildSnapshot(input, { clock, rate }) {
   const ce = side();
   const pe = side();
   let missing = 0;
+  const oc = { ce: [], pe: [] };
+  let anyOc = false;
   for (const row of rows) {
     for (const [right, out] of [
       ["CE", ce],
@@ -149,7 +156,14 @@ export function buildSnapshot(input, { clock, rate }) {
       out.d.push(g.d);
       out.g.push(g.g);
       out.age.push(at === null || !leg ? null : Math.max(0, Math.round(input.ts - at)));
+      const chg = int(leg?.oiChange);
+      if (chg !== null) anyOc = true;
+      oc[right === "CE" ? "ce" : "pe"].push(chg);
     }
+  }
+  if (anyOc) {
+    ce[OI_CHANGE_KEY] = oc.ce;
+    pe[OI_CHANGE_KEY] = oc.pe;
   }
   const planned = Number.isInteger(input.plannedLegs) && input.plannedLegs > 0 ? input.plannedLegs : rows.length * 2;
   missing += Math.max(0, planned - rows.length * 2);

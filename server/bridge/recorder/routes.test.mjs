@@ -133,7 +133,12 @@ describe("GET /v1/options/snapshots", () => {
     const out = await r.routes.snapshots(ctxFor({ accounts: ["other"], query: { underlying: "NIFTY", expiry: EXPIRY, limit: "1" } }));
     expect(out.data.snapshots[0]).toMatchObject({ accountId: null, broker: null, accounts: null });
     const st = await r.routes.status(ctxFor({ accounts: ["other"] }));
-    expect(st.data.account).toMatchObject({ id: null, feedAccount: null, broker: "upstox" });
+    expect(st.data.account).toMatchObject({ id: null, feedAccount: null, broker: null });
+    expect(st.data.oiUnits.broker).toBeNull();
+    // No id of the recorder's account (and no broker name) anywhere in the status, warnings included.
+    const text = JSON.stringify(st.data);
+    expect(text).not.toContain("acc-1");
+    expect(text.toLowerCase()).not.toContain("upstox");
     const own = await r.routes.status(ctxFor({ accounts: ["acc-1"] }));
     expect(own.data.account.id).toBe("acc-1");
     expect(toApiSnapshot({ slot: 0, ts: 0, accountId: "acc-1", broker: "x", k: [], ce: {}, pe: {} }, ctxFor({ local: true, accounts: [] })).accountId).toBe("acc-1");
@@ -197,6 +202,31 @@ describe("PUT /v1/options/recorder/config", () => {
     expect(p.detail).toMatch(/46 of the 200 stocks you asked for \(46 by stream\)\. Nothing was saved\./);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ accounts: [] });
     expect(r.svc.settings().stocks).toEqual([]);
+    await r.svc.stop();
+  });
+
+  it("an account change is planned against the NEW account (PUT and dry-run plan)", async () => {
+    const r = makeRecorder({
+      start: IST("2026-10-19T10:00:30"),
+      accounts: [
+        { id: "up-1", broker: "upstox" },
+        { id: "dhan-1", broker: "dhan" },
+      ],
+      recorder: { account: "up-1", sources: { stream: false } },
+    });
+    await r.svc.start();
+    const routes = createRecorderRoutes(r.svc, r.deps);
+    // The current account (Upstox) carries NIFTY by REST.
+    expect((await routes.plan(ctxFor({ body: {} }))).data.capacity.rest.allowed).toBe(true);
+    // Dhan's chain class is 1/s: no REST, so a dry run with it reports Dhan's capacity, not Upstox's.
+    const dry = await routes.plan(ctxFor({ body: { account: "dhan-1" } }));
+    expect(dry.data.capacity.rest.allowed).toBe(false);
+    expect(dry.data.ok).toBe(false);
+    // And a PUT that switches to it is refused with 422; nothing changes.
+    const p = await codeOf(routes.setConfig(ctxFor({ local: true, body: { account: "dhan-1" } })));
+    expect(p).toMatchObject({ code: "CAPACITY_EXCEEDED", status: 422 });
+    expect(r.svc.settings().account).toBe("up-1");
+    expect(r.svc.status().warnings.join(" ")).not.toMatch(/dhan-1/);
     await r.svc.stop();
   });
 

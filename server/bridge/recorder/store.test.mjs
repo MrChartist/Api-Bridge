@@ -123,6 +123,31 @@ describe("day roll, crash safety and bad days", () => {
     expect(existsSync(`${plain}.gz`)).toBe(true);
   });
 
+  it("a broken .gz next to its plain file: reads use the plain file and the next roll rebuilds the .gz from it", async () => {
+    const root = tmp();
+    const store = createSnapshotStore({ root, clock: clockAt(IST("2026-10-29T16:00:00")) });
+    const t0 = IST("2026-10-29T09:15:00");
+    for (let i = 0; i < 4; i++) await store.append(snap(t0 + i * 60_000));
+    const plain = join(root, "s1", "2026-10-29", "NIFTY", `${X}.ndjson`);
+    writeFileSync(`${plain}.gz`, gzipSync(readFileSync(plain, "utf8")).subarray(0, 20)); // a torn gzip
+    expect((await store.read({ u: "NIFTY", x: X, fromMs: t0, toMs: t0 + 3_600_000 })).snaps).toHaveLength(4);
+    await store.rollDay("2026-10-29");
+    expect(existsSync(plain)).toBe(false);
+    expect(gunzipSync(readFileSync(`${plain}.gz`)).toString("utf8").split("\n").filter(Boolean)).toHaveLength(4);
+  });
+
+  it("missingDailyDays lists recorded days without an S3 row per expiry, and drops them once written", async () => {
+    const root = tmp();
+    const store = createSnapshotStore({ root, clock: clockAt(IST("2026-10-30T16:00:00")) });
+    await store.append(snap(IST("2026-10-29T10:00:00")));
+    await store.append(snap(IST("2026-10-30T10:00:00")));
+    await store.rollDay("2026-10-29");
+    expect(await store.missingDailyDays()).toEqual(["2026-10-29", "2026-10-30"]);
+    await store.writeDaily([{ v: 1, date: "2026-10-29", u: "NIFTY", x: X, pcrOi: 1 }]);
+    expect(await store.hasDaily("NIFTY", "2026-10-29", X)).toBe(true);
+    expect(await store.missingDailyDays({ skip: (d) => d === "2026-10-30" })).toEqual([]);
+  });
+
   it("a corrupt .gz day is skipped and reported while other days still read", async () => {
     const root = tmp();
     const store = createSnapshotStore({ root, clock: clockAt(IST("2026-10-30T16:00:00")) });
@@ -164,7 +189,7 @@ describe("day roll, crash safety and bad days", () => {
     await store.writeDaily([{ v: 1, date: "2026-10-28", u: "NIFTY", x: X, pcrOi: 1 }, { v: 1, date: "2026-10-29", u: "NIFTY", x: X, pcrOi: 2 }]);
     await store.writeDaily([{ v: 1, date: "2026-10-29", u: "NIFTY", x: X, pcrOi: 3 }]);
     expect((await store.readDaily({ u: "NIFTY", from: "2026-10-01", to: "2026-10-31" })).map((r) => r.pcrOi)).toEqual([1, 3]);
-    expect([...store.dailyDates("NIFTY")].sort()).toEqual(["2026-10-28", "2026-10-29"]);
+    expect([...(await store.dailyDates("NIFTY"))].sort()).toEqual(["2026-10-28", "2026-10-29"]);
   });
 
   it("state.json round-trips; a corrupt one is moved aside", () => {

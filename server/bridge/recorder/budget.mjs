@@ -98,13 +98,17 @@ export function budgetCaps(policy, endpointClass, share) {
 
 /**
  * The recorder's sliding-window limiter for one (account, class).
- * @param {{ policy: object, endpointClass: string, share: number, clock: { now(): number } }} opts
+ * @param {{ policy: object, endpointClass: string, share: number, clock: { now(): number },
+ *   carry?: { logs: Record<string, number[]>, halvedUntil: number } | null }} opts
+ *   carry: the state of the limiter this one replaces (a config change): the call logs of the windows both share
+ *   (same bucket and length) and the rule-7 halving carry over, so a config change never resets the windows.
  */
-export function createRecorderBudget({ policy, endpointClass, share, clock }) {
-  const caps = budgetCaps(policy, endpointClass, share);
+export function createRecorderBudget({ policy, endpointClass, share, clock, carry = null }) {
+  let caps = budgetCaps(policy, endpointClass, share);
+  const winKey = (w) => `${w.bucket}|${w.windowMs}`;
   /** Call times per window index. */
-  const logs = caps.windows.map(() => []);
-  let halvedUntil = 0;
+  const logs = caps.windows.map((w) => [...(carry?.logs?.[winKey(w)] ?? [])]);
+  let halvedUntil = Number(carry?.halvedUntil) || 0;
   const now = () => clock.now();
 
   const capOf = (i, t) => (t < halvedUntil ? Math.floor(caps.windows[i].cap / 2) : caps.windows[i].cap);
@@ -133,6 +137,19 @@ export function createRecorderBudget({ policy, endpointClass, share, clock }) {
       if (!canTake(n, t)) return false;
       for (const log of logs) for (let k = 0; k < n; k++) log.push(t);
       return true;
+    },
+    /** Give back the last n calls taken (the read was served from the cache and cost the broker nothing). */
+    refund(n = 1) {
+      for (const log of logs) log.splice(Math.max(0, log.length - n), n);
+    },
+    /** Change the share in place (the logs and halving stay). */
+    setShare(next) {
+      caps = budgetCaps(policy, endpointClass, next);
+      this.caps = caps;
+    },
+    /** The state a replacing limiter carries over (see `carry`). */
+    exportState() {
+      return { logs: Object.fromEntries(caps.windows.map((w, i) => [winKey(w), [...logs[i]]])), halvedUntil };
     },
     /** ms until canTake(n) could be true (0 now; Infinity when a cap is 0). */
     waitMs(n = 1, t = now()) {

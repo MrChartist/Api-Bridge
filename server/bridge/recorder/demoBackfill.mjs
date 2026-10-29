@@ -109,7 +109,7 @@ export async function runDemoBackfill({ store, chains, day, now, backfillDays, s
 
   // 2. Previous weekdays at 5-minute slots for every planned chain whose expiry was listed then.
   for (const date of previousWeekdays(day.date, backfillDays)) {
-    const plan = dayPlan({ date, open: "09:15", close: "15:30" });
+    const plan = dayPlan({ date, open: day.plan.open, close: day.plan.close }); // the same session window as today
     for (const c of chains) {
       if (c.expiry < date) continue;
       const slots = [];
