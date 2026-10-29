@@ -328,4 +328,15 @@ describe("Arbitrage round 2 (docs/design/arb.md §16)", () => {
     expect(js).not.toContain("Sample prices:");
     expect(js).not.toMatch(/toFixed\(/);
   });
+  it("names the heat-strip sides by the structure that captures them (calls rich = conversion)", () => {
+    expect(js).toContain('"Calls rich (conversion side)"');
+    expect(js).toContain('"Puts rich (reversal side)"');
+    expect(js).not.toContain("Calls rich (reversal side)");
+    expect(js).not.toContain("Puts rich (conversion side)");
+  });
+  it("keeps rail cards free of nested controls and the matrix grid owned by rows", () => {
+    expect(js).not.toMatch(/class: "arb-opp skel", role: "button"/);
+    expect(js).toContain('role: "row"');
+    expect(js).toContain("aria-activedescendant");
+  });
 });
