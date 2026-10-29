@@ -83,7 +83,7 @@ export function decideMode({ config, accountCfg, summary, requested, ctx, confir
 /** Human label for a source, for messages. */
 export function sourceLabel(source) {
   return (
-    { rest: "scripts and apps (REST)", webhook: "webhooks", mcp: "AI assistants", cli: "the command line", system: "the Bridge itself", stream: "the stream" }[source] ??
+    { rest: "scripts and apps (REST)", webhook: "webhooks", mcp: "AI assistants", cli: "the command line", system: "the Bridge itself", stream: "the stream", guard: "strategy guards", alert: "alert actions" }[source] ??
     String(source)
   );
 }

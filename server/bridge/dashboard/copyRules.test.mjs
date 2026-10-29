@@ -52,6 +52,8 @@ describe("source scanner", () => {
     expect(checkSource(src).map((v) => v.text)).toEqual(["Buy", "Sell", "Best strike to sell", "Best strike to sell"]);
     expect(checkSource(src, { allow: [/^(Buy|Sell)$/] })).toEqual([{ text: "Best strike to sell", word: "Best" }, { text: "Best strike to sell", word: "sell" }]);
     expect(checkCopy(["Sell premium"], { allow: ["Sell premium"] })).toEqual([]);
+    // A /g allowlist entry exempts every matching string, not every other one.
+    expect(checkCopy(["Buy", "Sell", "Buy", "Sell"], { allow: [/^(Buy|Sell)$/g] })).toEqual([]);
     expect(checkFiles([{ name: "x.js", src: 'q("Cheap")' }])).toEqual([{ file: "x.js", text: "Cheap", word: "Cheap" }]);
   });
 });

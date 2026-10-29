@@ -40,8 +40,10 @@ export function sharedModuleProblems(name, src) {
   // Strings stay in `code`, so blank them out before looking for forbidden identifiers.
   const { code } = scanJs(src);
   const bare = code.replace(/(["'])(?:\\.|(?!\1)[^\\\n])*\1/g, '""');
-  for (const m of code.matchAll(/\bimport\s*(?:[\w$*{}\s,]+from\s*)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']/g)) {
-    const spec = m[1] ?? m[2];
+  // import ... from, bare import, import(), and re-exports (export { x } from / export * from) all load a module.
+  const IMPORT_RE = /\bimport\s*(?:[\w$*{}\s,]+from\s*)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']|\bexport\s*[\w$*{}\s,]*\bfrom\s*["']([^"']+)["']/g;
+  for (const m of code.matchAll(IMPORT_RE)) {
+    const spec = m[1] ?? m[2] ?? m[3];
     const sibling = /^\.\/([\w.-]+\.js)$/.exec(spec)?.[1];
     if (!sibling || !Object.hasOwn(SHARED_MODULES, sibling)) problems.push(`imports ${spec}`);
   }
@@ -58,6 +60,9 @@ describe("shared module rules", () => {
     expect(sharedModuleProblems("marks.js", 'import { black76 } from "./pricing.js";\nexport const f = (now) => now + 1;')).toEqual([]);
     expect(sharedModuleProblems("marks.js", 'import { formatInt } from "./format.js";')).toEqual(["imports ./format.js"]);
     expect(sharedModuleProblems("marks.js", 'import x from "node:fs";')).toEqual(["imports node:fs"]);
+    expect(sharedModuleProblems("marks.js", 'export { formatInt } from "./format.js";')).toEqual(["imports ./format.js"]);
+    expect(sharedModuleProblems("marks.js", 'export * from "node:fs";')).toEqual(["imports node:fs"]);
+    expect(sharedModuleProblems("marks.js", 'export * as p from "./pricing.js";\nexport { black76 as b } from "./pricing.js";')).toEqual([]);
     expect(sharedModuleProblems("marks.js", "const el = document.createElement('div');")).toEqual(["uses DOM"]);
     expect(sharedModuleProblems("marks.js", "await fetch('/v1/x');")).toEqual(["uses fetch"]);
     expect(sharedModuleProblems("marks.js", "const t = Date.now();")).toEqual(["uses clock"]);

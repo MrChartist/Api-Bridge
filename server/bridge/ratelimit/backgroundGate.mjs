@@ -10,12 +10,14 @@
  * and the class is not backing off after an upstream throttle. So a background call never leaves a window with less
  * than (1 − share) of its limit, i.e. never below 50 % at the default.
  *
- * The gate takes no budget. The caller then schedules the call itself at `priority: "background"` (the scheduler
- * still enforces the broker limits). A job with a stricter limiter of its own (the recorder) keeps it on top.
+ * The gate takes no budget and counts work already queued on the buckets. The caller then schedules the call itself
+ * at `priority: "background"` WITH `backgroundShare` (the same share), so the scheduler re-checks the floor at the
+ * moment it takes the budget: several jobs that pass allow() in the same tick, or user work queued ahead, can never
+ * push a window below the floor. A job with a stricter limiter of its own (the recorder) keeps it on top.
  *
  *   const gate = createBackgroundGate({ scheduler: deps.scheduler });
  *   if (!gate.allow(acc, "optionChain")) return later(gate.waitMs(acc, "optionChain"));
- *   await deps.scheduler.schedule({ accountId: acc, endpointClass: "optionChain", priority: "background" }, fn);
+ *   await deps.scheduler.schedule({ accountId: acc, endpointClass: "optionChain", priority: "background", backgroundShare: MAX_BACKGROUND_SHARE }, fn);
  */
 
 /** Background work never gets more than half of any window (BRD §7.2). */

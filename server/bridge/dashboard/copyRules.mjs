@@ -163,9 +163,11 @@ export function scanJs(src) {
  */
 export function checkCopy(strings, { allow = [] } = {}) {
   const out = [];
+  // A /g or /y RegExp keeps lastIndex between test() calls; use a stateless copy so every string is checked alike.
+  const rules = allow.map((a) => (typeof a === "string" ? a : new RegExp(a.source, a.flags.replace(/[gy]/g, ""))));
   for (const s of strings) {
     if (typeof s !== "string" || !s) continue;
-    if (allow.some((a) => (typeof a === "string" ? a === s : a.test(s)))) continue;
+    if (rules.some((a) => (typeof a === "string" ? a === s : a.test(s)))) continue;
     for (const { word } of findBanned(s)) out.push({ text: s, word });
   }
   return out;

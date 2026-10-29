@@ -132,6 +132,78 @@ describe("property: background callers never leave a window below 50 %", () => {
     s.stop();
   });
 
+  it("with the real scheduler: several background calls admitted in the same tick, and user work queued ahead, never leave a window below 50 %", async () => {
+    const v = (spec) => ({ ...spec, verified: true, source: "https://example.test/limits" });
+    const policies = {
+      shared: { brokerId: "shared", limits: { quote: v({ perSecond: 10, perMinute: 400 }), order: v({ perSecond: 5 }) }, groups: { all: { classes: ["order", "quote"], ...v({ perSecond: 12 }) } }, maxQuoteBatch: 1, feed: {}, pooling: "unknown" },
+    };
+    const clock = createManualClock();
+    const logger = createLogger({ write: () => {} });
+    const bus = createEventBus({ logger, topics: TOPICS });
+    const accounts = createFakeAccountManager({ accounts: [{ id: "s1", broker: "shared" }], bus });
+    const s = createScheduler({ config: { ratelimit: {} }, logger, bus, clock, accounts }, { policies });
+    const gate = createBackgroundGate({ scheduler: s });
+    const slowFns = [];
+    let bgStarts = 0;
+    /** Background calls check the windows the moment they start: the budget has just been taken. */
+    const atStart = () => {
+      bgStarts += 1;
+      for (const w of s.headroomWindows("s1", "quote").windows) {
+        expect(w.limit - w.used, `${w.bucket} ${w.window}`).toBeGreaterThanOrEqual(Math.ceil(w.limit / 2));
+      }
+      return "bg";
+    };
+    const bg = () => s.schedule({ accountId: "s1", endpointClass: "quote", priority: "background", backgroundShare: MAX_BACKGROUND_SHARE, maxWaitMs: 60_000 }, async () => atStart());
+    const user = () => s.schedule({ accountId: "s1", endpointClass: "quote", priority: "interactive", maxWaitMs: 60_000 }, () => new Promise((r) => slowFns.push(r)));
+    // Use 4 of 10: 6 left. Three jobs each see 6 − 1 ≥ 5 in the same tick and all pass the gate.
+    for (let i = 0; i < 4; i++) expect(s.tryAcquire("s1", "quote").ok).toBe(true);
+    const admitted = [0, 1, 2].filter(() => gate.allow("s1", "quote"));
+    expect(admitted).toHaveLength(3);
+    const results = admitted.map(() => bg());
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    // Only one could start (6 → 5); the others wait for the window to roll.
+    expect(bgStarts).toBe(1);
+    await clock.advance(1100);
+    await expect(Promise.all(results)).resolves.toEqual(["bg", "bg", "bg"]);
+    expect(bgStarts).toBe(3);
+
+    // User work queued ahead: background asks after users already wait on the same buckets.
+    await clock.advance(1100);
+    const users = Array.from({ length: 14 }, user);
+    expect(gate.allow("s1", "quote")).toBe(false); // the queued user units count against the floor
+    const late = bg();
+    for (let step = 0; step < 40; step++) {
+      await clock.advance(50);
+      if (step === 5) slowFns.forEach((r) => r("u"));
+    }
+    slowFns.forEach((r) => r("u"));
+    await Promise.all(users);
+    await clock.advance(1100);
+    await expect(late).resolves.toBe("bg");
+    expect(bgStarts).toBe(4);
+    s.stop();
+  });
+
+  it("schedule() validates backgroundShare and clamps it to 50 %", async () => {
+    const clock = createManualClock();
+    const logger = createLogger({ write: () => {} });
+    const bus = createEventBus({ logger, topics: TOPICS });
+    const accounts = createFakeAccountManager({ accounts: [{ id: "s1", broker: "shared" }], bus });
+    const v = (spec) => ({ ...spec, verified: true, source: "https://example.test/limits" });
+    const policies = { shared: { brokerId: "shared", limits: { quote: v({ perSecond: 4 }) }, groups: {}, maxQuoteBatch: 1, feed: {}, pooling: "unknown" } };
+    const s = createScheduler({ config: { ratelimit: {} }, logger, bus, clock, accounts }, { policies });
+    await expect(s.schedule({ accountId: "s1", endpointClass: "quote", backgroundShare: 0.5 }, async () => 1)).rejects.toThrow(/background/);
+    await expect(s.schedule({ accountId: "s1", endpointClass: "quote", priority: "background", backgroundShare: "x" }, async () => 1)).rejects.toThrow(TypeError);
+    // share 1 is clamped to 0.5: of 4 per second, background may use 2.
+    const runs = Array.from({ length: 3 }, () => s.schedule({ accountId: "s1", endpointClass: "quote", priority: "background", backgroundShare: 1, maxWaitMs: 10_000 }, async () => 1));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(s.headroomWindows("s1", "quote").windows[0].used).toBe(2);
+    await clock.advance(1100);
+    await Promise.all(runs);
+    s.stop();
+  });
+
   it("falls back to the contract headroom() when a scheduler has no window list, and works with the fake", () => {
     const g = createBackgroundGate({ scheduler: { headroom: () => ({ remaining: 3, limit: 10, resetMs: 700 }) } });
     expect(g.allow("a", "quote")).toBe(false);

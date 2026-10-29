@@ -125,6 +125,9 @@ describe("dated-file retention", () => {
     writeFileSync(join(dir, "2020-01-01.jsonl"), "x\n");
     writeFileSync(join(dir, "2020-01-01.csv"), "x\n");
     expect(pruneDated(dir, { keepDays: 1, today: "2026-10-29", match: /\.jsonl$/ })).toEqual(["2020-01-01.jsonl"]);
+    // A /g match must not skip every other file (RegExp lastIndex).
+    for (const n of ["2020-01-02.jsonl", "2020-01-03.jsonl", "2020-01-04.jsonl"]) writeFileSync(join(dir, n), "x\n");
+    expect(pruneDated(dir, { keepDays: 1, today: "2026-10-29", match: /\.jsonl$/g })).toEqual(["2020-01-02.jsonl", "2020-01-03.jsonl", "2020-01-04.jsonl"]);
     expect(istDate(Date.UTC(2026, 9, 28, 18, 29))).toBe("2026-10-28");
     expect(istDate(Date.UTC(2026, 9, 28, 18, 30))).toBe("2026-10-29");
   });

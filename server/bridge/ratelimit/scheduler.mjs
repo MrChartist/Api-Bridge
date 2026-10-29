@@ -31,6 +31,7 @@ import { BridgeError } from "../core/errors.mjs";
 import { createClientLimiter } from "./clientLimiter.mjs";
 import { parseRatelimitConfig } from "./config.mjs";
 import { bucketPlan, resolvePolicy } from "./policy.mjs";
+import { MAX_BACKGROUND_SHARE } from "./backgroundGate.mjs";
 import { BROKER_POLICIES } from "./brokerPolicies.mjs";
 import { PRIORITY_RANK, createPriorityQueue } from "./priorityQueue.mjs";
 import { createRateLimiter, istDay, nextIstMidnight, toIstIso } from "./tokenBucket.mjs";
@@ -235,6 +236,15 @@ export function createScheduler(deps, options = {}) {
     return p === "order" ? "live" : p;
   }
 
+  /** backgroundShare for a floored background call: null when not given, else clamped to 0 .. MAX_BACKGROUND_SHARE. */
+  function normaliseShare(share, priority) {
+    if (share == null) return null;
+    const n = Number(share);
+    if (Number.isNaN(n)) throw new TypeError("backgroundShare must be a number from 0 to 0.5.");
+    if (priority !== "background") throw new TypeError('backgroundShare is only for priority "background".');
+    return Math.min(Math.max(n, 0), MAX_BACKGROUND_SHARE);
+  }
+
   function normaliseCost(cost) {
     if (cost == null) return 1;
     const n = Math.ceil(Number(cost));
@@ -280,6 +290,26 @@ export function createScheduler(deps, options = {}) {
       wait = Math.max(wait, Number.isFinite(rate) && rate > 0 ? base + overflow / rate : base);
     }
     return t + wait;
+  }
+
+  /**
+   * Floor for a background call scheduled with backgroundShare (BRD §7.2, C12): starting it must leave every window it
+   * takes from at or above ceil((1 − share) × limit). Checked where the budget is taken, so several callers that passed
+   * the gate in the same tick, or user work queued ahead, can never push a window below the floor.
+   * @returns {number} 0 when the call may start now; else ms until it is worth looking again.
+   */
+  function floorWait(st, sh, t) {
+    if (sh.floorShare == null) return 0;
+    let wait = 0;
+    for (const { lim } of limitersOf(st, sh.endpointClass)) {
+      for (const w of lim.windows(t)) {
+        if (!Number.isFinite(w.limit)) continue;
+        const floor = Math.ceil((1 - sh.floorShare) * w.limit);
+        if (w.limit - w.used - sh.cost >= floor) continue;
+        wait = Math.max(wait, w.resetMs > 0 ? w.resetMs : 1000);
+      }
+    }
+    return wait;
   }
 
   function headroomOf(st, cls, t) {
@@ -370,6 +400,12 @@ export function createScheduler(deps, options = {}) {
         continue;
       }
       if (lims.every((l) => l.lim.canTake(sh.cost, t))) {
+        const fw = floorWait(st, sh, t);
+        if (fw > 0) {
+          // Held back to keep the background floor; it reserves nothing, so other work on these buckets still runs.
+          nextWake = Math.min(nextWake, t + Math.max(1, fw));
+          continue;
+        }
         dequeue(st, sh);
         start(st, sh, t);
         if (!isOrder) readsBlocked = st.inFlightReads >= rl.maxInFlightPerAccount;
@@ -448,6 +484,7 @@ export function createScheduler(deps, options = {}) {
     const enqueuedAt = sh.item.enqueuedAt;
     dequeue(st, sh);
     sh.priority = priority;
+    sh.floorShare = null; // a more urgent caller now waits on this call: it is no longer background work
     sh.item = st.queue.push(sh, { priority, now: enqueuedAt });
     trackQueued(st, sh, +1);
     queueMicrotask(() => dispatch(st));
@@ -494,9 +531,11 @@ export function createScheduler(deps, options = {}) {
    * could not start in time, or with the signal's reason when aborted.
    * @template T
    * @param {{ accountId: string, endpointClass: string, priority?: string, coalesceKey?: string, cost?: number,
-   *   signal?: AbortSignal, maxWaitMs?: number }} opts
+   *   signal?: AbortSignal, maxWaitMs?: number, backgroundShare?: number }} opts
    *   cost: upstream HTTP requests fn will make (default 1). maxWaitMs: wait at most this long (default per priority).
    *   coalesceKey: callers with the same key share one in-flight run; include the account id in it for pinned reads.
+   *   backgroundShare: priority "background" only. The call starts only while it leaves every window at or above
+   *   ceil((1 − share) × limit); share is clamped to MAX_BACKGROUND_SHARE (0.5). Jobs gated by backgroundGate pass it.
    * @param {(ctx: { signal: AbortSignal, accountId: string, endpointClass: string }) => Promise<T>} fn
    * @returns {Promise<T>}
    */
@@ -508,6 +547,7 @@ export function createScheduler(deps, options = {}) {
     checkClass(endpointClass);
     const priority = normalisePriority(endpointClass, opts.priority);
     const cost = normaliseCost(opts.cost);
+    const floorShare = normaliseShare(opts.backgroundShare, priority);
     if (signal?.aborted) throw abortReason(signal);
     const st = stateFor(accountId);
     const t = now();
@@ -520,11 +560,12 @@ export function createScheduler(deps, options = {}) {
       existing.waiters += 1;
       stats(existing.st, existing.endpointClass).coalesced += 1;
       bumpSaving("coalesced", 1);
+      if (floorShare == null) existing.floorShare = null; // a caller without a floor is waiting too
       promote(existing.st, existing, priority, deadline);
       return waitFor(existing.st, existing, signal);
     }
 
-    const sh = { key, st, endpointClass, priority, cost, deadline, fn, waiters: 1, settled: false, started: false, item: null, controller: new AbortController() };
+    const sh = { key, st, endpointClass, priority, cost, floorShare, deadline, fn, waiters: 1, settled: false, started: false, item: null, controller: new AbortController() };
     sh.promise = new Promise((resolve, reject) => {
       sh.resolve = resolve;
       sh.reject = reject;
@@ -572,8 +613,9 @@ export function createScheduler(deps, options = {}) {
   /**
    * Every window that covers (account, class): the class bucket's windows and those of each group bucket that lists
    * the class, plus the class back-off. Used by backgroundGate.mjs (Phase 1 background work keeps each window at or
-   * above half its limit). Paper accounts have no windows.
-   * @returns {{ windows: Array<{ bucket: string, window: string, used: number, limit: number, remaining: number, resetMs: number }>, backoffMs: number }}
+   * above half its limit). Paper accounts have no windows. `remaining` already counts the units of every request
+   * queued on that bucket (it will take them before anything new), so `remaining = limit − used − queued`.
+   * @returns {{ windows: Array<{ bucket: string, window: string, used: number, queued: number, limit: number, remaining: number, resetMs: number }>, backoffMs: number }}
    */
   function headroomWindows(accountId, endpointClass) {
     checkAccountId(accountId);
@@ -582,7 +624,10 @@ export function createScheduler(deps, options = {}) {
     const t = now();
     const windows = [];
     for (const { key, lim } of limitersOf(st, endpointClass)) {
-      for (const w of lim.windows(t)) windows.push({ bucket: key, window: w.window, used: w.used, limit: w.limit, remaining: Math.max(0, w.limit - w.used), resetMs: Math.ceil(w.resetMs) });
+      const queued = st.bucketQueued.get(key).reduce((a, b) => a + b, 0);
+      for (const w of lim.windows(t)) {
+        windows.push({ bucket: key, window: w.window, used: w.used, queued, limit: w.limit, remaining: Math.max(0, w.limit - w.used - queued), resetMs: Math.ceil(w.resetMs) });
+      }
     }
     return { windows, backoffMs: Math.ceil(backoffRemaining(st, endpointClass, t)) };
   }

@@ -61,7 +61,7 @@ export function parseSymbolList(raw) {
 
 /**
  * The accounts a caller may have its unpinned reads served from: undefined for no restriction (the local operator,
- * or a key with accounts "*"), otherwise the key's list (plus a webhook's own accounts). An empty list means none.
+ * or a key with accounts "*"), otherwise the key's list (plus the own accounts of a webhook or a strategy guard, as in requireAccountAccess). An empty list means none.
  * @param {import("../core/context.mjs").RequestContext} ctx
  * @returns {string[] | undefined}
  */
@@ -70,7 +70,8 @@ export function allowedAccountsFor(ctx) {
   const fromKey = ctx?.key?.accounts;
   if (fromKey === "*") return undefined;
   const list = Array.isArray(fromKey) ? [...fromKey] : [];
-  if (ctx?.principal?.kind === "hook" && Array.isArray(ctx.hookAccounts)) list.push(...ctx.hookAccounts);
+  const kind = ctx?.principal?.kind;
+  if ((kind === "hook" || kind === "guard") && Array.isArray(ctx.hookAccounts)) list.push(...ctx.hookAccounts);
   return list;
 }
 

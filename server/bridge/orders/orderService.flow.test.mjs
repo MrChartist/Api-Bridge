@@ -54,6 +54,11 @@ describe("human confirmation tickets (AI assistants)", () => {
 
     expect(await reject(h.svc.tickets(h.ctx("live")))).toMatchObject({ code: "SCOPE_REQUIRED" });
     expect(await reject(h.svc.confirmTicket(h.ctx("admin", { source: "mcp" }), pv.ticketId))).toMatchObject({ code: "SCOPE_REQUIRED" });
+    // The Phase 1 automations (strategy guards, alert actions) are never a person, even on loopback with admin.
+    for (const source of ["guard", "alert", "webhook"]) {
+      expect(await reject(h.svc.confirmTicket(h.ctx("admin", { source }), pv.ticketId)), source).toMatchObject({ code: "SCOPE_REQUIRED" });
+    }
+    expect(await reject(h.svc.confirmTicket(h.ctx("admin", { principal: { kind: "guard", id: "g1" } }), pv.ticketId))).toMatchObject({ code: "SCOPE_REQUIRED" });
     expect(await reject(h.svc.confirmTicket(h.ctx("admin", { loopback: false }), pv.ticketId))).toMatchObject({ code: "LOOPBACK_ONLY" });
 
     const { confirmToken, expiresAt } = await h.svc.confirmTicket(h.ctx("admin"), pv.ticketId);

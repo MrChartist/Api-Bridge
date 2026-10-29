@@ -14,6 +14,25 @@ import { BridgeError } from "./errors.mjs";
 export const SCOPES = Object.freeze(["read", "paper", "live", "admin"]);
 const IMPLIES = Object.freeze({ read: ["read"], paper: ["paper", "read"], live: ["live", "paper", "read"], admin: ["admin", "read"] });
 
+/**
+ * Sources that are automations, never a person: they may not confirm an order ticket (the human confirmation gate).
+ * "guard" and "alert" are the Phase 1 automations (strategy guards, alert actions).
+ */
+export const AUTOMATED_SOURCES = Object.freeze(["mcp", "webhook", "guard", "alert"]);
+/** Principal kinds that are automations (hooks and in-process guards). */
+const AUTOMATED_PRINCIPALS = new Set(["hook", "guard"]);
+
+/**
+ * Whether a context belongs to an automation rather than a person: an automated source, a key whose clientKind is
+ * "mcp", or a hook / guard principal.
+ * @param {{ source?: string, key?: { clientKind?: string } | null, principal?: { kind?: string } }} ctx
+ */
+export function isAutomatedContext(ctx) {
+  if (AUTOMATED_SOURCES.includes(ctx?.source)) return true;
+  if (ctx?.key?.clientKind === "mcp") return true;
+  return AUTOMATED_PRINCIPALS.has(ctx?.principal?.kind);
+}
+
 /** Expand granted scopes with what they imply. */
 export function expandScopes(granted) {
   const out = new Set();

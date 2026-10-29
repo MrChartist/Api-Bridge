@@ -32,6 +32,7 @@ import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { issueOrderGate } from "../../brokers/orderGate.mjs";
 import { BridgeError, ERROR_CODES, fromBrokerError } from "../core/errors.mjs";
+import { isAutomatedContext } from "../core/context.mjs";
 import { assertLiveSupport, liveSupport, unverifiedWarning } from "./brokerOrders.mjs";
 import { ordersConfig } from "./config.mjs";
 import { createIdempotencyStore } from "./idempotencyStore.mjs";
@@ -1545,7 +1546,7 @@ export function createOrderService(deps) {
 
   async function confirmTicket(ctx, ticketId) {
     requireAdmin(ctx);
-    if (effectiveSource(ctx) === "mcp" || ctx.source === "webhook") throw new BridgeError("SCOPE_REQUIRED", "Only a person using the Bridge on this computer can confirm an order.");
+    if (isAutomatedContext(ctx)) throw new BridgeError("SCOPE_REQUIRED", "Only a person using the Bridge on this computer can confirm an order.");
     if (!ctx.loopback) throw new BridgeError("LOOPBACK_ONLY", "Orders can only be confirmed from this computer.");
     // The client that prepared an order may not confirm it itself: a confirmation must come from someone else
     // (the person, through the dashboard, the CLI or another admin client), or it confirms nothing.

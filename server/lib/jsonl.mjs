@@ -311,9 +311,11 @@ export function pruneDated(dir, { keepDays, today, match }) {
     throw err;
   }
   const removed = [];
+  // A /g or /y RegExp keeps lastIndex between test() calls; use a stateless copy so no file is skipped.
+  const only = match ? new RegExp(match.source, match.flags.replace(/[gy]/g, "")) : null;
   for (const name of names.sort()) {
     if (name.includes(".corrupt-") || name.startsWith(".")) continue;
-    if (match && !match.test(name)) continue;
+    if (only && !only.test(name)) continue;
     const d = DAY_RE.exec(name)?.[1];
     const m = d ? null : MONTH_RE.exec(name)?.[1];
     const last = d ?? (m ? monthEnd(m) : null);

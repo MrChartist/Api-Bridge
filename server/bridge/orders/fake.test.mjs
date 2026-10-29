@@ -53,6 +53,9 @@ describe("fake OrderService", () => {
     const admin = ctx(["admin"], { id: "admin1" });
     expect((await svc.tickets(admin)).map((t) => t.ticketId)).toEqual([pv.ticketId]);
     expect(await reject(svc.confirmTicket(ai, pv.ticketId))).toMatchObject({ code: "SCOPE_REQUIRED" });
+    for (const source of ["guard", "alert", "webhook"]) {
+      expect(await reject(svc.confirmTicket(ctx(["admin"], { source, id: "admin1" }), pv.ticketId)), source).toMatchObject({ code: "SCOPE_REQUIRED" });
+    }
     const { confirmToken } = await svc.confirmTicket(admin, pv.ticketId);
     expect(await reject(svc.place(ai, order({ quantity: 5, confirmToken })))).toMatchObject({ code: "CONFIRMATION_REQUIRED" });
     expect((await svc.place(ai, order({ confirmToken }))).order.source).toBe("mcp");

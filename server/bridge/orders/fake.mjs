@@ -23,6 +23,7 @@
 import { randomBytes } from "node:crypto";
 import { assertService } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
+import { isAutomatedContext } from "../core/context.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
 import { createIdempotencyStore } from "./idempotencyStore.mjs";
 import { IDEMPOTENCY_KEY_RE, TERMINAL_STATUSES, fingerprint, orderBody, parseOrderChanges, parseOrderRequest } from "./orderValidation.mjs";
@@ -292,7 +293,7 @@ export function createFakeOrderService({ accounts = ["paper"], liveAccounts = []
 
     async confirmTicket(ctx, ticketId) {
       if (ctx.principal?.kind !== "local" && !ctx.scopes?.has("admin")) throw new BridgeError("SCOPE_REQUIRED", 'This needs an API key with the "admin" scope.');
-      if (ctx.source === "mcp" || ctx.source === "webhook") throw new BridgeError("SCOPE_REQUIRED", "Only a person using the Bridge on this computer can confirm an order.");
+      if (isAutomatedContext(ctx)) throw new BridgeError("SCOPE_REQUIRED", "Only a person using the Bridge on this computer can confirm an order.");
       const r = tickets.confirm(String(ticketId), principal(ctx));
       return { confirmToken: r.confirmToken, expiresAt: r.expiresAt };
     },
