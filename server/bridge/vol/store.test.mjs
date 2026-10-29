@@ -86,6 +86,26 @@ describe("vol store", () => {
     expect(s.bytes()).toBeGreaterThan(0);
   });
 
+  it("compaction runs inside the write queue: appends from an overlapping tick are never lost", async () => {
+    const { root, s } = fresh();
+    for (let i = 0; i < 5; i++) s.putExpiryRows("NIFTY", [row("2026-10-28", "2026-11-03", 12 + i)]);
+    // Compaction and appends queued around it in the same turn, as a tick overlapping a capture would.
+    s.putExpiryRows("NIFTY", [row("2026-10-29", "2026-11-03", 13)]);
+    const job = s.compactAll({ today: "2026-10-29" });
+    s.putExpiryRows("NIFTY", [row("2026-10-29", "2026-11-10", 14)]);
+    s.putSummaries("NIFTY", [sum("2026-10-29")]);
+    await job;
+    await s.flush();
+    const again = createVolStore({ root });
+    again.load();
+    expect(again.expiryIndex("NIFTY").map((r) => [r.date, r.expiry, r.atmIv])).toEqual([
+      ["2026-10-28", "2026-11-03", 16],
+      ["2026-10-29", "2026-11-03", 13],
+      ["2026-10-29", "2026-11-10", 14],
+    ]);
+    expect(again.summaryOn("NIFTY", "2026-10-29")).not.toBeNull();
+  });
+
   it("predictions by month, last line per id; state round-trips", async () => {
     const { s } = fresh();
     await s.appendPredictions([

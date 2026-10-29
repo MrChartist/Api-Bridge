@@ -41,6 +41,17 @@ export function contextFromClock(clock) {
   };
 }
 
+/**
+ * Make `ctx` the page's clock; on a failed load (null), drop a context loaded for ANOTHER underlying so the labelled
+ * weekends-only default applies (another exchange's holidays and session would be wrong). A context for the same
+ * underlying stays (it is still the right calendar, only older).
+ */
+function apply(ctx, u) {
+  if (ctx) return setPricingContext(ctx);
+  const cur = getPricingContext();
+  if (cur?.loaded && cur.underlying !== u) setPricingContext(null);
+}
+
 async function defaultGet(path) {
   return (await api(path)).data?.data ?? null;
 }
@@ -51,8 +62,8 @@ export function clearClockCache() {
 }
 
 /**
- * Load the clock for an underlying and make it the page's context. Never throws: on failure the default context stays
- * (labelled "Holidays not loaded yet") and the route is asked again after CLOCK_RETRY_MS.
+ * Load the clock for an underlying and make it the page's context. Never throws: on failure the default context applies
+ * (labelled "Holidays not loaded yet"; a context loaded for another underlying is dropped) and the route is asked again after CLOCK_RETRY_MS.
  * @returns {Promise<object>} the context in force
  */
 export async function loadPricingContext(underlying, { force = false, now = Date.now(), get = defaultGet } = {}) {
@@ -60,8 +71,7 @@ export async function loadPricingContext(underlying, { force = false, now = Date
   if (!u) return getPricingContext();
   const hit = cache.get(u);
   if (!force && hit && now - hit.at < hit.ttl) {
-    const ctx = await hit.promise;
-    if (ctx) setPricingContext(ctx);
+    apply(await hit.promise, u);
     return getPricingContext();
   }
   const entry = { at: now, ttl: CLOCK_TTL_MS, promise: null };
@@ -69,15 +79,14 @@ export async function loadPricingContext(underlying, { force = false, now = Date
     try {
       const ctx = contextFromClock(await get(`/v1/vol/clock?underlying=${encodeURIComponent(u)}`));
       if (!ctx) throw new Error("Unexpected clock payload");
-      return ctx;
+      return { ...ctx, underlying: ctx.underlying ?? u };
     } catch {
       entry.ttl = CLOCK_RETRY_MS;
       return null;
     }
   })();
   cache.set(u, entry);
-  const ctx = await entry.promise;
-  if (ctx) setPricingContext(ctx);
+  apply(await entry.promise, u);
   return getPricingContext();
 }
 

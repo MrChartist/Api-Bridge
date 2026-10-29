@@ -2326,6 +2326,16 @@ export function priceBook(legs, { chains = new Map(), quotes = new Map(), inst =
 }
 
 /**
+ * Calendar days from a leg's pricing instant (t0, else `now`) to its expiry close: the `days` that puts a scenario at
+ * that expiry (legYearsAfter(leg, legDaysToExpiry(leg)) is 0). Never a vol-time T × 365 (T counts trading-day units).
+ */
+export function legDaysToExpiry(leg, now = Date.now(), close = undefined) {
+  const t0 = num(leg?.t0) ?? now;
+  const d = timeToExpiry(leg?.expiry, t0, getPricingContext(close).session.close ?? close ?? FALLBACK_SESSION.close).days;
+  return d === null ? 0 : Math.max(0, d);
+}
+
+/**
  * A leg's vol-time T `days` calendar days after it was priced: the clock read at that instant (a weekend costs its
  * weight, not two full days). Legs without an expiry and pricing instant fall back to calendar days.
  */

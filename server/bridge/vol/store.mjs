@@ -207,8 +207,11 @@ export function createVolStore({ root, logger = null, retentionDays = 3650, pred
    * Compaction and retention (§2.4 `compact`): rewrite a file when more than 20 % of its lines are superseded or rows
    * older than the retention cut-off exist. Prediction month files older than their retention are deleted.
    */
-  async function compactAll({ today }) {
-    await queue;
+  function compactAll({ today }) {
+    // Inside the write queue: an append from an overlapping tick can never land on a file being replaced.
+    return enqueue(() => compactNow({ today }));
+  }
+  function compactNow({ today }) {
     const cut = minusDays(today, retentionDays);
     const done = [];
     for (const [u, e] of byU) {

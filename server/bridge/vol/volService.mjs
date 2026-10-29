@@ -30,6 +30,8 @@ import { DEMO_VOL_UNDERLYINGS, isoIst, istAtHm, seedDemoHistory } from "./demoVo
 import { createVolStore } from "./store.mjs";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** An ISO-8601 instant with an explicit offset or Z (§3.2): no local-time or loose forms. */
+const INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
 const UNDERLYING_RE = /^[A-Z0-9&-]{1,30}$/;
 const DAY_MS = 86_400_000;
 const MINUTE = 60_000;
@@ -130,10 +132,19 @@ export function createVolService(deps) {
   let accountSelectedBy = s.account ? "config" : null;
   let lastBroker = null;
   const snapshots = new Map(); // u -> { at, data }
+  const snapshotBuilds = new Map(); // u -> Promise (one build shared by concurrent requests)
   let jobSeq = 0;
+  let stopped = false;
+  const jobs = new Set(); // ticks and captures in progress (stop() waits for them)
+  let tickChain = Promise.resolve();
+  const sleepers = new Set();
+  /** Refused stocks (beyond capacity, §7): { message, stocks } or null. Set at start. */
+  let capacityRefusal = null;
+  let capacityChecked = false;
 
   const tracked = () => {
-    const list = [...new Set([...s.underlyings, ...s.stocks])];
+    const refused = capacityRefusal?.stocks ?? [];
+    const list = [...new Set([...s.underlyings, ...s.stocks])].filter((u) => !refused.includes(u));
     return demo ? list.filter((u) => DEMO_VOL_UNDERLYINGS.includes(u)) : list;
   };
   const notListedInDemo = (u) => demo && !DEMO_VOL_UNDERLYINGS.includes(u);
@@ -233,8 +244,9 @@ export function createVolService(deps) {
   async function clockFor({ underlying, expiries, at } = {}) {
     const u = String(underlying ?? "").toUpperCase();
     if (!UNDERLYING_RE.test(u)) throw new BridgeError("VALIDATION_FAILED", "underlying is required, for example NIFTY.");
+    if (at !== undefined && at !== null && typeof at !== "number" && !INSTANT_RE.test(String(at))) throw invalid("at", "at must be an ISO-8601 instant with an offset, for example 2026-10-29T10:00:00+05:30.");
     const t = at === undefined || at === null ? now() : typeof at === "number" ? at : Date.parse(String(at));
-    if (!Number.isFinite(t)) throw new BridgeError("VALIDATION_FAILED", "at must be an ISO-8601 instant.");
+    if (!Number.isFinite(t)) throw invalid("at", "at must be an ISO-8601 instant with an offset, for example 2026-10-29T10:00:00+05:30.");
     const exchange = defaultOptionExchange(u);
     const today = istDate(t);
     let list = expiries;
@@ -279,39 +291,85 @@ export function createVolService(deps) {
       return null;
     }
   }
+  /** The ONE data account (§2.7): vol.account, else the recorder's, else the first account that serves option chains. */
   function dataAccount() {
     if (pinnedAccount) return pinnedAccount;
     const r = recorderAccount();
     if (r) {
       pinnedAccount = r;
       accountSelectedBy = "recorder";
+      return pinnedAccount;
+    }
+    if (usable(deps.accounts) && typeof deps.accounts.marketDataCandidates === "function") {
+      try {
+        const id = deps.accounts.marketDataCandidates({ capability: "optionChain" })?.[0];
+        if (id) {
+          pinnedAccount = id;
+          accountSelectedBy = "first-with-optionChain";
+        }
+      } catch {
+        // no account yet; asked again on the next call
+      }
     }
     return pinnedAccount;
   }
 
-  /** Wait for background headroom on the data account; false when it does not come before `deadline`. */
-  async function headroom(deadline) {
+  /** A sleep that does not hold the process open and that stop() ends at once. */
+  function sleep(ms) {
+    return new Promise((resolve) => {
+      // The injected clock's timers when it has them (manual clocks in tests), else the process's.
+      const own = typeof clock.setTimeout === "function" && typeof clock.clearTimeout === "function";
+      const done = () => {
+        if (own) clock.clearTimeout(handle);
+        else clearTimeout(handle);
+        sleepers.delete(done);
+        resolve();
+      };
+      const handle = own ? clock.setTimeout(done, ms) : setTimeout(done, ms);
+      handle?.unref?.();
+      sleepers.add(done);
+    });
+  }
+
+  /**
+   * The background gate (README §3.3, C12) before ONE broker call of class `cls` ("chain", "quote", "history") on the
+   * data account. `wait: false` asks once (user-facing paths never wait); otherwise it waits for headroom until
+   * `deadline`. Fails closed: no data account, or a gate error, is "no headroom". Without a scheduler (tests, no broker
+   * budget) every call may go.
+   */
+  async function headroom(cls, { deadline = Infinity, wait = true } = {}) {
+    if (stopped) return false;
+    if (demo || !gate) return true;
     const acc = dataAccount();
-    if (!gate || !acc) return true;
+    if (!acc) return false;
+    const opts = { share: s.capture.budgetShare };
     for (let i = 0; i < 20; i++) {
       let w;
       try {
-        if (gate.allow(acc, "chain", { share: s.capture.budgetShare })) return true;
-        w = gate.waitMs(acc, "chain", { share: s.capture.budgetShare });
+        if (gate.allow(acc, cls, opts)) return true;
+        w = gate.waitMs(acc, cls, opts);
       } catch {
-        return true;
+        return false;
       }
-      if (now() + w > deadline) return false;
-      await new Promise((r) => setTimeout(r, Math.min(Math.max(w, 50), 5000)));
+      if (!wait || now() + w > deadline) return false;
+      await sleep(Math.min(Math.max(w, 50), 5000));
+      if (stopped) return false;
     }
     return false;
   }
+  /** Options for a gated background call: background priority inside the share, pinned to the data account. */
+  const bgOpts = (extra = {}) => {
+    const o = { priority: "background", backgroundShare: s.capture.budgetShare, ...extra };
+    const acc = dataAccount();
+    if (acc) o.accountId = acc;
+    return o;
+  };
 
   /**
    * One chain: the recorder's snapshot when it is fresh, else a background broker read pinned to the data account.
    * Null when the background budget has no room before `deadline`.
    */
-  async function readChain(u, expiry, t, { maxAgeMs = 30_000, deadline = Infinity } = {}) {
+  async function readChain(u, expiry, t, { maxAgeMs = 30_000, deadline = Infinity, wait = true } = {}) {
     // Demo never spends the (demo) broker budget: the chains come from the demo adapter's own prices, as the seeding.
     if (demo) {
       const chain = demoChainAt(u, expiry, t, s.capture.strikesEachSide);
@@ -329,10 +387,8 @@ export function createVolService(deps) {
       }
     }
     if (!usable(deps.marketData)) throw new BridgeError("CAPABILITY_UNSUPPORTED", "No market data service.", { reason: "NO_DATA_ACCOUNT" });
-    if (!(await headroom(deadline))) return null;
-    const opts = { priority: "background", backgroundShare: s.capture.budgetShare, maxAgeMs };
-    const acc = dataAccount();
-    if (acc) opts.accountId = acc;
+    if (!(await headroom("chain", { deadline, wait }))) return null;
+    const opts = bgOpts({ maxAgeMs });
     const chain = await deps.marketData.optionChain({ underlying: u, expiry, strikes: s.capture.strikesEachSide, greeks: false }, opts);
     const f = chain?.freshness ?? {};
     if (!pinnedAccount && f.accountId) {
@@ -343,22 +399,24 @@ export function createVolService(deps) {
     return { chain, source: demo ? "demo" : "broker", broker: f.broker ?? null, accountId: f.accountId ?? null };
   }
 
-  async function listedFor(u) {
+  /** Listed expiries, or null when the background budget has no room (gated on the chain class). */
+  async function listedFor(u, { deadline = Infinity, wait = true } = {}) {
     if (demo) return demoExpiries(u, now(), 6);
     if (!usable(deps.marketData)) return [];
-    const opts = { priority: "background" };
-    const acc = dataAccount();
-    if (acc) opts.accountId = acc;
-    const r = await deps.marketData.expiries(u, opts);
+    if (!(await headroom("chain", { deadline, wait }))) return null;
+    const r = await deps.marketData.expiries(u, bgOpts());
     return (r?.expiries ?? []).map((e) => (typeof e === "string" ? e : e?.date)).filter((e) => DATE_RE.test(String(e)));
   }
 
   const sourceOf = (f) => (demo ? "demo" : f?.source === "backup" ? "yahoo" : "broker");
-  async function vixQuote() {
+  /** Extra wait for the quote and history calls after the chains (they are not bound to close − 0.5 min). */
+  const SIDE_WAIT_MS = 15_000;
+  async function vixQuote({ wait = true } = {}) {
     if (demo) return { value: demoSpot("INDIAVIX", now()), source: "demo" };
     if (!usable(deps.marketData)) return null;
+    if (!(await headroom("quote", { deadline: now() + SIDE_WAIT_MS, wait }))) return null;
     try {
-      const r = await deps.marketData.quotes([s.vix.symbol], { priority: "background" });
+      const r = await deps.marketData.quotes([s.vix.symbol], bgOpts());
       const q = r?.items?.[0];
       return num(q?.ltp) !== null ? { value: q.ltp, source: sourceOf(q.freshness) } : null;
     } catch {
@@ -368,8 +426,9 @@ export function createVolService(deps) {
   async function spotQuote(u) {
     if (demo) return demoSpot(u, now());
     if (!usable(deps.marketData)) return null;
+    if (!(await headroom("quote", { deadline: now() + SIDE_WAIT_MS }))) return null;
     try {
-      const r = await deps.marketData.quotes([spotSymbolOf(u)], { priority: "background" });
+      const r = await deps.marketData.quotes([spotSymbolOf(u)], bgOpts());
       return num(r?.items?.[0]?.ltp);
     } catch {
       return null;
@@ -378,8 +437,10 @@ export function createVolService(deps) {
   async function dailyBars(u) {
     if (demo) return { bars: demoCandles(`DM-${u}`, "1d", now() - 110 * DAY_MS, now()).slice(-70), source: "demo" };
     if (!usable(deps.marketData)) return { bars: [], source: null };
+    if (!(await headroom("history", { deadline: now() + SIDE_WAIT_MS }))) return { bars: [], source: null };
     try {
-      const r = await deps.marketData.history({ symbol: spotSymbolOf(u), interval: "1d", countback: 70 }, { priority: "background", allowBackup: true });
+      // Unpinned so a broker without daily bars can fall back to the backup source; the scheduler still keeps the share.
+      const r = await deps.marketData.history({ symbol: spotSymbolOf(u), interval: "1d", countback: 70 }, { priority: "background", backgroundShare: s.capture.budgetShare, allowBackup: true });
       return { bars: r?.candles ?? [], source: sourceOf(r?.freshness) };
     } catch {
       return { bars: [], source: null };
@@ -388,20 +449,38 @@ export function createVolService(deps) {
 
   // ── capture (§2.7) ──
 
+  /** The session close of `u`'s exchange on the day of `t` (epoch ms). */
+  function closeOf(u, t) {
+    const sess = sessionFor(defaultOptionExchange(u), t);
+    return istAtHm(sess.date, sess.close);
+  }
+  /**
+   * A row a manual capture took before close − 5 min: provisional. The scheduled capture (or the late one) still
+   * takes the day's row, and the close fills its closing VIX and spot.
+   */
+  function provisional(row, closeMs) {
+    if (!row || row.missed || row.trigger !== "manual") return false;
+    const at = Date.parse(String(row.capturedAt ?? ""));
+    return Number.isFinite(at) && at < closeMs - s.capture.minutesBeforeClose * MINUTE;
+  }
+
   /** Capture one underlying at `t`: { underlying, status: "ok"|"partial"|"failed"|"skipped", reason?, rows }. */
   async function captureOne(u, { t, trigger, late = false, deadline = Infinity, closeMs = null, replace = false }) {
     const date = istDate(t);
     const exchange = defaultOptionExchange(u);
+    // A manual run has no close from the scheduler: the session's, so closing values are taken only after the close.
+    const close = closeMs ?? closeOf(u, t);
     const prev = store?.summaryOn(u, date);
-    if (prev && !prev.missed && !replace && (trigger === "manual" || trigger === "scheduled")) return { underlying: u, status: "skipped", reason: "ALREADY_CAPTURED", rows: 0 };
+    if (prev && !prev.missed && !replace && (trigger === "manual" || (trigger === "scheduled" && !provisional(prev, close)))) return { underlying: u, status: "skipped", reason: "ALREADY_CAPTURED", rows: 0 };
     if (!demo && !usable(deps.marketData) && !usable(deps.recorder)) return { underlying: u, status: "failed", reason: "NO_DATA_ACCOUNT", rows: 0 };
     const ctx = ctxFor(u, t);
     let listed;
     try {
-      listed = await listedFor(u);
+      listed = await listedFor(u, { deadline });
     } catch (err) {
       return { underlying: u, status: "failed", reason: err?.code === "NO_ACCOUNT" || err?.code === "CAPABILITY_UNSUPPORTED" ? "NO_DATA_ACCOUNT" : "CHAIN_FAILED", rows: 0 };
     }
+    if (listed === null) return { underlying: u, status: "failed", reason: "CHAIN_FAILED", rows: 0 };
     const exps = chooseExpiries(listed, { today: date, target: cmTargetDate(ctx, date), maxPerUnderlying: s.expiries.maxPerUnderlying, maxCalendarDays: s.expiries.maxCalendarDays });
     const rows = [];
     const strikes = new Map();
@@ -409,7 +488,7 @@ export function createVolService(deps) {
     let lastErr = null;
     let spot = null;
     for (const e of exps) {
-      if (now() > deadline) {
+      if (stopped || now() > deadline) {
         partial = true;
         break;
       }
@@ -426,8 +505,9 @@ export function createVolService(deps) {
         break;
       }
       spot = num(got.chain?.underlyingLtp) ?? spot;
+      // T at the instant this chain was read (on expiry day the window term moves fast between 15:25 and 15:29).
       const at = now();
-      const row = expiryRow(got.chain, ctx, t, e, {
+      const row = expiryRow(got.chain, at === t ? ctx : ctxFor(u, at), at, e, {
         underlying: u,
         exchange,
         kind: kindOf(u),
@@ -438,13 +518,16 @@ export function createVolService(deps) {
         broker: got.broker,
         accountId: got.accountId,
         capturedAt: isoIst(at),
-        partialWindow: closeMs !== null && at > closeMs - 30_000 && at < closeMs,
+        partialWindow: at > close - 30_000 && at < close,
       });
+      // A late capture needs two-sided ATM quotes and a parity forward (§2.4): after the close stale LTPs are refused.
+      if (row && late && (row.flags ?? []).some((f) => f === "ONE_SIDED_ATM" || f === "FORWARD_SPOT")) continue;
       if (row) {
         rows.push(row);
         strikes.set(e, (got.chain.rows ?? []).map((r) => r.strike));
       }
     }
+    if (stopped) return { underlying: u, status: "failed", reason: "CHAIN_FAILED", rows: 0 };
     if (!rows.length) {
       const reason = lastErr?.details?.reason === "NO_DATA_ACCOUNT" || lastErr?.code === "NO_ACCOUNT" ? "NO_DATA_ACCOUNT" : "CHAIN_FAILED";
       return { underlying: u, status: "failed", reason, rows: 0 };
@@ -452,9 +535,10 @@ export function createVolService(deps) {
     if (rows.length < exps.length) partial = true;
     const vix = await vixQuote();
     const { bars, source: hvSource } = await dailyBars(u);
-    const afterClose = closeMs === null || t >= closeMs;
+    const afterClose = t >= close;
     const prevRows = store ? store.summaries(u).filter((r) => r.date < date && !r.missed) : [];
-    const summary = summaryRow({
+    const summary = {
+      ...summaryRow({
       underlying: u,
       rows,
       ctx,
@@ -466,7 +550,10 @@ export function createVolService(deps) {
       hv: bars.length ? hvOf(bars, hvSource) : null,
       spotClose: afterClose ? ((await spotQuote(u)) ?? spot) : null,
       prevFront: prevRows.at(-1)?.front?.expiry ?? null,
-    });
+      }),
+      trigger,
+      capturedAt: isoIst(t),
+    };
     if (store) {
       store.putExpiryRows(u, rows);
       store.putSummaries(u, [summary]);
@@ -519,10 +606,27 @@ export function createVolService(deps) {
     return store.putSummaries(u, out.slice(-MAX_MISSED_BACKFILL));
   }
 
-  /** The scheduler's minute tick (§2.4). Exposed for tests. */
-  async function tick(t = now()) {
+  /** The scheduler's minute tick (§2.4). Exposed for tests. One at a time: an overlapping tick waits for the last. */
+  function tick(t = now()) {
+    if (stopped) return Promise.resolve([]);
+    const run = tickChain.then(() => (stopped ? [] : tickNow(t)));
+    tickChain = run.catch(() => {});
+    return track(run);
+  }
+  /** Remember a running job so stop() can wait for it. */
+  function track(p) {
+    const settled = p.then(
+      () => {},
+      () => {},
+    );
+    jobs.add(settled);
+    settled.then(() => jobs.delete(settled));
+    return p;
+  }
+  async function tickNow(t) {
     ensureLoaded();
     if (!store) return [];
+    if (!demo && !capacityChecked) applyCapacity();
     // Demo: the scheduler starts after the seeded history exists (a capture first would leave the store unseeded).
     if (demo && (seeding || store.isEmpty())) return [];
     const ran = [];
@@ -539,7 +643,8 @@ export function createVolService(deps) {
       const closeMs = istAtHm(sess.date, sess.close);
       const date = sess.date;
       if (t >= closeMs - cap.minutesBeforeClose * MINUTE && t < closeMs) {
-        const due = us.filter((u) => !dayState(date, u).attempted && !store.summaryOn(u, date));
+        // A manual row from earlier in the day does not stand in for the close − 5 capture.
+        const due = us.filter((u) => !dayState(date, u).attempted && (!store.summaryOn(u, date) || provisional(store.summaryOn(u, date), closeMs)));
         if (due.length && !running) {
           for (const u of due) dayState(date, u).attempted = true;
           ran.push(...(await guarded(due, { trigger: "scheduled", deadline: closeMs - 30_000, closeMs, t })));
@@ -551,7 +656,7 @@ export function createVolService(deps) {
         for (const u of us) {
           const ds = dayState(date, u);
           const row = store.summaryOn(u, date);
-          if (!row || row.missed) {
+          if (!row || row.missed || provisional(row, closeMs)) {
             if (ds.attempted && !ds.retried) retry.push(u);
             else if (!ds.attempted && !ds.lateTried) lateList.push(u);
           } else if (row.partial && !ds.retried) retry.push(u);
@@ -560,7 +665,7 @@ export function createVolService(deps) {
           for (const u of retry) dayState(date, u).retried = true;
           for (const u of lateList) dayState(date, u).lateTried = true;
           if (retry.length) ran.push(...(await guarded(retry, { trigger: "retry", closeMs, replace: true, t })));
-          if (lateList.length) ran.push(...(await guarded(lateList, { trigger: "late", late: true, closeMs, t })));
+          if (lateList.length) ran.push(...(await guarded(lateList, { trigger: "late", late: true, closeMs, replace: true, t })));
         }
         // The closing VIX and spot on rows captured before the close (once per underlying and day).
         for (const u of us) {
@@ -624,13 +729,15 @@ export function createVolService(deps) {
     const jobId = `cap_${(jobSeq += 1)}`;
     const startedAt = toIstIso(t);
     running = { jobId, underlyings: list, startedAt, trigger: "manual" };
-    const p = (async () => {
-      try {
-        return await runCapture(list, { trigger: "manual", replace: Boolean(replace), t });
-      } finally {
-        running = null;
-      }
-    })();
+    const p = track(
+      (async () => {
+        try {
+          return await runCapture(list, { trigger: "manual", replace: Boolean(replace), t });
+        } finally {
+          running = null;
+        }
+      })(),
+    );
     if (!wait) {
       p.catch((err) => log?.warn?.("vol capture failed", { err: err?.message }));
       return { jobId, underlyings: list, startedAt };
@@ -662,13 +769,30 @@ export function createVolService(deps) {
     return [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1)).map((r) => ({ date: r.date, iv: slimIv(r, clock, mode), quality: r.quality }));
   }
 
-  /** IVR/IVP per lookback (§6.7) over the stored days before today that have a row. */
+  const windowStarts = new Map();
+  /** The first date of the last `n` trading days before `today` (on `exchange`'s calendar). */
+  function windowStart(today, n, exchange) {
+    const key = `${today}|${n}|${exchange}`;
+    if (windowStarts.has(key)) return windowStarts.get(key);
+    let d = today;
+    for (let k = 0, i = 0; k < n && i < n * 2 + 60; i++) {
+      d = addDays(d, -1);
+      if (isTradingDate(d, exchange)) k += 1;
+    }
+    if (windowStarts.size > 200) windowStarts.clear();
+    windowStarts.set(key, d);
+    return d;
+  }
+
+  /** IVR/IVP per lookback (§6.7) over the last N trading days before today that have a row (missed days shrink n). */
   function rankCore(u, { basis = "cm30", lookbacks = s.lookbacks, quality = "all", clock = mode, expiry = null, current }) {
     const today = istDate(now());
     const all = store ? seriesOf(u, { basis, expiry, quality, clock, before: today }) : [];
+    const exchange = defaultOptionExchange(u);
     return {
       lookbacks: lookbacks.map((days) => {
-        const win = all.slice(-days);
+        const from = windowStart(today, days, exchange);
+        const win = all.filter((v) => v.date >= from);
         const r = ivRank(win, current, { minN: s.minRankDays });
         const liveN = win.filter((v) => v.quality === "live").length;
         const out = {
@@ -942,10 +1066,15 @@ export function createVolService(deps) {
 
   // ── snapshot (§2.8) ──
 
+  /**
+   * Front + the 30-day pair from live chains. User-facing: every budget check asks once and never waits (§2.8); with no
+   * headroom it returns null (the caller serves the last snapshot, marked stale).
+   */
   async function buildSnapshot(u, t) {
     const ctx = ctxFor(u, t);
     const today = istDate(t);
-    const listed = await listedFor(u);
+    const listed = await listedFor(u, { wait: false });
+    if (listed === null) return null;
     const target = cmTargetDate(ctx, today);
     const front = listed.find((e) => e > today) ?? null;
     const pair = chooseExpiries(listed, { today, target, maxPerUnderlying: 2, maxCalendarDays: s.expiries.maxCalendarDays });
@@ -953,7 +1082,7 @@ export function createVolService(deps) {
     const rows = [];
     let spot = null;
     for (const e of exps) {
-      const got = await readChain(u, e, t, { maxAgeMs: s.snapshotTtlSeconds * 1000 });
+      const got = await readChain(u, e, t, { maxAgeMs: s.snapshotTtlSeconds * 1000, wait: false });
       if (!got) break;
       spot = num(got.chain?.underlyingLtp) ?? spot;
       const row = expiryRow(got.chain, ctx, t, e, { underlying: u, exchange: defaultOptionExchange(u), kind: kindOf(u), quality: "live-snapshot", trigger: "snapshot", source: got.source, broker: got.broker, capturedAt: isoIst(t) });
@@ -961,7 +1090,7 @@ export function createVolService(deps) {
     }
     if (!rows.length) return null;
     const cm = cm30Of(rows, ctx, t);
-    const vix = await vixQuote();
+    const vix = await vixQuote({ wait: false });
     return { asOf: isoIst(t), stale: false, spot, rows, vix, cm30: { iv: cm[mode], ivCal: cm.calendar, method: cm.method, expiries: cm.expiries, targetDate: cm.targetDate, byClock: { weighted: cm.weighted, trading: cm.trading, calendar: cm.calendar } } };
   }
 
@@ -976,8 +1105,20 @@ export function createVolService(deps) {
     let data = cached && t - cached.at < s.snapshotTtlSeconds * 1000 ? cached.data : null;
     if (!data) {
       try {
-        data = await buildSnapshot(u, t);
-        if (data) snapshots.set(u, { at: t, data });
+        // Concurrent requests share one build (one set of expiry, chain and quote calls).
+        let build = snapshotBuilds.get(u);
+        if (!build) {
+          build = buildSnapshot(u, t).then((d) => {
+            if (d) snapshots.set(u, { at: t, data: d });
+            return d;
+          });
+          snapshotBuilds.set(u, build);
+          build.then(
+            () => snapshotBuilds.delete(u),
+            () => snapshotBuilds.delete(u),
+          );
+        }
+        data = await build;
       } catch (err) {
         if (!cached) return { underlying: u, available: false, reason: err?.details?.reason === "NO_DATA_ACCOUNT" ? "NO_DATA_ACCOUNT" : "NO_CHAIN" };
       }
@@ -1042,6 +1183,85 @@ export function createVolService(deps) {
     return null;
   }
 
+  const brokerName = (b) => (b ? `${String(b).charAt(0).toUpperCase()}${String(b).slice(1)}` : "broker");
+  /**
+   * The 15:25 window's chain capacity (§7): (window × background chain calls a minute − index calls) ÷ 2 chains a
+   * stock. Indices always fit first; stocks beyond the capacity are refused at start. Null fields when it cannot be read.
+   */
+  function capacityNow() {
+    const window = s.capture.minutesBeforeClose - 0.5;
+    const all = [...new Set([...s.underlyings, ...s.stocks])];
+    const stocks = all.filter((u) => !s.underlyings.includes(u));
+    const indexCalls = all.filter((u) => s.underlyings.includes(u)).length * s.expiries.maxPerUnderlying;
+    const callsNeeded = indexCalls + stocks.length * 2;
+    const refused = capacityRefusal ? { stocks: [...capacityRefusal.stocks], message: capacityRefusal.message } : null;
+    if (demo) return { chainCallsPerMin: null, windowMinutes: window, callsNeeded, fits: true, maxStocksThatFit: null, refused: null, basis: "Demo: chains come from the demo prices on this computer; no broker budget is used" };
+    if (recorderAccount()) return { chainCallsPerMin: null, windowMinutes: window, callsNeeded, fits: true, maxStocksThatFit: null, refused: null, basis: "chains are read from the recorder's snapshots: no extra chain calls" };
+    const acc = gate ? dataAccount() : null;
+    if (acc) {
+      try {
+        const { calls, limitText } = windowCalls(acc, window);
+        if (calls === Infinity) return { chainCallsPerMin: null, windowMinutes: window, callsNeeded, fits: true, maxStocksThatFit: null, refused: null, basis: "no broker rate window on this account" };
+        const perMin = Math.floor(calls / window);
+        let broker = lastBroker;
+        try {
+          broker = usable(deps.accounts) ? (deps.accounts.get(acc)?.broker ?? broker) : broker;
+        } catch {
+          // keep the last broker seen
+        }
+        const maxStocks = Math.max(0, Math.floor((calls - indexCalls) / 2));
+        return { chainCallsPerMin: perMin, windowMinutes: window, callsNeeded, fits: calls >= callsNeeded, maxStocksThatFit: maxStocks, refused, broker, basis: `chain limit ${limitText} × budgetShare ${s.capture.budgetShare}, keeping every window at least half free (broker policy, unverified)` };
+      } catch {
+        // fall through
+      }
+    }
+    return { chainCallsPerMin: null, windowMinutes: window, callsNeeded, fits: null, maxStocksThatFit: null, refused, basis: usable(deps.recorder) ? "chains are read from the recorder when it has a fresh snapshot" : "no data account chosen yet" };
+  }
+
+  /**
+   * Background chain calls that fit in `minutes` on the data account: for every window of the chain class, what the
+   * gate leaves to background work (limit − ⌈(1 − share) × limit⌉), scaled to the capture window; the tightest wins.
+   */
+  function windowCalls(acc, minutes) {
+    const share = s.capture.budgetShare;
+    const spanMs = minutes * MINUTE;
+    const msOf = (name) => {
+      const m = /^(\d+)(s|m|h)$/.exec(String(name));
+      if (m) return Number(m[1]) * (m[2] === "s" ? 1000 : m[2] === "m" ? MINUTE : 60 * MINUTE);
+      return name === "day" ? DAY_MS : null;
+    };
+    let ws = null;
+    if (typeof deps.scheduler.headroomWindows === "function") ws = deps.scheduler.headroomWindows(acc, "chain")?.windows ?? null;
+    if (!ws) {
+      const h = deps.scheduler.headroom(acc, "chain");
+      ws = [{ window: "1m", limit: h.limit }];
+    }
+    let calls = Infinity;
+    const parts = [];
+    for (const w of ws) {
+      const ms = msOf(w.window);
+      if (!Number.isFinite(w.limit) || !ms) continue;
+      const bg = Math.max(0, w.limit - Math.ceil((1 - share) * w.limit));
+      calls = Math.min(calls, ms <= spanMs ? bg * (spanMs / ms) : bg);
+      parts.push(`${w.limit}/${w.window}`);
+    }
+    return { calls: Number.isFinite(calls) ? Math.floor(calls) : Infinity, limitText: parts.join(", ") || "none" };
+  }
+
+  /** At start: refuse the configured stocks beyond the window's capacity (§7), with the reason in status and the log. */
+  function applyCapacity() {
+    capacityRefusal = null;
+    const c = capacityNow();
+    // Known once there is a data account (or the recorder, or no broker window); until then asked again each tick.
+    capacityChecked = c.fits !== null;
+    const stocks = [...new Set(s.stocks)].filter((u) => !s.underlyings.includes(u));
+    if (c.maxStocksThatFit === null || stocks.length <= c.maxStocksThatFit) return;
+    const kept = stocks.slice(0, c.maxStocksThatFit);
+    const message = `Your ${brokerName(c.broker)} account can capture ${c.maxStocksThatFit} stocks in the 15:25 window; ${stocks.length} are configured`;
+    capacityRefusal = { stocks: stocks.slice(kept.length), message };
+    log?.warn?.("vol stocks beyond capacity are not captured", { message, refused: capacityRefusal.stocks });
+  }
+
   /** GET /v1/vol/status (§3.8). Never returns an account id. */
   function status() {
     ensureLoaded();
@@ -1050,6 +1270,7 @@ export function createVolService(deps) {
     const all = [...new Set([...s.underlyings, ...s.stocks])];
     const underlyings = all.map((u) => {
       if (notListedInDemo(u)) return { underlying: u, available: false, reason: "NOT_LISTED_IN_DEMO" };
+      if (capacityRefusal?.stocks.includes(u)) return { underlying: u, available: false, reason: "BEYOND_CAPACITY", message: capacityRefusal.message };
       const sums = store ? store.summaries(u) : [];
       const last = sums.filter((r) => !r.missed).at(-1) ?? null;
       return {
@@ -1062,20 +1283,7 @@ export function createVolService(deps) {
         nextRunAt: nextRunAt(u, t),
       };
     });
-    const acc = dataAccount();
-    const window = s.capture.minutesBeforeClose - 0.5;
-    const callsNeeded = tracked().length * s.expiries.maxPerUnderlying;
-    let capacity = demo ? { chainCallsPerMin: null, windowMinutes: window, callsNeeded, fits: true, maxStocksThatFit: null, basis: "Demo: chains come from the demo prices on this computer; no broker budget is used" } : null;
-    if (!capacity && gate && acc) {
-      try {
-        const h = deps.scheduler.headroom(acc, "chain");
-        const perMin = Math.floor((h.limit ?? 0) * s.capture.budgetShare);
-        capacity = { chainCallsPerMin: perMin, windowMinutes: window, callsNeeded, fits: perMin * window >= callsNeeded, maxStocksThatFit: Math.max(0, Math.floor((perMin * window - callsNeeded) / 2)), basis: `chain limit ${h.limit} a minute × budgetShare ${s.capture.budgetShare} (broker policy, unverified)` };
-      } catch {
-        capacity = null;
-      }
-    }
-    capacity ??= { chainCallsPerMin: null, windowMinutes: window, callsNeeded, fits: null, maxStocksThatFit: null, basis: usable(deps.recorder) ? "chains are read from the recorder when it has a fresh snapshot" : "no data account chosen yet" };
+    const capacity = capacityNow();
     return {
       demo,
       clock: { version: "vt1", mode },
@@ -1174,6 +1382,8 @@ export function createVolService(deps) {
       seedTimer.unref?.();
     }
     // Missed rows for trading days the Bridge was off (§2.4); then today's jobs (late capture, missed row).
+    stopped = false;
+    if (!demo) applyCapacity();
     if (!demo) for (const u of tracked()) writeMissedSinceLast(u, istDate(now()));
     await tick().catch((err) => log?.warn?.("vol tick failed", { err: err?.message }));
     if (!timer) {
@@ -1184,10 +1394,14 @@ export function createVolService(deps) {
     }
   }
   async function stop() {
+    stopped = true;
     if (seedTimer) clearTimeout(seedTimer);
     seedTimer = null;
     if (timer) clearInterval(timer);
     timer = null;
+    // End any wait for budget, then let the running capture finish its current step before the last flush.
+    for (const wake of [...sleepers]) wake();
+    await Promise.all([...jobs]);
     if (seeding) await seeding.catch(() => {});
     if (store) await store.flush();
   }

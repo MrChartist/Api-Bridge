@@ -60,12 +60,13 @@ describe("vol read routes (demo store)", () => {
   it("rank: three lookbacks, same-DTE, VIX and definitions; demoPartial shows 34 of 252", async () => {
     const r = (await routes.rank(ctx({ underlying: "NIFTY" }))).data;
     expect(r).toMatchObject({ underlying: "NIFTY", basis: "cm30", clock: "weighted", available: true, current: { source: "last-capture" } });
+    // The windows are the last N trading days (§6.7): the seed's one missed day (12 Oct) leaves n one short, partial.
     expect(r.lookbacks.map((l) => [l.days, l.n, l.partial])).toEqual([
-      [30, 30, false],
-      [90, 90, false],
-      [252, 252, false],
+      [30, 29, true],
+      [90, 89, true],
+      [252, 251, true],
     ]);
-    expect(r.lookbacks[2]).toMatchObject({ liveN: 34, backfillN: 218 });
+    expect(r.lookbacks[2]).toMatchObject({ liveN: 34, backfillN: 217 });
     for (const l of r.lookbacks) {
       expect(l.ivr).toBeGreaterThanOrEqual(0);
       expect(l.ivr).toBeLessThanOrEqual(100);
@@ -77,7 +78,7 @@ describe("vol read routes (demo store)", () => {
     expect(r.definitions.ivp).toMatch(/below current/);
     const p = (await routes.rank(ctx({ underlying: "NIFTY", demoPartial: "1" }))).data;
     expect(p.lookbacks[2]).toMatchObject({ days: 252, n: 34, liveN: 34, partial: true });
-    expect(p.lookbacks[0]).toMatchObject({ days: 30, n: 30, partial: false });
+    expect(p.lookbacks[0]).toMatchObject({ days: 30, n: 29, partial: true });
     // Fewer than minRankDays: collecting, no rank.
     const few = (await routes.rank(ctx({ underlying: "NIFTY", lookbacks: "10" }))).data.lookbacks[0];
     expect(few).toMatchObject({ n: 10, ivr: null, ivp: null, reason: "COLLECTING" });
@@ -103,7 +104,7 @@ describe("vol read routes (demo store)", () => {
 
   it("demoPartial is ignored outside demo mode", async () => {
     const plain = createVolRoutes(svc, { config: { demo: false } });
-    expect((await plain.rank(ctx({ underlying: "NIFTY", demoPartial: "1" }))).data.lookbacks[2].n).toBe(252);
+    expect((await plain.rank(ctx({ underlying: "NIFTY", demoPartial: "1" }))).data.lookbacks[2].n).toBe(251);
   });
 
   it("history: gaps, coverage, quality, clock conversion, cursor paging and CSV", async () => {
@@ -155,7 +156,7 @@ describe("vol read routes (demo store)", () => {
 
   it("snapshot, summary, status, clock and predictions; no accountId anywhere", async () => {
     const snap = (await routes.snapshot(ctx({ underlying: "NIFTY" }))).data;
-    expect(snap).toMatchObject({ underlying: "NIFTY", available: true, stale: false, rank: { lookback: 252, n: 252 }, clock: { mode: "weighted" } });
+    expect(snap).toMatchObject({ underlying: "NIFTY", available: true, stale: false, rank: { lookback: 252, n: 251 }, clock: { mode: "weighted" } });
     expect(snap.rows.length).toBeGreaterThanOrEqual(2);
     const partial = (await routes.snapshot(ctx({ underlying: "NIFTY", demoPartial: "true" }))).data;
     expect(partial.rank).toMatchObject({ n: 34, partial: true });
@@ -163,7 +164,7 @@ describe("vol read routes (demo store)", () => {
     expect((await routes.rank(ctx({ underlying: "NIFTY" }))).data.current.source).toBe("live-snapshot");
     const sum = (await routes.summary(ctx({ underlyings: "NIFTY,BANKEX,RELIANCE" }))).data;
     expect(sum.items).toEqual([
-      expect.objectContaining({ underlying: "NIFTY", available: true, n: 252, liveN: 34 }),
+      expect.objectContaining({ underlying: "NIFTY", available: true, n: 251, liveN: 34 }),
       { underlying: "BANKEX", available: false, reason: "NOT_LISTED_IN_DEMO", n: 0 },
       { underlying: "RELIANCE", available: false, reason: "NOT_LISTED_IN_DEMO", n: 0 },
     ]);

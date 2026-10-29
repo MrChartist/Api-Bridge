@@ -384,11 +384,13 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     return m ? (m / spot) * 100 : null;
   };
   // Calendar days for display; pricing T comes from the vol-time clock (options.js yearsToExpiry).
-  const daysTo = (e) => Math.max(0, Math.round(O.timeToExpiry(e, Date.now(), refSession(st.ref).close).days ?? 0));
+  // Whole days for the day slider: rounded up, so its last step reaches the expiry close (1e-6 absorbs float noise).
+  const daysTo = (e) => Math.max(0, Math.ceil((O.timeToExpiry(e, Date.now(), refSession(st.ref).close).days ?? 0) - 1e-6));
   const maxDays = () => Math.max(0, ...included().map((l) => daysTo(l.expiry)));
+  /** Calendar days from the nearest leg's pricing instant to its expiry close (never the vol-time T × 365). */
   const firstDays = () => {
     const n = nearest();
-    return n ? Math.max(0, n.T * 365) : 0;
+    return n ? O.legDaysToExpiry(n, Date.now(), refSession(st.ref).close) : 0;
   };
 
   // ── Panels ──
@@ -1089,7 +1091,8 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     if (!ref || num(ref.F) === null) return null;
     const F = ref.F;
     const m = O.sigmaMove(F, ref.atmIv ?? ref.iv, ref.T) ?? F * 0.02;
-    const days = Math.max(0, ...inc.map((l) => (l.T ?? 0) * 365).filter((x) => x <= (ref.T ?? 0) * 365 + 1e-9));
+    // At the reference leg's expiry close, in calendar days from its pricing instant.
+    const days = O.legDaysToExpiry(ref, Date.now(), refSession(st.ref).close);
     const vals = [];
     for (let i = 0; i <= 40; i++) {
       const x = F - 2.6 * m + (5.2 * m * i) / 40;
@@ -1381,7 +1384,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     for (let i = 0; i <= 200; i++) xs.push(F * Math.exp(-4 * sd + (8 * sd * i) / 200));
     for (const x of inc) if (x.kind === "OPT" && x.strike > xs[0] && x.strike < xs[200]) xs.push(x.strike);
     xs.sort((a, c) => a - c);
-    const days = (ref.T ?? 0) * 365;
+    const days = O.legDaysToExpiry(ref, Date.now(), refSession(st.ref).close);
     const stt = O.bookCurveStats((x) => O.scenarioPnl(inc, { dS: x / F - 1, days }), xs);
     return { delta: g.delta, theta: g.theta, min: stt?.min ?? null, unlimited: Boolean(stt?.unlimitedDown), first };
   }
@@ -2061,7 +2064,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         return h("button", { type: "button", class: "small chip-btn", disabled: p === null, "aria-pressed": String(p !== null && p === sc.pct), onclick: () => setScenario({ pct: Math.max(-10, Math.min(10, p)) }) }, k === 0 ? "0" : `${k > 0 ? "+" : "−"}${Math.abs(k)}σ`);
       }));
     }
-    const fd = Math.round(ctx?.fd ?? firstDays());
+    const fd = Math.ceil((ctx?.fd ?? firstDays()) - 1e-6);
     const dSig = `${fd}|${sc.days}|${md}`;
     if (dayChips.__sig !== dSig) {
       dayChips.__sig = dSig;
@@ -2406,10 +2409,10 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     // The hedge as priced legs at their mark (the change is 0 now), for the payoff overlay and the ±σ P&L.
     hd.hedgeLegs = plan.legs.map((l) => {
       const q = (l.side === "BUY" ? 1 : -1) * l.units;
-      if (l.kind === "FUT") return { symbol: l.symbol, kind: "FUT", q, avg: l.mark, mark: l.mark, F: l.mark, T: O.yearsToExpiry(l.expiry, Date.now(), refSession(st.ref).close) ?? 0, priced: num(l.mark) !== null, inc: true };
+      if (l.kind === "FUT") return { symbol: l.symbol, kind: "FUT", expiry: l.expiry, t0: Date.now(), q, avg: l.mark, mark: l.mark, F: l.mark, T: O.yearsToExpiry(l.expiry, Date.now(), refSession(st.ref).close) ?? 0, priced: num(l.mark) !== null, inc: true };
       const o = l.right === "CE" ? atm?.ce : atm?.pe;
       const F = (atm?.chain ? O.forwardPrice(atm.chain, O.parityGrowth(O.calendarYearsToExpiry(l.expiry, Date.now(), refSession(st.ref).close), refRate(st.ref).value)) : null) ?? spot;
-      return { symbol: l.symbol, kind: "OPT", right: l.right, strike: l.strike, q, avg: l.mark, mark: l.mark, iv: num(o?.iv), F, T: O.yearsToExpiry(l.expiry, Date.now(), refSession(st.ref).close) ?? 0, priced: num(l.mark) !== null && num(o?.iv) !== null, inc: true };
+      return { symbol: l.symbol, kind: "OPT", expiry: l.expiry, t0: Date.now(), right: l.right, strike: l.strike, q, avg: l.mark, mark: l.mark, iv: num(o?.iv), F, T: O.yearsToExpiry(l.expiry, Date.now(), refSession(st.ref).close) ?? 0, priced: num(l.mark) !== null && num(o?.iv) !== null, inc: true };
     });
     // Head: the one-line suggestion.
     const lg = plan.legs;

@@ -53,6 +53,18 @@ describe("vol-context", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("a failed load for another underlying drops the previous underlying's clock (weekends-only, labelled)", async () => {
+    await loadPricingContext("NIFTY", { get: async () => PAYLOAD, now: 0 });
+    expect(O.getPricingContext()).toMatchObject({ underlying: "NIFTY", loaded: true });
+    const ctx = await loadPricingContext("SENSEX", { get: async () => { throw new Error("503"); }, now: 1000 });
+    expect(ctx).toMatchObject({ holidaysSource: "not-loaded" });
+    expect(ctx.loaded).toBeFalsy();
+    expect(clockNote(ctx).at(-1)).toBe("Holidays not loaded yet: weekends only.");
+    // Back on NIFTY (still cached) its clock returns; a failed refresh of the same underlying keeps it.
+    expect(await loadPricingContext("NIFTY", { get: async () => PAYLOAD, now: 2000 })).toMatchObject({ underlying: "NIFTY", loaded: true });
+    expect(await loadPricingContext("NIFTY", { force: true, get: async () => { throw new Error("503"); }, now: 3000 })).toMatchObject({ underlying: "NIFTY", loaded: true });
+  });
+
   it("method-note lines state the clock, its weights, the settlement window and calendar interest; neutral copy", () => {
     const lines = clockNote(contextFromClock(PAYLOAD));
     expect(lines).toEqual([

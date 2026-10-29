@@ -2719,6 +2719,20 @@ describe("the vol-time clock on the pages (P1-3b, §5.1, §6.1)", () => {
     expect(O.legYearsAfter({ T: 0.01 }, 0)).toBe(0.01);
   });
 
+  it("the first-expiry scenario lands on the expiry close: calendar days, never vol-time T × 365", () => {
+    O.setPricingContext(null);
+    const t0 = at("2026-10-30T15:30:00");
+    const leg = { kind: "OPT", expiry: "2026-11-03", t0, T: O.yearsToExpiry("2026-11-03", t0), F: 25150, strike: 25150, right: "CE", iv: 12 };
+    const days = O.legDaysToExpiry(leg);
+    expect(days).toBeCloseTo(4, 9);
+    expect(O.legYearsAfter(leg, days)).toBe(0);
+    // T × 365 (the old reading) stops on Monday with about a trading day still left.
+    expect(O.legYearsAfter(leg, leg.T * 365) * 268.95).toBeGreaterThan(0.9);
+    // Without t0 the days run from `now`; a bad expiry is 0.
+    expect(O.legDaysToExpiry({ expiry: "2026-11-03" }, at("2026-11-02T15:30:00"))).toBeCloseTo(1, 9);
+    expect(O.legDaysToExpiry({ expiry: "soon" }, t0)).toBe(0);
+  });
+
   it("forwardPrice and impliedForward use the 5-strike parity forward; the moved names are the same functions", async () => {
     const P = await import("./pricing.js");
     const rows = [25000, 25050, 25100, 25150, 25200, 25250, 25300].map((k, i) => ({ strike: k, ce: { bid: 200 - i * 30, ask: 201 - i * 30 }, pe: { bid: 60 + i * 20 + (i === 0 ? 30 : 0), ask: 61 + i * 20 + (i === 0 ? 30 : 0) } }));
