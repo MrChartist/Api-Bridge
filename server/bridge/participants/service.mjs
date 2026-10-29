@@ -22,6 +22,9 @@ import { buildSummary, csvRows, lotRegimeOn } from "./metrics.mjs";
 import { INSTRUMENTS, PARTICIPANTS, PARTICIPANT_ROWS, ParticipantParseError, parseParticipantOi } from "./parser.mjs";
 import { createParticipantStore } from "./store.mjs";
 
+/** Failure codes a later retry can fix by itself: never counted toward the back-fill skip threshold. */
+const TRANSIENT_CODES = new Set(["UPSTREAM_RATE_LIMITED", "UPSTREAM_TIMEOUT", "UPSTREAM_ERROR", "BROKER_UNAVAILABLE", "SOURCE_OFF", "SOURCE_UNAVAILABLE"]);
+
 const SHIPPED_REVISIONS = (() => {
   try {
     const doc = JSON.parse(readFileSync(new URL("./data/lot-revisions.json", import.meta.url), "utf8"));
@@ -112,12 +115,9 @@ export function createParticipantsService(deps, opts = {}) {
     if (demo) return { enabled: false, setBy: "demo", client: null };
     if (!ref) return { enabled: false, setBy: "unavailable", client: null };
     try {
-      if (typeof ref.archives === "function") {
-        const a = ref.archives();
-        return { enabled: Boolean(a.enabled), setBy: a.setBy ?? null, client: opts.client ?? a.client ?? null };
-      }
-      const s = ref.status();
-      return { enabled: Boolean(s?.sources?.nseArchives?.enabled), setBy: s?.sources?.nseArchives?.setBy ?? null, client: opts.client ?? null };
+      // ReferenceData.archives() is a contract method (core/contracts.mjs): the switch and the shared archive client.
+      const a = ref.archives();
+      return { enabled: Boolean(a?.enabled), setBy: a?.setBy ?? null, client: opts.client ?? a?.client ?? null };
     } catch {
       return { enabled: false, setBy: "unavailable", client: null };
     }
@@ -222,6 +222,7 @@ export function createParticipantsService(deps, opts = {}) {
     if (ex === "BSE" || ex === "BFO") return { available: false, reason: "NOT_FOR_BSE", detail: "No BSE participant file: NSE publishes participant-wise OI; no BSE equivalent was located." };
     const d = latestDay();
     if (!d) {
+      if (!demo && !ref) return { available: false, reason: "SOURCE_UNAVAILABLE", detail: "Reference data is not running on this Bridge." };
       if (!demo && !archiveInfo().enabled) return { available: false, reason: "SOURCE_OFF", detail: "Turn on NSE archive downloads (Market calendar page) to fetch participant OI." };
       return { available: false, reason: "NO_PARTICIPANT_DATA", detail: `No participant OI file yet. The first one arrives after ${cfg.fetchAt} IST on a trading day.` };
     }
@@ -272,7 +273,7 @@ export function createParticipantsService(deps, opts = {}) {
     const day = date ? dayOf(String(date)) : latestDay();
     if (!day) {
       if (date) {
-        if (!demo && !archiveInfo().enabled && !days.size) return unavailableSummary();
+        if (!demo && (!ref || !archiveInfo().enabled) && !days.size) return unavailableSummary();
         throw notFound(date);
       }
       return unavailableSummary();
@@ -348,7 +349,7 @@ export function createParticipantsService(deps, opts = {}) {
       } catch (err) {
         const code = err instanceof ParticipantParseError ? "PARSE_FAILED" : "INTERNAL";
         state.lastError = { code, detail: String(err?.detail ?? err?.message ?? err).slice(0, 300), date, at };
-        bumpFailed(date, code);
+        bumpFailed(date, code, kind);
         save();
         return { ok: false, date, code };
       }
@@ -408,13 +409,19 @@ export function createParticipantsService(deps, opts = {}) {
         state.backfill.noFile.sort();
         delete state.attempts[date];
       }
-    } else bumpFailed(date, code);
+    } else bumpFailed(date, code, kind);
     save();
     return { ok: false, date, code, ...(noFile ? { noFile: true } : {}) };
   }
-  function bumpFailed(date, code) {
+  /**
+   * Count a failure toward the back-fill's skip threshold (3). Only back-fill attempts count, and only failures that
+   * a retry will not fix by itself: a rate limit, a timeout or an NSE 5xx is transient, and the daily fetch's evening
+   * retries never count, so one evening of NSE outage never drops that day from the history (§2.5: a missed day is
+   * picked up later). 404s are counted separately (state.attempts, two make "noFile").
+   */
+  function bumpFailed(date, code, kind) {
+    if (kind !== "backfill" || TRANSIENT_CODES.has(code)) return;
     state.backfill.failed[date] = (state.backfill.failed[date] ?? 0) + 1;
-    void code;
   }
   const isNoFile = (date) => Boolean(state?.backfill.noFile.includes(date));
 

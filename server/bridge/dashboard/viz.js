@@ -108,8 +108,10 @@ export function spotPill(svg, x, label, { y = 2, width = null, g = null } = {}) 
  * or tap pins (Esc unpins). `host` is the positioned box that holds the chart. `steps` = number of x positions (a
  * number or a function); `at(i)` returns { x: px from the host's left, content: Node | string | Node[] } or null.
  * Keys: ← → one step, Shift + ← → ten, Home / End. Returns { set(i), pin(i), unpin(), clear(), destroy(), get index() }.
+ * `indexAt(x, width)` (optional) maps a pointer x (px from the host's left) to a step; the default spreads the steps
+ * evenly over the host's width.
  */
-export function scrubber(host, { steps, at, label = "Chart: use the arrow keys to read values", bigStep = 10 } = {}) {
+export function scrubber(host, { steps, at, label = "Chart: use the arrow keys to read values", bigStep = 10, indexAt = null } = {}) {
   const count = () => Math.max(0, Math.floor(typeof steps === "function" ? steps() : steps) || 0);
   const cross = h("span", { class: "dv-cross", hidden: true, "aria-hidden": "true" });
   const tip = h("div", { class: "dv-tip", hidden: true, role: "status", "aria-live": "polite" });
@@ -146,6 +148,11 @@ export function scrubber(host, { steps, at, label = "Chart: use the arrow keys t
     const b = host.getBoundingClientRect();
     const n = count();
     if (!b.width || n < 1) return -1;
+    // A chart whose points are not spread evenly over the whole host (plot padding, gaps) maps the pointer itself.
+    if (typeof indexAt === "function") {
+      const i = indexAt(e.clientX - b.left, b.width);
+      return Number.isInteger(i) ? i : -1;
+    }
     return Math.round(((e.clientX - b.left) / b.width) * (n - 1));
   };
   const onMove = (e) => {

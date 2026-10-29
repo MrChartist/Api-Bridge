@@ -24,8 +24,8 @@ describe("participant page view-models", () => {
   it("tiles: FII long % with Δ pts and formula, nets with direction words and tones", () => {
     const t = P.tilesModel(summary);
     expect(t.map((x) => x.key)).toEqual(["fiiLongPct", "fiiNet", "clientCall", "clientPut", "proCall", "proPut"]);
-    expect(t[0]).toMatchObject({ value: "31.10%", sub: "−2.04 pts vs 27 Oct", longPct: 31.1 });
-    expect(t[0].title).toMatch(/FII held 31\.1 % of their index-futures positions long/);
+    expect(t[0]).toMatchObject({ value: "31.1%", sub: "−2.04 pts vs 27 Oct", longPct: 31.1 });
+    expect(t[0].title).toMatch(/FII held 31\.1% of their index-futures positions long/);
     expect(t[1]).toMatchObject({ value: "−1.37L", tone: "down", sub: "−15.6K vs 27 Oct · net short" });
   });
 
@@ -36,7 +36,10 @@ describe("participant page view-models", () => {
     const fii = m.rows[2].cells.IDX_FUT;
     expect(fii).toMatchObject({ long: "1.12L", short: "2.49L", net: "−1.37L", dnet: "−15.6K", netTone: "down", dTone: "down", longPctText: "31.1% long" });
     expect(fii.share).toMatch(/^\d+\.\d% of all longs · \d+\.\d% of all shorts$/);
-    expect(P.tableModel(summary, "opt").columns).toHaveLength(4);
+    expect(P.tableModel(summary, "idxopt").columns.map((c) => c.id)).toEqual(["IDX_CE", "IDX_PE"]);
+    expect(P.tableModel(summary, "stkopt").columns.map((c) => c.id)).toEqual(["STK_CE", "STK_PE"]);
+    // Every table is two instruments × four columns, so none needs sideways scroll from 1024 px up.
+    expect(P.PT_GROUPS.every((g) => g.instruments.length === 2)).toBe(true);
   });
 
   it("phone cards for one instrument, with the total line", () => {
@@ -55,6 +58,9 @@ describe("participant page view-models", () => {
     expect(nd.note).toBe("History: 312 of 500 trading days (filling in)");
     expect(P.pageState({ available: false, reason: "NO_PARTICIPANT_DATA" }, { backfill: { target: 500, have: 0, running: false } }).note).toBe("");
     expect(P.pageState({ available: false, reason: "PARTICIPANT_STALE", detail: "old" })).toMatchObject({ kind: "stale", text: "old" });
+    const nh = P.pageState({ available: false, reason: "SOURCE_UNAVAILABLE", detail: "Reference data is not running on this Bridge." }, null, { hasCalendar: true });
+    expect(nh).toMatchObject({ kind: "not-here", title: "Participant OI is not available on this Bridge" });
+    expect(nh.text).not.toMatch(/Turn on|nseArchives/);
     expect(P.topLine(summary)).toBe("NSE only · all strikes and expiries · number of contracts · for the day ended 28 Oct");
     expect(P.backfillText({ backfill: { target: 500, have: 487, noFile: 13 } })).toBe("History: 487 of 500 trading days; 13 not available from NSE");
   });
@@ -72,6 +78,13 @@ describe("participant page view-models", () => {
     expect(P.historyModel(days, "20", []).dates).toHaveLength(5);
     const g = P.sparkGeometry(m.series[1].points, m.slots, { w: 300, h: 100, kind: "net" });
     expect(g.d.match(/M/g)).toHaveLength(2); // the missing 21 Oct breaks the line
+    // A small multiple always has a readable scale: at least three ticks, all inside the plotted range.
+    for (const vals of [[380_000, 410_000, 395_000], [-104_000, -98_000, -101_000], [0.5, 0.7], [1, 1]]) {
+      const pts = vals.map((value, i) => ({ i, value }));
+      const gg = P.sparkGeometry(pts, vals.length, { w: 300, h: 136, kind: "net" });
+      expect(gg.ticks.length).toBeGreaterThanOrEqual(3);
+      expect(gg.ticks.every((t) => t >= gg.lo - 1e-9 && t <= gg.hi + 1e-9)).toBe(true);
+    }
     const csv = P.historyCsv(m);
     expect(csv[0]).toEqual(["date", "FII index futures long %", "FII index futures net", "Client index calls net", "Client index puts net"]);
     expect(csv).toHaveLength(6);
@@ -79,7 +92,7 @@ describe("participant page view-models", () => {
   });
 
   it("the OI page line: NSE figure, BSE note, nothing without data", () => {
-    expect(P.oiTileText(summary, "NIFTY")).toMatchObject({ text: "FII index futures: 31.1% long (−2.0 pts)", main: "FII index futures: 31.1% long", delta: "(−2.0 pts)", tone: "down" });
+    expect(P.oiTileText(summary, "NIFTY")).toMatchObject({ text: "FII index futures: 31.1% long (−2.0 pts)", main: "FII index futures: 31.1% long", delta: "(−2.0 pts)", tone: "" });
     expect(P.oiTileText(summary, "SENSEX").text).toBe("No BSE participant file");
     expect(P.oiTileText(null, "NIFTY")).toBeNull();
     expect(P.oiTileText({ available: false, detail: "x" }, "NIFTY").text).toBe("Participant OI not available yet");

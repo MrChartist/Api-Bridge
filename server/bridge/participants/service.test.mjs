@@ -242,6 +242,57 @@ describe("participants service", () => {
     expect(service.status().backfill).toMatchObject({ have: 5, done: true });
   });
 
+  it("an evening of NSE errors never drops that day: seven daily 5xx failures, and the back-fill still picks it the next afternoon", async () => {
+    const d = "2026-10-28";
+    const outage = Object.assign(new Error("NSE archives answered HTTP 503"), { code: "UPSTREAM_ERROR" });
+    const files = { [d]: outage };
+    const { service, client, clock } = setup({ at: IST(d, "19:10"), files, participants: { backfill: { enabled: false, days: 5 } } });
+    for (const hm of ["19:10", "19:40", "20:10", "20:40", "21:10", "21:40", "22:10"]) {
+      clock.t = IST(d, hm);
+      await service.tick();
+    }
+    expect(client.calls.filter((c) => c.date === d)).toHaveLength(7);
+    expect(service.status().lastError).toMatchObject({ code: "UPSTREAM_ERROR", date: d });
+    clock.t = IST("2026-10-29", "16:00");
+    expect(service.nextBackfillDate()).toBe(d);
+  });
+
+  it("back-fill: rate limits and timeouts never count toward the skip threshold; a parse failure does", async () => {
+    const limited = Object.assign(new Error("429"), { code: "UPSTREAM_RATE_LIMITED" });
+    const timeout = Object.assign(new Error("timeout"), { code: "UPSTREAM_TIMEOUT" });
+    const files = { "2026-10-27": timeout, "2026-10-26": "<html>not the csv</html>" };
+    const { service, clock, client } = setup({ at: IST("2026-10-28", "17:00"), files, participants: { backfill: { days: 3 } } });
+    const count = (d) => client.calls.filter((c) => c.date === d).length;
+    for (let i = 0; i < 6; i += 1) {
+      clock.t += 3_600_000;
+      await service.runBackfill({ max: 3 });
+    }
+    // The page that is not the CSV is skipped after three tries; the timing-out day keeps coming back.
+    const parseTries = count("2026-10-26");
+    const timeoutTries = count("2026-10-27");
+    expect(parseTries).toBe(3);
+    files["2026-10-27"] = limited;
+    for (let i = 0; i < 3; i += 1) {
+      clock.t += 3_600_000;
+      await service.runBackfill({ max: 3 });
+    }
+    expect(count("2026-10-26")).toBe(parseTries);
+    expect(count("2026-10-27")).toBeGreaterThan(timeoutTries);
+    expect(timeoutTries).toBeGreaterThan(3);
+  });
+
+  it("with reference data stubbed out, latest() and summary() say SOURCE_UNAVAILABLE (not the source-off hint)", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "mcb-part-"));
+    const clock = { now: () => IST("2026-10-28", "20:00") };
+    const service = createParticipantsService(
+      { config: { participants: parseParticipantsConfig({}), dataDir }, clock, reference: null, paths: { dataDir }, bus: createEventBus(), logger: null },
+      { jitterMs: 0, sleep: async () => {}, timers: { setInterval: () => null, clearInterval: () => {} } },
+    );
+    expect(service.latest({ exchange: "NSE" })).toMatchObject({ available: false, reason: "SOURCE_UNAVAILABLE", detail: "Reference data is not running on this Bridge." });
+    expect(service.summary({})).toMatchObject({ available: false, reason: "SOURCE_UNAVAILABLE" });
+    expect(service.status().lastError).toMatchObject({ code: "SOURCE_UNAVAILABLE" });
+  });
+
   it("a manual sync for today before NSE publishes never marks today 'noFile'; the 19:10 fetch still runs", async () => {
     const d = "2026-10-28";
     const files = { [d]: 404 };

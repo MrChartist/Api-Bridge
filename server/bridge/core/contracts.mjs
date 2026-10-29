@@ -262,12 +262,15 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  status() -> per-dataset sync state
    *  bundle({ underlying, exchange, now }) -> Promise<everything one page needs>
    *  sync({ datasets, reason }) -> Promise<{ jobId, results }>   (CAPABILITY_UNSUPPORTED in demo mode)
+   *  archives() -> { enabled: boolean, setBy: "config"|"user"|"demo"|null, client: NseArchiveClient | null }
+   *      (the NSE archive switch and the shared, rate-limited archive client; client is null while the switch is off.
+   *      Other streams that fetch NSE archive files, e.g. participants S26, fetch through this client only.)
    */
   reference: {
     iface: "ReferenceData",
     stream: "S16",
     requires: ["symbols"],
-    methods: ["session", "calendar", "rate", "lotFor", "freezeFor", "banStatus", "universe", "corporateActions", "events", "charges", "deliveryMargin", "status", "bundle", "sync"],
+    methods: ["session", "calendar", "rate", "lotFor", "freezeFor", "banStatus", "universe", "corporateActions", "events", "charges", "deliveryMargin", "status", "bundle", "sync", "archives"],
   },
 
   /**

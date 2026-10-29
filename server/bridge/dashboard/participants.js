@@ -8,7 +8,7 @@
 // format.js. The history panel holds the shared chart-engine slot (chartSlot) with the SVG small multiples, a data
 // table toggle and CSV as the fallback until the owner's chart engine replaces them.
 import { api, chartSlot, emptyState, errorState, h, icon, loadingState, mountToolbarCtx, sheetPopover, toast } from "./app.js";
-import { DASH, formatCompact, formatFixed, formatPercent, formatSigned, isFigure } from "./format.js";
+import { DASH, formatCompact, formatCompactTick, formatFixed, formatPercent, formatSigned, isFigure } from "./format.js";
 import { niceTicks } from "./options.js";
 import { PAGES, segmented } from "./views.js";
 import { scrubber, svgEl } from "./viz.js";
@@ -18,7 +18,9 @@ export const PT_NAMES = Object.freeze({ CLIENT: "Client", DII: "DII", FII: "FII"
 export const PT_INSTRUMENTS = Object.freeze({ IDX_FUT: "Index fut", IDX_CE: "Index CE", IDX_PE: "Index PE", STK_FUT: "Stock fut", STK_CE: "Stock CE", STK_PE: "Stock PE" });
 export const PT_GROUPS = Object.freeze([
   { id: "fut", label: "Futures", instruments: ["IDX_FUT", "STK_FUT"] },
-  { id: "opt", label: "Options", instruments: ["IDX_CE", "IDX_PE", "STK_CE", "STK_PE"] },
+  // Options are two tables of two instruments, like futures, so each fits without sideways scroll from 1024 px up.
+  { id: "idxopt", label: "Index options", instruments: ["IDX_CE", "IDX_PE"] },
+  { id: "stkopt", label: "Stock options", instruments: ["STK_CE", "STK_PE"] },
 ]);
 /** History ranges in trading days (the segmented control). */
 export const PT_RANGES = Object.freeze([
@@ -78,7 +80,7 @@ export function nextCheckText(at) {
  * @param {object} summary  /v1/participants/oi/summary
  * @param {object} [status]  /v1/participants/status (next check time and back-fill progress)
  * @param {{ hasCalendar?: boolean }} [o]  whether the Market calendar page exists (it switches the downloads on)
- * @returns {{ kind: "ok"|"source-off"|"no-data"|"stale"|"unavailable", title?: string, text?: string, note?: string }}
+ * @returns {{ kind: "ok"|"source-off"|"not-here"|"no-data"|"stale"|"unavailable", title?: string, text?: string, note?: string }}
  */
 export function pageState(summary, status = null, { hasCalendar = false } = {}) {
   if (summary?.available) return { kind: "ok" };
@@ -88,6 +90,8 @@ export function pageState(summary, status = null, { hasCalendar = false } = {}) 
     const where = hasCalendar ? "on the Market calendar page" : "with reference.sources.nseArchives.enabled in the Bridge config";
     return { kind: "source-off", title: "NSE archive downloads are off", text: `Turn on NSE archive downloads ${where} to fetch participant OI. Nothing is fetched until then.` };
   }
+  // Reference data (and with it the NSE archive client) is not running on this Bridge: no switch can help here.
+  if (reason === "SOURCE_UNAVAILABLE") return { kind: "not-here", title: "Participant OI is not available on this Bridge", text: `${summary.detail ?? "Reference data is not running on this Bridge."} Participant files are fetched through it, so there is nothing to show.` };
   if (reason === "PARTICIPANT_STALE") return { kind: "stale", title: "The latest file is old", text: summary.detail ?? "The newest participant file is older than the previous trading day.", note: bf };
   if (reason === "NO_PARTICIPANT_DATA") {
     const next = nextCheckText(status?.nextRunAt);
@@ -133,12 +137,12 @@ export function tilesModel(summary) {
     {
       key: "fiiLongPct",
       label: "FII index fut long %",
-      value: isFigure(lp) ? formatPercent(lp, 2) : DASH,
+      value: isFigure(lp) ? formatPercent(lp, 1) : DASH,
       tone: "",
       sub: isFigure(hd.fiiIndexFutLongPctChange) ? `${ptsText(hd.fiiIndexFutLongPctChange)} vs ${prev}` : "no previous day",
-      title: `${hd.formula ?? "FII long ÷ (FII long + FII short) × 100"}. ${fii ? `FII held ${formatFixed(lp, 1)} % of their index-futures positions long (${formatCompact(fii.long)} long, ${formatCompact(fii.short)} short).` : ""}`.trim(),
+      title: `${hd.formula ?? "FII long ÷ (FII long + FII short) × 100"}. ${fii ? `FII held ${formatPercent(lp, 1)} of their index-futures positions long (${formatCompact(fii.long)} long, ${formatCompact(fii.short)} short).` : ""}`.trim(),
       longPct: isFigure(lp) ? Number(lp) : null,
-      aria: `FII index futures long: ${isFigure(lp) ? formatPercent(lp, 2) : DASH}`,
+      aria: `FII index futures long: ${isFigure(lp) ? formatPercent(lp, 1) : DASH}`,
     },
     netTile("fiiNet", "FII index fut net", "FII", "IDX_FUT"),
     netTile("clientCall", "Client index calls net", "CLIENT", "IDX_CE"),
@@ -159,8 +163,8 @@ export function cellModel(r) {
     netTone: toneOf(r.net),
     dTone: toneOf(r.netChange),
     longPct: isFigure(r.longPct) ? Number(r.longPct) : null,
-    longPctText: isFigure(r.longPct) ? `${formatFixed(r.longPct, 1)}% long` : DASH,
-    share: isFigure(r.shareOfLong) && isFigure(r.shareOfShort) ? `${formatFixed(r.shareOfLong, 1)}% of all longs · ${formatFixed(r.shareOfShort, 1)}% of all shorts` : "",
+    longPctText: isFigure(r.longPct) ? `${formatPercent(r.longPct, 1)} long` : DASH,
+    share: isFigure(r.shareOfLong) && isFigure(r.shareOfShort) ? `${formatPercent(r.shareOfLong, 1)} of all longs · ${formatPercent(r.shareOfShort, 1)} of all shorts` : "",
   };
 }
 
@@ -243,10 +247,10 @@ export function historyModel(days, range, revisions = []) {
   return { dates: shown.map((d) => d.date), slots, series, revisions: revs, from, to, gaps: slots - shown.length };
 }
 
-/** A series value as text: "31.10%" or "−1.37L". */
+/** A series value as text: "31.1%" or "−1.37L". */
 export function valueText(s, v) {
   if (!isFigure(v)) return DASH;
-  return s.kind === "pct" ? formatPercent(v, 2) : signedCount(v);
+  return s.kind === "pct" ? formatPercent(v, 1) : signedCount(v);
 }
 
 /**
@@ -270,7 +274,18 @@ export function sparkGeometry(points, slots, { w, h, padL = 40, padR = 10, padT 
     lo -= 1;
     hi += 1;
   }
-  const ticks = niceTicks(lo, hi, 4);
+  let ticks = niceTicks(lo, hi, 4);
+  // A small multiple needs a readable scale: with fewer than three ticks in range, snap the ends out to whole steps
+  // (and, if that is still short, ask for a finer step).
+  if (ticks.length < 3) {
+    const step = ticks.length > 1 ? ticks[1] - ticks[0] : niceTicks(lo, hi, 6)[1] - niceTicks(lo, hi, 6)[0];
+    if (isFigure(step) && step > 0) {
+      lo = Math.floor(lo / step) * step;
+      hi = Math.ceil(hi / step) * step;
+      ticks = niceTicks(lo, hi, 4);
+      if (ticks.length < 3) ticks = niceTicks(lo, hi, 6);
+    }
+  }
   lo = Math.min(lo, ticks[0] ?? lo);
   hi = Math.max(hi, ticks[ticks.length - 1] ?? hi);
   const iw = Math.max(1, w - padL - padR);
@@ -319,13 +334,14 @@ export function oiTileText(summary, underlying) {
   if (!summary?.available) return summary ? { text: "Participant OI not available yet", main: "Participant OI not available yet", delta: "", tone: "", title: summary.detail ?? "" } : null;
   const hd = summary.headline ?? {};
   if (!isFigure(hd.fiiIndexFutLongPct)) return null;
-  const main = `FII index futures: ${formatFixed(hd.fiiIndexFutLongPct, 1)}% long`;
+  const main = `FII index futures: ${formatPercent(hd.fiiIndexFutLongPct, 1)} long`;
   const delta = isFigure(hd.fiiIndexFutLongPctChange) ? `(${ptsText(hd.fiiIndexFutLongPctChange, 1)})` : "";
   return {
     text: delta ? `${main} ${delta}` : main,
     main,
     delta,
-    tone: toneOf(hd.fiiIndexFutLongPctChange),
+    // A change in long % is a fact, not good or bad news: no gain / loss colour (neutral copy, as on the page tile).
+    tone: "",
     title: `${PT_NOTE}, day ended ${longDate(summary.date)}. ${hd.formula ?? ""}`.trim(),
   };
 }
@@ -362,7 +378,7 @@ export async function participantSummaryCached(now = Date.now(), fetcher = api) 
 /** The OI page's participant line: an <a> that updates itself for the underlying in view. */
 export function oiParticipantLine() {
   const text = h("span", { class: "oi-part-text" });
-  const el = h("a", { class: "oi-part", href: "#/participants", hidden: true }, icon("people"), text, h("span", { class: "oi-part-go" }, "Participants", h("span", { "aria-hidden": "true" }, " →")));
+  const el = h("a", { class: "oi-part", href: "#/participants", hidden: true }, icon("people"), text, h("span", { class: "oi-part-go" }, h("span", { class: "oi-part-sep", "aria-hidden": "true" }, "· "), "Participants", h("span", { "aria-hidden": "true" }, " →")));
   let sig = "";
   return {
     el,
@@ -374,7 +390,7 @@ export function oiParticipantLine() {
       sig = next;
       el.hidden = !m;
       if (!m) return;
-      text.replaceChildren(...[m.main, m.delta ? " " : null, m.delta ? h("b", { class: m.tone || null }, m.delta) : null, " · "].filter((x) => x !== null));
+      text.replaceChildren(...[m.main, m.delta ? " " : null, m.delta ? h("b", { class: m.tone || null }, m.delta) : null].filter((x) => x !== null));
       el.title = m.title;
     },
   };
@@ -504,7 +520,7 @@ function drawSpark(host, s, model, first = false) {
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "pt-svg", "aria-hidden": "true" });
   for (const t of g.ticks) {
     svg.append(svgEl("line", { class: "dv-grid", x1: 40, x2: W - 10, y1: g.y(t), y2: g.y(t) }));
-    svg.append(svgEl("text", { class: "dv-tick", x: 34, y: g.y(t), "text-anchor": "end", "dominant-baseline": "central" }, s.kind === "pct" ? `${formatFixed(t, 0)}%` : formatCompact(t)));
+    svg.append(svgEl("text", { class: "dv-tick", x: 34, y: g.y(t), "text-anchor": "end", "dominant-baseline": "central" }, s.kind === "pct" ? `${formatFixed(t, 0)}%` : formatCompactTick(t)));
   }
   if (g.ref !== null) svg.append(svgEl("line", { class: "dv-zero", x1: 40, x2: W - 10, y1: g.y(g.ref), y2: g.y(g.ref) }));
   for (const r of model.revisions) {
@@ -541,24 +557,28 @@ export async function renderParticipantsPage() {
     "div",
     { class: "ctx-cap glass pt-ctx" },
     h("span", { class: "ctx-item ctx-pt-ex", title: "NSE publishes participant-wise OI; no BSE file" }, h("span", { class: "ctx-main" }, "NSE")),
-    h("span", { class: "ctx-item ctx-pt-day", title: "Trading day the figures are for" }, h("span", { class: "ctx-main" }, h("span", { class: "ctx-k" }, "Day ended"), h("b", {}, day ? shortDate(day) : DASH))),
+    day ? h("span", { class: "ctx-item ctx-pt-day", title: "Trading day the figures are for" }, h("span", { class: "ctx-main" }, h("span", { class: "ctx-k" }, "Day ended"), h("b", {}, shortDate(day)))) : null,
     state.kind === "ok" && summary.fetchedAt ? h("span", { class: "ctx-item ctx-pt-at", title: summary.demo ? "Sample file time (demo)" : "When this Bridge fetched the file" }, h("span", { class: "ctx-main" }, h("span", { class: "ctx-k" }, summary.demo ? "Sample" : "Fetched"), h("b", {}, String(summary.fetchedAt).slice(11, 16)))) : null,
   );
   const srcOk = (status?.source?.nseArchives === "on" || status?.demo) && !stale;
-  const srcText = status?.demo ? "Sample history" : stale ? "Not current" : status?.source?.nseArchives === "on" ? "NSE archives" : status?.source?.nseArchives === "off" ? "Downloads off" : "Unavailable";
+  const srcText = stale ? "Not current" : status?.demo ? "Sample history" : status?.source?.nseArchives === "on" ? "NSE archives" : status?.source?.nseArchives === "off" ? "Downloads off" : "Unavailable";
   const srcChip = h("span", { class: `pt-src${srcOk ? "" : " warn"}`, title: [stale, backfillText(status)].filter(Boolean).join(". ") || null }, srcText);
   mountToolbarCtx("participants", cap, h("span", { class: "ctx-spacer" }), srcChip);
 
   if (state.kind !== "ok") {
+    const recheck = () => window.dispatchEvent(new HashChangeEvent("hashchange"));
     const act =
       state.kind === "source-off" && PAGES.some((p) => p.id === "calendar")
         ? h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/calendar") }, icon("clock"), "Market calendar")
-        : null;
+        : state.kind === "stale" || state.kind === "no-data" || state.kind === "unavailable"
+          ? h("button", { type: "button", class: "small", onclick: recheck }, icon("refresh"), "Check again")
+          : null;
     const empty = emptyState("people", state.title, state.text, act);
+    // The back-fill line is shown once: here, under the state; the notes panel then keeps its plain subtitle.
     if (state.note) empty.insertBefore(h("p", { class: "pt-empty-note" }, state.note), empty.querySelector(".empty-acts"));
     return [
       h("section", { class: "desk-panel pt-panel pt-empty", "data-panel": "pt-state", "aria-label": "Participant OI" }, empty),
-      notesPanel(summary, status),
+      notesPanel(summary, status, { backfillShown: Boolean(state.note) }),
     ];
   }
 
@@ -614,7 +634,12 @@ export async function renderParticipantsPage() {
   );
 
   // ── History (chart-engine slot: SVG small multiples, table toggle, CSV) ──
-  const histBody = h("div", { class: "pt-hist-body", "aria-busy": "true" }, loadingState({ rows: 4, cols: 2, label: "Loading history" }));
+  // The skeleton mirrors the small multiples: a 2 × 2 grid (one column on phones).
+  const histBody = h(
+    "div",
+    { class: "pt-hist-body", "aria-busy": "true" },
+    h("div", { class: "pt-multiples pt-skel" }, PT_SERIES.map((s, k) => h("div", { class: "pt-multiple" }, loadingState({ rows: 4, cols: 2, height: 34, label: k === 0 ? "Loading history" : s.label })))),
+  );
   const rangeSeg = segmented("History range", PT_RANGES, st.range);
   const tableBtn = h("button", { type: "button", class: "small pt-tbl-btn", "aria-pressed": String(st.showTable) }, icon("list"), h("span", { class: "pt-csv-l" }, "Table"));
   const histCsv = h("button", { type: "button", class: "small pt-csv", title: "Download the history in view as CSV" }, icon("download"), h("span", { class: "pt-csv-l" }, "CSV"));
@@ -630,6 +655,15 @@ export async function renderParticipantsPage() {
   let days = null;
   let model = null;
   const scrubs = [];
+  /** The range, Table and CSV controls work on loaded history only: off (aria-disabled) until it arrives. */
+  const setHistControls = (on) => {
+    for (const el of [rangeSeg, tableBtn, histCsv]) {
+      if (on) el.removeAttribute("aria-disabled");
+      else el.setAttribute("aria-disabled", "true");
+      el.classList.toggle("pt-off", !on);
+    }
+  };
+  setHistControls(false);
   const ro = typeof ResizeObserver === "function" ? new ResizeObserver(() => redrawSparks()) : null;
   const hosts = [];
   function redrawSparks() {
@@ -680,6 +714,14 @@ export async function renderParticipantsPage() {
           scrubber(host, {
             steps: () => s.points.length,
             label: `${s.label}: use the arrow keys to read each day`,
+            // Points sit on weekday slots inside the plot padding: read the nearest plotted day, not a linear guess.
+            indexAt: (x) => {
+              const g = host.__g;
+              if (!g || !s.points.length) return -1;
+              let best = 0;
+              for (let k = 1; k < s.points.length; k += 1) if (Math.abs(g.x(s.points[k].i) - x) < Math.abs(g.x(s.points[best].i) - x)) best = k;
+              return best;
+            },
             at: (i) => {
               const p = s.points[i];
               const g = host.__g;
@@ -694,18 +736,24 @@ export async function renderParticipantsPage() {
   }
   let allRevisions = summary.revisions ?? [];
   rangeSeg.addEventListener("change", () => {
+    if (!days) {
+      if (rangeSeg.value !== st.range) rangeSeg.value = st.range;
+      return;
+    }
     st.range = rangeSeg.value;
     save();
     drawHistory();
   });
   tableBtn.addEventListener("click", () => {
+    if (!days) return toast("History is still loading");
     st.showTable = !st.showTable;
     tableBtn.setAttribute("aria-pressed", String(st.showTable));
     save();
     drawHistory();
   });
   histCsv.addEventListener("click", () => {
-    if (!model?.dates.length) return;
+    if (!days) return toast("History is still loading");
+    if (!model?.dates.length) return toast("No history to save yet");
     saveCsv(`participant-oi-history_${model.from}_${model.to}.csv`, toCsvText(historyCsv(model)));
     toast("CSV saved");
   });
@@ -715,6 +763,7 @@ export async function renderParticipantsPage() {
       const r = await api(`/v1/participants/oi?from=${from}&to=${summary.date}&participants=FII,CLIENT&instruments=IDX_FUT,IDX_CE,IDX_PE`);
       days = r.data?.data?.days ?? [];
       allRevisions = revisionsFrom(days, summary);
+      setHistControls(true);
       drawHistory();
     } catch (err) {
       histBody.replaceChildren(errorState(err, { onRetry: () => window.dispatchEvent(new HashChangeEvent("hashchange")) }));
@@ -753,14 +802,14 @@ function historyTable(model) {
   );
 }
 
-function notesPanel(summary, status) {
+function notesPanel(summary, status, { backfillShown = false } = {}) {
   const items = [
     h("li", {}, h("strong", {}, "What it is. "), "NSE's daily participant-wise open interest: contracts held long and short by clients, domestic institutions (DII), foreign investors (FII) and proprietary desks (Pro), summed over every strike, expiry and NSE index or stock."),
     h("li", {}, h("strong", {}, "Long %. "), summary?.headline?.formula ?? "FII long ÷ (FII long + FII short) × 100, in contracts", "."),
     h("li", {}, h("strong", {}, "Contract sizes. "), "Counts before and after a lot-size revision are not like for like; the history marks each change. Long % and shares are ratios and stay comparable."),
     h("li", {}, h("strong", {}, "BSE. "), "No BSE participant file was located, so SENSEX and BANKEX have no participant figures."),
   ];
-  const bf = backfillText(status);
+  const bf = backfillShown ? "" : backfillText(status);
   return h(
     "section",
     { class: "desk-panel pt-notes", "data-panel": "pt-notes", "aria-label": "About participant OI" },

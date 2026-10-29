@@ -6168,11 +6168,23 @@ svg .pt-rev-t { fill: hsl(var(--foreground) / var(--a-quiet)); paint-order: stro
 .oi-part-text b { font-weight: 600; }
 .oi-part-text b.up { color: hsl(var(--pos-ink)); }
 .oi-part-text b.down { color: hsl(var(--neg-ink)); }
-.oi-part-go { font-weight: 600; color: hsl(var(--ios-blue-ink)); }
+.oi-part-go { font-weight: 600; color: hsl(var(--ios-blue-ink)); white-space: nowrap; }
+.oi-part-sep { font-weight: 500; color: hsl(var(--foreground) / var(--a-quiet)); }
+.pt-ctl .pt-off { opacity: 0.45; cursor: not-allowed; }
+.pt-ctl .segmented.pt-off { pointer-events: none; }
+.pt-skel .pt-multiple { min-height: 160px; }
+/* History skeleton: an axis label and a plot bar per row, like the small multiples it stands in for. */
+.pt-skel .skel-row { grid-auto-flow: row; grid-template-columns: 32px minmax(0, 1fr); padding: 0; }
+.pt-skel .skel-row i:nth-child(odd) { width: 100%; justify-self: stretch; }
 .oi-part:hover { text-decoration: none; background: var(--mat-fill-1); }
 .oi-part:hover .oi-part-go { text-decoration: underline; }
 @media (max-width: 1279px) {
   :root .desk-stats.pt-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+/* Tablet: the shared panel chrome (move / maximise) sits at the top centre of the head; the long subtitle goes on its
+   own line under the title so it never runs under those handles. */
+@media (min-width: 720px) and (max-width: 1279px) {
+  .pt-table-panel .pt-title, .pt-hist .pt-title { flex-direction: column; align-items: flex-start; max-width: calc(50% - 40px); }
 }
 @media (max-width: 719px) {
   :root .desk-stats.pt-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -6188,7 +6200,9 @@ svg .pt-rev-t { fill: hsl(var(--foreground) / var(--a-quiet)); paint-order: stro
   .pt-slot-wrap .chart-slot-box { height: 72px; margin: 10px 12px 4px; }
   /* The source pill stays only when it warns (stale or off), as a compact chip; the fetch time is in the notes. */
   .ctx-pt-at, .ctx-pt-day .ctx-k, .pt-src:not(.warn) { display: none; }
-  .pt-src.warn { height: 24px; padding: 0 8px; font-size: 12px; }
+  .oi-part-sep { display: none; }
+  .pt-src.warn { flex: 0 1 auto; min-width: 0; max-width: 40vw; height: 24px; padding: 0 8px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+  .ctx-pt-day, .ctx-pt-day b { flex: none; white-space: nowrap; }
 }
 @media (pointer: coarse) {
   .pt-ctl button.small, .pt-csv, .pt-tbl-btn { min-height: 44px; min-width: 44px; }
