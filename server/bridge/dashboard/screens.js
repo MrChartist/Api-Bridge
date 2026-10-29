@@ -91,6 +91,8 @@ export function chainRecords(chain, { now = Date.now(), hv20 = null, charges = O
       const rec = O.legMetrics(row[side], row, side, ctx);
       if (!rec) continue;
       rec.name = contractName(rec);
+      rec.nameParts = { head: chainName(rec.underlying, rec.expiry), strike: formatInt(rec.strike), right: rec.right };
+      rec.T = ctx.T;
       rec.sub = `${daysLabel(rec.days)} · lot ${formatInt(lot)}${monthly ? " · M" : ""}`;
       rec.monthly = monthly;
       rec.fetchedAt = fetchedAt;
@@ -164,6 +166,7 @@ export function chainRecords(chain, { now = Date.now(), hv20 = null, charges = O
   const hedges = O.hedgeRows(chain, ctx, { minDepth: 0, maxDepth: 20, notional }).map((r) => ({
     ...r,
     name: `${chainName(r.underlying, r.expiry)} ${formatInt(r.strike)} PE`,
+    nameParts: { head: chainName(r.underlying, r.expiry), strike: formatInt(r.strike), right: "PE" },
     sub: `${daysLabel(r.days)} · lot ${formatInt(lot)}${monthly ? " · M" : ""}`,
     chain: chainName(r.underlying, r.expiry),
     monthly,
@@ -407,10 +410,24 @@ const COMMON = ["expiries", "days", "side", "liq", "spread", "oiLots", "volLots"
 const col = (id, label, p, get, fmt, extra = {}) => ({ id, label, p, num: true, sortable: true, dir: "desc", title: "", get, fmt, ...extra });
 const lead = (label = "Contract", title = "Underlying, expiry, strike and right. Sub line: time to expiry, lot size, M for a monthly") => ({ id: "name", label, p: 1, num: false, sortable: true, dir: "asc", lead: true, title, get: (r) => r.name, fmt: (v) => v ?? DASH, sub: (r) => r.sub });
 const age = () => col("age", "Age", 2, (r) => r.age ?? null, (v) => ageText(v), { dir: "asc", title: "How long ago this chain was fetched", ink: (r) => (r.stale ? "warn" : null) });
+const liqCol = (p, title = "Liquidity 1–5 from the spread and the volume rank") => col("liq", "Liq", p, (r) => r.liq, (v) => (num(v) === null ? DASH : `${formatInt(v)}/5`), { title, viz: { kind: "meter" } });
+const ivHvInk = (r) => (num(r.ivHv) === null ? null : r.ivHv > 0 ? "iv" : "label");
+/** The legend's opening items on every contract tab: calls before puts. */
+const SIDES = [
+  { label: "CE", token: "call" },
+  { label: "PE", token: "put" },
+];
+const SCORE_RAMP = { kind: "ramp", label: "Score", ticks: ["45", "55", "65", "75"] };
 
 /**
  * The eight tabs. Each column: { id, label, p (priority: 3 hides below 1100 px), num, sortable, dir (first-click
- * direction), title (its formula), get(rec), fmt(value, rec), sub?(rec), ink?(rec), sortGet?(rec), heat? }.
+ * direction), title (its formula), get(rec), fmt(value, rec), sub?(rec), ink?(rec), subInk?(rec), sortGet?(rec),
+ * viz? }. `viz.kind` (docs/design/screener.md §5): "seq" (violet heat: scale "score" = fixed scoreStep bands, "rank" =
+ * p5–p95 of the shown rows, inverted for an "asc" column), "div" (signed red–green heat), "score" (seq + the score's
+ * composition micro-bar), "bar" (a 3 px bar under the value: max a number or "p95", tone a series or "side"), "cbar"
+ * (a centred signed bar: at(rec) → −1…1), "meter" (5 liquidity dots), "sigma" (a 0–3σ track), "chip" (chip(rec) →
+ * { text, tone, glyph }), "legs" (arbitrage leg tokens). At most two visual columns per tab; the rest is ink.
+ * `secondary` breaks ties of the primary sort; `legend` is the tab's key row.
  */
 export const PRESETS = Object.freeze([
   {
@@ -421,25 +438,27 @@ export const PRESETS = Object.freeze([
     description: "One row per underlying and expiry: implied vs realised vol, skew, the priced move and where OI sits.",
     columns: [
       lead("Underlying · expiry", "W weekly, M monthly; time to expiry"),
-      col("atmIv", "ATM IV", 1, (r) => r.atmIv, f1, { title: "Average IV of the ATM call and put (as on the Chain page). Sub: change since the day's first scan", sub: (r) => (r.ivChg === null || r.ivChg === undefined || r.baseAt === r.fetchedAt ? "" : `Δ ${formatSigned(r.ivChg, 1)} since ${istHm(r.baseAt)}`) }),
+      col("atmIv", "ATM IV", 1, (r) => r.atmIv, f1, { title: "Average IV of the ATM call and put (as on the Chain page). Sub: change since the day's first scan", sub: (r) => (r.ivChg === null || r.ivChg === undefined || r.baseAt === r.fetchedAt ? "" : `Δ ${formatSigned(r.ivChg, 1)} since ${istHm(r.baseAt)}`), subInk: (r) => (r.baseAt === r.fetchedAt ? null : signInk(r.ivChg)) }),
       col("hv20", "HV20", 2, (r) => r.hv20, f1, { title: "20-day realised vol of the index from daily closes (annualised, √252)" }),
-      col("ivHvRatio", "IV/HV", 1, (r) => r.ivHvRatio, times, { title: "ATM IV ÷ HV20. Above 1 the options price more movement than the index has shown", heat: true }),
-      col("skew", "Skew", 2, (r) => r.skew, (v) => formatSigned(v, 1), { title: "25Δ skew, vol points: IV of the put nearest Δ −0.25 minus the call nearest Δ +0.25. Positive: puts richer" }),
-      col("term", "Term", 3, (r) => r.term, (v) => formatSigned(v, 1), { title: "Vol points: ATM IV minus the next scanned expiry's ATM IV", ttl: (r) => (r.termInfo ? (r.termInfo.inverted ? "Inverted: total variance falls" : r.termInfo.vol !== null ? `Forward vol to ${expiryText(r.termInfo.next)}: ${f1(r.termInfo.vol)}` : "") : "") }),
+      col("ivHvRatio", "IV/HV", 1, (r) => r.ivHvRatio, times, { title: "ATM IV ÷ HV20. Above 1 the options price more movement than the index has shown", ink: (r) => (r.ivHvRatio >= 1.2 ? "iv" : null), viz: { kind: "cbar", at: (r) => (ratioPos(r.ivHvRatio) === null ? null : 2 * ratioPos(r.ivHvRatio) - 1), tone: (r) => (r.ivHvRatio >= 1 ? "iv" : "hv"), mid: "1.0×" } }),
+      col("skew", "Skew", 2, (r) => r.skew, (v) => formatSigned(v, 1), { title: "25Δ skew, vol points: IV of the put nearest Δ −0.25 minus the call nearest Δ +0.25. Positive: puts richer", ink: (r) => (r.skew > 1 ? "put" : r.skew < -1 ? "call" : null) }),
+      col("term", "Term", 3, (r) => r.term, (v) => formatSigned(v, 1), { title: "Vol points: ATM IV minus the next scanned expiry's ATM IV", ink: (r) => (r.termInfo?.inverted ? "warn" : null), ttl: (r) => (r.termInfo ? (r.termInfo.inverted ? "Inverted: total variance falls" : r.termInfo.vol !== null ? `Forward vol to ${expiryText(r.termInfo.next)}: ${f1(r.termInfo.vol)}` : "") : "") }),
       col("straddle", "Straddle", 1, (r) => r.straddle, f2, { title: "ATM call + put last price, as on the Chain page. Sub: ₹ per lot", sub: (r) => (r.straddleLot === null ? "" : `${rupee(r.straddleLot)}/lot`) }),
       col("straddlePct", "Straddle %", 3, (r) => r.straddlePct, (v) => formatPercent(v, 2), { title: "Straddle ÷ spot × 100" }),
       col("em", "±1σ", 1, (r) => r.em, (v) => formatFixed(v, 0), { title: "±1σ = F·(e^{σ√T} − e^{−σ√T})/2 ≈ F·σ·√T at ATM IV. Sub: as % of F", sub: (r) => (r.emPct === null ? "" : formatPercent(r.emPct, 2)) }),
-      col("verdict", "Verdict", 1, (r) => r.verdict?.ratio ?? null, (v, r) => r.verdict?.label ?? DASH, { ttl: (r) => verdictText(r.verdict), title: "ATM IV ÷ HV20 (the IV/HV column): ≥ 1.20 rich, ≤ 0.90 cheap. Without HV: straddle % ÷ √days against the other chains. An ATM straddle ≈ 0.8 × 1σ, so the straddle alone is not a verdict; it is judged against realised vol", text: true }),
+      col("verdict", "Verdict", 1, (r) => r.verdict?.ratio ?? null, (v, r) => r.verdict?.label ?? DASH, { ttl: (r) => verdictText(r.verdict), title: "ATM IV ÷ HV20 (the IV/HV column): ≥ 1.20 rich, ≤ 0.90 cheap. Without HV: straddle % ÷ √days against the other chains. An ATM straddle ≈ 0.8 × 1σ, so the straddle alone is not a verdict; it is judged against realised vol", text: true, viz: { kind: "chip", chip: (r) => verdictChip(r.verdict) } }),
       col("pcr", "PCR", 2, (r) => r.pcr, f2, { title: "Put OI ÷ call OI over the fetched strikes. Sub ΔOI: put OI added ÷ call OI added today (the Chain strip's net ΔOI as a ratio)", sub: (r) => (r.pcrChange === null ? "" : `ΔOI ${f2(r.pcrChange)}`) }),
       col("maxPain", "Max pain", 3, (r) => r.maxPain, formatInt, { title: "The expiry price where option buyers collect the least. Sub: vs spot", sub: (r) => (r.mpDiff === null ? "" : formatSigned(r.mpDiff, 0)) }),
-      col("walls", "Walls", 2, (r) => r.support, (v, r) => (r.support === null && r.resistance === null ? DASH : `${formatInt(r.support)}\u2009/\u2009${formatInt(r.resistance)}`), { title: "Put wall (most put OI) / call wall (most call OI)", sortable: false, text: true }),
+      col("walls", "Walls", 2, (r) => r.support, (v, r) => (r.support === null && r.resistance === null ? DASH : `${formatInt(r.support)} / ${formatInt(r.resistance)}`), { title: "Put wall (most put OI) / call wall (most call OI)", sortable: false, text: true }),
       col("build", "Build-up", 3, (r) => r.build?.rupees ?? null, (v, r) => (r.build ? r.build.action.replace("short covering", "covering") : DASH), { title: "The build-up with the most money behind it: Σ |OI change| × mid by tag and side", text: true, ttl: (r) => (r.oiMissing ? "OI change unavailable from this broker" : r.build?.text ?? "") }),
       col("basis", "Basis", 3, (r) => r.basis, (v) => formatSigned(v, 1), { title: "Forward from put-call parity minus spot. Sub: implied carry, % a year", sub: (r) => (r.carry === null ? "" : `${formatFixed(r.carry, 1)}%/yr`) }),
       { ...age(), p: 3 },
     ],
     filters: ["expiries", "days"],
     defaults: { filters: {}, sort: { by: "ivHvRatio", dir: "desc" } },
-    card: { badge: "verdict", keys: ["atmIv", "ivHvRatio", "em"] },
+    secondary: { get: (r) => r.atmIv, dir: "desc" },
+    card: { badge: "verdict", keys: ["ivHvRatio", "atmIv", "em"] },
+    legend: [{ label: "Rich (IV > HV)", token: "iv" }, { label: "Cheap", token: "hv" }, { label: "1.0× at the centre", token: "spot", kind: "line" }],
   },
   {
     id: "unusual",
@@ -453,16 +472,18 @@ export const PRESETS = Object.freeze([
       col("volume", "Volume", 1, (r) => r.volume, compact, { title: "Contracts traded today (units). Sub: in lots", sub: (r) => lots(r.volume, r.lot) }),
       col("oi", "OI", 3, (r) => r.oi, compact, { title: "Open interest (units)" }),
       col("volOi", "Vol/OI", 2, (r) => r.volOi, times, { title: "Volume ÷ open interest", ttl: (r) => (r.oi === 0 ? "Fresh strike: no open interest yet" : "") }),
-      col("volOiRel", "× median", 1, (r) => r.volOiRel, times, { title: "(Vol/OI) ÷ the median Vol/OI of the same side of the same chain (legs with volume and OI; needs 5)", heat: true }),
-      col("turnover", "Turnover", 1, (r) => r.turnover, bigRupee, { title: "Volume × mid" }),
-      col("oiChgPct", "OI chg %", 2, (r) => r.oiChgPct, (v) => (num(v) === null ? DASH : `${formatSigned(v, 1)}%`), { title: "OI change ÷ previous OI (only when the previous OI is at least 100 lots)" }),
-      col("build", "Build-up", 2, (r) => r.tag, (v, r) => (r.reading ? r.reading.action : DASH), { title: "Price and OI change read from the writer's side", sortable: false, text: true, cardFmt: (v, r) => (r.reading ? r.reading.action.replace("short covering", "covering") : DASH) }),
+      col("volOiRel", "× median", 1, (r) => r.volOiRel, times, { title: "(Vol/OI) ÷ the median Vol/OI of the same side of the same chain (legs with volume and OI; needs 5)", viz: { kind: "seq", scale: "rank" } }),
+      col("turnover", "Turnover", 1, (r) => r.turnover, bigRupee, { title: "Volume × mid", viz: { kind: "bar", max: "p95", tone: "side" } }),
+      col("oiChgPct", "OI chg %", 2, (r) => r.oiChgPct, (v) => (num(v) === null ? DASH : `${formatSigned(v, 1)}%`), { title: "OI change ÷ previous OI (only when the previous OI is at least 100 lots)", ink: (r) => signInk(r.oiChgPct) }),
+      col("build", "Build-up", 2, (r) => r.tag, (v, r) => (r.reading ? r.reading.action : DASH), { title: "Price and OI change read from the writer's side", sortable: false, text: true, cardFmt: (v, r) => (r.reading ? r.reading.action.replace("short covering", "covering") : DASH), viz: { kind: "chip", chip: (r) => buildupChip(r.tag), label: (r) => r.reading?.action ?? "" } }),
       col("iv", "IV", 3, (r) => r.iv, f1, { title: "The leg's implied volatility (broker / server)" }),
       col("delta", "Δ", 3, (r) => r.delta, f2, { title: "Delta" }),
     ],
     filters: [...COMMON, "volOiRel", "volLots", "turnover", "midMin", "fresh"].filter((v, i, a) => a.indexOf(v) === i),
     defaults: { filters: { oiLots: 50, volOiRel: 3, volLots: 20, turnover: 1000000, midMin: 1, fresh: false }, sort: { by: "volOiRel", dir: "desc" } },
+    secondary: { get: (r) => r.turnover, dir: "desc" },
     card: { badge: "volOiRel", keys: ["turnover", "volume", "build"] },
+    legend: [...SIDES, { kind: "ramp", label: "× median" }, { label: "Turnover bar (call / put)", kind: "none" }],
   },
   {
     id: "buildup",
@@ -474,17 +495,19 @@ export const PRESETS = Object.freeze([
       lead(),
       col("changePct", "Price chg %", 1, (r) => r.changePct, (v) => (num(v) === null ? DASH : `${formatSigned(v, 1)}%`), { title: "Change since the previous close", ink: (r) => signInk(r.changePct) }),
       col("oi", "OI", 3, (r) => r.oi, compact, { title: "Open interest (units)" }),
-      col("oiChange", "OI chg", 1, (r) => r.oiChange, (v) => formatCompact(v, { signed: true }), { title: "OI change today (units). Sub: in lots", sub: (r) => (r.oiChangeLots === null ? "" : `${formatCompact(r.oiChangeLots, { signed: true })} lots`), sortGet: (r) => (r.oiChange === null ? null : Math.abs(r.oiChange)) }),
-      col("oiChgPct", "OI chg %", 3, (r) => r.oiChgPct, (v) => (num(v) === null ? DASH : `${formatSigned(v, 1)}%`), { title: "OI change ÷ previous OI, only when the previous OI is at least 100 lots", ttl: (r) => (r.oiChgPct === null && r.oiChange !== null ? "Prior OI too small" : "") }),
-      col("committed", "₹ committed", 1, (r) => r.committed, bigRupee, { title: "|OI change| × mid", heat: true }),
-      col("tag", "Tag", 1, (r) => r.tag, (v) => (v ? O.BUILDUP_NAMES[v] : DASH), { title: "LB price ↑ OI ↑ · SB price ↓ OI ↑ · SC price ↑ OI ↓ · LU price ↓ OI ↓", sortable: false, text: true }),
-      col("reading", "Reading", 1, (r) => r.reading?.text ?? null, (v) => v ?? DASH, { title: "What the build-up says, from the writer's side", sortable: false, text: true }),
+      col("oiChange", "OI chg", 1, (r) => r.oiChange, (v) => formatCompact(v, { signed: true }), { title: "OI change today (units). Sub: in lots", sub: (r) => (r.oiChangeLots === null ? "" : `${formatCompact(r.oiChangeLots, { signed: true })} lots`), sortGet: (r) => (r.oiChange === null ? null : Math.abs(r.oiChange)), ink: (r) => signInk(r.oiChange), cardLabel: "OI", viz: { kind: "cbar", at: null, signed: (r) => r.oiChange, tone: (r) => (r.oiChange < 0 ? "neg" : "pos"), dec: (r) => r.oiChange < 0 } }),
+      col("oiChgPct", "OI chg %", 3, (r) => r.oiChgPct, (v) => (num(v) === null ? DASH : `${formatSigned(v, 1)}%`), { title: "OI change ÷ previous OI, only when the previous OI is at least 100 lots", ttl: (r) => (r.oiChgPct === null && r.oiChange !== null ? "Prior OI too small" : ""), ink: (r) => signInk(r.oiChgPct) }),
+      col("committed", "₹ committed", 1, (r) => r.committed, bigRupee, { title: "|OI change| × mid", cardLabel: "", viz: { kind: "seq", scale: "rank" } }),
+      col("tag", "Tag", 1, (r) => r.tag, (v) => (v ? O.BUILDUP_NAMES[v] : DASH), { title: "LB price ↑ OI ↑ · SB price ↓ OI ↑ · SC price ↑ OI ↓ · LU price ↓ OI ↓", sortable: false, text: true, viz: { kind: "chip", chip: (r) => buildupChip(r.tag), label: (r) => r.reading?.action ?? "" } }),
+      col("reading", "Reading", 1, (r) => r.reading?.bias ?? null, (v) => (v === "bullish" ? "▲ Bullish" : v === "bearish" ? "▼ Bearish" : "–"), { title: "What the build-up says for the index, from the writer's side", sortable: false, text: true, cardLabel: "", ink: (r) => (r.reading?.bias === "bullish" ? "pos" : r.reading?.bias === "bearish" ? "neg" : null), ttl: (r) => r.reading?.text ?? "" }),
       col("volume", "Volume", 3, (r) => r.volume, compact, { title: "Contracts traded today (units)" }),
       col("iv", "IV", 3, (r) => r.iv, f1, { title: "The leg's implied volatility" }),
     ],
     filters: [...COMMON, "oiChgLots", "tags", "committed"],
     defaults: { filters: { oiChgLots: 50, tags: ["LB", "SB", "SC", "LU"], committed: 2500000 }, sort: { by: "committed", dir: "desc" } },
+    secondary: { get: (r) => (r.oiChange === null ? null : Math.abs(r.oiChange)), dir: "desc" },
     card: { badge: "tag", keys: ["oiChange", "committed", "reading"] },
+    legend: [...SIDES, { label: "OI added", token: "pos" }, { label: "OI removed", token: "neg", kind: "hatch" }, { label: "▲ bullish ▼ bearish for the index", kind: "none" }],
   },
   {
     id: "sell",
@@ -496,20 +519,22 @@ export const PRESETS = Object.freeze([
       lead(),
       col("bid", "Bid", 1, (r) => r.sellPrice, f2, { title: "The price you sell at (the last price when there is no bid, flagged LTP)", sub: (r) => (r.bid === null ? "LTP" : "") }),
       col("absDelta", "Δ", 1, (r) => r.absDelta, f2, { title: "|delta|", dir: "asc" }),
-      col("popShort", "POP", 1, (r) => r.popShort, pop, { title: "Chance the short keeps a profit at expiry: P(price stays beyond strike ± bid), log-normal on the forward at the leg's IV" }),
-      col("sigmaOtm", "σ OTM", 1, (r) => r.sigmaOtm, sigma, { title: "ln(K/F) (calls) or ln(F/K) (puts) ÷ (ATM IV·√T). Below 1: inside the expected move" }),
+      col("popShort", "POP", 1, (r) => r.popShort, pop, { title: "Chance the short keeps a profit at expiry: P(price stays beyond strike ± bid), log-normal on the forward at the leg's IV", viz: { kind: "bar", max: 1, tone: "pos", tick: "pop" } }),
+      col("sigmaOtm", "σ OTM", 1, (r) => r.sigmaOtm, sigma, { title: "ln(K/F) (calls) or ln(F/K) (puts) ÷ (ATM IV·√T). Below 1: inside the expected move", ink: (r) => (num(r.sigmaOtm) !== null && r.sigmaOtm < 1 ? "warn" : null) }),
       col("premLot", "₹/lot", 1, (r) => r.premLot, rupee, { title: "Bid × lot: premium collected per lot" }),
       col("thetaLot", "θ ₹/day", 2, (r) => r.thetaLot, rupee, { title: "|θ| × lot: decay earned per day per lot" }),
       col("thetaPct", "θ %/day", 3, (r) => r.thetaPct, (v) => formatPercent(v, 1), { title: "|θ| ÷ mid × 100 (blank under ₹0.50)" }),
-      col("ivHv", "IV − HV", 2, (r) => r.ivHv, pts, { title: "Leg IV minus HV20, vol points" }),
-      col("wing", "Max loss (wing)", 3, (r) => r.wing?.maxLoss ?? null, (v, r) => (r.wing ? `${rupee(r.wing.maxLoss)} · R:R 1:${formatFixed(r.wing.rr, 1)}` : DASH), { title: "Buy the strike 4 steps further out: max loss per lot = (width − credit) × lot; R:R = max loss ÷ credit", dir: "asc" }),
-      col("liq", "Liq", 2, (r) => r.liq, (v) => (num(v) === null ? DASH : `${formatInt(v)}/5`), { title: "Liquidity 1–5 from the spread and the volume rank" }),
-      col("costs", "Costs", 3, (r) => r.costsRt?.total ?? null, rupee, { title: "Round-trip charges per lot at mid (estimate): brokerage, STT, exchange, SEBI, stamp, GST", dir: "asc" }),
-      col("scoreSell", "Score", 1, (r) => r.scoreSell, formatInt, { title: "Richness 35% (IV − HV −2→+6 pts) · Safety 25% (POP 60→90%) · Decay 20% (θ 0→15%/day) · Liquidity 20%. Halved inside 1σ or on expiry day", heat: true }),
+      col("ivHv", "IV − HV", 2, (r) => r.ivHv, pts, { title: "Leg IV minus HV20, vol points", ink: ivHvInk }),
+      col("wing", "Max loss (wing)", 3, (r) => r.wing?.maxLoss ?? null, (v, r) => (r.wing ? `${rupee(r.wing.maxLoss)} · R:R 1:${formatFixed(r.wing.rr, 1)}` : DASH), { title: "Buy the strike 4 steps further out: max loss per lot = (width − credit) × lot; R:R = max loss ÷ credit", dir: "asc", ink: (r) => (r.wing ? "neg" : null) }),
+      liqCol(2),
+      col("costs", "Costs", 3, (r) => r.costsRt?.total ?? null, rupee, { title: "Round-trip charges per lot at mid (estimate): brokerage, STT, exchange, SEBI, stamp, GST", dir: "asc", ink: () => "label" }),
+      col("scoreSell", "Score", 1, (r) => r.scoreSell, formatInt, { title: "Richness 35% (IV − HV −2→+6 pts) · Safety 25% (POP 60→90%) · Decay 20% (θ 0→15%/day) · Liquidity 20%. Halved inside 1σ or on expiry day", viz: { kind: "score", of: (r) => r.sell } }),
     ],
     filters: [...COMMON, "otm", "absDelta", "premLot", "pop", "noExpiryDay"],
     defaults: { filters: { otm: true, absDelta: [0.1, 0.3], spread: 3, liq: 3, premLot: 300, pop: 65, noExpiryDay: true }, sort: { by: "scoreSell", dir: "desc" } },
+    secondary: { get: (r) => r.popShort, dir: "desc" },
     card: { badge: "scoreSell", keys: ["popShort", "sigmaOtm", "premLot"] },
+    legend: [...SIDES, SCORE_RAMP, { label: "POP", token: "pos" }],
   },
   {
     id: "buy",
@@ -523,19 +548,21 @@ export const PRESETS = Object.freeze([
       col("absDelta", "Δ", 1, (r) => r.absDelta, f2, { title: "|delta|" }),
       col("capital", "Capital", 1, (r) => r.capital, rupee, { title: "Ask × lot: premium paid per lot (the most you can lose)", dir: "asc" }),
       col("be", "Breakeven", 2, (r) => r.beLong, formatInt, { title: "Strike ± ask at expiry. Sub: distance from spot", sub: (r) => (r.beMovePct === null ? "" : `${formatSigned(r.beMovePct, 2)}%`), dir: "asc" }),
-      col("beSigma", "BE σ", 1, (r) => r.beSigma, sigma, { title: "|ln(breakeven ÷ F)| ÷ (ATM IV·√T): how many σ the index must move", dir: "asc" }),
+      col("beSigma", "BE σ", 1, (r) => r.beSigma, sigma, { title: "|ln(breakeven ÷ F)| ÷ (ATM IV·√T): how many σ the index must move", dir: "asc", viz: { kind: "sigma" } }),
       col("popLong", "POP", 2, (r) => r.popLong, pop, { title: "Chance the long finishes beyond its breakeven" }),
-      col("thetaPct", "θ %/day", 1, (r) => r.thetaPct, (v) => formatPercent(v, 1), { title: "|θ| ÷ mid × 100: premium lost per day", dir: "asc" }),
+      col("thetaPct", "θ %/day", 1, (r) => r.thetaPct, (v) => formatPercent(v, 1), { title: "|θ| ÷ mid × 100: premium lost per day", dir: "asc", ink: (r) => (r.thetaPct > 8 ? "warn" : null) }),
       col("vegaPct", "Vega %", 3, (r) => r.vegaPct, (v) => formatPercent(v, 1), { title: "Vega ÷ ask: premium change per +1 vol point" }),
       col("leverage", "Leverage", 3, (r) => r.leverage, (v) => (num(v) === null ? DASH : `${formatFixed(v, 1)}×`), { title: "|Δ| × spot ÷ ask" }),
-      col("ivHv", "IV − HV", 2, (r) => r.ivHv, pts, { title: "Leg IV minus HV20, vol points", dir: "asc" }),
-      col("liq", "Liq", 3, (r) => r.liq, (v) => (num(v) === null ? DASH : `${formatInt(v)}/5`), { title: "Liquidity 1–5" }),
-      col("costsPct", "Costs %", 3, (r) => r.costsPct, (v) => formatPercent(v, 2), { title: "Round-trip charges ÷ (ask × lot)", dir: "asc" }),
-      col("scoreBuy", "Score", 1, (r) => r.scoreBuy, formatInt, { title: "Cheapness 30% (IV − HV +2→−6 pts) · Reach 30% (BE 1.5σ→0.5σ) · Decay 20% (θ 10→0%/day) · Liquidity 20%. Halved for POP < 10% or on expiry day", heat: true }),
+      col("ivHv", "IV − HV", 2, (r) => r.ivHv, pts, { title: "Leg IV minus HV20, vol points", dir: "asc", ink: ivHvInk }),
+      liqCol(3, "Liquidity 1–5"),
+      col("costsPct", "Costs %", 3, (r) => r.costsPct, (v) => formatPercent(v, 2), { title: "Round-trip charges ÷ (ask × lot)", dir: "asc", ink: () => "label" }),
+      col("scoreBuy", "Score", 1, (r) => r.scoreBuy, formatInt, { title: "Cheapness 30% (IV − HV +2→−6 pts) · Reach 30% (BE 1.5σ→0.5σ) · Decay 20% (θ 10→0%/day) · Liquidity 20%. Halved for POP < 10% or on expiry day", viz: { kind: "score", of: (r) => r.buy } }),
     ],
     filters: [...COMMON, "absDelta", "thetaPct", "capital"],
     defaults: { filters: { absDelta: [0.25, 0.6], spread: 3, liq: 3, days: [2, null], thetaPct: 10 }, sort: { by: "scoreBuy", dir: "desc" } },
-    card: { badge: "scoreBuy", keys: ["capital", "beSigma", "thetaPct"] },
+    secondary: { get: (r) => r.beSigma, dir: "asc" },
+    card: { badge: "scoreBuy", keys: ["beSigma", "capital", "thetaPct"] },
+    legend: [...SIDES, SCORE_RAMP, { label: "BE σ: 0–3σ, the band is 0.5–1.5σ", token: "iv", kind: "band" }],
   },
   {
     id: "ivout",
@@ -547,17 +574,19 @@ export const PRESETS = Object.freeze([
       lead(),
       col("iv", "IV", 1, (r) => r.iv, f1, { title: "The leg's implied volatility" }),
       col("nbrIv", "Neighbours", 2, (r) => r.nbrIv, f1, { title: "Median IV of the 2 nearest strikes each side (same side, IV > 0)" }),
-      col("bump", "Bump", 1, (r) => r.bump, pts, { title: "IV − neighbours. Sorted by size", sortGet: (r) => (r.bump === null ? null : Math.abs(r.bump)), heat: true }),
+      col("bump", "Bump", 1, (r) => r.bump, pts, { title: "IV − neighbours. Sorted by size", sortGet: (r) => (r.bump === null ? null : Math.abs(r.bump)), ink: (r) => (r.bump > 0 ? "iv" : null), viz: { kind: "cbar", at: null, signed: (r) => r.bump, tone: () => "iv", outline: (r) => r.bump < 0 } }),
       col("vsAtm", "vs ATM", 2, (r) => r.vsAtm, pts, { title: "IV − ATM IV" }),
       col("mid", "Mid", 1, (r) => r.mid, f2, { title: "Mid of bid and ask" }),
       col("fair", "Fair", 2, (r) => r.fair, f2, { title: "Black-76 at the neighbours' IV on the forward" }),
-      col("richLot", "Rich ₹/lot", 1, (r) => r.richLot, (v) => (num(v) === null ? DASH : `${v > 0 ? "+" : ""}${rupee(v)}`), { title: "(mid − fair) × lot. Positive: priced above its neighbours" }),
-      col("spread", "Spread %", 2, (r) => r.spread, (v) => formatPercent(v, 1), { title: "(ask − bid) ÷ mid", dir: "asc" }),
-      col("liq", "Liq", 3, (r) => r.liq, (v) => (num(v) === null ? DASH : `${formatInt(v)}/5`), { title: "Liquidity 1–5" }),
+      col("richLot", "Rich ₹/lot", 1, (r) => r.richLot, (v) => (num(v) === null ? DASH : `${v > 0 ? "+" : ""}${rupee(v)}`), { title: "(mid − fair) × lot. Positive: priced above its neighbours", ink: (r) => (r.richLot > 0 ? "iv" : null) }),
+      col("spread", "Spread %", 2, (r) => r.spread, (v) => (num(v) === null ? DASH : `${v > 5 ? "⚠ " : ""}${formatPercent(v, 1)}`), { title: "(ask − bid) ÷ mid", dir: "asc", ink: (r) => (r.spread > 3 ? "warn" : null) }),
+      liqCol(3, "Liquidity 1–5"),
     ],
     filters: [...COMMON, "absDelta", "noExpiryDay", "bump", "direction", "richAbs"],
     defaults: { filters: { absDelta: [null, 0.6], noExpiryDay: true, bump: 1, spread: 5, liq: 2, twoSided: true, direction: "both", richAbs: 50 }, sort: { by: "bump", dir: "desc" } },
+    secondary: { get: (r) => (r.richLot === null || r.richLot === undefined ? null : Math.abs(r.richLot)), dir: "desc" },
     card: { badge: "bump", keys: ["richLot", "iv", "spread"] },
+    legend: [...SIDES, { label: "Rich (above its neighbours)", token: "iv" }, { label: "Cheap", token: "iv", kind: "outline" }],
   },
   {
     id: "hedge",
@@ -568,20 +597,22 @@ export const PRESETS = Object.freeze([
     columns: [
       { ...lead("Underlying · expiry", "The put's underlying and expiry. Sub line: time to expiry, lot size, M for a monthly"), get: (r) => r.chain },
       col("strike", "Put", 1, (r) => r.strike, formatInt, { title: "Put strike", dir: "asc" }),
-      col("depth", "Depth", 1, (r) => r.depth, (v) => formatPercent(v, 1), { title: "(F − K) ÷ F × 100", dir: "asc" }),
+      col("depth", "Depth", 1, (r) => r.depth, (v) => formatPercent(v, 1), { title: "(F − K) ÷ F × 100", dir: "asc", viz: { kind: "bar", max: 10, tone: "put" } }),
       col("ask", "Ask", 3, (r) => r.ask, f2, { title: "The price you buy at" }),
       col("costPct", "Cost %", 2, (r) => r.costPct, (v) => formatPercent(v, 2), { title: "Ask ÷ F × 100", dir: "asc" }),
       col("perLot", "₹/lot", 1, (r) => r.perLot, rupee, { title: "Ask × lot", dir: "asc" }),
       col("perDay", "₹/day", 2, (r) => r.perDay, rupee, { title: "Ask × lot ÷ days (at least ¼ day)", dir: "asc" }),
-      col("annualised", "Annualised", 1, (r) => r.annualised, (v) => formatPercent(v, 1), { title: "Cost % × 365 ÷ days: the price of a year of this protection", dir: "asc", heat: true }),
-      col("payout", "Payout −2σ", 2, (r) => r.payout, (v) => (num(v) === null ? DASH : `${formatFixed(v, 1)}×`), { title: "max(0, K − F·e^(−2σ√T)) ÷ ask at ATM IV" }),
-      col("skewPaid", "Skew paid", 3, (r) => r.skewPaid, pts, { title: "Put IV − ATM IV", dir: "asc" }),
+      col("annualised", "Annualised", 1, (r) => r.annualised, (v) => formatPercent(v, 1), { title: "Cost % × 365 ÷ days: the price of a year of this protection", dir: "asc", viz: { kind: "seq", scale: "rank" } }),
+      col("payout", "Payout −2σ", 2, (r) => r.payout, (v) => (num(v) === null ? DASH : `${formatFixed(v, 1)}×`), { title: "max(0, K − F·e^(−2σ√T)) ÷ ask at ATM IV", ink: (r) => (r.payout >= 3 ? "pos" : null) }),
+      col("skewPaid", "Skew paid", 3, (r) => r.skewPaid, pts, { title: "Put IV − ATM IV", dir: "asc", ink: (r) => (r.skewPaid > 3 ? "warn" : null) }),
       col("lots", "Lots", 2, (r) => r.lots, formatInt, { title: "Index notional only; scale by your portfolio beta. ceil(notional ÷ (F × lot)). Sub: total cost", sub: (r) => (r.total === null ? "" : rupee(r.total)) }),
-      col("liq", "Liq", 3, (r) => r.liq, (v) => (num(v) === null ? DASH : `${formatInt(v)}/5`), { title: "Liquidity 1–5" }),
+      liqCol(3, "Liquidity 1–5"),
     ],
     filters: ["expiries", "days", "depth", "liq", "best"],
     defaults: { filters: { days: [1, null], depth: [2, 8], liq: 2, best: true }, sort: { by: "annualised", dir: "asc" } },
+    secondary: { get: (r) => r.payout, dir: "desc" },
     card: { badge: "annualised", keys: ["depth", "perLot", "payout"] },
+    legend: [{ kind: "ramp", label: "Annualised: darker is cheaper" }, { label: "Depth below F (0–10%)", token: "put" }],
   },
   {
     id: "arb",
@@ -592,18 +623,20 @@ export const PRESETS = Object.freeze([
     columns: [
       { ...lead("Type", "Vertical, vertical bound, butterfly, box (buy or sell), or a calendar variance inversion"), get: (r) => r.type, sub: null },
       col("chain", "Underlying · expiry", 1, (r) => r.chain, (v) => v ?? DASH, { num: false, dir: "asc", text: true, title: "The chain the legs come from" }),
-      col("legs", "Legs", 1, (r) => r.legsText, (v) => v || DASH, { num: false, sortable: false, wrap: true, text: true, title: "Executable prices: asks to buy, bids to sell" }),
-      col("net", "Net ₹/lot", 1, (r) => r.net, (v) => (num(v) === null ? DASH : `${v > 0 ? "+" : ""}${formatRupee(v, 0)}`), { title: "Gross ₹ − costs. Positive: executable after charges", ink: (r) => signInk(r.net), heat: true }),
-      col("status", "Status", 1, (r) => r.status, (v) => v ?? DASH, { num: false, dir: "asc", text: true, title: "Executable (net > 0), near miss, or Check (a model-based calendar inversion)" }),
-      col("gross", "Gross", 3, (r) => r.gross, (v) => (num(v) === null ? DASH : `${formatSigned(v, 2)} pts`), { title: "Edge per unit at bid/ask before charges" }),
+      col("legs", "Legs", 1, (r) => r.legsText, (v) => v || DASH, { num: false, sortable: false, wrap: true, text: true, title: "Executable prices: asks to buy, bids to sell", viz: { kind: "legs" } }),
+      col("net", "Net ₹/lot", 1, (r) => r.net, (v) => (num(v) === null ? DASH : `${v > 0 ? "+" : ""}${formatRupee(v, 0)}`), { title: "Gross ₹ − costs. Positive: executable after charges", viz: { kind: "div" } }),
+      col("status", "Status", 1, (r) => r.status, (v) => v ?? DASH, { num: false, dir: "asc", text: true, title: "Executable (net > 0), near miss, or Check (a model-based calendar inversion)", viz: { kind: "chip", chip: (r) => statusChip(r.status) } }),
+      col("gross", "Gross", 3, (r) => r.gross, (v) => (num(v) === null ? DASH : `${formatSigned(v, 2)} pts`), { title: "Edge per unit at bid/ask before charges", ink: (r) => signInk(r.gross) }),
       col("grossLot", "Gross ₹/lot", 3, (r) => r.grossLot, (v) => (num(v) === null ? DASH : formatRupee(v, 0)), { title: "Gross × lot" }),
-      col("costsTotal", "Costs ₹", 2, (r) => r.costsTotal, rupee, { title: "Opening charges for one lot of every leg (estimate); boxes add settlement STT on the width", dir: "asc" }),
+      col("costsTotal", "Costs ₹", 2, (r) => r.costsTotal, rupee, { title: "Opening charges for one lot of every leg (estimate); boxes add settlement STT on the width", dir: "asc", ink: () => "label" }),
       col("capital", "Capital", 3, (r) => r.capital, rupee, { title: "A bought box: net debit × lot. Others: margin depends on the broker" }),
       age(),
     ],
     filters: ["expiries", "noExpiryDay", "minLeg", "nearMiss"],
     defaults: { filters: { noExpiryDay: true, minLeg: 1, nearMiss: true }, sort: { by: "net", dir: "desc" } },
+    secondary: { get: (r) => r.gross, dir: "desc" },
     card: { badge: "status", keys: ["net", "gross", "age"] },
+    legend: [{ label: "Executable after costs", token: "pos" }, { label: "Near miss", token: "warn" }, { label: "Net after estimated opening charges · quotes move", kind: "none" }],
   },
 ]);
 export const PRESET_IDS = Object.freeze(PRESETS.map((p) => p.id));
@@ -620,17 +653,19 @@ export function recordsFor(scan, preset) {
 }
 
 /**
- * Filter (in the preset's fixed order, counting what each step removes), then sort (stable; ties by the lead text;
- * missing values last either way). `limit` cuts the returned rows; `total` counts them all. When nothing passes,
- * each active filter's `without` counts the rows that would pass with only that filter switched off.
+ * Filter (in the preset's fixed order, counting what each step removes), then sort (stable; ties by the preset's
+ * `secondary` key, then the lead text, then the record key; missing values last either way). `limit` cuts the
+ * returned rows; `total` counts them all. When nothing passes (or with `leaveOneOut`), each active filter's `without`
+ * counts the rows that would pass with only that filter switched off.
  * @returns {{ rows: object[], total: number, funnel: { filter: string, label: string, removed: number, without?: number }[] }}
  */
-export function runPreset(records, preset, filters = {}, sort = null, { limit = null, ctx = {} } = {}) {
+export function runPreset(records, preset, filters = {}, sort = null, { limit = null, ctx = {}, leaveOneOut = false } = {}) {
   const all = [...(records ?? [])];
   const steps = preset.filters.map((id) => {
     const f = FILTERS[id];
     const v = filters?.[id] === undefined ? filterDefault(preset, id) : filters[id];
-    return { id, v, run: (list) => (f.apply ? f.apply(list, v) : list.filter((r) => passes(f, r, v))) };
+    // runOff: the step with this filter switched off (an "apply" filter such as near misses may still drop rows).
+    return { id, v, run: (list) => (f.apply ? f.apply(list, v) : list.filter((r) => passes(f, r, v))), runOff: (list) => (f.apply ? f.apply(list, offValue(f)) : list) };
   });
   let rows = all;
   const funnel = [];
@@ -639,24 +674,33 @@ export function runPreset(records, preset, filters = {}, sort = null, { limit = 
     rows = st.run(rows);
     funnel.push({ filter: st.id, label: filterActive(st.id, st.v) ? filterText(st.id, st.v, ctx) : FILTERS[st.id].label, removed: before - rows.length });
   }
-  if (!rows.length && all.length)
+  if ((!rows.length || leaveOneOut) && all.length)
     steps.forEach((st, i) => {
       if (!filterActive(st.id, st.v)) return;
       let list = all;
-      for (let j = 0; j < steps.length && list.length; j++) if (j !== i) list = steps[j].run(list);
+      for (let j = 0; j < steps.length && list.length; j++) list = j === i ? steps[j].runOff(list) : steps[j].run(list);
       funnel[i].without = list.length;
     });
   const s = sort ?? preset.defaults.sort;
   const c = preset.columns.find((x) => x.id === s?.by && x.sortable) ?? preset.columns.find((x) => x.id === preset.defaults.sort.by);
   const key = c.sortGet ?? c.get;
   const dir = s?.dir === "asc" ? 1 : s?.dir === "desc" ? -1 : c.dir === "asc" ? 1 : -1;
-  const decorated = rows.map((r, i) => ({ r, i, k: key(r), t: String(r.name ?? "") }));
+  const sec = preset.secondary ?? null;
+  const sdir = sec?.dir === "asc" ? 1 : -1;
+  const missing = (k) => k === null || k === undefined || (typeof k === "number" && !Number.isFinite(k));
+  const decorated = rows.map((r, i) => ({ r, i, k: key(r), s: sec ? sec.get(r) : null, t: String(r.name ?? ""), key: String(r.key ?? "") }));
   decorated.sort((a, b) => {
-    const an = a.k === null || a.k === undefined || (typeof a.k === "number" && !Number.isFinite(a.k));
-    const bn = b.k === null || b.k === undefined || (typeof b.k === "number" && !Number.isFinite(b.k));
+    const an = missing(a.k);
+    const bn = missing(b.k);
     if (an !== bn) return an ? 1 : -1;
     if (!an && a.k !== b.k) return (a.k < b.k ? -1 : 1) * dir;
+    // Equal primaries: the tab's second key (docs/design/screener.md §8.5), missing last.
+    const as = missing(a.s);
+    const bs = missing(b.s);
+    if (as !== bs) return as ? 1 : -1;
+    if (!as && a.s !== b.s) return (a.s < b.s ? -1 : 1) * sdir;
     if (a.t !== b.t) return a.t < b.t ? -1 : 1;
+    if (a.key !== b.key) return a.key < b.key ? -1 : 1;
     return a.i - b.i;
   });
   const sorted = decorated.map((d) => d.r);
@@ -715,12 +759,146 @@ export function reason(rec, presetId) {
   }
 }
 
+// ── Ranking visuals (docs/design/screener.md §5.1, §8.1). Pure; screener.js paints them. ──
+
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+/** Fixed score bands, so a colour means the same score on every refresh: ≥75 → 5, 65 → 4, 55 → 3, 45 → 2, else 1; none → 0. */
+export function scoreStep(score) {
+  const s = num(score);
+  if (s === null) return 0;
+  return s >= 75 ? 5 : s >= 65 ? 4 : s >= 55 ? 3 : s >= 45 ? 2 : 1;
+}
+/**
+ * Sequential steps (1..5) for a relative column, aligned with `values`: seqStep(v, p5, p95) over the finite values
+ * (the rows shown). Fewer than 5 finite values, or a missing value: 0 (no fill). `dir: "asc"` (cheaper is better)
+ * inverts the step, so the best row is always the darkest.
+ */
+export function rankHeat(values, dir = "desc") {
+  const list = (values ?? []).map((v) => num(v));
+  const fin = list.filter((v) => v !== null);
+  if (fin.length < 5) return list.map(() => 0);
+  const lo = O.percentileOf(fin, 0.05);
+  const hi = O.percentileOf(fin, 0.95);
+  return list.map((v) => {
+    if (v === null) return 0;
+    const st = O.seqStep(v, lo, hi);
+    return dir === "asc" ? 6 - st : st;
+  });
+}
+/** Diverging steps (−3..3) for signed values, aligned with `values`: divStep(v, p95(|v|)); a missing value: null. */
+export function signedHeat(values) {
+  const list = (values ?? []).map((v) => num(v));
+  const m = O.percentileOf(list.filter((v) => v !== null).map(Math.abs), 0.95);
+  return list.map((v) => (v === null ? null : O.divStep(v, m ?? 0)));
+}
+/** A bar's length as a fraction 0..1 of `max` (a p95 or a fixed maximum). */
+export function barFrac(v, max) {
+  const a = num(v);
+  const m = num(max);
+  if (a === null || m === null || m <= 0) return 0;
+  return clamp01(a / m);
+}
+/** The position of a σ distance on a 0–3σ track (1σ at 1/3); null when missing. */
+export const sigmaPos = (s) => (num(s) === null ? null : clamp01(Number(s) / 3));
+/** The position of IV/HV on a 0.5–1.5 gauge with 1.0 at the centre; null when missing. */
+export const ratioPos = (r) => (num(r) === null ? null : clamp01((Number(r) - 0.5) / 1));
+/** A signed value as −1…1 of `m` (p95 of |v|), for a centred bar; null when missing. */
+export const centred = (v, m) => (num(v) === null || !(num(m) > 0) ? null : Math.max(-1, Math.min(1, Number(v) / Number(m))));
+/** The 95th percentile of |v| over the finite values (the scale of a centred or plain bar), or null. */
+export const p95Abs = (values) => O.percentileOf((values ?? []).map((v) => num(v)).filter((v) => v !== null).map(Math.abs), 0.95);
+
+/**
+ * Rank memory between two sweeps: Map key → { delta, isNew }. delta = previous index − new index (positive: moved
+ * up); isNew when the key was not ranked last time (never on the first sweep, when there is nothing to compare).
+ */
+export function rankDiff(prevKeys, nextKeys) {
+  const prev = new Map();
+  (prevKeys ?? []).forEach((k, i) => !prev.has(k) && prev.set(k, i));
+  const first = !(prevKeys ?? []).length;
+  const out = new Map();
+  (nextKeys ?? []).forEach((k, i) => {
+    const p = prev.get(k);
+    out.set(k, { delta: p === undefined ? 0 : p - i, isNew: p === undefined && !first });
+  });
+  return out;
+}
+
+/** The score's composition: each usable part's share of the bar (renormalised weight) and how much of it is filled. */
+export function scoreParts(sc) {
+  const use = (sc?.parts ?? []).filter((p) => num(p.value) !== null);
+  const w = use.reduce((a, p) => a + p.weight, 0);
+  if (!w) return [];
+  return use.sort((a, b) => b.weight - a.weight).map((p) => ({ id: p.id, label: p.label, share: p.weight / w, fill: clamp01(p.value), weight: p.weight }));
+}
+
+/** Overview verdict chip: Rich (violet ▲), Cheap (outline ▽), Fair (plain), Expiry day (warn ⚠). */
+export function verdictChip(v) {
+  if (!v?.label) return null;
+  if (v.label === "Expiry day") return { text: v.label, tone: "warn", glyph: "⚠" };
+  if (v.label.startsWith("Rich")) return { text: v.label, tone: "iv", glyph: "▲" };
+  if (v.label.startsWith("Cheap")) return { text: v.label, tone: "outline", glyph: "▽" };
+  return { text: v.label, tone: "plain" };
+}
+/** Build-up tag chip (foundation §4.6): LB and SC up in price (pos), SB and LU down (neg); the letters stay. */
+export function buildupChip(tag) {
+  if (!tag || !O.BUILDUP_NAMES[tag] || tag === "CH") return null;
+  return { text: tag, tone: tag === "LB" || tag === "SC" ? "pos" : "neg", title: O.BUILDUP_NAMES[tag], square: true };
+}
+/** Arbitrage status chip: Executable ✓ (pos), Near miss ≈ (warn), Check ? (outline). */
+export function statusChip(status) {
+  if (status === "Executable") return { text: status, tone: "pos", glyph: "✓" };
+  if (status === "Near miss") return { text: status, tone: "warn", glyph: "≈" };
+  if (status === "Check") return { text: status, tone: "outline", glyph: "?" };
+  return null;
+}
+
+/**
+ * The expiry payoff of one lot of a contract (the risk mini-chart): side "SELL" or "BUY" at its executable price,
+ * plus the short's defined-risk wing when `wing` is given. x spans F·e^(±2.5σ√T) at ATM IV (widened to show the
+ * strike and breakeven), `n` samples. Returns null without a forward, a price or a vol.
+ */
+export function riskCurve(rec, { side = "SELL", wing = null, n = 120 } = {}) {
+  const F = num(rec?.F);
+  const K = num(rec?.strike);
+  const lot = num(rec?.lot) || 1;
+  const price = num(side === "SELL" ? rec?.sellPrice : rec?.buyPrice);
+  const iv = num(rec?.atmIv) ?? num(rec?.iv);
+  const T = num(rec?.T);
+  if (F === null || K === null || price === null || iv === null || T === null || !(T > 0) || !(F > 0)) return null;
+  const s = (iv / 100) * Math.sqrt(T);
+  const be = rec.right === "PE" ? K - price : K + price;
+  let lo = F * Math.exp(-2.5 * s);
+  let hi = F * Math.exp(2.5 * s);
+  const pad = (hi - lo) * 0.06;
+  lo = Math.min(lo, K - pad, be - pad);
+  hi = Math.max(hi, K + pad, be + pad);
+  const legs = [{ side, right: rec.right, strike: K, price, lots: 1 }];
+  const wl = wing && num(wing.wingStrike) !== null && num(wing.wingAsk) !== null ? [...legs, { side: "BUY", right: rec.right, strike: wing.wingStrike, price: wing.wingAsk, lots: 1 }] : null;
+  const xs = [];
+  const ys = [];
+  const wys = wl ? [] : null;
+  const N = Math.max(2, Math.floor(n));
+  for (let i = 0; i < N; i++) {
+    const x = lo + ((hi - lo) * i) / (N - 1);
+    xs.push(x);
+    ys.push(O.payoffAt(legs, x, lot));
+    if (wl) wys.push(O.payoffAt(wl, x, lot));
+  }
+  const short = side === "SELL";
+  const call = rec.right === "CE";
+  const maxProfit = short ? price * lot : call ? null : (K - price) * lot;
+  const maxLoss = short ? (call ? null : (K - price) * lot) : price * lot;
+  return { xs, ys, wing: wys, lo, hi, be, F, spot: num(rec.S), band: [F * Math.exp(-s), F * Math.exp(s)], maxProfit, maxLoss, unlimited: call ? (short ? "loss" : "profit") : null };
+}
+
 // ── Settings ──
 
 export const SCAN_UNDERLYINGS = Object.freeze(["NIFTY", "BANKNIFTY", "SENSEX"]);
 export const AUTO_CHOICES = Object.freeze([0, 60, 120, 300]);
 export const ROW_CHOICES = Object.freeze([25, 50, 100]);
 export const STRIKE_CHOICES = Object.freeze([20, 30, 40]);
+/** Pinned rows per tab (docs/design/screener.md §8.6). */
+export const MAX_PINS = 10;
 /** Defaults (PRD 07 §9); `auto` is 60 s in demo, 120 s live. */
 export const SCREENER_DEFAULTS = Object.freeze({ v: 1, preset: "overview", underlyings: SCAN_UNDERLYINGS, expiries: 2, monthly: true, strikes: 30, auto: 120, rows: 50, brokerage: 20, wingStrikes: 4, hedgeNotional: null });
 
@@ -790,7 +968,10 @@ export function screenerConfig(saved, { list = SCAN_UNDERLYINGS, demo = false } 
   const filters = {};
   const sort = {};
   const cols = {};
+  const pins = {};
   for (const p of PRESETS) {
+    const pl = s.pins?.[p.id];
+    pins[p.id] = Array.isArray(pl) ? pl.filter((k, i, a) => typeof k === "string" && k.length > 0 && k.length < 200 && a.indexOf(k) === i).slice(0, MAX_PINS) : [];
     const sf = s.filters?.[p.id] && typeof s.filters[p.id] === "object" ? s.filters[p.id] : {};
     filters[p.id] = Object.fromEntries(p.filters.map((id) => [id, validFilter(id, sf[id], filterDefault(p, id))]));
     const so = s.sort?.[p.id];
@@ -812,6 +993,7 @@ export function screenerConfig(saved, { list = SCAN_UNDERLYINGS, demo = false } 
     filters,
     sort,
     cols,
+    pins,
   };
 }
 

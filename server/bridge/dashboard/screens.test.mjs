@@ -241,3 +241,156 @@ describe("dailyBaseline and HV", () => {
     expect(hv.hv20).toBeCloseTo(O.realisedVol(candles.slice(0, 29).map((c) => c.close), 20), 10);
   });
 });
+
+describe("ranking visuals (docs/design/screener.md §5.1, §8.1)", () => {
+  it("scoreStep uses fixed bands at 45 / 55 / 65 / 75", () => {
+    expect([44, 45, 54, 55, 64, 65, 74, 75, 100].map(S.scoreStep)).toEqual([1, 2, 2, 3, 3, 4, 4, 5, 5]);
+    expect(S.scoreStep(null)).toBe(0);
+    expect(S.scoreStep(undefined)).toBe(0);
+  });
+  it("rankHeat: p5–p95 steps, 0 under five values or for a missing one, inverted for asc", () => {
+    expect(S.rankHeat([1, 2, 3, 4])).toEqual([0, 0, 0, 0]);
+    const v = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, null];
+    const st = S.rankHeat(v);
+    expect(st[0]).toBe(1);
+    expect(st[9]).toBe(5);
+    expect(st[10]).toBe(0);
+    for (let i = 1; i < 10; i++) expect(st[i]).toBeGreaterThanOrEqual(st[i - 1]);
+    // One outlier does not wash the rest out: the rest still spread over the ramp.
+    const many = [...Array.from({ length: 40 }, (_, i) => i + 1), 100000];
+    const out = S.rankHeat(many);
+    expect(new Set(out.slice(0, 40)).size).toBe(5);
+    expect(out[40]).toBe(5);
+    // Cheaper is better: the lowest value is the darkest.
+    const asc = S.rankHeat([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "asc");
+    expect(asc[0]).toBe(5);
+    expect(asc[9]).toBe(1);
+  });
+  it("signedHeat is diverging on p95 of |v|", () => {
+    const st = S.signedHeat([-100, -10, 0, 10, 100, null]);
+    expect(st[0]).toBe(-3);
+    expect(st[4]).toBe(3);
+    expect(st[2]).toBe(0);
+    expect(st[5]).toBeNull();
+    expect(Math.sign(st[1])).toBe(-1);
+  });
+  it("ratioPos, sigmaPos and barFrac clamp", () => {
+    expect(S.ratioPos(1)).toBe(0.5);
+    expect(S.ratioPos(0.2)).toBe(0);
+    expect(S.ratioPos(3)).toBe(1);
+    expect(S.ratioPos(null)).toBeNull();
+    expect(S.sigmaPos(1)).toBeCloseTo(1 / 3, 10);
+    expect(S.sigmaPos(-1)).toBe(0);
+    expect(S.sigmaPos(9)).toBe(1);
+    expect(S.sigmaPos(undefined)).toBeNull();
+    expect(S.barFrac(5, 10)).toBe(0.5);
+    expect(S.barFrac(50, 10)).toBe(1);
+    expect(S.barFrac(5, 0)).toBe(0);
+    expect(S.centred(-20, 10)).toBe(-1);
+    expect(S.centred(5, 10)).toBe(0.5);
+    expect(S.centred(5, 0)).toBeNull();
+  });
+  it("rankDiff: nothing on the first sweep; up, down, new and removed after it", () => {
+    const first = S.rankDiff([], ["a", "b"]);
+    expect(first.get("a")).toEqual({ delta: 0, isNew: false });
+    expect(first.get("b")).toEqual({ delta: 0, isNew: false });
+    const d = S.rankDiff(["a", "b", "c", "d"], ["c", "a", "e", "b"]);
+    expect(d.get("c")).toEqual({ delta: 2, isNew: false });
+    expect(d.get("a")).toEqual({ delta: -1, isNew: false });
+    expect(d.get("b")).toEqual({ delta: -2, isNew: false });
+    expect(d.get("e")).toEqual({ delta: 0, isNew: true });
+    expect(d.has("d")).toBe(false);
+  });
+  it("breaks ties with the tab's second key, then the name, then the key", () => {
+    const sell = { ...S.presetById("sell"), filters: [] };
+    const recs = [
+      { key: "k3", name: "B", scoreSell: 60, popShort: 0.8 },
+      { key: "k1", name: "A", scoreSell: 60, popShort: 0.9 },
+      { key: "k2", name: "A", scoreSell: 60, popShort: 0.8 },
+      { key: "k0", name: "C", scoreSell: 61, popShort: 0.5 },
+      { key: "k4", name: "D", scoreSell: 60, popShort: null },
+    ];
+    expect(S.runPreset(recs, sell, {}).rows.map((r) => r.key)).toEqual(["k0", "k1", "k2", "k3", "k4"]);
+    const buy = { ...S.presetById("buy"), filters: [] };
+    const b = [{ key: "x", name: "X", scoreBuy: 50, beSigma: 1.2 }, { key: "y", name: "Y", scoreBuy: 50, beSigma: 0.7 }];
+    expect(S.runPreset(b, buy, {}).rows.map((r) => r.key)).toEqual(["y", "x"]);
+    for (const p of S.PRESETS) expect(typeof p.secondary?.get, p.id).toBe("function");
+  });
+  it("leave-one-out on request counts what each filter alone removes", () => {
+    const s = S.finishScan([S.chainRecords(chain(), { now: NOW, hv20: 12 })]);
+    const sell = S.presetById("sell");
+    const r = S.runPreset(S.recordsFor(s, sell), sell, S.defaultFilters(sell), null, { leaveOneOut: true });
+    const pop = r.funnel.find((f) => f.filter === "pop");
+    expect(pop.without).toBeGreaterThanOrEqual(r.total);
+    const plain = S.runPreset(S.recordsFor(s, sell), sell, S.defaultFilters(sell));
+    if (plain.total) expect(plain.funnel.every((f) => f.without === undefined)).toBe(true);
+  });
+  it("splits the name and carries T on contract records", () => {
+    const rec = S.chainRecords(chain(), { now: NOW, hv20: 12 });
+    const leg = rec.legs.find((l) => l.strike === 26500 && l.right === "PE");
+    expect(leg.nameParts).toEqual({ head: "NIFTY 3 Nov", strike: "26500", right: "PE" });
+    expect(leg.T).toBeGreaterThan(0);
+    expect(rec.hedges[0].nameParts.right).toBe("PE");
+  });
+  it("chips: verdict, build-up and arbitrage status", () => {
+    expect(S.verdictChip({ label: "Rich", ratio: 1.3, basis: "hv" })).toMatchObject({ tone: "iv", glyph: "▲" });
+    expect(S.verdictChip({ label: "Cheap vs peers", basis: "peers" })).toMatchObject({ tone: "outline" });
+    expect(S.verdictChip({ label: "Expiry day" })).toMatchObject({ tone: "warn" });
+    expect(S.verdictChip({ label: "Fair" }).tone).toBe("plain");
+    expect(S.verdictChip(null)).toBeNull();
+    expect(S.buildupChip("LB").tone).toBe("pos");
+    expect(S.buildupChip("SC").tone).toBe("pos");
+    expect(S.buildupChip("SB").tone).toBe("neg");
+    expect(S.buildupChip("LU").tone).toBe("neg");
+    expect(S.buildupChip(null)).toBeNull();
+    expect(S.statusChip("Executable").tone).toBe("pos");
+    expect(S.statusChip("Near miss").tone).toBe("warn");
+    expect(S.statusChip("Check").tone).toBe("outline");
+  });
+  it("score parts are renormalised over the usable parts, heaviest first", () => {
+    const parts = S.scoreParts({ parts: [{ id: "a", label: "A", weight: 0.2, value: 1 }, { id: "b", label: "B", weight: 0.35, value: 0.5 }, { id: "c", label: "C", weight: 0.45, value: null }] });
+    expect(parts.map((p) => p.id)).toEqual(["b", "a"]);
+    expect(parts[0].share + parts[1].share).toBeCloseTo(1, 10);
+    expect(parts[0].share).toBeCloseTo(0.35 / 0.55, 10);
+    expect(S.scoreParts(null)).toEqual([]);
+  });
+  it("riskCurve: one lot's expiry payoff, breakeven, ±1σ band and the wing", () => {
+    const rec = { F: 26450, S: 26400, strike: 26700, right: "CE", lot: 75, sellPrice: 20, buyPrice: 21, atmIv: 14, T: 5 / 365 };
+    const c = S.riskCurve(rec, { side: "SELL", wing: { wingStrike: 26900, wingAsk: 5 }, n: 50 });
+    expect(c.xs).toHaveLength(50);
+    expect(c.be).toBe(26720);
+    expect(c.ys[0]).toBeCloseTo(20 * 75, 6);
+    expect(c.ys[49]).toBeLessThan(0);
+    expect(c.wing[49]).toBeCloseTo(-(200 - 15) * 75, 6);
+    expect(c.unlimited).toBe("loss");
+    expect(c.maxProfit).toBe(1500);
+    expect(c.band[0]).toBeLessThan(26450);
+    expect(c.band[1]).toBeGreaterThan(26450);
+    expect(c.lo).toBeLessThan(c.band[0]);
+    const put = S.riskCurve({ ...rec, right: "PE", strike: 26200 }, { side: "BUY" });
+    expect(put.be).toBe(26179);
+    expect(put.maxLoss).toBe(21 * 75);
+    expect(put.unlimited).toBeNull();
+    expect(S.riskCurve({ ...rec, T: null })).toBeNull();
+  });
+  it("keeps at most ten valid pins per tab", () => {
+    const keys = Array.from({ length: 14 }, (_, i) => `k${i}`);
+    const c = S.screenerConfig({ pins: { sell: [...keys, "k1", 5, ""], bogus: ["x"] } });
+    expect(c.pins.sell).toEqual(keys.slice(0, S.MAX_PINS));
+    expect(c.pins.buy).toEqual([]);
+    expect(c.pins.bogus).toBeUndefined();
+  });
+});
+
+describe("leave-one-out with an apply filter", () => {
+  it("switching near misses off is not counted as giving rows back", () => {
+    const arb = S.presetById("arb");
+    const recs = [
+      { key: "a", name: "A", kind: "arb", type: "Vertical", underlying: "N", expiry: "e", net: -2000, gross: -1.5, minLeg: 5, days: 3 },
+      { key: "b", name: "B", kind: "arb", type: "Box", underlying: "N", expiry: "e", net: -3000, gross: -2, minLeg: 5, days: 3 },
+    ];
+    const r = S.runPreset(recs, arb, S.defaultFilters(arb));
+    expect(r.total).toBe(0);
+    expect(S.topBlockers(r.funnel).map((b) => b.filter)).not.toContain("nearMiss");
+  });
+});

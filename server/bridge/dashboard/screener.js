@@ -3,12 +3,17 @@
 // that respects the broker's rate limits; every tab is then a filter + sort + column set over the same records, so
 // switching tabs costs no network. The maths is options.js, the preset logic screens.js (both pure and tested);
 // numbers are formatted by format.js only. There is no order button: trades go through the chain's ticket.
-import { alertBox, api, app, chartSlot, h, icon, istTime, modal, mountToolbarCtx, toast } from "./app.js";
+// Round 2 (docs/design/screener.md): a visible ranking (rank column, violet heat, movement since the last sweep),
+// CE / PE identity, per-tab visual columns, phone cards with micro-visuals, an always-on detail column from 1280 px
+// with a score ring and a risk payoff, the toolbar live control with the chain dots, pins and a match map.
+import { alertBox, api, app, chartSlot, h, icon, istTime, modal, mountToolbarCtx, sheetPopover, toast } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import { DEMO_UNDERLYINGS, UNDERLYINGS } from "./desk.js";
+import { barsEnter, countUp, flashValue, lineReveal, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
 import * as S from "./screens.js";
 import { every, segmented, stopTimer } from "./views.js";
+import { hbar, heatCell, setBar, spotPill, svgEl } from "./viz.js";
 
 const SLOT = "mcb.dashboard.screener";
 const HV_SLOT = "mcb.dashboard.screener.hv";
@@ -240,9 +245,44 @@ function swapKeepFocus(host, nodes, fallback = null) {
   t?.focus({ preventScroll: true });
 }
 
-const KEY_HINTS = [[["[", "]"], "tabs"], [["J", "K"], "row"], [["↵"], "detail"], [["C"], "chain"], [["B", "S"], "strategy"], [["R"], "rescan"], [["F"], "filters"], [["A"], "auto"], [["Esc"], "close"]];
+const KEY_HINTS = [[["[", "]"], "Previous / next tab"], [["J", "K"], "Next / previous row"], [["↵"], "Open the detail"], [["C"], "Open in Option Chain"], [["B", "S"], "Add Buy / Sell to Strategy"], [["P"], "Pin or unpin the row"], [["R"], "Rescan every chain"], [["F"], "Filters"], [["A"], "Auto rescan on / off"], [["?"], "These shortcuts"], [["Esc"], "Close"]];
+const AUTO_LABEL = { 0: "Off", 60: "1m", 120: "2m", 300: "5m" };
+/** Contract tabs: rows are single option legs (CE / PE capsule, side edge, match map, risk payoff). */
+const CONTRACT = new Set(["unusual", "buildup", "sell", "buy", "ivout"]);
 
-/** The Option Screener page: three movable panels (results, detail column, chart engine slot). */
+/**
+ * Rank memory (docs/design/screener.md §8.1), module level so it survives navigation like the scan cache:
+ * preset id → { keys: the ranking under the default sort at the end of the last sweep, diff: rankDiff map, at }.
+ */
+const rankMem = new Map();
+/** The last score drawn in the detail ring, so the next one sweeps from it. */
+let lastRing = 0;
+/** Keys whose risk payoff has drawn once (the line reveal plays on the first open only). */
+const revealed = new Set();
+
+const sideOf = (r) => (r?.right === "PE" ? "put" : r?.right === "CE" ? "call" : null);
+const cap = (right) => (right ? h("span", { class: `scr-cap ${right === "PE" ? "pe" : "ce"}` }, right) : null);
+/** A chip: verdict, build-up tag or arbitrage status ({ text, tone, glyph, square, title }). */
+function chipEl(c, extra = "") {
+  if (!c) return null;
+  return h("span", { class: `scr-pill t-${c.tone}${c.square ? " sq" : ""}${extra ? ` ${extra}` : ""}`, title: c.title ?? null }, c.glyph ? h("i", { "aria-hidden": "true" }, c.glyph) : null, c.text);
+}
+/** Arbitrage legs as tokens: [B|S] 2× 25450 PE @8.85. */
+function legTokens(legs) {
+  return (legs ?? []).map((l) =>
+    h(
+      "span",
+      { class: "scr-leg" },
+      h("b", { class: `scr-bs ${l.side === "BUY" ? "b" : "s"}`, title: l.side === "BUY" ? "Buy" : "Sell" }, l.side === "BUY" ? "B" : "S"),
+      l.qty > 1 ? h("span", { class: "scr-leg-q" }, `${formatInt(l.qty)}×`) : null,
+      h("span", { class: "scr-leg-k" }, formatInt(l.strike)),
+      h("span", { class: `scr-leg-r ${l.right === "PE" ? "pe" : "ce"}` }, l.right),
+      h("span", { class: "scr-leg-p" }, `@${formatFixed(l.price, 2)}`),
+    ),
+  );
+}
+
+/** The Option Screener page: the results panel and, from 1280 px, the detail column beside it. */
 export function renderScreenerPage() {
   // A reload of the same route (header Reload, palette, go() to this page) renders again without a hashchange:
   // retire the previous instance first so its listeners, timers and sweep do not outlive it.
@@ -251,7 +291,8 @@ export function renderScreenerPage() {
   let cfg = S.screenerConfig(read(SLOT), { list, demo: Boolean(app.state.demo) });
   const saved = read(SLOT);
   let autoOn = saved?.autoOn !== false;
-  const save = () => write(SLOT, { ...cfg, autoOn });
+  let mapOpen = saved?.mapOpen === true;
+  const save = () => write(SLOT, { ...cfg, autoOn, mapOpen });
   const preset = () => S.presetById(cfg.preset);
 
   // Page state.
@@ -265,9 +306,12 @@ export function renderScreenerPage() {
   let scanSig = "";
   const memo = new Map(); // U|E → { sig, rec }
   let result = null; // runPreset result for the current preset
+  let entries = []; // what the results show: [{ r, rank, pinned, gone }]
   let shown = cfg.rows;
   let selKey = null;
+  let autoSel = true; // the detail column picks rank 1 until the visitor closes it
   let destroyed = false;
+  let current = null; // the chain being fetched now ("U|E")
 
   // ── Elements ──
   const tabs = h("div", { class: "scr-tabs", role: "tablist", "aria-label": "Screens" });
@@ -275,19 +319,33 @@ export function renderScreenerPage() {
     h("button", { type: "button", role: "tab", id: `scr-tab-${p.id}`, "aria-controls": "scr-results", class: "scr-tab", "data-id": p.id, title: p.description }, h("span", { class: "scr-tab-long" }, p.label), h("span", { class: "scr-tab-short" }, p.short)),
   );
   tabs.append(...tabBtns);
-  const status = h("span", { class: "desk-clock scr-status" });
-  const ctxMain = h("span", { class: "ctx-main" });
+  const tabWrap = h("div", { class: "scr-tabwrap" }, tabs);
   const live = h("span", { class: "pal-sr-only", "aria-live": "polite", role: "status" });
-  const rescanBtn = h("button", { type: "button", class: "small scr-btn", title: "Rescan every chain now (R)", "aria-label": "Rescan" }, icon("refresh"), h("span", { class: "scr-lbl" }, "Rescan"));
-  const autoBtn = h("button", { type: "button", class: "small live-toggle scr-auto" });
-  const filtersBtn = h("button", { type: "button", class: "small scr-btn", "aria-haspopup": "dialog", title: "Filters (F)", "aria-label": "Filters" }, icon("sliders"), h("span", { class: "scr-lbl" }, "Filters"), h("span", { class: "scr-badge", hidden: true }));
-  const gearBtn = h("button", { type: "button", class: "small gear-btn scr-gear", "aria-haspopup": "dialog", "aria-expanded": "false", title: "Columns and scan settings", "aria-label": "Customise" }, icon("columns"), h("span", { class: "gear-label scr-lbl" }, "Customise"));
-  const sortSel = h("select", { class: "scr-sort", "aria-label": "Sort by" });
+  const rescanBtn = h("button", { type: "button", class: "small scr-btn scr-rescan", title: "Rescan every chain now (R)", "aria-label": "Rescan" }, icon("refresh"), h("span", { class: "scr-lbl" }, "Rescan"));
+  const filtersBtn = h("button", { type: "button", class: "small scr-btn scr-filters-btn", "aria-haspopup": "dialog", title: "Filters (F)", "aria-label": "Filters" }, icon("sliders"), h("span", { class: "scr-lbl" }, "Filters"), h("span", { class: "scr-badge", hidden: true }));
+  const gearBtn = h("button", { type: "button", class: "small scr-btn scr-gear", "aria-haspopup": "dialog", "aria-expanded": "false", title: "Columns and scan settings", "aria-label": "Customise" }, icon("columns"));
+  const keysBtn = h("button", { type: "button", class: "small scr-btn scr-keys-btn", "aria-haspopup": "dialog", "aria-expanded": "false", title: "Keyboard shortcuts (?)", "aria-label": "Keyboard shortcuts" }, h("span", { "aria-hidden": "true" }, "?"));
+  const sortChip = h("button", { type: "button", class: "small scr-btn scr-sortchip", "aria-haspopup": "dialog", "aria-expanded": "false" }, h("span", { class: "scr-sortchip-i", "aria-hidden": "true" }, "⇅"), h("span", { class: "scr-sortchip-t" }), h("span", { class: "scr-sortchip-d", "aria-hidden": "true" }));
+  const countPhone = h("span", { class: "scr-count-m", "aria-hidden": "true" });
+  const tools = h("div", { class: "scr-tools" }, sortChip, rescanBtn, filtersBtn, gearBtn, keysBtn, countPhone);
   const progressEl = h("div", { class: "scr-progress", role: "progressbar", "aria-label": "Scan progress", "aria-valuemin": "0", hidden: true }, h("span", {}));
   const uChips = h("div", { class: "scr-uchips", role: "group", "aria-label": "Underlyings" });
   const fChips = h("div", { class: "scr-fchips" });
-  const desc = h("p", { class: "scr-desc" });
+  const countNum = h("b", {}, "");
+  const countEl = h("span", { class: "scr-matches", "aria-live": "off" }, countNum, h("span", { class: "scr-matches-w" }, " matches"));
+  const chipRow = h("div", { class: "scr-chips" }, uChips, h("span", { class: "scr-sep", "aria-hidden": "true" }), fChips, h("span", { class: "scr-grow" }), countEl);
+  const legendEl = h("div", { class: "scr-legend-l" });
   const banners = h("div", { class: "scr-banners" });
+  const mapBody = h("div", { class: "scr-map-body" });
+  const mapEl = h("div", { class: "scr-map", id: "scr-map", hidden: true }, mapBody);
+  const mapBtn = h("button", { type: "button", class: "small plain scr-map-btn", "aria-controls": "scr-map", "aria-expanded": String(mapOpen), title: "A scatter of every match: |Δ| across, the ranking up" }, h("span", { class: "scr-map-i", "aria-hidden": "true" }, "⁘"), "Match map");
+  mapBtn.addEventListener("click", () => {
+    mapOpen = !mapOpen;
+    save();
+    mapBtn.setAttribute("aria-expanded", String(mapOpen));
+    drawMap(true);
+  });
+  const legendRow = h("div", { class: "scr-legend" }, legendEl, mapBtn);
   const caption = h("caption", { class: "pal-sr-only" });
   const thead = h("thead");
   const tbody = h("tbody");
@@ -295,39 +353,26 @@ export function renderScreenerPage() {
   const wrap = h("div", { class: "scr-wrap", id: "scr-results", role: "tabpanel" }, table);
   const cards = h("ul", { class: "scr-cards", "aria-label": "Results" });
   const emptyEl = h("div", { class: "scr-empty", hidden: true });
-  const countEl = h("span", { class: "scr-count" });
-  const moreBtn = h("button", { type: "button", class: "small plain scr-more", hidden: true });
+  const footCount = h("span", { class: "scr-count" });
+  const moreBtn = h("button", { type: "button", class: "small scr-more", hidden: true });
   const issuesEl = h("details", { class: "scr-issues", hidden: true });
   const methodEl = h("details", { class: "scr-method" });
-  const keysEl = h("div", { class: "desk-keys scr-keys" }, KEY_HINTS.map(([keys, short]) => h("span", { class: "kbd-pair" }, h("span", { class: "kbd-group" }, keys.map((k) => h("kbd", {}, k))), short)));
-  const foot = h("div", { class: "scr-foot" }, h("div", { class: "scr-foot-row" }, countEl, moreBtn), issuesEl, methodEl);
+  const foot = h("div", { class: "scr-foot" }, issuesEl, h("div", { class: "scr-foot-row" }, footCount, moreBtn, h("span", { class: "scr-grow" }), methodEl));
 
-  const head = h(
-    "div",
-    { class: "scr-head" },
-    h("div", { class: "scr-bar" }, h("div", { class: "scr-tabrow" }, tabs), h("div", { class: "scr-tools" }, status, rescanBtn, autoBtn, filtersBtn, sortSel, gearBtn)),
-    progressEl,
-  );
-  const main = h(
-    "section",
-    { class: "desk-panel scr-main", "data-panel": "screener-main", "aria-label": "Option Screener" },
-    head,
-    h("div", { class: "scr-chips" }, uChips, fChips),
-    desc,
-    banners,
-    wrap,
-    cards,
-    emptyEl,
-    foot,
-    keysEl,
-    live,
-  );
+  const head = h("header", { class: "scr-head" }, tabWrap, tools, progressEl);
+  const main = h("section", { class: "desk-panel scr-main", "data-panel": "screener-main", "aria-label": "Option Screener" }, head, chipRow, legendRow, banners, mapEl, wrap, cards, emptyEl, foot, live);
   const paneBody = h("div", { class: "scr-pane" });
   const detail = h("section", { class: "desk-panel scr-detail", "data-panel": "screener-detail", "aria-label": "Selected row" }, paneBody);
-  const slotBox = chartSlot("Price and IV history");
-  const slotText = slotBox.querySelector(".chart-slot-label");
-  const chart = h("section", { class: "desk-panel scr-chart", "data-panel": "screener-chart", "aria-label": "Chart engine slot" }, slotBox);
   const root = main;
+
+  // Toolbar: "3 underlyings · 7 chains" (a popover of the underlying chips) and the live control (auto + time + scan).
+  const ctxMain = h("span", { class: "ctx-main" });
+  const ctxBtn = h("button", { type: "button", class: "ctx-cap glass scr-ctx", "aria-haspopup": "dialog", "aria-expanded": "false", title: "Underlyings in the scan" }, h("span", { class: "ctx-item ctx-scr" }, ctxMain));
+  const liveDot = h("span", { class: "scr-ldot", "aria-hidden": "true" });
+  const liveText = document.createTextNode("Starting");
+  const liveDotBtn = h("button", { type: "button", class: "scr-live-dot", "aria-keyshortcuts": "A" }, liveDot);
+  const liveTxtBtn = h("button", { type: "button", class: "scr-live-txt", "aria-haspopup": "dialog", "aria-expanded": "false" }, h("span", { class: "scr-live-w" }, liveText));
+  const liveEl = h("div", { class: "scr-live glass" }, liveDotBtn, liveTxtBtn);
 
   // ── Config changes ──
   function setCfg(patch, { rescan = false } = {}) {
@@ -376,26 +421,56 @@ export function renderScreenerPage() {
       scan = S.finishScan(parts, { base: b });
     }
     const now = Date.now();
-    const staleMs = cfg.auto ? cfg.auto * 2000 : 10 * 60_000;
+    const staleMs = staleAfter();
     const mark = (r) => {
       const entry = cache.get(`${r.underlying}|${r.expiry}`);
       r.age = now - (r.fetchedAt ?? now);
       r.stale = Boolean(entry?.stale) || r.age > staleMs;
     };
-    for (const r of scan.overview) mark(r);
-    for (const r of scan.arbs) mark(r);
+    for (const list of [scan.overview, scan.arbs, scan.legs, scan.hedges]) for (const r of list) mark(r);
     return scan;
   }
+  const staleAfter = () => (cfg.auto ? cfg.auto * 2000 : 10 * 60_000);
+  const presetRecords = (p) => S.recordsFor(scan, p).filter((r) => cfg.underlyings.includes(r.underlying));
+  /** Is the current sort the tab's own ranking (the default sort)? Movement glyphs only make sense then. */
+  const defaultSort = (p = preset()) => {
+    const s = cfg.sort[p.id];
+    return s.by === p.defaults.sort.by && s.dir === p.defaults.sort.dir;
+  };
   function recompute() {
-    const s = records();
+    records();
     const p = preset();
-    const recs = S.recordsFor(s, p).filter((r) => cfg.underlyings.includes(r.underlying));
     const t0 = performance.now();
-    result = S.runPreset(recs, p, filters(), cfg.sort[p.id], { ctx: { expiries: scannedExpiries() } });
+    result = S.runPreset(presetRecords(p), p, filters(), cfg.sort[p.id], { ctx: { expiries: scannedExpiries() } });
     result.ms = performance.now() - t0;
+    // Pinned rows first (§8.6); the rank stays the row's place in the screen's ranking.
+    const pins = cfg.pins?.[p.id] ?? [];
+    const rankOf = new Map(result.rows.map((r, i) => [r.key, i + 1]));
+    const pinned = [];
+    if (pins.length) {
+      const all = new Map(presetRecords(p).map((r) => [r.key, r]));
+      for (const k of pins) {
+        const r = rankOf.has(k) ? result.rows[rankOf.get(k) - 1] : all.get(k);
+        if (r) pinned.push({ r, rank: rankOf.get(k) ?? null, pinned: true, gone: !rankOf.has(k) });
+      }
+    }
+    const pinSet = new Set(pinned.map((e) => e.r.key));
+    const rest = result.rows.filter((r) => !pinSet.has(r.key)).slice(0, shown).map((r) => ({ r, rank: rankOf.get(r.key), pinned: false, gone: false }));
+    entries = [...pinned, ...rest];
+    result.rankOf = rankOf;
     return result;
   }
   const scannedExpiries = () => [...new Set([...cache.keys()].filter((k) => cfg.underlyings.includes(k.split("|")[0])).map((k) => k.split("|")[1]))].sort();
+  /** At the end of a sweep: every tab's ranking under its default sort, and the movement since the last sweep. */
+  function snapshotRanks() {
+    if (!scan) return;
+    const at = Date.now();
+    for (const p of S.PRESETS) {
+      const keys = S.runPreset(presetRecords(p), p, cfg.filters[p.id], null, { ctx: { expiries: scannedExpiries() } }).rows.map((r) => r.key);
+      const prev = rankMem.get(p.id);
+      rankMem.set(p.id, { keys, diff: S.rankDiff(prev?.keys ?? [], keys), at, prevAt: prev?.at ?? null });
+    }
+  }
 
   // ── Sweep driver ──
   function startSweep(force) {
@@ -412,6 +487,7 @@ export function renderScreenerPage() {
         if (destroyed) return;
         if (p.phase === "plan") plan = p.plan;
         progress = { ...progress, ...p };
+        current = p.phase === "chain" && p.current ? chainKeyOf(p.label) : null;
         drawStatus();
       },
       onChain: () => !destroyed && requestDraw(),
@@ -427,6 +503,7 @@ export function renderScreenerPage() {
         if (destroyed || r.cancelled) return;
         scanning = false;
         progress = null;
+        current = null;
         const planned = [...(plan ?? new Map())].flatMap(([u, l]) => l.map((x) => `${u}|${x.expiry}`));
         const ok = planned.filter((k) => cache.get(k)?.chain && !cache.get(k)?.error);
         lastSweepFailed = (planned.length > 0 && ok.length === 0) || (planned.length === 0 && issues.size > 0);
@@ -438,7 +515,10 @@ export function renderScreenerPage() {
           write(BASE_SLOT, next.stored);
           scanSig = "";
         }
+        records();
+        snapshotRanks();
         draw();
+        liveTick();
         const n = result?.total ?? 0;
         live.textContent = lastSweepFailed ? "Scan failed" : `Scan complete: ${formatInt(ok.length)} chains, ${formatInt(n)} matches`;
       })
@@ -446,10 +526,16 @@ export function renderScreenerPage() {
         if (destroyed) return;
         scanning = false;
         progress = null;
+        current = null;
         firstError = err;
         lastSweepFailed = true;
         draw();
       });
+  }
+  /** "NIFTY 3 Nov" → "NIFTY|2026-11-03" from the plan (the progress callback carries the label). */
+  function chainKeyOf(label) {
+    for (const [u, l] of plan ?? new Map()) for (const x of l) if (S.chainName(u, x.expiry) === label) return `${u}|${x.expiry}`;
+    return null;
   }
   let drawQueued = false;
   function requestDraw() {
@@ -468,7 +554,29 @@ export function renderScreenerPage() {
     });
   }
 
-  // ── Toolbar ──
+  // ── Tabs: a contrast capsule with a sliding thumb (foundation §3.3) ──
+  let thumbMeasured = false;
+  function placeThumb() {
+    const b = tabBtns.find((x) => x.dataset.id === cfg.preset);
+    if (!b || !tabs.isConnected || !b.offsetWidth) return;
+    if (!thumbMeasured) tabs.classList.add("no-anim");
+    tabs.style.setProperty("--seg-x", `${b.offsetLeft}px`);
+    tabs.style.setProperty("--seg-w", `${b.offsetWidth}px`);
+    tabs.classList.add("has-thumb");
+    if (!thumbMeasured) {
+      thumbMeasured = true;
+      requestAnimationFrame(() => tabs.classList.remove("no-anim"));
+    }
+  }
+  const tabRo = typeof ResizeObserver === "function" ? new ResizeObserver(() => placeThumb()) : null;
+  tabRo?.observe(tabs);
+  /** The scroll fades at each edge only while there is more to scroll that way. */
+  function tabEdges() {
+    const max = tabs.scrollWidth - tabs.clientWidth;
+    tabWrap.classList.toggle("fade-l", tabs.scrollLeft > 2);
+    tabWrap.classList.toggle("fade-r", max - tabs.scrollLeft > 2);
+  }
+  tabs.addEventListener("scroll", tabEdges, { passive: true });
   function drawTabs() {
     for (const b of tabBtns) {
       const on = b.dataset.id === cfg.preset;
@@ -476,14 +584,26 @@ export function renderScreenerPage() {
       b.tabIndex = on ? 0 : -1;
     }
     wrap.setAttribute("aria-labelledby", `scr-tab-${cfg.preset}`);
+    placeThumb();
+    tabEdges();
+  }
+  function centreTab(smooth) {
+    const b = tabBtns.find((x) => x.dataset.id === cfg.preset);
+    if (!b || tabs.scrollWidth <= tabs.clientWidth) return;
+    const left = b.offsetLeft - (tabs.clientWidth - b.offsetWidth) / 2;
+    tabs.scrollTo({ left: Math.max(0, left), behavior: smooth && !reducedMotion() ? "smooth" : "instant" });
   }
   function pickPreset(id, focus = false) {
     if (!S.PRESET_IDS.includes(id)) return;
     shown = cfg.rows;
+    if (id !== cfg.preset) {
+      autoSel = true;
+      swapPending = true;
+    }
     setCfg({ preset: id });
     const b = tabBtns.find((x) => x.dataset.id === id);
-    if (focus) b?.focus();
-    b?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: media(MQ_REDUCED).matches ? "instant" : "smooth" });
+    if (focus) b?.focus({ preventScroll: true });
+    centreTab(true);
   }
   tabs.addEventListener("click", (e) => {
     const b = e.target.closest("button[data-id]");
@@ -496,112 +616,143 @@ export function renderScreenerPage() {
     e.preventDefault();
     pickPreset(S.PRESET_IDS[(j + S.PRESET_IDS.length) % S.PRESET_IDS.length], true);
   });
-  rescanBtn.addEventListener("click", () => {
+  rescanBtn.addEventListener("click", () => rescan());
+  function rescan() {
     cancelSweep();
     startSweep(true);
-  });
-  autoBtn.addEventListener("click", () => toggleAuto());
+  }
   function toggleAuto() {
-    if (!cfg.auto) return toast("Auto refresh is off: choose an interval in Customise");
+    if (!cfg.auto) {
+      openLive();
+      return;
+    }
     autoOn = !autoOn;
     save();
-    drawAuto();
+    drawStatus();
     startAuto();
-  }
-  function drawAuto() {
-    const on = autoOn && cfg.auto > 0;
-    autoBtn.setAttribute("aria-pressed", String(on));
-    autoBtn.classList.toggle("on", on);
-    autoBtn.replaceChildren(h("span", { class: "live-dot", "aria-hidden": "true" }), h("span", { class: "scr-lbl-auto" }, cfg.auto ? `Auto ${formatInt(cfg.auto / 60)}m` : "Auto off"));
-    autoBtn.title = on ? `Rescanning every ${formatInt(cfg.auto / 60)} min (A to pause)` : cfg.auto ? "Paused (A to resume)" : "Auto refresh is off (Customise)";
-    autoBtn.setAttribute("aria-label", on ? `Auto refresh every ${formatInt(cfg.auto / 60)} minutes: on` : "Auto refresh: off");
   }
   filtersBtn.addEventListener("click", () => openFilters());
   gearBtn.addEventListener("click", () => openCustomise());
-  sortSel.addEventListener("change", () => {
-    const [by, dir] = sortSel.value.split(":");
-    setCfg({ sort: { ...cfg.sort, [cfg.preset]: { by, dir } } });
-  });
+  keysBtn.addEventListener("click", () => openKeys());
+  sortChip.addEventListener("click", () => openSort());
+  ctxBtn.addEventListener("click", () => openUnderlyings());
+  liveDotBtn.addEventListener("click", () => (phone() ? openLive() : toggleAuto()));
+  liveTxtBtn.addEventListener("click", () => openLive());
   moreBtn.addEventListener("click", () => {
     shown += cfg.rows;
     draw();
   });
 
+  // ── Status: the toolbar's live control, the progress line, the chain dots ──
+  function chainState(key) {
+    const e = cache.get(key);
+    if (scanning && key === current) return "fetching";
+    if (e?.error && !e?.chain) return "error";
+    if (e?.error) return "error";
+    if (!e?.chain) return "pending";
+    if (e.stale || Date.now() - e.fetchedAt > staleAfter()) return "stale";
+    return scanning && progress?.phase === "chain" && e.fetchedAt < sweepStartedAt ? "pending" : "done";
+  }
+  let sweepStartedAt = 0;
+  let liveSig = "";
   function drawStatus() {
     const running = scanning && progress;
-    const entries = [...(plan ?? new Map())].flatMap(([u, l]) => l.map((x) => cache.get(`${u}|${x.expiry}`))).filter((x) => x?.chain);
-    const total = plan ? [...plan.values()].reduce((a, l) => a + l.length, 0) : 0;
-    let text;
-    let cls = "";
+    if (running && progress.phase === "start") sweepStartedAt = Date.now();
+    const planned = [...(plan ?? new Map())].flatMap(([u, l]) => l.map((x) => `${u}|${x.expiry}`));
+    const got = planned.map((k) => cache.get(k)).filter((x) => x?.chain);
+    const total = planned.length;
+    const oldest = got.reduce((a, x) => (a === null || x.fetchedAt < a.fetchedAt ? x : a), null);
+    const stale = got.some((x) => x.stale || Date.now() - x.fetchedAt > staleAfter());
+    const auto = autoOn && cfg.auto > 0;
+    let kind;
+    let words;
     if (running) {
-      const label = progress.phase === "expiries" ? `expiries · ${progress.label}` : progress.phase === "history" ? `history · ${progress.label}` : progress.label;
       const at = Math.min(progress.done + (progress.current ? 1 : 0), progress.total || 0);
-      text = `Scanning ${formatInt(at)}/${formatInt(progress.total || 0)}${label ? ` · ${label}` : ""}`;
+      kind = "scanning";
+      words = progress.total ? `Scanning ${formatInt(at)}/${formatInt(progress.total)}` : "Scanning";
     } else if (lastSweepFailed) {
-      text = "Not updating";
-      cls = "bad";
+      kind = "error";
+      words = "Not updating";
     } else if (!plan) {
-      text = "Starting the scan…";
+      kind = "waiting";
+      words = "Starting";
+    } else if (stale && oldest) {
+      kind = "stale";
+      words = `Stale · ${S.ageText(Date.now() - oldest.fetchedAt)}`;
+    } else if (!auto) {
+      kind = "paused";
+      words = `${cfg.auto ? "Paused" : "Auto off"}${oldest ? ` · ${S.istHm(oldest.fetchedAt)}` : ""}`;
     } else {
-      const oldest = entries.reduce((a, x) => (a === null || x.fetchedAt < a.fetchedAt ? x : a), null);
-      const staleMs = cfg.auto ? cfg.auto * 2000 : 10 * 60_000;
-      const stale = entries.some((x) => x.stale || Date.now() - x.fetchedAt > staleMs);
-      text = `${stale ? "Stale · " : ""}${formatInt(entries.length)}/${formatInt(total)} chains${oldest ? ` · ${istTime(oldest.asOf)}` : ""}`;
-      if (stale) cls = "stale";
+      kind = "live";
+      words = `Auto ${AUTO_LABEL[cfg.auto] ?? `${formatInt(cfg.auto / 60)}m`}${oldest ? ` · ${istTime(oldest.asOf)}` : ""}`;
     }
-    if (status.__t !== text) {
-      status.__t = text;
-      // " chains" and "Scanning" fold away on phones; the full text stays in the title.
-      status.replaceChildren(...text.split(/( chains|Scanning )/).map((part) => (part === " chains" || part === "Scanning " ? h("span", { class: "scr-st-w" }, part) : part)));
+    const sig = `${kind}|${words}|${auto}|${cfg.auto}`;
+    if (sig !== liveSig) {
+      liveSig = sig;
+      if (liveText.data !== words) liveText.data = words;
+      liveEl.dataset.kind = kind;
+      liveDotBtn.setAttribute("aria-pressed", String(auto));
+      const what = !cfg.auto ? "Auto rescan is off" : auto ? `Auto rescan every ${AUTO_LABEL[cfg.auto]}` : "Auto rescan paused";
+      liveDotBtn.setAttribute("aria-label", phone() ? `${words}. Scan status and auto rescan` : `${what}. ${cfg.auto ? (auto ? "Pause" : "Resume") : "Choose an interval"} (A)`);
+      liveDotBtn.title = phone() ? words : `${what}. Click to ${cfg.auto ? (auto ? "pause" : "resume") : "choose an interval"} (A)`;
+      liveTxtBtn.setAttribute("aria-label", `${words}. Scan status, rescan and the auto interval`);
+      liveTxtBtn.title = `${running ? "Chains are fetched one at a time within the broker's rate limits" : "The oldest chain's time"}. Click for the scan`;
     }
-    // The top bar's summary (foundation §5.1): "3 underlyings · 6 chains", counted from the chains actually loaded (the
-    // same set as the table's footer); "6 of 7 chains" when one failed or was skipped (the issues list says which).
+    // The context capsule: "3 underlyings · 7 chains" ("NIFTY+2 · 7 chains" on phones).
     const n = cfg.underlyings.length;
-    const got = entries.length;
-    const chainsText = running || got === total ? `${formatInt(total)} chain${total === 1 ? "" : "s"}` : `${formatInt(got)} of ${formatInt(total)} chains`;
-    const ctxText = `${formatInt(n)} underlying${n === 1 ? "" : "s"}${plan ? ` · ${chainsText}` : ""}`;
+    const chainsText = running || got.length === total ? `${formatInt(total)} chain${total === 1 ? "" : "s"}` : `${formatInt(got.length)} of ${formatInt(total)} chains`;
+    const uText = phone() ? (n === 1 ? cfg.underlyings[0] : `${cfg.underlyings[0]}+${formatInt(n - 1)}`) : `${formatInt(n)} underlying${n === 1 ? "" : "s"}`;
+    const ctxText = `${uText}${plan ? ` · ${chainsText}` : ""}`;
     if (ctxMain.textContent !== ctxText) ctxMain.textContent = ctxText;
-    status.classList.toggle("bad", cls === "bad");
-    status.classList.toggle("stale", cls === "stale");
-    status.title = `${text}. ${running ? "Chains are fetched one at a time within the broker's rate limits" : "Chains scanned · the oldest chain's time"}`;
     progressEl.hidden = !running;
     if (running) {
       const t = progress.total || 1;
-      // The bar matches the "Scanning n/m" text: the chain being fetched counts.
       const d = Math.min(t, progress.done + (progress.current ? 1 : 0));
       progressEl.setAttribute("aria-valuemax", String(t));
       progressEl.setAttribute("aria-valuenow", String(d));
-      progressEl.firstChild.style.width = `${Math.round((100 * d) / t)}%`;
+      progressEl.firstChild.style.setProperty("--v", String(Math.round((1000 * d) / t) / 1000));
     }
-    rescanBtn.disabled = false;
+    main.setAttribute("aria-busy", String(Boolean(running && !scan?.chains)));
+    if (livePop) drawLiveBody();
+  }
+  /** One ring pulse on the live dot per finished sweep (never an endless loop). */
+  let tickFlip = false;
+  function liveTick() {
+    tickFlip = !tickFlip;
+    liveDot.classList.toggle("tick-a", tickFlip);
+    liveDot.classList.toggle("tick-b", !tickFlip);
   }
 
   // ── Chips ──
   // Underlying chips are built once and patched, so a focused chip keeps focus through every redraw.
-  const uBtns = list.map((u) => {
+  function toggleUnderlying(u, b) {
+    const on = cfg.underlyings.includes(u);
+    if (on && cfg.underlyings.length === 1) {
+      b?.classList.remove("shake");
+      requestAnimationFrame(() => b?.classList.add("shake"));
+      return false;
+    }
+    shown = cfg.rows;
+    setCfg({ underlyings: on ? cfg.underlyings.filter((x) => x !== u) : list.filter((x) => x === u || cfg.underlyings.includes(x)) }, { rescan: !on });
+    return true;
+  }
+  const uBtnFor = (u) => {
     const b = h("button", { type: "button", class: "scr-uchip", "data-u": u }, u);
-    b.addEventListener("click", () => {
-      const on = cfg.underlyings.includes(u);
-      if (on && cfg.underlyings.length === 1) {
-        b.classList.remove("shake");
-        requestAnimationFrame(() => b.classList.add("shake"));
-        return;
-      }
-      shown = cfg.rows;
-      setCfg({ underlyings: on ? cfg.underlyings.filter((x) => x !== u) : list.filter((x) => x === u || cfg.underlyings.includes(x)) }, { rescan: !on });
-    });
+    b.addEventListener("click", () => toggleUnderlying(u, b));
     return b;
-  });
+  };
+  const uBtns = list.map(uBtnFor);
   uChips.append(...uBtns);
+  function paintUChip(b) {
+    const u = b.dataset.u;
+    const on = cfg.underlyings.includes(u);
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", String(on));
+    b.title = on && cfg.underlyings.length === 1 ? "Keep at least one" : on ? `Leave ${u} out of the scan` : `Scan ${u}`;
+  }
   let fChipSig = "";
   function drawChips() {
-    for (const b of uBtns) {
-      const u = b.dataset.u;
-      const on = cfg.underlyings.includes(u);
-      b.classList.toggle("on", on);
-      b.setAttribute("aria-pressed", String(on));
-      b.title = on && cfg.underlyings.length === 1 ? "Keep at least one" : on ? `Leave ${u} out of the scan` : `Scan ${u}`;
-    }
+    for (const b of uBtns) paintUChip(b);
     const p = preset();
     const f = filters();
     const active = p.filters.filter((id) => S.filterActive(id, f[id]));
@@ -627,6 +778,7 @@ export function renderScreenerPage() {
         ],
         filtersBtn,
       );
+      chipRow.classList.toggle("has-f", fChips.childElementCount > 0);
     }
     const badge = filtersBtn.querySelector(".scr-badge");
     // The badge counts the changed filters (the chips, which phones fold away).
@@ -644,34 +796,75 @@ export function renderScreenerPage() {
     setCfg({ filters: { ...cfg.filters, [p.id]: S.defaultFilters(p) } });
   }
 
+  // ── Match count: counts up from the last value (§7) ──
+  let countVal = null;
+  function drawCount(n) {
+    const text = formatInt(n);
+    if (countVal === n && countNum.textContent === text) return;
+    const from = countVal;
+    countVal = n;
+    if (from === null || reducedMotion()) {
+      stopCount(countNum);
+      countNum.textContent = text;
+    } else countUp(countNum, from, n, (v) => formatInt(Math.round(v)), text);
+    countEl.lastChild.textContent = n === 1 ? " match" : " matches";
+    const m = `${text} ${n === 1 ? "match" : "matches"}`;
+    if (countPhone.textContent !== m) countPhone.textContent = m;
+    countEl.setAttribute("aria-label", m);
+  }
+
+  // ── Legend row (§6.1) ──
+  let legendSig = "";
+  function drawLegend() {
+    const p = preset();
+    const popOn = p.id === "sell" && num(filters().pop) !== null ? filters().pop : null;
+    const sig = `${p.id}|${popOn}`;
+    if (sig === legendSig) return;
+    legendSig = sig;
+    const items = (p.legend ?? []).map((it) => {
+      if (it.kind === "ramp")
+        return h(
+          "li",
+          { class: "scr-lg-ramp" },
+          h("span", {}, it.label),
+          h("span", { class: "scr-ramp", "aria-hidden": "true" }, [1, 2, 3, 4, 5].map((i) => h("i", { "data-seq": String(i) }))),
+          it.ticks ? h("span", { class: "scr-ramp-t" }, it.ticks.join(" · ")) : null,
+        );
+      if (it.kind === "none") return h("li", { class: "scr-lg-note" }, it.label);
+      const key = h("span", { class: `dv-key ${it.kind === "swatch" || !it.kind ? "" : it.kind}`.trim(), "aria-hidden": "true", "data-dv": it.token });
+      const label = it.label === "POP" && popOn !== null ? `POP (tick at the ${formatInt(popOn)}% filter)` : it.label;
+      return h("li", {}, key, h("span", {}, label));
+    });
+    legendEl.replaceChildren(h("ul", { class: "dv-legend scr-lg", "aria-label": `${p.label}: how to read the colours` }, items));
+  }
+
   // ── Results: table (≥ 720 px) or cards ──
-  let tableSig = "";
+  let headSig = "";
+  let bodySig = "";
   const rowEls = new Map();
-  let cardSig = "";
-  const cardEls = new Map();
+  let groupRows = null;
+  /** The visible columns, with the tab's ranking column moved next to the lead (rank first, §2). */
   function columns() {
-    return S.visibleColumns(preset(), cfg.cols[cfg.preset]);
+    const p = preset();
+    const cols = S.visibleColumns(p, cfg.cols[cfg.preset]);
+    const i = cols.findIndex((c) => c.id === p.defaults.sort.by);
+    if (i > 1) cols.splice(1, 0, ...cols.splice(i, 1));
+    return cols;
   }
   function buildHead(cols) {
     const p = preset();
     const s = cfg.sort[p.id];
+    const rankTh = h("th", { scope: "col", class: "rk", title: "Rank in this screen's own ranking. ▲ / ▼: places moved since the last scan; a dot: new since then" }, h("span", { "aria-hidden": "true" }, "#"), h("span", { class: "pal-sr-only" }, "Rank"));
     thead.replaceChildren(
       h(
         "tr",
         {},
+        rankTh,
         cols.map((c) => {
           const sorted = s.by === c.id;
-          const th = h("th", { scope: "col", class: [c.num ? "num" : "", c.lead ? "lead" : "", c.p === 3 ? "p3" : "", c.wrap ? "wrap" : ""].join(" ").trim() || null, title: c.title || null, "aria-sort": sorted ? (s.dir === "asc" ? "ascending" : "descending") : null });
+          const th = h("th", { scope: "col", class: [c.num && !c.text ? "num" : "", c.lead ? "lead" : "", c.p === 3 ? "p3" : "", c.wrap ? "wrap" : "", c.viz ? `vz-${c.viz.kind}` : "", c.id === p.defaults.sort.by ? "rank-col" : ""].join(" ").trim() || null, title: c.title || null, "aria-sort": sorted ? (s.dir === "asc" ? "ascending" : "descending") : null });
           if (!c.sortable) th.append(c.label);
-          else
-            th.append(
-              h(
-                "button",
-                { type: "button", class: "scr-sort-btn", "data-col": c.id },
-                c.label,
-                h("span", { class: "scr-sort-i", "aria-hidden": "true" }, sorted ? (s.dir === "asc" ? "▲" : "▼") : ""),
-              ),
-            );
+          else th.append(h("button", { type: "button", class: "scr-sort-btn", "data-col": c.id }, c.label, h("span", { class: "scr-sort-i", "aria-hidden": "true" }, sorted ? (s.dir === "asc" ? "▲" : "▼") : "")));
           return th;
         }),
       ),
@@ -687,44 +880,206 @@ export function renderScreenerPage() {
     setCfg({ sort: { ...cfg.sort, [p.id]: { by: c.id, dir } } });
     thead.querySelector(`button[data-col="${c.id}"]`)?.focus();
   });
-  /** Heat: a neutral wash in 3 steps by rank among the shown rows (never good or bad by colour). */
-  function heatOf(rows, c) {
-    const key = c.sortGet ?? c.get;
-    const vals = rows.map((r) => num(key(r))).filter((v) => v !== null).sort((a, b) => a - b);
-    if (vals.length < 3) return () => 0;
-    const q1 = vals[Math.floor(vals.length / 3)];
-    const q2 = vals[Math.floor((2 * vals.length) / 3)];
-    const asc = c.dir === "asc";
-    return (r) => {
-      const v = num(key(r));
-      if (v === null) return 0;
-      const step = v >= q2 ? 3 : v >= q1 ? 2 : 1;
-      return asc ? 4 - step : step;
-    };
-  }
   function setText(el, text) {
     if (el.__t !== text) {
       el.__t = text;
       el.textContent = text;
     }
   }
-  function fillCell(td, c, r, heat) {
-    const v = c.get(r);
-    setText(td.__v, c.fmt(v, r) ?? DASH);
+  const setCls = (el, cls) => {
+    if (el.__cls !== cls) {
+      el.__cls = cls;
+      el.className = cls;
+    }
+  };
+  /** Per-column scales over the rows shown: heat steps, bar maxima (p95), centred-bar scales. */
+  function scalesFor(cols, rows) {
+    const out = new Map();
+    for (const c of cols) {
+      const v = c.viz;
+      if (!v) continue;
+      const key = c.sortGet ?? c.get;
+      if (v.kind === "seq" && v.scale === "rank") {
+        const steps = S.rankHeat(rows.map((r) => key(r)), c.dir);
+        out.set(c.id, { steps: new Map(rows.map((r, i) => [r.key, steps[i]])) });
+      } else if (v.kind === "div") {
+        const steps = S.signedHeat(rows.map((r) => c.get(r)));
+        out.set(c.id, { steps: new Map(rows.map((r, i) => [r.key, steps[i]])) });
+      } else if (v.kind === "bar") out.set(c.id, { max: v.max === "p95" ? S.p95Abs(rows.map((r) => c.get(r))) : v.max });
+      else if (v.kind === "cbar" && v.signed) out.set(c.id, { m: S.p95Abs(rows.map((r) => v.signed(r))) });
+    }
+    return out;
+  }
+  /** Build the visual part of a cell once (bars, dots, tracks, the score's composition). */
+  function makeViz(td, c) {
+    const v = c.viz;
+    if (!v) return;
+    if (v.kind === "bar") {
+      td.__bar = hbar({ value: 0, max: 1 });
+      td.__tick = v.tick ? h("i", { class: "scr-tick", hidden: true }) : null;
+      td.append(h("span", { class: "scr-mbar", "aria-hidden": "true" }, td.__bar, td.__tick));
+    } else if (v.kind === "cbar") {
+      // The centred bar sits left of the value (one line, so the row stays 40 px with a sub line).
+      td.__fill = h("span", { class: "scr-cbar-f" });
+      td.__cbar = h("span", { class: "scr-cbar", "aria-hidden": "true" }, h("i", { class: "scr-cbar-z" }), td.__fill);
+      const txt = h("span", { class: "scr-cell-t" }, ...td.childNodes);
+      td.append(h("span", { class: "scr-cell-row" }, td.__cbar, txt));
+    } else if (v.kind === "meter") {
+      td.__dots = Array.from({ length: 5 }, () => h("i"));
+      td.append(h("span", { class: "scr-dots", "aria-hidden": "true" }, td.__dots));
+    } else if (v.kind === "sigma") {
+      td.__sdot = h("i", { class: "scr-sig-d" });
+      td.append(h("span", { class: "scr-sig", "aria-hidden": "true" }, h("i", { class: "scr-sig-band" }), h("i", { class: "scr-sig-1" }), td.__sdot));
+    } else if (v.kind === "score") {
+      td.__segs = Array.from({ length: 4 }, (_, i) => h("i", { "data-i": String(i) }, h("b")));
+      td.__comp = h("span", { class: "scr-comp", "aria-hidden": "true" }, td.__segs);
+      td.__warn = h("span", { class: "scr-pen", "aria-hidden": "true", hidden: true }, "⚠");
+      td.__v.after(td.__warn);
+      td.append(td.__comp);
+    } else if (v.kind === "chip") {
+      td.__chip = h("span", { class: "scr-chipbox" });
+      td.prepend(td.__chip);
+    } else if (v.kind === "legs") {
+      td.__legs = h("span", { class: "scr-legs-t" });
+      td.append(td.__legs);
+    }
+  }
+  function paintViz(td, c, r, sc) {
+    const v = c.viz;
+    if (!v) return "";
+    const val = c.get(r);
+    if (v.kind === "seq") {
+      const st = v.scale === "score" ? S.scoreStep(val) : sc?.steps.get(r.key) ?? 0;
+      heatCell(td, st || null, "seq");
+      return "";
+    }
+    if (v.kind === "score") {
+      const sco = v.of(r);
+      const st = S.scoreStep(val);
+      heatCell(td, st || null, "seq");
+      const parts = S.scoreParts(sco);
+      const pen = Boolean(sco?.penalties?.length);
+      td.__segs.forEach((seg, i) => {
+        const pt = parts[i];
+        seg.hidden = !pt;
+        if (!pt) return;
+        seg.style.setProperty("--w", String(Math.round(pt.share * 1000) / 1000));
+        seg.style.setProperty("--v", String(Math.round(pt.fill * 1000) / 1000));
+      });
+      td.__comp.classList.toggle("pen", pen);
+      td.__warn.hidden = !pen;
+      return pen ? `× 0.5: ${sco.penalties.join(", ")}` : "";
+    }
+    if (v.kind === "div") {
+      const st = sc?.steps.get(r.key);
+      heatCell(td, st === null || st === undefined ? null : st, "div");
+      return "";
+    }
+    if (v.kind === "bar") {
+      const tone = v.tone === "side" ? sideOf(r) ?? "call" : v.tone;
+      if (td.__bar.dataset.dv !== tone) td.__bar.dataset.dv = tone;
+      setBar(td.__bar, num(val) === null ? 0 : Math.abs(val), sc?.max ?? 1);
+      if (td.__tick) {
+        const t = v.tick === "pop" ? num(filters().pop) : null;
+        td.__tick.hidden = t === null;
+        if (t !== null) td.__tick.style.setProperty("--t", String(Math.min(1, t / 100)));
+      }
+      return "";
+    }
+    if (v.kind === "cbar") {
+      const x = v.signed ? S.centred(v.signed(r), sc?.m) : v.at(r);
+      const tone = v.tone(r);
+      if (td.__cbar.dataset.tone !== tone) td.__cbar.dataset.tone = tone;
+      td.__cbar.classList.toggle("dec", Boolean(v.dec?.(r)));
+      td.__cbar.classList.toggle("outline", Boolean(v.outline?.(r)));
+      td.__cbar.classList.toggle("none", x === null);
+      const s = String(x === null ? 0 : Math.round(x * 1000) / 1000);
+      if (td.__fill.style.getPropertyValue("--v") !== s) td.__fill.style.setProperty("--v", s);
+      return "";
+    }
+    if (v.kind === "meter") {
+      const n = num(val) ?? 0;
+      td.__dots.forEach((d, i) => d.classList.toggle("lit", i < n));
+      return "";
+    }
+    if (v.kind === "sigma") {
+      const pos = S.sigmaPos(val);
+      td.__sdot.hidden = pos === null;
+      if (pos !== null) td.__sdot.style.setProperty("--p", String(Math.round(pos * 1000) / 1000));
+      return "";
+    }
+    if (v.kind === "chip") {
+      const ch = v.chip(r);
+      const sig = ch ? `${ch.tone}|${ch.text}` : "";
+      if (td.__chip.__sig !== sig) {
+        td.__chip.__sig = sig;
+        td.__chip.replaceChildren(...(ch ? [chipEl(ch)] : []));
+      }
+      return "";
+    }
+    if (v.kind === "legs") {
+      const sig = r.legs?.length ? r.legs.map((l) => `${l.side}${l.qty}${l.strike}${l.right}${l.price}`).join(",") : r.legsText;
+      if (td.__legs.__sig !== sig) {
+        td.__legs.__sig = sig;
+        td.__legs.replaceChildren(...(r.legs?.length ? legTokens(r.legs) : [h("span", { class: "scr-legs-note" }, r.legsText)]));
+      }
+      return "";
+    }
+    return "";
+  }
+  /** The text a cell shows: chips and leg tokens carry it themselves (the text stays for cards and labels). */
+  function cellText(c, r) {
+    if (c.viz?.kind === "chip") return c.viz.label ? c.viz.label(r) : "";
+    if (c.viz?.kind === "legs") return "";
+    return c.fmt(c.get(r), r) ?? DASH;
+  }
+  function fillCell(td, c, r, sc, flash) {
+    if (c.lead) return fillLead(td, c, r);
+    const text = cellText(c, r);
+    const before = td.__v.__t;
+    const prevNum = td.__num;
+    setText(td.__v, text);
     const sub = c.sub ? c.sub(r) : "";
     if (td.__s) {
       setText(td.__s, sub);
       td.__s.hidden = !sub;
     }
+    const extraTitle = paintViz(td, c, r, sc);
     const ink = c.ink ? c.ink(r) : null;
     const subInk = c.subInk ? c.subInk(r) : null;
-    const cls = [c.num ? "num" : "", c.lead ? "lead" : "", c.p === 3 ? "p3" : "", c.wrap ? "wrap" : "", ink ? `ink-${ink}` : "", subInk ? `sub-${subInk}` : "", heat ? `heat-${heat}` : ""].join(" ").trim();
+    const cls = [c.num && !c.text ? "num" : "", c.p === 3 ? "p3" : "", c.wrap ? "wrap" : "", c.viz ? `vz vz-${c.viz.kind}` : "", ink ? `ink-${ink}` : "", subInk ? `sub-${subInk}` : "", c.id === preset().defaults.sort.by ? "rank-col" : "", td.classList.contains("dv-heat") ? "dv-heat" : ""].join(" ").trim();
     if (td.__cls !== cls) {
       td.__cls = cls;
       td.className = cls;
     }
-    const ttl = c.ttl ? c.ttl(r) : "";
+    const ttl = [c.ttl ? c.ttl(r) : "", extraTitle].filter(Boolean).join(" · ");
     if ((td.title || "") !== ttl) td.title = ttl;
+    // A value that changed with new data flashes once: up green, down red (never on a tab or sort change).
+    const n = num(c.sortGet ? c.sortGet(r) : c.get(r));
+    td.__num = n;
+    if (flash && before !== undefined && before !== text && c.num && n !== null && prevNum !== null && prevNum !== undefined && n !== prevNum) flashValue(td, n > prevNum ? "up" : "down");
+  }
+  /** The lead cell: "NIFTY 3 Nov" + strike + the CE / PE capsule (contracts), or the name; the sub line below. */
+  function fillLead(td, c, r) {
+    const parts = r.kind === "contract" ? r.nameParts : null;
+    const sig = parts ? `${parts.head}|${parts.strike}|${parts.right}` : `${c.get(r)}|${r.kind === "hedge" ? "PE" : ""}`;
+    if (td.__sig !== sig) {
+      td.__sig = sig;
+      if (parts) td.__v.replaceChildren(h("span", { class: "nm" }, parts.head), " ", h("b", { class: "k" }, parts.strike), " ", cap(parts.right));
+      else td.__v.replaceChildren(...[h("span", { class: "nm" }, c.fmt(c.get(r), r) ?? DASH), r.kind === "hedge" ? cap("PE") : null].filter(Boolean));
+    }
+    const sub = c.sub ? c.sub(r) ?? "" : "";
+    if (td.__s) {
+      // "Expires today" in the sub line is a warning (a warn dot and ink).
+      const warn = /^Expires today/.test(sub);
+      if (td.__s.__t !== sub) {
+        td.__s.__t = sub;
+        td.__s.replaceChildren(...(warn ? [h("i", { class: "scr-wdot", "aria-hidden": "true" }), h("span", { class: "ink-warn" }, "Expires today"), sub.slice("Expires today".length)] : [sub]));
+      }
+      td.__s.hidden = !sub;
+    }
+    const side = r.kind === "contract" ? (r.right === "PE" ? "side-pe" : "side-ce") : r.kind === "hedge" ? "side-pe" : "";
+    setCls(td, ["lead", side].filter(Boolean).join(" "));
   }
   function makeCell(c) {
     const td = h(c.lead ? "th" : "td", c.lead ? { scope: "row" } : {});
@@ -734,33 +1089,115 @@ export function renderScreenerPage() {
       td.__s = h("small", { class: "s" });
       td.append(td.__s);
     }
+    makeViz(td, c);
     return td;
   }
-  function drawTable(rows) {
+  function makeRankCell() {
+    const td = h("td", { class: "rk" });
+    td.__n = h("span", { class: "rk-n" });
+    td.__m = h("span", { class: "rk-m", hidden: true });
+    td.__d = h("i", { class: "rk-d", hidden: true, "aria-hidden": "true" });
+    td.append(td.__d, td.__n, td.__m);
+    return td;
+  }
+  /** The rank cell: number (★ when pinned), ▲3 / ▼2 for one sweep, a dot when new or stale. */
+  function fillRank(td, e, move) {
+    const rank = e.rank;
+    setText(td.__n, e.pinned ? "★" : rank === null ? DASH : formatInt(rank));
+    td.classList.toggle("top", !e.pinned && rank !== null && rank <= 3);
+    td.classList.toggle("pin", e.pinned);
+    const m = move && !e.pinned && !e.gone ? move : null;
+    const mv = m && m.delta ? `${m.delta > 0 ? "▲" : "▼"}${formatInt(Math.abs(m.delta))}` : "";
+    setText(td.__m, mv);
+    td.__m.hidden = !mv;
+    td.__m.className = `rk-m ${m?.delta > 0 ? "up" : "down"}`;
+    const dot = e.r.stale ? "stale" : m?.isNew ? "new" : "";
+    td.__d.hidden = !dot;
+    td.__d.className = `rk-d ${dot}`;
+    const mem = rankMem.get(cfg.preset);
+    const title = [e.pinned ? (e.gone ? "Pinned · no longer matches" : `Pinned · rank ${formatInt(rank)}`) : "", m?.isNew ? `New match since ${S.istHm(mem?.prevAt)}` : "", m?.delta ? `${m.delta > 0 ? "Up" : "Down"} ${formatInt(Math.abs(m.delta))} since the last scan` : "", e.r.stale ? `Data ${S.ageText(e.r.age)} old` : ""].filter(Boolean).join(" · ");
+    if ((td.title || "") !== title) td.title = title;
+  }
+  /** "Rank 1, up 3. NIFTY 3 Nov 27000 CE. IV 7.9 pts under HV · …" */
+  function rowLabel(e, move, p) {
+    const m = move?.delta ? `, ${move.delta > 0 ? "up" : "down"} ${Math.abs(move.delta)}` : move?.isNew ? ", new" : "";
+    const lead = e.pinned ? (e.gone ? "Pinned, no longer matches" : `Pinned, rank ${e.rank}`) : `Rank ${e.rank}${m}`;
+    return `${lead}. ${e.r.name}. ${S.reason(e.r, p.id)}`;
+  }
+  function groupRow(label, n) {
+    const th = h("th", { colspan: String(n), scope: "colgroup" }, label);
+    return h("tr", { class: "scr-group", "aria-hidden": "false" }, th);
+  }
+  let swapPending = false;
+  function drawTable(list) {
     const cols = columns();
     const p = preset();
-    const sig = `${p.id}|${cols.map((c) => c.id).join(",")}|${JSON.stringify(cfg.sort[p.id])}`;
-    if (sig !== tableSig) {
-      tableSig = sig;
+    const hs = `${p.id}|${cols.map((c) => c.id).join(",")}|${JSON.stringify(cfg.sort[p.id])}`;
+    const bs = `${p.id}|${cols.map((c) => c.id).join(",")}`;
+    const fresh = bs !== bodySig;
+    if (hs !== headSig) {
+      headSig = hs;
       buildHead(cols);
+    }
+    if (fresh) {
+      bodySig = bs;
       tbody.replaceChildren();
       rowEls.clear();
+      groupRows = null;
     }
     caption.textContent = `${p.label}: ${formatInt(result?.total ?? 0)} matches`;
-    const heats = new Map(cols.filter((c) => c.heat).map((c) => [c.id, heatOf(rows, c)]));
+    const live = list.filter((e) => !e.gone).map((e) => e.r);
+    const scales = scalesFor(cols, live);
+    const mem = defaultSort(p) ? rankMem.get(p.id) : null;
+    const focusKey = selKey && list.some((e) => e.r.key === selKey) ? selKey : list[0]?.r.key;
+    // FLIP (§7): where each kept row sits now, before the patch moves it (rows in view only).
+    const anim = !fresh && !reducedMotion() && !wrap.hidden;
+    const before = new Map();
+    if (anim && rowEls.size && rowEls.size <= 400) {
+      const box = wrap.getBoundingClientRect();
+      for (const [k, tr] of rowEls) {
+        const t = tr.getBoundingClientRect().top;
+        if (t > box.top - 60 && t < box.bottom + 60) before.set(k, t);
+      }
+    }
+    const pinned = list.some((e) => e.pinned);
+    if (pinned && !groupRows) groupRows = [groupRow("Pinned", cols.length + 1), groupRow("All matches", cols.length + 1)];
+    if (!pinned && groupRows) {
+      for (const g of groupRows) g.remove();
+      groupRows = null;
+    }
     const keep = new Set();
+    const created = [];
     let prev = null;
-    const focusKey = selKey && rows.some((r) => r.key === selKey) ? selKey : rows[0]?.key;
-    for (const r of rows) {
+    const place = (el) => {
+      const want = prev ? prev.nextSibling : tbody.firstChild;
+      if (want !== el) tbody.insertBefore(el, want);
+      prev = el;
+    };
+    if (groupRows) place(groupRows[0]);
+    let restStarted = false;
+    for (const e of list) {
+      const r = e.r;
+      if (groupRows && !e.pinned && !restStarted) {
+        restStarted = true;
+        place(groupRows[1]);
+      }
       keep.add(r.key);
       let tr = rowEls.get(r.key);
+      const isNewEl = !tr;
       if (!tr) {
         tr = h("tr", { "data-key": r.key });
+        tr.__rank = makeRankCell();
         tr.__cells = cols.map((c) => makeCell(c));
-        tr.append(...tr.__cells);
+        tr.append(tr.__rank, ...tr.__cells);
         rowEls.set(r.key, tr);
+        if (!fresh) created.push(tr);
       }
-      cols.forEach((c, i) => fillCell(tr.__cells[i], c, r, heats.get(c.id)?.(r) ?? 0));
+      const flash = !isNewEl && tr.__at !== undefined && tr.__at !== r.fetchedAt;
+      tr.__at = r.fetchedAt;
+      const move = mem?.diff.get(r.key) ?? null;
+      fillRank(tr.__rank, e, move);
+      cols.forEach((c, i) => fillCell(tr.__cells[i], c, r, scales.get(c.id), flash));
       const sel = r.key === selKey;
       if (tr.__sel !== sel) {
         tr.__sel = sel;
@@ -768,23 +1205,46 @@ export function renderScreenerPage() {
         tr.classList.toggle("sel", sel);
       }
       tr.classList.toggle("stale", Boolean(r.stale));
+      tr.classList.toggle("gone", Boolean(e.gone));
       const tab = r.key === focusKey ? 0 : -1;
       if (tr.tabIndex !== tab) tr.tabIndex = tab;
-      const label = `${r.name}. ${S.reason(r, p.id)}`;
+      const label = rowLabel(e, move, p);
       if (tr.getAttribute("aria-label") !== label) tr.setAttribute("aria-label", label);
-      const want = prev ? prev.nextSibling : tbody.firstChild;
-      if (want !== tr) tbody.insertBefore(tr, want);
-      prev = tr;
+      place(tr);
     }
     for (const [k, tr] of rowEls) {
       if (keep.has(k)) continue;
       tr.remove();
       rowEls.delete(k);
     }
+    // Barred entry of the first draw of a tab: bars grow from zero once, later sweeps resize them.
+    if (fresh) {
+      barsEnter(tbody);
+      if (swapPending && !reducedMotion()) wrap.animate?.([{ opacity: 0, transform: "translateY(4px)" }, { opacity: 1, transform: "none" }], { duration: 200, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+      swapPending = false;
+      return;
+    }
+    if (!anim) return;
+    // FLIP: rows that moved slide from their old place; new rows fade in from the left with a short stagger.
+    const moved = [];
+    for (const [k, top] of before) {
+      const tr = rowEls.get(k);
+      if (!tr) continue;
+      const dy = top - tr.getBoundingClientRect().top;
+      if (Math.abs(dy) > 1) moved.push([tr, dy]);
+    }
+    if (moved.length <= 40) for (const [tr, dy] of moved) tr.animate?.([{ transform: `translateY(${dy}px)` }, { transform: "none" }], { duration: 320, easing: "cubic-bezier(0.2, 0, 0, 1)" });
+    created.slice(0, 12).forEach((tr, i) => tr.animate?.([{ opacity: 0, transform: "translateX(-6px)" }, { opacity: 1, transform: "none" }], { duration: 320, delay: Math.min(200, i * 20), easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "backwards" }));
   }
   tbody.addEventListener("click", (e) => {
     const tr = e.target.closest("tr[data-key]");
     if (tr) select(tr.dataset.key, { open: true });
+  });
+  tbody.addEventListener("contextmenu", (e) => {
+    const tr = e.target.closest("tr[data-key]");
+    if (!tr) return;
+    e.preventDefault();
+    togglePin(tr.dataset.key);
   });
   tbody.addEventListener("keydown", (e) => {
     const tr = e.target.closest("tr[data-key]");
@@ -794,60 +1254,187 @@ export function renderScreenerPage() {
       select(tr.dataset.key, { open: true, force: true });
     }
   });
-  function cardFor(r, p) {
+  // Sticky rank + lead columns get their right edge only while the table is scrolled sideways; a right fade shows
+  // while more columns sit off-screen.
+  function wrapEdges() {
+    wrap.classList.toggle("scrolled-x", wrap.scrollLeft > 1);
+    wrap.classList.toggle("more-x", wrap.scrollWidth - wrap.clientWidth - wrap.scrollLeft > 2);
+  }
+  wrap.addEventListener("scroll", wrapEdges, { passive: true });
+
+  // ── Pins (§8.6) ──
+  function togglePin(key) {
+    const p = preset();
+    const pins = cfg.pins?.[p.id] ?? [];
+    const on = pins.includes(key);
+    if (!on && pins.length >= S.MAX_PINS) return toast(`Up to ${S.MAX_PINS} pinned rows per tab`);
+    const next = on ? pins.filter((k) => k !== key) : [...pins, key];
+    setCfg({ pins: { ...cfg.pins, [p.id]: next } });
+    paneSig = "";
+    drawPane();
+    toast(on ? "Unpinned" : "Pinned: it stays at the top of this tab");
+  }
+  const isPinned = (key) => (cfg.pins?.[cfg.preset] ?? []).includes(key);
+
+  // ── Phone cards (§6.9) ──
+  let cardSig = "";
+  const cardEls = new Map();
+  /** The card's badge: the ranking value on its heat step, or the tab's chip. */
+  function badgeFor(c, r, sc) {
+    const v = c.viz;
+    if (v?.kind === "chip") return { chip: v.chip(r), text: c.fmt(c.get(r), r) };
+    const text = (c.cardFmt ?? c.fmt)(c.get(r), r);
+    if (v?.kind === "score") return { text, seq: S.scoreStep(c.get(r)) || null };
+    if (v?.kind === "seq") return { text, seq: sc?.steps.get(r.key) || null };
+    if (v?.kind === "div") return { text, div: sc?.steps.get(r.key) ?? null };
+    if (v?.kind === "cbar") return { text, tone: v.tone(r), outline: Boolean(v.outline?.(r)) };
+    return { text };
+  }
+  function cardFor(e, p, scales) {
+    const r = e.r;
     let c = cardEls.get(r.key);
     if (!c) {
       const btn = h("button", { type: "button", class: "scr-card", "data-key": r.key });
-      const name = h("strong", { class: "scr-card-name" });
-      const badge = h("span", { class: "scr-card-badge" });
-      const metrics = [0, 1, 2].map(() => {
-        const l = h("span", { class: "scr-m-l" });
-        const v = h("span", { class: "scr-m-v" });
-        return { l, v, el: h("span", { class: "scr-m" }, l, v) };
+      const rk = h("span", { class: "scr-c-rk" });
+      const name = h("span", { class: "scr-c-nm" });
+      const sub = h("span", { class: "scr-c-sub" });
+      const badge = h("span", { class: "scr-c-badge" });
+      const keys = [0, 1, 2].map(() => {
+        const viz = h("span", { class: "scr-k-viz", "aria-hidden": "true" });
+        const v = h("b", { class: "scr-k-v" });
+        const l = h("span", { class: "scr-k-l" });
+        return { viz, v, l, el: h("span", { class: "scr-k" }, viz, v, l) };
       });
-      const why = h("span", { class: "scr-reason" });
-      btn.append(h("span", { class: "scr-card-1" }, name, badge), h("span", { class: "scr-metrics" }, metrics.map((m) => m.el)), why);
-      c = { li: h("li", {}, btn), btn, name, badge, metrics, why };
+      const why = h("span", { class: "scr-c-why" });
+      btn.append(rk, h("span", { class: "scr-c-main" }, h("span", { class: "scr-c-1" }, name), sub), badge, h("span", { class: "scr-c-keys" }, keys.map((k) => k.el)), why);
+      c = { li: h("li", {}, btn), btn, rk, name, sub, badge, keys, why };
       cardEls.set(r.key, c);
     }
     const col = (id) => p.columns.find((x) => x.id === id);
-    const b = col(p.card.badge);
-    setText(c.name, r.name);
-    setText(c.badge, (b.cardFmt ?? b.fmt)(b.get(r), r));
-    c.badge.className = `scr-card-badge${b.ink?.(r) ? ` ink-${b.ink(r)}` : ""}`;
-    const parts = [r.name, `${b.label} ${(b.cardFmt ?? b.fmt)(b.get(r), r)}`];
+    const mem = defaultSort(p) ? rankMem.get(p.id) : null;
+    const move = mem?.diff.get(r.key) ?? null;
+    // Rank, movement, new / stale dot.
+    const mv = move?.delta && !e.pinned ? `${move.delta > 0 ? "▲" : "▼"}${formatInt(Math.abs(move.delta))}` : "";
+    const rkSig = `${e.pinned}|${e.rank}|${mv}|${move?.isNew}|${r.stale}`;
+    if (c.rk.__sig !== rkSig) {
+      c.rk.__sig = rkSig;
+      c.rk.replaceChildren(
+        ...[
+          h("b", { class: e.rank !== null && e.rank <= 3 && !e.pinned ? "top" : "" }, e.pinned ? "★" : e.rank === null ? DASH : `#${formatInt(e.rank)}`),
+          mv ? h("small", { class: move.delta > 0 ? "up" : "down" }, mv) : r.stale ? h("i", { class: "rk-d stale" }) : move?.isNew ? h("i", { class: "rk-d new" }) : null,
+        ].filter(Boolean),
+      );
+    }
+    const parts = r.kind === "contract" ? r.nameParts : null;
+    const nmSig = parts ? `${parts.head}|${parts.strike}|${parts.right}` : `${r.name}|${r.chain ?? ""}`;
+    if (c.name.__sig !== nmSig) {
+      c.name.__sig = nmSig;
+      if (parts) c.name.replaceChildren(h("span", {}, parts.head), " ", h("b", {}, parts.strike), " ", cap(parts.right));
+      else if (r.kind === "hedge") c.name.replaceChildren(h("span", {}, r.chain), " ", h("b", {}, formatInt(r.strike)), " ", cap("PE"));
+      else if (r.kind === "arb") c.name.replaceChildren(h("span", {}, r.type), h("span", { class: "scr-c-chain" }, ` · ${r.chain}`));
+      else c.name.replaceChildren(h("span", {}, r.name));
+    }
+    const subText = r.kind === "arb" ? (r.legs?.length ? "" : r.legsText) : r.sub ?? "";
+    setText(c.sub, subText);
+    c.sub.hidden = !subText;
+    if (r.kind === "arb" && r.legs?.length) {
+      const sig = r.legs.map((l) => `${l.side}${l.qty}${l.strike}${l.right}${l.price}`).join(",");
+      if (c.sub.__legs !== sig) {
+        c.sub.__legs = sig;
+        c.sub.__t = undefined;
+        c.sub.replaceChildren(...legTokens(r.legs));
+        c.sub.hidden = false;
+      }
+    }
+    // Badge.
+    const bc = col(p.card.badge);
+    const b = badgeFor(bc, r, scales.get(bc.id));
+    const bSig = JSON.stringify([b.text, b.seq, b.div, b.tone, b.outline, b.chip?.text, b.chip?.tone]);
+    if (c.badge.__sig !== bSig) {
+      c.badge.__sig = bSig;
+      if (b.chip !== undefined) {
+        c.badge.className = "scr-c-badge chip";
+        c.badge.replaceChildren(...(b.chip ? [chipEl(b.chip)] : [h("span", {}, DASH)]));
+      } else {
+        c.badge.className = `scr-c-badge box${b.tone ? ` t-${b.tone}` : ""}${b.outline ? " outline" : ""}`;
+        delete c.badge.dataset.seq;
+        delete c.badge.dataset.div;
+        if (b.seq) c.badge.dataset.seq = String(b.seq);
+        if (b.div !== null && b.div !== undefined) c.badge.dataset.div = String(b.div);
+        c.badge.replaceChildren(h("span", {}, b.text ?? DASH));
+      }
+    }
+    const aria = [rowLabel(e, move, p).split(". ")[0], r.name, `${bc.label} ${b.chip ? b.chip.text : b.text}`];
     p.card.keys.forEach((id, i) => {
       const k = col(id);
-      setText(c.metrics[i].l, k.label);
-      const t = k.fmt(k.get(r), r);
-      setText(c.metrics[i].v, t);
-      c.metrics[i].v.className = `scr-m-v${k.ink?.(r) ? ` ink-${k.ink(r)}` : ""}`;
-      parts.push(`${k.label} ${t}`);
+      const kk = c.keys[i];
+      setText(kk.l, k.cardLabel ?? k.label);
+      const t = k.viz?.kind === "chip" ? k.viz.label?.(r) || k.fmt(k.get(r), r) : (k.cardFmt ?? k.fmt)(k.get(r), r);
+      setText(kk.v, t);
+      const ink = k.ink?.(r);
+      setCls(kk.v, `scr-k-v${ink ? ` ink-${ink}` : ""}`);
+      // The first key carries its micro-visual (POP bar, σ track, centred bar, depth bar).
+      if (i === 0) paintCardViz(kk.viz, k, r, scales.get(k.id));
+      aria.push(`${k.label} ${t}`);
     });
     const why = S.reason(r, p.id);
     setText(c.why, why);
     c.why.hidden = !why;
-    if (why) parts.push(why);
-    const label = parts.join(", ");
+    if (why) aria.push(why);
+    const label = aria.join(", ");
     if (c.btn.getAttribute("aria-label") !== label) c.btn.setAttribute("aria-label", label);
     const sel = r.key === selKey;
-    c.btn.classList.toggle("sel", sel);
+    const side = r.kind === "contract" ? (r.right === "PE" ? "side-pe" : "side-ce") : r.kind === "hedge" ? "side-pe" : r.kind === "arb" ? (r.status === "Executable" ? "side-pos" : r.status === "Near miss" ? "side-warn" : "") : "";
+    setCls(c.btn, ["scr-card", side, sel ? "sel" : "", r.stale ? "stale" : "", e.gone ? "gone" : "", p.kind === "contract" ? "tall" : ""].filter(Boolean).join(" "));
     c.btn.setAttribute("aria-current", sel ? "true" : "false");
-    c.btn.classList.toggle("stale", Boolean(r.stale));
     return c;
   }
-  function drawCards(rows) {
+  function paintCardViz(host, k, r, sc) {
+    const v = k.viz;
+    const kind = v?.kind;
+    if (host.__kind !== kind) {
+      host.__kind = kind;
+      host.replaceChildren();
+      host.hidden = !["bar", "cbar", "sigma"].includes(kind);
+      if (kind === "bar") host.append((host.__bar = hbar({ value: 0, max: 1 })));
+      if (kind === "cbar") host.append((host.__cbar = h("span", { class: "scr-cbar" }, h("i", { class: "scr-cbar-z" }), (host.__fill = h("span", { class: "scr-cbar-f" })))));
+      if (kind === "sigma") host.append(h("span", { class: "scr-sig" }, h("i", { class: "scr-sig-band" }), h("i", { class: "scr-sig-1" }), (host.__sdot = h("i", { class: "scr-sig-d" }))));
+    }
+    if (kind === "bar") {
+      const tone = v.tone === "side" ? sideOf(r) ?? "call" : v.tone;
+      host.__bar.dataset.dv = tone;
+      setBar(host.__bar, Math.abs(num(k.get(r)) ?? 0), sc?.max ?? 1);
+    } else if (kind === "cbar") {
+      const x = v.signed ? S.centred(v.signed(r), sc?.m) : v.at(r);
+      host.__cbar.dataset.tone = v.tone(r);
+      host.__cbar.classList.toggle("dec", Boolean(v.dec?.(r)));
+      host.__cbar.classList.toggle("outline", Boolean(v.outline?.(r)));
+      host.__fill.style.setProperty("--v", String(x === null ? 0 : Math.round(x * 1000) / 1000));
+    } else if (kind === "sigma") {
+      const pos = S.sigmaPos(k.get(r));
+      host.__sdot.hidden = pos === null;
+      if (pos !== null) host.__sdot.style.setProperty("--p", String(pos));
+    }
+  }
+  function drawCards(list) {
     const p = preset();
-    if (cardSig !== p.id) {
+    const fresh = cardSig !== p.id;
+    if (fresh) {
       cardSig = p.id;
       cards.replaceChildren();
       cardEls.clear();
     }
+    const live = list.filter((e) => !e.gone).map((e) => e.r);
+    const used = [p.card.badge, p.card.keys[0]].map((id) => p.columns.find((x) => x.id === id));
+    const scales = scalesFor(used, live);
     const keep = new Set();
+    const created = [];
     let prev = null;
-    for (const r of rows) {
-      keep.add(r.key);
-      const c = cardFor(r, p);
+    for (const e of list) {
+      keep.add(e.r.key);
+      const had = cardEls.has(e.r.key);
+      const c = cardFor(e, p, scales);
+      if (!had && !fresh) created.push(c.li);
       const want = prev ? prev.nextSibling : cards.firstChild;
       if (want !== c.li) cards.insertBefore(c.li, want);
       prev = c.li;
@@ -857,24 +1444,117 @@ export function renderScreenerPage() {
       c.li.remove();
       cardEls.delete(k);
     }
+    if (fresh) {
+      barsEnter(cards);
+      if (swapPending && !reducedMotion()) cards.animate?.([{ opacity: 0, transform: "translateY(4px)" }, { opacity: 1, transform: "none" }], { duration: 200, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+      swapPending = false;
+    } else if (!reducedMotion()) created.slice(0, 8).forEach((li, i) => li.animate?.([{ opacity: 0, transform: "translateX(-6px)" }, { opacity: 1, transform: "none" }], { duration: 320, delay: Math.min(200, i * 20), easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "backwards" }));
   }
   cards.addEventListener("click", (e) => {
     const b = e.target.closest("button[data-key]");
     if (b) select(b.dataset.key, { open: true, force: true });
   });
+  cards.addEventListener("contextmenu", (e) => {
+    const b = e.target.closest("button[data-key]");
+    if (!b) return;
+    e.preventDefault();
+    togglePin(b.dataset.key);
+  });
   function skeleton() {
     if (phone()) {
       cardSig = "";
       cardEls.clear();
-      cards.replaceChildren(...Array.from({ length: 4 }, () => h("li", { class: "scr-skel", "aria-hidden": "true" }, h("span", { class: "sh" }), h("span", { class: "sh short" }))));
+      cards.replaceChildren(...Array.from({ length: 5 }, () => h("li", { class: "scr-skel", "aria-hidden": "true" }, h("span", { class: "skel" }), h("span", { class: "skel short" }), h("span", { class: "skel mid" }))));
     } else {
-      tableSig = "";
+      headSig = "";
+      bodySig = "";
       rowEls.clear();
+      groupRows = null;
       buildHead(columns());
-      const n = columns().length;
-      tbody.replaceChildren(...Array.from({ length: 6 }, () => h("tr", { class: "scr-skel", "aria-hidden": "true" }, Array.from({ length: n }, (_, i) => h("td", { class: i === 0 ? "lead" : null }, h("span", { class: "sh" }))))));
+      const n = columns().length + 1;
+      tbody.replaceChildren(...Array.from({ length: 8 }, () => h("tr", { class: "scr-skel", "aria-hidden": "true" }, Array.from({ length: n }, (_, i) => h("td", { class: i === 0 ? "rk" : i === 1 ? "lead" : null }, h("span", { class: "skel" }))))));
     }
   }
+
+  // ── Match map (§11.15): |Δ| across, the ranking metric up, one dot per match, linked to the table ──
+  let mapSig = "";
+  const MAP = { W: 720, H: 140, l: 34, r: 10, t: 10, b: 20 };
+  function mapMetric(p) {
+    if (p.id === "unusual") return { get: (r) => r.volOiRel, log: true, label: "× median (log scale)", fmt: (v) => `${formatFixed(v, 1)}×` };
+    if (p.id === "buildup") return { get: (r) => r.committed, log: true, label: "₹ committed (log scale)", fmt: (v) => `₹${formatCompact(v)}` };
+    if (p.id === "ivout") return { get: (r) => r.bump, log: false, label: "Bump (vol pts)", fmt: (v) => formatSigned(v, 1) };
+    if (p.id === "buy") return { get: (r) => r.scoreBuy, log: false, label: "Score", fixed: [0, 100], fmt: (v) => formatInt(v) };
+    return { get: (r) => r.scoreSell, log: false, label: "Score", fixed: [0, 100], fmt: (v) => formatInt(v) };
+  }
+  function drawMap(force = false) {
+    const p = preset();
+    const on = wide() && CONTRACT.has(p.id) && Boolean(result?.total);
+    mapBtn.hidden = !on;
+    mapEl.hidden = !on || !mapOpen;
+    if (!on || !mapOpen) return;
+    const rows = result.rows;
+    const m = mapMetric(p);
+    const sig = `${p.id}|${selKey}|${rows.length}|${rows.slice(0, 400).map((r) => `${r.key}:${m.get(r)}:${r.absDelta}`).join(",")}`;
+    if (!force && sig === mapSig) return;
+    mapSig = sig;
+    const W = Math.max(320, Math.round(mapBody.clientWidth || MAP.W));
+    const { H, l, r: rr, t, b } = MAP;
+    const ys = rows.map((r) => num(m.get(r))).filter((v) => v !== null && (!m.log || v > 0));
+    const tf = (v) => (m.log ? Math.log2(v) : v);
+    let lo = m.fixed ? m.fixed[0] : Math.min(...ys.map(tf));
+    let hi = m.fixed ? m.fixed[1] : Math.max(...ys.map(tf));
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return mapBody.replaceChildren();
+    if (hi - lo < 1e-9) {
+      lo -= 1;
+      hi += 1;
+    }
+    // |Δ| from 0 to just past the widest match (at least 0.4), so a narrow Δ band still spreads out.
+    const dMax = Math.min(1, Math.max(0.4, Math.ceil((Math.max(...rows.map((x) => num(x.absDelta) ?? 0)) + 0.04) * 10) / 10));
+    const X = (d) => l + (Math.max(0, Math.min(dMax, d)) / dMax) * (W - l - rr);
+    const Y = (v) => t + (1 - (tf(v) - lo) / (hi - lo)) * (H - t - b);
+    const svg = svgEl("svg", { class: "scr-map-svg", viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": `Match map: ${formatInt(rows.length)} matches by |Δ| and ${m.label}` });
+    for (const d of [0.1, 0.25, 0.5, 0.75].filter((x) => x <= dMax)) {
+      svg.append(svgEl("line", { class: "dv-grid", x1: X(d), x2: X(d), y1: t, y2: H - b }));
+      svg.append(svgEl("text", { class: "dv-tick", x: X(d), y: H - 5, "text-anchor": "middle" }, formatFixed(d, 2)));
+    }
+    const yTicks = m.fixed ? [0, 50, 100] : [lo, (lo + hi) / 2, hi].map((v) => (m.log ? 2 ** v : v));
+    for (const v of yTicks) {
+      svg.append(svgEl("line", { class: "dv-grid", x1: l, x2: W - rr, y1: Y(v), y2: Y(v) }));
+      svg.append(svgEl("text", { class: "dv-tick", x: l - 5, y: Y(v) + 3.5, "text-anchor": "end" }, m.fmt(v)));
+    }
+    svg.append(svgEl("text", { class: "dv-tick", x: W - rr, y: H - 5, "text-anchor": "end" }, "|Δ|"));
+    const g = svgEl("g", { class: "scr-map-dots" });
+    const top = [];
+    rows.forEach((row, i) => {
+      const v = num(m.get(row));
+      const d = num(row.absDelta);
+      if (v === null || d === null || (m.log && v <= 0)) return;
+      const sel = row.key === selKey;
+      const c = svgEl("circle", { cx: X(d), cy: Y(v), r: sel ? 4.5 : 2.6, class: `scr-dot ${row.right === "PE" ? "pe" : "ce"}${sel ? " sel" : ""}`, "data-key": row.key }, svgEl("title", {}, `#${formatInt(i + 1)} ${row.name} · ${m.label} ${m.fmt(v)} · |Δ| ${formatFixed(d, 2)}`));
+      g.append(c);
+      if (i < 10) top.push([X(d), Y(v), i + 1]);
+    });
+    svg.append(g);
+    for (const [x, y, n] of top) svg.append(svgEl("text", { class: "scr-map-n", x: x + 5, y: y - 4 }, formatInt(n)));
+    const sel = rows.find((x) => x.key === selKey);
+    if (sel && num(m.get(sel)) !== null && num(sel.absDelta) !== null) svg.append(svgEl("circle", { class: "scr-dot-ring", cx: X(sel.absDelta), cy: Y(m.get(sel)), r: 7 }));
+    mapBody.replaceChildren(
+      h("ul", { class: "dv-legend scr-map-lg", "aria-hidden": "true" }, h("li", {}, h("span", { class: "dv-key dot", "data-dv": "call" }), "CE"), h("li", {}, h("span", { class: "dv-key dot", "data-dv": "put" }), "PE"), h("li", { class: "scr-lg-note" }, `Up: ${m.label}. Numbers: the top 10`)),
+      svg,
+    );
+  }
+  mapBody.addEventListener("click", (e) => {
+    const c = e.target.closest?.("circle[data-key]");
+    if (c) select(c.getAttribute("data-key"), { scroll: true });
+  });
+  mapBody.addEventListener("pointerover", (e) => {
+    const c = e.target.closest?.("circle[data-key]");
+    for (const tr of tbody.querySelectorAll("tr.hl")) tr.classList.remove("hl");
+    if (c) rowEls.get(c.getAttribute("data-key"))?.classList.add("hl");
+  });
+  mapBody.addEventListener("pointerleave", () => {
+    for (const tr of tbody.querySelectorAll("tr.hl")) tr.classList.remove("hl");
+  });
 
   // ── Empty, banners, footer ──
   let emptySig = "";
@@ -882,20 +1562,22 @@ export function renderScreenerPage() {
     // Leave-one-out: name only the filters whose removal alone brings rows back, with how many.
     const blockers = S.topBlockers(result.funnel);
     const p = preset();
-    const sig = JSON.stringify([p.id, blockers.map((b) => [b.filter, b.label, b.without]), scan?.strikes, scan?.chains]);
+    const nearOff = p.id === "arb" && filters().nearMiss === false;
+    const sig = JSON.stringify([p.id, blockers.map((b) => [b.filter, b.label, b.without]), scan?.strikes, scan?.chains, nearOff]);
     if (sig === emptySig) return;
     emptySig = sig;
-    const arbNote = p.id === "arb" ? h("p", { class: "scr-empty-note" }, `No executable edge after costs across ${formatInt(scan?.strikes ?? 0)} strikes in ${formatInt(scan?.chains ?? 0)} chains.`) : null;
+    const first = p.id === "arb" ? `No executable edge after costs across ${formatInt(scan?.strikes ?? 0)} strikes in ${formatInt(scan?.chains ?? 0)} chains.` : p.description;
     swapKeepFocus(
       emptyEl,
       [
         h("strong", {}, "No contracts pass these filters"),
-        arbNote,
-        h("p", { class: "scr-empty-why" }, blockers.length ? `Switching off one filter brings rows back: ${blockers.map((b) => `${b.label} (${formatInt(b.without)})`).join(" · ")}` : "No single filter is the cause: reset to this tab's defaults."),
+        h("p", { class: "scr-empty-note" }, first),
+        h("p", { class: "scr-empty-why" }, blockers.length ? "Switching off one filter brings rows back:" : "No single filter is the cause: reset to this tab's defaults."),
         h(
           "div",
           { class: "scr-empty-btns" },
-          blockers.map((b) => h("button", { type: "button", class: "small tinted", "data-fk": `off:${b.filter}`, onclick: () => setFilter(b.filter, offValue(b.filter)) }, `Turn off ${S.FILTERS[b.filter].short ?? S.FILTERS[b.filter].label}`)),
+          nearOff ? h("button", { type: "button", class: "small tinted", "data-fk": "near", onclick: () => setFilter("nearMiss", true) }, "Show near misses") : null,
+          blockers.map((b) => h("button", { type: "button", class: "small tinted", "data-fk": `off:${b.filter}`, onclick: () => setFilter(b.filter, offValue(b.filter)) }, `Turn off ${S.FILTERS[b.filter].short ?? S.FILTERS[b.filter].label} (+${formatInt(b.without)})`)),
           h("button", { type: "button", class: "small", "data-fk": "reset", onclick: () => resetFilters() }, "Reset all"),
         ),
       ],
@@ -912,23 +1594,22 @@ export function renderScreenerPage() {
         h(
           "div",
           { class: "scr-alert" },
-          alertBox(firstError ?? { title: "No chain could be scanned", detail: "Check that an account can serve option chains." }),
+          alertBox(firstError ?? { title: "Couldn't scan any chain", detail: "Check that an account can serve option chains." }),
           h("div", { class: "scr-alert-btns" }, h("button", { type: "button", class: "small", "data-fk": "retry", onclick: () => startSweep(true) }, icon("refresh"), "Retry"), h("a", { href: "#/accounts", class: "scr-link", "data-fk": "accounts" }, "Accounts")),
         ),
       );
       sig.push(`alert|${firstError?.message ?? firstError?.title ?? ""}`);
     }
     const text = (cls, t) => {
-      out.push(h("p", { class: `scr-banner ${cls}` }, t));
+      out.push(h("p", { class: `scr-banner ${cls}` }, cls === "warn" ? icon("warn") : null, h("span", {}, t)));
       sig.push(t);
     };
     if (p.id === "buildup" && scan?.oiMissing?.length) {
       // One line, however many chains lack it.
       const names = scan.oiMissing.map((k) => k.split("|")).sort();
-      const list = names.map(([u, e], i) => (i && names[i - 1][0] === u ? S.expiryText(e) : S.chainName(u, e))).join(", ");
-      text("warn", scan.oiMissing.length === scan.chains ? "OI change unavailable from this broker for all scanned chains" : `OI change unavailable from this broker for ${list}`);
+      const chainList = names.map(([u, e], i) => (i && names[i - 1][0] === u ? S.expiryText(e) : S.chainName(u, e))).join(", ");
+      text("warn", scan.oiMissing.length === scan.chains ? "OI change unavailable from this broker for all scanned chains" : `OI change unavailable from this broker for ${chainList}`);
     }
-    if (p.id === "arb" && scan?.chains) text("info", "Costs are estimates (How it works). Quotes move; re-check in the chain before trading.");
     if (["overview", "sell", "buy"].includes(p.id) && plan && scan?.chains) {
       const hv = hvStore().values;
       const missing = [...plan.keys()].filter((u) => cfg.underlyings.includes(u) && !num(hv[u]?.hv20) && (hvFailed.has(u) || hv[u]));
@@ -941,28 +1622,21 @@ export function renderScreenerPage() {
   }
   let issuesSig = "";
   function drawIssues() {
-    const list = [...issues.values()];
-    const sig = JSON.stringify(list.map((i) => [i.key, i.label, i.message]));
+    const items = [...issues.values()];
+    const sig = JSON.stringify(items.map((i) => [i.key, i.label, i.message]));
     if (sig === issuesSig) return;
     issuesSig = sig;
-    issuesEl.hidden = !list.length;
-    if (!list.length) return issuesEl.replaceChildren();
+    issuesEl.hidden = !items.length;
+    if (!items.length) return issuesEl.replaceChildren();
     const open = issuesEl.open;
     swapKeepFocus(
       issuesEl,
       [
-        h("summary", { "data-fk": "summary" }, `Scan issues (${formatInt(list.length)})`),
+        h("summary", { "data-fk": "summary" }, h("i", { class: "scr-wdot", "aria-hidden": "true" }), `${formatInt(items.length)} scan issue${items.length === 1 ? "" : "s"}`),
         h(
           "ul",
           {},
-          list.map((i) =>
-            h(
-              "li",
-              {},
-              h("span", {}, `${i.label}: ${i.message}`),
-              h("button", { type: "button", class: "small plain", "data-fk": `retry:${i.key}`, onclick: () => (i.retry ? retryChain(i.retry) : startSweep(true)) }, "Retry"),
-            ),
-          ),
+          items.map((i) => h("li", {}, h("span", {}, `${i.label}: ${i.message}`), h("button", { type: "button", class: "small plain", "data-fk": `retry:${i.key}`, onclick: () => (i.retry ? retryChain(i.retry) : startSweep(true)) }, "Retry"))),
         ),
       ],
       filtersBtn,
@@ -991,11 +1665,12 @@ export function renderScreenerPage() {
         "ul",
         { class: "scr-method-list" },
         h("li", {}, "Each underlying's nearest expiries plus the current monthly are fetched once per sweep, one call at a time within the broker's rate limit; tabs re-rank the same data without new calls."),
+        h("li", {}, "Colour: violet = how much (the ranking: darker is better), red / green = signed money or direction, blue / orange = calls / puts, amber = a warning. Score colours are fixed bands (45 · 55 · 65 · 75); other rankings are relative to the rows shown."),
         h("li", {}, `Unusual means Vol/OI against the median of the same side of the same chain (Indian index options routinely trade 5–50× their OI), with floors on OI, volume, turnover and price; strikes under ${formatInt(O.VOL_OI_MIN_LOTS)} lots of OI get no ratio.`),
         h("li", {}, "Cheap or rich is judged against 20-day realised vol (HV20) from daily closes. IV rank and IV percentile are not shown: there is no IV history yet."),
         h("li", {}, "POP is a log-normal probability on the forward at the leg's IV; it is always shown with the maximum loss. ±1σ = F·(e^{σ√T} − e^{−σ√T})/2 at ATM IV; an ATM straddle ≈ 0.8 × 1σ."),
         costsLi,
-        h("li", {}, "Arbitrage is checked at asks to buy and bids to sell over ATM ±20 strikes, net of the opening charges (a bought box adds settlement STT on its width). Near misses are the closest of each type per chain, within 0.5 pts gross and ₹500/lot net; expiry-day chains are left out by default. Quotes move; re-check in the chain before trading."),
+        h("li", {}, "Arbitrage is checked at asks to buy and bids to sell over ATM ±20 strikes, net of the opening charges (a bought box adds settlement STT on its width). Near misses are the closest of each type per chain, within 0.5 pts gross and ₹500/lot net; expiry-day chains are left out by default. Costs are estimates and quotes move: re-check in the chain before trading."),
         h("li", {}, "Context, not advice. There is no order button here: open a contract in the Option Chain to trade it through the ticket and its safety checks."),
       ),
     );
@@ -1009,16 +1684,17 @@ export function renderScreenerPage() {
   let sheetOpen = null; // { key }
   function select(key, { open = false, force = false, scroll = false } = {}) {
     selKey = key;
+    if (key === null) autoSel = false;
     draw();
     if (scroll) {
       const el = phone() ? cardEls.get(key)?.btn : rowEls.get(key);
-      el?.scrollIntoView({ block: "nearest", behavior: media(MQ_REDUCED).matches ? "instant" : "smooth" });
+      el?.scrollIntoView({ block: "nearest", behavior: reducedMotion() ? "instant" : "smooth" });
       el?.focus({ preventScroll: true });
     }
-    if (open && (!wide() || force) && !wide()) openSheet();
+    if (open && !wide() && (force || true)) openSheet();
   }
   function moveSel(d) {
-    const rows = result?.rows.slice(0, shown) ?? [];
+    const rows = entries.map((e) => e.r);
     if (!rows.length) return;
     const i = rows.findIndex((r) => r.key === selKey);
     const j = i < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, i + d));
@@ -1028,18 +1704,18 @@ export function renderScreenerPage() {
   function drawPane() {
     if (!wide()) return;
     const r = recByKey(selKey);
-    const sig = r ? `${cfg.preset}|${r.key}|${r.fetchedAt}|${cfg.brokerage}|${cfg.wingStrikes}` : `none|${cfg.preset}`;
+    const sig = r ? `${cfg.preset}|${r.key}|${r.fetchedAt}|${cfg.brokerage}|${cfg.wingStrikes}|${isPinned(r.key)}|${r.stale}` : `none|${cfg.preset}`;
     if (sig === paneSig) return;
     paneSig = sig;
-    // With nothing selected the column folds away (CSS) and the results take the full width.
-    detail.classList.toggle("scr-detail-empty", !r);
     if (!r) {
-      paneBody.replaceChildren(h("p", { class: "scr-pane-hint" }, "Select a row to see every number, the score breakdown and actions."));
+      paneBody.replaceChildren(h("div", { class: "scr-pane-empty" }, h("p", { class: "scr-pane-hint" }, "Select a row to see its score, risk, every number and the actions."), chartSlotBox(null)));
       return;
     }
     const keepScroll = paneBody.scrollTop;
+    const sameKey = paneBody.__key === r.key;
+    paneBody.__key = r.key;
     paneBody.replaceChildren(detailView(r, { pane: true }));
-    paneBody.scrollTop = keepScroll;
+    paneBody.scrollTop = sameKey ? keepScroll : 0;
   }
   function openSheet() {
     const r = recByKey(selKey);
@@ -1056,118 +1732,271 @@ export function renderScreenerPage() {
     d.classList.add("scr-sheet");
   }
   const titleOf = (r) => (r.kind === "arb" ? `${r.type} · ${r.chain}` : r.name);
+  const chartSlotBox = (r) => {
+    const box = chartSlot("Price and IV history", r ? `${r.underlying}: your chart engine plugs in here` : "Your chart engine plugs in here");
+    box.classList.add("scr-slot");
+    return box;
+  };
 
-  /** The detail: header, score bars, metrics, risk, costs, warnings, actions. */
+  /** The detail (§6.10): header, score ring, chart slot, risk payoff, risk per lot, warnings, metrics, costs, actions. */
   function detailView(r, { pane }) {
     const p = preset();
     const parts = [];
     const age = Date.now() - (r.fetchedAt ?? Date.now());
     const entry = cache.get(`${r.underlying}|${r.expiry}`);
     const S0 = r.S ?? entry?.chain?.underlyingLtp ?? null;
+    const stale = entry?.stale || age > staleAfter();
+    const pinned = isPinned(r.key);
+    const pinBtn = r.kind === "underlying" && p.kind !== "underlying" ? null : h("button", { type: "button", class: `icon-btn tiny scr-pin${pinned ? " on-pin" : ""}`, "aria-pressed": String(pinned), "aria-label": pinned ? "Unpin this row" : "Pin this row to the top of the tab", title: `${pinned ? "Unpin" : "Pin to the top of this tab"} (P)`, onclick: () => togglePin(r.key) }, h("span", { "aria-hidden": "true" }, pinned ? "★" : "☆"));
+    const titleEl = h("h3", { class: "scr-d-title" }, ...(r.kind === "contract" ? [r.nameParts.head, " ", h("b", {}, r.nameParts.strike), " ", cap(r.right)] : r.kind === "hedge" ? [r.chain, " ", h("b", {}, formatInt(r.strike)), " ", cap("PE")] : [titleOf(r)]));
+    const sub = [S0 !== null ? `Spot ${formatFixed(S0, 2)}` : null, num(r.F) !== null ? `F ${formatFixed(r.F, 2)}` : null, S.daysLabel(r.days), `lot ${formatInt(r.lot)}`].filter(Boolean).join(" · ");
     parts.push(
       h(
         "header",
         { class: "scr-d-head" },
-        pane ? h("div", { class: "scr-d-top" }, h("h3", { class: "scr-d-title" }, titleOf(r)), h("button", { type: "button", class: "icon-btn tiny", "aria-label": "Close", title: "Close", onclick: () => select(null) }, icon("close"))) : null,
-        h("p", { class: "scr-d-sub" }, `${r.underlying} spot ${formatFixed(S0, 2)} · F ${formatFixed(r.F, 2)} · ${S.daysLabel(r.days)} · lot ${formatInt(r.lot)} · as of ${istTime(entry?.asOf)}`),
+        pane ? h("div", { class: "scr-d-top" }, titleEl, h("span", { class: "scr-grow" }), pinBtn, h("button", { type: "button", class: "icon-btn tiny", "aria-label": "Close", title: "Close", onclick: () => select(null) }, icon("close"))) : null,
+        h("div", { class: "scr-d-top" }, h("p", { class: "scr-d-sub" }, sub, stale ? h("span", { class: "ink-warn" }, ` · Data ${S.ageText(age)} old`) : null), pane ? null : h("span", { class: "scr-grow" }), pane ? null : pinBtn),
       ),
     );
     if (r.kind === "contract") {
       const sc = p.id === "buy" ? r.buy : p.id === "sell" ? r.sell : null;
       if (sc) parts.push(scoreBlock(sc, p.id === "buy" ? "Buy score" : "Sell score"));
-      parts.push(warnBlock(r, p.id, age, entry));
+      else parts.push(heroBlock(r, p));
+    } else parts.push(heroBlock(r, p));
+    parts.push(h("div", { class: "scr-d-slot" }, chartSlotBox(r)));
+    if (r.kind === "contract") {
+      const side = p.id === "sell" ? "SELL" : "BUY";
+      parts.push(riskChart(r, side, p.id === "sell" ? r.wing : null));
       parts.push(riskBox(r, p.id));
-      parts.push(section("Metrics", kvGrid(contractMetrics(r))));
+      parts.push(warnBlock(r, p.id, age, entry));
+      parts.push(...metricGroups(contractGroups(r)));
       parts.push(costsBlock(r.costsRt, "Round-trip costs per lot at mid"));
     } else if (r.kind === "underlying") {
-      parts.push(section("Metrics", kvGrid(overviewMetrics(r))));
+      parts.push(warnBlock(r, p.id, age, entry));
+      parts.push(...metricGroups(overviewGroups(r)));
     } else if (r.kind === "hedge") {
-      parts.push(section("Metrics", kvGrid(hedgeMetrics(r))));
+      parts.push(warnBlock(r, p.id, age, entry));
+      parts.push(...metricGroups([["Hedge", hedgeMetrics(r)]]));
     } else if (r.kind === "arb") {
-      parts.push(section("Legs", r.legs.length ? h("ul", { class: "scr-legs" }, r.legs.map((l) => h("li", {}, `${l.side === "BUY" ? "Buy" : "Sell"} ${l.qty > 1 ? `${formatInt(l.qty)}× ` : ""}${formatInt(l.strike)} ${l.right} @ ${formatFixed(l.price, 2)}`))) : h("p", { class: "scr-d-note" }, r.legsText)));
+      parts.push(section("Legs", r.legs.length ? h("div", { class: "scr-legs-t big" }, legTokens(r.legs)) : h("p", { class: "scr-d-note" }, r.legsText)));
       if (r.costs) {
-        parts.push(section("Edge per lot", kvGrid([["Gross", `${formatSigned(r.gross, 2)} pts · ${formatRupee(r.grossLot, 0)}`], ["Costs", `-${formatRupee(r.costsTotal, 0)}`], ["Net", `${r.net > 0 ? "+" : ""}${formatRupee(r.net, 0)}`, r.net > 0 ? "pos" : "neg"], ["Capital", r.capital === null ? "Margin depends on broker" : formatRupee(r.capital, 0)], ["Status", r.status]])));
+        parts.push(section("Edge per lot", kvGrid([["Gross", `${formatSigned(r.gross, 2)} pts · ${formatRupee(r.grossLot, 0)}`, r.gross > 0 ? "pos" : r.gross < 0 ? "neg" : null], ["Costs", `-${formatRupee(r.costsTotal, 0)}`, "label"], ["Net", `${r.net > 0 ? "+" : ""}${formatRupee(r.net, 0)}`, r.net > 0 ? "pos" : "neg"], ["Capital", r.capital === null ? "Margin depends on broker" : formatRupee(r.capital, 0)]])));
         parts.push(costsBlock(r.costs, "Opening charges, one lot of every leg"));
       }
       parts.push(h("p", { class: "scr-d-note" }, r.type === "Calendar" ? "Model-based: total implied variance falls between these expiries. There is no executable edge to net; check the term structure." : "Costs are estimates. Quotes move; re-check in the chain before trading."));
+      parts.push(warnBlock(r, p.id, age, entry));
     }
-    if (r.kind !== "contract") parts.push(warnBlock(r, p.id, age, entry));
     parts.push(actions(r, p.id));
-    return h("div", { class: `scr-detail-body${pane ? "" : " in-sheet"}` }, parts.filter(Boolean));
+    const body = h("div", { class: `scr-detail-body${pane ? "" : " in-sheet"}` }, parts.filter(Boolean));
+    return body;
   }
   function warnBlock(r, pid, age, entry) {
     const warns = warnings(r, pid, age, entry);
     return warns.length ? section("Warnings", h("ul", { class: "scr-warns" }, warns.map((w) => h("li", {}, icon("warn"), h("span", {}, w))))) : null;
   }
-  const section = (title, body) => h("section", { class: "scr-d-sec" }, h("h4", {}, title), body);
-  const kvGrid = (rows) => h("dl", { class: "scr-kv" }, rows.filter(Boolean).flatMap(([k, v, cls]) => [h("dt", {}, k), h("dd", { class: cls ? `ink-${cls}` : null }, v ?? DASH)]));
+  const section = (title, body, cls = "") => h("section", { class: `scr-d-sec ${cls}`.trim() }, h("h4", {}, title), body);
+  const kvGrid = (rows, cls = "") => h("dl", { class: `scr-kv ${cls}`.trim() }, rows.filter(Boolean).map(([k, v, ink]) => h("div", {}, h("dt", {}, k), h("dd", { class: ink ? `ink-${ink}` : null }, v ?? DASH))));
+  const metricGroups = (groups) => groups.map(([title, rows]) => section(title, kvGrid(rows, "two"), "scr-d-grp"));
+  /** The score ring (56 px) and the parts, each bar as long as its weight and filled by its value (§6.10). */
   function scoreBlock(sc, title) {
+    const C = 2 * Math.PI * 24;
+    const st = S.scoreStep(sc.score);
+    const arc = svgEl("circle", { class: "scr-ring-arc", cx: 28, cy: 28, r: 24, "stroke-dasharray": String(C), "stroke-dashoffset": String(C * (1 - lastRing / 100)), transform: "rotate(-90 28 28)", "data-seq-stroke": String(st) });
+    const ring = svgEl("svg", { class: "scr-ring", viewBox: "0 0 56 56", width: 56, height: 56, "aria-hidden": "true" }, svgEl("circle", { class: "scr-ring-track", cx: 28, cy: 28, r: 24 }), arc);
+    const target = C * (1 - Math.max(0, Math.min(100, sc.score ?? 0)) / 100);
+    lastRing = sc.score ?? 0;
+    requestAnimationFrame(() => requestAnimationFrame(() => arc.setAttribute("stroke-dashoffset", String(target))));
+    const maxW = Math.max(...sc.parts.map((p) => p.weight));
+    const rows = sc.parts.map((pt) => {
+      const track = h("span", { class: `scr-pt-t${pt.value === null ? " na" : ""}`, title: pt.value === null ? "No data: its weight is shared by the others" : `${pt.label}: ${formatFixed(pt.value, 2)} of 1` });
+      track.style.setProperty("--w", String(Math.round((pt.weight / maxW) * 1000) / 1000));
+      const fill = h("span", { class: "scr-pt-f" });
+      fill.style.setProperty("--v", String(pt.value === null ? 0 : Math.round(pt.value * 1000) / 1000));
+      track.append(fill);
+      return h("li", {}, h("span", { class: "scr-pt-l" }, pt.label), h("span", { class: "scr-pt-box" }, track), h("span", { class: "scr-pt-w" }, pt.value === null ? "n/a · weight shared" : `${formatInt(pt.weight * 100)}%`));
+    });
     return h(
       "section",
       { class: "scr-d-sec scr-score" },
       h("h4", {}, title),
-      h("div", { class: "scr-score-row" }, h("strong", { class: "scr-score-n" }, formatInt(sc.score)), sc.penalties.length ? h("span", { class: "scr-score-pen" }, `× 0.5: ${sc.penalties.join(", ")}`) : null),
       h(
-        "ul",
-        { class: "scr-bars" },
-        sc.parts.map((pt) => {
-          const fill = h("span", {});
-          fill.style.width = `${Math.round((pt.value ?? 0) * 100)}%`;
-          return h("li", {}, h("span", { class: "scr-bar-l" }, pt.label), h("span", { class: "scr-bar-t", "aria-hidden": "true" }, fill), h("span", { class: "scr-bar-v" }, pt.value === null ? "n/a · weight redistributed" : `${formatFixed(pt.value, 2)} × ${formatInt(pt.weight * 100)}%`));
-        }),
+        "div",
+        { class: "scr-score-row" },
+        h("div", { class: "scr-ring-box", role: "img", "aria-label": `${title} ${formatInt(sc.score)} of 100` }, ring, h("strong", { class: "scr-ring-n" }, formatInt(sc.score))),
+        h("ul", { class: "scr-parts" }, rows),
       ),
+      sc.penalties.length ? h("p", { class: "scr-score-pen" }, h("span", { "aria-hidden": "true" }, "⚠ "), `Halved: ${sc.penalties.join(", ").toLowerCase()}`) : null,
     );
   }
-  function contractMetrics(r) {
+  /** Tabs without a score: the ranking metric as a 22 px hero, with its chip or heat. */
+  function heroBlock(r, p) {
+    const c = p.columns.find((x) => x.id === p.defaults.sort.by);
+    if (!c) return null;
+    const val = c.fmt(c.get(r), r) ?? DASH;
+    const v = h("strong", { class: "scr-hero-v" }, val);
+    const st = c.viz?.kind === "seq" ? (c.viz.scale === "score" ? S.scoreStep(c.get(r)) : heatOfSelected(c, r)) : null;
+    if (st) v.dataset.seq = String(st);
+    if (c.viz?.kind === "div" && num(c.get(r)) !== null) v.dataset.div = String(S.signedHeat([c.get(r), ...(result?.rows ?? []).map((x) => c.get(x))])[0] ?? 0);
+    const extra = [];
+    if (r.kind === "underlying") extra.push(chipEl(S.verdictChip(r.verdict)));
+    if (r.kind === "arb") extra.push(chipEl(S.statusChip(r.status)));
+    if (r.kind === "contract" && r.tag) extra.push(chipEl(S.buildupChip(r.tag)), r.reading ? h("span", { class: "scr-hero-r" }, r.reading.text) : null);
+    const rank = result?.rankOf?.get(r.key);
+    return h("section", { class: "scr-d-sec scr-hero" }, h("h4", {}, c.label), h("div", { class: "scr-hero-row" }, v, ...extra.filter(Boolean), rank ? h("span", { class: "scr-hero-rank" }, `Rank ${formatInt(rank)} of ${formatInt(result.total)}`) : null));
+  }
+  function heatOfSelected(c, r) {
+    const rows = (result?.rows ?? []).slice(0, Math.max(shown, 50));
+    const key = c.sortGet ?? c.get;
+    const steps = S.rankHeat(rows.map((x) => key(x)), c.dir);
+    const i = rows.findIndex((x) => x.key === r.key);
+    return i < 0 ? null : steps[i] || null;
+  }
+  /** One lot's expiry payoff with the ±1σ band, spot, breakeven and (Sell) the wing overlay (§6.10 item 4). */
+  function riskChart(r, side, wing) {
+    const c = S.riskCurve(r, { side, wing });
+    if (!c) return null;
+    const W = 320;
+    const H = 116;
+    const pt = 18;
+    const pb = 16;
+    const all = [...c.ys, ...(c.wing ?? [])];
+    let ymin = Math.min(0, ...all);
+    let ymax = Math.max(0, ...all);
+    // Keep the small side readable: the large side is cut at 3× it (the line runs off the edge, "unlimited" says so).
+    const small = Math.min(Math.abs(ymin), Math.abs(ymax)) || Math.max(Math.abs(ymin), Math.abs(ymax)) / 3;
+    ymin = Math.max(ymin, -3 * small);
+    ymax = Math.min(ymax, 3 * small);
+    const span = ymax - ymin || 1;
+    ymin -= span * 0.08;
+    ymax += span * 0.08;
+    const X = (x) => ((x - c.lo) / (c.hi - c.lo)) * W;
+    const Y = (y) => pt + (1 - (y - ymin) / (ymax - ymin)) * (H - pt - pb);
+    const r1 = (v) => Math.round(v * 10) / 10;
+    const path = (ys) => ys.map((y, i) => `${i ? "L" : "M"}${r1(X(c.xs[i]))},${r1(Y(y))}`).join("");
+    const area = (sign) => {
+      const ys = c.ys.map((y) => (sign > 0 ? Math.max(0, y) : Math.min(0, y)));
+      return `${path(ys)}L${W},${r1(Y(0))}L0,${r1(Y(0))}Z`;
+    };
+    const svg = svgEl("svg", { class: "scr-risk-svg", viewBox: `0 0 ${W} ${H}`, role: "img" });
+    const clipId = `scr-clip-${++riskSeq}`;
+    svg.append(svgEl("defs", {}, svgEl("clipPath", { id: clipId }, svgEl("rect", { x: 0, y: pt, width: W, height: H - pt - pb }))));
+    const plot = svgEl("g", { "clip-path": `url(#${clipId})` });
+    const bx0 = X(c.band[0]);
+    const bx1 = X(c.band[1]);
+    svg.append(svgEl("rect", { class: "scr-risk-band", x: bx0, y: pt, width: Math.max(0, bx1 - bx0), height: H - pt - pb }));
+    svg.append(svgEl("text", { class: "dv-tick", x: bx0 + 3, y: H - 4 }, "−1σ"), svgEl("text", { class: "dv-tick", x: bx1 - 3, y: H - 4, "text-anchor": "end" }, "+1σ"));
+    const profit = svgEl("path", { class: "scr-risk-pos", d: area(1) });
+    const loss = svgEl("path", { class: "scr-risk-neg", d: area(-1) });
+    plot.append(profit, loss);
+    svg.append(plot, svgEl("line", { class: "dv-zero", x1: 0, x2: W, y1: Y(0), y2: Y(0) }));
+    let wingLine = null;
+    if (c.wing) plot.append((wingLine = svgEl("path", { class: "dv-line dash scr-risk-wing", d: path(c.wing) })));
+    const line = svgEl("path", { class: "dv-line scr-risk-line", d: path(c.ys) });
+    plot.append(line);
+    svg.append(plot);
+    // Breakeven tick on the zero line.
+    const bx = X(c.be);
+    svg.append(svgEl("line", { class: "scr-risk-be", x1: bx, x2: bx, y1: Y(0) - 5, y2: Y(0) + 5 }), svgEl("text", { class: "dv-tick scr-risk-bet", x: r.right === "CE" ? Math.max(48, bx - 5) : Math.min(W - 48, bx + 5), y: Y(0) + (Y(0) > H - 30 ? -6 : 13), "text-anchor": r.right === "CE" ? "end" : "start" }, `BE ${formatInt(c.be)}`));
+    if (c.spot !== null && c.spot > c.lo && c.spot < c.hi) {
+      const sx = X(c.spot);
+      svg.append(svgEl("line", { class: "dv-spot-line", x1: sx, x2: sx, y1: pt, y2: H - pb }));
+      spotPill(svg, sx, `Spot ${formatInt(c.spot)}`, { y: 0, width: W });
+    }
+    if (c.unlimited) svg.append(svgEl("text", { class: `scr-risk-unl ${c.unlimited}`, x: W - 2, y: c.unlimited === "loss" ? H - pb - 4 : pt + 12, "text-anchor": "end" }, `→ unlimited ${c.unlimited}`));
+    const mp = c.maxProfit === null ? "unlimited" : formatRupee(c.maxProfit, 0);
+    const ml = c.maxLoss === null ? `unlimited ${r.right === "CE" ? "above" : "below"}` : formatRupee(c.maxLoss, 0);
+    svg.setAttribute("aria-label", `${side === "SELL" ? "Short" : "Long"} one lot at expiry: max profit ${mp}, breakeven ${formatInt(c.be)}, max loss ${ml}`);
+    if (!revealed.has(`${r.key}|${side}`)) {
+      revealed.add(`${r.key}|${side}`);
+      requestAnimationFrame(() => lineReveal([line, ...(wingLine ? [wingLine] : [])], [profit, loss]));
+    }
+    const legendItems = [h("li", {}, h("span", { class: "dv-key line", "data-dv": "spot" }), side === "SELL" ? "Short, one lot" : "Long, one lot")];
+    if (c.wing) legendItems.push(h("li", {}, h("span", { class: "dv-key dash", "data-dv": "today" }), `With the ${formatInt(wing.wingStrike)} wing`));
+    legendItems.push(h("li", {}, h("span", { class: "dv-key", "data-dv": "iv" }), "±1σ"));
+    return section("At expiry", h("div", { class: "scr-risk" }, h("ul", { class: "dv-legend scr-risk-lg", "aria-hidden": "true" }, legendItems), svg), "scr-risk-sec");
+  }
+  let riskSeq = 0;
+  /** Contract metrics in three groups (§6.10 item 7), values coloured by meaning. */
+  function contractGroups(r) {
+    const signed = (v) => (num(v) === null ? null : v > 0 ? "pos" : v < 0 ? "neg" : null);
     return [
-      ["Bid / ask", `${formatFixed(r.bid, 2)} / ${formatFixed(r.ask, 2)}`],
-      ["Mid", `${formatFixed(r.mid, 2)}${r.priceQ === "ltp" ? " (LTP)" : ""}`],
-      ["Spread", formatPercent(r.spread, 1)],
-      ["Liquidity", num(r.liq) === null ? DASH : `${formatInt(r.liq)}/5`],
-      ["IV", `${formatFixed(r.iv, 1)}${r.ivFallback ? " (ATM IV used)" : ""}`],
-      ["IV − HV20", num(r.ivHv) === null ? DASH : `${formatSigned(r.ivHv, 1)} pts`],
-      ["vs ATM IV", num(r.vsAtm) === null ? DASH : `${formatSigned(r.vsAtm, 1)} pts`],
-      ["Neighbours IV", formatFixed(r.nbrIv, 1)],
-      ["Δ / Γ", `${formatFixed(r.delta, 2)} / ${formatFixed(r.gamma, 4)}`],
-      ["θ ₹/day per lot", formatRupee(r.thetaLot, 0)],
-      ["θ %/day", formatPercent(r.thetaPct, 1)],
-      ["Vega %", formatPercent(r.vegaPct, 1)],
-      ["σ OTM", num(r.sigmaOtm) === null ? DASH : `${formatFixed(r.sigmaOtm, 2)}σ`],
-      ["Breakeven (long)", formatFixed(r.beLong, 2)],
-      ["BE σ", num(r.beSigma) === null ? DASH : `${formatFixed(r.beSigma, 2)}σ`],
-      ["Leverage", num(r.leverage) === null ? DASH : `${formatFixed(r.leverage, 1)}×`],
-      ["Volume", `${formatCompact(r.volume)} · ${formatCompact(r.volLots)} lots`],
-      ["OI", `${formatCompact(r.oi)} · ${formatCompact(r.oiLots)} lots`],
-      ["OI change", `${formatCompact(r.oiChange, { signed: true })}${num(r.oiChgPct) !== null ? ` · ${formatSigned(r.oiChgPct, 1)}%` : ""}`],
-      ["Vol/OI", num(r.volOi) === null ? DASH : `${formatFixed(r.volOi, 2)}× · ${num(r.volOiRel) === null ? DASH : formatFixed(r.volOiRel, 2)}× median`],
-      ["Turnover", num(r.turnover) === null ? DASH : `₹${formatCompact(r.turnover)}`],
-      ["Build-up", r.reading?.text ?? DASH],
-      ["Price change", num(r.changePct) === null ? DASH : `${formatSigned(r.changePct, 1)}%`, r.changePct > 0 ? "pos" : r.changePct < 0 ? "neg" : null],
+      [
+        "Price",
+        [
+          ["Bid", formatFixed(r.bid, 2)],
+          ["Ask", formatFixed(r.ask, 2)],
+          ["Mid", `${formatFixed(r.mid, 2)}${r.priceQ === "ltp" ? " (LTP)" : ""}`],
+          ["Spread", formatPercent(r.spread, 1), r.spread > 3 ? "warn" : null],
+          ["IV", `${formatFixed(r.iv, 1)}${r.ivFallback ? " (ATM)" : ""}`],
+          ["IV − HV20", num(r.ivHv) === null ? DASH : `${formatSigned(r.ivHv, 1)} pts`, r.ivHv > 0 ? "iv" : null],
+          ["vs ATM IV", num(r.vsAtm) === null ? DASH : `${formatSigned(r.vsAtm, 1)} pts`],
+          ["Neighbours IV", formatFixed(r.nbrIv, 1)],
+          ["Liquidity", num(r.liq) === null ? DASH : `${formatInt(r.liq)}/5`],
+        ],
+      ],
+      [
+        "Greeks",
+        [
+          ["Δ", formatFixed(r.delta, 2)],
+          ["Γ", formatFixed(r.gamma, 4)],
+          ["θ ₹/day", formatRupee(r.thetaLot, 0)],
+          ["θ %/day", formatPercent(r.thetaPct, 1), r.thetaPct > 8 ? "warn" : null],
+          ["Vega %", formatPercent(r.vegaPct, 1)],
+          ["σ OTM", num(r.sigmaOtm) === null ? DASH : `${formatFixed(r.sigmaOtm, 2)}σ`, num(r.sigmaOtm) !== null && r.sigmaOtm < 1 ? "warn" : null],
+          ["Breakeven", formatFixed(r.beLong, 0)],
+          ["BE σ", num(r.beSigma) === null ? DASH : `${formatFixed(r.beSigma, 2)}σ`],
+          ["Leverage", num(r.leverage) === null ? DASH : `${formatFixed(r.leverage, 1)}×`],
+        ],
+      ],
+      [
+        "Activity",
+        [
+          ["Volume", `${formatCompact(r.volume)} · ${formatCompact(r.volLots)} lots`],
+          ["OI", `${formatCompact(r.oi)} · ${formatCompact(r.oiLots)} lots`],
+          ["OI chg", `${formatCompact(r.oiChange, { signed: true })}${num(r.oiChgPct) !== null ? ` · ${formatSigned(r.oiChgPct, 1)}%` : ""}`, signed(r.oiChange)],
+          ["Vol/OI", num(r.volOi) === null ? DASH : `${formatFixed(r.volOi, 2)}×`],
+          ["× median", num(r.volOiRel) === null ? DASH : `${formatFixed(r.volOiRel, 2)}×`],
+          ["Turnover", num(r.turnover) === null ? DASH : `₹${formatCompact(r.turnover)}`],
+          ["Build-up", r.tag && S.buildupChip(r.tag) ? h("span", { class: "scr-kv-chip" }, chipEl(S.buildupChip(r.tag)), r.reading?.action ?? "") : DASH],
+          ["Price chg", num(r.changePct) === null ? DASH : `${formatSigned(r.changePct, 1)}%`, signed(r.changePct)],
+        ],
+      ],
     ];
   }
+  /** Risk per lot: profit green, loss red, "Unlimited" red and bold, POP as a bar (§6.10 item 5). */
   function riskBox(r, pid) {
     const lot = r.lot;
-    const buy = pid !== "sell";
-    const sell = pid !== "buy";
     const rows = [];
-    if (buy && r.buyPrice !== null) {
-      rows.push(["Buy: max loss / lot", formatRupee(r.buyPrice * lot, 0)]);
-      rows.push(["Buy: max profit / lot", r.right === "CE" ? "Unlimited" : formatRupee((r.strike - r.buyPrice) * lot, 0)]);
-      rows.push(["Buy: POP", num(r.popLong) === null ? DASH : formatPercent(r.popLong * 100, 0)]);
-    }
+    const popRow = (label, v) => {
+      if (num(v) === null) return [label, DASH];
+      const bar = hbar({ value: v, max: 1, side: "pos" });
+      return [label, h("span", { class: "scr-kv-pop" }, h("span", { class: "dv-track" }, bar), formatPercent(v * 100, 0))];
+    };
+    const unl = () => h("b", { class: "ink-neg" }, "Unlimited");
+    const sell = pid === "sell";
     if (sell && r.sellPrice !== null) {
-      rows.push(["Sell: max profit / lot", formatRupee(r.sellPrice * lot, 0)]);
-      rows.push(["Sell: max loss / lot", r.right === "CE" ? "Unlimited" : formatRupee((r.strike - r.sellPrice) * lot, 0)]);
-      rows.push(["Sell: POP", num(r.popShort) === null ? DASH : formatPercent(r.popShort * 100, 0)]);
-      if (r.wing) rows.push([`With wing ${formatInt(r.wing.wingStrike)} ${r.right}`, `credit ${formatFixed(r.wing.credit, 2)} · max loss ${formatRupee(r.wing.maxLoss, 0)} · R:R 1:${formatFixed(r.wing.rr, 1)}`]);
+      rows.push(["Max profit", formatRupee(r.sellPrice * lot, 0), "pos"]);
+      rows.push(["Max loss", r.right === "CE" ? unl() : formatRupee((r.strike - r.sellPrice) * lot, 0), "neg"]);
+      rows.push(popRow("POP", r.popShort));
+      if (r.wing) {
+        rows.push([`Wing`, `${formatInt(r.wing.wingStrike)} ${r.right}`]);
+        rows.push(["Credit · R:R", `${formatFixed(r.wing.credit, 2)} · 1:${formatFixed(r.wing.rr, 1)}`]);
+        rows.push(["Max loss with wing", formatRupee(r.wing.maxLoss, 0), "neg"]);
+      }
+    } else if (r.buyPrice !== null) {
+      rows.push(["Max loss", formatRupee(r.buyPrice * lot, 0), "neg"]);
+      rows.push(["Max profit", r.right === "CE" ? h("b", { class: "ink-pos" }, "Unlimited") : formatRupee((r.strike - r.buyPrice) * lot, 0), "pos"]);
+      rows.push(popRow("POP", r.popLong));
     }
     rows.push(["Chance of touch", num(r.touch) === null ? DASH : formatPercent(r.touch * 100, 0)]);
-    return h("section", { class: "scr-d-sec scr-risk" }, h("h4", {}, "Risk per lot"), kvGrid(rows));
+    return section(sell ? "Risk per lot · short" : "Risk per lot · long", kvGrid(rows), "scr-risk-kv");
   }
   function costsBlock(c, title) {
     if (!c) return null;
-    return section(
-      title,
+    return h(
+      "details",
+      { class: "scr-d-costs" },
+      h("summary", {}, h("span", {}, title), h("b", {}, formatRupee(c.total, 2))),
       kvGrid([
         ["Brokerage", formatRupee(c.brokerage, 2)],
         ["STT", formatRupee(c.stt, 2)],
@@ -1175,38 +2004,59 @@ export function renderScreenerPage() {
         ["SEBI", formatRupee(c.sebi, 2)],
         ["Stamp", formatRupee(c.stamp, 2)],
         ["GST", formatRupee(c.gst, 2)],
-        ["Total", formatRupee(c.total, 2)],
-      ]),
+      ], "two"),
     );
   }
-  function overviewMetrics(r) {
+  function overviewGroups(r) {
+    const signed = (v) => (num(v) === null ? null : v > 0 ? "pos" : v < 0 ? "neg" : null);
     return [
-      ["ATM strike", formatInt(r.atmStrike)],
-      ["ATM IV", formatFixed(r.atmIv, 1)],
-      ["Since first scan", num(r.ivChg) === null ? DASH : `${formatSigned(r.ivChg, 1)} pts since ${S.istHm(r.baseAt)}`],
-      ["HV20", num(r.hv20) === null ? "No daily history" : formatFixed(r.hv20, 1)],
-      ["IV/HV", num(r.ivHvRatio) === null ? DASH : `${formatFixed(r.ivHvRatio, 2)}×`],
-      ["Verdict", S.verdictText(r.verdict)],
-      ["Skew 25Δ", r.skewInfo ? `${formatSigned(r.skew, 1)} pts (${formatInt(r.skewInfo.putStrike)} PE ${formatFixed(r.skewInfo.put, 1)} · ${formatInt(r.skewInfo.callStrike)} CE ${formatFixed(r.skewInfo.call, 1)})` : DASH],
-      ["Term", num(r.term) === null ? DASH : `${formatSigned(r.term, 1)} pts${r.termInfo?.inverted ? " · inverted" : r.termInfo?.vol ? ` · fwd vol ${formatFixed(r.termInfo.vol, 1)}` : ""}`],
-      ["Straddle", `${formatFixed(r.straddle, 2)} · ${formatRupee(r.straddleLot, 0)}/lot · ${formatPercent(r.straddlePct, 2)}`],
-      ["±1σ move", `${formatFixed(r.em, 0)} · ${formatPercent(r.emPct, 2)}`],
-      ["PCR", `${formatFixed(r.pcr, 2)}${num(r.pcrChange) !== null ? ` · chg PCR ${formatFixed(r.pcrChange, 2)}` : ""}`],
-      ["Max pain", `${formatInt(r.maxPain)} (${formatSigned(r.mpDiff, 0)})`],
-      ["Put wall / call wall", `${formatInt(r.support)} / ${formatInt(r.resistance)}`],
-      ["Build-up", r.oiMissing ? "OI change unavailable" : r.build?.text ?? DASH],
-      ["16Δ strikes", r.strangle.pe !== null && r.strangle.ce !== null ? `${formatInt(r.strangle.pe)} PE · ${formatInt(r.strangle.ce)} CE` : DASH],
-      ["Basis", `${formatSigned(r.basis, 1)}${num(r.carry) !== null ? ` · ${formatFixed(r.carry, 1)}%/yr` : ""}`],
+      [
+        "Vol",
+        [
+          ["ATM IV", formatFixed(r.atmIv, 1)],
+          ["Since first scan", num(r.ivChg) === null ? DASH : `${formatSigned(r.ivChg, 1)} pts · ${S.istHm(r.baseAt)}`, signed(r.ivChg)],
+          ["HV20", num(r.hv20) === null ? "No history" : formatFixed(r.hv20, 1)],
+          ["IV/HV", num(r.ivHvRatio) === null ? DASH : `${formatFixed(r.ivHvRatio, 2)}×`, r.ivHvRatio >= 1.2 ? "iv" : null],
+          ["Verdict", S.verdictChip(r.verdict) ? chipEl(S.verdictChip(r.verdict)) : DASH],
+          ["Skew 25Δ", r.skewInfo ? `${formatSigned(r.skew, 1)} pts` : DASH, r.skew > 1 ? "put" : r.skew < -1 ? "call" : null],
+          ["Term", num(r.term) === null ? DASH : `${formatSigned(r.term, 1)} pts${r.termInfo?.inverted ? " · inverted" : ""}`, r.termInfo?.inverted ? "warn" : null],
+          ["Fwd vol", num(r.termInfo?.vol) === null ? DASH : formatFixed(r.termInfo.vol, 1)],
+        ],
+      ],
+      [
+        "Move",
+        [
+          ["Straddle", formatFixed(r.straddle, 2)],
+          ["Per lot", formatRupee(r.straddleLot, 0)],
+          ["Straddle %", formatPercent(r.straddlePct, 2)],
+          ["±1σ move", `${formatFixed(r.em, 0)} · ${formatPercent(r.emPct, 2)}`],
+          ["16Δ strikes", r.strangle.pe !== null && r.strangle.ce !== null ? `${formatInt(r.strangle.pe)} / ${formatInt(r.strangle.ce)}` : DASH],
+          ["Basis", `${formatSigned(r.basis, 1)}${num(r.carry) !== null ? ` · ${formatFixed(r.carry, 1)}%/yr` : ""}`],
+        ],
+      ],
+      [
+        "OI",
+        [
+          ["PCR", formatFixed(r.pcr, 2)],
+          ["ΔOI PCR", formatFixed(r.pcrChange, 2)],
+          ["Max pain", `${formatInt(r.maxPain)} (${formatSigned(r.mpDiff, 0)})`],
+          ["Put wall", formatInt(r.support), "put"],
+          ["Call wall", formatInt(r.resistance), "call"],
+          ["Build-up", r.oiMissing ? "OI change unavailable" : r.build?.text ?? DASH],
+        ],
+      ],
     ];
   }
   function hedgeMetrics(r) {
     return [
-      ["Put", `${formatInt(r.strike)} PE @ ${formatFixed(r.ask, 2)}`],
+      ["Put", `${formatInt(r.strike)} PE @ ${formatFixed(r.ask, 2)}`, "put"],
       ["Depth below F", formatPercent(r.depth, 2)],
-      ["Cost", `${formatPercent(r.costPct, 3)} · ${formatRupee(r.perLot, 0)}/lot · ${formatRupee(r.perDay, 0)}/day`],
+      ["Cost", formatPercent(r.costPct, 3)],
+      ["Per lot", formatRupee(r.perLot, 0)],
+      ["Per day", formatRupee(r.perDay, 0)],
       ["Annualised", formatPercent(r.annualised, 1)],
-      ["Payout at −2σ", num(r.payout) === null ? DASH : `${formatFixed(r.payout, 1)}× premium`],
-      ["Skew paid", num(r.skewPaid) === null ? DASH : `${formatSigned(r.skewPaid, 1)} pts`],
+      ["Payout at −2σ", num(r.payout) === null ? DASH : `${formatFixed(r.payout, 1)}× premium`, r.payout >= 3 ? "pos" : null],
+      ["Skew paid", num(r.skewPaid) === null ? DASH : `${formatSigned(r.skewPaid, 1)} pts`, r.skewPaid > 3 ? "warn" : null],
       ["Lots for notional", r.lots === null ? "Set a notional in Filters" : `${formatInt(r.lots)} · ${formatRupee(r.total, 0)}`],
       ["Liquidity", num(r.liq) === null ? DASH : `${formatInt(r.liq)}/5`],
     ];
@@ -1228,36 +2078,45 @@ export function renderScreenerPage() {
         if (r.right === "CE" && num(r.resistance) !== null) out.push(r.strike > r.resistance ? `Beyond the call wall at ${formatInt(r.resistance)}.` : `Inside the call wall at ${formatInt(r.resistance)}.`);
       }
     }
-    const staleMs = cfg.auto ? cfg.auto * 2000 : 10 * 60_000;
-    if (entry?.stale || age > staleMs) out.push(`Data is ${S.ageText(age)} old.`);
+    if (entry?.stale || age > staleAfter()) out.push(`Data is ${S.ageText(age)} old.`);
     return out;
   }
+  /** Sticky actions: Open in Option Chain first; then the tab's side in its fill; the other side as a text button. */
   function actions(r, pid) {
-    const btns = [];
-    const chainBtn = (strike, side) => h("button", { type: "button", class: "small tinted", onclick: () => openInChain(r.underlying, r.expiry, strike, side) }, icon("chart"), "Open in Option Chain");
+    const chainBtn = (strike, side) => h("button", { type: "button", class: "primary scr-a-chain", onclick: () => openInChain(r.underlying, r.expiry, strike, side) }, icon("chart"), "Open in Option Chain");
+    const fill = (side, label, legs, name = null) => h("button", { type: "button", class: `scr-a-side ${side === "SELL" ? "sell" : "buy"}`, onclick: () => toStrategy(r, legs, name) }, label);
+    const text = (label, legs, name = null) => h("button", { type: "button", class: "plain small scr-a-alt", onclick: () => toStrategy(r, legs, name) }, label);
+    const sec = (label, legs, name = null) => h("button", { type: "button", class: "scr-a-sec", onclick: () => toStrategy(r, legs, name) }, label);
+    let first = null;
+    const grid = [];
+    const alt = [];
     if (r.kind === "contract") {
-      const buy = h("button", { type: "button", class: "small", onclick: () => toStrategy(r, [{ right: r.right, strike: r.strike, side: "BUY" }]) }, icon("plus"), "Add Buy to Strategy");
-      const sell = h("button", { type: "button", class: "small", onclick: () => toStrategy(r, [{ right: r.right, strike: r.strike, side: "SELL" }]) }, icon("plus"), "Add Sell to Strategy");
-      const wing = r.wing && pid !== "buy" ? h("button", { type: "button", class: "small", onclick: () => toStrategy(r, [{ right: r.right, strike: r.strike, side: "SELL" }, { right: r.right, strike: r.wing.wingStrike, side: "BUY" }]) }, icon("plus"), `Sell with ${formatInt(r.wing.wingStrike)} wing`) : null;
-      btns.push(chainBtn(r.strike, r.side), ...(pid === "sell" ? [sell, wing, buy] : [buy, sell, wing]).filter(Boolean));
+      first = chainBtn(r.strike, r.side);
+      const one = (side) => [{ right: r.right, strike: r.strike, side }];
+      if (pid === "sell") {
+        grid.push(fill("SELL", "Sell → Strategy", one("SELL")));
+        if (r.wing) grid.push(sec(`Sell with ${formatInt(r.wing.wingStrike)} wing`, [{ right: r.right, strike: r.strike, side: "SELL" }, { right: r.right, strike: r.wing.wingStrike, side: "BUY" }]));
+        alt.push(text("Add Buy instead", one("BUY")));
+      } else {
+        grid.push(fill("BUY", "Buy → Strategy", one("BUY")));
+        alt.push(text("Add Sell instead", one("SELL")));
+      }
     } else if (r.kind === "underlying") {
-      btns.push(chainBtn(r.atmStrike, "ce"));
+      first = chainBtn(r.atmStrike, "ce");
       const straddle = (side) => [{ right: "CE", strike: r.atmStrike, side }, { right: "PE", strike: r.atmStrike, side }];
-      btns.push(h("button", { type: "button", class: "small", onclick: () => toStrategy(r, straddle("BUY"), "Straddle") }, icon("plus"), "Buy straddle → Strategy"));
-      btns.push(h("button", { type: "button", class: "small", onclick: () => toStrategy(r, straddle("SELL"), "Straddle") }, icon("plus"), "Sell straddle → Strategy"));
+      grid.push(fill("BUY", "Buy straddle", straddle("BUY"), "Straddle"), fill("SELL", "Sell straddle", straddle("SELL"), "Straddle"));
       if (r.strangle.ce !== null && r.strangle.pe !== null) {
         const str = (side) => [{ right: "PE", strike: r.strangle.pe, side }, { right: "CE", strike: r.strangle.ce, side }];
-        btns.push(h("button", { type: "button", class: "small", onclick: () => toStrategy(r, str("BUY"), "16Δ strangle") }, icon("plus"), "Buy 16Δ strangle"));
-        btns.push(h("button", { type: "button", class: "small", onclick: () => toStrategy(r, str("SELL"), "16Δ strangle") }, icon("plus"), "Sell 16Δ strangle"));
+        alt.push(text("Buy 16Δ strangle", str("BUY"), "16Δ strangle"), text("Sell 16Δ strangle", str("SELL"), "16Δ strangle"));
       }
     } else if (r.kind === "hedge") {
-      btns.push(chainBtn(r.strike, "pe"));
-      btns.push(h("button", { type: "button", class: "small", onclick: () => toStrategy(r, [{ right: "PE", strike: r.strike, side: "BUY" }]) }, icon("plus"), "Add Buy to Strategy"));
+      first = chainBtn(r.strike, "pe");
+      grid.push(fill("BUY", "Buy put → Strategy", [{ right: "PE", strike: r.strike, side: "BUY" }]));
     } else if (r.kind === "arb") {
-      if (r.strike !== null) btns.push(chainBtn(r.strike, r.right === "PE" ? "pe" : "ce"));
-      if (r.legs.length) btns.push(h("button", { type: "button", class: "small", onclick: () => toStrategy(r, r.legs.map((l) => ({ right: l.right, strike: l.strike, side: l.side, lots: l.qty ?? 1 })), r.type) }, icon("plus"), "Add legs to Strategy"));
+      if (r.strike !== null) first = chainBtn(r.strike, r.right === "PE" ? "pe" : "ce");
+      if (r.legs.length) grid.push(sec("Add legs to Strategy", r.legs.map((l) => ({ right: l.right, strike: l.strike, side: l.side, lots: l.qty ?? 1 })), r.type));
     }
-    return h("div", { class: "scr-d-actions" }, btns);
+    return h("div", { class: "scr-d-actions" }, first, grid.length ? h("div", { class: `scr-a-grid n${grid.length}` }, grid) : null, alt.length ? h("div", { class: "scr-a-alts" }, alt) : null);
   }
 
   // ── Hand-off to the desk (mcb.dashboard.desk) ──
@@ -1284,37 +2143,49 @@ export function renderScreenerPage() {
     if (sheetOpen) document.querySelector("#dialog .sheet-close")?.click();
   }
 
-  // ── Filters sheet ──
+  // ── Filters sheet: a live "Show N", per-filter "removes N", a dot on changed values (§8.4) ──
   function openFilters(focusId = null) {
     const p = preset();
     const host = h("div", { class: "scr-filters" });
+    let showBtn = null;
+    let lastN = null;
     const build = () => {
       const f = filters();
       const ctx = { expiries: scannedExpiries() };
-      const rows = [...p.filters.map((id) => filterControl(id, f[id], render, ctx)), ...(p.id === "hedge" ? [notionalControl(render)] : [])];
+      // Leave-one-out over the current tab: what each filter alone removes.
+      const loo = S.runPreset(presetRecords(p), p, f, cfg.sort[p.id], { ctx, leaveOneOut: true });
+      const n = loo.total;
+      const removes = new Map(loo.funnel.filter((x) => x.without !== undefined).map((x) => [x.filter, Math.max(0, x.without - n)]));
+      const rows = [...p.filters.map((id) => filterControl(id, f[id], render, ctx, removes.get(id) ?? 0)), ...(p.id === "hedge" ? [notionalControl(render)] : [])];
       // Keys for focus: "<filter>:<n>" on each control, so a rebuild puts focus back where it was.
       for (const row of rows) row.querySelectorAll("input, button, select").forEach((el, i) => el.setAttribute("data-fk", `${row.dataset.filter}:${i}`));
-      swapKeepFocus(host, [h("p", { class: "scr-f-intro" }, `${p.label}: changes apply as you go. ${formatInt(recompute().total)} match.`), ...rows]);
+      swapKeepFocus(host, [h("p", { class: "scr-f-intro" }, `${p.label}: changes apply as you go.`), ...rows]);
+      if (showBtn) {
+        const text = n ? `Show ${formatInt(n)}` : "No matches";
+        if (lastN === null || reducedMotion() || !n) showBtn.textContent = text;
+        else countUp(showBtn, lastN, n, (v) => `Show ${formatInt(Math.round(v))}`, text);
+        lastN = n;
+      }
     };
     // Rebuild after the event that changed a value has finished moving focus (Tab, Enter or a tap), then refocus.
-    let queued = false;
+    let queuedBuild = false;
     const render = () => {
-      if (queued) return;
-      queued = true;
+      if (queuedBuild) return;
+      queuedBuild = true;
       setTimeout(() => {
-        queued = false;
+        queuedBuild = false;
         if (host.isConnected) build();
       }, 0);
     };
-    build();
     modal({
       title: "Filters",
       body: host,
       buttons: [
         { label: "Reset", cls: "", onClick: () => (resetFilters(), render(), false) },
-        { label: "Done", cls: "primary", value: true },
+        { label: "Show", cls: "primary scr-show", value: true, ref: (b) => (showBtn = b) },
       ],
     }).then(() => filtersBtn.isConnected && filtersBtn.focus({ preventScroll: true }));
+    build();
     // Focus a field only when a chip asked for it; otherwise Close, so no soft keyboard covers the sheet on touch.
     if (focusId) requestAnimationFrame(() => host.querySelector(`[data-filter="${focusId}"] :is(input, button, select)`)?.focus());
     else document.querySelector("#dialog .sheet-close")?.focus({ preventScroll: true });
@@ -1326,16 +2197,24 @@ export function renderScreenerPage() {
       setCfg({ hedgeNotional: v && v > 0 ? v : null });
       render();
     });
-    return h("div", { class: "scr-f", "data-filter": "notional" }, h("span", { class: "scr-f-l" }, "Notional to hedge (₹)", h("small", {}, "Index notional only; scale by your portfolio beta")), input);
+    return h("div", { class: "scr-f", "data-filter": "notional" }, h("span", { class: "scr-f-l" }, h("span", { class: "scr-f-name" }, "Notional to hedge (₹)"), h("small", {}, "Index notional only; scale by your portfolio beta")), input);
   }
-  function filterControl(id, v, render, ctx) {
+  function filterControl(id, v, render, ctx, removes = 0) {
     const f = S.FILTERS[id];
+    const p = preset();
+    const changed = JSON.stringify(v) !== JSON.stringify(S.filterDefault(p, id));
     const apply = (nv) => {
       setFilter(id, nv);
       render();
     };
-    const numIn = (val, label, onSet) => {
-      const input = h("input", { type: "number", inputmode: "decimal", step: String(f.step ?? 1), value: val ?? "", placeholder: "Any", "aria-label": label });
+    const label = h(
+      "span",
+      { class: "scr-f-l" },
+      h("span", { class: "scr-f-name" }, changed ? h("i", { class: "scr-f-dot", title: "Changed from this tab's default", "aria-label": "changed" }) : null, f.label),
+      removes > 0 ? h("small", { class: "scr-f-rm" }, `removes ${formatInt(removes)}`) : null,
+    );
+    const numIn = (val, lbl, onSet) => {
+      const input = h("input", { type: "number", inputmode: "decimal", step: String(f.step ?? 1), value: val ?? "", placeholder: "Any", "aria-label": lbl });
       input.addEventListener("change", () => {
         if (input.value.trim() === "") return onSet(null);
         const x = num(input.value);
@@ -1353,18 +2232,11 @@ export function renderScreenerPage() {
     else if (f.type === "range") {
       const [lo, hi] = v ?? [null, null];
       // A crossing edit carries the other end with it (never a silent swap): from 0.95 with to 0.30 gives 0.95–0.95.
-      ctl = h(
-        "span",
-        { class: "scr-f-num" },
-        numIn(lo, `${f.label} from`, (x) => apply([x, x !== null && hi !== null && x > hi ? x : hi])),
-        h("span", { class: "scr-f-op" }, "to"),
-        numIn(hi, `${f.label} to`, (x) => apply([x !== null && lo !== null && x < lo ? x : lo, x])),
-        unit,
-      );
+      ctl = h("span", { class: "scr-f-num" }, numIn(lo, `${f.label} from`, (x) => apply([x, x !== null && hi !== null && x > hi ? x : hi])), h("span", { class: "scr-f-op" }, "to"), numIn(hi, `${f.label} to`, (x) => apply([x !== null && lo !== null && x < lo ? x : lo, x])), unit);
     } else if (f.type === "toggle") {
       const input = h("input", { type: "checkbox", checked: Boolean(v) });
       input.addEventListener("change", () => apply(input.checked));
-      return h("label", { class: "sw-row scr-f", "data-filter": id }, h("span", { class: "sw-text" }, f.label), h("span", { class: "switch" }, input, h("i", { "aria-hidden": "true" })));
+      return h("label", { class: "sw-row scr-f", "data-filter": id }, h("span", { class: "sw-text" }, label), h("span", { class: "switch" }, input, h("i", { "aria-hidden": "true" })));
     } else if (f.type === "seg") {
       const seg = segmented(f.label, f.options, v);
       seg.addEventListener("change", () => seg.value !== v && apply(seg.value));
@@ -1395,7 +2267,7 @@ export function renderScreenerPage() {
         }),
       );
     }
-    return h("div", { class: "scr-f", "data-filter": id }, h("span", { class: "scr-f-l" }, f.label), ctl);
+    return h("div", { class: `scr-f${f.type === "multi" ? " multi" : ""}`, "data-filter": id }, label, ctl);
   }
 
   // ── Customise: columns per preset and scan settings ──
@@ -1458,13 +2330,7 @@ export function renderScreenerPage() {
       render();
     });
     return [
-      h(
-        "section",
-        {},
-        h("h3", {}, `${p.label} columns`),
-        h("div", { class: "col-list" }, colRows),
-        h("button", { type: "button", class: "small plain", onclick: () => setCols(p.columns.map((c) => c.id)) }, "Reset columns"),
-      ),
+      h("section", {}, h("h3", {}, `${p.label} columns`), h("div", { class: "col-list" }, colRows), h("button", { type: "button", class: "small plain", onclick: () => setCols(p.columns.map((c) => c.id)) }, "Reset columns")),
       h(
         "section",
         {},
@@ -1472,10 +2338,8 @@ export function renderScreenerPage() {
         seg("Expiries per underlying", [["1", "1"], ["2", "2"], ["3", "3"]], cfg.expiries, (v) => (setCfg({ expiries: Number(v) }, { rescan: true }), render())),
         h("label", { class: "sw-row" }, h("span", { class: "sw-text" }, "Include the monthly", h("small", {}, "The current month's last expiry")), h("span", { class: "switch" }, monthly, h("i", { "aria-hidden": "true" }))),
         seg("Strikes each side", S.STRIKE_CHOICES.map((x) => [String(x), `±${x}`]), cfg.strikes, (v) => (setCfg({ strikes: Number(v) }, { rescan: true }), render())),
-        seg("Auto refresh", [["0", "Off"], ["60", "1m"], ["120", "2m"], ["300", "5m"]], cfg.auto, (v) => {
-          setCfg({ auto: Number(v) });
-          drawAuto();
-          startAuto();
+        seg("Auto rescan", S.AUTO_CHOICES.map((x) => [String(x), AUTO_LABEL[x]]), cfg.auto, (v) => {
+          setAutoInterval(Number(v));
           render();
         }),
         seg("Rows shown", S.ROW_CHOICES.map((x) => [String(x), String(x)]), cfg.rows, (v) => {
@@ -1487,6 +2351,12 @@ export function renderScreenerPage() {
         numSet("Wing width (strikes)", cfg.wingStrikes, 1, 10, (x) => (setCfg({ wingStrikes: x }), render()), "Sell rows' defined-risk alternative"),
       ),
     ];
+  }
+  function setAutoInterval(sec) {
+    if (sec > 0) autoOn = true;
+    setCfg({ auto: sec });
+    startAuto();
+    drawStatus();
   }
   function openCustomise() {
     if (closePop) return closePop();
@@ -1564,77 +2434,183 @@ export function renderScreenerPage() {
     });
   }
 
+  // ── Popovers: shortcuts, the live control, the underlyings, the phone sort sheet ──
+  function openKeys() {
+    if (phone()) return;
+    const body = h("dl", { class: "scr-keys-list" }, KEY_HINTS.map(([keys, what]) => h("div", {}, h("dt", {}, keys.map((k) => h("kbd", {}, k))), h("dd", {}, what))));
+    sheetPopover({ trigger: keysBtn, title: "Keyboard shortcuts", body, cls: "scr-keys-pop" });
+  }
+  let livePop = null;
+  let liveBody = null;
+  function drawLiveBody() {
+    if (!liveBody?.isConnected) return;
+    const groups = [...(plan ?? new Map())];
+    const sig = JSON.stringify([groups.map(([u, l]) => [u, l.map((x) => chainState(`${u}|${x.expiry}`))]), scanning, cfg.auto, autoOn, liveText.data]);
+    if (liveBody.__sig === sig) return;
+    liveBody.__sig = sig;
+    const STATE = { done: "Scanned", fetching: "Fetching now", pending: "Waiting", error: "Failed", stale: "Stale" };
+    const grid = groups.length
+      ? h(
+          "div",
+          { class: "scr-cgrid" },
+          groups.map(([u, l]) =>
+            h(
+              "div",
+              { class: "scr-cg-row" },
+              h("span", { class: "scr-cg-u" }, u),
+              h(
+                "span",
+                { class: "scr-cg-dots" },
+                l.map((x) => {
+                  const st = chainState(`${u}|${x.expiry}`);
+                  const iss = issues.get(`${u}|${x.expiry}`);
+                  return h("span", { class: `scr-cg ${st}`, title: `${S.chainName(u, x.expiry)}: ${STATE[st]}${iss ? ` · ${iss.message}` : ""}` }, h("i", { "aria-hidden": "true" }, st === "error" ? "✕" : ""), h("small", {}, `${S.expiryText(x.expiry)}${x.monthly ? " M" : ""}`), h("span", { class: "pal-sr-only" }, STATE[st]));
+                }),
+              ),
+            ),
+          ),
+        )
+      : h("p", { class: "scr-cg-none" }, "Planning the scan…");
+    const seg = segmented("Auto rescan", S.AUTO_CHOICES.map((x) => [String(x), AUTO_LABEL[x]]), String(autoOn ? cfg.auto : 0));
+    seg.addEventListener("change", () => setAutoInterval(Number(seg.value)));
+    const focusRescan = liveBody.contains(document.activeElement) && document.activeElement?.dataset?.fk === "rescan";
+    liveBody.replaceChildren(
+      h("p", { class: `scr-live-now k-${liveEl.dataset.kind}` }, h("i", { class: "scr-ldot", "aria-hidden": "true" }), liveText.data),
+      grid,
+      h("ul", { class: "dv-legend scr-cg-lg", "aria-hidden": "true" }, ["done", "fetching", "pending", "stale", "error"].map((s) => h("li", {}, h("span", { class: `scr-cg ${s}` }, h("i", {}, s === "error" ? "✕" : "")), STATE[s]))),
+      h("div", { class: "scr-live-row" }, h("span", {}, "Auto rescan"), seg),
+      h("button", { type: "button", class: "primary small scr-live-rescan", "data-fk": "rescan", onclick: () => rescan() }, icon("refresh"), "Rescan now", h("kbd", {}, "R")),
+    );
+    if (focusRescan) liveBody.querySelector("[data-fk=rescan]")?.focus({ preventScroll: true });
+  }
+  function openLive() {
+    liveBody = h("div", { class: "scr-live-body" });
+    liveBody.__sig = "";
+    livePop = sheetPopover({
+      trigger: phone() ? liveDotBtn : liveTxtBtn,
+      title: "Scan",
+      body: liveBody,
+      cls: "scr-live-pop",
+      onClose: () => {
+        livePop = null;
+        liveBody = null;
+      },
+    });
+    drawLiveBody();
+  }
+  function openUnderlyings() {
+    const body = h("div", { class: "scr-u-pop" });
+    const draw1 = () => {
+      const btns = list.map((u) => {
+        const b = uBtnFor(u);
+        b.addEventListener("click", () => setTimeout(draw1, 0));
+        paintUChip(b);
+        return b;
+      });
+      body.replaceChildren(h("p", { class: "scr-f-intro" }, "Underlyings in the scan. Adding one fetches its chains; at least one stays."), h("div", { class: "scr-uchips" }, btns));
+    };
+    draw1();
+    sheetPopover({ trigger: ctxBtn, title: "Underlyings", body, cls: "scr-u-popover" });
+  }
+  function openSort() {
+    const p = preset();
+    const s = cfg.sort[p.id];
+    const close = () => handle?.close();
+    const items = p.columns
+      .filter((c) => c.sortable)
+      .map((c) => {
+        const on = s.by === c.id;
+        const pick = (dir) => {
+          setCfg({ sort: { ...cfg.sort, [p.id]: { by: c.id, dir } } });
+          close();
+        };
+        return h(
+          "div",
+          { class: `scr-sort-row${on ? " on" : ""}` },
+          h("button", { type: "button", role: "radio", "aria-checked": String(on), class: "scr-sort-pick", onclick: () => pick(on ? s.dir : c.dir) }, h("i", { class: "scr-radio", "aria-hidden": "true" }), c.label, c.id === p.defaults.sort.by ? h("small", {}, "ranking") : null),
+          h("button", { type: "button", class: `scr-sort-dir${on ? " on" : ""}`, "aria-label": `${c.label}, ${on && s.dir === "asc" ? "descending" : "ascending"}`, onclick: () => pick(on ? (s.dir === "asc" ? "desc" : "asc") : c.dir === "asc" ? "desc" : "asc") }, on ? (s.dir === "asc" ? "↑" : "↓") : c.dir === "asc" ? "↑" : "↓"),
+        );
+      });
+    const body = h("div", { class: "scr-sort-list" }, h("div", { role: "radiogroup", "aria-label": "Sort by" }, items), h("button", { type: "button", class: "small plain scr-sort-more", onclick: () => (close(), setTimeout(() => openCustomise(), 0)) }, icon("columns"), "Columns and scan settings"));
+    const handle = sheetPopover({ trigger: sortChip, title: "Sort by", body, cls: "scr-sort-pop" });
+  }
+
   // ── Draw ──
   function drawSort() {
     const p = preset();
     const s = cfg.sort[p.id];
+    const c = p.columns.find((x) => x.id === s.by);
+    const t = c?.label ?? s.by;
     const want = `${p.id}|${s.by}|${s.dir}`;
-    if (sortSel.__sig === want) return;
-    sortSel.__sig = want;
-    sortSel.replaceChildren(
-      ...p.columns.filter((c) => c.sortable).flatMap((c) => [h("option", { value: `${c.id}:desc` }, `${c.label} ↓`), h("option", { value: `${c.id}:asc` }, `${c.label} ↑`)]),
-    );
-    sortSel.value = `${s.by}:${s.dir}`;
+    if (sortChip.__sig === want) return;
+    sortChip.__sig = want;
+    sortChip.querySelector(".scr-sortchip-t").textContent = t;
+    sortChip.querySelector(".scr-sortchip-d").textContent = s.dir === "asc" ? "↑" : "↓";
+    sortChip.setAttribute("aria-label", `Sort: ${t}, ${s.dir === "asc" ? "ascending" : "descending"}`);
   }
   function draw() {
     if (destroyed) return;
     const t0 = performance.now();
     const p = preset();
+    main.dataset.preset = p.id;
     drawTabs();
-    drawAuto();
     drawStatus();
     drawChips();
     drawSort();
-    if (desc.__p !== p.id) {
-      desc.__p = p.id;
-      if (!desc.__how) desc.__how = h("a", { href: "#scr-how", class: "scr-how", onclick: (e) => (e.preventDefault(), (methodEl.open = true), methodEl.scrollIntoView({ block: "nearest" })) }, "How it works");
-      if (!desc.__text) desc.append((desc.__text = document.createTextNode("")), " ", desc.__how);
-      desc.__text.data = p.description;
-    }
-    slotText.textContent = `Price and IV history for ${recByKey(selKey)?.underlying ?? cfg.underlyings[0]}. Your chart engine plugs in here.`;
+    drawLegend();
     const hasData = [...cache.keys()].some((k) => cfg.underlyings.includes(k.split("|")[0]) && cache.get(k)?.chain);
     recompute();
     drawBanners();
     drawIssues();
     drawMethod();
     const isPhone = phone();
-    const rows = result.rows.slice(0, shown);
+    // The detail column (≥ 1280) picks rank 1 until the visitor closes it; a tab switch keeps a key still shown.
+    if (wide() && autoSel && !entries.some((e) => e.r.key === selKey)) selKey = entries[0]?.r.key ?? null;
     if (!hasData && (scanning || !lastSweepFailed)) {
       wrap.hidden = isPhone;
       cards.hidden = !isPhone;
       emptyEl.hidden = true;
       skeleton();
-      countEl.textContent = "";
+      footCount.textContent = "";
+      countEl.hidden = true;
+      countPhone.textContent = "";
       moreBtn.hidden = true;
     } else if (!hasData) {
       wrap.hidden = true;
       cards.hidden = true;
       emptyEl.hidden = true;
-      countEl.textContent = "";
+      footCount.textContent = "";
+      countEl.hidden = true;
       moreBtn.hidden = true;
-    } else if (!result.total) {
+    } else if (!result.total && !entries.length) {
       wrap.hidden = true;
       cards.hidden = true;
       emptyEl.hidden = false;
       drawEmpty();
-      countEl.textContent = `0 of ${formatInt(S.recordsFor(scan, p).length)} · ${formatInt(scan.chains)} chains`;
+      countEl.hidden = false;
+      drawCount(0);
+      footCount.textContent = `0 of ${formatInt(S.recordsFor(scan, p).length)} · ${formatInt(scan.chains)} chains`;
       moreBtn.hidden = true;
     } else {
       emptyEl.hidden = true;
       wrap.hidden = isPhone;
       cards.hidden = !isPhone;
-      if (isPhone) drawCards(rows);
-      else drawTable(rows);
-      countEl.textContent = `Showing ${formatInt(rows.length)} of ${formatInt(result.total)} · ${formatInt(scan.chains)} chains`;
-      const more = Math.min(cfg.rows, result.total - rows.length);
+      if (isPhone) drawCards(entries);
+      else {
+        drawTable(entries);
+        wrapEdges();
+      }
+      countEl.hidden = false;
+      drawCount(result.total);
+      const showing = entries.filter((e) => !e.pinned).length;
+      footCount.textContent = `Showing ${formatInt(showing)} of ${formatInt(result.total)} · ${formatInt(scan.chains)} chains`;
+      const more = Math.min(cfg.rows, result.total - showing - entries.filter((e) => e.pinned && !e.gone).length);
       moreBtn.hidden = more <= 0;
       moreBtn.textContent = `Show ${formatInt(more)} more`;
     }
     if (selKey && !recByKey(selKey)) selKey = null;
+    drawMap();
     drawPane();
-    if (p.id === "arb" && !methodEl.open) {
-      /* the arbitrage footer note lives in the methodology */
-    }
     try {
       if (local.get("mcb.debug")) window.__scrMs = Math.round((performance.now() - t0) * 10) / 10;
     } catch {
@@ -1650,7 +2626,7 @@ export function renderScreenerPage() {
     const inResults = main.contains(document.activeElement) && (wrap.contains(document.activeElement) || cards.contains(document.activeElement));
     if (k === "j" || k === "J" || (k === "ArrowDown" && inResults)) return moveSel(1), true;
     if (k === "k" || k === "K" || (k === "ArrowUp" && inResults)) return moveSel(-1), true;
-    if (k === "Enter" && selKey) return wide() ? (paneBody.querySelector("button")?.focus(), true) : (openSheet(), true);
+    if (k === "Enter" && selKey) return wide() ? (paneBody.querySelector(".scr-d-actions button")?.focus(), true) : (openSheet(), true);
     const r = recByKey(selKey);
     if ((k === "c" || k === "C") && r) {
       const strike = r.kind === "underlying" ? r.atmStrike : r.strike;
@@ -1661,12 +2637,14 @@ export function renderScreenerPage() {
       toStrategy(r, [{ right: r.right, strike: r.strike, side: k.toLowerCase() === "b" ? "BUY" : "SELL" }]);
       return true;
     }
-    if (k === "r" || k === "R") return cancelSweep(), startSweep(true), true;
+    if ((k === "p" || k === "P") && r) return togglePin(r.key), true;
+    if (k === "r" || k === "R") return rescan(), true;
     if (k === "f" || k === "F") return openFilters(), true;
     if (k === "a" || k === "A") return toggleAuto(), true;
+    if (k === "?") return openKeys(), true;
     if (k === "Escape") {
       if (closePop) return closePop(), true;
-      if (selKey) return select(null), true;
+      if (selKey && wide()) return select(null), true;
     }
     return false;
   }
@@ -1678,19 +2656,30 @@ export function renderScreenerPage() {
   const mqs = [media(MQ_PHONE), media(MQ_WIDE)];
   const onDevice = () => {
     if (!root.isConnected) return cleanup();
-    tableSig = "";
+    headSig = "";
+    bodySig = "";
     cardSig = "";
     paneSig = "";
+    mapSig = "";
+    liveSig = "";
     draw();
   };
   for (const m of mqs) m.addEventListener("change", onDevice);
   const onRoute = () => setTimeout(() => !root.isConnected && cleanup(), 0);
   window.addEventListener("hashchange", onRoute);
+  // Ages and "stale" move with the clock: a light status pass every 15 s (text only, no network).
+  const clock = setInterval(() => {
+    if (!root.isConnected) return cleanup();
+    if (!scanning) drawStatus();
+  }, 15_000);
   function cleanup() {
     if (destroyed) return;
     destroyed = true;
     cancelSweep();
     closePop?.();
+    livePop?.close?.();
+    clearInterval(clock);
+    tabRo?.disconnect();
     for (const m of mqs) m.removeEventListener("change", onDevice);
     window.removeEventListener("hashchange", onRoute);
     if (activePage === page) activePage = null;
@@ -1699,10 +2688,11 @@ export function renderScreenerPage() {
   setTimeout(() => {
     if (!root.isConnected) return cleanup();
     draw();
+    centreTab(false);
     startSweep(false);
     startAuto();
   }, 0);
   draw();
-  mountToolbarCtx("screener", h("div", { class: "ctx-cap glass" }, h("span", { class: "ctx-item ctx-scr", title: "Underlyings and chains in the scan" }, ctxMain)));
-  return [main, detail, chart];
+  mountToolbarCtx("screener", ctxBtn, h("span", { class: "ctx-spacer" }), liveEl);
+  return [main, detail];
 }
