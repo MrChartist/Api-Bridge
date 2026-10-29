@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { createCalendar } from "../reference/calendar.mjs";
 import { notImplementedService } from "../core/contracts.mjs";
-import { dayPlan, expectedSlotsBy, holidaySuspected, isDue, istDateOf, nextSlotAfter, resolveDay, slotIndex, slotsOfDay } from "./calendar.mjs";
+import { cadenceAt, dayPlan, expectedMinutesBetween, expectedSlotsBy, holidaySuspected, isDue, istDateOf, nextSlotAfter, resolveDay, slotIndex, slotsOfDay } from "./calendar.mjs";
 
 const IST = (s) => Date.parse(`${s}+05:30`);
 
@@ -60,6 +60,21 @@ describe("slots", () => {
     expect(isDue(demo, IST("2026-10-31T10:01:00"), "index")).toBe(true);
     expect(isDue(demo, IST("2026-10-31T10:01:00"), "stock", 5)).toBe(false);
     expect(isDue(demo, IST("2026-10-31T10:05:00"), "stock", 5)).toBe(true);
+  });
+  it("minutes, not slots: each due slot counts its cadence (5-minute chains, the demo's 5-minute night)", () => {
+    const demo = dayPlan({ date: "2026-10-31", open: "09:15", close: "15:30", alwaysOpen: true });
+    expect(cadenceAt(demo, IST("2026-10-31T00:45:00"), "index")).toBe(5);
+    expect(cadenceAt(demo, IST("2026-10-31T10:01:00"), "index")).toBe(1);
+    expect(cadenceAt(demo, IST("2026-10-31T10:05:00"), "stock", 5)).toBe(5);
+    expect(cadenceAt(demo, IST("2026-10-31T00:45:00"), "stock", 15)).toBe(15);
+    // 00:00–00:45 at 5-minute slots: 10 slots that stand for 50 minutes.
+    const midnight = IST("2026-10-31T00:00:00");
+    expect(expectedSlotsBy(demo, IST("2026-10-31T00:45:30"), "index") - expectedSlotsBy(demo, midnight - 1, "index")).toBe(10);
+    expect(expectedMinutesBetween(demo, midnight, IST("2026-10-31T00:45:30"), "index")).toBe(50);
+    // A stock at 5 minutes from 09:15 to 10:15 in a real session: 13 slots, 65 minutes (the last slot runs to 10:20).
+    const plan = dayPlan({ date: "2026-10-29", open: "09:15", close: "15:30" });
+    expect(expectedMinutesBetween(plan, IST("2026-10-29T09:15:00"), IST("2026-10-29T10:15:30"), "stock", 5)).toBe(65);
+    expect(expectedMinutesBetween(plan, IST("2026-10-29T09:15:00"), IST("2026-10-29T10:15:30"), "index")).toBe(61);
   });
   it("IST dates on any host time zone", () => {
     expect(istDateOf(Date.parse("2026-10-29T19:00:00Z"))).toBe("2026-10-30");

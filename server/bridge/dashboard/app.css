@@ -6734,6 +6734,8 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
 .rec-dot.ok { background: hsl(var(--pos)); box-shadow: 0 0 0 4px hsl(var(--pos) / 0.16); }
 .rec-dot.warn { background: hsl(var(--warn)); box-shadow: 0 0 0 4px hsl(var(--warn) / 0.18); }
 .rec-dot.bad { background: hsl(var(--neg)); box-shadow: 0 0 0 4px hsl(var(--neg) / 0.16); }
+/* §7.1 asks for 900 px (tiles) and 1100 px (coverage beside budget + disk); the house breakpoints are 360 / 720 / 1024 /
+   1280 (polish.test.mjs), so the nearest ones are used: 1024 and 1280. */
 @media (min-width: 1024px) { .grid.cols-4.rec-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .rec-warns:empty, .rec-err:empty { display: none; }
 .rec-warns { display: flex; flex-direction: column; gap: 10px; }
@@ -6767,6 +6769,12 @@ td.rec-has-gap { color: hsl(var(--warn-ink)); font-weight: 600; }
 tr.rec-refused td { color: hsl(var(--foreground) / var(--a-quiet)); }
 tr.rec-refused td.rec-why { font-size: 12.5px; line-height: 1.45; white-space: normal; }
 tr.rec-refused .rec-u { font-weight: 500; }
+/* Not due yet: muted words, no bar. */
+td.rec-wait .rec-cov-t { color: hsl(var(--foreground) / var(--a-quiet)); font-variant-numeric: normal; }
+/* NSE website backup terms, inline in the phone sheet. */
+.rec-nse-ack-host:empty { display: none; }
+.rec-nse-ack { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 12px; background: var(--mat-fill-1); box-shadow: inset 0 0 0 1px hsl(var(--warn) / 0.35); }
+.rec-nse-ack p { margin: 0; line-height: 1.5; color: hsl(var(--foreground) / var(--a-label)); }
 
 /* Gap list (popover / phone sheet). */
 .rec-pop { width: min(380px, calc(100vw - 32px)); }
@@ -6799,8 +6807,9 @@ dl.rec-sum dd { text-align: left; }
 .rec-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; min-width: 0; }
 @media (min-width: 1280px) { .rec-form { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; } }
 .rec-group { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 14px 0; box-shadow: inset 0 0.5px 0 var(--mat-separator); }
-@media (min-width: 1280px) { .rec-group:nth-child(-n + 2) { border-top: 0; padding-top: 0; } }
-@media (max-width: 1279px) { .rec-group:first-child { border-top: 0; padding-top: 0; } }
+/* The separator is an inset shadow: the first group (the first two side by side) has none. */
+@media (min-width: 1280px) { .rec-group:nth-child(-n + 2) { box-shadow: none; padding-top: 0; } }
+@media (max-width: 1279px) { .rec-group:first-child { box-shadow: none; padding-top: 0; } }
 .rec-group h3 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 0; font: 600 14px/1.3 var(--font-body); }
 .rec-h-sub { font: 400 12.5px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .rec-checks { display: flex; flex-wrap: wrap; gap: 6px 18px; }
@@ -6878,9 +6887,18 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
   .table-wrap.stack.rec-cov-table tr.rec-row > td.c-src { grid-column: 2; grid-row: 1; text-align: right; font-size: 12.5px; }
   .table-wrap.stack.rec-cov-table tr.rec-row > td.c-src .rec-age { display: inline; margin-left: 4px; }
   .table-wrap.stack.rec-cov-table tr.rec-row > td.c-rec { grid-column: 1; grid-row: 2; display: flex; align-items: center; gap: 10px; }
-  .table-wrap.stack.rec-cov-table tr.rec-row > td.c-rec .bar.rec-bar { flex: 1 1 auto; width: auto; max-width: 140px; margin: 0; }
+  .table-wrap.stack.rec-cov-table tr.rec-row > td.c-rec .rec-cov-t { flex: none; min-width: 11ch; }
+  .table-wrap.stack.rec-cov-table tr.rec-row > td.c-rec .bar.rec-bar { flex: 0 0 110px; width: 110px; min-width: 0; margin: 0; }
   .table-wrap.stack.rec-cov-table tr.rec-row > td.c-gap { grid-column: 2; grid-row: 2; text-align: right; font-size: 12.5px; }
   .table-wrap.stack.rec-cov-table tr.rec-row > td.c-last { display: none; }
+  /* A refused chain: the same card shape (name + expiry, the reason pill; the why below, left-aligned). */
+  .table-wrap.stack.rec-cov-table tr.rec-refused { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; padding: 10px var(--card-pad); }
+  .table-wrap.stack.rec-cov-table tr.rec-refused > td { display: block; padding: 0; border: 0; text-align: left; min-height: 0; }
+  .table-wrap.stack.rec-cov-table tr.rec-refused > td::before { display: none; }
+  .table-wrap.stack.rec-cov-table tr.rec-refused > td.lead { grid-column: 1; grid-row: 1; display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .table-wrap.stack.rec-cov-table tr.rec-refused > td.c-exp { display: none; }
+  .table-wrap.stack.rec-cov-table tr.rec-refused > td.c-status { grid-column: 2; grid-row: 1; text-align: right; }
+  .table-wrap.stack.rec-cov-table tr.rec-refused > td.rec-why { grid-column: 1 / -1; grid-row: 2; text-align: left; }
   .rec-cov-table .rec-exp-m { display: inline; }
   .rec-step { width: 100%; justify-content: space-between; }
   .rec-save-acts { width: 100%; }

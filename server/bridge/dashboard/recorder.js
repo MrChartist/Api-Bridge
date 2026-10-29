@@ -110,7 +110,7 @@ export function tilesModel(st) {
       label: "Today",
       value: formatInt(today.snapshots ?? 0),
       glyph: "list",
-      sub: `snapshots · ${formatInt(today.legRows ?? 0)} leg rows · ${plural(today.gapSlots ?? 0, "gap minute")} · ${last}`,
+      sub: `snapshots · ${formatInt(today.legRows ?? 0)} leg rows · ${plural(today.gapMinutes ?? today.gapSlots ?? 0, "gap minute")} · ${last}`,
     },
     {
       key: "disk",
@@ -122,26 +122,43 @@ export function tilesModel(st) {
   ];
 }
 
+/** Sort order of recorded rows: indices first (in INDEX_CHOICES priority), then stocks by name; each by expiry. */
+const rowOrder = (r) => [r.kind === "stock" ? 1 : 0, INDEX_CHOICES.indexOf(r.underlying) < 0 ? 99 : INDEX_CHOICES.indexOf(r.underlying), r.kind === "stock" ? r.underlying : "", r.expiry ?? ""];
+const byOrder = (a, b) => {
+  const x = rowOrder(a);
+  const y = rowOrder(b);
+  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+  return 0;
+};
+
 /**
- * Coverage rows, recorded chains first, then the refused ones (`refused: true`, greyed, with the reason).
+ * Coverage rows, recorded chains first (indices in priority order, then stocks; each by expiry), then the refused
+ * ones (`refused: true`, greyed, with the reason). Figures are minutes: each slot stands for its chain's cadence
+ * (`*Minutes` from the status; older statuses: slots × everyMinutes). A chain with nothing due yet is `waiting`.
  * @returns {Array<object>}
  */
 export function coverageRows(st) {
   const plan = new Map((st?.plan?.chains ?? []).map((c) => [`${c.underlying}|${c.expiry}`, c]));
   const rows = (st?.coverage ?? []).map((c) => {
     const p = plan.get(`${c.underlying}|${c.expiry}`) ?? {};
-    const expected = num(c.expectedSlots) ?? 0;
-    const recorded = num(c.recordedSlots) ?? 0;
+    const slotMin = num(c.everyMinutes ?? p.everyMinutes) ?? 1;
+    const minutes = (m, slots) => num(m) ?? (num(slots) ?? 0) * slotMin;
+    const expected = minutes(c.expectedMinutes, c.expectedSlots);
+    const recorded = minutes(c.recordedMinutes, c.recordedSlots);
+    const gapMin = minutes(c.gapMinutes, c.gapSlots);
+    const waiting = expected <= 0 && recorded <= 0;
     const ratio = expected > 0 ? Math.min(1, recorded / expected) : null;
     const gaps = c.gaps ?? [];
+    const every = num(c.everyMinutesNow) ?? slotMin;
     return {
       key: `${c.underlying}|${c.expiry}`,
       refused: false,
+      waiting,
       underlying: c.underlying,
       expiry: c.expiry,
       expiryText: formatDayMonth(c.expiry),
       kind: c.kind ?? p.kind ?? null,
-      every: `${formatInt(c.everyMinutes ?? p.everyMinutes ?? 1)} min`,
+      every: `${formatInt(every)} min`,
       source: sourceWord(c.source ?? p.source),
       sourceKey: c.source ?? p.source ?? null,
       strikes: `±${formatInt(c.strikesEachSide ?? p.strikesEachSide)}`,
@@ -149,16 +166,17 @@ export function coverageRows(st) {
       expected,
       ratio,
       tone: ratio === null ? "" : ratio >= 0.99 ? "ok" : ratio >= 0.9 ? "warn" : "bad",
-      recText: `${formatInt(recorded)} / ${formatInt(expected)} min`,
-      gapSlots: num(c.gapSlots) ?? 0,
-      gapText: c.gapSlots ? `${formatInt(c.gapSlots)} min` : "None",
+      recText: waiting ? "Not due yet" : `${formatInt(recorded)} / ${formatInt(expected)} min`,
+      gapMinutes: gapMin,
+      gapText: waiting ? DASH : gapMin ? `${formatInt(gapMin)} min` : "None",
       lastGap: gaps.length ? `${gapRange(gaps[gaps.length - 1])} ${gapReason(gaps[gaps.length - 1].reason).toLowerCase()}` : "",
-      gaps,
+      gaps: gaps.map((g) => ({ ...g, minutes: num(g.minutes) ?? (num(g.slots) ?? 1) * slotMin })),
       last: c.lastSlot ? istTime(c.lastSlot) : DASH,
       lastAge: isFigure(c.lastAgeMs) ? ageText(c.lastAgeMs) : "",
       partial: num(c.partialSlots) ?? 0,
     };
   });
+  rows.sort(byOrder);
   const refused = (st?.plan?.refused ?? []).map((r) => ({
     key: `refused|${r.underlying}|${r.expiry ?? ""}`,
     refused: true,
@@ -169,6 +187,14 @@ export function coverageRows(st) {
     detail: r.detail ?? "",
   }));
   return [...rows, ...refused];
+}
+
+/** The coverage card's sub-title counts: "11 chains recording · 9 waiting · 1 not recorded". */
+export function coverageCounts(rows) {
+  const waiting = rows.filter((r) => !r.refused && r.waiting).length;
+  const recording = rows.filter((r) => !r.refused && !r.waiting).length;
+  const refused = rows.filter((r) => r.refused).length;
+  return [recording || !waiting ? `${plural(recording, "chain")} recording` : null, waiting ? `${formatInt(waiting)} waiting` : null, refused ? `${formatInt(refused)} not recorded` : null].filter(Boolean).join(" · ");
 }
 
 /**
@@ -265,18 +291,37 @@ export function formBody(f, { acknowledge = false } = {}) {
   return body;
 }
 
-/** "Use what fits" after 422 CAPACITY_EXCEEDED: keep only what the account can carry (order kept). */
-export function fitToCarry(f, canCarry) {
+/**
+ * "Use what fits" after 422 CAPACITY_EXCEEDED: keep only what the account can carry (order kept). Index chains are
+ * planned nearest expiry first, so a kept index whose later expiries were refused lowers the expiry count (by the most
+ * refused for any kept index): trimming the lists alone would ask for the same chains again.
+ * @param {object} f  the form
+ * @param {{ indices?: string[], stocks?: string[] }} canCarry
+ * @param {Array<{ underlying: string, kind?: string }>} [refused]  the 422's refused chains
+ */
+export function fitToCarry(f, canCarry, refused = []) {
   const idx = new Set(canCarry?.indices ?? []);
   const stk = new Set(canCarry?.stocks ?? []);
-  return { ...f, indices: f.indices.filter((u) => idx.has(u)), stocks: f.stocks.filter((u) => stk.has(u)) };
+  const indices = f.indices.filter((u) => idx.has(u));
+  const cut = new Map();
+  for (const r of refused ?? []) if (r && r.kind !== "stock" && indices.includes(r.underlying)) cut.set(r.underlying, (cut.get(r.underlying) ?? 0) + 1);
+  const most = Math.max(0, ...cut.values());
+  return { ...f, indices, stocks: f.stocks.filter((u) => stk.has(u)), indexExpiries: Math.max(1, Number(f.indexExpiries) - most) };
 }
 
-/** Stock underlyings from an instrument search answer: unique, not an index, not already chosen. */
+/** Exchanges whose derivatives the recorder plans (equity F&O); MCX and CDS contracts are not stock options. */
+export const STOCK_DERIV_EXCHANGES = Object.freeze(["NFO", "BFO"]);
+
+/**
+ * Stock underlyings from an instrument search answer: equity derivatives only (NFO/BFO, not MCX or CDS), unique,
+ * not an index, not already chosen.
+ */
 export function stocksFromSearch(rows, chosen = []) {
   const skip = new Set([...INDEX_CHOICES, ...chosen]);
   const out = [];
   for (const r of rows ?? []) {
+    if (r?.exchange && !STOCK_DERIV_EXCHANGES.includes(String(r.exchange).toUpperCase())) continue;
+    if (r?.kind && !["FUT", "OPT"].includes(String(r.kind).toUpperCase())) continue;
     const u = String(r?.underlying ?? "").toUpperCase();
     if (!u || skip.has(u) || out.includes(u) || !/^[A-Z0-9&-]{1,30}$/.test(u)) continue;
     out.push(u);
@@ -316,42 +361,44 @@ function openOnOi(underlying, expiry) {
   location.hash = "#/oi";
 }
 
-function gapSheet(trigger, r) {
+function gapSheet(trigger, r, within = null) {
   const list = r.gaps.length
     ? h(
         "ul",
         { class: "rec-gaps" },
-        [...r.gaps].reverse().map((g) => h("li", {}, h("span", { class: "rec-gap-when" }, gapRange(g)), h("span", { class: "rec-gap-what" }, h("strong", {}, `${gapReason(g.reason)} · ${`${formatInt(g.slots ?? 1)} min`}`), g.detail ? h("span", {}, g.detail) : null))),
+        [...r.gaps].reverse().map((g) => h("li", {}, h("span", { class: "rec-gap-when" }, gapRange(g)), h("span", { class: "rec-gap-what" }, h("strong", {}, `${gapReason(g.reason)} · ${formatInt(g.minutes)} min`), g.detail ? h("span", {}, g.detail) : null))),
       )
-    : h("p", { class: "muted small rec-gap-none" }, "No gaps today. Every expected minute was recorded.");
+    : h("p", { class: "muted small rec-gap-none" }, r.waiting ? "Nothing is due for this chain yet today." : r.recorded >= r.expected ? "No gaps today. Every expected minute was recorded." : "No gaps are listed for today.");
   const body = h(
     "div",
     { class: "rec-gap-body" },
-    h("p", { class: "muted small" }, `${r.recText} recorded · ${r.source} · every ${r.every} · ${r.strikes} strikes. Gaps are never filled in.`),
+    h("p", { class: "muted small" }, `${r.waiting ? "Not due yet" : `${r.recText} recorded`} · ${r.source} · every ${r.every} · ${r.strikes} strikes. Gaps are never filled in.`),
     list,
     h("div", { class: "rec-gap-acts" }, h("button", { type: "button", class: "small", onclick: () => openOnOi(r.underlying, r.expiry) }, icon("bars"), "Open on OI page")),
   );
-  sheetPopover({ trigger, title: `${r.underlying} ${r.expiryText}`, body, cls: "rec-pop" });
+  // `within`: the coverage card, so on wide screens the popover opens from the row's left edge inside the card
+  // (anchored to the narrow name button alone it was pushed over the sidebar and the row itself).
+  sheetPopover({ trigger, title: `${r.underlying} ${r.expiryText}`, body, cls: "rec-pop", within });
 }
 
 /** The coverage table: our own markup on the shared table classes (stacks on phones), rows act as buttons. */
-function coverageTable(rows) {
+function coverageTable(rows, within = null) {
   const head = ["Underlying", "Expiry", "Source", "Strikes", "Recorded", "Gaps", "Last"];
   const body = rows.map((r) => {
     if (r.refused) {
       return h(
         "tr",
         { class: "rec-refused" },
-        h("td", { class: "lead", "data-label": "Underlying" }, h("span", { class: "rec-u" }, r.underlying)),
-        h("td", { "data-label": "Expiry" }, r.expiryText),
-        h("td", { "data-label": "Status" }, pill(r.reason)),
+        h("td", { class: "lead", "data-label": "Underlying" }, h("span", { class: "rec-u" }, r.underlying), h("span", { class: "rec-exp-m" }, r.expiryText)),
+        h("td", { class: "c-exp", "data-label": "Expiry" }, r.expiryText),
+        h("td", { class: "c-status", "data-label": "Status" }, pill(r.reason)),
         h("td", { class: "wrap rec-why", colspan: "4", "data-label": "Why" }, r.detail),
       );
     }
-    const open = h("button", { type: "button", class: "rec-row-btn", "aria-haspopup": "dialog", "aria-label": `${r.underlying} ${r.expiryText}: ${r.recText} recorded, ${r.gapText} of gaps. Show gaps` }, h("span", { class: "rec-u" }, r.underlying), h("span", { class: "rec-exp-m" }, r.expiryText), r.kind === "stock" ? h("span", { class: "rec-kind" }, "Stock") : null);
-    open.addEventListener("click", () => gapSheet(open, r));
-    const bar = h("span", { class: `bar rec-bar ${r.tone}`.trim(), "aria-hidden": "true" }, h("span"));
-    bar.firstChild.style.width = `${Math.round((r.ratio ?? 0) * 100)}%`;
+    const open = h("button", { type: "button", class: "rec-row-btn", "aria-haspopup": "dialog", "aria-label": r.waiting ? `${r.underlying} ${r.expiryText}: not due yet. Show details` : `${r.underlying} ${r.expiryText}: ${r.recText} recorded, ${r.gapText === "None" ? "no" : r.gapText} gaps. Show gaps` }, h("span", { class: "rec-u" }, r.underlying), h("span", { class: "rec-exp-m" }, r.expiryText), r.kind === "stock" ? h("span", { class: "rec-kind" }, "Stock") : null);
+    open.addEventListener("click", () => gapSheet(open, r, within));
+    const bar = r.waiting ? null : h("span", { class: `bar rec-bar ${r.tone}`.trim(), "aria-hidden": "true" }, h("span"));
+    if (bar) bar.firstChild.style.width = `${Math.round((r.ratio ?? 0) * 100)}%`;
     const tr = h(
       "tr",
       { class: "rec-row", "data-key": r.key },
@@ -359,14 +406,14 @@ function coverageTable(rows) {
       h("td", { class: "c-exp", "data-label": "Expiry" }, r.expiryText),
       h("td", { class: "c-src", "data-label": "Source" }, h("span", { class: `rec-src src-${r.sourceKey ?? "x"}` }, r.source), h("span", { class: "rec-age" }, `every ${r.every}`)),
       h("td", { class: "num c-k", "data-label": "Strikes" }, r.strikes),
-      h("td", { class: "num rec-cov c-rec", "data-label": "Recorded" }, h("span", { class: "rec-cov-t" }, r.recText), bar),
+      h("td", { class: `num rec-cov c-rec${r.waiting ? " rec-wait" : ""}`, "data-label": "Recorded" }, h("span", { class: "rec-cov-t" }, r.recText), bar),
       h("td", { class: `num c-gap${r.gapSlots ? " rec-has-gap" : ""}`, "data-label": "Gaps", title: r.lastGap || undefined }, r.gapText),
       h("td", { class: "num c-last", "data-label": "Last" }, h("span", {}, r.last), r.lastAge ? h("span", { class: "rec-age" }, r.lastAge) : null),
     );
     // The whole row opens the gap list with a pointer; the keyboard uses the row's button.
     tr.addEventListener("click", (e) => {
       if (e.target instanceof Element && e.target.closest("button")) return;
-      gapSheet(open, r);
+      gapSheet(open, r, within);
     });
     return tr;
   });
@@ -423,13 +470,27 @@ function settingsForm({ status, accounts, canEdit, demo, onPlan, onSave, inSheet
   let f = formFrom(status.settings);
   let acknowledged = Boolean(f.sources.nseBackup);
   const dis = !canEdit;
-  const edited = () => onPlan(formBody(f));
+  const saved = () => JSON.stringify(formBody(formFrom(status.settings)));
+  // Undo is live only when the form differs from the saved settings.
+  const syncUndo = () => {
+    resetBtn.disabled = dis || JSON.stringify(formBody(f)) === saved();
+  };
+  const edited = () => {
+    syncUndo();
+    onPlan(formBody(f));
+  };
   const host = h("div", { class: "rec-form-host" });
   const verdictEl = h("p", { class: "rec-verdict", role: "status", "aria-live": "polite" });
   const problemEl = h("div", { class: "rec-problem" });
   const saveBtn = h("button", { type: "button", class: "primary", disabled: dis }, icon("check"), "Save");
-  const resetBtn = h("button", { type: "button", class: "small rec-reset", disabled: dis }, "Undo changes");
-  saveBtn.addEventListener("click", () => onSave(formBody(f, { acknowledge: acknowledged })));
+  const resetBtn = h("button", { type: "button", class: "small quiet rec-reset", disabled: true }, "Undo changes");
+  saveBtn.addEventListener("click", () => {
+    if (inSheet && f.sources.nseBackup && !acknowledged && !formFrom(status.settings).sources.nseBackup) {
+      toast("Tick “I understand” under NSE website backup first", { tone: "info" });
+      return;
+    }
+    onSave(formBody(f, { acknowledge: acknowledged }));
+  });
   resetBtn.addEventListener("click", () => {
     f = formFrom(status.settings);
     acknowledged = Boolean(f.sources.nseBackup);
@@ -482,7 +543,9 @@ function settingsForm({ status, accounts, canEdit, demo, onPlan, onSave, inSheet
       if (q.length < 2) return fill(found);
       timer = setTimeout(async () => {
         const mine = ++seq;
-        const r = await optional(api(`/v1/instruments/search?q=${encodeURIComponent(q)}&kind=FUT&limit=40`));
+        // kind=FUT, not OPT: an OPT search returns one row per strike, so 40 rows are a single underlying's ladder;
+        // futures give a few rows per underlying. Only NFO is asked for (stock F&O); stocksFromSearch drops the rest.
+        const r = await optional(api(`/v1/instruments/search?q=${encodeURIComponent(q)}&kind=FUT&exchange=NFO&limit=60`));
         if (mine !== seq) return;
         const list = r.error ? [] : stocksFromSearch(r.data.data, f.stocks).slice(0, 8);
         fill(
@@ -509,6 +572,14 @@ function settingsForm({ status, accounts, canEdit, demo, onPlan, onSave, inSheet
           acknowledged = false;
           return edited();
         }
+        if (inSheet) {
+          // In the phone sheet the form already sits in the dialog: the terms and "I understand" show inline under
+          // the switch (a second modal would replace the sheet and lose its edits).
+          acknowledged = false;
+          f.sources = { ...f.sources, nseBackup: true };
+          drawAck();
+          return edited();
+        }
         const ok = await confirmNse();
         if (!ok) {
           input.checked = false;
@@ -519,6 +590,18 @@ function settingsForm({ status, accounts, canEdit, demo, onPlan, onSave, inSheet
         edited();
       },
     });
+    const ackHost = h("div", { class: "rec-nse-ack-host" });
+    const drawAck = () => {
+      const show = inSheet && f.sources.nseBackup && !formFrom(status.settings).sources.nseBackup;
+      if (!show) return fill(ackHost);
+      const box = h("input", { type: "checkbox" });
+      box.checked = acknowledged;
+      box.addEventListener("change", () => {
+        acknowledged = box.checked;
+      });
+      fill(ackHost, h("div", { class: "rec-nse-ack", role: "group", "aria-label": "NSE website backup terms" }, h("p", { class: "small" }, NSE_TERMS), h("label", { class: "check" }, box, h("span", {}, "I understand"))));
+    };
+    drawAck();
 
     fill(
       host,
@@ -559,6 +642,7 @@ function settingsForm({ status, accounts, canEdit, demo, onPlan, onSave, inSheet
             ? h("p", { class: "hint rec-ret" }, "Demo recordings are kept for 3 days.")
             : h("div", { class: "rec-steps" }, stepper("Days kept", f.retentionDays, { min: 7, max: 3650, disabled: dis, onChange: (v) => ((f.retentionDays = v), edited()) })),
           nse,
+          ackHost,
         ),
       ),
     );
@@ -682,18 +766,15 @@ export async function renderRecorderPage() {
     const warns = (status.warnings ?? []).filter((w) => !(demo && /^Demo clock/.test(w)));
     fill(warnEl, warns.map((w) => alertBox({ title: w }, "warn")), status.holidaySuspected ? alertBox({ title: "Today looks like an unlisted holiday", detail: "The first minutes had no change and no volume. Today's records are kept but left out of reads unless asked for." }, "warn") : null);
     const rows = coverageRows(status);
-    const recorded = rows.filter((r) => !r.refused);
-    const refused = rows.length - recorded.length;
     const ses = status.session ?? {};
     covSub.textContent = [
-      `${plural(recorded.length, "chain")} recorded`,
-      refused ? `${formatInt(refused)} not recorded` : null,
+      coverageCounts(rows),
       ses.alwaysOpen ? "Demo clock: always open" : ses.tradingDay === false ? "Not a trading day" : ses.start ? `Session ${ses.start}–${ses.end} IST` : null,
       ses.nextSlot && ses.open !== false ? `next ${istTime(ses.nextSlot).slice(0, 5)}` : null,
     ]
       .filter(Boolean)
       .join(" · ");
-    keepFocus(covBody, () => fill(covBody, rows.length ? coverageTable(rows) : emptyState("clock", "Nothing recorded yet", status.stateDetail ?? "The recorder starts with the next minute of the session.", null, { compact: true })));
+    keepFocus(covBody, () => fill(covBody, rows.length ? coverageTable(rows, covCard) : emptyState("clock", "Nothing recorded yet", status.stateDetail ?? "The recorder starts with the next minute of the session.", null, { compact: true })));
     const b = budgetModel(status);
     fill(
       budgetBody,
@@ -733,8 +814,9 @@ export async function renderRecorderPage() {
       const e = r.error;
       if (e.code === "CAPACITY_EXCEEDED" && e.body?.canCarry) {
         const c = e.body.canCarry;
-        const fits = [c.indices?.length ? `indices ${c.indices.join(", ")}` : null, c.stocks?.length ? `${plural(c.stocks.length, "stock")}` : null].filter(Boolean).join(" and ") || "nothing more";
-        const use = h("button", { type: "button", class: "small", onclick: () => form.setForm(fitToCarry(form.form(), c)) }, "Use what fits");
+        const fit = fitToCarry(form.form(), c, e.body.refused ?? []);
+        const fits = [fit.indices.length ? `indices ${fit.indices.join(", ")} at ${plural(fit.indexExpiries, "expiry", "expiries")}` : null, fit.stocks.length ? `${plural(fit.stocks.length, "stock")}` : null].filter(Boolean).join(" and ") || "nothing more";
+        const use = h("button", { type: "button", class: "small", onclick: () => form.setForm(fit) }, "Use what fits");
         return form.problem(h("div", { class: "rec-cap" }, alertBox({ title: "This account cannot carry all of it. Nothing was saved.", detail: `It can carry ${fits}.` }, "warn"), use));
       }
       return form.problem(alertBox(e));
@@ -796,14 +878,23 @@ export async function renderRecorderPage() {
   // Crossing the phone breakpoint swaps the inline form and the sheet button (a rotation, a resized window).
   const mq = typeof matchMedia === "function" ? matchMedia(`(max-width: ${PHONE_BELOW_PX - 1}px)`) : null;
   let wasPhone = phone();
-  mq?.addEventListener?.("change", () => {
-    if (!settingsHost.isConnected || phone() === wasPhone) return;
-    wasPhone = phone();
-    drawSettings();
-  });
+  // Removed with the page (leaving #/recorder, or the first change or poll after the page is gone), so the listener
+  // and the page it holds do not pile up with each visit.
+  const mqOff = new AbortController();
+  mq?.addEventListener?.(
+    "change",
+    () => {
+      if (!settingsHost.isConnected) return mqOff.abort();
+      if (phone() === wasPhone) return;
+      wasPhone = phone();
+      drawSettings();
+    },
+    { signal: mqOff.signal },
+  );
+  addEventListener("hashchange", () => !/^#\/?recorder\b/.test(location.hash) && mqOff.abort(), { signal: mqOff.signal });
 
   every(POLL_MS, async () => {
-    if (!tilesEl.isConnected) return;
+    if (!tilesEl.isConnected) return mqOff.abort();
     const r = await optional(api("/v1/options/recorder"));
     if (r.error) return fill(errEl, alertBox({ title: "Couldn't refresh the recorder status", detail: `${r.error.message} Showing the last good status.` }, "warn"));
     fill(errEl);

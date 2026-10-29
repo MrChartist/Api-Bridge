@@ -34,15 +34,16 @@ describe("caps (rule 3)", () => {
     expect(caps.brokerPerMinute).toBe(20);
     expect(caps.windows.find((w) => w.windowMs === 1000).cap).toBe(0);
   });
-  it("demo: chain 5/s and the quote family 10/s, 400/min → 2/s and 200/min", () => {
+  it("demo: chain 5/s and 32/min, the quote family 10/s, 400/min → 2/s, 16/min and 200/min", () => {
     const p = resolvePolicy("demo", {}, { demo: DEMO_POLICY });
     const caps = budgetCaps(p, "chain", 0.5);
     expect(caps.windows.map((w) => [w.bucket, w.windowMs, w.cap])).toEqual([
       ["class:chain", 1000, 2],
+      ["class:chain", 60_000, 16],
       ["group:quoteFamily", 1000, 5],
       ["group:quoteFamily", 60_000, 200],
     ]);
-    expect(caps.perMinute).toBe(120);
+    expect(caps.perMinute).toBe(16);
   });
   it("share is clamped to 0.5", () => {
     expect(budgetCaps(resolvePolicy("upstox"), "chain", 0.9).windows[0].cap).toBe(25);

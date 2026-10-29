@@ -37,7 +37,7 @@ describe("a REST-recorded session", () => {
     expect(readdirSync(join(r.dataDir, "recorder", "s1", "2026-10-19", "NIFTY"))).toContain(`${EXPIRY}.ndjson.gz`);
     const st = r.svc.status();
     expect(st.state).toBe("idle-closed");
-    expect(st.coverage[0]).toMatchObject({ expectedSlots: 375, recordedSlots: 375, gapSlots: 0 });
+    expect(st.coverage[0]).toMatchObject({ expectedSlots: 375, recordedSlots: 375, gapSlots: 0, expectedMinutes: 375, recordedMinutes: 375, gapMinutes: 0, everyMinutesNow: 1, firstSlot: "2026-10-19T09:15:00.000+05:30" });
     await r.svc.stop();
   }, 60_000);
 
@@ -86,6 +86,11 @@ describe("a REST-recorded session", () => {
       ["session-expired", 2],
     ]);
     expect(q.coverage).toMatchObject({ expectedSlots: 5, recordedSlots: 1, gapSlots: 4 });
+    expect(r.svc.status().coverage[0]).toMatchObject({ expectedSlots: 5, recordedSlots: 1, gapSlots: 4, expectedMinutes: 5, recordedMinutes: 1, gapMinutes: 4 });
+    expect(r.svc.status().coverage[0].gaps.map((g) => [g.reason, g.slots, g.minutes])).toEqual([
+      ["budget", 2, 2],
+      ["session-expired", 2, 2],
+    ]);
     await r.svc.stop();
   });
 });

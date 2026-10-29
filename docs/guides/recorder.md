@@ -128,7 +128,7 @@ broker's own documentation; the Bridge then uses conservative defaults. Figures 
 | Wisdom Capital (XTS) | no feed in adapter | off (chain 1/s (unverified)) | 18 refused | 0 |
 | Zebu (Mynt) | no feed in adapter | off (chain 1/s (unverified)) | 18 refused | 0 |
 | Zerodha (Kite) | 3,000 × 0.6 = 1,800 | off (chain 1/s) | 11 stream, 7 refused | 0 |
-| Demo (sample data) | 500 × 0.6 = 300 | chain: 120 calls/min | 1 stream, 17 REST | about 515 by REST |
+| Demo (sample data) | 500 × 0.6 = 300 | chain: 16 calls/min | 1 stream, 16 REST, 1 refused | 0 |
 <!-- feasibility:end -->
 
 ## Costs

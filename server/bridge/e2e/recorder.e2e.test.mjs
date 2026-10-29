@@ -12,7 +12,7 @@
  *  5. Demo mode with the clock on Mon 19 Oct 2026 at 11:00:30 IST: within 5 s the nearest NIFTY expiry has back-filled
  *     minutes since 09:15 (quality demo-backfill / demo) and /v1/options/daily has rows for 2 previous weekdays.
  */
-import { existsSync, mkdtempSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -52,12 +52,13 @@ function chainBroker(id, { stocks = [] } = {}) {
 
 const RECORDER = { indices: ["NIFTY"], indexExpiries: 1, indexStrikes: 10, sources: { stream: false } };
 
-async function boot({ dataDir, start, brokerId = "upstox", stocks = [], recorder = RECORDER }) {
+async function boot({ dataDir, start, brokerId = "upstox", stocks = [], recorder = RECORDER, withConfigFile = false }) {
   const broker = chainBroker(brokerId, { stocks });
   const bridge = await bootBridge({
     brokers: { [brokerId]: broker },
     clock: shiftedClock(start),
     raw: { dataDir, accounts: [{ id: "acc-1", broker: brokerId }], recorder },
+    withConfigFile,
   });
   const { key } = await bridge.deps.keyStore.create({ label: "rec", scopes: ["admin"], accounts: "*", expiresAt: null, allowQuery: false, clientKind: "other" });
   const r = await bridge.http("/v1/accounts/acc-1/session", { method: "POST", key, body: { values: { apiKey: "k", accessToken: "token-acc-1" } } });
@@ -124,10 +125,11 @@ describe("recorder end to end", () => {
 
   it("step 4: a 1 request/s broker asked for 200 stocks answers 422 CAPACITY_EXCEEDED with canCarry; nothing changes", async () => {
     const stocks = Array.from({ length: 200 }, (_, i) => `STK${String(i).padStart(3, "0")}`);
-    const b = await boot({ dataDir: mkdtempSync(join(tmpdir(), "mcb-rec-e2e4-")), start: Date.parse("2026-10-19T10:00:58+05:30"), brokerId: "dhan", stocks, recorder: { ...RECORDER, sources: { stream: true, rest: true } } });
+    const b = await boot({ dataDir: mkdtempSync(join(tmpdir(), "mcb-rec-e2e4-")), start: Date.parse("2026-10-19T10:00:58+05:30"), brokerId: "dhan", stocks, recorder: { ...RECORDER, sources: { stream: true, rest: true } }, withConfigFile: true });
     open.push(b.bridge);
     await eventually(async () => ((await b.bridge.http("/v1/options/recorder", { key: b.key })).json?.data?.plan?.chains?.length ? true : null), { ms: 5000 });
     const before = (await b.bridge.http("/v1/options/recorder", { key: b.key })).json.data;
+    const fileBefore = readFileSync(b.bridge.configFile);
     const r = await b.bridge.http("/v1/options/recorder/config", { method: "PUT", key: b.key, body: { stocks } });
     expect(r.status).toBe(422);
     expect(r.json.code).toBe("CAPACITY_EXCEEDED");
@@ -138,8 +140,13 @@ describe("recorder end to end", () => {
     const afterSt = (await b.bridge.http("/v1/options/recorder", { key: b.key })).json.data;
     expect(afterSt.settings.stocks).toEqual(before.settings.stocks);
     expect(afterSt.plan.chains).toEqual(before.plan.chains);
-    // Nothing written to disk either: no config file appeared beside the data.
-    expect(readdirSync(b.bridge.dataDir).filter((f) => f.endsWith(".json") && f.startsWith("bridge.config"))).toEqual([]);
+    // The real config file the Bridge was started from is byte for byte unchanged.
+    expect(readFileSync(b.bridge.configFile).equals(fileBefore)).toBe(true);
+    // ...and it is the file a change that fits is saved to (so the check above can fail).
+    const ok = await b.bridge.http("/v1/options/recorder/config", { method: "PUT", key: b.key, body: { indexStrikes: 9 } });
+    expect(ok.status).toBe(200);
+    expect(ok.json.data.persisted).toBe(true);
+    expect(JSON.parse(readFileSync(b.bridge.configFile, "utf8")).recorder.indexStrikes).toBe(9);
     await b.bridge.close();
   }, 30_000);
 
@@ -171,6 +178,22 @@ describe("recorder end to end", () => {
     expect([...new Set(daily.map((r) => r.date))].sort()).toEqual(expect.arrayContaining(["2026-10-15", "2026-10-16"]));
     expect(existsSync(join(dir, "recorder-demo"))).toBe(true);
     expect(existsSync(join(dir, "recorder"))).toBe(false);
+    // The demo can show "cannot carry all of it": every index at 4 expiries is over the demo's REST budget, and the
+    // page's "Use what fits" (fewer expiries) then saves, in memory only.
+    const { key: admin } = await app.deps.keyStore.create({ label: "a", scopes: ["admin"], accounts: "*" });
+    const put = async (body) => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/options/recorder/config`, { method: "PUT", headers: { Authorization: `Bearer ${admin}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      return { status: res.status, json: await res.json() };
+    };
+    const over = await put({ indexExpiries: 4 });
+    expect(over.status).toBe(422);
+    expect(over.json.code).toBe("CAPACITY_EXCEEDED");
+    expect(over.json.refused.length).toBeGreaterThan(0);
+    // What the page's "Use what fits" sends: the carried indices and stocks (fewer expiries when an index lost some).
+    const lostIndex = over.json.refused.some((r) => r.kind === "index");
+    const fits = await put({ indices: over.json.canCarry.indices, stocks: over.json.canCarry.stocks, indexExpiries: lostIndex ? 3 : 4 });
+    expect(fits.status).toBe(200);
+    expect(fits.json.data.persisted).toBe(false);
     await app.close();
   }, 30_000);
 });

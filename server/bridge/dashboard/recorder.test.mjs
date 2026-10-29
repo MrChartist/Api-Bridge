@@ -11,6 +11,7 @@ import {
   FOOTER,
   budgetModel,
   bytesText,
+  coverageCounts,
   coverageRows,
   diskModel,
   fitToCarry,
@@ -94,6 +95,39 @@ describe("state, tiles and coverage", () => {
     expect(rows[1]).toMatchObject({ recText: "61 / 61 min", gapText: "None", tone: "ok" });
     expect(rows[2]).toMatchObject({ refused: true, underlying: "TATASTEEL", reason: "Over capacity", detail: expect.stringMatching(/^Feed room left/) });
     expect(coverageRows({ plan: { refused: [{ underlying: "BANKEX", expiry: null, reason: "not-offered", detail: "x" }] } })[0]).toMatchObject({ expiryText: "All expiries", reason: "Not offered" });
+    expect(coverageCounts(rows)).toBe("2 chains recording · 1 not recorded");
+  });
+
+  it("minutes, not slots: a 5-minute chain and the demo's 5-minute night", () => {
+    const st = {
+      plan: { chains: [{ underlying: "SBIN", expiry: "2026-11-24", kind: "stock", everyMinutes: 5, strikesEachSide: 15, source: "rest" }] },
+      coverage: [
+        // The server's minutes (the status sends them): 10 slots from 00:00 at 5 minutes = 50 minutes.
+        { underlying: "NIFTY", expiry: "2026-11-03", kind: "index", source: "rest", everyMinutes: 1, everyMinutesNow: 5, expectedSlots: 10, recordedSlots: 9, gapSlots: 1, expectedMinutes: 50, recordedMinutes: 45, gapMinutes: 5, gaps: [{ from: 1, to: 1, slots: 1, minutes: 5, reason: "budget" }] },
+        // An older status without *Minutes: slots × everyMinutes.
+        { underlying: "SBIN", expiry: "2026-11-24", source: "rest", expectedSlots: 2, recordedSlots: 2, gapSlots: 0, gaps: [] },
+      ],
+    };
+    const [nifty, sbin] = coverageRows(st);
+    expect(nifty).toMatchObject({ every: "5 min", recText: "45 / 50 min", gapText: "5 min", tone: "warn" });
+    expect(nifty.gaps[0].minutes).toBe(5);
+    expect(sbin).toMatchObject({ kind: "stock", every: "5 min", recText: "10 / 10 min", gapText: "None", tone: "ok" });
+    expect(tilesModel({ today: { snapshots: 9, legRows: 0, gapSlots: 1, gapMinutes: 5 } })[2].sub).toMatch(/· 5 gap minutes ·/);
+  });
+
+  it("chains not due yet read as waiting, with no bar, counted apart", () => {
+    const rows = coverageRows({ coverage: [{ underlying: "NIFTY", expiry: "2026-11-03", expectedSlots: 10, recordedSlots: 10, gapSlots: 0 }, { underlying: "BANKNIFTY", expiry: "2027-01-26", expectedSlots: 0, recordedSlots: 0, gapSlots: 0 }] });
+    expect(rows[1]).toMatchObject({ waiting: true, recText: "Not due yet", gapText: "--", ratio: null });
+    expect(coverageCounts(rows)).toBe("1 chain recording · 1 waiting");
+  });
+
+  it("rows group by kind, index priority and expiry, whatever order the status lists them in", () => {
+    const row = (underlying, expiry, kind = "index") => ({ underlying, expiry, kind, expectedSlots: 1, recordedSlots: 1, gapSlots: 0 });
+    const rows = coverageRows({
+      coverage: [row("NIFTY", "2026-11-03"), row("SENSEX", "2026-11-05"), row("SBIN", "2026-11-24", "stock"), row("INFY", "2026-11-24", "stock"), row("NIFTY", "2026-11-24"), row("BANKNIFTY", "2026-11-24"), row("SENSEX", "2026-11-26"), row("NIFTY", "2026-11-10")],
+      plan: { refused: [{ underlying: "BANKEX", expiry: null, reason: "not-offered" }] },
+    });
+    expect(rows.map((r) => `${r.underlying} ${r.expiry ?? ""}`.trim())).toEqual(["NIFTY 2026-11-03", "NIFTY 2026-11-10", "NIFTY 2026-11-24", "BANKNIFTY 2026-11-24", "SENSEX 2026-11-05", "SENSEX 2026-11-26", "INFY 2026-11-24", "SBIN 2026-11-24", "BANKEX"]);
   });
 
   it("gap ranges and reasons in plain words", () => {
@@ -150,11 +184,28 @@ describe("settings", () => {
     const out = fitToCarry(f, { indices: ["NIFTY", "SENSEX"], stocks: ["INFY", "SBIN"] });
     expect(out.indices).toEqual(["NIFTY", "SENSEX"]);
     expect(out.stocks).toEqual(["SBIN", "INFY"]);
+    expect(out.indexExpiries).toBe(f.indexExpiries);
+    // Later expiries refused for kept indices: the expiry count drops by the most refused for any one index.
+    const four = { ...f, indexExpiries: 4 };
+    const cut = fitToCarry(four, { indices: ["NIFTY", "BANKNIFTY", "SENSEX"], stocks: [] }, [
+      { underlying: "SENSEX", expiry: "2026-11-26", kind: "index" },
+      { underlying: "SBIN", expiry: "2026-11-24", kind: "stock" },
+    ]);
+    expect(cut).toMatchObject({ indices: ["NIFTY", "BANKNIFTY", "SENSEX"], stocks: [], indexExpiries: 3 });
+    expect(fitToCarry({ ...f, indexExpiries: 1 }, { indices: ["NIFTY"] }, [{ underlying: "NIFTY", kind: "index" }, { underlying: "NIFTY", kind: "index" }]).indexExpiries).toBe(1);
   });
 
   it("stock search: unique underlyings, no indices, none already chosen", () => {
     const rows = [{ underlying: "RELIANCE" }, { underlying: "RELIANCE" }, { underlying: "NIFTY" }, { underlying: "SBIN" }, { underlying: "bad name!" }];
     expect(stocksFromSearch(rows, ["SBIN"])).toEqual(["RELIANCE"]);
+    // Equity derivatives only: MCX and CDS futures are not stock options.
+    const mixed = [
+      { underlying: "CRUDEOIL", exchange: "MCX", kind: "FUT" },
+      { underlying: "USDINR", exchange: "CDS", kind: "FUT" },
+      { underlying: "TATASTEEL", exchange: "NFO", kind: "FUT" },
+      { underlying: "TATAMOTORS", exchange: "NSE", kind: "EQ" },
+    ];
+    expect(stocksFromSearch(mixed)).toEqual(["TATASTEEL"]);
   });
 
   it("phones stack the coverage table and open settings in a sheet", () => {

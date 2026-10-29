@@ -18,7 +18,7 @@ import { DASH, formatCompact, formatFixed, formatInt, formatSigned, isFigure } f
 import { countUp, flashValue, lineReveal, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
 import { refCalendar, refSession } from "./reference.js";
-import { fromServerSnapshot, oiStore, serverCoverageText, snapKey } from "./oi-store.js";
+import { fromServerSnapshot, oiStore, serverCoverageFor, serverCoverageText, snapKey } from "./oi-store.js";
 import { oiParticipantLine } from "./participants.js";
 import { segmented } from "./views.js";
 import { legend, scrubber, setBar, spotPill, svgEl } from "./viz.js";
@@ -563,13 +563,14 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
   // ── Server recordings (the Bridge recorder, docs/spec/p1-01-recorder.md §7.2) ──
   // On chain load and every 60 s: if the recorder's plan (cached 60 s) has this chain, read its minutes since the last
   // one held (today's session open the first time) and keep them in the store, which then takes no page snapshots.
-  const rec = { plan: undefined, at: 0, loading: null, keys: new Map() };
+  const rec = { plan: undefined, status: null, at: 0, loading: null, keys: new Map() };
   async function recorderPlan() {
     if (rec.loading) return rec.loading;
     if (rec.plan !== undefined && Date.now() - rec.at < 60_000) return rec.plan;
     rec.loading = (async () => {
       const r = await optional(api("/v1/options/recorder"));
       rec.at = Date.now();
+      rec.status = r.error ? null : (r.data.data ?? null);
       rec.plan = r.error ? null : (r.data.data?.plan?.chains ?? []);
       rec.loading = null;
       return rec.plan;
@@ -579,7 +580,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
   async function syncServer(underlying, expiry) {
     const now = Date.now();
     const key = snapKey(underlying, expiry, now);
-    const e = rec.keys.get(key) ?? { lastT: null, at: 0, busy: false, inPlan: null, every: 1, cov: null, gaps: [] };
+    const e = rec.keys.get(key) ?? { lastT: null, at: 0, busy: false, inPlan: null, every: 1, cov: null };
     rec.keys.set(key, e);
     if (e.busy || now - e.at < 60_000) return;
     e.busy = true;
@@ -592,7 +593,12 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       e.inPlan = Boolean(chain);
       changed = was !== e.inPlan;
       if (!chain) return;
-      e.every = chain.everyMinutes ?? 1;
+      // Coverage is the status row for this chain (the server's count for the day, refreshed with the 60 s plan
+      // cache), never a sum of the incremental reads below: those re-list the same gaps while the feed is down.
+      const cov = serverCoverageFor(rec.status, underlying, expiry);
+      if (JSON.stringify(cov) !== JSON.stringify(e.cov)) changed = true;
+      e.cov = cov;
+      e.every = cov?.everyMinutes ?? chain.everyMinutes ?? 1;
       let cursor = null;
       for (let page = 0; page < 6; page += 1) {
         const q = new URLSearchParams({ underlying, expiry, fields: "oi,ltp,volume", limit: "500" });
@@ -601,16 +607,11 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         const r = await optional(api(`/v1/options/snapshots?${q}`));
         if (r.error) break;
         const d = r.data.data;
-        // Coverage over what this page holds (session open → now): the first read's, then each later read's added.
-        if (!cursor) {
-          const c = d.coverage ?? {};
-          const add = (k) => (e.cov?.[k] ?? 0) + (Number(c[k]) || 0);
-          e.cov = { expectedSlots: add("expectedSlots"), recordedSlots: add("recordedSlots"), gapSlots: add("gapSlots"), firstSlot: e.cov?.firstSlot ?? c.firstSlot ?? null };
-          e.gaps = [...(e.gaps ?? []), ...(d.gaps ?? [])].slice(-50);
-        }
         const recs = (d.snapshots ?? []).map((x) => fromServerSnapshot(x, underlying, expiry)).filter((x) => x && x.key === key);
-        await store.markServerBacked(key);
         if (recs.length) {
+          // Server-backed only once the server has minutes for it: until then (recorder just started, feed down
+          // since the open, only gaps) this page keeps recording its own snapshots.
+          await store.markServerBacked(key);
           await store.putMany(recs);
           e.lastT = Math.max(e.lastT ?? 0, ...recs.map((x) => x.t));
           changed = true;
@@ -1387,7 +1388,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       slot.setAttribute("aria-label", `Chart engine slot: ${label}`);
     }
     slot.classList.toggle("short", n < 10);
-    const sc = byServer && e?.cov ? { coverage: e.cov, gaps: e.gaps } : null;
+    const sc = byServer && e?.cov ? e.cov : null;
     const notPlanned = !byServer && e?.inPlan === false;
     const cov = sc
       ? serverCoverageText(sc, formatInt)

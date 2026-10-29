@@ -100,14 +100,33 @@ export function serverCoverageText(page, fmt) {
   const first = hmOf(c.firstSlot);
   const since = first ? ` since ${first}` : "";
   const parts = [`Server recording${since}`];
-  if (Number(c.expectedSlots) > 0) parts.push(`${fmt(c.recordedSlots ?? 0)} of ${fmt(c.expectedSlots)} ${Number(c.expectedSlots) === 1 ? "minute" : "minutes"}`);
+  // Minutes, not slots: a 5-minute chain's slot is 5 minutes (the status sends *Minutes; else slots × everyMinutes).
+  const per = Number(c.everyMinutes) > 0 ? Number(c.everyMinutes) : 1;
+  const mins = (m, slots) => (Number.isFinite(Number(m)) && m !== null && m !== undefined ? Number(m) : (Number(slots) || 0) * per);
+  const expected = mins(c.expectedMinutes, c.expectedSlots);
+  const recorded = mins(c.recordedMinutes, c.recordedSlots);
+  const missing = mins(c.gapMinutes, c.gapSlots);
+  if (expected > 0) parts.push(`${fmt(recorded)} of ${fmt(expected)} ${expected === 1 ? "minute" : "minutes"}`);
   const gaps = page?.gaps ?? [];
-  if (Number(c.gapSlots) > 0 && gaps.length) {
+  if (missing > 0 && gaps.length) {
     const g = gaps[gaps.length - 1];
     const more = gaps.length > 1 ? `; ${fmt(gaps.length - 1)} more` : "";
-    parts.push(`${fmt(c.gapSlots)} missing (${GAP_WORDS[g.reason] ?? g.reason ?? "gap"} ${gapHm(g)}${more})`);
+    parts.push(`${fmt(missing)} missing (${GAP_WORDS[g.reason] ?? g.reason ?? "gap"} ${gapHm(g)}${more})`);
   }
   return parts.join(" · ");
+}
+
+/**
+ * This chain's coverage from the recorder status (GET /v1/options/recorder `coverage[]`): the server's own count for
+ * the whole day so far, so repeated polls never add up (incremental snapshot reads re-list the same gaps while the
+ * feed is down). Null when the status has no row for the chain.
+ * @returns {{ coverage: object, gaps: object[], everyMinutes: number } | null}
+ */
+export function serverCoverageFor(status, underlying, expiry) {
+  const row = (status?.coverage ?? []).find((c) => c.underlying === underlying && c.expiry === expiry);
+  if (!row) return null;
+  const { gaps = [], ...coverage } = row;
+  return { coverage, gaps, everyMinutes: Number(row.everyMinutesNow ?? row.everyMinutes) || 1 };
 }
 
 /** Snapshots kept in this tab only (the Node tests' backend, and the fallback when IndexedDB fails). */

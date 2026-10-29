@@ -4911,6 +4911,7 @@ components:
         from: { type: string, format: date-time }
         to: { type: string, format: date-time }
         slots: { type: integer }
+        minutes: { type: integer, description: "Minutes the gap stands for (slots times each slot's cadence)." }
         reason: { type: string, enum: [stream-down, budget, broker-error, session-expired, not-subscribed-yet, bridge-down, disk-full, paused], description: "Open enum." }
         detail: { type: [string, "null"] }
     OptionSnapshotPage:
@@ -5018,7 +5019,24 @@ components:
         budget: { type: object }
         today: { type: object }
         disk: { type: object }
-        coverage: { type: array, items: { type: object } }
+        coverage:
+          type: array
+          description: "One row per planned chain today. *Slots counts records; *Minutes weighs each slot by its cadence (a 5-minute chain's slot is 5 minutes); everyMinutesNow is the cadence in force now (the demo's always-open clock uses 5 minutes outside 09:15-15:30)."
+          items:
+            type: object
+            properties:
+              underlying: { type: string }
+              expiry: { type: string, format: date }
+              everyMinutes: { type: integer }
+              everyMinutesNow: { type: integer }
+              firstSlot: { type: [string, "null"], format: date-time }
+              expectedSlots: { type: integer }
+              recordedSlots: { type: integer }
+              gapSlots: { type: integer }
+              expectedMinutes: { type: integer }
+              recordedMinutes: { type: integer }
+              gapMinutes: { type: integer }
+              gaps: { type: array, items: { $ref: "#/components/schemas/SnapshotGap" } }
         sources: { type: object }
         oiUnits: { type: object }
         holidaySuspected: { type: [object, "null"], description: "Set when today looked like an unlisted holiday (flat first six minutes, no volume)." }

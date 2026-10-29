@@ -1,6 +1,8 @@
 /** OI snapshot recorder (oi-store.js): throttle, de-duplication, cap, eviction and the market-hours rule. */
 import { describe, expect, it } from "vitest";
-import { SNAP_CAP, fromServerSnapshot, memoryBackend, openStore, serverCoverageText, snapKey, snapshotOf } from "./oi-store.js";
+import { BridgeError } from "../core/errors.mjs";
+import { EXPIRY, IST, fakeChain, makeRecorder } from "../recorder/testkit.mjs";
+import { SNAP_CAP, fromServerSnapshot, memoryBackend, openStore, serverCoverageFor, serverCoverageText, snapKey, snapshotOf } from "./oi-store.js";
 
 const ist = (y, mo, d, hh = 10, mm = 0) => Date.UTC(y, mo - 1, d, hh, mm) - 5.5 * 3600 * 1000;
 const chain = (asOf, oi = 100) => ({
@@ -156,5 +158,42 @@ describe("server-backed keys (the Bridge recorder, docs/spec/p1-01-recorder.md �
     );
     expect(text).toBe("Server recording since 09:15 · 58 of 61 minutes · 3 missing (feed down 10:41–10:43)");
     expect(serverCoverageText({ coverage: { expectedSlots: 5, recordedSlots: 5, gapSlots: 0, firstSlot: "2026-10-29T09:15:00.000+05:30" }, gaps: [] }, fmt)).toBe("Server recording since 09:15 · 5 of 5 minutes");
+    // A 5-minute chain: slots read as minutes × 5 (older statuses without *Minutes), or the server's minutes.
+    expect(serverCoverageText({ coverage: { everyMinutes: 5, expectedSlots: 2, recordedSlots: 2, gapSlots: 0, firstSlot: "2026-10-29T09:15:00.000+05:30" } }, fmt)).toBe("Server recording since 09:15 · 10 of 10 minutes");
+    expect(serverCoverageText({ coverage: { everyMinutes: 1, expectedSlots: 10, recordedSlots: 10, expectedMinutes: 50, recordedMinutes: 50, gapMinutes: 0, firstSlot: "2026-10-29T00:00:00.000+05:30" } }, fmt)).toBe("Server recording since 00:00 · 50 of 50 minutes");
+  });
+
+  it("a 3-minute feed outage reads as 3 missing over every later poll (the status row, never summed reads)", async () => {
+    const fmt = (n) => String(n);
+    let down = false;
+    const r = makeRecorder({
+      start: IST("2026-10-19T10:38:30"),
+      recorder: { sources: { stream: false } },
+      marketData: {
+        async optionChain(_p, opts) {
+          if (down) throw new BridgeError("UPSTREAM_UNAVAILABLE", "Feed down.");
+          return fakeChain({ t: r.clock.now(), accountId: opts.accountId });
+        },
+      },
+    });
+    await r.svc.start(); // 10:38
+    await r.minutes(2); // 10:39, 10:40
+    down = true;
+    const texts = [];
+    for (let i = 0; i < 3; i++) {
+      await r.minutes(1); // 10:41, 10:42, 10:43
+      texts.push(serverCoverageText(serverCoverageFor(r.svc.status(), "NIFTY", EXPIRY), fmt));
+    }
+    down = false;
+    for (let i = 0; i < 3; i++) {
+      await r.minutes(1); // 10:44, 10:45, 10:46: three more polls after the outage
+      texts.push(serverCoverageText(serverCoverageFor(r.svc.status(), "NIFTY", EXPIRY), fmt));
+    }
+    expect(texts.at(-1)).toBe("Server recording since 10:38 · 6 of 9 minutes · 3 missing (broker error 10:41–10:43)");
+    expect(texts.at(-2)).toBe("Server recording since 10:38 · 5 of 8 minutes · 3 missing (broker error 10:41–10:43)");
+    expect(texts[2]).toBe("Server recording since 10:38 · 3 of 6 minutes · 3 missing (broker error 10:41–10:43)");
+    expect(serverCoverageFor(r.svc.status(), "NIFTY", EXPIRY).gaps).toHaveLength(1);
+    expect(serverCoverageFor(r.svc.status(), "BANKNIFTY", EXPIRY)).toBeNull();
+    await r.svc.stop();
   });
 });
