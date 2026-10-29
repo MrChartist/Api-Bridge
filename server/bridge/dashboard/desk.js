@@ -17,6 +17,7 @@ import { createPositionsPage } from "./positions.js";
 import { cap, every, segField, segmented, stopTimer } from "./views.js";
 import { createVolPage, volConfig } from "./vol.js";
 import { demoStaleAsked, lotConfirmGate, loadReference, refBanners, refCalendar, refChip, refRate, refSession, refSignature } from "./reference.js";
+import { readinessSheetRow } from "./readiness.js";
 import { animatePage, barsEnter, countUp, flashValue, stopCount } from "./motion.js";
 
 const SLOT = "mcb.dashboard.desk";
@@ -283,7 +284,7 @@ async function renderDesk(kind) {
   const liveOrders = h("span", { class: "ctx-live-orders", hidden: true, title: "Orders from this page go to a live broker account" }, "LIVE orders");
   // Tablets and phones: the one demo indicator is a small "Demo" pill of its own before the live control (a safety
   // marker, not a badge on ⋯ that reads as a count). Desktop has the toolbar's own Demo pill.
-  const moreBtn = h("button", { type: "button", class: "icon-btn ctx-more", "aria-haspopup": "dialog", "aria-label": "More: account, refresh, search, theme", onclick: () => openCtxSheet() }, icon("more"));
+  const moreBtn = h("button", { type: "button", class: "icon-btn ctx-more", "aria-haspopup": "dialog", "aria-label": "More: account, trading readiness, refresh, search, theme", onclick: () => openCtxSheet() }, icon("more"), h("span", { class: "rd-more-dot", "aria-hidden": "true" }));
   const demoPill = app.state.demo ? h("span", { class: "ctx-demo", "data-demo-indicator": "", title: `Demo data: ${DEMO_EXPLAINER}` }, "Demo") : null;
   let ctxSig = "";
   let capsule = null;
@@ -395,6 +396,8 @@ async function renderDesk(kind) {
       { class: "ctx-sheet" },
       TRADING.has(kind) && tradable.length ? h("label", { class: "field" }, "Orders go to", h("span", { class: "ctx-row" }, aSel, acctBadge)) : null,
       h("div", { class: "ctx-row" }, h("span", {}, "Lot size"), h("strong", {}, lotV.data)),
+      // Trading readiness: the toolbar badge folds away here on tablets and phones (docs/spec/p1-05-readiness.md §6.5).
+      readinessSheetRow(() => sheetRef?.close(), moreBtn),
       h(
         "div",
         { class: "ctx-acts" },

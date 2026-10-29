@@ -200,6 +200,10 @@ describe("trading.readiness (p1-05 §6.8)", () => {
     ]);
     const warnOnly = formatEvent("trading.readiness", { ...preopen, accounts: [{ accountId: "a", brokerName: "Dhan", label: "A", state: "warn", reasons: [{ severity: "warn", message: "₹1,750 of ₹10,000 daily loss left." }] }] });
     expect(warnOnly.title).toBe("09:00 readiness: 1 account(s) need attention");
+    // A label that already starts with the broker's name is not prefixed twice.
+    expect(formatEvent("trading.readiness", { ...base, brokerName: "Demo", label: "Demo market data", state: "ready", previous: "cannot_trade", kind: "recovered", reasons: [] }).title).toBe("Demo market data: ready again");
+    expect(formatEvent("trading.readiness", { ...base, brokerName: "Zerodha", label: "zerodha main", state: "ready", previous: "cannot_trade", kind: "recovered", reasons: [] }).title).toBe("zerodha main: ready again");
+    expect(formatEvent("trading.readiness", { ...base, brokerName: "Dhan", label: "Dhanush", state: "ready", previous: "cannot_trade", kind: "recovered", reasons: [] }).title).toBe("Dhan Dhanush: ready again");
   });
 
   it("delivers only payloads the monitor marked notify: true, and targets get the event by default", async () => {

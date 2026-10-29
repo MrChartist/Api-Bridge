@@ -62,6 +62,20 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ### Added
 
+- **Trading readiness** (`readiness` config, `GET /v1/readiness`, `POST /v1/readiness/check`,
+  `GET /v1/readiness/history`): every live-enabled account is checked at 09:00 IST on trading days and every 4
+  minutes in market hours (broker session and stated expiry, a cheap read call, this computer's IP against
+  `live.registeredIp` / the new `live.backupIp` through an opt-in lookup, order and daily-limit headroom, kill switch).
+  A badge on every dashboard page (a bottom sheet on phones), a "Trading readiness" card on the Safety page with recent
+  changes and, in the demo, simulation buttons. New notify event `trading.readiness` (on by default; never carries an
+  IP). `get_safety_status` includes it. `mc-bridge doctor` warns about a live account without `live.registeredIp` and
+  about notify targets that do not listen to `trading.readiness`. New guide: [deployment.md](docs/guides/deployment.md).
+- **Behaviour change:** a live webhook order is refused with `CANNOT_TRADE` while its account cannot trade (no broker
+  call is made); orders a person sends get a `READINESS` warning instead. Escape hatches: `readiness.gateAutomated:
+  false` or `readiness.enabled: false`.
+- Writes from a browser that says `Sec-Fetch-Site: cross-site` (or `same-site`) without an allowlisted Origin are
+  refused (`ORIGIN_NOT_ALLOWED`).
+
 - **Spread the work over your own accounts.** Many-symbol quote reads are split in each broker's batch size to the
   pooled account with the most spare budget. `marketData.poolingWhenTermsUnknown` lets you pool your own
   same-holder accounts at brokers whose terms are not confirmed; a "not-allowed" policy always wins.
