@@ -27,6 +27,8 @@ const INDEX_SPOT = Object.freeze({ NIFTY: "NSE:NIFTY", BANKNIFTY: "NSE:BANKNIFTY
 export const spotSymbolOf = (underlying, exchange) => INDEX_SPOT[underlying] ?? `${exchange === "BFO" ? "BSE" : "NSE"}:${underlying}`;
 
 const READ_TIMEOUT_MS = 5000;
+/** Lot sizes kept in memory at most (one per contract first seen in an underlying). */
+const MAX_LOTS = 512;
 const num = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
 
 function withTimeout(p, ms, what) {
@@ -82,6 +84,7 @@ export function createBookService(deps) {
     return entry;
   }
 
+  /** Lot size of a contract. Only a found lot is kept (a failed lookup, say while instruments still load, asks again). */
   async function lotOf(symbol) {
     if (lots.has(symbol)) return lots.get(symbol);
     let lot = null;
@@ -91,7 +94,11 @@ export function createBookService(deps) {
     } catch {
       lot = null;
     }
-    lots.set(symbol, lot);
+    if (lot !== null) {
+      // Bounded: contracts roll every week, so an old entry is simply dropped and looked up again if needed.
+      if (lots.size >= MAX_LOTS) lots.delete(lots.keys().next().value);
+      lots.set(symbol, lot);
+    }
     return lot;
   }
 

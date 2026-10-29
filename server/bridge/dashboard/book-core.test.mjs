@@ -64,7 +64,7 @@ describe("book aggregation (§7.13)", () => {
   it("family: P&L −888, Θ +1,854, Vega −2,176, ₹Δ −7,26,352, margin used 2,45,600; outside holders listed, not added", () => {
     const holders = [SELF, SPOUSE, FRIEND].map(priceHolder);
     const body = aggregate(holders, { view: "family", family: { name: "Family", relationships: ["self", "spouse"] }, asOf: "2026-10-29T11:15:04+05:30" });
-    expect(body.family.totals).toEqual({ pnl: -888, realised: 0, unrealised: -888, theta: 1854, vega: -2176, rupeeDelta: -726352, marginUsed: 245600, marginAvailable: 512340, accounts: 3, partial: false });
+    expect(body.family.totals).toEqual({ pnl: -888, realised: 0, unrealised: -888, theta: 1854, vega: -2176, rupeeDelta: -726352, marginUsed: 245600, marginAvailable: 512340, accounts: 3, unread: 0, partial: false });
     expect(body.family.holders).toEqual(["self", "spouse"]);
     expect(body.holders.map((h) => h.holder)).toEqual(["self", "spouse"]);
     expect(body.outsideFamily).toEqual([{ holder: "friend", label: "friend", relationship: "other", accounts: 1, note: BOOK_NOTES.outside }]);
@@ -73,6 +73,13 @@ describe("book aggregation (§7.13)", () => {
     expect(body.family.totals.pnl).toBe(body.holders.reduce((s, h) => s + h.totals.pnl, 0));
     // Every leg keeps its account.
     expect(body.holders.flatMap((h) => h.underlyings.flatMap((u) => u.legs)).every((l) => typeof l.account === "string")).toBe(true);
+  });
+
+  it("family: an account that could not be read is counted as unread, and its P&L is left out", () => {
+    const broken = { ...SPOUSE, accounts: [{ ...SPOUSE.accounts[0], error: { code: "BROKER_TIMEOUT", message: "Reading positions timed out" } }] };
+    const body = aggregate([SELF, broken].map(priceHolder), { view: "family", family: { name: "Family", relationships: ["self", "spouse"] }, asOf: "t" });
+    expect(body.family.totals.unread).toBe(1);
+    expect(body.family.totals.pnl).toBe(priceHolder(SELF).totals.pnl);
   });
 
   it("view=holders: every visible holder, no family block, outsideFamily empty", () => {

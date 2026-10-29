@@ -4,7 +4,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DASH, MINUS, ageText, formatCompact, formatFixed, formatInput, formatInt, formatNumber, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, MINUS, ageText, formatCompact, formatDayMonth, formatFixed, formatInput, formatInt, formatNumber, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 
 describe("dashboard number format", () => {
   it("prints figures without grouping commas", () => {
@@ -60,6 +60,13 @@ describe("dashboard number format", () => {
     expect(ageText(125_000)).toBe("2 min old");
     expect(ageText(3_700_000)).toBe("1 h old");
     expect(ageText(null)).toBe("just now");
+  });
+
+  it("prints a calendar day as day and short month", () => {
+    expect(formatDayMonth("2026-11-03")).toBe("3 Nov");
+    expect(formatDayMonth("2026-12-31")).toBe("31 Dec");
+    expect(formatDayMonth("weekly")).toBe("weekly");
+    expect(formatDayMonth(null)).toBe("");
   });
 
   it("shows -- for missing data, never 0", () => {

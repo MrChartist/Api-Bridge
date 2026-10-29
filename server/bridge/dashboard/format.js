@@ -101,3 +101,11 @@ export function ageText(ms) {
   if (s < 3600) return `${Math.floor(s / 60)} min old`;
   return `${Math.floor(s / 3600)} h old`;
 }
+
+const DAY_MONTH = new Intl.DateTimeFormat("en-IN", { timeZone: "UTC", day: "numeric", month: "short" });
+/** A calendar day ("2026-11-03") as "3 Nov" (an expiry in a contract name). Anything else comes back as given; "" when missing. */
+export function formatDayMonth(isoDay) {
+  if (typeof isoDay !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(isoDay)) return isoDay ?? "";
+  const d = new Date(`${isoDay}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? isoDay : DAY_MONTH.format(d);
+}

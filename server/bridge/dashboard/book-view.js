@@ -9,7 +9,7 @@
 // with the reason.
 import { alertBox, api, emptyState, h, icon, istTime, loadingState, optional, toast } from "./app.js";
 import { BOOK_NOTES, selectLeg } from "./book-core.js";
-import { DASH, formatCompact, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
+import { DASH, formatCompact, formatDayMonth, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
 
 /** How often the book is read while this view is on screen. */
 export const BOOK_POLL_MS = 15000;
@@ -21,9 +21,6 @@ export const SCOPES = Object.freeze([
 ]);
 
 const REL_LABEL = { self: "Self", spouse: "Spouse", "dependent-child": "Dependent child", "dependent-parent": "Dependent parent", huf: "HUF", other: "Other" };
-const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
-const DAY_FMT = new Intl.DateTimeFormat("en-IN", { timeZone: "UTC", day: "numeric", month: "short" });
-const dayText = (e) => (ISO_DAY.test(e ?? "") ? DAY_FMT.format(new Date(`${e}T00:00:00Z`)) : e ?? "");
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 /** Signed whole rupees with a true minus: "+₹1274", "−₹4888", "₹0"; "--" when unknown. */
@@ -46,7 +43,7 @@ export const toneOf = (v) => (num(v) === null ? "fg" : Math.round(num(v)) > 0 ? 
 
 /** "NIFTY 3 Nov 26150 PE" / "NIFTY 24 Nov FUT". */
 export function contractName(l, underlying) {
-  const exp = dayText(l.expiry);
+  const exp = formatDayMonth(l.expiry);
   return l.kind === "FUT" ? `${underlying} ${exp} FUT` : `${underlying} ${exp} ${formatInt(l.strike)} ${l.right}`;
 }
 
@@ -71,7 +68,8 @@ export function relationshipChip(h0, scope) {
  * @param {"all"|"family"} scope
  */
 export function bookViewModel(body, scope) {
-  const holders = (body?.holders ?? []).map((x) => {
+  // The family view draws family holders only, whatever body it is handed (a holders-view body while switching).
+  const holders = (body?.holders ?? []).filter((x) => scope !== "family" || x.inFamily).map((x) => {
     const noData = x.priceSource?.kind === "none";
     const accounts = x.accounts.map((a) => ({
       account: a.account,
@@ -132,6 +130,8 @@ export function bookViewModel(body, scope) {
           theta: l.greeks ? money(l.q * l.greeks.theta) : DASH,
           vega: l.greeks ? money(l.q * l.greeks.vega) : DASH,
           iv: num(l.iv) === null ? null : `${formatFixed(l.iv, 1)}%`,
+          ivRaw: num(l.iv),
+          deltaRaw: l.greeks ? num(l.greeks.delta) : null,
           greeksTitle: l.greeks ? null : noData ? x.priceSource.reason : "Not priced",
           guarded: (l.guarded ?? []).length > 0,
         })),
@@ -154,8 +154,10 @@ export function bookViewModel(body, scope) {
     };
   });
   const ft = body?.family?.totals;
+  const unread = holders.reduce((s, x) => s + x.accounts.filter((a) => a.error).length, 0);
+  const visible = scope === "family" ? Boolean(ft && ft.accounts > 0 && holders.length) : holders.length > 0;
   const strip =
-    scope === "family" && ft
+    scope === "family" && ft && visible
       ? [
           { k: "pnl", label: "Family P&L", value: money(ft.pnl), tone: toneOf(ft.pnl), sub: `realised ${money(ft.realised)} · open ${money(ft.unrealised)}` },
           { k: "theta", label: "Θ ₹/day", value: money(ft.theta), tone: toneOf(ft.theta), sub: "time decay, all family legs" },
@@ -167,11 +169,42 @@ export function bookViewModel(body, scope) {
   return {
     strip,
     stripNote: scope === "family" && body?.family ? `${formatInt(body.family.totals.accounts)} account${body.family.totals.accounts === 1 ? "" : "s"} · ${body.family.holders.length} holder${body.family.holders.length === 1 ? "" : "s"}${body.family.totals.partial ? " · only the accounts this key may see" : ""}` : null,
+    /** Accounts whose positions could not be read: their P&L and margin are not in any total. */
+    unreadNote: unread ? `${formatInt(unread)} account${unread === 1 ? "" : "s"} could not be read; totals leave ${unread === 1 ? "it" : "them"} out.` : null,
     holders,
-    outside: (body?.outsideFamily ?? []).map((o) => ({ holder: o.holder, label: o.label, chip: relationshipChip({ ...o, inFamily: false }, scope), accounts: `${formatInt(o.accounts)} account${o.accounts === 1 ? "" : "s"}`, note: o.note })),
+    outside: (body?.outsideFamily ?? []).map((o) => ({ holder: o.holder, label: o.label, chip: relationshipChip({ ...o, inFamily: false }, scope), accounts: `${formatInt(o.accounts)} account${o.accounts === 1 ? "" : "s"}`, note: outsideNote(o.note) })),
     notes: [scope === "family" ? body?.family?.notes?.[0] ?? BOOK_NOTES.family : BOOK_NOTES.margin, body?.method ?? BOOK_NOTES.method, body?.disclaimer ?? BOOK_NOTES.disclaimer].filter(Boolean),
     partial: Boolean(body?.partial),
     empty: holders.every((x) => x.legCount === 0),
+    /** Nothing to total: no holder visible (the strip and notes are left out, only the empty state shows). */
+    visible,
+    /** Why the view is empty: no account visible (each holder without legs says so in its own section). */
+    emptyReason: !holders.length ? "no-accounts" : null,
+  };
+}
+
+/** The server note under the outside-family heading, without its first sentence (the heading already says it). */
+const outsideNote = (note) => (typeof note === "string" ? note.replace(/^Not in the family view\.\s*/, "") : note);
+
+/** The order-ticket arguments for exiting one leg in full, to that leg's own account. */
+export function exitArgs(l) {
+  return {
+    row: { strike: l.strike },
+    right: l.right ?? "CE",
+    kind: l.kind,
+    side: l.q > 0 ? "SELL" : "BUY",
+    qty: Math.abs(l.q),
+    held: Math.abs(l.q),
+    symbol: l.symbol,
+    expiry: l.expiry,
+    product: l.product,
+    exit: true,
+    account: l.account,
+    quote: () => ({ ltp: l.rawMark, bid: l.bid, ask: l.ask, iv: l.ivRaw, delta: l.deltaRaw }),
+    units: Boolean(l.lot) && Math.abs(l.q) % l.lot !== 0,
+    lotSize: l.lot,
+    tick: 0.05,
+    name: l.name,
   };
 }
 
@@ -213,25 +246,7 @@ export function createBookView({ openTicket }) {
   }
 
   function exitLeg(l) {
-    const tick = 0.05;
-    openTicket({
-      row: { strike: l.strike },
-      right: l.right ?? "CE",
-      kind: l.kind,
-      side: l.q > 0 ? "SELL" : "BUY",
-      qty: Math.abs(l.q),
-      held: Math.abs(l.q),
-      symbol: l.symbol,
-      expiry: l.expiry,
-      product: l.product,
-      exit: true,
-      account: l.account,
-      quote: () => ({ ltp: l.rawMark, bid: l.bid, ask: l.ask }),
-      units: Boolean(l.lot) && Math.abs(l.q) % l.lot !== 0,
-      lotSize: l.lot,
-      tick,
-      name: l.name,
-    }).then((r) => r === "placed" && load(true));
+    openTicket(exitArgs(l)).then((r) => r === "placed" && load(true));
   }
 
   async function exitSelected(vm) {
@@ -241,7 +256,7 @@ export function createBookView({ openTicket }) {
     for (const l of legs) {
       // One ticket at a time, each to the leg's own account.
       // eslint-disable-next-line no-await-in-loop
-      const r = await openTicket({ row: { strike: l.strike }, right: l.right ?? "CE", kind: l.kind, side: l.q > 0 ? "SELL" : "BUY", qty: Math.abs(l.q), held: Math.abs(l.q), symbol: l.symbol, expiry: l.expiry, product: l.product, exit: true, account: l.account, quote: () => ({ ltp: l.rawMark, bid: l.bid, ask: l.ask }), lotSize: l.lot, tick: 0.05, name: l.name });
+      const r = await openTicket(exitArgs(l));
       if (r !== "placed") break;
     }
     load(true);
@@ -250,10 +265,11 @@ export function createBookView({ openTicket }) {
   function toggleSelect(l) {
     const r = selectLeg(selected, { account: l.account, symbol: l.symbol });
     selected = r.selected;
-    if (r.cleared) toast("Exits go to one account at a time");
+    if (r.cleared) toast("Exits go to one account at a time", { tone: "info" });
     draw();
   }
 
+  const chipTitle = (l) => (l.accountLabel === l.account ? l.account : `${l.accountLabel} (${l.account})`);
   const isSel = (l) => selected.some((s) => s.account === l.account && s.symbol === l.symbol);
 
   function legActions(l) {
@@ -263,7 +279,9 @@ export function createBookView({ openTicket }) {
       h("button", { type: "button", class: "xs", "aria-label": `Exit ${l.name} on ${l.accountLabel}`, onclick: () => exitLeg(l) }, "Exit"),
     );
   }
-  const check = (l) => h("input", { type: "checkbox", class: "bk-check", "data-focus-key": `sel|${l.key}`, checked: isSel(l), "aria-label": `Select ${l.name} on ${l.accountLabel}`, onchange: () => toggleSelect(l) });
+  const checkInput = (l) => h("input", { type: "checkbox", class: "bk-check", "data-focus-key": `sel|${l.key}`, checked: isSel(l), "aria-label": `Select ${l.name} on ${l.accountLabel}`, onchange: () => toggleSelect(l) });
+  /** The select box inside a label, so the whole 44 px area takes the tap on touch screens. */
+  const check = (l) => h("label", { class: "bk-check-hit" }, checkInput(l));
   const greekCell = (v, title) => (title ? h("span", { class: "muted", title }, v) : v);
 
   function legsTable(u) {
@@ -282,14 +300,14 @@ export function createBookView({ openTicket }) {
             {},
             h("th", { scope: "col", class: "bk-c-sel" }, h("span", { class: "pal-sr-only" }, "Select")),
             h("th", { scope: "col", class: "bk-c-acct" }, "Account"),
-            h("th", { scope: "col" }, "Contract"),
-            h("th", { scope: "col", class: "num" }, "Lots"),
-            h("th", { scope: "col", class: "num" }, "Avg → Mark"),
-            h("th", { scope: "col", class: "num" }, "P&L"),
-            h("th", { scope: "col", class: "num" }, "Δ"),
-            h("th", { scope: "col", class: "num bk-c-gamma" }, "Γ"),
-            h("th", { scope: "col", class: "num" }, "Θ ₹/d"),
-            h("th", { scope: "col", class: "num" }, "Vega ₹"),
+            h("th", { scope: "col", class: "bk-c-name" }, "Contract"),
+            h("th", { scope: "col", class: "num bk-c-lots" }, "Lots"),
+            h("th", { scope: "col", class: "num bk-c-am" }, "Avg → Mark"),
+            h("th", { scope: "col", class: "num bk-c-pnl" }, "P&L"),
+            h("th", { scope: "col", class: "num bk-c-g" }, "Δ"),
+            h("th", { scope: "col", class: "num bk-c-g bk-c-gamma" }, "Γ"),
+            h("th", { scope: "col", class: "num bk-c-g" }, "Θ ₹/d"),
+            h("th", { scope: "col", class: "num bk-c-g" }, "Vega ₹"),
             h("th", { scope: "col", class: "bk-c-act" }, h("span", { class: "pal-sr-only" }, "Actions")),
           ),
         ),
@@ -301,8 +319,8 @@ export function createBookView({ openTicket }) {
               "tr",
               { "data-selected": isSel(l) ? "" : null },
               h("td", { class: "bk-c-sel" }, check(l)),
-              h("td", { class: "bk-c-acct" }, h("span", { class: "bk-acct-chip", title: l.account }, l.accountLabel)),
-              h("td", { class: "bk-contract-cell" }, h("span", { class: "bk-acct-chip bk-acct-inline", title: l.account }, l.accountLabel), h("span", { class: "bk-contract" }, h("span", { class: `bk-side ${l.side === "S" ? "s" : "b"}`, "aria-label": l.side === "S" ? "Short" : "Long" }, l.side), h("span", {}, l.name), l.guarded ? h("span", { class: "bk-shield", title: "A guard watches this leg" }, icon("safety")) : null, l.iv ? h("small", { class: "muted bk-iv" }, `IV ${l.iv}`) : null)),
+              h("td", { class: "bk-c-acct" }, h("span", { class: "bk-acct-chip", title: chipTitle(l) }, l.accountLabel)),
+              h("td", { class: "bk-contract-cell" }, h("span", { class: "bk-acct-chip bk-acct-inline", title: chipTitle(l) }, l.accountLabel), h("span", { class: "bk-contract" }, h("span", { class: `bk-side ${l.side === "S" ? "s" : "b"}`, "aria-label": l.side === "S" ? "Short" : "Long" }, l.side), h("span", {}, l.name), l.guarded ? h("span", { class: "bk-shield", title: "A guard watches this leg" }, icon("safety")) : null, l.iv ? h("small", { class: "muted bk-iv" }, `IV ${l.iv}`) : null)),
               h("td", { class: "num" }, l.lots),
               h("td", { class: "num", title: l.markTitle }, `${l.avg} → ${l.mark}`),
               h("td", { class: "num" }, h("span", { "data-tone": l.pnlTone, class: "bk-tone" }, l.pnl)),
@@ -326,7 +344,7 @@ export function createBookView({ openTicket }) {
         h(
           "li",
           { class: "bk-card", "data-selected": isSel(l) ? "" : null },
-          h("div", { class: "bk-card-top" }, h("label", { class: "bk-card-check" }, check(l)), h("span", { class: "bk-acct-chip", title: l.account }, l.accountLabel), h("span", { class: "bk-tone bk-card-pnl", "data-tone": l.pnlTone }, l.pnl)),
+          h("div", { class: "bk-card-top" }, h("label", { class: "bk-card-check" }, checkInput(l)), h("span", { class: "bk-acct-chip", title: chipTitle(l) }, l.accountLabel), h("span", { class: "bk-tone bk-card-pnl", "data-tone": l.pnlTone }, l.pnl)),
           h("div", { class: "bk-card-name" }, h("span", { class: `bk-side ${l.side === "S" ? "s" : "b"}`, "aria-label": l.side === "S" ? "Short" : "Long" }, l.side), h("strong", {}, l.name), h("span", { class: "muted" }, ` ${l.lots}`), l.guarded ? h("span", { class: "bk-shield", title: "A guard watches this leg" }, icon("safety")) : null),
           h(
             "div",
@@ -406,7 +424,7 @@ export function createBookView({ openTicket }) {
       return;
     }
     if (error && !data) {
-      root.replaceChildren(alertBox(error), h("div", { class: "row" }, h("button", { type: "button", class: "small", onclick: () => load(true) }, "Try again")));
+      root.replaceChildren(h("div", { class: "stack bk-error" }, alertBox(error), h("div", { class: "row" }, h("button", { type: "button", class: "small", onclick: () => load(true) }, "Try again"))));
       after.replaceChildren();
       return;
     }
@@ -414,10 +432,13 @@ export function createBookView({ openTicket }) {
     const head = h(
       "div",
       { class: "panel-head bk-head" },
-      h("span", { class: "panel-title" }, h("strong", {}, scope === "family" ? data.family?.name ?? "Family" : "All accounts"), h("span", { class: "muted" }, scope === "family" ? ` · ${vm.stripNote ?? ""}` : ` · ${vm.holders.length} holder${vm.holders.length === 1 ? "" : "s"}`)),
+      h("span", { class: "panel-title" }, h("strong", {}, scope === "family" ? data.family?.name ?? "Family" : "All accounts"), h("span", { class: "muted" }, scope === "family" ? (vm.stripNote ? ` · ${vm.stripNote}` : "") : ` · ${vm.holders.length} holder${vm.holders.length === 1 ? "" : "s"}`)),
       h("span", { class: "muted bk-asof" }, `as of ${istTime(data.asOf)}`),
     );
-    const strip = vm.strip
+    const unread = vm.unreadNote ? h("p", { class: "bk-unread" }, icon("warn"), vm.unreadNote) : null;
+    const strip = !vm.visible
+      ? null
+      : vm.strip
       ? h(
           "div",
           { class: "bk-strip", role: "list" },
@@ -429,17 +450,17 @@ export function createBookView({ openTicket }) {
           "div",
           { class: "bk-bulk", role: "region", "aria-label": "Selected legs" },
           h("span", {}, `${formatInt(selected.length)} leg${selected.length === 1 ? "" : "s"} · ${vm.holders.flatMap((x) => x.accounts).find((a) => a.account === selected[0].account)?.label ?? selected[0].account}`),
-          h("button", { type: "button", class: "small", onclick: () => ((selected = []), draw()) }, "Clear"),
-          h("button", { type: "button", class: "small primary", onclick: () => exitSelected(vm) }, "Exit selected"),
+          h("button", { type: "button", class: "small", "aria-label": "Clear the selection", onclick: () => ((selected = []), draw()) }, "Clear"),
+          h("button", { type: "button", class: "small primary", "aria-label": `Exit the ${formatInt(selected.length)} selected leg${selected.length === 1 ? "" : "s"}`, onclick: () => exitSelected(vm) }, `Exit ${formatInt(selected.length)}`),
         )
       : null;
-    root.replaceChildren(...[head, strip, error ? alertBox(error, "warn") : null].filter(Boolean));
+    root.replaceChildren(...[head, strip, unread, error ? alertBox(error, "warn") : null].filter(Boolean));
     holderEls = vm.holders.map((x) => holderSection(x, phone));
     const outside = vm.outside.length
       ? h(
           "section",
           { class: "desk-panel bk-outside", "aria-label": "Outside the family" },
-          h("div", { class: "panel-head" }, h("span", { class: "panel-title" }, h("strong", {}, "Not in the family view"))),
+          h("div", { class: "panel-head" }, h("span", { class: "panel-title" }, h("strong", {}, "Outside the family"))),
           h(
             "ul",
             { class: "bk-out-list" },
@@ -448,10 +469,14 @@ export function createBookView({ openTicket }) {
           h("p", { class: "muted bk-out-note" }, vm.outside[0].note, " ", h("a", { href: "#/accounts" }, "Set the relationship on the Accounts page")),
         )
       : null;
-    const notes = h("footer", { class: "bk-notes muted" }, vm.notes.map((n) => h("p", {}, n)));
-    const nothing = vm.empty && !vm.holders.length ? emptyState("accounts", "No accounts to show", "This key cannot see any account with positions.") : null;
+    const notes = vm.visible ? h("footer", { class: "bk-notes muted" }, vm.notes.map((n) => h("p", {}, n))) : null;
+    const nothing =
+      vm.emptyReason === "no-accounts"
+        ? emptyState("accounts", "No accounts to show", scope === "family" ? "No family holder has an account this key may use. Set relationships on the Accounts page." : "This key may not use any account.")
+        : null;
     // The selection bar floats at the bottom of the view (sticky), next to the legs being chosen.
     after.replaceChildren(...[nothing, ...holderEls, outside, notes, bulk].filter(Boolean));
+    after.toggleAttribute("data-bulk", Boolean(bulk));
   }
 
   return {
@@ -464,7 +489,12 @@ export function createBookView({ openTicket }) {
       if (s !== scope) {
         scope = s;
         selected = [];
-        if (loadedFor !== s) data = data && loadedFor ? data : null;
+        // Never draw one scope's body under the other's heading: show the loading state until this scope's read lands.
+        if (loadedFor !== s) {
+          data = null;
+          error = null;
+          loadedFor = null;
+        }
       }
       draw();
       load(loadedFor !== s);

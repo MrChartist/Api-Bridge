@@ -6636,6 +6636,9 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
 .pos-scope-hint { font-size: 12.5px; min-width: 0; }
 :root:is([data-pos-scope="all"], [data-pos-scope="family"]) #content > :is(.pos-book, .pos-panel, .pos-riskp, .pos-hedge, .pos-slot) { display: none !important; }
 :root:is([data-pos-scope="all"], [data-pos-scope="family"]) #toolbar-ctx .ctx-acct { display: none; }
+/* The book spans every underlying and keeps its own "as of" time: one underlying's spot, lot chip and live clock would
+   only freeze (and read stale) while the book is on screen, so they leave the toolbar. */
+:root:is([data-pos-scope="all"], [data-pos-scope="family"]) #toolbar-ctx :is(.ctx-cap, .ref-chip, .live-ctl, .expiry-chip) { display: none; }
 .bk-wrap { display: flex; flex-direction: column; gap: var(--panel-gap, 16px); min-width: 0; }
 .bk-wrap[hidden] { display: none; }
 .bk-after { display: flex; flex-direction: column; gap: var(--panel-gap, 16px); min-width: 0; }
@@ -6653,6 +6656,14 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
 @media (max-width: 1023px) { .bk-bulk { bottom: calc(var(--tabbar-h) + 88px + var(--safe-b)); } }
 .bk-bulk > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .bk-bulk button { flex: none; }
+/* Room under the last panel for the floating selection bar, so it never covers the notes at the end of the page. */
+.bk-after[data-bulk] .bk-bulk { margin-bottom: 8px; }
+.bk-after[data-bulk] .bk-notes { padding-bottom: 72px; }
+@media (max-width: 719px) {
+  .bk-bulk { flex-wrap: wrap; justify-content: flex-end; width: 100%; padding: 10px 10px 10px 14px; border-radius: var(--r-md, 18px); }
+  .bk-bulk > span { flex: 1 1 100%; white-space: normal; overflow-wrap: anywhere; }
+  .bk-after[data-bulk] .bk-notes { padding-bottom: 120px; }
+}
 .bk-hhead { display: flex; align-items: center; justify-content: flex-start; gap: 10px 14px; font: inherit; white-space: normal; width: 100%; min-height: 52px; padding: 10px 12px; border: 0; border-radius: 0; background: none; color: inherit; text-align: left; cursor: pointer; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 .bk-hhead:hover { background: var(--mat-fill-1); }
 .bk-hname { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; flex: 1 1 auto; }
@@ -6675,6 +6686,7 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
 .bk-acct-sub, .bk-acct-asof { font: 500 12px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; }
 .bk-acct-err { display: flex; gap: 6px; align-items: flex-start; font-size: 12.5px; color: hsl(var(--warn-ink)); }
 .bk-acct-err svg, .bk-gmiss svg { flex: none; width: 14px; height: 14px; margin-top: 1px; }
+:is(.bk-acct-err, .bk-gmiss, .bk-unread) svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .bk-price-note { margin: 0; padding: 0 12px 6px; font-size: 12px; }
 .bk-none { margin: 0; padding: 4px 12px 14px; font-size: 13px; }
 .bk-under { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
@@ -6694,10 +6706,30 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
 .bk-legs :is(th, td).num { text-align: right; }
 .bk-legs tr[data-selected] td { background: hsl(var(--sel-bg) / 0.06); }
 .bk-c-sel { width: 36px; padding-right: 0 !important; }
-.bk-c-act { width: 1%; text-align: right; }
+.bk-legs .bk-c-act { width: 1%; text-align: right; }
 .bk-legs :is(th, td):first-child { padding-left: 12px; }
 .bk-legs :is(th, td):last-child { padding-right: 12px; }
-.bk-check { width: 18px; height: 18px; accent-color: hsl(var(--sel-bg)); }
+.bk-check { width: 18px; height: 18px; margin: 0; accent-color: hsl(var(--sel-bg)); }
+.bk-check-hit { display: inline-grid; place-items: center; width: 28px; height: 28px; margin: -5px; cursor: pointer; vertical-align: middle; }
+.bk-error { gap: 10px; padding: 12px; }
+.bk-unread { display: flex; gap: 6px; align-items: flex-start; margin: 0; padding: 8px 12px; font-size: 12.5px; color: hsl(var(--warn-ink)); box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+@media (min-width: 1024px) { .bk-acct-chip { max-width: 240px; } }
+.bk-unread svg { flex: none; width: 14px; height: 14px; margin-top: 1px; }
+/* Wide desktops: one set of column widths for every underlying's table, so figures line up from block to block. */
+@media (min-width: 1360px) {
+  .bk-legs { table-layout: fixed; }
+  .bk-legs .bk-c-sel { width: 40px; }
+  .bk-legs .bk-c-acct { width: 184px; }
+  .bk-legs .bk-c-lots { width: 68px; }
+  .bk-legs .bk-c-am { width: 142px; }
+  .bk-legs .bk-c-pnl { width: 82px; }
+  .bk-legs .bk-c-g { width: 68px; }
+  .bk-legs .bk-c-act { width: 68px; }
+  .bk-legs td.bk-contract-cell { white-space: normal; }
+  .bk-legs td.bk-contract-cell .bk-contract { display: flex; flex-wrap: wrap; column-gap: 6px; row-gap: 0; }
+  .bk-legs td.bk-contract-cell .bk-contract > span:nth-child(2) { white-space: nowrap; }
+  .bk-legs .bk-c-acct .bk-acct-chip { max-width: 100%; }
+}
 .bk-acct-chip { display: inline-block; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; padding: 3px 8px; border-radius: 99px; font: 600 12px/1.2 var(--font-body); background: var(--mat-fill-2); }
 .bk-contract { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; }
 .bk-contract small { font-size: 12px; }
@@ -6751,6 +6783,8 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
 @media (pointer: coarse) {
   .bk-acts button, .bk-bulk button, .bk-hhead { min-height: 44px; }
   .bk-card-check { width: 44px; height: 44px; margin: -10px 0 -10px -10px; }
+  .bk-check-hit { width: 44px; height: 44px; margin: -12px -8px -12px -12px; }
+  .bk-legs .bk-c-sel { width: 44px; }
 }
 .acct-holder { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 .acct-family-note { margin: 0; padding: 10px 16px 14px; box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
@@ -6758,7 +6792,10 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
 .acct-holder button.link-btn { min-height: 28px; padding: 0 4px; background: none; box-shadow: none; font: 600 12.5px/1.2 var(--font-body); color: hsl(var(--ios-blue-ink)); }
 .acct-holder button.link-btn:hover { text-decoration: underline; background: none; }
 @media (pointer: coarse) { .acct-holder button.link-btn { min-height: 44px; padding: 0 10px; } }
-.acct-holder { max-width: 240px; }
 .acct-holder .bk-rel { white-space: normal; }
+@media (min-width: 1024px) {
+  .accounts-card td:first-child { min-width: 280px; }
+  .acct-holder .bk-rel { white-space: nowrap; }
+}
 .acct-holder .bk-rel { border-radius: 8px; }
 .bk-card-g > span { white-space: nowrap; }

@@ -178,6 +178,8 @@ export function aggregate(holders, { view, family, partial = false, asOf }) {
         marginUsed: t("marginUsed"),
         marginAvailable: t("marginAvailable"),
         accounts: accs.length,
+        // Accounts whose positions could not be read: their P&L and margin are left out of these sums.
+        unread: accs.filter((a) => a.error).length,
         partial: Boolean(partial),
       },
       notes: [BOOK_NOTES.family],

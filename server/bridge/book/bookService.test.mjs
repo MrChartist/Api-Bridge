@@ -38,7 +38,7 @@ const QUOTES = {
   "NFO:NIFTY-2026-11-03-25000-PE": { ltp: 96, bid: 95.5, ask: 96.5 },
 };
 
-function fakes({ fail = new Set(), connected = ["zerodha-main", "dhan-main", "upstox-asha", "dhan-friend"] } = {}) {
+function fakes({ fail = new Set(), connected = ["zerodha-main", "dhan-main", "upstox-asha", "dhan-friend"], symbols: symbolsIn = null } = {}) {
   const calls = { quotes: [], positions: [], funds: [] };
   let t = NOW;
   const orders = {
@@ -68,7 +68,7 @@ function fakes({ fail = new Set(), connected = ["zerodha-main", "dhan-main", "up
         capabilities: a.broker === "paper" ? ["positions", "funds"] : ["quotes", "optionChain", "positions", "funds"],
       })),
   };
-  const symbols = { resolve: async (s) => ({ lotSize: s.startsWith("BFO") ? 20 : 65 }) };
+  const symbols = symbolsIn ?? { resolve: async (s) => ({ lotSize: s.startsWith("BFO") ? 20 : 65 }) };
   const svc = createBookService({ config: CONFIG, orders, marketData, accounts, symbols, holderTags: () => TAGS, clock: { now: () => t } });
   return { svc, calls, advance: (ms) => (t += ms) };
 }
@@ -149,6 +149,23 @@ describe("bookService", () => {
     expect(dhan.pnl).toBeNull();
     expect(self.accounts.find((a) => a.account === "zerodha-main").pnl).toBe(-4888);
     expect(self.totals.pnl).toBe(-4888);
+  });
+
+  it("a lot-size lookup that fails is not remembered: the next read asks again", async () => {
+    let ready = false;
+    const symbols = {
+      resolve: async (s) => {
+        if (!ready) throw new Error("instruments still loading");
+        return { lotSize: s.startsWith("BFO") ? 20 : 65 };
+      },
+    };
+    const { svc, advance } = fakes({ symbols });
+    const first = await svc.read(ctxAll, { view: "holders" });
+    expect(first.holders[0].underlyings[0].lot).toBeNull();
+    ready = true;
+    advance(11_000);
+    const second = await svc.read(ctxAll, { view: "holders" });
+    expect(second.holders[0].underlyings[0].lot).toBe(65);
   });
 
   it("positions and funds are cached for cacheSeconds (10 s) per account", async () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { aggregate, priceHolder, noDataReason } from "./book-core.js";
 // views.js imports desk.js, which imports positions.js, which imports book-view.js: load it first so the cycle settles.
 await import("./views.js");
-const { bookViewModel, contractName, lotsText, money, moneyCompact, relationshipChip, SCOPES, BOOK_POLL_MS } = await import("./book-view.js");
+const { bookViewModel, contractName, exitArgs, lotsText, money, moneyCompact, relationshipChip, SCOPES, BOOK_POLL_MS } = await import("./book-view.js");
 
 const holder = (o) =>
   priceHolder({
@@ -49,7 +49,7 @@ describe("book view-model (positions All accounts / Family)", () => {
     ]);
     expect(vm.strip[4].sub).toBe("Sum of separate accounts; margin is not shared between accounts.");
     expect(vm.holders.map((x) => [x.label, x.chip.text])).toEqual([["Me", "Self"], ["Asha", "Spouse"]]);
-    expect(vm.outside).toEqual([{ holder: "friend", label: "friend", chip: { text: "Other · Outside family", tone: "warn" }, accounts: "1 account", note: body.outsideFamily[0].note }]);
+    expect(vm.outside).toEqual([{ holder: "friend", label: "friend", chip: { text: "Other · Outside family", tone: "warn" }, accounts: "1 account", note: "Guards and alert actions are not allowed on this holder's accounts." }]);
     expect(vm.notes[0]).toMatch(/Margin is not shared between accounts/);
   });
 
@@ -77,6 +77,35 @@ describe("book view-model (positions All accounts / Family)", () => {
     expect(vm.holders[0].chip).toEqual({ text: "Other · Outside family", tone: "warn" });
     const demo = bookViewModel({ holders: [{ ...SELF, accounts: [{ ...SELF.accounts[0], broker: "demo" }] }] }, "all");
     expect(demo.holders[0].accounts[0].modeBadge).toBe("Sample");
+  });
+
+  it("family scope never draws an outside-family holder, even from a holders-view body (while switching scope)", () => {
+    const holdersBody = aggregate([SELF, SPOUSE, FRIEND], { view: "holders", family: { name: "Family", relationships: ["self", "spouse"] }, asOf: "t" });
+    const vm = bookViewModel(holdersBody, "family");
+    expect(vm.holders.map((x) => x.holder)).toEqual(["self", "spouse"]);
+    expect(vm.holders.every((x) => x.inFamily)).toBe(true);
+  });
+
+  it("an unread account is called out: totals leave it out", () => {
+    const vm = bookViewModel(aggregate([SELF, FRIEND], { view: "holders", family: { name: "Family", relationships: ["self"] }, asOf: "t" }), "all");
+    expect(vm.unreadNote).toBe("1 account could not be read; totals leave it out.");
+    expect(bookViewModel(aggregate([SELF], { view: "holders", family: { name: "Family", relationships: ["self"] }, asOf: "t" }), "all").unreadNote).toBeNull();
+  });
+
+  it("no visible holder: no totals strip of zeros, only the empty state", () => {
+    const vm = bookViewModel(aggregate([], { view: "family", family: { name: "Family", relationships: ["self"] }, asOf: "t" }), "family");
+    expect(vm.strip).toBeNull();
+    expect(vm.visible).toBe(false);
+    expect(vm.emptyReason).toBe("no-accounts");
+  });
+
+  it("exit ticket arguments: the leg's own account, full quantity, units when not a lot multiple, IV and Δ from the row", () => {
+    const vm = bookViewModel(aggregate([SELF], { view: "holders", family: { name: "Family", relationships: ["self"] }, asOf: "t" }), "all");
+    const l = vm.holders[0].underlyings[0].legs[0];
+    const a = exitArgs(l);
+    expect(a).toMatchObject({ account: "z", side: "BUY", qty: 130, held: 130, exit: true, units: false, lotSize: 65 });
+    expect(a.quote()).toMatchObject({ ltp: 120, delta: 0.42 });
+    expect(exitArgs({ ...l, q: -100 }).units).toBe(true);
   });
 
   it("formatters", () => {

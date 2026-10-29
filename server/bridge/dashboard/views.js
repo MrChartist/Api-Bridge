@@ -975,7 +975,7 @@ async function renderHome() {
         actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/accounts") }, "Manage"),
         body: table(
           [
-            { label: "Account", wrap: true, cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id), holderCell(a)) },
+            { label: "Account", wrap: true, cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
             { label: "Broker", cell: (a) => brokerCell(a.broker, a.broker) },
             { label: "Session", cell: (a) => sessionPill(a.session?.state) },
             { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")) },
@@ -1347,8 +1347,8 @@ async function renderAccounts() {
     return h(
       "div",
       { class: "acct-holder" },
-      h("span", { class: "bk-rel", "data-tone": e.inFamily ? "ok" : "warn" }, holderText(e)),
-      e.locked ? h("span", { class: "muted small" }, "set in bridge.config.json") : h("button", { type: "button", class: "small link-btn", "aria-label": `Edit the relationship of holder ${e.holder}`, onclick: () => holderSheet(e, book.relationships) }, "Edit"),
+      h("span", { class: "bk-rel", "data-tone": e.inFamily ? "ok" : "warn" }, `Holder: ${holderText(e)}`),
+      e.locked ? h("span", { class: "muted small" }, "set in bridge.config.json") : h("button", { type: "button", class: "small link-btn", "aria-label": `Edit the relationship of holder ${e.holder}`, onclick: () => holderSheet(e, book.relationships) }, "Edit relationship"),
     );
   };
   const list = brokers.data.data ?? [];
