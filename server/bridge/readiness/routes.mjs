@@ -90,16 +90,10 @@ export function createReadinessRoutes(deps) {
         // A known account the monitor does not track (a paper account): nothing to check.
         return { data: shape(ctx, readiness.status({ accountIds: [] })), meta: meta(ctx, { skipped: [] }) };
       }
-      let skipped = [];
-      if (body.account) {
-        const r = await readiness.checkNow({ accountId: body.account, reason: "manual" });
-        skipped = r.skipped;
-      } else {
-        // Check only what this key may see.
-        const results = await Promise.all(ids.map((id) => readiness.checkNow({ accountId: id, reason: "manual" })));
-        skipped = [...new Set(results.flatMap((r) => r.skipped))];
-      }
-      return { data: shape(ctx, readiness.status({ accountIds: ids })), meta: meta(ctx, { skipped }) };
+      // One call over the ids this key may see; its snapshot carries the 12 s "Still checking" overlay (§4.2), so the
+      // answer never shows an earlier probe's result while a probe or lookup is still running.
+      const r = await readiness.checkNow(body.account ? { accountId: body.account, reason: "manual" } : { accountIds: ids, reason: "manual" });
+      return { data: shape(ctx, r.snapshot), meta: meta(ctx, { skipped: r.skipped }) };
     },
 
     /** GET /v1/readiness/history */

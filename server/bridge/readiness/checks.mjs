@@ -72,8 +72,10 @@ const reason = (check, code, severity, message) => ({ check, code, severity, mes
  * @param {{ session: { state: string, expiresAt: string | null, message?: string | null }, probe: { result: "ok"|"rejected"|"error", at: number, message?: string } | null,
  *   probeRequired?: boolean, now: number, warnMinutes: number, closeMs: number, expirySource?: string, who?: { label?: string } }} input
  *   closeMs: today's session close (reference, else 15:30 IST). probeRequired false when probing is turned off.
+ *   maxProbeAgeMs: a passing probe older than this is not proof of a live session (a probe restored from yesterday,
+ *   or one left over after the window closed): the check is unknown, "Not checked recently" (§2.3, §3.2).
  */
-export function sessionCheck({ session, probe, probeRequired = true, now, warnMinutes, closeMs, expirySource = "broker-stated" }) {
+export function sessionCheck({ session, probe, probeRequired = true, now, warnMinutes, closeMs, expirySource = "broker-stated", maxProbeAgeMs = Infinity }) {
   const exp = session?.expiresAt ? Date.parse(session.expiresAt) : null;
   const check = {
     status: "pass",
@@ -101,6 +103,11 @@ export function sessionCheck({ session, probe, probeRequired = true, now, warnMi
   if (st !== "connected" || (probeRequired && !probe)) {
     check.status = "unknown";
     check.message = st === "checking" ? "Still checking" : "Not checked yet";
+    return { check, reasons };
+  }
+  if (probeRequired && !(now - probe.at <= maxProbeAgeMs)) {
+    check.status = "unknown";
+    check.message = "Not checked recently";
     return { check, reasons };
   }
   if (probe?.result === "error") {
@@ -330,6 +337,9 @@ export function notifyFailKey(state, reasons) {
  */
 export function shouldNotify({ from, to, key, lastKey, lastAt, now, cooldownMinutes, onRecovery }) {
   if (to === "cannot_trade") {
+    // Staying in cannot_trade: only a new fail set is news. The cooldown applies only on entry (a flap back in), so
+    // warn reasons coming and going under the same failure never re-send it (R5).
+    if (from === "cannot_trade") return { notify: key !== lastKey, kind: "change" };
     const notify = key !== lastKey || !Number.isFinite(lastAt) || now - lastAt >= cooldownMinutes * MINUTE;
     return { notify, kind: "change" };
   }

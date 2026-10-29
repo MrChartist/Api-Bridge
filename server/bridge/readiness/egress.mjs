@@ -74,7 +74,12 @@ export function createEgressDetector({ cfg, fetchImpl = globalThis.fetch, clock 
           signal: AbortSignal.timeout(cfg.timeoutMs),
         });
         if (!res.ok) {
-          await res.text().catch(() => "");
+          // Never read an error body (it could be large): drop it unread.
+          try {
+            await res.body?.cancel?.();
+          } catch {
+            /* already closed */
+          }
           return { ok: false, error: `the service answered HTTP ${res.status}`, at: clock.now(), seenBy: host };
         }
         const text = await readCapped(res, LOOKUP_BODY_MAX_BYTES);
