@@ -3313,12 +3313,6 @@ export function annualise(net, capital, days) {
   if (n === null || c === null || d === null || c <= 0 || d < 1) return null;
   return (n / c) * (365 / d);
 }
-const median = (xs) => {
-  const a = [...xs].sort((x, y) => x - y);
-  if (!a.length) return null;
-  const m = Math.floor(a.length / 2);
-  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
-};
 const sortedRows = (chain) => [...(chain?.rows ?? [])].filter((r) => num(r?.strike) !== null).sort((a, b) => a.strike - b.strike);
 const nearestIndex = (rows, x) => {
   let best = -1;
@@ -3899,4 +3893,492 @@ export function arbConfig(saved) {
     cols,
     notesOpen: typeof s.notesOpen === "boolean" ? s.notesOpen : null,
   };
+}
+
+// ── Option Screener (PRD 07): per-leg metrics, scores, costs, skew and hedges over many chains ──
+
+/**
+ * Contracts whose volume ÷ OI stands out from the rest of the chain: at least `minRatio`× the side's median (the
+ * upper median, as the chain has always used), the `top` highest per side. Fewer than 5 live legs on a side: none.
+ * @returns {Set<string>} symbols
+ */
+export function unusualVolume(rows, { minRatio = 3, top = 4 } = {}) {
+  const out = new Set();
+  for (const side of ["ce", "pe"]) {
+    const legs = (rows ?? []).map((r) => r[side]).filter((q) => num(q?.volume) > 0 && num(q?.oi) > 0).map((q) => ({ symbol: q.symbol, r: q.volume / q.oi }));
+    if (legs.length < 5) continue;
+    const sorted = legs.map((l) => l.r).sort((a, b) => a - b);
+    const med = sorted[Math.floor(sorted.length / 2)];
+    legs.sort((a, b) => b.r - a.r).slice(0, top).filter((l) => l.r >= minRatio * med).forEach((l) => out.add(l.symbol));
+  }
+  return out;
+}
+
+/** The median of the figures in `values` (nulls and non-numbers ignored); null when none. */
+export function median(values) {
+  const v = (values ?? []).map(num).filter((x) => x !== null).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const m = v.length >> 1;
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+}
+
+/**
+ * strike → (volume ÷ OI) ÷ the median volume ÷ OI of the same side, over legs with volume > 0 and OI > 0. Fewer than
+ * 5 such legs: an empty map (a median of three strikes says nothing).
+ */
+export function volOiRelative(rows, side) {
+  const legs = (rows ?? []).map((r) => ({ k: r.strike, q: r[side] })).filter((x) => num(x.q?.volume) > 0 && num(x.q?.oi) > 0).map((x) => ({ k: x.k, r: x.q.volume / x.q.oi }));
+  const out = new Map();
+  if (legs.length < 5) return out;
+  const med = median(legs.map((l) => l.r));
+  if (!(med > 0)) return out;
+  for (const l of legs) out.set(l.k, l.r / med);
+  return out;
+}
+
+/** Median IV of the `n` nearest strikes below and `n` above `strike` on one side (iv > 0; the strike itself left out). */
+const LIVE_IV = new WeakMap(); // rows → { ce, pe }: legs with an IV, by strike (one sort per chain, not per leg)
+export function neighbourIv(rows, side, strike, n = 2) {
+  if (!rows) return null;
+  let memo = LIVE_IV.get(rows);
+  if (!memo) LIVE_IV.set(rows, (memo = {}));
+  const live = (memo[side] ??= rows.filter((r) => num(r?.strike) !== null && num(r[side]?.iv) > 0).map((r) => ({ k: r.strike, iv: Number(r[side].iv) })).sort((a, b) => a.k - b.k));
+  let i = 0;
+  while (i < live.length && live[i].k < strike) i += 1;
+  const below = live.slice(Math.max(0, i - n), i);
+  const above = live.slice(i < live.length && live[i].k === strike ? i + 1 : i).slice(0, n);
+  return median([...below, ...above].map((x) => x.iv));
+}
+
+/**
+ * 25-delta risk reversal from the chain's own deltas: IV of the put nearest Δ −0.25 minus IV of the call nearest
+ * Δ +0.25 (each within ±0.08). Positive = puts richer. Null when either wing is missing.
+ */
+export function skew25(rows) {
+  const pick = (side) => {
+    let best = null;
+    for (const r of rows ?? []) {
+      const d = num(r[side]?.delta);
+      const iv = num(r[side]?.iv);
+      if (d === null || !(iv > 0)) continue;
+      const gap = Math.abs(Math.abs(d) - 0.25);
+      if (gap <= 0.08 && (best === null || gap < best.gap)) best = { strike: r.strike, iv, gap };
+    }
+    return best;
+  };
+  const p = pick("pe");
+  const c = pick("ce");
+  if (!p || !c) return null;
+  return { put: p.iv, call: c.iv, rr: p.iv - c.iv, putStrike: p.strike, callStrike: c.strike };
+}
+
+/** P(price at expiry < x) on the forward (log-normal, Black-76); 0 for x ≤ 0; null without a forward, time or vol. */
+export function probBelow(x, forward, years, ivPct) {
+  const X = num(x);
+  const F = num(forward);
+  const sig = (num(ivPct) ?? 0) / 100;
+  if (X === null || F === null || F <= 0 || !(years > 0) || !(sig > 0)) return null;
+  return cdfAt(X, F, years, sig);
+}
+
+/** One hour in years: the floor for T, so σ maths near the close never divides by zero. */
+export const MIN_YEARS = 1 / (24 * 365);
+
+/**
+ * Statutory charges for the screener's cost columns (as of 1 Apr 2026; estimates). Percent fields are in percent
+ * (0.15 = 0.15 %). Brokerage is the user's setting.
+ */
+export const CHARGES = Object.freeze({
+  asOf: "2026-04-01",
+  brokeragePerOrder: 20,
+  sttSellPct: 0.15,
+  sttExercisePct: 0.15,
+  txnPct: Object.freeze({ NFO: 0.03503, BFO: 0.0325 }),
+  sebiPerCrore: 10,
+  stampBuyPct: 0.003,
+  gstPct: 18,
+});
+const zeroCosts = () => ({ brokerage: 0, stt: 0, txn: 0, sebi: 0, stamp: 0, gst: 0, total: 0 });
+const addCosts = (a, b) => {
+  a.brokerage += b.brokerage;
+  a.stt += b.stt;
+  a.txn += b.txn;
+  a.sebi += b.sebi;
+  a.stamp += b.stamp;
+  a.gst += b.gst;
+  a.total += b.total;
+  return a;
+};
+/**
+ * Charges of one option order in ₹ (unrounded): brokerage, STT (sells, on premium), exchange transaction charge,
+ * SEBI fee, stamp duty (buys) and GST on brokerage + exchange + SEBI.
+ * @param {{ side: "BUY"|"SELL", price: number, qty: number, exchange?: "NFO"|"BFO" }} o
+ */
+export function legCosts({ side, price, qty, exchange = "NFO" } = {}, charges = CHARGES) {
+  const c = charges ?? CHARGES;
+  const turnover = Math.max(0, (num(price) ?? 0) * (num(qty) ?? 0));
+  const brokerage = num(c.brokeragePerOrder) ?? 0;
+  const stt = side === "SELL" ? (turnover * c.sttSellPct) / 100 : 0;
+  const txn = (turnover * (c.txnPct[exchange] ?? c.txnPct.NFO)) / 100;
+  const sebi = (turnover * c.sebiPerCrore) / 1e7;
+  const stamp = side === "BUY" ? (turnover * c.stampBuyPct) / 100 : 0;
+  const gst = ((brokerage + txn + sebi) * c.gstPct) / 100;
+  return { brokerage, stt, txn, sebi, stamp, gst, total: brokerage + stt + txn + sebi + stamp + gst };
+}
+/** Buy then sell one lot at the same price: the cost of a round trip, by line. */
+export function roundTripCosts(price, lot, exchange = "NFO", charges = CHARGES) {
+  const out = zeroCosts();
+  addCosts(out, legCosts({ side: "BUY", price, qty: lot, exchange }, charges));
+  addCosts(out, legCosts({ side: "SELL", price, qty: lot, exchange }, charges));
+  return out;
+}
+/**
+ * Opening charges of an arbitrage hit for one lot (each leg × its qty), plus settlement STT on a box: 0.15 % of the
+ * width × lot (the intrinsic of the in-the-money long leg at expiry).
+ */
+export function arbCosts(hit, lot, exchange = "NFO", charges = CHARGES) {
+  const c = charges ?? CHARGES;
+  const out = zeroCosts();
+  for (const l of hit?.legs ?? []) addCosts(out, legCosts({ side: l.side, price: l.price, qty: (num(l.qty) ?? 1) * (num(lot) ?? 1), exchange }, c));
+  if (/box/i.test(String(hit?.kind ?? "")) && hit.legs?.length) {
+    const ks = hit.legs.map((l) => l.strike);
+    const settle = ((Math.max(...ks) - Math.min(...ks)) * (num(lot) ?? 1) * c.sttExercisePct) / 100;
+    out.stt += settle;
+    out.total += settle;
+  }
+  return out;
+}
+
+/**
+ * What every screener row of one chain shares: spot, forward (parity, as on the Chain page), time (floored at one
+ * hour), lot, ATM IV and the ±1σ move, the chain summary, volume ranks, Vol/OI medians, HV20 and the exchange.
+ */
+export function chainContext(chain, { now = Date.now(), hv20 = null, charges = CHARGES } = {}) {
+  const rows = [...(chain?.rows ?? [])].filter((r) => num(r?.strike) !== null).sort((a, b) => a.strike - b.strike);
+  const sm = chainSummary(chain);
+  const tte = timeToExpiry(chain?.expiry, now);
+  const yrs = tte.days === null ? null : tte.days / 365;
+  const T = yrs === null ? null : Math.max(yrs, MIN_YEARS);
+  const S = num(chain?.underlyingLtp);
+  const F = forwardPrice(chain, parityGrowth(T)) ?? S;
+  const atmIv = num(sm.atmIv);
+  let step = null;
+  for (let i = 1; i < rows.length; i++) {
+    const g = rows[i].strike - rows[i - 1].strike;
+    if (g > 0 && (step === null || g < step)) step = g;
+  }
+  const sym = rows.find((r) => r.ce?.symbol || r.pe?.symbol);
+  return {
+    underlying: chain?.underlying ?? null,
+    expiry: chain?.expiry ?? null,
+    rows,
+    S,
+    F,
+    T,
+    days: tte.days,
+    label: tte.label,
+    expired: tte.label === "Expired",
+    lot: num(chain?.lotSize) || 1,
+    atmIv,
+    em: sigmaMove(F, atmIv, T),
+    sm,
+    ranks: { ce: volumeRanks(rows, "ce"), pe: volumeRanks(rows, "pe") },
+    volOi: { ce: volOiRelative(rows, "ce"), pe: volOiRelative(rows, "pe") },
+    hv20: num(hv20),
+    exchange: /^BFO:/.test(String(sym?.ce?.symbol ?? sym?.pe?.symbol ?? "")) ? "BFO" : "NFO",
+    step,
+    charges: charges ?? CHARGES,
+  };
+}
+
+/**
+ * Every figure the screener ranks a single option leg by (PRD 07 §5.2). Null when the leg has no price at all.
+ * Prices: you sell at the bid and buy at the ask (the last price when a side is missing, flagged by `priceQ`).
+ */
+export function legMetrics(leg, row, side, ctx) {
+  if (!leg || !ctx) return null;
+  const R = side === "pe" ? "PE" : "CE";
+  const K = num(row?.strike);
+  const bid = num(leg.bid) > 0 ? num(leg.bid) : null;
+  const ask = num(leg.ask) > 0 ? num(leg.ask) : null;
+  const ltp = num(leg.ltp) > 0 ? num(leg.ltp) : null;
+  const two = bid !== null && ask !== null && ask >= bid;
+  const m = two ? (bid + ask) / 2 : ltp;
+  if (K === null || m === null || !(m > 0)) return null;
+  const { F, S, T, lot, atmIv, days } = ctx;
+  const sell = bid ?? ltp;
+  const buy = ask ?? ltp;
+  const legIv = num(leg.iv) > 0 ? num(leg.iv) : null;
+  const ivL = legIv ?? atmIv;
+  const sdA = atmIv !== null && T > 0 ? (atmIv / 100) * Math.sqrt(T) : null;
+  const delta = num(leg.delta);
+  const theta = num(leg.theta);
+  const vega = num(leg.vega);
+  const oi = num(leg.oi);
+  const oiChange = num(leg.oiChange);
+  const volume = num(leg.volume);
+  const pb = (x) => probBelow(x, F, T, ivL);
+  const popShort = sell === null ? null : R === "CE" ? pb(K + sell) : pb(K - sell) === null ? null : 1 - pb(K - sell);
+  const popLong = buy === null ? null : R === "CE" ? (pb(K + buy) === null ? null : 1 - pb(K + buy)) : pb(K - buy);
+  const beLong = buy === null ? null : R === "CE" ? K + buy : K - buy;
+  const pItm = probItm(F, K, T, ivL, R);
+  const prior = oi !== null && oiChange !== null ? oi - oiChange : null;
+  const nbrIv = neighbourIv(ctx.rows, side, K);
+  return {
+    kind: "contract",
+    key: leg.symbol ?? `${ctx.underlying}|${ctx.expiry}|${K}|${R}`,
+    symbol: leg.symbol ?? null,
+    underlying: ctx.underlying,
+    expiry: ctx.expiry,
+    strike: K,
+    right: R,
+    side,
+    lot,
+    days,
+    S,
+    F,
+    bid,
+    ask,
+    ltp,
+    mid: m,
+    priceQ: two ? "mid" : "ltp",
+    sellPrice: sell,
+    buyPrice: buy,
+    spread: spreadPct(leg),
+    liq: liquidityScore(leg, ctx.ranks[side].get(K)),
+    otm: F !== null && (R === "CE" ? K > F : K < F),
+    iv: legIv,
+    ivUsed: ivL,
+    ivFallback: legIv === null && atmIv !== null,
+    delta,
+    absDelta: delta === null ? null : Math.abs(delta),
+    gamma: num(leg.gamma),
+    theta,
+    vega,
+    sigmaOtm: sdA && F > 0 ? (R === "CE" ? Math.log(K / F) : Math.log(F / K)) / sdA : null,
+    thetaPct: theta !== null && m >= 0.5 ? (Math.abs(theta) / m) * 100 : null,
+    thetaLot: theta === null ? null : Math.abs(theta) * lot,
+    vegaPct: vega !== null ? (vega / m) * 100 : null,
+    leverage: delta !== null && S !== null ? (Math.abs(delta) * S) / m : null,
+    popShort,
+    popLong,
+    beLong,
+    beSigma: sdA && beLong > 0 && F > 0 ? Math.abs(Math.log(beLong / F)) / sdA : null,
+    touch: pItm === null ? null : Math.min(1, 2 * pItm),
+    ivHv: ctx.hv20 !== null && ivL !== null ? ivL - ctx.hv20 : null,
+    volume,
+    oi,
+    oiChange,
+    oiChangeLots: oiChange === null ? null : oiChange / lot,
+    volOi: volume !== null && oi > 0 ? volume / oi : null,
+    volOiRel: ctx.volOi[side].get(K) ?? null,
+    oiChgPct: prior !== null && prior >= 100 * lot ? oiChangePct(leg) : null,
+    committed: oiChange === null ? null : Math.abs(oiChange) * m,
+    turnover: volume === null ? null : volume * m,
+    changePct: changePct(leg),
+    tag: buildup(leg),
+    nbrIv,
+    bump: legIv !== null && nbrIv !== null ? legIv - nbrIv : null,
+    vsAtm: legIv !== null && atmIv !== null ? legIv - atmIv : null,
+    fair: nbrIv !== null ? black76(F, K, T, nbrIv, R) : null,
+    costsRt: roundTripCosts(m, lot, ctx.exchange, ctx.charges),
+  };
+}
+
+/**
+ * The defined-risk alternative to a short: buy the strike `widthStrikes` steps further out (the furthest listed one
+ * short of that). credit = short bid − wing ask; maxLoss = (width − credit) × lot; rr = maxLoss ÷ credit per lot.
+ * Null without a wing strike or a positive credit.
+ */
+export function wingFor(rec, chain, widthStrikes = 4) {
+  if (!rec || rec.sellPrice === null || rec.sellPrice === undefined) return null;
+  const side = rec.right === "PE" ? "pe" : "ce";
+  const { rows, step } = strikeGrid(chain);
+  if (!step) return null;
+  const reach = step * Math.max(1, num(widthStrikes) ?? 4) + 1e-9;
+  const price = (q) => (num(q?.ask) > 0 ? num(q.ask) : num(q?.ltp) > 0 ? num(q.ltp) : null);
+  const out = rows.filter((r) => (rec.right === "CE" ? r.strike > rec.strike : r.strike < rec.strike) && Math.abs(r.strike - rec.strike) <= reach && price(r[side]) !== null);
+  if (!out.length) return null;
+  const w = rec.right === "CE" ? out[out.length - 1] : out[0];
+  const wingAsk = price(w[side]);
+  const credit = rec.sellPrice - wingAsk;
+  if (!(credit > 0)) return null;
+  const lot = num(rec.lot) || 1;
+  const maxLoss = (Math.abs(w.strike - rec.strike) - credit) * lot;
+  return { wingStrike: w.strike, wingSymbol: w[side]?.symbol ?? null, wingAsk, credit, maxLoss, rr: maxLoss / (credit * lot) };
+}
+
+const GRID = new WeakMap(); // chain → its rows by strike and the minimum strike step
+function strikeGrid(chain) {
+  let g = chain ? GRID.get(chain) : null;
+  if (g) return g;
+  const rows = [...(chain?.rows ?? [])].filter((r) => num(r?.strike) !== null).sort((a, b) => a.strike - b.strike);
+  let step = null;
+  for (let i = 1; i < rows.length; i++) {
+    const d = rows[i].strike - rows[i - 1].strike;
+    if (d > 0 && (step === null || d < step)) step = d;
+  }
+  g = { rows, step };
+  if (chain) GRID.set(chain, g);
+  return g;
+}
+
+/** Screener score weights and penalties, in one place (PRD 07 §5.5). */
+export const SCORE = Object.freeze({
+  sell: Object.freeze({ rich: 0.35, safety: 0.25, decay: 0.2, liq: 0.2 }),
+  buy: Object.freeze({ cheap: 0.3, reach: 0.3, decay: 0.2, liq: 0.2 }),
+  penalty: 0.5,
+  minParts: 3,
+});
+const SCORE_LABEL = Object.freeze({ rich: "Richness", safety: "Safety", decay: "Decay", liq: "Liquidity", cheap: "Cheapness", reach: "Reach" });
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+function scoreOf(parts, penalties) {
+  const use = parts.filter((p) => p.value !== null);
+  if (use.length < SCORE.minParts) return null;
+  const w = use.reduce((a, p) => a + p.weight, 0);
+  const raw = use.reduce((a, p) => a + p.weight * p.value, 0) / w;
+  const pen = penalties.length ? SCORE.penalty : 1;
+  return { score: Math.round(100 * raw * pen), parts, penalties };
+}
+const part = (id, weight, value) => ({ id, label: SCORE_LABEL[id], weight, value: value === null || value === undefined || !Number.isFinite(value) ? null : value });
+const liqPart = (liq) => (num(liq) === null ? null : clamp01((liq - 1) / 4));
+/** 0–100 for writing this (OTM) leg: rich IV over HV, a high chance of keeping the premium, fast decay, liquidity. */
+export function sellScore(rec) {
+  if (!rec || !rec.otm) return null;
+  const W = SCORE.sell;
+  const parts = [
+    part("rich", W.rich, rec.ivHv === null ? null : clamp01((rec.ivHv + 2) / 8)),
+    part("safety", W.safety, rec.popShort === null ? null : clamp01((rec.popShort - 0.6) / 0.3)),
+    part("decay", W.decay, rec.thetaPct === null ? null : clamp01(rec.thetaPct / 15)),
+    part("liq", W.liq, liqPart(rec.liq)),
+  ];
+  const pen = [];
+  if (rec.sigmaOtm !== null && rec.sigmaOtm < 1) pen.push("Inside 1σ");
+  if (rec.days !== null && rec.days < 1) pen.push("Expiry day");
+  return scoreOf(parts, pen);
+}
+/** 0–100 for buying this leg: IV cheap to HV, a breakeven within reach, slow decay, liquidity. */
+export function buyScore(rec) {
+  if (!rec) return null;
+  const W = SCORE.buy;
+  const parts = [
+    part("cheap", W.cheap, rec.ivHv === null ? null : clamp01((2 - rec.ivHv) / 8)),
+    part("reach", W.reach, rec.beSigma === null ? null : clamp01((1.5 - rec.beSigma) / 1)),
+    part("decay", W.decay, rec.thetaPct === null ? null : clamp01(1 - rec.thetaPct / 10)),
+    part("liq", W.liq, liqPart(rec.liq)),
+  ];
+  const pen = [];
+  if (rec.popLong !== null && rec.popLong < 0.1) pen.push("Lottery ticket");
+  if (rec.days !== null && rec.days < 1) pen.push("Expiry day");
+  return scoreOf(parts, pen);
+}
+
+const READING = Object.freeze({
+  CE: Object.freeze({ LB: ["Call buying", "bullish"], SB: ["Call writing", "bearish"], SC: ["Call short covering", "bullish"], LU: ["Call unwinding", "bearish"] }),
+  PE: Object.freeze({ LB: ["Put buying", "bearish"], SB: ["Put writing", "bullish"], SC: ["Put short covering", "bearish"], LU: ["Put unwinding", "bullish"] }),
+});
+/** The writer's reading of a leg's build-up tag: "Put writing · bullish". Null for no tag. */
+export function buildupReading(tag, right) {
+  const r = READING[right === "PE" ? "PE" : "CE"][tag];
+  return r ? { text: `${r[0]} · ${r[1]}`, action: r[0], bias: r[1] } : null;
+}
+/** The build-up with the most money behind it (Σ |OI change| × mid per tag and right). Null without OI change. */
+export function dominantBuildup(chain) {
+  const legs = (chain?.rows ?? []).flatMap((r) => [["CE", r.ce], ["PE", r.pe]]).filter(([, q]) => q);
+  if (!legs.some(([, q]) => num(q.oiChange) !== null)) return null;
+  const sums = new Map();
+  for (const [right, q] of legs) {
+    const tag = buildup(q);
+    const m = mid(q);
+    if (!tag || m === null) continue;
+    const k = `${tag}|${right}`;
+    sums.set(k, (sums.get(k) ?? 0) + Math.abs(num(q.oiChange)) * m);
+  }
+  let best = null;
+  for (const [k, v] of sums) if (!best || v > best.rupees) best = { key: k, rupees: v };
+  if (!best) return null;
+  const [tag, right] = best.key.split("|");
+  return { tag, right, rupees: best.rupees, ...buildupReading(tag, right) };
+}
+
+/**
+ * Protective puts below the forward within a depth band (percent below F), priced at the ask: cost, ₹ per lot and per
+ * day, annualised cost, the payout multiple at a −2σ fall (ATM IV), skew paid, and lots for an index notional.
+ */
+export function hedgeRows(chain, ctx, { minDepth = 0, maxDepth = 100, notional = null } = {}) {
+  const c = ctx ?? chainContext(chain);
+  const { F, T, lot, atmIv } = c;
+  if (!(F > 0)) return [];
+  const days = Math.max(num(c.days) ?? 0, 0.25);
+  const N = num(notional) > 0 ? num(notional) : null;
+  const low = atmIv !== null && T > 0 ? F * Math.exp(-2 * (atmIv / 100) * Math.sqrt(T)) : null;
+  const out = [];
+  for (const r of c.rows ?? []) {
+    const q = r.pe;
+    const ask = num(q?.ask);
+    if (!q || !(ask > 0) || !(r.strike < F)) continue;
+    const depth = ((F - r.strike) / F) * 100;
+    if (depth < minDepth - 1e-9 || depth > maxDepth + 1e-9) continue;
+    const costPct = (ask / F) * 100;
+    const lots = N ? Math.ceil(N / (F * lot)) : null;
+    out.push({
+      kind: "hedge",
+      key: q.symbol ?? `${c.underlying}|${c.expiry}|${r.strike}|PE`,
+      symbol: q.symbol ?? null,
+      underlying: c.underlying,
+      expiry: c.expiry,
+      strike: r.strike,
+      right: "PE",
+      side: "pe",
+      lot,
+      days: c.days,
+      depth,
+      ask,
+      bid: num(q.bid) > 0 ? num(q.bid) : null,
+      costPct,
+      perLot: ask * lot,
+      perDay: (ask * lot) / days,
+      annualised: (costPct * 365) / days,
+      payout: low === null ? null : Math.max(0, r.strike - low) / ask,
+      skewPaid: num(q.iv) > 0 && atmIv !== null ? num(q.iv) - atmIv : null,
+      lots,
+      total: lots === null ? null : lots * ask * lot,
+      liq: liquidityScore(q, c.ranks?.pe?.get(r.strike)),
+      spread: spreadPct(q),
+    });
+  }
+  return out;
+}
+/** "Best per expiry": the cheapest put per year for each underlying × expiry (ties go to the deeper put). */
+export function bestHedges(rows) {
+  const best = new Map();
+  for (const r of rows ?? []) {
+    const k = `${r.underlying}|${r.expiry}`;
+    const b = best.get(k);
+    if (!b || r.annualised < b.annualised - 1e-12 || (Math.abs(r.annualised - b.annualised) <= 1e-12 && r.strike < b.strike)) best.set(k, r);
+  }
+  return (rows ?? []).filter((r) => best.get(`${r.underlying}|${r.expiry}`) === r);
+}
+
+/**
+ * Is the ATM straddle rich or cheap? Against HV20 when known (IV ÷ HV: ≥ 1.20 rich, ≤ 0.90 cheap), else against
+ * the other scanned chains (straddle % ÷ √days relative to their median: ≥ 1.15 / ≤ 0.87; needs 3 peers).
+ * @param {{ days: number, atmIv: number|null, hv20: number|null, straddle: number|null, S: number|null }} ov
+ * @returns {{ label: string|null, ratio: number|null, basis: "hv"|"peers"|"expiry"|null }}
+ */
+export function straddleVerdict(ov, peers = []) {
+  if (!ov) return { label: null, ratio: null, basis: null };
+  if (num(ov.days) !== null && ov.days < 1) return { label: "Expiry day", ratio: null, basis: "expiry" };
+  const iv = num(ov.atmIv);
+  const hv = num(ov.hv20);
+  if (iv !== null && hv !== null && hv > 0) {
+    const ratio = iv / hv;
+    return { label: ratio >= 1.2 ? "Rich" : ratio <= 0.9 ? "Cheap" : "Fair", ratio, basis: "hv" };
+  }
+  const dns = (o) => (num(o?.straddle) > 0 && num(o?.S) > 0 && num(o?.days) >= 1 ? o.straddle / o.S / Math.sqrt(o.days) : null);
+  const vals = (peers ?? []).map(dns).filter((v) => v !== null);
+  const me = dns(ov);
+  if (vals.length < 3 || me === null) return { label: null, ratio: null, basis: null };
+  const ratio = me / median(vals);
+  return { label: ratio >= 1.15 ? "Rich vs peers" : ratio <= 0.87 ? "Cheap vs peers" : "Fair vs peers", ratio, basis: "peers" };
 }

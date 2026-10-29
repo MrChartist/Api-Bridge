@@ -17,8 +17,9 @@ import { cap, every, segField, segmented, stopTimer } from "./views.js";
 import { createVolPage, volConfig } from "./vol.js";
 
 const SLOT = "mcb.dashboard.desk";
-const UNDERLYINGS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX"];
-const DEMO_UNDERLYINGS = ["NIFTY", "BANKNIFTY", "SENSEX"];
+/** The index underlyings the Options pages list (live) and the three the demo serves; the Option Screener shares them. */
+export const UNDERLYINGS = Object.freeze(["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX"]);
+export const DEMO_UNDERLYINGS = Object.freeze(["NIFTY", "BANKNIFTY", "SENSEX"]);
 /** Strikes fetched either side of ATM: wide enough for PCR and max pain, whatever is shown. */
 const FETCH_STRIKES = 40;
 /** The OI page reads the whole listed chain (the API maximum), so max pain and PCR are not biased by a partial one. */
@@ -185,10 +186,12 @@ async function renderDesk(kind) {
     KEY_LEGEND.map(([keys, short]) => h("span", { class: "kbd-pair" }, h("span", { class: "kbd-group" }, keys.map((k) => h("kbd", {}, k))), short)),
   );
   let sheet = null;
-  /** "Open in chain" from the OI page: the chain focuses this strike once, then forgets it. */
-  let jump = kind === "chain" && prefs.jump && typeof prefs.jump === "object" ? prefs.jump : null;
-  if (prefs.jump) {
-    const { jump: _drop, ...rest } = prefs;
+  /** "Open in chain" from the OI page (`jump`) or the Option Screener (`focus`): the chain focuses this strike once,
+   *  scrolled to the middle of the table, then forgets it. save() never writes either key. */
+  const handoff = prefs.focus ?? prefs.jump;
+  let jump = kind === "chain" && handoff && typeof handoff === "object" ? handoff : null;
+  if (prefs.jump || prefs.focus) {
+    const { jump: _drop, focus: _drop2, ...rest } = prefs;
     local.set(SLOT, JSON.stringify(rest));
   }
   const oiPage = kind === "oi" ? createOiPage({ st, save, retry: () => reloadAll(), openInChain, demo: () => Boolean(app.state.demo) }) : null;
@@ -397,7 +400,7 @@ async function renderDesk(kind) {
       lot,
       targets: O.deltaTargets(c.rows),
       ranks: { ce: O.volumeRanks(c.rows, "ce"), pe: O.volumeRanks(c.rows, "pe") },
-      hot: unusualVolume(c.rows),
+      hot: O.unusualVolume(c.rows),
       maxVol: c.rows.reduce((m, r) => Math.max(m, num(r.ce?.volume) ?? 0, num(r.pe?.volume) ?? 0), 0),
       held: heldLots(st.cfg.positions ? st.positions : [], lot),
       em1: { lo: near(b1?.lo), hi: near(b1?.hi) },
@@ -469,8 +472,11 @@ async function renderDesk(kind) {
       chain.draw(x);
       if (jump) {
         if (jump.underlying === x.c.underlying && jump.expiry === x.c.expiry && x.c.rows.some((r) => r.strike === jump.strike)) {
-          st.focus = { strike: jump.strike, side: jump.side === "pe" ? "pe" : "ce" };
-          chain.paintFocus(true, true);
+          const side = jump.side === "pe" || jump.side === "PE" ? "pe" : "ce";
+          if (!chain.jump(jump.strike, side)) {
+            st.focus = { strike: jump.strike, side };
+            chain.paintFocus(true, true);
+          }
         }
         jump = null;
       }
@@ -2177,8 +2183,14 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
         else if (L.side === "both") wrap.scrollLeft = (wrap.scrollWidth - wrap.clientWidth) / 2;
         if (anchor && restoreAnchor(anchor)) centred = true;
         else if (!centred) {
-          const atm = built?.rows.get(x.sm.atm)?.tr;
+          // A strike handed over from another page (OI, Option Screener) is centred instead of ATM.
+          const focusTr = st.focus ? built?.rows.get(st.focus.strike)?.tr : null;
+          const atm = focusTr && !focusTr.hidden ? focusTr : built?.rows.get(x.sm.atm)?.tr;
           if (atm && wrap.scrollHeight > wrap.clientHeight) centre(atm);
+          if (focusTr && !focusTr.hidden) {
+            bringIntoView();
+            focusTr.focus({ preventScroll: true });
+          }
           centred = true;
         }
       };
@@ -2262,19 +2274,6 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     },
   };
   return self;
-}
-
-/** Contracts whose volume ÷ OI stands out from the rest of the chain (at least 3× the median, top 4 per side). */
-function unusualVolume(rows) {
-  const out = new Set();
-  for (const side of ["ce", "pe"]) {
-    const legs = rows.map((r) => r[side]).filter((q) => num(q?.volume) > 0 && num(q?.oi) > 0).map((q) => ({ symbol: q.symbol, r: q.volume / q.oi }));
-    if (legs.length < 5) continue;
-    const sorted = legs.map((l) => l.r).sort((a, b) => a - b);
-    const median = sorted[Math.floor(sorted.length / 2)];
-    legs.sort((a, b) => b.r - a.r).slice(0, 4).filter((l) => l.r >= 3 * median).forEach((l) => out.add(l.symbol));
-  }
-  return out;
 }
 
 /** symbol -> signed lots held, from GET /v1/positions rows. */

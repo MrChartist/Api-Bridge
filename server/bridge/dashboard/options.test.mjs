@@ -1854,3 +1854,196 @@ describe("arbitrage maths (PRD 06 §7)", () => {
     expect(c.sort.parity).toEqual({ key: "conv", dir: "desc" });
   });
 });
+
+describe("Option Screener maths (PRD 07)", () => {
+  const NOW = Date.UTC(2026, 9, 29, 4, 0); // 29 Oct 2026 09:30 IST
+  const leg = (strike, right, o = {}) => ({ symbol: `NFO:NIFTY-2026-11-03-${strike}-${right}`, ltp: 10, bid: 9.9, ask: 10.1, oi: 75000, oiChange: 7500, volume: 150000, iv: 14, close: 9, change: 1, delta: right === "CE" ? 0.3 : -0.3, theta: -2, vega: 5, ...o });
+  // A smooth demo-like chain: 26000..26900 step 50, spot 26450.
+  const strikes = Array.from({ length: 19 }, (_, i) => 26000 + i * 50);
+  const priced = (k, right) => {
+    const F = 26450;
+    const p = A.black76(F, k, 5 / 365, 14, right);
+    const d = A.probItm(F, k, 5 / 365, 14, right);
+    return leg(k, right, { ltp: p, bid: Math.max(0.05, p - 0.5), ask: p + 0.5, delta: right === "CE" ? d : -d, oiChange: k % 100 ? -3000 : 9000 });
+  };
+  const chain = { underlying: "NIFTY", expiry: "2026-11-03", underlyingLtp: 26450, atmStrike: 26450, lotSize: 75, rows: strikes.map((k) => ({ strike: k, ce: priced(k, "CE"), pe: priced(k, "PE") })) };
+
+  it("unusualVolume: the chain's old rule by default; minRatio and top respected; < 5 legs gives none", () => {
+    const rows = [100, 110, 120, 130, 140, 150].map((k, i) => ({ strike: k, ce: { symbol: `c${k}`, volume: i === 5 ? 9000 : 100, oi: 100 }, pe: null }));
+    expect([...A.unusualVolume(rows)]).toEqual(["c150"]);
+    expect([...A.unusualVolume(rows, { minRatio: 100 })]).toEqual([]);
+    rows[4].ce.volume = 8000;
+    expect([...A.unusualVolume(rows, { top: 1 })]).toEqual(["c150"]);
+    expect(A.unusualVolume(rows.slice(0, 4)).size).toBe(0);
+  });
+
+  it("median ignores nulls; odd, even and empty", () => {
+    expect(A.median([3, 1, 2])).toBe(2);
+    expect(A.median([4, 1, 3, 2])).toBe(2.5);
+    expect(A.median([null, 5, undefined, "x"])).toBe(5);
+    expect(A.median([])).toBeNull();
+  });
+
+  it("volOiRelative: ratios to the side median; OI 0 left out; < 5 legs empty", () => {
+    const rows = [1, 2, 3, 4, 5, 6].map((k) => ({ strike: k, ce: { volume: k * 100, oi: k === 6 ? 0 : 100 } }));
+    const m = A.volOiRelative(rows, "ce");
+    expect(m.size).toBe(5);
+    expect(m.get(3)).toBeCloseTo(1, 12); // median of 1..5 is 3
+    expect(m.get(5)).toBeCloseTo(5 / 3, 12);
+    expect(m.has(6)).toBe(false);
+    expect(A.volOiRelative(rows.slice(0, 4), "ce").size).toBe(0);
+  });
+
+  it("neighbourIv: two each side, iv ≤ 0 skipped, edges use one side", () => {
+    const rows = [10, 11, 12, 13, 14, 15].map((iv, i) => ({ strike: 100 + i * 10, ce: { iv: i === 1 ? 0 : iv } }));
+    expect(A.neighbourIv(rows, "ce", 120)).toBe(A.median([10, 13, 14]));
+    expect(A.neighbourIv(rows, "ce", 100)).toBe(A.median([12, 13]));
+    expect(A.neighbourIv(rows, "ce", 150)).toBe(A.median([13, 14]));
+    expect(A.neighbourIv([], "ce", 100)).toBeNull();
+  });
+
+  it("skew25 picks the nearest |Δ| 0.25 within ±0.08; puts richer is positive; null when absent", () => {
+    const rows = [
+      { strike: 1, pe: { delta: -0.2, iv: 18 }, ce: { delta: 0.9, iv: 10 } },
+      { strike: 2, pe: { delta: -0.26, iv: 17 }, ce: { delta: 0.6, iv: 11 } },
+      { strike: 3, pe: { delta: -0.5, iv: 15 }, ce: { delta: 0.24, iv: 13 } },
+    ];
+    expect(A.skew25(rows)).toEqual({ put: 17, call: 13, rr: 4, putStrike: 2, callStrike: 3 });
+    expect(A.skew25([{ strike: 1, pe: { delta: -0.5, iv: 15 }, ce: { delta: 0.24, iv: 13 } }])).toBeNull();
+  });
+
+  it("probBelow = 1 − probItm(CE) at the strike; 0 at or below 0; null without vol", () => {
+    expect(A.probBelow(26500, 26450, 0.02, 14)).toBeCloseTo(1 - A.probItm(26450, 26500, 0.02, 14, "CE"), 10);
+    expect(A.probBelow(0, 26450, 0.02, 14)).toBe(0);
+    expect(A.probBelow(26500, 26450, 0.02, null)).toBeNull();
+  });
+
+  it("legMetrics: σ OTM signs, POP short + long ≈ 1 at one price, θ % floor, BE σ, ATM IV fallback", () => {
+    const ctx = A.chainContext(chain, { now: NOW, hv20: 12 });
+    expect(ctx.exchange).toBe("NFO");
+    expect(ctx.T).toBeGreaterThan(0);
+    const row = chain.rows.find((r) => r.strike === 26700);
+    const ce = A.legMetrics(row.ce, row, "ce", ctx);
+    const pe = A.legMetrics(row.pe, row, "pe", ctx);
+    expect(ce.otm).toBe(true);
+    expect(ce.sigmaOtm).toBeGreaterThan(0);
+    expect(pe.otm).toBe(false);
+    expect(pe.sigmaOtm).toBeLessThan(0);
+    const sdA = (ctx.atmIv / 100) * Math.sqrt(ctx.T);
+    expect(ce.sigmaOtm).toBeCloseTo(Math.log(26700 / ctx.F) / sdA, 10);
+    expect(ce.beSigma).toBeCloseTo(Math.abs(Math.log((26700 + ce.ask) / ctx.F)) / sdA, 10);
+    // one price both ways: the long's and the short's chance of profit add up to 1
+    const flat = { ...row.ce, bid: 20, ask: 20 };
+    const f = A.legMetrics(flat, row, "ce", ctx);
+    expect(f.popShort + f.popLong).toBeCloseTo(1, 10);
+    expect(A.legMetrics({ ...row.ce, bid: 0.2, ask: 0.3, ltp: 0.25 }, row, "ce", ctx).thetaPct).toBeNull();
+    const noIv = A.legMetrics({ ...row.ce, iv: null }, row, "ce", ctx);
+    expect(noIv.ivFallback).toBe(true);
+    expect(noIv.ivUsed).toBe(ctx.atmIv);
+    expect(ce.ivHv).toBeCloseTo(14 - 12, 10);
+    expect(A.legMetrics({ symbol: "x", bid: null, ask: null, ltp: null }, row, "ce", ctx)).toBeNull();
+    const oneSided = A.legMetrics({ ...row.ce, bid: null }, row, "ce", ctx);
+    expect(oneSided.priceQ).toBe("ltp");
+    expect(oneSided.sellPrice).toBe(row.ce.ltp);
+  });
+
+  it("wingFor: hand values; a missing wing strike uses the furthest one; no credit is null", () => {
+    const rows = [100, 110, 120, 130].map((k) => ({ strike: k, ce: { ask: { 100: 12, 110: 8, 120: 5, 130: 3 }[k] } }));
+    const c = { rows };
+    const w = A.wingFor({ right: "CE", strike: 100, sellPrice: 11, lot: 50 }, c, 2);
+    expect(w).toMatchObject({ wingStrike: 120, wingAsk: 5, credit: 6 });
+    expect(w.maxLoss).toBe((20 - 6) * 50);
+    expect(w.rr).toBeCloseTo(700 / 300, 12);
+    expect(A.wingFor({ right: "CE", strike: 100, sellPrice: 11, lot: 50 }, c, 9).wingStrike).toBe(130);
+    expect(A.wingFor({ right: "CE", strike: 100, sellPrice: 4, lot: 50 }, c, 2)).toBeNull();
+    expect(A.wingFor({ right: "CE", strike: 130, sellPrice: 4, lot: 50 }, c, 2)).toBeNull();
+  });
+
+  it("sellScore / buyScore: hand parts, weights renormalise without HV, < 3 parts null, penalties", () => {
+    const base = { otm: true, ivHv: 2, popShort: 0.84, thetaPct: 7.5, liq: 5, sigmaOtm: 1.5, days: 5 };
+    const s = A.sellScore(base);
+    // 0.35·0.5 + 0.25·0.8 + 0.2·0.5 + 0.2·1 = 0.675
+    expect(s.score).toBe(68);
+    expect(A.sellScore({ ...base, otm: false })).toBeNull();
+    // HV missing: (0.25·0.8 + 0.2·0.5 + 0.2·1) / 0.65
+    expect(A.sellScore({ ...base, ivHv: null }).score).toBe(Math.round((100 * 0.5) / 0.65));
+    expect(A.sellScore({ ...base, ivHv: null, thetaPct: null })).toBeNull();
+    expect(A.sellScore({ ...base, sigmaOtm: 0.8 }).score).toBe(Math.round(100 * 0.675 * 0.5));
+    expect(A.sellScore({ ...base, days: 0.5 }).penalties).toEqual(["Expiry day"]);
+    const b = { ivHv: -2, beSigma: 1, thetaPct: 5, liq: 3, popLong: 0.3, days: 5 };
+    // 0.3·0.5 + 0.3·0.5 + 0.2·0.5 + 0.2·0.5 = 0.5
+    expect(A.buyScore(b).score).toBe(50);
+    expect(A.buyScore({ ...b, popLong: 0.05 }).score).toBe(25);
+    expect(A.buyScore({ ...b, popLong: 0.05 }).penalties).toEqual(["Lottery ticket"]);
+  });
+
+  it("buildupReading covers the 8 cells; dominantBuildup is null without OI change", () => {
+    const want = { CE: { LB: "Call buying · bullish", SB: "Call writing · bearish", SC: "Call short covering · bullish", LU: "Call unwinding · bearish" }, PE: { LB: "Put buying · bearish", SB: "Put writing · bullish", SC: "Put short covering · bearish", LU: "Put unwinding · bullish" } };
+    for (const right of ["CE", "PE"]) for (const tag of ["LB", "SB", "SC", "LU"]) expect(A.buildupReading(tag, right).text).toBe(want[right][tag]);
+    expect(A.buildupReading(null, "CE")).toBeNull();
+    const noOi = { rows: [{ strike: 1, ce: { oiChange: null, change: 1, bid: 1, ask: 1 } }] };
+    expect(A.dominantBuildup(noOi)).toBeNull();
+    const d = A.dominantBuildup({ rows: [{ strike: 1, ce: { oiChange: 100, change: -1, bid: 10, ask: 10 }, pe: { oiChange: 50, change: 1, bid: 10, ask: 10 } }] });
+    expect(d).toMatchObject({ tag: "SB", right: "CE", rupees: 1000, text: "Call writing · bearish" });
+  });
+
+  it("hedgeRows: depth band, annualised, payout at −2σ, best per expiry, lots for a notional", () => {
+    const ctx = { underlying: "NIFTY", expiry: "2026-11-24", F: 1000, T: 0.1, days: 36.5, lot: 10, atmIv: 20, rows: [900, 950, 980].map((k) => ({ strike: k, pe: { symbol: `p${k}`, ask: { 900: 2, 950: 5, 980: 9 }[k], bid: 1, iv: 22 } })), ranks: { pe: new Map() } };
+    const rows = A.hedgeRows(null, ctx, { minDepth: 2, maxDepth: 10, notional: 100000 });
+    expect(rows.map((r) => r.strike)).toEqual([900, 950, 980]);
+    const r = rows[1];
+    expect(r.depth).toBeCloseTo(5, 10);
+    expect(r.costPct).toBeCloseTo(0.5, 10);
+    expect(r.annualised).toBeCloseTo((0.5 * 365) / 36.5, 10);
+    expect(r.payout).toBeCloseTo(Math.max(0, 950 - 1000 * Math.exp(-2 * 0.2 * Math.sqrt(0.1))) / 5, 10);
+    expect(r.lots).toBe(10);
+    expect(r.total).toBe(10 * 5 * 10);
+    expect(A.hedgeRows(null, ctx, { minDepth: 3, maxDepth: 6 }).map((x) => x.strike)).toEqual([950]);
+    const best = A.bestHedges([{ ...rows[0], annualised: 3 }, { ...rows[1], annualised: 3 }, { ...rows[2], annualised: 4 }]);
+    expect(best.map((x) => x.strike)).toEqual([900]);
+  });
+
+  it("straddleVerdict: HV thresholds at the boundaries, peers fallback, < 3 peers null, expiry day", () => {
+    expect(A.straddleVerdict({ days: 5, atmIv: 12, hv20: 10 })).toEqual({ label: "Rich", ratio: 1.2, basis: "hv" });
+    expect(A.straddleVerdict({ days: 5, atmIv: 9, hv20: 10 }).label).toBe("Cheap");
+    expect(A.straddleVerdict({ days: 5, atmIv: 10, hv20: 10 }).label).toBe("Fair");
+    expect(A.straddleVerdict({ days: 0.4, atmIv: 12, hv20: 10 }).basis).toBe("expiry");
+    const peers = [{ days: 4, straddle: 100, S: 10000 }, { days: 9, straddle: 150, S: 10000 }, { days: 16, straddle: 200, S: 10000 }];
+    const me = { days: 4, straddle: 130, S: 10000, atmIv: 12, hv20: null };
+    expect(A.straddleVerdict(me, peers)).toMatchObject({ label: "Rich vs peers", basis: "peers" });
+    expect(A.straddleVerdict(me, peers.slice(0, 2))).toEqual({ label: null, ratio: null, basis: null });
+  });
+
+  it("costs: legs, round trip and arbitrage (with box settlement STT), NFO and BFO", () => {
+    const buy = A.legCosts({ side: "BUY", price: 100, qty: 75, exchange: "NFO" });
+    expect(buy.stt).toBe(0);
+    expect(buy.stamp).toBeCloseTo(7500 * 0.00003, 12);
+    expect(buy.txn).toBeCloseTo(7500 * 0.0003503, 12);
+    expect(buy.gst).toBeCloseTo(0.18 * (20 + 7500 * 0.0003503 + 7500 * 10 / 1e7), 12);
+    const sell = A.legCosts({ side: "SELL", price: 100, qty: 75, exchange: "BFO" });
+    expect(sell.stt).toBeCloseTo(7500 * 0.0015, 12);
+    expect(sell.stamp).toBe(0);
+    expect(sell.txn).toBeCloseTo(7500 * 0.000325, 12);
+    expect(sell.total).toBeCloseTo(sell.brokerage + sell.stt + sell.txn + sell.sebi + sell.gst, 12);
+    const rt = A.roundTripCosts(100, 75, "NFO");
+    expect(rt.total).toBeCloseTo(buy.total + A.legCosts({ side: "SELL", price: 100, qty: 75 }).total, 10);
+    expect(A.legCosts({ side: "BUY", price: 100, qty: 75 }, { ...A.CHARGES, brokeragePerOrder: 0 }).brokerage).toBe(0);
+    const box = { kind: "Box (buy)", legs: [{ side: "BUY", right: "CE", strike: 100, price: 5 }, { side: "SELL", right: "CE", strike: 110, price: 1 }, { side: "BUY", right: "PE", strike: 110, price: 6 }, { side: "SELL", right: "PE", strike: 100, price: 1 }] };
+    const legsOnly = box.legs.reduce((a, l) => a + A.legCosts({ side: l.side, price: l.price, qty: 10 }).total, 0);
+    expect(A.arbCosts(box, 10).total).toBeCloseTo(legsOnly + 10 * 10 * 0.0015, 10);
+    const fly = { kind: "Butterfly", legs: [{ side: "BUY", price: 5, strike: 1 }, { side: "SELL", price: 3, strike: 2, qty: 2 }, { side: "BUY", price: 2, strike: 3 }] };
+    expect(A.arbCosts(fly, 10).total).toBeCloseTo(A.legCosts({ side: "BUY", price: 5, qty: 10 }).total + A.legCosts({ side: "SELL", price: 3, qty: 20 }).total + A.legCosts({ side: "BUY", price: 2, qty: 10 }).total, 10);
+  });
+
+  it("arbChecks takes a negative minEdge and returns near misses, best first", () => {
+    const rows = [100, 110, 120].map((k) => ({ strike: k, ce: { bid: { 100: 12, 110: 7, 120: 3 }[k], ask: { 100: 12.5, 110: 7.5, 120: 3 }[k] }, pe: null }));
+    const c = { underlyingLtp: 110, rows };
+    expect(A.arbChecks(c, { minEdge: 0.5 }).length).toBe(0);
+    expect(A.arbChecks(c, { minEdge: -2 }).map((h) => h.kind)).toEqual(["Butterfly"]);
+    const near = A.arbChecks(c, { minEdge: -6 });
+    expect(near.length).toBe(4);
+    expect(near[0]).toMatchObject({ kind: "Butterfly", edge: -1.5 });
+    for (let i = 1; i < near.length; i++) expect(near[i - 1].edge).toBeGreaterThanOrEqual(near[i].edge);
+    expect(near.every((h) => h.edge > -6)).toBe(true);
+  });
+});
