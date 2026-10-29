@@ -873,8 +873,6 @@ button.live-ctl:hover { background: var(--mat-glass-strong); }
 .ctx-sheet .ctx-acts button { min-height: 44px; padding: 0 8px; font-size: 13.5px; }
 .ctx-sheet .segmented { width: 100%; }
 .ctx-sheet .segmented button { flex: 1 1 0; min-height: 40px; }
-.ctx-demo-note { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: var(--r-sm); font: 500 13px/1.45 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); background: hsl(var(--warn) / 0.1); }
-.ctx-demo-note .demo-badge { margin-top: 5px; flex: none; }
 .demo-pop p { margin: 0; padding: 4px 16px 16px; max-width: 320px; font: 400 13.5px/1.5 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 
 /* Narrow phones: the demo pill keeps its amber dot only (the word stays for screen readers). */
@@ -1279,6 +1277,8 @@ input[type="checkbox"]:not(.switch input)::after, input[type="radio"]::after { c
 input[type="checkbox"]:not(.switch input)::after { -webkit-mask: var(--tick-mask) center / 12px 12px no-repeat; mask: var(--tick-mask) center / 12px 12px no-repeat; }
 input[type="radio"]::after { width: 7px; height: 7px; border-radius: 50%; }
 input[type="checkbox"]:not(.switch input):checked::after, input[type="radio"]:checked::after { opacity: 1; }
+/* Mixed (some of a group on): a 10 × 2 dash in the contrast ink on the contrast fill, never an empty filled box. */
+input[type="checkbox"]:not(.switch input):indeterminate::after { width: 10px; height: 2px; border-radius: 1px; -webkit-mask: none; mask: none; opacity: 1; }
 input[type="checkbox"]:not(.switch input):disabled, input[type="radio"]:disabled { opacity: 0.38; cursor: default; }
 
 /* ───────────────────────── 3c · DATA VIZ AND MOTION (shared) ─────────────────────────
@@ -2720,7 +2720,6 @@ button.chart-more { width: 30px; height: 30px; min-height: 30px; }
 .strat-payoff .payoff-svg .cpill.neg rect { fill: hsl(var(--neg) / 0.14); } .strat-payoff .payoff-svg .cpill.neg text { fill: hsl(var(--neg-ink)); }
 .strat-payoff .payoff-svg .cpill.spot rect { fill: hsl(var(--sel-bg)); } .strat-payoff .payoff-svg .cpill.spot text { fill: hsl(var(--sel-fg)); font-weight: 600; }
 .strat-payoff .payoff-svg .cpill.bep rect { fill: var(--surface-2); stroke: var(--mat-separator); stroke-width: 1; } .strat-payoff .payoff-svg .cpill.bep text { fill: hsl(var(--foreground) / 0.85); font-weight: 600; }
-.strat-payoff .payoff-svg .clip-note { font: 500 12px/1 var(--font-numeric); fill: hsl(var(--neg-ink)); }
 .strat-payoff .payoff-svg .line-exp, .lg-sw .line-exp { fill: none; stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
 .strat-payoff .payoff-svg .line-exp.up, .lg-sw .line-exp.up { stroke: hsl(var(--pos)); }
 .strat-payoff .payoff-svg .line-exp.dn, .lg-sw .line-exp.dn { stroke: hsl(var(--neg)); }
@@ -3772,7 +3771,16 @@ button.pos-uchip:hover { background: var(--mat-fill-1); }
 .pos-chip[hidden] { display: none; }
 
 /* Book strip: Hero · Greeks · Capital, hairline dividers, no nested cards. */
+.pos-book { container: pos-book / inline-size; }
 .pos-bgrid { display: grid; grid-template-columns: 290px minmax(0, 1fr) 340px; }
+/* A book narrower than 900 px (a 1024–1279 px window beside the sidebar, a tablet): hero over capital on the left,
+   the four gauges on the right, as on tablets. */
+@container pos-book (min-width: 600px) and (max-width: 900px) {
+  .pos-book .pos-bgrid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "hero greeks" "cap greeks"; }
+  .pos-hero { grid-area: hero; }
+  .pos-greeks { grid-area: greeks; justify-content: center; }
+  .pos-cap { grid-area: cap; box-shadow: inset 0 var(--hl) 0 var(--mat-separator) !important; }
+}
 .pos-bgrid[hidden] { display: none; }
 .pos-bgrid > * { min-width: 0; padding: 12px; }
 .pos-bgrid > * + * { box-shadow: inset var(--hl) 0 0 var(--mat-separator); }
@@ -3782,17 +3790,22 @@ button.pos-uchip:hover { background: var(--mat-fill-1); }
 .pos-hero-v { font: 600 22px/1.1 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; border-radius: 4px; }
 .pos-hero-v.up { color: hsl(var(--pos-ink)); } .pos-hero-v.down { color: hsl(var(--neg-ink)); }
 .pos-comp.dv-bar { display: flex; gap: 2px; width: 100%; height: 8px; border-radius: 4px; background: none; overflow: hidden; --v: 1; }
-button.pos-comp-s { flex: var(--f, 0) 1 0; min-width: 0; min-height: 0; height: 8px; padding: 0; border-radius: 2px; box-shadow: none; background: hsl(var(--pos)); cursor: pointer; transition: opacity var(--dur-1); }
-button.pos-comp-s[hidden] { display: none; }
-button.pos-comp-s:first-child, button.pos-comp-s[hidden] + button.pos-comp-s { border-radius: 4px 2px 2px 4px; }
-button.pos-comp-s:last-child { border-radius: 2px 4px 4px 2px; }
-button.pos-comp-s[data-tone="neg"] { background: hsl(var(--neg)); }
-button.pos-comp-s[data-k="realised"] { color: hsl(var(--pos)); background: repeating-linear-gradient(135deg, currentColor 0 1.5px, transparent 1.5px 4px), hsl(var(--pos) / 0.35); }
-button.pos-comp-s[data-k="realised"][data-tone="neg"] { color: hsl(var(--neg)); background: repeating-linear-gradient(135deg, currentColor 0 1.5px, transparent 1.5px 4px), hsl(var(--neg) / 0.35); }
-.pos-comp:hover button.pos-comp-s:not(:hover) { opacity: 0.45; }
-button.pos-comp-s:focus-visible { outline: 2px solid var(--sel-ring); outline-offset: 1px; }
-.pos-comp-cap { font: 500 12px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pos-comp-cap .up, .pos-comp-cap .down { font-weight: 600; }
+.pos-comp-s { display: block; flex: var(--f, 0) 1 0; min-width: 0; height: 8px; border-radius: 2px; background: hsl(var(--pos)); cursor: pointer; transition: opacity var(--dur-1); }
+.pos-comp-s[hidden] { display: none; }
+.pos-comp-s:first-child, .pos-comp-s[hidden] + .pos-comp-s { border-radius: 4px 2px 2px 4px; }
+.pos-comp-s:last-child { border-radius: 2px 4px 4px 2px; }
+.pos-comp-s[data-tone="neg"] { background: hsl(var(--neg)); }
+.pos-comp-s[data-k="realised"] { color: hsl(var(--pos)); background: repeating-linear-gradient(135deg, currentColor 0 1.5px, transparent 1.5px 4px), hsl(var(--pos) / 0.35); }
+.pos-comp-s[data-k="realised"][data-tone="neg"] { color: hsl(var(--neg)); background: repeating-linear-gradient(135deg, currentColor 0 1.5px, transparent 1.5px 4px), hsl(var(--neg) / 0.35); }
+.pos-comp:hover .pos-comp-s:not(:hover) { opacity: 0.45; }
+.pos-hero:has(.pos-comp-b[data-k="won"]:hover) .pos-comp-s:not([data-k="won"]), .pos-hero:has(.pos-comp-b[data-k="lost"]:hover) .pos-comp-s:not([data-k="lost"]), .pos-hero:has(.pos-comp-b[data-k="realised"]:hover) .pos-comp-s:not([data-k="realised"]) { opacity: 0.45; }
+.pos-comp-cap { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; font: 500 12px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-label)); }
+.pos-comp-cap .sep { color: hsl(var(--foreground) / var(--a-quiet)); }
+button.pos-comp-b { display: inline-flex; align-items: baseline; gap: 3px; min-height: 0; height: auto; padding: 0; border-radius: 4px; font: inherit; color: inherit; white-space: nowrap; background: none; box-shadow: none; cursor: pointer; }
+button.pos-comp-b:hover .w { color: hsl(var(--foreground)); }
+button.pos-comp-b:focus-visible { outline: 2px solid var(--sel-ring); outline-offset: 2px; }
+button.pos-comp-b .f { font-weight: 600; white-space: nowrap; }
+button.pos-comp-b .f.up { color: hsl(var(--pos-ink)); } button.pos-comp-b .f.down { color: hsl(var(--neg-ink)); }
 .pos-kept { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
 .pos-kept[hidden] { display: none; }
 .pos-kept-t { font: 500 12px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; }
@@ -3829,7 +3842,20 @@ button.pos-gauge:focus-visible { outline: 2px solid var(--sel-ring); outline-off
 .pos-gv { justify-self: end; font: 500 15px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; border-radius: 4px; }
 .g-theta .pos-gv { color: hsl(var(--pos-ink)); }
 .g-theta:has(.pos-div[data-tone="neg"]) .pos-gv { color: hsl(var(--neg-ink)); }
-.pos-gs { font: 500 12px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pos-gs { min-width: 0; font: 500 12px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A narrow Greeks cell (1100–1366 px desktops): the sub line wraps to two short lines instead of cutting "≈ +0.2 l…". */
+.pos-greeks { container: pos-greeks / inline-size; }
+/* A narrow Greeks cell (1100–1366 px desktops, tablets; phones have their own 2 × 2): the sub line moves under the
+   value, in full, instead of cutting "≈ +0.2 l…". */
+@media (min-width: 720px) {
+  @container pos-greeks (max-width: 460px) {
+    .pos-greeks button.pos-gauge { grid-template-columns: 16px auto minmax(72px, 1fr); grid-template-rows: auto auto; row-gap: 1px; padding-top: 3px; padding-bottom: 3px; }
+    .pos-greeks button.pos-gauge .pos-gv { justify-self: start; grid-row: 1; grid-column: 2; }
+    .pos-greeks button.pos-gauge .pos-gk { grid-row: 1 / span 2; }
+    .pos-greeks button.pos-gauge .pos-gbar { grid-row: 1 / span 2; grid-column: 3; }
+    .pos-greeks button.pos-gauge .pos-gs { grid-row: 2; grid-column: 2; font-size: 12px; }
+  }
+}
 .pos-gauge.warn .pos-gv, .pos-gauge.warn .pos-gs { color: hsl(var(--warn-ink)); }
 .pos-gbar { width: 100%; height: 6px; border-radius: 3px; background: var(--mat-fill-1); }
 .pos-gbar::after { top: -3px; bottom: -3px; }
@@ -3883,7 +3909,14 @@ button.pos-warn-toggle .chev { font-weight: 600; }
 .pos-body { min-width: 0; }
 .pos-wrap { overflow-x: auto; }
 table.pos-table { width: 100%; border-collapse: separate; border-spacing: 0; font: var(--t-table); line-height: 1.2; font-variant-numeric: tabular-nums; }
-table.pos-table th, table.pos-table td { padding: 7px 9px; white-space: nowrap; }
+table.pos-table th, table.pos-table td { padding: 7px 8px; white-space: nowrap; }
+/* Headers over a value + bar cell sit over the value (right edge = cell padding + bar + gap), not over the bar. */
+table.pos-table thead th.c-pnl { padding-right: calc(8px + 64px + 8px); }
+table.pos-table thead th.c-delta { padding-right: calc(8px + 40px + 8px); }
+.no-bars table.pos-table thead th.c-pnl, .no-bars table.pos-table thead th.c-delta, table.pos-table.fit-dbar thead th.c-delta { padding-right: 8px; }
+/* Fit on 1100–1366 px desktops (fitTable): columns dropped in this order until the table fits. */
+table.pos-table.fit-pnlPct .c-pnlPct, table.pos-table.fit-vega .c-vega, table.pos-table.fit-iv .c-iv, table.pos-table.fit-gamma .c-gamma, table.pos-table.fit-dbar .pos-dbar, table.pos-table.fit-sg .pos-sg, table.pos-table.fit-pbars .pos-pbars { display: none; }
+table.pos-table.fit-pbars thead th.c-pnl { padding-right: 8px; }
 table.pos-table thead th { font: var(--t-table-head); color: hsl(var(--foreground) / var(--a-quiet)); padding-top: 9px; padding-bottom: 9px; }
 table.pos-table th:first-child, table.pos-table td:first-child { padding-left: 12px; width: 1%; }
 table.pos-table td.act, table.pos-table th.act { padding-right: 8px; text-align: right; width: 1%; }
@@ -3961,6 +3994,9 @@ table.pos-table thead th.c-inc { font-size: 12px; letter-spacing: 0.04em; }
 .no-sg .pos-sg { display: none; }
 .pos-acts { display: inline-flex; align-items: center; gap: 2px; }
 .pos-acts button.small { min-height: 26px; padding: 0 9px; font-size: 12.5px; }
+/* ⋯ matches the Exit pill beside it: round, the same quiet fill, no outline. */
+.pos-acts button.pos-more { border-radius: 999px; background: var(--mat-fill-1); box-shadow: none; }
+.pos-acts button.pos-more:hover { background: var(--mat-fill-2); }
 .pos-inc { cursor: pointer; }
 .strong { font-weight: 600; }
 .nowrap { white-space: nowrap; }
@@ -3974,6 +4010,13 @@ table.pos-table thead th.c-inc { font-size: 12px; letter-spacing: 0.04em; }
 .pos-empty .pos-uchip { margin-right: 6px; }
 .pos-menu { position: absolute; top: 0; right: 10px; width: 240px; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
 .pos-menu button { width: 100%; justify-content: flex-start; min-height: 32px; font-size: 13px; }
+/* Menu and sheet items read as actions, not links: foreground ink, a neutral fill on hover / focus (never accent);
+   the exit rows in the loss ink. */
+:is(.pos-menu, .pos-sheet) button.pos-mi { color: hsl(var(--foreground)); background: transparent; box-shadow: none; font-weight: 500; }
+.pos-sheet button.pos-mi { justify-content: flex-start; padding: 0 14px; background: var(--mat-fill-1); }
+:is(.pos-menu, .pos-sheet) button.pos-mi.exit { color: hsl(var(--neg-ink)); }
+:is(.pos-menu, .pos-sheet) button.pos-mi:hover, :is(.pos-menu, .pos-sheet) button.pos-mi:focus-visible { background: var(--mat-fill-2); outline: none; box-shadow: inset 0 0 0 1.5px hsl(var(--foreground) / 0.25); }
+:is(.pos-menu, .pos-sheet) button.pos-mi:hover { box-shadow: none; }
 .pos-menu hr { width: 100%; margin: 4px 0; border: 0; height: var(--hl); background: var(--mat-separator); }
 .pos-sheet { display: flex; flex-direction: column; gap: 6px; }
 .pos-sheet button { width: 100%; min-height: 44px; }
@@ -4016,7 +4059,7 @@ button.pos-card:active, button.pos-card.hl { background: var(--mat-fill-1); }
 .pos-riskp > .panel-head .segmented button { min-height: 30px; padding: 0 14px; font-size: 13px; }
 .pos-risk { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
 .pos-payoff { min-width: 0; padding: 10px 12px 8px; }
-.pos-scen { min-width: 0; padding: 10px 12px 12px; box-shadow: inset var(--hl) 0 0 var(--mat-separator); display: flex; flex-direction: column; gap: 10px; }
+.pos-scen { min-width: 0; padding: 10px 12px 12px; box-shadow: inset var(--hl) 0 0 var(--mat-separator); display: flex; flex-direction: column; gap: 10px; container: pos-scen / inline-size; }
 .pos-payoff .payoff-svg .band1, .pos-payoff .lg-sw .band1 { fill: hsl(var(--dv-band)); }
 .pos-payoff .payoff-svg .band2, .pos-payoff .lg-sw .band2 { fill: hsl(var(--dv-band) / 0.5); }
 .pos-payoff .lg-sw .band1.sw-band { fill: hsl(var(--dv-iv) / 0.35); } .pos-payoff .lg-sw .band2.sw-band { fill: hsl(var(--dv-iv) / 0.18); }
@@ -4032,7 +4075,7 @@ button.pos-card:active, button.pos-card.hl { background: var(--mat-fill-1); }
 .pos-payoff .payoff-svg .dot-now { fill: hsl(var(--dv-today)); stroke: var(--mat-grouped-solid); stroke-width: 2; }
 .pos-payoff .payoff-svg .here-dot { fill: hsl(var(--dv-today)); stroke: var(--mat-grouped-solid); stroke-width: 2; }
 .pos-payoff .payoff-svg .here-dot.ease { transition: transform 320ms var(--ease-std); }
-.pos-payoff .payoff-svg.no-exp :is(.line-exp, .area-up, .area-dn, .guide, .cpill.pos, .cpill.neg, .clip-note) { display: none; }
+.pos-payoff .payoff-svg.no-exp :is(.line-exp, .area-up, .area-dn, .guide, .cpill.pos:not(.clip), .cpill.neg:not(.clip)) { display: none; }
 .pos-payoff .tip-sw.now { background: hsl(var(--dv-today)); height: 2px; }
 .pos-payoff .tip-sw.target { background: hsl(var(--dv-today) / 0.6); }
 .pos-payoff .tip-sw.hedge { background: hsl(var(--dv-iv)); }
@@ -4059,7 +4102,14 @@ button.pos-card:active, button.pos-card.hl { background: var(--mat-fill-1); }
 .pos-sliders { display: flex; flex-direction: column; gap: 6px; }
 .pos-slider { display: grid; grid-template-columns: 140px minmax(80px, 1fr) auto; align-items: center; gap: 4px 12px; min-width: 0; }
 .pos-slider label { display: flex; justify-content: space-between; gap: 6px; font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
-.pos-slider > .pos-chips { justify-content: flex-end; }
+.pos-slider > .pos-chips { justify-content: flex-end; flex-wrap: nowrap; }
+/* A narrow scenario column (1100–1366 px desktops): the σ / day chips go under the slider, never beside it. */
+@media (min-width: 720px) {
+  @container pos-scen (max-width: 460px) {
+    .pos-slider { grid-template-columns: 128px minmax(0, 1fr); }
+    .pos-slider > .pos-chips { grid-column: 2; justify-content: flex-start; flex-wrap: wrap; }
+  }
+}
 .pos-slider output { font: 500 12px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground)); white-space: nowrap; }
 input.pos-range { -webkit-appearance: none; appearance: none; width: 100%; height: 24px; min-height: 24px; margin: 0; padding: 0; background: transparent; box-shadow: none; cursor: pointer; --fc: hsl(var(--foreground) / 0.7); }
 input.pos-range.iv { --fc: hsl(var(--dv-iv)); }
@@ -4084,6 +4134,7 @@ table.pos-matrix { width: 100%; table-layout: fixed; border-collapse: separate; 
 table.pos-matrix th, table.pos-matrix td { padding: 0 8px; height: 28px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: inset 0 calc(-1 * var(--hl)) 0 hsl(var(--background) / 0.55); }
 table.pos-matrix thead th { height: 26px; font: var(--t-table-head); color: hsl(var(--foreground) / var(--a-quiet)); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 table.pos-matrix thead th:first-child, table.pos-matrix tbody th { width: 34%; }
+@media (min-width: 1024px) { table.pos-matrix thead th:first-child, table.pos-matrix tbody th { width: 100px; } }
 table.pos-matrix tbody th { text-align: left; font: 500 12px/1 var(--font-numeric); }
 table.pos-matrix tbody th small { margin-left: 6px; font: 500 12px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
 table.pos-matrix tbody tr.spot th { font-weight: 600; box-shadow: inset 2px 0 0 hsl(var(--sel-bg)), inset 0 calc(-1 * var(--hl)) 0 hsl(var(--background) / 0.55); }
@@ -4097,8 +4148,11 @@ table.pos-matrix td:hover { filter: brightness(1.08); }
 .pos-ring[hidden] { display: none; }
 table.pos-gtable td { cursor: default; }
 table.pos-gtable td:hover { filter: none; }
-.pos-gcell { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; width: 100%; }
-.pos-gcell .gv { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Greeks across spot: the value on top, its bar under it (a value never gives way to its bar). */
+.pos-gcell { display: inline-flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 3px; width: 100%; }
+.pos-gcell .gv { white-space: nowrap; }
+table.pos-gtable td { height: 36px; padding: 0 8px; }
+table.pos-gtable td, table.pos-gtable thead th.num { overflow: visible; }
 .pos-gcell .gv.up { color: hsl(var(--pos-ink)); } .pos-gcell .gv.down { color: hsl(var(--neg-ink)); }
 .pos-mbar-s { --w: 40px; --dv-bar-h: 5px; }
 .pos-heat-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; font: 500 12px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-label)); }
@@ -4168,7 +4222,7 @@ table.pos-bca tbody th { text-align: left; font: 500 12.5px/1.2 var(--font-body)
 .pct-btns { flex-wrap: wrap; }
 
 @media (max-width: 1279px) and (min-width: 1024px) {
-  .pos-bgrid { grid-template-columns: 270px minmax(0, 1fr) 270px; }
+  .pos-bgrid { grid-template-columns: 270px minmax(0, 1fr) 300px; }
   button.pos-gauge { grid-template-columns: 18px 88px minmax(0, 1fr) minmax(80px, 1fr); }
 }
 @media (max-width: 1023px) {
@@ -4182,7 +4236,11 @@ table.pos-bca tbody th { text-align: left; font: 500 12.5px/1.2 var(--font-body)
   .pos-dbar { display: none; }
   .pos-pbar, .pos-rbar { --w: 48px; }
   .pos-pbars { width: 48px; }
-  table.pos-table th, table.pos-table td { padding-left: 7px; padding-right: 7px; }
+  table.pos-table th, table.pos-table td { padding-left: 6px; padding-right: 6px; }
+  table.pos-table thead th.c-pnl { padding-right: calc(6px + 48px + 8px); }
+  table.pos-table thead th.c-delta { padding-right: 6px; }
+  table.pos-table .pos-leg { gap: 7px; }
+  table.pos-table .pos-scell { gap: 6px; }
   .pos-pv { min-width: 56px; }
 }
 @media (max-width: 1023px) {
@@ -4190,6 +4248,10 @@ table.pos-bca tbody th { text-align: left; font: 500 12.5px/1.2 var(--font-body)
   table.pos-table .c-delta small { display: none; }
   .pos-sg { --sg-w: 36px; }
   .pos-riskp > .panel-head .segmented { display: inline-flex; }
+  /* The outer [Payoff | Scenario | Greeks] owns Greeks here: the inner table switch offers the two P&L grids only,
+     and hides itself while Greeks is open. The stress chips live in the book (tablet) or the Scenario tab (phone). */
+  .pos-matrix-head .segmented button[data-value="greeks"] { display: none; }
+  .pos-scen.mode-greeks .pos-matrix-head .segmented { display: none; }
   .pos-risk { grid-template-columns: minmax(0, 1fr); }
   .pos-risk.tab-payoff .pos-scen, .pos-risk.tab-scenario .pos-payoff { display: none; }
   .pos-scen { box-shadow: none; }
@@ -4229,10 +4291,15 @@ table.pos-bca tbody th { text-align: left; font: 500 12.5px/1.2 var(--font-body)
   .pos-riskp > .panel-head .segmented { flex: 1 1 100%; }
   .pos-riskp > .panel-head .segmented button { flex: 1; }
   .pos-payoff .payoff-head { gap: 6px; }
-  .pos-payoff .payoff-tools { flex: 1 1 100%; justify-content: space-between; min-width: 0; margin-left: 0; }
-  .pos-idle { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .pos-idle { font-size: 12px; }
-  table.pos-matrix th, table.pos-matrix td { padding: 0 6px; }
+  /* Payoff head: the curves capsule on its own full-width row, the legend wrapping under it, then the read-out. */
+  .pos-payoff .payoff-head { flex-wrap: wrap; gap: 6px; }
+  .pos-payoff .payoff-tools { display: contents; }
+  .pos-payoff .curves-seg { order: -1; display: flex; flex: 1 1 100%; }
+  .pos-payoff .curves-seg button { flex: 1 1 0; }
+  .pos-payoff .payoff-head .legend { order: 0; flex: 1 1 100%; flex-wrap: wrap; row-gap: 6px; }
+  .pos-payoff .payoff-head .legend .lg-i:not([hidden]) { display: inline-flex; }
+  .pos-idle { order: 1; flex: 1 1 100%; white-space: normal; font-size: 12px; }
+  table.pos-matrix th, table.pos-matrix td { padding: 0 6px; font-size: 12px; }
   table.pos-matrix tbody th small { font-size: 12px; margin-left: 4px; }
   .pos-gcell { flex-direction: column; align-items: flex-end; justify-content: center; gap: 3px; }
   .pos-mbar-s { --w: 36px; --dv-bar-h: 4px; }
@@ -4257,8 +4324,17 @@ table.pos-bca tbody th { text-align: left; font: 500 12.5px/1.2 var(--font-body)
   table.pos-table td.c-inc, table.pos-table th[scope="rowgroup"] label.pos-inc-hit { padding: 0; }
   label.pos-inc-hit { min-width: 44px; min-height: 44px; }
   .pos-acts .icon-btn.tiny { width: 44px; height: 44px; min-height: 44px; }
-  table.pos-matrix td, table.pos-matrix tbody th { height: 36px; }
-  button.pos-comp-s { min-height: 0; }
+  /* Every tappable is 44 px: heatmap cells, the gauges (they open Greeks) and the composition figures (their 44 px
+     box overlaps the 8 px bar above, so the book does not grow). */
+  table.pos-matrix td, table.pos-matrix tbody th { height: 44px; }
+  button.pos-gauge { min-height: 44px; }
+  button.pos-comp-b { min-height: 44px; margin: -15px 0; align-items: center; }
+}
+/* Touch tablets: the book has no head row; its move / maximise pill floats in its top-right corner (shown on focus),
+   so no empty 44 px strip sits above the hero. */
+@media (pointer: coarse) and (min-width: 720px) {
+  :root[data-layout="desk"] #content > .movable.pos-book > .panel-tools { position: absolute; top: 4px; right: 4px; left: auto; height: auto; padding: 0; z-index: 8; opacity: 0; pointer-events: none; border-radius: 99px; background: var(--surface-raised); box-shadow: 0 0 0 var(--hl) var(--mat-separator); }
+  :root[data-layout="desk"] #content > .movable.pos-book > .panel-tools:focus-within, :root[data-layout="desk"] #content > .movable.pos-book.tools-shown > .panel-tools { opacity: 1; pointer-events: auto; }
 }
 label.pos-inc-hit { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {

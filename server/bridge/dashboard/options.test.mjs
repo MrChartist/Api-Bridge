@@ -952,9 +952,20 @@ describe("exit plan", () => {
   it("slices above the freeze quantity and exits partial whole lots", () => {
     const big = O.exitPlan([{ symbol: "B", kind: "OPT", q: -4000, avg: 1, lot: 75, freeze: 1800, quote: q(1, 1.1) }]).orders[0];
     expect(big.slices).toEqual([1800, 1800, 400]);
-    expect(O.exitPlan([{ ...legs[0], q: 225 }], { pct: 50 }).orders[0].qty).toBe(150);
-    expect(O.exitPlan([{ ...legs[0], q: 75 }], { pct: 25 }).orders[0].qty).toBe(75);
-    expect(O.exitPlan([{ ...legs[0], q: 37 }], { pct: 50 }).orders[0].qty).toBe(37);
+    // A part exit never sends more than asked: floor(lots · p); a leg that cannot be split is skipped, not exited in full.
+    expect(O.exitPlan([{ ...legs[0], q: 225 }], { pct: 50 }).orders[0].qty).toBe(75);
+    expect(O.exitPlan([{ ...legs[0], q: 300 }], { pct: 50 }).orders[0].qty).toBe(150);
+    expect(O.exitPlan([{ ...legs[0], q: 300 }], { pct: 75 }).orders[0].qty).toBe(225);
+    const one = O.exitPlan([{ ...legs[0], q: 75 }, { ...legs[1], q: 150 }], { pct: 50 });
+    expect(one.orders.map((o) => o.qty)).toEqual([75]);
+    expect(one.skipped.map((l) => l.symbol)).toEqual([legs[0].symbol]);
+    expect(O.exitPlan([{ ...legs[0], q: 75 }], { pct: 25 }).orders).toEqual([]);
+    expect(O.exitPlan([{ ...legs[0], q: 37 }], { pct: 50 }).skipped.length).toBe(1);
+    expect(O.exitPlan([{ ...legs[0], q: 37 }]).orders[0].qty).toBe(37);
+    expect(O.canPartExit({ q: -75, lot: 75 }, 50)).toBe(false);
+    expect(O.canPartExit({ q: -75, lot: 75 }, 100)).toBe(true);
+    expect(O.canPartExit({ q: 150, lot: 75 }, 50)).toBe(true);
+    expect(O.canPartExit({ q: 150, lot: 75 }, 25)).toBe(false);
   });  it("never turns a quote-less leg into a market order unless market was chosen", () => {
     const bare = { symbol: "W", kind: "OPT", q: -75, avg: 2, lot: 75, quote: null, mark: null, greeks: { delta: -0.02 } };
     for (const type of ["mid", "touch"]) {
@@ -1102,7 +1113,13 @@ describe("positions round 2: book read-outs", () => {
     const sc = priced([{ symbol: "NFO:NIFTY-2026-11-03-26200-CE", netQty: -75, avgPrice: 60 }]);
     const s1 = O.bookCurveStats(fExp(sc), range());
     expect(s1.unlimitedDown).toBe(true);
+    expect(s1.downSide).toBe("right");
     expect(s1.unlimitedUp).toBe(false);
+    expect(s1.upSide).toBe(null);
+    const sp = priced([{ symbol: "NFO:NIFTY-2026-11-03-26200-PE", netQty: -75, avgPrice: 60 }]);
+    const s3 = O.bookCurveStats(fExp(sp), range());
+    expect(s3.unlimitedDown).toBe(true);
+    expect(s3.downSide).toBe("left");
     expect(s1.profitIntervals[0][0]).toBe(0);
     const cal = priced([{ symbol: "NFO:NIFTY-2026-11-03-26000-CE", netQty: -75, avgPrice: 60 }, { symbol: "NFO:NIFTY-2026-11-24-26000-CE", netQty: 75, avgPrice: 160 }]);
     const s2 = O.bookCurveStats(fExp(cal), range(240, 23000, 29000));

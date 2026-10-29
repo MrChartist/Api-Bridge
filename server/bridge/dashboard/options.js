@@ -8,6 +8,37 @@
  */
 
 import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatRupee, formatSigned } from "./format.js";
+import {
+  atmIvAt,
+  b76Delta,
+  black76,
+  calendarYearDays,
+  greeks76,
+  impliedVolB76,
+  ivAtDelta,
+  legPrice,
+  normCdf,
+  parityForward as pricingForward,
+  probItm,
+  realisedVol,
+  sigmaMove,
+  skewMetrics,
+  smilePoints as pricingSmilePoints,
+  strikeStep,
+  volTime,
+} from "./pricing.js";
+
+// The pricing core lives in pricing.js (shared with the server); these names are re-exported so pages keep importing
+// them from here. They are the same function objects.
+export { atmIvAt, b76Delta, black76, impliedVolB76, ivAtDelta, legPrice, normCdf, probItm, realisedVol, sigmaMove, skewMetrics };
+
+/**
+ * @deprecated Use impliedVolB76. A thin wrapper kept for older callers: the one IV solver (pricing.js impliedVolB76)
+ * on an undiscounted price (df = 1). Null when it cannot be solved (no clamping to the search bounds).
+ */
+export function impliedVol(price, forward, strike, years, right) {
+  return impliedVolB76(price, forward, strike, years, right, 1);
+}
 
 const num = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
 const sum = (rows, pick) => rows.reduce((a, r) => a + (num(pick(r)) ?? 0), 0);
@@ -232,39 +263,6 @@ export function volumeRanks(rows, side) {
 
 // ── Pricing (Black-76 on the forward, r = 0: what NSE index options settle against) ──
 
-/** Standard normal CDF (Abramowitz-Stegun 26.2.17, |error| < 7.5e-8). */
-export function normCdf(x) {
-  if (!Number.isFinite(x)) return x > 0 ? 1 : 0;
-  const t = 1 / (1 + 0.2316419 * Math.abs(x));
-  const d = 0.3989422804014327 * Math.exp((-x * x) / 2);
-  const p = d * t * (0.31938153 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
-  return x >= 0 ? 1 - p : p;
-}
-/** Black-76 price of a CE / PE; intrinsic value at or after expiry or without a volatility. */
-export function black76(forward, strike, years, ivPct, right) {
-  const F = num(forward);
-  const K = num(strike);
-  const sig = (num(ivPct) ?? 0) / 100;
-  if (F === null || K === null || K <= 0) return null;
-  // A forward at (or below) 0: the call is worthless, the put is worth its strike (r = 0, so no discounting).
-  if (F <= 0) return right === "CE" ? 0 : K;
-  const intrinsic = right === "CE" ? Math.max(0, F - K) : Math.max(0, K - F);
-  if (!(years > 0) || !(sig > 0)) return intrinsic;
-  const sd = sig * Math.sqrt(years);
-  const d1 = (Math.log(F / K) + (sd * sd) / 2) / sd;
-  const d2 = d1 - sd;
-  return right === "CE" ? F * normCdf(d1) - K * normCdf(d2) : K * normCdf(-d2) - F * normCdf(-d1);
-}
-/** Probability the option finishes in the money (N(d2) on the forward). */
-export function probItm(forward, strike, years, ivPct, right) {
-  const F = num(forward);
-  const K = num(strike);
-  const sig = (num(ivPct) ?? 0) / 100;
-  if (F === null || K === null || F <= 0 || K <= 0 || !(years > 0) || !(sig > 0)) return null;
-  const sd = sig * Math.sqrt(years);
-  const d2 = (Math.log(F / K) - (sd * sd) / 2) / sd;
-  return right === "CE" ? normCdf(d2) : normCdf(-d2);
-}
 /** P(price at expiry < x) under the same log-normal model. */
 function cdfAt(x, forward, years, sig) {
   if (x <= 0) return 0;
@@ -289,14 +287,6 @@ export const yearsToExpiry = (expiry, now = Date.now()) => {
   const d = timeToExpiry(expiry, now).days;
   return d === null ? null : d / 365;
 };
-/** One-standard-deviation move of a log-normal price: half the width of the ±1σ band. */
-export function sigmaMove(forward, ivPct, years) {
-  const F = num(forward);
-  const sig = (num(ivPct) ?? 0) / 100;
-  if (F === null || !(sig > 0) || !(years > 0)) return null;
-  const sd = sig * Math.sqrt(years);
-  return (F * Math.exp(sd) - F * Math.exp(-sd)) / 2;
-}
 /** For each side, the strikes whose |delta| is nearest 0.16 and 0.30 (within 0.08): strike -> "16Δ" / "30Δ". */
 export function deltaTargets(rows) {
   const out = { ce: new Map(), pe: new Map() };
@@ -1550,26 +1540,11 @@ export function expiryCloseMs(expiry) {
 
 /**
  * Black-76 greeks per unit (forward measure, r = 0): delta, gamma (per point), theta (₹ per calendar day, per unit)
- * and vega (per vol point). At or after expiry: delta 1 / −1 in the money, 0 out of it, the rest 0.
+ * and vega (per vol point). At or after expiry: delta 1 / −1 in the money, 0 out of it, the rest 0. The maths is
+ * pricing.js greeks76; theta stays per calendar day here until the pages move to the vol-time clock (P1-3b).
  */
 export function black76Greeks(forward, strike, years, ivPct, right) {
-  const F = num(forward);
-  const K = num(strike);
-  const sig = (num(ivPct) ?? 0) / 100;
-  if (F === null || K === null || F <= 0 || K <= 0) return null;
-  if (!(years > 0) || !(sig > 0)) {
-    const itm = right === "CE" ? F > K : F < K;
-    return { delta: itm ? (right === "CE" ? 1 : -1) : 0, gamma: 0, theta: 0, vega: 0 };
-  }
-  const sd = sig * Math.sqrt(years);
-  const d1 = (Math.log(F / K) + (sd * sd) / 2) / sd;
-  const pdf = Math.exp((-d1 * d1) / 2) / Math.sqrt(2 * Math.PI);
-  return {
-    delta: right === "CE" ? normCdf(d1) : normCdf(d1) - 1,
-    gamma: pdf / (F * sd),
-    theta: -(F * pdf * sig) / (2 * Math.sqrt(years)) / 365,
-    vega: (F * pdf * Math.sqrt(years)) / 100,
-  };
+  return greeks76(forward, strike, years, ivPct, right, { yearBasis: calendarYearDays() });
 }
 
 /**
@@ -2228,30 +2203,6 @@ export function legMark(quote) {
   return l !== null && l > 0 ? { mark: l, source: "ltp" } : { mark: null, source: null };
 }
 
-/**
- * Implied volatility (percent) from a Black-76 price by bisection between 0.5 % and 300 %: 60 steps or a price
- * tolerance of 0.000001 (a coarser one leaves far OTM legs a few hundredths of a vol point off). Null when T ≤ 0, inputs are missing or the price is below intrinsic − 0.05.
- */
-export function impliedVol(price, forward, strike, years, right) {
-  const P = num(price);
-  const F = num(forward);
-  const K = num(strike);
-  if (P === null || F === null || K === null || F <= 0 || K <= 0 || !(years > 0)) return null;
-  const intrinsic = right === "CE" ? Math.max(0, F - K) : Math.max(0, K - F);
-  if (P < intrinsic - 0.05) return null;
-  let lo = 0.5;
-  let hi = 300;
-  if (P <= black76(F, K, years, lo, right)) return lo;
-  if (P >= black76(F, K, years, hi, right)) return hi;
-  for (let i = 0; i < 60; i++) {
-    const m = (lo + hi) / 2;
-    const v = black76(F, K, years, m, right);
-    if (Math.abs(v - P) < 1e-6) return m;
-    if (v > P) hi = m;
-    else lo = m;
-  }
-  return (lo + hi) / 2;
-}
 
 /**
  * Price every book leg (pure). Options read their own expiry's chain (mark, IV, the server's Greeks); a leg missing
@@ -2641,21 +2592,28 @@ export function hedgePlan(book, { method = "fut", target = 0, side = "BUY", fut 
 /**
  * Exit orders for a set of legs (pure): short options first (largest |Δ| first), then long options, then futures.
  * `type` "mid" (limit at mid, rounded to tick toward a fill), "touch" (bid to sell, ask to buy) or "market" (estimated
- * at the touch). `pct` < 100 exits whole lots (round half up, min 1 lot). Orders above the freeze quantity are split
+ * at the touch). `pct` < 100 exits floor(lots · p) whole lots; a leg that rounds to 0 lots is listed in `skipped`. Orders above the freeze quantity are split
  * into lot-multiple slices with the remainder last. Slippage = |price − mid| × qty. A limit order with no quote to
  * price it has `price` null and `unpriced` true (`market` is true only for type "market").
  * Legs: { symbol, kind, right, strike, expiry, q, avg, lot, freeze, tick, quote, greeks, product }.
  */
 export function exitPlan(legs, { type = "mid", pct = 100 } = {}) {
   const orders = [];
+  const skipped = [];
   for (const l of legs ?? []) {
     const abs = Math.abs(num(l.q) ?? 0);
     if (!abs) continue;
     const L = num(l.lot) || 1;
     let qty = abs;
     if (pct < 100) {
-      const whole = Math.floor(abs / L);
-      if (whole >= 1) qty = Math.min(whole, Math.max(1, Math.floor((whole * pct) / 100 + 0.5))) * L;
+      // A part exit never sends more than asked: floor(lots · p) whole lots. A leg that rounds to 0 (1 lot at 50 %,
+      // an odd-unit leg) cannot be split and is skipped, never exited in full.
+      const n = Math.floor((Math.floor(abs / L) * pct) / 100 + 1e-9);
+      if (n < 1) {
+        skipped.push(l);
+        continue;
+      }
+      qty = n * L;
     }
     const side = l.q > 0 ? "SELL" : "BUY";
     const b = num(l.quote?.bid);
@@ -2694,7 +2652,14 @@ export function exitPlan(legs, { type = "mid", pct = 100 } = {}) {
   }
   orders.sort((x, y) => x.rank - y.rank || y.dAbs - x.dAbs);
   const total = (k) => orders.reduce((t, o) => (o[k] === null ? t : t + o[k]), 0);
-  return { orders, slippage: total("slip"), pnl: total("pnl"), count: orders.reduce((t, o) => t + o.slices.length, 0), unpriced: orders.filter((o) => o.unpriced).length };
+  return { orders, slippage: total("slip"), pnl: total("pnl"), count: orders.reduce((t, o) => t + o.slices.length, 0), unpriced: orders.filter((o) => o.unpriced).length, skipped };
+}
+
+/** Can a part exit of `pct` % split this leg into at least one whole lot (floor(lots · p) ≥ 1)? Pure. */
+export function canPartExit(leg, pct) {
+  const abs = Math.abs(num(leg?.q) ?? 0);
+  const L = num(leg?.lot) || 1;
+  return pct >= 100 ? abs > 0 : Math.floor((Math.floor(abs / L) * pct) / 100 + 1e-9) >= 1;
 }
 
 const IST_MIN = (ms) => istClock(ms).mins + (new Date(ms + IST_OFFSET_MS).getUTCSeconds() / 60);
@@ -2839,15 +2804,20 @@ export function bookCurveStats(f, xs, { slopeEps = 0.005 } = {}) {
   const right = (vals[n - 1] - vals[n - 1 - k]) / k;
   const left = (vals[k] - vals[0]) / k; // slope going right over the first 5 %: falling towards the left edge is -left
   const tol = eps > 0 ? eps : 1e-9;
-  const unlimitedUp = right > tol || -left > tol;
-  const unlimitedDown = right < -tol || left > tol;
+  // Which edge each open end is on: the payoff's "Unlimited" pills and the footer name the same side.
+  const upLeft = -left > tol;
+  const upRight = right > tol;
+  const downLeft = left > tol;
+  const downRight = right < -tol;
   return {
     max,
     maxAt: pts[iMax],
     min,
     minAt: pts[iMin],
-    unlimitedUp,
-    unlimitedDown,
+    unlimitedUp: upLeft || upRight,
+    unlimitedDown: downLeft || downRight,
+    upSide: upRight ? "right" : upLeft ? "left" : null,
+    downSide: downLeft && !downRight ? "left" : downRight ? "right" : null,
     roots: curveRoots(f, pts),
     profitIntervals: intervalsWhere(pts, vals, (v) => v > 0),
     xs: pts,
@@ -2988,72 +2958,9 @@ export function payoffYRange(series, { main = null, xs = null, ratio = 4, pad = 
 export const RATE = 0.065;
 const T_FLOOR = 0.25 / 365;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const normPdf = (x) => 0.3989422804014327 * Math.exp((-x * x) / 2);
 
-/**
- * The price a vol figure reads from one leg. `basis` "mid": the bid–ask mid when two-sided (q "wide" when the spread
- * is over 10 % of it), else the LTP (q "ltp"); "ltp": always the LTP. { price: null, q: "none" } without either.
- * @returns {{ price: number|null, q: "mid"|"wide"|"ltp"|"none" }}
- */
-export function legPrice(leg, basis = "mid") {
-  if (basis !== "ltp") {
-    const b = num(leg?.bid);
-    const a = num(leg?.ask);
-    if (b !== null && a !== null && b > 0 && a >= b) {
-      const price = (a + b) / 2;
-      return { price, q: ((a - b) / price) * 100 > 10 ? "wide" : "mid" };
-    }
-  }
-  const l = num(leg?.ltp);
-  return l !== null && l > 0 ? { price: l, q: "ltp" } : { price: null, q: "none" };
-}
 
-/**
- * Implied volatility (percent) of a discounted Black-76 price: solves df·Black76(F, K, T, σ) = price by Newton on
- * vega from the Brenner–Subrahmanyam seed, falling back to bisection on [0.5 %, 500 %] whenever a step leaves the
- * bracket. Null when price ≤ 0, below df·intrinsic − 0.025, at or above df·F (CE) / df·K (PE), T ≤ 0, or no root.
- */
-export function impliedVolB76(price, forward, strike, years, right, df = 1) {
-  const P = num(price);
-  const F = num(forward);
-  const K = num(strike);
-  const D = num(df) ?? 1;
-  if (P === null || F === null || K === null || F <= 0 || K <= 0 || !(years > 0) || !(P > 0) || !(D > 0)) return null;
-  const intrinsic = right === "CE" ? Math.max(0, F - K) : Math.max(0, K - F);
-  if (P < D * intrinsic - 0.025) return null;
-  if (P >= D * (right === "CE" ? F : K)) return null;
-  const target = P / D;
-  const rt = Math.sqrt(years);
-  const f = (s) => black76(F, K, years, s * 100, right) - target;
-  let lo = 0.005;
-  let hi = 5;
-  if (f(lo) > 0 || f(hi) < 0) return null;
-  let s = Math.min(2, Math.max(0.05, (Math.sqrt((2 * Math.PI) / years) * target) / F));
-  for (let i = 0; i < 60; i++) {
-    const v = f(s);
-    if (Math.abs(v) < 1e-12 * F) return s * 100;
-    if (v > 0) hi = s;
-    else lo = s;
-    const sd = s * rt;
-    const vega = F * normPdf((Math.log(F / K) + (sd * sd) / 2) / sd) * rt;
-    let next = vega > 1e-14 ? s - v / vega : Number.NaN;
-    if (!(next > lo && next < hi)) next = (lo + hi) / 2;
-    if (Math.abs(next - s) < 1e-9) return next * 100;
-    s = next;
-  }
-  return hi - lo < 1e-6 ? s * 100 : null;
-}
 
-/** Black-76 forward delta at `ivPct`: N(d1) for a CE, N(d1) − 1 for a PE; null without a volatility or time. */
-export function b76Delta(forward, strike, years, ivPct, right) {
-  const F = num(forward);
-  const K = num(strike);
-  const sig = (num(ivPct) ?? 0) / 100;
-  if (F === null || K === null || F <= 0 || K <= 0 || !(years > 0) || !(sig > 0)) return null;
-  const sd = sig * Math.sqrt(years);
-  const n = normCdf((Math.log(F / K) + (sd * sd) / 2) / sd);
-  return right === "CE" ? n : n - 1;
-}
 
 /**
  * The forward the options price in, from put-call parity on mids: the median of K + (C − P)·e^(rT) over the 3
@@ -3079,144 +2986,22 @@ export function impliedForward(chain, years, rate = RATE) {
   return spot !== null ? { F: spot, source: "spot" } : { F: null, source: null };
 }
 
-/** The smallest gap between consecutive strikes (the strike step), or null. */
-function strikeStep(strikes) {
-  let step = null;
-  for (let i = 1; i < strikes.length; i++) {
-    const d = strikes[i] - strikes[i - 1];
-    if (d > 0 && (step === null || d < step)) step = d;
-  }
-  return step;
-}
 
-/** The least CE/PE IV separation (vol points) that counts as a parity gap. */
-const GAP_MIN = 0.1;
 
 /**
  * One point per strike with a leg: IVs recomputed with Black-76 on `F` (discounted at `rate`), from `basis` prices.
- * otm = the PE below F, the CE at or above it; `callDelta` = the CE delta at the OTM IV (the smile's delta axis);
- * `gap` = CE and PE IV bands (bid IV–ask IV) do not overlap; `out` = why the OTM point is not drawn.
- * @returns {{ strike: number, m: number, ce: object|null, pe: object|null, otm: { side: "ce"|"pe", iv: number,
- *   delta: number|null, q: string }|null, callDelta: number|null, gap: boolean,
- *   out: null|"tick"|"intrinsic"|"range"|"noquote" }[]}
+ * The maths is pricing.js smilePoints; this wrapper keeps the page defaults (the 6.5 % rate and a quarter-day floor on
+ * T) until the pages move to the vol-time clock (P1-3b). otm = the PE below F, the CE at or above it; `callDelta` =
+ * the CE delta at the OTM IV; `gap` = CE and PE IV bands do not overlap; `out` = why the OTM point is not drawn.
+ * `Tcal` (optional) puts the discount factor on calendar time while `years` is the clock's T.
  */
-export function smilePoints(chain, { F, years, rate = RATE, basis = "mid" } = {}) {
-  const Fv = num(F);
-  if (Fv === null || Fv <= 0) return [];
-  const T = Math.max(num(years) ?? 0, T_FLOOR);
-  const df = Math.exp(-(num(rate) ?? RATE) * T);
-  const leg = (q, K, right) => {
-    if (!q) return null;
-    const p = legPrice(q, basis);
-    const ivOf = (v) => (num(v) !== null && v > 0 ? impliedVolB76(v, Fv, K, T, right, df) : null);
-    const bidIv = ivOf(num(q.bid));
-    const askIv = ivOf(num(q.ask));
-    if (p.price === null) return { price: null, q: p.q, iv: null, bidIv, askIv, delta: null, out: "noquote" };
-    const intrinsic = right === "CE" ? Math.max(0, Fv - K) : Math.max(0, K - Fv);
-    const raw = impliedVolB76(p.price, Fv, K, T, right, df);
-    let out = null;
-    if (p.price <= 0.05) out = "tick";
-    else if (p.price < df * intrinsic - 0.025) out = "intrinsic";
-    else if (raw === null) out = p.price <= df * intrinsic + 0.025 ? "intrinsic" : "range";
-    else if (raw < 1 || raw > 300) out = "range";
-    const iv = out ? null : raw;
-    return { price: p.price, q: p.q, iv, bidIv, askIv, delta: iv === null ? null : b76Delta(Fv, K, T, iv, right), out };
-  };
-  const out = [];
-  for (const r of [...(chain?.rows ?? [])].sort((a, b) => a.strike - b.strike)) {
-    const K = num(r.strike);
-    if (K === null || K <= 0 || (!r.ce && !r.pe)) continue;
-    const ce = leg(r.ce, K, "CE");
-    const pe = leg(r.pe, K, "PE");
-    const side = K < Fv ? "pe" : "ce";
-    const o = side === "pe" ? pe : ce;
-    const otm = o && o.iv !== null ? { side, iv: o.iv, delta: o.delta, q: o.q } : null;
-    // A parity gap needs real separation: more than 0.1 vol point and more than one tick's worth of IV.
-    const apart = (b, a, aLeg, right) => {
-      if (b === null || a === null || b - a <= GAP_MIN) return false;
-      const ask = num(aLeg?.ask);
-      const tickIv = ask !== null && ask > 0 ? (impliedVolB76(ask + 0.05, Fv, K, T, right, df) ?? a) - a : 0;
-      return b - a > Math.max(GAP_MIN, tickIv);
-    };
-    const gap = Boolean(ce && pe && (apart(ce.bidIv, pe.askIv, r.pe, "PE") || apart(pe.bidIv, ce.askIv, r.ce, "CE")));
-    out.push({ strike: K, m: (K / Fv - 1) * 100, ce, pe, otm, callDelta: otm ? b76Delta(Fv, K, T, otm.iv, "CE") : null, gap, out: o ? o.out : "noquote" });
-  }
-  return out;
+export function smilePoints(chain, { F, years, rate = RATE, basis = "mid", Tcal = null } = {}) {
+  return pricingSmilePoints(chain, { F, years: Math.max(num(years) ?? 0, T_FLOOR), rate: num(rate) ?? RATE, basis, Tcal });
 }
 
-/** A point's mid IV: the mean of its valid CE and PE IVs (or the one that exists). */
-const pointIv = (p) => {
-  const v = [p?.ce?.iv, p?.pe?.iv].filter((x) => x !== null && x !== undefined);
-  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
-};
 
-/**
- * ATM IV at the forward: linear in strike between the two strikes bracketing F (each strike's CE/PE mean). One side
- * only: the nearest strike when within one strike step, else null.
- */
-export function atmIvAt(points, forward) {
-  const F = num(forward);
-  if (F === null) return null;
-  const pts = (points ?? []).map((p) => ({ k: p.strike, iv: pointIv(p) })).filter((p) => p.iv !== null).sort((a, b) => a.k - b.k);
-  if (!pts.length) return null;
-  const exact = pts.find((p) => p.k === F);
-  if (exact) return exact.iv;
-  const below = pts.filter((p) => p.k < F).pop() ?? null;
-  const above = pts.find((p) => p.k > F) ?? null;
-  if (below && above) return below.iv + ((above.iv - below.iv) * (F - below.k)) / (above.k - below.k);
-  const step = strikeStep((points ?? []).map((p) => p.strike).sort((a, b) => a - b));
-  const one = below ?? above;
-  // A lone strike (no step to judge by) counts when it sits within 0.5% of the forward.
-  return Math.abs(one.k - F) <= (step ?? 0.005 * F) ? one.iv : null;
-}
 
-/**
- * The OTM IV at a forward delta (−0.25 / −0.10 put, 0.25 / 0.10 call): linear in delta between the two OTM points
- * whose deltas bracket the target. `strike` is the point nearest the target. Null without a bracket.
- */
-export function ivAtDelta(points, target) {
-  const t = num(target);
-  if (t === null || t === 0) return null;
-  const side = t < 0 ? "pe" : "ce";
-  const pts = (points ?? []).filter((p) => p.otm && p.otm.side === side && p.otm.delta !== null && p.otm.iv !== null).sort((a, b) => a.strike - b.strike);
-  for (let i = 1; i < pts.length; i++) {
-    const a = pts[i - 1].otm;
-    const b = pts[i].otm;
-    if ((a.delta - t) * (b.delta - t) > 0) continue;
-    const w = b.delta === a.delta ? 0 : (t - a.delta) / (b.delta - a.delta);
-    const near = Math.abs(a.delta - t) <= Math.abs(b.delta - t) ? pts[i - 1] : pts[i];
-    return { iv: a.iv + w * (b.iv - a.iv), strike: near.strike };
-  }
-  return null;
-}
 
-/**
- * Skew at fixed deltas. rr = put IV − call IV (put minus call); bf = (put + call)/2 − ATM IV; wing16 = 16Δ IV − ATM IV.
- */
-export function skewMetrics(points, atmIv) {
-  const at = (d) => ivAtDelta(points, d);
-  const put25 = at(-0.25);
-  const call25 = at(0.25);
-  const put10 = at(-0.1);
-  const call10 = at(0.1);
-  const p16 = at(-0.16);
-  const c16 = at(0.16);
-  const a = num(atmIv);
-  const rr = (p, c) => (p && c ? p.iv - c.iv : null);
-  const bf = (p, c) => (p && c && a !== null ? (p.iv + c.iv) / 2 - a : null);
-  return {
-    rr25: rr(put25, call25),
-    bf25: bf(put25, call25),
-    rr10: rr(put10, call10),
-    bf10: bf(put10, call10),
-    put25,
-    call25,
-    put10,
-    call10,
-    wingPut16: p16 && a !== null ? p16.iv - a : null,
-    wingCall16: c16 && a !== null ? c16.iv - a : null,
-  };
-}
 
 /** The strike nearest `v` (the lower one on a tie). */
 function nearestStrike(strikes, v) {
@@ -3229,16 +3014,20 @@ function nearestStrike(strikes, v) {
  * One expiry's volatility read (a row of the term table): forward, ATM IV, straddle and 1σ move, skew, the hedge put,
  * the future's gap to the parity forward. `fut` is the same-expiry future's quote, if listed.
  */
-export function termRow(chain, { now = Date.now(), rate = RATE, basis = "mid", hedgePct = 97, spot = null, monthly = false, fut = null } = {}) {
+export function termRow(chain, { now = Date.now(), rate = RATE, basis = "mid", hedgePct = 97, spot = null, monthly = false, fut = null, ctx = null } = {}) {
   const expiry = chain?.expiry ?? null;
   const tt = timeToExpiry(expiry, now);
   const days = tt.days;
-  const years = days === null ? null : days / 365;
-  const T = Math.max(years ?? 0, T_FLOOR);
+  // With a clock context (pricing.js volTime): T on the vol-time clock, interest on calendar time, the 5-strike parity
+  // forward — exactly what the server computes for ?ivModel=b76-forward. Without one: the page's legacy reading.
+  const clock = ctx ? volTime(ctx, now, expiry) : null;
+  const years = clock ? clock.T : days === null ? null : days / 365;
+  const T = clock ? clock.T : Math.max(years ?? 0, T_FLOOR);
+  const Tc = clock ? clock.Tcal : T;
   const S = num(spot) ?? num(chain?.underlyingLtp);
-  const fw = impliedForward(chain, T, rate);
+  const fw = clock ? pricingForward(chain, { rate, Tcal: clock.Tcal }) : impliedForward(chain, T, rate);
   const F = fw.F;
-  const points = F === null ? [] : smilePoints(chain, { F, years: T, rate, basis });
+  const points = F === null ? [] : clock ? pricingSmilePoints(chain, { F, years: T, rate, Tcal: clock.Tcal, basis, settling: clock.settling }) : smilePoints(chain, { F, years: T, rate, basis });
   const atmIv = atmIvAt(points, F);
   const strikes = points.map((p) => p.strike);
   const atmStrike = F === null ? null : nearestStrike(strikes, F);
@@ -3280,7 +3069,8 @@ export function termRow(chain, { now = Date.now(), rate = RATE, basis = "mid", h
     source: fw.source,
     spot: S,
     basis: F !== null && S !== null ? F - S : null,
-    carryPct: F !== null && S ? (Math.log(F / S) / T) * 100 : null,
+    // Carry is an interest quantity: on the clock path it runs on calendar time (Tcal), not on the vol-time T.
+    carryPct: F !== null && S && Tc > 0 ? (Math.log(F / S) / Tc) * 100 : null,
     atmStrike,
     atmIv,
     ceIv: ap?.ce?.iv ?? null,
@@ -3395,16 +3185,6 @@ export function termShape(rows) {
   return { kind, slope, label: SHAPE_LABEL[kind] };
 }
 
-/** Annualised realised vol (percent) of the last `n` daily log returns: sample stdev × √252. Null under n + 1 closes. */
-export function realisedVol(closes, n) {
-  const c = (closes ?? []).map(num).filter((v) => v !== null && v > 0);
-  if (!(n >= 2) || c.length < n + 1) return null;
-  const r = [];
-  for (let i = c.length - n; i < c.length; i++) r.push(Math.log(c[i] / c[i - 1]));
-  const mean = r.reduce((a, b) => a + b, 0) / n;
-  const v = r.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1);
-  return Math.sqrt(v) * Math.sqrt(252) * 100;
-}
 
 /**
  * Where today's realised HV(n) sits among the HV(n) of the previous `lookback` sessions: the percent of them below it.

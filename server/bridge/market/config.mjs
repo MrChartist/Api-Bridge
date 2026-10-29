@@ -7,7 +7,7 @@
  *     "batch":     { "windowMs": 25, "maxSymbols": 1000 },
  *     "streamFirst": true,
  *     "history":   { "maxChunks": 40, "maxSpanDays": { "intraday": 60, "daily": 2000 }, "brokers": { "dhan": { "intraday": 90 } } },
- *     "chain":     { "source": "auto" },          // riskFreeRate: deprecated override of reference.rate
+ *     "chain":     { "source": "auto", "ivModelDefault": "legacy-bs-spot" },   // riskFreeRate: deprecated override of reference.rate
  *     "cache":     { "maxEntries": 20000 }
  *   }
  *
@@ -103,6 +103,11 @@ export const MARKET_CONFIG_SCHEMA = z
          * "use deps.reference.rate()" (docs/spec/p1-02-reference.md §10).
          */
         riskFreeRate: z.number().min(0).max(0.25).optional(),
+        /**
+         * The chain IV model when a request names none (docs/spec/p1-03-pricing-vol.md §10): legacy-bs-spot until the
+         * deprecation date (1 May 2027), then b76-forward. Owners can switch early.
+         */
+        ivModelDefault: z.enum(["legacy-bs-spot", "b76-forward"]).default("legacy-bs-spot"),
         /** Most option instruments a built chain will quote. */
         maxBuiltLegs: z.number().int().min(2).max(2000).default(400),
       })

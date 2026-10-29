@@ -146,7 +146,7 @@ export function drawPayoff(host, { onPin, onMarker, heights = [340, 280, 232] } 
   const pMax = pill("pos");
   const pMin = pill("neg");
   const pSpot = pill("spot");
-  const clipNote = s("text", { class: "clip-note", "text-anchor": "middle" });
+  const clipNote = pill("clip neg");
   const legsG = s("g", { class: "leg-lines", "clip-path": `url(#${id}-plot)` });
   const cmpLine = s("path", { class: "cmp-line", "clip-path": `url(#${id}-plot)` });
   const lineM = s("path", { class: "line-mid", "clip-path": `url(#${id}-plot)` });
@@ -196,7 +196,7 @@ export function drawPayoff(host, { onPin, onMarker, heights = [340, 280, 232] } 
     bePills,
     pMax.g,
     pMin.g,
-    clipNote,
+    clipNote.g,
     here,
     cross,
     dotE,
@@ -432,7 +432,9 @@ export function drawPayoff(host, { onPin, onMarker, heights = [340, 280, 232] } 
       placeGuidePill(pMax, Y(mp), `Max ${money(mp)}${sfx}`, -1, pillBottom);
     } else {
       set(guideMax, { visibility: "hidden" });
-      paintPill(pMax, W - R - 4, T + 10, st && mp === null && st.maxProfit === null ? "↗ Unlimited" : "", { anchor: "end", show: Boolean(st && st.maxProfit === null) });
+      // "Unlimited" sits at the edge the curve runs away on (stats.upSide / downSide, default right) with its arrow.
+      const left = st?.upSide === "left";
+      paintPill(pMax, left ? L + 4 : W - R - 4, T + 10, st && mp === null && st.maxProfit === null ? (left ? "↖ Unlimited" : "↗ Unlimited") : "", { anchor: left ? "start" : "end", show: Boolean(st && st.maxProfit === null) });
     }
     const lossBelow = ml !== null && ml !== undefined && ml < 0;
     if (lossBelow && inY(ml)) {
@@ -441,16 +443,32 @@ export function drawPayoff(host, { onPin, onMarker, heights = [340, 280, 232] } 
     } else {
       set(guideMin, { visibility: "hidden" });
       const unl = st && st.maxLoss === null;
-      paintPill(pMin, W - R - 4, H - B - 24, unl ? "↘ Unlimited" : lossBelow ? `Max ${money(ml)} ▾` : "", { anchor: "end", show: Boolean(unl || lossBelow) });
+      const left = unl && st?.downSide === "left";
+      paintPill(pMin, left ? L + 4 : W - R - 4, H - B - 24, unl ? (left ? "↙ Unlimited" : "↘ Unlimited") : lossBelow ? `Max ${money(ml)} ▾` : "", { anchor: left ? "start" : "end", show: Boolean(unl || lossBelow) });
     }
-    // Clamp arrow: a far tail clipped at the plot edge.
+    // Clamp arrow: a far tail clipped at the plot edge, as a pill (opaque, so curves never run through its text)
+    // inside the clipped edge, at the spot along that edge that no curve or other pill crosses.
     // The clamp arrow only when no Max pill already names the clipped value.
     const pillSays = d.clip && ((d.clip.side === "low" && st && st.maxLoss !== null) || (d.clip.side === "high" && st && st.maxProfit !== null));
     if (d.clip && !pillSays && d.clip.at >= d.lo && d.clip.at <= d.hi) {
-      const cx = Math.max(L + 60, Math.min(W - R - 120, X(d.clip.at)));
-      set(clipNote, { x: r1(cx), y: d.clip.side === "low" ? H - B - 26 : T + 14, visibility: "visible" });
-      text(clipNote, `${d.clip.side === "low" ? "▼" : "▲"} ${money(d.clip.value)} at ${formatInt(d.clip.at)}`);
-    } else set(clipNote, { visibility: "hidden" });
+      const label = `${d.clip.side === "low" ? "▼" : "▲"} ${money(d.clip.value)} at ${formatInt(d.clip.at)}`;
+      const w = Math.max(28, Math.round(label.length * 6.1 + 14));
+      const low = d.clip.side === "low";
+      const others = [pMax, pMin].filter((q) => q.g.getAttribute("visibility") === "visible").map((q) => [Number(q.r.getAttribute("x")), Number(q.r.getAttribute("y")), Number(q.r.getAttribute("width"))]);
+      const ys = low ? [H - B - 24, H - B - 46] : [T + 12, T + 34];
+      const cxs = [X(d.clip.at), L + 4 + w / 2, W - R - 4 - w / 2, (L + W - R) / 2];
+      let best = null;
+      for (const y of ys) {
+        for (const c of cxs) {
+          const x0 = Math.max(L + 2, Math.min(W - R - 2 - w, c - w / 2));
+          const overPill = others.some(([px, py, pw]) => px < x0 + w && px + pw > x0 && py < y + 9 && py + 18 > y - 9);
+          const cost = hitsCurve(x0, x0 + w, y - 9, y + 9) + (overPill ? 10 : 0) + Math.abs(c - X(d.clip.at)) / 1000;
+          if (!best || cost < best.cost) best = { cost, x: x0, y };
+        }
+      }
+      clipNote.g.setAttribute("class", `cpill clip ${low ? "neg" : "pos"}`);
+      paintPill(clipNote, best.x, best.y, label, { anchor: "start" });
+    } else set(clipNote.g, { visibility: "hidden" });
     // Overlays: per-leg payoffs and a saved strategy.
     const pl = d.perLeg ?? [];
     if (legsG.childNodes.length !== pl.length) legsG.replaceChildren(...pl.map(() => s("path", {})));
