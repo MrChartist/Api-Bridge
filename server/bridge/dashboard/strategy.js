@@ -1027,7 +1027,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const q = (t) => h("span", { class: "quiet" }, t);
     if (loading || !r.ok) {
       const why = !r ? (noChain ? "" : "loading") : r.act.length ? `${plural(r.missing.length, "leg needs", "legs need")} a price` : "";
-      for (const k of HERO) setHero(hero[k], q("—"), k === "net" ? why : "");
+      for (const k of HERO) setHero(hero[k], q(DASH), k === "net" ? why : "");
       hero.maxProfit.l.textContent = "Max profit";
       ringArc.setAttribute("stroke-dashoffset", "69.12");
       return;

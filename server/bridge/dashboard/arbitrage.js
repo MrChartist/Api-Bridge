@@ -7,7 +7,7 @@
 // order preview, risk notes and the chart slot. Colour encodes edge after charges: green clears every cost, red does
 // not. The maths is in options.js (pure, tested); numbers become text only through format.js.
 import { api, chartSlot, copyText, emptyState, errorState, h, icon, istTime, modal, optional, toast } from "./app.js";
-import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
+import { DASH, MINUS, formatCompact, formatFixed, formatInput, formatInt, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { flashValue, lineReveal, reducedMotion } from "./motion.js";
 import * as O from "./options.js";
 import { refCharges, refSession } from "./reference.js";
@@ -33,17 +33,12 @@ const optFreeze = new Map(); // underlying -> option freeze quantity (all strike
 const ungroup = (t) => (t === null || t === undefined ? t : String(t).replace(/(\d),(?=\d)/g, "$1"));
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
-/** Signed rupees, whole: "+₹624", "-₹74", "₹0". */
-export function rupeeSigned(v) {
-  if (!isFigure(v)) return DASH;
-  const abs = formatFixed(Math.abs(Number(v)), 0);
-  if (Number(abs) === 0) return "₹0";
-  return `${Number(v) > 0 ? "+" : "-"}₹${abs}`;
-}
+/** Signed rupees, whole: "+₹624", "−₹74", "₹0". */
+export const rupeeSigned = (v) => formatSignedRupee(v, 0);
 /** Rupees, whole, compact from 1 lakh up ("₹3.12L"). */
-const money = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? "-" : ""}₹${formatCompact(Math.abs(v))}` : formatRupee(v, 0));
+const money = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? MINUS : ""}₹${formatCompact(Math.abs(v))}` : formatRupee(v, 0));
 const pct = (v, dp = 1) => (num(v) === null ? DASH : formatPercent(v * 100, dp));
-/** A signed rate: "+3.8%", "-2.88%". */
+/** A signed rate: "+3.8%", "−2.88%". */
 const pctSigned = (v, dp = 1) => (num(v) === null ? DASH : `${formatSigned(v * 100, dp)}%`);
 /** The ink class for a signed figure: green above zero, red below, neutral when it rounds to zero at `dp`. */
 export function inkOf(v, dp = 0) {
@@ -118,7 +113,7 @@ function coverBar(size = "card") {
       let text;
       if (gross === null) text = DASH;
       else if (tone === "pos") text = cover === null ? "no cost" : compact ? `${formatFixed(cover, 1)}×` : `covers ${formatFixed(cover, 1)}×`;
-      else if (compact) text = `-${formatFixed(c.short, 2)} pts`;
+      else if (compact) text = `${MINUS}${formatFixed(c.short, 2)} pts`;
       else if (brief) text = `needs ${formatFixed(c.short, 2)} pts`;
       else text = gross <= 0 ? `gross negative · needs ${formatFixed(c.short, 2)} pts` : `needs ${formatFixed(c.short, 2)} pts more`;
       const s = `${tone}|${Math.round(base * 1000)}|${Math.round(beyond * 1000)}|${text}`;
@@ -1284,7 +1279,7 @@ export function arbPanels(ctx) {
         if (isBox) {
           if (targetKey !== s.key) {
             targetKey = s.key;
-            target.value = formatFixed(m.hRate * 100, 2);
+            target.value = formatInput(m.hRate * 100, 2);
           }
           drawCalc();
         }

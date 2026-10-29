@@ -1158,7 +1158,7 @@ export function termChart(host, init = {}) {
     } else if (G.hv !== null) {
       const ref = G.use.find((r) => r.expiry === o.selected) ?? G.use[0];
       const gap = G.hv - ref.atmIv;
-      setT(hvLabel, `HV20 ${formatPercent(G.hv, 1)} ${G.hvOff > 0 ? "↑" : "↓"} ${formatSigned(gap, 1).replace("-", "\u2212")} vs ATM`);
+      setT(hvLabel, `HV20 ${formatPercent(G.hv, 1)} ${G.hvOff > 0 ? "↑" : "↓"} ${formatSigned(gap, 1)} vs ATM`);
       setStyle(hvLabel, "transform", `translate(${r1(W - 2)}px, 12px)`);
     }
 

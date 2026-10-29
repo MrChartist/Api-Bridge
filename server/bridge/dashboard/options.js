@@ -7,7 +7,7 @@
  * rows: [{ strike, ce: { ltp, bid, ask, oi, oiChange, volume, iv, delta, ... } | null, pe: {...} | null }] }.
  */
 
-import { DASH, formatCompact, formatFixed, formatInt, formatRupee, formatSigned } from "./format.js";
+import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatRupee, formatSigned } from "./format.js";
 import {
   atmIvAt,
   b76Delta,
@@ -1935,7 +1935,7 @@ export function strategyWarnings(c) {
   }
   const st = c?.stats;
   if (st && st.maxLoss === null) {
-    const stress = st.stress ? `: stress -${rupeeShort(Math.min(0, st.stress.value))} at +2σ` : "";
+    const stress = st.stress ? `: stress ${MINUS}${rupeeShort(Math.min(0, st.stress.value))} at +2σ` : "";
     add("NAKED", "warn", `Unlimited loss above ${formatInt(st.topStrike ?? S)}${stress}`);
   }
   if (c?.expiryToday && legs.some((l) => !isFut(l) && l.side === "SELL")) add("EXPIRY_DAY_SHORT", "warn", "Expiry day: +2% ELM on shorts and fast gamma");

@@ -7,7 +7,7 @@
 // CE / PE identity, per-tab visual columns, phone cards with micro-visuals, an always-on detail column from 1280 px
 // with a score ring and a risk payoff, the toolbar live control with the chain dots, pins and a match map.
 import { alertBox, api, app, chartSlot, h, icon, istTime, modal, mountToolbarCtx, sheetPopover, toast } from "./app.js";
-import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
+import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import { DEMO_UNDERLYINGS, UNDERLYINGS } from "./desk.js";
 import { barsEnter, countUp, flashValue, lineReveal, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
@@ -1933,7 +1933,7 @@ export function renderScreenerPage() {
     } else if (r.kind === "arb") {
       parts.push(section("Legs", r.legs.length ? h("div", { class: "scr-legs-t big" }, legTokens(r.legs)) : h("p", { class: "scr-d-note" }, r.legsText)));
       if (r.costs) {
-        parts.push(section("Edge per lot", kvGrid([["Gross", `${formatSigned(r.gross, 2)} pts · ${formatRupee(r.grossLot, 0)}`, r.gross > 0 ? "pos" : r.gross < 0 ? "neg" : null], ["Costs", `-${formatRupee(r.costsTotal, 0)}`, "label"], ["Net", `${r.net > 0 ? "+" : ""}${formatRupee(r.net, 0)}`, r.net > 0 ? "pos" : "neg"], ["Capital", r.capital === null ? "Margin depends on broker" : formatRupee(r.capital, 0)]])));
+        parts.push(section("Edge per lot", kvGrid([["Gross", `${formatSigned(r.gross, 2)} pts · ${formatRupee(r.grossLot, 0)}`, r.gross > 0 ? "pos" : r.gross < 0 ? "neg" : null], ["Costs", `${MINUS}${formatRupee(r.costsTotal, 0)}`, "label"], ["Net", `${r.net > 0 ? "+" : ""}${formatRupee(r.net, 0)}`, r.net > 0 ? "pos" : "neg"], ["Capital", r.capital === null ? "Margin depends on broker" : formatRupee(r.capital, 0)]])));
         parts.push(costsBlock(r.costs, "Opening charges, one lot of every leg"));
       }
       parts.push(h("p", { class: "scr-d-note" }, r.type === "Calendar" ? "Model-based: total implied variance falls between these expiries. There is no executable edge to net; check the term structure." : "Costs are estimates. Quotes move; re-check in the chain before trading."));
