@@ -8,7 +8,7 @@ import { createNullLogger } from "../core/logger.mjs";
 import { createFakeSymbolService } from "../symbols/fake.mjs";
 import { calendarDaysBetween, istInstant } from "./calendar.mjs";
 import { parseReferenceConfig } from "./config.mjs";
-import { DEMO_STOCK_LOT, demoDatasets, demoLotFor } from "./demoReference.mjs";
+import { DEMO_STOCK_LOT, demoDatasets, demoLotFor, demoPrice } from "./demoReference.mjs";
 import { demoCalendar, demoStockLotFormula } from "./demoTables.mjs";
 import { createReferenceService } from "./referenceService.mjs";
 
@@ -117,6 +117,25 @@ describe("the demo service", () => {
         expect(l.lot).toBe(e.lot);
       }
     }
+  });
+
+  it("the past split's example strikes: today's listed strikes are 'after', the pre-split strikes x5 'before'", () => {
+    const t = istInstant("2026-10-29", "10:00");
+    const svc = demoService(t);
+    const split = svc.corporateActions().find((a) => a.type === "split");
+    expect(split.exDate < "2026-10-29").toBe(true);
+    const spot = demoPrice(split.symbol, t);
+    const ex = split.adjusted.exampleStrikes;
+    expect(ex).toHaveLength(5);
+    const mid = ex[2];
+    expect(Math.abs(mid.after - spot) / spot).toBeLessThan(0.02);
+    for (const k of ex) expect(k.before).toBeCloseTo(k.after * 5, 2);
+    expect(split.adjusted).toMatchObject({ lotBefore: DEMO_STOCK_LOT[split.symbol], lotAfter: DEMO_STOCK_LOT[split.symbol] * 5 });
+    // The upcoming bonus still shows pre-action strikes near today's spot and their halves.
+    const bonus = svc.corporateActions().find((a) => a.type === "bonus");
+    const b = bonus.adjusted.exampleStrikes[2];
+    expect(Math.abs(b.before - demoPrice(bonus.symbol, t)) / demoPrice(bonus.symbol, t)).toBeLessThan(0.02);
+    expect(b.after).toBeCloseTo(b.before / 2, 2);
   });
 
   it("demoStale reports lots two trading days old", async () => {

@@ -50,7 +50,7 @@
     "freshness": { "ltpMs": 1000, "quoteMs": 2000, "depthMs": 1000, "chainMs": 3000 },
     "stale": { "enabled": true, "maxStaleMs": 60000, "waitMs": 250 },
     "streamFirst": true,
-    "chain": { "source": "auto", "riskFreeRate": 0.065 }
+    "chain": { "source": "auto" }
   },
   "stream": { "heartbeatMs": 15000, "maxClients": 50, "maxSymbolsPerClient": 500 },
   "orders": { "ticketTtlMs": 60000, "confirmTokenTtlMs": 60000, "confirmPaperFromMcp": true, "sliceAboveFreeze": false },

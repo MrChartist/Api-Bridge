@@ -22,6 +22,10 @@ describe("mc-bridge init", () => {
     const cfg = JSON.parse(readFileSync(join(t.dir, "bridge.config.json"), "utf8"));
     expect(cfg.accounts.map((a) => a.id)).toEqual(["paper", "dhan-main"]);
     expect(cfg.safety.liveTrading).toBe(false);
+    // The rate lives in reference.rate (Market calendar page); a pinned market.chain.riskFreeRate would override it.
+    expect(cfg.market?.chain?.riskFreeRate).toBeUndefined();
+    const example = JSON.parse(readFileSync(new URL("../../../bridge.config.example.json", import.meta.url), "utf8"));
+    expect(example.market.chain).toEqual({ source: "auto" });
     expect(cfg.masterKeyFile).toBe(join(t.home, ".config", "mc-bridge", "master.key"));
     expect(statSync(cfg.masterKeyFile).mode & 0o777).toBe(0o600);
     expect(Buffer.from(readFileSync(cfg.masterKeyFile, "utf8").trim(), "base64")).toHaveLength(32);

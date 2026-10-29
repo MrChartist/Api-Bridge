@@ -3,12 +3,12 @@
  * fixtures: SOURCE_OFF without a single request, sync and merge, unchanged files, parse failures, corrupt stores,
  * retention, the daily request cap, the scheduler (morning job, holidays, retry) and the reference.updated event.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createEventBus } from "../core/eventBus.mjs";
-import { createNullLogger } from "../core/logger.mjs";
+import { createNullLogger, redact } from "../core/logger.mjs";
 import { createFakeSymbolService } from "../symbols/fake.mjs";
 import { istInstant } from "./calendar.mjs";
 import { parseReferenceConfig } from "./config.mjs";
@@ -38,12 +38,12 @@ function fakeFetch(files = {}) {
   return fn;
 }
 
-function setup({ reference = {}, t = THU_1000, fetch = fakeFetch(), dataDir = mkdtempSync(join(tmpdir(), "mcb-ref-")), demo = false } = {}) {
+function setup({ reference = {}, t = THU_1000, fetch = fakeFetch(), dataDir = mkdtempSync(join(tmpdir(), "mcb-ref-")), demo = false, symbols: symbolsIn } = {}) {
   const clock = { t, now: () => clock.t };
   const bus = createEventBus({ logger: createNullLogger() });
   const events = [];
   bus.on("reference.updated", (e) => events.push(e));
-  const symbols = createFakeSymbolService();
+  const symbols = symbolsIn ?? createFakeSymbolService();
   const make = () =>
     createReferenceService(
       { config: { reference: parseReferenceConfig(reference), demo }, logger: createNullLogger(), bus, clock, paths: { dataDir }, symbols },
@@ -186,6 +186,27 @@ describe("scheduler", () => {
     expect(h.fetch.calls).toHaveLength(n);
   });
 
+  it("a scheduled job holds the sync slot: a manual sync is refused and status shows it", async () => {
+    let release;
+    const gate = new Promise((r) => (release = r));
+    const fetch = fakeFetch({ mktlots: () => fixture("fo_mktlots.csv") });
+    const slow = async (url) => {
+      await gate;
+      return fetch(url);
+    };
+    slow.calls = fetch.calls;
+    const h = setup({ reference: ON, fetch: slow, t: istInstant("2026-10-29", "08:20") });
+    const job = h.svc.tick();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.svc.status().syncing).toMatchObject({ datasets: ["lots", "ban", "corporateActions"] });
+    expect(() => h.svc.startSync({ datasets: ["lots"] })).toThrow(expect.objectContaining({ code: "IDEMPOTENCY_IN_PROGRESS" }));
+    expect(await h.svc.startupSync()).toBe(null);
+    release();
+    expect(await job).toMatchObject({ job: "morning", failed: false });
+    expect(h.svc.status().syncing).toBe(null);
+    expect(fetch.calls.filter((u) => /fo_mktlots/.test(u))).toHaveLength(1);
+  });
+
   it("skips holidays and weekends", async () => {
     const holiday = setup({ reference: ON, t: istInstant("2026-11-24", "08:25") });
     expect(await holiday.svc.tick()).toBe(null);
@@ -229,6 +250,20 @@ describe("lots and staleness", () => {
     expect(stale).toMatchObject({ stale: true, staleTradingDays: 2, asOf: "2026-10-29" });
   });
 
+  it("the same market-lots file on three trading days keeps the lots fresh (asOf follows the fetch)", async () => {
+    const h = setup({ reference: ON });
+    await h.svc.sync({ datasets: ["lots"] });
+    h.clock.t = istInstant("2026-10-30", "10:00");
+    expect((await h.svc.sync({ datasets: ["lots"] })).results[0]).toEqual({ dataset: "lots", ok: true, changed: false });
+    h.clock.t = istInstant("2026-11-02", "10:00");
+    expect((await h.svc.sync({ datasets: ["lots"] })).results[0]).toEqual({ dataset: "lots", ok: true, changed: false });
+    const st = h.svc.status().datasets;
+    expect(st.lots).toMatchObject({ asOf: "2026-11-02", stale: false, staleTradingDays: 0 });
+    expect(st.universe).toMatchObject({ asOf: "2026-11-02", stale: false });
+    expect(await h.svc.lotFor("NIFTY", "2026-10-27", {})).toMatchObject({ stale: false, asOf: "2026-11-02" });
+    expect(h.events.at(-1)).toMatchObject({ dataset: "lots", asOf: "2026-11-02", changed: false });
+  });
+
   it("a lot revision in the market-lots file becomes a lot-revision event inside the banner window", async () => {
     const revision = Buffer.from("UNDERLYING,SYMBOL,OCT-26,NOV-26\nNifty 50,NIFTY,65,75\n");
     const h = setup({ reference: ON, fetch: fakeFetch({ mktlots: () => revision }), t: istInstant("2026-10-22", "10:00") });
@@ -249,5 +284,40 @@ describe("rate", () => {
     c.svc.setRate({ value: 0.06, asOf: "2026-10-01", source: "my rate" }, "local:dashboard");
     expect(c.svc.rate()).toMatchObject({ value: 0.06, quality: "user", setBy: "dashboard", stale: true });
     expect(() => c.svc.setRate({ value: 6, source: "percent by mistake" })).toThrow(expect.objectContaining({ code: "VALIDATION_FAILED" }));
+  });
+});
+
+describe("events", () => {
+  it("site-wide events include a holiday expiry shift of an index (no underlying given)", async () => {
+    const opt = (e) => ["CE", "PE"].map((r) => ({ symbol: `NFO:NIFTY-${e}-25000-${r}`, lotSize: 65, tickSize: 0.05 }));
+    const symbols = createFakeSymbolService({ instruments: [{ symbol: "NSE:NIFTY", lotSize: 1, tickSize: 0.05 }, ...["2026-11-03", "2026-11-09", "2026-11-17", "2026-12-01", "2026-12-08", "2026-12-15", "2026-12-29"].flatMap(opt)] });
+    const h = setup({ symbols });
+    const ev = await h.svc.events({ days: 14 });
+    // Tue 10 Nov is a holiday: the weekly expiry moves to Mon 9 Nov.
+    expect(ev.find((e) => e.kind === "holiday-expiry-shift")).toMatchObject({ underlying: "NIFTY", effectiveOn: "2026-11-09" });
+  });
+});
+
+describe("security (spec section 7.2)", () => {
+  /** Every file under dir, recursively. */
+  const filesUnder = (dir) => readdirSync(dir).flatMap((f) => (statSync(join(dir, f)).isDirectory() ? filesUnder(join(dir, f)) : [join(dir, f)]));
+  /** Token-shaped: what the logger would mask (Bridge keys, bearer tokens, JWTs). Scanned in overlapping windows. */
+  const tokenShaped = (text) => {
+    for (let i = 0; i < text.length; i += 800) {
+      const w = text.slice(i, i + 1000);
+      if (redact(w) !== w) return true;
+    }
+    return false;
+  };
+
+  it("no file under dataDir/reference holds a token-shaped string", async () => {
+    const h = setup({ reference: ON });
+    await h.svc.sync({ datasets: ["lots", "ban", "mwpl"] });
+    h.svc.setRate({ value: 0.0571, asOf: "2026-10-28", source: "91-day T-bill cut-off" }, "key:k_admin01");
+    h.svc.addAction({ symbol: "RELIANCE", type: "bonus", ratio: { new: 1, held: 1 }, exDate: "2026-11-20", source: "exchange circular" });
+    const files = filesUnder(join(h.dataDir, "reference"));
+    expect(files.length).toBeGreaterThan(4);
+    expect(tokenShaped("key mcb_abcdefgh12_secretpart")).toBe(true); // the detector works
+    for (const f of files) expect(tokenShaped(readFileSync(f, "latin1")), f).toBe(false);
   });
 });

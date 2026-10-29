@@ -19,7 +19,7 @@ import { isStub } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { addDays, calendarDaysBetween, createCalendar, dayMonth, deliveryMarginDates, expiryKinds, expiryShifts, isIsoDate, istDateOf, istInstant, mergeHolidays, monthLabel } from "./calendar.mjs";
 import { effectiveSettings, parseReferenceConfig } from "./config.mjs";
-import { inferNonStandard, normaliseAction, previewAdjustment } from "./corporateActions.mjs";
+import { inferNonStandard, normaliseAction, previewAdjustment, roundToTick } from "./corporateActions.mjs";
 import { DEFAULT_BROKERAGE } from "./defaults.mjs";
 import { DEMO_SOURCE, DEMO_STOCK_LOT, demoDatasets, demoPrice } from "./demoReference.mjs";
 import { demoHolidayRows, demoSpecialSessions } from "./demoTables.mjs";
@@ -425,9 +425,22 @@ export function createReferenceService(deps, opts = {}) {
     return [...shipped, ...user, ...inferred];
   }
 
+  /**
+   * Example strikes and lots around an action. An upcoming action (or a past one with its cum price) shows strikes
+   * near the pre-action price and their adjusted values. A past action priced from today's spot (demo mode) shows the
+   * strikes listed now as "after" and the pre-action strikes they came from (K x factor) as "before", so the example
+   * matches the strikes actually trading.
+   */
   function withAdjusted(a) {
     if (!a.factor) return a;
-    const lot = demo ? DEMO_STOCK_LOT[a.symbol] ?? null : lotForMonth(timelineFor(a.symbol, "NFO"), today().slice(0, 7));
+    const past = Boolean(a.exDate) && a.exDate < today();
+    const timeline = demo ? [] : timelineFor(a.symbol, "NFO");
+    const currentLot = demo ? DEMO_STOCK_LOT[a.symbol] ?? null : lotForMonth(timeline, today().slice(0, 7));
+    const monthBeforeEx = past ? addDays(`${a.exDate.slice(0, 7)}-01`, -1).slice(0, 7) : null;
+    // Lots: the lot before the ex-date and the adjusted lot of contracts open across it (lot x factor). Demo lots are
+    // the pre-action lots (the inferred demo contract carries lot x 5).
+    const lotBeforeEx = past && !demo ? lotForMonth(timeline, monthBeforeEx) : currentLot;
+    const fromSpot = demo || !a.cumPrice;
     const ref = demo ? demoPrice(a.symbol, now()) : a.cumPrice;
     let strikes = [];
     if (ref) {
@@ -435,10 +448,15 @@ export function createReferenceService(deps, opts = {}) {
       const atm = Math.round(ref / step) * step;
       strikes = [-2, -1, 0, 1, 2].map((i) => atm + i * step);
     }
+    const tick = a.strikeTick ?? 0.05;
     try {
-      const p = previewAdjustment({ type: a.type, ratio: a.ratio ?? undefined, fv: a.fv ?? undefined, subscriptionPrice: a.subscriptionPrice ?? undefined, cumPrice: a.cumPrice ?? undefined, lot: lot ?? undefined, strikes, strikeTick: a.strikeTick ?? 0.05 }, { extraordinaryDividendPct: cfg.extraordinaryDividendPct });
-      // A past action shows its pre-action strikes; an upcoming one its post-action strikes.
-      return { ...a, adjusted: { exampleStrikes: p.strikes, lotBefore: lot, lotAfter: p.lotAfter } };
+      if (past && fromSpot) {
+        // Today's spot is post-action: the listed strikes are the "after" side.
+        const lotAfter = lotBeforeEx === null ? null : Math.round(lotBeforeEx * a.factor);
+        return { ...a, adjusted: { exampleStrikes: strikes.map((k) => ({ before: roundToTick(k * a.factor, tick), after: k })), lotBefore: lotBeforeEx, lotAfter } };
+      }
+      const p = previewAdjustment({ type: a.type, ratio: a.ratio ?? undefined, fv: a.fv ?? undefined, subscriptionPrice: a.subscriptionPrice ?? undefined, cumPrice: a.cumPrice ?? undefined, lot: lotBeforeEx ?? undefined, strikes, strikeTick: tick }, { extraordinaryDividendPct: cfg.extraordinaryDividendPct });
+      return { ...a, adjusted: { exampleStrikes: p.strikes, lotBefore: lotBeforeEx, lotAfter: p.lotAfter } };
     } catch {
       return a;
     }
@@ -512,7 +530,10 @@ export function createReferenceService(deps, opts = {}) {
       out.push({ kind: "corporate-action", underlying: a.symbol, effectiveOn: a.exDate, daysAway: away, text: `${a.symbol} ${what}, ex-date ${dayMonth(a.exDate)} (${tdays === 0 ? "today" : `in ${tdays} trading day${tdays === 1 ? "" : "s"}`}).${effect}`, ref: { id: a.id, type: a.type, factor: a.factor ?? null, verified: a.verified } });
     }
     // Holiday expiry shifts
-    const shiftUnders = underlying ? [underlying] : demo ? ["NIFTY", "BANKNIFTY", "SENSEX"] : [];
+    // Site-wide (no underlying): the index underlyings, whose weekly and monthly expiries move for holidays. Stock
+    // expiries are monthly and move the same way as the index monthly, so the index rows cover the calendar.
+    const indexUnders = [...new Set(["NIFTY", "BANKNIFTY", "SENSEX", ...lotRows().filter((r) => r.kind === "index").map((r) => r.underlying), ...(universeData()?.intervals ?? []).filter((i) => i.kind === "index" && i.to === null).map((i) => i.symbol)])].slice(0, 12);
+    const shiftUnders = underlying ? [underlying] : indexUnders;
     for (const u of shiftUnders) {
       const ex = await expiries(u);
       for (const e of ex.expiries) {
@@ -728,8 +749,13 @@ export function createReferenceService(deps, opts = {}) {
     const prev = state.datasets[name] ?? {};
     const sameFile = prev.sha256 === file.sha256 && (name !== "ban" || banDoc.days?.[date]) && (name !== "mwpl" || mwplDoc.days?.[date]);
     if (sameFile) {
-      record(name, { lastSuccessAt: istIso(now()), error: null, failures: 0 });
-      bus?.emit("reference.updated", { dataset: name, asOf: prev.asOf ?? today(), source: SOURCES[name], changed: false });
+      // The market-lots file is the same on most days: a successful fetch still confirms the lots as of today, so
+      // staleness (counted from asOf) does not grow while every daily sync succeeds. Ban and MWPL keep their forDate.
+      const okAt = istIso(now());
+      const sameAsOf = name === "lots" ? today() : prev.asOf;
+      record(name, { lastSuccessAt: okAt, asOf: sameAsOf, error: null, failures: 0 });
+      if (name === "lots" && universeDoc?.knownSince) record("universe", { lastSuccessAt: okAt, lastAttemptAt: attemptAt, asOf: sameAsOf, error: null });
+      bus?.emit("reference.updated", { dataset: name, asOf: sameAsOf ?? today(), source: SOURCES[name], changed: false });
       return { dataset: name, ok: true, changed: false };
     }
     let changed = false;
@@ -813,6 +839,7 @@ export function createReferenceService(deps, opts = {}) {
     const bad = list.filter((d) => !SYNC_DATASETS.includes(d) && d !== "universe");
     if (bad.length) throw invalid(`Unknown dataset(s): ${bad.join(", ")}. Use ${SYNC_DATASETS.join(", ")}.`, "datasets");
     if (running) throw new BridgeError("IDEMPOTENCY_IN_PROGRESS", `A reference sync (${running.jobId}: ${running.datasets.join(", ")}) is still running.`);
+    if (ticking) throw new BridgeError("IDEMPOTENCY_IN_PROGRESS", "A scheduled reference job is still running.");
     const names = [...new Set(list.map((d) => (d === "universe" ? "lots" : d)))];
     jobSeq += 1;
     running = { jobId: `refsync_${now().toString(36)}_${jobSeq}`, datasets: names, startedAt: istIso(now()), reason };
@@ -840,8 +867,20 @@ export function createReferenceService(deps, opts = {}) {
   /** A job that is more than this late (Bridge started afterwards) is skipped; the startup sync covers it. */
   const LATE_MS = 3 * 3_600_000;
 
+  /** One scheduled job. It holds the same `running` slot as startSync, so a manual or startup sync cannot overlap it. */
   async function runJob(name) {
+    if (running) throw new BridgeError("IDEMPOTENCY_IN_PROGRESS", `A reference sync (${running.jobId}: ${running.datasets.join(", ")}) is still running.`);
     const base = name.replace(/Retry$/, "");
+    jobSeq += 1;
+    running = { jobId: `refjob_${now().toString(36)}_${jobSeq}`, datasets: base === "morning" ? ["lots", "ban", "corporateActions"] : ["ban", "mwpl", "lots"], startedAt: istIso(now()), reason: name };
+    try {
+      return await runJobBody(name, base);
+    } finally {
+      running = null;
+    }
+  }
+
+  async function runJobBody(name, base) {
     const t = today();
     const results = [];
     if (base === "morning") {
@@ -908,7 +947,7 @@ export function createReferenceService(deps, opts = {}) {
 
   /** Datasets whose last success is older than staleAfterTradingDays (or never): fetch them once at start. */
   async function startupSync() {
-    if (demo || !archivesEnabled() || running) return null;
+    if (demo || !archivesEnabled() || running || ticking) return null;
     const names = ["lots", "ban", "mwpl"].filter((n) => {
       const st = state.datasets[n];
       if (!st?.lastSuccessAt) return true;
