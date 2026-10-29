@@ -977,7 +977,7 @@ async function renderHome() {
         actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/accounts") }, "Manage"),
         body: table(
           [
-            { label: "Account", cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
+            { label: "Account", wrap: true, cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
             { label: "Broker", cell: (a) => brokerCell(a.broker, a.broker) },
             { label: "Session", cell: (a) => sessionPill(a.session?.state) },
             { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")) },
@@ -1293,9 +1293,66 @@ function removeAccountSheet(a) {
   });
 }
 
+/** The holder text an account card shows (P1-13 §6.8): "Asha · Spouse · Family" / "friend · Other · Outside family". */
+export function holderText(entry) {
+  if (!entry) return null;
+  const rel = entry.relationship ? HOLDER_REL[entry.relationship] ?? entry.relationship : "No relationship";
+  const who = entry.label || entry.holder;
+  return `${who} · ${rel} · ${entry.inFamily ? "Family" : "Outside family"}`;
+}
+const HOLDER_REL = { self: "Self", spouse: "Spouse", "dependent-child": "Dependent child", "dependent-parent": "Dependent parent", huf: "HUF", other: "Other" };
+
+/** Edit a holder's relationship and label (PUT /v1/book/holders/{holder}: admin, this computer). */
+function holderSheet(entry, relationships) {
+  const err = h("div", { "aria-live": "polite" });
+  const sel = h("select", { "aria-label": "Relationship" }, relationships.map((r) => h("option", { value: r.value, selected: r.value === entry.relationship }, `${r.label}${r.inFamily ? " · family" : ""}`)));
+  const label = h("input", { type: "text", maxlength: "40", value: entry.label && entry.label !== entry.holder ? entry.label : "", placeholder: "A name you recognise (optional)" });
+  return modal({
+    title: `Holder: ${entry.holder}`,
+    body: h(
+      "div",
+      { class: "stack" },
+      h("p", { class: "muted small" }, `Accounts: ${entry.accounts.join(", ") || "none visible"}. The relationship decides whether guards and alert actions may act on these accounts.`),
+      h("label", { class: "field" }, "Relationship", sel),
+      h("label", { class: "field" }, "Label", label),
+      err,
+    ),
+    buttons: [
+      { label: "Cancel", value: false },
+      {
+        label: "Save",
+        cls: "primary",
+        onClick: async () => {
+          try {
+            await api(`/v1/book/holders/${encodeURIComponent(entry.holder)}`, { method: "PUT", body: { relationship: sel.value, ...(label.value.trim() ? { label: label.value.trim() } : {}) } });
+            return true;
+          } catch (e) {
+            err.replaceChildren(errorBox(e));
+            return false;
+          }
+        },
+      },
+    ],
+  }).then((saved) => {
+    if (saved) show().then(() => toast(`Saved the relationship for ${entry.holder}`));
+  });
+}
+
 async function renderAccounts() {
-  const [accounts, brokers] = await Promise.all([api("/v1/accounts"), api("/v1/brokers")]);
+  const [accounts, brokers, holdersRes] = await Promise.all([api("/v1/accounts"), api("/v1/brokers"), optional(api("/v1/book/holders"))]);
   const accs = accounts.data.data ?? [];
+  const book = holdersRes.data?.data ?? null;
+  const holderOfAcc = (id) => book?.holders.find((x) => x.accounts.includes(id)) ?? null;
+  const holderCell = (a) => {
+    const e = holderOfAcc(a.id);
+    if (!e) return null;
+    return h(
+      "div",
+      { class: "acct-holder" },
+      h("span", { class: "bk-rel", "data-tone": e.inFamily ? "ok" : "warn" }, `Holder: ${holderText(e)}`),
+      e.locked ? h("span", { class: "muted small" }, "set in bridge.config.json") : h("button", { type: "button", class: "small link-btn", "aria-label": `Edit the relationship of holder ${e.holder}`, onclick: () => holderSheet(e, book.relationships) }, "Edit relationship"),
+    );
+  };
   const list = brokers.data.data ?? [];
   const brokerOf = (a) => list.find((b) => b.id === a.broker);
   const paperCount = accs.filter((a) => a.broker === "paper").length;
@@ -1323,7 +1380,7 @@ async function renderAccounts() {
     flush: true,
     body: table(
       [
-        { label: "Account", cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
+        { label: "Account", wrap: true, cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id), holderCell(a)) },
         { label: "Broker", cell: (a) => (a.broker === "paper" ? "Paper (simulator)" : brokerCell(a.broker, brokerOf(a)?.name ?? a.broker)) },
         { label: "Session", cell: (a) => h("div", {}, sessionPill(a.session?.state), a.session?.expiresAt ? h("div", { class: "muted small" }, `until ${istDateTime(a.session.expiresAt)}`) : null) },
         { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")) },
@@ -1351,6 +1408,11 @@ async function renderAccounts() {
       { mobile: "stack-wide" },
     ),
   });
+  // P1-13 §6.8: what "family" means here, under the accounts.
+  if (book && accs.length) {
+    const fam = book.relationships.filter((r) => r.inFamily).map((r) => r.label.toLowerCase());
+    accountsCard.querySelector(".card-body")?.append(h("p", { class: "muted small acct-family-note" }, `Family = ${fam.join(", ")} (book.family in the config file). Guards and alert actions work only on family accounts. Managing money for anyone else needs SEBI registration.`));
+  }
 
   // Directory
   const search = h("input", { type: "search", class: "dir-search", placeholder: "Search 41 brokers…", "aria-label": "Search brokers" });

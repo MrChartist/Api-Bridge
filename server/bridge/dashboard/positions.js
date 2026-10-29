@@ -13,6 +13,7 @@ import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee
 import { barsEnter, countUp, flashValue, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
 import { drawPayoff } from "./payoff.js";
+import { SCOPES, createBookView } from "./book-view.js";
 import { segField, segmented } from "./views.js";
 import { heatCell, setBar, svgEl } from "./viz.js";
 import { eventChip, refCharges, refRate, refSession, upcomingEvents } from "./reference.js";
@@ -215,6 +216,8 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
 
   /** One refresh: positions, chains (≤ 4 a tick), quotes, instruments, funds every 15 s. */
   async function tick() {
+    // All accounts / Family: only the book is read (every 15 s); this account's chains and quotes wait.
+    if (scopeNow() !== "account") return bookView.tick();
     const seq = st.seq;
     const acc = st.account;
     const u = st.underlying;
@@ -478,6 +481,29 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   const payoffBox = h("div", { class: "pos-payoff strat-payoff" });
   const scenBox = h("div", { class: "pos-scen" });
   const riskBody = h("div", { class: "pos-risk tab-payoff" }, payoffBox, scenBox);
+  // ── Scope (P1-13): This account · All accounts · Family. The last two read GET /v1/book (book-view.js). ──
+  const bookView = createBookView({ openTicket });
+  const scopeSeg = segmented("Positions scope", SCOPES, cfg().scope);
+  const scopeHint = h("span", { class: "muted pos-scope-hint" });
+  const scopeBar = h("div", { class: "pos-scope", "data-fixed": "" }, scopeSeg, scopeHint);
+  const scopeNow = () => cfg().scope;
+  function applyScope() {
+    const s0 = scopeNow();
+    document.documentElement.dataset.posScope = s0;
+    scopeHint.textContent = s0 === "account" ? "One account, every expiry" : s0 === "family" ? "Family holders only · exits stay per account" : "Every account you can see · exits stay per account";
+    bookView.show(s0);
+  }
+  scopeSeg.addEventListener("change", () => {
+    if (scopeSeg.value === scopeNow()) return;
+    setCfg({ scope: scopeSeg.value });
+    applyScope();
+    if (scopeNow() === "account") {
+      layoutSig = "";
+      riskSig = "";
+      tick();
+    }
+    onClock();
+  });
   const riskPanel = h("section", { class: "desk-panel pos-riskp", "data-panel": "risk", "aria-label": "Payoff and scenarios", hidden: true }, h("div", { class: "panel-head" }, h("span", { class: "panel-title" }, h("strong", {}, "Risk"), h("span", { class: "muted pos-risk-sub" })), riskSeg), riskBody);
   const hedgeHead = h("button", { type: "button", class: "pos-hedge-head", "aria-expanded": "false" });
   const hedgeBody = h("div", { class: "pos-hedge-body", hidden: true });
@@ -2622,6 +2648,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   }
   function onKey(e) {
     const k = e.key;
+    if (scopeNow() !== "account") return k === "r" ? (bookView.refresh(), true) : false;
     const order = displayOrder();
     const f = legs.find((l) => l.symbol === focusSym && l.q);
     const moveFocus = (dir) => {
@@ -2701,6 +2728,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   const mqs = ["(max-width: 719px)", "(max-width: 1023px)"].map(media);
   const onDevice = () => {
     if (!posPanel.isConnected) return;
+    bookView.redraw();
     layoutSig = "";
     riskSig = "";
     warnEl.__sig = "";
@@ -2714,9 +2742,10 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     drawRisk();
   };
   window.addEventListener("resize", onResize);
+  applyScope();
 
   return {
-    panels: [bookPanel, posPanel, riskPanel, hedgePanel, slotPanel],
+    panels: [scopeBar, bookView.el, bookPanel, posPanel, riskPanel, hedgePanel, slotPanel],
     root,
     tick,
     /** Spot and the index quote, for the top bar. */
@@ -2764,6 +2793,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       draw();
     },
     destroy() {
+      delete document.documentElement.dataset.posScope;
       closeMenu?.(false);
       for (const m of mqs) m.removeEventListener("change", onDevice);
       window.removeEventListener("resize", onResize);

@@ -4,9 +4,10 @@
  * What changes (and why it can never touch a real broker or real money):
  *  - The broker registry holds ONLY the demo adapter (demoAdapter.mjs), which makes no network calls and has no order
  *    methods. No real adapter is loaded, so no request can reach a broker.
- *  - The accounts in the config file are replaced by two demo accounts: "demo" (sample market data, connected
- *    automatically) and "demo-paper" (a paper account). Real accounts, their saved sessions and their paper books are
- *    left alone; the demo uses its own account ids.
+ *  - The accounts in the config file are replaced by four demo accounts: "demo" (sample market data, connected
+ *    automatically), "demo-paper" (your paper account), and two more paper accounts for the family book (P1-13):
+ *    "demo-paper-spouse" (holder demo-spouse) and "demo-paper-other" (holder demo-other, outside the family). Real
+ *    accounts, their saved sessions and their paper books are left alone; the demo uses its own account ids.
  *  - Live trading is forced off (safety.liveTrading = false), whatever the config says.
  *  - Every HTTP response carries `X-MCB-Data: demo` and, for JSON bodies with a `meta` object, `meta.demo: true` and
  *    `meta.dataNotice`; /v1/health says `demo: true`; the dashboard shows a "Demo data" banner on every page.
@@ -18,14 +19,20 @@ export { DEMO_BROKER_ID, DEMO_NOTICE };
 export const DEMO_HEADER = "X-MCB-Data";
 export const DEMO_MARKET_ACCOUNT = "demo";
 export const DEMO_PAPER_ACCOUNT = "demo-paper";
+/** The family-book sample accounts (docs/spec/p1-12-guard-participants.md §5.3): a spouse's and a non-family holder's. */
+export const DEMO_SPOUSE_ACCOUNT = "demo-paper-spouse";
+export const DEMO_OTHER_ACCOUNT = "demo-paper-other";
+const DEMO_IDS = new Set([DEMO_MARKET_ACCOUNT, DEMO_PAPER_ACCOUNT, DEMO_SPOUSE_ACCOUNT, DEMO_OTHER_ACCOUNT]);
 /** Added to "account not found" errors in demo mode, where the usual account ids from the docs do not exist. */
-export const DEMO_ACCOUNT_HINT = `Demo mode has two accounts: "${DEMO_PAPER_ACCOUNT}" for paper orders and positions, and "${DEMO_MARKET_ACCOUNT}" for market data.`;
+export const DEMO_ACCOUNT_HINT = `Demo mode has four accounts: "${DEMO_PAPER_ACCOUNT}" for paper orders and positions, "${DEMO_MARKET_ACCOUNT}" for market data, and two sample paper accounts for the family book, "${DEMO_SPOUSE_ACCOUNT}" and "${DEMO_OTHER_ACCOUNT}".`;
 
 /** The accounts demo mode runs with (parsed, so defaults are filled in exactly as for a real config). */
 export function demoAccounts() {
   return [
     accountSchema.parse({ id: DEMO_MARKET_ACCOUNT, broker: DEMO_BROKER_ID, label: "Demo market data", holder: "demo" }),
-    accountSchema.parse({ id: DEMO_PAPER_ACCOUNT, broker: "paper", label: "Paper account" }),
+    accountSchema.parse({ id: DEMO_PAPER_ACCOUNT, broker: "paper", label: "Paper account", holder: "demo" }),
+    accountSchema.parse({ id: DEMO_SPOUSE_ACCOUNT, broker: "paper", label: "Paper · spouse (sample)", holder: "demo-spouse" }),
+    accountSchema.parse({ id: DEMO_OTHER_ACCOUNT, broker: "paper", label: "Paper · not family (sample)", holder: "demo-other" }),
   ];
 }
 
@@ -37,7 +44,7 @@ export const demoFromEnv = (env = {}) => env.MCB_DEMO === "1" || env.MCB_DEMO ==
  * @param {any} cfg
  */
 export function applyDemoConfig(cfg) {
-  const replaced = cfg.accounts.filter((a) => a.id !== DEMO_MARKET_ACCOUNT && a.id !== DEMO_PAPER_ACCOUNT).length;
+  const replaced = cfg.accounts.filter((a) => !DEMO_IDS.has(a.id)).length;
   cfg.demo = true;
   cfg.accounts = demoAccounts();
   cfg.safety.liveTrading = false;

@@ -1098,7 +1098,9 @@ describe("book warnings and settings", () => {
     const d = O.positionsConfig(undefined);
     expect(d).toEqual({ ...O.POSITIONS_DEFAULTS, cols: [...O.POSITIONS_DEFAULTS.cols], hedge: { ...O.POSITIONS_DEFAULTS.hedge }, excluded: {} });
     const c = O.positionsConfig({ cols: ["pnl", "nope", "pnl", "gamma"], group: "x", ladder: "wide", axis: "days", lossLimit: "5000", exitType: "touch", hedge: { method: "gamma", side: "SELL" }, excluded: { "demo-paper": ["NFO:NIFTY-2026-11-03-26000-CE", "junk", 4], "bad acct!": ["NFO:NIFTY-2026-11-24-FUT"] }, chartSlot: true, extra: 1 });
-    expect(c).toEqual({ cols: ["pnl", "gamma"], group: "expiry", closed: false, ladder: "wide", axis: "days", lossLimit: 5000, exitType: "touch", hedge: { method: "gamma", side: "SELL" }, excluded: { "demo-paper": ["NFO:NIFTY-2026-11-03-26000-CE"] }, chartSlot: true, deltaBand: null, curves: "exp", heatCols: "auto", bars: true, gauges: true });
+    expect(c).toEqual({ cols: ["pnl", "gamma"], group: "expiry", closed: false, ladder: "wide", axis: "days", lossLimit: 5000, exitType: "touch", hedge: { method: "gamma", side: "SELL" }, excluded: { "demo-paper": ["NFO:NIFTY-2026-11-03-26000-CE"] }, chartSlot: true, deltaBand: null, curves: "exp", heatCols: "auto", bars: true, gauges: true, scope: "account" });
+    expect(O.positionsConfig({ scope: "family" }).scope).toBe("family");
+    expect(O.positionsConfig({ scope: "everyone" }).scope).toBe("account");
     expect(O.positionsConfig({ cols: [], lossLimit: -3 }).cols).toEqual([...O.POSITIONS_DEFAULTS.cols]);
     expect(O.positionsConfig({ lossLimit: -3 }).lossLimit).toBeNull();
   });

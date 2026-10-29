@@ -295,7 +295,12 @@ describe("demo mode config", () => {
     });
     expect(config.demo).toBe(true);
     expect(config.safety.liveTrading).toBe(false);
-    expect(config.accounts.map((a) => [a.id, a.broker])).toEqual([["demo", "demo"], ["demo-paper", "paper"]]);
+    expect(config.accounts.map((a) => [a.id, a.broker, a.holder])).toEqual([
+      ["demo", "demo", "demo"],
+      ["demo-paper", "paper", "demo"],
+      ["demo-paper-spouse", "paper", "demo-spouse"],
+      ["demo-paper-other", "paper", "demo-other"],
+    ]);
     expect(warnings.join(" ")).toMatch(/DEMO MODE/);
   });
 
@@ -372,6 +377,7 @@ describe("demo mode end to end", () => {
     const r = await get("/v1/positions?account=paper");
     expect(r.body.code).toBe("ACCOUNT_NOT_FOUND");
     expect(r.body.detail).toContain('"demo-paper"');
+    expect(r.body.detail).toContain('"demo-paper-spouse"');
   });
 });
 
