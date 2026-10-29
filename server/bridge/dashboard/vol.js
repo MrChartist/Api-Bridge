@@ -12,6 +12,7 @@ import { plotSkeleton, smileChart, smileLabel, termChart } from "./vol-curves.js
 import { segmented } from "./views.js";
 import { heatCell, svgEl } from "./viz.js";
 import { rateText, refRate, refSession } from "./reference.js";
+import { clockNote } from "./vol-context.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -479,16 +480,17 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       h(
         "ul",
         { class: "vol-method-list" },
-        h("li", {}, "Time: calendar days to 15:30 IST ÷ 365 (calendar-day vol), floored at 0.25 day for IV and delta."),
+        h("li", { class: "vol-clock-line" }, clockNote().join(" ")),
         h("li", { class: "vol-rate-line" }, ""),
-        h("li", {}, "Forward: the median of K + (C − P)·e^(rT) over the 3 two-sided strikes nearest spot."),
+        h("li", {}, "Forward: the median of K + (C − P)·e^(r·T_cal) over the 5 two-sided strikes nearest the forward (T_cal: calendar time)."),
         h("li", {}, "IV: Black-76 on that forward, from the bid–ask mid. LTP only when there is no two-sided quote (hollow points)."),
-        h("li", {}, "Broker and server IVs are not used here, so figures can differ from the Option Chain's IV column."),
+        h("li", {}, "Broker IVs are not used. The Option Chain's IV column comes from the same Black-76 engine on the same clock (ivModel=b76-forward), so the two agree."),
         h("li", {}, "ATM IV: linear in strike at the forward. Deltas: Black-76 forward deltas at each strike's own OTM IV."),
         h("li", {}, "IV surface: delta columns read the OTM smile at that forward delta; moneyness columns are linear in K/F."),
         h("li", {}, "Risk reversal sign: put minus call (Deribit and CME quote call minus put)."),
-        h("li", {}, "HV: daily log returns of completed sessions, sample stdev, √252 (trading days, while IV uses calendar days)."),
-        h("li", {}, "IV rank and IV percentile: unavailable. They need a stored daily ATM IV, which the Bridge does not record yet."),
+        h("li", {}, "HV: daily log returns of completed sessions, sample stdev, √252 (trading days)."),
+        h("li", {}, "IV rank: (current − lowest) ÷ (highest − lowest) × 100 over the lookback. IV percentile: the share of days in the lookback with IV below current. Basis: 30-day constant-maturity ATM IV from the Bridge's daily vol store (GET /v1/vol/rank)."),
+        h("li", {}, "Probabilities (bands, chance figures) are model values; calibration: not yet measured."),
         methodSrc,
         methodAge,
       ),
@@ -795,7 +797,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       if (row?.atmIv) iv = row.atmIv;
       if (x === e) break;
     }
-    const need = Math.ceil((2.2 * F * ((iv ?? 20) / 100) * Math.sqrt(days / 365)) / step);
+    const need = Math.ceil((2.2 * F * ((iv ?? 20) / 100) * Math.sqrt(Math.max(0, O.yearsToExpiry(e, Date.now(), refSession(st.ref).close) ?? 0))) / step);
     return Math.max(TERM_STRIKES, Math.min(TERM_STRIKES_MAX, need));
   }
   /** Load every term expiry not loaded yet (never the selected one: desk.js keeps that fresh). */
@@ -868,8 +870,10 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     const closes = hist?.closes ?? null;
     if (closes && hvMemo.closes !== closes) hvMemo = { closes, hv20: O.realisedVol(closes, 20), hv10: O.realisedVol(closes, 10), hvp: O.hvPercentile(closes, 20, 252) };
     const { hv20, hv10, hvp } = closes ? hvMemo : { hv20: null, hv10: null, hvp: null };
-    const T = sel ? Math.max(sel.years ?? 0, 0.25 / 365) : null;
-    const df = T !== null ? Math.exp((-ratePct() / 100) * T) : 1;
+    // Discounting is interest: calendar time (Tcal), not the vol-time T.
+    const T = sel ? Math.max(sel.years ?? 0, 0) : null;
+    const Tcal = sel ? (sel.Tcal ?? 0) : null;
+    const df = Tcal !== null ? Math.exp((-ratePct() / 100) * Tcal) : 1;
     const two = (leg) => ["mid", "wide"].includes(O.legPrice(leg).q);
     const twoSided = chain ? chain.rows.some((r) => two(r.ce) || two(r.pe)) : false;
     // The checks rerun only when a bid or ask (or the term IVs) changed, not on every new chain object.
@@ -1085,7 +1089,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       if (r.dim) banners.push("Expiry day: IV is unstable in the final hours");
       const pts0 = rangePoints(r);
       const width = boxW(smileHost, 640);
-      const T = Math.max(r.years ?? 0, 0.25 / 365);
+      const T = Math.max(r.years ?? 0, 0);
       // On the Δ axis a marker sits where the curve's own points do: interpolate the loaded (strike, call delta) pairs
       // (each at its strike's own IV); the ATM-IV delta is only the fallback outside the loaded strikes.
       const dPairs = r.points.filter((p) => p.callDelta !== null && p.callDelta !== undefined).map((p) => [p.strike, p.callDelta]).sort((a, b) => a[0] - b[0]);
@@ -1500,7 +1504,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     const sparks = new Map();
     for (const it of loaded) {
       const r = it.row;
-      const half = r.atmIv !== null && r.years !== null ? 2 * (r.atmIv / 100) * Math.sqrt(Math.max(r.years, 0.25 / 365)) * 100 : null;
+      const half = r.atmIv !== null && r.years !== null ? 2 * (r.atmIv / 100) * Math.sqrt(Math.max(r.years, O.tradingDayYears())) * 100 : null;
       sparks.set(it.e, { list: O.smileSpark(r.points, { n: 24, half }), half });
     }
     const sIv = [...sparks.values()].flatMap((x) => x.list.map((p) => p.iv));
@@ -1930,6 +1934,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
   }
 
   function drawMethod(m) {
+    text(methodEl.querySelector(".vol-clock-line"), clockNote().join(" "));
     text(methodEl.querySelector(".vol-rate-line"), `Rate: ${cfg().rate === null ? rateText(st.ref) : `${formatFixed(cfg().rate, 2)} % a year (set on this page; the reference rate is ${rateText(st.ref)})`}, for discounting and the parity forward. Prices: ${cfg().basis === "mid" ? "bid–ask mid" : "last traded (set in Customise)"}.`);
     const r = m.sel;
     text(methodSrc, r ? (r.source === "spot" ? "Forward for the selected expiry: spot (no two-sided ATM quotes)." : `Forward for the selected expiry: parity, ${formatFixed(r.F, 1)}.`) : "Forward: waiting for the chain.");

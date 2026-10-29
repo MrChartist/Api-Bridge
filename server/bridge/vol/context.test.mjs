@@ -1,6 +1,6 @@
 /**
  * The server clock context (vol/context.mjs) and the vol service skeleton (P1-3a): reference calendar, session and
- * rate in; weekends-only fallback without reference data; the vol contract, module routes (501 until P1-3b) and fake.
+ * rate in; weekends-only fallback without reference data; the vol contract, module routes and fake.
  */
 import { describe, expect, it } from "vitest";
 import { SERVICE_CONTRACTS, assertService, notImplementedService } from "../core/contracts.mjs";
@@ -52,7 +52,7 @@ describe("pricingContext", () => {
 
 describe("vol service skeleton (P1-3a)", () => {
   it("has the contract, ten routes and a fake that satisfies it", () => {
-    expect(SERVICE_CONTRACTS.vol).toMatchObject({ stream: "S18", requires: ["marketData", "reference", "symbols", "scheduler"] });
+    expect(SERVICE_CONTRACTS.vol).toMatchObject({ stream: "S18", requires: ["marketData", "reference", "symbols", "scheduler", "recorder"] });
     expect(SERVICE_CONTRACTS.vol.methods).toContain("logPredictions");
     expect(vol).toMatchObject({ name: "vol", stream: "S18", configKey: "vol" });
     expect(ROUTES).toHaveLength(10);
@@ -60,7 +60,7 @@ describe("vol service skeleton (P1-3a)", () => {
     expect(() => assertService("vol", createFakeVol())).not.toThrow();
   });
 
-  it("clock() returns settings, holidays and T per expiry with the breakdown; the rest is not built yet", async () => {
+  it("clock() returns settings, holidays and T per expiry with the breakdown", async () => {
     const md = createFakeMarketData();
     md.setExpiries("NIFTY", ["2026-11-03", "2026-11-17"]);
     // The clock costs 0 broker calls (§7): listed expiries come from the instrument master, never marketData.
@@ -98,6 +98,8 @@ describe("vol service skeleton (P1-3a)", () => {
     expect(c.expiries[0].units).toBeCloseTo(3.96133, 5);
     expect(c.expiries[0].parts.length).toBeGreaterThan(4);
     await expect(svc.clock({ underlying: "NIFTY", at: "not a time" })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
-    expect(() => svc.rank({ underlying: "NIFTY" })).toThrow(/not implemented|P1-3b/i);
+    // The back-fill lands with P1-3c; without a data directory there is no history to rank.
+    expect(() => svc.backfill({})).toThrow(/not implemented|P1-3c/i);
+    await expect(svc.rank({ underlying: "NIFTY" })).resolves.toMatchObject({ available: false, reason: "NO_HISTORY" });
   });
 });

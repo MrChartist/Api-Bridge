@@ -343,11 +343,15 @@ describe("Greeks and theta (§6.5)", () => {
     expect(dU).toBeCloseTo(1.3, 10);
   });
 
-  it("options.js black76Greeks keeps its per-calendar-day theta through greeks76", () => {
+  it("options.js black76Greeks gives theta per trading-day unit of the page's clock through greeks76", () => {
     const a = O.black76Greeks(25150, 25150, 0.02, 12, "CE");
     const b = greeks76(25150, 25150, 0.02, 12, "CE");
-    expect(a.theta * 365).toBeCloseTo(b.theta, 8);
+    // Default (weighted) clock: Y = 252 + 113 × 0.15 = 268.95 units a year.
+    expect(a.theta * 268.95).toBeCloseTo(b.theta, 8);
     expect(a.delta).toBe(b.delta);
+    // A calendar context reproduces the per-calendar-day theta.
+    const cal = O.black76Greeks(25150, 25150, 0.02, 12, "CE", { mode: "calendar", session: { open: "09:15", close: "15:30" } });
+    expect(cal.theta * 365).toBeCloseTo(b.theta, 8);
   });
 });
 

@@ -38,6 +38,8 @@ import {
   volumeRanks,
 } from "./options.js";
 import * as O from "./options.js";
+/** Calendar ACT/365 clock context: reproduces the pre-clock readings where a test is about something else (§9.4). */
+const CAL = Object.freeze({ mode: "calendar", session: { open: "09:15", close: "15:30" }, holidays: [] });
 
 const leg = (o) => ({ symbol: "X", ltp: 100, bid: 99.9, ask: 100.1, oi: 1000, oiChange: 100, volume: 500, iv: 12, ...o });
 const chain = {
@@ -820,12 +822,12 @@ describe("implied vol and Black-76 Greeks", () => {
     const sc = computeIVAndGreeks({ ltp: 177.1, spot: S, strike: K, daysToExpiry: days, type: "CE", rate: r });
     const sp = computeIVAndGreeks({ ltp: 151.2, spot: S, strike: K, daysToExpiry: days, type: "PE", rate: r });
     const F = S * Math.exp(r * T);
-    const mc = O.black76Greeks(F, K, T, sc.iv, "CE");
+    const mc = O.black76Greeks(F, K, T, sc.iv, "CE", CAL);
     const within = (a, b, tol) => expect(Math.abs(a / b - 1)).toBeLessThan(tol);
     within(mc.delta, sc.delta, 0.02);
     within(mc.gamma, sc.gamma, 0.02);
     within(mc.vega, sc.vega, 0.02);
-    const mp = O.black76Greeks(F, K, T, sp.iv, "PE");
+    const mp = O.black76Greeks(F, K, T, sp.iv, "PE", CAL);
     // Theta: Black-76 has no carry term, so it matches the server's CE / PE average.
     within((mc.theta + mp.theta) / 2, (sc.theta + sp.theta) / 2, 0.05);
   });
@@ -897,7 +899,8 @@ describe("pricing, Greeks and scenarios", () => {
     const normal = O.priceBook(O.bookLegs(pos, "NIFTY"), { ...q, close: "15:30" })[0].T;
     const early = O.priceBook(O.bookLegs(pos, "NIFTY"), { ...q, close: "13:30" })[0].T;
     expect(normal).toBeCloseTo(O.yearsToExpiry("2026-11-03", NOW, "15:30"), 12);
-    expect(normal - early).toBeCloseTo(2 / (24 * 365), 6);
+    expect(early).toBeCloseTo(O.yearsToExpiry("2026-11-03", NOW, "13:30"), 12);
+    expect(normal).toBeGreaterThan(early);
   });
   it("builds the scenario grid with labels and its worst cell", () => {
     const legs = priced(condorPositions);
@@ -1485,8 +1488,8 @@ describe("volatility", () => {
       expect(Math.log(r.hi / 25000)).toBeCloseTo(2 * 0.16 * Math.sqrt(30 / 365), 12);
       expect(O.twoSigma(25000, null, 0.1)).toBeNull();
       expect(O.twoSigma(0, 15, 0.1)).toBeNull();
-      // The same quarter-day floor as the 1σ maths.
-      expect(O.twoSigma(25000, 15, 0)).toEqual(O.twoSigma(25000, 15, 0.25 / 365));
+      // No floor: at the settlement (vol-time 0) the range closes on the forward.
+      expect(O.twoSigma(25000, 15, 0)).toEqual({ lo: 25000, hi: 25000 });
     });
   });
 
@@ -1495,7 +1498,7 @@ describe("volatility", () => {
       const e = "2026-11-12";
       const years = daysTo(e) / 365;
       const c = chain({ F: 25000, years, expiry: e, n: 40 });
-      const r = termRow(c, { now: NOW, hedgePct: 97 });
+      const r = termRow(c, { now: NOW, hedgePct: 97, ctx: CAL });
       expect(r.F).toBeCloseTo(25000, 4);
       expect(r.atmStrike).toBe(25000);
       expect(r.atmIv).toBeCloseTo(15, 3);
@@ -1511,13 +1514,13 @@ describe("volatility", () => {
       expect(r.hedge.annualPct).toBeCloseTo((r.hedge.pts / r.F) * 100 * (365 / daysTo(e)), 6);
       expect(r.weekday).toBe("Thu");
       expect(r.dim).toBe(false);
-      expect(termRow({ ...c, lotSize: null }, { now: NOW }).rupee).toBeNull();
+      expect(termRow({ ...c, lotSize: null }, { now: NOW, ctx: CAL }).rupee).toBeNull();
       // Expiry day: dimmed, and ₹/lot a day floors the days at 0.25.
-      const today = termRow({ ...chain({ years: 0.1 / 365, expiry: "2026-10-29" }) }, { now: NOW });
+      const today = termRow({ ...chain({ years: 0.1 / 365, expiry: "2026-10-29" }) }, { now: NOW, ctx: CAL });
       expect(today.dim).toBe(true);
       expect(today.perDay).toBeCloseTo(today.rupee / 0.25, 6);
       // The evening before expiry (16:30 IST) is under a day away but not expiry day: not dimmed.
-      const eve = termRow(chain({ years: 23 / 24 / 365, expiry: "2026-11-03" }), { now: Date.parse("2026-11-02T11:00:00Z") });
+      const eve = termRow(chain({ years: 23 / 24 / 365, expiry: "2026-11-03" }), { now: Date.parse("2026-11-02T11:00:00Z"), ctx: CAL });
       expect(eve.days).toBeLessThan(1);
       expect(eve.dim).toBe(false);
     });
@@ -2675,5 +2678,68 @@ describe("reference values are parameters, not constants", () => {
     expect(flags(ist(2026, 11, 2, 11), SESSION)).not.toContain("MARKET_CLOSED");
     expect(flags(ist(2026, 11, 2, 11), { ...SESSION, holiday: { label: "Holiday" } })).toContain("MARKET_CLOSED");
     expect(flags(ist(2026, 11, 2, 15, 35), SESSION)).toContain("MARKET_CLOSED");
+  });
+});
+
+describe("the vol-time clock on the pages (P1-3b, §5.1, §6.1)", () => {
+  const at = (s) => Date.parse(`${s}+05:30`);
+  it("yearsToExpiry reads the clock: example 1, and T does not move while the market is shut", () => {
+    O.setPricingContext(null);
+    // Example 1 of the spec: Thu 29 Oct 10:00 → Tue 3 Nov, weighted clock, weekends only.
+    expect(O.yearsToExpiry("2026-11-03", at("2026-10-29T10:00:00"))).toBeCloseTo(0.0147289, 7);
+    const fri = O.yearsToExpiry("2026-11-03", at("2026-10-30T15:30:00"));
+    expect(O.yearsToExpiry("2026-11-03", at("2026-10-31T12:00:00"))).toBeCloseTo(fri, 12);
+    expect(O.yearsToExpiry("2026-11-03", at("2026-11-02T09:14:00"))).toBeCloseTo(fri, 12);
+    expect(O.yearsToExpiry("2026-11-03", at("2026-11-03T15:31:00"))).toBe(0);
+    expect(O.yearsToExpiry("3 Nov", at("2026-10-29T10:00:00"))).toBeNull();
+    // Interest stays on calendar time; one trading day is 1 / 268.95 of a year.
+    expect(O.calendarYearsToExpiry("2026-11-03", at("2026-10-29T10:00:00"))).toBeCloseTo(0.0143265, 6);
+    expect(O.tradingDayYears()).toBeCloseTo(1 / 268.95, 12);
+    expect(O.elapsedVolYears("2026-11-03", at("2026-10-30T15:00:00"), at("2026-11-02T09:00:00"))).toBeCloseTo((0.8 * 30) / 375 / 268.95, 9);
+  });
+
+  it("setPricingContext swaps the clock for every page; a loaded holiday is a non-trading day", () => {
+    O.setPricingContext({ mode: "weighted", session: { open: "09:15", close: "15:30" }, holidays: ["2026-11-09"], loaded: true });
+    // Example 3: Fri 6 Nov 15:00 → Tue 10 Nov over the fixture holiday Mon 9 Nov: U = 1.47133.
+    expect(O.yearsToExpiry("2026-11-10", at("2026-11-06T15:00:00")) * 268.95).toBeCloseTo(1.47133, 4);
+    expect(O.getPricingContext().loaded).toBe(true);
+    O.setPricingContext({ mode: "calendar", session: { open: "09:15", close: "15:30" } });
+    expect(O.yearsToExpiry("2026-11-03", at("2026-10-29T10:00:00"))).toBeCloseTo(0.0143265, 6);
+    O.setPricingContext(null);
+    expect(O.getPricingContext()).toMatchObject({ mode: "weighted", holidaysSource: "not-loaded" });
+  });
+
+  it("scenario days move along the clock: a weekend costs its weight, not two full days", () => {
+    O.setPricingContext(null);
+    const leg = { kind: "OPT", expiry: "2026-11-03", t0: at("2026-10-30T15:00:00"), T: O.yearsToExpiry("2026-11-03", at("2026-10-30T15:00:00")), F: 25150, strike: 25150, right: "CE", iv: 12 };
+    const afterWeekend = O.legYearsAfter(leg, 3);
+    expect(afterWeekend).toBeCloseTo(O.yearsToExpiry("2026-11-03", at("2026-11-02T15:00:00")), 12);
+    // Example (§6.5): decay Fri 15:00 → Mon 15:00 is 1.3 trading days of θ (weekend weight plus a session).
+    expect((leg.T - afterWeekend) * 268.95).toBeCloseTo(1.3, 6);
+    expect(O.legYearsAfter({ T: 0.01 }, 0)).toBe(0.01);
+  });
+
+  it("the first-expiry scenario lands on the expiry close: calendar days, never vol-time T × 365", () => {
+    O.setPricingContext(null);
+    const t0 = at("2026-10-30T15:30:00");
+    const leg = { kind: "OPT", expiry: "2026-11-03", t0, T: O.yearsToExpiry("2026-11-03", t0), F: 25150, strike: 25150, right: "CE", iv: 12 };
+    const days = O.legDaysToExpiry(leg);
+    expect(days).toBeCloseTo(4, 9);
+    expect(O.legYearsAfter(leg, days)).toBe(0);
+    // T × 365 (the old reading) stops on Monday with about a trading day still left.
+    expect(O.legYearsAfter(leg, leg.T * 365) * 268.95).toBeGreaterThan(0.9);
+    // Without t0 the days run from `now`; a bad expiry is 0.
+    expect(O.legDaysToExpiry({ expiry: "2026-11-03" }, at("2026-11-02T15:30:00"))).toBeCloseTo(1, 9);
+    expect(O.legDaysToExpiry({ expiry: "soon" }, t0)).toBe(0);
+  });
+
+  it("forwardPrice and impliedForward use the 5-strike parity forward; the moved names are the same functions", async () => {
+    const P = await import("./pricing.js");
+    const rows = [25000, 25050, 25100, 25150, 25200, 25250, 25300].map((k, i) => ({ strike: k, ce: { bid: 200 - i * 30, ask: 201 - i * 30 }, pe: { bid: 60 + i * 20 + (i === 0 ? 30 : 0), ask: 61 + i * 20 + (i === 0 ? 30 : 0) } }));
+    const chain = { underlyingLtp: 25150, rows };
+    expect(O.forwardPrice(chain, 1)).toBe(P.parityForward(chain, { strikes: 5 }).F);
+    expect(O.impliedForward(chain, 0).F).toBe(P.parityForward(chain, { strikes: 5 }).F);
+    expect(O.forwardPrice({ rows }, 1)).toBeNull();
+    for (const k of ["black76", "impliedVolB76", "atmIvAt", "legPrice", "normCdf", "sigmaMove", "skewMetrics", "realisedVol"]) expect(O[k]).toBe(P[k]);
   });
 });

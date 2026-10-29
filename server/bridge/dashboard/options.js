@@ -26,6 +26,7 @@ import {
   smilePoints as pricingSmilePoints,
   strikeStep,
   volTime,
+  yearBasisOf,
 } from "./pricing.js";
 
 // The pricing core lives in pricing.js (shared with the server); these names are re-exported so pages keep importing
@@ -289,22 +290,57 @@ function cdfAt(x, forward, years, sig) {
 }
 
 /**
- * The forward the options price in: median of K + (C − P)·growth (put-call parity, mids; growth = e^(rT)) over the
- * three two-sided strikes nearest spot; spot when parity cannot be read.
+ * The forward the options price in: pricing.js parityForward, the median of K + (C − P)·growth (put-call parity, mids;
+ * growth = e^(r·Tcal), interest on calendar time) over the 5 two-sided strikes nearest spot; spot when parity cannot be
+ * read; null without spot.
  */
 export function forwardPrice(chain, growth = 1) {
-  const spot = num(chain?.underlyingLtp);
-  const rows = [...(chain?.rows ?? [])].filter((r) => mid(r.ce) !== null && mid(r.pe) !== null && num(r.ce?.bid) && num(r.pe?.bid));
-  if (spot === null) return null;
-  rows.sort((a, b) => Math.abs(a.strike - spot) - Math.abs(b.strike - spot));
-  const f = rows.slice(0, 3).map((r) => r.strike + (mid(r.ce) - mid(r.pe)) * (num(growth) ?? 1)).sort((a, b) => a - b);
-  return f.length ? f[Math.floor(f.length / 2)] : spot;
+  if (num(chain?.underlyingLtp) === null) return null;
+  const g = num(growth) ?? 1;
+  return pricingForward(chain, { rate: 1, Tcal: g > 0 ? Math.log(g) : 0, strikes: 5 }).F;
 }
-/** Years to expiry (to the session close, IST), for pricing. */
-export const yearsToExpiry = (expiry, now = Date.now(), close = FALLBACK_SESSION.close) => {
-  const d = timeToExpiry(expiry, now, close).days;
-  return d === null ? null : d / 365;
+// ── The pricing (clock) context: one vol-time clock for every page (docs/spec/p1-03-pricing-vol.md §5.1) ──
+// vol-context.js loads GET /v1/vol/clock and calls setPricingContext(); until then (or on a Bridge without the route)
+// pages price on a weighted, weekends-only context with the reference session, and method notes say holidays are not
+// loaded. Weights and the year basis come from pricing.js clockSettings defaults (stated assumptions, not measured).
+let pricingCtx = null;
+/** The default context: weighted clock, weekends only, the reference session (`close` overrides its end). */
+export function defaultPricingContext(close = FALLBACK_SESSION.close) {
+  return { mode: "weighted", session: { open: FALLBACK_SESSION.open, close: /^\d{2}:\d{2}$/.test(String(close ?? "")) ? close : FALLBACK_SESSION.close }, holidays: [], holidaysSource: "not-loaded", eventDays: {} };
+}
+/** Set (or clear with null) the page's clock context. */
+export function setPricingContext(ctx) {
+  pricingCtx = ctx && typeof ctx === "object" && ctx.session ? ctx : null;
+}
+/** The page's clock context (the loaded one, else the default). */
+export function getPricingContext(close) {
+  return pricingCtx ?? defaultPricingContext(close);
+}
+const ctxOf = (x) => (x && typeof x === "object" ? x : getPricingContext(typeof x === "string" ? x : undefined));
+/**
+ * Years to expiry on the vol-time clock (pricing.js volTime, T to the settlement): what IV, Greeks, theta, bands and
+ * payoff dates use. The third argument is a clock context, or (older callers) the session close "HH:MM" used only
+ * while no context is loaded. Null for a bad expiry; 0 once settled. Interest uses calendarYearsToExpiry.
+ */
+export const yearsToExpiry = (expiry, now = Date.now(), ctxOrClose = undefined) => {
+  if (!DATE_RE.test(String(expiry ?? ""))) return null;
+  return volTime(ctxOf(ctxOrClose), now, expiry)?.T ?? null;
 };
+/** Vol-time that passes between `now` and `at` on the clock to `expiry` (≥ 0), or null for a bad expiry. */
+export function elapsedVolYears(expiry, now, at, ctxOrClose = undefined) {
+  const a = yearsToExpiry(expiry, now, ctxOrClose);
+  const b = yearsToExpiry(expiry, Math.max(now, at), ctxOrClose);
+  return a === null || b === null ? null : Math.max(0, a - b);
+}
+/** Vol-time years to `expiry` from a later instant `at` (the payoff's "T+N" dates). */
+export const volYearsAt = (expiry, at, ctxOrClose = undefined) => yearsToExpiry(expiry, at, ctxOrClose);
+/** Calendar years (ACT/365) to the expiry's close: interest only (discounting, parity growth, carry). */
+export function calendarYearsToExpiry(expiry, now = Date.now(), close = FALLBACK_SESSION.close) {
+  const d = timeToExpiry(expiry, now, getPricingContext(close).session.close ?? close).days;
+  return d === null ? null : d / calendarYearDays();
+}
+/** One trading-day unit in years on the page's clock (1 / year basis): the "1 trading day" move and decay. */
+export const tradingDayYears = (ctx = undefined) => 1 / yearBasisOf(ctxOf(ctx));
 /** For each side, the strikes whose |delta| is nearest 0.16 and 0.30 (within 0.08): strike -> "16Δ" / "30Δ". */
 export function deltaTargets(rows) {
   const out = { ce: new Map(), pe: new Map() };
@@ -862,7 +898,7 @@ export function tradeWarnings(i) {
     add("warn", "EXPIRY_STT", `ITM at expiry: exercise STT 0.125% of intrinsic (≈ ${formatRupee(0.00125 * intrinsic * qty, 0)}) vs 0.1% of premium if you square off (≈ ${formatRupee(0.001 * (P ?? 0) * qty, 0)})`);
   }
   const theta = num(leg?.theta);
-  if (i?.side === "BUY" && !i.exit && num(i?.years) !== null && i.years < 1 / 365 && theta !== null && P && Math.abs(theta * lot) > 0.15 * P * lot) {
+  if (i?.side === "BUY" && !i.exit && num(i?.years) !== null && i.years < tradingDayYears() && theta !== null && P && Math.abs(theta * lot) > 0.15 * P * lot) {
     add("warn", "THETA_0DTE", `Time decay ${formatRupee(Math.abs(theta * lot), 0)} per lot today`);
   }
   return out;
@@ -1577,12 +1613,12 @@ export function expiryCloseMs(expiry, close = FALLBACK_SESSION.close) {
 }
 
 /**
- * Black-76 greeks per unit (forward measure, r = 0): delta, gamma (per point), theta (₹ per calendar day, per unit)
- * and vega (per vol point). At or after expiry: delta 1 / −1 in the money, 0 out of it, the rest 0. The maths is
- * pricing.js greeks76; theta stays per calendar day here until the pages move to the vol-time clock (P1-3b).
+ * Black-76 greeks per unit (forward measure): delta, gamma (per point), theta (₹ per trading-day unit of the vol-time
+ * clock, per unit: the decay of one unit of vol-time, §6.5) and vega (per vol point). `years` is vol-time T. At or after
+ * expiry: delta 1 / −1 in the money, 0 out of it, the rest 0. The maths is pricing.js greeks76.
  */
-export function black76Greeks(forward, strike, years, ivPct, right) {
-  return greeks76(forward, strike, years, ivPct, right, { yearBasis: calendarYearDays() });
+export function black76Greeks(forward, strike, years, ivPct, right, ctx = undefined) {
+  return greeks76(forward, strike, years, ivPct, right, { yearBasis: yearBasisOf(ctxOf(ctx)) });
 }
 
 /**
@@ -1802,7 +1838,7 @@ export function payoffModel(legs, m) {
   };
   const target = curves >= 2 && T > 0 && el < T - 1e-7 ? curveAt(el) : null;
   const midEl = (el + T) / 2;
-  const mid = curves === 3 && target && T - el > 1 / 365 ? curveAt(midEl) : null;
+  const mid = curves === 3 && target && T - el > tradingDayYears() ? curveAt(midEl) : null;
   const stats = strategyStats(act, m.lotSize, { forward: F, ivPct: m.ivPct, years: T, ivShift: shift, spot, charges: m.charges ?? null });
   let iMax = 0;
   let iMin = 0;
@@ -2252,7 +2288,7 @@ export function priceBook(legs, { chains = new Map(), quotes = new Map(), inst =
     const c = chains.get(e) ?? null;
     const T = yearsToExpiry(e, now, close) ?? 0;
     const sm = c ? chainSummary(c) : null;
-    const F = (c ? forwardPrice(c, parityGrowth(T, rate)) : null) ?? futMark.get(e) ?? S;
+    const F = (c ? forwardPrice(c, parityGrowth(calendarYearsToExpiry(e, now, close), rate)) : null) ?? futMark.get(e) ?? S;
     const ctx = { chain: c, T, F, atmIv: sm?.atmIv ?? null, lot: num(c?.lotSize) };
     fwd.set(e, ctx);
     return ctx;
@@ -2261,7 +2297,7 @@ export function priceBook(legs, { chains = new Map(), quotes = new Map(), inst =
     const ix = inst.get(l.symbol) ?? null;
     const x = expCtx(l.expiry);
     const lot = num(ix?.lotSize) || x.lot || 1;
-    const base = { ...l, lot, lotUnknown: !(num(ix?.lotSize) || x.lot), freeze: num(ix?.freezeQty), tick: num(ix?.tickSize) || 0.05, inc: !excluded.has(l.symbol), T: x.T, expired: !(x.T > 0) };
+    const base = { ...l, lot, lotUnknown: !(num(ix?.lotSize) || x.lot), freeze: num(ix?.freezeQty), tick: num(ix?.tickSize) || 0.05, inc: !excluded.has(l.symbol), T: x.T, t0: now, expired: !(x.T > 0) };
     if (l.kind === "FUT") {
       const qt = quotes.get(l.symbol) ?? null;
       const { mark, source } = legMark(qt);
@@ -2290,6 +2326,27 @@ export function priceBook(legs, { chains = new Map(), quotes = new Map(), inst =
 }
 
 /**
+ * Calendar days from a leg's pricing instant (t0, else `now`) to its expiry close: the `days` that puts a scenario at
+ * that expiry (legYearsAfter(leg, legDaysToExpiry(leg)) is 0). Never a vol-time T × 365 (T counts trading-day units).
+ */
+export function legDaysToExpiry(leg, now = Date.now(), close = undefined) {
+  const t0 = num(leg?.t0) ?? now;
+  const d = timeToExpiry(leg?.expiry, t0, getPricingContext(close).session.close ?? close ?? FALLBACK_SESSION.close).days;
+  return d === null ? 0 : Math.max(0, d);
+}
+
+/**
+ * A leg's vol-time T `days` calendar days after it was priced: the clock read at that instant (a weekend costs its
+ * weight, not two full days). Legs without an expiry and pricing instant fall back to calendar days.
+ */
+export function legYearsAfter(leg, days = 0) {
+  const T = num(leg?.T) ?? 0;
+  if (!num(days)) return T;
+  if (DATE_RE.test(String(leg?.expiry ?? "")) && num(leg?.t0) !== null) return volTime(getPricingContext(), leg.t0 + days * 86_400_000, leg.expiry)?.T ?? 0;
+  return Math.max(0, T - days / calendarYearDays());
+}
+
+/**
  * Model value per unit of a priced leg at a scenario: options Black-76 on F·(1 + dS) with IV + dIv (floored at
  * 0.5 %) and `days` less to expiry (intrinsic past it); futures F·(1 + dS). Null when it cannot be valued.
  */
@@ -2298,14 +2355,14 @@ export function priceLeg(leg, { dS = 0, dIv = 0, days = 0 } = {}) {
   if (F === null) return null;
   const Fs = F * (1 + dS);
   if (leg.kind === "FUT") return Fs;
-  const T = Math.max(0, (num(leg.T) ?? 0) - days / 365);
+  const T = legYearsAfter(leg, days);
   if (T > 0 && num(leg.iv) === null) return null;
   return black76(Fs, leg.strike, T, Math.max(0.5, (num(leg.iv) ?? 0) + dIv), leg.right);
 }
 /** Calibration: mark − model value now, so a scenario at (0, 0, 0) equals the live P&L. 0 once the leg has expired. */
 export function legAdj(leg, days = 0) {
   if (leg?.kind === "FUT" || num(leg?.mark) === null) return 0;
-  if (!((num(leg.T) ?? 0) - days / 365 > 0)) return 0;
+  if (!(legYearsAfter(leg, days) > 0)) return 0;
   const v = priceLeg(leg, {});
   return v === null ? 0 : leg.mark - v;
 }
@@ -2383,7 +2440,7 @@ export function scenarioGreeks(legs, { dS = 0, dIv = 0, days = 0 } = {}) {
       out.delta += l.q;
       continue;
     }
-    const g = black76Greeks(l.F * (1 + dS), l.strike, Math.max(0, l.T - days / 365), Math.max(0.5, (num(l.iv) ?? 0) + dIv), l.right);
+    const g = black76Greeks(l.F * (1 + dS), l.strike, legYearsAfter(l, days), Math.max(0.5, (num(l.iv) ?? 0) + dIv), l.right);
     if (g) for (const k of Object.keys(out)) out[k] += l.q * g[k];
   }
   return out;
@@ -2743,7 +2800,7 @@ export const POS_COLUMNS = Object.freeze([
   ["pnl", "P&L", "P&L"],
   ["pnlPct", "P&L %", "P&L %"],
   ["delta", "Δ", "Delta (position)"],
-  ["theta", "Θ ₹/d", "Theta ₹ a day"],
+  ["theta", "Θ ₹/td", "Theta ₹ per trading day"],
   ["vega", "Vega ₹", "Vega ₹ per vol point"],
   ["gamma", "Γ", "Gamma"],
   ["iv", "IV", "IV"],
@@ -2983,7 +3040,6 @@ export function payoffYRange(series, { main = null, xs = null, ratio = 4, pad = 
 
 // ── Volatility (the #/vol page): Black-76 on the parity forward, recomputed from mids ──
 
-const T_FLOOR = 0.25 / 365;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 
@@ -2997,33 +3053,21 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export function impliedForward(chain, years, rate = FALLBACK_RATE) {
   // The arbitrage form: impliedForward(chain, { rate, days, window }) → a band of carried synthetics, never spot.
   if (years !== null && typeof years === "object") return parityForward(chain, years);
-  const spot = num(chain?.underlyingLtp);
-  const growth = years > 0 ? Math.exp((num(rate) ?? FALLBACK_RATE) * years) : 1;
-  const two = (leg) => {
-    const p = legPrice(leg, "mid");
-    return p.q === "mid" || p.q === "wide" ? p.price : null;
-  };
-  const centre = spot ?? num(chain?.atmStrike);
-  const rows = (chain?.rows ?? []).map((r) => ({ k: r.strike, c: two(r.ce), p: two(r.pe) })).filter((r) => r.c !== null && r.p !== null);
-  if (rows.length && centre !== null) {
-    rows.sort((a, b) => Math.abs(a.k - centre) - Math.abs(b.k - centre));
-    const f = rows.slice(0, 3).map((r) => r.k + (r.c - r.p) * growth).sort((a, b) => a - b);
-    return { F: f[Math.floor(f.length / 2)], source: "parity" };
-  }
-  return spot !== null ? { F: spot, source: "spot" } : { F: null, source: null };
+  // `years` is interest time (calendar): pricing.js parityForward over the 5 two-sided strikes nearest spot.
+  const fw = pricingForward(chain, { rate: num(rate) ?? FALLBACK_RATE, Tcal: num(years) ?? 0, strikes: 5 });
+  return { F: fw.F, source: fw.source };
 }
 
 
 
 /**
- * One point per strike with a leg: IVs recomputed with Black-76 on `F` (discounted at `rate`), from `basis` prices.
- * The maths is pricing.js smilePoints; this wrapper keeps the page defaults (the 6.5 % rate and a quarter-day floor on
- * T) until the pages move to the vol-time clock (P1-3b). otm = the PE below F, the CE at or above it; `callDelta` =
- * the CE delta at the OTM IV; `gap` = CE and PE IV bands do not overlap; `out` = why the OTM point is not drawn.
- * `Tcal` (optional) puts the discount factor on calendar time while `years` is the clock's T.
+ * One point per strike with a leg: IVs recomputed with Black-76 on `F` (discounted at `rate` over `Tcal`, calendar
+ * time), from `basis` prices, with `years` the vol-time T (no floor: the clock already ends smoothly at settlement).
+ * The maths is pricing.js smilePoints. otm = the PE below F, the CE at or above it; `callDelta` = the CE delta at the
+ * OTM IV; `gap` = CE and PE IV bands do not overlap; `out` = why the OTM point is not drawn.
  */
-export function smilePoints(chain, { F, years, rate = FALLBACK_RATE, basis = "mid", Tcal = null } = {}) {
-  return pricingSmilePoints(chain, { F, years: Math.max(num(years) ?? 0, T_FLOOR), rate: num(rate) ?? FALLBACK_RATE, basis, Tcal });
+export function smilePoints(chain, { F, years, rate = FALLBACK_RATE, basis = "mid", Tcal = null, settling = false } = {}) {
+  return pricingSmilePoints(chain, { F, years: num(years) ?? 0, rate: num(rate) ?? FALLBACK_RATE, basis, Tcal, settling });
 }
 
 
@@ -3045,16 +3089,16 @@ export function termRow(chain, { now = Date.now(), rate = FALLBACK_RATE, basis =
   const expiry = chain?.expiry ?? null;
   const tt = timeToExpiry(expiry, now, close);
   const days = tt.days;
-  // With a clock context (pricing.js volTime): T on the vol-time clock, interest on calendar time, the 5-strike parity
-  // forward — exactly what the server computes for ?ivModel=b76-forward. Without one: the page's legacy reading.
-  const clock = ctx ? volTime(ctx, now, expiry) : null;
-  const years = clock ? clock.T : days === null ? null : days / 365;
-  const T = clock ? clock.T : Math.max(years ?? 0, T_FLOOR);
-  const Tc = clock ? clock.Tcal : T;
+  // On the vol-time clock (the page's context unless one is given): T on the clock, interest on calendar time, the
+  // 5-strike parity forward — exactly what the server computes for ?ivModel=b76-forward and stores at 15:25.
+  const clock = volTime(ctx ?? getPricingContext(close), now, expiry);
+  const years = clock ? clock.T : null;
+  const T = clock ? clock.T : 0;
+  const Tc = clock ? clock.Tcal : 0;
   const S = num(spot) ?? num(chain?.underlyingLtp);
-  const fw = clock ? pricingForward(chain, { rate, Tcal: clock.Tcal }) : impliedForward(chain, T, rate);
+  const fw = pricingForward(chain, { rate, Tcal: Tc, strikes: 5 });
   const F = fw.F;
-  const points = F === null ? [] : clock ? pricingSmilePoints(chain, { F, years: T, rate, Tcal: clock.Tcal, basis, settling: clock.settling }) : smilePoints(chain, { F, years: T, rate, basis });
+  const points = F === null || !(T > 0) ? [] : pricingSmilePoints(chain, { F, years: T, rate, Tcal: Tc, basis, settling: clock.settling });
   const atmIv = atmIvAt(points, F);
   const strikes = points.map((p) => p.strike);
   const atmStrike = F === null ? null : nearestStrike(strikes, F);
@@ -3092,6 +3136,7 @@ export function termRow(chain, { now = Date.now(), rate = FALLBACK_RATE, basis =
     monthly: Boolean(monthly),
     days,
     years,
+    Tcal: Tc,
     F,
     source: fw.source,
     spot: S,
@@ -3135,7 +3180,7 @@ export function forwardVol(a, b) {
   const sb = num(b?.atmIv);
   const ta = num(a?.years);
   const tb = num(b?.years);
-  if (sa === null || sb === null || ta === null || tb === null || tb - ta < 0.5 / 365) return { vol: null, inverted: false };
+  if (sa === null || sb === null || ta === null || tb === null || tb - ta < 0.5 * tradingDayYears()) return { vol: null, inverted: false };
   const v = ((sb / 100) ** 2 * tb - (sa / 100) ** 2 * ta) / (tb - ta);
   return v > 0 ? { vol: Math.sqrt(v) * 100, inverted: false } : { vol: null, inverted: true };
 }
@@ -3185,12 +3230,12 @@ export function smileSpark(points, { n = 24, half = null } = {}) {
   return out;
 }
 
-/** The ±2σ range at expiry: F·exp(∓2σ√T), σ = atmIv / 100, T floored at a quarter day. Null without inputs. */
+/** The ±2σ range at expiry: F·exp(∓2σ√T), σ = atmIv / 100, T the vol-time years (no floor). Null without inputs. */
 export function twoSigma(forward, atmIv, years) {
   const F = num(forward);
   const s = num(atmIv);
   if (F === null || F <= 0 || s === null || !(s > 0)) return null;
-  const T = Math.max(num(years) ?? 0, T_FLOOR);
+  const T = Math.max(num(years) ?? 0, 0);
   const sd = (s / 100) * Math.sqrt(T);
   return { lo: F * Math.exp(-2 * sd), hi: F * Math.exp(2 * sd) };
 }
@@ -4356,10 +4401,10 @@ export function chainContext(chain, { now = Date.now(), hv20 = null, charges = F
   const rows = [...(chain?.rows ?? [])].filter((r) => num(r?.strike) !== null).sort((a, b) => a.strike - b.strike);
   const sm = chainSummary(chain);
   const tte = timeToExpiry(chain?.expiry, now, close);
-  const yrs = tte.days === null ? null : tte.days / 365;
+  const yrs = tte.days === null ? null : yearsToExpiry(chain?.expiry, now, close);
   const T = yrs === null ? null : Math.max(yrs, MIN_YEARS);
   const S = num(chain?.underlyingLtp);
-  const F = forwardPrice(chain, parityGrowth(T, rate)) ?? S;
+  const F = forwardPrice(chain, parityGrowth(calendarYearsToExpiry(chain?.expiry, now, close), rate)) ?? S;
   const atmIv = num(sm.atmIv);
   let step = null;
   for (let i = 1; i < rows.length; i++) {
