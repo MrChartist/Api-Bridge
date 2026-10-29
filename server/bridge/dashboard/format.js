@@ -90,6 +90,22 @@ export function formatSignedRupee(value, dp = 2) {
   return `${n > 0 ? "+" : MINUS}₹${t}`;
 }
 
+/**
+ * Whole rupees with Indian grouping ("₹1,750", "₹10,000", "₹1,25,000", "−₹500"), built with string maths. The one
+ * exception to the no-separator rule: sentences that sit next to the Bridge's own messages (the readiness facts beside
+ * "₹1,750 of ₹10,000 daily loss left." from server/bridge/readiness/checks.mjs) print the same figure the same way.
+ * Missing → "--".
+ */
+export function formatRupeeGrouped(value) {
+  if (!isFigure(value)) return DASH;
+  const n = Math.round(Number(value));
+  const s = String(Math.abs(n));
+  const last3 = s.slice(-3);
+  const rest = s.slice(0, -3);
+  const grouped = rest ? `${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${last3}` : last3;
+  return `${n < 0 ? MINUS : ""}₹${grouped}`;
+}
+
 /** An editable field's starting text: fixed decimals, no grouping, an ASCII hyphen (the field's parser reads it back). Missing → "". */
 export const formatInput = (value, dp = 2) => (isFigure(value) ? fixedPlain(value, dp) : "");
 

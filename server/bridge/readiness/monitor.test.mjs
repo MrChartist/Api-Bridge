@@ -182,6 +182,43 @@ describe("readiness monitor triggers and probes", () => {
     svc.stop();
   });
 
+  it("an engage or release shows in status() at once, before the debounce (the dashboard reads right after)", async () => {
+    vi.setSystemTime(MON_1000);
+    const h = harness();
+    const svc = h.make();
+    svc.start();
+    await svc.check({});
+    expect(svc.status().accounts[0].state).toBe("warn");
+    h.setKillSwitch({ engaged: true, reason: "manual", by: "me", at: "x" });
+    h.bus.emit("safety.kill_switch", { engaged: true });
+    await Promise.resolve();
+    expect(svc.status().overall).toBe("cannot_trade");
+    expect(svc.status().accounts[0].reasons[0].code).toBe("KILL_SWITCH");
+    h.setKillSwitch({ engaged: false });
+    h.bus.emit("safety.kill_switch", { engaged: false });
+    await Promise.resolve();
+    expect(svc.status().accounts[0].state).toBe("warn");
+    svc.stop();
+  });
+
+  it("targets without an events list listen through the defaults; the summary says needs / need", async () => {
+    vi.setSystemTime(MON_1000);
+    const h = harness({ notifyTargets: [{ id: "phone", kind: "telegram" }, { id: "scans", kind: "telegram", events: ["scan.alert"] }] });
+    const svc = h.make();
+    await svc.check({});
+    const s = svc.status();
+    expect(s.notifications.targetsListening).toEqual(["phone"]);
+    expect(s.notifications.warning).toBeNull();
+    expect(s.summary).toBe("1 of 1 live account needs attention");
+
+    const live = { enabled: true, allowedSources: ["rest"], registeredIp: "203.0.113.10" };
+    const two = harness({ accounts: [{ id: "a", broker: "zerodha", label: "A", enabled: true, live }, { id: "b", broker: "zerodha", label: "B", enabled: true, live }] });
+    const svc2 = two.make();
+    await svc2.check({});
+    expect(svc2.status().summary).toBe("2 of 2 live accounts need attention");
+    expect(svc2.status().notifications.warning).toMatch(/No notification target listens/);
+  });
+
   it("probe cooldown (30 s) and singleflight per account", async () => {
     vi.setSystemTime(MON_1000);
     const h = harness();

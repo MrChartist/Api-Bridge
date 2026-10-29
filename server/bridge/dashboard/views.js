@@ -34,7 +34,7 @@ import {
   confirmEngageKillSwitch,
   DEMO_EXPLAINER,
 } from "./app.js";
-import { STATE_TEXT, STATE_TONE, readinessCard, readinessPill, refreshReadiness } from "./readiness.js";
+import { STATE_TEXT, STATE_TONE, homeSafetyLine, readinessCard, readinessPill, refreshReadiness } from "./readiness.js";
 import { DASH, formatFixed, formatInt, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { renderArbPage, renderChainPage, renderOiPage, renderPositionsPage, renderStrategyPage, renderVolPage } from "./desk.js";
 import { renderCalendarPage } from "./calendar.js";
@@ -998,7 +998,7 @@ async function renderHome() {
           "div",
           { class: "stack" },
           h("div", { class: "row" }, ks?.engaged ? pill("Kill switch on", "bad") : pill("Kill switch off", "ok"), readyPill, safety.data?.data?.liveTrading ? pill("Live trading on", "bad") : pill("Paper only")),
-          h("p", { class: "muted" }, ks?.engaged ? `Engaged ${istDateTime(ks.at)}: ${ks.reason ?? ""}` : "Orders pass every safety check: order-rate cap, daily limits, price band, market-order protection."),
+          h("p", { class: "muted" }, ks?.engaged ? `Engaged ${istDateTime(ks.at)}: ${ks.reason ?? ""}` : (homeSafetyLine(readySnap) ?? "Orders pass every safety check: order-rate cap, daily limits, price band, market-order protection.")),
           h("p", { class: "muted small" }, `Bridge ${app.state.health?.version ?? ""} · up ${formatInt((app.state.health?.uptimeSeconds ?? 0) / 60)} min · listening on this computer only`),
         ),
       }),

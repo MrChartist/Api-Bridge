@@ -14,6 +14,7 @@ import {
   istHm,
   istWhen,
   killFact,
+  homeSafetyLine,
   lossFact,
   ordersFact,
   rowsModel,
@@ -140,6 +141,11 @@ describe("rowsModel facts (spec §6.2 strings)", () => {
     expect(egressFact(mis).text).toBe("Does not match registered IP (as seen by api.ipify.org)");
     expect(egressFact(mis, { canSeeIp: true }).detail).toBe("198.51.100.23 vs 203.0.113.10");
     expect(egressFact(mis, { canSeeIp: false }).detail).toBeNull();
+    // Manual mode: the address is the one entered, not one a service saw.
+    const manual = { status: "fail", mode: "manual", registered: "set", backup: "not-set", matches: false, seenBy: "as entered", detectedIp: "198.51.100.23", registeredIp: "203.0.113.10" };
+    expect(egressFact(manual).text).toBe("Does not match registered IP (as entered)");
+    expect(egressFact(manual, { canSeeIp: true }).detail).toBe("198.51.100.23 vs 203.0.113.10");
+    expect(egressFact({ ...manual, status: "pass", matches: true }).text).toBe("Matches registered IP (as entered)");
     expect(egressFact({ status: "n/a", mode: "off", registered: "not-set", backup: "not-set" }).text).toBe("Not checked: lookup is off");
     expect(egressFact({ status: "warn", mode: "lookup", registered: "not-set", backup: "not-set", matches: null }).text).toBe("Registered IP not set");
     // rowsModel passes canSeeIp through, and no address leaks into any fact without it.
@@ -148,13 +154,15 @@ describe("rowsModel facts (spec §6.2 strings)", () => {
     const seen = rowsModel(snap([account({ checks: { egress: mis } })]), { canSeeIp: true, now: NOW });
     expect(seen[0].facts.find((f) => f.key === "egress").detail).toMatch(/198\.51\.100\.23 vs 203\.0\.113\.10/);
   });
-  it("Orders, Loss (₹ through format.js), Kill switch, Automations", () => {
+  it("Orders, Loss (₹ grouped through format.js, like the Bridge's own messages), Kill switch, Automations", () => {
     const a = account();
     expect(ordersFact(a.checks.orderRate, a.checks.dailyOrders)).toBe("5/s cap, 0 used · 63 of 100 orders left");
-    expect(lossFact(a.checks.dailyLoss)).toBe("₹1750 of ₹10000 daily loss left");
+    expect(lossFact(a.checks.dailyLoss)).toBe("₹1,750 of ₹10,000 daily loss left");
     expect(killFact({ engaged: false })).toBe("Off");
     expect(killFact({ engaged: true, at: "2026-10-29T10:02:00+05:30", reason: "manual" })).toBe("On since 10:02 (manual)");
     expect(automationsFact([{ label: "ChartInk breakout", mode: "live", state: "cannot_trade" }])).toBe("1 live automation cannot trade: ChartInk breakout");
+    // Labels can hold commas, so the names are joined with "; ".
+    expect(automationsFact([{ label: "Sample guard: NIFTY short strangle, max loss ₹5,000", mode: "live", state: "cannot_trade" }, { label: "Sample webhook: breakout alert", mode: "live", state: "cannot_trade" }])).toBe("2 live automations cannot trade: Sample guard: NIFTY short strangle, max loss ₹5,000; Sample webhook: breakout alert");
     expect(automationsFact([{ label: "A", mode: "live", state: "ready" }, { label: "B", mode: "live", state: "ready" }])).toBe("2 live automations, all ready");
     expect(automationsFact([])).toBe("None");
     expect(automationsShort([{ label: "A", mode: "live", state: "cannot_trade" }, { label: "B", mode: "live", state: "cannot_trade" }])).toEqual({ text: "2 live · cannot trade", detail: "A; B" });
@@ -220,5 +228,15 @@ describe("copy and wiring", () => {
     expect(src).toMatch(/setAttribute\("aria-label", m\.aria\)/);
     const css = readFileSync(new URL("./app.css", import.meta.url), "utf8");
     for (const k of ["ok", "warn", "bad"]) expect(css).toMatch(new RegExp(`\\.toolbar-ready\\[data-ready="${k}"\\] \\.pdot \\{ background: hsl\\(var\\(--`));
+  });
+});
+
+describe("homeSafetyLine", () => {
+  it("replaces the Home card's 'Orders pass every safety check' line when readiness has something to say", () => {
+    expect(homeSafetyLine({ overall: "cannot_trade", summary: "1 of 1 live account cannot trade" })).toBe("1 of 1 live account cannot trade. Paper orders are unaffected.");
+    expect(homeSafetyLine({ overall: "warn", summary: "1 of 2 live accounts needs attention" })).toBe("1 of 2 live accounts needs attention. Paper orders are unaffected.");
+    expect(homeSafetyLine({ overall: "ready", summary: "The live account is ready" })).toBeNull();
+    expect(homeSafetyLine({ overall: "paper_only", summary: "x" })).toBeNull();
+    expect(homeSafetyLine(null)).toBeNull();
   });
 });

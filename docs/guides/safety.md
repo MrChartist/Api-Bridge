@@ -25,7 +25,8 @@ as little as possible. Everything below is on by default.
 7. an `Idempotency-Key` header or a `clientOrderId` (a live order without one is refused, so a retry cannot double it);
 8. every safety check below.
 
-A request that misses any of them is refused with a clear code, never quietly downgraded.
+A request that misses any of them is refused with a clear code, never quietly downgraded. Nothing in the API, the
+environment (`MCB_PAPER_ONLY=1` can only tighten), an MCP tool or a webhook can switch live trading on.
 
 ### Trading readiness
 
@@ -43,8 +44,7 @@ page and a card on the Safety page; `get_safety_status` (MCP) includes it.
 
 Readiness only adds a refusal or a warning: it never engages the kill switch, cancels or sends anything. Turn the
 refusal into a warning with `readiness.gateAutomated: false`. Static IP and the daily login are explained in
-[deployment.md](deployment.md). Nothing in the API, the
-environment (`MCB_PAPER_ONLY=1` can only tighten), an MCP tool or a webhook can switch live trading on.
+[deployment.md](deployment.md).
 
 ## Checks on every order (paper and live)
 

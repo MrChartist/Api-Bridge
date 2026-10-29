@@ -397,7 +397,7 @@ async function renderDesk(kind) {
       TRADING.has(kind) && tradable.length ? h("label", { class: "field" }, "Orders go to", h("span", { class: "ctx-row" }, aSel, acctBadge)) : null,
       h("div", { class: "ctx-row" }, h("span", {}, "Lot size"), h("strong", {}, lotV.data)),
       // Trading readiness: the toolbar badge folds away here on tablets and phones (docs/spec/p1-05-readiness.md §6.5).
-      readinessSheetRow(() => sheetRef?.close()),
+      readinessSheetRow(() => sheetRef?.close(), moreBtn),
       h(
         "div",
         { class: "ctx-acts" },

@@ -7,7 +7,7 @@
 // (copyRules.mjs): what was checked and where the fact came from, never advice. Every reading is local: the badge polls
 // GET /v1/readiness, which answers from the monitor's cache and never calls a broker.
 import { api, app, codeBlock, confirmEngageKillSwitch, h, icon, modal, alertBox, pill, sheetPopover, toast } from "./app.js";
-import { DASH, formatInt, formatRupee, isFigure } from "./format.js";
+import { DASH, formatInt, formatRupeeGrouped, isFigure } from "./format.js";
 
 /** How often the badge reads /v1/readiness while the tab is visible (spec §6.3). */
 export const POLL_MS = 30_000;
@@ -149,10 +149,11 @@ export function egressFact(e, { canSeeIp = false } = {}) {
   else if (e.registered === "not-set" && e.backup === "not-set") text = "Registered IP not set";
   else if (e.registered === "invalid" || e.backup === "invalid") text = "Registered IP setting is not a valid address";
   else if (e.matches === true) text = e.mode === "manual" ? "Matches registered IP (as entered)" : "Matches registered IP";
-  else if (e.matches === false) text = `Does not match registered IP${e.seenBy && !e.seenBy.includes("(") ? ` (as seen by ${e.seenBy})` : ""}`;
+  else if (e.matches === false) text = e.mode === "manual" ? "Does not match registered IP (as entered)" : `Does not match registered IP${e.mode === "lookup" && e.seenBy ? ` (as seen by ${e.seenBy})` : ""}`;
   else text = e.message ?? "Not checked yet";
   const vs = canSeeIp && e.detectedIp && (e.registeredIp || e.backupIp) ? `${e.detectedIp} vs ${[e.registeredIp, e.backupIp].filter(Boolean).join(" or ")}` : null;
-  const seen = e.mode === "lookup" && e.seenBy && (e.matches === true || e.seenBy.includes("(")) ? `as seen by ${e.seenBy}${e.detectedAt ? ` at ${istHm(e.detectedAt)}` : ""}` : null;
+  // A mismatch already names the service in its text; a match names it here, with the time of the lookup.
+  const seen = e.mode === "lookup" && e.seenBy && e.matches === true ? `as seen by ${e.seenBy}${e.detectedAt ? ` at ${istHm(e.detectedAt)}` : ""}` : null;
   return { text, detail: [vs, seen].filter(Boolean).join(" · ") || null };
 }
 
@@ -164,19 +165,19 @@ export function ordersFact(rate, daily) {
   return parts.join(" · ") || DASH;
 }
 
-/** "₹1750 of ₹10000 daily loss left" (format.js figures: no separators). Pure. */
-export const lossFact = (loss) => (loss && isFigure(loss.limit) ? `${formatRupee(loss.left, 0)} of ${formatRupee(loss.limit, 0)} daily loss left` : DASH);
+/** "₹1750 of ₹10000 daily loss left", printed with Indian grouping (formatRupeeGrouped) like the Bridge's own reason and notification text beside it. Pure. */
+export const lossFact = (loss) => (loss && isFigure(loss.limit) ? `${formatRupeeGrouped(loss.left)} of ${formatRupeeGrouped(loss.limit)} daily loss left` : DASH);
 
 /** "Off" or "On since 10:02 (reason)". Pure. */
 export const killFact = (k) => (!k ? DASH : k.engaged ? `On since ${istHm(k.at)}${k.reason ? ` (${k.reason})` : ""}` : "Off");
 
-/** "1 live automation cannot trade: ChartInk breakout", "2 live automations, all ready", "None". Pure. */
+/** "1 live automation cannot trade: ChartInk breakout" (names joined with "; ": labels can hold commas), "2 live automations, all ready", "None". Pure. */
 export function automationsFact(list) {
   const live = (list ?? []).filter((x) => x.mode === "live");
   if (!(list ?? []).length) return "None";
   if (!live.length) return `${plural(list.length, "paper automation")}`;
   const blocked = live.filter((x) => x.state === "cannot_trade");
-  if (blocked.length) return `${plural(blocked.length, "live automation")} cannot trade: ${blocked.map((x) => x.label).join(", ")}`;
+  if (blocked.length) return `${plural(blocked.length, "live automation")} cannot trade: ${blocked.map((x) => x.label).join("; ")}`;
   const phrase = { ready: "ready", warn: "to check", unknown: "not checked" };
   if (live.length === 1) return `1 live automation, ${phrase[live[0].state] ?? "not checked"}`;
   const same = live.every((x) => x.state === live[0].state);
@@ -290,7 +291,7 @@ export const DEMO_ACTIONS = Object.freeze([
 
 // ── DOM (browser only) ──
 
-const state = { snap: null, failedAt: null, timer: 0, mounted: false, listeners: new Set() };
+const state = { snap: null, failedAt: null, timer: 0, mounted: false, stopped: false, tick: null, listeners: new Set() };
 /** The last snapshot the badge read (null before the first answer). */
 export const lastReadiness = () => state.snap;
 /** Called with every new snapshot (the Safety card and the Home pill redraw from it). Returns an unsubscribe. */
@@ -321,13 +322,23 @@ function publish(snap, { failed = false } = {}) {
 export async function refreshReadiness() {
   try {
     const r = await api("/v1/readiness");
+    const restart = state.stopped && state.mounted;
+    state.stopped = false;
     publish(r.data?.data ?? null);
+    if (restart) {
+      clearTimeout(state.timer);
+      state.timer = setTimeout(() => state.tick?.(), POLL_MS);
+    }
   } catch (err) {
     if (err?.status === 401 || err?.status === 403 || err?.status === 404) {
-      // Signed out, a key that may not read it, or an older Bridge: no badge.
+      // Signed out, a key that may not read it, or an older Bridge: no badge, and the 30 s poll stops (a revoked key
+      // would otherwise ask every 30 s for as long as the tab stays open). The next page render or sign-in reads again
+      // through this function and, on success, restarts the poll.
       const slot = document.getElementById("toolbar-ready");
       if (slot) slot.hidden = true;
-      return;
+      state.stopped = true;
+      clearTimeout(state.timer);
+      return null;
     }
     publish(null, { failed: true });
   }
@@ -352,6 +363,20 @@ export async function checkNow(btn) {
       btn.removeAttribute("aria-busy");
     }
   }
+}
+
+/**
+ * Close a popover or sheet, then run `next` once it has fully closed. On phones the popover is the shared #dialog
+ * bottom sheet: its "close" event (queued by dialog.close()) runs the sheet's clean-up, which unlocks page scroll,
+ * drops aria-modal and moves focus back to the opener. Opening a modal or another sheet before that event would let
+ * that clean-up undo the new one, so wait for it (our listener runs after the sheet's own, added earlier).
+ */
+function afterClose(close, next) {
+  const d = document.getElementById("dialog");
+  const wasOpen = Boolean(d?.open);
+  close?.();
+  if (wasOpen && !d.open) d.addEventListener("close", () => setTimeout(next, 0), { once: true });
+  else setTimeout(next, 0);
 }
 
 /** Stop all orders from the badge: the same confirmation as the Safety page, then a fresh reading. */
@@ -393,7 +418,7 @@ export function accountBlock(row, { compact = false } = {}) {
 function popoverBody(snap) {
   const rows = rowsModel(snap, { canSeeIp: canSeeIp() });
   const check = h("button", { type: "button", class: "small", onclick: () => checkNow(check).then(() => pop?.close()) }, icon("refresh"), "Check now");
-  const stop = h("button", { type: "button", class: "small", onclick: () => (pop?.close(), stopAll()) }, icon("stop"), "Stop all orders");
+  const stop = h("button", { type: "button", class: "small", onclick: () => afterClose(() => pop?.close(), stopAll) }, icon("stop"), "Stop all orders");
   const open = h("a", { class: "btn small plain", href: "#/safety", onclick: () => pop?.close() }, "Open Safety", icon("chevron"));
   const warning = snap?.notifications?.warning;
   return h(
@@ -439,15 +464,29 @@ export function mountReadinessBadge() {
   state.mounted = true;
   const tick = () => {
     clearTimeout(state.timer);
-    if (document.visibilityState === "visible") refreshReadiness().finally(() => (state.timer = setTimeout(tick, POLL_MS)));
+    if (document.visibilityState !== "visible") return;
+    refreshReadiness().finally(() => {
+      clearTimeout(state.timer);
+      if (!state.stopped) state.timer = setTimeout(tick, POLL_MS);
+    });
   };
+  state.tick = tick;
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") tick();
+    if (document.visibilityState === "visible" && !state.stopped) tick();
     else clearTimeout(state.timer);
   });
   drawBadge();
   slot.hidden = false;
   tick();
+}
+
+/**
+ * The Home Safety card's sentence when readiness has something to say: "1 of 1 live account cannot trade. Paper orders
+ * are unaffected." (null when ready, paper only or not read yet, so the card keeps its usual line). Pure.
+ */
+export function homeSafetyLine(snap) {
+  if (!snap || (snap.overall !== "cannot_trade" && snap.overall !== "warn") || !snap.summary) return null;
+  return `${String(snap.summary).replace(/\.$/, "")}. Paper orders are unaffected.`;
 }
 
 /** The readiness pill for the Home page's Safety card (next to the kill-switch pill). */
@@ -458,14 +497,18 @@ export function readinessPill(snap = state.snap) {
   return el;
 }
 
-/** A row for the Options pages' ⋯ sheet on tablets and phones, where the toolbar badge does not fit. */
-export function readinessSheetRow(closeSheet) {
+/**
+ * A row for the Options pages' ⋯ sheet on tablets and phones, where the toolbar badge does not fit. `opener` is the
+ * ⋯ button: the readiness popover is placed under it and hands focus back to it, since the folded badge is not
+ * rendered there (display: none has no position and cannot take focus).
+ */
+export function readinessSheetRow(closeSheet, opener = null) {
   const m = badgeModel(state.snap, { demo: app.state.demo, failedAt: state.failedAt });
   const btn = h("button", { type: "button", class: "rd-sheet-row full", "aria-label": m.aria }, h("span", {}, "Trading readiness"), pill(m.short, m.cls), icon("chevron"));
   btn.addEventListener("click", () => {
-    closeSheet?.();
     const badge = document.querySelector("#toolbar-ready button");
-    setTimeout(() => openPopover(badge ?? null), 0);
+    const trigger = badge && badge.offsetParent !== null ? badge : opener?.isConnected ? opener : badge;
+    afterClose(closeSheet, () => openPopover(trigger ?? null));
   });
   return btn;
 }

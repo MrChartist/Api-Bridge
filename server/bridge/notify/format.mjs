@@ -31,7 +31,15 @@ const sentence = (parts) => {
  */
 function formatReadiness(p) {
   const sim = p.simulated ? " (simulated)" : "";
-  const who = (a) => `${clip(a.brokerName ?? a.broker ?? "", 40)} ${clip(a.label || a.accountId, 60)}`.trim();
+  // "Zerodha Main"; a label that already starts with the broker's name as a word ("Zerodha main", "Demo market data")
+  // is not prefixed twice. An account id stands in for a missing label and keeps the prefix ("Dhan dhan-main").
+  const who = (a) => {
+    const broker = clip(a.brokerName ?? a.broker ?? "", 40);
+    const name = clip(a.label || a.accountId, 60);
+    const label = String(a.label ?? "");
+    const named = broker && label.toLowerCase().startsWith(broker.toLowerCase()) && !/^[\p{L}\p{N}]/u.test(label.slice(broker.length));
+    return named ? String(name).trim() : `${broker} ${name}`.trim();
+  };
   if (p.kind === "preopen") {
     const list = Array.isArray(p.accounts) ? p.accounts : [];
     const cannot = list.filter((a) => a.state === "cannot_trade").length;

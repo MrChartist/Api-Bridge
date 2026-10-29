@@ -648,7 +648,18 @@ export function createReadinessService(deps, opts = {}) {
       scheduleFor(p.accountId, { probe: false });
     });
     on("safety.kill_switch", () => {
-      for (const a of tracked()) scheduleFor(a.id, { probe: false });
+      // Re-read the kill-switch check at once instead of after the debounce (no probe, no lookup: it costs nothing),
+      // so the GET /v1/readiness the dashboard sends right after an engage or release already sees it (spec §5, §6.3).
+      // The guard emits after it has saved the new state; a microtask keeps this out of the bus dispatch and still runs
+      // before the engage/release request answers. A run already in flight recomputes when it settles.
+      queueMicrotask(() => {
+        if (!started || !cfg.enabled) return;
+        for (const a of tracked()) {
+          if (memFor(a.id).inflight) scheduleFor(a.id, { probe: false });
+          else computeAndApply(a);
+        }
+        persist();
+      });
     });
     on("safety.limit", (p) => {
       if (p?.accountId) scheduleFor(p.accountId, { probe: false });

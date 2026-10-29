@@ -102,7 +102,7 @@ describe("demo readiness on the demo app (Sunday evening)", () => {
   it("records the messages that would have been sent, and restores after 10 simulated minutes", async () => {
     await svc.demoScenario("ip-changed");
     const s = svc.status();
-    expect(s.notifications.wouldHaveSent[0]).toMatchObject({ title: "Demo Demo market data: cannot trade (simulated)" });
+    expect(s.notifications.wouldHaveSent[0]).toMatchObject({ title: "Demo market data: cannot trade (simulated)" });
     expect(JSON.stringify(s.notifications.wouldHaveSent)).not.toMatch(/198\.51\.100|203\.0\.113/);
     offset += 10 * 60_000 + 1000;
     await svc.check({});

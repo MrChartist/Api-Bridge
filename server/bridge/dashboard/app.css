@@ -6698,7 +6698,11 @@ button.rd-sheet-row { display: flex; gap: 10px; width: 100%; }
 .rd-cell-t { color: hsl(var(--foreground)); overflow-wrap: anywhere; }
 .rd-cell .pill { flex: none; }
 .rd-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
-@media (max-width: 1279px) { .rd-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1279px) {
+  .rd-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* An odd last section (the third of three) takes the full row instead of leaving an empty half. */
+  .rd-cols > .rd-sec:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
 @media (max-width: 719px) { .rd-cols { grid-template-columns: minmax(0, 1fr); } }
 .rd-sec { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .rd-sec h3 { margin: 0; font: 600 13px/1.3 var(--font-body); letter-spacing: 0.01em; color: hsl(var(--foreground) / var(--a-label)); }
@@ -6720,6 +6724,7 @@ button.rd-sheet-row { display: flex; gap: 10px; width: 100%; }
 .rd-msgs li > time { grid-row: 1 / span 2; }
 @media (pointer: coarse) {
   .rd-demo-btns button.chip-btn, .rd-links a { min-height: 44px; }
+  .rd-pop-note a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 
 /* ───────────────────────── 13 · RESPONSIVE ───────────────────────── */
