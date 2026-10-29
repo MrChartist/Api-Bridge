@@ -33,8 +33,9 @@ import {
   sheetPopover,
   DEMO_EXPLAINER,
 } from "./app.js";
-import { DASH, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
+import { DASH, formatFixed, formatInt, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { renderArbPage, renderChainPage, renderOiPage, renderPositionsPage, renderStrategyPage, renderVolPage } from "./desk.js";
+import { renderCalendarPage } from "./calendar.js";
 import { renderScreenerPage } from "./screener.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
@@ -43,6 +44,12 @@ const $ = (id) => document.getElementById(id);
 const local = app.local;
 const FLAG = { copied: "mcb.dashboard.copied", tested: "mcb.dashboard.tested", hideChecklist: "mcb.dashboard.hideChecklist", hideOwn: "mcb.dashboard.hideOwnRequests" };
 const markCopied = () => local.set(FLAG.copied, "1");
+/** A button at work (BUTTON-SYSTEM.md §9): disabled, its label swapped for a turning ring, its width kept. */
+const busy = (b, on) => {
+  b.disabled = on;
+  if (on) b.setAttribute("aria-busy", "true");
+  else b.removeAttribute("aria-busy");
+};
 const scopeChip = (s) => h("span", { class: `chip scope-${s}` }, s);
 /** Sentence case for a status word from the API ("filled" → "Filled"). */
 export const cap = (s) => (s ? `${String(s)[0].toUpperCase()}${String(s).slice(1)}` : DASH);
@@ -79,9 +86,9 @@ function delta(value, text) {
 /** Money with the gain / loss colour and an explicit sign (P&L). */
 export function pnl(v) {
   if (!isFigure(v)) return DASH;
-  const text = formatRupee(Math.abs(Number(v)));
-  const n = Number(formatFixed(v, 2));
-  return h("span", { class: n > 0 ? "up" : n < 0 ? "down" : undefined }, n > 0 ? `+${text}` : n < 0 ? `-${text}` : text);
+  const text = formatSignedRupee(v);
+  const n = Number(v);
+  return h("span", { class: text.startsWith("₹") ? undefined : n > 0 ? "up" : "down" }, text);
 }
 /** A button for an empty state's next step: goes to a page (hash) or runs a function. */
 const nextStep = (label, to, cls = "primary") => h("button", { type: "button", class: cls, onclick: typeof to === "function" ? to : () => (location.hash = to) }, label);
@@ -229,6 +236,7 @@ export const PAGES = [
   { id: "screener", label: "Option Screener", short: "Screener", icon: "radar", tint: "yellow", group: "Options", layout: "desk", title: "Option Screener", sub: "Scan every underlying and expiry for unusual activity, build-ups, rich or cheap premium, hedges and arbitrage", render: renderScreenerPage },
   { id: "arb", label: "Arbitrage", icon: "scale", tint: "indigo", group: "Options", layout: "desk", title: "Arbitrage scanner", sub: "Parity, boxes and futures basis at executable prices, after charges", render: renderArbPage },
   { id: "positions", label: "Positions", icon: "wallet", tint: "teal", group: "Options", layout: "desk", title: "Option positions", sub: "Open option positions with P&L, net Δ and θ", render: renderPositionsPage },
+  { id: "calendar", label: "Market calendar", icon: "calendar", tint: "teal", group: "Options", layout: "desk", title: "Market calendar", sub: "Expiries, holidays, lot sizes, ban list and corporate actions, with their sources", render: renderCalendarPage },
   { id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, group: "Trading", title: "Orders and positions", sub: "Paper by default. Pending confirmations wait here", render: renderOrders },
   { id: "safety", label: "Safety", icon: "safety", tint: "red", tab: true, group: "Trading", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
   { id: "keys", label: "API keys", icon: "keys", tint: "pink", group: "Connect", title: "API keys", sub: "One key per tool, with only the access it needs", render: renderKeys },
@@ -764,7 +772,7 @@ async function renderScanner() {
     }
   });
   runBtn.addEventListener("click", async () => {
-    runBtn.disabled = true;
+    busy(runBtn, true);
     out.replaceChildren(h("p", { class: "muted" }, "Scanning…"));
     try {
       let job = (await api("/v1/scanner/jobs?waitMs=2000", { method: "POST", body: request() })).data.data;
@@ -777,7 +785,7 @@ async function renderScanner() {
     } catch (err) {
       out.replaceChildren(alertBox(err));
     } finally {
-      runBtn.disabled = false;
+      busy(runBtn, false);
     }
   });
 
@@ -964,7 +972,7 @@ async function renderHome() {
         tint: "indigo",
         title: "Broker accounts",
         flush: true,
-        actions: h("button", { type: "button", class: "small tinted", onclick: () => (location.hash = "#/accounts") }, "Manage"),
+        actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/accounts") }, "Manage"),
         body: table(
           [
             { label: "Account", cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
@@ -980,7 +988,7 @@ async function renderHome() {
         glyph: "safety",
         tint: ks?.engaged ? "red" : "green",
         title: "Safety",
-        actions: h("button", { type: "button", class: "small tinted", onclick: () => (location.hash = "#/safety") }, "Open"),
+        actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/safety") }, "Open"),
         body: h(
           "div",
           { class: "stack" },
@@ -1170,7 +1178,7 @@ function loginSheet(a, broker) {
   if (broker.loginUrl) {
     const needs = [...broker.loginUrl.matchAll(/\{([A-Za-z0-9_]+)\}/g)].map((m) => labels[m[1]] ?? m[1]);
     const note = h("span", { class: "hint" }, `Type your ${needs.join(" and ")} above first.`);
-    const open = h("button", { type: "button", class: "small tinted", disabled: true }, icon("external"), `Open ${broker.name} login page`);
+    const open = h("button", { type: "button", class: "small", disabled: true }, icon("external"), `Open ${broker.name} login page`);
     const sync = () => {
       const ok = fillLoginUrl(broker.loginUrl, typed()) !== null;
       open.disabled = !ok;
@@ -1266,7 +1274,7 @@ function removeAccountSheet(a) {
       { label: "Cancel", value: false },
       {
         label: "Remove",
-        cls: "danger",
+        cls: "primary",
         onClick: async () => {
           try {
             await api(`/v1/accounts/${encodeURIComponent(a.id)}`, { method: "DELETE" });
@@ -1290,14 +1298,14 @@ async function renderAccounts() {
   const brokerOf = (a) => list.find((b) => b.id === a.broker);
   const paperCount = accs.filter((a) => a.broker === "paper").length;
   const testAccount = async (a, btn) => {
-    btn.disabled = true;
+    busy(btn, true);
     try {
       const r = await api(`/v1/accounts/${encodeURIComponent(a.id)}/test`, { method: "POST" });
       toast(r.data?.data?.ok ? `${a.id}: connection OK` : `${a.id}: ${r.data?.data?.message ?? "not OK"}`);
     } catch (err) {
       modal({ title: `Test ${a.id}`, body: alertBox(err), buttons: [{ label: "Close", value: true }] });
     } finally {
-      btn.disabled = false;
+      busy(btn, false);
     }
   };
   const addButton = (cls = "primary", text = "Add a broker") => h("button", { type: "button", class: cls, onclick: () => addAccountFlow(list) }, icon("plus"), text);
@@ -1358,12 +1366,12 @@ async function renderAccounts() {
             "div",
             { class: "row broker-foot" },
             h("div", { class: "chips grow" }, h("span", { class: "chip" }, AUTH_KIND_LABEL[b.authKind] ?? b.authKind), b.capabilities.includes("feed") ? h("span", { class: "chip" }, "live feed") : null, b.capabilities.includes("historical") ? h("span", { class: "chip" }, "history") : null, b.capabilities.includes("placeOrder") ? h("span", { class: "chip" }, "orders") : null),
-            app.state.demo ? null : h("button", { type: "button", class: "small tinted", "aria-label": `Add a ${b.name} account`, onclick: () => addAccountFlow(list, { preselect: b.id }) }, "Add"),
+            app.state.demo ? null : h("button", { type: "button", class: "small", "aria-label": `Add a ${b.name} account`, onclick: () => addAccountFlow(list, { preselect: b.id }) }, "Add"),
           ),
         ),
       ),
     );
-    if (!rows.length) grid.replaceChildren(h("div", { class: "row" }, h("p", { class: "muted" }, `No broker matches “${search.value}”.`), nextStep("Clear search", () => { search.value = ""; draw(); search.focus(); }, "small tinted")));
+    if (!rows.length) grid.replaceChildren(h("div", { class: "row" }, h("p", { class: "muted" }, `No broker matches “${search.value}”.`), nextStep("Clear search", () => { search.value = ""; draw(); search.focus(); }, "small")));
   };
   search.addEventListener("input", draw);
   draw();
@@ -1473,7 +1481,7 @@ async function renderConsole() {
       out.replaceChildren(alertBox({ title: "The order JSON is not valid", detail: "Check the commas and quotes." }));
       return;
     }
-    runBtn.disabled = true;
+    busy(runBtn, true);
     try {
       const idem = b.ep.method === "POST" ? `dash-${crypto.randomUUID()}` : null;
       const opts = { method: b.ep.method, raw: true, body: b.body };
@@ -1509,7 +1517,7 @@ async function renderConsole() {
     } catch (err) {
       out.replaceChildren(alertBox(err));
     } finally {
-      runBtn.disabled = false;
+      busy(runBtn, false);
     }
   };
 
@@ -1558,12 +1566,12 @@ async function renderLimits() {
     const accounts = (u.accounts ?? []).filter((a) => a.broker !== "paper");
     const tryBtn = h("button", { type: "button", class: "primary" }, icon("bolt"), "Send 20 identical requests");
     tryBtn.addEventListener("click", async () => {
-      tryBtn.disabled = true;
+      busy(tryBtn, true);
       const before = (await api("/v1/usage")).data.data;
       const calls = (x) => (x.accounts ?? []).reduce((n, a) => n + sum(Object.fromEntries(Object.entries(a.classes ?? {}).map(([k, v]) => [k, v.callsToday ?? 0]))), 0);
       await Promise.all(Array.from({ length: 20 }, () => optional(api("/v1/ltp?symbols=NSE:NIFTY,NSE:RELIANCE"))));
       const after = (await api("/v1/usage")).data.data;
-      tryBtn.disabled = false;
+      busy(tryBtn, false);
       const used = calls(after) - calls(before);
       toast(`20 requests → ${formatInt(used)} broker call${used === 1 ? "" : "s"}. The rest came from the live stream, the cache or a shared call.`);
       await draw();
@@ -1654,12 +1662,12 @@ async function renderOrders() {
                 label: "",
                 cell: (t) => {
                   const blocked = (t.checks ?? []).some((c) => c?.severity === "block");
-                  return h("button", { type: "button", class: t.order?.mode === "live" ? "small danger" : "small primary", disabled: blocked, "aria-label": `${blocked ? "Blocked" : "Review"} ticket ${t.ticketId}`, onclick: () => confirmTicket(t, byId) }, blocked ? "Blocked" : "Review");
+                  return h("button", { type: "button", class: "small primary", disabled: blocked, "aria-label": `${blocked ? "Blocked" : "Review"} ticket ${t.ticketId}`, onclick: () => confirmTicket(t, byId) }, blocked ? "Blocked" : "Review");
                 },
               },
             ],
             tk,
-            emptyState("inbox", "Nothing waiting", "When an AI assistant prepares an order, it appears here for you to check every field and confirm.", nextStep("Set up an AI assistant", "#/integrations?tab=claude", "tinted")),
+            emptyState("inbox", "Nothing waiting", "When an AI assistant prepares an order, it appears here for you to check every field and confirm.", nextStep("Set up an AI assistant", "#/integrations?tab=claude")),
           ),
     }),
   );
@@ -1670,7 +1678,7 @@ async function renderOrders() {
       glyph: "orders",
       tint: "orange",
       title: "Today's orders",
-      actions: h("button", { type: "button", class: "small tinted", onclick: () => (location.hash = "#/console?endpoint=order") }, icon("plus"), "Place a paper order"),
+      actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/console?endpoint=order") }, icon("plus"), "Place a paper order"),
       flush: true,
       body: orders.error
         ? h("div", { class: "card-body" }, alertBox(orders.error))
@@ -1712,7 +1720,7 @@ async function renderOrders() {
             { label: "P&L", num: true, cell: (p) => pnl(p.pnl) },
           ],
           rows,
-          emptyState("orders", "No open paper positions", `Place a paper order to practise with ${formatRupee(1000000, 0)} of virtual money.`, nextStep("Place a paper order", "#/console?endpoint=order", "tinted")),
+          emptyState("orders", "No open paper positions", `Place a paper order to practise with ${formatRupee(1000000, 0)} of virtual money.`, nextStep("Place a paper order", "#/console?endpoint=order")),
         ),
       }),
     );
@@ -1725,7 +1733,7 @@ async function confirmTicket(t, byId) {
   const ok = await modal({
     title: `Confirm ticket ${t.ticketId}?`,
     body: h("div", { class: "stack" }, h("p", { class: "muted" }, "The client that prepared it can then send exactly this order, once."), h("dl", { class: "kv" }, ...fields.flatMap(([k, v, cls]) => [h("dt", {}, k), h("dd", { class: cls ? `${cls}-text` : undefined }, v)]))),
-    buttons: [{ label: "Cancel", value: false }, { label: t.order?.mode === "live" ? "Confirm LIVE order" : "Confirm", cls: t.order?.mode === "live" ? "danger" : "primary", value: true }],
+    buttons: [{ label: "Cancel", value: false }, { label: t.order?.mode === "live" ? "Confirm LIVE order" : "Confirm", cls: "primary", value: true }],
   });
   if (!ok) return;
   try {
@@ -1749,7 +1757,7 @@ async function renderSafety() {
     const go = await modal({
       title: "Stop all orders?",
       body: h("div", { class: "stack" }, h("p", {}, "New orders are refused at once, including ones already queued. Cancels still work."), h("label", { class: "field" }, "Reason", reason), h("label", { class: "check" }, cancel, "Also cancel open orders the Bridge placed")),
-      buttons: [{ label: "Keep trading", value: false }, { label: "Stop all orders", cls: "danger", value: true }],
+      buttons: [{ label: "Keep trading", value: false }, { label: "Stop all orders", cls: "primary", value: true }],
     });
     if (!go) return;
     try {
@@ -1777,7 +1785,7 @@ async function renderSafety() {
     show();
   };
   const verify = async (btn) => {
-    btn.disabled = true;
+    busy(btn, true);
     try {
       const r = await api("/v1/audit/verify");
       const d = r.data.data ?? {};
@@ -1785,10 +1793,10 @@ async function renderSafety() {
     } catch (err) {
       toast(err.message);
     } finally {
-      btn.disabled = false;
+      busy(btn, false);
     }
   };
-  const verifyBtn = h("button", { type: "button", class: "small tinted" }, "Verify audit log");
+  const verifyBtn = h("button", { type: "button", class: "small" }, "Verify audit log");
   verifyBtn.addEventListener("click", () => verify(verifyBtn));
 
   const killCard = h(
@@ -1796,7 +1804,7 @@ async function renderSafety() {
     { class: `card kill${ks.engaged ? " engaged" : ""}` },
     iconTile(ks.engaged ? "stop" : "power", ks.engaged ? "red" : "green", "lg"),
     h("div", { class: "stack" }, h("h2", {}, ks.engaged ? "Kill switch is on: no orders are sent" : "Kill switch is off"), h("p", { class: "muted" }, ks.engaged ? `Engaged ${istDateTime(ks.at)} by ${ks.by ?? "?"}: ${ks.reason ?? ""}` : "One click stops every new order from every tool: REST, webhooks, AI assistants and the CLI. Also: mc-bridge kill.")),
-    h("div", { class: "actions" }, ks.engaged ? h("button", { type: "button", id: "kill-action", class: "primary", onclick: release }, "Release (admin)") : h("button", { type: "button", id: "kill-action", class: "danger", onclick: engage }, icon("stop"), "Stop all orders")),
+    h("div", { class: "actions" }, ks.engaged ? h("button", { type: "button", id: "kill-action", class: "primary", onclick: release }, "Release (admin)") : h("button", { type: "button", id: "kill-action", class: "primary", onclick: engage }, icon("stop"), "Stop all orders")),
   );
   const live = card({
     glyph: "bolt",
@@ -1840,7 +1848,7 @@ async function renderSafety() {
         { label: "Market orders", cell: (a) => a.limits?.marketOrders ?? "protect" },
       ],
       s.accounts ?? [],
-      emptyState("safety", "No accounts", "Daily limits appear once an account is configured.", nextStep("Go to Accounts", "#/accounts", "tinted")),
+      emptyState("safety", "No accounts", "Daily limits appear once an account is configured.", nextStep("Go to Accounts", "#/accounts")),
     ),
   });
   return [killCard, h("div", { class: "grid side" }, limits, live)];
@@ -1865,7 +1873,7 @@ async function renderKeys() {
       label.focus();
       return toast("Give the key a name");
     }
-    createBtn.disabled = true;
+    busy(createBtn, true);
     try {
       const body = { label: label.value.trim(), scopes: scope.value.split(","), accounts: acct.value === "*" ? "*" : [acct.value], clientKind: client.value };
       if (expires.value) body.expiresAt = new Date(Date.now() + Number(expires.value) * 86_400_000).toISOString();
@@ -1880,7 +1888,7 @@ async function renderKeys() {
     } catch (err) {
       createdBox.replaceChildren(alertBox(err));
     } finally {
-      createBtn.disabled = false;
+      busy(createBtn, false);
     }
   });
 
@@ -1908,7 +1916,7 @@ async function renderKeys() {
                     class: "small plain",
                     "aria-label": `Revoke key ${k.label}`,
                     onclick: async () => {
-                      const ok = await modal({ title: `Revoke “${k.label}”?`, body: h("p", {}, "It stops working on its very next request, and its open streams close. This cannot be undone."), buttons: [{ label: "Cancel", value: false }, { label: "Revoke", cls: "danger", value: true }] });
+                      const ok = await modal({ title: `Revoke “${k.label}”?`, body: h("p", {}, "It stops working on its very next request, and its open streams close. This cannot be undone."), buttons: [{ label: "Cancel", value: false }, { label: "Revoke", cls: "primary", value: true }] });
                       if (!ok) return;
                       try {
                         await api(`/v1/keys/${encodeURIComponent(k.id)}`, { method: "DELETE" });
@@ -2038,7 +2046,7 @@ async function webhookPanel(paperAcc) {
           class: "small plain",
           "aria-label": `Delete webhook ${x.label}`,
           onclick: async () => {
-            if (!(await modal({ title: `Delete “${x.label}”?`, body: h("p", {}, "Alerts sent to its URL are refused from now on."), buttons: [{ label: "Cancel", value: false }, { label: "Delete", cls: "danger", value: true }] }))) return;
+            if (!(await modal({ title: `Delete “${x.label}”?`, body: h("p", {}, "Alerts sent to its URL are refused from now on."), buttons: [{ label: "Cancel", value: false }, { label: "Delete", cls: "primary", value: true }] }))) return;
             await optional(api(`/v1/hooks/${encodeURIComponent(x.id)}`, { method: "DELETE" }));
             show();
           },
@@ -2050,7 +2058,7 @@ async function webhookPanel(paperAcc) {
   const drawTable = () => tableSlot.replaceChildren(...[table(columns, list, h("p", { class: "card-body muted small" }, "No webhooks yet. Fill in the form above and choose Create webhook."))].filter(Boolean));
   drawTable();
   btn.addEventListener("click", async () => {
-    btn.disabled = true;
+    busy(btn, true);
     try {
       const r = await api("/v1/hooks", { method: "POST", body: { source: source.value, label: label.value.trim() || "Webhook", account: paperAcc, orderType: orderType.value, product: product.value, maxLotsPerSignal: Number(lots.value) || 1, ...(side.value ? { side: side.value } : {}) } });
       const d = r.data.data;
@@ -2066,7 +2074,7 @@ async function webhookPanel(paperAcc) {
     } catch (err) {
       box.replaceChildren(alertBox(err));
     } finally {
-      btn.disabled = false;
+      busy(btn, false);
     }
   });
   return h(
@@ -2101,7 +2109,7 @@ async function renderActivity() {
       const r = await api("/v1/requests?limit=200");
       const all = (r.data.data ?? []).filter((x) => !hideOwn.checked || x.client !== "dashboard");
       const rows = all.slice(0, showAll ? 200 : 40);
-      const more = all.length > rows.length ? h("div", { class: "card-body row" }, h("span", { class: "muted small" }, `Showing the latest ${formatInt(rows.length)} of ${formatInt(all.length)}.`), h("button", { type: "button", class: "small tinted", onclick: () => { showAll = true; draw(); } }, "Show all")) : null;
+      const more = all.length > rows.length ? h("div", { class: "card-body row" }, h("span", { class: "muted small" }, `Showing the latest ${formatInt(rows.length)} of ${formatInt(all.length)}.`), h("button", { type: "button", class: "small", onclick: () => { showAll = true; draw(); } }, "Show all")) : null;
       body.replaceChildren(
         h("div", { class: "card-body row" }, h("label", { class: "check" }, hideOwn, "Hide the dashboard's own requests"), h("span", { class: "grow" }), h("span", { class: "muted small" }, "Kept in memory only: the last 200 requests. Paths only, never query strings, bodies or keys.")),
         table(
@@ -2114,7 +2122,7 @@ async function renderActivity() {
             { label: "Key", cell: (x) => (x.keyId ? h("span", { class: "mono small" }, x.keyId) : h("span", { class: "muted" }, "None")) },
           ],
           rows,
-          emptyState("activity", "No requests yet", hideOwn.checked ? "Requests from your scripts, charts, Excel and AI tools appear here. Untick the box to see the dashboard's own." : "Requests appear here as they arrive.", nextStep("Make a call in the test console", "#/console", "tinted")),
+          emptyState("activity", "No requests yet", hideOwn.checked ? "Requests from your scripts, charts, Excel and AI tools appear here. Untick the box to see the dashboard's own." : "Requests appear here as they arrive.", nextStep("Make a call in the test console", "#/console")),
           { mobile: "scroll" },
         ),
         ...(more ? [more] : []), // replaceChildren would print a null as the text "null"

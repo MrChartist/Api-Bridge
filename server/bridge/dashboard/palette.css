@@ -51,13 +51,13 @@ button.palette-x:hover { background: var(--mat-fill-1); color: hsl(var(--foregro
 button.palette-x svg { width: 18px; height: 18px; }
 
 .palette-list { list-style: none; margin: 0; padding: 8px; overflow-y: auto; overscroll-behavior: contain; flex: 1; min-height: 0; }
-.palette-group { padding: 10px 12px 4px; font: 650 11.5px/1 var(--font-body); letter-spacing: 0.04em; text-transform: uppercase; color: hsl(var(--foreground) / var(--a-quiet)); }
+.palette-group { padding: 10px 12px 4px; font: var(--t-label); line-height: 1; color: hsl(var(--foreground) / var(--a-quiet)); }
 .palette-option { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 12px; border-radius: 14px; cursor: pointer; font: 500 15px/1.25 var(--font-body); letter-spacing: -0.01em; }
 .palette-option .icon-tile { width: 32px; height: 32px; border-radius: 9px; }
 .palette-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .palette-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-sub { font: 400 13px/1.25 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.palette-kind { margin-left: 8px; padding: 3px 7px; border-radius: 6px; background: var(--mat-fill-1); font: 650 11px/1 var(--font-body); letter-spacing: 0.05em; text-transform: uppercase; color: hsl(var(--foreground) / 0.66); }
+.palette-kind { margin-left: 8px; padding: 3px 7px; border-radius: 6px; background: var(--mat-fill-1); font: 500 12px/1 var(--font-body); letter-spacing: 0.02em; text-transform: uppercase; color: hsl(var(--foreground) / 0.66); }
 .palette-option[aria-selected="true"] .palette-sub { color: hsl(var(--sel-fg) / 0.72); }
 .palette-option[aria-selected="true"] .palette-kind { background: transparent; box-shadow: inset 0 0 0 1px hsl(var(--sel-fg) / 0.5); color: hsl(var(--sel-fg)); }
 .palette-right { margin-left: auto; flex: none; display: inline-flex; }
@@ -116,7 +116,7 @@ div.field.seg-field .segmented.wraps { flex-wrap: wrap; border-radius: 18px; }
   border-radius: 999px;
   background: hsl(var(--ios-blue-fill));
   color: #fff;
-  font: 600 14px/1 var(--font-body);
+  font: 500 14px/1 var(--font-body);
   box-shadow: var(--shadow-3);
   transform: translateY(-160%);
   transition: transform 160ms var(--ease-out);

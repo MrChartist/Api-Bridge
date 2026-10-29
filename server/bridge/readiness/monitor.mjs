@@ -57,6 +57,7 @@ import {
 import { readinessConfig, readinessWarnings } from "./config.mjs";
 import { createEgressDetector } from "./egress.mjs";
 import { normaliseIp } from "./ip.mjs";
+import { defaultSessionFor } from "../reference/defaults.mjs";
 import { TRANSITIONS_KEPT, createReadinessStore, freshState } from "./store.mjs";
 
 const TICK_MS = 60_000;
@@ -197,7 +198,8 @@ export function createReadinessService(deps, opts = {}) {
         /* fall back */
       }
     }
-    return istInstant(d, "15:30");
+    // No reference store (or no usable session): the reference module's labelled default close.
+    return istInstant(d, defaultSessionFor("NFO").close);
   }
 
   const policyCooldown = (account) => {

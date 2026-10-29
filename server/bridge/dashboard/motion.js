@@ -15,7 +15,7 @@
 //        differs from the last one animated, animatePage(#content) runs (fade + rise, staggered cards, table rows,
 //        stat numbers counting up). Auto-refreshes (every(), Refresh button, inner replaceChildren) stay still.
 //      * when #nav is rebuilt, animateNav(#nav) slides the selection highlight to the active item.
-//  - app.js: modal() → sheetIn/sheetOut, toast() → bannerIn/bannerOut, login error → shake, global pressFeedback.
+//  - app.js: modal() → sheetIn/sheetOut, toast() → bannerIn/bannerOut, login error → shake. Button presses are CSS only (app.css 8a, BUTTON-SYSTEM.md §7).
 //  - views.js MAY still call animatePage(document.getElementById("content")) after a page render and
 //    animateNav(document.getElementById("nav")) after nav(): both are idempotent (a second call for the same
 //    route / same active item does nothing), so calling them on top of the observers is harmless.
@@ -319,54 +319,8 @@ function place(st, link) {
 
 // ── Small feedback ──
 
-/** Press a button down to 0.97; returns a function that springs it back (and restores its inline transform). */
-export function pressFeedback(button) {
-  const m = live();
-  if (!m || !isEl(button)) return () => done();
-  const before = button.style.transform;
-  let anim;
-  try {
-    anim = m.animate(button, { scale: 0.97 }, { duration: 0.08, ease: "easeOut" });
-  } catch {
-    return () => done();
-  }
-  return () => {
-    try {
-      anim.stop?.();
-    } catch {
-      /* ignore */
-    }
-    return run(button, { scale: 1 }, SPRING(0.2), { ms: 600 }).then(() => {
-      if (before) button.style.transform = before;
-      else button.style.removeProperty("transform");
-    });
-  };
-}
-
-/** Attach pressFeedback once, by delegation, to button, .btn and [role=button] across the document. */
-export function installPressFeedback(doc = typeof document !== "undefined" ? document : null) {
-  if (!doc || doc.__mcbPress) return;
-  doc.__mcbPress = true;
-  doc.addEventListener(
-    "pointerdown",
-    (e) => {
-      if (e.button !== 0) return;
-      const b = e.target?.closest?.("button, .btn, [role=button]");
-      if (!b || b.disabled || b.getAttribute("aria-disabled") === "true") return;
-      const release = pressFeedback(b);
-      const up = () => {
-        doc.removeEventListener("pointerup", up, true);
-        doc.removeEventListener("pointercancel", up, true);
-        b.removeEventListener("pointerleave", up);
-        release();
-      };
-      doc.addEventListener("pointerup", up, true);
-      doc.addEventListener("pointercancel", up, true);
-      b.addEventListener("pointerleave", up);
-    },
-    { passive: true },
-  );
-}
+// A button press is not animated here: app.css (8a) settles and springs it back with the `scale` property, so there is
+// one press animation (BUTTON-SYSTEM.md §7).
 
 // Counted figures follow the house rule (format.js): no grouping commas.
 const fmtDefault = { format: (v) => formatInt(v) };

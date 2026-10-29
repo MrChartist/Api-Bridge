@@ -7,7 +7,7 @@
  * rows: [{ strike, ce: { ltp, bid, ask, oi, oiChange, volume, iv, delta, ... } | null, pe: {...} | null }] }.
  */
 
-import { DASH, formatCompact, formatFixed, formatInt, formatRupee, formatSigned } from "./format.js";
+import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatRupee, formatSigned } from "./format.js";
 import {
   atmIvAt,
   b76Delta,
@@ -39,6 +39,21 @@ export { atmIvAt, b76Delta, black76, impliedVolB76, ivAtDelta, legPrice, normCdf
 export function impliedVol(price, forward, strike, years, right) {
   return impliedVolB76(price, forward, strike, years, right, 1);
 }
+import { REF_DEFAULTS, refCharges } from "./reference.js";
+
+// Reference values (docs/spec/p1-02-reference.md §5.6): the rate, the session times and the charge table come from the
+// page's reference bundle (reference.js). Callers pass them in; the defaults below are reference.js's labelled
+// fallback, used only by callers that have no bundle (tests, a Bridge that cannot answer).
+const FALLBACK_SESSION = REF_DEFAULTS.session;
+const FALLBACK_RATE = REF_DEFAULTS.rate.value;
+const FALLBACK_RATES = refCharges(null);
+/** "HH:MM" → minutes after midnight, else the fallback session's value for that key. */
+const hmOf = (hm, key = "close") => {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(hm ?? ""));
+  if (m) return Number(m[1]) * 60 + Number(m[2]);
+  const f = /^(\d{2}):(\d{2})$/.exec(FALLBACK_SESSION[key]);
+  return Number(f[1]) * 60 + Number(f[2]);
+};
 
 const num = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
 const sum = (rows, pick) => rows.reduce((a, r) => a + (num(pick(r)) ?? 0), 0);
@@ -163,13 +178,16 @@ export function touchPrice(quote, side, tick = 0.05) {
 
 const IST_OFFSET_MS = 5.5 * 3600 * 1000;
 /**
- * Time left to an expiry (YYYY-MM-DD, settling at 15:30 IST). `days` is fractional; `label` reads "Expires today",
- * "1 day", "6 days" or "Expired".
+ * Time left to an expiry (YYYY-MM-DD, settling at the session close, IST). `days` is fractional; `label` reads
+ * "Expires today", "1 day", "6 days" or "Expired". `close` is the reference session's close ("HH:MM").
  */
-export function timeToExpiry(expiry, now = Date.now()) {
+export function timeToExpiry(expiry, now = Date.now(), close = FALLBACK_SESSION.close) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(expiry ?? ""));
   if (!m) return { days: null, label: "" };
-  const close = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 15, 30) - IST_OFFSET_MS;
+  const closeMs = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) + hmOf(close) * 60000 - IST_OFFSET_MS;
+  return toCloseText(closeMs, now);
+}
+function toCloseText(close, now) {
   const ms = close - now;
   if (ms <= 0) return { days: 0, label: "Expired" };
   const istDay = (t) => Math.floor((t + IST_OFFSET_MS) / 86400000);
@@ -282,9 +300,9 @@ export function forwardPrice(chain, growth = 1) {
   const f = rows.slice(0, 3).map((r) => r.strike + (mid(r.ce) - mid(r.pe)) * (num(growth) ?? 1)).sort((a, b) => a - b);
   return f.length ? f[Math.floor(f.length / 2)] : spot;
 }
-/** Years to expiry (15:30 IST), for pricing. */
-export const yearsToExpiry = (expiry, now = Date.now()) => {
-  const d = timeToExpiry(expiry, now).days;
+/** Years to expiry (to the session close, IST), for pricing. */
+export const yearsToExpiry = (expiry, now = Date.now(), close = FALLBACK_SESSION.close) => {
+  const d = timeToExpiry(expiry, now, close).days;
   return d === null ? null : d / 365;
 };
 /** For each side, the strikes whose |delta| is nearest 0.16 and 0.30 (within 0.08): strike -> "16Δ" / "30Δ". */
@@ -691,10 +709,11 @@ export function extrinsic(strike, right, premium, forward) {
 }
 /** A usable two-sided quote: bid > 0 and ask ≥ bid. */
 export const twoSided = (q) => num(q?.bid) !== null && num(q?.ask) !== null && q.bid > 0 && q.ask >= q.bid;
-/** Risk-free rate the exchange-style pricing assumes (NSE uses about the 91-day T-bill; the demo prices at 6.5%). */
-export const RISK_FREE = 0.065;
-/** e^(rT): turns a present-value option spread into forward points (put-call parity: C − P = (F − K)·e^(−rT)). */
-export const parityGrowth = (years, rate = RISK_FREE) => (num(years) !== null && years > 0 ? Math.exp(rate * years) : 1);
+/**
+ * e^(rT): turns a present-value option spread into forward points (put-call parity: C − P = (F − K)·e^(−rT)). `rate`
+ * is required (the reference rate, refRate(bundle).value); without a finite rate this returns 1 (no carry).
+ */
+export const parityGrowth = (years, rate) => (num(years) !== null && years > 0 && num(rate) !== null ? Math.exp(Number(rate) * years) : 1);
 /**
  * The synthetic future at one strike (put-call parity, F = K + (C − P)·e^(rT)): `mid` from mids (or last prices),
  * and the executable prices when both legs are two-sided: `buy` = K + (C.ask − P.bid)·g (buy the call, sell the
@@ -847,8 +866,6 @@ export function tradeWarnings(i) {
 // (the previous close, or a snapshot this page recorded), the change between them, the price change and the volume
 // in the window. Quantities stay in contract units; the page divides by the lot size to show lots.
 
-const SESSION_OPEN = 9 * 60 + 15;
-const SESSION_CLOSE = 15 * 60 + 30;
 const IST_HM = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hourCycle: "h23", hour: "2-digit", minute: "2-digit" });
 /** "10:42" in IST for an epoch-ms time ("--" when missing). */
 export const istHm = (ms) => (Number.isFinite(ms) ? IST_HM.format(new Date(ms)) : DASH);
@@ -859,35 +876,44 @@ export function istClock(ms) {
 }
 
 /**
- * Where the cash session stands (NSE / BSE, IST Monday to Friday 09:15–15:30): phase "pre" before the open on a
- * weekday, "open" in the session, "closed" after it and at weekends. Exchange holidays are not known: on a holiday
- * this says "open", but no fresh quote time arrives, so the snapshot recorder still writes nothing.
+ * Where the cash session stands (IST, the reference session's open and close): phase "pre" before the open on a
+ * trading day, "open" in the session, "closed" after it, at weekends and on holidays. `session` is refSession(bundle)
+ * ({ open, close, holiday, date }); `isTradingDay` (refCalendar(bundle).isTradingDay) adds the holiday list for other
+ * days. A holiday reads "Market closed · <holiday>".
  */
-export function marketSession(nowMs = Date.now()) {
+export function marketSession(nowMs = Date.now(), session = FALLBACK_SESSION, { isTradingDay = null } = {}) {
   const c = istClock(nowMs);
+  const s = session ?? FALLBACK_SESSION;
   const weekday = c.dow >= 1 && c.dow <= 5;
-  const phase = !weekday ? "closed" : c.mins < SESSION_OPEN ? "pre" : c.mins < SESSION_CLOSE ? "open" : "closed";
-  return { phase, istDate: c.date, weekday, label: phase === "open" ? "Market open" : phase === "pre" ? "Before the open · last session" : "Market closed · last session" };
+  const holiday = s.holiday && (!s.date || s.date === c.date) ? s.holiday : null;
+  const trading = weekday && !holiday && (typeof isTradingDay !== "function" || isTradingDay(c.date));
+  const phase = !trading ? "closed" : c.mins < hmOf(s.open, "open") ? "pre" : c.mins < hmOf(s.close, "close") ? "open" : "closed";
+  const label = phase === "open" ? "Market open" : phase === "pre" ? "Before the open · last session" : holiday?.label ? `Market closed · ${holiday.label}` : "Market closed · last session";
+  return { phase, istDate: c.date, weekday, holiday: holiday?.label ?? null, label };
 }
 
-/** Trading sessions left to an expiry, counting weekdays, today included while the session has not closed. */
-export function sessionsLeft(expiry, now = Date.now()) {
+/**
+ * Trading sessions left to an expiry, today included while the session has not closed. Weekends never count;
+ * `isTradingDay` (refCalendar(bundle).isTradingDay) also skips holidays; `session` gives the close.
+ */
+export function sessionsLeft(expiry, now = Date.now(), { session = FALLBACK_SESSION, isTradingDay = null } = {}) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(expiry ?? ""));
   if (!m) return null;
   const exp = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / 86400000;
   const today = Math.floor((now + IST_OFFSET_MS) / 86400000);
-  const afterClose = istClock(now).mins >= SESSION_CLOSE;
+  const afterClose = istClock(now).mins >= hmOf(session?.close, "close");
   let n = 0;
   for (let d = today; d <= exp && d - today < 800; d += 1) {
     const dow = (d + 4) % 7; // 1970-01-01 was a Thursday
     if (dow === 0 || dow === 6 || (d === today && afterClose)) continue;
+    if (typeof isTradingDay === "function" && !isTradingDay(new Date(d * 86400000).toISOString().slice(0, 10))) continue;
     n += 1;
   }
   return n;
 }
 /** How much max pain matters: "high" with ≤ 2 sessions left, "medium" with ≤ 5, else "low" (null without an expiry). */
-export function maxPainRelevance(expiry, now = Date.now()) {
-  const n = sessionsLeft(expiry, now);
+export function maxPainRelevance(expiry, now = Date.now(), cal = {}) {
+  const n = sessionsLeft(expiry, now, cal);
   return n === null ? null : n <= 2 ? "high" : n <= 5 ? "medium" : "low";
 }
 
@@ -1282,14 +1308,14 @@ export const NO_PREV_OI = "Your data source has no previous-day OI. Windows use 
  * (label "since 10:42 (22m)"); else it is not ready ("Recording since 10:42 · 15m ready at 10:57"). Since open is the
  * day's first snapshot ("opened late" when it was taken after 09:20). `snaps` are one IST day's, any order.
  */
-export function pickRef(snaps, nowMs, win, { hasPrev = false } = {}) {
+export function pickRef(snaps, nowMs, win, { hasPrev = false, open = FALLBACK_SESSION.open } = {}) {
   if (win === "prev") return hasPrev ? { snap: null, label: "vs previous close", ok: true, reason: null } : { snap: null, label: "vs previous close", ok: false, reason: NO_PREV_OI };
   const name = OI_WINDOWS.find((w) => w[0] === win)?.[1] ?? win;
   const list = (snaps ?? []).filter((s) => Number.isFinite(s?.t) && s.t <= nowMs).sort((a, b) => a.t - b.t);
   if (!list.length) return { snap: null, label: "", ok: false, reason: `No snapshots yet: ${name} works once this page has recorded for a while` };
   const first = list[0];
   if (win === "open") {
-    const late = istClock(first.t).mins > SESSION_OPEN + 5;
+    const late = istClock(first.t).mins > hmOf(open, "open") + 5;
     return { snap: first, label: `since ${istHm(first.t)}${late ? " (opened late)" : ""}`, ok: true, reason: null };
   }
   const W = Number(win) * 60000;
@@ -1532,10 +1558,10 @@ export function stepStrike(strikes, strike, dir) {
   return j < 0 || j >= ks.length ? null : ks[j];
 }
 
-/** The settlement moment of an expiry date (15:30 IST), epoch ms; null for a bad date. */
-export function expiryCloseMs(expiry) {
+/** The settlement moment of an expiry date (the reference session close, IST), epoch ms; null for a bad date. */
+export function expiryCloseMs(expiry, close = FALLBACK_SESSION.close) {
   const m = DATE_RE.exec(String(expiry ?? "")) ? String(expiry).split("-").map(Number) : null;
-  return m ? Date.UTC(m[0], m[1] - 1, m[2], 15, 30) - IST_OFFSET_MS : null;
+  return m ? Date.UTC(m[0], m[1] - 1, m[2]) + hmOf(close) * 60000 - IST_OFFSET_MS : null;
 }
 
 /**
@@ -1572,24 +1598,12 @@ export function netGreeksModel(legs, S, { lotSize = 1, basis = 0, el = 0, ivShif
   return out;
 }
 
-/**
- * Statutory charges on Indian index F&O. Rates as of Apr 2026 (Union Budget 2026 STT); verify against your broker's
- * contract note. One place to correct them.
- */
-export const CHARGE_RATES = Object.freeze({
-  asOf: "Apr 2026",
-  asOfDate: "2026-04-01",
-  brokeragePerOrder: 20,
-  // STT: options sell on premium, exercise on intrinsic of long ITM options (holder pays); futures sell on value.
-  opt: Object.freeze({ sttSell: 0.0015, exerciseStt: 0.0015, stampBuy: 0.00003, txn: Object.freeze({ NSE: 0.0003503, BSE: 0.000325 }) }),
-  fut: Object.freeze({ sttSell: 0.0005, stampBuy: 0.00002, txn: Object.freeze({ NSE: 0.0000173, BSE: 0 }) }),
-  sebiPerCrore: 10,
-  ipftPerCrore: 0, // unverified: 0 unless the user sets it
-  gst: 0.18, // on brokerage + exchange txn + SEBI (+ IPFT)
-});
+// Statutory charges on Indian F&O: the reference table (GET /v1/reference/charges, in the page's bundle), turned into
+// this shape by refCharges(bundle): { asOf, asOfDate, brokeragePerOrder, opt: { sttSell, exerciseStt, stampBuy, txn },
+// fut: { sttSell, stampBuy, txn }, sebiPerCrore, ipftPerCrore, gst }. Every function below takes it as `rates`.
 const exchangeOf = (l) => (/^BFO:/.test(String(l?.symbol ?? "")) ? "BSE" : "NSE");
 /** Statutory lines of one order (brokerage given): the shared core of `charges` and the arbitrage `orderCharges`. */
-function chargeLines(kind, side, turnover, exch, r, brokerage = turnover > 0 ? r.brokeragePerOrder : 0) {
+function chargeLines(kind, side, turnover, exch, r, brokerage = turnover > 0 ? num(r.brokeragePerOrder) ?? 0 : 0) {
   const k = kind === "FUT" ? r.fut : r.opt;
   const stt = side === "SELL" ? turnover * k.sttSell : 0;
   const txn = turnover * (k.txn[exch] ?? k.txn.NSE);
@@ -1607,7 +1621,7 @@ const addCharges = (a, b) => {
  * Entry charges of a basket at its prices (one order per leg): { brokerage, stt, txn, sebi, stamp, gst, total }.
  * Legs without a price are skipped.
  */
-export function charges(legs, rates = CHARGE_RATES, { lotSize = 1 } = {}) {
+export function charges(legs, rates = FALLBACK_RATES, { lotSize = 1 } = {}) {
   const out = { brokerage: 0, stt: 0, txn: 0, sebi: 0, ipft: 0, stamp: 0, gst: 0 };
   for (const l of activeLegs(legs)) {
     const p = num(l.price);
@@ -1621,7 +1635,7 @@ export function charges(legs, rates = CHARGE_RATES, { lotSize = 1 } = {}) {
  * Charges to get out at expiry with the underlying at S: exercise STT on long in-the-money options (on intrinsic ×
  * units) plus squaring off FUT legs at S. Shorts that expire worthless or are assigned pay nothing here.
  */
-export function exitCharges(legs, S, rates = CHARGE_RATES, { lotSize = 1 } = {}) {
+export function exitCharges(legs, S, rates = FALLBACK_RATES, { lotSize = 1 } = {}) {
   let t = 0;
   for (const l of activeLegs(legs)) {
     const u = legUnits(l, lotSize);
@@ -1638,7 +1652,7 @@ export function exitCharges(legs, S, rates = CHARGE_RATES, { lotSize = 1 } = {})
  * option, FUT turnover), so S is held inside the strikes widened to F·e^(±3σ√T): far tails (S = 0, 2 × the top strike)
  * would otherwise inflate max loss with STT nobody pays in a market that can actually trade.
  */
-export function strategyCharges(legs, rates = CHARGE_RATES, { lotSize = 1, forward = null, ivPct = null, years = null } = {}) {
+export function strategyCharges(legs, rates = FALLBACK_RATES, { lotSize = 1, forward = null, ivPct = null, years = null } = {}) {
   const act = activeLegs(legs);
   const ks = act.filter((l) => !isFut(l)).map((l) => num(l.strike)).filter((k) => k !== null && k > 0);
   const F = num(forward);
@@ -1904,7 +1918,7 @@ export function strategyWarnings(c) {
   const legs = activeLegs(c?.legs);
   const lot = num(c?.lotSize) || 1;
   const listed = new Set(c?.strikes ?? []);
-  const rates = c?.rates ?? CHARGE_RATES;
+  const rates = c?.rates ?? FALLBACK_RATES;
   const S = num(c?.spot);
   const age = num(c?.chainAgeMs);
   if (age !== null && age > STALE_MS) add("STALE", "block", `Prices are ${formatInt(Math.round(age / 1000))} s old`);
@@ -1921,7 +1935,7 @@ export function strategyWarnings(c) {
   }
   const st = c?.stats;
   if (st && st.maxLoss === null) {
-    const stress = st.stress ? `: stress -${rupeeShort(Math.min(0, st.stress.value))} at +2σ` : "";
+    const stress = st.stress ? `: stress ${MINUS}${rupeeShort(Math.min(0, st.stress.value))} at +2σ` : "";
     add("NAKED", "warn", `Unlimited loss above ${formatInt(st.topStrike ?? S)}${stress}`);
   }
   if (c?.expiryToday && legs.some((l) => !isFut(l) && l.side === "SELL")) add("EXPIRY_DAY_SHORT", "warn", "Expiry day: +2% ELM on shorts and fast gamma");
@@ -2118,8 +2132,6 @@ export function normaliseSaved(obj) {
 // expiry's chain (else a quote and an IV solved from it), summed into book Greeks, a scenario P&L calibrated to the
 // marks, a hedge proposal and a safe exit plan. Quantities are signed units (q > 0 long, q < 0 short).
 
-/** Exercise STT on ITM long options left to settle (approx; check current rates). */
-export const STT_EXERCISE = CHARGE_RATES.opt.exerciseStt;
 /** Extra exposure margin on index option shorts on their expiry day (fraction of notional). */
 export const EXPIRY_ELM = 0.02;
 const OPT_RE = /^(NFO|BFO):([A-Z0-9&]+)-(\d{4}-\d{2}-\d{2})-([\d.]+)-(CE|PE)$/;
@@ -2210,9 +2222,10 @@ export function legMark(quote) {
  * `inst` gives lotSize / freezeQty / tickSize per symbol (else the chain's lot size, else 1 with `lotUnknown`).
  * @param {object[]} legs from bookLegs
  * @param {{ chains?: Map<string, object>, quotes?: Map<string, object>, inst?: Map<string, object>, spot?: number|null,
- *   excluded?: Set<string>, now?: number }} m
+ *   excluded?: Set<string>, now?: number, rate?: number, close?: string }} m `close` is the reference session close
+ *   ("HH:MM" IST) time to expiry is measured to.
  */
-export function priceBook(legs, { chains = new Map(), quotes = new Map(), inst = new Map(), spot = null, excluded = new Set(), now = Date.now() } = {}) {
+export function priceBook(legs, { chains = new Map(), quotes = new Map(), inst = new Map(), spot = null, excluded = new Set(), now = Date.now(), rate = FALLBACK_RATE, close = FALLBACK_SESSION.close } = {}) {
   const fwd = new Map();
   const futMark = new Map();
   for (const l of legs) {
@@ -2225,9 +2238,9 @@ export function priceBook(legs, { chains = new Map(), quotes = new Map(), inst =
   const expCtx = (e) => {
     if (fwd.has(e)) return fwd.get(e);
     const c = chains.get(e) ?? null;
-    const T = yearsToExpiry(e, now) ?? 0;
+    const T = yearsToExpiry(e, now, close) ?? 0;
     const sm = c ? chainSummary(c) : null;
-    const F = (c ? forwardPrice(c, parityGrowth(T)) : null) ?? futMark.get(e) ?? S;
+    const F = (c ? forwardPrice(c, parityGrowth(T, rate)) : null) ?? futMark.get(e) ?? S;
     const ctx = { chain: c, T, F, atmIv: sm?.atmIv ?? null, lot: num(c?.lotSize) };
     fwd.set(e, ctx);
     return ctx;
@@ -2673,7 +2686,8 @@ export function misCountdown(nowMs = Date.now()) {
  * Warnings for the book (PRD 04 §7), most severe first: [{ id, level: "bad"|"warn"|"info", text, title }].
  * `legs` are priced legs (priceBook); `stale` = { age } when prices are old.
  */
-export function bookWarnings(legs, { spot = null, now = Date.now(), stale = null, band = null } = {}) {
+export function bookWarnings(legs, { spot = null, now = Date.now(), stale = null, band = null, rates = FALLBACK_RATES } = {}) {
+  const STT_EXERCISE = num((rates ?? FALLBACK_RATES).opt?.exerciseStt) ?? FALLBACK_RATES.opt.exerciseStt;
   const out = [];
   const add = (id, level, text, title = "") => out.push({ id, level, text, title });
   const name = (l) => (l.kind === "FUT" ? `FUT ${dayMonth(l.expiry)}` : `${formatInt(l.strike)} ${l.right} ${dayMonth(l.expiry)}`);
@@ -2867,7 +2881,7 @@ export function pnlComposition(legs) {
  * Charges to close the open legs now at their marks (one order per leg, the opposite side): a short is bought back
  * (no STT on an option buy), a long sold. { brokerage, stt, txn, sebi, ipft, stamp, gst, total }.
  */
-export function closeCharges(legs, rates = CHARGE_RATES) {
+export function closeCharges(legs, rates = FALLBACK_RATES) {
   const exit = (legs ?? [])
     .filter((l) => num(l?.q) && num(l.mark) !== null)
     .map((l) => ({ kind: l.kind, right: l.right, strike: l.strike, symbol: l.symbol, side: l.q > 0 ? "SELL" : "BUY", price: l.mark, lots: Math.abs(l.q), lotSize: 1 }));
@@ -2954,8 +2968,6 @@ export function payoffYRange(series, { main = null, xs = null, ratio = 4, pad = 
 
 // ── Volatility (the #/vol page): Black-76 on the parity forward, recomputed from mids ──
 
-/** The default discount rate (6.5 %, as the server's IV maths). */
-export const RATE = 0.065;
 const T_FLOOR = 0.25 / 365;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -2967,11 +2979,11 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * two-sided strikes nearest spot. Spot when parity cannot be read (source "spot"); { F: null } without spot either.
  * @returns {{ F: number|null, source: "parity"|"spot"|null }}
  */
-export function impliedForward(chain, years, rate = RATE) {
+export function impliedForward(chain, years, rate = FALLBACK_RATE) {
   // The arbitrage form: impliedForward(chain, { rate, days, window }) → a band of carried synthetics, never spot.
   if (years !== null && typeof years === "object") return parityForward(chain, years);
   const spot = num(chain?.underlyingLtp);
-  const growth = years > 0 ? Math.exp((num(rate) ?? RATE) * years) : 1;
+  const growth = years > 0 ? Math.exp((num(rate) ?? FALLBACK_RATE) * years) : 1;
   const two = (leg) => {
     const p = legPrice(leg, "mid");
     return p.q === "mid" || p.q === "wide" ? p.price : null;
@@ -2995,8 +3007,8 @@ export function impliedForward(chain, years, rate = RATE) {
  * the CE delta at the OTM IV; `gap` = CE and PE IV bands do not overlap; `out` = why the OTM point is not drawn.
  * `Tcal` (optional) puts the discount factor on calendar time while `years` is the clock's T.
  */
-export function smilePoints(chain, { F, years, rate = RATE, basis = "mid", Tcal = null } = {}) {
-  return pricingSmilePoints(chain, { F, years: Math.max(num(years) ?? 0, T_FLOOR), rate: num(rate) ?? RATE, basis, Tcal });
+export function smilePoints(chain, { F, years, rate = FALLBACK_RATE, basis = "mid", Tcal = null } = {}) {
+  return pricingSmilePoints(chain, { F, years: Math.max(num(years) ?? 0, T_FLOOR), rate: num(rate) ?? FALLBACK_RATE, basis, Tcal });
 }
 
 
@@ -3014,9 +3026,9 @@ function nearestStrike(strikes, v) {
  * One expiry's volatility read (a row of the term table): forward, ATM IV, straddle and 1σ move, skew, the hedge put,
  * the future's gap to the parity forward. `fut` is the same-expiry future's quote, if listed.
  */
-export function termRow(chain, { now = Date.now(), rate = RATE, basis = "mid", hedgePct = 97, spot = null, monthly = false, fut = null, ctx = null } = {}) {
+export function termRow(chain, { now = Date.now(), rate = FALLBACK_RATE, basis = "mid", hedgePct = 97, spot = null, monthly = false, fut = null, ctx = null, close = FALLBACK_SESSION.close } = {}) {
   const expiry = chain?.expiry ?? null;
-  const tt = timeToExpiry(expiry, now);
+  const tt = timeToExpiry(expiry, now, close);
   const days = tt.days;
   // With a clock context (pricing.js volTime): T on the vol-time clock, interest on calendar time, the 5-strike parity
   // forward — exactly what the server computes for ?ivModel=b76-forward. Without one: the page's legacy reading.
@@ -3319,7 +3331,7 @@ export function volRead(m = {}) {
 export const isMonthly = (expiry, allExpiries) => isMonthlyExpiry(expiry, allExpiries);
 
 // ── Charges ──
-// One charges model for the whole desk (PRD 02 and PRD 06): CHARGE_RATES above is the only rate table. These add
+// One charges model for the whole desk (PRD 02 and PRD 06): the reference table (refCharges) is the only rate table. These add
 // brokerage models, per-order breakdowns and the hold-to-expiry / close-before-expiry exit for arbitrage structures.
 
 /** Brokerage models: [id, label, help]. Broker names are deliberately not used as presets. */
@@ -3332,7 +3344,7 @@ export const BROKERAGE_MODELS = Object.freeze([
 /** The default brokerage profile: flat ₹20 per order, futures min(₹20, 0.03%), brokerage on exercise (conservative). */
 export const DEFAULT_PROFILE = Object.freeze({ brokerage: "flat", value: 20, futPct: 0.0003, pct: 0.0003, cap: 20, exerciseBrokerage: true });
 
-/** Statutory rate fields the user can edit: [path in CHARGE_RATES, label, unit ("pct" of value or ₹ "crore")]. */
+/** Statutory rate fields the user can edit: [path in the rate table, label, unit ("pct" of value or ₹ "crore")]. */
 export const RATE_FIELDS = Object.freeze([
   ["opt.sttSell", "STT, options sell (on premium)", "pct"],
   ["opt.exerciseStt", "STT, exercised long ITM (on intrinsic)", "pct"],
@@ -3348,11 +3360,11 @@ export const RATE_FIELDS = Object.freeze([
   ["gst", "GST (on brokerage, txn, SEBI)", "pct"],
 ]);
 const pathGet = (o, path) => path.split(".").reduce((a, k) => (a === null || a === undefined ? undefined : a[k]), o);
-/** The default value of one rate path. */
-export const rateDefault = (path) => pathGet(CHARGE_RATES, path);
-/** CHARGE_RATES with the user's overrides ({ "opt.sttSell": 0.0015, ... }) applied; unknown or bad values are ignored. */
-export function ratesWith(overrides) {
-  const out = JSON.parse(JSON.stringify(CHARGE_RATES));
+/** The reference value of one rate path (`base` = refCharges(bundle)). */
+export const rateDefault = (path, base = FALLBACK_RATES) => pathGet(base ?? FALLBACK_RATES, path);
+/** The rate table with the user's overrides ({ "opt.sttSell": 0.0015, ... }) applied; unknown or bad values are ignored. */
+export function ratesWith(overrides, base = FALLBACK_RATES) {
+  const out = JSON.parse(JSON.stringify(base ?? FALLBACK_RATES));
   for (const [path, , unit] of RATE_FIELDS) {
     const v = num(overrides?.[path]);
     if (v === null || v < 0 || (unit === "pct" ? v >= 1 : v > 1e5)) continue;
@@ -3386,7 +3398,7 @@ const linesTotal = (o) => CHARGE_KEYS.reduce((a, k) => a + (o[k] ?? 0), 0);
  * only on a buy; GST on brokerage + txn + SEBI + IPFT. Null without a price or units.
  * @param {{ kind: "OPT"|"FUT", side: "BUY"|"SELL", price: number, units: number, exchange?: string, lots?: number }} o
  */
-export function orderCharges(o, profile = DEFAULT_PROFILE, rates = CHARGE_RATES) {
+export function orderCharges(o, profile = DEFAULT_PROFILE, rates = FALLBACK_RATES) {
   const price = num(o?.price);
   const units = num(o?.units);
   if (price === null || units === null || price < 0 || units <= 0) return null;
@@ -3394,16 +3406,16 @@ export function orderCharges(o, profile = DEFAULT_PROFILE, rates = CHARGE_RATES)
   const turnover = price * units;
   const exch = o.exchange === "BSE" || o.exchange === "BFO" ? "BSE" : "NSE";
   const brokerage = brokerageFor({ kind, turnover, lots: num(o.lots) ?? 1 }, profile);
-  const l = chargeLines(kind, o.side, turnover, exch, rates ?? CHARGE_RATES, brokerage);
+  const l = chargeLines(kind, o.side, turnover, exch, rates ?? FALLBACK_RATES, brokerage);
   return { turnover, ...l, total: linesTotal(l) };
 }
 const legIntrinsic = (l, S) => (l.right === "CE" ? Math.max(0, S - l.strike) : Math.max(0, l.strike - S));
 /** Exercise STT at `settle`: Σ over long option legs of rate × intrinsic × units. Short legs pay none. */
-export function exerciseStt(legs, settle, rates = CHARGE_RATES) {
+export function exerciseStt(legs, settle, rates = FALLBACK_RATES) {
   const S = num(settle);
   if (S === null) return 0;
   let t = 0;
-  for (const l of legs ?? []) if (l.kind !== "FUT" && l.side === "BUY") t += (rates ?? CHARGE_RATES).opt.exerciseStt * legIntrinsic(l, S) * (num(l.units) ?? 0);
+  for (const l of legs ?? []) if (l.kind !== "FUT" && l.side === "BUY") t += (rates ?? FALLBACK_RATES).opt.exerciseStt * legIntrinsic(l, S) * (num(l.units) ?? 0);
   return t;
 }
 
@@ -3415,7 +3427,7 @@ export function exerciseStt(legs, settle, rates = CHARGE_RATES) {
  * Legs: { kind, side, price, units, lots?, exchange?, right?, strike?, symbol?, quote? }. Null when a leg is unpriced.
  * `memo` (a Map) caches order charges by (symbol, side, price, units) across calls in one tick.
  */
-export function structureCharges(legs, profile = DEFAULT_PROFILE, { hold = "expiry", settle = null, exitQuotes = null } = {}, rates = CHARGE_RATES, memo = null) {
+export function structureCharges(legs, profile = DEFAULT_PROFILE, { hold = "expiry", settle = null, exitQuotes = null } = {}, rates = FALLBACK_RATES, memo = null) {
   const one = (o) => {
     if (!memo) return orderCharges(o, profile, rates);
     const k = `${o.symbol ?? o.kind}|${o.side}|${o.price}|${o.units}`;
@@ -3452,7 +3464,7 @@ export function structureCharges(legs, profile = DEFAULT_PROFILE, { hold = "expi
       // GST applies to the exercise brokerage too (its base is brokerage + txn + SEBI + IPFT).
       const b = brokerageFor({ kind: "OPT", turnover: legIntrinsic(l, S) * l.units, lots: l.lots ?? 1 }, profile);
       exit.brokerage += b;
-      exit.gst += b * (num(rates?.gst) ?? CHARGE_RATES.gst);
+      exit.gst += b * (num(rates?.gst) ?? FALLBACK_RATES.gst);
     }
   }
   exit.total = linesTotal(exit);
@@ -3497,7 +3509,7 @@ export function windowRows(chain, centre, window = 10) {
  * The chain's implied forward for arbitrage: over two-sided strikes within ATM(spot) ± window, SynM = K + (mid C −
  * mid P)·e^(rT). { forward: median, lo, hi, n, atm: the strike nearest the forward }; null when n < 2 (no spot fallback).
  */
-function parityForward(chain, { rate = RATE, days = null, window = 5 } = {}) {
+function parityForward(chain, { rate = FALLBACK_RATE, days = null, window = 5 } = {}) {
   const spot = num(chain?.underlyingLtp) ?? num(chain?.atmStrike);
   const g = carryFactor(rate, days) ?? 1;
   const syn = windowRows(chain, spot, window)
@@ -3584,7 +3596,7 @@ export function roundToSum(values, dp = 0) {
  * structure: { kind, key, strike, grossPts, grossRs, financingPts, financingRs, charges, chargesTotal, net, netPts,
  * breakEvenPts, capital, capitalBasis, annual, legs, U, liq }.
  */
-export function parityRows(chain, { fut = null, rate = 0.06, days = null, lots = 1, profile = DEFAULT_PROFILE, hold = "expiry", window = 10, rates = CHARGE_RATES, futMarginPct = 0.12, fwd = undefined, memo = null } = {}) {
+export function parityRows(chain, { fut = null, rate = 0.06, days = null, lots = 1, profile = DEFAULT_PROFILE, hold = "expiry", window = 10, rates = FALLBACK_RATES, futMarginPct = 0.12, fwd = undefined, memo = null } = {}) {
   const F = fwd === undefined ? parityForward(chain, { rate, days }) : fwd;
   const lot = num(chain?.lotSize) || 1;
   const N = Math.max(1, Math.floor(num(lots) ?? 1));
@@ -3669,7 +3681,7 @@ export function parityRows(chain, { fut = null, rate = 0.06, days = null, lots =
  * Cr = (C1b − C2a) + (P2b − P1a), rate rB = ((W·U + X)/(Cr·U − Cin) − 1)·365/d. Cin = entry charges, X = expiry or
  * exit costs. Sorted by vs-hurdle bp, best first. Crossed: a price ≤ 0, a free-money borrow, or a rate over 100%/yr.
  */
-export function boxes(chain, { rate = 0.06, days = null, lots = 1, profile = DEFAULT_PROFILE, hold = "expiry", window = 10, maxSteps = 10, mode = "lend", rates = CHARGE_RATES, centre = null, settle = null, memo = null } = {}) {
+export function boxes(chain, { rate = 0.06, days = null, lots = 1, profile = DEFAULT_PROFILE, hold = "expiry", window = 10, maxSteps = 10, mode = "lend", rates = FALLBACK_RATES, centre = null, settle = null, memo = null } = {}) {
   const lot = num(chain?.lotSize) || 1;
   const N = Math.max(1, Math.floor(num(lots) ?? 1));
   const U = lot * N;
@@ -3783,7 +3795,7 @@ const futMid = (q) => (twoSided(q) ? (Number(q.bid) + Number(q.ask)) / 2 : null)
  * K + (Cb − Pa)·g to sell), each per unit after entry charges (and exercise STT at `settle` on the synthetic's long
  * option). { long: { pick, diffPts, diffPerLot, fut, syn }, short: {...} }; null without two-sided quotes.
  */
-export function cheaperExposure({ fut, row, rate = 0.06, days = null, profile = DEFAULT_PROFILE, lot = 1, rates = CHARGE_RATES, settle = null } = {}) {
+export function cheaperExposure({ fut, row, rate = 0.06, days = null, profile = DEFAULT_PROFILE, lot = 1, rates = FALLBACK_RATES, settle = null } = {}) {
   if (!fut || !row || !twoSided(fut) || !twoSided(row.ce) || !twoSided(row.pe)) return null;
   const u = num(lot) || 1;
   const g = carryFactor(rate, days) ?? 1;
@@ -3809,7 +3821,7 @@ export function cheaperExposure({ fut, row, rate = 0.06, days = null, profile = 
  * from, to, buyFar, sellFar, fwdRate, fair, midSpread, vsFair, tag, rollLong, rollShort }). `chains` (expiry →
  * optionchain data) adds the options forward and future-vs-synthetic. Rates are decimals.
  */
-export function futuresTerm(spot, futs, { now = Date.now(), rate = 0.06, profile = DEFAULT_PROFILE, rates = CHARGE_RATES, chains = new Map() } = {}) {
+export function futuresTerm(spot, futs, { now = Date.now(), rate = 0.06, profile = DEFAULT_PROFILE, rates = FALLBACK_RATES, chains = new Map() } = {}) {
   const S = num(spot);
   const h = num(rate) ?? 0;
   const list = [...(futs ?? [])].filter((f) => f && /^\d{4}-\d{2}-\d{2}$/.test(f.expiry ?? "")).sort((a, b) => (a.expiry < b.expiry ? -1 : 1));
@@ -3922,11 +3934,15 @@ export function arbFlags(s, ctx = {}) {
   if (ctx.stale) add("STALE", "warn", `Quotes are stale${num(ctx.ageMs) !== null ? ` (${formatInt(ctx.ageMs / 1000)} s)` : ""}: excluded from Best`);
   if (num(ctx.days) !== null && ctx.days < 1) add("EXPIRY_DAY", "warn", "Expiry day: +2% ELM on short options, no annualised figures");
   if (!ctx.demo && num(ctx.nowMs) !== null) {
-    // NSE / BSE equity derivatives: pre-open 09:00-09:15, continuous 09:15-15:30 IST.
+    // The reference session (ctx.session = refSession(bundle)): pre-open, then the continuous session to the close.
+    const ses = ctx.session ?? FALLBACK_SESSION;
     const m = istMinutes(ctx.nowMs);
-    if (m < 9 * 60 || m >= 15 * 60 + 30) add("MARKET_CLOSED", "warn", "Market closed: quotes are frozen at the last trade, nothing is executable now");
-    else if (m < 9 * 60 + 15) add("NEAR_CLOSE", "warn", "Pre-open: quotes thin until 09:15");
-    else if (m >= 15 * 60) add("NEAR_CLOSE", "warn", "Last 30 min: quotes thin");
+    const pre = hmOf(ses.preOpen, "preOpen");
+    const open = hmOf(ses.open, "open");
+    const close = hmOf(ses.close, "close");
+    if (ses.holiday || m < pre || m >= close) add("MARKET_CLOSED", "warn", `Market closed${ses.holiday?.label ? ` (${ses.holiday.label})` : ""}: quotes are frozen at the last trade, nothing is executable now`);
+    else if (m < open) add("NEAR_CLOSE", "warn", `Pre-open: quotes thin until ${ses.open ?? FALLBACK_SESSION.open}`);
+    else if (m >= close - 30) add("NEAR_CLOSE", "warn", "Last 30 min: quotes thin");
   }
   const wide = legs.filter((l) => l.kind !== "FUT" && (spreadPct(l.quote) ?? 0) > 5);
   if (wide.length) add("WIDE", "warn", `Wide spread on ${wide.map((l) => `${formatInt(l.strike)} ${l.right}`).join(", ")} (over 5%)`);
@@ -4244,19 +4260,25 @@ export function probBelow(x, forward, years, ivPct) {
 export const MIN_YEARS = 1 / (24 * 365);
 
 /**
- * Statutory charges for the screener's cost columns (as of 1 Apr 2026; estimates). Percent fields are in percent
- * (0.15 = 0.15 %). Brokerage is the user's setting.
+ * The screener's percent form of the reference charge table (refCharges(bundle)): percent fields are in percent
+ * (0.15 = 0.15 %), from the same figures as `charges()`. Brokerage is the reference default; the screener's own
+ * setting overrides it. Pure.
  */
-export const CHARGES = Object.freeze({
-  asOf: "2026-04-01",
-  brokeragePerOrder: 20,
-  sttSellPct: 0.15,
-  sttExercisePct: 0.15,
-  txnPct: Object.freeze({ NFO: 0.03503, BFO: 0.0325 }),
-  sebiPerCrore: 10,
-  stampBuyPct: 0.003,
-  gstPct: 18,
-});
+export function chargesPct(rates = FALLBACK_RATES) {
+  const r = rates ?? FALLBACK_RATES;
+  const pct = (v) => Math.round(v * 100 * 1e9) / 1e9;
+  return {
+    asOf: r.asOfDate ?? null,
+    brokeragePerOrder: num(r.brokeragePerOrder) ?? 0,
+    sttSellPct: pct(r.opt.sttSell),
+    sttExercisePct: pct(r.opt.exerciseStt),
+    txnPct: { NFO: pct(r.opt.txn.NSE), BFO: pct(r.opt.txn.BSE) },
+    sebiPerCrore: r.sebiPerCrore,
+    stampBuyPct: pct(r.opt.stampBuy),
+    gstPct: pct(r.gst),
+  };
+}
+const FALLBACK_PCT = chargesPct(FALLBACK_RATES);
 const zeroCosts = () => ({ brokerage: 0, stt: 0, txn: 0, sebi: 0, stamp: 0, gst: 0, total: 0 });
 const addCosts = (a, b) => {
   a.brokerage += b.brokerage;
@@ -4273,8 +4295,8 @@ const addCosts = (a, b) => {
  * SEBI fee, stamp duty (buys) and GST on brokerage + exchange + SEBI.
  * @param {{ side: "BUY"|"SELL", price: number, qty: number, exchange?: "NFO"|"BFO" }} o
  */
-export function legCosts({ side, price, qty, exchange = "NFO" } = {}, charges = CHARGES) {
-  const c = charges ?? CHARGES;
+export function legCosts({ side, price, qty, exchange = "NFO" } = {}, charges = FALLBACK_PCT) {
+  const c = charges ?? FALLBACK_PCT;
   const turnover = Math.max(0, (num(price) ?? 0) * (num(qty) ?? 0));
   const brokerage = num(c.brokeragePerOrder) ?? 0;
   const stt = side === "SELL" ? (turnover * c.sttSellPct) / 100 : 0;
@@ -4285,7 +4307,7 @@ export function legCosts({ side, price, qty, exchange = "NFO" } = {}, charges = 
   return { brokerage, stt, txn, sebi, stamp, gst, total: brokerage + stt + txn + sebi + stamp + gst };
 }
 /** Buy then sell one lot at the same price: the cost of a round trip, by line. */
-export function roundTripCosts(price, lot, exchange = "NFO", charges = CHARGES) {
+export function roundTripCosts(price, lot, exchange = "NFO", charges = FALLBACK_PCT) {
   const out = zeroCosts();
   addCosts(out, legCosts({ side: "BUY", price, qty: lot, exchange }, charges));
   addCosts(out, legCosts({ side: "SELL", price, qty: lot, exchange }, charges));
@@ -4295,8 +4317,8 @@ export function roundTripCosts(price, lot, exchange = "NFO", charges = CHARGES) 
  * Opening charges of an arbitrage hit for one lot (each leg × its qty), plus settlement STT on a box: 0.15 % of the
  * width × lot (the intrinsic of the in-the-money long leg at expiry).
  */
-export function arbCosts(hit, lot, exchange = "NFO", charges = CHARGES) {
-  const c = charges ?? CHARGES;
+export function arbCosts(hit, lot, exchange = "NFO", charges = FALLBACK_PCT) {
+  const c = charges ?? FALLBACK_PCT;
   const out = zeroCosts();
   for (const l of hit?.legs ?? []) addCosts(out, legCosts({ side: l.side, price: l.price, qty: (num(l.qty) ?? 1) * (num(lot) ?? 1), exchange }, c));
   // Settlement STT is paid on the intrinsic of an exercised long. A bought box (long K1 call, long K2 put) always has
@@ -4315,14 +4337,14 @@ export function arbCosts(hit, lot, exchange = "NFO", charges = CHARGES) {
  * What every screener row of one chain shares: spot, forward (parity, as on the Chain page), time (floored at one
  * hour), lot, ATM IV and the ±1σ move, the chain summary, volume ranks, Vol/OI medians, HV20 and the exchange.
  */
-export function chainContext(chain, { now = Date.now(), hv20 = null, charges = CHARGES } = {}) {
+export function chainContext(chain, { now = Date.now(), hv20 = null, charges = FALLBACK_PCT, rate = FALLBACK_RATE, close = FALLBACK_SESSION.close } = {}) {
   const rows = [...(chain?.rows ?? [])].filter((r) => num(r?.strike) !== null).sort((a, b) => a.strike - b.strike);
   const sm = chainSummary(chain);
-  const tte = timeToExpiry(chain?.expiry, now);
+  const tte = timeToExpiry(chain?.expiry, now, close);
   const yrs = tte.days === null ? null : tte.days / 365;
   const T = yrs === null ? null : Math.max(yrs, MIN_YEARS);
   const S = num(chain?.underlyingLtp);
-  const F = forwardPrice(chain, parityGrowth(T)) ?? S;
+  const F = forwardPrice(chain, parityGrowth(T, rate)) ?? S;
   const atmIv = num(sm.atmIv);
   let step = null;
   for (let i = 1; i < rows.length; i++) {
@@ -4349,7 +4371,8 @@ export function chainContext(chain, { now = Date.now(), hv20 = null, charges = C
     hv20: num(hv20),
     exchange: /^BFO:/.test(String(sym?.ce?.symbol ?? sym?.pe?.symbol ?? "")) ? "BFO" : "NFO",
     step,
-    charges: charges ?? CHARGES,
+    charges: charges ?? FALLBACK_PCT,
+    rate: num(rate) ?? FALLBACK_RATE,
   };
 }
 
@@ -4717,10 +4740,10 @@ export function expiryTag(expiry, expiries, now = Date.now()) {
  * closed · last <time>), "stale" (flag set, or older than 3 refresh periods while live) and "live" (as of <time>).
  * Market hours (09:15–15:30 IST on weekdays) decide "closed" when the response has no `marketOpen` flag. Pure.
  */
-export function freshnessState({ asOf = null, stale = false, marketOpen = undefined, error = false, live = true, refreshMs = 3000, now = Date.now(), demo = false } = {}) {
+export function freshnessState({ asOf = null, stale = false, marketOpen = undefined, error = false, live = true, refreshMs = 3000, now = Date.now(), demo = false, session = FALLBACK_SESSION } = {}) {
   const t = asOf ? Date.parse(asOf) : NaN;
   const ageMs = Number.isFinite(t) ? Math.max(0, now - t) : null;
-  const open = typeof marketOpen === "boolean" ? marketOpen : demo ? true : marketSession(now).phase === "open";
+  const open = typeof marketOpen === "boolean" ? marketOpen : demo ? true : marketSession(now, session).phase === "open";
   let kind = "live";
   if (error) kind = "error";
   else if (!live) kind = "paused";

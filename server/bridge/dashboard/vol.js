@@ -11,6 +11,7 @@ import * as O from "./options.js";
 import { plotSkeleton, smileChart, smileLabel, termChart } from "./vol-curves.js";
 import { segmented } from "./views.js";
 import { heatCell, svgEl } from "./viz.js";
+import { rateText, refRate, refSession } from "./reference.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -85,7 +86,8 @@ export const VOL_DEFAULTS = Object.freeze({
   expiries: 6,
   hedgePct: 97,
   basis: "mid",
-  rate: 6.5,
+  // null = the reference rate (Market calendar, docs/spec/p1-02-reference.md §5.6); a number (% a year) overrides it.
+  rate: null,
   bidAsk: false,
 });
 
@@ -99,7 +101,8 @@ export function volConfig(saved) {
   const sf = obj(s.surf);
   const bool = (v, def) => (typeof v === "boolean" ? v : def);
   const cols = Array.isArray(s.cols) ? s.cols.filter((k, i, a) => COL_IDS.includes(k) && a.indexOf(k) === i) : [...d.cols];
-  const rate = num(s.rate);
+  // Saves before the reference rate (no rateV) stored the old built-in 6.5 as if chosen: they follow the reference now.
+  const rate = s.rateV !== 2 && num(s.rate) === 6.5 ? null : num(s.rate);
   return {
     x: pick(s.x, ["strike", "m", "delta"], d.x),
     series: Object.fromEntries(Object.keys(d.series).map((k) => [k, bool(ser[k], d.series[k])])),
@@ -112,6 +115,7 @@ export function volConfig(saved) {
     hedgePct: pick(s.hedgePct, [95, 97, 99], d.hedgePct),
     basis: pick(s.basis, ["mid", "ltp"], d.basis),
     rate: rate !== null && rate >= 0 && rate <= 15 ? rate : d.rate,
+    rateV: 2,
     bidAsk: bool(s.bidAsk, d.bidAsk),
   };
 }
@@ -154,6 +158,8 @@ function sparkSvg(list, { w, h: ht, lo, hi, mlo, mhi }) {
  */
 export function createVolPage({ st, save, selectExpiry, retry }) {
   const cfg = () => st.vol;
+  /** The rate in % a year: the user's override, else the reference rate (refRate of the page's bundle). */
+  const ratePct = () => cfg().rate ?? refRate(st.ref).value * 100;
   const cache = new Map(); // expiry -> { chain, at, asOf, error, loading }
   const rowMemo = new WeakMap(); // chain -> { sig, row }
   const queue = [];
@@ -646,17 +652,19 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
         sg.addEventListener("change", () => onPick(sg.value));
         return sg;
       };
-      const rate = h("input", { type: "number", min: "0", max: "15", step: "0.25", value: String(c.rate), inputmode: "decimal", "aria-label": "Rate, percent a year", class: "vol-rate" });
+      // Empty = the reference rate (its value is the placeholder); a number overrides it for this page only.
+      const rate = h("input", { type: "number", min: "0", max: "15", step: "0.25", value: c.rate === null ? "" : String(c.rate), placeholder: formatFixed(refRate(st.ref).value * 100, 2), inputmode: "decimal", "aria-label": "Rate, percent a year (empty: the reference rate)", class: "vol-rate" });
       rate.addEventListener("change", () => {
         const v = Number(rate.value);
-        if (rate.value !== "" && Number.isFinite(v) && v >= 0 && v <= 15) setCfg({ rate: v });
-        else rate.value = String(cfg().rate);
+        if (rate.value === "") setCfg({ rate: null });
+        else if (Number.isFinite(v) && v >= 0 && v <= 15) setCfg({ rate: v });
+        else rate.value = cfg().rate === null ? "" : String(cfg().rate);
       });
       body.replaceChildren(
         h("section", {}, h("h3", {}, "Expiries loaded ", h("small", {}, "from the nearest")), seg("Expiries loaded", [[4, "4"], [6, "6"], [8, "8"], [12, "12"]].map(([v, t]) => [String(v), t]), String(c.expiries), (v) => setCfg({ expiries: Number(v) }))),
         h("section", {}, h("h3", {}, "Hedge put ", h("small", {}, "strike as % of the forward")), seg("Hedge put", [["95", "95%"], ["97", "97%"], ["99", "99%"]], String(c.hedgePct), (v) => setCfg({ hedgePct: Number(v) }))),
         h("section", {}, h("h3", {}, "Prices ", h("small", {}, "LTP to compare; mids are the default")), seg("Prices", [["mid", "Mid"], ["ltp", "LTP"]], c.basis, (v) => setCfg({ basis: v }))),
-        h("section", {}, h("label", { class: "vol-rate-row" }, h("span", {}, "Rate ", h("small", {}, "% a year, for discounting and the forward")), rate)),
+        h("section", {}, h("label", { class: "vol-rate-row" }, h("span", {}, "Rate ", h("small", {}, "% a year, for discounting and the forward; empty uses the Market calendar rate")), rate)),
         h("section", {}, h("h3", {}, "Columns ", h("small", {}, "Expiry is always first · ↑ ↓ reorder")), h("div", { class: "col-list" }, on.map((k) => row(k, true)), off.map((k) => row(k, false)))),
       );
     };
@@ -778,7 +786,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     let step = null;
     for (let i = 1; i < steps.length; i++) if (steps[i] > steps[i - 1] && (step === null || steps[i] - steps[i - 1] < step)) step = steps[i] - steps[i - 1];
     const F = num(ref?.underlyingLtp);
-    const days = O.timeToExpiry(e).days;
+    const days = O.timeToExpiry(e, Date.now(), refSession(st.ref).close).days;
     if (!step || !F || days === null) return TERM_STRIKES;
     let iv = null;
     for (const x of termList()) {
@@ -827,10 +835,10 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     const fut = futQuotes.get(futSymbol(chain.underlying ?? st.underlying, chain.expiry)) ?? null;
     const futKey = fut ? `${fut.bid}|${fut.ask}|${fut.ltp}` : "";
     const monthly = O.isMonthly(chain.expiry, st.expiries);
-    const sig = `${c.rate}|${c.basis}|${c.hedgePct}|${monthly}|${futKey}`;
+    const sig = `${ratePct()}|${refSession(st.ref).close}|${c.basis}|${c.hedgePct}|${monthly}|${futKey}`;
     const hit = rowMemo.get(chain);
     if (hit && hit.sig === sig) return hit.row;
-    const row = O.termRow(chain, { rate: c.rate / 100, basis: c.basis, hedgePct: c.hedgePct, monthly, fut });
+    const row = O.termRow(chain, { rate: ratePct() / 100, basis: c.basis, hedgePct: c.hedgePct, monthly, fut, close: refSession(st.ref).close });
     rowMemo.set(chain, { sig, row });
     return row;
   }
@@ -861,12 +869,12 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     if (closes && hvMemo.closes !== closes) hvMemo = { closes, hv20: O.realisedVol(closes, 20), hv10: O.realisedVol(closes, 10), hvp: O.hvPercentile(closes, 20, 252) };
     const { hv20, hv10, hvp } = closes ? hvMemo : { hv20: null, hv10: null, hvp: null };
     const T = sel ? Math.max(sel.years ?? 0, 0.25 / 365) : null;
-    const df = T !== null ? Math.exp((-cfg().rate / 100) * T) : 1;
+    const df = T !== null ? Math.exp((-ratePct() / 100) * T) : 1;
     const two = (leg) => ["mid", "wide"].includes(O.legPrice(leg).q);
     const twoSided = chain ? chain.rows.some((r) => two(r.ce) || two(r.pe)) : false;
     // The checks rerun only when a bid or ask (or the term IVs) changed, not on every new chain object.
     const quotes = chain ? chain.rows.map((x) => `${x.strike}:${x.ce?.bid},${x.ce?.ask},${x.pe?.bid},${x.pe?.ask}`).join(";") : "";
-    const arbSig = `${cfg().rate}|${T === null ? "" : Math.round(T * 8760)}|${chain?.expiry}|${twoSided}|${rows.map((r) => `${r.expiry}:${r.atmIv === null ? "" : Math.round(r.atmIv * 100)}`).join()}|${quotes}`;
+    const arbSig = `${ratePct()}|${T === null ? "" : Math.round(T * 8760)}|${chain?.expiry}|${twoSided}|${rows.map((r) => `${r.expiry}:${r.atmIv === null ? "" : Math.round(r.atmIv * 100)}`).join()}|${quotes}`;
     if (arbSig !== arbMemo.sig) arbMemo = { chain, sig: arbSig, hits: chain && twoSided ? O.arbChecks(chain, { df, term: rows }) : null };
     const hits = arbMemo.hits;
     return { chain, sel, items, rows, shape, hv20, hv10, hvp, hist, df, T, twoSided, hits };
@@ -1071,7 +1079,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     const cmp = r ? compareRow(m) : null;
     syncCompareLabels(m);
     if (r) {
-      text(smileTitle, `${dayMon(r.expiry)} · ${r.dim ? "expiry day" : O.timeToExpiry(r.expiry).label}${d.phone ? ` · ATM ${formatPercent(r.atmIv, 1)}` : ` · ${formatInt(rangePoints(r).length)} strikes`}`);
+      text(smileTitle, `${dayMon(r.expiry)} · ${r.dim ? "expiry day" : O.timeToExpiry(r.expiry, Date.now(), refSession(st.ref).close).label}${d.phone ? ` · ATM ${formatPercent(r.atmIv, 1)}` : ` · ${formatInt(rangePoints(r).length)} strikes`}`);
       const banners = [];
       if (!m.twoSided) banners.push("No live bid/ask: IVs from last traded prices");
       if (r.dim) banners.push("Expiry day: IV is unstable in the final hours");
@@ -1158,7 +1166,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     const tw = boxW(termHost, 420);
     const th = d.phone ? 200 : d.narrow ? 200 : 320;
     const rows = m.items.map((it) => {
-      const days = it.row?.days ?? O.timeToExpiry(it.e).days;
+      const days = it.row?.days ?? O.timeToExpiry(it.e, Date.now(), refSession(st.ref).close).days;
       return it.row
         ? { expiry: it.e, days: Math.round(days * 100) / 100, atmIv: it.row.atmIv === null ? null : Math.round(it.row.atmIv * 100) / 100, dim: Boolean(it.row.dim), monthly: Boolean(it.row.monthly), skew: { put25: it.row.skew.put25 ? { iv: Math.round(it.row.skew.put25.iv * 100) / 100 } : null, call25: it.row.skew.call25 ? { iv: Math.round(it.row.skew.call25.iv * 100) / 100 } : null }, label: dayMon(it.e), dte: dteText(it.e), fwd: it.fwd ? { vol: it.fwd.vol === null ? null : Math.round(it.fwd.vol * 10) / 10, inverted: it.fwd.inverted } : null }
         : { expiry: it.e, days, atmIv: null, pending: it.status === "loading", label: dayMon(it.e), dte: dteText(it.e), monthly: O.isMonthly(it.e, st.expiries) };
@@ -1922,7 +1930,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
   }
 
   function drawMethod(m) {
-    text(methodEl.querySelector(".vol-rate-line"), `Rate: ${formatFixed(cfg().rate, 2)}% a year (the server default is 6.5%), for discounting and the parity forward. Prices: ${cfg().basis === "mid" ? "bid–ask mid" : "last traded (set in Customise)"}.`);
+    text(methodEl.querySelector(".vol-rate-line"), `Rate: ${cfg().rate === null ? rateText(st.ref) : `${formatFixed(cfg().rate, 2)} % a year (set on this page; the reference rate is ${rateText(st.ref)})`}, for discounting and the parity forward. Prices: ${cfg().basis === "mid" ? "bid–ask mid" : "last traded (set in Customise)"}.`);
     const r = m.sel;
     text(methodSrc, r ? (r.source === "spot" ? "Forward for the selected expiry: spot (no two-sided ATM quotes)." : `Forward for the selected expiry: parity, ${formatFixed(r.F, 1)}.`) : "Forward: waiting for the chain.");
     const now = Date.now();
@@ -2014,6 +2022,10 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     root: curvesEl,
     draw,
     onKey,
+    /** A new reference bundle (rate, session close): rows recompute on the next draw (their memo keys carry both). */
+    refChanged() {
+      requestDraw();
+    },
     /** Each refresh tick: one stale term expiry (oldest first), futures every 5th tick, history when it is old. */
     tick() {
       ticks += 1;

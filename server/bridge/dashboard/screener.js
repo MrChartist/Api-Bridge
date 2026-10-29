@@ -7,11 +7,12 @@
 // CE / PE identity, per-tab visual columns, phone cards with micro-visuals, an always-on detail column from 1280 px
 // with a score ring and a risk payoff, the toolbar live control with the chain dots, pins and a match map.
 import { alertBox, api, app, chartSlot, h, icon, istTime, modal, mountToolbarCtx, sheetPopover, toast } from "./app.js";
-import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
+import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import { DEMO_UNDERLYINGS, UNDERLYINGS } from "./desk.js";
 import { barsEnter, countUp, flashValue, lineReveal, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
 import * as S from "./screens.js";
+import { loadReference, refBanners, refCharges, refChip, refRate, refSession, refSignature } from "./reference.js";
 import { every, segmented, stopTimer } from "./views.js";
 import { hbar, heatCell, setBar, spotPill, svgEl } from "./viz.js";
 
@@ -297,6 +298,42 @@ export function renderScreenerPage() {
   const save = () => write(SLOT, { ...cfg, autoOn, mapOpen });
   const preset = () => S.presetById(cfg.preset);
 
+  // Reference data (docs/spec/p1-02-reference.md §5): the charge table, rate and session close come from the first
+  // scanned underlying's bundle (they are market-wide); the banners merge every scanned underlying's events.
+  let ref = null;
+  const refByU = new Map(); // underlying → its bundle, for the chip (the selected row's underlying)
+  // The reference chip (spec §5.2): the selected row's underlying, else the first scanned one.
+  const chipBundle = () => {
+    const r = selKey ? recByKey(selKey) : null;
+    return (r && refByU.get(r.underlying)) || ref;
+  };
+  const refChipEl = refChip({ getBundle: chipBundle, getLot: () => (selKey ? recByKey(selKey)?.lot ?? null : null) });
+  refChipEl.el.classList.add("scr-ref");
+  const refBannersEl = refBanners({ onMore: () => refChipEl.open() });
+  const pctNow = () => O.chargesPct(refCharges(ref));
+  async function loadRefs() {
+    const us = cfg.underlyings.length ? cfg.underlyings : list.slice(0, 1);
+    const bs = await Promise.all(us.map((u) => loadReference(u)));
+    if (destroyed) return;
+    refByU.clear();
+    us.forEach((u, i) => refByU.set(u, bs[i]));
+    const first = bs[0] ?? null;
+    // Compare what the bundle says, not the object, so an unchanged (or still failing) read does not redraw.
+    const changed = refSignature(first) !== refSignature(ref);
+    ref = first;
+    refChipEl.update();
+    const seen = new Set();
+    const events = bs.flatMap((b) => b?.events ?? []).filter((e) => {
+      const k = `${e.kind}|${e.underlying}|${e.effectiveOn}`;
+      return seen.has(k) ? false : (seen.add(k), true);
+    });
+    refBannersEl.update(first ? { ...first, events, lots: bs.find((b) => b?.lots?.stale)?.lots ?? first.lots } : null);
+    if (changed) {
+      memo.clear();
+      draw();
+    }
+  }
+
   // Page state.
   let plan = null; // Map U → [{ expiry, monthly }]
   let progress = null; // { done, total, label, phase } while a sweep runs
@@ -397,7 +434,9 @@ export function renderScreenerPage() {
     const parts = [];
     const keys = [];
     const universe = new Set(cfg.underlyings);
-    const charges = { ...O.CHARGES, brokeragePerOrder: cfg.brokerage };
+    const charges = { ...pctNow(), brokeragePerOrder: cfg.brokerage };
+    const rate = refRate(ref).value;
+    const close = refSession(ref).close;
     const planned = plan ? new Set([...plan].flatMap(([u, l]) => l.map((x) => `${u}|${x.expiry}`))) : null;
     for (const [key, entry] of cache) {
       const [u, e] = key.split("|");
@@ -405,10 +444,10 @@ export function renderScreenerPage() {
       if (planned && !planned.has(key)) continue;
       const hv20 = hv[u]?.hv20 ?? null;
       const monthly = plan?.get(u)?.find((x) => x.expiry === e)?.monthly ?? O.isMonthly(e, expCache.get(u)?.list ?? []);
-      const sig = `${entry.fetchedAt}|${hv20}|${cfg.brokerage}|${cfg.wingStrikes}|${cfg.hedgeNotional}|${monthly}`;
+      const sig = `${entry.fetchedAt}|${hv20}|${cfg.brokerage}|${cfg.wingStrikes}|${cfg.hedgeNotional}|${monthly}|${rate}|${close}|${charges.asOf}`;
       let m = memo.get(key);
       if (!m || m.sig !== sig) {
-        m = { sig, rec: S.chainRecords(entry.chain, { hv20, charges, wingStrikes: cfg.wingStrikes, fetchedAt: entry.fetchedAt, monthly, notional: cfg.hedgeNotional }) };
+        m = { sig, rec: S.chainRecords(entry.chain, { hv20, charges, rate, close, wingStrikes: cfg.wingStrikes, fetchedAt: entry.fetchedAt, monthly, notional: cfg.hedgeNotional }) };
         memo.set(key, m);
       }
       if (m.rec) {
@@ -479,6 +518,7 @@ export function renderScreenerPage() {
   // ── Sweep driver ──
   function startSweep(force) {
     if (destroyed) return;
+    loadRefs();
     scanning = true;
     lastSweepFailed = false;
     if (force) issues.clear();
@@ -1666,8 +1706,8 @@ export function renderScreenerPage() {
           : p.description;
     const why = blockers.length ? "Switching off one filter brings rows back:" : quiet ? (p.id === "arb" ? "Edges this small rarely survive charges; the scan keeps looking." : "These are the tab's default filters; the scan keeps looking.") : "No single filter is the cause: reset to this tab's defaults.";
     const btns = [
-      nearOff ? h("button", { type: "button", class: "small tinted", "data-fk": "near", onclick: () => setFilter("nearMiss", true) }, "Show near misses") : null,
-      ...blockers.map((b) => h("button", { type: "button", class: "small tinted", "data-fk": `off:${b.filter}`, onclick: () => setFilter(b.filter, offValue(b.filter)) }, `Turn off ${S.FILTERS[b.filter].short ?? S.FILTERS[b.filter].label} (+${formatInt(b.without)})`)),
+      nearOff ? h("button", { type: "button", class: "small", "data-fk": "near", onclick: () => setFilter("nearMiss", true) }, "Show near misses") : null,
+      ...blockers.map((b) => h("button", { type: "button", class: "small", "data-fk": `off:${b.filter}`, onclick: () => setFilter(b.filter, offValue(b.filter)) }, `Turn off ${S.FILTERS[b.filter].short ?? S.FILTERS[b.filter].label} (+${formatInt(b.without)})`)),
       atDefaults ? null : h("button", { type: "button", class: "small", "data-fk": "reset", onclick: () => resetFilters() }, "Reset all"),
     ].filter(Boolean);
     swapKeepFocus(
@@ -1746,7 +1786,7 @@ export function renderScreenerPage() {
   }
   let costsLi = null;
   const costsText = () => {
-    const c = O.CHARGES;
+    const c = pctNow();
     return `Costs (estimates, as of ${c.asOf}): STT ${formatFixed(c.sttSellPct, 2)}% on sell premium and on the intrinsic of exercised longs, exchange ${formatFixed(c.txnPct.NFO, 5)}% NSE / ${formatFixed(c.txnPct.BFO, 4)}% BSE, SEBI ₹${formatInt(c.sebiPerCrore)}/crore, stamp ${formatFixed(c.stampBuyPct, 3)}% on buys, GST ${formatInt(c.gstPct)}% on brokerage + exchange + SEBI. Brokerage is your setting (₹${formatInt(cfg.brokerage)} per order); check your broker's contract note.`;
   };
   function drawMethod() {
@@ -1894,7 +1934,7 @@ export function renderScreenerPage() {
     } else if (r.kind === "arb") {
       parts.push(section("Legs", r.legs.length ? h("div", { class: "scr-legs-t big" }, legTokens(r.legs)) : h("p", { class: "scr-d-note" }, r.legsText)));
       if (r.costs) {
-        parts.push(section("Edge per lot", kvGrid([["Gross", `${formatSigned(r.gross, 2)} pts · ${formatRupee(r.grossLot, 0)}`, r.gross > 0 ? "pos" : r.gross < 0 ? "neg" : null], ["Costs", `-${formatRupee(r.costsTotal, 0)}`, "label"], ["Net", `${r.net > 0 ? "+" : ""}${formatRupee(r.net, 0)}`, r.net > 0 ? "pos" : "neg"], ["Capital", r.capital === null ? "Margin depends on broker" : formatRupee(r.capital, 0)]])));
+        parts.push(section("Edge per lot", kvGrid([["Gross", `${formatSigned(r.gross, 2)} pts · ${formatRupee(r.grossLot, 0)}`, r.gross > 0 ? "pos" : r.gross < 0 ? "neg" : null], ["Costs", `${MINUS}${formatRupee(r.costsTotal, 0)}`, "label"], ["Net", `${r.net > 0 ? "+" : ""}${formatRupee(r.net, 0)}`, r.net > 0 ? "pos" : "neg"], ["Capital", r.capital === null ? "Margin depends on broker" : formatRupee(r.capital, 0)]])));
         parts.push(costsBlock(r.costs, "Opening charges, one lot of every leg"));
       }
       parts.push(h("p", { class: "scr-d-note" }, r.type === "Calendar" ? "Model-based: total implied variance falls between these expiries. There is no executable edge to net; check the term structure." : "Costs are estimates. Quotes move; re-check in the chain before trading."));
@@ -2196,7 +2236,7 @@ export function renderScreenerPage() {
     if (r.kind === "contract") {
       if (pid !== "sell" && r.days <= 1 && r.absDelta >= 0.5) {
         const intrinsic = Math.max(0, r.right === "CE" ? r.S - r.strike : r.strike - r.S);
-        out.push(`Held to expiry in the money, STT is 0.15% of intrinsic (about ${formatRupee((intrinsic * r.lot * O.CHARGES.sttExercisePct) / 100, 0)}/lot). Exit before 15:30 to avoid it.`);
+        out.push(`Held to expiry in the money, STT is 0.15% of intrinsic (about ${formatRupee((intrinsic * r.lot * pctNow().sttExercisePct) / 100, 0)}/lot). Exit before ${refSession(ref).close} to avoid it.`);
       }
       if (r.spread > 5) out.push(`Wide spread: about ${formatRupee(((r.ask - r.bid) / 2) * r.lot, 0)}/lot to cross.`);
       if (r.priceQ === "ltp") out.push("One-sided quote; price is the last trade.");
@@ -2212,10 +2252,10 @@ export function renderScreenerPage() {
   }
   /** Sticky actions: Open in Option Chain first; then the tab's side in its fill; the other side as a text button. */
   function actions(r, pid) {
-    const chainBtn = (strike, side) => h("button", { type: "button", class: "primary scr-a-chain", onclick: () => openInChain(r.underlying, r.expiry, strike, side) }, icon("chart"), "Open in Option Chain");
-    const fill = (side, label, legs, name = null) => h("button", { type: "button", class: `scr-a-side ${side === "SELL" ? "sell" : "buy"}`, onclick: () => toStrategy(r, legs, name) }, label);
+    const chainBtn = (strike, side) => h("button", { type: "button", class: "primary full scr-a-chain", onclick: () => openInChain(r.underlying, r.expiry, strike, side) }, icon("chart"), "Open in Option Chain");
+    const fill = (side, label, legs, name = null) => h("button", { type: "button", class: `btn full scr-a-side ${side === "SELL" ? "sell" : "buy"}`, onclick: () => toStrategy(r, legs, name) }, label);
     const text = (label, legs, name = null) => h("button", { type: "button", class: "plain small scr-a-alt", onclick: () => toStrategy(r, legs, name) }, label);
-    const sec = (label, legs, name = null) => h("button", { type: "button", class: "scr-a-sec", onclick: () => toStrategy(r, legs, name) }, label);
+    const sec = (label, legs, name = null) => h("button", { type: "button", class: "full scr-a-sec", onclick: () => toStrategy(r, legs, name) }, label);
     let first = null;
     const grid = [];
     const alt = [];
@@ -2814,6 +2854,7 @@ export function renderScreenerPage() {
       moreBtn.textContent = `Show ${formatInt(more)} more`;
     }
     if (selKey && !recByKey(selKey)) selKey = null;
+    refChipEl.update();
     drawLegend();
     drawMap();
     drawPane();
@@ -2899,6 +2940,8 @@ export function renderScreenerPage() {
     startAuto();
   }, 0);
   draw();
-  mountToolbarCtx("screener", ctxBtn, h("span", { class: "ctx-spacer" }), liveEl);
-  return [main, detail];
+  // Read the reference bundles at once (charges, rate, session close and the chip), not only when a sweep starts.
+  loadRefs();
+  mountToolbarCtx("screener", ctxBtn, refChipEl.el, h("span", { class: "ctx-spacer" }), liveEl);
+  return [refBannersEl.el, main, detail];
 }

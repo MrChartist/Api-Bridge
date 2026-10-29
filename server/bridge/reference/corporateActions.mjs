@@ -146,6 +146,11 @@ export function normaliseAction(a, { origin, verified }) {
   const { factor } = a.type === "dividend" || a.type === "other" ? { factor: null } : adjustmentFactor(a);
   if (a.type === "dividend" && !posNum(a.dividend)) throw invalid("dividend must be above 0 (rupees per share).", "dividend");
   const source = typeof a.source === "string" && a.source.trim() ? a.source.trim().slice(0, 200) : origin === "user" ? "entered on this Bridge" : "unknown";
+  let exampleStrikes = null;
+  if (a.exampleStrikes !== undefined && a.exampleStrikes !== null) {
+    if (!Array.isArray(a.exampleStrikes) || a.exampleStrikes.length > 9 || !a.exampleStrikes.every(posNum)) throw invalid("exampleStrikes must be up to 9 strikes above 0.", "exampleStrikes");
+    exampleStrikes = [...a.exampleStrikes].sort((x, y) => x - y);
+  }
   return {
     id: a.id ?? `ca_${symbol}_${a.exDate}_${a.type}`,
     symbol,
@@ -163,8 +168,20 @@ export function normaliseAction(a, { origin, verified }) {
     source,
     verified: verified ?? a.verified === true,
     ...(a.illustrative ? { illustrative: true } : {}),
+    ...(exampleStrikes && exampleStrikes.length ? { exampleStrikes } : {}),
     origin,
   };
+}
+
+/**
+ * Five example strikes around a price: step 20 from 2,000, 10 from 500, else 5. The dashboard's add form
+ * (calendar.js strikesAround) uses the same rule; calendar.test.mjs checks they agree.
+ */
+export function exampleStrikeGrid(price) {
+  if (!posNum(price)) return [];
+  const step = price >= 2000 ? 20 : price >= 500 ? 10 : 5;
+  const atm = Math.round(price / step) * step;
+  return [-2, -1, 0, 1, 2].map((i) => atm + i * step).filter((k) => k > 0);
 }
 
 /** The most common gap between consecutive strikes (ties: the smaller gap). */

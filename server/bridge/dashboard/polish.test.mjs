@@ -103,12 +103,15 @@ describe("PRD 08: Options CSS sections", () => {
       .filter((r) => r.media.includes("pointer: coarse") && /min-height:\s*44px/.test(r.body))
       .map((r) => r.selector)
       .join(" ");
-    for (const sel of ["button.q-btn", ".side-btn", ".chain-tools .segmented button", "button.preset", "button.live-ctl", ".panel-tools button", ".atm-pill", ".col-move .reorder", ".step-btn"]) expect(coarse, sel).toContain(sel);
+    // A <button> may instead take the button system's invisible 44 px hit area (app.css 8a), so its paint stays dense.
+    const hitArea = rules(css).some((r) => r.media.includes("pointer: coarse") && /^:where\(button, \.btn\)[^,]*::after$/.test(r.selector) && /width:\s*max\(100%, 44px\)/.test(r.body) && /height:\s*max\(100%, 44px\)/.test(r.body));
+    expect(hitArea, "the 44 px hit area on every button").toBe(true);
+    for (const sel of ["button.q-btn", ".side-btn", ".chain-tools .segmented button", "button.preset", "button.live-ctl", ".panel-tools button", ".atm-pill", ".col-move .reorder", ".step-btn"]) expect(coarse.includes(sel) || (hitArea && sel.startsWith("button.")), sel).toBe(true);
   });
 });
 
 describe("PRD 08: Options modules", () => {
-  const pages = jsFiles.filter((f) => /^(desk|strategy|strategy-place|oi|screener|vol|vol-curves|arbitrage|positions)\.js$/.test(f));
+  const pages = jsFiles.filter((f) => /^(desk|strategy|strategy-place|oi|screener|vol|vol-curves|arbitrage|positions|calendar|reference)\.js$/.test(f));
   it("covers the Options page modules", () => expect(pages.length).toBeGreaterThanOrEqual(8));
   for (const f of pages) {
     it(`${f}: no desk-empty, no "Loading the chain", no ms label, no ₹-`, () => {
@@ -365,5 +368,29 @@ describe("Positions round 2 (docs/design/positions.md §10)", () => {
     expect(js).not.toMatch(/style="/);
     expect(js).not.toMatch(/[Dd]emo/);
     expect(js).not.toContain("desk-keys");
+  });
+});
+
+describe("Reference data and Market calendar (docs/spec/p1-02-reference.md §5)", () => {
+  const sec = stripComments(section("12r · REFERENCE DATA AND MARKET CALENDAR", "13 · RESPONSIVE"));
+  it("uses tokens only: no colour literals", () => {
+    expect(sec.length).toBeGreaterThan(1000);
+    expect(sec.match(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(\s*\d/gi) ?? []).toEqual([]);
+  });
+  it("gives the chip, tiles, banner actions, lot check and calendar controls a 44 px target on touch screens", () => {
+    const coarse = rules(sec)
+      .filter((r) => r.media.includes("pointer: coarse") && /min-height:\s*44px/.test(r.body))
+      .map((r) => r.selector)
+      .join(" ");
+    // The month arrows, the "?" and CSV are <button>s: the button system's invisible 44 px area (app.css 8a) covers them.
+    const hitArea = rules(css).some((r) => r.media.includes("pointer: coarse") && /^:where\(button, \.btn\)[^,]*::after$/.test(r.selector) && /height:\s*max\(100%, 44px\)/.test(r.body));
+    for (const sel of ["button.ref-chip", "button.cal-tile", ".ref-banner-act", "button.lot-gate-units"]) expect(coarse, sel).toContain(sel);
+    for (const sel of [".cal-nav .icon-btn", "button.cal-help", "button.cal-csv"]) expect(coarse.includes(sel) || hitArea, sel).toBe(true);
+  });
+  it("calendar.js and reference.js are registered and covered by the format bans", () => {
+    for (const f of ["calendar.js", "reference.js"]) {
+      expect(readFileSync(resolve(here, "../core/app.mjs"), "utf8")).toMatch(new RegExp(`"${f.replace(".", "\\.")}":\\s*"text/javascript`));
+      expect(read("format.test.mjs")).toContain(`"${f}"`);
+    }
   });
 });

@@ -807,7 +807,7 @@ export function candles(token, interval, fromMs, toMs) {
       const end = Math.min(d + 375 * 60_000, toMs);
       if (end <= d) continue;
       const c = bar(d, end);
-      c.time = Math.floor((d - (9 * 60 + 15) * 60_000) / 1000); // daily bars open at IST midnight
+      c.time = Math.floor(istAt(d, 0, 0) / 1000); // daily bars open at IST midnight
       out.push(c);
     }
     return out;
