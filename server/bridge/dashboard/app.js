@@ -4,7 +4,7 @@
 // (#signin=<code>): it is removed from the address bar before anything else and exchanged for a key (POST /v1/sign-in).
 // Pure helpers (ticketFields, confirmCodeNotice, friendlyError ...) are exported for tests; DOM code runs only in a browser.
 
-import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, installPressFeedback, pulse, sheetIn, sheetOut, shake } from "./motion.js";
+import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, installPressFeedback, pulse, reducedMotion, sheetIn, sheetOut, shake } from "./motion.js";
 import { DASH, ageText, formatRupee } from "./format.js";
 
 // Page hooks for views.js (optional: app.js start-up already runs them automatically; both are idempotent).
@@ -1074,6 +1074,7 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
     const choice = t?.closest?.("[data-theme-choice]");
     if (choice) chooseTheme(/** @type {HTMLElement} */ (choice).dataset.themeChoice);
     else if (t?.closest?.("[data-action=logout]")) forgetKey();
+    revealInRow(t?.closest?.("button, [role=tab], [role=radio]"));
   });
   document.getElementById("login-form").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -1084,6 +1085,22 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
     signIn();
   });
   boot();
+}
+
+/**
+ * A choice picked in a sideways-scrolling row (phone tab rows, chips, expiry strips) slides fully into view, so the
+ * selected tab is never left half under the row's edge fade.
+ */
+function revealInRow(el) {
+  const row = el?.parentElement;
+  if (!row || row.scrollWidth <= row.clientWidth + 1) return;
+  const x = getComputedStyle(row).overflowX;
+  if (x !== "auto" && x !== "scroll") return;
+  const a = el.getBoundingClientRect();
+  const b = row.getBoundingClientRect();
+  const pad = 24; // clear of the 12 to 16 px edge fades
+  const dx = a.left < b.left + pad ? a.left - b.left - pad : a.right > b.right - pad ? a.right - b.right + pad : 0;
+  if (dx) row.scrollBy({ left: dx, behavior: reducedMotion() ? "auto" : "smooth" });
 }
 
 /** Start-up: redeem a sign-in link first (when the page was opened with one), then sign in as usual. */
