@@ -246,6 +246,8 @@ function swapKeepFocus(host, nodes, fallback = null) {
 }
 
 const KEY_HINTS = [[["[", "]"], "Previous / next tab"], [["J", "K"], "Next / previous row"], [["↵"], "Open the detail"], [["C"], "Open in Option Chain"], [["B", "S"], "Add Buy / Sell to Strategy"], [["P"], "Pin or unpin the row"], [["R"], "Rescan every chain"], [["F"], "Filters"], [["A"], "Auto rescan on / off"], [["?"], "These shortcuts"], [["Esc"], "Close"]];
+/** Tab labels for a narrow head (the full label stays in the tab's title and for screen readers). */
+const TAB_TINY = { ivout: "IV out", arb: "Arb", buildup: "Build-up", unusual: "Unusual" };
 const AUTO_LABEL = { 0: "Off", 60: "1m", 120: "2m", 300: "5m" };
 /** Contract tabs: rows are single option legs (CE / PE capsule, side edge, match map, risk payoff). */
 const CONTRACT = new Set(["unusual", "buildup", "sell", "buy", "ivout"]);
@@ -316,7 +318,7 @@ export function renderScreenerPage() {
   // ── Elements ──
   const tabs = h("div", { class: "scr-tabs", role: "tablist", "aria-label": "Screens" });
   const tabBtns = S.PRESETS.map((p) =>
-    h("button", { type: "button", role: "tab", id: `scr-tab-${p.id}`, "aria-controls": "scr-results", class: "scr-tab", "data-id": p.id, title: p.description }, h("span", { class: "scr-tab-long" }, p.label), h("span", { class: "scr-tab-short" }, p.short)),
+    h("button", { type: "button", role: "tab", id: `scr-tab-${p.id}`, "aria-controls": "scr-results", class: "scr-tab", "data-id": p.id, "aria-label": p.label, title: p.description }, h("span", { class: "scr-tab-long" }, p.label), h("span", { class: "scr-tab-short" }, p.short), h("span", { class: "scr-tab-tiny", "aria-hidden": "true" }, TAB_TINY[p.id] ?? p.short)),
   );
   tabs.append(...tabBtns);
   const tabWrap = h("div", { class: "scr-tabwrap" }, tabs);
@@ -370,7 +372,9 @@ export function renderScreenerPage() {
   const ctxBtn = h("button", { type: "button", class: "ctx-cap glass scr-ctx", "aria-haspopup": "dialog", "aria-expanded": "false", title: "Underlyings in the scan" }, h("span", { class: "ctx-item ctx-scr" }, ctxMain));
   const liveDot = h("span", { class: "scr-ldot", "aria-hidden": "true" });
   const liveText = document.createTextNode("Starting");
-  const liveDotBtn = h("button", { type: "button", class: "scr-live-dot", "aria-keyshortcuts": "A" }, liveDot);
+  // Phones: the dot carries the time ("● 09:10") or the sweep count, so it reads without the popover.
+  const liveHm = h("span", { class: "scr-live-hm", "aria-hidden": "true" });
+  const liveDotBtn = h("button", { type: "button", class: "scr-live-dot", "aria-keyshortcuts": "A" }, liveDot, liveHm);
   const liveTxtBtn = h("button", { type: "button", class: "scr-live-txt", "aria-haspopup": "dialog", "aria-expanded": "false" }, h("span", { class: "scr-live-w" }, liveText));
   const liveEl = h("div", { class: "scr-live glass" }, liveDotBtn, liveTxtBtn);
 
@@ -467,8 +471,8 @@ export function renderScreenerPage() {
     const at = Date.now();
     for (const p of S.PRESETS) {
       const keys = S.runPreset(presetRecords(p), p, cfg.filters[p.id], null, { ctx: { expiries: scannedExpiries() } }).rows.map((r) => r.key);
-      const prev = rankMem.get(p.id);
-      rankMem.set(p.id, { keys, diff: S.rankDiff(prev?.keys ?? [], keys), at, prevAt: prev?.at ?? null });
+      const sig = JSON.stringify([cfg.filters[p.id], cfg.underlyings, cfg.expiries, cfg.monthly, cfg.strikes]);
+      rankMem.set(p.id, S.rankSnapshot(rankMem.get(p.id), keys, sig, at));
     }
   }
 
@@ -502,6 +506,7 @@ export function renderScreenerPage() {
       .then((r) => {
         if (destroyed || r.cancelled) return;
         scanning = false;
+        sweepEndedAt = Date.now();
         progress = null;
         current = null;
         const planned = [...(plan ?? new Map())].flatMap(([u, l]) => l.map((x) => `${u}|${x.expiry}`));
@@ -568,7 +573,17 @@ export function renderScreenerPage() {
       requestAnimationFrame(() => tabs.classList.remove("no-anim"));
     }
   }
-  const tabRo = typeof ResizeObserver === "function" ? new ResizeObserver(() => placeThumb()) : null;
+  const tabRo =
+    typeof ResizeObserver === "function"
+      ? new ResizeObserver(() => {
+          placeThumb();
+          tabEdges();
+          if (!wrap.hidden) {
+            fitCols();
+            wrapEdges();
+          }
+        })
+      : null;
   tabRo?.observe(tabs);
   /** The scroll fades at each edge only while there is more to scroll that way. */
   function tabEdges() {
@@ -654,6 +669,7 @@ export function renderScreenerPage() {
     return scanning && progress?.phase === "chain" && e.fetchedAt < sweepStartedAt ? "pending" : "done";
   }
   let sweepStartedAt = 0;
+  let sweepEndedAt = 0;
   let liveSig = "";
   function drawStatus() {
     const running = scanning && progress;
@@ -702,7 +718,9 @@ export function renderScreenerPage() {
     const n = cfg.underlyings.length;
     const chainsText = running || got.length === total ? `${formatInt(total)} chain${total === 1 ? "" : "s"}` : `${formatInt(got.length)} of ${formatInt(total)} chains`;
     const uText = phone() ? (n === 1 ? cfg.underlyings[0] : `${cfg.underlyings[0]}+${formatInt(n - 1)}`) : `${formatInt(n)} underlying${n === 1 ? "" : "s"}`;
-    const ctxText = `${uText}${plan ? ` · ${chainsText}` : ""}`;
+    const ctxText = `${uText}${plan && !phone() ? ` · ${chainsText}` : ""}`;
+    const hm = running && progress.total ? `${formatInt(Math.min(progress.done + (progress.current ? 1 : 0), progress.total))}/${formatInt(progress.total)}` : oldest ? S.istHm(oldest.fetchedAt) : "";
+    if (liveHm.textContent !== hm) liveHm.textContent = hm;
     if (ctxMain.textContent !== ctxText) ctxMain.textContent = ctxText;
     progressEl.hidden = !running;
     if (running) {
@@ -818,7 +836,13 @@ export function renderScreenerPage() {
   function drawLegend() {
     const p = preset();
     const popOn = p.id === "sell" && num(filters().pop) !== null ? filters().pop : null;
-    const sig = `${p.id}|${popOn}`;
+    // Bunched scores are shaded by rank: the ramp then reads low → high rank, not the fixed bands.
+    const sc = p.columns.find((c) => c.viz?.kind === "score");
+    const live = entries.filter((e) => !e.gone).map((e) => e.r);
+    const bunched = sc ? S.scoreScale(live.map((r) => sc.get(r))).bunched : false;
+    // No rows (an empty tab): no colours to explain.
+    legendRow.hidden = Boolean(scan) && !live.length;
+    const sig = `${p.id}|${popOn}|${bunched}`;
     if (sig === legendSig) return;
     legendSig = sig;
     const items = (p.legend ?? []).map((it) => {
@@ -826,9 +850,9 @@ export function renderScreenerPage() {
         return h(
           "li",
           { class: "scr-lg-ramp" },
-          h("span", {}, it.label),
+          h("span", {}, it.label === "Score" && bunched ? "Score, shaded by rank" : it.label),
           h("span", { class: "scr-ramp", "aria-hidden": "true" }, [1, 2, 3, 4, 5].map((i) => h("i", { "data-seq": String(i) }))),
-          it.ticks ? h("span", { class: "scr-ramp-t" }, it.ticks.join(" · ")) : null,
+          it.label === "Score" && bunched ? h("span", { class: "scr-ramp-t" }, "lower · higher in this list") : it.ticks ? h("span", { class: "scr-ramp-t" }, it.ticks.join(" · ")) : null,
         );
       if (it.kind === "none") return h("li", { class: "scr-lg-note" }, it.label);
       const key = h("span", { class: `dv-key ${it.kind === "swatch" || !it.kind ? "" : it.kind}`.trim(), "aria-hidden": "true", "data-dv": it.token });
@@ -862,7 +886,7 @@ export function renderScreenerPage() {
         rankTh,
         cols.map((c) => {
           const sorted = s.by === c.id;
-          const th = h("th", { scope: "col", class: [c.num && !c.text ? "num" : "", c.lead ? "lead" : "", c.p === 3 ? "p3" : "", c.wrap ? "wrap" : "", c.viz ? `vz-${c.viz.kind}` : "", c.id === p.defaults.sort.by ? "rank-col" : ""].join(" ").trim() || null, title: c.title || null, "aria-sort": sorted ? (s.dir === "asc" ? "ascending" : "descending") : null });
+          const th = h("th", { scope: "col", class: [c.num && !c.text ? "num" : "", c.lead ? "lead" : "", c.p === 3 ? "p3" : c.p === 2 ? "p2" : "", c.wrap ? "wrap" : "", c.viz ? `vz-${c.viz.kind}` : "", c.id === p.defaults.sort.by ? "rank-col" : ""].join(" ").trim() || null, title: c.title || null, "aria-sort": sorted ? (s.dir === "asc" ? "ascending" : "descending") : null });
           if (!c.sortable) th.append(c.label);
           else th.append(h("button", { type: "button", class: "scr-sort-btn", "data-col": c.id }, c.label, h("span", { class: "scr-sort-i", "aria-hidden": "true" }, sorted ? (s.dir === "asc" ? "▲" : "▼") : "")));
           return th;
@@ -907,6 +931,10 @@ export function renderScreenerPage() {
         out.set(c.id, { steps: new Map(rows.map((r, i) => [r.key, steps[i]])) });
       } else if (v.kind === "bar") out.set(c.id, { max: v.max === "p95" ? S.p95Abs(rows.map((r) => c.get(r))) : v.max });
       else if (v.kind === "cbar" && v.signed) out.set(c.id, { m: S.p95Abs(rows.map((r) => v.signed(r))) });
+      else if (v.kind === "score") {
+        const ss = S.scoreScale(rows.map((r) => c.get(r)), rows.map((r) => v.of(r)?.raw ?? c.get(r)));
+        out.set(c.id, { steps: ss.steps ? new Map(rows.map((r, i) => [r.key, ss.steps[i]])) : null, dec: ss.dec, bunched: ss.bunched });
+      }
     }
     return out;
   }
@@ -955,7 +983,8 @@ export function renderScreenerPage() {
     }
     if (v.kind === "score") {
       const sco = v.of(r);
-      const st = S.scoreStep(val);
+      // Bunched scores are shaded by rank among the rows shown, so the order can be read by eye.
+      const st = sc?.steps?.get(r.key) ?? S.scoreStep(val);
       heatCell(td, st || null, "seq");
       const parts = S.scoreParts(sco);
       const pen = Boolean(sco?.penalties?.length);
@@ -968,7 +997,7 @@ export function renderScreenerPage() {
       });
       td.__comp.classList.toggle("pen", pen);
       td.__warn.hidden = !pen;
-      return pen ? `× 0.5: ${sco.penalties.join(", ")}` : "";
+      return [pen ? `× 0.5: ${sco.penalties.join(", ")}` : "", sc?.steps ? "Shaded by rank among the rows shown: the scores are close together" : ""].filter(Boolean).join(" · ");
     }
     if (v.kind === "div") {
       const st = sc?.steps.get(r.key);
@@ -1033,9 +1062,11 @@ export function renderScreenerPage() {
     if (c.viz?.kind === "legs") return "";
     return c.fmt(c.get(r), r) ?? DASH;
   }
+  /** A score with one decimal when the top rows tie on the integer. */
+  const scoreText = (c, r, sc) => (sc?.dec && num(c.viz.of(r)?.raw) !== null ? formatFixed(c.viz.of(r).raw, 1) : null);
   function fillCell(td, c, r, sc, flash) {
     if (c.lead) return fillLead(td, c, r);
-    const text = cellText(c, r);
+    const text = (c.viz?.kind === "score" && scoreText(c, r, sc)) || cellText(c, r);
     const before = td.__v.__t;
     const prevNum = td.__num;
     setText(td.__v, text);
@@ -1047,7 +1078,7 @@ export function renderScreenerPage() {
     const extraTitle = paintViz(td, c, r, sc);
     const ink = c.ink ? c.ink(r) : null;
     const subInk = c.subInk ? c.subInk(r) : null;
-    const cls = [c.num && !c.text ? "num" : "", c.p === 3 ? "p3" : "", c.wrap ? "wrap" : "", c.viz ? `vz vz-${c.viz.kind}` : "", ink ? `ink-${ink}` : "", subInk ? `sub-${subInk}` : "", c.id === preset().defaults.sort.by ? "rank-col" : "", td.classList.contains("dv-heat") ? "dv-heat" : ""].join(" ").trim();
+    const cls = [c.num && !c.text ? "num" : "", c.p === 3 ? "p3" : c.p === 2 ? "p2" : "", c.wrap ? "wrap" : "", c.viz ? `vz vz-${c.viz.kind}` : "", ink ? `ink-${ink}` : "", subInk ? `sub-${subInk}` : "", c.id === preset().defaults.sort.by ? "rank-col" : "", td.classList.contains("dv-heat") ? "dv-heat" : ""].join(" ").trim();
     if (td.__cls !== cls) {
       td.__cls = cls;
       td.className = cls;
@@ -1120,8 +1151,8 @@ export function renderScreenerPage() {
   }
   /** "Rank 1, up 3. NIFTY 3 Nov 27000 CE. IV 7.9 pts under HV · …" */
   function rowLabel(e, move, p) {
-    const m = move?.delta ? `, ${move.delta > 0 ? "up" : "down"} ${Math.abs(move.delta)}` : move?.isNew ? ", new" : "";
-    const lead = e.pinned ? (e.gone ? "Pinned, no longer matches" : `Pinned, rank ${e.rank}`) : `Rank ${e.rank}${m}`;
+    const m = move?.delta ? `, ${move.delta > 0 ? "up" : "down"} ${formatInt(Math.abs(move.delta))}` : move?.isNew ? ", new" : "";
+    const lead = e.pinned ? (e.gone ? "Pinned, no longer matches" : `Pinned, rank ${formatInt(e.rank)}`) : `Rank ${formatInt(e.rank)}${m}`;
     return `${lead}. ${e.r.name}. ${S.reason(e.r, p.id)}`;
   }
   function groupRow(label, n) {
@@ -1240,9 +1271,11 @@ export function renderScreenerPage() {
     const tr = e.target.closest("tr[data-key]");
     if (tr) select(tr.dataset.key, { open: true });
   });
+  const mousePin = (e) => (e.pointerType ? e.pointerType === "mouse" : e.button === 2 && matchMedia("(any-pointer: fine)").matches);
   tbody.addEventListener("contextmenu", (e) => {
     const tr = e.target.closest("tr[data-key]");
-    if (!tr) return;
+    // A right-click pins; a touch long-press (also a contextmenu) keeps the native menu and never pins by accident.
+    if (!tr || !mousePin(e)) return;
     e.preventDefault();
     togglePin(tr.dataset.key);
   });
@@ -1251,11 +1284,27 @@ export function renderScreenerPage() {
     if (!tr) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      select(tr.dataset.key, { open: true, force: true });
+      select(tr.dataset.key, { open: true });
     }
   });
   // Sticky rank + lead columns get their right edge only while the table is scrolled sideways; a right fade shows
   // while more columns sit off-screen.
+  /**
+   * Below the detail-column width (tablets), the table fits its panel instead of slicing a column mid-glyph: first
+   * chip columns drop their words (the 2-letter chip stays), then priority-2 columns go. Desktop keeps every column
+   * and scrolls, with the right-edge fade.
+   */
+  function fitCols() {
+    if (wrap.hidden || phone()) return;
+    const over = () => wrap.scrollWidth > wrap.clientWidth + 1;
+    if (wide()) {
+      if (wrap.dataset.fit) delete wrap.dataset.fit;
+      return;
+    }
+    wrap.dataset.fit = "0";
+    if (over()) wrap.dataset.fit = "1";
+    if (over()) wrap.dataset.fit = "2";
+  }
   function wrapEdges() {
     wrap.classList.toggle("scrolled-x", wrap.scrollLeft > 1);
     wrap.classList.toggle("more-x", wrap.scrollWidth - wrap.clientWidth - wrap.scrollLeft > 2);
@@ -1284,7 +1333,7 @@ export function renderScreenerPage() {
     const v = c.viz;
     if (v?.kind === "chip") return { chip: v.chip(r), text: c.fmt(c.get(r), r) };
     const text = (c.cardFmt ?? c.fmt)(c.get(r), r);
-    if (v?.kind === "score") return { text, seq: S.scoreStep(c.get(r)) || null };
+    if (v?.kind === "score") return { text: scoreText(c, r, sc) || text, seq: sc?.steps?.get(r.key) || S.scoreStep(c.get(r)) || null };
     if (v?.kind === "seq") return { text, seq: sc?.steps.get(r.key) || null };
     if (v?.kind === "div") return { text, div: sc?.steps.get(r.key) ?? null };
     if (v?.kind === "cbar") return { text, tone: v.tone(r), outline: Boolean(v.outline?.(r)) };
@@ -1305,9 +1354,11 @@ export function renderScreenerPage() {
         const l = h("span", { class: "scr-k-l" });
         return { viz, v, l, el: h("span", { class: "scr-k" }, viz, v, l) };
       });
-      const why = h("span", { class: "scr-c-why" });
+      const whyChip = h("span", { class: "scr-c-whychip" });
+      const whyT = h("span", { class: "scr-c-whyt" });
+      const why = h("span", { class: "scr-c-why" }, whyChip, whyT);
       btn.append(rk, h("span", { class: "scr-c-main" }, h("span", { class: "scr-c-1" }, name), sub), badge, h("span", { class: "scr-c-keys" }, keys.map((k) => k.el)), why);
-      c = { li: h("li", {}, btn), btn, rk, name, sub, badge, keys, why };
+      c = { li: h("li", {}, btn), btn, rk, name, sub, badge, keys, why, whyChip, whyT };
       cardEls.set(r.key, c);
     }
     const col = (id) => p.columns.find((x) => x.id === id);
@@ -1370,16 +1421,33 @@ export function renderScreenerPage() {
       const kk = c.keys[i];
       setText(kk.l, k.cardLabel ?? k.label);
       const t = k.viz?.kind === "chip" ? k.viz.label?.(r) || k.fmt(k.get(r), r) : (k.cardFmt ?? k.fmt)(k.get(r), r);
-      setText(kk.v, t);
+      // A chip key (the build-up) shows its 2-letter chip on the card; the words stay in the label for readers.
+      const chip = k.viz?.kind === "chip" ? k.viz.chip(r) : undefined;
+      if (chip !== undefined) {
+        const cs = `chip|${chip?.text ?? ""}|${chip?.tone ?? ""}`;
+        if (kk.v.__t !== cs) {
+          kk.v.__t = cs;
+          kk.v.replaceChildren(chip ? chipEl({ ...chip, title: t || chip.title }) : DASH);
+        }
+      } else setText(kk.v, t);
       const ink = k.ink?.(r);
       setCls(kk.v, `scr-k-v${ink ? ` ink-${ink}` : ""}`);
       // The first key carries its micro-visual (POP bar, σ track, centred bar, depth bar).
       if (i === 0) paintCardViz(kk.viz, k, r, scales.get(k.id));
       aria.push(`${k.label} ${t}`);
     });
+    // Overview and Hedge: one line of the two leading facts; Overview's build-up words become a chip.
     const why = S.reason(r, p.id);
-    setText(c.why, why);
-    c.why.hidden = !why;
+    const brief = p.id === "overview" ? S.reason({ ...r, build: null, pcr: null }, p.id) : p.id === "hedge" ? why.split(" · ").slice(0, 2).join(" · ") : why;
+    setText(c.whyT, brief);
+    const bchip = p.id === "overview" && r.build ? { text: r.build.tag, tone: r.build.bias === "bullish" ? "pos" : "neg", square: true, title: r.build.text } : null;
+    const bs = bchip ? `${bchip.text}|${bchip.tone}` : "";
+    if (c.whyChip.__sig !== bs) {
+      c.whyChip.__sig = bs;
+      c.whyChip.replaceChildren(...(bchip ? [chipEl(bchip), h("span", {}, r.build.bias)] : []));
+      c.whyChip.hidden = !bchip;
+    }
+    c.why.hidden = !brief && !bchip;
     if (why) aria.push(why);
     const label = aria.join(", ");
     if (c.btn.getAttribute("aria-label") !== label) c.btn.setAttribute("aria-label", label);
@@ -1452,11 +1520,12 @@ export function renderScreenerPage() {
   }
   cards.addEventListener("click", (e) => {
     const b = e.target.closest("button[data-key]");
-    if (b) select(b.dataset.key, { open: true, force: true });
+    if (b) select(b.dataset.key, { open: true });
   });
   cards.addEventListener("contextmenu", (e) => {
     const b = e.target.closest("button[data-key]");
-    if (!b) return;
+    // A right-click pins; a touch long-press (also a contextmenu) keeps the native menu and never pins by accident.
+    if (!b || !mousePin(e)) return;
     e.preventDefault();
     togglePin(b.dataset.key);
   });
@@ -1483,8 +1552,9 @@ export function renderScreenerPage() {
     if (p.id === "unusual") return { get: (r) => r.volOiRel, log: true, label: "× median (log scale)", fmt: (v) => `${formatFixed(v, 1)}×` };
     if (p.id === "buildup") return { get: (r) => r.committed, log: true, label: "₹ committed (log scale)", fmt: (v) => `₹${formatCompact(v)}` };
     if (p.id === "ivout") return { get: (r) => r.bump, log: false, label: "Bump (vol pts)", fmt: (v) => formatSigned(v, 1) };
-    if (p.id === "buy") return { get: (r) => r.scoreBuy, log: false, label: "Score", fixed: [0, 100], fmt: (v) => formatInt(v) };
-    return { get: (r) => r.scoreSell, log: false, label: "Score", fixed: [0, 100], fmt: (v) => formatInt(v) };
+    // Scores with their decimals, so bunched scores still spread out on the fitted axis.
+    if (p.id === "buy") return { get: (r) => r.buy?.raw ?? r.scoreBuy, log: false, label: "Score", fixed: [0, 100], fmt: (v) => formatInt(v) };
+    return { get: (r) => r.sell?.raw ?? r.scoreSell, log: false, label: "Score", fixed: [0, 100], fmt: (v) => formatInt(v) };
   }
   function drawMap(force = false) {
     const p = preset();
@@ -1501,23 +1571,32 @@ export function renderScreenerPage() {
     const { H, l, r: rr, t, b } = MAP;
     const ys = rows.map((r) => num(m.get(r))).filter((v) => v !== null && (!m.log || v > 0));
     const tf = (v) => (m.log ? Math.log2(v) : v);
-    let lo = m.fixed ? m.fixed[0] : Math.min(...ys.map(tf));
-    let hi = m.fixed ? m.fixed[1] : Math.max(...ys.map(tf));
-    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return mapBody.replaceChildren();
+    // The y axis fits the values shown (p2–p98, padded 5%), never a fixed 0–100 that piles every dot on one line.
+    const tvs = ys.map(tf);
+    let lo = O.percentileOf(tvs, 0.02);
+    let hi = O.percentileOf(tvs, 0.98);
+    if (lo === null || hi === null) return mapBody.replaceChildren();
+    const padY = Math.max((hi - lo) * 0.05, m.fixed ? 1 : 1e-6);
+    lo -= padY;
+    hi += padY;
     if (hi - lo < 1e-9) {
       lo -= 1;
       hi += 1;
     }
+    if (m.fixed) {
+      lo = Math.max(m.fixed[0], lo);
+      hi = Math.min(m.fixed[1], hi);
+    }
     // |Δ| from 0 to just past the widest match (at least 0.4), so a narrow Δ band still spreads out.
     const dMax = Math.min(1, Math.max(0.4, Math.ceil((Math.max(...rows.map((x) => num(x.absDelta) ?? 0)) + 0.04) * 10) / 10));
     const X = (d) => l + (Math.max(0, Math.min(dMax, d)) / dMax) * (W - l - rr);
-    const Y = (v) => t + (1 - (tf(v) - lo) / (hi - lo)) * (H - t - b);
+    const Y = (v) => t + (1 - Math.max(0, Math.min(1, (tf(v) - lo) / (hi - lo)))) * (H - t - b);
     const svg = svgEl("svg", { class: "scr-map-svg", viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": `Match map: ${formatInt(rows.length)} matches by |Δ| and ${m.label}` });
     for (const d of [0.1, 0.25, 0.5, 0.75].filter((x) => x <= dMax)) {
       svg.append(svgEl("line", { class: "dv-grid", x1: X(d), x2: X(d), y1: t, y2: H - b }));
       svg.append(svgEl("text", { class: "dv-tick", x: X(d), y: H - 5, "text-anchor": "middle" }, formatFixed(d, 2)));
     }
-    const yTicks = m.fixed ? [0, 50, 100] : [lo, (lo + hi) / 2, hi].map((v) => (m.log ? 2 ** v : v));
+    const yTicks = m.log ? [lo, (lo + hi) / 2, hi].map((v) => 2 ** v) : O.niceTicks(lo, hi, 4).filter((v) => v >= lo - 1e-9 && v <= hi + 1e-9);
     for (const v of yTicks) {
       svg.append(svgEl("line", { class: "dv-grid", x1: l, x2: W - rr, y1: Y(v), y2: Y(v) }));
       svg.append(svgEl("text", { class: "dv-tick", x: l - 5, y: Y(v) + 3.5, "text-anchor": "end" }, m.fmt(v)));
@@ -1530,16 +1609,23 @@ export function renderScreenerPage() {
       const d = num(row.absDelta);
       if (v === null || d === null || (m.log && v <= 0)) return;
       const sel = row.key === selKey;
-      const c = svgEl("circle", { cx: X(d), cy: Y(v), r: sel ? 4.5 : 2.6, class: `scr-dot ${row.right === "PE" ? "pe" : "ce"}${sel ? " sel" : ""}`, "data-key": row.key }, svgEl("title", {}, `#${formatInt(i + 1)} ${row.name} · ${m.label} ${m.fmt(v)} · |Δ| ${formatFixed(d, 2)}`));
+      const c = svgEl("circle", { cx: X(d), cy: Y(v), r: sel ? 5 : 3.5, class: `scr-dot ${row.right === "PE" ? "pe" : "ce"}${sel ? " sel" : ""}`, "data-key": row.key }, svgEl("title", {}, `#${formatInt(i + 1)} ${row.name} · ${m.label} ${m.fmt(v)} · |Δ| ${formatFixed(d, 2)}`));
       g.append(c);
-      if (i < 10) top.push([X(d), Y(v), i + 1]);
+      if (i < 5) top.push([X(d), Y(v), i + 1]);
     });
     svg.append(g);
-    for (const [x, y, n] of top) svg.append(svgEl("text", { class: "scr-map-n", x: x + 5, y: y - 4 }, formatInt(n)));
+    // Ranks 1–5, each skipped when its box would overlap one already placed (rank 1 first).
+    const boxes = [];
+    for (const [x, y, n] of top) {
+      const box = [x + 4, y - 14, x + 4 + 8 * String(n).length + 2, y - 2];
+      if (boxes.some((o) => box[0] < o[2] && box[2] > o[0] && box[1] < o[3] && box[3] > o[1])) continue;
+      boxes.push(box);
+      svg.append(svgEl("text", { class: "scr-map-n", x: x + 5, y: y - 4 }, formatInt(n)));
+    }
     const sel = rows.find((x) => x.key === selKey);
     if (sel && num(m.get(sel)) !== null && num(sel.absDelta) !== null) svg.append(svgEl("circle", { class: "scr-dot-ring", cx: X(sel.absDelta), cy: Y(m.get(sel)), r: 7 }));
     mapBody.replaceChildren(
-      h("ul", { class: "dv-legend scr-map-lg", "aria-hidden": "true" }, h("li", {}, h("span", { class: "dv-key dot", "data-dv": "call" }), "CE"), h("li", {}, h("span", { class: "dv-key dot", "data-dv": "put" }), "PE"), h("li", { class: "scr-lg-note" }, `Up: ${m.label}. Numbers: the top 10`)),
+      h("ul", { class: "dv-legend scr-map-lg", "aria-hidden": "true" }, h("li", {}, h("span", { class: "dv-key dot", "data-dv": "call" }), "CE"), h("li", {}, h("span", { class: "dv-key dot", "data-dv": "put" }), "PE"), h("li", { class: "scr-lg-note" }, `Up: ${m.label}. Numbers: the top 5`)),
       svg,
     );
   }
@@ -1562,24 +1648,35 @@ export function renderScreenerPage() {
     // Leave-one-out: name only the filters whose removal alone brings rows back, with how many.
     const blockers = S.topBlockers(result.funnel);
     const p = preset();
-    const nearOff = p.id === "arb" && filters().nearMiss === false;
-    const sig = JSON.stringify([p.id, blockers.map((b) => [b.filter, b.label, b.without]), scan?.strikes, scan?.chains, nearOff]);
+    const f = filters();
+    const nearOff = p.id === "arb" && f.nearMiss === false;
+    // At the tab's defaults with no single filter to blame, the market is the cause: say so, offer no reset.
+    const atDefaults = p.filters.every((id) => JSON.stringify(f[id] ?? null) === JSON.stringify(S.filterDefault(p, id) ?? null));
+    const quiet = !blockers.length && atDefaults;
+    const next = autoOn && cfg.auto && sweepEndedAt ? ` · next scan ${S.istHm(sweepEndedAt + cfg.auto * 1000)}` : "";
+    const sig = JSON.stringify([p.id, blockers.map((b) => [b.filter, b.label, b.without]), scan?.strikes, scan?.chains, nearOff, atDefaults, next]);
     if (sig === emptySig) return;
     emptySig = sig;
-    const first = p.id === "arb" ? `No executable edge after costs across ${formatInt(scan?.strikes ?? 0)} strikes in ${formatInt(scan?.chains ?? 0)} chains.` : p.description;
+    const title = !quiet ? "No contracts pass these filters" : p.id === "arb" ? "No arbitrage right now" : p.id === "ivout" ? "No IV outliers right now" : "Nothing matches right now";
+    const first =
+      p.id === "arb"
+        ? `${formatInt(0)} of ${formatInt(scan?.strikes ?? 0)} strikes clear costs in ${formatInt(scan?.chains ?? 0)} chains${next}`
+        : quiet
+          ? `${p.description}${next ? ` Scanned ${formatInt(scan?.chains ?? 0)} chains${next}.` : ""}`
+          : p.description;
+    const why = blockers.length ? "Switching off one filter brings rows back:" : quiet ? (p.id === "arb" ? "Edges this small rarely survive charges; the scan keeps looking." : "These are the tab's default filters; the scan keeps looking.") : "No single filter is the cause: reset to this tab's defaults.";
+    const btns = [
+      nearOff ? h("button", { type: "button", class: "small tinted", "data-fk": "near", onclick: () => setFilter("nearMiss", true) }, "Show near misses") : null,
+      ...blockers.map((b) => h("button", { type: "button", class: "small tinted", "data-fk": `off:${b.filter}`, onclick: () => setFilter(b.filter, offValue(b.filter)) }, `Turn off ${S.FILTERS[b.filter].short ?? S.FILTERS[b.filter].label} (+${formatInt(b.without)})`)),
+      atDefaults ? null : h("button", { type: "button", class: "small", "data-fk": "reset", onclick: () => resetFilters() }, "Reset all"),
+    ].filter(Boolean);
     swapKeepFocus(
       emptyEl,
       [
-        h("strong", {}, "No contracts pass these filters"),
+        h("strong", {}, title),
         h("p", { class: "scr-empty-note" }, first),
-        h("p", { class: "scr-empty-why" }, blockers.length ? "Switching off one filter brings rows back:" : "No single filter is the cause: reset to this tab's defaults."),
-        h(
-          "div",
-          { class: "scr-empty-btns" },
-          nearOff ? h("button", { type: "button", class: "small tinted", "data-fk": "near", onclick: () => setFilter("nearMiss", true) }, "Show near misses") : null,
-          blockers.map((b) => h("button", { type: "button", class: "small tinted", "data-fk": `off:${b.filter}`, onclick: () => setFilter(b.filter, offValue(b.filter)) }, `Turn off ${S.FILTERS[b.filter].short ?? S.FILTERS[b.filter].label} (+${formatInt(b.without)})`)),
-          h("button", { type: "button", class: "small", "data-fk": "reset", onclick: () => resetFilters() }, "Reset all"),
-        ),
+        h("p", { class: "scr-empty-why" }, why),
+        btns.length ? h("div", { class: "scr-empty-btns" }, btns) : null,
       ],
       filtersBtn,
     );
@@ -1682,16 +1779,20 @@ export function renderScreenerPage() {
     return (result?.rows ?? []).find((r) => r.key === key) ?? S.recordsFor(scan, preset()).find((r) => r.key === key) ?? null;
   };
   let sheetOpen = null; // { key }
-  function select(key, { open = false, force = false, scroll = false } = {}) {
+  /** An explicit pick (click, map dot, J / K, Enter) or a close: either way the detail stops following rank 1. */
+  function select(key, { open = false, scroll = false } = {}) {
     selKey = key;
-    if (key === null) autoSel = false;
+    autoSel = false;
+    // A map dot ranked past the rows shown: show enough rows for it to exist, so it can be scrolled to and focused.
+    const rk = key === null ? null : result?.rankOf?.get(key);
+    if (rk && rk > shown) shown = rk;
     draw();
     if (scroll) {
       const el = phone() ? cardEls.get(key)?.btn : rowEls.get(key);
       el?.scrollIntoView({ block: "nearest", behavior: reducedMotion() ? "instant" : "smooth" });
       el?.focus({ preventScroll: true });
     }
-    if (open && !wide() && (force || true)) openSheet();
+    if (open && !wide()) openSheet();
   }
   function moveSel(d) {
     const rows = entries.map((e) => e.r);
@@ -1704,7 +1805,8 @@ export function renderScreenerPage() {
   function drawPane() {
     if (!wide()) return;
     const r = recByKey(selKey);
-    const sig = r ? `${cfg.preset}|${r.key}|${r.fetchedAt}|${cfg.brokerage}|${cfg.wingStrikes}|${isPinned(r.key)}|${r.stale}` : `none|${cfg.preset}`;
+    const rk = r ? result?.rankOf?.get(r.key) ?? null : null;
+    const sig = r ? `${cfg.preset}|${r.key}|${r.fetchedAt}|${cfg.brokerage}|${cfg.wingStrikes}|${isPinned(r.key)}|${r.stale}|${rk}|${result?.total}` : `none|${cfg.preset}`;
     if (sig === paneSig) return;
     paneSig = sig;
     if (!r) {
@@ -1714,8 +1816,20 @@ export function renderScreenerPage() {
     const keepScroll = paneBody.scrollTop;
     const sameKey = paneBody.__key === r.key;
     paneBody.__key = r.key;
-    paneBody.replaceChildren(detailView(r, { pane: true }));
+    // A refresh of the same row keeps what the visitor had: the focused button and any open disclosure.
+    const opened = sameKey ? [...paneBody.querySelectorAll("details")].map((d) => d.open) : [];
+    const view = detailView(r, { pane: true });
+    focusKeys(view);
+    view.querySelectorAll("details").forEach((d, i) => opened[i] && (d.open = true));
+    swapKeepFocus(paneBody, [view]);
     paneBody.scrollTop = sameKey ? keepScroll : 0;
+  }
+  /** Stable data-fk keys on a detail's controls, so a rebuild can put focus back on the same one. */
+  function focusKeys(root) {
+    for (const el of root.querySelectorAll("button, summary, a[href]")) {
+      if (el.hasAttribute("data-fk")) continue;
+      el.setAttribute("data-fk", el.classList.contains("scr-pin") ? "pin" : el.tagName === "SUMMARY" ? `sum|${el.firstElementChild?.textContent ?? ""}` : `${el.className}|${el.getAttribute("aria-label") ?? el.textContent}`);
+    }
   }
   function openSheet() {
     const r = recByKey(selKey);
@@ -1864,7 +1978,9 @@ export function renderScreenerPage() {
     let ymax = Math.max(0, ...all);
     // Keep the small side readable: the large side is cut at 3× it (the line runs off the edge, "unlimited" says so).
     const small = Math.min(Math.abs(ymin), Math.abs(ymax)) || Math.max(Math.abs(ymin), Math.abs(ymax)) / 3;
-    ymin = Math.max(ymin, -3 * small);
+    // …but never above the wing's capped loss, so the defined-risk line shows where it flattens.
+    const wingLo = c.wing?.length ? Math.min(...c.wing) : null;
+    ymin = Math.max(ymin, wingLo === null ? -3 * small : Math.min(-3 * small, wingLo * 1.12));
     ymax = Math.min(ymax, 3 * small);
     const span = ymax - ymin || 1;
     ymin -= span * 0.08;
@@ -1896,13 +2012,23 @@ export function renderScreenerPage() {
     svg.append(plot);
     // Breakeven tick on the zero line.
     const bx = X(c.be);
-    svg.append(svgEl("line", { class: "scr-risk-be", x1: bx, x2: bx, y1: Y(0) - 5, y2: Y(0) + 5 }), svgEl("text", { class: "dv-tick scr-risk-bet", x: r.right === "CE" ? Math.max(48, bx - 5) : Math.min(W - 48, bx + 5), y: Y(0) + (Y(0) > H - 30 ? -6 : 13), "text-anchor": r.right === "CE" ? "end" : "start" }, `BE ${formatInt(c.be)}`));
+    // Its label sits where the line is not: a call's line is on the far side of zero left of BE, a put's right of it;
+    // a long's line is below zero there (label above), a short's above (label below). A card-coloured halo.
+    const call = r.right === "CE";
+    const above = side !== "SELL";
+    const by = above ? Math.max(pt + 10, Y(0) - 7) : Math.min(H - pb - 3, Y(0) + 15);
+    const beText = svgEl("text", { class: "dv-tick scr-risk-bet", x: call ? Math.max(52, bx - 7) : Math.min(W - 52, bx + 7), y: by, "text-anchor": call ? "end" : "start" }, `BE ${formatInt(c.be)}`);
+    svg.append(svgEl("line", { class: "scr-risk-be", x1: bx, x2: bx, y1: Y(0) - 5, y2: Y(0) + 5 }));
     if (c.spot !== null && c.spot > c.lo && c.spot < c.hi) {
       const sx = X(c.spot);
       svg.append(svgEl("line", { class: "dv-spot-line", x1: sx, x2: sx, y1: pt, y2: H - pb }));
       spotPill(svg, sx, `Spot ${formatInt(c.spot)}`, { y: 0, width: W });
     }
-    if (c.unlimited) svg.append(svgEl("text", { class: `scr-risk-unl ${c.unlimited}`, x: W - 2, y: c.unlimited === "loss" ? H - pb - 4 : pt + 12, "text-anchor": "end" }, `→ unlimited ${c.unlimited}`));
+    // The BE label over the spot line (its halo hides the line behind the text).
+    svg.append(beText);
+    // "Unlimited" in the corner the line leaves empty: a long call rises right (top-left is clear), a short call
+    // falls right (bottom-left is clear).
+    if (c.unlimited) svg.append(svgEl("text", { class: `scr-risk-unl ${c.unlimited}`, x: 3, y: c.unlimited === "loss" ? H - pb - 4 : pt + 11, "text-anchor": "start" }, `Unlimited ${c.unlimited} above →`));
     const mp = c.maxProfit === null ? "unlimited" : formatRupee(c.maxProfit, 0);
     const ml = c.maxLoss === null ? `unlimited ${r.right === "CE" ? "above" : "below"}` : formatRupee(c.maxLoss, 0);
     svg.setAttribute("aria-label", `${side === "SELL" ? "Short" : "Long"} one lot at expiry: max profit ${mp}, breakeven ${formatInt(c.be)}, max loss ${ml}`);
@@ -1988,7 +2114,10 @@ export function renderScreenerPage() {
       rows.push(["Max profit", r.right === "CE" ? h("b", { class: "ink-pos" }, "Unlimited") : formatRupee((r.strike - r.buyPrice) * lot, 0), "pos"]);
       rows.push(popRow("POP", r.popLong));
     }
-    rows.push(["Chance of touch", num(r.touch) === null ? DASH : formatPercent(r.touch * 100, 0)]);
+    // The level the index has to reach: the short's strike, the long's breakeven (from spot, before expiry).
+    const lvl = sell ? r.strike : r.beLong;
+    const tp = sell ? r.touchK : r.touchBe;
+    if (num(lvl) !== null) rows.push([`Chance to touch ${sell ? "strike" : "BE"} ${formatInt(lvl)}`, num(tp) === null ? DASH : formatPercent(tp * 100, 0)]);
     return section(sell ? "Risk per lot · short" : "Risk per lot · long", kvGrid(rows), "scr-risk-kv");
   }
   function costsBlock(c, title) {
@@ -2149,23 +2278,48 @@ export function renderScreenerPage() {
     const host = h("div", { class: "scr-filters" });
     let showBtn = null;
     let lastN = null;
-    const build = () => {
+    // Leave-one-out over the current tab: what each filter alone removes, and the count the Show button carries.
+    const funnel = () => {
       const f = filters();
       const ctx = { expiries: scannedExpiries() };
-      // Leave-one-out over the current tab: what each filter alone removes.
       const loo = S.runPreset(presetRecords(p), p, f, cfg.sort[p.id], { ctx, leaveOneOut: true });
       const n = loo.total;
-      const removes = new Map(loo.funnel.filter((x) => x.without !== undefined).map((x) => [x.filter, Math.max(0, x.without - n)]));
-      const rows = [...p.filters.map((id) => filterControl(id, f[id], render, ctx, removes.get(id) ?? 0)), ...(p.id === "hedge" ? [notionalControl(render)] : [])];
+      return { f, ctx, n, removes: new Map(loo.funnel.filter((x) => x.without !== undefined).map((x) => [x.filter, Math.max(0, x.without - n)])) };
+    };
+    const showCount = (n) => {
+      if (!showBtn) return;
+      const text = n ? `Show ${formatInt(n)}` : "No matches";
+      if (lastN === null || reducedMotion() || !n || lastN === n) showBtn.textContent = text;
+      else countUp(showBtn, lastN, n, (v) => `Show ${formatInt(Math.round(v))}`, text);
+      lastN = n;
+    };
+    // While a number is typed: patch the counts, the "removes N" notes and the changed dots in place (the field
+    // keeps its caret); the full rebuild waits for the change event.
+    const live = () => {
+      if (!host.isConnected) return;
+      const { f, n, removes } = funnel();
+      for (const id of p.filters) {
+        const row = host.querySelector(`[data-filter="${id}"]`);
+        if (!row) continue;
+        const name = row.querySelector(".scr-f-name");
+        const changed = JSON.stringify(f[id] ?? null) !== JSON.stringify(S.filterDefault(p, id) ?? null);
+        const dot = name?.querySelector(".scr-f-dot");
+        if (changed && !dot) name?.prepend(h("i", { class: "scr-f-dot", title: "Changed from this tab's default", "aria-label": "changed" }));
+        if (!changed && dot) dot.remove();
+        const rm = removes.get(id) ?? 0;
+        let small = row.querySelector(".scr-f-rm");
+        if (rm > 0 && !small) row.querySelector(".scr-f-l")?.append((small = h("small", { class: "scr-f-rm" })));
+        if (small) small.textContent = rm > 0 ? `removes ${formatInt(rm)}` : "";
+      }
+      showCount(n);
+    };
+    const build = () => {
+      const { f, ctx, n, removes } = funnel();
+      const rows = [...p.filters.map((id) => filterControl(id, f[id], render, ctx, removes.get(id) ?? 0, live)), ...(p.id === "hedge" ? [notionalControl(render)] : [])];
       // Keys for focus: "<filter>:<n>" on each control, so a rebuild puts focus back where it was.
       for (const row of rows) row.querySelectorAll("input, button, select").forEach((el, i) => el.setAttribute("data-fk", `${row.dataset.filter}:${i}`));
       swapKeepFocus(host, [h("p", { class: "scr-f-intro" }, `${p.label}: changes apply as you go.`), ...rows]);
-      if (showBtn) {
-        const text = n ? `Show ${formatInt(n)}` : "No matches";
-        if (lastN === null || reducedMotion() || !n) showBtn.textContent = text;
-        else countUp(showBtn, lastN, n, (v) => `Show ${formatInt(Math.round(v))}`, text);
-        lastN = n;
-      }
+      showCount(n);
     };
     // Rebuild after the event that changed a value has finished moving focus (Tab, Enter or a tap), then refocus.
     let queuedBuild = false;
@@ -2199,7 +2353,7 @@ export function renderScreenerPage() {
     });
     return h("div", { class: "scr-f", "data-filter": "notional" }, h("span", { class: "scr-f-l" }, h("span", { class: "scr-f-name" }, "Notional to hedge (₹)"), h("small", {}, "Index notional only; scale by your portfolio beta")), input);
   }
-  function filterControl(id, v, render, ctx, removes = 0) {
+  function filterControl(id, v, render, ctx, removes = 0, live = null) {
     const f = S.FILTERS[id];
     const p = preset();
     const changed = JSON.stringify(v) !== JSON.stringify(S.filterDefault(p, id));
@@ -2213,9 +2367,23 @@ export function renderScreenerPage() {
       h("span", { class: "scr-f-name" }, changed ? h("i", { class: "scr-f-dot", title: "Changed from this tab's default", "aria-label": "changed" }) : null, f.label),
       removes > 0 ? h("small", { class: "scr-f-rm" }, `removes ${formatInt(removes)}`) : null,
     );
-    const numIn = (val, lbl, onSet) => {
+    const numIn = (val, lbl, onSet, toValue) => {
       const input = h("input", { type: "number", inputmode: "decimal", step: String(f.step ?? 1), value: val ?? "", placeholder: "Any", "aria-label": lbl });
+      // Live while typing (150 ms after the last key): the filter applies and the counts follow, no rebuild.
+      let t = 0;
+      input.addEventListener("input", () => {
+        if (!live) return;
+        clearTimeout(t);
+        t = setTimeout(() => {
+          const raw = input.value.trim();
+          const x = raw === "" ? null : num(raw);
+          if (raw !== "" && x === null) return;
+          setFilter(id, toValue(x));
+          live();
+        }, 150);
+      });
       input.addEventListener("change", () => {
+        clearTimeout(t);
         if (input.value.trim() === "") return onSet(null);
         const x = num(input.value);
         if (x === null) {
@@ -2228,11 +2396,13 @@ export function renderScreenerPage() {
     };
     const unit = f.unit ? h("small", {}, f.unit.trim()) : null;
     let ctl;
-    if (f.type === "min" || f.type === "max") ctl = h("span", { class: "scr-f-num" }, h("span", { class: "scr-f-op" }, f.type === "min" ? "≥" : "≤"), numIn(v, f.label, (x) => apply(x)), unit);
+    if (f.type === "min" || f.type === "max") ctl = h("span", { class: "scr-f-num" }, h("span", { class: "scr-f-op" }, f.type === "min" ? "≥" : "≤"), numIn(v, f.label, (x) => apply(x), (x) => x), unit);
     else if (f.type === "range") {
       const [lo, hi] = v ?? [null, null];
       // A crossing edit carries the other end with it (never a silent swap): from 0.95 with to 0.30 gives 0.95–0.95.
-      ctl = h("span", { class: "scr-f-num" }, numIn(lo, `${f.label} from`, (x) => apply([x, x !== null && hi !== null && x > hi ? x : hi])), h("span", { class: "scr-f-op" }, "to"), numIn(hi, `${f.label} to`, (x) => apply([x !== null && lo !== null && x < lo ? x : lo, x])), unit);
+      const fromV = (x) => [x, x !== null && hi !== null && x > hi ? x : hi];
+      const toV = (x) => [x !== null && lo !== null && x < lo ? x : lo, x];
+      ctl = h("span", { class: "scr-f-num" }, numIn(lo, `${f.label} from`, (x) => apply(fromV(x)), fromV), h("span", { class: "scr-f-op" }, "to"), numIn(hi, `${f.label} to`, (x) => apply(toV(x)), toV), unit);
     } else if (f.type === "toggle") {
       const input = h("input", { type: "checkbox", checked: Boolean(v) });
       input.addEventListener("change", () => apply(input.checked));
@@ -2442,50 +2612,84 @@ export function renderScreenerPage() {
   }
   let livePop = null;
   let liveBody = null;
+  /**
+   * The scan popover. Its controls (Auto rescan, Rescan now) are built once per opening, so focus and the segmented
+   * thumb stay put while a sweep runs; only the status line and the chain dots are redrawn as chains land.
+   */
   function drawLiveBody() {
     if (!liveBody?.isConnected) return;
-    const groups = [...(plan ?? new Map())];
-    const sig = JSON.stringify([groups.map(([u, l]) => [u, l.map((x) => chainState(`${u}|${x.expiry}`))]), scanning, cfg.auto, autoOn, liveText.data]);
-    if (liveBody.__sig === sig) return;
-    liveBody.__sig = sig;
     const STATE = { done: "Scanned", fetching: "Fetching now", pending: "Waiting", error: "Failed", stale: "Stale" };
-    const grid = groups.length
-      ? h(
-          "div",
-          { class: "scr-cgrid" },
-          groups.map(([u, l]) =>
-            h(
-              "div",
-              { class: "scr-cg-row" },
-              h("span", { class: "scr-cg-u" }, u),
+    if (!liveBody.__parts) {
+      const now = h("p", { class: "scr-live-now" });
+      const gridHost = h("div", { class: "scr-cg-host" });
+      const seg = segmented("Auto rescan", S.AUTO_CHOICES.map((x) => [String(x), AUTO_LABEL[x]]), String(autoOn ? cfg.auto : 0));
+      seg.addEventListener("change", () => {
+        if (!liveBody?.__syncing) setAutoInterval(Number(seg.value));
+      });
+      liveBody.replaceChildren(
+        now,
+        gridHost,
+        h(
+          "ul",
+          { class: "dv-legend scr-cg-lg", "aria-hidden": "true" },
+          ["done", "fetching", "pending", "stale", "error"].map((st) => h("li", {}, h("span", { class: `scr-cg ${st}` }, h("i", {}, st === "error" ? "✕" : "")), STATE[st])),
+          h("li", {}, h("sup", { class: "scr-mth" }, "M"), "Monthly expiry"),
+        ),
+        h("div", { class: "scr-live-row" }, h("span", {}, "Auto rescan"), seg),
+        h("button", { type: "button", class: "primary small scr-live-rescan", "data-fk": "rescan", onclick: () => rescan() }, icon("refresh"), "Rescan now", h("kbd", {}, "R")),
+      );
+      liveBody.__parts = { now, gridHost, seg };
+    }
+    const { now, gridHost, seg } = liveBody.__parts;
+    const groups = [...(plan ?? new Map())];
+    const want = String(autoOn ? cfg.auto : 0);
+    if (seg.value !== want) {
+      liveBody.__syncing = true;
+      seg.value = want;
+      liveBody.__syncing = false;
+    }
+    const nowSig = `${liveEl.dataset.kind}|${liveText.data}`;
+    if (now.__sig !== nowSig) {
+      now.__sig = nowSig;
+      now.className = `scr-live-now k-${liveEl.dataset.kind}`;
+      now.replaceChildren(h("i", { class: "scr-ldot", "aria-hidden": "true" }), liveText.data);
+    }
+    const sig = JSON.stringify(groups.map(([u, l]) => [u, l.map((x) => [chainState(`${u}|${x.expiry}`), issues.get(`${u}|${x.expiry}`)?.message ?? ""])]));
+    if (gridHost.__sig === sig) return;
+    gridHost.__sig = sig;
+    gridHost.replaceChildren(
+      groups.length
+        ? h(
+            "div",
+            { class: "scr-cgrid" },
+            groups.map(([u, l]) =>
               h(
-                "span",
-                { class: "scr-cg-dots" },
-                l.map((x) => {
-                  const st = chainState(`${u}|${x.expiry}`);
-                  const iss = issues.get(`${u}|${x.expiry}`);
-                  return h("span", { class: `scr-cg ${st}`, title: `${S.chainName(u, x.expiry)}: ${STATE[st]}${iss ? ` · ${iss.message}` : ""}` }, h("i", { "aria-hidden": "true" }, st === "error" ? "✕" : ""), h("small", {}, `${S.expiryText(x.expiry)}${x.monthly ? " M" : ""}`), h("span", { class: "pal-sr-only" }, STATE[st]));
-                }),
+                "div",
+                { class: "scr-cg-row" },
+                h("span", { class: "scr-cg-u" }, u),
+                h(
+                  "span",
+                  { class: "scr-cg-dots" },
+                  l.map((x) => {
+                    const st = chainState(`${u}|${x.expiry}`);
+                    const iss = issues.get(`${u}|${x.expiry}`);
+                    return h(
+                      "span",
+                      { class: `scr-cg ${st}`, title: `${S.chainName(u, x.expiry)}${x.monthly ? " (monthly)" : ""}: ${STATE[st]}${iss ? ` · ${iss.message}` : ""}` },
+                      h("i", { "aria-hidden": "true" }, st === "error" ? "✕" : ""),
+                      h("small", {}, S.expiryText(x.expiry), x.monthly ? h("sup", { class: "scr-mth", title: "Monthly expiry" }, "M") : null),
+                      h("span", { class: "pal-sr-only" }, `${x.monthly ? "monthly, " : ""}${STATE[st]}`),
+                    );
+                  }),
+                ),
               ),
             ),
-          ),
-        )
-      : h("p", { class: "scr-cg-none" }, "Planning the scan…");
-    const seg = segmented("Auto rescan", S.AUTO_CHOICES.map((x) => [String(x), AUTO_LABEL[x]]), String(autoOn ? cfg.auto : 0));
-    seg.addEventListener("change", () => setAutoInterval(Number(seg.value)));
-    const focusRescan = liveBody.contains(document.activeElement) && document.activeElement?.dataset?.fk === "rescan";
-    liveBody.replaceChildren(
-      h("p", { class: `scr-live-now k-${liveEl.dataset.kind}` }, h("i", { class: "scr-ldot", "aria-hidden": "true" }), liveText.data),
-      grid,
-      h("ul", { class: "dv-legend scr-cg-lg", "aria-hidden": "true" }, ["done", "fetching", "pending", "stale", "error"].map((s) => h("li", {}, h("span", { class: `scr-cg ${s}` }, h("i", {}, s === "error" ? "✕" : "")), STATE[s]))),
-      h("div", { class: "scr-live-row" }, h("span", {}, "Auto rescan"), seg),
-      h("button", { type: "button", class: "primary small scr-live-rescan", "data-fk": "rescan", onclick: () => rescan() }, icon("refresh"), "Rescan now", h("kbd", {}, "R")),
+          )
+        : h("p", { class: "scr-cg-none" }, "Planning the scan…"),
     );
-    if (focusRescan) liveBody.querySelector("[data-fk=rescan]")?.focus({ preventScroll: true });
   }
   function openLive() {
     liveBody = h("div", { class: "scr-live-body" });
-    liveBody.__sig = "";
     livePop = sheetPopover({
       trigger: phone() ? liveDotBtn : liveTxtBtn,
       title: "Scan",
@@ -2557,15 +2761,15 @@ export function renderScreenerPage() {
     drawStatus();
     drawChips();
     drawSort();
-    drawLegend();
     const hasData = [...cache.keys()].some((k) => cfg.underlyings.includes(k.split("|")[0]) && cache.get(k)?.chain);
     recompute();
     drawBanners();
     drawIssues();
     drawMethod();
     const isPhone = phone();
-    // The detail column (≥ 1280) picks rank 1 until the visitor closes it; a tab switch keeps a key still shown.
-    if (wide() && autoSel && !entries.some((e) => e.r.key === selKey)) selKey = entries[0]?.r.key ?? null;
+    // The detail column (≥ 1280) follows rank 1 until the visitor picks a row or closes it (a tab switch resumes it).
+    // A row picked by hand stays selected while it still exists in the scan, even if it drops out of the rows shown.
+    if (wide() && autoSel) selKey = (entries.find((e) => !e.pinned && !e.gone) ?? entries[0])?.r.key ?? null;
     if (!hasData && (scanning || !lastSweepFailed)) {
       wrap.hidden = isPhone;
       cards.hidden = !isPhone;
@@ -2598,6 +2802,7 @@ export function renderScreenerPage() {
       if (isPhone) drawCards(entries);
       else {
         drawTable(entries);
+        fitCols();
         wrapEdges();
       }
       countEl.hidden = false;
@@ -2609,6 +2814,7 @@ export function renderScreenerPage() {
       moreBtn.textContent = `Show ${formatInt(more)} more`;
     }
     if (selKey && !recByKey(selKey)) selKey = null;
+    drawLegend();
     drawMap();
     drawPane();
     try {

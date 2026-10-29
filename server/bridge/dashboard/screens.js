@@ -528,7 +528,7 @@ export const PRESETS = Object.freeze([
       col("wing", "Max loss (wing)", 3, (r) => r.wing?.maxLoss ?? null, (v, r) => (r.wing ? `${rupee(r.wing.maxLoss)} · R:R 1:${formatFixed(r.wing.rr, 1)}` : DASH), { title: "Buy the strike 4 steps further out: max loss per lot = (width − credit) × lot; R:R = max loss ÷ credit", dir: "asc", ink: (r) => (r.wing ? "neg" : null) }),
       liqCol(2),
       col("costs", "Costs", 3, (r) => r.costsRt?.total ?? null, rupee, { title: "Round-trip charges per lot at mid (estimate): brokerage, STT, exchange, SEBI, stamp, GST", dir: "asc", ink: () => "label" }),
-      col("scoreSell", "Score", 1, (r) => r.scoreSell, formatInt, { title: "Richness 35% (IV − HV −2→+6 pts) · Safety 25% (POP 60→90%) · Decay 20% (θ 0→15%/day) · Liquidity 20%. Halved inside 1σ or on expiry day", viz: { kind: "score", of: (r) => r.sell } }),
+      col("scoreSell", "Score", 1, (r) => r.scoreSell, formatInt, { title: "Richness 35% (IV − HV −2→+6 pts) · Safety 25% (POP 60→90%) · Decay 20% (θ 0→15%/day) · Liquidity 20%. Halved inside 1σ or on expiry day", sortGet: (r) => r.sell?.raw ?? r.scoreSell, viz: { kind: "score", of: (r) => r.sell } }),
     ],
     filters: [...COMMON, "otm", "absDelta", "premLot", "pop", "noExpiryDay"],
     defaults: { filters: { otm: true, absDelta: [0.1, 0.3], spread: 3, liq: 3, premLot: 300, pop: 65, noExpiryDay: true }, sort: { by: "scoreSell", dir: "desc" } },
@@ -556,7 +556,7 @@ export const PRESETS = Object.freeze([
       col("ivHv", "IV − HV", 2, (r) => r.ivHv, pts, { title: "Leg IV minus HV20, vol points", dir: "asc", ink: ivHvInk }),
       liqCol(3, "Liquidity 1–5"),
       col("costsPct", "Costs %", 3, (r) => r.costsPct, (v) => formatPercent(v, 2), { title: "Round-trip charges ÷ (ask × lot)", dir: "asc", ink: () => "label" }),
-      col("scoreBuy", "Score", 1, (r) => r.scoreBuy, formatInt, { title: "Cheapness 30% (IV − HV +2→−6 pts) · Reach 30% (BE 1.5σ→0.5σ) · Decay 20% (θ 10→0%/day) · Liquidity 20%. Halved for POP < 10% or on expiry day", viz: { kind: "score", of: (r) => r.buy } }),
+      col("scoreBuy", "Score", 1, (r) => r.scoreBuy, formatInt, { title: "Cheapness 30% (IV − HV +2→−6 pts) · Reach 30% (BE 1.5σ→0.5σ) · Decay 20% (θ 10→0%/day) · Liquidity 20%. Halved for POP < 10% or on expiry day", sortGet: (r) => r.buy?.raw ?? r.scoreBuy, viz: { kind: "score", of: (r) => r.buy } }),
     ],
     filters: [...COMMON, "absDelta", "thetaPct", "capital"],
     defaults: { filters: { absDelta: [0.25, 0.6], spread: 3, liq: 3, days: [2, null], thetaPct: 10 }, sort: { by: "scoreBuy", dir: "desc" } },
@@ -785,6 +785,22 @@ export function rankHeat(values, dir = "desc") {
     return dir === "asc" ? 6 - st : st;
   });
 }
+/**
+ * How a score column paints over the rows shown. `scores` are the 0–100 integers, `raws` the same with decimals.
+ * When more than 60% of the rows fall into one fixed band (bunched scores: every cell the same colour), the cells
+ * are shaded by rank instead (rankHeat over the raw values): { steps: number[] | null }. `dec` asks for one decimal
+ * when two of the top 10 share an integer, so the order on screen can still be read.
+ */
+export function scoreScale(scores, raws = scores) {
+  const list = (scores ?? []).map((v) => num(v));
+  const fin = list.filter((v) => v !== null);
+  const counts = new Map();
+  for (const v of fin) counts.set(scoreStep(v), (counts.get(scoreStep(v)) ?? 0) + 1);
+  const most = Math.max(0, ...counts.values());
+  const bunched = fin.length >= 5 && most > 0.6 * fin.length;
+  const top = (raws ?? []).map((v) => num(v)).filter((v) => v !== null).sort((a, b) => b - a).slice(0, 10).map((v) => Math.round(v));
+  return { steps: bunched ? rankHeat(raws, "desc") : null, bunched, dec: new Set(top).size < top.length };
+}
 /** Diverging steps (−3..3) for signed values, aligned with `values`: divStep(v, p95(|v|)); a missing value: null. */
 export function signedHeat(values) {
   const list = (values ?? []).map((v) => num(v));
@@ -821,6 +837,16 @@ export function rankDiff(prevKeys, nextKeys) {
     out.set(k, { delta: p === undefined ? 0 : p - i, isNew: p === undefined && !first });
   });
   return out;
+}
+
+/**
+ * One tab's rank memory after a sweep: { keys, diff, at, prevAt, sig }. `sig` describes the settings the ranking
+ * was taken under (filters, underlyings, expiries, strikes); when it differs from the last snapshot's, the movement
+ * would come from the visitor's own change, not the market, so nothing is compared (no arrows, no "new" dots).
+ */
+export function rankSnapshot(prev, keys, sig, at) {
+  const same = prev && prev.sig === sig;
+  return { keys, diff: rankDiff(same ? prev.keys : [], keys), at, prevAt: same ? prev.at ?? null : null, sig };
 }
 
 /** The score's composition: each usable part's share of the bar (renormalised weight) and how much of it is filled. */
@@ -872,6 +898,13 @@ export function riskCurve(rec, { side = "SELL", wing = null, n = 120 } = {}) {
   const pad = (hi - lo) * 0.06;
   lo = Math.min(lo, K - pad, be - pad);
   hi = Math.max(hi, K + pad, be + pad);
+  // The wing strike and half the width beyond it, so the capped loss shows as a flat line.
+  const ws = num(wing?.wingStrike);
+  if (ws !== null) {
+    const wd = Math.abs(ws - K);
+    lo = Math.min(lo, ws - wd * 0.5);
+    hi = Math.max(hi, ws + wd * 0.5);
+  }
   const legs = [{ side, right: rec.right, strike: K, price, lots: 1 }];
   const wl = wing && num(wing.wingStrike) !== null && num(wing.wingAsk) !== null ? [...legs, { side: "BUY", right: rec.right, strike: wing.wingStrike, price: wing.wingAsk, lots: 1 }] : null;
   const xs = [];

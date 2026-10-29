@@ -4324,7 +4324,6 @@ export function legMetrics(leg, row, side, ctx) {
   const popShort = sell === null ? null : R === "CE" ? pb(K + sell) : pb(K - sell) === null ? null : 1 - pb(K - sell);
   const popLong = buy === null ? null : R === "CE" ? (pb(K + buy) === null ? null : 1 - pb(K + buy)) : pb(K - buy);
   const beLong = buy === null ? null : R === "CE" ? K + buy : K - buy;
-  const pItm = probItm(F, K, T, ivL, R);
   const prior = oi !== null && oiChange !== null ? oi - oiChange : null;
   const nbrIv = neighbourIv(ctx.rows, side, K);
   return {
@@ -4367,7 +4366,10 @@ export function legMetrics(leg, row, side, ctx) {
     popLong,
     beLong,
     beSigma: sdA && beLong > 0 && F > 0 ? Math.abs(Math.log(beLong / F)) / sdA : null,
-    touch: pItm === null ? null : Math.min(1, 2 * pItm),
+    // Chance the index touches the level before expiry, from spot (1 only when spot is already at or beyond it): the
+    // long's breakeven and the short's strike.
+    touchBe: touchFrom(beLong, S ?? F, T, ivL, R),
+    touchK: touchFrom(K, S ?? F, T, ivL, R),
     ivHv: ctx.hv20 !== null && ivL !== null ? ivL - ctx.hv20 : null,
     volume,
     oi,
@@ -4441,7 +4443,8 @@ function scoreOf(parts, penalties) {
   const w = use.reduce((a, p) => a + p.weight, 0);
   const raw = use.reduce((a, p) => a + p.weight * p.value, 0) / w;
   const pen = penalties.length ? SCORE.penalty : 1;
-  return { score: Math.round(100 * raw * pen), parts, penalties };
+  // `raw` keeps the decimals, so ties on the integer can still be told apart (the table shows one decimal then).
+  return { score: Math.round(100 * raw * pen), raw: 100 * raw * pen, parts, penalties };
 }
 const part = (id, weight, value) => ({ id, label: SCORE_LABEL[id], weight, value: value === null || value === undefined || !Number.isFinite(value) ? null : value });
 const liqPart = (liq) => (num(liq) === null ? null : clamp01((liq - 1) / 4));
@@ -4871,6 +4874,17 @@ export function probMaxProfit(xs, vals, forward, years, ivPct) {
   const test = (v) => v >= top - eps;
   test.level = top - eps;
   return probIntervals(intervalsWhere(xs, vals, test), forward, years, ivPct);
+}
+/**
+ * P(the index touches `level` before `years`, starting from `from` (spot)), on the side a call (above) or a put
+ * (below) cares about: 1 when it is already there, else the reflection approximation. Null without inputs.
+ */
+export function touchFrom(level, from, years, ivPct, right) {
+  const x = num(level);
+  const s = num(from);
+  if (x === null || !(s > 0)) return null;
+  if (right === "PE" ? s <= x : s >= x) return 1;
+  return probTouch(x, s, years, ivPct);
 }
 /** P(the price touches x before `years`) ≈ min(1, 2·P(close beyond x)) (the reflection approximation). */
 export function probTouch(x, forward, years, ivPct) {

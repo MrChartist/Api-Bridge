@@ -2057,6 +2057,19 @@ describe("Option Screener maths (PRD 07)", () => {
     expect(A.buyScore({ ...b, popLong: 0.05 }).penalties).toEqual(["Lottery ticket"]);
   });
 
+  it("touchFrom: 1 only when spot is already at or beyond the level on the option's side, else the reflection rule", () => {
+    // OTM by spot but below the forward: no longer pinned to 100%.
+    const t = A.touchFrom(57700, 57388, 30 / 365, 14, "CE");
+    expect(t).toBeGreaterThan(0.3);
+    expect(t).toBeLessThan(1);
+    expect(t).toBeCloseTo(A.probTouch(57700, 57388, 30 / 365, 14), 12);
+    expect(A.touchFrom(57000, 57388, 30 / 365, 14, "CE")).toBe(1);
+    expect(A.touchFrom(57500, 57388, 30 / 365, 14, "PE")).toBe(1);
+    expect(A.touchFrom(56000, 57388, 30 / 365, 14, "PE")).toBeLessThan(1);
+    expect(A.touchFrom(null, 57388, 0.1, 14, "CE")).toBeNull();
+    expect(A.buyScore({ ivHv: -2, beSigma: 1, thetaPct: 5, liq: 3, popLong: 0.3, days: 5 }).raw).toBeCloseTo(50, 9);
+  });
+
   it("buildupReading covers the 8 cells; dominantBuildup is null without OI change", () => {
     const want = { CE: { LB: "Call buying · bullish", SB: "Call writing · bearish", SC: "Call short covering · bullish", LU: "Call unwinding · bearish" }, PE: { LB: "Put buying · bearish", SB: "Put writing · bullish", SC: "Put short covering · bearish", LU: "Put unwinding · bullish" } };
     for (const right of ["CE", "PE"]) for (const tag of ["LB", "SB", "SC", "LU"]) expect(A.buildupReading(tag, right).text).toBe(want[right][tag]);

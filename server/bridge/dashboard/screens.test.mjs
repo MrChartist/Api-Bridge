@@ -301,6 +301,30 @@ describe("ranking visuals (docs/design/screener.md §5.1, §8.1)", () => {
     expect(d.get("e")).toEqual({ delta: 0, isNew: true });
     expect(d.has("d")).toBe(false);
   });
+  it("scoreScale: rank shading when one band holds > 60% of the rows; a decimal when the top 10 tie", () => {
+    const flat = S.scoreScale([98, 98, 97, 97, 96, 96, 80], [98.4, 97.9, 97.2, 96.8, 96.1, 95.7, 80]);
+    expect(flat.bunched).toBe(true);
+    expect(flat.steps[0]).toBe(5);
+    expect(flat.steps[6]).toBe(1);
+    expect(flat.dec).toBe(true);
+    const spread = S.scoreScale([90, 80, 70, 60, 50, 40], [90, 80, 70, 60, 50, 40]);
+    expect(spread.steps).toBeNull();
+    expect(spread.dec).toBe(false);
+    expect(S.scoreScale([], []).steps).toBeNull();
+  });
+  it("rankSnapshot: compares only snapshots taken under the same settings", () => {
+    const a = S.rankSnapshot(null, ["a", "b", "c"], "f1", 1000);
+    expect(a.prevAt).toBeNull();
+    const same = S.rankSnapshot(a, ["c", "a", "d"], "f1", 2000);
+    expect(same.diff.get("c")).toEqual({ delta: 2, isNew: false });
+    expect(same.diff.get("d")).toEqual({ delta: 0, isNew: true });
+    expect(same.prevAt).toBe(1000);
+    // The visitor tightened a filter between sweeps: no arrows, no "new" dots.
+    const other = S.rankSnapshot(same, ["a", "d", "x"], "f2", 3000);
+    for (const k of ["a", "d", "x"]) expect(other.diff.get(k)).toEqual({ delta: 0, isNew: false });
+    expect(other.prevAt).toBeNull();
+    expect(other.sig).toBe("f2");
+  });
   it("breaks ties with the tab's second key, then the name, then the key", () => {
     const sell = { ...S.presetById("sell"), filters: [] };
     const recs = [
