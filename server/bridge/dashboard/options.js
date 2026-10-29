@@ -1234,6 +1234,55 @@ export function oiMovers(rows, { n = 5, walls = null, ...opts } = {}) {
   return { adds, unwinds };
 }
 
+/**
+ * Where a PCR sits on the OI page's gauge (docs/design/oi.md §7.3): a log scale from `lo` to `hi`, clamped to 0..1, so
+ * 0.5 and 2.0 sit the same distance from 1.0. Null for a missing or non-positive ratio. Pure.
+ */
+export function pcrGaugePos(p, lo = 0.4, hi = 2.5) {
+  const x = num(p);
+  if (x === null || x <= 0 || !(lo > 0) || !(hi > lo)) return null;
+  return Math.max(0, Math.min(1, (Math.log(x) - Math.log(lo)) / (Math.log(hi) - Math.log(lo))));
+}
+
+/** The underlying effect of a build-up word: "pos" (bullish / supportive), "neg" (bearish / capping) or "neutral". */
+export const buildupEffect = (word) => (word === "bullish" || word === "supportive" ? "pos" : word === "bearish" || word === "capping" ? "neg" : "neutral");
+
+/**
+ * The build-up matrix as heat cells (oi.md §7.5): per side and class { n, lots, effect, step }. `effect` is what the
+ * class means for the underlying on that side ("pos" / "neg" / "neutral" for churn); `step` = min(3, ceil(3 · lots /
+ * maxLots)) over all 10 cells, 0 for an empty cell. Input: buildupSummary() output. Pure.
+ */
+export function buildupHeat(bu) {
+  const out = { ce: {}, pe: {} };
+  let max = 0;
+  for (const s of ["ce", "pe"]) for (const k of CLASSES) max = Math.max(max, num(bu?.[s]?.[k]?.lots) ?? 0);
+  for (const s of ["ce", "pe"]) {
+    for (const k of CLASSES) {
+      const c = bu?.[s]?.[k] ?? { n: 0, lots: 0 };
+      const lots = num(c.lots) ?? 0;
+      const n = num(c.n) ?? 0;
+      const step = lots > 0 && max > 0 ? Math.min(3, Math.max(1, Math.ceil((3 * lots) / max))) : 0;
+      out[s][k] = { n, lots, effect: buildupEffect(BUILDUP_READ[s][k][1]), step };
+    }
+  }
+  return out;
+}
+
+/**
+ * Spot as a fractional index into ascending strikes (oi.md §6.3): i + (spot − k_i) / (k_{i+1} − k_i). An exact strike
+ * gives its index; null without strikes or spot, or when spot is outside the first..last strike. Pure.
+ */
+export function spotX(strikes, spot) {
+  const s = num(spot);
+  const ks = (strikes ?? []).map(num).filter((k) => k !== null);
+  if (s === null || !ks.length || s < ks[0] || s > ks[ks.length - 1]) return null;
+  for (let i = 0; i < ks.length; i += 1) {
+    if (s === ks[i]) return i;
+    if (i + 1 < ks.length && s > ks[i] && s < ks[i + 1]) return i + (s - ks[i]) / (ks[i + 1] - ks[i]);
+  }
+  return null;
+}
+
 /** The window choices: [id, short label]. Minute windows read the recorded snapshots. */
 export const OI_WINDOWS = Object.freeze([["prev", "Prev close"], ["5", "5m"], ["15", "15m"], ["30", "30m"], ["60", "1h"], ["open", "Since open"]]);
 export const NO_PREV_OI = "Your data source has no previous-day OI. Windows use snapshots recorded on this page.";

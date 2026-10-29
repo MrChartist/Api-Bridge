@@ -2232,3 +2232,52 @@ describe("chain round 2 helpers", () => {
     expect(chain.rows[0].ce.oiChange).toBe(999);
   });
 });
+
+describe("OI page visuals (pcrGaugePos, buildupHeat, spotX)", () => {
+  it("pcrGaugePos is a log scale from 0.4 to 2.5, clamped", () => {
+    expect(A.pcrGaugePos(0.4)).toBe(0);
+    expect(A.pcrGaugePos(2.5)).toBe(1);
+    expect(A.pcrGaugePos(0.1)).toBe(0);
+    expect(A.pcrGaugePos(9)).toBe(1);
+    expect(A.pcrGaugePos(1)).toBeCloseTo(Math.log(2.5) / Math.log(6.25), 10);
+    // Log symmetry: 0.5 and 2 sit the same distance either side of 1.
+    const mid = A.pcrGaugePos(1);
+    expect(mid - A.pcrGaugePos(0.5)).toBeCloseTo(A.pcrGaugePos(2) - mid, 10);
+    expect(A.pcrGaugePos(null)).toBeNull();
+    expect(A.pcrGaugePos(0)).toBeNull();
+    expect(A.pcrGaugePos(-1)).toBeNull();
+    expect(A.pcrGaugePos("x")).toBeNull();
+  });
+  it("buildupHeat steps each cell by its share of the largest and reads its effect per side", () => {
+    const cell = (n, lots) => ({ n, lots });
+    const bu = {
+      ce: { LB: cell(2, 30), SB: cell(5, 90), SC: cell(0, 0), LU: cell(1, 10), CH: cell(1, 5) },
+      pe: { LB: cell(1, 31), SB: cell(3, 60), SC: cell(0, 0), LU: cell(0, 0), CH: cell(0, 0) },
+    };
+    const m = A.buildupHeat(bu);
+    expect(m.ce.SB).toEqual({ n: 5, lots: 90, effect: "neg", step: 3 });
+    expect(m.ce.LB).toMatchObject({ effect: "pos", step: 1 });
+    expect(m.pe.LB).toMatchObject({ effect: "neg", step: 2 });
+    expect(m.pe.SB).toMatchObject({ effect: "pos", step: 2 });
+    expect(m.ce.SC).toMatchObject({ effect: "pos", step: 0 });
+    expect(m.pe.LU).toMatchObject({ effect: "pos", step: 0 });
+    expect(m.ce.LU).toMatchObject({ effect: "neg", step: 1 });
+    expect(m.ce.CH).toMatchObject({ effect: "neutral", step: 1 });
+    // Empty or missing input: every cell is zero, no step.
+    const e = A.buildupHeat(null);
+    expect(e.ce.LB).toEqual({ n: 0, lots: 0, effect: "pos", step: 0 });
+    expect(Object.keys(e.pe)).toEqual(["LB", "SB", "SC", "LU", "CH"]);
+  });
+  it("spotX interpolates between strikes and is null outside them", () => {
+    const ks = [26300, 26350, 26400, 26450];
+    expect(A.spotX(ks, 26300)).toBe(0);
+    expect(A.spotX(ks, 26450)).toBe(3);
+    expect(A.spotX(ks, 26400)).toBe(2);
+    expect(A.spotX(ks, 26417.5)).toBeCloseTo(2.35, 10);
+    expect(A.spotX(ks, 26299)).toBeNull();
+    expect(A.spotX(ks, 26451)).toBeNull();
+    expect(A.spotX([], 26400)).toBeNull();
+    expect(A.spotX(ks, null)).toBeNull();
+    expect(A.spotX([26400], 26400)).toBe(0);
+  });
+});

@@ -107,9 +107,9 @@ export function spotPill(svg, x, label, { y = 2, width = null, g = null } = {}) 
  * A crosshair over a chart that follows the pointer (mouse, pen, touch) and the keyboard, with a tooltip that a click
  * or tap pins (Esc unpins). `host` is the positioned box that holds the chart. `steps` = number of x positions (a
  * number or a function); `at(i)` returns { x: px from the host's left, content: Node | string | Node[] } or null.
- * Keys: ← → one step, Shift + ← → ten, Home / End. Returns { set(i), clear(), destroy(), get index() }.
+ * Keys: ← → one step, Shift + ← → ten, Home / End. Returns { set(i), pin(i), clear(), destroy(), get index() }.
  */
-export function scrubber(host, { steps, at, label = "Chart: use the arrow keys to read values" } = {}) {
+export function scrubber(host, { steps, at, label = "Chart: use the arrow keys to read values", bigStep = 10 } = {}) {
   const count = () => Math.max(0, Math.floor(typeof steps === "function" ? steps() : steps) || 0);
   const cross = h("span", { class: "dv-cross", hidden: true, "aria-hidden": "true" });
   const tip = h("div", { class: "dv-tip", hidden: true, role: "status", "aria-live": "polite" });
@@ -169,7 +169,7 @@ export function scrubber(host, { steps, at, label = "Chart: use the arrow keys t
   const onKey = (e) => {
     const n = count();
     if (!n) return;
-    const step = e.shiftKey ? 10 : 1;
+    const step = e.shiftKey ? bigStep : 1;
     let i = index < 0 ? Math.floor(n / 2) : index;
     if (e.key === "ArrowRight") i += step;
     else if (e.key === "ArrowLeft") i -= step;
@@ -191,6 +191,16 @@ export function scrubber(host, { steps, at, label = "Chart: use the arrow keys t
   host.addEventListener("blur", onLeave);
   return {
     set: (i) => show(i),
+    /** Show step i and pin it (a selection made elsewhere, e.g. a linked table row). */
+    pin(i) {
+      show(i);
+      if (index < 0) return;
+      pinned = true;
+      tip.classList.add("pinned");
+    },
+    get pinned() {
+      return pinned;
+    },
     clear,
     get index() {
       return index;
