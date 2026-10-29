@@ -32,6 +32,7 @@ export const PATTERNS = [
   ["9 * 60 + 15", /9 \* 60 \+ 15/],
   ["15 * 60 + 30", /15 \* 60 \+ 30/],
   ["lot: nn", /\blot(Size)?\s*:\s*\d{2,}/],
+  ["6.50 %", /\b6\.50?\s*%/],
 ];
 
 /** Files (relative to server/bridge, "/" separated) that may hold the literals. */
@@ -62,8 +63,8 @@ export function scanText(src, { skip = [] } = {}) {
 
 describe("no reference constants outside the reference store (acceptance criterion 2)", () => {
   it("the patterns catch what they are meant to", () => {
-    const src = ["export const RISK_FREE = 0.065;", "const RATE = 0.065;", "  brokeragePerOrder: 20,", 'const open = "09:15";', "const close = '15:30';", "const m = 15 * 60 + 30;", "{ lotSize: 75 }", "// a comment about 0.065 and \"15:30\"", "const rate = 0.06;"].join("\n");
-    expect(scanText(src).map((h) => h.pattern)).toEqual(["RISK_FREE", "0.065", "RATE = 0.0x", "0.065", "brokeragePerOrder: n", '"09:15"', '"15:30"', "15 * 60 + 30", "lot: nn"]);
+    const src = ["export const RISK_FREE = 0.065;", "const RATE = 0.065;", "  brokeragePerOrder: 20,", 'const open = "09:15";', "const close = '15:30';", "const m = 15 * 60 + 30;", "{ lotSize: 75 }", "const note = `the pages use 6.50 % then`;", "// a comment about 0.065 and \"15:30\"", "const rate = 0.06;"].join("\n");
+    expect(scanText(src).map((h) => h.pattern)).toEqual(["RISK_FREE", "0.065", "RATE = 0.0x", "0.065", "brokeragePerOrder: n", '"09:15"', '"15:30"', "15 * 60 + 30", "lot: nn", "6.50 %"]);
   });
 
   it("server/bridge holds none of them outside the allowed files", () => {

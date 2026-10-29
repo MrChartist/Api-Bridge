@@ -17,7 +17,7 @@
 import { join } from "node:path";
 import { isStub } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
-import { addDays, calendarDaysBetween, createCalendar, dayMonth, deliveryMarginDates, expiryKinds, expiryShifts, isIsoDate, istDateOf, istInstant, mergeHolidays, monthLabel } from "./calendar.mjs";
+import { addDays, calendarDaysBetween, createCalendar, dayMonth, shortDay, deliveryMarginDates, expiryKinds, expiryShifts, isIsoDate, istDateOf, istInstant, mergeHolidays, monthLabel } from "./calendar.mjs";
 import { effectiveSettings, parseReferenceConfig } from "./config.mjs";
 import { exampleStrikeGrid, inferNonStandard, normaliseAction, previewAdjustment, roundToTick } from "./corporateActions.mjs";
 import { DEFAULT_BROKERAGE } from "./defaults.mjs";
@@ -543,7 +543,11 @@ export function createReferenceService(deps, opts = {}) {
         if (!e.shifted) continue;
         const away = calendarDaysBetween(t, e.date);
         if (away < 0 || away > n) continue;
-        out.push({ kind: "holiday-expiry-shift", underlying: u, effectiveOn: e.date, daysAway: away, text: `${u} ${e.kind} expiry is on ${dayMonth(e.date)}, a day earlier than usual: ${e.reason}.`, ref: { ruleDate: e.ruleDate, expiry: e.date } });
+        // User-facing words: dates as "10 Nov" (never ISO) and the real size of the move (a weekend can sit between).
+        const early = calendarDaysBetween(e.date, e.ruleDate);
+        const hol = cal.holidayOn(e.ruleDate, ex.exchange ?? "NFO");
+        const by = early === 1 ? "a day earlier than usual" : `${early} days earlier than usual`;
+        out.push({ kind: "holiday-expiry-shift", underlying: u, effectiveOn: e.date, daysAway: away, text: `${u} ${e.kind} expiry is on ${shortDay(e.date)}, ${by} (moved from ${shortDay(e.ruleDate)}, ${hol && !hol.verified ? "an unverified holiday" : "a holiday"}).`, ref: { ruleDate: e.ruleDate, expiry: e.date } });
       }
     }
     return out.sort((a, b) => a.daysAway - b.daysAway || a.underlying.localeCompare(b.underlying));
@@ -585,8 +589,12 @@ export function createReferenceService(deps, opts = {}) {
       const tomorrow = istIso(istInstant(cal.nextTradingDay(d.today), cfg.schedule.morning));
       for (const name of STATUS_DATASETS) datasets[name] = { available: true, asOf: d.today, source: DEMO_SOURCE, lastSuccessAt: d.asOfIso, lastAttemptAt: d.asOfIso, nextRunAt: tomorrow, stale: false, error: null };
       const r = rate();
+      // The demo stale switch (PUT /v1/demo/reference) ages the lots here too, so the status strip agrees with the
+      // bundle, the chip and the Expiries panel.
+      const lm = lotsMeta();
+      datasets.lots = { ...datasets.lots, asOf: lm.asOf, stale: lm.stale, staleTradingDays: lm.staleTradingDays };
       datasets.rate = { available: true, asOf: r.asOf, source: r.source, quality: r.quality, lastSuccessAt: null, lastAttemptAt: null, nextRunAt: null, stale: r.stale, error: null };
-      return { demo: true, sources: { nseArchives: { enabled: false, setBy: "demo", setAt: null } }, datasets, knownSince: d.knownSince, requestsToday: 0, syncing: null };
+      return { demo: true, demoLotsStale: demoLotsStale, sources: { nseArchives: { enabled: false, setBy: "demo", setAt: null } }, datasets, knownSince: d.knownSince, requestsToday: 0, syncing: null };
     }
     for (const name of ["lots", "universe", "ban", "mwpl"]) {
       const st = state.datasets[name] ?? {};

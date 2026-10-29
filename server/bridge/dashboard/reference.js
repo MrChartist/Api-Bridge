@@ -190,10 +190,14 @@ export function refCalendar(b) {
   const exch = cashExchange(b?.exchange);
   const rows = (b?.holidays ?? []).filter((x) => ISO_DAY.test(String(x?.date ?? "")) && (!Array.isArray(x.exchanges) || x.exchanges.includes(exch)));
   const byDate = new Map(rows.map((x) => [x.date, x]));
+  const sp = b?.session?.special;
+  const special = sp && hmMinutes(sp.open) !== null && hmMinutes(sp.close) !== null && ISO_DAY.test(String(b.session.date ?? "")) ? { date: b.session.date } : null;
   const isTradingDay = (date) => {
     if (!ISO_DAY.test(String(date ?? ""))) return false;
     const [y, m, d] = String(date).split("-").map(Number);
     const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    // A day with a timed special session (the bundle's session.special, for its own date) trades (spec §6.4).
+    if (special && date === special.date) return true;
     return dow !== 0 && dow !== 6 && !byDate.has(date);
   };
   return { holidays: new Set(byDate.keys()), isTradingDay, label: (date) => byDate.get(date)?.label ?? null, verified: (date) => Boolean(byDate.get(date)?.verified) };
@@ -349,9 +353,11 @@ export function chipModel(b, { lot = null, now = Date.now() } = {}) {
   const aria = b?.fallback ? `${parts.join(", ")}. Reference data unavailable: using dashboard defaults. Open contract facts.` : `${[...parts, ...extra].join(", ")}. Open contract facts.`;
   return { text, short, aria, tone, dot: Boolean(events.length || tone !== "normal" || tomorrow), count: events.length };
 }
-/** The holiday on the IST day after `now`, when that day is a weekday holiday in the bundle. */
-function holidayTomorrow(b, now) {
+/** The holiday on the IST day after `now`, when that day is a weekday holiday in the bundle (a weekend is closed anyway). */
+export function holidayTomorrow(b, now) {
   const d = new Date(Date.parse(`${istDate(now)}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  const dow = new Date(`${d}T00:00:00Z`).getUTCDay();
+  if (dow === 0 || dow === 6) return null;
   const cal = refCalendar(b);
   return cal.label(d);
 }
@@ -446,9 +452,10 @@ export function refBanners({ rateNote = false, onMore = null, now = () => Date.n
       return;
     }
     const today = istDate(now());
-    const max = media("(max-width: 719px)") ? 1 : 2;
+    const phone = media("(max-width: 719px)");
+    const max = phone ? 1 : 2;
     const m = bannerModel(b, { hidden: readHidden(today), max, rateNote });
-    const s = JSON.stringify([m.shown.map((x) => [x.id, x.text]), m.more]);
+    const s = JSON.stringify([m.shown.map((x) => [x.id, x.text]), m.more, phone]);
     if (s === sig) return;
     sig = s;
     el.hidden = !m.shown.length;
@@ -458,7 +465,11 @@ export function refBanners({ rateNote = false, onMore = null, now = () => Date.n
           "div",
           { class: `ref-banner ${x.tone}`, "data-kind": x.kind, role: x.tone === "bad" || x.tone === "warn" ? "alert" : "status" },
           icon(x.tone === "info" || x.tone === "quiet" ? "calendar" : "warn"),
-          h("p", { class: "ref-banner-text", tabindex: "0", title: x.text, onclick: (e) => e.currentTarget.classList.toggle("open") }, x.text, x.detail ? h("span", { class: "ref-banner-detail" }, ` ${x.detail}`) : null),
+          // Phones clamp the text to two lines: there it is a button that expands it (keyboard and switch access
+          // included); elsewhere nothing is clamped, so it is plain text and not a tab stop.
+          phone
+            ? h("button", { type: "button", class: "ref-banner-text", "aria-expanded": "false", onclick: (e) => e.currentTarget.setAttribute("aria-expanded", String(e.currentTarget.classList.toggle("open"))) }, h("span", { class: "ref-banner-clamp" }, x.text, x.detail ? h("span", { class: "ref-banner-detail" }, ` ${x.detail}`) : null))
+            : h("p", { class: "ref-banner-text" }, x.text, x.detail ? h("span", { class: "ref-banner-detail" }, ` ${x.detail}`) : null),
           x.link ? h("a", { href: x.link, class: "ref-banner-act" }, "Market calendar") : null,
           x.hideable
             ? h("button", { type: "button", class: "ref-banner-act", title: "Hide until tomorrow", "aria-label": `Hide until tomorrow: ${x.text}`, onclick: () => (hideEvent(x.id, today), (sig = ""), draw()) }, h("span", { class: "ref-hide-long" }, "Hide until tomorrow"), h("span", { class: "ref-hide-short", "aria-hidden": "true" }, icon("close")))

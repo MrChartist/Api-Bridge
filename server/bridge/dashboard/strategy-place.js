@@ -108,7 +108,7 @@ export function openPlacement(o) {
             const touch = showTouch && phase === "confirm" && !r.fut
               ? h("span", { class: "touch-btns mini", role: "group", "aria-label": `Use a quote for ${r.label}` }, [["Bid", () => q()?.bid], ["Mid", () => O.mid(q())], ["Ask", () => q()?.ask]].map(([l, f]) => h("button", { type: "button", class: "small plain", onclick: () => set(f()) }, l)))
               : null;
-            const dot = r.preview ? h("span", { class: `pv-dot ${r.preview.block ? "bad" : r.preview.warn ? "warn" : "ok"}`, title: r.preview.text || "Checks passed", "aria-label": r.preview.block ? `Blocked: ${r.preview.text}` : r.preview.text || "Checks passed" }) : h("span", { class: "pv-dot wait", "aria-label": "Checking" });
+            const dot = r.preview ? h("span", { class: `pv-dot ${r.preview.block ? "bad" : r.preview.warn ? "warn" : "ok"}`, title: r.preview.text || "Checks passed", "aria-label": r.preview.block ? `Blocked: ${r.preview.text}` : r.preview.text || "Checks passed" }) : !gateOk() ? h("span", { class: "pv-dot held", title: "Tick the lot-size check above", "aria-label": "Tick the lot-size check above" }) : h("span", { class: "pv-dot wait", "aria-label": "Checking" });
             return h(
               "tr",
               { class: `st-${r.status}` },
@@ -311,7 +311,7 @@ export function openPlacement(o) {
 
   async function run(from = 0) {
     if (phase === "confirm") {
-      if (blocked() || (isLive() && !ack.checked)) return;
+      if (blocked() || !gateOk() || (isLive() && !ack.checked)) return;
       o.onCfg?.({ product: prodSeg.value, hedgeWait: Number(waitSeg.value) });
     }
     phase = "running";

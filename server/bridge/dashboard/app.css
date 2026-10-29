@@ -2835,6 +2835,8 @@ table.place-table td.num .block { white-space: nowrap; }
 .pv-dot.warn { background: hsl(var(--warn)); }
 .pv-dot.bad { background: hsl(var(--neg)); }
 .pv-dot.wait { animation: desk-pulse 1.2s infinite; }
+/* Waiting on the user (the lot-size box), not on a check: a still ring, no pulse. */
+.pv-dot.held { background: transparent; box-shadow: inset 0 0 0 1.5px hsl(var(--foreground) / 0.35); }
 .st-chip { display: inline-block; padding: 2px 8px; border-radius: 99px; font: 650 11px/1.4 var(--font-body); background: var(--mat-fill-2); white-space: nowrap; }
 .st-chip.filled { background: hsl(var(--pos) / 0.15); color: hsl(var(--pos-ink)); }
 .st-chip.rejected, .st-chip.unknown, .st-chip.cancelled { background: hsl(var(--neg) / 0.12); color: hsl(var(--neg-ink)); }
@@ -5823,6 +5825,7 @@ button.ref-more { align-self: flex-start; min-height: 30px; padding: 0 12px; bor
 .check.lot-gate { display: flex; align-items: flex-start; gap: 10px; min-height: 0; font: 600 13.5px/1.4 var(--font-body); color: hsl(var(--foreground)); cursor: pointer; }
 .check.lot-gate input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: hsl(var(--sel-bg)); }
 button.lot-gate-units { align-self: flex-start; min-height: 30px; padding: 0 4px; font-size: 12.5px; color: hsl(var(--ios-blue-ink)); background: transparent; }
+.ticket-lotgate[hidden] { display: none; }
 .place-lotgate { padding: 10px 12px; border-radius: 12px; background: hsl(var(--warn) / 0.12); box-shadow: inset 0 0 0 var(--hl) hsl(var(--warn) / 0.45); }
 
 /* ── Market calendar page ── */
@@ -5832,6 +5835,8 @@ button.lot-gate-units { align-self: flex-start; min-height: 30px; padding: 0 4px
 .cal-status-k { font: 650 14px/1.2 var(--font-display); }
 .cal-status-lead small { font: 500 11.5px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .cal-tiles { flex: 1 1 auto; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; min-width: 0; }
+.cal-tile-li { display: flex; min-width: 0; }
+.cal-tile-li > button.cal-tile { flex: 1 1 auto; width: 100%; }
 button.cal-tile { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 3px; min-height: 56px; padding: 8px 12px; border-radius: 12px; background: var(--mat-fill-1); color: hsl(var(--foreground)); text-align: left; min-width: 0; }
 button.cal-tile:hover { background: var(--mat-fill-2); }
 .cal-tile-k { font: 600 11.5px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); letter-spacing: 0.01em; }
@@ -5844,6 +5849,9 @@ button.cal-tile.quiet .cal-tile-v { color: hsl(var(--foreground) / var(--a-label
 .cal-off { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; background: var(--mat-fill-1); font: 500 13px/1.4 var(--font-body); }
 .cal-off > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; }
 .cal-off p { flex: 1 1 auto; margin: 0; }
+.check.cal-demo-stale { display: flex; align-items: flex-start; gap: 10px; padding: 2px 4px; font: 600 13px/1.4 var(--font-body); cursor: pointer; }
+.check.cal-demo-stale input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: hsl(var(--sel-bg)); }
+.check.cal-demo-stale small { display: block; font-weight: 500; font-size: 12px; color: hsl(var(--foreground) / var(--a-quiet)); }
 
 .cal-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--panel-gap); min-width: 0; flex: 1 1 100%; }
 .cal-col { display: flex; flex-direction: column; gap: var(--panel-gap); min-width: 0; }
@@ -5876,7 +5884,11 @@ button.cal-csv svg { width: 13px; height: 13px; }
 .cal-cell { height: 74px; padding: 6px 5px; vertical-align: top; border-radius: 10px; background: var(--mat-fill-1); overflow: hidden; white-space: normal; }
 .cal-cell.out { background: transparent; }
 .cal-cell.out .cal-day { color: hsl(var(--foreground) / 0.3); }
-.cal-cell.we:not(.spe) { background: transparent; box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
+/* Weekends read as background in both themes: no fill (light: no ring either; dark adds a faint ring so the
+   recessed cell still shows its place in the grid). */
+.cal-cell.we:not(.spe) { background: transparent; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .cal-cell.we:not(.spe):not(.out):not(.today) { box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); } }
+:root[data-theme="dark"] .cal-cell.we:not(.spe):not(.out):not(.today) { box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
 .cal-cell.out.we { box-shadow: none; }
 .cal-cell.hol { background: hsl(var(--warn) / 0.13); }
 .cal-cell.spe { background: hsl(var(--dv-iv) / 0.12); }
@@ -5892,6 +5904,7 @@ button.cal-csv svg { width: 13px; height: 13px; }
 .cal-mark.spe-t { margin-top: 0; font-weight: 500; -webkit-line-clamp: 1; color: hsl(var(--dv-iv-ink)); }
 .cal-mark.exw { color: hsl(var(--foreground)); background: transparent; box-shadow: inset 0 0 0 1.5px hsl(var(--foreground) / 0.55); }
 .cal-mark.mov { color: hsl(var(--foreground) / var(--a-label)); font-weight: 500; }
+.cal-legend[hidden] { display: none; }
 .cal-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .cal-legend .lg::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 3px; vertical-align: -1px; }
 .cal-legend .hol::before { background: hsl(var(--warn) / 0.45); }
@@ -5924,6 +5937,8 @@ button.cal-csv svg { width: 13px; height: 13px; }
 .cal-table th, .cal-table td { padding: 8px 10px 8px 0; text-align: left; white-space: nowrap; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 .cal-table thead th { padding-top: 0; font: 600 11.5px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .cal-table tbody th { position: sticky; left: 0; z-index: 1; background: var(--mat-grouped-solid); font-weight: 650; }
+/* The first header cell sticks with its column, so the header stays over the right columns when the table scrolls. */
+.cal-table thead th:first-child { position: sticky; left: 0; z-index: 2; background: var(--mat-grouped-solid); }
 .cal-table .num { text-align: right; }
 .cal-table td.wrap { white-space: normal; color: hsl(var(--foreground) / var(--a-label)); min-width: 160px; }
 .cal-table tr:last-child > * { box-shadow: none; }
@@ -5988,11 +6003,19 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
 .cal-rate-acts { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
 .cal-form-err { margin: 0; grid-column: 1 / -1; font: 600 12.5px/1.35 var(--font-body); color: hsl(var(--neg-ink)); }
 .cal-form-err[hidden] { display: none; }
+.cal-field-err { font: 600 12px/1.3 var(--font-body); color: hsl(var(--neg-ink)); }
+.cal-field-err[hidden] { display: none; }
+.cal-field-hint { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.cal-form input[aria-invalid="true"] { box-shadow: inset 0 0 0 1.5px hsl(var(--neg)); }
+.cal-uni-date { display: flex; flex-direction: column; gap: 4px; }
+.cal-uni-date input.cal-date { max-width: none; width: 100%; }
 .cal-charges th { white-space: normal; font-weight: 500; color: hsl(var(--foreground) / var(--a-label)); position: static; background: none; }
 .cal-charges td.num { font-weight: 650; }
 .cal-src { margin: 0; overflow-wrap: anywhere; }
 .cal-form { gap: 10px; min-width: min(420px, 100%); padding: 4px 16px 16px; }
 .cal-form [hidden] { display: none; }
+/* A field error under one field must not push its neighbour's label down. */
+.cal-form .ticket-grid { align-items: start; }
 .cal-preview { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 12px; background: var(--mat-fill-1); }
 .cal-preview p { margin: 0; }
 .cal-form-acts { display: flex; justify-content: flex-end; gap: 8px; }
@@ -6015,8 +6038,10 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
   button.cal-csv { width: 44px; padding: 0; font-size: 0; justify-content: center; }
   button.cal-csv svg { width: 15px; height: 15px; }
   .ref-banner { align-items: flex-start; }
-  .ref-banner-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
-  .ref-banner-text.open { display: block; }
+  button.ref-banner-text { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: flex-start; min-height: 44px; margin: -6px 0; padding: 0; white-space: normal; height: auto; letter-spacing: normal; font-weight: 500; border-radius: 8px; background: transparent; color: inherit; font: inherit; text-align: left; box-shadow: none; cursor: pointer; }
+  button.ref-banner-text:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+  .ref-banner-clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  button.ref-banner-text.open .ref-banner-clamp { display: block; }
   .ref-hide-long { display: none; }
   .ref-hide-short { display: inline-flex; }
   .ref-banner-act { min-width: 44px; min-height: 44px; margin: -6px -2px -6px 0; padding: 0 8px; background: transparent; }

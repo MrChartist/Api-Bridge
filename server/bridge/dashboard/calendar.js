@@ -9,7 +9,7 @@
 import { alertBox, api, app, emptyState, h, icon, mountToolbarCtx, optional, sheetPopover, toast } from "./app.js";
 import { DASH, formatFixed, formatInt, formatRupee } from "./format.js";
 import { DEMO_UNDERLYINGS, UNDERLYINGS } from "./desk.js";
-import { clearReferenceCache, dayText, daysBetween, istDate, loadReference, monthText, rateText, refBanners, refChip, upcomingEvents } from "./reference.js";
+import { REF_DEFAULTS, clearReferenceCache, dayText, daysBetween, istDate, loadReference, monthText, rateText, refBanners, refChip, upcomingEvents } from "./reference.js";
 import { segmented } from "./views.js";
 
 const SLOT = "mcb.dashboard.calendar";
@@ -301,7 +301,8 @@ const METHODS = {
   ban: "MWPL % = 100 × combined open interest ÷ market-wide position limit (both in shares, NSE combined OI file, end of day). Band: in ban when the stock is on NSE's ban list for the date; high at 80 % or more (a display band, not an exchange status); else normal. The exchange rule (enter above 95 %, leave below 80 %) needs verification.",
   universe: "F&O membership by date is recorded from the first market lots file this Bridge fetched. Earlier dates are not recorded here, so they are never filled with today's list.",
   actions: "Adjustment factor: bonus a:b → (a + b) ÷ b; split or consolidation → old face value ÷ new; rights a:b at S with cum price P → P ÷ TERP, TERP = (b·P + a·S) ÷ (a + b). Adjusted strike = strike ÷ factor, rounded to the tick; adjusted lot = lot × factor, rounded (a fraction marks a non-standard contract). An extraordinary dividend D lowers strikes by D. The exchange method needs verification against each circular.",
-  rate: "The risk-free rate discounts option prices and carries the forward (put-call parity). Enter the 91-day T-bill or your preferred rate, with where it came from. Without one, the pages use 6.50 % and say it is a default.",
+  // The default's value comes from the Bridge (or REF_DEFAULTS when it cannot be read): never written here.
+  rate: (def) => `The risk-free rate discounts option prices and carries the forward (put-call parity). Enter the 91-day T-bill or your preferred rate, with where it came from. Without one, the pages use ${formatFixed(def * 100, 2)} % and say it is a default.`,
   charges: "Statutory charges per order. Brokerage here is the default; plans per account are separate. Check your broker's contract note.",
 };
 
@@ -323,6 +324,7 @@ export async function renderCalendarPage() {
     desk = {};
   }
   const today = istDate(Date.now());
+  const isPhone = () => typeof matchMedia === "function" && matchMedia("(max-width: 719px)").matches;
   const st = {
     underlying: list.includes(saved.underlying) ? saved.underlying : list.includes(desk.underlying) ? desk.underlying : list[0],
     month: /^\d{4}-\d{2}$/.test(saved.month ?? "") && Math.abs(daysBetween(`${saved.month}-01`, `${today.slice(0, 7)}-01`) ?? 999) < 400 ? saved.month : today.slice(0, 7),
@@ -334,6 +336,8 @@ export async function renderCalendarPage() {
   const save = () => app.local.set(SLOT, JSON.stringify({ underlying: st.underlying, month: st.month }));
   const get = (path) => optional(api(path)).then((r) => (r.error ? { error: r.error } : { data: r.data?.data ?? null }));
   const data = { status: null, holidays: null, specials: [], expiries: null, lots: null, ban: null, mwpl: null, universe: null, actions: null, rate: null, charges: null, events: null };
+  /** The default rate's value: the Bridge's when it reports its default, else the dashboard fallback. */
+  const defaultRate = () => (data.rate?.data?.quality === "default" && Number.isFinite(data.rate.data.value) ? data.rate.data.value : REF_DEFAULTS.rate.value);
 
   // ── Top bar: the underlying (for expiries and lots) and its reference chip ──
   const uSel = h("select", { "aria-label": "Underlying", class: "desk-u" }, list.map((u) => h("option", { value: u, selected: u === st.underlying }, u)));
@@ -353,7 +357,10 @@ export async function renderCalendarPage() {
   function panel(id, title, sub, { csv = null, extra = [] } = {}) {
     const subEl = h("span", { class: "cal-sub" }, sub ?? "");
     const help = h("button", { type: "button", class: "icon-btn tiny cal-help", "aria-label": `How ${title.toLowerCase()} is read`, title: "Method" }, h("span", { "aria-hidden": "true" }, "?"));
-    help.addEventListener("click", () => sheetPopover({ trigger: help, title, body: h("p", { class: "cal-method" }, METHODS[id] ?? "") }));
+    help.addEventListener("click", () => {
+      const m = METHODS[id] ?? "";
+      sheetPopover({ trigger: help, title, body: h("p", { class: "cal-method" }, typeof m === "function" ? m(defaultRate()) : m) });
+    });
     const csvBtn = csv ? h("button", { type: "button", class: "small cal-csv", title: "Download as CSV" }, icon("external"), "CSV") : null;
     csvBtn?.addEventListener("click", () => {
       const rows = csv.rows();
@@ -361,8 +368,9 @@ export async function renderCalendarPage() {
       download(`${csv.name}-${today}.csv`, toCsv(CSV_COLUMNS[csv.cols], rows));
     });
     const body = h("div", { class: "cal-body" });
-    const el = h("section", { class: `desk-panel cal-panel calp-${id}`, "data-panel": `cal-${id}`, "aria-label": title }, h("header", { class: "panel-head cal-head" }, h("div", { class: "cal-titles" }, h("h2", {}, title), subEl), h("div", { class: "cal-acts" }, ...extra, csvBtn, help)), body);
-    return { el, body, sub: subEl };
+    const acts = h("div", { class: "cal-acts" }, ...extra.filter(Boolean), csvBtn, help);
+    const el = h("section", { class: `desk-panel cal-panel calp-${id}`, "data-panel": `cal-${id}`, "aria-label": title }, h("header", { class: "panel-head cal-head" }, h("div", { class: "cal-titles" }, h("h2", {}, title), subEl), acts), body);
+    return { el, body, sub: subEl, acts };
   }
   function download(name, text) {
     try {
@@ -415,9 +423,10 @@ export async function renderCalendarPage() {
       "div",
       { class: "cal-tiles", role: "list" },
       tiles.map((t) => {
-        const b = h("button", { type: "button", class: `cal-tile ${t.tone}`, role: "listitem", "aria-label": `${t.label}: ${t.word}${t.asOf ? `, as of ${dayText(t.asOf)}` : ""}` }, h("span", { class: "cal-tile-k" }, t.label), h("strong", { class: "cal-tile-v" }, t.word), h("small", {}, t.asOf ? dayText(String(t.asOf).slice(0, 10)) : DASH));
+        const b = h("button", { type: "button", class: `cal-tile ${t.tone}`, "aria-haspopup": "dialog", "aria-label": `${t.label}: ${t.word}${t.asOf ? `, as of ${dayText(t.asOf)}` : ""}` }, h("span", { class: "cal-tile-k" }, t.label), h("strong", { class: "cal-tile-v" }, t.word), h("small", {}, t.asOf ? dayText(String(t.asOf).slice(0, 10)) : DASH));
         b.addEventListener("click", () => sheetPopover({ trigger: b, title: `${t.label}: ${t.word}`, body: h("p", { class: "cal-method" }, t.detail || "No details recorded yet.") }));
-        return b;
+        // The list item wraps the button, so the button keeps its own role (an explicit role would replace it).
+        return h("div", { role: "listitem", class: "cal-tile-li" }, b);
       }),
     );
     const notice = off
@@ -430,7 +439,29 @@ export async function renderCalendarPage() {
         )
       : null;
     const lead = h("div", { class: "cal-status-lead" }, h("span", { class: "cal-status-k" }, s.data.demo ? "Demo reference data" : "Reference data"), h("small", {}, s.data.knownSince ? `Recorded since ${dayText(s.data.knownSince, { year: true })}` : ""));
-    fill(statusEl, h("div", { class: "cal-status-row" }, lead, tilesEl), notice);
+    fill(statusEl, h("div", { class: "cal-status-row" }, lead, tilesEl), notice, s.data.demo && onThisComputer() ? demoStaleSwitch(Boolean(s.data.demoLotsStale)) : null);
+  }
+  /**
+   * Demo only (spec §4): report the demo lot data as two trading days old, so the stale warning, the chip's "Stale"
+   * and the order ticket's lot-size check can be seen from the dashboard (PUT /v1/demo/reference, this computer only).
+   */
+  function demoStaleSwitch(on) {
+    const box = h("input", { type: "checkbox", role: "switch" });
+    box.checked = on;
+    box.addEventListener("change", async () => {
+      box.disabled = true;
+      const r = await optional(api("/v1/demo/reference", { method: "PUT", body: { lotsStale: box.checked } }));
+      box.disabled = false;
+      if (r.error) {
+        box.checked = !box.checked;
+        return toast(r.error.message ?? "Could not change the demo lot data", { tone: "bad" });
+      }
+      toast(box.checked ? "Demo lot data now reads as two trading days old on every page" : "Demo lot data is current again");
+      clearReferenceCache();
+      loadStatus();
+      loadUnderlying();
+    });
+    return h("label", { class: "check cal-demo-stale" }, box, h("span", {}, "Show stale lot data ", h("small", {}, "demo: lots read as two trading days old, so the warning and the ticket's lot-size check appear")));
   }
   async function turnOn(btn) {
     btn.disabled = true;
@@ -475,7 +506,9 @@ export async function renderCalendarPage() {
     if (!data.holidays) return fill(gridHost, loading("Loading the holiday list"));
     if (data.holidays.error) return fill(gridHost, fail(data.holidays.error));
     const weeks = monthGrid(st.month, gridData());
-    const phone = typeof matchMedia === "function" && matchMedia("(max-width: 719px)").matches;
+    const phone = isPhone();
+    // The legend's swatches belong to the grid; the phone list says each kind in words.
+    legendEl.hidden = phone;
     if (phone) {
       const items = monthList(weeks);
       fill(gridHost, 
@@ -522,6 +555,8 @@ export async function renderCalendarPage() {
     if (!e || !l) return fill(exp.body, loading(`Loading ${st.underlying} expiries`));
     if (e.error) return fill(exp.body, fail(e.error));
     const rows = e.data?.expiries ?? [];
+    // The lots read can fail on its own: say so in the head rather than show "Lot now --" as if there were no lot.
+    const lotsFailed = l.error ? fail(l.error) : null;
     const freeze = l.data?.freeze ?? null;
     const fq = num(freeze?.freezeQty);
     const head = h(
@@ -564,7 +599,7 @@ export async function renderCalendarPage() {
           ),
         )
       : null;
-    fill(exp.body, head, table, histEl);
+    fill(exp.body, lotsFailed, head, table, histEl);
   }
   function kv(k, v, sub) {
     return h("div", { class: "cal-kv-i" }, h("span", { class: "k" }, k), h("strong", {}, v), sub ? h("small", {}, sub) : null);
@@ -605,6 +640,11 @@ export async function renderCalendarPage() {
       h("div", { class: "cal-ban-list" }, h("span", { class: "k" }, `In ban (${formatInt(bd.items.length)})`), bd.items.length ? bd.items.map((x) => h("span", { class: "cal-ban-chip" }, h("strong", {}, x.symbol), num(x.mwplPct) !== null ? ` ${formatFixed(x.mwplPct, 1)} %` : "")) : h("span", { class: "muted" }, "None")),
       h("p", { class: "cal-note-line" }, `In ban: no fresh positions; closing is allowed. Source: ${bd.source === "demo" ? "demo data" : "NSE combined OI"}, end of day ${dayText(m.data?.asOf ?? bd.asOf)}.`),
     );
+    if (m.error) {
+      // The ban list read but MWPL did not: the table is unavailable, not an empty search result.
+      banTools.hidden = true;
+      return fill(mwplHost, fail(m.error));
+    }
     const rows = mwplView(m.data?.items ?? [], { query: st.mwplQuery, sort: st.mwplSort });
     fill(mwplHost, 
       rows.length
@@ -635,16 +675,31 @@ export async function renderCalendarPage() {
     loadUniverse();
   });
   const uni = panel("universe", "F&O universe", "", { csv: { name: "fno-universe", cols: "universe", rows: () => data.universe?.data?.items ?? [] }, extra: [dateIn] });
+  // Phones: the date picker gets a full-width row in the panel body ("Membership on [date]"), so the header keeps
+  // only CSV and "?" like the other panels. Wider screens keep it in the header.
+  const uniDateRow = h("label", { class: "field cal-uni-date" }, h("span", {}, "Membership on"));
+  function placeDate() {
+    if (isPhone()) {
+      if (dateIn.parentElement !== uniDateRow) uniDateRow.append(dateIn);
+      dateIn.removeAttribute("aria-label");
+      return uniDateRow;
+    }
+    if (dateIn.parentElement !== uni.acts) uni.acts.prepend(dateIn);
+    dateIn.setAttribute("aria-label", "Membership on");
+    return null;
+  }
   function drawUniverse() {
     const u = data.universe;
-    if (!u) return fill(uni.body, loading("Loading membership"));
-    if (u.error) return fill(uni.body, fail(u.error));
+    const dateRow = placeDate();
+    if (!u) return fill(uni.body, dateRow, loading("Loading membership"));
+    if (u.error) return fill(uni.body, dateRow, fail(u.error));
     const note = universeNote(u.data);
     uni.sub.textContent = note.recorded ? `${formatInt(u.data.count ?? 0)} on ${dayText(u.data.date)}` : "";
     const changes = u.data?.changes ?? [];
     const stocks = (u.data?.items ?? []).filter((x) => x.kind === "stock").length;
     const idx = (u.data?.items ?? []).filter((x) => x.kind === "index").length;
     fill(uni.body, 
+      dateRow,
       h("p", { class: note.recorded ? "cal-note-line" : "cal-note-line quiet" }, note.text),
       note.recorded ? h("div", { class: "cal-kv" }, kv("Stocks", formatInt(stocks), ""), kv("Indices", formatInt(idx), ""), kv("Recorded since", dayText(u.data.knownSince, { year: true }), "")) : null,
       h("h3", {}, "Changes ", h("small", {}, "last 90 days")),
@@ -711,14 +766,24 @@ export async function renderCalendarPage() {
       return el;
     };
     const typeSel = h("select", { "aria-label": "Type" }, [["bonus", "Bonus"], ["split", "Split"], ["consolidation", "Consolidation"], ["rights", "Rights"], ["dividend", "Dividend"]].map(([v, t]) => h("option", { value: v }, t)));
-    const symIn = h("input", { type: "text", autocomplete: "off", spellcheck: "false", placeholder: "RELIANCE", maxlength: "30", "aria-label": "Symbol" });
-    const dateIn2 = h("input", { type: "date", "aria-label": "Ex-date", min: today });
+    const uid = `caf${Date.now().toString(36)}`;
+    const symIn = h("input", { type: "text", autocomplete: "off", spellcheck: "false", placeholder: "e.g. RELIANCE", maxlength: "30", "aria-label": "Symbol", "aria-describedby": `${uid}-sym` });
+    const dateIn2 = h("input", { type: "date", "aria-label": "Ex-date", min: today, "aria-describedby": `${uid}-date` });
+    // Field errors sit under their field (and the field is marked invalid and focused), not at the foot of the sheet.
+    const symErr = h("small", { class: "cal-field-err", id: `${uid}-sym`, hidden: true });
+    const dateErr = h("small", { class: "cal-field-err", id: `${uid}-date`, hidden: true });
+    const fieldErr = (input, el, text) => {
+      el.textContent = text ?? "";
+      el.hidden = !text;
+      if (text) input.setAttribute("aria-invalid", "true");
+      else input.removeAttribute("aria-invalid");
+    };
     const ratioRow = h("div", { class: "ticket-grid" }, field("New shares", inp("ratioNew")), field("For held", inp("ratioHeld")));
     const fvRow = h("div", { class: "ticket-grid" }, field("Face value before", inp("fvFrom")), field("Face value after", inp("fvTo")));
     const rightsRow = h("div", { class: "ticket-grid" }, field("Subscription price", inp("subscriptionPrice")), field("Cum price", inp("cumPrice")));
     const divRow = h("div", { class: "ticket-grid" }, field("Dividend per share", inp("dividend")), field("Cum price", inp("cumPrice")));
     const lotIn = inp("lot", { step: "1", inputmode: "numeric" });
-    const strikesIn = h("input", { type: "text", inputmode: "decimal", placeholder: "Filled from the last price", "aria-label": "Strikes" });
+    const strikesIn = h("input", { type: "text", inputmode: "decimal", "aria-label": "Strikes", "aria-describedby": `${uid}-stk` });
     strikesIn.addEventListener("input", () => {
       f.strikes = strikesIn.value.split(/[\s,]+/).filter(Boolean);
       schedule();
@@ -739,10 +804,11 @@ export async function renderCalendarPage() {
     let symTimer = 0;
     symIn.addEventListener("input", () => {
       f.symbol = symIn.value.trim().toUpperCase();
+      fieldErr(symIn, symErr, null);
       clearTimeout(symTimer);
       symTimer = setTimeout(fillSymbol, 350);
     });
-    dateIn2.addEventListener("change", () => (f.exDate = dateIn2.value));
+    dateIn2.addEventListener("change", () => ((f.exDate = dateIn2.value), fieldErr(dateIn2, dateErr, null)));
     async function fillSymbol() {
       const s = f.symbol;
       if (!/^[A-Z0-9&-]{2,30}$/.test(s)) return;
@@ -781,13 +847,13 @@ export async function renderCalendarPage() {
     const body = h(
       "div",
       { class: "stack cal-form" },
-      h("div", { class: "ticket-grid" }, field("Symbol", symIn), field("Type", typeSel)),
-      field("Ex-date", dateIn2),
+      h("div", { class: "ticket-grid" }, h("label", { class: "field" }, h("span", {}, "Symbol"), symIn, symErr), field("Type", typeSel)),
+      h("div", { class: "ticket-grid" }, h("label", { class: "field" }, h("span", {}, "Ex-date"), dateIn2, dateErr), field("Lot before", lotIn)),
       ratioRow,
       fvRow,
       rightsRow,
       divRow,
-      h("div", { class: "ticket-grid" }, field("Lot before", lotIn), field("Strikes", strikesIn)),
+      h("label", { class: "field" }, h("span", {}, "Strikes"), strikesIn, h("small", { class: "cal-field-hint", id: `${uid}-stk` }, "Filled from the last price; separate with commas")),
       out,
       err,
     );
@@ -798,8 +864,13 @@ export async function renderCalendarPage() {
     saveBtn.addEventListener("click", async () => {
       const b = previewBody(f);
       err.hidden = true;
-      if (b.error || !/^[A-Z0-9&-]{2,30}$/.test(f.symbol) || !ISO_DAY.test(f.exDate)) {
-        err.textContent = b.error ?? (!f.symbol ? "Enter the symbol." : "Enter the ex-date.");
+      const symBad = !/^[A-Z0-9&-]{2,30}$/.test(f.symbol);
+      const dateBad = !ISO_DAY.test(f.exDate);
+      fieldErr(symIn, symErr, symBad ? (f.symbol ? "Use the NSE symbol: letters, digits, & or -." : "Enter the symbol.") : null);
+      fieldErr(dateIn2, dateErr, dateBad ? "Enter the ex-date." : null);
+      if (symBad || dateBad) return (symBad ? symIn : dateIn2).focus();
+      if (b.error) {
+        err.textContent = b.error;
         err.hidden = false;
         return;
       }
@@ -821,7 +892,7 @@ export async function renderCalendarPage() {
   }
 
   // ── 7. Risk-free rate ──
-  const rate = panel("rate", "Risk-free rate", "every page");
+  const rate = panel("rate", "Risk-free rate", "");
   const footRate = document.createTextNode("");
   const foot = h("p", { class: "cal-foot", "data-fixed": "" }, CAL_DISCLAIMER, footRate);
   function drawRate() {
@@ -831,6 +902,7 @@ export async function renderCalendarPage() {
     const d = r.data;
     footRate.data = ` Rate in use: ${rateText({ rate: d })}.`;
     const isDefault = d.quality === "default";
+    rate.sub.textContent = isDefault ? "Used on every Options page" : `${d.quality === "config" ? "From config" : "Entered"}${d.asOf ? ` · ${dayText(d.asOf)}` : ""}${d.stale ? " · over 14 days old" : ""}`;
     const valIn = h("input", { type: "number", min: "0", max: "25", step: "0.01", inputmode: "decimal", value: isDefault ? "" : formatFixed(d.value * 100, 2), placeholder: formatFixed(d.value * 100, 2), "aria-label": "Rate, % a year" });
     const asOfIn = h("input", { type: "date", value: d.asOf ?? today, max: today, "aria-label": "As of" });
     const srcIn = h("input", { type: "text", maxlength: "120", value: isDefault ? "" : d.source ?? "", placeholder: "91-day T-bill cut-off, RBI auction", "aria-label": "Source" });
@@ -944,7 +1016,7 @@ export async function renderCalendarPage() {
   // Phones get the list, wider screens the grid: redraw when the device class changes. The listener (and a pending
   // month fetch) go when the route leaves this page, so a visit does not keep the page's DOM alive.
   const mq = typeof matchMedia === "function" ? matchMedia("(max-width: 719px)") : null;
-  const onMq = () => (statusEl.isConnected ? drawCalendar() : cleanup());
+  const onMq = () => (statusEl.isConnected ? (drawCalendar(), drawUniverse()) : cleanup());
   mq?.addEventListener("change", onMq);
   const onRoute = () => setTimeout(() => !statusEl.isConnected && cleanup(), 0);
   window.addEventListener("hashchange", onRoute);

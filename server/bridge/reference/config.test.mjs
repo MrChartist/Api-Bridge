@@ -46,6 +46,8 @@ describe("reference config", () => {
   it("the S5 defaults carry their source", () => {
     expect(DEFAULT_SESSIONS.NFO).toEqual({ preOpen: "09:00", open: "09:15", close: "15:30" });
     expect(DEFAULT_SESSIONS.source).toMatch(/needs verification/);
-    expect(DEFAULT_BROKERAGE.source).toMatch(/default/);
+    expect(DEFAULT_BROKERAGE.source).toMatch(/default/i);
+    // User-facing: no spec store ids or config keys.
+    for (const t of [DEFAULT_SESSIONS.source, DEFAULT_BROKERAGE.source]) expect(t).not.toMatch(/\bS5\b|reference\./);
   });
 });

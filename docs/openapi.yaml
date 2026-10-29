@@ -5179,6 +5179,7 @@ components:
       type: object
       properties:
         demo: { type: boolean }
+        demoLotsStale: { type: boolean, description: "Demo Bridge only: true while PUT /v1/demo/reference has the lot data reported as two trading days old" }
         sources: { type: object, properties: { nseArchives: { type: object, properties: { enabled: { type: boolean }, setBy: { type: string }, setAt: { type: [string, "null"] } } } } }
         datasets: { type: object, additionalProperties: { $ref: "#/components/schemas/RefDatasetStatus" } }
         knownSince: { type: [string, "null"] }
