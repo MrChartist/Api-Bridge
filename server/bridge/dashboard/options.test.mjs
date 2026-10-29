@@ -878,6 +878,14 @@ describe("pricing, Greeks and scenarios", () => {
     expect(legs[0]).toMatchObject({ priced: true, ivSolved: true });
     expect(black76(26000, 26000, legs[0].T, legs[0].iv, "CE")).toBeCloseTo(120, 1);
   });
+  it("measures time to expiry to the reference session close it is given", () => {
+    const pos = [{ symbol: "NFO:NIFTY-2026-11-03-26000-CE", netQty: 75, avgPrice: 100 }];
+    const q = { quotes: new Map([["NFO:NIFTY-2026-11-03-26000-CE", { ltp: 120, bid: 119.9, ask: 120.1 }]]), spot: 26000, now: NOW };
+    const normal = O.priceBook(O.bookLegs(pos, "NIFTY"), { ...q, close: "15:30" })[0].T;
+    const early = O.priceBook(O.bookLegs(pos, "NIFTY"), { ...q, close: "13:30" })[0].T;
+    expect(normal).toBeCloseTo(O.yearsToExpiry("2026-11-03", NOW, "15:30"), 12);
+    expect(normal - early).toBeCloseTo(2 / (24 * 365), 6);
+  });
   it("builds the scenario grid with labels and its worst cell", () => {
     const legs = priced(condorPositions);
     const g = O.scenarioGrid(legs, { ladder: "tight", axis: "iv", F: 26000 });

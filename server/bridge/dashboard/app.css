@@ -2187,6 +2187,8 @@ button.preset:hover { background: var(--mat-fill-1); }
 .ticket-acct { display: inline-flex; flex-wrap: wrap; align-items: center; column-gap: 4px; min-height: 40px; font: 600 14px/1.2 var(--font-body); color: hsl(var(--foreground)); }
 .live-ack { padding: 10px 12px; border-radius: var(--r-sm); background: hsl(var(--ios-red) / 0.08); color: hsl(var(--ios-red-ink)); font-weight: 600; }
 button.primary.sell { background: hsl(var(--c-sell)); box-shadow: 0 6px 18px hsl(var(--c-sell) / 0.24), inset 0 1px 0 hsl(0 0% 100% / 0.2); }
+/* A disabled Buy / Sell (lot-size gate unticked, a blocking check) looks disabled: the coloured class must not win. */
+button.primary.sell:disabled, button.primary.buy:disabled, button.bs-btn.sell:disabled, button.bs-btn.buy:disabled { background: var(--mat-fill-2); color: hsl(var(--foreground) / var(--a-quiet)); box-shadow: none; }
 
 @media (max-width: 1023px) {
   .builder { grid-template-columns: minmax(0, 1fr); }
@@ -5846,9 +5848,13 @@ button.cal-tile.quiet .cal-tile-v { color: hsl(var(--foreground) / var(--a-label
 .cal-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--panel-gap); min-width: 0; flex: 1 1 100%; }
 .cal-col { display: flex; flex-direction: column; gap: var(--panel-gap); min-width: 0; }
 .cal-head { min-height: 48px; flex-wrap: nowrap; }
-.cal-titles { flex: 1 1 auto; display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+/* The subtitle sits under the title at every width, so the header's buttons never cut it off. */
+.cal-titles { flex: 1 1 auto; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
 .cal-titles h2 { flex: none; font: 650 15px/1.2 var(--font-display); letter-spacing: -0.01em; margin: 0; }
-.cal-sub { min-width: 0; font: 500 12.5px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-sub { min-width: 0; max-width: 100%; font: 500 12.5px/1.25 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); overflow-wrap: anywhere; }
+.cal-page-alert[hidden] { display: none; }
+.cal-page-alert-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.cal-page-alert-row > .alert { flex: 1 1 260px; min-width: 0; margin: 0; }
 .cal-acts { flex: none; display: flex; align-items: center; gap: 6px; margin-left: auto; }
 button.cal-help { width: 30px; height: 30px; font: 700 13px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 button.cal-csv svg { width: 13px; height: 13px; }
@@ -5867,7 +5873,7 @@ button.cal-csv svg { width: 13px; height: 13px; }
 .cal-grid { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 4px; margin: -4px; width: calc(100% + 8px); }
 .cal-grid th { padding: 2px 0 4px; font: 600 11.5px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); text-align: left; }
 .cal-grid th.we { color: hsl(var(--foreground) / 0.45); }
-.cal-cell { height: 74px; padding: 6px 7px; vertical-align: top; border-radius: 10px; background: var(--mat-fill-1); overflow: hidden; white-space: normal; }
+.cal-cell { height: 74px; padding: 6px 5px; vertical-align: top; border-radius: 10px; background: var(--mat-fill-1); overflow: hidden; white-space: normal; }
 .cal-cell.out { background: transparent; }
 .cal-cell.out .cal-day { color: hsl(var(--foreground) / 0.3); }
 .cal-cell.we:not(.spe) { background: transparent; box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
@@ -5881,7 +5887,9 @@ button.cal-csv svg { width: 13px; height: 13px; }
 .cal-mark em { font-style: normal; font-weight: 500; color: hsl(var(--foreground) / var(--a-quiet)); }
 .cal-mark.hol { color: hsl(var(--warn-ink)); }
 .cal-mark.spe { color: hsl(var(--dv-iv-ink)); }
-.cal-mark.exw, .cal-mark.exm { display: inline-block; padding: 2px 6px; border-radius: 99px; font-weight: 650; color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); -webkit-line-clamp: 1; white-space: nowrap; max-width: 100%; }
+.cal-mark.exw, .cal-mark.exm { display: inline-block; padding: 1px 5px; font-size: 10.5px; border-radius: 99px; font-weight: 650; color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); -webkit-line-clamp: 1; white-space: nowrap; max-width: 100%; text-overflow: ellipsis; }
+.cal-mark.hol-u { margin-top: 0; font-weight: 500; color: hsl(var(--foreground) / var(--a-quiet)); -webkit-line-clamp: 1; }
+.cal-mark.spe-t { margin-top: 0; font-weight: 500; -webkit-line-clamp: 1; color: hsl(var(--dv-iv-ink)); }
 .cal-mark.exw { color: hsl(var(--foreground)); background: transparent; box-shadow: inset 0 0 0 1.5px hsl(var(--foreground) / 0.55); }
 .cal-mark.mov { color: hsl(var(--foreground) / var(--a-label)); font-weight: 500; }
 .cal-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
@@ -6004,8 +6012,6 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
 @media (max-width: 719px) {
   button.ref-chip { height: 44px; padding: 0 12px; gap: 6px; }
   .ref-chip-ic { display: none; }
-  .cal-titles { flex-direction: column; align-items: flex-start; gap: 2px; }
-  .cal-sub { max-width: 100%; }
   button.cal-csv { width: 44px; padding: 0; font-size: 0; justify-content: center; }
   button.cal-csv svg { width: 15px; height: 15px; }
   .ref-banner { align-items: flex-start; }
@@ -6024,7 +6030,7 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
 }
 @media (pointer: coarse) {
   button.ref-chip, button.cal-tile, button.ref-more, button.cal-help, button.lot-gate-units, .cal-nav .icon-btn, .ref-banner-act, input.cal-search, input.cal-date, button.cal-csv { min-height: 44px; }
-  button.cal-help, .cal-nav .icon-btn { min-width: 44px; }
+  button.cal-help, button.cal-csv, .cal-nav .icon-btn { min-width: 44px; }
   .check.lot-gate { min-height: 44px; align-items: center; }
 }
 @media (prefers-reduced-motion: reduce) {

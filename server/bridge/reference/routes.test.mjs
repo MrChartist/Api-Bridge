@@ -173,6 +173,9 @@ describe("demo Bridge", () => {
     expect(ses).toMatchObject({ state: "HOLIDAY", tradingDay: false, holiday: { verified: true } });
     const hol = (await h.call("GET", "/v1/reference/holidays?from=2026-01-01&to=2026-12-31&exchange=NSE")).json.data;
     expect(hol.items.length).toBeGreaterThan(10);
+    // Special sessions in the range come with the holidays (one request per month on the Market calendar page).
+    expect(hol.specialSessions).toEqual(expect.arrayContaining([expect.objectContaining({ date: "2026-11-08", open: "18:00", close: "19:00" })]));
+    expect(undocumented(hol, "RefHolidays")).toEqual([]);
     expect((await h.call("GET", "/v1/reference/holidays?from=2026-01-01&to=2027-06-30")).status).toBe(400);
     expect((await h.call("GET", "/v1/reference/holidays?from=2026-12-31&to=2026-01-01")).status).toBe(400);
     const lots = (await h.call("GET", "/v1/reference/lots?underlying=NIFTY")).json.data;
@@ -232,6 +235,16 @@ describe("demo Bridge", () => {
     expect((await h.call("DELETE", `/v1/reference/corporate-actions/${added.json.data.id}`, { key: ADMIN })).status).toBe(204);
     expect((await h.call("DELETE", `/v1/reference/corporate-actions/${added.json.data.id}`, { key: ADMIN })).status).toBe(404);
     expect((await h.call("DELETE", "/v1/reference/corporate-actions/ca_RELIANCE_2024-10-28_bonus", { key: ADMIN })).status).toBe(404);
+
+    // The add form's previewed strikes are stored, and the listed row's example uses exactly those strikes.
+    const bonus = { symbol: "RELIANCE", type: "bonus", ratio: { new: 1, held: 1 }, exDate: "2026-11-12", exampleStrikes: [1520, 1480, 1500, 1540, 1560] };
+    const preview = (await h.call("POST", "/v1/reference/corporate-actions/preview", { body: { type: "bonus", ratio: { new: 1, held: 1 }, strikes: [1480, 1500, 1520, 1540, 1560] } })).json.data;
+    const saved = await h.call("POST", "/v1/reference/corporate-actions", { key: ADMIN, body: bonus });
+    expect(saved.status).toBe(201);
+    expect(saved.json.data.exampleStrikes).toEqual([1480, 1500, 1520, 1540, 1560]);
+    const row = (await h.call("GET", "/v1/reference/corporate-actions?symbol=RELIANCE&origin=user")).json.data.items[0];
+    expect(row.adjusted.exampleStrikes).toEqual(preview.strikes);
+    expect((await h.call("POST", "/v1/reference/corporate-actions", { key: ADMIN, body: { ...bonus, exDate: "2026-11-13", exampleStrikes: [-1] } })).status).toBe(400);
 
     const audit = await h.app.deps.audit.query({ limit: 50 });
     const types = (audit.items ?? audit.data ?? audit).map((r) => r.type);

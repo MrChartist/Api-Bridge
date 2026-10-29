@@ -16,7 +16,7 @@ import * as O from "./options.js";
 import { createPositionsPage } from "./positions.js";
 import { cap, every, segField, segmented, stopTimer } from "./views.js";
 import { createVolPage, volConfig } from "./vol.js";
-import { demoStaleAsked, lotConfirmGate, loadReference, refBanners, refCalendar, refChip, refRate, refSession } from "./reference.js";
+import { demoStaleAsked, lotConfirmGate, loadReference, refBanners, refCalendar, refChip, refRate, refSession, refSignature } from "./reference.js";
 import { animatePage, barsEnter, countUp, flashValue, stopCount } from "./motion.js";
 
 const SLOT = "mcb.dashboard.desk";
@@ -605,7 +605,8 @@ async function renderDesk(kind) {
     const u = st.underlying;
     const b = await loadReference(u, { demoStale: Boolean(app.state.demo) && demoStaleAsked() });
     if (u !== st.underlying) return;
-    const changed = b !== st.ref;
+    // Compare what the bundle says, not the object: a re-read fallback (or the same data) does not redraw the page.
+    const changed = refSignature(b) !== refSignature(st.ref);
     st.ref = b;
     refChipEl.update();
     if (!changed) return;
@@ -1327,8 +1328,8 @@ async function renderDesk(kind) {
     const warnEl = h("ul", { class: "ticket-checks ticket-warns", "aria-label": "Before you trade", hidden: true });
     // Lot-size confirmation (docs/spec/p1-02-reference.md §5.4): when the reference lot data is stale or disagrees
     // with the broker's contract, an order in lots needs this box ticked; the lot is then sent as lotSizeConfirmed.
-    // Quantity in units needs no confirmation.
-    const gate = !fut && !inUnits ? lotConfirmGate(st.ref, lotSize) : { needed: false };
+    // Quantity in units needs no confirmation. Futures in lots get the same gate (the server checks FUT and OPT).
+    const gate = lotConfirmGate(st.ref, lotSize, { units: inUnits });
     const gateBox = h("input", { type: "checkbox", required: true });
     const gateOk = () => !gate.needed || gateBox.checked;
     const gateRow = gate.needed
@@ -1974,7 +1975,7 @@ async function renderDesk(kind) {
   // ("Orders go to"), and the line shows only a red LIVE-orders pill when orders would go to a live account.
   // The Strategy Builder picks the account in its confirm sheet ("Orders go to"), like the chain's ticket.
   const acctItem = TRADING.has(kind) && kind !== "chain" && kind !== "strategy" ? h("span", { class: "ctx-acct glass" }, tradable.length ? [aSel, acctBadge] : h("a", { href: "#/accounts", class: "acct-connect" }, icon("plug"), "Connect an account")) : null;
-  mountToolbarCtx(kind, capsule, refChipEl.el, expiryChip, h("span", { class: "ctx-spacer" }), acctItem, wide ? liveOrders : null, demoPill, liveBtn.el, moreBtn);
+  mountToolbarCtx(kind, capsule, expiryChip, refChipEl.el, h("span", { class: "ctx-spacer" }), acctItem, wide ? liveOrders : null, demoPill, liveBtn.el, moreBtn);
   if (wide) document.querySelector(".toolbar-title")?.classList.add("icon-only");
   // The chain fits its table to the viewport: a banner that appears or goes moves where the table starts.
   if (kind === "chain" && typeof ResizeObserver === "function") {

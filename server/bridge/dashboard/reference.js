@@ -81,6 +81,7 @@ const cache = new Map();
 /** Forget every cached bundle (tests; the Market calendar page after a write). */
 export function clearReferenceCache() {
   cache.clear();
+  failures.clear();
 }
 
 /** The fallback bundle: REF_DEFAULTS in the bundle's shape, flagged `fallback: true` with the reason. */
@@ -107,10 +108,15 @@ export function fallbackBundle(underlying = null, reason = "Reference data unava
   };
 }
 
+/** The first wait after a failed bundle read; each further failure doubles it, up to REF_TTL_MS (spec §3.3, §8). */
+export const REF_RETRY_MS = 60_000;
+const failures = new Map();
+
 /**
  * The reference bundle for an underlying: GET /v1/reference/bundle, reused for REF_TTL_MS, read again on `force`.
- * Never throws: a failure returns fallbackBundle() (not cached, so the next call tries again). `get` and `now` are
- * for tests; `demoStale` asks a demo Bridge to report the lots as two trading days old (spec §4).
+ * Never throws: a failure returns fallbackBundle(), and that same fallback object is reused for a backoff (60 s,
+ * doubling per failure up to REF_TTL_MS), so a 5xx, a 429 or a signed-out key is not asked again on every refresh tick.
+ * `get` and `now` are for tests; `demoStale` asks a demo Bridge to report the lots as two trading days old (spec §4).
  * @returns {Promise<object>}
  */
 export async function loadReference(underlying, { force = false, demoStale = false, now = Date.now(), get = defaultGet } = {}) {
@@ -118,20 +124,27 @@ export async function loadReference(underlying, { force = false, demoStale = fal
   if (!u) return fallbackBundle(null, "No underlying");
   const key = `${u}|${demoStale ? 1 : 0}`;
   const hit = cache.get(key);
-  if (!force && hit && now - hit.at < REF_TTL_MS) return hit.promise;
-  const promise = (async () => {
+  if (!force && hit && now - hit.at < hit.ttl) return hit.promise;
+  const entry = { at: now, ttl: REF_TTL_MS, promise: null };
+  entry.promise = (async () => {
     try {
       const data = await get(`/v1/reference/bundle?underlying=${encodeURIComponent(u)}${demoStale ? "&demoStale=1" : ""}`);
       if (!data || typeof data !== "object" || !data.session) throw new Error("Unexpected reference bundle");
+      failures.delete(key);
       return data;
     } catch (err) {
-      cache.delete(key);
+      const n = (failures.get(key) ?? 0) + 1;
+      failures.set(key, n);
+      entry.ttl = Math.min(REF_TTL_MS, REF_RETRY_MS * 2 ** (n - 1));
       return fallbackBundle(u, err?.message ?? "Reference data unavailable");
     }
   })();
-  cache.set(key, { at: now, promise });
-  return promise;
+  cache.set(key, entry);
+  return entry.promise;
 }
+
+/** What a page compares before redrawing for a new bundle: the same data read twice gives the same signature. */
+export const refSignature = (b) => (b ? JSON.stringify([b.underlying ?? null, Boolean(b.fallback), b.now ?? b.asOf ?? null, b.lots?.asOf ?? null, b.lots?.stale ?? null, (b.events ?? []).length, b.rate?.value ?? null]) : "");
 async function defaultGet(path) {
   return (await api(path)).data?.data ?? null;
 }
@@ -220,12 +233,13 @@ export function lotsAge(b) {
 /**
  * The order ticket's lot-size gate (spec §5.4, acceptance criterion 4): needed when the reference lot data is stale
  * (over one trading day old) or the broker master and the reference disagree. { needed, text, reason, lot }.
- * Orders always use the master's lot; this only asks the user to confirm it.
+ * Orders always use the master's lot; this only asks the user to confirm it. Options and futures sent in lots are both
+ * gated (the server's LOT_SIZE_STALE check covers FUT and OPT); an order in units (`units: true`) never is.
  */
-export function lotConfirmGate(b, lot) {
+export function lotConfirmGate(b, lot, { units = false } = {}) {
   const L = num(lot);
   const lots = b?.lots ?? null;
-  if (!lots || b?.fallback || L === null || L <= 0) return { needed: false, text: "", reason: null, lot: L };
+  if (units || !lots || b?.fallback || L === null || L <= 0) return { needed: false, text: "", reason: null, lot: L };
   const conflict = lots.conflict && typeof lots.conflict === "object" ? lots.conflict : null;
   if (conflict) {
     const other = num(conflict.reference) ?? num(conflict.master);
@@ -295,6 +309,9 @@ export function bannerModel(b, { hidden = {}, max = 2, rateNote = false } = {}) 
   return { shown: out.slice(0, max), more: Math.max(0, out.length - max), all: out };
 }
 
+/** True when the bundle's ban / MWPL data is older than reference.staleAfterTradingDays (server's `ban.stale`). */
+export const banStale = (b) => b?.ban?.stale === true;
+
 /** The stale-data warning (acceptance criterion 4), or null: lots more than one trading day old, or the ban list old. */
 export function staleText(b) {
   const lots = b?.lots ?? null;
@@ -303,7 +320,11 @@ export function staleText(b) {
     const age = n === null ? "old" : n === 1 ? "1 trading day old" : `${formatInt(n)} trading days old`;
     return { text: `Contract data is ${age} (lot sizes from ${dayText(lots.asOf)}). Check the lot size before ordering in lots.`, detail: null };
   }
-  if (b?.ban && b.ban.stale) return { text: `The ban list is from ${dayText(b.ban.asOf)}. Check it before opening positions in this stock.`, detail: null };
+  if (b?.ban && banStale(b)) {
+    const n = num(b.ban.staleTradingDays);
+    const age = n === null ? "" : n === 1 ? " (1 trading day old)" : ` (${formatInt(n)} trading days old)`;
+    return { text: `The ban list and MWPL are from ${dayText(b.ban.asOf)}${age}. Check them before opening positions in this stock.`, detail: null };
+  }
   return null;
 }
 

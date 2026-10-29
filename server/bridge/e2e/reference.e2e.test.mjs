@@ -4,9 +4,10 @@
  * preview (acceptance criterion 5) → rate write (admin only) → stale lots (demo switch and ?demoStale=1) →
  * LOT_SIZE_STALE in the order preview and lotSizeConfirmed clearing it (acceptance criterion 4) → demo refusals →
  * /v1/expiries unchanged → the dashboard serves the new modules. A second, non-demo Bridge with archives off proves
- * that nothing is fetched.
+ * that nothing is fetched; a third, with archives on and a fake fetch serving the fixtures, syncs the market-lots file
+ * (lot history, F&O universe intervals) and then a revised file (the lot-revision event).
  */
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +16,8 @@ import { createApp } from "../core/app.mjs";
 import { loadConfig } from "../core/config.mjs";
 import { notImplementedService } from "../core/contracts.mjs";
 import { createNullLogger } from "../core/logger.mjs";
+import { istInstant } from "../reference/calendar.mjs";
+import { createFakeSymbolService } from "../symbols/fake.mjs";
 
 const READ = "mcb_e2eread0001_aaaaaaaaaaaaaaaaaaaa";
 const ADMIN = "mcb_e2eadmin001_bbbbbbbbbbbbbbbbbbbb";
@@ -24,10 +27,10 @@ const KEYS = {
 };
 const keyStore = { ...notImplementedService("keyStore"), authenticate: async (raw) => KEYS[raw] ?? null };
 
-async function boot({ demo, raw = {} }) {
+async function boot({ demo, raw = {}, overrides = {}, clock }) {
   const dataDir = mkdtempSync(join(tmpdir(), "mcb-ref-e2e-"));
   const { config } = loadConfig({ raw: { dataDir, server: { port: 0 }, logging: { level: "silent" }, ...raw }, env: {}, demo });
-  const app = await createApp({ config, overrides: { keyStore }, logger: createNullLogger() });
+  const app = await createApp({ config, overrides: { keyStore, ...overrides }, logger: createNullLogger(), clock });
   const { port } = await app.listen();
   // node:http, not fetch: the non-demo Bridge below runs with fetch stubbed (to prove it downloads nothing).
   const http = (path, { method = "GET", key = READ, body } = {}) =>
@@ -192,4 +195,66 @@ describe("a non-demo Bridge with archives off", () => {
     expect((await b.http("/v1/demo/reference", { method: "PUT", key: ADMIN, body: { lotsStale: true } })).status).toBe(404);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+});
+
+describe("a non-demo Bridge with archives on, served the fixtures by a fake fetch", () => {
+  const fixture = (name) => readFileSync(new URL(`../reference/__fixtures__/${name}`, import.meta.url));
+  let lotsFile = "fo_mktlots.csv";
+  const calls = [];
+  const fakeFetch = vi.fn(async (url) => {
+    calls.push(String(url));
+    const body = /fo_mktlots/.test(url) ? fixture(lotsFile) : /fo_secban/.test(url) ? fixture("fo_secban.csv") : /combineoi/.test(url) ? fixture("combineoi.zip") : null;
+    return body ? new Response(body, { status: 200 }) : new Response("not found", { status: 404 });
+  });
+  // Wed 24 Dec 2025: NIFTY's last December expiry is Tue 30 Dec, so a January lot change starts within 7 days.
+  // The clock runs (rate limits refill) from a set start; moveTo() jumps it to another day.
+  const clock = { off: istInstant("2025-12-24", "10:00") - Date.now(), now: () => clock.off + Date.now() };
+  const moveTo = (t) => (clock.off = t - Date.now());
+  const opt = (e) => ["CE", "PE"].map((r) => ({ symbol: `NFO:NIFTY-${e}-25000-${r}`, lotSize: 75, tickSize: 0.05 }));
+  const symbols = createFakeSymbolService({ clock, instruments: [{ symbol: "NSE:NIFTY", lotSize: 1, tickSize: 0.05 }, ...["2025-12-30", "2026-01-06", "2026-01-27"].flatMap(opt)] });
+  let b;
+  beforeAll(async () => {
+    vi.stubGlobal("fetch", fakeFetch);
+    b = await boot({ demo: false, clock, overrides: { symbols } });
+  });
+  afterAll(async () => {
+    vi.unstubAllGlobals();
+    await b?.close();
+  });
+  const idle = async () => {
+    for (let i = 0; i < 150; i++) {
+      const st = (await b.http("/v1/reference/status")).json?.data;
+      if (st && !st.syncing) return;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error(`the reference sync did not finish: ${JSON.stringify(calls)} ${JSON.stringify((await b.http("/v1/reference/status")).json).slice(0, 400)}`);
+  };
+  const syncLots = async () => {
+    const r = await b.http("/v1/reference/sync", { method: "POST", key: ADMIN, body: { datasets: ["lots"] } });
+    expect(r.status, JSON.stringify(r.json)).toBe(202);
+    await idle();
+  };
+
+  it("syncs the market-lots file, then serves the lot history and the F&O universe intervals", async () => {
+    const on = await b.http("/v1/reference/sources", { method: "PUT", key: ADMIN, body: { nseArchives: true } });
+    expect(on.status).toBe(200);
+    // Turning the source on queues a start-up sync of every dataset (with the polite gap between files): let it end.
+    await idle();
+    await syncLots();
+    expect(calls.some((u) => /fo_mktlots/.test(u))).toBe(true);
+    const lots = (await b.http("/v1/reference/lots?underlying=BANKNIFTY")).json.data;
+    expect(lots.history.map((h) => [h.expiryMonth, h.lot])).toEqual(expect.arrayContaining([["2026-10", 30], ["2026-12", 35]]));
+    const uni = (await b.http("/v1/reference/fno-universe?date=2025-12-24&kind=all")).json.data;
+    expect(uni.items.map((i) => i.symbol)).toEqual(expect.arrayContaining(["NIFTY", "BANKNIFTY", "RELIANCE", "M&M"]));
+    expect(uni.items.find((i) => i.symbol === "RELIANCE")).toMatchObject({ kind: "stock", since: "2025-12-24", sinceIsFirstFetch: true });
+    expect(uni.knownSince).toBe("2025-12-24");
+  }, 30_000);
+
+  it("a second sync with a revised file shows the lot-revision event", async () => {
+    lotsFile = "mktlots-revision.csv";
+    moveTo(istInstant("2025-12-26", "10:00"));
+    await syncLots();
+    const ev = (await b.http("/v1/reference/events?days=7&underlying=NIFTY")).json.data.items;
+    expect(ev.find((e) => e.kind === "lot-revision")).toMatchObject({ underlying: "NIFTY", effectiveOn: "2025-12-31", ref: { lotBefore: 75, lotAfter: 65 } });
+  }, 30_000);
 });

@@ -269,7 +269,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const chains = new Map([...d.chains.entries()].filter(([, c]) => c.chain).map(([e, c]) => [e, c.chain]));
     const nearChain = [...chains.values()][0] ?? null;
     spot = num(nearChain?.underlyingLtp) ?? num(d.quotes.get(INDEX_SYMBOL[st.underlying])?.ltp);
-    legs = O.priceBook(raw, { chains, quotes: d.quotes, inst: instCache, spot, excluded: excludedSet(), rate: refRate(st.ref).value });
+    legs = O.priceBook(raw, { chains, quotes: d.quotes, inst: instCache, spot, excluded: excludedSet(), rate: refRate(st.ref).value, close: refSession(st.ref).close });
     const now = Date.now();
     for (const l of legs) {
       const c = d.chains.get(l.expiry);
@@ -330,7 +330,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const m = O.sigmaMove(spot, n.atmIv ?? n.iv, n.T);
     return m ? (m / spot) * 100 : null;
   };
-  const daysTo = (e) => Math.max(0, Math.round((O.yearsToExpiry(e) ?? 0) * 365));
+  const daysTo = (e) => Math.max(0, Math.round((O.yearsToExpiry(e, Date.now(), refSession(st.ref).close) ?? 0) * 365));
   const maxDays = () => Math.max(0, ...included().map((l) => daysTo(l.expiry)));
   const firstDays = () => {
     const n = nearest();
@@ -1468,10 +1468,10 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     // The hedge as priced legs at their mark (the change is 0 now), for the payoff overlay and the ±σ P&L.
     hd.hedgeLegs = plan.legs.map((l) => {
       const q = (l.side === "BUY" ? 1 : -1) * l.units;
-      if (l.kind === "FUT") return { symbol: l.symbol, kind: "FUT", q, avg: l.mark, mark: l.mark, F: l.mark, T: O.yearsToExpiry(l.expiry) ?? 0, priced: num(l.mark) !== null, inc: true };
+      if (l.kind === "FUT") return { symbol: l.symbol, kind: "FUT", q, avg: l.mark, mark: l.mark, F: l.mark, T: O.yearsToExpiry(l.expiry, Date.now(), refSession(st.ref).close) ?? 0, priced: num(l.mark) !== null, inc: true };
       const o = l.right === "CE" ? atm?.ce : atm?.pe;
-      const F = (atm?.chain ? O.forwardPrice(atm.chain, O.parityGrowth(O.yearsToExpiry(l.expiry), refRate(st.ref).value)) : null) ?? spot;
-      return { symbol: l.symbol, kind: "OPT", right: l.right, strike: l.strike, q, avg: l.mark, mark: l.mark, iv: num(o?.iv), F, T: O.yearsToExpiry(l.expiry) ?? 0, priced: num(l.mark) !== null && num(o?.iv) !== null, inc: true };
+      const F = (atm?.chain ? O.forwardPrice(atm.chain, O.parityGrowth(O.yearsToExpiry(l.expiry, Date.now(), refSession(st.ref).close), refRate(st.ref).value)) : null) ?? spot;
+      return { symbol: l.symbol, kind: "OPT", right: l.right, strike: l.strike, q, avg: l.mark, mark: l.mark, iv: num(o?.iv), F, T: O.yearsToExpiry(l.expiry, Date.now(), refSession(st.ref).close) ?? 0, priced: num(l.mark) !== null && num(o?.iv) !== null, inc: true };
     });
     // Head: the one-line suggestion.
     const lg = plan.legs;

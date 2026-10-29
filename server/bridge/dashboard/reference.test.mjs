@@ -6,6 +6,7 @@ import {
   BANNER_DAYS,
   HIDDEN_SLOT,
   REF_DEFAULTS,
+  REF_RETRY_MS,
   REF_TTL_MS,
   bannerModel,
   chipModel,
@@ -24,6 +25,7 @@ import {
   refCharges,
   refRate,
   refSession,
+  refSignature,
   staleText,
 } from "./reference.js";
 
@@ -78,7 +80,7 @@ describe("loadReference", () => {
     expect(calls.at(-1)).toBe("/v1/reference/bundle?underlying=NIFTY&demoStale=1");
   });
 
-  it("falls back to the labelled dashboard defaults when the bundle fails, and tries again next time", async () => {
+  it("falls back to the labelled dashboard defaults when the bundle fails, and tries again after a backoff", async () => {
     clearReferenceCache();
     let fail = true;
     const get = async () => {
@@ -92,10 +94,37 @@ describe("loadReference", () => {
     expect(chipModel(b).tone).toBe("bad");
     expect(bannerModel(b).shown[0].text).toBe("Reference data unavailable: using dashboard defaults");
     fail = false;
-    expect((await loadReference("NIFTY", { get, now: 1 })).fallback).toBeUndefined();
+    expect((await loadReference("NIFTY", { get, now: REF_RETRY_MS + 1 })).fallback).toBeUndefined();
     // A bundle without a session is not trusted either.
     clearReferenceCache();
     expect((await loadReference("NIFTY", { get: async () => ({}), now: 0 })).fallback).toBe(true);
+  });
+
+  it("a failing read is not repeated on every refresh tick: one request per backoff, the same fallback object", async () => {
+    clearReferenceCache();
+    let calls = 0;
+    const get = async () => {
+      calls += 1;
+      throw new Error("The Bridge answered 429");
+    };
+    const a = await loadReference("NIFTY", { get, now: 0 });
+    const b = await loadReference("NIFTY", { get, now: 3000 });
+    const c = await loadReference("NIFTY", { get, now: REF_RETRY_MS - 1 });
+    expect(calls).toBe(1);
+    expect(b).toBe(a);
+    expect(c).toBe(a);
+    expect(refSignature(b)).toBe(refSignature(a));
+    // After the backoff it asks again; a second failure doubles the wait, up to the 10-minute TTL.
+    const d = await loadReference("NIFTY", { get, now: REF_RETRY_MS });
+    expect(calls).toBe(2);
+    expect(refSignature(d)).toBe(refSignature(a));
+    await loadReference("NIFTY", { get, now: REF_RETRY_MS + 2 * REF_RETRY_MS - 1 });
+    expect(calls).toBe(2);
+    await loadReference("NIFTY", { get, now: REF_RETRY_MS + 2 * REF_RETRY_MS });
+    expect(calls).toBe(3);
+    // force still reads at once.
+    await loadReference("NIFTY", { get, now: REF_RETRY_MS + 2 * REF_RETRY_MS + 1, force: true });
+    expect(calls).toBe(4);
   });
 
   it("asks for stale demo lots only when the page URL says so", () => {
@@ -143,6 +172,14 @@ describe("lotConfirmGate (acceptance criterion 4)", () => {
     expect(lotConfirmGate(null, 65).needed).toBe(false);
     expect(lotConfirmGate(stale(), null).needed).toBe(false);
     expect(lotConfirmGate(stale(), 0).needed).toBe(false);
+    // An order in units is never gated; futures in lots are (the ticket passes no options-only exception).
+    expect(lotConfirmGate(stale(), 65, { units: true }).needed).toBe(false);
+  });
+
+  it("the order ticket gates futures in lots as well as options", () => {
+    const src = readFileSync(new URL("./desk.js", import.meta.url), "utf8");
+    expect(src).toMatch(/const gate = lotConfirmGate\(st\.ref, lotSize, \{ units: inUnits \}\)/);
+    expect(src).not.toMatch(/!fut && !inUnits \? lotConfirmGate/);
   });
 });
 
@@ -170,6 +207,14 @@ describe("banners and the chip", () => {
     expect(staleText(BUNDLE)).toBeNull();
     expect(bannerModel(BUNDLE, { rateNote: true }).shown[0]).toMatchObject({ kind: "rate", link: "#/calendar" });
     expect(bannerModel(BUNDLE).shown).toEqual([]);
+  });
+
+  it("warn when a stock's ban list is older than allowed (the bundle's ban.stale)", () => {
+    const ban = { inBan: false, mwplPct: 84.2, band: "high", forDate: "2026-10-30", asOf: "2026-10-26", source: "nse-archives:combineoi", stale: true, staleTradingDays: 3 };
+    const m = bannerModel({ ...BUNDLE, underlying: "RELIANCE", ban });
+    expect(m.shown[0]).toMatchObject({ kind: "stale", tone: "warn" });
+    expect(m.shown[0].text).toBe("The ban list and MWPL are from 26 Oct (3 trading days old). Check them before opening positions in this stock.");
+    expect(staleText({ ...BUNDLE, ban: { ...ban, stale: false, staleTradingDays: 1 } })).toBeNull();
   });
 
   it("remember hidden events until tomorrow and survive storage that throws", () => {

@@ -12,7 +12,7 @@ import { DEMO_UNDERLYINGS, UNDERLYINGS } from "./desk.js";
 import { barsEnter, countUp, flashValue, lineReveal, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
 import * as S from "./screens.js";
-import { loadReference, refBanners, refCharges, refRate, refSession } from "./reference.js";
+import { loadReference, refBanners, refCharges, refChip, refRate, refSession, refSignature } from "./reference.js";
 import { every, segmented, stopTimer } from "./views.js";
 import { hbar, heatCell, setBar, spotPill, svgEl } from "./viz.js";
 
@@ -301,14 +301,26 @@ export function renderScreenerPage() {
   // Reference data (docs/spec/p1-02-reference.md §5): the charge table, rate and session close come from the first
   // scanned underlying's bundle (they are market-wide); the banners merge every scanned underlying's events.
   let ref = null;
-  const refBannersEl = refBanners({});
+  const refByU = new Map(); // underlying → its bundle, for the chip (the selected row's underlying)
+  // The reference chip (spec §5.2): the selected row's underlying, else the first scanned one.
+  const chipBundle = () => {
+    const r = selKey ? recByKey(selKey) : null;
+    return (r && refByU.get(r.underlying)) || ref;
+  };
+  const refChipEl = refChip({ getBundle: chipBundle, getLot: () => (selKey ? recByKey(selKey)?.lot ?? null : null) });
+  const refBannersEl = refBanners({ onMore: () => refChipEl.open() });
   const pctNow = () => O.chargesPct(refCharges(ref));
   async function loadRefs() {
-    const bs = await Promise.all((cfg.underlyings.length ? cfg.underlyings : list.slice(0, 1)).map((u) => loadReference(u)));
+    const us = cfg.underlyings.length ? cfg.underlyings : list.slice(0, 1);
+    const bs = await Promise.all(us.map((u) => loadReference(u)));
     if (destroyed) return;
+    refByU.clear();
+    us.forEach((u, i) => refByU.set(u, bs[i]));
     const first = bs[0] ?? null;
-    const changed = first !== ref;
+    // Compare what the bundle says, not the object, so an unchanged (or still failing) read does not redraw.
+    const changed = refSignature(first) !== refSignature(ref);
     ref = first;
+    refChipEl.update();
     const seen = new Set();
     const events = bs.flatMap((b) => b?.events ?? []).filter((e) => {
       const k = `${e.kind}|${e.underlying}|${e.effectiveOn}`;
@@ -2841,6 +2853,7 @@ export function renderScreenerPage() {
       moreBtn.textContent = `Show ${formatInt(more)} more`;
     }
     if (selKey && !recByKey(selKey)) selKey = null;
+    refChipEl.update();
     drawLegend();
     drawMap();
     drawPane();
@@ -2926,6 +2939,8 @@ export function renderScreenerPage() {
     startAuto();
   }, 0);
   draw();
-  mountToolbarCtx("screener", ctxBtn, h("span", { class: "ctx-spacer" }), liveEl);
+  // Read the reference bundles at once (charges, rate, session close and the chip), not only when a sweep starts.
+  loadRefs();
+  mountToolbarCtx("screener", ctxBtn, refChipEl.el, h("span", { class: "ctx-spacer" }), liveEl);
   return [refBannersEl.el, main, detail];
 }

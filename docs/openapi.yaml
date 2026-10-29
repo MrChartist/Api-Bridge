@@ -4916,6 +4916,18 @@ components:
       type: object
       properties:
         items: { type: array, items: { $ref: "#/components/schemas/RefHoliday" } }
+        specialSessions:
+          type: array
+          description: Special sessions (for example Muhurat trading) in the same range; open/close are null when not announced.
+          items:
+            type: object
+            properties:
+              date: { type: string, format: date }
+              label: { type: string }
+              open: { type: [string, "null"] }
+              close: { type: [string, "null"] }
+              verified: { type: boolean }
+              origin: { type: string }
         source: { type: string }
         asOf: { type: string }
     RefExpiry:
@@ -5042,6 +5054,7 @@ components:
         text: { type: string }
         contract: { type: object }
         adjusted: { type: object, properties: { exampleStrikes: { type: array, items: { type: object } }, lotBefore: { type: [integer, "null"] }, lotAfter: { type: [integer, "null"] } } }
+        exampleStrikes: { type: array, items: { type: number }, description: "Pre-action example strikes stored with a user entry (the ones its preview showed)." }
         addedAt: { type: string }
     CorporateActionInput:
       type: object
@@ -5060,6 +5073,7 @@ components:
         strikeTick: { type: number, exclusiveMinimum: 0 }
         source: { type: string, maxLength: 200 }
         lotRule: { type: string, enum: [round] }
+        exampleStrikes: { type: array, maxItems: 9, items: { type: number, exclusiveMinimum: 0 }, description: "Pre-action strikes the add form previewed; the stored row's adjusted.exampleStrikes uses the same ones." }
     RefCorporateActions:
       type: object
       properties:
@@ -5185,7 +5199,7 @@ components:
         expiries: { type: array, items: { $ref: "#/components/schemas/RefExpiry" } }
         lots: { type: object, properties: { current: { type: [integer, "null"] }, next: { type: object }, source: { type: [string, "null"] }, asOf: { type: [string, "null"] }, quality: { type: string }, stale: { type: boolean }, staleTradingDays: { type: [integer, "null"] }, conflict: { type: [object, "null"] } } }
         freeze: { $ref: "#/components/schemas/RefFreeze" }
-        ban: { type: [object, "null"], properties: { inBan: { type: [boolean, "null"] }, mwplPct: { type: [number, "null"] }, band: { type: [string, "null"] }, forDate: { type: string }, asOf: { type: [string, "null"] }, source: { type: [string, "null"] } } }
+        ban: { type: [object, "null"], properties: { inBan: { type: [boolean, "null"] }, mwplPct: { type: [number, "null"] }, band: { type: [string, "null"] }, forDate: { type: string }, asOf: { type: [string, "null"] }, source: { type: [string, "null"] }, stale: { type: boolean, description: "Ban / MWPL data older than reference.staleAfterTradingDays" }, staleTradingDays: { type: [integer, "null"] } } }
         events: { type: array, items: { $ref: "#/components/schemas/RefEvent" } }
         deliveryMargin: { oneOf: [{ $ref: "#/components/schemas/RefDeliveryMargin" }, { type: "null" }] }
         charges: { $ref: "#/components/schemas/RefCharges" }

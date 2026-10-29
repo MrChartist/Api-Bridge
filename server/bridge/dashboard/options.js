@@ -2271,9 +2271,10 @@ export function impliedVol(price, forward, strike, years, right) {
  * `inst` gives lotSize / freezeQty / tickSize per symbol (else the chain's lot size, else 1 with `lotUnknown`).
  * @param {object[]} legs from bookLegs
  * @param {{ chains?: Map<string, object>, quotes?: Map<string, object>, inst?: Map<string, object>, spot?: number|null,
- *   excluded?: Set<string>, now?: number }} m
+ *   excluded?: Set<string>, now?: number, rate?: number, close?: string }} m `close` is the reference session close
+ *   ("HH:MM" IST) time to expiry is measured to.
  */
-export function priceBook(legs, { chains = new Map(), quotes = new Map(), inst = new Map(), spot = null, excluded = new Set(), now = Date.now(), rate = FALLBACK_RATE } = {}) {
+export function priceBook(legs, { chains = new Map(), quotes = new Map(), inst = new Map(), spot = null, excluded = new Set(), now = Date.now(), rate = FALLBACK_RATE, close = FALLBACK_SESSION.close } = {}) {
   const fwd = new Map();
   const futMark = new Map();
   for (const l of legs) {
@@ -2286,7 +2287,7 @@ export function priceBook(legs, { chains = new Map(), quotes = new Map(), inst =
   const expCtx = (e) => {
     if (fwd.has(e)) return fwd.get(e);
     const c = chains.get(e) ?? null;
-    const T = yearsToExpiry(e, now) ?? 0;
+    const T = yearsToExpiry(e, now, close) ?? 0;
     const sm = c ? chainSummary(c) : null;
     const F = (c ? forwardPrice(c, parityGrowth(T, rate)) : null) ?? futMark.get(e) ?? S;
     const ctx = { chain: c, T, F, atmIv: sm?.atmIv ?? null, lot: num(c?.lotSize) };

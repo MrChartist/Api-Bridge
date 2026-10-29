@@ -5,8 +5,9 @@ import { checkSource } from "./copyRules.mjs";
 
 // views.js imports desk.js and calendar.js (the router): load it first so the circular import settles as in the browser.
 await import("./views.js");
-const { CAL_DISCLAIMER, CSV_COLUMNS, addMonths, chargeRows, monthGrid, monthList, monthMode, mwplView, previewBody, runPreview, stateWord, statusTiles, strikesAround, toCsv, universeNote } = await import("./calendar.js");
+const { CAL_DISCLAIMER, CSV_COLUMNS, addMonths, calendarEvents, cellLabel, cellMarks, chargeRows, monthGrid, monthList, monthMode, mwplView, previewBody, runPreview, stateWord, statusTiles, strikesAround, toCsv, universeNote } = await import("./calendar.js");
 const { PAGES } = await import("./views.js");
+const { exampleStrikeGrid } = await import("../reference/corporateActions.mjs");
 
 const HOLIDAYS = [
   { date: "2026-11-10", label: "Diwali Balipratipada", exchanges: ["NSE", "BSE"], verified: false },
@@ -43,6 +44,31 @@ describe("month calendar", () => {
     expect(cell("2026-11-04")).toMatchObject({ trading: true, holiday: null, expiry: null });
   });
 
+  it("keeps grid marks short, with the full text as a tooltip and in the cell's label", () => {
+    expect(cellMarks(cell("2026-11-09")).map((m) => m.text)).toEqual(["Weekly", "from Tue 10"]);
+    expect(cellMarks(cell("2026-11-09"))[0].full).toBe("Weekly expiry, lot 65");
+    expect(cellMarks(cell("2026-11-10")).map((m) => [m.kind, m.text])).toEqual([["hol", "Diwali Balipratipada"], ["hol-u", "unverified"]]);
+    expect(cellMarks(cell("2026-11-08")).map((m) => m.text)).toEqual(["Muhurat trading", "18:00–19:00"]);
+    expect(cellLabel(cell("2026-11-08"))).toBe("Sun 8 Nov 2026, special session, Muhurat trading 18:00 to 19:00 IST");
+    expect(cellLabel(cell("2026-11-09"))).toBe("Mon 9 Nov 2026, trading day, weekly expiry, lot 65, moved from Tue 10 Nov");
+    expect(cellLabel(cell("2026-11-10"))).toBe("Tue 10 Nov 2026, holiday, Diwali Balipratipada, unverified");
+    expect(cellLabel(cell("2026-11-03"))).toContain(", today");
+    // Today shown outside the month (the leading or trailing days) is not announced or ringed as today.
+    const dec = monthGrid("2026-12", { today: "2026-11-30" });
+    const out = dec.flat().find((c) => c.date === "2026-11-30");
+    expect(out.inMonth).toBe(false);
+    expect(cellLabel(out)).not.toContain("today");
+  });
+
+  it("labels banners for other underlyings as market-wide", () => {
+    const items = [
+      { kind: "corporate-action", underlying: "CIPLA", effectiveOn: "2026-11-04", daysAway: 6, text: "CIPLA 1:1 bonus, ex-date 4 Nov." },
+      { kind: "holiday-expiry-shift", underlying: "NIFTY", effectiveOn: "2026-11-09", daysAway: 7, text: "NIFTY weekly expiry is on 9 Nov." },
+    ];
+    const ev = calendarEvents(items, "NIFTY");
+    expect(ev.map((e) => e.text)).toEqual(["NIFTY weekly expiry is on 9 Nov.", "Across F&O: CIPLA 1:1 bonus, ex-date 4 Nov."]);
+  });
+
   it("is a list of the non-ordinary days on a 360 px phone and a grid from 720 px", () => {
     expect(monthMode(360)).toBe("list");
     expect(monthMode(390)).toBe("list");
@@ -64,6 +90,11 @@ describe("status strip", () => {
     expect(stateWord({ available: true, asOf: "2026-10-26", stale: true }, { today })).toBe("Stale");
     expect(stateWord({ available: false, asOf: null, error: { code: "SOURCE_OFF" } }, { today })).toBe("Off");
     expect(stateWord({ available: false, asOf: null, error: null }, { today })).toBe("Not fetched");
+    // The real status() shape on a fresh install with archives off: reason, no error (no sync attempt has run).
+    expect(stateWord({ available: false, reason: "SOURCE_OFF", asOf: null, error: null }, { today })).toBe("Off");
+    expect(stateWord({ available: false, reason: "NEVER_FETCHED", asOf: null, error: null }, { today })).toBe("Not fetched");
+    expect(stateWord({ available: false, reason: "PARSE_FAILED", asOf: null, error: { code: "PARSE_FAILED" } }, { today })).toBe("Parse failed");
+    expect(statusTiles({ datasets: { ban: { available: false, reason: "PARSE_FAILED", asOf: null, error: null } } }, { today })[1]).toMatchObject({ word: "Parse failed", tone: "warn" });
     expect(stateWord(null)).toBe("Not fetched");
     const tiles = statusTiles({ datasets: { lots: { available: true, asOf: "2026-10-29", source: "demo", stale: false }, rate: { available: true, quality: "default", stale: true } } }, { today });
     expect(tiles.map((t) => t.id)).toEqual(["lots", "ban", "mwpl", "universe", "holidays", "rate"]);
@@ -118,6 +149,8 @@ describe("corporate-action preview wiring", () => {
     expect(previewBody({ type: "" }).error).toBe("Choose the action type.");
     expect(strikesAround(2805)).toEqual([2760, 2780, 2800, 2820, 2840]);
     expect(strikesAround(null)).toEqual([]);
+    // Same grid as the server's example strikes, so the preview and the saved card agree.
+    for (const p of [1515, 2805, 640, 120]) expect(strikesAround(p)).toEqual(exampleStrikeGrid(p));
   });
 
   it("posts the body to the preview route and returns its answer (example 1: RELIANCE 1:1 bonus)", async () => {

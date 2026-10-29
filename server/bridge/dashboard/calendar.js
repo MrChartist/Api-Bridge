@@ -95,6 +95,49 @@ export function monthList(weeks) {
   return out;
 }
 
+/**
+ * The page's banners (spec §5.3): events within 7 days across the F&O market. The selected underlying's come first as
+ * they are; every other one is labelled "Across F&O:" so it does not read as a fact about the selected underlying.
+ */
+export function calendarEvents(items, underlying) {
+  return upcomingEvents(items ?? [])
+    .map((e) => (e.underlying === underlying ? e : { ...e, text: `Across F&O: ${e.text || e.underlying}` }))
+    .sort((a, b) => (a.underlying === underlying ? 0 : 1) - (b.underlying === underlying ? 0 : 1) || a.daysAway - b.daysAway);
+}
+
+/**
+ * The short marks inside a month-grid cell, each with its full text for a tooltip: [{ kind, text, full }]. The cell is
+ * narrow, so expiries say only "Weekly" / "Monthly" (the lot is in the Expiries table) and a move gets its own line.
+ */
+export function cellMarks(c) {
+  const out = [];
+  if (c.holiday) {
+    out.push({ kind: "hol", text: c.holiday.label, full: `Holiday: ${c.holiday.label}${c.holiday.verified ? "" : " (unverified)"}` });
+    if (!c.holiday.verified) out.push({ kind: "hol-u", text: "unverified", full: "Holiday not yet checked against the exchange circular" });
+  }
+  if (c.special) {
+    out.push({ kind: "spe", text: c.special.label, full: `${c.special.label}${c.special.open ? ` ${c.special.open}–${c.special.close} IST` : ": time not announced"}` });
+    if (c.special.open) out.push({ kind: "spe-t", text: `${c.special.open}–${c.special.close}`, full: `${c.special.label} ${c.special.open}–${c.special.close} IST` });
+  }
+  if (c.expiry) {
+    const word = c.expiry.kind === "monthly" ? "Monthly" : "Weekly";
+    out.push({ kind: c.expiry.kind === "monthly" ? "exm" : "exw", text: word, full: `${word} expiry${c.expiry.lot ? `, lot ${formatInt(c.expiry.lot)}` : ""}` });
+  }
+  if (c.expiry?.shifted && c.expiry.ruleDate) {
+    const from = dayText(c.expiry.ruleDate, { weekday: true }).split(" ").slice(0, 2).join(" ");
+    out.push({ kind: "mov", text: `from ${from}`, full: `Expiry moved from ${dayText(c.expiry.ruleDate, { weekday: true })}` });
+  }
+  return out;
+}
+
+/** A grid cell's screen-reader label: the date, what kind of day it is, and every mark in full. */
+export function cellLabel(c) {
+  const kind = c.special ? `special session, ${c.special.label}${c.special.open ? ` ${c.special.open} to ${c.special.close} IST` : ", time not announced"}` : c.holiday ? `holiday, ${c.holiday.label}${c.holiday.verified ? "" : ", unverified"}` : c.trading ? "trading day" : "closed";
+  const exp = c.expiry ? `${c.expiry.kind} expiry${c.expiry.lot ? `, lot ${formatInt(c.expiry.lot)}` : ""}${c.expiry.shifted && c.expiry.ruleDate ? `, moved from ${dayText(c.expiry.ruleDate, { weekday: true })}` : ""}` : "";
+  const moved = c.movedTo && !c.holiday ? `expiry moved to ${dayText(c.movedTo, { weekday: true })}` : "";
+  return [dayText(c.date, { weekday: true, year: true }), kind, exp, moved, c.today && c.inMonth ? "today" : ""].filter(Boolean).join(", ");
+}
+
 // ── Status strip (pure) ──
 
 const DATASETS = [
@@ -105,10 +148,16 @@ const DATASETS = [
   ["holidays", "Holidays"],
   ["rate", "Rate"],
 ];
-/** One dataset's state word: "Current", "1 day old", "Stale", "Off", "Not fetched" (spec §5.5). */
+/**
+ * One dataset's state word: "Current", "1 day old", "Stale", "Off", "Not fetched", "Parse failed" (spec §5.5). An
+ * unavailable dataset carries `reason` (SOURCE_OFF, NEVER_FETCHED, PARSE_FAILED) from GET /v1/reference/status even
+ * before any sync has run; `error.code` is only there after an attempt.
+ */
 export function stateWord(ds, { today = null } = {}) {
   if (!ds) return "Not fetched";
-  if (ds.error?.code === "SOURCE_OFF" || (!ds.available && ds.error?.code === "SOURCE_OFF")) return "Off";
+  const why = ds.available ? null : ds.reason ?? ds.error?.code ?? null;
+  if (why === "SOURCE_OFF" || ds.error?.code === "SOURCE_OFF") return "Off";
+  if (why === "PARSE_FAILED") return "Parse failed";
   if (!ds.available && !ds.asOf) return "Not fetched";
   if (ds.stale) return "Stale";
   const age = today && ds.asOf ? daysBetween(String(ds.asOf).slice(0, 10), today) : null;
@@ -200,11 +249,14 @@ export function previewBody(f) {
   if (!["bonus", "rights", "split", "consolidation", "dividend"].includes(type)) return { error: "Choose the action type." };
   return { body };
 }
-/** Five strikes around `price` on `step` (default: a step near 1 % of the price, rounded to 5 / 10 / 20 / 50 / 100). */
+/**
+ * Five strikes around `price` on `step` (default: 20 from 2,000, 10 from 500, else 5: the server's exampleStrikeGrid
+ * rule, so the add form's preview and the saved card show the same strikes).
+ */
 export function strikesAround(price, step = null) {
   const p = num(price);
   if (p === null || p <= 0) return [];
-  const st = num(step) ?? [5, 10, 20, 50, 100, 200].find((s) => s >= p / 150) ?? 500;
+  const st = num(step) ?? (p >= 2000 ? 20 : p >= 500 ? 10 : 5);
   const atm = Math.round(p / st) * st;
   return [-2, -1, 0, 1, 2].map((i) => atm + i * st).filter((k) => k > 0);
 }
@@ -294,6 +346,7 @@ export async function renderCalendarPage() {
     uMain.data = st.underlying;
     save();
     loadUnderlying();
+    drawEvents();
   });
 
   // ── Panel shell ──
@@ -324,10 +377,31 @@ export async function renderCalendarPage() {
     }
   }
   const loading = (label) => h("p", { class: "cal-loading muted small" }, label);
-  const fail = (err) => alertBox(err, "bad");
+  // A failed read shows one page-level alert with Retry (drawPageAlert); each panel only says it is unavailable.
+  const fail = () => (queueMicrotask(drawPageAlert), h("p", { class: "cal-unavail muted small" }, "Unavailable: see the notice above."));
+  const pageAlert = h("div", { class: "cal-page-alert", hidden: true });
+  let retrying = false;
+  function drawPageAlert() {
+    const err = [data.status, data.holidays, data.expiries, data.lots, data.ban, data.mwpl, data.universe, data.actions, data.rate, data.charges, data.events].find((x) => x?.error)?.error ?? null;
+    pageAlert.hidden = !err;
+    if (!err) return fill(pageAlert);
+    const retry = h("button", { type: "button", class: "small", disabled: retrying }, icon("refresh"), retrying ? "Retrying" : "Retry");
+    retry.addEventListener("click", async () => {
+      retrying = true;
+      drawPageAlert();
+      clearReferenceCache();
+      try {
+        await loadAll();
+      } finally {
+        retrying = false;
+        drawPageAlert();
+      }
+    });
+    fill(pageAlert, h("div", { class: "cal-page-alert-row" }, alertBox(err, "bad"), retry));
+  }
 
   // ── 0. Banners: everything within 7 days, every underlying (the Options pages show their own) ──
-  const banners = refBanners({ onMore: () => (location.hash = "#/calendar") });
+  const banners = refBanners({ onMore: () => chip.open() });
 
   // ── 1. Status strip ──
   const statusEl = h("section", { class: "desk-panel cal-status", "data-panel": "cal-status", "aria-label": "Reference data status" });
@@ -383,10 +457,17 @@ export async function renderCalendarPage() {
   const gridHost = h("div", { class: "cal-grid-host" });
   cal.body.append(monthNav, gridHost, legendEl);
   const gridData = () => ({ holidays: data.holidays?.data?.items ?? [], expiries: data.expiries?.data?.expiries ?? [], specials: data.specials, today });
+  // Quick prev / next clicks only fetch the month the user stops on (and a late answer for a month already left is
+  // dropped in loadMonth).
+  let monthTimer = null;
   function setMonth(ym) {
     st.month = ym;
     save();
-    loadMonth();
+    data.holidays = null;
+    data.specials = [];
+    drawCalendar();
+    clearTimeout(monthTimer);
+    monthTimer = setTimeout(loadMonth, 250);
   }
   function drawCalendar() {
     monthLabel.textContent = monthText(st.month);
@@ -421,14 +502,9 @@ export async function renderCalendarPage() {
             "tr",
             {},
             w.map((c) => {
-              const cls = ["cal-cell", c.inMonth ? "" : "out", c.weekend ? "we" : "", c.holiday ? "hol" : "", c.special ? "spe" : "", c.expiry ? (c.expiry.kind === "monthly" ? "exm" : "exw") : "", c.today ? "today" : ""].filter(Boolean).join(" ");
-              const marks = [];
-              if (c.holiday) marks.push(h("span", { class: "cal-mark hol" }, c.holiday.label, c.holiday.verified ? null : h("em", {}, " unverified")));
-              if (c.special) marks.push(h("span", { class: "cal-mark spe" }, `${c.special.label}${c.special.open ? ` ${c.special.open}–${c.special.close}` : ""}`));
-              if (c.expiry) marks.push(h("span", { class: `cal-mark ${c.expiry.kind === "monthly" ? "exm" : "exw"}` }, `${c.expiry.kind === "monthly" ? "Monthly" : "Weekly"}${c.expiry.lot ? ` · lot ${formatInt(c.expiry.lot)}` : ""}`));
-              if (c.expiry?.shifted && c.expiry.ruleDate) marks.push(h("span", { class: "cal-mark mov" }, `moved from ${dayText(c.expiry.ruleDate, { weekday: true }).split(" ").slice(0, 2).join(" ")}`));
-              const label = [dayText(c.date, { weekday: true, year: true }), c.trading ? "trading day" : c.holiday ? `holiday, ${c.holiday.label}` : "closed", c.expiry ? `${c.expiry.kind} expiry` : ""].filter(Boolean).join(", ");
-              return h("td", { class: cls, "aria-label": c.inMonth ? label : undefined }, h("span", { class: "cal-day" }, formatInt(c.day)), c.inMonth ? marks : null);
+              const cls = ["cal-cell", c.inMonth ? "" : "out", c.weekend ? "we" : "", c.holiday ? "hol" : "", c.special ? "spe" : "", c.expiry ? (c.expiry.kind === "monthly" ? "exm" : "exw") : "", c.today && c.inMonth ? "today" : ""].filter(Boolean).join(" ");
+              const marks = cellMarks(c).map((m) => h("span", { class: `cal-mark ${m.kind}`, title: m.full }, m.text));
+              return h("td", { class: cls, "aria-label": c.inMonth ? cellLabel(c) : undefined }, h("span", { class: "cal-day" }, formatInt(c.day)), c.inMonth ? marks : null);
             }),
           ),
         ),
@@ -513,8 +589,9 @@ export async function renderCalendarPage() {
   function drawBan() {
     const b = data.ban;
     const m = data.mwpl;
-    if (!b || !m) return fill(banTop, loading("Loading the ban list"));
-    if (b.error) return fill(banTop, fail(b.error));
+    banTools.hidden = true;
+    if (!b || !m) return (fill(mwplHost), fill(banTop, loading("Loading the ban list")));
+    if (b.error) return (fill(mwplHost), fill(banTop, fail(b.error)));
     const bd = b.data;
     ban.sub.textContent = bd?.forDate ? `for ${dayText(bd.forDate)}` : "";
     if (!bd?.available) {
@@ -726,9 +803,10 @@ export async function renderCalendarPage() {
         err.hidden = false;
         return;
       }
-      const { lot: _l, strikes: _s, strikeTick: _t, ...rest } = b.body;
+      const { lot: _l, strikes, strikeTick: _t, ...rest } = b.body;
       saveBtn.disabled = true;
-      const r = await optional(api("/v1/reference/corporate-actions", { method: "POST", body: { ...rest, symbol: f.symbol, exchange: "NSE", exDate: f.exDate, source: "entered on the Market calendar page" } }));
+      // The previewed strikes are saved with the row, so its card shows the same example the user just checked.
+      const r = await optional(api("/v1/reference/corporate-actions", { method: "POST", body: { ...rest, ...(strikes?.length ? { exampleStrikes: strikes.slice(0, 9) } : {}), symbol: f.symbol, exchange: "NSE", exDate: f.exDate, source: "entered on the Market calendar page" } }));
       saveBtn.disabled = false;
       if (r.error) {
         err.textContent = r.error.message ?? "Could not save it";
@@ -808,16 +886,12 @@ export async function renderCalendarPage() {
     const from = `${ym}-01`;
     const to = `${addMonths(ym, 1)}-01`;
     const last = new Date(Date.parse(`${to}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
-    const [hol] = await Promise.all([get(`/v1/reference/holidays?from=${from}&to=${last}&exchange=NSE`)]);
-    // Special sessions: weekends of the month (Muhurat is usually on one), read one by one from /sessions.
-    const weekends = monthGrid(ym)
-      .flat()
-      .filter((c) => c.inMonth && c.weekend)
-      .map((c) => c.date);
-    const ses = await Promise.all(weekends.map((d) => get(`/v1/reference/sessions?date=${d}&exchange=NFO`)));
+    // One request: the holidays and the special sessions of the month (weekday holidays included, where Muhurat
+    // trading usually falls).
+    const hol = await get(`/v1/reference/holidays?from=${from}&to=${last}&exchange=NSE`);
     if (ym !== st.month) return;
     data.holidays = hol;
-    data.specials = ses.map((r) => r.data).filter((s) => s?.special).map((s) => ({ date: s.date, label: s.special.label, open: s.special.open ?? null, close: s.special.close ?? null }));
+    data.specials = (hol.data?.specialSessions ?? []).map((s) => ({ date: s.date, label: s.label, open: s.open ?? null, close: s.close ?? null }));
     drawCalendar();
   }
   async function loadUnderlying() {
@@ -860,16 +934,25 @@ export async function renderCalendarPage() {
     drawCharges();
   }
   async function loadEvents() {
-    const r = await get("/v1/reference/events?days=7");
-    data.events = r;
-    const events = upcomingEvents(r.data?.items ?? []);
-    banners.update({ events, lots: null, rate: null, session: null });
+    data.events = await get("/v1/reference/events?days=7");
+    drawEvents();
+  }
+  function drawEvents() {
+    banners.update({ events: calendarEvents(data.events?.data?.items ?? [], st.underlying), lots: null, rate: null, session: null });
   }
 
-  // Phones get the list, wider screens the grid: redraw when the device class changes.
+  // Phones get the list, wider screens the grid: redraw when the device class changes. The listener (and a pending
+  // month fetch) go when the route leaves this page, so a visit does not keep the page's DOM alive.
   const mq = typeof matchMedia === "function" ? matchMedia("(max-width: 719px)") : null;
-  const onMq = () => (statusEl.isConnected ? drawCalendar() : mq?.removeEventListener("change", onMq));
+  const onMq = () => (statusEl.isConnected ? drawCalendar() : cleanup());
   mq?.addEventListener("change", onMq);
+  const onRoute = () => setTimeout(() => !statusEl.isConnected && cleanup(), 0);
+  window.addEventListener("hashchange", onRoute);
+  function cleanup() {
+    mq?.removeEventListener("change", onMq);
+    window.removeEventListener("hashchange", onRoute);
+    clearTimeout(monthTimer);
+  }
 
   drawStatus();
   drawCalendar();
@@ -883,5 +966,5 @@ export async function renderCalendarPage() {
 
   const left = h("div", { class: "cal-col cal-left" }, cal.el, exp.el, ban.el, uni.el);
   const right = h("div", { class: "cal-col cal-right" }, act.el, rate.el, chg.el);
-  return [banners.el, statusEl, h("div", { class: "cal-cols", "data-fixed": "" }, left, right), foot];
+  return [banners.el, pageAlert, statusEl, h("div", { class: "cal-cols", "data-fixed": "" }, left, right), foot];
 }
