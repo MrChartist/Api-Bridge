@@ -1031,3 +1031,357 @@ describe("book warnings and settings", () => {
     expect(O.positionsConfig({ lossLimit: -3 }).lossLimit).toBeNull();
   });
 });
+
+// ── Volatility (the #/vol page, PRD 05) ──
+describe("volatility", () => {
+  const {
+    RATE,
+    VOL_READ_FOOTER,
+    arbChecks,
+    atmIvAt,
+    b76Delta,
+    forwardVol,
+    hvPercentile,
+    impliedForward,
+    impliedVolB76,
+    isMonthly,
+    ivAtDelta,
+    legPrice,
+    realisedVol,
+    skewMetrics,
+    smilePoints,
+    termRow,
+    termShape,
+    volRead,
+  } = O;
+  const NOW = Date.UTC(2026, 9, 29, 4, 0); // Thu 29 Oct 2026, 09:30 IST
+  /** Days from NOW to 15:30 IST on `expiry`. */
+  const daysTo = (e) => (Date.parse(`${e}T15:30:00+05:30`) - NOW) / 86_400_000;
+
+  /** A synthetic chain priced by Black-76 at `vol(K)` (percent), discounted at `rate`, with a tight two-sided quote. */
+  function chain({ F = 25000, years = 7 / 365, rate = RATE, vol = () => 15, step = 50, n = 30, spot = null, half = 0.05, expiry = "2026-11-05", lot = 75 } = {}) {
+    const df = Math.exp(-rate * years);
+    const atm = Math.round(F / step) * step;
+    const rows = [];
+    for (let i = -n; i <= n; i++) {
+      const K = atm + i * step;
+      const leg = (right) => {
+        const p = black76(F, K, years, vol(K), right) * df;
+        return { ltp: p, bid: Math.max(0, p - half), ask: p + half };
+      };
+      rows.push({ strike: K, ce: leg("CE"), pe: leg("PE") });
+    }
+    return { underlying: "NIFTY", expiry, underlyingLtp: spot ?? F * df, atmStrike: atm, lotSize: lot, rows };
+  }
+
+  describe("legPrice", () => {
+    it("reads the mid, flags a wide spread, falls back to the LTP, and can be forced to the LTP", () => {
+      expect(legPrice({ bid: 99, ask: 101, ltp: 90 })).toEqual({ price: 100, q: "mid" });
+      expect(legPrice({ bid: 9, ask: 11, ltp: 10 })).toEqual({ price: 10, q: "wide" });
+      expect(legPrice({ bid: 0, ask: 11, ltp: 10.5 })).toEqual({ price: 10.5, q: "ltp" });
+      expect(legPrice({ bid: null, ask: null, ltp: 0 })).toEqual({ price: null, q: "none" });
+      expect(legPrice(null)).toEqual({ price: null, q: "none" });
+      expect(legPrice({ bid: 99, ask: 101, ltp: 90 }, "ltp")).toEqual({ price: 90, q: "ltp" });
+    });
+  });
+
+  describe("impliedVolB76", () => {
+    it("round-trips CE and PE across vols, tenors, moneyness and discounting", () => {
+      let checked = 0;
+      for (const sig of [5, 12, 40, 150])
+        for (const T of [0.5 / 365, 7 / 365, 90 / 365])
+          for (const kf of [0.9, 1, 1.1])
+            for (const df of [1, 0.98])
+              for (const right of ["CE", "PE"]) {
+                const F = 25000;
+                const K = F * kf;
+                const price = black76(F, K, T, sig, right) * df;
+                const intrinsic = right === "CE" ? Math.max(0, F - K) : Math.max(0, K - F);
+                // Only where time value is measurable: a priceless far wing has no recoverable vol.
+                if (price / df - intrinsic < 1e-3) continue;
+                checked += 1;
+                expect(Math.abs(impliedVolB76(price, F, K, T, right, df) - sig), `${sig} ${T} ${kf} ${df} ${right}`).toBeLessThan(1e-4);
+              }
+      expect(checked).toBeGreaterThan(40);
+    });
+
+    it("is null below intrinsic, at the upper bound, at price 0 and at T = 0", () => {
+      expect(impliedVolB76(900, 26000, 25000, 0.05, "CE")).toBeNull();
+      expect(impliedVolB76(26000, 26000, 25000, 0.05, "CE")).toBeNull();
+      expect(impliedVolB76(25000 * 0.98, 26000, 25000, 0.05, "PE", 0.98)).toBeNull();
+      expect(impliedVolB76(0, 25000, 25000, 0.05, "CE")).toBeNull();
+      expect(impliedVolB76(100, 25000, 25000, 0, "CE")).toBeNull();
+    });
+  });
+
+  describe("b76Delta", () => {
+    it("is just over 0.5 for an ATM call and call − 1 for the put", () => {
+      const c = b76Delta(25000, 25000, 30 / 365, 15, "CE");
+      expect(c).toBeGreaterThan(0.5);
+      expect(c).toBeLessThan(0.52);
+      expect(b76Delta(25000, 25000, 30 / 365, 15, "PE")).toBeCloseTo(c - 1, 12);
+      expect(b76Delta(25000, 25000, 30 / 365, null, "CE")).toBeNull();
+    });
+  });
+
+  describe("impliedForward", () => {
+    it("recovers F from parity with discounting, from the median of the 3 strikes nearest spot", () => {
+      const years = 30 / 365;
+      const c = chain({ F: 25012, years, half: 0 });
+      // Mids exactly on Black-76, so every strike reads F; the median of 3 is F.
+      const f = impliedForward(c, years, RATE);
+      expect(f.source).toBe("parity");
+      expect(f.F).toBeCloseTo(25012, 6);
+      // One outlier among the 3 nearest is ignored by the median.
+      const near = [...c.rows].sort((a, b) => Math.abs(a.strike - c.underlyingLtp) - Math.abs(b.strike - c.underlyingLtp));
+      near[0].ce.bid += 30;
+      near[0].ce.ask += 30;
+      expect(impliedForward(c, years, RATE).F).toBeCloseTo(25012, 6);
+    });
+
+    it("falls back to spot with no two-sided quotes, and to null without spot", () => {
+      const c = chain();
+      for (const r of c.rows) r.ce.bid = r.pe.bid = 0;
+      expect(impliedForward(c, 7 / 365)).toEqual({ F: c.underlyingLtp, source: "spot" });
+      expect(impliedForward({ rows: [] }, 7 / 365)).toEqual({ F: null, source: null });
+    });
+  });
+
+  describe("smilePoints", () => {
+    const years = 14 / 365;
+    it("reads a flat 15% smile back everywhere, with no parity gaps", () => {
+      const c = chain({ years });
+      const pts = smilePoints(c, { F: 25000, years, rate: RATE });
+      const drawn = pts.filter((p) => p.otm);
+      expect(drawn.length).toBeGreaterThan(30);
+      for (const p of drawn) expect(Math.abs(p.otm.iv - 15)).toBeLessThan(1e-3);
+      expect(pts.some((p) => p.gap)).toBe(false);
+    });
+
+    it("takes the PE below F and the CE at or above it", () => {
+      const pts = smilePoints(chain({ years }), { F: 25000, years });
+      expect(pts.find((p) => p.strike === 24950).otm.side).toBe("pe");
+      expect(pts.find((p) => p.strike === 25000).otm.side).toBe("ce");
+      expect(pts.find((p) => p.strike === 25000).callDelta).toBeGreaterThan(0.5);
+    });
+
+    it("marks tick-floor, below-intrinsic and out-of-range points, and a parity gap", () => {
+      const c = chain({ years });
+      const r = (k) => c.rows.find((x) => x.strike === k);
+      Object.assign(r(23500).pe, { bid: 0, ask: 0.05, ltp: 0.05 });
+      Object.assign(r(25500).ce, { bid: 0.02, ask: 0.04 }); // mid 0.03: tick floor
+      const pts0 = smilePoints(c, { F: 25000, years });
+      expect(pts0.find((p) => p.strike === 23500).out).toBe("tick");
+      expect(pts0.find((p) => p.strike === 25500).out).toBe("tick");
+      // Below intrinsic: a deep ITM call under F − K (it is not the OTM side, so read the leg).
+      Object.assign(r(24000).ce, { bid: 900, ask: 901 });
+      expect(smilePoints(c, { F: 25000, years }).find((p) => p.strike === 24000).ce.out).toBe("intrinsic");
+      // Over 300%: a far call priced like a 400% vol.
+      const px = black76(25000, 26000, years, 400, "CE");
+      Object.assign(r(26000).ce, { bid: px - 0.05, ask: px + 0.05 });
+      expect(smilePoints(c, { F: 25000, years }).find((p) => p.strike === 26000).out).toBe("range");
+      // A gap: the CE bid IV over the PE ask IV.
+      const g = black76(25000, 25100, years, 18, "CE") * Math.exp(-RATE * years);
+      Object.assign(r(25100).ce, { bid: g - 0.05, ask: g + 0.05 });
+      expect(smilePoints(c, { F: 25000, years }).find((p) => p.strike === 25100).gap).toBe(true);
+    });
+  });
+
+  describe("atmIvAt", () => {
+    const pt = (strike, iv) => ({ strike, ce: { iv }, pe: { iv } });
+    it("uses an exact strike, interpolates between brackets, and one side within one step", () => {
+      const pts = [pt(100, 20), pt(110, 10)];
+      expect(atmIvAt(pts, 100)).toBe(20);
+      expect(atmIvAt(pts, 105)).toBeCloseTo(15, 12);
+      expect(atmIvAt(pts, 112)).toBe(10);
+      expect(atmIvAt(pts, 125)).toBeNull();
+      expect(atmIvAt([{ strike: 100, ce: { iv: 10 }, pe: { iv: 12 } }], 100)).toBe(11);
+    });
+  });
+
+  describe("ivAtDelta and skewMetrics", () => {
+    const years = 30 / 365;
+    it("reads a known risk reversal from a linear skew and a positive fly from a convex smile", () => {
+      const F = 25000;
+      const linear = (K) => 15 - 20 * Math.log(K / F); // puts richer
+      const pts = smilePoints(chain({ F, years, vol: linear, n: 60 }), { F, years });
+      const s = skewMetrics(pts, atmIvAt(pts, F));
+      expect(s.rr25).toBeGreaterThan(1);
+      expect(s.put25.strike).toBeLessThan(F);
+      expect(s.call25.strike).toBeGreaterThan(F);
+      // The put and call 25Δ strikes sit about symmetrically in log-moneyness: rr ≈ 20·(ln Kc − ln Kp).
+      expect(s.rr25).toBeCloseTo(20 * (Math.log(s.call25.strike / F) - Math.log(s.put25.strike / F)), 0);
+      const convex = (K) => 15 + 400 * Math.log(K / F) ** 2;
+      const p2 = smilePoints(chain({ F, years, vol: convex, n: 60 }), { F, years });
+      expect(skewMetrics(p2, atmIvAt(p2, F)).bf25).toBeGreaterThan(0.1);
+    });
+
+    it("is null on a chain too narrow for 25Δ", () => {
+      const pts = smilePoints(chain({ years, n: 2 }), { F: 25000, years });
+      expect(ivAtDelta(pts, -0.25)).toBeNull();
+      const s = skewMetrics(pts, 15);
+      expect(s.rr25).toBeNull();
+      expect(s.bf25).toBeNull();
+    });
+  });
+
+  describe("termRow", () => {
+    it("prices the straddle, ₹/lot, breakevens, ratio and hedge put; dims expiry day", () => {
+      const e = "2026-11-12";
+      const years = daysTo(e) / 365;
+      const c = chain({ F: 25000, years, expiry: e, n: 40 });
+      const r = termRow(c, { now: NOW, hedgePct: 97 });
+      expect(r.F).toBeCloseTo(25000, 4);
+      expect(r.atmStrike).toBe(25000);
+      expect(r.atmIv).toBeCloseTo(15, 3);
+      const ce = (black76(25000, 25000, years, 15, "CE") * Math.exp(-RATE * years));
+      expect(r.straddle).toBeCloseTo(2 * ce, 6);
+      expect(r.rupee).toBeCloseTo(r.straddle * 75, 6);
+      expect(r.perDay).toBeCloseTo(r.rupee / daysTo(e), 6);
+      expect(r.beLo).toBeCloseTo(25000 - r.straddle, 6);
+      expect(r.beHi).toBeCloseTo(25000 + r.straddle, 6);
+      expect(r.ratio).toBeGreaterThan(0.77);
+      expect(r.ratio).toBeLessThan(0.82);
+      expect(r.hedge.strike).toBe(24250);
+      expect(r.hedge.annualPct).toBeCloseTo((r.hedge.pts / r.F) * 100 * (365 / daysTo(e)), 6);
+      expect(r.weekday).toBe("Thu");
+      expect(r.dim).toBe(false);
+      expect(termRow({ ...c, lotSize: null }, { now: NOW }).rupee).toBeNull();
+      // Expiry day: dimmed, and ₹/lot a day floors the days at 0.25.
+      const today = termRow({ ...chain({ years: 0.1 / 365, expiry: "2026-10-29" }) }, { now: NOW });
+      expect(today.dim).toBe(true);
+      expect(today.perDay).toBeCloseTo(today.rupee / 0.25, 6);
+    });
+  });
+
+  describe("forwardVol and termShape", () => {
+    it("gives the forward vol, an inversion, and nothing under half a day apart", () => {
+      expect(forwardVol({ atmIv: 12, years: 0.02 }, { atmIv: 15, years: 0.1 }).vol).toBeCloseTo(Math.sqrt((0.15 ** 2 * 0.1 - 0.12 ** 2 * 0.02) / 0.08) * 100, 10);
+      expect(forwardVol({ atmIv: 30, years: 0.05 }, { atmIv: 12, years: 0.1 })).toEqual({ vol: null, inverted: true });
+      expect(forwardVol({ atmIv: 12, years: 0.1 }, { atmIv: 15, years: 0.1 + 0.2 / 365 })).toEqual({ vol: null, inverted: false });
+    });
+
+    it("labels contango, backwardation, flat, humped and too few; expiry-day rows are left out", () => {
+      const r = (...ivs) => ivs.map((atmIv) => ({ atmIv, dim: false }));
+      expect(termShape(r(12, 13, 14)).kind).toBe("contango");
+      expect(termShape(r(16, 14, 13)).kind).toBe("backwardation");
+      expect(termShape(r(14, 14.2, 14.1)).kind).toBe("flat");
+      expect(termShape(r(13, 15, 13.2)).kind).toBe("humped");
+      expect(termShape(r(13)).kind).toBe("insufficient");
+      expect(termShape([{ atmIv: 30, dim: true }, ...r(13, 14)]).kind).toBe("contango");
+      expect(termShape(r(12, 14)).slope).toBeCloseTo(2, 12);
+    });
+  });
+
+  describe("realisedVol and hvPercentile", () => {
+    it("is 0 for a constant return, a hand value for an alternating series, null when short", () => {
+      const steady = Array.from({ length: 30 }, (_, i) => 100 * 1.01 ** i);
+      expect(realisedVol(steady, 20)).toBeCloseTo(0, 9);
+      const alt = [100, 101, 100, 101, 100];
+      const a = Math.log(1.01);
+      // Returns +a, −a, +a, −a: mean 0, sample variance 4a²/3.
+      expect(realisedVol(alt, 4)).toBeCloseTo(Math.sqrt((4 * a * a) / 3) * Math.sqrt(252) * 100, 9);
+      expect(realisedVol(alt, 5)).toBeNull();
+    });
+
+    it("needs 120 earlier values and reads 100 at the series max", () => {
+      expect(hvPercentile(Array.from({ length: 100 }, (_, i) => 100 + i), 20)).toBeNull();
+      // Quiet then a final burst: today's HV20 is the highest.
+      const closes = [100];
+      for (let i = 1; i < 300; i++) closes.push(closes[i - 1] * (1 + (i % 2 ? 1 : -1) * (i > 290 ? 0.03 : 0.005 + 0.0001 * (i % 7))));
+      const p = hvPercentile(closes, 20, 252);
+      expect(p.pct).toBe(100);
+      expect(p.count).toBeGreaterThanOrEqual(120);
+    });
+  });
+
+  describe("arbChecks", () => {
+    const years = 7 / 365;
+    const df = Math.exp(-RATE * years);
+    it("finds nothing on a clean chain", () => {
+      const hits = arbChecks(chain({ years }), { df });
+      expect(hits.length).toBe(0);
+      expect(hits.strikes).toBe(41);
+    });
+
+    it("detects a planted vertical, butterfly, buy box and sell box, with their edges", () => {
+      const c = chain({ years, half: 0.1 });
+      const r = (k) => c.rows.find((x) => x.strike === k);
+      // Vertical: the 25100 CE bid above the 25050 CE ask.
+      const v = chain({ years, half: 0.1 });
+      const vr = (k) => v.rows.find((x) => x.strike === k);
+      vr(25100).ce.bid = vr(25050).ce.ask + 2;
+      vr(25100).ce.ask = vr(25100).ce.bid + 0.2;
+      const vh = arbChecks(v, { df }).find((h) => h.kind === "Call vertical");
+      expect(vh.edge).toBeCloseTo(2, 9);
+      expect(vh.legs.map((l) => `${l.side} ${l.strike}`)).toEqual(["BUY 25050", "SELL 25100"]);
+      // Butterfly: lift the 24900 PE bid well above the wings' average.
+      const b = chain({ years, half: 0.1 });
+      const br = (k) => b.rows.find((x) => x.strike === k);
+      br(24900).pe.bid += 5;
+      br(24900).pe.ask += 5;
+      const fly = arbChecks(b, { df }).find((h) => h.kind === "Butterfly" && h.legs[1].strike === 24900 && h.legs[1].right === "PE");
+      expect(fly.edge).toBeCloseTo(2 * br(24900).pe.bid - br(24850).pe.ask - br(24950).pe.ask, 9);
+      expect(fly.legs[1].qty).toBe(2);
+      // Buy box: make the 25000/25050 box cheap.
+      r(25000).ce.ask -= 3;
+      r(25000).ce.bid -= 3;
+      const bb = arbChecks(c, { df }).find((h) => h.kind === "Box (buy)" && h.legs[0].strike === 25000);
+      const cost = r(25000).ce.ask - r(25050).ce.bid + r(25050).pe.ask - r(25000).pe.bid;
+      expect(bb.edge).toBeCloseTo(50 * df - cost, 9);
+      expect(bb.note).toBe("depends on rate");
+      // Sell box: make the 24800/24850 box rich.
+      r(24800).ce.bid += 3;
+      r(24800).ce.ask += 3;
+      const sb = arbChecks(c, { df }).find((h) => h.kind === "Box (sell)" && h.legs[0].strike === 24800);
+      const proceeds = r(24800).ce.bid - r(24850).ce.ask + r(24850).pe.bid - r(24800).pe.ask;
+      expect(sb.edge).toBeCloseTo(proceeds - 50 * df, 9);
+      // Sorted by edge, descending.
+      const all = arbChecks(c, { df }).map((h) => h.edge);
+      expect([...all].sort((x, y) => y - x)).toEqual(all);
+    });
+
+    it("lists calendar variance inversions from term rows", () => {
+      const hits = arbChecks(chain({ years }), { df, term: [{ expiry: "a", atmIv: 30, years: 0.02 }, { expiry: "b", atmIv: 12, years: 0.06 }] });
+      expect(hits.map((h) => h.kind)).toEqual(["Calendar variance"]);
+    });
+  });
+
+  describe("volRead", () => {
+    const base = { straddle: 300, straddlePct: 1.2, move: 380, movePct: 1.5, expiryLabel: "5 Nov", days: 7 };
+    const lines = (m) => volRead(m).flatMap((p) => p.lines);
+    it("adds each line at its threshold and drops it under", () => {
+      expect(lines({ ...base, vrp: 2 }).some((l) => l.startsWith("IV is 2.0 pts over 20-day"))).toBe(true);
+      expect(lines({ ...base, vrp: 1.9 }).some((l) => l.includes("20-day"))).toBe(false);
+      expect(lines({ ...base, vrp: -1 }).some((l) => l.includes("under 20-day"))).toBe(true);
+      expect(lines({ ...base, wingPut16: 3 }).some((l) => l.startsWith("The 16Δ put"))).toBe(true);
+      expect(lines({ ...base, wingPut16: 2.9 }).some((l) => l.startsWith("The 16Δ put"))).toBe(false);
+      expect(lines({ ...base, days: 0.5 })).toContain("Expiry day: time value decays fastest now.");
+      expect(lines({ ...base, rr25: 2 }).some((l) => l.startsWith("Puts carry 2.0"))).toBe(true);
+      expect(lines({ ...base, rr25: -2 }).some((l) => l.startsWith("Calls carry 2.0"))).toBe(true);
+      expect(lines({ ...base, rr25: 1.9 }).some((l) => l.includes("more IV than"))).toBe(false);
+      expect(lines({ ...base, shape: "backwardation" }).some((l) => l.includes("(inverted)"))).toBe(true);
+      expect(lines({ hits: 0 })).toContain("No executable violations at bid/ask.");
+      expect(lines({ hits: 3, gapCount: 2 }).some((l) => l.startsWith("3 executable violations"))).toBe(true);
+      expect(lines({ futGaps: [{ label: "24 Nov", futGap: 30, F: 25000 }] })).toContain("24 Nov future is 30.0 pts over the parity forward.");
+      expect(lines({ futGaps: [{ label: "24 Nov", futGap: 20, F: 25000 }] }).some((l) => l.includes("future"))).toBe(false);
+      const hedge = { pct: 97, strike: 24250, pts: 40, pctF: 0.16, annualPct: 8.3 };
+      expect(lines({ hedge, cheapestHedge: { expiry: "x", label: "24 Nov", annualPct: 4 }, expiry: "y" })).toContain("Cheapest per year among loaded expiries: 24 Nov at 4.0%.");
+      expect(lines({ hedge, cheapestHedge: { expiry: "y", annualPct: 4 }, expiry: "y" }).some((l) => l.startsWith("Cheapest"))).toBe(false);
+    });
+
+    it("emits nothing without inputs, and always ends with the footer", () => {
+      const r = volRead({ vrp: null, rr25: null });
+      expect(r.slice(0, 4).every((p) => p.lines.length === 0)).toBe(true);
+      expect(r.map((p) => p.persona)).toEqual(["Buyer", "Seller", "Hedger", "Arbitrageur", "Note"]);
+      expect(r[4].lines).toEqual([VOL_READ_FOOTER]);
+    });
+  });
+
+  describe("isMonthly", () => {
+    it("is the last listed expiry in its month, across a year boundary", () => {
+      const ex = ["2026-12-22", "2026-12-29", "2027-01-05", "2027-01-26", "2027-02-23"];
+      expect(ex.map((e) => isMonthly(e, ex))).toEqual([false, true, false, true, true]);
+    });
+  });
+});

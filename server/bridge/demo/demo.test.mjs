@@ -12,7 +12,7 @@ import { createBrokerRegistry } from "../../brokers/registry.mjs";
 import { createApp } from "../core/app.mjs";
 import { loadConfig } from "../core/config.mjs";
 import { createNullLogger } from "../core/logger.mjs";
-import { candles, createDemoAdapter, demoInstruments, expiriesFor, parseToken, spotAt } from "./demoAdapter.mjs";
+import { candles, createDemoAdapter, demoInstruments, expiriesFor, optionPrice, parseToken, smileVol, spotAt } from "./demoAdapter.mjs";
 import { NIFTY50 } from "../scanner/universes.mjs";
 import { DEMO_HEADER, createDemoRegistry, labelDemoResult } from "./demoMode.mjs";
 
@@ -57,11 +57,28 @@ describe("demo adapter", () => {
 
   it("builds an option chain around the spot and candles in market hours", async () => {
     const chain = (await a.fetchOptionChain({}, "NIFTY", "2026-10-20")).data;
-    expect(Object.keys(chain.oc)).toHaveLength(41);
+    expect(Object.keys(chain.oc)).toHaveLength(61);
     expect(chain.last_price).toBe(spotAt("NIFTY", T));
     const bars = candles("DM-NIFTY", "15m", Date.UTC(2026, 9, 16, 3, 45), Date.UTC(2026, 9, 16, 10, 0));
     expect(bars).toHaveLength(25);
     for (const b of bars) expect(b.high).toBeGreaterThanOrEqual(Math.max(b.open, b.close));
+  });
+
+  it("prices CE and PE on one vol per strike and tenor: parity holds, fronts are richer, puts are skewed", () => {
+    const S = spotAt("NIFTY", T);
+    for (const e of expiriesFor("NIFTY", T)) {
+      const years = Math.max((Date.parse(`${e}T15:30:00+05:30`) - T) / (365 * 86_400_000), 10 / (365 * 24 * 60));
+      for (const k of [-6, -2, 0, 3, 7].map((i) => Math.round(S / 50) * 50 + i * 50)) {
+        const c = optionPrice("NIFTY", e, k, "CE", T);
+        const p = optionPrice("NIFTY", e, k, "PE", T);
+        if (c <= 0.05 || p <= 0.05) continue;
+        // C − P = S − K·e^(−rT), up to the 0.05 tick on each leg.
+        expect(Math.abs(c - p - (S - k * Math.exp(-0.065 * years)))).toBeLessThanOrEqual(0.1 + 1e-9);
+      }
+    }
+    const u = { iv: 0.12, step: 50 };
+    expect(smileVol(u, 25000, 25000, 7 / 365)).toBeGreaterThan(smileVol(u, 25000, 25000, 60 / 365));
+    expect(smileVol(u, 25000, 0.95 * 25000, 30 / 365)).toBeGreaterThan(smileVol(u, 25000, 1.05 * 25000, 30 / 365));
   });
 
   it("the demo registry holds only the demo broker", () => {

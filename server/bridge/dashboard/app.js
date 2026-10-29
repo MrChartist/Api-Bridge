@@ -256,6 +256,7 @@ export const ICONS = {
   shrink: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
   strategy: '<path d="M3 17h5l4-10 4 10h5"/><path d="M3 21h18"/>',
   bars: '<path d="M4 20V10M9 20V4M14 20v-7M19 20V8"/>',
+  wave: '<path d="M3 12c2-5 4-5 6 0s4 5 6 0 4-5 6 0"/><path d="M3 20h18"/>',
 };
 export function icon(name) {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");

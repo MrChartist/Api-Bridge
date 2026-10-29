@@ -31,7 +31,7 @@ import {
   toast,
 } from "./app.js";
 import { DASH, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
-import { renderChainPage, renderOiPage, renderPositionsPage, renderStrategyPage } from "./desk.js";
+import { renderChainPage, renderOiPage, renderPositionsPage, renderStrategyPage, renderVolPage } from "./desk.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
@@ -190,6 +190,7 @@ export const PAGES = [
   { id: "chain", label: "Option Chain", short: "Chain", icon: "chart", tint: "green", tab: true, group: "Options", layout: "desk", title: "Option Chain", sub: "Live chain with OI, IV and Greeks. Click a bid or ask to trade", render: renderChainPage },
   { id: "strategy", label: "Strategy Builder", icon: "strategy", tint: "purple", group: "Options", layout: "desk", title: "Strategy Builder", sub: "Payoff, breakevens and chance of profit before you trade", render: renderStrategyPage },
   { id: "oi", label: "OI Analysis", icon: "bars", tint: "orange", group: "Options", layout: "desk", title: "OI Analysis", sub: "Open interest and its change by strike, build-up and walls", render: renderOiPage },
+  { id: "vol", label: "Volatility", icon: "wave", tint: "pink", group: "Options", layout: "desk", title: "Volatility", sub: "Smile, skew, term structure and expected move", render: renderVolPage },
   { id: "positions", label: "Positions", icon: "wallet", tint: "teal", group: "Options", layout: "desk", title: "Option positions", sub: "Open option positions with P&L and Greeks", render: renderPositionsPage },
   { id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, group: "Trading", title: "Orders and positions", sub: "Paper by default. Pending confirmations wait here", render: renderOrders },
   { id: "safety", label: "Safety", icon: "safety", tint: "red", tab: true, group: "Trading", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },

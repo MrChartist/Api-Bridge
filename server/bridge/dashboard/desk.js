@@ -13,6 +13,7 @@ import { createBuilder } from "./strategy.js";
 import * as O from "./options.js";
 import { createPositionsPage } from "./positions.js";
 import { cap, every, segField, segmented, stopTimer } from "./views.js";
+import { createVolPage, volConfig } from "./vol.js";
 
 const SLOT = "mcb.dashboard.desk";
 const UNDERLYINGS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX"];
@@ -21,6 +22,8 @@ const DEMO_UNDERLYINGS = ["NIFTY", "BANKNIFTY", "SENSEX"];
 const FETCH_STRIKES = 40;
 /** The OI page reads the whole listed chain (the API maximum), so max pain and PCR are not biased by a partial one. */
 const OI_FETCH_STRIKES = 100;
+/** The Volatility page reads the 10Δ wings of monthlies: a wider window than the chain. */
+const VOL_STRIKES = 60;
 const REFRESH_MS = 3000;
 const EXPIRY_DAY = new Intl.DateTimeFormat("en-IN", { timeZone: "UTC", day: "numeric", month: "short" });
 const expiryText = (e) => (/^\d{4}-\d{2}-\d{2}$/.test(e ?? "") ? EXPIRY_DAY.format(new Date(`${e}T00:00:00Z`)) : e ?? "");
@@ -90,8 +93,9 @@ export const renderChainPage = () => renderDesk("chain");
 export const renderStrategyPage = () => renderDesk("strategy");
 export const renderOiPage = () => renderDesk("oi");
 export const renderPositionsPage = () => renderDesk("positions");
+export const renderVolPage = () => renderDesk("vol");
 
-/** @param {"chain"|"strategy"|"oi"|"positions"} kind */
+/** @param {"chain"|"strategy"|"oi"|"positions"|"vol"} kind */
 async function renderDesk(kind) {
   const accounts = (await api("/v1/accounts")).data.data ?? [];
   const tradable = accounts.filter((a) => a.enabled && (a.capabilities ?? []).includes("placeOrder"));
@@ -111,6 +115,7 @@ async function renderDesk(kind) {
     scfg: prefs.strategy ?? null,
     whatIf: prefs.whatIf ?? null,
     pos: O.positionsConfig(prefs.pos),
+    vol: volConfig(prefs.vol),
     chain: null,
     freshness: null,
     error: null,
@@ -126,7 +131,7 @@ async function renderDesk(kind) {
     seq: 0,
   };
   st.strikesView = st.strikes;
-  const save = () => local.set(SLOT, JSON.stringify({ underlying: st.underlying, expiry: st.expiry, strikes: st.strikes, chain: st.cfg, account: st.account, live: st.live, baskets: st.baskets, oi: st.oi, strategy: st.scfg ?? undefined, whatIf: st.whatIf ?? undefined, pos: st.pos }));
+  const save = () => local.set(SLOT, JSON.stringify({ underlying: st.underlying, expiry: st.expiry, strikes: st.strikes, chain: st.cfg, account: st.account, live: st.live, baskets: st.baskets, oi: st.oi, strategy: st.scfg ?? undefined, whatIf: st.whatIf ?? undefined, pos: st.pos, vol: st.vol }));
   const account = () => tradable.find((a) => a.id === st.account) ?? null;
   const basketKey = () => `${st.underlying}|${st.expiry}`;
   const basket = () => (st.baskets[basketKey()] ??= []);
@@ -205,6 +210,14 @@ async function renderDesk(kind) {
           },
         })
       : null;
+  // Volatility (vol.js): the other expiries' chains, futures and history are its own; desk.js keeps the selected chain.
+  const volPage = kind === "vol" ? createVolPage({ st, save, selectExpiry, retry: () => reloadAll() }) : null;
+  /** Select an expiry as the toolbar does (the Volatility page's term table and curve). */
+  function selectExpiry(e) {
+    if (!st.expiries.includes(e) || e === st.expiry) return;
+    eSel.value = e;
+    eSel.dispatchEvent(new Event("change"));
+  }
   function openInChain(strike, side) {
     save();
     local.set(SLOT, JSON.stringify({ ...readPrefs(), jump: { underlying: st.underlying, expiry: st.expiry, strike, side: side === "pe" ? "pe" : "ce" } }));
@@ -236,6 +249,7 @@ async function renderDesk(kind) {
       eSel.replaceChildren(...ex.map((e) => h("option", { value: e, selected: e === st.expiry }, `${expiryText(e)} · ${O.isExpiryDay(e) ? "today" : O.timeToExpiry(e).label}${O.isMonthlyExpiry(e, ex) ? " · M" : ""}`)));
       eSel.disabled = false;
       oiPage?.expiriesLoaded();
+      volPage?.expiriesLoaded();
       return true;
     } catch (err) {
       if (seq !== st.seq) return false;
@@ -267,7 +281,9 @@ async function renderDesk(kind) {
     const seq = st.seq;
     const t0 = performance.now();
     try {
-      const [r] = await Promise.all([api(`/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(st.expiry)}&strikes=${kind === "oi" ? OI_FETCH_STRIKES : FETCH_STRIKES}&greeks=true`), loadQuotes()]);
+      // The Volatility page recomputes IVs and deltas itself: no server Greeks, no index / futures quotes here.
+      const strikes = kind === "oi" ? OI_FETCH_STRIKES : kind === "vol" ? VOL_STRIKES : FETCH_STRIKES;
+      const [r] = await Promise.all([api(`/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(st.expiry)}&strikes=${strikes}&greeks=${kind === "vol" ? "false" : "true"}`), kind === "vol" ? null : loadQuotes()]);
       if (seq !== st.seq) return;
       st.chain = r.data.data;
       st.freshness = r.data.data?.freshness ?? r.data.meta?.freshness ?? null;
@@ -289,7 +305,7 @@ async function renderDesk(kind) {
     st.futPositions = all.filter((p) => fut.test(String(p.symbol ?? "")) && Number(p.netQty));
     st.positionsError = r.error ?? null;
   }
-  const refresh = () => (posPage ? posPage.tick() : Promise.all([loadChain(), loadPositions(), oiPage?.tick()]));
+  const refresh = () => (posPage ? posPage.tick() : volPage ? Promise.all([loadChain(), volPage.tick()]) : Promise.all([loadChain(), loadPositions(), oiPage?.tick()]));
   const startTimer = () => (st.live ? every(REFRESH_MS, refresh) : stopTimer());
   async function reloadAll() {
     if (posPage) {
@@ -298,6 +314,7 @@ async function renderDesk(kind) {
     }
     chain.reset();
     oiPage?.reset({ underlying: true });
+    volPage?.reset({ underlying: true });
     sheet?.close();
     st.chain = null;
     st.focus = null;
@@ -306,9 +323,9 @@ async function renderDesk(kind) {
     drawAll();
     const ok = await loadExpiries();
     if (ok) {
-      await loadFutures();
+      if (!volPage) await loadFutures();
       await refresh();
-    } else await loadPositions();
+    } else if (!volPage) await loadPositions();
   }
 
   // ── Derived context for one draw ──
@@ -389,6 +406,13 @@ async function renderDesk(kind) {
     chainTools.classList.toggle("off", off);
   }
   function drawAll() {
+    if (volPage) {
+      const t0 = performance.now();
+      volPage.draw();
+      st.patchMs = Math.round((performance.now() - t0) * 10) / 10;
+      drawClock();
+      return;
+    }
     drawClock();
     syncTools();
     if (!st.chain) {
@@ -1152,7 +1176,15 @@ async function renderDesk(kind) {
       return posPage.onKey(e);
     },
   };
-  activeDesk = kind === "chain" ? desk : kind === "oi" ? oiDesk : kind === "strategy" ? stratDesk : kind === "positions" ? posDesk : null;
+  const volDesk = volPage && {
+    root: volPage.root,
+    onKey(e) {
+      if (e.key === "p") return liveBtn.click(), true;
+      if (e.key === "r") return refresh(), true;
+      return volPage.onKey(e);
+    },
+  };
+  activeDesk = kind === "chain" ? desk : kind === "oi" ? oiDesk : kind === "strategy" ? stratDesk : kind === "positions" ? posDesk : kind === "vol" ? volDesk : null;
   bindKeys();
 
   // ── Wiring ──
@@ -1169,6 +1201,7 @@ async function renderDesk(kind) {
     sheet?.close();
     chain.reset();
     oiPage?.reset();
+    volPage?.reset();
     save();
     loadChain();
   });
@@ -1200,7 +1233,7 @@ async function renderDesk(kind) {
   drawLive();
   // Back to the tab: refresh at once instead of on the next tick. Device class changes (rotation, a phone-width
   // window, a touch screen) re-lay the chain. Both listeners go when the page does.
-  const pageRoot = kind === "chain" ? chainEl : kind === "strategy" ? builder.panel : kind === "oi" ? oiPage.root : posPage.root;
+  const pageRoot = kind === "chain" ? chainEl : kind === "strategy" ? builder.panel : kind === "oi" ? oiPage.root : kind === "vol" ? volPage.root : posPage.root;
   const onVisible = () => {
     if (!pageRoot.isConnected) return cleanup();
     if (!document.hidden && st.live) refresh();
@@ -1220,6 +1253,7 @@ async function renderDesk(kind) {
     sheet?.close();
     builder?.destroy();
     posPage?.destroy();
+    volPage?.destroy();
   }
   document.addEventListener("visibilitychange", onVisible);
   window.addEventListener("hashchange", onRoute);
@@ -1254,6 +1288,8 @@ async function renderDesk(kind) {
   const summary = h("section", { class: "desk-panel", "data-panel": "summary", "aria-label": "Chain summary" }, statsEl);
   if (kind === "strategy") return [top, summary, builder.panel, builder.slot];
   if (kind === "oi") return [top, ...oiPage.panels];
+  // Volatility: its own KPI strip, so no shared summary.
+  if (kind === "vol") return [top, ...volPage.panels];
   // The page covers every expiry: the toolbar's expiry select is hidden (st.expiry stays for the other pages).
   eSel.hidden = true;
   aSel.classList.add("wide");

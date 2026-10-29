@@ -82,7 +82,7 @@ export const DEMO_UNDERLYINGS = Object.freeze([
 ]);
 
 const BY_SYMBOL = new Map(DEMO_UNDERLYINGS.map((u) => [u.symbol, u]));
-const STRIKES_EACH_SIDE = 20;
+const STRIKES_EACH_SIDE = 30;
 
 // ── Deterministic helpers ──
 
@@ -205,11 +205,15 @@ function bs(spot, strike, years, vol, right) {
   if (right === "CE") return spot * normCdf(d1) - strike * Math.exp(-RATE * years) * normCdf(d2);
   return strike * Math.exp(-RATE * years) * normCdf(-d2) - spot * normCdf(-d1);
 }
-/** Implied volatility (decimal) for a strike: a mild smile, higher for puts below the money. */
-function smileVol(u, spot, strike, right) {
-  const m = Math.log(strike / spot);
-  const skew = right === "PE" && m < 0 ? 0.6 : 0.25;
-  return u.iv * (1 + skew * Math.abs(m) * 10 * 0.35) + 0.002 * Math.sin(strike / u.step);
+/**
+ * Implied volatility (decimal) for a strike and tenor, the same for CE and PE (so put-call parity holds): a smile in
+ * moneyness scaled by √T, steeper on the put side, with front expiries richer than later ones (a term structure).
+ */
+export function smileVol(u, spot, strike, years) {
+  const x = Math.log(strike / spot) / Math.sqrt(Math.max(years, 1 / 365));
+  const base = u.iv * (1 + 0.3 * Math.exp((-years * 365) / 6));
+  // Smooth in strike (no per-strike wiggle): adjacent strikes then never form a butterfly arbitrage.
+  return base * (1 + 1.2 * x * x + (x < 0 ? 0.8 : 0.1) * Math.abs(x));
 }
 
 export function optionPrice(symbol, expiry, strike, right, t) {
@@ -217,7 +221,7 @@ export function optionPrice(symbol, expiry, strike, right, t) {
   const spot = spotAt(symbol, t);
   if (!u || spot === null) return null;
   const years = yearsTo(expiry, t);
-  const p = bs(spot, strike, years, smileVol(u, spot, strike, right), right);
+  const p = bs(spot, strike, years, smileVol(u, spot, strike, years), right);
   return fix(Math.max(0.05, p), 0.05);
 }
 
