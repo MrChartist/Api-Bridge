@@ -144,10 +144,13 @@ describe("screenerConfig", () => {
       const c = S.screenerConfig(saved);
       expect(c.preset).toBe("overview");
       expect(c.underlyings).toEqual(["NIFTY", "BANKNIFTY", "SENSEX"]);
-      expect([c.expiries, c.monthly, c.strikes, c.auto, c.rows, c.brokerage, c.wingStrikes, c.hedgeNotional]).toEqual([2, true, 30, 120, 50, 20, 4, null]);
+      expect([c.expiries, c.monthly, c.strikes, c.auto, c.rows, c.brokerage, c.wingStrikes, c.hedgeNotional]).toEqual([2, true, 30, 120, 50, null, 4, null]);
       expect(c.filters.sell.absDelta).toEqual([0.1, 0.3]);
       expect(c.sort.hedge).toEqual({ by: "annualised", dir: "asc" });
     }
+    // Brokerage null means "the reference default" (bundle.charges.brokerage, spec §5.6); a user value overrides it.
+    expect(S.screenerConfig({ brokerage: 0 }).brokerage).toBe(0);
+    expect(S.screenerConfig({ brokerage: 35 }).brokerage).toBe(35);
     expect(S.screenerConfig({}, { demo: true }).auto).toBe(60);
   });
 

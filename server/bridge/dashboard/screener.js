@@ -12,7 +12,7 @@ import { DEMO_UNDERLYINGS, UNDERLYINGS } from "./desk.js";
 import { barsEnter, countUp, flashValue, lineReveal, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
 import * as S from "./screens.js";
-import { loadReference, refBanners, refCharges, refChip, refRate, refSession, refSignature } from "./reference.js";
+import { dayText, loadReference, refBanners, refCharges, refChip, refRate, refSession, refSignature } from "./reference.js";
 import { every, segmented, stopTimer } from "./views.js";
 import { hbar, heatCell, setBar, spotPill, svgEl } from "./viz.js";
 
@@ -113,7 +113,7 @@ async function queued(path, seq) {
  * underlying, then the chains (nearest expiries of every underlying first). Chains fresher than 0.9 × TTL are kept
  * unless `force`. Callbacks redraw progressively.
  */
-async function runSweep({ cfg, force, onProgress, onChain, onIssue, onHv }) {
+async function runSweep({ cfg, force, close, onProgress, onChain, onIssue, onHv }) {
   const seq = ++sweepSeq;
   const list = cfg.underlyings;
   const plan = new Map();
@@ -150,7 +150,7 @@ async function runSweep({ cfg, force, onProgress, onChain, onIssue, onHv }) {
         onIssue({ key: u, label: u, message: "no listed contracts" });
         continue;
       }
-      plan.set(u, S.scanExpiries(ex, { n: cfg.expiries, monthly: cfg.monthly }).map((e) => ({ expiry: e, monthly: O.isMonthly(e, ex) })));
+      plan.set(u, S.scanExpiries(ex, { n: cfg.expiries, monthly: cfg.monthly, close }).map((e) => ({ expiry: e, monthly: O.isMonthly(e, ex) })));
     }
     const order = S.scanOrder(new Map([...plan].map(([u, l]) => [u, l.map((x) => x.expiry)])));
     onProgress({ phase: "plan", plan, total: order.length, done: 0 });
@@ -311,6 +311,8 @@ export function renderScreenerPage() {
   refChipEl.el.classList.add("scr-ref");
   const refBannersEl = refBanners({ onMore: () => refChipEl.open() });
   const pctNow = () => O.chargesPct(refCharges(ref));
+  // Brokerage per order: the user's setting, else the reference default (bundle.charges.brokerage, spec §5.6).
+  const brokerage = () => cfg.brokerage ?? refCharges(ref).brokeragePerOrder;
   async function loadRefs() {
     const us = cfg.underlyings.length ? cfg.underlyings : list.slice(0, 1);
     const bs = await Promise.all(us.map((u) => loadReference(u)));
@@ -434,7 +436,7 @@ export function renderScreenerPage() {
     const parts = [];
     const keys = [];
     const universe = new Set(cfg.underlyings);
-    const charges = { ...pctNow(), brokeragePerOrder: cfg.brokerage };
+    const charges = { ...pctNow(), brokeragePerOrder: brokerage() };
     const rate = refRate(ref).value;
     const close = refSession(ref).close;
     const planned = plan ? new Set([...plan].flatMap(([u, l]) => l.map((x) => `${u}|${x.expiry}`))) : null;
@@ -444,7 +446,7 @@ export function renderScreenerPage() {
       if (planned && !planned.has(key)) continue;
       const hv20 = hv[u]?.hv20 ?? null;
       const monthly = plan?.get(u)?.find((x) => x.expiry === e)?.monthly ?? O.isMonthly(e, expCache.get(u)?.list ?? []);
-      const sig = `${entry.fetchedAt}|${hv20}|${cfg.brokerage}|${cfg.wingStrikes}|${cfg.hedgeNotional}|${monthly}|${rate}|${close}|${charges.asOf}`;
+      const sig = `${entry.fetchedAt}|${hv20}|${charges.brokeragePerOrder}|${cfg.wingStrikes}|${cfg.hedgeNotional}|${monthly}|${rate}|${close}|${charges.asOf}`;
       let m = memo.get(key);
       if (!m || m.sig !== sig) {
         m = { sig, rec: S.chainRecords(entry.chain, { hv20, charges, rate, close, wingStrikes: cfg.wingStrikes, fetchedAt: entry.fetchedAt, monthly, notional: cfg.hedgeNotional }) };
@@ -527,6 +529,7 @@ export function renderScreenerPage() {
     runSweep({
       cfg,
       force,
+      close: refSession(ref).close,
       onProgress: (p) => {
         if (destroyed) return;
         if (p.phase === "plan") plan = p.plan;
@@ -762,6 +765,9 @@ export function renderScreenerPage() {
     const hm = running && progress.total ? `${formatInt(Math.min(progress.done + (progress.current ? 1 : 0), progress.total))}/${formatInt(progress.total)}` : oldest ? S.istHm(oldest.fetchedAt) : "";
     if (liveHm.textContent !== hm) liveHm.textContent = hm;
     if (ctxMain.textContent !== ctxText) ctxMain.textContent = ctxText;
+    // The full list for screen readers (the phone text abbreviates it as "NIFTY+2").
+    const ctxAria = `Underlyings in the scan: ${cfg.underlyings.join(", ")}${plan ? `, ${chainsText}` : ""}`;
+    if (ctxBtn.getAttribute("aria-label") !== ctxAria) ctxBtn.setAttribute("aria-label", ctxAria);
     progressEl.hidden = !running;
     if (running) {
       const t = progress.total || 1;
@@ -1787,7 +1793,7 @@ export function renderScreenerPage() {
   let costsLi = null;
   const costsText = () => {
     const c = pctNow();
-    return `Costs (estimates, as of ${c.asOf}): STT ${formatFixed(c.sttSellPct, 2)}% on sell premium and on the intrinsic of exercised longs, exchange ${formatFixed(c.txnPct.NFO, 5)}% NSE / ${formatFixed(c.txnPct.BFO, 4)}% BSE, SEBI ₹${formatInt(c.sebiPerCrore)}/crore, stamp ${formatFixed(c.stampBuyPct, 3)}% on buys, GST ${formatInt(c.gstPct)}% on brokerage + exchange + SEBI. Brokerage is your setting (₹${formatInt(cfg.brokerage)} per order); check your broker's contract note.`;
+    return `Costs (estimates, as of ${c.asOf ? dayText(c.asOf, { year: true }) : DASH}): STT ${formatFixed(c.sttSellPct, 2)}% on sell premium and on the intrinsic of exercised longs, exchange ${formatFixed(c.txnPct.NFO, 5)}% NSE / ${formatFixed(c.txnPct.BFO, 4)}% BSE, SEBI ₹${formatInt(c.sebiPerCrore)}/crore, stamp ${formatFixed(c.stampBuyPct, 3)}% on buys, GST ${formatInt(c.gstPct)}% on brokerage + exchange + SEBI. Brokerage ₹${formatInt(brokerage())} per order (${cfg.brokerage === null ? "reference default" : "your setting"}); check your broker's contract note.`;
   };
   function drawMethod() {
     if (methodEl.childElementCount) {
@@ -1846,7 +1852,7 @@ export function renderScreenerPage() {
     if (!wide()) return;
     const r = recByKey(selKey);
     const rk = r ? result?.rankOf?.get(r.key) ?? null : null;
-    const sig = r ? `${cfg.preset}|${r.key}|${r.fetchedAt}|${cfg.brokerage}|${cfg.wingStrikes}|${isPinned(r.key)}|${r.stale}|${rk}|${result?.total}` : `none|${cfg.preset}`;
+    const sig = r ? `${cfg.preset}|${r.key}|${r.fetchedAt}|${brokerage()}|${cfg.wingStrikes}|${isPinned(r.key)}|${r.stale}|${rk}|${result?.total}` : `none|${cfg.preset}`;
     if (sig === paneSig) return;
     paneSig = sig;
     if (!r) {
@@ -2557,7 +2563,7 @@ export function renderScreenerPage() {
           setCfg({ rows: Number(v) });
           render();
         }),
-        numSet("Brokerage ₹ per order", cfg.brokerage, 0, 100, (x) => (setCfg({ brokerage: x }), render())),
+        numSet("Brokerage ₹ per order", brokerage(), 0, 100, (x) => (setCfg({ brokerage: x }), render()), cfg.brokerage === null ? "Reference default" : null),
         numSet("Wing width (strikes)", cfg.wingStrikes, 1, 10, (x) => (setCfg({ wingStrikes: x }), render()), "Sell rows' defined-risk alternative"),
       ),
     ];

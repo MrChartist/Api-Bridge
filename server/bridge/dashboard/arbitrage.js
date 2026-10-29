@@ -426,7 +426,8 @@ export function arbPanels(ctx) {
     const days = O.timeToExpiry(c.expiry, now, refSession(st.ref).close).days;
     const hRate = conf.hurdle / 100;
     const R = rates();
-    const profile = conf.profile;
+    // The flat / per-lot value is the user's, else the reference brokerage per order (spec §5.6).
+    const profile = { ...conf.profile, value: conf.profile.value ?? refCharges(st.ref).brokeragePerOrder };
     const inst = st.futures.find((f) => f.expiry === c.expiry) ?? null;
     const fut = futQuote(inst);
     const futError = Boolean(inst) && (!fut.quoted || st.quotesError);
@@ -1752,8 +1753,8 @@ export function arbPanels(ctx) {
       render();
     });
     const brokerFields = [];
-    if (p.brokerage === "flat") brokerFields.push(numField("₹ per order", p.value, { step: "1", min: "0", onSet: (v) => setP({ value: v }) }), numField("Futures cap, % of turnover", formatFixed(p.futPct * 100, 3), { step: "0.005", min: "0", max: "5", onSet: (v) => setP({ futPct: v / 100 }) }));
-    if (p.brokerage === "perLot") brokerFields.push(numField("₹ per lot", p.value, { step: "1", min: "0", onSet: (v) => setP({ value: v }) }));
+    if (p.brokerage === "flat") brokerFields.push(numField("₹ per order", p.value ?? refCharges(st.ref).brokeragePerOrder, { step: "1", min: "0", onSet: (v) => setP({ value: v }) }), numField("Futures cap, % of turnover", formatFixed(p.futPct * 100, 3), { step: "0.005", min: "0", max: "5", onSet: (v) => setP({ futPct: v / 100 }) }));
+    if (p.brokerage === "perLot") brokerFields.push(numField("₹ per lot", p.value ?? refCharges(st.ref).brokeragePerOrder, { step: "1", min: "0", onSet: (v) => setP({ value: v }) }));
     if (p.brokerage === "pct") brokerFields.push(numField("% of turnover", formatFixed(p.pct * 100, 3), { step: "0.005", min: "0", max: "5", onSet: (v) => setP({ pct: v / 100 }) }), numField("Cap, ₹ per order", p.cap, { step: "1", min: "0", onSet: (v) => setP({ cap: v }) }));
     const rateRows = O.RATE_FIELDS.map(([path, label, unit]) => {
       const cur = c.rates[path] ?? O.rateDefault(path, refCharges(st.ref));

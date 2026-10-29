@@ -16,7 +16,7 @@ import * as O from "./options.js";
 import { createPositionsPage } from "./positions.js";
 import { cap, every, segField, segmented, stopTimer } from "./views.js";
 import { createVolPage, volConfig } from "./vol.js";
-import { demoStaleAsked, lotConfirmGate, loadReference, refBanners, refCalendar, refChip, refRate, refSession, refSignature } from "./reference.js";
+import { demoStaleAsked, lotConfirmGate, lotStaleCheck, loadReference, refBanners, refCalendar, refChip, refRate, refSession, refSignature } from "./reference.js";
 import { readinessSheetRow } from "./readiness.js";
 import { clockNote, loadPricingContext } from "./vol-context.js";
 import { animatePage, barsEnter, countUp, flashValue, stopCount } from "./motion.js";
@@ -675,7 +675,8 @@ async function renderDesk(kind) {
       store.list(key).then(() => st.chain && drawAll()).catch(() => {});
       snaps = [];
     }
-    const avail = { 60: O.pickRef(snaps, now, "60"), 15: O.pickRef(snaps, now, "15") };
+    const open = refSession(st.ref).open;
+    const avail = { 60: O.pickRef(snaps, now, "60", { open }), 15: O.pickRef(snaps, now, "15", { open }) };
     const want = st.cfg.oiWin;
     const ref = want !== "day" && avail[want]?.ok && avail[want].snap ? avail[want] : null;
     // The segmented shows the window in use; one not ready yet is disabled and its title says why.
@@ -1341,7 +1342,10 @@ async function renderDesk(kind) {
     // Quantity in units needs no confirmation. Futures in lots get the same gate (the server checks FUT and OPT).
     // The gate is re-worked out on every 1 s tick (syncGate): the bundle may arrive after the ticket opened, or the
     // 10-minute re-read may turn the lots stale or into a conflict while it is open. Until the first bundle has
-    // resolved, an order in lots waits ("Reading contract data") rather than going out unchecked.
+    // resolved, an order in lots waits ("Reading contract data") rather than going out unchecked. The bundle describes
+    // the current contract only; the server checks each contract's own expiry, so a LOT_SIZE_STALE in the order
+    // preview (serverLot) opens the gate too, with the server's reason.
+    let serverLot = null;
     let gate = lotConfirmGate(st.ref, lotSize, { units: inUnits });
     const refPending = () => !inUnits && !st.ref;
     const gateBox = h("input", { type: "checkbox", required: true });
@@ -1356,7 +1360,7 @@ async function renderDesk(kind) {
     gateRow.hidden = !gate.needed;
     let wasPending = refPending();
     const syncGate = () => {
-      const g = lotConfirmGate(st.ref, lotSize, { units: inUnits });
+      const g = lotConfirmGate(st.ref, lotSize, { units: inUnits, server: serverLot });
       const pending = refPending();
       if (g.needed === gate.needed && g.text === gate.text && pending === wasPending) return;
       // A new or changed question is asked afresh: an earlier tick does not carry over to different words.
@@ -1452,6 +1456,13 @@ async function renderDesk(kind) {
       try {
         const r = (await api("/v1/orders/preview", { method: "POST", body: b })).data.data;
         if (seq !== previewSeq) return;
+        // A LOT_SIZE_STALE for this contract that the bundle did not show: ask for the confirmation (spec §5.4).
+        const ls = b.lotSizeConfirmed === undefined ? lotStaleCheck(r.checks) : null;
+        if (ls && !gate.needed) {
+          serverLot = ls;
+          syncGate();
+          return;
+        }
         last = r;
         const checks = [...(r.checks ?? [])].sort((x, y) => (x.severity === "block" ? -1 : 0) - (y.severity === "block" ? -1 : 0));
         previewEl.replaceChildren(

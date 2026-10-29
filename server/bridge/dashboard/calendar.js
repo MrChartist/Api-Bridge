@@ -6,7 +6,7 @@
 // Pure helpers (monthGrid, monthList, statusTiles, toCsv, CSV_COLUMNS, previewBody, mwplView, universeNote) are
 // exported for calendar.test.mjs; DOM code runs only in a browser. Numbers become text through format.js only. Copy
 // describes facts and never advises (copyRules.mjs): "in ban", "MWPL 96 %", "lot changes".
-import { alertBox, api, app, emptyState, h, icon, mountToolbarCtx, optional, sheetPopover, toast } from "./app.js";
+import { alertBox, api, app, emptyState, h, icon, modal, mountToolbarCtx, optional, sheetPopover, toast } from "./app.js";
 import { DASH, formatFixed, formatInt, formatRupee } from "./format.js";
 import { DEMO_UNDERLYINGS, UNDERLYINGS } from "./desk.js";
 import { REF_DEFAULTS, clearReferenceCache, dayText, daysBetween, istDate, loadReference, monthText, rateText, refBanners, refChip, upcomingEvents } from "./reference.js";
@@ -116,7 +116,9 @@ export function cellMarks(c) {
     if (!c.holiday.verified) out.push({ kind: "hol-u", text: "unverified", full: "Holiday not yet checked against the exchange circular" });
   }
   if (c.special) {
-    out.push({ kind: "spe", text: c.special.label, full: `${c.special.label}${c.special.open ? ` ${c.special.open}–${c.special.close} IST` : ": time not announced"}` });
+    // The cell is narrow: the first word of the label ("Muhurat"), the time on its own line; the full text is in the
+    // cell's sheet (tap or Enter) and its label.
+    out.push({ kind: "spe", text: String(c.special.label ?? "Special").split(/\s+/)[0], full: `${c.special.label}${c.special.open ? ` ${c.special.open}–${c.special.close} IST` : ": time not announced"}` });
     if (c.special.open) out.push({ kind: "spe-t", text: `${c.special.open}–${c.special.close}`, full: `${c.special.label} ${c.special.open}–${c.special.close} IST` });
   }
   if (c.expiry) {
@@ -164,6 +166,11 @@ export function stateWord(ds, { today = null } = {}) {
   if (age !== null && age >= 1) return age === 1 ? "1 day old" : `${formatInt(age)} days old`;
   return "Current";
 }
+/** An IST timestamp ("2026-11-02T08:20:00.000+05:30") as "Mon 2 Nov 08:20 IST"; the raw text when it is not one. */
+export function stampText(iso) {
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(String(iso ?? ""));
+  return m ? `${dayText(m[1], { weekday: true })} ${m[2]} IST` : String(iso ?? DASH);
+}
 /** The strip's tiles: [{ id, label, word, tone, asOf, source, detail }] from GET /v1/reference/status. */
 export function statusTiles(status, { today = null } = {}) {
   const ds = status?.datasets ?? {};
@@ -173,17 +180,37 @@ export function statusTiles(status, { today = null } = {}) {
     const tone = word === "Current" ? "ok" : word === "Off" || word === "Not fetched" ? "quiet" : word === "1 day old" ? "info" : "warn";
     const parts = [];
     if (d?.source) parts.push(`Source: ${d.source}`);
-    if (d?.lastAttemptAt) parts.push(`Last attempt ${String(d.lastAttemptAt).slice(0, 16).replace("T", " ")}`);
-    if (d?.nextRunAt) parts.push(`Next ${String(d.nextRunAt).slice(0, 16).replace("T", " ")}`);
+    if (d?.lastAttemptAt) parts.push(`Last attempt ${stampText(d.lastAttemptAt)}`);
+    if (d?.nextRunAt) parts.push(`Next ${stampText(d.nextRunAt)}`);
     if (d?.error) parts.push(`Error: ${d.error.code ?? d.error}${d.error.detail ? ` (${d.error.detail})` : ""}`);
     return { id, label, word, tone, asOf: d?.asOf ?? null, source: d?.source ?? null, detail: parts.join(" · ") };
   });
 }
 
+/**
+ * The consent copy for turning NSE archive downloads on (spec §7.2: name the files and how often, as the cli init
+ * question does). `src` is GET /v1/reference/status's sources.nseArchives (host, schedule, dailyRequestCap).
+ */
+export function consentText(src) {
+  const host = src?.host || "the NSE archives";
+  const times = [src?.schedule?.morning, src?.schedule?.evening].filter((t) => /^\d{2}:\d{2}$/.test(String(t ?? "")));
+  const when = times.length ? ` at ${times.join(" and ")} IST on trading days (one retry each if a file is late)` : " on trading days";
+  const cap = Number(src?.dailyRequestCap) > 0 ? ` At most ${formatInt(src.dailyRequestCap)} requests a day, one every few seconds.` : "";
+  return {
+    title: "Download NSE's public F&O files?",
+    lead: `The Bridge will download NSE's public F&O reference files from ${host}, about twice a day${when}:`,
+    files: ["Market lots (fo_mktlots.csv): lot sizes and the F&O universe", "Ban list (fo_secban_DDMMYYYY.csv): stocks in the ban period", "Combined OI (combineoi_DDMMYYYY.zip): market-wide position limits (MWPL)"],
+    tail: `Nothing else is sent: no account, key or order data.${cap} You can turn this off again on this page.`,
+  };
+}
+
 // ── CSV (pure) ──
 
 const csvCell = (v) => {
-  const s = v === null || v === undefined ? "" : String(v);
+  // A text cell starting with = + - @ (or a tab / CR) would run as a formula in a spreadsheet: a leading ' keeps it
+  // text. Numbers (a negative figure included) are written as they are.
+  const raw = v === null || v === undefined ? "" : String(v);
+  const s = typeof v !== "number" && /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 /** Rows as CSV text: a header line, then one line per row (quoted where needed). Columns are [header, value(row)]. */
@@ -435,10 +462,17 @@ export async function renderCalendarPage() {
           { class: "cal-off" },
           icon("info"),
           h("p", {}, "NSE archive downloads are off. Lot sizes come from your broker's master; ban list, MWPL and universe history are unavailable."),
-          onThisComputer() ? h("button", { type: "button", class: "small", onclick: (e) => turnOn(e.currentTarget) }, "Turn on") : null,
+          onThisComputer() ? h("button", { type: "button", class: "small", onclick: (e) => turnOn(e.currentTarget, s.data.sources?.nseArchives) }, "Turn on") : null,
         )
       : null;
-    const lead = h("div", { class: "cal-status-lead" }, h("span", { class: "cal-status-k" }, s.data.demo ? "Demo reference data" : "Reference data"), h("small", {}, s.data.knownSince ? `Recorded since ${dayText(s.data.knownSince, { year: true })}` : ""));
+    const on = !s.data.demo && s.data.sources?.nseArchives?.enabled === true;
+    const lead = h(
+      "div",
+      { class: "cal-status-lead" },
+      h("span", { class: "cal-status-k" }, s.data.demo ? "Demo reference data" : "Reference data"),
+      h("small", {}, s.data.knownSince ? `Recorded since ${dayText(s.data.knownSince, { year: true })}` : ""),
+      on && onThisComputer() ? h("button", { type: "button", class: "small plain cal-src-off", onclick: (e) => turnOff(e.currentTarget) }, "Turn off NSE downloads") : null,
+    );
     fill(statusEl, h("div", { class: "cal-status-row" }, lead, tilesEl), notice, s.data.demo && onThisComputer() ? demoStaleSwitch(Boolean(s.data.demoLotsStale)) : null);
   }
   /**
@@ -463,12 +497,33 @@ export async function renderCalendarPage() {
     });
     return h("label", { class: "check cal-demo-stale" }, box, h("span", {}, "Show stale lot data ", h("small", {}, "demo: lots read as two trading days old, so the warning and the ticket's lot-size check appear")));
   }
-  async function turnOn(btn) {
+  async function turnOn(btn, src) {
+    // Nothing is fetched until the user has read what will be fetched, from where and how often (spec §7.2).
+    const c = consentText(src);
+    const ok = await modal({
+      title: c.title,
+      body: h("div", { class: "stack cal-consent" }, h("p", {}, c.lead), h("ul", { class: "cal-consent-files" }, c.files.map((f) => h("li", {}, f))), h("p", { class: "muted small" }, c.tail)),
+      buttons: [
+        { label: "Cancel", cls: "plain", value: false },
+        { label: "Turn on downloads", cls: "primary", value: true },
+      ],
+    });
+    if (ok !== true) return;
     btn.disabled = true;
     const r = await optional(api("/v1/reference/sources", { method: "PUT", body: { nseArchives: true } }));
     btn.disabled = false;
     if (r.error) return toast(r.error.message ?? "Could not turn it on", { tone: "bad" });
     toast("NSE archive downloads are on: the first sync starts shortly");
+    clearReferenceCache();
+    loadAll();
+  }
+
+  async function turnOff(btn) {
+    btn.disabled = true;
+    const r = await optional(api("/v1/reference/sources", { method: "PUT", body: { nseArchives: false } }));
+    btn.disabled = false;
+    if (r.error) return toast(r.error.message ?? "Could not turn it off", { tone: "bad" });
+    toast("NSE archive downloads are off");
     clearReferenceCache();
     loadAll();
   }
@@ -536,8 +591,21 @@ export async function renderCalendarPage() {
             {},
             w.map((c) => {
               const cls = ["cal-cell", c.inMonth ? "" : "out", c.weekend ? "we" : "", c.holiday ? "hol" : "", c.special ? "spe" : "", c.expiry ? (c.expiry.kind === "monthly" ? "exm" : "exw") : "", c.today && c.inMonth ? "today" : ""].filter(Boolean).join(" ");
-              const marks = cellMarks(c).map((m) => h("span", { class: `cal-mark ${m.kind}`, title: m.full }, m.text));
-              return h("td", { class: cls, "aria-label": c.inMonth ? cellLabel(c) : undefined }, h("span", { class: "cal-day" }, formatInt(c.day)), c.inMonth ? marks : null);
+              const ms = c.inMonth ? cellMarks(c) : [];
+              const marks = ms.map((m) => h("span", { class: `cal-mark ${m.kind}`, title: m.full }, m.text));
+              // A day with marks opens a small sheet with every mark in full (touch screens have no tooltip).
+              const td = h("td", { class: `${cls}${ms.length ? " has-marks" : ""}`, "aria-label": c.inMonth ? cellLabel(c) : undefined, tabindex: ms.length ? "0" : undefined, "aria-haspopup": ms.length ? "dialog" : undefined }, h("span", { class: "cal-day" }, formatInt(c.day)), c.inMonth ? marks : null);
+              if (ms.length) {
+                const open = () => sheetPopover({ trigger: td, title: dayText(c.date, { weekday: true, year: true }), body: h("ul", { class: "cal-cell-sheet" }, ms.filter((m) => m.kind !== "spe-t" && m.kind !== "hol-u").map((m) => h("li", {}, m.full))), cls: "cal-cell-pop" });
+                td.addEventListener("click", open);
+                td.addEventListener("keydown", (e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    open();
+                  }
+                });
+              }
+              return td;
             }),
           ),
         ),
@@ -768,7 +836,8 @@ export async function renderCalendarPage() {
     const typeSel = h("select", { "aria-label": "Type" }, [["bonus", "Bonus"], ["split", "Split"], ["consolidation", "Consolidation"], ["rights", "Rights"], ["dividend", "Dividend"]].map(([v, t]) => h("option", { value: v }, t)));
     const uid = `caf${Date.now().toString(36)}`;
     const symIn = h("input", { type: "text", autocomplete: "off", spellcheck: "false", placeholder: "e.g. RELIANCE", maxlength: "30", "aria-label": "Symbol", "aria-describedby": `${uid}-sym` });
-    const dateIn2 = h("input", { type: "date", "aria-label": "Ex-date", min: today, "aria-describedby": `${uid}-date` });
+    // Past ex-dates are allowed (the panel lists recent actions too); the server validates the date.
+    const dateIn2 = h("input", { type: "date", "aria-label": "Ex-date", "aria-describedby": `${uid}-date` });
     // Field errors sit under their field (and the field is marked invalid and focused), not at the foot of the sheet.
     const symErr = h("small", { class: "cal-field-err", id: `${uid}-sym`, hidden: true });
     const dateErr = h("small", { class: "cal-field-err", id: `${uid}-date`, hidden: true });
@@ -780,8 +849,10 @@ export async function renderCalendarPage() {
     };
     const ratioRow = h("div", { class: "ticket-grid" }, field("New shares", inp("ratioNew")), field("For held", inp("ratioHeld")));
     const fvRow = h("div", { class: "ticket-grid" }, field("Face value before", inp("fvFrom")), field("Face value after", inp("fvTo")));
-    const rightsRow = h("div", { class: "ticket-grid" }, field("Subscription price", inp("subscriptionPrice")), field("Cum price", inp("cumPrice")));
-    const divRow = h("div", { class: "ticket-grid" }, field("Dividend per share", inp("dividend")), field("Cum price", inp("cumPrice")));
+    // One cum-price input, moved into whichever row shows (rights or dividend), so the value used is always visible.
+    const cumField = field("Cum price", inp("cumPrice"));
+    const rightsRow = h("div", { class: "ticket-grid" }, field("Subscription price", inp("subscriptionPrice")));
+    const divRow = h("div", { class: "ticket-grid" }, field("Dividend per share", inp("dividend")));
     const lotIn = inp("lot", { step: "1", inputmode: "numeric" });
     const strikesIn = h("input", { type: "text", inputmode: "decimal", "aria-label": "Strikes", "aria-describedby": `${uid}-stk` });
     strikesIn.addEventListener("input", () => {
@@ -795,6 +866,8 @@ export async function renderCalendarPage() {
       fvRow.hidden = !["split", "consolidation"].includes(f.type);
       rightsRow.hidden = f.type !== "rights";
       divRow.hidden = f.type !== "dividend";
+      if (f.type === "rights" && cumField.parentNode !== rightsRow) rightsRow.append(cumField);
+      if (f.type === "dividend" && cumField.parentNode !== divRow) divRow.append(cumField);
     };
     typeSel.addEventListener("change", () => {
       f.type = typeSel.value;
@@ -857,7 +930,18 @@ export async function renderCalendarPage() {
       out,
       err,
     );
-    const pop = sheetPopover({ trigger: addBtn, title: "Add a corporate action", body, cls: "cal-add-pop" });
+    // A modal sheet on every screen: the form grows with its preview, and the sheet's body scrolls, so Cancel and Save
+    // stay reachable (an anchored popover ran past the bottom of a 900 px window).
+    let closeAdd = () => {};
+    modal({
+      title: "Add a corporate action",
+      body: (close) => {
+        closeAdd = () => close(undefined, true);
+        return body;
+      },
+      buttons: [],
+    });
+    const pop = { close: () => closeAdd() };
     const saveBtn = h("button", { type: "button", class: "primary" }, "Save");
     const cancel = h("button", { type: "button", class: "plain", onclick: () => pop.close() }, "Cancel");
     body.append(h("div", { class: "cal-form-acts" }, cancel, saveBtn));
@@ -977,6 +1061,7 @@ export async function renderCalendarPage() {
     data.lots = l;
     st.ref = b;
     chip.update();
+    drawEvents();
     drawExpiries();
     drawCalendar();
   }
@@ -1006,11 +1091,13 @@ export async function renderCalendarPage() {
     drawCharges();
   }
   async function loadEvents() {
-    data.events = await get("/v1/reference/events?days=7");
+    // The server's own window (reference.bannerDays): the same events the Options pages' banners show.
+    data.events = await get("/v1/reference/events");
     drawEvents();
   }
   function drawEvents() {
-    banners.update({ events: calendarEvents(data.events?.data?.items ?? [], st.underlying), lots: null, rate: null, session: null });
+    // The selected underlying's lots go in too, so the stale-lot warning shows here as on every Options page (§5.3).
+    banners.update({ events: calendarEvents(data.events?.data?.items ?? [], st.underlying), lots: st.ref?.lots ?? null, rate: null, session: null });
   }
 
   // Phones get the list, wider screens the grid: redraw when the device class changes. The listener (and a pending

@@ -21,7 +21,8 @@ const tickOf = (it) => (Number(it.tickSize) > 0 ? Number(it.tickSize) : 0.05);
  * @param {{ title: string, mode?: "entry"|"exit", account: object, items: object[], summary?: object, warnings?: object[],
  *   cfg: { product: string, hedgeWait: number }, onCfg?: (patch: object) => void, live?: () => boolean,
  *   onPositions?: () => void, announce?: (text: string) => void, accountRow?: (reopen: () => void) => Node,
- *   lotGate?: { needed: boolean, text: string } }} o
+ *   lotGate?: { needed: boolean, text: string, lots: number[] },
+ *   lotGateFor?: (checks: object[]) => { needed: boolean, text: string, lots: number[] } }} o
  *   items: [{ leg, side, phase, symbol, label, lots, lotSize, price, product?, quote: () => quote|null, freezeQty? }]
  */
 export function openPlacement(o) {
@@ -41,11 +42,13 @@ export function openPlacement(o) {
   const ack = h("input", { type: "checkbox" });
   const ackRow = h("label", { class: "check live-ack", hidden: true }, ack, `I understand these are real orders to ${a.label}.`);
   // Lot-size confirmation, once for the basket (docs/spec/p1-02-reference.md §5.4): when the reference lot data is
-  // stale or disagrees with the broker's contract, nothing is sent (or previewed) until it is ticked; each leg then
-  // carries its own lot as lotSizeConfirmed.
-  const gate = o.lotGate?.needed ? o.lotGate : null;
+  // stale or disagrees with the broker's contract, nothing is sent (or previewed) until it is ticked. The text names
+  // every distinct lot among the legs, and a leg sends lotSizeConfirmed only for a lot listed there (gate.lots). A
+  // LOT_SIZE_STALE in a leg's preview that the bundle did not show (a later expiry) opens the gate via lotGateFor.
+  let gate = o.lotGate?.needed ? o.lotGate : null;
   const gateBox = h("input", { type: "checkbox", required: true });
-  const gateRow = gate ? h("label", { class: "check lot-gate place-lotgate" }, gateBox, h("span", {}, gate.text)) : null;
+  const gateText = h("span", {}, gate?.text ?? "");
+  const gateRow = h("label", { class: "check lot-gate place-lotgate", hidden: !gate }, gateBox, gateText);
   const gateOk = () => !gate || gateBox.checked;
   const isLive = () => liveSeg?.value === "live";
   const prodSeg = segmented("Product", [["INTRADAY", "Intraday"], ["MARGIN", "Carry (NRML)"]], cfg.product === "INTRADAY" ? "INTRADAY" : "MARGIN");
@@ -75,7 +78,7 @@ export function openPlacement(o) {
   const body = (r, extra = {}) => {
     const b = { account: a.id, symbol: r.symbol, side: r.side, lots: r.lots, product: r.product ?? prodSeg.value, orderType: "LIMIT", price: r.limit, ...extra };
     if (isLive()) b.mode = "live";
-    if (gate && gateBox.checked && Number(r.lotSize) > 0) b.lotSizeConfirmed = Number(r.lotSize);
+    if (gate && gateBox.checked && Number(r.lotSize) > 0 && (gate.lots ?? []).includes(Number(r.lotSize))) b.lotSizeConfirmed = Number(r.lotSize);
     return b;
   };
 
@@ -172,6 +175,7 @@ export function openPlacement(o) {
         if (res.error) r.preview = { block: true, warn: false, text: ungroup(res.error.message) };
         else {
           const checks = res.data?.data?.checks ?? [];
+          r.checks = checks;
           const b = checks.find((c) => c.severity === "block");
           const w = checks.find((c) => c.severity !== "block");
           r.preview = { block: Boolean(b), warn: Boolean(w), text: ungroup((b ?? w)?.message ?? "") };
@@ -181,6 +185,17 @@ export function openPlacement(o) {
       }),
     );
     if (phase !== "confirm" || gen !== pfGen) return;
+    const stale = rows.flatMap((r) => r.checks ?? []).filter((c) => c?.code === "LOT_SIZE_STALE");
+    if (!gate && stale.length && o.lotGateFor) {
+      const g = o.lotGateFor(stale);
+      if (g?.needed) {
+        gate = g;
+        gateText.textContent = g.text;
+        gateRow.hidden = false;
+        gateBox.checked = false;
+        for (const r of rows) r.preview = null;
+      }
+    }
     legTable();
     drawButtons();
   }

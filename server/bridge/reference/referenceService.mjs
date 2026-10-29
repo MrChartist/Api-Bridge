@@ -32,6 +32,14 @@ import { createReferenceStore } from "./store.mjs";
 export const SYNC_DATASETS = Object.freeze(["lots", "ban", "mwpl", "corporateActions"]);
 export const STATUS_DATASETS = Object.freeze(["lots", "universe", "ban", "mwpl", "holidays", "rate", "corporateActions"]);
 export const DAILY_REQUEST_CAP = 20;
+/** "nsearchives.nseindia.com" from the configured base URL (the host the downloads go to). */
+const archiveHost = (url) => {
+  try {
+    return new URL(String(url)).host || null;
+  } catch {
+    return null;
+  }
+};
 const MASTER_PAGE = 500;
 const MASTER_MAX_PAGES = 12;
 const MASTER_CACHE_MS = 5 * 60_000;
@@ -638,7 +646,8 @@ export function createReferenceService(deps, opts = {}) {
     datasets.corporateActions = { available: true, asOf: ca.asOf ?? SHIPPED_CORPORATE_ACTIONS.asOf, source: "curated + user + inferred from masters", lastSuccessAt: ca.lastSuccessAt ?? null, lastAttemptAt: ca.lastAttemptAt ?? null, nextRunAt: nextRunAt("corporateActions"), stale: false, error: ca.error ?? null };
     return {
       demo: false,
-      sources: { nseArchives: { enabled: sources.nseArchives.enabled, setBy: sources.nseArchives.setBy, setAt: sources.nseArchives.setAt } },
+      // host, schedule and the daily cap let the dashboard's "Turn on" sheet say what is fetched and how often (§7.2).
+      sources: { nseArchives: { enabled: sources.nseArchives.enabled, setBy: sources.nseArchives.setBy, setAt: sources.nseArchives.setAt, host: archiveHost(cfg.sources.nseArchives.baseUrl), schedule: { morning: cfg.schedule.morning, evening: cfg.schedule.evening }, dailyRequestCap: DAILY_REQUEST_CAP } },
       datasets,
       knownSince: universeDoc?.knownSince ?? null,
       requestsToday: state.requests.day === today() ? state.requests.count : 0,
