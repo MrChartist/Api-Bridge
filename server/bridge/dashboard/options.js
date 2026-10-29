@@ -2420,32 +2420,39 @@ export const LADDERS = Object.freeze({
   sigma: Object.freeze([-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2]),
 });
 /**
- * Scenario matrix: rows = spot ladder, columns = IV shifts (−5, 0, +5 at `days`) or days (Today, +1, +3, first
- * expiry at `dIv`). `sigmaPct` = 1σ move in % of F (the sigma ladder). Cells are unrealised P&L (scenarioPnl).
- * @returns {{ rows: Array<{ pct, k, price, cells: number[] }>, cols: Array<{ label, dIv, days }>, worst, best }}
+ * Scenario matrix: rows = spot ladder, columns = IV shifts (`ivCols`, default −5, 0, +5, at `days`) or days
+ * (`dayCols`, default Today, +1, +3, first expiry, at `dIv`; deduped and clamped to the first expiry). `sigmaPct` = 1σ
+ * move in % of F (the sigma ladder). Cells are unrealised P&L (scenarioPnl). `m95` = the 95th percentile of |cell|,
+ * the diverging colour scale (divStep), so one outlier does not wash the rest out.
+ * @returns {{ rows: Array<{ pct, k, price, cells: number[] }>, cols: Array<{ label, short, dIv, days }>, worst, best, m95 }}
  */
-export function scenarioGrid(legs, { ladder = "tight", axis = "iv", days = 0, dIv = 0, sigmaPct = null, F = null, firstDays = 0 } = {}) {
+export function scenarioGrid(legs, { ladder = "tight", axis = "iv", days = 0, dIv = 0, sigmaPct = null, F = null, firstDays = 0, ivCols = null, dayCols = null } = {}) {
   const lad = LADDERS[ladder] ?? LADDERS.tight;
   const sig = ladder === "sigma" && num(sigmaPct) > 0;
   const steps = ladder === "sigma" && !sig ? LADDERS.tight : lad;
   const fd = Math.max(0, Math.round(num(firstDays) ?? 0));
+  const ivList = Array.isArray(ivCols) && ivCols.length ? [...new Set(ivCols.map(Number).filter(Number.isFinite))].sort((a, b) => a - b) : [-5, 0, 5];
+  const dayList = [...new Set((Array.isArray(dayCols) && dayCols.length ? dayCols : [0, 1, 3, fd]).map((x) => Math.max(0, Math.min(fd, Math.round(Number(x) || 0)))))].sort((a, b) => a - b);
+  const minus = (x) => (x < 0 ? `\u2212${Math.abs(x)}` : `+${x}`);
   const cols =
     axis === "days"
-      ? [{ label: "Today", dIv, days: 0 }, { label: "+1 day", dIv, days: 1 }, { label: "+3 days", dIv, days: 3 }, { label: `Expiry (+${fd})`, dIv, days: fd }]
-      : [{ label: "IV −5", dIv: -5, days }, { label: "IV now", dIv: 0, days }, { label: "IV +5", dIv: 5, days }];
+      ? dayList.map((dd) => (dd === 0 ? { label: "Today", short: "Today", dIv, days: 0 } : dd === fd ? { label: `Expiry (+${fd})`, short: "Exp", dIv, days: fd } : { label: `+${dd} day${dd === 1 ? "" : "s"}`, short: `+${dd}d`, dIv, days: dd }))
+      : ivList.map((v) => ({ label: v === 0 ? "IV now" : `IV ${minus(v)}`, short: v === 0 ? "now" : minus(v), dIv: v, days }));
   let worst = null;
   let best = null;
+  const abs = [];
   const rows = steps.map((k, r) => {
     const pct = sig ? k * sigmaPct : k;
     const cells = cols.map((c, ci) => {
       const v = scenarioPnl(legs, { dS: pct / 100, dIv: c.dIv, days: c.days });
       if (!worst || v < worst.v) worst = { v, r, c: ci };
       if (!best || v > best.v) best = { v, r, c: ci };
+      abs.push(Math.abs(v));
       return v;
     });
     return { pct, k: sig ? k : null, price: num(F) !== null ? F * (1 + pct / 100) : null, cells };
   });
-  return { rows, cols, worst, best };
+  return { rows, cols, worst, best, m95: percentileOf(abs, 0.95) };
 }
 
 /** Roots of f over the sorted sample points xs: sign changes, linear interpolation, then bisection refinement. */
@@ -2701,7 +2708,7 @@ export function misCountdown(nowMs = Date.now()) {
  * Warnings for the book (PRD 04 §7), most severe first: [{ id, level: "bad"|"warn"|"info", text, title }].
  * `legs` are priced legs (priceBook); `stale` = { age } when prices are old.
  */
-export function bookWarnings(legs, { spot = null, now = Date.now(), stale = null } = {}) {
+export function bookWarnings(legs, { spot = null, now = Date.now(), stale = null, band = null } = {}) {
   const out = [];
   const add = (id, level, text, title = "") => out.push({ id, level, text, title });
   const name = (l) => (l.kind === "FUT" ? `FUT ${dayMonth(l.expiry)}` : `${formatInt(l.strike)} ${l.right} ${dayMonth(l.expiry)}`);
@@ -2731,6 +2738,7 @@ export function bookWarnings(legs, { spot = null, now = Date.now(), stale = null
     const early = inc.filter((l) => (l.kind === "FUT" || l.q > 0) && l.expiry < lastShort && sgn(l.q * (l.kind === "FUT" ? 1 : num(l.greeks?.delta) ?? 0)) === -sgn(shortDelta));
     for (const e of [...new Set(early.map((l) => l.expiry))]) add("hedge-early", "warn", `Hedge ${dayMonth(e)} expires before ${dayMonth(lastShort)} shorts`, "When it expires, the shorts it covers are left open");
   }
+  if (band && num(band.delta) !== null && num(band.band) > 0 && Math.abs(band.delta) > band.band) add("band", "warn", `Δ ${formatSigned(band.delta, 0)} outside ±${formatInt(band.band)} band`, "Your delta band (Customise): the book's net Δ in units is outside it");
   const ex = (legs ?? []).filter((l) => l.inc === false && num(l.q)).length;
   if (ex) add("excluded", "info", `${formatInt(ex)} leg${ex === 1 ? "" : "s"} excluded from risk`, "Click to include every leg again");
   if (stale) add("stale", "warn", `Prices ${stale.age ?? "a while"} old`, "The last good prices are shown");
@@ -2761,6 +2769,11 @@ export const POSITIONS_DEFAULTS = Object.freeze({
   hedge: Object.freeze({ method: "fut", side: "BUY" }),
   excluded: Object.freeze({}),
   chartSlot: false,
+  deltaBand: null,
+  curves: "exp",
+  heatCols: "auto",
+  bars: true,
+  gauges: true,
 });
 /** The positions page settings (desk prefs → pos), validated: unknown keys dropped, bad values replaced. */
 export function positionsConfig(saved) {
@@ -2790,7 +2803,183 @@ export function positionsConfig(saved) {
     hedge: { method: pick(h.method, ["fut", "atm", "gamma"], d.hedge.method), side: pick(h.side, ["BUY", "SELL"], d.hedge.side) },
     excluded,
     chartSlot: typeof s.chartSlot === "boolean" ? s.chartSlot : d.chartSlot,
+    deltaBand: num(s.deltaBand) !== null && Number(s.deltaBand) > 0 ? Math.round(Number(s.deltaBand)) : null,
+    curves: pick(s.curves, ["now", "exp", "target"], d.curves),
+    heatCols: s.heatCols === 3 || s.heatCols === 5 ? s.heatCols : pick(s.heatCols, ["auto"], d.heatCols),
+    bars: typeof s.bars === "boolean" ? s.bars : d.bars,
+    gauges: typeof s.gauges === "boolean" ? s.gauges : d.gauges,
   };
+}
+
+// ── Positions round 2 (docs/design/positions.md §7): book-level risk read-outs. Pure. ──
+
+/**
+ * Sampled statistics of a book curve (the first-expiry curve of a multi-expiry book, where later legs are valued by the
+ * model, so no closed form exists): max / min and where, the roots, the profitable intervals (open-ended at the range
+ * edges: [0, b] or [a, Infinity]) and whether profit or loss keeps growing past the sampled range. A side is
+ * "unlimited" when the slope over the last 5 % of the samples exceeds `slopeEps` × |max − min| per sample, in the
+ * direction that adds profit (`unlimitedUp`) or loss (`unlimitedDown`). Always `approx`.
+ * @param {(x: number) => number} f @param {number[]} xs sorted sample prices
+ */
+export function bookCurveStats(f, xs, { slopeEps = 0.005 } = {}) {
+  const pts = (xs ?? []).filter((x) => Number.isFinite(x));
+  if (pts.length < 3) return null;
+  const vals = pts.map(f);
+  let iMax = 0;
+  let iMin = 0;
+  vals.forEach((v, i) => {
+    if (v > vals[iMax]) iMax = i;
+    if (v < vals[iMin]) iMin = i;
+  });
+  const max = vals[iMax];
+  const min = vals[iMin];
+  const n = pts.length;
+  const k = Math.max(1, Math.round(0.05 * n));
+  const eps = slopeEps * Math.abs(max - min);
+  const right = (vals[n - 1] - vals[n - 1 - k]) / k;
+  const left = (vals[k] - vals[0]) / k; // slope going right over the first 5 %: falling towards the left edge is -left
+  const tol = eps > 0 ? eps : 1e-9;
+  const unlimitedUp = right > tol || -left > tol;
+  const unlimitedDown = right < -tol || left > tol;
+  return {
+    max,
+    maxAt: pts[iMax],
+    min,
+    minAt: pts[iMin],
+    unlimitedUp,
+    unlimitedDown,
+    roots: curveRoots(f, pts),
+    profitIntervals: intervalsWhere(pts, vals, (v) => v > 0),
+    xs: pts,
+    vals,
+    approx: true,
+  };
+}
+
+/**
+ * Book POP at the first expiry: the log-normal mass of the profitable intervals (z = (ln(x/F) + σ²T/2)/(σ√T), σ = the
+ * ATM IV, T = years to the first expiry). Null when there is no profitable interval or σ / T / F is unknown.
+ */
+export function bookPop(intervals, { forward, years, ivPct } = {}) {
+  if (!Array.isArray(intervals) || !intervals.length) return null;
+  return probIntervals(intervals, forward, years, ivPct);
+}
+
+/**
+ * Stress P&L at ±kσ: for each k, dS = e^(k·σ√T) − 1 and v = scenarioPnl(legs, { dS }) at now (days 0, IV unchanged).
+ * `sigmaFrac` is σ√T of the nearest expiry as a fraction (sigmaPct / 100). Returns [{ k, pct, price, v }]; [] without σ.
+ */
+export function stressPnl(legs, sigmaFrac, ks = [-2, -1, 1, 2], { spot = null } = {}) {
+  const sf = num(sigmaFrac);
+  if (!(sf > 0)) return [];
+  const S = num(spot);
+  return ks.map((k) => {
+    const dS = Math.exp(k * sf) - 1;
+    return { k, pct: dS * 100, price: S === null ? null : S * (1 + dS), v: scenarioPnl(legs, { dS }) };
+  });
+}
+
+/** Where the book's P&L came from: open legs in profit (`won`), open legs in loss (`lost`) and `realised` (signed). */
+export function pnlComposition(legs) {
+  let won = 0;
+  let lost = 0;
+  let realised = 0;
+  for (const l of legs ?? []) {
+    const u = legUnrealised(l);
+    if (u > 0) won += u;
+    else lost += u;
+    realised += num(l?.realised) ?? 0;
+  }
+  return { won, lost, realised, total: won + lost + realised };
+}
+
+/**
+ * Charges to close the open legs now at their marks (one order per leg, the opposite side): a short is bought back
+ * (no STT on an option buy), a long sold. { brokerage, stt, txn, sebi, ipft, stamp, gst, total }.
+ */
+export function closeCharges(legs, rates = CHARGE_RATES) {
+  const exit = (legs ?? [])
+    .filter((l) => num(l?.q) && num(l.mark) !== null)
+    .map((l) => ({ kind: l.kind, right: l.right, strike: l.strike, symbol: l.symbol, side: l.q > 0 ? "SELL" : "BUY", price: l.mark, lots: Math.abs(l.q), lotSize: 1 }));
+  return charges(exit, rates, { lotSize: 1 });
+}
+
+/**
+ * This book's margin, estimated per expiry group (marginEstimate on the group's legs as a strategy at lot size 1, at
+ * the group's forward and time) and summed. It ignores hedge benefit across expiries, so it over-estimates. Groups
+ * without a forward are skipped (`partial`). Null when nothing could be estimated.
+ */
+export function bookMargin(legs, { now = Date.now() } = {}) {
+  const by = new Map();
+  for (const l of legs ?? []) {
+    if (!num(l?.q)) continue;
+    if (!by.has(l.expiry)) by.set(l.expiry, []);
+    by.get(l.expiry).push(l);
+  }
+  let total = 0;
+  let any = false;
+  let partial = false;
+  for (const [e, ls] of by) {
+    const F = num(ls.find((l) => num(l.F) !== null)?.F);
+    const T = num(ls.find((l) => num(l.T) !== null)?.T);
+    if (F === null || T === null) {
+      partial = true;
+      continue;
+    }
+    const strat = ls.map((l) => ({ kind: l.kind, right: l.right, strike: l.strike, side: l.q > 0 ? "BUY" : "SELL", lots: Math.abs(l.q), lotSize: 1, price: num(l.avg) ?? num(l.mark) ?? 0 }));
+    const m = marginEstimate(strat, 1, { forward: F, years: T, expiryToday: isExpiryDay(e, now) });
+    if (!m) {
+      partial = true;
+      continue;
+    }
+    total += m.required;
+    any = true;
+  }
+  return any ? { required: total, partial } : null;
+}
+
+/**
+ * The Greek gauges' scales (positions.md §4.2): Δ and Γ share M = max(2·band, 1.15·max(|Δ|, |Γ per 1 %|)); Θ and ν
+ * share Mtv = 1.15·max(|Θ|, |ν|). `band` defaults to one futures lot (`lot`).
+ */
+export function greekScales({ delta = 0, gamma1 = 0, theta = 0, vega = 0, band = null, lot = null } = {}) {
+  const B = num(band) > 0 ? Number(band) : num(lot) > 0 ? Number(lot) : null;
+  const d = Math.abs(num(delta) ?? 0);
+  const g = Math.abs(num(gamma1) ?? 0);
+  const M = Math.max(B ? 2 * B : 0, 1.15 * Math.max(d, g), 1);
+  const Mtv = Math.max(1.15 * Math.max(Math.abs(num(theta) ?? 0), Math.abs(num(vega) ?? 0)), 1);
+  return { M, Mtv, band: B, outside: B !== null && d > B };
+}
+
+/**
+ * The payoff's y-range: every series and 0, with the dominant side clamped to `ratio`× the other (so a deep loss tail
+ * does not flatten the profitable hump), padded by `pad`. `clip` = { side, value, at } names what was cut, from the
+ * `main` curve (the expiry curve) sampled at `xs`.
+ */
+export function payoffYRange(series, { main = null, xs = null, ratio = 4, pad = 0.12 } = {}) {
+  const all = [0, ...(series ?? []).flat().filter((v) => typeof v === "number" && Number.isFinite(v))];
+  let yMin = Math.min(...all);
+  let yMax = Math.max(...all);
+  let clip = null;
+  const at = (want) => {
+    if (!main || !xs) return null;
+    let best = 0;
+    main.forEach((v, i) => (want === "min" ? v < main[best] : v > main[best]) && (best = i));
+    return { value: main[best], at: xs[best] };
+  };
+  if (yMax > 0 && yMin < 0) {
+    if (-yMin > ratio * yMax) {
+      const a = at("min");
+      clip = { side: "low", value: a?.value ?? yMin, at: a?.at ?? null };
+      yMin = -ratio * yMax;
+    } else if (yMax > ratio * -yMin) {
+      const a = at("max");
+      clip = { side: "high", value: a?.value ?? yMax, at: a?.at ?? null };
+      yMax = ratio * -yMin;
+    }
+  }
+  const p = (yMax - yMin || Math.abs(yMax) || 1) * pad;
+  return { yMin: yMin - p, yMax: yMax + p, clip };
 }
 
 // ── Volatility (the #/vol page): Black-76 on the parity forward, recomputed from mids ──

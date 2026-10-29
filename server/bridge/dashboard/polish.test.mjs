@@ -340,3 +340,30 @@ describe("Arbitrage round 2 (docs/design/arb.md §16)", () => {
     expect(js).toContain("aria-activedescendant");
   });
 });
+
+describe("Positions round 2 (docs/design/positions.md §10)", () => {
+  const all = readFileSync(resolve(here, "app.css"), "utf8");
+  const sec = all.slice(all.indexOf("12f · POSITIONS AND RISK"), all.indexOf("12v · VOLATILITY")).replace(/\/\*[\s\S]*?\*\//g, "");
+  const js = readFileSync(resolve(here, "positions.js"), "utf8");
+  it("uses role tokens only: no iOS green / red / orange and no accent-color", () => {
+    expect(sec.length).toBeGreaterThan(2000);
+    expect(sec).not.toMatch(/--ios-(green|red|orange|blue|teal|purple|indigo)/);
+    expect(sec).not.toMatch(/accent-color/);
+    for (const t of ["--pos", "--neg", "--warn", "--dv-today", "--dv-band", "--dv-call", "--dv-put", "--dv-iv", "--sel-bg", "--sel-fg"]) expect(sec, t).toContain(`var(${t}`);
+  });
+  it("every keyframe in the section has a reduced-motion rule", () => {
+    const reduced = sec.slice(sec.lastIndexOf("prefers-reduced-motion"));
+    for (const [, name] of sec.matchAll(/@keyframes\s+([\w-]+)/g)) {
+      const users = [...sec.matchAll(new RegExp(`([^{}]+)\\{[^}]*animation:[^;]*\\b${name}\\b`, "g"))].map((m) => m[1].trim());
+      expect(users.length, name).toBeGreaterThan(0);
+      for (const u of users) expect(reduced, `${name} on ${u}`).toContain(u.split(",")[0].trim());
+    }
+  });
+  it("shares the builder's payoff, has no style attributes, no demo text and no always-on key hint row", () => {
+    expect(js).toContain('import { drawPayoff } from "./payoff.js"');
+    expect(js).not.toContain("createBookPayoff");
+    expect(js).not.toMatch(/style="/);
+    expect(js).not.toMatch(/[Dd]emo/);
+    expect(js).not.toContain("desk-keys");
+  });
+});

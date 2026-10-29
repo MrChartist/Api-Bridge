@@ -8,12 +8,13 @@
 // futures and missing legs, instruments, funds) and its panels. Everything is built once and patched on each tick.
 // The maths is in options.js (pure, tested); numbers become text through format.js only. Orders always go through
 // POST /v1/orders/preview and /v1/orders, so the Bridge's safety gates apply unchanged.
-import { alertBox, api, chartSlot, emptyState, errorState, h, icon, loadingState, modal, optional, toast, touchWord, keyHint } from "./app.js";
+import { alertBox, api, chartSlot, emptyState, errorState, h, icon, istTime, loadingState, modal, optional, toast, touchWord, keyHint } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
+import { barsEnter, countUp, flashValue, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
-import { niceTicks } from "./payoff.js";
+import { drawPayoff } from "./payoff.js";
 import { segField, segmented } from "./views.js";
-import { spotPill } from "./viz.js";
+import { heatCell, setBar, svgEl } from "./viz.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const CHAIN_STRIKES = 40;
@@ -32,26 +33,64 @@ const PRODUCT = { INTRADAY: "Intraday", MARGIN: "Carry", CNC: "Delivery" };
 const media = (q) => (typeof matchMedia === "function" ? matchMedia(q) : { matches: false, addEventListener() {}, removeEventListener() {} });
 const isPhone = () => media("(max-width: 719px)").matches;
 const isNarrow = () => media("(max-width: 1023px)").matches;
-const SVGNS = "http://www.w3.org/2000/svg";
 const r1 = (v) => Math.round(v * 10) / 10;
 /** σ distances floor to 0.1, so a tested leg (< 0.5σ) never reads "0.5σ". */
 const sig1 = (v) => (isFigure(v) ? formatFixed(Math.floor(v * 10 + 1e-9) / 10, 1) : DASH);
-function svg(tag, attrs, ...children) {
-  const e = document.createElementNS(SVGNS, tag);
-  for (const [k, v] of Object.entries(attrs ?? {})) if (v !== null && v !== undefined) e.setAttribute(k, String(v));
-  for (const c of children.flat()) if (c !== null && c !== undefined) e.append(c instanceof Node ? c : document.createTextNode(String(c)));
-  return e;
-}
-const setA = (el, attrs) => {
-  for (const [k, v] of Object.entries(attrs)) {
-    const s = String(v);
-    if (el.getAttribute(k) !== s) el.setAttribute(k, s);
-  }
-};
 /** Signed rupees, no decimals: "+₹1958", "-₹310", "₹0". */
 const rs = (v, dp = 0) => (!isFigure(v) ? DASH : Number(formatFixed(v, dp)) > 0 ? `+${formatRupee(v, dp)}` : formatRupee(v, dp));
 /** Signed compact rupees for big figures: "+₹1.42L". */
-const rc = (v) => (!isFigure(v) ? DASH : `${v > 0.5 ? "+" : v < -0.5 ? "-" : ""}₹${formatCompact(Math.abs(v))}`);
+const rc = (v) => (!isFigure(v) ? DASH : `${v > 0.5 ? "+" : v < -0.5 ? "\u2212" : ""}₹${formatCompact(Math.abs(v))}`);
+/** Heat cells and stress chips: whole thousands from ₹10K ("−₹71K"), else compact ("−₹9.0K", "+₹456"). */
+const rk = (v) => {
+  if (!isFigure(v)) return DASH;
+  const a = Math.abs(v);
+  const sign = v > 0.5 ? "+" : v < -0.5 ? "\u2212" : "";
+  if (a >= 1e4 && a < 1e5) return `${sign}₹${formatInt(Math.round(a / 1000))}K`;
+  return `${sign}₹${formatCompact(a)}`;
+};
+/** Unsigned compact rupees: "₹9.22L". */
+const ru = (v) => (!isFigure(v) ? DASH : `₹${formatCompact(Math.abs(v))}`);
+const toneOf = (v) => (!isFigure(v) ? "fg" : Math.round(v) > 0 ? "pos" : Math.round(v) < 0 ? "neg" : "fg");
+
+/**
+ * A diverging bar centred at 0 (positions.md §4.2, §4.4): two halves, each a .dv-bar scaled by --v, so a refresh
+ * resizes from the old value and a first draw grows (barsEnter). Tone by data-tone: pos | neg | fg | warn | iv.
+ */
+function divBar(cls = "") {
+  const l = h("span", { class: "dv-bar rtl" });
+  const r = h("span", { class: "dv-bar" });
+  const el = h("span", { class: `pos-div ${cls}`.trim(), "aria-hidden": "true" }, h("span", { class: "pos-div-h l" }, l), h("span", { class: "pos-div-h r" }, r));
+  return { el, l, r };
+}
+function setDiv(b, v, M, tone) {
+  const x = isFigure(v) ? Number(v) : 0;
+  setBar(b.l, x < 0 ? x : 0, M);
+  setBar(b.r, x > 0 ? x : 0, M);
+  const t = tone ?? toneOf(x);
+  if (b.el.dataset.tone !== t) b.el.dataset.tone = t;
+  return b;
+}
+/** σ distance gauge (§4.6): a 0–3σ track, ticks at 1σ and 2σ, a marker that slides (transform) to min(d, 3) / 3. */
+function sigmaGauge() {
+  const m = h("i", { class: "pos-sg-m" });
+  const el = h("span", { class: "pos-sg", "aria-hidden": "true" }, h("i", { class: "pos-sg-t t1" }), h("i", { class: "pos-sg-t t2" }), m);
+  return el;
+}
+function setSigma(el, d, state) {
+  const x = isFigure(d) ? String(Math.round((Math.min(3, Math.max(0, d)) / 3) * 1000) / 1000) : "0";
+  if (el.style.getPropertyValue("--x") !== x) el.style.setProperty("--x", x);
+  if (el.dataset.state !== state) el.dataset.state = state;
+}
+/** A 40 × 16 payoff glyph (§4.10): the expiry curve split by sign around a zero line, no axes. */
+function glyphPath(vals, w = 40, hgt = 16) {
+  const lo = Math.min(0, ...vals);
+  const hi = Math.max(0, ...vals);
+  const span = hi - lo || 1;
+  const Y = (v) => r1(1 + ((hi - v) / span) * (hgt - 2));
+  const X = (i) => r1((i / (vals.length - 1)) * w);
+  const path = (f) => vals.map((v, i) => `${i ? "L" : "M"}${X(i)},${Y(f(v))}`).join("");
+  return { up: path((v) => Math.max(0, v)), dn: path((v) => Math.min(0, v)), zero: Y(0) };
+}
 const tone = (v) => (!isFigure(v) ? undefined : Math.round(v) > 0 ? "up" : Math.round(v) < 0 ? "down" : undefined);
 const money = (v, dp = 0) => h("span", { class: tone(v) }, rs(v, dp));
 const plural = (n, w) => `${formatInt(n)} ${w}${n === 1 ? "" : "s"}`;
@@ -83,6 +122,9 @@ export const POSITION_KEYS = [
   [[";", "'"], "IV", "Scenario IV −/+ 1 point"],
   [["[", "]"], "days", "Scenario days −/+ 1"],
   [["0"], "reset", "Reset the scenario"],
+  [["G"], "risk tab", "Cycle the risk view: Payoff, Scenario, Greeks"],
+  [["C"], "curves", "Cycle the payoff curves: Now, + Expiry, + Target"],
+  [["B"], "Δ band", "Focus the Δ gauge and read Δ against your band"],
   [["P"], "pause", "Pause / resume live updates"],
   [["R"], "refresh", "Refresh now"],
   [["?"], "keys", "This list"],
@@ -338,35 +380,86 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
 
   // ── Panels ──
   const switchEl = h("div", { class: "pos-switch", role: "group", "aria-label": "Other underlyings with open legs", hidden: true });
-  const TILES = [["pnl", "Net P&L"], ["delta", "Net Δ"], ["gamma", "Γ · Δ per 1%"], ["theta", "Θ / day"], ["vega", "Vega / pt"], ["margin", "Margin"]];
-  const tiles = new Map(
-    TILES.map(([k, label]) => {
-      const el = h("div", { class: `desk-stat t-${k}`, role: "group", "aria-label": label }, h("span", { class: "label" }, label), h("span", { class: "value" }, DASH), h("span", { class: "sub" }, " "));
-      return [k, { el, label: el.children[0], value: el.children[1], sub: el.children[2], sig: "", base: label }];
+  const errBar = h("p", { class: "err-bar pos-err", hidden: true, role: "status" });
+  // Hero: Net P&L, where it came from (won / lost / realised), credit kept, net if closed now.
+  const heroLabel = h("span", { class: "pos-lbl" }, "Net P&L");
+  const heroValue = h("strong", { class: "pos-hero-v" }, DASH);
+  const comp = {
+    won: h("button", { type: "button", class: "pos-comp-s", "data-k": "won", "aria-label": "Legs in profit" }),
+    lost: h("button", { type: "button", class: "pos-comp-s", "data-k": "lost", "aria-label": "Legs in loss" }),
+    realised: h("button", { type: "button", class: "pos-comp-s", "data-k": "realised", "aria-label": "Realised today" }),
+  };
+  const compBar = h("span", { class: "pos-comp dv-bar", role: "group", "aria-label": "Where the P&L came from" }, comp.won, comp.lost, comp.realised);
+  const compCap = h("span", { class: "pos-comp-cap" });
+  const keptFill = h("i", { class: "pos-kept-f" });
+  const keptEl = h("span", { class: "pos-kept", hidden: true }, h("span", { class: "pos-kept-t" }), h("span", { class: "pos-kept-track", "aria-hidden": "true" }, keptFill, h("i", { class: "pos-kept-tick k50" }), h("i", { class: "pos-kept-tick k80" })));
+  const closedEl = h("span", { class: "pos-closed" });
+  const heroEl = h("div", { class: "pos-hero", role: "group", "aria-label": "Net P&L" }, h("div", { class: "pos-hero-top" }, h("span", { class: "pos-hero-main" }, heroLabel, heroValue), keptEl), compBar, compCap, closedEl);
+  // Composition segments light the legs they come from (1.2 s; while hovered on a mouse).
+  let compTimer = null;
+  const lightRows = (k, on) => {
+    clearTimeout(compTimer);
+    for (const r of rowRefs.values()) r.el.classList.remove("hl");
+    if (!on) return;
+    hoverRows(compKeys[k] ?? [], true);
+    compTimer = setTimeout(() => hoverRows(compKeys[k] ?? [], false), 1200);
+  };
+  for (const [k, el] of Object.entries(comp)) {
+    el.addEventListener("pointerenter", (e) => e.pointerType === "mouse" && lightRows(k, true));
+    el.addEventListener("pointerleave", (e) => e.pointerType === "mouse" && lightRows(k, false));
+    el.addEventListener("click", () => {
+      lightRows(k, true);
+      const first = rowRefs.get((compKeys[k] ?? [])[0]);
+      first?.el.scrollIntoView?.({ block: "nearest", behavior: reducedMotion() ? "auto" : "smooth" });
+    });
+  }
+  // Greeks: four diverging gauges (Δ with its band, Γ per 1 %, Θ and ν on one shared scale) and a footer.
+  const GAUGES = [["delta", "Δ", "Net delta (units)"], ["gamma", "Γ", "Gamma: Δ change for a 1% move"], ["theta", "Θ", "Theta: ₹ a day"], ["vega", "ν", "Vega: ₹ per vol point"]];
+  const gauges = new Map(
+    GAUGES.map(([k, sym, name]) => {
+      const bar = divBar("pos-gbar");
+      const band = h("i", { class: "pos-gband", hidden: true });
+      bar.el.prepend(band);
+      const value = h("span", { class: "pos-gv" }, DASH);
+      const sub = h("span", { class: "pos-gs" });
+      const el = h("button", { type: "button", class: `pos-gauge g-${k}`, "aria-label": name }, h("span", { class: "pos-gk" }, sym), value, sub, bar.el);
+      el.addEventListener("click", () => openGreeksTab());
+      return [k, { el, value, sub, bar, band, sig: "" }];
     }),
   );
-  const tilesEl = h("div", { class: "pos-tiles" }, [...tiles.values()].map((t) => t.el));
+  const greeksFoot = h("span", { class: "pos-gfoot" });
+  const greeksChip = h("span", { class: "pos-gchip" });
+  const greeksEl = h("div", { class: "pos-greeks", role: "group", "aria-label": "Greeks" }, h("div", { class: "pos-gauges" }, [...gauges.values()].map((g) => g.el)), h("span", { class: "pos-gfoot-row" }, greeksChip, greeksFoot));
+  // Capital: the margin / funds bar with this book's estimated share, and the ±σ stress chips.
+  const capTop = h("span", { class: "pos-cap-top" });
+  const capPct = h("strong", { class: "pos-cap-pct" });
+  const segBook = h("i", { class: "pos-mseg book" });
+  const segOther = h("i", { class: "pos-mseg other" });
+  const marginBar = h("span", { class: "pos-mbar", "aria-hidden": "true" }, segBook, segOther);
+  const capSub = h("span", { class: "pos-cap-sub" });
+  const stressBook = h("div", { class: "pos-stress", role: "group", "aria-label": "P&L now at ±1σ and ±2σ" });
+  const capWarn = h("span", { class: "pos-cap-warn", hidden: true });
+  const capEl = h("div", { class: "pos-cap", role: "group", "aria-label": "Margin and funds" }, h("div", { class: "pos-cap-line" }, h("span", { class: "pos-lbl" }, "Margin"), capTop, capPct), marginBar, capSub, capWarn, stressBook);
+  const bookGrid = h("div", { class: "pos-bgrid" }, heroEl, greeksEl, capEl);
   const warnLive = h("p", { class: "sr-only", "aria-live": "polite" });
   const warnEl = h("div", { class: "pos-warns" });
-  const bookPanel = h("section", { class: "desk-panel pos-book", "data-panel": "book", "aria-label": "Book" }, switchEl, tilesEl, warnEl, warnLive);
+  const bookPanel = h("section", { class: "desk-panel pos-book", "data-panel": "book", "aria-label": "Book" }, switchEl, errBar, bookGrid, warnEl, warnLive);
 
   const titleEl = h("span", { class: "panel-title" });
   const gearBtn = h("button", { type: "button", class: "small gear-btn", "aria-haspopup": "dialog", "aria-label": "Customise positions", title: "Columns, grouping, scenario and exit defaults" }, icon("sliders"), h("span", { class: "gear-label" }, "Customise"));
   const exitAllBtn = h("button", { type: "button", class: "small", hidden: true, title: "Exit plan for every leg (Shift+X)" }, "Exit all");
   const bulkEl = h("div", { class: "pos-bulk", hidden: true, role: "region", "aria-label": "Selected legs" });
   const bodyEl = h("div", { class: "pos-body" });
-  const keysEl = h("div", { class: "desk-keys" }, POSITION_KEYS.filter((k) => !["R", "P"].includes(k[0][0])).map(([keys, short]) => h("span", { class: "kbd-pair" }, h("span", { class: "kbd-group" }, keys.map((k) => h("kbd", {}, k))), short)));
   const posPanel = h(
     "section",
     { class: "desk-panel pos-panel", "data-panel": "positions", "aria-label": "Positions" },
     h("div", { class: "panel-head pos-head" }, titleEl, h("div", { class: "chain-tools" }, exitAllBtn, gearBtn)),
     bodyEl,
     bulkEl,
-    keysEl,
   );
-  const riskSeg = segmented("Risk view", [["payoff", "Payoff"], ["scenario", "Scenario"]], riskTab);
+  const riskSeg = segmented("Risk view", [["payoff", "Payoff"], ["scenario", "Scenario"], ["greeks", "Greeks"]], riskTab);
   riskSeg.classList.add("pos-risk-seg");
-  const payoffBox = h("div", { class: "pos-payoff" });
+  const payoffBox = h("div", { class: "pos-payoff strat-payoff" });
   const scenBox = h("div", { class: "pos-scen" });
   const riskBody = h("div", { class: "pos-risk tab-payoff" }, payoffBox, scenBox);
   const riskPanel = h("section", { class: "desk-panel pos-riskp", "data-panel": "risk", "aria-label": "Payoff and scenarios", hidden: true }, h("div", { class: "panel-head" }, h("span", { class: "panel-title" }, h("strong", {}, "Risk"), h("span", { class: "muted pos-risk-sub" })), riskSeg), riskBody);
@@ -380,18 +473,29 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   );
   const root = posPanel;
 
-  // ── Book strip ──
-  function setTile(key, { value = DASH, sub = "", title = "", cls = "", label = null, chip = null }) {
-    const t = tiles.get(key);
-    const sig = JSON.stringify([value, sub, title, cls, label, chip]);
-    if (t.sig === sig) return;
-    t.sig = sig;
-    t.label.replaceChildren(label ?? t.base, ...(chip ? [h("span", { class: "pos-chip", title: chip[1] }, chip[0])] : []));
-    t.value.textContent = value;
-    t.value.className = `value ${cls}`.trim();
-    t.sub.textContent = sub || " ";
-    t.el.title = title;
+  // ── Book strip: Hero · Greeks · Capital (positions.md §4.1–4.3) ──
+  /** A figure: counts up on its first paint, then flashes (gain / loss) when its text changes. */
+  function setFigure(el, value, text, fmt, dirOf = (a, b) => b - a) {
+    if (el.textContent === text && el.__v !== undefined) return;
+    const prev = el.__v;
+    el.__v = value;
+    if (prev === undefined || !isFigure(prev)) {
+      if (isFigure(value) && !reducedMotion() && el.__counted !== true) {
+        el.__counted = true;
+        countUp(el, 0, value, fmt, text);
+      } else {
+        stopCount(el);
+        el.textContent = text;
+      }
+      return;
+    }
+    stopCount(el);
+    el.textContent = text;
+    if (isFigure(value) && value !== prev) flashValue(el, dirOf(prev, value) >= 0 ? "up" : "down");
   }
+  let bookEntered = false;
+  let popShown;
+  let compKeys = { won: [], lost: [], realised: [] };
   function drawBook() {
     const others = O.bookUnderlyings(d.all, st.underlying);
     const ssig = JSON.stringify(others);
@@ -401,82 +505,241 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     }
     // With nothing to show here the empty state carries the other underlyings instead.
     switchEl.hidden = !others.length || !legs.some((l) => l.q || cfg().closed);
+    const errText = d.error && d.lastOk ? `Couldn't refresh positions. Showing ${istTime(d.lastOk)}.` : "";
+    if (errBar.textContent !== errText) errBar.textContent = errText;
+    errBar.hidden = !errText;
+    bookPanel.classList.toggle("kept", Boolean(errText));
+    const loading = !d.loaded;
+    bookPanel.classList.toggle("loading", loading);
+    bookPanel.setAttribute("aria-busy", String(loading));
+    bookGrid.hidden = d.loaded && !legs.length;
+    if (!legs.length) return;
     const open = legs.filter((l) => l.q);
-    tilesEl.hidden = d.loaded && !legs.length;
-    if (!legs.length) {
-      for (const k of tiles.keys()) setTile(k, {});
-      return;
-    }
-    // Net P&L: every leg (P&L is fact, not a scenario), today's closed legs and realised included.
+    // Hero: Net P&L over every leg (P&L is fact, not a scenario), today's closed legs and realised included.
     const { realised: R, unrealised: U, noRealised: noR } = O.bookPnl(legs);
+    const c = O.pnlComposition(legs);
+    setFigure(heroValue, U + R, rs(U + R), (v) => rs(v));
+    heroValue.className = `pos-hero-v ${tone(U + R) ?? ""}`.trim();
+    heroEl.title = `Realised ${rs(R)} · Unrealised ${rs(U)} (from the marks)${noR ? ". Broker sent no realised P&L for some legs" : ""}`;
+    const parts = [["won", c.won], ["lost", c.lost], ["realised", c.realised]];
+    const sum = parts.reduce((t, [, v]) => t + Math.abs(v), 0) || 1;
+    for (const [k, v] of parts) {
+      const f = Math.abs(v) / sum;
+      const el = comp[k];
+      // A segment under 2 % is dropped from the bar (kept in the caption).
+      const grow = f < 0.02 ? "0" : String(Math.round(f * 1000) / 1000);
+      if (el.style.getPropertyValue("--f") !== grow) el.style.setProperty("--f", grow);
+      el.hidden = grow === "0";
+      el.dataset.tone = k === "won" ? "pos" : k === "lost" ? "neg" : v >= 0 ? "pos" : "neg";
+      el.title = `${k === "won" ? "Open legs in profit" : k === "lost" ? "Open legs in loss" : "Realised today"}: ${rs(v)}`;
+    }
+    compKeys = {
+      won: legs.filter((l) => l.q && O.legUnrealised(l) > 0).map((l) => l.symbol),
+      lost: legs.filter((l) => l.q && O.legUnrealised(l) < 0).map((l) => l.symbol),
+      realised: legs.filter((l) => num(l.realised)).map((l) => l.symbol),
+    };
+    const capSig = `${Math.round(c.won)}|${Math.round(c.lost)}|${Math.round(c.realised)}|${isPhone()}`;
+    if (compCap.__sig !== capSig) {
+      compCap.__sig = capSig;
+      const short = isPhone();
+      const fig = (v) => h("span", { class: tone(v) }, short ? rc(v) : rs(v));
+      compCap.replaceChildren(h("span", {}, "won ", fig(c.won)), h("span", {}, " · lost ", fig(c.lost)), h("span", {}, ` · ${short ? "R" : "realised"} `, fig(c.realised)));
+    }
+    // Credit kept (PRD 04 §5.1): the share of the option credit still kept; 50 / 80 % are the usual targets.
     const optLegs = open.filter((l) => l.kind === "OPT" && num(l.avg) !== null);
     const credit = -optLegs.reduce((t, l) => t + l.avg * l.q, 0);
     const cost = -optLegs.reduce((t, l) => t + (l.mark ?? l.avg) * l.q, 0);
-    const kept = credit > 0 ? Math.max(-999, Math.min(100, ((credit - cost) / credit) * 100)) : null;
-    setTile("pnl", {
-      value: rs(U + R),
-      cls: tone(U + R) ?? "",
-      sub: kept !== null ? `credit kept ${formatPercent(kept, 0)} of ${rc(credit).replace("+", "")}` : `R ${rs(R)} · U ${rs(U)}`,
-      title: `Realised ${rs(R)} · Unrealised ${rs(U)} (from the marks)${noR ? ". Broker sent no realised P&L for some legs" : ""}${kept !== null ? `. Credit received ${formatRupee(credit, 0)}, cost to close ${formatRupee(cost, 0)}` : ""}`,
-    });
+    const kept = credit > 0 ? ((credit - cost) / credit) * 100 : null;
+    keptEl.hidden = kept === null;
+    if (kept !== null) {
+      const t = `Credit kept ${formatPercent(Math.max(-999, Math.min(100, kept)), 0)}${isPhone() ? "" : ` of ${ru(credit)}`}`;
+      const tt = keptEl.firstChild;
+      if (tt.textContent !== t) tt.textContent = t;
+      const v = String(Math.round((Math.min(100, Math.abs(Math.max(-100, kept))) / 100) * 1000) / 1000);
+      if (keptFill.style.getPropertyValue("--v") !== v) keptFill.style.setProperty("--v", v);
+      keptEl.dataset.tone = kept >= 0 ? "pos" : "neg";
+      keptEl.classList.toggle("capped", kept < -100);
+      keptEl.title = `Credit received ${formatRupee(credit, 0)}, cost to close ${formatRupee(cost, 0)}. Ticks at 50% and 80%: the usual book-profit targets`;
+    }
+    // Net if closed now: U + R − exit charges at the marks (an estimate; the contract note is final).
+    const ch = O.closeCharges(open);
+    const closed = U + R - ch.total;
+    const cTitle = `If every open leg were closed now at its mark: ${rs(U + R)} − charges ${formatRupee(ch.total, 0)} (brokerage ${formatRupee(ch.brokerage, 0)}, STT ${formatRupee(ch.stt, 0)}, exchange ${formatRupee(ch.txn, 0)}, SEBI ${formatRupee(ch.sebi, 0)}, stamp ${formatRupee(ch.stamp, 0)}, GST ${formatRupee(ch.gst, 0)}). Charges are estimates; check your broker's contract note.`;
+    const cSig = `${Math.round(closed)}`;
+    if (closedEl.__sig !== cSig) {
+      closedEl.__sig = cSig;
+      closedEl.replaceChildren("Net if closed ", h("strong", { class: tone(closed) }, rs(closed)), h("span", { class: "pos-info", "aria-hidden": "true" }, "ⓘ"));
+    }
+    closedEl.title = cTitle;
+    drawGauges(open);
+    drawCapital();
+    drawStress();
+    if (!bookEntered && d.loaded) {
+      bookEntered = true;
+      barsEnter(bookPanel);
+    }
+  }
+  /** The futures lot (the Δ band's default and the "lots" reading). */
+  const futLot = () => num(pickFuture()?.lotSize) ?? legs.find((l) => l.kind === "FUT")?.lot ?? legs.find((l) => l.kind === "OPT")?.lot ?? null;
+  const deltaBand = () => cfg().deltaBand ?? futLot();
+  function drawGauges(open) {
     const g = book;
-    const none = g.priced === 0;
-    const partial = g.excluded ? ["partial", `${plural(g.excluded, "leg")} excluded`] : g.missing.length ? ["partial", `${plural(g.missing.length, "leg")} not priced`] : null;
-    const noTitle = none ? `No Greeks: ${plural(g.missing.length, "leg")} not priced` : "";
-    const fut = pickFuture();
-    const Lf = num(fut?.lotSize) ?? legs.find((l) => l.kind === "FUT")?.lot ?? null;
-    setTile("delta", {
-      value: none ? DASH : formatSigned(g.delta, 0),
-      sub: none ? "" : `≈ ${Lf ? `${formatSigned(g.delta / Lf, 1)} lots · ` : ""}${spot ? rc(g.delta * spot) : ""}`,
-      title: noTitle || `Rupees gained for a 1-point rise = Δ (the sum of the unrounded legs; the rows are rounded). Futures-lot equivalent${fut ? ` (${expiryText(fut.expiry)} FUT, lot ${formatInt(Lf)})` : ""} and notional exposure`,
-      chip: partial,
-    });
-    setTile("gamma", {
-      value: none || !spot ? DASH : formatSigned(g.gamma * spot * 0.01, 0),
-      sub: none ? "" : `Γ ${formatSigned(g.gamma, 2)} per pt`,
-      title: noTitle || "How much Δ changes for a 1% move in the underlying",
-      chip: partial,
-    });
+    const none = !g || g.priced === 0;
+    const partial = g?.excluded ? ["partial", `${plural(g.excluded, "leg")} excluded`] : g?.missing.length ? ["partial", `${plural(g.missing.length, "leg")} not priced`] : null;
+    const allOff = open.length > 0 && open.every((l) => !l.inc);
+    const chipText = allOff ? "all legs excluded" : partial ? partial[0] : "";
+    if (greeksChip.textContent !== chipText) greeksChip.textContent = chipText;
+    greeksChip.title = partial?.[1] ?? "";
+    greeksChip.hidden = !chipText;
+    const S = spot;
+    const Lf = futLot();
+    const B = deltaBand();
+    const g1 = none || !S ? 0 : g.gamma * S * 0.01;
+    const sc0 = O.greekScales({ delta: none ? 0 : g.delta, gamma1: g1, theta: none ? 0 : g.theta, vega: none ? 0 : g.vega, band: B, lot: Lf });
     const vOpt = Math.abs(open.filter((l) => l.kind === "OPT" && l.mark !== null).reduce((t, l) => t + l.mark * l.q, 0));
-    setTile("theta", {
-      value: none ? DASH : rs(g.theta),
-      cls: none ? "" : tone(g.theta) ?? "",
-      sub: none || !vOpt ? "" : `${formatPercent((g.theta / vOpt) * 100, 1)} of option value`,
-      title: noTitle || "Time decay in rupees per calendar day. Weekends and holidays decay more in the next session",
-      chip: partial,
+    const set = (k, { value, text, sub, bar, M, tone: tn, title, warn = false, fmt }) => {
+      const r = gauges.get(k);
+      setFigure(r.value, none ? null : value, none ? DASH : text, fmt);
+      if (r.sub.textContent !== (none ? "" : sub)) r.sub.textContent = none ? "" : sub;
+      setDiv(r.bar, none ? 0 : bar, M, warn ? "warn" : tn);
+      r.el.classList.toggle("warn", Boolean(warn) && !none);
+      r.el.title = none ? `No Greeks: ${plural(g?.missing.length ?? 0, "leg")} not priced` : title;
+      r.el.setAttribute("aria-label", `${GAUGES.find((x) => x[0] === k)[2]}: ${none ? "not available" : `${text}${sub ? `, ${sub}` : ""}`}`);
+    };
+    const bandFrac = B && sc0.M ? Math.min(1, B / sc0.M) : 0;
+    for (const k of ["delta", "gamma"]) {
+      const band = gauges.get(k).band;
+      band.hidden = !B || none;
+      const w = String(Math.round(bandFrac * 1000) / 1000);
+      if (band.style.getPropertyValue("--b") !== w) band.style.setProperty("--b", w);
+    }
+    const out = !none && sc0.outside;
+    set("delta", {
+      value: none ? 0 : g.delta,
+      text: none ? DASH : formatSigned(g.delta, 0),
+      sub: out ? `outside ±${formatInt(B)} band` : `${Lf ? `≈ ${formatSigned(g.delta / Lf, 1)} lots` : ""}${S && !isPhone() ? ` · ${ru(g.delta * S)}` : ""}`,
+      bar: none ? 0 : g.delta,
+      M: sc0.M,
+      tone: "fg",
+      warn: out,
+      title: `Rupees gained for a 1-point rise = Δ. Band ±${formatInt(B)}${cfg().deltaBand ? " (yours)" : " (one futures lot)"}; set it in Customise. Futures-lot equivalent and notional exposure.`,
+      fmt: (v) => formatSigned(v, 0),
     });
-    setTile("vega", {
-      value: none ? DASH : rs(g.vega),
-      sub: none ? "" : `IV −1 pt → ${rs(-g.vega)}`,
-      title: noTitle || "P&L for a one vol point rise in every leg's IV",
-      chip: partial,
+    set("gamma", {
+      value: g1,
+      text: none || !S ? DASH : formatSigned(g1, 0),
+      sub: isPhone() ? "Δ/1%" : `Δ per 1% · Γ ${formatSigned(g?.gamma, 2)}/pt`,
+      bar: g1,
+      M: sc0.M,
+      tone: "fg",
+      warn: !none && g1 < 0 && B && Math.abs(g1) > B / 2,
+      title: "How much Δ changes for a 1% move in the underlying, on the Δ gauge's scale: you can see whether a 1% move pushes you out of the band",
+      fmt: (v) => formatSigned(v, 0),
     });
+    set("theta", {
+      value: none ? 0 : g.theta,
+      text: none ? DASH : `${rs(g.theta)}${isPhone() ? "" : "/d"}`,
+      sub: none || !vOpt || isPhone() ? (isPhone() ? "/day" : "") : `${formatPercent((g.theta / vOpt) * 100, 1)} of option value`,
+      bar: none ? 0 : g.theta,
+      M: sc0.Mtv,
+      tone: toneOf(g?.theta),
+      title: "Time decay in rupees per calendar day. Weekends and holidays decay more in the next session. Θ and ν share one scale",
+      fmt: (v) => `${rs(v)}${isPhone() ? "" : "/d"}`,
+    });
+    set("vega", {
+      value: none ? 0 : g.vega,
+      text: none ? DASH : `${rs(g.vega)}${isPhone() ? "" : "/pt"}`,
+      sub: none ? "" : isPhone() ? "/vol pt" : `IV −1 → ${rs(-g.vega)}`,
+      bar: none ? 0 : g.vega,
+      M: sc0.Mtv,
+      tone: "iv",
+      title: "P&L for a one vol point rise in every leg's IV. Vega is not good or bad: its bar is violet, not green / red",
+      fmt: (v) => `${rs(v)}${isPhone() ? "" : "/pt"}`,
+    });
+    // Footer: POP at the first expiry and Θ/ν (days of decay per vol point).
+    const n = nearest();
+    const pop = riskStats.pop;
+    popShown = pop;
+    const tv = !none && g.vega ? Math.abs(g.theta) / Math.abs(g.vega) : null;
+    const foot = `POP ≈ ${pop === null || pop === undefined ? DASH : formatPercent(pop * 100, 0)}${n ? ` at ${expiryText(n.expiry)}` : ""}${tv !== null ? ` · Θ/ν ${formatFixed(tv, 2)}` : ""}`;
+    if (greeksFoot.textContent !== foot) greeksFoot.textContent = foot;
+    greeksFoot.title = "Probability that the book is in profit at the first expiry, lognormal at the ATM IV. Later-expiry legs are valued by the model. Θ/ν: days of decay one vol point is worth";
+  }
+  function drawCapital() {
     const f = d.funds;
     const used = num(f?.usedMargin);
     const avail = num(f?.availableCash);
-    setTile("margin", {
-      value: used === null ? DASH : `₹${formatCompact(used)}`,
-      sub: used === null ? "Funds unavailable" : `used · ${avail !== null && used + avail > 0 ? `${formatPercent((used / (used + avail)) * 100, 1)} of funds` : ""}`,
-      title: "Account-wide margin from your broker (all underlyings), not this book alone",
-    });
+    const total = used !== null && avail !== null && used + avail > 0 ? used + avail : num(f?.totalBalance);
+    const est = O.bookMargin(legs.filter((l) => l.q && l.priced));
+    const has = used !== null && total > 0;
+    const util = has ? used / total : null;
+    const mb = has && est ? Math.min(est.required, used) : null;
+    const lvl = util === null ? "none" : util >= 0.9 ? "neg" : util >= 0.7 ? "warn" : "ok";
+    capEl.dataset.level = lvl;
+    const top = has ? `${ru(used)} of ${ru(total)}` : "Funds unavailable";
+    if (capTop.textContent !== top) capTop.textContent = top;
+    const pct = has ? formatPercent(util * 100, 0) : "";
+    if (capPct.textContent !== pct) capPct.textContent = pct;
+    const a = has ? (mb ?? 0) / total : 0;
+    const b = has ? Math.max(0, used - (mb ?? 0)) / total : 0;
+    const setSeg = (el, x, v) => {
+      const xs = String(Math.round(x * 1000) / 1000);
+      const vs = String(Math.round(Math.min(1, v) * 1000) / 1000);
+      if (el.style.getPropertyValue("--x") !== xs) el.style.setProperty("--x", xs);
+      if (el.style.getPropertyValue("--v") !== vs) el.style.setProperty("--v", vs);
+    };
+    setSeg(segBook, 0, a);
+    setSeg(segOther, a, b);
+    segBook.hidden = !mb;
+    const sub = has ? `${mb ? `≈ this book ${ru(mb)}${est.required > used ? "+" : ""} · ` : ""}free ${ru(avail ?? total - used)}` : "";
+    if (capSub.textContent !== sub) capSub.textContent = sub;
+    capEl.title = `Account-wide margin from your broker. 'This book' is an estimate without hedge benefit across expiries${est && est.required > (used ?? Infinity) ? ` (≥ ${ru(est.required)})` : ""}.${util !== null && util >= 0.7 ? ` ${formatPercent(util * 100, 1)} of funds used.` : ""}`;
+  }
+  /** ±1σ / ±2σ P&L now (§4.3): the book chips (desktop / tablet) and the Scenario tab's (phone), on the heatmap scale. */
+  let stressRows = [];
+  function drawStress() {
+    const inc = included().filter((l) => l.priced);
+    const sp = sigmaPct();
+    stressRows = sp && spot ? O.stressPnl(inc, sp / 100, [-2, -1, 1, 2], { spot }) : [];
+    const m = heatScale();
+    for (const host of [stressBook, stressScen]) {
+      const sig = JSON.stringify([stressRows.map((x) => [x.k, Math.round(x.v)]), Math.round(m)]);
+      if (host.__sig === sig) continue;
+      const fresh = !host.childElementCount;
+      host.__sig = sig;
+      host.hidden = !stressRows.length;
+      if (host.childElementCount !== stressRows.length) {
+        host.replaceChildren(...stressRows.map((x) => h("button", { type: "button", class: "pos-schip", onclick: () => setScenario({ pct: Math.max(-10, Math.min(10, Math.round(x.pct / 0.25) * 0.25)), dIv: 0, days: 0 }) }, h("span", { class: "k" }), h("span", { class: "v" }))));
+        if (!fresh) host.classList.add("in");
+      }
+      stressRows.forEach((x, i) => {
+        const b = host.children[i];
+        b.firstChild.textContent = `${x.k > 0 ? "+" : "−"}${Math.abs(x.k)}σ`;
+        b.lastChild.textContent = rk(x.v);
+        heatCell(b, O.divStep(x.v, m), "div");
+        b.title = `${st.underlying} at ${formatInt(x.price)} (${formatSigned(x.pct, 1)}%) now: ${rs(x.v)} unrealised`;
+        b.setAttribute("aria-label", `${x.k > 0 ? "plus" : "minus"} ${Math.abs(x.k)} sigma, ${formatInt(x.price)}: ${rs(x.v)}`);
+      });
+    }
   }
   function drawWarnings() {
     const st0 = staleness();
-    const w = legs.length ? O.bookWarnings(legs, { spot, stale: st0 }) : [];
+    const w = legs.length ? O.bookWarnings(legs, { spot, stale: st0, band: book && book.priced ? { delta: book.delta, band: deltaBand() } : null }) : [];
     const sig = JSON.stringify([w, warnOpen, isPhone()]);
     if (warnEl.__sig === sig) return;
     warnEl.__sig = sig;
+    const wkey = (x) => `${x.id}|${x.text.replace(/\d+:\d+$/, "")}`;
     const chip = (x) =>
       x.id === "excluded"
-        ? h("button", { type: "button", class: `pos-warn ${x.level}`, title: x.title, onclick: () => (setExcluded([]), price(O.bookLegs(d.all, st.underlying, { closed: true })), draw()) }, x.text)
-        : h("span", { class: `pos-warn ${x.level}`, title: x.title }, h("span", { class: "dot", "aria-hidden": "true" }), x.text);
+        ? h("button", { type: "button", class: `pos-warn ${x.level}${lastWarnIds.has(wkey(x)) ? "" : " fresh"}`, title: x.title, onclick: () => (setExcluded([]), price(O.bookLegs(d.all, st.underlying, { closed: true })), draw()) }, x.text)
+        : h("span", { class: `pos-warn ${x.level}${lastWarnIds.has(wkey(x)) ? "" : " fresh"}`, title: x.title }, h("span", { class: "dot", "aria-hidden": "true" }), x.text);
     const phone = isPhone();
-    warnEl.hidden = !w.length;
-    warnEl.replaceChildren(
-      ...(phone && w.length > 1
-        ? [h("button", { type: "button", class: "pos-warn-toggle", "aria-expanded": String(warnOpen), onclick: () => ((warnOpen = !warnOpen), drawWarnings()) }, icon("warn"), `${plural(w.length, "warning")}`), ...(warnOpen ? w.map(chip) : [])]
-        : w.map(chip)),
-    );
+    // Phones: one "⚠ N warnings ›" toggle beside the margin bar (the book stays short); the list opens below.
+    const toggle = phone && w.length > 1;
+    capWarn.replaceChildren(...(toggle ? [h("button", { type: "button", class: "pos-warn-toggle", "aria-expanded": String(warnOpen), onclick: () => ((warnOpen = !warnOpen), drawWarnings()) }, icon("warn"), `${formatInt(w.length)} warnings`, h("span", { class: "chev", "aria-hidden": "true" }, warnOpen ? "‹" : "›"))] : []));
+    capWarn.hidden = !toggle;
+    warnEl.hidden = !w.length || (toggle && !warnOpen);
+    warnEl.replaceChildren(...(toggle ? (warnOpen ? w.map(chip) : []) : w.map(chip)));
     const ids = new Set(w.map((x) => `${x.id}|${x.text.replace(/\d+:\d+$/, "")}`));
     const fresh = w.filter((x) => !lastWarnIds.has(`${x.id}|${x.text.replace(/\d+:\d+$/, "")}`));
     lastWarnIds = ids;
@@ -619,7 +882,6 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       exitAllBtn.classList.toggle("warn", wide > 0);
       exitAllBtn.title = wide ? `${plural(wide, "leg")} with a spread over 5% of mid: the exit plan prices them at mid by default${keyHint(" (Shift+X)")}` : `Exit plan for every leg${keyHint(" (Shift+X)")}`;
     }
-    keysEl.hidden = !legs.some((l) => l.q);
     if (!a) return setBody("noacct", () => emptyState("plug", "Connect an account to trade", "Positions come from an account that can place orders. Add one, or log in, on the Accounts page.", h("a", { href: "#/accounts", class: "small-link" }, "Open Accounts"), { compact: true }));
     if (!d.loaded) return setBody("loading", () => loadingState({ rows: 5, cols: 5, label: `Loading ${st.underlying} positions`, height: 52 }));
     if (d.error && !d.lastOk) return setBody(`err|${d.error.message}`, () => errorState(d.error, { onRetry: () => tick() }));
@@ -650,8 +912,9 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       bodyEl.replaceChildren(...[d.error ? errorState(d.error, { onRetry: () => tick(), lastGood: d.lastOk }) : null, phone ? buildCards() : buildTable(cols, narrow)].filter(Boolean));
       bodyEl.__mode = "list";
       if (had) bodyEl.querySelector(`[data-key="${CSS.escape(had)}"]`)?.focus({ preventScroll: true });
-    }
-    patchRows(cols);
+      patchRows(cols);
+      barsEnter(bodyEl);
+    } else patchRows(cols);
     drawBulk();
   }
   function setBody(mode, build) {
@@ -681,12 +944,15 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   function buildTable(cols, narrow) {
     const shown = cols;
     const ncol = shown.length + 3;
-    const thead = h("thead", {}, h("tr", {}, h("th", { scope: "col", class: "c-inc" }, h("span", { class: "sr-only" }, "Include in risk"), h("span", { "aria-hidden": "true", title: "Include in risk" }, "☑")), h("th", { scope: "col" }, "Contract"), shown.map((k) => h("th", { scope: "col", class: `num ${OPT_X.has(k) ? "opt-x" : ""}`.trim(), title: O.POS_COLUMNS.find((c) => c[0] === k)?.[2] }, COL_HEAD[k])), h("th", { scope: "col", class: "act" }, h("span", { class: "sr-only" }, "Actions"))));
+    const thead = h("thead", {}, h("tr", {}, h("th", { scope: "col", class: "c-inc" }, h("span", { class: "sr-only" }, "Include in risk"), h("span", { "aria-hidden": "true", title: "Include in risk" }, "Risk")), h("th", { scope: "col" }, "Contract"), shown.map((k) => h("th", { scope: "col", class: `num c-${k} ${OPT_X.has(k) ? "opt-x" : ""}`.trim(), title: O.POS_COLUMNS.find((c) => c[0] === k)?.[2] }, COL_HEAD[k])), h("th", { scope: "col", class: "act" }, h("span", { class: "sr-only" }, "Actions"))));
     const bodies = shownGroups().map((g) => {
       const head = h("tr", { class: "pos-ghead" });
       const [incHit, inc] = incBox(`Include every ${groupTitle(g)} leg in risk`, (on) => toggleInclude(g.legs.filter((l) => l.q).map((l) => l.symbol), on));
       const title = h("span", { class: "pos-gtitle" });
+      const glyph = groupGlyph();
       const stats = h("span", { class: "pos-gstats" });
+      const gpnl = h("span", { class: "pos-gpnl" });
+      const gbar = divBar("pos-gpbar");
       const locked = h("span", { class: "pos-locked", hidden: true });
       const acts = h(
         "span",
@@ -694,8 +960,8 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         g.expiry ? h("button", { type: "button", class: "small plain", onclick: () => analyse(g), title: "Open this expiry's option legs in the strategy builder (exact quantities)" }, "Analyse") : null,
         h("button", { type: "button", class: "small", onclick: () => openExitPlan(g.legs.filter((l) => l.q), `${groupTitle(g).split(" · ")[0]}`) }, "Exit group"),
       );
-      head.append(h("th", { scope: "rowgroup", colspan: String(ncol) }, h("div", { class: "pos-gline" }, incHit, title, stats, acts), locked));
-      groupRefs.set(g.key, { inc, title, stats, locked });
+      head.append(h("th", { scope: "rowgroup", colspan: String(ncol) }, h("div", { class: "pos-gline" }, incHit, title, glyph.el, h("span", { class: "pos-gp" }, gpnl, gbar.el), stats, acts), locked));
+      groupRefs.set(g.key, { inc, title, stats, locked, glyph, gpnl, gbar });
       const rows = g.legs.filter(shownLeg).map((l) => {
         const tr = h("tr", { tabindex: "-1", "data-key": l.symbol, class: l.q ? "" : "closed" });
         const cells = new Map();
@@ -715,12 +981,41 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
           if (e.target.closest("button, input, a, label")) return;
           rowClick(l.symbol, e.shiftKey);
         });
+        linkHover(tr, l.symbol);
         rowRefs.set(l.symbol, { el: tr, cells, inc: iBox });
         return tr;
       });
       return h("tbody", { "data-group": g.key }, head, rows);
     });
     return h("div", { class: "table-wrap pos-wrap" }, h("table", { class: `desk-table pos-table${narrow ? " narrow" : ""}` }, thead, bodies));
+  }
+  /** Hovering a leg rings its strike marker on the payoff (§8); the marker's hover lights the row back. */
+  function linkHover(el, sym) {
+    el.addEventListener("pointerenter", (e) => e.pointerType === "mouse" && pay.highlightMarker(sym));
+    el.addEventListener("pointerleave", (e) => e.pointerType === "mouse" && pay.highlightMarker(null));
+  }
+  function groupGlyph() {
+    const up = svgEl("path", { class: "up" });
+    const dn = svgEl("path", { class: "dn" });
+    const zero = svgEl("line", { class: "z", x1: 0, x2: 40 });
+    const t = svgEl("title", {});
+    const el = svgEl("svg", { class: "pos-glyph", viewBox: "0 0 40 16", width: 40, height: 16, role: "img" }, t, zero, dn, up);
+    return { el, up, dn, zero, t };
+  }
+  /** The group's expiry curve over F ± 2.6σ, 41 points, for its glyph (§4.10). */
+  function groupCurve(g) {
+    const inc = g.legs.filter((l) => l.q && l.inc && l.priced);
+    const ref = inc.find((l) => l.kind === "OPT") ?? inc[0];
+    if (!ref || num(ref.F) === null) return null;
+    const F = ref.F;
+    const m = O.sigmaMove(F, ref.atmIv ?? ref.iv, ref.T) ?? F * 0.02;
+    const days = Math.max(0, ...inc.map((l) => (l.T ?? 0) * 365).filter((x) => x <= (ref.T ?? 0) * 365 + 1e-9));
+    const vals = [];
+    for (let i = 0; i <= 40; i++) {
+      const x = F - 2.6 * m + (5.2 * m * i) / 40;
+      vals.push(O.scenarioPnl(inc, { dS: x / F - 1, days }));
+    }
+    return vals;
   }
   function buildCards() {
     return h(
@@ -729,25 +1024,38 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       shownGroups().map((g) => {
         const isOpen = !collapsed.has(g.key);
         const title = h("span", { class: "pos-gtitle" });
+        const glyph = groupGlyph();
         const stats = h("span", { class: "pos-gstats" });
+        const gpnl = h("span", { class: "pos-gpnl" });
+        const gbar = divBar("pos-gpbar");
         const locked = h("span", { class: "pos-locked", hidden: true });
         const head = h(
           "button",
           { type: "button", class: "pos-cghead", "aria-expanded": String(isOpen), onclick: () => (isOpen ? collapsed.add(g.key) : collapsed.delete(g.key), drawPositions()) },
-          h("span", { class: "pos-gline" }, title, stats),
+          h("span", { class: "pos-gline" }, title, glyph.el, h("span", { class: "pos-gp" }, gpnl, gbar.el)),
           icon("chevron"),
         );
-        groupRefs.set(g.key, { inc: null, title, stats, locked });
+        groupRefs.set(g.key, { inc: null, title, stats, locked, glyph, gpnl, gbar });
         const list = isOpen
           ? h(
               "div",
               { role: "list", class: "pos-clist" },
               g.legs.filter(shownLeg).map((l) => {
-                const l1 = h("span", { class: "pos-c1" });
-                const l2 = h("span", { class: "pos-c2" });
+                const tag = h("span", { class: "side-tag" });
+                const name = h("strong", { class: "pos-cname" });
+                const lots = h("span", { class: "pos-clots" });
+                const ex = h("span", { class: "pos-chip", hidden: true }, "excluded");
+                const pv = h("span", { class: "pos-cpv" });
+                const pbar = divBar("pos-cbar");
+                const l1 = h("span", { class: "pos-c1" }, tag, name, lots, ex, h("span", { class: "pos-cpnl" }, pv, pbar.el));
+                const txt = h("span", { class: "pos-c2t" });
+                const sg = sigmaGauge();
+                const sgt = h("span", { class: "pos-sgt" });
+                const l2 = h("span", { class: "pos-c2" }, txt, h("span", { class: "pos-c2g" }, sg, sgt));
                 const card = h("button", { type: "button", class: `pos-card${l.q ? "" : " closed"}`, "data-key": l.symbol, onclick: () => legSheet(l.symbol) }, l1, l2);
+                linkHover(card, l.symbol);
                 const item = h("div", { role: "listitem" }, card);
-                rowRefs.set(l.symbol, { el: card, cells: new Map([["c1", l1], ["c2", l2]]), inc: null });
+                rowRefs.set(l.symbol, { el: card, cells: new Map(), inc: null, card: { tag, name, lots, ex, pv, pbar, txt, sg, sgt } });
                 return item;
               }),
             )
@@ -756,18 +1064,60 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       }),
     );
   }
+  /** The name cell: "26600 CE" with the side in its call / put ink (FUT in label ink). */
+  const nameNodes = (l) => (l.kind === "FUT" ? [h("span", { class: "pos-k" }, "FUT")] : [h("span", { class: "pos-k" }, formatInt(l.strike)), " ", h("span", { class: l.right === "PE" ? "ink-put pos-r" : "ink-call pos-r" }, l.right)]);
+  const sideTag = (el, l) => {
+    const c = `side-tag ${l.q > 0 ? "buy" : l.q < 0 ? "sell" : ""}`.trim();
+    if (el.className !== c) el.className = c;
+    const t = l.q > 0 ? "B" : l.q < 0 ? "S" : "·";
+    if (el.textContent !== t) el.textContent = t;
+  };
+  /** σ gauge state (§4.6): neg for a short in the money, warn for a short under 0.5σ, else quiet. */
+  const sigmaState = (l, x) => (!x ? "none" : l.q < 0 && x.itm ? "neg" : l.q < 0 && x.sigma !== null && x.sigma < 0.5 ? "warn" : "ok");
+  const sigmaText = (l, x) => (!x ? DASH : l.q < 0 && x.itm ? "ITM" : `${sig1(x.sigma)}σ ${x.dir === "up" ? "↑" : "↓"}`);
   function patchRows(cols) {
     const phone = isPhone();
+    const showBars = cfg().bars;
+    const showSg = cfg().gauges;
+    // One book-wide scale for the P&L bars (bars compare across groups) and one for Δ.
+    const vms = new Map(legs.map((l) => [l.symbol, legVm(l)]));
+    const Mp = Math.max(1, ...legs.filter((l) => l.q).map((l) => Math.abs(vms.get(l.symbol).u ?? 0)), ...legs.map((l) => Math.abs(num(l.realised) ?? 0)));
+    const Md = Math.max(1, ...legs.filter((l) => l.q).map((l) => Math.abs(vms.get(l.symbol).delta ?? 0)));
+    const gstats = new Map(groups.map((g) => [g.key, groupStats(g)]));
+    const Mg = Math.max(1, ...[...gstats.values()].map((s) => Math.abs(s.pnl)));
+    // The biggest |P&L| leg of each group reads in 650 weight (no reordering).
+    const top = new Set(groups.map((g) => g.legs.filter((l) => l.q).sort((a, b) => Math.abs(vms.get(b.symbol).u ?? 0) - Math.abs(vms.get(a.symbol).u ?? 0))[0]?.symbol).filter(Boolean));
+    bodyEl.classList.toggle("no-bars", !showBars);
+    bodyEl.classList.toggle("no-sg", !showSg);
     for (const g of groups) {
       const ref = groupRefs.get(g.key);
       if (!ref) continue;
-      const s = groupStats(g);
-      setCell(ref.title, `${groupTitle(g)}|${g.structure.name}`, () => [h("strong", {}, groupTitle(g)), ` · ${g.structure.name}`]);
-      setCell(ref.stats, JSON.stringify([Math.round(s.pnl), Math.round(s.delta), Math.round(s.theta), s.kept === null ? null : Math.round(s.kept), phone]), () =>
-        phone
-          ? [money(s.pnl)]
-          : [h("span", {}, "P&L ", money(s.pnl)), h("span", {}, `Δ ${formatSigned(s.delta, 0)}`), h("span", {}, "Θ ", money(s.theta)), s.kept !== null ? h("span", {}, `kept ${formatPercent(s.kept, 0)}`) : null],
+      const s = gstats.get(g.key);
+      const today = g.expiry && O.isExpiryDay(g.expiry);
+      setCell(ref.title, `${groupTitle(g)}|${g.structure.name}|${today}`, () => [h("strong", {}, g.expiry ? expiryText(g.expiry) : "All expiries"), g.expiry ? (today ? h("span", { class: "pos-today" }, "Expires today") : h("span", { class: "pos-dte" }, ` · ${O.timeToExpiry(g.expiry).label}`)) : null, ` · ${g.structure.name}`]);
+      const pText = rs(s.pnl);
+      if (ref.gpnl.textContent !== pText) ref.gpnl.textContent = pText;
+      ref.gpnl.className = `pos-gpnl ${tone(s.pnl) ?? ""}`.trim();
+      setDiv(ref.gbar, s.pnl, Mg);
+      setCell(ref.stats, JSON.stringify([Math.round(s.delta), Math.round(s.theta), s.kept === null ? null : Math.round(s.kept), phone]), () =>
+        phone ? [] : [h("span", {}, `Δ ${formatSigned(s.delta, 0)}`), h("span", {}, "Θ ", money(s.theta)), s.kept !== null ? h("span", {}, `kept ${formatPercent(s.kept, 0)}`) : null],
       );
+      const vals = groupCurve(g);
+      const gk = vals ? vals.map((v) => Math.round(v)).join() : "";
+      if (ref.glyph.el.__sig !== gk) {
+        ref.glyph.el.__sig = gk;
+        ref.glyph.el.style.visibility = vals ? "" : "hidden";
+        if (vals) {
+          const p = glyphPath(vals);
+          ref.glyph.up.setAttribute("d", p.up);
+          ref.glyph.dn.setAttribute("d", p.dn);
+          ref.glyph.zero.setAttribute("y1", String(p.zero));
+          ref.glyph.zero.setAttribute("y2", String(p.zero));
+          const t = `${g.structure.name} · max ${rc(Math.max(...vals))} · min ${rc(Math.min(...vals))} (at expiry, ±2.6σ)`;
+          ref.glyph.t.textContent = t;
+          ref.glyph.el.setAttribute("aria-label", t);
+        }
+      }
       if (ref.inc) {
         const stt = groupIncState(g);
         ref.inc.checked = stt !== "off";
@@ -779,14 +1129,27 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     for (const l of legs) {
       const ref = rowRefs.get(l.symbol);
       if (!ref) continue;
-      const v = legVm(l);
-      if (phone) {
-        const c1 = ref.cells.get("c1");
-        const c2 = ref.cells.get("c2");
-        setCell(c1, JSON.stringify([l.q, l.lot, Math.round(v.u ?? 0), l.inc]), () => [h("span", { class: `side-tag ${l.q > 0 ? "buy" : "sell"}` }, l.q > 0 ? "B" : "S"), h("strong", {}, legName(l)), h("span", { class: "pos-clots" }, lotsText(l)), l.inc ? null : h("span", { class: "pos-chip" }, "excluded"), h("span", { class: "pos-cpnl" }, v.u === null ? DASH : money(v.u))]);
-        const parts = [`${formatFixed(l.avg, 2)} → ${formatFixed(l.mark, 2)}`, v.delta !== null ? `Δ ${formatSigned(v.delta, 0)}` : null, v.theta !== null ? `Θ ${rs(v.theta)}` : null, v.dist ? (l.q < 0 && v.dist.itm ? "ITM" : `${sig1(v.dist.sigma)}σ`) : null].filter(Boolean);
-        setCell(c2, parts.join(" · "), () => parts.join(" · "));
-        ref.el.setAttribute("aria-label", `${legSpeech(l)}, P&L ${v.u === null ? "unknown" : `${v.u < 0 ? "minus" : "plus"} ${formatInt(Math.abs(v.u))} rupees`}`);
+      const v = vms.get(l.symbol);
+      if (phone && ref.card) {
+        const c = ref.card;
+        sideTag(c.tag, l);
+        setCell(c.name, `${l.kind}|${l.strike}|${l.right}|${l.priced}`, () => [...nameNodes(l), l.q && !l.priced ? h("span", { class: "pos-wdot", title: "Not priced" }) : null]);
+        const lt = l.q ? lotsText(l) : "0";
+        if (c.lots.textContent !== lt) c.lots.textContent = lt;
+        c.ex.hidden = l.inc || !l.q;
+        const pt = v.u === null ? DASH : rs(v.u);
+        if (c.pv.textContent !== pt) c.pv.textContent = pt;
+        c.pv.className = `pos-cpv ${tone(v.u) ?? ""}${top.has(l.symbol) ? " top" : ""}`.trim();
+        setDiv(c.pbar, v.u ?? 0, Mp);
+        c.pbar.el.hidden = v.u === null || !l.q;
+        const parts = [`${formatFixed(l.avg, 2)} → ${formatFixed(l.mark, 2)}`, v.delta !== null ? `Δ ${formatSigned(v.delta, 0)}` : null, v.theta !== null ? `Θ ${rs(v.theta)}` : null].filter(Boolean).join(" · ");
+        if (c.txt.textContent !== parts) c.txt.textContent = parts;
+        setSigma(c.sg, v.dist?.sigma ?? null, sigmaState(l, v.dist));
+        c.sg.hidden = !v.dist;
+        const stext = v.dist ? sigmaText(l, v.dist) : "";
+        if (c.sgt.textContent !== stext) c.sgt.textContent = stext;
+        c.sgt.dataset.state = sigmaState(l, v.dist);
+        ref.el.setAttribute("aria-label", `${legSpeech(l)}, P&L ${v.u === null ? "unknown" : `${v.u < 0 ? "minus" : "plus"} ${formatInt(Math.abs(v.u))} rupees`}${v.dist ? `, ${sigmaText(l, v.dist)} from the forward` : ""}`);
         continue;
       }
       if (ref.inc && ref.inc.checked !== l.inc) ref.inc.checked = l.inc;
@@ -794,14 +1157,79 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       ref.el.classList.toggle("sel", selected.has(l.symbol));
       ref.el.classList.toggle("focus", focusSym === l.symbol);
       ref.el.setAttribute("aria-selected", String(selected.has(l.symbol)));
-      setCell(ref.cells.get("contract"), `${l.q > 0}|${l.product}|${l.expired}`, () =>
-        h("span", { class: "pos-leg" }, h("span", { class: `side-tag ${l.q > 0 ? "buy" : l.q < 0 ? "sell" : ""}` }, l.q > 0 ? "B" : l.q < 0 ? "S" : "·"), h("span", {}, h("strong", {}, legName(l)), h("small", {}, `${expiryText(l.expiry)} · ${l.expired ? "Expired · settles at close" : PRODUCT[l.product] ?? l.product}`))),
-      );
+      setCell(ref.cells.get("contract"), `${l.q > 0}|${l.q < 0}|${l.product}|${l.expired}|${l.priced}`, () => {
+        const tag = h("span", {});
+        sideTag(tag, l);
+        return h("span", { class: "pos-leg" }, tag, h("span", {}, h("strong", {}, ...nameNodes(l), l.q && !l.priced ? h("span", { class: "pos-wdot", title: `Not priced: ${l.why ?? "no quote"}` }) : null), h("small", {}, `${expiryText(l.expiry)} · ${l.expired ? "Expired · settles at close" : PRODUCT[l.product] ?? l.product}`)));
+      });
       for (const k of cols) {
-        const c = cellFor(k, l, v);
-        setCell(ref.cells.get(k), c.sig, c.build, { title: c.title });
+        const td = ref.cells.get(k);
+        if (k === "pnl") patchPnl(td, l, v, Mp, top.has(l.symbol));
+        else if (k === "delta") patchDelta(td, v, Md);
+        else if (k === "dist") patchDist(td, l, v);
+        else {
+          const c = cellFor(k, l, v);
+          setCell(td, c.sig, c.build, { title: c.title });
+        }
       }
     }
+  }
+  function patchPnl(td, l, v, M, top) {
+    if (!td.__pnl) {
+      const val = h("span", { class: "pos-pv" });
+      const bar = divBar("pos-pbar");
+      const rb = divBar("pos-rbar");
+      td.replaceChildren(h("span", { class: "pos-pcell" }, val, h("span", { class: "pos-pbars" }, bar.el, rb.el)));
+      td.__pnl = { val, bar, rb };
+    }
+    const r = td.__pnl;
+    const text = v.u === null ? DASH : rs(v.u);
+    if (r.val.textContent !== text) r.val.textContent = text;
+    const cls = `pos-pv ${tone(v.u) ?? ""}${top ? " top" : ""}`.trim();
+    if (r.val.className !== cls) r.val.className = cls;
+    setDiv(r.bar, v.u ?? 0, M);
+    r.bar.el.hidden = v.u === null;
+    const R = num(l.realised) ?? 0;
+    setDiv(r.rb, R, M);
+    r.rb.el.hidden = !Math.round(R);
+    r.rb.el.title = R ? `Realised ${rs(R)} today` : "";
+    const t = [brokerNote(l, v.u), R ? `Realised ${rs(R)} today (hatched bar)` : ""].filter(Boolean).join(" · ");
+    if (td.title !== t) td.title = t;
+  }
+  function patchDelta(td, v, M) {
+    if (!td.__d) {
+      const val = h("span", { class: "pos-dv" });
+      const unit = h("small", {});
+      const bar = divBar("pos-dbar");
+      td.replaceChildren(h("span", { class: "pos-dcell" }, h("span", { class: "pos-dtext" }, val, unit), bar.el));
+      td.__d = { val, unit, bar };
+      td.title = "Position Δ in units (per-unit Δ below); the bar is on one book-wide scale";
+    }
+    const r = td.__d;
+    const t = v.delta === null ? DASH : formatSigned(v.delta, 0);
+    if (r.val.textContent !== t) r.val.textContent = t;
+    const u = v.dU === null ? "" : formatFixed(v.dU, 2);
+    if (r.unit.textContent !== u) r.unit.textContent = u;
+    setDiv(r.bar, v.delta ?? 0, M, "fg");
+    r.bar.el.hidden = v.delta === null;
+  }
+  function patchDist(td, l, v) {
+    if (!td.__s) {
+      const g = sigmaGauge();
+      const t = h("span", { class: "pos-sgt" });
+      td.replaceChildren(h("span", { class: "pos-scell" }, g, t));
+      td.__s = { g, t };
+    }
+    const x = v.dist;
+    const r = td.__s;
+    const state = sigmaState(l, x);
+    setSigma(r.g, x?.sigma ?? null, state);
+    r.g.hidden = !x;
+    const t = sigmaText(l, x);
+    if (r.t.textContent !== t) r.t.textContent = t;
+    r.t.dataset.state = state;
+    const title = x ? `${formatSigned(x.pts, 0)} pts (${formatSigned(x.pct, 2)}%) from the ${expiryText(l.expiry)} forward ${formatInt(l.F)} · ${sig1(x.sigma)}σ on a 0–3σ track${state === "neg" ? " · short is in the money" : state === "warn" ? " · tested: within 0.5σ" : ""}` : "";
+    if (td.title !== title) td.title = title;
   }
   function rowClick(sym, shift) {
     focusSym = sym;
@@ -841,7 +1269,91 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       [l.inc ? "Exclude from risk" : "Include in risk", () => toggleInclude([l.symbol], !l.inc)],
       ...(g?.expiry && l.kind === "OPT" ? [["Analyse this expiry", () => analyse(g)]] : []),
       ...(l.kind === "OPT" ? [["Open in chain", () => openInChain(l)]] : []),
+      ...(l.kind === "OPT" && l.q
+        ? [
+            ["Roll to next expiry…", () => openAdjust(l.symbol, "next")],
+            [`Roll strike ${l.q < 0 ? "out" : "in"} 1 step…`, () => openAdjust(l.symbol, l.q < 0 ? "out" : "in")],
+            ...(l.q < 0 ? [["Add a wing (cap the risk)…", () => openAdjust(l.symbol, "wing")]] : []),
+          ]
+        : []),
     ];
+  }
+
+  // ── Roll / adjust (positions.md §7.12): a before → after preview, then a pre-filled builder basket. Nothing is sent. ──
+  /** Δ, Θ and the sampled first-expiry max loss of a set of priced legs. */
+  function bookRead(ls) {
+    const inc = ls.filter((x) => x.priced && x.inc !== false && x.q);
+    if (!inc.length || !spot) return null;
+    const g = O.bookGreeks(inc);
+    const first = inc.map((x) => x.expiry).sort()[0];
+    const ref = inc.find((x) => x.expiry === first && x.kind === "OPT") ?? inc[0];
+    const F = ref.F ?? spot;
+    const sd = ((ref.atmIv ?? ref.iv ?? 12) / 100) * Math.sqrt(Math.max(ref.T ?? 0, 1 / 365));
+    const xs = [];
+    for (let i = 0; i <= 200; i++) xs.push(F * Math.exp(-4 * sd + (8 * sd * i) / 200));
+    for (const x of inc) if (x.kind === "OPT" && x.strike > xs[0] && x.strike < xs[200]) xs.push(x.strike);
+    xs.sort((a, c) => a - c);
+    const days = (ref.T ?? 0) * 365;
+    const stt = O.bookCurveStats((x) => O.scenarioPnl(inc, { dS: x / F - 1, days }), xs);
+    return { delta: g.delta, theta: g.theta, min: stt?.min ?? null, unlimited: Boolean(stt?.unlimitedDown), first };
+  }
+  async function openAdjust(sym, kind) {
+    const l = legs.find((x) => x.symbol === sym);
+    if (!l || l.kind !== "OPT" || !l.q) return;
+    const toExp = kind === "next" ? O.nextExpiry(d.expiries ?? [], l.expiry) : l.expiry;
+    if (!toExp) return toast("No later expiry is listed for this underlying");
+    let chain = d.chains.get(toExp)?.chain ?? null;
+    if (!chain) {
+      const r = await optional(api(`/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(toExp)}&strikes=${CHAIN_STRIKES}&greeks=true`));
+      chain = r.data?.data ?? null;
+    }
+    if (!chain?.rows?.length) return toast(`Couldn't load the ${expiryText(toExp)} chain`);
+    const side = l.right === "PE" ? "pe" : "ce";
+    const strikes = chain.rows.map((r) => r.strike);
+    const quoteAt = (k) => chain.rows.find((r) => r.strike === k)?.[side] ?? null;
+    let toStrike = l.strike;
+    if (kind === "out" || kind === "in") toStrike = O.rollStrike(strikes, l, spot, kind);
+    if (kind === "wing") toStrike = O.wingStrike(strikes, { kind: "OPT", strike: l.strike, right: l.right, side: "SELL", price: l.mark }, (k) => O.mid(quoteAt(k)) ?? num(quoteAt(k)?.ltp));
+    if (toStrike === null || toStrike === undefined) return toast("No listed strike in that direction");
+    const q = quoteAt(toStrike);
+    const prefix = String(l.symbol).split(":")[0] || "NFO";
+    const newSym = q?.symbol ?? `${prefix}:${st.underlying}-${toExp}-${toStrike}-${l.right}`;
+    const mk = O.legMark(q).mark;
+    const newQty = kind === "wing" ? Math.abs(l.q) : l.q;
+    const [nl] = O.priceBook(O.bookLegs([{ symbol: newSym, netQty: newQty, avgPrice: mk ?? 0, product: l.product }], st.underlying), { chains: new Map([[toExp, chain]]), inst: instCache, spot });
+    const before = included().filter((x) => x.priced);
+    const after = kind === "wing" ? [...before, nl] : [...before.filter((x) => x.symbol !== l.symbol), nl];
+    const b0 = bookRead(before);
+    const a0 = nl?.priced ? bookRead(after) : null;
+    const units = Math.abs(l.q);
+    const lotsN = Math.max(1, Math.round(units / (l.lot || 1)));
+    const closeLeg = { kind: "OPT", right: l.right, strike: l.strike, expiry: l.expiry, side: l.q > 0 ? "SELL" : "BUY", lots: lotsN, units, lotSize: l.lot, entry: l.mark, entryTag: "manual", product: l.product, symbol: l.symbol };
+    const openLeg = { kind: "OPT", right: l.right, strike: toStrike, expiry: toExp, side: kind === "wing" ? "BUY" : l.q > 0 ? "BUY" : "SELL", lots: lotsN, units, lotSize: l.lot, product: l.product, symbol: newSym };
+    const basket = kind === "wing" ? [openLeg] : [closeLeg, openLeg];
+    const legLine = (x, note) => h("li", {}, h("span", { class: `side-tag ${x.side === "BUY" ? "buy" : "sell"}` }, x.side === "BUY" ? "B" : "S"), h("span", {}, `${x.side === "BUY" ? "Buy" : "Sell"} ${formatInt(x.units)} ${formatInt(x.strike)} `, h("span", { class: x.right === "PE" ? "ink-put" : "ink-call" }, x.right), ` ${expiryText(x.expiry)}`, h("small", { class: "muted" }, ` · ${note}`)));
+    const cmp = (label, f, fmt) => [h("span", {}, label), h("strong", {}, b0 ? fmt(f(b0)) : DASH), h("span", { class: "arrow", "aria-hidden": "true" }, "→"), h("strong", {}, a0 ? fmt(f(a0)) : DASH)];
+    const lossFmt = (x) => x;
+    const lossOf = (r) => (r.unlimited ? "unlimited" : rc(r.min));
+    const title = kind === "next" ? `Roll ${legName(l)} to ${expiryText(toExp)}` : kind === "wing" ? `Add a ${formatInt(toStrike)} ${l.right} wing` : `Roll ${legName(l)} to ${formatInt(toStrike)}`;
+    const ok = await modal({
+      title,
+      body: h(
+        "div",
+        { class: "pos-roll" },
+        h("ul", { class: "pos-roll-legs" }, kind === "wing" ? legLine(openLeg, `at ${formatFixed(mk, 2)} · caps the short`) : [legLine(closeLeg, `close at ${formatFixed(l.mark, 2)}`), legLine(openLeg, `open at ${formatFixed(mk, 2)}`)]),
+        h("div", { class: "pos-roll-cmp", role: "table", "aria-label": "Before and after" }, ...cmp("Δ", (r) => r.delta, (v) => formatSigned(v, 0)), ...cmp("Θ ₹/day", (r) => r.theta, (v) => rs(v)), ...cmp(`Max loss at ${expiryText(b0?.first ?? l.expiry)}`, (r) => lossOf(r), lossFmt)),
+        h("p", { class: "muted small" }, "Opens these legs in the Strategy Builder (it replaces the builder's legs). Nothing is sent from Positions; review and place from the builder. Max loss is sampled at the first expiry (≈)."),
+      ),
+      buttons: [
+        { label: "Cancel", value: false },
+        { label: "Open in Strategy Builder", cls: "primary", value: true },
+      ],
+    });
+    if (!ok) return;
+    st.baskets[st.underlying] = O.migrateLegs(basket, toExp, { lotSize: l.lot });
+    st.expiry = basket[0].expiry;
+    save();
+    location.hash = "#/strategy";
   }
   let closeMenu = null;
   function legMenu(sym, btn) {
@@ -1131,9 +1643,47 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     pvSeq += 1;
   }
 
-  // ── Risk: payoff of the book ──
-  const pay = createBookPayoff(payoffBox, () => (isNarrow() ? null : scenBox.offsetHeight - 56));
+  // ── Risk: payoff of the book (payoff.js, the Strategy Builder's chart: positions.md §4.8) ──
+  const hoverRows = (ids, on) => {
+    for (const s of ids) rowRefs.get(s)?.el.classList.toggle("hl", on);
+  };
+  let markerHover = null;
+  const pay = drawPayoff(payoffBox, {
+    heights: [360, 300, 240],
+    onMarker: (id) => {
+      if (markerHover) hoverRows([markerHover], false);
+      markerHover = id;
+      if (id) hoverRows([id], true);
+    },
+  });
+  // The head: an idle read-out (unrealised now at spot, so the hero's net P&L is not mistaken for it) and the curves.
+  const idleEl = h("span", { class: "pos-idle" });
+  const curvesSeg = segmented("Payoff curves", [["now", "Now"], ["exp", "+Exp"], ["target", "+Target"]], cfg().curves);
+  curvesSeg.classList.add("curves-seg");
+  curvesSeg.addEventListener("change", () => {
+    if (cfg().curves === curvesSeg.value) return;
+    setCfg({ curves: curvesSeg.value });
+    riskSig = "";
+    morphNext = true;
+    drawRisk();
+  });
+  pay.tools.append(idleEl, curvesSeg);
+  // Δ across spot (desktop): where the book leaves its delta band as spot moves (§4.9).
+  const dsLine = svgEl("path", { class: "ds-line" });
+  const dsBand = svgEl("rect", { class: "ds-band" });
+  const dsZero = svgEl("line", { class: "ds-zero" });
+  const dsDot = svgEl("circle", { class: "ds-dot", r: 3.5 });
+  const dsSpot = svgEl("line", { class: "ds-spot" });
+  const dsLbl = svgEl("text", { class: "ds-lbl", x: 0, y: 11 });
+  const dsSvg = svgEl("svg", { class: "pos-dstrip", role: "img", height: 64 }, dsBand, dsZero, dsSpot, dsLine, dsDot, dsLbl);
+  const dsHead = h("div", { class: "pos-dstrip-head" }, h("span", {}, "Δ across spot · now"), h("span", { class: "pos-dstrip-sub" }));
+  const dsBox = h("div", { class: "pos-dstrip-box", hidden: true }, dsHead, dsSvg);
+  payoffBox.append(dsBox);
   let riskSig = "";
+  let morphNext = false;
+  let legsSigPrev = null;
+  /** Read-outs the book and the scenario share: sampled first-expiry stats, POP. */
+  const riskStats = { pop: null, stats: null, wide: null };
   function hedgeLegsPriced() {
     return hd.open && hd.show && hd.plan && !hd.plan.error ? hd.hedgeLegs.filter((l) => l.priced) : [];
   }
@@ -1147,11 +1697,24 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const subText = near ? ` · nearest ${expiryText(near.expiry)}${book?.excluded ? ` · ${plural(book.excluded, "leg")} excluded` : ""}` : "";
     if (sub.textContent !== subText) sub.textContent = subText;
     const S = spot;
-    const sig = JSON.stringify([inc.map((l) => [l.symbol, l.q, formatFixed(l.mark, 2), formatFixed(l.iv, 2), formatFixed(l.F, 1)]), sc, formatFixed(S, 1), hedgeLegsPriced().map((l) => [l.symbol, l.q]), cfg().ladder, cfg().axis, cfg().lossLimit, isPhone(), isNarrow()]);
+    const curves = cfg().curves;
+    const sig = JSON.stringify([inc.map((l) => [l.symbol, l.q, formatFixed(l.mark, 2), formatFixed(l.iv, 2), formatFixed(l.F, 1)]), sc, formatFixed(S, 1), hedgeLegsPriced().map((l) => [l.symbol, l.q]), cfg().ladder, cfg().axis, cfg().lossLimit, cfg().heatCols, curves, cfg().deltaBand, matMode, isPhone(), isNarrow()]);
     if (sig === riskSig) return;
     riskSig = sig;
+    // Morph the payoff when the legs, the included set or the hedge overlay change; ticks and slider drags patch.
+    const legsSig = JSON.stringify([inc.map((l) => [l.symbol, l.q]), hedgeLegsPriced().map((l) => l.symbol)]);
+    const animate = morphNext || (legsSigPrev !== null && legsSig !== legsSigPrev);
+    legsSigPrev = legsSig;
+    morphNext = false;
     if (!inc.length || !S) {
-      pay.update(null);
+      const open = legs.filter((l) => l.q);
+      const allOff = open.length && open.every((l) => !l.inc);
+      if (allOff) pay.empty({ text: "Include a leg to see its payoff", action: h("button", { type: "button", class: "small", onclick: () => toggleInclude(open.map((l) => l.symbol), true) }, "Include all") });
+      else pay.empty({ text: "No priced legs to draw", sub: "The payoff appears when a leg has a price." });
+      idleEl.textContent = "";
+      dsBox.hidden = true;
+      riskStats.pop = null;
+      riskStats.stats = null;
       drawScenario(null);
       return;
     }
@@ -1169,8 +1732,11 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const shift = (x, extra = {}) => ({ dS: x / S - 1, ...extra });
     const fd = firstDays();
     const fNow = (x) => O.scenarioPnl(inc, shift(x));
-    const hasTarget = sc.days > 0 || sc.dIv !== 0;
-    const fTarget = (x) => O.scenarioPnl(inc, shift(x, { dIv: sc.dIv, days: sc.days }));
+    // Target: the slider date / IV; with "+Target" and the sliders at zero, half-way to the first expiry.
+    const scen = sc.days > 0 || sc.dIv !== 0;
+    const tDays = scen ? sc.days : Math.round(fd / 2);
+    const hasTarget = curves !== "now" && (scen || (curves === "target" && tDays > 0));
+    const fTarget = (x) => O.scenarioPnl(inc, shift(x, { dIv: sc.dIv, days: tDays }));
     const fExp = (x) => O.scenarioPnl(inc, shift(x, { days: fd }));
     const hl = hedgeLegsPriced();
     const fHedge = hl.length ? (x) => O.scenarioPnl([...inc, ...hl], shift(x)) : null;
@@ -1178,56 +1744,155 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const target = hasTarget ? xs.map(fTarget) : null;
     const exp = xs.map(fExp);
     const hedge = fHedge ? xs.map(fHedge) : null;
+    const showExp = curves !== "now";
+    // Sampled stats of the expiry curve in range (guides) and over F₁·e^(±4σ√T₁) (footer, POP).
+    const st0 = O.bookCurveStats(fExp, xs);
+    const F1 = near?.F ?? S;
+    const iv1 = near?.atmIv ?? near?.iv ?? null;
+    const T1 = near?.T ?? 0;
+    const s4 = sp ? (4 * sp) / 100 : 0.08;
+    const wxs = [];
+    for (let i = 0; i <= 240; i++) wxs.push(F1 * Math.exp(-s4 + (2 * s4 * i) / 240));
+    for (const k of ks) if (k > wxs[0] && k < wxs[240]) wxs.push(k);
+    wxs.sort((a, b) => a - b);
+    const wide = O.bookCurveStats((x) => O.scenarioPnl(inc, { dS: x / F1 - 1, days: fd }), wxs);
+    riskStats.wide = wide;
+    riskStats.pop = wide && T1 > 0 && iv1 ? O.bookPop(wide.profitIntervals, { forward: F1, years: T1, ivPct: iv1 }) : null;
+    const yr = O.payoffYRange([now, ...(showExp ? [exp] : []), ...(target ? [target] : [])], { main: showExp ? exp : now, xs });
     const b = (k) => [S * Math.exp((-k * sp) / 100), S * Math.exp((k * sp) / 100)];
-    // The scenario first: on desktop the payoff grows to the height of the scenario column beside it.
-    drawScenario({ inc, S, sp, fd });
-    pay.update({
-      xs,
-      lo,
-      hi,
-      spot: S,
-      now,
-      target,
-      exp,
-      hedge,
-      b1: sp ? b(1) : null,
-      b2: sp ? b(2) : null,
-      bes: O.curveRoots(fNow, xs),
-      besT: hasTarget ? O.curveRoots(fTarget, xs) : [],
-      expLabel: near ? `At ${expiryText(near.expiry)} expiry` : "At expiry",
-      targetLabel: `Target ${sc.days ? `+${formatInt(sc.days)}d` : ""}${sc.dIv ? ` IV ${formatSigned(sc.dIv, 1)}` : ""}`.trim(),
-      fns: { now: fNow, target: hasTarget ? fTarget : null, exp: fExp, hedge: fHedge },
-    });
+    const bes = O.curveRoots(fNow, xs);
+    const multi = new Set(inc.map((l) => l.expiry)).size > 1 || inc.some((l) => l.kind === "FUT");
+    const markers = inc.map((l) => ({ id: l.symbol, kind: l.kind, right: l.right, strike: l.strike, price: l.kind === "FUT" ? l.avg : null, side: l.q > 0 ? "BUY" : "SELL", title: `${l.q > 0 ? "Long" : "Short"} ${formatInt(Math.abs(lotsOf(l)))} × ${legName(l)} ${expiryText(l.expiry)} @ ${formatFixed(l.avg, 2)}` }));
+    const chainKs = [...new Set((d.chains.get(near?.expiry)?.chain?.rows ?? []).map((r) => r.strike))].sort((a, c) => a - c);
+    const nowAtS = fNow(S);
+    const popText = riskStats.pop === null ? "" : `, POP ${formatPercent(riskStats.pop * 100, 0)} at ${expiryText(near?.expiry)}`;
+    // Drawn first: on desktop the Δ strip under the payoff fills the scenario column's spare height.
+    drawScenario({ inc, S, sp, fd, wide, multi });
+    pay.update(
+      {
+        xs,
+        lo,
+        hi,
+        spot: S,
+        forward: F1,
+        ivPct: iv1,
+        horizon: T1,
+        now,
+        target,
+        expiry: exp,
+        hedge,
+        hideExpiry: !showExp,
+        band1: sp ? b(1) : null,
+        band2: sp ? b(2) : null,
+        breakevens: bes,
+        stats: showExp && st0 ? { maxProfit: st0.unlimitedUp ? null : st0.max, maxLoss: st0.unlimitedDown ? null : st0.min, breakevens: bes, locked: null } : null,
+        approx: multi,
+        clip: yr.clip,
+        yMin: yr.yMin,
+        yMax: yr.yMax,
+        strikes: ks,
+        chainStrikes: chainKs,
+        markers,
+        here: { x: S, y: nowAtS },
+        prob: "below",
+        labels: { now: "Now", target: `Target ${tDays ? `+${formatInt(tDays)}d` : ""}${sc.dIv ? ` IV ${formatSigned(sc.dIv, 1)}` : ""}`.trim(), expiry: near ? `At ${expiryText(near.expiry)} expiry` : "At expiry", expiryShort: near ? `At ${expiryText(near.expiry)}` : "At expiry", hedge: "Hedged" },
+        ariaLabel: `Book payoff: unrealised now ${rs(nowAtS)} at ${formatInt(S)}; ${bes.length ? `breakevens now ${bes.map((x) => formatInt(x)).join(" and ")}` : "no breakeven in range"}; max loss in range ${rc(Math.min(...now, ...(showExp ? exp : [])))}${popText}`,
+      },
+      { animate: animate && !reducedMotion() },
+    );
+    const idle = `Unrealised now ${rs(nowAtS)} at ${formatInt(S)}`;
+    if (idleEl.textContent !== idle) idleEl.textContent = idle;
+    idleEl.className = `pos-idle ${tone(nowAtS) ?? ""}`.trim();
+    drawDeltaStrip(inc, xs, lo, hi, S);
+  }
+  function drawDeltaStrip(inc, xs, lo, hi, S) {
+    const show = !isNarrow() && cfg().gauges !== false;
+    dsBox.hidden = !show;
+    if (!show) return;
+    const W = Math.max(280, Math.round(payoffBox.clientWidth - 24 || 600));
+    const H = 64;
+    const L = W < 480 ? 46 : 56;
+    const R = 12;
+    const Lf = futLot();
+    const ds = xs.filter((_, i) => i % 2 === 0).map((x) => [x, O.scenarioGreeks(inc, { dS: x / S - 1 }).delta]);
+    const B = deltaBand();
+    const M = Math.max(B ? 1.4 * B : 1, ...ds.map(([, v]) => Math.abs(v))) * 1.08;
+    const X = (p) => L + ((p - lo) / (hi - lo)) * (W - L - R);
+    const Y = (v) => 6 + ((M - v) / (2 * M)) * (H - 12);
+    dsSvg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    dsSvg.setAttribute("width", String(W));
+    dsLine.setAttribute("d", ds.map(([x, v], i) => `${i ? "L" : "M"}${r1(X(x))},${r1(Y(v))}`).join(""));
+    const z = r1(Y(0));
+    for (const [k, v] of Object.entries({ x1: L, x2: W - R, y1: z, y2: z })) dsZero.setAttribute(k, String(v));
+    if (B) {
+      for (const [k, v] of Object.entries({ x: L, width: W - L - R, y: r1(Y(B)), height: r1(Y(-B) - Y(B)) })) dsBand.setAttribute(k, String(v));
+      dsBand.removeAttribute("visibility");
+    } else dsBand.setAttribute("visibility", "hidden");
+    const d0 = O.scenarioGreeks(inc, {}).delta;
+    const sx = r1(X(S));
+    for (const [k, v] of Object.entries({ x1: sx, x2: sx, y1: 2, y2: H - 2 })) dsSpot.setAttribute(k, String(v));
+    dsDot.setAttribute("cx", String(sx));
+    dsDot.setAttribute("cy", String(r1(Y(d0))));
+    dsLbl.textContent = "";
+    const outs = ds.filter(([, v]) => B && Math.abs(v) > B);
+    const subt = `${B ? `band ±${formatInt(B)}` : ""}${Lf ? ` · Δ ${formatSigned(d0 / Lf, 1)} lots now` : ""}${outs.length && B ? ` · outside the band ${outs[0][0] < S ? `below ${formatInt(Math.max(...outs.filter(([x]) => x < S).map(([x]) => x), lo))}` : ""}${outs.some(([x]) => x > S) ? ` above ${formatInt(Math.min(...outs.filter(([x]) => x > S).map(([x]) => x)))}` : ""}` : ""}`;
+    const subEl = dsHead.lastChild;
+    if (subEl.textContent !== subt) subEl.textContent = subt;
+    dsSvg.setAttribute("aria-label", `Delta across spot now: ${formatSigned(d0, 0)} at ${formatInt(S)}${subt ? `; ${subt}` : ""}`);
   }
 
-  // ── Risk: scenario ──
-  const spotIn = h("input", { type: "range", min: "-10", max: "10", step: "0.25", value: "0", "aria-label": "Spot move" });
-  const ivIn = h("input", { type: "range", min: "-10", max: "10", step: "0.5", value: "0", "aria-label": "IV change in vol points" });
-  const daysIn = h("input", { type: "range", min: "0", max: "30", step: "1", value: "0", "aria-label": "Days forward" });
+  // ── Risk: scenario (sliders, stress chips, the heatmap on the diverging scale, Greeks across spot) ──
+  const spotIn = h("input", { type: "range", class: "pos-range div", min: "-10", max: "10", step: "0.25", value: "0", "aria-label": "Spot move" });
+  const ivIn = h("input", { type: "range", class: "pos-range div iv", min: "-10", max: "10", step: "0.5", value: "0", "aria-label": "IV change in vol points" });
+  const daysIn = h("input", { type: "range", class: "pos-range days", min: "0", max: "30", step: "1", value: "0", "aria-label": "Days forward" });
   const spotVal = h("output", {});
   const ivVal = h("output", {});
   const daysVal = h("output", {});
   const spotChips = h("div", { class: "pos-chips" });
   const dayChips = h("div", { class: "pos-chips" });
+  const stressScen = h("div", { class: "pos-stress scen", role: "group", "aria-label": "P&L now at ±1σ and ±2σ" });
   const outLine = h("p", { class: "pos-scen-out", "aria-live": "polite" });
   const matrixEl = h("div", { class: "pos-matrix-wrap" });
+  const ring = h("i", { class: "pos-ring", "aria-hidden": "true", hidden: true });
+  const legendEl = h("div", { class: "pos-heat-legend" });
   const matrixFoot = h("div", { class: "pos-matrix-foot" });
   const resetBtn = h("button", { type: "button", class: "small plain", onclick: () => setScenario({ pct: 0, dIv: 0, days: 0 }) }, icon("refresh"), "Reset");
-  const axisSeg = segmented("Matrix columns", [["iv", "Spot × IV"], ["days", "Spot × days"]], cfg().axis);
-  axisSeg.addEventListener("change", () => (setCfg({ axis: axisSeg.value }), (riskSig = ""), drawRisk()));
+  let matMode = cfg().axis;
+  const axisSeg = segmented("Scenario table", [["iv", "Spot × IV"], ["days", "Spot × days"], ["greeks", "Greeks"]], matMode);
+  axisSeg.addEventListener("change", () => setMatMode(axisSeg.value));
+  function setMatMode(m) {
+    matMode = m;
+    if (axisSeg.value !== m) axisSeg.value = m;
+    if (m !== "greeks" && cfg().axis !== m) setCfg({ axis: m });
+    riskSig = "";
+    drawRisk();
+  }
   const sliderRow = (label, input, out, chips) => h("div", { class: "pos-slider" }, h("label", {}, h("span", {}, label), out), input, chips ?? null);
   scenBox.append(
     h("div", { class: "pos-sliders" }, sliderRow("Spot", spotIn, spotVal, spotChips), sliderRow("IV", ivIn, ivVal), sliderRow("Days", daysIn, daysVal, dayChips)),
+    stressScen,
     outLine,
-    h("div", { class: "pos-matrix-head" }, h("strong", {}, "Unrealised P&L"), axisSeg, resetBtn),
+    h("div", { class: "pos-matrix-head" }, axisSeg, resetBtn),
     matrixEl,
+    legendEl,
     matrixFoot,
   );
+  /** Range fills: spot and IV from the centre (signed), days from the start in the today-curve blue. */
+  function paintRange(input) {
+    const mn = Number(input.min);
+    const mx = Number(input.max);
+    const v = Number(input.value);
+    const at = mx > mn ? ((v - mn) / (mx - mn)) * 100 : 0;
+    const zero = input.classList.contains("div") ? ((0 - mn) / (mx - mn)) * 100 : 0;
+    input.style.setProperty("--a", `${r1(Math.min(at, zero))}%`);
+    input.style.setProperty("--b", `${r1(Math.max(at, zero))}%`);
+  }
   let rafPending = false;
   const onSlide = () => {
     sc.pct = Number(spotIn.value);
     sc.dIv = Number(ivIn.value);
     sc.days = Number(daysIn.value);
+    for (const el of [spotIn, ivIn, daysIn]) paintRange(el);
     if (rafPending) return;
     rafPending = true;
     requestAnimationFrame(() => {
@@ -1244,10 +1909,19 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     spotIn.value = String(sc.pct);
     ivIn.value = String(sc.dIv);
     daysIn.value = String(sc.days);
+    for (const el of [spotIn, ivIn, daysIn]) paintRange(el);
     drawRisk();
   }
+  /** The heatmap's colour scale m: the 95th percentile of |cell| over the visible grid and the stress chips. */
+  let heatM = 1;
+  const heatScale = () => heatM;
+  const heatCols = () => {
+    const c = cfg().heatCols;
+    return c === 3 || c === 5 ? c : isNarrow() ? 3 : 5;
+  };
   let matrixSig = "";
   let cellRefs = [];
+  let gridNow = null;
   function drawScenario(ctx) {
     const md = maxDays();
     if (daysIn.max !== String(md)) {
@@ -1255,6 +1929,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       if (sc.days > md) sc.days = md;
       daysIn.value = String(sc.days);
     }
+    for (const el of [spotIn, ivIn, daysIn]) paintRange(el);
     const S = ctx?.S ?? spot;
     const sp = ctx?.sp ?? sigmaPct();
     spotVal.textContent = `${formatSigned(sc.pct, 2)}% · ${formatInt(S ? S * (1 + sc.pct / 100) : null)}`;
@@ -1274,12 +1949,14 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const dSig = `${fd}|${sc.days}|${md}`;
     if (dayChips.__sig !== dSig) {
       dayChips.__sig = dSig;
-      dayChips.replaceChildren(...[["Today", 0], ["+1", 1], ["+3", 3], ["First expiry", fd]].filter(([, v]) => v <= md).map(([l, v]) => h("button", { type: "button", class: "small chip-btn", "aria-pressed": String(sc.days === v), onclick: () => setScenario({ days: v }) }, l)));
+      dayChips.replaceChildren(...[["Today", 0], ["+1", 1], ["+3", 3], ["Expiry", fd]].filter(([, v], i, a) => v <= md && a.findIndex((x) => x[1] === v) === i).map(([l, v]) => h("button", { type: "button", class: "small chip-btn", "aria-pressed": String(sc.days === v), onclick: () => setScenario({ days: v }) }, l)));
     }
+    stressScen.hidden = !isPhone() || !stressRows.length;
     if (!ctx) {
       outLine.textContent = legs.some((l) => l.q) ? "No priced legs to run scenarios on." : "";
       matrixEl.replaceChildren();
       matrixSig = "";
+      legendEl.replaceChildren();
       matrixFoot.replaceChildren();
       return;
     }
@@ -1288,75 +1965,207 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const v = O.scenarioPnl(inc, shift);
     const v0 = O.scenarioPnl(inc, {});
     const g = O.scenarioGreeks(inc, shift);
-    outLine.replaceChildren(h("span", {}, "P&L at scenario ", money(v)), h("span", { class: "muted" }, ` (vs now ${rs(v - v0)})`), h("span", {}, ` · Δ ${formatSigned(g.delta, 0)} · Θ ${rs(g.theta)} · Vega ${rs(g.vega)}`));
-    const grid = O.scenarioGrid(inc, { ladder: cfg().ladder, axis: cfg().axis, days: sc.days, dIv: sc.dIv, sigmaPct: sp, F: S, firstDays: fd });
-    const shape = JSON.stringify([cfg().ladder, cfg().axis, grid.cols.map((c) => c.label), grid.rows.length]);
+    outLine.replaceChildren(h("span", {}, "At scenario ", money(v)), h("span", { class: "muted" }, ` (vs now ${rs(v - v0)})`), h("span", { class: "pos-scen-g" }, ` · Δ ${formatSigned(g.delta, 0)} · Θ ${rs(g.theta)} · ν ${rs(g.vega)}`));
+    const five = heatCols() === 5;
+    const axis = matMode === "greeks" ? cfg().axis : matMode;
+    const ivCols = five ? [-10, -5, 0, 5, 10] : [-5, 0, 5];
+    const dayCols = five ? [0, 1, 2, 3, fd] : isPhone() ? [0, 3, fd] : [0, 1, 3, fd];
+    const grid = O.scenarioGrid(inc, { ladder: cfg().ladder, axis, days: sc.days, dIv: sc.dIv, sigmaPct: sp, F: S, firstDays: fd, ivCols, dayCols });
+    gridNow = grid;
+    // One colour scale for the grid and the stress chips (so they agree).
+    heatM = Math.max(1, O.percentileOf([...grid.rows.flatMap((r) => r.cells.map(Math.abs)), ...stressRows.map((x) => Math.abs(x.v))], 0.95) ?? 1);
+    if (matMode === "greeks") drawGreeksTable(inc, grid, S);
+    else drawHeatmap(grid, axis);
+    drawLegend();
+    drawFooter(inc, grid, ctx);
+    drawStress();
+  }
+  const rowLabel = (r) => `${r.k !== null ? `${formatSigned(r.k, 1)}σ ` : ""}${r.pct === 0 ? "0" : formatSigned(r.pct, r.k !== null ? 2 : 0)}%`;
+  function drawHeatmap(grid, axis) {
+    const shape = JSON.stringify(["heat", cfg().ladder, axis, grid.cols.map((c) => c.label), grid.rows.length, isPhone()]);
     if (matrixSig !== shape) {
+      const rebuilt = Boolean(matrixSig);
       matrixSig = shape;
       cellRefs = [];
+      const short = isPhone();
       const table = h(
         "table",
         { class: "pos-matrix" },
-        h("thead", {}, h("tr", {}, h("th", { scope: "col" }, cfg().ladder === "sigma" ? "Spot (σ)" : "Spot"), grid.cols.map((c) => h("th", { scope: "col", class: "num" }, c.label)))),
+        h("thead", {}, h("tr", {}, h("th", { scope: "col" }, cfg().ladder === "sigma" ? "Spot (σ)" : "Spot"), grid.cols.map((c) => h("th", { scope: "col", class: "num" }, short || grid.cols.length > 4 ? (axis === "iv" ? (c.dIv === 0 ? "IV now" : c.short) : c.short) : c.label)))),
         h(
           "tbody",
           {},
           grid.rows.map((r, ri) => {
             const th = h("th", { scope: "row" });
             const tds = grid.cols.map((c, ci) => {
-              const td = h("td", { class: "num", tabindex: "0", onclick: () => setScenario({ pct: Math.max(-10, Math.min(10, Math.round(grid.rows[ri].pct / 0.25) * 0.25)), ...(cfg().axis === "iv" ? { dIv: grid.cols[ci].dIv } : { days: Math.min(maxDays(), grid.cols[ci].days) }) }), onkeydown: (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), e.currentTarget.click()) });
+              const td = h("td", { class: "num dv-heat", tabindex: "0", onclick: () => pickCell(ri, ci), onkeydown: (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), pickCell(ri, ci)) });
               return td;
             });
-            cellRefs.push({ th, tds });
-            return h("tr", {}, th, tds);
+            cellRefs.push({ th, tds, tr: null });
+            const tr = h("tr", { class: r.pct === 0 ? "spot" : "" }, th, tds);
+            cellRefs[cellRefs.length - 1].tr = tr;
+            return tr;
           }),
         ),
       );
-      matrixEl.replaceChildren(table);
+      matrixEl.replaceChildren(table, ring);
+      ring.hidden = true;
+      ring.classList.add("jump");
+      if (rebuilt && !reducedMotion()) [...table.tBodies[0].rows].forEach((tr, i) => tr.animate?.([{ opacity: 0 }, { opacity: 1 }], { duration: 200, delay: Math.min(160, i * 15), easing: "cubic-bezier(0.2, 0, 0, 1)", fill: "backwards" }));
     }
-    const max = Math.max(1, ...grid.rows.flatMap((r) => r.cells.map((x) => Math.abs(x))));
     const loss = cfg().lossLimit;
-    // The cell nearest the sliders gets the outline.
     let best = null;
     grid.rows.forEach((r, ri) => grid.cols.forEach((c, ci) => {
-      const dist = Math.abs(r.pct - sc.pct) + (cfg().axis === "iv" ? Math.abs(c.dIv - sc.dIv) / 5 : Math.abs(c.days - sc.days) / 3);
+      const dist = Math.abs(r.pct - sc.pct) + (axis === "iv" ? Math.abs(c.dIv - sc.dIv) / 5 : Math.abs(c.days - sc.days) / 3);
       if (!best || dist < best.dist) best = { ri, ci, dist };
     }));
     grid.rows.forEach((r, ri) => {
       const ref = cellRefs[ri];
-      const lbl = `${r.k !== null ? `${formatSigned(r.k, 1)}σ ` : ""}${formatSigned(r.pct, r.k !== null ? 2 : 0)}%`;
+      const lbl = rowLabel(r);
       setCell(ref.th, `${lbl}|${formatInt(r.price)}`, () => [h("span", {}, lbl), h("small", {}, formatInt(r.price))]);
       r.cells.forEach((v2, ci) => {
         const td = ref.tds[ci];
-        const a = 0.06 + (0.22 * Math.abs(v2)) / max;
         const beyond = loss !== null && v2 < -loss;
         const cur = best && best.ri === ri && best.ci === ci;
-        setCell(td, `${Math.round(v2 / 10)}|${beyond}|${cur}`, () => rc(v2), { class: `num${v2 > 0.5 ? " pos" : v2 < -0.5 ? " neg" : ""}${beyond ? " beyond" : ""}${cur ? " cur" : ""}`, "aria-current": cur ? "true" : null, "aria-description": beyond ? "beyond your loss limit" : null });
-        td.style.setProperty("--a", String(Math.round(a * 100) / 100));
+        heatCell(td, O.divStep(v2, heatM), "div");
+        setCell(td, `${Math.round(v2 / 10)}|${beyond}|${cur}`, () => rk(v2), { class: `num dv-heat${beyond ? " beyond" : ""}${cur ? " cur" : ""}`, "aria-current": cur ? "true" : null, "aria-description": beyond ? "beyond your loss limit" : null });
+        td.setAttribute("aria-label", `${lbl} ${formatInt(r.price)}, ${grid.cols[ci].label}: ${rs(v2)}`);
       });
     });
-    const w = grid.worst;
-    const nearLegs = inc.filter((l) => l.expiry === inc.map((x) => x.expiry).sort()[0]);
-    const single = new Set(inc.map((l) => l.expiry)).size === 1 && inc.every((l) => l.kind === "OPT");
-    let st0 = null;
-    if (single) {
-      const asStrat = nearLegs.map((l) => ({ kind: "OPT", right: l.right, strike: l.strike, side: l.q > 0 ? "BUY" : "SELL", lots: 1, lotSize: Math.abs(l.q), price: l.avg }));
-      st0 = O.strategyStats(asStrat, 1, { spot: S });
+    // The current cell's ring: one overlay that slides between cells (transform), never a per-cell outline.
+    const cell = best ? cellRefs[best.ri]?.tds[best.ci] : null;
+    if (cell) {
+      requestAnimationFrame(() => {
+        if (!cell.isConnected) return;
+        ring.hidden = false;
+        ring.style.width = `${cell.offsetWidth}px`;
+        ring.style.height = `${cell.offsetHeight}px`;
+        ring.style.transform = `translate(${cell.offsetLeft}px, ${cell.offsetTop}px)`;
+        if (ring.classList.contains("jump")) requestAnimationFrame(() => ring.classList.remove("jump"));
+      });
+    } else ring.hidden = true;
+  }
+  function pickCell(ri, ci) {
+    const g = gridNow;
+    if (!g) return;
+    const r = g.rows[ri];
+    const c = g.cols[ci];
+    setScenario({ pct: Math.max(-10, Math.min(10, Math.round(r.pct / 0.25) * 0.25)), ...(matMode === "iv" || (matMode === "greeks" && cfg().axis === "iv") ? { dIv: c.dIv } : { days: Math.min(maxDays(), c.days) }) });
+    if (r.price) pay.pin(r.price);
+  }
+  /** Greeks across spot (§4.9): Δ in lots, Γ per 1 %, Θ, ν per spot row at the slider days and IV, with micro-bars. */
+  function drawGreeksTable(inc, grid, S) {
+    const Lf = futLot() || 1;
+    const rows = grid.rows.map((r) => {
+      const g = O.scenarioGreeks(inc, { dS: r.pct / 100, dIv: sc.dIv, days: sc.days });
+      const px = S * (1 + r.pct / 100);
+      return { r, vals: [g.delta / Lf, g.gamma * px * 0.01, g.theta, g.vega] };
+    });
+    const COLS = [["Δ lots", "fg", (v) => formatSigned(v, 1)], ["Γ /1%", "fg", (v) => formatSigned(v, 0)], ["Θ ₹/d", null, (v) => rc(v)], ["ν ₹/pt", "iv", (v) => rc(v)]];
+    const Ms = COLS.map((_, i) => Math.max(1e-9, ...rows.map((x) => Math.abs(x.vals[i]))));
+    const shape = JSON.stringify(["greeks", cfg().ladder, grid.rows.length]);
+    if (matrixSig !== shape) {
+      matrixSig = shape;
+      cellRefs = [];
+      const table = h(
+        "table",
+        { class: "pos-matrix pos-gtable" },
+        h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Spot"), COLS.map(([l]) => h("th", { scope: "col", class: "num" }, l)))),
+        h(
+          "tbody",
+          {},
+          rows.map(({ r }) => {
+            const th = h("th", { scope: "row" });
+            const tds = COLS.map(() => {
+              const t = h("span", { class: "gv" });
+              const bar = divBar("pos-mbar-s");
+              const td = h("td", { class: "num" }, h("span", { class: "pos-gcell" }, t, bar.el));
+              td.__g = { t, bar };
+              return td;
+            });
+            const tr = h("tr", { class: r.pct === 0 ? "spot" : "" }, th, tds);
+            cellRefs.push({ th, tds, tr });
+            return tr;
+          }),
+        ),
+      );
+      matrixEl.replaceChildren(table);
+      barsEnter(table);
     }
-    const multi = "multi-expiry: see the grid";
+    rows.forEach(({ r, vals }, ri) => {
+      const ref = cellRefs[ri];
+      const lbl = rowLabel(r);
+      setCell(ref.th, `${lbl}|${formatInt(r.price)}`, () => [h("span", {}, lbl), h("small", {}, formatInt(r.price))]);
+      vals.forEach((v, ci) => {
+        const { t, bar } = ref.tds[ci].__g;
+        const text = COLS[ci][2](v);
+        if (t.textContent !== text) t.textContent = text;
+        t.className = `gv ${ci === 2 ? tone(v) ?? "" : ""}`.trim();
+        setDiv(bar, v, Ms[ci], COLS[ci][1] ?? toneOf(v));
+      });
+    });
+  }
+  function drawLegend() {
+    const m = heatM;
+    const loss = cfg().lossLimit;
+    const sig = matMode === "greeks" ? "greeks" : `${Math.round(m)}|${loss}`;
+    if (legendEl.__sig === sig) return;
+    legendEl.__sig = sig;
+    if (matMode === "greeks") {
+      legendEl.replaceChildren(h("span", { class: "pos-legend-t" }, `At ${sc.days ? `+${formatInt(sc.days)}d` : "today"}${sc.dIv ? `, IV ${formatSigned(sc.dIv, 1)}` : ""} · bars per column, spot row marked`));
+      return;
+    }
+    const sw = [-3, -2, -1, 0, 1, 2, 3].map((k) => {
+      const i = h("i", { class: "sw" });
+      heatCell(i, k, "div");
+      return i;
+    });
+    legendEl.replaceChildren(
+      h("span", { class: "pos-legend-t" }, "Unrealised P&L"),
+      h("span", { class: "pos-legend-scale" }, h("span", { class: "end" }, rk(-m)), h("span", { class: "sws", "aria-hidden": "true" }, sw), h("span", { class: "end" }, rk(m))),
+      ...(loss ? [h("span", { class: "pos-legend-loss" }, h("i", { class: "hatch", "aria-hidden": "true" }), `beyond \u2212${ru(loss)} limit`)] : []),
+    );
+    legendEl.setAttribute("aria-label", `Colour scale from ${rc(-m)} to ${rc(m)}`);
+  }
+  function drawFooter(inc, grid, ctx) {
+    const w = grid.worst;
+    const near = nearest();
+    const single = new Set(inc.map((l) => l.expiry)).size === 1 && inc.every((l) => l.kind === "OPT");
+    const at = near ? expiryText(near.expiry) : "expiry";
+    let mp;
+    let ml;
+    if (single) {
+      const asStrat = inc.map((l) => ({ kind: "OPT", right: l.right, strike: l.strike, side: l.q > 0 ? "BUY" : "SELL", lots: 1, lotSize: Math.abs(l.q), price: l.avg }));
+      const st0 = O.strategyStats(asStrat, 1, { spot: ctx.S });
+      mp = st0.maxProfit === null ? h("strong", { class: "up" }, "Unlimited ↗") : h("strong", { class: tone(st0.maxProfit) }, rc(st0.maxProfit));
+      ml = st0.maxLoss === null ? h("strong", { class: "down" }, "Unlimited ↘") : h("strong", { class: tone(st0.maxLoss) }, rc(st0.maxLoss));
+    } else {
+      const s = ctx.wide;
+      const lowEdge = s && s.minAt <= s.xs[0] + 1e-9;
+      mp = !s ? h("strong", {}, DASH) : s.unlimitedUp ? h("strong", { class: "up" }, "Unlimited ↗") : h("strong", { class: tone(s.max), title: "Sampled over ±4σ of the first expiry" }, `≈ ${rc(s.max)} at ${formatInt(s.maxAt)}`);
+      ml = !s ? h("strong", {}, DASH) : s.unlimitedDown ? h("strong", { class: "down" }, "Unlimited ↘") : h("strong", { class: tone(s.min), title: "Sampled over ±4σ of the first expiry; later-expiry legs valued by the model" }, `≈ ${rc(s.min)} ${lowEdge ? "below" : "at"} ${formatInt(s.minAt)} (sampled)`);
+    }
     matrixFoot.replaceChildren(
       h("div", {}, h("span", {}, "Max loss in grid"), w ? h("strong", { class: tone(w.v) }, `${rc(w.v)} at ${formatSigned(grid.rows[w.r].pct, 1)}%, ${grid.cols[w.c].label}`) : DASH),
-      h("div", {}, h("span", {}, "Max profit at expiry"), st0 ? h("strong", {}, st0.maxProfit === null ? "unlimited" : rc(st0.maxProfit)) : h("strong", { title: multi }, DASH)),
-      h("div", {}, h("span", {}, "Max loss at expiry"), st0 ? h("strong", { class: "down" }, st0.maxLoss === null ? "unlimited" : rc(st0.maxLoss)) : h("strong", { title: multi }, DASH)),
+      h("div", {}, h("span", {}, `Max profit at ${at}`), mp),
+      h("div", {}, h("span", {}, `Max loss at ${at}`), ml),
     );
   }
+  function openGreeksTab() {
+    riskTab = isNarrow() ? "scenario" : riskTab;
+    if (isNarrow()) riskSeg.value = "greeks";
+    setMatMode("greeks");
+    riskPanel.scrollIntoView?.({ block: "nearest", behavior: reducedMotion() ? "auto" : "smooth" });
+  }
   riskSeg.addEventListener("change", () => {
-    riskTab = riskSeg.value;
+    const v = riskSeg.value;
+    riskTab = v === "payoff" ? "payoff" : "scenario";
     riskBody.className = `pos-risk tab-${riskTab}`;
+    if (v === "greeks" && matMode !== "greeks") return setMatMode("greeks");
+    if (v === "scenario" && matMode === "greeks") return setMatMode(cfg().axis);
     riskSig = "";
     drawRisk();
   });
-
   // ── Hedge helper ──
   const targetIn = h("input", { type: "number", step: "1", inputmode: "numeric", value: "0", class: "pos-target", "aria-label": "Target delta in units" });
   const methodSeg = segmented("Hedge with", [["fut", "Futures"], ["atm", "ATM option"], ["gamma", "Γ then Δ"]], hd.method);
@@ -1596,6 +2405,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       layoutSig = "";
       riskSig = "";
       matrixSig = "";
+      warnEl.__sig = "";
       price(O.bookLegs(d.all, st.underlying, { closed: true }));
       draw();
       drawPop();
@@ -1644,10 +2454,13 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         );
       const lossIn = h("input", { type: "number", min: "0", step: "1000", inputmode: "numeric", placeholder: "None", value: c.lossLimit ?? "", "aria-label": "Loss limit in rupees" });
       lossIn.addEventListener("change", () => apply({ lossLimit: lossIn.value === "" ? null : Number(lossIn.value) }));
+      const bandIn = h("input", { type: "number", min: "0", step: "1", inputmode: "numeric", placeholder: `${formatInt(futLot() ?? 0)} (1 lot)`, value: c.deltaBand ?? "", "aria-label": "Delta band in units" });
+      bandIn.addEventListener("change", () => apply({ deltaBand: bandIn.value === "" ? null : Number(bandIn.value) }));
       body.replaceChildren(
         h("section", {}, h("h3", {}, "Columns ", h("small", {}, "in table order")), h("div", { class: "col-list" }, enabled.map((k) => colRow(k, true)), others.map((k) => colRow(k, false)))),
         h("section", {}, h("h3", {}, "Legs"), segField("Group by", seg("Group by", [["expiry", "Expiry"], ["none", "None"]], c.group, (v) => apply({ group: v }))), sw("Show today's closed legs", c.closed, (v) => apply({ closed: v }), "Muted, for realised P&L")),
-        h("section", {}, h("h3", {}, "Scenario"), segField("Spot ladder", seg("Spot ladder", [["tight", "±5%"], ["wide", "±10%"], ["sigma", "±2σ"]], c.ladder, (v) => apply({ ladder: v }))), segField("Columns", seg("Matrix columns", [["iv", "IV"], ["days", "Days"]], c.axis, (v) => ((axisSeg.value = v), apply({ axis: v })))), h("label", { class: "field" }, h("span", {}, "Loss limit ₹ (cells beyond it are outlined)"), lossIn)),
+        h("section", {}, h("h3", {}, "Risk"), h("label", { class: "field" }, h("span", {}, "Delta band ± (units; blank = one futures lot)"), bandIn), segField("Payoff curves", seg("Payoff curves", [["now", "Now"], ["exp", "+Exp"], ["target", "+Target"]], c.curves, (v) => ((curvesSeg.value = v), apply({ curves: v })))), sw("Show P&L bars", c.bars, (v) => apply({ bars: v }), "Diverging bars by leg, group and book"), sw("Show σ gauges", c.gauges, (v) => apply({ gauges: v }), "Distance to strike on a 0–3σ track; Δ across spot")),
+        h("section", {}, h("h3", {}, "Scenario"), segField("Spot ladder", seg("Spot ladder", [["tight", "±5%"], ["wide", "±10%"], ["sigma", "±2σ"]], c.ladder, (v) => apply({ ladder: v }))), segField("Columns", seg("Matrix columns", [["iv", "IV"], ["days", "Days"]], c.axis, (v) => (matMode !== "greeks" && (matMode = v), (axisSeg.value = matMode), apply({ axis: v })))), segField("Heatmap columns", seg("Heatmap columns", [["auto", "Auto"], ["3", "3"], ["5", "5"]], String(c.heatCols), (v) => apply({ heatCols: v === "auto" ? "auto" : Number(v) }))), h("label", { class: "field" }, h("span", {}, "Loss limit ₹ (cells beyond it are hatched)"), lossIn)),
         h("section", {}, h("h3", {}, "Exit"), segField("Default price", seg("Default exit price", [["mid", "Mid"], ["touch", "Touch"], ["market", "Market"]], c.exitType, (v) => apply({ exitType: v })))),
         h("section", {}, h("h3", {}, "Panels"), sw("Chart engine slot", c.chartSlot, (v) => apply({ chartSlot: v }), "A placeholder for your own chart engine")),
       );
@@ -1655,7 +2468,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const pop = h(
       "div",
       { class: "popover customise", role: "dialog", "aria-label": "Customise positions" },
-      h("div", { class: "pop-head" }, h("strong", {}, "Customise"), h("button", { type: "button", class: "small plain reset", onclick: () => { const ex = cfg().excluded; st.pos = O.positionsConfig({ excluded: ex }); axisSeg.value = st.pos.axis; apply({}); } }, icon("refresh"), "Reset"), h("button", { type: "button", class: "icon-btn tiny", "aria-label": "Close", onclick: () => close() }, icon("close"))),
+      h("div", { class: "pop-head" }, h("strong", {}, "Customise"), h("button", { type: "button", class: "small plain reset", onclick: () => { const ex = cfg().excluded; st.pos = O.positionsConfig({ excluded: ex }); matMode = st.pos.axis; axisSeg.value = matMode; curvesSeg.value = st.pos.curves; apply({}); } }, icon("refresh"), "Reset"), h("button", { type: "button", class: "icon-btn tiny", "aria-label": "Close", onclick: () => close() }, icon("close"))),
       body,
     );
     drawPop();
@@ -1684,6 +2497,8 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     hedgePanel.hidden = !has;
     if (has) drawHedge();
     drawRisk();
+    // POP comes from the risk pass: repaint the book's footer once it is known (first paint, legs changed).
+    if (riskStats.pop !== popShown && legs.length) drawBook();
     slotPanel.hidden = !cfg().chartSlot || !has;
     bookPanel.hidden = !d.loaded ? false : !legs.length && switchEl.hidden;
     onClock();
@@ -1735,6 +2550,35 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     if (k === ";" || k === "'") return setScenario({ dIv: sc.dIv + (k === "'" ? 1 : -1) }), true;
     if (k === "[" || k === "]") return setScenario({ days: sc.days + (k === "]" ? 1 : -1) }), true;
     if (k === "0") return setScenario({ pct: 0, dIv: 0, days: 0 }), true;
+    if (k === "g") {
+      if (riskPanel.hidden) return false;
+      const order = ["payoff", "scenario", "greeks"];
+      let next;
+      if (isNarrow()) {
+        next = order[(order.indexOf(riskSeg.value) + 1) % 3];
+        riskSeg.value = next;
+      } else {
+        // Desktop shows the payoff and the scenario side by side: G flips the scenario table to Greeks and back.
+        next = matMode === "greeks" ? "scenario" : "greeks";
+        setMatMode(next === "greeks" ? "greeks" : cfg().axis);
+      }
+      toast(`Risk view: ${next === "payoff" ? "Payoff" : next === "scenario" ? "Scenario" : "Greeks across spot"}`);
+      return true;
+    }
+    if (k === "c") {
+      if (riskPanel.hidden) return false;
+      const order = ["now", "exp", "target"];
+      curvesSeg.value = order[(order.indexOf(cfg().curves) + 1) % 3];
+      toast(`Payoff curves: ${curvesSeg.value === "now" ? "Now" : curvesSeg.value === "exp" ? "Now + expiry" : "Now + expiry + target"}`);
+      return true;
+    }
+    if (k === "b") {
+      const g = gauges.get("delta");
+      if (!g || bookGrid.hidden) return false;
+      g.el.focus();
+      warnLive.textContent = g.el.getAttribute("aria-label") + (deltaBand() ? `. Band ±${formatInt(deltaBand())}` : "");
+      return true;
+    }
     if (k === "Escape" && (focusSym || selected.size)) {
       focusSym = null;
       selected.clear();
@@ -1757,7 +2601,8 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   for (const m of mqs) m.addEventListener("change", onDevice);
   const onResize = () => {
     if (!posPanel.isConnected) return;
-    pay.resize();
+    riskSig = "";
+    drawRisk();
   };
   window.addEventListener("resize", onResize);
 
@@ -1808,193 +2653,6 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       for (const m of mqs) m.removeEventListener("change", onDevice);
       window.removeEventListener("resize", onResize);
       clearTimeout(hvTimer);
-    },
-  };
-}
-
-/**
- * The book's payoff (SVG, built once; paths updated): Now (solid), Target (dashed), At-expiry of the nearest expiry
- * (secondary, green / red fill), the after-hedge line (dotted), spot, ±1σ / ±2σ bands, breakevens and a read-out.
- */
-function createBookPayoff(host, fill = () => null) {
-  let m = null;
-  let W = 640;
-  let H = 280;
-  const L = 52;
-  const R = 10;
-  const T = 18;
-  const B = 34;
-  const id = `bp${Math.random().toString(36).slice(2, 7)}`;
-  const clipUp = svg("rect", { x: 0, y: 0, width: 0, height: 0 });
-  const clipDn = svg("rect", { x: 0, y: 0, width: 0, height: 0 });
-  const clipPlot = svg("rect", { x: 0, y: 0, width: 0, height: 0 });
-  const band2 = svg("rect", { class: "band2" });
-  const band1 = svg("rect", { class: "band" });
-  const grid = svg("g", {});
-  const xAxis = svg("g", {});
-  const areaUp = svg("path", { class: "area-up", "clip-path": `url(#${id}-up)` });
-  const areaDn = svg("path", { class: "area-dn", "clip-path": `url(#${id}-dn)` });
-  const zero = svg("line", { class: "zero" });
-  const lineE = svg("path", { class: "line-exp2" });
-  const lineT = svg("path", { class: "line-target" });
-  const lineH = svg("path", { class: "line-hedge", "clip-path": `url(#${id}-plot)` });
-  const offScale = svg("text", { class: "mark-label off-scale", "text-anchor": "end", visibility: "hidden" });
-  const lineN = svg("path", { class: "line-now" });
-  const spotLine = svg("line", { class: "mark-spot" });
-  // Spot (§4.5): a --dv-spot line with the shared contrast pill above the plot (viz.js spotPill), not a blue label.
-  let spotG = null;
-  const beG = svg("g", {});
-  const cross = svg("line", { class: "cross", visibility: "hidden" });
-  const dot = svg("circle", { r: 3.5, class: "dot-today", visibility: "hidden" });
-  const el = svg("svg", { class: "payoff-svg pos-payoff-svg", role: "img", tabindex: "0", focusable: "true" }, svg("defs", {}, svg("clipPath", { id: `${id}-up` }, clipUp), svg("clipPath", { id: `${id}-dn` }, clipDn), svg("clipPath", { id: `${id}-plot` }, clipPlot)), band2, band1, grid, xAxis, areaUp, areaDn, zero, lineE, lineT, lineH, lineN, spotLine, beG, offScale, cross, dot);
-  const readout = h("div", { class: "payoff-readout pos-readout" });
-  const live = h("p", { class: "sr-only", "aria-live": "polite" });
-  const legend = h(
-    "span",
-    { class: "legend" },
-    h("span", {}, h("i", { class: "now" }), " Now"),
-    h("span", { class: "lg-target" }, h("i", { class: "today" }), h("span", { class: "lg-tt" }, " Target")),
-    h("span", {}, h("i", { class: "exp2" }), h("span", { class: "lg-exp" }, " At expiry")),
-    h("span", { class: "lg-hedge" }, h("i", { class: "hedge" }), " After hedge"),
-    h("span", {}, h("i", { class: "band" }), " ±1σ ±2σ"),
-  );
-  const empty = h("p", { class: "payoff-empty muted pos-pay-empty", hidden: true }, "No priced legs to draw.");
-  host.replaceChildren(h("div", { class: "payoff-head" }, legend, readout), el, empty, live);
-  /** 280 px on desktop (or the height of the scenario column beside it), 240 on tablet, 200 on phone. */
-  const heightFor = () => (media("(max-width: 719px)").matches ? 200 : media("(max-width: 1023px)").matches ? 240 : Math.max(280, Math.min(560, fill() ?? 0)));
-  const X = (p) => L + ((p - m.lo) / (m.hi - m.lo)) * (W - L - R);
-  const Y = (v) => T + ((m.yMax - v) / (m.yMax - m.yMin)) * (H - T - B);
-  const path = (vals) => vals.map((v, i) => `${i ? "L" : "M"}${r1(X(m.xs[i]))},${r1(Y(v))}`).join("");
-  let hoverX = null;
-  function size() {
-    W = Math.max(260, Math.round(host.clientWidth || 640));
-    H = heightFor();
-    setA(el, { viewBox: `0 0 ${W} ${H}`, width: W, height: H });
-  }
-  function paint() {
-    if (!m) {
-      el.style.display = "none";
-      empty.hidden = false;
-      readout.textContent = "";
-      return;
-    }
-    el.style.display = "";
-    empty.hidden = true;
-    size();
-    // The scale is the book's own lines; the after-hedge overlay may widen it by at most half the book's range and
-    // is clipped to the plot beyond that (marked "off scale"), so the book never flattens into a line at 0.
-    const book = [...m.now, ...m.exp, ...(m.target ?? [])];
-    let lo = Math.min(0, ...book);
-    let hi = Math.max(0, ...book);
-    let off = false;
-    if (m.hedge?.length) {
-      const span = Math.max(hi - lo, 1);
-      const hLo = Math.min(...m.hedge);
-      const hHi = Math.max(...m.hedge);
-      off = hLo < lo - span * 0.25 || hHi > hi + span * 0.25;
-      lo = Math.max(lo - span * 0.25, Math.min(lo, hLo));
-      hi = Math.min(hi + span * 0.25, Math.max(hi, hHi));
-    }
-    const pad = (hi - lo) * 0.08 || 100;
-    m.yMin = lo - pad;
-    m.yMax = hi + pad;
-    const zy = Y(0);
-    setA(clipPlot, { x: L, y: T, width: Math.max(0, W - L - R), height: Math.max(0, H - T - B) });
-    setA(offScale, { x: W - R - 4, y: T + 11, visibility: off ? "visible" : "hidden" });
-    offScale.textContent = off ? "Hedge off scale ↕" : "";
-    setA(clipUp, { width: W, height: Math.max(0, zy) });
-    setA(clipDn, { y: zy, width: W, height: Math.max(0, H - zy) });
-    const band = (r, b) => {
-      if (!b) return setA(r, { visibility: "hidden" });
-      const a = X(Math.max(m.lo, b[0]));
-      const z = X(Math.min(m.hi, b[1]));
-      setA(r, { visibility: z > a ? "visible" : "hidden", x: r1(a), y: T, width: r1(Math.max(0, z - a)), height: H - T - B });
-    };
-    band(band1, m.b1);
-    band(band2, m.b2);
-    const yt = niceTicks(m.yMin, m.yMax, 5);
-    grid.replaceChildren(...yt.flatMap((v) => [svg("line", { x1: L, x2: W - R, y1: r1(Y(v)), y2: r1(Y(v)), class: "grid" }), svg("text", { x: L - 6, y: r1(Y(v) + 3.5), class: "axis", "text-anchor": "end" }, v === 0 ? "0" : formatCompact(v))]));
-    const xt = niceTicks(m.lo, m.hi, Math.max(3, Math.min(8, Math.floor((W - L - R) / 90)))).filter((p) => p > m.lo && p < m.hi);
-    xAxis.replaceChildren(...xt.map((p) => svg("text", { x: r1(X(p)), y: H - 14, class: "axis", "text-anchor": "middle" }, formatInt(p))));
-    const area = `M${r1(X(m.xs[0]))},${r1(zy)}${m.exp.map((v, i) => `L${r1(X(m.xs[i]))},${r1(Y(v))}`).join("")}L${r1(X(m.xs[m.xs.length - 1]))},${r1(zy)}Z`;
-    setA(areaUp, { d: area });
-    setA(areaDn, { d: area });
-    setA(zero, { x1: L, x2: W - R, y1: r1(zy), y2: r1(zy) });
-    setA(lineE, { d: path(m.exp) });
-    setA(lineN, { d: path(m.now) });
-    setA(lineT, { d: m.target ? path(m.target) : "M0,0", visibility: m.target ? "visible" : "hidden" });
-    setA(lineH, { d: m.hedge ? path(m.hedge) : "M0,0", visibility: m.hedge ? "visible" : "hidden" });
-    host.querySelector(".lg-target").hidden = !m.target;
-    host.querySelector(".lg-tt").textContent = ` ${m.targetLabel}`;
-    host.querySelector(".lg-exp").textContent = ` ${m.expLabel}`;
-    host.querySelector(".lg-hedge").hidden = !m.hedge;
-    const sx = X(m.spot);
-    setA(spotLine, { x1: r1(sx), x2: r1(sx), y1: T, y2: H - B });
-    spotG = spotPill(el, r1(Math.max(L, Math.min(W - R, sx))), formatInt(m.spot), { y: 0, width: W, g: spotG });
-    const marks = [...m.bes.map((b) => ["now", b]), ...m.besT.map((b) => ["t", b])].filter(([, b]) => b > m.lo && b < m.hi);
-    let lastX = -1e9;
-    let lane = 0;
-    beG.replaceChildren(
-      ...marks.sort((a, b) => a[1] - b[1]).flatMap(([k, b]) => {
-        const x = X(b);
-        lane = x - lastX < 44 ? 1 - lane : 0;
-        lastX = x;
-        return [svg("line", { x1: r1(x), x2: r1(x), y1: r1(zy - 5), y2: r1(zy + 5), class: k === "now" ? "be-tick" : "be-tick t" }), svg("text", { x: r1(x), y: r1(zy + (lane ? -9 : 16)), class: "mark-label", "text-anchor": "middle" }, formatInt(b))];
-      }),
-    );
-    const lossIn = Math.min(...m.now);
-    el.setAttribute("aria-label", `Payoff now: ${m.bes.length ? `breakevens ${m.bes.map((b) => formatInt(b)).join(" and ")}` : "no breakeven in range"}; max loss in range ${rc(lossIn)}`);
-    paintHover();
-  }
-  function paintHover() {
-    if (!m || hoverX === null) {
-      setA(cross, { visibility: "hidden" });
-      setA(dot, { visibility: "hidden" });
-      const n = m ? m.fns.now(m.spot) : null;
-      readout.textContent = m ? `At ${formatInt(m.spot)}: now ${rs(n)}` : "";
-      return;
-    }
-    const p = hoverX;
-    const x = X(p);
-    const vn = m.fns.now(p);
-    setA(cross, { visibility: "visible", x1: r1(x), x2: r1(x), y1: T, y2: H - B });
-    setA(dot, { visibility: "visible", cx: r1(x), cy: r1(Y(vn)) });
-    const parts = [`${formatInt(p)} (${formatSigned((p / m.spot - 1) * 100, 1)}%)`, `now ${rs(vn)}`, m.fns.target ? `target ${rs(m.fns.target(p))}` : null, `expiry ${rs(m.fns.exp(p))}`, m.fns.hedge ? `hedged ${rs(m.fns.hedge(p))}` : null].filter(Boolean);
-    readout.textContent = parts.join(" · ");
-  }
-  const toPrice = (clientX) => {
-    const r = el.getBoundingClientRect();
-    const px = ((clientX - r.left) / r.width) * W;
-    return m.lo + ((Math.max(L, Math.min(W - R, px)) - L) / (W - L - R)) * (m.hi - m.lo);
-  };
-  el.addEventListener("pointermove", (e) => {
-    if (!m) return;
-    hoverX = toPrice(e.clientX);
-    paintHover();
-  });
-  el.addEventListener("pointerleave", () => {
-    hoverX = null;
-    paintHover();
-  });
-  el.addEventListener("keydown", (e) => {
-    if (!m || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
-    e.preventDefault();
-    const step = (m.hi - m.lo) / 70;
-    hoverX = Math.max(m.lo, Math.min(m.hi, (hoverX ?? m.spot) + (e.key === "ArrowRight" ? step : -step)));
-    paintHover();
-    live.textContent = readout.textContent;
-  });
-  el.addEventListener("blur", () => {
-    hoverX = null;
-    paintHover();
-  });
-  return {
-    update(model) {
-      m = model;
-      paint();
-    },
-    resize() {
-      if (m) paint();
     },
   };
 }
