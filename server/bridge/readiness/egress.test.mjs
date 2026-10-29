@@ -37,6 +37,23 @@ describe("egress detector", () => {
     expect(await createEgressDetector({ cfg: cfg({ lookupUrl: "http://127.0.0.1:9/ip" }), fetchImpl: local }).lookup()).toMatchObject({ ok: true, ip: "203.0.113.10", seenBy: "127.0.0.1:9" });
   });
 
+  it("an HTTP error answer is dropped unread, however large its body", async () => {
+    let pulled = 0;
+    const chunk = new Uint8Array(64 * 1024);
+    const body = new ReadableStream({
+      pull(c) {
+        pulled += chunk.byteLength;
+        c.enqueue(chunk);
+        if (pulled >= 2 * 1024 * 1024) c.close();
+      },
+    });
+    const fetchImpl = stubFetch(new Response(body, { status: 500 }));
+    const r = await createEgressDetector({ cfg: cfg(), fetchImpl }).lookup();
+    expect(r).toMatchObject({ ok: false, error: "the service answered HTTP 500" });
+    // Only what the stream queued on its own (one chunk at most) — never the stream drained into memory.
+    expect(pulled).toBeLessThanOrEqual(chunk.byteLength);
+  });
+
   it("a timeout or network error becomes a failed lookup, never a throw", async () => {
     const timeout = stubFetch(() => {
       const e = new Error("t");

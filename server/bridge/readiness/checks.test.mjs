@@ -220,6 +220,12 @@ describe("§7.7 notification dedupe (worked example, step by step)", () => {
     expect(step("ready", "cannot_trade", fail(["IP_MISMATCH", "SESSION_REJECTED"]), at("10:26"))).toEqual({ notify: false, kind: "change" });
     expect(step("ready", "cannot_trade", fail(["IP_MISMATCH", "SESSION_REJECTED"]), at("10:40"))).toEqual({ notify: true, kind: "change" });
   });
+  it("staying in cannot_trade with the same fail set is never re-sent, even after the cooldown", () => {
+    const k = notifyFailKey("cannot_trade", [{ code: "IP_MISMATCH", severity: "fail" }, { code: "IP_LOOKUP_FAILED", severity: "warn" }]);
+    expect(k).toBe("cannot_trade:IP_MISMATCH");
+    expect(shouldNotify({ from: "cannot_trade", to: "cannot_trade", key: k, lastKey: k, lastAt: at("10:12"), now: at("11:00"), ...cfg })).toEqual({ notify: false, kind: "change" });
+    expect(shouldNotify({ from: "cannot_trade", to: "cannot_trade", key: "cannot_trade:IP_MISMATCH,SESSION_REJECTED", lastKey: k, lastAt: at("10:12"), now: at("10:13"), ...cfg }).notify).toBe(true);
+  });
   it("warn is never pushed on change; recovery only when onRecovery", () => {
     expect(shouldNotify({ from: "ready", to: "warn", key: "warn:X", lastKey: null, lastAt: null, now: 0, ...cfg }).notify).toBe(false);
     expect(shouldNotify({ from: "cannot_trade", to: "ready", key: "ready:", lastKey: null, lastAt: null, now: 0, cooldownMinutes: 15, onRecovery: false }).notify).toBe(false);
