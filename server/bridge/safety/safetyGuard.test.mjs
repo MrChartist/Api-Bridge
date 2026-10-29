@@ -127,9 +127,23 @@ describe("check(): live enablement", () => {
     const { guard } = setup({ egressIp: "198.51.100.9" });
     const v = await guard.check(keyCtx({ scopes: ["live"] }), live());
     expect(v.ok).toBe(true);
-    expect(v.warnings.join(" ")).toMatch(/198\.51\.100\.9.*203\.0\.113\.7/);
+    expect(v.warnings.join(" ")).toMatch(/does not match the static IP registered for dhan-main/);
+    // The text reaches order records, MCP results and notifications for any key: it never carries an address.
+    expect(JSON.stringify(v)).not.toMatch(/198\.51\.100\.9|203\.0\.113\.7/);
     guard.setDetectedEgressIp("203.0.113.7");
     expect((await guard.check(keyCtx({ scopes: ["live"] }), live())).warnings).toEqual([]);
+  });
+
+  it("static-IP warning: normalised IPv6 and the backup IP count as a match", async () => {
+    const config = makeConfig({ accounts: [{ id: "dhan-main", broker: "dhan", live: { enabled: true, allowedSources: ["rest", "cli"], registeredIp: "2001:db8::1", backupIp: "198.51.100.20" } }] });
+    const { guard } = setup({ config, egressIp: "2001:db8:0:0:0:0:0:1" });
+    expect((await guard.check(keyCtx({ scopes: ["live"] }), live())).warnings).toEqual([]);
+    guard.setDetectedEgressIp("198.51.100.20");
+    expect((await guard.check(keyCtx({ scopes: ["live"] }), live())).warnings).toEqual([]);
+    guard.setDetectedEgressIp("198.51.100.21");
+    const v = await guard.check(keyCtx({ scopes: ["live"] }), live());
+    expect(v.warnings).toHaveLength(1);
+    expect(JSON.stringify(v)).not.toMatch(/198\.51\.100\.2|2001:db8/);
   });
 });
 

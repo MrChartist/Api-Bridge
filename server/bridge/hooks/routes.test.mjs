@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { sign } from "../auth/hmac.mjs";
 import { startTestBridge } from "./__fixtures__/testBridge.mjs";
+import { createAutomationRegistry } from "../readiness/automations.mjs";
 import { hooksRuntimeFor } from "./module.mjs";
 
 let b;
@@ -312,5 +313,51 @@ describe("generic hooks: junk without the secret cannot use up the hook's budget
     let last;
     for (let i = 0; i < 31; i += 1) last = await b.request({ method: "POST", path: h.path, headers: json, raw: JSON.stringify({ i }) });
     expect(last.status).toBe(429);
+  });
+});
+
+describe("live hooks are readiness automations (p1-05 M7)", () => {
+  const liveCfg = { safety: { liveTrading: true }, accounts: [{ id: "dhan-main", broker: "dhan", live: { enabled: true, allowedSources: ["webhook"] } }, { id: "paper", broker: "paper" }] };
+  let registry;
+  let state;
+  const fakeReadiness = () => {
+    registry = createAutomationRegistry();
+    state = "cannot_trade";
+    return {
+      status: () => ({}),
+      canTrade: (id, { mode } = {}) => ({ ok: state !== "cannot_trade", state: mode === "paper" ? "ready" : state, reasons: [], checkedAt: null, stale: false }),
+      ensureFresh: async () => ({}),
+      check: async () => ({}),
+      registerAutomation: (a) => registry.register(a),
+    };
+  };
+  beforeEach(async () => {
+    b = await startTestBridge({ config: liveCfg, liveAccounts: ["dhan-main"], readiness: fakeReadiness() });
+  });
+  afterEach(async () => b.close());
+  const post = (def) => b.request({ method: "POST", path: "/v1/hooks", headers: { ...b.auth(b.keys.adminLive), ...json }, body: { source: "gocharting", label: "GC live", account: "dhan-main", mode: "live", product: "CNC", allowSourceIps: ["52.89.214.238"], ...def } });
+
+  it("registers live hooks on create (not paper ones), shows their readiness, removes them on delete", async () => {
+    const live = (await post({})).json.data;
+    expect(live.readiness).toBe("cannot_trade");
+    const paper = await createHook({ label: "paper hook" });
+    expect(paper.readiness).toBeNull();
+    expect(registry.list().map((a) => [a.id, a.kind, a.accountId, a.mode, a.label])).toEqual([[live.id, "webhook", "dhan-main", "live", "GC live"]]);
+    const list = (await b.request({ path: "/v1/hooks", headers: b.auth(b.keys.admin) })).json.data;
+    expect(Object.fromEntries(list.map((h) => [h.label, h.readiness]))).toEqual({ "GC live": "cannot_trade", "paper hook": null });
+    state = "ready";
+    expect((await b.request({ path: "/v1/hooks", headers: b.auth(b.keys.admin) })).json.data.find((h) => h.id === live.id).readiness).toBe("ready");
+    expect((await b.request({ method: "DELETE", path: `/v1/hooks/${live.id}`, headers: b.auth(b.keys.admin) })).status).toBe(204);
+    expect(registry.list()).toEqual([]);
+  });
+
+  it("re-registers live hooks at start (the registry is memory only)", async () => {
+    const live = (await post({})).json.data;
+    const rt = hooksRuntimeFor(b.app.deps);
+    rt.automations.clear();
+    expect(registry.count()).toBe(0);
+    const { default: hooksModule } = await import("./module.mjs");
+    await hooksModule.start(b.app.deps);
+    expect(registry.list().map((a) => a.id)).toEqual([live.id]);
   });
 });
