@@ -46,6 +46,19 @@
     "backoff": { "initialMs": 1000, "maxMs": 60000 }
   },
   "symbols": { "refreshAfterIst": "08:30", "diskCache": true, "failureBackoffMs": 60000, "warmOnStart": true },
+  "reference": {
+    "sources": { "nseArchives": { "enabled": false, "baseUrl": "https://nsearchives.nseindia.com", "gapMs": 2000, "timeoutMs": 15000, "maxBytes": 20971520 } },
+    "schedule": { "morning": "08:20", "morningRetry": "08:50", "evening": "19:35", "eveningRetry": "21:05" },
+    "staleAfterTradingDays": 1,
+    "bannerDays": 7,
+    "blockLotsWhenStale": false,
+    "rate": { "value": null, "asOf": null, "source": null },
+    "rateStaleDays": 14,
+    "specialSessions": {},
+    "holidays": { "add": [], "remove": [] },
+    "freeze": {},
+    "retentionDays": 400
+  },
   "market": {
     "freshness": { "ltpMs": 1000, "quoteMs": 2000, "depthMs": 1000, "chainMs": 3000 },
     "stale": { "enabled": true, "maxStaleMs": 60000, "waitMs": 250 },

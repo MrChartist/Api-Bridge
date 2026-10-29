@@ -62,7 +62,7 @@ const buttonParts = (r) => splitTop(r.selector, /,/).filter((p) => !p.includes("
 const all = rules(css + palette).filter((r) => !r.media.includes("forced-colors"));
 // Rows and cards pressable as a whole (a screener card, a menu row) are list and card styling, not buttons: their
 // leading edge may carry the row's side or tone, as a table row's does.
-const ROWS = /\b(scr-card|pos-card|preset-card|sg-card|list-row|menu-item|oi-wrow|oi-mrow)\b/;
+const ROWS = /\b(cal-tile|scr-card|pos-card|preset-card|sg-card|list-row|menu-item|oi-wrow|oi-mrow)\b/;
 const buttonRules = all.filter((r) => buttonParts(r).length && !buttonParts(r).every((p) => ROWS.test(p)));
 const decls = (body, prop) => [...body.matchAll(new RegExp(`(?:^|[;\\s{])(${prop})\\s*:\\s*([^;]+)`, "g"))].map((m) => [m[1], m[2].trim()]);
 

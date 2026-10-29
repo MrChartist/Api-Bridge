@@ -15,6 +15,8 @@
  * updated evicted first).
  */
 
+import { DEFAULT_SESSIONS as REF_SESSIONS } from "../reference/defaults.mjs";
+
 export const IST_OFFSET_MS = 330 * 60_000;
 const DAY_MS = 86_400_000;
 
@@ -22,11 +24,13 @@ const DAY_MS = 86_400_000;
 export const INTERVAL_SECONDS = Object.freeze({ "1m": 60, "3m": 180, "5m": 300, "10m": 600, "15m": 900, "30m": 1800, "60m": 3600, "1d": 86_400 });
 
 /** Regular sessions per exchange, IST "HH:MM" (needs verification against each exchange's current circulars; MCX closes at 23:30 or 23:55 with US daylight saving). */
+// The equity and F&O windows are the reference defaults (reference/defaults.mjs, store S5); CDS and MCX are not
+// reference data yet (Phase 3).
 export const DEFAULT_SESSIONS = Object.freeze({
-  NSE: { open: "09:15", close: "15:30" },
-  BSE: { open: "09:15", close: "15:30" },
-  NFO: { open: "09:15", close: "15:30" },
-  BFO: { open: "09:15", close: "15:30" },
+  NSE: { open: REF_SESSIONS.NSE.open, close: REF_SESSIONS.NSE.close },
+  BSE: { open: REF_SESSIONS.BSE.open, close: REF_SESSIONS.BSE.close },
+  NFO: { open: REF_SESSIONS.NFO.open, close: REF_SESSIONS.NFO.close },
+  BFO: { open: REF_SESSIONS.BFO.open, close: REF_SESSIONS.BFO.close },
   CDS: { open: "09:00", close: "17:00" },
   MCX: { open: "09:00", close: "23:55" },
 });
