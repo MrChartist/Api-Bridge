@@ -7,9 +7,10 @@
 // order preview, risk notes and the chart slot. Colour encodes edge after charges: green clears every cost, red does
 // not. The maths is in options.js (pure, tested); numbers become text only through format.js.
 import { api, chartSlot, copyText, emptyState, errorState, h, icon, istTime, modal, optional, toast } from "./app.js";
-import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
+import { DASH, MINUS, formatCompact, formatFixed, formatInput, formatInt, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { flashValue, lineReveal, reducedMotion } from "./motion.js";
 import * as O from "./options.js";
+import { refCharges, refSession } from "./reference.js";
 import { segmented } from "./views.js";
 import { legend, setBar, spotPill, svgEl } from "./viz.js";
 
@@ -32,17 +33,12 @@ const optFreeze = new Map(); // underlying -> option freeze quantity (all strike
 const ungroup = (t) => (t === null || t === undefined ? t : String(t).replace(/(\d),(?=\d)/g, "$1"));
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
-/** Signed rupees, whole: "+₹624", "-₹74", "₹0". */
-export function rupeeSigned(v) {
-  if (!isFigure(v)) return DASH;
-  const abs = formatFixed(Math.abs(Number(v)), 0);
-  if (Number(abs) === 0) return "₹0";
-  return `${Number(v) > 0 ? "+" : "-"}₹${abs}`;
-}
+/** Signed rupees, whole: "+₹624", "−₹74", "₹0". */
+export const rupeeSigned = (v) => formatSignedRupee(v, 0);
 /** Rupees, whole, compact from 1 lakh up ("₹3.12L"). */
-const money = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? "-" : ""}₹${formatCompact(Math.abs(v))}` : formatRupee(v, 0));
+const money = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? MINUS : ""}₹${formatCompact(Math.abs(v))}` : formatRupee(v, 0));
 const pct = (v, dp = 1) => (num(v) === null ? DASH : formatPercent(v * 100, dp));
-/** A signed rate: "+3.8%", "-2.88%". */
+/** A signed rate: "+3.8%", "−2.88%". */
 const pctSigned = (v, dp = 1) => (num(v) === null ? DASH : `${formatSigned(v * 100, dp)}%`);
 /** The ink class for a signed figure: green above zero, red below, neutral when it rounds to zero at `dp`. */
 export function inkOf(v, dp = 0) {
@@ -117,7 +113,7 @@ function coverBar(size = "card") {
       let text;
       if (gross === null) text = DASH;
       else if (tone === "pos") text = cover === null ? "no cost" : compact ? `${formatFixed(cover, 1)}×` : `covers ${formatFixed(cover, 1)}×`;
-      else if (compact) text = `-${formatFixed(c.short, 2)} pts`;
+      else if (compact) text = `${MINUS}${formatFixed(c.short, 2)} pts`;
       else if (brief) text = `needs ${formatFixed(c.short, 2)} pts`;
       else text = gross <= 0 ? `gross negative · needs ${formatFixed(c.short, 2)} pts` : `needs ${formatFixed(c.short, 2)} pts more`;
       const s = `${tone}|${Math.round(base * 1000)}|${Math.round(beyond * 1000)}|${text}`;
@@ -195,10 +191,11 @@ export function arbPanels(ctx) {
   let extraAt = 0;
   let extraLoading = false;
   let lastAnnounce = { id: "", at: 0 };
-  let ratesMemo = { key: null, rates: O.CHARGE_RATES };
+  // The statutory table is the reference one (refCharges of the page's bundle), with the user's edits on top.
+  let ratesMemo = { key: null, base: null, rates: null };
   const rates = () => {
     const key = JSON.stringify(cfg().rates);
-    if (ratesMemo.key !== key) ratesMemo = { key, rates: O.ratesWith(cfg().rates) };
+    if (ratesMemo.key !== key || ratesMemo.base !== st.ref) ratesMemo = { key, base: st.ref, rates: O.ratesWith(cfg().rates, refCharges(st.ref)) };
     return ratesMemo.rates;
   };
   const setCfg = (patch) => {
@@ -426,7 +423,7 @@ export function arbPanels(ctx) {
     if (!c) return null;
     const conf = cfg();
     const now = Date.now();
-    const days = O.timeToExpiry(c.expiry, now).days;
+    const days = O.timeToExpiry(c.expiry, now, refSession(st.ref).close).days;
     const hRate = conf.hurdle / 100;
     const R = rates();
     const profile = conf.profile;
@@ -1282,7 +1279,7 @@ export function arbPanels(ctx) {
         if (isBox) {
           if (targetKey !== s.key) {
             targetKey = s.key;
-            target.value = formatFixed(m.hRate * 100, 2);
+            target.value = formatInput(m.hRate * 100, 2);
           }
           drawCalc();
         }
@@ -1483,7 +1480,7 @@ export function arbPanels(ctx) {
   }
   function flagCtx(m, s, topQ) {
     const freeze = new Map((s.legs ?? []).map((l) => [l.symbol, freezeOf(l)]));
-    return { stale: m.stale, ageMs: m.fresh.ageMs, days: m.days, hold: cfg().hold, noFuture: m.noFuture, lotMismatch: s.kind === "cal" ? Boolean(s.cal?.lotMismatch) : m.par.lotMismatch && s.kind !== "lbox" && s.kind !== "sbox", topQty: topQ, freezeQty: freeze, nowMs: m.nowMs, demo: ctx.demo() };
+    return { stale: m.stale, ageMs: m.fresh.ageMs, days: m.days, hold: cfg().hold, noFuture: m.noFuture, lotMismatch: s.kind === "cal" ? Boolean(s.cal?.lotMismatch) : m.par.lotMismatch && s.kind !== "lbox" && s.kind !== "sbox", topQty: topQ, freezeQty: freeze, nowMs: m.nowMs, demo: ctx.demo(), session: refSession(st.ref) };
   }
   function freezeOf(l) {
     if (l.kind === "FUT") return num(st.futures.find((f) => f.symbol === l.symbol)?.freezeQty);
@@ -1759,7 +1756,7 @@ export function arbPanels(ctx) {
     if (p.brokerage === "perLot") brokerFields.push(numField("₹ per lot", p.value, { step: "1", min: "0", onSet: (v) => setP({ value: v }) }));
     if (p.brokerage === "pct") brokerFields.push(numField("% of turnover", formatFixed(p.pct * 100, 3), { step: "0.005", min: "0", max: "5", onSet: (v) => setP({ pct: v / 100 }) }), numField("Cap, ₹ per order", p.cap, { step: "1", min: "0", onSet: (v) => setP({ cap: v }) }));
     const rateRows = O.RATE_FIELDS.map(([path, label, unit]) => {
-      const cur = c.rates[path] ?? O.rateDefault(path);
+      const cur = c.rates[path] ?? O.rateDefault(path, refCharges(st.ref));
       const changed = c.rates[path] !== undefined;
       return numField(`${label}${unit === "pct" ? ", %" : ""}`, unit === "pct" ? formatFixed(cur * 100, 5).replace(/0+$/, "").replace(/\.$/, "") : formatFixed(cur, 2), {
         step: "any",

@@ -30,7 +30,7 @@ import { Reply, noContent, parseBody, readBody, send, sendProblem, text } from "
 import { createLogger } from "./logger.mjs";
 import { applyModuleConfig, buildServices, validateModules } from "./modules.mjs";
 import { createRouter } from "./router.mjs";
-import { BASE_HEADERS, assertTransportAllowed, createCors, createHostCheck, isLocalRequest } from "./security.mjs";
+import { BASE_HEADERS, assertNotCrossSiteWrite, assertTransportAllowed, createCors, createHostCheck, isLocalRequest } from "./security.mjs";
 import { registerDemoRoutes } from "../demo/routes.mjs";
 import { DEMO_ACCOUNT_HINT, DEMO_HEADER, DEMO_MARKET_ACCOUNT, DEMO_NOTICE, createDemoRegistry, labelDemoResult } from "../demo/demoMode.mjs";
 
@@ -79,6 +79,9 @@ export const DASHBOARD_FILES = Object.freeze({
   "palette.js": "text/javascript; charset=utf-8",
   "format.js": "text/javascript; charset=utf-8",
   "options.js": "text/javascript; charset=utf-8",
+  "pricing.js": "text/javascript; charset=utf-8",
+  "reference.js": "text/javascript; charset=utf-8",
+  "calendar.js": "text/javascript; charset=utf-8",
   "desk.js": "text/javascript; charset=utf-8",
   "arbitrage.js": "text/javascript; charset=utf-8",
   "screener.js": "text/javascript; charset=utf-8",
@@ -213,12 +216,13 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       }
     })(),
   );
-  // The dashboard's three self-hosted typefaces (dashboard/fonts/, SIL Open Font Licence files beside them), served as
+  // The dashboard's self-hosted Chartist typefaces (dashboard/fonts/, SIL Open Font Licence files beside them), served as
   // /dashboard/font-<file>.woff2. A fixed list, so no request can name another path.
   const DASHBOARD_FONTS = Object.freeze({
-    "font-inter-var-v3.woff2": "inter-var-v3.woff2",
-    "font-plus-jakarta-sans-var.woff2": "plus-jakarta-sans-var.woff2",
-    "font-dm-serif-display-italic.woff2": "dm-serif-display-italic.woff2",
+    "font-chartist-sans-flex.woff2": "chartist-sans-flex.woff2",
+    "font-chartist-sans-flex-symbols.woff2": "chartist-sans-flex-symbols.woff2",
+    "font-chartist-sans.woff2": "chartist-sans.woff2",
+    "font-chartist-serif-italic.woff2": "chartist-serif-italic.woff2",
   });
   const dashboardFile = (name) => {
     if (Object.hasOwn(DASHBOARD_FONTS, name)) {
@@ -275,6 +279,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       // miss on /hooks/... fails before the route's pattern is known.
       path = safeLogPath(url.pathname, listener.public);
       assertTransportAllowed(req, { hostCheck: listener.hostCheck, cors });
+      assertNotCrossSiteWrite(req, cors);
       const origin = req.headers.origin;
       if (origin !== undefined) Object.assign(headers, cors.headersFor(origin));
       if (req.method === "OPTIONS") {
@@ -426,6 +431,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     config,
     router,
     warnings,
+    /** Registered WebSocket upgrade paths (security tests check every one). */
+    upgradePaths: () => [...upgrades.keys()],
     /** Bind the listeners and start modules. Resolves with the bound ports. */
     async listen() {
       if (started) throw new Error("already listening");

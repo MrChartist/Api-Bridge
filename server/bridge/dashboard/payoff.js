@@ -6,8 +6,11 @@
 // axis, the crosshair and a floating tooltip. A model change morphs (360 ms) unless the user prefers reduced motion;
 // slider drags and live ticks patch in place. When the owner's chart engine arrives it replaces drawPayoff() only.
 //
-// drawPayoff(host, { onPin }) -> { update(view, { animate }), empty({ text, sub, action }), pin(price), highlight(id),
-//   tools, destroy() }
+// drawPayoff(host, { onPin, onMarker, heights }) -> { update(view, { animate }), empty({ text, sub, action }), pin(price),
+//   highlight(id), highlightMarker(id), tools, destroy() }
+//   The Positions page (positions.md §4.8) shares it: a view may also carry `now` (the T+0 curve, solid), `hedge` (the
+//   after-hedge curve, dotted), `here` ({ x, y }: the you-are-here dot, eased on ticks), `prob: "below"`, `ariaLabel`
+//   and its own `labels.now` / `labels.hedge`.
 //   Fine pointer: the card follows the pointer, click pins. Coarse pointer: tap / drag pins and the card docks at the
 //   top of the plot. Keyboard: ← → one strike step (Shift: 5), Esc unpins.
 import { h, keyHint, touchWord } from "./app.js";
@@ -48,7 +51,7 @@ export function money(v, { signed = true } = {}) {
 }
 /** The same with the gain / loss colour. */
 export const moneyEl = (v, opts) => h("span", { class: isFigure(v) && Math.round(v) > 0 ? "up" : isFigure(v) && Math.round(v) < 0 ? "down" : undefined }, money(v, opts));
-/** Axis rupees: "+₹5K", "-₹10K", "0". */
+/** Axis rupees: "+₹5K", "−₹10K", "0". */
 const axisMoney = (v) => (Math.abs(v) < 1e-9 ? "0" : `${v > 0 ? "+" : "\u2212"}₹${formatCompact(Math.abs(v)).replace(/\.0(?=[KLC])/, "")}`);
 
 /**
@@ -69,8 +72,8 @@ function xTicks(lo, hi, plotW, unit) {
 }
 const mq = (q) => typeof matchMedia === "function" && matchMedia(q).matches;
 const coarse = () => mq("(pointer: coarse)");
-/** 340 px on desktop, 280 on tablet, 232 on phone (§3). */
-const heightFor = () => (mq("(max-width: 719px)") ? 232 : mq("(max-width: 1023px)") ? 280 : 340);
+/** 340 px on desktop, 280 on tablet, 232 on phone (§3); a page may pass its own [desktop, tablet, phone]. */
+const heightsFor = (hs) => (mq("(max-width: 719px)") ? hs[2] : mq("(max-width: 1023px)") ? hs[1] : hs[0]);
 const ease = (t) => 1 - (1 - t) ** 3;
 const MORPH_MS = 360;
 const HINT_KEY = "mcb.payoff.hinted";
@@ -93,7 +96,8 @@ const markHinted = () => {
  * @param {HTMLElement} host
  * @param {{ onPin?: (price: number|null) => void }} [opts]
  */
-export function drawPayoff(host, { onPin } = {}) {
+export function drawPayoff(host, { onPin, onMarker, heights = [340, 280, 232] } = {}) {
+  const heightFor = () => heightsFor(heights);
   let v = null; // the view being shown (the tween target)
   let d = null; // what is drawn this frame (v, or an in-between during a morph)
   let W = 720;
@@ -105,6 +109,8 @@ export function drawPayoff(host, { onPin } = {}) {
   let pinned = null;
   let hover = null;
   let tween = 0;
+  let hiMarker = null;
+  let hereShown = false;
   const id = `po${Math.random().toString(36).slice(2, 7)}`;
   const clipUp = s("rect", { x: 0, y: 0, width: 0, height: 0 });
   const clipDn = s("rect", { x: 0, y: 0, width: 0, height: 0 });
@@ -140,11 +146,14 @@ export function drawPayoff(host, { onPin } = {}) {
   const pMax = pill("pos");
   const pMin = pill("neg");
   const pSpot = pill("spot");
-  const clipNote = s("text", { class: "clip-note", "text-anchor": "middle" });
+  const clipNote = pill("clip neg");
   const legsG = s("g", { class: "leg-lines", "clip-path": `url(#${id}-plot)` });
   const cmpLine = s("path", { class: "cmp-line", "clip-path": `url(#${id}-plot)` });
   const lineM = s("path", { class: "line-mid", "clip-path": `url(#${id}-plot)` });
   const lineT = s("path", { class: "line-target", "clip-path": `url(#${id}-plot)` });
+  const lineN = s("path", { class: "line-now", "clip-path": `url(#${id}-plot)`, visibility: "hidden" });
+  const lineH = s("path", { class: "line-hedge", "clip-path": `url(#${id}-plot)`, visibility: "hidden" });
+  const here = s("circle", { r: 4.5, cx: 0, cy: 0, class: "here-dot", visibility: "hidden" });
   const lineEUp = s("path", { class: "line-exp up", "clip-path": `url(#${id}-up)` });
   const lineEDn = s("path", { class: "line-exp dn", "clip-path": `url(#${id}-dn)` });
   const marks = s("g", { class: "strike-marks" });
@@ -154,6 +163,7 @@ export function drawPayoff(host, { onPin } = {}) {
   const cross = s("line", { class: "cross", visibility: "hidden" });
   const dotE = s("circle", { r: 4, class: "dot-exp", visibility: "hidden" });
   const dotT = s("circle", { r: 4, class: "dot-target", visibility: "hidden" });
+  const dotN = s("circle", { r: 4, class: "dot-now", visibility: "hidden" });
   const svg = s(
     "svg",
     { class: "payoff-svg", role: "img", tabindex: "0", focusable: "true" },
@@ -173,8 +183,10 @@ export function drawPayoff(host, { onPin } = {}) {
     cmpLine,
     lineM,
     lineT,
+    lineH,
     lineEUp,
     lineEDn,
+    lineN,
     bandLabels,
     xAxis,
     marks,
@@ -184,10 +196,12 @@ export function drawPayoff(host, { onPin } = {}) {
     bePills,
     pMax.g,
     pMin.g,
-    clipNote,
+    clipNote.g,
+    here,
     cross,
     dotE,
     dotT,
+    dotN,
   );
   // Legend (swatches drawn with the chart's own classes, so they always match) and a slot for the page's controls.
   const swatch = (...kids) => s("svg", { class: "lg-sw", viewBox: "0 0 16 10", width: 16, height: 10, "aria-hidden": "true" }, ...kids);
@@ -201,7 +215,11 @@ export function drawPayoff(host, { onPin } = {}) {
   const lgB1 = lgItem(swatch(s("rect", { class: "band1 sw-band", x: 2, y: 1, width: 12, height: 8, rx: 1.5 })), "±1σ");
   const lgB2 = lgItem(swatch(s("rect", { class: "band2 sw-band", x: 2, y: 1, width: 12, height: 8, rx: 1.5 })), "±2σ");
   const lgC = lgItem(swatch(s("line", { class: "cmp-line", x1: 0, x2: 16, y1: 5, y2: 5 })), "Saved");
-  const legend = h("span", { class: "legend" }, lgExp.el, lgT.el, lgM.el, lgB1.el, lgB2.el, lgC.el);
+  const lgN = lgItem(swatch(s("line", { class: "line-now", x1: 0, x2: 16, y1: 5, y2: 5 })), "Now");
+  const lgH = lgItem(swatch(s("line", { class: "line-hedge", x1: 1, x2: 15, y1: 5, y2: 5 })), "After hedge");
+  lgN.el.hidden = true;
+  lgH.el.hidden = true;
+  const legend = h("span", { class: "legend" }, lgN.el, lgT.el, lgM.el, lgExp.el, lgB1.el, lgB2.el, lgH.el, lgC.el);
   const tools = h("span", { class: "payoff-tools" });
   const headEl = h("div", { class: "payoff-head" }, legend, tools);
   // Tooltip card
@@ -305,7 +323,7 @@ export function drawPayoff(host, { onPin } = {}) {
   }
   /** How many drawn curves (and horizontal guide lines, px) pass through the box [x0, x1] × [y0, y1] (3 px margin)? */
   function hitsCurve(x0, x1, y0, y1, lines = []) {
-    const curves = [d.expiry, d.target, d.mid].filter(Boolean);
+    const curves = [d.expiry, d.target, d.mid, d.now].filter(Boolean);
     const p0 = P(x0);
     const p1 = P(x1);
     let n = lines.filter((ly) => ly >= y0 - 3 && ly <= y1 + 3).length;
@@ -414,7 +432,9 @@ export function drawPayoff(host, { onPin } = {}) {
       placeGuidePill(pMax, Y(mp), `Max ${money(mp)}${sfx}`, -1, pillBottom);
     } else {
       set(guideMax, { visibility: "hidden" });
-      paintPill(pMax, W - R - 4, T + 10, st && mp === null && st.maxProfit === null ? "↗ Unlimited" : "", { anchor: "end", show: Boolean(st && st.maxProfit === null) });
+      // "Unlimited" sits at the edge the curve runs away on (stats.upSide / downSide, default right) with its arrow.
+      const left = st?.upSide === "left";
+      paintPill(pMax, left ? L + 4 : W - R - 4, T + 10, st && mp === null && st.maxProfit === null ? (left ? "↖ Unlimited" : "↗ Unlimited") : "", { anchor: left ? "start" : "end", show: Boolean(st && st.maxProfit === null) });
     }
     const lossBelow = ml !== null && ml !== undefined && ml < 0;
     if (lossBelow && inY(ml)) {
@@ -423,16 +443,32 @@ export function drawPayoff(host, { onPin } = {}) {
     } else {
       set(guideMin, { visibility: "hidden" });
       const unl = st && st.maxLoss === null;
-      paintPill(pMin, W - R - 4, H - B - 24, unl ? "↘ Unlimited" : lossBelow ? `Max ${money(ml)} ▾` : "", { anchor: "end", show: Boolean(unl || lossBelow) });
+      const left = unl && st?.downSide === "left";
+      paintPill(pMin, left ? L + 4 : W - R - 4, H - B - 24, unl ? (left ? "↙ Unlimited" : "↘ Unlimited") : lossBelow ? `Max ${money(ml)} ▾` : "", { anchor: left ? "start" : "end", show: Boolean(unl || lossBelow) });
     }
-    // Clamp arrow: a far tail clipped at the plot edge.
+    // Clamp arrow: a far tail clipped at the plot edge, as a pill (opaque, so curves never run through its text)
+    // inside the clipped edge, at the spot along that edge that no curve or other pill crosses.
     // The clamp arrow only when no Max pill already names the clipped value.
     const pillSays = d.clip && ((d.clip.side === "low" && st && st.maxLoss !== null) || (d.clip.side === "high" && st && st.maxProfit !== null));
     if (d.clip && !pillSays && d.clip.at >= d.lo && d.clip.at <= d.hi) {
-      const cx = Math.max(L + 60, Math.min(W - R - 120, X(d.clip.at)));
-      set(clipNote, { x: r1(cx), y: d.clip.side === "low" ? H - B - 26 : T + 14, visibility: "visible" });
-      text(clipNote, `${d.clip.side === "low" ? "▼" : "▲"} ${money(d.clip.value)} at ${formatInt(d.clip.at)}`);
-    } else set(clipNote, { visibility: "hidden" });
+      const label = `${d.clip.side === "low" ? "▼" : "▲"} ${money(d.clip.value)} at ${formatInt(d.clip.at)}`;
+      const w = Math.max(28, Math.round(label.length * 6.1 + 14));
+      const low = d.clip.side === "low";
+      const others = [pMax, pMin].filter((q) => q.g.getAttribute("visibility") === "visible").map((q) => [Number(q.r.getAttribute("x")), Number(q.r.getAttribute("y")), Number(q.r.getAttribute("width"))]);
+      const ys = low ? [H - B - 24, H - B - 46] : [T + 12, T + 34];
+      const cxs = [X(d.clip.at), L + 4 + w / 2, W - R - 4 - w / 2, (L + W - R) / 2];
+      let best = null;
+      for (const y of ys) {
+        for (const c of cxs) {
+          const x0 = Math.max(L + 2, Math.min(W - R - 2 - w, c - w / 2));
+          const overPill = others.some(([px, py, pw]) => px < x0 + w && px + pw > x0 && py < y + 9 && py + 18 > y - 9);
+          const cost = hitsCurve(x0, x0 + w, y - 9, y + 9) + (overPill ? 10 : 0) + Math.abs(c - X(d.clip.at)) / 1000;
+          if (!best || cost < best.cost) best = { cost, x: x0, y };
+        }
+      }
+      clipNote.g.setAttribute("class", `cpill clip ${low ? "neg" : "pos"}`);
+      paintPill(clipNote, best.x, best.y, label, { anchor: "start" });
+    } else set(clipNote.g, { visibility: "hidden" });
     // Overlays: per-leg payoffs and a saved strategy.
     const pl = d.perLeg ?? [];
     if (legsG.childNodes.length !== pl.length) legsG.replaceChildren(...pl.map(() => s("path", {})));
@@ -440,12 +476,24 @@ export function drawPayoff(host, { onPin } = {}) {
     set(cmpLine, { d: d.compare ? path(d.compare.vals) : "", visibility: d.compare ? "visible" : "hidden" });
     set(lineM, { d: d.mid ? path(d.mid) : "", visibility: d.mid ? "visible" : "hidden" });
     set(lineT, { d: d.target ? path(d.target) : "", visibility: d.target ? "visible" : "hidden" });
+    set(lineN, { d: d.now ? path(d.now) : "", visibility: d.now ? "visible" : "hidden" });
+    set(lineH, { d: d.hedge ? path(d.hedge) : "", visibility: d.hedge ? "visible" : "hidden" });
+    // You are here: (spot, P&L now), moved with a transform so a live tick eases it (CSS; jumps under reduced motion).
+    if (d.here && isFigure(d.here.x) && isFigure(d.here.y) && d.here.x >= d.lo && d.here.x <= d.hi) {
+      const hy = Y(Math.max(d.yMin, Math.min(d.yMax, d.here.y)));
+      here.style.transform = `translate(${r1(X(d.here.x))}px, ${r1(hy)}px)`;
+      set(here, { visibility: "visible", class: `here-dot${hereShown ? " ease" : ""}` });
+      if (!hereShown) setTimeout(() => (hereShown = true), 0);
+    } else {
+      set(here, { visibility: "hidden", class: "here-dot" });
+      hereShown = false;
+    }
     const pe = path(d.expiry);
     set(lineEUp, { d: pe });
     set(lineEDn, { d: pe });
     // Strike markers on the baseline: triangles by right (call / put colour), filled = buy, outline = sell.
     const mk = d.markers ?? [];
-    const mkKey = `${W}|${r1(d.lo)}|${r1(d.hi)}|${mk.map((m) => `${m.kind}${m.right}${m.side}${m.strike ?? m.price}${m.title}`).join(",")}`;
+    const mkKey = `${W}|${H}|${r1(d.lo)}|${r1(d.hi)}|${mk.map((m) => `${m.kind}${m.right}${m.side}${m.strike ?? m.price}${m.title}${m.id ?? ""}`).join(",")}`;
     if (marks.__sig !== mkKey) {
       marks.__sig = mkKey;
       const seen = new Map();
@@ -460,9 +508,10 @@ export function drawPayoff(host, { onPin } = {}) {
             const y = H - B + 2 + n * 8;
             const el =
               m.kind === "FUT"
-                ? s("rect", { x: x - 3, y: y + 1, width: 6, height: 6, class: `mk fut ${m.side === "SELL" ? "sell" : "buy"}` })
+                ? s("rect", { x: x - 3, y: y + 1, width: 6, height: 6, class: `mk fut ${m.side === "SELL" ? "sell" : "buy"}`, "data-id": m.id ?? "" })
                 : s("path", { d: `M${x - 4.5},${y + 7.5}L${x},${y}L${x + 4.5},${y + 7.5}Z`, class: `mk ${m.right === "CE" ? "call" : "put"} ${m.side === "SELL" ? "sell" : "buy"}`, "data-id": m.id ?? "" });
             el.append(s("title", {}, m.title ?? ""));
+            if (hiMarker && m.id === hiMarker) el.classList.add("hi");
             return el;
           }),
       );
@@ -510,13 +559,15 @@ export function drawPayoff(host, { onPin } = {}) {
   let tipRowsSig = "";
   function showCross(p) {
     if (!d || p === null || p === undefined || !v) {
-      for (const el of [cross, dotE, dotT]) el.setAttribute("visibility", "hidden");
+      for (const el of [cross, dotE, dotT, dotN]) el.setAttribute("visibility", "hidden");
       tip.classList.remove("on", "pinned");
       return;
     }
     const ve = atOn(d.xs, d.expiry, p);
     const vt = atOn(d.xs, d.target, p);
     const vm = atOn(d.xs, d.mid, p);
+    const vn = atOn(d.xs, d.now, p);
+    const vh = atOn(d.xs, d.hedge, p);
     const cx = r1(X(p));
     set(cross, { x1: cx, x2: cx, y1: T, y2: H - B, visibility: "visible" });
     const clampY = (val) => r1(Y(Math.max(d.yMin, Math.min(d.yMax, val))));
@@ -524,24 +575,29 @@ export function drawPayoff(host, { onPin } = {}) {
     else set(dotE, { cx, cy: clampY(ve), visibility: "visible", class: `dot-exp ${ve >= 0 ? "pos" : "neg"}` });
     if (vt === null) dotT.setAttribute("visibility", "hidden");
     else set(dotT, { cx, cy: clampY(vt), visibility: "visible" });
+    if (vn === null) dotN.setAttribute("visibility", "hidden");
+    else set(dotN, { cx, cy: clampY(vn), visibility: "visible" });
     // The card: price, move and σ; the curves; P(close above).
     const pct = v.spot ? ((p - v.spot) / v.spot) * 100 : null;
     const z = O.sigmaZ(p, v.forward, v.ivPct, v.horizon);
     text(tipPrice, formatInt(p));
     text(tipMove, `${formatSigned(pct, 1)}%${isFigure(z) ? ` · ${formatSigned(z, 1)}σ` : ""}`);
-    const above = O.probAbove(p, v.forward, v.horizon, v.ivPct);
+    const below = v.prob === "below";
+    const above = below ? O.probBelow(p, v.forward, v.horizon, v.ivPct) : O.probAbove(p, v.forward, v.horizon, v.ivPct);
     const docked = coarse();
     const short = (t) => (docked ? String(t).replace(/ \(.*\)$/, "") : t);
     const rows = [
+      vn !== null ? ["now", short(v.labels?.now ?? "Now"), vn] : null,
       vt !== null ? ["target", short(v.labels?.target ?? "Target"), vt] : null,
       vm !== null ? ["mid", short(v.labels?.mid ?? "Mid-date"), vm] : null,
       ["expiry", v.labels?.expiryShort ?? "Expiry", ve],
+      vh !== null ? ["hedge", short(v.labels?.hedge ?? "Hedged"), vh] : null,
       v.compare ? ["cmp", v.compare.label, atOn(d.xs, d.compare.vals, p)] : null,
     ].filter(Boolean);
-    const sig = rows.map((r) => `${r[0]}:${r[1]}`).join() + (above !== null ? `|p${docked}` : "");
+    const sig = rows.map((r) => `${r[0]}:${r[1]}`).join() + (above !== null ? `|p${docked}${below}` : "");
     if (tipRowsSig !== sig) {
       tipRowsSig = sig;
-      tipRows.replaceChildren(...rows.map((r) => h("div", { class: `tip-row ${r[0]}` }, h("span", { class: "tip-k" }, h("i", { class: `tip-sw ${r[0]}` }), r[1]), h("span", { class: "tip-v" }))), ...(above !== null ? [h("div", { class: "tip-row prob" }, h("span", { class: "tip-k", title: "Chance of closing above this price" }, docked ? "P↑" : "P(close above)"), h("span", { class: "tip-v" }))] : []));
+      tipRows.replaceChildren(...rows.map((r) => h("div", { class: `tip-row ${r[0]}` }, h("span", { class: "tip-k" }, h("i", { class: `tip-sw ${r[0]}` }), r[1]), h("span", { class: "tip-v" }))), ...(above !== null ? [h("div", { class: "tip-row prob" }, h("span", { class: "tip-k", title: below ? "Chance of closing below this price" : "Chance of closing above this price" }, docked ? (below ? "P↓" : "P↑") : below ? "P(close below)" : "P(close above)"), h("span", { class: "tip-v" }))] : []));
     }
     rows.forEach((r, i) => {
       const cell = tipRows.children[i].lastChild;
@@ -564,7 +620,7 @@ export function drawPayoff(host, { onPin } = {}) {
       if (top < 4) top = yy + 14;
       tip.style.transform = `translate(${Math.round(Math.max(4, left))}px, ${Math.round(Math.max(4, Math.min(rect.height - th - 4, top)))}px)`;
     } else tip.style.transform = "";
-    live.textContent = `${formatInt(p)}: expiry ${money(ve)}${vt !== null ? `, target ${money(vt)}` : ""}`;
+    live.textContent = `${formatInt(p)}: ${vn !== null ? `now ${money(vn)}, ` : ""}expiry ${money(ve)}${vt !== null ? `, target ${money(vt)}` : ""}`;
   }
   function setPin(p) {
     pinned = p;
@@ -609,6 +665,13 @@ export function drawPayoff(host, { onPin } = {}) {
     setPin(pinned === null ? priceAt(e) : null);
     if (pinned === null) showCross(priceAt(e));
   });
+  marks.addEventListener("pointerover", (e) => {
+    const m = e.target.closest?.(".mk");
+    if (m) onMarker?.(m.getAttribute("data-id") || null);
+  });
+  marks.addEventListener("pointerout", (e) => {
+    if (e.target.closest?.(".mk")) onMarker?.(null);
+  });
   const outside = (e) => {
     if (pinned !== null && !plotWrap.contains(e.target) && e.pointerType !== "mouse" && !e.target.closest?.(".scen-grid, .sg-card")) setPin(null);
   };
@@ -630,13 +693,13 @@ export function drawPayoff(host, { onPin } = {}) {
   function startMorph(from, to) {
     cancelAnimationFrame(tween);
     const rs = (vals) => (vals ? to.xs.map((p) => atOn(from.xs, vals, p)) : null);
-    const a = { lo: from.lo, hi: from.hi, yMin: from.yMin, yMax: from.yMax, expiry: rs(from.expiry), target: rs(from.target), mid: rs(from.mid), density: rs(from.density) };
+    const a = { lo: from.lo, hi: from.hi, yMin: from.yMin, yMax: from.yMax, expiry: rs(from.expiry), target: rs(from.target), mid: rs(from.mid), density: rs(from.density), now: rs(from.now), hedge: rs(from.hedge) };
     const t0 = performance.now();
     const lerp = (x, y, t) => x + (y - x) * t;
     const lerpA = (x, y, t) => (x && y ? y.map((val, i) => (val === null || x[i] === null ? val : lerp(x[i], val, t))) : y);
     const frame = (now) => {
       const t = ease(Math.min(1, (now - t0) / MORPH_MS));
-      d = { ...to, lo: lerp(a.lo, to.lo, t), hi: lerp(a.hi, to.hi, t), yMin: lerp(a.yMin, to.yMin, t), yMax: lerp(a.yMax, to.yMax, t), expiry: lerpA(a.expiry, to.expiry, t), target: lerpA(a.target, to.target, t), mid: lerpA(a.mid, to.mid, t), density: lerpA(a.density, to.density, t) };
+      d = { ...to, lo: lerp(a.lo, to.lo, t), hi: lerp(a.hi, to.hi, t), yMin: lerp(a.yMin, to.yMin, t), yMax: lerp(a.yMax, to.yMax, t), expiry: lerpA(a.expiry, to.expiry, t), target: lerpA(a.target, to.target, t), mid: lerpA(a.mid, to.mid, t), density: lerpA(a.density, to.density, t), now: lerpA(a.now, to.now, t), hedge: lerpA(a.hedge, to.hedge, t) };
       paint();
       if (t < 1) tween = requestAnimationFrame(frame);
       else {
@@ -649,7 +712,7 @@ export function drawPayoff(host, { onPin } = {}) {
   }
   /** First legs: the expiry line draws itself, the areas fade in and the markers pop, staggered. */
   function drawIn() {
-    lineReveal([lineEUp, lineEDn], [areaUp, areaDn, ribbon, ribbonPos]);
+    lineReveal([lineEUp, lineEDn, lineN], [areaUp, areaDn, ribbon, ribbonPos]);
     if (reducedMotion()) return;
     [...marks.childNodes].forEach((m, i) => m.animate?.([{ opacity: 0, transform: "scale(.6)" }, { opacity: 1, transform: "scale(1)" }], { duration: 240, delay: 120 + i * 30, easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "backwards" }));
   }
@@ -690,6 +753,12 @@ export function drawPayoff(host, { onPin } = {}) {
       lgB1.el.hidden = !v.band1;
       lgB2.el.hidden = !v.band2;
       lgC.el.hidden = !v.compare;
+      lgN.el.hidden = !v.now;
+      lgExp.el.hidden = Boolean(v.hideExpiry);
+      svg.classList.toggle("no-exp", Boolean(v.hideExpiry));
+      lgH.el.hidden = !v.hedge;
+      text(lgN.t, v.labels?.now ?? "Now");
+      text(lgH.t, v.labels?.hedge ?? "After hedge");
       text(lgExp.t, v.labels?.expiry ?? "Expiry");
       text(lgT.t, v.labels?.target ?? "Target");
       text(lgM.t, v.labels?.mid ?? "Mid-date");
@@ -712,7 +781,7 @@ export function drawPayoff(host, { onPin } = {}) {
         if (v.target && !hadT && prev) lineReveal(lineT);
         if (v.mid && !hadM && prev) lineReveal(lineM);
       }
-      const label = summaryLabel();
+      const label = v.ariaLabel ?? summaryLabel();
       if (svg.getAttribute("aria-label") !== label) svg.setAttribute("aria-label", label);
     },
     /** Nothing to draw: a ghost payoff with a line of text and an optional action (a node). */
@@ -734,6 +803,11 @@ export function drawPayoff(host, { onPin } = {}) {
       if (!v) return;
       pinned = p === null || p === undefined ? null : Math.max(v.lo, Math.min(v.hi, p));
       showCross(pinned ?? hover);
+    },
+    /** Ring one strike marker (a hovered leg row), or none with null. */
+    highlightMarker(mid) {
+      hiMarker = mid ?? null;
+      for (const m of marks.childNodes) m.classList?.toggle("hi", Boolean(hiMarker) && m.getAttribute("data-id") === hiMarker);
     },
     highlight(legId) {
       if (!v || v.highlight === legId) return;

@@ -6,7 +6,9 @@
  *  - instruments: NIFTY, BANKNIFTY and SENSEX (index, futures, options) plus the NIFTY 50 stocks;
  *  - prices: a smooth function of wall-clock time per symbol (slow multi-day waves plus minute-scale wiggles), so the
  *    same instant always gives the same price and ticks keep moving even when the real market is shut;
- *  - option chains: Black-Scholes prices from a simple volatility smile, with open interest peaking near the money;
+ *  - option chains: Black-76 prices on the vol-time clock (dashboard/pricing.js, the same core the server and pages
+ *    use) from a smile around a time-varying IV level anchored to the demo's own realised vol, with open interest
+ *    peaking near the money; INDIA VIX (Demo) follows NIFTY's 30-day IV;
  *  - history: OHLC candles sampled from the same price function, during NSE hours on weekdays;
  *  - a live feed that ticks once a second, and a small sample portfolio.
  *
@@ -19,8 +21,11 @@ export const DEMO_BROKER_ID = "demo";
 export const DEMO_BROKER_NAME = "Demo market data (sample, not live)";
 export const DEMO_NOTICE = "Demo data: sample prices generated on this computer. Not live market data; no broker is connected.";
 
-import { DEFAULT_RATE } from "../reference/defaults.mjs";
+import { black76, realisedVol, volTime } from "../dashboard/pricing.js";
+import { DEFAULT_RATE, DEFAULT_SESSIONS } from "../reference/defaults.mjs";
 import { demoCalendar, demoLotFor } from "../reference/demoTables.mjs";
+import { clockSettings } from "../vol/config.mjs";
+import { buildClockContext, holidayDates } from "../vol/context.mjs";
 
 const IST_OFFSET_MS = 330 * 60_000;
 const DAY_MS = 86_400_000;
@@ -32,6 +37,8 @@ export const DEMO_UNDERLYINGS = Object.freeze([
   { symbol: "NIFTY", exchange: "NSE", kind: "INDEX", name: "NIFTY 50 (Demo)", base: 25150, tick: 0.05, step: 50, lot: 65, iv: 0.12, deriv: "NFO", expiry: "weekly-tue" },
   { symbol: "BANKNIFTY", exchange: "NSE", kind: "INDEX", name: "NIFTY BANK (Demo)", base: 56400, tick: 0.05, step: 100, lot: 30, iv: 0.14, deriv: "NFO", expiry: "monthly-tue" },
   { symbol: "SENSEX", exchange: "BSE", kind: "INDEX", name: "S&P BSE SENSEX (Demo)", base: 82300, tick: 0.01, step: 100, lot: 20, iv: 0.125, deriv: "BFO", expiry: "weekly-thu" },
+  // INDIA VIX: an index with no derivatives, priced from NIFTY's 30-day IV (vixAt below).
+  { symbol: "INDIAVIX", exchange: "NSE", kind: "INDEX", name: "India VIX (Demo)", base: 13, tick: 0.0025 },
   { symbol: "RELIANCE", exchange: "NSE", kind: "EQ", name: "Reliance Industries (Demo)", base: 1418, tick: 0.1 },
   { symbol: "HDFCBANK", exchange: "NSE", kind: "EQ", name: "HDFC Bank (Demo)", base: 1002, tick: 0.05 },
   { symbol: "ICICIBANK", exchange: "NSE", kind: "EQ", name: "ICICI Bank (Demo)", base: 1395, tick: 0.1 },
@@ -111,11 +118,15 @@ const phase = (s) => unit(s) * 2 * Math.PI;
 const round2 = (n) => Math.round(n * 100) / 100;
 const toTick = (n, tick) => Math.max(tick, Math.round(n / tick) * tick);
 const fix = (n, tick) => Number(toTick(n, tick).toFixed(2));
+/** Round outward onto the tick grid (4 dp clears float noise, enough for the 0.0025 VIX tick). */
+const ceilTick = (n, tick) => Number((Math.ceil(n / tick - 1e-9) * tick).toFixed(4));
+const floorTick = (n, tick) => Number((Math.floor(n / tick + 1e-9) * tick).toFixed(4));
 
 /** Spot price of a demo underlying at epoch ms `t`. Smooth, bounded and the same for the same instant. */
 export function spotAt(symbol, t) {
   const u = BY_SYMBOL.get(symbol);
   if (!u) return null;
+  if (symbol === "INDIAVIX") return vixAt(t);
   const s = t / 1000;
   const d = s / 86_400;
   const slow = 0.05 * Math.sin((2 * Math.PI * d) / 41 + phase(`${symbol}:a`)) + 0.012 * Math.sin((2 * Math.PI * d) / 9.3 + phase(`${symbol}:b`)) + 0.004 * Math.sin((2 * Math.PI * d) / 2.1 + phase(`${symbol}:c`));
@@ -202,49 +213,136 @@ export function expiriesFor(symbol, t, count) {
   return out;
 }
 
-/** Years from `t` to 15:30 IST on the expiry date (at least a few minutes). */
-function yearsTo(expiry, t) {
-  const end = Date.parse(`${expiry}T15:30:00+05:30`);
-  return Math.max((end - t) / (365 * DAY_MS), 10 / (365 * 24 * 60));
+// ── The vol-time clock and the IV level ──
+
+/** Bounded memo: clears itself when full (the demo asks for the same few instants over and over). */
+function memo(limit) {
+  const m = new Map();
+  return (key, make) => {
+    if (m.has(key)) return m.get(key);
+    if (m.size >= limit) m.clear();
+    const v = make();
+    m.set(key, v);
+    return v;
+  };
+}
+
+const CLOCK_CTX = new Map();
+/**
+ * The demo's clock context for a derivatives exchange: default `vol.clock` settings, the demo calendar's holidays and
+ * the default session — what the server's vol/context.mjs builds from the demo reference data, so server, pages and
+ * demo prices all use one clock.
+ */
+export function demoClockContext(exchange = "NFO") {
+  if (!CLOCK_CTX.has(exchange)) {
+    const session = DEFAULT_SESSIONS[exchange] ?? DEFAULT_SESSIONS.NFO;
+    CLOCK_CTX.set(exchange, buildClockContext({ settings: clockSettings(null), kind: "index", session: { open: session.open, close: session.close }, holidays: holidayDates(demoCalendar().holidays, exchange), holidaysSource: "reference" }));
+  }
+  return CLOCK_CTX.get(exchange);
+}
+
+const clockMemo = memo(20_000);
+/** { T, Tcal } from `t` to an expiry's settlement on the demo clock (T on vol-time, Tcal calendar). */
+function clockTo(exchange, expiry, t) {
+  return clockMemo(`${exchange}|${expiry}|${t}`, () => volTime(demoClockContext(exchange), t, expiry) ?? { T: 0, Tcal: 0 });
+}
+
+/** IST date and the epoch ms of 15:30 IST on it. */
+const istDateOf = (t) => {
+  const p = ist(t);
+  return isoDate(p.y, p.m, p.day);
+};
+
+/**
+ * The last `n` daily closes (15:30 IST) of a demo underlying on demo-calendar trading days strictly before the IST date
+ * of `t`, oldest first.
+ */
+export function dailyCloses(symbol, t, n) {
+  const u = BY_SYMBOL.get(symbol);
+  if (!u) return [];
+  const cal = demoCalendar();
+  const out = [];
+  let x = istAt(t, 15, 30) - DAY_MS;
+  for (let guard = 0; out.length < n && guard < n * 3; guard += 1, x -= DAY_MS) {
+    if (cal.isTradingDay(istDateOf(x), u.exchange)) out.push(spotAt(symbol, x));
+  }
+  return out.reverse();
+}
+
+const levelMemo = memo(2000);
+/**
+ * The demo IV level (decimal) of an underlying on the IST day of `t` (§4.1): clamp(0.06, 0.60, HV60 × (1.08 + 0.10 ×
+ * sin(2π·d/61 + φ)) + 0.25 × (HV20 − HV60)), where HV20/HV60 are the demo's own close-to-close realised vols over the
+ * trailing sessions and d is the IST day number. IV runs above realised on most days (a positive variance premium) and
+ * IV rank travels 0–100 over a year. Constant within a day.
+ */
+export function ivLevel(symbol, t) {
+  const date = istDateOf(t);
+  return levelMemo(`${symbol}|${date}`, () => {
+    const closes = dailyCloses(symbol, t, 61);
+    const hv20 = (realisedVol(closes, 20) ?? 15) / 100;
+    const hv60 = (realisedVol(closes, 60) ?? 15) / 100;
+    const d = Math.floor((t + IST_OFFSET_MS) / DAY_MS);
+    const level = hv60 * (1.08 + 0.1 * Math.sin((2 * Math.PI * d) / 61 + phase(`${symbol}:iv`))) + 0.25 * (hv20 - hv60);
+    return Math.min(0.6, Math.max(0.06, level));
+  });
+}
+
+/**
+ * INDIA VIX (Demo) at `t`: 100 × NIFTY's 30-day ATM vol on calendar time (the demo smile level and term factor on the
+ * vol-time clock to the close 30 calendar days ahead, rolled back to the previous trading day as §6.6 does, converted
+ * through total variance), × (1.03 + 0.03·sin(2π·d/17)), on a 0.0025 tick.
+ */
+function vixAt(t) {
+  const target = shiftForHoliday(istDateOf(t + 30 * DAY_MS), "NFO");
+  const c = clockTo("NFO", target, t);
+  const nifty = BY_SYMBOL.get("NIFTY");
+  const S = spotAt("NIFTY", t);
+  const sigVt = smileVol(nifty, S, S, c.T, ivLevel("NIFTY", t));
+  const sigCal = c.Tcal > 0 ? sigVt * Math.sqrt(c.T / c.Tcal) : sigVt;
+  const d = Math.floor((t + IST_OFFSET_MS) / DAY_MS);
+  const v = 100 * sigCal * (1.03 + 0.03 * Math.sin((2 * Math.PI * d) / 17));
+  return Number((Math.round(v / 0.0025) * 0.0025).toFixed(4));
 }
 
 // ── Option maths ──
 
-function normCdf(x) {
-  const a = Math.abs(x) / Math.SQRT2;
-  const k = 1 / (1 + 0.3275911 * a);
-  const y = 1 - ((((1.061405429 * k - 1.453152027) * k + 1.421413741) * k - 0.284496736) * k + 0.254829592) * k * Math.exp(-a * a);
-  return 0.5 * (1 + (x < 0 ? -y : y));
-}
-function bs(spot, strike, years, vol, right) {
-  const d1 = (Math.log(spot / strike) + (RATE + 0.5 * vol * vol) * years) / (vol * Math.sqrt(years));
-  const d2 = d1 - vol * Math.sqrt(years);
-  if (right === "CE") return spot * normCdf(d1) - strike * Math.exp(-RATE * years) * normCdf(d2);
-  return strike * Math.exp(-RATE * years) * normCdf(-d2) - spot * normCdf(-d1);
-}
 /**
  * Implied volatility (decimal) for a strike and tenor, the same for CE and PE (so put-call parity holds): a smile in
- * moneyness scaled by √T, steeper on the put side, with front expiries richer than later ones (a term structure).
+ * moneyness scaled by √T, steeper on the put side, with front expiries richer than later ones (a term structure),
+ * around `level` (the underlying's fixed demo IV when not given; the time-varying ivLevel when pricing).
  */
-export function smileVol(u, spot, strike, years) {
-  const x = Math.log(strike / spot) / Math.sqrt(Math.max(years, 1 / 365));
-  const base = u.iv * (1 + 0.3 * Math.exp((-years * 365) / 6));
+export function smileVol(u, spot, strike, years, level = u.iv) {
+  const x = Math.log(strike / spot) / Math.sqrt(Math.max(years, MIN_SMILE_YEARS));
+  const base = level * (1 + 0.3 * Math.exp((-years * CAL_DAYS) / 6));
   // Smooth in strike (no per-strike wiggle): adjacent strikes then never form a butterfly arbitrage.
   return base * (1 + 1.2 * x * x + (x < 0 ? 0.8 : 0.1) * Math.abs(x));
 }
+/** The smile's shape constants (in calendar days, as the smile was tuned): a one-day floor on √T and the term decay. */
+const CAL_DAYS = 365;
+const MIN_SMILE_YEARS = 1 / CAL_DAYS;
 
+/**
+ * Demo option price at `t`: Black-76 on F = S·e^(r·Tcal), discounted by e^(−r·Tcal), with σ√T on the vol-time clock
+ * (dashboard/pricing.js) and σ from the smile at the day's IV level. The pricing engine therefore recovers the demo
+ * smile vol (up to tick rounding). After the settlement the price is intrinsic (never below one tick).
+ */
 export function optionPrice(symbol, expiry, strike, right, t) {
   const u = BY_SYMBOL.get(symbol);
   const spot = spotAt(symbol, t);
-  if (!u || spot === null) return null;
-  const years = yearsTo(expiry, t);
-  const p = bs(spot, strike, years, smileVol(u, spot, strike, years), right);
+  if (!u?.deriv || spot === null) return null;
+  const { T, Tcal } = clockTo(u.deriv, expiry, t);
+  const df = Math.exp(-RATE * Tcal);
+  const F = spot / df;
+  const vol = smileVol(u, spot, strike, T, ivLevel(symbol, t));
+  const p = df * black76(F, strike, T, vol * 100, right);
   return fix(Math.max(0.05, p), 0.05);
 }
 
 function futurePrice(symbol, expiry, t) {
+  const u = BY_SYMBOL.get(symbol);
   const spot = spotAt(symbol, t);
-  return fix(spot * Math.exp(RATE * yearsTo(expiry, t)), 0.05);
+  return fix(spot * Math.exp(RATE * clockTo(u.deriv, expiry, t).Tcal), 0.05);
 }
 
 /** Open interest in units, peaking near the money and at round strikes. */
@@ -349,8 +447,8 @@ export function quoteOf(token, exchange, t) {
   const spread = p.kind === "opt" ? Math.max(tick * (1 + Math.round(3 * (1 - near))), ltp * 0.0015) : Math.max(tick, ltp * 0.0002);
   const down = (n) => Math.max(0, Math.floor(n / tick + 1e-9) * tick);
   const up = (n) => Math.ceil(n / tick - 1e-9) * tick;
-  const bid = Number(down(Math.min(ltp, ltp - spread / 2)).toFixed(2));
-  const ask = Number(Math.max(up(ltp + spread / 2), bid + tick).toFixed(2));
+  const bid = Number(down(Math.min(ltp, ltp - spread / 2)).toFixed(4));
+  const ask = Number(Math.max(up(ltp + spread / 2), bid + tick).toFixed(4));
   const perMinute = p.kind === "spot" ? 5200 : p.kind === "fut" ? 30 : 4 + 200 * near;
   const volume = p.kind === "spot" && u.kind === "INDEX" ? 0 : Math.round(perMinute * minutes * (0.7 + 0.6 * unit(`${token}:vol`))) * (p.kind === "spot" ? 1 : u.lot);
   const oi = p.kind === "opt" ? openInterest(u, spotAt(p.symbol, t), p.strike, p.right, p.expiry) : p.kind === "fut" ? Math.round(120_000 * (0.8 + 0.4 * unit(`${token}:oi`))) * u.lot : null;
@@ -367,6 +465,33 @@ export function quoteOf(token, exchange, t) {
     bid,
     ask,
   };
+}
+
+/**
+ * A light OptionChain-shaped chain at `t` for history seeding (vol/demoVol.mjs, P1-3b): ltp, bid, ask, oi and volume
+ * per leg from optionPrice only (no intraday high/low walk), `strikesEachSide` strikes around the spot. About 120 legs
+ * in well under a millisecond each. Null for a symbol without options.
+ */
+export function demoChainAt(symbol, expiry, t, strikesEachSide = STRIKES_EACH_SIDE) {
+  const u = BY_SYMBOL.get(symbol);
+  const spot = spotAt(symbol, t);
+  if (!u?.deriv || spot === null) return null;
+  const centre = Math.round(spot / u.step) * u.step;
+  const rows = [];
+  for (let i = -strikesEachSide; i <= strikesEachSide; i += 1) {
+    const k = centre + i * u.step;
+    const near = Math.exp(-(((k - spot) / (u.step * 8)) ** 2));
+    const leg = (right) => {
+      const ltp = optionPrice(symbol, expiry, k, right, t);
+      const spread = Math.max(0.05 * (1 + Math.round(3 * (1 - near))), ltp * 0.0015);
+      const bid = Number(Math.max(0, Math.floor((ltp - spread / 2) / 0.05 + 1e-9) * 0.05).toFixed(2));
+      const ask = Number(Math.max(Math.ceil((ltp + spread / 2) / 0.05 - 1e-9) * 0.05, bid + 0.05).toFixed(2));
+      const volume = Math.round((4 + 200 * near) * 375 * (0.7 + 0.6 * unit(`${symbol}:${expiry}:${k}:${right}:vol`))) * u.lot;
+      return { symbol: `${u.deriv}:${symbol}-${expiry}-${k}-${right}`, ltp, bid, ask, oi: openInterest(u, spot, k, right, expiry), volume };
+    };
+    rows.push({ strike: k, ce: leg("CE"), pe: leg("PE") });
+  }
+  return { underlying: symbol, expiry, underlyingLtp: spot, atmStrike: centre, lotSize: contractLot(u, expiry, t), rows };
 }
 
 // ── The adapter ──
@@ -577,13 +702,15 @@ export function candles(token, interval, fromMs, toMs) {
     for (let i = 0; i <= n; i += 1) pts.push(priceOf(token, start + ((end - start) * i) / n));
     const open = pts[0];
     const close = pts[n];
-    const wick = Math.abs(close - open) * 0.25 + (p.kind === "spot" ? u.tick : 0.05);
+    const tick = p.kind === "spot" ? u.tick : 0.05;
+    const wick = Math.abs(close - open) * 0.25 + tick;
     const vol = indexSpot ? 0 : Math.round((800 + 2400 * unit(`${token}:${start}`)) * ((end - start) / 60_000) ** 0.8) * lotMul;
     return {
       time: Math.floor(start / 1000),
       open,
-      high: round2(Math.max(...pts) + wick * unit(`${token}:${start}:h`)),
-      low: round2(Math.min(...pts) - wick * unit(`${token}:${start}:l`)),
+      // Outward onto the symbol's tick and clamped, so high ≥ every sample and low ≤ every sample on any tick grid.
+      high: Math.max(...pts, ceilTick(Math.max(...pts) + wick * unit(`${token}:${start}:h`), tick)),
+      low: Math.min(...pts, Math.max(tick, floorTick(Math.min(...pts) - wick * unit(`${token}:${start}:l`), tick))),
       close,
       volume: vol,
     };
@@ -596,7 +723,7 @@ export function candles(token, interval, fromMs, toMs) {
       const end = Math.min(d + 375 * 60_000, toMs);
       if (end <= d) continue;
       const c = bar(d, end);
-      c.time = Math.floor((d - (9 * 60 + 15) * 60_000) / 1000); // daily bars open at IST midnight
+      c.time = Math.floor(istAt(d, 0, 0) / 1000); // daily bars open at IST midnight
       out.push(c);
     }
     return out;

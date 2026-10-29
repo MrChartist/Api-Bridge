@@ -101,6 +101,8 @@ tags:
     description: Broker limits, budgets and usage.
   - name: Safety
     description: Kill switch, safety counters and the audit log.
+  - name: Readiness
+    description: "Whether each live account can trade now: session, static IP, order headroom, kill switch (H5)."
   - name: Spreadsheets
     description: Plain-text and CSV endpoints for Excel, Google Sheets and AmiBroker.
   - name: Webhooks
@@ -119,6 +121,8 @@ tags:
     description: Free public sources (Yahoo Finance, NSE website) used as a labelled fallback when no broker account can answer.
   - name: Reference data
     description: Contract calendar, lots, ban list, MWPL, F&O universe, corporate actions, rate and charges (stream S16). Every value carries source and asOf.
+  - name: Volatility
+    description: Vol-time clock, daily ATM IV store, IV rank and percentile, IV history and VIX (stream S18). IV in vol points; every series carries quality and source.
   - name: Participant OI
     description: >-
       NSE participant-wise open interest (stream S26, store S4): Client, DII, FII and Pro long and short contracts in index
@@ -997,6 +1001,15 @@ paths:
         - name: greeks
           in: query
           schema: { type: boolean, default: true }
+        - name: ivModel
+          in: query
+          description: >-
+            b76-forward: every leg's IV and Greeks from Black-76 on the 5-strike parity forward, mid prices and the
+            vol-time clock (theta per trading-day unit), the broker's own IV kept as brokerIv, and a chain-level
+            pricing object. legacy-bs-spot: Black-Scholes on spot with calendar days (theta per calendar day). Default:
+            market.chain.ivModelDefault (legacy-bs-spot until 2027-05-01); a response that used the legacy default
+            carries Deprecation and Link headers.
+          schema: { type: string, enum: [b76-forward, legacy-bs-spot] }
         - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
@@ -1613,6 +1626,129 @@ paths:
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/readiness:
+    get:
+      tags: [Readiness]
+      operationId: getReadiness
+      summary: Trading readiness of each live account (cached; no broker call)
+      x-stream: S20
+      x-scope: read
+      description: >-
+        One state per account (ready, warn, cannot_trade, paper_only, unknown) with plain-English reasons and the facts
+        each check used. Cached: no broker call and no lookup. IP addresses (egress.ip, checks.egress.detectedIp,
+        registeredIp, backupIp) and the lookup host (seenBy) are present only for callers on this computer or with the
+        admin scope; others see only whether the address matches.
+      parameters:
+        - { name: account, in: query, required: false, schema: { type: array, maxItems: 20, items: { $ref: "#/components/schemas/AccountId" } }, style: form, explode: true }
+      responses:
+        "200":
+          description: Readiness snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Readiness" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/readiness/check:
+    post:
+      tags: [Readiness]
+      operationId: checkReadiness
+      summary: Re-check now (probe and egress lookup, each with a 30 s cooldown)
+      x-stream: S20
+      x-scope: read
+      description: >-
+        Runs the checks at once for one account (or every account this key may see). The broker read call and the
+        egress lookup each have a 30 s cooldown; skipped parts are listed in meta.skipped. Waits at most 12 s, then
+        answers with what it has.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, properties: { account: { $ref: "#/components/schemas/AccountId" } } }
+      responses:
+        "200":
+          description: Readiness snapshot after the check.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Readiness" }
+                  meta:
+                    allOf:
+                      - { $ref: "#/components/schemas/Meta" }
+                      - { type: object, properties: { skipped: { type: array, items: { type: string }, examples: [["probe:zerodha-main:cooldown", "egress:cooldown"]] } } }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/readiness/history:
+    get:
+      tags: [Readiness]
+      operationId: getReadinessHistory
+      summary: Recent readiness transitions (newest first)
+      x-stream: S20
+      x-scope: read
+      parameters:
+        - { name: account, in: query, required: false, schema: { $ref: "#/components/schemas/AccountId" } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        "200":
+          description: Transitions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/ReadinessTransition" } }
+                  meta:
+                    allOf:
+                      - { $ref: "#/components/schemas/Meta" }
+                      - { type: object, properties: { kept: { type: integer, description: "How many transitions the Bridge keeps (200)." } } }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/demo/readiness:
+    post:
+      tags: [Readiness]
+      operationId: demoReadinessScenario
+      summary: Demo mode only - simulate a readiness failure on the demo account (restores itself after 10 minutes)
+      x-stream: S20
+      x-scope: read
+      x-demo-only: true
+      description: >-
+        Exists only when the Bridge runs in demo mode. Changes only the simulated view of the demo account (no live
+        trading is possible in demo mode). A scenario is shared by everyone viewing the demo and reverts after 10
+        minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [scenario]
+              properties:
+                scenario: { type: string, enum: [session-expired, session-expiring, ip-changed, ip-unchecked, daily-loss-near, daily-orders-exhausted, restore] }
+      responses:
+        "200":
+          description: Readiness snapshot after the scenario.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Readiness" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
 
   /v1/audit:
     get:
@@ -3903,6 +4039,302 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/vol/clock:
+    get:
+      tags: [Volatility]
+      operationId: getVolClock
+      summary: Vol-time clock settings, holidays ahead and T for expiries with the breakdown
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+      x-stream: S18
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, schema: { type: string, maxLength: 120 } }
+        - { name: at, in: query, schema: { type: string, format: date-time } }
+      responses:
+        "200":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolClock" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/vol/snapshot:
+    get:
+      tags: [Volatility]
+      operationId: getVolSnapshot
+      summary: Live vol rows for an underlying (front and 30-day pair), cm30 and a quick rank
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+      x-stream: S18
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+      responses:
+        "200":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolData" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/vol/history:
+    get:
+      tags: [Volatility]
+      operationId: getVolHistory
+      summary: Daily IV series (30-day, front, one expiry) with VIX and HV; JSON or CSV
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+      x-stream: S18
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: basis, in: query, schema: { type: string, enum: [cm30, front, expiry], default: cm30 } }
+        - { name: expiry, in: query, schema: { type: string, format: date } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: series, in: query, schema: { type: string, maxLength: 200 } }
+        - { name: quality, in: query, schema: { type: string, enum: [all, live], default: all } }
+        - { name: clock, in: query, schema: { type: string, enum: [weighted, trading, calendar] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 2000, default: 500 } }
+        - { name: cursor, in: query, schema: { type: string, maxLength: 200 } }
+        - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
+      responses:
+        "200":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolData" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/vol/rank:
+    get:
+      tags: [Volatility]
+      operationId: getVolRank
+      summary: IV rank and IV percentile over 30/90/252 days, same-DTE rank and VIX percentile
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+      x-stream: S18
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: lookbacks, in: query, schema: { type: string, pattern: "^\\d{1,4}(,\\d{1,4}){0,4}$" } }
+        - { name: basis, in: query, schema: { type: string, enum: [cm30, front, expiry], default: cm30 } }
+        - { name: expiry, in: query, schema: { type: string, format: date } }
+        - { name: quality, in: query, schema: { type: string, enum: [all, live], default: all } }
+        - { name: clock, in: query, schema: { type: string, enum: [weighted, trading, calendar] } }
+      responses:
+        "200":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolData" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/vol/summary:
+    get:
+      tags: [Volatility]
+      operationId: getVolSummary
+      summary: Rank lines for up to 200 underlyings (memory only, no broker calls)
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+      x-stream: S18
+      x-scope: read
+      parameters:
+        - { name: underlyings, in: query, required: true, schema: { type: string, maxLength: 4000 } }
+        - { name: lookback, in: query, schema: { type: integer, minimum: 5, maximum: 1000, default: 252 } }
+      responses:
+        "200":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolData" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/vol/status:
+    get:
+      tags: [Volatility]
+      operationId: getVolStatus
+      summary: Capture state, coverage, capacity, sources, back-fill job and disk use
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+      x-stream: S18
+      x-scope: read
+      responses:
+        "200":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolData" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/vol/predictions:
+    get:
+      tags: [Volatility]
+      operationId: getVolPredictions
+      summary: Logged model probabilities (store S9)
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+      x-stream: S18
+      x-scope: read
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: underlying, in: query, schema: { type: string, maxLength: 30 } }
+        - { name: metric, in: query, schema: { type: string, maxLength: 40 } }
+      responses:
+        "200":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolData" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/vol/capture:
+    post:
+      tags: [Volatility]
+      operationId: startVolCapture
+      summary: Capture the daily vol rows now
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then. Spends broker budget, so admin and this computer only; audited.
+      x-stream: S18
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VolCaptureRequest" }
+      responses:
+        "202":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolData" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/vol/backfill:
+    post:
+      tags: [Volatility]
+      operationId: startVolBackfill
+      summary: Start or resume the bhavcopy and VIX back-fill
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then. Needs NSE archive downloads turned on (reference sources); admin and this computer only; audited.
+      x-stream: S18
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VolBackfillRequest" }
+      responses:
+        "202":
+          description: OK. Unavailable data is not an error: available false with a reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { oneOf: [{ $ref: "#/components/schemas/VolData" }, { $ref: "#/components/schemas/VolUnavailable" }] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Volatility]
+      operationId: cancelVolBackfill
+      summary: Cancel the running back-fill after the current file
+      description: >-
+        Not built yet (step P1-3b/P1-3c): answers 501 NOT_IMPLEMENTED until then.
+      x-stream: S18
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "204":
+          description: Cancelled.
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/demo/reference:
+    put:
+      tags: [Reference data]
+      operationId: setDemoReference
+      summary: "Demo only: report the reference lot data as stale"
+      description: >-
+        Exists only when the Bridge runs in demo mode. With lotsStale true, the demo reference reports every lot as two trading days old (the bundle, /v1/reference/lots and the order preview's LOT_SIZE_STALE check), so the stale warning and the order ticket's lot-size confirmation can be tried. false restores current lots.
+      x-stream: S16
+      x-scope: admin
+      x-loopback-only: true
+      x-demo-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [lotsStale], additionalProperties: false, properties: { lotsStale: { type: boolean } } }
+      responses:
+        "200":
+          description: The flag now in force.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, properties: { lotsStale: { type: boolean } } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/participants/oi:
     get:
       tags: [Participant OI]
@@ -4596,6 +5028,15 @@ components:
         theta: { type: [number, "null"] }
         vega: { type: [number, "null"] }
         greeksSource: { type: [string, "null"], enum: [broker, computed, null] }
+        brokerIv: { type: [number, "null"], description: "The broker's own IV (percent), when it sent one and ivModel=b76-forward recomputed iv." }
+        ivReason:
+          type: [string, "null"]
+          enum: [SETTLING, NOQUOTE, TICK, INTRINSIC, RANGE, SETTLED, NOFORWARD, null]
+          description: >-
+            ivModel=b76-forward only: why iv is null. SETTLING = expiry day inside the settlement window and the price within
+            2 ticks of intrinsic on the forward; NOQUOTE = no usable price; TICK = price at or below one tick; INTRINSIC = at
+            or below discounted intrinsic; RANGE = solved IV outside 1-300 %; SETTLED = past the settlement; NOFORWARD = no
+            forward. Null when the IV solved.
     OptionChain:
       type: object
       required: [underlying, expiry, rows, freshness]
@@ -4615,6 +5056,90 @@ components:
               ce: { oneOf: [{ $ref: "#/components/schemas/ChainLeg" }, { type: "null" }] }
               pe: { oneOf: [{ $ref: "#/components/schemas/ChainLeg" }, { type: "null" }] }
         freshness: { $ref: "#/components/schemas/Freshness" }
+        pricing: { $ref: "#/components/schemas/ChainPricing" }
+    VolUnavailable:
+      type: object
+      required: [available, reason]
+      properties:
+        underlying: { type: string }
+        available: { type: boolean, const: false }
+        reason: { type: string, description: "Open enum: NOT_TRACKED, NO_HISTORY, COLLECTING, SOURCE_OFF, NO_CHAIN, NO_DATA_ACCOUNT, NOT_LISTED_IN_DEMO." }
+    VolData:
+      type: object
+      description: Shapes in docs/spec/p1-03-pricing-vol.md §3.4–3.8; the full schemas land with the handlers (P1-3b/P1-3c).
+      additionalProperties: true
+    VolClockPart:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        kind: { type: string, enum: [gap, session] }
+        units: { type: number }
+    VolClockResult:
+      type: object
+      properties:
+        expiry: { type: string, format: date }
+        T: { type: [number, "null"], description: "Years on the configured clock." }
+        units: { type: [number, "null"], description: "Trading-day units (calendar days in calendar mode)." }
+        Tcal: { type: [number, "null"], description: "Calendar years (ACT/365) to the expiry close." }
+        Ttd: { type: [number, "null"], description: "Trading-day years (/252)." }
+        parts: { type: array, items: { $ref: "#/components/schemas/VolClockPart" } }
+    VolClock:
+      type: object
+      properties:
+        underlying: { type: string }
+        exchange: { type: string }
+        at: { type: string, format: date-time }
+        settings: { type: object, additionalProperties: true }
+        rate: { type: object, additionalProperties: true }
+        holidays:
+          type: array
+          description: Holidays in [at, at + 400 days] for the underlying's exchange; the dashboard builds its client clock from them.
+          items:
+            type: object
+            required: [date, label, verified]
+            properties:
+              date: { type: string, format: date }
+              label: { type: [string, "null"] }
+              verified: { type: boolean }
+        expiries: { type: array, items: { $ref: "#/components/schemas/VolClockResult" } }
+    VolCaptureRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        underlyings: { type: array, maxItems: 50, items: { type: string, maxLength: 30 } }
+        replace: { type: boolean, default: false }
+    VolBackfillRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        sources: { type: array, items: { type: string, enum: [nse, bse, vix] } }
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        underlyings: { type: array, maxItems: 50, items: { type: string, maxLength: 30 } }
+    ChainPricing:
+      type: object
+      description: How every leg's IV and Greeks were computed (present with ivModel=b76-forward).
+      properties:
+        model: { type: string, const: black76-parity-forward }
+        ivModel: { type: string, const: b76-forward }
+        priceBasis: { type: string, const: mid }
+        forward: { type: [number, "null"] }
+        forwardSource: { type: [string, "null"], enum: [parity, spot, null] }
+        forwardStrikes: { type: integer }
+        rate:
+          type: object
+          properties:
+            value: { type: number }
+            quality: { type: [string, "null"] }
+        clock:
+          type: object
+          properties:
+            version: { type: string }
+            mode: { type: string, enum: [weighted, trading, calendar] }
+            T: { type: number, description: "Years on the vol-time clock (used inside sigma times root T)." }
+            units: { type: number }
+            Tcal: { type: number, description: "Calendar years (interest and discounting)." }
+            yearBasis: { type: number, description: "Clock units a year; theta is per one unit." }
     StreamStats:
       type: object
       properties:
@@ -4917,6 +5442,113 @@ components:
               ordersToday: { type: integer }
               realisedPnlToday: { type: number }
               limits: { type: object }
+    ReadinessState:
+      type: string
+      description: "Account trading readiness. Open enum: new values may be added."
+      enum: [ready, warn, cannot_trade, paper_only, unknown]
+    ReadinessReason:
+      type: object
+      required: [check, code, severity, message]
+      properties:
+        check: { type: string, examples: [session, egress, orderRate, dailyOrders, dailyLoss, killSwitch, live, readiness] }
+        code:
+          type: string
+          description: >-
+            Open list: LIVE_OFF, SESSION_EXPIRED, SESSION_MISSING, SESSION_ERROR, SESSION_REJECTED, SESSION_EXPIRES_SOON,
+            PROBE_FAILED, IP_MISMATCH, IP_NOT_REGISTERED, IP_INVALID_CONFIG, IP_FAMILY_DIFFERS, IP_UNCHECKED,
+            IP_LOOKUP_FAILED, CLOCK_SKEW, RATE_CAP_REACHED, BROKER_ORDER_BACKOFF, DAILY_ORDERS_LOW, DAILY_ORDERS_EXHAUSTED,
+            DAILY_LOSS_NEAR, DAILY_LOSS_REACHED, KILL_SWITCH, STALE.
+        severity: { type: string, enum: [warn, fail] }
+        message: { type: string }
+    ReadinessCheck:
+      type: object
+      required: [status]
+      additionalProperties: true
+      properties:
+        status: { type: string, enum: [pass, warn, fail, unknown, n/a] }
+    ReadinessAutomation:
+      type: object
+      required: [id, kind, label, mode, state]
+      properties:
+        id: { type: string }
+        kind: { type: string, examples: [webhook, guard, alert, sample] }
+        label: { type: string }
+        mode: { type: string, enum: [paper, live] }
+        state: { $ref: "#/components/schemas/ReadinessState" }
+    AccountReadiness:
+      type: object
+      required: [accountId, broker, state, reasons, checks, live, simulated, stale]
+      properties:
+        accountId: { $ref: "#/components/schemas/AccountId" }
+        broker: { type: string }
+        brokerName: { type: string }
+        label: { type: [string, "null"] }
+        simulated: { type: boolean, description: "Demo mode: a simulated live account (no real broker)." }
+        live:
+          type: object
+          properties:
+            globalLiveTrading: { type: [boolean, string] }
+            accountLiveEnabled: { type: [boolean, string] }
+            allowedByConfig: { type: boolean }
+        state: { $ref: "#/components/schemas/ReadinessState" }
+        since: { type: [string, "null"], format: date-time }
+        checkedAt: { type: [string, "null"], format: date-time }
+        stale: { type: boolean }
+        reasons: { type: array, items: { $ref: "#/components/schemas/ReadinessReason" } }
+        checks:
+          type: object
+          properties:
+            session: { $ref: "#/components/schemas/ReadinessCheck" }
+            egress: { $ref: "#/components/schemas/ReadinessCheck" }
+            orderRate: { $ref: "#/components/schemas/ReadinessCheck" }
+            dailyOrders: { $ref: "#/components/schemas/ReadinessCheck" }
+            dailyLoss: { $ref: "#/components/schemas/ReadinessCheck" }
+            killSwitch: { $ref: "#/components/schemas/ReadinessCheck" }
+        automations: { type: array, items: { $ref: "#/components/schemas/ReadinessAutomation" } }
+    Readiness:
+      type: object
+      required: [overall, summary, accounts, paperOnly, method]
+      properties:
+        overall: { $ref: "#/components/schemas/ReadinessState" }
+        summary: { type: string, examples: ["1 of 2 live accounts cannot trade"] }
+        checkedAt: { type: [string, "null"], format: date-time }
+        disabled: { type: boolean, description: "readiness.enabled is false." }
+        accounts: { type: array, items: { $ref: "#/components/schemas/AccountReadiness" } }
+        paperOnly: { type: boolean }
+        egress:
+          type: object
+          description: ip and seenBy only for callers on this computer or with the admin scope.
+          properties:
+            mode: { type: string, enum: [off, lookup, manual] }
+            checkedAt: { type: [string, "null"], format: date-time }
+            family: { type: [string, "null"], enum: [ipv4, ipv6, null] }
+            seenBy: { type: [string, "null"] }
+            ip: { type: [string, "null"] }
+            clockSkewMs: { type: [integer, "null"] }
+            lastError: { type: [string, "null"] }
+        schedule: { type: object, additionalProperties: true }
+        automations:
+          type: object
+          properties:
+            total: { type: integer }
+            live: { type: integer }
+            cannotTrade: { type: integer }
+        notifications:
+          type: object
+          properties:
+            targetsListening: { type: array, items: { type: string } }
+            warning: { type: [string, "null"] }
+            demoOff: { type: boolean }
+        method: { type: string }
+    ReadinessTransition:
+      type: object
+      required: [at, accountId, from, to, codes]
+      properties:
+        at: { type: string, format: date-time }
+        accountId: { $ref: "#/components/schemas/AccountId" }
+        from: { $ref: "#/components/schemas/ReadinessState" }
+        to: { $ref: "#/components/schemas/ReadinessState" }
+        codes: { type: array, items: { type: string } }
     AuditRecord:
       type: object
       required: [seq, at, type, actor, source, hash, prevHash]
@@ -4954,6 +5586,11 @@ components:
         allowSourceIps: { type: array, items: { type: string } }
         createdAt: { type: string, format: date-time }
         lastSignalAt: { type: [string, "null"], format: date-time }
+        readiness:
+          description: "Live hooks: the readiness state of the hook's account (orders are refused with CANNOT_TRADE while it is cannot_trade). null for paper hooks."
+          oneOf:
+            - { $ref: "#/components/schemas/ReadinessState" }
+            - { type: "null" }
     HookCreate:
       type: object
       required: [source, label, account]
@@ -5013,6 +5650,18 @@ components:
       type: object
       properties:
         items: { type: array, items: { $ref: "#/components/schemas/RefHoliday" } }
+        specialSessions:
+          type: array
+          description: Special sessions (for example Muhurat trading) in the same range; open/close are null when not announced.
+          items:
+            type: object
+            properties:
+              date: { type: string, format: date }
+              label: { type: string }
+              open: { type: [string, "null"] }
+              close: { type: [string, "null"] }
+              verified: { type: boolean }
+              origin: { type: string }
         source: { type: string }
         asOf: { type: string }
     RefExpiry:
@@ -5139,6 +5788,7 @@ components:
         text: { type: string }
         contract: { type: object }
         adjusted: { type: object, properties: { exampleStrikes: { type: array, items: { type: object } }, lotBefore: { type: [integer, "null"] }, lotAfter: { type: [integer, "null"] } } }
+        exampleStrikes: { type: array, items: { type: number }, description: "Pre-action example strikes stored with a user entry (the ones its preview showed)." }
         addedAt: { type: string }
     CorporateActionInput:
       type: object
@@ -5157,6 +5807,7 @@ components:
         strikeTick: { type: number, exclusiveMinimum: 0 }
         source: { type: string, maxLength: 200 }
         lotRule: { type: string, enum: [round] }
+        exampleStrikes: { type: array, maxItems: 9, items: { type: number, exclusiveMinimum: 0 }, description: "Pre-action strikes the add form previewed; the stored row's adjusted.exampleStrikes uses the same ones." }
     RefCorporateActions:
       type: object
       properties:
@@ -5282,7 +5933,7 @@ components:
         expiries: { type: array, items: { $ref: "#/components/schemas/RefExpiry" } }
         lots: { type: object, properties: { current: { type: [integer, "null"] }, next: { type: object }, source: { type: [string, "null"] }, asOf: { type: [string, "null"] }, quality: { type: string }, stale: { type: boolean }, staleTradingDays: { type: [integer, "null"] }, conflict: { type: [object, "null"] } } }
         freeze: { $ref: "#/components/schemas/RefFreeze" }
-        ban: { type: [object, "null"], properties: { inBan: { type: [boolean, "null"] }, mwplPct: { type: [number, "null"] }, band: { type: [string, "null"] }, forDate: { type: string }, asOf: { type: [string, "null"] }, source: { type: [string, "null"] } } }
+        ban: { type: [object, "null"], properties: { inBan: { type: [boolean, "null"] }, mwplPct: { type: [number, "null"] }, band: { type: [string, "null"] }, forDate: { type: string }, asOf: { type: [string, "null"] }, source: { type: [string, "null"] }, stale: { type: boolean, description: "Ban / MWPL data older than reference.staleAfterTradingDays" }, staleTradingDays: { type: [integer, "null"] } } }
         events: { type: array, items: { $ref: "#/components/schemas/RefEvent" } }
         deliveryMargin: { oneOf: [{ $ref: "#/components/schemas/RefDeliveryMargin" }, { type: "null" }] }
         charges: { $ref: "#/components/schemas/RefCharges" }

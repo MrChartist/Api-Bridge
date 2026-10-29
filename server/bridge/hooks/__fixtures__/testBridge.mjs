@@ -24,7 +24,7 @@ export const PRICES = Object.freeze({ "NSE:RELIANCE": 1402.5, "NSE:NIFTY": 25010
 /**
  * @param {{ config?: object, accounts?: string[], liveAccounts?: string[], listen?: boolean }} [opts]
  */
-export async function startTestBridge({ config = {}, accounts = ["paper", "dhan-main"], liveAccounts = [], listen = true } = {}) {
+export async function startTestBridge({ config = {}, accounts = ["paper", "dhan-main"], liveAccounts = [], listen = true, readiness = null } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), "mcb-s11-"));
   const logLines = [];
   const logger = createLogger({ level: "debug", write: (l) => logLines.push(l) });
@@ -42,7 +42,7 @@ export async function startTestBridge({ config = {}, accounts = ["paper", "dhan-
     config: cfg,
     modules: [hooksModule, mcpModule],
     logger,
-    overrides: { keyStore, secrets, audit, safety, orders, marketData, symbols, accounts: accountsSvc },
+    overrides: { keyStore, secrets, audit, safety, orders, marketData, symbols, accounts: accountsSvc, ...(readiness ? { readiness } : {}) },
   });
   let port = null;
   if (listen) ({ port } = await app.listen());

@@ -53,9 +53,9 @@ export function rangeEnds(from, to) {
   const span = typeof from === "string" && typeof to === "string" && from.slice(0, 4) !== to.slice(0, 4);
   return span ? [longDate(from), longDate(to)] : [shortDate(from), shortDate(to)];
 }
-/** "+1.25L", "-15.6K", "0" */
+/** "+1.25L", "−15.6K", "0" */
 export const signedCount = (n) => formatCompact(n, { signed: true });
-/** "+2.04 pts" / "-2.04 pts" */
+/** "+2.04 pts" / "−2.04 pts" */
 export const ptsText = (n, dp = 2) => (isFigure(n) ? `${formatSigned(n, dp)} pts` : DASH);
 /** The gain / loss tone of a signed figure (direction: net long / net short; up / down change). */
 export const toneOf = (n) => (!isFigure(n) || Number(n) === 0 ? "" : Number(n) > 0 ? "up" : "down");
@@ -243,7 +243,7 @@ export function historyModel(days, range, revisions = []) {
   return { dates: shown.map((d) => d.date), slots, series, revisions: revs, from, to, gaps: slots - shown.length };
 }
 
-/** A series value as text: "31.10%" or "-1.37L". */
+/** A series value as text: "31.10%" or "−1.37L". */
 export function valueText(s, v) {
   if (!isFigure(v)) return DASH;
   return s.kind === "pct" ? formatPercent(v, 2) : signedCount(v);

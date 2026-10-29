@@ -123,7 +123,7 @@ function createHookRateLimiter({ now }) {
  * @param {{ deps: any, cfg: ReturnType<typeof import("./config.mjs").hooksConfig>, store: any, worker: any, logger: any,
  *   now?: () => number }} opts
  */
-export function createHookRoutes({ deps, cfg, store, worker, logger, now = () => Date.now() }) {
+export function createHookRoutes({ deps, cfg, store, worker, logger, now = () => Date.now(), automations = null }) {
   const dedupe = createDedupeMap({ now });
   // Sized for every hook signing at its full rate across the whole timestamp window (entries live about twice the
   // tolerance), so it only fills under abuse; when full it refuses new signatures (429) instead of evicting.
@@ -245,7 +245,7 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
   /** GET /v1/hooks */
   async function listHooks(ctx) {
     const mine = store.list().filter((h) => ctx.canAccessAccounts?.([h.account]) ?? true);
-    return { data: mine.map((h) => ({ ...publicHook(h), templates: alertTemplates(h) })), meta: { requestId: ctx.requestId } };
+    return { data: mine.map((h) => ({ ...publicHook(h), readiness: automations?.state(h) ?? null, templates: alertTemplates(h) })), meta: { requestId: ctx.requestId } };
   }
 
   /** Refuse a live hook the caller may not create (see the file header). Throws; returns nothing. */
@@ -314,7 +314,8 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
     if (hook.orderType === "MARKET") warnings.push("MARKET orders are sent with market protection (safety.marketProtectionPct); LIMIT is safer for alerts.");
     const host = typeof ctx.req?.headers?.host === "string" ? ctx.req.headers.host : `127.0.0.1:${deps.config?.server?.port ?? 4300}`;
     const path = `/hooks/${hook.source}/${token}`;
-    const data = { ...publicHook(hook), url: `http://${host}${path}`, path, templates: alertTemplates(hook), warnings };
+    automations?.sync(hook);
+    const data = { ...publicHook(hook), readiness: automations?.state(hook) ?? null, url: `http://${host}${path}`, path, templates: alertTemplates(hook), warnings };
     if (signingSecret) data.signingSecret = signingSecret;
     await audit(ctx, "hook.created", hook.account, { hookId: hook.id, source: hook.source, label: hook.label, mode: hook.mode, requireConfirmation: hook.requireConfirmation, maxLotsPerSignal: hook.maxLotsPerSignal, allowSourceIps: hook.allowSourceIps.length, acknowledgeUnsignedLive: hook.acknowledgeUnsignedLive, createdByKeyId });
     return json({ data, meta: { requestId: ctx.requestId, accountId: hook.account, mode: hook.mode } }, { status: 201, headers: { "Cache-Control": "no-store" } });
@@ -328,6 +329,7 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
     const existing = store.get(id);
     if (existing && !(ctx.canAccessAccounts?.([existing.account]) ?? true)) throw new BridgeError("NOT_FOUND", "No hook with this id.");
     const hook = await store.remove(id);
+    automations?.remove(hook.id);
     await audit(ctx, "hook.deleted", hook.account, { hookId: hook.id, source: hook.source, label: hook.label });
     return noContent();
   }

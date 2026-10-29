@@ -19,7 +19,7 @@ import { isStub } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { addDays, calendarDaysBetween, createCalendar, dayMonth, deliveryMarginDates, expiryKinds, expiryShifts, isIsoDate, istDateOf, istInstant, mergeHolidays, monthLabel } from "./calendar.mjs";
 import { effectiveSettings, parseReferenceConfig } from "./config.mjs";
-import { inferNonStandard, normaliseAction, previewAdjustment, roundToTick } from "./corporateActions.mjs";
+import { exampleStrikeGrid, inferNonStandard, normaliseAction, previewAdjustment, roundToTick } from "./corporateActions.mjs";
 import { DEFAULT_BROKERAGE } from "./defaults.mjs";
 import { DEMO_SOURCE, DEMO_STOCK_LOT, demoDatasets, demoPrice } from "./demoReference.mjs";
 import { demoHolidayRows, demoSpecialSessions } from "./demoTables.mjs";
@@ -202,7 +202,12 @@ export function createReferenceService(deps, opts = {}) {
   }
 
   /** Lots dataset freshness (reference file when fetched, else the masters). */
-  function lotsMeta({ demoStale = false } = {}) {
+  // Demo only: PUT /v1/demo/reference { lotsStale: true } reports the lots as two trading days old everywhere (the
+  // bundle, lotFor and so the order preview's LOT_SIZE_STALE), so the warning and the ticket's confirmation can be
+  // tried end to end. A real Bridge never sets it.
+  let demoLotsStale = false;
+  function lotsMeta({ demoStale: asked = false } = {}) {
+    const demoStale = asked || (demo && demoLotsStale);
     const t = today();
     let asOf;
     let source;
@@ -442,15 +447,13 @@ export function createReferenceService(deps, opts = {}) {
     const lotBeforeEx = past && !demo ? lotForMonth(timeline, monthBeforeEx) : currentLot;
     const fromSpot = demo || !a.cumPrice;
     const ref = demo ? demoPrice(a.symbol, now()) : a.cumPrice;
-    let strikes = [];
-    if (ref) {
-      const step = ref >= 2000 ? 20 : ref >= 500 ? 10 : 5;
-      const atm = Math.round(ref / step) * step;
-      strikes = [-2, -1, 0, 1, 2].map((i) => atm + i * step);
-    }
+    // A user entry stores the strikes its preview showed, so the saved card shows the same example.
+    const stored = Array.isArray(a.exampleStrikes) && a.exampleStrikes.length ? a.exampleStrikes : null;
+    let strikes = stored ?? [];
+    if (!stored && ref) strikes = exampleStrikeGrid(ref);
     const tick = a.strikeTick ?? 0.05;
     try {
-      if (past && fromSpot) {
+      if (past && fromSpot && !stored) {
         // Today's spot is post-action: the listed strikes are the "after" side.
         const lotAfter = lotBeforeEx === null ? null : Math.round(lotBeforeEx * a.factor);
         return { ...a, adjusted: { exampleStrikes: strikes.map((k) => ({ before: roundToTick(k * a.factor, tick), after: k })), lotBefore: lotBeforeEx, lotAfter } };
@@ -471,7 +474,7 @@ export function createReferenceService(deps, opts = {}) {
 
   function addAction(body) {
     if (!body || typeof body !== "object" || Array.isArray(body)) throw invalid("Send a corporate action object.");
-    const allowed = new Set(["symbol", "exchange", "type", "ratio", "exDate", "subscriptionPrice", "cumPrice", "dividend", "fv", "strikeTick", "source", "lotRule"]);
+    const allowed = new Set(["symbol", "exchange", "type", "ratio", "exDate", "subscriptionPrice", "cumPrice", "dividend", "fv", "strikeTick", "source", "lotRule", "exampleStrikes"]);
     const extra = Object.keys(body).filter((k) => !allowed.has(k));
     if (extra.length) throw invalid(`Unknown field(s): ${extra.join(", ")}. id, factor, origin and verified are set by the Bridge.`, extra[0]);
     if (!isIsoDate(body.exDate)) throw invalid("exDate must be a real date, YYYY-MM-DD.", "exDate");
@@ -623,7 +626,9 @@ export function createReferenceService(deps, opts = {}) {
   function banForBundle(symbol) {
     const b = banStatus(symbol);
     if (b.available === false) return null;
-    return { inBan: b.inBan, mwplPct: b.mwplPct, band: b.band, forDate: b.forDate, asOf: b.asOf, source: b.source };
+    // Age of the ban / MWPL data (spec §5.3: the stale warning also covers a ban list older than allowed).
+    const staleTradingDays = b.asOf ? cal.staleTradingDays(b.asOf, today()) : null;
+    return { inBan: b.inBan, mwplPct: b.mwplPct, band: b.band, forDate: b.forDate, asOf: b.asOf, source: b.source, stale: staleTradingDays !== null && staleTradingDays > cfg.staleAfterTradingDays, staleTradingDays };
   }
 
   async function bundle({ underlying, exchange, now: atMs, demoStale = false } = {}) {
@@ -1000,6 +1005,13 @@ export function createReferenceService(deps, opts = {}) {
     sync: async (o) => startSync(o).promise,
     // extras for routes, MCP and tests
     isDemo: () => demo,
+    /** Demo only: report the lots as stale (true) or current (false). Returns the flag; a non-demo Bridge refuses. */
+    setDemoLotsStale(on) {
+      if (!demo) throw new BridgeError("CAPABILITY_UNSUPPORTED", "Only a demo Bridge can pretend its lot data is stale.");
+      demoLotsStale = Boolean(on);
+      return demoLotsStale;
+    },
+    demoLotsStale: () => demo && demoLotsStale,
     config: () => cfg,
     /**
      * For P1-13a participants (and other archive users): whether NSE archive downloads are on, and the one shared
@@ -1009,7 +1021,14 @@ export function createReferenceService(deps, opts = {}) {
     expiries,
     holidays({ from, to, exchange } = {}) {
       const items = cal.holidaysIn(from, to, exchange).map((h) => ({ date: h.date, label: h.label, exchanges: [...h.exchanges], verified: h.verified, origin: h.origin === "config" ? "config" : "shipped" }));
-      return { items, source: demo ? `${SHIPPED_HOLIDAYS.source} (treated as verified in demo mode)` : SHIPPED_HOLIDAYS.source, asOf: SHIPPED_HOLIDAYS.asOf };
+      // Special sessions in the same range (Muhurat often falls on a weekday holiday), so a month needs one request.
+      const specialSessions = Object.keys(cal.specialSessions)
+        .filter((d) => d >= from && d <= to)
+        .sort()
+        .map((d) => cal.specialOn(d, exchange ?? "NSE"))
+        .filter(Boolean)
+        .map((x) => ({ date: x.date, label: x.label, open: x.open, close: x.close, verified: x.verified, origin: x.origin }));
+      return { items, specialSessions, source: demo ? `${SHIPPED_HOLIDAYS.source} (treated as verified in demo mode)` : SHIPPED_HOLIDAYS.source, asOf: SHIPPED_HOLIDAYS.asOf };
     },
     lots: lotsView,
     banList,

@@ -16,6 +16,7 @@ import { api, chartSlot, emptyState, errorState, h, icon, loadingState, modal, o
 import { DASH, formatCompact, formatFixed, formatInt, formatSigned, isFigure } from "./format.js";
 import { countUp, flashValue, lineReveal, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
+import { refCalendar, refSession } from "./reference.js";
 import { oiStore, snapKey } from "./oi-store.js";
 import { oiParticipantLine } from "./participants.js";
 import { segmented } from "./views.js";
@@ -536,7 +537,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     else {
       e.chain = r.data.data;
       e.error = null;
-      store.offer(e.chain, Date.now(), { demo: isDemo() }).catch(() => {});
+      store.offer(e.chain, Date.now(), { demo: isDemo(), session: refSession(st.ref), isTradingDay: refCalendar(st.ref).isTradingDay }).catch(() => {});
     }
     if (lastX) draw(lastX);
   }
@@ -563,7 +564,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const combined = cfg().scope === "all" && extraList().length > 0;
     const avail = new Map();
     for (const id of WINDOW_IDS) {
-      let a = O.pickRef(snaps, now, id, { hasPrev });
+      let a = O.pickRef(snaps, now, id, { hasPrev, open: refSession(st.ref).open });
       if (combined && id !== "prev") a = { ...a, ok: false, reason: "Combined OI uses the previous close: snapshots are kept per expiry" };
       else if (!a.ok && id !== "prev" && session.phase !== "open" && !isDemo() && !snaps.length) a = { ...a, reason: "Market closed: no snapshots were recorded today" };
       avail.set(id, a);
@@ -590,10 +591,12 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     if (!x) return drawEmpty();
     const c = x.c;
     const now = Date.now();
-    const session = O.marketSession(now);
+    const ses = refSession(st.ref);
+    const cal = { session: ses, isTradingDay: refCalendar(st.ref).isTradingDay };
+    const session = O.marketSession(now, ses, cal);
     const noOi = !c.rows.some((r) => num(r.ce?.oi) !== null || num(r.pe?.oi) !== null);
     const key = snapKey(c.underlying, c.expiry, now);
-    if (!noOi) store.offer(c, now, { demo: isDemo() }).catch(() => {});
+    if (!noOi) store.offer(c, now, { demo: isDemo(), ...cal }).catch(() => {});
     let snaps = store.peek(key);
     if (!snaps) {
       snaps = [];
@@ -636,8 +639,8 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const pcrChain = O.pcrSet(rows);
     const pcrB = O.pcrSet(band);
     const mp = O.maxPainCurve(rows, spot);
-    const relevance = O.maxPainRelevance(c.expiry, now);
-    const sessions = O.sessionsLeft(c.expiry, now);
+    const relevance = O.maxPainRelevance(c.expiry, now, cal);
+    const sessions = O.sessionsLeft(c.expiry, now, cal);
     const walls = { ce: O.oiWalls(rows, "ce", spot, { band, move: x.move }), pe: O.oiWalls(rows, "pe", spot, { band, move: x.move }) };
     const wallMap = { ce: new Map(walls.ce.map((v) => [v.strike, tagOf("ce", v.rank)])), pe: new Map(walls.pe.map((v) => [v.strike, tagOf("pe", v.rank)])) };
     const R1 = walls.ce[0] ?? null;

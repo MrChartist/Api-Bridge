@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertTransportAllowed, createCors, createHostCheck, isLocalRequest, isLoopbackAddress, parseHostHeader } from "./security.mjs";
+import { assertNotCrossSiteWrite, assertTransportAllowed, createCors, createHostCheck, isLocalRequest, isLoopbackAddress, parseHostHeader } from "./security.mjs";
 
 describe("Host allowlist (DNS rebinding guard)", () => {
   const check = createHostCheck({ port: 4300, allowedHosts: ["bridge.lan:4300", "my-tunnel.example"] });
@@ -44,6 +44,27 @@ describe("assertTransportAllowed", () => {
     expect(() => assertTransportAllowed(req({ host: "evil.example" }), guards)).toThrow(expect.objectContaining({ code: "HOST_NOT_ALLOWED" }));
     expect(() => assertTransportAllowed(req({ host: "127.0.0.1:4300", origin: "https://evil.example" }), guards)).toThrow(expect.objectContaining({ code: "ORIGIN_NOT_ALLOWED" }));
     expect(() => assertTransportAllowed(req({ host: "127.0.0.1:4300" }), guards)).not.toThrow();
+  });
+});
+
+describe("assertNotCrossSiteWrite (Sec-Fetch-Site guard, p1-05 §3.9 F7)", () => {
+  const cors = createCors({ allowedOrigins: ["http://localhost:5173"] });
+  const req = (method, headers) => ({ method, headers: { host: "127.0.0.1:4300", ...headers } });
+  it("refuses a cross-site or same-site browser write that carries no allowed Origin", () => {
+    for (const m of ["POST", "PUT", "PATCH", "DELETE"]) {
+      expect(() => assertNotCrossSiteWrite(req(m, { "sec-fetch-site": "cross-site" }), cors)).toThrow(expect.objectContaining({ code: "ORIGIN_NOT_ALLOWED" }));
+      expect(() => assertNotCrossSiteWrite(req(m, { "sec-fetch-site": "same-site" }), cors)).toThrow(expect.objectContaining({ code: "ORIGIN_NOT_ALLOWED" }));
+      expect(() => assertNotCrossSiteWrite(req(m, { "sec-fetch-site": "cross-site", origin: "https://evil.example" }), cors)).toThrow(expect.objectContaining({ code: "ORIGIN_NOT_ALLOWED" }));
+    }
+  });
+  it("lets reads, non-browser clients, same-origin pages and allowlisted origins through", () => {
+    expect(() => assertNotCrossSiteWrite(req("GET", { "sec-fetch-site": "cross-site" }), cors)).not.toThrow();
+    expect(() => assertNotCrossSiteWrite(req("OPTIONS", { "sec-fetch-site": "cross-site" }), cors)).not.toThrow();
+    expect(() => assertNotCrossSiteWrite(req("POST", {}), cors)).not.toThrow();
+    expect(() => assertNotCrossSiteWrite(req("POST", { "sec-fetch-site": "same-origin", origin: "http://127.0.0.1:4300" }), cors)).not.toThrow();
+    expect(() => assertNotCrossSiteWrite(req("POST", { "sec-fetch-site": "none" }), cors)).not.toThrow();
+    expect(() => assertNotCrossSiteWrite(req("POST", { "sec-fetch-site": "same-site", origin: "http://localhost:5173" }), cors)).not.toThrow();
+    expect(() => assertNotCrossSiteWrite(req("POST", { "sec-fetch-site": "same-site", origin: "http://127.0.0.1:4300" }), cors)).not.toThrow();
   });
 });
 

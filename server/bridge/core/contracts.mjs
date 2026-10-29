@@ -286,6 +286,28 @@ export const SERVICE_CONTRACTS = Object.freeze({
   participants: { iface: "ParticipantOI", stream: "S26", requires: ["reference"], methods: ["latest", "series", "status", "sync"] },
 
   /**
+   * VolService — S18 (docs/spec/p1-03-pricing-vol.md §2.2). The vol-time clock, the daily vol store (S2), IV rank and
+   * percentile, IV history, VIX and the prediction log (S9). IVs in vol points; every row carries quality and source.
+   *  clock({ underlying, expiries?, at? }) -> { settings, holidays, expiries: ClockResult[] }
+   *  snapshot({ underlying, expiries? }, opts?) -> live S2-shaped rows + cm30 + quick rank (cached snapshotTtlSeconds)
+   *  history({ underlying, basis, expiry?, from, to, series, quality, clock, cursor, limit }) -> { items, gaps, coverage, nextCursor, method }
+   *  rank({ underlying, basis, lookbacks, quality, clock, expiry? }) -> { current, lookbacks, sameDte, vix, definitions }
+   *  summary({ underlyings, lookback }) -> memory-only rank lines for the screener
+   *  status() -> capture state, coverage, capacity, sources, back-fill job, disk
+   *  capture({ underlyings, replace, trigger }) -> per-underlying results of a capture run
+   *  backfill({ sources, from, to, underlyings }) -> { jobId, days, files, estimateMinutes }
+   *  cancelBackfill() -> stops after the current file
+   *  predictions({ from, to, underlying, metric }) -> S9 rows
+   *  logPredictions(rows) -> { ids }   validates metric against an open list; P1-9 is the first external caller
+   */
+  vol: {
+    iface: "VolService",
+    stream: "S18",
+    requires: ["marketData", "reference", "symbols", "scheduler"],
+    methods: ["clock", "snapshot", "history", "rank", "summary", "status", "capture", "backfill", "cancelBackfill", "predictions", "logPredictions"],
+  },
+
+  /**
    * StreamHub — S6. One upstream feed per account (adapter.createFeed), reference-counted subscriptions across all
    * local clients, mode = max demand, broker subscription caps enforced (SUBSCRIPTION_LIMIT, never silent drops),
    * resubscribe after reconnect/re-login. Emits "tick" and "stream.status".
@@ -402,10 +424,28 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  tickets(ctx) -> Promise<object[]>                             pending human confirmations (OpenAPI Ticket)
    *  confirmTicket(ctx, ticketId) -> Promise<{ confirmToken: string, expiresAt: string }>   human confirmation (loopback admin)
    */
+  /**
+   * Readiness — S20 (docs/spec/p1-05-readiness.md §3.3). Whether each live-enabled account can trade right now (H5),
+   * for people (badge, notify) and for automation (guards, alert actions, webhooks). Never sends or engages anything.
+   *  status({ accountIds? }) -> ReadinessSnapshot                     cached; no I/O
+   *  canTrade(accountId, { mode }) -> { ok, state, reasons, checkedAt, stale }   cached; mode "paper" is always ok
+   *  ensureFresh(accountId, { maxAgeMs? = 60_000, timeoutMs? = 5_000 }) -> Promise<same as canTrade>
+   *  check({ accountId?, reason }) -> Promise<ReadinessSnapshot>      runs evaluate (probe subject to cooldown)
+   *  registerAutomation({ id, kind, accountId, mode, label, onState? }) -> { update(patch), remove() }
+   *      kind: "webhook"|"guard"|"alert"|"sample"; onState(stateObj) is called on every state change of its account
+   *  `reference` and `audit` are optional: a stub reference falls back to the weekday rule, a stub audit log is skipped.
+   */
+  readiness: {
+    iface: "Readiness",
+    stream: "S20",
+    requires: ["accounts", "scheduler", "safety", "audit", "reference"],
+    methods: ["status", "canTrade", "ensureFresh", "check", "registerAutomation"],
+  },
+
   orders: {
     iface: "OrderService",
     stream: "S7",
-    requires: ["accounts", "scheduler", "symbols", "safety", "audit", "paper", "marketData", "reference"],
+    requires: ["accounts", "scheduler", "symbols", "safety", "audit", "paper", "marketData", "reference", "readiness"],
     methods: ["preview", "place", "modify", "cancel", "cancelAll", "get", "getByClientId", "list", "trades", "positions", "holdings", "funds", "tickets", "confirmTicket"],
   },
 });

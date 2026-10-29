@@ -19,7 +19,7 @@ import { createNullLogger } from "./logger.mjs";
 import { DEMO_ROUTES, demoRouteKeys } from "../demo/routes.mjs";
 
 /** Demo-only operations ("METHOD /openapi/path"). Each spec that adds a demo route adds its key here. */
-const DEMO_ONLY = Object.freeze([]);
+const DEMO_ONLY = Object.freeze(["POST /v1/demo/readiness", "PUT /v1/demo/reference"]);
 
 const SPEC = readFileSync(resolve(import.meta.dirname, "../../../docs/openapi.yaml"), "utf8");
 

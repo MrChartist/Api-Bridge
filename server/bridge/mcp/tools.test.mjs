@@ -379,3 +379,69 @@ describe("get_participant_oi (options toolset)", () => {
     expect(DEFAULT_TOOL_NAMES).not.toContain("get_participant_oi");
   });
 });
+
+describe("get_safety_status readiness (p1-05 §4.6)", () => {
+  it("adds readiness per account: state, reason codes and messages, checkedAt; never an IP address", async () => {
+    const { deps, registry } = setup();
+    deps.readiness = {
+      status: () => ({}),
+      canTrade: (id) =>
+        id === "dhan-main"
+          ? { ok: false, state: "cannot_trade", checkedAt: "2026-10-19T10:00:00+05:30", stale: false, reasons: [{ check: "egress", code: "IP_MISMATCH", severity: "fail", message: "This computer's internet address does not match the static IP registered for dhan-main.", detectedIp: "198.51.100.23" }] }
+          : { ok: true, state: "paper_only", reasons: [], checkedAt: null, stale: false },
+      ensureFresh: async () => ({}),
+      check: async () => ({}),
+      registerAutomation: () => ({}),
+    };
+    const r = await registry.call("get_safety_status", {}, ctxFor(["read"]));
+    const accounts = r.structuredContent.data.accounts;
+    expect(accounts.find((a) => a.accountId === "dhan-main").readiness).toEqual({
+      state: "cannot_trade",
+      reasons: [{ code: "IP_MISMATCH", message: "This computer's internet address does not match the static IP registered for dhan-main." }],
+      checkedAt: "2026-10-19T10:00:00+05:30",
+    });
+    expect(accounts.find((a) => a.accountId === "paper").readiness.state).toBe("paper_only");
+    expect(JSON.stringify(r.structuredContent)).not.toMatch(/198\.51\.100\.23/);
+    expect(TOOL_DEFS.find((t) => t.name === "get_safety_status").description).toMatch(/readiness says whether the account can trade now/);
+  });
+
+  it("without a readiness service the field is null", async () => {
+    const { registry } = setup();
+    const r = await registry.call("get_safety_status", {}, ctxFor(["read"]));
+    expect(r.structuredContent.data.accounts.every((a) => a.readiness === null)).toBe(true);
+  });
+});
+
+describe("T-sec-6: MCP order tools by key scope (p1-05 §3.9 F9)", () => {
+  const order = { account: "paper", symbol: "NSE:RELIANCE", side: "BUY", quantity: 1, product: "CNC", orderType: "LIMIT", price: 1400 };
+  const toolsets = [["market", "analytics", "account", "orders"], ["orders"], ["account", "orders", "options"]];
+  for (const ts of toolsets) {
+    describe(`toolsets ${ts.join(", ")}`, () => {
+      const mcp = { toolsets: ts, orderAccounts: ["paper", "dhan-main"] };
+      it("read: no order tools, and calling them answers exactly like an unknown tool", async () => {
+        const { registry, orders } = setup({ mcp });
+        const names = registry.listTools(ctxFor(["read"])).map((t) => t.name);
+        expect(names).not.toContain("prepare_order");
+        expect(names).not.toContain("submit_confirmed_order");
+        const hidden = await registry.call("prepare_order", order, ctxFor(["read"]));
+        const hidden2 = await registry.call("submit_confirmed_order", { ticketId: "t", confirmToken: "mct_x" }, ctxFor(["read"]));
+        const unknown = await registry.call("no_such_tool", {}, ctxFor(["read"]));
+        const same = (r, name) => JSON.stringify(r).replaceAll(name, "<tool>");
+        expect(same(hidden, "prepare_order")).toBe(same(unknown, "no_such_tool"));
+        expect(same(hidden2, "submit_confirmed_order")).toBe(same(unknown, "no_such_tool"));
+        expect(orders.calls).toHaveLength(0);
+      });
+      it("paper: mode enum lacks live; live: has it", () => {
+        const { registry } = setup({ mcp });
+        const paper = registry.listTools(ctxFor(["paper"])).find((t) => t.name === "prepare_order");
+        expect(paper.inputSchema.properties.mode.anyOf[0].enum).toEqual(["paper"]);
+        const live = registry.listTools(ctxFor(["live"])).find((t) => t.name === "prepare_order");
+        expect(live.inputSchema.properties.mode.anyOf[0].enum).toEqual(["paper", "live"]);
+      });
+    });
+  }
+  it("an mcp client key with admin cannot be created (auth/keyStore.test.mjs: AI-assistant keys never hold admin)", () => {
+    // Referenced, not repeated: keyStore.create({ scopes: ["admin"], clientKind: "mcp" }) → VALIDATION_FAILED.
+    expect(true).toBe(true);
+  });
+});

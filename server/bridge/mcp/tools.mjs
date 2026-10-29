@@ -546,7 +546,8 @@ export const TOOL_DEFS = Object.freeze([
     name: "get_safety_status",
     title: "Safety status",
     toolset: "account",
-    description: "Kill-switch state and today's safety limits and usage for the accounts this key may use. Read-only: the kill switch cannot be released from here.",
+    description:
+      "Kill-switch state and today's safety limits and usage for the accounts this key may use. readiness says whether the account can trade now (session, static IP, limits). Read-only: the kill switch cannot be released from here.",
     input: () => z.strictObject({ account: accountIn }),
     output: z.strictObject({ data: z.looseObject({ killSwitch: z.looseObject({ engaged: z.boolean() }), accounts: z.array(z.looseObject({ accountId: z.string() })) }), meta: metaOut, untrusted: z.literal(true) }),
     annotations: READ_LOCAL,
@@ -557,7 +558,18 @@ export const TOOL_DEFS = Object.freeze([
         ctx.requireAccountAccess(a.account);
         ids = [a.account];
       } else ids = svc(rt.deps, "accounts").list().map((s) => s.id).filter((id) => canUse(ctx, id));
-      return { data: { killSwitch: safety.killSwitchStatus(), accounts: ids.map((id) => ({ accountId: id, ...safety.limits(id) })) } };
+      const readiness = rt.deps.readiness && !isStub(rt.deps.readiness) ? rt.deps.readiness : null;
+      // Readiness per account: state, reason codes and messages, checkedAt. Never an IP address (for any key).
+      const readinessOf = (id) => {
+        if (!readiness) return null;
+        try {
+          const r = readiness.canTrade(id, { mode: "live" });
+          return { state: r.state, reasons: (r.reasons ?? []).map((x) => ({ code: x.code, message: x.message })), checkedAt: r.checkedAt ?? null };
+        } catch {
+          return null;
+        }
+      };
+      return { data: { killSwitch: safety.killSwitchStatus(), accounts: ids.map((id) => ({ accountId: id, ...safety.limits(id), readiness: readinessOf(id) })) } };
     },
   },
 

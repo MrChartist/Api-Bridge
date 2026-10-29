@@ -24,9 +24,9 @@ describe("participant page view-models", () => {
   it("tiles: FII long % with Δ pts and formula, nets with direction words and tones", () => {
     const t = P.tilesModel(summary);
     expect(t.map((x) => x.key)).toEqual(["fiiLongPct", "fiiNet", "clientCall", "clientPut", "proCall", "proPut"]);
-    expect(t[0]).toMatchObject({ value: "31.10%", sub: "-2.04 pts vs 27 Oct", longPct: 31.1 });
+    expect(t[0]).toMatchObject({ value: "31.10%", sub: "−2.04 pts vs 27 Oct", longPct: 31.1 });
     expect(t[0].title).toMatch(/FII held 31\.1 % of their index-futures positions long/);
-    expect(t[1]).toMatchObject({ value: "-1.37L", tone: "down", sub: "-15.6K vs 27 Oct · net short" });
+    expect(t[1]).toMatchObject({ value: "−1.37L", tone: "down", sub: "−15.6K vs 27 Oct · net short" });
   });
 
   it("table: participants × instruments, TOTAL without net, tones on net and Δ", () => {
@@ -34,7 +34,7 @@ describe("participant page view-models", () => {
     expect(m.columns.map((c) => c.id)).toEqual(["IDX_FUT", "STK_FUT"]);
     expect(m.rows.map((r) => r.name)).toEqual(["Client", "DII", "FII", "Pro", "Total"]);
     const fii = m.rows[2].cells.IDX_FUT;
-    expect(fii).toMatchObject({ long: "1.12L", short: "2.49L", net: "-1.37L", dnet: "-15.6K", netTone: "down", dTone: "down", longPctText: "31.1% long" });
+    expect(fii).toMatchObject({ long: "1.12L", short: "2.49L", net: "−1.37L", dnet: "−15.6K", netTone: "down", dTone: "down", longPctText: "31.1% long" });
     expect(fii.share).toMatch(/^\d+\.\d% of all longs · \d+\.\d% of all shorts$/);
     expect(P.tableModel(summary, "opt").columns).toHaveLength(4);
   });
@@ -79,7 +79,7 @@ describe("participant page view-models", () => {
   });
 
   it("the OI page line: NSE figure, BSE note, nothing without data", () => {
-    expect(P.oiTileText(summary, "NIFTY")).toMatchObject({ text: "FII index futures: 31.1% long (-2.0 pts)", main: "FII index futures: 31.1% long", delta: "(-2.0 pts)", tone: "down" });
+    expect(P.oiTileText(summary, "NIFTY")).toMatchObject({ text: "FII index futures: 31.1% long (−2.0 pts)", main: "FII index futures: 31.1% long", delta: "(−2.0 pts)", tone: "down" });
     expect(P.oiTileText(summary, "SENSEX").text).toBe("No BSE participant file");
     expect(P.oiTileText(null, "NIFTY")).toBeNull();
     expect(P.oiTileText({ available: false, detail: "x" }, "NIFTY").text).toBe("Participant OI not available yet");

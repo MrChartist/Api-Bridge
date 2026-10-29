@@ -359,3 +359,33 @@ describe("WebSocket upgrades", () => {
     expect(await connect("/t/ws", { ...auth(READ), origin: "https://evil.example" })).toEqual({ ok: false, status: 403 });
   });
 });
+
+describe("T-sec-5: baseline headers on a route of every module and on errors (p1-05 §3.9 F8)", async () => {
+  const { bootSecurityApp, samplePath } = await import("./__fixtures__/securityApp.mjs");
+  const { BASE_HEADERS } = await import("./security.mjs");
+  it("X-Frame-Options, nosniff, no-store, CORP same-origin everywhere; the dashboard CSP on dashboard pages", async () => {
+    const b = await bootSecurityApp({ demo: false });
+    try {
+      const key = await b.keyOf(["admin", "live"]);
+      const byModule = new Map();
+      for (const r of b.app.router.list()) if (r.method === "GET" && !byModule.has(r.module) && !r.pattern.includes("/sse")) byModule.set(r.module, r);
+      expect(byModule.size).toBeGreaterThan(10);
+      const bad = [];
+      const check = (label, res) => {
+        for (const [h, v] of Object.entries(BASE_HEADERS)) if (res.headers[h.toLowerCase()] !== v) bad.push(`${label}: ${h}=${res.headers[h.toLowerCase()]}`);
+      };
+      for (const r of byModule.values()) check(`${r.module} ${r.pattern}`, await b.request({ path: samplePath(r.pattern), headers: { authorization: `Bearer ${key}` } }));
+      check("404", await b.request({ path: "/v1/no-such-route" }));
+      check("401", await b.request({ path: "/v1/readiness" }));
+      check("403 origin", await b.request({ method: "POST", path: "/v1/readiness/check", headers: { origin: "https://evil.example" } }));
+      expect(bad).toEqual([]);
+      for (const p of ["/dashboard", "/dashboard/app.js"]) {
+        const res = await b.request({ path: p });
+        expect(res.headers["content-security-policy"]).toMatch(/frame-ancestors 'none'/);
+        expect(res.headers["content-security-policy"]).toMatch(/script-src 'self'/);
+      }
+    } finally {
+      await b.close();
+    }
+  });
+});

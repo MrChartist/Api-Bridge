@@ -12,13 +12,15 @@ import stream from "../stream/module.mjs";
 import orders from "../orders/module.mjs";
 import paper from "../paper/module.mjs";
 import safety from "../safety/module.mjs";
+import readiness from "../readiness/module.mjs";
 import integrations from "../integrations/module.mjs";
 import hooks from "../hooks/module.mjs";
 import mcp from "../mcp/module.mjs";
 import backup from "../backup/module.mjs";
 import scanner from "../scanner/module.mjs";
+import vol from "../vol/module.mjs";
 import compat from "../compat/module.mjs";
 import notify from "../notify/module.mjs";
 import participants from "../participants/module.mjs";
 
-export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, reference, market, stream, orders, paper, safety, integrations, hooks, mcp, backup, scanner, compat, notify, participants]);
+export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, reference, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, backup, scanner, vol, compat, notify, participants]);

@@ -62,6 +62,8 @@ export const accountSchema = z
         allowedSources: z.array(sources).default(["rest"]),
         /** The static IP the user registered with the broker, for the pre-order egress check (optional). */
         registeredIp: z.string().max(64).optional(),
+        /** A second static IP registered with the broker (primary + backup). Readiness accepts either (optional). */
+        backupIp: z.string().max(64).optional(),
       })
       .strict()
       .prefault({}),

@@ -7,7 +7,7 @@
  *   GET /v1/depth?symbol=...[&account=][&maxAgeMs=]
  *   GET /v1/history?symbol=...&interval=5m&(from=...[&to=...] | [to=...&]countback=N)[&format=csv][&account=]
  *   GET /v1/expiries?underlying=NIFTY[&exchange=NFO][&account=]
- *   GET /v1/optionchain?underlying=NIFTY&expiry=2026-10-27[&strikes=10][&greeks=false][&account=][&maxAgeMs=]
+ *   GET /v1/optionchain?underlying=NIFTY&expiry=2026-10-27[&strikes=10][&greeks=false][&ivModel=b76-forward][&account=][&maxAgeMs=]
  *
  * A pinned read (`account=`) is checked against the key's account list (ctx.requireAccountAccess) before anything
  * else happens. An unpinned read is served only by accounts the key may use (allowedAccountsFor): a key limited to
@@ -16,10 +16,16 @@
  */
 import { BridgeError } from "../core/errors.mjs";
 import { csv } from "../core/http.mjs";
+import { IV_MODELS } from "./chain.mjs";
+import { parseMarketConfig } from "./config.mjs";
 import { historyCsvRows } from "./history.mjs";
 import { MAX_AGE_LIMIT_MS, MAX_SYMBOLS } from "./marketDataService.mjs";
 
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
+
+/** 1 May 2027 00:00 IST: from then the chain IV default becomes b76-forward (docs/spec/p1-03-pricing-vol.md §10). */
+export const LEGACY_IV_DEPRECATION = Date.UTC(2027, 3, 30, 18, 30) / 1000;
+const LEGACY_IV_HEADERS = Object.freeze({ Deprecation: `@${LEGACY_IV_DEPRECATION}`, Link: '</docs/CHANGELOG.md#optionchain-ivmodel>; rel="deprecation"' });
 
 /** Optional query value: absent or empty -> undefined. */
 const opt = (q, name) => {
@@ -120,6 +126,18 @@ const meta = (ctx, opts) => ({ requestId: ctx.requestId, accountId: opts.account
  */
 export function createMarketRoutes(deps) {
   const md = () => deps.marketData;
+  /** The chain IV model a request without ivModel gets (market.chain.ivModelDefault), read once. */
+  let ivDefault;
+  const chainIvModelDefault = () => {
+    if (ivDefault === undefined) {
+      try {
+        ivDefault = parseMarketConfig(deps.config?.market).chain.ivModelDefault;
+      } catch {
+        ivDefault = "legacy-bs-spot";
+      }
+    }
+    return ivDefault;
+  };
   const readOptions = (ctx, o = {}) => readOptionsBase(ctx, { ...o, autoBackup: autoBackupFor(deps) });
 
   return {
@@ -189,8 +207,16 @@ export function createMarketRoutes(deps) {
       const params = { underlying, expiry, greeks: boolParam(q, "greeks", true) };
       const strikes = intParam(q, "strikes", 1, 100);
       if (strikes !== undefined) params.strikes = strikes;
+      const ivModel = opt(q, "ivModel");
+      if (ivModel !== undefined) {
+        if (!IV_MODELS.includes(ivModel)) throw invalid("ivModel", `ivModel must be one of ${IV_MODELS.join(", ")}.`);
+        params.ivModel = ivModel;
+      }
       const opts = readOptions(ctx);
       const data = await md().optionChain(params, opts);
+      // The legacy model chosen by default (not asked for) is deprecated: say so in the headers (RFC 9745 / 8288). Decided
+      // on the effective model, not on whether `pricing` is present (greeks=false has none under either model).
+      if (ivModel === undefined && chainIvModelDefault() === "legacy-bs-spot") for (const [k, v] of Object.entries(LEGACY_IV_HEADERS)) ctx.setHeader?.(k, v);
       return { data, meta: { ...meta(ctx, opts), freshness: data.freshness } };
     },
   };

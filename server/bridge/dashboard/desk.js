@@ -6,7 +6,7 @@
 // then patched cell by cell, so nothing flickers, scroll and keyboard focus stay put, and only cells that changed
 // flash. The maths lives in options.js (pure, tested); numbers are formatted by format.js only.
 import { DEMO_EXPLAINER, alertBox, api, app, emptyState, errorState, h, icon, liveControl, loadingState, modal, mountToolbarCtx, optional, sheetPopover, toast, touchWord } from "./app.js";
-import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { arbPanels } from "./arbitrage.js";
 import { openChainSheet } from "./chain-sheet.js";
 import { createOiPage, oiConfig } from "./oi.js";
@@ -16,6 +16,7 @@ import * as O from "./options.js";
 import { createPositionsPage } from "./positions.js";
 import { cap, every, segField, segmented, stopTimer } from "./views.js";
 import { createVolPage, volConfig } from "./vol.js";
+import { demoStaleAsked, lotConfirmGate, loadReference, refBanners, refCalendar, refChip, refRate, refSession, refSignature } from "./reference.js";
 import { animatePage, barsEnter, countUp, flashValue, stopCount } from "./motion.js";
 
 const SLOT = "mcb.dashboard.desk";
@@ -147,6 +148,9 @@ async function renderDesk(kind) {
     positionsError: null,
     focus: null, // { strike, side: "ce" | "pe" }
     seq: 0,
+    // The reference bundle for st.underlying (reference.js): session, holidays, rate, lots, events, charges. Null
+    // until the first read; a failed read is the labelled fallback bundle.
+    ref: null,
   };
   st.strikesView = st.strikes;
   /** The page (the order ticket's own `kind` parameter is the contract kind). */
@@ -253,13 +257,14 @@ async function renderDesk(kind) {
   const expiryChip = h("span", { class: "ctx-chip expiry-chip", title: EXPIRY_DAY_NOTE, hidden: true }, "Expiry today");
   const uMain = document.createTextNode(st.underlying);
   const uSub = document.createTextNode("");
+  const uChg = document.createTextNode(""); // the day's change after the spot; phones drop it (app.css .ctx-sub-chg)
   const eLong = document.createTextNode("");
   const eShort = document.createTextNode("");
   const eSub = document.createTextNode("");
   const spotV = document.createTextNode(DASH);
   const spotChg = h("span", { class: "ctx-chg" });
   const lotV = document.createTextNode(DASH);
-  const uItem = h("label", { class: "ctx-item ctx-pick ctx-u", title: "Underlying" }, h("span", { class: "ctx-main" }, uMain), h("span", { class: "ctx-sub", "aria-hidden": "true" }, uSub), uSel);
+  const uItem = h("label", { class: "ctx-item ctx-pick ctx-u", title: "Underlying" }, h("span", { class: "ctx-main" }, uMain), h("span", { class: "ctx-sub", "aria-hidden": "true" }, uSub, h("span", { class: "ctx-sub-chg" }, uChg)), uSel);
   const eItem = h("label", { class: "ctx-item ctx-pick ctx-e", title: "Expiry ([ and ])" }, h("span", { class: "ctx-main" }, h("span", { class: "ctx-long" }, eLong), h("span", { class: "ctx-short" }, eShort)), h("span", { class: "ctx-sub", "aria-hidden": "true" }, eSub), eSel);
   const spotItem = h("span", { class: "ctx-item ctx-spot", title: "Spot (the index) and its change today" }, h("span", { class: "ctx-main" }, h("span", {}, spotV), spotChg));
   const lotItem = h("span", { class: "ctx-item ctx-lot", title: "Lot size" }, h("span", { class: "ctx-main" }, "Lot ", h("b", {}, lotV)));
@@ -292,7 +297,8 @@ async function renderDesk(kind) {
     const exTag = e && ex.length ? O.expiryTag(e, ex).days : "";
     const futs = st.futures.length ? new Set(st.futures.map((f) => f.expiry)) : null;
     const monthly = e && ex.length ? (futs ? futs.has(e) : O.isMonthlyExpiry(e, ex)) : false;
-    const lot = num(c?.lotSize);
+    // Positions covers every expiry (no chain of its own here): its lot is the underlying's futures lot.
+    const lot = num(c?.lotSize) ?? (posPage ? num(posPage.lot?.()) : null);
     let spot = x?.spot ?? (c ? num(c.underlyingLtp) : null);
     let q = st.quotes.get(INDEX_SYMBOL[st.underlying] ?? "") ?? null;
     if (posPage) {
@@ -313,8 +319,10 @@ async function renderDesk(kind) {
     ctxSig = sig;
     if (uMain.data !== st.underlying) uMain.data = st.underlying;
     const spotText = spot === null ? DASH : formatFixed(spot, 2);
-    const uSubText = spot === null ? "" : `${spotText}${chp !== null ? ` ${formatSigned(chp, 2)}%` : ""}`;
+    const uSubText = spot === null ? "" : spotText;
+    const uChgText = spot === null || chp === null ? "" : ` ${formatSigned(chp, 2)}%`;
     if (uSub.data !== uSubText) uSub.data = uSubText;
+    if (uChg.data !== uChgText) uChg.data = uChgText;
     const day = e ? expiryText(e) : DASH;
     const mk = monthly ? "M" : "W";
     const long = e ? `${day} · ${exTag} · ${mk}` : DASH;
@@ -336,6 +344,7 @@ async function renderDesk(kind) {
     const lotText = lot ? formatInt(lot) : DASH;
     if (lotV.data !== lotText) lotV.data = lotText;
     lotItem.title = lot ? "Lot size" : "Lot size unavailable";
+    refChipEl.update();
     fitCtx();
   }
   let ctxChainSig = "";
@@ -398,7 +407,6 @@ async function renderDesk(kind) {
         { class: "segmented", role: "group", "aria-label": "Appearance" },
         [["light", "Light", "sun"], ["dark", "Dark", "moon"], ["auto", "Auto", "monitor"]].map(([v, label, ic]) => h("button", { type: "button", "data-theme-choice": v, "aria-pressed": String(theme === v) }, icon(ic), label)),
       ),
-      app.state.demo ? h("p", { class: "ctx-demo-note" }, h("i", { class: "demo-badge", "aria-hidden": "true" }), h("span", {}, h("strong", {}, "Demo data: "), DEMO_EXPLAINER)) : null,
     );
     const sheetRef = (ctxSheet = sheetPopover({
       trigger: moreBtn,
@@ -577,7 +585,7 @@ async function renderDesk(kind) {
       st.ms = Math.round(performance.now() - t0);
       st.error = null;
       st.lastOk = new Date().toISOString();
-      if (store && st.chain) store.offer(st.chain, Date.now(), { demo: Boolean(app.state.demo) }).catch(() => {});
+      if (store && st.chain) store.offer(st.chain, Date.now(), { demo: Boolean(app.state.demo), session: refSession(st.ref), isTradingDay: refCalendar(st.ref).isTradingDay }).catch(() => {});
     } catch (err) {
       if (seq !== st.seq) return;
       st.error = err;
@@ -593,17 +601,38 @@ async function renderDesk(kind) {
     st.futPositions = all.filter((p) => fut.test(String(p.symbol ?? "")) && Number(p.netQty));
     st.positionsError = r.error ?? null;
   }
-  const refresh = () => (posPage ? posPage.tick() : volPage ? Promise.all([loadChain(), volPage.tick()]) : arbPage ? Promise.all([loadChain({ draw: false }), arbPage.tick()]).then(() => drawAll()) : Promise.all([loadChain(), loadPositions(), oiPage?.tick()]));
+  // ── Reference data (docs/spec/p1-02-reference.md §5): one bundle per underlying, re-read every 10 minutes ──
+  const refChipEl = refChip({ getBundle: () => st.ref, getLot: () => num(st.chain?.lotSize) ?? num(st.ref?.lots?.current) });
+  const refBannersEl = refBanners({ rateNote: kind === "vol" || kind === "arb", onMore: () => refChipEl.open() });
+  async function loadRef() {
+    const u = st.underlying;
+    const b = await loadReference(u, { demoStale: Boolean(app.state.demo) && demoStaleAsked() });
+    if (u !== st.underlying) return;
+    // Compare what the bundle says, not the object: a re-read fallback (or the same data) does not redraw the page.
+    const changed = refSignature(b) !== refSignature(st.ref);
+    st.ref = b;
+    refChipEl.update();
+    if (!changed) return;
+    refBannersEl.update(b);
+    posPage?.refChanged?.();
+    volPage?.refChanged?.();
+    arbPage?.refChanged?.();
+    builder?.refChanged?.();
+    oiPage?.refChanged?.();
+  }
+  const refresh = () => (loadRef(), posPage ? posPage.tick() : volPage ? Promise.all([loadChain(), volPage.tick()]) : arbPage ? Promise.all([loadChain({ draw: false }), arbPage.tick()]).then(() => drawAll()) : Promise.all([loadChain(), loadPositions(), oiPage?.tick()]));
   let timerMs = REFRESH_MS;
   let timerReady = false;
   /** The refresh period: one predicate (is the market open) for both startTimer and drawClock, so an error
    *  outside market hours cannot make them disagree and reset the interval every second. */
-  const wantMs = () => (O.freshnessState({ marketOpen: st.freshness?.marketOpen, demo: Boolean(app.state.demo) }).kind === "closed" ? CLOSED_REFRESH_MS : REFRESH_MS);
+  const wantMs = () => (O.freshnessState({ marketOpen: st.freshness?.marketOpen, demo: Boolean(app.state.demo), session: refSession(st.ref) }).kind === "closed" ? CLOSED_REFRESH_MS : REFRESH_MS);
   const startTimer = () => {
     timerMs = wantMs();
     return st.live ? every(timerMs, refresh) : stopTimer();
   };
   async function reloadAll() {
+    if (st.ref && st.ref.underlying !== st.underlying) st.ref = null;
+    loadRef();
     if (posPage) {
       posPage.reset();
       return posPage.tick();
@@ -672,8 +701,9 @@ async function renderDesk(kind) {
     const w = chainWindow();
     const c = w?.ref ? O.withOiWindow(st.chain, w.ref.snap) : st.chain;
     const sm = O.chainSummary(c);
-    const years = O.yearsToExpiry(c.expiry);
-    const growth = O.parityGrowth(years);
+    const ses = refSession(st.ref);
+    const years = O.yearsToExpiry(c.expiry, Date.now(), ses.close);
+    const growth = O.parityGrowth(years, refRate(st.ref).value);
     const F = O.forwardPrice(c, growth) ?? sm.spot;
     const move = O.sigmaMove(F, sm.atmIv, years);
     const strikes = c.rows.map((r) => r.strike);
@@ -837,7 +867,7 @@ async function renderDesk(kind) {
   /** The live control (text nodes only), the dot's pulse per successful load, and the timer period: 30 s while the
    *  market is shut. */
   function drawClock() {
-    const f = O.freshnessState({ asOf: st.freshness?.asOf ?? null, stale: Boolean(st.freshness?.stale), marketOpen: st.freshness?.marketOpen, error: Boolean(st.error), live: st.live, refreshMs: REFRESH_MS, demo: Boolean(app.state.demo) });
+    const f = O.freshnessState({ asOf: st.freshness?.asOf ?? null, stale: Boolean(st.freshness?.stale), marketOpen: st.freshness?.marketOpen, error: Boolean(st.error), live: st.live, refreshMs: REFRESH_MS, demo: Boolean(app.state.demo), session: refSession(st.ref) });
     liveBtn.update({ kind: f.kind, asOf: st.freshness?.asOf ?? st.lastOk, ageMs: f.ageMs, source: st.freshness?.accountId ?? null, live: st.live });
     if (st.lastOk && st.lastOk !== lastTick && f.kind !== "error") {
       lastTick = st.lastOk;
@@ -910,7 +940,7 @@ async function renderDesk(kind) {
     }
     const { sm, c, F, move } = x;
     const day = O.sigmaMove(F, sm.atmIv, 1 / 365);
-    const t = O.timeToExpiry(c.expiry);
+    const t = O.timeToExpiry(c.expiry, Date.now(), refSession(st.ref).close);
     const n = c.rows.length;
     const pcrWord = O.pcrBand(sm.pcr)?.word ?? "";
     const fut = x.sameFut;
@@ -978,7 +1008,7 @@ async function renderDesk(kind) {
     }
     const { sm, c, F, move } = x;
     const day = O.sigmaMove(F, sm.atmIv, 1 / 365);
-    const t = O.timeToExpiry(c.expiry);
+    const t = O.timeToExpiry(c.expiry, Date.now(), refSession(st.ref).close);
     const n = c.rows.length;
     const pcrWord = O.pcrBand(sm.pcr)?.word ?? "";
     const phone = device().phone;
@@ -1299,6 +1329,20 @@ async function renderDesk(kind) {
     const quoteLine = h("div", { class: "ticket-quote" });
     // Advisory warnings from the chain (spread, liquidity, freeze qty, expiry day...): the server checks still decide.
     const warnEl = h("ul", { class: "ticket-checks ticket-warns", "aria-label": "Before you trade", hidden: true });
+    // Lot-size confirmation (docs/spec/p1-02-reference.md §5.4): when the reference lot data is stale or disagrees
+    // with the broker's contract, an order in lots needs this box ticked; the lot is then sent as lotSizeConfirmed.
+    // Quantity in units needs no confirmation. Futures in lots get the same gate (the server checks FUT and OPT).
+    const gate = lotConfirmGate(st.ref, lotSize, { units: inUnits });
+    const gateBox = h("input", { type: "checkbox", required: true });
+    const gateOk = () => !gate.needed || gateBox.checked;
+    const gateRow = gate.needed
+      ? h(
+          "div",
+          { class: "ticket-lotgate", role: "group", "aria-label": "Lot size check" },
+          h("label", { class: "check lot-gate" }, gateBox, h("span", {}, gate.text)),
+          h("button", { type: "button", class: "small plain lot-gate-units", onclick: () => ((reopen = { row, right, side: sideSeg.value, qty: units(), symbol, product: prodSeg.value, orderType: typeSeg.value, expiry, exit, quote: quoteIn, units: true, lotSize: lotIn, kind, name: nameIn, tick: tickIn, freezeQty, price: isFigure(price.value) ? Number(price.value) : priceIn, held: heldIn }), closeTicket?.(undefined, true)) }, "Enter quantity in units instead"),
+        )
+      : null;
     if (freezeQty === null) loadFreeze(sym);
     const units = () => (inUnits ? Math.max(1, Math.floor(Number(lots.value) || 1)) : Math.max(1, Math.floor(Number(lots.value) || 1)) * lotSize);
     const drawWarnings = () => {
@@ -1324,16 +1368,17 @@ async function renderDesk(kind) {
       h("span", {}, "Limit price"),
       h("div", { class: "price-row" }, price, h("div", { class: "touch-btns", role: "group", "aria-label": "Use a quote" }, [["Bid", "bid"], ["Mid", "mid"], ["Ask", "ask"]].map(([l, k]) => h("button", { type: "button", class: "small", onclick: () => (k === "mid" ? ((price.value = String(midPx(sideSeg.value) ?? "")), changed()) : touch(k)) }, l)))),
     );
-    // Exit size: 25 / 50 / 75 % in whole lots (at least one), 100 % the exact quantity held.
+    // Exit size: 25 / 50 / 75 % as floor(lots · p) whole lots, 100 % the exact quantity held. A part that rounds to
+    // 0 lots (a 1-lot leg at 50 %) is disabled, never widened to a full exit.
+    const partLots = (pct) => (held === null ? 0 : Math.floor((Math.floor(held / lotSize) * pct) / 100 + 1e-9));
     const sizeFor = (pct) => {
       if (held === null) return null;
       if (pct >= 100) return inUnits ? held : Math.max(1, Math.round(held / lotSize));
-      const whole = Math.floor(held / lotSize);
-      if (whole < 1) return inUnits ? held : 1;
-      const l = Math.min(whole, Math.max(1, Math.floor((whole * pct) / 100 + 0.5)));
+      const l = partLots(pct);
+      if (l < 1) return null;
       return inUnits ? l * lotSize : l;
     };
-    const pctBtns = exit && held !== null ? [25, 50, 75, 100].map((p) => h("button", { type: "button", class: "small", "data-pct": String(p), "aria-pressed": String(p === 100), onclick: () => ((lots.value = String(sizeFor(p))), changed()) }, `${p}%`)) : [];
+    const pctBtns = exit && held !== null ? [25, 50, 75, 100].map((p) => h("button", { type: "button", class: "small", "data-pct": String(p), "aria-pressed": String(p === 100), disabled: p < 100 && partLots(p) < 1, title: p < 100 && partLots(p) < 1 ? "Cannot split: less than one whole lot" : null, onclick: () => sizeFor(p) !== null && ((lots.value = String(sizeFor(p))), changed()) }, `${p}%`)) : [];
     const pctRow = pctBtns.length ? h("div", { class: "touch-btns pct-btns", role: "group", "aria-label": "Exit size" }, pctBtns) : null;
     const live = () => modeSeg?.value === "live";
     const body = () => {
@@ -1342,6 +1387,7 @@ async function renderDesk(kind) {
       else b.lots = Math.max(1, Math.floor(Number(lots.value) || 1));
       if (typeSeg.value === "LIMIT" && isFigure(price.value)) b.price = Number(price.value);
       if (live()) b.mode = "live";
+      if (gate.needed && gateBox.checked && b.lots !== undefined) b.lotSizeConfirmed = lotSize;
       return b;
     };
     let placeBtn = null;
@@ -1352,7 +1398,7 @@ async function renderDesk(kind) {
       const blocked = (last?.checks ?? []).some((x) => x?.severity === "block");
       placeBtn.textContent = `${b.side === "BUY" ? "Buy" : "Sell"} ${inUnits ? `${formatInt(b.quantity)} qty` : `${formatInt(b.lots)} lot${b.lots === 1 ? "" : "s"}`}${live() ? " · LIVE" : ""}`;
       placeBtn.className = live() ? "danger" : b.side === "BUY" ? "primary" : "primary sell";
-      placeBtn.disabled = blocked || (live() && !ack.checked) || (typeSeg.value === "LIMIT" && !isFigure(price.value));
+      placeBtn.disabled = blocked || !gateOk() || (live() && !ack.checked) || (typeSeg.value === "LIMIT" && !isFigure(price.value));
     };
     const drawQuote = () => {
       const q = quote();
@@ -1364,6 +1410,11 @@ async function renderDesk(kind) {
     async function preview() {
       const seq = ++previewSeq;
       const b = body();
+      if (!gateOk()) {
+        last = null;
+        previewEl.replaceChildren(h("p", { class: "muted small pad" }, "Check the lot size above to see the order preview."));
+        return drawButton();
+      }
       if (b.orderType === "LIMIT" && b.price === undefined) {
         last = null;
         previewEl.replaceChildren(h("p", { class: "muted small pad" }, "Enter a limit price."));
@@ -1411,6 +1462,7 @@ async function renderDesk(kind) {
     for (const el of [typeSeg, prodSeg, modeSeg].filter(Boolean)) el.addEventListener("change", changed);
     for (const el of [lots, price]) el.addEventListener("input", changed);
     ack.addEventListener("change", drawButton);
+    gateBox.addEventListener("change", changed);
     const quoteTimer = setInterval(() => (drawQuote(), drawWarnings()), 1000);
     drawQuote();
 
@@ -1434,6 +1486,7 @@ async function renderDesk(kind) {
         // An exit's side is fixed (the other side would add to the position): a label, not a control.
         exit ? h("div", { class: "field" }, h("span", {}, "Side"), h("span", { class: "ticket-acct" }, side === "BUY" ? "Buy to close" : "Sell to close", h("span", { class: "muted small" }, "· to add, use the chain"))) : segField("Side", sideSeg),
         h("div", { class: "ticket-grid" }, h("label", { class: "field" }, h("span", {}, inUnits ? "Quantity " : "Lots ", lotHint), lots), segField("Type", typeSeg)),
+        gateRow,
         pctRow,
         priceField,
         h("div", { class: "ticket-grid" }, segField("Product", prodSeg), acctField ?? h("div", { class: "field" }, h("span", {}, "Account"), h("span", { class: "ticket-acct one-line", title: a.label }, h("span", { class: "acct-name" }, a.label), modeSeg || /paper/i.test(a.label ?? "") ? null : h("span", { class: "acct-badge", "data-mode": "paper" }, "Paper")))),
@@ -1891,8 +1944,10 @@ async function renderDesk(kind) {
   // Leaving the page: the router swaps #content on hashchange, so check once it has.
   // Before the first load finishes the page is not in the document yet: wait for it, then check.
   const onRoute = () => setTimeout(() => mounted && !pageRoot.isConnected && cleanup(), 0);
+  let refRo = null;
   function cleanup() {
     clearInterval(ageTimer);
+    refRo?.disconnect();
     ctxRo?.disconnect();
     headRo?.disconnect();
     document.querySelector(".toolbar-title")?.classList.remove("icon-only");
@@ -1918,13 +1973,19 @@ async function renderDesk(kind) {
   // The top bar: one capsule, then (trading pages) the account and its mode, the live control and the ⋯ sheet.
   // The chain and the Strategy Builder carry the future, ATM IV (and, on the builder, ±1σ) on their one line.
   const wide = kind === "chain" || kind === "strategy";
-  capsule = h("div", { class: `ctx-cap glass${wide ? " ctx-chain" : ""}` }, uItem, kind === "positions" ? null : eItem, spotItem, wide ? futItem : null, kind === "positions" ? null : lotItem, wide ? ivItem : null, kind === "strategy" ? sigItem : null);
+  // The lot lives in the reference chip after the capsule (Lot · Freeze · events, docs/spec/p1-02-reference.md §5.2).
+  capsule = h("div", { class: `ctx-cap glass${wide ? " ctx-chain" : ""}` }, uItem, kind === "positions" ? null : eItem, spotItem, wide ? futItem : null, wide ? ivItem : null, kind === "strategy" ? sigItem : null);
   // The chain is read-only until an order is placed: its account picker lives in the ticket and the action sheet
   // ("Orders go to"), and the line shows only a red LIVE-orders pill when orders would go to a live account.
   // The Strategy Builder picks the account in its confirm sheet ("Orders go to"), like the chain's ticket.
   const acctItem = TRADING.has(kind) && kind !== "chain" && kind !== "strategy" ? h("span", { class: "ctx-acct glass" }, tradable.length ? [aSel, acctBadge] : h("a", { href: "#/accounts", class: "acct-connect" }, icon("plug"), "Connect an account")) : null;
-  mountToolbarCtx(kind, capsule, expiryChip, h("span", { class: "ctx-spacer" }), acctItem, wide ? liveOrders : null, demoPill, liveBtn.el, moreBtn);
+  mountToolbarCtx(kind, capsule, expiryChip, refChipEl.el, h("span", { class: "ctx-spacer" }), acctItem, wide ? liveOrders : null, demoPill, liveBtn.el, moreBtn);
   if (wide) document.querySelector(".toolbar-title")?.classList.add("icon-only");
+  // The chain fits its table to the viewport: a banner that appears or goes moves where the table starts.
+  if (kind === "chain" && typeof ResizeObserver === "function") {
+    refRo = new ResizeObserver(() => chain.fitHeight());
+    refRo.observe(refBannersEl.el);
+  }
   if (wide && typeof ResizeObserver === "function") {
     ctxRo = new ResizeObserver(() => fitCtx());
     ctxRo.observe(capsule);
@@ -1945,6 +2006,7 @@ async function renderDesk(kind) {
 
   if (kind === "chain") {
     const out = [
+      refBannersEl.el,
       h("section", { class: "desk-panel", "data-panel": "summary", "data-fixed": "", "aria-label": "Chain summary" }, statsEl),
       h(
         "section",
@@ -1960,13 +2022,14 @@ async function renderDesk(kind) {
     return out;
   }
   // The builder's own hero strip and the one top line replace the chain summary here (strategy.md §3.1).
-  if (kind === "strategy") return [builder.panel, builder.slot];
-  if (kind === "oi") return [...oiPage.panels];
+  // Every page: the reference banners (events within 7 days, stale data) first, above the page body.
+  if (kind === "strategy") return [refBannersEl.el, builder.panel, builder.slot];
+  if (kind === "oi") return [refBannersEl.el, ...oiPage.panels];
   // Volatility: its own KPI strip, so no shared summary.
-  if (kind === "vol") return [...volPage.panels];
-  if (kind === "arb") return [...arbPage.panels];
+  if (kind === "vol") return [refBannersEl.el, ...volPage.panels];
+  if (kind === "arb") return [refBannersEl.el, ...arbPage.panels];
   // The page covers every expiry: the bar has no expiry (st.expiry stays for the other pages).
-  return [...posPage.panels];
+  return [refBannersEl.el, ...posPage.panels];
 }
 
 // ── Chain table (built once, patched on every refresh) ──
@@ -2190,7 +2253,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
 
   const g = (v, dp) => (isFigure(v) ? formatFixed(v, dp) : DASH);
   const pct1 = (v) => (isFigure(v) ? `${formatSigned(v, 1)}%` : DASH);
-  const rupees = (v, signed = false) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? "-" : signed && v > 0 ? "+" : ""}₹${formatCompact(Math.abs(v))}` : signed ? formatSignedRupee(v, 0) : formatRupee(v, 0));
+  const rupees = (v, signed = false) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? MINUS : signed && v > 0 ? "+" : ""}₹${formatCompact(Math.abs(v))}` : signed ? formatSignedRupee(v, 0) : formatRupee(v, 0));
   const dots = (n) => h("span", { class: "liq", title: `Liquidity ${n} of 5`, "aria-label": `Liquidity ${n} of 5` }, [1, 2, 3, 4, 5].map((i) => h("i", { class: i <= n ? "on" : undefined })));
   /**
    * The baseline grid (§3.4): every cell is two fixed rows, line 1 the main figure (16 px) and line 2 a sub figure or a

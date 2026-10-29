@@ -6,6 +6,7 @@
 import { api, app, chartSlot, errorState, h, icon, modal, optional, sheetPopover, toast } from "./app.js";
 import { DASH, formatFixed, formatInt, formatPercent, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
+import { lotConfirmGate, refCharges, refSession } from "./reference.js";
 import { drawPayoff, money, moneyEl } from "./payoff.js";
 import { openPlacement } from "./strategy-place.js";
 import { keepFocus, segmented } from "./views.js";
@@ -275,7 +276,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
         manual: l.entryTag === "manual" && isFigure(l.entry),
         iv: iv ?? atmIv,
         ivFallback: iv === null && l.kind === "OPT",
-        years: O.yearsToExpiry(l.expiry ?? xx.c.expiry, now),
+        years: O.yearsToExpiry(l.expiry ?? xx.c.expiry, now, refSession(st.ref).close),
         loading: l.kind === "OPT" && !ch && !expired && Boolean(later?.loading || (!later && l.expiry !== xx.c.expiry)),
         expired,
         chainError: l.kind === "OPT" && !ch && !expired && Boolean(later?.error) && !later?.loading,
@@ -287,7 +288,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       if (l.kind === "FUT") {
         const f = st.futures.find((ff) => ff.symbol === l.symbol);
         p.basis0 = num(q?.ltp) !== null && xx.spot !== null ? q.ltp - xx.spot : 0;
-        p.futYears = O.yearsToExpiry(l.expiry ?? f?.expiry, now);
+        p.futYears = O.yearsToExpiry(l.expiry ?? f?.expiry, now, refSession(st.ref).close);
         p.freezeQty = p.freezeQty ?? f?.freezeQty ?? null;
       }
       return p;
@@ -313,16 +314,16 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const exps = [...new Set(opt.map((l) => l.expiry).filter(Boolean))].sort();
     const front = exps[0] ?? xx.c.expiry;
     const multi = exps.length > 1;
-    const expMs = O.expiryCloseMs(front) ?? now;
+    const expMs = O.expiryCloseMs(front, refSession(st.ref).close) ?? now;
     if (wi.target !== null && wi.target <= now) wi.target = null;
     const targetMs = wi.target === null ? now : Math.min(wi.target, expMs);
     const el = Math.max(0, Math.min(T, (targetMs - now) / YEAR_MS));
     const shift = wi.ivShift;
     const lot = xx.lot;
     const ivNow = num(xx.sm.atmIv) !== null ? Math.max(1, xx.sm.atmIv + shift) : null;
-    const ch = ok ? O.charges(act, O.CHARGE_RATES, { lotSize: lot }) : null;
+    const ch = ok ? O.charges(act, refCharges(st.ref), { lotSize: lot }) : null;
     // Net of charges: exit charges are held inside the strikes ± 3σ, so the S = 0 / 2 × top tails cannot inflate max loss.
-    const net = ok && cfg().net ? O.strategyCharges(act, O.CHARGE_RATES, { lotSize: lot, forward: xx.F, ivPct: ivNow, years: T }) : null;
+    const net = ok && cfg().net ? O.strategyCharges(act, refCharges(st.ref), { lotSize: lot, forward: xx.F, ivPct: ivNow, years: T }) : null;
     const stats = ok ? O.strategyStats(act, lot, { forward: xx.F, ivPct: xx.sm.atmIv, years: T, ivShift: shift, spot: xx.spot, charges: net }) : null;
     const expiryToday = O.isExpiryDay(front);
     const est = ok ? O.marginEstimate(act, lot, { forward: xx.F, years: T, expiryToday }) : null;
@@ -913,7 +914,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     return O.PRESETS.filter((p) => p.group === g).map((p) => {
       const pl = O.presetLegs(p.id, x.c, opts).map((l) => {
         const q = l.kind === "FUT" ? st.quotes.get(f?.symbol ?? "") : x.c.rows.find((r) => r.strike === l.strike)?.[l.right === "CE" ? "ce" : "pe"];
-        return { ...l, price: O.mid(q) ?? (l.kind === "FUT" ? x.F : 0), basis0: 0, years: l.expiry && l.expiry !== x.c.expiry ? O.yearsToExpiry(l.expiry) : x.years, iv: num(q?.iv) ?? x.sm.atmIv };
+        return { ...l, price: O.mid(q) ?? (l.kind === "FUT" ? x.F : 0), basis0: 0, years: l.expiry && l.expiry !== x.c.expiry ? O.yearsToExpiry(l.expiry, Date.now(), refSession(st.ref).close) : x.years, iv: num(q?.iv) ?? x.sm.atmIv };
       });
       const gl = pl.length ? (p.multi ? glyphOfCurve(pl) : O.presetGlyph(pl, x.lot)) : null;
       const netP = O.netPremium(pl, x.lot);
@@ -1026,7 +1027,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const q = (t) => h("span", { class: "quiet" }, t);
     if (loading || !r.ok) {
       const why = !r ? (noChain ? "" : "loading") : r.act.length ? `${plural(r.missing.length, "leg needs", "legs need")} a price` : "";
-      for (const k of HERO) setHero(hero[k], q("—"), k === "net" ? why : "");
+      for (const k of HERO) setHero(hero[k], q(DASH), k === "net" ? why : "");
       hero.maxProfit.l.textContent = "Max profit";
       ringArc.setAttribute("stroke-dashoffset", "69.12");
       return;
@@ -1136,7 +1137,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     wiChipIv.setAttribute("aria-pressed", String(wi.ivShift !== 0));
     resetWi.hidden = wi.target === null && wi.ivShift === 0;
     note.textContent = R.ok
-      ? `Theoretical · Black-76 on forward ${formatInt(Math.round(x.F ?? 0))} · leg IVs ${formatSigned(wi.ivShift, 1)} pts · r 0 · to 15:30 IST${R.multi ? " · later legs keep their time value at the first expiry" : ""}${R.net ? ` · net of charges (rates ${O.CHARGE_RATES.asOf})` : ""}`
+      ? `Theoretical · Black-76 on forward ${formatInt(Math.round(x.F ?? 0))} · leg IVs ${formatSigned(wi.ivShift, 1)} pts · r 0 · to ${refSession(st.ref).close} IST${R.multi ? " · later legs keep their time value at the first expiry" : ""}${R.net ? ` · net of charges (rates ${refCharges(st.ref).asOf})` : ""}`
       : "";
   }
   const dragging = { t: false };
@@ -1296,7 +1297,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     if (!R?.ch) return;
     const c = R.ch;
     const rows = [["Brokerage", c.brokerage], ["STT", c.stt], ["Exchange", c.txn], ["GST", c.gst], ["Stamp", c.stamp], ["SEBI", c.sebi]];
-    const exitAt = x.spot !== null ? O.exitCharges(R.act, x.spot, O.CHARGE_RATES, { lotSize: R.lot }) : null;
+    const exitAt = x.spot !== null ? O.exitCharges(R.act, x.spot, refCharges(st.ref), { lotSize: R.lot }) : null;
     chargesPop = sheetPopover({
       trigger,
       title: "Charges to enter",
@@ -1305,7 +1306,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
         "div",
         { class: "charges-pop" },
         h("table", { class: "keys-table charges-t" }, h("tbody", {}, rows.map(([k, v]) => h("tr", {}, h("th", { scope: "row" }, k), h("td", { class: "num" }, formatFixed(v, 2)))), h("tr", { class: "total" }, h("th", { scope: "row" }, "Total"), h("td", { class: "num" }, formatFixed(c.total, 2))))),
-        h("p", { class: "muted small" }, `${isFigure(exitAt) ? `Exit at spot ≈ ${rupees(exitAt)}. ` : ""}Rates as of ${O.CHARGE_RATES.asOf}: verify with your broker.`),
+        h("p", { class: "muted small" }, `${isFigure(exitAt) ? `Exit at spot ≈ ${rupees(exitAt)}. ` : ""}Rates as of ${refCharges(st.ref).asOf}: verify with your broker.`),
       ),
     });
   }
@@ -1587,7 +1588,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const perLeg = cfg().perLeg ? R.act.map((l) => ({ id: l.id, right: l.right, side: l.side, vals: m.xs.map(O.strategyPayoff([l], R.lot, { years: R.T, ivShift: R.shift })) })) : null;
     let compare = null;
     if (compareItem && compareItem.underlying === x.c.underlying) {
-      const cl = compareItem.legs.filter((l) => l.on !== false && isFigure(l.entry)).map((l) => ({ ...l, price: l.entry, iv: num(l.ivAtSave) ?? x.sm.atmIv, years: O.yearsToExpiry(l.expiry ?? compareItem.expiry), basis0: 0, futYears: 0 }));
+      const cl = compareItem.legs.filter((l) => l.on !== false && isFigure(l.entry)).map((l) => ({ ...l, price: l.entry, iv: num(l.ivAtSave) ?? x.sm.atmIv, years: O.yearsToExpiry(l.expiry ?? compareItem.expiry, Date.now(), refSession(st.ref).close), basis0: 0, futYears: 0 }));
       if (cl.length) compare = { label: `Saved: ${compareItem.name}`, vals: m.xs.map(O.strategyPayoff(cl, R.lot, { years: R.T, ivShift: R.shift })) };
     }
     const now = Date.now();
@@ -1878,7 +1879,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     }
     const mv = x.move ?? x.spot * 0.01;
     const cands = O.suggestCandidates(x.c, { target: sg.target, spot: x.spot, forward: x.F, move: mv, group: sg.vol ? "vol" : null, back: sg.back });
-    const ctx = { chain: x.c, backChain, lot: x.lot, forward: x.F, spot: x.spot, ivPct: x.sm.atmIv, years: Math.max(1 / 8760, x.years ?? 0), backYears: later ? O.yearsToExpiry(sg.date) : null, el: Math.max(1 / 8760, x.years ?? 0), target: sg.target };
+    const ctx = { chain: x.c, backChain, lot: x.lot, forward: x.F, spot: x.spot, ivPct: x.sm.atmIv, years: Math.max(1 / 8760, x.years ?? 0), backYears: later ? O.yearsToExpiry(sg.date, Date.now(), refSession(st.ref).close) : null, el: Math.max(1 / 8760, x.years ?? 0), target: sg.target };
     sg.busy = true;
     sgOut.classList.add("busy");
     const scored = [];
@@ -1924,7 +1925,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const legsIn = c.legs.map((l) => ({ kind: "OPT", right: l.right, strike: l.strike, side: l.side, lots: l.lots, expiry: l.expiry ?? x.c.expiry, symbol: symOf({ ...l, kind: "OPT", expiry: l.expiry ?? x.c.expiry }), lotSize: x.lot }));
     setName(null);
     // The target date jumps to the first expiry (the date the suggestion was scored at); the crosshair pins at the target.
-    wi.target = O.expiryCloseMs(x.c.expiry);
+    wi.target = O.expiryCloseMs(x.c.expiry, refSession(st.ref).close);
     setLegs(legsIn, { undoLabel: `${c.name} loaded` });
     requestAnimationFrame(() => chart.pin(sg.target));
   }
@@ -2012,6 +2013,8 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       items,
       summary: exit ? null : { net: R.stats?.net ?? null, maxLoss: R.stats ? R.stats.maxLoss : undefined, margin: R.margin, marginEst: R.acct === null, free: funds.free },
       warnings: R.warnings,
+      // Stale or conflicting reference lots: one confirmation for the whole basket (docs/spec/p1-02-reference.md §5.4).
+      lotGate: lotConfirmGate(st.ref, items[0]?.lotSize ?? x.lot),
       cfg: { product: cfg().product, hedgeWait: cfg().hedgeWait },
       onCfg: (patch) => setCfg(patch),
       onPositions,
@@ -2227,7 +2230,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       body.replaceChildren(
         h("section", {}, h("h3", {}, "More figures ", h("small", {}, "a quiet row under the chart")), list),
         h("section", {}, h("h3", {}, "Prices"), basis, h("p", { class: "muted small" }, "Touch: the ask to buy, the bid to sell. Missing quotes fall back to LTP.")),
-        h("section", {}, h("h3", {}, "Charges"), sw("Figures after charges", () => cfg().net, (v) => setCfg({ net: v }), `Brokerage, STT and fees (rates as of ${O.CHARGE_RATES.asOf})`)),
+        h("section", {}, h("h3", {}, "Charges"), sw("Figures after charges", () => cfg().net, (v) => setCfg({ net: v }), `Brokerage, STT and fees (rates as of ${refCharges(st.ref).asOf})`)),
         h("section", {}, h("h3", {}, "Placing"), h("div", { class: "pop-segs" }, h("span", { class: "muted small" }, "Product"), prod, h("span", { class: "muted small" }, "Wait for each hedge"), wait)),
       );
     };
