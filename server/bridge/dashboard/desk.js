@@ -323,8 +323,8 @@ async function renderDesk(kind) {
     // Chain on a phone: the ATM IV tile's sub line carries the lot, so the expiry pill does not repeat it.
     const lotHere = lot && !(kind === "chain" && device().phone);
     // Strategy on a phone: "3 Nov · 5d" only (the lot is in each leg's qty title; W / M would clip the pill).
-    // OI on a phone: "5d · lot 75" (the lot matters more there than W / M, and the pill must not clip it).
-    const sub = !e ? "" : kind === "strategy" && device().phone ? exTag : kind === "oi" && device().phone ? `${exTag}${lot ? ` · lot ${formatInt(lot)}` : ""}` : `${exTag} · ${mk}${lotHere ? ` · lot ${formatInt(lot)}` : ""}`;
+    // OI and Volatility on a phone: "5d · lot 75" (the lot matters more there than W / M, and the pill must not clip it).
+    const sub = !e ? "" : kind === "strategy" && device().phone ? exTag : (kind === "oi" || kind === "vol") && device().phone ? `${exTag}${lot ? ` · lot ${formatInt(lot)}` : ""}` : `${exTag} · ${mk}${lotHere ? ` · lot ${formatInt(lot)}` : ""}`;
     if (eSub.data !== sub) eSub.data = sub;
     if (spotV.data !== spotText) spotV.data = spotText;
     const chText = ch === null ? "" : `${formatSigned(ch, 2)}${chp !== null ? ` (${formatSigned(chp, 2)}%)` : ""}`;

@@ -224,6 +224,11 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     const t = `translateX(${Math.round(lo * 1000) / 10}%) scaleX(${Math.round(w * 1000) / 1000})`;
     if (el.style.transform !== t) el.style.transform = t;
   };
+  const emptyMv = (el, on) => {
+    if (!el) return;
+    if (on && !("empty" in el.dataset)) el.dataset.empty = "";
+    else if (!on && "empty" in el.dataset) delete el.dataset.empty;
+  };
   const mk = (el, a) => {
     if (!el) return;
     const t = `translateX(${Math.round(clamp01(a) * 1000) / 10}%)`;
@@ -254,8 +259,10 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       t.num = n;
       t.painted = true;
     }
-    if (sub && sub.includes(" · ")) t.sub.replaceChildren(...sub.split(" · ").flatMap((sg, i) => [i ? " · " : null, h("span", { class: "seg" }, sg)].filter(Boolean)));
+    if (sub && sub.includes(" · ")) t.sub.replaceChildren(...sub.split(" · ").map((sg, i) => h("span", { class: "seg" }, i ? ` · ${sg}` : sg)));
     else t.sub.textContent = sub || " ";
+    if (sub) t.sub.title = sub;
+    else t.sub.removeAttribute("title");
     t.el.title = title;
     t.el.setAttribute("aria-label", aria ?? `${TILES.find((x) => x[0] === k)[1]}: ${value}`);
     t.el.className = `desk-stat vol-t-${k}${cls ? ` ${cls}` : ""}`;
@@ -312,6 +319,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
   const hvBtn = chip("vol-hv", "HV20", "20-day realised vol as a reference line", cfg().series.hv, () => setSeries("hv", !cfg().series.hv));
   const smileTitle = h("span", { class: "vol-sub" });
   const live = h("p", { class: "sr-only", "aria-live": "polite" });
+  const chartKeys = h("p", { class: "sr-only", id: "vol-chart-keys" }, "Left and right arrows step through the points, Home and End jump to the ends, Enter selects, Escape clears.");
   const smileLegend = h("div", { class: "vol-legend-row" });
   const smileHost = h("div", { class: "vol-plot smile-plot" });
   const smileSkel = h("div", { class: "vol-skel-host", hidden: true });
@@ -339,9 +347,11 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     curvesMsg,
     h("div", { class: "vol-curve-grid" }, smileBox, termBox, surfSlot),
     live,
+    chartKeys,
   );
   const smile = smileChart(smileHost, { label: "Smile" });
   const term = termChart(termHost, { label: "Term structure" });
+  for (const c of [smile, term]) c.svg.setAttribute("aria-describedby", "vol-chart-keys");
 
   // ── IV surface: expiries × delta (or moneyness) buckets, sequential violet heat or "vs ATM" diverging ──
   const surfModeSeg = segmented("Surface columns", [["delta", "Δ"], ["mny", "Mny %"]], cfg().surf.mode);
@@ -480,6 +490,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
   );
 
   // ── Settings ──
+  let axisBeforeCompare = null;
   function setCfg(patch) {
     st.vol = volConfig({ ...cfg(), ...patch });
     save();
@@ -491,13 +502,22 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     setCfg({ series: { ...cfg().series, [k]: on } });
   }
   function setX(x) {
+    axisBeforeCompare = null;
     if (x === "strike" && cfg().compare !== "none") return setCfg({ x, compare: "none" });
     setCfg({ x });
   }
+  // Compare is drawn in moneyness (two expiries share no strikes' meaning). A forced Strike → Mny % switch is named
+  // in the legend and undone when Compare goes back to none.
   function setCompare(v) {
     if (v !== "none" && cfg().x === "strike") {
-      toast("Compare uses moneyness");
+      axisBeforeCompare = "strike";
+      toast("Compare uses Mny %");
       return setCfg({ compare: v, x: "m" });
+    }
+    if (v === "none" && axisBeforeCompare && cfg().x === "m") {
+      const x = axisBeforeCompare;
+      axisBeforeCompare = null;
+      return setCfg({ compare: v, x });
     }
     setCfg({ compare: v });
   }
@@ -540,6 +560,10 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
         });
         return h("label", { class: "vol-check" }, i, h("span", {}, label, sub ? h("small", {}, sub) : null));
       };
+      // Rebuilding drops the focused control: put focus back on the same control (same order every render), so a
+      // keyboard or switch user stays inside the sheet.
+      const ctl = () => [...body.querySelectorAll("button, input")];
+      const fi = body.contains(document.activeElement) ? ctl().indexOf(document.activeElement) : -1;
       body.replaceChildren(
         seg("Smile x-axis", X_AXES, c.x, (v) => setX(v)),
         h("section", {}, h("h3", {}, "Series"), SERIES_MENU.map(([k, t]) => sw(t, c.series[k], (on) => setSeries(k, on)))),
@@ -547,6 +571,13 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
         seg("Compare", [["none", "None"], ["next", "Next"], ["monthly", "Monthly"]], c.compare, (v) => setCompare(v)),
         h("section", {}, h("h3", {}, "Term structure"), sw("25Δ wings", c.series.wings, (on) => setSeries("wings", on), "Put and call 25-delta IV per expiry"), sw("HV20 line", c.series.hv, (on) => setSeries("hv", on), "20-day realised vol")),
       );
+      if (fi >= 0) {
+        const list = ctl();
+        // A segmented control's focus belongs on its selected button (the arrow keys moved the selection).
+        const el = list[fi];
+        const grp = el?.closest(".segmented");
+        (grp?.querySelector('button[aria-checked="true"], button[aria-pressed="true"], button.on') ?? el)?.focus();
+      }
     };
     render();
     moreBtn.setAttribute("aria-expanded", "true");
@@ -920,7 +951,10 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     const k0 = pr[0]?.strike ?? null;
     const k1 = pr[pr.length - 1]?.strike ?? null;
     const mv = tiles.get("move").mv.__parts;
-    if (k0 !== null && k1 > k0 && r.lo !== null) {
+    // No range: hide the layers (data-empty) rather than leave another expiry's segment on screen.
+    const moveOk = k0 !== null && k1 > k0 && r.lo !== null;
+    emptyMv(tiles.get("move").mv, !moveOk);
+    if (moveOk) {
       seg(mv.seg, (r.lo - k0) / (k1 - k0), (r.hi - k0) / (k1 - k0));
       mk(mv.f, (r.F - k0) / (k1 - k0));
     }
@@ -952,6 +986,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       title: "25-delta butterfly: mean of the 25-delta put and call IV, minus ATM IV",
       aria: bf === null ? "25-delta fly: not available" : `25-delta fly ${bf >= 0 ? "plus" : "minus"} ${formatFixed(Math.abs(bf), 1)} vol points`,
     });
+    emptyMv(tiles.get("hv").mv, m.hv20 === null);
     if (m.hv20 === null) setTile("hv", { sub: m.hist?.loading && !m.hist?.closes ? "Loading daily history…" : "No daily history from this broker", title: "ATM IV minus 20-day realised vol of the index" });
     else {
       const vrp = r.atmIv === null ? null : r.atmIv - m.hv20;
@@ -1043,7 +1078,22 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       const pts0 = rangePoints(r);
       const width = boxW(smileHost, 640);
       const T = Math.max(r.years ?? 0, 0.25 / 365);
-      const pos = (K) => (K === null || K === undefined || !r.F ? null : { strike: K, m: (K / r.F - 1) * 100, delta: r.atmIv ? 1 - (O.b76Delta(r.F, K, T, r.atmIv, "CE") ?? 0.5) : null });
+      // On the Δ axis a marker sits where the curve's own points do: interpolate the loaded (strike, call delta) pairs
+      // (each at its strike's own IV); the ATM-IV delta is only the fallback outside the loaded strikes.
+      const dPairs = r.points.filter((p) => p.callDelta !== null && p.callDelta !== undefined).map((p) => [p.strike, p.callDelta]).sort((a, b) => a[0] - b[0]);
+      const deltaAt = (K) => {
+        for (let i = 1; i < dPairs.length; i++) {
+          const [ka, da] = dPairs[i - 1];
+          const [kb, db] = dPairs[i];
+          if (K >= ka && K <= kb) return kb === ka ? da : da + ((db - da) * (K - ka)) / (kb - ka);
+        }
+        return r.atmIv ? O.b76Delta(r.F, K, T, r.atmIv, "CE") ?? 0.5 : null;
+      };
+      const pos = (K) => {
+        if (K === null || K === undefined || !r.F) return null;
+        const cd = deltaAt(K);
+        return { strike: K, m: (K / r.F - 1) * 100, delta: cd === null ? null : 1 - cd };
+      };
       const steps = r.points.map((p) => p.strike);
       const step = steps.length > 1 ? Math.min(...steps.slice(1).map((k, i) => k - steps[i])) : null;
       const cmpPts = cmp ? cmp.points.filter((p) => inRange(p)) : null;
@@ -1088,6 +1138,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
         { id: "pe", label: "PE", kind: "dot", dv: "put", on: c.series.pe, toggle: (on) => setSeries("pe", on) },
         coincide ? { id: "parity", label: "CE ≈ PE (parity holds)", note: true } : null,
         cmp ? { id: "cmp", label: `vs ${dayMon(cmp.expiry)}`, kind: "dash", dv: "hv" } : null,
+        cmp && axisBeforeCompare ? { id: "cmpaxis", label: "Compare uses Mny %", note: true } : null,
         { id: "band", label: "±1σ / ±2σ", kind: "band" },
         { id: "dots", label: "put / call priced", kind: "dots" },
         c.series.ba ? { id: "ba", label: m.twoSided ? "Bid/ask" : "Bid/ask (needs live quotes)", kind: "ribbon", dv: "iv", on: true, toggle: (on) => setSeries("ba", on) } : null,
@@ -1127,8 +1178,9 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       label: `Term structure: ATM IV across ${formatInt(loaded.length)} expiries, ${sh.label}${pendingText(m.items)}`,
       onPick: (e) => e !== st.expiry && selectExpiry(e),
       tip: termTip,
+      announce: (t) => text(live, t),
     };
-    const tsig = JSON.stringify([rows, { ...topts, onPick: 0, tip: 0, dock: 0 }]);
+    const tsig = JSON.stringify([rows, { ...topts, onPick: 0, tip: 0, dock: 0, announce: 0 }]);
     if (tsig !== termSig) {
       termSig = tsig;
       term.update(rows, topts);
@@ -1354,6 +1406,8 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     }
     const nums = vals.map((x) => x.v).filter((v) => v !== null);
     const sc = O.scaleRange(nums);
+    surfTable.classList.toggle("ivdiv", vsAtm);
+    surfLegend.classList.toggle("ivdiv", vsAtm);
     for (const x of vals) {
       const td = surfRows.get(x.e)?.cells.get(x.col.id);
       if (!td) continue;
@@ -1381,7 +1435,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       const sw = vsAtm ? [-3, -2, -1, 0, 1, 2, 3].map((s) => h("i", { "data-div": String(s) })) : [1, 2, 3, 4, 5].map((s) => h("i", { "data-seq": String(s) }));
       const lo = vsAtm ? (sc.m === null ? DASH : `${minus(formatSigned(-sc.m, 1))}`) : formatPercent(sc.lo, 1);
       const hi = vsAtm ? (sc.m === null ? DASH : `${formatSigned(sc.m, 1)} pts`) : formatPercent(sc.hi, 1);
-      surfLegend.replaceChildren(h("span", { class: "vol-ramp-l" }, vsAtm ? "Under ATM" : "Cheaper"), h("span", { class: "vol-ramp-t" }, lo), h("span", { class: "vol-ramp-sw", "aria-hidden": "true" }, sw), h("span", { class: "vol-ramp-t" }, hi), h("span", { class: "vol-ramp-l" }, vsAtm ? "Over ATM" : "Richer"));
+      surfLegend.replaceChildren(h("span", { class: "vol-ramp-l" }, vsAtm ? "Cheaper than ATM" : "Cheaper"), h("span", { class: "vol-ramp-t" }, lo), h("span", { class: "vol-ramp-sw", "aria-hidden": "true" }, sw), h("span", { class: "vol-ramp-t" }, hi), h("span", { class: "vol-ramp-l" }, vsAtm ? "Richer than ATM" : "Richer"));
     }
     surfaceEl.classList.toggle("loading", !m.items.some((it) => it.row));
   }
@@ -1455,7 +1509,8 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
         td.classList.toggle("ink-call", r.rr25 !== null && r.rr25 <= -0.5);
       }
       if (id === "fwdVol") td.classList.toggle("vol-inv", Boolean(it.fwd?.inverted));
-      if (id === "range" && r.lo !== null && rHi > rLo) {
+      if (id === "range" && !(r.lo !== null && rHi > rLo)) td.querySelector(".vol-mv")?.remove();
+      else if (id === "range") {
         let bar = td.querySelector(".vol-mv");
         if (!bar) {
           bar = microVisual("range");
@@ -1471,7 +1526,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
         const ssig = JSON.stringify([w, sp?.list.map((p) => [Math.round(p.m * 100), Math.round(p.iv * 100)]), sLo, sHi]);
         if (td.__spark === ssig) return;
         td.__spark = ssig;
-        if (!sp || sp.list.length < 2 || sLo === null) return;
+        if (!sp || sp.list.length < 2 || sLo === null) return void td.replaceChildren(DASH);
         const half = sp.half ?? Math.max(...sp.list.map((p) => Math.abs(p.m)));
         td.replaceChildren(sparkSvg(sp.list, { w, h: ht, lo: sLo - 0.2, hi: sHi + 0.2, mlo: -half, mhi: half }));
         td.__sig = "";
@@ -1484,6 +1539,8 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       rec.tr.classList.toggle("sel", sel);
       if (sel) rec.tr.setAttribute("aria-current", "true");
       else rec.tr.removeAttribute("aria-current");
+      const sb = rec.tr.querySelector("button.vol-select");
+      if (sb && sb.getAttribute("aria-pressed") !== String(sel)) sb.setAttribute("aria-pressed", String(sel));
       rec.tr.classList.toggle("dim", Boolean(it.row?.dim));
       if (!it.row) continue;
       const thin = it.row.quality !== null && it.row.quality !== undefined && it.row.quality < 0.5;
@@ -1540,7 +1597,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
           cells.set(id, td);
           tr.append(td);
         }
-        if (dm) tr.append(h("td", { class: "act" }, h("button", { type: "button", class: "small vol-select", "data-select": it.e, "aria-label": `Select ${dayMon(it.e)}`, title: "Make this the selected expiry" }, icon("check"), h("span", { class: "vol-select-t" }, "Select"))));
+        if (dm) tr.append(h("td", { class: "act" }, h("button", { type: "button", class: "vol-select", "data-select": it.e, "aria-pressed": String(it.e === st.expiry), "aria-label": `Select ${dayMon(it.e)}`, title: "Make this the selected expiry" }, h("span", { class: "vol-sel-dot" }, icon("check")))));
       } else {
         tr.append(
           lead,
@@ -1840,10 +1897,27 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
           ]
         : [h("p", { class: "vol-note vol-arb-line vol-ok" }, h("span", { class: "vol-ok-ic", "aria-hidden": "true" }, icon("check")), `No executable violations at bid/ask across ${formatInt(m.hits?.strikes ?? 0)} strikes (verticals, flies, boxes).`)];
     const cal = inversions.map((x) => h("p", { class: "vol-note vol-arb-line" }, h("span", { class: "vol-warn-dot", "aria-hidden": "true" }), h("strong", {}, "Calendar variance"), ` · total variance falls from ${x.from} to ${x.to} (model-based, informational)`));
+    // What was checked, one chip per family: a count of hits (warn) or a check (clean). Calendar is model-based.
+    const fam = [
+      ["Verticals", (k) => /vertical/i.test(k)],
+      ["Butterflies", (k) => /butterfly/i.test(k)],
+      ["Boxes", (k) => /^box/i.test(k)],
+    ];
+    const checks = m.twoSided
+      ? h(
+          "ul",
+          { class: "vol-checks", "aria-label": "Checks run" },
+          fam.map(([label, test]) => {
+            const n = (hits ?? []).filter((x) => test(x.kind)).length;
+            return h("li", { class: n ? "warn" : "ok" }, h("span", { class: "vol-chk-ic", "aria-hidden": "true" }, n ? formatInt(n) : icon("check")), label, h("span", { class: "sr-only" }, n ? `: ${formatInt(n)} found` : ": none"));
+          }),
+          h("li", { class: inversions.length ? "warn" : "ok" }, h("span", { class: "vol-chk-ic", "aria-hidden": "true" }, inversions.length ? formatInt(inversions.length) : icon("check")), "Calendar", h("span", { class: "sr-only" }, inversions.length ? `: ${formatInt(inversions.length)} inverted` : ": none")),
+        )
+      : null;
     const asig = JSON.stringify([m.twoSided, hits?.map((x) => [x.kind, x.edge, x.legs.map((l) => l.strike)]), inversions, m.hits?.strikes, lot]);
     if (arbBody.__sig !== asig) {
       arbBody.__sig = asig;
-      arbBody.replaceChildren(...arbLines, ...cal, h("p", { class: "vol-note vol-foot-note" }, "Gross of brokerage, STT (0.15% of sell premium; 0.15% of intrinsic on exercised ITM) and exchange charges. Quotes can move before you trade."));
+      arbBody.replaceChildren(...[checks, ...arbLines, ...cal].filter(Boolean), h("p", { class: "vol-note vol-foot-note" }, "Gross of brokerage, STT (0.15% of sell premium; 0.15% of intrinsic on exercised ITM) and exchange charges. Quotes can move before you trade."));
     }
   }
 

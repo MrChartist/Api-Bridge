@@ -5,7 +5,7 @@
 // a range or series change, an axis change or a new expiry animates (docs/design/vol.md §4.0, §8) instead of snapping.
 // smileSvg / termSvg stay as one-shot wrappers (create + update once) for callers that want a detached <svg>.
 // Colours are foundation tokens only (app.css §12v): violet IV, call blue / put orange, the contrast ATM pill.
-import { DASH, formatFixed, formatInt, formatPercent } from "./format.js";
+import { DASH, formatFixed, formatInt, formatPercent, formatSigned } from "./format.js";
 import { lineReveal, reducedMotion } from "./motion.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -45,6 +45,17 @@ function niceTicks(lo, hi, count) {
   const raw = span / Math.max(1, count - 1);
   const mag = 10 ** Math.floor(Math.log10(raw));
   const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((x) => x >= raw) ?? 10 * mag;
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) out.push(Math.abs(v) < step * 1e-9 ? 0 : Math.round(v / step) * step);
+  out.step = step;
+  return out;
+}
+/** As niceTicks, but the largest nice step at or under the raw step (more ticks: about count to 2 × count). */
+function niceTicksFine(lo, hi, count) {
+  const span = hi - lo || Math.abs(hi) || 1;
+  const raw = span / Math.max(1, count - 1);
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [10, 5, 2.5, 2, 1].map((m) => m * mag).find((x) => x <= raw + 1e-12) ?? mag;
   const out = [];
   for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) out.push(Math.abs(v) < step * 1e-9 ? 0 : Math.round(v / step) * step);
   out.step = step;
@@ -126,12 +137,22 @@ export function tweenPoints(from, to, ms, onFrame) {
     onFrame(to);
     return { cancel() {}, current: () => to };
   }
+  // Pair the points once (not per frame): each frame only interpolates numbers.
+  const pairs = Object.entries(to).map(([name, list]) => {
+    const prev = new Map((from?.[name] ?? []).map((p) => [p.k, p]));
+    return [name, list.map((p) => [p, prev.get(p.k) ?? p])];
+  });
+  const at = (t) => {
+    const out = {};
+    for (const [name, list] of pairs) out[name] = list.map(([p, q]) => (q === p ? p : { k: p.k, brk: p.brk, x: q.x + (p.x - q.x) * t, y: q.y + (p.y - q.y) * t }));
+    return out;
+  };
   const t0 = now();
   let id = 0;
   let done = false;
   const step = () => {
     const k = Math.min(1, (now() - t0) / ms);
-    state = k >= 1 ? to : lerpSeries(from, to, EASE_STD(k));
+    state = k >= 1 ? to : at(EASE_STD(k));
     onFrame(state);
     if (k < 1) id = raf(step);
     else done = true;
@@ -364,7 +385,7 @@ const SERIES_NAMES = { otm: "OTM", ce: "CE", pe: "PE" };
  */
 export function smileChart(host, init = {}) {
   const id = ++gid;
-  const svg = s("svg", { class: "vol-svg smile", role: "img", tabindex: "0", focusable: "true", "aria-label": init.label ?? "Smile" });
+  const svg = s("svg", { class: "vol-svg smile", role: "group", "aria-roledescription": "chart", tabindex: "0", focusable: "true", "aria-label": init.label ?? "Smile" });
   const grad = s("linearGradient", { id: `vol-ivf-${id}`, x1: 0, x2: 0, y1: 0, y2: 1, gradientUnits: "userSpaceOnUse" }, s("stop", { class: "ivf-a", offset: "0" }), s("stop", { class: "ivf-b", offset: "1" }));
   const band2 = s("rect", { class: "band2", x: 0, width: 1 });
   const band = s("rect", { class: "band", x: 0, width: 1 });
@@ -442,7 +463,7 @@ export function smileChart(host, init = {}) {
     const oiOn = Boolean(on.oi) && Array.isArray(data.oi) && data.oi.length > 0;
     const labelled = keys.length > 1 || comp.length > 0;
     const L = 40;
-    const R = labelled ? 44 : 14;
+    const R = labelled ? 58 : 14; // room for a merged end label ("OTM · CE")
     const T = 26;
     const B = 24 + (oiOn ? 30 : 0);
     const plotB = H - B;
@@ -480,7 +501,9 @@ export function smileChart(host, init = {}) {
     st.ask = baOn ? series(pts, (p) => baLeg(p)?.askIv) : [];
     // X ticks: 4–9 by width; the Delta axis has fixed ticks.
     const n = Math.max(4, Math.min(9, Math.floor((W - L - R) / 70)));
-    const xt = axis === "delta" ? null : niceTicks(x0, x1, n);
+    // Prefer the finer nice step (≤ the raw step, e.g. 250 not 500 strikes) while it keeps ≤ 9 labels inside.
+    const fine = axis === "delta" ? null : niceTicksFine(x0, x1, n);
+    const xt = axis === "delta" ? null : fine.filter((v) => v > x0 && v < x1).length <= 9 ? fine : niceTicks(x0, x1, n);
     const xdp = xt ? stepDecimals(xt.step) : 0;
     const xticks =
       axis === "delta"
@@ -696,7 +719,8 @@ export function smileChart(host, init = {}) {
     }
 
     // OI strip under the x axis: calls up, puts down from a midline, the largest at full strength.
-    const oisig = G.oiOn ? JSON.stringify([G.axis, W, H, data.oi]) : "";
+    // Keyed by the bar positions too: X() moves with the x range and the right gutter (series / compare toggles).
+    const oisig = G.oiOn ? JSON.stringify([G.axis, W, H, L, R, data.oi.map((r) => [r.strike, r.ce, r.pe, G.byK.has(r.strike) ? r1(X(smileX(G.byK.get(r.strike), G.axis))) : null])]) : "";
     if (gOi.__sig !== oisig) {
       gOi.__sig = oisig;
       const kids = [];
@@ -707,7 +731,7 @@ export function smileChart(host, init = {}) {
         const xsx = rows.map((r) => X(smileX(G.byK.get(r.strike), G.axis))).sort((a, b) => a - b);
         let gap = Infinity;
         for (let i = 1; i < xsx.length; i++) gap = Math.min(gap, xsx[i] - xsx[i - 1]);
-        const bw = Math.max(1.5, Math.min(8, (Number.isFinite(gap) ? gap : 10) * 0.6));
+        const bw = Math.max(G.axis === "delta" ? 3 : 2, Math.min(8, (Number.isFinite(gap) ? gap : 10) * 0.6));
         const maxCe = Math.max(0, ...rows.map((r) => r.ce ?? 0));
         const maxPe = Math.max(0, ...rows.map((r) => r.pe ?? 0));
         kids.push(s("line", { class: "oi-mid", x1: L, x2: W - R, y1: mid, y2: mid }));
@@ -718,7 +742,7 @@ export function smileChart(host, init = {}) {
           if (hc) kids.push(s("rect", { class: `oi-bar call${r.ce === maxCe ? " max" : ""}`, x: r1(x - bw / 2), y: r1(mid - hc), width: r1(bw), height: r1(hc), rx: 1 }));
           if (hp) kids.push(s("rect", { class: `oi-bar put${r.pe === maxPe ? " max" : ""}`, x: r1(x - bw / 2), y: mid, width: r1(bw), height: r1(hp), rx: 1 }));
         }
-        kids.push(s("text", { class: "oi-cap", x: 4, y: mid - 3 }, "OI CE"), s("text", { class: "oi-cap", x: 4, y: mid + 9 }, "PE"));
+        kids.push(s("text", { class: "oi-cap", x: 4, y: mid + 3.5 }, "OI"));
       }
       gOi.replaceChildren(...kids);
     }
@@ -861,22 +885,25 @@ export function smileChart(host, init = {}) {
     // Keep the chip in the y-axis gutter: right-aligned to the plot's left edge.
     const w = rt - 1;
     setStyle(yChip, "transform", `translate(${r1(Math.max(1, L - 2 - w))}px, ${r1(y - 9)}px)`);
-    const content = O.tip ? O.tip(hit.p, { cmpIv: compareAt(hit.p) }) : [];
-    const csig = `${hit.p.strike}|${r1(hit.v)}|${G.axis}|${G.data?.key}|${r1(compareAt(hit.p) ?? -1)}|${JSON.stringify(O.series)}`;
+    // Build the tooltip only when its content changes, and re-place it only when it moves (both run every tick).
+    const cmpIv = compareAt(hit.p);
+    const csig = `${hit.p.strike}|${r1(hit.v)}|${G.axis}|${G.data?.key}|${r1(cmpIv ?? -1)}|${JSON.stringify(O.series)}`;
+    const host = docked ? O.dock : tip;
+    if (host.__sig !== csig) {
+      host.__sig = csig;
+      host.replaceChildren(...(O.tip ? O.tip(hit.p, { cmpIv }) : []));
+      tip.__at = null;
+    }
     if (docked) {
-      if (O.dock.__sig !== csig) {
-        O.dock.__sig = csig;
-        O.dock.replaceChildren(...content);
-      }
       tip.classList.remove("on");
       return;
     }
-    if (tip.__sig !== csig) {
-      tip.__sig = csig;
-      tip.replaceChildren(...content);
-    }
     tip.classList.add("on");
-    placeTip(tip, svg, W, x, y, { left: L, right: W - R, top: T, bottom: plotB });
+    const psig = `${r1(x)}|${r1(y)}|${W}|${R}`;
+    if (tip.__at !== psig) {
+      tip.__at = psig;
+      placeTip(tip, svg, W, x, y, { left: L, right: W - R, top: T, bottom: plotB });
+    }
   }
 
   const order = () => (G?.ok ? G.pts.filter((p) => readAt(p.strike)).map((p) => p.strike) : []);
@@ -940,7 +967,7 @@ export function smileSvg(data, o) {
  */
 export function termChart(host, init = {}) {
   const id = ++gid;
-  const svg = s("svg", { class: "vol-svg term", role: "img", tabindex: "0", focusable: "true", "aria-label": init.label ?? "Term structure" });
+  const svg = s("svg", { class: "vol-svg term", role: "group", "aria-roledescription": "chart", tabindex: "0", focusable: "true", "aria-label": init.label ?? "Term structure" });
   const grad = s("linearGradient", { id: `vol-tvf-${id}`, x1: 0, x2: 0, y1: 0, y2: 1, gradientUnits: "userSpaceOnUse" }, s("stop", { class: "ivf-a", offset: "0" }), s("stop", { class: "ivf-b", offset: "1" }));
   const gGrid = s("g", { class: "grid" });
   const gX = s("g", { class: "xaxis" });
@@ -969,7 +996,7 @@ export function termChart(host, init = {}) {
   let sig = "";
   let shown = null;
   let tw = null;
-  let hover = -1;
+  let hover = null; // the hovered / keyboard-stepped expiry (not an index: G.use changes as expiries load)
   let destroyed = false;
   const yTicks = new Map();
   const dots = new Map();
@@ -997,7 +1024,7 @@ export function termChart(host, init = {}) {
     const wing = (r, k) => (o.wings ? r.skew?.[k]?.iv ?? null : null);
     const hv = o.showHv && o.hv !== null && o.hv !== undefined && Number.isFinite(o.hv) ? o.hv : null;
     const L = 40;
-    const R = o.wings || hv !== null ? 56 : 18;
+    let R = o.wings || hv !== null ? 56 : 18;
     const T = 26;
     const B = 34;
     const plotB = H - B;
@@ -1006,6 +1033,7 @@ export function termChart(host, init = {}) {
     // HV20 far from the curves (over 4 vol points beyond them) does not stretch the axis: its line pins to the edge.
     const hvIn = hv !== null && hv >= Math.min(...cy) - 4 && hv <= Math.max(...cy) + 4;
     const ys = hvIn ? [...cy, hv] : cy;
+    if (!o.wings && !hvIn) R = 18; // an off-scale HV20 is a tab in the top margin: no right label gutter needed
     const sx = [...use, ...pending].map((r) => Math.sqrt(Math.max(r.days, 0)));
     let x0 = Math.min(...sx);
     let x1 = Math.max(...sx);
@@ -1038,7 +1066,7 @@ export function termChart(host, init = {}) {
     svg.classList.toggle("anim", Boolean(prevG?.ok) && !reduced);
     // Axis: date, then "5d" (and M for the monthly) under it; pending expiries as hollow ticks.
     const all = [...(G.use ?? []), ...(G.pending ?? [])].sort((a, b) => a.days - b.days);
-    const xsig = JSON.stringify([W, H, G.ok, all.map((r) => [r.expiry, r.pending ? 1 : 0, r.dim ? 1 : 0, Math.round(r.days * 10)])]);
+    const xsig = JSON.stringify([W, H, L, R, G.ok, all.map((r) => [r.expiry, r.pending ? 1 : 0, r.dim ? 1 : 0, G.ok ? r1(G.X(r.days)) : Math.round(r.days * 10)])]);
     if (gX.__sig !== xsig) {
       gX.__sig = xsig;
       const kids = [];
@@ -1113,22 +1141,29 @@ export function termChart(host, init = {}) {
     }
 
     // HV20 reference: the gap between the curve and this line is the variance risk premium.
-    show(hvLine, G.hv !== null);
+    // Off scale (far from the curves): no line at the plot edge, which would read as a false level; a tab in the
+    // top margin names the value and its gap to the selected (or front) ATM IV instead.
+    show(hvLine, G.hv !== null && G.hvOff === 0);
     show(hvLabel, G.hv !== null);
-    if (G.hv !== null) {
+    hvLabel.classList.toggle("off", G.hv !== null && G.hvOff !== 0);
+    if (G.hv !== null && G.hvOff === 0) {
       setA(hvLine, "x1", L);
       setA(hvLine, "x2", W - R);
       setA(hvLine, "y1", 0);
       setA(hvLine, "y2", 0);
-      const hy = G.hvOff > 0 ? T + 2 : G.hvOff < 0 ? plotB - 2 : Y(G.hv);
+      const hy = Y(G.hv);
       setStyle(hvLine, "transform", `translateY(${r1(hy)}px)`);
-      hvLine.classList.toggle("off", G.hvOff !== 0);
-      setT(hvLabel, `HV20 ${formatPercent(G.hv, 1)}${G.hvOff > 0 ? " ↑" : G.hvOff < 0 ? " ↓" : ""}`);
-      setStyle(hvLabel, "transform", `translate(${r1(W - 2)}px, ${r1(hy + (G.hvOff > 0 ? 12 : 3.5))}px)`);
+      setT(hvLabel, `HV20 ${formatPercent(G.hv, 1)}`);
+      setStyle(hvLabel, "transform", `translate(${r1(W - 2)}px, ${r1(hy + 3.5)}px)`);
+    } else if (G.hv !== null) {
+      const ref = G.use.find((r) => r.expiry === o.selected) ?? G.use[0];
+      const gap = G.hv - ref.atmIv;
+      setT(hvLabel, `HV20 ${formatPercent(G.hv, 1)} ${G.hvOff > 0 ? "↑" : "↓"} ${formatSigned(gap, 1).replace("-", "\u2212")} vs ATM`);
+      setStyle(hvLabel, "transform", `translate(${r1(W - 2)}px, 12px)`);
     }
 
     // Forward vol per segment; an inverted pair (total variance falls) draws in the warn colour.
-    const fsig = JSON.stringify([W, H, ya.y0, ya.y1, G.use.map((r) => [r.expiry, r.fwd?.vol ?? null, r.fwd?.inverted ?? false, r.atmIv])]);
+    const fsig = JSON.stringify([W, H, L, R, ya.y0, ya.y1, G.use.map((r) => [r.expiry, r1(X(r.days)), r.fwd?.vol ?? null, r.fwd?.inverted ?? false, r.atmIv])]);
     if (gFwd.__sig !== fsig) {
       gFwd.__sig = fsig;
       const lab = [];
@@ -1212,13 +1247,14 @@ export function termChart(host, init = {}) {
       }
       placePill(selPill, x, Math.max(2, y - rad - 26), formatPercent(sel.atmIv, 1), 2, W - 2);
     }
-    setHover(hover);
+    setHover(hover === null ? -1 : G.use.findIndex((r) => r.expiry === hover));
     return true;
   }
 
-  function setHover(i) {
-    hover = G?.ok && i >= 0 && i < G.use.length ? i : -1;
-    const r = hover >= 0 ? G.use[hover] : null;
+  function setHover(i, say = false) {
+    const r = G?.ok && i >= 0 && i < G.use.length ? G.use[i] : null;
+    hover = r ? r.expiry : null;
+    if (say && r) O.announce?.(`${r.label}, ${r.dte ?? ""}: ATM IV ${formatPercent(r.atmIv, 1)}${r.fwd?.vol !== null && r.fwd?.vol !== undefined ? `, forward vol ${formatFixed(r.fwd.vol, 1)}` : ""}`);
     show(hlV, Boolean(r));
     show(hlRing, Boolean(r));
     const docked = Boolean(O.docked && O.dock);
@@ -1269,7 +1305,11 @@ export function termChart(host, init = {}) {
       return best;
     },
     count: () => (G?.ok ? G.use.length : 0),
-    current: () => (hover >= 0 ? hover : G?.ok ? G.use.findIndex((r) => r.expiry === O.selected) : -1),
+    current: () => {
+      if (!G?.ok) return -1;
+      const i = hover === null ? -1 : G.use.findIndex((r) => r.expiry === hover);
+      return i >= 0 ? i : G.use.findIndex((r) => r.expiry === O.selected);
+    },
     onHover: (i) => setHover(i ?? -1),
     onLeave: () => setHover(-1),
     onPick: (i) => {
@@ -1284,7 +1324,7 @@ export function termChart(host, init = {}) {
         if (r) O.onPick?.(r.expiry);
         return;
       }
-      setHover(i);
+      setHover(i, true);
     },
   });
 

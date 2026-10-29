@@ -154,6 +154,10 @@
   --div-p1: 138 51.5% 87.1%; --div-ink-p1: 0 0% 0%;
   --div-p2: 138 46.9% 61.6%; --div-ink-p2: 0 0% 0%;
   --div-p3: 142 84.8% 25.9%; --div-ink-p3: 0 0% 100%;
+  /* IV-family diverging (vs ATM on the IV surface): cheaper = teal, richer = the violet seq steps. Not money. */
+  --ivc-1: 184 48% 91%; --ivc-ink-1: var(--foreground);
+  --ivc-2: 185 42% 76%; --ivc-ink-2: var(--foreground);
+  --ivc-3: 187 62% 33%; --ivc-ink-3: 0 0% 100%;
 
   --scrollbar-thumb: hsl(240 6% 10% / 0.18);
   --scrollbar-thumb-hover: hsl(240 6% 10% / 0.32);
@@ -310,6 +314,9 @@
     --div-p1: 138 43.9% 21%; --div-ink-p1: 0 0% 100%;
     --div-p2: 138 56.8% 31.8%; --div-ink-p2: 0 0% 100%;
     --div-p3: 135 63.6% 50.4%; --div-ink-p3: 0 0% 0%;
+    --ivc-1: 186 34% 14%; --ivc-ink-1: var(--foreground);
+    --ivc-2: 186 40% 25%; --ivc-ink-2: var(--foreground);
+    --ivc-3: 184 52% 56%; --ivc-ink-3: 0 0% 0%;
 
     --scrollbar-thumb: hsl(0 0% 100% / 0.16);
     --scrollbar-thumb-hover: hsl(0 0% 100% / 0.28);
@@ -416,6 +423,9 @@
   --div-p1: 138 43.9% 21%; --div-ink-p1: 0 0% 100%;
   --div-p2: 138 56.8% 31.8%; --div-ink-p2: 0 0% 100%;
   --div-p3: 135 63.6% 50.4%; --div-ink-p3: 0 0% 0%;
+  --ivc-1: 186 34% 14%; --ivc-ink-1: var(--foreground);
+  --ivc-2: 186 40% 25%; --ivc-ink-2: var(--foreground);
+  --ivc-3: 184 52% 56%; --ivc-ink-3: 0 0% 0%;
 
   --scrollbar-thumb: hsl(0 0% 100% / 0.16);
   --scrollbar-thumb-hover: hsl(0 0% 100% / 0.28);
@@ -1000,7 +1010,8 @@ td { padding: 13px 16px; border-bottom: 0.5px solid var(--mat-separator); color:
 th:first-child, td:first-child { padding-left: var(--card-pad); }
 th:last-child, td:last-child { padding-right: var(--card-pad); }
 tbody tr:last-child td { border-bottom: 0; }
-tbody tr:hover td { background: var(--mat-fill-1); }
+tbody tr:hover td:not([data-seq]):not([data-div]) { background: var(--mat-fill-1); }
+tbody tr:hover td:is([data-seq], [data-div]) { background-image: linear-gradient(var(--mat-fill-1), var(--mat-fill-1)); }
 th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 td.wrap { white-space: normal; min-width: 180px; overflow-wrap: anywhere; }
 td .muted.small { font-size: 12.5px; margin-top: 2px; }
@@ -1248,6 +1259,12 @@ svg .dv-col, svg rect.dv-grow { transform-box: fill-box; transform-origin: cente
 [data-div="1"] { background-color: hsl(var(--div-p1)); color: hsl(var(--div-ink-p1)); }
 [data-div="2"] { background-color: hsl(var(--div-p2)); color: hsl(var(--div-ink-p2)); }
 [data-div="3"] { background-color: hsl(var(--div-p3)); color: hsl(var(--div-ink-p3)); }
+.ivdiv [data-div="-3"] { background-color: hsl(var(--ivc-3)); color: hsl(var(--ivc-ink-3)); }
+.ivdiv [data-div="-2"] { background-color: hsl(var(--ivc-2)); color: hsl(var(--ivc-ink-2)); }
+.ivdiv [data-div="-1"] { background-color: hsl(var(--ivc-1)); color: hsl(var(--ivc-ink-1)); }
+.ivdiv [data-div="1"] { background-color: hsl(var(--seq-2)); color: hsl(var(--seq-ink-2)); }
+.ivdiv [data-div="2"] { background-color: hsl(var(--seq-3)); color: hsl(var(--seq-ink-3)); }
+.ivdiv [data-div="3"] { background-color: hsl(var(--seq-4)); color: hsl(var(--seq-ink-4)); }
 .dv-heat { transition: background-color var(--dur-3) var(--ease-std), color var(--dur-3) var(--ease-std); }
 
 /* Charts: horizontal grid only, quiet axis ticks, a zero line, a spot / ATM contrast pill, crosshair and tooltip. */
@@ -3917,13 +3934,18 @@ table.pos-bca tbody th { text-align: left; font: 500 12.5px/1.2 var(--font-body)
 .vol-tiles .desk-stat .value.ink-call { color: hsl(var(--dv-call-ink)); }
 .vol-tiles .desk-stat .value.ink-pos { color: hsl(var(--pos-ink)); }
 .vol-tiles .desk-stat .value.ink-neg { color: hsl(var(--neg-ink)); }
-.vol-tiles .desk-stat .sub { font-size: 11.5px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: hsl(var(--foreground) / var(--a-label)); }
-.vol-tiles .desk-stat .sub .seg { white-space: nowrap; }
+/* One line per sub, so the strip keeps even tile heights: the parts after the first shrink (ellipsis) first, and a
+   separator rides with the part after it (never ends a line). The full text is the sub's title. */
+.vol-tiles .desk-stat .sub { display: flex; min-width: 0; font-size: 11.5px; white-space: nowrap; overflow: hidden; color: hsl(var(--foreground) / var(--a-label)); }
+.vol-tiles .desk-stat .sub .seg { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+.vol-tiles .desk-stat .sub .seg:first-child { flex-shrink: 0; max-width: 100%; }
+.vol-tiles .desk-stat .label, .vol-tiles .desk-stat.na .value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vol-tiles .desk-stat.na .value { font: 600 13px/1.6 var(--font-body); letter-spacing: 0; color: hsl(var(--foreground) / var(--a-quiet)); }
 .vol-tiles .desk-stat.skel-t .value { width: 64%; color: transparent; border-radius: 6px; background: var(--mat-fill-2); }
 /* Micro-visuals (4 px): full-width layers moved with transforms so a refresh slides them (F§6.2 #1). */
 .vol-mv { position: relative; display: block; height: 4px; margin: 2px 0 1px; border-radius: 2px; overflow: hidden; background: var(--mat-fill-2); }
 .vol-mv > i { position: absolute; inset: 0; transform-origin: left center; transition: transform var(--dur-3) var(--ease-std); }
+.vol-mv[data-empty] > i { visibility: hidden; }
 .vol-mv > .seg { background: hsl(var(--dv-iv) / 0.55); }
 .vol-mv > .mk::before { content: ""; position: absolute; top: 0; bottom: 0; left: -1px; width: 2px; border-radius: 1px; background: hsl(var(--dv-iv)); }
 .vol-mv > .mk.f::before { background: hsl(var(--dv-spot)); width: 1.5px; }
@@ -4097,7 +4119,7 @@ button.chip-btn.vol-wings, button.chip-btn.vol-hv, button.chip-btn.vol-vsatm { g
 .vol-surf-box { position: relative; min-width: 0; }
 .vol-surf-ctl { justify-content: flex-end; }
 .vol-surface .panel-head .panel-tools { order: 9; }
-.vol-svg .hv-line.off { opacity: 0.7; }
+.vol-svg .hv-label.off { font-weight: 650; fill: hsl(var(--foreground) / 0.78); }
 .vol-surf-ctl .segmented button { min-height: 28px; padding: 0 12px; font-size: 12.5px; }
 .vol-surf-ctl button.chip-btn { min-height: 28px; padding: 0 10px; font-size: 12.5px; border-radius: 999px; }
 .vol-surf-wrap { position: relative; overflow-x: auto; overscroll-behavior-x: contain; }
@@ -4175,8 +4197,14 @@ table.vol-table .two small { font: 450 10.5px/1.1 var(--font-numeric); color: hs
 .vol-err { display: inline-flex; align-items: center; gap: 4px; color: hsl(var(--warn-ink)); }
 .vol-err button.small { min-height: 28px; padding: 0 8px; font-size: 12.5px; }
 .vol-term-table td.act { width: 1%; text-align: right; }
-button.vol-select { min-height: 28px; padding: 0 10px; gap: 4px; font-size: 12.5px; }
-button.vol-select svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; }
+/* Select: a radio-like circle. Only the selected row's is filled (contrast --sel-bg / --sel-fg) and shows the check. */
+button.vol-select { display: inline-grid; place-items: center; width: 44px; min-width: 44px; height: 44px; min-height: 44px; margin: -12px -8px; padding: 0; border: 0; border-radius: 50%; background: none; box-shadow: none; color: inherit; cursor: pointer; }
+.vol-sel-dot { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px hsl(var(--foreground) / 0.28); transition: background-color var(--dur-2) var(--ease-std), box-shadow var(--dur-2) var(--ease-std); }
+.vol-sel-dot svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.6; opacity: 0; transform: scale(0.6); transition: opacity var(--dur-2) var(--ease-std), transform var(--dur-2) var(--ease-out); }
+button.vol-select[aria-pressed="true"] .vol-sel-dot { background: hsl(var(--sel-bg)); color: hsl(var(--sel-fg)); box-shadow: none; }
+button.vol-select[aria-pressed="true"] .vol-sel-dot svg { opacity: 1; transform: none; }
+button.vol-select:hover .vol-sel-dot { box-shadow: inset 0 0 0 1.5px hsl(var(--foreground) / 0.5); }
+button.vol-select[aria-pressed="true"]:hover .vol-sel-dot { box-shadow: none; }
 .vol-detail[hidden] { display: none; }
 .vol-detail > td { height: auto; padding: 8px 12px 10px; white-space: normal; background: var(--mat-fill-1); }
 .vol-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; margin: 0; }
@@ -4192,8 +4220,8 @@ button.vol-select svg { width: 14px; height: 14px; fill: none; stroke: currentCo
 /* Strikes: a scrolling table with a sticky head; the ATM contrast pill, side-tinted tags, heat and micro bars. */
 .vol-strikes-wrap { max-height: 420px; overflow: auto; overscroll-behavior: contain; }
 .vol-strikes-table tbody tr { cursor: pointer; }
-.vol-strikes-table tbody tr:hover > * { background-color: var(--mat-fill-1); }
-.vol-strikes-table tbody tr.hl > * { background-color: var(--mat-fill-2); }
+.vol-strikes-table tbody tr:hover > * { background-image: linear-gradient(var(--mat-fill-1), var(--mat-fill-1)); }
+.vol-strikes-table tbody tr.hl > * { background-image: linear-gradient(var(--mat-fill-2), var(--mat-fill-2)); }
 .vol-strikes-table tbody tr.hl > :first-child { box-shadow: inset 2px 0 0 hsl(var(--sel-bg)), inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 .vol-strikes-table th.k { font-weight: 650; }
 .vol-strikes-table .vol-k { display: inline-block; margin-right: 4px; padding: 3px 0; }
@@ -4253,6 +4281,12 @@ button.vol-select svg { width: 14px; height: 14px; fill: none; stroke: currentCo
 .vol-persona[open] .vol-chev { transform: rotate(90deg); }
 .vol-err-line { display: flex; align-items: center; gap: 4px; color: hsl(var(--warn-ink)); }
 .vol-arb-line { display: flex; align-items: baseline; gap: 4px; }
+.vol-checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px; margin: 6px 0 10px; padding: 0; list-style: none; }
+.vol-checks li { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 10px; border-radius: var(--r-sm, 8px); background: var(--mat-fill-1); font: 550 12.5px/1.2 var(--font-body); color: hsl(var(--foreground) / 0.86); }
+.vol-chk-ic { display: grid; place-items: center; flex: none; width: 20px; height: 20px; border-radius: 50%; font: 700 11px/1 var(--font-numeric); }
+.vol-chk-ic svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.6; }
+.vol-checks li.ok .vol-chk-ic { background: hsl(var(--pos) / 0.16); color: hsl(var(--pos-ink)); }
+.vol-checks li.warn .vol-chk-ic { background: hsl(var(--warn) / 0.2); color: hsl(var(--warn-ink)); }
 .vol-arb-line .vol-warn-dot { margin-left: 0; }
 .vol-ok { color: hsl(var(--foreground) / var(--a-label)); }
 .vol-ok-ic { display: inline-flex; align-self: center; color: hsl(var(--pos-ink)); }
@@ -4270,6 +4304,8 @@ button.vol-select svg { width: 14px; height: 14px; fill: none; stroke: currentCo
 
 /* Chart engine slot and the method note. */
 .vol-slot { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; height: 160px; margin: 12px; padding: 16px; border-radius: var(--r-md); text-align: center; font: 500 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); outline: 1px dashed var(--mat-separator); outline-offset: -1px; }
+.vol-history .chart-slot-box { aspect-ratio: auto; height: 240px; }
+@media (max-width: 719px) { .vol-history .chart-slot-box { height: 160px; } }
 .vol-slot-kicker { font: 700 11px/1 var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; color: hsl(var(--foreground) / var(--a-quiet)); }
 .vol-details > summary { display: flex; align-items: center; min-height: 44px; padding: 0 12px; cursor: pointer; font: 650 15px/1.2 var(--font-display); }
 .vol-method-list { margin: 0; padding: 0 16px 12px 32px; }
@@ -4297,13 +4333,17 @@ input.vol-rate { width: 90px; min-height: 34px; text-align: right; }
 @media (max-width: 1023px) {
   .vol-term-table tbody tr[data-e] > * { cursor: pointer; }
 }
+/* Phone and tablet: the floating tab bar covers the bottom of the page, so the last panel needs clearance above it. */
+@media (max-width: 1023px) {
+  :root[data-layout="desk"] .app-main:has(.vol-method) { padding-bottom: calc(var(--tabbar-h) + 16px + var(--safe-b)); }
+  :root[data-layout="desk"] .app-main:has(.vol-method) [data-panel] { scroll-margin-bottom: calc(var(--tabbar-h) + 16px + var(--safe-b)); }
+}
 @media (max-width: 719px) {
   /* KPI: one scroll-snap row (ATM IV, 1σ, IV − HV, RR first) with an edge fade. */
   .desk-stats.vol-tiles { display: flex; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent); }
   .desk-stats.vol-tiles::-webkit-scrollbar { display: none; }
   .vol-tiles .desk-stat { flex: 0 0 132px; min-height: 56px; padding: 7px 12px 8px; scroll-snap-align: start; }
   .vol-tiles .desk-stat .value { font-size: 15px; }
-  .vol-tiles .desk-stat .sub { -webkit-line-clamp: 1; }
   .vol-t-iv { order: 1; } .vol-t-move { order: 2; } .vol-t-hv { order: 3; } .vol-t-rr { order: 4; } .vol-t-straddle { order: 5; } .vol-t-bf { order: 6; } .vol-t-fwd { order: 7; } .vol-t-rank { order: 8; }
   /* Curves: one capsule [Smile | Term | Surface] + ⋯; the controls live in the Chart options sheet. */
   .vol-tabbar { display: flex; }
@@ -4326,8 +4366,6 @@ input.vol-rate { width: 90px; min-height: 34px; text-align: right; }
   .vol-legend-row { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent); }
   .vol-term-table .vol-exp .wd { display: none; }
   table.vol-term-table th, table.vol-term-table td { padding: 0 6px; }
-  button.vol-select { min-width: 36px; padding: 0 8px; }
-  .vol-select-t { display: none; }
   .vol-strike-seg { display: inline-flex; }
   .vol-strikes .c-wide, .vol-strikes .c-cepe { display: none; }
   .vol-strikes.show-cepe .c-cepe { display: table-cell; }
@@ -4340,7 +4378,7 @@ input.vol-rate { width: 90px; min-height: 34px; text-align: right; }
   .vol-surf-slot .vol-surf-ctl { flex-wrap: nowrap; padding: 10px 12px 8px; }
   .vol-surf-slot .vol-surf-ctl .segmented { flex: 1; }
   .vol-surf-slot .vol-surf-ctl .segmented button { flex: 1; }
-  .vol-slot { height: 120px; }
+  .vol-slot { height: 120px; max-height: 160px; }
   .vol-menu-body { right: auto; left: 0; }
 }
 @keyframes vol-tab-in { from { opacity: 0; transform: translateY(6px); } }
@@ -4354,7 +4392,7 @@ input.vol-rate { width: 90px; min-height: 34px; text-align: right; }
 }
 @media (prefers-reduced-motion: reduce) {
   .vol-svg .series.ghost, .vol-svg .dots.pop .dot.otm, .vol-svg .sel-ring.settle, .vol-curves .vol-surf-slot, .vol-curves .vol-termc, .vol-curves .vol-smile, .vol-menu-body { animation: none; }
-  .vol-svg *, .vol-mv > i, .vol-cz > i, .vol-tip, table.vol-surf-table td, .vol-tiles .desk-stat .value { transition: none !important; }
+  .vol-svg *, .vol-mv > i, .vol-cz > i, .vol-tip, table.vol-surf-table td, .vol-tiles .desk-stat .value, .vol-sel-dot, .vol-sel-dot svg { transition: none !important; }
 }
 
 /* ───────────────────────── 12g · ARBITRAGE ─────────────────────────
