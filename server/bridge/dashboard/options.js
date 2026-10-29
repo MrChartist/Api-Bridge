@@ -3782,6 +3782,8 @@ export function boxes(chain, { rate = 0.06, days = null, lots = 1, profile = DEF
       s.net = waterfall(s).net;
       s.netPts = s.net / U;
       s.breakEvenPts = charges.total / U;
+      s.hurdle = h;
+      s.days = ann ? d : null;
       s.annual = s.rate;
       out.push(s);
     }
@@ -4101,14 +4103,19 @@ export function arbConfig(saved) {
 
 /**
  * How much of the total cost the gross edge pays for, in points per unit. gross = grossPts (parity), width − price
- * (lend box) or price − width (borrow box); cost = breakEvenPts. cover = gross / cost (null when cost ≤ 0); short =
+ * (lend box) or price − width/(1 + h·d/365) (borrow box, against the fair credit at the hurdle); cost = breakEvenPts,
+ * plus price·h·d/365 for a lend box (the hurdle on the money lent). h = s.hurdle, d = s.days (missing → 0). cover = gross / cost (null when cost ≤ 0); short =
  * max(0, cost − gross), the points still missing. Missing inputs give all null.
  */
 export function coverRatio(s) {
   const none = { cover: null, gross: null, cost: null, short: null };
   if (!s || typeof s !== "object") return none;
-  const gross = s.kind === "lbox" ? diffOf(s.width, s.price) : s.kind === "sbox" ? diffOf(s.price, s.width) : num(s.grossPts);
-  const cost = num(s.breakEvenPts);
+  // Boxes carry the cost of money at the hurdle, as parity carries its financing: a lend box pays for the debit's
+  // hurdle interest (cost += price·h·d/365); a borrow box is measured against the fair credit W/(1 + h·d/365).
+  const g = num(s.hurdle) !== null && num(s.days) !== null && num(s.days) > 0 ? (Number(s.hurdle) * Number(s.days)) / 365 : 0;
+  const gross = s.kind === "lbox" ? diffOf(s.width, s.price) : s.kind === "sbox" ? (num(s.width) === null ? null : diffOf(s.price, Number(s.width) / (1 + g))) : num(s.grossPts);
+  const be = num(s.breakEvenPts);
+  const cost = be === null ? null : s.kind === "lbox" && num(s.price) !== null ? be + Math.max(0, Number(s.price)) * g : be;
   if (gross === null || cost === null) return none;
   return { cover: cost > 0 ? gross / cost : null, gross, cost, short: Math.max(0, cost - gross) };
 }
@@ -4142,8 +4149,11 @@ export function devHeat(rows) {
   });
 }
 
-/** The better of a parity row's conversion and reversal returns, any sign: { k: "conv" | "rev", v } or null. */
+/** The annual of a parity row's better side (r.best; else the larger of conv and rev), any sign: { k: "conv" | "rev", v } or null. */
 export function bestAnnualSigned(r) {
+  // The row's better side (r.best, by net ₹) when it has an annual, so the return matches the coloured money cell.
+  const b = r?.best;
+  if (b && (b.kind === "conv" || b.kind === "rev") && num(b.annual) !== null) return { k: b.kind, v: num(b.annual) };
   const opts = [["conv", num(r?.conv?.annual)], ["rev", num(r?.rev?.annual)]].filter(([, v]) => v !== null);
   if (!opts.length) return null;
   const [k, v] = opts.sort((a, b) => b[1] - a[1])[0];

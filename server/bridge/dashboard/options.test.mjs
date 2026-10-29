@@ -1948,6 +1948,21 @@ describe("Arbitrage display helpers (arb.md §10)", () => {
     expect(A.coverRatio(null)).toEqual({ cover: null, gross: null, cost: null, short: null });
     expect(A.coverRatio({ kind: "conv", grossPts: 1 })).toEqual({ cover: null, gross: null, cost: null, short: null });
   });
+  it("coverRatio: boxes pay for money at the hurdle (lend below hurdle is short; a cheap borrow covers)", () => {
+    // Lend 497 for a year to get 500 back: 0.6 %/yr, far under a 6 % hurdle, so the box does not cover.
+    const lendLow = A.coverRatio({ kind: "lbox", width: 500, price: 497, breakEvenPts: 2, hurdle: 0.06, days: 365 });
+    expect(lendLow.gross).toBe(3);
+    expect(lendLow.cost).toBeCloseTo(2 + 497 * 0.06, 6);
+    expect(lendLow.cover).toBeLessThan(1);
+    expect(lendLow.short).toBeGreaterThan(0);
+    // Borrow 480 against 500 owed in a year: ≈ 4.2 %/yr, under the 6 % hurdle, so it covers (fair credit ≈ 471.70).
+    const borrowLow = A.coverRatio({ kind: "sbox", width: 500, price: 480, breakEvenPts: 2, hurdle: 0.06, days: 365 });
+    expect(borrowLow.gross).toBeCloseTo(480 - 500 / 1.06, 6);
+    expect(borrowLow.cover).toBeGreaterThan(1);
+    expect(borrowLow.short).toBe(0);
+    // Borrow 470 against 500: ≈ 6.4 %/yr, over the hurdle, so the gross is negative.
+    expect(A.coverRatio({ kind: "sbox", width: 500, price: 470, breakEvenPts: 2, hurdle: 0.06, days: 365 }).gross).toBeLessThan(0);
+  });
   it("bpStep: fixed thresholds at 10 / 50 / 150 bp, both signs", () => {
     const cases = [[0, 0], [9.99, 0], [10, 1], [49.99, 1], [50, 2], [149.99, 2], [150, 3], [4000, 3], [-9.99, 0], [-10, -1], [-50, -2], [-150, -3]];
     for (const [bp, step] of cases) expect(A.bpStep(bp), String(bp)).toBe(step);
@@ -1969,11 +1984,15 @@ describe("Arbitrage display helpers (arb.md §10)", () => {
     expect(A.devHeat([{ dev: null, devBp: null }])[0]).toEqual({ side: null, step: 0, m: 5 });
     expect(A.devHeat([{ dev: 0.5, devBp: 2 }])[0].step).toBe(2); // m floors at 5 bp: 1 + floor(4 · 2 / 5)
   });
-  it("bestAnnualSigned: the larger of conv and rev, negatives included", () => {
+  it("bestAnnualSigned: the better side, else the larger of conv and rev, negatives included", () => {
     expect(A.bestAnnualSigned({ conv: { annual: -0.03 }, rev: { annual: -0.05 } })).toEqual({ k: "conv", v: -0.03 });
     expect(A.bestAnnualSigned({ conv: { annual: 0.01 }, rev: { annual: 0.02 } })).toEqual({ k: "rev", v: 0.02 });
     expect(A.bestAnnualSigned({ conv: null, rev: { annual: -0.1 } })).toEqual({ k: "rev", v: -0.1 });
     expect(A.bestAnnualSigned({ conv: { annual: null }, rev: null })).toBeNull();
+    // The better side by net wins even when the other side has the larger annual (spec §8.1).
+    const conv = { kind: "conv", net: -1200, annual: -0.02 };
+    const rev = { kind: "rev", net: -157, annual: -0.4 };
+    expect(A.bestAnnualSigned({ conv, rev, best: rev })).toEqual({ k: "rev", v: -0.4 });
   });
   it("waterfallSteps: the steps chain and end at the net; the domain spans zero", () => {
     const w = A.waterfallSteps([{ key: "gross", value: 1620 }, { key: "fin", value: -164 }, { key: "brk", value: -80 }, { key: "stt", value: -75 }, { key: "earn", value: 30 }]);

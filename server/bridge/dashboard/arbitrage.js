@@ -44,14 +44,6 @@ const money = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? "-" 
 const pct = (v, dp = 1) => (num(v) === null ? DASH : formatPercent(v * 100, dp));
 /** A signed rate: "+3.8%", "-2.88%". */
 const pctSigned = (v, dp = 1) => (num(v) === null ? DASH : `${formatSigned(v * 100, dp)}%`);
-/** The ask with the digits it shares with the bid dropped, for narrow tiles: (26537.65, 26542.95) → "42.95". */
-export function shortAsk(bid, ask) {
-  const b = formatFixed(bid, 2);
-  const a = formatFixed(ask, 2);
-  if (b.length !== a.length || b.length <= 5) return a;
-  const keep = a.length - 5; // two integer digits + ".dd"
-  return a.slice(0, keep) === b.slice(0, keep) ? a.slice(keep) : a;
-}
 /** The ink class for a signed figure: green above zero, red below, neutral when it rounds to zero at `dp`. */
 export function inkOf(v, dp = 0) {
   if (!isFigure(v)) return "";
@@ -98,6 +90,12 @@ function setLiq(el, n) {
  * so cover 1.0 reaches it and the bar caps near 1.43×. Green beyond the marker when the edge clears costs; a red part
  * fill when it covers only part of them; nothing when the gross is negative.
  */
+/** Decimals for a run of ticks, from their step (0.25 → 2, 0.5 → 1, 1 → 0), so every label has the same precision. */
+function tickDp(ticks) {
+  const step = ticks.length > 1 ? Math.abs(ticks[1] - ticks[0]) : 1;
+  for (let dp = 0; dp < 4; dp++) if (Math.abs(step * 10 ** dp - Math.round(step * 10 ** dp)) < 1e-6) return dp;
+  return 4;
+}
 function coverBar(size = "card") {
   const fill = h("span", { class: "arb-cv-fill" });
   const over = h("span", { class: "arb-cv-over" });
@@ -109,7 +107,7 @@ function coverBar(size = "card") {
   return {
     el,
     /** c = O.coverRatio(s); returns the tone ("pos" | "neg" | "none"). */
-    set(c, { compact = size === "cell" } = {}) {
+    set(c, { compact = size === "cell", brief = false } = {}) {
       const gross = c?.gross ?? null;
       const cover = c?.cover ?? null;
       const tone = gross === null || gross <= 0 ? "none" : cover === null || cover >= 1 ? "pos" : "neg";
@@ -120,6 +118,7 @@ function coverBar(size = "card") {
       if (gross === null) text = DASH;
       else if (tone === "pos") text = cover === null ? "no cost" : compact ? `${formatFixed(cover, 1)}×` : `covers ${formatFixed(cover, 1)}×`;
       else if (compact) text = `-${formatFixed(c.short, 2)} pts`;
+      else if (brief) text = `needs ${formatFixed(c.short, 2)} pts`;
       else text = gross <= 0 ? `gross negative · needs ${formatFixed(c.short, 2)} pts` : `needs ${formatFixed(c.short, 2)} pts more`;
       const s = `${tone}|${Math.round(base * 1000)}|${Math.round(beyond * 1000)}|${text}`;
       if (s === sig) return tone;
@@ -129,7 +128,7 @@ function coverBar(size = "card") {
       over.style.setProperty("--v", String(Math.round(beyond * 1000) / 1000));
       label.textContent = text;
       label.className = `arb-cv-label ${tone === "pos" ? "ink-pos" : gross === null ? "" : "ink-neg"}`;
-      el.title = gross === null ? "" : `Gross ${formatSigned(gross, 2)} pts against ${formatFixed(c.cost, 2)} pts of costs per unit`;
+      el.title = gross === null ? "" : `${gross <= 0 ? "Gross negative: " : ""}gross ${formatSigned(gross, 2)} pts against ${formatFixed(c.cost, 2)} pts of costs per unit`;
       return tone;
     },
   };
@@ -260,21 +259,12 @@ export function arbPanels(ctx) {
     const alt = h("span", { class: "arb-o-alt" });
     const meta = h("span", { class: "arb-o-meta" });
     const btn = h("button", { type: "button", class: "small arb-o-btn" }, "Preview");
+    // The card is a plain group: a stretched "open in scanner" button covers it, Preview sits above that (no nested controls).
+    const open = h("button", { type: "button", class: "arb-o-open", hidden: true });
     const body = h("div", { class: "arb-o-in" }, h("div", { class: "arb-o-r1" }, kind, tags, liq), h("div", { class: "arb-o-r2" }, net, ret), h("div", { class: "arb-o-r3" }, cover.el, alt), h("div", { class: "arb-o-r4" }, meta, btn));
-    const el = h("div", { class: "arb-opp skel", role: "button", tabindex: "0", "data-slot": slot, "aria-busy": "true" }, body);
-    const card = { el, kind, tags, liq, net, ret, cover, alt, meta, btn, body, key: null, net0: null, go: null, act: null };
-    const go = (e) => {
-      if (e.target instanceof Element && e.target.closest(".arb-o-btn")) return;
-      card.go?.();
-    };
-    el.addEventListener("click", go);
-    el.addEventListener("keydown", (e) => {
-      if ((e.key === "Enter" || e.key === " ") && e.target === el) {
-        e.preventDefault();
-        e.stopPropagation();
-        card.go?.();
-      }
-    });
+    const el = h("div", { class: "arb-opp skel", role: "group", "data-slot": slot, "aria-busy": "true" }, open, body);
+    const card = { el, open, kind, tags, liq, net, ret, cover, alt, meta, btn, body, key: null, net0: null, go: null, act: null };
+    open.addEventListener("click", () => card.go?.());
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       card.act?.();
@@ -335,6 +325,12 @@ export function arbPanels(ctx) {
   const mainEl = h("div", { class: "arb-main" }, noteEl, vizEl, wrapEl, cardsEl, emptyEl, footEl, keysEl);
   const paneDetail = createDetail({ pane: true });
   const paneEl = h("aside", { class: "arb-pane", "aria-label": "Selected structure" }, paneDetail.el);
+  // The fade at the pane's foot shows only while more content sits below the fold.
+  const paneMore = () => paneEl.classList.toggle("more", paneEl.scrollTop + paneEl.clientHeight < paneEl.scrollHeight - 2);
+  paneEl.addEventListener("scroll", paneMore, { passive: true });
+  const paneRO = typeof ResizeObserver === "function" ? new ResizeObserver(paneMore) : null;
+  paneRO?.observe(paneDetail.el);
+  paneRO?.observe(paneEl);
   const bodyEl = h("div", { class: "arb-body" }, mainEl, paneEl);
   const scanEl = h("section", { class: "desk-panel arb-scan", "data-panel": "scanner", "aria-label": "Arbitrage scanner" }, headEl, bodyEl, live);
   function crossFade() {
@@ -882,14 +878,15 @@ export function arbPanels(ctx) {
       p.r.className = `arb-cr ${a ? inkOf(a.v * 100, 1) : ""}`;
       p.r.textContent = s ? (a ? `${pctSigned(a.v, 1)}/yr` : DASH) : (m.oneSidedMarket || r.oneSided) && r.dev !== null ? "indicative" : "";
       p.cover.el.hidden = !s;
-      if (s) p.cover.set(O.coverRatio(s), { compact: false });
+      if (s) p.cover.set(O.coverRatio(s), { compact: false, brief: true });
       p.x3.replaceChildren(...[x.opp ? h("span", { class: "arb-tag edge" }, "Edge") : null, m.stale && s ? h("span", { class: "arb-tag stale" }, "Stale") : null].filter(Boolean));
       setLiq(p.liq, r.liq);
       edge = !s ? "none" : m.stale ? "stale" : s.net > 0 && x.opp ? "pos" : "neg";
     } else if (x.type === "box") {
       const b = x.b;
       p.a.replaceChildren(h("strong", {}, `${formatInt(b.k1)} / ${formatInt(b.k2)}`));
-      p.b.textContent = b.mode === "lend" ? "Lend" : "Borrow";
+      // The Lend | Borrow capsule above the list already names the mode.
+      p.b.textContent = "";
       p.v.className = `arb-cv ${b.vsHurdleBp === null ? "" : b.vsHurdleBp >= 0 ? "ink-pos" : "ink-neg"}`;
       setVal(p.v, pct(b.rate, 2), b.rate);
       p.sw.hidden = true;
@@ -928,7 +925,13 @@ export function arbPanels(ctx) {
       p.liq.hidden = true;
     }
     if (li.dataset.edge !== edge) {
-      if (edge === "pos" && li.dataset.edge === "neg") li.classList.add("new-edge");
+      // Flash on every neg → pos flip (restart the animation; drop the class when it ends or the edge goes away).
+      li.classList.remove("new-edge");
+      if (edge === "pos" && li.dataset.edge === "neg" && !reducedMotion()) {
+        void li.offsetWidth;
+        li.classList.add("new-edge");
+        li.addEventListener("animationend", () => li.classList.remove("new-edge"), { once: true });
+      }
       li.dataset.edge = edge;
     }
   }
@@ -1207,41 +1210,52 @@ export function arbPanels(ctx) {
       // Legs in send order, with depth and slices
       const legs = O.sendOrder(s.legs);
       const topQ = topQtyMap(s);
-      put(legsHost, "legs", JSON.stringify([legs.map((l) => [l.symbol, l.side, l.price, l.units]), [...topQ], legs.map((l) => freezeOf(l))]), () => [
-        h("h4", {}, "Legs ", h("small", {}, "in send order")),
-        h(
-          "table",
-          { class: "arb-legs" },
-          h("thead", {}, h("tr", {}, ["", "Contract", "Price", "Qty", "Top qty", "Slices"].map((t, i) => h("th", { scope: "col", class: i >= 2 ? "num" : undefined }, t)))),
+      put(legsHost, "legs", JSON.stringify([legs.map((l) => [l.symbol, l.side, l.price, l.units]), [...topQ], legs.map((l) => freezeOf(l))]), () => {
+        // Columns only when they carry something: Top qty needs depth, Slices a leg over the freeze limit.
+        const sl = legs.map((l) => O.freezeSlices(l.units, freezeOf(l), s.lot).length);
+        const depth = legs.some((l) => num(topQ.get(l.symbol)) !== null);
+        const sliced = sl.some((n) => n > 1);
+        const heads = ["", "Contract", "Price", "Qty", depth ? "Top qty" : null, sliced ? "Slices" : null];
+        return [
+          h("h4", {}, "Legs ", h("small", {}, "in send order")),
           h(
-            "tbody",
-            {},
-            legs.map((l) => {
-              const sl = O.freezeSlices(l.units, freezeOf(l), s.lot).length;
-              const tq = num(topQ.get(l.symbol));
-              const thin = tq !== null && tq < l.units;
-              return h(
-                "tr",
-                {},
-                h("td", {}, h("span", { class: `side-tag ${l.side === "BUY" ? "buy" : "sell"}`, "aria-label": l.side === "BUY" ? "Buy" : "Sell" }, l.side === "BUY" ? "B" : "S")),
-                h("td", { title: legName(l, m) }, l.kind === "FUT" ? `FUT ${dayMon(l.expiry ?? m.c.expiry)}` : `${formatInt(l.strike)} ${l.right}`),
-                h("td", { class: "num" }, formatFixed(l.price, 2)),
-                h("td", { class: "num" }, formatInt(l.units)),
-                h("td", { class: `num${thin ? " ink-warn" : ""}`, title: tq === null ? "Depth not available from this broker" : thin ? "Less than your quantity at the touch: the rest fills worse" : "Quantity at the touch" }, thin ? "⚠ " : "", formatInt(tq)),
-                h("td", { class: "num" }, sl > 1 ? formatInt(sl) : ""),
-              );
-            }),
+            "table",
+            { class: "arb-legs" },
+            h("thead", {}, h("tr", {}, heads.map((t, i) => (t === null ? null : h("th", { scope: "col", class: i >= 2 ? "num" : undefined }, t))).filter(Boolean))),
+            h(
+              "tbody",
+              {},
+              legs.map((l, k) => {
+                const tq = num(topQ.get(l.symbol));
+                const thin = tq !== null && tq < l.units;
+                return h(
+                  "tr",
+                  {},
+                  ...[
+                    h("td", {}, h("span", { class: `side-tag ${l.side === "BUY" ? "buy" : "sell"}`, "aria-label": l.side === "BUY" ? "Buy" : "Sell" }, l.side === "BUY" ? "B" : "S")),
+                    h("td", { title: legName(l, m) }, l.kind === "FUT" ? `FUT ${dayMon(l.expiry ?? m.c.expiry)}` : `${formatInt(l.strike)} ${l.right}`),
+                    h("td", { class: "num" }, formatFixed(l.price, 2)),
+                    h("td", { class: "num" }, formatInt(l.units)),
+                    depth ? h("td", { class: `num${thin ? " ink-warn" : ""}`, title: tq === null ? "Depth not available for this leg" : thin ? "Less than your quantity at the touch: the rest fills worse" : "Quantity at the touch" }, thin ? "⚠ " : "", formatInt(tq)) : null,
+                    sliced ? h("td", { class: "num" }, sl[k] > 1 ? formatInt(sl[k]) : "1") : null,
+                  ].filter(Boolean),
+                );
+              }),
+            ),
           ),
-        ),
-      ]);
+          depth ? null : h("p", { class: "arb-d-fine" }, "Depth not available from this feed."),
+        ].filter(Boolean);
+      });
       const maxLots = O.maxLotsAtTouch(s.legs, topQ, s.lot);
       put(lotsHost, "lots", JSON.stringify([maxLots, s.lots]), () => {
         const meter = liqMeter();
         setLiq(meter, maxLots === null ? 0 : Math.max(1, Math.min(5, Math.floor(maxLots / Math.max(1, s.lots)))));
         meter.setAttribute("aria-label", maxLots === null ? "Depth not available" : `${formatInt(maxLots)} lots at the touch`);
         meter.title = meter.getAttribute("aria-label");
+        // Without depth the legs table already says so: no row of dashes here.
+        if (maxLots === null) return [];
         return [
-          h("div", { class: "arb-kv" }, h("span", {}, "Max lots at the touch"), h("span", { class: "arb-kv-v" }, maxLots === null ? null : meter, h("strong", { title: maxLots === null ? "Depth not available from this broker" : "floor(min top-of-book qty ÷ lot)" }, maxLots === null ? DASH : formatInt(maxLots)))),
+          h("div", { class: "arb-kv" }, h("span", {}, "Max lots at the touch"), h("span", { class: "arb-kv-v" }, meter, h("strong", { title: "floor(min top-of-book qty ÷ lot)" }, formatInt(maxLots)))),
           maxLots !== null && maxLots < s.lots ? h("p", { class: "ink-warn arb-d-fine" }, `Only ${formatInt(maxLots)} lot${maxLots === 1 ? "" : "s"} available at these prices; the rest fills worse`) : null,
         ];
       });
@@ -1288,7 +1302,13 @@ export function arbPanels(ctx) {
     const wfTitle = h("h4", {});
     const wfDl = h("dl", { class: "arb-wfv" });
     const wfFine = h("p", { class: "arb-d-fine" });
-    wfHost.append(h("div", { class: "arb-wf-head" }, wfTitle, wfToggle), wfDl, wfFine);
+    // One persistent toggle for the small fees: it survives the row rebuild, so focus stays on it both ways.
+    const wfFees = h("button", { type: "button", class: "arb-wf-more arb-wf-fees", "aria-expanded": "false", hidden: true });
+    wfFees.addEventListener("click", () => {
+      wfOpen = !wfOpen;
+      if (cur) drawWf(cur.s, false);
+    });
+    wfHost.append(h("div", { class: "arb-wf-head" }, wfTitle, wfToggle), wfDl, wfFees, wfFine);
     const wfRows = new Map(); // key -> { row, bar, conn, val }
     function wfLines(s) {
       if (s.kind === "cal") {
@@ -1304,18 +1324,24 @@ export function arbPanels(ctx) {
       // Small statutory fees (each under 2 % of the gross) fold into one line; a tap expands them.
       const gross = Math.abs(lines[0]?.value ?? 0);
       const small = lines.filter((l) => ["sebi", "stamp", "gst"].includes(l.key));
-      if (!wfOpen && small.length > 1 && gross > 0 && small.every((l) => Math.abs(l.value) < 0.02 * gross)) {
+      const groupable = small.length > 1 && gross > 0 && small.every((l) => Math.abs(l.value) < 0.02 * gross);
+      if (!wfOpen && groupable) {
         const at = lines.indexOf(small[0]);
         lines = lines.filter((l) => !small.includes(l));
         lines.splice(at, 0, { key: "small", label: "SEBI · Stamp · GST", value: small.reduce((a, l) => a + l.value, 0), exact: small.reduce((a, l) => a + l.exact, 0), group: true });
       }
-      return { lines, net: w.netShown, exact: w.net, per: s.U, netLabel: "Net", unitText: `for ${formatInt(s.U)} units` };
+      return { lines, net: w.netShown, exact: w.net, per: s.U, netLabel: "Net", unitText: `for ${formatInt(s.U)} units`, groupable };
     }
     function drawWf(s, grow) {
       const W = wfLines(s);
       const pts = wfUnit === "pts";
       const div = pts ? W.per || 1 : 1;
-      const fmt = (v) => (v === null ? DASH : pts ? `${formatSigned(v / div, 2)}` : W.noGross ? formatRupee(-v, 0) : rupeeSigned(v));
+      // A roll shows its costs as positive amounts in both units; a gross-to-net waterfall is signed in both.
+      const fmt = (v) => (v === null ? DASH : W.noGross ? (pts ? formatFixed(-v / div, 2) : formatRupee(-v, 0)) : pts ? formatSigned(v / div, 2) : rupeeSigned(v));
+      wfFees.hidden = !W.groupable;
+      wfFees.setAttribute("aria-expanded", String(wfOpen));
+      const feesText = wfOpen ? "Group SEBI · Stamp · GST" : "Show SEBI · Stamp · GST";
+      if (wfFees.textContent !== feesText) wfFees.textContent = feesText;
       wfTitle.replaceChildren(s.kind === "cal" ? "Roll a long " : "Costs: gross to net ", h("small", {}, pts ? `points ${W.unitText === "per lot" ? "per unit" : "per unit"}` : `₹ ${W.unitText}`));
       const steps = O.waterfallSteps(W.lines.map((l) => ({ key: l.key, value: l.value })));
       const lo = Math.min(steps.min, W.net ?? 0);
@@ -1345,7 +1371,20 @@ export function arbPanels(ctx) {
         const st0 = steps.steps[i];
         const a = x(Math.min(st0.from, st0.to));
         const w = Math.abs(x(st0.to) - x(st0.from));
-        r.dt.replaceChildren(l.group ? h("button", { type: "button", class: "arb-wf-more", "aria-expanded": "false", onclick: () => ((wfOpen = true), drawWf(s, false)) }, l.label, h("small", {}, " · show")) : l.label);
+        r.dt.replaceChildren(
+          l.group
+            ? h("button", {
+                type: "button",
+                class: "arb-wf-more",
+                "aria-expanded": "false",
+                onclick: () => {
+                  wfOpen = true;
+                  drawWf(s, false);
+                  wfFees.focus();
+                },
+              }, l.label, h("small", {}, " · show"))
+            : l.label,
+        );
         r.dt.title = l.note ?? "";
         r.bar.className = `arb-wf-bar ${l.gross ? (l.value >= 0 ? "gross pos" : "gross neg") : l.value > 0 ? "earn" : "cost"}`;
         r.bar.style.setProperty("--l", String(Math.round(a * 1000) / 1000));
@@ -1964,23 +2003,62 @@ export function arbPanels(ctx) {
     const ticks = O.niceTicks(lo * 100, hi * 100, W < 500 ? 3 : 5).filter((t) => t >= lo * 100 - 1e-9 && t <= hi * 100 + 1e-9);
     // Labels: above the axis, or below when two marks are closer than their labels (greedy, left to right).
     const placed = marks.map((k) => ({ ...k, x: xOf(k.v), out: k.v < lo ? "◂ " : k.v > hi ? " ▸" : "" })).sort((a, b) => a.x - b.x);
+    // Measured widths (not a character guess): a hidden text of the same class, laid out in the same SVG.
+    if (!ladderSvg.__meas) {
+      const t = svgEl("text", { class: "arb-l-label" });
+      const pt = svgEl("text", {});
+      const pg = svgEl("g", { class: "dv-pill arb-l-pill" }, pt);
+      const mg = svgEl("g", { class: "arb-l-meas", "aria-hidden": "true", visibility: "hidden" }, t, pg);
+      ladderSvg.append(mg);
+      ladderSvg.__meas = { t, pt };
+    }
+    const measure = (text, pill) => {
+      const el = pill ? ladderSvg.__meas.pt : ladderSvg.__meas.t;
+      el.textContent = text;
+      let w = 0;
+      try {
+        w = el.getComputedTextLength();
+      } catch {
+        w = 0;
+      }
+      return (w > 0 ? w : text.length * 7) + (pill ? 16 : 0);
+    };
+    // Shorter forms tried in turn when a label cannot fit; the last resort is no text (the value stays in the tooltip).
+    const SHORT = { hurdle: "H", carry: "Carry", opt: "Opt", lend: "Lend", borrow: "Borrow" };
+    const GAP = 6;
     const lastEnd = { a: -Infinity, b: -Infinity };
     for (const k of placed) {
-      k.text = k.out === "◂ " ? `◂ ${k.label}` : k.out ? `${k.label} ▸` : k.label;
-      const w = k.text.length * 6.3 + (k.id === "hurdle" ? 14 : 0);
-      k.w = w;
-      k.lx = Math.max(w / 2, Math.min(W - w / 2, k.x));
-      if (k.lx - w / 2 >= lastEnd.a + 6) k.row = "a";
-      else if (k.lx - w / 2 >= lastEnd.b + 6) k.row = "b";
-      else {
-        // Both rows are taken here: nudge the label right of the emptier row (a leader is not needed: same colour).
-        k.row = lastEnd.a <= lastEnd.b ? "a" : "b";
-        k.lx = Math.min(W - w / 2, lastEnd[k.row] + 6 + w / 2);
+      const arrow = (t) => (k.out === "◂ " ? `◂ ${t}` : k.out ? `${t} ▸` : t);
+      const val = k.label.slice(k.label.lastIndexOf(" ") + 1);
+      const forms = [k.label, `${SHORT[k.id]} ${val}`, val].filter((t, i, a) => a.indexOf(t) === i).map(arrow);
+      k.row = null;
+      for (const text of forms) {
+        const w = measure(text, k.id === "hurdle");
+        const ideal = Math.max(w / 2, Math.min(W - w / 2, k.x));
+        for (const row of ["a", "b"]) {
+          // At the ideal spot, or nudged right of the row's last label: never back onto it, never past the edge.
+          const lx = ideal - w / 2 >= lastEnd[row] + GAP ? ideal : lastEnd[row] + GAP + w / 2;
+          if (lx + w / 2 > W + 0.5 || Math.abs(lx - k.x) > Math.max(60, w)) continue;
+          k.text = text;
+          k.w = w;
+          k.lx = lx;
+          k.row = row;
+          break;
+        }
+        if (k.row) break;
       }
-      lastEnd[k.row] = k.lx + w / 2;
+      if (!k.row) {
+        k.text = "";
+        k.w = 0;
+        k.lx = k.x;
+        k.row = "a";
+        continue;
+      }
+      lastEnd[k.row] = k.lx + k.w / 2;
     }
     const tickLabels = ticks.map((t) => ({ x: xOf(t / 100), t })).filter((tk) => !placed.some((k) => k.row === "b" && Math.abs(k.lx - tk.x) < k.w / 2 + 14));
-    ladderSvg.__ticks.replaceChildren(...tickLabels.flatMap((tk) => [svgEl("line", { class: "dv-grid arb-l-tick", x1: tk.x, x2: tk.x, y1: base - 3, y2: base + 3 }), svgEl("text", { class: "dv-tick", x: tk.x, y: H - 3, "text-anchor": "middle" }, `${formatFixed(tk.t, Number.isInteger(tk.t) ? 0 : 1)}%`)]));
+    const tdp = tickDp(ticks);
+    ladderSvg.__ticks.replaceChildren(...tickLabels.flatMap((tk) => [svgEl("line", { class: "dv-grid arb-l-tick", x1: tk.x, x2: tk.x, y1: base - 3, y2: base + 3 }), svgEl("text", { class: "dv-tick", x: tk.x, y: H - 3, "text-anchor": "middle" }, `${formatFixed(tk.t, tdp)}%`)]));
     const seen = new Set();
     for (const k of placed) {
       seen.add(k.id);
@@ -2009,7 +2087,7 @@ export function arbPanels(ctx) {
       }
       e.x = k.x;
       e.go = k.go ?? null;
-      e.tip = [h("b", {}, k.text), h("div", {}, k.title)];
+      e.tip = [h("b", {}, k.label), h("div", {}, k.title)];
       e.g.dataset.tone = k.tone ?? "";
       e.g.style.transform = `translate(${Math.round(k.x * 10) / 10}px, ${base}px)`;
       const ly = k.row === "a" ? 2 : H - 18;
@@ -2021,6 +2099,7 @@ export function arbPanels(ctx) {
         t.setAttribute("x", "0");
         t.setAttribute("y", "9.5");
         if (t.textContent !== k.text) t.textContent = k.text;
+        e.label.style.visibility = k.text ? "" : "hidden";
         e.label.style.transform = `translate(${Math.round(k.lx * 10) / 10}px, ${ly}px)`;
       } else {
         e.label.setAttribute("class", `arb-l-label ${k.ink ?? ""}`);
@@ -2044,7 +2123,7 @@ export function arbPanels(ctx) {
       setVal(figFut.value, DASH, null);
       figFut.sub.textContent = "Quote unavailable";
     } else {
-      setVal(figFut.value, `${formatFixed(fut.bid, 2)} · ${shortAsk(fut.bid, fut.ask)}`, (fut.bid + fut.ask) / 2);
+      setVal(figFut.value, `${formatFixed(fut.bid, 2)} / ${formatFixed(fut.ask, 2)}`, (fut.bid + fut.ask) / 2);
       figFut.value.title = `Bid ${formatFixed(fut.bid, 2)}, ask ${formatFixed(fut.ask, 2)}`;
       const basis = m.spot ? (fut.bid + fut.ask) / 2 - m.spot : null;
       figFut.sub.textContent = basis === null ? `${dayMon(fut.expiry)}` : `basis ${formatSigned(basis, 2)} · ${formatPercent((basis / m.spot) * 100, 2)}`;
@@ -2077,6 +2156,19 @@ export function arbPanels(ctx) {
       if (!carry || rs > carry.rs) carry = { type: "cal", c, rs };
     }
     return { par, box, carry };
+  }
+  // Carry as a cover bar in points: the basis against the fair basis at the hurdle (spot · h · d/365). 1.0× = at hurdle.
+  function carryCover(f, m) {
+    if (f.basis === null || f.mid === null || f.days === null || f.days < 1) return null;
+    const fair = (f.mid - f.basis) * m.hRate * (f.days / 365);
+    return { cover: fair > 0 ? f.basis / fair : null, gross: f.basis, cost: fair, short: Math.max(0, fair - f.basis) };
+  }
+  // A future's liquidity from its own quote (spread, and volume when the feed sends it).
+  function futLiq(f) {
+    const inst = st.futures.find((x) => x.expiry === f.expiry);
+    const q = inst ? st.quotes.get(inst.symbol) : null;
+    if (!q || f.bid === null || f.ask === null) return 0;
+    return O.liquidityScore({ bid: f.bid, ask: f.ask, volume: num(q.volume), oi: num(q.oi) }, num(q.volume) ? 1 : 0);
   }
   function drawRail(m) {
     railErr.hidden = true;
@@ -2126,7 +2218,11 @@ export function arbPanels(ctx) {
       card.btn.title = o.btnOff ? "Quotes are stale" : "";
       card.act = o.act ?? null;
       card.go = o.go ?? null;
-      card.el.setAttribute("aria-label", `${o.kind}: ${o.net}${o.retText ? `, ${o.retText}` : ""}`);
+      const label = `${o.kind}: ${o.net}${o.retText ? `, ${o.retText}` : ""}`;
+      card.el.setAttribute("aria-label", label);
+      card.el.classList.toggle("has-go", Boolean(card.go));
+      card.open.hidden = !card.go;
+      card.open.setAttribute("aria-label", `Open in the scanner: ${label}`);
       const edge = o.edge ?? "none";
       if (edge === "pos" && wasNeg && card.el.dataset.edge !== "pos" && !reducedMotion()) {
         card.el.classList.remove("new-edge");
@@ -2149,7 +2245,7 @@ export function arbPanels(ctx) {
         small: true,
         ret: "Conversions and reversals need a same-expiry future",
         alt: big ? ["Largest deviation ", h("strong", {}, formatInt(big.strike)), ` · ${formatSigned(big.dev, 1)} pts`, big.tag ? h("span", { class: big.tag === "callsRich" ? "ink-call" : "ink-put" }, big.tag === "callsRich" ? " · calls rich" : " · puts rich") : ""] : null,
-        meta: monthly ? "Strip and table: vs implied fwd" : `No ${m.c.underlying} expiry with a future`,
+        meta: `${monthly ? "Strip and table: vs implied fwd" : `No ${m.c.underlying} expiry with a future`} · ${age}`,
         btn: monthly ? `Use ${dayMon(monthly)}` : null,
         act: monthly ? () => ctx.selectExpiry(monthly) : null,
         go: big ? () => goTo("parity", big.key) : null,
@@ -2173,7 +2269,7 @@ export function arbPanels(ctx) {
         retText: a === null ? "" : `${pctSigned(a, 1)} a year over hurdle`,
         retInk: a === null ? "" : inkOf(a * 100, 1),
         cover: O.coverRatio(s),
-        meta: m.stale ? `Stale · ${age}` : `${formatInt(s.legs.length)} legs · ${money(s.capital)} capital · ${formatInt(lots)} lot${lots === 1 ? "" : "s"}`,
+        meta: m.stale ? `Stale · ${age}` : `${formatInt(s.legs.length)} legs · ${money(s.capital)} capital · ${formatInt(lots)} lot${lots === 1 ? "" : "s"} · ${age}`,
         metaInk: m.stale ? "ink-warn" : "",
         btn: "Preview",
         btnOff: m.stale,
@@ -2200,7 +2296,7 @@ export function arbPanels(ctx) {
         ret: [h("span", { class: box.vsHurdleBp >= 0 ? "ink-pos" : "ink-neg" }, `${pct(box.rate, 2)}/yr`), " ", bpChip(box.vsHurdleBp, { suffix: " bp vs hurdle" })],
         retText: `${pct(box.rate, 2)} a year, ${formatSigned(box.vsHurdleBp, 0)} bp against the hurdle`,
         cover: O.coverRatio(box),
-        meta: m.stale ? `Stale · ${age}` : `4 legs · ${money(box.capital)} ${lend ? "capital" : "margin ≈ width"} · ${formatInt(box.width)} pts wide`,
+        meta: m.stale ? `Stale · ${age}` : `4 legs · ${money(box.capital)} ${lend ? "capital" : "margin ≈ width"} · ${formatInt(box.width)} pts wide · ${age}`,
         metaInk: m.stale ? "ink-warn" : "",
         btn: "Preview",
         btnOff: m.stale,
@@ -2222,9 +2318,14 @@ export function arbPanels(ctx) {
         ret: [bpChip(f.carryVsBp, { suffix: " bp vs hurdle" })],
         retText: `${formatSigned(f.carryVsBp, 0)} bp against the hurdle`,
         alt: [h("span", { class: "arb-o-gap" }, `≈ ${formatRupee(carry.rs, 0)}/lot ${rich ? "rich" : "cheap"} vs fair carry`), f.cheaper ? ` · long via ${f.cheaper.long.pick}` : ""],
-        meta: `basis ${formatSigned(f.basis, 2)} · ${formatInt(f.days)} d`,
+        liq: futLiq(f),
+        cover: carryCover(f, m),
+        meta: m.stale ? `Stale · ${age}` : `basis ${formatSigned(f.basis, 2)} · ${formatInt(f.days)} d · ${age}`,
+        metaInk: m.stale ? "ink-warn" : "",
+        btn: "Open in Futures",
+        act: () => goTo("futures", f.key),
         go: () => goTo("futures", f.key),
-        edge: "none",
+        edge: m.stale ? "stale" : f.carryVsBp > 0 ? "pos" : f.carryVsBp < 0 ? "neg" : "none",
       });
     } else {
       const c = carry.c;
@@ -2236,7 +2337,7 @@ export function arbPanels(ctx) {
         ret: c.tag ? h("span", { class: c.tag === "rich" ? "ink-neg" : "ink-pos" }, `${c.tag} ${formatSigned(c.vsFair, 1)} pts vs fair (long roll)`) : "at fair",
         retText: c.tag ? `${c.tag} by ${formatFixed(Math.abs(c.vsFair), 1)} points` : "",
         alt: `fwd rate ${pct(c.fwdRate, 2)} · fair spread ${formatFixed(c.fair, 1)}`,
-        meta: m.stale ? `Stale · ${age}` : "Roll a long: sell near, buy far",
+        meta: m.stale ? `Stale · ${age}` : `Roll a long: sell near, buy far · ${age}`,
         metaInk: m.stale ? "ink-warn" : "",
         btn: cs.legs.length ? "Preview" : null,
         btnOff: m.stale,
@@ -2246,7 +2347,8 @@ export function arbPanels(ctx) {
       });
     }
     // One honest line when nothing clears costs (the normal case): no banner, no tint.
-    const clears = (par && par.best.net > 0) || (box && box.net > 0 && box.vsHurdleBp >= 0);
+    // A box clears when its rate beats the hurdle after charges (a borrow always pays interest, so its net is never > 0).
+    const clears = (par && par.best.net > 0) || (box && box.vsHurdleBp !== null && box.vsHurdleBp >= 0);
     let note = "";
     if (!clears && (par || box)) {
       const cv = par ? O.coverRatio(par.best) : O.coverRatio(box);
@@ -2293,6 +2395,13 @@ export function arbPanels(ctx) {
     const keys = rows.map((r) => r.key).join(",");
     const hasFut = !m.noFuture && !m.futError && !m.par.lotMismatch;
     if (!strip.host || strip.keys !== keys) {
+      // A new strike window (Strikes ATM ±, or the ATM re-centring on a tick): drop the old strip before building the new one.
+      if (strip.host) {
+        strip.host.legendEl.remove();
+        strip.host.scroll.remove();
+        vizTip.hide();
+      }
+      strip.cursor = -1;
       strip.keys = keys;
       const cellsEl = h("div", { class: "arb-strip-cells", "aria-hidden": "true" });
       strip.cells = rows.map((r) => {
@@ -2379,7 +2488,7 @@ export function arbPanels(ctx) {
     if (strip.host.legendEl.__sig !== lsig) {
       strip.host.legendEl.__sig = lsig;
       const ramp = h("li", { class: "arb-ramp" }, h("span", { class: "arb-ramp-sw", "aria-hidden": "true" }, [1, 2, 3, 4, 5].map((s) => h("i", { "data-step": String(s) }))), h("span", {}, `0 → ${formatInt(m0)} bp`));
-      const lg = legend([{ label: "Calls rich (reversal side)", token: "call" }, { label: "Puts rich (conversion side)", token: "put" }, hasFut ? { label: "Clears costs", token: "pos" } : null, hasFut ? { label: "Close (≥ 80 % covered)", token: "neg" } : null], { label: "Parity heat legend" });
+      const lg = legend([{ label: "Calls rich (conversion side)", token: "call" }, { label: "Puts rich (reversal side)", token: "put" }, hasFut ? { label: "Clears costs", token: "pos" } : null, hasFut ? { label: "Close (≥ 80 % covered)", token: "neg" } : null], { label: "Parity heat legend" });
       if (hasFut) {
         const keysEls = lg.querySelectorAll(".dv-key");
         keysEls[2]?.classList.add("arb-dot-key");
@@ -2415,6 +2524,7 @@ export function arbPanels(ctx) {
   // Boxes: the K1 × K2 matrix on fixed bp thresholds (or, in List view, just its legend for the vs-hurdle chips).
   const matrix = { host: null, cells: new Map(), sig: "", cursor: null };
   const BP_LEGEND = [[-3, "≤ −150"], [-2, "−50"], [-1, "−10"], [0, "0"], [1, "+10"], [2, "+50"], [3, "≥ +150"]];
+  const BP_WORD = { "-3": "≤ −150 bp", "-2": "−50 to −150 bp", "-1": "−10 to −50 bp", 0: "within ±10 bp", 1: "+10 to +50 bp", 2: "+50 to +150 bp", 3: "≥ +150 bp" };
   function boxViewSeg() {
     const seg = segmented("Box view", [["list", "List"], ["matrix", "Matrix"]], st.arb.boxView);
     seg.classList.add("arb-view");
@@ -2424,11 +2534,17 @@ export function arbPanels(ctx) {
   }
   function drawMatrix(m, on) {
     if (!matrix.host) {
-      const legendEl = h("div", { class: "arb-viz-head" }, h("span", { class: "arb-viz-title" }, on ? "Rate vs hurdle by strike pair" : "vs hurdle"), h("ul", { class: "dv-legend arb-bp-legend", "aria-label": "Basis points against your hurdle" }, BP_LEGEND.map(([s, t]) => h("li", {}, h("span", { class: "dv-key dv-heat", "data-div": String(s), "aria-hidden": "true" }), h("span", {}, t))), h("li", { class: "arb-bp-unit" }, "bp")), phone() ? boxViewSeg() : null);
+      // The labelled 7-step legend only for the desktop matrix; elsewhere one continuous ramp with end labels (one line).
+      const full = on && !phone();
+      const scale = full
+        ? h("ul", { class: "dv-legend arb-bp-legend", "aria-label": "Basis points against your hurdle" }, BP_LEGEND.map(([s, t]) => h("li", {}, h("span", { class: "dv-key dv-heat", "data-div": String(s), "aria-hidden": "true" }), h("span", {}, t))), h("li", { class: "arb-bp-unit" }, "bp"))
+        : h("span", { class: "arb-bp-ramp", role: "img", "aria-label": "Basis points against your hurdle, from −150 or less to +150 or more" }, h("span", {}, "≤ −150"), h("span", { class: "arb-bp-ramp-sw", "aria-hidden": "true" }, BP_LEGEND.map(([s]) => h("i", { class: "dv-heat", "data-div": String(s) }))), h("span", {}, "≥ +150 bp"));
+      const legendEl = h("div", { class: "arb-viz-head" }, h("span", { class: "arb-viz-title" }, on ? (phone() ? "vs hurdle" : "Rate vs hurdle by strike pair") : "vs hurdle"), scale, phone() ? boxViewSeg() : null);
+      const caption = h("p", { class: "arb-mx-cap", hidden: true });
       const grid = on ? h("div", { class: "arb-matrix", tabindex: "0", role: "grid" }) : null;
-      matrix.host = { legendEl, grid };
+      matrix.host = { legendEl, grid, caption };
       matrix.sig = "";
-      vizEl.prepend(...[legendEl, grid ? h("div", { class: "arb-matrix-scroll" }, grid) : null].filter(Boolean));
+      vizEl.prepend(...[legendEl, grid ? caption : null, grid ? h("div", { class: "arb-matrix-scroll" }, grid) : null].filter(Boolean));
       if (grid) {
         grid.addEventListener("pointermove", (e) => {
           const c = e.target instanceof Element ? e.target.closest(".arb-mc[data-key]") : null;
@@ -2444,12 +2560,12 @@ export function arbPanels(ctx) {
           const ks = [...matrix.cells.keys()];
           if (!ks.length) return;
           const at = matrix.cursor ? matrix.cells.get(matrix.cursor) : null;
-          let r = at?.r ?? 0;
-          let c = at?.c ?? 1;
-          if (e.key === "ArrowRight") c++;
-          else if (e.key === "ArrowLeft") c--;
-          else if (e.key === "ArrowDown") r++;
-          else if (e.key === "ArrowUp") r--;
+          let dr = 0;
+          let dc = 0;
+          if (e.key === "ArrowRight") dc = 1;
+          else if (e.key === "ArrowLeft") dc = -1;
+          else if (e.key === "ArrowDown") dr = 1;
+          else if (e.key === "ArrowUp") dr = -1;
           else if ((e.key === "Enter" || e.key === " ") && matrix.cursor) {
             e.preventDefault();
             e.stopPropagation();
@@ -2461,10 +2577,35 @@ export function arbPanels(ctx) {
           } else return;
           e.preventDefault();
           e.stopPropagation();
-          const hit = [...matrix.cells.entries()].find(([, v]) => v.r === r && v.c === c && v.el.dataset.key);
-          if (!hit) return;
+          const keyed = [...matrix.cells.entries()].filter(([, v]) => v.el.dataset.key);
+          if (!keyed.length) return;
+          let hit = null;
+          if (!at) {
+            // First key: land on the keyed cell nearest the ATM strike (shown, not implied).
+            const a = matrix.atmIndex ?? 0;
+            hit = keyed.slice().sort(([, x], [, y]) => Math.abs(x.r - a) + Math.abs(x.c - a - 1) - (Math.abs(y.r - a) + Math.abs(y.c - a - 1)))[0];
+          } else {
+            // Step past void and empty cells until a keyed one, or stop at the edge.
+            const by = new Map(keyed.map(([id, v]) => [`${v.r},${v.c}`, [id, v]]));
+            let r = at.r + dr;
+            let c = at.c + dc;
+            while (r >= 0 && r < matrix.size && c >= 1 && c <= matrix.size) {
+              hit = by.get(`${r},${c}`) ?? null;
+              if (hit) break;
+              r += dr;
+              c += dc;
+            }
+            // Nothing straight ahead: take the nearest keyed cell in that direction's half-plane.
+            if (!hit) {
+              const ahead = keyed.filter(([, v]) => (dc ? (v.c - at.c) * dc > 0 : (v.r - at.r) * dr > 0));
+              hit = ahead.sort(([, x], [, y]) => Math.abs(x.r - at.r) + Math.abs(x.c - at.c) - (Math.abs(y.r - at.r) + Math.abs(y.c - at.c)))[0] ?? null;
+            }
+            if (!hit) return;
+          }
           matrix.cursor = hit[0];
           for (const v of matrix.cells.values()) v.el.classList.toggle("cursor", v === hit[1]);
+          grid.setAttribute("aria-activedescendant", hit[1].el.id);
+          hit[1].el.scrollIntoView?.({ block: "nearest", inline: "nearest" });
           showMatrixTip(hit[1].el);
         });
       }
@@ -2481,21 +2622,31 @@ export function arbPanels(ctx) {
       matrix.cells.clear();
       const n = strikes.length;
       grid.style.setProperty("--n", String(Math.max(1, n - 1)));
-      const kids = [h("span", { class: "arb-mh corner" }, "K1 \\ K2")];
-      for (let j = 1; j < n; j++) kids.push(h("span", { class: `arb-mh col${strikes[j] === atm ? " atm" : ""}`, role: "columnheader" }, formatInt(strikes[j])));
+      matrix.size = n - 1;
+      matrix.atmIndex = Math.max(0, strikes.indexOf(atm));
+      matrix.cursor = null;
+      grid.removeAttribute("aria-activedescendant");
+      // Rows own their cells (role=row with display: contents keeps the CSS grid), so the grid is valid ARIA.
+      const head = [h("span", { class: "arb-mh corner", role: "columnheader" }, "K1 \\ K2")];
+      for (let j = 1; j < n; j++) head.push(h("span", { class: `arb-mh col${strikes[j] === atm ? " atm" : ""}`, role: "columnheader" }, formatInt(strikes[j])));
+      const kids = [h("div", { class: "arb-mrow", role: "row" }, head)];
       for (let i = 0; i < n - 1; i++) {
-        kids.push(h("span", { class: `arb-mh row${strikes[i] === atm ? " atm" : ""}`, role: "rowheader" }, formatInt(strikes[i])));
+        const cells = [h("span", { class: `arb-mh row${strikes[i] === atm ? " atm" : ""}`, role: "rowheader" }, formatInt(strikes[i]))];
         for (let j = 1; j < n; j++) {
-          const el = h("span", { class: "arb-mc dv-heat", role: "gridcell" });
           const id = `${strikes[i]}-${strikes[j]}`;
+          const el = h("span", { class: "arb-mc dv-heat", role: "gridcell", id: `arb-mc-${id}` });
           if (j <= i || j - i > maxSteps) el.classList.add("void");
           matrix.cells.set(id, { el, r: i, c: j });
-          kids.push(el);
+          cells.push(el);
         }
+        kids.push(h("div", { class: "arb-mrow", role: "row" }, cells));
       }
       grid.replaceChildren(...kids);
     }
     let filled = 0;
+    // Rank 1 (the box on the rail and in the pane's "Best on this tab") is always ringed, whatever the colours say.
+    const best = m.boxes.find((b) => !b.crossed && b.vsHurdleBp !== null) ?? null;
+    const steps = new Set();
     for (const [id, v] of matrix.cells) {
       if (v.el.classList.contains("void")) continue;
       const b = by.get(id);
@@ -2505,7 +2656,12 @@ export function arbPanels(ctx) {
         else delete v.el.dataset.key;
       }
       const stp = !b || b.crossed ? null : O.bpStep(b.vsHurdleBp);
-      if (stp !== null) filled++;
+      if (stp !== null) {
+        filled++;
+        steps.add(stp);
+      }
+      const isBest = Boolean(b && best && b.key === best.key);
+      v.el.classList.toggle("best", isBest);
       const want = stp === null ? undefined : String(stp);
       if (v.el.dataset.div !== want) {
         if (want === undefined) delete v.el.dataset.div;
@@ -2515,9 +2671,13 @@ export function arbPanels(ctx) {
       v.el.classList.toggle("x", Boolean(b?.crossed));
       v.el.classList.toggle("opp", Boolean(b && m.isOpp.box(b)));
       v.el.classList.toggle("sel", Boolean(b && b.key === sel));
-      const t = b?.crossed ? "×" : "";
+      const t = b?.crossed ? "×" : isBest ? "★" : "";
       if (v.el.textContent !== t) v.el.textContent = t;
     }
+    // When every cell sits in one colour bucket, say so in words, with the best box.
+    const cap = filled && steps.size === 1 && best ? `All ${formatInt(filled)} boxes ${BP_WORD[[...steps][0]]} vs hurdle; best ${formatSigned(best.vsHurdleBp, 0)} bp at ${formatInt(best.k1)} / ${formatInt(best.k2)} (★)` : best ? `★ best: ${formatInt(best.k1)} / ${formatInt(best.k2)}, ${formatSigned(best.vsHurdleBp, 0)} bp vs hurdle` : "";
+    if (matrix.host.caption.textContent !== cap) matrix.host.caption.textContent = cap;
+    matrix.host.caption.hidden = !cap;
     grid.setAttribute("aria-label", `Box matrix: ${formatInt(filled)} ${lendMode() ? "lending" : "borrowing"} boxes by lower strike (rows) and upper strike (columns), coloured by basis points against your hurdle. Arrow keys move, Enter selects.`);
   }
   function showMatrixTip(el) {
@@ -2583,7 +2743,8 @@ export function arbPanels(ctx) {
     const x = (d) => L + (d / maxD) * (W - L - R);
     const y = (v) => T + ((hi - v * 100) / (hi - lo || 1)) * (H - T - B);
     const kids = [];
-    for (const t of ticks) kids.push(svgEl("line", { class: "dv-grid", x1: L, x2: W - R, y1: y(t / 100), y2: y(t / 100) }), svgEl("text", { class: "dv-tick", x: L - 6, y: y(t / 100) + 3.5, "text-anchor": "end" }, `${formatFixed(t, Number.isInteger(t) ? 0 : 1)}%`));
+    const tdp = tickDp(ticks);
+    for (const t of ticks) kids.push(svgEl("line", { class: "dv-grid", x1: L, x2: W - R, y1: y(t / 100), y2: y(t / 100) }), svgEl("text", { class: "dv-tick", x: L - 6, y: y(t / 100) + 3.5, "text-anchor": "end" }, `${formatFixed(t, tdp)}%`));
     for (const f of futs) kids.push(svgEl("text", { class: "dv-tick", x: x(f.days), y: H - 6, "text-anchor": "middle" }, dayMon(f.expiry)));
     // The hurdle: a horizontal rule with its contrast pill at the right end.
     kids.push(svgEl("line", { class: "dv-spot-line arb-t-hurdle", x1: L, x2: W - R, y1: y(m.hRate), y2: y(m.hRate) }));
@@ -2915,6 +3076,7 @@ export function arbPanels(ctx) {
     },
     destroy() {
       destroyed = true;
+      paneRO?.disconnect();
       if (typeof window !== "undefined") window.removeEventListener("resize", onResize);
       closePop?.();
     },
