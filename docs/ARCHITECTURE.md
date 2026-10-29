@@ -89,7 +89,7 @@ data/
 | `reference/` | S16 | `reference` (ReferenceData, `docs/spec/p1-02-reference.md`); dashboard `reference.js` (bundle, chip, banners, lot gate) and `calendar.js` (Market calendar page) | `/v1/reference/*`, demo-only `PUT /v1/demo/reference` |
 | `recorder/` | S17 | `recorder` (RecorderService, `docs/spec/p1-01-recorder.md`; series planned in `p1-07`); dashboard `recorder.js` (Data recorder page) and `oi-store.js` (the OI page's cache of the server series) | `/v1/options/snapshots`, `/v1/options/snapshots/latest`, `/v1/options/daily`, `/v1/options/recorder`, `/v1/options/recorder/plan`, `/v1/options/recorder/config`; MCP `get_option_snapshots` (`options` toolset) |
 | `vol/` | S18 | `vol` (planned, `p1-03`) | `/v1/vol/*` |
-| `fno/` | S19 | `fno` (planned, `p1-06`) | F&O universe, sweep |
+| `fno/` | S19 | (routes only; `docs/spec/p1-06-stocks.md`): F&O universe from the reference store and the masters, the server-side option sweep (one at a time, ≤ 50 % of the data account's budget, background priority, resumable), expiry and delivery costs (`dashboard/expiry-costs.js`, shared with the pages); store `dataDir/fno/` (settings, sweep jobs as NDJSON, OI baselines, HV20 per day) | `/v1/options/underlyings*`, `/v1/options/expiry-costs`, `/v1/options/sweeps*`, demo-only `POST /v1/demo/fno` |
 | `readiness/` | S20 | `readiness` (`p1-05`) | trading readiness: session, static IP, headroom, kill switch per live account; automated-send gate |
 | `exposure/` | S21 | `exposure` (planned, `p1-08`) | `/v1/options/levels`, exposure profile |
 | `strategy/` | S22 | `settlement` (planned, `p1-09`) | `/v1/strategy/*` |
@@ -321,7 +321,7 @@ These shape the design. None of this is legal advice; items flagged **(needs ver
 
 ## 14. Configuration and environment
 
-`bridge.config.json` (see `bridge.config.example.json`). Core sections: `server`, `cors`, `dataDir`, `logging`, `accounts`, `safety`. Module sections (each validated by its module's zod schema): `ratelimit` (S3), `symbols` (S4), `market` (S5), `stream` (S6), `orders` (S7), `paper` (S8), `integrations` (S10), `hooks` and `mcp` (S11), `reference` (S16: NSE archive switch, sync times, rate, sessions, holidays, brokerage default). Unknown sections are errors.
+`bridge.config.json` (see `bridge.config.example.json`). Core sections: `server`, `cors`, `dataDir`, `logging`, `accounts`, `safety`. Module sections (each validated by its module's zod schema): `ratelimit` (S3), `symbols` (S4), `market` (S5), `stream` (S6), `orders` (S7), `paper` (S8), `integrations` (S10), `hooks` and `mcp` (S11), `reference` (S16: NSE archive switch, sync times, rate, sessions, holidays, brokerage default), `fno` (S19: universe, sweep budget share and method, expiry window, ban gate switch). Unknown sections are errors.
 
 | Variable | Effect |
 |---|---|

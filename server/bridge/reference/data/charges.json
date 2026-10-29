@@ -13,5 +13,9 @@
   "fut": { "sttSell": 0.0005, "stampBuy": 0.00002, "txn": { "NSE": 0.0000173, "BSE": 0 } },
   "sebiPerCrore": 10,
   "ipftPerCrore": 0,
-  "gst": 0.18
+  "gst": 0.18,
+  "physical": { "sttDelivery": 0.001, "basis": "strike × quantity (needs verification)", "stampBuy": 0.00015,
+                "txn": { "NSE": 0.0000297, "BSE": 0.0000375 }, "verified": false,
+                "source": "Equity delivery rates applied to physically settled F&O (Finance Act STT schedule; NSE Clearing physical settlement FAQ; needs verification)" },
+  "margin": { "expiryDayElmIndexShort": 0.02, "verified": false, "source": "SEBI circular 1 Oct 2024 (extra 2% ELM on short index options on expiry day; needs verification)" }
 }

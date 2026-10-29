@@ -278,3 +278,145 @@ describe("portfolio reads", () => {
     expect(await reject(h.svc.holdings(h.ctx("dhanOnly"), "zerodha-main"))).toMatchObject({ code: "ACCOUNT_FORBIDDEN" });
   });
 });
+
+describe("F&O ban and physical settlement (p1-06 §2.8, §3.7)", async () => {
+  const { INSTRUMENTS, PRICES, createStubSafety } = await import("./__fixtures__/helpers.mjs");
+  const { createCalendar } = await import("../reference/calendar.mjs");
+  const { shippedHolidayRows } = await import("../reference/shipped.mjs");
+  const { createSafetyGuard } = await import("../safety/safetyGuard.mjs");
+  const EXP = "2026-10-23"; // Fri: E-3 on Mon 19 Oct (20 Oct is a holiday)
+  const opt = (k, r, token) => ({ symbol: `NFO:RELIANCE-${EXP}-${k}-${r}`, lotSize: 500, tickSize: 0.05, refs: { zerodha: { token, tradingSymbol: `RELIANCE26OCT${k}${r}` }, dhan: { token: `D${token}` } } });
+  const instruments = [...INSTRUMENTS, opt(1380, "CE", "71"), opt(1400, "CE", "72"), opt(1420, "CE", "73"), opt(1400, "PE", "74"), opt(1440, "CE", "75")];
+  const prices = { ...PRICES, [`NFO:RELIANCE-${EXP}-1400-CE`]: 20, [`NFO:RELIANCE-${EXP}-1420-CE`]: 8, [`NFO:RELIANCE-${EXP}-1440-CE`]: 3 };
+  const SYM = `NFO:RELIANCE-${EXP}-1400-CE`;
+  const cal = createCalendar({ holidays: shippedHolidayRows() });
+  const reference = (ban) => {
+    const r = {
+      reads: 0,
+      banStatus: () => (r.reads++, ban),
+      calendar: () => cal,
+      deliveryMargin: () => ({ items: [{ day: "E-4", pct: 10 }, { day: "E-3", pct: 25 }, { day: "E-2", pct: 45 }, { day: "E-1", pct: 70 }] }),
+      lotFor: async () => ({ lot: 500, stale: false, conflict: null }),
+    };
+    return r;
+  };
+  const IN_BAN = { available: true, inBan: true, mwplPct: 96.2, band: "ban", forDate: "2026-10-19" };
+  const NOT_IN_BAN = { available: true, inBan: false, mwplPct: 40, band: "normal", forDate: "2026-10-19" };
+  const realSafety = (h) => createSafetyGuard({ config: h.deps.config, logger: h.logger, bus: h.bus, clock: h.clock, paths: { dataDir: h.dataDir }, audit: { append: async () => {} } });
+  const order = (over = {}) => ({ account: "zerodha-main", symbol: SYM, side: "BUY", quantity: 500, product: "MARGIN", orderType: "LIMIT", price: 20, mode: "paper", ...over });
+
+  it("not in ban: no positions read, no heldQty; index orders pay nothing extra", async () => {
+    const safety = { ...createStubSafety(), syncDayPnl() {} };
+    const h = buildHarness({ instruments, prices, reference: reference(NOT_IN_BAN), safety });
+    await h.svc.preview(h.ctx(), order({ mode: "live", product: "MARGIN" }));
+    expect(h.zerodha.reads.filter((x) => x === "positions")).toHaveLength(1); // syncLivePnl only
+    const intent = safety.calls.find((c) => c[0] === "check")[1];
+    expect(intent).toMatchObject({ underlyingKind: "stock", ban: { inBan: false }, heldQty: null });
+    const idx = buildHarness({ instruments, prices, reference: reference(IN_BAN) });
+    await idx.svc.preview(idx.ctx(), order({ symbol: "NFO:NIFTY-2026-10-27-25000-CE", quantity: 65 }));
+    expect(idx.safety.calls.find((c) => c[0] === "check")[1]).toMatchObject({ underlyingKind: "index", ban: null });
+  });
+
+  it("paper: heldQty from the paper engine; opening refused with 422 INVALID_ORDER and errors[0].path FNO_BAN; closing allowed", async () => {
+    const h = buildHarness({ instruments, prices, reference: reference(IN_BAN) });
+    h.deps.safety = realSafety(h);
+    const svc = (await import("./orderService.mjs")).createOrderService(h.deps);
+    // Hold +500 in the paper book
+    h.paper.positions = async () => [{ symbol: SYM, netQty: 500, product: "MARGIN" }];
+    const open = await svc.preview(h.ctx(), order({ side: "BUY" }));
+    expect(open.ok).toBe(false);
+    expect(open.checks.find((c) => c.code === "FNO_BAN").message).toMatch(/You hold 500 of this contract: you can sell up to 500/);
+    const close = await svc.preview(h.ctx(), order({ side: "SELL" }));
+    expect(close.ok).toBe(true);
+    expect(close.checks.map((c) => c.message)).toContain("Closing order in a ban-period stock.");
+    const e = await reject(svc.place(h.ctx(), order({ side: "SELL", quantity: 1000 })));
+    expect(e).toMatchObject({ code: "INVALID_ORDER", status: 422 });
+    expect(e.errors[0].path).toBe("FNO_BAN");
+  });
+
+  it("live: one positions read shared by the ban gate and syncLivePnl (1 read, not 2)", async () => {
+    const safety = { ...createStubSafety(), syncDayPnl() {} };
+    const h = buildHarness({ instruments, prices, reference: reference(IN_BAN), safety });
+    h.zerodha.positions = [{ tradingSymbol: "RELIANCE26OCT1400CE", exchange: "NFO", token: "72", product: "MARGIN", netQty: -1000, avgPrice: 20, ltp: 20, pnl: 0 }];
+    await h.svc.preview(h.ctx(), order({ mode: "live", side: "BUY" }));
+    expect(h.zerodha.reads.filter((x) => x === "positions")).toHaveLength(1);
+    expect(safety.calls.find((c) => c[0] === "check")[1]).toMatchObject({ underlyingKind: "stock", heldQty: -1000, ban: { inBan: true } });
+  });
+
+  it("BAN_DATA_UNAVAILABLE warns when no ban list is loaded", async () => {
+    const h = buildHarness({ instruments, prices, reference: reference({ available: false, reason: "SOURCE_OFF", inBan: null }) });
+    const r = await h.svc.preview(h.ctx(), order());
+    expect(r.checks.find((c) => c.code === "BAN_DATA_UNAVAILABLE")).toMatchObject({ severity: "warn" });
+  });
+
+  it("PHYSICAL_SETTLEMENT is for opening orders only: a paper SELL closing a held long ITM call gets no delivery warning", async () => {
+    const h = buildHarness({ instruments, prices, reference: reference(NOT_IN_BAN) });
+    h.paper.positions = async () => [{ symbol: SYM, netQty: 500, product: "MARGIN" }];
+    const close = await h.svc.preview(h.ctx(), order({ side: "SELL" }));
+    expect(close.checks.some((c) => c.code === "PHYSICAL_SETTLEMENT")).toBe(false);
+    // Selling twice the holding flips to 500 short: that opens a short call → deliver 500
+    const flip = await h.svc.preview(h.ctx(), order({ side: "SELL", quantity: 1000 }));
+    expect(flip.checks.find((c) => c.code === "PHYSICAL_SETTLEMENT").message).toMatch(/^Physically settled: if ITM at expiry you deliver 500 RELIANCE shares at 1400/);
+  });
+
+  it("live, not in ban (holding not read): the delivery warning is conditional on opening", async () => {
+    const safety = { ...createStubSafety(), syncDayPnl() {} };
+    const h = buildHarness({ instruments, prices, reference: reference(NOT_IN_BAN), safety });
+    const r = await h.svc.preview(h.ctx(), order({ mode: "live", side: "SELL" }));
+    expect(r.checks.find((c) => c.code === "PHYSICAL_SETTLEMENT").message).toMatch(/^Physically settled: if this order opens a position and it is ITM at expiry, you deliver 500 RELIANCE shares at 1400/);
+  });
+
+  it("a failed first master lookup is not cached for good: a later order in ban is still refused", async () => {
+    const h = buildHarness({ instruments, prices, reference: reference(IN_BAN) });
+    h.deps.safety = realSafety(h);
+    const search = h.deps.symbols.search.bind(h.deps.symbols);
+    let fail = true;
+    h.deps.symbols = { ...h.deps.symbols, search: async (q) => (fail ? Promise.reject(new Error("master loading")) : search(q)) };
+    const svc = (await import("./orderService.mjs")).createOrderService(h.deps);
+    const first = await svc.preview(h.ctx(), order({ side: "BUY" }));
+    expect(first.checks.some((c) => c.code === "FNO_BAN")).toBe(false); // kind unknown: the gate could not apply
+    fail = false;
+    await h.clock.advance(61_000);
+    const later = await svc.preview(h.ctx(), order({ side: "BUY" }));
+    expect(later.ok).toBe(false);
+    expect(later.checks.some((c) => c.code === "FNO_BAN")).toBe(true);
+  });
+
+  it("modify in ban (paper): only a raise is checked, against the unfilled remainder (the filled part is already held)", async () => {
+    const h = buildHarness({ instruments, prices, reference: reference(IN_BAN) });
+    h.deps.safety = realSafety(h);
+    const svc = (await import("./orderService.mjs")).createOrderService(h.deps);
+    let held = -2500;
+    h.paper.positions = async () => [{ symbol: SYM, netQty: held, product: "MARGIN" }];
+    const { order: placed } = await svc.place(h.ctx(), order({ side: "BUY", quantity: 1500 }));
+    // 500 of the closing BUY 1500 fill: held −2500 → −2000
+    await h.paper.modify(placed.accountId, placed.orderId, { filledQuantity: 500 });
+    held = -2000;
+    // 2500: the remaining 2000 takes −2000 to 0, closing (counting the fill twice would give +500 and refuse)
+    const ok = await svc.modify(h.ctx(), placed.orderId, { quantity: 2500 });
+    expect(ok.order.quantity).toBe(2500);
+    // 3500: the remaining 3000 would end at +1000, an opening position
+    const e = await reject(svc.modify(h.ctx(), placed.orderId, { quantity: 3500 }));
+    expect(e).toMatchObject({ code: "INVALID_ORDER" });
+    expect(e.errors[0].path).toBe("FNO_BAN");
+    // a cut is never checked
+    expect((await svc.modify(h.ctx(), placed.orderId, { quantity: 1000 })).order.quantity).toBe(1000);
+  });
+
+  it("PHYSICAL_SETTLEMENT from E-4 on an opening ITM or close-to-money stock option; not for index options or OTM legs", async () => {
+    const h = buildHarness({ instruments, prices, reference: reference(NOT_IN_BAN) });
+    const itm = await h.svc.preview(h.ctx(), order());
+    expect(itm.checks.find((c) => c.code === "PHYSICAL_SETTLEMENT")).toEqual({
+      code: "PHYSICAL_SETTLEMENT",
+      severity: "warn",
+      message: "Physically settled: if ITM at expiry you buy 500 RELIANCE at 1400 (₹700000). Delivery margin today: 25 % (E-3).",
+    });
+    // 1420 CE is 17.70 out of the money: within one 20-point step, so close to money (§6.2)
+    const ctm = await h.svc.preview(h.ctx(), order({ symbol: `NFO:RELIANCE-${EXP}-1420-CE`, price: 8 }));
+    expect(ctm.checks.some((c) => c.code === "PHYSICAL_SETTLEMENT")).toBe(true);
+    const otm = await h.svc.preview(h.ctx(), order({ symbol: `NFO:RELIANCE-${EXP}-1440-CE`, price: 3 }));
+    expect(otm.checks.some((c) => c.code === "PHYSICAL_SETTLEMENT")).toBe(false);
+    const idx = await h.svc.preview(h.ctx(), order({ symbol: "NFO:NIFTY-2026-10-27-25000-CE", quantity: 65, price: 120.5 }));
+    expect(idx.checks.some((c) => c.code === "PHYSICAL_SETTLEMENT")).toBe(false);
+  });
+});

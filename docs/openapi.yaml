@@ -127,6 +127,8 @@ tags:
     description: Contract calendar, lots, ban list, MWPL, F&O universe, corporate actions, rate and charges (stream S16). Every value carries source and asOf.
   - name: Volatility
     description: Vol-time clock, daily ATM IV store, IV rank and percentile, IV history and VIX (stream S18). IV in vol points; every series carries quality and source.
+  - name: Options desk
+    description: F&O underlyings, expiry and delivery costs, and the option sweep behind the screener (stream S19).
   - name: Participant OI
     description: >-
       NSE participant-wise open interest (stream S26, store S4): Client, DII, FII and Pro long and short contracts in index
@@ -989,6 +991,7 @@ paths:
       tags: [Market data]
       operationId: getOptionChain
       summary: Option chain with IV and Greeks
+      description: Works for every F&O stock; see /v1/options/underlyings.
       x-stream: S5
       x-scope: read
       parameters:
@@ -4360,7 +4363,7 @@ paths:
         - { name: at, in: query, schema: { type: string, format: date-time } }
       responses:
         "200":
-          description: OK. Unavailable data is not an error: available false with a reason.
+          description: "OK. Unavailable data is not an error: available false with a reason."
           content:
             application/json:
               schema:
@@ -4385,7 +4388,7 @@ paths:
         - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
       responses:
         "200":
-          description: OK. Unavailable data is not an error: available false with a reason.
+          description: "OK. Unavailable data is not an error: available false with a reason."
           content:
             application/json:
               schema:
@@ -4420,7 +4423,7 @@ paths:
         - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
       responses:
         "200":
-          description: OK. Unavailable data is not an error: available false with a reason.
+          description: "OK. Unavailable data is not an error: available false with a reason."
           content:
             application/json:
               schema:
@@ -4450,7 +4453,7 @@ paths:
         - { name: clock, in: query, schema: { type: string, enum: [weighted, trading, calendar] } }
       responses:
         "200":
-          description: OK. Unavailable data is not an error: available false with a reason.
+          description: "OK. Unavailable data is not an error: available false with a reason."
           content:
             application/json:
               schema:
@@ -4476,7 +4479,7 @@ paths:
         - { name: lookback, in: query, schema: { type: integer, minimum: 5, maximum: 1000, default: 252 } }
       responses:
         "200":
-          description: OK. Unavailable data is not an error: available false with a reason.
+          description: "OK. Unavailable data is not an error: available false with a reason."
           content:
             application/json:
               schema:
@@ -4499,7 +4502,7 @@ paths:
       x-scope: read
       responses:
         "200":
-          description: OK. Unavailable data is not an error: available false with a reason.
+          description: "OK. Unavailable data is not an error: available false with a reason."
           content:
             application/json:
               schema:
@@ -4527,7 +4530,7 @@ paths:
         - { name: metric, in: query, schema: { type: string, maxLength: 40 } }
       responses:
         "200":
-          description: OK. Unavailable data is not an error: available false with a reason.
+          description: "OK. Unavailable data is not an error: available false with a reason."
           content:
             application/json:
               schema:
@@ -4556,7 +4559,7 @@ paths:
             schema: { $ref: "#/components/schemas/VolCaptureRequest" }
       responses:
         "202":
-          description: OK. Unavailable data is not an error: available false with a reason.
+          description: "OK. Unavailable data is not an error: available false with a reason."
           content:
             application/json:
               schema:
@@ -4585,7 +4588,7 @@ paths:
             schema: { $ref: "#/components/schemas/VolBackfillRequest" }
       responses:
         "202":
-          description: OK. Unavailable data is not an error: available false with a reason.
+          description: "OK. Unavailable data is not an error: available false with a reason."
           content:
             application/json:
               schema:
@@ -4758,6 +4761,335 @@ paths:
                 required: [data, meta]
                 properties:
                   data: { $ref: "#/components/schemas/ParticipantSyncResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/options/underlyings:
+    get:
+      tags: [Options desk]
+      operationId: listOptionUnderlyings
+      summary: Indices and F&O stocks with contract facts, ban band and sweep coverage
+      description: >-
+        The underlying list behind the picker: the point-in-time F&O universe (reference store) merged with the
+        instrument masters (masters only when NSE downloads are off; `source` says which). Memory only and no broker
+        call unless withQuotes=1, which adds one batched quote read (interactive priority, cached 60 s, skipped with
+        quotes.loaded false and reason NO_HEADROOM when the quote class has fewer than 2 tokens). strikeStep is
+        inferred from listed strikes (null with fewer than 3). ban is null for indices and { available false, reason }
+        when no ban data is recorded.
+      x-stream: S19
+      x-scope: read
+      parameters:
+        - name: kind
+          in: query
+          schema: { type: string, enum: [all, index, stock], default: all }
+        - name: q
+          in: query
+          description: Search with the picker's ranking (symbol, name, fuzzy prefix).
+          schema: { type: string, maxLength: 40 }
+        - name: withQuotes
+          in: query
+          schema: { type: string, enum: ["0", "1"] }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/FnoUnderlyingList" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/options/underlyings/{underlying}:
+    get:
+      tags: [Options desk]
+      operationId: getOptionUnderlying
+      summary: One underlying with expiries, delivery-margin schedule, adjusted contracts and rules
+      x-stream: S19
+      x-scope: read
+      parameters:
+        - name: underlying
+          in: path
+          required: true
+          schema: { type: string, maxLength: 30 }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/FnoUnderlyingDetail" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/options/expiry-costs:
+    post:
+      tags: [Options desk]
+      operationId: getExpiryCosts
+      summary: Settle vs square-off charges, delivery obligation and delivery margin for option legs (pure maths)
+      description: >-
+        Stores nothing. Rates come from the reference charge table (physical delivery and margin rows are unverified).
+        Missing spot, bid and ask come from cached quotes only (no new broker call; null when nothing is cached).
+        `account` is used only to read holdings, to say whether a delivering leg is covered (cached 60 s). asOf defaults
+        to today; a later trading day gives a labelled what-if. The indicative delivery margin in rupees appears only
+        when varElmPct (your broker's VaR + ELM rate) is given.
+      x-stream: S19
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExpiryCostsRequest" }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/ExpiryCostsResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/options/sweeps/plan:
+    post:
+      tags: [Options desk]
+      operationId: planOptionSweep
+      summary: Dry run of the option sweep (method per group, calls, minutes, what fits)
+      x-stream: S19
+      x-scope: read
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SweepRequest" }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/SweepPlan" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/options/sweeps:
+    post:
+      tags: [Options desk]
+      operationId: startOptionSweep
+      summary: Start the option sweep, or join the one already running
+      description: >-
+        One sweep runs at a time for the whole Bridge. It uses at most fno.sweep.budgetShare (50 %) of the data account's
+        rate budget at background priority, so your own chain and order calls always go first. Returns 202 for a new
+        sweep, or 200 with joined or reused set.
+      x-stream: S19
+      x-scope: read
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SweepRequest" }
+      responses:
+        "200":
+          description: The running sweep (joined) or a recent finished one (reused).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/SweepJob" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "202":
+          description: A new sweep was started.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/SweepJob" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/options/sweeps/current:
+    get:
+      tags: [Options desk]
+      operationId: getOptionSweep
+      summary: Status, progress and plan of today's sweep
+      description: >-
+        404 NOT_FOUND when no sweep has run today. lease=1 keeps the auto-repeat alive for fno.sweep.leaseSeconds (the
+        screener renews it while open); auto sweeps run only while leased or with the background switch on.
+      x-stream: S19
+      x-scope: read
+      parameters:
+        - name: lease
+          in: query
+          schema: { type: string, enum: ["0", "1"] }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/SweepJob" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Options desk]
+      operationId: cancelOptionSweep
+      summary: Cancel the running sweep (finished chains are kept)
+      description: Any key with read scope can cancel the current sweep; the next lease restarts it.
+      x-stream: S19
+      x-scope: read
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/SweepJob" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/options/sweeps/current/chains:
+    get:
+      tags: [Options desk]
+      operationId: getOptionSweepChains
+      summary: Finished chains of today's sweep after a cursor (oldest first, at most 40 per page)
+      x-stream: S19
+      x-scope: read
+      parameters:
+        - name: since
+          in: query
+          schema: { type: integer, minimum: 0 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 40, default: 40 }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/SweepChainsPage" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/options/sweeps/settings:
+    get:
+      tags: [Options desk]
+      operationId: getOptionSweepSettings
+      summary: The opted-in stock list and the background auto-repeat switch
+      x-stream: S19
+      x-scope: read
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/SweepSettings" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [Options desk]
+      operationId: setOptionSweepSettings
+      summary: Save the opted-in stock list and the background switch (audited)
+      description: In demo mode the settings apply in memory only (persisted false).
+      x-stream: S19
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                optIn: { type: array, maxItems: 1000, items: { type: string, maxLength: 30 } }
+                background: { type: boolean }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/SweepSettings" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/demo/fno:
+    post:
+      tags: [Options desk]
+      operationId: setDemoFnoBan
+      summary: "Demo only: force a ban list for testing the F&O ban gate"
+      description: >-
+        Exists only when the Bridge runs in demo mode. Puts the listed stocks into the F&O ban period for `minutes`
+        (default 30) on top of the demo's own daily list, in memory only; an empty list clears it. They show in
+        /v1/options/underlyings with ban.source "demo-override" and the order preview refuses opening orders in them.
+      x-stream: S19
+      x-scope: admin
+      x-loopback-only: true
+      x-demo-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ban]
+              additionalProperties: false
+              properties:
+                ban: { type: array, maxItems: 20, items: { type: string, maxLength: 30 } }
+                minutes: { type: integer, minimum: 1, maximum: 600 }
+      responses:
+        "200":
+          description: The override now in force.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, properties: { ban: { type: array, items: { type: string } }, until: { type: [string, "null"] }, source: { type: string } } }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -5539,6 +5871,14 @@ components:
         theta: { type: [number, "null"] }
         vega: { type: [number, "null"] }
         greeksSource: { type: [string, "null"], enum: [broker, computed, null] }
+        oiChangeBasis:
+          type: [string, "null"]
+          enum: [broker, recorder, day-baseline, null]
+          description: >-
+            Option sweep chains only: where oiChange came from. broker = the broker chain's own change; recorder = OI now
+            minus the last OI recorded on the previous trading day; day-baseline = OI now minus the first OI seen today
+            (oiChangeSince says when); null = unknown.
+        oiChangeSince: { type: string, description: "day-baseline only: IST HH:MM of the baseline." }
         brokerIv: { type: [number, "null"], description: "The broker's own IV (percent), when it sent one and ivModel=b76-forward recomputed iv." }
         ivReason:
           type: [string, "null"]
@@ -5548,6 +5888,197 @@ components:
             2 ticks of intrinsic on the forward; NOQUOTE = no usable price; TICK = price at or below one tick; INTRINSIC = at
             or below discounted intrinsic; RANGE = solved IV outside 1-300 %; SETTLED = past the settlement; NOFORWARD = no
             forward. Null when the IV solved.
+    FnoBan:
+      description: Ban band of a stock (null for indices).
+      oneOf:
+        - type: object
+          required: [inBan]
+          properties:
+            inBan: { type: boolean }
+            mwplPct: { type: [number, "null"] }
+            band: { type: [string, "null"], enum: [ban, high, normal, null] }
+            forDate: { type: [string, "null"], format: date }
+            asOf: { type: [string, "null"] }
+            source: { type: string, enum: [demo-override] }
+        - type: object
+          required: [available, reason]
+          properties:
+            available: { type: boolean, const: false }
+            reason: { type: string }
+    FnoUnderlying:
+      type: object
+      required: [underlying, kind, exchange, spot, settlement]
+      properties:
+        underlying: { type: string }
+        name: { type: string }
+        kind: { type: string, enum: [index, stock] }
+        exchange: { type: string, enum: [NFO, BFO] }
+        spot: { type: string, description: "The cash or index symbol that prices it." }
+        settlement: { type: string, enum: [cash, physical] }
+        lot: { type: [integer, "null"] }
+        nextLot: { type: [object, "null"], properties: { lot: { type: [integer, "null"] }, from: { type: [string, "null"] } } }
+        tickSize: { type: [number, "null"] }
+        strikeStep: { type: [number, "null"], description: "Inferred from listed strikes." }
+        freezeQty: { type: [integer, "null"] }
+        weekly: { type: boolean }
+        ban: { oneOf: [{ $ref: "#/components/schemas/FnoBan" }, { type: "null" }] }
+        events: { type: integer }
+        nonStandard: { type: boolean }
+        sweep: { type: object, properties: { covered: { type: boolean }, method: { type: [string, "null"] }, limitedReason: { type: [string, "null"] } } }
+        quote: { type: [object, "null"], properties: { ltp: { type: [number, "null"] }, changePct: { type: [number, "null"] } } }
+    FnoUnderlyingList:
+      type: object
+      required: [asOf, source, counts, items]
+      properties:
+        asOf: { type: string }
+        source: { type: object, properties: { universe: { type: string }, knownSince: { type: [string, "null"] }, masters: { type: array, items: { type: string } }, note: { type: string } } }
+        counts: { type: object, properties: { index: { type: integer }, stock: { type: integer }, inBan: { type: integer }, missingAtBroker: { type: integer } } }
+        items: { type: array, items: { $ref: "#/components/schemas/FnoUnderlying" } }
+        quotes: { type: object, properties: { loaded: { type: boolean }, reason: { type: string } } }
+    FnoUnderlyingDetail:
+      allOf:
+        - $ref: "#/components/schemas/FnoUnderlying"
+        - type: object
+          properties:
+            expiries:
+              type: array
+              items: { type: object, properties: { date: { type: string, format: date }, kind: { type: [string, "null"] }, lot: { type: [integer, "null"] }, shifted: { type: boolean }, ruleDate: { type: string }, strikeStep: { type: [number, "null"] }, strikes: { type: integer }, tickSize: { type: [number, "null"] } } }
+            deliveryMargin: { type: object, description: "Schedule for the nearest expiry (stocks), or { available false, reason INDEX_CASH_SETTLED }." }
+            settlementPrice: { type: object, properties: { method: { type: string }, window: { type: string } } }
+            nonStandardContracts: { type: array, items: { type: object, properties: { symbol: { type: string }, lot: { type: integer }, reason: { type: string } } } }
+            rules: { type: array, items: { type: string } }
+    ExpiryCostsRequest:
+      type: object
+      required: [underlying, legs]
+      additionalProperties: false
+      properties:
+        underlying: { type: string, maxLength: 30 }
+        asOf: { type: string, format: date }
+        spot: { type: number, exclusiveMinimum: 0 }
+        varElmPct: { type: number, minimum: 1, maximum: 100, description: "Your broker's VaR + ELM rate in percent; unlocks the indicative rupee delivery margin." }
+        account: { type: string, maxLength: 64 }
+        legs:
+          type: array
+          minItems: 1
+          maxItems: 40
+          items:
+            type: object
+            required: [symbol, qty]
+            additionalProperties: false
+            properties:
+              symbol: { $ref: "#/components/schemas/Symbol" }
+              qty: { type: integer, description: "Signed units: + long, − short." }
+              bid: { type: number, minimum: 0 }
+              ask: { type: number, minimum: 0 }
+    ExpiryCostsLeg:
+      type: object
+      properties:
+        symbol: { type: string }
+        qty: { type: integer }
+        moneyness: { type: [string, "null"], enum: [ITM, CTM, OTM, null], description: "CTM is the Bridge's display band (closeToMoneyStrikes steps), not an exchange definition." }
+        intrinsic: { type: [number, "null"] }
+        obligation: { type: [object, "null"], properties: { kind: { type: string, enum: [receive-shares, deliver-shares] }, shares: { type: integer }, cash: { type: number }, text: { type: string } } }
+        deliveryMargin: { type: [object, "null"], properties: { pct: { type: [number, "null"] }, indicative: { type: [number, "null"] }, basis: { type: [string, "null"] }, inWindow: { type: boolean } } }
+        settle: { type: [object, "null"], properties: { total: { type: number }, lines: { type: array, items: { type: object, properties: { key: { type: string }, value: { type: number } } } }, excluded: { type: array, items: { type: string } } } }
+        squareOff: { type: [object, "null"], properties: { price: { type: [number, "null"] }, side: { type: string, enum: [BUY, SELL] }, total: { type: [number, "null"] }, premium: { type: [number, "null"] }, lines: { type: array, items: { type: object } } } }
+        difference: { type: [number, "null"] }
+        covered: { type: [boolean, "null"] }
+        underlying: { type: string }
+    ExpiryCostsResult:
+      type: object
+      required: [asOf, legs, notes]
+      properties:
+        asOf: { type: string, format: date }
+        day: { type: [string, "null"], description: "E-n (trading days to the expiry) or E." }
+        inWindow: { type: boolean }
+        settlement: { type: string, enum: [cash, physical] }
+        spot: { type: [number, "null"] }
+        strikeStep: { type: [number, "null"] }
+        rates: { type: object, properties: { asOf: { type: [string, "null"] }, verified: { type: boolean }, source: { type: string } } }
+        legs: { type: array, items: { $ref: "#/components/schemas/ExpiryCostsLeg" } }
+        notes: { type: array, items: { type: string } }
+    SweepRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        underlyings:
+          oneOf:
+            - { type: string, enum: [indices, stocks, indices+stocks] }
+            - { type: array, maxItems: 500, items: { type: string, maxLength: 30 } }
+        stocks:
+          oneOf:
+            - { type: string, enum: [all, optIn] }
+            - { type: array, maxItems: 1000, items: { type: string, maxLength: 30 } }
+        force: { type: boolean }
+        method: { type: string, enum: [auto, chain, quotes] }
+    SweepPlan:
+      type: object
+      properties:
+        account: { type: object, properties: { id: { type: string }, broker: { type: string } } }
+        fits: { type: boolean }
+        limited: { type: boolean }
+        groups:
+          type: array
+          items: { type: object, properties: { kind: { type: string, enum: [index, stock] }, method: { type: string, enum: [chain, quotes] }, keys: { type: integer }, stocks: { type: integer }, calls: { type: integer }, class: { type: string }, ratePerMin: { type: number }, minutes: { type: number } } }
+        minutes: { type: number }
+        hv: { type: object, properties: { calls: { type: integer }, source: { type: string }, minutes: { type: number } } }
+        autoIntervalSec: { type: integer }
+        maxStocksThatFit: { type: integer }
+        message: { type: string }
+        quotesVerified: { type: boolean }
+        basis: { type: string }
+    SweepJob:
+      type: object
+      required: [id, status, progress]
+      properties:
+        id: { type: string }
+        status: { type: string, enum: [queued, running, done, partial, cancelled, failed, interrupted] }
+        requestedBy: { type: string }
+        startedAt: { type: string }
+        finishedAt: { type: [string, "null"] }
+        plan: { $ref: "#/components/schemas/SweepPlan" }
+        progress:
+          type: object
+          properties:
+            total: { type: integer }
+            done: { type: integer }
+            failed: { type: integer }
+            phase: { type: [string, "null"], enum: [queued, spots, index-chains, stock-chains, hv, null] }
+            current: { type: [string, "null"] }
+            etaSeconds: { type: [integer, "null"] }
+            calls: { type: object, additionalProperties: { type: integer } }
+            hv: { type: object, properties: { done: { type: integer }, total: { type: integer } } }
+        cursor: { type: integer }
+        durationMs: { type: [integer, "null"] }
+        joined: { type: boolean }
+        reused: { type: boolean }
+        lease: { type: object, properties: { until: { type: [string, "null"] } } }
+    SweepChainsPage:
+      type: object
+      required: [items, nextCursor, done]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              seq: { type: integer }
+              at: { type: string }
+              method: { type: string, enum: [chain, quotes] }
+              chain: { $ref: "#/components/schemas/OptionChain" }
+        nextCursor: { type: integer }
+        done: { type: boolean }
+        hv: { type: object, additionalProperties: { type: number }, description: "HV20 (percent) per underlying; on the last page only." }
+    SweepSettings:
+      type: object
+      properties:
+        optIn: { type: array, items: { type: string } }
+        setAt: { type: [string, "null"] }
+        setBy: { type: [string, "null"] }
+        background: { type: boolean }
+        leaseSeconds: { type: integer }
+        persisted: { type: boolean }
     OptionChain:
       type: object
       required: [underlying, expiry, rows, freshness]
@@ -5557,6 +6088,10 @@ components:
         underlyingLtp: { type: [number, "null"] }
         atmStrike: { type: [number, "null"] }
         lotSize: { type: [integer, "null"] }
+        underlyingKind: { type: [string, "null"], enum: [index, stock, null], description: "From the master (OPTSTK vs OPTIDX: the spot row's kind)." }
+        settlement: { type: [string, "null"], enum: [cash, physical, null], description: "physical for stock derivatives, cash for index derivatives." }
+        strikeStep: { type: [number, "null"], description: "Most common gap between listed strikes of this expiry (inferred); null with fewer than 3 strikes." }
+        tickSize: { type: [number, "null"], description: "Largest option tick size of this expiry in the master." }
         rows:
           type: array
           items:
@@ -5809,7 +6344,13 @@ components:
       type: object
       required: [code, message, severity]
       properties:
-        code: { type: string }
+        code:
+          type: string
+          description: >-
+            An open set. Codes include the error codes, SAFETY_WARNING, LOT_SIZE_STALE, and (p1-06) FNO_BAN (block: an
+            opening order in a stock derivative in the F&O ban period; closing orders pass), FNO_BAN_UNCONFIRMED (warn:
+            positions could not be read, the broker decides), BAN_DATA_UNAVAILABLE (warn: no ban list loaded) and
+            PHYSICAL_SETTLEMENT (warn: from E-4, an opening order in an ITM or close-to-money stock option).
         message: { type: string }
         severity: { type: string, enum: [block, warn] }
     PreviewResult:

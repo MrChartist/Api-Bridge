@@ -1,0 +1,397 @@
+{
+ "version": 1,
+ "note": "Frozen snapshot of ratelimit/brokerPolicies.mjs (and the demo policy) for fno/plan.test.mjs (docs/spec/p1-06-stocks.md §6.9). Regenerate deliberately when a policy changes.",
+ "policies": {
+  "dhan": {
+   "brokerId": "dhan",
+   "limits": {
+    "order": {
+     "perSecond": 10,
+     "perMinute": 250,
+     "perDay": 7000,
+     "extraWindows": [
+      {
+       "windowMs": 3600000,
+       "limit": 1000
+      }
+     ],
+     "verified": true,
+     "source": "https://dhanhq.co/docs/v2/"
+    },
+    "history": {
+     "perSecond": 5,
+     "perDay": 100000,
+     "verified": true,
+     "source": "https://dhanhq.co/docs/v2/"
+    },
+    "chain": {
+     "perSecond": 1,
+     "perMinute": 20,
+     "verified": false,
+     "source": "https://dhanhq.co/docs/v2/option-chain/"
+    },
+    "portfolio": {
+     "perSecond": 20,
+     "verified": true,
+     "source": "https://dhanhq.co/docs/v2/"
+    },
+    "other": {
+     "perSecond": 20,
+     "verified": true,
+     "source": "https://dhanhq.co/docs/v2/"
+    },
+    "quote": {
+     "perSecond": 1,
+     "verified": true,
+     "source": "https://dhanhq.co/docs/v2/market-quote/"
+    },
+    "depth": {
+     "perSecond": 1,
+     "verified": true,
+     "source": "https://dhanhq.co/docs/v2/market-quote/"
+    }
+   },
+   "groups": {
+    "marketQuote": {
+     "perSecond": 1,
+     "verified": true,
+     "source": "https://dhanhq.co/docs/v2/market-quote/",
+     "classes": [
+      "quote",
+      "depth"
+     ]
+    }
+   },
+   "maxQuoteBatch": 1000
+  },
+  "zerodha": {
+   "brokerId": "zerodha",
+   "limits": {
+    "order": {
+     "perSecond": 10,
+     "verified": true,
+     "source": "https://kite.trade/docs/connect/v3/exceptions/"
+    },
+    "history": {
+     "perSecond": 3,
+     "verified": true,
+     "source": "https://kite.trade/docs/connect/v3/exceptions/"
+    },
+    "portfolio": {
+     "perSecond": 10,
+     "verified": true,
+     "source": "https://kite.trade/docs/connect/v3/exceptions/"
+    },
+    "other": {
+     "perSecond": 10,
+     "verified": true,
+     "source": "https://kite.trade/docs/connect/v3/exceptions/"
+    },
+    "master": {
+     "perSecond": 10,
+     "verified": true,
+     "source": "https://kite.trade/docs/connect/v3/exceptions/"
+    },
+    "quote": {
+     "perSecond": 1,
+     "verified": true,
+     "source": "https://kite.trade/docs/connect/v3/exceptions/"
+    },
+    "depth": {
+     "perSecond": 1,
+     "verified": true,
+     "source": "https://kite.trade/docs/connect/v3/exceptions/"
+    },
+    "chain": {
+     "perSecond": 1,
+     "verified": true,
+     "source": "https://kite.trade/docs/connect/v3/exceptions/"
+    }
+   },
+   "groups": {
+    "orderCaps": {
+     "perMinute": 400,
+     "perDay": 5000,
+     "verified": false,
+     "classes": [
+      "order"
+     ]
+    },
+    "quote": {
+     "perSecond": 1,
+     "verified": true,
+     "source": "https://kite.trade/docs/connect/v3/exceptions/",
+     "classes": [
+      "quote",
+      "depth",
+      "chain"
+     ]
+    }
+   },
+   "maxQuoteBatch": 500
+  },
+  "upstox": {
+   "brokerId": "upstox",
+   "limits": {
+    "quote": {
+     "perSecond": 50,
+     "perMinute": 500,
+     "extraWindows": [
+      {
+       "windowMs": 1800000,
+       "limit": 2000
+      }
+     ],
+     "verified": true,
+     "source": "https://upstox.com/developer/api-documentation/rate-limiting"
+    },
+    "depth": {
+     "perSecond": 50,
+     "perMinute": 500,
+     "extraWindows": [
+      {
+       "windowMs": 1800000,
+       "limit": 2000
+      }
+     ],
+     "verified": true,
+     "source": "https://upstox.com/developer/api-documentation/rate-limiting"
+    },
+    "history": {
+     "perSecond": 50,
+     "perMinute": 500,
+     "extraWindows": [
+      {
+       "windowMs": 1800000,
+       "limit": 2000
+      }
+     ],
+     "verified": true,
+     "source": "https://upstox.com/developer/api-documentation/rate-limiting"
+    },
+    "chain": {
+     "perSecond": 50,
+     "perMinute": 500,
+     "extraWindows": [
+      {
+       "windowMs": 1800000,
+       "limit": 2000
+      }
+     ],
+     "verified": true,
+     "source": "https://upstox.com/developer/api-documentation/rate-limiting"
+    },
+    "portfolio": {
+     "perSecond": 50,
+     "perMinute": 500,
+     "extraWindows": [
+      {
+       "windowMs": 1800000,
+       "limit": 2000
+      }
+     ],
+     "verified": true,
+     "source": "https://upstox.com/developer/api-documentation/rate-limiting"
+    },
+    "other": {
+     "perSecond": 50,
+     "perMinute": 500,
+     "extraWindows": [
+      {
+       "windowMs": 1800000,
+       "limit": 2000
+      }
+     ],
+     "verified": true,
+     "source": "https://upstox.com/developer/api-documentation/rate-limiting"
+    },
+    "master": {
+     "perSecond": 50,
+     "perMinute": 500,
+     "extraWindows": [
+      {
+       "windowMs": 1800000,
+       "limit": 2000
+      }
+     ],
+     "verified": true,
+     "source": "https://upstox.com/developer/api-documentation/rate-limiting"
+    },
+    "order": {
+     "perSecond": 10,
+     "perMinute": 500,
+     "extraWindows": [
+      {
+       "windowMs": 1800000,
+       "limit": 2000
+      }
+     ],
+     "verified": true,
+     "source": "https://upstox.com/developer/api-documentation/rate-limiting"
+    }
+   },
+   "groups": {
+    "standard": {
+     "perSecond": 50,
+     "perMinute": 500,
+     "extraWindows": [
+      {
+       "windowMs": 1800000,
+       "limit": 2000
+      }
+     ],
+     "verified": true,
+     "source": "https://upstox.com/developer/api-documentation/rate-limiting",
+     "classes": [
+      "quote",
+      "depth",
+      "history",
+      "chain",
+      "portfolio",
+      "other",
+      "master"
+     ]
+    }
+   },
+   "maxQuoteBatch": 500
+  },
+  "fyers": {
+   "brokerId": "fyers",
+   "limits": {
+    "quote": {
+     "perSecond": 5,
+     "perMinute": 50,
+     "perDay": 5000,
+     "verified": true,
+     "source": "https://fyers.in/api-docs/v3/"
+    },
+    "depth": {
+     "perSecond": 5,
+     "perMinute": 50,
+     "perDay": 5000,
+     "verified": true,
+     "source": "https://fyers.in/api-docs/v3/"
+    },
+    "history": {
+     "perSecond": 5,
+     "perMinute": 50,
+     "perDay": 5000,
+     "verified": true,
+     "source": "https://fyers.in/api-docs/v3/"
+    },
+    "chain": {
+     "perSecond": 5,
+     "perMinute": 50,
+     "perDay": 5000,
+     "verified": true,
+     "source": "https://fyers.in/api-docs/v3/"
+    },
+    "order": {
+     "perSecond": 10,
+     "perMinute": 200,
+     "verified": true,
+     "source": "https://fyers.in/api-docs/v3/"
+    },
+    "portfolio": {
+     "perSecond": 10,
+     "perMinute": 200,
+     "verified": true,
+     "source": "https://fyers.in/api-docs/v3/"
+    },
+    "other": {
+     "perSecond": 10,
+     "perMinute": 200,
+     "verified": true,
+     "source": "https://fyers.in/api-docs/v3/"
+    }
+   },
+   "groups": {
+    "dataApis": {
+     "perSecond": 5,
+     "perMinute": 50,
+     "perDay": 5000,
+     "verified": true,
+     "source": "https://fyers.in/api-docs/v3/",
+     "classes": [
+      "quote",
+      "depth",
+      "history",
+      "chain"
+     ]
+    },
+    "transactionApis": {
+     "perSecond": 10,
+     "perMinute": 200,
+     "verified": true,
+     "source": "https://fyers.in/api-docs/v3/",
+     "classes": [
+      "order",
+      "portfolio",
+      "other"
+     ]
+    }
+   },
+   "maxQuoteBatch": 50
+  },
+  "demo": {
+   "brokerId": "demo",
+   "limits": {
+    "order": {
+     "perSecond": 10,
+     "verified": true,
+     "source": "server/bridge/demo/demoMode.mjs (sample limits)"
+    },
+    "quote": {
+     "perSecond": 10,
+     "perMinute": 400,
+     "verified": true,
+     "source": "server/bridge/demo/demoMode.mjs (sample limits)"
+    },
+    "depth": {
+     "perSecond": 10,
+     "verified": true,
+     "source": "server/bridge/demo/demoMode.mjs (sample limits)"
+    },
+    "history": {
+     "perSecond": 5,
+     "verified": true,
+     "source": "server/bridge/demo/demoMode.mjs (sample limits)"
+    },
+    "chain": {
+     "perSecond": 5,
+     "verified": true,
+     "source": "server/bridge/demo/demoMode.mjs (sample limits)"
+    },
+    "portfolio": {
+     "perSecond": 10,
+     "verified": true,
+     "source": "server/bridge/demo/demoMode.mjs (sample limits)"
+    },
+    "master": {
+     "perSecond": 1,
+     "verified": true,
+     "source": "server/bridge/demo/demoMode.mjs (sample limits)"
+    },
+    "other": {
+     "perSecond": 10,
+     "verified": true,
+     "source": "server/bridge/demo/demoMode.mjs (sample limits)"
+    }
+   },
+   "groups": {
+    "quoteFamily": {
+     "perSecond": 10,
+     "perMinute": 400,
+     "verified": true,
+     "source": "server/bridge/demo/demoMode.mjs (sample limits)",
+     "classes": [
+      "quote",
+      "depth",
+      "chain"
+     ]
+    }
+   },
+   "maxQuoteBatch": 200
+  }
+ }
+}

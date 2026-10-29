@@ -5,7 +5,7 @@
  * Each Phase 1 spec that needs a demo control adds ONE entry to DEMO_ROUTES below, and in the same commit:
  *  - documents the operation in docs/openapi.yaml with `x-demo-only: true` (plus its usual x-scope and x-stream);
  *  - adds "METHOD /path" to the DEMO_ONLY list in server/bridge/core/openapi.test.mjs.
- * Planned: POST /v1/demo/feed (p1-04), POST /v1/demo/readiness (p1-05), the ban override (p1-06), alert simulate
+ * Planned: POST /v1/demo/feed (p1-04), POST /v1/demo/readiness (p1-05), POST /v1/demo/fno (p1-06), alert simulate
  * (p1-11), guard scenarios (p1-12).
  *
  * Rules every entry follows (checked by registerDemoRoutes):
@@ -16,6 +16,7 @@
  *  - `handler(deps)` returns the request handler; it reads only services, never touches files outside dataDir.
  */
 
+import { demoFnoHandler } from "../fno/routes.mjs";
 import { createReadinessRoutes } from "../readiness/routes.mjs";
 import { BridgeError } from "../core/errors.mjs";
 
@@ -48,6 +49,15 @@ export const DEMO_ROUTES = Object.freeze([
       if (!b || typeof b.lotsStale !== "boolean") throw new BridgeError("VALIDATION_FAILED", "Send { lotsStale: true | false }.", { field: "lotsStale" });
       return { data: { lotsStale: deps.reference.setDemoLotsStale(b.lotsStale) }, meta: { requestId: ctx.requestId } };
     },
+  }),
+  // p1-06 §4.2: force stocks into the F&O ban for N minutes on top of the demo's daily list (memory only), so the
+  // "close allowed, open refused" ticket path can be tried after opening a paper position.
+  Object.freeze({
+    module: "fno",
+    method: "POST",
+    path: "/v1/demo/fno",
+    options: { scope: "admin", loopbackOnly: true, summary: "Demo: force a ban list for testing the F&O ban gate" },
+    handler: (deps) => demoFnoHandler(deps),
   }),
 ]);
 

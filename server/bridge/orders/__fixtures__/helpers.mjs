@@ -329,7 +329,7 @@ export function buildHarness(opts = {}) {
     ],
   });
   const scheduler = createFakeScheduler({ bus, policies: { zerodha: { maxModificationsPerOrder: 2 } } });
-  const symbols = createFakeSymbolService({ instruments: INSTRUMENTS });
+  const symbols = createFakeSymbolService({ instruments: opts.instruments ?? INSTRUMENTS });
   const marketData = createFakeMarketData({ prices: opts.prices ?? PRICES, clock });
   const safety = opts.safety ?? createStubSafety();
   const audit = createStubAudit();

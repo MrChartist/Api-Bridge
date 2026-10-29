@@ -3,8 +3,10 @@
  * NO network calls. It serves deterministic sample data so anyone can try the Bridge without a broker account, and
  * so screenshots look the same every time:
  *
- *  - instruments: NIFTY, BANKNIFTY, SENSEX, FINNIFTY and MIDCPNIFTY (index, futures, options), the NIFTY 50 stocks, and
- *    stock futures and options for RELIANCE, HDFCBANK, ICICIBANK, INFY and SBIN (lots from the demo reference table);
+ *  - instruments: NIFTY, BANKNIFTY, SENSEX, FINNIFTY and MIDCPNIFTY (index, futures, options) and the NIFTY 50 stocks,
+ *    each with monthly stock futures and options on the nearest 3 monthly expiries (P1-6: lots from the demo
+ *    reference table, the demo strike-step table including fractional strikes, ±20 strikes, and 6 adjusted "-ADJ"
+ *    contracts on the demo split stock);
  *  - prices: a smooth function of wall-clock time per symbol (slow multi-day waves plus minute-scale wiggles), so the
  *    same instant always gives the same price and ticks keep moving even when the real market is shut;
  *  - option chains: Black-76 prices on the vol-time clock (dashboard/pricing.js, the same core the server and pages
@@ -96,12 +98,60 @@ export const DEMO_UNDERLYINGS = Object.freeze([
   { symbol: "WIPRO", exchange: "NSE", kind: "EQ", name: "Wipro (Demo)", base: 245, tick: 0.05 },
 ]);
 
-const BY_SYMBOL = new Map(DEMO_UNDERLYINGS.map((u) => [u.symbol, u]));
+/**
+ * Demo strike step by price (P1-6 §4.1; labelled demo, real steps come from the masters): < 100: 1 · 100–250: 2.5 ·
+ * 250–500: 5 · 500–1000: 10 · 1000–2500: 20 · 2500–5000: 50 · 5000–10000: 100 · ≥ 10000: 250.
+ */
+export function demoStrikeStep(base) {
+  const table = [
+    [100, 1],
+    [250, 2.5],
+    [500, 5],
+    [1000, 10],
+    [2500, 20],
+    [5000, 50],
+    [10000, 100],
+  ];
+  for (const [below, step] of table) if (base < below) return step;
+  return 250;
+}
+
+/**
+ * The derivative fields of a demo stock (P1-6 §4.1): NFO monthly options and futures, the demo lot table, the strike
+ * step table, an IV of 20–45 % (P1-1's five option stocks keep theirs), a flatter put wing (0.35 vs the index 0.8) and
+ * OI scaled by 0.15 (about 1,000–2,500 lots near the money).
+ */
+function withStockDerivatives(u) {
+  if (u.kind !== "EQ") return u;
+  return Object.freeze({ ...u, deriv: "NFO", expiry: "monthly-tue", step: demoStrikeStep(u.base), lot: DEMO_STOCK_LOT[u.symbol], iv: u.iv ?? 0.2 + 0.25 * (hash32(u.symbol) / 4294967296), putWing: 0.35, oiScale: 0.15, stock: true });
+}
+
+const BY_SYMBOL = new Map(DEMO_UNDERLYINGS.map((u) => [u.symbol, withStockDerivatives(u)]));
 const STRIKES_EACH_SIDE = 30;
 /** Strikes each side of ATM in a broker-style chain (fetchOptionChain); instruments list ±60. */
 export const CHAIN_STRIKES_EACH_SIDE = 45;
-/** Underlyings with listed options: indices first, then the demo option stocks. */
-export const DEMO_OPTION_UNDERLYINGS = Object.freeze(DEMO_UNDERLYINGS.filter((u) => u.deriv).map((u) => u.symbol));
+/** Stocks list ±20 strikes around the IST-day centre, in the master and in a chain (P1-6 §4.1). */
+const STOCK_STRIKES_EACH_SIDE = 20;
+/** Underlyings with listed options: indices first, then the demo stocks. */
+export const DEMO_OPTION_UNDERLYINGS = Object.freeze([...BY_SYMBOL.values()].filter((u) => u.deriv).map((u) => u.symbol));
+/** The demo underlying with derivative fields (stocks included), or null. */
+export const demoUnderlying = (symbol) => BY_SYMBOL.get(symbol) ?? null;
+
+/** Demo stocks that may carry the adjusted (split) series; the one not taking this week's bonus is used. */
+export const DEMO_SPLIT_CANDIDATES = Object.freeze(["BHARTIARTL", "BAJAJFINSV"]);
+const DEMO_STOCK_LIST = Object.freeze(Object.keys(DEMO_STOCK_LOT).sort());
+/** Monday of the week of an IST date. */
+function weekStart(date) {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+/** The demo stock taking the rolling 1:1 bonus in the week of `date` (reference/demoReference.mjs uses it too). */
+export const demoBonusSymbol = (date) => DEMO_STOCK_LIST[hash32(weekStart(date)) % DEMO_STOCK_LIST.length];
+/** The demo split stock: its nearest expiry lists the adjusted -ADJ contracts (lot × 5, off-grid strikes). */
+export const demoSplitSymbol = (date) => DEMO_SPLIT_CANDIDATES.find((s) => s !== demoBonusSymbol(date));
+/** The adjusted series' lot factor (the split's factor). */
+export const DEMO_ADJ_FACTOR = 5;
 
 // ── Deterministic helpers ──
 
@@ -324,7 +374,7 @@ export function smileVol(u, spot, strike, years, level = u.iv) {
   const x = Math.log(strike / spot) / Math.sqrt(Math.max(years, MIN_SMILE_YEARS));
   const base = level * (1 + 0.3 * Math.exp((-years * CAL_DAYS) / 6));
   // Smooth in strike (no per-strike wiggle): adjacent strikes then never form a butterfly arbitrage.
-  return base * (1 + 1.2 * x * x + (x < 0 ? 0.8 : 0.1) * Math.abs(x));
+  return base * (1 + 1.2 * x * x + (x < 0 ? u.putWing ?? 0.8 : 0.1) * Math.abs(x));
 }
 /** The smile's shape constants (in calendar days, as the smile was tuned): a one-day floor on √T and the term decay. */
 const CAL_DAYS = 365;
@@ -366,10 +416,13 @@ function futurePrice(symbol, expiry, t) {
 function baseOiLots(u, spot, strike, right, expiry) {
   const dist = (strike - spot) / (u.step * 6);
   const side = right === "CE" ? (strike >= spot ? 1.15 : 0.55) : strike <= spot ? 1.15 : 0.55;
-  const round = strike % (u.step * 10) === 0 ? 1.8 : strike % (u.step * 2) === 0 ? 1.2 : 1;
-  const scale = u.kind === "EQ" ? 600 : 9000;
+  const round = onGrid(strike, u.step * 10) ? 1.8 : onGrid(strike, u.step * 2) ? 1.2 : 1;
+  const scale = 9000 * (u.oiScale ?? 1);
   return scale * Math.exp(-dist * dist) * side * round * (0.85 + 0.3 * unit(`${u.symbol}:${expiry}:${strike}:${right}`));
 }
+
+/** Whether x sits on a grid of `step` (fractional steps such as 2.5 included). */
+const onGrid = (x, step) => Math.abs(x / step - Math.round(x / step)) < 1e-9;
 
 /** Fraction of the demo day elapsed at `t`: the IST calendar day (the demo recorder's "always open" clock). */
 const dayFraction = (t) => (((t + IST_OFFSET_MS) % DAY_MS) + DAY_MS) % DAY_MS / DAY_MS;
@@ -417,6 +470,18 @@ function oiWith(ctx, strike, right) {
 }
 
 /**
+ * OI of a demo option contract at `t` in units (the same figure quotes and chains carry), adjusted -ADJ contracts in
+ * their own lot (× 5). Exported for the fno sweep's demo ΔOI baseline (P1-6 §4.2).
+ */
+export function demoOptionOi(token, t) {
+  const p = parseToken(token);
+  if (!p || p.kind !== "opt") return null;
+  const ctx = oiContext(p.symbol, p.expiry, t);
+  if (!ctx) return null;
+  return oiWith(p.adjusted ? { ...ctx, lot: ctx.lot * DEMO_ADJ_FACTOR } : ctx, p.strike, p.right);
+}
+
+/**
  * Bid and ask sizes in units: whole lots, deterministic per token. The resting size at the touch holds for 15 minutes,
  * then moves, like a quiet order book (and so the recorded minutes compress well).
  */
@@ -439,23 +504,54 @@ export function contractLot(u, expiry, t) {
 /** Every demo instrument for the IST day of `t` (Instrument rows of the broker contract, plus `name`). */
 export function demoInstruments(t) {
   const rows = [];
-  for (const u of DEMO_UNDERLYINGS) {
+  for (const u of BY_SYMBOL.values()) {
     rows.push({ token: `DM-${u.symbol}`, exchange: u.exchange, tradingSymbol: u.symbol, underlying: u.symbol, instrumentType: u.kind, expiry: null, strike: null, optionType: null, lotSize: 1, tickSize: u.tick, name: u.name });
     if (!u.deriv) continue;
     const stock = u.kind === "EQ";
-    for (const e of monthlyExpiries(u, t)) {
+    // Stock futures on the same 3 monthly expiries as the options (P1-6); index futures on the next 2 monthlies.
+    for (const e of stock ? expiriesFor(u.symbol, t) : monthlyExpiries(u, t)) {
       rows.push({ token: `DM-${u.symbol}-${e}-FUT`, exchange: u.deriv, tradingSymbol: `${u.symbol}-${e}-FUT`, underlying: u.symbol, instrumentType: stock ? "FUTSTK" : "FUTIDX", expiry: e, strike: null, optionType: null, lotSize: contractLot(u, e, t), tickSize: 0.05, name: `${u.name} future` });
     }
-    const centre = Math.round(spotAt(u.symbol, t) / u.step) * u.step;
+    const centre = stock ? dayCentre(u, t) : Math.round(spotAt(u.symbol, t) / u.step) * u.step;
+    const each = stock ? STOCK_STRIKES_EACH_SIDE : STRIKES_EACH_SIDE * 2;
     for (const e of expiriesFor(u.symbol, t)) {
       const lot = contractLot(u, e, t);
-      for (let i = -STRIKES_EACH_SIDE * 2; i <= STRIKES_EACH_SIDE * 2; i += 1) {
-        const k = centre + i * u.step;
+      for (let i = -each; i <= each; i += 1) {
+        const k = strikeAt(centre, i, u.step);
         if (k <= 0) continue;
         for (const r of ["CE", "PE"]) {
           rows.push({ token: `DM-${u.symbol}-${e}-${k}-${r}`, exchange: u.deriv, tradingSymbol: `${u.symbol}-${e}-${k}-${r}`, underlying: u.symbol, instrumentType: stock ? "OPTSTK" : "OPTIDX", expiry: e, strike: k, optionType: r, lotSize: lot, tickSize: 0.05, name: `${u.name} ${k} ${r}` });
         }
       }
+    }
+    if (u.symbol === demoSplitSymbol(istDateOf(t))) rows.push(...adjustedContracts(u, t));
+  }
+  return rows;
+}
+
+/** Strike i steps from `centre` (2 dp: fractional steps such as 2.5 stay exact). */
+const strikeAt = (centre, i, step) => Math.round((centre + i * step) * 100) / 100;
+/** A stock's strike-grid centre for the IST day of `t` (the spot at 09:15, so a day's listed strikes do not move). */
+function dayCentre(u, t) {
+  const s = spotAt(u.symbol, istAt(t, 9, 15));
+  return Math.round(s / u.step) * u.step;
+}
+
+/**
+ * The demo split stock's adjusted series (P1-6 §4.1): on the nearest expiry, 3 strikes × CE/PE left from before the
+ * split, with lot × 5 and off-grid strikes (the pre-split strike / 5, on a 0.05 tick). Tokens end in "-ADJ".
+ */
+export function adjustedContracts(u, t) {
+  const e = expiriesFor(u.symbol, t)[0];
+  if (!e) return [];
+  const lot = contractLot(u, e, t) * DEMO_ADJ_FACTOR;
+  const centre = dayCentre(u, t);
+  const rows = [];
+  for (const j of [-1, 0, 1]) {
+    const pre = centre * DEMO_ADJ_FACTOR + (j + 0.5) * u.step * DEMO_ADJ_FACTOR + 7;
+    const strike = Math.round(Math.round(pre / DEMO_ADJ_FACTOR / 0.05) * 0.05 * 100) / 100;
+    for (const r of ["CE", "PE"]) {
+      rows.push({ token: `DM-${u.symbol}-${e}-${strike}-${r}-ADJ`, exchange: u.deriv, tradingSymbol: `${u.symbol}-${e}-${strike}-${r}-ADJ`, underlying: u.symbol, instrumentType: "OPTSTK", expiry: e, strike, optionType: r, lotSize: lot, tickSize: 0.05, name: `${u.name} ${strike} ${r} (adjusted)` });
     }
   }
   return rows;
@@ -482,13 +578,13 @@ function monthlyExpiries(u, t) {
   return out;
 }
 
-/** Parse a demo token: DM-<SYM>[-<expiry>-FUT | -<expiry>-<strike>-<CE|PE>]. */
+/** Parse a demo token: DM-<SYM>[-<expiry>-FUT | -<expiry>-<strike>-<CE|PE>[-ADJ]]. */
 export function parseToken(token) {
-  const m = /^DM-([A-Z0-9&-]+?)(?:-(\d{4}-\d{2}-\d{2})-(?:(FUT)|(\d+(?:\.\d+)?)-(CE|PE)))?$/.exec(String(token));
+  const m = /^DM-([A-Z0-9&-]+?)(?:-(\d{4}-\d{2}-\d{2})-(?:(FUT)|(\d+(?:\.\d+)?)-(CE|PE)(-ADJ)?))?$/.exec(String(token));
   if (!m || !BY_SYMBOL.has(m[1])) return null;
   if (!m[2]) return { symbol: m[1], kind: "spot" };
   if (m[3]) return { symbol: m[1], kind: "fut", expiry: m[2] };
-  return { symbol: m[1], kind: "opt", expiry: m[2], strike: Number(m[4]), right: m[5] };
+  return { symbol: m[1], kind: "opt", expiry: m[2], strike: Number(m[4]), right: m[5], ...(m[6] ? { adjusted: true } : {}) };
 }
 
 /** Last traded price of any demo token at `t`. */
@@ -523,9 +619,12 @@ export function quoteOf(token, exchange, t) {
   const bid = Number(down(Math.min(ltp, ltp - spread / 2)).toFixed(4));
   const ask = Number(Math.max(up(ltp + spread / 2), bid + tick).toFixed(4));
   const perMinute = p.kind === "spot" ? 5200 : p.kind === "fut" ? 30 : 4 + 200 * near;
-  const volume = p.kind === "spot" && u.kind === "INDEX" ? 0 : Math.round(perMinute * minutes * (0.7 + 0.6 * unit(`${token}:vol`))) * (p.kind === "spot" ? 1 : u.lot);
-  const oi = p.kind === "opt" ? openInterestAt(p.symbol, p.strike, p.right, p.expiry, t) : p.kind === "fut" ? Math.round((u.kind === "EQ" ? 9000 : 120_000) * (0.8 + 0.4 * unit(`${token}:oi`))) * contractLot(u, p.expiry, t) : null;
-  const sizes = p.kind === "spot" && u.kind === "INDEX" ? { bidQty: null, askQty: null } : depthSizes(token, p.kind === "spot" ? 1 : contractLot(u, p.expiry, t), t);
+  // Contract lot (an adjusted contract's own lot); stock derivatives' volume scaled like their OI (P1-6).
+  const lot = p.kind === "spot" ? 1 : contractLot(u, p.expiry, t) * (p.adjusted ? DEMO_ADJ_FACTOR : 1);
+  const scale = p.kind === "opt" ? u.oiScale ?? 1 : 1;
+  const volume = p.kind === "spot" && u.kind === "INDEX" ? 0 : Math.max(p.kind === "spot" ? 0 : 1, Math.round(perMinute * scale * minutes * (0.7 + 0.6 * unit(`${token}:vol`)))) * lot;
+  const oi = p.kind === "opt" ? demoOptionOi(token, t) : p.kind === "fut" ? Math.round((u.kind === "EQ" ? 9000 : 120_000) * (0.8 + 0.4 * unit(`${token}:oi`))) * lot : null;
+  const sizes = p.kind === "spot" && u.kind === "INDEX" ? { bidQty: null, askQty: null } : depthSizes(token, lot, t);
   return {
     token,
     exchange,
@@ -557,8 +656,9 @@ export function demoChainAt(symbol, expiry, t, strikesEachSide = STRIKES_EACH_SI
   const minutes = Math.max(1, Math.min(375, (t - sessionOpen(t)) / 60_000));
   const centre = Math.round(spot / u.step) * u.step;
   const rows = [];
-  for (let i = -strikesEachSide; i <= strikesEachSide; i += 1) {
-    const k = centre + i * u.step;
+  const each = u.stock ? Math.min(strikesEachSide, STOCK_STRIKES_EACH_SIDE) : strikesEachSide;
+  for (let i = -each; i <= each; i += 1) {
+    const k = strikeAt(centre, i, u.step);
     if (k <= 0) continue;
     const near = Math.exp(-(((k - spot) / (u.step * 8)) ** 2));
     const leg = (right) => {
@@ -566,7 +666,7 @@ export function demoChainAt(symbol, expiry, t, strikesEachSide = STRIKES_EACH_SI
       const spread = Math.max(0.05 * (1 + Math.round(3 * (1 - near))), ltp * 0.0015);
       const bid = Number(Math.max(0, Math.floor((ltp - spread / 2) / 0.05 + 1e-9) * 0.05).toFixed(2));
       const ask = Number(Math.max(Math.ceil((ltp + spread / 2) / 0.05 - 1e-9) * 0.05, bid + 0.05).toFixed(2));
-      const volume = Math.round((4 + 200 * near) * minutes * (0.7 + 0.6 * unit(`${symbol}:${expiry}:${k}:${right}:vol`))) * lot;
+      const volume = Math.max(1, Math.round((4 + 200 * near) * (u.oiScale ?? 1) * minutes * (0.7 + 0.6 * unit(`${symbol}:${expiry}:${k}:${right}:vol`)))) * lot;
       const sizes = depthSizes(`DM-${symbol}-${expiry}-${k}-${right}`, lot, t);
       return { symbol: `${u.deriv}:${symbol}-${expiry}-${k}-${right}`, ltp, bid, ask, bidQty: sizes.bidQty, askQty: sizes.askQty, oi: oiWith(octx, k, right), volume };
     };
@@ -637,11 +737,13 @@ export function createDemoAdapter({ now = () => Date.now(), tickMs = 1000 } = {}
         throw Object.assign(new Error(`No demo expiry ${expiry} for ${u.symbol}.`), { code: "BROKER_INPUT_INVALID", statusCode: 422 });
       }
       const spot = spotAt(u.symbol, t);
-      const centre = Math.round(spot / u.step) * u.step;
+      // Indices: ±45 around the spot. Stocks: the ±20 strikes listed today (the master grid), so chain = master.
+      const centre = u.stock ? dayCentre(u, t) : Math.round(spot / u.step) * u.step;
+      const each = u.stock ? STOCK_STRIKES_EACH_SIDE : CHAIN_STRIKES_EACH_SIDE;
       const oc = {};
       const pc = previousClose(t);
-      for (let i = -CHAIN_STRIKES_EACH_SIDE; i <= CHAIN_STRIKES_EACH_SIDE; i += 1) {
-        const k = centre + i * u.step;
+      for (let i = -each; i <= each; i += 1) {
+        const k = strikeAt(centre, i, u.step);
         if (k <= 0) continue;
         const leg = (r) => {
           const q = quoteOf(`DM-${u.symbol}-${expiry}-${k}-${r}`, u.deriv, t);
@@ -650,6 +752,16 @@ export function createDemoAdapter({ now = () => Date.now(), tickMs = 1000 } = {}
           return { last_price: q.ltp, oi: q.oi, previous_oi: prevOi, oi_chg: q.oi - prevOi, volume: q.volume, top_bid_price: q.bid, top_ask_price: q.ask, top_bid_quantity: q.bidQty, top_ask_quantity: q.askQty, previous_close_price: q.close, security_id: `DM-${u.symbol}-${expiry}-${k}-${r}` };
         };
         oc[k.toFixed(6)] = { ce: leg("CE"), pe: leg("PE") };
+      }
+      // The split stock's adjusted contracts on the nearest expiry (off-grid strikes, lot × 5).
+      if (u.stock && u.symbol === demoSplitSymbol(istDateOf(t))) {
+        for (const r of adjustedContracts(u, t)) {
+          if (r.expiry !== expiry) continue;
+          const q = quoteOf(r.token, u.deriv, t);
+          const key = r.strike.toFixed(6);
+          oc[key] ??= {};
+          oc[key][r.optionType.toLowerCase()] = { last_price: q.ltp, oi: q.oi, previous_oi: null, oi_chg: null, volume: q.volume, top_bid_price: q.bid, top_ask_price: q.ask, top_bid_quantity: q.bidQty, top_ask_quantity: q.askQty, previous_close_price: q.close, security_id: r.token };
+        }
       }
       return ok({ oc, last_price: spot });
     },

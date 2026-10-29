@@ -636,3 +636,30 @@ describe("secrets", () => {
     for (const k of ["q|NSE:STK01"]) expect(JSON.stringify(md.cache.peek(k))).not.toMatch(/SECRET/);
   });
 });
+
+describe("chain contract facts (P1-6 §6.1)", () => {
+  const specs = (rows) => rows.map((s, i) => ({ ...s, refs: { zerodha: { token: `Z${i + 1}` }, dhan: { token: `D${i + 1}` } } }));
+  const stockStrikes = [1360, 1380, 1400, 1410, 1420, 1440, 1460];
+  const instruments = specs([
+    { symbol: "NSE:NIFTY", lotSize: 1, tickSize: 0.05 },
+    { symbol: "NSE:RELIANCE", lotSize: 1, tickSize: 0.1 },
+    ...[24900, 25000, 25100].flatMap((k) => ["CE", "PE"].map((r) => ({ symbol: `NFO:NIFTY-2026-10-27-${k}-${r}`, lotSize: 65, tickSize: 0.05 }))),
+    ...stockStrikes.flatMap((k) => ["CE", "PE"].map((r) => ({ symbol: `NFO:RELIANCE-2026-10-27-${k}-${r}`, lotSize: 500, tickSize: k === 1460 ? 0.1 : 0.05 }))),
+  ]);
+  const build = async () => {
+    const { createFakeSymbolService } = await import("../symbols/fake.mjs");
+    return buildMarket({ symbols: createFakeSymbolService({ instruments }), market: { chain: { source: "built" } } });
+  };
+
+  it("a stock chain is physical with the inferred step and the largest tick", async () => {
+    const { md, settle } = await build();
+    const c = await settle(md.optionChain({ underlying: "RELIANCE", expiry: "2026-10-27" }), 60);
+    expect(c).toMatchObject({ underlyingKind: "stock", settlement: "physical", strikeStep: 20, tickSize: 0.1 });
+  });
+
+  it("an index chain is cash settled", async () => {
+    const { md, settle } = await build();
+    const c = await settle(md.optionChain({ underlying: "NIFTY", expiry: "2026-10-27" }), 60);
+    expect(c).toMatchObject({ underlyingKind: "index", settlement: "cash", strikeStep: 100, tickSize: 0.05 });
+  });
+});

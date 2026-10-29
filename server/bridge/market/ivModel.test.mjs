@@ -32,10 +32,18 @@ async function chains(model, marketCfg = {}) {
   return out;
 }
 
+/** The P1-6 contract-fact fields are additive (docs/spec/p1-06-stocks.md §3.7); every legacy byte is still compared. */
+const P1_6_FIELDS = ["underlyingKind", "settlement", "strikeStep", "tickSize"];
+function legacyOnly(out) {
+  const copy = {};
+  for (const [k, c] of Object.entries(out)) copy[k] = Object.fromEntries(Object.entries(c).filter(([f]) => !P1_6_FIELDS.includes(f)));
+  return copy;
+}
+
 describe("ivModel on the service", () => {
   it("the legacy default is unchanged byte for byte", async () => {
-    expect(`${JSON.stringify(await chains(null), null, 1)}\n`).toBe(FIXTURE);
-    expect(`${JSON.stringify(await chains("legacy-bs-spot"), null, 1)}\n`).toBe(FIXTURE);
+    expect(`${JSON.stringify(legacyOnly(await chains(null)), null, 1)}\n`).toBe(FIXTURE);
+    expect(`${JSON.stringify(legacyOnly(await chains("legacy-bs-spot")), null, 1)}\n`).toBe(FIXTURE);
   });
 
   it("b76-forward prices every leg with pricing.js, keeps brokerIv and adds pricing", async () => {

@@ -21,6 +21,11 @@
  *                                                    from lib/marketHours; MCX and CDS from a weekday time window
  *                                                    (needs verification; no holiday list for them)
  *   static IP                  warn   warn    -     when registeredIp is set and the detected egress IP differs
+ *   F&O ban (fnoBan)           x      x       -     stock derivatives in the exchange ban period (p1-06 §2.8, §6.8):
+ *                                                    an order that increases the absolute net position in that
+ *                                                    contract is refused (FNO_BAN); closing passes with a warning;
+ *                                                    unknown held quantity warns (FNO_BAN_UNCONFIRMED) and the broker
+ *                                                    decides. fno.ban.blockOpening false makes it a warning (audited)
  *
  * Paper and live are counted separately: paper orders never use up the live day's budget and vice versa.
  *
@@ -49,6 +54,36 @@ import { createOrderRateWindow, windowFor } from "./orderRate.mjs";
 import { istIso } from "./time.mjs";
 
 export const ACTIONS = Object.freeze(["place", "modify", "cancel"]);
+
+const dayMonthText = (d) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d ?? ""));
+  return m ? `${Number(m[3])} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m[2]) - 1]}` : null;
+};
+
+/**
+ * The F&O ban rule (docs/spec/p1-06-stocks.md §2.8, §6.8), pure. With held quantity h (signed units in that contract,
+ * this account) and the order's signed quantity x, n = h + x is closing iff |n| ≤ |h| and sign(n) ∈ {0, sign(h)};
+ * anything else opens (or increases) a position and is refused. A fresh position in another contract of the same
+ * stock is refused too (per-contract reading of the exchange rule; needs verification).
+ * @param {{ underlying: string, side: "BUY"|"SELL", qty: number, heldQty: number|null, ban: { inBan?: boolean|null, mwplPct?: number|null, forDate?: string|null } | null,
+ *   blockOpening?: boolean }} p
+ * @returns {{ code: string, severity: "block"|"warn", message: string } | null}
+ */
+export function fnoBanCheck({ underlying, side, qty, heldQty, ban, blockOpening = true }) {
+  if (!ban || ban.inBan !== true) return null;
+  const x = side === "BUY" ? Math.abs(qty) : -Math.abs(qty);
+  if (heldQty === null || heldQty === undefined || !Number.isFinite(heldQty)) {
+    return { code: "FNO_BAN_UNCONFIRMED", severity: "warn", message: `${underlying} is in the F&O ban. This order is allowed only if it reduces a position; the Bridge could not read your positions, so the broker decides.` };
+  }
+  const h = heldQty;
+  const n = h + x;
+  const closing = Math.abs(n) <= Math.abs(h) && (n === 0 || Math.sign(n) === Math.sign(h));
+  if (closing) return { code: "FNO_BAN_CLOSING", severity: "warn", message: "Closing order in a ban-period stock." };
+  const when = [ban.mwplPct !== null && ban.mwplPct !== undefined ? `MWPL ${ban.mwplPct} %` : null, dayMonthText(ban.forDate)].filter(Boolean).join(", ");
+  const held = h === 0 ? "You hold none of this contract, so this would be a fresh position." : `You hold ${h} of this contract: you can ${h > 0 ? "sell" : "buy"} up to ${Math.abs(h)}.`;
+  const message = `${underlying} is in the F&O ban period${when ? ` (${when})` : ""}. Only orders that reduce your position are allowed. ${held}`;
+  return { code: "FNO_BAN", severity: blockOpening ? "block" : "warn", message: blockOpening ? message : `${message} (fno.ban.blockOpening is off: the broker decides.)` };
+}
 export const NUMERIC_LIMITS = Object.freeze(["dailyMaxOrders", "dailyMaxLoss", "maxOrderValue", "maxLotsPerOrder", "orderRatePerSecond", "priceBandPct", "marketProtectionPct"]);
 const EQUITY_SESSION_EXCHANGES = new Set(["NSE", "BSE", "NFO", "BFO"]);
 const DERIVATIVE_EXCHANGES = new Set(["NFO", "BFO", "MCX", "CDS"]);
@@ -278,6 +313,8 @@ export function createSafetyGuard(deps, opts = {}) {
       /** @type {Array<{ code: string, message: string, rule?: string, retryAfterMs?: number }>} */
       const reasons = [];
       const warnings = [];
+      /** Warnings with their own check code (p1-06 ban rule); `warnings` keeps the plain strings. */
+      const coded = [];
       const block = (code, rule, message, extra = {}) => reasons.push({ code, rule, message, ...extra });
       const i = intent && typeof intent === "object" ? intent : {};
       const mode = i.mode === "live" ? "live" : "paper";
@@ -447,7 +484,23 @@ export function createSafetyGuard(deps, opts = {}) {
         }
       }
 
-      const verdict = { ok: reasons.length === 0, mode, reasons, warnings };
+      // F&O ban period (stock derivatives): orders supply heldQty only when the underlying is in ban.
+      if ((action === "place" || action === "modify") && i.ban && i.ban.inBan === true && i.underlyingKind === "stock") {
+        const side = order?.side === "SELL" ? "SELL" : "BUY";
+        // A modify sends banQuantity: the order's unfilled remainder (the filled part is already in heldQty).
+        const qty = finitePos(i.banQuantity) ? i.banQuantity : finitePos(i.quantity) ? i.quantity : finitePos(order?.quantity) ? order.quantity : 0;
+        const blockOpening = config?.fno?.ban?.blockOpening !== false;
+        const c = fnoBanCheck({ underlying: i.underlying ?? order?.symbol ?? "This stock", side, qty, heldQty: i.heldQty ?? null, ban: i.ban, blockOpening });
+        if (c?.severity === "block") block("FNO_BAN", "fnoBan", c.message);
+        else if (c) {
+          coded.push({ code: c.code === "FNO_BAN_CLOSING" ? "SAFETY_WARNING" : c.code, message: c.message });
+          if (c.code === "FNO_BAN") {
+            void softAudit({ type: "safety.fno_ban_not_blocked", actor: actorOf(ctx), source: i.source ?? ctx?.source ?? "system", accountId: accountId || null, requestId: ctx?.requestId ?? null, data: { symbol: order?.symbol ?? null, side, quantity: qty, heldQty: i.heldQty ?? null, mode } });
+          }
+        }
+      }
+
+      const verdict = { ok: reasons.length === 0, mode, reasons, warnings, ...(coded.length ? { checks: coded } : {}) };
       if (verdict.ok && action === "place" && i.reserve === true && accountId) {
         const k = `${accountId}|${mode}`;
         reserved.set(k, [...(reserved.get(k) ?? []), t + RESERVE_TTL_MS]);

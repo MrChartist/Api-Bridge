@@ -26,11 +26,11 @@
 import { z } from "zod";
 import { PRIORITIES, isStub } from "../core/contracts.mjs";
 import { BridgeError, fromBrokerError, fromValidation } from "../core/errors.mjs";
-import { parseSymbol } from "../core/symbolFormat.mjs";
+import { EXCHANGES, parseSymbol } from "../core/symbolFormat.mjs";
 import { recordSaving as recordSavingGlobal } from "../ratelimit/scheduler.mjs";
 import { DEFAULT_RATE } from "../reference/defaults.mjs";
 import { createBatcher } from "./batcher.mjs";
-import { IV_MODELS, applyB76, atmStrike, defaultOptionExchange, finishLeg, legSymbol, rowsFromBrokerChain, rowsFromQuotes, trimStrikes } from "./chain.mjs";
+import { IV_MODELS, applyB76, atmStrike, defaultOptionExchange, finishLeg, legSymbol, rowsFromBrokerChain, rowsFromQuotes, settlementOfKind, strikeStepOf, trimStrikes } from "./chain.mjs";
 import { kindOf, pricingContext } from "../vol/context.mjs";
 import { DEPTH_STALE_CAP_MS, parseMarketConfig } from "./config.mjs";
 import { createFreshnessCache } from "./freshnessCache.mjs";
@@ -355,6 +355,7 @@ export function createMarketDataService(deps) {
    */
   async function callBroker({ accountId, broker, endpointClass, priority, coalesceKey, signal, maxWaitMs, backgroundShare, cost = 1 }, fn) {
     const opts = { accountId, endpointClass, priority, coalesceKey, cost };
+    if (priority === "background" && typeof backgroundShare === "number") opts.backgroundShare = backgroundShare;
     if (signal) opts.signal = signal;
     if (maxWaitMs !== undefined) opts.maxWaitMs = maxWaitMs;
     if (backgroundShare !== undefined && priority === "background") opts.backgroundShare = backgroundShare;
@@ -850,7 +851,7 @@ export function createMarketDataService(deps) {
         Promise.allSettled(
           chunks.map((c) =>
             callBroker(
-              { accountId, broker, endpointClass: "history", priority: o.priority, coalesceKey: `history:${accountId}:${symbol}:${plan.base}:${c.from}:${c.to}` },
+              { accountId, broker, endpointClass: "history", priority: o.priority, coalesceKey: `history:${accountId}:${symbol}:${plan.base}:${c.from}:${c.to}`, backgroundShare: o.backgroundShare },
               (adapter, creds) => {
                 if (typeof adapter.fetchHistorical !== "function") throw new BridgeError("CAPABILITY_UNSUPPORTED", `${broker} offers no historical candles.`);
                 return adapter.fetchHistorical(creds, { instrument: ref, interval: plan.base, from: c.from, to: c.to });
@@ -892,7 +893,8 @@ export function createMarketDataService(deps) {
       let cursor;
       for (let page = 0; page < MASTER_MAX_PAGES; page += 1) {
         const q = { q: underlying, underlying, kind, limit: MASTER_PAGE_LIMIT };
-        if (exchange) q.exchange = exchange;
+        const ex = exchange ?? derivExchangeHint(underlying);
+        if (ex) q.exchange = ex;
         if (cursor) q.cursor = cursor;
         const res = await symbols.search(q);
         for (const r of res?.items ?? []) if (r?.underlying === underlying && r.expiry && r.expiry >= today) set.add(r.expiry);
@@ -996,17 +998,28 @@ export function createMarketDataService(deps) {
   // ── option chain ──
 
   /** Option legs for an underlying and expiry from the instrument master. */
+  /**
+   * Master searches pass the underlying as free text `q`, and the search reads exchange words as filters: an
+   * underlying named BSE or MCX (both NSE F&O stocks) would filter every row away. Such underlyings get an explicit
+   * derivatives exchange (the query's exchange wins over the parsed word).
+   */
+  const derivExchangeHint = (underlying) => (EXCHANGES.includes(String(underlying).toUpperCase()) ? defaultOptionExchange(underlying) : undefined);
+  /** The cash exchange of an underlying's spot row (always explicit: spot rows live only on NSE and BSE). */
+  const cashExchangeOf = (underlying) => (defaultOptionExchange(underlying) === "BFO" ? "BSE" : "NSE");
+
   async function masterLegs(underlying, expiry) {
     if (!usable(symbols)) return [];
     const legs = [];
     let cursor;
     for (let page = 0; page < MASTER_MAX_PAGES; page += 1) {
       const q = { q: underlying, underlying, kind: "OPT", expiry, limit: MASTER_PAGE_LIMIT };
+      const ex = derivExchangeHint(underlying);
+      if (ex) q.exchange = ex;
       if (cursor) q.cursor = cursor;
       const res = await symbols.search(q);
       for (const r of res?.items ?? []) {
         if (r?.underlying === underlying && r.expiry === expiry && (r.right === "CE" || r.right === "PE") && r.strike > 0) {
-          legs.push({ canonical: r.canonical, strike: r.strike, right: r.right, exchange: r.exchange, lotSize: r.lotSize ?? null });
+          legs.push({ canonical: r.canonical, strike: r.strike, right: r.right, exchange: r.exchange, lotSize: r.lotSize ?? null, tickSize: r.tickSize ?? null });
         }
       }
       cursor = res?.nextCursor;
@@ -1019,7 +1032,8 @@ export function createMarketDataService(deps) {
   async function chainMeta(underlying, expiry) {
     try {
       if (usable(symbols)) {
-        const res = await symbols.search({ q: underlying, underlying, kind: "OPT", expiry, limit: 1 });
+        const ex = derivExchangeHint(underlying);
+        const res = await symbols.search({ q: underlying, underlying, kind: "OPT", expiry, limit: 1, ...(ex ? { exchange: ex } : {}) });
         const r = res?.items?.[0];
         if (r) return { exchange: r.exchange, lotSize: Number.isFinite(r.lotSize) ? r.lotSize : null };
       }
@@ -1027,6 +1041,42 @@ export function createMarketDataService(deps) {
       // master not loaded: use the default exchange
     }
     return { exchange: defaultOptionExchange(underlying), lotSize: null };
+  }
+
+  /**
+   * Contract facts for a chain (docs/spec/p1-06-stocks.md §6.1), from the master only (no broker call): underlyingKind
+   * from the master's spot row (INDEX vs EQ; else the reference universe), strikeStep inferred from the listed
+   * strikes of the expiry, tickSize the largest option tick of the expiry. Memoised for 5 minutes per expiry.
+   */
+  const factsMemo = new Map();
+  async function chainFacts(underlying, expiry) {
+    const key = `${underlying}|${expiry}`;
+    const hit = factsMemo.get(key);
+    if (hit && now() - hit.at < 300_000) return hit.value;
+    let kind = null;
+    let legs = [];
+    try {
+      if (usable(symbols)) {
+        legs = await masterLegs(underlying, expiry);
+        const res = await symbols.search({ q: underlying, underlying, exchange: cashExchangeOf(underlying), limit: 5 });
+        const spot = (res?.items ?? []).find((r) => r?.underlying === underlying && (r.kind === "INDEX" || r.kind === "EQ"));
+        if (spot) kind = spot.kind === "INDEX" ? "index" : "stock";
+      }
+    } catch {
+      // master not loaded: facts unknown
+    }
+    if (!kind && usable(reference) && typeof reference.universe === "function") {
+      try {
+        kind = reference.universe({ kind: "all" })?.items?.find((i) => i.symbol === underlying)?.kind ?? null;
+      } catch {
+        kind = null;
+      }
+    }
+    const ticks = legs.map((l) => l.tickSize).filter((t) => Number.isFinite(t) && t > 0);
+    const value = { underlyingKind: kind, settlement: settlementOfKind(kind), strikeStep: strikeStepOf(legs.map((l) => l.strike)), tickSize: ticks.length ? Math.max(...ticks) : null };
+    factsMemo.set(key, { at: now(), value });
+    if (factsMemo.size > 500) factsMemo.delete(factsMemo.keys().next().value);
+    return value;
   }
 
   async function brokerChain({ underlying, expiry, greeks, pinned, priority, signal, stale, allowedAccounts, maxWaitMs, backgroundShare }) {
@@ -1082,7 +1132,7 @@ export function createMarketDataService(deps) {
     };
   }
 
-  function chainResult(underlying, expiry, value, strikes, fresh) {
+  function chainResult(underlying, expiry, value, strikes, fresh, facts) {
     const atm = atmStrike(value.rows.map((r) => r.strike), value.underlyingLtp);
     return {
       underlying,
@@ -1090,6 +1140,11 @@ export function createMarketDataService(deps) {
       underlyingLtp: value.underlyingLtp,
       atmStrike: atm,
       lotSize: value.lotSize ?? null,
+      // P1-6 contract facts (additive; null when the master does not say)
+      underlyingKind: facts?.underlyingKind ?? null,
+      settlement: facts?.settlement ?? null,
+      strikeStep: facts?.strikeStep ?? null,
+      tickSize: facts?.tickSize ?? null,
       rows: trimStrikes(value.rows, atm, strikes),
       freshness: fresh,
     };
@@ -1127,7 +1182,7 @@ export function createMarketDataService(deps) {
       return row;
     });
     const value = { underlyingLtp: spot, rows, lotSize: null };
-    return chainResult(underlying, p.expiry, value, p.strikes, freshness({ source: "backup", at: b.at, now: now(), targetMs, provider: b.provider }));
+    return chainResult(underlying, p.expiry, value, p.strikes, freshness({ source: "backup", at: b.at, now: now(), targetMs, provider: b.provider }), await chainFacts(underlying, p.expiry));
   }
 
   async function optionChain(params, opts) {
@@ -1150,6 +1205,7 @@ export function createMarketDataService(deps) {
     const pinned = o.accountId;
     checkPinned(pinned);
     const targetMs = o.maxAgeMs ?? cfg.freshness.chainMs;
+    const facts = await chainFacts(underlying, p.expiry);
     const key = `c|${underlying}|${p.expiry}|${greeks ? "g" : "n"}`;
     let hit = freshEntry(key, targetMs, pinned);
     // A chain read with Greeks is a superset: a Greeks-off read reuses it (the Greeks stripped) at no broker cost.
@@ -1159,13 +1215,13 @@ export function createMarketDataService(deps) {
     }
     if (hit) {
       saving("cache");
-      return chainResult(underlying, p.expiry, hit.value, p.strikes, freshness({ source: "cache", at: hit.at, now: now(), targetMs, accountId: hit.accountId, broker: hit.broker }));
+      return chainResult(underlying, p.expiry, hit.value, p.strikes, freshness({ source: "cache", at: hit.at, now: now(), targetMs, accountId: hit.accountId, broker: hit.broker }), facts);
     }
     const stale = staleEntry(key, pinned);
     const serveStale = () => {
       stats.stale += 1;
       saving("cache");
-      return chainResult(underlying, p.expiry, stale.value, p.strikes, freshness({ source: "cache", at: stale.at, now: now(), targetMs, stale: true, accountId: stale.accountId, broker: stale.broker }));
+      return chainResult(underlying, p.expiry, stale.value, p.strikes, freshness({ source: "cache", at: stale.at, now: now(), targetMs, stale: true, accountId: stale.accountId, broker: stale.broker }), facts);
     };
     const args = { underlying, expiry: p.expiry, greeks, pinned, priority: o.priority, signal: o.signal, stale: Boolean(stale), targetMs, allowedAccounts: o.allowedAccounts, maxWaitMs: o.maxWaitMs, backgroundShare: o.backgroundShare };
     let got = null;
@@ -1188,7 +1244,7 @@ export function createMarketDataService(deps) {
     }
     cache.set(key, got.value, { at: got.at, accountId: got.accountId, broker: got.broker });
     const fresh = freshness({ source: got.source, at: got.at, now: now(), targetMs, accountId: got.accountId, broker: got.broker, ...(got.anyStale ? { stale: true } : {}) });
-    return chainResult(underlying, p.expiry, got.value, p.strikes, fresh);
+    return chainResult(underlying, p.expiry, got.value, p.strikes, fresh, facts);
   }
 
   // ── the service ──
