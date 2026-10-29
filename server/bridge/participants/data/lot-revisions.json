@@ -1,0 +1,8 @@
+{
+  "verified": false,
+  "source": "Shipped list of dates when NSE index or stock derivative contract sizes changed (needs verification: NSE circulars). Used when the reference service has no lot history.",
+  "revisions": [
+    { "date": "2024-11-20", "regime": "2024-11", "text": "Index contract sizes raised under the new minimum contract value; contract counts before and after are not like for like" },
+    { "date": "2026-01-01", "regime": "2026-01", "text": "Index lot sizes revised; contract counts before and after are not like for like" }
+  ]
+}

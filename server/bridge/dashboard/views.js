@@ -36,6 +36,7 @@ import {
 import { DASH, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
 import { renderArbPage, renderChainPage, renderOiPage, renderPositionsPage, renderStrategyPage, renderVolPage } from "./desk.js";
 import { renderScreenerPage } from "./screener.js";
+import { renderParticipantsPage } from "./participants.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
@@ -225,6 +226,7 @@ export const PAGES = [
   { id: "chain", label: "Option Chain", short: "Chain", icon: "chart", tint: "green", tab: true, group: "Options", layout: "desk", title: "Option Chain", get sub() { return `Live chain with OI, IV and Greeks. ${touchWord()} a bid or ask to trade`; }, render: renderChainPage },
   { id: "strategy", label: "Strategy Builder", icon: "strategy", tint: "purple", group: "Options", layout: "desk", title: "Strategy Builder", sub: "Payoff, breakevens, POP and margin before you trade", render: renderStrategyPage },
   { id: "oi", label: "OI Analysis", icon: "bars", tint: "orange", group: "Options", layout: "desk", title: "OI Analysis", sub: "Open interest and OI chg by strike, build-up and walls", render: renderOiPage },
+  { id: "participants", label: "Participant OI", short: "Participants", icon: "people", tint: "teal", group: "Options", layout: "desk", title: "Participant OI", sub: "NSE participant-wise open interest: Client, DII, FII and Pro, by day", render: renderParticipantsPage },
   { id: "vol", label: "Volatility", icon: "wave", tint: "pink", group: "Options", layout: "desk", title: "Volatility", sub: "Smile, skew, term structure and expected move", render: renderVolPage },
   { id: "screener", label: "Option Screener", short: "Screener", icon: "radar", tint: "yellow", group: "Options", layout: "desk", title: "Option Screener", sub: "Scan every underlying and expiry for unusual activity, build-ups, rich or cheap premium, hedges and arbitrage", render: renderScreenerPage },
   { id: "arb", label: "Arbitrage", icon: "scale", tint: "indigo", group: "Options", layout: "desk", title: "Arbitrage scanner", sub: "Parity, boxes and futures basis at executable prices, after charges", render: renderArbPage },

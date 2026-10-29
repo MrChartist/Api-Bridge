@@ -19,5 +19,6 @@ import backup from "../backup/module.mjs";
 import scanner from "../scanner/module.mjs";
 import compat from "../compat/module.mjs";
 import notify from "../notify/module.mjs";
+import participants from "../participants/module.mjs";
 
-export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, reference, market, stream, orders, paper, safety, integrations, hooks, mcp, backup, scanner, compat, notify]);
+export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, reference, market, stream, orders, paper, safety, integrations, hooks, mcp, backup, scanner, compat, notify, participants]);

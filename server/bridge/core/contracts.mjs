@@ -271,6 +271,21 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
+   * ParticipantOI — S26 (docs/spec/p1-12-guard-participants.md §4.2.1). NSE participant-wise open interest (store S4):
+   * one file a day from the NSE archives (behind the reference service's archive switch), a resumable back-fill and a
+   * deterministic demo history. No broker calls. NSE only.
+   *  latest({ exchange: "NSE"|"BSE" }) -> { available: true, asOfDate, source: "nse-participant-oi"|"demo", unit: "contracts",
+   *      quality, rows: [{ participant: "CLIENT"|"DII"|"FII"|"PRO", instrument: "IDX_FUT"|"IDX_CE"|"IDX_PE"|"STK_FUT"|"STK_CE"|"STK_PE", long, short }] }
+   *    | { available: false, reason: "NO_PARTICIPANT_DATA"|"PARTICIPANT_STALE"|"NOT_FOR_BSE"|"SOURCE_OFF", detail }
+   *      (the shape p1-08 §3.5 reads; stale = asOfDate older than the previous trading day)
+   *  series({ from, to, participants?, instruments? }) -> Array<ParticipantDay>
+   *  status() -> ParticipantStatus
+   *  sync({ date?, backfill? }) -> Promise<{ fetched: string[], noFile: string[], failed: Array<{ date, code }> }>
+   * `reference` may be a stub: the service then reports SOURCE_UNAVAILABLE in real mode instead of failing.
+   */
+  participants: { iface: "ParticipantOI", stream: "S26", requires: ["reference"], methods: ["latest", "series", "status", "sync"] },
+
+  /**
    * StreamHub — S6. One upstream feed per account (adapter.createFeed), reference-counted subscriptions across all
    * local clients, mode = max demand, broker subscription caps enforced (SUBSCRIPTION_LIMIT, never silent drops),
    * resubscribe after reconnect/re-login. Emits "tick" and "stream.status".
