@@ -2193,7 +2193,10 @@ describe("chain round 2 helpers", () => {
     expect(w.rows[0].ce.winChange).toBe(2);
     expect(w.rows[0].ce.change).toBe(5);
     expect(w.rows[0].pe.oiChange).toBe(-20);
-    expect(w.rows[1].ce.oiChange).toBe(10);
+    // 110 is not in the snapshot: no change over the window (not its whole OI counted as added).
+    expect(w.rows[1].ce.oiChange).toBeNull();
+    expect(w.rows[1].ce.winChange).toBeNull();
+    expect(w.rows[1].ce.oi).toBe(10);
     expect(w.rows[1].pe).toBeNull();
     expect(A.withOiWindow(chain, null)).toBe(chain);
     expect(chain.rows[0].ce.oiChange).toBe(999);

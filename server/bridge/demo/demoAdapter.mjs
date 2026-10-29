@@ -315,9 +315,15 @@ export function quoteOf(token, exchange, t) {
   const to = Math.min(t, from + 375 * 60_000);
   for (let x = from; x <= to; x += 15 * 60_000) samples.push(priceOf(token, x));
   const tick = p.kind === "spot" ? u.tick : 0.05;
-  const spread = Math.max(tick, toTick(ltp * 0.0002, tick));
   const minutes = Math.max(1, Math.min(375, (to - from) / 60_000));
   const near = p.kind === "opt" ? Math.exp(-(((p.strike - spotAt(p.symbol, t)) / (u.step * 8)) ** 2)) : 1;
+  // Never a locked quote: bid < ask by at least a tick, bid <= LTP <= ask. Options widen away from the money (0.15% of
+  // price near it; one to four ticks more far out, so cheap far strikes show the > 5% and > 10% spread cues).
+  const spread = p.kind === "opt" ? Math.max(tick * (1 + Math.round(3 * (1 - near))), ltp * 0.0015) : Math.max(tick, ltp * 0.0002);
+  const down = (n) => Math.max(0, Math.floor(n / tick + 1e-9) * tick);
+  const up = (n) => Math.ceil(n / tick - 1e-9) * tick;
+  const bid = Number(down(Math.min(ltp, ltp - spread / 2)).toFixed(2));
+  const ask = Number(Math.max(up(ltp + spread / 2), bid + tick).toFixed(2));
   const perMinute = p.kind === "spot" ? 5200 : p.kind === "fut" ? 30 : 4 + 200 * near;
   const volume = p.kind === "spot" && u.kind === "INDEX" ? 0 : Math.round(perMinute * minutes * (0.7 + 0.6 * unit(`${token}:vol`))) * (p.kind === "spot" ? 1 : u.lot);
   const oi = p.kind === "opt" ? openInterest(u, spotAt(p.symbol, t), p.strike, p.right, p.expiry) : p.kind === "fut" ? Math.round(120_000 * (0.8 + 0.4 * unit(`${token}:oi`))) * u.lot : null;
@@ -331,8 +337,8 @@ export function quoteOf(token, exchange, t) {
     close,
     volume,
     oi,
-    bid: fix(ltp - spread / 2, tick),
-    ask: fix(ltp + spread / 2, tick),
+    bid,
+    ask,
   };
 }
 

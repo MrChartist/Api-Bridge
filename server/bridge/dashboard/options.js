@@ -4560,10 +4560,12 @@ export function strikeStraddle(row) {
 export function withOiWindow(chain, snap) {
   if (!chain?.rows || !snap?.k) return chain;
   const w = new Map(oiWindowRows(chain, snap).map((r) => [r.strike, r]));
+  // oiWindowRows counts a strike the snapshot lacks from zero (its whole OI as "added"): here it has no change.
+  const has = new Set(snap.k);
   return {
     ...chain,
     rows: chain.rows.map((r) => {
-      const o = w.get(r.strike);
+      const o = has.has(r.strike) ? w.get(r.strike) : null;
       const leg = (side) => (r[side] ? { ...r[side], oiChange: o?.[side]?.d ?? null, winChange: o?.[side]?.dLtp ?? null } : r[side]);
       return { ...r, ce: leg("ce"), pe: leg("pe") };
     }),

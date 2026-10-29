@@ -38,6 +38,12 @@ const expiryText = (e) => (/^\d{4}-\d{2}-\d{2}$/.test(e ?? "") ? EXPIRY_DAY.form
 /** "NIFTY 3 Nov 26400 CE" */
 const contractName = (u, expiry, strike, right) => `${u} ${expiryText(expiry)} ${formatInt(strike)} ${right}`;
 const num = (v) => (isFigure(v) ? Number(v) : null);
+/** Which way a PCR leans, from O.PCR_BANDS (one set of thresholds for the tile, its title and the strike column):
+ *  "put" from 1.2 up, "call" at 0.8 and below, "" balanced or none. */
+const pcrSide = (p) => {
+  const w = O.pcrBand(p)?.word ?? "";
+  return w.includes("put-heavy") ? "put" : w.includes("call-heavy") ? "call" : "";
+};
 /** One decimal for SVG coordinates (geometry, not display text). */
 const r1 = (v) => Math.round(v * 10) / 10;
 const local = app.local;
@@ -173,7 +179,13 @@ async function renderDesk(kind) {
   const searchBtn = h("button", { type: "button", class: "icon-btn search-btn", "aria-label": "Go to strike", title: "Go to strike (/)" }, icon("search"));
   const searchHint = h("span", { class: "search-hint", id: "strike-search-hint", role: "status", hidden: true }, "Try 26400, +3, 1σ, atm, mp");
   search.setAttribute("aria-describedby", "strike-search-hint");
-  const searchBox = h("div", { class: "chain-search" }, searchBtn, search, h("kbd", { class: "search-kbd", "aria-hidden": "true" }, "/"), searchHint);
+  // The hint is a line of its own under the head row (it pushes the table down, never covers the column headers).
+  const searchBox = h("div", { class: "chain-search" }, searchBtn, search, h("kbd", { class: "search-kbd", "aria-hidden": "true" }, "/"));
+  const showHint = (on) => {
+    if (searchHint.hidden === !on) return;
+    searchHint.hidden = !on;
+    chain.fitHeight();
+  };
   // Phones: the strikes window is a compact select in the head row ("±10 ▾"), beside Calls | Puts | Both.
   const strikesSel = h("label", { class: "strikes-pick", title: "Strikes each side of ATM" }, h("span", { class: "sp-text" }, ""), h("select", { "aria-label": "Strikes each side of ATM" }, [["10", "±10 strikes"], ["20", "±20 strikes"], ["all", "All strikes"]].map(([v, t]) => h("option", { value: v }, t))));
   const syncStrikesSel = () => {
@@ -187,6 +199,9 @@ async function renderDesk(kind) {
   const winSeg = segmented("OI change over", [["day", "Day"], ["60", "1h"], ["15", "15m"]], st.cfg.oiWin);
   winSeg.classList.add("win-seg");
   winSeg.title = "OI change over the day, or over the last hour / 15 minutes (from snapshots recorded in this browser)";
+  // A narrow panel: the same choice as a compact select (fitHead), so the head stays one row.
+  const winSel = h("select", { class: "win-sel", "aria-label": "OI change over", title: winSeg.title }, [["day", "Day"], ["60", "1h"], ["15", "15m"]].map(([v, t]) => h("option", { value: v }, `OI chg ${t}`)));
+  winSel.addEventListener("change", () => (winSeg.value = winSel.value));
   // Multi-select: tick contracts, then open them in the Strategy Builder (m).
   const selectBtn = h("button", { type: "button", class: "small select-btn", "aria-pressed": "false", title: "Select contracts for the Strategy Builder (M)" }, icon("check"), h("span", { class: "gear-label" }, "Select"));
   const aSel = h(
@@ -210,18 +225,23 @@ async function renderDesk(kind) {
    * "Orders go to": the account picker for the order ticket and the action sheet (the chain's line has none: it is
    * read-only until an order is placed). A live account carries a red LIVE badge; paper shows its name only.
    */
-  function acctPicker(onChange = null) {
+  function acctPicker(onChange = null, { label = true } = {}) {
     if (!tradable.length) return h("a", { href: "#/accounts", class: "acct-connect" }, icon("plug"), "Connect an account");
     const sel = h("select", { class: "acct-pick", "aria-label": "Orders go to" }, tradable.map((a) => h("option", { value: a.id, selected: a.id === st.account }, a.label)));
-    const a = account();
-    const live = Boolean(a && a.broker !== "paper" && a.liveAllowedByConfig);
+    const isLive = () => {
+      const a = account();
+      return Boolean(a && a.broker !== "paper" && a.liveAllowedByConfig);
+    };
+    // The LIVE badge follows the picked account (the sheet stays open across a change).
+    const badge = h("span", { class: "acct-badge", "data-mode": "live", hidden: !isLive() }, "Live");
     sel.disabled = tradable.length < 2;
     sel.addEventListener("change", () => {
       aSel.value = sel.value;
       aSel.dispatchEvent(new Event("change"));
+      badge.hidden = !isLive();
       onChange?.();
     });
-    return h("span", { class: "acct-pick-row" }, h("span", { class: "acct-pick-k" }, "Orders go to"), sel, live ? h("span", { class: "acct-badge", "data-mode": "live" }, "Live") : null);
+    return h("span", { class: "acct-pick-row" }, label ? h("span", { class: "acct-pick-k" }, "Orders go to") : null, sel, badge);
   }
 
   // ── The compact top bar (docs/design/foundation.md §5): mounted into the app toolbar's #toolbar-ctx. One glass
@@ -251,8 +271,10 @@ async function renderDesk(kind) {
   const ivItem = h("span", { class: "ctx-item ctx-iv", title: "ATM IV: average of the ATM call and put IV" }, h("span", { class: "ctx-main" }, h("span", { class: "ctx-k" }, "ATM IV"), h("b", {}, ivV)));
   /** A solid red pill only when orders would go to a live broker account (paper shows nothing). */
   const liveOrders = h("span", { class: "ctx-live-orders", hidden: true, title: "Orders from this page go to a live broker account" }, "LIVE orders");
-  // Phones: the one demo indicator is a small "Demo" label on the ⋯ button (a word, not a bare dot).
-  const moreBtn = h("button", { type: "button", class: "icon-btn ctx-more", "aria-haspopup": "dialog", "aria-label": app.state.demo ? "More: account, refresh, search, theme. Demo data: sample prices, paper orders only" : "More: account, refresh, search, theme", onclick: () => openCtxSheet() }, icon("more"), app.state.demo ? h("span", { class: "demo-badge demo-word", "data-demo-indicator": "", "aria-hidden": "true" }, "Demo") : null);
+  // Tablets and phones: the one demo indicator is a small "Demo" pill of its own before the live control (a safety
+  // marker, not a badge on ⋯ that reads as a count). Desktop has the toolbar's own Demo pill.
+  const moreBtn = h("button", { type: "button", class: "icon-btn ctx-more", "aria-haspopup": "dialog", "aria-label": "More: account, refresh, search, theme", onclick: () => openCtxSheet() }, icon("more"));
+  const demoPill = app.state.demo ? h("span", { class: "ctx-demo", "data-demo-indicator": "", title: `Demo data: ${DEMO_EXPLAINER}` }, "Demo") : null;
   let ctxSig = "";
   let capsule = null;
   let ctxRo = null;
@@ -279,7 +301,7 @@ async function renderDesk(kind) {
     spot = qLtp ?? spot;
     const ch = qLtp === null ? null : num(q?.change);
     const chp = qLtp === null ? null : num(q?.changePct);
-    const sig = JSON.stringify([st.underlying, e, exTag, monthly, lot, spot, ch, chp]);
+    const sig = JSON.stringify([st.underlying, e, exTag, monthly, lot, spot, ch, chp, device().phone]);
     if (kind === "chain") drawCtxChain(spot);
     if (sig === ctxSig) return;
     const prevSpot = Number(spotItem.dataset.v);
@@ -293,13 +315,16 @@ async function renderDesk(kind) {
     const long = e ? `${day} · ${exTag} · ${mk}` : DASH;
     if (eLong.data !== long) eLong.data = long;
     if (eShort.data !== day) eShort.data = day;
-    const sub = e ? `${exTag} · ${mk}${lot ? ` · lot ${formatInt(lot)}` : ""}` : "";
+    // Chain on a phone: the ATM IV tile's sub line carries the lot, so the expiry pill does not repeat it.
+    const lotHere = lot && !(kind === "chain" && device().phone);
+    const sub = e ? `${exTag} · ${mk}${lotHere ? ` · lot ${formatInt(lot)}` : ""}` : "";
     if (eSub.data !== sub) eSub.data = sub;
     if (spotV.data !== spotText) spotV.data = spotText;
     const chText = ch === null ? "" : `${formatSigned(ch, 2)}${chp !== null ? ` (${formatSigned(chp, 2)}%)` : ""}`;
     if (spotChg.textContent !== chText) spotChg.replaceChildren(...(ch === null ? [] : chp === null ? [formatSigned(ch, 2)] : [h("span", { class: "chg-abs" }, `${formatSigned(ch, 2)} `), `(${formatSigned(chp, 2)}%)`]));
     spotChg.className = `ctx-chg ${ch > 0 ? "up" : ch < 0 ? "down" : ""}`.trim();
-    if (spot !== null && Number.isFinite(prevSpot) && prevSpot !== spot) flashValue(spotItem, spot > prevSpot ? "up" : "down");
+    // The figure itself flashes (ink + a 2 px underline, chain.md §6), not the capsule segment behind it.
+    if (spot !== null && Number.isFinite(prevSpot) && prevSpot !== spot) flashValue(spotItem.firstChild, spot > prevSpot ? "up" : "down");
     spotItem.dataset.v = spot === null ? "" : String(spot);
     const lotText = lot ? formatInt(lot) : DASH;
     if (lotV.data !== lotText) lotV.data = lotText;
@@ -332,10 +357,9 @@ async function renderDesk(kind) {
     const cap = capsule;
     if (!cap?.isConnected || kind !== "chain") return;
     cap.classList.remove(...CTX_DROP);
-    // First the page pill folds to its icon (the sidebar and the tab bar name the page), then figures drop.
-    const title = document.querySelector(".toolbar-title");
-    title?.classList.remove("icon-only");
-    if (title && cap.scrollWidth > cap.clientWidth + 1) title.classList.add("icon-only");
+    // The page pill is always its icon here (the sidebar and the tab bar name the page), in every state, so the line
+    // never shifts when the data arrives; then figures drop.
+    document.querySelector(".toolbar-title")?.classList.add("icon-only");
     for (const c of CTX_DROP) {
       if (cap.scrollWidth <= cap.clientWidth + 1) break;
       cap.classList.add(c);
@@ -621,7 +645,17 @@ async function renderDesk(kind) {
     const eff = ref ? want : "day";
     if (winSeg.value !== eff) winSeg.value = eff;
     winLock = false;
-    winSeg.hidden = st.cfg.preset !== "oi" || device().phone;
+    for (const o of winSel.options) {
+      const a = avail[o.value];
+      o.disabled = Boolean(a && !a.ok);
+    }
+    if (winSel.value !== eff) winSel.value = eff;
+    const winOff = st.cfg.preset !== "oi" || device().phone;
+    if (winSeg.hidden !== winOff) {
+      winSeg.hidden = winOff;
+      winSel.hidden = winOff;
+      queueMicrotask(fitHead);
+    }
     return { win: eff, ref, label: ref ? WIN_LABEL[eff] : null };
   }
 
@@ -664,6 +698,10 @@ async function renderDesk(kind) {
     const syn = new Map(c.rows.map((r) => [r.strike, O.synthetic(r, growth)]));
     const edge = new Map(c.rows.map((r) => [r.strike, O.parityEdge(r, edgeRef, growth)]));
     const devs = [...syn.values()].map((v) => v?.mid).filter((v) => v !== null && v !== undefined).map((v) => v - ref).sort((a, b) => a - b);
+    // The Arb columns' shared scale (Dev bars) and the strike with the best edge (its "Best" / "Closest" chip).
+    const devMax = devs.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+    let bestEdge = null;
+    for (const [k, e] of edge) if (e && isFigure(e.edge) && (!bestEdge || e.edge > bestEdge.edge)) bestEdge = { strike: k, edge: e.edge };
     const tops = (side) => new Map(O.topOi(c.rows, side, 3).map((t) => [t.strike, t.rank]));
     return {
       c,
@@ -685,6 +723,8 @@ async function renderDesk(kind) {
       ref: ref ?? null,
       refKind: num(sameQ?.ltp) !== null ? "fut" : "F",
       medianDev: devs.length ? devs[Math.floor(devs.length / 2)] : null,
+      devMax,
+      bestEdge,
       syn,
       edge,
       sameFut: same && num(sameQ?.ltp) !== null ? { expiry: same.expiry, ltp: sameQ.ltp } : null,
@@ -726,6 +766,8 @@ async function renderDesk(kind) {
     }
     drawClock();
     syncTools();
+    // The key legend is for a chain on screen: none after a failed first load or with nothing listed.
+    keysEl.classList.toggle("off", !st.chain && Boolean(st.error || st.empty));
     if (!st.chain) {
       chain.reset();
       lastX = null;
@@ -862,7 +904,7 @@ async function renderDesk(kind) {
     const day = O.sigmaMove(F, sm.atmIv, 1 / 365);
     const t = O.timeToExpiry(c.expiry);
     const n = c.rows.length;
-    const pcrWord = sm.pcr === null ? "" : sm.pcr >= 1.2 ? "put-heavy" : sm.pcr <= 0.8 ? "call-heavy" : "balanced";
+    const pcrWord = O.pcrBand(sm.pcr)?.word ?? "";
     const fut = x.sameFut;
     // The spot is in the top bar: this tile is the future (or the synthetic forward) and its basis to spot.
     const fwd = fut ? num(fut.ltp) : F;
@@ -879,7 +921,7 @@ async function renderDesk(kind) {
     setTile("pcr", "PCR", formatFixed(sm.pcr, 2), `Net OI chg ${formatCompact(sm.netOiChange, { signed: true })}`, {
       n: sm.pcr,
       fmt: (v) => formatFixed(v, 2),
-      vcls: sm.pcr === null ? "" : sm.pcr > 1.2 ? "ink-pos" : sm.pcr < 0.7 ? "ink-neg" : "",
+      vcls: pcrSide(sm.pcr) === "put" ? "ink-pos" : pcrSide(sm.pcr) === "call" ? "ink-neg" : "",
       title: `Put OI ÷ call OI over the ${formatInt(n)} strikes loaded (±${FETCH_STRIKES} around ATM; ${pcrWord}). Net OI chg = put OI added − call OI added today${sm.pcrChange !== null ? ` (ratio ${formatFixed(sm.pcrChange, 2)})` : ""}. Volume PCR ${formatFixed(sm.pcrVolume, 2)}`,
     });
     setTile("mp", "Max Pain", formatInt(sm.maxPain), sm.maxPain !== null && sm.spot !== null ? `${formatSigned(sm.maxPain - sm.spot, 0)} from spot` : "", { title: `Settlement at which option buyers would collect the least, over the ${formatInt(n)} strikes loaded`, n: sm.maxPain, fmt: (v) => formatInt(v) });
@@ -930,14 +972,15 @@ async function renderDesk(kind) {
     const day = O.sigmaMove(F, sm.atmIv, 1 / 365);
     const t = O.timeToExpiry(c.expiry);
     const n = c.rows.length;
-    const pcrWord = sm.pcr === null ? "" : sm.pcr >= 1.2 ? "put-heavy" : sm.pcr <= 0.8 ? "call-heavy" : "balanced";
+    const pcrWord = O.pcrBand(sm.pcr)?.word ?? "";
     const phone = device().phone;
     const fut = x.sameFut;
     const fwd = fut ? num(fut.ltp) : F;
     const lot = num(c.lotSize);
     // Phones: the line has no room for the lot and the future, so the first tile's sub line carries them.
     const ivSub = phone ? `${lot ? `Lot ${formatInt(lot)}` : "Lot --"}${fwd !== null ? ` · ${fut ? "Fut" : "F"} ${formatInt(fwd)}` : ""}` : day ? `1-day ±${formatInt(day)}` : t.label;
-    setTile("iv", "ATM IV", formatPercent(sm.atmIv, 2), ivSub, { title: `Average of the ATM call and put IV${day ? `; 1-day 1σ move ±${formatInt(day)}` : ""}`, n: sm.atmIv, fmt: (v) => formatPercent(v, 2), vcls: "ink-iv" });
+    // Foreground ink: on the chain violet means "put" (bars, header, the put wall), so IV takes no hue.
+    setTile("iv", "ATM IV", formatPercent(sm.atmIv, 2), ivSub, { title: `Average of the ATM call and put IV${day ? `; 1-day 1σ move ±${formatInt(day)}` : ""}`, n: sm.atmIv, fmt: (v) => formatPercent(v, 2) });
     setTile("em", "Expected move", move ? `±${formatInt(move)}` : DASH, x.band1 ? `${formatInt(x.band1.lo)} – ${formatInt(x.band1.hi)}` : "", {
       title: `Log-normal 1σ band to expiry at ATM IV (${t.label}): about 68% of outcomes land inside. Bar: the band, the tick is spot, the thin mark max pain`,
       mv: (el) => emViz(el, x.band1?.lo ?? null, x.band1?.hi ?? null, sm.spot, sm.maxPain),
@@ -948,7 +991,7 @@ async function renderDesk(kind) {
     setTile("pcr", "PCR", formatFixed(sm.pcr, 2), `Net OI chg ${formatCompact(sm.netOiChange, { signed: true })}`, {
       n: sm.pcr,
       fmt: (v) => formatFixed(v, 2),
-      vcls: sm.pcr === null ? "" : sm.pcr > 1.2 ? "ink-pos" : sm.pcr < 0.7 ? "ink-neg" : "",
+      vcls: pcrSide(sm.pcr) === "put" ? "ink-pos" : pcrSide(sm.pcr) === "call" ? "ink-neg" : "",
       title: `Put OI ÷ call OI over the ${formatInt(n)} strikes loaded (±${FETCH_STRIKES} around ATM; ${pcrWord}). Bar: centred on 1, left (call colour) below, right (put colour) above. Net OI chg = put OI added − call OI added${x.winLabel ? ` (last ${x.winLabel})` : " today"}. Volume PCR ${formatFixed(sm.pcrVolume, 2)}`,
       mv: (el) => pcrViz(el, sm.pcr),
       mvSig: String(sm.pcr === null ? "" : Math.round(sm.pcr * 100)),
@@ -981,6 +1024,9 @@ async function renderDesk(kind) {
     onLeg: (leg) => addLeg(leg),
     onPick: (items, side) => openPicked(items, side),
     onRelayout: (f) => drawHidden(f),
+    // The toolbar's Select button mirrors select mode however it changes (m, Esc, Done, a new expiry).
+    onSelectChange: (on) => selectBtn.setAttribute("aria-pressed", String(on)),
+    onHold: (strike, side) => holdLeg({ right: side === "pe" ? "PE" : "CE", strike, side: "BUY" }),
     // null on the last listed expiry: the empty state then shows no button that would do nothing.
     onNextExpiry: () => {
       const i = st.expiries.indexOf(st.expiry);
@@ -997,20 +1043,46 @@ async function renderDesk(kind) {
       const right = it.side === "ce" ? "CE" : "PE";
       const same = legs.find((l) => (l.kind ?? "OPT") === "OPT" && l.strike === it.strike && l.right === right && l.side === side && (l.entry === undefined || l.entry === null));
       if (same) same.lots += 1;
-      else if (legs.length >= O.MAX_LEGS) break;
+      else if (legs.length >= O.MAX_LEGS) continue;
       else legs.push({ right, strike: it.strike, side, lots: 1 });
       n += 1;
     }
+    const skipped = items.length - n;
     save();
     chain.toggleSelect(false);
-    toast(`${formatInt(n)} leg${n === 1 ? "" : "s"} added to Strategy Builder`);
+    toast(`${formatInt(n)} leg${n === 1 ? "" : "s"} added to Strategy Builder${skipped ? ` · ${formatInt(skipped)} not added: the strategy holds up to ${formatInt(O.MAX_LEGS)} legs` : ""}`);
     location.hash = "#/strategy";
   }
+  /**
+   * The chain head stays one row (chain.md §3.3): when it runs out of room, step by step the Select / Customise labels
+   * fold to icons, search folds to its button, the presets become a select and the OI window a compact select. The key
+   * legend shows only on a panel of 900 px or more, and drops trailing keys that do not fit.
+   */
+  const HEAD_STEPS = ["ch-icons", "ch-search", "ch-presets", "ch-win"];
+  function fitHead() {
+    const t = chainTools;
+    if (!t?.isConnected || !t.clientWidth) return;
+    const head = t.parentNode;
+    head.classList.remove(...HEAD_STEPS);
+    const over = () => t.scrollWidth > t.clientWidth + 1 || [...t.children].some((el) => el.offsetWidth && el.scrollWidth > el.clientWidth + 1);
+    for (const c of HEAD_STEPS) {
+      if (!over()) break;
+      head.classList.add(c);
+    }
+    const narrow = head.clientWidth < 900;
+    if (keysEl.classList.contains("narrow") !== narrow) keysEl.classList.toggle("narrow", narrow);
+    if (!narrow) {
+      for (const p of keysEl.children) p.hidden = false;
+      for (let i = keysEl.children.length - 1; i > 0 && keysEl.scrollWidth > keysEl.clientWidth + 1; i -= 1) keysEl.children[i].hidden = true;
+    }
+  }
+  const headRo = typeof ResizeObserver === "function" ? new ResizeObserver(() => fitHead()) : null;
   // "+N hidden": the columns the fit engine left out at this width; a click opens Customise.
   const hiddenChip = h("button", { type: "button", class: "small hidden-chip", hidden: true, onclick: () => openCustomise() });
   const COL_NAME = (k) => (k === "quotes" ? "Bid / Ask" : CHAIN_COLUMNS.find((c) => c[0] === k)?.[1] ?? k);
   function drawHidden(f) {
     const n = f.hidden.length;
+    if (hiddenChip.hidden !== !n) queueMicrotask(fitHead);
     hiddenChip.hidden = !n;
     const t = `+${formatInt(n)} hidden`;
     if (hiddenChip.textContent !== t) hiddenChip.textContent = t;
@@ -1159,13 +1231,34 @@ async function renderDesk(kind) {
     toast(`${leg.side === "BUY" ? "Buy" : "Sell"} ${formatInt(leg.strike)} ${leg.right} added to Strategy Builder`);
   }
 
+  /** A press-and-hold on a chain row (touch): one buy lot of that contract into this expiry's strategy, with Undo. */
+  function holdLeg(leg) {
+    const legs = basket();
+    const match = (l) => (l.kind ?? "OPT") === "OPT" && l.strike === leg.strike && l.right === leg.right && l.side === leg.side && (l.entry === undefined || l.entry === null);
+    const same = legs.find(match);
+    if (same) same.lots += 1;
+    else if (legs.length >= O.MAX_LEGS) return toast(`The strategy holds up to ${O.MAX_LEGS} legs`);
+    else legs.push({ right: leg.right, strike: leg.strike, side: leg.side, lots: 1 });
+    save();
+    const undo = () => {
+      const now = basket();
+      const i = now.findIndex(match);
+      if (i < 0) return;
+      if (now[i].lots > 1) now[i].lots -= 1;
+      else now.splice(i, 1);
+      save();
+      toast("Removed from Strategy Builder");
+    };
+    toast(h("span", { class: "toast-undo-row" }, `Buy ${formatInt(leg.strike)} ${leg.right} added to Strategy Builder · `, h("button", { type: "button", class: "toast-undo", onclick: undo }, "Undo")));
+  }
+
   // ── Order ticket ──
   /**
    * The order ticket. From the chain: `row` + `right`. From positions (any expiry, futures too): `quote` (a getter for
    * the live quote), `lotSize`, `units` (an odd quantity: the ticket works in units and sends `quantity`), `kind`, `name`
    * and `tick`. An exit starts as a LIMIT at mid rounded toward a fill, with 25 / 50 / 75 / 100 % chips.
    */
-  async function openTicket({ row, right, side, qty, symbol, product, expiry, exit = false, quote: quoteIn = null, units: oddUnits = false, lotSize: lotIn = null, kind = "OPT", name: nameIn = null, tick: tickIn = null, freezeQty = null, price: priceIn = null, held: heldIn = null }) {
+  async function openTicket({ row, right, side, qty, symbol, product, orderType = "LIMIT", expiry, exit = false, quote: quoteIn = null, units: oddUnits = false, lotSize: lotIn = null, kind = "OPT", name: nameIn = null, tick: tickIn = null, freezeQty = null, price: priceIn = null, held: heldIn = null }) {
     const a = account();
     if (!a) return toast("Choose an account that can place orders first.");
     const c = st.chain;
@@ -1186,7 +1279,7 @@ async function renderDesk(kind) {
       ? h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(start ?? lotSize) })
       : h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(start ? Math.max(1, Math.round(start / lotSize)) : 1) });
     const lotHint = h("span", { class: "hint" });
-    const typeSeg = segmented("Order type", [["LIMIT", "Limit"], ["MARKET", "Market"]], "LIMIT");
+    const typeSeg = segmented("Order type", [["LIMIT", "Limit"], ["MARKET", "Market"]], orderType === "MARKET" ? "MARKET" : "LIMIT");
     const midPx = (sd) => O.roundToTick(O.mid(quote()), tick, sd === "BUY" ? "buy" : "sell");
     const startPx = isFigure(priceIn) ? Number(priceIn) : exit ? midPx(side) ?? O.touchPrice(quote(), side, tick) : O.touchPrice(quote(), side, tick);
     const price = h("input", { type: "number", min: "0.05", step: String(tick), inputmode: "decimal", value: String(startPx ?? "") });
@@ -1278,7 +1371,8 @@ async function renderDesk(kind) {
             { class: "ticket-figs" },
             h("div", {}, h("small", {}, "Quantity"), `${formatInt(r.quantity)}`),
             h("div", {}, h("small", {}, b.side === "BUY" ? "You pay" : "You receive"), formatRupee(r.estimatedValue, 0)),
-            h("div", {}, h("small", {}, "Mode"), r.mode === "live" ? h("span", { class: "down" }, "LIVE") : "Paper"),
+            // Paper is said once (the account); only a live order gets a Mode figure, in red.
+            r.mode === "live" ? h("div", {}, h("small", {}, "Mode"), h("span", { class: "down" }, "LIVE")) : null,
           ),
           ...(checks.length ? [h("ul", { class: "ticket-checks" }, checks.map((x) => h("li", { class: x.severity === "block" ? "bad" : "warn" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, `${x.severity === "block" ? "Blocked: " : ""}${x.message}`))))] : []),
         );
@@ -1315,10 +1409,13 @@ async function renderDesk(kind) {
     let closeTicket = null;
     // The chain has no account picker on its line: the ticket says where the order goes, and changing it reopens the
     // ticket for that account (its live / paper gates are per account).
-    const acctField = pageKind === "chain" && !modeSeg ? h("div", { class: "field" }, h("span", {}, "Account"), acctPicker(() => {
+    // Always shown on the chain, live-capable accounts too (their Paper / Live switch is a line of its own below).
+    // The new ticket opens once this one has closed, with what was entered so far.
+    let reopen = null;
+    const acctField = pageKind === "chain" ? h("div", { class: "field" }, h("span", {}, "Orders go to"), acctPicker(() => {
+      reopen = { row, right, side: sideSeg.value, qty: units(), symbol, product: prodSeg.value, orderType: typeSeg.value, expiry, exit, quote: quoteIn, units: oddUnits, lotSize: lotIn, kind, name: nameIn, tick: tickIn, freezeQty, price: isFigure(price.value) ? Number(price.value) : priceIn, held: heldIn };
       closeTicket?.(undefined, true);
-      setTimeout(() => openTicket({ row, right, side: sideSeg.value, qty, symbol, product, expiry, exit, quote: quoteIn, units: oddUnits, lotSize: lotIn, kind, name: nameIn, tick: tickIn, freezeQty, price: isFigure(price.value) ? Number(price.value) : priceIn, held: heldIn }), 320);
-    })) : null;
+    }, { label: false })) : null;
     const done = modal({
       title: exit ? `Exit ${name}` : name,
       body: (close) => (closeTicket = close) && h(
@@ -1330,7 +1427,8 @@ async function renderDesk(kind) {
         h("div", { class: "ticket-grid" }, h("label", { class: "field" }, h("span", {}, inUnits ? "Quantity " : "Lots ", lotHint), lots), segField("Type", typeSeg)),
         pctRow,
         priceField,
-        h("div", { class: "ticket-grid" }, segField("Product", prodSeg), modeSeg ? segField("Mode", modeSeg) : acctField ?? h("div", { class: "field" }, h("span", {}, "Account"), h("span", { class: "ticket-acct one-line", title: a.label }, h("span", { class: "acct-name" }, a.label), /paper/i.test(a.label ?? "") ? null : h("span", { class: "acct-badge", "data-mode": "paper" }, "Paper")))),
+        h("div", { class: "ticket-grid" }, segField("Product", prodSeg), acctField ?? h("div", { class: "field" }, h("span", {}, "Account"), h("span", { class: "ticket-acct one-line", title: a.label }, h("span", { class: "acct-name" }, a.label), modeSeg || /paper/i.test(a.label ?? "") ? null : h("span", { class: "acct-badge", "data-mode": "paper" }, "Paper")))),
+        modeSeg ? segField("Mode", modeSeg) : null,
         ackRow,
         warnEl,
         previewEl,
@@ -1361,6 +1459,11 @@ async function renderDesk(kind) {
     const result = await done;
     clearInterval(quoteTimer);
     clearTimeout(previewTimer);
+    if (reopen) {
+      // The account changed: a new ticket for it (its paper / live gates differ), unless the page has gone.
+      if (pageRoot.isConnected && !document.querySelector("dialog[open]")) openTicket(reopen);
+      return;
+    }
     if (result === "placed") refresh();
     return result;
   }
@@ -1558,7 +1661,7 @@ async function renderDesk(kind) {
     const sigmaPts = x.F !== null && x.sm.atmIv && x.years > 0 ? (x.sm.atmIv / 100) * Math.sqrt(x.years) * x.F : null;
     const k = O.strikeQuery(search.value, { strikes, atm: x.sm.atm, F: x.F, sigmaPts, maxPain: x.sm.maxPain });
     search.setAttribute("aria-invalid", String(k === null));
-    searchHint.hidden = k !== null;
+    showHint(k === null);
     if (k === null) return;
     chain.jump(k, chain.sideNow());
     search.value = "";
@@ -1574,14 +1677,14 @@ async function renderDesk(kind) {
       e.stopPropagation();
       search.value = "";
       search.removeAttribute("aria-invalid");
-      searchHint.hidden = true;
+      showHint(false);
       search.blur();
       searchBox.classList.remove("open");
     }
   });
   search.addEventListener("input", () => {
     search.removeAttribute("aria-invalid");
-    searchHint.hidden = true;
+    showHint(false);
   });
   search.addEventListener("blur", () => setTimeout(() => !search.value && searchBox.classList.remove("open"), 150));
   searchBtn.addEventListener("click", () => {
@@ -1623,8 +1726,8 @@ async function renderDesk(kind) {
         return true;
       }
       if (/^[1-5]$/.test(k)) return setCfg({ cols: [...CHAIN_PRESETS[TOOLBAR_PRESETS[Number(k) - 1]]] }), true;
-      if (k === "m") return selectBtn.setAttribute("aria-pressed", String(chain.toggleSelect())), true;
-      if (k === "Escape" && chain.selecting) return selectBtn.setAttribute("aria-pressed", String(chain.toggleSelect(false))), true;
+      if (k === "m") return chain.toggleSelect(), true;
+      if (k === "Escape" && chain.selecting) return chain.toggleSelect(false), true;
       if (k === "c" || k === "v") {
         const want = k === "c" ? "ce" : "pe";
         const key = effSideKey();
@@ -1749,7 +1852,7 @@ async function renderDesk(kind) {
   presetSel.addEventListener("change", () => CHAIN_PRESETS[presetSel.value] && setCfg({ cols: [...CHAIN_PRESETS[presetSel.value]] }));
   gearBtn.addEventListener("click", () => openCustomise());
   winSeg.addEventListener("change", () => !winLock && winSeg.value !== st.cfg.oiWin && setCfg({ oiWin: winSeg.value }));
-  selectBtn.addEventListener("click", () => selectBtn.setAttribute("aria-pressed", String(chain.toggleSelect())));
+  selectBtn.addEventListener("click", () => chain.toggleSelect());
   syncStrikesSel();
   aSel.addEventListener("change", () => {
     st.account = aSel.value;
@@ -1782,6 +1885,7 @@ async function renderDesk(kind) {
   function cleanup() {
     clearInterval(ageTimer);
     ctxRo?.disconnect();
+    headRo?.disconnect();
     document.querySelector(".toolbar-title")?.classList.remove("icon-only");
     chain.destroy();
     document.getElementById("content")?.removeAttribute("data-stale");
@@ -1807,7 +1911,8 @@ async function renderDesk(kind) {
   // The chain is read-only until an order is placed: its account picker lives in the ticket and the action sheet
   // ("Orders go to"), and the line shows only a red LIVE-orders pill when orders would go to a live account.
   const acctItem = TRADING.has(kind) && kind !== "chain" ? h("span", { class: "ctx-acct glass" }, tradable.length ? [aSel, acctBadge] : h("a", { href: "#/accounts", class: "acct-connect" }, icon("plug"), "Connect an account")) : null;
-  mountToolbarCtx(kind, capsule, expiryChip, h("span", { class: "ctx-spacer" }), acctItem, kind === "chain" ? liveOrders : null, liveBtn.el, moreBtn);
+  mountToolbarCtx(kind, capsule, expiryChip, h("span", { class: "ctx-spacer" }), acctItem, kind === "chain" ? liveOrders : null, demoPill, liveBtn.el, moreBtn);
+  if (kind === "chain") document.querySelector(".toolbar-title")?.classList.add("icon-only");
   if (kind === "chain" && typeof ResizeObserver === "function") {
     ctxRo = new ResizeObserver(() => fitCtx());
     ctxRo.observe(capsule);
@@ -1833,12 +1938,13 @@ async function renderDesk(kind) {
         "section",
         { class: "desk-panel chain-panel", "data-panel": "chain", "aria-label": "Option chain" },
         expStrip,
-        h("div", { class: "chain-head panel-head" }, (chainTools = h("div", { class: "chain-tools" }, searchBox, chain.phoneBar, strikesSel, strikesSeg, viewSeg, presetSel, winSeg, h("span", { class: "tools-spacer" }), hiddenChip, selectBtn, gearBtn))),
+        h("div", { class: "chain-head panel-head" }, (chainTools = h("div", { class: "chain-tools" }, searchBox, chain.phoneBar, strikesSel, strikesSeg, viewSeg, presetSel, winSeg, winSel, h("span", { class: "tools-spacer" }), hiddenChip, selectBtn, gearBtn)), searchHint),
         chainEl,
         keysEl,
       ),
     ];
     syncTools();
+    if (headRo) queueMicrotask(() => chainTools?.parentNode && headRo.observe(chainTools.parentNode));
     return out;
   }
   const summary = h("section", { class: "desk-panel", "data-panel": "summary", "data-fixed": "", "aria-label": "Chain summary" }, statsEl);
@@ -1888,8 +1994,10 @@ const TOOLBAR_PRESETS = ["oi", "buyer", "seller", "hedger", "arb"];
  * in which columns drop out when the panel is too narrow ("quotes" = the Bid / Ask pair). LTP and the strike never
  * drop. A custom column list drops from the outer edge inwards.
  */
+// Estimates, measured from the demo chain at desktop size (the header text counts: "Build-up" sets bu's width). The chain
+// replaces them with the real minimum of each column once its table is on screen (measureCols in createChain).
 export const COL_MIN = Object.freeze({
-  ltp: 74, iv: 46, oi: 76, chg: 76, vol: 68, bu: 40, bid: 60, ask: 60, delta: 58, gamma: 64, theta: 56, vega: 54, pitm: 58, potm: 60,
+  ltp: 76, iv: 46, oi: 66, chg: 64, vol: 62, bu: 64, bid: 62, ask: 62, delta: 58, gamma: 64, theta: 56, vega: 54, pitm: 58, potm: 60,
   ext: 68, spread: 62, liq: 62, prem: 82, be: 70, pop: 58, pops: 60, dist: 64, premLot: 74, thetaLot: 70, ivx: 60, hedge: 74,
   costPct: 60, syn: 90, dev: 82, edge: 74, ivskew: 58, pcrK: 54, strad: 78, default: 62,
 });
@@ -1919,36 +2027,38 @@ export function dropOrder(preset, cols) {
 }
 /**
  * Keep the columns that fit `avail` px: the strike + the row columns + `sides` × (side columns + Bid / Ask). First at
- * most `cap` side columns, then drop in `order` until the sum of minimum widths fits, then `extra` more (the table's
- * own overflow check, for content wider than its minimum). Pure: { side, mid, quotes, hidden, width }.
+ * most `cap` side columns, then drop in `order` until the sum of minimum widths fits, then bring back (most important
+ * first) any dropped column that fits again once a wider one has gone (IV returns after Bid / Ask drops), then `extra`
+ * more (the table's own overflow check, a last resort). Pure: { side, mid, quotes, hidden, width }.
  */
 export function fitColumns({ side = [], mid = [], quotes = false, sides = 2, avail = Infinity, widths = COL_MIN, strikeW = 96, order = [], cap = Infinity, extra = 0 } = {}) {
-  let s = [...side];
-  let m = [...mid];
-  let q = Boolean(quotes) && sides > 0;
+  const hasQ = Boolean(quotes) && sides > 0;
+  const off = new Set();
   const w = (k) => widths[k] ?? widths.default ?? 64;
-  const total = () => strikeW + m.reduce((a, k) => a + w(k), 0) + sides * (s.reduce((a, k) => a + w(k), 0) + (q ? w("bid") + w("ask") : 0));
-  const hidden = [];
-  const done = new Set();
-  const present = (k) => (k === "quotes" ? q : k !== "ltp" && (s.includes(k) || m.includes(k)));
-  const next = (pred) => order.find((k) => !done.has(k) && present(k) && pred(k));
+  const sum = (list) => list.reduce((a, k) => a + (off.has(k) ? 0 : w(k)), 0);
+  const total = () => strikeW + sum(mid) + sides * (sum(side) + (hasQ && !off.has("quotes") ? w("bid") + w("ask") : 0));
+  const present = (k) => !off.has(k) && (k === "quotes" ? hasQ : k !== "ltp" && (side.includes(k) || mid.includes(k)));
+  const next = (pred) => order.find((k) => present(k) && pred(k));
+  const dropped = [];
   const drop = (k) => {
-    done.add(k);
-    if (k === "quotes") q = false;
-    else {
-      s = s.filter((x) => x !== k);
-      m = m.filter((x) => x !== k);
-    }
-    hidden.push(k);
+    off.add(k);
+    dropped.push(k);
   };
-  for (let k = next((x) => s.includes(x)); s.length > cap && k; k = next((x) => s.includes(x))) drop(k);
+  const sideCount = () => side.filter((k) => !off.has(k)).length;
+  for (let k = next((x) => side.includes(x)); sideCount() > cap && k; k = next((x) => side.includes(x))) drop(k);
+  const fitFrom = dropped.length;
   for (let k = next(() => true); total() > avail && k; k = next(() => true)) drop(k);
+  for (const k of dropped.slice(fitFrom).reverse()) {
+    off.delete(k);
+    if (total() > avail) off.add(k);
+  }
   for (let n = 0; n < extra; n += 1) {
     const k = next(() => true);
     if (!k) break;
     drop(k);
   }
-  return { side: s, mid: m, quotes: q, hidden, width: total() };
+  const hidden = dropped.filter((k, i) => off.has(k) && dropped.indexOf(k) === i);
+  return { side: side.filter((k) => !off.has(k)), mid: mid.filter((k) => !off.has(k)), quotes: hasQ && !off.has("quotes"), hidden, width: total() };
 }
 
 export const presetOf = (cols) => Object.keys(CHAIN_PRESETS).find((k) => CHAIN_PRESETS[k].join() === (cols ?? []).join()) ?? "custom";
@@ -2044,15 +2154,27 @@ function chainSkeleton(label) {
   );
 }
 
-function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, onWindowAll, onLeg = null, onPick = null, onRelayout = null, onNextExpiry = null }) {
+function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, onWindowAll, onLeg = null, onPick = null, onRelayout = null, onNextExpiry = null, onSelectChange = null, onHold = null }) {
   let built = null;
   let centred = false;
   let lastX = null;
-  /** Columns dropped beyond the minimum-width estimate because the table still overflowed (reset on resize). */
+  /** Columns dropped beyond the measured widths because the table still overflowed: a last resort, reset whenever
+   *  the layout's context changes (and retried one lower every 10 s). */
   let extraDrop = 0;
   let overflowCheck = 0;
   let lastAvail = 0;
   let lastFit = { hidden: [], kept: 0, total: 0 };
+  /** Measured minimum widths (px) of the columns as laid out: they replace the COL_MIN estimates for this context
+   *  (underlying, expiry, columns, side, strikes window, device), so the fit engine is exact and deterministic. */
+  let measured = {};
+  let measuredStrike = 0;
+  let fitKey = "";
+  /** The wrap's own vertical scrollbar (classic scrollbars take width; overlay ones take none). */
+  let sbW = 0;
+  /** A table rebuilt again from place() (a measured refit) keeps the anchor and horizontal scroll of the first. */
+  let pending = null;
+  let refits = 0;
+  let retryAt = 0;
 
   const g = (v, dp) => (isFigure(v) ? formatFixed(v, dp) : DASH);
   const pct1 = (v) => (isFigure(v) ? `${formatSigned(v, 1)}%` : DASH);
@@ -2278,22 +2400,32 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       row: true,
       head: (x) => (x.refKind === "fut" ? "Dev" : "Dev vs F"),
       title: "Synthetic minus the same-expiry future (or the chain forward when none is listed), in points; under it, ₹ per lot",
-      v: (row, r_, s_, x) => [x.syn.get(row.strike)?.mid, x.ref, x.lot],
+      v: (row, r_, s_, x) => [x.syn.get(row.strike)?.mid, x.ref, x.lot, x.devMax],
       r: (row, r_, s_, x) => {
         const m = x.syn.get(row.strike)?.mid;
         const d = m !== undefined && m !== null && x.ref !== null ? m - x.ref : null;
-        return two(isFigure(d) ? formatSigned(d, 1) : DASH, { text: isFigure(d) ? formatSignedRupee(d * x.lot, 0) : "", force: true });
+        if (!isFigure(d)) return cg(DASH);
+        // Line 2: a diverging bar on one scale for every strike (left, red: the synthetic is below the reference;
+        // right, green: above), so the outliers stand out down the column. ₹ per lot in the tooltip.
+        const f = x.devMax > 0 ? Math.min(1, Math.abs(d) / x.devMax) : 0;
+        const bar = h("span", { class: `dev-bar ${d < 0 ? "neg" : "pos"}`, "aria-hidden": "true" }, h("i"));
+        bar.firstChild.style.transform = `scaleX(${r1(f * 100) / 100})`;
+        return h("span", { class: "cg", title: `${formatSignedRupee(d * x.lot, 0)} per lot` }, h("span", { class: `l1${Math.abs(d) >= 0.5 ? (d < 0 ? " neg-accent" : " pos-accent") : ""}` }, formatSigned(d, 1)), h("span", { class: "l2" }, bar));
       },
     },
     edge: {
       label: "Edge",
       row: true,
       title: "Best of conversion (sell synthetic, buy the future at its ask) and reversal (buy synthetic, sell the future at its bid) at the touch, before costs",
-      v: (row, r_, s_, x) => { const e = x.edge.get(row.strike); return [e?.edge, e?.kind]; },
+      v: (row, r_, s_, x) => { const e = x.edge.get(row.strike); return [e?.edge, e?.kind, x.bestEdge?.strike === row.strike]; },
       r: (row, r_, s_, x) => {
         const e = x.edge.get(row.strike);
         if (!e) return DASH;
-        return cg(h("span", { title: x.refKind === "fut" ? undefined : "vs chain forward: a relative break across strikes, not a futures arbitrage" }, formatSigned(e.edge, 2)), sub(e.kind), e.edge > 0 ? "pos-accent" : "");
+        // Green when the trade pays at the touch, quiet otherwise; the best strike carries a chip ("Best" when it
+        // pays, "Closest" when nothing does), so the column answers "which strike, if any".
+        const best = x.bestEdge?.strike === row.strike;
+        const chip = best ? h("span", { class: `edge-chip${e.edge > 0 ? " pays" : ""}`, title: e.edge > 0 ? "The best edge in the chain" : "No strike pays at the touch: this one comes closest" }, e.edge > 0 ? "Best" : "Closest") : null;
+        return cg(h("span", { title: x.refKind === "fut" ? undefined : "vs chain forward: a relative break across strikes, not a futures arbitrage" }, formatSigned(e.edge, 2)), h("small", { class: "l2" }, chip, chip ? " " : "", e.kind), e.edge > 0 ? "pos-accent" : "quiet");
       },
     },
     ivskew: {
@@ -2306,11 +2438,11 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     pcrK: {
       label: "PCR",
       row: true,
-      title: "Put OI ÷ call OI at this strike: above 1.2 put-heavy (support), below 0.8 call-heavy (resistance)",
+      title: "Put OI ÷ call OI at this strike: 1.2 and up put-heavy (support), 0.8 and below call-heavy (resistance)",
       v: (row) => [row.ce?.oi, row.pe?.oi],
       r: (row) => {
         const p = O.strikePcr(row);
-        return cg(formatFixed(p, 2), null, p === null ? "" : p > 1.2 ? "put-ink" : p < 0.8 ? "call-ink" : "");
+        return cg(formatFixed(p, 2), null, pcrSide(p) === "put" ? "put-ink" : pcrSide(p) === "call" ? "call-ink" : "");
       },
     },
     strad: {
@@ -2360,9 +2492,24 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       }
     } else if (d.narrow) cap = 5;
     const sides = side === "both" ? 2 : side === "none" ? 0 : 1;
-    const fit = fitColumns({ side: sideCols, mid: rowCols, quotes, sides, avail: availW(), widths: d.phone ? PHONE_MIN : d.coarse ? COL_MIN_COARSE : COL_MIN, strikeW: d.phone ? 68 : 96, order: dropOrder(preset, c.cols), cap, extra: extraDrop });
+    // A new context (columns, side, strikes window, chain, device, density): measure afresh, no extra drops.
+    const fk = JSON.stringify([st.chain?.underlying, st.chain?.expiry, c.cols, side, quotes, st.strikesView, c.oiWin, c.dense, c.lots, c.pct, d.phone, d.narrow, d.coarse]);
+    if (fk !== fitKey) {
+      fitKey = fk;
+      measured = {};
+      measuredStrike = 0;
+      extraDrop = 0;
+    }
+    const est = d.phone ? PHONE_MIN : d.coarse ? COL_MIN_COARSE : COL_MIN;
+    const widths = { ...est, ...measured };
+    const strikeW = measuredStrike || (d.phone ? 68 : 96);
+    const fit = fitColumns({ side: sideCols, mid: rowCols, quotes, sides, avail: availW() - sbW, widths, strikeW, order: dropOrder(preset, c.cols), cap, extra: extraDrop });
     const all = new Set([...c.cols.filter((k) => COLS[k]), ...(c.quotes && sides && !d.phone && !d.coarse ? ["quotes"] : [])]);
-    const hidden = fit.hidden.filter((k) => all.has(k));
+    // Phones: columns the layout leaves out before fitting (Both = LTP and OI only; Parity = three row columns)
+    // count as hidden too, so "+N hidden" and Customise tell the truth.
+    const kept = new Set([...sideCols, ...rowCols]);
+    const pre = d.phone ? c.cols.filter((k) => COLS[k] && !kept.has(k)) : [];
+    const hidden = [...new Set([...pre, ...fit.hidden])].filter((k) => all.has(k));
     lastFit = { hidden, kept: all.size - hidden.length, total: all.size };
     const near = fit.quotes ? ["bid", "ask"] : [];
     const out = [...near, ...fit.side];
@@ -2402,7 +2549,43 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       if (L.side === "ce" || L.side === "pe") return L.side;
       return st.focus?.side ?? "ce";
     };
+    // Touch: press and hold a row (500 ms, still) to add a buy leg of that side to the strategy; the tap that ends the
+    // hold does not open the sheet.
+    let hold = null;
+    const dropHold = () => {
+      if (hold && !hold.fired) {
+        clearTimeout(hold.t);
+        hold = null;
+      }
+    };
+    tr.addEventListener("pointerdown", (e) => {
+      if (!onHold || e.pointerType === "mouse" || !device().coarse || selecting || L.side === "none" || e.target.closest("button")) return;
+      const side = sideOf(e);
+      clearTimeout(hold?.t);
+      const h0 = { x: e.clientX, y: e.clientY, fired: false, t: 0 };
+      h0.t = setTimeout(() => {
+        h0.fired = true;
+        if (!reducedMotion()) {
+          tr.classList.remove("hold-pulse");
+          void tr.offsetWidth;
+          tr.classList.add("hold-pulse");
+          setTimeout(() => tr.classList.remove("hold-pulse"), 260);
+        }
+        navigator.vibrate?.(12);
+        onHold(strike, side);
+      }, 500);
+      hold = h0;
+    });
+    tr.addEventListener("pointermove", (e) => {
+      if (hold && !hold.fired && Math.hypot(e.clientX - hold.x, e.clientY - hold.y) > 8) dropHold();
+    });
+    for (const ev of ["pointerup", "pointercancel", "pointerleave"]) tr.addEventListener(ev, dropHold);
+    tr.addEventListener("contextmenu", (e) => hold?.fired && e.preventDefault());
     tr.addEventListener("click", (e) => {
+      if (hold?.fired) {
+        hold = null;
+        return;
+      }
       if (e.target.closest("button")) return;
       const side = sideOf(e);
       if (selecting && L.side !== "none") {
@@ -2459,11 +2642,17 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
         ? h("tr", { class: "side-head" }, h("th", { colspan: L.ce.length, scope: "colgroup", class: "sh-ce" }, sideBtn("ce", "Calls")), h("th", { class: "strike-col" }, ""), midHead, h("th", { colspan: L.pe.length, scope: "colgroup", class: "sh-pe" }, sideBtn("pe", "Puts")))
         : h("tr", { class: "side-head" }, h("th", { class: "strike-col" }, ""), midHead, h("th", { colspan: L.ce.length + L.pe.length, scope: "colgroup", class: L.side === "pe" ? "sh-pe" : L.side === "ce" ? "sh-ce" : undefined }, h("button", { type: "button", class: "side-btn on", onclick: () => onSide("both") }, `${L.side === "ce" ? "Calls" : "Puts"} only`, h("span", { "aria-hidden": "true" }, " ×"))));
     const heads = [];
+    const colCells = [];
     const colHead = L.order.flatMap((part) => {
-      if (part === "strike") return [h("th", { scope: "col", class: "strike-col" }, "Strike")];
+      if (part === "strike") {
+        const th = h("th", { scope: "col", class: "strike-col" }, "Strike");
+        colCells.push([th, "strike"]);
+        return [th];
+      }
       return L[part].map((k) => {
         const th = headCell(k, part === "mid" ? "mid-col" : part === "ce" ? "s-ce" : "s-pe");
         if (COLS[k].head || k === "chg") heads.push([th, k]);
+        colCells.push([th, k]);
         return th;
       });
     });
@@ -2490,7 +2679,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     );
     const wrap = h("div", { class: "table-wrap chain-wrap" }, table);
     wrap.addEventListener("scroll", () => hideCluster(), { passive: true });
-    built = { key, table, thead, rows: map, spotTr, spotTag, foot, L, body, wrap, heads, caption, atmObserved: null, spotAnchor: null, first: true };
+    built = { key, table, thead, rows: map, spotTr, spotTag, foot, L, body, wrap, heads, colCells, caption, atmObserved: null, spotAnchor: null, first: true };
     return wrap;
   }
 
@@ -2543,8 +2732,37 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     if (!(f && f === td.lastChild && morph(f, node))) td.replaceChildren(node);
   }
 
-  /** The row to keep still while rows above it appear or disappear: the focus when on screen, else the top row. */
-  function captureAnchor() {
+  /**
+   * Measure each column's real minimum width: the table squeezed to 0 lays every column out at its min-content (the
+   * widest figure or header in it), read off the header cells, then the table is let go again. Two layouts, only on a
+   * rebuild, an overflow or the 10 s retry. Returns true when a measurement changed.
+   */
+  function measureCols() {
+    const t = built?.table;
+    const wrap = built?.wrap;
+    if (!t?.isConnected || !wrap.clientWidth) return false;
+    sbW = Math.max(0, wrap.offsetWidth - wrap.clientWidth - 2 * wrap.clientLeft);
+    t.style.width = "0px";
+    t.style.minWidth = "0px";
+    const got = {};
+    let strike = 0;
+    for (const [th, k] of built.colCells) {
+      const px = Math.round(th.getBoundingClientRect().width * 10) / 10;
+      if (k === "strike") strike = px;
+      else got[k] = Math.max(got[k] ?? 0, px);
+    }
+    t.style.width = "";
+    t.style.minWidth = "";
+    let changed = Math.abs(strike - measuredStrike) > 0.5;
+    for (const [k, v] of Object.entries(got)) if (!(Math.abs((measured[k] ?? 0) - v) <= 0.5)) changed = true;
+    measured = { ...measured, ...got };
+    measuredStrike = strike;
+    return changed;
+  }
+
+  /** The row to keep still while rows above it appear or disappear: the focus when on screen, else the top row
+   *  (`middle`: the row at the middle of the view, for a new table whose rows differ in height). */
+  function captureAnchor(middle = false) {
     const wrap = built?.wrap;
     if (!wrap?.isConnected || !wrap.clientHeight) return null;
     const top = wrap.getBoundingClientRect().top + (built.thead.offsetHeight || 0);
@@ -2554,10 +2772,11 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       const r = f.tr.getBoundingClientRect();
       if (r.bottom > top && r.top < bottom) return { strike: st.focus.strike, off: r.top - top };
     }
+    const mid = (top + bottom) / 2;
     for (const [strike, b] of built.rows) {
       if (b.tr.hidden) continue;
       const r = b.tr.getBoundingClientRect();
-      if (r.bottom > top) return { strike, off: r.top - top };
+      if (middle ? r.bottom > mid : r.bottom > top) return { strike, off: r.top - top };
     }
     return null;
   }
@@ -2678,7 +2897,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       });
     }
     L.mid.forEach((k, j) => {
-      const t = k === "dev" && x.medianDev !== null ? `${formatSigned(x.medianDev, 1)} med` : "";
+      const t = k === "dev" && x.medianDev !== null ? `Median dev ${formatSigned(x.medianDev, 1)}` : "";
       if (built.foot.mid[j].textContent !== t) built.foot.mid[j].textContent = t;
     });
     const pcrSig = `${sm.pcr}|${x.c.rows.length}`;
@@ -2778,9 +2997,11 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     observer.observe(b.tr);
   }
 
-  // ── Hover: a B / S pair at the outer edge of the hovered side's LTP cell (fine pointers). B opens the ticket at the
-  // ask, S at the bid; Shift+click adds a leg to the strategy instead. Keyboard users have the Bid / Ask buttons. ──
+  // ── Hover: a B / S pair inside the hovered side's LTP cell, on its second line at the outer edge (fine pointers), so
+  // it never covers another column. B opens the ticket at the ask, S at the bid; Shift+click adds a leg to the
+  // strategy instead. Keyboard users have the Bid / Ask buttons. ──
   let hoverAt = null;
+  let hoverCell = null;
   const clusterBtn = (trade) =>
     h("button", { type: "button", class: `bs-btn ${trade === "BUY" ? "buy" : "sell"}`, tabindex: "-1", title: `${trade === "BUY" ? "Buy at the ask" : "Sell at the bid"} (Shift: add a ${trade === "BUY" ? "buy" : "sell"} leg)`, onclick: (e) => {
       e.stopPropagation();
@@ -2794,6 +3015,8 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
   const cluster = h("div", { class: "bs-cluster", hidden: true, "aria-hidden": "true" }, clusterBtn("BUY"), clusterBtn("SELL"));
   function hideCluster() {
     if (!cluster.hidden) cluster.hidden = true;
+    hoverCell?.classList.remove("bs-host");
+    hoverCell = null;
     hoverAt = null;
   }
   host.addEventListener("mouseover", (e) => {
@@ -2808,17 +3031,25 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     const i = side ? built.L[side].indexOf("ltp") : -1;
     if (i < 0 || !st.chain?.rows.find((r) => r.strike === strike)?.[side]) return hideCluster();
     if (hoverAt?.strike === strike && hoverAt?.side === side) return;
+    hideCluster();
     hoverAt = { strike, side };
     const cell = b[side][i];
     const hr = host.getBoundingClientRect();
     const cr = cell.getBoundingClientRect();
-    cluster.hidden = false;
+    const cs = getComputedStyle(cell);
     // Calls read right to left from the strike (outer edge = left); puts left to right (outer edge = right). The pair
-    // floats just past that edge, over the neighbouring cell, so it never covers the price.
+    // sits on the cell's second line at that edge, inside its padding box: the price above it stays readable and no
+    // other column is covered. The change it covers (line 2) steps aside while the pair is up.
     const outerLeft = side === "ce" && built.L.side === "both";
-    cluster.style.top = `${r1(cr.top - hr.top + cr.height / 2)}px`;
-    cluster.style.left = outerLeft ? `${r1(cr.left - hr.left + 2)}px` : `${r1(cr.right - hr.left - 2)}px`;
+    const l2 = cell.querySelector(".l2");
+    const lr = l2?.getBoundingClientRect();
+    const y = lr && lr.height ? lr.top + lr.height / 2 : cr.top + cr.height / 2;
+    cluster.hidden = false;
+    cluster.style.top = `${r1(y - hr.top)}px`;
+    cluster.style.left = outerLeft ? `${r1(cr.left - hr.left + parseFloat(cs.paddingLeft))}px` : `${r1(cr.right - hr.left - parseFloat(cs.paddingRight))}px`;
     cluster.classList.toggle("at-right", !outerLeft);
+    hoverCell = cell;
+    cell.classList.add("bs-host");
   });
   host.addEventListener("mouseleave", hideCluster);
 
@@ -2905,6 +3136,9 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
         })
       : null;
   ro?.observe(host);
+  // The note above the table (a failed refresh) changes where the table starts: refit its height so the totals row
+  // and the key legend stay on screen without page scroll.
+  const noteRo = typeof ResizeObserver === "function" ? new ResizeObserver(() => fitHeight()) : null;
   function fitHeight() {
     const w = built?.wrap;
     if (!w?.isConnected) return;
@@ -2916,6 +3150,9 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     const want = Math.max(320, Math.floor(innerHeight - top - below - 14 - barH));
     const px = `${want}px`;
     if (w.style.maxHeight !== px) w.style.maxHeight = px;
+    // Whatever sits below the panel (the page's bottom padding) must fit too: no page scroll on desktop.
+    const over = Math.ceil(document.documentElement.scrollHeight - innerHeight);
+    if (!barH && over > 0 && over < 120 && want - over >= 320) w.style.maxHeight = `${want - over}px`;
   }
   const onWinResize = () => {
     clearTimeout(roTimer);
@@ -2968,6 +3205,13 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       if (!keepView) {
         built = null;
         centred = false;
+        // Picks are contracts of this underlying and expiry: a new chain starts with none (and select mode off).
+        picked.clear();
+        pickBar.hidden = true;
+        if (selecting) {
+          selecting = false;
+          onSelectChange?.(false);
+        }
         observer?.disconnect();
         pill.hidden = true;
         hideCluster();
@@ -2990,12 +3234,26 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       if (built && built.key === key && !built.stale) {
         syncRows(x);
         patch(x);
-        // Content can outgrow its minimum (a wider figure): never scroll sideways, drop one more column instead.
+        // Content can outgrow its minimum (a wider figure): never scroll sideways. Re-measure and refit (a column
+        // drops when it truly no longer fits); every 10 s, also when something is hidden, so it comes back once the
+        // figures shrink again.
         if (!overflowCheck) {
           overflowCheck = requestAnimationFrame(() => {
             overflowCheck = 0;
             const w = built?.wrap;
-            if (w?.isConnected && w.clientWidth && w.scrollWidth > w.clientWidth + 1 && extraDrop < 6) {
+            if (!w?.isConnected || !w.clientWidth) return;
+            const over = w.scrollWidth > w.clientWidth + 1;
+            const now = Date.now();
+            const retry = !over && now >= retryAt && (lastFit.hidden.length > 0 || extraDrop > 0) && !document.hidden && !w.matches(":hover") && !w.contains(document.activeElement);
+            if (!over && !retry) return;
+            if (retry) retryAt = now + 10000;
+            measureCols();
+            if (retry && extraDrop > 0) extraDrop -= 1;
+            if (layoutSig(layout()) !== built.sig) {
+              refits = 0;
+              built.stale = true;
+              self.draw(lastX);
+            } else if (over && extraDrop < 6) {
               extraDrop += 1;
               built.stale = true;
               self.draw(lastX);
@@ -3004,17 +3262,23 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
         }
         return;
       }
-      // A new table: only when the strike list or the layout changed. Keep the view on the same strike.
+      // A new table: only when the strike list or the layout changed. Keep the view on the same strike (the one at
+      // the middle of the view: rows differ in height between presets).
       const old = built;
-      const anchor = old?.wrap.isConnected ? captureAnchor() : null;
-      const keepX = old?.wrap.isConnected ? old.wrap.scrollLeft : null;
+      const carried = pending;
+      pending = null;
+      const anchor = carried ? carried.anchor : old?.wrap.isConnected ? captureAnchor(true) : null;
+      const keepX = carried ? carried.keepX : old?.wrap.isConnected ? old.wrap.scrollLeft : null;
       const keepH = old?.wrap.style.maxHeight ?? "";
       const wrap = build(x, L, key);
       built.sig = sig;
       if (keepH) wrap.style.maxHeight = keepH;
       patch(x);
       if (old?.wrap.isConnected && host.contains(old.wrap)) old.wrap.replaceWith(wrap);
-      else host.replaceChildren(note, wrap, pill, cluster, pickBar, live);
+      else {
+        host.replaceChildren(note, wrap, pill, cluster, pickBar, live);
+        noteRo?.observe(note);
+      }
       self.paintFocus();
       built.atmObserved = null;
       observer?.disconnect();
@@ -3027,20 +3291,27 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
           return;
         }
         fitHeight();
-        // Content wider than its minimum: drop one more column (at most 6), never scroll sideways inside the chain.
-        if (wrap.scrollWidth > wrap.clientWidth + 1 && extraDrop < 6 && built?.wrap === wrap && L.ce.length + L.pe.length + L.mid.length > 2) {
-          extraDrop += 1;
+        if (built?.wrap !== wrap) return;
+        // Laid out against estimates: measure the real column widths (and the page's real width), then refit. The
+        // rebuild happens before the browser paints, keeping this table's anchor; at most 3 refits in a row.
+        lastAvail = host.clientWidth || lastAvail;
+        const redo = () => {
+          refits += 1;
+          pending = { anchor, keepX };
           built.stale = true;
           return self.draw(lastX);
-        }
-        if (Math.abs(host.clientWidth - lastAvail) > 1 && built?.wrap === wrap) {
-          // Laid out against an estimate (the page was not on screen yet): fit once against the real width.
-          lastAvail = host.clientWidth;
-          if (layoutSig(layout()) !== built.sig) {
-            built.stale = true;
-            return self.draw(lastX);
+        };
+        if (refits < 3) {
+          measureCols();
+          if (layoutSig(layout()) !== built.sig) return redo();
+          // Still wider than the panel (a measurement missed something): drop one more column (at most 6).
+          if (wrap.scrollWidth > wrap.clientWidth + 1 && extraDrop < 6 && L.ce.length + L.pe.length + L.mid.length > 2) {
+            extraDrop += 1;
+            return redo();
           }
         }
+        refits = 0;
+        retryAt = Date.now() + 10000;
         if (keepX !== null) wrap.scrollLeft = keepX;
         else if (L.side === "both") wrap.scrollLeft = (wrap.scrollWidth - wrap.clientWidth) / 2;
         if (anchor && restoreAnchor(anchor)) centred = true;
@@ -3061,11 +3332,16 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     },
     /** A one-line status above the table (errors after data), or null to hide it. */
     note(content) {
+      const was = note.hidden;
       note.hidden = !content;
       const sig = content ? content.textContent : "";
-      if (note.__sig === sig) return;
+      if (note.__sig === sig) {
+        if (was !== note.hidden) fitHeight();
+        return;
+      }
       note.__sig = sig;
       note.replaceChildren(...(content ? [content] : []));
+      fitHeight();
     },
     paintFocus(scroll = false, focusRow = false) {
       if (!built?.rows) return;
@@ -3131,6 +3407,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     toggleSelect(on = !selecting) {
       selecting = Boolean(on);
       if (!selecting) picked.clear();
+      onSelectChange?.(selecting);
       hideCluster();
       if (built) built.table.classList.toggle("selecting", selecting);
       if (built) built.stale = true;
@@ -3164,6 +3441,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     fitHeight: () => fitHeight(),
     destroy() {
       ro?.disconnect();
+      noteRo?.disconnect();
       removeEventListener("resize", onWinResize);
       clearTimeout(roTimer);
     },

@@ -16,10 +16,11 @@ const rupees = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? "-"
 const pct = (p) => formatPercent(p === null || p === undefined ? null : p * 100, 0);
 
 /**
- * The metric groups for one leg (docs/design/chain.md §7): Price, Greeks, Odds and size, OI. Each item is
- * [label, value, class?, bar?] where `bar` (0..1) draws a mini OI bar (share of the chain's largest OI). Same formulas
- * as the chain's columns.
- * @returns {Array<{ title: string, items: Array<[string, string, string?, number?]> }>}
+ * The metric groups for one leg (docs/design/chain.md §7): Price, Greeks, Odds and size, OI, six figures each, so the
+ * grid (2 columns on phones, 3 from 720 px) has no empty cells. Each item is [label, value, class?, bar?, extra?]:
+ * `bar` (0..1) draws a mini OI bar (share of the chain's largest OI); `extra` = { sub, title }, a quiet second line
+ * and a tooltip. Same formulas as the chain's columns.
+ * @returns {Array<{ title: string, items: Array<[string, string, string?, number?, { sub?: string, title?: string }?]> }>}
  */
 export function sheetMetrics(q, row, side, x) {
   const right = side === "ce" ? "CE" : "PE";
@@ -37,16 +38,24 @@ export function sheetMetrics(q, row, side, x) {
   const bu = O.buildup(q);
   const chg = num(q?.oiChange);
   const oi = num(q?.oi);
+  const vol = num(q?.volume);
   const maxOi = num(x?.sm?.maxOi);
+  const ext = x ? O.extrinsic(K, right, P, x.F) : null;
+  const intr = P !== null && ext !== null ? P - ext : null;
+  const theta = num(q?.theta);
+  const vega = num(q?.vega);
+  const prev = oi !== null && chg !== null ? oi - chg : null;
+  const chgPct = prev > 0 ? (chg / prev) * 100 : null;
   return [
     {
       title: "Price",
       items: [
         ["Bid", g(q?.bid, 2), "sell-ink"],
         ["Ask", g(q?.ask, 2), "buy-ink"],
+        ["Mid", g(P, 2)],
         ["Spread", formatPercent(sp, 1), sp > 10 ? "down" : sp > 5 ? "warn-ink" : undefined],
-        ["IV", g(iv, 1)],
-        ["IV − ATM", isFigure(ivx) ? formatSigned(ivx, 1) : DASH],
+        ["Intrinsic", g(intr, 2), undefined, undefined, { title: "Value if exercised now, against the forward" }],
+        ["Time value", g(ext, 2), undefined, undefined, { title: "Premium above intrinsic: what decays to expiry" }],
       ],
     },
     {
@@ -54,15 +63,18 @@ export function sheetMetrics(q, row, side, x) {
       items: [
         ["Delta", g(q?.delta, 2)],
         ["Gamma", g(q?.gamma, 4)],
-        ["θ / lot", rupees(num(q?.theta) === null ? null : q.theta * lot), num(q?.theta) < 0 ? "down" : undefined],
-        ["Vega", g(q?.vega, 1)],
+        ["θ / lot", rupees(theta === null ? null : theta * lot), theta < 0 ? "down" : undefined],
+        ["Vega / lot", rupees(vega === null ? null : vega * lot), undefined, undefined, { title: "Rupees per lot for one vol point" }],
+        ["IV", g(iv, 1)],
+        ["IV − ATM", isFigure(ivx) ? formatSigned(ivx, 1) : DASH, ivx > 0 ? "warn-ink" : undefined, undefined, { title: "Above ATM IV: rich; below: cheap" }],
       ],
     },
     {
       title: "Odds and size",
       items: [
-        ["Breakeven", be === null ? DASH : `${formatInt(be)}${move === null ? "" : ` (${formatSigned(move, 1)}%)`}`],
+        ["Breakeven", be === null ? DASH : formatInt(be), undefined, undefined, { sub: move === null ? "" : `${formatSigned(move, 1)}% from spot` }],
         ["PoP buy", pct(pop)],
+        ["PoP sell", pct(pop === null ? null : 1 - pop), undefined, undefined, { title: "Chance a short of this option keeps a profit at expiry" }],
         ["P(ITM)", pct(pitm)],
         ["Prem / lot", rupees(P === null ? null : P * lot)],
         ["Lot", formatInt(lot)],
@@ -73,8 +85,10 @@ export function sheetMetrics(q, row, side, x) {
       items: [
         ["OI", formatCompact(oi), side === "ce" ? "oi-call" : "oi-put", oi !== null && maxOi ? oi / maxOi : null],
         ["OI chg", formatCompact(chg, { signed: true }), chg > 0 ? "up" : chg < 0 ? "down" : undefined],
-        ["Volume", formatCompact(q?.volume)],
-        ["Build-up", bu ? O.BUILDUP_NAMES[bu] : DASH, bu ? `bu:${bu}` : undefined],
+        ["OI chg %", chgPct === null ? DASH : `${formatSigned(chgPct, 1)}%`, chgPct > 0 ? "up" : chgPct < 0 ? "down" : undefined],
+        ["Volume", formatCompact(vol)],
+        ["Vol / OI", vol !== null && oi ? formatFixed(vol / oi, 2) : DASH, undefined, undefined, { title: "Volume over open interest: above 1, today's trading outweighs the open positions" }],
+        ["Build-up", bu ?? DASH, bu ? `bu:${bu}` : undefined, undefined, { title: bu ? O.BUILDUP_NAMES[bu] : "No build-up signal" }],
       ],
     },
   ];
@@ -179,24 +193,27 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
     const shape = groups.map((gr) => `${gr.title}:${gr.items.length}`).join("|");
     if (grid.__shape !== shape) {
       grid.__shape = shape;
-      grid.replaceChildren(...groups.map((gr) => h("section", { class: "cs-group" }, h("h3", {}, gr.title), h("dl", { class: "cs-grid" }, gr.items.map(() => h("div", { class: "cs-m" }, h("dt", {}), h("dd", {})))))));
+      grid.replaceChildren(...groups.map((gr) => h("section", { class: "cs-group" }, h("h3", {}, gr.title), h("dl", { class: "cs-grid" }, gr.items.map(() => h("div", { class: "cs-m" }, h("dt", {}), h("dd", {}), h("span", { class: "cs-sub" })))))));
     }
     groups.forEach((gr, gi) => {
       const dl = grid.children[gi]?.lastChild;
-      gr.items.forEach(([label, value, cls, frac], i) => {
+      gr.items.forEach(([label, value, cls, frac, extra], i) => {
         const cell = dl?.children[i];
         if (!cell) return;
-        const sig = `${label}|${value}|${cls ?? ""}|${frac ?? ""}`;
+        const sig = `${label}|${value}|${cls ?? ""}|${frac ?? ""}|${extra?.sub ?? ""}|${extra?.title ?? ""}`;
         if (cell.__sig === sig) return;
         cell.__sig = sig;
         cell.children[0].textContent = label;
         const dd = cell.children[1];
         dd.className = cls && !cls.startsWith("bu:") ? cls : "";
+        if (extra?.title) cell.title = extra.title;
+        else cell.removeAttribute("title");
+        cell.children[2].textContent = extra?.sub ?? "";
         if (frac !== undefined && frac !== null) {
           const bar = h("span", { class: "cs-bar", "aria-hidden": "true" }, h("span"));
           bar.firstChild.style.transform = `scaleX(${Math.max(0, Math.min(1, frac))})`;
           dd.replaceChildren(h("span", {}, value), bar);
-        } else if (cls?.startsWith("bu:")) dd.replaceChildren(h("span", { class: `bu bu-${cls.slice(3)}` }, cls.slice(3)), ` ${value}`);
+        } else if (cls?.startsWith("bu:")) dd.replaceChildren(h("span", { class: `bu bu-${cls.slice(3)}` }, cls.slice(3)));
         else dd.textContent = value;
       });
     });

@@ -187,7 +187,11 @@ export async function api(path, { method = "GET", body, raw = false } = {}) {
       /* leave as text */
     }
   }
-  if (!res.ok && !raw) throw new ApiError(data?.detail ?? data?.title ?? `HTTP ${res.status}`, { status: res.status, code: data?.code, body: data });
+  if (!res.ok && !raw) {
+    // problem+json (detail / title), or a proxy's or broker's own shape ({ error: { message } }, { message }).
+    const said = data?.detail ?? data?.title ?? (typeof data?.error === "string" ? data.error : data?.error?.message) ?? data?.message;
+    throw new ApiError(typeof said === "string" && said ? said : `HTTP ${res.status}`, { status: res.status, code: data?.code ?? data?.error?.code, body: data });
+  }
   return { data, headers: res.headers, status: res.status, ms, text };
 }
 export const optional = (p) => p.then((r) => r, (error) => ({ error }));
@@ -390,11 +394,14 @@ export function errorState(err, { onRetry = null, lastGood = null } = {}) {
   const auth = ["SESSION_EXPIRED", "UNAUTHENTICATED", "NO_ACCOUNT", "BROKER_UNAVAILABLE"].includes(err?.code);
   const retry = onRetry ? h("button", { type: "button", class: "small err-retry", onclick: () => onRetry() }, icon("refresh"), "Retry") : null;
   if (lastGood) {
+    // An answer without a known code: say what the server said ("Broker feed unavailable (503)"), not just its status.
+    const said = typeof err?.message === "string" && err.message && !/^HTTP \d+$/.test(err.message) ? err.message.replace(/\.$/, "") : "";
+    const what = said && f.title.startsWith("The Bridge answered") ? `${said} (${err.status})` : f.title;
     return h(
       "div",
       { class: "err-bar", role: "alert" },
       icon("warn"),
-      h("span", { class: "err-text" }, h("strong", {}, `Couldn't refresh: ${f.title}.`), ` Showing ${istTime(lastGood)}.`),
+      h("span", { class: "err-text" }, h("strong", {}, `Couldn't refresh: ${what}.`), ` Showing ${istTime(lastGood)}.`),
       retry,
     );
   }
@@ -440,7 +447,8 @@ export function liveControl({ onToggle, refreshMs = 3000 } = {}) {
       if (s === sig) return;
       sig = s;
       if (text.data !== words) text.data = words;
-      el.dataset.kind = kind;
+      // Live with no data yet: "Waiting" with a neutral dot (green would claim a live feed before the first load).
+      el.dataset.kind = kind === "live" && !asOf ? "waiting" : kind;
       el.setAttribute("aria-pressed", String(live));
       glyph.replaceChildren(live ? "" : icon("pause"));
       const what = live ? `Live: refreshing every ${refreshMs / 1000} s. ${touchWord()} to pause${keyHint(" (P)")}` : `Paused. ${touchWord()} to resume${keyHint(" (P)")}`;

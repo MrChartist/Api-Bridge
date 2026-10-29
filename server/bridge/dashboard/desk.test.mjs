@@ -86,4 +86,21 @@ describe("chain round 2: presets and the fit engine", () => {
     expect(f.quotes).toBe(false);
     expect(COL_MIN.ltp).toBeGreaterThan(0);
   });
+  it("keeps every OI column in a 1116 px panel and brings back what fits after a wider column drops", () => {
+    const order = dropOrder("oi", CHAIN_PRESETS.oi);
+    const wide = fitColumns({ side: CHAIN_PRESETS.oi, quotes: true, sides: 2, avail: 1116, order });
+    expect(wide.side).toEqual(CHAIN_PRESETS.oi);
+    expect(wide.quotes).toBe(true);
+    expect(wide.side.length + 2).toBe(8);
+    expect(wide.hidden).toEqual([]);
+    // A 700 px panel (1024 px window): Bid / Ask go, and IV, dropped before them, comes back because it fits.
+    const narrow = fitColumns({ side: CHAIN_PRESETS.oi, quotes: true, sides: 2, avail: 700, order });
+    expect(narrow.quotes).toBe(false);
+    expect(narrow.side).toContain("iv");
+    expect(narrow.hidden).not.toContain("iv");
+    expect(narrow.width).toBeLessThanOrEqual(700);
+    // Measured widths replace the estimates: a wider strike column (tags) drops Build-up first.
+    const tight = fitColumns({ side: CHAIN_PRESETS.oi, quotes: true, sides: 2, avail: 1116, order, strikeW: 140 });
+    expect(tight.hidden).toEqual(["bu"]);
+  });
 });
