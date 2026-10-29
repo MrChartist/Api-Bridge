@@ -303,3 +303,29 @@ describe("Foundation §10: shared files are registered", () => {
     expect(read("format.test.mjs")).toContain('"viz.js"');
   });
 });
+
+describe("Arbitrage round 2 (docs/design/arb.md §16)", () => {
+  const all = readFileSync(resolve(here, "app.css"), "utf8");
+  const sec = all.slice(all.indexOf("12g · ARBITRAGE"), all.indexOf("12s · SCREENER")).replace(/\/\*[\s\S]*?\*\//g, "");
+  const js = readFileSync(resolve(here, "arbitrage.js"), "utf8");
+  it("uses the foundation tokens and no iOS blue / indigo / orange", () => {
+    expect(sec.length).toBeGreaterThan(1000);
+    expect(all).toContain("12g · ARBITRAGE");
+    expect(sec).not.toMatch(/--ios-(blue|indigo|orange)/);
+    for (const t of ["--pos", "--neg", "--warn", "--dv-call", "--dv-put", "--dv-iv", "--dv-spot", "--sel-bg"]) expect(sec, t).toContain(`var(${t}`);
+  });
+  it("has no arb-shimmer or .sh skeleton, and every keyframe in the section has a reduced-motion rule", () => {
+    expect(all).not.toMatch(/arb-shimmer|\.sh\b\s*[{,]/);
+    const reduced = sec.slice(sec.indexOf("prefers-reduced-motion"));
+    for (const [, name] of sec.matchAll(/@keyframes\s+([\w-]+)/g)) {
+      const users = [...sec.matchAll(new RegExp(`([^{}]+)\\{[^}]*animation:[^;]*\\b${name}\\b`, "g"))].map((m) => m[1].trim());
+      expect(users.length, name).toBeGreaterThan(0);
+      for (const u of users) expect(reduced, `${name} on ${u}`).toContain(u.split(",")[0].trim());
+    }
+  });
+  it("drops the demo lead-in and formats numbers only through format.js", () => {
+    expect(js).not.toContain("Demo prices:");
+    expect(js).not.toContain("Sample prices:");
+    expect(js).not.toMatch(/toFixed\(/);
+  });
+});

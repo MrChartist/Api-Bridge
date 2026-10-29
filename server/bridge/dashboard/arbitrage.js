@@ -1,13 +1,17 @@
-// The Arbitrage scanner (#/arb, PRD 06): put-call parity per strike (conversions and reversals against the same-expiry
-// future), box spreads as lending / borrowing rates, and the futures term (basis, carry, calendar, roll). Everything is
-// priced at the touch (bid to sell, ask to buy), after every statutory charge and brokerage, and after the cost of
-// money at the user's hurdle rate. desk.js owns the toolbar, the selected chain, futures quotes and the timer; this file
-// owns the figures, the scanner, the detail pane / sheet, the order preview, risk notes and the chart slot. The maths
-// is in options.js (pure, tested); numbers become text only through format.js.
+// The Arbitrage scanner (#/arb, PRD 06; round 2: docs/design/arb.md): put-call parity per strike (conversions and
+// reversals against the same-expiry future), box spreads as lending / borrowing rates, and the futures term (basis,
+// carry, calendar, roll). Everything is priced at the touch (bid to sell, ask to buy), after every statutory charge and
+// brokerage, and after the cost of money at the user's hurdle rate. desk.js owns the top bar, the selected chain,
+// futures quotes and the timer; this file owns the rates ladder, the opportunity rail, the scanner (heat strip, box
+// matrix, term chart, table or phone cards), the detail pane / sheet (net hero, cost waterfall, locked payoff), the
+// order preview, risk notes and the chart slot. Colour encodes edge after charges: green clears every cost, red does
+// not. The maths is in options.js (pure, tested); numbers become text only through format.js.
 import { api, chartSlot, copyText, emptyState, errorState, h, icon, istTime, modal, optional, toast } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
+import { flashValue, lineReveal, reducedMotion } from "./motion.js";
 import * as O from "./options.js";
 import { segmented } from "./views.js";
+import { legend, setBar, spotPill, svgEl } from "./viz.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -17,12 +21,16 @@ const dayMon = (e) => (ISO_DAY.test(e ?? "") ? DAY_MON.format(new Date(`${e}T00:
 const mon = (e) => (ISO_DAY.test(e ?? "") ? MON.format(new Date(`${e}T00:00:00Z`)) : String(e ?? ""));
 const MQ_PHONE = "(max-width: 719px)";
 const MQ_NARROW = "(max-width: 1023px)";
+const MQ_WIDE = "(min-width: 1280px)";
 const media = (q) => (typeof matchMedia === "function" ? matchMedia(q).matches : false);
 const EXTRA_EVERY_MS = 15_000;
 const BOX_ROWS_MAX = 120;
 const BOX_CARDS_MAX = 30;
+const FLASH_BUDGET = 40; // value flashes per tick, at most (PRD 06 §14: ≤ 200 patched elements)
+const FLIP_MAX = 30; // a re-sort that moves more rows than this jumps instead of sliding
 const optFreeze = new Map(); // underlying -> option freeze quantity (all strikes share it)
 const ungroup = (t) => (t === null || t === undefined ? t : String(t).replace(/(\d),(?=\d)/g, "$1"));
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
 /** Signed rupees, whole: "+₹624", "-₹74", "₹0". */
 export function rupeeSigned(v) {
@@ -34,6 +42,8 @@ export function rupeeSigned(v) {
 /** Rupees, whole, compact from 1 lakh up ("₹3.12L"). */
 const money = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? "-" : ""}₹${formatCompact(Math.abs(v))}` : formatRupee(v, 0));
 const pct = (v, dp = 1) => (num(v) === null ? DASH : formatPercent(v * 100, dp));
+/** A signed rate: "+3.8%", "-2.88%". */
+const pctSigned = (v, dp = 1) => (num(v) === null ? DASH : `${formatSigned(v * 100, dp)}%`);
 /** The ask with the digits it shares with the bid dropped, for narrow tiles: (26537.65, 26542.95) → "42.95". */
 export function shortAsk(bid, ask) {
   const b = formatFixed(bid, 2);
@@ -42,10 +52,15 @@ export function shortAsk(bid, ask) {
   const keep = a.length - 5; // two integer digits + ".dd"
   return a.slice(0, keep) === b.slice(0, keep) ? a.slice(keep) : a;
 }
-const pts = (v, dp = 2) => (num(v) === null ? DASH : `${formatSigned(v, dp)} pts`);
+/** The ink class for a signed figure: green above zero, red below, neutral when it rounds to zero at `dp`. */
+export function inkOf(v, dp = 0) {
+  if (!isFigure(v)) return "";
+  const r = Number(formatFixed(Math.abs(Number(v)), dp).replace(/[^\d.]/g, ""));
+  if (r === 0) return "ink-zero";
+  return Number(v) > 0 ? "ink-pos" : "ink-neg";
+}
 const KIND_NAME = { conv: "Conversion", rev: "Reversal", lbox: "Long box", sbox: "Short box", cal: "Calendar", fut: "Futures basis" };
-const dots = (n) => h("span", { class: "liq", role: "img", "aria-label": n ? `Liquidity ${n} of 5` : "No quote" }, n ? [1, 2, 3, 4, 5].map((i) => h("i", { class: i <= n ? "on" : "" })) : h("span", { class: "bad-ink" }, "No quote"));
-const KEY_HINTS = [[["1", "2", "3"], "tabs"], [["J", "K"], "row"], [["↵"], "detail"], [["O"], "opportunities"], [["H"], "hold"], [["+", "−"], "lots"], [["C"], "copy legs"], [["G"], "ATM"], [["P"], "pause"], [["Esc"], "clear"]];
+const KEY_HINTS = [[["1", "2", "3"], "tabs"], [["J", "K"], "row"], [["↵"], "detail"], [["B"], "best"], [["E"], "by edge"], [["M"], "matrix"], [["O"], "opps"], [["H"], "hold"], [["+", "−"], "lots"], [["C"], "copy"], [["Esc"], "clear"]];
 const RISK_NOTES = [
   ["Executable only if every leg fills", " at these prices; legs are separate orders (legging risk)."],
   ["Quotes can be stale.", " Edges older than the stale limit are hidden from Best. Liquid NIFTY parity gaps are usually closed by algos within seconds; most visible edges are on illiquid strikes or stale quotes."],
@@ -57,7 +72,108 @@ const RISK_NOTES = [
   ["Charges as of 1 Apr 2026", " (STT 0.15% options sell, 0.05% futures sell); editable in Costs & filters. Verify the current statutory rates."],
   ["Tax:", " F&O gains are business income in India; this page does not compute tax."],
 ];
-const DEMO_NOTE = ["Sample prices:", " calls and puts use different volatility smiles here, so parity breaks are artificial."];
+// Shown only while the Bridge runs on generated prices: the one place this page explains why parity breaks appear.
+const SAMPLE_NOTE = ["", "Calls and puts use different volatility smiles here, so parity breaks are artificial."];
+
+// ── Small shared glyphs: the liquidity meter, the cost-cover bar, a chip on the diverging bp scale ──
+
+/** A 5-segment liquidity meter (1–2 warn, 3 fair, 4–5 good); update it with setLiq. */
+function liqMeter() {
+  return h("span", { class: "arb-liq", role: "img" }, [1, 2, 3, 4, 5].map(() => h("i")));
+}
+function setLiq(el, n) {
+  const v = Math.max(0, Math.min(5, Math.round(num(n) ?? 0)));
+  if (el.__n === v) return el;
+  el.__n = v;
+  el.dataset.liq = String(v);
+  [...el.children].forEach((i, k) => i.classList.toggle("lit", k < v));
+  const word = v <= 2 ? "thin" : v === 3 ? "fair" : "good";
+  const label = v ? `Liquidity ${v} of 5 (${word})` : "No quote";
+  el.setAttribute("aria-label", label);
+  el.title = v ? `${label}: from spread and volume rank, the weaker leg` : "No two-sided quote";
+  return el;
+}
+/**
+ * The cost-cover bar: how much of the total cost the gross edge pays for. The cost marker sits at 70 % of the track,
+ * so cover 1.0 reaches it and the bar caps near 1.43×. Green beyond the marker when the edge clears costs; a red part
+ * fill when it covers only part of them; nothing when the gross is negative.
+ */
+function coverBar(size = "card") {
+  const fill = h("span", { class: "arb-cv-fill" });
+  const over = h("span", { class: "arb-cv-over" });
+  const mark = h("i", { class: "arb-cv-mark" }, size === "cell" ? null : h("b", {}, "cost"));
+  const track = h("span", { class: "arb-cv-track", "aria-hidden": "true" }, fill, over, mark);
+  const label = h("span", { class: "arb-cv-label" });
+  const el = h("span", { class: `arb-cover cv-${size}` }, track, label);
+  let sig = "";
+  return {
+    el,
+    /** c = O.coverRatio(s); returns the tone ("pos" | "neg" | "none"). */
+    set(c, { compact = size === "cell" } = {}) {
+      const gross = c?.gross ?? null;
+      const cover = c?.cover ?? null;
+      const tone = gross === null || gross <= 0 ? "none" : cover === null || cover >= 1 ? "pos" : "neg";
+      const x = gross === null || gross <= 0 ? 0 : cover === null ? 1 : clamp01(cover * 0.7);
+      const base = tone === "pos" ? Math.min(x, 0.7) : tone === "neg" ? x : 0;
+      const beyond = tone === "pos" ? clamp01((x - 0.7) / 0.3) : 0;
+      let text;
+      if (gross === null) text = DASH;
+      else if (tone === "pos") text = cover === null ? "no cost" : compact ? `${formatFixed(cover, 1)}×` : `covers ${formatFixed(cover, 1)}×`;
+      else if (compact) text = `-${formatFixed(c.short, 2)} pts`;
+      else text = gross <= 0 ? `gross negative · needs ${formatFixed(c.short, 2)} pts` : `needs ${formatFixed(c.short, 2)} pts more`;
+      const s = `${tone}|${Math.round(base * 1000)}|${Math.round(beyond * 1000)}|${text}`;
+      if (s === sig) return tone;
+      sig = s;
+      el.dataset.tone = tone;
+      fill.style.setProperty("--v", String(Math.round(base * 1000) / 1000));
+      over.style.setProperty("--v", String(Math.round(beyond * 1000) / 1000));
+      label.textContent = text;
+      label.className = `arb-cv-label ${tone === "pos" ? "ink-pos" : gross === null ? "" : "ink-neg"}`;
+      el.title = gross === null ? "" : `Gross ${formatSigned(gross, 2)} pts against ${formatFixed(c.cost, 2)} pts of costs per unit`;
+      return tone;
+    },
+  };
+}
+/** A chip on the diverging scale for a bp gap (fixed thresholds: 10 / 50 / 150 bp). */
+function bpChip(bp, { suffix = " bp" } = {}) {
+  const st = O.bpStep(bp);
+  return h("span", { class: "arb-bp dv-heat", "data-div": st === null ? undefined : String(st) }, bp === null || bp === undefined ? DASH : `${formatSigned(bp, 0)}${suffix}`);
+}
+/** A floating tooltip inside a positioned host (F§4.5 look): show(x, y, content) / hide(). */
+function tipper(host) {
+  const tip = h("div", { class: "dv-tip arb-tip", hidden: true, role: "status" });
+  host.append(tip);
+  return {
+    el: tip,
+    show(x, y, content) {
+      tip.replaceChildren(...[content].flat().filter((c) => c !== null && c !== undefined));
+      tip.hidden = false;
+      const W = host.clientWidth;
+      const tw = tip.offsetWidth || 180;
+      const tx = Math.max(0, Math.min(W - tw, x - tw / 2));
+      tip.style.setProperty("--tx", `${Math.round(tx)}px`);
+      tip.style.top = `${Math.round(y)}px`;
+    },
+    hide() {
+      tip.hidden = true;
+    },
+  };
+}
+/** Slide rows (or cards) from their old place to their new one after a re-order (FLIP). Reduced motion: jump. */
+function flip(nodes, before) {
+  if (reducedMotion() || !before?.size) return;
+  let moved = 0;
+  const jobs = [];
+  for (const el of nodes) {
+    const top = before.get(el);
+    if (top === undefined) continue;
+    const d = top - el.offsetTop;
+    if (Math.abs(d) < 1) continue;
+    if (++moved > FLIP_MAX) return;
+    jobs.push([el, d]);
+  }
+  for (const [el, d] of jobs) el.animate?.([{ transform: `translateY(${d}px)` }, { transform: "none" }], { duration: 320, easing: "cubic-bezier(0.2, 0, 0, 1)" });
+}
 
 /**
  * @param {{ st: object, save: () => void, account: () => object|null, sendOrders: (bodies: object[]) => Promise<object>,
@@ -72,7 +188,9 @@ export function arbPanels(ctx) {
   let last = null; // last model
   let destroyed = false;
   let closePop = null;
-  let sheet = null; // { detail, close } while the phone sheet is open
+  let sheet = null; // { detail } while the bottom sheet is open
+  let flashLeft = FLASH_BUDGET;
+  let wfUnit = "rs"; // the waterfall's ₹ | pts toggle (shared by the pane and the sheet)
   const depth = new Map(); // symbol -> { bid, ask } top quantities
   const extra = new Map(); // expiry -> { chain, at, error }
   let extraAt = 0;
@@ -85,75 +203,84 @@ export function arbPanels(ctx) {
     return ratesMemo.rates;
   };
   const setCfg = (patch) => {
+    const tabBefore = cfg().tab;
+    if (patch.cols || patch.tab || patch.boxMode) squeeze = 0;
     st.arb = O.arbConfig({ ...cfg(), ...patch });
     save();
     syncHead();
+    if (cfg().tab !== tabBefore) crossFade();
     draw();
   };
   const phone = () => media(MQ_PHONE);
   const narrow = () => media(MQ_NARROW);
-
-  // ── Figures strip (built once, patched) ──
-  const TILES = [
-    ["spot", "Spot", false],
-    ["fut", "Future", false],
-    ["fwd", "Implied forward", false],
-    ["carry", "Carry", false],
-    ["best", "Best conv / rev", true],
-    ["box", "Best box", true],
-  ];
-  const tiles = new Map(
-    TILES.map(([k, label, btn]) => {
-      const el = h("div", { class: `desk-stat arb-t-${k} skel`, role: "group", "aria-label": label }, h("span", { class: "label" }, label), h("span", { class: "value" }, DASH), h("span", { class: "sub" }, " "));
-      if (btn) {
-        const go = () => tileGo(k);
-        el.addEventListener("click", go);
-        el.addEventListener("keydown", (e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            go();
-          }
-        });
-      }
-      return [k, { el, label, btn, value: el.children[1], sub: el.children[2], sig: "", target: null }];
-    }),
-  );
-  function setTile(k, { value = DASH, sub = "", title = "", cls = "", target = null } = {}) {
-    const t = tiles.get(k);
-    t.target = target;
-    // Only a tile with somewhere to go is a button (keyboard and screen readers); otherwise a plain group.
-    if (t.btn) {
-      const on = Boolean(target);
-      if (t.el.getAttribute("role") !== (on ? "button" : "group")) {
-        t.el.setAttribute("role", on ? "button" : "group");
-        if (on) {
-          t.el.tabIndex = 0;
-          t.el.removeAttribute("aria-disabled");
-        } else {
-          t.el.removeAttribute("tabindex");
-          t.el.setAttribute("aria-disabled", "true");
-        }
-      }
+  /** Phones and tablets in portrait have no pane beside the list: the detail opens as a bottom sheet. */
+  const sheetMode = () => narrow();
+  /** Set text; flash the element green / red when a shown number changed (at most FLASH_BUDGET per tick). */
+  function setVal(el, text, v, { rel = 0 } = {}) {
+    if (el.textContent === text) return;
+    const old = el.__v;
+    el.textContent = text;
+    el.__v = v;
+    // Table cells pass rel: a tick that moves a value by less than that share of it (or keeps its sign) stays quiet.
+    const big = !rel || Math.sign(old) !== Math.sign(v) || Math.abs(v - old) >= rel * Math.max(Math.abs(old), 1e-9);
+    if (isFigure(old) && isFigure(v) && old !== v && big && flashLeft > 0) {
+      flashLeft--;
+      flashValue(el, v > old ? "up" : "down");
     }
-    const sig = JSON.stringify([value, sub, title, cls]);
-    if (t.sig === sig) return;
-    t.sig = sig;
-    t.value.textContent = value;
-    t.sub.textContent = sub || " ";
-    t.el.title = title;
-    t.el.setAttribute("aria-label", `${t.label}: ${value}${sub ? `, ${sub}` : ""}`);
-    t.el.className = `desk-stat arb-t-${k}${cls ? ` ${cls}` : ""}`;
   }
-  function tileGo(k) {
-    const t = tiles.get(k);
-    if (!t.target) return;
-    const { tab, key } = t.target;
-    if (tab === "boxes" && cfg().boxMode !== "lend") st.arb = O.arbConfig({ ...cfg(), boxMode: "lend" });
-    if (cfg().tab !== tab) setCfg({ tab });
-    // Phones have no pane beside the list: open the sheet for the row, as the pane shows it on wider screens.
-    select(key, { scroll: true, open: phone() });
+
+  // ── Rates ladder (replaces the six figure tiles): every rate on one %/yr axis against the hurdle ──
+  const ladderSvg = svgEl("svg", { class: "arb-ladder-svg", role: "img", "aria-label": "Rates against the hurdle" });
+  const ladderPlot = h("div", { class: "arb-ladder-plot" }, ladderSvg);
+  const ladderTip = tipper(ladderPlot);
+  const fig = (label) => {
+    const value = h("strong", { class: "arb-fig-v" }, DASH);
+    const sub = h("span", { class: "arb-fig-s" }, " ");
+    return { el: h("div", { class: "arb-fig", role: "group", "aria-label": label }, h("span", { class: "arb-fig-l" }, label), value, sub), value, sub };
+  };
+  const figFut = fig("Future");
+  const figFwd = fig("Implied fwd");
+  const ladderEl = h("section", { class: "desk-panel arb-ladder", "data-panel": "rates", "aria-label": "Rates ladder" }, ladderPlot, h("div", { class: "arb-figs" }, figFut.el, figFwd.el));
+  const ladderMarks = new Map(); // id -> { g, label }
+
+  // ── Opportunity rail: the best parity, box and carry / calendar item, each with its edge after charges ──
+  const railNote = h("p", { class: "arb-rail-note", hidden: true });
+  const railErr = h("p", { class: "err-bar arb-rail-err", hidden: true });
+  const SLOTS = ["parity", "box", "carry"];
+  const railCards = SLOTS.map((slot) => railCard(slot));
+  const railRow = h("div", { class: "arb-rail-row" }, railCards.map((c) => c.el));
+  const railEl = h("section", { class: "arb-rail", "data-panel": "opportunities", "aria-label": "Best opportunities" }, railNote, railErr, railRow);
+  function railCard(slot) {
+    const kind = h("span", { class: "arb-o-kind" });
+    const tags = h("span", { class: "arb-o-tags" });
+    const liq = liqMeter();
+    const net = h("strong", { class: "arb-o-net" }, DASH);
+    const ret = h("span", { class: "arb-o-ret" });
+    const cover = coverBar("card");
+    const alt = h("span", { class: "arb-o-alt" });
+    const meta = h("span", { class: "arb-o-meta" });
+    const btn = h("button", { type: "button", class: "small arb-o-btn" }, "Preview");
+    const body = h("div", { class: "arb-o-in" }, h("div", { class: "arb-o-r1" }, kind, tags, liq), h("div", { class: "arb-o-r2" }, net, ret), h("div", { class: "arb-o-r3" }, cover.el, alt), h("div", { class: "arb-o-r4" }, meta, btn));
+    const el = h("div", { class: "arb-opp skel", role: "button", tabindex: "0", "data-slot": slot, "aria-busy": "true" }, body);
+    const card = { el, kind, tags, liq, net, ret, cover, alt, meta, btn, body, key: null, net0: null, go: null, act: null };
+    const go = (e) => {
+      if (e.target instanceof Element && e.target.closest(".arb-o-btn")) return;
+      card.go?.();
+    };
+    el.addEventListener("click", go);
+    el.addEventListener("keydown", (e) => {
+      if ((e.key === "Enter" || e.key === " ") && e.target === el) {
+        e.preventDefault();
+        e.stopPropagation();
+        card.go?.();
+      }
+    });
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      card.act?.();
+    });
+    return card;
   }
-  const figuresEl = h("section", { class: "desk-panel arb-figures", "data-panel": "figures", "aria-label": "Arbitrage figures" }, h("div", { class: "desk-stats arb-tiles" }, [...tiles.values()].map((t) => t.el)));
 
   // ── Scanner head ──
   const tabSeg = segmented("Scanner", [["parity", "Parity"], ["boxes", "Boxes"], ["futures", "Futures"]], cfg().tab);
@@ -169,30 +296,31 @@ export function arbPanels(ctx) {
   holdSeg.addEventListener("change", () => holdSeg.value !== cfg().hold && setCfg({ hold: holdSeg.value }));
   const oppsInput = h("input", { type: "checkbox", role: "switch" });
   oppsInput.addEventListener("change", () => setCfg({ onlyOpps: oppsInput.checked }));
-  const oppsEl = h("label", { class: "sw-row arb-opps", title: "Only rows that clear your minimum net, liquidity and freshness (O)" }, h("span", { class: "sw-text" }, "Opportunities only"), h("span", { class: "switch" }, oppsInput, h("i", { "aria-hidden": "true" })));
-  const gearBtn = h("button", { type: "button", class: "small gear-btn arb-gear", "aria-haspopup": "dialog", "aria-expanded": "false", title: "Hurdle rate, brokerage, statutory rates, filters and columns" }, icon("sliders"), h("span", { class: "gear-label" }, "Costs & filters"));
+  const oppsEl = h("label", { class: "sw-row arb-opps", title: "Only rows that clear your minimum net, liquidity and freshness (O)" }, h("span", { class: "sw-text" }, "Opps only"), h("span", { class: "switch" }, oppsInput, h("i", { "aria-hidden": "true" })));
+  const gearDot = h("i", { class: "arb-gear-dot", hidden: true, "aria-hidden": "true" });
+  const gearBtn = h("button", { type: "button", class: "small gear-btn arb-gear", "aria-haspopup": "dialog", "aria-expanded": "false", title: "Hurdle rate, brokerage, statutory rates, filters and columns" }, icon("sliders"), h("span", { class: "gear-label" }, "Costs & filters"), gearDot);
   gearBtn.addEventListener("click", () => openSettings());
-  const filtersBtn = h("button", { type: "button", class: "small arb-filters-btn", "aria-haspopup": "dialog" }, icon("sliders"), "Filters");
+  const filtersBtn = h("button", { type: "button", class: "small arb-filters-btn", "aria-haspopup": "dialog", "aria-label": "Filters" }, icon("sliders"), h("span", {}, "Filters"));
   filtersBtn.addEventListener("click", () => openSettings());
   const chips = h("span", { class: "arb-chips" });
-  const headEl = h(
-    "div",
-    { class: "panel-head arb-head" },
-    h("div", { class: "arb-head-l" }, tabSeg, chips),
-    h("div", { class: "arb-head-r" }, lotsEl, holdSeg, oppsEl, gearBtn, filtersBtn),
-  );
+  const headEl = h("div", { class: "panel-head arb-head" }, h("div", { class: "arb-head-l" }, tabSeg, chips), h("div", { class: "arb-head-r" }, lotsEl, holdSeg, oppsEl, gearBtn, filtersBtn));
   function syncHead() {
     const c = cfg();
     if (tabSeg.value !== c.tab) tabSeg.value = c.tab;
     if (holdSeg.value !== c.hold) holdSeg.value = c.hold;
     oppsInput.checked = c.onlyOpps;
     lotsOut.textContent = formatInt(c.lots);
-    filtersBtn.classList.toggle("on", c.onlyOpps || c.hold === "close");
+    // Hold and Opportunities live in Costs & filters on tablets and phones: a dot says one is not the default.
+    const moved = c.onlyOpps || c.hold === "close";
+    gearDot.hidden = !moved;
+    gearBtn.setAttribute("aria-label", `Costs & filters${moved ? " (hold or opportunities changed)" : ""}`);
+    filtersBtn.classList.toggle("on", moved);
     filtersBtn.lastChild.textContent = c.onlyOpps ? "Filters · on" : "Filters";
   }
   syncHead();
 
-  // ── Scanner body: notes, the table (or phone cards), keys; the detail pane beside it ──
+  // ── The tab's visual (parity heat strip / box matrix / term chart), the table or phone cards, the pane ──
+  const vizEl = h("div", { class: "arb-viz" });
   const noteEl = h("div", { class: "arb-notes-inline" });
   const caption = h("caption", { class: "sr-only" });
   const thead = h("thead");
@@ -204,15 +332,19 @@ export function arbPanels(ctx) {
   const footEl = h("p", { class: "arb-foot" });
   const keysEl = h("div", { class: "desk-keys arb-keys" }, KEY_HINTS.map(([keys, label]) => h("span", { class: "kbd-pair" }, h("span", { class: "kbd-group" }, keys.map((k) => h("kbd", {}, k))), label)));
   const live = h("p", { class: "sr-only", "aria-live": "polite" });
-  const mainEl = h("div", { class: "arb-main" }, noteEl, wrapEl, cardsEl, emptyEl, footEl, keysEl);
+  const mainEl = h("div", { class: "arb-main" }, noteEl, vizEl, wrapEl, cardsEl, emptyEl, footEl, keysEl);
   const paneDetail = createDetail({ pane: true });
   const paneEl = h("aside", { class: "arb-pane", "aria-label": "Selected structure" }, paneDetail.el);
   const bodyEl = h("div", { class: "arb-body" }, mainEl, paneEl);
   const scanEl = h("section", { class: "desk-panel arb-scan", "data-panel": "scanner", "aria-label": "Arbitrage scanner" }, headEl, bodyEl, live);
+  function crossFade() {
+    if (reducedMotion()) return;
+    for (const el of [vizEl, wrapEl, cardsEl]) el.animate?.([{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+  }
 
   tbody.addEventListener("click", (e) => {
     const tr = e.target instanceof Element ? e.target.closest("tr[data-key]") : null;
-    if (tr) select(tr.dataset.key, { open: false });
+    if (tr) select(tr.dataset.key, { open: sheetMode() });
   });
   tbody.addEventListener("dblclick", (e) => {
     const tr = e.target instanceof Element ? e.target.closest("tr[data-key]") : null;
@@ -230,12 +362,38 @@ export function arbPanels(ctx) {
       select(li.dataset.key, { open: true });
     }
   });
+  // Long-press a phone card: the order preview (same gates as the button in the sheet).
+  let pressT = null;
+  cardsEl.addEventListener("pointerdown", (e) => {
+    const li = e.target instanceof Element ? e.target.closest("li[data-key]") : null;
+    if (!li || e.pointerType === "mouse") return;
+    clearTimeout(pressT);
+    pressT = setTimeout(() => {
+      const x = itemOf(li.dataset.key);
+      if (x?.s?.legs?.length && last && !last.stale) {
+        li.__pressed = true;
+        openOrders(x.s, last);
+      }
+    }, 600);
+  });
+  for (const ev of ["pointerup", "pointercancel", "pointerleave"]) cardsEl.addEventListener(ev, () => clearTimeout(pressT));
+  cardsEl.addEventListener(
+    "click",
+    (e) => {
+      const li = e.target instanceof Element ? e.target.closest("li[data-key]") : null;
+      if (li?.__pressed) {
+        li.__pressed = false;
+        e.stopImmediatePropagation();
+      }
+    },
+    true,
+  );
   thead.addEventListener("click", (e) => {
     const b = e.target instanceof Element ? e.target.closest("button[data-sort]") : null;
     if (b) cycleSort(b.dataset.sort);
   });
 
-  // ── Risk notes (collapsible, state kept) and the chart engine slot ──
+  // ── Risk notes (collapsed by default, one-line teaser) and the chart engine slot ──
   const notesList = h("ol", { class: "arb-note-list" });
   const notesSummary = h("summary", {});
   const notesDetails = h("details", { class: "arb-details" }, notesSummary, notesList);
@@ -246,24 +404,20 @@ export function arbPanels(ctx) {
     }
     drawNotesSummary();
   });
-  const notesOpen = () => (cfg().notesOpen ?? !phone());
+  const notesOpen = () => cfg().notesOpen ?? false;
   const notesEl = h("section", { class: "desk-panel arb-notes", "data-panel": "risk-notes", "aria-label": "Risk notes" }, notesDetails);
   function drawNotes() {
-    const lines = [...RISK_NOTES, ...(ctx.demo() ? [DEMO_NOTE] : [])];
-    notesList.replaceChildren(...lines.map(([b, t]) => h("li", {}, h("strong", {}, b), t)));
+    const lines = [...RISK_NOTES, ...(ctx.demo() ? [SAMPLE_NOTE] : [])];
+    notesList.replaceChildren(...lines.map(([b, t]) => h("li", {}, b ? h("strong", {}, b) : null, t)));
     notesDetails.open = notesOpen();
     drawNotesSummary();
   }
   function drawNotesSummary() {
     const n = notesList.children.length;
-    notesSummary.replaceChildren(h("strong", {}, "Risk notes"), h("span", { class: "arb-sub" }, notesDetails.open ? `${formatInt(n)} notes` : `${formatInt(n)} risk notes · ${phone() ? "tap" : "click"} to read`));
+    notesSummary.replaceChildren(h("strong", {}, `Risk notes · ${formatInt(n)}`), notesDetails.open ? null : h("span", { class: "arb-sub" }, `${RISK_NOTES[0][0]}…`));
   }
   drawNotes();
-  const chartEl = h(
-    "section",
-    { class: "desk-panel arb-chart", "data-panel": "chart-slot", "aria-label": "Chart engine slot" },
-    chartSlot("Implied forward and box rate by strike, and the futures term structure, will draw here"),
-  );
+  const chartEl = h("section", { class: "desk-panel arb-chart", "data-panel": "chart-slot", "aria-label": "Chart engine slot" }, chartSlot("Implied forward and box rate by strike over time"));
 
   // ── Model: everything the page shows, from the chain, futures quotes and settings ──
   function futQuote(inst) {
@@ -292,7 +446,7 @@ export function arbPanels(ctx) {
     const stale = fresh.stale || Boolean(st.freshness?.stale);
     const boxArgs = { rate: hRate, days, lots: conf.lots, profile, hold: conf.hold, window: conf.window, maxSteps: conf.boxMaxSteps, rates: R, centre: fwd?.atm ?? null, settle: par.settle, memo };
     const lendBoxes = O.boxes(c, { ...boxArgs, mode: "lend" });
-    const shownBoxes = conf.boxMode === "lend" ? lendBoxes : conf.tab === "boxes" ? O.boxes(c, { ...boxArgs, mode: "borrow" }) : [];
+    const borrowBoxes = O.boxes(c, { ...boxArgs, mode: "borrow" });
     const spot = num(c.underlyingLtp);
     const futs = st.futures.map((f) => futQuote(f));
     const chains = new Map([...extra].filter(([, v]) => v.chain).map(([e, v]) => [e, v.chain]));
@@ -310,17 +464,22 @@ export function arbPanels(ctx) {
       fwd,
       optRate,
       par,
+      heat: O.devHeat(par.rows),
       stale,
       fresh,
       lendBoxes,
-      boxes: shownBoxes,
+      borrowBoxes,
+      boxes: conf.boxMode === "lend" ? lendBoxes : borrowBoxes,
       term,
+      chains,
       spot,
       oneSidedMarket: twoCount < 2,
       noFuture: !inst,
       nearestFut: st.futures.find((f) => f.expiry >= c.expiry) ?? st.futures[0] ?? null,
       nowMs: now,
     };
+    // The futures carry the ladder shows: the same-expiry future's, else the nearest one with a carry.
+    m.carryFut = term.futures.find((f) => f.expiry === c.expiry && f.carry !== null) ?? term.futures.find((f) => f.carry !== null) ?? null;
     m.isOpp = {
       parity: (r) => Boolean(r.best) && !stale && r.best.net >= conf.minNet && r.liq >= conf.minLiq,
       box: (b) => !stale && !b.crossed && !m.expiryDay && b.vsHurdleBp !== null && b.vsHurdleBp >= conf.minBoxBp && b.liq >= conf.minLiq,
@@ -340,15 +499,16 @@ export function arbPanels(ctx) {
     const conf = cfg();
     const tab = conf.tab;
     if (tab === "parity") {
-      let rows = m.par.rows.map((r) => ({ key: r.key, type: "parity", r, opp: m.isOpp.parity(r), s: parityStruct(r) }));
+      let rows = m.par.rows.map((r, i) => ({ key: r.key, type: "parity", r, i, opp: m.isOpp.parity(r), s: parityStruct(r) }));
       if (conf.onlyOpps) rows = rows.filter((x) => x.opp);
       const s = phone() && conf.onlyOpps ? { key: "best", dir: "desc" } : conf.sort.parity;
       const val = (x) => {
         const r = x.r;
         if (s.key === "dev") return r.dev === null ? null : Math.abs(r.dev);
+        if (s.key === "edge") return O.coverRatio(r.best).cover;
         if (s.key === "conv") return r.conv?.net ?? null;
         if (s.key === "rev") return r.rev?.net ?? null;
-        if (s.key === "annual") return bestAnnual(r)?.v ?? null;
+        if (s.key === "annual") return O.bestAnnualSigned(r)?.v ?? null;
         if (s.key === "best") return r.best?.net ?? null;
         return r.strike;
       };
@@ -379,14 +539,6 @@ export function arbPanels(ctx) {
       return (x - y) * k;
     });
   }
-  const bestAnnual = (r) => {
-    const c = r.conv?.annual ?? null;
-    const v = r.rev?.annual ?? null;
-    const opts = [["conv", c], ["rev", v]].filter(([, a]) => a !== null && a > 0);
-    if (!opts.length) return null;
-    const [k, a] = opts.sort((x, y) => y[1] - x[1])[0];
-    return { k, v: a };
-  };
   /** A futures row as a structure (no orders: the future alone is an ordinary ticket). */
   const futStruct = (f, m) => ({ kind: "fut", key: f.key, f, legs: [], U: f.lot * cfg().lots, lot: f.lot, lots: cfg().lots, m });
   /** A calendar as a structure: roll a long (sell the near at its bid, buy the far at its ask). */
@@ -408,14 +560,21 @@ export function arbPanels(ctx) {
     if (!q) return cell(DASH, "", { aria: "No quote" });
     const b = num(q.bid) > 0 ? formatFixed(q.bid, 2) : DASH;
     const a = num(q.ask) > 0 ? formatFixed(q.ask, 2) : DASH;
-    return cell(`${b} · ${a}`, O.spreadPct(q) === null ? "" : formatPercent(O.spreadPct(q), 1), { aria: `${b} bid, ${a} ask, spread ${formatPercent(O.spreadPct(q), 1)}` });
+    return cell(`${b}\u2009·\u2009${a}`, O.spreadPct(q) === null ? "" : formatPercent(O.spreadPct(q), 1), { aria: `${b} bid, ${a} ask, spread ${formatPercent(O.spreadPct(q), 1)}` });
   };
-  const netCell = (s) => (s ? cell(rupeeSigned(s.net), `${formatSigned(s.grossPts, 2)} pts`, { cls: s.net < 0 ? "neg" : "pos", aria: `Net ${rupeeSigned(s.net)}, gross ${formatSigned(s.grossPts, 2)} points` }) : cell(DASH, "", { aria: "Not executable" }));
+  /** Conversion / reversal: the row's better side carries the pos / neg ink (bold and tinted when it clears costs);
+   *  the other side stays quiet, so each row has exactly one coloured money value. */
+  const netCell = (s, r) => {
+    if (!s) return cell(DASH, "", { aria: "Not executable" });
+    const best = r.best === s;
+    const ink = best ? inkOf(s.net) : "";
+    return cell(rupeeSigned(s.net), `${formatSigned(s.grossPts, 2)} pts`, { cls: `${best ? "best" : "other"}${best && s.net > 0 ? " edge-cell" : ""}`, ink, v: s.net, aria: `Net ${rupeeSigned(s.net)}, gross ${formatSigned(s.grossPts, 2)} points${best ? ", the better side" : ""}` });
+  };
   const PARITY_COLS = {
     strike: { head: "Strike", sort: "strike", cls: "k-col", cell: (x, m) => cell(formatInt(x.r.strike), "", { strike: true, atm: x.r.atm, opp: x.opp, stale: m.stale && Boolean(x.r.best) }) },
     call: { head: "Call bid·ask", cell: (x) => quoteCell(x.r.ce) },
     put: { head: "Put bid·ask", cell: (x) => quoteCell(x.r.pe) },
-    syn: { head: "Synthetic sell·buy", title: "SynB = K + (Ca − Pb)·g, SynS = K + (Cb − Pa)·g, carried at the hurdle", cell: (x) => (x.r.synSell === null ? cell(DASH, x.r.synMid === null ? "" : `mid ${formatFixed(x.r.synMid, 1)}`, { cls: "quiet" }) : cell(`${formatFixed(x.r.synSell, 1)} · ${formatFixed(x.r.synBuy, 1)}`, `mid ${formatFixed(x.r.synMid, 1)}`)) },
+    syn: { head: "Synthetic sell·buy", title: "SynB = K + (Ca − Pb)·g, SynS = K + (Cb − Pa)·g, carried at the hurdle", cell: (x) => (x.r.synSell === null ? cell(DASH, x.r.synMid === null ? "" : `mid ${formatFixed(x.r.synMid, 1)}`, { cls: "quiet" }) : cell(`${formatFixed(x.r.synSell, 1)}\u2009·\u2009${formatFixed(x.r.synBuy, 1)}`, `mid ${formatFixed(x.r.synMid, 1)}`)) },
     dev: {
       head: "Dev",
       sort: "dev",
@@ -423,47 +582,56 @@ export function arbPanels(ctx) {
       cell: (x, m) => {
         const r = x.r;
         if (r.dev === null) return cell(DASH);
-        const tag = r.tag === "callsRich" ? "Calls rich" : r.tag === "putsRich" ? "Puts rich" : "";
-        return cell(formatSigned(r.dev, 1), `${formatSigned(r.devBp, 0)} bp${tag ? ` · ${tag}` : ""}`, { cls: m.oneSidedMarket || r.oneSided ? "quiet" : tag ? "tagged" : "", title: m.oneSidedMarket || r.oneSided ? "Indicative (mid)" : tag ? `${tag}: outside the bid-ask band` : "Inside the spread" });
+        const hc = m.heat[x.i] ?? { side: null, step: 0 };
+        const tag = r.tag === "callsRich" ? "calls rich" : r.tag === "putsRich" ? "puts rich" : "";
+        const quiet = m.oneSidedMarket || r.oneSided;
+        return cell(formatSigned(r.dev, 1), `${formatSigned(r.devBp, 0)} bp`, { heat: hc, tag, cls: quiet ? "quiet" : "", title: quiet ? "Indicative (mid)" : tag ? `${tag[0].toUpperCase()}${tag.slice(1)}: outside the bid-ask band` : "Inside the spread" });
       },
     },
-    conv: { head: "Conversion", sort: "conv", title: "Sell CE at bid, buy PE at ask, buy FUT at ask. Net ₹ for your lots after financing and all charges", cell: (x) => netCell(x.r.conv) },
-    rev: { head: "Reversal", sort: "rev", title: "Buy CE at ask, sell PE at bid, sell FUT at bid. Net ₹ for your lots after financing and all charges", cell: (x) => netCell(x.r.rev) },
+    edge: { head: "Edge", sort: "edge", title: "Cost cover: gross edge ÷ every cost (charges and financing). The tick is the cost; 1.0× breaks even", cell: (x) => cell(null, "", { cover: O.coverRatio(x.r.best) }) },
+    conv: { head: "Conversion", sort: "conv", title: "Sell CE at bid, buy PE at ask, buy FUT at ask. Net ₹ for your lots after financing and all charges", cell: (x) => netCell(x.r.conv, x.r) },
+    rev: { head: "Reversal", sort: "rev", title: "Buy CE at ask, sell PE at bid, sell FUT at bid. Net ₹ for your lots after financing and all charges", cell: (x) => netCell(x.r.rev, x.r) },
     annual: {
       head: "Net %/yr",
       sort: "annual",
       title: "Net after charges and financing at your hurdle, per year on capital: this is return over the hurdle",
       cell: (x, m) => {
-        const a = m.expiryDay ? null : bestAnnual(x.r);
-        return a ? cell(pct(a.v, 1), a.k) : cell(DASH, "", { cls: "quiet" });
+        const a = m.expiryDay ? null : O.bestAnnualSigned(x.r);
+        return a ? cell(pctSigned(a.v, 1), a.k, { ink: inkOf(a.v * 100, 1), v: a.v }) : cell(DASH, "", { cls: "quiet" });
       },
     },
     liq: { head: "Liq", title: "1-5 from spread and volume rank; the weaker option leg", cell: (x) => cell(null, "", { liq: x.r.liq }) },
     fwdK: { head: "Implied fwd at K", cell: (x) => cell(formatFixed(x.r.synMid, 1)) },
     ivpc: { head: "IV P−C", title: "PE IV minus CE IV (broker IVs)", cell: (x) => cell(formatSigned(x.r.ivDiff, 2)) },
     oi: { head: "OI C·P", cell: (x) => cell(`${formatCompact(x.r.oiC)} · ${formatCompact(x.r.oiP)}`) },
-    gross: { head: "Gross pts", cell: (x) => cell(x.r.best ? formatSigned(x.r.best.grossPts, 2) : DASH, x.r.best ? KIND_NAME[x.r.best.kind] : "") },
+    gross: { head: "Gross pts", cell: (x) => cell(x.r.best ? formatSigned(x.r.best.grossPts, 2) : DASH, x.r.best ? KIND_NAME[x.r.best.kind] : "", { ink: x.r.best ? inkOf(x.r.best.grossPts, 2) : "" }) },
     charges: { head: "Charges ₹", cell: (x) => cell(x.r.best ? formatRupee(x.r.best.chargesTotal, 0) : DASH, x.r.best ? `${formatFixed(x.r.best.chargesTotal / x.r.best.U, 2)} pts` : "") },
     capital: { head: "Capital ₹", cell: (x) => cell(x.r.best ? money(x.r.best.capital) : DASH, x.r.best ? "est." : "") },
   };
-  const COMPACT_PARITY = ["strike", "dev", "conv", "rev", "annual", "liq"];
-  const NEEDS_FUT = new Set(["conv", "rev", "annual", "gross", "charges", "capital"]);
+  const COMPACT_PARITY = ["strike", "dev", "edge", "conv", "rev", "annual", "liq"];
+  const NEEDS_FUT = new Set(["conv", "rev", "annual", "gross", "charges", "capital", "edge"]);
+  const lendMode = () => cfg().boxMode === "lend";
   const BOX_COLS = {
     strikes: { head: "Strikes", sort: "strikes", cls: "k-col", cell: (x) => cell(`${formatInt(x.b.k1)} / ${formatInt(x.b.k2)}`, `${formatInt(x.b.width)} pts`, { strike: true, opp: x.opp, crossed: x.b.crossed }) },
-    price: { head: () => (cfg().boxMode === "lend" ? "Debit" : "Credit"), cell: (x) => cell(formatFixed(x.b.price, 2), formatRupee(x.b.priceRs, 0)) },
+    price: { head: () => (lendMode() ? "Debit" : "Credit"), cell: (x) => cell(formatFixed(x.b.price, 2), formatRupee(x.b.priceRs, 0)) },
     charges: { head: "Charges", title: "All-in for the hold mode", cell: (x) => cell(formatRupee(x.b.chargesTotal, 0), `${formatFixed(x.b.chargesTotal / x.b.U, 2)} pts`) },
-    locked: { head: "Locked ₹", sort: "locked", title: "Lend: W·U − D·U − charges. Borrow: Cr·U − W·U − charges (the interest you pay)", cell: (x) => cell(rupeeSigned(x.b.locked), "", { cls: x.b.locked < 0 && cfg().boxMode === "lend" ? "neg" : "" }) },
-    rate: { head: "Rate %/yr", sort: "rate", title: "Net of charges, simple ACT/365", cell: (x) => cell(pct(x.b.rate, 2), x.b.grossRate === null ? "" : `gross ${pct(x.b.grossRate, 2)}`) },
-    vsHurdle: { head: "vs hurdle", sort: "vsHurdle", title: "Lend: rate − hurdle. Borrow: hurdle − rate (positive = cheaper than your hurdle)", cell: (x) => cell(x.b.vsHurdleBp === null ? DASH : `${formatSigned(x.b.vsHurdleBp, 0)} bp`, "", { cls: x.b.vsHurdleBp !== null && x.b.vsHurdleBp < 0 ? "neg" : "" }) },
-    capital: { head: "Capital", title: "Lend: debit + charges. Borrow: SPAN plus exposure on a short box is close to its width; verify with your broker", cell: (x) => cell(money(x.b.capital), cfg().boxMode === "lend" ? "" : "≈ width") },
+    locked: { head: "Locked ₹", sort: "locked", title: "Lend: W·U − D·U − charges. Borrow: Cr·U − W·U − charges (the interest you pay)", cell: (x) => cell(rupeeSigned(x.b.locked), "", { ink: inkOf(x.b.locked), v: x.b.locked }) },
+    rate: {
+      head: "Rate %/yr",
+      sort: "rate",
+      title: "Net of charges, simple ACT/365. Green when it beats your hurdle (lend above it, borrow below it)",
+      cell: (x) => cell(pct(x.b.rate, 2), x.b.grossRate === null ? "" : `gross ${pct(x.b.grossRate, 2)}`, { ink: x.b.vsHurdleBp === null ? "" : x.b.vsHurdleBp >= 0 ? "ink-pos" : "ink-neg", v: x.b.rate }),
+    },
+    vsHurdle: { head: "vs hurdle", sort: "vsHurdle", title: "Lend: rate − hurdle. Borrow: hurdle − rate (positive = cheaper than your hurdle). Fixed steps at 10 / 50 / 150 bp", cell: (x) => cell(null, "", { bp: x.b.vsHurdleBp }) },
+    capital: { head: "Capital", title: "Lend: debit + charges. Borrow: SPAN plus exposure on a short box is close to its width; verify with your broker", cell: (x) => cell(money(x.b.capital), lendMode() ? "" : "≈ width") },
     liq: { head: "Liq", cell: (x) => cell(null, "", { liq: x.b.liq }) },
   };
   const COMPACT_BOX = ["strikes", "price", "rate", "vsHurdle", "capital", "liq"];
   const FUT_COLS = {
     expiry: { head: "Expiry", cls: "k-col", cell: (x, m) => cell(dayMon(x.f.expiry), `${x.f.days === null ? DASH : formatInt(Math.max(0, x.f.days))} d · Monthly`, { strike: true, cur: x.f.expiry === m.c.expiry }) },
     bidask: { head: "Bid · Ask", cell: (x) => cell(x.f.twoSided ? `${formatFixed(x.f.bid, 2)} · ${formatFixed(x.f.ask, 2)}` : DASH, x.f.spread === null ? "" : `spread ${formatFixed(x.f.spread, 2)}`) },
-    basis: { head: "Basis", cell: (x) => cell(formatSigned(x.f.basis, 2), x.f.basisPct === null ? "" : formatPercent(x.f.basisPct, 2)) },
-    carry: { head: "Carry %/yr", title: "(Fm/S − 1)·365/d against your hurdle", cell: (x) => cell(pct(x.f.carry, 2), x.f.carryVsBp === null ? "" : `${formatSigned(x.f.carryVsBp, 0)} bp`) },
+    basis: { head: "Basis", cell: (x, m) => cell(formatSigned(x.f.basis, 2), x.f.basisPct === null ? "" : formatPercent(x.f.basisPct, 2), { bar: { value: x.f.basis, max: Math.max(...m.term.futures.map((f) => Math.abs(f.basis ?? 0))) } }) },
+    carry: { head: "Carry %/yr", title: "(Fm/S − 1)·365/d against your hurdle", cell: (x) => cell(pct(x.f.carry, 2), "", { ink: x.f.carryVsBp === null ? "" : x.f.carryVsBp >= 0 ? "ink-pos" : "ink-neg", subBp: x.f.carryVsBp, v: x.f.carry }) },
     fwd: {
       head: "Options fwd",
       title: "The chain's implied forward for that expiry; Fut rich if its bid is above the ATM synthetic's sell, cheap if its ask is below the synthetic's buy",
@@ -473,19 +641,42 @@ export function arbPanels(ctx) {
     short: { head: "Cheaper short", cell: (x) => cheapCell(x.f.cheaper?.short) },
   };
   const COMPACT_FUT = ["expiry", "basis", "carry", "fwd", "long", "short"];
-  const cheapCell = (c) => (c ? cell(c.pick === "future" ? "Future" : "Synthetic", `by ${formatFixed(c.diffPts, 1)} pts · ${formatRupee(c.diffPerLot, 0)}/lot`) : cell(DASH, "", { cls: "quiet" }));
+  const cheapCell = (c) => (c ? cell(c.pick === "future" ? "Future" : "Synthetic", `by ${formatFixed(c.diffPts, 1)} pts · ${formatRupee(c.diffPerLot, 0)}/lot`, { subInk: "ink-pos" }) : cell(DASH, "", { cls: "quiet" }));
 
+  // The column set steps down only when the table does not fit its area (squeeze 0 full, 1 compact + synthetic,
+  // 2 compact); a resize starts again from the full set.
+  let squeeze = 0;
   function columns(m) {
     const tab = cfg().tab;
-    const compact = narrow() && !phone();
     if (tab === "parity") {
-      let ids = compact ? COMPACT_PARITY : cfg().cols;
+      let ids = squeeze === 0 ? cfg().cols : squeeze === 1 ? ["strike", "syn", ...COMPACT_PARITY.slice(1)] : COMPACT_PARITY;
       if (m.noFuture || m.futError || m.par.lotMismatch) ids = ids.filter((k) => !NEEDS_FUT.has(k));
       return ids.map((k) => ({ id: k, ...PARITY_COLS[k] }));
     }
-    if (tab === "boxes") return (compact ? COMPACT_BOX : Object.keys(BOX_COLS)).map((k) => ({ id: k, ...BOX_COLS[k] }));
-    return (compact ? COMPACT_FUT : Object.keys(FUT_COLS)).map((k) => ({ id: k, ...FUT_COLS[k] }));
+    if (tab === "boxes") return (squeeze ? COMPACT_BOX : Object.keys(BOX_COLS)).map((k) => ({ id: k, ...BOX_COLS[k] }));
+    return (squeeze ? COMPACT_FUT : Object.keys(FUT_COLS)).map((k) => ({ id: k, ...FUT_COLS[k] }));
   }
+  /** After a rebuild: step the column set down while the table is wider than its area. */
+  function fitTable(m, rows) {
+    const max = cfg().tab === "parity" ? 2 : 1;
+    while (squeeze < max && rows.length && tableEl.offsetWidth > wrapEl.clientWidth + 1) {
+      squeeze++;
+      tableSig = "";
+      drawTable(m, rows);
+    }
+  }
+  let resizeT = null;
+  const onResize = () => {
+    clearTimeout(resizeT);
+    resizeT = setTimeout(() => {
+      if (destroyed) return;
+      squeeze = 0;
+      tableSig = "";
+      vizSig = "";
+      draw();
+    }, 150);
+  };
+  if (typeof window !== "undefined") window.addEventListener("resize", onResize);
 
   // ── Table: built once per structure, patched per tick ──
   let tableSig = "";
@@ -521,26 +712,64 @@ export function arbPanels(ctx) {
     else next = { ...def };
     setCfg({ sort: { ...cfg().sort, [tab]: next } });
   }
+  const isKey = (col) => col.id === "strike" || col.id === "strikes" || col.id === "expiry";
   function renderCell(td, v, col) {
+    const base = `${col.cls ?? ""} ${isKey(col) ? "" : "num"} ${v.cls ?? ""}`.trim();
+    // Persistent glyphs: patched in place so their bars and segments move from the old value.
+    if (v.cover !== undefined) {
+      if (!td.__cover) {
+        td.__cover = coverBar("cell");
+        td.replaceChildren(td.__cover.el);
+        td.className = `${base} arb-edge-td`;
+      }
+      const tone = td.__cover.set(v.cover);
+      td.setAttribute("aria-label", v.cover.gross === null ? "No edge figure" : tone === "pos" ? `Covers costs ${formatFixed(v.cover.cover ?? 0, 1)} times` : `Needs ${formatFixed(v.cover.short, 2)} points more`);
+      return;
+    }
+    if (v.liq !== undefined) {
+      if (!td.__liq) {
+        td.__liq = liqMeter();
+        td.replaceChildren(td.__liq);
+        td.className = base;
+      }
+      setLiq(td.__liq, v.liq);
+      return;
+    }
     const sig = JSON.stringify(v);
     if (td.__sig === sig) return;
     td.__sig = sig;
-    td.className = `${col.cls ?? ""} ${col.id === "strike" || col.id === "strikes" || col.id === "expiry" ? "" : "num"} ${v.cls ?? ""}`.trim();
+    td.className = base;
     if (v.title) td.title = v.title;
     else td.removeAttribute("title");
     if (v.aria) td.setAttribute("aria-label", v.aria);
     else td.removeAttribute("aria-label");
-    if (v.liq !== undefined) return td.replaceChildren(dots(v.liq));
+    if (v.heat) {
+      td.classList.add("arb-dev-td", "dv-heat");
+      td.dataset.side = v.heat.side ?? "";
+      td.dataset.step = String(v.heat.side ? Math.min(3, v.heat.step) : 0);
+    } else if (td.dataset.side !== undefined) {
+      delete td.dataset.side;
+      delete td.dataset.step;
+    }
+    if (v.bp !== undefined) return td.replaceChildren(bpChip(v.bp));
     if (v.strike) {
       const tags = [];
-      if (v.atm) tags.push(h("span", { class: "arb-tag atm", title: "Nearest the implied forward (not spot)" }, "ATM"));
-      if (v.cur) tags.push(h("span", { class: "arb-tag atm", title: "The expiry selected in the toolbar" }, "Selected"));
       if (v.opp) tags.push(h("span", { class: "arb-tag edge", title: "Clears your filters" }, "Edge"));
       if (v.stale) tags.push(h("span", { class: "arb-tag stale", title: "Quotes are stale" }, "Stale"));
-      if (v.crossed) tags.push(h("span", { class: "arb-tag bad", title: "Almost certainly a stale or bad quote" }, "Crossed quotes"));
-      return td.replaceChildren(...[h("span", { class: "arb-k" }, h("strong", {}, v.main), v.sub ? h("small", {}, v.sub) : null), tags.length ? h("span", { class: "arb-tags" }, tags.slice(0, 2)) : null].filter(Boolean));
+      if (v.crossed) tags.push(h("span", { class: "arb-tag bad", title: "Almost certainly a stale or bad quote" }, "Crossed"));
+      const k = h("strong", { title: v.atm ? "Nearest the implied forward (not spot)" : v.cur ? "The expiry selected in the toolbar" : undefined }, v.main);
+      return td.replaceChildren(...[h("span", { class: "arb-k" }, k, v.sub ? h("small", {}, v.sub) : null), tags.length ? h("span", { class: "arb-tags" }, tags.slice(0, 2)) : null].filter(Boolean));
     }
-    td.replaceChildren(h("span", { class: "two" }, h("strong", {}, v.main ?? DASH), h("small", {}, v.sub || " ")));
+    const strong = td.__strong && td.contains(td.__strong) ? td.__strong : null;
+    const small = h("small", { class: v.subInk ?? "" }, v.sub || " ");
+    if (v.tag) small.append(" · ", h("span", { class: v.tag === "calls rich" ? "ink-call" : "ink-put" }, v.tag));
+    if (v.subBp !== undefined && v.subBp !== null) small.replaceChildren(bpChip(v.subBp));
+    const main = strong ?? h("strong", {});
+    main.className = v.ink ?? "";
+    setVal(main, v.main ?? DASH, v.v, { rel: 0.05 });
+    td.__strong = main;
+    const bar = v.bar ? h("span", { class: "arb-basis", "aria-hidden": "true" }, setBar(h("span", { class: "dv-bar", "data-dv": "iv" }), v.bar.value, v.bar.max)) : null;
+    td.replaceChildren(h("span", { class: "two" }, bar ? h("span", { class: "arb-bar-row" }, bar, main) : main, small));
   }
   function calCells(cal, span) {
     const pair = (l, v, t) => h("span", { class: "arb-cal-f", title: t }, h("small", {}, l), v);
@@ -562,14 +791,20 @@ export function arbPanels(ctx) {
   }
   function drawTable(m, list) {
     const cols = columns(m);
-    const sig = JSON.stringify([cfg().tab, m.c.underlying, m.c.expiry, cfg().window, cols.map((c) => c.id), cfg().boxMode, cfg().sort[cfg().tab], m.noFuture]);
-    if (sig !== tableSig) {
+    const sig = JSON.stringify([cfg().tab, m.c.underlying, m.c.expiry, cfg().window, cols.map((c) => c.id), cfg().boxMode, m.noFuture]);
+    const sortSig = JSON.stringify(cfg().sort[cfg().tab]);
+    const fresh = sig !== tableSig;
+    if (fresh) {
       tableSig = sig;
-      buildHead(cols);
       tbody.replaceChildren();
       rowEls.clear();
     }
-    caption.textContent = cfg().tab === "parity" ? `Put-call parity by strike, ${m.c.underlying} ${dayMon(m.c.expiry)}, ${m.noFuture ? "against the implied forward" : "against the future"}` : cfg().tab === "boxes" ? `Box spreads, ${cfg().boxMode === "lend" ? "lending" : "borrowing"} rates, ${m.c.underlying} ${dayMon(m.c.expiry)}` : `${m.c.underlying} futures term structure`;
+    drawTable.fresh = fresh;
+    if (fresh || thead.__sort !== sortSig) {
+      thead.__sort = sortSig;
+      buildHead(cols);
+    }
+    caption.textContent = cfg().tab === "parity" ? `Put-call parity by strike, ${m.c.underlying} ${dayMon(m.c.expiry)}, ${m.noFuture ? "against the implied forward" : "against the future"}` : cfg().tab === "boxes" ? `Box spreads, ${lendMode() ? "lending" : "borrowing"} rates, ${m.c.underlying} ${dayMon(m.c.expiry)}` : `${m.c.underlying} futures term structure`;
     const keep = new Set(list.map((x) => x.key));
     for (const [k, r] of rowEls) {
       if (!keep.has(k)) {
@@ -582,7 +817,7 @@ export function arbPanels(ctx) {
       let r = rowEls.get(x.key);
       if (!r) {
         const tr = h("tr", { "data-key": x.key, tabindex: "-1" });
-        r = { tr, tds: new Map(), cal: null };
+        r = { tr, tds: new Map(), cal: null, net: null };
         rowEls.set(x.key, r);
       }
       if (x.type === "cal") {
@@ -602,56 +837,105 @@ export function arbPanels(ctx) {
           renderCell(td, c.cell(x, m), c);
         }
       }
-      const cls = ["arb-row", x.type === "cal" ? "cal-row" : "", x.opp ? "opp" : "", m.stale && x.type !== "fut" && x.type !== "cal" ? "stale" : "", x.key === selKey() ? "sel" : "", x.type === "parity" && x.r.atm ? "atm" : "", x.type === "fut" && x.f.expiry === m.c.expiry ? "cur" : ""].filter(Boolean).join(" ");
+      const net = x.type === "parity" ? (x.r.best?.net ?? null) : null;
+      const newEdge = x.opp && r.net !== null && r.net <= 0 && net > 0;
+      r.net = net;
+      const cls = ["arb-row", x.type === "cal" ? "cal-row" : "", x.opp ? "opp" : "", newEdge ? "new-edge" : "", m.stale && x.type !== "fut" && x.type !== "cal" ? "stale" : "", x.key === selKey() ? "sel" : "", x.type === "parity" && x.r.atm ? "atm" : "", x.type === "fut" && x.f.expiry === m.c.expiry ? "cur" : ""].filter(Boolean).join(" ");
       if (r.tr.className !== cls) r.tr.className = cls;
       r.tr.setAttribute("aria-selected", String(x.key === selKey()));
       frag.push(r.tr);
     }
-    // Reorder the existing nodes only when the order changed.
+    // Reorder the existing nodes only when the order changed; rows slide to their new place (FLIP).
     const cur = [...tbody.children];
-    if (cur.length !== frag.length || cur.some((el, i) => el !== frag[i])) tbody.append(...frag);
+    if (cur.length !== frag.length || cur.some((el, i) => el !== frag[i])) {
+      const before = fresh ? null : new Map(cur.map((el) => [el, el.offsetTop]));
+      tbody.append(...frag);
+      flip(frag, before);
+    }
   }
 
-  // ── Phone cards ──
+  // ── Phone cards: three rows, a leading bar for the edge, the cover bar and the liquidity meter ──
   const cardEls = new Map();
   let cardSig = "";
-  function cardOf(x, m) {
+  function newCard(x) {
+    const li = h("li", { "data-key": x.key, role: "option", tabindex: "0", class: "arb-card" });
+    const p = { li, a: h("span", { class: "arb-ca" }), b: h("span", { class: "arb-cb" }), v: h("strong", { class: "arb-cv" }), sw: h("i", { class: "arb-sw dv-heat", "aria-hidden": "true" }), d: h("span", { class: "arb-cd" }), r: h("span", { class: "arb-cr" }), x3: h("span", { class: "arb-cx" }), liq: liqMeter(), cover: coverBar("cell") };
+    li.append(h("span", { class: "arb-c1" }, p.a, p.b, p.v), h("span", { class: "arb-c2" }, p.sw, p.d, p.r), h("span", { class: "arb-c3" }, p.cover.el, p.x3, p.liq));
+    li.__p = p;
+    return li;
+  }
+  function patchCard(li, x, m) {
+    const p = li.__p;
+    let edge = "none";
     if (x.type === "parity") {
       const r = x.r;
       const s = r.best;
-      const a = m.expiryDay ? null : bestAnnual(r);
-      return {
-        l1: `${formatInt(r.strike)}${s ? ` · ${KIND_NAME[s.kind]}` : ""}`,
-        r1: s ? rupeeSigned(s.net) : r.dev === null ? DASH : `${formatSigned(r.dev, 1)} pts`,
-        r1cls: s && s.net < 0 ? "neg" : !s && (m.oneSidedMarket || r.oneSided) ? "neg" : "",
-        l2: `Syn ${formatFixed(r.synMid, 1)} · Dev ${formatSigned(r.dev, 1)}${r.tag ? ` · ${r.tag === "callsRich" ? "Calls rich" : "Puts rich"}` : ""}`,
-        r2: s ? (a ? `${pct(a.v, 1)}/yr` : DASH) : (m.oneSidedMarket || r.oneSided) && r.dev !== null ? "indicative (mid)" : m.noFuture ? "vs implied fwd" : DASH,
-        liq: r.liq,
-        tags: [r.atm ? "ATM" : null, x.opp ? "Edge" : null, m.stale && s ? "Stale" : null].filter(Boolean),
-      };
-    }
-    if (x.type === "box") {
+      const a = m.expiryDay ? null : O.bestAnnualSigned(r);
+      const hc = m.heat[x.i] ?? { side: null, step: 0 };
+      p.a.replaceChildren(h("strong", { class: r.atm ? "arb-atm" : "" }, formatInt(r.strike)));
+      p.b.textContent = s ? KIND_NAME[s.kind] : m.noFuture ? "vs implied fwd" : "";
+      p.v.className = `arb-cv ${s ? inkOf(s.net) : ""}`;
+      setVal(p.v, s ? rupeeSigned(s.net) : r.dev === null ? DASH : `${formatSigned(r.dev, 1)} pts`, s ? s.net : null, { rel: 0.05 });
+      p.sw.dataset.side = hc.side ?? "";
+      p.sw.dataset.step = String(hc.step);
+      p.d.replaceChildren(`dev ${formatSigned(r.dev, 1)}`, r.tag ? h("span", { class: r.tag === "callsRich" ? "ink-call" : "ink-put" }, r.tag === "callsRich" ? " · calls rich" : " · puts rich") : "");
+      p.r.className = `arb-cr ${a ? inkOf(a.v * 100, 1) : ""}`;
+      p.r.textContent = s ? (a ? `${pctSigned(a.v, 1)}/yr` : DASH) : (m.oneSidedMarket || r.oneSided) && r.dev !== null ? "indicative" : "";
+      p.cover.el.hidden = !s;
+      if (s) p.cover.set(O.coverRatio(s), { compact: false });
+      p.x3.replaceChildren(...[x.opp ? h("span", { class: "arb-tag edge" }, "Edge") : null, m.stale && s ? h("span", { class: "arb-tag stale" }, "Stale") : null].filter(Boolean));
+      setLiq(p.liq, r.liq);
+      edge = !s ? "none" : m.stale ? "stale" : s.net > 0 && x.opp ? "pos" : "neg";
+    } else if (x.type === "box") {
       const b = x.b;
-      return {
-        l1: `${formatInt(b.k1)} / ${formatInt(b.k2)} · ${b.mode === "lend" ? "Lend" : "Borrow"}`,
-        r1: pct(b.rate, 2),
-        r1cls: b.vsHurdleBp !== null && b.vsHurdleBp < 0 ? "neg" : "",
-        l2: `${b.mode === "lend" ? "Debit" : "Credit"} ${formatFixed(b.price, 2)} · ${money(b.capital)}`,
-        r2: b.vsHurdleBp === null ? DASH : `${formatSigned(b.vsHurdleBp, 0)} bp vs hurdle`,
-        liq: b.liq,
-        tags: [x.opp ? "Edge" : null, b.crossed ? "Crossed quotes" : null].filter(Boolean),
-      };
-    }
-    if (x.type === "fut") {
+      p.a.replaceChildren(h("strong", {}, `${formatInt(b.k1)} / ${formatInt(b.k2)}`));
+      p.b.textContent = b.mode === "lend" ? "Lend" : "Borrow";
+      p.v.className = `arb-cv ${b.vsHurdleBp === null ? "" : b.vsHurdleBp >= 0 ? "ink-pos" : "ink-neg"}`;
+      setVal(p.v, pct(b.rate, 2), b.rate);
+      p.sw.hidden = true;
+      p.d.textContent = `${b.mode === "lend" ? "Debit" : "Credit"} ${formatFixed(b.price, 2)} · ${money(b.capital)}`;
+      p.r.className = `arb-cr ${inkOf(b.locked)}`;
+      p.r.textContent = rupeeSigned(b.locked);
+      p.cover.el.hidden = true;
+      p.x3.replaceChildren(...[bpChip(b.vsHurdleBp, { suffix: " bp vs hurdle" }), b.crossed ? h("span", { class: "arb-tag bad" }, "Crossed") : null].filter(Boolean));
+      setLiq(p.liq, b.liq);
+      edge = m.stale ? "stale" : x.opp ? "pos" : "neg";
+    } else if (x.type === "fut") {
       const f = x.f;
-      return { l1: `${dayMon(f.expiry)} · ${f.days === null ? DASH : formatInt(Math.max(0, f.days))} d`, r1: `${pct(f.carry, 2)}/yr`, r1cls: "", l2: `Basis ${formatSigned(f.basis, 2)}${f.fwdTag ? ` · Fut ${f.fwdTag}` : ""}`, r2: f.cheaper ? `Long via ${f.cheaper.long.pick}` : `${formatFixed(f.bid, 2)} · ${formatFixed(f.ask, 2)}`, liq: null, tags: f.expiry === m.c.expiry ? ["Selected"] : [] };
+      p.a.replaceChildren(h("strong", { class: f.expiry === m.c.expiry ? "arb-atm" : "" }, dayMon(f.expiry)));
+      p.b.textContent = `${f.days === null ? DASH : formatInt(Math.max(0, f.days))} d`;
+      p.v.className = `arb-cv ${f.carryVsBp === null ? "" : f.carryVsBp >= 0 ? "ink-pos" : "ink-neg"}`;
+      setVal(p.v, `${pct(f.carry, 2)}/yr`, f.carry);
+      p.sw.hidden = true;
+      p.d.textContent = `Basis ${formatSigned(f.basis, 2)}${f.fwdTag ? ` · Fut ${f.fwdTag}` : ""}`;
+      p.r.className = "arb-cr";
+      p.r.textContent = f.cheaper ? `Long via ${f.cheaper.long.pick}` : f.twoSided ? `${formatFixed(f.bid, 2)} · ${formatFixed(f.ask, 2)}` : "";
+      p.cover.el.hidden = true;
+      p.x3.replaceChildren(bpChip(f.carryVsBp, { suffix: " bp vs hurdle" }));
+      p.liq.hidden = true;
+    } else {
+      const c = x.cal;
+      li.classList.add("cal");
+      p.a.replaceChildren(h("strong", {}, `${mon(c.from)} → ${mon(c.to)}`));
+      p.b.textContent = "Calendar";
+      p.v.className = "arb-cv";
+      setVal(p.v, pct(c.fwdRate, 2), c.fwdRate);
+      p.sw.hidden = true;
+      p.d.textContent = c.lotMismatch ? "Lot sizes differ: no roll" : c.rollLong === null ? `Roll long ${DASH}` : `Roll long ${formatRupee(c.rollLong, 0)}/lot`;
+      p.r.textContent = c.fair === null ? "" : `fair ${formatFixed(c.fair, 1)}`;
+      p.cover.el.hidden = true;
+      p.x3.replaceChildren(...[c.tag ? h("span", { class: `arb-rc ${c.tag === "rich" ? "ink-neg" : "ink-pos"}` }, `${c.tag} ${formatSigned(c.vsFair, 1)}`) : null].filter(Boolean));
+      p.liq.hidden = true;
     }
-    const c = x.cal;
-    return { l1: `${mon(c.from)} → ${mon(c.to)}`, r1: `${pct(c.fwdRate, 2)}`, r1cls: "", l2: c.lotMismatch ? "Lot sizes differ: no roll" : c.rollLong === null ? `Roll long ${DASH}` : `Roll long ${formatRupee(c.rollLong, 0)}/lot`, r2: c.fair === null ? DASH : `fair ${formatFixed(c.fair, 1)} · ${c.tag ?? ""}`, liq: null, tags: [], cal: true };
+    if (li.dataset.edge !== edge) {
+      if (edge === "pos" && li.dataset.edge === "neg") li.classList.add("new-edge");
+      li.dataset.edge = edge;
+    }
   }
   function drawCards(m, list) {
     const sig = JSON.stringify([cfg().tab, m.c.underlying, m.c.expiry, cfg().boxMode]);
-    if (sig !== cardSig) {
+    const fresh = sig !== cardSig;
+    if (fresh) {
       cardSig = sig;
       cardsEl.replaceChildren();
       cardEls.clear();
@@ -667,25 +951,22 @@ export function arbPanels(ctx) {
     for (const x of list) {
       let li = cardEls.get(x.key);
       if (!li) {
-        li = h("li", { "data-key": x.key, role: "option", tabindex: "0" });
+        li = newCard(x);
         cardEls.set(x.key, li);
       }
-      const v = cardOf(x, m);
-      const s = JSON.stringify(v);
-      if (li.__sig !== s) {
-        li.__sig = s;
-        li.replaceChildren(
-          h("span", { class: "arb-c1" }, h("strong", {}, v.l1, v.tags.map((t) => h("span", { class: `arb-tag ${t === "ATM" || t === "Selected" ? "atm" : t === "Edge" ? "edge" : t === "Stale" ? "stale" : "bad"}` }, t))), h("strong", { class: `arb-cv ${v.r1cls}` }, v.r1)),
-          h("span", { class: "arb-c2" }, h("span", {}, v.l2, v.liq !== null ? [" · ", dots(v.liq)] : null), h("span", {}, v.r2)),
-        );
-      }
-      const cls = ["arb-card", x.opp ? "opp" : "", m.stale && x.type === "parity" && x.r.best ? "stale" : "", v.cal ? "cal" : "", x.key === selKey() ? "sel" : ""].filter(Boolean).join(" ");
-      if (li.className !== cls) li.className = cls;
+      patchCard(li, x, m);
+      li.classList.toggle("opp", x.opp);
+      li.classList.toggle("stale", Boolean(m.stale && x.type === "parity" && x.r.best));
+      li.classList.toggle("sel", x.key === selKey());
       li.setAttribute("aria-selected", String(x.key === selKey()));
       order.push(li);
     }
     const cur = [...cardsEl.children];
-    if (cur.length !== order.length || cur.some((el, i) => el !== order[i])) cardsEl.append(...order);
+    if (cur.length !== order.length || cur.some((el, i) => el !== order[i])) {
+      const before = fresh ? null : new Map(cur.map((el) => [el, el.offsetTop]));
+      cardsEl.append(...order);
+      flip(order, before);
+    }
   }
 
   // ── Selection ──
@@ -704,8 +985,16 @@ export function arbPanels(ctx) {
     const r = rowEls.get(key);
     const card = cardEls.get(key);
     if (scroll) (phone() ? card : r?.tr)?.scrollIntoView?.({ block: "nearest" });
-    if (phone() && open) openSheet();
-    else if (!phone()) r?.tr.focus({ preventScroll: !scroll });
+    if (sheetMode() && open) openSheet();
+    else if (!sheetMode()) r?.tr.focus({ preventScroll: !scroll });
+  }
+  /** Go to an item on another tab (rail cards, ladder marks, B). */
+  function goTo(tab, key, { boxMode = null, open = sheetMode() } = {}) {
+    const patch = {};
+    if (boxMode && cfg().boxMode !== boxMode) patch.boxMode = boxMode;
+    if (cfg().tab !== tab) patch.tab = tab;
+    if (Object.keys(patch).length) setCfg(patch);
+    select(key, { scroll: true, open });
   }
   function moveSel(d) {
     if (!list.length) return;
@@ -714,35 +1003,43 @@ export function arbPanels(ctx) {
     select(list[j].key, { scroll: true });
   }
   function focusDetail() {
-    if (phone()) return openSheet();
+    if (sheetMode()) return openSheet();
     paneDetail.el.querySelector(".arb-d-title")?.focus();
   }
 
-  // ── Detail (the pane on desktop / tablet, the bottom sheet on phones) ──
+  // ── Detail (the pane on desktop, the bottom sheet on tablets and phones) ──
   function createDetail({ pane = false, onTitle = null } = {}) {
     const title = h("h3", { class: "arb-d-title", tabindex: "-1" });
     const kindPill = h("span", { class: "arb-kind" });
     const kindSeg = h("div", { class: "arb-kind-seg" });
+    const heroNet = h("strong", { class: "arb-h-net" });
+    const heroLine = h("span", { class: "arb-h-line" });
+    const heroCover = coverBar("pane");
+    const hero = h("div", { class: "arb-hero", hidden: true }, h("div", { class: "arb-h-top" }, heroNet, heroLine), heroCover.el);
     const holdNote = h("p", { class: "arb-d-note" });
     const legsHost = h("div", { class: "arb-d-sec" });
-    const lotsHost = h("div", { class: "arb-d-sec" });
-    const wfHost = h("div", { class: "arb-d-sec" });
+    const lotsHost = h("div", { class: "arb-d-sec arb-d-lots" });
+    const wfHost = h("div", { class: "arb-d-sec arb-wf-sec" });
+    const payHost = h("div", { class: "arb-d-sec arb-pay" });
     const retHost = h("div", { class: "arb-d-sec" });
     const target = h("input", { type: "number", step: "0.05", min: "0", max: "100", inputmode: "decimal", class: "arb-target", "aria-label": "Target rate, percent a year" });
     const targetOut = h("output", { class: "arb-target-out" });
-    const calcHost = h("div", { class: "arb-d-sec arb-calc", hidden: true }, h("h4", {}, "Target rate → limit"), h("label", { class: "arb-calc-row" }, h("span", {}, "Target rate %/yr"), target), targetOut, h("p", { class: "arb-d-fine" }, "Charges at today's quotes (approx.). Rounded to tick in the safe direction."));
-    const payHost = h("p", { class: "arb-d-pay" });
+    const targetGap = h("span", { class: "arb-target-gap" });
+    const calcHost = h("div", { class: "arb-d-sec arb-calc", hidden: true }, h("h4", {}, "Target rate → limit"), h("label", { class: "arb-calc-row" }, h("span", {}, "Target rate %/yr"), target), targetOut, targetGap, h("p", { class: "arb-d-fine" }, "Charges at today's quotes (approx.). Rounded to tick in the safe direction."));
     const flagsHost = h("ul", { class: "arb-flags" });
     const copyBtn = h("button", { type: "button", class: "small" }, icon("copy"), "Copy legs");
     const previewBtn = h("button", { type: "button", class: "small primary" }, "Preview orders");
+    const why = h("p", { class: "arb-d-why", hidden: true });
     const ticketBtns = h("span", { class: "arb-d-tk" });
-    const actions = h("div", { class: "arb-d-actions" }, copyBtn, ticketBtns, previewBtn);
+    const actions = h("div", { class: "arb-d-actions" }, why, copyBtn, ticketBtns, previewBtn);
     const msg = h("div", { class: "arb-d-msg" });
-    const body = h("div", { class: "arb-d-body" }, holdNote, legsHost, lotsHost, wfHost, retHost, calcHost, payHost, flagsHost);
-    const el = h("div", { class: `arb-detail${pane ? " in-pane" : ""}` }, h("div", { class: "arb-d-head" }, h("span", { class: "arb-d-eyebrow" }), title, h("div", { class: "arb-d-pills" }, kindPill, kindSeg)), msg, body, actions);
+    const body = h("div", { class: "arb-d-body" }, wfHost, payHost, holdNote, legsHost, lotsHost, retHost, calcHost, flagsHost);
+    const el = h("div", { class: `arb-detail${pane ? " in-pane" : ""}` }, h("div", { class: "arb-d-head" }, h("span", { class: "arb-d-eyebrow" }), title, h("div", { class: "arb-d-pills" }, kindPill, kindSeg), hero), msg, body, actions);
     const eyebrow = el.querySelector(".arb-d-eyebrow");
     let cur = null; // { item, s, m }
     let targetKey = null;
+    let wfKey = null;
+    let wfOpen = false; // small fees expanded
     const sigs = new Map();
     const put = (host, key, sig, build) => {
       if (sigs.get(key) === sig) return;
@@ -750,7 +1047,7 @@ export function arbPanels(ctx) {
       host.replaceChildren(...[build()].flat().filter(Boolean));
     };
     copyBtn.addEventListener("click", () => cur && copyLegs(cur.s));
-    previewBtn.addEventListener("click", () => cur && openOrders(cur.s, cur.m));
+    previewBtn.addEventListener("click", () => cur && !cur.m.stale && openOrders(cur.s, cur.m));
     target.addEventListener("input", () => drawCalc());
     function drawCalc() {
       const s = cur?.s;
@@ -758,6 +1055,24 @@ export function arbPanels(ctx) {
       const t = num(target.value);
       const L = O.boxLimit({ mode: s.mode, width: s.width, units: s.U, cin: s.cin, x: s.x, target: t === null ? null : t / 100, days: cur.m.days, tick: 0.05 });
       targetOut.textContent = L ? `${s.mode === "lend" ? "Max debit" : "Min credit"} ${formatFixed(L.limit, 2)} per unit` : cur.m.expiryDay ? "Not on expiry day" : DASH;
+      // The gap to the current touch: green when the touch already meets the target (lend: debit at or under the max).
+      if (!L) {
+        targetGap.textContent = "";
+        return;
+      }
+      const gap = s.price - L.limit;
+      const ok = s.mode === "lend" ? gap <= 0 : gap >= 0;
+      targetGap.className = `arb-target-gap ${ok ? "ink-pos" : "ink-neg"}`;
+      targetGap.textContent = `touch ${formatFixed(s.price, 2)}: ${formatFixed(Math.abs(gap), 2)} ${gap > 0 ? "above" : gap < 0 ? "below" : "at the limit"}${ok ? " · fills at this rate now" : ""}`;
+    }
+    function setHero(net, line, lineInk, cv) {
+      hero.hidden = false;
+      heroNet.className = `arb-h-net ${inkOf(net.v ?? null)}`;
+      setVal(heroNet, net.text, net.v ?? null);
+      heroLine.replaceChildren(...line);
+      heroLine.className = `arb-h-line ${lineInk ?? ""}`;
+      heroCover.el.hidden = !cv;
+      if (cv) heroCover.set(cv, { compact: false });
     }
     function update(item, m, { best = false, failed = false, none = false } = {}) {
       if (!item || !m) {
@@ -768,8 +1083,9 @@ export function arbPanels(ctx) {
         title.textContent = failed ? "No data" : none ? "Nothing to show" : m ? "Nothing to show" : "Loading…";
         kindPill.textContent = "";
         kindSeg.replaceChildren();
+        hero.hidden = true;
         sigs.delete("msg");
-        msg.replaceChildren(failed ? h("p", { class: "muted" }, "The chain did not load. Retry it from the scanner.") : none ? h("p", { class: "muted" }, none) : m ? h("p", { class: "muted" }, "Pick a row to see its legs, costs and orders.") : "");
+        msg.replaceChildren(failed ? h("p", { class: "muted" }, "The chain did not load. Retry it from the scanner.") : none ? h("p", { class: "muted" }, none) : m ? h("p", { class: "muted" }, "Pick a row to see its legs, costs and orders.") : h("div", { class: "arb-d-skel" }, h("span", { class: "skel" }), h("span", { class: "skel" }), h("span", { class: "skel short" })));
         body.hidden = true;
         actions.hidden = true;
         return;
@@ -780,6 +1096,7 @@ export function arbPanels(ctx) {
       cur = { item, s, m };
       const U = cfg().lots;
       eyebrow.textContent = best ? "Best on this tab" : "Selected";
+      hero.hidden = true;
       // Header
       if (item.type === "parity") {
         const r = item.r;
@@ -797,42 +1114,70 @@ export function arbPanels(ctx) {
             kindSeg.replaceChildren(seg);
           } else kindSeg.replaceChildren();
         }
+        if (s) {
+          const a = m.expiryDay ? null : s.annual;
+          const cv = O.coverRatio(s);
+          const covers = cv.cover !== null && cv.cover >= 1 ? `covers ${formatFixed(cv.cover, 1)}×` : "";
+          setHero({ text: rupeeSigned(s.net), v: s.net }, [a === null ? "" : `${pctSigned(a, 1)}/yr over hurdle`, a !== null && covers ? " · " : "", covers], a === null ? "" : inkOf(a * 100, 1), cv);
+        }
       } else if (item.type === "box") {
         title.textContent = `${KIND_NAME[s.kind]} · ${m.c.underlying} ${dayMon(m.c.expiry)} ${formatInt(s.k1)} / ${formatInt(s.k2)} · ${formatInt(U)} lot${U === 1 ? "" : "s"}`;
         kindPill.textContent = s.mode === "lend" ? "Long box · lend" : "Short box · borrow";
         kindSeg.replaceChildren();
+        setHero({ text: rupeeSigned(s.net), v: s.net }, [m.expiryDay ? "" : `${pct(s.rate, 2)}/yr net · `, s.vsHurdleBp === null ? "" : bpChip(s.vsHurdleBp, { suffix: " bp vs hurdle" })], "", O.coverRatio(s));
       } else if (item.type === "fut") {
-        title.textContent = `Futures basis · ${m.c.underlying} ${dayMon(item.f.expiry)}`;
+        const f = item.f;
+        title.textContent = `Futures basis · ${m.c.underlying} ${dayMon(f.expiry)}`;
         kindPill.textContent = KIND_NAME.fut;
         kindSeg.replaceChildren();
+        setHero({ text: f.carry === null ? DASH : `${pct(f.carry, 2)}/yr` }, ["carry · ", f.carryVsBp === null ? "" : bpChip(f.carryVsBp, { suffix: " bp vs hurdle" })], "", null);
+        heroNet.className = "arb-h-net";
       } else {
-        title.textContent = `Calendar · ${m.c.underlying} ${mon(item.cal.from)} → ${mon(item.cal.to)} · ${formatInt(U)} lot${U === 1 ? "" : "s"}`;
+        const c = item.cal;
+        title.textContent = `Calendar · ${m.c.underlying} ${mon(c.from)} → ${mon(c.to)} · ${formatInt(U)} lot${U === 1 ? "" : "s"}`;
         kindPill.textContent = KIND_NAME.cal;
         kindSeg.replaceChildren();
+        setHero({ text: c.rollLong === null ? DASH : `${formatRupee(c.rollLong, 0)}/lot` }, ["to roll a long", c.tag ? h("span", { class: c.tag === "rich" ? "ink-neg" : "ink-pos" }, ` · ${c.tag} ${formatSigned(c.vsFair, 1)} pts vs fair`) : ""], "", null);
+        heroNet.className = "arb-h-net";
       }
       onTitle?.(title.textContent);
       const structural = s && s.legs?.length;
-      holdNote.textContent = item.type === "fut" || item.type === "cal" ? "Futures settle daily (MTM) and at the final settlement price." : cfg().hold === "close" ? "Closed before expiry at today's spreads" : "Held to expiry (cash-settled)";
+      holdNote.textContent = item.type === "fut" || item.type === "cal" ? "Futures settle daily (MTM) and at the final settlement price." : "";
+      holdNote.hidden = !holdNote.textContent;
       // Messages (no future, one-sided)
       const msgs = [];
       if (item.type === "parity" && !s) {
         if (m.noFuture) msgs.push(h("p", { class: "muted" }, "No listed future for this expiry: a deviation only, not executable as a futures arbitrage."));
         else if (m.futError) msgs.push(h("p", { class: "muted" }, "Futures quotes are unavailable: conversions and reversals need the future's bid and ask."));
-        else if (m.par.lotMismatch) msgs.push(h("p", { class: "bad-ink" }, "The future's lot size differs from the options': conversions and reversals are off."));
+        else if (m.par.lotMismatch) msgs.push(h("p", { class: "ink-neg" }, "The future's lot size differs from the options': conversions and reversals are off."));
         else msgs.push(h("p", { class: "muted" }, "A leg has no two-sided quote: nothing here is executable."));
         const r = item.r;
-        msgs.push(kv([["Synthetic sell · buy", r.synSell === null ? DASH : `${formatFixed(r.synSell, 2)} · ${formatFixed(r.synBuy, 2)}`], ["Synthetic mid", formatFixed(r.synMid, 2)], ["Dev", r.dev === null ? DASH : `${formatSigned(r.dev, 2)} pts (${formatSigned(r.devBp, 0)} bp)`], ["Call bid · ask", quoteCell(r.ce).main], ["Put bid · ask", quoteCell(r.pe).main], ["IV P−C", formatSigned(r.ivDiff, 2)]]));
+        const hc = m.heat[item.i] ?? { side: null, step: 0 };
+        msgs.push(
+          kv([
+            ["Synthetic sell · buy", r.synSell === null ? DASH : `${formatFixed(r.synSell, 2)} · ${formatFixed(r.synBuy, 2)}`],
+            ["Synthetic mid", formatFixed(r.synMid, 2)],
+            ["Dev", r.dev === null ? DASH : h("span", { class: "arb-dev-kv" }, h("i", { class: "arb-sw dv-heat", "data-side": hc.side ?? "", "data-step": String(hc.step), "aria-hidden": "true" }), `${formatSigned(r.dev, 2)} pts (${formatSigned(r.devBp, 0)} bp)`, r.tag ? h("span", { class: r.tag === "callsRich" ? "ink-call" : "ink-put" }, r.tag === "callsRich" ? " · calls rich" : " · puts rich") : "")],
+            ["Call bid · ask", quoteCell(r.ce).main],
+            ["Put bid · ask", quoteCell(r.pe).main],
+            ["IV P−C", formatSigned(r.ivDiff, 2)],
+          ]),
+        );
       }
       if (item.type === "fut") msgs.push(futDetail(item.f, m));
       if (item.type === "cal" && item.cal.lotMismatch) {
         const lotOf = (e) => m.term.futures.find((f) => f.expiry === e)?.lot;
-        msgs.push(h("p", { class: "bad-ink" }, `Lot sizes differ (${mon(item.cal.from)} ${formatInt(lotOf(item.cal.from))}, ${mon(item.cal.to)} ${formatInt(lotOf(item.cal.to))}): there is no one-for-one roll, so no orders.`));
+        msgs.push(h("p", { class: "ink-neg" }, `Lot sizes differ (${mon(item.cal.from)} ${formatInt(lotOf(item.cal.from))}, ${mon(item.cal.to)} ${formatInt(lotOf(item.cal.to))}): there is no one-for-one roll, so no orders.`));
       }
       put(msg, "msg", JSON.stringify([item.key, msgs.length ? msgs.map((x) => x.textContent) : []]), () => msgs);
-      body.hidden = !structural;
+      body.hidden = !structural && item.type !== "fut" && item.type !== "cal";
       actions.hidden = !(structural || item.type === "fut");
       copyBtn.hidden = !structural;
       previewBtn.hidden = !structural;
+      previewBtn.disabled = Boolean(m.stale);
+      why.hidden = !(structural && m.stale);
+      why.textContent = m.stale ? `Quotes are ${formatInt((m.fresh.ageMs ?? 0) / 1000)} s old: refresh before you preview.` : "";
+      previewBtn.title = m.stale ? "Quotes are stale" : "";
       ticketBtns.replaceChildren();
       if (item.type === "fut" && item.f.symbol) {
         const f = item.f;
@@ -840,7 +1185,25 @@ export function arbPanels(ctx) {
         const tk = (side) => ctx.openTicket({ kind: "FUT", side, symbol: f.symbol, quote: () => futQuote(inst), lotSize: f.lot, name: `${m.c.underlying} ${dayMon(f.expiry)} FUT`, tick: inst?.tickSize ?? 0.05, freezeQty: inst?.freezeQty ?? null, row: { strike: 0 }, right: "CE", product: "MARGIN", expiry: f.expiry });
         ticketBtns.append(h("button", { type: "button", class: "small", onclick: () => tk("BUY") }, "Buy future"), h("button", { type: "button", class: "small", onclick: () => tk("SELL") }, "Sell future"));
       }
-      if (!structural) return;
+      if (!structural) {
+        for (const host of [legsHost, lotsHost, retHost, flagsHost]) host.replaceChildren();
+        wfHost.hidden = true;
+        payHost.hidden = true;
+        sigs.clear();
+        calcHost.hidden = true;
+        return;
+      }
+      // Waterfall: gross to net, a floating step per cost (calendar: spread + charges = roll cost)
+      const fresh = wfKey !== s.key;
+      if (fresh) {
+        wfKey = s.key;
+        wfOpen = false;
+      }
+      wfHost.hidden = false;
+      drawWf(s, fresh);
+      // Locked payoff (not for a calendar: a roll is not locked)
+      payHost.hidden = s.kind === "cal";
+      if (s.kind !== "cal") drawPay(s, m);
       // Legs in send order, with depth and slices
       const legs = O.sendOrder(s.legs);
       const topQ = topQtyMap(s);
@@ -855,6 +1218,8 @@ export function arbPanels(ctx) {
             {},
             legs.map((l) => {
               const sl = O.freezeSlices(l.units, freezeOf(l), s.lot).length;
+              const tq = num(topQ.get(l.symbol));
+              const thin = tq !== null && tq < l.units;
               return h(
                 "tr",
                 {},
@@ -862,7 +1227,7 @@ export function arbPanels(ctx) {
                 h("td", { title: legName(l, m) }, l.kind === "FUT" ? `FUT ${dayMon(l.expiry ?? m.c.expiry)}` : `${formatInt(l.strike)} ${l.right}`),
                 h("td", { class: "num" }, formatFixed(l.price, 2)),
                 h("td", { class: "num" }, formatInt(l.units)),
-                h("td", { class: "num", title: num(topQ.get(l.symbol)) === null ? "Depth not available from this broker" : "Quantity at the touch" }, formatInt(topQ.get(l.symbol))),
+                h("td", { class: `num${thin ? " ink-warn" : ""}`, title: tq === null ? "Depth not available from this broker" : thin ? "Less than your quantity at the touch: the rest fills worse" : "Quantity at the touch" }, thin ? "⚠ " : "", formatInt(tq)),
                 h("td", { class: "num" }, sl > 1 ? formatInt(sl) : ""),
               );
             }),
@@ -870,48 +1235,21 @@ export function arbPanels(ctx) {
         ),
       ]);
       const maxLots = O.maxLotsAtTouch(s.legs, topQ, s.lot);
-      put(lotsHost, "lots", JSON.stringify([maxLots, s.lots]), () => [
-        h(
-          "div",
-          { class: "arb-kv" },
-          h("span", {}, "Max lots at the touch"),
-          h("strong", { title: maxLots === null ? "Depth not available from this broker" : "floor(min top-of-book qty ÷ lot)" }, maxLots === null ? DASH : formatInt(maxLots)),
-        ),
-        maxLots !== null && maxLots < s.lots ? h("p", { class: "warn-ink arb-d-fine" }, `Only ${formatInt(maxLots)} lot${maxLots === 1 ? "" : "s"} available at these prices; the rest fills worse`) : null,
-      ]);
-      // Waterfall / roll cost
+      put(lotsHost, "lots", JSON.stringify([maxLots, s.lots]), () => {
+        const meter = liqMeter();
+        setLiq(meter, maxLots === null ? 0 : Math.max(1, Math.min(5, Math.floor(maxLots / Math.max(1, s.lots)))));
+        meter.setAttribute("aria-label", maxLots === null ? "Depth not available" : `${formatInt(maxLots)} lots at the touch`);
+        meter.title = meter.getAttribute("aria-label");
+        return [
+          h("div", { class: "arb-kv" }, h("span", {}, "Max lots at the touch"), h("span", { class: "arb-kv-v" }, maxLots === null ? null : meter, h("strong", { title: maxLots === null ? "Depth not available from this broker" : "floor(min top-of-book qty ÷ lot)" }, maxLots === null ? DASH : formatInt(maxLots)))),
+          maxLots !== null && maxLots < s.lots ? h("p", { class: "ink-warn arb-d-fine" }, `Only ${formatInt(maxLots)} lot${maxLots === 1 ? "" : "s"} available at these prices; the rest fills worse`) : null,
+        ];
+      });
       if (s.kind === "cal") {
         const c = s.cal;
-        // Whole rupees that add up to the shown roll cost.
-        const parts = c.rollLong === null ? null : O.roundToSum([c.buyFar * c.lot, c.rollLong - c.buyFar * c.lot]);
-        put(wfHost, "wf", JSON.stringify([c.rollLong, s.lots]), () => [
-          h("h4", {}, "Roll a long ", h("small", {}, "₹ per lot")),
-          wfList([
-            ["Spread paid (far ask − near bid)", parts ? parts.values[0] : null],
-            ["Charges", parts ? parts.values[1] : null],
-          ], parts ? parts.total : null, "Roll cost"),
-          h("p", { class: "arb-d-fine" }, `Fair spread at your hurdle ${formatFixed(c.fair, 2)} pts; mid spread ${formatFixed(c.midSpread, 2)} (${formatSigned(c.vsFair, 2)}${c.tag ? `, ${c.tag}` : ""}). Roll short ${formatRupee(c.rollShort, 0)}/lot.`),
-        ]);
-        retHost.replaceChildren();
+        put(retHost, "ret", JSON.stringify([c.fair, c.midSpread, c.vsFair, c.rollShort]), () => h("p", { class: "arb-d-fine" }, `Fair spread at your hurdle ${formatFixed(c.fair, 2)} pts; mid spread ${formatFixed(c.midSpread, 2)} (${formatSigned(c.vsFair, 2)}${c.tag ? `, ${c.tag}` : ""}). Roll short ${formatRupee(c.rollShort, 0)}/lot.`));
         calcHost.hidden = true;
-        payHost.textContent = "";
       } else {
-        const w = O.waterfall(s);
-        const settle = s.charges.settle;
-        // Whole rupees that add up exactly to the shown net (largest remainder), not each line rounded on its own.
-        put(wfHost, "wf", JSON.stringify([w.lines.map((l) => [l.label, l.shown]), w.netShown, settle]), () => [
-          h("h4", {}, "Waterfall ", h("small", {}, `₹ for ${formatInt(s.U)} units`)),
-          h(
-            "dl",
-            { class: "arb-wf" },
-            w.lines.map((l, i) => [
-              h("dt", {}, `${l.label}${l.key === "exStt" && settle !== null ? ` (est. at ${formatInt(settle)})` : ""}`),
-              h("dd", { class: l.shown > 0 && i > 0 ? "earn" : undefined, title: `${formatRupee(l.value, 2)}` }, rupeeSigned(l.shown)),
-            ]),
-            h("dt", { class: "arb-wf-net" }, "= Net"),
-            h("dd", { class: `arb-wf-net ${w.netShown < 0 ? "neg" : ""}`, "data-net": "", title: formatRupee(w.net, 2) }, rupeeSigned(w.netShown)),
-          ),
-        ]);
         const isBox = s.kind === "lbox" || s.kind === "sbox";
         const annual = isBox ? s.rate : s.annual;
         const vs = isBox ? s.vsHurdleBp : annual === null ? null : annual * 1e4;
@@ -920,9 +1258,9 @@ export function arbPanels(ctx) {
           kv([
             ["Break-even", `needs ${formatFixed(s.breakEvenPts, 2)} pts gross per unit`],
             ["Capital ≈", money(s.capital)],
-            [isBox ? "Net rate %/yr" : "Net %/yr over hurdle", m.expiryDay ? "-- (expiry day)" : pct(annual, 2)],
+            [isBox ? "Net rate %/yr" : "Net %/yr over hurdle", m.expiryDay ? "-- (expiry day)" : h("span", { class: isBox ? (vs === null ? "" : vs >= 0 ? "ink-pos" : "ink-neg") : inkOf(annual === null ? null : annual * 100, 2) }, isBox ? pct(annual, 2) : pctSigned(annual, 2))],
             ["Hurdle", formatPercent(m.hRate * 100, 2)],
-            [isBox ? "vs hurdle" : "Excess over hurdle", vs === null ? DASH : `${formatSigned(vs, 0)} bp`],
+            [isBox ? "vs hurdle" : "Excess over hurdle", vs === null ? DASH : bpChip(vs)],
           ]),
           h("p", { class: "arb-d-fine" }, `Capital: ${s.capitalBasis}.${isBox ? "" : " Hedge benefit ignored (conservative)."}`),
         ]);
@@ -934,16 +1272,150 @@ export function arbPanels(ctx) {
           }
           drawCalc();
         }
-        payHost.textContent = `Flat: ${rupeeSigned(w.netShown)} at every settlement price${cfg().hold === "close" ? " (if closed at today's spreads)" : ""}`;
       }
       // Flags
       const flags = O.arbFlags(s, flagCtx(m, s, topQ));
       put(flagsHost, "flags", JSON.stringify(flags), () => flags.map((f) => h("li", { class: f.sev }, h("span", { class: "dot", "aria-hidden": "true" }), f.text)));
     }
+
+    // The cost waterfall, drawn in HTML: label | track (floating bar + connector) | value. Rows are a <dl>.
+    const wfToggle = segmented("Units", [["rs", "₹"], ["pts", "pts"]], wfUnit);
+    wfToggle.classList.add("arb-wf-unit");
+    wfToggle.addEventListener("change", () => {
+      wfUnit = wfToggle.value;
+      if (cur) drawWf(cur.s, false);
+    });
+    const wfTitle = h("h4", {});
+    const wfDl = h("dl", { class: "arb-wfv" });
+    const wfFine = h("p", { class: "arb-d-fine" });
+    wfHost.append(h("div", { class: "arb-wf-head" }, wfTitle, wfToggle), wfDl, wfFine);
+    const wfRows = new Map(); // key -> { row, bar, conn, val }
+    function wfLines(s) {
+      if (s.kind === "cal") {
+        const c = s.cal;
+        // Whole rupees that add up to the shown roll cost; drawn as costs (paying a spread is negative).
+        const parts = c.rollLong === null ? null : O.roundToSum([c.buyFar * c.lot, c.rollLong - c.buyFar * c.lot]);
+        if (!parts) return { lines: [], net: null, per: c.lot, netLabel: "Roll cost", unitText: "per lot" };
+        return { lines: [{ key: "spread", label: "Spread paid (far ask − near bid)", value: -parts.values[0], cost: true }, { key: "charges", label: "Charges", value: -parts.values[1], cost: true }], net: -parts.total, per: c.lot, netLabel: "Roll cost", unitText: "per lot", noGross: true };
+      }
+      const w = O.waterfall(s);
+      const settle = s.charges.settle;
+      let lines = w.lines.map((l, i) => ({ key: l.key, label: l.label.replace(" (incl. exercise)", ""), note: l.key === "exStt" && settle !== null ? `Estimated at a settlement of ${formatInt(settle)}` : l.label.includes("incl. exercise") ? "Includes brokerage on exercise" : "", value: l.shown, exact: l.value, gross: i === 0 }));
+      // Small statutory fees (each under 2 % of the gross) fold into one line; a tap expands them.
+      const gross = Math.abs(lines[0]?.value ?? 0);
+      const small = lines.filter((l) => ["sebi", "stamp", "gst"].includes(l.key));
+      if (!wfOpen && small.length > 1 && gross > 0 && small.every((l) => Math.abs(l.value) < 0.02 * gross)) {
+        const at = lines.indexOf(small[0]);
+        lines = lines.filter((l) => !small.includes(l));
+        lines.splice(at, 0, { key: "small", label: "SEBI · Stamp · GST", value: small.reduce((a, l) => a + l.value, 0), exact: small.reduce((a, l) => a + l.exact, 0), group: true });
+      }
+      return { lines, net: w.netShown, exact: w.net, per: s.U, netLabel: "Net", unitText: `for ${formatInt(s.U)} units` };
+    }
+    function drawWf(s, grow) {
+      const W = wfLines(s);
+      const pts = wfUnit === "pts";
+      const div = pts ? W.per || 1 : 1;
+      const fmt = (v) => (v === null ? DASH : pts ? `${formatSigned(v / div, 2)}` : W.noGross ? formatRupee(-v, 0) : rupeeSigned(v));
+      wfTitle.replaceChildren(s.kind === "cal" ? "Roll a long " : "Costs: gross to net ", h("small", {}, pts ? `points ${W.unitText === "per lot" ? "per unit" : "per unit"}` : `₹ ${W.unitText}`));
+      const steps = O.waterfallSteps(W.lines.map((l) => ({ key: l.key, value: l.value })));
+      const lo = Math.min(steps.min, W.net ?? 0);
+      const hi = Math.max(steps.max, W.net ?? 0);
+      const span = hi - lo || 1;
+      const x = (v) => (v - lo) / span;
+      wfDl.style.setProperty("--z", String(Math.round(x(0) * 1000) / 1000));
+      const keys = [...W.lines.map((l) => l.key), "net"];
+      if (wfDl.__keys !== keys.join("|")) {
+        wfDl.__keys = keys.join("|");
+        wfRows.clear();
+        wfDl.replaceChildren(
+          ...keys.map((k) => {
+            const bar = h("span", { class: `arb-wf-bar${k === "net" ? " net" : ""}` });
+            const conn = h("i", { class: "arb-wf-conn" });
+            const val = h("span", { class: "arb-wf-val" });
+            const dt = h("dt", {});
+            const row = h("div", { class: `arb-wf-row${k === "net" ? " net" : ""}` }, dt, h("dd", {}, h("span", { class: "arb-wf-track", "aria-hidden": "true" }, bar, conn), val));
+            wfRows.set(k, { row, bar, conn, val, dt });
+            return row;
+          }),
+        );
+        grow = true;
+      }
+      W.lines.forEach((l, i) => {
+        const r = wfRows.get(l.key);
+        const st0 = steps.steps[i];
+        const a = x(Math.min(st0.from, st0.to));
+        const w = Math.abs(x(st0.to) - x(st0.from));
+        r.dt.replaceChildren(l.group ? h("button", { type: "button", class: "arb-wf-more", "aria-expanded": "false", onclick: () => ((wfOpen = true), drawWf(s, false)) }, l.label, h("small", {}, " · show")) : l.label);
+        r.dt.title = l.note ?? "";
+        r.bar.className = `arb-wf-bar ${l.gross ? (l.value >= 0 ? "gross pos" : "gross neg") : l.value > 0 ? "earn" : "cost"}`;
+        r.bar.style.setProperty("--l", String(Math.round(a * 1000) / 1000));
+        r.bar.style.setProperty("--w", String(Math.max(l.value ? 0.004 : 0, Math.round(w * 1000) / 1000)));
+        r.bar.style.setProperty("--i", String(i));
+        // The connector drops from this step's end to the next step's start.
+        r.conn.hidden = i === W.lines.length - 1 && W.net === null;
+        r.conn.style.left = `${Math.round(x(st0.to) * 1000) / 10}%`;
+        r.val.className = `arb-wf-val ${l.gross ? inkOf(l.value) : ""}`;
+        r.val.textContent = fmt(l.value);
+        r.val.title = l.exact === undefined ? "" : formatRupee(l.exact, 2);
+      });
+      const n = wfRows.get("net");
+      n.dt.textContent = `= ${W.netLabel}`;
+      n.bar.className = `arb-wf-bar net ${W.net === null ? "" : W.net >= 0 ? "pos" : "neg"}`;
+      n.bar.style.setProperty("--l", String(Math.round(x(Math.min(0, W.net ?? 0)) * 1000) / 1000));
+      n.bar.style.setProperty("--w", String(Math.max(W.net ? 0.004 : 0, Math.round((Math.abs(W.net ?? 0) / span) * 1000) / 1000)));
+      n.bar.style.setProperty("--i", String(W.lines.length));
+      n.conn.hidden = true;
+      n.val.className = `arb-wf-val ${W.noGross ? "" : inkOf(W.net)}`;
+      setVal(n.val, fmt(W.net), W.net);
+      n.val.title = W.exact === undefined ? "" : formatRupee(W.exact, 2);
+      n.row.dataset.net = W.net === null ? "" : rupeeSigned(W.net);
+      wfFine.textContent = s.kind === "cal" ? "" : "Whole rupees that add up to the net; hover a value for paise.";
+      wfFine.hidden = !wfFine.textContent;
+      if (grow && !reducedMotion()) {
+        wfDl.classList.add("wf-grow");
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            wfDl.classList.remove("wf-grow");
+            wfDl.classList.add("wf-growing");
+            setTimeout(() => wfDl.classList.remove("wf-growing"), 760);
+          }),
+        );
+      }
+    }
+
+    // The locked payoff: a flat line at the net across settlement prices (a band when closed before expiry).
+    const paySvg = svgEl("svg", { class: "arb-pay-svg", role: "img", height: "64" });
+    const payCap = h("p", { class: "arb-pay-cap" });
+    payHost.append(h("h4", {}, "Locked payoff"), paySvg, payCap);
+    function drawPay(s, m) {
+      const w = O.waterfall(s);
+      const net = w.netShown;
+      const F = s.charges.settle ?? m.fwd?.forward ?? m.spot;
+      const close = cfg().hold === "close";
+      const band = close ? Math.abs(s.charges.exitSpread ?? 0) : 0;
+      const sig = JSON.stringify([net, F, band, Math.round(paySvg.getBoundingClientRect().width)]);
+      if (paySvg.__sig === sig) return;
+      paySvg.__sig = sig;
+      const W = Math.max(200, Math.round(paySvg.getBoundingClientRect().width) || 300);
+      const H = 64;
+      paySvg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+      const top = Math.max(0, net + band);
+      const bot = Math.min(0, net - band);
+      const pad = (top - bot || Math.abs(net) || 1) * 0.35;
+      const y = (v) => 22 + ((top + pad - v) / (top - bot + 2 * pad)) * (H - 28);
+      const kids = [svgEl("line", { class: "dv-zero", x1: 0, x2: W, y1: y(0), y2: y(0) }), svgEl("text", { class: "dv-tick", x: 2, y: y(0) - 3 }, "₹0")];
+      if (band) kids.push(svgEl("rect", { class: "arb-pay-band", x: 0, width: W, y: y(net + band), height: Math.max(2, y(net - band) - y(net + band)) }));
+      kids.push(svgEl("line", { class: `arb-pay-line ${net >= 0 ? "pos" : "neg"}`, x1: 0, x2: W, y1: y(net), y2: y(net) }));
+      kids.push(svgEl("line", { class: "arb-pay-f", x1: W / 2, x2: W / 2, y1: 20, y2: H - 2 }));
+      paySvg.replaceChildren(...kids);
+      if (F) spotPill(paySvg, W / 2, `F ${formatInt(F)}`, { y: 0, width: W });
+      paySvg.setAttribute("aria-label", `Locked payoff: ${rupeeSigned(net)} at every settlement price from ${formatInt(F * 0.97)} to ${formatInt(F * 1.03)}`);
+      payCap.className = `arb-pay-cap ${inkOf(net)}`;
+      payCap.textContent = close ? `About ${rupeeSigned(net)} if closed at today's spreads (band: ±${formatRupee(band, 0)} exit spread)` : `Flat: ${rupeeSigned(net)} at every settlement price · held to expiry (cash-settled)`;
+    }
     return { el, update, focus: () => title.focus(), titleText: () => title.textContent };
   }
   const kv = (pairs) => h("dl", { class: "arb-kvs" }, pairs.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]));
-  const wfList = (pairs, total, label) => h("dl", { class: "arb-wf" }, pairs.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v === null ? DASH : formatRupee(v, 0))]), h("dt", { class: "arb-wf-net" }, `= ${label}`), h("dd", { class: "arb-wf-net" }, total === null ? DASH : formatRupee(total, 0)));
   function legName(l, m) {
     if (l.kind === "FUT") return `${m.c.underlying} ${dayMon(l.expiry ?? m.c.expiry)} FUT`;
     return `${m.c.underlying} ${dayMon(m.c.expiry)} ${formatInt(l.strike)} ${l.right}`;
@@ -970,21 +1442,6 @@ export function arbPanels(ctx) {
     const listed = st.futures.map((f) => f.expiry).filter((e) => st.expiries.includes(e));
     return listed.find((e) => e >= m.c.expiry) ?? listed[listed.length - 1] ?? null;
   }
-  function noFutureNote(m, short = false) {
-    const monthly = futureExpiry(m);
-    const why = " Deviations are relative to the chain's implied forward: they show which strikes are out of line, not a futures arbitrage.";
-    return h(
-      "div",
-      { class: "arb-callout" },
-      h("p", {}, h("strong", {}, `No listed future for ${dayMon(m.c.expiry)}.`), short ? " Deviations are measured against the chain's implied forward; they are not a futures arbitrage." : monthly ? `${why} Pick an expiry with a future for conversions and reversals.` : `${why} No ${m.c.underlying} option expiry in the list has a listed future; use the Boxes tab.`),
-      h(
-        "div",
-        { class: "arb-callout-btns" },
-        monthly ? h("button", { type: "button", class: "small", onclick: () => ctx.selectExpiry(monthly) }, `Use ${dayMon(monthly)} (has a future)`) : null,
-        cfg().tab === "parity" ? h("button", { type: "button", class: "small", onclick: () => setCfg({ tab: "boxes" }) }, "Boxes tab") : null,
-      ),
-    );
-  }
   function flagCtx(m, s, topQ) {
     const freeze = new Map((s.legs ?? []).map((l) => [l.symbol, freezeOf(l)]));
     return { stale: m.stale, ageMs: m.fresh.ageMs, days: m.days, hold: cfg().hold, noFuture: m.noFuture, lotMismatch: s.kind === "cal" ? Boolean(s.cal?.lotMismatch) : m.par.lotMismatch && s.kind !== "lbox" && s.kind !== "sbox", topQty: topQ, freezeQty: freeze, nowMs: m.nowMs, demo: ctx.demo() };
@@ -1008,7 +1465,7 @@ export function arbPanels(ctx) {
     copyText([...lines, sum].join("\n"), "Legs copied");
   }
 
-  // ── Phone sheet ──
+  // ── Bottom sheet (tablets and phones) ──
   function openSheet() {
     if (!last) return;
     const item = itemOf(sel) ?? bestItem();
@@ -1022,13 +1479,14 @@ export function arbPanels(ctx) {
       },
     });
     d.el.classList.add("in-sheet");
-    const opener = cardEls.get(item.key) ?? null;
+    const opener = cardEls.get(item.key) ?? rowEls.get(item.key)?.tr ?? null;
     d.update(item, last);
     sheet = { detail: d };
     modal({ title: d.titleText(), body: d.el, buttons: [] }).then(() => {
       sheet = null;
-      if (opener?.isConnected) opener.focus();
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
     });
+    requestAnimationFrame(() => d.update(itemOf(sel) ?? item, last));
   }
 
   // ── Order preview, then place (safety gates unchanged: every leg previewed, then POST /v1/orders) ──
@@ -1272,7 +1730,7 @@ export function arbPanels(ctx) {
       });
     });
     const sections = [];
-    if (phone()) {
+    if (narrow()) {
       sections.push(
         h("section", {}, h("h3", {}, "Hold"), seg("Hold", [["expiry", "To expiry"], ["close", "Close before"]], c.hold, (v) => setCfg({ hold: v }))),
         h("section", {}, sw("Opportunities only", () => cfg().onlyOpps, (v) => setCfg({ onlyOpps: v }), "Rows that clear your minimum net, liquidity and freshness")),
@@ -1465,57 +1923,339 @@ export function arbPanels(ctx) {
     });
   }
 
-  // ── Draw ──
-  function drawFigures(m) {
-    if (!m) {
-      for (const k of tiles.keys()) {
-        const t = tiles.get(k);
-        t.el.classList.toggle("skel", !st.error);
-        t.el.classList.toggle("dim", Boolean(st.error));
-        if (st.error && st.lastOk) t.sub.textContent = `as of ${istTime(st.lastOk)}`;
+  // ── Draw: the rates ladder ──
+  function drawLadder(m) {
+    // Not laid out yet (first paint, a hidden page): draw on the next frame with the real width.
+    if (!ladderPlot.clientWidth) return requestAnimationFrame(() => last && ladderPlot.clientWidth && drawLadder(last));
+    const W = Math.round(ladderPlot.clientWidth);
+    const H = phone() ? 52 : 60;
+    const base = Math.round(H * 0.55);
+    const hurdle = m.hRate;
+    const lend = m.lendBoxes.find((b) => !b.crossed && b.rate !== null) ?? null;
+    const borrow = m.borrowBoxes.find((b) => !b.crossed && b.rate !== null) ?? null;
+    const carry = m.expiryDay ? null : (m.carryFut?.carry ?? null);
+    const marks = [
+      { id: "hurdle", v: hurdle, label: `Hurdle ${formatPercent(hurdle * 100, 2)}`, title: "Your hurdle: the cost of money or alternative yield (Costs & filters)" },
+      carry === null ? null : { id: "carry", v: carry, label: `Carry ${pct(carry, 2)}`, ink: "ink-iv", shape: "diamond", title: `Futures carry = (Fm/S − 1)·365/d, ${dayMon(m.carryFut.expiry)} future, ${formatInt(m.carryFut.days)} days` },
+      m.optRate === null || m.expiryDay ? null : { id: "opt", v: m.optRate, label: `Options ${pct(m.optRate, 2)}`, ink: "ink-iv", shape: "ring", title: "Options-implied rate: the rate the near-the-money box mids price in" },
+      !lend || m.expiryDay ? null : { id: "lend", v: lend.rate, label: `Lend box ${pct(lend.rate, 2)}`, ink: lend.rate >= hurdle ? "ink-pos" : "ink-neg", shape: "sq", tone: lend.rate >= hurdle ? "pos" : "neg", go: () => goTo("boxes", lend.key, { boxMode: "lend" }), title: `Best long box (lend) net of charges: ${formatInt(lend.k1)} / ${formatInt(lend.k2)}. Click to select` },
+      !borrow || m.expiryDay ? null : { id: "borrow", v: borrow.rate, label: `Borrow box ${pct(borrow.rate, 2)}`, ink: borrow.rate <= hurdle ? "ink-pos" : "ink-neg", shape: "sqo", tone: borrow.rate <= hurdle ? "pos" : "neg", go: () => goTo("boxes", borrow.key, { boxMode: "borrow" }), title: `Best short box (borrow) net of charges: ${formatInt(borrow.k1)} / ${formatInt(borrow.k2)}. Click to select` },
+    ].filter(Boolean);
+    const vals = marks.map((k) => k.v);
+    let lo = Math.min(...vals);
+    let hi = Math.max(...vals);
+    const span = Math.max(hi - lo, 0.02);
+    lo = Math.max(-0.2, lo - span * 0.1);
+    hi = Math.min(0.3, hi + span * 0.1);
+    if (hi - lo < 0.01) hi = lo + 0.01;
+    const padX = 14;
+    const xOf = (v) => padX + ((Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)) * (W - 2 * padX);
+    ladderSvg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    ladderSvg.setAttribute("height", String(H));
+    if (!ladderSvg.__base) {
+      ladderSvg.__base = svgEl("line", { class: "arb-l-base" });
+      ladderSvg.__ticks = svgEl("g", { class: "arb-l-ticks" });
+      ladderSvg.append(ladderSvg.__base, ladderSvg.__ticks);
+    }
+    ladderSvg.__base.setAttribute("x1", String(padX));
+    ladderSvg.__base.setAttribute("x2", String(W - padX));
+    ladderSvg.__base.setAttribute("y1", String(base));
+    ladderSvg.__base.setAttribute("y2", String(base));
+    const ticks = O.niceTicks(lo * 100, hi * 100, W < 500 ? 3 : 5).filter((t) => t >= lo * 100 - 1e-9 && t <= hi * 100 + 1e-9);
+    // Labels: above the axis, or below when two marks are closer than their labels (greedy, left to right).
+    const placed = marks.map((k) => ({ ...k, x: xOf(k.v), out: k.v < lo ? "◂ " : k.v > hi ? " ▸" : "" })).sort((a, b) => a.x - b.x);
+    const lastEnd = { a: -Infinity, b: -Infinity };
+    for (const k of placed) {
+      k.text = k.out === "◂ " ? `◂ ${k.label}` : k.out ? `${k.label} ▸` : k.label;
+      const w = k.text.length * 6.3 + (k.id === "hurdle" ? 14 : 0);
+      k.w = w;
+      k.lx = Math.max(w / 2, Math.min(W - w / 2, k.x));
+      if (k.lx - w / 2 >= lastEnd.a + 6) k.row = "a";
+      else if (k.lx - w / 2 >= lastEnd.b + 6) k.row = "b";
+      else {
+        // Both rows are taken here: nudge the label right of the emptier row (a leader is not needed: same colour).
+        k.row = lastEnd.a <= lastEnd.b ? "a" : "b";
+        k.lx = Math.min(W - w / 2, lastEnd[k.row] + 6 + w / 2);
       }
+      lastEnd[k.row] = k.lx + w / 2;
+    }
+    const tickLabels = ticks.map((t) => ({ x: xOf(t / 100), t })).filter((tk) => !placed.some((k) => k.row === "b" && Math.abs(k.lx - tk.x) < k.w / 2 + 14));
+    ladderSvg.__ticks.replaceChildren(...tickLabels.flatMap((tk) => [svgEl("line", { class: "dv-grid arb-l-tick", x1: tk.x, x2: tk.x, y1: base - 3, y2: base + 3 }), svgEl("text", { class: "dv-tick", x: tk.x, y: H - 3, "text-anchor": "middle" }, `${formatFixed(tk.t, Number.isInteger(tk.t) ? 0 : 1)}%`)]));
+    const seen = new Set();
+    for (const k of placed) {
+      seen.add(k.id);
+      let e = ladderMarks.get(k.id);
+      if (!e) {
+        const g = svgEl("g", { class: `arb-l-mark ${k.id}`, tabindex: k.go ? "0" : undefined, role: k.go ? "button" : undefined });
+        if (k.id === "hurdle") g.append(svgEl("line", { class: "arb-l-hurdle", x1: 0, x2: 0, y1: -base + 18, y2: H - base - 14 }));
+        else if (k.shape === "diamond") g.append(svgEl("rect", { class: "arb-l-shape", x: -4.5, y: -4.5, width: 9, height: 9, transform: "rotate(45)" }));
+        else if (k.shape === "ring") g.append(svgEl("circle", { class: "arb-l-shape", r: 4.5 }));
+        else g.append(svgEl("rect", { class: "arb-l-shape", x: -5, y: -5, width: 10, height: 10, rx: 1.5 }));
+        const label = k.id === "hurdle" ? svgEl("g", { class: "dv-pill arb-l-pill" }, svgEl("rect", { rx: 9, ry: 9, height: 18 }), svgEl("text", { "text-anchor": "middle", "dominant-baseline": "central" })) : svgEl("text", { class: "arb-l-label", "text-anchor": "middle" });
+        ladderSvg.append(g, label);
+        g.addEventListener("pointerenter", () => ladderTip.show(e.x, base + 10, e.tip));
+        g.addEventListener("pointerleave", () => ladderTip.hide());
+        g.addEventListener("focus", () => ladderTip.show(e.x, base + 10, e.tip));
+        g.addEventListener("blur", () => ladderTip.hide());
+        g.addEventListener("click", () => e.go?.());
+        g.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault();
+            e.go?.();
+          }
+        });
+        e = { g, label };
+        ladderMarks.set(k.id, e);
+      }
+      e.x = k.x;
+      e.go = k.go ?? null;
+      e.tip = [h("b", {}, k.text), h("div", {}, k.title)];
+      e.g.dataset.tone = k.tone ?? "";
+      e.g.style.transform = `translate(${Math.round(k.x * 10) / 10}px, ${base}px)`;
+      const ly = k.row === "a" ? 2 : H - 18;
+      if (k.id === "hurdle") {
+        const [rect, t] = e.label.children;
+        rect.setAttribute("x", String(-k.w / 2));
+        rect.setAttribute("width", String(k.w));
+        rect.setAttribute("y", "0");
+        t.setAttribute("x", "0");
+        t.setAttribute("y", "9.5");
+        if (t.textContent !== k.text) t.textContent = k.text;
+        e.label.style.transform = `translate(${Math.round(k.lx * 10) / 10}px, ${ly}px)`;
+      } else {
+        e.label.setAttribute("class", `arb-l-label ${k.ink ?? ""}`);
+        if (e.label.textContent !== k.text) e.label.textContent = k.text;
+        e.label.style.transform = `translate(${Math.round(k.lx * 10) / 10}px, ${ly + 13}px)`;
+      }
+    }
+    for (const [id, e] of ladderMarks) {
+      if (seen.has(id)) continue;
+      e.g.remove();
+      e.label.remove();
+      ladderMarks.delete(id);
+    }
+    ladderSvg.setAttribute("aria-label", `Rates against hurdle ${formatPercent(hurdle * 100, 2)}: ${placed.filter((k) => k.id !== "hurdle").map((k) => k.label.toLowerCase()).join(", ") || "no other rate"}`);
+    // Figures beside the plot: the same-expiry future and the implied forward.
+    const fut = m.fut;
+    if (m.noFuture) {
+      setVal(figFut.value, "No future", null);
+      figFut.sub.textContent = m.nearestFut ? `Nearest ${dayMon(m.nearestFut.expiry)}` : "";
+    } else if (m.futError || !O.twoSided(fut)) {
+      setVal(figFut.value, DASH, null);
+      figFut.sub.textContent = "Quote unavailable";
+    } else {
+      setVal(figFut.value, `${formatFixed(fut.bid, 2)} · ${shortAsk(fut.bid, fut.ask)}`, (fut.bid + fut.ask) / 2);
+      figFut.value.title = `Bid ${formatFixed(fut.bid, 2)}, ask ${formatFixed(fut.ask, 2)}`;
+      const basis = m.spot ? (fut.bid + fut.ask) / 2 - m.spot : null;
+      figFut.sub.textContent = basis === null ? `${dayMon(fut.expiry)}` : `basis ${formatSigned(basis, 2)} · ${formatPercent((basis / m.spot) * 100, 2)}`;
+    }
+    if (m.fwd) {
+      setVal(figFwd.value, formatFixed(m.fwd.forward, 2), m.fwd.forward);
+      figFwd.sub.textContent = `band ±${formatFixed((m.fwd.hi - m.fwd.lo) / 2, 1)} · ${formatInt(m.fwd.n)} strikes`;
+    } else {
+      setVal(figFwd.value, DASH, null);
+      figFwd.sub.textContent = "one-sided quotes";
+    }
+  }
+
+  // ── Draw: the opportunity rail ──
+  function railPick(m) {
+    const conf = cfg();
+    const par = m.par.rows.filter((r) => r.best).sort((a, b) => b.best.net - a.best.net)[0] ?? null;
+    const boxList = conf.boxMode === "borrow" ? m.borrowBoxes : m.lendBoxes;
+    const box = boxList.find((b) => !b.crossed && b.vsHurdleBp !== null) ?? null;
+    // Carry: the future furthest from fair carry or the calendar furthest from its fair spread, in ₹ per lot.
+    let carry = null;
+    for (const f of m.term.futures) {
+      if (f.carryVsBp === null || f.mid === null || f.days === null || f.days < 1) continue;
+      const rs = Math.abs(f.carryVsBp / 1e4) * (f.days / 365) * f.mid * f.lot;
+      if (!carry || rs > carry.rs) carry = { type: "fut", f, rs };
+    }
+    for (const c of m.term.calendars) {
+      if (c.vsFair === null || c.lotMismatch) continue;
+      const rs = Math.abs(c.vsFair) * c.lot;
+      if (!carry || rs > carry.rs) carry = { type: "cal", c, rs };
+    }
+    return { par, box, carry };
+  }
+  function drawRail(m) {
+    railErr.hidden = true;
+    railRow.hidden = false;
+    if (!m) {
+      if (st.error) {
+        railErr.hidden = false;
+        railErr.replaceChildren(icon("warn"), h("span", {}, "Opportunities need the chain: it did not load."));
+        railRow.hidden = true;
+        railNote.hidden = true;
+        return;
+      }
+      for (const c of railCards) {
+        c.el.classList.add("skel");
+        c.el.setAttribute("aria-busy", "true");
+      }
+      railNote.hidden = true;
       return;
     }
-    const S = m.spot;
-    setTile("spot", { value: formatFixed(S, 2), sub: "Index · not tradable", title: "The index is not tradable: cash-and-carry needs a stock or ETF" });
-    const fut = m.fut;
-    if (m.noFuture) setTile("fut", { value: "No listed future", sub: m.nearestFut ? `Nearest: ${dayMon(m.nearestFut.expiry)}` : "", title: "Weekly expiries have no future. Conversions and reversals need a same-expiry future; pick a monthly expiry", cls: "muted-v" });
-    else if (m.futError || !O.twoSided(fut)) setTile("fut", { value: DASH, sub: "Quote unavailable", title: "Could not load the future's bid and ask" });
-    else setTile("fut", { value: phone() ? `${formatFixed(fut.bid, 2)} – ${shortAsk(fut.bid, fut.ask)}` : `${formatFixed(fut.bid, 2)}\u2009–\u2009${formatFixed(fut.ask, 2)}`, sub: `${dayMon(fut.expiry)} · ${formatInt(m.days)} d · spread ${formatFixed(fut.ask - fut.bid, 2)}`, title: "Same-expiry future: bid – ask" });
-    if (m.fwd) setTile("fwd", { value: formatFixed(m.fwd.forward, 2), sub: `band ${formatFixed(m.fwd.lo, 1)} – ${formatFixed(m.fwd.hi, 1)} · ${formatInt(m.fwd.n)} strikes`, title: "Median of K + (mid C − mid P)·e^(hT) over two-sided strikes near the money" });
-    else setTile("fwd", { value: DASH, sub: "Parity unreadable (one-sided quotes)" });
-    const hurdle = formatPercent(m.hRate * 100, 2);
-    if (m.expiryDay) setTile("carry", { value: DASH, sub: `hurdle ${hurdle}`, title: "Annualised figures are not meaningful on expiry day" });
-    else if (!m.noFuture && O.twoSided(fut) && S) {
-      const carry = (((fut.bid + fut.ask) / 2 / S - 1) * 365) / m.days;
-      setTile("carry", { value: `${formatPercent(carry * 100, 2)}/yr`, sub: `options ${pct(m.optRate, 2)} · hurdle ${hurdle}`, title: "Futures carry (Fm/S − 1)·365/d; options = the rate the box mids price in" });
-    } else setTile("carry", { value: m.optRate === null ? DASH : `${formatPercent(m.optRate * 100, 2)}/yr`, sub: `from options · hurdle ${hurdle}`, title: "The rate the options price in (box mids), without a future" });
-    // Best conversion / reversal
-    if (m.noFuture || m.futError || m.par.lotMismatch) setTile("best", { value: DASH, sub: m.noFuture ? "Needs a same-expiry future" : m.par.lotMismatch ? "Lot sizes differ" : "Future quote unavailable" });
-    else if (m.stale) setTile("best", { value: DASH, sub: "quotes stale", cls: "muted-v" });
-    else {
-      const elig = m.par.rows.filter((r) => r.best && r.liq >= cfg().minLiq).sort((a, b) => b.best.net - a.best.net);
-      const b = elig[0];
-      if (!b) setTile("best", { value: DASH, sub: "Nothing executable" });
-      else {
-        const s = b.best;
-        const a = m.expiryDay ? null : s.annual;
-        const pos = s.net > 0;
-        setTile("best", { value: rupeeSigned(s.net), sub: `${pos ? "" : "Closest: "}${KIND_NAME[s.kind]} ${formatInt(b.strike)}${pos && a !== null ? ` · ${pct(a, 1)}/yr` : ""}`, cls: pos ? "" : "muted-v", target: { tab: "parity", key: b.key }, title: `Best net after charges and financing at ${formatInt(cfg().lots)} lot${cfg().lots === 1 ? "" : "s"}; liquidity ≥ ${formatInt(cfg().minLiq)}. Click to select` });
-        announce(`best-${s.kind}-${b.strike}`, `Best ${KIND_NAME[s.kind].toLowerCase()} now ${formatInt(b.strike)}, ${s.net >= 0 ? "plus" : "minus"} ${formatRupee(Math.abs(s.net), 0)}`);
+    const { par, box, carry } = railPick(m);
+    const age = `${formatInt((m.fresh.ageMs ?? 0) / 1000)} s old`;
+    const lots = cfg().lots;
+    const fill = (card, o) => {
+      card.el.classList.remove("skel");
+      card.el.removeAttribute("aria-busy");
+      const changed = card.key !== o.key;
+      if (changed && card.key !== null && !reducedMotion()) card.body.animate?.([{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: 200, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+      const wasNeg = card.key === o.key && card.net0 !== null && card.net0 <= 0;
+      card.key = o.key;
+      card.kind.textContent = o.kind;
+      card.tags.replaceChildren(...(o.tags ?? []));
+      card.liq.hidden = o.liq === undefined;
+      if (o.liq !== undefined) setLiq(card.liq, o.liq);
+      card.net.className = `arb-o-net ${o.netInk ?? ""}${o.small ? " small" : ""}`;
+      setVal(card.net, o.net, o.netV ?? null);
+      card.ret.className = `arb-o-ret ${o.retInk ?? ""}`;
+      card.ret.replaceChildren(...[o.ret].flat().filter((x) => x !== null && x !== undefined));
+      card.cover.el.hidden = !o.cover;
+      if (o.cover) card.cover.set(o.cover, { compact: false });
+      card.alt.hidden = !o.alt;
+      card.alt.replaceChildren(...[o.alt].flat().filter((x) => x !== null && x !== undefined));
+      card.meta.textContent = o.meta ?? "";
+      card.meta.className = `arb-o-meta ${o.metaInk ?? ""}`;
+      card.btn.hidden = !o.btn;
+      card.btn.textContent = o.btn ?? "";
+      card.btn.disabled = Boolean(o.btnOff);
+      card.btn.title = o.btnOff ? "Quotes are stale" : "";
+      card.act = o.act ?? null;
+      card.go = o.go ?? null;
+      card.el.setAttribute("aria-label", `${o.kind}: ${o.net}${o.retText ? `, ${o.retText}` : ""}`);
+      const edge = o.edge ?? "none";
+      if (edge === "pos" && wasNeg && card.el.dataset.edge !== "pos" && !reducedMotion()) {
+        card.el.classList.remove("new-edge");
+        void card.el.offsetWidth;
+        card.el.classList.add("new-edge");
       }
+      card.el.dataset.edge = edge;
+      card.el.classList.toggle("is-stale", edge === "stale");
+      card.net0 = o.netV ?? null;
+    };
+    // 1 · Parity
+    const pc = railCards[0];
+    if (m.noFuture) {
+      const big = m.par.rows.filter((r) => r.dev !== null).sort((a, b) => Math.abs(b.dev) - Math.abs(a.dev))[0];
+      const monthly = futureExpiry(m);
+      fill(pc, {
+        key: `nofut:${m.c.expiry}`,
+        kind: "Parity · switch expiry",
+        net: `No future on ${dayMon(m.c.expiry)}`,
+        small: true,
+        ret: "Conversions and reversals need a same-expiry future",
+        alt: big ? ["Largest deviation ", h("strong", {}, formatInt(big.strike)), ` · ${formatSigned(big.dev, 1)} pts`, big.tag ? h("span", { class: big.tag === "callsRich" ? "ink-call" : "ink-put" }, big.tag === "callsRich" ? " · calls rich" : " · puts rich") : ""] : null,
+        meta: monthly ? "Strip and table: vs implied fwd" : `No ${m.c.underlying} expiry with a future`,
+        btn: monthly ? `Use ${dayMon(monthly)}` : null,
+        act: monthly ? () => ctx.selectExpiry(monthly) : null,
+        go: big ? () => goTo("parity", big.key) : null,
+        edge: "none",
+      });
+    } else if (m.futError || m.par.lotMismatch || !par) {
+      fill(pc, { key: `nopar:${m.c.expiry}`, kind: "Parity", net: m.futError ? "Futures quotes unavailable" : m.par.lotMismatch ? "Lot sizes differ: no conversions" : "Nothing executable", small: true, ret: m.futError ? "Deviations show against the implied forward" : "", edge: "none" });
+    } else {
+      const s = par.best;
+      const a = m.expiryDay ? null : s.annual;
+      const opp = m.isOpp.parity(par);
+      fill(pc, {
+        key: par.key + s.kind,
+        kind: `${KIND_NAME[s.kind]} · ${formatInt(par.strike)}`,
+        tags: par.atm ? [h("span", { class: "arb-atm" }, "ATM")] : [],
+        liq: par.liq,
+        net: rupeeSigned(s.net),
+        netV: s.net,
+        netInk: inkOf(s.net),
+        ret: a === null ? (m.expiryDay ? "Annualised: not on expiry day" : "") : `${pctSigned(a, 1)}/yr over hurdle`,
+        retText: a === null ? "" : `${pctSigned(a, 1)} a year over hurdle`,
+        retInk: a === null ? "" : inkOf(a * 100, 1),
+        cover: O.coverRatio(s),
+        meta: m.stale ? `Stale · ${age}` : `${formatInt(s.legs.length)} legs · ${money(s.capital)} capital · ${formatInt(lots)} lot${lots === 1 ? "" : "s"}`,
+        metaInk: m.stale ? "ink-warn" : "",
+        btn: "Preview",
+        btnOff: m.stale,
+        act: () => !m.stale && openOrders(s, m),
+        go: () => {
+          detailKind.delete(par.key);
+          goTo("parity", par.key);
+        },
+        edge: m.stale ? "stale" : s.net > 0 && opp ? "pos" : "neg",
+      });
     }
-    if (m.stale) setTile("box", { value: DASH, sub: "quotes stale", cls: "muted-v" });
-    else if (m.expiryDay) setTile("box", { value: DASH, sub: "Not on expiry day" });
+    // 2 · Box
+    const bc = railCards[1];
+    if (!box || m.expiryDay) fill(bc, { key: "nobox", kind: "Box", net: m.expiryDay ? "Not on expiry day" : "No two-sided box", small: true, ret: "", edge: "none" });
     else {
-      const b = m.lendBoxes.find((x) => !x.crossed && x.rate !== null && x.liq >= cfg().minLiq);
-      if (!b) setTile("box", { value: DASH, sub: "No eligible box" });
-      else {
-        // The conv/rev rule: below your minimum it is the closest, muted, not an opportunity.
-        const beats = b.vsHurdleBp !== null && b.vsHurdleBp >= cfg().minBoxBp;
-        setTile("box", { value: `${formatPercent(b.rate * 100, 2)}/yr`, sub: `${beats ? "" : "Closest: "}Lend ${formatInt(b.k1)}/${formatInt(b.k2)} · ${formatSigned(b.vsHurdleBp, 0)} bp${beats ? " vs hurdle" : ""}`, cls: beats ? "" : "muted-v", target: { tab: "boxes", key: b.key }, title: "Highest net long-box lending rate after charges. Click to select" });
-      }
+      const lend = box.mode === "lend";
+      fill(bc, {
+        key: box.key,
+        kind: `${lend ? "Lend" : "Borrow"} box · ${formatInt(box.k1)} / ${formatInt(box.k2)}`,
+        liq: box.liq,
+        net: rupeeSigned(box.net),
+        netV: box.net,
+        netInk: inkOf(box.net),
+        ret: [h("span", { class: box.vsHurdleBp >= 0 ? "ink-pos" : "ink-neg" }, `${pct(box.rate, 2)}/yr`), " ", bpChip(box.vsHurdleBp, { suffix: " bp vs hurdle" })],
+        retText: `${pct(box.rate, 2)} a year, ${formatSigned(box.vsHurdleBp, 0)} bp against the hurdle`,
+        cover: O.coverRatio(box),
+        meta: m.stale ? `Stale · ${age}` : `4 legs · ${money(box.capital)} ${lend ? "capital" : "margin ≈ width"} · ${formatInt(box.width)} pts wide`,
+        metaInk: m.stale ? "ink-warn" : "",
+        btn: "Preview",
+        btnOff: m.stale,
+        act: () => !m.stale && openOrders(box, m),
+        go: () => goTo("boxes", box.key, { boxMode: box.mode }),
+        edge: m.stale ? "stale" : m.isOpp.box(box) ? "pos" : "neg",
+      });
     }
+    // 3 · Carry / calendar
+    const cc = railCards[2];
+    if (!carry) fill(cc, { key: "nocarry", kind: "Carry", net: st.futures.length ? "Futures quotes loading" : "No listed future", small: true, ret: "", edge: "none" });
+    else if (carry.type === "fut") {
+      const f = carry.f;
+      const rich = f.carryVsBp > 0;
+      fill(cc, {
+        key: f.key,
+        kind: `Futures carry · ${dayMon(f.expiry)}`,
+        net: `${pct(f.carry, 2)}/yr`,
+        ret: [bpChip(f.carryVsBp, { suffix: " bp vs hurdle" })],
+        retText: `${formatSigned(f.carryVsBp, 0)} bp against the hurdle`,
+        alt: [h("span", { class: "arb-o-gap" }, `≈ ${formatRupee(carry.rs, 0)}/lot ${rich ? "rich" : "cheap"} vs fair carry`), f.cheaper ? ` · long via ${f.cheaper.long.pick}` : ""],
+        meta: `basis ${formatSigned(f.basis, 2)} · ${formatInt(f.days)} d`,
+        go: () => goTo("futures", f.key),
+        edge: "none",
+      });
+    } else {
+      const c = carry.c;
+      const cs = calStruct(c, m);
+      fill(cc, {
+        key: c.key,
+        kind: `Calendar · ${mon(c.from)} → ${mon(c.to)}`,
+        net: c.rollLong === null ? DASH : `${formatRupee(c.rollLong, 0)}/lot`,
+        ret: c.tag ? h("span", { class: c.tag === "rich" ? "ink-neg" : "ink-pos" }, `${c.tag} ${formatSigned(c.vsFair, 1)} pts vs fair (long roll)`) : "at fair",
+        retText: c.tag ? `${c.tag} by ${formatFixed(Math.abs(c.vsFair), 1)} points` : "",
+        alt: `fwd rate ${pct(c.fwdRate, 2)} · fair spread ${formatFixed(c.fair, 1)}`,
+        meta: m.stale ? `Stale · ${age}` : "Roll a long: sell near, buy far",
+        metaInk: m.stale ? "ink-warn" : "",
+        btn: cs.legs.length ? "Preview" : null,
+        btnOff: m.stale,
+        act: () => !m.stale && cs.legs.length && openOrders(cs, m),
+        go: () => goTo("futures", c.key),
+        edge: c.tag === "cheap" ? "pos" : c.tag === "rich" ? "neg" : "none",
+      });
+    }
+    // One honest line when nothing clears costs (the normal case): no banner, no tint.
+    const clears = (par && par.best.net > 0) || (box && box.net > 0 && box.vsHurdleBp >= 0);
+    let note = "";
+    if (!clears && (par || box)) {
+      const cv = par ? O.coverRatio(par.best) : O.coverRatio(box);
+      const what = par ? `${KIND_NAME[par.best.kind]} ${formatInt(par.strike)}` : `${box.mode === "lend" ? "Lend" : "Borrow"} box ${formatInt(box.k1)} / ${formatInt(box.k2)}`;
+      note = `No structure clears costs right now. Closest: ${what}, needs ${formatFixed(cv.short ?? 0, 2)} pts more.`;
+    }
+    railNote.hidden = !note;
+    if (railNote.textContent !== note) railNote.textContent = note;
+    if (par && !m.stale) announce(`best-${par.best.kind}-${par.strike}`, `Best ${KIND_NAME[par.best.kind].toLowerCase()} now ${formatInt(par.strike)}, ${par.best.net >= 0 ? "plus" : "minus"} ${formatRupee(Math.abs(par.best.net), 0)}`);
   }
   function announce(id, text) {
     const now = Date.now();
@@ -1524,15 +2264,380 @@ export function arbPanels(ctx) {
     lastAnnounce = { id, at: now };
     if (!first) live.textContent = text;
   }
+
+  // ── Draw: the tab's visual ──
+  const vizTip = tipper(vizEl);
+  let vizSig = "";
+  const strip = { host: null, cells: [], keys: "", cursor: -1 };
+  function drawViz(m) {
+    const tab = cfg().tab;
+    const mode = tab === "parity" ? "strip" : tab === "boxes" ? (cfg().boxView === "matrix" ? "matrix" : "boxlegend") : "term";
+    const sig = `${mode}|${m.c.underlying}|${m.c.expiry}|${cfg().boxMode}|${phone()}`;
+    if (sig !== vizSig) {
+      vizSig = sig;
+      vizEl.replaceChildren(vizTip.el);
+      vizTip.hide();
+      strip.host = null;
+      matrix.host = null;
+      term.host = null;
+      vizEl.dataset.mode = mode;
+    }
+    if (mode === "strip") drawStrip(m);
+    else if (mode === "matrix" || mode === "boxlegend") drawMatrix(m, mode === "matrix");
+    else drawTerm(m);
+  }
+
+  // Parity: one cell per strike, coloured by which side is rich and by how much; dots mark edges after costs.
+  function drawStrip(m) {
+    const rows = m.par.rows;
+    const keys = rows.map((r) => r.key).join(",");
+    const hasFut = !m.noFuture && !m.futError && !m.par.lotMismatch;
+    if (!strip.host || strip.keys !== keys) {
+      strip.keys = keys;
+      const cellsEl = h("div", { class: "arb-strip-cells", "aria-hidden": "true" });
+      strip.cells = rows.map((r) => {
+        const c = h("div", { class: "arb-hc dv-heat", "data-key": r.key }, h("i", { class: "arb-hd" }), h("span", { class: "arb-hk" }));
+        cellsEl.append(c);
+        return c;
+      });
+      cellsEl.style.setProperty("--n", String(rows.length));
+      const legendEl = h("div", { class: "arb-viz-head" });
+      const scroll = h("div", { class: "arb-strip", tabindex: "0", role: "group" }, cellsEl);
+      strip.host = { scroll, cellsEl, legendEl };
+      vizEl.prepend(legendEl, scroll);
+      const at = (e) => {
+        const c = e.target instanceof Element ? e.target.closest(".arb-hc") : null;
+        return c ? strip.cells.indexOf(c) : -1;
+      };
+      scroll.addEventListener("pointermove", (e) => showStripTip(at(e)));
+      scroll.addEventListener("pointerleave", () => strip.cursor < 0 && vizTip.hide());
+      scroll.addEventListener("click", (e) => {
+        const i = at(e);
+        if (i >= 0) selectStrip(i);
+      });
+      scroll.addEventListener("keydown", (e) => {
+        const n = strip.cells.length;
+        if (!n) return;
+        let i = strip.cursor < 0 ? Math.max(0, last?.par.rows.findIndex((r) => r.atm) ?? 0) : strip.cursor;
+        if (e.key === "ArrowRight") i = Math.min(n - 1, i + (e.shiftKey ? 5 : 1));
+        else if (e.key === "ArrowLeft") i = Math.max(0, i - (e.shiftKey ? 5 : 1));
+        else if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          if (strip.cursor >= 0) selectStrip(strip.cursor);
+          return;
+        } else if (e.key === "Escape") {
+          e.stopPropagation();
+          strip.cursor = -1;
+          vizTip.hide();
+          for (const c of strip.cells) c.classList.remove("cursor");
+          (rowEls.get(sel)?.tr ?? tbody.querySelector("tr"))?.focus();
+          return;
+        } else return;
+        e.preventDefault();
+        e.stopPropagation();
+        strip.cursor = i;
+        strip.cells.forEach((c, k) => c.classList.toggle("cursor", k === i));
+        showStripTip(i);
+      });
+      scroll.addEventListener("blur", () => {
+        strip.cursor = -1;
+        vizTip.hide();
+        for (const c of strip.cells) c.classList.remove("cursor");
+      });
+    }
+    const atmI = rows.findIndex((r) => r.atm);
+    const oneSided = m.oneSidedMarket;
+    rows.forEach((r, i) => {
+      const c = strip.cells[i];
+      const hc = m.heat[i] ?? { side: null, step: 0 };
+      const step = hc.side ? hc.step : 0;
+      if (c.dataset.side !== (hc.side ?? "")) c.dataset.side = hc.side ?? "";
+      const prev = Number(c.dataset.step ?? 0);
+      if (c.dataset.step !== String(step)) {
+        c.dataset.step = String(step);
+        if (step - prev >= 2 && !reducedMotion()) {
+          c.classList.remove("pulse");
+          void c.offsetWidth;
+          c.classList.add("pulse");
+        }
+      }
+      c.classList.toggle("one", Boolean(oneSided || r.oneSided));
+      const cv = hasFut && r.best ? O.coverRatio(r.best) : null;
+      const dot = !cv ? "" : r.best.net > 0 ? "pos" : (cv.cover ?? -1) >= 0.8 ? "ring" : "";
+      if (c.dataset.dot !== dot) c.dataset.dot = dot;
+      c.classList.toggle("sel", r.key === sel);
+      c.classList.toggle("atm", r.atm);
+      const k = c.lastChild;
+      // Every 5th strike from ATM, but not on the two cells at each end (their label would clip).
+      const show = r.atm || ((atmI >= 0 ? (i - atmI) % 5 === 0 : i % 5 === 0) && i >= 2 && i <= rows.length - 3);
+      const text = show ? formatInt(r.strike) : "";
+      if (k.textContent !== text) k.textContent = text;
+    });
+    const m0 = m.heat[0]?.m ?? 5;
+    const lsig = `${hasFut}|${formatInt(m0)}`;
+    if (strip.host.legendEl.__sig !== lsig) {
+      strip.host.legendEl.__sig = lsig;
+      const ramp = h("li", { class: "arb-ramp" }, h("span", { class: "arb-ramp-sw", "aria-hidden": "true" }, [1, 2, 3, 4, 5].map((s) => h("i", { "data-step": String(s) }))), h("span", {}, `0 → ${formatInt(m0)} bp`));
+      const lg = legend([{ label: "Calls rich (reversal side)", token: "call" }, { label: "Puts rich (conversion side)", token: "put" }, hasFut ? { label: "Clears costs", token: "pos" } : null, hasFut ? { label: "Close (≥ 80 % covered)", token: "neg" } : null], { label: "Parity heat legend" });
+      if (hasFut) {
+        const keysEls = lg.querySelectorAll(".dv-key");
+        keysEls[2]?.classList.add("arb-dot-key");
+        keysEls[3]?.classList.add("arb-ring-key");
+      }
+      lg.append(ramp);
+      strip.host.legendEl.replaceChildren(h("span", { class: "arb-viz-title" }, hasFut ? "Deviation by strike" : "Deviation vs the implied forward"), lg);
+    }
+    const rich = rows.filter((r, i) => m.heat[i]?.side);
+    strip.host.scroll.setAttribute("aria-label", `Parity heat by strike, ${formatInt(rows.length)} strikes: ${formatInt(rich.filter((r, i) => r.dev > 0).length)} calls rich, ${formatInt(rich.filter((r) => r.dev < 0).length)} puts rich${hasFut ? `, ${formatInt(rows.filter((r) => r.best?.net > 0).length)} clear costs` : ""}. Arrow keys read strikes, Enter selects.`);
+  }
+  function showStripTip(i) {
+    const m = last;
+    const r = m?.par.rows[i];
+    const c = strip.cells[i];
+    if (!r || !c) return vizTip.hide();
+    const box = vizEl.getBoundingClientRect();
+    const b = c.getBoundingClientRect();
+    const side = r.dev === null ? "" : r.dev > 0 ? "calls rich" : r.dev < 0 ? "puts rich" : "fair";
+    vizTip.show(b.left - box.left + b.width / 2, b.bottom - box.top + 6, [
+      h("b", {}, `${formatInt(r.strike)}${r.atm ? " · ATM" : ""}`),
+      h("div", {}, `dev ${formatSigned(r.dev, 1)} pts (${formatSigned(r.devBp, 0)} bp)${side ? " · " : ""}`, side ? h("span", { class: r.dev > 0 ? "ink-call" : "ink-put" }, side) : ""),
+      r.best ? h("div", {}, `best ${KIND_NAME[r.best.kind]} `, h("span", { class: inkOf(r.best.net) }, rupeeSigned(r.best.net))) : null,
+    ]);
+  }
+  function selectStrip(i) {
+    const r = last?.par.rows[i];
+    if (!r) return;
+    if (cfg().onlyOpps && !list.some((x) => x.key === r.key)) setCfg({ onlyOpps: false });
+    select(r.key, { scroll: true, open: sheetMode() });
+  }
+
+  // Boxes: the K1 × K2 matrix on fixed bp thresholds (or, in List view, just its legend for the vs-hurdle chips).
+  const matrix = { host: null, cells: new Map(), sig: "", cursor: null };
+  const BP_LEGEND = [[-3, "≤ −150"], [-2, "−50"], [-1, "−10"], [0, "0"], [1, "+10"], [2, "+50"], [3, "≥ +150"]];
+  function boxViewSeg() {
+    const seg = segmented("Box view", [["list", "List"], ["matrix", "Matrix"]], st.arb.boxView);
+    seg.classList.add("arb-view");
+    seg.title = "List: ranked boxes. Matrix: every K1 × K2 pair coloured by its rate against your hurdle (M)";
+    seg.addEventListener("change", () => seg.value !== cfg().boxView && setCfg({ boxView: seg.value }));
+    return seg;
+  }
+  function drawMatrix(m, on) {
+    if (!matrix.host) {
+      const legendEl = h("div", { class: "arb-viz-head" }, h("span", { class: "arb-viz-title" }, on ? "Rate vs hurdle by strike pair" : "vs hurdle"), h("ul", { class: "dv-legend arb-bp-legend", "aria-label": "Basis points against your hurdle" }, BP_LEGEND.map(([s, t]) => h("li", {}, h("span", { class: "dv-key dv-heat", "data-div": String(s), "aria-hidden": "true" }), h("span", {}, t))), h("li", { class: "arb-bp-unit" }, "bp")), phone() ? boxViewSeg() : null);
+      const grid = on ? h("div", { class: "arb-matrix", tabindex: "0", role: "grid" }) : null;
+      matrix.host = { legendEl, grid };
+      matrix.sig = "";
+      vizEl.prepend(...[legendEl, grid ? h("div", { class: "arb-matrix-scroll" }, grid) : null].filter(Boolean));
+      if (grid) {
+        grid.addEventListener("pointermove", (e) => {
+          const c = e.target instanceof Element ? e.target.closest(".arb-mc[data-key]") : null;
+          if (c) showMatrixTip(c);
+          else vizTip.hide();
+        });
+        grid.addEventListener("pointerleave", () => vizTip.hide());
+        grid.addEventListener("click", (e) => {
+          const c = e.target instanceof Element ? e.target.closest(".arb-mc[data-key]") : null;
+          if (c) selectBox(c.dataset.key);
+        });
+        grid.addEventListener("keydown", (e) => {
+          const ks = [...matrix.cells.keys()];
+          if (!ks.length) return;
+          const at = matrix.cursor ? matrix.cells.get(matrix.cursor) : null;
+          let r = at?.r ?? 0;
+          let c = at?.c ?? 1;
+          if (e.key === "ArrowRight") c++;
+          else if (e.key === "ArrowLeft") c--;
+          else if (e.key === "ArrowDown") r++;
+          else if (e.key === "ArrowUp") r--;
+          else if ((e.key === "Enter" || e.key === " ") && matrix.cursor) {
+            e.preventDefault();
+            e.stopPropagation();
+            return selectBox(matrix.cells.get(matrix.cursor)?.el.dataset.key);
+          } else if (e.key === "Escape") {
+            e.stopPropagation();
+            vizTip.hide();
+            return (rowEls.get(sel)?.tr ?? tbody.querySelector("tr"))?.focus();
+          } else return;
+          e.preventDefault();
+          e.stopPropagation();
+          const hit = [...matrix.cells.entries()].find(([, v]) => v.r === r && v.c === c && v.el.dataset.key);
+          if (!hit) return;
+          matrix.cursor = hit[0];
+          for (const v of matrix.cells.values()) v.el.classList.toggle("cursor", v === hit[1]);
+          showMatrixTip(hit[1].el);
+        });
+      }
+    }
+    if (!on) return;
+    const strikes = m.par.rows.map((r) => r.strike);
+    const atm = m.par.rows.find((r) => r.atm)?.strike ?? null;
+    const maxSteps = cfg().boxMaxSteps;
+    const by = new Map(m.boxes.map((b) => [`${b.k1}-${b.k2}`, b]));
+    const grid = matrix.host.grid;
+    const sig = `${strikes.join(",")}|${maxSteps}|${cfg().boxMode}`;
+    if (matrix.sig !== sig) {
+      matrix.sig = sig;
+      matrix.cells.clear();
+      const n = strikes.length;
+      grid.style.setProperty("--n", String(Math.max(1, n - 1)));
+      const kids = [h("span", { class: "arb-mh corner" }, "K1 \\ K2")];
+      for (let j = 1; j < n; j++) kids.push(h("span", { class: `arb-mh col${strikes[j] === atm ? " atm" : ""}`, role: "columnheader" }, formatInt(strikes[j])));
+      for (let i = 0; i < n - 1; i++) {
+        kids.push(h("span", { class: `arb-mh row${strikes[i] === atm ? " atm" : ""}`, role: "rowheader" }, formatInt(strikes[i])));
+        for (let j = 1; j < n; j++) {
+          const el = h("span", { class: "arb-mc dv-heat", role: "gridcell" });
+          const id = `${strikes[i]}-${strikes[j]}`;
+          if (j <= i || j - i > maxSteps) el.classList.add("void");
+          matrix.cells.set(id, { el, r: i, c: j });
+          kids.push(el);
+        }
+      }
+      grid.replaceChildren(...kids);
+    }
+    let filled = 0;
+    for (const [id, v] of matrix.cells) {
+      if (v.el.classList.contains("void")) continue;
+      const b = by.get(id);
+      const key = b ? b.key : "";
+      if (v.el.dataset.key !== key) {
+        if (key) v.el.dataset.key = key;
+        else delete v.el.dataset.key;
+      }
+      const stp = !b || b.crossed ? null : O.bpStep(b.vsHurdleBp);
+      if (stp !== null) filled++;
+      const want = stp === null ? undefined : String(stp);
+      if (v.el.dataset.div !== want) {
+        if (want === undefined) delete v.el.dataset.div;
+        else v.el.dataset.div = want;
+      }
+      v.el.classList.toggle("empty", !b);
+      v.el.classList.toggle("x", Boolean(b?.crossed));
+      v.el.classList.toggle("opp", Boolean(b && m.isOpp.box(b)));
+      v.el.classList.toggle("sel", Boolean(b && b.key === sel));
+      const t = b?.crossed ? "×" : "";
+      if (v.el.textContent !== t) v.el.textContent = t;
+    }
+    grid.setAttribute("aria-label", `Box matrix: ${formatInt(filled)} ${lendMode() ? "lending" : "borrowing"} boxes by lower strike (rows) and upper strike (columns), coloured by basis points against your hurdle. Arrow keys move, Enter selects.`);
+  }
+  function showMatrixTip(el) {
+    const b = last?.boxes.find((x) => x.key === el.dataset.key);
+    if (!b) return vizTip.hide();
+    const box = vizEl.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    vizTip.show(r.left - box.left + r.width / 2, r.bottom - box.top + 6, [
+      h("b", {}, `${formatInt(b.k1)} / ${formatInt(b.k2)} · width ${formatInt(b.width)}`),
+      h("div", {}, `${b.mode === "lend" ? "lend" : "borrow"} ${pct(b.rate, 2)}/yr net · `, h("span", { class: b.vsHurdleBp >= 0 ? "ink-pos" : "ink-neg" }, `${formatSigned(b.vsHurdleBp, 0)} bp vs hurdle`)),
+      h("div", {}, `${money(b.capital)} · locked `, h("span", { class: inkOf(b.locked) }, rupeeSigned(b.locked)), b.crossed ? " · crossed quotes" : ""),
+    ]);
+  }
+  function selectBox(key) {
+    if (cfg().onlyOpps && !list.some((x) => x.key === key)) setCfg({ onlyOpps: false });
+    select(key, { scroll: true, open: sheetMode() });
+  }
+
+  // Futures: the term structure (carry, options-implied, forward segments rich / cheap for a long roll, the hurdle).
+  const term = { host: null, sig: "" };
+  function drawTerm(m) {
+    if (!term.host) {
+      const svg = svgEl("svg", { class: "arb-term-svg", role: "img" });
+      const legendEl = h("div", { class: "arb-viz-head" }, h("span", { class: "arb-viz-title" }, "Term structure"), legend([{ label: "Futures carry", token: "iv", kind: "line" }, { label: "Options-implied", token: "iv", kind: "dash" }, { label: "Forward (rich / cheap for a long roll)", token: "neg", kind: "line" }, { label: "Hurdle", token: "spot", kind: "line" }], { label: "Term chart legend" }));
+      const plot = h("div", { class: "arb-term" }, svg);
+      term.host = { svg, plot, legendEl, revealed: false };
+      term.sig = "";
+      vizEl.prepend(legendEl, plot);
+    }
+    const futs = m.term.futures.filter((f) => f.days !== null && f.days >= 1);
+    if (!term.host.plot.clientWidth) return requestAnimationFrame(() => last && term.host?.plot.clientWidth && drawTerm(last));
+    const W = Math.round(term.host.plot.clientWidth);
+    const H = phone() ? 120 : 140;
+    const opt = futs.map((f) => {
+      const ch = m.chains.get(f.expiry);
+      return ch ? O.optionsImpliedRate(ch, { days: f.days, window: 5 }) : null;
+    });
+    const sig = JSON.stringify([W, H, m.hRate, futs.map((f) => [f.days, Math.round((f.carry ?? 0) * 1e5)]), opt.map((v) => (v === null ? null : Math.round(v * 1e5))), m.term.calendars.map((c) => [c.fwdRate === null ? null : Math.round(c.fwdRate * 1e5), c.tag]), m.c.expiry]);
+    if (term.sig === sig) return;
+    term.sig = sig;
+    const svg = term.host.svg;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.setAttribute("height", String(H));
+    if (!futs.length) {
+      svg.replaceChildren(svgEl("text", { class: "dv-tick", x: W / 2, y: H / 2, "text-anchor": "middle" }, "No futures with days left"));
+      return;
+    }
+    const L = 40;
+    const R = 14;
+    const T = 24;
+    const B = 22;
+    const maxD = Math.max(...futs.map((f) => f.days)) * 1.1;
+    const vals = [m.hRate, ...futs.map((f) => f.carry), ...opt, ...m.term.calendars.map((c) => c.fwdRate)].filter((v) => v !== null && Number.isFinite(v));
+    const vlo = Math.min(...vals) * 100;
+    const vhi = Math.max(...vals) * 100;
+    const pad = Math.max(0.05, (vhi - vlo) * 0.12);
+    let ticks = O.niceTicks(vlo - pad, vhi + pad, 4);
+    const stepT = ticks.length > 1 ? ticks[1] - ticks[0] : 1;
+    if (ticks[ticks.length - 1] < vhi) ticks = [...ticks, ticks[ticks.length - 1] + stepT];
+    if (ticks[0] > vlo) ticks = [ticks[0] - stepT, ...ticks];
+    const lo = ticks[0];
+    const hi = ticks[ticks.length - 1];
+    const x = (d) => L + (d / maxD) * (W - L - R);
+    const y = (v) => T + ((hi - v * 100) / (hi - lo || 1)) * (H - T - B);
+    const kids = [];
+    for (const t of ticks) kids.push(svgEl("line", { class: "dv-grid", x1: L, x2: W - R, y1: y(t / 100), y2: y(t / 100) }), svgEl("text", { class: "dv-tick", x: L - 6, y: y(t / 100) + 3.5, "text-anchor": "end" }, `${formatFixed(t, Number.isInteger(t) ? 0 : 1)}%`));
+    for (const f of futs) kids.push(svgEl("text", { class: "dv-tick", x: x(f.days), y: H - 6, "text-anchor": "middle" }, dayMon(f.expiry)));
+    // The hurdle: a horizontal rule with its contrast pill at the right end.
+    kids.push(svgEl("line", { class: "dv-spot-line arb-t-hurdle", x1: L, x2: W - R, y1: y(m.hRate), y2: y(m.hRate) }));
+    // Forward segments over each [d1, d2]: red when the spread is rich for a long roll, green when cheap.
+    m.term.calendars.forEach((c) => {
+      const a = futs.find((f) => f.expiry === c.from);
+      const b = futs.find((f) => f.expiry === c.to);
+      if (!a || !b || c.fwdRate === null) return;
+      const tone = c.tag === "rich" ? "neg" : c.tag === "cheap" ? "pos" : "flat";
+      kids.push(svgEl("line", { class: `arb-t-fwd ${tone}`, x1: x(a.days), x2: x(b.days), y1: y(c.fwdRate), y2: y(c.fwdRate) }));
+      if (c.tag) kids.push(svgEl("text", { class: `arb-t-fwdl ${tone === "neg" ? "ink-neg" : "ink-pos"}`, x: (x(a.days) + x(b.days)) / 2, y: y(c.fwdRate) - 5, "text-anchor": "middle" }, `${c.tag} ${formatSigned(c.vsFair, 1)}`));
+    });
+    const path = (pts) => pts.map(([px, py], i) => `${i ? "L" : "M"}${Math.round(px * 10) / 10} ${Math.round(py * 10) / 10}`).join(" ");
+    const carryPts = futs.filter((f) => f.carry !== null).map((f) => [x(f.days), y(f.carry)]);
+    const optPts = futs.map((f, i) => (opt[i] === null ? null : [x(f.days), y(opt[i])])).filter(Boolean);
+    const carryLine = carryPts.length > 1 ? svgEl("path", { class: "dv-line arb-t-carry", d: path(carryPts) }) : null;
+    const optLine = optPts.length > 1 ? svgEl("path", { class: "dv-line sec dash arb-t-opt", d: path(optPts) }) : null;
+    if (carryLine) kids.push(carryLine);
+    if (optLine) kids.push(optLine);
+    for (const [px, py] of optPts) kids.push(svgEl("circle", { class: "arb-t-ring", cx: px, cy: py, r: 3.5 }));
+    futs.forEach((f) => {
+      if (f.carry === null) return;
+      const cur = f.expiry === m.c.expiry;
+      kids.push(svgEl("circle", { class: `arb-t-dot${cur ? " cur" : ""}`, cx: x(f.days), cy: y(f.carry), r: cur ? 4.5 : 3 }, svgEl("title", {}, `${dayMon(f.expiry)}: carry ${pct(f.carry, 2)}/yr, ${formatSigned(f.carryVsBp, 0)} bp vs hurdle`)));
+    });
+    svg.replaceChildren(...kids);
+    spotPill(svg, W - R - 44, `Hurdle ${formatPercent(m.hRate * 100, 2)}`, { y: Math.max(0, Math.min(H - B - 18, y(m.hRate) - 9)), width: W });
+    const curF = futs.find((f) => f.expiry === m.c.expiry && f.carry !== null);
+    if (curF) spotPill(svg, x(curF.days), dayMon(curF.expiry), { y: Math.max(0, y(curF.carry) - 26), width: W });
+    svg.setAttribute("aria-label", `Futures term: ${futs.map((f) => `${dayMon(f.expiry)} carry ${pct(f.carry, 2)}`).join(", ")}; hurdle ${formatPercent(m.hRate * 100, 2)}`);
+    if (!term.host.revealed) {
+      term.host.revealed = true;
+      lineReveal([carryLine, optLine].filter(Boolean));
+    }
+  }
+
+  // ── Draw: chips, inline notes, the empty state, skeletons ──
+  // The head's chips: built once and patched (a rebuild per tick would drop focus and clicks on the capsules).
+  const staleChip = h("span", { class: "arb-chip stale", hidden: true, title: "Quotes older than your stale limit, or chain and future far apart in time" });
+  const expChip = h("span", { class: "expiry-chip", hidden: true, title: "+2% ELM on short options; annualised figures hidden" }, "Expiry day");
+  const modeSeg = boxModeSeg();
+  const viewSeg = boxViewSeg();
+  chips.append(staleChip, expChip, modeSeg, viewSeg);
   function drawChips(m) {
-    const out = [];
-    if (m?.stale) out.push(h("span", { class: "arb-chip stale", title: "Quotes older than your stale limit, or chain and future far apart in time" }, `Stale · ${formatInt((m.fresh.ageMs ?? 0) / 1000)} s`));
-    if (m?.expiryDay) out.push(h("span", { class: "expiry-chip", title: "+2% ELM on short options; annualised figures hidden" }, "Expiry day"));
-    if (m && cfg().tab === "boxes") out.push(boxModeSeg());
-    const sig = JSON.stringify([m?.stale, m ? formatInt((m.fresh.ageMs ?? 0) / 1000) : "", m?.expiryDay, cfg().tab, cfg().boxMode]);
-    if (chips.__sig === sig) return;
-    chips.__sig = sig;
-    chips.replaceChildren(...out);
+    staleChip.hidden = !m?.stale;
+    const t = m?.stale ? `Stale · ${formatInt((m.fresh.ageMs ?? 0) / 1000)} s` : "";
+    if (staleChip.textContent !== t) staleChip.textContent = t;
+    expChip.hidden = !m?.expiryDay;
+    const boxes = Boolean(m) && cfg().tab === "boxes";
+    modeSeg.hidden = !boxes;
+    viewSeg.hidden = !boxes;
+    if (modeSeg.value !== cfg().boxMode) modeSeg.value = cfg().boxMode;
+    if (viewSeg.value !== cfg().boxView) viewSeg.value = cfg().boxView;
+    chips.classList.toggle("is-empty", !m?.stale && !m?.expiryDay && !boxes);
   }
   function boxModeSeg() {
     const seg = segmented("Box mode", [["lend", "Lend"], ["borrow", "Borrow"]], cfg().boxMode);
@@ -1544,11 +2649,13 @@ export function arbPanels(ctx) {
   function drawInline(m) {
     const notes = [];
     const tab = cfg().tab;
-    if (tab === "parity" && m.noFuture) notes.push(noFutureNote(m));
-    else if (tab === "parity" && m.futError) notes.push(h("p", { class: "arb-banner warn" }, "Could not load futures quotes: showing deviations against the implied forward."));
-    if (m.oneSidedMarket) notes.push(h("p", { class: "arb-banner warn" }, "Quotes are one-sided (market closed?). Nothing is executable; figures show --. Mid-based Dev still shows, muted, as indicative."));
-    if (tab === "boxes") notes.push(h("p", { class: "arb-banner info" }, cfg().boxMode === "lend" ? "Long box: pay the debit now, receive the width at expiry. Rate after charges, simple ACT/365." : "Short box: receive the credit now, owe the width at expiry. In India it blocks margin close to its width: not cheap leverage."));
-    if (tab === "futures") notes.push(h("p", { class: "arb-banner info" }, `Every listed ${m.c.underlying} future; the toolbar expiry is highlighted. Options forwards for other expiries refresh every 15 s. Cash-and-carry needs a tradable underlying: LATER.`));
+    if (tab === "parity" && m.noFuture) {
+      const monthly = futureExpiry(m);
+      notes.push(h("p", { class: "arb-slim" }, h("span", {}, `No future on ${dayMon(m.c.expiry)}: deviations vs the implied forward only.`), monthly ? h("button", { type: "button", class: "small", onclick: () => ctx.selectExpiry(monthly) }, `Use ${dayMon(monthly)}`) : null));
+    } else if (tab === "parity" && m.futError) notes.push(h("p", { class: "err-bar" }, icon("warn"), h("span", {}, "Could not load futures quotes: showing deviations against the implied forward.")));
+    if (m.oneSidedMarket) notes.push(h("p", { class: "arb-slim warn" }, "Quotes are one-sided (market closed?). Nothing is executable; mid-based Dev shows, hatched, as indicative."));
+    if (tab === "boxes") notes.push(h("p", { class: "arb-slim" }, lendMode() ? "Long box: pay the debit now, receive the width at expiry. Rate after charges, simple ACT/365." : "Short box: receive the credit now, owe the width at expiry. In India it blocks margin close to its width: not cheap leverage."));
+    if (tab === "futures") notes.push(h("p", { class: "arb-slim" }, `Every listed ${m.c.underlying} future; options forwards for other expiries refresh every 15 s. Cash-and-carry needs a tradable underlying: LATER.`));
     const sig = JSON.stringify([tab, m.noFuture, m.futError, m.oneSidedMarket, cfg().boxMode, m.c.expiry, m.nearestFut?.expiry]);
     if (noteEl.__sig === sig) return;
     noteEl.__sig = sig;
@@ -1565,51 +2672,64 @@ export function arbPanels(ctx) {
     let closest = null;
     if (tab === "parity") {
       const best = m.par.rows.filter((r) => r.best).sort((a, b) => b.best.net - a.best.net)[0];
-      if (best) closest = `Closest: ${KIND_NAME[best.best.kind]} ${formatInt(best.strike)}, ${rupeeSigned(best.best.net)}${best.best.net < conf.minNet ? ` (needs ${formatFixed((conf.minNet - best.best.net) / best.best.U, 1)} pts more per unit)` : m.stale ? " (quotes stale)" : best.liq < conf.minLiq ? " (liquidity too low)" : ""}`;
+      if (best) {
+        const cv = O.coverRatio(best.best);
+        closest = `Closest: ${KIND_NAME[best.best.kind]} ${formatInt(best.strike)}, ${best.best.net < conf.minNet ? `needs ${formatFixed(Math.max(cv.short ?? 0, (conf.minNet - best.best.net) / best.best.U), 2)} pts more` : m.stale ? "quotes stale" : best.liq < conf.minLiq ? "liquidity too low" : rupeeSigned(best.best.net)}.`;
+      }
     } else if (tab === "boxes") {
       const b = m.boxes.find((x) => !x.crossed && x.vsHurdleBp !== null);
-      if (b) closest = `Closest: ${formatInt(b.k1)}/${formatInt(b.k2)} at ${pct(b.rate, 2)}/yr, ${formatSigned(b.vsHurdleBp, 0)} bp vs hurdle`;
+      if (b) closest = `Closest: ${formatInt(b.k1)} / ${formatInt(b.k2)} at ${pct(b.rate, 2)}/yr, ${formatSigned(b.vsHurdleBp, 0)} bp vs hurdle.`;
     }
-    const text = tab === "boxes" ? `No box beats your hurdle by ${formatInt(conf.minBoxBp)} bp at ${formatInt(conf.lots)} lot${conf.lots === 1 ? "" : "s"}.` : `No structure clears ${formatRupee(conf.minNet, 0)} net after charges at ${formatInt(conf.lots)} lot${conf.lots === 1 ? "" : "s"}.`;
+    const text = tab === "boxes" ? `No box beats your hurdle by ${formatInt(conf.minBoxBp)} bp at ${formatInt(conf.lots)} lot${conf.lots === 1 ? "" : "s"}.` : `No row clears your filters at ${formatInt(conf.lots)} lot${conf.lots === 1 ? "" : "s"}.`;
     const sig = JSON.stringify([text, closest]);
     if (emptyEl.__sig === sig) return;
     emptyEl.__sig = sig;
-    emptyEl.replaceChildren(emptyState("scale", "Nothing clears your filters", text, h("div", { class: "arb-empty-x" }, closest ? h("p", { class: "arb-closest" }, closest) : null, h("button", { type: "button", class: "small", onclick: () => setCfg({ onlyOpps: false }) }, tab === "boxes" ? "Show all boxes" : "Show all strikes"))));
+    emptyEl.replaceChildren(emptyState("scale", "Nothing clears your filters", text, h("div", { class: "arb-empty-x" }, closest ? h("p", { class: "arb-closest" }, closest) : null, h("button", { type: "button", class: "small", onclick: () => setCfg({ onlyOpps: false }) }, "Show all rows")), { compact: true }));
   }
   function shimmer() {
     if (phone()) {
-      cardsEl.replaceChildren(...Array.from({ length: 8 }, () => h("li", { class: "arb-card shimmer", "aria-hidden": "true" }, h("span", { class: "sh" }), h("span", { class: "sh short" }))));
+      cardsEl.replaceChildren(...Array.from({ length: 8 }, () => h("li", { class: "arb-card arb-skel-card", "aria-hidden": "true" }, h("span", { class: "skel" }), h("span", { class: "skel short" }), h("span", { class: "skel tiny" }))));
       cardSig = "";
       cardEls.clear();
     } else {
       thead.replaceChildren();
-      tbody.replaceChildren(...Array.from({ length: 8 }, () => h("tr", { class: "shimmer", "aria-hidden": "true" }, h("td", {}, h("span", { class: "sh" })))));
+      thead.__sort = "";
+      tbody.replaceChildren(...Array.from({ length: 8 }, () => h("tr", { class: "arb-skel-row", "aria-hidden": "true" }, h("td", {}, h("span", { class: "skel" })))));
       tableSig = "";
       rowEls.clear();
     }
+    vizSig = "";
+    vizEl.replaceChildren(h("div", { class: "arb-viz-skel skel", "aria-hidden": "true" }));
+    if (!ladderMarks.size) ladderPlot.classList.add("skel");
   }
   let errorShown = false;
   function draw() {
     if (destroyed) return;
     syncHead();
+    flashLeft = FLASH_BUDGET;
     const isPhone = phone();
     scanEl.classList.toggle("is-phone", isPhone);
+    scanEl.classList.toggle("is-sheet", sheetMode());
     wrapEl.hidden = isPhone;
     cardsEl.hidden = !isPhone;
     const t0 = performance.now();
     if (!st.chain) {
       last = null;
       list = [];
-      drawFigures(null);
+      drawRail(null);
       drawChips(null);
       emptyEl.hidden = true;
       footEl.textContent = "";
+      scanEl.setAttribute("aria-busy", String(!st.error && !st.empty));
       if (st.error) {
         errorShown = true;
         noteEl.__sig = "";
         noteEl.replaceChildren(errorState(st.error, { onRetry: () => ctx.retry() }));
         wrapEl.hidden = true;
         cardsEl.hidden = true;
+        vizEl.replaceChildren();
+        vizSig = "";
+        if (st.lastOk) figFwd.sub.textContent = `as of ${istTime(st.lastOk)}`;
       } else if (st.empty) {
         noteEl.__sig = "";
         noteEl.replaceChildren(emptyState("clock", "No expiries", st.empty, null, { compact: true }));
@@ -1623,11 +2743,12 @@ export function arbPanels(ctx) {
       paneDetail.update(null, null, { failed: Boolean(st.error), none: st.empty || false });
       return;
     }
+    scanEl.removeAttribute("aria-busy");
+    ladderPlot.classList.remove("skel");
     if (errorShown) {
       errorShown = false;
       noteEl.__sig = "";
     }
-    for (const t of tiles.values()) t.el.classList.remove("skel", "dim");
     const m = model();
     last = m;
     list = items(m);
@@ -1643,11 +2764,19 @@ export function arbPanels(ctx) {
       }
     }
     if (sel && !list.some((x) => x.key === sel)) sel = null;
-    drawFigures(m);
+    drawLadder(m);
+    drawRail(m);
     drawChips(m);
     drawInline(m);
-    if (isPhone) drawCards(m, shown);
-    else drawTable(m, shown);
+    drawViz(m);
+    const matrixView = cfg().tab === "boxes" && cfg().boxView === "matrix";
+    scanEl.classList.toggle("matrix-view", matrixView);
+    if (isPhone) drawCards(m, matrixView ? [] : shown);
+    else {
+      drawTable(m, matrixView ? [] : shown);
+      if (drawTable.fresh && !matrixView) fitTable(m, shown);
+    }
+    if (matrixView) wrapEl.hidden = true;
     drawEmpty(m, shown);
     const conf = cfg();
     footEl.textContent =
@@ -1656,9 +2785,9 @@ export function arbPanels(ctx) {
         : conf.tab === "boxes"
           ? `${capped ? `Best ${formatInt(boxCap)} of ${formatInt(capped)}` : formatInt(shown.length)} boxes · up to ${formatInt(conf.boxMaxSteps)} strike steps wide · hurdle ${formatPercent(conf.hurdle, 2)}`
           : `${formatInt(m.term.futures.length)} futures · roll ₹ per lot including charges`;
-    // Detail: the selection, else the best of this tab (desktop / tablet pane); the open phone sheet follows the selection.
+    // Detail: the selection, else the best of this tab (desktop pane); the open sheet follows the selection.
     const selItem = itemOf(sel);
-    if (!isPhone) paneDetail.update(selItem ?? bestItem(), m, { best: !selItem });
+    if (!sheetMode()) paneDetail.update(selItem ?? bestItem(), m, { best: !selItem });
     if (sheet) sheet.detail.update(selItem ?? bestItem(), m, { best: !selItem });
     st.patchMs = Math.round((performance.now() - t0) * 10) / 10;
     if (debug) console.debug(`arb tick: compute ${formatFixed(m.computeMs, 2)} ms, total ${formatFixed(performance.now() - t0, 2)} ms`);
@@ -1720,7 +2849,7 @@ export function arbPanels(ctx) {
     if (k === "j" || k === "ArrowDown") return moveSel(1), true;
     if (k === "k" || k === "ArrowUp") return moveSel(-1), true;
     if (k === "Enter") {
-      if (e.target instanceof Element && e.target.closest("button, a, summary, input, select")) return false;
+      if (e.target instanceof Element && e.target.closest("button, a, summary, input, select, [role=button], .arb-strip, .arb-matrix")) return false;
       return focusDetail(), true;
     }
     if (k === "Escape") {
@@ -1730,13 +2859,27 @@ export function arbPanels(ctx) {
       const back = rowEls.get(sel)?.tr ?? null;
       sel = null;
       draw();
-      if (!phone() && back?.isConnected) back.focus({ preventScroll: true });
+      if (!sheetMode() && back?.isConnected) back.focus({ preventScroll: true });
       return true;
     }
     if (k === "o") return setCfg({ onlyOpps: !cfg().onlyOpps }), true;
     if (k === "h") return setCfg({ hold: cfg().hold === "expiry" ? "close" : "expiry" }), true;
     if (k === "+" || k === "=") return stepLots(1), true;
     if (k === "-" || k === "_") return stepLots(-1), true;
+    if (k === "b") {
+      // The best opportunity card's item: parity when there is one, else the box.
+      const c = railCards.find((x) => x.go && x.el.dataset.edge !== "none") ?? railCards.find((x) => x.go);
+      c?.go?.();
+      return true;
+    }
+    if (k === "m") {
+      if (cfg().tab === "boxes") setCfg({ boxView: cfg().boxView === "matrix" ? "list" : "matrix" });
+      return true;
+    }
+    if (k === "e") {
+      if (cfg().tab === "parity") setCfg({ sort: { ...cfg().sort, parity: { key: "edge", dir: "desc" } } });
+      return true;
+    }
     if (k === "c") {
       const item = itemOf(sel) ?? bestItem();
       return copyLegs(item?.s), true;
@@ -1750,7 +2893,7 @@ export function arbPanels(ctx) {
   }
 
   return {
-    panels: [figuresEl, scanEl, notesEl, chartEl],
+    panels: [ladderEl, railEl, scanEl, notesEl, chartEl],
     root: scanEl,
     draw,
     tick,
@@ -1762,7 +2905,9 @@ export function arbPanels(ctx) {
       depth.clear();
       tableSig = "";
       cardSig = "";
+      vizSig = "";
       lastAnnounce = { id: "", at: 0 };
+      for (const c of railCards) c.key = null;
       if (underlying) {
         extra.clear();
         extraAt = 0;
@@ -1770,6 +2915,7 @@ export function arbPanels(ctx) {
     },
     destroy() {
       destroyed = true;
+      if (typeof window !== "undefined") window.removeEventListener("resize", onResize);
       closePop?.();
     },
   };
