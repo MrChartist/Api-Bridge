@@ -7,6 +7,7 @@
 // flash. The maths lives in options.js (pure, tested); numbers are formatted by format.js only.
 import { alertBox, api, app, card, emptyState, h, icon, istTime, modal, optional, pill, toast } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
+import { arbPanels } from "./arbitrage.js";
 import { openChainSheet } from "./chain-sheet.js";
 import { createOiPage, oiConfig } from "./oi.js";
 import { createBuilder } from "./strategy.js";
@@ -94,8 +95,9 @@ export const renderStrategyPage = () => renderDesk("strategy");
 export const renderOiPage = () => renderDesk("oi");
 export const renderPositionsPage = () => renderDesk("positions");
 export const renderVolPage = () => renderDesk("vol");
+export const renderArbPage = () => renderDesk("arb");
 
-/** @param {"chain"|"strategy"|"oi"|"positions"|"vol"} kind */
+/** @param {"chain"|"strategy"|"oi"|"positions"|"vol"|"arb"} kind */
 async function renderDesk(kind) {
   const accounts = (await api("/v1/accounts")).data.data ?? [];
   const tradable = accounts.filter((a) => a.enabled && (a.capabilities ?? []).includes("placeOrder"));
@@ -116,6 +118,8 @@ async function renderDesk(kind) {
     whatIf: prefs.whatIf ?? null,
     pos: O.positionsConfig(prefs.pos),
     vol: volConfig(prefs.vol),
+    arb: O.arbConfig(prefs.arb),
+    quotesError: null,
     chain: null,
     freshness: null,
     error: null,
@@ -131,7 +135,7 @@ async function renderDesk(kind) {
     seq: 0,
   };
   st.strikesView = st.strikes;
-  const save = () => local.set(SLOT, JSON.stringify({ underlying: st.underlying, expiry: st.expiry, strikes: st.strikes, chain: st.cfg, account: st.account, live: st.live, baskets: st.baskets, oi: st.oi, strategy: st.scfg ?? undefined, whatIf: st.whatIf ?? undefined, pos: st.pos, vol: st.vol }));
+  const save = () => local.set(SLOT, JSON.stringify({ underlying: st.underlying, expiry: st.expiry, strikes: st.strikes, chain: st.cfg, account: st.account, live: st.live, baskets: st.baskets, oi: st.oi, strategy: st.scfg ?? undefined, whatIf: st.whatIf ?? undefined, pos: st.pos, vol: st.vol, arb: st.arb }));
   const account = () => tradable.find((a) => a.id === st.account) ?? null;
   const basketKey = () => `${st.underlying}|${st.expiry}`;
   const basket = () => (st.baskets[basketKey()] ??= []);
@@ -212,6 +216,11 @@ async function renderDesk(kind) {
       : null;
   // Volatility (vol.js): the other expiries' chains, futures and history are its own; desk.js keeps the selected chain.
   const volPage = kind === "vol" ? createVolPage({ st, save, selectExpiry, retry: () => reloadAll() }) : null;
+  // Arbitrage (arbitrage.js): figures, scanner, detail and order preview; desk.js keeps the chain, futures quotes and timer.
+  const arbPage =
+    kind === "arb"
+      ? arbPanels({ st, save, account, openTicket: (o) => openTicket(o), sendOrders: (bodies, o) => sendOrders(bodies, o), selectExpiry, retry: () => reloadAll(), demo: () => Boolean(app.state.demo), onPositions: () => (location.hash = "#/positions") })
+      : null;
   /** Select an expiry as the toolbar does (the Volatility page's term table and curve). */
   function selectExpiry(e) {
     if (!st.expiries.includes(e) || e === st.expiry) return;
@@ -273,6 +282,7 @@ async function renderDesk(kind) {
     const syms = [INDEX_SYMBOL[st.underlying], ...st.futures.map((f) => f.symbol)].filter(Boolean);
     if (!syms.length) return;
     const r = await optional(api(`/v1/quotes?symbols=${encodeURIComponent(syms.join(","))}`));
+    st.quotesError = r.error ?? null;
     if (r.error) return;
     for (const q of r.data?.data ?? []) if (q?.symbol) st.quotes.set(q.symbol, q);
   }
@@ -305,7 +315,7 @@ async function renderDesk(kind) {
     st.futPositions = all.filter((p) => fut.test(String(p.symbol ?? "")) && Number(p.netQty));
     st.positionsError = r.error ?? null;
   }
-  const refresh = () => (posPage ? posPage.tick() : volPage ? Promise.all([loadChain(), volPage.tick()]) : Promise.all([loadChain(), loadPositions(), oiPage?.tick()]));
+  const refresh = () => (posPage ? posPage.tick() : volPage ? Promise.all([loadChain(), volPage.tick()]) : arbPage ? Promise.all([loadChain(), arbPage.tick()]) : Promise.all([loadChain(), loadPositions(), oiPage?.tick()]));
   const startTimer = () => (st.live ? every(REFRESH_MS, refresh) : stopTimer());
   async function reloadAll() {
     if (posPage) {
@@ -315,6 +325,7 @@ async function renderDesk(kind) {
     chain.reset();
     oiPage?.reset({ underlying: true });
     volPage?.reset({ underlying: true });
+    arbPage?.reset({ underlying: true });
     sheet?.close();
     st.chain = null;
     st.focus = null;
@@ -406,6 +417,11 @@ async function renderDesk(kind) {
     chainTools.classList.toggle("off", off);
   }
   function drawAll() {
+    if (arbPage) {
+      arbPage.draw();
+      drawClock();
+      return;
+    }
     if (volPage) {
       const t0 = performance.now();
       volPage.draw();
@@ -900,6 +916,46 @@ async function renderDesk(kind) {
     return result;
   }
 
+  /**
+   * Send order bodies one at a time through POST /v1/orders (every Bridge gate applies) and stop at the first refusal.
+   * An unknown outcome is looked up by its client order id, never resent. `onStatus(i, "sending"|"sent"|"failed", error)`
+   * reports progress. Resolves with { sent: [{ index, order }], failed: { index, error } | null }.
+   */
+  async function sendOrders(bodies, { onStatus = () => {}, tag = "mcbarb" } = {}) {
+    const batch = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+    const sent = [];
+    for (const [i, b] of bodies.entries()) {
+      const clientOrderId = `${tag}-${batch}-${i}`;
+      onStatus(i, "sending");
+      let order = null;
+      try {
+        order = (await api("/v1/orders", { method: "POST", body: { ...b, clientOrderId, tag } })).data.data;
+      } catch (err) {
+        if (err.network || err.code === "OUTCOME_UNKNOWN" || err.status >= 500) {
+          const found = await optional(api(`/v1/orders/by-client-id/${encodeURIComponent(clientOrderId)}`));
+          order = found.data?.data ?? null;
+          if (!order) {
+            const error = "Outcome unknown: check the order book before trying again";
+            onStatus(i, "failed", error);
+            return { sent, failed: { index: i, error } };
+          }
+        } else {
+          onStatus(i, "failed", err.message);
+          return { sent, failed: { index: i, error: err.message } };
+        }
+      }
+      if (["rejected", "cancelled", "expired"].includes(order?.status)) {
+        const error = order.statusMessage ?? `Order ${order.status}`;
+        onStatus(i, "failed", error);
+        return { sent, failed: { index: i, error } };
+      }
+      sent.push({ index: i, order });
+      onStatus(i, "sent");
+    }
+    if (sent.length) refresh();
+    return { sent, failed: null };
+  }
+
   // ── Chain settings ──
   function setCfg(patch) {
     st.cfg = chainConfig({ ...st.cfg, ...patch });
@@ -1184,7 +1240,15 @@ async function renderDesk(kind) {
       return volPage.onKey(e);
     },
   };
-  activeDesk = kind === "chain" ? desk : kind === "oi" ? oiDesk : kind === "strategy" ? stratDesk : kind === "positions" ? posDesk : kind === "vol" ? volDesk : null;
+  const arbDesk = arbPage && {
+    root: arbPage.root,
+    onKey(e) {
+      if (e.key === "p") return liveBtn.click(), true;
+      if (e.key === "r") return refresh(), true;
+      return arbPage.onKey(e);
+    },
+  };
+  activeDesk = kind === "chain" ? desk : kind === "oi" ? oiDesk : kind === "strategy" ? stratDesk : kind === "positions" ? posDesk : kind === "vol" ? volDesk : kind === "arb" ? arbDesk : null;
   bindKeys();
 
   // ── Wiring ──
@@ -1202,6 +1266,7 @@ async function renderDesk(kind) {
     chain.reset();
     oiPage?.reset();
     volPage?.reset();
+    arbPage?.reset();
     save();
     loadChain();
   });
@@ -1233,7 +1298,7 @@ async function renderDesk(kind) {
   drawLive();
   // Back to the tab: refresh at once instead of on the next tick. Device class changes (rotation, a phone-width
   // window, a touch screen) re-lay the chain. Both listeners go when the page does.
-  const pageRoot = kind === "chain" ? chainEl : kind === "strategy" ? builder.panel : kind === "oi" ? oiPage.root : kind === "vol" ? volPage.root : posPage.root;
+  const pageRoot = kind === "chain" ? chainEl : kind === "strategy" ? builder.panel : kind === "oi" ? oiPage.root : kind === "vol" ? volPage.root : kind === "arb" ? arbPage.root : posPage.root;
   const onVisible = () => {
     if (!pageRoot.isConnected) return cleanup();
     if (!document.hidden && st.live) refresh();
@@ -1254,6 +1319,7 @@ async function renderDesk(kind) {
     builder?.destroy();
     posPage?.destroy();
     volPage?.destroy();
+    arbPage?.destroy();
   }
   document.addEventListener("visibilitychange", onVisible);
   window.addEventListener("hashchange", onRoute);
@@ -1290,6 +1356,7 @@ async function renderDesk(kind) {
   if (kind === "oi") return [top, ...oiPage.panels];
   // Volatility: its own KPI strip, so no shared summary.
   if (kind === "vol") return [top, ...volPage.panels];
+  if (kind === "arb") return [top, ...arbPage.panels];
   // The page covers every expiry: the toolbar's expiry select is hidden (st.expiry stays for the other pages).
   eSel.hidden = true;
   aSel.classList.add("wide");

@@ -174,6 +174,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     "format.js": "text/javascript; charset=utf-8",
     "options.js": "text/javascript; charset=utf-8",
     "desk.js": "text/javascript; charset=utf-8",
+    "arbitrage.js": "text/javascript; charset=utf-8",
     "chain-sheet.js": "text/javascript; charset=utf-8",
     "oi.js": "text/javascript; charset=utf-8",
     "positions.js": "text/javascript; charset=utf-8",

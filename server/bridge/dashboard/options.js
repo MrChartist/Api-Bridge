@@ -680,7 +680,8 @@ export function extrinsic(strike, right, premium, forward) {
   if (K === null || P === null || F === null) return null;
   return P - Math.max(0, right === "CE" ? F - K : K - F);
 }
-const twoSided = (q) => num(q?.bid) !== null && num(q?.ask) !== null && q.bid > 0 && q.ask >= q.bid;
+/** A usable two-sided quote: bid > 0 and ask ≥ bid. */
+export const twoSided = (q) => num(q?.bid) !== null && num(q?.ask) !== null && q.bid > 0 && q.ask >= q.bid;
 /** Risk-free rate the exchange-style pricing assumes (NSE uses about the 91-day T-bill; the demo prices at 6.5%). */
 export const RISK_FREE = 0.065;
 /** e^(rT): turns a present-value option spread into forward points (put-call parity: C − P = (F − K)·e^(−rT)). */
@@ -1533,22 +1534,26 @@ export function netGreeksModel(legs, S, { lotSize = 1, basis = 0, el = 0, ivShif
  */
 export const CHARGE_RATES = Object.freeze({
   asOf: "Apr 2026",
+  asOfDate: "2026-04-01",
   brokeragePerOrder: 20,
+  // STT: options sell on premium, exercise on intrinsic of long ITM options (holder pays); futures sell on value.
   opt: Object.freeze({ sttSell: 0.0015, exerciseStt: 0.0015, stampBuy: 0.00003, txn: Object.freeze({ NSE: 0.0003503, BSE: 0.000325 }) }),
-  fut: Object.freeze({ sttSell: 0.0005, stampBuy: 0.00002, txn: Object.freeze({ NSE: 0.0000173, BSE: 0.0000173 }) }),
+  fut: Object.freeze({ sttSell: 0.0005, stampBuy: 0.00002, txn: Object.freeze({ NSE: 0.0000173, BSE: 0 }) }),
   sebiPerCrore: 10,
-  gst: 0.18,
+  ipftPerCrore: 0, // unverified: 0 unless the user sets it
+  gst: 0.18, // on brokerage + exchange txn + SEBI (+ IPFT)
 });
 const exchangeOf = (l) => (/^BFO:/.test(String(l?.symbol ?? "")) ? "BSE" : "NSE");
-function orderCharges(kind, side, turnover, exch, r) {
+/** Statutory lines of one order (brokerage given): the shared core of `charges` and the arbitrage `orderCharges`. */
+function chargeLines(kind, side, turnover, exch, r, brokerage = turnover > 0 ? r.brokeragePerOrder : 0) {
   const k = kind === "FUT" ? r.fut : r.opt;
-  const brokerage = turnover > 0 ? r.brokeragePerOrder : 0;
   const stt = side === "SELL" ? turnover * k.sttSell : 0;
   const txn = turnover * (k.txn[exch] ?? k.txn.NSE);
   const sebi = (turnover * r.sebiPerCrore) / 1e7;
+  const ipft = (turnover * (r.ipftPerCrore ?? 0)) / 1e7;
   const stamp = side === "BUY" ? turnover * k.stampBuy : 0;
-  const gst = (brokerage + txn + sebi) * r.gst;
-  return { brokerage, stt, txn, sebi, stamp, gst };
+  const gst = (brokerage + txn + sebi + ipft) * r.gst;
+  return { brokerage, stt, txn, sebi, ipft, stamp, gst };
 }
 const addCharges = (a, b) => {
   for (const k of Object.keys(b)) a[k] = (a[k] ?? 0) + b[k];
@@ -1559,13 +1564,13 @@ const addCharges = (a, b) => {
  * Legs without a price are skipped.
  */
 export function charges(legs, rates = CHARGE_RATES, { lotSize = 1 } = {}) {
-  const out = { brokerage: 0, stt: 0, txn: 0, sebi: 0, stamp: 0, gst: 0 };
+  const out = { brokerage: 0, stt: 0, txn: 0, sebi: 0, ipft: 0, stamp: 0, gst: 0 };
   for (const l of activeLegs(legs)) {
     const p = num(l.price);
     if (p === null) continue;
-    addCharges(out, orderCharges(isFut(l) ? "FUT" : "OPT", l.side, p * legUnits(l, lotSize), exchangeOf(l), rates));
+    addCharges(out, chargeLines(isFut(l) ? "FUT" : "OPT", l.side, p * legUnits(l, lotSize), exchangeOf(l), rates));
   }
-  out.total = out.brokerage + out.stt + out.txn + out.sebi + out.stamp + out.gst;
+  out.total = out.brokerage + out.stt + out.txn + out.sebi + out.ipft + out.stamp + out.gst;
   return out;
 }
 /**
@@ -1577,8 +1582,8 @@ export function exitCharges(legs, S, rates = CHARGE_RATES, { lotSize = 1 } = {})
   for (const l of activeLegs(legs)) {
     const u = legUnits(l, lotSize);
     if (isFut(l)) {
-      const c = orderCharges("FUT", l.side === "BUY" ? "SELL" : "BUY", Math.max(0, S) * u, exchangeOf(l), rates);
-      t += c.brokerage + c.stt + c.txn + c.sebi + c.stamp + c.gst;
+      const c = chargeLines("FUT", l.side === "BUY" ? "SELL" : "BUY", Math.max(0, S) * u, exchangeOf(l), rates);
+      t += c.brokerage + c.stt + c.txn + c.sebi + c.ipft + c.stamp + c.gst;
     } else if (l.side === "BUY") t += intrinsicOf(l, S) * u * rates.opt.exerciseStt;
   }
   return t;
@@ -2726,6 +2731,8 @@ export function b76Delta(forward, strike, years, ivPct, right) {
  * @returns {{ F: number|null, source: "parity"|"spot"|null }}
  */
 export function impliedForward(chain, years, rate = RATE) {
+  // The arbitrage form: impliedForward(chain, { rate, days, window }) → a band of carried synthetics, never spot.
+  if (years !== null && typeof years === "object") return parityForward(chain, years);
   const spot = num(chain?.underlyingLtp);
   const growth = years > 0 ? Math.exp((num(rate) ?? RATE) * years) : 1;
   const two = (leg) => {
@@ -3145,3 +3152,718 @@ export function volRead(m = {}) {
 
 /** True for the last listed expiry in its calendar month (the monthly series). */
 export const isMonthly = (expiry, allExpiries) => isMonthlyExpiry(expiry, allExpiries);
+
+// ── Charges ──
+// One charges model for the whole desk (PRD 02 and PRD 06): CHARGE_RATES above is the only rate table. These add
+// brokerage models, per-order breakdowns and the hold-to-expiry / close-before-expiry exit for arbitrage structures.
+
+/** Brokerage models: [id, label, help]. Broker names are deliberately not used as presets. */
+export const BROKERAGE_MODELS = Object.freeze([
+  ["flat", "Flat per order", "Most discount brokers charge ₹20 per order (futures: the lower of that and a % of turnover)"],
+  ["perLot", "Per lot", "A fixed amount for every lot in the order"],
+  ["pct", "% of turnover, capped", "A percentage of the order value, up to a cap per order"],
+  ["zero", "Zero brokerage", "No brokerage (statutory charges still apply)"],
+]);
+/** The default brokerage profile: flat ₹20 per order, futures min(₹20, 0.03%), brokerage on exercise (conservative). */
+export const DEFAULT_PROFILE = Object.freeze({ brokerage: "flat", value: 20, futPct: 0.0003, pct: 0.0003, cap: 20, exerciseBrokerage: true });
+
+/** Statutory rate fields the user can edit: [path in CHARGE_RATES, label, unit ("pct" of value or ₹ "crore")]. */
+export const RATE_FIELDS = Object.freeze([
+  ["opt.sttSell", "STT, options sell (on premium)", "pct"],
+  ["opt.exerciseStt", "STT, exercised long ITM (on intrinsic)", "pct"],
+  ["fut.sttSell", "STT, futures sell", "pct"],
+  ["opt.txn.NSE", "NSE txn, options", "pct"],
+  ["fut.txn.NSE", "NSE txn, futures", "pct"],
+  ["opt.txn.BSE", "BSE txn, options", "pct"],
+  ["fut.txn.BSE", "BSE txn, futures", "pct"],
+  ["opt.stampBuy", "Stamp, options buy", "pct"],
+  ["fut.stampBuy", "Stamp, futures buy", "pct"],
+  ["sebiPerCrore", "SEBI fee, ₹ per crore", "crore"],
+  ["ipftPerCrore", "IPFT, ₹ per crore", "crore"],
+  ["gst", "GST (on brokerage, txn, SEBI)", "pct"],
+]);
+const pathGet = (o, path) => path.split(".").reduce((a, k) => (a === null || a === undefined ? undefined : a[k]), o);
+/** The default value of one rate path. */
+export const rateDefault = (path) => pathGet(CHARGE_RATES, path);
+/** CHARGE_RATES with the user's overrides ({ "opt.sttSell": 0.0015, ... }) applied; unknown or bad values are ignored. */
+export function ratesWith(overrides) {
+  const out = JSON.parse(JSON.stringify(CHARGE_RATES));
+  for (const [path, , unit] of RATE_FIELDS) {
+    const v = num(overrides?.[path]);
+    if (v === null || v < 0 || (unit === "pct" ? v >= 1 : v > 1e5)) continue;
+    const keys = path.split(".");
+    let o = out;
+    for (const k of keys.slice(0, -1)) o = o[k];
+    o[keys[keys.length - 1]] = v;
+  }
+  return out;
+}
+
+/** Brokerage of one executed order under a profile. */
+export function brokerageFor({ kind = "OPT", turnover = 0, lots = 1 } = {}, profile = DEFAULT_PROFILE) {
+  const p = profile ?? DEFAULT_PROFILE;
+  const t = num(turnover) ?? 0;
+  if (!(t > 0)) return 0;
+  const value = num(p.value) ?? DEFAULT_PROFILE.value;
+  if (p.brokerage === "zero") return 0;
+  if (p.brokerage === "perLot") return value * Math.max(1, num(lots) ?? 1);
+  if (p.brokerage === "pct") return Math.min((num(p.pct) ?? DEFAULT_PROFILE.pct) * t, num(p.cap) ?? DEFAULT_PROFILE.cap);
+  return kind === "FUT" ? Math.min(value, (num(p.futPct) ?? DEFAULT_PROFILE.futPct) * t) : value;
+}
+/** NSE for NFO / NSE symbols, BSE for BFO / BSE ones. */
+export const exchangeOfSymbol = (symbol) => (/^B(FO|SE):/.test(String(symbol ?? "")) ? "BSE" : "NSE");
+const CHARGE_KEYS = ["brokerage", "stt", "txn", "sebi", "ipft", "stamp", "gst"];
+const zeroLines = () => ({ brokerage: 0, stt: 0, txn: 0, sebi: 0, ipft: 0, stamp: 0, gst: 0, total: 0 });
+const linesTotal = (o) => CHARGE_KEYS.reduce((a, k) => a + (o[k] ?? 0), 0);
+
+/**
+ * Charges of one order: { turnover, brokerage, stt, txn, sebi, ipft, stamp, gst, total } (₹). STT only on a sell, stamp
+ * only on a buy; GST on brokerage + txn + SEBI + IPFT. Null without a price or units.
+ * @param {{ kind: "OPT"|"FUT", side: "BUY"|"SELL", price: number, units: number, exchange?: string, lots?: number }} o
+ */
+export function orderCharges(o, profile = DEFAULT_PROFILE, rates = CHARGE_RATES) {
+  const price = num(o?.price);
+  const units = num(o?.units);
+  if (price === null || units === null || price < 0 || units <= 0) return null;
+  const kind = o.kind === "FUT" ? "FUT" : "OPT";
+  const turnover = price * units;
+  const exch = o.exchange === "BSE" || o.exchange === "BFO" ? "BSE" : "NSE";
+  const brokerage = brokerageFor({ kind, turnover, lots: num(o.lots) ?? 1 }, profile);
+  const l = chargeLines(kind, o.side, turnover, exch, rates ?? CHARGE_RATES, brokerage);
+  return { turnover, ...l, total: linesTotal(l) };
+}
+const legIntrinsic = (l, S) => (l.right === "CE" ? Math.max(0, S - l.strike) : Math.max(0, l.strike - S));
+/** Exercise STT at `settle`: Σ over long option legs of rate × intrinsic × units. Short legs pay none. */
+export function exerciseStt(legs, settle, rates = CHARGE_RATES) {
+  const S = num(settle);
+  if (S === null) return 0;
+  let t = 0;
+  for (const l of legs ?? []) if (l.kind !== "FUT" && l.side === "BUY") t += (rates ?? CHARGE_RATES).opt.exerciseStt * legIntrinsic(l, S) * (num(l.units) ?? 0);
+  return t;
+}
+
+/**
+ * All-in charges of a multi-leg structure: { entry, exit, exerciseStt, exitSpread, exercised, total, hold, settle }.
+ * hold "expiry": exercise STT at `settle` plus (with exerciseBrokerage) one order's brokerage per option leg exercised
+ * or assigned; futures settle at FSP with no charges. hold "close": the reverse orders at the opposite touch
+ * (`exitQuotes` symbol → quote, else each leg's own `quote`) plus the exit spread Σ (ask − bid) × units.
+ * Legs: { kind, side, price, units, lots?, exchange?, right?, strike?, symbol?, quote? }. Null when a leg is unpriced.
+ * `memo` (a Map) caches order charges by (symbol, side, price, units) across calls in one tick.
+ */
+export function structureCharges(legs, profile = DEFAULT_PROFILE, { hold = "expiry", settle = null, exitQuotes = null } = {}, rates = CHARGE_RATES, memo = null) {
+  const one = (o) => {
+    if (!memo) return orderCharges(o, profile, rates);
+    const k = `${o.symbol ?? o.kind}|${o.side}|${o.price}|${o.units}`;
+    if (!memo.has(k)) memo.set(k, orderCharges(o, profile, rates));
+    return memo.get(k);
+  };
+  const entry = zeroLines();
+  for (const l of legs ?? []) {
+    const c = one({ ...l, exchange: l.exchange ?? exchangeOfSymbol(l.symbol) });
+    if (!c) return null;
+    for (const k of CHARGE_KEYS) entry[k] += c[k];
+  }
+  entry.total = linesTotal(entry);
+  const exit = zeroLines();
+  let exStt = 0;
+  let exitSpread = 0;
+  let exercised = 0;
+  const S = num(settle);
+  if (hold === "close") {
+    for (const l of legs) {
+      const q = (exitQuotes instanceof Map ? exitQuotes.get(l.symbol) : exitQuotes?.[l.symbol]) ?? l.quote;
+      if (!twoSided(q)) return null;
+      const c = one({ ...l, side: l.side === "BUY" ? "SELL" : "BUY", price: l.side === "BUY" ? Number(q.bid) : Number(q.ask), exchange: l.exchange ?? exchangeOfSymbol(l.symbol) });
+      if (!c) return null;
+      for (const k of CHARGE_KEYS) exit[k] += c[k];
+      exitSpread += (Number(q.ask) - Number(q.bid)) * l.units;
+    }
+  } else if (S !== null) {
+    exStt = exerciseStt(legs, S, rates);
+    for (const l of legs) {
+      if (l.kind === "FUT" || !(legIntrinsic(l, S) > 0)) continue;
+      exercised += 1;
+      if (profile?.exerciseBrokerage !== false) exit.brokerage += brokerageFor({ kind: "OPT", turnover: legIntrinsic(l, S) * l.units, lots: l.lots ?? 1 }, profile);
+    }
+  }
+  exit.total = linesTotal(exit);
+  return { entry, exit, exerciseStt: exStt, exitSpread, exercised, total: entry.total + exit.total + exStt + exitSpread, hold: hold === "close" ? "close" : "expiry", settle: S };
+}
+
+// ── Arbitrage ──
+// Executable at the touch, after every charge and after the cost of money at the user's hurdle. Simple ACT/365
+// annualisation throughout. A figure that needs a one-sided leg is null (shown as --), never 0.
+
+/** e^(rate·days/365): the carry factor g. Null without a rate; 1 at or past expiry. */
+export function carryFactor(rate, days) {
+  const r = num(rate);
+  const d = num(days);
+  if (r === null) return null;
+  return d === null || d <= 0 ? 1 : Math.exp((r * d) / 365);
+}
+/** net / capital × 365 / days (simple). Null when capital ≤ 0 or days < 1 (expiry day). */
+export function annualise(net, capital, days) {
+  const n = num(net);
+  const c = num(capital);
+  const d = num(days);
+  if (n === null || c === null || d === null || c <= 0 || d < 1) return null;
+  return (n / c) * (365 / d);
+}
+const median = (xs) => {
+  const a = [...xs].sort((x, y) => x - y);
+  if (!a.length) return null;
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+};
+const sortedRows = (chain) => [...(chain?.rows ?? [])].filter((r) => num(r?.strike) !== null).sort((a, b) => a.strike - b.strike);
+const nearestIndex = (rows, x) => {
+  let best = -1;
+  for (let i = 0; i < rows.length; i++) if (best < 0 || Math.abs(rows[i].strike - x) < Math.abs(rows[best].strike - x)) best = i;
+  return best;
+};
+/** The rows within ±window strikes (by position) of the strike nearest `centre`. */
+export function windowRows(chain, centre, window = 10) {
+  const rows = sortedRows(chain);
+  const c = num(centre);
+  if (!rows.length || c === null) return [];
+  const i = nearestIndex(rows, c);
+  return rows.slice(Math.max(0, i - window), i + window + 1);
+}
+
+/**
+ * The chain's implied forward for arbitrage: over two-sided strikes within ATM(spot) ± window, SynM = K + (mid C −
+ * mid P)·e^(rT). { forward: median, lo, hi, n, atm: the strike nearest the forward }; null when n < 2 (no spot fallback).
+ */
+function parityForward(chain, { rate = RATE, days = null, window = 5 } = {}) {
+  const spot = num(chain?.underlyingLtp) ?? num(chain?.atmStrike);
+  const g = carryFactor(rate, days) ?? 1;
+  const syn = windowRows(chain, spot, window)
+    .filter((r) => twoSided(r.ce) && twoSided(r.pe))
+    .map((r) => r.strike + (mid(r.ce) - mid(r.pe)) * g);
+  if (syn.length < 2) return null;
+  const forward = median(syn);
+  const rows = sortedRows(chain);
+  return { forward, lo: Math.min(...syn), hi: Math.max(...syn), n: syn.length, atm: rows[nearestIndex(rows, forward)].strike };
+}
+
+/**
+ * The rate the options price in (independent of dividends): over adjacent two-sided strike pairs within ATM ± window,
+ * box mid Bm = (mid C1 − mid C2) + (mid P2 − mid P1), r = (W/Bm − 1)·365/d. The median; null when n < 2 or d < 1.
+ */
+export function optionsImpliedRate(chain, { days = null, window = 5 } = {}) {
+  const d = num(days);
+  if (d === null || d < 1) return null;
+  const rows = windowRows(chain, num(chain?.underlyingLtp) ?? num(chain?.atmStrike), window);
+  const rs = [];
+  for (let i = 0; i + 1 < rows.length; i++) {
+    const a = rows[i];
+    const b = rows[i + 1];
+    if (![a.ce, a.pe, b.ce, b.pe].every(twoSided)) continue;
+    const bm = mid(a.ce) - mid(b.ce) + (mid(b.pe) - mid(a.pe));
+    if (!(bm > 0)) continue;
+    rs.push(((b.strike - a.strike) / bm - 1) * (365 / d));
+  }
+  return rs.length < 2 ? null : median(rs);
+}
+
+const optLeg = (side, right, row, price, U, lots, tick = 0.05) => ({ kind: "OPT", side, right, strike: row.strike, symbol: row[right.toLowerCase()]?.symbol ?? null, price, units: U, lots, quote: row[right.toLowerCase()] ?? null, tick, exchange: exchangeOfSymbol(row[right.toLowerCase()]?.symbol) });
+const futLeg = (side, fut, price, U, lots) => ({ kind: "FUT", side, symbol: fut.symbol ?? null, price, units: U, lots, quote: fut, tick: num(fut.tickSize) || 0.05, exchange: exchangeOfSymbol(fut.symbol), expiry: fut.expiry ?? null });
+
+/**
+ * The waterfall of a structure, each line ₹ for its units (costs negative): Gross locked, − Financing at hurdle (when
+ * the structure has one), − Brokerage, − STT, − Exchange txn, − SEBI fee, − Stamp, − GST, then − Exercise STT (hold to
+ * expiry) or − Exit charges − Exit spread (close). `net` is the exact sum of the unrounded lines.
+ * @returns {{ lines: { key: string, label: string, value: number }[], net: number }}
+ */
+export function waterfall(s) {
+  const c = s.charges;
+  const exp = c.hold !== "close";
+  const lines = [{ key: "gross", label: "Gross locked", value: s.grossRs }];
+  if (num(s.financingRs) !== null) lines.push({ key: "fin", label: "Financing at hurdle", value: -s.financingRs });
+  lines.push(
+    { key: "brokerage", label: exp && c.exit.brokerage > 0 ? "Brokerage (incl. exercise)" : "Brokerage", value: -(c.entry.brokerage + (exp ? c.exit.brokerage : 0)) },
+    { key: "stt", label: "STT", value: -c.entry.stt },
+    { key: "txn", label: "Exchange txn", value: -c.entry.txn },
+    { key: "sebi", label: c.entry.ipft > 0 ? "SEBI fee + IPFT" : "SEBI fee", value: -(c.entry.sebi + c.entry.ipft) },
+    { key: "stamp", label: "Stamp", value: -c.entry.stamp },
+    { key: "gst", label: "GST", value: -(c.entry.gst + (exp ? c.exit.gst : 0)) },
+  );
+  if (exp) lines.push({ key: "exStt", label: "Exercise STT", value: -c.exerciseStt });
+  else lines.push({ key: "exit", label: "Exit charges", value: -c.exit.total }, { key: "spread", label: "Exit spread", value: -c.exitSpread });
+  return { lines, net: lines.reduce((a, l) => a + l.value, 0) };
+}
+
+/**
+ * Put-call parity per strike in ATM(forward) ± window, against the same-expiry future (or, without one, the chain's
+ * implied forward: then conversions and reversals are null). Each row: { key, strike, ce, pe, atm, synBuy, synSell,
+ * synMid, dev, devBp, tag ("callsRich"|"putsRich"|null), conv, rev, best, liq, ivDiff, oiC, oiP, oneSided }. A
+ * structure: { kind, key, strike, grossPts, grossRs, financingPts, financingRs, charges, chargesTotal, net, netPts,
+ * breakEvenPts, capital, capitalBasis, annual, legs, U, liq }.
+ */
+export function parityRows(chain, { fut = null, rate = 0.06, days = null, lots = 1, profile = DEFAULT_PROFILE, hold = "expiry", window = 10, rates = CHARGE_RATES, futMarginPct = 0.12, fwd = undefined, memo = null } = {}) {
+  const F = fwd === undefined ? parityForward(chain, { rate, days }) : fwd;
+  const lot = num(chain?.lotSize) || 1;
+  const N = Math.max(1, Math.floor(num(lots) ?? 1));
+  const U = lot * N;
+  const g = carryFactor(rate, days) ?? 1;
+  const futOk = Boolean(fut) && twoSided(fut);
+  const lotMismatch = Boolean(fut) && num(fut.lotSize) !== null && num(fut.lotSize) !== lot;
+  const ref = futOk ? { kind: "fut", bid: Number(fut.bid), ask: Number(fut.ask), mid: (Number(fut.bid) + Number(fut.ask)) / 2 } : F ? { kind: "fwd", bid: F.forward, ask: F.forward, mid: F.forward } : null;
+  const settle = F?.forward ?? ref?.mid ?? num(chain?.underlyingLtp);
+  const centre = F?.atm ?? num(chain?.underlyingLtp) ?? num(chain?.atmStrike);
+  const all = chain?.rows ?? [];
+  const ranks = { ce: volumeRanks(all, "ce"), pe: volumeRanks(all, "pe") };
+  const rows = windowRows(chain, centre, window).map((r) => {
+    const K = r.strike;
+    const two = twoSided(r.ce) && twoSided(r.pe);
+    const mC = mid(r.ce);
+    const mP = mid(r.pe);
+    const synMid = mC !== null && mP !== null ? K + (mC - mP) * g : null;
+    const synBuy = two ? K + (r.ce.ask - r.pe.bid) * g : null;
+    const synSell = two ? K + (r.ce.bid - r.pe.ask) * g : null;
+    const dev = synMid !== null && ref ? synMid - ref.mid : null;
+    const tag = !two || !ref ? null : synSell > ref.ask ? "callsRich" : synBuy < ref.bid ? "putsRich" : null;
+    const lc = liquidityScore(r.ce, ranks.ce.get(K));
+    const lp = liquidityScore(r.pe, ranks.pe.get(K));
+    const liq = Math.min(lc, lp);
+    const make = (kind) => {
+      if (!futOk || !two || lotMismatch) return null;
+      const rev = kind === "rev";
+      const optNet = rev ? r.ce.ask - r.pe.bid : r.ce.bid - r.pe.ask; // rev: paid; conv: received
+      const grossPts = rev ? fut.bid - K - optNet : optNet - (fut.ask - K);
+      const financingPts = rev ? optNet * (g - 1) : -optNet * (g - 1);
+      const legs = rev
+        ? [optLeg("BUY", "CE", r, Number(r.ce.ask), U, N), optLeg("SELL", "PE", r, Number(r.pe.bid), U, N), futLeg("SELL", fut, Number(fut.bid), U, N)]
+        : [optLeg("SELL", "CE", r, Number(r.ce.bid), U, N), optLeg("BUY", "PE", r, Number(r.pe.ask), U, N), futLeg("BUY", fut, Number(fut.ask), U, N)];
+      const charges = structureCharges(legs, profile, { hold, settle }, rates, memo);
+      if (!charges) return null;
+      const s = { kind, key: `p:${K}`, strike: K, grossPts, grossRs: grossPts * U, financingPts, financingRs: financingPts * U, charges, chargesTotal: charges.total, legs, U, lots: N, lot, liq };
+      s.net = waterfall(s).net;
+      s.netPts = s.net / U;
+      s.breakEvenPts = (charges.total + s.financingRs) / U;
+      const debit = rev ? optNet : -optNet;
+      s.capital = Math.max(0, debit) * U + futMarginPct * ref.mid * U + charges.entry.total;
+      s.capitalBasis = `${debit > 0 ? "option debit + " : ""}${formatInt(futMarginPct * 100)}% futures margin (est.) + entry charges`;
+      s.annual = annualise(s.net, s.capital, days);
+      return s;
+    };
+    const conv = make("conv");
+    const rev = make("rev");
+    const best = conv && rev ? (rev.net > conv.net ? rev : conv) : conv ?? rev;
+    return {
+      key: `p:${K}`,
+      strike: K,
+      ce: r.ce ?? null,
+      pe: r.pe ?? null,
+      atm: F ? K === F.atm : false,
+      synBuy,
+      synSell,
+      synMid,
+      dev,
+      devBp: dev !== null && ref?.mid ? (dev / ref.mid) * 1e4 : null,
+      tag,
+      conv,
+      rev,
+      best,
+      liq,
+      ivDiff: num(r.pe?.iv) !== null && num(r.ce?.iv) !== null ? r.pe.iv - r.ce.iv : null,
+      oiC: num(r.ce?.oi),
+      oiP: num(r.pe?.oi),
+      oneSided: !two,
+      spreadC: spreadPct(r.ce),
+      spreadP: spreadPct(r.pe),
+    };
+  });
+  return { rows, fwd: F ?? null, ref, U, lot, lots: N, g, settle, lotMismatch, noFuture: !fut };
+}
+
+/**
+ * Box spreads K1 < K2 inside ATM ± window, at most `maxSteps` strike steps wide, all four legs two-sided. Lend (long
+ * box): debit D = (C1a − C2b) + (P2a − P1b), rate rL = ((W·U − X)/(D·U + Cin) − 1)·365/d. Borrow (short box): credit
+ * Cr = (C1b − C2a) + (P2b − P1a), rate rB = ((W·U + X)/(Cr·U − Cin) − 1)·365/d. Cin = entry charges, X = expiry or
+ * exit costs. Sorted by vs-hurdle bp, best first. Crossed: a price ≤ 0, a free-money borrow, or a rate over 100%/yr.
+ */
+export function boxes(chain, { rate = 0.06, days = null, lots = 1, profile = DEFAULT_PROFILE, hold = "expiry", window = 10, maxSteps = 10, mode = "lend", rates = CHARGE_RATES, centre = null, settle = null, memo = null } = {}) {
+  const lot = num(chain?.lotSize) || 1;
+  const N = Math.max(1, Math.floor(num(lots) ?? 1));
+  const U = lot * N;
+  const d = num(days);
+  const h = num(rate) ?? 0;
+  const lend = mode !== "borrow";
+  const c0 = num(centre) ?? num(chain?.underlyingLtp) ?? num(chain?.atmStrike);
+  const rows = windowRows(chain, c0, window);
+  const all = chain?.rows ?? [];
+  const ranks = { ce: volumeRanks(all, "ce"), pe: volumeRanks(all, "pe") };
+  const S = num(settle) ?? num(chain?.underlyingLtp);
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    const a = rows[i];
+    if (!twoSided(a.ce) || !twoSided(a.pe)) continue;
+    for (let j = i + 1; j < rows.length && j - i <= maxSteps; j++) {
+      const b = rows[j];
+      if (!twoSided(b.ce) || !twoSided(b.pe)) continue;
+      const W = b.strike - a.strike;
+      const price = lend ? a.ce.ask - b.ce.bid + (b.pe.ask - a.pe.bid) : a.ce.bid - b.ce.ask + (b.pe.bid - a.pe.ask);
+      const legs = lend
+        ? [optLeg("BUY", "CE", a, Number(a.ce.ask), U, N), optLeg("SELL", "CE", b, Number(b.ce.bid), U, N), optLeg("BUY", "PE", b, Number(b.pe.ask), U, N), optLeg("SELL", "PE", a, Number(a.pe.bid), U, N)]
+        : [optLeg("SELL", "CE", a, Number(a.ce.bid), U, N), optLeg("BUY", "CE", b, Number(b.ce.ask), U, N), optLeg("SELL", "PE", b, Number(b.pe.bid), U, N), optLeg("BUY", "PE", a, Number(a.pe.ask), U, N)];
+      const charges = structureCharges(legs, profile, { hold, settle: S }, rates, memo);
+      if (!charges) continue;
+      const cin = charges.entry.total;
+      const X = charges.total - cin;
+      const ann = d !== null && d >= 1;
+      let r = null;
+      let grossRate = null;
+      let capital;
+      let locked;
+      if (lend) {
+        capital = price * U + cin;
+        locked = W * U - price * U - charges.total;
+        if (ann && price > 0 && capital > 0) {
+          r = ((W * U - X) / capital - 1) * (365 / d);
+          grossRate = (W / price - 1) * (365 / d);
+        }
+      } else {
+        capital = W * U;
+        locked = price * U - W * U - charges.total;
+        const got = price * U - cin;
+        if (ann && got > 0) {
+          r = ((W * U + X) / got - 1) * (365 / d);
+          grossRate = price > 0 ? (W / price - 1) * (365 / d) : null;
+        }
+      }
+      const crossed = lend ? price <= 0 || (r !== null && r > 1) : price * U - cin <= 0 || price >= W || (r !== null && (r < 0 || r > 1));
+      const liq = Math.min(...[[a, "ce"], [b, "ce"], [a, "pe"], [b, "pe"]].map(([row, sd]) => liquidityScore(row[sd], ranks[sd].get(row.strike))));
+      const s = {
+        kind: lend ? "lbox" : "sbox",
+        key: `b:${a.strike}-${b.strike}:${lend ? "lend" : "borrow"}`,
+        mode: lend ? "lend" : "borrow",
+        k1: a.strike,
+        k2: b.strike,
+        width: W,
+        price,
+        priceRs: price * U,
+        charges,
+        chargesTotal: charges.total,
+        cin,
+        x: X,
+        grossRs: lend ? (W - price) * U : (price - W) * U,
+        financingRs: null,
+        locked,
+        rate: r,
+        grossRate,
+        vsHurdleBp: r === null ? null : (lend ? r - h : h - r) * 1e4,
+        capital,
+        capitalBasis: lend ? "debit + entry charges" : "≈ width (short box margin)",
+        liq,
+        crossed,
+        legs,
+        U,
+        lots: N,
+        lot,
+      };
+      s.net = waterfall(s).net;
+      s.netPts = s.net / U;
+      s.breakEvenPts = charges.total / U;
+      s.annual = s.rate;
+      out.push(s);
+    }
+  }
+  return out.sort((x, y) => (y.vsHurdleBp ?? -Infinity) - (x.vsHurdleBp ?? -Infinity));
+}
+
+/**
+ * The box price per unit that gives `target` (%/yr as a decimal) after charges: lend Dmax = ((W·U − X)/(1 + t·d/365)
+ * − Cin)/U rounded down to tick; borrow Crmin = ((W·U + X)/(1 + t·d/365) + Cin)/U rounded up. Cin and X are taken at
+ * the current quotes (an approximation). Null on expiry day or without inputs.
+ */
+export function boxLimit({ mode = "lend", width, units, cin = 0, x = 0, target, days, tick = 0.05 } = {}) {
+  const W = num(width);
+  const U = num(units);
+  const t = num(target);
+  const d = num(days);
+  if (W === null || U === null || U <= 0 || t === null || d === null || d < 1) return null;
+  const f = 1 + (t * d) / 365;
+  if (!(f > 0)) return null;
+  const raw = mode === "borrow" ? ((W * U + (num(x) ?? 0)) / f + (num(cin) ?? 0)) / U : ((W * U - (num(x) ?? 0)) / f - (num(cin) ?? 0)) / U;
+  return { raw, limit: roundToTick(raw, tick, mode === "borrow" ? "buy" : "sell") };
+}
+
+const futMid = (q) => (twoSided(q) ? (Number(q.bid) + Number(q.ask)) / 2 : null);
+/**
+ * Long or short exposure: the future at its touch, or the synthetic at the ATM-forward strike (K + (Ca − Pb)·g to buy,
+ * K + (Cb − Pa)·g to sell), each per unit after entry charges (and exercise STT at `settle` on the synthetic's long
+ * option). { long: { pick, diffPts, diffPerLot, fut, syn }, short: {...} }; null without two-sided quotes.
+ */
+export function cheaperExposure({ fut, row, rate = 0.06, days = null, profile = DEFAULT_PROFILE, lot = 1, rates = CHARGE_RATES, settle = null } = {}) {
+  if (!fut || !row || !twoSided(fut) || !twoSided(row.ce) || !twoSided(row.pe)) return null;
+  const u = num(lot) || 1;
+  const g = carryFactor(rate, days) ?? 1;
+  const K = row.strike;
+  const ex = exchangeOfSymbol(fut.symbol);
+  const per = (legs) => legs.reduce((a, l) => a + (orderCharges({ ...l, units: u, exchange: ex }, profile, rates)?.total ?? 0), 0) / u;
+  const S = num(settle) ?? futMid(fut);
+  const longFut = Number(fut.ask) + per([{ kind: "FUT", side: "BUY", price: Number(fut.ask) }]);
+  const longSyn = K + (row.ce.ask - row.pe.bid) * g + per([{ kind: "OPT", side: "BUY", price: Number(row.ce.ask) }, { kind: "OPT", side: "SELL", price: Number(row.pe.bid) }]) + exerciseStt([{ kind: "OPT", side: "BUY", right: "CE", strike: K, units: u }], S, rates) / u;
+  const shortFut = Number(fut.bid) - per([{ kind: "FUT", side: "SELL", price: Number(fut.bid) }]);
+  const shortSyn = K + (row.ce.bid - row.pe.ask) * g - per([{ kind: "OPT", side: "SELL", price: Number(row.ce.bid) }, { kind: "OPT", side: "BUY", price: Number(row.pe.ask) }]) - exerciseStt([{ kind: "OPT", side: "BUY", right: "PE", strike: K, units: u }], S, rates) / u;
+  const side = (a, b, lower) => {
+    const pick = lower ? (a <= b ? "future" : "synthetic") : a >= b ? "future" : "synthetic";
+    const diffPts = Math.abs(a - b);
+    return { pick, diffPts, diffPerLot: diffPts * u, fut: a, syn: b };
+  };
+  return { long: side(longFut, longSyn, true), short: side(shortFut, shortSyn, false), strike: K };
+}
+
+/**
+ * The futures term: one row per future, nearest first ({ key, expiry, symbol, days, bid, ask, mid, spread, basis,
+ * basisPct, carry, carryVsBp, fwd, fwdGap, fwdTag, cheaper }), and a calendar between each consecutive pair ({ key,
+ * from, to, buyFar, sellFar, fwdRate, fair, midSpread, vsFair, tag, rollLong, rollShort }). `chains` (expiry →
+ * optionchain data) adds the options forward and future-vs-synthetic. Rates are decimals.
+ */
+export function futuresTerm(spot, futs, { now = Date.now(), rate = 0.06, profile = DEFAULT_PROFILE, rates = CHARGE_RATES, chains = new Map() } = {}) {
+  const S = num(spot);
+  const h = num(rate) ?? 0;
+  const list = [...(futs ?? [])].filter((f) => f && /^\d{4}-\d{2}-\d{2}$/.test(f.expiry ?? "")).sort((a, b) => (a.expiry < b.expiry ? -1 : 1));
+  const futures = list.map((f) => {
+    const days = timeToExpiry(f.expiry, now).days;
+    const m = futMid(f);
+    const lot = num(f.lotSize) || 1;
+    const basis = m !== null && S !== null ? m - S : null;
+    const carry = m !== null && S && days !== null && days >= 1 ? (m / S - 1) * (365 / days) : null;
+    const ch = chains.get(f.expiry) ?? null;
+    let fwd = null;
+    let fwdTag = null;
+    let cheaper = null;
+    if (ch) {
+      const pf = parityForward(ch, { rate: h, days });
+      if (pf) {
+        const g = carryFactor(h, days) ?? 1;
+        const row = (ch.rows ?? []).find((r) => r.strike === pf.atm) ?? null;
+        const two = row && twoSided(row.ce) && twoSided(row.pe);
+        fwd = { ...pf, synBuy: two ? row.strike + (row.ce.ask - row.pe.bid) * g : null, synSell: two ? row.strike + (row.ce.bid - row.pe.ask) * g : null };
+        if (twoSided(f) && fwd.synSell !== null) fwdTag = Number(f.bid) > fwd.synSell ? "rich" : Number(f.ask) < fwd.synBuy ? "cheap" : null;
+        cheaper = cheaperExposure({ fut: f, row, rate: h, days, profile, lot, rates, settle: pf.forward });
+      }
+    }
+    return {
+      key: `f:${f.expiry}`,
+      expiry: f.expiry,
+      symbol: f.symbol ?? null,
+      lot,
+      days,
+      bid: num(f.bid),
+      ask: num(f.ask),
+      mid: m,
+      spread: m !== null ? Number(f.ask) - Number(f.bid) : null,
+      twoSided: twoSided(f),
+      basis,
+      basisPct: basis !== null && S ? (basis / S) * 100 : null,
+      carry,
+      carryVsBp: carry !== null ? (carry - h) * 1e4 : null,
+      fwd,
+      fwdGap: fwd && m !== null ? m - fwd.forward : null,
+      fwdTag,
+      cheaper,
+    };
+  });
+  const calendars = [];
+  for (let i = 0; i + 1 < futures.length; i++) {
+    const a = futures[i];
+    const b = futures[i + 1];
+    const ok = a.twoSided && b.twoSided;
+    const dd = a.days !== null && b.days !== null ? b.days - a.days : null;
+    const u = a.lot;
+    const ex = exchangeOfSymbol(a.symbol);
+    const ch = (legs) => legs.reduce((t, l) => t + (orderCharges({ kind: "FUT", units: u, exchange: ex, ...l }, profile, rates)?.total ?? 0), 0);
+    const fair = ok && dd !== null && dd > 0 ? a.mid * (Math.exp((h * dd) / 365) - 1) : null;
+    const midSpread = ok ? b.mid - a.mid : null;
+    const vsFair = fair !== null ? midSpread - fair : null;
+    calendars.push({
+      key: `c:${a.expiry}>${b.expiry}`,
+      from: a.expiry,
+      to: b.expiry,
+      lot: u,
+      buyFar: ok ? b.ask - a.bid : null,
+      sellFar: ok ? b.bid - a.ask : null,
+      fwdRate: ok && dd !== null && dd > 0 ? (b.mid / a.mid - 1) * (365 / dd) : null,
+      fair,
+      midSpread,
+      vsFair,
+      tag: vsFair === null ? null : vsFair > 0 ? "rich" : vsFair < 0 ? "cheap" : null,
+      rollLong: ok ? (b.ask - a.bid) * u + ch([{ side: "SELL", price: a.bid }, { side: "BUY", price: b.ask }]) : null,
+      rollShort: ok ? (a.ask - b.bid) * u + ch([{ side: "BUY", price: a.ask }, { side: "SELL", price: b.bid }]) : null,
+    });
+  }
+  return { futures, calendars };
+}
+
+/**
+ * Quote staleness: { stale, ageMs, skewMs }. Stale when the chain or the future is older than maxAgeMs, or their
+ * timestamps are further apart than that (a phantom edge from mismatched quotes).
+ */
+export function staleness({ chainAsOf = null, futAsOf = null, now = Date.now(), maxAgeMs = 5000 } = {}) {
+  const tc = chainAsOf ? Date.parse(chainAsOf) : Number.NaN;
+  const tf = futAsOf ? Date.parse(futAsOf) : Number.NaN;
+  if (!Number.isFinite(tc)) return { stale: false, ageMs: null, skewMs: null };
+  const ageMs = Math.max(0, now - tc, Number.isFinite(tf) ? now - tf : 0);
+  const skewMs = Number.isFinite(tf) ? Math.abs(tc - tf) : null;
+  return { stale: ageMs > maxAgeMs || (skewMs !== null && skewMs > maxAgeMs), ageMs, skewMs };
+}
+
+/** Minutes past midnight IST. */
+const istMinutes = (ms) => Math.floor((((ms + IST_OFFSET_MS) % 86400000) + 86400000) % 86400000 / 60000);
+/** Flag codes, in priority order (most important first). */
+export const ARB_FLAGS = Object.freeze(["LOT_MISMATCH", "CROSSED", "ORDER_LIMIT", "STALE", "EXPIRY_DAY", "NEAR_CLOSE", "WIDE", "THIN", "ONE_SIDED", "NO_FUTURE", "FREEZE", "EXERCISE_STT"]);
+/**
+ * The risk flags that apply to one structure: [{ code, sev: "bad"|"warn"|"info", text }], most important first.
+ * ctx: { stale, ageMs, days, hold, noFuture, lotMismatch, oneSided, topQty: Map symbol → qty, freezeQty: Map symbol
+ * → qty, orderLimit (₹ per order), nowMs, demo }.
+ */
+export function arbFlags(s, ctx = {}) {
+  const out = [];
+  const add = (code, sev, text) => out.push({ code, sev, text });
+  const legs = s?.legs ?? [];
+  if (ctx.lotMismatch) add("LOT_MISMATCH", "bad", "The future's lot size differs from the options': conversions and reversals are off");
+  if (s?.crossed) add("CROSSED", "bad", "Crossed quotes: almost certainly a stale or bad quote");
+  const limit = num(ctx.orderLimit);
+  if (limit !== null && legs.some((l) => (num(l.price) ?? 0) * (num(l.units) ?? 0) > limit)) add("ORDER_LIMIT", "bad", `A leg is above the per-order limit of ${formatRupee(limit, 0)}`);
+  if (ctx.stale) add("STALE", "warn", `Quotes are stale${num(ctx.ageMs) !== null ? ` (${formatInt(ctx.ageMs / 1000)} s)` : ""}: excluded from Best`);
+  if (num(ctx.days) !== null && ctx.days < 1) add("EXPIRY_DAY", "warn", "Expiry day: +2% ELM on short options, no annualised figures");
+  if (!ctx.demo && num(ctx.nowMs) !== null) {
+    const m = istMinutes(ctx.nowMs);
+    if (m < 9 * 60 + 15 || (m >= 15 * 60 && m < 15 * 60 + 30)) add("NEAR_CLOSE", "warn", "Pre-open / last 30 min: quotes thin");
+  }
+  const wide = legs.filter((l) => l.kind !== "FUT" && (spreadPct(l.quote) ?? 0) > 5);
+  if (wide.length) add("WIDE", "warn", `Wide spread on ${wide.map((l) => `${formatInt(l.strike)} ${l.right}`).join(", ")} (over 5%)`);
+  const tq = ctx.topQty instanceof Map ? ctx.topQty : null;
+  if (tq && legs.some((l) => num(tq.get(l.symbol)) !== null && tq.get(l.symbol) < (num(s.lot) ?? 1))) add("THIN", "warn", "Less than one lot at the touch on a leg");
+  if (ctx.oneSided || (s && legs.some((l) => !twoSided(l.quote)))) add("ONE_SIDED", "info", "A leg has no two-sided quote: figures show --");
+  if (ctx.noFuture) add("NO_FUTURE", "info", "No listed future for this expiry");
+  const fq = ctx.freezeQty instanceof Map ? ctx.freezeQty : null;
+  const slices = fq ? Math.max(1, ...legs.map((l) => (num(fq.get(l.symbol)) > 0 ? Math.ceil(l.units / fq.get(l.symbol)) : 1))) : 1;
+  if (slices > 1) add("FREEZE", "info", `Above the freeze quantity: sent as ${formatInt(slices)} orders`);
+  if (s?.charges && s.charges.hold !== "close" && s.charges.exerciseStt >= 0.5) add("EXERCISE_STT", "info", `Exercise STT ${formatRupee(s.charges.exerciseStt, 0)} on the long ITM leg at expiry`);
+  return out;
+}
+
+/**
+ * The order to send a structure's legs in: the least liquid option leg first (widest spread %), then the other option
+ * legs by spread % descending, then the future last.
+ */
+export function sendOrder(legs) {
+  const opts = (legs ?? []).filter((l) => l.kind !== "FUT").map((l) => ({ l, sp: spreadPct(l.quote) ?? Infinity }));
+  opts.sort((a, b) => b.sp - a.sp);
+  return [...opts.map((x) => x.l), ...(legs ?? []).filter((l) => l.kind === "FUT")];
+}
+/** Split `units` into freeze-quantity slices of whole lots: [75, 75] style; one slice when freeze is unknown. */
+export function freezeSlices(units, freezeQty, lot = 1) {
+  const u = Math.floor(num(units) ?? 0);
+  const fq = num(freezeQty);
+  if (u <= 0) return [];
+  if (fq === null || fq <= 0 || u <= fq) return [u];
+  const step = Math.max(lot, Math.floor(fq / lot) * lot);
+  const out = [];
+  let left = u;
+  while (left > 0) {
+    out.push(Math.min(step, left));
+    left -= step;
+  }
+  return out;
+}
+/** floor(min over legs of the top-of-book quantity / lot): lots available at these prices; null without depth. */
+export function maxLotsAtTouch(legs, topQty, lot = 1) {
+  const qs = (legs ?? []).map((l) => num(topQty?.get?.(l.symbol)));
+  if (!qs.length || qs.some((q) => q === null)) return null;
+  return Math.floor(Math.min(...qs) / (num(lot) || 1));
+}
+
+/** Parity table columns: [id, header]. Strike and the net columns (conv, rev, annual) cannot be hidden. */
+export const ARB_PARITY_COLUMNS = Object.freeze([
+  ["strike", "Strike"],
+  ["call", "Call bid·ask"],
+  ["put", "Put bid·ask"],
+  ["syn", "Synthetic sell·buy"],
+  ["dev", "Dev"],
+  ["conv", "Conversion"],
+  ["rev", "Reversal"],
+  ["annual", "Net %/yr"],
+  ["liq", "Liq"],
+  ["fwdK", "Implied fwd at K"],
+  ["ivpc", "IV P−C"],
+  ["oi", "OI C·P"],
+  ["gross", "Gross pts"],
+  ["charges", "Charges ₹"],
+  ["capital", "Capital ₹"],
+]);
+export const ARB_LOCKED_COLUMNS = Object.freeze(["strike", "conv", "rev", "annual"]);
+export const ARB_DEFAULTS = Object.freeze({
+  tab: "parity",
+  lots: 1,
+  hold: "expiry",
+  onlyOpps: false,
+  boxMode: "lend",
+  sort: Object.freeze({ parity: Object.freeze({ key: "strike", dir: "asc" }), boxes: Object.freeze({ key: "vsHurdle", dir: "desc" }), futures: Object.freeze({ key: "expiry", dir: "asc" }) }),
+  hurdle: 6,
+  profile: DEFAULT_PROFILE,
+  rates: Object.freeze({}),
+  futMarginPct: 12,
+  minNet: 0,
+  minBoxBp: 0,
+  minLiq: 2,
+  staleSec: 5,
+  window: 10,
+  boxMaxSteps: 10,
+  cols: Object.freeze(ARB_PARITY_COLUMNS.slice(0, 9).map((c) => c[0])),
+  notesOpen: null,
+});
+const SORT_KEYS = { parity: ["strike", "dev", "conv", "rev", "annual"], boxes: ["vsHurdle", "rate", "locked", "strikes"], futures: ["expiry"] };
+/** The Arbitrage page's saved settings (mcb.dashboard.desk → arb), validated: bad values fall back to defaults. */
+export function arbConfig(saved) {
+  const d = ARB_DEFAULTS;
+  const s = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+  const pick = (v, list, def) => (list.includes(v) ? v : def);
+  const range = (v, lo, hi, def) => (num(v) !== null && Number(v) >= lo && Number(v) <= hi ? Number(v) : def);
+  const p = s.profile && typeof s.profile === "object" ? s.profile : {};
+  const sort = {};
+  for (const tab of Object.keys(SORT_KEYS)) {
+    const x = s.sort?.[tab];
+    sort[tab] = x && SORT_KEYS[tab].includes(x.key) && ["asc", "desc"].includes(x.dir) ? { key: x.key, dir: x.dir } : { ...d.sort[tab] };
+  }
+  const ids = ARB_PARITY_COLUMNS.map((c) => c[0]);
+  let cols = Array.isArray(s.cols) ? s.cols.filter((k, i, a) => ids.includes(k) && a.indexOf(k) === i) : [...d.cols];
+  for (const k of ARB_LOCKED_COLUMNS) if (!cols.includes(k)) cols.push(k);
+  if (cols[0] !== "strike") cols = ["strike", ...cols.filter((k) => k !== "strike")];
+  const rates = {};
+  for (const [path, , unit] of RATE_FIELDS) {
+    const v = num(s.rates?.[path]);
+    if (v !== null && v >= 0 && (unit === "pct" ? v < 1 : v <= 1e5)) rates[path] = v;
+  }
+  return {
+    tab: pick(s.tab, ["parity", "boxes", "futures"], d.tab),
+    lots: Math.round(range(s.lots, 1, 100, d.lots)),
+    hold: pick(s.hold, ["expiry", "close"], d.hold),
+    onlyOpps: typeof s.onlyOpps === "boolean" ? s.onlyOpps : d.onlyOpps,
+    boxMode: pick(s.boxMode, ["lend", "borrow"], d.boxMode),
+    sort,
+    hurdle: range(s.hurdle, 0, 50, d.hurdle),
+    profile: {
+      brokerage: pick(p.brokerage, BROKERAGE_MODELS.map((m) => m[0]), DEFAULT_PROFILE.brokerage),
+      value: range(p.value, 0, 10000, DEFAULT_PROFILE.value),
+      futPct: range(p.futPct, 0, 0.05, DEFAULT_PROFILE.futPct),
+      pct: range(p.pct, 0, 0.05, DEFAULT_PROFILE.pct),
+      cap: range(p.cap, 0, 10000, DEFAULT_PROFILE.cap),
+      exerciseBrokerage: typeof p.exerciseBrokerage === "boolean" ? p.exerciseBrokerage : DEFAULT_PROFILE.exerciseBrokerage,
+    },
+    rates,
+    futMarginPct: range(s.futMarginPct, 0, 100, d.futMarginPct),
+    minNet: range(s.minNet, -1e7, 1e7, d.minNet),
+    minBoxBp: range(s.minBoxBp, -10000, 10000, d.minBoxBp),
+    minLiq: Math.round(range(s.minLiq, 0, 5, d.minLiq)),
+    staleSec: pick(Number(s.staleSec), [2, 5, 10, 30], d.staleSec),
+    window: pick(Number(s.window), [5, 10, 20], d.window),
+    boxMaxSteps: Math.round(range(s.boxMaxSteps, 1, 40, d.boxMaxSteps)),
+    cols,
+    notesOpen: typeof s.notesOpen === "boolean" ? s.notesOpen : null,
+  };
+}

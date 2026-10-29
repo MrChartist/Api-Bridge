@@ -1,5 +1,6 @@
 /** Option Desk maths (options.js): chain reads, pricing and strategy payoffs. */
 import { describe, expect, it } from "vitest";
+import * as A from "./options.js";
 import {
   atmRow,
   black76,
@@ -1396,5 +1397,386 @@ describe("volatility", () => {
       const ex = ["2026-12-22", "2026-12-29", "2027-01-05", "2027-01-26", "2027-02-23"];
       expect(ex.map((e) => isMonthly(e, ex))).toEqual([false, true, false, true, true]);
     });
+  });
+});
+
+// ── Arbitrage and charges (PRD 06) ──
+describe("charges model (PRD 06 §6)", () => {
+  const conv = [
+    { kind: "FUT", side: "BUY", price: 26600.5, units: 75, symbol: "NFO:NIFTY-2026-11-24-FUT" },
+    { kind: "OPT", side: "SELL", right: "CE", strike: 26400, price: 450.15, units: 75, symbol: "NFO:NIFTY-2026-11-24-26400-CE" },
+    { kind: "OPT", side: "BUY", right: "PE", strike: 26400, price: 254.45, units: 75, symbol: "NFO:NIFTY-2026-11-24-26400-PE" },
+  ];
+
+  it("orderCharges: the worked conversion, line by line, totals ₹226.90 (3.03 pts a unit)", () => {
+    const [f, c, p] = conv.map((l) => A.orderCharges(l));
+    expect(f.turnover).toBeCloseTo(1995037.5, 6);
+    expect(c.turnover).toBeCloseTo(33761.25, 6);
+    expect(p.turnover).toBeCloseTo(19083.75, 6);
+    expect(f.brokerage + c.brokerage + p.brokerage).toBeCloseTo(60, 6);
+    expect(f.brokerage).toBe(20); // min(20, 0.03% of 1995037.50 = 598.51)
+    expect(f.stt + c.stt + p.stt).toBeCloseTo(50.64, 2);
+    expect(f.txn + c.txn + p.txn).toBeCloseTo(53.03, 2);
+    expect(f.sebi + c.sebi + p.sebi).toBeCloseTo(2.05, 2);
+    expect(f.stamp + c.stamp + p.stamp).toBeCloseTo(40.47, 2);
+    expect(f.gst + c.gst + p.gst).toBeCloseTo(20.71, 2);
+    const total = f.total + c.total + p.total;
+    expect(total).toBeCloseTo(226.9, 2);
+    expect(total / 75).toBeCloseTo(3.03, 2);
+  });
+
+  it("BSE: options txn 0.0325%, futures txn 0", () => {
+    const o = A.orderCharges({ kind: "OPT", side: "BUY", price: 200, units: 20, exchange: "BSE" });
+    expect(o.txn).toBeCloseTo(4000 * 0.000325, 9);
+    expect(o.stamp).toBeCloseTo(4000 * 0.00003, 9);
+    expect(o.stt).toBe(0);
+    expect(A.orderCharges({ kind: "FUT", side: "BUY", price: 80000, units: 20, exchange: "BSE" }).txn).toBe(0);
+    expect(A.exchangeOfSymbol("BFO:SENSEX-2026-11-06-80000-PE")).toBe("BSE");
+    expect(A.exchangeOfSymbol("NFO:NIFTY-2026-11-24-FUT")).toBe("NSE");
+  });
+
+  it("GST is on brokerage + txn + SEBI only (not STT or stamp)", () => {
+    const o = A.orderCharges({ kind: "OPT", side: "SELL", price: 100, units: 75 });
+    expect(o.gst).toBeCloseTo(0.18 * (o.brokerage + o.txn + o.sebi), 9);
+    expect(o.stt).toBeGreaterThan(0);
+    expect(o.total).toBeCloseTo(o.brokerage + o.stt + o.txn + o.sebi + o.stamp + o.gst, 9);
+  });
+
+  it("brokerage models: perLot, pct (cap hit and not), zero; a missing price is null", () => {
+    const leg = { kind: "OPT", side: "BUY", price: 100, units: 225, lots: 3 };
+    expect(A.orderCharges(leg, { ...A.DEFAULT_PROFILE, brokerage: "perLot", value: 10 }).brokerage).toBe(30);
+    expect(A.orderCharges(leg, { ...A.DEFAULT_PROFILE, brokerage: "pct", pct: 0.0003, cap: 20 }).brokerage).toBeCloseTo(22500 * 0.0003, 9);
+    expect(A.orderCharges({ ...leg, price: 1000 }, { ...A.DEFAULT_PROFILE, brokerage: "pct", pct: 0.0003, cap: 20 }).brokerage).toBe(20);
+    const z = A.orderCharges(leg, { ...A.DEFAULT_PROFILE, brokerage: "zero" });
+    expect(z.brokerage).toBe(0);
+    expect(z.gst).toBeCloseTo(0.18 * (z.txn + z.sebi), 9);
+    expect(A.orderCharges({ ...leg, price: null })).toBeNull();
+    expect(A.orderCharges({ ...leg, units: 0 })).toBeNull();
+  });
+
+  it("one rate table: user overrides apply on a copy, bad values are ignored", () => {
+    const r = A.ratesWith({ "opt.sttSell": 0.001, gst: 5, "nope.x": 1 });
+    expect(r.opt.sttSell).toBe(0.001);
+    expect(r.gst).toBe(A.CHARGE_RATES.gst);
+    expect(A.CHARGE_RATES.opt.sttSell).toBe(0.0015);
+    expect(A.rateDefault("fut.txn.NSE")).toBe(0.0000173);
+  });
+
+  it("exerciseStt: long ITM pays on intrinsic; short and OTM pay nothing", () => {
+    const long = { kind: "OPT", side: "BUY", right: "CE", strike: 26400, units: 75 };
+    expect(A.exerciseStt([long], 26628)).toBeCloseTo(0.0015 * 228 * 75, 9);
+    expect(A.exerciseStt([{ ...long, side: "SELL" }], 26628)).toBe(0);
+    expect(A.exerciseStt([long], 26300)).toBe(0);
+    expect(A.exerciseStt([{ ...long, right: "PE" }], 26300)).toBeCloseTo(0.0015 * 100 * 75, 9);
+  });
+
+  it("structureCharges: hold to expiry adds exercise brokerage (on/off); close uses opposite touches + exit spread", () => {
+    const on = A.structureCharges(conv, A.DEFAULT_PROFILE, { hold: "expiry", settle: 26628 });
+    expect(on.entry.total).toBeCloseTo(226.9, 2);
+    expect(on.exerciseStt).toBe(0); // the long PE expires OTM
+    expect(on.exercised).toBe(1); // the short CE is assigned
+    expect(on.total).toBeCloseTo(246.9, 2);
+    const off = A.structureCharges(conv, { ...A.DEFAULT_PROFILE, exerciseBrokerage: false }, { hold: "expiry", settle: 26628 });
+    expect(off.total).toBeCloseTo(226.9, 2);
+    const quotes = new Map([
+      ["NFO:NIFTY-2026-11-24-FUT", { bid: 26600, ask: 26600.5 }],
+      ["NFO:NIFTY-2026-11-24-26400-CE", { bid: 450.15, ask: 450.25 }],
+      ["NFO:NIFTY-2026-11-24-26400-PE", { bid: 254.35, ask: 254.45 }],
+    ]);
+    const close = A.structureCharges(conv, A.DEFAULT_PROFILE, { hold: "close", exitQuotes: quotes });
+    const exitF = A.orderCharges({ kind: "FUT", side: "SELL", price: 26600, units: 75 });
+    const exitC = A.orderCharges({ kind: "OPT", side: "BUY", price: 450.25, units: 75 });
+    const exitP = A.orderCharges({ kind: "OPT", side: "SELL", price: 254.35, units: 75 });
+    expect(close.exit.total).toBeCloseTo(exitF.total + exitC.total + exitP.total, 9);
+    expect(close.exitSpread).toBeCloseTo((0.5 + 0.1 + 0.1) * 75, 9);
+    expect(close.exerciseStt).toBe(0);
+    expect(close.total).toBeCloseTo(close.entry.total + close.exit.total + close.exitSpread, 9);
+  });
+});
+
+/** A parity-consistent chain: C − P = (F − K)/g at every strike, spread 0.10 on each leg. */
+function arbChain({ F = 26628, rate = 0.06, days = 27, strikes = [26200, 26300, 26400, 26500, 26600, 26700, 26800, 26900, 27000], spot = 26472.85, iv = 0.12, half = 0.05 } = {}) {
+  const T = days / 365;
+  const g = Math.exp(rate * T);
+  const rows = strikes.map((K) => {
+    const c = black76(F, K, T, iv * 100, "CE") / g;
+    const p = c - (F - K) / g;
+    const q = (m, right) => ({ symbol: `NFO:NIFTY-2026-11-24-${K}-${right}`, bid: Math.round((m - half) * 100) / 100, ask: Math.round((m + half) * 100) / 100, ltp: m, volume: 1000, oi: 5000, iv: 12 });
+    return { strike: K, ce: q(c, "CE"), pe: q(p, "PE") };
+  });
+  return { underlying: "NIFTY", expiry: "2026-11-24", underlyingLtp: spot, lotSize: 75, rows };
+}
+
+describe("arbitrage maths (PRD 06 §7)", () => {
+  it("carryFactor and annualise (null on capital ≤ 0 or expiry day)", () => {
+    expect(A.carryFactor(0.06, 27)).toBeCloseTo(Math.exp((0.06 * 27) / 365), 12);
+    expect(A.carryFactor(0.06, 0)).toBe(1);
+    expect(A.carryFactor(null, 27)).toBeNull();
+    expect(A.annualise(100, 10000, 36.5)).toBeCloseTo(0.1, 12);
+    expect(A.annualise(100, 0, 30)).toBeNull();
+    expect(A.annualise(100, -5, 30)).toBeNull();
+    expect(A.annualise(100, 1000, 0.5)).toBeNull();
+  });
+
+  it("impliedForward: the median of carried synthetics, n < 2 → null (no spot fallback)", () => {
+    const c = arbChain();
+    const f = A.impliedForward(c, { rate: 0.06, days: 27 });
+    expect(f.forward).toBeCloseTo(26628, 0);
+    expect(f.n).toBeGreaterThanOrEqual(5);
+    expect(f.lo).toBeLessThanOrEqual(f.forward);
+    expect(f.hi).toBeGreaterThanOrEqual(f.forward);
+    expect(f.atm).toBe(26600);
+    const one = { ...c, rows: c.rows.map((r, i) => (i === 3 ? r : { ...r, pe: { ...r.pe, bid: 0 } })) };
+    expect(A.impliedForward(one, { rate: 0.06, days: 27 })).toBeNull();
+    // The vol page's form is unchanged.
+    expect(A.impliedForward(c, 27 / 365, 0.06).source).toBe("parity");
+  });
+
+  it("impliedForward applies the carry: a deep ITM strike matches only when discounted", () => {
+    const c = arbChain({ strikes: [25000, 25100] , spot: 25050 });
+    const carried = A.impliedForward(c, { rate: 0.06, days: 27 });
+    const flat = A.impliedForward(c, { rate: 0, days: 27 });
+    expect(carried.forward).toBeCloseTo(26628, 0);
+    expect(Math.abs(flat.forward - 26628)).toBeGreaterThan(5);
+  });
+
+  it("optionsImpliedRate: the box mids give the chain's rate; d < 1 → null", () => {
+    const c = arbChain({ half: 0.0 + 0.05 });
+    const r = A.optionsImpliedRate(c, { days: 27 });
+    // Simple ACT/365 from a continuous 6%: (e^(0.06·27/365) − 1)·365/27.
+    expect(r).toBeCloseTo((Math.exp((0.06 * 27) / 365) - 1) * (365 / 27), 3);
+    expect(A.optionsImpliedRate(c, { days: 0.5 })).toBeNull();
+    expect(A.optionsImpliedRate({ rows: [] }, { days: 27 })).toBeNull();
+  });
+
+  const one = (ce, pe, K = 26400) => ({ strike: K, ce: { symbol: `NFO:NIFTY-2026-11-24-${K}-CE`, volume: 10, oi: 10, ...ce }, pe: { symbol: `NFO:NIFTY-2026-11-24-${K}-PE`, volume: 10, oi: 10, ...pe } });
+  const fut = { symbol: "NFO:NIFTY-2026-11-24-FUT", bid: 26600, ask: 26600.5, lotSize: 75 };
+  const chainAt = (row) => ({ underlyingLtp: 26472.85, lotSize: 75, rows: [row, one({ bid: 400, ask: 400.1 }, { bid: 300, ask: 300.1 }, 26500)] });
+
+  it("parityRows: conversion and reversal gross, financing sign and net", () => {
+    const row = one({ bid: 450.15, ask: 450.25 }, { bid: 254.35, ask: 254.45 });
+    const g = Math.exp((0.06 * 27) / 365);
+    const res = A.parityRows(chainAt(row), { fut, rate: 0.06, days: 27, lots: 2, window: 5 });
+    const r = res.rows.find((x) => x.strike === 26400);
+    expect(res.U).toBe(150);
+    expect(r.rev.grossPts).toBeCloseTo(200 - 195.9, 9);
+    expect(r.rev.financingPts).toBeCloseTo(195.9 * (g - 1), 9);
+    expect(r.rev.financingPts).toBeGreaterThan(0); // a debit pays interest
+    expect(r.conv.grossPts).toBeCloseTo(195.7 - 200.5, 9);
+    expect(r.conv.financingPts).toBeCloseTo(-195.7 * (g - 1), 9);
+    expect(r.conv.financingPts).toBeLessThan(0); // a credit earns it
+    for (const s of [r.rev, r.conv]) {
+      expect(s.net).toBeCloseTo((s.grossPts - s.financingPts) * 150 - s.chargesTotal, 6);
+      expect(s.breakEvenPts).toBeCloseTo((s.chargesTotal + s.financingRs) / 150, 9);
+      expect(s.legs.map((l) => l.kind)).toContain("FUT");
+    }
+    expect(r.rev.legs.map((l) => `${l.side} ${l.kind}`)).toEqual(["BUY OPT", "SELL OPT", "SELL FUT"]);
+    expect(r.synBuy).toBeCloseTo(26400 + 195.9 * g, 9);
+    expect(r.synSell).toBeCloseTo(26400 + 195.7 * g, 9);
+    // capital: option debit + 12% futures margin + entry charges; annualised on it.
+    expect(r.rev.capital).toBeCloseTo(195.9 * 150 + 0.12 * 26600.25 * 150 + r.rev.charges.entry.total, 6);
+    expect(r.rev.annual).toBeCloseTo((r.rev.net / r.rev.capital) * (365 / 27), 12);
+    expect(A.parityRows(chainAt(row), { fut, rate: 0.06, days: 0.5, window: 5 }).rows[0].rev.annual).toBeNull();
+  });
+
+  it("parityRows: no future → conv/rev null and dev against the implied forward", () => {
+    const c = arbChain();
+    const res = A.parityRows(c, { fut: null, rate: 0.06, days: 27 });
+    expect(res.noFuture).toBe(true);
+    expect(res.ref.kind).toBe("fwd");
+    for (const r of res.rows) {
+      expect(r.conv).toBeNull();
+      expect(r.rev).toBeNull();
+      expect(r.dev).toBeCloseTo(r.synMid - res.fwd.forward, 9);
+    }
+    expect(res.rows.find((r) => r.atm).strike).toBe(26600);
+  });
+
+  it("parityRows: a one-sided leg gives null figures, not 0", () => {
+    const row = one({ bid: 0, ask: 450.25 }, { bid: 254.35, ask: 254.45 });
+    const r = A.parityRows(chainAt(row), { fut, rate: 0.06, days: 27, window: 5 }).rows.find((x) => x.strike === 26400);
+    expect(r.oneSided).toBe(true);
+    expect(r.synBuy).toBeNull();
+    expect(r.conv).toBeNull();
+    expect(r.rev).toBeNull();
+    expect(r.tag).toBeNull();
+  });
+
+  it("parityRows: the rich tags only outside the bid-ask band", () => {
+    const rich = one({ bid: 460, ask: 460.1 }, { bid: 254.35, ask: 254.45 });
+    expect(A.parityRows(chainAt(rich), { fut, rate: 0.06, days: 27, window: 5 }).rows.find((x) => x.strike === 26400).tag).toBe("callsRich");
+    const puts = one({ bid: 440, ask: 440.1 }, { bid: 254.35, ask: 254.45 });
+    expect(A.parityRows(chainAt(puts), { fut, rate: 0.06, days: 27, window: 5 }).rows.find((x) => x.strike === 26400).tag).toBe("putsRich");
+    const inside = one({ bid: 450.15, ask: 450.25 }, { bid: 254.35, ask: 254.45 });
+    expect(A.parityRows(chainAt(inside), { fut: { ...fut, bid: 26595.5, ask: 26596 }, rate: 0, days: 27, window: 5 }).rows.find((x) => x.strike === 26400).tag).toBeNull();
+  });
+
+  it("parityRows: a lot-size mismatch switches conversions and reversals off", () => {
+    const row = one({ bid: 450.15, ask: 450.25 }, { bid: 254.35, ask: 254.45 });
+    const res = A.parityRows(chainAt(row), { fut: { ...fut, lotSize: 50 }, rate: 0.06, days: 27, window: 5 });
+    expect(res.lotMismatch).toBe(true);
+    expect(res.rows[0].rev).toBeNull();
+  });
+
+  const boxChain = (c1, c2, p1, p2) => ({ underlyingLtp: 26450, lotSize: 75, rows: [one(c1, p1, 26400), one(c2, p2, 26500)] });
+
+  it("boxes: D = 98.50, W = 100, d = 27 → gross 20.59%/yr; the net rate after charges", () => {
+    const c = boxChain({ bid: 449.9, ask: 450 }, { bid: 400, ask: 400.1 }, { bid: 251.5, ask: 251.6 }, { bid: 299.9, ask: 300 });
+    const [b] = A.boxes(c, { rate: 0.06, days: 27, lots: 1, window: 5 });
+    expect(b.k1).toBe(26400);
+    expect(b.k2).toBe(26500);
+    expect(b.price).toBeCloseTo(98.5, 9);
+    expect(b.grossRate).toBeCloseTo((100 / 98.5 - 1) * (365 / 27), 12);
+    expect(Math.round(b.grossRate * 10000) / 100).toBe(20.59);
+    const U = 75;
+    expect(b.rate).toBeCloseTo(((100 * U - b.x) / (98.5 * U + b.cin) - 1) * (365 / 27), 12);
+    expect(b.vsHurdleBp).toBeCloseTo((b.rate - 0.06) * 1e4, 9);
+    expect(b.capital).toBeCloseTo(98.5 * U + b.cin, 9);
+    expect(b.locked).toBeCloseTo(100 * U - 98.5 * U - b.chargesTotal, 9);
+    expect(b.crossed).toBe(false);
+  });
+
+  it("boxes: the borrow formula", () => {
+    const c = boxChain({ bid: 449.9, ask: 450 }, { bid: 400, ask: 400.1 }, { bid: 251.5, ask: 251.6 }, { bid: 299.9, ask: 300 });
+    const [b] = A.boxes(c, { rate: 0.06, days: 27, mode: "borrow", window: 5 });
+    expect(b.price).toBeCloseTo(449.9 - 400.1 + 299.9 - 251.6, 9);
+    expect(b.rate).toBeCloseTo(((100 * 75 + b.x) / (b.price * 75 - b.cin) - 1) * (365 / 27), 12);
+    expect(b.vsHurdleBp).toBeCloseTo((0.06 - b.rate) * 1e4, 9);
+    expect(b.capital).toBe(100 * 75);
+    expect(b.locked).toBeLessThan(0);
+  });
+
+  it("boxes: D ≤ 0 is flagged crossed", () => {
+    const c = boxChain({ bid: 349.9, ask: 350 }, { bid: 400, ask: 400.1 }, { bid: 251.5, ask: 251.6 }, { bid: 299.9, ask: 300 });
+    const [b] = A.boxes(c, { rate: 0.06, days: 27, window: 5 });
+    expect(b.price).toBeLessThanOrEqual(0);
+    expect(b.crossed).toBe(true);
+    expect(A.arbFlags(b, {}).map((f) => f.code)).toContain("CROSSED");
+  });
+
+  it("boxLimit: the limit for a target rate round-trips to that rate", () => {
+    const U = 75;
+    const cin = 120;
+    const x = 30;
+    const L = A.boxLimit({ mode: "lend", width: 100, units: U, cin, x, target: 0.07, days: 27 });
+    expect(((100 * U - x) / (L.raw * U + cin) - 1) * (365 / 27)).toBeCloseTo(0.07, 12);
+    expect(L.limit).toBeLessThanOrEqual(L.raw); // a debit rounds down
+    const B = A.boxLimit({ mode: "borrow", width: 100, units: U, cin, x, target: 0.07, days: 27 });
+    expect(((100 * U + x) / (B.raw * U - cin) - 1) * (365 / 27)).toBeCloseTo(0.07, 12);
+    expect(B.limit).toBeGreaterThanOrEqual(B.raw); // a credit rounds up
+    expect(A.boxLimit({ mode: "lend", width: 100, units: U, target: 0.07, days: 0.4 })).toBeNull();
+  });
+
+  it("futuresTerm: basis, carry, calendar forward rate, fair spread and roll ₹ with charges", () => {
+    const now = Date.parse("2026-10-29T04:00:00Z");
+    const f1 = { symbol: "NFO:NIFTY-2026-11-24-FUT", expiry: "2026-11-24", lotSize: 75, bid: 26594.8, ask: 26600.1 };
+    const f2 = { symbol: "NFO:NIFTY-2026-12-29-FUT", expiry: "2026-12-29", lotSize: 75, bid: 26750, ask: 26756 };
+    const t = A.futuresTerm(26472.85, [f2, f1], { now, rate: 0.06 });
+    expect(t.futures.map((f) => f.expiry)).toEqual(["2026-11-24", "2026-12-29"]);
+    const a = t.futures[0];
+    const m1 = (26594.8 + 26600.1) / 2;
+    const d1 = A.timeToExpiry("2026-11-24", now).days;
+    expect(a.basis).toBeCloseTo(m1 - 26472.85, 9);
+    expect(a.carry).toBeCloseTo((m1 / 26472.85 - 1) * (365 / d1), 12);
+    expect(a.carryVsBp).toBeCloseTo((a.carry - 0.06) * 1e4, 9);
+    const c = t.calendars[0];
+    const m2 = (26750 + 26756) / 2;
+    const dd = A.timeToExpiry("2026-12-29", now).days - d1;
+    expect(c.key).toBe("c:2026-11-24>2026-12-29");
+    expect(c.buyFar).toBeCloseTo(26756 - 26594.8, 9);
+    expect(c.sellFar).toBeCloseTo(26750 - 26600.1, 9);
+    expect(c.fwdRate).toBeCloseTo((m2 / m1 - 1) * (365 / dd), 12);
+    expect(c.fair).toBeCloseTo(m1 * (Math.exp((0.06 * dd) / 365) - 1), 9);
+    const sell = A.orderCharges({ kind: "FUT", side: "SELL", price: 26594.8, units: 75 }).total;
+    const buy = A.orderCharges({ kind: "FUT", side: "BUY", price: 26756, units: 75 }).total;
+    expect(c.rollLong).toBeCloseTo((26756 - 26594.8) * 75 + sell + buy, 6);
+    const buyNear = A.orderCharges({ kind: "FUT", side: "BUY", price: 26600.1, units: 75 }).total;
+    const sellFar = A.orderCharges({ kind: "FUT", side: "SELL", price: 26750, units: 75 }).total;
+    expect(c.rollShort).toBeCloseTo((26600.1 - 26750) * 75 + buyNear + sellFar, 6);
+  });
+
+  it("cheaperExposure: picks the cheaper side and reports the gap", () => {
+    const row = one({ bid: 450.15, ask: 450.25 }, { bid: 254.35, ask: 254.45 });
+    // Synthetic buy ≈ 26400 + 195.9·g ≈ 26596.8: a future offered at 26620 is the dearer way to go long.
+    const r = A.cheaperExposure({ fut: { ...fut, bid: 26619.5, ask: 26620 }, row, rate: 0.06, days: 27, lot: 75 });
+    expect(r.long.pick).toBe("synthetic");
+    expect(r.long.diffPts).toBeCloseTo(Math.abs(r.long.fut - r.long.syn), 12);
+    expect(r.long.diffPerLot).toBeCloseTo(r.long.diffPts * 75, 9);
+    expect(r.short.pick).toBe("future");
+    const cheap = A.cheaperExposure({ fut: { ...fut, bid: 26570, ask: 26570.5 }, row, rate: 0.06, days: 27, lot: 75 });
+    expect(cheap.long.pick).toBe("future");
+    expect(cheap.short.pick).toBe("synthetic");
+    expect(A.cheaperExposure({ fut: { bid: 0, ask: 1 }, row, rate: 0.06, days: 27 })).toBeNull();
+  });
+
+  it("staleness: by age and by skew", () => {
+    const now = Date.parse("2026-10-29T06:00:10Z");
+    expect(A.staleness({ chainAsOf: "2026-10-29T06:00:09Z", futAsOf: "2026-10-29T06:00:09Z", now }).stale).toBe(false);
+    const old = A.staleness({ chainAsOf: "2026-10-29T06:00:01Z", futAsOf: "2026-10-29T06:00:09Z", now });
+    expect(old.stale).toBe(true);
+    expect(old.ageMs).toBe(9000);
+    const skew = A.staleness({ chainAsOf: "2026-10-29T06:00:09Z", futAsOf: "2026-10-29T06:00:03Z", now, maxAgeMs: 8000 });
+    expect(skew.ageMs).toBe(7000);
+    expect(skew.skewMs).toBe(6000);
+    expect(skew.stale).toBe(false);
+    expect(A.staleness({ chainAsOf: "2026-10-29T06:00:09Z", futAsOf: "2026-10-29T06:00:03Z", now, maxAgeMs: 5000 }).stale).toBe(true);
+    expect(A.staleness({ chainAsOf: null }).stale).toBe(false);
+  });
+
+  it("the waterfall adds up exactly to the net (50 random structures)", () => {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 50; i++) {
+      const row = one({ bid: 400 + rnd() * 100, ask: 0 }, { bid: 200 + rnd() * 100, ask: 0 });
+      row.ce.ask = row.ce.bid + 0.05 + rnd() * 2;
+      row.pe.ask = row.pe.bid + 0.05 + rnd() * 2;
+      const f = { ...fut, bid: 26550 + rnd() * 100 };
+      f.ask = f.bid + 0.05 + rnd() * 5;
+      const res = A.parityRows(chainAt(row), { fut: f, rate: rnd() * 0.1, days: 1 + rnd() * 60, lots: 1 + Math.floor(rnd() * 10), hold: rnd() > 0.5 ? "close" : "expiry", window: 5 });
+      for (const s of [res.rows[0].conv, res.rows[0].rev]) {
+        const w = A.waterfall(s);
+        expect(w.lines.reduce((a, l) => a + l.value, 0)).toBe(s.net);
+        expect(s.net).toBeCloseTo(s.grossRs - s.financingRs - s.chargesTotal, 6);
+      }
+    }
+  });
+
+  it("arbFlags: staleness, expiry day, wide, freeze, exercise STT, no future", () => {
+    const row = one({ bid: 10, ask: 11 }, { bid: 254.35, ask: 254.45 });
+    const res = A.parityRows(chainAt(row), { fut, rate: 0.06, days: 27, lots: 30, window: 5, fwd: { forward: 26628, atm: 26400, lo: 0, hi: 0, n: 2 } });
+    const s = res.rows[0].rev;
+    const codes = A.arbFlags(s, { stale: true, ageMs: 7000, days: 0.5, freezeQty: new Map(s.legs.map((l) => [l.symbol, 1800])), demo: true }).map((f) => f.code);
+    expect(codes).toEqual(expect.arrayContaining(["STALE", "EXPIRY_DAY", "WIDE", "FREEZE", "EXERCISE_STT"]));
+    expect(A.arbFlags(null, { noFuture: true }).map((f) => f.code)).toEqual(["NO_FUTURE"]);
+    expect(A.arbFlags(s, { nowMs: Date.parse("2026-10-29T02:00:00Z") }).map((f) => f.code)).toContain("NEAR_CLOSE");
+  });
+
+  it("sendOrder: least liquid option first, future last; freezeSlices; maxLotsAtTouch", () => {
+    const legs = [
+      { kind: "FUT", symbol: "F", quote: { bid: 1, ask: 1.1 } },
+      { kind: "OPT", symbol: "A", quote: { bid: 100, ask: 100.1 } },
+      { kind: "OPT", symbol: "B", quote: { bid: 10, ask: 11 } },
+    ];
+    expect(A.sendOrder(legs).map((l) => l.symbol)).toEqual(["B", "A", "F"]);
+    expect(A.freezeSlices(3750, 1800, 75)).toEqual([1800, 1800, 150]);
+    expect(A.freezeSlices(150, 1800, 75)).toEqual([150]);
+    expect(A.maxLotsAtTouch(legs, new Map([["F", 900], ["A", 175], ["B", 600]]), 75)).toBe(2);
+    expect(A.maxLotsAtTouch(legs, new Map([["F", 900]]), 75)).toBeNull();
+  });
+
+  it("arbConfig: defaults, validation and the locked columns", () => {
+    const d = A.arbConfig(undefined);
+    expect(d.tab).toBe("parity");
+    expect(d.hurdle).toBe(6);
+    expect(d.cols).toEqual(["strike", "call", "put", "syn", "dev", "conv", "rev", "annual", "liq"]);
+    const c = A.arbConfig({ tab: "boxes", lots: 500, cols: ["dev", "bogus", "oi"], staleSec: 7, rates: { "opt.sttSell": 0.002, gst: 3 }, sort: { parity: { key: "conv", dir: "desc" } } });
+    expect(c.tab).toBe("boxes");
+    expect(c.lots).toBe(1);
+    expect(c.cols[0]).toBe("strike");
+    expect(c.cols).toEqual(expect.arrayContaining(["dev", "oi", "conv", "rev", "annual"]));
+    expect(c.cols).not.toContain("bogus");
+    expect(c.staleSec).toBe(5);
+    expect(c.rates).toEqual({ "opt.sttSell": 0.002 });
+    expect(c.sort.parity).toEqual({ key: "conv", dir: "desc" });
   });
 });

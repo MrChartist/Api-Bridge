@@ -257,6 +257,7 @@ export const ICONS = {
   strategy: '<path d="M3 17h5l4-10 4 10h5"/><path d="M3 21h18"/>',
   bars: '<path d="M4 20V10M9 20V4M14 20v-7M19 20V8"/>',
   wave: '<path d="M3 12c2-5 4-5 6 0s4 5 6 0 4-5 6 0"/><path d="M3 20h18"/>',
+  scale: '<path d="M12 4v16M5 20h14M4 8h16"/><path d="m4 8-2.5 6h5zM20 8l-2.5 6h5z"/>',
 };
 export function icon(name) {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");

@@ -31,7 +31,7 @@ import {
   toast,
 } from "./app.js";
 import { DASH, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
-import { renderChainPage, renderOiPage, renderPositionsPage, renderStrategyPage, renderVolPage } from "./desk.js";
+import { renderArbPage, renderChainPage, renderOiPage, renderPositionsPage, renderStrategyPage, renderVolPage } from "./desk.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
@@ -191,6 +191,7 @@ export const PAGES = [
   { id: "strategy", label: "Strategy Builder", icon: "strategy", tint: "purple", group: "Options", layout: "desk", title: "Strategy Builder", sub: "Payoff, breakevens and chance of profit before you trade", render: renderStrategyPage },
   { id: "oi", label: "OI Analysis", icon: "bars", tint: "orange", group: "Options", layout: "desk", title: "OI Analysis", sub: "Open interest and its change by strike, build-up and walls", render: renderOiPage },
   { id: "vol", label: "Volatility", icon: "wave", tint: "pink", group: "Options", layout: "desk", title: "Volatility", sub: "Smile, skew, term structure and expected move", render: renderVolPage },
+  { id: "arb", label: "Arbitrage", icon: "scale", tint: "indigo", group: "Options", layout: "desk", title: "Arbitrage scanner", sub: "Parity, boxes and futures basis at executable prices, after charges", render: renderArbPage },
   { id: "positions", label: "Positions", icon: "wallet", tint: "teal", group: "Options", layout: "desk", title: "Option positions", sub: "Open option positions with P&L and Greeks", render: renderPositionsPage },
   { id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, group: "Trading", title: "Orders and positions", sub: "Paper by default. Pending confirmations wait here", render: renderOrders },
   { id: "safety", label: "Safety", icon: "safety", tint: "red", tab: true, group: "Trading", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
