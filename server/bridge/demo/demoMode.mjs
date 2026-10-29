@@ -25,7 +25,7 @@ export const DEMO_ACCOUNT_HINT = `Demo mode has two accounts: "${DEMO_PAPER_ACCO
 export function demoAccounts() {
   return [
     accountSchema.parse({ id: DEMO_MARKET_ACCOUNT, broker: DEMO_BROKER_ID, label: "Demo market data", holder: "demo" }),
-    accountSchema.parse({ id: DEMO_PAPER_ACCOUNT, broker: "paper", label: "Demo paper account" }),
+    accountSchema.parse({ id: DEMO_PAPER_ACCOUNT, broker: "paper", label: "Paper account" }),
   ];
 }
 

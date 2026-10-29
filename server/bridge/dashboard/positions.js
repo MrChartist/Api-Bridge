@@ -8,7 +8,7 @@
 // futures and missing legs, instruments, funds) and its panels. Everything is built once and patched on each tick.
 // The maths is in options.js (pure, tested); numbers become text through format.js only. Orders always go through
 // POST /v1/orders/preview and /v1/orders, so the Bridge's safety gates apply unchanged.
-import { alertBox, api, h, icon, istTime, modal, optional, toast } from "./app.js";
+import { alertBox, api, chartSlot, emptyState, errorState, h, icon, loadingState, modal, optional, toast, touchWord, keyHint } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
 import { niceTicks } from "./payoff.js";
@@ -30,7 +30,7 @@ const INDEX_SYMBOL = { NIFTY: "NSE:NIFTY", BANKNIFTY: "NSE:BANKNIFTY", FINNIFTY:
 const PRODUCT = { INTRADAY: "Intraday", MARGIN: "Carry", CNC: "Delivery" };
 const media = (q) => (typeof matchMedia === "function" ? matchMedia(q) : { matches: false, addEventListener() {}, removeEventListener() {} });
 const isPhone = () => media("(max-width: 719px)").matches;
-const isNarrow = () => media("(max-width: 1099px)").matches;
+const isNarrow = () => media("(max-width: 1023px)").matches;
 const SVGNS = "http://www.w3.org/2000/svg";
 const r1 = (v) => Math.round(v * 10) / 10;
 /** σ distances floor to 0.1, so a tested leg (< 0.5σ) never reads "0.5σ". */
@@ -349,7 +349,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   const warnEl = h("div", { class: "pos-warns" });
   const bookPanel = h("section", { class: "desk-panel pos-book", "data-panel": "book", "aria-label": "Book" }, switchEl, tilesEl, warnEl, warnLive);
 
-  const titleEl = h("span", { class: "chain-title" });
+  const titleEl = h("span", { class: "panel-title" });
   const gearBtn = h("button", { type: "button", class: "small gear-btn", "aria-haspopup": "dialog", "aria-label": "Customise positions", title: "Columns, grouping, scenario and exit defaults" }, icon("sliders"), h("span", { class: "gear-label" }, "Customise"));
   const exitAllBtn = h("button", { type: "button", class: "small", hidden: true, title: "Exit plan for every leg (Shift+X)" }, "Exit all");
   const bulkEl = h("div", { class: "pos-bulk", hidden: true, role: "region", "aria-label": "Selected legs" });
@@ -368,14 +368,14 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   const payoffBox = h("div", { class: "pos-payoff" });
   const scenBox = h("div", { class: "pos-scen" });
   const riskBody = h("div", { class: "pos-risk tab-payoff" }, payoffBox, scenBox);
-  const riskPanel = h("section", { class: "desk-panel pos-riskp", "data-panel": "risk", "aria-label": "Payoff and scenarios", hidden: true }, h("div", { class: "panel-head" }, h("span", { class: "chain-title" }, h("strong", {}, "Risk"), h("span", { class: "muted pos-risk-sub" })), riskSeg), riskBody);
+  const riskPanel = h("section", { class: "desk-panel pos-riskp", "data-panel": "risk", "aria-label": "Payoff and scenarios", hidden: true }, h("div", { class: "panel-head" }, h("span", { class: "panel-title" }, h("strong", {}, "Risk"), h("span", { class: "muted pos-risk-sub" })), riskSeg), riskBody);
   const hedgeHead = h("button", { type: "button", class: "pos-hedge-head", "aria-expanded": "false" });
   const hedgeBody = h("div", { class: "pos-hedge-body", hidden: true });
   const hedgePanel = h("section", { class: "desk-panel pos-hedge", "data-panel": "hedge", "aria-label": "Hedge helper", hidden: true }, hedgeHead, hedgeBody);
   const slotPanel = h(
     "section",
     { class: "desk-panel pos-slot", "data-panel": "chartslot", "aria-label": "Chart engine slot", hidden: true },
-    h("div", { class: "oi-slot pos-slot-box", role: "img", "aria-label": "Chart engine slot: book P&L and spot through the day, with your strikes" }, h("span", { class: "oi-slot-kicker" }, "Chart engine slot"), h("span", {}, "Book P&L and spot through the day, with your strikes")),
+    chartSlot("Book P&L and spot through the day, with your strikes"),
   );
   const root = posPanel;
 
@@ -511,7 +511,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   };
   const colsNow = () => cfg().cols;
   const COL_HEAD = Object.fromEntries(O.POS_COLUMNS.map(([k, l]) => [k, l]));
-  /** Below 1100 px IV, Vega and P&L % drop out (the row's ⋯ menu and the cards keep the essentials). */
+  /** Below 1024 px IV, Vega and P&L % drop out (the row's ⋯ menu and the cards keep the essentials). */
   const OPT_X = new Set(["iv", "vega", "pnlPct"]);
   function legVm(l) {
     const u = O.legPnl(l);
@@ -610,19 +610,32 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       titleEl.replaceChildren(h("strong", {}, `${st.underlying} positions`), h("span", { class: "muted" }, n ? ` · ${plural(n, "leg")}` : ""));
     }
     exitAllBtn.hidden = !legs.some((l) => l.q);
+    // Exit all: say how many legs have a spread wider than 5 % of mid (a market or touch exit costs more there).
+    const wide = O.wideSpreadCount(legs.filter((l) => l.q).map((l) => l.q));
+    const allText = wide ? `Exit all · ${plural(wide, "wide spread")}` : "Exit all";
+    if (exitAllBtn.textContent !== allText) {
+      exitAllBtn.textContent = allText;
+      exitAllBtn.classList.toggle("warn", wide > 0);
+      exitAllBtn.title = wide ? `${plural(wide, "leg")} with a spread over 5% of mid: the exit plan prices them at mid by default${keyHint(" (Shift+X)")}` : `Exit plan for every leg${keyHint(" (Shift+X)")}`;
+    }
     keysEl.hidden = !legs.some((l) => l.q);
-    if (!a) return setBody("noacct", () => h("p", { class: "desk-empty" }, "Choose an account that can place orders. ", h("a", { href: "#/accounts" }, "Accounts")));
-    if (!d.loaded) return setBody("loading", () => h("div", { class: "pos-skel", "aria-label": "Loading positions" }, h("i"), h("i"), h("i")));
-    if (d.error && !d.lastOk) return setBody(`err|${d.error.message}`, () => h("div", { class: "desk-pad" }, alertBox(d.error)));
+    if (!a) return setBody("noacct", () => emptyState("plug", "Connect an account to trade", "Positions come from an account that can place orders. Add one, or log in, on the Accounts page.", h("a", { href: "#/accounts", class: "small-link" }, "Open Accounts"), { compact: true }));
+    if (!d.loaded) return setBody("loading", () => loadingState({ rows: 5, cols: 5, label: `Loading ${st.underlying} positions`, height: 52 }));
+    if (d.error && !d.lastOk) return setBody(`err|${d.error.message}`, () => errorState(d.error, { onRetry: () => tick() }));
     if (!visibleLegs.length) {
       const others = O.bookUnderlyings(d.all, st.underlying);
       return setBody(`empty|${st.underlying}|${JSON.stringify(others)}`, () =>
         h(
           "div",
-          { class: "desk-empty pos-empty" },
-          h("p", {}, `No open ${st.underlying} options or futures on ${a.label}.`),
-          others.length ? h("p", {}, "Open elsewhere: ", others.map((o) => h("button", { type: "button", class: "pos-uchip", onclick: () => setUnderlying(o.underlying) }, `${o.underlying} (${formatInt(o.legs)})`))) : null,
-          h("p", {}, h("a", { href: "#/chain" }, "Trade from the Option Chain"), " · ", h("a", { href: "#/strategy" }, "Build a strategy")),
+          { class: "pos-empty" },
+          emptyState(
+            "wallet",
+            `No open ${st.underlying} options`,
+            `${touchWord()} a bid or ask in the Option Chain to trade, or build a strategy first.${keyHint(" Keys: B / S on a strike.")}`,
+            [h("button", { type: "button", class: "primary small", onclick: () => (location.hash = "#/chain") }, "Open Option Chain"), h("a", { href: "#/strategy", class: "small-link" }, "Strategy Builder")],
+            { compact: true },
+          ),
+          others.length ? h("p", { class: "pos-others" }, "Open elsewhere: ", others.map((o) => h("button", { type: "button", class: "pos-uchip", onclick: () => setUnderlying(o.underlying) }, `${o.underlying} (${formatInt(o.legs)})`))) : null,
         ),
       );
     }
@@ -633,7 +646,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       rowRefs.clear();
       groupRefs.clear();
       const had = bodyEl.contains(document.activeElement) ? document.activeElement?.dataset?.key ?? null : null;
-      bodyEl.replaceChildren(...[d.error ? h("div", { class: "desk-pad" }, alertBox(d.error), h("p", { class: "muted small" }, `Last updated ${istTime(d.lastOk)}`)) : null, phone ? buildCards() : buildTable(cols, narrow)].filter(Boolean));
+      bodyEl.replaceChildren(...[d.error ? errorState(d.error, { onRetry: () => tick(), lastGood: d.lastOk }) : null, phone ? buildCards() : buildTable(cols, narrow)].filter(Boolean));
       bodyEl.__mode = "list";
       if (had) bodyEl.querySelector(`[data-key="${CSS.escape(had)}"]`)?.focus({ preventScroll: true });
     }
@@ -678,7 +691,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         "span",
         { class: "pos-gacts" },
         g.expiry ? h("button", { type: "button", class: "small plain", onclick: () => analyse(g), title: "Open this expiry's option legs in the strategy builder (exact quantities)" }, "Analyse") : null,
-        h("button", { type: "button", class: "small plain", onclick: () => openExitPlan(g.legs.filter((l) => l.q), `${groupTitle(g).split(" · ")[0]}`) }, "Exit group"),
+        h("button", { type: "button", class: "small", onclick: () => openExitPlan(g.legs.filter((l) => l.q), `${groupTitle(g).split(" · ")[0]}`) }, "Exit group"),
       );
       head.append(h("th", { scope: "rowgroup", colspan: String(ncol) }, h("div", { class: "pos-gline" }, incHit, title, stats, acts), locked));
       groupRefs.set(g.key, { inc, title, stats, locked });
@@ -696,7 +709,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
           tr.append(td);
         }
         const more = h("button", { type: "button", class: "icon-btn tiny pos-more", "aria-label": `More for ${fullName(l)}`, "aria-haspopup": "menu", onclick: (e) => (e.stopPropagation(), legMenu(l.symbol, e.currentTarget)) }, icon("more"));
-        tr.append(h("td", { class: "act" }, h("span", { class: "pos-acts" }, l.q ? h("button", { type: "button", class: "small plain", "aria-label": `Exit ${fullName(l)}`, onclick: (e) => (e.stopPropagation(), exitLeg(l.symbol)) }, "Exit") : null, l.q ? more : null)));
+        tr.append(h("td", { class: "act" }, h("span", { class: "pos-acts" }, l.q ? h("button", { type: "button", class: "small", "aria-label": `Exit ${fullName(l)}`, onclick: (e) => (e.stopPropagation(), exitLeg(l.symbol)) }, "Exit") : null, l.q ? more : null)));
         tr.addEventListener("click", (e) => {
           if (e.target.closest("button, input, a, label")) return;
           rowClick(l.symbol, e.shiftKey);
@@ -1084,7 +1097,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       segField("Price", typeSeg),
       mktNote,
       unpricedNote,
-      h("div", { class: "ticket-grid" }, segField("Size", sizeSeg), modeSeg ? segField("Mode", modeSeg) : h("div", { class: "field" }, h("span", {}, "Account"), h("span", { class: "ticket-acct" }, h("span", {}, a.label), h("span", { class: "muted nowrap" }, "· paper")))),
+      h("div", { class: "ticket-grid" }, segField("Size", sizeSeg), modeSeg ? segField("Mode", modeSeg) : h("div", { class: "field" }, h("span", {}, "Account"), h("span", { class: "ticket-acct one-line" }, h("span", { class: "acct-name" }, a.label), /paper/i.test(a.label ?? "") ? null : h("span", { class: "acct-badge", "data-mode": "paper" }, "Paper")))),
       ackRow,
       h("div", { class: "field" }, h("span", {}, "Send order: shorts first (largest Δ), then longs, futures last"), listEl),
       totalsEl,
@@ -1101,6 +1114,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         {
           label: "Send",
           cls: "primary",
+          ref: (el) => (sendBtn = el),
           onClick: async () => {
             if (finished) return true;
             await send();
@@ -1109,7 +1123,6 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         },
       ],
     });
-    sendBtn = document.querySelector("#dialog .dialog-actions button:last-child");
     draw();
     await done;
     clearInterval(timer);
@@ -1732,7 +1745,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   }
 
   // Device class changes (rotation, a phone-width window) re-lay the list and the payoff.
-  const mqs = ["(max-width: 719px)", "(max-width: 1099px)"].map(media);
+  const mqs = ["(max-width: 719px)", "(max-width: 1023px)"].map(media);
   const onDevice = () => {
     if (!posPanel.isConnected) return;
     layoutSig = "";
@@ -1751,6 +1764,8 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     panels: [bookPanel, posPanel, riskPanel, hedgePanel, slotPanel],
     root,
     tick,
+    /** Spot and the index quote, for the top bar. */
+    spot: () => ({ spot, quote: d.quotes.get(INDEX_SYMBOL[st.underlying]) ?? null }),
     reset() {
       st.seq += 1;
       d.chains.clear();
@@ -1844,7 +1859,7 @@ function createBookPayoff(host, fill = () => null) {
   const empty = h("p", { class: "payoff-empty muted pos-pay-empty", hidden: true }, "No priced legs to draw.");
   host.replaceChildren(h("div", { class: "payoff-head" }, legend, readout), el, empty, live);
   /** 280 px on desktop (or the height of the scenario column beside it), 240 on tablet, 200 on phone. */
-  const heightFor = () => (media("(max-width: 719px)").matches ? 200 : media("(max-width: 1099px)").matches ? 240 : Math.max(280, Math.min(560, fill() ?? 0)));
+  const heightFor = () => (media("(max-width: 719px)").matches ? 200 : media("(max-width: 1023px)").matches ? 240 : Math.max(280, Math.min(560, fill() ?? 0)));
   const X = (p) => L + ((p - m.lo) / (m.hi - m.lo)) * (W - L - R);
   const Y = (v) => T + ((m.yMax - v) / (m.yMax - m.yMin)) * (H - T - B);
   const path = (vals) => vals.map((v, i) => `${i ? "L" : "M"}${r1(X(m.xs[i]))},${r1(Y(v))}`).join("");

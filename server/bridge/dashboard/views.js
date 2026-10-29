@@ -29,6 +29,9 @@ import {
   table,
   ticketFields,
   toast,
+  touchWord,
+  sheetPopover,
+  DEMO_EXPLAINER,
 } from "./app.js";
 import { DASH, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
 import { renderArbPage, renderChainPage, renderOiPage, renderPositionsPage, renderStrategyPage, renderVolPage } from "./desk.js";
@@ -44,7 +47,6 @@ const scopeChip = (s) => h("span", { class: `chip scope-${s}` }, s);
 /** Sentence case for a status word from the API ("filled" → "Filled"). */
 export const cap = (s) => (s ? `${String(s)[0].toUpperCase()}${String(s).slice(1)}` : DASH);
 const sessionPill = (s) => pill(cap(s), s === "connected" ? "ok" : s === "expired" || s === "error" ? "bad" : "warn");
-export const demoPill = () => (app.state.demo ? pill("Demo data", "demo") : null);
 const sum = (o) => Object.values(o ?? {}).reduce((a, b) => a + (Number(b) || 0), 0);
 const initials = (name) => String(name).replace(/\(.*?\)/g, "").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 /** A table cell: the broker's small logo and its name (paper accounts and unknown brokers: the name alone). */
@@ -92,14 +94,45 @@ export function segmented(label, options, initial = options[0][0]) {
   let value = initial;
   const el = h("div", { class: "segmented", role: "group", "aria-label": label });
   const buttons = options.map(([v, text]) => h("button", { type: "button", "data-value": v, onclick: () => pick(v, false) }, text));
+  /** Slide the contrast thumb (a ::before on the track) under the chosen button: --seg-x / --seg-w. The button's
+   *  own background is the fallback until it is measured (not in the document yet, or a hidden panel). */
+  let measured = false;
+  const place = () => {
+    const b = buttons.find((x) => x.dataset.value === value);
+    if (!b || !el.isConnected || !b.offsetWidth) return;
+    if (!measured) el.classList.add("no-anim");
+    el.style.setProperty("--seg-x", `${b.offsetLeft}px`);
+    el.style.setProperty("--seg-w", `${b.offsetWidth}px`);
+    el.classList.add("has-thumb");
+    if (!measured) {
+      measured = true;
+      requestAnimationFrame(() => el.classList.remove("no-anim"));
+    }
+  };
+  // Measure once it is laid out, and again whenever the track changes size (fonts, rotation, wrap). A detached
+  // control stops observing (a 0 × 0 callback) and starts again on its next pick.
+  let ro = null;
+  const watch = () => {
+    if (ro || typeof ResizeObserver !== "function") return;
+    let seen = false;
+    ro = new ResizeObserver(() => {
+      if (el.isConnected) return (seen = true), place();
+      if (!seen) return;
+      ro?.disconnect();
+      ro = null;
+    });
+    ro.observe(el);
+  };
   const pick = (v, focus) => {
     value = v;
+    watch();
     for (const b of buttons) {
       const on = b.dataset.value === v;
       b.setAttribute("aria-pressed", String(on));
       b.tabIndex = on ? 0 : -1;
       if (on && focus) b.focus();
     }
+    place();
     el.dispatchEvent(new Event("change"));
   };
   el.addEventListener("keydown", (e) => {
@@ -112,6 +145,7 @@ export function segmented(label, options, initial = options[0][0]) {
   el.append(...buttons);
   Object.defineProperty(el, "value", { get: () => value, set: (v) => pick(String(v), false) });
   pick(initial, false);
+  watch();
   return el;
 }
 /** A labelled field around a segmented control (a <label> would forward clicks on its text to the first button). */
@@ -188,13 +222,13 @@ export const PAGES = [
   { id: "console", label: "Test console", icon: "console", tint: "teal", group: "Overview", title: "Test console", sub: "Try any call and see exactly what comes back", render: renderConsole },
   { id: "limits", label: "Rate limits", icon: "limits", tint: "purple", group: "Overview", title: "Rate limits", sub: "Live usage against each broker's limits, and the calls the Bridge saved", render: renderLimits },
   { id: "scanner", label: "Scanner", icon: "scan", tint: "mint", group: "Overview", title: "Scanner", sub: "Scan big universes with a readable condition, shared out over your accounts", render: renderScanner },
-  { id: "chain", label: "Option Chain", short: "Chain", icon: "chart", tint: "green", tab: true, group: "Options", layout: "desk", title: "Option Chain", sub: "Live chain with OI, IV and Greeks. Click a bid or ask to trade", render: renderChainPage },
-  { id: "strategy", label: "Strategy Builder", icon: "strategy", tint: "purple", group: "Options", layout: "desk", title: "Strategy Builder", sub: "Payoff, breakevens and chance of profit before you trade", render: renderStrategyPage },
-  { id: "oi", label: "OI Analysis", icon: "bars", tint: "orange", group: "Options", layout: "desk", title: "OI Analysis", sub: "Open interest and its change by strike, build-up and walls", render: renderOiPage },
+  { id: "chain", label: "Option Chain", short: "Chain", icon: "chart", tint: "green", tab: true, group: "Options", layout: "desk", title: "Option Chain", get sub() { return `Live chain with OI, IV and Greeks. ${touchWord()} a bid or ask to trade`; }, render: renderChainPage },
+  { id: "strategy", label: "Strategy Builder", icon: "strategy", tint: "purple", group: "Options", layout: "desk", title: "Strategy Builder", sub: "Payoff, breakevens, POP and margin before you trade", render: renderStrategyPage },
+  { id: "oi", label: "OI Analysis", icon: "bars", tint: "orange", group: "Options", layout: "desk", title: "OI Analysis", sub: "Open interest and OI chg by strike, build-up and walls", render: renderOiPage },
   { id: "vol", label: "Volatility", icon: "wave", tint: "pink", group: "Options", layout: "desk", title: "Volatility", sub: "Smile, skew, term structure and expected move", render: renderVolPage },
   { id: "screener", label: "Option Screener", short: "Screener", icon: "radar", tint: "yellow", group: "Options", layout: "desk", title: "Option Screener", sub: "Scan every underlying and expiry for unusual activity, build-ups, rich or cheap premium, hedges and arbitrage", render: renderScreenerPage },
   { id: "arb", label: "Arbitrage", icon: "scale", tint: "indigo", group: "Options", layout: "desk", title: "Arbitrage scanner", sub: "Parity, boxes and futures basis at executable prices, after charges", render: renderArbPage },
-  { id: "positions", label: "Positions", icon: "wallet", tint: "teal", group: "Options", layout: "desk", title: "Option positions", sub: "Open option positions with P&L and Greeks", render: renderPositionsPage },
+  { id: "positions", label: "Positions", icon: "wallet", tint: "teal", group: "Options", layout: "desk", title: "Option positions", sub: "Open option positions with P&L, net Δ and θ", render: renderPositionsPage },
   { id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, group: "Trading", title: "Orders and positions", sub: "Paper by default. Pending confirmations wait here", render: renderOrders },
   { id: "safety", label: "Safety", icon: "safety", tint: "red", tab: true, group: "Trading", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
   { id: "keys", label: "API keys", icon: "keys", tint: "pink", group: "Connect", title: "API keys", sub: "One key per tool, with only the access it needs", render: renderKeys },
@@ -387,6 +421,12 @@ async function show() {
   $("page-title").replaceChildren(...headline(page));
   $("page-sub").textContent = page.sub;
   $("toolbar-demo").hidden = !app.state.demo;
+  // The Options pages mount their context (underlying, expiry, spot, live) here on render; every other page has none.
+  const ctx = $("toolbar-ctx");
+  if (changed || page.layout !== "desk") {
+    ctx.replaceChildren();
+    ctx.hidden = true;
+  }
   const seq = ++renderSeq;
   const root = $("content");
   root.setAttribute("aria-busy", "true");
@@ -430,7 +470,18 @@ function arrangePanels(root, pageId) {
   items.forEach((el, i) => {
     el.dataset.panelKey = panelKey(el, i);
     el.classList.add("movable");
-    if (!el.querySelector(":scope > .panel-tools")) el.prepend(panelEdge(el), panelTools(el, root, pageId));
+    if (!el.querySelector(":scope > .panel-tools") && !el.querySelector(":scope > * > .panel-tools.in-head")) {
+      const tools = panelTools(el, root, pageId);
+      el.prepend(panelEdge(el), tools);
+      // Touch tablets: the tools sit in flow in the panel's own head row (never over its content); a panel without a
+      // head gets a 44 px strip instead (CSS). Phones hide them (one column).
+      const head = typeof matchMedia === "function" && matchMedia("(pointer: coarse) and (min-width: 720px)").matches ? el.querySelector(":scope > :is(.panel-head, .card-head, header)") : null;
+      if (head) {
+        tools.classList.add("in-head");
+        // On the head's first line: right after its title (or its only control group).
+        head.insertBefore(tools, head.children[1] ?? null);
+      }
+    }
   });
   let saved = [];
   try {
@@ -584,8 +635,14 @@ function setupChrome() {
   $("toolbar-actions").replaceChildren(
     h("button", { type: "button", class: "toolbar-search search-hint", title: `Search pages and actions (${shortcut})`, "aria-keyshortcuts": aria, onclick: () => openPalette() }, searchIcon(), h("span", { class: "lbl" }, "Search pages and actions"), kbd(mod, "K")),
     h("button", { type: "button", class: "icon-btn toolbar-search-m", "aria-label": "Search pages and actions", "aria-keyshortcuts": aria, onclick: () => openPalette() }, searchIcon()),
-    h("button", { type: "button", class: "icon-btn", title: "Reload this page's data", "aria-label": "Reload this page's data", onclick: () => show() }, icon("refresh")),
+    h("button", { type: "button", class: "icon-btn toolbar-refresh", title: "Reload this page's data", "aria-label": "Reload this page's data", onclick: () => show() }, icon("refresh")),
   );
+  // The one demo indicator explains itself.
+  const demo = $("toolbar-demo");
+  if (demo && !demo.dataset.ready) {
+    demo.dataset.ready = "1";
+    demo.addEventListener("click", () => sheetPopover({ trigger: demo, title: "Demo data", cls: "demo-pop", body: h("p", {}, DEMO_EXPLAINER) }));
+  }
   const sb = $("sb-search");
   if (sb && !sb.dataset.ready) {
     sb.dataset.ready = "1";
@@ -890,7 +947,6 @@ async function renderHome() {
       tint: "blue",
       title: "Market snapshot",
       sub: marketAccount ? `From ${marketAccount.label}, through the rate-limit engine` : "Connect a broker to see prices",
-      actions: demoPill(),
       flush: true,
       body: marketAccount ? snapshot : emptyState("plug", "No market data yet", "Quotes, charts and paper orders need one connected broker account, or demo mode.", h("button", { type: "button", class: "primary", onclick: () => (location.hash = accs.some((a) => a.broker !== "paper") || app.state.demo ? "#/accounts" : "#/accounts?add=1") }, "Connect a broker")),
     }),
@@ -1157,9 +1213,10 @@ function loginSheet(a, broker) {
     result.replaceChildren(alertBox({ title: "The broker did not accept this", detail: `${state?.message ?? "No reason given."} Check the fields and try again.` }));
     return false;
   };
+  let loginBtn = null;
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    document.querySelector("#dialog .dialog-actions button.primary")?.click();
+    loginBtn?.click();
   });
   return modal({
     title: `Log in to ${a.label}`,
@@ -1180,7 +1237,7 @@ function loginSheet(a, broker) {
     ),
     buttons: [
       { label: "Cancel", value: null },
-      { label: "Log in", cls: "primary", onClick: submit },
+      { label: "Log in", cls: "primary", onClick: submit, ref: (el) => (loginBtn = el) },
     ],
   }).finally(() => {
     for (const i of inputs.values()) i.value = "";
@@ -1432,7 +1489,7 @@ async function renderConsole() {
           glyph: "inbox",
           tint: ok ? "green" : "red",
           title: "Response",
-          actions: h("div", { class: "row" }, pill(`${r.status} ${ok ? "OK" : "Error"}`, ok ? "ok" : "bad"), r.ms ? pill(`${formatInt(r.ms)} ms`) : null, hdr("x-mcb-data") === "demo" ? pill("Demo data", "demo") : null),
+          actions: h("div", { class: "row" }, pill(`${r.status} ${ok ? "OK" : "Error"}`, ok ? "ok" : "bad"), r.ms ? pill(`${formatInt(r.ms)} ms`) : null, hdr("x-mcb-data") === "demo" ? pill("Sample prices", "demo") : null),
           flush: true,
           body: h(
             "div",
@@ -1523,7 +1580,7 @@ async function renderLimits() {
           tint: "purple",
           title: `${a.accountId} · ${a.broker}`,
           sub: `${a.healthy === false ? "Backing off" : "Healthy"} · ${formatInt(a.inFlight ?? 0)} in flight · ${formatInt(a.queued ?? 0)} queued`,
-          actions: h("div", { class: "row" }, a.healthy === false ? pill("Backing off", "bad") : pill("Healthy", "ok"), demoPill()),
+          actions: h("div", { class: "row" }, a.healthy === false ? pill("Backing off", "bad") : pill("Healthy", "ok")),
           body: h(
             "div",
             {},
@@ -1636,9 +1693,8 @@ async function renderOrders() {
       card({
         glyph: "wallet",
         tint: "teal",
-        title: `${a.label} (paper)`,
+        title: /paper/i.test(a.label ?? "") ? a.label : `${a.label} (paper)`,
         sub: `Cash ${formatRupee(f.availableCash)} · used margin ${formatRupee(f.usedMargin)} · realised ${formatRupee(f.realisedPnl)} · unrealised ${formatRupee(f.unrealisedPnl)}`,
-        actions: demoPill(),
         flush: true,
         body: table(
           [
@@ -1948,7 +2004,7 @@ async function renderIntegrations() {
     panel.replaceChildren(...parts.filter(Boolean));
   };
   await draw();
-  return card({ glyph: "integrations", tint: "blue", title: "Connect your tools", sub: `Your Bridge address: ${location.origin}`, actions: demoPill(), flush: true, body: h("div", {}, tabsBar, panel) });
+  return card({ glyph: "integrations", tint: "blue", title: "Connect your tools", sub: `Your Bridge address: ${location.origin}`, flush: true, body: h("div", {}, tabsBar, panel) });
 }
 
 async function webhookPanel(paperAcc) {

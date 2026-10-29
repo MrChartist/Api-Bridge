@@ -186,6 +186,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     "strategy.js": "text/javascript; charset=utf-8",
     "strategy-place.js": "text/javascript; charset=utf-8",
     "payoff.js": "text/javascript; charset=utf-8",
+    "viz.js": "text/javascript; charset=utf-8",
     "motion.min.js": "text/javascript; charset=utf-8",
     "palette.css": "text/css; charset=utf-8",
     "app.css": "text/css; charset=utf-8",

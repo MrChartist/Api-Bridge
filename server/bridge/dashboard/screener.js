@@ -3,7 +3,7 @@
 // that respects the broker's rate limits; every tab is then a filter + sort + column set over the same records, so
 // switching tabs costs no network. The maths is options.js, the preset logic screens.js (both pure and tested);
 // numbers are formatted by format.js only. There is no order button: trades go through the chain's ticket.
-import { alertBox, api, app, h, icon, istTime, modal, toast } from "./app.js";
+import { alertBox, api, app, chartSlot, h, icon, istTime, modal, mountToolbarCtx, toast } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import { DEMO_UNDERLYINGS, UNDERLYINGS } from "./desk.js";
 import * as O from "./options.js";
@@ -276,6 +276,7 @@ export function renderScreenerPage() {
   );
   tabs.append(...tabBtns);
   const status = h("span", { class: "desk-clock scr-status" });
+  const ctxMain = h("span", { class: "ctx-main" });
   const live = h("span", { class: "pal-sr-only", "aria-live": "polite", role: "status" });
   const rescanBtn = h("button", { type: "button", class: "small scr-btn", title: "Rescan every chain now (R)", "aria-label": "Rescan" }, icon("refresh"), h("span", { class: "scr-lbl" }, "Rescan"));
   const autoBtn = h("button", { type: "button", class: "small live-toggle scr-auto" });
@@ -323,12 +324,9 @@ export function renderScreenerPage() {
   );
   const paneBody = h("div", { class: "scr-pane" });
   const detail = h("section", { class: "desk-panel scr-detail", "data-panel": "screener-detail", "aria-label": "Selected row" }, paneBody);
-  const slotText = h("span", {});
-  const chart = h(
-    "section",
-    { class: "desk-panel scr-chart", "data-panel": "screener-chart", "aria-label": "Chart engine slot" },
-    h("div", { class: "scr-slot" }, h("span", { class: "scr-slot-kicker" }, "Chart engine slot"), slotText),
-  );
+  const slotBox = chartSlot("Price and IV history");
+  const slotText = slotBox.querySelector(".chart-slot-label");
+  const chart = h("section", { class: "desk-panel scr-chart", "data-panel": "screener-chart", "aria-label": "Chart engine slot" }, slotBox);
   const root = main;
 
   // ── Config changes ──
@@ -555,6 +553,10 @@ export function renderScreenerPage() {
       // " chains" and "Scanning" fold away on phones; the full text stays in the title.
       status.replaceChildren(...text.split(/( chains|Scanning )/).map((part) => (part === " chains" || part === "Scanning " ? h("span", { class: "scr-st-w" }, part) : part)));
     }
+    // The top bar's summary (foundation §5.1): "3 underlyings · 7 chains".
+    const n = cfg.underlyings.length;
+    const ctxText = `${formatInt(n)} underlying${n === 1 ? "" : "s"}${plan ? ` · ${formatInt(total)} chain${total === 1 ? "" : "s"}` : ""}`;
+    if (ctxMain.textContent !== ctxText) ctxMain.textContent = ctxText;
     status.classList.toggle("bad", cls === "bad");
     status.classList.toggle("stale", cls === "stale");
     status.title = `${text}. ${running ? "Chains are fetched one at a time within the broker's rate limits" : "Chains scanned · the oldest chain's time"}`;
@@ -1696,5 +1698,6 @@ export function renderScreenerPage() {
     startAuto();
   }, 0);
   draw();
+  mountToolbarCtx("screener", h("div", { class: "ctx-cap glass" }, h("span", { class: "ctx-item ctx-scr", title: "Underlyings and chains in the scan" }, ctxMain)));
   return [main, detail, chart];
 }

@@ -2,7 +2,7 @@
 // (term structure), and how big a move each expiry prices. desk.js owns the toolbar, the selected chain and the timer;
 // this file owns the panels, the other expiries' chains, futures quotes and daily history. Every IV here is recomputed
 // with Black-76 on the parity forward (options.js); the broker's IVs are not used.
-import { alertBox, api, emptyState, h, icon, optional, toast } from "./app.js";
+import { api, chartSlot, emptyState, errorState, h, icon, loadingState, optional, toast } from "./app.js";
 import { DASH, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
 import { smileLabel, smileSvg, termSvg } from "./vol-curves.js";
@@ -16,7 +16,7 @@ const WEEKDAY = new Intl.DateTimeFormat("en-IN", { timeZone: "UTC", weekday: "sh
 const weekday = (e) => (ISO_DAY.test(e ?? "") ? WEEKDAY.format(new Date(`${e}T00:00:00Z`)) : "");
 const dayMon = (e) => (ISO_DAY.test(e ?? "") ? DAY_MON.format(new Date(`${e}T00:00:00Z`)) : String(e ?? ""));
 const MQ_PHONE = "(max-width: 719px)";
-const MQ_NARROW = "(max-width: 1099px)";
+const MQ_NARROW = "(max-width: 1023px)";
 const MQ_COARSE = "(pointer: coarse)";
 const media = (q) => (typeof matchMedia === "function" ? matchMedia(q).matches : false);
 const TERM_STRIKES = 40; // strikes each side of ATM, at least
@@ -304,7 +304,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     "section",
     { class: "desk-panel vol-history", "data-panel": "vol-history", "aria-label": "ATM IV and HV20 over time" },
     h("div", { class: "panel-head" }, h("div", { class: "vol-title" }, h("strong", {}, "ATM IV and HV20 over time"), h("span", { class: "vol-sub" }, "Chart engine slot"))),
-    h("div", { class: "vol-slot", role: "img", "aria-label": "Chart engine slot: ATM IV and HV20 over time" }, h("span", { class: "vol-slot-kicker" }, "Chart engine slot"), h("span", {}, "Will show the daily ATM IV of the front expiry against 20-day realised vol")),
+    chartSlot("ATM IV and HV20 over time", "Will show the daily ATM IV of the front expiry against 20-day realised vol"),
   );
 
   // ── Methodology ──
@@ -762,10 +762,10 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
         curvesMsg.__sig = sig;
         curvesMsg.replaceChildren(
           st.error
-            ? h("div", { class: "desk-pad stack" }, alertBox(st.error), h("div", {}, h("button", { type: "button", class: "small", onclick: () => retry() }, icon("refresh"), "Retry")))
+            ? errorState(st.error, { onRetry: () => retry() })
             : st.empty
-              ? emptyState("clock", "No expiries", st.empty)
-              : h("p", { class: "muted vol-loading" }, "Loading the chain…"),
+              ? emptyState("clock", "No expiries", st.empty, null, { compact: true })
+              : loadingState({ rows: 8, cols: 4, label: `Loading the ${st.underlying} chain` }),
         );
       }
       smileHost.replaceChildren();

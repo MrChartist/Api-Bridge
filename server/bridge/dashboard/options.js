@@ -1375,12 +1375,12 @@ export function oiVerdict({ walls = null, pcr = null, buildup = null, maxPain: m
   const r1 = num(walls?.r1);
   const s1 = num(walls?.s1);
   if (r1 !== null && s1 !== null) parts.push(`Range ${formatInt(s1)}–${formatInt(r1)}`);
-  else if (r1 !== null) parts.push(`Resistance ${formatInt(r1)}`);
-  else if (s1 !== null) parts.push(`Support ${formatInt(s1)}`);
+  else if (r1 !== null) parts.push(`Call wall ${formatInt(r1)}`);
+  else if (s1 !== null) parts.push(`Put wall ${formatInt(s1)}`);
   if (buildup?.short && !buildup.empty) parts.push(buildup.short);
   const p = num(pcr);
   if (p !== null) parts.push(`PCR ${formatFixed(p, 2)} ${pcrBand(p)?.word ?? ""}`.trim());
-  if (num(mp) !== null) parts.push(`Max pain ${formatInt(mp)}${relevance ? ` (${relevance} relevance)` : ""}`);
+  if (num(mp) !== null) parts.push(`Max Pain ${formatInt(mp)}${relevance ? ` (${relevance} relevance)` : ""}`);
   return parts.length ? parts.join(" · ") : null;
 }
 
@@ -1894,7 +1894,7 @@ export const STRATEGY_METRICS = Object.freeze([
   ["maxProfit", "Max profit"],
   ["maxLoss", "Max loss"],
   ["breakevens", "Breakevens"],
-  ["pop", "Chance of profit"],
+  ["pop", "POP"],
   ["margin", "Margin"],
   ["atTarget", "At target"],
   ["rom", "Return on margin"],
@@ -4388,4 +4388,128 @@ export function straddleVerdict(ov, peers = []) {
   if (vals.length < 3 || me === null) return { label: null, ratio: null, basis: null };
   const ratio = me / median(vals);
   return { label: ratio >= 1.15 ? "Rich vs peers" : ratio <= 0.87 ? "Cheap vs peers" : "Fair vs peers", ratio, basis: "peers" };
+}
+
+// ── Display helpers shared by every Options page (PRD 08; pure, tested) ──
+
+/** Round axis values (1, 2, 2.5 or 5 × 10^n) covering [lo, hi]: about `count` ticks. (0, 0) → [0]. */
+export function niceTicks(lo, hi, count) {
+  const a = Math.min(lo, hi);
+  const b = Math.max(lo, hi);
+  const span = b - a || Math.abs(b) || 1;
+  const raw = span / Math.max(1, count - 1);
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((x) => x >= raw) ?? 10 * mag;
+  const out = [];
+  for (let v = Math.ceil(a / step) * step; v <= b + step * 1e-9; v += step) out.push(Math.abs(v) < step * 1e-9 ? 0 : Math.round(v / step) * step);
+  if (!out.length && a === b) out.push(a);
+  return out;
+}
+
+/**
+ * Lay labels out on one line without overlap: each label [{ x, w, text }] (centre and width, px) is nudged right to
+ * keep `gap` px from the one before; when a nudge would push it more than `maxShift` px off its mark, it is merged
+ * with the previous label ("BE 25906 · 26420"). Returns [{ x, text, xs: [marks] }], left to right, clamped to
+ * [lo, hi]. Pure.
+ */
+export function placeLabels(items, { gap = 4, maxShift = 18, lo = -Infinity, hi = Infinity, join = " · ", prefix = "" } = {}) {
+  const list = [...(items ?? [])].filter((i) => Number.isFinite(i?.x)).sort((p, q) => p.x - q.x);
+  const out = [];
+  for (const it of list) {
+    const prev = out[out.length - 1];
+    if (prev) {
+      const need = prev.x + prev.w / 2 + gap + it.w / 2;
+      if (it.x < need && need - it.x > maxShift) {
+        const parts = [...prev.parts, it.text];
+        const w = prev.w + it.w + 12;
+        const xs = [...prev.xs, it.x];
+        out[out.length - 1] = { x: (xs[0] + xs[xs.length - 1]) / 2, w, parts, xs };
+        continue;
+      }
+      out.push({ x: Math.max(it.x, need), w: it.w, parts: [it.text], xs: [it.x] });
+    } else out.push({ x: it.x, w: it.w, parts: [it.text], xs: [it.x] });
+  }
+  return out.map((o) => {
+    const x = Math.max(lo + o.w / 2, Math.min(hi - o.w / 2, o.x));
+    return { x, xs: o.xs, text: o.parts.length > 1 ? `${prefix}${o.parts.join(join)}` : o.parts[0] };
+  });
+}
+
+/**
+ * The expiry picker's words for one expiry: "5d" (calendar days), "<1d" on expiry day, "Expired" after the close, and
+ * "M" for the monthly (the last listed expiry of its month) or "W" for a weekly. Pure.
+ */
+export function expiryTag(expiry, expiries, now = Date.now()) {
+  const t = timeToExpiry(expiry, now);
+  const n = /^(\d+) days?$/.exec(t.label);
+  const days = t.label === "Expired" ? "Expired" : t.label === "Expires today" ? "<1d" : n ? `${n[1]}d` : "";
+  return { days, kind: isMonthlyExpiry(expiry, expiries) ? "M" : "W" };
+}
+
+/**
+ * What the freshness pill says. Inputs: the response's `asOf`, `stale` and `marketOpen` flags, whether the last fetch
+ * failed, whether the page is live, and the refresh period. Kinds: "error" (Not updating), "paused", "closed" (Market
+ * closed · last <time>), "stale" (flag set, or older than 3 refresh periods while live) and "live" (as of <time>).
+ * Market hours (09:15–15:30 IST on weekdays) decide "closed" when the response has no `marketOpen` flag. Pure.
+ */
+export function freshnessState({ asOf = null, stale = false, marketOpen = undefined, error = false, live = true, refreshMs = 3000, now = Date.now(), demo = false } = {}) {
+  const t = asOf ? Date.parse(asOf) : NaN;
+  const ageMs = Number.isFinite(t) ? Math.max(0, now - t) : null;
+  const open = typeof marketOpen === "boolean" ? marketOpen : demo ? true : marketSession(now).phase === "open";
+  let kind = "live";
+  if (error) kind = "error";
+  else if (!live) kind = "paused";
+  else if (!open) kind = "closed";
+  else if (stale || (ageMs !== null && ageMs > 3 * refreshMs)) kind = "stale";
+  return { kind, ageMs, open };
+}
+
+/** Legs whose bid-ask spread is wider than `limit` % of mid (the Exit all warning). Pure. */
+export function wideSpreadCount(quotes, limit = 5) {
+  return (quotes ?? []).filter((q) => {
+    const s = spreadPct(q);
+    return s !== null && s > limit;
+  }).length;
+}
+
+// ── Colour scales for data visualisation (docs/design/foundation.md §4.3–4.4). Pure; viz.js heatCell paints them. ──
+
+/** The p-th percentile (0..1, linear interpolation) of the finite values; null when there are none. Pure. */
+export function percentileOf(values, p) {
+  const v = (values ?? []).filter((x) => typeof x === "number" && Number.isFinite(x)).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const i = Math.max(0, Math.min(1, p)) * (v.length - 1);
+  const lo = Math.floor(i);
+  const hi = Math.ceil(i);
+  return v[lo] + (v[hi] - v[lo]) * (i - lo);
+}
+
+/**
+ * Sequential step 1..5 for an intensity value: clamp(1, 5, 1 + floor(4 · (v − lo) / (hi − lo))). Pass lo / hi as the
+ * 5th and 95th percentile of the visible values (scaleRange) so one outlier does not wash the rest out. A missing or
+ * non-finite value (or lo / hi) gives null: no fill, the cell shows "--". lo === hi gives the middle step.
+ */
+export function seqStep(v, lo, hi) {
+  if (![v, lo, hi].every((x) => typeof x === "number" && Number.isFinite(x))) return null;
+  if (hi <= lo) return 3;
+  return Math.max(1, Math.min(5, 1 + Math.floor((4 * (v - lo)) / (hi - lo))));
+}
+
+/**
+ * Diverging step −3..+3 for a signed value: sign(v) · min(3, ceil(3 · |v| / m)), 0 inside the dead-band |v| < m / 20.
+ * `m` is the 95th percentile of |v| (scaleRange). Missing values (or m ≤ 0) give null, except v === 0 → 0.
+ */
+export function divStep(v, m) {
+  if (typeof v !== "number" || !Number.isFinite(v)) return null;
+  if (v === 0) return 0;
+  if (typeof m !== "number" || !Number.isFinite(m) || m <= 0) return null;
+  const a = Math.abs(v);
+  if (a < m / 20) return 0;
+  return Math.sign(v) * Math.min(3, Math.ceil((3 * a) / m));
+}
+
+/** The ranges for seqStep / divStep from the values on screen: { lo, hi } (5th / 95th percentile) and m (95th of |v|). */
+export function scaleRange(values) {
+  const v = (values ?? []).filter((x) => typeof x === "number" && Number.isFinite(x));
+  return { lo: percentileOf(v, 0.05), hi: percentileOf(v, 0.95), m: percentileOf(v.map(Math.abs), 0.95) };
 }

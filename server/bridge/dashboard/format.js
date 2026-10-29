@@ -68,3 +68,24 @@ export function formatCompact(value, { signed = false } = {}) {
   const text = `${formatFixed(n / div, dp)}${unit}`;
   return signed && Number(formatFixed(n / div, dp)) > 0 ? `+${text}` : text.replace(/^-(0(?:\.0+)?)(\D*)$/, "$1$2");
 }
+
+/**
+ * Money with an explicit sign, sign first: "+₹1204.50", "-₹1204.50", "₹0.00" (a value that rounds to zero has no
+ * sign). The one money rule for P&L, credit / debit and max profit / loss. Missing → "--".
+ */
+export function formatSignedRupee(value, dp = 2) {
+  if (!isFigure(value)) return DASH;
+  const n = Number(value);
+  const t = formatFixed(Math.abs(n), dp);
+  if (Number(t) === 0) return `₹${t}`;
+  return `${n > 0 ? "+" : "-"}₹${t}`;
+}
+
+/** How old data is, in whole units: "12 s old", "2 min old", "1 h old". Negative (clock skew) or under 1 s → "just now". */
+export function ageText(ms) {
+  if (!isFigure(ms) || Number(ms) < 1000) return "just now";
+  const s = Math.floor(Number(ms) / 1000);
+  if (s < 60) return `${s} s old`;
+  if (s < 3600) return `${Math.floor(s / 60)} min old`;
+  return `${Math.floor(s / 3600)} h old`;
+}

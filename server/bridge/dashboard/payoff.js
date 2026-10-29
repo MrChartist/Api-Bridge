@@ -5,9 +5,13 @@
 // drawPayoff(host, model, { onPin }) -> { update(model), destroy() }
 //   Fine pointer: hover reads P&L at a price. Coarse pointer: tap pins the crosshair, drag moves it (vertical page
 //   scroll still works: touch-action pan-y), a tap outside unpins. Keyboard: the chart is focusable; ← / → move the
-//   pinned price one strike step (Shift: 10), Esc unpins.
-import { h } from "./app.js";
+//   pinned price one strike step (Shift: 5), Esc unpins.
+import { h, keyHint, touchWord } from "./app.js";
 import { DASH, formatCompact, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
+import * as O from "./options.js";
+import { lineReveal } from "./motion.js";
+
+const { niceTicks } = O;
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const r1 = (v) => Math.round(v * 10) / 10;
@@ -28,16 +32,8 @@ const text = (el, t) => {
   if (el.textContent !== t) el.textContent = t;
 };
 
-/** Round axis values (1, 2, 2.5 or 5 × 10^n) covering [lo, hi]. */
-export function niceTicks(lo, hi, count) {
-  const span = hi - lo || Math.abs(hi) || 1;
-  const raw = span / Math.max(1, count - 1);
-  const mag = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((x) => x >= raw) ?? 10 * mag;
-  const out = [];
-  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) out.push(Math.abs(v) < step * 1e-9 ? 0 : v);
-  return out;
-}
+/** Round axis values (options.js; re-exported for positions.js). */
+export { niceTicks };
 
 /** Rupees with a sign and no decimals; long values in Indian compact form (₹1.2L). */
 export function money(v, { signed = true } = {}) {
@@ -53,7 +49,7 @@ export const moneyEl = (v, opts) => h("span", { class: isFigure(v) && Math.round
 const coarse = () => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 const mq = (q) => typeof matchMedia === "function" && matchMedia(q).matches;
 /** 300 px on desktop, 260 on tablet, 220 on phone (PRD 02 §9). */
-const heightFor = () => (mq("(max-width: 719px)") ? 220 : mq("(max-width: 1099px)") ? 260 : 300);
+const heightFor = () => (mq("(max-width: 719px)") ? 220 : mq("(max-width: 1023px)") ? 260 : 300);
 
 /**
  * @param {HTMLElement} host
@@ -82,6 +78,7 @@ export function drawPayoff(host, model, { onPin } = {}) {
   const zero = s("line", { class: "zero" });
   const lineT = s("path", { class: "line-today" });
   const lineE = s("path", { class: "line-exp" });
+  let revealed = false;
   const spotLine = s("line", { class: "mark-spot" });
   const spotLabel = s("text", { class: "mark-label spot", "text-anchor": "middle" });
   const beG = s("g", { class: "be-g" });
@@ -188,6 +185,11 @@ export function drawPayoff(host, model, { onPin } = {}) {
     set(areaDn, { d: area });
     set(zero, { x1: L, x2: W - R, y1: r1(zy), y2: r1(zy) });
     set(lineE, { d: path(m.expiry) });
+    // First draw only: the expiry line draws itself and the profit / loss areas fade in (motion.js; none on refresh).
+    if (!revealed && lineE.getAttribute("d")) {
+      revealed = true;
+      lineReveal(lineE, [areaUp, areaDn]);
+    }
     set(lineT, { d: m.target ? path(m.target) : "", visibility: m.target ? "visible" : "hidden" });
     legend.querySelector(".lg-target").hidden = !m.target;
     legend.querySelector(".lg-band").hidden = !m.band1;
@@ -195,25 +197,17 @@ export function drawPayoff(host, model, { onPin } = {}) {
     set(spotLine, { x1: r1(sx), x2: r1(sx), y1: T, y2: H - B });
     set(spotLabel, { x: r1(Math.max(L + 20, Math.min(W - R - 20, sx))), y: T - 6 });
     text(spotLabel, formatInt(m.spot));
-    // Breakevens: dots on zero, labels under the axis row, staggered when closer than 44 px.
+    // Breakevens: dots on zero, labels just above the zero line; labels nudged apart (4 px gap) or merged
+    // ("BE 25906 · 26420") when they would collide (options.js placeLabels).
     const bes = m.breakevens.filter((b) => b > m.lo && b < m.hi);
     const besig = `${W}x${H}|${bes.map((b) => Math.round(b)).join(",")}|${r1(zy)}`;
     if (beG.__sig !== besig) {
       beG.__sig = besig;
-      let lastX = -Infinity;
-      let lane = 0;
+      const ly = zy - 8 < T + 10 ? zy + 16 : zy - 8;
+      const labels = O.placeLabels(bes.map((b) => ({ x: X(b), w: 7 * formatInt(Math.round(b)).length + 6, text: formatInt(Math.round(b)) })), { gap: 4, lo: L, hi: W - R, prefix: "BE " });
       beG.replaceChildren(
-        ...bes.flatMap((b) => {
-          const bx = X(b);
-          lane = bx - lastX < 44 ? 1 - lane : 0;
-          lastX = bx;
-          const lx = Math.max(L + 16, Math.min(W - R - 16, bx));
-          return [
-            s("line", { x1: r1(bx), x2: r1(bx), y1: r1(zy), y2: H - B + 2, class: "be-tick" }),
-            s("circle", { cx: r1(bx), cy: r1(zy), r: 3.5, class: "be" }),
-            s("text", { x: r1(lx), y: lane ? H - 2 : H - 13, class: "mark-label be-label", "text-anchor": "middle" }, formatInt(Math.round(b))),
-          ];
-        }),
+        ...bes.flatMap((b) => [s("circle", { cx: r1(X(b)), cy: r1(zy), r: 3.5, class: "be" })]),
+        ...labels.map((l) => s("text", { x: r1(l.x), y: r1(ly), class: "mark-label be-label", "text-anchor": "middle" }, l.text)),
       );
     }
     const label = summaryLabel();
@@ -227,13 +221,13 @@ export function drawPayoff(host, model, { onPin } = {}) {
     const mp = st.maxProfit === null ? "unlimited" : money(st.maxProfit, { signed: false });
     const ml = st.maxLoss === null ? "unlimited" : money(st.maxLoss, { signed: false });
     const be = st.breakevens.length ? `breakevens ${st.breakevens.map((b) => formatInt(Math.round(b))).join(" and ")}` : "no breakeven";
-    return `Payoff at expiry: max profit ${mp}, max loss ${ml}, ${be}. The scenario table has the same figures.`;
+    return `Payoff at expiry: max profit ${mp}, max loss ${ml}, ${be}. The key numbers and the scenario table have the same figures.`;
   }
 
   function showCross(p) {
     if (!m || p === null || p === undefined) {
       for (const el of [cross, dotE, dotT]) el.setAttribute("visibility", "hidden");
-      readout.replaceChildren(h("span", { class: "muted" }, coarse() ? "Tap the chart to read P&L at a price" : "Hover the chart to read P&L at a price"));
+      readout.replaceChildren(h("span", { class: "muted" }, `${coarse() ? `${touchWord()} or drag on the chart` : "Hover or click the chart"} to read P&L at a price${keyHint(" (← → on the chart)")}`));
       return;
     }
     const ve = at(m.expiry, p);
@@ -303,7 +297,7 @@ export function drawPayoff(host, model, { onPin } = {}) {
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       e.preventDefault();
       const base = pinned ?? m.spot;
-      pinned = Math.max(m.lo, Math.min(m.hi, base + (e.key === "ArrowRight" ? 1 : -1) * step() * (e.shiftKey ? 10 : 1)));
+      pinned = Math.max(m.lo, Math.min(m.hi, base + (e.key === "ArrowRight" ? 1 : -1) * step() * (e.shiftKey ? 5 : 1)));
       showCross(pinned);
       onPin?.(pinned);
     } else if (e.key === "Escape" && pinned !== null) {

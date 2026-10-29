@@ -4,7 +4,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DASH, formatCompact, formatFixed, formatInt, formatNumber, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
+import { DASH, ageText, formatCompact, formatFixed, formatInt, formatNumber, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 
 describe("dashboard number format", () => {
   it("prints figures without grouping commas", () => {
@@ -25,6 +25,25 @@ describe("dashboard number format", () => {
     expect(formatSigned(12.3)).toBe("+12.30");
     expect(formatSigned(-4.1)).toBe("-4.10");
     expect(formatSigned(0)).toBe("0.00");
+  });
+
+  it("signs money first, one rule everywhere", () => {
+    expect(formatSignedRupee(1204.5)).toBe("+₹1204.50");
+    expect(formatSignedRupee(-1204.5)).toBe("-₹1204.50");
+    expect(formatSignedRupee(-0.004)).toBe("₹0.00");
+    expect(formatSignedRupee(null)).toBe(DASH);
+    expect(formatSignedRupee(1e7, 0)).toBe("+₹10000000");
+    expect(formatRupee(-1204)).toBe("-₹1204.00");
+    expect(formatRupee(-1204)).not.toMatch(/₹-/);
+  });
+
+  it("says how old data is in whole units", () => {
+    expect(ageText(-500)).toBe("just now");
+    expect(ageText(400)).toBe("just now");
+    expect(ageText(12_400)).toBe("12 s old");
+    expect(ageText(125_000)).toBe("2 min old");
+    expect(ageText(3_700_000)).toBe("1 h old");
+    expect(ageText(null)).toBe("just now");
   });
 
   it("shows -- for missing data, never 0", () => {
@@ -52,7 +71,7 @@ describe("dashboard number format", () => {
   });
 
   it("no other dashboard file formats numbers with the locale formatter", () => {
-    for (const f of ["app.js", "views.js", "palette.js", "motion.js", "snippets.js", "options.js", "desk.js", "chain-sheet.js", "oi.js", "oi-store.js", "strategy.js", "strategy-place.js", "payoff.js", "positions.js", "vol.js", "vol-curves.js", "arbitrage.js", "screener.js", "screens.js"]) {
+    for (const f of ["app.js", "views.js", "palette.js", "motion.js", "snippets.js", "options.js", "desk.js", "chain-sheet.js", "oi.js", "oi-store.js", "strategy.js", "strategy-place.js", "payoff.js", "positions.js", "vol.js", "vol-curves.js", "arbitrage.js", "screener.js", "screens.js", "viz.js"]) {
       const src = readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
       expect(src, f).not.toMatch(/Intl\.NumberFormat|\.toLocaleString\(|toLocaleTimeString|toFixed\(/);
       expect(src, f).not.toMatch(/₹\d{1,3},\d/);

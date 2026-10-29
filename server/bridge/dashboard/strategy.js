@@ -2,7 +2,7 @@
 // file builds the builder once per visit and patches it on every tick: leg prices, figures, the payoff paths and the
 // scenario cells change in place, so sliders, focus and scroll never reset. The maths is in options.js (pure, tested),
 // drawing in payoff.js, placement in strategy-place.js. Numbers become text only through format.js.
-import { api, app, h, icon, modal, optional, toast } from "./app.js";
+import { api, app, chartSlot, emptyState, h, icon, keyHint, modal, optional, toast, touchWord } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
 import { drawPayoff, money, moneyEl } from "./payoff.js";
@@ -221,7 +221,7 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
 
   // Legs
   const legsEl = h("div", { class: "strat-legs", role: "list", "aria-label": "Legs" });
-  const emptyLegs = h("p", { class: "desk-empty strat-empty" });
+  const emptyLegs = h("div", { class: "strat-empty" });
   const addBtn = h("button", { type: "button", class: "small tinted add-leg", "aria-haspopup": "dialog", title: "Add a leg (A)" }, icon("plus"), "Add leg");
   addBtn.addEventListener("click", () => openPicker());
   const shiftDn = h("button", { type: "button", class: "small plain step-btn", "aria-label": "Shift every strike down one step", title: "Shift strikes down ([)", onclick: () => shift(-1) }, "‹");
@@ -268,7 +268,8 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
   const barNet = h("strong", { class: "bar-net" });
   const barSub = h("small", { class: "bar-sub" });
   const barPlace = h("button", { type: "button", class: "primary bar-place", onclick: () => place() }, "Place");
-  const bar = h("div", { class: "strat-bar" }, h("div", { class: "bar-figs" }, barNet, barSub), barPlace);
+  const barClear = h("button", { type: "button", class: "plain bar-clear", onclick: () => clearAll() }, "Clear");
+  const bar = h("div", { class: "strat-bar" }, h("div", { class: "bar-figs" }, barNet, barSub), barClear, barPlace);
   const keysEl = h("div", { class: "desk-keys strat-keys", "aria-hidden": "true" }, [["A", "add leg"], ["[ ]", "shift"], ["⇧P", "place"], ["?", "keys"]].map(([k, t]) => h("span", { class: "kbd-pair" }, h("kbd", {}, k), t)));
   const liveRegion = h("div", { class: "sr-only", "aria-live": "polite" });
   const announce = (t) => {
@@ -278,7 +279,7 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
   const panel = h("section", { class: "desk-panel strat-panel", "data-panel": "strategy", "aria-label": "Strategy builder" }, head, h("div", { class: "strat-grid" }, build, analysis), keysEl, bar, liveRegion);
 
   // Chart-engine slot: collapsed by default; the engine reads window.__mcbStrategyOverlay() when it arrives.
-  const slotBody = h("div", { class: "chart-slot-body", hidden: true }, h("p", { class: "muted" }, "Your strikes, breakevens and ±σ will overlay here once the chart engine is connected."));
+  const slotBody = h("div", { class: "chart-slot-body", hidden: true }, chartSlot("Price chart with your strikes, breakevens and ±σ", "They overlay here once the chart engine is connected."));
   slotBody.dataset.chartSlot = "strategy";
   const slotBtn = h("button", { type: "button", class: "chart-slot-toggle", "aria-expanded": "false" }, h("span", { class: "slot-title" }, "Price chart · chart engine slot"), h("span", { class: "muted slot-sub" }, "Your strikes, breakevens and ±σ will overlay here once the chart engine is connected."), icon("down"));
   slotBtn.addEventListener("click", () => {
@@ -446,7 +447,10 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
       addBtn.disabled = ls.length >= O.MAX_LEGS || !x;
       emptyLegs.hidden = ls.length > 0;
       requestAnimationFrame(syncStick);
-      emptyLegs.textContent = isTouch() ? "Pick a strategy, or tap + Add leg." : "Pick a strategy above, add legs with + Add leg (A), or press ⇧B / ⇧S on the chain.";
+      if (!ls.length && emptyLegs.__sig !== touchWord()) {
+        emptyLegs.__sig = touchWord();
+        emptyLegs.replaceChildren(emptyState("strategy", "Build a strategy", `Pick a ready-made strategy above, or ${touchWord().toLowerCase()} a bid or ask in the Option Chain and choose "Add to strategy".${keyHint(" Keys: ⇧B / ⇧S on a strike.")}`, h("a", { href: "#/chain", class: "small-link" }, "Open Option Chain"), { compact: true }));
+      }
     }
     // Patch prices, IV and Δ.
     for (const p of priced) {
@@ -575,7 +579,7 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
         };
       }
       case "pop":
-        return { label: "Chance of profit", value: isFigure(st2?.pop) ? formatPercent(st2.pop * 100, 0) : dash.value, sub: "at expiry · IV model", title: "Probability the strategy finishes in profit, from a log-normal model at ATM IV (plus the IV shift)" };
+        return { label: "POP", value: isFigure(st2?.pop) ? formatPercent(st2.pop * 100, 0) : dash.value, sub: "at expiry · IV model", title: "Probability the strategy finishes in profit, from a log-normal model at ATM IV (plus the IV shift)" };
       case "margin": {
         const free = funds.free;
         const req = r?.margin;
@@ -604,7 +608,7 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
         return { label: "Reward / risk", value: isFigure(r?.ratios.rr) ? formatFixed(r.ratios.rr, 2) : dash.value, sub: "max profit ÷ max loss" };
       case "delta": {
         const d = r?.greeks?.delta;
-        return { label: "Delta", value: isFigure(d) ? `${formatSigned(d / r.lot, 2)} lot` : dash.value, sub: isFigure(d) ? `${money(d)}/pt` : "model, at target" };
+        return { label: "Net Δ", value: isFigure(d) ? `${formatSigned(d / r.lot, 2)} lot` : dash.value, sub: isFigure(d) ? `${money(d)}/pt` : "model, at target" };
       }
       case "gamma": {
         const g = r?.greeks?.gamma;
@@ -761,7 +765,7 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
     barNet.textContent = !R ? (noChain ? "No chain" : "…") : !R.ok ? (R.act.length ? "Needs prices" : "No legs") : `${n > 0.5 ? "Credit" : n < -0.5 ? "Debit" : "Even"} ${money(Math.abs(n), { signed: false })}`;
     const m = R?.margin;
     const mText = !isFigure(m) ? DASH : `${R.acct === null ? "≈ " : ""}${Math.abs(m) >= 1000 ? `₹${formatCompact(m)}` : money(m, { signed: false })}`;
-    barSub.textContent = R?.ok ? [exit ? null : `Margin ${mText}`, isFigure(R.stats?.pop) ? `PoP ${formatPercent(R.stats.pop * 100, 0)}` : null].filter(Boolean).join(" · ") : "";
+    barSub.textContent = R?.ok ? [exit ? null : `Margin ${mText}`, isFigure(R.stats?.pop) ? `POP ${formatPercent(R.stats.pop * 100, 0)}` : null].filter(Boolean).join(" · ") : "";
     const nAct = R?.act.length ?? 0;
     const blockedWhy = !R ? (noChain ? "The chain is unavailable" : "Waiting for the chain") : !account() ? "Choose an account that can place orders" : !nAct ? "Add a leg first" : !R.ok ? "Every leg needs a price" : R.warnings.some((w) => w.severity === "block") ? R.warnings.find((w) => w.severity === "block").text : null;
     // Nothing placeable: a plain "Place" (disabled, with the reason as its title), never "Place 0 legs".
@@ -787,7 +791,7 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
     ctxLine.textContent = c ? `${c.underlying} ${expiryText(c.expiry)} · lot ${formatInt(x.lot)} · ${basisText}${st.live ? "" : " · prices paused"}` : `${st.underlying}${st.expiry ? ` ${expiryText(st.expiry)}` : ""} · ${basisText}`;
     const n = readSaves().length;
     savedBtn.textContent = n ? `Saved (${formatInt(n)})` : "Saved";
-    clearBtn.disabled = !legs().length;
+    clearBtn.disabled = barClear.disabled = !legs().length;
     saveBtn.disabled = !legs().length;
   }
 
@@ -1415,7 +1419,7 @@ export function createBuilder({ st, save, account, refresh, switchTo, onPosition
         drawWhatIf();
         drawScenarios();
         drawBar();
-        chart.empty(noRows ? noChain : error ? "The chain is unavailable: retrying." : "Loading the chain…");
+        chart.empty(noRows ? noChain : error ? "The chain is unavailable: retrying." : "Waiting for the chain");
         return;
       }
       legs();

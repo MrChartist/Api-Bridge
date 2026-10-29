@@ -5,8 +5,8 @@
 // Built for refresh every few seconds: the chain table is built once per (underlying, expiry, strikes, columns) and
 // then patched cell by cell, so nothing flickers, scroll and keyboard focus stay put, and only cells that changed
 // flash. The maths lives in options.js (pure, tested); numbers are formatted by format.js only.
-import { alertBox, api, app, card, emptyState, h, icon, istTime, modal, optional, pill, toast } from "./app.js";
-import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
+import { DEMO_EXPLAINER, alertBox, api, app, emptyState, errorState, h, icon, liveControl, loadingState, modal, mountToolbarCtx, optional, sheetPopover, toast, touchWord } from "./app.js";
+import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { arbPanels } from "./arbitrage.js";
 import { openChainSheet } from "./chain-sheet.js";
 import { createOiPage, oiConfig } from "./oi.js";
@@ -15,6 +15,7 @@ import * as O from "./options.js";
 import { createPositionsPage } from "./positions.js";
 import { cap, every, segField, segmented, stopTimer } from "./views.js";
 import { createVolPage, volConfig } from "./vol.js";
+import { animatePage, barsEnter, countUp, flashValue } from "./motion.js";
 
 const SLOT = "mcb.dashboard.desk";
 /** The index underlyings the Options pages list (live) and the three the demo serves; the Option Screener shares them. */
@@ -27,6 +28,10 @@ const OI_FETCH_STRIKES = 100;
 /** The Volatility page reads the 10Δ wings of monthlies: a wider window than the chain. */
 const VOL_STRIKES = 60;
 const REFRESH_MS = 3000;
+/** Outside market hours nothing moves: refresh every 30 s instead. */
+const CLOSED_REFRESH_MS = 30000;
+/** Pages that place orders show the account select (P1: a control only where it changes what the page does). */
+const TRADING = new Set(["chain", "strategy", "positions", "arb"]);
 const EXPIRY_DAY = new Intl.DateTimeFormat("en-IN", { timeZone: "UTC", day: "numeric", month: "short" });
 const expiryText = (e) => (/^\d{4}-\d{2}-\d{2}$/.test(e ?? "") ? EXPIRY_DAY.format(new Date(`${e}T00:00:00Z`)) : e ?? "");
 /** "NIFTY 3 Nov 26400 CE" */
@@ -163,22 +168,133 @@ async function renderDesk(kind) {
   const search = h("input", { type: "search", inputmode: "decimal", enterkeyhint: "go", autocomplete: "off", spellcheck: "false", class: "strike-search", "aria-label": "Go to strike", placeholder: "Strike, +3, 1σ" });
   const searchBtn = h("button", { type: "button", class: "icon-btn search-btn", "aria-label": "Go to strike", title: "Go to strike (/)" }, icon("search"));
   const searchBox = h("div", { class: "chain-search" }, searchBtn, search, h("kbd", { class: "search-kbd", "aria-hidden": "true" }, "/"));
-  const chainTitle = h("span", { class: "chain-title" });
   const aSel = h(
     "select",
     { "aria-label": "Orders go to", disabled: !tradable.length },
-    tradable.length ? tradable.map((a) => h("option", { value: a.id, selected: a.id === st.account }, `${a.label}${a.broker === "paper" ? " · paper" : a.liveAllowedByConfig ? " · live on" : ""}`)) : h("option", { value: "" }, "No account can place orders"),
+    tradable.length ? tradable.map((a) => h("option", { value: a.id, selected: a.id === st.account }, a.label)) : h("option", { value: "" }, "No account can place orders"),
   );
-  const liveBtn = h("button", { type: "button", class: "small live-toggle" });
-  const clock = h("span", { class: "desk-clock" });
+  const acctBadge = h("span", { class: "acct-badge" });
+  /** The account's mode as a badge after the select (never "· paper" inside the option text; no "Paper" badge when
+   *  the label already says paper; "LIVE" always shows). */
+  const drawAcct = () => {
+    const a = account();
+    aSel.title = a ? `Orders go to ${a.label} (${a.broker ?? ""})` : "No account can place orders";
+    const live = Boolean(a && a.broker !== "paper" && a.liveAllowedByConfig);
+    acctBadge.textContent = !a ? "" : live ? "Live" : "Paper";
+    acctBadge.dataset.mode = live ? "live" : "paper";
+    acctBadge.hidden = !a || (!live && /paper/i.test(a.label ?? ""));
+  };
+
+  // ── The compact top bar (docs/design/foundation.md §5): mounted into the app toolbar's #toolbar-ctx. One glass
+  // capsule (underlying │ expiry │ spot ±chg │ lot), then the account and its mode, the one live control and, below
+  // 1280 px, a ⋯ sheet. Text nodes only on refresh. ──
+  const liveBtn = liveControl({ onToggle: () => toggleLive(), refreshMs: REFRESH_MS });
+  const expiryChip = h("span", { class: "ctx-chip expiry-chip", title: EXPIRY_DAY_NOTE, hidden: true }, "Expiry today");
+  const uMain = document.createTextNode(st.underlying);
+  const uSub = document.createTextNode("");
+  const eLong = document.createTextNode("");
+  const eShort = document.createTextNode("");
+  const eSub = document.createTextNode("");
+  const spotV = document.createTextNode(DASH);
+  const spotChg = h("span", { class: "ctx-chg" });
+  const lotV = document.createTextNode(DASH);
+  const uItem = h("label", { class: "ctx-item ctx-pick ctx-u", title: "Underlying" }, h("span", { class: "ctx-main" }, uMain), h("span", { class: "ctx-sub", "aria-hidden": "true" }, uSub), uSel);
+  const eItem = h("label", { class: "ctx-item ctx-pick ctx-e", title: "Expiry ([ and ])" }, h("span", { class: "ctx-main" }, h("span", { class: "ctx-long" }, eLong), h("span", { class: "ctx-short" }, eShort)), h("span", { class: "ctx-sub", "aria-hidden": "true" }, eSub), eSel);
+  const spotItem = h("span", { class: "ctx-item ctx-spot", title: "Spot (the index) and its change today" }, h("span", { class: "ctx-main" }, h("span", {}, spotV), spotChg));
+  const lotItem = h("span", { class: "ctx-item ctx-lot", title: "Lot size" }, h("span", { class: "ctx-main" }, "Lot ", h("b", {}, lotV)));
+  const moreBtn = h("button", { type: "button", class: "icon-btn ctx-more", "aria-haspopup": "dialog", "aria-label": app.state.demo ? "More: account, refresh, search, theme. Demo data: sample prices, paper orders only" : "More: account, refresh, search, theme", onclick: () => openCtxSheet() }, icon("more"), app.state.demo ? h("i", { class: "demo-badge", "data-demo-indicator": "", "aria-hidden": "true" }) : null);
+  let ctxSig = "";
+  /** Patch the top bar: underlying, expiry parts, spot ±change (flash on change), lot. */
+  function drawCtx() {
+    const x = lastX;
+    const c = st.chain;
+    const e = st.expiry;
+    const ex = st.expiries;
+    const exTag = e && ex.length ? O.expiryTag(e, ex).days : "";
+    const futs = st.futures.length ? new Set(st.futures.map((f) => f.expiry)) : null;
+    const monthly = e && ex.length ? (futs ? futs.has(e) : O.isMonthlyExpiry(e, ex)) : false;
+    const lot = num(c?.lotSize);
+    let spot = x?.spot ?? (c ? num(c.underlyingLtp) : null);
+    let q = st.quotes.get(INDEX_SYMBOL[st.underlying] ?? "") ?? null;
+    if (posPage) {
+      const p = posPage.spot?.() ?? {};
+      spot = p.spot ?? spot;
+      q = p.quote ?? q;
+    }
+    spot = spot ?? num(q?.ltp);
+    const ch = num(q?.change);
+    const chp = num(q?.changePct);
+    const sig = JSON.stringify([st.underlying, e, exTag, monthly, lot, spot, ch, chp]);
+    if (sig === ctxSig) return;
+    const prevSpot = Number(spotItem.dataset.v);
+    ctxSig = sig;
+    if (uMain.data !== st.underlying) uMain.data = st.underlying;
+    const spotText = spot === null ? DASH : formatFixed(spot, 2);
+    const uSubText = spot === null ? "" : `${spotText}${chp !== null ? ` ${formatSigned(chp, 2)}%` : ""}`;
+    if (uSub.data !== uSubText) uSub.data = uSubText;
+    const day = e ? expiryText(e) : DASH;
+    const kind = monthly ? "M" : "W";
+    const long = e ? `${day} · ${exTag} · ${kind}` : DASH;
+    if (eLong.data !== long) eLong.data = long;
+    if (eShort.data !== day) eShort.data = day;
+    const sub = e ? `${exTag} · ${kind}${lot ? ` · lot ${formatInt(lot)}` : ""}` : "";
+    if (eSub.data !== sub) eSub.data = sub;
+    if (spotV.data !== spotText) spotV.data = spotText;
+    const chText = ch === null ? "" : `${formatSigned(ch, 2)}${chp !== null ? ` (${formatSigned(chp, 2)}%)` : ""}`;
+    if (spotChg.textContent !== chText) spotChg.textContent = chText;
+    spotChg.className = `ctx-chg ${ch > 0 ? "up" : ch < 0 ? "down" : ""}`.trim();
+    if (spot !== null && Number.isFinite(prevSpot) && prevSpot !== spot) flashValue(spotItem, spot > prevSpot ? "up" : "down");
+    spotItem.dataset.v = spot === null ? "" : String(spot);
+    const lotText = lot ? formatInt(lot) : DASH;
+    if (lotV.data !== lotText) lotV.data = lotText;
+    lotItem.title = lot ? "Lot size" : "Lot size unavailable";
+  }
+  /** Phones and tablets: account, refresh, live, search, theme and (in demo mode) what the demo data is. */
+  function openCtxSheet() {
+    const home = aSel.parentNode;
+    const next = aSel.nextSibling;
+    const theme = document.documentElement.getAttribute("data-theme") ?? "auto";
+    const body = h(
+      "div",
+      { class: "ctx-sheet" },
+      TRADING.has(kind) && tradable.length ? h("label", { class: "field" }, "Orders go to", h("span", { class: "ctx-row" }, aSel, acctBadge)) : null,
+      h("div", { class: "ctx-row" }, h("span", {}, "Lot size"), h("strong", {}, lotV.data)),
+      h(
+        "div",
+        { class: "ctx-acts" },
+        h("button", { type: "button", class: "small", onclick: () => (sheetRef?.close(), refresh()) }, icon("refresh"), "Refresh"),
+        h("button", { type: "button", class: "small", onclick: () => (sheetRef?.close(), toggleLive()) }, icon(st.live ? "pause" : "play"), st.live ? "Pause" : "Resume"),
+        h("button", { type: "button", class: "small", onclick: () => (sheetRef?.close(), document.querySelector(".toolbar-search-m")?.click()) }, icon("search"), "Search"),
+      ),
+      h(
+        "div",
+        { class: "segmented", role: "group", "aria-label": "Appearance" },
+        [["light", "Light", "sun"], ["dark", "Dark", "moon"], ["auto", "Auto", "monitor"]].map(([v, label, ic]) => h("button", { type: "button", "data-theme-choice": v, "aria-pressed": String(theme === v) }, icon(ic), label)),
+      ),
+      app.state.demo ? h("p", { class: "ctx-demo-note" }, h("i", { class: "demo-badge", "aria-hidden": "true" }), h("span", {}, h("strong", {}, "Demo data: "), DEMO_EXPLAINER)) : null,
+    );
+    const sheetRef = sheetPopover({
+      trigger: moreBtn,
+      title: `${st.underlying} ${expiryText(st.expiry) || ""}`.trim(),
+      body,
+      onClose: () => {
+        if (home && aSel.parentNode !== home) home.insertBefore(aSel, next && next.parentNode === home ? next : null);
+        if (home && acctBadge.parentNode !== home) home.append(acctBadge);
+      },
+    });
+  }
+  function toggleLive() {
+    st.live = !st.live;
+    save();
+    drawLive();
+    startTimer();
+    if (st.live) refresh();
+  }
   const drawLive = () => {
-    liveBtn.setAttribute("aria-pressed", String(st.live));
-    liveBtn.classList.toggle("on", st.live);
-    liveBtn.replaceChildren(h("span", { class: "live-dot", "aria-hidden": "true" }), st.live ? "Live" : "Paused");
-    liveBtn.title = st.live ? `Refreshing every ${REFRESH_MS / 1000} s (P to pause)` : "Paused (P to resume)";
+    drawClock();
     sheet?.update();
   };
-  const statsEl = h("div", { class: "desk-stats", role: "group", "aria-label": "Chain summary" });
+  const statsEl = h("div", { class: "desk-stats sum-strip", role: "group", "aria-label": "Chain summary" });
   const chainEl = h("div", { class: "desk-chain" });
   const keysEl = h(
     "div",
@@ -203,7 +319,7 @@ async function renderDesk(kind) {
           save,
           account,
           openTicket: (o) => openTicket(o),
-          onClock: () => drawClock(),
+          onClock: () => (drawClock(), drawCtx()),
           openInChain: (expiry, strike, side) => {
             st.expiry = expiry;
             openInChain(strike, side);
@@ -279,7 +395,7 @@ async function renderDesk(kind) {
     const ex = st.expiries;
     const futs = st.futures.length ? new Set(st.futures.map((f) => f.expiry)) : null;
     const monthly = (e) => (futs ? futs.has(e) : O.isMonthlyExpiry(e, ex));
-    eSel.replaceChildren(...ex.map((e) => h("option", { value: e, selected: e === st.expiry }, `${expiryText(e)} · ${O.isExpiryDay(e) ? "today" : O.timeToExpiry(e).label}${monthly(e) ? " · M" : ""}`)));
+    eSel.replaceChildren(...ex.map((e) => h("option", { value: e, selected: e === st.expiry }, `${expiryText(e)} · ${O.expiryTag(e, ex).days} · ${monthly(e) ? "M" : "W"}`)));
   }
   /** The underlying's futures (once per underlying): the same-expiry one is the arbitrage reference. */
   async function loadFutures() {
@@ -328,7 +444,13 @@ async function renderDesk(kind) {
     st.positionsError = r.error ?? null;
   }
   const refresh = () => (posPage ? posPage.tick() : volPage ? Promise.all([loadChain(), volPage.tick()]) : arbPage ? Promise.all([loadChain({ draw: false }), arbPage.tick()]).then(() => drawAll()) : Promise.all([loadChain(), loadPositions(), oiPage?.tick()]));
-  const startTimer = () => (st.live ? every(REFRESH_MS, refresh) : stopTimer());
+  let timerMs = REFRESH_MS;
+  let timerReady = false;
+  const startTimer = () => {
+    const closed = O.freshnessState({ marketOpen: st.freshness?.marketOpen, demo: Boolean(app.state.demo) }).kind === "closed";
+    timerMs = closed ? CLOSED_REFRESH_MS : REFRESH_MS;
+    return st.live ? every(timerMs, refresh) : stopTimer();
+  };
   async function reloadAll() {
     if (posPage) {
       posPage.reset();
@@ -420,6 +542,7 @@ async function renderDesk(kind) {
   }
 
   let lastX = null;
+  let enteredKey = null;
   let chainTools = null;
   /** The chain's tools act on a chain: switched off (inert, dimmed) while there is none. */
   function syncTools() {
@@ -429,6 +552,10 @@ async function renderDesk(kind) {
     chainTools.classList.toggle("off", off);
   }
   function drawAll() {
+    drawBody();
+    drawCtx();
+  }
+  function drawBody() {
     if (arbPage) {
       arbPage.draw();
       drawClock();
@@ -444,20 +571,17 @@ async function renderDesk(kind) {
     drawClock();
     syncTools();
     if (!st.chain) {
-      if (st.empty) {
-        chainTitle.__sig = "";
-        chainTitle.replaceChildren(h("strong", {}, st.underlying));
-      }
       chain.reset();
       lastX = null;
       if (kind !== "oi") drawStats(null);
-      const retry = h("button", { type: "button", class: "small", onclick: () => reloadAll() }, icon("refresh"), "Retry");
+      const waiting = !st.error && !st.empty;
+      chainEl.toggleAttribute("aria-busy", waiting);
       chainEl.replaceChildren(
         st.error
-          ? h("div", { class: "desk-pad stack" }, alertBox(st.error), h("div", {}, retry))
+          ? errorState(st.error, { onRetry: () => reloadAll() })
           : st.empty
-            ? emptyState("clock", "No expiries", st.empty)
-            : h("p", { class: "muted chain-loading" }, "Loading the chain…"),
+            ? emptyState("clock", "No expiries", st.empty, null, { compact: true })
+            : loadingState({ rows: 12, cols: 7, label: `Loading the ${st.underlying} ${expiryText(st.expiry)} chain` }),
       );
       builder?.draw(null, { error: st.error });
       oiPage?.draw(null);
@@ -467,9 +591,15 @@ async function renderDesk(kind) {
     const x = context();
     lastX = x;
     if (kind !== "oi") drawStats(x);
+    chainEl.removeAttribute("aria-busy");
     if (kind === "chain") {
-      drawTitle(x);
       chain.draw(x);
+      // Bars grow on the first draw of each chain (underlying + expiry), then only resize.
+      const enterKey = `${x.c.underlying}|${x.c.expiry}`;
+      if (enteredKey !== enterKey) {
+        enteredKey = enterKey;
+        barsEnter(chainEl);
+      }
       if (jump) {
         if (jump.underlying === x.c.underlying && jump.expiry === x.c.expiry && x.c.rows.some((r) => r.strike === jump.strike)) {
           const side = jump.side === "pe" || jump.side === "PE" ? "pe" : "ce";
@@ -480,7 +610,7 @@ async function renderDesk(kind) {
         }
         jump = null;
       }
-      chain.note(st.error ? `Last update ${istTime(st.lastOk)} · retrying every ${REFRESH_MS / 1000} s` : null);
+      chain.note(st.error ? errorState(st.error, { onRetry: () => refresh(), lastGood: st.lastOk }) : null);
       st.patchMs = Math.round((performance.now() - t0) * 10) / 10;
       sheet?.update();
       drawClock();
@@ -492,37 +622,20 @@ async function renderDesk(kind) {
       drawClock();
     }
   }
-  function drawTitle(x) {
-    const t = O.timeToExpiry(x.c.expiry);
-    const today = O.isExpiryDay(x.c.expiry);
-    const sig = `${x.c.underlying}|${x.c.expiry}|${t.label}|${x.lot}|${today}`;
-    if (chainTitle.__sig === sig) return;
-    chainTitle.__sig = sig;
-    chainTitle.replaceChildren(
-      h("strong", {}, `${x.c.underlying} ${expiryText(x.c.expiry)}`),
-      h("span", { class: "muted" }, `${today ? "" : ` · ${t.label}`} · lot ${formatInt(x.lot)}`),
-      ...(today ? [h("span", { class: "expiry-chip", title: EXPIRY_DAY_NOTE }, "Expiry today")] : []),
-    );
-  }
+  let lastTick = null;
+  /** The live control (text nodes only), the dot's pulse per successful load, and the timer period: 30 s while the
+   *  market is shut. */
   function drawClock() {
-    const asOf = st.freshness?.asOf;
-    // The OI page says when the market is shut, so a quiet ΔOI does not look live.
-    const session = kind === "oi" && !app.state.demo ? O.marketSession() : null;
-    const closed = session && session.phase !== "open" ? session.label : "";
-    const sig = JSON.stringify([Boolean(st.error), st.freshness?.stale, asOf, st.ms, closed]);
-    if (clock.__sig !== sig) {
-      clock.__sig = sig;
-      clock.classList.toggle("bad", Boolean(st.error));
-      clock.classList.toggle("stale", Boolean(st.freshness?.stale));
-      clock.replaceChildren(
-        st.error ? "Not updating" : st.freshness?.stale ? "Stale" : "",
-        ...(asOf && !st.error ? [` ${istTime(asOf)}`] : []),
-        ...(st.ms !== null && !st.error ? [h("small", {}, ` ${formatInt(st.ms)} ms`)] : []),
-        ...(closed ? [h("small", { class: "desk-closed" }, ` · ${closed}`)] : []),
-      );
+    const f = O.freshnessState({ asOf: st.freshness?.asOf ?? null, stale: Boolean(st.freshness?.stale), marketOpen: st.freshness?.marketOpen, error: Boolean(st.error), live: st.live, refreshMs: REFRESH_MS, demo: Boolean(app.state.demo) });
+    liveBtn.update({ kind: f.kind, asOf: st.freshness?.asOf ?? st.lastOk, ageMs: f.ageMs, source: st.freshness?.accountId ?? null, live: st.live });
+    if (st.lastOk && st.lastOk !== lastTick && f.kind !== "error") {
+      lastTick = st.lastOk;
+      liveBtn.tick();
     }
-    const title = [st.error ? String(st.error.message ?? st.error) : st.freshness?.accountId ? `Data from ${st.freshness.accountId}` : "", st.patchMs !== null ? `render ${formatFixed(st.patchMs, 1)} ms` : ""].filter(Boolean).join(" · ");
-    if (clock.title !== title) clock.title = title;
+    const today = O.isExpiryDay(st.expiry);
+    if (expiryChip.hidden === today) expiryChip.hidden = !today;
+    const want = f.kind === "closed" ? CLOSED_REFRESH_MS : REFRESH_MS;
+    if (st.live && want !== timerMs && timerReady) startTimer();
   }
 
   // ── Summary strip (built once, then patched) ──
@@ -530,25 +643,39 @@ async function renderDesk(kind) {
     return h("div", { class: `desk-stat ${cls ?? ""}`.trim(), title }, h("span", { class: "label" }, label), h("span", { class: "value" }, value), h("span", { class: "sub" }, sub ?? " "));
   }
   const tiles = new Map();
-  function setTile(key, label, value, sub, { cls, title } = {}) {
+  /** One tile, patched in place. `n` + `fmt`: the figure counts up on its first real paint (after a page or
+   *  underlying change) and flashes up / down when a later refresh changes it. */
+  function setTile(key, label, value, sub, { cls, title, n = null, fmt = null, vcls = "" } = {}) {
     let t = tiles.get(key);
     if (!t || !statsEl.contains(t.el)) {
       const el = tile(label, value, sub, { cls, title });
-      t = { el, label: el.children[0], value: el.children[1], sub: el.children[2], sig: "" };
+      t = { el, label: el.children[0], value: el.children[1], sub: el.children[2], sig: "", n: null, painted: false };
       tiles.set(key, t);
       statsEl.append(el);
     }
-    const sig = JSON.stringify([label, value, sub, title]);
+    const sig = JSON.stringify([label, value, sub, title, vcls]);
     if (t.sig === sig) return;
     t.sig = sig;
     t.label.textContent = label;
-    t.value.textContent = value;
+    const ec = `desk-stat${cls ? ` ${cls}` : ""}`;
+    if (t.el.className !== ec) t.el.className = ec;
+    const vc = `value${vcls ? ` ${vcls}` : ""}`;
+    if (t.value.className !== vc) t.value.className = vc;
+    const real = value !== DASH && Number.isFinite(n);
+    if (real && !t.painted && fmt) countUp(t.value, 0, n, fmt, value);
+    else {
+      if (real && t.painted && t.value.textContent !== value && Number.isFinite(t.n) && n !== t.n) flashValue(t.value, n > t.n ? "up" : "down");
+      t.value.textContent = value;
+    }
+    if (real) t.painted = true;
+    else if (value === DASH) t.painted = false;
+    t.n = real ? n : null;
     t.sub.textContent = sub || " ";
     t.el.title = title ?? "";
   }
   function drawStats(x) {
     if (!x) {
-      for (const [k, l] of [["spot", st.underlying], ["iv", "ATM IV"], ["em", "Expected move"], ["straddle", "Straddle"], ["pcr", "PCR"], ["mp", "Max pain"], ["pw", "Put wall"], ["cw", "Call wall"]]) setTile(k, l, DASH, "");
+      for (const [k, l] of [["spot", st.underlying], ["iv", "ATM IV"], ["em", "Expected move"], ["straddle", "Straddle"], ["pcr", "PCR"], ["mp", "Max Pain"], ["pw", "Put wall"], ["cw", "Call wall"]]) setTile(k, l, DASH, "", { cls: k === "spot" ? "t-spot" : "" });
       return;
     }
     const { sm, c, F, move } = x;
@@ -561,18 +688,21 @@ async function renderDesk(kind) {
       "spot",
       c.underlying,
       formatFixed(sm.spot, 2),
-      fut ? `Fut ${formatFixed(fut.ltp, 1)} (${formatSigned(fut.ltp - sm.spot, 1)})` : F !== null ? `F ${formatInt(F)} (syn)` : "",
-      { title: fut ? "The same-expiry future and its basis to spot" : "Synthetic future from put-call parity (K + (C − P)·e^(rT)); no future is listed for this expiry" },
+      `${num(c.lotSize) ? "" : "lot size unavailable · "}${fut ? `Fut ${formatFixed(fut.ltp, 1)} (${formatSigned(fut.ltp - sm.spot, 1)})` : F !== null ? `F ${formatInt(F)} (synthetic)` : ""}`,
+      { cls: "t-spot", title: `${fut ? "The same-expiry future and its basis to spot" : "Synthetic future from put-call parity (K + (C − P)·e^(rT)); no future is listed for this expiry"}` },
     );
-    setTile("iv", "ATM IV", formatPercent(sm.atmIv, 2), day ? `1-day ±${formatInt(day)}` : t.label, { title: "Average of the ATM call and put IV; the 1-day 1σ move it implies" });
+    setTile("iv", "ATM IV", formatPercent(sm.atmIv, 2), day ? `1-day ±${formatInt(day)}` : t.label, { title: "Average of the ATM call and put IV; the 1-day 1σ move it implies", n: sm.atmIv, fmt: (v) => formatPercent(v, 2), vcls: "ink-iv" });
     setTile("em", "Expected move", move ? `±${formatInt(move)}` : DASH, x.band1 ? `${formatInt(x.band1.lo)} – ${formatInt(x.band1.hi)}` : "", { title: `Log-normal 1σ band to expiry at ATM IV (${t.label}): about 68% of outcomes land inside` });
-    setTile("straddle", "Straddle", formatFixed(sm.straddle, 2), sm.straddle && sm.spot ? `${formatPercent((sm.straddle / sm.spot) * 100, 2)} of spot` : "", { title: "ATM call + put. The market's price for a move either way" });
-    setTile("pcr", "PCR", formatFixed(sm.pcr, 2), `Net ΔOI ${formatCompact(sm.netOiChange, { signed: true })}`, {
-      title: `Put OI ÷ call OI over the ${formatInt(n)} strikes loaded (±${FETCH_STRIKES} around ATM; ${pcrWord}). Net ΔOI = put OI added − call OI added today${sm.pcrChange !== null ? ` (ratio ${formatFixed(sm.pcrChange, 2)})` : ""}. Volume PCR ${formatFixed(sm.pcrVolume, 2)}`,
+    setTile("straddle", "Straddle", formatFixed(sm.straddle, 2), sm.straddle && sm.spot ? `${formatPercent((sm.straddle / sm.spot) * 100, 2)} of spot` : "", { title: "ATM call + put. The market's price for a move either way", n: sm.straddle, fmt: (v) => formatFixed(v, 2) });
+    setTile("pcr", "PCR", formatFixed(sm.pcr, 2), `Net OI chg ${formatCompact(sm.netOiChange, { signed: true })}`, {
+      n: sm.pcr,
+      fmt: (v) => formatFixed(v, 2),
+      vcls: sm.pcr === null ? "" : sm.pcr > 1.2 ? "ink-pos" : sm.pcr < 0.7 ? "ink-neg" : "",
+      title: `Put OI ÷ call OI over the ${formatInt(n)} strikes loaded (±${FETCH_STRIKES} around ATM; ${pcrWord}). Net OI chg = put OI added − call OI added today${sm.pcrChange !== null ? ` (ratio ${formatFixed(sm.pcrChange, 2)})` : ""}. Volume PCR ${formatFixed(sm.pcrVolume, 2)}`,
     });
-    setTile("mp", "Max pain", formatInt(sm.maxPain), sm.maxPain !== null && sm.spot !== null ? `${formatSigned(sm.maxPain - sm.spot, 0)} from spot` : "", { title: `Settlement at which option buyers would collect the least, over the ${formatInt(n)} strikes loaded` });
-    setTile("pw", "Put wall", formatInt(sm.support?.strike), sm.support ? `OI ${formatCompact(sm.support.oi)}` : "", { title: `Strike with the most put OI of the ${formatInt(n)} loaded (often read as support)` });
-    setTile("cw", "Call wall", formatInt(sm.resistance?.strike), sm.resistance ? `OI ${formatCompact(sm.resistance.oi)}` : "", { title: `Strike with the most call OI of the ${formatInt(n)} loaded (often read as resistance)` });
+    setTile("mp", "Max Pain", formatInt(sm.maxPain), sm.maxPain !== null && sm.spot !== null ? `${formatSigned(sm.maxPain - sm.spot, 0)} from spot` : "", { title: `Settlement at which option buyers would collect the least, over the ${formatInt(n)} strikes loaded`, n: sm.maxPain, fmt: (v) => formatInt(v) });
+    setTile("pw", "Put wall", formatInt(sm.support?.strike), sm.support ? `OI ${formatCompact(sm.support.oi)}` : "", { title: `Strike with the most put OI of the ${formatInt(n)} loaded`, vcls: "ink-put" });
+    setTile("cw", "Call wall", formatInt(sm.resistance?.strike), sm.resistance ? `OI ${formatCompact(sm.resistance.oi)}` : "", { title: `Strike with the most call OI of the ${formatInt(n)} loaded`, vcls: "ink-call" });
   }
 
   // ── The chain ──
@@ -589,6 +719,10 @@ async function renderDesk(kind) {
     },
     onOpen: (strike, side) => openSheet(strike, side),
     onWindowAll: () => showAllStrikes(),
+    onNextExpiry: () => {
+      const i = st.expiries.indexOf(st.expiry);
+      if (i >= 0 && i + 1 < st.expiries.length) selectExpiry(st.expiries[i + 1]);
+    },
   });
   let windowLock = false;
   function showAllStrikes() {
@@ -763,7 +897,7 @@ async function renderDesk(kind) {
     const midPx = (sd) => O.roundToTick(O.mid(quote()), tick, sd === "BUY" ? "buy" : "sell");
     const startPx = isFigure(priceIn) ? Number(priceIn) : exit ? midPx(side) ?? O.touchPrice(quote(), side, tick) : O.touchPrice(quote(), side, tick);
     const price = h("input", { type: "number", min: "0.05", step: String(tick), inputmode: "decimal", value: String(startPx ?? "") });
-    const prodSeg = segmented("Product", [["INTRADAY", "Intraday"], ["MARGIN", "Carry (NRML)"]], product === "MARGIN" || product === "CNC" ? "MARGIN" : "INTRADAY");
+    const prodSeg = segmented("Product", [["INTRADAY", "Intraday"], ["MARGIN", "Margin (NRML)"]], product === "MARGIN" || product === "CNC" ? "MARGIN" : "INTRADAY");
     const modeSeg = a.liveAllowedByConfig ? segmented("Mode", [["paper", "Paper"], ["live", "Live"]], "paper") : null;
     const ack = h("input", { type: "checkbox" });
     const ackRow = h("label", { class: "check live-ack", hidden: true }, ack, `I understand this sends a real order to ${a.label}.`);
@@ -896,7 +1030,7 @@ async function renderDesk(kind) {
         h("div", { class: "ticket-grid" }, h("label", { class: "field" }, h("span", {}, inUnits ? "Quantity " : "Lots ", lotHint), lots), segField("Type", typeSeg)),
         pctRow,
         priceField,
-        h("div", { class: "ticket-grid" }, segField("Product", prodSeg), modeSeg ? segField("Mode", modeSeg) : h("div", { class: "field" }, h("span", {}, "Account"), h("span", { class: "ticket-acct" }, `${a.label}\u00a0`, h("span", { class: "muted" }, "· paper")))),
+        h("div", { class: "ticket-grid" }, segField("Product", prodSeg), modeSeg ? segField("Mode", modeSeg) : h("div", { class: "field" }, h("span", {}, "Account"), h("span", { class: "ticket-acct one-line", title: a.label }, h("span", { class: "acct-name" }, a.label), /paper/i.test(a.label ?? "") ? null : h("span", { class: "acct-badge", "data-mode": "paper" }, "Paper")))),
         ackRow,
         warnEl,
         previewEl,
@@ -907,6 +1041,7 @@ async function renderDesk(kind) {
         {
           label: "Place",
           cls: "primary",
+          ref: (el) => (placeBtn = el),
           onClick: async () => {
             placeBtn.disabled = true;
             try {
@@ -922,7 +1057,6 @@ async function renderDesk(kind) {
         },
       ],
     });
-    placeBtn = document.querySelector("#dialog .dialog-actions button:last-child");
     changed();
     const result = await done;
     clearInterval(quoteTimer);
@@ -979,23 +1113,11 @@ async function renderDesk(kind) {
     chain.reset(true);
     if (st.chain) drawAll();
   }
+  let custom = null;
   function openCustomise() {
-    const close = () => {
-      pop.remove();
-      document.removeEventListener("pointerdown", outside, true);
-      document.removeEventListener("keydown", esc, true);
-      gearBtn.setAttribute("aria-expanded", "false");
-      gearBtn.focus();
-    };
-    const outside = (e) => {
-      if (!pop.contains(e.target) && !gearBtn.contains(e.target)) close();
-    };
-    const esc = (e) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        close();
-      }
-    };
+    if (custom) return custom.close();
+    const say = h("div", { class: "sr-only", "aria-live": "polite" });
+    let refocus = null;
     const sw = (label, get, set, hint) => {
       const input = h("input", { type: "checkbox", role: "switch" });
       input.checked = get();
@@ -1005,8 +1127,14 @@ async function renderDesk(kind) {
       });
       return h("label", { class: "sw-row" }, h("span", { class: "sw-text" }, label, hint ? h("small", {}, hint) : null), h("span", { class: "switch" }, input, h("i", { "aria-hidden": "true" })));
     };
-    const body = h("div", { class: "pop-body" });
-    const draw = () => {
+    const body = h("div", {});
+    /** Phones: the strikes window lives here (the head row holds Calls | Puts | Both instead). */
+    const phoneStrikes = () => {
+      const seg = segmented("Strikes each side of ATM", [["10", "±10"], ["20", "±20"], ["all", "All"]], strikesSeg.value);
+      seg.addEventListener("change", () => (strikesSeg.value = seg.value));
+      return seg;
+    };
+    let draw = () => {
       const c = st.cfg;
       // One "Show" control: the one that applies at this width (phones keep their own side setting).
       const phone = device().phone;
@@ -1022,7 +1150,10 @@ async function renderDesk(kind) {
         if (j < 0 || j >= a.length) return;
         [a[i], a[j]] = [a[j], a[i]];
         setCfg({ cols: a });
+        // Keep the keyboard on the same button (or its twin when that one is now disabled at the end of the list).
+        refocus = `[data-move="${k}|${j === 0 ? 1 : j === a.length - 1 ? -1 : d}"]`;
         draw();
+        say.textContent = `${label(k)} moved to position ${j + 1}`;
       };
       const colRow = (k, on) =>
         h(
@@ -1040,7 +1171,7 @@ async function renderDesk(kind) {
             });
             return i;
           })(), h("span", { title: chain.colTitle(k) }, label(k), chain.isRowCol(k) ? h("small", { class: "col-scope" }, " per strike") : null)),
-          on ? h("span", { class: "col-move" }, h("button", { type: "button", class: "icon-btn tiny", "aria-label": `Move ${label(k)} towards the strike`, disabled: enabled.indexOf(k) === 0, onclick: () => move(k, -1) }, icon("up")), h("button", { type: "button", class: "icon-btn tiny", "aria-label": `Move ${label(k)} away from the strike`, disabled: enabled.indexOf(k) === enabled.length - 1, onclick: () => move(k, 1) }, icon("down"))) : null,
+          on ? h("span", { class: "col-move" }, h("button", { type: "button", class: "icon-btn tiny reorder", "data-move": `${k}|-1`, "aria-label": `Move ${label(k)} up (towards the strike)`, disabled: enabled.indexOf(k) === 0, onclick: () => move(k, -1) }, icon("up")), h("button", { type: "button", class: "icon-btn tiny reorder", "data-move": `${k}|1`, "aria-label": `Move ${label(k)} down (away from the strike)`, disabled: enabled.indexOf(k) === enabled.length - 1, onclick: () => move(k, 1) }, icon("down"))) : null,
         );
       const list = h("div", { class: "col-list" }, enabled.map((k) => colRow(k, true)), others.map((k) => colRow(k, false)));
       // Drag a column row to reorder (mouse); the arrow buttons do the same from the keyboard.
@@ -1072,8 +1203,9 @@ async function renderDesk(kind) {
       const presets = h("div", { class: "preset-row" }, TOOLBAR_PRESETS.map(presetBtn), h("span", { class: "preset-more" }, "More presets"), ["greeks", "value"].map(presetBtn));
       body.replaceChildren(
         h("section", {}, h("h3", {}, "Show"), sideSeg),
-        h("section", {}, h("h3", {}, "Columns ", h("small", {}, "from the strike outwards · drag to reorder")), presets, list, (() => {
-          const row = sw("Bid and ask (click to trade)", () => c.quotes, (v) => setCfg({ quotes: v }), c.preset === "arb" ? "Always on in the Arb view" : "Touch screens trade from the row's sheet instead");
+        phone ? h("section", {}, h("h3", {}, "Strikes"), phoneStrikes()) : null,
+        h("section", {}, h("h3", {}, "Columns ", h("small", {}, `from the strike outwards · ${phone ? "use the arrows" : "drag or use the arrows"} to reorder`)), presets, list, (() => {
+          const row = sw(`Bid and ask (${touchWord().toLowerCase()} to trade)`, () => c.quotes, (v) => setCfg({ quotes: v }), c.preset === "arb" ? "Always on in the Arb view" : "Touch screens trade from the row's sheet instead");
           if (c.preset === "arb") row.querySelector("input").disabled = true;
           return row;
         })()),
@@ -1093,26 +1225,27 @@ async function renderDesk(kind) {
           {},
           h("h3", {}, "Strike tags"),
           sw("Max Pain", () => c.tags.mp, (v) => setCfg({ tags: { ...st.cfg.tags, mp: v } })),
-          sw("Support / Resistance (OI walls)", () => c.tags.walls, (v) => setCfg({ tags: { ...st.cfg.tags, walls: v } })),
-          sw("Expected move (±1σ)", () => c.tags.em, (v) => setCfg({ tags: { ...st.cfg.tags, em: v } })),
+          sw("Call wall / Put wall", () => c.tags.walls, (v) => setCfg({ tags: { ...st.cfg.tags, walls: v } })),
+          sw("±1σ (Expected move)", () => c.tags.em, (v) => setCfg({ tags: { ...st.cfg.tags, em: v } })),
           sw("±2σ", () => c.tags.em2, (v) => setCfg({ tags: { ...st.cfg.tags, em2: v } }), "Strikes two standard deviations out"),
         ),
       );
     };
-    const pop = h(
-      "div",
-      { class: "popover customise", role: "dialog", "aria-label": "Customise the chain" },
-      h("div", { class: "pop-head" }, h("strong", {}, "Customise"), h("button", { type: "button", class: "small plain reset", onclick: () => { st.cfg = chainConfig({}); setCfg({}); draw(); } }, icon("refresh"), "Reset"), h("button", { type: "button", class: "icon-btn tiny", "aria-label": "Close", onclick: () => close() }, icon("close"))),
-      body,
-    );
-    draw();
-    gearBtn.setAttribute("aria-expanded", "true");
-    gearBtn.closest(".panel-head").append(pop);
-    pop.querySelector("button, input")?.focus();
-    setTimeout(() => {
-      document.addEventListener("pointerdown", outside, true);
-      document.addEventListener("keydown", esc, true);
-    });
+    const reset = h("button", { type: "button", class: "small plain reset", onclick: () => { st.cfg = chainConfig({}); setCfg({}); draw(); } }, icon("refresh"), "Reset");
+    const wrap = h("div", { class: "pop-body" }, body, say);
+    const origDraw = draw;
+    // A redraw replaces the controls: keep the keyboard where it was (same control by position).
+    const focusables = () => [...wrap.querySelectorAll("button, input")];
+    draw = () => {
+      const i = focusables().indexOf(document.activeElement);
+      origDraw();
+      if (refocus) {
+        wrap.querySelector(refocus)?.focus();
+        refocus = null;
+      } else if (i >= 0) focusables()[i]?.focus({ preventScroll: true });
+    };
+    origDraw();
+    custom = sheetPopover({ trigger: gearBtn, title: "Customise", head: [reset], body: wrap, cls: "customise", onClose: () => (custom = null) });
   }
 
   // ── Strike search ──
@@ -1173,7 +1306,7 @@ async function renderDesk(kind) {
       const k = e.key;
       if (k === "/") return focusSearch(), true;
       if (k === "?") return showKeys(), true;
-      if (k === "p") return liveBtn.click(), true;
+      if (k === "p") return toggleLive(), true;
       if (k === "r") return refresh(), true;
       if (k === "[" || k === "]") {
         const i = eSel.selectedIndex + (k === "]" ? 1 : -1);
@@ -1226,7 +1359,7 @@ async function renderDesk(kind) {
   const oiDesk = oiPage && {
     root: oiPage.root,
     onKey(e) {
-      if (e.key === "p") return liveBtn.click(), true;
+      if (e.key === "p") return toggleLive(), true;
       if (e.key === "r") return refresh(), true;
       return oiPage.onKey(e);
     },
@@ -1234,7 +1367,7 @@ async function renderDesk(kind) {
   const stratDesk = builder && {
     root: builder.panel,
     onKey(e) {
-      if (e.key === "p") return liveBtn.click(), true;
+      if (e.key === "p") return toggleLive(), true;
       if (e.key === "r") return refresh(), true;
       return builder.onKey(e);
     },
@@ -1242,7 +1375,7 @@ async function renderDesk(kind) {
   const posDesk = posPage && {
     root: posPage.root,
     onKey(e) {
-      if (e.key === "p") return liveBtn.click(), true;
+      if (e.key === "p") return toggleLive(), true;
       if (e.key === "r") return refresh(), true;
       return posPage.onKey(e);
     },
@@ -1250,7 +1383,7 @@ async function renderDesk(kind) {
   const volDesk = volPage && {
     root: volPage.root,
     onKey(e) {
-      if (e.key === "p") return liveBtn.click(), true;
+      if (e.key === "p") return toggleLive(), true;
       if (e.key === "r") return refresh(), true;
       return volPage.onKey(e);
     },
@@ -1258,7 +1391,7 @@ async function renderDesk(kind) {
   const arbDesk = arbPage && {
     root: arbPage.root,
     onKey(e) {
-      if (e.key === "p") return liveBtn.click(), true;
+      if (e.key === "p") return toggleLive(), true;
       if (e.key === "r") return refresh(), true;
       return arbPage.onKey(e);
     },
@@ -1271,7 +1404,9 @@ async function renderDesk(kind) {
     st.underlying = uSel.value;
     st.expiry = null;
     save();
-    reloadAll();
+    drawCtx();
+    // A new underlying is a new page of data: the sections enter again (never on a refresh).
+    reloadAll().then(() => animatePage(document.getElementById("content"), { force: true }));
   });
   eSel.addEventListener("change", () => {
     st.expiry = eSel.value;
@@ -1298,17 +1433,11 @@ async function renderDesk(kind) {
   gearBtn.addEventListener("click", () => openCustomise());
   aSel.addEventListener("change", () => {
     st.account = aSel.value;
+    drawAcct();
     save();
     if (posPage) posPage.accountChanged();
     else loadPositions();
     builder?.accountChanged();
-  });
-  liveBtn.addEventListener("click", () => {
-    st.live = !st.live;
-    save();
-    drawLive();
-    startTimer();
-    if (st.live) refresh();
   });
   drawLive();
   // Back to the tab: refresh at once instead of on the next tick. Device class changes (rotation, a phone-width
@@ -1326,6 +1455,7 @@ async function renderDesk(kind) {
   // Leaving the page: the router swaps #content on hashchange, so check once it has.
   const onRoute = () => setTimeout(() => !pageRoot.isConnected && cleanup(), 0);
   function cleanup() {
+    clearInterval(ageTimer);
     document.removeEventListener("visibilitychange", onVisible);
     window.removeEventListener("hashchange", onRoute);
     for (const m of mqs) m.removeEventListener("change", onDevice);
@@ -1340,24 +1470,25 @@ async function renderDesk(kind) {
   window.addEventListener("hashchange", onRoute);
   if (kind === "chain") for (const m of mqs) m.addEventListener("change", onDevice);
 
+  drawAcct();
+  // The top bar: one capsule, then (trading pages) the account and its mode, the live control and the ⋯ sheet.
+  const capsule = h("div", { class: "ctx-cap glass" }, uItem, kind === "positions" ? null : eItem, spotItem, kind === "positions" ? null : lotItem);
+  const acctItem = TRADING.has(kind) ? h("span", { class: "ctx-acct glass" }, tradable.length ? [aSel, acctBadge] : h("a", { href: "#/accounts", class: "acct-connect" }, icon("plug"), "Connect an account")) : null;
+  mountToolbarCtx(kind, capsule, expiryChip, h("span", { class: "ctx-spacer" }), acctItem, liveBtn.el, moreBtn);
+  drawCtx();
   await reloadAll();
   startTimer();
+  timerReady = true;
+  // The pill's age ticks once a second (text node only); cleared when the page goes.
+  const ageTimer = setInterval(() => (pageRoot.isConnected ? drawClock() : clearInterval(ageTimer)), 1000);
 
-  const bar = h(
-    "div",
-    { class: "desk-bar" },
-    h("div", { class: "desk-pick" }, uSel, eSel),
-    h("div", { class: "desk-acct", title: "Orders from these pages go to this account" }, aSel),
-    h("div", { class: "desk-live" }, clock, liveBtn),
-  );
   if (kind === "chain") {
     const out = [
-      h("section", { class: "desk-panel desk-top", "data-fixed": "" }, bar),
-      h("section", { class: "desk-panel", "data-panel": "summary", "aria-label": "Chain summary" }, statsEl),
+      h("section", { class: "desk-panel", "data-panel": "summary", "data-fixed": "", "aria-label": "Chain summary" }, statsEl),
       h(
         "section",
         { class: "desk-panel chain-panel", "data-panel": "chain", "aria-label": "Option chain" },
-        h("div", { class: "chain-head panel-head" }, chainTitle, (chainTools = h("div", { class: "chain-tools" }, searchBox, strikesSeg, viewSeg, presetSel, gearBtn))),
+        h("div", { class: "chain-head panel-head" }, (chainTools = h("div", { class: "chain-tools" }, searchBox, chain.phoneBar, strikesSeg, viewSeg, presetSel, gearBtn))),
         chainEl,
         keysEl,
       ),
@@ -1365,17 +1496,14 @@ async function renderDesk(kind) {
     syncTools();
     return out;
   }
-  const top = h("section", { class: "desk-panel desk-top", "data-fixed": "" }, bar);
-  const summary = h("section", { class: "desk-panel", "data-panel": "summary", "aria-label": "Chain summary" }, statsEl);
-  if (kind === "strategy") return [top, summary, builder.panel, builder.slot];
-  if (kind === "oi") return [top, ...oiPage.panels];
+  const summary = h("section", { class: "desk-panel", "data-panel": "summary", "data-fixed": "", "aria-label": "Chain summary" }, statsEl);
+  if (kind === "strategy") return [summary, builder.panel, builder.slot];
+  if (kind === "oi") return [...oiPage.panels];
   // Volatility: its own KPI strip, so no shared summary.
-  if (kind === "vol") return [top, ...volPage.panels];
-  if (kind === "arb") return [top, ...arbPage.panels];
-  // The page covers every expiry: the toolbar's expiry select is hidden (st.expiry stays for the other pages).
-  eSel.hidden = true;
-  aSel.classList.add("wide");
-  return [top, ...posPage.panels];
+  if (kind === "vol") return [...volPage.panels];
+  if (kind === "arb") return [...arbPage.panels];
+  // The page covers every expiry: the bar has no expiry (st.expiry stays for the other pages).
+  return [...posPage.panels];
 }
 
 // ── Chain table (built once, patched on every refresh) ──
@@ -1386,10 +1514,10 @@ async function renderDesk(kind) {
  * `r` = its content.
  */
 export const CHAIN_COLUMNS = [
-  ["ltp", "LTP"], ["iv", "IV"], ["oi", "OI"], ["chg", "OI change"], ["vol", "Volume"], ["bu", "Build-up"],
+  ["ltp", "LTP"], ["iv", "IV"], ["oi", "OI"], ["chg", "OI chg"], ["vol", "Volume"], ["bu", "Build-up"],
   ["delta", "Delta"], ["gamma", "Gamma"], ["theta", "Theta"], ["vega", "Vega"], ["pitm", "P(ITM)"], ["potm", "P(OTM)"],
   ["ext", "Time value"], ["spread", "Spread %"], ["liq", "Liquidity"], ["prem", "Premium traded"],
-  ["be", "Breakeven"], ["pop", "PoP buy"], ["pops", "PoP sell"], ["dist", "Distance from spot"], ["premLot", "Premium per lot"],
+  ["be", "Breakeven"], ["pop", "POP buy"], ["pops", "POP sell"], ["dist", "Distance from spot"], ["premLot", "Premium per lot"],
   ["thetaLot", "Theta per lot"], ["ivx", "IV − ATM IV"], ["hedge", "Hedge lots"], ["costPct", "Cost % of spot"],
   ["syn", "Synthetic future", "row"], ["dev", "Deviation from future", "row"], ["edge", "Parity edge", "row"], ["ivskew", "IV put − call", "row"],
 ];
@@ -1406,7 +1534,7 @@ export const CHAIN_PRESETS = {
 };
 export const PRESET_NAMES = Object.freeze({ oi: "OI", buyer: "Buyer", seller: "Seller", hedger: "Hedger", arb: "Arb", greeks: "Greeks", value: "Value" });
 const TOOLBAR_PRESETS = ["oi", "buyer", "seller", "hedger", "arb"];
-/** Per preset, the columns that drop out below 1100 px (so a tablet shows at most five a side). */
+/** Per preset, the columns that drop out below 1024 px (so a tablet shows at most five a side). */
 const PRESET_OPT_X = { oi: ["vol", "bu"], buyer: ["ivx", "spread"], seller: ["thetaLot", "oi"], hedger: ["dist", "vega"], arb: ["ivskew", "iv"], greeks: ["gamma", "vega"], value: ["liq", "prem"] };
 export const presetOf = (cols) => Object.keys(CHAIN_PRESETS).find((k) => CHAIN_PRESETS[k].join() === (cols ?? []).join()) ?? "custom";
 /** The chain's settings (Customise panel); stored with the desk's other preferences. */
@@ -1454,7 +1582,7 @@ const MQ_PHONE = "(max-width: 719px)";
 const MQ_COARSE = "(pointer: coarse)";
 const media = (q) => (typeof matchMedia === "function" ? matchMedia(q) : { matches: false, addEventListener() {}, removeEventListener() {} });
 /** Device class: phone (≤ 719 px) and touch (coarse pointer) change the chain's layout, so they are part of its key. */
-const MQ_NARROW = "(max-width: 1099px)";
+const MQ_NARROW = "(max-width: 1023px)";
 export const device = () => ({ phone: media(MQ_PHONE).matches, narrow: media(MQ_NARROW).matches, coarse: media(MQ_COARSE).matches });
 const reducedMotion = () => media("(prefers-reduced-motion: reduce)").matches;
 
@@ -1479,14 +1607,14 @@ function morph(a, b) {
   return true;
 }
 
-function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, onWindowAll }) {
+function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, onWindowAll, onNextExpiry = null }) {
   let built = null;
   let centred = false;
   let lastX = null;
 
   const g = (v, dp) => (isFigure(v) ? formatFixed(v, dp) : DASH);
   const pct1 = (v) => (isFigure(v) ? `${formatSigned(v, 1)}%` : DASH);
-  const rupees = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? "-" : ""}₹${formatCompact(Math.abs(v))}` : formatRupee(v, 0));
+  const rupees = (v, signed = false) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? `${v < 0 ? "-" : signed && v > 0 ? "+" : ""}₹${formatCompact(Math.abs(v))}` : signed ? formatSignedRupee(v, 0) : formatRupee(v, 0));
   const dots = (n) => h("span", { class: "liq", title: `Liquidity ${n} of 5`, "aria-label": `Liquidity ${n} of 5` }, [1, 2, 3, 4, 5].map((i) => h("i", { class: i <= n ? "on" : undefined })));
   const two = (main, sub, cls) => h("span", { class: "two" }, h("span", { class: cls }, main), cfg().pct || sub?.force ? h("small", { class: sub?.cls }, sub?.text ?? "") : null);
   /** A value with an optional bar under it (length = share of the chain's largest), growing away from the strike. */
@@ -1579,7 +1707,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       },
     },
     spread: {
-      label: "Spread",
+      label: "Spread %",
       title: "Bid-ask spread as % of mid",
       v: (q) => [q?.bid, q?.ask],
       r: (q) => {
@@ -1588,7 +1716,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       },
     },
     liq: { label: "Liquidity", cls: "opt-x", v: (q, row, side, x) => O.liquidityScore(q, x.ranks[side].get(row.strike)), r: (q, row, side, x) => dots(O.liquidityScore(q, x.ranks[side].get(row.strike))) },
-    prem: { label: "Traded", title: "Premium traded today (volume × lot × LTP)", cls: "opt-x", v: (q, row, side, x) => [q?.volume, q?.ltp, x.lot], r: (q, row, side, x) => (isFigure(q?.volume) && isFigure(q?.ltp) ? `₹${formatCompact(q.volume * x.lot * q.ltp)}` : DASH) },
+    prem: { label: "Premium traded", short: "Prem. traded", title: "Premium traded today (volume × lot × LTP)", cls: "opt-x", v: (q, row, side, x) => [q?.volume, q?.ltp, x.lot], r: (q, row, side, x) => (isFigure(q?.volume) && isFigure(q?.ltp) ? `₹${formatCompact(q.volume * x.lot * q.ltp)}` : DASH) },
     be: {
       label: "Breakeven",
       short: "BE",
@@ -1601,7 +1729,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       },
     },
     pop: {
-      label: "PoP buy",
+      label: "POP buy",
       title: "A buyer's chance of profit at expiry: P(price beyond the breakeven), log-normal at the leg's IV",
       v: (q, row, side, x) => [prem(q), q?.iv, Math.round(x.F ?? 0)],
       r: (q, row, side, x) => {
@@ -1610,7 +1738,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       },
     },
     pops: {
-      label: "PoP sell",
+      label: "POP sell",
       title: "A seller's chance of keeping a profit at expiry: 1 − the buyer's chance",
       v: (q, row, side, x) => [prem(q), q?.iv, Math.round(x.F ?? 0)],
       r: (q, row, side, x) => {
@@ -1630,7 +1758,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       },
     },
     premLot: { label: "Prem/lot", title: "Premium for one lot (mid × lot size)", v: (q, row, side, x) => [prem(q), x.lot], r: (q, row, side, x) => rupees(prem(q) === null ? null : prem(q) * x.lot) },
-    thetaLot: { label: "θ/lot", title: "Theta per lot: rupees a long position loses in a day", v: (q, row, side, x) => [q?.theta, x.lot], r: (q, row, side, x) => rupees(num(q?.theta) === null ? null : q.theta * x.lot) },
+    thetaLot: { label: "θ/lot", title: "Theta per lot: rupees a long position loses in a day", v: (q, row, side, x) => [q?.theta, x.lot], r: (q, row, side, x) => rupees(num(q?.theta) === null ? null : q.theta * x.lot, true) },
     ivx: {
       label: "IV−ATM",
       title: "This strike's IV minus ATM IV (vol points): what you pay over the at-the-money volatility",
@@ -1668,7 +1796,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       r: (row, r_, s_, x) => {
         const m = x.syn.get(row.strike)?.mid;
         const d = m !== undefined && m !== null && x.ref !== null ? m - x.ref : null;
-        return two(isFigure(d) ? formatSigned(d, 1) : DASH, { text: isFigure(d) ? formatRupee(d * x.lot, 0) : "", force: true });
+        return two(isFigure(d) ? formatSigned(d, 1) : DASH, { text: isFigure(d) ? formatSignedRupee(d * x.lot, 0) : "", force: true });
       },
     },
     edge: {
@@ -1743,7 +1871,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     const price = trade === "BUY" ? q?.ask : q?.bid;
     if (!q || !isFigure(price)) return h("span", { class: "muted", title: "No quote on this side" }, DASH);
     const right = R(side);
-    const label = `${trade === "BUY" ? "Buy" : "Sell"} ${formatInt(row.strike)} ${right} at ${formatFixed(price, 2)}`;
+    const label = `${trade === "BUY" ? "Buy" : "Sell"} ${contractName(st.chain?.underlying ?? st.underlying, st.chain?.expiry ?? st.expiry, row.strike, right)} at ${formatFixed(price, 2)}`;
     return h("button", { type: "button", class: `q-btn ${trade === "BUY" ? "buy" : "sell"}`, title: st.account ? label : "Choose an account that can place orders", "aria-label": label, disabled: !st.account, onclick: (e) => { e.stopPropagation(); onTrade(row, right, trade); } }, formatFixed(price, 2));
   }
   const cellCls = (k, L, extra = "") => `num ${L.ox.has(k) ? "opt-x" : ""} c-${k} ${extra}`.replace(/\s+/g, " ").trim();
@@ -1752,8 +1880,8 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
 
   /** One strike's row: its cells by part, and the click / double-click that focus it or open its sheet. */
   function makeRow(strike, L) {
-    const ce = L.ce.map((k) => h("td", { class: cellCls(k, L) }));
-    const pe = L.pe.map((k) => h("td", { class: cellCls(k, L) }));
+    const ce = L.ce.map((k) => h("td", { class: cellCls(k, L, "s-ce") }));
+    const pe = L.pe.map((k) => h("td", { class: cellCls(k, L, "s-pe") }));
     const mid = L.mid.map((k) => h("td", { class: cellCls(k, L, "mid-col") }));
     const th = h("th", { scope: "row", class: "strike-col" });
     const tr = h("tr", { "data-strike": strike, tabindex: "-1" }, L.order.map((part) => (part === "strike" ? th : part === "ce" ? ce : part === "pe" ? pe : mid)));
@@ -1813,8 +1941,8 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     const sideHead = L.phone
       ? null
       : L.side === "both"
-        ? h("tr", { class: "side-head" }, h("th", { colspan: L.ce.length, scope: "colgroup" }, sideBtn("ce", "Calls")), h("th", { class: "strike-col" }, ""), midHead, h("th", { colspan: L.pe.length, scope: "colgroup" }, sideBtn("pe", "Puts")))
-        : h("tr", { class: "side-head" }, h("th", { class: "strike-col" }, ""), midHead, h("th", { colspan: L.ce.length + L.pe.length, scope: "colgroup" }, h("button", { type: "button", class: "side-btn on", onclick: () => onSide("both") }, `${L.side === "ce" ? "Calls" : "Puts"} only`, h("span", { "aria-hidden": "true" }, " ×"))));
+        ? h("tr", { class: "side-head" }, h("th", { colspan: L.ce.length, scope: "colgroup", class: "sh-ce" }, sideBtn("ce", "Calls")), h("th", { class: "strike-col" }, ""), midHead, h("th", { colspan: L.pe.length, scope: "colgroup", class: "sh-pe" }, sideBtn("pe", "Puts")))
+        : h("tr", { class: "side-head" }, h("th", { class: "strike-col" }, ""), midHead, h("th", { colspan: L.ce.length + L.pe.length, scope: "colgroup", class: L.side === "pe" ? "sh-pe" : L.side === "ce" ? "sh-ce" : undefined }, h("button", { type: "button", class: "side-btn on", onclick: () => onSide("both") }, `${L.side === "ce" ? "Calls" : "Puts"} only`, h("span", { "aria-hidden": "true" }, " ×"))));
     const heads = [];
     const colHead = L.order.flatMap((part) => {
       if (part === "strike") return [h("th", { scope: "col", class: "strike-col" }, "Strike")];
@@ -1865,7 +1993,17 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     const sig = v !== null && typeof v === "object" ? JSON.stringify(v) : String(v);
     if (td.__sig === sig) return;
     td.__sig = sig;
+    const oldBar = td.querySelector(".vbar > span")?.style.transform ?? "";
     setCell(td, col.row ? col.r(row, row, side, x) : q ? col.r(q, row, side, x) : DASH);
+    // Bars resize from their old length (a CSS transition on transform), never regrow from zero.
+    if (oldBar) {
+      const bar = td.querySelector(".vbar > span");
+      const to = bar?.style.transform;
+      if (bar && to !== oldBar && !reducedMotion()) {
+        bar.style.transform = oldBar;
+        requestAnimationFrame(() => requestAnimationFrame(() => (bar.style.transform = to)));
+      }
+    }
     if (col.ltp) {
       const now = num(q?.ltp);
       const prev = td.__ltp;
@@ -1957,8 +2095,8 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       const tags = [];
       if (row.strike === sm.atm) tags.push(["atm", "ATM", "At the money"]);
       if (c.tags.mp && row.strike === sm.maxPain) tags.push(["mp", "Max Pain", "Settlement at which option buyers collect the least"]);
-      if (c.tags.walls && row.strike === sm.resistance?.strike) tags.push(["cw", "Resistance", "Most call OI loaded"]);
-      if (c.tags.walls && row.strike === sm.support?.strike) tags.push(["pw", "Support", "Most put OI loaded"]);
+      if (c.tags.walls && row.strike === sm.resistance?.strike) tags.push(["cw", "Call wall", "Most call OI loaded"]);
+      if (c.tags.walls && row.strike === sm.support?.strike) tags.push(["pw", "Put wall", "Most put OI loaded"]);
       if (c.tags.em && row.strike === x.em1.hi) tags.push(["em", "+1σ", "Upper edge of the expected move (log-normal, ATM IV to expiry)"]);
       if (c.tags.em && row.strike === x.em1.lo) tags.push(["em", "−1σ", "Lower edge of the expected move (log-normal, ATM IV to expiry)"]);
       if (c.tags.em2 && row.strike === x.em2.hi) tags.push(["em2", "+2σ", "Two standard deviations up (about 2.3% of outcomes land above)"]);
@@ -1996,22 +2134,17 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     const pcrSig = `${sm.pcr}|${x.c.rows.length}`;
     if (built.foot.th.__sig !== pcrSig) {
       built.foot.th.__sig = pcrSig;
-      built.foot.th.replaceChildren(h("small", {}, "PCR "), formatFixed(sm.pcr, 2));
+      built.foot.th.replaceChildren(h("span", { class: "foot-total" }, "Total"), h("span", { class: "foot-pcr" }, h("small", {}, "PCR "), formatFixed(sm.pcr, 2)));
       built.foot.th.title = `Put OI ÷ call OI over the ${formatInt(x.c.rows.length)} strikes loaded (±${FETCH_STRIKES} around ATM)`;
     }
-    const cap = `${x.c.underlying} ${expiryText(x.c.expiry)} option chain, ${L.side === "both" ? "calls left, puts right" : L.side === "ce" ? "calls" : L.side === "pe" ? "puts" : "put-call parity"}`;
+    const cap = `${x.c.underlying} ${expiryText(x.c.expiry)} option chain, ${formatInt(vis.size)} strikes, ${L.side === "both" ? "calls left, puts right" : L.side === "ce" ? "calls" : L.side === "pe" ? "puts" : "put-call parity"}`;
     if (built.caption.textContent !== cap) built.caption.textContent = cap;
     watchAtm(sm.atm);
-    if (flashes.length && !reducedMotion()) {
-      // One frame for every flash; two identical keyframe names restart the animation without a forced reflow.
+    if (flashes.length) {
+      // One frame for every flash: the shared dv-flash keyframes, restarted by alternating data-flash a / b (two
+      // identical keyframe names) instead of a forced reflow.
       requestAnimationFrame(() => {
-        for (const [td, up] of flashes) {
-          const base = up ? "flash-up" : "flash-down";
-          const next = td.__fl === base ? `${base}2` : base;
-          if (td.__fl) td.classList.remove(td.__fl);
-          td.classList.add(next);
-          td.__fl = next;
-        }
+        for (const [td, up] of flashes) flashValue(td, up ? "up" : "down");
       });
     }
   }
@@ -2081,7 +2214,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
   phoneSeg.addEventListener("change", () => onPhoneSide(phoneSeg.value));
   const parityNote = h("span", { class: "parity-note" }, "Parity view");
   const phoneBar = h("div", { class: "phone-side" }, phoneSeg, parityNote);
-  const note = h("div", { class: "chain-note", role: "status", hidden: true });
+  const note = h("div", { class: "chain-note", hidden: true });
   const live = h("div", { class: "sr-only", "aria-live": "polite" });
   let sx = null;
   host.addEventListener("touchstart", (e) => {
@@ -2138,6 +2271,8 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
   };
 
   const self = {
+    /** Phones: the Calls | Puts | Both switch, placed in the chain's head row by desk.js (hidden from 720 px up). */
+    phoneBar,
     reset(keepView = false) {
       if (!keepView) {
         built = null;
@@ -2149,7 +2284,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     draw(x) {
       lastX = x;
       if (!x.c.rows.length) {
-        host.replaceChildren(emptyState("chart", "No strikes", `No strikes for ${x.c.underlying} ${expiryText(x.c.expiry)}.`));
+        host.replaceChildren(emptyState("chart", `No strikes for ${x.c.underlying} ${expiryText(x.c.expiry)}`, "This expiry has no listed strikes yet. Pick another expiry.", onNextExpiry ? h("button", { type: "button", class: "small", onclick: () => onNextExpiry() }, "Next expiry") : null, { compact: true }));
         built = null;
         return;
       }
@@ -2167,7 +2302,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       const wrap = build(x, L, key);
       patch(x);
       if (old?.wrap.isConnected && host.contains(old.wrap)) old.wrap.replaceWith(wrap);
-      else host.replaceChildren(phoneBar, note, wrap, pill, live);
+      else host.replaceChildren(note, wrap, pill, live);
       self.paintFocus();
       built.atmObserved = null;
       observer?.disconnect();
@@ -2198,9 +2333,12 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       else requestAnimationFrame(place);
     },
     /** A one-line status above the table (errors after data), or null to hide it. */
-    note(text) {
-      note.hidden = !text;
-      if (note.textContent !== (text ?? "")) note.textContent = text ?? "";
+    note(content) {
+      note.hidden = !content;
+      const sig = content ? content.textContent : "";
+      if (note.__sig === sig) return;
+      note.__sig = sig;
+      note.replaceChildren(...(content ? [content] : []));
     },
     paintFocus(scroll = false, focusRow = false) {
       if (!built?.rows) return;

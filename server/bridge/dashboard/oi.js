@@ -6,7 +6,7 @@
 // Windows: Prev close uses the broker's oiChange; 5m / 15m / 30m / 1h / Since open use the snapshots this page
 // records (oi-store.js). Everything is built once and patched on each 3 s refresh. The maths is in options.js (pure,
 // tested); numbers become text through format.js only. Every reading is context, not a signal.
-import { alertBox, api, emptyState, h, icon, modal, optional, table, toast } from "./app.js";
+import { api, chartSlot, emptyState, errorState, h, icon, loadingState, modal, optional, table, toast } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatInt, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
 import { oiStore, snapKey } from "./oi-store.js";
@@ -15,7 +15,7 @@ import { segmented } from "./views.js";
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const WINDOW_IDS = O.OI_WINDOWS.map((w) => w[0]);
 const WINDOW_NAME = Object.fromEntries(O.OI_WINDOWS);
-const METRICS = [["oi", "OI"], ["chg", "ΔOI"], ["vol", "Volume"]];
+const METRICS = [["oi", "OI"], ["chg", "OI chg"], ["vol", "Volume"]];
 const BANDS = [["10", "±10"], ["20", "±20"], ["30", "±30"], ["all", "All"]];
 const EXTRA_MAX = 3;
 /** Extra expiries reload every 10th refresh tick (30 s at the desk's 3 s). */
@@ -107,7 +107,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
   const verdictText = h("span", { class: "oi-verdict-text" }, "Reading the chain…");
   const verdictEl = h("p", { class: "oi-verdict" }, verdictText, h("span", { class: "oi-quiet" }, " Context, not advice."));
   const liveEl = h("p", { class: "sr-only", "aria-live": "polite" });
-  const TILE_DEFS = [["spot", "Spot", "t-spot"], ["pcr", "PCR OI"], ["chg", "PCR ΔOI"], ["vol", "PCR Vol", "t-vol"], ["mp", "Max pain"], ["res", "Resistance"], ["sup", "Support"], ["win", "Window"]];
+  const TILE_DEFS = [["spot", "Spot", "t-spot"], ["pcr", "PCR OI"], ["chg", "PCR OI chg"], ["vol", "PCR Vol", "t-vol"], ["mp", "Max Pain"], ["res", "Call wall"], ["sup", "Put wall"], ["win", "Window"]];
   const tiles = new Map(TILE_DEFS.map(([k, l, c]) => [k, makeTile(l, c)]));
   const tilesEl = h("div", { class: "desk-stats oi-tiles" }, [...tiles.values()].map((t) => t.el));
   /** Patch one tile. `sub` is text or a list of [class, text] parts (a class hides a part on some screens). */
@@ -221,19 +221,19 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     { class: "desk-panel oi-expiries", "data-panel": "oi-expiries", "aria-label": "Expiries" },
     h("div", { class: "panel-head oi-head" }, h("div", { class: "oi-title" }, h("strong", {}, "Expiries"), h("span", { class: "oi-cover" }, `Include up to ${EXTRA_MAX} more · OI in lots`))),
     expBody,
-    h("p", { class: "oi-note" }, "Monthly expiries carry positional and hedge OI; rollovers distort ΔOI in the final days."),
+    h("p", { class: "oi-note" }, "Monthly expiries carry positional and hedge OI; rollovers distort OI chg in the final days."),
   );
 
   // ── Timeline (the owner's chart engine plugs in here) ──
-  const slotLabel = h("span", {});
-  const slot = h("div", { class: "oi-slot", role: "img" }, h("span", { class: "oi-slot-kicker" }, "Chart engine slot"), slotLabel);
+  const slot = chartSlot("Call OI, Put OI, PCR, Max Pain and spot vs time");
+  const slotLabel = slot.querySelector(".chart-slot-label");
   const coverageEl = h("p", { class: "oi-note" });
   const migrateEl = h("p", { class: "oi-note oi-migrate" });
   const timelineEl = h(
     "section",
     { class: "desk-panel oi-timeline", "data-panel": "oi-timeline", "aria-label": "OI over time" },
     h("div", { class: "panel-head oi-head" }, h("div", { class: "oi-title" }, h("strong", {}, "OI over time"), h("span", { class: "oi-cover" }, "From the snapshots this page records"))),
-    h("div", { class: "oi-slot-wrap" }, slot),
+    slot,
     coverageEl,
     migrateEl,
   );
@@ -399,8 +399,8 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const chg = pcrB.chg;
     setTile("chg", {
       value: !chg ? DASH : chg.kind === "ratio" ? formatFixed(chg.ratio, 2) : "n/a",
-      sub: !chg ? "No ΔOI in this window" : chg.kind === "ratio" ? `PE ${fd(chg.p)} · CE ${fd(chg.c)}` : chg.text,
-      title: `Put ΔOI ÷ call ΔOI over the window (${winLabel}) and the band (${scopeTxt})${chg && chg.kind !== "ratio" ? `: PE ${fd(chg.p)} · CE ${fd(chg.c)} (${unit})` : ""}`,
+      sub: !chg ? "No OI chg in this window" : chg.kind === "ratio" ? `PE ${fd(chg.p)} · CE ${fd(chg.c)}` : chg.text,
+      title: `Put OI chg ÷ call OI chg over the window (${winLabel}) and the band (${scopeTxt})${chg && chg.kind !== "ratio" ? `: PE ${fd(chg.p)} · CE ${fd(chg.c)} (${unit})` : ""}`,
     });
     setTile("vol", { value: formatFixed(pcrB.vol, 2), sub: `window ${winLabel}${expiryDay ? " · expiry-day noise" : ""}`, title: "Put volume ÷ call volume in the window. Noisy on expiry day." });
     const mpDist = mp && spot !== null ? mp.strike - spot : null;
@@ -439,7 +439,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
 
   function coverage(snaps, session) {
     if (session.phase !== "open" && !isDemo()) return "Market closed · showing the last session";
-    if (isDemo() && session.phase !== "open") return `Demo data: snapshots recorded off-hours${snaps.length ? ` · ${plural(snaps.length, "snapshot")} since ${O.istHm(snaps[0].t)}` : ""}`;
+    if (isDemo() && session.phase !== "open") return `Snapshots recorded off-hours${snaps.length ? ` · ${plural(snaps.length, "snapshot")} since ${O.istHm(snaps[0].t)}` : ""}`;
     return snaps.length ? `Recording since ${O.istHm(snaps[0].t)} · ${plural(snaps.length, "snapshot")} · every 1 min` : "Recording starts with the next update · every 1 min";
   }
 
@@ -468,10 +468,10 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         if (metric === "oi") max = Math.max(max, num(r[s]?.oiRef) ?? 0);
       }
     });
-    const metricName = metric === "oi" ? "OI" : metric === "chg" ? "ΔOI" : "Vol";
+    const metricName = metric === "oi" ? "OI" : metric === "chg" ? "OI chg" : "Vol";
     const out = rows.map((r, i) => {
       const tags = [];
-      if (mp && r.strike === mp.strike) tags.push({ t: "MP", cls: "mp", title: "Max pain" });
+      if (mp && r.strike === mp.strike) tags.push({ t: "MP", cls: "mp", title: "Max Pain" });
       for (const s of ["ce", "pe"]) {
         const wt = wallMap[s].get(r.strike);
         if (wt) tags.push({ t: wt, cls: "wall", title: `${s === "ce" ? "Call" : "Put"} wall rank ${wt.slice(1)} (${s === "ce" ? "resistance" : "support"})` });
@@ -595,8 +595,8 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       );
     wallsEl.replaceChildren(
       h("h3", { class: "oi-block-head" }, "Walls", h("small", {}, `OI in ${unit} · Δ ${winLabel}`)),
-      mini("Calls · resistance", data.ce, data.shiftC),
-      mini("Puts · support", data.pe, data.shiftP),
+      mini("Calls · call walls", data.ce, data.shiftC),
+      mini("Puts · put walls", data.pe, data.shiftP),
       ...[data.fresh ? h("p", { class: "oi-foot" }, `Most added: ${data.fresh}`) : null, data.pin ? h("p", { class: "oi-foot", title: "OI on the 3 strikes nearest spot ÷ all OI: the higher, the stronger the pull to pin near expiry" }, data.pin) : null].filter(Boolean),
     );
   }
@@ -704,9 +704,9 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       { label: "CE OI", num: true, cell: (d) => d.p?.[2] ?? DASH },
       { label: "PE OI", num: true, cell: (d) => d.p?.[3] ?? DASH },
       { label: "PCR", num: true, cell: (d) => d.p?.[4] ?? DASH },
-      { label: "Max pain", num: true, cell: (d) => d.p?.[5] ?? DASH },
-      { label: "Support", num: true, cell: (d) => d.p?.[6] ?? DASH },
-      { label: "Resistance", num: true, cell: (d) => d.p?.[7] ?? DASH },
+      { label: "Max Pain", num: true, cell: (d) => d.p?.[5] ?? DASH },
+      { label: "Put wall", num: true, cell: (d) => d.p?.[6] ?? DASH },
+      { label: "Call wall", num: true, cell: (d) => d.p?.[7] ?? DASH },
     ];
     function status(d) {
       if (!d.on) return h("span", { class: "muted" }, "Not included");
@@ -714,10 +714,10 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       return h("span", { class: "muted" }, "Loading…");
     }
     const n = 1 + extraList().filter((e) => extras.get(e)?.chain).length;
-    const t = table(columns, data, h("p", { class: "desk-empty" }, "No expiries listed"), { mobile: "stack" });
+    const t = table(columns, data, emptyState("clock", "No expiries listed", "", null, { compact: true }), { mobile: "stack", caption: `${st.underlying} expiries side by side` });
     t.classList.add("oi-exp-table");
     // Phone: one compact card per expiry (an included expiry shows its figures; the others one line).
-    const FIG = ["DTE", "Lot", "CE OI", "PE OI", "PCR", "Max pain", "Support", "Resistance"];
+    const FIG = ["DTE", "Lot", "CE OI", "PE OI", "PCR", "Max Pain", "Put wall", "Call wall"];
     const cards = h(
       "ul",
       { class: "oi-exp-cards" },
@@ -740,10 +740,10 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const sig = `${key}|${snaps.length}|${snaps[snaps.length - 1]?.t ?? 0}`;
     if (seriesCache.sig !== sig) seriesCache = { sig, data: O.oiSeries(snaps) };
     const n = seriesCache.data.length;
-    const label = `Call OI, Put OI, PCR, max pain and spot vs time (${plural(n, "point")} ready)`;
+    const label = `Call OI, Put OI, PCR, Max Pain and spot vs time (${plural(n, "point")} ready)`;
     if (slotLabel.textContent !== label) {
       slotLabel.textContent = label;
-      slot.setAttribute("aria-label", `Chart engine slot · ${label}`);
+      slot.setAttribute("aria-label", `Chart engine slot: ${label}`);
     }
     const cov = `${coverage(snaps, session)}${store.persistent ? "" : " · Not saved: browser storage unavailable"}`;
     if (coverageEl.textContent !== cov) coverageEl.textContent = cov;
@@ -756,13 +756,13 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     model = null;
     mainEl.classList.add("oi-msg");
     for (const [k] of tiles) setTile(k, {});
-    const msg = st.error ? "Not updating" : st.empty ? "No expiries" : "Loading the chain…";
+    const msg = st.error ? "Not updating" : st.empty ? "No expiries" : "Reading the chain…";
     if (verdictText.textContent !== msg) verdictText.textContent = msg;
     coverEl.textContent = "";
     if (st.error) {
-      ladder.message(h("div", { class: "desk-pad stack" }, alertBox(st.error), h("div", {}, h("button", { type: "button", class: "small", onclick: () => retry() }, icon("refresh"), "Retry"))));
-    } else if (st.empty) ladder.message(emptyState("clock", "No expiries", st.empty));
-    else ladder.message(h("p", { class: "muted chain-loading" }, "Loading the chain…"));
+      ladder.message(errorState(st.error, { onRetry: () => retry() }));
+    } else if (st.empty) ladder.message(emptyState("clock", "No expiries", st.empty, null, { compact: true }));
+    else ladder.message(loadingState({ rows: 12, cols: 5, label: `Loading the ${st.underlying} ${expiryText(st.expiry)} chain` }));
     for (const el of [wallsEl, buildEl, moversEl, expBody]) {
       el.__sig = "";
       el.replaceChildren();
@@ -773,7 +773,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     mainEl.classList.add("oi-msg");
     for (const [k] of tiles) setTile(k, {});
     verdictText.textContent = "No open interest to read";
-    ladder.message(emptyState("chart", "No open interest", `This data source sends no open interest for ${c.underlying} ${expiryText(c.expiry)}.`));
+    ladder.message(emptyState("chart", "No open interest yet", `The broker returned no OI for ${c.underlying} ${expiryText(c.expiry)}. It usually appears after the first trades of the day.`, null, { compact: true }));
     for (const el of [wallsEl, buildEl, moversEl]) {
       el.__sig = "";
       el.replaceChildren();
@@ -855,7 +855,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       { class: "oi-help-filter", id: "oi-filter" },
       h("h3", {}, "Noise filter"),
       h("p", {}, "A strike counts as build-up only when its OI change and its price change are both big enough. Heavy volume with little change is Churn."),
-      h("div", { class: "oi-filter-grid" }, field("Min lots", "minLots", "1", "ΔOI at least this many lots"), field("Min OI %", "minOiPct", "0.1", "and this % of OI"), field("Min price %", "minPxPct", "0.1", "price move (2 ticks at least)")),
+      h("div", { class: "oi-filter-grid" }, field("Min lots", "minLots", "1", "OI chg at least this many lots"), field("Min OI %", "minOiPct", "0.1", "and this % of OI"), field("Min price %", "minPxPct", "0.1", "price move (2 ticks at least)")),
       h("button", { type: "button", class: "small", onclick: (e) => {
         setCfg({ th: { ...OI_DEFAULTS.th } });
         const box = e.target.closest(".oi-help-filter");
@@ -873,10 +873,10 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         { class: "oi-help-dl" },
         [
           ["PCR OI", "Put OI ÷ call OI over every strike loaded; the sub-line gives the band and volume PCR."],
-          ["PCR ΔOI", "Put ΔOI ÷ call ΔOI over the window and band. When one side unwinds while the other adds, it says so instead of printing a ratio."],
+          ["PCR OI chg", "Put OI chg ÷ call OI chg over the window and band. When one side unwinds while the other adds, it says so instead of printing a ratio."],
           ["PCR Vol", "Put volume ÷ call volume in the window. Noisy on expiry day."],
-          ["Max pain", "The settlement at which option buyers collect the least. It matters mainly in the last 1–2 sessions; at the range edge the chain may be partial. Not a forecast."],
-          ["Resistance / Support", "The call strike at or above spot (put strike at or below) with the most OI, with its distance in points and in σ of the expected move, and whether it is being added to (fresh) or unwound."],
+          ["Max Pain", "The settlement at which option buyers collect the least. It matters mainly in the last 1–2 sessions; at the range edge the chain may be partial. Not a forecast."],
+          ["Call wall / Put wall", "The call strike at or above spot (put strike at or below) with the most OI, with its distance in points and in σ of the expected move, and whether it is being added to (fresh) or unwound."],
           ["Window", "What Δ is measured against: the previous close (from the broker) or a snapshot this page recorded 5, 15, 30 or 60 minutes ago, or at the open."],
         ].map(([t, d]) => [h("dt", {}, t), h("dd", {}, d)]),
       ),
@@ -986,7 +986,7 @@ function createLadder({ detailFor, onOpenChain, onAtmVisible }) {
     const caption = h("caption", { class: "sr-only" }, m.caption);
     const hce = h("span", {});
     const hpe = h("span", {});
-    const head = h("tr", {}, h("th", { scope: "col", class: "d ce" }, "CE Δ"), h("th", { scope: "col", class: "ob ce" }, hce), h("th", { scope: "col", class: "k" }, "Strike"), h("th", { scope: "col", class: "ob pe" }, hpe), h("th", { scope: "col", class: "d pe" }, "PE Δ"));
+    const head = h("tr", {}, h("th", { scope: "col", class: "d ce" }, "OI chg"), h("th", { scope: "col", class: "ob ce" }, hce), h("th", { scope: "col", class: "k" }, "Strike"), h("th", { scope: "col", class: "ob pe" }, hpe), h("th", { scope: "col", class: "d pe" }, "OI chg"));
     const tbody = h("tbody");
     const rows = new Map();
     for (const r of m.rows) {

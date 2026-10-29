@@ -670,10 +670,10 @@ describe("OI analysis maths", () => {
 
   it("oiVerdict joins only the parts that exist", () => {
     expect(OA.oiVerdict({ walls: { r1: 26500, s1: 25900 }, buildup: { short: "Writers on both sides" }, pcr: 1.08, maxPain: 26300, relevance: "low" })).toBe(
-      "Range 25900–26500 · Writers on both sides · PCR 1.08 balanced · Max pain 26300 (low relevance)",
+      "Range 25900–26500 · Writers on both sides · PCR 1.08 balanced · Max Pain 26300 (low relevance)",
     );
     expect(OA.oiVerdict({ pcr: 1.3 })).toBe("PCR 1.30 put-heavy");
-    expect(OA.oiVerdict({ walls: { r1: 26500, s1: null } })).toBe("Resistance 26500");
+    expect(OA.oiVerdict({ walls: { r1: 26500, s1: null } })).toBe("Call wall 26500");
     expect(OA.oiVerdict({})).toBeNull();
   });
 
@@ -2055,5 +2055,107 @@ describe("Option Screener maths (PRD 07)", () => {
     expect(near[0]).toMatchObject({ kind: "Butterfly", edge: -1.5 });
     for (let i = 1; i < near.length; i++) expect(near[i - 1].edge).toBeGreaterThanOrEqual(near[i].edge);
     expect(near.every((h) => h.edge > -6)).toBe(true);
+  });
+});
+
+describe("PRD 08 display helpers", () => {
+  it("niceTicks gives round steps", () => {
+    const t = O.niceTicks(25344, 27120, 5);
+    const step = t[1] - t[0];
+    expect([250, 500]).toContain(step);
+    expect(t.every((v) => v % step === 0)).toBe(true);
+    expect(t[0]).toBeGreaterThanOrEqual(25344);
+    expect(t[t.length - 1]).toBeLessThanOrEqual(27120);
+    expect(O.niceTicks(0, 0, 4)).toEqual([0]);
+    const neg = O.niceTicks(-50000, 20000, 5);
+    expect(neg).toContain(0);
+    expect(neg[0]).toBeLessThan(0);
+    expect(O.niceTicks(0, 100, 4)).toEqual([0, 50, 100]);
+  });
+  it("placeLabels nudges and merges colliding labels", () => {
+    const apart = O.placeLabels([{ x: 100, w: 40, text: "A" }, { x: 300, w: 40, text: "B" }]);
+    expect(apart.map((l) => l.text)).toEqual(["A", "B"]);
+    expect(apart[1].x).toBe(300);
+    const near = O.placeLabels([{ x: 100, w: 40, text: "A" }, { x: 140, w: 40, text: "B" }]);
+    expect(near[1].x).toBeGreaterThanOrEqual(144);
+    const merged = O.placeLabels([{ x: 100, w: 40, text: "25906" }, { x: 105, w: 40, text: "26420" }], { prefix: "BE " });
+    expect(merged).toHaveLength(1);
+    expect(merged[0].text).toBe("BE 25906 · 26420");
+    const clamped = O.placeLabels([{ x: 5, w: 40, text: "A" }], { lo: 0, hi: 200 });
+    expect(clamped[0].x).toBe(20);
+  });
+  it("expiryTag reads days and weekly / monthly", () => {
+    const now = Date.parse("2026-10-29T03:00:00Z");
+    const ex = ["2026-11-03", "2026-11-10", "2026-11-24"];
+    expect(O.expiryTag("2026-11-03", ex, now)).toEqual({ days: "5d", kind: "W" });
+    expect(O.expiryTag("2026-11-24", ex, now).kind).toBe("M");
+    expect(O.expiryTag("2026-10-29", ["2026-10-29"], now).days).toBe("<1d");
+    expect(O.expiryTag("2026-10-27", ex, now).days).toBe("Expired");
+  });
+  it("freshnessState picks one state", () => {
+    const now = Date.parse("2026-10-29T06:00:00Z"); // 11:30 IST, Thursday
+    const asOf = new Date(now - 2000).toISOString();
+    expect(O.freshnessState({ asOf, now }).kind).toBe("live");
+    expect(O.freshnessState({ asOf, now, error: true }).kind).toBe("error");
+    expect(O.freshnessState({ asOf, now, live: false }).kind).toBe("paused");
+    expect(O.freshnessState({ asOf, now, stale: true }).kind).toBe("stale");
+    expect(O.freshnessState({ asOf: new Date(now - 20000).toISOString(), now }).kind).toBe("stale");
+    expect(O.freshnessState({ asOf, now, marketOpen: false }).kind).toBe("closed");
+    const sat = Date.parse("2026-10-31T06:00:00Z");
+    expect(O.freshnessState({ asOf, now: sat }).kind).toBe("closed");
+    expect(O.freshnessState({ asOf, now: sat, demo: true }).kind).not.toBe("closed");
+    expect(O.freshnessState({ asOf, now }).ageMs).toBe(2000);
+  });
+  it("wideSpreadCount counts legs over the limit", () => {
+    expect(O.wideSpreadCount([{ bid: 100, ask: 101 }, { bid: 10, ask: 12 }, null])).toBe(1);
+  });
+});
+
+describe("colour scales (seqStep, divStep, scaleRange)", () => {
+  it("seqStep maps lo..hi onto 1..5 and clamps outside", () => {
+    expect(A.seqStep(0, 0, 100)).toBe(1);
+    expect(A.seqStep(24.9, 0, 100)).toBe(1);
+    expect(A.seqStep(25, 0, 100)).toBe(2);
+    expect(A.seqStep(50, 0, 100)).toBe(3);
+    expect(A.seqStep(75, 0, 100)).toBe(4);
+    expect(A.seqStep(99, 0, 100)).toBe(4);
+    expect(A.seqStep(100, 0, 100)).toBe(5);
+    expect(A.seqStep(-50, 0, 100)).toBe(1);
+    expect(A.seqStep(500, 0, 100)).toBe(5);
+  });
+  it("seqStep: missing values get no step; a flat range is the middle step", () => {
+    expect(A.seqStep(null, 0, 1)).toBeNull();
+    expect(A.seqStep(Number.NaN, 0, 1)).toBeNull();
+    expect(A.seqStep(5, null, 10)).toBeNull();
+    expect(A.seqStep(5, 5, 5)).toBe(3);
+  });
+  it("divStep is signed, capped at ±3, with a dead-band around zero", () => {
+    expect(A.divStep(0, 10)).toBe(0);
+    expect(A.divStep(0.4, 10)).toBe(0);
+    expect(A.divStep(-0.4, 10)).toBe(0);
+    expect(A.divStep(0.5, 10)).toBe(1);
+    expect(A.divStep(3.3, 10)).toBe(1);
+    expect(A.divStep(3.4, 10)).toBe(2);
+    expect(A.divStep(6.7, 10)).toBe(3);
+    expect(A.divStep(10, 10)).toBe(3);
+    expect(A.divStep(-50, 10)).toBe(-3);
+    expect(A.divStep(-5, 10)).toBe(-2);
+  });
+  it("divStep: missing values and a zero scale", () => {
+    expect(A.divStep(null, 10)).toBeNull();
+    expect(A.divStep(Number.POSITIVE_INFINITY, 10)).toBeNull();
+    expect(A.divStep(2, 0)).toBeNull();
+    expect(A.divStep(0, 0)).toBe(0);
+  });
+  it("scaleRange ignores outliers via the 5th / 95th percentiles", () => {
+    const v = [...Array.from({ length: 99 }, (_, i) => i + 1), 10000];
+    const r = A.scaleRange(v);
+    expect(r.lo).toBeCloseTo(5.95, 6);
+    expect(r.hi).toBeCloseTo(95.05, 6);
+    expect(A.seqStep(10000, r.lo, r.hi)).toBe(5);
+    expect(A.seqStep(50, r.lo, r.hi)).toBe(2);
+    expect(A.seqStep(60, r.lo, r.hi)).toBe(3);
+    expect(A.scaleRange([]).lo).toBeNull();
+    expect(A.scaleRange([-4, 2, null, Number.NaN]).m).toBeCloseTo(3.9, 6);
   });
 });

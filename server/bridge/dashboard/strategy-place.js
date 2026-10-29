@@ -441,7 +441,7 @@ export function openPlacement(o) {
     "div",
     { class: "place-form" },
     h("div", { class: "ticket-grid" }, segField("Product", prodSeg), segField("Hedge wait", waitSeg)),
-    liveSeg ? segField("Mode", liveSeg) : h("p", { class: "muted small" }, `${a.label} · paper`),
+    liveSeg ? segField("Mode", liveSeg) : h("p", { class: "muted small ticket-acct one-line" }, h("span", { class: "acct-name" }, a.label), /paper/i.test(a.label ?? "") ? null : h("span", { class: "acct-badge", "data-mode": "paper" }, "Paper")),
     ackRow,
   );
   liveSeg?.addEventListener("change", () => {

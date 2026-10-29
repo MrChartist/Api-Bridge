@@ -4,7 +4,7 @@
 // money at the user's hurdle rate. desk.js owns the toolbar, the selected chain, futures quotes and the timer; this file
 // owns the figures, the scanner, the detail pane / sheet, the order preview, risk notes and the chart slot. The maths
 // is in options.js (pure, tested); numbers become text only through format.js.
-import { alertBox, api, copyText, emptyState, h, icon, istTime, modal, optional, toast } from "./app.js";
+import { api, chartSlot, copyText, emptyState, errorState, h, icon, istTime, modal, optional, toast } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
 import { segmented } from "./views.js";
@@ -16,7 +16,7 @@ const MON = new Intl.DateTimeFormat("en-IN", { timeZone: "UTC", month: "short" }
 const dayMon = (e) => (ISO_DAY.test(e ?? "") ? DAY_MON.format(new Date(`${e}T00:00:00Z`)) : String(e ?? ""));
 const mon = (e) => (ISO_DAY.test(e ?? "") ? MON.format(new Date(`${e}T00:00:00Z`)) : String(e ?? ""));
 const MQ_PHONE = "(max-width: 719px)";
-const MQ_NARROW = "(max-width: 1099px)";
+const MQ_NARROW = "(max-width: 1023px)";
 const media = (q) => (typeof matchMedia === "function" ? matchMedia(q).matches : false);
 const EXTRA_EVERY_MS = 15_000;
 const BOX_ROWS_MAX = 120;
@@ -57,7 +57,7 @@ const RISK_NOTES = [
   ["Charges as of 1 Apr 2026", " (STT 0.15% options sell, 0.05% futures sell); editable in Costs & filters. Verify the current statutory rates."],
   ["Tax:", " F&O gains are business income in India; this page does not compute tax."],
 ];
-const DEMO_NOTE = ["Demo prices:", " calls and puts use different volatility smiles, so parity breaks here are artificial."];
+const DEMO_NOTE = ["Sample prices:", " calls and puts use different volatility smiles here, so parity breaks are artificial."];
 
 /**
  * @param {{ st: object, save: () => void, account: () => object|null, sendOrders: (bodies: object[]) => Promise<object>,
@@ -262,12 +262,7 @@ export function arbPanels(ctx) {
   const chartEl = h(
     "section",
     { class: "desk-panel arb-chart", "data-panel": "chart-slot", "aria-label": "Chart engine slot" },
-    h(
-      "div",
-      { class: "arb-slot", role: "img", "aria-label": "Chart engine slot: implied forward and box rate by strike, and the futures term structure, will draw here" },
-      h("span", { class: "arb-slot-kicker" }, "Chart engine slot"),
-      h("span", {}, "Implied forward and box rate by strike, and the futures term structure, will draw here"),
-    ),
+    chartSlot("Implied forward and box rate by strike, and the futures term structure, will draw here"),
   );
 
   // ── Model: everything the page shows, from the chain, futures quotes and settings ──
@@ -1170,6 +1165,7 @@ export function arbPanels(ctx) {
         {
           label: "Place",
           cls: "primary",
+          ref: (el) => (placeBtn = el),
           onClick: async () => {
             if (phase === "done") return "done";
             phase = "running";
@@ -1211,7 +1207,6 @@ export function arbPanels(ctx) {
         },
       ],
     });
-    placeBtn = document.querySelector("#dialog .dialog-actions button:last-child");
     drawList();
     previewAll();
     await done;
@@ -1612,12 +1607,12 @@ export function arbPanels(ctx) {
       if (st.error) {
         errorShown = true;
         noteEl.__sig = "";
-        noteEl.replaceChildren(h("div", { class: "desk-pad stack" }, alertBox(st.error), h("div", {}, h("button", { type: "button", class: "small", onclick: () => ctx.retry() }, icon("refresh"), "Retry"))));
+        noteEl.replaceChildren(errorState(st.error, { onRetry: () => ctx.retry() }));
         wrapEl.hidden = true;
         cardsEl.hidden = true;
       } else if (st.empty) {
         noteEl.__sig = "";
-        noteEl.replaceChildren(emptyState("clock", "No expiries", st.empty));
+        noteEl.replaceChildren(emptyState("clock", "No expiries", st.empty, null, { compact: true }));
         wrapEl.hidden = true;
         cardsEl.hidden = true;
       } else {

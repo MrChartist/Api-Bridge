@@ -485,3 +485,86 @@ export function installAutoAnimations({ content = "content", nav = "nav" } = {})
   if (c) new MutationObserver(() => animatePage(c)).observe(c, { childList: true });
   if (n) new MutationObserver(() => animateNav(n)).observe(n, { childList: true });
 }
+
+// ── Data-viz primitives (docs/design/foundation.md §6.2). CSS does the drawing (app.css 3c); these only flip classes.
+// All are no-ops without a DOM and fall back to a static cue (or nothing) under reduced motion. ──
+
+const raf2 = (fn) => (typeof requestAnimationFrame === "function" ? requestAnimationFrame(() => requestAnimationFrame(fn)) : fn());
+
+/**
+ * Flash a value's background green (up) or red (down) once; the text colour never changes. Restarts on every call
+ * without a reflow (two identical keyframe names alternate through data-flash a / b). Reduced motion: a 2 px
+ * leading-edge marker for 3 s instead.
+ * @param {Element} el @param {"up"|"down"|boolean} dir
+ */
+export function flashValue(el, dir) {
+  if (!isEl(el)) return;
+  const up = dir === "up" || dir === true;
+  if (reducedMotion()) {
+    el.classList.remove("dv-mark-up", "dv-mark-down");
+    el.classList.add(up ? "dv-mark-up" : "dv-mark-down");
+    clearTimeout(el.__dvMark);
+    el.__dvMark = setTimeout(() => el.classList.remove("dv-mark-up", "dv-mark-down"), 3000);
+    return;
+  }
+  el.classList.remove(up ? "dv-flash-down" : "dv-flash-up");
+  el.classList.add(up ? "dv-flash-up" : "dv-flash-down");
+  el.dataset.flash = el.dataset.flash === "a" ? "b" : "a";
+}
+
+/**
+ * First draw of a set of bars: they grow from the baseline (scaleX / scaleY from 0), staggered 12 ms each and capped at
+ * 240 ms. Later refreshes resize from the old value (a CSS transition on transform), they never regrow.
+ * Works on .dv-bar, the chain's .vbar and SVG .dv-col / rect.dv-grow inside `root`.
+ */
+export function barsEnter(root) {
+  if (!isEl(root) || reducedMotion() || typeof requestAnimationFrame !== "function") return done();
+  const bars = [...root.querySelectorAll(".dv-bar, .vbar > span, .dv-col, rect.dv-grow")];
+  if (!bars.length) return done();
+  bars.forEach((b, i) => b.style.setProperty("--i", String(Math.min(i, 20))));
+  root.classList.add("dv-enter");
+  return new Promise((resolve) => {
+    raf2(() => {
+      root.classList.add("dv-entering");
+      root.classList.remove("dv-enter");
+      setTimeout(() => {
+        root.classList.remove("dv-entering");
+        resolve();
+      }, 620);
+    });
+  });
+}
+
+/**
+ * First draw of a line chart: the stroke draws itself (dash offset L → 0 over 600 ms) and the areas fade in after
+ * 120 ms. On a refresh the caller simply replaces the path's d (no reveal).
+ * @param {SVGPathElement|SVGPathElement[]} lines @param {Element[]} [areas]
+ */
+export function lineReveal(lines, areas = []) {
+  if (typeof document === "undefined" || reducedMotion()) return done();
+  const list = (Array.isArray(lines) ? lines : [lines]).filter((p) => isEl(p) && typeof p.getTotalLength === "function");
+  const jobs = [];
+  for (const p of list) {
+    let L = 0;
+    try {
+      L = p.getTotalLength();
+    } catch {
+      L = 0;
+    }
+    // Dashed series keep their dashes: they fade in with the areas instead.
+    const dashed = typeof getComputedStyle === "function" && getComputedStyle(p).strokeDasharray !== "none";
+    if (!L || dashed || typeof p.animate !== "function") {
+      p.classList.add("dv-area-in");
+      continue;
+    }
+    p.style.strokeDasharray = `${L}`;
+    const a = p.animate([{ strokeDashoffset: L }, { strokeDashoffset: 0 }], { duration: 600, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+    jobs.push(
+      a.finished
+        .catch(() => {})
+        .then(() => p.style.removeProperty("stroke-dasharray")),
+    );
+  }
+  for (const a of areas) if (isEl(a)) a.classList.add("dv-area-in");
+  return Promise.all(jobs).then(() => {});
+}

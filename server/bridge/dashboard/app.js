@@ -5,7 +5,7 @@
 // Pure helpers (ticketFields, confirmCodeNotice, friendlyError ...) are exported for tests; DOM code runs only in a browser.
 
 import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, installPressFeedback, pulse, sheetIn, sheetOut, shake } from "./motion.js";
-import { DASH, formatRupee } from "./format.js";
+import { DASH, ageText, formatRupee } from "./format.js";
 
 // Page hooks for views.js (optional: app.js start-up already runs them automatically; both are idempotent).
 export { animateNav, animatePage };
@@ -241,6 +241,7 @@ export const ICONS = {
   monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
   more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
   chevron: '<path d="m9 6 6 6-6 6"/>',
+  pause: '<path d="M8.5 5v14M15.5 5v14"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   logout: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>',
@@ -340,8 +341,253 @@ export function pill(text, cls = "") {
   return h("span", { class: `pill ${cls}`.trim() }, state ? h("span", { class: "pdot", "aria-hidden": "true" }) : null, text);
 }
 
-export function emptyState(iconName, title, text, action) {
-  return h("div", { class: "empty" }, iconTile(iconName, "gray", "lg"), h("strong", {}, title), text ? h("p", {}, text) : null, action ?? null);
+/**
+ * The one empty state: icon tile, title, one line and an action (a node or a list). `compact: true` is the in-card
+ * variant (no icon tile, 16 px padding) for Options panels.
+ */
+export function emptyState(iconName, title, text, action, { compact = false } = {}) {
+  return h(
+    "div",
+    { class: compact ? "empty compact" : "empty" },
+    compact ? null : iconTile(iconName, "gray", "lg"),
+    h("strong", {}, title),
+    text ? h("p", {}, text) : null,
+    action ? h("div", { class: "empty-acts" }, action) : null,
+  );
+}
+
+// ── Shared states for the Options pages (PRD 08 §5): one look for loading, error, freshness ──
+
+const mm = (q) => typeof matchMedia === "function" && matchMedia(q).matches;
+/** True when the only pointer is a finger (no mouse or trackpad as well). */
+export const touchOnly = () => mm("(pointer: coarse)") && !mm("(any-pointer: fine)");
+/** "Tap" on touch-only screens, "Click" elsewhere (P4: phones never read "press B"). */
+export const touchWord = () => (touchOnly() ? "Tap" : "Click");
+/** A keyboard hint, only where there is a keyboard-class pointer: "" on touch-only screens. */
+export const keyHint = (text) => (touchOnly() ? "" : text);
+
+/**
+ * Skeleton rows at the final row height (no layout shift when the data lands), with one screen-reader line. The
+ * host panel should carry aria-busy while it shows. Static DOM: no timers.
+ */
+export function loadingState({ rows = 8, cols = 4, label = "Loading", height = null } = {}) {
+  const el = h(
+    "div",
+    { class: "skel-state", role: "status" },
+    h("span", { class: "sr-only" }, label),
+    Array.from({ length: rows }, () => h("div", { class: "skel-row", "aria-hidden": "true" }, Array.from({ length: cols }, () => h("i")))),
+  );
+  if (height) el.style.setProperty("--skel-h", `${height}px`);
+  return el;
+}
+
+/**
+ * An error in plain words with Retry. Without data it sits in the panel body; with data kept (`lastGood`, an ISO
+ * time) it is a slim bar at the top of the panel saying what is still shown.
+ */
+export function errorState(err, { onRetry = null, lastGood = null } = {}) {
+  const f = err instanceof Error || err?.code || err?.network ? friendlyError(err) : { title: String(err?.title ?? err ?? "Something went wrong"), detail: err?.detail ?? "" };
+  const auth = ["SESSION_EXPIRED", "UNAUTHENTICATED", "NO_ACCOUNT", "BROKER_UNAVAILABLE"].includes(err?.code);
+  const retry = onRetry ? h("button", { type: "button", class: "small err-retry", onclick: () => onRetry() }, icon("refresh"), "Retry") : null;
+  if (lastGood) {
+    return h(
+      "div",
+      { class: "err-bar", role: "alert" },
+      icon("warn"),
+      h("span", { class: "err-text" }, h("strong", {}, `Couldn't refresh: ${f.title}.`), ` Showing ${istTime(lastGood)}.`),
+      retry,
+    );
+  }
+  return h(
+    "div",
+    { class: "err-state", role: "alert" },
+    h("strong", {}, f.title),
+    f.detail ? h("p", {}, f.detail) : null,
+    h("div", { class: "empty-acts" }, retry, auth ? h("a", { href: "#/accounts", class: "err-link" }, "Accounts") : null),
+  );
+}
+
+/**
+ * The Options top bar's one live control: Live / Pause and data freshness in a single button (docs/design/foundation.md
+ * §5.1). "● 08:52:24" while live, "Paused · 12 s old", "Stale · 45 s old", "Not updating · 2 min old",
+ * "Market closed · 15:29:59". update() patches text nodes only; tick() pulses the dot once (one successful refresh).
+ */
+export function liveControl({ onToggle, refreshMs = 3000 } = {}) {
+  const text = document.createTextNode("Waiting");
+  const dot = h("span", { class: "live-dot", "aria-hidden": "true" });
+  const glyph = h("span", { class: "live-glyph", "aria-hidden": "true" });
+  const el = h("button", { type: "button", class: "live-ctl", "aria-keyshortcuts": "P", onclick: () => onToggle?.() }, dot, glyph, h("span", { class: "live-txt" }, text));
+  let sig = "";
+  let flip = false;
+  return {
+    el,
+    update({ kind = "live", asOf = null, ageMs = null, source = null, live = true } = {}) {
+      const t = istTime(asOf);
+      const age = ageMs === null ? "" : ageText(ageMs);
+      const words =
+        kind === "error"
+          ? `Not updating${age ? ` · ${age}` : ""}`
+          : kind === "paused"
+            ? `Paused${age ? ` · ${age}` : ""}`
+            : kind === "stale"
+              ? `Stale${age ? ` · ${age}` : ""}`
+              : kind === "closed"
+                ? `Market closed · ${t}`
+                : asOf
+                  ? t
+                  : "Waiting";
+      const s = `${kind}|${words}|${source}|${asOf}|${live}`;
+      if (s === sig) return;
+      sig = s;
+      if (text.data !== words) text.data = words;
+      el.dataset.kind = kind;
+      el.setAttribute("aria-pressed", String(live));
+      glyph.replaceChildren(live ? "" : icon("pause"));
+      const what = live ? `Live: refreshing every ${refreshMs / 1000} s. ${touchWord()} to pause${keyHint(" (P)")}` : `Paused. ${touchWord()} to resume${keyHint(" (P)")}`;
+      el.title = [what, source ? `Data from ${source}` : "", asOf ? `${istDateTime(asOf)} IST` : ""].filter(Boolean).join(" · ");
+      el.setAttribute("aria-label", `${live ? "Live" : "Paused"}, data ${kind === "live" && asOf ? `as of ${t}` : words}. ${live ? "Pause" : "Resume"} updates`);
+    },
+    /** One ring pulse on the dot (re-added per successful refresh, never an endless loop). */
+    tick() {
+      flip = !flip;
+      dot.classList.toggle("tick-a", flip);
+      dot.classList.toggle("tick-b", !flip);
+    },
+  };
+}
+
+/**
+ * Put the page's context (underlying, expiry, spot, account, live control) into the app toolbar's #toolbar-ctx slot.
+ * `page` is the route that owns it: a render that finishes after the visitor has moved on mounts nothing.
+ */
+export function mountToolbarCtx(page, ...nodes) {
+  const slot = typeof document !== "undefined" ? document.getElementById("toolbar-ctx") : null;
+  if (!slot || document.documentElement.dataset.page !== page) return false;
+  slot.replaceChildren(...nodes.flat().filter(Boolean));
+  slot.hidden = false;
+  return true;
+}
+
+/** The one demo indicator's explanation (the toolbar's "Demo" and the phone ⋯ badge). */
+export const DEMO_EXPLAINER = "Sample prices generated on this computer. Not live market data. Orders are paper only.";
+
+/** The shared placeholder for the owner's chart engine: fixed aspect ratio, dashed hairline, centred caption. */
+export function chartSlot(label, sub = "") {
+  return h("div", { class: "chart-slot-box", role: "img", "aria-label": `Chart engine slot: ${label}` }, h("span", { class: "chart-slot-kicker" }, "Chart engine slot"), h("span", { class: "chart-slot-label" }, label), sub ? h("span", { class: "chart-slot-sub" }, sub) : null);
+}
+
+/**
+ * A popover that is a bottom sheet on phones (< 720 px, in #dialog with aria-modal) and a body-attached popover from
+ * 720 px up, placed against the trigger and clamped to the viewport (never clipped by a panel). Both trap Tab, close
+ * on Esc and return focus to the trigger. Returns { el, close() }; `onClose` runs once.
+ */
+export function sheetPopover({ trigger, title, body, head = [], cls = "", onClose = null }) {
+  const phone = mm("(max-width: 719px)");
+  let closed = false;
+  const closeBtn = h("button", { type: "button", class: "icon-btn tiny", "aria-label": "Close", onclick: () => close() }, icon("close"));
+  const headEl = h("div", { class: "pop-head" }, h("strong", { id: "pop-title" }, title), head, closeBtn);
+  const done = () => {
+    if (closed) return;
+    closed = true;
+    trigger?.setAttribute("aria-expanded", "false");
+    removeEventListener("resize", place);
+    removeEventListener("scroll", onScroll, true);
+    document.removeEventListener("pointerdown", outside, true);
+    onClose?.();
+    if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+  };
+  const trap = (e, root) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const f = [...root.querySelectorAll("button, input, select, textarea, a[href], [tabindex]:not([tabindex='-1'])")].filter((x) => !x.disabled && x.offsetParent !== null);
+    if (!f.length) return;
+    const first = f[0];
+    const last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+  let el;
+  let raf = 0;
+  function place() {
+    if (phone || !el?.isConnected || !trigger) return;
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => {
+      const r = trigger.getBoundingClientRect();
+      const w = el.offsetWidth;
+      const hgt = el.offsetHeight;
+      const left = Math.max(8, Math.min(innerWidth - w - 8, r.right - w));
+      let top = r.bottom + 6;
+      if (top + hgt > innerHeight - 8) top = Math.max(8, Math.min(innerHeight - hgt - 8, r.top - hgt - 6));
+      el.style.left = `${Math.round(left)}px`;
+      el.style.top = `${Math.round(top)}px`;
+    });
+  }
+  const onScroll = (e) => {
+    if (el && !el.contains(e.target)) place();
+  };
+  const outside = (e) => {
+    if (el && !el.contains(e.target) && !trigger?.contains(e.target)) close();
+  };
+  function close() {
+    if (closed) return;
+    if (phone) {
+      const d = document.getElementById("dialog");
+      if (d.open) d.close();
+      else done();
+      return;
+    }
+    el?.remove();
+    done();
+  }
+  trigger?.setAttribute("aria-expanded", "true");
+  if (phone) {
+    const d = document.getElementById("dialog");
+    d.classList.add("sheet");
+    el = h("div", { class: `pop-sheet ${cls}`.trim() }, headEl, body);
+    d.replaceChildren(h("div", { class: "sheet-grabber", "aria-hidden": "true" }), el);
+    d.setAttribute("aria-labelledby", "pop-title");
+    d.setAttribute("aria-modal", "true");
+    const onKey = (e) => trap(e, d);
+    const onBackdrop = (e) => {
+      if (e.target !== d) return;
+      const r = d.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) close();
+    };
+    const onDlgClose = () => {
+      d.removeEventListener("keydown", onKey);
+      d.removeEventListener("close", onDlgClose);
+      d.removeEventListener("click", onBackdrop);
+      d.removeAttribute("aria-modal");
+      lockScroll(false);
+      done();
+    };
+    d.addEventListener("keydown", onKey);
+    d.addEventListener("close", onDlgClose);
+    d.addEventListener("click", onBackdrop);
+    if (!d.open) d.showModal();
+    lockScroll(true);
+    sheetIn(d, d);
+  } else {
+    el = h("div", { class: `popover floating ${cls}`.trim(), role: "dialog", "aria-modal": "false", "aria-labelledby": "pop-title" }, headEl, body);
+    el.addEventListener("keydown", (e) => trap(e, el));
+    document.body.append(el);
+    place();
+    addEventListener("resize", place);
+    addEventListener("scroll", onScroll, true);
+    setTimeout(() => !closed && document.addEventListener("pointerdown", outside, true));
+  }
+  (body.querySelector?.("button, input, select") ?? closeBtn).focus({ preventScroll: true });
+  return { el, close, place };
 }
 
 export function alertBox(err, cls = "bad") {
@@ -356,7 +602,7 @@ export function alertBox(err, cls = "bad") {
  * scrolls sideways inside the card (for logs with many short rows); `mobile: "stack-wide"` stacks on tablets too (below
  * 1100px), for wide tables whose last column holds the row's actions.
  */
-export function table(columns, rows, empty, { mobile = "stack" } = {}) {
+export function table(columns, rows, empty, { mobile = "stack", caption = null } = {}) {
   if (!rows.length) return empty;
   const cls = (c, i) => [c.num ? "num" : "", c.wrap ? "wrap" : "", c.label ? "" : "act", i === 0 ? "lead" : ""].join(" ").trim() || undefined;
   return h(
@@ -365,6 +611,7 @@ export function table(columns, rows, empty, { mobile = "stack" } = {}) {
     h(
       "table",
       {},
+      caption ? h("caption", { class: "sr-only" }, caption) : null,
       h("thead", {}, h("tr", {}, columns.map((c) => h("th", { scope: "col", class: c.num ? "num" : undefined }, c.label || h("span", { class: "pal-sr-only" }, "Actions"))))),
       h("tbody", {}, rows.map((r) => h("tr", {}, columns.map((c, i) => h("td", { class: cls(c, i), "data-label": c.label || undefined }, c.cell(r)))))),
     ),
@@ -414,6 +661,7 @@ export function lockScroll(on) {
  * <dialog> keeps focus inside and returns it to the opener; Escape, the close button and a tap on the dimmed backdrop
  * close it; the page behind stops scrolling. buttons: [{ label, cls, value, onClick? }]; onClick returning false keeps
  * it open. `body` may be a function that receives close(value). Resolves with the value (undefined when dismissed).
+ * A button may carry `id`, and `ref(el)` is called with its element once drawn (so callers keep a direct reference).
  */
 export function modal({ title, body, buttons = [], canClose = null }) {
   const d = document.getElementById("dialog");
@@ -475,6 +723,7 @@ export function modal({ title, body, buttons = [], canClose = null }) {
                 {
                   type: "button",
                   class: b.cls ?? "",
+                  id: b.id,
                   onclick: async () => {
                     if (closing) return;
                     if (b.onClick) {
@@ -490,6 +739,7 @@ export function modal({ title, body, buttons = [], canClose = null }) {
           )
         : "",
     );
+    for (const [i, b] of buttons.entries()) if (typeof b.ref === "function") b.ref(d.querySelectorAll(".dialog-actions > button")[i] ?? null);
     d.setAttribute("aria-labelledby", "dialog-title");
     d.addEventListener("cancel", onCancel);
     d.addEventListener("close", onClose);
@@ -775,7 +1025,6 @@ async function signIn() {
   }
   login.hidden = true;
   shell.hidden = false;
-  document.getElementById("demo-banner").hidden = !app.state.demo;
   if (!signIn.pulsing) signIn.pulsing = pulse(document.querySelector(".who .dot"));
   app.state.who = `Key ${memoryKey.split("_")[1] ?? ""} · v${app.state.health?.version ?? ""}`;
   document.getElementById("who").textContent = app.state.who;
