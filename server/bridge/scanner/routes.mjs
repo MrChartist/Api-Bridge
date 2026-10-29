@@ -15,6 +15,7 @@
  */
 import { BridgeError } from "../core/errors.mjs";
 import { json } from "../core/http.mjs";
+import { owns } from "../core/ownership.mjs";
 import { allowedAccountsFor } from "../market/routes.mjs";
 
 const MAX_WAIT_MS = 120_000;
@@ -22,9 +23,6 @@ const MAX_WAIT_MS = 120_000;
 function who(ctx) {
   return { allowedAccounts: allowedAccountsFor(ctx), keyId: ctx.key?.id ?? null };
 }
-
-const seesAll = (ctx) => ctx.principal?.kind === "local" || ctx.scopes?.has?.("admin");
-const owns = (ctx, rec) => seesAll(ctx) || (rec.keyId ?? null) === (ctx.key?.id ?? null);
 
 function waitParam(ctx) {
   const v = ctx.query.get("waitMs");

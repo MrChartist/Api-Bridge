@@ -94,6 +94,14 @@ describe("loadConfig", () => {
     expect(warnings.join(" ")).toMatch(/AI assistants/);
   });
 
+  it("accepts the Phase 1 automation sources guard and alert (opt-in) and still refuses unknown sources", () => {
+    const { config } = load({ accounts: [{ id: "a1", broker: "dhan", live: { enabled: false, allowedSources: ["rest", "guard", "alert"] } }] });
+    expect(config.accounts[0].live.allowedSources).toEqual(["rest", "guard", "alert"]);
+    expect(() => load({ accounts: [{ id: "a1", broker: "dhan", live: { allowedSources: ["robot"] } }] })).toThrow();
+    const { config: dflt } = load({ accounts: [{ id: "a1", broker: "dhan" }] });
+    expect(dflt.accounts[0].live.allowedSources).toEqual(["rest"]);
+  });
+
   it("keeps module sections for module schemas to validate", () => {
     const { config } = load({ hooks: { x: 1 } });
     expect(moduleSections(config)).toEqual(["hooks"]);

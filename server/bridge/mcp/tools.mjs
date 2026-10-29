@@ -4,7 +4,8 @@
  *
  * Rules (docs/ARCHITECTURE.md §8 "AI confirmation", docs/STREAMS.md §S11):
  *  - Fixed order. Tools are listed in TOOL_DEFS order, filtered by toolset, scope and config; never re-sorted.
- *  - Fewer than 20 tools by default (market, analytics and account toolsets: 18).
+ *  - Fewer than 20 tools by default (market, analytics and account toolsets: 18). The Phase 1 options tools live in
+ *    the opt-in "options" toolset (at most 19 tools); a tool with `requiredScope` is shown only to keys with it.
  *  - All four annotations are set explicitly on every tool. Annotations are hints for the client; they are NEVER
  *    treated as consent. Client-side approval prompts are not confirmation either.
  *  - Every successful result has `structuredContent` = { data, meta, untrusted: true } matching the tool's
@@ -26,7 +27,7 @@ import { z } from "zod";
 import { isStub } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { allowedAccountsFor } from "../market/routes.mjs";
-import { mcpConfig } from "./config.mjs";
+import { DEFAULT_TOOLSETS, mcpConfig } from "./config.mjs";
 
 // ───────────────────────────── shared schemas ─────────────────────────────
 
@@ -52,8 +53,9 @@ const READ_LOCAL = Object.freeze({ readOnlyHint: true, destructiveHint: false, i
  * @typedef {{ cfg: ReturnType<typeof mcpConfig>, orderAccounts: string[], canLive: boolean }} ToolEnv
  *   orderAccounts: accounts this caller may prepare orders for (config ∩ key); canLive: key has the "live" scope.
  * @typedef {{
- *   name: string, title: string, toolset: "market"|"analytics"|"account"|"orders", description: string,
+ *   name: string, title: string, toolset: "market"|"analytics"|"account"|"orders"|"options", description: string,
  *   input: (env: ToolEnv) => import("zod").ZodObject<any>, output: import("zod").ZodType, annotations: Annotations,
+ *   requiredScope?: "paper"|"live"|"admin",
  *   available?: (env: ToolEnv, ctx: any) => boolean,
  *   handler: (args: any, ctx: any, rt: ToolRuntime) => Promise<{ data: unknown, meta?: object }>
  * }} ToolDef
@@ -626,7 +628,18 @@ export const TOOL_DEFS = Object.freeze([
 ]);
 
 /** Tools listed when nothing is configured (must stay under 20). */
-export const DEFAULT_TOOL_NAMES = Object.freeze(TOOL_DEFS.filter((t) => t.toolset !== "orders").map((t) => t.name));
+export const DEFAULT_TOOL_NAMES = Object.freeze(TOOL_DEFS.filter((t) => DEFAULT_TOOLSETS.includes(t.toolset)).map((t) => t.name));
+
+/**
+ * Whether one tool is visible to this caller: its toolset is configured, the key has its required scope (write
+ * tools in "options" need "paper") and its own availability check passes.
+ * @param {ToolDef} def @param {ReturnType<typeof mcpConfig>} cfg @param {ToolEnv} env @param {any} ctx
+ */
+export function toolVisible(def, cfg, env, ctx) {
+  if (!cfg.toolsets.includes(def.toolset)) return false;
+  if (def.requiredScope && !ctx?.scopes?.has?.(def.requiredScope)) return false;
+  return !def.available || def.available(env, ctx);
+}
 
 /**
  * Work out what this caller may see.
@@ -674,7 +687,7 @@ export function createToolRegistry({ deps, now = () => Date.now() }) {
   const visible = (ctx) => {
     if (!ctx?.scopes?.has("read")) return [];
     const env = toolEnv(cfg, ctx);
-    return TOOL_DEFS.filter((t) => cfg.toolsets.includes(t.toolset) && (!t.available || t.available(env, ctx))).map((def) => ({ def, env }));
+    return TOOL_DEFS.filter((t) => toolVisible(t, cfg, env, ctx)).map((def) => ({ def, env }));
   };
 
   /** Envelope: per-call random marker so third-party text cannot close it. */

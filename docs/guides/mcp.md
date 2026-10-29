@@ -56,6 +56,7 @@ environment); clients that speak Streamable HTTP use `http://127.0.0.1:4300/mcp`
 | `analytics` | `option_chain_summary`, `history_summary`, `scan_market` (technical scans, see [scanner.md](scanner.md)) |
 | `account` | `list_accounts`, `get_positions`, `get_holdings`, `get_funds`, `list_orders`, `get_order`, `get_safety_status` |
 | `orders` (off by default) | `prepare_order`, `submit_confirmed_order` |
+| `options` (off by default) | Options platform tools (recorded chains, volatility, levels, alerts and guards), added as they ship. Turn it on with `"toolsets": ["market", "analytics", "account", "options"]`. Tools that create something (for example a guard) also need a key with the `paper` scope. |
 
 Every result is wrapped as untrusted data (instrument names and broker messages are third-party text) and carries
 freshness labels.

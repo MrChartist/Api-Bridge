@@ -38,6 +38,27 @@ All streams can start on day one against fakes. Merge order (each stream rebases
 | S15 | (routes: notify, outbound alerts) | bus events only |
 | S14 | (routes: compat `/api/v1`, WS `/api/v1/ws`) | orders, marketData, symbols, accounts, keyStore, streamHub, backupData |
 
+### Phase 1 options platform (S16–S27)
+
+Built from `docs/spec/` in the order of `docs/spec/README.md` §4. Shared foundations (F0: bus topics, error codes,
+the opt-in `options` MCP toolset, `demo/routes.mjs`, `server/lib/jsonl.mjs`, `ratelimit/backgroundGate.mjs`,
+`core/ownership.mjs`, `dashboard/copyRules.mjs`) are lead-owned and already in core; streams use them, never rebuild them.
+
+| Stream | Builds | Consumes |
+|---|---|---|
+| S16 | `reference` | symbols (masters), scheduler |
+| S17 | `recorder` (incl. `recorder/series`) | marketData, streamHub, accounts, scheduler, symbols, reference, backupData |
+| S18 | `vol` (+ `dashboard/pricing.js`) | marketData, reference, symbols, scheduler, recorder (optional) |
+| S19 | `fno` | marketData, symbols, accounts, scheduler, reference, recorder (optional) |
+| S20 | `readiness` | accounts, scheduler, safety, reference (optional) |
+| S21 | `exposure` | marketData, recorder, vol, reference, participants |
+| S22 | `strategy` (`settlement` service) | marketData, streamHub, reference, vol, scheduler, recorder (optional) |
+| S23 | `margin`, `chargePlans` | accounts, scheduler, symbols, marketData, orders, safety, reference, readiness |
+| S24 | `alerts` | streamHub, marketData, symbols, accounts, scheduler, recorder, vol, exposure, reference |
+| S25 | `guards` | orders, marketData, streamHub, safety, audit, readiness, margin, reference, accounts, book |
+| S26 | `participants` | reference |
+| S27 | `book` | orders, marketData, accounts |
+
 ---
 
 ## S1 — Accounts and broker sessions

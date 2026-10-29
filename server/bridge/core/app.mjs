@@ -31,6 +31,7 @@ import { createLogger } from "./logger.mjs";
 import { applyModuleConfig, buildServices, validateModules } from "./modules.mjs";
 import { createRouter } from "./router.mjs";
 import { BASE_HEADERS, assertTransportAllowed, createCors, createHostCheck, isLocalRequest } from "./security.mjs";
+import { registerDemoRoutes } from "../demo/routes.mjs";
 import { DEMO_ACCOUNT_HINT, DEMO_HEADER, DEMO_MARKET_ACCOUNT, DEMO_NOTICE, createDemoRegistry, labelDemoResult } from "../demo/demoMode.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -66,12 +67,46 @@ export function safeLogPath(pathname, isPublic = false) {
 }
 
 /**
+ * Files the local dashboard serves (name -> Content-Type). A fixed allowlist: no request can name another path. Every
+ * new dashboard page or shared module is added here (and to dashboard/format.test.mjs).
+ */
+export const DASHBOARD_FILES = Object.freeze({
+  "index.html": "text/html; charset=utf-8",
+  "app.js": "text/javascript; charset=utf-8",
+  "views.js": "text/javascript; charset=utf-8",
+  "snippets.js": "text/javascript; charset=utf-8",
+  "motion.js": "text/javascript; charset=utf-8",
+  "palette.js": "text/javascript; charset=utf-8",
+  "format.js": "text/javascript; charset=utf-8",
+  "options.js": "text/javascript; charset=utf-8",
+  "desk.js": "text/javascript; charset=utf-8",
+  "arbitrage.js": "text/javascript; charset=utf-8",
+  "screener.js": "text/javascript; charset=utf-8",
+  "screens.js": "text/javascript; charset=utf-8",
+  "chain-sheet.js": "text/javascript; charset=utf-8",
+  "oi.js": "text/javascript; charset=utf-8",
+  "positions.js": "text/javascript; charset=utf-8",
+  "vol.js": "text/javascript; charset=utf-8",
+  "vol-curves.js": "text/javascript; charset=utf-8",
+  "oi-store.js": "text/javascript; charset=utf-8",
+  "strategy.js": "text/javascript; charset=utf-8",
+  "strategy-place.js": "text/javascript; charset=utf-8",
+  "payoff.js": "text/javascript; charset=utf-8",
+  "viz.js": "text/javascript; charset=utf-8",
+  "motion.min.js": "text/javascript; charset=utf-8",
+  "palette.css": "text/css; charset=utf-8",
+  "app.css": "text/css; charset=utf-8",
+  "logo.svg": "image/svg+xml",
+});
+
+/**
  * @param {{ config: any, modules?: any[], overrides?: Record<string, object>, logger?: any, clock?: { now(): number },
- *   brokers?: any, warnings?: string[], configFile?: string | null }} opts
+ *   brokers?: any, warnings?: string[], configFile?: string | null, demoRoutes?: readonly import("../demo/routes.mjs").DemoRoute[] }} opts
  *   configFile: where accounts added from the dashboard are saved (config.mjs configFileForWrites). Without it the
  *   Bridge cannot add or remove accounts at run time.
+ *   demoRoutes: replaces demo/routes.mjs DEMO_ROUTES (tests only); registered only when config.demo is true.
  */
-export async function createApp({ config: baseConfig, modules, overrides = {}, logger, clock, brokers, warnings = [], configFile = null }) {
+export async function createApp({ config: baseConfig, modules, overrides = {}, logger, clock, brokers, warnings = [], configFile = null, demoRoutes }) {
   const mods = modules ?? (await import("./builtinModules.mjs")).BUILTIN_MODULES;
   validateModules(mods);
   const config = withAddableAccounts(applyModuleConfig(baseConfig, mods));
@@ -164,34 +199,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     { scope: "admin", loopbackOnly: true, summary: "Recent requests to this Bridge (memory only, newest first)" },
   );
   // ── Local dashboard (static files, this computer only; the page asks for an API key and keeps it in the tab) ──
-  const DASHBOARD_FILES = Object.freeze({
-    "index.html": "text/html; charset=utf-8",
-    "app.js": "text/javascript; charset=utf-8",
-    "views.js": "text/javascript; charset=utf-8",
-    "snippets.js": "text/javascript; charset=utf-8",
-    "motion.js": "text/javascript; charset=utf-8",
-    "palette.js": "text/javascript; charset=utf-8",
-    "format.js": "text/javascript; charset=utf-8",
-    "options.js": "text/javascript; charset=utf-8",
-    "desk.js": "text/javascript; charset=utf-8",
-    "arbitrage.js": "text/javascript; charset=utf-8",
-    "screener.js": "text/javascript; charset=utf-8",
-    "screens.js": "text/javascript; charset=utf-8",
-    "chain-sheet.js": "text/javascript; charset=utf-8",
-    "oi.js": "text/javascript; charset=utf-8",
-    "positions.js": "text/javascript; charset=utf-8",
-    "vol.js": "text/javascript; charset=utf-8",
-    "vol-curves.js": "text/javascript; charset=utf-8",
-    "oi-store.js": "text/javascript; charset=utf-8",
-    "strategy.js": "text/javascript; charset=utf-8",
-    "strategy-place.js": "text/javascript; charset=utf-8",
-    "payoff.js": "text/javascript; charset=utf-8",
-    "viz.js": "text/javascript; charset=utf-8",
-    "motion.min.js": "text/javascript; charset=utf-8",
-    "palette.css": "text/css; charset=utf-8",
-    "app.css": "text/css; charset=utf-8",
-    "logo.svg": "image/svg+xml",
-  });
+  // DASHBOARD_FILES (module scope, above) lists what may be served.
   const DASHBOARD_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
   // Broker logos (dashboard/brokers/<id>.png, see its README), served as /dashboard/broker-<id>.png. Only ids with a
   // file present when the Bridge starts can be asked for, so no request can name another path.
@@ -236,6 +244,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
   );
 
   for (const m of mods) if (m.register) await m.register(facadeFor(m.name), deps);
+  // Demo-only controls (demo/routes.mjs): registered only in demo mode, each under its owning module.
+  registerDemoRoutes({ config, facadeFor, deps, modules: mods, ...(demoRoutes ? { routes: demoRoutes } : {}) });
 
   // ── Request pipeline ──
   const cors = createCors(config.cors);

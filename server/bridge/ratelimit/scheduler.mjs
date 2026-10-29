@@ -23,7 +23,7 @@
  * (the fake clock in fake.mjs does), else the global timers (unref'd). Nothing here sleeps.
  *
  * Non-contract extras (used by this module's own routes, by tests and by module stop()): recordSaving, clientBudget,
- * accountPolicy, stop. Other streams call only the contract methods; S5 reports savings through the exported
+ * accountPolicy, stop, headroomWindows (read by backgroundGate.mjs). Other streams call only the contract methods; S5 reports savings through the exported
  * recordSaving() helper below.
  */
 import { ENDPOINT_CLASSES, PRIORITIES } from "../core/contracts.mjs";
@@ -570,6 +570,24 @@ export function createScheduler(deps, options = {}) {
   }
 
   /**
+   * Every window that covers (account, class): the class bucket's windows and those of each group bucket that lists
+   * the class, plus the class back-off. Used by backgroundGate.mjs (Phase 1 background work keeps each window at or
+   * above half its limit). Paper accounts have no windows.
+   * @returns {{ windows: Array<{ bucket: string, window: string, used: number, limit: number, remaining: number, resetMs: number }>, backoffMs: number }}
+   */
+  function headroomWindows(accountId, endpointClass) {
+    checkAccountId(accountId);
+    checkClass(endpointClass);
+    const st = stateFor(accountId);
+    const t = now();
+    const windows = [];
+    for (const { key, lim } of limitersOf(st, endpointClass)) {
+      for (const w of lim.windows(t)) windows.push({ bucket: key, window: w.window, used: w.used, limit: w.limit, remaining: Math.max(0, w.limit - w.used), resetMs: Math.ceil(w.resetMs) });
+    }
+    return { windows, backoffMs: Math.ceil(backoffRemaining(st, endpointClass, t)) };
+  }
+
+  /**
    * Choose an account for a pooled read: healthy first, then not backing off, then the largest share of budget left
    * after queued work, then fewer queued requests, then candidate order. Null when no candidate is healthy.
    */
@@ -718,6 +736,7 @@ export function createScheduler(deps, options = {}) {
     schedule,
     tryAcquire,
     headroom,
+    headroomWindows,
     pickAccount,
     noteUpstreamThrottle,
     policyFor,

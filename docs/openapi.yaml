@@ -61,6 +61,11 @@ info:
     band, market-order protection). Send an `Idempotency-Key` with every order write; a retry with the same key returns
     the first result. A write that times out returns `OUTCOME_UNKNOWN`: check the order book before sending it again.
 
+    ## Demo mode
+    `mc-bridge start --demo` serves generated sample data from a demo adapter with no broker connected and live
+    trading off. Operations marked `x-demo-only: true` (under `/v1/demo/`) exist only in demo mode; a Bridge with real
+    accounts answers them with 404.
+
     Personal use only: broker data terms generally forbid passing market data to other people.
   contact:
     name: Investology (Mr. Chartist)
@@ -3545,11 +3550,16 @@ components:
         - INVALID_ORDER
         - SESSION_EXPIRED
         - CONFIRMATION_REQUIRED
+        - CAPACITY_EXCEEDED
+        - ALERT_LIMIT
+        - STATE_CONFLICT
         - PAPER_ONLY
         - ORDER_GATE_CLOSED
         - DAILY_LIMIT_REACHED
         - MARKET_CLOSED
         - KILL_SWITCH_ACTIVE
+        - CANNOT_TRADE
+        - AUTOMATION_NOT_ALLOWED
         - RATE_LIMITED
         - ORDER_RATE_LIMITED
         - UPSTREAM_RATE_LIMITED

@@ -32,8 +32,12 @@ export function hasScope(granted, needed) {
  *   lastUsedAt?: string | null, revokedAt?: string | null }} KeyRecord
  *   Public view of an API key. Never holds the key or its hash.
  * @typedef {{ kind: "key", id: string, label: string } | { kind: "hook", id: string, label?: string } |
- *   { kind: "local", id: "cli" } | { kind: "anonymous", id: "anonymous" }} Principal
- * @typedef {"rest" | "webhook" | "mcp" | "cli" | "stream" | "system"} Source
+ *   { kind: "guard", id: string, label?: string } | { kind: "local", id: "cli" } | { kind: "anonymous", id: "anonymous" }} Principal
+ *   A "guard" principal is built in-process only (strategy guards, docs/spec/p1-12); like a hook it may use only the
+ *   accounts in ctx.hookAccounts.
+ * @typedef {"rest" | "webhook" | "mcp" | "cli" | "stream" | "system" | "guard" | "alert"} Source
+ *   "guard" and "alert" are automated sources (strategy guards and alert actions, Phase 1); live orders from them
+ *   still need the source in the account's live.allowedSources.
  *
  * @typedef {object} RequestContext
  * @property {string} requestId
@@ -80,7 +84,7 @@ function attachHelpers(ctx) {
     if (ctx.principal.kind === "local") return;
     const allowed = ctx.key?.accounts;
     if (allowed === "*" || (Array.isArray(allowed) && allowed.includes(accountId))) return;
-    if (ctx.principal.kind === "hook" && ctx.hookAccounts?.includes(accountId)) return;
+    if ((ctx.principal.kind === "hook" || ctx.principal.kind === "guard") && ctx.hookAccounts?.includes(accountId)) return;
     throw new BridgeError("ACCOUNT_FORBIDDEN", `This key may not use account ${accountId}.`);
   };
   ctx.canAccessAccounts = (accounts) => {

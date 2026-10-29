@@ -25,6 +25,21 @@
  *  scan.progress       { keyId, jobId, savedId, status, progress: { total, done, matched, errors } }   scanner, at most 1/s per job
  *  scan.completed      { keyId, jobId, savedId, status, matched: string[], progress }
  *  scan.alert          { keyId, savedId, name, jobId, newMatches: string[], at }   a saved scan found symbols its last run did not
+ *
+ * Phase 1 options topics (added together by F0, docs/spec/README.md §3.1; each owning spec defines its payload):
+ *  recorder.status       recorder state change, at most 1/s (p1-01)
+ *  recorder.snapshot     a recorded chain snapshot was written (p1-01)
+ *  reference.updated     { dataset, asOf, source, changed: boolean }   (p1-02)
+ *  vol.captured          one per underlying per daily capture run (p1-03)
+ *  trading.readiness     account readiness change; notify only when `notify: true` (p1-05 §3.4)
+ *  fno.sweep.progress    { jobId, status, progress }, at most 1/s (p1-06)
+ *  fno.sweep.completed   { jobId, status, chains, failed, durationMs } (p1-06)
+ *  exposure.levels       gamma levels, emitted only on change (p1-08)
+ *  settlement.update     running / final settlement estimate (p1-09 §4.6)
+ *  charges.plan_changed  { accountId }   (p1-10)
+ *  option.alert          an alert rule fired (p1-11)
+ *  strategy.guard        guard state change (p1-12 §3.3)
+ *  participants.updated  { date, source, changed }   (p1-12)
  */
 export const TOPICS = Object.freeze([
   "tick",
@@ -43,6 +58,19 @@ export const TOPICS = Object.freeze([
   "scan.progress",
   "scan.completed",
   "scan.alert",
+  "recorder.status",
+  "recorder.snapshot",
+  "reference.updated",
+  "vol.captured",
+  "trading.readiness",
+  "fno.sweep.progress",
+  "fno.sweep.completed",
+  "exposure.levels",
+  "settlement.update",
+  "charges.plan_changed",
+  "option.alert",
+  "strategy.guard",
+  "participants.updated",
 ]);
 
 /**

@@ -75,7 +75,20 @@ data/
 | `scanner/` | S13 | (routes only) | `/v1/scanner/*`; `scan` events on the stream |
 | `compat/` | S14 | (routes only) | `/api/v1/*` apikey-in-body REST, WS `/api/v1/ws` |
 | `notify/` | S15 | (routes only) | `/v1/notify`, `/v1/notify/test`; Telegram, Discord, Slack, signed webhooks |
-| `server/brokers/`, `server/lib/` | frozen | broker adapters and helpers (existing, tested) | none directly |
+| `reference/` | S16 | `reference` (planned, `docs/spec/p1-02-reference.md`) | `/v1/reference/*` |
+| `recorder/` | S17 | `recorder` (planned, `p1-01`, `p1-07`) | `/v1/options/snapshots*`, `/v1/options/daily`, `/v1/options/recorder/*`, series |
+| `vol/` | S18 | `vol` (planned, `p1-03`) | `/v1/vol/*` |
+| `fno/` | S19 | `fno` (planned, `p1-06`) | F&O universe, sweep |
+| `readiness/` | S20 | `readiness` (planned, `p1-05`) | trading readiness |
+| `exposure/` | S21 | `exposure` (planned, `p1-08`) | `/v1/options/levels`, exposure profile |
+| `strategy/` | S22 | `settlement` (planned, `p1-09`) | `/v1/strategy/*` |
+| `margin/` | S23 | `margin`, `chargePlans` (planned, `p1-10`) | basket margin, `/v1/charges/plans` |
+| `alerts/` | S24 | `alerts` (planned, `p1-11`) | `/v1/alerts*` |
+| `guards/` | S25 | `guards` (planned, `p1-12`) | `/v1/guards*` |
+| `participants/` | S26 | `participants` (planned, `p1-12`) | participant OI |
+| `book/` | S27 | `book` (planned, `p1-12`) | `/v1/book` |
+| `demo/` | lead | demo adapter and config; `routes.mjs`: demo-only routes (`/v1/demo/*`, registered only in demo mode, `x-demo-only: true` in OpenAPI) | `/v1/demo/*` (demo mode only) |
+| `server/brokers/`, `server/lib/` | frozen | broker adapters and helpers (existing, tested); `server/lib/jsonl.mjs` is the shared append-only store helper (F0) | none directly |
 
 **How modules plug in** (`core/modules.mjs`): each area has one `module.mjs` exporting `defineModule({ name, stream, services, configKey?, configSchema?, register(app, deps), start?, stop? })`.
 

@@ -6,7 +6,8 @@ import { createFakeMarketData } from "../market/fake.mjs";
 import { createFakeOrderService } from "../orders/fake.mjs";
 import { createFakeSafetyGuard } from "../safety/fake.mjs";
 import { createFakeSymbolService } from "../symbols/fake.mjs";
-import { DEFAULT_TOOL_NAMES, TOOL_DEFS, createToolRegistry, paginate, summariseCandles, summariseChain } from "./tools.mjs";
+import { DEFAULT_TOOLSETS, TOOLSETS, mcpConfig } from "./config.mjs";
+import { DEFAULT_TOOL_NAMES, TOOL_DEFS, createToolRegistry, paginate, summariseCandles, summariseChain, toolEnv, toolVisible } from "./tools.mjs";
 
 const PRICES = { "NSE:RELIANCE": 1402.5, "NSE:NIFTY": 25010, "NFO:NIFTY-2026-10-27-25000-CE": 120.5 };
 
@@ -44,6 +45,27 @@ describe("registry shape", () => {
     expect(names.length).toBeLessThan(20);
     expect(names).toEqual(DEFAULT_TOOL_NAMES);
     expect(names).toEqual(TOOL_DEFS.filter((t) => t.toolset !== "orders").map((t) => t.name));
+  });
+
+  it("lists exactly the 18 default tools; the opt-in options toolset stays at 19 tools or fewer", () => {
+    expect(DEFAULT_TOOL_NAMES).toHaveLength(18);
+    expect(TOOLSETS).toContain("options");
+    expect(DEFAULT_TOOLSETS).not.toContain("options");
+    expect(TOOL_DEFS.filter((t) => t.toolset === "options").length).toBeLessThanOrEqual(19);
+    const { registry } = setup({ mcp: { toolsets: ["market", "analytics", "account", "options"] } });
+    const names = registry.listTools(ctxFor(["read"])).map((t) => t.name);
+    expect(names).toEqual(TOOL_DEFS.filter((t) => ["market", "analytics", "account", "options"].includes(t.toolset)).map((t) => t.name));
+  });
+
+  it("a tool with requiredScope (options write tools such as create_guard) is hidden from keys without it", () => {
+    const cfg = mcpConfig({ mcp: { toolsets: ["options"] } });
+    const def = { name: "create_guard", toolset: "options", requiredScope: "paper" };
+    const read = ctxFor(["read"]);
+    const paper = ctxFor(["paper"]);
+    expect(toolVisible(def, cfg, toolEnv(cfg, read), read)).toBe(false);
+    expect(toolVisible(def, cfg, toolEnv(cfg, paper), paper)).toBe(true);
+    const off = mcpConfig({});
+    expect(toolVisible(def, off, toolEnv(off, paper), paper)).toBe(false);
   });
 
   it("sets all four annotations explicitly, plus title, inputSchema and outputSchema on every tool", () => {

@@ -31,7 +31,8 @@ export const isLoopbackHost = (h) => LOOPBACK_HOSTS.has(String(h ?? "").toLowerC
 
 const accountId = z.string().regex(/^[a-z0-9][a-z0-9-]{1,31}$/, "use 2-32 lowercase letters, digits or hyphens");
 const money = z.number().finite().nonnegative();
-const sources = z.enum(["rest", "webhook", "mcp", "cli"]);
+/** Sources that may send live orders. "guard" and "alert" are the Phase 1 automations (opt-in per account, additive). */
+const sources = z.enum(["rest", "webhook", "mcp", "cli", "guard", "alert"]);
 
 const limitsOverride = z
   .object({
