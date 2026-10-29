@@ -13,7 +13,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 export const LONG_PCT_FORMULA = "FII index-futures long % = FII long ÷ (FII long + FII short) × 100, in contracts";
 
 /** Half-up to 2 dp (tiny epsilon so 31.095 does not fall to 31.09 through binary error). */
-export const round2 = (x) => (Number.isFinite(x) ? Math.round((x + Math.sign(x) * 1e-9) * 100) / 100 : null);
+export const round2 = (x) => (Number.isFinite(x) ? Math.round((x + Math.sign(x) * 1e-9) * 100) / 100 || 0 : null);
 
 /** long % (unrounded), or null when the participant holds nothing in that instrument. */
 export function longPctRaw(L, S) {

@@ -125,11 +125,30 @@ export function createParticipantsService(deps, opts = {}) {
 
   // ── demo days ──
   const demoCache = new Map();
-  /** The demo day for a date, or null (no file, or not yet "published": 19:10 IST on the day). */
+  /**
+   * The demo's back-fill window: `backfill.days` weekdays ending on the newest weekday whose file is "out" (today
+   * after 19:10 IST, else the weekday before). The demo history holds exactly this window, so the status line
+   * ("483 of 500 trading days") and the history panel count the same days.
+   */
+  let demoWin = { key: null, dates: [] };
+  function demoWindow() {
+    const t = today();
+    const key = `${t}|${istClockOf(now()) >= DEMO_PUBLISH}`;
+    if (demoWin.key === key) return demoWin.dates;
+    const isWd = (d) => weekdayOf(d) !== 0 && weekdayOf(d) !== 6;
+    let d = isWd(t) && istClockOf(now()) >= DEMO_PUBLISH ? t : addDays(t, -1);
+    const dates = [];
+    for (let i = 0; dates.length < Math.max(1, cfg.backfill.days) && i < 4000; i += 1, d = addDays(d, -1)) if (isWd(d)) dates.push(d);
+    demoWin = { key, dates };
+    return dates;
+  }
+  /** The demo day for a date, or null (no file, outside the demo window, or not yet "published": 19:10 IST). */
   function demoDay(date) {
     const t = today();
     if (date > t) return null;
     if (date === t && istClockOf(now()) < DEMO_PUBLISH) return null;
+    const win = demoWindow();
+    if (date < win[win.length - 1]) return null;
     if (demoCache.has(date)) return demoCache.get(date);
     const base = demoParticipantDay(date);
     const day = base
@@ -260,7 +279,15 @@ export function createParticipantsService(deps, opts = {}) {
     }
     const prev = previousDay(day.date);
     const history = lastDays(day.date, Math.max(2, Math.min(750, historyDays)));
-    return { available: true, ...buildSummary({ day, prev, history, revisions: revisions() }), source: day.source, fetchedAt: day.fetchedAt ?? null, demo };
+    // Freshness (§6.7): the latest day is "stale" when it is older than the previous trading day. A day asked for by
+    // date is what was asked for, so it is never stale.
+    let fresh = {};
+    if (!demo && !date) {
+      const expected = expectedLatest();
+      const prevTd = cal().prevTradingDay(today(), "NFO");
+      fresh = { stale: day.date < prevTd, expectedDate: expected };
+    } else fresh = { stale: false, expectedDate: day.date };
+    return { available: true, ...buildSummary({ day, prev, history, revisions: revisions() }), source: day.source, fetchedAt: day.fetchedAt ?? null, ...fresh, demo };
   }
   function unavailableSummary() {
     const l = latest({ exchange: "NSE" });
@@ -369,10 +396,13 @@ export function createParticipantsService(deps, opts = {}) {
     state.lastError = { code, detail: String(lastErr?.detail ?? lastErr?.message ?? "fetch failed").slice(0, 300), date, at };
     let noFile = false;
     if (all404 && lastErr) {
-      const n = (state.attempts[date]?.notFound ?? 0) + (kind === "daily" ? 0 : 1);
+      // Today's file may simply not be out yet: while today's publish window is open (until retryUntil), a 404 for
+      // today never counts, whoever asked (the daily fetch or a manual sync). Otherwise a back-fill, catch-up or
+      // manual 404 counts, and two make "noFile".
+      const windowOpen = date >= today() && istClockOf(now() - jitterMs) <= cfg.retryUntil;
+      const n = (state.attempts[date]?.notFound ?? 0) + (kind === "daily" || windowOpen ? 0 : 1);
       state.attempts[date] = { notFound: n, at };
-      // Today's file may simply not be out yet; a back-fill, catch-up or manual 404 counts, and two make "noFile".
-      if (kind === "catchup" || n >= 2) {
+      if ((kind === "catchup" && !windowOpen) || n >= 2) {
         noFile = true;
         if (!state.backfill.noFile.includes(date)) state.backfill.noFile.push(date);
         state.backfill.noFile.sort();
@@ -391,7 +421,8 @@ export function createParticipantsService(deps, opts = {}) {
   // ── back-fill ──
   let backfilling = false;
   let stopped = false;
-  const runWindow = { hour: null, count: 0 };
+  /** Back-fill fetch times in the last hour: the maxPerRun cap is over a rolling 60 minutes (§8: ≤ 120 files an hour). */
+  let recentFetches = [];
   const inQuietHours = (ms) => {
     const t = istClockOf(ms);
     return t >= cfg.backfill.notDuring.from && t < cfg.backfill.notDuring.to;
@@ -425,12 +456,8 @@ export function createParticipantsService(deps, opts = {}) {
     try {
       while (!stopped) {
         const t = now();
-        const hour = Math.floor(t / 3_600_000);
-        if (runWindow.hour !== hour) {
-          runWindow.hour = hour;
-          runWindow.count = 0;
-        }
-        if (runWindow.count >= cfg.backfill.maxPerRun || out.fetched.length + out.noFile.length + out.failed.length >= max) break;
+        recentFetches = recentFetches.filter((x) => t - x < 3_600_000);
+        if (recentFetches.length >= cfg.backfill.maxPerRun || out.fetched.length + out.noFile.length + out.failed.length >= max) break;
         if (inQuietHours(t)) break;
         if (!archiveInfo().enabled) break;
         const d = nextBackfillDate();
@@ -440,7 +467,7 @@ export function createParticipantsService(deps, opts = {}) {
           break;
         }
         state.backfill.done = false;
-        runWindow.count += 1;
+        recentFetches.push(t);
         const r = await fetchDay(d, "backfill");
         state.backfill.cursor = d;
         save();
@@ -485,7 +512,9 @@ export function createParticipantsService(deps, opts = {}) {
         const p = c.prevTradingDay(d, "NFO");
         if (!days.has(p) && !isNoFile(p)) done.push(await fetchDay(p, "catchup"));
       }
-      if (cfg.backfill.enabled && !backfilling && !inQuietHours(t) && !state.backfill.done) {
+      // Back-fill whenever a target day is missing, not only until the first pass is done: a day missed while the
+      // Bridge was off, or a failed daily fetch, is picked up on a later tick (BRD §7.7).
+      if (cfg.backfill.enabled && !backfilling && !inQuietHours(t) && (!state.backfill.done || nextBackfillDate())) {
         runBackfill().catch((err) => log?.warn?.("participants back-fill failed", { err: String(err?.message ?? err) }));
       }
       if (prunedOn !== d) {
@@ -517,12 +546,7 @@ export function createParticipantsService(deps, opts = {}) {
   function status() {
     const info = archiveInfo();
     if (demo) {
-      const target = [];
-      let d = latestDay()?.date ?? today();
-      for (let i = 0; target.length < cfg.backfill.days && i < cfg.backfill.days * 2; i += 1, d = addDays(d, -1)) {
-        const wd = weekdayOf(d);
-        if (wd !== 0 && wd !== 6) target.push(d);
-      }
+      const target = demoWindow();
       const have = target.filter((x) => demoHasFile(x)).length;
       return {
         enabled: cfg.enabled,

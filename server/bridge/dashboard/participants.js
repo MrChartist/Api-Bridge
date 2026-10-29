@@ -5,12 +5,12 @@
 // The view-models (tilesModel, tableModel, cardsModel, historyModel, sparkGeometry, oiTileText, pageState) are pure
 // and tested in participants.test.mjs; the page code only builds DOM from them. Copy is descriptive ("FII held 31.1 %
 // of their index-futures positions long"), never a market view (copyRules.mjs). Numbers become text only through
-// format.js. The history panel is the chart-engine slot (data-chart-slot): an SVG small multiple per series, a data
-// table toggle and CSV, until the owner's chart engine replaces the SVG.
-import { api, emptyState, errorState, h, icon, loadingState, mountToolbarCtx, toast } from "./app.js";
+// format.js. The history panel holds the shared chart-engine slot (chartSlot) with the SVG small multiples, a data
+// table toggle and CSV as the fallback until the owner's chart engine replaces them.
+import { api, chartSlot, emptyState, errorState, h, icon, loadingState, mountToolbarCtx, sheetPopover, toast } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatPercent, formatSigned, isFigure } from "./format.js";
 import { niceTicks } from "./options.js";
-import { segmented } from "./views.js";
+import { PAGES, segmented } from "./views.js";
 import { scrubber, svgEl } from "./viz.js";
 
 export const PT_PARTICIPANTS = Object.freeze(["CLIENT", "DII", "FII", "PRO", "TOTAL"]);
@@ -48,6 +48,11 @@ const DAY_MS = 86_400_000;
 export const shortDate = (d) => (typeof d === "string" && d.length >= 10 ? `${Number(d.slice(8, 10))} ${MONTHS[Number(d.slice(5, 7)) - 1]}` : DASH);
 /** "28 Oct 2026" */
 export const longDate = (d) => (typeof d === "string" && d.length >= 10 ? `${shortDate(d)} ${d.slice(0, 4)}` : DASH);
+/** The two ends of a range: "10 Oct – 29 Oct" within a year, "10 Oct 2024 – 29 Oct 2026" across years. */
+export function rangeEnds(from, to) {
+  const span = typeof from === "string" && typeof to === "string" && from.slice(0, 4) !== to.slice(0, 4);
+  return span ? [longDate(from), longDate(to)] : [shortDate(from), shortDate(to)];
+}
 /** "+1.25L", "-15.6K", "0" */
 export const signedCount = (n) => formatCompact(n, { signed: true });
 /** "+2.04 pts" / "-2.04 pts" */
@@ -62,17 +67,39 @@ function rowOf(summary, p, x) {
   return (summary?.table ?? []).find((r) => r.participant === p && r.instrument === x) ?? null;
 }
 
+/** "Next check: 30 Oct, 19:10 IST" from an IST ISO time (status.nextRunAt), or "". */
+export function nextCheckText(at) {
+  if (typeof at !== "string" || at.length < 16) return "";
+  return `Next check: ${shortDate(at.slice(0, 10))}, ${at.slice(11, 16)} IST`;
+}
+
 /**
  * What the page shows instead of data, or "ok".
- * @returns {{ kind: "ok"|"source-off"|"no-data"|"stale"|"unavailable", title?: string, text?: string }}
+ * @param {object} summary  /v1/participants/oi/summary
+ * @param {object} [status]  /v1/participants/status (next check time and back-fill progress)
+ * @param {{ hasCalendar?: boolean }} [o]  whether the Market calendar page exists (it switches the downloads on)
+ * @returns {{ kind: "ok"|"source-off"|"no-data"|"stale"|"unavailable", title?: string, text?: string, note?: string }}
  */
-export function pageState(summary) {
+export function pageState(summary, status = null, { hasCalendar = false } = {}) {
   if (summary?.available) return { kind: "ok" };
   const reason = summary?.reason;
-  if (reason === "SOURCE_OFF") return { kind: "source-off", title: "NSE archive downloads are off", text: "Turn on NSE archive downloads (Market calendar page) to fetch participant OI. Nothing is fetched until then." };
-  if (reason === "PARTICIPANT_STALE") return { kind: "stale", title: "The latest file is old", text: summary.detail ?? "The newest participant file is older than the previous trading day." };
-  if (reason === "NO_PARTICIPANT_DATA") return { kind: "no-data", title: "No participant OI yet", text: "The first file arrives after 19:10 IST today. Older days fill in from the NSE archive outside market hours." };
+  const bf = status?.backfill && (status.backfill.running || status.backfill.have > 0) ? backfillText(status) : "";
+  if (reason === "SOURCE_OFF") {
+    const where = hasCalendar ? "on the Market calendar page" : "with reference.sources.nseArchives.enabled in the Bridge config";
+    return { kind: "source-off", title: "NSE archive downloads are off", text: `Turn on NSE archive downloads ${where} to fetch participant OI. Nothing is fetched until then.` };
+  }
+  if (reason === "PARTICIPANT_STALE") return { kind: "stale", title: "The latest file is old", text: summary.detail ?? "The newest participant file is older than the previous trading day.", note: bf };
+  if (reason === "NO_PARTICIPANT_DATA") {
+    const next = nextCheckText(status?.nextRunAt);
+    return { kind: "no-data", title: "No participant OI yet", text: `NSE publishes the file after the close on each trading day.${next ? ` ${next}.` : ""} Older days fill in from the NSE archive outside market hours.`, note: bf };
+  }
   return { kind: "unavailable", title: "Participant OI is not available", text: summary?.detail ?? "" };
+}
+
+/** The stale-file line for the headline (summary.stale), or "". */
+export function staleText(summary) {
+  if (!summary?.available || !summary.stale) return "";
+  return `Latest file is for ${shortDate(summary.date)}; NSE's newer file${summary.expectedDate ? ` (${shortDate(summary.expectedDate)})` : ""} has not been fetched`;
 }
 
 /** "NSE only · all strikes and expiries · contracts · for the day ended 28 Oct" */
@@ -288,13 +315,16 @@ export function toCsvText(rows) {
  * @returns {{ text: string, tone: string, title: string } | null}  null when there is nothing to show
  */
 export function oiTileText(summary, underlying) {
-  if (BSE_UNDERLYINGS.includes(String(underlying ?? "").toUpperCase())) return { text: "No BSE participant file. NSE participant OI", tone: "", title: "NSE publishes participant-wise OI; no BSE equivalent was located. NSE figures cover NSE contracts only." };
-  if (!summary?.available) return summary ? { text: "Participant OI not available yet", tone: "", title: summary.detail ?? "" } : null;
+  if (BSE_UNDERLYINGS.includes(String(underlying ?? "").toUpperCase())) return { text: "No BSE participant file", main: "No BSE participant file", delta: "", tone: "", title: "NSE publishes participant-wise OI; no BSE equivalent was located. NSE figures cover NSE contracts only." };
+  if (!summary?.available) return summary ? { text: "Participant OI not available yet", main: "Participant OI not available yet", delta: "", tone: "", title: summary.detail ?? "" } : null;
   const hd = summary.headline ?? {};
   if (!isFigure(hd.fiiIndexFutLongPct)) return null;
-  const chg = isFigure(hd.fiiIndexFutLongPctChange) ? ` (${ptsText(hd.fiiIndexFutLongPctChange, 1)})` : "";
+  const main = `FII index futures: ${formatFixed(hd.fiiIndexFutLongPct, 1)}% long`;
+  const delta = isFigure(hd.fiiIndexFutLongPctChange) ? `(${ptsText(hd.fiiIndexFutLongPctChange, 1)})` : "";
   return {
-    text: `FII index futures: ${formatFixed(hd.fiiIndexFutLongPct, 1)}% long${chg}`,
+    text: delta ? `${main} ${delta}` : main,
+    main,
+    delta,
     tone: toneOf(hd.fiiIndexFutLongPctChange),
     title: `${PT_NOTE}, day ended ${longDate(summary.date)}. ${hd.formula ?? ""}`.trim(),
   };
@@ -302,19 +332,29 @@ export function oiTileText(summary, underlying) {
 
 // ───────────────────────────── OI page tile (oi.js) ─────────────────────────────
 
-let tileCache = { at: 0, data: null, loading: null };
-/** Latest summary for the OI page line, fetched at most every 10 minutes. */
-export async function participantSummaryCached(now = Date.now()) {
+let tileCache = { at: 0, data: null, loading: null, failedAt: 0 };
+/** Forget the cached summary (tests). */
+export function resetParticipantSummaryCache() {
+  tileCache = { at: 0, data: null, loading: null, failedAt: 0 };
+}
+/**
+ * Latest summary for the OI page line, fetched at most every 10 minutes; after a failed fetch, not again for 60 s
+ * (the OI page redraws on every chain refresh, so an erroring route must not be asked on each redraw).
+ * @param {number} [now] @param {typeof api} [fetcher]
+ */
+export async function participantSummaryCached(now = Date.now(), fetcher = api) {
   if (tileCache.data && now - tileCache.at < 600_000) return tileCache.data;
   if (tileCache.loading) return tileCache.loading;
-  tileCache.loading = api("/v1/participants/oi/summary")
+  if (tileCache.failedAt && now - tileCache.failedAt < 60_000) return tileCache.data;
+  tileCache.loading = Promise.resolve()
+    .then(() => fetcher("/v1/participants/oi/summary"))
     .then((r) => {
-      tileCache = { at: Date.now(), data: r.data?.data ?? null, loading: null };
+      tileCache = { at: now, data: r?.data?.data ?? null, loading: null, failedAt: 0 };
       return tileCache.data;
     })
     .catch(() => {
-      tileCache = { ...tileCache, loading: null };
-      return null;
+      tileCache = { ...tileCache, loading: null, failedAt: now };
+      return tileCache.data;
     });
   return tileCache.loading;
 }
@@ -334,8 +374,7 @@ export function oiParticipantLine() {
       sig = next;
       el.hidden = !m;
       if (!m) return;
-      text.textContent = `${m.text} · `;
-      text.className = `oi-part-text${m.tone ? ` t-${m.tone}` : ""}`;
+      text.replaceChildren(...[m.main, m.delta ? " " : null, m.delta ? h("b", { class: m.tone || null }, m.delta) : null, " · "].filter((x) => x !== null));
       el.title = m.title;
     },
   };
@@ -372,12 +411,24 @@ function saveCsv(name, text) {
 
 const isoMinusDays = (date, n) => new Date(Date.parse(`${date}T00:00:00Z`) - n * DAY_MS).toISOString().slice(0, 10);
 
-/** One tile element. */
+/** One tile element. The FII long % tile has an info button with the formula and the long / short breakdown. */
 function tileEl(t) {
   const value = h("span", { class: `value${t.tone ? ` ${t.tone}` : ""}` }, t.value);
   const mv = t.key === "fiiLongPct" ? h("span", { class: "pt-lp", "aria-hidden": "true" }, h("i", { class: "fill" }), h("i", { class: "mid" })) : null;
   if (mv && t.longPct !== null) mv.firstChild.style.setProperty("--v", String(Math.max(0, Math.min(100, t.longPct)) / 100));
-  return h("div", { class: `desk-stat pt-tile pt-t-${t.key}`, role: "group", "aria-label": t.aria, title: t.title || null }, h("span", { class: "label" }, t.label), value, mv, h("span", { class: "sub" }, t.sub || " "));
+  let label = h("span", { class: "label" }, t.label);
+  let desc = null;
+  if (t.key === "fiiLongPct" && t.title) {
+    const id = "pt-lp-formula";
+    desc = h("span", { id, class: "sr-only" }, t.title);
+    const btn = h("button", { type: "button", class: "icon-btn tiny pt-info", "aria-label": "How FII long % is worked out", "aria-describedby": id, "aria-haspopup": "dialog", "aria-expanded": "false" }, icon("info"));
+    btn.addEventListener("click", () => {
+      btn.setAttribute("aria-expanded", "true");
+      sheetPopover({ trigger: btn, title: "FII index futures long %", body: h("p", { class: "pt-info-text" }, t.title), cls: "pt-info-pop" });
+    });
+    label = h("span", { class: "label pt-label-row" }, t.label, btn);
+  }
+  return h("div", { class: `desk-stat pt-tile pt-t-${t.key}`, role: "group", "aria-label": t.aria, title: t.title || null }, label, value, mv, h("span", { class: "sub" }, t.sub || " "), desc);
 }
 
 /** A long % bar for a card or cell: long share filled, a 50 % tick. */
@@ -442,11 +493,14 @@ function cardsEl(model) {
   );
 }
 
-/** Draw one small multiple into its host (re-run on resize). */
-function drawSpark(host, s, model) {
+/** Draw one small multiple into its host (re-run on resize). `first`: the multiple that labels revision marks. */
+function drawSpark(host, s, model, first = false) {
   const W = Math.max(220, Math.round(host.clientWidth || 320));
   const H = 136;
-  const g = sparkGeometry(s.points, model.slots, { w: W, h: H, kind: s.kind });
+  const revs = model.revisions.length > 0;
+  // With revision marks, the label sits in a strip above the plot (never over the lines).
+  const padT = revs ? 22 : 10;
+  const g = sparkGeometry(s.points, model.slots, { w: W, h: H, kind: s.kind, padT });
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "pt-svg", "aria-hidden": "true" });
   for (const t of g.ticks) {
     svg.append(svgEl("line", { class: "dv-grid", x1: 40, x2: W - 10, y1: g.y(t), y2: g.y(t) }));
@@ -455,14 +509,15 @@ function drawSpark(host, s, model) {
   if (g.ref !== null) svg.append(svgEl("line", { class: "dv-zero", x1: 40, x2: W - 10, y1: g.y(g.ref), y2: g.y(g.ref) }));
   for (const r of model.revisions) {
     const x = g.x(r.i);
-    svg.append(svgEl("line", { class: "pt-rev", x1: x, x2: x, y1: 8, y2: H - 18 }));
-    svg.append(svgEl("text", { class: "dv-tick pt-rev-t", x: x + 4, y: 14, "text-anchor": x > W - 150 ? "end" : "start", dx: x > W - 150 ? -8 : 0 }, "Contract size changed"));
+    svg.append(svgEl("line", { class: "pt-rev", x1: x, x2: x, y1: first ? 4 : padT, y2: H - 18 }));
+    if (first) svg.append(svgEl("text", { class: "dv-tick pt-rev-t", x: x > W - 150 ? x - 4 : x + 4, y: 11, "text-anchor": x > W - 150 ? "end" : "start" }, "Contract size changed"));
   }
   svg.append(svgEl("path", { class: "pt-line", d: g.d, "data-dv": s.dv }));
   const lastP = s.points[s.points.length - 1];
   if (lastP) svg.append(svgEl("circle", { class: "pt-dot", cx: g.x(lastP.i), cy: g.y(lastP.value), r: 3, "data-dv": s.dv }));
-  svg.append(svgEl("text", { class: "dv-tick", x: 40, y: H - 4, "text-anchor": "start" }, shortDate(model.from)));
-  svg.append(svgEl("text", { class: "dv-tick", x: W - 10, y: H - 4, "text-anchor": "end" }, shortDate(model.to)));
+  const [a, b] = rangeEnds(model.from, model.to);
+  svg.append(svgEl("text", { class: "dv-tick", x: 40, y: H - 4, "text-anchor": "start" }, a));
+  svg.append(svgEl("text", { class: "dv-tick", x: W - 10, y: H - 4, "text-anchor": "end" }, b));
   host.querySelector("svg")?.remove();
   host.prepend(svg);
   return g;
@@ -477,7 +532,8 @@ export async function renderParticipantsPage() {
   if (sumR.e) return h("section", { class: "desk-panel pt-panel" }, errorState(sumR.e, { onRetry: () => window.dispatchEvent(new HashChangeEvent("hashchange")) }));
   const summary = sumR.r.data?.data ?? null;
   const status = statusR.r?.data?.data ?? null;
-  const state = pageState(summary);
+  const state = pageState(summary, status, { hasCalendar: PAGES.some((p) => p.id === "calendar") });
+  const stale = staleText(summary);
 
   // ── Toolbar: what the data is, and how fresh ──
   const day = state.kind === "ok" ? summary.date : status?.latestDate ?? null;
@@ -488,14 +544,20 @@ export async function renderParticipantsPage() {
     h("span", { class: "ctx-item ctx-pt-day", title: "Trading day the figures are for" }, h("span", { class: "ctx-main" }, h("span", { class: "ctx-k" }, "Day ended"), h("b", {}, day ? shortDate(day) : DASH))),
     state.kind === "ok" && summary.fetchedAt ? h("span", { class: "ctx-item ctx-pt-at", title: summary.demo ? "Sample file time (demo)" : "When this Bridge fetched the file" }, h("span", { class: "ctx-main" }, h("span", { class: "ctx-k" }, summary.demo ? "Sample" : "Fetched"), h("b", {}, String(summary.fetchedAt).slice(11, 16)))) : null,
   );
-  const srcText = status?.demo ? "Sample history" : status?.source?.nseArchives === "on" ? "NSE archives" : status?.source?.nseArchives === "off" ? "Downloads off" : "Unavailable";
-  const srcChip = h("span", { class: `pt-src${status?.source?.nseArchives === "on" || status?.demo ? "" : " warn"}`, title: backfillText(status) || null }, srcText);
+  const srcOk = (status?.source?.nseArchives === "on" || status?.demo) && !stale;
+  const srcText = status?.demo ? "Sample history" : stale ? "Not current" : status?.source?.nseArchives === "on" ? "NSE archives" : status?.source?.nseArchives === "off" ? "Downloads off" : "Unavailable";
+  const srcChip = h("span", { class: `pt-src${srcOk ? "" : " warn"}`, title: [stale, backfillText(status)].filter(Boolean).join(". ") || null }, srcText);
   mountToolbarCtx("participants", cap, h("span", { class: "ctx-spacer" }), srcChip);
 
   if (state.kind !== "ok") {
-    const act = state.kind === "source-off" ? h("a", { class: "button small", href: "#/calendar" }, icon("external"), "Market calendar") : null;
+    const act =
+      state.kind === "source-off" && PAGES.some((p) => p.id === "calendar")
+        ? h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/calendar") }, icon("clock"), "Market calendar")
+        : null;
+    const empty = emptyState("people", state.title, state.text, act);
+    if (state.note) empty.insertBefore(h("p", { class: "pt-empty-note" }, state.note), empty.querySelector(".empty-acts"));
     return [
-      h("section", { class: "desk-panel pt-panel pt-empty", "data-panel": "pt-state", "aria-label": "Participant OI" }, emptyState("people", state.title, state.text, act)),
+      h("section", { class: "desk-panel pt-panel pt-empty", "data-panel": "pt-state", "aria-label": "Participant OI" }, empty),
       notesPanel(summary, status),
     ];
   }
@@ -511,7 +573,7 @@ export async function renderParticipantsPage() {
   const kpi = h(
     "section",
     { class: "desk-panel pt-kpi", "data-panel": "pt-kpi", "data-fixed": "", "aria-label": "Participant OI headline" },
-    h("p", { class: "pt-top" }, h("span", {}, topLine(summary)), qualityChip),
+    h("p", { class: "pt-top" }, h("span", {}, topLine(summary)), stale ? h("span", { class: "pt-chip warn" }, stale) : null, qualityChip),
     h("div", { class: "desk-stats pt-tiles" }, tiles.map(tileEl)),
   );
 
@@ -561,6 +623,8 @@ export async function renderParticipantsPage() {
     "section",
     { class: "desk-panel pt-hist", "data-panel": "pt-hist", "aria-label": "Participant OI history" },
     h("div", { class: "panel-head" }, h("div", { class: "pt-title" }, h("strong", {}, "History"), histSub), h("div", { class: "pt-ctl" }, rangeSeg, tableBtn, histCsv)),
+    // The owner's chart engine plugs in here; the SVG small multiples, table and CSV below are the fallback.
+    h("div", { class: "pt-slot-wrap" }, chartSlot("Participant OI history", "FII index-futures long %, FII net, client index call and put nets by day")),
     histBody,
   );
   let days = null;
@@ -573,11 +637,11 @@ export async function renderParticipantsPage() {
       if (!histPanel.isConnected) ro?.disconnect();
       return;
     }
-    hosts.forEach(({ host, s }) => {
+    hosts.forEach(({ host, s }, k) => {
       const w = Math.round(host.clientWidth);
       if (host.__w === w) return;
       host.__w = w;
-      host.__g = drawSpark(host, s, model);
+      host.__g = drawSpark(host, s, model, k === 0);
     });
   }
   function drawHistory() {
@@ -589,7 +653,8 @@ export async function renderParticipantsPage() {
       histBody.replaceChildren(emptyState("people", "No history yet", "Older days fill in from the NSE archive outside market hours.", null, { compact: true }));
       return;
     }
-    histSub.textContent = `${shortDate(model.from)} – ${shortDate(model.to)} · ${model.dates.length} trading days${model.gaps ? ` · ${model.gaps} without a file` : ""}`;
+    const [a, b] = rangeEnds(model.from, model.to);
+    histSub.textContent = `${a} – ${b} · ${model.dates.length} trading days${model.gaps ? ` · ${model.gaps} without a file` : ""}`;
     const grid = h("div", { class: "pt-multiples", "data-chart-slot": "participant-oi-history" });
     for (const s of model.series) {
       const host = h("div", { class: "pt-chart" });
@@ -619,7 +684,7 @@ export async function renderParticipantsPage() {
               const p = s.points[i];
               const g = host.__g;
               if (!p || !g) return null;
-              return { x: g.x(p.i), content: [h("strong", {}, longDate(p.date)), h("span", {}, valueText(s, p.value))] };
+              return { x: g.x(p.i), content: [h("b", {}, longDate(p.date)), h("div", {}, valueText(s, p.value))] };
             },
           }),
         );

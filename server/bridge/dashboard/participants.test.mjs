@@ -47,8 +47,13 @@ describe("participant page view-models", () => {
 
   it("page states: source off, no data, stale", () => {
     expect(P.pageState(summary).kind).toBe("ok");
-    expect(P.pageState({ available: false, reason: "SOURCE_OFF" })).toMatchObject({ kind: "source-off", text: expect.stringMatching(/Market calendar/) });
-    expect(P.pageState({ available: false, reason: "NO_PARTICIPANT_DATA" }).text).toMatch(/after 19:10/);
+    expect(P.pageState({ available: false, reason: "SOURCE_OFF" }, null, { hasCalendar: true })).toMatchObject({ kind: "source-off", text: expect.stringMatching(/Market calendar page/) });
+    expect(P.pageState({ available: false, reason: "SOURCE_OFF" }).text).not.toMatch(/Market calendar/);
+    const nd = P.pageState({ available: false, reason: "NO_PARTICIPANT_DATA" }, { nextRunAt: "2026-10-30T19:12:30.000+05:30", backfill: { target: 500, have: 312, noFile: 0, running: true } });
+    expect(nd.text).toMatch(/Next check: 30 Oct, 19:12 IST\./);
+    expect(nd.text).not.toMatch(/today/);
+    expect(nd.note).toBe("History: 312 of 500 trading days (filling in)");
+    expect(P.pageState({ available: false, reason: "NO_PARTICIPANT_DATA" }, { backfill: { target: 500, have: 0, running: false } }).note).toBe("");
     expect(P.pageState({ available: false, reason: "PARTICIPANT_STALE", detail: "old" })).toMatchObject({ kind: "stale", text: "old" });
     expect(P.topLine(summary)).toBe("NSE only · all strikes and expiries · number of contracts · for the day ended 28 Oct");
     expect(P.backfillText({ backfill: { target: 500, have: 487, noFile: 13 } })).toBe("History: 487 of 500 trading days; 13 not available from NSE");
@@ -74,9 +79,43 @@ describe("participant page view-models", () => {
   });
 
   it("the OI page line: NSE figure, BSE note, nothing without data", () => {
-    expect(P.oiTileText(summary, "NIFTY")).toMatchObject({ text: "FII index futures: 31.1% long (-2.0 pts)", tone: "down" });
-    expect(P.oiTileText(summary, "SENSEX").text).toMatch(/^No BSE participant file/);
+    expect(P.oiTileText(summary, "NIFTY")).toMatchObject({ text: "FII index futures: 31.1% long (-2.0 pts)", main: "FII index futures: 31.1% long", delta: "(-2.0 pts)", tone: "down" });
+    expect(P.oiTileText(summary, "SENSEX").text).toBe("No BSE participant file");
     expect(P.oiTileText(null, "NIFTY")).toBeNull();
     expect(P.oiTileText({ available: false, detail: "x" }, "NIFTY").text).toBe("Participant OI not available yet");
+  });
+
+  it("stale latest file: a warning line naming the day and the expected one", () => {
+    expect(P.staleText(summary)).toBe("");
+    expect(P.staleText({ ...summary, stale: true, expectedDate: "2026-10-30" })).toBe("Latest file is for 28 Oct; NSE's newer file (30 Oct) has not been fetched");
+  });
+
+  it("ranges across years keep the year on both ends", () => {
+    expect(P.rangeEnds("2026-10-01", "2026-10-29")).toEqual(["1 Oct", "29 Oct"]);
+    expect(P.rangeEnds("2024-10-10", "2026-10-29")).toEqual(["10 Oct 2024", "29 Oct 2026"]);
+  });
+
+  it("the OI line's summary: one request per 60 s after a failure, one per 10 min after a success", async () => {
+    P.resetParticipantSummaryCache();
+    let n = 0;
+    const failing = async () => {
+      n += 1;
+      throw new Error("down");
+    };
+    expect(await P.participantSummaryCached(1_000_000, failing)).toBeNull();
+    expect(await P.participantSummaryCached(1_030_000, failing)).toBeNull();
+    expect(n).toBe(1);
+    await P.participantSummaryCached(1_061_000, failing);
+    expect(n).toBe(2);
+    let m = 0;
+    const ok = async () => {
+      m += 1;
+      return { data: { data: summary } };
+    };
+    P.resetParticipantSummaryCache();
+    expect(await P.participantSummaryCached(2_000_000, ok)).toBe(summary);
+    expect(await P.participantSummaryCached(2_500_000, ok)).toBe(summary);
+    expect(m).toBe(1);
+    P.resetParticipantSummaryCache();
   });
 });

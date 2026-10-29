@@ -226,6 +226,71 @@ describe("participants service", () => {
     expect(b.service.series({ from: "2026-10-01", to: "2026-10-31" }).map((x) => x.date)).toHaveLength(11);
   });
 
+  it("keeps back-filling after the first pass: a day missed while the Bridge was off is fetched on a later tick", async () => {
+    const files = {};
+    for (let d = "2026-10-01"; d <= "2026-11-06"; d = addDays(d, 1)) if (weekdayOf(d) !== 0 && weekdayOf(d) !== 6) files[d] = csvFor(d);
+    const { service, client, clock } = setup({ at: IST("2026-10-28", "17:00"), files, participants: { backfill: { days: 5 } } });
+    await service.runBackfill();
+    expect(service.status().backfill).toMatchObject({ have: 5, done: true });
+    // The Bridge is off on Thu 29 and Fri 30 Oct evenings and Mon 2 Nov evening; it comes back on Tue 3 Nov at 17:00.
+    clock.t = IST("2026-11-03", "17:00");
+    client.calls.length = 0;
+    await service.tick(); // starts the back-fill in the background
+    for (let i = 0; i < 50 && (i === 0 || service.status().backfill.running); i += 1) await new Promise((r) => setTimeout(r, 0));
+    const got = client.calls.map((c) => c.date);
+    expect(got).toEqual(expect.arrayContaining(["2026-11-02", "2026-10-30", "2026-10-29"]));
+    expect(service.status().backfill).toMatchObject({ have: 5, done: true });
+  });
+
+  it("a manual sync for today before NSE publishes never marks today 'noFile'; the 19:10 fetch still runs", async () => {
+    const d = "2026-10-28";
+    const files = { [d]: 404 };
+    const { service, client, clock } = setup({ at: IST(d, "17:00"), files, participants: { backfill: { enabled: false } } });
+    expect((await service.sync({ date: d })).failed).toEqual([{ date: d, code: "NO_FILE" }]);
+    expect((await service.sync({ date: d })).noFile).toEqual([]);
+    expect(service.status().backfill.noFile).toBe(0);
+    files[d] = csvFor(d);
+    clock.t = IST(d, "19:10");
+    await service.tick();
+    expect(client.calls.filter((c) => c.date === d)).toHaveLength(3);
+    expect(service.latest({}).asOfDate).toBe(d);
+    // After the window closes, two manual 404s for an older day do make it "noFile".
+    const o = setup({ at: IST(d, "23:00"), participants: { backfill: { enabled: false } } });
+    await o.service.sync({ date: d });
+    expect((await o.service.sync({ date: d })).noFile).toEqual([d]);
+  });
+
+  it("the back-fill cap is over a rolling hour: no 60-minute window holds more than maxPerRun fetches", async () => {
+    const files = {};
+    for (let d = "2026-06-01"; d <= "2026-10-28"; d = addDays(d, 1)) if (weekdayOf(d) !== 0 && weekdayOf(d) !== 6) files[d] = csvFor(d);
+    const clock = { t: IST("2026-10-28", "17:55"), now: () => clock.t };
+    const dataDir = mkdtempSync(join(tmpdir(), "mcb-part-roll-"));
+    const reference = fakeReference({ client: fakeClient(files) });
+    const at = [];
+    const service = createParticipantsService(
+      { config: { participants: parseParticipantsConfig({ backfill: { days: 100, maxPerRun: 10, gapSeconds: 60 } }), dataDir }, clock, reference, paths: { dataDir }, logger: null },
+      { jitterMs: 0, sleep: async (ms) => { clock.t += ms; }, timers: { setInterval: () => null, clearInterval: () => {} } },
+    );
+    const orig = reference.client.fetchFile.bind(reference.client);
+    reference.client.fetchFile = async (...a) => { at.push(clock.t); return orig(...a); };
+    // Runs at :55, then every minute for two hours (each run stops at the cap).
+    for (let m = 0; m < 120; m += 1) {
+      await service.runBackfill();
+      if (clock.t < IST("2026-10-28", "17:55") + (m + 1) * 60_000) clock.t = IST("2026-10-28", "17:55") + (m + 1) * 60_000;
+    }
+    expect(at.length).toBeGreaterThan(10);
+    for (const t0 of at) expect(at.filter((x) => x >= t0 && x < t0 + 3_600_000).length).toBeLessThanOrEqual(10);
+  });
+
+  it("summary flags a stale latest file (and names the expected day)", async () => {
+    const { service, clock } = setup({ at: IST("2026-10-26", "19:20"), files: { "2026-10-26": csvFor("2026-10-26") }, participants: { backfill: { enabled: false } } });
+    await service.tick();
+    expect(service.summary({})).toMatchObject({ available: true, stale: false });
+    clock.t = IST("2026-10-28", "12:00");
+    expect(service.summary({})).toMatchObject({ available: true, date: "2026-10-26", stale: true, expectedDate: "2026-10-27" });
+    expect(service.summary({ date: "2026-10-26" }).stale).toBe(false);
+  });
+
   it("back-fill never runs during market hours (notDuring 09:00–15:45)", async () => {
     const { service, client } = setup({ at: IST("2026-10-28", "10:00"), files: { "2026-10-27": csvFor("2026-10-27") } });
     const r = await service.runBackfill();
@@ -272,7 +337,9 @@ describe("participants service in demo mode", () => {
     expect(st).toMatchObject({ demo: true, latestDate: "2026-10-28", source: { nseArchives: "demo" } });
     expect(st.backfill.target).toBe(500);
     expect(st.backfill.have + st.backfill.noFile).toBe(500);
-    expect(service.series({ from: "2024-11-01", to: "2026-10-29" }).length).toBeGreaterThan(470);
+    // The history holds exactly the status window: the same count of days with a file.
+    const all = service.series({ from: "2024-11-01", to: "2026-10-29" });
+    expect(all.length).toBe(st.backfill.have);
     expect(existsSync(join(dataDir, "participants"))).toBe(false);
     await expect(service.sync({})).rejects.toMatchObject({ code: "CAPABILITY_UNSUPPORTED" });
   });
