@@ -261,6 +261,21 @@ Light improves. Dark is as weak for deuteranopes as it is today, with every cand
 
 Note the brand's two sources disagree on dark gain and loss: TYPE-SYSTEM.md §6 lists #30D158 / #FF6961, the live mrchartist.com resolves #64C775 / #ED756A. This spec follows the live site, because the goal is to look like the live family. If the owner prefers the document, swap the four dark P&L values for `135 63.6% 50.4%` (#30D158, both fill and ink) and `3 100% 69%` (#FF6961); the contrast table above has both.
 
+**Strong inks for tinted chips (light only).** The gain and loss inks clear 4.5:1 on the card and only just on the
+canvas, so small text on an 8 to 16 % tint of its own colour fell to 4.0 to 4.47:1 (measured 30 Oct, perf/a11y round 4).
+Those chips use a darker step of the same hue in light; dark maps each token back to the ink it used, so dark is
+unchanged and nothing else (figures, canvas text) uses them.
+
+| Token (`app.css`) | Light | Dark | Used by |
+|---|---|---|---|
+| `--gain-ink-strong` | `135 60.8% 25%` | `var(--pos-ink)` | `.ev-chip.bull`, `.obu-LB`, `.obu-SC`, `.oi-tone-pill[data-tone="up"]`, `.scr-pill.t-pos` |
+| `--loss-ink-strong` | `354 100% 36%` | `var(--neg-ink)` | `.ev-chip.bear`, `.obu-SB`, `.obu-LU`, `.oi-tone-pill[data-tone="down"]`, `.scr-pill.t-neg`, chain `.held.short` |
+| `--ok-ink-strong` / `--bad-ink-strong` | `137 64% 23%` / `356 78% 35%` | `var(--ios-green-ink)` / `var(--ios-red-ink)` | `.an-page .pill.sm.ok` / `.bad` |
+| `--info-ink-strong` / `--warn-ink-strong` | `211 100% 33%` / `26 100% 28%` | `var(--ios-blue-ink)` / `var(--ios-orange-ink)` | `.an-page .pill.sm.info` / `.warn` |
+
+All of them measure 4.5:1 or more on their tint over the light canvas and card. Out-of-month calendar days stay quiet
+by design.
+
 ### 2.4 Chart colours
 
 Keep the current data-viz system (`docs/design/foundation.md` §4): calls blue, puts orange, spot in the ink colour, IV violet, red and green only for money and direction. It already matches the family's own convention on the FII and DII page (institution series in blue and orange, net flows in green and red, axes in the secondary ink, 2 to 2.5 px lines). Do not adopt mrchartist.com's `--call` / `--put` tokens (#2154BE / #7A5D2E light, #7AADFF / #E6D1A7 dark): no page we read draws with them, the tan put sits close in hue to the amber `--warn`, and blue and orange is the pair the family actually shows (the FII and DII series) and the pair `foundation.md` §4 already tested.

@@ -935,6 +935,7 @@ export async function renderEventsPage() {
   const stop = () => {
     offEvents();
     offState();
+    removeEventListener("keydown", onKey);
     window.removeEventListener("hashchange", onHash);
   };
   const onHash = () => {

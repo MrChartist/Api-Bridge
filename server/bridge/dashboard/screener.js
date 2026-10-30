@@ -3083,6 +3083,7 @@ export function renderScreenerPage() {
     closePop?.();
     livePop?.close?.();
     clearInterval(clock);
+    refChipEl.destroy?.();
     tabRo?.disconnect();
     for (const m of mqs) m.removeEventListener("change", onDevice);
     window.removeEventListener("hashchange", onRoute);

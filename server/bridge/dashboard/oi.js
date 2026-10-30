@@ -2640,6 +2640,15 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
     scheduleAtmCheck();
   };
   addEventListener("scroll", onPageScroll, { passive: true });
+  // Desktop pages do not scroll the window, so the check above may never run: leaving the page also removes it (it held
+  // the whole ladder, about 2,500 nodes per visit, for good).
+  const offPage = () =>
+    setTimeout(() => {
+      if (el.isConnected) return;
+      removeEventListener("scroll", onPageScroll);
+      removeEventListener("hashchange", offPage);
+    }, 1500);
+  addEventListener("hashchange", offPage);
   /** Phones: the pill lives in the sticky ladder head (in place of the "Strike" title), never over rows; larger
    *  screens: it floats over the ladder's foot. */
   function placePill() {
