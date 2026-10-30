@@ -84,15 +84,28 @@ Then the same for options: OI spikes, IV jumps, PCR shifts, straddle breaks, wal
 
 ### 3d. Mid-width layout (1024–1399 px)
 
-An agent was fixing these:
+Done (d367b28):
+- the Accounts table fits from 1024 to 1440 px, with the row actions moving into a ⋯ menu when space is short;
+- the Strategy hero reflows (5, then 3 over 2, then 2 per row); the POP line wraps instead of being cut;
+- the desk toolbar shows status dots only at 1024–1279 px, so spot and % change stay visible.
 
-- the Accounts table scrolling sideways between 1100 and 1399 px;
-- the Strategy hero at about 1100 px;
-- the POP sub-line in the hero;
-- toast placement below 1024 px;
-- a sweep of every page at 1024, 1180, 1280 and 1366 px.
-
-Check what landed (`git log`) and screenshot those widths in light and dark.
+Still to do:
+- **Toasts below 1024 px:** `placeToast()` in `app.js` returns early there. On Strategy the toast sits over the Target-date slider. Also update `docs/design/ui-pass-3.md` section 4.
+- **Strategy at 1024–1100 px:** the analysis column is only 230–320 px wide. The payoff hover hint overlaps the curve; the margin warning and the Greek tile subs are cut off. The 420 px build column can't shrink because of the leg-row grid, so this needs a layout decision (stack the columns, or collapse the leg rows).
+- **Desk toolbar at 1024 px:** the reference chip ("Lot 65 · Freeze 1800") squeezes down to "L.".
+- **Accounts › Supported brokers at 1280 px:** broker names are cut off with an ellipsis.
+- **Pages not checked at 1024, 1100, 1180, 1280 and 1366 px:**
+  - Home
+  - Option Chain (Customise, ticket)
+  - Positions
+  - Orders
+  - Safety
+  - OI tabs
+  - Volatility
+  - Screeners tabs
+  - Market calendar
+  - API tabs (check the Keys table at 1100–1399)
+  - Data recorder
 
 ### 3e. Check everything by hand
 
