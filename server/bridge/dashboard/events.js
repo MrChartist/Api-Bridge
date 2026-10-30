@@ -82,6 +82,37 @@ export function groupByStock(events) {
   return [...by.values()].sort((a, b) => b.latest.ts - a.latest.ts);
 }
 
+/**
+ * The Strength cell, in the unit each event is measured in: a % move ("+1.45%"), a multiple ("2.3×"), lots
+ * ("+120 lots"), vol points ("+2.1 pts") or a circuit band ("5%"). Crosses of a level (VWAP, pivots, a strike) and
+ * custom conditions have no size worth a number at the moment they fire (the distance is about 0), so the cell is
+ * empty for them, and so is a breakout that is still within 0.05 % of its level. Pure.
+ */
+const STRENGTH_PCT = new Set(["gap_up", "gap_down", "gap_filled", "day_high", "day_low", "move_pct", "swing_up", "swing_down", "oi_buildup", "oi_surge", "opt_premium_spike", "opt_near_band"]);
+const STRENGTH_BREAK = new Set(["prev_high_break", "prev_low_break", "all_time_high", "all_time_low", "high_52w", "low_52w"]);
+const STRENGTH_TIMES = new Set(["vol_above_prev", "vol_surge", "opt_oi_surge", "opt_unusual_volume"]);
+const STRENGTH_BAND = new Set(["only_buyers", "only_sellers", "circuit_unlocked"]);
+export function strengthText(kind, v) {
+  if (!isFigure(v)) return DASH;
+  const x = Number(v);
+  if (STRENGTH_PCT.has(kind)) return signedPct(x);
+  if (STRENGTH_BREAK.has(kind)) return Math.abs(x) < 0.05 ? DASH : signedPct(x);
+  if (STRENGTH_TIMES.has(kind)) return `${formatFixed(x, 1)}×`;
+  if (STRENGTH_BAND.has(kind)) return x > 0 ? `${formatFixed(x, x % 1 ? 1 : 0)}%` : DASH;
+  if (kind === "opt_buildup") return `${formatSigned(x, 0)} lots`;
+  if (String(kind).startsWith("opt_iv")) return `${formatSigned(x, 1)} pts`;
+  return DASH; // vwap_cross, pivot_cross, ul_cross_strike, custom, and anything new
+}
+/** What the Strength cell measures, for its tooltip. */
+export function strengthTitle(kind) {
+  if (STRENGTH_PCT.has(kind) || STRENGTH_BREAK.has(kind)) return "Size of the move, % (from the level, the open or the previous close)";
+  if (STRENGTH_TIMES.has(kind)) return "Volume or OI as a multiple of its usual pace";
+  if (STRENGTH_BAND.has(kind)) return "Circuit band, %";
+  if (kind === "opt_buildup") return "Change in open interest, lots";
+  if (String(kind).startsWith("opt_iv")) return "Change in implied volatility, vol points";
+  return "No size for a level cross: see Context";
+}
+
 /** The text of every cell of a feed row (format.js does the numbers). */
 export function rowModel(ev) {
   const o = ev.option ?? null;
@@ -99,7 +130,8 @@ export function rowModel(ev) {
     context: ev.context ?? "",
     also: ev.also?.length ? ev.also.length : 0,
     count: ev.count > 1 ? `×${formatInt(ev.count)}` : "",
-    strength: isFigure(ev.strength) ? formatFixed(ev.strength, Math.abs(ev.strength) >= 1000 ? 0 : 2) : DASH,
+    strength: strengthText(ev.kind, ev.strength),
+    strengthTitle: strengthTitle(ev.kind),
     strike: strike === null ? DASH : formatFixed(strike, Number.isInteger(strike) ? 0 : 2),
     right: o?.right ?? DASH,
     expiry: o?.expiry ? o.expiry.slice(5) : DASH,
@@ -240,7 +272,9 @@ export async function renderEventsPage() {
     const share = dir ? counts.bull / dir : 0.5;
     meter.style.setProperty("--bull", String(share));
     meter.setAttribute("aria-label", dir ? `${formatInt(share * 100)}% bull` : "No directional events yet");
-    const top = [...counts.byKind.entries()].sort((a, b) => b[1] - a[1]).slice(0, phone() ? 3 : 6);
+    // The busiest kinds of the view in front of the person (Stocks or Options), never the other view's.
+    const assetOf = (k) => catalogue.kinds.find((x) => x.kind === k)?.asset ?? null;
+    const top = [...counts.byKind.entries()].filter(([k]) => !f.asset || assetOf(k) === f.asset).sort((a, b) => b[1] - a[1]).slice(0, phone() ? 3 : 6);
     fill(
       topKinds,
       top.map(([k, n]) =>
@@ -264,7 +298,7 @@ export async function renderEventsPage() {
   const head = h("div", { class: "ev-head", role: "row" });
   const spacer = h("div", { class: "ev-spacer", role: "presentation" });
   const rowsHost = h("div", { class: "ev-rows", role: "rowgroup" });
-  const scroller = h("div", { class: "ev-scroll", role: "table", "aria-label": "Live events", tabindex: "0" }, head, h("div", { class: "ev-body" }, spacer, rowsHost));
+  const scroller = h("div", { class: "ev-scroll", role: "table", "aria-label": "Live events. Arrow keys or J and K move, Enter opens the details", tabindex: "0" }, head, h("div", { class: "ev-body" }, spacer, rowsHost));
   const empty = h("p", { class: "ev-empty", hidden: true });
   const liveNote = h("p", { class: "sr-only", "aria-live": "polite" });
   /** id -> row element currently in the DOM */
@@ -289,7 +323,7 @@ export async function renderEventsPage() {
     if (mode === "stock") {
       const m = stockRowModel(item);
       return [
-        h("span", { role: "cell", class: "c-sym" }, h("strong", {}, m.symbol), m.name ? h("small", {}, m.name) : null),
+        h("span", { role: "cell", class: "c-sym", title: m.name || m.symbol }, h("strong", {}, m.symbol)),
         h("span", { role: "cell", class: "num c-ltp" }, m.ltp),
         h("span", { role: "cell", class: `num c-chg ${m.chgTone}` }, m.chg),
         h("span", { role: "cell", class: "c-kinds" }, m.kinds.map((k) => h("span", { class: "ev-chip" }, k)), m.more ? h("span", { class: "ev-more" }, m.more) : null),
@@ -299,7 +333,8 @@ export async function renderEventsPage() {
       ];
     }
     const m = rowModel(item);
-    const sym = h("span", { role: "cell", class: "c-sym", title: m.name || m.symbol }, h("strong", {}, m.symbol, m.tags.map((t) => h("span", { class: "ev-tag" }, t))), m.name ? h("small", {}, m.name) : null);
+    // The company name only as a tooltip (and in the side sheet): cut to a few letters beside the ticker it was noise.
+    const sym = h("span", { role: "cell", class: "c-sym", title: m.name || m.symbol }, h("strong", {}, m.symbol, m.tags.map((t) => h("span", { class: "ev-tag" }, t))));
     const chip = h("span", { role: "cell", class: "c-ev" }, h("span", { class: `ev-chip ${m.side}` }, m.label));
     const count = h("span", { role: "cell", class: "num c-count" }, m.count);
     const ctx = h("span", { role: "cell", class: "c-ctx", title: m.context }, m.context, m.also ? h("span", { class: "ev-more" }, `+${formatInt(m.also)}`) : null);
@@ -318,7 +353,7 @@ export async function renderEventsPage() {
         count,
       ];
     }
-    return [h("span", { role: "cell", class: "c-time" }, m.time), sym, chip, h("span", { role: "cell", class: "num c-str" }, m.strength), h("span", { role: "cell", class: "num c-ltp" }, m.ltp), h("span", { role: "cell", class: `num c-chg ${m.chgTone}` }, m.chg), ctx, count];
+    return [h("span", { role: "cell", class: "c-time" }, m.time), sym, chip, h("span", { role: "cell", class: "num c-str", title: m.strengthTitle }, m.strength), h("span", { role: "cell", class: "num c-ltp" }, m.ltp), h("span", { role: "cell", class: `num c-chg ${m.chgTone}` }, m.chg), ctx, count];
   }
 
   function makeRow(item) {
@@ -398,6 +433,7 @@ export async function renderEventsPage() {
     f.side = sideSeg.value;
     mode = modeSeg.value;
     writePrefs({ ...readPrefs(), asset: f.asset, side: f.side, mode });
+    stripDirty = true; // the busiest-kind chips follow the Stocks / Options view
     const list = all.filter((e) => matches(e, f));
     view = mode === "stock" ? groupByStock(list) : list;
     for (const el of rowEls.values()) el.remove();
@@ -576,9 +612,9 @@ export async function renderEventsPage() {
       else if ((i + 1) * H > scroller.scrollTop + scroller.clientHeight - H) scroller.scrollTop = (i + 2) * H - scroller.clientHeight;
       paintRows();
       rowEls.get(selectedId)?.focus({ preventScroll: true });
-    } else if (e.key === "Enter" && selectedId) {
+    } else if (e.key === "Enter" && (selectedId || view.length)) {
       e.preventDefault();
-      open(selectedId);
+      open(selectedId ?? itemAt(0).id);
     }
   });
   const onKey = (e) => {

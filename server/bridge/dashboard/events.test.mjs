@@ -1,6 +1,6 @@
 // Live events page: pure view-model helpers (events.js).
 import { describe, expect, it } from "vitest";
-import { applyPreset, csvOf, groupByStock, matches, percentile, rowModel, stockRowModel } from "./events.js";
+import { applyPreset, csvOf, groupByStock, matches, percentile, rowModel, stockRowModel, strengthText } from "./events.js";
 
 const ev = (o = {}) => ({ id: "e1", ts: 1, time: "2026-10-30T10:42:07+05:30", symbol: "NSE:BODALCHEM", name: "Bodal Chemicals", asset: "stock", kind: "only_buyers", label: "Only buyers", side: "bull", ltp: 164.52, changePct: 5, strength: 5, context: "upper circuit 5 %", count: 1, first: true, tags: { fno: false }, ...o });
 
@@ -20,6 +20,19 @@ describe("events page helpers", () => {
     expect(m.count).toBe("×3");
     expect(m.ltp).toBe("164.52");
     expect(rowModel(ev({ ltp: null })).ltp).not.toContain("—");
+  });
+  it("shows strength in each event's own unit, and nothing for a level cross", () => {
+    expect(strengthText("vwap_cross", 0.004)).toBe("–");
+    expect(strengthText("pivot_cross", -0.01)).toBe("–");
+    expect(strengthText("day_high", 1.45)).toBe("+1.45%");
+    expect(strengthText("gap_down", -2.1)).toBe("−2.10%");
+    expect(strengthText("prev_high_break", 0.01)).toBe("–");
+    expect(strengthText("prev_high_break", 0.42)).toBe("+0.42%");
+    expect(strengthText("vol_surge", 2.34)).toBe("2.3×");
+    expect(strengthText("opt_buildup", 120)).toBe("+120 lots");
+    expect(strengthText("only_buyers", 5)).toBe("5%");
+    expect(strengthText("custom", null)).toBe("–");
+    expect(rowModel(ev()).strength).toBe("5%");
   });
   it("groups by stock with bull and bear counts, newest first", () => {
     const g = groupByStock([ev({ id: "a", ts: 1 }), ev({ id: "b", ts: 3, side: "bear", label: "Only sellers" }), ev({ id: "c", ts: 2, symbol: "NSE:X" })]);
