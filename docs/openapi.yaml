@@ -671,8 +671,20 @@ paths:
       tags: [Limits]
       operationId: getUsage
       summary: How much of each budget is used, queued and saved by streaming, caching and coalescing
+      description: |
+        Per account and endpoint class: the binding window, every window (`windows`: this second, this minute, today) and
+        today's counters. `series=1` adds each account's calls per second over the last two minutes (`series`).
+        `view=budget` answers the dashboard's budget summary instead (the `budget` stream message). Admin keys also get
+        `consumers`: today's broker calls and saved calls per dashboard page, API key label, MCP, compat and background job.
       x-stream: S3
       x-scope: read
+      parameters:
+        - name: series
+          in: query
+          schema: { type: boolean, default: false }
+        - name: view
+          in: query
+          schema: { type: string, enum: [budget] }
       responses:
         "200":
           description: Usage report.
@@ -846,6 +858,8 @@ paths:
         - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
+        - $ref: "#/components/parameters/Swr"
+        - $ref: "#/components/parameters/ReadPriority"
       responses:
         "200":
           description: Prices; symbols that failed are listed in `errors`.
@@ -873,6 +887,8 @@ paths:
         - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
+        - $ref: "#/components/parameters/Swr"
+        - $ref: "#/components/parameters/ReadPriority"
       responses:
         "200":
           description: Quotes.
@@ -899,6 +915,7 @@ paths:
         - $ref: "#/components/parameters/SymbolQuery"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
+        - $ref: "#/components/parameters/ReadPriority"
       responses:
         "200":
           description: Depth.
@@ -1033,6 +1050,8 @@ paths:
         - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
+        - $ref: "#/components/parameters/Swr"
+        - $ref: "#/components/parameters/ReadPriority"
       responses:
         "200":
           description: Chain.
@@ -5543,6 +5562,16 @@ components:
       in: query
       description: Oldest data you accept, in ms. 0 forces a live read (still within rate limits). Default depends on the endpoint (LTP 1000, quotes 2000, chain 3000).
       schema: { type: integer, minimum: 0, maximum: 3600000 }
+    Swr:
+      name: swr
+      in: query
+      description: Stale-while-revalidate. When only an older cached value exists (inside market.stale.maxStaleMs), answer with it at once, labelled `freshness.stale` and `freshness.revalidating`, and refresh it in the background (one refresh however many readers ask).
+      schema: { type: boolean, default: false }
+    ReadPriority:
+      name: priority
+      in: query
+      description: "`background` for a prefetch: it waits behind every interactive read, and a read for the same thing joins it and raises its priority. Reads never run at order priority."
+      schema: { type: string, enum: [interactive, background], default: interactive }
     Limit:
       name: limit
       in: query
@@ -5992,6 +6021,7 @@ components:
         accountId: { type: [string, "null"], description: "Account whose connection supplied the data." }
         broker: { type: [string, "null"] }
         provider: { type: string, enum: [yahoo, nse], description: "Only for source backup: which public source supplied it." }
+        revalidating: { type: boolean, description: "Only with ?swr=true: this older value was answered at once and a refresh is running behind it." }
 
     BrokerInfo:
       type: object

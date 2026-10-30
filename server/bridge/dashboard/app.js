@@ -7,6 +7,7 @@
 import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, pulse, reducedMotion, sheetIn, sheetOut, shake } from "./motion.js";
 import { DASH, ageText, formatRupee } from "./format.js";
 import { DENSITY_SLOT, SIDEBAR_SLOT, parseDensity, resolveDensity, resolveSidebar, toggleSidebar } from "./layout-prefs.js";
+import { watch as liveWatch } from "./live.js";
 
 // Page hooks for views.js (optional: app.js start-up already runs them automatically; both are idempotent).
 export { animateNav, animatePage };
@@ -103,6 +104,23 @@ export function store(kind = "local") {
 const session = store("session");
 const local = store("local");
 let memoryKey = session.get(KEY_SLOT);
+
+/**
+ * The page module the address opens with (pure): the Options desk, screeners, calendar, recorder or live events load
+ * on demand (views.js); fetching the one this tab opens on alongside views.js saves a round of loading on a cold start.
+ */
+export function bootModuleFor(hash) {
+  const page = String(hash ?? "").replace(/^#\/?/, "").split(/[/?]/)[0].toLowerCase();
+  if (["chain", "strategy", "positions", "oi", "vol"].includes(page)) return "./desk.js";
+  if (page === "screeners") return /^#\/?screeners\/events/.test(hash) ? "./events.js" : /^#\/?screeners\/stocks/.test(hash) ? null : /^#\/?screeners\/arbitrage/.test(hash) ? "./desk.js" : "./screener.js";
+  if (page === "calendar") return "./calendar.js";
+  if (page === "recorder") return "./recorder.js";
+  return null;
+}
+if (typeof location !== "undefined" && memoryKey) {
+  const mod = bootModuleFor(location.hash);
+  if (mod) import(mod).catch(() => {});
+}
 
 export function setKey(k) {
   memoryKey = k || null;
@@ -317,6 +335,7 @@ export async function api(path, { method = "GET", body, raw = false, fresh = fal
     if (!reads) routeReads.set(navPage, (reads = new Set()));
     if (reads.size < 16) reads.add(path);
   }
+  noteRead(path);
   if (!fresh && cacheable(path)) {
     const hit = answers.get(path);
     const age = hit ? Date.now() - hit.at : NaN;
@@ -331,6 +350,53 @@ export async function api(path, { method = "GET", body, raw = false, fresh = fal
   const t0 = performance.now();
   const a = await fetchShared(path, { headers });
   return toResult(a, { raw, ms: Math.round(performance.now() - t0) });
+}
+
+// ── Polls become stream subscriptions ──
+// A page that reads the same /v1/quotes or /v1/ltp URL again within AUTO_WATCH_MS is polling: its symbols are then
+// watched on the shared live connection (live.js) until it stops, so the Bridge answers the next polls from ticks
+// instead of the broker. Positions, Home, Strategy and the screeners get this without knowing about it.
+export const AUTO_WATCH_MS = 15_000;
+const AUTO_WATCH_MAX = 400;
+const AUTO_WATCH_RE = /^\/v1\/(quotes|ltp)\?(?:[^#]*&)?symbols=([^&#]+)/;
+const autoWatches = new Map(); // path -> { seen, handle, timer, n }
+let autoWatched = 0;
+
+/** The symbols and stream mode of a polled read, or null (pure). */
+export function pollTarget(path) {
+  const m = AUTO_WATCH_RE.exec(String(path));
+  if (!m) return null;
+  let raw = m[2];
+  try {
+    raw = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  const symbols = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  return symbols.length ? { symbols, mode: m[1] === "quotes" ? "quote" : "ltp" } : null;
+}
+
+function noteRead(path) {
+  const target = pollTarget(path);
+  if (!target || typeof window === "undefined") return;
+  const now = Date.now();
+  const w = autoWatches.get(path);
+  if (!w) {
+    autoWatches.set(path, { seen: now, handle: null, timer: null, n: 0 });
+    return;
+  }
+  if (!w.handle && now - w.seen <= AUTO_WATCH_MS && autoWatched + target.symbols.length <= AUTO_WATCH_MAX) {
+    w.n = target.symbols.length;
+    autoWatched += w.n;
+    w.handle = liveWatch(target.symbols, target.mode, () => {});
+  }
+  w.seen = now;
+  clearTimeout(w.timer);
+  w.timer = setTimeout(() => {
+    w.handle?.stop();
+    if (w.handle) autoWatched -= w.n;
+    autoWatches.delete(path);
+  }, AUTO_WATCH_MS);
 }
 
 /**

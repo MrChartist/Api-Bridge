@@ -637,7 +637,7 @@ async function renderDesk(kind) {
   // ── Live ticks (live.js): between refreshes the legs on screen, the index and its futures stream in over the one
   // shared connection. The Bridge then builds this page's chain reads from the same ticks (no broker call), so the
   // refresh below costs the broker nothing while the stream is up. The chain and the Strategy Builder redraw on each
-  // frame that brought ticks, OI Analysis at most once a second. Greeks stay from the last refresh (a few seconds).
+  // frame that brought ticks, OI Analysis at most twice a second. Greeks stay from the last refresh (a few seconds).
   const LIVE_KINDS = new Set(["chain", "strategy", "oi"]);
   const feed = LIVE_KINDS.has(kind) ? watch([], "quote", (ticks) => applyTicks(ticks)) : null;
   /** canonical symbol -> [row index, "ce" | "pe"] for the chain on screen */
@@ -695,10 +695,10 @@ async function renderDesk(kind) {
     st.chain = { ...st.chain, rows, ...(idxTick && isFigure(idxTick.ltp) ? { underlyingLtp: idxTick.ltp } : {}) };
     if (newest) st.freshness = { ...(st.freshness ?? {}), asOf: new Date(newest).toISOString(), ageMs: 0, stale: false, source: "stream" };
     st.lastOk = new Date().toISOString();
-    // The chain and the builder redraw on this frame; OI Analysis (it charts every strike) at most once a second.
+    // The chain and the builder redraw on this frame; OI Analysis (it charts every strike) at most twice a second.
     if (kind !== "oi") return drawAll();
     if (oiDrawTimer) return;
-    const wait = Math.max(0, 1000 - (performance.now() - oiDrawnAt));
+    const wait = Math.max(0, 500 - (performance.now() - oiDrawnAt));
     oiDrawTimer = setTimeout(() => {
       oiDrawTimer = 0;
       oiDrawnAt = performance.now();
