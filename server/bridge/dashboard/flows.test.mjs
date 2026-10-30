@@ -82,6 +82,16 @@ describe("Orders in plain words", () => {
     expect(WORKING_ORDER.has("open") && !WORKING_ORDER.has("filled")).toBe(true);
   });
 
+  it("Modify changes a stop-loss order's trigger, with the SL limit on the right side of it", () => {
+    const sl = { side: "SELL", orderType: "SL", quantity: 65, filledQuantity: 0, price: 574.1, triggerPrice: 577 };
+    expect(modifyChange({ lots: "1", lotSize: 65, order: sl, price: "582", limit: true, trigger: "585", stop: true })).toEqual({ body: { price: 582, triggerPrice: 585 }, quantity: 65 });
+    expect(modifyChange({ lots: "1", lotSize: 65, order: sl, price: "586", limit: true, trigger: "585", stop: true }).error).toEqual({ field: "price", message: "For this stop-loss order the limit is at or below the trigger." });
+    expect(modifyChange({ lots: "1", lotSize: 65, order: sl, price: "574.1", limit: true, trigger: "", stop: true }).error.field).toBe("trigger");
+    const slm = { side: "BUY", orderType: "SL-M", quantity: 65, filledQuantity: 0, price: null, triggerPrice: 253.2 };
+    expect(modifyChange({ lots: "1", lotSize: 65, order: slm, limit: false, trigger: "255", stop: true })).toEqual({ body: { triggerPrice: 255 }, quantity: 65 });
+    expect(modifyChange({ lots: "1", lotSize: 65, order: slm, limit: false, trigger: "253.2", stop: true }).error).toEqual({ field: "trigger", message: "Change the lots, the trigger or the price first." });
+  });
+
   it("Modify asks in lots like the ticket and sends the quantity in units", () => {
     const o = { quantity: 65, filledQuantity: 0, price: 120 };
     expect(modifyChange({ lots: "2", lotSize: 65, order: o, price: "120" })).toEqual({ body: { quantity: 130 }, quantity: 130 });

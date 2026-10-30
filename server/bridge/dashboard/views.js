@@ -2495,9 +2495,12 @@ function orderActions(o) {
     // A refusal from the Bridge, said once: under its field when it names one, else on one line above the buttons.
     const err = h("p", { class: "bad-text", role: "alert", hidden: true });
     const limit = o.orderType === "LIMIT" || o.orderType === "SL";
+    // A stop-loss order (SL, SL-M) changes its trigger here too.
+    const stop = o.orderType === "SL" || o.orderType === "SL-M";
+    const trig = h("input", { id: "mod-trigger", type: "number", min: "0.05", step: "0.05", inputmode: "decimal", value: isFigure(o.triggerPrice) ? String(o.triggerPrice) : "" });
     const ok = await modal({
       title: `Modify ${o.side === "BUY" ? "buy" : "sell"} ${name}`,
-      body: h("div", { class: "stack" }, h("div", { class: "form-grid" }, h("label", { class: "field", for: "mod-qty" }, h("span", {}, inLots ? "Lots" : "Quantity"), qty, units), limit ? field("Limit price", price) : null), err),
+      body: h("div", { class: "stack" }, h("div", { class: "form-grid" }, h("label", { class: "field", for: "mod-qty" }, h("span", {}, inLots ? "Lots" : "Quantity"), qty, units), stop ? field("Trigger price", trig) : null, limit ? field("Limit price", price) : null), err),
       buttons: [
         { label: "Keep as is", value: false },
         {
@@ -2505,15 +2508,15 @@ function orderActions(o) {
           cls: "primary",
           onClick: async () => {
             err.hidden = true;
-            const c = modifyChange({ lots: qty.value, lotSize, order: o, price: price.value, limit });
-            if (c.error) return fieldError(c.error.field === "price" ? price : qty, c.error.message);
+            const c = modifyChange({ lots: qty.value, lotSize, order: o, price: price.value, limit, trigger: trig.value, stop });
+            if (c.error) return fieldError(c.error.field === "price" ? price : c.error.field === "trigger" ? trig : qty, c.error.message);
             try {
               await api(`/v1/orders/${encodeURIComponent(o.orderId)}`, { method: "PATCH", body: c.body });
               return true;
             } catch (e) {
-              const f = (Array.isArray(e?.body?.errors) ? e.body.errors : []).find((x) => /^(quantity|lots|price)$/.test(String(x.path ?? "").split(".").pop()));
+              const f = (Array.isArray(e?.body?.errors) ? e.body.errors : []).find((x) => /^(quantity|lots|price|triggerPrice)$/.test(String(x.path ?? "").split(".").pop()));
               const msg = String(f?.message ?? e?.message ?? "Not changed").replace(/(\d),(?=\d)/g, "$1");
-              if (f) return fieldError(String(f.path).endsWith("price") ? price : qty, msg);
+              if (f) return fieldError(String(f.path).endsWith("triggerPrice") ? trig : String(f.path).endsWith("price") ? price : qty, msg);
               err.textContent = `Not changed: ${msg}`;
               err.hidden = false;
               return false;

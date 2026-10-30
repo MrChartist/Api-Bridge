@@ -8781,6 +8781,13 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .bk-px-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .bk-exit-figs { margin-top: -1px; }
 .bk-nw { white-space: nowrap; }
+/* The order ticket grows with its fields on tall screens (stop and target add two rows), so the figures stay above
+   the footer; shorter screens keep the usual cap and scroll inside the sheet. */
+@media (min-width: 720px) and (min-height: 900px) { dialog.sheet:has(.ticket) { max-height: min(96vh, 1180px); } }
+/* SL / SL-M: four types share the Type control. */
+.ticket .segmented button[data-value="SL-M"] { white-space: nowrap; }
+/* Phones: the four order types take the row's whole width under Lots. */
+@media (max-width: 719px) { .ticket-grid > .field:has(> .bk-type-seg) { grid-column: 1 / -1; } }
 /* End of broker features. */
 
 /* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────

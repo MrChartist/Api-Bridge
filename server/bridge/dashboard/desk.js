@@ -24,7 +24,7 @@ import { animatePage, barsEnter, countUp, flashValue, stopCount } from "./motion
 import { riskAfterCharges, ticketRisk } from "./flows.js";
 import { watch } from "./live.js";
 import { SPAN_METHOD, marginLegsOf, portfolioMargin } from "./span-margin.js";
-import { gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, opFor, triggerBody, triggerProblem } from "./trigger-core.js";
+import { gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, opFor, slTriggerStart, stopOrderProblem, stopOrderText, triggerBody, triggerProblem } from "./trigger-core.js";
 
 const SLOT = "mcb.dashboard.desk";
 /** The index underlyings the Options pages list (live) and the three the demo serves; the Option Screener shares them. */
@@ -1617,7 +1617,14 @@ async function renderDesk(kind) {
       ? h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(start ?? lotSize) })
       : h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(start ? Math.max(1, Math.round(start / lotSize)) : 1) });
     const lotHint = h("span", { class: "hint" });
-    const typeSeg = segmented("Order type", [["LIMIT", "Limit"], ["MARKET", "Market"]], orderType === "MARKET" ? "MARKET" : "LIMIT");
+    const typeSeg = segmented("Order type", [["LIMIT", "Limit"], ["MARKET", "Market"], ["SL", "SL"], ["SL-M", "SL-M"]], ["MARKET", "SL", "SL-M"].includes(orderType) ? orderType : "LIMIT");
+    // Stop-loss orders (SL: a limit once triggered; SL-M: market once triggered) rest at the exchange (paper: the
+    // paper engine) until LTP reaches the trigger. Not a Bridge trigger: the broker holds them.
+    typeSeg.classList.add("bk-type-seg");
+    const isStop = () => typeSeg.value === "SL" || typeSeg.value === "SL-M";
+    const slTrig = h("input", { id: "bk-sl-trig", type: "number", min: "0.05", step: String(tick), inputmode: "decimal" });
+    const slField = h("label", { class: "field bk-sl", for: "bk-sl-trig", hidden: true }, h("span", {}, "Trigger price"), slTrig);
+    const slHint = h("p", { class: "hint bk-trig-hint", "aria-live": "polite", hidden: true });
     // When: now, or at a price (a GTT the Bridge holds and sends through every check when LTP reaches the trigger).
     const whenSeg = exit ? null : segmented("When", [["now", "Now"], ["gtt", "At a price"]], "now");
     const gtt = () => whenSeg?.value === "gtt";
@@ -1647,6 +1654,7 @@ async function renderDesk(kind) {
           exitsHint,
         );
     const exitsWanted = () => !exit && (isFigure(stopIn.value) || isFigure(targetIn.value));
+    const whenRow = whenSeg ? h("div", { class: "ticket-grid bk-when" }, segField("When", whenSeg), trigField) : null;
     const midPx = (sd) => O.roundToTick(O.mid(quote()), tick, sd === "BUY" ? "buy" : "sell");
     const startPx = isFigure(priceIn) ? Number(priceIn) : exit ? midPx(side) ?? O.touchPrice(quote(), side, tick) : O.touchPrice(quote(), side, tick);
     const price = h("input", { type: "number", min: "0.05", step: String(tick), inputmode: "decimal", value: String(startPx ?? "") });
@@ -1734,7 +1742,8 @@ async function renderDesk(kind) {
       const b = { account: a.id, symbol: sym, side: sideSeg.value, product: prodSeg.value, orderType: typeSeg.value };
       if (inUnits) b.quantity = units();
       else b.lots = Math.max(1, Math.floor(Number(lots.value) || 1));
-      if (typeSeg.value === "LIMIT" && isFigure(price.value)) b.price = Number(price.value);
+      if ((typeSeg.value === "LIMIT" || typeSeg.value === "SL") && isFigure(price.value)) b.price = Number(price.value);
+      if (isStop() && isFigure(slTrig.value)) b.triggerPrice = Number(slTrig.value);
       if (live()) b.mode = "live";
       if (gate.needed && gateBox.checked && b.lots !== undefined) b.lotSizeConfirmed = lotSize;
       return b;
@@ -1752,7 +1761,8 @@ async function renderDesk(kind) {
       placeBtn.className = b.side === "BUY" ? "btn buy" : "btn sell";
       // A GTT is checked again when it fires: a price band against today's price does not stop setting it.
       const gttBad = gtt() && (!isFigure(trig.value) || Number(trig.value) <= 0);
-      placeBtn.disabled = (!gtt() && blocked) || gttBad || !gateOk() || (live() && !ack.checked) || (typeSeg.value === "LIMIT" && !isFigure(price.value));
+      const slBad = isStop() && Boolean(stopOrderProblem({ side: b.side, orderType: b.orderType, trigger: b.triggerPrice, price: b.price, ltp: num(quote()?.ltp) }));
+      placeBtn.disabled = (!gtt() && blocked) || gttBad || slBad || !gateOk() || (live() && !ack.checked) || ((typeSeg.value === "LIMIT" || typeSeg.value === "SL") && !isFigure(price.value));
     };
     const drawQuote = () => {
       const q = quote();
@@ -1772,6 +1782,12 @@ async function renderDesk(kind) {
       if (!gateOk()) {
         last = null;
         previewEl.replaceChildren(h("p", { class: "muted small pad" }, "Check the lot size above to see the order preview."));
+        return drawButton();
+      }
+      const slProblem = isStop() ? stopOrderProblem({ side: b.side, orderType: b.orderType, trigger: b.triggerPrice, price: b.price, ltp: num(quote()?.ltp) }) : null;
+      if (slProblem) {
+        last = null;
+        previewEl.replaceChildren(h("p", { class: "muted small pad" }, slProblem.message));
         return drawButton();
       }
       if (b.orderType === "LIMIT" && b.price === undefined) {
@@ -1795,7 +1811,7 @@ async function renderDesk(kind) {
         // sell, the approximate margin. Before charges; the broker's own margin figure is final.
         const q0 = quote();
         // A GTT fills when it fires: at its limit, or about the trigger for a market order.
-        const px = gtt() ? gttFillPrice({ orderType: b.orderType, price: b.price, trigger: num(trig.value) }) : b.price ?? (b.side === "BUY" ? num(q0?.ask) : num(q0?.bid)) ?? num(q0?.ltp);
+        const px = gtt() ? gttFillPrice({ orderType: b.orderType, price: b.price, trigger: num(trig.value) }) : isStop() ? gttFillPrice({ orderType: b.orderType === "SL" ? "LIMIT" : "MARKET", price: b.price, trigger: b.triggerPrice }) : b.price ?? (b.side === "BUY" ? num(q0?.ask) : num(q0?.bid)) ?? num(q0?.ltp);
         const risk = !fut && !exit && row ? ticketRisk({ side: b.side, right, strike: row.strike, price: px, qty: r.quantity }) : null;
         const fwd = num(st.chain?.underlyingLtp);
         // Margin: the same portfolio model as the paper engine, Strategy and Positions (span-margin.js).
@@ -1839,7 +1855,7 @@ async function renderDesk(kind) {
             // Paper is said once (the account); only a live order gets a Mode figure, in red.
             r.mode === "live" ? h("div", {}, h("small", {}, "Mode"), h("span", { class: "down" }, "LIVE")) : null,
           ),
-          exitFigs,
+          ...(exitFigs ? [exitFigs] : []),
           isFigure(entryCh)
             ? h(
                 "p",
@@ -1884,7 +1900,22 @@ async function renderDesk(kind) {
       const n = Math.max(1, Math.floor(Number(lots.value) || 1));
       lotHint.textContent = inUnits ? `odd quantity · lot ${formatInt(lotSize)}` : `${formatInt(n * lotSize)} qty`;
       for (const btn of pctBtns) btn.setAttribute("aria-pressed", String(sizeFor(Number(btn.dataset.pct)) === n && (Number(btn.dataset.pct) === 100 || sizeFor(100) !== n)));
-      priceField.hidden = typeSeg.value !== "LIMIT";
+      priceField.hidden = typeSeg.value !== "LIMIT" && typeSeg.value !== "SL";
+      slField.hidden = !isStop();
+      slHint.hidden = !isStop();
+      if (isStop()) {
+        // An SL's limit follows its trigger (plus 0.5 % for a buy, minus for a sell) until it is typed in.
+        if (typeSeg.value === "SL" && !priceTyped) {
+          const lp = gttLimit(Number(slTrig.value), sideSeg.value, tick);
+          if (lp !== null) price.value = String(lp);
+        }
+        const f = { side: sideSeg.value, orderType: typeSeg.value, trigger: num(slTrig.value), price: num(price.value), ltp: num(quote()?.ltp) };
+        const bad = stopOrderProblem(f);
+        slHint.textContent = bad ? bad.message : stopOrderText(f);
+        slHint.classList.toggle("bad-text", Boolean(bad));
+      }
+      // A stop-loss order is already conditional: the When row (a Bridge GTT) is for limit and market orders.
+      if (whenRow) whenRow.hidden = isStop();
       trigField.hidden = !gtt();
       trigHint.hidden = !gtt();
       if (exitsBox) {
@@ -1914,10 +1945,26 @@ async function renderDesk(kind) {
     sideSeg.addEventListener("change", () => {
       const p = exit ? midPx(sideSeg.value) ?? O.touchPrice(quote(), sideSeg.value, tick) : O.touchPrice(quote(), sideSeg.value, tick);
       if (p !== null) price.value = String(p);
-      if (gtt()) priceTyped = false;
+      if (gtt() || isStop()) priceTyped = false;
+      if (isStop()) {
+        const s = slTriggerStart(sideSeg.value, num(quote()?.ltp), tick);
+        if (s !== null) slTrig.value = String(s);
+      }
       changed();
     });
-    for (const el of [typeSeg, prodSeg, modeSeg].filter(Boolean)) el.addEventListener("change", changed);
+    for (const el of [prodSeg, modeSeg].filter(Boolean)) el.addEventListener("change", changed);
+    typeSeg.addEventListener("change", () => {
+      if (isStop()) {
+        if (whenSeg && gtt()) whenSeg.value = "now";
+        if (!isFigure(slTrig.value)) {
+          const s = slTriggerStart(sideSeg.value, num(quote()?.ltp), tick);
+          if (s !== null) slTrig.value = String(s);
+        }
+        priceTyped = false;
+      }
+      changed();
+    });
+    slTrig.addEventListener("input", changed);
     // Typed before `changed` reads it (the listener order matters: changed would otherwise move the limit back).
     let priceTyped = false;
     price.addEventListener("input", () => (priceTyped = true));
@@ -1961,10 +2008,12 @@ async function renderDesk(kind) {
         // An exit's side is fixed (the other side would add to the position): a label, not a control.
         exit ? h("div", { class: "field" }, h("span", {}, "Side"), h("span", { class: "ticket-acct" }, side === "BUY" ? "Buy to close" : "Sell to close", h("span", { class: "muted small" }, "· to add, use the chain"))) : segField("Side", sideSeg),
         h("div", { class: "ticket-grid" }, h("label", { class: "field" }, h("span", {}, inUnits ? "Quantity " : "Lots ", lotHint), lots), segField("Type", typeSeg)),
-        whenSeg ? h("div", { class: "ticket-grid bk-when" }, segField("When", whenSeg), trigField) : null,
+        whenRow,
         whenSeg ? trigHint : null,
         gateRow,
         pctRow,
+        slField,
+        slHint,
         priceField,
         h("div", { class: "ticket-grid" }, segField("Product", prodSeg), acctField ?? h("div", { class: "field" }, h("span", {}, "Account"), h("span", { class: "ticket-acct one-line", title: a.label }, h("span", { class: "acct-name" }, a.label), modeSeg || /paper/i.test(a.label ?? "") ? null : h("span", { class: "acct-badge", "data-mode": "paper" }, "Paper")))),
         exitsBox,
