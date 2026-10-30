@@ -317,6 +317,8 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
       createdAt: istIso(t0),
       updatedAt: istIso(t0),
       expiresAt: istIso(expires),
+      contractExpiry: resolved.expiry ?? null,
+      askedExpiresAt: input.expiresAt && !amo ? istIso(Date.parse(String(input.expiresAt))) : null,
       ltpAtCreate: ltp,
       lastLtp: ltp,
       firedLeg: null,
@@ -578,8 +580,10 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
       if (t0 - lastSweep >= 60_000) {
         lastSweep = t0;
         for (const t of state.items.filter((x) => x.status === "active" && x.reduceOnly)) {
+          const product = t.product;
           const held = await heldQty(t);
-          if (held === 0) close(t, "cancelled", { message: "The position is already closed.", code: "REDUCE_ONLY" });
+          // Not if it was cancelled, or carried to another product by a conversion, while the position was read.
+          if (held === 0 && t.status === "active" && t.product === product) close(t, "cancelled", { message: "The position is already closed.", code: "REDUCE_ONLY" });
         }
       }
     } catch (err) {
@@ -590,7 +594,84 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
     return fired;
   }
 
+  /** When a trigger set for `product` ends if it is carried there at `t0` (never later than it would have ended). */
+  function goodTillAfterConvert(t, product, t0) {
+    let expires = Date.parse(t.createdAt) + YEAR_MS;
+    if (t.contractExpiry) expires = Math.min(expires, closeOf(t.contractExpiry));
+    if (t.askedExpiresAt) expires = Math.min(expires, Date.parse(t.askedExpiresAt));
+    if (product === "INTRADAY") {
+      const cut = atIst(istDayOf(t0), squareOffTime());
+      expires = Math.min(expires, cut > t0 ? cut : cut + 86_400_000);
+    }
+    return expires;
+  }
+
+  /**
+   * A position converted between products (MIS and NRML): its open stops and targets go with the converted units, at
+   * the same levels, instead of cancelling themselves as "already closed". Each trigger carries as much of its
+   * quantity as was converted (all of it moves when it fits, else it is split: the rest stays on the old product).
+   * Synchronous, so no flat-position sweep runs between the conversion and the move.
+   */
+  function onConverted(p) {
+    const quantity = Number(p?.quantity);
+    if (!p || !(quantity > 0) || p.from === p.to) return;
+    const t0 = now();
+    const fix = [];
+    for (const t of state.items.filter((x) => x.status === "active" && x.reduceOnly && x.account === p.accountId && x.symbol === p.symbol && x.product === p.from && x.mode === (p.mode ?? "paper"))) {
+      const movedLegs = t.legs.map((l) => ({ ...structuredClone(l), order: { ...l.order, quantity: Math.min(l.order.quantity, quantity) } })).filter((l) => l.order.quantity > 0);
+      const keptLegs = t.legs.map((l) => ({ ...structuredClone(l), order: { ...l.order, quantity: l.order.quantity - Math.min(l.order.quantity, quantity) } })).filter((l) => l.order.quantity > 0);
+      if (!movedLegs.length) continue;
+      const known = t.contractExpiry !== undefined;
+      if (!keptLegs.length) {
+        t.product = p.to;
+        t.expiresAt = istIso(known ? goodTillAfterConvert(t, p.to, t0) : Math.min(Date.parse(t.expiresAt), goodTillAfterConvert(t, p.to, t0)));
+        t.result = { ...(t.result ?? {}), message: `Carried to ${p.to} with the position (${p.from} to ${p.to}).` };
+        touch(t);
+        if (!known) fix.push(t);
+        emit(t, "converted");
+        continue;
+      }
+      const copy = {
+        ...structuredClone(t),
+        id: `trg_${randomBytes(6).toString("hex")}`,
+        product: p.to,
+        legs: movedLegs,
+        type: movedLegs.length === 2 ? "oco" : "single",
+        convertedFrom: t.id,
+        createdAt: istIso(t0),
+        result: { message: `Carried to ${p.to} with ${movedLegs[0].order.quantity} converted from ${p.from} (from trigger ${t.id}).` },
+      };
+      copy.expiresAt = istIso(known ? goodTillAfterConvert(t, p.to, t0) : Math.min(Date.parse(t.expiresAt), goodTillAfterConvert(t, p.to, t0)));
+      touch(copy);
+      t.legs = keptLegs;
+      t.type = keptLegs.length === 2 ? "oco" : "single";
+      touch(t);
+      state.items.push(copy);
+      if (!known) fix.push(copy);
+      emit(t, "updated");
+      emit(copy, "created");
+    }
+    try {
+      save();
+    } catch (err) {
+      log?.error?.("triggers could not be saved after a conversion", { error: String(err?.message ?? err) });
+    }
+    // A trigger set before the contract's expiry was kept on it: read it now to give the carried one its full life.
+    for (const t of fix) {
+      Promise.resolve(deps.symbols?.resolve?.(t.symbol))
+        .then((r) => {
+          if (!r || t.status !== "active") return;
+          t.contractExpiry = r.expiry ?? null;
+          t.expiresAt = istIso(goodTillAfterConvert(t, t.product, now()));
+          touch(t);
+          save();
+        })
+        .catch(() => {});
+    }
+  }
+
   let offBus = null;
+  let offConvert = null;
   return {
     create,
     update,
@@ -609,6 +690,7 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
         for (const t of state.items.filter((x) => x.status === "waiting" && x.parentOrderId === p?.orderId)) syncParent(t, p).catch(() => {});
       };
       offBus = deps.bus?.on?.("order.updated", handler) ?? null;
+      offConvert = deps.bus?.on?.("position.converted", onConverted) ?? null;
       timer = timers.setInterval(() => runOnce(), intervalMs);
       timer?.unref?.();
     },
@@ -617,6 +699,8 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
       timer = null;
       if (typeof offBus === "function") offBus();
       offBus = null;
+      if (typeof offConvert === "function") offConvert();
+      offConvert = null;
     },
     /** Tests: the stored items as on disk. */
     _state: () => state,

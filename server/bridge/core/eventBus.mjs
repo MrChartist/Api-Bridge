@@ -22,6 +22,8 @@
  *  config.warning      { message }
  *  key.revoked         { keyId }                    StreamHub closes WS/SSE connections opened with this key
  *  ticket.confirmed    { ticketId, accountId, principal }   a person confirmed an order ticket (no token in the payload)
+ *  position.converted  { accountId, mode, symbol, from, to, quantity, at }   units moved between products (the trigger
+ *                        engine carries a position's stops and targets with them)
  *  scan.progress       { keyId, jobId, savedId, status, progress: { total, done, matched, errors } }   scanner, at most 1/s per job
  *  scan.completed      { keyId, jobId, savedId, status, matched: string[], progress }
  *  scan.alert          { keyId, savedId, name, jobId, newMatches: string[], at }   a saved scan found symbols its last run did not
@@ -56,6 +58,7 @@ export const TOPICS = Object.freeze([
   "config.warning",
   "key.revoked",
   "ticket.confirmed",
+  "position.converted",
   "scan.progress",
   "scan.completed",
   "scan.alert",

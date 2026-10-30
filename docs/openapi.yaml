@@ -1390,6 +1390,10 @@ paths:
         Paper: moves the quantity to the other product at its average price (no order, no fill, no charge); refused
         into Intraday after the square-off time, while the kill switch is on, or when the other product holds the
         opposite side. Live: not supported through the Bridge yet (CAPABILITY_UNSUPPORTED); convert in the broker's app.
+        The position's open stops and targets (bracket and position triggers) go with the converted quantity to the new
+        product at the same levels: a trigger that fits is moved whole (same id); a larger one is split, the converted
+        part becoming a new trigger with convertedFrom set. A carried trigger is good till the new product's limit
+        (the contract's expiry for carry, today's square-off for Intraday).
       x-stream: S7
       x-scope: paper
       requestBody:
@@ -8336,6 +8340,7 @@ components:
         status: { type: string, enum: [waiting, active, firing, triggered, cancelled, failed, expired] }
         legs: { type: array, items: { type: object, additionalProperties: true } }
         expiresAt: { type: string }
+        convertedFrom: { type: string, description: "The trigger this one was split from when part of its position was converted to another product." }
         lastLtp: { type: [number, "null"] }
         result: { type: [object, "null"], additionalProperties: true, description: "orderId, status, code and message once it fired, failed or was cancelled." }
         warnings: { type: array, items: { type: string } }

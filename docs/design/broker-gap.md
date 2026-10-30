@@ -157,7 +157,7 @@ Each row is one commit on `claude/happy-carson-2a6o3y`, with tests, checked on a
 | 4 | Trailing stop | `trail: { points | pct }` on any stop leg | Only tightens. |
 | 5 | SL and SL-M in the ticket; trigger in Modify | `desk.js`, `views.js orderActions`, `flows.js modifyChange` | |
 | 6 | Order filters, Cancel all, trade book | `orders-book.js`, Orders › Trades | |
-| 7 | Convert MIS↔NRML | `POST /v1/positions/convert`, Positions › leg | Paper only; live is refused with where to convert. |
+| 7 | Convert MIS↔NRML | `POST /v1/positions/convert`, Positions › leg | Paper only; live is refused with where to convert. The position's stops and targets move with the converted quantity to the new product at the same levels (split when only part converts; `position.converted` on the bus). |
 | 7a | Day / Net on Positions | `orders-core.js dayRows`, paper `overnightQty`, `prevClose`, `dayPnl` | |
 | 8 | Market depth in the ticket | `desk.js` depth panel, `orders-core.js depthView` | Five levels; twenty where the source sends them (no adapter does yet). |
 | 9 | What to do, in plain words | `reasons-core.js`, ticket, Orders, Triggers | Follows the account's mode. |

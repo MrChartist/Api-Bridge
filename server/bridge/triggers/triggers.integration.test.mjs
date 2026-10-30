@@ -26,6 +26,7 @@ import { createTriggerService } from "./triggerService.mjs";
 
 const OPT = "NFO:NIFTY-2026-10-27-25000-CE"; // lot 65, LTP 120.5
 const LOT = 65;
+const NOV = "NFO:NIFTY-2026-11-24-25000-CE"; // lot 65, expires after the dates the later tests run on
 const log = createNullLogger();
 const ctx = (key) => createCallContext({ source: "rest", key: KEYS[key], log });
 let app;
@@ -66,7 +67,7 @@ beforeAll(async () => {
     modules: [ordersModule, paperModule, safetyModule, triggersModule],
     logger: log,
     clock,
-    overrides: { keyStore: notImplementedService("keyStore"), accounts, scheduler: createFakeScheduler(), symbols: createFakeSymbolService({ instruments: INSTRUMENTS }), marketData: md },
+    overrides: { keyStore: notImplementedService("keyStore"), accounts, scheduler: createFakeScheduler(), symbols: createFakeSymbolService({ instruments: [...INSTRUMENTS, { symbol: NOV, lotSize: LOT, tickSize: 0.05 }] }), marketData: md },
   });
   svc = triggerServiceOf(app.deps);
 });
@@ -547,5 +548,56 @@ describe("review follow-ups", () => {
     s2.cancel(ctx("paper"), t.id);
     await app.deps.orders.place(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", side: "SELL", quantity: 3, product: "CNC", orderType: "MARKET" });
     await clock.advance(1000);
+  });
+
+  it("converting MIS to NRML carries the position's stop and target to NRML with the same levels; they are not cancelled as closed", async () => {
+    await at("2026-11-02", "12:00");
+    md.setPrice(NOV, 120);
+    const s2 = createTriggerService(app.deps, quiet);
+    await s2.start();
+    try {
+      await app.deps.orders.place(ctx("paper"), { account: "paper", symbol: NOV, side: "BUY", lots: 4, product: "INTRADAY", orderType: "MARKET" });
+      await clock.advance(1000);
+      const full = await s2.create(ctx("paper"), { account: "paper", symbol: NOV, product: "INTRADAY", origin: "position", legs: [{ trigger: 110, trail: { points: 2 }, order: { side: "SELL", lots: 4 } }, { trigger: 140, order: { side: "SELL", lots: 4 } }] });
+      expect(Date.parse(full.expiresAt)).toBeLessThan(Date.parse("2026-11-03T00:00:00+05:30")); // ends at today's square-off
+      md.setPrice(NOV, 118);
+      await clock.advance(1000);
+      await s2.runOnce(); // the trail moves the stop up to 116
+      const before = s2.get(ctx("paper"), full.id);
+      expect(before.legs[0].trigger).toBe(116);
+
+      // Convert 1 lot of the 4 first: 1 is carried to NRML, 3 stay on MIS.
+      await app.deps.orders.convertPosition(ctx("paper"), { account: "paper", symbol: NOV, from: "INTRADAY", to: "MARGIN", lots: 1 });
+      const kept = s2.get(ctx("paper"), full.id);
+      expect(kept).toMatchObject({ status: "active", product: "INTRADAY" });
+      expect(kept.legs.map((l) => l.order.quantity)).toEqual([195, 195]);
+      const moved = s2.list(() => true, { status: "open" }).filter((t) => t.convertedFrom === full.id);
+      expect(moved).toHaveLength(1);
+      expect(moved[0]).toMatchObject({ status: "active", product: "MARGIN", type: "oco", reduceOnly: true, origin: "position", expiresAt: "2026-11-24T15:30:00.000+05:30" });
+      expect(moved[0].legs.map((l) => [l.trigger, l.op, l.trail, l.order.quantity])).toEqual(before.legs.map((l) => [l.trigger, l.op, l.trail, 65]));
+
+      // Then the other 3: the whole trigger moves to NRML, same id and levels, good till the contract's expiry.
+      await app.deps.orders.convertPosition(ctx("paper"), { account: "paper", symbol: NOV, from: "INTRADAY", to: "MARGIN", lots: 3 });
+      const after = s2.get(ctx("paper"), full.id);
+      expect(after).toMatchObject({ status: "active", product: "MARGIN", expiresAt: "2026-11-24T15:30:00.000+05:30" });
+      expect(after.legs.map((l) => [l.trigger, l.op, l.trail, l.order.quantity])).toEqual(before.legs.map((l) => [l.trigger, l.op, l.trail, 195]));
+
+      // The flat-position sweep leaves them alone (the MIS position is flat, the NRML one is held).
+      await clock.advance(61_000);
+      await s2.runOnce();
+      expect(s2.get(ctx("paper"), full.id).status).toBe("active");
+      expect(s2.get(ctx("paper"), moved[0].id).status).toBe("active");
+
+      // And the stop fires on NRML, selling what is held there.
+      md.setPrice(NOV, 115.5);
+      await clock.advance(1000);
+      expect(await s2.runOnce()).toBe(2);
+      await clock.advance(1000);
+      for (const id of [full.id, moved[0].id]) expect(s2.get(ctx("paper"), id)).toMatchObject({ status: "triggered", firedLeg: 0 });
+      const nrml = (await app.deps.orders.positions(ctx("paper"), "paper")).items.filter((p) => p.symbol === NOV && p.product === "MARGIN");
+      expect(nrml.reduce((n, p) => n + p.netQty, 0)).toBe(0);
+    } finally {
+      s2.stop();
+    }
   });
 });

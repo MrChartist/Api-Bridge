@@ -1812,6 +1812,12 @@ export function createOrderService(deps) {
     if (quantity % lot !== 0) throw bad("quantity", `quantity must be a whole number of lots (lot ${lot}).`);
     if (typeof deps.paper?.convert !== "function") throw new BridgeError("CAPABILITY_UNSUPPORTED", "This Bridge's paper engine cannot convert positions.");
     const out = await deps.paper.convert(summary.id, { symbol: resolved.canonical, from: body.from, to: body.to, quantity });
+    // At once, before anything else is awaited: the trigger engine moves the position's stops and targets with the units.
+    try {
+      bus.emit("position.converted", { accountId: summary.id, mode: "paper", symbol: resolved.canonical, from: body.from, to: body.to, quantity, at: out.at });
+    } catch (err) {
+      log.warn("position.converted could not be announced", { code: err?.code ?? "ERROR" });
+    }
     await audit(ctx, "position.converted", { accountId: summary.id, data: { mode: "paper", symbol: resolved.canonical, from: body.from, to: body.to, quantity } });
     return { accountId: summary.id, mode: "paper", symbol: resolved.canonical, from: body.from, to: body.to, quantity, at: out.at, fromNetQty: out.from.netQty, toNetQty: out.to.netQty };
   }
