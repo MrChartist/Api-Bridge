@@ -7983,3 +7983,5 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 /* Strategy Builder (1800 px and up): a wider build column, so preset cards and leg rows read on one line. */
 @media (min-width: 1800px) { .strat-grid { grid-template-columns: 560px minmax(0, 1fr); } }
 @media (min-width: 2400px) { .strat-grid { grid-template-columns: 640px minmax(0, 1fr); } }
+/* Live events top bar: the name and its connection pill on one line (the compact 34 px bar has no room for two). */
+.ctx-item.ev-ctx { flex-direction: row; align-items: center; gap: 8px; }

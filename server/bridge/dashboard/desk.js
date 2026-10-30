@@ -2991,7 +2991,16 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     const rows = Math.floor((innerHeight - top - 36 - 30 - 24) / rowH) - 1;
     return Math.max(0, Math.floor(rows / 2));
   };
-  const visibleSet = (x) => new Set(O.rowsAroundAtm(x.c, st.strikesView === "all" ? Infinity : Math.max(Number(st.strikesView) || 10, fillStrikes())).map((r) => r.strike));
+  // The fill count the table was last drawn with: a density or window-height change that alters it redraws at once
+  // (onWinResize), instead of waiting for the next data refresh.
+  let drawnFill = null;
+  let drawnDensity = null;
+  const densityNow = () => (typeof document === "undefined" ? "" : document.documentElement.dataset.density ?? "");
+  const visibleSet = (x) => {
+    drawnFill = fillStrikes();
+    drawnDensity = densityNow();
+    return new Set(O.rowsAroundAtm(x.c, st.strikesView === "all" ? Infinity : Math.max(Number(st.strikesView) || 10, drawnFill)).map((r) => r.strike));
+  };
 
   const PHONE_TAG = { mp: "MP", cw: "C wall", pw: "P wall" };
   /** Strike tags in priority order (ATM > Max pain > walls > ±1σ > ±2σ): [class, text, title]. */
@@ -3359,9 +3368,19 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     const over = Math.ceil(document.documentElement.scrollHeight - innerHeight);
     if (!barH && over > 0 && over < 120 && want - over >= 320) w.style.maxHeight = `${want - over}px`;
   }
+  // Its own timer: the ResizeObserver above clears roTimer when the same change resizes the host, which used to drop
+  // this refit (a density switch then waited for the next data refresh).
+  let winTimer = 0;
   const onWinResize = () => {
-    clearTimeout(roTimer);
-    roTimer = setTimeout(() => fitHeight(), 120);
+    clearTimeout(winTimer);
+    winTimer = setTimeout(() => {
+      fitHeight();
+      // Compact / comfortable rows (or a taller window) change how many strikes fill the table: redraw now.
+      if (lastX && built && drawnFill !== null && (densityNow() !== drawnDensity || (st.strikesView !== "all" && fillStrikes() !== drawnFill))) {
+        built.stale = true;
+        self.draw(lastX);
+      }
+    }, 120);
   };
   addEventListener("resize", onWinResize);
 
@@ -3648,6 +3667,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       ro?.disconnect();
       noteRo?.disconnect();
       removeEventListener("resize", onWinResize);
+      clearTimeout(winTimer);
       clearTimeout(roTimer);
     },
     get x() {

@@ -961,7 +961,7 @@ export async function renderEventsPage() {
   window.addEventListener("hashchange", onHash);
   connect();
 
-  mountToolbarCtx("events", h("div", { class: "ctx-cap glass" }, h("span", { class: "ctx-item" }, h("span", { class: "ctx-main" }, "Live events"), connPill)), h("span", { class: "ctx-spacer" }));
+  mountToolbarCtx("events", h("div", { class: "ctx-cap glass" }, h("span", { class: "ctx-item ev-ctx" }, h("span", { class: "ctx-main" }, "Live events"), connPill)), h("span", { class: "ctx-spacer" }));
 
   const controls = h(
     "div",
