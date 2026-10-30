@@ -118,6 +118,30 @@ Still to do:
   - API tabs (check the Keys table at 1100–1399)
   - Data recorder
 
+### 3d2. UX and space passes (done 30 Oct)
+
+- **Space** (`docs/design/ui-pass-3.md` §12):
+  - full-width pages, a flush sidebar with an icon rail, and a Compact / Comfortable / Auto density setting;
+  - more columns and rows on wide screens (chain at 1920: 24 rows × 21 columns, was 21 × 17).
+- **UX** (`docs/design/ux-audit.md`), 37 issues found, 30 fixed:
+  - add a broker in demo, and in normal mode with no restart;
+  - API keys with inline errors and ready-to-paste setups;
+  - error toasts no longer show a green tick;
+  - Home checklist;
+  - the ticket shows max loss, breakeven and margin;
+  - Orders get Modify and Cancel;
+  - paper fund reset;
+  - an Excel formula per contract.
+- **Still open, from the audit's proposals:**
+  - paper margins that credit hedges (spreads are charged as naked shorts);
+  - right-click a strike to build a strategy;
+  - position alerts;
+  - Excel workbook download;
+  - undo for cancel and reset;
+  - charges in the ticket risk;
+  - more demo paper funds (it starts with 85% used);
+  - Home, Accounts and API layouts for wide screens.
+
 ### 3e. Check everything by hand
 
 At phone 390, tablet 820, laptop 1280 and desktop 1440, in light and dark, go through every menu page and every tab.
