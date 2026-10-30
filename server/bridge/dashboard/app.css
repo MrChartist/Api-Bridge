@@ -8681,3 +8681,87 @@ th[aria-sort="ascending"], th[aria-sort="descending"] { color: hsl(var(--foregro
   .chart .meter-fill, .chart .area { forced-color-adjust: none; }
 }
 
+
+/* ───────────────────────── 15d · ANALYTICS IN THE DESK (analytics.js; docs/design/pr17-integration.md) ─────────────────────────
+   PR 17's pages drawn as desk pages: the context sits in the top bar (an-cap), the page is one grid of panels that
+   fills the content area at every width (no cap, no side gutters beyond the page gutter), and the nested stacks the
+   page code builds are flattened into that grid (display: contents) so panels flow into more columns on wide screens.
+   Figures strips, panel heads and tables use the desk's tokens and the density tokens. */
+.an-page { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: var(--panel-gap); align-items: start; min-width: 0; }
+@media (min-width: 2200px) { .an-page { grid-template-columns: repeat(auto-fit, minmax(640px, 1fr)); } }
+.an-page .stack:not([hidden]):not(.card *):not(.card) { display: contents; }
+.an-page > *, .an-page .stack > * { min-width: 0; }
+/* What spans the whole row: the figures strip, notices, loading and empty states, and wide panels. */
+.an-page :is(.stats, .alert, .empty, .analytics-status, .flow-tabs, .an-wide, .err-state, .recording-hint) { grid-column: 1 / -1; }
+.an-page .stack:not(.card *) > p.muted, .an-page > p.muted { grid-column: 1 / -1; margin: 0; padding: 12px 2px; }
+.an-page .an-panel p.muted.small { margin: 4px 0; }
+.an-page .an-gone, .an-page .ctx-owned, .an-page .ctx-summary, .an-page .ctx-refresh, .an-page .analytics-status { display: none !important; }
+.an-page .alert { margin: 0; }
+
+/* Panels: PR 17's cards as desk panels (one surface, one hairline under the head, dense padding). */
+.an-page .card.an-panel { border-radius: var(--r-panel); background: var(--mat-grouped-solid); box-shadow: var(--panel-shadow); overflow: clip; min-width: 0; }
+.an-page .an-panel > .card-head { min-height: var(--panel-head-h); padding: 8px 12px; gap: 6px 12px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+.an-page .an-panel > .card-head .card-titles { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; flex: 1 1 260px; }
+.an-page .an-panel > .card-head .card-titles h2 { font: 600 15px/1.25 var(--font-display); letter-spacing: -0.01em; }
+.an-page .an-panel > .card-head .card-titles p { font: var(--t-caption); color: hsl(var(--foreground) / var(--a-quiet)); }
+.an-page .an-panel > .card-body { padding: 10px 12px 12px; }
+.an-page .an-panel > .card-body:first-child { padding-top: 10px; }
+.an-page .an-panel > .card-body.flush { padding: 0; }
+
+.an-page .an-head-tools { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.an-page .an-head-tools .segmented { padding: 2px; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.an-page .an-head-tools .segmented button { min-height: 30px; padding: 0 11px; font-size: 13px; }
+/* Forms inside a panel: fields flow into as many columns as fit. */
+.an-page .form-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: 10px 12px; align-items: end; }
+.an-page .analytics-controls:not(.an-gone) { margin: 0; }
+.an-page .chart-legend { margin: 0 0 6px; font: 500 12px/1.3 var(--font-body); }
+.an-page .chart-title { margin: 8px 0 4px; font: 600 13px/1.3 var(--font-display); }
+.an-page .chart-host { min-height: 120px; }
+/* The figures strip: tiles become hairline-ruled cells on one surface (like Volatility's and OI's strips). */
+.an-page .grid.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(50%, 168px), 1fr)); gap: 0; border-radius: var(--r-panel); background: var(--mat-grouped-solid); box-shadow: var(--panel-shadow); overflow: hidden; }
+.an-page .grid.stats > .card.stat { display: flex; flex-direction: column; gap: 3px; min-width: 0; margin: 0; padding: 10px 14px 11px; border-radius: 0; background: none; box-shadow: calc(-1 * var(--hl)) 0 0 var(--mat-separator), 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+.an-page .grid.stats > .card.stat .stat-head { display: block; margin: 0; }
+.an-page .grid.stats > .card.stat .label { font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.an-page .grid.stats > .card.stat .value { margin: 0; font: 500 19px/1.15 var(--font-numeric); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.an-page .grid.stats > .card.stat .sub { font: var(--t-caption); line-height: 1.3; color: hsl(var(--foreground) / var(--a-label)); }
+/* Tables: the density tokens; a long table scrolls inside its panel under a sticky head. */
+.an-page .an-panel table th { padding-top: var(--th-py); padding-bottom: var(--th-py); }
+.an-page .an-panel table td { padding-top: var(--td-py); padding-bottom: var(--td-py); }
+.an-page .an-panel :is(th, td):first-child { padding-left: var(--cell-px); }
+.an-page .an-panel :is(th, td):last-child { padding-right: var(--cell-px); }
+.an-page .table-wrap.scroll-box { max-height: min(72vh, 760px); }
+.an-page .kv { grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: 10px 14px; }
+.an-page .kv dd { font: 500 15px/1.3 var(--font-numeric); }
+.an-page details.disclosure, .an-page details { min-width: 0; }
+
+/* The top-bar capsule: underlying │ expiry │ strikes, then the data's freshness on the right. */
+.an-cap .ctx-k .ctx-main { font: 500 13px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.an-cap .an-all .ctx-main { font: 500 13.5px/1.1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.an-fresh-cap { flex: 0 1 auto; min-width: 0; }
+.an-fresh { flex-direction: row; align-items: center; gap: 8px; min-width: 0; }
+.an-fresh .ctx-main { font: 500 13px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-label)); overflow: hidden; text-overflow: ellipsis; }
+.an-fresh .live-dot { width: 8px; height: 8px; border-radius: 99px; flex: none; background: hsl(var(--foreground) / 0.35); }
+.an-fresh[data-tone="ok"] .live-dot { background: hsl(var(--pos)); }
+.an-fresh[data-tone="warn"] .live-dot { background: hsl(var(--warn)); }
+.an-fresh[data-tone="bad"] .live-dot { background: hsl(var(--neg)); }
+@media (max-width: 899px) { .an-fresh-cap { display: none; } }
+@media (max-width: 719px) {
+  .an-page .an-head-tools { flex: 1 1 100%; }
+}
+@media (pointer: coarse) {
+  .an-page .an-head-tools .segmented button { min-height: 44px; }
+}
+/* A table that scrolls inside its panel keeps its head at the top of the panel, not under the top bar. On a desk page
+   the page head is hidden, so a page-scrolling table sticks under the desk top bar. */
+.an-page .card .table-wrap.scroll-box > table > thead th { top: 0; }
+:root[data-layout="desk"] .an-page .card .table-wrap:not(.scroll-box) > table > thead th { top: calc(var(--desk-top) - 8px); }
+/* A panel that is only a short form (a tab's own filters): one compact bar across the row, label beside its field. */
+.an-page .card.an-formbar { grid-column: 1 / -1; }
+.an-page .card.an-formbar > .card-body { padding: 6px 12px; }
+.an-page .card.an-formbar .form-grid { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; }
+.an-page .card.an-formbar .field { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; min-width: 0; margin: 0; }
+.an-page .card.an-formbar .field > span:first-child { font: 500 13px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; }
+.an-page .card.an-formbar :is(select, input) { width: auto; min-width: 96px; min-height: var(--ctl-h); }
+.an-page .card.an-formbar .hint { display: none; }
+/* Phones: the capsule keeps underlying and expiry; the strikes window stays as last chosen (wider screens pick it). */
+@media (max-width: 519px) { .an-cap .ctx-k { display: none; } }

@@ -8,7 +8,7 @@
 // further down touch the DOM. views.js adds the pages with analyticsFlowPages(() => helpers) after the other
 // analytics pages.
 import { alertBox, api, emptyState, h, icon, istTime, optional, pill, table } from "./app.js";
-import { DASH, formatFixed, formatInt, formatNumber, formatSigned, isFigure } from "./format.js";
+import { DASH, MINUS, formatFixed, formatInt, formatNumber, formatSigned, isFigure } from "./format.js";
 import { chainControls, chartHost, compact, demoPill, legend, linear, nextId, niceScale, readNumber, s, statusRow, strikeBars, svgRoot, tile, tiles } from "./analyticsViews.js";
 import { barTimeLabel, dayLabel, rulerLayout, seriesLayout } from "./analyticsMore.js";
 
@@ -18,15 +18,15 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const r1 = (v) => Math.round(v * 10) / 10;
 
 /** A rupee figure in Indian short form (₹12.5 L, ₹1.25 Cr). Missing → DASH (an en dash). */
-export const inr = (v) => (isFigure(v) ? `${Number(v) < 0 ? "-" : ""}₹${compact(Math.abs(Number(v)))}` : DASH);
+export const inr = (v) => (isFigure(v) ? `${Number(v) < 0 ? MINUS : ""}₹${compact(Math.abs(Number(v)))}` : DASH);
 /** A figure the Bridge already reports in INR crore (NSE deals and insiders). Missing → DASH (an en dash). */
-export const crore = (v) => (isFigure(v) ? `${Number(v) < 0 ? "-" : ""}₹${formatFixed(Math.abs(Number(v)), 2)} Cr` : DASH);
+export const crore = (v) => (isFigure(v) ? `${Number(v) < 0 ? MINUS : ""}₹${formatFixed(Math.abs(Number(v)), 2)} Cr` : DASH);
 /** compact(), but small figures keep two decimals so a vanna or charm axis never reads 0, 0, 1. */
 export function compactFine(v) {
   if (!isFigure(v)) return DASH;
   const n = Number(v);
   const a = Math.abs(n);
-  const sign = n < 0 ? "-" : "";
+  const sign = n < 0 ? MINUS : "";
   if (a >= 1e12) return `${sign}${formatNumber(a / 1e12, { maximumFractionDigits: 2 })} L Cr`; // lakh crore
   if (a >= 1e10) return `${sign}${formatNumber(a / 1e10, { maximumFractionDigits: 1 })}k Cr`; // thousand crore
   return a < 1000 && n !== 0 ? formatNumber(n, { maximumFractionDigits: 2 }) : compact(n);
@@ -343,6 +343,9 @@ function runner(H, out) {
 
 /** Tabs as a segmented control over panels that are built once, on first use, and kept (so a tab keeps its filters). */
 async function tabbedPage(H, { label, tabs, initial }) {
+  // In the dashboard shell each tab is a page tab of its own (analytics.js passes H.tab): draw only that one.
+  const only = H.tab ? tabs.find((t) => t.id === H.tab) : null;
+  if (only) return only.build(H);
   const hash = new URLSearchParams(String(location.hash).split("?")[1] ?? "").get("tab");
   const start = tabs.some((t) => t.id === hash) ? hash : initial ?? tabs[0].id;
   const seg = H.segmented(label, tabs.map((t) => [t.id, t.label]), start);
@@ -1071,6 +1074,14 @@ function eventsTab(H) {
     },
   });
 }
+
+/** The NSE filings views (deals, insiders, results calendar) for Flow > Filings. */
+export const filingsTabs = () => [
+  { id: "deals", label: "Deals", build: dealsTab },
+  { id: "insiders", label: "Insiders", build: insidersTab },
+  { id: "events", label: "Results", build: eventsTab },
+];
+export { tabbedPage };
 
 async function renderScreener(H) {
   return tabbedPage(H, {

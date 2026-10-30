@@ -118,9 +118,9 @@ describe("pages and CSP", () => {
     expect(new Set(pages.map((p) => p.group))).toEqual(new Set(["Analytics"]));
     expect(pages.some((p) => p.tab)).toBe(false);
   });
-  it("is served from the dashboard allowlist and imported once by views.js", () => {
+  it("is served from the dashboard allowlist and hosted once by analytics.js", () => {
     expect(readFileSync(new URL("../core/app.mjs", import.meta.url), "utf8")).toMatch(/"analyticsFlow\.js": "text\/javascript/);
-    const views = readFileSync(new URL("./views.js", import.meta.url), "utf8");
+    const views = readFileSync(new URL("./analytics.js", import.meta.url), "utf8");
     expect(views.match(/analyticsFlow\.js/g)).toHaveLength(1);
     expect(views.match(/analyticsFlowPages\(/g)).toHaveLength(1);
   });

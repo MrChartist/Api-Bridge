@@ -45,9 +45,6 @@ import { busiestClass, mountBudget, perSecondLimit, usageChart, windowText } fro
 import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText, startupText } from "./flows.js";
-import { analyticsPages } from "./analyticsViews.js";
-import { analyticsMorePages } from "./analyticsMore.js";
-import { analyticsFlowPages } from "./analyticsFlow.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
 const $ = (id) => document.getElementById(id);
@@ -66,6 +63,7 @@ const PAGE_MODULES = Object.freeze({
   journal: () => import("./journal.js"),
   watchlists: () => import("./watchlists.js"),
   scanner: () => import("./scanner.js"),
+  analytics: () => import("./analytics.js"),
 });
 /** A page renderer that loads its module first. `.module` names it, for preloading. */
 function lazyPage(mod, name) {
@@ -81,6 +79,14 @@ const renderVolPage = lazyPage("desk", "renderVolPage");
 const renderArbPage = lazyPage("desk", "renderArbPage");
 const renderCalendarPage = lazyPage("calendar", "renderCalendarPage");
 const renderScreenerPage = lazyPage("screener", "renderScreenerPage");
+/** One of PR 17's analytics views (analytics.js VIEWS), drawn in this shell. */
+function analyticsView(view) {
+  const render = () => PAGE_MODULES.analytics().then((m) => m.renderAnalyticsView(view));
+  render.module = "analytics";
+  return render;
+}
+/** A tab that draws an analytics view; `page` is the view id (data-page), so old PR 17 ids resolve through LEGACY. */
+const anTab = (id, label, view, extra = {}) => ({ id, label, page: view, layout: "desk", render: analyticsView(view), ...extra });
 const renderParticipantsPage = lazyPage("participants", "renderParticipantsPage");
 const renderRecorderPage = lazyPage("recorder", "renderRecorderPage");
 const renderEventsPage = lazyPage("events", "renderEventsPage");
@@ -321,9 +327,21 @@ export const PAGES = [
     tabs: [
       { id: "strike", label: "By strike", page: "oi", command: "OI Analysis", keywords: "open interest build-up walls max pain pcr", render: renderOiPage },
       { id: "participants", label: "Participants", page: "participants", command: "Participant OI", icon: "people", tint: "teal", keywords: "participants fii dii client pro", sub: "NSE participant-wise open interest: Client, DII, FII and Pro, by day", render: renderParticipantsPage },
+      anTab("change", "OI change", "oichange", { command: "OI change", icon: "activity", tint: "orange", keywords: "oi change build-up unwinding long short covering window", sub: "Open interest added or cut over a window, and who is acting, by strike" }),
+      anTab("spurts", "Spurts", "an-spurts", { command: "OI spurts", icon: "bolt", tint: "orange", keywords: "oi spurts jump baseline surge", sub: "Strikes whose open interest jumped most against their rolling baseline" }),
+      anTab("expiry", "Expiry day", "expiry", { command: "Expiry day digest", icon: "clock", tint: "red", keywords: "expiry day digest time left straddle max pain walls gamma flags", sub: "Time left, the ATM straddle, max pain, OI walls and gamma flags for the expiry, in one view" }),
     ],
   },
-  { id: "vol", label: "Volatility", icon: "wave", tint: "pink", group: "Markets", layout: "desk", title: "Volatility", sub: "Smile, skew, term structure and expected move", render: renderVolPage },
+  {
+    id: "vol", label: "Volatility", icon: "wave", tint: "pink", group: "Markets", layout: "desk", title: "Volatility", sub: "Smile, skew, term structure and expected move",
+    defaultTab: "overview",
+    tabs: [
+      { id: "overview", label: "Overview", page: "vol", command: "Volatility", keywords: "smile skew term structure expected move iv surface", render: renderVolPage },
+      anTab("skew", "Skew", "skew", { command: "IV skew", icon: "wave", tint: "pink", keywords: "iv skew call put risk reversal strike smile", sub: "Call and put IV by strike for one expiry, with the risk reversal" }),
+      anTab("surface", "Surface", "an-surface", { command: "IV surface", icon: "wave", tint: "pink", keywords: "iv surface across expiries term structure lines", sub: "IV by strike for the next expiries, one line each, and the term structure" }),
+      anTab("stats", "Vol stats", "an-volstats", { command: "Vol stats and IV rank", icon: "chart", tint: "pink", keywords: "hv historical volatility iv rank percentile expected move cone", sub: "Historical volatility, ATM IV against HV, expected move, IV rank and the term structure" }),
+    ],
+  },
   {
     id: "screeners", label: "Screeners", icon: "radar", tint: "yellow", key: 8, group: "Markets", layout: "desk", title: "Screeners", sub: "Options, arbitrage, live events and stocks, ranked and scanned",
     defaultTab: "options",
@@ -336,6 +354,45 @@ export const PAGES = [
     ],
   },
   { id: "calendar", label: "Market calendar", icon: "calendar", tint: "teal", group: "Markets", layout: "desk", title: "Market calendar", sub: "Expiries, holidays, lot sizes, ban list and corporate actions, with their sources", render: renderCalendarPage },
+  {
+    id: "exposure", label: "Exposure", icon: "bolt", tint: "yellow", group: "Analytics", layout: "desk", title: "Exposure", sub: "Dealer delta, gamma, vanna and charm by strike and expiry, OI heatmap and Greeks",
+    defaultTab: "strike",
+    tabs: [
+      anTab("strike", "By strike", "an-gex", { command: "Gamma exposure (GEX)", keywords: "gex gamma exposure dex delta vanna charm walls zero gamma flip dealer", sub: "Dealer delta, gamma, vanna and charm by strike, the call and put walls and the zero-gamma level" }),
+      anTab("expiry", "By expiry", "an-gex-expiry", { command: "Exposure by expiry", keywords: "gamma exposure expiries term", sub: "How exposure spreads across expiries" }),
+      anTab("heatmap", "OI heatmap", "an-oi-heatmap", { command: "OI heatmap", keywords: "oi explorer heatmap strike expiry open interest grid", sub: "Call and put OI by strike and expiry, with the biggest cells marked" }),
+      anTab("greeks", "Greeks grid", "greeksgrid", { command: "Greeks grid", keywords: "greeks grid delta gamma theta vega by strike peak", sub: "Delta, gamma, theta, vega and IV by strike, with peak gamma and vega" }),
+      anTab("straddle", "Straddle", "an-straddle", { command: "ATM straddle history", keywords: "straddle atm premium history implied move decay", sub: "The ATM straddle's price through the session and the move it implies" }),
+    ],
+  },
+  {
+    id: "flow", label: "Flow", icon: "activity", tint: "green", group: "Analytics", layout: "desk", title: "Flow", sub: "Unusual options activity, market tide, FII and DII cash flows and NSE filings",
+    defaultTab: "unusual",
+    tabs: [
+      anTab("unusual", "Unusual activity", "unusual", { command: "Unusual options activity", icon: "scan", tint: "red", keywords: "unusual options activity uoa volume oi premium sweep score whales", sub: "Contracts trading far above their open interest, ranked by a 0 to 100 score" }),
+      anTab("tide", "Market tide", "tide", { command: "Market tide", keywords: "tide net premium call put flow sentiment bought sold", sub: "Net call against put premium through the session, and the sentiment it implies" }),
+      anTab("fii", "FII and DII", "flows", { command: "FII and DII flows", icon: "inbox", keywords: "fii dii fpi institutional cash flows net buying selling streak", sub: "Cash-market buying and selling by foreign and domestic institutions, with streaks" }),
+      anTab("filings", "Filings", "an-filings", { command: "NSE filings", icon: "list", keywords: "nse block bulk deals insider trading results corporate events announcements sebi rbi", sub: "NSE block and bulk deals, insider trades and the results calendar (public pages, unverified)" }),
+    ],
+  },
+  {
+    id: "futures", label: "Futures", icon: "chart", tint: "pink", group: "Analytics", layout: "desk", title: "Futures", sub: "Every future with basis and carry, basis history and synthetic futures",
+    defaultTab: "chain",
+    tabs: [
+      anTab("chain", "Futures chain", "futures", { command: "Futures chain", keywords: "futures basis carry calendar spread roll cost", sub: "Every upcoming future with basis, carry, calendar spreads and roll cost" }),
+      anTab("basis", "Basis history", "an-basis", { command: "Basis history", keywords: "basis history z-score mean futures premium", sub: "The futures basis through time, with its mean and z-score" }),
+      anTab("synthetic", "Synthetics", "an-synthetic", { command: "Synthetic futures", keywords: "synthetic future put call parity gap", sub: "The synthetic future at each strike from put-call parity, and its gap to the future" }),
+    ],
+  },
+  {
+    id: "lab", label: "Strategy lab", icon: "strategy", tint: "mint", group: "Analytics", layout: "desk", title: "Strategy lab", sub: "Find strategies for a view, build from templates and work out Greeks and position size",
+    defaultTab: "finder",
+    tabs: [
+      anTab("finder", "Finder", "strategies", { command: "Strategy finder", keywords: "strategy finder view bullish bearish neutral rank pop", sub: "Strategies for your market view, ranked, built from the live chain" }),
+      anTab("templates", "Templates", "an-templates", { command: "Strategy templates", keywords: "templates iron condor straddle strangle spread build", sub: "Thirteen templates built from the live chain, with their payoff" }),
+      anTab("calculators", "Calculators", "calculators", { command: "Greeks and position size calculators", icon: "limits", keywords: "calculator greeks iv black scholes position size risk lots", sub: "Greeks for one option from a price or an IV, and lots for a risk budget" }),
+    ],
+  },
   { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
   {
     id: "api", label: "API", icon: "keys", tint: "pink", key: 9, group: "Bridge", title: "API", sub: "Keys, integrations, a test console, rate limits and the request log",
@@ -356,15 +413,6 @@ export const PAGES = [
   },
   { id: "recorder", label: "Data recorder", icon: "clock", tint: "indigo", group: "Bridge", layout: "desk", title: "Data recorder", sub: "Option chains recorded every minute on this computer, with the browser closed", render: renderRecorderPage },
 ];
-// PR 17's Analytics pages (transitional: added as they came, minus the ids our pages and old links already own; the
-// redesign replaces this with tabbed pages in our design, docs/design/pr17-integration.md). Helpers are read when a
-// page draws.
-{
-  const helpers = () => ({ segmented, segField, field, errorBox });
-  const taken = new Set([...PAGES.map((p) => p.id), "console", "limits", "keys", "integrations", "activity", "screener", "arb", "scanner", "events", "participants", "journal", "watchlists"]);
-  const at = PAGES.findIndex((p) => p.group === "Bridge");
-  PAGES.splice(at, 0, ...[...analyticsPages(helpers), ...analyticsMorePages(helpers), ...analyticsFlowPages(helpers)].filter((p) => !taken.has(p.id)));
-}
 
 /**
  * Old page ids that became tabs (ui-pass-3.md §5.2): an old link or bookmark opens the tab, keeping its ?query.
@@ -382,6 +430,27 @@ export const LEGACY = {
   participants: "oi/participants",
   journal: "orders/journal",
   watchlists: "screeners/watchlists",
+  // PR 17's page ids (docs/design/pr17-integration.md).
+  "an-gex": "exposure/strike",
+  "an-gex-expiry": "exposure/expiry",
+  "an-oi-heatmap": "exposure/heatmap",
+  greeksgrid: "exposure/greeks",
+  "an-straddle": "exposure/straddle",
+  unusual: "flow/unusual",
+  tide: "flow/tide",
+  flows: "flow/fii",
+  "an-filings": "flow/filings",
+  "an-basis": "futures/basis",
+  "an-synthetic": "futures/synthetic",
+  strategies: "lab/finder",
+  "an-templates": "lab/templates",
+  calculators: "lab/calculators",
+  skew: "vol/skew",
+  "an-surface": "vol/surface",
+  "an-volstats": "vol/stats",
+  oichange: "oi/change",
+  "an-spurts": "oi/spurts",
+  expiry: "oi/expiry",
 };
 
 /**
@@ -1236,10 +1305,10 @@ const PAPER_CHOICE = { id: "paper", name: "Paper account (practice, no broker)",
 /** The 41 real brokers, by the name people see (the API lists by id, which put "5paisa" between Firstock and Flattrade). */
 const realBrokers = (list) => list.filter((b) => b.id !== "demo").sort((a, b) => String(a.name ?? a.id).localeCompare(String(b.name ?? b.id), undefined, { sensitivity: "base", numeric: true }));
 const cliHint = () => app.state.meta?.cliCommand || "npm run bridge --";
-const field = (labelText, input, hint) => h("label", { class: "field", for: input.id }, h("span", {}, labelText), input, hint ? h("span", { class: "hint" }, hint) : null);
+export const field = (labelText, input, hint) => h("label", { class: "field", for: input.id }, h("span", {}, labelText), input, hint ? h("span", { class: "hint" }, hint) : null);
 
 /** A failed call as an alert, with the Bridge's per-field messages (field names only, never values) when it sent any. */
-function errorBox(err, labels = {}) {
+export function errorBox(err, labels = {}) {
   const box = alertBox(err);
   // A field message that only repeats the alert's own text is not listed again.
   const errors = (Array.isArray(err?.body?.errors) ? err.body.errors : []).filter((e) => e?.message && e.message !== err?.message && e.message !== err?.body?.detail);

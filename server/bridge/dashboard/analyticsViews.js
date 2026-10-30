@@ -508,7 +508,7 @@ export function chainControls(H, { onChange, onError, withStrikes = true, strike
   });
   for (const f of [underlyingField, expiryField, strikesField]) f?.classList.add("ctx-owned"); // hidden by CSS while the context bar owns them
   const summary = h("p", { class: "ctx-summary" });
-  const node = h("div", { class: `form-grid analytics-controls${local ? "" : " ctx-managed"}` }, local ? null : summary, underlyingField, list, expiryField, strikesField, h("div", { class: "field" }, h("span", { class: "pal-sr-only" }, "Refresh"), refresh));
+  const node = h("div", { class: `form-grid analytics-controls${local ? "" : " ctx-managed"}` }, local ? null : summary, underlyingField, list, expiryField, strikesField, h("div", { class: "field ctx-refresh" }, h("span", { class: "pal-sr-only" }, "Refresh"), refresh));
   const paintSummary = () => {
     const bits = [h("b", {}, selection.underlying)];
     if (!expiryField.hidden) bits.push(h("span", {}, selection.expiry || "no expiry"));
@@ -689,8 +689,9 @@ async function renderGex(H) {
 }
 
 async function renderSkew(H) {
-  const mode = H.segmented("View", [["skew", "One expiry"], ["surface", "Across expiries"]], "skew");
-  const modeField = H.segField("View", mode);
+  // Volatility > Skew and Volatility > Surface pass H.tab; the inner switch is then left out.
+  const mode = H.segmented("View", [["skew", "One expiry"], ["surface", "Across expiries"]], H.tab === "surface" ? "surface" : "skew");
+  const modeField = H.tab ? null : H.segField("View", mode);
   const page = await chainPage(H, {
     endpoint: (v) => (mode.value === "surface" ? api(`/v1/analytics/surface?${new URLSearchParams({ underlying: v.underlying, strikes: String(v.strikes), expiries: "4" })}`) : api(`/v1/analytics/skew?${q(v)}`)),
     needsExpiry: false,
@@ -698,7 +699,7 @@ async function renderSkew(H) {
       const apply = () => controls.showExpiry(mode.value !== "surface");
       mode.addEventListener("change", apply);
       apply();
-      return h("div", { class: "analytics-mode" }, modeField);
+      return modeField ? h("div", { class: "analytics-mode" }, modeField) : null;
     },
     draw: (d, freshness, v) => {
       if (mode.value === "surface") {

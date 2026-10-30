@@ -435,9 +435,11 @@ function makeField(H, spec) {
  */
 async function workbench(H, { tabs, label = "View" }) {
   const out = h("div", { class: "stack", "aria-live": "polite" });
-  const seg = tabs.length > 1 ? H.segmented(label, tabs.map((t) => [t.id, t.label]), tabs[0].id) : null;
+  // In the dashboard shell each tab is a page tab of its own (analytics.js passes H.tab): no inner switch then.
+  const forced = H.tab && tabs.some((t) => t.id === H.tab) ? H.tab : null;
+  const seg = !forced && tabs.length > 1 ? H.segmented(label, tabs.map((t) => [t.id, t.label]), tabs[0].id) : null;
   const byId = new Map(tabs.map((t) => [t.id, t]));
-  const active = () => byId.get(seg ? seg.value : tabs[0].id);
+  const active = () => byId.get(forced ?? (seg ? seg.value : tabs[0].id));
   let seq = 0;
   const wb = {};
   for (const t of tabs) {
