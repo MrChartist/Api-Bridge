@@ -8842,6 +8842,13 @@ span.bk-depth-lvl.empty { display: flex; justify-content: center; color: hsl(var
 .bk-fix { color: hsl(var(--foreground) / var(--a-label)); font: 500 12px/1.4 var(--font-body); margin: 0; }
 p.bk-fix { font-size: 13px; }
 .ticket-checks .bk-fix { display: block; margin-top: 2px; }
+.bk-st-note { margin: 0; padding: 8px 16px 14px; }
+.bk-st-acct { max-width: 260px; }
+@media (max-width: 719px) { .ticket-figs.bk-tb-figs { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); } .ticket-figs.bk-tb-figs > div { white-space: normal; } }
+.bk-st-pair { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 1024px) { .bk-st-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.bk-st-pair > .card { margin: 0; }
+.bk-st-col { display: grid; gap: 14px; align-content: start; min-width: 0; }
 /* End of broker features. */
 
 /* ───────────────────────── Trade › Algo (algo.js, docs/STRATEGIES-PYTHON.md) ───────────────────────── */
