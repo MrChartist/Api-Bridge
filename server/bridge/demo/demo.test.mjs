@@ -155,6 +155,14 @@ describe("demo adapter", () => {
     }
   });
 
+  it("lists the next three monthly index futures, so Futures has a roll cost and calendar spreads", () => {
+    const rows = demoInstruments(Date.parse("2026-10-31T01:30:00+05:30"));
+    const futs = (u) => rows.filter((r) => r.underlying === u && r.instrumentType === "FUTIDX").map((r) => r.expiry);
+    // Last Tuesday of the month; 24 Nov is a holiday in the demo calendar, so November's moves to the 23rd.
+    expect(futs("NIFTY")).toEqual(["2026-11-23", "2026-12-29", "2027-01-26"]);
+    for (const u of ["NIFTY", "BANKNIFTY", "SENSEX"]) expect(futs(u)).toHaveLength(3);
+  });
+
   it("spot is continuous across a restart: adapters made at different times give the same price for the same instant", async () => {
     const t = Date.parse("2026-10-31T01:30:00+05:30");
     const first = createDemoAdapter({ now: () => t });

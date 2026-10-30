@@ -8,7 +8,7 @@
 // analyticsMorePages(() => helpers), after the first six, so the numbered shortcuts do not move.
 import { alertBox, api, app, card, emptyState, h, icon, istDateTime, modal, pill, table, toast } from "./app.js";
 import { intentHandoff } from "./trade-intent.js";
-import { DASH, formatFixed, formatInt, formatNumber, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
+import { DASH, formatDayMonth, formatFixed, formatInt, formatNumber, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import { TAG_CHAR_W, calcStatus, chainControls, chartHeight, chartHost, compact, dataDisclosure, demoPill, handoff, legend, linear, nextId, niceScale, payoffChart, readNumber, s, statusRow, strikeBars, svgRoot, tickDecimals, tile, tiles } from "./analyticsViews.js";
 
 // ───────────────────────── pure helpers ─────────────────────────
@@ -56,7 +56,21 @@ export function seriesLayout(series, { width = 640, height, padL = 50, padR = 14
     const k = Math.min(want, n);
     for (let i = 0; i < k; i++) idx.add(k === 1 ? 0 : Math.round((i * (n - 1)) / (k - 1)));
   }
-  const xTicks = [...idx].sort((a, b) => a - b).map((i) => ({ x: r1(x(i)), label: longest.points[i].label }));
+  // Points that all carry `at` (a number: days, say) sit at their place in time, not evenly: the probability cone spaces
+  // its expiries by days to expiry. Labels closer than 56 px to the one before are left out.
+  const timed = n > 1 && series.length > 0 && series.every((sr) => sr.points.every((p) => isFigure(p.at)));
+  let xTicks;
+  let posOf = (_p, i) => x(i);
+  if (timed) {
+    const ats = series.flatMap((sr) => sr.points.map((p) => Number(p.at)));
+    const xt = linear(Math.min(...ats), Math.max(...ats), padL, w - padR);
+    posOf = (p) => xt(Number(p.at));
+    xTicks = [];
+    for (const p of longest.points) {
+      const px = r1(xt(Number(p.at)));
+      if (!xTicks.length || px - xTicks[xTicks.length - 1].x >= 56) xTicks.push({ x: px, label: p.label });
+    }
+  } else xTicks = [...idx].sort((a, b) => a - b).map((i) => ({ x: r1(x(i)), label: longest.points[i].label }));
   const showDots = n <= 40;
   const paths = series.map((sr) => {
     let d = "";
@@ -67,7 +81,7 @@ export function seriesLayout(series, { width = 640, height, padL = 50, padR = 14
         pen = false;
         return;
       }
-      const px = r1(x(i));
+      const px = r1(posOf(p, i));
       const py = r1(y(Number(p.y)));
       d += `${pen ? "L" : "M"}${px} ${py}`;
       pen = true;
@@ -510,7 +524,7 @@ function drawFutures(res) {
   const list = d.futures ?? [];
   const near = list[0];
   const cols = [
-    { label: "Expiry", cell: (r) => h("strong", {}, r.expiry) },
+    { label: "Expiry", cell: (r) => h("strong", { title: r.expiry }, formatDayMonth(r.expiry)) },
     { label: "Price", num: true, cell: (r) => formatFixed(r.ltp, 2) },
     { label: "Basis", num: true, cell: (r) => signedSpan(r.basis) },
     { label: "Basis %", num: true, cell: (r) => signedSpan(r.basisPct, 3, "%") },
@@ -518,12 +532,12 @@ function drawFutures(res) {
     { label: "Against spot", cell: (r) => stateWord(r.state) },
     { label: "OI", num: true, cell: (r) => compact(r.oi) },
     { label: "Volume", num: true, cell: (r) => compact(r.volume) },
-    { label: "Days left", num: true, cell: (r) => formatFixed(r.daysToExpiry, 1) },
+    { label: "Calendar days", num: true, cell: (r) => (isFigure(r.daysToExpiry) ? formatInt(Math.floor(Number(r.daysToExpiry))) : DASH) },
   ];
-  const carry = list.filter((r) => isFigure(r.annualisedPct)).map((r) => ({ label: r.expiry, bars: [{ value: Number(r.annualisedPct), cls: Number(r.annualisedPct) >= 0 ? "call" : "put", title: `${r.expiry}: ${formatSigned(r.annualisedPct, 2)}% a year (${formatSigned(r.basis, 2)} points)` }] }));
+  const carry = list.filter((r) => isFigure(r.annualisedPct)).map((r) => ({ label: formatDayMonth(r.expiry), bars: [{ value: Number(r.annualisedPct), cls: Number(r.annualisedPct) >= 0 ? "call" : "put", title: `${formatDayMonth(r.expiry)}: ${formatSigned(r.annualisedPct, 2)}% a year (${formatSigned(r.basis, 2)} points)` }] }));
   const spreadCols = [
-    { label: "Near", cell: (r) => h("strong", {}, r.near) },
-    { label: "Far", cell: (r) => r.far },
+    { label: "Near", cell: (r) => h("strong", {}, formatDayMonth(r.near)) },
+    { label: "Far", cell: (r) => formatDayMonth(r.far) },
     { label: "Spread", num: true, cell: (r) => signedSpan(r.spread) },
     { label: "Spread %", num: true, cell: (r) => signedSpan(r.spreadPct, 3, "%") },
     { label: "Days apart", num: true, cell: (r) => formatFixed(r.daysBetween, 0) },
