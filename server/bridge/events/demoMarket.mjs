@@ -141,7 +141,11 @@ export function createDemoMarket({ engine, clock, startMs = clock.now(), scale =
       avgVolume: idx ? null : avgVol,
       high52: r2(near52 < 0.12 ? prev * R.range(1.005, 1.03) : prev * R.range(1.08, 1.6)),
       low52: r2(near52 > 0.9 ? prev * R.range(0.97, 0.995) : prev * R.range(0.55, 0.9)),
+      historyFrom: "2016-01-01",
     };
+    // Some 52-week highs are also all-time highs (the demo history starts in 2016).
+    s.ctx.allTimeHigh = near52 < 0.05 ? s.ctx.high52 : r2(s.ctx.high52 * R.range(1.02, 1.5));
+    s.ctx.allTimeLow = near52 > 0.95 ? s.ctx.low52 : r2(s.ctx.low52 * R.range(0.4, 0.95));
     const tags = { fno: Boolean(spec.fno), index: idx, nifty50: Boolean(spec.nifty50), cash: small };
     engine.register({ symbol: s.symbol, name: spec.name, kind: idx ? "INDEX" : "EQ", segment: spec.exchange ?? "NSE", tick, tags });
     engine.setContext(s.symbol, s.ctx);

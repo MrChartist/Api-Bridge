@@ -32,6 +32,64 @@ Measured on the demo fixtures (555 symbols, `demoScale: 5`, Node 22): engine p50
 about 70,000 quotes and 10,000 events a second through the engine and the bus on one core. The test
 `server/bridge/events/events.test.mjs` asserts p95 under 1 ms and more than 2,000 quotes a second.
 
+## One alert per move
+
+Level events rank, highest first: **all-time high > 52-week high > previous-day high break > day high** (and the
+mirror for lows). When one tick, or ticks within `events.foldMs` (default 2 s), bring several of these for the same
+symbol and direction, only the highest becomes a row; the others are listed in its `also` (for example an all-time
+high tick gives one `all_time_high` row with `also: ["high_52w", "prev_high_break", "day_high"]`). A higher event that
+arrives later inside the window upgrades the row and sends an `update` with the same id. Lower events after that count
+on the row (inside the cool-down) instead of making new rows.
+
+"All-time" means the extreme of the daily history the Bridge could fetch (up to 5,000 daily candles); the context
+says `data since <date>`, so a short history is never presented as more.
+
+## Spot crosses a strike
+
+`ul_cross_strike` fires when an underlying with a tracked chain crosses a listed strike of its nearest expiry. It names
+the strike, the direction (up is bull, down bear), and that strike's call and put OI with today's change in lots; when
+the monthly expiry is a different chain, its OI at that strike is added. A hysteresis band (`hysteresisPct`, default
+0.05 % of spot) around each strike must be cleared before a cross counts, so a price hovering on a strike does not
+fire again; repeats inside the cool-down fold into the row's count.
+
+## Custom conditions
+
+Write your own live conditions in the scanner's language. They run on every tick of every tracked symbol over these
+live fields:
+
+| Field | Meaning |
+|---|---|
+| `ltp`, `close` | last price |
+| `open`, `high`, `low` | today's open, high and low so far |
+| `pclose`, `phigh`, `plow` | previous day's close, high, low |
+| `pivot` | previous day's floor pivot (H + L + C) / 3 |
+| `vwap` | today's VWAP |
+| `volume`, `avgvol20` | today's volume, 20-day average volume |
+| `changepct` | % change from the previous close |
+
+Examples:
+
+```
+close = high and close > pclose and close > open and close > pivot
+changepct > 3 and volume > 2 * avgvol20
+close < plow and close < vwap
+```
+
+`=` compares prices within half a paisa. Candle-only parts are refused with a clear message: functions such as
+`sma(20)` or `rsi(14)`, offsets such as `close[1]`, and `crosses` (a live condition already fires only when it turns
+true). A condition fires on the false-to-true edge only; its first evaluation after a start sets the state. Matches are
+`custom` events labelled with the condition's name and the side you chose. Each condition is compiled once to a small
+closure, so a tick costs a constant amount per condition (the test runs 50 conditions on 200 symbols with a per-tick
+p95 under 1 ms).
+
+```
+GET    /v1/events/conditions                      list (read)
+POST   /v1/events/conditions  { name, expr, side } add, at most 50 (admin scope, this computer only)
+DELETE /v1/events/conditions/{conditionId}        delete (admin scope, this computer only)
+```
+
+They are stored in `<Bridge home>/data/events/conditions.json`.
+
 ## Event records
 
 `GET /v1/events` and the stream message `market_event` carry records like:

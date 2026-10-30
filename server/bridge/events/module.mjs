@@ -10,6 +10,7 @@ import { createEventsRoutes } from "./routes.mjs";
 import { createEventsService } from "./service.mjs";
 
 const READ = Object.freeze({ scope: "read" });
+const ADMIN = Object.freeze({ scope: "admin", loopbackOnly: true });
 
 /** [method, path, route options, handler name] */
 export const ROUTES = Object.freeze([
@@ -20,6 +21,9 @@ export const ROUTES = Object.freeze([
   ["GET", "/v1/events/summary", READ, "summary"],
   ["GET", "/v1/events/symbols/:symbol", READ, "symbol"],
   ["GET", "/v1/events/chain", READ, "chain"],
+  ["GET", "/v1/events/conditions", READ, "listConditions"],
+  ["POST", "/v1/events/conditions", ADMIN, "createCondition"],
+  ["DELETE", "/v1/events/conditions/:conditionId", { scope: "admin", loopbackOnly: true, body: "none" }, "deleteCondition"],
   ["GET", "/v1/events/status", READ, "status"],
 ]);
 

@@ -14,7 +14,8 @@
  * Chain-level option detectors run off the tick path: a tick marks its chain dirty, and flush() (called by a short
  * timer) evaluates dirty chains at most once per `chainEveryMs`.
  */
-import { CATEGORIES, KINDS, KIND_BY_ID, clampParam, defaultSelection, sideOf } from "./catalogue.mjs";
+import { CATEGORIES, KINDS, KIND_BY_ID, LADDER, clampParam, defaultSelection, sideOf } from "./catalogue.mjs";
+import { compileCondition } from "./conditions.mjs";
 import { createStockState, detectFuture, detectStock, pivots } from "./detectors.mjs";
 import { createChainState, detectChain, detectLeg, legOf } from "./optionDetectors.mjs";
 import { parseOptionSymbol } from "../dashboard/options.js";
@@ -90,6 +91,8 @@ export function createEventsEngine(deps) {
   const minuteOf = deps.sessionOf ?? sessionMinute;
   const maxEvents = deps.maxEvents ?? 20_000;
   const chainEveryMs = deps.chainEveryMs ?? 1000;
+  /** Same-direction level events of one symbol within this window fold into one row (LADDER). */
+  const foldMs = deps.foldMs ?? 2000;
   const perfNow = typeof performance !== "undefined" ? () => performance.now() : () => Date.now();
 
   let selection = normaliseSelection(deps.selection);
@@ -120,6 +123,12 @@ export function createEventsEngine(deps) {
   let lastTickAt = null;
   const sources = new Map();
   const listeners = new Set();
+  /** "symbol|dir" -> { rec, rank, ms }: the open level row of a move */
+  const ladder = new Map();
+  /** spot symbol -> last price outside every strike's hysteresis band */
+  const crossRef = new Map();
+  /** compiled custom conditions [{ id, name, side, test }] */
+  let conditions = [];
 
   function rollDay(ms) {
     const d = istDate(ms);
@@ -135,6 +144,8 @@ export function createEventsEngine(deps) {
     byId.clear();
     openByKey.clear();
     firedKeys.clear();
+    ladder.clear();
+    crossRef.clear();
   }
 
   const stateFor = (symbol) => {
@@ -167,8 +178,11 @@ export function createEventsEngine(deps) {
       open.lastAt = istIso(ms);
       open.ltp = base.ltp;
       open.changePct = base.changePct;
-      open.strength = hit.strength ?? open.strength;
-      open.context = hit.text ?? open.context;
+      // A key folded into a higher row (LADDER) only counts there: the row keeps its own words.
+      if (open.kind === hit.kind) {
+        open.strength = hit.strength ?? open.strength;
+        open.context = hit.text ?? open.context;
+      }
       const u = { id: open.id, count: open.count, lastAt: open.lastAt, ltp: open.ltp, changePct: open.changePct, strength: open.strength, context: open.context, update: true };
       deps.store?.appendUpdate?.(u);
       publish("update", { ...open });
@@ -189,7 +203,7 @@ export function createEventsEngine(deps) {
       asset: k.asset,
       kind: hit.kind,
       variant: hit.variant ?? "",
-      label: k.label,
+      label: hit.label ?? k.label,
       category: k.category,
       side: sideOf(hit.kind, hit.dir),
       ltp: base.ltp,
@@ -202,6 +216,7 @@ export function createEventsEngine(deps) {
       tags: base.tags ?? {},
     };
     if (base.option) rec.option = base.option;
+    if (hit.also?.length) rec.also = [...hit.also];
     firedKeys.add(key);
     openByKey.set(key, rec);
     events.push(rec);
@@ -220,19 +235,166 @@ export function createEventsEngine(deps) {
     return { symbol: sym, segment: m.segment ?? sym.split(":")[0], name: m.name ?? null, ltp: ltp === null ? null : Math.round(ltp * 100) / 100, changePct: chg === null ? null : Math.round(chg * 100) / 100, tags: m.tags ?? {} };
   };
 
+  const keyOf = (sym, h) => `${sym}|${h.kind}|${h.variant ?? ""}`;
+  const byRank = (a, b) => (LADDER[b]?.rank ?? 0) - (LADDER[a]?.rank ?? 0);
+
+  /** One alert per move: fold same-direction level hits into the top one (or into the open row of this move). */
+  function fireLadder(hits, base, ms) {
+    hits.sort((a, b) => byRank(a.kind, b.kind));
+    const top = hits[0];
+    const rest = hits.slice(1).map((h) => h.kind);
+    const lk = `${base.symbol}|${LADDER[top.kind].dir}`;
+    const cur = ladder.get(lk);
+    if (cur && ms - cur.ms <= foldMs && byId.get(cur.rec.id) === cur.rec) {
+      const rec = cur.rec;
+      const rank = LADDER[top.kind].rank;
+      if (rank > cur.rank) {
+        // Upgrade the row to the higher event; what it was joins `also`.
+        const k = KIND_BY_ID.get(top.kind);
+        const also = [...new Set([rec.kind, ...(rec.also ?? []), ...rest])].filter((x) => x !== top.kind).sort(byRank);
+        Object.assign(rec, { kind: top.kind, variant: top.variant ?? "", label: k.label, category: k.category, side: sideOf(top.kind, top.dir), context: top.text ?? rec.context, strength: top.strength ?? rec.strength, ltp: base.ltp, changePct: base.changePct, also, lastAt: istIso(ms) });
+        const key = keyOf(base.symbol, top);
+        rec.first = !firedKeys.has(key);
+        cur.rank = rank;
+        cur.ms = ms;
+        deps.store?.appendUpdate?.({ id: rec.id, kind: rec.kind, variant: rec.variant, label: rec.label, category: rec.category, side: rec.side, context: rec.context, strength: rec.strength, ltp: rec.ltp, changePct: rec.changePct, also, first: rec.first, lastAt: rec.lastAt, count: rec.count, update: true });
+        publish("update", { ...rec });
+      } else {
+        rec.also = [...new Set([...(rec.also ?? []), top.kind, ...rest])].filter((x) => x !== rec.kind).sort(byRank);
+        cur.ms = ms;
+      }
+      for (const h of hits) {
+        firedKeys.add(keyOf(base.symbol, h));
+        openByKey.set(keyOf(base.symbol, h), rec);
+      }
+      return;
+    }
+    const rec = fire({ ...top, also: rest }, base, ms);
+    if (!rec) return;
+    ladder.set(lk, { rec, rank: LADDER[top.kind].rank, ms });
+    for (const h of hits.slice(1)) {
+      firedKeys.add(keyOf(base.symbol, h));
+      openByKey.set(keyOf(base.symbol, h), rec);
+    }
+  }
+
+  /** The underlying crossed a listed strike of its nearest expiry (hysteresis keeps noise from firing again). */
+  function strikeCross(sym, ltp, ms) {
+    if (!compiled.on.has("ul_cross_strike") || ltp === null) return;
+    const keys = spotChains.get(sym);
+    if (!keys) return;
+    const list = [...keys].map((k) => chains.get(k)).filter((c) => c && c.strikes.length).sort((a, b) => (a.expiry < b.expiry ? -1 : 1));
+    if (!list.length) return;
+    const near = list[0];
+    const ks = near.strikes;
+    const h = ltp * ((compiled.params.ul_cross_strike?.hysteresisPct ?? 0.05) / 100);
+    const lb = (x) => {
+      let lo = 0;
+      let hi = ks.length;
+      while (lo < hi) {
+        const m = (lo + hi) >> 1;
+        if (ks[m] < x) lo = m + 1;
+        else hi = m;
+      }
+      return lo;
+    };
+    const i = lb(ltp);
+    const nearest = [ks[i - 1], ks[i]].filter((x) => x !== undefined).reduce((a, b) => (Math.abs(b - ltp) < Math.abs(a - ltp) ? b : a));
+    if (h > 0 && Math.abs(ltp - nearest) < h) return; // inside a strike's band: wait until it clears
+    const ref = crossRef.get(sym);
+    crossRef.set(sym, ltp);
+    if (ref === undefined) return;
+    let K = null;
+    let dir = 0;
+    let n = 0;
+    if (ltp > ref) {
+      // strikes K with ref < K < ltp
+      const a = lb(ref + 1e-9);
+      const b = lb(ltp);
+      n = b - a;
+      if (n > 0) (K = ks[b - 1]), (dir = 1);
+    } else if (ltp < ref) {
+      const a = lb(ltp + 1e-9);
+      const b = lb(ref);
+      n = b - a;
+      if (n > 0) (K = ks[a]), (dir = -1);
+    }
+    if (K === null) return;
+    const lot = near.lot || 1;
+    const lots = (v) => Math.round(Math.abs(v) / lot).toLocaleString("en-IN");
+    const oiText = (c) => {
+      const one = (l, w) => (l && l.oi !== null ? `${w} OI ${lots(l.oi)} lots${l.oiRef !== null ? ` (${l.oi >= l.oiRef ? "+" : "−"}${lots(l.oi - l.oiRef)})` : ""}` : null);
+      return [one(c.legs.get(`${K}|CE`), "CE"), one(c.legs.get(`${K}|PE`), "PE")].filter(Boolean).join(", ");
+    };
+    const monthly = list.filter((c) => c.expiry.slice(0, 7) === near.expiry.slice(0, 7)).at(-1);
+    const parts = [`crossed ${K} ${dir > 0 ? "up" : "down"}${n > 1 ? ` (${n} strikes)` : ""}`, oiText(near)];
+    if (monthly && monthly !== near && monthly.legs.has(`${K}|CE`)) parts.push(`monthly ${monthly.expiry}: ${oiText(monthly)}`);
+    const hit = { kind: "ul_cross_strike", variant: `${K}|${dir > 0 ? "u" : "d"}`, dir, strength: K, text: parts.filter(Boolean).join(" · "), chainStrike: K };
+    const base = optionBase(near, null, hit);
+    const ce = near.legs.get(`${K}|CE`);
+    const pe = near.legs.get(`${K}|PE`);
+    const dLots = (l) => (l && l.oiRef !== null && l.oi !== null ? Math.round((l.oi - l.oiRef) / lot) : null);
+    base.option = { ...base.option, right: null, ceOi: ce?.oi ?? null, peOi: pe?.oi ?? null, ceDOiLots: dLots(ce), peDOiLots: dLots(pe) };
+    fire(hit, base, ms);
+  }
+
+  /** Custom conditions on the live registers; fire on the false-to-true edge. */
+  function custom(s, q, ms, base) {
+    if (!conditions.length || !compiled.on.has("custom")) return;
+    const ctx = s.ctx ?? {};
+    const pv = s.pivots === undefined ? (s.pivots = pivots(ctx)) : s.pivots;
+    const regs = {
+      ltp: s.last,
+      open: num(q.open),
+      high: s.hi,
+      low: s.lo,
+      pclose: num(q.close) ?? num(ctx.prevClose),
+      phigh: num(ctx.prevHigh),
+      plow: num(ctx.prevLow),
+      pivot: pv?.P ?? null,
+      vwap: s.vwap,
+      volume: num(q.volume),
+      avgvol20: num(ctx.avgVolume),
+      changepct: s.chg,
+    };
+    if (!s.custom) s.custom = new Map();
+    for (const c of conditions) {
+      let now = false;
+      try {
+        now = c.test(regs);
+      } catch {
+        now = false;
+      }
+      const was = s.custom.get(c.id);
+      s.custom.set(c.id, now);
+      if (now && was === false) fire({ kind: "custom", variant: c.id, dir: c.side === "bull" ? 1 : c.side === "bear" ? -1 : 0, label: c.name, strength: null, text: `${c.name}: ${c.expr}` }, base, ms);
+    }
+  }
+
   function onStock(sym, q, t) {
     const s = stateFor(sym);
     const hits = detectStock(s, q, compiled, t);
+    const ltp = num(q.ltp);
     for (const c of spotChains.get(sym) ?? []) {
       const ch = chains.get(c);
-      if (ch && num(q.ltp) !== null) {
-        ch.spot = Number(q.ltp);
+      if (ch && ltp !== null) {
+        ch.spot = ltp;
         ch.dirty = true;
       }
     }
+    strikeCross(sym, ltp, t.ms);
+    const base = metaBase(sym, ltp, s.chg);
+    custom(s, q, t.ms, base);
     if (!hits.length) return;
-    const base = metaBase(sym, num(q.ltp), s.chg);
-    for (const h of hits) fire(h, base, t.ms);
+    const up = [];
+    const down = [];
+    for (const h of hits) {
+      const l = LADDER[h.kind];
+      if (l) (l.dir > 0 ? up : down).push(h);
+      else fire(h, base, t.ms);
+    }
+    if (up.length) fireLadder(up, base, t.ms);
+    if (down.length) fireLadder(down, base, t.ms);
   }
 
   function onFuture(futSym, q, t) {
@@ -413,6 +575,13 @@ export function createEventsEngine(deps) {
       }
     },
 
+    /** Replace the custom conditions ({ id, name, expr, side }); each is compiled once. */
+    setConditions(list) {
+      conditions = (list ?? []).map((c) => ({ ...c, test: compileCondition(c.expr) }));
+      for (const st of states.values()) st.custom?.clear();
+      return conditions.length;
+    },
+
     // ── selection ──
     selection: () => selection,
     setSelection(input) {
@@ -428,7 +597,10 @@ export function createEventsEngine(deps) {
         if (!r || typeof r !== "object") continue;
         if (r.update) {
           const o = byId.get(r.id);
-          if (o) Object.assign(o, { count: r.count, lastAt: r.lastAt, ltp: r.ltp, changePct: r.changePct, strength: r.strength, context: r.context });
+          if (o) {
+            const { update: _u, id: _i, date: _d, ...rest } = r;
+            Object.assign(o, rest);
+          }
           continue;
         }
         if (!r.id || r.date !== day || byId.has(r.id)) continue;

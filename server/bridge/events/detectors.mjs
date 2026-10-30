@@ -329,6 +329,11 @@ export function detectStock(s, quote, sel, t) {
     if (on(sel, "prev_low_break") && pl !== null && last >= pl && ltp < pl) hits.push({ kind: "prev_low_break", variant: "", dir: -1, strength: r2(((ltp - pl) / pl) * 100), text: `below prev low ${f2(pl)}` });
     const h52 = pos(ctx.high52);
     const l52 = pos(ctx.low52);
+    const ath = pos(ctx.allTimeHigh);
+    const atl = pos(ctx.allTimeLow);
+    const since = ctx.historyFrom ? ` (data since ${ctx.historyFrom})` : "";
+    if (on(sel, "all_time_high") && ath !== null && last <= ath && ltp > ath) hits.push({ kind: "all_time_high", variant: "", dir: 1, strength: r2(((ltp - ath) / ath) * 100), text: `above all-time high ${f2(ath)}${since}` });
+    if (on(sel, "all_time_low") && atl !== null && last >= atl && ltp < atl) hits.push({ kind: "all_time_low", variant: "", dir: -1, strength: r2(((ltp - atl) / atl) * 100), text: `below all-time low ${f2(atl)}${since}` });
     if (on(sel, "high_52w") && h52 !== null && last <= h52 && ltp > h52) hits.push({ kind: "high_52w", variant: "", dir: 1, strength: r2(((ltp - h52) / h52) * 100), text: `above 52-week high ${f2(h52)}` });
     if (on(sel, "low_52w") && l52 !== null && last >= l52 && ltp < l52) hits.push({ kind: "low_52w", variant: "", dir: -1, strength: r2(((ltp - l52) / l52) * 100), text: `below 52-week low ${f2(l52)}` });
     if (on(sel, "pivot_cross")) {

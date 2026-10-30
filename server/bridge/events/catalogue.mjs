@@ -17,6 +17,7 @@ export const CATEGORIES = Object.freeze([
   { id: "levels", label: "Levels and pivots", asset: "stock" },
   { id: "reversal", label: "Swings and reversals", asset: "stock" },
   { id: "fno", label: "F&O OI", asset: "stock" },
+  { id: "custom", label: "Custom conditions", asset: "stock" },
   { id: "opt-oi", label: "Option OI", asset: "option" },
   { id: "opt-iv", label: "Premium and IV", asset: "option" },
   { id: "opt-walls", label: "Walls, PCR and max pain", asset: "option" },
@@ -52,6 +53,8 @@ export const KINDS = Object.freeze(
     { kind: "prev_high_break", label: "Prev day high break", category: "levels", side: "bull", asset: "stock", def: "The price trades above the previous day's high.", params: [] },
     { kind: "prev_low_break", label: "Prev day low break", category: "levels", side: "bear", asset: "stock", def: "The price trades below the previous day's low.", params: [] },
     { kind: "pivot_cross", label: "Pivot crossover", category: "levels", side: "pair", asset: "stock", def: "The price crosses a classic floor pivot from the previous day: P = (H + L + C) / 3, R1 = 2P − L, S1 = 2P − H.", params: [] },
+    { kind: "all_time_high", label: "All-time high", category: "levels", side: "bull", asset: "stock", def: "The price trades above the highest high in the daily history the Bridge could fetch (the record says from which date, so a short history is never called all-time without saying so).", params: [] },
+    { kind: "all_time_low", label: "All-time low", category: "levels", side: "bear", asset: "stock", def: "The price trades below the lowest low in the daily history the Bridge could fetch (the record says from which date).", params: [] },
     { kind: "high_52w", label: "52-week high", category: "levels", side: "bull", asset: "stock", def: "The price trades above the highest high of the last 52 weeks.", params: [] },
     { kind: "low_52w", label: "52-week low", category: "levels", side: "bear", asset: "stock", def: "The price trades below the lowest low of the last 52 weeks.", params: [] },
     // ── Swings ──
@@ -60,6 +63,10 @@ export const KINDS = Object.freeze(
     // ── F&O stock OI (front future) ──
     { kind: "oi_buildup", label: "OI build-up change", category: "fno", side: "pair", asset: "stock", def: "The front future's build-up class changes: long build-up (price up, OI up), short build-up (down, up), short covering (up, down) or long unwinding (down, down), with the same noise filter as OI Analysis.", params: [p("minOiPct", "OI change at least", 1, 0.1, 20, 0.1, "%")] },
     { kind: "oi_surge", label: "OI surge", category: "fno", side: "move", asset: "stock", def: "The front future's open interest changes by at least the threshold within the window.", params: [p("pct", "OI change at least", 3, 0.5, 50, 0.5, "%"), p("windowMinutes", "Within", 15, 1, 60, 1, "min")] },
+    // ── Options: the underlying crosses a strike ──
+    { kind: "ul_cross_strike", label: "Spot crosses a strike", category: "opt-walls", side: "pair", asset: "option", def: "The underlying's price crosses a listed strike of its nearest expiry (and names the monthly expiry's OI at that strike when it differs), with that strike's call and put OI and OI change. A hysteresis band keeps noise around a strike from firing again. Up reads bull, down bear.", params: [p("hysteresisPct", "Hysteresis", 0.05, 0, 1, 0.01, "% of spot")] },
+    // ── Custom conditions ──
+    { kind: "custom", label: "Custom condition", category: "custom", side: "pair", asset: "stock", def: "One of your named conditions (POST /v1/events/conditions) turned true on a tick. It fires on the false-to-true edge only; the condition's name is the label.", params: [] },
     // ── Options: OI ──
     { kind: "opt_oi_surge", label: "Strike OI surge", category: "opt-oi", side: "pair", asset: "option", def: "A strike's OI change over the window is a multiple of its own recent pace (and at least the minimum lots). Call writing reads bear, put writing bull.", params: [p("multiple", "Pace at least", 3, 1.5, 20, 0.5, "×"), p("windowMinutes", "Window", 5, 1, 30, 1, "min"), p("minLots", "At least", 200, 1, 100000, 1, "lots")] },
     { kind: "opt_buildup", label: "Strike build-up change", category: "opt-oi", side: "pair", asset: "option", def: "A strike's build-up class since the previous close changes (long build-up, short build-up, short covering, long unwinding; classifyBuildup from OI Analysis).", params: [p("minLots", "OI change at least", 100, 1, 100000, 1, "lots")] },
@@ -84,16 +91,32 @@ export const KIND_BY_ID = new Map(KINDS.map((k) => [k.kind, k]));
 export const STOCK_KINDS = Object.freeze(KINDS.filter((k) => k.asset === "stock").map((k) => k.kind));
 export const OPTION_KINDS = Object.freeze(KINDS.filter((k) => k.asset === "option").map((k) => k.kind));
 
+/**
+ * One alert per move: the rank of each level event in its direction. When one tick (or the fold window) brings
+ * several of these for the same symbol and direction, only the highest becomes a row; the rest are listed in its
+ * `also`. A later, higher one upgrades the row.
+ */
+export const LADDER = Object.freeze({
+  all_time_high: { dir: 1, rank: 4 },
+  high_52w: { dir: 1, rank: 3 },
+  prev_high_break: { dir: 1, rank: 2 },
+  day_high: { dir: 1, rank: 1 },
+  all_time_low: { dir: -1, rank: 4 },
+  low_52w: { dir: -1, rank: 3 },
+  prev_low_break: { dir: -1, rank: 2 },
+  day_low: { dir: -1, rank: 1 },
+});
+
 /** One-tap selections. Stock presets first, then the option group (asked for as OI, IV, Walls, Unusual volume). */
 export const PRESETS = Object.freeze([
-  { id: "momentum", label: "Momentum", asset: "stock", kinds: ["day_high", "day_low", "move_pct", "prev_high_break", "prev_low_break", "high_52w", "low_52w", "vwap_cross"] },
+  { id: "momentum", label: "Momentum", asset: "stock", kinds: ["day_high", "day_low", "move_pct", "prev_high_break", "prev_low_break", "high_52w", "low_52w", "all_time_high", "all_time_low", "vwap_cross"] },
   { id: "reversals", label: "Reversals", asset: "stock", kinds: ["swing_up", "swing_down", "gap_filled", "pivot_cross", "circuit_unlocked"] },
   { id: "circuits", label: "Circuits", asset: "stock", kinds: ["only_buyers", "only_sellers", "circuit_unlocked"] },
   { id: "volume", label: "Volume", asset: "stock", kinds: ["vol_above_prev", "vol_surge"] },
   { id: "fno-oi", label: "F&O OI", asset: "stock", kinds: ["oi_buildup", "oi_surge"] },
   { id: "opt-oi", label: "OI", asset: "option", kinds: ["opt_oi_surge", "opt_buildup"] },
   { id: "opt-iv", label: "IV", asset: "option", kinds: ["iv_spike", "iv_crush", "straddle_move", "opt_premium_spike", "opt_near_band"] },
-  { id: "opt-walls", label: "Walls", asset: "option", kinds: ["wall_shift", "pcr_cross", "pcr_jump", "max_pain_shift", "basis_jump"] },
+  { id: "opt-walls", label: "Walls", asset: "option", kinds: ["wall_shift", "pcr_cross", "pcr_jump", "max_pain_shift", "basis_jump", "ul_cross_strike"] },
   { id: "opt-volume", label: "Unusual volume", asset: "option", kinds: ["opt_unusual_volume"] },
 ]);
 

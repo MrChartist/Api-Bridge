@@ -194,6 +194,116 @@ describe("engine", () => {
   });
 });
 
+describe("one alert per move (level hierarchy)", () => {
+  const ctx = { prevClose: 100, prevHigh: 102, prevLow: 98, high52: 105, low52: 80, allTimeHigh: 108, allTimeLow: 50, historyFrom: "2010-01-04" };
+  const mk = () => {
+    let now = T0;
+    const bus = createEventBus();
+    const msgs = [];
+    bus.on("market.event", (p) => msgs.push(p));
+    const e = createEventsEngine({ clock: { now: () => now }, bus });
+    e.register({ symbol: "NSE:ABC", kind: "EQ" });
+    e.setContext("NSE:ABC", ctx);
+    e.ingest({ symbol: "NSE:ABC", ltp: 101, high: 101, low: 100, close: 100 });
+    return { e, msgs, at: (ms) => (now = ms) };
+  };
+  it("an all-time-high tick yields exactly one record with also = [52w, prev high, day high]", () => {
+    const { e, msgs } = mk();
+    e.ingest({ symbol: "NSE:ABC", ltp: 109, high: 109, low: 100, close: 100 });
+    const rows = e.list({ kinds: ["all_time_high", "high_52w", "prev_high_break", "day_high"] });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "all_time_high", also: ["high_52w", "prev_high_break", "day_high"] });
+    expect(rows[0].context).toMatch(/data since 2010-01-04/);
+    expect(msgs.filter((m) => m.event.kind === "all_time_high" || m.event.also)).toHaveLength(1);
+  });
+  it("a higher event inside the fold window upgrades the row and sends an update", () => {
+    const { e, msgs, at } = mk();
+    e.ingest({ symbol: "NSE:ABC", ltp: 103, high: 103, low: 100, close: 100 }); // prev high break (+ day high)
+    at(T0 + 1000);
+    e.ingest({ symbol: "NSE:ABC", ltp: 106, high: 106, low: 100, close: 100 }); // 52-week high
+    const rows = e.list({}).filter((r) => r.symbol === "NSE:ABC" && r.side === "bull" && ["high_52w", "prev_high_break", "day_high"].includes(r.kind));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "high_52w", also: ["prev_high_break", "day_high"] });
+    expect(msgs.at(-1)).toMatchObject({ type: "update", event: { kind: "high_52w" } });
+  });
+  it("after the window a new move gets its own row; lows mirror highs", () => {
+    const { e, at } = mk();
+    e.ingest({ symbol: "NSE:ABC", ltp: 49, high: 101, low: 49, close: 100 });
+    expect(e.list({ kinds: ["all_time_low"] })[0].also).toEqual(["low_52w", "prev_low_break", "day_low"]);
+    at(T0 + 10_000);
+    expect(e.list({ kinds: ["day_low", "low_52w", "prev_low_break"] })).toEqual([]);
+  });
+});
+
+describe("spot crosses a strike", () => {
+  const setup = () => {
+    let now = T0;
+    const e = createEventsEngine({ clock: { now: () => now } });
+    e.register({ symbol: "NSE:NIFTY", kind: "INDEX" });
+    e.registerChain("NIFTY", "2026-11-03", { lot: 65, spotSymbol: "NSE:NIFTY" });
+    e.registerChain("NIFTY", "2026-11-24", { lot: 65, spotSymbol: "NSE:NIFTY" });
+    for (const [exp, mult] of [["2026-11-03", 1], ["2026-11-24", 2]]) {
+      e.ingestChain({ underlying: "NIFTY", expiry: exp, spot: 24980, rows: [24900, 25000, 25100].map((k) => ({ strike: k, ce: { ltp: 50, oi: 65000 * mult, oiPrev: 60000 * mult }, pe: { ltp: 50, oi: 130000 * mult, oiPrev: 130000 * mult } })) });
+    }
+    return { e, tick: (ltp) => ((now += 1000), e.ingest({ symbol: "NSE:NIFTY", ltp, close: 24900 })) };
+  };
+  it("fires once per crossing with OI of both expiries, and hysteresis stops noise re-firing", () => {
+    const { e, tick } = setup();
+    tick(24960);
+    tick(25002); // inside the band of 25000 (0.05 % = 12.5): nothing yet
+    expect(e.list({ kinds: ["ul_cross_strike"] })).toEqual([]);
+    tick(25020);
+    let rows = e.list({ kinds: ["ul_cross_strike"] });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ side: "bull", option: { strike: 25000, ceOi: 65000, peOi: 130000, ceDOiLots: 77 } });
+    expect(rows[0].context).toMatch(/crossed 25000 up · CE OI 1,000 lots \(\+77\), PE OI 2,000 lots \(\+0\) · monthly 2026-11-24/);
+    for (const p of [24995, 25005, 24998, 25003]) tick(p); // noise around the strike
+    tick(25030);
+    expect(e.list({ kinds: ["ul_cross_strike"] })).toHaveLength(1);
+    tick(24970);
+    rows = e.list({ kinds: ["ul_cross_strike"] });
+    expect(rows[0]).toMatchObject({ side: "bear", variant: "25000|d" });
+  });
+});
+
+describe("custom conditions", () => {
+  it("compiles the live fields and refuses candle-only parts with a clear message", async () => {
+    const { compileCondition } = await import("./conditions.mjs");
+    const f = compileCondition("close = high and close > pclose and close > open and close > pivot");
+    expect(f({ ltp: 105, high: 105, pclose: 100, open: 101, pivot: 99 })).toBe(true);
+    expect(f({ ltp: 104, high: 105, pclose: 100, open: 101, pivot: 99 })).toBe(false);
+    expect(() => compileCondition("rsi(14) > 60")).toThrow(/needs candles/);
+    expect(() => compileCondition("close[1] > 3")).toThrow(/offsets/);
+    expect(() => compileCondition("close crosses above vwap")).toThrow(/crosses/);
+    expect(() => compileCondition("gap_pct > 2")).toThrow(/needs candles/);
+  });
+  it("fires on the false-to-true edge only, labelled with the condition's name", () => {
+    let now = T0;
+    const e = createEventsEngine({ clock: { now: () => now } });
+    e.setConditions([{ id: "c1", name: "Strong close", expr: "close = high and close > pclose", side: "bull" }]);
+    e.register({ symbol: "NSE:ABC", kind: "EQ" });
+    const tk = (ltp, high) => ((now += 1000), e.ingest({ symbol: "NSE:ABC", ltp, high, low: 95, close: 100 }));
+    tk(105, 105); // first evaluation sets the state
+    tk(104, 105);
+    tk(106, 106); // edge
+    tk(107, 107); // still true: no new event
+    const rows = e.list({ kinds: ["custom"] });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ label: "Strong close", side: "bull" });
+  });
+  it("50 conditions stay O(1) per tick (p95 under 1 ms)", () => {
+    let now = T0;
+    const e = createEventsEngine({ clock: { now: () => now } });
+    e.setConditions(Array.from({ length: 50 }, (_, i) => ({ id: `c${i}`, name: `C${i}`, expr: `close > pclose * (1 + ${i} / 1000) and volume > avgvol20 * 0.1 and close > vwap`, side: "bull" })));
+    for (let s = 0; s < 200; s++) e.register({ symbol: `NSE:S${s}`, kind: "EQ" });
+    for (let i = 0; i < 20; i++) {
+      now += 1000;
+      for (let s = 0; s < 200; s++) e.ingest({ symbol: `NSE:S${s}`, ltp: 100 + Math.sin(i + s) * 3, high: 104, low: 96, close: 100, volume: 1000 * i, avgPrice: 100 });
+    }
+    expect(e.stats().perTickMs.p95).toBeLessThan(1);
+  });
+});
+
 describe("demo market and throughput", () => {
   it("replays a morning with a believable mix of stock and option events", () => {
     let now = T0 + 30 * 60_000;
@@ -285,6 +395,8 @@ describe("routes (demo Bridge end to end)", () => {
       const sym = list.body.data[0].symbol;
       expect((await get(`/v1/events/symbols/${encodeURIComponent(sym)}`)).body.data.symbol).toBe(sym);
       expect((await get("/v1/events/status")).body.data.mode).toBe("demo");
+      expect((await get("/v1/events/conditions")).body.data).toEqual([]);
+      expect((await get("/v1/events/conditions", { method: "POST", body: JSON.stringify({ name: "x", expr: "close > vwap" }) })).status).toBe(403);
     } finally {
       await app.close?.();
     }

@@ -43,6 +43,11 @@ export function contextFromCandles(candles, today) {
     avgVolume: vols.length >= 5 ? Math.round(vols.reduce((a, b) => a + b, 0) / vols.length) : null,
     high52: year.length >= 20 ? Math.max(...year.map((c) => num(c.high) ?? -Infinity)) : null,
     low52: year.length >= 20 ? Math.min(...year.map((c) => num(c.low) ?? Infinity)) : null,
+    // "All-time" over the history fetched; historyFrom says from when, so a short history is labelled honestly.
+    allTimeHigh: past.length >= 20 ? past.reduce((m, c) => Math.max(m, num(c.high) ?? -Infinity), -Infinity) : null,
+    allTimeLow: past.length >= 20 ? past.reduce((m, c) => Math.min(m, num(c.low) ?? Infinity), Infinity) : null,
+    historyFrom: dayOf(past[0]),
+    historyDays: past.length,
   };
 }
 
@@ -250,7 +255,7 @@ export function createLiveFeed({ engine, deps, cfg, store, logger }) {
           for (let tries = 0; tries < 30 && !stopped && !gate.allow(acc, "history", { share, cost: 1 }); tries += 1) await sleep(Math.min(5000, gate.waitMs(acc, "history", { share }) || 1000));
         }
         try {
-          const h = await deps.marketData.history({ symbol: s, interval: "1d", countback: 260 }, { priority: "background", backgroundShare: share, maxWaitMs: 5000 });
+          const h = await deps.marketData.history({ symbol: s, interval: "1d", countback: 5000 }, { priority: "background", backgroundShare: share, maxWaitMs: 5000 });
           const ctx = contextFromCandles(h?.candles, today);
           if (ctx) {
             cached[s] = ctx;

@@ -9,9 +9,12 @@
  *   GET /v1/events/summary         counts by kind and side, bull/bear balance
  *   GET /v1/events/symbols/:symbol one symbol today: its events and key levels (prev H/L, pivots, VWAP, bands)
  *   GET /v1/events/chain           one strike's chain row (?underlying=&expiry=&strike=)
+ *   GET /v1/events/conditions      your live custom conditions;  POST (admin) adds one { name, expr, side? };
+ *   DELETE /v1/events/conditions/:conditionId (admin)
  *   GET /v1/events/status          what is tracked, where data comes from, and the engine's per-tick timing
  */
 import { BridgeError } from "../core/errors.mjs";
+import { json } from "../core/http.mjs";
 import { CATEGORIES, KINDS, OPTION_MODES, PRESETS, UNIVERSES } from "./catalogue.mjs";
 
 const SIDES = new Set(["bull", "bear", "neutral"]);
@@ -105,6 +108,15 @@ export function createEventsRoutes(svc) {
       const row = svc.engine.chainRow(u, e, k);
       if (!row) throw new BridgeError("NOT_FOUND", `The events engine does not track ${u} ${e}.`);
       return { data: row, meta: meta(ctx) };
+    },
+    async listConditions(ctx) {
+      return { data: svc.conditions(), meta: meta(ctx) };
+    },
+    async createCondition(ctx) {
+      return json({ data: svc.addCondition(ctx.body), meta: meta(ctx) }, { status: 201 });
+    },
+    async deleteCondition(ctx) {
+      return { data: svc.removeCondition(String(ctx.params.conditionId ?? "")), meta: meta(ctx) };
     },
     async status(ctx) {
       return { data: svc.status(), meta: meta(ctx) };

@@ -87,6 +87,22 @@ export function createEventStore({ dir, clock, keepDays = 30, flushMs = 500, log
       if (!dir) return;
       writeFileAtomic(join(dir, "selection.json"), `${JSON.stringify(sel, null, 2)}\n`);
     },
+    loadConditions() {
+      if (!dir) return [];
+      const f = join(dir, "conditions.json");
+      if (!existsSync(f)) return [];
+      try {
+        const raw = JSON.parse(readFileSync(f, "utf8"));
+        return Array.isArray(raw?.conditions) ? raw.conditions : [];
+      } catch (err) {
+        logger?.warn?.("could not read the custom conditions; starting with none", { err: err?.message });
+        return [];
+      }
+    },
+    saveConditions(list) {
+      if (!dir) return;
+      writeFileAtomic(join(dir, "conditions.json"), `${JSON.stringify({ version: 1, conditions: list }, null, 2)}\n`);
+    },
     loadContext(date) {
       if (!dir) return null;
       const f = join(dir, `context-${date}.json`);

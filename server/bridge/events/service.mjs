@@ -8,6 +8,8 @@ import { createDemoMarket } from "./demoMarket.mjs";
 import { createEventsEngine, istDate, sessionMinute } from "./engine.mjs";
 import { createLiveFeed } from "./feed.mjs";
 import { createEventStore } from "./store.mjs";
+import { newCondition } from "./conditions.mjs";
+import { BridgeError } from "../core/errors.mjs";
 
 /** Chain-level detectors run on this timer (dirty chains only). */
 export const FLUSH_MS = 250;
@@ -24,7 +26,17 @@ export function createEventsService(deps, opts = {}) {
   const store = createEventStore({ dir: dataDir ? join(dataDir, demo ? "events-demo" : "events") : null, clock: deps.clock, keepDays: demo ? 3 : cfg.keepDays, logger: log });
   let demoMarket = null;
   const sessionOf = (ms) => (demoMarket ? demoMarket.sessionOf(ms) : sessionMinute(ms));
-  const engine = createEventsEngine({ clock: deps.clock, bus: deps.bus, store, selection: store.loadSelection() ?? undefined, sessionOf, maxEvents: cfg.maxEventsPerDay, chainEveryMs: cfg.chainEveryMs, logger: log });
+  const engine = createEventsEngine({ clock: deps.clock, bus: deps.bus, store, selection: store.loadSelection() ?? undefined, sessionOf, maxEvents: cfg.maxEventsPerDay, chainEveryMs: cfg.chainEveryMs, foldMs: cfg.foldMs, logger: log });
+  let conditions = store.loadConditions().filter((c) => {
+    try {
+      engine.setConditions([c]);
+      return true;
+    } catch {
+      log?.warn?.("a saved custom condition no longer compiles; skipped", { id: c?.id });
+      return false;
+    }
+  });
+  engine.setConditions(conditions);
   const feed = !demo && cfg.enabled ? createLiveFeed({ engine, deps, cfg, store, logger: log }) : null;
   const timers = [];
   let started = false;
@@ -79,6 +91,22 @@ export function createEventsService(deps, opts = {}) {
       feed?.stop();
       await store.flush();
       started = false;
+    },
+    conditions: () => conditions.map(({ id, name, expr, side, createdAt }) => ({ id, name, expr, side, createdAt })),
+    addCondition(body) {
+      const c = newCondition(body, conditions);
+      conditions = [...conditions, c];
+      engine.setConditions(conditions);
+      store.saveConditions(conditions);
+      return c;
+    },
+    removeCondition(id) {
+      const c = conditions.find((x) => x.id === id);
+      if (!c) throw new BridgeError("NOT_FOUND", `No condition ${id}.`);
+      conditions = conditions.filter((x) => x.id !== id);
+      engine.setConditions(conditions);
+      store.saveConditions(conditions);
+      return { id, deleted: true };
     },
     setSelection(input) {
       const sel = engine.setSelection(input);

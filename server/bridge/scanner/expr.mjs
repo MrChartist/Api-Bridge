@@ -133,9 +133,11 @@ function tokenize(src) {
 
 /**
  * Parse a condition (or a value expression for a column) into a tree. Throws VALIDATION_FAILED with a readable
- * message. @param {string} src @returns {object}
+ * message. `opts.fields` adds field names a caller evaluates itself (the live events registers).
+ * @param {string} src @param {{ fields?: string[] }} [opts] @returns {object}
  */
-export function parseExpression(src) {
+export function parseExpression(src, opts = {}) {
+  const extraFields = opts.fields ?? null;
   if (typeof src !== "string" || !src.trim()) throw bad("it is empty.");
   if (src.length > MAX_EXPRESSION_LENGTH) throw bad(`keep it under ${MAX_EXPRESSION_LENGTH} characters.`);
   const toks = tokenize(src);
@@ -261,6 +263,7 @@ export function parseExpression(src) {
         expect(")");
         return node(checkCall(name, args));
       }
+      if (extraFields?.includes(name)) return node({ t: "field", name });
       if (!Object.hasOwn(FIELDS, name)) {
         throw bad(Object.hasOwn(FUNCTIONS, name) ? `${name} is a function: write ${name}(...).` : `unknown name "${name}". Fields: ${Object.keys(FIELDS).join(", ")}.`);
       }

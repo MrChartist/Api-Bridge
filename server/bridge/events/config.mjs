@@ -9,6 +9,7 @@
  *     "pollSeconds": 15,          // REST fallback round for symbols with no fresh tick
  *     "staleAfterMs": 20000,      // a symbol with no tick for this long is polled
  *     "chainEveryMs": 1000,       // chain-level option detectors at most this often per chain
+ *     "foldMs": 2000,             // same-direction level events within this window fold into one row
  *     "keepDays": 30,             // day files kept
  *     "maxEventsPerDay": 20000,   // records kept in memory for the day (the file keeps all)
  *     "cashList": ["NSE:XYZ"],    // the "CASH" universe: a broader cash list when your broker allows the subscriptions
@@ -26,6 +27,7 @@ export const EVENTS_CONFIG_SCHEMA = z
     pollSeconds: z.number().int().min(5).max(600).default(15),
     staleAfterMs: z.number().int().min(2000).max(600_000).default(20_000),
     chainEveryMs: z.number().int().min(100).max(60_000).default(1000),
+    foldMs: z.number().int().min(0).max(60_000).default(2000),
     keepDays: z.number().int().min(1).max(365).default(30),
     maxEventsPerDay: z.number().int().min(100).max(200_000).default(20_000),
     cashList: z.array(z.string().min(3).max(64)).max(3000).default([]),

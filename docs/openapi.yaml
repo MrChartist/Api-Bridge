@@ -2655,6 +2655,82 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/events/conditions:
+    get:
+      tags: [Events]
+      operationId: listEventConditions
+      summary: Your live custom conditions
+      x-stream: S28
+      x-scope: read
+      responses:
+        "200":
+          description: Events data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Events]
+      operationId: createEventCondition
+      summary: Add a live custom condition (at most 50)
+      x-stream: S28
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, expr]
+              properties:
+                name: { type: string, maxLength: 60 }
+                expr: { type: string, maxLength: 1000, description: "Scanner language over live fields: ltp close open high low pclose phigh plow pivot vwap volume avgvol20 changepct" }
+                side: { type: string, enum: [bull, bear, neutral] }
+      responses:
+        "201":
+          description: Events data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/events/conditions/{conditionId}:
+    delete:
+      tags: [Events]
+      operationId: deleteEventCondition
+      summary: Delete a live custom condition
+      x-stream: S28
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - { name: conditionId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Events data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/events/status:
     get:
       tags: [Events]
