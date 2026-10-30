@@ -155,6 +155,20 @@ describe("demo adapter", () => {
     }
   });
 
+  it("spot is continuous across a restart: adapters made at different times give the same price for the same instant", async () => {
+    const t = Date.parse("2026-10-31T01:30:00+05:30");
+    const first = createDemoAdapter({ now: () => t });
+    const one = (await first.fetchLTP(null, "NIFTY")).data.last_price;
+    // A later "process": more of the walk and the session paths already memoised, other instants asked first.
+    for (const x of [Date.parse("2027-03-01T11:00:00+05:30"), Date.parse("2025-06-02T10:00:00+05:30"), t - 7 * 86_400_000]) spotAt("NIFTY", x);
+    const second = createDemoAdapter({ now: () => t });
+    const two = (await second.fetchLTP(null, "NIFTY")).data.last_price;
+    expect(two).toBe(one);
+    // And a few seconds apart the price moves by the wiggle at most, never a gap.
+    const later = createDemoAdapter({ now: () => t + 5000 });
+    expect(Math.abs((await later.fetchLTP(null, "NIFTY")).data.last_price / one - 1)).toBeLessThan(0.0005);
+  });
+
   it("history and live quotes come from one path: after the close the live price is the last 5-minute close", () => {
     const ist = (s) => Date.parse(`${s}+05:30`);
     for (const sym of ["HDFCBANK", "RELIANCE", "NIFTY"]) {
