@@ -555,6 +555,23 @@ describe("review regressions", () => {
     expect(noValue.reasons.find((r) => r.rule === "maxOrderValue")).toBeTruthy();
   });
 
+  it("a modify (paper or live) meets the per-order lots and value limits like a place", async () => {
+    const { guard } = setup();
+    const fo = limitOrder({ symbol: "NFO:NIFTY-2026-10-27-25000-CE", quantity: 1300, price: 120 });
+    for (const mode of ["paper", "live"]) {
+      const scopes = mode === "live" ? ["live"] : ["paper"];
+      const lots = await guard.check(keyCtx({ scopes }), intent({ mode, action: "modify", order: fo, quantity: 1300, lots: 20, lotSize: 65, value: 156_000, ltp: 120 }));
+      expect(lots.reasons.map((r) => r.rule), mode).toContain("maxLotsPerOrder");
+      const value = await guard.check(keyCtx({ scopes }), intent({ mode, action: "modify", order: fo, quantity: 650, lots: 10, lotSize: 65, value: 227_000, ltp: 120 }));
+      expect(value.reasons.map((r) => r.rule), mode).toContain("maxOrderValue");
+      expect(value.reasons.map((r) => r.rule), mode).not.toContain("maxLotsPerOrder");
+    }
+    // A paper modify whose value is unknown is no longer passed silently: it says the limit was not checked.
+    const unknown = await guard.check(keyCtx(), intent({ action: "modify", value: null, lots: null, order: limitOrder({ symbol: "NFO:NIFTY-2026-10-27-25000-CE" }) }));
+    expect(unknown.warnings.join(" ")).toMatch(/value limit was not checked/);
+    expect(unknown.warnings.join(" ")).toMatch(/lots limit was not checked/);
+  });
+
   it("cancelOpenOrders needs the live scope and is limited to the caller's accounts and Bridge orders", async () => {
     const { guard, events } = setup();
     const read = await guard.engageKillSwitch(keyCtx({ scopes: ["read"] }), { reason: "x", cancelOpenOrders: true });

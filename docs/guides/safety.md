@@ -54,13 +54,17 @@ refusal into a warning with `readiness.gateAutomated: false`. Static IP and the 
 | Order rate | 5 per second per account (place, modify and cancel all count), taken when the order actually leaves for the broker, so orders that queued behind a broker back-off cannot burst above it. Paper orders are paced at the same rate in their own window. Config cannot set more than 10 (see [compliance.md](compliance.md)). Kept per Bridge account: two entries for the same broker login each get their own cap (**needs verification**: per client, per PAN or per exchange). |
 | Daily orders | 100 per account per IST day; an order that passes its checks reserves its place at once (so concurrent requests cannot overshoot), and each slice of a sliced order counts as one |
 | Daily loss | ₹10,000 per account per IST day. Paper: realised P&L from the paper engine's fills. Live: the broker's day P&L (realised plus open positions) read before each live order; when it cannot be read the order carries a warning that the limit was not checked |
-| Order value | ₹2,00,000 |
-| Lots per order | 10 |
-| Price band | Limit and trigger prices within 3% of LTP, on every place and every live modify (a live modify without an LTP is refused) |
+| Order value | ₹2,00,000. A modify is checked on the order after the change: the new quantity × the new limit (or trigger) price, or × LTP for a market order |
+| Lots per order | 10, on every place and every modify (paper and live) |
+| Price band | Limit and trigger prices within 3% of LTP, on every place and every modify, paper and live (a live modify without an LTP is refused) |
 | Market orders | `protect`: sent as a limit order at LTP ± 2% (or the broker's native protection); `reject`: refused |
 | Market hours | Live orders outside NSE/BSE hours are refused; MCX (09:00 to 23:55) and CDS (09:00 to 17:00) by weekday window (**needs verification**, holidays not known); paper orders only warn |
 | Unverified live adapters | Live orders on brokers verified only against fixtures (today Zerodha and Upstox) carry a warning on every preview and place |
-| Freeze quantity | Orders above the exchange freeze quantity are refused (or sliced, if `orders.sliceAboveFreeze` is on) |
+| Freeze quantity | Orders above the exchange freeze quantity are refused (or sliced, if `orders.sliceAboveFreeze` is on). A modify cannot be sliced, so a change above the freeze quantity is refused |
+
+A modify, paper or live, passes every check in this table on the order as it would stand after the change, except
+the daily order count and daily loss (it changes an order already counted). Cancels pass none of them except the order
+rate, so risk can always be reduced.
 
 Per-account `limits` may be stricter than the global `safety` values, never looser. `GET /v1/safety` shows today's
 counters.

@@ -17,7 +17,9 @@
  *   caller gets 504 OUTCOME_UNKNOWN naming the order id, and the reconciliation job looks for it in the broker order
  *   book (reconcile.mjs). A late answer from the adapter also resolves it.
  *
- * modify()/cancel(): same idempotency and audit; live modify needs the live opt-ins and passes SafetyGuard.check;
+ * modify()/cancel(): same idempotency and audit; every modify (paper and live) passes SafetyGuard.check with the
+ *   same per-order inputs as a place (modifyShape: lots, value, price band, market policy, freeze); a live modify also
+ *   needs the live opt-ins;
  *   cancels are never blocked by the kill switch or limits (they only reduce risk) but each counts towards the
  *   order-rate cap. AI assistants may cancel but not change live orders.
  * cancelAll(): every open order (paper book, and the broker's own order book for live) on the accounts the caller
@@ -1348,6 +1350,48 @@ export function createOrderService(deps) {
     return next;
   }
 
+  /** A paper order as it would stand after `changes` (the paper engine's own merge rule). */
+  function paperNext(o, changes) {
+    const orderType = changes.orderType ?? o.orderType;
+    const priced = orderType === "LIMIT" || orderType === "SL";
+    const stop = orderType === "SL" || orderType === "SL-M";
+    return {
+      orderType,
+      price: priced ? (changes.price ?? o.price ?? undefined) : undefined,
+      triggerPrice: stop ? (changes.triggerPrice ?? o.triggerPrice ?? undefined) : undefined,
+      quantity: changes.quantity ?? o.quantity,
+      side: o.side,
+    };
+  }
+
+  /**
+   * The per-order inputs SafetyGuard needs to check a modify exactly like a new order: lots (quantity / lot size),
+   * value (new quantity x the new limit or trigger price, or x LTP for a market order: the place rule), the LTP for
+   * the price band, and the order itself for the market-order policy and market hours. A change that raises the
+   * quantity above the exchange freeze quantity is refused here: a change cannot be split into slices.
+   * @returns {Promise<{ order: object, intent: { quantity: number, lots: number | null, lotSize: number | null, value: number | null, ltp: number | null } }>}
+   */
+  async function modifyShape(o, next, { lotSize = null, broker = null, ltp: knownLtp, quantityChanged = false } = {}) {
+    let resolved = null;
+    try {
+      resolved = await deps.symbols.resolve(o.symbol, broker ? { broker } : {});
+    } catch {
+      resolved = null;
+    }
+    const pos = (v) => Number.isFinite(v) && v > 0;
+    const lot = pos(lotSize) ? lotSize : pos(resolved?.lotSize) ? resolved.lotSize : null;
+    const quantity = Number(next.quantity);
+    const freeze = resolved?.freezeQty;
+    if (quantityChanged && pos(freeze) && quantity > freeze) {
+      throw new BridgeError("INVALID_ORDER", `quantity ${quantity} is above the exchange freeze quantity ${freeze} for ${o.symbol}. A change cannot be split into slices: cancel this order and place a new one.`);
+    }
+    const ltp = knownLtp !== undefined ? knownLtp : await ltpOf(o.symbol);
+    const unit = pos(next.price) ? next.price : pos(next.triggerPrice) ? next.triggerPrice : ltp;
+    const value = pos(unit) && pos(quantity) ? Number((unit * quantity).toFixed(2)) : null;
+    const order = { symbol: o.symbol, side: o.side, product: o.product, orderType: next.orderType, price: next.price, triggerPrice: next.triggerPrice, quantity };
+    return { order, intent: { quantity, lots: lot ? quantity / lot : null, lotSize: lot, value, ltp } };
+  }
+
   const openLeg = (l) => l.brokerOrderId && !TERMINAL_STATUSES.has(l.status) && l.status !== "outcome_unknown";
 
   /**
@@ -1393,7 +1437,10 @@ export function createOrderService(deps) {
     try {
       if (loc.mode === "paper") {
         const banIntent = changes.quantity !== undefined ? await modifyBanIntent(ctx, loc.accountId, orderId, changes.quantity, false) : {};
-        const verdict = await deps.safety.check(ctx, { accountId: loc.accountId, mode: "paper", action: "modify", order: banIntent.order ?? null, orderId, source: ctx.source, keyId: ctx.key?.id ?? null, quantity: changes.quantity ?? null, value: null, ltp: null, ...banIntent.extra });
+        // The same per-order checks as a place (lots, value, price band, market policy, market hours, freeze), on the
+        // order as it would stand after the change.
+        const shape = await modifyShape(loc.order, paperNext(loc.order, changes), { quantityChanged: changes.quantity !== undefined });
+        const verdict = await deps.safety.check(ctx, { ...banIntent.extra, accountId: loc.accountId, mode: "paper", action: "modify", order: shape.order, orderId, source: ctx.source, keyId: ctx.key?.id ?? null, ...shape.intent });
         if (!verdict?.ok) throw verdictError(verdict);
         paperSlot(loc.accountId);
         const out = await deps.paper.modify(loc.accountId, orderId, changes);
@@ -1427,6 +1474,7 @@ export function createOrderService(deps) {
         mpPct = m.marketProtectionPct;
       }
       const banIntent = changes.quantity !== undefined ? await modifyBanIntent(ctx, o.accountId, orderId, next.quantity, true, o) : {};
+      const shape = await modifyShape(o, next, { lotSize: rec.x.lotSize, broker: summary.broker, ltp, quantityChanged: changes.quantity !== undefined });
       const verdict = await deps.safety.check(ctx, {
         ...banIntent.extra,
         accountId: o.accountId,
@@ -1436,9 +1484,7 @@ export function createOrderService(deps) {
         orderId,
         source: ctx.source,
         keyId: ctx.key?.id ?? null,
-        quantity: next.quantity,
-        value: Number.isFinite(next.price) ? next.price * next.quantity : Number.isFinite(next.triggerPrice) ? next.triggerPrice * next.quantity : Number.isFinite(ltp) ? ltp * next.quantity : null,
-        ltp,
+        ...shape.intent,
       });
       if (!verdict?.ok) throw verdictError(verdict);
       const legs = o.legs.map((l, i) => (openLeg(l) ? i : -1)).filter((i) => i >= 0);
