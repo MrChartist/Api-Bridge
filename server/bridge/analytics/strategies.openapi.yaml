@@ -1,0 +1,56 @@
+  /v1/analytics/strategies:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsStrategies
+      summary: Strategy templates and supported market views
+      description: Lists the templates (straddles, strangles, vertical spreads, iron condor and butterfly, butterfly, covered call, protective put) with their default `offset` and `width` (in listed strikes). Pure, no broker call.
+      x-stream: S15
+      x-scope: read
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/strategies/build:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsStrategyBuild
+      summary: Build one strategy from the live chain, with payoff and probability of profit
+      description: Picks strikes by ATM and `offset`/`width` (counted in listed strikes), prices legs from leg ltp (bid/ask mid if missing), takes lot size from the chain, and returns the legs, max profit and loss, break-evens, net premium and a lognormal probability of profit from ATM IV. Never places an order.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: template, in: query, required: true, description: A template id from /v1/analytics/strategies., schema: { type: string } }
+        - { name: offset, in: query, description: Strikes from ATM to the anchor strike (negative is below). Defaults per template., schema: { type: integer, minimum: -20, maximum: 20 } }
+        - { name: width, in: query, description: Strikes between legs or to the wings. Defaults per template., schema: { type: integer, minimum: 1, maximum: 20 } }
+        - { name: lots, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 1 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/strategies/find:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsStrategyFind
+      summary: Rank strategies for a market view
+      description: Instantiates the templates matching `view` over a small offset/width grid, runs the payoff on each and ranks them by a blend of risk-reward, probability of profit and net credit. Strategies with unbounded risk carry `unboundedRisk` true and are excluded when `maxLoss` is given, as is anything whose max loss exceeds it.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: view, in: query, required: true, schema: { type: string, enum: [bullish, bearish, neutral, volatile, rangebound] } }
+        - { name: maxLoss, in: query, description: Maximum loss budget in rupees., schema: { type: number, exclusiveMinimum: 0 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
