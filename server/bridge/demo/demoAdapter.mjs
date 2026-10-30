@@ -746,11 +746,16 @@ export function priceOf(token, t) {
 }
 
 /**
- * An option's traded lots a minute from its closeness to the money (`near`, 1 at the money). It falls away like the
- * open interest does: a flat floor of 4 lots a minute gave far strikes with 1 lot of OI over 1000 lots of volume, so
- * every top row of Flow › Unusual activity read "> 100x".
+ * An option's traded lots a minute at `strike` with the underlying at `spot`: a hump exactly as wide as the open
+ * interest's (OI_WIDTH_STEPS strike steps), so volume / OI stays in the same few times across the chain. A flat floor
+ * of 4 lots a minute gave far strikes with 1 lot of OI over 1000 lots of volume ("> 100x" on every top row of Flow ›
+ * Unusual activity), and a hump wider than the OI's still read 20 to 75 times two to three percent out of the money.
  */
-const optionLotsPerMinute = (near) => 204 * near;
+const optionLotsPerMinute = (strike, spot, step, right) => {
+  // In-the-money options trade far less than out-of-the-money ones (their OI is already on a 0.55 side factor).
+  const itm = right === "CE" ? strike < spot : right === "PE" ? strike > spot : false;
+  return 204 * (itm ? 0.25 : 1) * Math.exp(-(((strike - spot) / (step * OI_WIDTH_STEPS)) ** 2));
+};
 
 /** A full quote for a token at `t`. */
 export function quoteOf(token, exchange, t) {
@@ -774,7 +779,7 @@ export function quoteOf(token, exchange, t) {
   const up = (n) => Math.ceil(n / tick - 1e-9) * tick;
   const bid = Number(down(Math.min(ltp, ltp - spread / 2)).toFixed(4));
   const ask = Number(Math.max(up(ltp + spread / 2), bid + tick).toFixed(4));
-  const perMinute = p.kind === "spot" ? 5200 : p.kind === "fut" ? 30 : optionLotsPerMinute(near);
+  const perMinute = p.kind === "spot" ? 5200 : p.kind === "fut" ? 30 : optionLotsPerMinute(p.strike, spotAt(p.symbol, t), u.step, p.right);
   // Contract lot (an adjusted contract's own lot); stock derivatives' volume scaled like their OI (P1-6).
   const lot = p.kind === "spot" ? 1 : contractLot(u, p.expiry, t) * (p.adjusted ? DEMO_ADJ_FACTOR : 1);
   const scale = p.kind === "opt" ? u.oiScale ?? 1 : 1;
@@ -822,7 +827,7 @@ export function demoChainAt(symbol, expiry, t, strikesEachSide = STRIKES_EACH_SI
       const spread = Math.max(0.05 * (1 + Math.round(3 * (1 - near))), ltp * 0.0015);
       const bid = Number(Math.max(0, Math.floor((ltp - spread / 2) / 0.05 + 1e-9) * 0.05).toFixed(2));
       const ask = Number(Math.max(Math.ceil((ltp + spread / 2) / 0.05 - 1e-9) * 0.05, bid + 0.05).toFixed(2));
-      const volume = Math.max(1, Math.round(optionLotsPerMinute(near) * (u.oiScale ?? 1) * minutes * (0.7 + 0.6 * unit(`${symbol}:${expiry}:${k}:${right}:vol`)))) * lot;
+      const volume = Math.max(1, Math.round(optionLotsPerMinute(k, spot, u.step, right) * (u.oiScale ?? 1) * minutes * (0.7 + 0.6 * unit(`${symbol}:${expiry}:${k}:${right}:vol`)))) * lot;
       const sizes = depthSizes(`DM-${symbol}-${expiry}-${k}-${right}`, lot, t);
       return { symbol: `${u.deriv}:${symbol}-${expiry}-${k}-${right}`, ltp, bid, ask, bidQty: sizes.bidQty, askQty: sizes.askQty, oi: oiWith(octx, k, right), volume };
     };

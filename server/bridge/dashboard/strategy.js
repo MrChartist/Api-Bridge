@@ -104,6 +104,22 @@ function inkFlash(el, dir) {
 }
 
 /**
+ * Where max profit or max loss holds, in words (pure): "if NIFTY closes below 24250 or above 25700", "if NIFTY closes
+ * between 24500 and 25450", "if NIFTY closes at 26000", "everywhere". `iv` holds up to two [from, to] intervals at that
+ * level of the expiry payoff, and `lo` / `hi` are the edges of the range the payoff was read over.
+ */
+export function closeText(underlying, iv, lo, hi, { short = false } = {}) {
+  const list = (iv ?? []).slice(0, 2);
+  if (!list.length) return "";
+  const [a0, b0] = list[0];
+  if (a0 <= lo && b0 >= hi) return "everywhere";
+  const between = (a, b) => (short ? `${formatInt(a)}–${formatInt(b)}` : `between ${formatInt(a)} and ${formatInt(b)}`);
+  const part = ([a, b]) => (a <= 0 && b < 1 ? "at 0" : a <= lo ? `below ${formatInt(b)}` : b >= hi ? `above ${formatInt(a)}` : Math.abs(b - a) < 1 ? `at ${formatInt(a)}` : between(a, b));
+  // Phones: the hero's two-line sub has room for the levels only ("below 24250 or above 25700").
+  return short ? list.map(part).join(" or ") : `if ${underlying || "it"} closes ${list.map(part).join(" or ")}`;
+}
+
+/**
  * @param {{ st: object, save: () => void, account: () => object|null, acctPicker?: (onChange: () => void) => Node,
  *   refresh: () => void, switchTo: (u: string, e: string) => Promise<void>, onPositions: () => void }} o
  */
@@ -1042,11 +1058,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       c.v.classList.add("xfade");
     }
   }
-  /** "at 25957–26893", "above 26000", "below 25800 / above 27050" from the intervals at a level. */
-  function intervalText(iv, lo, hi) {
-    const part = ([a, b]) => (a <= lo && b >= hi ? "everywhere" : a <= 0 && b < 1 ? "if it falls to 0" : a <= lo ? `below ${formatInt(b)}` : b >= hi ? `above ${formatInt(a)}` : Math.abs(b - a) < 1 ? `at ${formatInt(a)}` : `${formatInt(a)}–${formatInt(b)}`);
-    return (iv ?? []).slice(0, 2).map(part).join(" / ");
-  }
+  const intervalText = (iv, lo, hi) => closeText(st.underlying, iv, lo, hi, { short: isPhone() });
   function drawHero() {
     const r = R;
     const loading = !r;

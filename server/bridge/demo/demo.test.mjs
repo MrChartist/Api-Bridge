@@ -163,6 +163,21 @@ describe("demo adapter", () => {
     for (const u of ["NIFTY", "BANKNIFTY", "SENSEX"]) expect(futs(u)).toHaveLength(3);
   });
 
+  it("option volume and OI share one hump, so volume / OI stays in a few times across the chain", () => {
+    const t = Date.parse("2026-10-30T15:00:00+05:30");
+    for (const sym of ["BANKNIFTY", "NIFTY"]) {
+      const u = demoUnderlying(sym);
+      const e = expiriesFor(sym, t)[0];
+      const centre = Math.round(spotAt(sym, t) / u.step) * u.step;
+      for (let i = -12; i <= 12; i += 3) {
+        const q = quoteOf(`DM-${sym}-${e}-${centre + i * u.step}-CE`, u.deriv, t);
+        const ratio = q.volume / q.oi;
+        expect(ratio, `${sym} ${i} steps`).toBeGreaterThan(1);
+        expect(ratio, `${sym} ${i} steps`).toBeLessThan(30);
+      }
+    }
+  });
+
   it("spot is continuous across a restart: adapters made at different times give the same price for the same instant", async () => {
     const t = Date.parse("2026-10-31T01:30:00+05:30");
     const first = createDemoAdapter({ now: () => t });
