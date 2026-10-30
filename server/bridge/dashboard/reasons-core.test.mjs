@@ -5,7 +5,6 @@ import { whatToDo } from "./reasons-core.js";
 describe("what to do about a refusal", () => {
   const cases = [
     ["KILL_SWITCH_ACTIVE", "The kill switch is on (test). No orders are being sent", /release it on the Safety page/],
-    ["DAILY_LIMIT_REACHED", "Account demo-paper has a paper loss of ₹31,651.5 today, at or above the daily limit of ₹10,000. New orders resume tomorrow.", /close in your broker's app/],
     ["DAILY_LIMIT_REACHED", "Account demo-paper has placed 100 paper orders today, the daily limit (100).", /resets at midnight IST/],
     ["INVALID_ORDER", "12 lots is above the per-order limit of 10 lots.", /Strategy Builder as a basket/],
     ["INVALID_ORDER", "The order value ₹62,660 is above the per-order limit of ₹60,000.", /fewer lots/],
@@ -20,6 +19,18 @@ describe("what to do about a refusal", () => {
     ["CANNOT_TRADE", "dhan-main cannot trade now.", /Log in to the broker/],
   ];
   for (const [code, message, fix] of cases) it(`${code ?? "rejected"}: ${message.slice(0, 40)}`, () => expect(whatToDo({ code, message })).toMatch(fix));
+
+  it("daily loss and the kill switch: a paper account is never sent to a broker; a live one is", () => {
+    const paper = "Account demo-paper has a paper loss of ₹31,651.5 today, at or above the daily limit of ₹10,000. New orders resume tomorrow.";
+    const live = "Account dhan-main has a live loss of ₹12,000 today, at or above the daily limit of ₹10,000. New orders resume tomorrow.";
+    expect(whatToDo({ code: "DAILY_LIMIT_REACHED", message: paper })).toBe("Paper orders resume tomorrow (IST). Raise or reset the paper limit on the Safety page.");
+    expect(whatToDo({ code: "DAILY_LIMIT_REACHED", message: paper, mode: "paper" })).not.toMatch(/broker/);
+    expect(whatToDo({ code: "DAILY_LIMIT_REACHED", message: live })).toMatch(/close in your broker's app/);
+    expect(whatToDo({ code: "DAILY_LIMIT_REACHED", message: paper, mode: "live" })).toMatch(/broker's app/);
+    for (const m of ["paper", "live"]) expect(whatToDo({ code: "DAILY_LIMIT_REACHED", message: m === "paper" ? paper : live, mode: m })).not.toMatch(/Positions/);
+    expect(whatToDo({ code: "KILL_SWITCH_ACTIVE", message: "The kill switch is on.", mode: "paper" })).toBe("Find out why it is on, then release it on the Safety page.");
+    expect(whatToDo({ code: "KILL_SWITCH_ACTIVE", message: "The kill switch is on.", mode: "live" })).toMatch(/Your broker's app can still close positions/);
+  });
 
   it("adds nothing when there is nothing useful to add, and reads plain strings", () => {
     expect(whatToDo({ code: "INVALID_ORDER", message: "Expired at the end of the trading session." })).toBeNull();

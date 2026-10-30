@@ -7479,6 +7479,8 @@ button.toolbar-bell-btn svg { width: 17px; height: 17px; fill: none; stroke: cur
 .toolbar-ready { display: inline-flex; flex: none; min-width: 0; }
 .toolbar-ready[hidden] { display: none; }
 button.toolbar-ready-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.5px; --btn-bg: var(--btn-soft); --btn-line: transparent; height: auto; gap: 8px; max-width: 34ch; color: hsl(var(--foreground)); }
+/* Room for the blocker ("Cannot trade: Demo · order limit used up") from 1280 px; narrower screens keep 34ch. */
+@media (min-width: 1280px) { button.toolbar-ready-btn { max-width: 48ch; } button.toolbar-ready-btn .rd-long { max-width: 42ch; } }
 .rd-glyph { position: relative; display: inline-grid; place-items: center; flex: none; width: 16px; height: 16px; color: hsl(var(--foreground) / var(--a-label)); }
 .rd-glyph svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; }
 .rd-glyph .pdot { position: absolute; top: -2px; right: -3px; width: 8px; height: 8px; border-radius: 99px; background: hsl(var(--foreground) / 0.4); box-shadow: 0 0 0 2px hsl(var(--background)); }

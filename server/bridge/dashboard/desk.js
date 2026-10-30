@@ -1667,7 +1667,7 @@ async function renderDesk(kind) {
     const quoteLine = h("div", { class: "ticket-quote" });
     // A refusal from the Bridge, in its own words, then the next step (reasons-core.js) when there is one.
     const refusalNodes = (err) => {
-      const fix = whatToDo(err);
+      const fix = whatToDo({ code: err?.code, message: err?.message ?? err?.detail, mode: live() ? "live" : "paper" });
       return [alertBox(err), ...(fix ? [h("p", { class: "bk-fix" }, h("strong", {}, "What to do: "), fix)] : [])];
     };
     // Market depth (GET /v1/depth): read every 2 s only while it is open, so a closed panel costs no broker calls.
@@ -1845,6 +1845,11 @@ async function renderDesk(kind) {
       const narrow = typeof matchMedia === "function" && matchMedia("(max-width: 719px)").matches;
       placeBtn.textContent = `${gtt() ? (narrow ? "Set GTT" : `Set GTT: ${size}`) : size}${live() ? " · LIVE" : ""}`;
       placeBtn.className = b.side === "BUY" ? "btn buy" : "btn sell";
+      // Refused by a check: the standard disabled button, saying so (the reason is its title and in the preview).
+      if (firstBlock) {
+        placeBtn.textContent = "Blocked";
+        placeBtn.className = "btn";
+      }
       // A GTT is checked again when it fires: a price band against today's price does not stop setting it.
       const gttBad = gtt() && (!isFigure(trig.value) || Number(trig.value) <= 0);
       const slBad = isStop() && Boolean(stopOrderProblem({ side: b.side, orderType: b.orderType, trigger: b.triggerPrice, price: b.price, ltp: num(quote()?.ltp) }));
@@ -1957,7 +1962,7 @@ async function renderDesk(kind) {
               )
             : null,
           // A GTT's order is checked against the market when it fires: today's refusals are said as "When it fires".
-          ...(checks.length ? [h("ul", { class: "ticket-checks" }, checks.map((x) => h("li", { class: x.severity === "block" && !gtt() ? "bad" : "warn" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, `${x.severity === "block" ? (gtt() ? "If this held when it fires, it would be refused: " : "Blocked: ") : ""}${x.message}`, x.severity === "block" && whatToDo(x) ? h("span", { class: "bk-fix" }, `What to do: ${whatToDo(x)}`) : null))))] : []),
+          ...(checks.length ? [h("ul", { class: "ticket-checks" }, checks.map((x) => h("li", { class: x.severity === "block" && !gtt() ? "bad" : "warn" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, `${x.severity === "block" ? (gtt() ? "If this held when it fires, it would be refused: " : "Blocked: ") : ""}${x.message}`, x.severity === "block" && whatToDo({ ...x, mode: live() ? "live" : "paper" }) ? h("span", { class: "bk-fix" }, `What to do: ${whatToDo({ ...x, mode: live() ? "live" : "paper" })}`) : null))))] : []),
         );
       } catch (err) {
         if (seq !== previewSeq) return;
