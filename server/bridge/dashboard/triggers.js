@@ -124,6 +124,8 @@ export async function openPositionExits({ account, accountLabel, live, leg, name
 }
 
 const REFRESH_MS = 2000;
+/** With no open trigger nothing moves on its own (a new one comes from this tab's ticket or the API): a slower read. */
+const IDLE_REFRESH_MS = 10_000;
 
 /** The legs, one line each, with how far the price is from each. */
 function legsCell(t) {
@@ -279,12 +281,17 @@ export function triggersCard(byId) {
     draw(r.data?.data ?? []);
   }
   refresh();
+  // Every 2 s while a trigger is open (its LTP and distance move), every 10 s otherwise, none while the tab is hidden.
   // Stops once the card has been on screen and is gone (the page changed).
   let seen = false;
   let misses = 0;
+  let sinceRead = 0;
   const timer = setInterval(() => {
     if (node.isConnected) {
       seen = true;
+      sinceRead += REFRESH_MS;
+      if (document.hidden || sinceRead < (last.some((t) => OPEN_TRIGGER.has(t.status)) ? REFRESH_MS : IDLE_REFRESH_MS)) return;
+      sinceRead = 0;
       refresh();
     } else if (seen || ++misses > 5) clearInterval(timer);
   }, REFRESH_MS);

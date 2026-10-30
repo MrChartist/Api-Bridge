@@ -17,7 +17,8 @@ describe("Algo page model (algo-core.js)", () => {
     expect(uptimeText(2 * 3600_000 + 5 * 60_000)).toBe("2 h 05 min");
     expect(uptimeText(27 * 3600_000)).toBe("1 d 3 h");
     expect(uptimeText(null)).toBe("–");
-    expect(heartbeatText(2400)).toEqual({ text: "Heartbeat 2 s ago", late: false });
+    expect(heartbeatText(2400)).toEqual({ text: "2 s ago", late: false });
+    expect(heartbeatText(null).text).toBe("Waiting");
     expect(heartbeatText(20_000).late).toBe(true);
   });
 

@@ -784,7 +784,7 @@ class Strategy:
             threading.Thread(target=self._watch_parent, name="mcb-parent", daemon=True).start()
         events: "queue.Queue[Mapping[str, Any]]" = queue.Queue(maxsize=10000)
         self.log.emit("hello", id=self.id, run=self.run_id, account=self.account, mode=self.mode, params=self.p.as_dict(), pid=os.getpid())
-        self.log.info("Starting %s on %s (%s) with %s", self.name or type(self).__name__, self.account, self.mode, self.p.as_dict())
+        self.log.info("Starting %s on %s (%s)", self.name or type(self).__name__, self.account, self.mode)
         code = EXIT_OK
         try:
             try:

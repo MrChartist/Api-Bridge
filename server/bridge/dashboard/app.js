@@ -1186,6 +1186,23 @@ export function modal({ title, body, buttons = [], canClose = null }) {
     // Enter in a one-line field presses the sheet's main (primary) action, as in any form. Fields that use Enter
     // themselves (search pickers, textareas, a focused button) stop it first or are skipped here.
     d.onkeydown = (e) => {
+      // Tab stays inside the sheet: a native modal <dialog> lets it leave past the last control (to the browser and
+      // back to the page behind), so the first and last controls hand focus round to each other.
+      if (e.key === "Tab" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const f = [...d.querySelectorAll("button, input, select, textarea, a[href], [tabindex]:not([tabindex='-1'])")].filter((x) => !x.disabled && x.offsetParent !== null && !x.closest("[inert], [hidden]"));
+        if (!f.length) return;
+        const first = f[0];
+        const last = f[f.length - 1];
+        const a = document.activeElement;
+        if (e.shiftKey && (a === first || !d.contains(a))) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && (a === last || !d.contains(a))) {
+          e.preventDefault();
+          first.focus();
+        }
+        return;
+      }
       if (e.key !== "Enter" || e.isComposing || e.defaultPrevented || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
       const el = e.target;
       if (!(el instanceof HTMLInputElement) || ["checkbox", "radio", "button", "submit", "search", "file"].includes(el.type)) return;

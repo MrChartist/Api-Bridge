@@ -1,10 +1,13 @@
 """EMA crossover on an index future.
 
 Builds bars of the nearest NIFTY (or BANKNIFTY) future from live ticks and follows the fast EMA across the slow one:
-fast above slow is long, below is short. With trade = "option" (the default) it expresses the view with an
-at-the-money option (a call when long, a put when short), which fits the Bridge's default per-order value limit;
-with trade = "future" it buys or sells the future itself (one future lot is worth far more than the default
-maxOrderValue of 2 lakh, so raise that limit in your config first, or the Bridge refuses the order).
+fast above slow is long, below is short. A cross counts only once the fast EMA clears the slow one by band_pct, and a
+side is held at least hold_bars bars, so noise around the cross does not flip-flop.
+
+With trade = "option" (the default) it expresses the view with an at-the-money option (a call when long, a put when
+short), which fits the Bridge's default per-order value limit; with trade = "future" it buys or sells the future
+itself (one future lot is worth far more than the default maxOrderValue of 2 lakh, so raise that limit in your config
+first, or the Bridge refuses the order).
 """
 
 from mrchartist_bridge.errors import BridgeApiError
@@ -34,6 +37,8 @@ class EmaCrossover(Strategy):
         "slow": Param(21, min=3, max=300, help="Slow EMA length in bars"),
         "trade": Param("option", choices=["option", "future"], help="Trade an ATM option (fits default limits) or the future"),
         "lots": Param(1, min=1, max=10, help="Lots per order"),
+        "band_pct": Param(0.02, min=0, max=2, step=0.01, help="The fast EMA must clear the slow one by this much (% of price) to count as a cross"),
+        "hold_bars": Param(3, min=0, max=100, help="Bars to hold a side before the next reversal"),
         "enter_on_start": Param(True, help="Take the current side as soon as the EMAs are ready, without waiting for a cross"),
         "exit_on_stop": Param(True, help="Close the position when you press Stop"),
     }
@@ -45,6 +50,8 @@ class EmaCrossover(Strategy):
         self.subscribe(self.future)
         self.fast_ema, self.slow_ema = Ema(self.p.fast), Ema(self.p.slow)
         self.side = None
+        self.state = None
+        self.bars_since_flip = 10 ** 6
         held = {s: q for s, q in self.positions().items() if q}
         if held:
             sym, q = next(iter(held.items()))
@@ -62,24 +69,34 @@ class EmaCrossover(Strategy):
     def on_bar(self, bar, timeframe):
         if timeframe != self.p.timeframe or bar.symbol != self.future:
             return
-        prev = self.relation()
         self.fast_ema.add(bar.close)
         self.slow_ema.add(bar.close)
+        self.bars_since_flip += 1
         if self.slow_ema.count < self.p.slow:
             if self.slow_ema.count % 5 == 0:
                 self.log.info("Warming up: %d of %d bars", self.slow_ema.count, self.p.slow)
             return
-        now = self.relation()
+        prev = self.state
+        self.state = self.relation(prev)
         self.log.debug("%s close %.2f, EMA%d %.2f, EMA%d %.2f", timeframe, bar.close, self.p.fast, self.fast_ema.value, self.p.slow, self.slow_ema.value)
-        crossed = prev is not None and now != prev
-        if crossed or (self.side is None and self.p.enter_on_start):
-            self.log.info("EMA%d %s EMA%d at %.2f: going %s", self.p.fast, "above" if now == "long" else "below", self.p.slow, bar.close, now)
-            self.go(now)
+        if self.state is None or self.state == self.side:
+            return
+        if self.side is None and not self.p.enter_on_start and (prev is None or prev == self.state):
+            return  # wait for a real cross before the first trade
+        if self.side is not None and self.bars_since_flip < self.p.hold_bars:
+            return  # hold the side a few bars: no flip-flopping on noise around the cross
+        self.log.info("EMA%d %s EMA%d at %.2f: going %s", self.p.fast, "above" if self.state == "long" else "below", self.p.slow, bar.close, self.state)
+        self.go(self.state)
+        self.bars_since_flip = 0
 
-    def relation(self):
-        if self.fast_ema.value is None or self.slow_ema.count < self.p.slow:
-            return None
-        return "long" if self.fast_ema.value > self.slow_ema.value else "short"
+    def relation(self, prev):
+        """long or short once the fast EMA clears the slow one by band_pct; inside the band the last side holds."""
+        band = self.slow_ema.value * self.p.band_pct / 100
+        if self.fast_ema.value > self.slow_ema.value + band:
+            return "long"
+        if self.fast_ema.value < self.slow_ema.value - band:
+            return "short"
+        return prev
 
     def go(self, side):
         if side == self.side:

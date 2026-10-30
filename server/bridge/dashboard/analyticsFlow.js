@@ -434,7 +434,7 @@ async function tabbedPage(H, { label, tabs, initial }) {
 
 /** A tab over a chain request: underlying, expiry and strikes controls plus any `extras` (mkField results), then the result. */
 async function chainTab(H, { endpoint, draw, needsExpiry = true, withStrikes = true, extras = [], strikeChoices }) {
-  const out = h("div", { class: "stack", "aria-live": "polite" });
+  const out = h("div", { class: "stack" });
   const run = runner(H, out);
   const load = () =>
     run(async () => {
@@ -561,7 +561,7 @@ async function renderUnusual(H) {
   const sortF = mkField(H, "Rank by", { type: "select", options: [["score", "Score"], ["premium", "Premium traded"], ["volOi", "Volume / OI"]], value: "score" });
   const limitF = mkField(H, "Show", { type: "select", options: [["25", "Top 25"], ["50", "Top 50"], ["100", "Top 100"]], value: "50" });
   const side = H.segmented("Side", [["both", "Both"], ["call", "Calls"], ["put", "Puts"]], "both");
-  const out = h("div", { class: "stack", "aria-live": "polite" });
+  const out = h("div", { class: "stack" });
   const run = runner(H, out);
 
   const draw = (res) => {
@@ -652,7 +652,7 @@ function breakdownCard(c, method) {
 // ───────────────────────── Page 2: Market tide ─────────────────────────
 
 async function renderTide(H) {
-  const out = h("div", { class: "stack", "aria-live": "polite" });
+  const out = h("div", { class: "stack" });
   const run = runner(H, out);
   const windowF = mkField(H, "Window", { type: "select", options: [["", "Whole session"], ["15", "Last 15 min"], ["30", "Last 30 min"], ["60", "Last hour"]], value: "" });
   const topF = mkField(H, "Top strikes", { type: "select", options: [["5", "5"], ["10", "10"]], value: "5" });
@@ -906,7 +906,7 @@ async function screenerTab(H) {
   mk("dir", "Order", { type: "select", options: [["desc", "Highest first"], ["asc", "Lowest first"]] });
   mk("limit", "Rows", { type: "select", options: [["20", "20"], ["25", "25"], ["50", "50"], ["100", "100"], ["200", "200"]] });
   const type = H.segmented("Type", [["both", "Both"], ["call", "Calls"], ["put", "Puts"]], "both");
-  const out = h("div", { class: "stack", "aria-live": "polite" });
+  const out = h("div", { class: "stack" });
   const run = runner(H, out);
   const presetNote = h("p", { class: "muted small", role: "status" });
   const presetBox = h("div", { class: "row", role: "group", "aria-label": "Ready-made screens" });
@@ -987,7 +987,7 @@ function underlyingField(H) {
 
 async function volTab(H) {
   const u = underlyingField(H);
-  const out = h("div", { class: "stack", "aria-live": "polite" });
+  const out = h("div", { class: "stack" });
   const run = runner(H, out);
   const pct = (v) => (isFigure(v) ? `${formatFixed(v, 2)}%` : DASH);
   const load = () =>
@@ -1034,7 +1034,7 @@ async function volTab(H) {
 
 /** The shell of the three NSE tabs: a few fields, then the rows with the NSE source and stale labels above them. */
 async function nseTab(H, { fields, extra, path, draw, intro }) {
-  const out = h("div", { class: "stack", "aria-live": "polite" });
+  const out = h("div", { class: "stack" });
   const run = runner(H, out);
   const symbol = mkField(H, "Symbol", { placeholder: "All", maxlength: 20, hint: "An NSE ticker, or empty." });
   const load = () =>

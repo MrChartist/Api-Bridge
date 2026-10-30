@@ -2093,6 +2093,8 @@ export function arbPanels(ctx) {
       e.x = k.x;
       e.go = k.go ?? null;
       e.tip = [h("b", {}, k.label), h("div", {}, k.title)];
+      // A focusable mark is named by its tip's words (it was a nameless button for screen readers).
+      if (k.go) e.g.setAttribute("aria-label", [k.label, k.title].filter((t) => typeof t === "string" && t).join(": "));
       e.g.dataset.tone = k.tone ?? "";
       e.g.style.transform = `translate(${Math.round(k.x * 10) / 10}px, ${base}px)`;
       const ly = k.row === "a" ? 2 : H - 18;
