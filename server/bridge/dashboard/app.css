@@ -8495,6 +8495,30 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .order-status { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .order-why { max-width: 280px; white-space: normal; }
 .order-acts { flex-wrap: nowrap; gap: 8px; }
+/* Nothing pending: the card is its head line (title, the one-line reason, Set up an AI assistant). */
+.orders-pending.none > .card-body { display: none; }
+.orders-pending.none > .card-head { padding-bottom: var(--card-pad); }
+/* Phones: an order is three short lines (contract and status; side, quantity, price and mode; time and account), not
+   nine labelled rows of 250 px. Cells: 1 time, 2 account, 3 contract, 4 side, 5 qty, 6 avg price, 7 status, 8 mode,
+   9 actions. */
+@media (max-width: 719px) {
+  .orders-today .table-wrap.stack tr { display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto; grid-template-areas: "c c c c st" "sd q p . md" "t a a a a" "x x x x x"; gap: 4px 8px; align-items: center; padding: 10px var(--card-pad); }
+  .orders-today .table-wrap.stack td, .orders-today .table-wrap.stack td.lead { display: block; padding: 0; text-align: left; font-weight: 500; }
+  .orders-today .table-wrap.stack td::before { display: none; }
+  .orders-today .table-wrap.stack td:nth-child(1) { grid-area: t; }
+  .orders-today .table-wrap.stack td:nth-child(2) { grid-area: a; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .orders-today .table-wrap.stack td:is(:nth-child(1), :nth-child(2)) { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+  .orders-today .table-wrap.stack td:nth-child(3) { grid-area: c; min-width: 0; }
+  .orders-today .table-wrap.stack td:nth-child(4) { grid-area: sd; }
+  .orders-today .table-wrap.stack td:nth-child(5) { grid-area: q; font-variant-numeric: tabular-nums; }
+  .orders-today .table-wrap.stack td:nth-child(6) { grid-area: p; font-variant-numeric: tabular-nums; }
+  .orders-today .table-wrap.stack td:nth-child(6)::before { display: inline; content: "@ "; font: inherit; color: hsl(var(--foreground) / var(--a-quiet)); }
+  .orders-today .table-wrap.stack td:nth-child(7) { grid-area: st; justify-self: end; }
+  .orders-today .table-wrap.stack td:nth-child(7) .order-status { align-items: flex-end; }
+  .orders-today .table-wrap.stack td:nth-child(8) { grid-area: md; justify-self: end; }
+  .orders-today .table-wrap.stack td.act { grid-area: x; padding-top: 4px; }
+  .orders-today .order-contract .muted.small { font-size: 12px; }
+}
 /* A short-of-margin block on a paper account says how to fix it (strategy-place.js). */
 .strat-warn-fix { color: hsl(var(--foreground) / var(--a-label)); }
 
