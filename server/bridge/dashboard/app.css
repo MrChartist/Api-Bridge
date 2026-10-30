@@ -972,6 +972,10 @@ button.live-ctl { --btn-h: var(--ctl-h); --btn-bg: var(--mat-glass); --btn-line:
 @media (max-width: 460px) {
   .toolbar { gap: 6px; }
   .toolbar-title { padding-inline: 12px; }
+  /* Card pages name themselves in the large title right below, so the bar keeps the page glyph only ("Home" was cut
+     to "Ho…" beside the budget and kill-switch controls). */
+  :root:not([data-layout="desk"]) .toolbar-title { flex: none; width: var(--ctl-h); padding: 0; justify-content: center; }
+  :root:not([data-layout="desk"]) .toolbar-title > span:last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .toolbar-actions { gap: 6px; }
   button.toolbar-demo { width: var(--ctl-h); padding: 0; justify-content: center; }
   .toolbar-demo > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -1693,6 +1697,38 @@ svg .dv-pill text { fill: hsl(var(--sel-fg)); font: 500 12px/1 var(--font-numeri
   .checklist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .check-item:nth-child(2)::before { display: none; }
 }
+/* Home: once a step is done, the checklist is one row (title, count and next step, progress, chevron) that opens on a
+   tap (views.js renderHome). The row is the button; it reaches 44px everywhere. */
+.home-start.compact { padding: 0; }
+button.start-row { --btn-bg: transparent; --btn-line: transparent; --fin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; width: 100%; min-height: 56px; height: auto; padding: 8px var(--card-pad); border-radius: inherit; text-align: left; justify-content: stretch; font: inherit; color: hsl(var(--foreground)); scale: none; }
+button.start-row:hover { --btn-bg: var(--mat-fill-1); }
+.start-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.start-t strong { font: 600 15px/1.3 var(--font-body); }
+.start-t small { font: 400 13px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); overflow-wrap: anywhere; }
+.start-row .progress .bar { width: 96px; }
+.start-chev { display: inline-grid; place-items: center; width: 20px; height: 20px; color: hsl(var(--foreground) / var(--a-quiet)); transition: rotate var(--dur-2) var(--ease-std); }
+.start-chev svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
+.start-row[aria-expanded="true"] .start-chev { rotate: 90deg; }
+.home-start.compact .checklist { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+.home-start.compact .checklist[hidden], .start-foot[hidden] { display: none; }
+.start-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px var(--card-pad) 12px; font: 400 13px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+@media (max-width: 719px) {
+  .start-row .progress .bar { width: 56px; }
+  /* Phones: the cockpit first (indices, P&L today, positions, events), then the first steps, then the calendar and
+     health. The cockpit grid lends its cards to the page column for that order. */
+  :root[data-page="home"] #content > .cockpit { display: contents; }
+  :root[data-page="home"] #content > .ck-strip { order: 1; }
+  :root[data-page="home"] #content > .cockpit > .ck-a-pnl { order: 2; }
+  :root[data-page="home"] #content > .cockpit > .ck-a-pos { order: 3; }
+  :root[data-page="home"] #content > .cockpit > .ck-a-ev { order: 4; }
+  :root[data-page="home"] #content > .home-start { order: 5; }
+  :root[data-page="home"] #content > .cockpit > .ck-a-cal { order: 6; }
+  :root[data-page="home"] #content > .cockpit > .ck-a-hl { order: 7; }
+  /* The indices are one sideways row of tiles, not three rows. */
+  .ck-strip { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(136px, 42%); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; margin: 0 calc(-1 * var(--page-gutter)); padding: 0 var(--page-gutter); scroll-padding: 0 var(--page-gutter); }
+  .ck-strip::-webkit-scrollbar { display: none; }
+  .ck-idx { scroll-snap-align: start; }
+}
 .check-item { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px var(--card-pad); }
 .check-item + .check-item::before { content: ""; position: absolute; top: 0; left: calc(var(--card-pad) + 42px); right: 0; height: 0.5px; background: var(--mat-separator); }
 .check-item .tick { width: 26px; height: 26px; border-radius: 99px; display: grid; place-items: center; box-shadow: inset 0 0 0 1.5px var(--mat-fill-3); }
@@ -1756,7 +1792,17 @@ svg .dv-pill text { fill: hsl(var(--sel-fg)); font: 500 12px/1 var(--font-numeri
 .ck-ev-t span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: hsl(var(--foreground) / var(--a-label)); }
 .ck-events li.side-bull .ck-ev-t strong { color: hsl(var(--pos-ink)); }
 .ck-events li.side-bear .ck-ev-t strong { color: hsl(var(--neg-ink)); }
-.ck-events small { font: 500 12px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ck-events small { font: 500 12px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }  /* two lines: the OI figure stays readable */
+.ck-watch-in { display: none; }
+@media (max-width: 719px) {
+  .ck-table .c-delta, .ck-table .c-watch { display: none; }
+  .ck-watch-in { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+  .ck-table th, .ck-table td { padding-left: 10px; padding-right: 10px; }
+  .ck-table tr > :first-child { padding-left: var(--card-pad); }
+  .ck-table tr > :last-child { padding-right: var(--card-pad); }
+}
+/* Card head links (Positions, Calendar, All events) reach 44px on touch. */
+@media (pointer: coarse) { .card-actions a { display: inline-flex; align-items: center; min-height: 44px; } }
 .ck-kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 10px 0 0; font: 500 12.5px/1.35 var(--font-body); }
 .ck-kv dt { color: hsl(var(--foreground) / var(--a-label)); }
 .ck-kv dd { margin: 0; text-align: right; font-family: var(--font-numeric); font-variant-numeric: tabular-nums; }
@@ -1898,7 +1944,9 @@ dialog.sheet::backdrop { background: hsl(240 20% 4% / 0.42); -webkit-backdrop-fi
    sheet. Wide screens: top centre of the content column under the toolbar, where panel heads keep their title and no
    controls (the Strategy Saved / Place buttons and desk panel head actions sit at the right). If it would still cover
    a control there (a narrow desktop; app.js placeToast), it moves to the bottom right ([data-place="low"]). Below
-   1024px: bottom centre above the tab bar and any sticky bottom bar (a page with one sets --bottom-extra). */
+   1024px: bottom centre above the tab bar and any sticky bottom bar (a page with one sets --bottom-extra); when that
+   covers the control just used (the Strategy target-date slider) or more controls, top centre under the toolbar
+   ([data-place="top"]). */
 .toast {
   position: fixed; z-index: var(--z-toast); inset: auto auto calc(var(--tabbar-h) + var(--bottom-extra, 0px) + 20px + var(--safe-b)) 50%; transform: translateX(-50%);
   margin: 0; border: 0; color: hsl(var(--foreground)); overflow: visible;
@@ -1912,6 +1960,7 @@ dialog.sheet::backdrop { background: hsl(240 20% 4% / 0.42); -webkit-backdrop-fi
 .toast-icon.info { background: hsl(var(--foreground)); }
 .toast-icon.info svg { width: 14px; height: 14px; stroke: hsl(var(--background)); stroke-width: 2.4; }
 .toast-text { min-width: 0; }
+.toast[data-place="top"] { inset: calc(var(--toolbar-h) + var(--safe-t) + 8px) auto auto 50%; }
 @media (min-width: 1024px) {
   .toast {
     inset: calc(var(--toolbar-h) + var(--safe-t) + 8px) auto auto calc(var(--sb-w) + (100vw - var(--sb-w)) / 2);
@@ -2955,6 +3004,10 @@ button.sec-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
 .mb-short-t { color: hsl(var(--warn-ink)); font-weight: 600; }
 .mb-save-t { color: hsl(var(--pos-ink)); font-weight: 500; }
 .risk-sec.greeks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+/* Four tiles need about 130px each for "per trading day" beside its spark line; a narrower build column (420 px at
+   1024-1279 windows, 480 px to 1799) takes them two by two so no sub is cut. */
+.strat-build { container: strat-bd / inline-size; }
+@container strat-bd (max-width: 539px) { .risk-sec.greeks { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 button.gk { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "k k" "v v" "s spark"; align-items: center; gap: 3px 4px; min-height: 64px; padding: 8px; border-radius: 10px; text-align: left; background: var(--mat-fill-1); box-shadow: none; }
 button.gk:hover { background: var(--mat-fill-2); }
 .gk-k { grid-area: k; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; }
@@ -3169,6 +3222,16 @@ button.tip-x { display: none; min-height: 20px; width: 20px; height: 20px; paddi
 .wi { display: flex; flex-direction: column; gap: 4px; min-width: 0; cursor: pointer; }
 .wi-t { flex: 2 1 280px; min-width: 0; }
 .wi-iv { flex: 1 1 180px; }
+/* Roll sheet (positions.js openRoll): the legs from → to, then four figures two by two. */
+.roll-figs { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.roll-figs > div { white-space: normal; }
+.roll-figs small.block { font-size: 12px; line-height: 1.3; }
+.roll-table td { white-space: nowrap; }
+.roll-legs { overflow-x: auto; }
+.place-margin { margin: 0; font-size: 12.5px; }
+.place-margin:empty, .place-margin[hidden] { display: none; }
+/* The shared what-if panel (whatif.js) in the builder: one block, full width. */
+.strat-whatif.strat-wi-shared { display: block; }
 .wi-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .wi-name { flex: none; font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; }
 .wi-val { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 12.5px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground)); text-align: right; }
@@ -4552,6 +4615,32 @@ button.chip-btn { min-height: 24px; padding: 0 8px; font: 500 12px/1 var(--font-
 .pos-stress.scen { margin: 0; }
 .pos-scen-out { margin: 0; font: 500 12.5px/1.4 var(--font-numeric); font-variant-numeric: tabular-nums; }
 .pos-scen-g { color: hsl(var(--foreground) / var(--a-label)); }
+/* The shared what-if panel (whatif.js): Positions' scenario column and the Strategy Builder's analysis column. A head
+   (title, scope, Reset), the three sliders, then the figures at the scenario on an auto-fit grid. */
+.wi-panel { display: flex; flex-direction: column; gap: 8px; min-width: 0; container: wi / inline-size; }
+.wi-bar { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; min-width: 0; }
+.wi-title { font: 600 13px/1.2 var(--font-body); }
+.wi-scope { min-width: 0; flex: 0 1 auto; }
+.wi-scope[hidden] { display: none; }
+.wi-scope-sel { width: auto; max-width: 100%; min-height: 30px; padding: 0 32px 0 12px; border-radius: 999px; font: 500 12.5px/1 var(--font-body); background-position: right 10px center; background-size: 14px 14px; field-sizing: content; }
+.wi-reset-btn { margin-left: auto; min-height: 26px; padding: 0 8px; font-size: 12px; gap: 4px; }
+.wi-reset-btn svg { width: 12px; height: 12px; }
+.wi-reset-btn[hidden] { display: none; }
+.wi-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 6px; min-width: 0; }
+.wi-fig { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 6px 8px; border-radius: var(--r-sm); background: var(--mat-fill-1, hsl(var(--foreground) / 0.03)); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
+.wi-k { font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.wi-v { font: 600 14px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wi-s { font: 500 12px/1.25 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-label)); overflow-wrap: anywhere; }
+.wi-none, .wi-note { grid-column: 1 / -1; margin: 0; font-size: 12px; }
+@container wi (max-width: 420px) {
+  .wi-panel .pos-slider { grid-template-columns: minmax(0, 1fr); }
+  .wi-panel .pos-slider > .pos-chips { justify-content: flex-start; flex-wrap: wrap; }
+}
+@media (pointer: coarse) {
+  .wi-scope-sel, .wi-reset-btn, .wi-panel button.chip-btn { min-height: 44px; }
+  .wi-panel button.chip-btn { padding: 0 12px; }
+  .wi-panel input.pos-range { min-height: 44px; height: 44px; }
+}
 .pos-matrix-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
 .pos-matrix-head .segmented { padding: 2px; }
 .pos-matrix-head .segmented button { min-height: 26px; padding: 0 10px; font-size: 12px; }
@@ -6804,6 +6893,8 @@ button.ref-chip[data-tone="bad"] { color: hsl(var(--neg-ink)); }
    is squeezed, so the spot and the account pill are never cut or pushed under the live control. */
 #toolbar-ctx > button.ref-chip { flex: 0 1000 auto; min-width: 40px; overflow: hidden; }
 #toolbar-ctx > button.ref-chip .ref-chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#toolbar-ctx > button.ref-chip[data-fit="short"] { flex: none; }
+#toolbar-ctx > button.ref-chip[data-fit="short"] .ref-chip-ic { display: none; }
 #toolbar-ctx > .ctx-acct { flex: none; }
 /* Tablets: the spot keeps its % change only and a live control is its dot (the time is in its label), so the chip
    keeps most of its words beside the full capsule. */

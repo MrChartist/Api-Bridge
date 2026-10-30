@@ -19,6 +19,10 @@ import { heatCell, setBar, svgEl } from "./viz.js";
 import { eventChip, refCharges, refRate, refSession, upcomingEvents } from "./reference.js";
 import { SPAN_METHOD, portfolioMargin } from "./span-margin.js";
 import { legWords, openAlertSheet, rulesFor } from "./alerts.js";
+import { createWhatIf } from "./whatif.js";
+import { ROLL_MODES, rollBreakevens, rollItems, rollMargin, rollMoney, rollPlan } from "./roll-core.js";
+import { openPlacement } from "./strategy-place.js";
+import { normWhatIf, whatIfFigures } from "./whatif-core.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const CHAIN_STRIKES = 40;
@@ -176,7 +180,10 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   let anchor = null;
   let focusSym = null;
   const collapsed = new Set();
-  const sc = { pct: 0, dIv: 0, days: 0 };
+  // The what-if scenario is the desk's st.whatIf, shared with the Strategy Builder (whatif.js).
+  st.whatIf = normWhatIf(st.whatIf, Date.now());
+  const sc = st.whatIf;
+  let wiScope = "book";
   let riskTab = "payoff";
   const hd = { open: false, target: 0, method: cfg().hedge.method, side: cfg().hedge.side, fut: null, exp: null, show: true, plan: null, checks: null, checkSig: "", hedgeLegs: [] };
   let warnOpen = false;
@@ -1056,6 +1063,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         "span",
         { class: "pos-gacts" },
         g.expiry ? h("button", { type: "button", class: "small plain", onclick: () => analyse(g), title: "Open this expiry's option legs in the strategy builder (exact quantities)" }, "Analyse") : null,
+        g.expiry && g.legs.some((l) => l.q && l.kind === "OPT") ? h("button", { type: "button", class: "small plain", title: "Roll this group's option legs to a later expiry in one basket", onclick: () => openRoll(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, "Roll") : null,
         h("button", { type: "button", class: "small", onclick: () => openExitPlan(g.legs.filter((l) => l.q), `${groupTitle(g).split(" · ")[0]}`) }, "Exit group"),
         g.legs.some((l) => l.q) ? h("button", { type: "button", class: "small plain", "aria-label": `Alert on ${groupTitle(g).split(" · ")[0]}`, title: "Alert on this group: P&L, spot, delta, time to expiry or a leg's premium", onclick: () => alertOn(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, icon("bell")) : null,
       );
@@ -1160,7 +1168,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
               }),
             )
           : null;
-        return h("section", { class: "pos-cgroup", "data-group": g.key }, head, locked, list, isOpen && g.expiry ? h("div", { class: "pos-cacts" }, h("button", { type: "button", class: "small", onclick: () => analyse(g) }, "Analyse"), h("button", { type: "button", class: "small", onclick: () => openExitPlan(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, "Exit group")) : null);
+        return h("section", { class: "pos-cgroup", "data-group": g.key }, head, locked, list, isOpen && g.expiry ? h("div", { class: "pos-cacts" }, h("button", { type: "button", class: "small", onclick: () => analyse(g) }, "Analyse"), g.legs.some((l) => l.q && l.kind === "OPT") ? h("button", { type: "button", class: "small", onclick: () => openRoll(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, "Roll") : null, h("button", { type: "button", class: "small", onclick: () => openExitPlan(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, "Exit group")) : null);
       }),
     );
   }
@@ -1398,7 +1406,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       ...(l.kind === "OPT" ? [["Open in chain", () => openInChain(l)]] : []),
       ...(l.kind === "OPT" && l.q
         ? [
-            ["Roll to next expiry…", () => openAdjust(l.symbol, "next")],
+            ["Roll to a later expiry…", () => openRoll([l], legName(l))],
             [`Roll strike ${l.q < 0 ? "out" : "in"} 1 step…`, () => openAdjust(l.symbol, l.q < 0 ? "out" : "in")],
             ...(l.q < 0 ? [["Add a wing (cap the risk)…", () => openAdjust(l.symbol, "wing")]] : []),
           ]
@@ -1423,6 +1431,105 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const days = O.legDaysToExpiry(ref, Date.now(), refSession(st.ref).close);
     const stt = O.bookCurveStats((x) => O.scenarioPnl(inc, { dS: x / F - 1, days }), xs);
     return { delta: g.delta, theta: g.theta, min: stt?.min ?? null, unlimited: Boolean(stt?.unlimitedDown), first };
+  }
+  // ── Roll a leg or a group to a later expiry in one sheet (roll-core.js), then send it as one basket ──
+  const rollChains = new Map();
+  async function rollChain(e) {
+    const have = d.chains.get(e)?.chain ?? rollChains.get(e);
+    if (have) return have;
+    const r = await optional(api(`/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(e)}&strikes=${CHAIN_STRIKES}&greeks=true&ivModel=b76-forward`));
+    const c = r.data?.data ?? null;
+    if (c) rollChains.set(e, c);
+    return c;
+  }
+  async function openRoll(held, label) {
+    const opts = held.filter((l) => l.q && l.kind === "OPT" && l.priced !== false);
+    if (!opts.length) return toast("Only option legs can be rolled here", { tone: "info" });
+    const from = opts.map((l) => l.expiry).sort().at(-1);
+    const later = [...new Set(d.expiries ?? [])].sort().filter((e) => e > from).slice(0, 6);
+    if (!later.length) return toast("No later expiry is listed for this underlying", { tone: "info" });
+    let mode = "same";
+    let toExp = later[0];
+    let plan = null;
+    let chain = null;
+    let rollMarginNow = null;
+    const expSel = h("select", { "aria-label": "Roll to expiry" }, ...later.map((e) => h("option", { value: e }, expiryText(e))));
+    const modeSeg = segmented("New strikes", ROLL_MODES, mode);
+    const table = h("div", { class: "table-wrap roll-legs" });
+    const figs = h("div", { class: "ticket-figs roll-figs" });
+    const notes = h("p", { class: "muted small roll-note" });
+    const okBtn = { label: "Review and send", cls: "primary", value: true };
+    const dd = (k, v, sub) => h("div", {}, h("small", {}, k), v, sub ? h("small", { class: "block muted" }, sub) : null);
+    async function draw() {
+      table.replaceChildren(h("p", { class: "muted" }, `Reading the ${expiryText(toExp)} chain`));
+      chain = await rollChain(toExp);
+      if (!chain?.rows?.length) {
+        table.replaceChildren(h("p", { class: "bad-text" }, `Couldn't load the ${expiryText(toExp)} chain`));
+        plan = null;
+        return;
+      }
+      const Fnow = opts.find((l) => isFigure(l.F))?.F ?? spot;
+      const Fnext = O.forwardPrice(chain) ?? num(chain.underlyingLtp) ?? Fnow;
+      const years = O.yearsToExpiry(toExp, Date.now(), refSession(st.ref).close) ?? null;
+      const prefix = String(opts[0].symbol).split(":")[0] || "NFO";
+      plan = rollPlan(opts, { mode, toExpiry: toExp, rows: chain.rows, Fnow, Fnext, years, underlying: st.underlying, prefix });
+      const money0 = rollMoney(plan, refCharges(st.ref));
+      const bes = rollBreakevens(plan, { spot: spot ?? Fnow, charges: money0.charges });
+      const priced = included().filter((l) => l.priced);
+      const mine = new Set(opts.map((l) => l.symbol));
+      const mg = (rollMarginNow = rollMargin(priced.some((l) => mine.has(l.symbol)) ? priced : [...priced, ...opts], plan, { underlying: st.underlying, nowMs: Date.now(), Fnow, Fnext, atmIv: opts.find((l) => isFigure(l.atmIv))?.atmIv ?? null }));
+      const px = (v) => (isFigure(v) ? formatFixed(v, 2) : DASH);
+      table.replaceChildren(
+        h(
+          "table",
+          { class: "desk-table roll-table" },
+          h("thead", {}, h("tr", {}, ["Leg", "Close at", "", "New leg", "Open at"].map((t, i) => h("th", { scope: "col", class: i === 1 || i === 4 ? "num" : undefined }, t)))),
+          h(
+            "tbody",
+            {},
+            plan.rolls.map((r) =>
+              h(
+                "tr",
+                {},
+                h("td", {}, h("span", { class: `side-tag ${r.leg.q > 0 ? "buy" : "sell"}` }, r.leg.q > 0 ? "B" : "S"), ` ${formatInt(r.lots)} × ${legName(r.leg)} ${expiryText(r.leg.expiry)}`),
+                h("td", { class: "num" }, px(r.close.price)),
+                h("td", { "aria-hidden": "true" }, "→"),
+                h("td", {}, `${formatInt(r.open.strike)} ${r.open.right} ${expiryText(r.open.expiry)}`, r.open.strike !== r.leg.strike ? h("small", { class: "block muted" }, `${r.open.strike > r.leg.strike ? "+" : "−"}${formatInt(Math.abs(r.open.strike - r.leg.strike))} pts`) : null),
+                h("td", { class: "num" }, px(r.open.price)),
+              ),
+            ),
+          ),
+        ),
+      );
+      figs.replaceChildren(
+        dd(money0.net >= 0 ? "Net credit" : "Net debit", h("strong", { class: money0.net >= 0 ? "up" : "down" }, formatRupee(Math.abs(money0.net), 0)), `${formatInt(plan.rolls.length * 2)} orders at the touch`),
+        dd("Charges ≈", h("strong", {}, formatRupee(money0.charges, 0)), `after charges ${rs(money0.netAfter)}`),
+        dd("Margin ≈", h("strong", {}, mg ? formatRupee(mg.after, 0) : DASH), mg ? `${rs(mg.change)} vs now` : "no forward"),
+        dd("Breakevens", h("strong", {}, bes.length ? bes.map((b) => formatInt(b)).join(" · ") : DASH), `at ${expiryText(toExp)}, counting what the old legs locked in`),
+      );
+      notes.textContent = [money0.missing ? `${formatInt(money0.missing)} leg${money0.missing === 1 ? " has" : "s have"} no quote on one side.` : "", plan.skipped.length ? `Not rolled: ${plan.skipped.map((x) => `${legName(x.leg)} (${x.why})`).join(", ")}.` : "", "Buys go first (buy back the shorts, buy any new longs), then the sells, so margin stays covered at each step. Paper by default; the order sheet runs the normal checks."].filter(Boolean).join(" ");
+    }
+    expSel.addEventListener("change", () => ((toExp = expSel.value), draw()));
+    modeSeg.addEventListener("change", () => ((mode = modeSeg.value), draw()));
+    const body = h("div", { class: "stack roll-sheet" }, h("label", { class: "field" }, h("span", {}, "Roll to"), expSel), segField("New strikes", modeSeg, { wide: true }), table, figs, notes);
+    draw();
+    const go = await modal({ title: `Roll ${label}`, body, buttons: [{ label: "Cancel", value: false }, okBtn] });
+    if (!go || !plan?.rolls.length) return;
+    const a = account();
+    if (!a) return toast("Pick an account first", { tone: "warn" });
+    const items = rollItems(plan, { product: "MARGIN", label: (x) => `${x.close ? "Close " : ""}${formatInt(x.strike)} ${x.right} ${expiryText(x.expiry)}` });
+    const m = rollMoney(plan, refCharges(st.ref));
+    await openPlacement({
+      title: `Roll ${label} to ${expiryText(toExp)} · ${st.underlying}`,
+      mode: "entry",
+      account: a,
+      items,
+      summary: { net: m.net, maxLoss: undefined, margin: rollMarginNow?.after ?? null, marginEst: true, free: isFigure(d.funds?.availableCash) && rollMarginNow ? d.funds.availableCash + rollMarginNow.before : null },
+      warnings: [],
+      cfg: { product: "MARGIN", hedgeWait: 15, order: "buys-first" },
+      onPositions: () => tick(),
+    });
+    tick();
   }
   async function openAdjust(sym, kind) {
     const l = legs.find((x) => x.symbol === sym);
@@ -1994,21 +2101,13 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   }
 
   // ── Risk: scenario (sliders, stress chips, the heatmap on the diverging scale, Greeks across spot) ──
-  const spotIn = h("input", { type: "range", class: "pos-range div", min: "-10", max: "10", step: "0.25", value: "0", "aria-label": "Spot move" });
-  const ivIn = h("input", { type: "range", class: "pos-range div iv", min: "-10", max: "10", step: "0.5", value: "0", "aria-label": "IV change in vol points" });
-  const daysIn = h("input", { type: "range", class: "pos-range days", min: "0", max: "30", step: "1", value: "0", "aria-label": "Days forward" });
-  const spotVal = h("output", {});
-  const ivVal = h("output", {});
-  const daysVal = h("output", {});
-  const spotChips = h("div", { class: "pos-chips" });
-  const dayChips = h("div", { class: "pos-chips" });
+  const wiPanel = createWhatIf({ state: sc, title: "What if", onInput: () => posPanel.isConnected && drawRisk(), onCommit: () => save() });
+  const { spotIn, ivIn, daysIn } = wiPanel.parts;
   const stressScen = h("div", { class: "pos-stress scen", role: "group", "aria-label": "P&L now at ±1σ and ±2σ" });
-  const outLine = h("p", { class: "pos-scen-out", "aria-live": "polite" });
   const matrixEl = h("div", { class: "pos-matrix-wrap" });
   const ring = h("i", { class: "pos-ring", "aria-hidden": "true", hidden: true });
   const legendEl = h("div", { class: "pos-heat-legend" });
   const matrixFoot = h("div", { class: "pos-matrix-foot" });
-  const resetBtn = h("button", { type: "button", class: "small plain", onclick: () => setScenario({ pct: 0, dIv: 0, days: 0 }) }, icon("refresh"), "Reset");
   let matMode = cfg().axis;
   const axisSeg = segmented("Scenario table", [["iv", "Spot × IV"], ["days", "Spot × days"], ["greeks", "Greeks"]], matMode);
   axisSeg.addEventListener("change", () => setMatMode(axisSeg.value));
@@ -2019,49 +2118,31 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     riskSig = "";
     drawRisk();
   }
-  const sliderRow = (label, input, out, chips) => h("div", { class: "pos-slider" }, h("label", {}, h("span", {}, label), out), input, chips ?? null);
   scenBox.append(
-    h("div", { class: "pos-sliders" }, sliderRow("Spot", spotIn, spotVal, spotChips), sliderRow("IV", ivIn, ivVal), sliderRow("Days", daysIn, daysVal, dayChips)),
+    wiPanel.el,
     stressScen,
-    outLine,
-    h("div", { class: "pos-matrix-head" }, axisSeg, resetBtn),
+    h("div", { class: "pos-matrix-head" }, axisSeg),
     matrixEl,
     legendEl,
     matrixFoot,
   );
-  /** Range fills: spot and IV from the centre (signed), days from the start in the today-curve blue. */
-  function paintRange(input) {
-    const mn = Number(input.min);
-    const mx = Number(input.max);
-    const v = Number(input.value);
-    const at = mx > mn ? ((v - mn) / (mx - mn)) * 100 : 0;
-    const zero = input.classList.contains("div") ? ((0 - mn) / (mx - mn)) * 100 : 0;
-    input.style.setProperty("--a", `${r1(Math.min(at, zero))}%`);
-    input.style.setProperty("--b", `${r1(Math.max(at, zero))}%`);
-  }
-  let slideRaf = 0;
-  const onSlide = () => {
-    sc.pct = Number(spotIn.value);
-    sc.dIv = Number(ivIn.value);
-    sc.days = Number(daysIn.value);
-    for (const el of [spotIn, ivIn, daysIn]) paintRange(el);
-    if (slideRaf) return;
-    slideRaf = requestAnimationFrame(() => {
-      slideRaf = 0;
-      if (posPanel.isConnected) drawRisk();
-    });
-  };
-  for (const el of [spotIn, ivIn, daysIn]) el.addEventListener("input", onSlide);
   function setScenario(p) {
-    Object.assign(sc, p);
-    sc.pct = Math.max(-10, Math.min(10, sc.pct));
-    sc.dIv = Math.max(-10, Math.min(10, sc.dIv));
-    sc.days = Math.max(0, Math.min(Number(daysIn.max) || 0, sc.days));
-    spotIn.value = String(sc.pct);
-    ivIn.value = String(sc.dIv);
-    daysIn.value = String(sc.days);
-    for (const el of [spotIn, ivIn, daysIn]) paintRange(el);
-    drawRisk();
+    wiPanel.set(p, true);
+  }
+  /** The what-if scope: the whole book or one expiry group (only when the book has more than one). */
+  const wiGroupOf = (l) => (cfg().group === "none" ? "all" : l.expiry);
+  function drawWiScope() {
+    const gs = groups.filter((g) => g.legs.some((l) => l.q));
+    if (wiScope !== "book" && !gs.some((g) => g.key === wiScope)) wiScope = "book";
+    const opts = gs.length > 1 ? [["book", "Whole book"], ...gs.map((g) => [g.key, `${g.expiry ? expiryText(g.expiry) : "All"} · ${g.structure?.name ?? ""}`.trim()])] : null;
+    const sig = JSON.stringify([opts, wiScope]);
+    if (sig === drawWiScope.sig) return;
+    drawWiScope.sig = sig;
+    wiPanel.setScopes(opts, wiScope, (v) => {
+      wiScope = v;
+      riskSig = "";
+      drawRisk();
+    });
   }
   /** The heatmap's colour scale m: the 95th percentile of |cell| over the visible grid and the stress chips. */
   let heatM = 1;
@@ -2078,37 +2159,14 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   let cellRefs = [];
   let gridNow = null;
   function drawScenario(ctx) {
-    const md = maxDays();
-    if (daysIn.max !== String(md)) {
-      daysIn.max = String(md);
-      if (sc.days > md) sc.days = md;
-      daysIn.value = String(sc.days);
-    }
-    for (const el of [spotIn, ivIn, daysIn]) paintRange(el);
     const S = ctx?.S ?? spot;
     const sp = ctx?.sp ?? sigmaPct();
-    spotVal.textContent = `${formatSigned(sc.pct, 2)}% · ${formatInt(S ? S * (1 + sc.pct / 100) : null)}`;
-    spotIn.setAttribute("aria-valuetext", `${sc.pct < 0 ? "minus " : ""}${formatFixed(Math.abs(sc.pct), 2)} percent, ${formatInt(S ? S * (1 + sc.pct / 100) : null)}`);
-    ivVal.textContent = `${formatSigned(sc.dIv, 1)} pts`;
-    ivIn.setAttribute("aria-valuetext", `${sc.dIv < 0 ? "minus " : ""}${formatFixed(Math.abs(sc.dIv), 1)} vol points`);
-    daysVal.textContent = sc.days ? `+${formatInt(sc.days)} d` : "Today";
-    const chipsSig = `${formatFixed(sp, 2)}|${sc.pct}`;
-    if (spotChips.__sig !== chipsSig) {
-      spotChips.__sig = chipsSig;
-      spotChips.replaceChildren(...[-2, -1, 0, 1, 2].map((k) => {
-        const p = sp ? Math.round((k * sp) / 0.25) * 0.25 : null;
-        return h("button", { type: "button", class: "small chip-btn", disabled: p === null, "aria-pressed": String(p !== null && p === sc.pct), onclick: () => setScenario({ pct: Math.max(-10, Math.min(10, p)) }) }, k === 0 ? "0" : `${k > 0 ? "+" : "−"}${Math.abs(k)}σ`);
-      }));
-    }
     const fd = Math.ceil((ctx?.fd ?? firstDays()) - 1e-6);
-    const dSig = `${fd}|${sc.days}|${md}`;
-    if (dayChips.__sig !== dSig) {
-      dayChips.__sig = dSig;
-      dayChips.replaceChildren(...[["Today", 0], ["+1", 1], ["+3", 3], ["Expiry", fd]].filter(([, v], i, a) => v <= md && a.findIndex((x) => x[1] === v) === i).map(([l, v]) => h("button", { type: "button", class: "small chip-btn", "aria-pressed": String(sc.days === v), onclick: () => setScenario({ days: v }) }, l)));
-    }
+    wiPanel.setRange({ S, sigma: sp, first: fd, max: maxDays() });
+    drawWiScope();
     stressScen.hidden = !isPhone() || !stressRows.length;
     if (!ctx) {
-      outLine.textContent = legs.some((l) => l.q) ? "No priced legs to run scenarios on." : "";
+      wiPanel.drawFigures(null, { note: legs.some((l) => l.q) ? "No priced legs to run scenarios on." : "" });
       matrixEl.replaceChildren();
       matrixSig = "";
       legendEl.replaceChildren();
@@ -2118,12 +2176,8 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const { inc } = ctx;
     scenBox.classList.toggle("mode-greeks", matMode === "greeks");
     const shift = { dS: sc.pct / 100, dIv: sc.dIv, days: sc.days };
-    const v = O.scenarioPnl(inc, shift);
-    const v0 = O.scenarioPnl(inc, {});
-    const g = O.scenarioGreeks(inc, shift);
-    // Each figure keeps its sign with it on a narrow screen ("ν −₹1586" never breaks after the "−").
-    const nw = (...kids) => h("span", { class: "nowrap" }, ...kids);
-    outLine.replaceChildren(nw("At scenario ", money(v)), " ", h("span", { class: "muted nowrap" }, `(vs now ${rs(v - v0)})`), h("span", { class: "pos-scen-g" }, " · ", nw(`Δ ${formatSigned(g.delta, 0)}`), " · ", nw(`Θ ${rs(g.theta)}`), " · ", nw(`ν ${rs(g.vega)}`)));
+    const scoped = wiScope === "book" ? inc : inc.filter((l) => wiGroupOf(l) === wiScope);
+    wiPanel.drawFigures(whatIfFigures(scoped, sc, { underlying: st.underlying, spot: S, nowMs: Date.now(), atmIv: scoped.find((l) => isFigure(l.atmIv))?.atmIv ?? null }), { note: wiScope === "book" ? "Whole book. Margin is approximate (the paper model), not your broker's figure." : "One group. The heatmap below is the whole book." });
     const five = heatCols() === 5;
     const axis = matMode === "greeks" ? cfg().axis : matMode;
     const ivCols = five ? [-10, -5, 0, 5, 10] : [-5, 0, 5];
@@ -2839,8 +2893,6 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       window.removeEventListener("resize", onResize);
       clearTimeout(hvTimer);
       clearTimeout(compTimer);
-      cancelAnimationFrame(slideRaf);
-      slideRaf = 0;
       // The payoff's document listener, ResizeObserver and any morph frame must not outlive the page.
       pay.destroy();
     },

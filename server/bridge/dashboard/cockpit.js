@@ -124,7 +124,7 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
       ? h(
           "table",
           { class: "ck-table" },
-          h("thead", {}, h("tr", {}, ["Book", "Legs", "P&L", "Delta", "Expiry", "Watch"].map((t) => h("th", { scope: "col" }, t)))),
+          h("thead", {}, h("tr", {}, [["Book"], ["Legs"], ["P&L"], ["Delta", "c-delta"], ["Expiry"], ["Watch", "c-watch"]].map(([t, c]) => h("th", { scope: "col", class: c }, t)))),
           h(
             "tbody",
             {},
@@ -137,12 +137,13 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
               return h(
                 "tr",
                 {},
-                h("th", { scope: "row" }, h("strong", {}, g.underlying), h("small", {}, label(g.account))),
+                // Phones drop the Delta and Watch columns; what to watch then shows under the book's name.
+                h("th", { scope: "row" }, h("strong", {}, g.underlying), h("small", {}, label(g.account)), watch.length ? h("span", { class: "ck-watch-in" }, watch.map((p) => p.cloneNode(true))) : null),
                 h("td", { class: "num" }, `${formatInt(g.legs)}${g.shorts ? ` · ${formatInt(g.shorts)} short` : ""}`),
                 h("td", { class: "num" }, signed(g.pnl)),
-                h("td", { class: "num", title: "Net delta in units of the underlying (Black-76 at each leg's implied vol)" }, num(g.delta) === null ? DASH : formatSigned(g.delta, 0)),
+                h("td", { class: "num c-delta", title: "Net delta in units of the underlying (Black-76 at each leg's implied vol)" }, num(g.delta) === null ? DASH : formatSigned(g.delta, 0)),
                 h("td", { class: "num" }, exp),
-                h("td", {}, watch.length ? watch : h("span", { class: "muted" }, "Calm")),
+                h("td", { class: "c-watch" }, watch.length ? watch : h("span", { class: "muted" }, "Calm")),
               );
             }),
           ),

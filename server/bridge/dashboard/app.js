@@ -485,17 +485,42 @@ function toastCovers(t) {
 }
 
 /**
- * Wide screens: the toast sits top centre under the toolbar (app.css). When a control is under it there (a narrow
- * desktop where a panel head fills its row) it moves to the bottom right, if that covers fewer controls. Phones and
- * tablets keep bottom centre above the tab bar.
+ * The control the person used last (pointer or key), so a toast never lands on it: a slider dragged on Strategy, the
+ * button just pressed. Kept for 4s; after that only the count of covered controls decides.
+ */
+let lastUsed = null;
+let lastUsedAt = 0;
+if (typeof document !== "undefined") {
+  const note = (e) => {
+    const c = e.target?.closest?.(TOAST_CONTROLS);
+    if (!c || c.closest?.("#toast")) return;
+    lastUsed = c;
+    lastUsedAt = Date.now();
+  };
+  document.addEventListener("pointerdown", note, true);
+  document.addEventListener("keydown", note, true);
+  document.addEventListener("input", note, true);
+}
+function coversLast(t) {
+  if (!lastUsed?.isConnected || Date.now() - lastUsedAt > 4000) return false;
+  const r = t.getBoundingClientRect();
+  const q = lastUsed.getBoundingClientRect();
+  return r.width > 0 && q.width > 0 && !(q.right <= r.left - 4 || q.left >= r.right + 4 || q.bottom <= r.top - 4 || q.top >= r.bottom + 4);
+}
+
+/**
+ * Where the toast goes. Wide screens: top centre under the toolbar (app.css), else the bottom right
+ * ([data-place="low"]). Phones and tablets: bottom centre above the tab bar and any sticky bottom bar, else top centre
+ * under the toolbar ([data-place="top"]). The other place is taken when the first covers the control just used, or
+ * covers more controls; neither place ever reaches the tab bar.
  */
 function placeToast(t) {
   delete t.dataset.place;
-  if (!window.matchMedia?.("(min-width: 1024px)").matches) return;
-  const top = toastCovers(t);
-  if (!top) return;
-  t.dataset.place = "low";
-  if (toastCovers(t) >= top) delete t.dataset.place;
+  const cost = () => (coversLast(t) ? 100 : 0) + toastCovers(t);
+  const first = cost();
+  if (!first) return;
+  t.dataset.place = window.matchMedia?.("(min-width: 1024px)").matches ? "low" : "top";
+  if (cost() >= first) delete t.dataset.place;
 }
 
 /**

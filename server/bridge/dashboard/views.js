@@ -31,6 +31,7 @@ import {
   toast,
   touchWord,
   sheetPopover,
+  store,
   confirmEngageKillSwitch,
   DEMO_EXPLAINER,
   beginNavigation,
@@ -90,7 +91,8 @@ export function preloadPage(pageId) {
   prefetchPage(tab?.page ?? page.id);
 }
 const local = app.local;
-const FLAG = { copied: "mcb.dashboard.copied", tested: "mcb.dashboard.tested", hideChecklist: "mcb.dashboard.hideChecklist", hideOwn: "mcb.dashboard.hideOwnRequests", chain: "mcb.dashboard.chainOpened", traded: "mcb.dashboard.paperTraded" };
+const tabStore = store("session");
+const FLAG = { copied: "mcb.dashboard.copied", tested: "mcb.dashboard.tested", hideChecklist: "mcb.dashboard.hideChecklist", hideOwn: "mcb.dashboard.hideOwnRequests", chain: "mcb.dashboard.chainOpened", traded: "mcb.dashboard.paperTraded", checklistOpen: "mcb.dashboard.checklistOpen" };
 const markCopied = () => local.set(FLAG.copied, "1");
 /** A button at work (BUTTON-SYSTEM.md §9): disabled, its label swapped for a turning ring, its width kept. */
 const busy = (b, on) => {
@@ -1107,28 +1109,54 @@ async function renderHome() {
     };
     const fill = h("span");
     fill.style.width = `${(done / state.length) * 100}%`;
-    nodes.push(
-      card({
-        glyph: "check",
-        tint: "green",
-        title: done === state.length ? "You are all set" : "Get started",
-        sub: done === state.length ? "Every first step is done. Hide this card when you like; it stays hidden." : `${formatInt(done)} of ${formatInt(state.length)} done. Each step ticks itself off as you go.`,
-        actions: h(
-          "div",
-          { class: "row" },
-          h("div", { class: "progress", role: "img", "aria-label": `${done} of ${state.length} steps done` }, h("div", { class: "bar ok" }, fill)),
-          h("button", { type: "button", class: "plain small", onclick: () => { local.set(FLAG.hideChecklist, "1"); show(); } }, "Hide"),
-        ),
-        flush: true,
-        body: h(
-          "div",
-          { class: "checklist" },
-          state.map((s) =>
-            h("div", { class: `check-item${s.done ? " done" : ""}` }, h("span", { class: "tick", "aria-hidden": "true" }, icon("check")), h("div", { class: "what" }, h("strong", {}, ITEMS[s.id].title, s.done ? h("span", { class: "pal-sr-only" }, " (done)") : null), h("span", {}, ITEMS[s.id].text)), h("button", { type: "button", class: s.done ? "small" : "small primary", onclick: () => (location.hash = `#/${ITEMS[s.id].go}`) }, ITEMS[s.id].cta)),
-          ),
-        ),
-      }),
+    const allDone = done === state.length;
+    const hideBtn = h("button", { type: "button", class: "plain small", onclick: () => { local.set(FLAG.hideChecklist, "1"); show(); } }, "Hide");
+    const list = h(
+      "div",
+      { class: "checklist", id: "home-checklist" },
+      state.map((s) =>
+        h("div", { class: `check-item${s.done ? " done" : ""}` }, h("span", { class: "tick", "aria-hidden": "true" }, icon("check")), h("div", { class: "what" }, h("strong", {}, ITEMS[s.id].title, s.done ? h("span", { class: "pal-sr-only" }, " (done)") : null), h("span", {}, ITEMS[s.id].text)), h("button", { type: "button", class: s.done ? "small" : "small primary", onclick: () => (location.hash = `#/${ITEMS[s.id].go}`) }, ITEMS[s.id].cta)),
+      ),
     );
+    const progress = h("div", { class: "progress", role: "img", "aria-label": `${done} of ${state.length} steps done` }, h("div", { class: "bar ok" }, fill));
+    if (done === 0) {
+      nodes.push(
+        card({
+          glyph: "check",
+          tint: "green",
+          cls: "home-start",
+          title: "Get started",
+          sub: `${formatInt(done)} of ${formatInt(state.length)} done. Each step ticks itself off as you go.`,
+          actions: h("div", { class: "row" }, progress, hideBtn),
+          flush: true,
+          body: list,
+        }),
+      );
+    } else {
+      // Once a step is done the card is one line (title, count, progress, next step) that opens on a tap, so the
+      // cockpit starts on the first screen of a phone. Open or shut is kept for this browser tab only.
+      const next = state.find((s) => !s.done);
+      const open = tabStore.get(FLAG.checklistOpen) === "1";
+      list.hidden = !open;
+      const foot = h("div", { class: "start-foot" }, h("span", {}, allDone ? "Every first step is done. Hide this when you like; it stays hidden." : "Each step ticks itself off as you go."), hideBtn);
+      foot.hidden = !open;
+      const toggle = h(
+        "button",
+        { type: "button", class: "start-row", "aria-expanded": String(open), "aria-controls": "home-checklist" },
+        iconTile("check", "green", "sm"),
+        h("span", { class: "start-t" }, h("strong", {}, allDone ? "You are all set" : "Get started"), h("small", {}, allDone ? `${formatInt(done)} of ${formatInt(state.length)} done` : `${formatInt(done)} of ${formatInt(state.length)} done · next: ${ITEMS[next.id].cta}`)),
+        progress,
+        h("span", { class: "start-chev", "aria-hidden": "true" }, icon("chevron")),
+      );
+      toggle.addEventListener("click", () => {
+        const on = toggle.getAttribute("aria-expanded") !== "true";
+        toggle.setAttribute("aria-expanded", String(on));
+        list.hidden = !on;
+        foot.hidden = !on;
+        tabStore.set(FLAG.checklistOpen, on ? "1" : null);
+      });
+      nodes.push(h("section", { class: "card home-start compact" }, toggle, list, foot));
+    }
   }
 
   // The cockpit: indices, P&L today, open positions with risk, live events, today's calendar, API and broker health.

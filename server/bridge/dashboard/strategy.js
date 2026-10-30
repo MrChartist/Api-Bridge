@@ -13,6 +13,8 @@ import { keepFocus, segmented } from "./views.js";
 import { reducedMotion } from "./motion.js";
 import { nextSessionUnits } from "./vol-context.js";
 import { SPAN_METHOD, marginLegsOf, portfolioMargin } from "./span-margin.js";
+import { createWhatIf } from "./whatif.js";
+import { normWhatIf, strategyBookLegs, whatIfFigures } from "./whatif-core.js";
 
 const SAVES = "mcb.dashboard.strategies";
 const NAMES = "mcb.dashboard.strategyNames";
@@ -107,10 +109,25 @@ function inkFlash(el, dir) {
  */
 export function createBuilder({ st, save, account, acctPicker = null, refresh, switchTo, onPositions }) {
   st.scfg = O.strategyConfig(st.scfg);
-  st.whatIf = st.whatIf && typeof st.whatIf === "object" ? { target: num(st.whatIf.target), ivShift: num(st.whatIf.ivShift) ?? 0 } : { target: null, ivShift: 0 };
+  // The what-if scenario is the desk's st.whatIf ({ pct, dIv, days }), shared with Positions (whatif.js). The builder's
+  // own target date and IV shift read and write it, so the payoff, the hero and the shared panel always agree.
+  const W = (st.whatIf = normWhatIf(st.whatIf, Date.now()));
   st.baskets = O.migrateBaskets(st.baskets);
   const cfg = () => st.scfg;
-  const wi = st.whatIf;
+  const wi = {
+    get target() {
+      return W.days > 0 ? Date.now() + W.days * DAY_MS : null;
+    },
+    set target(ms) {
+      W.days = num(ms) === null ? 0 : Math.max(0, (num(ms) - Date.now()) / DAY_MS);
+    },
+    get ivShift() {
+      return W.dIv;
+    },
+    set ivShift(v) {
+      W.dIv = num(v) ?? 0;
+    },
+  };
   const key = () => st.underlying;
   let x = null; // the desk's context for the last tick
   let priced = []; // legs with prices, from the last tick
@@ -553,7 +570,8 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
   const wiChipT = h("button", { type: "button", class: "small chip-btn wi-chip", "aria-haspopup": "dialog", onclick: () => openWhatIfSheet(wiChipT) });
   const wiChipIv = h("button", { type: "button", class: "small chip-btn wi-chip", "aria-haspopup": "dialog", onclick: () => openWhatIfSheet(wiChipIv) });
   const wiChips = h("div", { class: "wi-chips" }, wiChipT, wiChipIv);
-  const whatIf = h("div", { class: "strat-whatif sx" }, wiT, wiIv, resetWi, wiChips);
+  const wiPanel = createWhatIf({ state: W, title: "What if", onInput: () => scheduleAnalysis(), onCommit: () => save() });
+  const whatIf = h("div", { class: "strat-whatif strat-wi-shared sx" }, wiPanel.el);
   const note = h("p", { class: "model-note sx" });
   const moreRow = h("div", { class: "more-figs sx", "aria-label": "More figures" });
   // P&L table (§5.2)
@@ -1114,6 +1132,15 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
   function drawWhatIf() {
     whatIf.hidden = !R?.ok;
     note.hidden = !R?.ok;
+    if (R?.ok && x) {
+      const now0 = Date.now();
+      // Days run to the first expiry: the builder values later legs at that date (they keep their time value).
+      const first = Math.max(0, (R.expMs - now0) / DAY_MS);
+      const sigma = R.b1 && isFigure(x.F) ? ((R.b1.hi - x.F) / x.F) * 100 : null;
+      wiPanel.setRange({ S: x.spot, sigma, first, max: first });
+      const bl = strategyBookLegs(R.act, { lot: R.lot, forward: x.F, nowMs: now0 });
+      wiPanel.drawFigures(whatIfFigures(bl, W, { underlying: x.c.underlying, spot: x.spot, nowMs: now0, atmIv: x.sm.atmIv }), { note: "This strategy on its own. The same scenario applies on Positions." });
+    }
     if (!R) {
       tSlider.disabled = ivSlider.disabled = true;
       wiChipT.disabled = wiChipIv.disabled = true;
@@ -2054,7 +2081,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       // (docs/spec/p1-02-reference.md §5.4); a leg's LOT_SIZE_STALE preview opens it too.
       lotGate: basketLotGate(ref, gateLegs),
       lotGateFor: (checks) => basketLotGate(ref, gateLegs, { server: checks }),
-      cfg: { product: cfg().product, hedgeWait: cfg().hedgeWait },
+      cfg: { product: cfg().product, hedgeWait: cfg().hedgeWait, order: cfg().order },
       onCfg: (patch) => setCfg(patch),
       onPositions,
       announce,
