@@ -5,7 +5,8 @@
 //
 // The desk owns the data: `read(strike, side)` returns { x (the chain context), row, q (the leg), position, name,
 // canTrade, paused, warnings }. Numbers are formatted by format.js only; the maths is options.js.
-import { chartSlot, h, icon } from "./app.js";
+import { chartSlot, copyButton, h, icon } from "./app.js";
+import { excelFormula } from "./flows.js";
 import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
 import { segmented } from "./views.js";
@@ -123,6 +124,8 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
   const reason = h("p", { class: "cs-reason", hidden: true });
   const legBuy = h("button", { type: "button", class: "small" }, "Add buy leg");
   const legSell = h("button", { type: "button", class: "small" }, "Add sell leg");
+  // This contract's live price as one Excel cell (the key sits in a cell named BridgeKey: API › Keys makes one).
+  const xlBtn = copyButton(() => excelFormula(location.origin, state().q?.symbol ?? ""), { label: "Excel formula", toastLabel: "Excel formula copied: put your key in a cell named BridgeKey", cls: "small", ariaLabel: "Copy an Excel formula for this contract's live price" });
   // The owner's chart engine, once one registers (null until then: h() drops it, so no empty slot shows).
   const chartSlotEl = chartSlot("Price chart of this contract");
   const grid = h("div", { class: "cs-groups" });
@@ -134,7 +137,7 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
     "dialog",
     { class: "chain-sheet", "aria-labelledby": titleId, tabindex: "-1" },
     head,
-    h("div", { class: "cs-body" }, pos, h("div", { class: "trade-pair cs-trade" }, buyBtn, sellBtn), reason, h("div", { class: "cs-more" }, legBuy, legSell), grid, warns, chartSlotEl),
+    h("div", { class: "cs-body" }, pos, h("div", { class: "trade-pair cs-trade" }, buyBtn, sellBtn), reason, h("div", { class: "cs-more" }, legBuy, legSell, xlBtn), grid, warns, chartSlotEl),
   );
 
   const state = () => read(strike, s) ?? {};

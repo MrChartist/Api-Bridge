@@ -433,7 +433,10 @@ export async function renderCalendarPage() {
         drawPageAlert();
       }
     });
-    fill(pageAlert, h("div", { class: "cal-page-alert-row" }, alertBox(err, "bad"), retry));
+    // No broker logged in is the usual cause: a caution with the way out, not a red failure.
+    const needsLogin = ["SYMBOL_NOT_FOUND", "NO_ACCOUNT", "BROKER_UNAVAILABLE", "SESSION_EXPIRED"].includes(err?.code);
+    const login = needsLogin ? h("button", { type: "button", class: "small primary", onclick: () => (location.hash = "#/accounts") }, "Log in on Accounts") : null;
+    fill(pageAlert, h("div", { class: "cal-page-alert-row" }, alertBox(err, needsLogin ? "warn" : "bad"), login, retry));
   }
 
   // ── 0. Banners: everything within 7 days, every underlying (the Options pages show their own) ──

@@ -143,7 +143,8 @@ export function friendlyError(err) {
     case "KILL_SWITCH_ENGAGED":
       return { title: "The kill switch is on", detail: "No orders are sent until an admin releases it on the Safety page." };
     case "SYMBOL_NOT_FOUND":
-      return { title: "Symbol not found", detail: `${detail} Symbols look like NSE:RELIANCE, NSE:NIFTY or NFO:NIFTY-2026-10-27-25000-CE.` };
+      // Most often the contract list is simply not loaded yet: it comes from a broker you are logged in to.
+      return { title: "Symbol not found", detail: `${detail} If you have not logged in to your broker today, log in on Accounts: the contract list comes from your broker. Symbols look like NSE:RELIANCE or NFO:NIFTY-2026-10-27-25000-CE.` };
     case "VALIDATION_FAILED":
       return { title: "Please check the form", detail };
     case "NOT_IMPLEMENTED":
@@ -476,7 +477,7 @@ export function loadingState({ rows = 8, cols = 4, label = "Loading", height = n
  */
 export function errorState(err, { onRetry = null, lastGood = null } = {}) {
   const f = err instanceof Error || err?.code || err?.network ? friendlyError(err) : { title: String(err?.title ?? err ?? "Something went wrong"), detail: err?.detail ?? "" };
-  const auth = ["SESSION_EXPIRED", "UNAUTHENTICATED", "NO_ACCOUNT", "BROKER_UNAVAILABLE"].includes(err?.code);
+  const auth = ["SESSION_EXPIRED", "UNAUTHENTICATED", "NO_ACCOUNT", "BROKER_UNAVAILABLE", "SYMBOL_NOT_FOUND"].includes(err?.code);
   const retry = onRetry ? h("button", { type: "button", class: "small err-retry", onclick: () => onRetry() }, icon("refresh"), "Retry") : null;
   if (lastGood) {
     // An answer without a known code: say what the server said ("Broker feed unavailable (503)"), not just its status.
@@ -495,7 +496,7 @@ export function errorState(err, { onRetry = null, lastGood = null } = {}) {
     { class: "err-state", role: "alert" },
     h("strong", {}, f.title),
     f.detail ? h("p", {}, f.detail) : null,
-    h("div", { class: "empty-acts" }, retry, auth ? h("a", { href: "#/accounts", class: "err-link" }, "Accounts") : null),
+    h("div", { class: "empty-acts" }, retry, auth ? h("a", { href: "#/accounts", class: "err-link" }, "Log in on Accounts") : null),
   );
 }
 

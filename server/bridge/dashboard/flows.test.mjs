@@ -1,6 +1,6 @@
 // The pure rules behind the Create a key and Add a broker flows (flows.js).
 import { describe, expect, it } from "vitest";
-import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, capabilitySummary, contractName, defaultKeyName, orderStatusText, istDay, keyFormProblem, keyUse, sessionText, ticketRisk } from "./flows.js";
+import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, excelFormula, capabilityLabel, capabilitySummary, contractName, defaultKeyName, orderStatusText, istDay, keyFormProblem, keyUse, sessionText, ticketRisk } from "./flows.js";
 import { loginFormSpec } from "./app.js";
 import { snippets } from "./snippets.js";
 
@@ -48,6 +48,13 @@ describe("Trade ticket risk", () => {
     expect(ticketRisk({ side: "SELL", right: "CE", strike: 26400, price: 300, qty: 65 })).toMatchObject({ maxLoss: null, maxProfit: 19500, breakeven: 26700 });
     expect(ticketRisk({ side: "SELL", right: "PE", strike: 26400, price: 250, qty: 65 })).toMatchObject({ maxLoss: (26400 - 250) * 65, maxProfit: 16250 });
     for (const bad of [{ kind: "FUT" }, { price: 0 }, { qty: null }, { right: "XX" }]) expect(ticketRisk({ side: "BUY", right: "CE", strike: 100, price: 1, qty: 1, ...bad })).toBeNull();
+  });
+});
+
+describe("Excel formula per contract", () => {
+  it("builds a pasteable WEBSERVICE formula with the symbol encoded", () => {
+    expect(excelFormula("http://127.0.0.1:4300/", "NFO:NIFTY-2026-11-03-27000-CE")).toBe('=VALUE(WEBSERVICE("http://127.0.0.1:4300/xl/ltp?symbol=NFO%3ANIFTY-2026-11-03-27000-CE&key="&BridgeKey))');
+    expect(excelFormula("http://h:1", "NSE:M&M", "changePct")).toBe('=VALUE(WEBSERVICE("http://h:1/xl/quote?symbol=NSE%3AM%26M&field=changePct&key="&BridgeKey))');
   });
 });
 

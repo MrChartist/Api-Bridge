@@ -166,6 +166,19 @@ export function ticketRisk({ side, right, strike, price, qty, kind = "OPT" }) {
   return side === "SELL" ? { maxLoss: capped, maxProfit: premium, breakeven, premium } : { maxLoss: premium, maxProfit: capped, breakeven, premium };
 }
 
+// ── Excel: one live cell per contract (pure) ──
+
+/**
+ * The Excel formula for one contract's live last price (or another quote field), reading the key from a cell named
+ * BridgeKey (API › Keys, "Excel or Google Sheets", makes one). The symbol is URL-encoded in the formula itself, so it
+ * pastes into any cell as is.
+ */
+export function excelFormula(base, symbol, field = "ltp") {
+  const host = String(base ?? "").replace(/\/$/, "");
+  const sym = encodeURIComponent(String(symbol ?? ""));
+  return field === "ltp" ? `=VALUE(WEBSERVICE("${host}/xl/ltp?symbol=${sym}&key="&BridgeKey))` : `=VALUE(WEBSERVICE("${host}/xl/quote?symbol=${sym}&field=${encodeURIComponent(field)}&key="&BridgeKey))`;
+}
+
 // ── Orders (pure) ──
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
