@@ -343,6 +343,9 @@ export const PAGES = [
       anTab("skew", "Skew", "skew", { command: "IV skew", icon: "wave", tint: "pink", keywords: "iv skew call put risk reversal strike smile", sub: "Call and put IV by strike for one expiry, with the risk reversal" }),
       anTab("surface", "Surface", "an-surface", { command: "IV surface", icon: "wave", tint: "pink", keywords: "iv surface across expiries term structure lines", sub: "IV by strike for the next expiries, one line each, and the term structure" }),
       anTab("cone", "Cone", "an-cone", { command: "Probability cone", icon: "wave", tint: "pink", keywords: "probability cone expected move sigma range expiry iv", sub: "The ±1σ and ±2σ range each expiry's ATM IV implies" }),
+      anTab("forward", "Forward", "an-forward", { command: "Forward curve", icon: "chart", tint: "pink", keywords: "forward curve put call parity basis carry dividend yield implied forward expiry", sub: "Each expiry's implied forward from put-call parity, its basis, carry and implied dividend yield" }),
+      anTab("rrbf", "RR and BF", "an-rrbf", { command: "Risk reversal and butterfly term structure", icon: "wave", tint: "pink", keywords: "risk reversal butterfly rr bf 25 delta 10 delta skew term structure wings", sub: "Risk reversal and butterfly at 25 and 10 delta for each expiry" }),
+      anTab("event", "Event vol", "an-eventvol", { command: "Event vol", icon: "calendar", tint: "pink", keywords: "event vol implied move results policy budget election total variance forward vol term structure", sub: "The move the options price in for a dated event, from the expiries either side of it" }),
       anTab("stats", "Vol stats", "an-volstats", { command: "Vol stats and IV rank", icon: "chart", tint: "pink", keywords: "hv historical volatility iv rank percentile expected move cone", sub: "Historical volatility, ATM IV against HV, expected move, IV rank and the term structure" }),
     ],
   },
@@ -468,6 +471,9 @@ export const LEGACY = {
   "an-spurts": "oi/spurts",
   "an-strikehist": "oi/history",
   "an-cone": "vol/cone",
+  "an-forward": "vol/forward",
+  "an-rrbf": "vol/rrbf",
+  "an-eventvol": "vol/event",
   expiry: "oi/expiry",
 };
 

@@ -9102,3 +9102,12 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .an-page .chart .bar.body { fill: hsl(var(--foreground) / 0.26); }
 .an-page .chart .bar.tail { fill: hsl(var(--neg) / 0.75); }
 .an-page .chart .marker-line.es { stroke: hsl(var(--neg)); }
+/* Volatility › Forward, RR and BF, Event vol (analyticsDepth.js): a redrawn group of panels flows into the grid, and
+   the event's variance split reads as a short term list. */
+.an-page .an-contents { display: contents; }
+.an-page .an-ev-parts { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; margin: 0; padding: 10px 12px; border-radius: var(--r-inner); background: var(--mat-fill-1); }
+.an-page .an-ev-parts dt { font: 500 13px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.an-page .an-ev-windows { margin-top: 6px; padding-top: 10px; box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+.an-page .an-ev-windows .an-sub-head { margin: 0; font: 600 13px/1.3 var(--font-display); }
+.an-page .an-ev-windows p.muted.small { margin: 0; }
+.an-page .an-ev-parts dd { margin: 0; font: 400 13px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; text-align: right; }

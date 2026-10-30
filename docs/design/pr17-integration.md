@@ -76,7 +76,7 @@ events, announcements, SEBI/RBI notices, central-bank dates, F&O ban list, timel
 Analytics: **Exposure** (By strike, By expiry, OI heatmap, Greeks grid, Straddle), **Flow** (Unusual activity, Market
 tide, FII and DII, Filings), **Futures** (Futures chain, Basis history, Synthetics), **Strategy lab** (Finder,
 Templates, Calculators, Backtest), **Risk** (VaR and exposure, Execution costs). PR 17 tabs inside our pages: OI
-Analysis › OI change, Strike history, Spurts, Expiry day; Volatility › Skew, Surface, Cone, Vol stats.
+Analysis › OI change, Strike history, Spurts, Expiry day; Volatility › Skew, Surface, Cone, Forward, RR and BF, Event vol, Vol stats.
 
 ## 6. Added after the merge (broker gap list)
 
@@ -90,6 +90,10 @@ Analysis › OI change, Strike history, Spurts, Expiry day; Volatility › Skew,
 
 - PR 17's `chrome.js` and `terminal.js` stay in the tree for their tested helpers (command grammar, layouts, history);
   the terminal chrome itself is not mounted. Saved layouts have no UI here yet.
-- Derivatives depth (forward curve, RR/BF, vol cone, event vol) has no page; its routes stay.
+- Derivatives depth is drawn in Volatility › Forward (forward curve, basis, carry, implied dividend yield), RR and BF
+  (risk reversal and butterfly at 25, 15, 35 and 10 delta by expiry) and Event vol (the priced event move, the
+  variance split, the event premium of every window between expiries, the ATM term structure with forward vol and
+  realised vol by tenor; the baseline starts at the calmest forward vol). Code: `dashboard/analyticsDepth.js`. The vol
+  cone route's HV percentiles show as the "Realised vol by tenor" table; it has no chart of its own.
 - Demo prices are a seeded random walk now; recorded demo snapshots from before the change keep the old levels until
   they age out of the recorder.

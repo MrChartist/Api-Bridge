@@ -257,7 +257,7 @@ Look for:
 
 PR 17's analytics are merged and drawn in this shell: see `docs/design/pr17-integration.md` for the one-of-each
 decisions, the aliases, the fixes and what is not done. Pages: Analytics › Exposure, Flow, Futures, Strategy lab, Risk;
-tabs in OI Analysis (OI change, Strike history, Spurts, Expiry day) and Volatility (Skew, Surface, Cone, Vol stats).
+tabs in OI Analysis (OI change, Strike history, Spurts, Expiry day) and Volatility (Skew, Surface, Cone, Forward, RR and BF, Event vol, Vol stats).
 Host: `dashboard/analytics.js` (VIEWS, capsule, `fitDesk`, masonry). Page code: `analyticsViews.js`,
 `analyticsMore.js`, `analyticsFlow.js`, `analyticsRisk.js`, `analyticsTime.js`. CSS: app.css sections 15, 16, 17 and
 15d, all under `.an-page` (tested). Demo prices are a seeded random walk (`demo/demoAdapter.mjs` `walkAt`).
