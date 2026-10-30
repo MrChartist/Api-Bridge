@@ -47,6 +47,7 @@ import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText, startupText } from "./flows.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 import { PAGE_CODES } from "./workspace.js";
+import { triggersCard } from "./triggers.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -350,7 +351,7 @@ export const PAGES = [
       { id: "options", label: "Options", page: "screener", layout: "desk", command: "Option Screener", keywords: "screener unusual activity build-up rich cheap premium hedges", sub: "Scan every underlying and expiry for unusual activity, build-ups, rich or cheap premium, hedges and arbitrage", render: renderScreenerPage },
       { id: "arbitrage", label: "Arbitrage", page: "arb", layout: "desk", command: "Arbitrage scanner", icon: "scale", tint: "indigo", keywords: "arb parity box conversion reversal basis", sub: "Parity, boxes and futures basis at executable prices, after charges", render: renderArbPage },
       { id: "events", label: "Live events", page: "events", layout: "desk", command: "Live events", icon: "bolt", tint: "orange", keywords: "events event selector spider circuit only buyers only sellers volume surge gap day high breakout alerts live oi build-up iv spike wall", sub: "Circuits, volume surges, gaps, breakouts, F&O OI and option events as they happen", render: renderEventsPage },
-      { id: "watchlists", label: "Watchlists", page: "watchlists", layout: "", command: "Watchlists", icon: "list", tint: "blue", keywords: "watchlist watch list quotes change oi iv favourites", sub: "Your lists with live quotes, % change, OI change for F&O and IV. One feeds Live events, one shows on Home", render: renderWatchlistsPage },
+      { id: "watchlists", label: "Watchlists", page: "watchlists", layout: "desk", command: "Watchlists", icon: "list", tint: "blue", keywords: "watchlist watch list quotes change oi iv favourites", sub: "Your lists with live quotes, % change, OI change for F&O and IV. One feeds Live events, one shows on Home", render: renderWatchlistsPage },
       { id: "stocks", label: "Stocks", page: "scanner", layout: "desk", command: "Stock scanner", icon: "scan", tint: "mint", keywords: "scanner scan condition rsi universe gap 52-week circuit nr7 inside day build-up oi spike ban pcr iv rank basis rollover max pain straddle skew", sub: "Price, F&O and option-chain scans in plain words, saved and scheduled", render: renderScannerPage },
     ],
   },
@@ -2417,6 +2418,9 @@ async function renderOrders() {
           ),
     }),
   );
+
+  // GTT, OCO, stops, targets and trailing stops checked on the Bridge (triggers.js); refreshes itself.
+  nodes.push(triggersCard(byId));
 
   // One summary line per paper account; the positions themselves live on the Positions page. Every rupee figure in
   // this table uses Indian grouping (the P&L columns too, with an explicit + for gains).

@@ -5,7 +5,7 @@ import { checkSource } from "./copyRules.mjs";
 
 // views.js imports desk.js and calendar.js (the router): load it first so the circular import settles as in the browser.
 await import("./views.js");
-const { CAL_DISCLAIMER, CSV_COLUMNS, addMonths, holidayShort, consentText, stampText, calendarEvents, cellLabel, cellMarks, chargeRows, monthGrid, monthList, monthMode, mwplView, previewBody, runPreview, stateWord, statusTiles, strikesAround, toCsv, universeNote } = await import("./calendar.js");
+const { CAL_DISCLAIMER, CSV_COLUMNS, addMonths, holidayShort, consentText, stampText, calendarEvents, cellLabel, cellMarks, chargeRows, monthGrid, monthList, monthMode, mwplView, openingMonth, previewBody, runPreview, stateWord, statusTiles, strikesAround, toCsv, universeNote } = await import("./calendar.js");
 const { PAGES } = await import("./views.js");
 const { exampleStrikeGrid } = await import("../reference/corporateActions.mjs");
 
@@ -208,3 +208,13 @@ describe("Turn on NSE downloads (spec §7.2: name the files and how often)", () 
 function statusTilesDetail() {
   return statusTiles({ datasets: { lots: { available: true, asOf: "2026-10-30", source: "x", lastAttemptAt: "2026-10-30T08:20:41.120+05:30", nextRunAt: "2026-11-02T08:20:00.000+05:30" } } }, { today: "2026-10-30" })[0].detail;
 }
+
+describe("the month the calendar opens on", () => {
+  it("is today's month while a weekday is left in it, else the next", () => {
+    expect(openingMonth("2026-10-28")).toBe("2026-10"); // Wed: Thu 29 and Fri 30 are left
+    expect(openingMonth("2026-10-30")).toBe("2026-11"); // Fri: only the weekend is left
+    expect(openingMonth("2026-10-31")).toBe("2026-11"); // Sat
+    expect(openingMonth("2026-12-31")).toBe("2027-01"); // Thu, the last day of the year
+    expect(openingMonth("2026-11-01")).toBe("2026-11");
+  });
+});

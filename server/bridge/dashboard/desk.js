@@ -24,6 +24,7 @@ import { animatePage, barsEnter, countUp, flashValue, stopCount } from "./motion
 import { riskAfterCharges, ticketRisk } from "./flows.js";
 import { watch } from "./live.js";
 import { SPAN_METHOD, marginLegsOf, portfolioMargin } from "./span-margin.js";
+import { opFor, triggerBody, triggerProblem } from "./trigger-core.js";
 
 const SLOT = "mcb.dashboard.desk";
 /** The index underlyings the Options pages list (live) and the three the demo serves; the Option Screener shares them. */
@@ -1617,6 +1618,12 @@ async function renderDesk(kind) {
       : h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(start ? Math.max(1, Math.round(start / lotSize)) : 1) });
     const lotHint = h("span", { class: "hint" });
     const typeSeg = segmented("Order type", [["LIMIT", "Limit"], ["MARKET", "Market"]], orderType === "MARKET" ? "MARKET" : "LIMIT");
+    // When: now, or at a price (a GTT the Bridge holds and sends through every check when LTP reaches the trigger).
+    const whenSeg = exit ? null : segmented("When", [["now", "Now"], ["gtt", "At a price"]], "now");
+    const gtt = () => whenSeg?.value === "gtt";
+    const trig = h("input", { type: "number", min: "0.05", step: String(tick), inputmode: "decimal", "aria-describedby": "bk-trig-hint" });
+    const trigHint = h("p", { class: "hint bk-trig-hint", id: "bk-trig-hint", "aria-live": "polite", hidden: true });
+    const trigField = h("label", { class: "field bk-trig", hidden: true }, h("span", {}, "Trigger price"), trig);
     const midPx = (sd) => O.roundToTick(O.mid(quote()), tick, sd === "BUY" ? "buy" : "sell");
     const startPx = isFigure(priceIn) ? Number(priceIn) : exit ? midPx(side) ?? O.touchPrice(quote(), side, tick) : O.touchPrice(quote(), side, tick);
     const price = h("input", { type: "number", min: "0.05", step: String(tick), inputmode: "decimal", value: String(startPx ?? "") });
@@ -1678,13 +1685,14 @@ async function renderDesk(kind) {
       const q = quote();
       if (!isFigure(q?.[k])) return;
       price.value = String(O.roundToTick(q[k], tick, sideSeg.value === "BUY" ? "buy" : "sell"));
+      priceTyped = true;
       changed();
     };
     const priceField = h(
       "div",
       { class: "field" },
       h("span", {}, "Limit price"),
-      h("div", { class: "price-row" }, price, h("div", { class: "join rect touch-btns", role: "group", "aria-label": "Use a quote" }, [["Bid", "bid"], ["Mid", "mid"], ["Ask", "ask"]].map(([l, k]) => h("button", { type: "button", class: "small", onclick: () => (k === "mid" ? ((price.value = String(midPx(sideSeg.value) ?? "")), changed()) : touch(k)) }, l)))),
+      h("div", { class: "price-row" }, price, h("div", { class: "join rect touch-btns", role: "group", "aria-label": "Use a quote" }, [["Bid", "bid"], ["Mid", "mid"], ["Ask", "ask"]].map(([l, k]) => h("button", { type: "button", class: "small", onclick: () => (k === "mid" ? ((price.value = String(midPx(sideSeg.value) ?? "")), (priceTyped = true), changed()) : touch(k)) }, l)))),
     );
     // Exit size: 25 / 50 / 75 % as floor(lots · p) whole lots, 100 % the exact quantity held. A part that rounds to
     // 0 lots (a 1-lot leg at 50 %) is disabled, never widened to a full exit.
@@ -1714,9 +1722,14 @@ async function renderDesk(kind) {
       if (!placeBtn) return;
       const b = body();
       const blocked = (last?.checks ?? []).some((x) => x?.severity === "block");
-      placeBtn.textContent = `${b.side === "BUY" ? "Buy" : "Sell"} ${inUnits ? `${formatInt(b.quantity)} qty` : `${formatInt(b.lots)} lot${b.lots === 1 ? "" : "s"}`}${live() ? " · LIVE" : ""}`;
+      const size = `${b.side === "BUY" ? "Buy" : "Sell"} ${inUnits ? `${formatInt(b.quantity)} qty` : `${formatInt(b.lots)} lot${b.lots === 1 ? "" : "s"}`}`;
+      // On a phone the footer has room for "Set GTT" only (the side is the button's colour, the size is above).
+      const narrow = typeof matchMedia === "function" && matchMedia("(max-width: 719px)").matches;
+      placeBtn.textContent = `${gtt() ? (narrow ? "Set GTT" : `Set GTT: ${size}`) : size}${live() ? " · LIVE" : ""}`;
       placeBtn.className = b.side === "BUY" ? "btn buy" : "btn sell";
-      placeBtn.disabled = blocked || !gateOk() || (live() && !ack.checked) || (typeSeg.value === "LIMIT" && !isFigure(price.value));
+      // A GTT is checked again when it fires: a price band against today's price does not stop setting it.
+      const gttBad = gtt() && (!isFigure(trig.value) || Number(trig.value) <= 0);
+      placeBtn.disabled = (!gtt() && blocked) || gttBad || !gateOk() || (live() && !ack.checked) || (typeSeg.value === "LIMIT" && !isFigure(price.value));
     };
     const drawQuote = () => {
       const q = quote();
@@ -1810,6 +1823,16 @@ async function renderDesk(kind) {
       lotHint.textContent = inUnits ? `odd quantity · lot ${formatInt(lotSize)}` : `${formatInt(n * lotSize)} qty`;
       for (const btn of pctBtns) btn.setAttribute("aria-pressed", String(sizeFor(Number(btn.dataset.pct)) === n && (Number(btn.dataset.pct) === 100 || sizeFor(100) !== n)));
       priceField.hidden = typeSeg.value !== "LIMIT";
+      trigField.hidden = !gtt();
+      trigHint.hidden = !gtt();
+      if (gtt()) {
+        const ltp = num(quote()?.ltp);
+        const op = isFigure(trig.value) && ltp ? opFor(Number(trig.value), ltp) : null;
+        // The limit follows the trigger until it is typed in: a limit far from the trigger would not fill when it fires.
+        if (!priceTyped && isFigure(trig.value) && typeSeg.value === "LIMIT") price.value = String(O.roundToTick(Number(trig.value), tick, sideSeg.value === "BUY" ? "buy" : "sell"));
+        const till = prodSeg.value === "INTRADAY" ? "Good till 15:20 today (intraday)." : "Good till the contract expires.";
+        trigHint.textContent = op ? `Sends when LTP ${op === "above" ? "rises to" : "falls to"} ${formatFixed(Number(trig.value), 2)} (now ${formatFixed(ltp, 2)}). ${till}` : ltp ? `LTP now ${formatFixed(ltp, 2)}` : "";
+      }
       ackRow.hidden = !live();
       drawButton();
       clearTimeout(previewTimer);
@@ -1821,7 +1844,17 @@ async function renderDesk(kind) {
       changed();
     });
     for (const el of [typeSeg, prodSeg, modeSeg].filter(Boolean)) el.addEventListener("change", changed);
-    for (const el of [lots, price]) el.addEventListener("input", changed);
+    for (const el of [lots, price, trig]) el.addEventListener("input", changed);
+    let priceTyped = false;
+    price.addEventListener("input", () => (priceTyped = true));
+    whenSeg?.addEventListener("change", () => {
+      if (gtt() && !isFigure(trig.value)) {
+        const ltp = num(quote()?.ltp);
+        // A start: 2 % beyond the price on the side a breakout entry usually waits for.
+        if (ltp) trig.value = String(O.roundToTick(ltp * (sideSeg.value === "BUY" ? 1.02 : 0.98), tick, sideSeg.value === "BUY" ? "buy" : "sell"));
+      }
+      changed();
+    });
     ack.addEventListener("change", drawButton);
     gateBox.addEventListener("change", changed);
     const quoteTimer = setInterval(() => (drawQuote(), drawWarnings(), syncGate()), 1000);
@@ -1847,6 +1880,8 @@ async function renderDesk(kind) {
         // An exit's side is fixed (the other side would add to the position): a label, not a control.
         exit ? h("div", { class: "field" }, h("span", {}, "Side"), h("span", { class: "ticket-acct" }, side === "BUY" ? "Buy to close" : "Sell to close", h("span", { class: "muted small" }, "· to add, use the chain"))) : segField("Side", sideSeg),
         h("div", { class: "ticket-grid" }, h("label", { class: "field" }, h("span", {}, inUnits ? "Quantity " : "Lots ", lotHint), lots), segField("Type", typeSeg)),
+        whenSeg ? h("div", { class: "ticket-grid bk-when" }, segField("When", whenSeg), trigField) : null,
+        whenSeg ? trigHint : null,
         gateRow,
         pctRow,
         priceField,
@@ -1867,6 +1902,25 @@ async function renderDesk(kind) {
             syncGate();
             if (!gateOk()) return (drawButton(), false);
             placeBtn.disabled = true;
+            if (gtt()) {
+              const b = body();
+              const f = { account: a.id, symbol: sym, product: b.product, mode: b.mode, side: b.side, units: units(), origin: "gtt", entry: Number(trig.value), orderType: b.orderType, price: b.price, ltp: num(quote()?.ltp) };
+              const bad = triggerProblem(f);
+              if (bad) {
+                previewEl.replaceChildren(alertBox({ title: bad.message }));
+                drawButton();
+                return false;
+              }
+              try {
+                const t = (await api("/v1/triggers", { method: "POST", body: triggerBody(f) })).data.data;
+                toast(`GTT set: ${b.side === "BUY" ? "buy" : "sell"} ${name} when LTP ${t.legs?.[0]?.op === "above" ? "≥" : "≤"} ${formatFixed(t.legs?.[0]?.trigger, 2)}. See Orders › Triggers.`);
+                return "placed";
+              } catch (err) {
+                previewEl.replaceChildren(alertBox(err));
+                drawButton();
+                return false;
+              }
+            }
             try {
               const r = (await api("/v1/orders", { method: "POST", body: { ...body(), clientOrderId } })).data.data;
               const refused = r.status === "rejected" || r.status === "cancelled";
