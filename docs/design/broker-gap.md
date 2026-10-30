@@ -152,7 +152,7 @@ Each row is one commit on `claude/happy-carson-2a6o3y`, with tests, checked on a
 | # | Feature | Where | Notes |
 |---|---|---|---|
 | 1 | Server trigger engine: GTT single and OCO | `server/bridge/triggers/`, `/v1/triggers*`, Orders › Triggers, ticket When: At a price | Every fire calls `orders.place` as source `guard` with the creator's scopes; live needs `guard` in `live.allowedSources`; AI keys cannot set triggers. Atomic store; restart resolves a firing trigger by its clientOrderId, one Idempotency-Key per trigger. |
-| 2 | Stop and target on the ticket (bracket) | `desk.js` Stop and target, origin `bracket` | Arms on the entry's fill with the filled quantity; reduce-only; the bracket's mode must match its entry's (refused when set); max loss at the stop, if it gaps, reward and reward to risk. |
+| 2 | Stop and target on the ticket (bracket) | `desk.js` Stop and target, origin `bracket` | Arms on the entry's fill with the filled quantity (an entry cancelled after a partial fill arms them for the filled part); reduce-only; the bracket's mode must match its entry's (refused when set); max loss at the stop, if it gaps, reward and reward to risk. |
 | 3 | Position stop and target with auto exit | Positions › leg › Stop and target…, chips under the leg | Reduce-only, cancels itself when the position is flat. |
 | 4 | Trailing stop | `trail: { points | pct }` on any stop leg | Only tightens. |
 | 5 | SL and SL-M in the ticket; trigger in Modify | `desk.js`, `views.js orderActions`, `flows.js modifyChange` | |

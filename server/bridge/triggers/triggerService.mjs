@@ -494,19 +494,26 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
     }
   }
 
-  /** A bracket's exits arm when its entry fills (with the filled quantity); a cancelled or rejected entry cancels them. */
+  /**
+   * A bracket's exits arm when its entry fills (with the filled quantity). An entry that ended part filled (cancelled
+   * or expired after some of it filled) arms them for the filled part only; one that ended with nothing filled
+   * cancels them. They stay reduce-only either way.
+   */
   async function syncParent(t, order) {
     // Only a bracket still waiting: it may have been cancelled (or armed) while its entry order was being read.
     if (!order || t.status !== "waiting") return;
-    if (order.status === "filled") {
-      const q = Number(order.filledQuantity ?? order.quantity);
+    const ended = ["cancelled", "rejected", "expired"].includes(order.status);
+    const filled = Number(order.filledQuantity ?? 0);
+    if (order.status === "filled" || (ended && filled > 0)) {
+      const q = order.status === "filled" ? Number(order.filledQuantity ?? order.quantity) : filled;
       for (const leg of t.legs) if (q > 0) leg.order.quantity = Math.min(leg.order.quantity, q);
       t.status = "active";
       t.armedAt = istIso(now());
+      if (order.status !== "filled") t.result = { message: `The entry order was ${order.status} after ${q} of ${order.quantity ?? q} filled, so the exits cover the ${q} filled.` };
       touch(t);
       save();
       emit(t, "armed");
-    } else if (["cancelled", "rejected", "expired"].includes(order.status)) {
+    } else if (ended) {
       close(t, "cancelled", { message: `The entry order was ${order.status}, so its exits were cancelled.` });
     }
   }

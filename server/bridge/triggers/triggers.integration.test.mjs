@@ -523,4 +523,29 @@ describe("review follow-ups", () => {
     expect(gone.detail).toMatch(/entry order .* was not found/);
     await app.deps.orders.cancel(ctx("paper"), entry.orderId);
   });
+
+  it("a bracket whose entry partly filled and was then cancelled arms its exits for the filled quantity, reduce-only", async () => {
+    await at("2026-11-02", "11:00");
+    md.setPrice("NSE:RELIANCE", 1400);
+    // 3 bought for real; the entry reads as 5 asked, 3 filled, the rest cancelled (as a broker reports it).
+    const entry = (await app.deps.orders.place(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", side: "BUY", quantity: 3, product: "CNC", orderType: "MARKET" })).order;
+    await clock.advance(1000);
+    const partly = async (...a) => ({ ...(await app.deps.orders.get(...a)), quantity: 5, filledQuantity: 3, status: "cancelled" });
+    const s2 = createTriggerService({ ...app.deps, orders: { ...app.deps.orders, get: partly } }, quiet);
+    const t = await s2.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", origin: "bracket", parentOrderId: entry.orderId, legs: [{ trigger: 1300, op: "below", order: { side: "SELL", quantity: 5 } }, { trigger: 1500, op: "above", order: { side: "SELL", quantity: 5 } }] });
+    expect(t.status).toBe("waiting");
+    await s2.runOnce();
+    const armed = s2.get(ctx("paper"), t.id);
+    expect(armed).toMatchObject({ status: "active", reduceOnly: true });
+    expect(armed.legs.map((l) => l.order.quantity)).toEqual([3, 3]);
+    // A cancelled entry with nothing filled still cancels its exits.
+    const none = async (...a) => ({ ...(await app.deps.orders.get(...a)), quantity: 5, filledQuantity: 0, status: "cancelled" });
+    const s4 = createTriggerService({ ...app.deps, orders: { ...app.deps.orders, get: none } }, quiet);
+    const t4 = await s4.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", origin: "bracket", parentOrderId: entry.orderId, legs: [{ trigger: 1300, op: "below", order: { side: "SELL", quantity: 5 } }] });
+    await s4.runOnce();
+    expect(s4.get(ctx("paper"), t4.id)).toMatchObject({ status: "cancelled" });
+    s2.cancel(ctx("paper"), t.id);
+    await app.deps.orders.place(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", side: "SELL", quantity: 3, product: "CNC", orderType: "MARKET" });
+    await clock.advance(1000);
+  });
 });

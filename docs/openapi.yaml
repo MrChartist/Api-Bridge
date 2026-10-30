@@ -8313,7 +8313,7 @@ components:
         product: { type: string, enum: [INTRADAY, MARGIN, CNC, MTF] }
         type: { type: string, enum: [single, oco] }
         origin: { type: string, enum: [gtt, bracket, position, amo], default: gtt, description: "amo: an after-market order, one leg without a trigger, held on this Bridge and sent at 09:15 IST on the next trading day through every check." }
-        parentOrderId: { type: string, description: "bracket: the entry order, which must exist and be in the same mode as the bracket (else VALIDATION_FAILED). The exits arm when it fills." }
+        parentOrderId: { type: string, description: "bracket: the entry order, which must exist and be in the same mode as the bracket (else VALIDATION_FAILED). The exits arm when it fills; if it ends part filled (cancelled or expired after a partial fill) they arm for the filled quantity, reduce-only; with nothing filled they are cancelled." }
         mode: { type: string, enum: [paper, live], default: paper }
         name: { type: string, maxLength: 80 }
         expiresAt: { type: string, format: date-time }
