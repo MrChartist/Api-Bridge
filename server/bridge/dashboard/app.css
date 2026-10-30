@@ -7684,6 +7684,29 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
 }
 @media (pointer: coarse) { .jr-field select, .jr-filters select { min-height: 44px; } }
 
+/* Positions › Expiry desk (positions.js drawExpiryDesk, expiry-core.js): four figures, then gamma by strike, pin risk
+   and settlement in up to three columns. Bars are plain fills, their width from --w. */
+.xp-panel[hidden] { display: none; }
+.xp-head-r { display: flex; align-items: center; gap: 10px; margin-left: auto; flex-wrap: wrap; }
+.xp-clock { font: 600 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.xp-body { display: flex; flex-direction: column; gap: 14px; padding: 4px var(--card-pad, 16px) 16px; min-width: 0; }
+.xp-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.xp-fig { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 8px 10px; border-radius: var(--r-sm); background: var(--mat-fill-1, hsl(var(--foreground) / 0.03)); }
+.xp-k { font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.xp-v { font: 600 16px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.xp-s { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.xp-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+@media (min-width: 1280px) { .xp-cols { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.xp-col h3 { margin: 0 0 6px; font: 600 13px/1.2 var(--font-body); }
+.xp-gamma { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.xp-gamma li { display: grid; grid-template-columns: 96px minmax(40px, 1fr) auto; align-items: center; gap: 8px; font: 500 12.5px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.xp-track { height: 8px; border-radius: 4px; background: var(--mat-fill-2, hsl(var(--foreground) / 0.06)); overflow: hidden; }
+.xp-bar { display: block; height: 100%; width: var(--w, 0%); border-radius: 4px; background: hsl(var(--pos)); }
+.xp-bar.neg { background: hsl(var(--neg)); }
+.xp-n { white-space: nowrap; }
+.xp-pins, .xp-settle { margin: 0; font-size: 12.5px; }
+@media (max-width: 719px) { .xp-gamma li { grid-template-columns: 72px minmax(30px, 1fr); } .xp-gamma .xp-n { grid-column: 1 / -1; } }
+
 /* ───────────────────────── 13 · RESPONSIVE ───────────────────────── */
 @media (max-width: 1279px) {
   .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
