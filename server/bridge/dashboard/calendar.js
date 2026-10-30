@@ -42,6 +42,20 @@ export function addMonths(ym, n) {
  * @param {string} ym "YYYY-MM"
  * @param {{ holidays?: object[], expiries?: object[], specials?: object[], today?: string }} d
  */
+/**
+ * The month the calendar opens on (pure): today's, or the next one when no weekday is left in today's month after
+ * today (on the last Friday evening or weekend of a month every expiry and holiday ahead is next month).
+ */
+export function openingMonth(today) {
+  const [y, m, d] = String(today).split("-").map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  for (let day = d + 1; day <= last; day += 1) {
+    const wd = new Date(Date.UTC(y, m - 1, day)).getUTCDay();
+    if (wd !== 0 && wd !== 6) return String(today).slice(0, 7);
+  }
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+}
+
 export function monthGrid(ym, { holidays = [], expiries = [], specials = [], today = null } = {}) {
   const [y, m] = String(ym).split("-").map(Number);
   if (!y || !m) return [];
@@ -370,7 +384,7 @@ export async function renderCalendarPage() {
   const isPhone = () => typeof matchMedia === "function" && matchMedia("(max-width: 719px)").matches;
   const st = {
     underlying: list.includes(saved.underlying) ? saved.underlying : list.includes(desk.underlying) ? desk.underlying : list[0],
-    month: /^\d{4}-\d{2}$/.test(saved.month ?? "") && Math.abs(daysBetween(`${saved.month}-01`, `${today.slice(0, 7)}-01`) ?? 999) < 400 ? saved.month : today.slice(0, 7),
+    month: /^\d{4}-\d{2}$/.test(saved.month ?? "") && Math.abs(daysBetween(`${saved.month}-01`, `${today.slice(0, 7)}-01`) ?? 999) < 400 ? saved.month : openingMonth(today),
     mwplQuery: "",
     mwplSort: "pct",
     mwplAll: false,
@@ -1156,7 +1170,28 @@ export async function renderCalendarPage() {
   drawCharges();
   loadAll();
 
-  const left = h("div", { class: "cal-col cal-left" }, cal.el, exp.el, ban.el, uni.el);
-  const right = h("div", { class: "cal-col cal-right" }, act.el, rate.el, chg.el);
-  return [banners.el, pageAlert, statusEl, h("div", { class: "cal-cols", "data-fixed": "" }, left, right), foot];
+  // Columns of about equal height: two from 1024 px (the F&O universe under the charges), three from 1800 px
+  // (calendar and expiries; ban list and universe; corporate actions, rate and charges). One column below 1024.
+  const left = h("div", { class: "cal-col cal-left" });
+  const mid = h("div", { class: "cal-col cal-mid" });
+  const right = h("div", { class: "cal-col cal-right" });
+  const cols = h("div", { class: "cal-cols", "data-fixed": "" }, left, mid, right);
+  const threeMq = typeof matchMedia === "function" ? matchMedia("(min-width: 1800px)") : null;
+  function placePanels() {
+    const three = Boolean(threeMq?.matches);
+    cols.classList.toggle("three", three);
+    if (three) {
+      left.replaceChildren(cal.el, exp.el);
+      mid.replaceChildren(ban.el, uni.el);
+      right.replaceChildren(act.el, rate.el, chg.el);
+    } else {
+      left.replaceChildren(cal.el, exp.el, ban.el);
+      mid.replaceChildren();
+      right.replaceChildren(act.el, rate.el, chg.el, uni.el);
+    }
+    mid.hidden = !three;
+  }
+  placePanels();
+  threeMq?.addEventListener?.("change", () => cols.isConnected && placePanels());
+  return [banners.el, pageAlert, statusEl, cols, foot];
 }

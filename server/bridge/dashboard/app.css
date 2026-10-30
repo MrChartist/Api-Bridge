@@ -1692,7 +1692,7 @@ svg .dv-pill text { fill: hsl(var(--sel-fg)); font: 500 12px/1 var(--font-numeri
 .secret-box code { flex: 1 1 220px; min-width: 0; padding: 8px 10px; background: hsl(var(--card)); border-radius: 10px; word-break: break-all; }
 
 /* ───────────────────────── 10 · BARS, METERS, CHECKLIST, QUOTES ───────────────────────── */
-.bar { height: 6px; min-width: 60px; background: var(--mat-fill-2); border-radius: 99px; overflow: hidden; }
+.bar:not(rect) { height: 6px; min-width: 60px; background: var(--mat-fill-2); border-radius: 99px; overflow: hidden; }
 .bar > span { display: block; height: 100%; width: 0; background: hsl(var(--ios-blue)); border-radius: 99px; transition: width 400ms var(--ease-out); }
 .bar.ok > span { background: hsl(var(--ios-green)); }
 .bar.warn > span { background: hsl(var(--ios-orange)); }
@@ -1890,14 +1890,17 @@ button.start-row:hover { --btn-bg: var(--mat-fill-1); }
 .quote .delta { align-self: flex-start; }
 
 /* ───────────────────────── 11 · ACCOUNTS, BROKERS, SHEETS ───────────────────────── */
-.brokers { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 12px; padding: 4px var(--card-pad) var(--card-pad); }
+/* Six broker cards across at 1920 px: the name may take two lines (never three, as at 250 px) and the foot (chips and
+   Set up) sits on each card's bottom edge, so the cards in a row line up. */
+.brokers { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 12px; padding: 4px var(--card-pad) var(--card-pad); }
 .broker { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 20px; background: var(--mat-fill-1); min-width: 0; transition: background-color var(--dur-fast); }
 .broker:hover { background: var(--mat-fill-2); }
 .broker .top { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .broker .names { flex: 1; min-width: 0; }
-.broker .nm { font: 500 14.5px/1.25 var(--font-body); overflow-wrap: anywhere; text-wrap: balance; }  /* wraps: "Motilal Oswal" was cut to "Motilal O…" at 1280 */
+.broker .nm { font: 500 14.5px/1.25 var(--font-body); overflow-wrap: break-word; text-wrap: balance; }  /* wraps: "Motilal Oswal" was cut to "Motilal O…" at 1280 */
 .broker .id { font: 400 12px/1.3 var(--font-mono); color: hsl(var(--foreground) / var(--a-quiet)); }
-.broker-foot { gap: 8px; flex-wrap: nowrap; align-items: center; }
+.broker-foot { gap: 8px; flex-wrap: nowrap; align-items: flex-end; margin-top: auto; }
+.broker-foot > .chips { gap: 4px 6px; }
 .dir-search { width: min(280px, 100%); }
 /* Accounts "Can do": three chips and a "+N" chip on one line (the rest open in a popover), so rows keep one height. */
 .chips.acct-caps { flex-wrap: nowrap; }
@@ -6070,7 +6073,10 @@ table.arb-pv small.block { display: block; margin-top: 3px; white-space: normal;
   :root[data-layout="desk"] #content > .scr-detail.movable:not(.panel-max) { position: sticky; top: calc(var(--toolbar-h) + var(--safe-t) + 14px); }
   /* The results panel reaches the window's bottom edge (the footer with it), so a short list (Overview ranks chains)
      ends in its own panel, not in a gap under it and beside a taller detail column. */
-  :root[data-layout="desk"][data-page="screener"] .content > .scr-main:not(.panel-max) { display: flex; flex-direction: column; min-height: calc(100dvh - var(--desk-top) - 70px); }
+  :root[data-layout="desk"][data-page="screener"] .content > .scr-main:not(.panel-max) { display: flex; flex-direction: column; height: calc(100dvh - var(--desk-top) - 70px); min-height: 520px; }
+  /* The table keeps its rows' height and scrolls inside once the panel is full; what a short list leaves goes to the
+     chain scatter (Overview) below it. */
+  :root[data-layout="desk"][data-page="screener"] .content > .scr-main:not(.panel-max) > .scr-wrap { flex: 0 1 auto; min-height: 160px; max-height: none; }
   :root[data-layout="desk"][data-page="screener"] .content > .scr-main:not(.panel-max) > .scr-foot { margin-top: auto; }
 }
 @media (max-width: 1279px) { .scr-detail { display: none; } }
@@ -6250,6 +6256,24 @@ svg .scr-dot.ce { fill: hsl(var(--dv-call)); }
 svg .scr-dot.pe { fill: hsl(var(--dv-put)); }
 svg .scr-dot.sel { fill-opacity: 1; }
 svg .scr-dot:hover { fill-opacity: 1; r: 4.5px; }
+/* The chain scatter (Overview, 1280 px and up): in the height a short list leaves under the table; gone when the list
+   fills the panel. Rich in the IV violet, cheap outlined, fair in the quiet ink (the Verdict column's chips). */
+.scr-scat { display: none; }
+@media (min-width: 1280px) {
+  :root[data-layout="desk"][data-page="screener"] .content > .scr-main:not(.panel-max) > .scr-scat:not([hidden]) { display: block; flex: 1 1 0; min-height: 0; overflow: hidden; box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+}
+.scr-scat.scr-scat-off .scr-scat-body { display: none; }
+.scr-scat-body { padding: 4px 12px 0; }
+.scr-scat-lg { min-height: 22px; margin: 0; }
+.scr-scat-svg { display: block; overflow: visible; }
+svg .scr-scat-one { stroke: hsl(var(--foreground) / 0.45); stroke-width: 1; stroke-dasharray: 4 3; }
+svg .scr-sdot { stroke: var(--mat-grouped-solid); stroke-width: 1; cursor: pointer; }
+svg .scr-sdot.rich, .scr-k-rich { fill: hsl(var(--dv-iv)); background: hsl(var(--dv-iv)); }
+svg .scr-sdot.fair, .scr-k-fair { fill: hsl(var(--foreground) / 0.55); background: hsl(var(--foreground) / 0.55); }
+svg .scr-sdot.cheap { fill: var(--mat-grouped-solid); stroke: hsl(var(--dv-iv)); stroke-width: 1.5; }
+.scr-k-cheap { background: transparent; box-shadow: inset 0 0 0 1.5px hsl(var(--dv-iv)); }
+svg .scr-sdot.sel { stroke: hsl(var(--foreground)); stroke-width: 1.5; }
+svg .scr-scat-l { fill: hsl(var(--foreground) / var(--a-label)); font: 500 12px/1 var(--font-body); pointer-events: none; }
 svg .scr-dot-ring { fill: none; stroke: hsl(var(--sel-bg)); stroke-width: 2; pointer-events: none; }
 svg .scr-map-n { fill: hsl(var(--foreground) / var(--a-label)); font: 500 12px/1 var(--font-numeric); pointer-events: none; }
 
@@ -7309,7 +7333,9 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
 /* Tablet: the chip keeps the lot and the event count; desktop: two columns from 1024 px. */
 @media (min-width: 1024px) {
   .cal-cols { grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); align-items: start; }
+  .cal-cols.three { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr); }
 }
+.cal-col[hidden] { display: none; }
 @media (max-width: 1279px) {
   .cal-status-row { flex-direction: column; align-items: stretch; gap: 8px; }
   .cal-status-lead { flex-direction: row; align-items: baseline; gap: 10px; }
@@ -7885,6 +7911,16 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
 .wl-table th[scope="row"] { text-align: left; font-weight: 500; }
 button.wl-sort { min-height: 0; padding: 0; background: none; box-shadow: none; font: inherit; color: inherit; --fin: 0; }
 .wl-acts { white-space: nowrap; text-align: right; }
+/* The day's move on one scale for the list: a bar from the centre line, right and green up, left and red down. It
+   takes the table's spare width (the figures keep their own), and goes on phones. */
+.wl-table th.wl-move-h { width: 34%; text-align: center; font-weight: 400; color: hsl(var(--foreground) / var(--a-quiet)); }
+.wl-move-c { padding-left: 24px; padding-right: 24px; }
+.wl-move { position: relative; display: block; height: 10px; border-radius: 5px; background: var(--mat-fill-1); }
+.wl-move::before { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: hsl(var(--foreground) / 0.35); }
+.wl-move > i { position: absolute; top: 0; bottom: 0; width: 50%; transform: scaleX(var(--v, 0)); }
+.wl-move > i.up { left: 50%; transform-origin: left center; border-radius: 0 5px 5px 0; background: hsl(var(--pos)); }
+.wl-move > i.down { right: 50%; transform-origin: right center; border-radius: 5px 0 0 5px; background: hsl(var(--neg)); }
+@media (max-width: 1023px) { .wl-table :is(th.wl-move-h, td.wl-move-c) { display: none; } }
 @media (pointer: coarse) { .wl-sel, .wl-add-in, .wl-addrow > .wl-status { min-height: 44px; } }
 
 /* "Explain this" (explain.js) on OI Analysis and Volatility: a folded box under the summary tiles. */
@@ -8394,10 +8430,19 @@ button.wl-sort { min-height: 0; padding: 0; background: none; box-shadow: none; 
 
 .ev-scroll { --ev-rh: 30px; position: relative; overflow: auto; height: clamp(320px, calc(100dvh - 250px), 4000px); outline: none; font-variant-numeric: tabular-nums; }
 @media (pointer: coarse) { .ev-scroll { --ev-rh: 44px; } }
+/* Desktop: the panel ends at the window's bottom edge whatever height its controls take (one or two rows), so the page
+   never scrolls a few pixels; the feed takes what the controls leave. */
+@media (min-width: 1024px) {
+  :root[data-layout="desk"] .ev-panel { height: calc(100dvh - var(--desk-top) - 70px); }
+  :root[data-layout="desk"] .ev-panel > .ev-scroll { flex: 1 1 auto; height: auto; min-height: 320px; }
+}
 .ev-scroll:focus-visible { box-shadow: inset 0 0 0 2px var(--sel-ring); }
 .ev-head, .ev-row { display: grid; align-items: center; column-gap: 0; }
-.ev-scroll[data-mode="feed"][data-asset="stock"] :is(.ev-head, .ev-row) { grid-template-columns: 70px minmax(150px, 1.3fr) minmax(170px, 1fr) 82px 84px 76px minmax(200px, 2.6fr) 60px; }
-.ev-scroll[data-mode="feed"][data-asset="option"] :is(.ev-head, .ev-row) { grid-template-columns: 70px minmax(110px, 1fr) 72px 48px 58px minmax(180px, 1fr) 76px 80px 52px minmax(200px, 2.4fr) 60px; }
+/* Symbol and event take a small share (their minimum holds a 30-character name, the longest event chip), so a window gives most of its room to the
+   context, the last column (the count sits before it, beside the figures, not alone at the far edge); the time holds
+   "23:50:44" at every width. */
+.ev-scroll[data-mode="feed"][data-asset="stock"] :is(.ev-head, .ev-row) { grid-template-columns: 78px minmax(140px, 0.45fr) minmax(170px, 0.45fr) 82px 84px 76px 60px minmax(200px, 2fr); }
+.ev-scroll[data-mode="feed"][data-asset="option"] :is(.ev-head, .ev-row) { grid-template-columns: 78px minmax(110px, 1fr) 72px 48px 58px minmax(180px, 1fr) 76px 80px 52px 60px minmax(200px, 2.4fr); }
 .ev-scroll[data-mode="stock"] :is(.ev-head, .ev-row) { grid-template-columns: minmax(150px, 1.3fr) 84px 76px minmax(240px, 3fr) 56px 56px 76px; }
 .ev-head { position: sticky; top: 0; z-index: var(--z-sticky); min-height: 30px; background: var(--mat-grouped-solid); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 .ev-head > span { padding: 0 8px; font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -8406,6 +8451,7 @@ button.wl-sort { min-height: 0; padding: 0; background: none; box-shadow: none; 
 .ev-row { position: absolute; left: 0; right: 0; top: 0; height: var(--ev-rh); cursor: pointer; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); will-change: transform; }
 .ev-row > span { min-width: 0; padding: 0 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 400 13px/1.2 var(--font-body); }
 .ev-row .num, .ev-head .num { text-align: right; font-family: var(--font-numeric); }
+.ev-row .c-ctx, .ev-head > :last-child { padding-left: 16px; }
 .ev-row .c-time { font: 400 12.5px/1.2 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); }
 .ev-row .c-sym { display: flex; align-items: baseline; gap: 6px; }
 .ev-row .c-sym strong { font-weight: 600; white-space: nowrap; }
@@ -8558,8 +8604,29 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
   .sc-page { grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); align-items: start; }
   .sc-side-col { position: sticky; top: calc(var(--toolbar-h) + var(--safe-t) + 12px); }
   .sc-lib-list { max-height: calc(100dvh - var(--toolbar-h) - 220px); overflow: auto; }
+  /* One screen: both columns end at the window's bottom edge, the results card taking what the builder leaves (a
+     short match list ends inside its card, not in a gap beside the taller scan list). */
+  .sc-page { align-items: stretch; min-height: calc(100dvh - var(--desk-top) - 70px); }
+  .sc-side-col > * { flex: 1 1 auto; }
+  .sc-main-col > .sc-results { flex: 1 1 auto; }
 }
 .sc-lib .segmented { align-self: flex-start; max-width: 100%; }
+/* A short match list: by sector and % change today, two small bar lists under the table (side by side from 900 px). */
+.sc-sum { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px 32px; padding: 14px 14px 12px; box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+@media (min-width: 900px) { .sc-sum { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.sc-sum-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; font: 600 13px/1.3 var(--font-body); }
+.sc-sum-h small { font: 400 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.sc-sum-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.sc-sum-list li { display: grid; grid-template-columns: minmax(84px, 140px) minmax(0, 1fr) 64px; align-items: center; gap: 10px; min-height: 22px; font: 400 12.5px/1.2 var(--font-body); }
+.sc-sum-k { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: hsl(var(--foreground) / var(--a-label)); }
+.sc-sum-chg .sc-sum-k { font-weight: 600; color: hsl(var(--foreground)); }
+.sc-sum-v { text-align: right; font-family: var(--font-numeric); font-variant-numeric: tabular-nums; }
+.sc-sum-v.up { color: hsl(var(--pos-ink)); }
+.sc-sum-v.down { color: hsl(var(--neg-ink)); }
+.sc-sum-trk { position: relative; height: 8px; border-radius: 4px; background: var(--mat-fill-1); overflow: hidden; }
+.sc-sum-trk > i { position: absolute; inset: 0; border-radius: 4px; background: hsl(var(--foreground) / 0.55); transform-origin: left center; transform: scaleX(var(--v, 0)); }
+.sc-sum-trk.up > i { background: hsl(var(--pos)); }
+.sc-sum-trk.down > i { background: hsl(var(--neg)); }
 .sc-lib-list { display: flex; flex-direction: column; min-width: 0; }
 .sc-lib-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px; border-radius: 8px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 .sc-lib-row.is-cur { background: hsl(var(--foreground) / 0.06); }
@@ -8982,3 +9049,7 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 /* Strategy lab › Backtest (analyticsRisk.js): the entry and exit conditions get the width a formula needs. */
 .an-page .an-bt-form .an-bt-rules { grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
 .an-page .an-bt-form .an-bt-rules input { font-family: var(--font-numeric); }
+/* Analytics › Risk: the simulated one-day P&L histogram; days at or beyond the VaR loss are the tail. */
+.an-page .chart .bar.body { fill: hsl(var(--foreground) / 0.26); }
+.an-page .chart .bar.tail { fill: hsl(var(--neg) / 0.75); }
+.an-page .chart .marker-line.es { stroke: hsl(var(--neg)); }

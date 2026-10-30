@@ -275,6 +275,22 @@ export function concentrationOf(models, topN = 5) {
 
 // ───────────────────────────── VaR ─────────────────────────────
 
+/**
+ * The one-day P&Ls of a historical simulation as a histogram (pure): `bins` equal-width buckets from the worst to the
+ * best day, each { from, to, count }. A bounded list whatever the lookback; empty for no P&Ls.
+ */
+export function pnlHistogram(pnls, bins = 24) {
+  const xs = (pnls ?? []).filter(Number.isFinite);
+  if (!xs.length) return [];
+  const lo = Math.min(...xs);
+  const hi = Math.max(...xs);
+  const n = hi > lo ? bins : 1;
+  const w = hi > lo ? (hi - lo) / n : 1;
+  const out = Array.from({ length: n }, (_, i) => ({ from: R(lo + i * w), to: R(i === n - 1 ? hi : lo + (i + 1) * w), count: 0 }));
+  for (const x of xs) out[Math.min(n - 1, Math.floor((x - lo) / w))].count += 1;
+  return out;
+}
+
 const Z = { 95: 1.6448536269514722, 99: 2.3263478740408408 };
 
 function returnsByDate(candles) {
@@ -355,7 +371,7 @@ export function varOf(models, history, { confidence = 95, rate = DEFAULT_RATE, m
   const k = Math.max(1, Math.ceil(sorted.length * p - 1e-9));
   const es = -(sorted.slice(0, k).reduce((t, x) => t + x, 0) / k);
   const v = Math.max(0, -q);
-  return { ...base, method: "historical-simulation", var: R(v), expectedShortfall: R(Math.max(es, v)), observations: dates.length, period: { from: dates[0], to: dates.at(-1) }, worstDayPnl: R(sorted[0]), deltaNormal: dn, assumptions: "Full Black-Scholes reprice for each past daily return of the underlyings, spot only (IV and time held), underlyings aligned by IST date." };
+  return { ...base, method: "historical-simulation", var: R(v), expectedShortfall: R(Math.max(es, v)), observations: dates.length, period: { from: dates[0], to: dates.at(-1) }, worstDayPnl: R(sorted[0]), bestDayPnl: R(sorted.at(-1)), distribution: pnlHistogram(sorted), deltaNormal: dn, assumptions: "Full Black-Scholes reprice for each past daily return of the underlyings, spot only (IV and time held), underlyings aligned by IST date." };
 }
 
 // ───────────────────────────── request schemas ─────────────────────────────

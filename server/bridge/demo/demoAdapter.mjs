@@ -7,8 +7,8 @@
  *    each with monthly stock futures and options on the nearest 3 monthly expiries (P1-6: lots from the demo
  *    reference table, the demo strike-step table including fractional strikes, ±20 strikes, and 6 adjusted "-ADJ"
  *    contracts on the demo split stock);
- *  - prices: a smooth function of wall-clock time per symbol (slow multi-day waves plus minute-scale wiggles), so the
- *    same instant always gives the same price and ticks keep moving even when the real market is shut;
+ *  - prices: a function of wall-clock time per symbol (a seeded day-to-day random walk with drift, plus minute-scale
+ *    wiggles), so the same instant always gives the same price and ticks keep moving even when the real market is shut;
  *  - option chains: Black-76 prices on the vol-time clock (dashboard/pricing.js, the same core the server and pages
  *    use) from a smile around a time-varying IV level anchored to the demo's own realised vol, with open interest
  *    peaking near the money that changes through the day (whole lots), and bid/ask sizes; ±45 strikes per chain;
@@ -180,17 +180,70 @@ const fix = (n, tick) => Number(toTick(n, tick).toFixed(2));
 const ceilTick = (n, tick) => Number((Math.ceil(n / tick - 1e-9) * tick).toFixed(4));
 const floorTick = (n, tick) => Number((Math.floor(n / tick + 1e-9) * tick).toFixed(4));
 
-/** Spot price of a demo underlying at epoch ms `t`. Smooth, bounded and the same for the same instant. */
+// ── The multi-day path: a seeded random walk ──
+// Day to day, a demo price is a geometric random walk (no pull back to a fixed level, so a backtest or a trend reads
+// like a market): each IST calendar day k has a standard normal shock z(k) fixed by hash32(symbol, k), drift mu and
+// volatility sigma a year (indices 18 to 22 %, stocks 25 to 35 %, drift 10 to 12 %), and the log level is the sum of
+// the daily steps from WALK_ANCHOR (where it is 0, so prices sit near their base around the anchor). The day's step
+// is spread over the session (09:15 to 15:30 IST); outside it the level holds. Deterministic: the same instant always
+// gives the same price.
+const WALK_ANCHOR = Math.floor((Date.UTC(2026, 9, 1) + IST_OFFSET_MS) / DAY_MS); // 1 Oct 2026, an IST day number
+const WALK_SPAN = 4000; // days each side of the anchor that the walk covers (about 11 years); beyond it the level holds
+/** A standard normal number fixed by the text (Box-Muller on two hash units). */
+function normalOf(text) {
+  const a = Math.max(1e-12, unit(`${text}:u1`));
+  const b = unit(`${text}:u2`);
+  return Math.sqrt(-2 * Math.log(a)) * Math.cos(2 * Math.PI * b);
+}
+/** Drift and volatility a year of a demo underlying (decimals). */
+export function walkParams(symbol) {
+  const u = BY_SYMBOL.get(symbol);
+  const eq = u?.kind === "EQ";
+  return { mu: 0.1 + 0.02 * unit(`${symbol}:mu`), sigma: eq ? 0.25 + 0.1 * unit(`${symbol}:sigma`) : 0.18 + 0.04 * unit(`${symbol}:sigma`) };
+}
+const WALKS = new Map();
+/** Log level at the END of IST day number k (cumulative steps from the anchor; 0 at the anchor). */
+function walkLevel(symbol, k) {
+  let w = WALKS.get(symbol);
+  if (!w) {
+    const { mu, sigma } = walkParams(symbol);
+    const drift = (mu - (sigma * sigma) / 2) / 365;
+    const vol = sigma / Math.sqrt(365);
+    // Volatility comes in regimes (calm months and busy ones, so IV rank travels): a slow factor around 1.
+    const p1 = phase(`${symbol}:regime1`);
+    const p2 = phase(`${symbol}:regime2`);
+    const regime = (j) => 1 + 0.3 * Math.sin((2 * Math.PI * j) / 157 + p1) + 0.12 * Math.sin((2 * Math.PI * j) / 47 + p2);
+    w = { step: (j) => drift + vol * regime(j) * normalOf(`${symbol}:walk:${j}`), up: [0], down: [0] };
+    WALKS.set(symbol, w);
+  }
+  const off = Math.max(-WALK_SPAN, Math.min(WALK_SPAN, k - WALK_ANCHOR));
+  if (off >= 0) {
+    while (w.up.length <= off) w.up.push(w.up[w.up.length - 1] + w.step(WALK_ANCHOR + w.up.length));
+    return w.up[off];
+  }
+  // Day k ends where day k + 1's step starts: level(k) = level(k + 1) - step(k + 1).
+  while (w.down.length <= -off) w.down.push(w.down[w.down.length - 1] - w.step(WALK_ANCHOR - w.down.length + 1));
+  return w.down[-off];
+}
+/** The walk's log level at epoch ms t: yesterday's close level plus today's step spread over the session. */
+export function walkAt(symbol, t) {
+  const k = Math.floor((t + IST_OFFSET_MS) / DAY_MS);
+  const min = ((t + IST_OFFSET_MS) % DAY_MS) / 60_000;
+  const f = Math.max(0, Math.min(1, (min - 555) / 375));
+  const a = walkLevel(symbol, k - 1);
+  return a + f * (walkLevel(symbol, k) - a);
+}
+
+/** Spot price of a demo underlying at epoch ms `t`. The same for the same instant. */
 export function spotAt(symbol, t) {
   const u = BY_SYMBOL.get(symbol);
   if (!u) return null;
   if (symbol === "INDIAVIX") return vixAt(t);
   const s = t / 1000;
-  const d = s / 86_400;
-  const slow = 0.05 * Math.sin((2 * Math.PI * d) / 41 + phase(`${symbol}:a`)) + 0.012 * Math.sin((2 * Math.PI * d) / 9.3 + phase(`${symbol}:b`)) + 0.004 * Math.sin((2 * Math.PI * d) / 2.1 + phase(`${symbol}:c`));
+  // Minute-scale wiggles on top of the day-to-day walk, so ticks keep moving inside a session.
   const fast = 0.0024 * Math.sin((2 * Math.PI * s) / 3180 + phase(`${symbol}:d`)) + 0.0011 * Math.sin((2 * Math.PI * s) / 660 + phase(`${symbol}:e`)) + 0.0004 * Math.sin((2 * Math.PI * s) / 97 + phase(`${symbol}:f`));
   const amp = u.kind === "EQ" ? 1.6 : 1;
-  return fix(u.base * Math.exp(amp * (slow + fast)), u.tick);
+  return fix(u.base * Math.exp(walkAt(symbol, t) + amp * fast), u.tick);
 }
 
 /** IST calendar parts for epoch ms. */
@@ -329,8 +382,8 @@ export function dailyCloses(symbol, t, n) {
 
 const levelMemo = memo(2000);
 /**
- * The demo IV level (decimal) of an underlying on the IST day of `t` (§4.1): clamp(0.06, 0.60, HV60 × (1.08 + 0.10 ×
- * sin(2π·d/61 + φ)) + 0.25 × (HV20 − HV60)), where HV20/HV60 are the demo's own close-to-close realised vols over the
+ * The demo IV level (decimal) of an underlying on the IST day of `t` (§4.1, re-weighted for the random-walk prices):
+ * clamp(0.06, 0.60, (0.35 × HV60 + 0.65 × HV20) × (1.10 + 0.08 × sin(2π·d/61 + φ))), where HV20/HV60 are the demo's own close-to-close realised vols over the
  * trailing sessions and d is the IST day number. IV runs above realised on most days (a positive variance premium) and
  * IV rank travels 0–100 over a year. Constant within a day.
  */
@@ -341,7 +394,8 @@ export function ivLevel(symbol, t) {
     const hv20 = (realisedVol(closes, 20) ?? 15) / 100;
     const hv60 = (realisedVol(closes, 60) ?? 15) / 100;
     const d = Math.floor((t + IST_OFFSET_MS) / DAY_MS);
-    const level = hv60 * (1.08 + 0.1 * Math.sin((2 * Math.PI * d) / 61 + phase(`${symbol}:iv`))) + 0.25 * (hv20 - hv60);
+    // The walk's volatility comes in regimes, so IV leans on the recent HV20 (as a market's does) more than on HV60.
+    const level = (0.35 * hv60 + 0.65 * hv20) * (1.1 + 0.08 * Math.sin((2 * Math.PI * d) / 61 + phase(`${symbol}:iv`)));
     return Math.min(0.6, Math.max(0.06, level));
   });
 }
