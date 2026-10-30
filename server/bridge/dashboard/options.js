@@ -16,6 +16,7 @@ import {
   greeks76,
   impliedVolB76,
   ivAtDelta,
+  legIv,
   legPrice,
   normCdf,
   parityForward as pricingForward,
@@ -32,6 +33,31 @@ import {
 // The pricing core lives in pricing.js (shared with the server); these names are re-exported so pages keep importing
 // them from here. They are the same function objects.
 export { atmIvAt, b76Delta, black76, impliedVolB76, ivAtDelta, legPrice, normCdf, probItm, realisedVol, sigmaMove, skewMetrics };
+
+/**
+ * One leg repriced after a live tick, the way the Bridge prices a chain with `ivModel=b76-forward` (market/chain.mjs
+ * applyB76): Black-76 at the mid on the chain's parity forward and vol-time clock (`chain.pricing`), which stay those
+ * of the last refresh until the next one. Returns the leg with new iv, delta, gamma, theta and vega (and `ivReason`
+ * when the IV does not solve), or the leg unchanged when the chain carries no b76 pricing or the leg is settling.
+ * @param {object|null} q  the leg (ltp, bid, ask, ...)
+ * @param {number} strike
+ * @param {"CE"|"PE"} right
+ * @param {{ ivModel?: string, forward?: number, rate?: { value?: number }, clock?: { T?: number, Tcal?: number, yearBasis?: number|null } }|null|undefined} pricing
+ */
+export function repriceLeg(q, strike, right, pricing) {
+  if (!q || pricing?.ivModel !== "b76-forward" || q.ivReason === "SETTLING") return q;
+  const T = Number(pricing.clock?.T);
+  const F = Number(pricing.forward);
+  if (!(T > 0) || !(F > 0)) return q;
+  const df = Math.exp(-(Number(pricing.rate?.value) || 0) * (Number(pricing.clock?.Tcal) || 0));
+  const r = legIv(q, F, strike, right, { years: T, df, basis: "mid" });
+  const out = { ...q, iv: null, delta: null, gamma: null, theta: null, vega: null };
+  if (!r) return { ...out, ivReason: "NOQUOTE" };
+  if (r.iv === null) return { ...out, ivReason: String(r.out ?? "noquote").toUpperCase() };
+  const g = greeks76(F, strike, T, r.iv, right, { yearBasis: pricing.clock?.yearBasis ?? null });
+  const r6 = (v) => Math.round(v * 1e6) / 1e6;
+  return { ...out, iv: r.iv, delta: r6(g.delta), gamma: r6(g.gamma), theta: r6(g.theta), vega: r6(g.vega), ivReason: null };
+}
 
 /**
  * @deprecated Use impliedVolB76. A thin wrapper kept for older callers: the one IV solver (pricing.js impliedVolB76)

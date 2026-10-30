@@ -32,6 +32,8 @@ export function createFakeStreamHub({ bus, clock = { now: () => Date.now() }, li
   const subs = new Map(); // symbol -> { clients: Map<id, mode>, lastTick }
   const missing = new Set(unknown);
   let up = connected;
+  let connectedAt = connected ? clock.now() : null;
+  let lastTickAt = null;
   const calls = [];
 
   const canon = (s) => {
@@ -95,6 +97,11 @@ export function createFakeStreamHub({ bus, clock = { now: () => Date.now() }, li
     isLive(symbol) {
       return up && subs.has(canon(symbol) ?? symbol);
     },
+    /** Same shape as the real hub's feedInfo: when the fake upstream connected and last ticked. */
+    feedInfo(symbol) {
+      if (!hub.isLive(symbol)) return null;
+      return { connectedAt, lastTickAt, stale: false };
+    },
     stats() {
       const modes = { ltp: 0, quote: 0, depth: 0 };
       for (const s of subs.values()) modes[maxMode(s.clients.values())] += 1;
@@ -133,6 +140,7 @@ export function createFakeStreamHub({ bus, clock = { now: () => Date.now() }, li
         receivedAt: clock.now(), accountId, broker, ...partial, symbol,
       };
       const s = subs.get(symbol);
+      if (up) lastTickAt = tick.receivedAt;
       if (s) {
         s.lastTick = tick;
         for (const [id, mode] of s.clients) clients.get(id)?.sink?.(tick, mode);
@@ -142,6 +150,7 @@ export function createFakeStreamHub({ bus, clock = { now: () => Date.now() }, li
     },
     /** Flip the fake upstream; emits "stream.status". */
     setConnected(value) {
+      if (value && !up) connectedAt = clock.now();
       up = Boolean(value);
       bus?.emit("stream.status", status());
     },

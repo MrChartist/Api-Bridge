@@ -114,3 +114,26 @@ describe("served and lazy", () => {
     }
   });
 });
+
+describe("live paths stay cheap", () => {
+  const read = (f) => readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
+
+  it("styles no page container by :has(): a :has() on .content or .app-main restyled the whole page on every chain tick", () => {
+    // Measured in Chromium: such a rule made every change inside #content a style recalculation of the 2000 nodes
+    // under it (40-90 ms a tick on the chain). Page-specific layout keys off :root[data-page] instead.
+    const css = read("app.css");
+    expect(css).not.toMatch(/(\.content|\.app-main)(?:[.:#[\w-]|\([^)]*\))*:has\(/);
+  });
+
+  it("opens one WebSocket per tab: pages use live.js", () => {
+    for (const f of Object.keys(DASHBOARD_FILES).filter((n) => n.endsWith(".js") && n !== "live.js" && !n.startsWith("motion"))) {
+      expect(read(f), f).not.toMatch(/new WebSocket\(/);
+    }
+  });
+
+  it("the chain takes ticks every frame and patches only the legs that ticked", () => {
+    const desk = read("desk.js");
+    expect(desk).toMatch(/kind === "chain" \? \{ minGapMs: 0 \}/);
+    expect(desk).toContain("chain.patchLegs(x, touched");
+  });
+});

@@ -23,7 +23,7 @@ afterEach(() => {
   stops = [];
 });
 
-function setup({ streamHub = stubStreamHub() } = {}) {
+function setup({ streamHub = stubStreamHub(), market = {} } = {}) {
   const clock = createManualClock(T0);
   const bus = createEventBus({ logger: createNullLogger() });
   const base = stubAdapter("dhan");
@@ -43,7 +43,7 @@ function setup({ streamHub = stubStreamHub() } = {}) {
   const accounts = createFakeAccountManager({ accounts: [{ id: "dhan-main", broker: "dhan", adapter, creds: { clientId: "1", accessToken: "t" } }], bus });
   const scheduler = createScheduler({ config: {}, logger: createNullLogger(), bus, clock, accounts });
   stops.push(() => scheduler.stop?.());
-  const md = createMarketDataService({ config: { market: {} }, logger: createNullLogger(), bus, clock, paths: {}, brokers: {}, accounts, scheduler, symbols: createFakeSymbolService({ instruments: specs }), streamHub });
+  const md = createMarketDataService({ config: { market }, logger: createNullLogger(), bus, clock, paths: {}, brokers: {}, accounts, scheduler, symbols: createFakeSymbolService({ instruments: specs }), streamHub });
   return { md, clock, scheduler, calls };
 }
 
@@ -115,6 +115,64 @@ describe("three pages and the events engine watching NIFTY", () => {
     const r = await p;
     expect(r.freshness.source).toBe("broker");
     expect(calls.chain).toBe(2);
+  });
+});
+
+describe("quiet strikes on a live feed (no tick = no trade)", () => {
+  const FAR = `NFO:NIFTY-${EXPIRY}-25200-CE`;
+  /**
+   * Every leg ticks with the clock except FAR, whose last tick is `quietMs` old; the hub's feed info says when the
+   * feed connected and last ticked (`feed`), and FAR's tick may come from before the connection.
+   */
+  async function quietRead({ quietMs = 20_000, feed = {}, market = {} } = {}) {
+    let clockRef = null;
+    let farAt = 0;
+    const tick = (symbol, ltp) => ({ symbol, ltp, bid: ltp - 0.5, ask: ltp + 0.5, oi: 1000, volume: 10, close: ltp - 2, open: null, high: null, low: null, exchangeTs: null, get receivedAt() { return symbol === FAR ? farAt : clockRef.now(); }, accountId: "dhan-main", broker: "dhan" });
+    const syms = ["NSE:NIFTY", ...LEGS];
+    const hub = stubStreamHub({ ticks: Object.fromEntries(syms.map((s) => [s, tick(s, s === "NSE:NIFTY" ? 25012.5 : 60)])), live: syms });
+    hub.feedInfo = (s) => (hub.state.live.has(s) ? { connectedAt: feed.connectedAt?.(clockRef.now()) ?? clockRef.now() - 3_600_000, lastTickAt: feed.lastTickAt?.(clockRef.now()) ?? clockRef.now(), stale: feed.stale ?? false } : null);
+    const { md, clock, calls } = setup({ streamHub: hub, market });
+    clockRef = clock;
+    farAt = clock.now();
+    const first = chainRead(md); // the day's base chain (previous OI): one broker call
+    await clock.advance(50);
+    await first;
+    await clock.advance(quietMs);
+    farAt = Math.min(farAt, clock.now() - quietMs);
+    const p = chainRead(md);
+    await clock.advance(50);
+    return { r: await p, calls, now: clock.now() };
+  }
+
+  it("builds the chain from the stream with the quiet leg labelled, at no broker cost", async () => {
+    const { r, calls } = await quietRead({ quietMs: 20_000 });
+    expect(calls.chain).toBe(1);
+    expect(r.freshness.source).toBe("stream");
+    // asOf is the live legs' and the spot's; the quiet leg is counted on its own and carries its age.
+    expect(r.freshness.stale).toBe(false);
+    expect(r.freshness.ageMs).toBeLessThan(3000);
+    expect(r.freshness.quiet).toEqual({ legs: 1, oldestTickAgeMs: expect.any(Number), maxAgeMs: 60_000 });
+    expect(r.freshness.quiet.oldestTickAgeMs).toBeGreaterThanOrEqual(20_000);
+    const far = r.rows.find((x) => x.strike === 25200).ce;
+    expect(far.tickAgeMs).toBeGreaterThanOrEqual(20_000);
+    expect(r.rows.find((x) => x.strike === 25000).ce.tickAgeMs).toBeUndefined();
+  });
+
+  it("goes to the broker when the quiet tick is older than market.quietLegMaxAgeMs, or the setting is 0", async () => {
+    const over = await quietRead({ quietMs: 20_000, market: { quietLegMaxAgeMs: 10_000 } });
+    expect([over.r.freshness.source, over.calls.chain]).toEqual(["broker", 2]);
+    const off = await quietRead({ quietMs: 5_000, market: { quietLegMaxAgeMs: 0 } });
+    expect([off.r.freshness.source, off.calls.chain]).toEqual(["broker", 2]);
+  });
+
+  it("goes to the broker when the tick came before the current connection, or the feed itself is silent", async () => {
+    const reconnected = await quietRead({ quietMs: 20_000, feed: { connectedAt: (now) => now - 1000 } });
+    expect([reconnected.r.freshness.source, reconnected.calls.chain]).toEqual(["broker", 2]);
+    const silent = await quietRead({ quietMs: 20_000, feed: { lastTickAt: (now) => now - 10_000 } });
+    // No tick from the whole feed within the target: "no tick" can no longer mean "no trade".
+    expect([silent.r.freshness.source, silent.calls.chain]).toEqual(["broker", 2]);
+    const stale = await quietRead({ quietMs: 20_000, feed: { stale: true } });
+    expect([stale.r.freshness.source, stale.calls.chain]).toEqual(["broker", 2]);
   });
 });
 
