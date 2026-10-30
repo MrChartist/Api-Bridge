@@ -2081,7 +2081,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       // (docs/spec/p1-02-reference.md §5.4); a leg's LOT_SIZE_STALE preview opens it too.
       lotGate: basketLotGate(ref, gateLegs),
       lotGateFor: (checks) => basketLotGate(ref, gateLegs, { server: checks }),
-      cfg: { product: cfg().product, hedgeWait: cfg().hedgeWait },
+      cfg: { product: cfg().product, hedgeWait: cfg().hedgeWait, order: cfg().order },
       onCfg: (patch) => setCfg(patch),
       onPositions,
       announce,

@@ -3169,6 +3169,14 @@ button.tip-x { display: none; min-height: 20px; width: 20px; height: 20px; paddi
 .wi { display: flex; flex-direction: column; gap: 4px; min-width: 0; cursor: pointer; }
 .wi-t { flex: 2 1 280px; min-width: 0; }
 .wi-iv { flex: 1 1 180px; }
+/* Roll sheet (positions.js openRoll): the legs from → to, then four figures two by two. */
+.roll-figs { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.roll-figs > div { white-space: normal; }
+.roll-figs small.block { font-size: 12px; line-height: 1.3; }
+.roll-table td { white-space: nowrap; }
+.roll-legs { overflow-x: auto; }
+.place-margin { margin: 0; font-size: 12.5px; }
+.place-margin:empty, .place-margin[hidden] { display: none; }
 /* The shared what-if panel (whatif.js) in the builder: one block, full width. */
 .strat-whatif.strat-wi-shared { display: block; }
 .wi-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }

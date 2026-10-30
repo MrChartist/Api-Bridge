@@ -20,6 +20,8 @@ import { eventChip, refCharges, refRate, refSession, upcomingEvents } from "./re
 import { SPAN_METHOD, portfolioMargin } from "./span-margin.js";
 import { legWords, openAlertSheet, rulesFor } from "./alerts.js";
 import { createWhatIf } from "./whatif.js";
+import { ROLL_MODES, rollBreakevens, rollItems, rollMargin, rollMoney, rollPlan } from "./roll-core.js";
+import { openPlacement } from "./strategy-place.js";
 import { normWhatIf, whatIfFigures } from "./whatif-core.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
@@ -1061,6 +1063,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         "span",
         { class: "pos-gacts" },
         g.expiry ? h("button", { type: "button", class: "small plain", onclick: () => analyse(g), title: "Open this expiry's option legs in the strategy builder (exact quantities)" }, "Analyse") : null,
+        g.expiry && g.legs.some((l) => l.q && l.kind === "OPT") ? h("button", { type: "button", class: "small plain", title: "Roll this group's option legs to a later expiry in one basket", onclick: () => openRoll(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, "Roll") : null,
         h("button", { type: "button", class: "small", onclick: () => openExitPlan(g.legs.filter((l) => l.q), `${groupTitle(g).split(" · ")[0]}`) }, "Exit group"),
         g.legs.some((l) => l.q) ? h("button", { type: "button", class: "small plain", "aria-label": `Alert on ${groupTitle(g).split(" · ")[0]}`, title: "Alert on this group: P&L, spot, delta, time to expiry or a leg's premium", onclick: () => alertOn(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, icon("bell")) : null,
       );
@@ -1165,7 +1168,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
               }),
             )
           : null;
-        return h("section", { class: "pos-cgroup", "data-group": g.key }, head, locked, list, isOpen && g.expiry ? h("div", { class: "pos-cacts" }, h("button", { type: "button", class: "small", onclick: () => analyse(g) }, "Analyse"), h("button", { type: "button", class: "small", onclick: () => openExitPlan(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, "Exit group")) : null);
+        return h("section", { class: "pos-cgroup", "data-group": g.key }, head, locked, list, isOpen && g.expiry ? h("div", { class: "pos-cacts" }, h("button", { type: "button", class: "small", onclick: () => analyse(g) }, "Analyse"), g.legs.some((l) => l.q && l.kind === "OPT") ? h("button", { type: "button", class: "small", onclick: () => openRoll(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, "Roll") : null, h("button", { type: "button", class: "small", onclick: () => openExitPlan(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, "Exit group")) : null);
       }),
     );
   }
@@ -1403,7 +1406,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       ...(l.kind === "OPT" ? [["Open in chain", () => openInChain(l)]] : []),
       ...(l.kind === "OPT" && l.q
         ? [
-            ["Roll to next expiry…", () => openAdjust(l.symbol, "next")],
+            ["Roll to a later expiry…", () => openRoll([l], legName(l))],
             [`Roll strike ${l.q < 0 ? "out" : "in"} 1 step…`, () => openAdjust(l.symbol, l.q < 0 ? "out" : "in")],
             ...(l.q < 0 ? [["Add a wing (cap the risk)…", () => openAdjust(l.symbol, "wing")]] : []),
           ]
@@ -1428,6 +1431,105 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const days = O.legDaysToExpiry(ref, Date.now(), refSession(st.ref).close);
     const stt = O.bookCurveStats((x) => O.scenarioPnl(inc, { dS: x / F - 1, days }), xs);
     return { delta: g.delta, theta: g.theta, min: stt?.min ?? null, unlimited: Boolean(stt?.unlimitedDown), first };
+  }
+  // ── Roll a leg or a group to a later expiry in one sheet (roll-core.js), then send it as one basket ──
+  const rollChains = new Map();
+  async function rollChain(e) {
+    const have = d.chains.get(e)?.chain ?? rollChains.get(e);
+    if (have) return have;
+    const r = await optional(api(`/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(e)}&strikes=${CHAIN_STRIKES}&greeks=true&ivModel=b76-forward`));
+    const c = r.data?.data ?? null;
+    if (c) rollChains.set(e, c);
+    return c;
+  }
+  async function openRoll(held, label) {
+    const opts = held.filter((l) => l.q && l.kind === "OPT" && l.priced !== false);
+    if (!opts.length) return toast("Only option legs can be rolled here", { tone: "info" });
+    const from = opts.map((l) => l.expiry).sort().at(-1);
+    const later = [...new Set(d.expiries ?? [])].sort().filter((e) => e > from).slice(0, 6);
+    if (!later.length) return toast("No later expiry is listed for this underlying", { tone: "info" });
+    let mode = "same";
+    let toExp = later[0];
+    let plan = null;
+    let chain = null;
+    let rollMarginNow = null;
+    const expSel = h("select", { "aria-label": "Roll to expiry" }, ...later.map((e) => h("option", { value: e }, expiryText(e))));
+    const modeSeg = segmented("New strikes", ROLL_MODES, mode);
+    const table = h("div", { class: "table-wrap roll-legs" });
+    const figs = h("div", { class: "ticket-figs roll-figs" });
+    const notes = h("p", { class: "muted small roll-note" });
+    const okBtn = { label: "Review and send", cls: "primary", value: true };
+    const dd = (k, v, sub) => h("div", {}, h("small", {}, k), v, sub ? h("small", { class: "block muted" }, sub) : null);
+    async function draw() {
+      table.replaceChildren(h("p", { class: "muted" }, `Reading the ${expiryText(toExp)} chain`));
+      chain = await rollChain(toExp);
+      if (!chain?.rows?.length) {
+        table.replaceChildren(h("p", { class: "bad-text" }, `Couldn't load the ${expiryText(toExp)} chain`));
+        plan = null;
+        return;
+      }
+      const Fnow = opts.find((l) => isFigure(l.F))?.F ?? spot;
+      const Fnext = O.forwardPrice(chain) ?? num(chain.underlyingLtp) ?? Fnow;
+      const years = O.yearsToExpiry(toExp, Date.now(), refSession(st.ref).close) ?? null;
+      const prefix = String(opts[0].symbol).split(":")[0] || "NFO";
+      plan = rollPlan(opts, { mode, toExpiry: toExp, rows: chain.rows, Fnow, Fnext, years, underlying: st.underlying, prefix });
+      const money0 = rollMoney(plan, refCharges(st.ref));
+      const bes = rollBreakevens(plan, { spot: spot ?? Fnow, charges: money0.charges });
+      const priced = included().filter((l) => l.priced);
+      const mine = new Set(opts.map((l) => l.symbol));
+      const mg = (rollMarginNow = rollMargin(priced.some((l) => mine.has(l.symbol)) ? priced : [...priced, ...opts], plan, { underlying: st.underlying, nowMs: Date.now(), Fnow, Fnext, atmIv: opts.find((l) => isFigure(l.atmIv))?.atmIv ?? null }));
+      const px = (v) => (isFigure(v) ? formatFixed(v, 2) : DASH);
+      table.replaceChildren(
+        h(
+          "table",
+          { class: "desk-table roll-table" },
+          h("thead", {}, h("tr", {}, ["Leg", "Close at", "", "New leg", "Open at"].map((t, i) => h("th", { scope: "col", class: i === 1 || i === 4 ? "num" : undefined }, t)))),
+          h(
+            "tbody",
+            {},
+            plan.rolls.map((r) =>
+              h(
+                "tr",
+                {},
+                h("td", {}, h("span", { class: `side-tag ${r.leg.q > 0 ? "buy" : "sell"}` }, r.leg.q > 0 ? "B" : "S"), ` ${formatInt(r.lots)} × ${legName(r.leg)} ${expiryText(r.leg.expiry)}`),
+                h("td", { class: "num" }, px(r.close.price)),
+                h("td", { "aria-hidden": "true" }, "→"),
+                h("td", {}, `${formatInt(r.open.strike)} ${r.open.right} ${expiryText(r.open.expiry)}`, r.open.strike !== r.leg.strike ? h("small", { class: "block muted" }, `${r.open.strike > r.leg.strike ? "+" : "−"}${formatInt(Math.abs(r.open.strike - r.leg.strike))} pts`) : null),
+                h("td", { class: "num" }, px(r.open.price)),
+              ),
+            ),
+          ),
+        ),
+      );
+      figs.replaceChildren(
+        dd(money0.net >= 0 ? "Net credit" : "Net debit", h("strong", { class: money0.net >= 0 ? "up" : "down" }, formatRupee(Math.abs(money0.net), 0)), `${formatInt(plan.rolls.length * 2)} orders at the touch`),
+        dd("Charges ≈", h("strong", {}, formatRupee(money0.charges, 0)), `after charges ${rs(money0.netAfter)}`),
+        dd("Margin ≈", h("strong", {}, mg ? formatRupee(mg.after, 0) : DASH), mg ? `${rs(mg.change)} vs now` : "no forward"),
+        dd("Breakevens", h("strong", {}, bes.length ? bes.map((b) => formatInt(b)).join(" · ") : DASH), `at ${expiryText(toExp)}, counting what the old legs locked in`),
+      );
+      notes.textContent = [money0.missing ? `${formatInt(money0.missing)} leg${money0.missing === 1 ? " has" : "s have"} no quote on one side.` : "", plan.skipped.length ? `Not rolled: ${plan.skipped.map((x) => `${legName(x.leg)} (${x.why})`).join(", ")}.` : "", "Buys go first (buy back the shorts, buy any new longs), then the sells, so margin stays covered at each step. Paper by default; the order sheet runs the normal checks."].filter(Boolean).join(" ");
+    }
+    expSel.addEventListener("change", () => ((toExp = expSel.value), draw()));
+    modeSeg.addEventListener("change", () => ((mode = modeSeg.value), draw()));
+    const body = h("div", { class: "stack roll-sheet" }, h("label", { class: "field" }, h("span", {}, "Roll to"), expSel), segField("New strikes", modeSeg, { wide: true }), table, figs, notes);
+    draw();
+    const go = await modal({ title: `Roll ${label}`, body, buttons: [{ label: "Cancel", value: false }, okBtn] });
+    if (!go || !plan?.rolls.length) return;
+    const a = account();
+    if (!a) return toast("Pick an account first", { tone: "warn" });
+    const items = rollItems(plan, { product: "MARGIN", label: (x) => `${x.close ? "Close " : ""}${formatInt(x.strike)} ${x.right} ${expiryText(x.expiry)}` });
+    const m = rollMoney(plan, refCharges(st.ref));
+    await openPlacement({
+      title: `Roll ${label} to ${expiryText(toExp)} · ${st.underlying}`,
+      mode: "entry",
+      account: a,
+      items,
+      summary: { net: m.net, maxLoss: undefined, margin: rollMarginNow?.after ?? null, marginEst: true, free: isFigure(d.funds?.availableCash) && rollMarginNow ? d.funds.availableCash + rollMarginNow.before : null },
+      warnings: [],
+      cfg: { product: "MARGIN", hedgeWait: 15, order: "buys-first" },
+      onPositions: () => tick(),
+    });
+    tick();
   }
   async function openAdjust(sym, kind) {
     const l = legs.find((x) => x.symbol === sym);
