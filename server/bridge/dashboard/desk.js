@@ -24,7 +24,7 @@ import { animatePage, barsEnter, countUp, flashValue, stopCount } from "./motion
 import { riskAfterCharges, ticketRisk } from "./flows.js";
 import { watch } from "./live.js";
 import { SPAN_METHOD, marginLegsOf, portfolioMargin } from "./span-margin.js";
-import { opFor, triggerBody, triggerProblem } from "./trigger-core.js";
+import { gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, opFor, triggerBody, triggerProblem } from "./trigger-core.js";
 
 const SLOT = "mcb.dashboard.desk";
 /** The index underlyings the Options pages list (live) and the three the demo serves; the Option Screener shares them. */
@@ -1624,6 +1624,29 @@ async function renderDesk(kind) {
     const trig = h("input", { type: "number", min: "0.05", step: String(tick), inputmode: "decimal", "aria-describedby": "bk-trig-hint" });
     const trigHint = h("p", { class: "hint bk-trig-hint", id: "bk-trig-hint", "aria-live": "polite", hidden: true });
     const trigField = h("label", { class: "field bk-trig", hidden: true }, h("span", {}, "Trigger price"), trig);
+    // Stop and target on the entry (bracket-style): set on the Bridge when the order is placed; they arm when it
+    // fills, with the filled quantity, and the first to touch exits (the other is gone). Reduce-only.
+    const exitInput = (label) => h("input", { type: "number", min: "0.05", step: String(tick), inputmode: "decimal", "aria-label": label });
+    const stopIn = exitInput("Stop price");
+    const targetIn = exitInput("Target price");
+    const trailIn = h("input", { type: "number", min: "0", step: String(tick), inputmode: "decimal", "aria-label": "Trail the stop by, points", placeholder: "Off" });
+    const exitsHint = h("p", { class: "hint bk-exits-hint", "aria-live": "polite" });
+    const exitsBox = exit
+      ? null
+      : h(
+          "details",
+          { class: "bk-exits" },
+          h("summary", {}, h("span", {}, "Stop and target"), h("span", { class: "muted small bk-exits-sum" }, "Optional. Exits on the Bridge after a fill")),
+          h(
+            "div",
+            { class: "bk-exits-grid" },
+            h("label", { class: "field" }, h("span", {}, "Stop"), stopIn),
+            h("label", { class: "field" }, h("span", {}, "Target"), targetIn),
+            h("label", { class: "field" }, h("span", {}, "Trail stop by"), trailIn),
+          ),
+          exitsHint,
+        );
+    const exitsWanted = () => !exit && (isFigure(stopIn.value) || isFigure(targetIn.value));
     const midPx = (sd) => O.roundToTick(O.mid(quote()), tick, sd === "BUY" ? "buy" : "sell");
     const startPx = isFigure(priceIn) ? Number(priceIn) : exit ? midPx(side) ?? O.touchPrice(quote(), side, tick) : O.touchPrice(quote(), side, tick);
     const price = h("input", { type: "number", min: "0.05", step: String(tick), inputmode: "decimal", value: String(startPx ?? "") });
@@ -1771,7 +1794,8 @@ async function renderDesk(kind) {
         // What this order risks before it is sent (an opening option order): max loss, breakeven at expiry and, for a
         // sell, the approximate margin. Before charges; the broker's own margin figure is final.
         const q0 = quote();
-        const px = b.price ?? (b.side === "BUY" ? num(q0?.ask) : num(q0?.bid)) ?? num(q0?.ltp);
+        // A GTT fills when it fires: at its limit, or about the trigger for a market order.
+        const px = gtt() ? gttFillPrice({ orderType: b.orderType, price: b.price, trigger: num(trig.value) }) : b.price ?? (b.side === "BUY" ? num(q0?.ask) : num(q0?.bid)) ?? num(q0?.ltp);
         const risk = !fut && !exit && row ? ticketRisk({ side: b.side, right, strike: row.strike, price: px, qty: r.quantity }) : null;
         const fwd = num(st.chain?.underlyingLtp);
         // Margin: the same portfolio model as the paper engine, Strategy and Positions (span-margin.js).
@@ -1792,7 +1816,7 @@ async function renderDesk(kind) {
             "div",
             { class: `ticket-figs${risk ? " with-risk" : ""}` },
             h("div", {}, h("small", {}, "Quantity"), `${formatInt(r.quantity)}`),
-            h("div", {}, h("small", {}, b.side === "BUY" ? "You pay" : "You receive"), formatRupee(r.estimatedValue, 0)),
+            h("div", {}, h("small", {}, b.side === "BUY" ? "You pay" : "You receive"), formatRupee(gtt() && isFigure(px) ? px * r.quantity : r.estimatedValue, 0)),
             risk ? h("div", { title: "The most this order can lose at expiry, before charges" }, h("small", {}, "Max loss"), h("span", { class: risk.maxLoss === null ? "down" : "" }, lossText)) : null,
             risk ? h("div", { title: "Where the underlying must settle at expiry for this order to break even, before charges" }, h("small", {}, "Breakeven"), formatFixed(risk.breakeven, 2)) : null,
             mg ? h("div", { title: SPAN_METHOD }, h("small", {}, "Margin ≈"), formatRupee(mg.required, 0)) : null,
@@ -1808,7 +1832,8 @@ async function renderDesk(kind) {
                 mg && isFigure(withBook) && Math.abs(withBook - mg.required) > Math.max(1, mg.required * 0.02) ? h("span", { title: "From the paper engine, with the positions this account already holds." }, "With your positions: adds ", h("strong", {}, formatRupee(Math.max(0, withBook), 0))) : null,
               )
             : null,
-          ...(checks.length ? [h("ul", { class: "ticket-checks" }, checks.map((x) => h("li", { class: x.severity === "block" ? "bad" : "warn" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, `${x.severity === "block" ? "Blocked: " : ""}${x.message}`))))] : []),
+          // A GTT's order is checked against the market when it fires: today's refusals are said as "When it fires".
+          ...(checks.length ? [h("ul", { class: "ticket-checks" }, checks.map((x) => h("li", { class: x.severity === "block" && !gtt() ? "bad" : "warn" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, `${x.severity === "block" ? (gtt() ? "If this held when it fires, it would be refused: " : "Blocked: ") : ""}${x.message}`))))] : []),
         );
       } catch (err) {
         if (seq !== previewSeq) return;
@@ -1816,6 +1841,26 @@ async function renderDesk(kind) {
         previewEl.replaceChildren(alertBox(err));
       }
       drawButton();
+    }
+    // The entry price the stop and target are measured from: the limit, else the touch.
+    const entryPx = () => (typeSeg.value === "LIMIT" && isFigure(price.value) ? Number(price.value) : num(sideSeg.value === "BUY" ? quote()?.ask : quote()?.bid) ?? num(quote()?.ltp));
+    const exitSide = () => (sideSeg.value === "BUY" ? "SELL" : "BUY");
+    function exitsFields() {
+      return { account: a.id, symbol: sym, product: prodSeg.value, mode: live() ? "live" : "paper", side: exitSide(), units: units(), origin: "bracket", stop: isFigure(stopIn.value) ? Number(stopIn.value) : null, target: isFigure(targetIn.value) ? Number(targetIn.value) : null, trail: isFigure(trailIn.value) && Number(trailIn.value) > 0 ? Number(trailIn.value) : null, orderType: "MARKET", ref: entryPx() };
+    }
+    function exitsText() {
+      if (!exitsWanted()) return "Exits at market when LTP touches the stop or the target; the first to touch cancels the other.";
+      const f = exitsFields();
+      const bad = triggerProblem(f);
+      if (bad) return bad.message;
+      const e = f.ref;
+      const q = f.units;
+      const long = sideSeg.value === "BUY";
+      const parts = [];
+      if (isFigure(f.stop) && isFigure(e)) parts.push(`risk ≈ ${formatRupee(Math.abs(e - f.stop) * q, 0)}`);
+      if (isFigure(f.target) && isFigure(e)) parts.push(`reward ≈ ${formatRupee(Math.abs(f.target - e) * q, 0)}`);
+      const rr = isFigure(f.stop) && isFigure(f.target) && isFigure(e) && Math.abs(e - f.stop) > 0 ? ` (1 : ${formatFixed(Math.abs(f.target - e) / Math.abs(e - f.stop), 1)})` : "";
+      return `On fill: ${long ? "sell" : "buy"} at market when LTP ${isFigure(f.stop) ? `${long ? "≤" : "≥"} ${formatFixed(f.stop, 2)}` : ""}${isFigure(f.stop) && isFigure(f.target) ? " or " : ""}${isFigure(f.target) ? `${long ? "≥" : "≤"} ${formatFixed(f.target, 2)}` : ""}${f.trail ? `, the stop trailing by ${formatFixed(f.trail, 2)}` : ""}.${parts.length ? ` ${cap(parts.join(", "))}${rr}.` : ""}`;
     }
     const changed = () => {
       drawWarnings();
@@ -1825,13 +1870,24 @@ async function renderDesk(kind) {
       priceField.hidden = typeSeg.value !== "LIMIT";
       trigField.hidden = !gtt();
       trigHint.hidden = !gtt();
+      if (exitsBox) {
+        // Gtt entries carry no exits here (set them on the position once it fills).
+        exitsBox.hidden = gtt();
+        exitsHint.textContent = exitsText();
+      }
       if (gtt()) {
         const ltp = num(quote()?.ltp);
         const op = isFigure(trig.value) && ltp ? opFor(Number(trig.value), ltp) : null;
-        // The limit follows the trigger until it is typed in: a limit far from the trigger would not fill when it fires.
-        if (!priceTyped && isFigure(trig.value) && typeSeg.value === "LIMIT") price.value = String(O.roundToTick(Number(trig.value), tick, sideSeg.value === "BUY" ? "buy" : "sell"));
-        const till = prodSeg.value === "INTRADAY" ? "Good till 15:20 today (intraday)." : "Good till the contract expires.";
-        trigHint.textContent = op ? `Sends when LTP ${op === "above" ? "rises to" : "falls to"} ${formatFixed(Number(trig.value), 2)} (now ${formatFixed(ltp, 2)}). ${till}` : ltp ? `LTP now ${formatFixed(ltp, 2)}` : "";
+        // The limit follows the trigger (plus 0.5 % for a buy, minus for a sell) until it is typed in, so the order
+        // fills when it fires; a typed limit on the wrong side of the trigger is warned about here.
+        if (!priceTyped && typeSeg.value === "LIMIT") {
+          const lp = gttLimit(Number(trig.value), sideSeg.value, tick);
+          if (lp !== null) price.value = String(lp);
+        }
+        const warn = typeSeg.value === "LIMIT" ? gttLimitWarning(sideSeg.value, Number(trig.value), Number(price.value)) : null;
+        const sends = op ? `Sends when LTP ${op === "above" ? "rises to" : "falls to"} ${formatFixed(Number(trig.value), 2)} (now ${formatFixed(ltp, 2)}). ${gttValidityText(prodSeg.value)}` : ltp ? `LTP now ${formatFixed(ltp, 2)}` : "";
+        trigHint.textContent = warn ? `${sends} ${warn}` : sends;
+        trigHint.classList.toggle("bad-text", Boolean(warn));
       }
       ackRow.hidden = !live();
       drawButton();
@@ -1841,13 +1897,21 @@ async function renderDesk(kind) {
     sideSeg.addEventListener("change", () => {
       const p = exit ? midPx(sideSeg.value) ?? O.touchPrice(quote(), sideSeg.value, tick) : O.touchPrice(quote(), sideSeg.value, tick);
       if (p !== null) price.value = String(p);
+      if (gtt()) priceTyped = false;
       changed();
     });
     for (const el of [typeSeg, prodSeg, modeSeg].filter(Boolean)) el.addEventListener("change", changed);
-    for (const el of [lots, price, trig]) el.addEventListener("input", changed);
+    // Typed before `changed` reads it (the listener order matters: changed would otherwise move the limit back).
     let priceTyped = false;
     price.addEventListener("input", () => (priceTyped = true));
+    for (const el of [lots, price, trig, stopIn, targetIn, trailIn]) el.addEventListener("input", changed);
     whenSeg?.addEventListener("change", () => {
+      if (gtt()) {
+        priceTyped = false;
+        // Intraday orders sent on a later day are squared off: a GTT starts as carry (NRML); Intraday stays possible
+        // and then ends at today's square-off, as the line under the trigger says.
+        if (prodSeg.value === "INTRADAY") prodSeg.value = "MARGIN";
+      }
       if (gtt() && !isFigure(trig.value)) {
         const ltp = num(quote()?.ltp);
         // A start: 2 % beyond the price on the side a breakout entry usually waits for.
@@ -1886,6 +1950,7 @@ async function renderDesk(kind) {
         pctRow,
         priceField,
         h("div", { class: "ticket-grid" }, segField("Product", prodSeg), acctField ?? h("div", { class: "field" }, h("span", {}, "Account"), h("span", { class: "ticket-acct one-line", title: a.label }, h("span", { class: "acct-name" }, a.label), modeSeg || /paper/i.test(a.label ?? "") ? null : h("span", { class: "acct-badge", "data-mode": "paper" }, "Paper")))),
+        exitsBox,
         modeSeg ? segField("Mode", modeSeg) : null,
         ackRow,
         warnEl,
@@ -1921,10 +1986,23 @@ async function renderDesk(kind) {
                 return false;
               }
             }
+            const exits = exitsWanted() ? exitsFields() : null;
+            const exitsBad = exits ? triggerProblem(exits) : null;
+            if (exitsBad) {
+              previewEl.replaceChildren(alertBox({ title: `Stop and target: ${exitsBad.message}` }));
+              drawButton();
+              return false;
+            }
             try {
               const r = (await api("/v1/orders", { method: "POST", body: { ...body(), clientOrderId } })).data.data;
               const refused = r.status === "rejected" || r.status === "cancelled";
-              toast(`${r.status === "filled" ? "Filled" : cap(r.status)}: ${r.side} ${formatInt(r.quantity)} ${name}${isFigure(r.avgPrice) ? ` @ ${formatFixed(r.avgPrice, 2)}` : ""}${r.mode === "live" ? " · LIVE" : " · paper"}${refused && r.statusMessage ? `. ${r.statusMessage}` : ""}`, { tone: refused ? "error" : "ok" });
+              let exitsNote = "";
+              if (exits && !refused) {
+                // The entry is placed; its exits wait on the Bridge for the fill. If they are refused, say so plainly.
+                const t = await optional(api("/v1/triggers", { method: "POST", body: triggerBody({ ...exits, parentOrderId: r.orderId }) }));
+                exitsNote = t.error ? `. Stop and target NOT set: ${t.error.message ?? "refused"}` : `. Stop and target set (Orders › Triggers)`;
+              }
+              toast(`${r.status === "filled" ? "Filled" : cap(r.status)}: ${r.side} ${formatInt(r.quantity)} ${name}${isFigure(r.avgPrice) ? ` @ ${formatFixed(r.avgPrice, 2)}` : ""}${r.mode === "live" ? " · LIVE" : " · paper"}${refused && r.statusMessage ? `. ${r.statusMessage}` : ""}${exitsNote}`, { tone: refused || exitsNote.includes("NOT") ? "error" : "ok" });
               return "placed";
             } catch (err) {
               previewEl.replaceChildren(alertBox(err));

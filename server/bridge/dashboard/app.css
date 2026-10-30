@@ -8728,6 +8728,19 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .bk-leg { font: 500 13px/1.35 var(--font-body); }
 .bk-leg .muted { font-variant-numeric: tabular-nums; }
 .bk-triggers .card-actions .row { align-items: center; gap: 8px; }
+.bk-trig-hint.bad-text { color: hsl(var(--ios-red)); }
+/* Ticket: stop and target on the entry (a disclosure under the order fields). */
+.bk-exits { border-radius: 12px; background: var(--mat-fill-1); padding: 0 12px; }
+.bk-exits > summary { display: flex; align-items: center; gap: 8px; min-height: 40px; cursor: pointer; list-style: none; font: 500 14px/1.2 var(--font-body); }
+.bk-exits > summary::-webkit-details-marker { display: none; }
+.bk-exits > summary::after { content: ""; flex: none; width: 6px; height: 6px; margin-left: auto; color: hsl(var(--foreground) / 0.5); background: linear-gradient(currentColor, currentColor) right / 1.5px 100% no-repeat, linear-gradient(currentColor, currentColor) bottom / 100% 1.5px no-repeat; transform: translateY(-2px) rotate(45deg); }
+.bk-exits[open] > summary::after { transform: translateY(2px) rotate(225deg); }
+.bk-exits-sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-exits-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.bk-exits-grid input { width: 100%; }
+.bk-exits-hint { margin: 8px 0 12px; font: 500 12px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.bk-exits > summary > span:first-child { flex: none; white-space: nowrap; }
+@media (max-width: 719px) { .bk-exits-sum { display: none; } }
 /* End of broker features. */
 
 /* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────
