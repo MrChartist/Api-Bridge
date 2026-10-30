@@ -4,7 +4,7 @@
  * gaps through the trigger fires once, the kill switch fails a trigger for good, exits are reduce-only, and a restart
  * never fires twice.
  */
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -434,5 +434,31 @@ describe("adversarial review: cancels and scopes", () => {
     expect(s2.get(ctx("paper"), t.id).legs[0].trigger).toBe(1450);
     s2.cancel(ctx("live"), t.id);
     expect(s2.get(ctx("paper"), t.id).status).toBe("cancelled");
+  });
+
+  it("an unreadable triggers file is kept aside, not overwritten by the next save", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mcb-triggers-bad-"));
+    mkdirSync(join(dir, "triggers"), { recursive: true });
+    const bad = '{"v":1,"items":[{"id":"trg_aaaaaaaaaaaa","legs":[],"status":"active"'; // cut short
+    writeFileSync(join(dir, "triggers", "triggers.json"), bad);
+    md.setPrice("NSE:RELIANCE", 1400);
+    const s2 = createTriggerService({ ...app.deps, paths: { ...app.deps.paths, dataDir: dir } }, quiet);
+    const t = await s2.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", legs: [{ trigger: 1450, order: { side: "BUY", quantity: 1 } }] });
+    const kept = readdirSync(join(dir, "triggers")).filter((f) => f.startsWith("triggers.json.corrupt-"));
+    expect(kept).toHaveLength(1);
+    expect(readFileSync(join(dir, "triggers", kept[0]), "utf8")).toBe(bad);
+    s2.cancel(ctx("paper"), t.id);
+  });
+
+  it("a trigger that could not be saved is refused and never fires", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mcb-triggers-ro-"));
+    writeFileSync(join(dir, "triggers"), "not a folder"); // every save fails
+    md.setPrice("NSE:RELIANCE", 1400);
+    const s2 = createTriggerService({ ...app.deps, paths: { ...app.deps.paths, dataDir: dir } }, quiet);
+    await reject(s2.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", legs: [{ trigger: 1405, order: { side: "BUY", quantity: 1 } }] }));
+    expect(s2.list(() => true, { status: "open" })).toHaveLength(0);
+    await clock.advance(1000);
+    md.setPrice("NSE:RELIANCE", 1406);
+    expect(await s2.runOnce()).toBe(0);
   });
 });

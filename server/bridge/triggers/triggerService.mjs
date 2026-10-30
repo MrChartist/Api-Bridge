@@ -20,7 +20,7 @@
  * sent again, with the same Idempotency-Key, so it can never place two orders.
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { createCallContext } from "../core/context.mjs";
 import { BridgeError } from "../core/errors.mjs";
@@ -76,7 +76,14 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
         if (s && Array.isArray(s.items)) state = { v: 1, items: s.items.filter((t) => t && typeof t.id === "string" && Array.isArray(t.legs)) };
       }
     } catch (err) {
-      log?.warn?.("triggers file could not be read; starting empty", { error: String(err?.message ?? err) });
+      // Kept aside (never overwritten by the next save) so the triggers in it can be recovered by hand.
+      const aside = `${file}.corrupt-${now()}`;
+      try {
+        renameSync(file, aside);
+      } catch {
+        /* nothing more to do */
+      }
+      log?.error?.("triggers file could not be read; starting empty (the file was kept aside)", { error: String(err?.message ?? err), keptAs: aside });
     }
   }
   function save() {
@@ -298,7 +305,14 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
       owner: { scopes, keyId: ctx.key?.id ?? null, label: ctx.key?.label ?? ctx.principal?.label ?? null },
     };
     state.items.push(t);
-    save();
+    try {
+      save();
+    } catch (err) {
+      // Not on disk means not set: a trigger the caller was told failed must never fire.
+      state.items = state.items.filter((x) => x !== t);
+      log?.error?.("trigger could not be saved", { error: String(err?.message ?? err) });
+      throw new BridgeError("INTERNAL", "The trigger could not be saved to disk, so it was not set.");
+    }
     emit(t, "created");
     return view(t);
   }
