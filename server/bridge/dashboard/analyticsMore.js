@@ -8,7 +8,7 @@
 // analyticsMorePages(() => helpers), after the first six, so the numbered shortcuts do not move.
 import { alertBox, api, card, emptyState, h, icon, istDateTime, modal, pill, table, toast } from "./app.js";
 import { DASH, formatFixed, formatInt, formatNumber, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
-import { TAG_CHAR_W, calcStatus, chainControls, chartHost, compact, dataDisclosure, demoPill, handoff, legend, linear, nextId, niceScale, payoffChart, readNumber, s, statusRow, strikeBars, svgRoot, tile, tiles } from "./analyticsViews.js";
+import { TAG_CHAR_W, calcStatus, chainControls, chartHeight, chartHost, compact, dataDisclosure, demoPill, handoff, legend, linear, nextId, niceScale, payoffChart, readNumber, s, statusRow, strikeBars, svgRoot, tile, tiles } from "./analyticsViews.js";
 
 // ───────────────────────── pure helpers ─────────────────────────
 
@@ -374,7 +374,7 @@ export function lotSplitBody({ symbol, lots, lotSize, freezeQty, iceberg, sliceL
 /** A line chart over candles. See seriesLayout. */
 function seriesChart(series, { label, yDecimals = 2, refs = [] }) {
   return chartHost((w) => {
-    const L = seriesLayout(series, { width: w, yDecimals, refs });
+    const L = seriesLayout(series, { width: w, yDecimals, refs, height: chartHeight(w) });
     const svg = svgRoot(L.width, L.height, label);
     if (L.empty) return svg;
     for (const t of L.yTicks) svg.append(s("line", { class: "grid-line", x1: L.padL, x2: L.plotRight, y1: t.y, y2: t.y }), s("text", { class: "tick", x: L.padL - 6, y: t.y + 4, "text-anchor": "end" }, t.label));

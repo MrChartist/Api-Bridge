@@ -77,10 +77,11 @@ export function divergingLayout(items, { width = 640, rowH = 22, labelW = 56, ta
   const max = Math.max(0, ...items.flatMap((i) => i.bars.map((b) => Math.abs(Number(b.value) || 0))));
   const hasNeg = items.some((i) => i.bars.some((b) => Number(b.value) < 0));
   const hasPos = items.some((i) => i.bars.some((b) => Number(b.value) > 0));
-  const scale = niceScale(hasNeg ? -max : 0, hasPos || !hasNeg ? max : 0, 4);
-  // Keep the zero line in the middle when both signs exist: the larger side decides both bounds.
-  const lo = hasNeg && hasPos ? -Math.max(Math.abs(scale.min), scale.max) : scale.min;
-  const hi = hasNeg && hasPos ? Math.max(Math.abs(scale.min), scale.max) : scale.max;
+  // The axis reaches the largest |value| plus 10 % headroom (not the next round number, which could leave half the
+  // plot empty), symmetric around zero when both signs exist; ticks are round numbers inside it.
+  const reach = max > 0 ? max * 1.1 : 1;
+  const lo = hasNeg ? -reach : 0;
+  const hi = hasPos || !hasNeg ? reach : 0;
   // The tag column (Max pain, ATM, Flip) is reserved to the right of the plot and sized to the longest tag, so a tag can
   // never sit over the end of a bar.
   const tagLen = Math.max(0, ...items.map((i) => (i.tag ? String(i.tag).length : 0)));
@@ -108,7 +109,7 @@ export function divergingLayout(items, { width = 640, rowH = 22, labelW = 56, ta
       }),
     };
   });
-  const ticks = niceScale(lo, hi, 4).ticks.filter((t) => t >= lo - 1e-9 && t <= hi + 1e-9).map((t) => ({ x: r1(x(t)), label: tickFormat ? tickFormat(absAxis ? Math.abs(t) : t) : compact(absAxis ? Math.abs(t) : t), value: t }));
+  const ticks = niceScale(lo, hi, hasNeg && hasPos ? 4 : 3).ticks.filter((t) => t >= lo - 1e-9 && t <= hi + 1e-9).map((t) => ({ x: r1(x(t)), label: tickFormat ? tickFormat(absAxis ? Math.abs(t) : t) : compact(absAxis ? Math.abs(t) : t), value: t }));
   return { width: w, height: topPad + items.length * rowH + axisH, plotL, plotR, tagX: w - 4, tagW: tagCol, x0: r1(x0), rowH, labelW, rows, ticks, bottom: topPad + items.length * rowH };
 }
 
@@ -382,9 +383,19 @@ export function strikeBars(items, { label, absAxis = false, formatTitle, layout 
 }
 
 /** Lines over a numeric x axis (strike). `marker` draws a dashed vertical line with a label. */
+/**
+ * A line chart's height for a plot `w` wide (pure): half the width, at least 220, and on a tall window as much of the
+ * room under the top bar, the figures strip and the panel head as there is (`room`, the window height less 340), up to
+ * 640. A desk page's one chart then fills the screen instead of leaving a band of nothing under it.
+ */
+export function chartHeight(w, room = typeof innerHeight === "number" ? innerHeight - 340 : 340) {
+  const base = Math.max(220, Math.min(340, w * 0.5));
+  return Math.round(Math.max(base, Math.min(640, room, w * 0.6)));
+}
+
 export function lineChart(series, { label, marker, yDecimals = 1 }) {
   return chartHost((w) => {
-    const L = lineLayout(series, { width: w, yDecimals });
+    const L = lineLayout(series, { width: w, yDecimals, height: chartHeight(w) });
     const svg = svgRoot(L.width, L.height, label);
     if (L.empty) return svg;
     for (const t of L.yTicks) svg.append(s("line", { class: "grid-line", x1: L.padL, x2: L.width - L.padR, y1: t.y, y2: t.y }), s("text", { class: "tick", x: L.padL - 6, y: t.y + 4, "text-anchor": "end" }, t.label));

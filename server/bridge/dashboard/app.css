@@ -8763,5 +8763,9 @@ th[aria-sort="ascending"], th[aria-sort="descending"] { color: hsl(var(--foregro
 .an-page .card.an-formbar .field > span:first-child { font: 500 13px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; }
 .an-page .card.an-formbar :is(select, input) { width: auto; min-width: 96px; min-height: var(--ctl-h); }
 .an-page .card.an-formbar .hint { display: none; }
-/* Phones: the capsule keeps underlying and expiry; the strikes window stays as last chosen (wider screens pick it). */
-@media (max-width: 519px) { .an-cap .ctx-k { display: none; } }
+/* Under 720 px the strikes pick moves into the ⋯ sheet (with underlying and expiry again), so the capsule fits. */
+@media (max-width: 719px) { .an-cap .ctx-k { display: none; } }
+.an-ctx-sheet .field select { width: 100%; }
+/* A line series is a stroke: PR 17's colour rules for call and put also filled it (the skew drew an orange wedge). */
+.chart .line.call, .chart .line.put { fill: none; }
+

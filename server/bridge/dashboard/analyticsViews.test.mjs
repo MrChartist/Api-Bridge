@@ -55,6 +55,14 @@ describe("bar layout", () => {
       for (const r of L.rows) for (const b of r.bars) expect(b.x + b.w).toBeLessThanOrEqual(L.plotR + 1);
     }
   });
+  it("scales the axis to the largest |value| with 10 % headroom, symmetric around zero", () => {
+    const L = divergingLayout([{ label: "a", bars: [{ value: 12_000, cls: "call" }] }, { label: "b", bars: [{ value: -3_000, cls: "put" }] }], { width: 800 });
+    const half = L.plotR - L.x0;
+    expect(L.x0 - L.plotL).toBeCloseTo(half, 0); // zero in the middle
+    expect(L.rows[0].bars[0].w / half).toBeGreaterThan(0.88); // the biggest bar reaches 1 / 1.1 of its side
+    expect(L.rows[0].bars[0].w / half).toBeLessThan(0.93);
+    for (const t of L.ticks) expect(Math.abs(t.value)).toBeLessThanOrEqual(13_200);
+  });
   it("stacks grouped bars of one row without overlap", () => {
     const L = divergingLayout([{ label: "a", bars: [{ value: 5, cls: "s1" }, { value: 7, cls: "s2" }] }], { width: 400, rowH: 30, group: true });
     const [a, b] = L.rows[0].bars;

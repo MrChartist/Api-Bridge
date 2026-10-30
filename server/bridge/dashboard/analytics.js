@@ -9,7 +9,8 @@
 //  - the page fills the content area as a grid of panels (app.css "15 · ANALYTICS"): KPI tiles become one figures
 //    strip, cards become desk panels, a panel's own view switch moves into its head, wide tables span the row.
 // Reads go through api() (shared answers, one request per URL at a time); nothing here polls.
-import { api, h, istTime, mountToolbarCtx } from "./app.js";
+import { DEMO_EXPLAINER, api, app, h, icon, istTime, mountToolbarCtx, sheetPopover } from "./app.js";
+import { openPalette } from "./palette.js";
 import { DASH } from "./format.js";
 import { analyticsPages } from "./analyticsViews.js";
 import { analyticsMorePages } from "./analyticsMore.js";
@@ -81,6 +82,39 @@ export function contextCapsule({ underlying = true, expiry = true, strikes = tru
     expiry ? item("ctx-e", "Expiry", eMain, eSel) : null,
     strikes ? item("ctx-k", "Strikes each side of ATM", kMain, kSel) : null,
   );
+  // Under 1024 px, as on the Option Chain: a ⋯ button holds what the bar has no room for (every pick, the demo note,
+  // search). Under 720 px the strikes pick lives only there, so the capsule never clips.
+  const mirror = (label, src) => {
+    const sel = h("select", { "aria-label": label }, [...src.options].map((o) => h("option", { value: o.value, selected: o.value === src.value }, o.textContent)));
+    sel.addEventListener("change", () => {
+      src.value = sel.value;
+      src.dispatchEvent(new Event("change"));
+    });
+    return h("label", { class: "field" }, h("span", {}, label), sel);
+  };
+  const more = h("button", { type: "button", class: "icon-btn ctx-more", "aria-haspopup": "dialog", "aria-label": `More: underlying, expiry, strikes, search${app.state.demo ? ", demo data" : ""}` }, icon("more"), app.state.demo ? h("span", { class: "demo-badge", "aria-hidden": "true" }) : null);
+  more.addEventListener("click", () => {
+    const search = h("button", { type: "button", class: "small" }, icon("search"), "Search pages and actions");
+    search.addEventListener("click", () => {
+      document.querySelector(".an-ctx-sheet")?.closest("dialog")?.close?.();
+      openPalette();
+    });
+    sheetPopover({
+      trigger: more,
+      title: "This page",
+      cls: "an-ctx-sheet",
+      body: h(
+        "div",
+        { class: "stack" },
+        underlying ? mirror("Underlying", uSel) : null,
+        expiry ? mirror("Expiry", eSel) : null,
+        strikes ? mirror("Strikes each side of ATM", kSel) : null,
+        h("p", { class: "muted small" }, freshText.data),
+        app.state.demo ? h("p", { class: "muted small" }, DEMO_EXPLAINER) : null,
+        search,
+      ),
+    });
+  });
   const freshText = document.createTextNode("Waiting");
   const fresh = h("span", { class: "ctx-item an-fresh", "data-tone": "wait", role: "status", title: "Where the figures on this page come from" }, h("span", { class: "live-dot", "aria-hidden": "true" }), h("span", { class: "ctx-main" }, freshText));
   const freshCap = h("div", { class: "ctx-cap glass an-fresh-cap" }, fresh);
@@ -116,7 +150,7 @@ export function contextCapsule({ underlying = true, expiry = true, strikes = tru
     onChange?.(["strikes"]);
   });
   return {
-    nodes: [cap, h("span", { class: "ctx-spacer" }), freshCap],
+    nodes: [cap, h("span", { class: "ctx-spacer" }), freshCap, more],
     loadExpiries,
     /** Show what a page's freshness row says ("Live stream · just now", "as of 10:31:02"). */
     setFresh(text, tone) {
