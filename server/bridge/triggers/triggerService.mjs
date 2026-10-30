@@ -239,7 +239,8 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
       // A price band refusal is about the price now, not the order: the trigger may sit far from it.
       const bad = (pv.checks ?? []).find((c) => c.severity === "block" && SHAPE_CODES.has(c.code) && !/last traded price|price band/i.test(c.message));
       if (bad) throw new BridgeError("VALIDATION_FAILED", bad.message, { errors: [{ path: "legs", message: bad.message }] });
-      for (const c of pv.checks ?? []) if (c.severity === "block" && !warnings.includes(c.message)) warnings.push(c.message);
+      // An after-market order goes on a later IST day: today's daily counters (loss, order count) will have reset.
+      for (const c of pv.checks ?? []) if (c.severity === "block" && !(amo && c.code === "DAILY_LIMIT_REACHED") && !warnings.includes(c.message)) warnings.push(c.message);
     }
 
     const t0 = now();
