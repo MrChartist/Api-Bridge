@@ -108,11 +108,11 @@ export function totals(items) {
 /** "Paper" or "Live" for a strategy's mode chip. */
 export const modeText = (m) => (m === "live" ? "Live" : "Paper");
 
-/** Heartbeat in words for a running strategy: "Heartbeat 2 s ago", or a warning once it is late. */
+/** The last heartbeat of a running strategy in words: "2 s ago", late once it passes 15 s. */
 export function heartbeatText(ageMs) {
-  if (ageMs === null || ageMs === undefined || !Number.isFinite(Number(ageMs))) return { text: "No heartbeat yet", late: false };
+  if (ageMs === null || ageMs === undefined || !Number.isFinite(Number(ageMs))) return { text: "Waiting", late: false };
   const s = Math.max(0, Math.round(Number(ageMs) / 1000));
-  return { text: `Heartbeat ${formatInt(s)} s ago`, late: s > 15 };
+  return { text: `${formatInt(s)} s ago`, late: s > 15 };
 }
 
 /** The server's per-field errors ({ path: "params.lots", message }) as { lots: message }. */

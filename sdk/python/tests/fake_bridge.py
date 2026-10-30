@@ -8,6 +8,7 @@ key, the Idempotency-Key and the body. No stream: tests feed ticks to Strategy.d
 from __future__ import annotations
 
 import json
+import math
 import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,12 +18,12 @@ KEY = "mcb_test_strategy_key"
 EXPIRY = "2026-11-03"
 
 
-def chain_rows(spot: float, step: int = 50, n: int = 8) -> List[Dict[str, Any]]:
+def chain_rows(spot: float, step: int = 50, n: int = 20) -> List[Dict[str, Any]]:
     atm = round(spot / step) * step
     rows = []
     for i in range(-n, n + 1):
         k = atm + i * step
-        d = max(0.02, min(0.98, 0.5 - (k - spot) / (step * 12)))
+        d = 1 / (1 + math.exp((k - spot) / 150.0))  # call delta, a smooth S curve
         rows.append({
             "strike": k,
             "ce": {"symbol": "NFO:NIFTY-%s-%d-CE" % (EXPIRY, k), "ltp": max(1.0, spot - k + 120), "delta": round(d, 3), "oi": 1000 + i * 10},
