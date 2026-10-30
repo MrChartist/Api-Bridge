@@ -1782,14 +1782,18 @@ button.start-row:hover { --btn-bg: var(--mat-fill-1); }
   .ck-card > .card-head { flex: none; }
   .ck-card > .card-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
   .ck-pnl, .ck-cal, .ck-health, .ck-wl { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
-  :is(.ck-pnl, .ck-cal, .ck-health) > .ck-list { flex: 1 1 auto; }
-  .ck-list > li { flex: 1 1 auto; }
+  :is(.ck-pnl, .ck-cal) > .ck-list { flex: 1 1 auto; }
+  /* Health: account rows keep their height; the latest orders take the spare height and scroll inside. */
+  .ck-recent { flex: 1 1 0; min-height: 96px; display: flex; flex-direction: column; }
+  .ck-recent-list { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  :is(.ck-pnl, .ck-cal) .ck-list > li { flex: 1 1 auto; }
   .ck-a-pos .ck-table { flex: 1 1 auto; }
   .ck-wl-list { flex: 1 1 auto; align-content: stretch; }
   .ck-wl-list li { align-content: center; }
   .ck-a-ev { contain: size; min-height: 360px; }
   .ck-a-ev > .card-body { overflow-y: auto; overscroll-behavior: contain; padding-top: 4px; }
   .ck-a-ev .ck-events { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); column-gap: 24px; align-content: start; }
+  .ck-a-ev .ck-events li { align-content: start; }
   /* A stretched table: the row header stays a cell, so its rule lines up with the rest of the row. */
   .ck-a-pos .ck-table tbody th { display: table-cell; vertical-align: middle; }
   .ck-a-pos .ck-table tbody th > :is(strong, small) { display: block; }
@@ -1869,6 +1873,16 @@ button.start-row:hover { --btn-bg: var(--mat-fill-1); }
 .ck-kv dt { color: hsl(var(--foreground) / var(--a-label)); }
 .ck-kv dd { margin: 0; text-align: right; font-family: var(--font-numeric); font-variant-numeric: tabular-nums; }
 .ck-pills { margin-top: 10px; flex-wrap: wrap; gap: 6px; }
+.ck-recent { margin-top: 10px; }
+.ck-sub { margin: 0 0 2px; font: 500 12px/1.3 var(--font-body); letter-spacing: 0; color: hsl(var(--foreground) / var(--a-label)); }
+.ck-recent-list { list-style: none; margin: 0; padding: 0; }
+.ck-recent-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: var(--list-row-h); padding: 4px 0; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); font: 500 13px/1.3 var(--font-body); }
+.ck-recent-list li:last-child { box-shadow: none; }
+.ck-recent-list time { font: 500 12px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-quiet)); }
+.ck-recent-list .ck-l small { font-variant-numeric: tabular-nums; }
+.ck-st { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; }
+.ck-st.ok { color: hsl(var(--pos-ink)); } .ck-st.bad { color: hsl(var(--neg-ink)); } .ck-st.warn { color: hsl(var(--warn)); }
+@media (max-width: 719px) { .ck-recent-list li:nth-child(n+4) { display: none; } }
 @media (max-width: 719px) { .ck-table thead th:nth-child(4), .ck-table td:nth-child(4), .ck-table thead th:nth-child(6), .ck-table td:nth-child(6) { display: none; } }
 .quotes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px; padding: 4px var(--card-pad) var(--card-pad); }
 .quote { display: flex; flex-direction: column; gap: 6px; padding: 16px 18px; border-radius: var(--r-md); background: var(--mat-fill-1); min-width: 0; }
@@ -2141,6 +2155,9 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
 .chain-wrap { max-height: min(70vh, 860px); overflow: auto; overscroll-behavior: contain; }
 table.chain { --desk-row: var(--chain-row); width: 100%; border-collapse: separate; border-spacing: 0; font: var(--t-table); line-height: 1.2; font-variant-numeric: tabular-nums; }
 table.chain.dense { --desk-row: var(--chain-row-1); }
+/* Option Chain, compact: 32 px rows, so the figure and its % change (16 + 12 px) keep 2 px of air above the row rule
+   instead of touching it. The fill count reads the same token, so the table still fills the window. */
+:root[data-density="compact"][data-page="chain"] { --chain-row: 32px; }
 table.chain th, table.chain td { height: var(--desk-row); padding: 0 8px; border: 0; white-space: nowrap; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 table.chain th:first-child, table.chain td:first-child { padding-left: 12px; }
 table.chain th:last-child, table.chain td:last-child { padding-right: 12px; }
@@ -2225,7 +2242,9 @@ table.chain thead .strike-col, table.chain tfoot .strike-col { z-index: 4; backg
 table.chain .mid-col { background-color: var(--mat-fill-1); }
 table.chain thead .mid-col, table.chain tfoot .mid-col { background: var(--mat-grouped-solid); }
 table.chain .strike-col .k { font: 500 14px/16px var(--font-numeric); color: hsl(var(--foreground)); letter-spacing: -0.01em; }
-table.chain .tags { display: flex; justify-content: center; gap: 3px; height: 12px; overflow: visible; }
+table.chain .tags { display: flex; justify-content: center; gap: 3px; height: 12px; max-width: 100%; overflow: visible; }
+/* Two tags use the short forms (strikeTagsShown); a strike cell still never lets them spill into the Ask column. */
+table.chain th.strike-col .strike-cg { max-width: 100%; overflow-x: clip; overflow-y: visible; }
 table.chain .tag { display: inline-flex; align-items: center; height: 16px; padding: 0 5px; border-radius: 4px; font: 500 12px/1 var(--font-body); letter-spacing: 0.02em; white-space: nowrap; cursor: help; color: hsl(var(--foreground) / var(--a-label)); box-shadow: inset 0 0 0 1px var(--mat-separator); }
 table.chain .tag.atm { color: hsl(var(--sel-fg)); background: hsl(var(--c-atm)); box-shadow: none; }
 table.chain .tag.mp { gap: 4px; }
@@ -4306,8 +4325,13 @@ table.oi-help-table thead th { font-size: 12px; color: hsl(var(--foreground) / v
   .oi-ring { animation: none; outline: 2px solid hsl(var(--ring, var(--foreground))); outline-offset: 1px; }
 }
 /* Strikes shown only to fill the ladder's box (outside the band the figures read): the same row, quieter. */
-table.oi-ladder tbody tr.oi-xband > td { opacity: 0.55; }
+table.oi-ladder tbody tr.oi-xband > td { opacity: 0.5; }
+table.oi-ladder tbody tr.oi-xband > th.k { background: var(--mat-grouped-solid); }
 table.oi-ladder tbody tr.oi-xband > th.k .kv { color: hsl(var(--foreground) / var(--a-label)); }
+/* The band's edges: a dashed rule across the row where the band starts and ends. */
+table.oi-ladder tbody tr.oi-xband + tr:not(.oi-xband) > td, table.oi-ladder tbody tr:not(.oi-xband):has(+ tr.oi-xband) > td { background-image: repeating-linear-gradient(90deg, hsl(var(--foreground) / 0.55) 0 4px, transparent 4px 8px); background-size: 100% 1px; background-repeat: no-repeat; }
+table.oi-ladder tbody tr.oi-xband + tr:not(.oi-xband) > td { background-position: left top; }
+table.oi-ladder tbody tr:not(.oi-xband):has(+ tr.oi-xband) > td { background-position: left bottom; }
 
 /* ───────────────────────── 12f · POSITIONS AND RISK ─────────────────────────
    The book on one underlying as a risk desk (docs/design/positions.md, round 2): a book strip of Hero · Greeks ·
@@ -4713,7 +4737,12 @@ button.chip-btn { min-height: 24px; padding: 0 8px; font: 500 12px/1 var(--font-
 .wi-reset-btn { margin-left: auto; min-height: 26px; padding: 0 8px; font-size: 12px; gap: 4px; }
 .wi-reset-btn svg { width: 12px; height: 12px; }
 .wi-reset-btn[hidden] { display: none; }
-.wi-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 6px; min-width: 0; }
+/* Flex, not an auto-fit grid: the grid kept empty tracks, so six figures stopped at three quarters of a wide panel. */
+.wi-figs { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.wi-figs > .wi-fig { flex: 1 1 100px; }
+/* Narrow panels: three per row (3 + 3), never five and a lone sixth across the whole width. */
+@container wi (max-width: 640px) { .wi-figs > .wi-fig { flex-basis: calc(33.333% - 6px); } }
+.wi-figs > :not(.wi-fig) { flex: 1 1 100%; }
 .wi-fig { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 6px 8px; border-radius: var(--r-sm); background: var(--mat-fill-1, hsl(var(--foreground) / 0.03)); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
 .wi-k { font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .wi-v { font: 600 14px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -6717,7 +6746,8 @@ svg .scr-dot:hover { r: 5px; }
 .pt-tbl-btn[aria-pressed="true"] { background: hsl(var(--sel-bg)); color: hsl(var(--sel-fg)); box-shadow: none; }
 .pt-tables { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
 .pt-group + .pt-group { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
-.pt-group-h { margin: 0; padding: 10px 14px 4px; font: 600 12px/1.2 var(--font-body); letter-spacing: 0.02em; text-transform: uppercase; color: hsl(var(--foreground) / var(--a-quiet)); }
+/* Sentence case, as every label (docs/design/brand.md §5). */
+.pt-group-h { margin: 0; padding: 10px 14px 4px; font: 600 13px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .pt-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
 .pt-wrap:focus-visible { outline: 2px solid var(--sel-ring); outline-offset: -2px; }
 /* The three group tables share one column grid (Participant 120 px, eight equal value columns), so the columns line

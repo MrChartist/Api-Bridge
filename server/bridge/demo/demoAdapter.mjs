@@ -414,10 +414,12 @@ function futurePrice(symbol, expiry, t) {
 
 /** The day's base open interest in LOTS (fractional), peaking near the money and at round strikes. */
 function baseOiLots(u, spot, strike, right, expiry) {
-  const dist = (strike - spot) / (u.step * 6);
+  const dist = (strike - spot) / (u.step * OI_WIDTH_STEPS);
   const side = right === "CE" ? (strike >= spot ? 1.15 : 0.55) : strike <= spot ? 1.15 : 0.55;
   const round = onGrid(strike, u.step * 10) ? 1.8 : onGrid(strike, u.step * 2) ? 1.2 : 1;
   const scale = 9000 * (u.oiScale ?? 1);
+  // Centred on a slow anchor (oiContext), so the far strikes' day change stays in the tens of percent. A heavier tail
+  // was tried and dropped: it pushes the recorder's demo day past its 3 KB-per-snapshot budget (store.test.mjs).
   return scale * Math.exp(-dist * dist) * side * round * (0.85 + 0.3 * unit(`${u.symbol}:${expiry}:${strike}:${right}`));
 }
 
@@ -452,6 +454,10 @@ function oiContext(symbol, expiry, t) {
     expiry,
     t,
     spot: spotAt(symbol, t),
+    // The profile is laid at a slow anchor (the last two closes), not the live spot: open interest does not follow
+    // the price within the day, so a far strike's "previous OI" is not a near-empty tail (whose change would read
+    // "+26800 %"), and a day's ΔOI stays in the tens of percent, as in a real chain.
+    anchor: lagged(spotAt(symbol, t), oiAnchor(symbol, t), u.step * OI_WIDTH_STEPS * 0.5),
     wave: Math.cos((2 * Math.PI * d) / 9.3 + phase(`${symbol}:b`)), // > 0 while the 9.3-day wave rises
     lot: contractLot(u, expiry, t),
     fraction: dayFraction(t),
@@ -459,9 +465,31 @@ function oiContext(symbol, expiry, t) {
   };
 }
 
+/** The mean spot over the ANCHOR_DAYS closes before `t` (memoised per symbol and day: every strike of a chain shares it). */
+const ANCHORS = new Map();
+const ANCHOR_DAYS = 2;
+/** The OI hump's width in strike steps. */
+const OI_WIDTH_STEPS = 7;
+/** `slow`, but never more than `max` from `live` (after a big move the profile catches up, near the money stays full). */
+const lagged = (live, slow, max) => live + Math.max(-max, Math.min(max, slow - live));
+function oiAnchor(symbol, t) {
+  let c = previousClose(t);
+  const key = `${symbol}|${c}`;
+  const hit = ANCHORS.get(key);
+  if (hit !== undefined) return hit;
+  let sum = 0;
+  for (let i = 0; i < ANCHOR_DAYS; i += 1) {
+    sum += spotAt(symbol, c);
+    c = previousClose(c);
+  }
+  if (ANCHORS.size > 512) ANCHORS.clear();
+  ANCHORS.set(key, sum / ANCHOR_DAYS);
+  return sum / ANCHOR_DAYS;
+}
+
 function oiWith(ctx, strike, right) {
   const { u, symbol, expiry, spot, wave } = ctx;
-  const base = baseOiLots(u, spot, strike, right, expiry);
+  const base = baseOiLots(u, ctx.anchor, strike, right, expiry);
   const otm = right === "CE" ? strike > spot : strike < spot;
   const bias = otm ? (right === "CE" ? -0.12 * wave : 0.12 * wave) : 0;
   const a = Math.min(0.35, Math.max(-0.15, -0.15 + 0.5 * unit(`${symbol}:${expiry}:${strike}:${right}:a`) + bias));
