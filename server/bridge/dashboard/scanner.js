@@ -580,7 +580,7 @@ export async function renderScannerPage() {
     const name = h("input", { id: "sc-save-name", value: s?.name ?? (lib ? savedScanName(st.name, lib.id, edited) : st.name || ""), maxlength: "80", "aria-label": "Name" });
     const initial = s?.atClose ? "close" : s?.everyMinutes ? "every" : "demand";
     const when = segmented("When it runs", [["demand", "On demand"], ["every", "Every N min"], ["close", "At the close"]], initial);
-    const every = h("input", { type: "number", min: "1", max: "1440", step: "1", value: String(s?.everyMinutes ?? 15), "aria-label": "Minutes", class: "sc-every" });
+    const every = h("input", { type: "number", inputmode: "numeric", min: "1", max: "1440", step: "1", value: String(s?.everyMinutes ?? 15), "aria-label": "Minutes", class: "sc-every" });
     const everyWrap = h("label", { class: "field sc-every-wrap" }, app.state.demo ? "Every (minutes; demo: also after hours)" : "Every (minutes, in market hours)", every);
     const notify = h("input", { type: "checkbox", checked: s ? s.notify !== false : true });
     const sync = () => (everyWrap.hidden = when.value !== "every");
