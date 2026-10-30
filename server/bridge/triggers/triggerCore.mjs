@@ -11,7 +11,7 @@
  */
 
 export const TRIGGER_TYPES = Object.freeze(["single", "oco"]);
-export const TRIGGER_ORIGINS = Object.freeze(["gtt", "bracket", "position"]);
+export const TRIGGER_ORIGINS = Object.freeze(["gtt", "bracket", "position", "amo"]);
 export const TRIGGER_STATUSES = Object.freeze(["waiting", "active", "firing", "triggered", "cancelled", "failed", "expired"]);
 export const OPEN_STATUSES = Object.freeze(new Set(["waiting", "active", "firing"]));
 

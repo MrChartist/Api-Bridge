@@ -286,3 +286,51 @@ describe("trigger engine", () => {
     svc.cancel(ctx("paper"), t.id);
   });
 });
+
+describe("after-market orders (held on this Bridge, sent at 09:15)", () => {
+  const istNow = () => new Date(clock.now() + 19_800_000).toISOString().slice(0, 16);
+  async function toIst(day, hhmm) {
+    const target = Date.parse(`${day}T${hhmm}:00+05:30`);
+    if (target > clock.now()) await clock.advance(target - clock.now());
+  }
+
+  it("is refused while the market is open", async () => {
+    await toIst("2026-10-19", "11:00");
+    setPx(120);
+    const e = await reject(svc.create(ctx("paper"), { account: "paper", symbol: OPT, product: "MARGIN", origin: "amo", legs: [{ order: { side: "BUY", lots: 1, orderType: "LIMIT", price: 121 } }] }));
+    expect(e.detail).toMatch(/market is open: place the order now/);
+  });
+
+  it("set after the close, goes at 09:15 the next trading day through every gate, and not before", async () => {
+    await toIst("2026-10-23", "16:05"); // Friday after the close
+    setPx(120);
+    const t = await svc.create(ctx("paper"), { account: "paper", symbol: OPT, product: "MARGIN", origin: "amo", legs: [{ order: { side: "BUY", lots: 1, orderType: "LIMIT", price: 121 } }] });
+    expect(t).toMatchObject({ origin: "amo", status: "active", held: "bridge", openAt: "2026-10-26T09:15:00.000+05:30", reduceOnly: false });
+    expect(t.legs[0]).toMatchObject({ op: "open", trigger: null, role: "entry" });
+    expect(t.expiresAt).toBe("2026-10-26T15:30:00.000+05:30");
+    expect(await svc.runOnce()).toBe(0);
+    await toIst("2026-10-26", "09:14");
+    expect(await svc.runOnce()).toBe(0);
+    await toIst("2026-10-26", "09:15");
+    expect(await svc.runOnce()).toBe(1);
+    const after = svc.get(ctx("paper"), t.id);
+    expect(after.status).toBe("triggered");
+    const o = await app.deps.orders.get(ctx("paper"), after.result.orderId);
+    expect(o).toMatchObject({ side: "BUY", orderType: "LIMIT", price: 121, source: "guard", clientOrderId: t.id });
+    expect(istNow()).toBe("2026-10-26T09:15");
+  });
+
+  it("a market AMO is not sent when the open gaps beyond the price band", async () => {
+    await toIst("2026-10-26", "16:00");
+    setPx(120);
+    const t = await svc.create(ctx("paper"), { account: "paper", symbol: OPT, product: "MARGIN", origin: "amo", legs: [{ order: { side: "BUY", lots: 1, orderType: "MARKET" } }] });
+    expect(t.openAt).toBe("2026-10-27T09:15:00.000+05:30");
+    await toIst("2026-10-27", "09:15");
+    setPx(140); // +16.7 % at the open
+    await svc.runOnce();
+    const after = svc.get(ctx("paper"), t.id);
+    expect(after.status).toBe("failed");
+    expect(after.result).toMatchObject({ code: "PRICE_BAND" });
+    expect(after.result.message).toMatch(/opened 16\.67% away from 120/);
+  });
+});
