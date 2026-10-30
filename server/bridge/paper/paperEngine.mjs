@@ -7,7 +7,8 @@
  *    endpoint. The fill rules are in fillModel.mjs (docs/ARCHITECTURE.md §7).
  *  - Order states: open, trigger_pending, filled, cancelled, rejected, expired. Fills are whole (v1).
  *  - Positions per (symbol, product) with average price and realised/unrealised P&L; funds with approximate margin
- *    blocking; INTRADAY positions and orders are squared off at the configured IST time (15:20 for NSE/BSE).
+ *    blocking: F&O legs are margined together per underlying (dashboard/span-margin.js, an approximate SPAN-like scan
+ *    plus exposure, so hedges get their benefit), equity by percentage; INTRADAY positions and orders are squared off at the configured IST time (15:20 for NSE/BSE).
  *  - State per account in <dataDir>/paper/<accountId>.json, written atomically after every change (paperStore.mjs),
  *    and restored on start, including pending orders, which keep being evaluated.
  *  - Order ids: PAPER-<yyyymmdd>-<seq> (IST day, one sequence for all accounts, persisted). Trade ids: <orderId>-T1.
@@ -26,11 +27,13 @@
  */
 import { join } from "node:path";
 import { BridgeError } from "../core/errors.mjs";
-import { CAPITAL_MAX, CAPITAL_MIN, EXCHANGE_SESSION_END, EXCHANGE_SQUARE_OFF, paperConfig } from "./config.mjs";
+import { CAPITAL_MAX, CAPITAL_MIN, DEMO_STARTING_CAPITAL, EXCHANGE_SESSION_END, EXCHANGE_SQUARE_OFF, PAPER_DEFAULTS, paperConfig } from "./config.mjs";
 import { DEFAULT_SESSIONS, defaultSessionFor } from "../reference/defaults.mjs";
 import { isStub } from "../core/contracts.mjs";
 import { applyFill, brokerageFor, evaluate, isTickMultiple, marginFor, marketFillPrice, round2, round4, stopTriggered } from "./fillModel.mjs";
 import { ACCOUNT_ID_RE, STATE_VERSION, createFileStore } from "./paperStore.mjs";
+import { parseSymbol } from "../core/symbolFormat.mjs";
+import { SPAN_METHOD, SPAN_PARAMS, marginRequired, portfolioMargin, standaloneMargin } from "../dashboard/span-margin.js";
 import { istDay, istDayCompact, istTimeOnDay, toIstIso } from "./time.mjs";
 
 export const PENDING = Object.freeze(["open", "trigger_pending"]);
@@ -44,6 +47,8 @@ const DELIVERY = new Set(["CNC", "MTF"]);
 const MODIFIABLE = Object.freeze(["price", "triggerPrice", "quantity", "orderType"]);
 export const PAGE_DEFAULT = 100;
 export const PAGE_MAX = 500;
+/** A reset can be undone for this long (ms). */
+export const UNDO_RESET_MS = 120_000;
 /** Prices fetched for a new order must be at most this old (ms). */
 const FRESH_MS = 1000;
 
@@ -94,7 +99,9 @@ const stopCrossedText = (side, ltp) =>
  */
 export function createPaperEngine(deps, options = {}) {
   const { config, logger, bus, clock } = deps;
-  const cfg = options.paper ?? config?.paper ?? paperConfig();
+  const base = options.paper ?? config?.paper ?? paperConfig();
+  // Demo: a healthy float unless the config chose its own starting capital.
+  const cfg = config?.demo && base.startingCapital === PAPER_DEFAULTS.startingCapital ? { ...base, startingCapital: DEMO_STARTING_CAPITAL } : base;
   const log = typeof logger?.child === "function" ? logger.child({ module: "paper" }) : logger;
   const now = () => clock.now();
   const store = options.store ?? createFileStore(join(deps.paths.dataDir, "paper"), { now });
@@ -127,6 +134,8 @@ export function createPaperEngine(deps, options = {}) {
 
   /** accountId -> state */
   const books = new Map();
+  /** accountId -> { state, at }: the book before its last reset, for undoReset. */
+  const undo = new Map();
   /** canonical symbol -> { ltp, bid, ask, at }, only for symbols some book cares about */
   const lastPrice = new Map();
   /** symbols with a pending order or an open position in a loaded book */
@@ -313,6 +322,74 @@ export function createPaperEngine(deps, options = {}) {
   // ───────────────────────────── money ─────────────────────────────
 
   const instOf = (x) => ({ kind: x.kind, strike: x.strike ?? null });
+  const portfolio = cfg.margin.model !== "simple";
+  const spanParams = { ...SPAN_PARAMS, simple: { optionSellPct: cfg.margin.optionSellPct, futuresPct: cfg.margin.futuresPct } };
+  /** underlying -> { ltp, at }: the spot used as the forward of the margin scan. */
+  const spots = new Map();
+  const partsCache = new Map();
+
+  /** F&O parts of a canonical NFO/BFO symbol, or null (equity, MCX, CDS and anything unreadable use the percentages). */
+  function derivParts(symbol) {
+    if (partsCache.has(symbol)) return partsCache.get(symbol);
+    let p = null;
+    try {
+      const x = parseSymbol(symbol, { lenient: false });
+      if ((x.kind === "OPT" || x.kind === "FUT") && (x.exchange === "NFO" || x.exchange === "BFO")) p = x;
+    } catch {
+      p = null;
+    }
+    if (partsCache.size > 5000) partsCache.clear();
+    partsCache.set(symbol, p);
+    return p;
+  }
+  const spotSymbol = (p) => `${p.exchange === "BFO" ? "BSE" : "NSE"}:${p.underlying}`;
+
+  /** A margin leg for a symbol and signed quantity, or null when it is not an F&O contract. */
+  function legOf(symbol, qty, cost) {
+    const p = portfolio ? derivParts(symbol) : null;
+    if (!p) return null;
+    const mark = lastPrice.get(symbol)?.ltp ?? cost ?? null;
+    return { underlying: p.underlying, kind: p.kind, right: p.right, strike: p.strike, expiry: p.expiry, qty, cost: cost ?? mark, mark };
+  }
+
+  /** Forward per underlying: its spot when known, else the price of a future on it, else none (simple model). */
+  function forwardsFor(legs) {
+    const out = {};
+    for (const l of legs) {
+      if (out[l.underlying]) continue;
+      const s = spots.get(l.underlying)?.ltp;
+      if (s > 0) out[l.underlying] = s;
+      else {
+        const f = legs.find((x) => x.underlying === l.underlying && x.kind === "FUT" && x.mark > 0);
+        if (f) out[l.underlying] = f.mark;
+      }
+    }
+    return out;
+  }
+  const marginCtx = (legs) => ({ nowMs: now(), forwards: forwardsFor(legs), params: spanParams });
+
+  /** Fetch the spot of every underlying these symbols need (one batched call; a failure leaves the simple model). */
+  async function ensureSpots(symbols) {
+    if (!portfolio) return;
+    const want = new Map();
+    for (const sym of symbols) {
+      const p = derivParts(sym);
+      if (!p) continue;
+      const have = spots.get(p.underlying);
+      if (!have || now() - have.at > cfg.pollIntervalMs) want.set(spotSymbol(p), p.underlying);
+    }
+    if (!want.size) return;
+    try {
+      const r = await deps.marketData.ltp([...want.keys()], { maxAgeMs: cfg.pollIntervalMs, priority: "interactive" });
+      for (const item of r?.items ?? []) {
+        const u = want.get(item?.symbol);
+        if (u && positiveNumber(item.ltp)) spots.set(u, { ltp: item.ltp, at: now() });
+      }
+    } catch (err) {
+      log?.debug?.("paper margin spot fetch failed", { code: err?.code });
+    }
+  }
+  const bookSymbols = (st, extra = []) => [...Object.values(st.positions).filter((p) => p.netQty !== 0).map((p) => p.symbol), ...st.orders.filter(isPending).map((o) => o.symbol), ...extra];
 
   function positionBlock(p) {
     if (p.netQty === 0) return 0;
@@ -335,12 +412,51 @@ export function createPaperEngine(deps, options = {}) {
     return marginFor(instOf(o), { side: o.side, product: o.product, quantity: adds, price }, cfg.margin);
   }
 
-  function usedMargin(st, except) {
-    let used = 0;
-    for (const p of Object.values(st.positions)) used += positionBlock(p);
-    for (const o of st.orders) if (isPending(o) && o !== except) used += orderBlock(st, o);
-    return used;
+  /**
+   * F&O legs held and pending, plus the margin of everything else (equity, MCX, CDS) by percentage.
+   * @param {{ order: object, price: number }[]} extra  orders not yet in the book (a new order, a preview)
+   */
+  function bookLegs(st, except, extra = []) {
+    let other = 0;
+    const held = [];
+    const pend = [];
+    for (const p of Object.values(st.positions)) {
+      if (p.netQty === 0) continue;
+      const leg = legOf(p.symbol, p.netQty, p.avgPrice);
+      if (leg) held.push(leg);
+      else other += positionBlock(p);
+    }
+    const pendingOrders = st.orders.filter((o) => isPending(o) && o !== except).map((o) => ({ order: o, price: estimatePrice(o) }));
+    for (const { order: o, price } of [...pendingOrders, ...extra]) {
+      const leg = legOf(o.symbol, o.side === "BUY" ? o.quantity : -o.quantity, price);
+      if (leg) pend.push(leg);
+      else other += orderBlock(st, o, price);
+    }
+    return { held, pend, other };
   }
+
+  /**
+   * Blocked margin. Portfolio model: the larger of what the held legs need and what they would need with every
+   * pending order filled (a pending hedge never lowers the block before it fills).
+   */
+  function usedMargin(st, except, extra = []) {
+    if (!portfolio) {
+      let used = 0;
+      for (const p of Object.values(st.positions)) used += positionBlock(p);
+      for (const o of st.orders) if (isPending(o) && o !== except) used += orderBlock(st, o);
+      for (const { order, price } of extra) used += orderBlock(st, order, price);
+      return used;
+    }
+    const { held, pend, other } = bookLegs(st, except, extra);
+    if (!held.length && !pend.length) return other;
+    const ctx = marginCtx([...held, ...pend]);
+    const a = marginRequired(held, ctx);
+    const b = pend.length ? marginRequired([...held, ...pend], ctx) : a;
+    return other + Math.max(a, b);
+  }
+
+  /** Margin `o` adds to the book at `price` (0 when it closes or hedges). */
+  const marginToAdd = (st, o, price) => (portfolio ? Math.max(0, usedMargin(st, o, [{ order: o, price }]) - usedMargin(st, o)) : orderBlock(st, o, price));
 
   const availableCash = (st, except) => st.startingCapital + st.realisedTotal - st.charges - usedMargin(st, except);
 
@@ -569,7 +685,7 @@ export function createPaperEngine(deps, options = {}) {
     if (isStop(o.orderType) && market && stopTriggered(o.side, o.triggerPrice, market.ltp)) return stopCrossedText(o.side, market.ltp);
     if (o.orderType === "MARKET" && !market) return "No market price is available for this symbol right now, so the paper order could not be filled.";
     const est = o.orderType === "MARKET" ? marketPriceFor(o.side, market, o.tickSize) : estimatePrice(o);
-    const need = orderBlock(st, o, est);
+    const need = marginToAdd(st, o, est);
     const have = availableCash(st, o);
     if (need > have + 1e-6) return `Insufficient paper funds: this order needs about ${rupees(need)} and ${rupees(have)} is available.`;
     return null;
@@ -700,6 +816,7 @@ export function createPaperEngine(deps, options = {}) {
       const inst = await resolveInstrument(order);
       const o = normalise(order, inst);
       const market = await marketFor(o.symbol, { depth: o.orderType === "MARKET" });
+      await ensureSpots(bookSymbols(book(accountId), [o.symbol]));
       const st = book(accountId); // re-read: a reset may have replaced the book while we waited
       const t = now();
       Object.assign(o, {
@@ -752,6 +869,7 @@ export function createPaperEngine(deps, options = {}) {
       if (next.orderType !== current.orderType) next.triggered = false;
       checkShape(next);
       const market = await marketFor(next.symbol, { depth: next.orderType === "MARKET" });
+      await ensureSpots(bookSymbols(book(accountId)));
       const st = book(accountId);
       const o = st.orders.find((x) => x.orderId === orderId);
       if (!o || !isPending(o)) throw invalid(`Order ${orderId} is ${o?.status ?? "no longer available"}; it can no longer be modified.`);
@@ -760,7 +878,7 @@ export function createPaperEngine(deps, options = {}) {
       }
       if (next.orderType === "MARKET" && !market) throw invalid("No market price is available right now, so the order cannot be changed to MARKET.");
       const est = next.orderType === "MARKET" ? marketPriceFor(next.side, market, next.tickSize) : estimatePrice(next);
-      const need = orderBlock(st, next, est);
+      const need = marginToAdd(st, next, est);
       const have = availableCash(st, o);
       if (need > have + 1e-6) throw invalid(`Insufficient paper funds for this change: it needs about ${rupees(need)} and ${rupees(have)} is available.`);
       const t = now();
@@ -797,8 +915,51 @@ export function createPaperEngine(deps, options = {}) {
       const o = normalise(order, inst);
       if (!Number.isFinite(o.quantity) || o.quantity <= 0) return 0;
       const px = Number.isFinite(price) ? price : o.orderType === "MARKET" ? (lastPrice.get(o.symbol)?.ltp ?? (await marketFor(o.symbol, { depth: false }).catch(() => null))?.ltp ?? 0) : estimatePrice(o);
-      return round2(orderBlock(st, o, Number.isFinite(px) ? px : 0));
+      await ensureSpots(bookSymbols(st, [o.symbol]));
+      return round2(marginToAdd(book(accountId), o, Number.isFinite(px) ? px : 0));
     },
+
+    /**
+     * Margin of a basket against this account's book (nothing is stored): what the book blocks now, after the
+     * basket, the change, the basket on its own, and each leg on its own with no hedge benefit (`standalone`).
+     * @param {string} accountId
+     * @param {Array<object>} orders  OrderRequest & { quantity, resolved?, price? } (price: the limit, else the last price)
+     */
+    async estimateBasketMargin(accountId, orders) {
+      book(accountId);
+      const list = [];
+      for (const order of orders ?? []) {
+        const inst = await resolveInstrument(order);
+        const o = normalise({ orderType: "LIMIT", product: "MARGIN", ...order }, inst);
+        let px = Number.isFinite(order.price) ? order.price : lastPrice.get(o.symbol)?.ltp;
+        if (!Number.isFinite(px)) px = (await marketFor(o.symbol).catch(() => null))?.ltp ?? 0;
+        list.push({ order: o, price: px });
+      }
+      await ensureSpots(bookSymbols(book(accountId), list.map((x) => x.order.symbol)));
+      const st = book(accountId);
+      const before = usedMargin(st);
+      const after = usedMargin(st, null, list);
+      const legs = list.map(({ order: o, price }) => legOf(o.symbol, o.side === "BUY" ? o.quantity : -o.quantity, price)).filter(Boolean);
+      const ctx = marginCtx(legs);
+      const alone = portfolioMargin(legs, ctx);
+      const nonFo = list.filter(({ order: o }) => !legOf(o.symbol, 1, 0)).reduce((a, { order, price }) => a + orderBlock(st, order, price), 0);
+      const naked = portfolio ? standaloneMargin(legs, ctx) + nonFo : list.reduce((a, { order, price }) => a + orderBlock(st, order, price), 0);
+      const r = round2;
+      return {
+        model: portfolio ? "portfolio" : "simple",
+        before: r(before),
+        after: r(after),
+        change: r(after - before),
+        alone: r(portfolio ? alone.required + nonFo : naked),
+        standalone: r(naked),
+        breakdown: { premium: r(alone.premium), span: r(alone.span), exposure: r(alone.exposure), calendar: r(alone.calendar), elm: r(alone.elm) },
+        forwards: Object.fromEntries(Object.entries(ctx.forwards).map(([k, v]) => [k, r(v)])),
+        fallback: alone.groups.filter((g) => g.fallback).map((g) => g.underlying),
+        available: r(availableCash(st)),
+        method: portfolio ? SPAN_METHOD : "Simple per-leg model: premium for buys, a percentage of contract value for sells and futures.",
+      };
+    },
+
 
     /** One order, or null. */
     async order(accountId, orderId) {
@@ -852,6 +1013,7 @@ export function createPaperEngine(deps, options = {}) {
     /** Funds: cash, blocked margin and P&L since the last reset (realised is cumulative; charges are separate). */
     async funds(accountId) {
       await markPositions(book(accountId));
+      await ensureSpots(bookSymbols(book(accountId)));
       const st = book(accountId);
       const used = usedMargin(st);
       const unrealised = Object.values(st.positions).reduce((s, p) => s + unrealisedOf(p).unrealised, 0);
@@ -882,10 +1044,30 @@ export function createPaperEngine(deps, options = {}) {
         throw badInput(`startingCapital must be from ${CAPITAL_MIN} to ${CAPITAL_MAX} rupees.`, "startingCapital");
       }
       const t = now();
+      // Kept for UNDO_RESET_MS so the dashboard's Undo can put the book back (pending orders stay cancelled).
+      const before = structuredClone(st);
       for (const o of st.orders) if (isPending(o)) setStatus(o, "cancelled", "Cancelled by a paper account reset.", t);
+      for (const o of before.orders) if (isPending(o)) Object.assign(o, { status: "cancelled", statusMessage: "Cancelled by a paper account reset.", updatedAt: toIstIso(t) });
+      undo.set(accountId, { state: before, at: t });
       const fresh = freshState(accountId, capital, st.createdAt, toIstIso(t));
       books.set(accountId, fresh);
       save(fresh);
+    },
+
+    /**
+     * Put back the book from before the last reset, within UNDO_RESET_MS and only while the fresh book is untouched
+     * (no order placed since). Orders that were pending stay cancelled. Throws INVALID_ORDER otherwise.
+     */
+    async undoReset(accountId) {
+      const st = book(accountId);
+      const u = undo.get(accountId);
+      if (!u || now() - u.at > UNDO_RESET_MS) throw invalid("There is no recent reset to undo on this paper account.");
+      if (st.orders.length || st.trades.length) throw invalid("Orders were placed after the reset, so it can no longer be undone.");
+      undo.delete(accountId);
+      const back = { ...u.state, resetAt: u.state.resetAt ?? null };
+      rollDay(back);
+      books.set(accountId, back);
+      save(back);
     },
 
     // ── internal (not part of the contract) ──

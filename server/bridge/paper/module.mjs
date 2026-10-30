@@ -20,6 +20,8 @@ import { createPaperRoutes } from "./routes.mjs";
 export const ROUTES = Object.freeze([
   ["GET", "/v1/paper/accounts/:accountId", { scope: "read" }, "getAccount"],
   ["POST", "/v1/paper/accounts/:accountId/reset", { scope: "paper" }, "reset"],
+  ["POST", "/v1/paper/accounts/:accountId/reset/undo", { scope: "paper" }, "undoReset"],
+  ["POST", "/v1/paper/accounts/:accountId/margin", { scope: "read" }, "margin"],
 ]);
 
 export default defineModule({

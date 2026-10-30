@@ -143,9 +143,9 @@ export function openPlacement(o) {
   function drawWarnings() {
     const w = o.warnings ?? [];
     warnHost.hidden = !w.length;
-    // A paper account short of funds is never a dead end: say why (each short leg is margined on its own) and where
+    // A paper account short of funds is never a dead end: say that hedges are already credited, and where
     // to add paper money (Accounts › Reset with more capital).
-    const fix = (x) => (x.code === "SHORTFALL" && a.broker === "paper" ? h("span", { class: "strat-warn-fix" }, " Paper margins each short leg on its own (no hedge offset yet). ", h("a", { href: `#/accounts?reset=${encodeURIComponent(a.id)}` }, "Add paper funds"), " or trade fewer lots.") : null);
+    const fix = (x) => (x.code === "SHORTFALL" && a.broker === "paper" ? h("span", { class: "strat-warn-fix" }, " Paper margin already credits the hedges in this basket. ", h("a", { href: `#/accounts?reset=${encodeURIComponent(a.id)}` }, "Add paper funds"), " or trade fewer lots.") : null);
     warnHost.replaceChildren(...w.map((x) => h("li", { class: x.severity === "block" ? "bad" : x.severity === "warn" ? "warn" : "info" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, `${x.severity === "block" ? "Blocked: " : ""}${x.text}`, fix(x)))));
   }
 

@@ -1764,6 +1764,102 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/paper/accounts/{accountId}/reset/undo:
+    parameters:
+      - $ref: "#/components/parameters/AccountIdPath"
+    post:
+      tags: [Paper]
+      operationId: undoPaperReset
+      summary: Put back the paper book from before the last reset
+      description: Works for 2 minutes after a reset and only while no order has been placed since. Orders that were pending at the reset stay cancelled.
+      x-stream: S8
+      x-scope: paper
+      responses:
+        "200":
+          description: The restored paper account.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/PaperAccount" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/paper/accounts/{accountId}/margin:
+    parameters:
+      - $ref: "#/components/parameters/AccountIdPath"
+    post:
+      tags: [Paper]
+      operationId: paperBasketMargin
+      summary: Margin of a basket against the paper book (approximate, nothing is placed)
+      description: >-
+        Portfolio model (server/bridge/dashboard/span-margin.js): approximate, not the exchange's SPAN. Per underlying, a
+        16-scenario price and volatility scan, plus exposure margin, a calendar charge across expiries and expiry-day ELM.
+        Without an underlying price the legs fall back to the simple per-leg model and are listed in `fallback`.
+      x-stream: S8
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [legs]
+              properties:
+                legs:
+                  type: array
+                  minItems: 1
+                  maxItems: 24
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [symbol, side]
+                    properties:
+                      symbol: { type: string }
+                      side: { type: string, enum: [BUY, SELL] }
+                      quantity: { type: integer, minimum: 1 }
+                      lots: { type: integer, minimum: 1 }
+                      price: { type: number, exclusiveMinimum: 0 }
+                      product: { type: string, enum: [INTRADAY, MARGIN] }
+      responses:
+        "200":
+          description: Margin before and after the basket, the basket alone and each leg on its own.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [model, before, after, change, alone, standalone, method]
+                    properties:
+                      model: { type: string, enum: [portfolio, simple] }
+                      before: { type: number }
+                      after: { type: number }
+                      change: { type: number }
+                      alone: { type: number }
+                      standalone: { type: number, description: Each leg margined on its own, with no hedge benefit. }
+                      breakdown:
+                        type: object
+                        properties:
+                          premium: { type: number }
+                          span: { type: number }
+                          exposure: { type: number }
+                          calendar: { type: number }
+                          elm: { type: number }
+                      forwards: { type: object, additionalProperties: { type: number } }
+                      fallback: { type: array, items: { type: string } }
+                      available: { type: number }
+                      method: { type: string }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/safety:
     get:
       tags: [Safety]

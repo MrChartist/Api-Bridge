@@ -343,7 +343,7 @@ describe("funds and margin", () => {
   });
 
   it("approximates futures and option-writing margin as configured", async () => {
-    const r = rig({ paper: { margin: { futuresPct: 10, optionSellPct: 12 } } });
+    const r = rig({ paper: { margin: { model: "simple", futuresPct: 10, optionSellPct: 12 } } });
     await r.engine.place("paper-1", { symbol: NIFTY_FUT, side: "SELL", quantity: 65, product: "MARGIN", orderType: "MARKET" });
     expect((await r.engine.funds("paper-1")).usedMargin).toBe(162_500); // 65 * 25000 * 10%
     await r.engine.place("paper-1", { symbol: NIFTY_CE, side: "SELL", quantity: 65, product: "MARGIN", orderType: "MARKET" });
@@ -723,6 +723,55 @@ describe("estimateOrderMargin (order preview)", () => {
     expect((await r.engine.orders("paper-1")).items).toHaveLength(0);
     await r.engine.place("paper-1", { symbol: NIFTY_CE, side: "BUY", quantity: 65, product: "MARGIN", orderType: "MARKET" });
     expect(await r.engine.estimateOrderMargin("paper-1", sellCe)).toBe(0);
-    expect(await r.engine.estimateOrderMargin("paper-1", { ...sellCe, quantity: 130 })).toBe(243_750); // 65 closes, 65 adds
+    // 65 closes the long (its 7800 premium block is released), 65 opens a short: 243750 − 7800.
+    expect(await r.engine.estimateOrderMargin("paper-1", { ...sellCe, quantity: 130 })).toBe(235_950);
+  });
+});
+
+describe("portfolio margin (hedges get their benefit)", () => {
+  const PE = (k) => `NFO:NIFTY-2026-10-27-${k}-PE`;
+  const CE = (k) => `NFO:NIFTY-2026-10-27-${k}-CE`;
+  const condorPrices = { "NSE:NIFTY": 25_000, [PE(24800)]: 40, [PE(24900)]: 70, [CE(25100)]: 75, [CE(25200)]: 45, [NIFTY_FUT]: 25_000 };
+  const order = (symbol, side) => ({ symbol, side, quantity: 65, product: "MARGIN", orderType: "MARKET" });
+
+  it("an iron condor blocks far less than its legs one by one, and less than the simple model", async () => {
+    const r = rig({ prices: condorPrices, paper: { startingCapital: 2_000_000 } });
+    for (const [s, side] of [[PE(24800), "BUY"], [CE(25200), "BUY"], [PE(24900), "SELL"], [CE(25100), "SELL"]]) {
+      expect((await r.engine.place("paper-1", order(s, side))).status).toBe("filled");
+    }
+    const used = (await r.engine.funds("paper-1")).usedMargin;
+    const simple = rig({ prices: condorPrices, paper: { startingCapital: 2_000_000, margin: { model: "simple" } } });
+    for (const [s, side] of [[PE(24800), "BUY"], [CE(25200), "BUY"], [PE(24900), "SELL"], [CE(25100), "SELL"]]) await simple.engine.place("paper-1", order(s, side));
+    const naked = (await simple.engine.funds("paper-1")).usedMargin;
+    expect(used).toBeGreaterThan(60_000); // exposure alone is 2 × 65 × 25000 × 2 %
+    expect(used).toBeLessThan(naked * 0.3);
+  });
+
+  it("the hedge leg can be placed even when the account could not afford the short alone again", async () => {
+    const r = rig({ prices: condorPrices, paper: { startingCapital: 200_000 } });
+    expect((await r.engine.place("paper-1", order(CE(25100), "SELL"))).status).toBe("filled");
+    const hedge = await r.engine.place("paper-1", order(CE(25200), "BUY"));
+    expect(hedge.status).toBe("filled");
+    const f = await r.engine.funds("paper-1");
+    expect(f.usedMargin).toBeLessThan(80_000);
+  });
+
+  it("estimateBasketMargin reports before, after, alone and the legs one by one", async () => {
+    const r = rig({ prices: condorPrices });
+    const legs = [order(PE(24800), "BUY"), order(CE(25200), "BUY"), order(PE(24900), "SELL"), order(CE(25100), "SELL")];
+    const m = await r.engine.estimateBasketMargin("paper-1", legs);
+    expect(m).toMatchObject({ model: "portfolio", before: 0, forwards: { NIFTY: 25_000 }, fallback: [] });
+    expect(m.after).toBe(m.alone);
+    expect(m.change).toBe(m.after);
+    expect(m.standalone).toBeGreaterThan(m.alone * 3);
+    expect(m.method).toMatch(/^Approximate, not the exchange's SPAN/);
+    expect((await r.engine.orders("paper-1")).items).toHaveLength(0);
+  });
+
+  it("without an underlying price it falls back to the simple per-leg figures", async () => {
+    const r = rig();
+    const m = await r.engine.estimateBasketMargin("paper-1", [{ symbol: NIFTY_CE, side: "SELL", quantity: 65, product: "MARGIN", orderType: "LIMIT", price: 120 }]);
+    expect(m.fallback).toEqual(["NIFTY"]);
+    expect(m.after).toBe(243_750);
   });
 });

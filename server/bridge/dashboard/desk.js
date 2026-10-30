@@ -17,11 +17,12 @@ import { createPositionsPage } from "./positions.js";
 import { cap, every, segField, segmented, stopTimer } from "./views.js";
 import { wideExtras } from "./layout-prefs.js";
 import { createVolPage, volConfig } from "./vol.js";
-import { demoStaleAsked, lotConfirmGate, lotStaleCheck, loadReference, refBanners, refCalendar, refChip, refRate, refSession, refSignature } from "./reference.js";
+import { demoStaleAsked, lotConfirmGate, lotStaleCheck, loadReference, refBanners, refCalendar, refCharges, refChip, refRate, refSession, refSignature } from "./reference.js";
 import { readinessSheetRow } from "./readiness.js";
 import { clockNote, loadPricingContext } from "./vol-context.js";
 import { animatePage, barsEnter, countUp, flashValue, stopCount } from "./motion.js";
-import { ticketRisk } from "./flows.js";
+import { riskAfterCharges, ticketRisk } from "./flows.js";
+import { SPAN_METHOD, marginLegsOf, portfolioMargin } from "./span-margin.js";
 
 const SLOT = "mcb.dashboard.desk";
 /** The index underlyings the Options pages list (live) and the three the demo serves; the Option Screener shares them. */
@@ -1496,7 +1497,18 @@ async function renderDesk(kind) {
         const px = b.price ?? (b.side === "BUY" ? num(q0?.ask) : num(q0?.bid)) ?? num(q0?.ltp);
         const risk = !fut && !exit && row ? ticketRisk({ side: b.side, right, strike: row.strike, price: px, qty: r.quantity }) : null;
         const fwd = num(st.chain?.underlyingLtp);
-        const mg = risk && b.side === "SELL" && fwd ? O.marginEstimate([{ strike: row.strike, right, side: "SELL", lots: Math.max(1, Math.round(r.quantity / lotSize)), lotSize, price: px }], lotSize, { forward: fwd }) : null;
+        // Margin: the same portfolio model as the paper engine, Strategy and Positions (span-margin.js).
+        const u = st.chain?.underlying ?? st.underlying;
+        const leg = { kind: fut ? "FUT" : "OPT", side: b.side, strike: fut ? null : row?.strike, right: fut ? null : right, expiry: ex, units: r.quantity, price: px, iv: fut ? null : num(quote()?.iv) };
+        const mg = !exit && (b.side === "SELL" || fut) && fwd && isFigure(px) ? portfolioMargin(marginLegsOf([leg], { underlying: u }), { nowMs: Date.now(), forwards: { [u]: fwd } }) : null;
+        // The paper engine's own figure counts what the account holds (a hedge adds little or nothing).
+        const withBook = num(r.margin?.required);
+        // Charges: open at this price, square off at the same price (brokerage, STT, exchange, SEBI, stamp, GST).
+        const rates = refCharges(st.ref);
+        const chLeg = (sd) => ({ kind: fut ? "FUT" : "OPT", side: sd, price: px, lots: 1, lotSize: r.quantity, strike: row?.strike, right, symbol: sym });
+        const entryCh = isFigure(px) && r.quantity > 0 ? O.charges([chLeg(b.side)], rates, { lotSize: r.quantity }).total : null;
+        const exitCh = isFigure(entryCh) ? O.charges([chLeg(b.side === "BUY" ? "SELL" : "BUY")], rates, { lotSize: r.quantity }).total : null;
+        const after = risk && isFigure(entryCh) ? riskAfterCharges(risk, { side: b.side, right, qty: r.quantity, entry: entryCh, exit: exitCh }) : null;
         const lossText = risk ? (risk.maxLoss === null ? "Unlimited" : formatRupee(risk.maxLoss, 0)) : null;
         previewEl.replaceChildren(
           h(
@@ -1506,10 +1518,19 @@ async function renderDesk(kind) {
             h("div", {}, h("small", {}, b.side === "BUY" ? "You pay" : "You receive"), formatRupee(r.estimatedValue, 0)),
             risk ? h("div", { title: "The most this order can lose at expiry, before charges" }, h("small", {}, "Max loss"), h("span", { class: risk.maxLoss === null ? "down" : "" }, lossText)) : null,
             risk ? h("div", { title: "Where the underlying must settle at expiry for this order to break even, before charges" }, h("small", {}, "Breakeven"), formatFixed(risk.breakeven, 2)) : null,
-            mg ? h("div", { title: "An estimate (price scan plus exposure). The broker's figure is final." }, h("small", {}, "Margin ≈"), formatRupee(mg.required, 0)) : null,
+            mg ? h("div", { title: SPAN_METHOD }, h("small", {}, "Margin ≈"), formatRupee(mg.required, 0)) : null,
             // Paper is said once (the account); only a live order gets a Mode figure, in red.
             r.mode === "live" ? h("div", {}, h("small", {}, "Mode"), h("span", { class: "down" }, "LIVE")) : null,
           ),
+          isFigure(entryCh)
+            ? h(
+                "p",
+                { class: "ticket-after", title: "Charges from the reference table: brokerage, STT, exchange and SEBI fees, stamp duty and GST. Round trip: open now, square off at the same price." },
+                h("span", {}, "Charges ≈ ", h("strong", {}, formatRupee(entryCh + exitCh, 0)), " round trip"),
+                after ? h("span", {}, "After charges: max loss ", h("strong", {}, after.maxLoss === null ? "Unlimited" : formatRupee(after.maxLoss, 0)), ", breakeven ", h("strong", {}, formatFixed(after.breakeven, 2))) : null,
+                mg && isFigure(withBook) && Math.abs(withBook - mg.required) > Math.max(1, mg.required * 0.02) ? h("span", { title: "From the paper engine, with the positions this account already holds." }, "With your positions: adds ", h("strong", {}, formatRupee(Math.max(0, withBook), 0))) : null,
+              )
+            : null,
           ...(checks.length ? [h("ul", { class: "ticket-checks" }, checks.map((x) => h("li", { class: x.severity === "block" ? "bad" : "warn" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, `${x.severity === "block" ? "Blocked: " : ""}${x.message}`))))] : []),
         );
       } catch (err) {
