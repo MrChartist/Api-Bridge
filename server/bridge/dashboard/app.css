@@ -3211,6 +3211,8 @@ input.picker-filter { width: 96px; min-height: 30px; padding: 4px 10px; border-r
 
 /* Menus (leg ⋯, expiry, tools, head, chart) */
 .popover.menu-pop { width: min(300px, calc(100vw - 32px)); }
+.popover.menu-pop.strike-menu { width: min(400px, calc(100vw - 32px)); }
+.strike-menu .menu-list button.menu-item small { white-space: normal; }
 .menu-list { gap: 2px; padding: 4px; }
 .menu-list button.menu-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 36px; padding: 6px 10px; border-radius: 8px; background: transparent; box-shadow: none; text-align: left; font: 500 13px/1.25 var(--font-body); }
 .menu-list button.menu-item:hover:not(:disabled) { background: var(--mat-fill-2); }

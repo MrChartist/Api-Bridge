@@ -16,6 +16,8 @@ import { SPAN_METHOD, marginLegsOf, portfolioMargin } from "./span-margin.js";
 
 const SAVES = "mcb.dashboard.strategies";
 const NAMES = "mcb.dashboard.strategyNames";
+/** desk.js FROM_CHAIN_SLOT: a strategy built around a strike in the chain. */
+const FROM_CHAIN = "mcb.dashboard.fromChain";
 const YEAR_MS = 365 * 86400000;
 const DAY_MS = 86400000;
 const NO_CHANGE = Symbol("no change");
@@ -2526,6 +2528,20 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
 
   loadFunds();
   drawSuggestShell();
+
+  // Built from the chain (right-click a strike): the legs are already the draft; offer Undo back to the old draft.
+  try {
+    const fc = JSON.parse(app.local.get(FROM_CHAIN) ?? "null");
+    app.local.set(FROM_CHAIN, null);
+    if (fc && fc.u === st.underlying && Array.isArray(fc.prev)) {
+      undo = { key: fc.u, legs: O.migrateLegs(fc.prev, st.expiry, { lotSize: num(st.chain?.lotSize) }), label: String(fc.label ?? "Strategy from the chain") };
+      setName(null);
+      animateNext = true;
+      setTimeout(() => undoToast(undo?.label ?? ""), 0);
+    }
+  } catch {
+    // a broken hand-off is ignored: the draft is already in place
+  }
 
   return {
     panel,
