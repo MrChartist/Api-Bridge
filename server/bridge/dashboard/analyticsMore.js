@@ -443,8 +443,9 @@ function makeField(H, spec) {
  * where `run` returns the nodes to show and `v` / `o` are the chain controls and the tab's own fields. A change to any
  * control reloads the open tab; the result area shows loading, the Bridge's error, or the drawing.
  */
+// Result areas are not live regions: a whole table or chart was read out on every load. Errors still are (role=alert).
 async function workbench(H, { tabs, label = "View" }) {
-  const out = h("div", { class: "stack", "aria-live": "polite" });
+  const out = h("div", { class: "stack" });
   // In the dashboard shell each tab is a page tab of its own (analytics.js passes H.tab): no inner switch then.
   const forced = H.tab && tabs.some((t) => t.id === H.tab) ? H.tab : null;
   const seg = !forced && tabs.length > 1 ? H.segmented(label, tabs.map((t) => [t.id, t.label]), tabs[0].id) : null;
@@ -709,7 +710,7 @@ export function cumulativeFlows(days) {
 async function renderFlows(H) {
   const days = h("select", { id: nextId("an-days") }, [["5", "5 sessions"], ["10", "10 sessions"], ["20", "20 sessions"], ["30", "30 sessions"], ["60", "60 sessions"]].map(([v, t]) => h("option", { value: v }, t)));
   days.value = "10";
-  const out = h("div", { class: "stack", "aria-live": "polite" });
+  const out = h("div", { class: "stack" });
   let seq = 0;
   const load = async () => {
     const mine = ++seq;
@@ -1247,8 +1248,8 @@ function confirmDelete(H, r, done) {
 }
 
 async function renderAlerts(H) {
-  const listBox = h("div", { class: "stack", "aria-live": "polite" });
-  const resultBox = h("div", { class: "stack", "aria-live": "polite" });
+  const listBox = h("div", { class: "stack" });
+  const resultBox = h("div", { class: "stack" });
   const loadRules = async () => {
     listBox.replaceChildren(loadingNode());
     try {
@@ -1282,7 +1283,7 @@ async function renderAlerts(H) {
   hoursEl.checked = true;
   const hoursField = h("div", { class: "field" }, h("span", { class: "pal-sr-only" }, "Market hours"), h("label", { class: "check", for: hoursEl.id }, hoursEl, "Only during market hours"));
   const preview = h("p", { class: "rule-sentence", role: "status" });
-  const formOut = h("div", { class: "stack", "aria-live": "polite" });
+  const formOut = h("div", { class: "stack" });
   // A rule names its own target, so its underlying and expiry stay visible (they still follow the context bar).
   const controls = chainControls(H, { onChange: () => update(), onContext: () => update(), onError: (e) => formOut.replaceChildren(H.errorBox(e)), withStrikes: false, local: true });
   controls.node.querySelector("button")?.closest(".field")?.remove();
@@ -1418,7 +1419,7 @@ async function renderPositions(H) {
   const accounts = (await api("/v1/accounts")).data?.data ?? [];
   const acct = h("select", { id: nextId("an-acct") }, accounts.map((a) => h("option", { value: a.id }, `${a.label ?? a.id}${a.label && a.label !== a.id ? ` (${a.id})` : ""}`)));
   const modeEl = h("select", { id: nextId("an-pmode") }, [["", "Default"], ["paper", "Paper positions"], ["live", "Live positions"]].map(([v, t]) => h("option", { value: v }, t)));
-  const gOut = h("div", { class: "stack", "aria-live": "polite" });
+  const gOut = h("div", { class: "stack" });
   let seq = 0;
   const loadG = async () => {
     if (!acct.value) return;
@@ -1463,7 +1464,7 @@ async function renderPositions(H) {
   lots.el.addEventListener("input", qty);
   lotSize.el.addEventListener("input", qty);
   qty();
-  const sOut = h("div", { class: "stack", "aria-live": "polite" });
+  const sOut = h("div", { class: "stack" });
   const splitForm = h(
     "form",
     {

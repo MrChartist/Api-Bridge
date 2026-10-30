@@ -1154,8 +1154,15 @@ function setupChrome() {
   // The IST clock in the toolbar (wide screens). It claims nothing about the market being open.
   const clock = $("clock");
   const IST_CLOCK = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hourCycle: "h23", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  // Each second only the time's text node changes (new nodes every second restyled the toolbar).
+  let clockText = null;
   const tick = () => {
-    if (clock && clock.offsetParent !== null) clock.replaceChildren(IST_CLOCK.format(new Date()), h("small", {}, "IST"));
+    if (!clock || clock.offsetParent === null) return;
+    if (!clockText || clockText.parentNode !== clock) {
+      clockText = document.createTextNode("");
+      clock.replaceChildren(clockText, h("small", {}, "IST"));
+    }
+    clockText.data = IST_CLOCK.format(new Date());
   };
   tick();
   setInterval(tick, 1000);
@@ -2979,7 +2986,7 @@ async function webhookPanel(paperAcc) {
   const side = segmented("Side", [["", "From the alert"], ["BUY", "BUY"], ["SELL", "SELL"]], "");
   const orderType = segmented("Order type", [["LIMIT", "LIMIT (safer)"], ["MARKET", "MARKET (protected)"]], "LIMIT");
   const product = segmented("Product", ["INTRADAY", "MARGIN", "CNC"].map((p) => [p, p]), "INTRADAY");
-  const lots = h("input", { type: "number", value: "1", min: "1", max: "50" });
+  const lots = h("input", { type: "number", inputmode: "numeric", value: "1", min: "1", max: "50" });
   const btn = h("button", { type: "button", class: "primary" }, icon("plus"), "Create webhook");
   const columns = [
     { label: "Hook", cell: (x) => h("div", {}, h("strong", {}, x.label), h("div", { class: "muted small mono" }, x.id)) },

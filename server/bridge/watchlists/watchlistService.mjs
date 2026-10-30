@@ -207,22 +207,25 @@ export function createWatchlistService(deps, { factsFor = null } = {}) {
       const t = now();
       const day = istDay(t);
       const errors = [];
-      // The near future of each F&O underlying, once a day.
-      for (const s of l.symbols) {
-        const u = s.split(":")[1];
-        const f = futures.get(u);
-        if (f?.day === day) continue;
-        let sym = null;
-        let front = null;
-        try {
-          const ex = await deps.marketData.expiries(u, { priority: "background" });
-          sym = nearFuture(s, ex?.expiries ?? [], day);
-          front = frontExpiry(ex?.expiries ?? [], day);
-        } catch {
-          sym = null;
-        }
-        futures.set(u, { day, symbol: sym, front });
-      }
+      // The near future of each F&O underlying, once a day. Read together, not one after another: on a cold start a
+      // list of eight read in turn took seconds before the first price showed (Home waited on it).
+      await Promise.all(
+        l.symbols.map(async (s) => {
+          const u = s.split(":")[1];
+          const f = futures.get(u);
+          if (f?.day === day) return;
+          let sym = null;
+          let front = null;
+          try {
+            const ex = await deps.marketData.expiries(u, { priority: "background" });
+            sym = nearFuture(s, ex?.expiries ?? [], day);
+            front = frontExpiry(ex?.expiries ?? [], day);
+          } catch {
+            sym = null;
+          }
+          futures.set(u, { day, symbol: sym, front });
+        }),
+      );
       const futOf = (s) => futures.get(s.split(":")[1])?.symbol ?? null;
       const want = [...new Set([...l.symbols, ...l.symbols.map(futOf).filter(Boolean)])];
       const q = new Map();
@@ -251,15 +254,17 @@ export function createWatchlistService(deps, { factsFor = null } = {}) {
       const unders = [...new Set(l.symbols.map((s) => s.split(":")[1]))].slice(0, 20);
       await refreshIvs([...new Set(l.symbols.map((s) => s.split(":")[1]))], t);
       if (deps.vol && typeof deps.vol.summary === "function" && unders.length) {
-        for (const u of unders) {
-          try {
-            const r = await deps.vol.summary({ underlyings: [u] });
-            const it = r?.items?.[0];
-            if (it?.available) vol.set(u, it);
-          } catch {
-            // Not an F&O underlying, or no IV history yet: the IV column stays empty.
-          }
-        }
+        await Promise.all(
+          unders.map(async (u) => {
+            try {
+              const r = await deps.vol.summary({ underlyings: [u] });
+              const it = r?.items?.[0];
+              if (it?.available) vol.set(u, it);
+            } catch {
+              // Not an F&O underlying, or no IV history yet: the IV column stays empty.
+            }
+          }),
+        );
       }
       const rows = [];
       for (const s of l.symbols) {

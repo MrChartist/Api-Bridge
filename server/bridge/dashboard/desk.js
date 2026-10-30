@@ -2590,10 +2590,18 @@ async function renderDesk(kind) {
     refRo.observe(refBannersEl.el);
   }
   // Every desk page fits its capsule (OI, Volatility, Positions too: at 1280 px the % change was cut to "(−1").
+  // Only the room it has decides that: the bar's width. The capsule's own size moves with every tick's figures (and
+  // fitCtx itself resizes it), and observing it ran this measure-and-refit loop about once a second on a live chain;
+  // a change in its text length is fitCtxIfNeeded's job.
   if (typeof ResizeObserver === "function") {
-    ctxRo = new ResizeObserver(() => fitCtx());
-    ctxRo.observe(capsule);
-    if (capsule.parentNode) ctxRo.observe(capsule.parentNode);
+    let roomW = -1;
+    ctxRo = new ResizeObserver((entries) => {
+      const w = Math.round(entries[entries.length - 1]?.contentRect?.width ?? -1);
+      if (w === roomW) return;
+      roomW = w;
+      fitCtx();
+    });
+    ctxRo.observe(capsule.parentNode ?? capsule);
   }
   drawCtx();
   // The chain shows its layout-shaped skeleton at once and fills in when the data arrives; the other pages wait.

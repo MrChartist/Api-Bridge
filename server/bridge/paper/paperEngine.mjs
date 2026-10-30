@@ -946,6 +946,54 @@ export function createPaperEngine(deps, options = {}) {
       return project(o);
     },
 
+    /**
+     * Convert part or all of a position between products (Intraday MIS and carry NRML), as brokers do: no order, no
+     * fill, no charge. The moved quantity keeps its average price; it joins a position already held in the other
+     * product at the weighted average. Refused when the other product holds the opposite side, when the quantity is
+     * more than is held, and into Intraday at or after the square-off time (it would be squared off at once).
+     * @param {string} accountId
+     * @param {{ symbol: string, from: string, to: string, quantity: number }} c
+     * @returns {Promise<{ from: object, to: object, quantity: number, at: string }>}
+     */
+    async convert(accountId, { symbol, from, to, quantity }) {
+      const st = book(accountId);
+      const PRODUCTS = ["INTRADAY", "MARGIN", "CNC"];
+      if (!PRODUCTS.includes(from) || !PRODUCTS.includes(to) || from === to) throw badInput("from and to must be two different products: INTRADAY, MARGIN or CNC.", "to");
+      if (!(Number.isInteger(quantity) && quantity > 0)) throw badInput("quantity must be a whole number above zero.", "quantity");
+      const src = st.positions[posKey(symbol, from)];
+      if (!src || src.netQty === 0) throw invalid(`There is no open ${from} position in ${symbol} to convert.`, "symbol");
+      if (quantity > Math.abs(src.netQty)) throw invalid(`Only ${Math.abs(src.netQty)} is held in ${from}; ${quantity} cannot be converted.`, "quantity");
+      const t = now();
+      if (to === "INTRADAY" && cfg.squareOff.enabled && t >= squareOffAt(src.exchange, t)) throw invalid("It is past the intraday square-off time, so a position cannot be converted to Intraday now.", "to");
+      const dir = Math.sign(src.netQty);
+      const key = posKey(symbol, to);
+      const dst = st.positions[key] ?? { symbol, product: to, exchange: src.exchange, kind: src.kind, strike: src.strike ?? null, tickSize: src.tickSize, netQty: 0, avgPrice: 0, realisedPnl: 0, buyQty: 0, sellQty: 0, buyValue: 0, sellValue: 0, openedDay: src.openedDay };
+      if (dst.netQty !== 0 && Math.sign(dst.netQty) !== dir) throw invalid(`The ${to} position in ${symbol} is on the other side; close it first, then convert.`, "to");
+      const value = quantity * src.avgPrice;
+      dst.avgPrice = (Math.abs(dst.netQty) * dst.avgPrice + value) / (Math.abs(dst.netQty) + quantity);
+      dst.netQty += dir * quantity;
+      if (dir > 0) {
+        dst.buyQty += quantity;
+        dst.buyValue += value;
+        src.buyQty = Math.max(0, src.buyQty - quantity);
+        src.buyValue = Math.max(0, src.buyValue - value);
+      } else {
+        dst.sellQty += quantity;
+        dst.sellValue += value;
+        src.sellQty = Math.max(0, src.sellQty - quantity);
+        src.sellValue = Math.max(0, src.sellValue - value);
+      }
+      if (dst.openedDay === undefined || (src.openedDay !== undefined && src.openedDay < dst.openedDay)) dst.openedDay = src.openedDay;
+      src.netQty -= dir * quantity;
+      if (src.netQty === 0) src.avgPrice = 0;
+      st.positions[key] = dst;
+      const at = toIstIso(t);
+      (st.conversions ??= []).push({ at, symbol, from, to, quantity: dir * quantity });
+      if (st.conversions.length > 500) st.conversions.splice(0, st.conversions.length - 500);
+      save(st);
+      return { from: { ...src }, to: { ...dst }, quantity, at };
+    },
+
     /** Cancel a pending order. Throws ORDER_NOT_FOUND, or INVALID_ORDER when it is already final. */
     async cancel(accountId, orderId) {
       const st = book(accountId);

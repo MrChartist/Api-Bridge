@@ -1534,7 +1534,9 @@ input[type="checkbox"]:not(.switch input):disabled, input[type="radio"]:disabled
 .dv-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 0; padding: 0; list-style: none; font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .dv-legend li { display: inline-flex; align-items: center; gap: 6px; min-height: 20px; }
 .dv-legend button { min-height: 24px; padding: 0 8px 0 6px; gap: 6px; border-radius: 999px; font: inherit; color: inherit; background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); }
-.dv-legend button[aria-pressed="false"] { opacity: 0.35; }
+/* An off series: its key fades, its label stays readable (quiet ink, 4.5:1 or more) and is struck through. */
+.dv-legend button[aria-pressed="false"] { color: hsl(var(--foreground) / var(--a-quiet)); text-decoration: line-through; }
+.dv-legend button[aria-pressed="false"] .dv-key { opacity: 0.35; }
 .dv-key { flex: none; display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
 .dv-key.line { width: 14px; height: 2px; border-radius: 1px; }
 .dv-key.dash { width: 14px; height: 0; border-top: 2px dashed currentColor; background: none; border-radius: 0; }
@@ -1871,7 +1873,7 @@ button.start-row:hover { --btn-bg: var(--mat-fill-1); }
   .ck-table tr > :last-child { padding-right: var(--card-pad); }
 }
 /* Card head links (Positions, Calendar, All events) reach 44px on touch. */
-@media (pointer: coarse) { .card-actions a { display: inline-flex; align-items: center; min-height: 44px; } }
+@media (pointer: coarse) { .card-actions a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; } }
 .ck-kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 10px 0 0; font: 500 12.5px/1.35 var(--font-body); }
 .ck-kv dt { color: hsl(var(--foreground) / var(--a-label)); }
 .ck-kv dd { margin: 0; text-align: right; font-family: var(--font-numeric); font-variant-numeric: tabular-nums; }
@@ -2266,7 +2268,8 @@ table.chain .tag.mp { gap: 4px; }
 table.chain .tag.mp::before { content: ""; width: 5px; height: 5px; transform: rotate(45deg); background: hsl(var(--foreground) / 0.55); }
 table.chain .tag.cw { color: hsl(var(--c-call-ink)); box-shadow: inset 0 0 0 1px hsl(var(--c-call) / 0.7); }
 table.chain .tag.pw { color: hsl(var(--c-put-ink)); box-shadow: inset 0 0 0 1px hsl(var(--c-put) / 0.7); }
-table.chain .tag.em, table.chain .tag.em2 { padding: 0 2px; box-shadow: none; color: hsl(var(--c-atm-ink) / 0.85); }
+/* Full ink on white (0.85 was 4.1:1 on the light card), 0.85 on dark: 0.75 × --ink-soft + 0.25. */
+table.chain .tag.em, table.chain .tag.em2 { padding: 0 2px; box-shadow: none; color: hsl(var(--c-atm-ink) / calc(var(--ink-soft) * 0.75 + 0.25)); }
 table.chain .tag.em2 { color: hsl(var(--c-atm-ink) / 0.65); }
 table.chain .tag.pop { animation: chain-tag-pop 160ms var(--ease-out); }
 @keyframes chain-tag-pop { from { transform: scale(0.8); opacity: 0; } }
@@ -4496,7 +4499,7 @@ button.pos-gauge:focus-visible { outline: 2px solid var(--sel-ring); outline-off
 @container pos-cap (max-width: 359px) { .pos-stress:not(.scen) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .pos-stress[hidden] { display: none; }
 button.pos-schip { flex: 1 1 0; min-width: 0; min-height: 26px; height: 26px; padding: 0 6px; gap: 4px; font-size: 12px; justify-content: center; border-radius: 999px; box-shadow: none; font: 500 12px/1 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
-button.pos-schip .k { opacity: var(--soft-op); font-weight: 600; }
+button.pos-schip .k { opacity: max(var(--soft-op), 0.92); font-weight: 600; }
 button.pos-schip:hover { filter: brightness(1.06); }
 button.pos-schip:focus-visible { outline: 2px solid currentColor; outline-offset: -3px; }
 .pos-stress.in > *, .pos-warn.fresh { animation: pos-rise 180ms var(--ease-out) both; }
@@ -7857,7 +7860,8 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
 .jr-day:not([data-div]) { background: var(--mat-fill-1, hsl(var(--foreground) / 0.03)); }
 .jr-day.out { background: transparent; }
 .jr-day.today { box-shadow: inset 0 0 0 2px var(--sel-ring); }
-.jr-dn { font: 500 12px/1 var(--font-numeric); opacity: var(--soft-op); }
+/* The day number sits on a P&L tint: at --soft-op (0.75) it fell to 3.6:1 on dark. */
+.jr-dn { font: 500 12px/1 var(--font-numeric); opacity: max(var(--soft-op), 0.92); }
 .jr-dv { font: 600 12px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .jr-cal-sum { margin: 10px 0 0; }
 .jr-stats table td, .jr-stats table th { white-space: nowrap; }

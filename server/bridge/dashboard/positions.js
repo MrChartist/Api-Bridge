@@ -1444,6 +1444,62 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     });
   }
 
+  /**
+   * Convert a leg between Intraday (MIS) and carry (NRML): POST /v1/positions/convert. Paper moves the quantity at its
+   * average price; a live account is told to convert in the broker's app (no adapter maps it yet).
+   */
+  async function convertLeg(l) {
+    const a = account();
+    if (a && a.broker !== "paper") return toast("Convert live positions in your broker's app or terminal: the Bridge does not send conversions yet.", { tone: "info" });
+    const to = l.product === "INTRADAY" ? "MARGIN" : "INTRADAY";
+    const lot = l.lot || 1;
+    const whole = Math.floor(Math.abs(l.q) / lot);
+    const inLots = lot > 1 && Math.abs(l.q) % lot === 0;
+    const qty = h("input", { id: "bk-cv-qty", type: "number", inputmode: "numeric", min: "1", step: "1", max: String(inLots ? whole : Math.abs(l.q)), value: String(inLots ? whole : Math.abs(l.q)) });
+    const err = h("p", { class: "bad-text", role: "alert", hidden: true });
+    const name = `${st.underlying} ${legName(l)} ${expiryText(l.expiry)}`;
+    const ok = await modal({
+      title: `Convert ${name} to ${PRODUCT[to]}`,
+      body: h(
+        "div",
+        { class: "stack" },
+        h("p", { class: "muted" }, `${l.q > 0 ? "Long" : "Short"} ${inLots ? plural(whole, "lot") : `${formatInt(Math.abs(l.q))} qty`} in ${PRODUCT[l.product]} · avg ${formatFixed(l.avg, 2)}`),
+        h("label", { class: "field", for: "bk-cv-qty" }, h("span", {}, inLots ? "Lots to convert" : "Quantity to convert"), qty),
+        h(
+          "p",
+          { class: "muted small" },
+          to === "MARGIN"
+            ? "Carry (NRML) is not squared off at 15:20 and needs full margin overnight. No order is sent; the average price stays."
+            : "Intraday is squared off at 15:20 today. No order is sent; the average price stays.",
+        ),
+        err,
+      ),
+      buttons: [
+        { label: "Keep as is", value: false },
+        {
+          label: "Convert",
+          cls: "primary",
+          onClick: async () => {
+            err.hidden = true;
+            const n = Math.max(1, Math.floor(Number(qty.value) || 0));
+            try {
+              await api("/v1/positions/convert", { method: "POST", body: { account: st.account, symbol: l.symbol, from: l.product, to, ...(inLots ? { lots: n } : { quantity: n }) } });
+              return true;
+            } catch (e) {
+              err.textContent = `Not converted: ${e?.message ?? "refused"}`;
+              err.hidden = false;
+              return false;
+            }
+          },
+        },
+      ],
+    });
+    if (ok) {
+      toast(`Converted ${name} to ${PRODUCT[to]}`);
+      tick();
+    }
+  }
+
   /** Stop and target on one leg: exits at market on the Bridge (triggers.js). Live accounts send live, if allowed. */
   async function stopsOn(l) {
     if (scopeNow() !== "account" || !st.account) return toast("Choose one account to set a stop and target.", { tone: "info" });
@@ -1467,6 +1523,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     return [
       ["Exit…", () => exitLeg(l.symbol), "exit"],
       ...part,
+      ...(l.q && scopeNow() === "account" && (l.product === "INTRADAY" || l.product === "MARGIN") ? [[l.product === "INTRADAY" ? "Convert to Carry (NRML)…" : "Convert to Intraday…", () => convertLeg(l)]] : []),
       ...(l.q && scopeNow() === "account" ? [[exitChipText(cachedTriggers(st.account), l.symbol) ? "Stop and target (set)…" : "Stop and target…", () => stopsOn(l)]] : []),
       ...(l.q ? [["Alert on this leg…", () => alertOn([l], legWords(l.symbol))]] : []),
       [l.inc ? "Exclude from risk" : "Include in risk", () => toggleInclude([l.symbol], !l.inc)],
