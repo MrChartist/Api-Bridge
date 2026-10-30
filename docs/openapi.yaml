@@ -2063,6 +2063,7 @@ paths:
       tags: [Triggers]
       operationId: updateTrigger
       summary: Change trigger prices, limit prices or the trail
+      description: A live trigger also needs a key with the live scope. AI assistant keys (clientKind mcp) cannot change triggers.
       x-stream: S25
       x-scope: paper
       requestBody:
@@ -2098,6 +2099,7 @@ paths:
       tags: [Triggers]
       operationId: cancelTrigger
       summary: Cancel a waiting or active trigger
+      description: A live trigger also needs a key with the live scope.
       x-stream: S25
       x-scope: paper
       responses:

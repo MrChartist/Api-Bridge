@@ -4,7 +4,7 @@
  * gaps through the trigger fires once, the kill switch fails a trigger for good, exits are reduce-only, and a restart
  * never fires twice.
  */
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -365,5 +365,119 @@ describe("an after-market order is not warned about today's daily limits", () =>
     expect(gtt.warnings.join(" ")).toMatch(/daily limit/);
     svc.cancel(ctx("paper"), amo.id);
     svc.cancel(ctx("paper"), gtt.id);
+  });
+});
+
+describe("adversarial review: cancels and scopes", () => {
+  const quiet = { timers: { setInterval: () => 0, clearInterval: () => {} } };
+  const at = async (day, hhmm) => {
+    const target = Date.parse(`${day}T${hhmm}:00+05:30`);
+    if (target > clock.now()) await clock.advance(target - clock.now());
+  };
+
+  it("an after-market order cancelled while the engine reads the opening price is not sent", async () => {
+    await at("2026-10-28", "16:00");
+    md.setPrice("NSE:RELIANCE", 1400);
+    let during = null;
+    const marketData = { ...md, ltp: async (...a) => {
+      const r = await md.ltp(...a);
+      const f = during;
+      during = null;
+      f?.();
+      return r;
+    } };
+    const s2 = createTriggerService({ ...app.deps, marketData }, quiet);
+    const t = await s2.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", origin: "amo", legs: [{ order: { side: "BUY", quantity: 1, orderType: "LIMIT", price: 1401 } }] });
+    await at("2026-10-29", "09:15");
+    during = () => s2.cancel(ctx("paper"), t.id);
+    expect(await s2.runOnce()).toBe(0);
+    expect(s2.get(ctx("paper"), t.id).status).toBe("cancelled");
+    const sent = (await app.deps.orders.list(ctx("paper"), { accountId: "paper", limit: 500 })).items.filter((o) => o.clientOrderId === t.id);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("a bracket cancelled while the engine reads its entry order stays cancelled (is not re-armed)", async () => {
+    await at("2026-10-29", "10:00");
+    md.setPrice("NSE:RELIANCE", 1400);
+    const entry = (await app.deps.orders.place(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", side: "BUY", quantity: 1, product: "CNC", orderType: "MARKET" })).order;
+    await clock.advance(1000);
+    let during = null;
+    const orders = { ...app.deps.orders, get: async (...a) => {
+      const r = await app.deps.orders.get(...a);
+      const f = during;
+      during = null;
+      f?.();
+      return r;
+    } };
+    const s2 = createTriggerService({ ...app.deps, orders }, quiet);
+    const t = await s2.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", origin: "bracket", parentOrderId: entry.orderId, legs: [{ trigger: 1300, op: "below", order: { side: "SELL", quantity: 1 } }] });
+    expect(t.status).toBe("waiting");
+    expect((await app.deps.orders.get(ctx("paper"), entry.orderId)).status).toBe("filled");
+    during = () => s2.cancel(ctx("paper"), t.id);
+    await s2.runOnce();
+    expect(s2.get(ctx("paper"), t.id).status).toBe("cancelled");
+  });
+
+  it("a live trigger cannot be changed or cancelled by a key without the live scope; an AI assistant key cannot change one", async () => {
+    await at("2026-10-29", "10:30");
+    md.setPrice("NSE:RELIANCE", 1400);
+    const s2 = createTriggerService(app.deps, quiet);
+    const t = await s2.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", legs: [{ trigger: 1450, order: { side: "BUY", quantity: 1 } }] });
+    const m = await reject(s2.update(ctx("mcp"), t.id, { legs: [{ trigger: 1410 }] }));
+    expect(m.code).toBe("SCOPE_REQUIRED");
+    // As if it had been set live by a live key (a paper account cannot hold one): a paper key may not steer it.
+    s2._state().items.find((x) => x.id === t.id).mode = "live";
+    const u = await reject(s2.update(ctx("paper"), t.id, { legs: [{ trigger: 1401 }] }));
+    expect(u.code).toBe("SCOPE_REQUIRED");
+    const c = await reject(Promise.resolve().then(() => s2.cancel(ctx("paper"), t.id)));
+    expect(c.code).toBe("SCOPE_REQUIRED");
+    expect(s2.get(ctx("paper"), t.id).legs[0].trigger).toBe(1450);
+    s2.cancel(ctx("live"), t.id);
+    expect(s2.get(ctx("paper"), t.id).status).toBe("cancelled");
+  });
+
+  it("an unreadable triggers file is kept aside, not overwritten by the next save", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mcb-triggers-bad-"));
+    mkdirSync(join(dir, "triggers"), { recursive: true });
+    const bad = '{"v":1,"items":[{"id":"trg_aaaaaaaaaaaa","legs":[],"status":"active"'; // cut short
+    writeFileSync(join(dir, "triggers", "triggers.json"), bad);
+    md.setPrice("NSE:RELIANCE", 1400);
+    const s2 = createTriggerService({ ...app.deps, paths: { ...app.deps.paths, dataDir: dir } }, quiet);
+    const t = await s2.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", legs: [{ trigger: 1450, order: { side: "BUY", quantity: 1 } }] });
+    const kept = readdirSync(join(dir, "triggers")).filter((f) => f.startsWith("triggers.json.corrupt-"));
+    expect(kept).toHaveLength(1);
+    expect(readFileSync(join(dir, "triggers", kept[0]), "utf8")).toBe(bad);
+    s2.cancel(ctx("paper"), t.id);
+  });
+
+  it("a trigger that could not be saved is refused and never fires", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mcb-triggers-ro-"));
+    writeFileSync(join(dir, "triggers"), "not a folder"); // every save fails
+    md.setPrice("NSE:RELIANCE", 1400);
+    const s2 = createTriggerService({ ...app.deps, paths: { ...app.deps.paths, dataDir: dir } }, quiet);
+    await reject(s2.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", legs: [{ trigger: 1405, order: { side: "BUY", quantity: 1 } }] }));
+    expect(s2.list(() => true, { status: "open" })).toHaveLength(0);
+    await clock.advance(1000);
+    md.setPrice("NSE:RELIANCE", 1406);
+    expect(await s2.runOnce()).toBe(0);
+  });
+
+  it("a trigger left firing that expired while the Bridge was stopped is not sent on restart", async () => {
+    await at("2026-10-29", "15:10");
+    md.setPrice("NSE:RELIANCE", 1400);
+    const s1 = createTriggerService(app.deps, quiet);
+    const t = await s1.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "INTRADAY", legs: [{ trigger: 1405, order: { side: "BUY", quantity: 1 } }] });
+    expect(t.expiresAt).toBe("2026-10-29T15:20:00.000+05:30");
+    // The Bridge marked it firing and stopped before the order went out; it starts again the next morning.
+    const file = join(dataDir, "triggers", "triggers.json");
+    const disk = JSON.parse(readFileSync(file, "utf8"));
+    Object.assign(disk.items.find((x) => x.id === t.id), { status: "firing", firedLeg: 0, firedAt: "2026-10-29T15:19:00.000+05:30" });
+    writeFileSync(file, JSON.stringify(disk));
+    await at("2026-10-30", "09:20");
+    const again = createTriggerService(app.deps, quiet);
+    await again.recover();
+    expect(again.get(ctx("paper"), t.id).status).toBe("expired");
+    const sent = (await app.deps.orders.list(ctx("paper"), { accountId: "paper", limit: 500 })).items.filter((o) => o.clientOrderId === t.id);
+    expect(sent).toHaveLength(0);
   });
 });
