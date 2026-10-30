@@ -22,6 +22,7 @@ import { readinessSheetRow } from "./readiness.js";
 import { clockNote, loadPricingContext } from "./vol-context.js";
 import { animatePage, barsEnter, countUp, flashValue, stopCount } from "./motion.js";
 import { ticketRisk } from "./flows.js";
+import { watch } from "./live.js";
 
 const SLOT = "mcb.dashboard.desk";
 /** The index underlyings the Options pages list (live) and the three the demo serves; the Option Screener shares them. */
@@ -34,6 +35,8 @@ const OI_FETCH_STRIKES = 100;
 /** The Volatility page reads the 10Δ wings of monthlies: a wider window than the chain. */
 const VOL_STRIKES = 60;
 const REFRESH_MS = 3000;
+/** Shortest gap between two price flashes on one chain cell (live ticks arrive every frame on liquid strikes). */
+const FLASH_GAP_MS = 2500;
 /** Outside market hours nothing moves: refresh every 30 s instead. */
 const CLOSED_REFRESH_MS = 30000;
 /** Pages that place orders show the account select (P1: a control only where it changes what the page does). */
@@ -353,7 +356,7 @@ async function renderDesk(kind) {
     if (lotV.data !== lotText) lotV.data = lotText;
     lotItem.title = lot ? "Lot size" : "Lot size unavailable";
     refChipEl.update();
-    fitCtx();
+    fitCtxIfNeeded();
   }
   let ctxChainSig = "";
   /** The chain's extra figures on the line: Fut (or F, synthetic) with its basis, ATM IV, the LIVE-orders pill. */
@@ -374,10 +377,28 @@ async function renderDesk(kind) {
     futItem.title = fut ? "Same-expiry future and its basis to spot" : "Synthetic forward from put-call parity (no future is listed for this expiry) and its basis to spot";
     ivV.data = formatPercent(x?.sm.atmIv ?? null, 2);
     liveOrders.hidden = !live;
-    fitCtx();
+    fitCtxIfNeeded();
   }
   /** Drop the line's figures in order (ATM IV, Lot, the basis, Fut / F, the absolute change) until it fits. */
   const CTX_DROP = ["d-sig", "d-iv", "d-lot", "d-basis", "d-fut", "d-chg"];
+  let ctxFitSig = "";
+  /** Refit only when the line's text lengths or its width changed: the figures are tabular, so a new price of the
+   *  same length takes the same room. Each pass below forces a layout, which made every refresh a long task. */
+  function fitCtxIfNeeded() {
+    const cap = capsule;
+    if (!cap?.isConnected) return;
+    const sig = String(cap.textContent.length);
+    if (sig === ctxFitSig) return;
+    ctxFitSig = sig;
+    // In the next frame, after every write of this refresh: one layout instead of one per figure. Width changes
+    // come through ctxRo (a ResizeObserver).
+    if (ctxFitFrame) return;
+    ctxFitFrame = requestAnimationFrame(() => {
+      ctxFitFrame = 0;
+      fitCtx();
+    });
+  }
+  let ctxFitFrame = 0;
   function fitCtx() {
     const cap = capsule;
     if (!cap?.isConnected || (kind !== "chain" && kind !== "strategy")) return;
@@ -434,6 +455,7 @@ async function renderDesk(kind) {
     st.live = !st.live;
     save();
     drawLive();
+    syncLive();
     startTimer();
     if (st.live) refresh();
   }
@@ -596,6 +618,7 @@ async function renderDesk(kind) {
       st.ms = Math.round(performance.now() - t0);
       st.error = null;
       st.lastOk = new Date().toISOString();
+      syncLive();
       if (store && st.chain) store.offer(st.chain, Date.now(), { demo: Boolean(app.state.demo), session: refSession(st.ref), isTradingDay: refCalendar(st.ref).isTradingDay }).catch(() => {});
     } catch (err) {
       if (seq !== st.seq) return;
@@ -603,6 +626,80 @@ async function renderDesk(kind) {
     }
     if (draw) drawAll();
   }
+  // ── Live ticks (live.js): between refreshes the legs on screen, the index and its futures stream in over the one
+  // shared connection. The Bridge then builds this page's chain reads from the same ticks (no broker call), so the
+  // refresh below costs the broker nothing while the stream is up. The chain and the Strategy Builder redraw on each
+  // frame that brought ticks, OI Analysis at most once a second. Greeks stay from the last refresh (a few seconds).
+  const LIVE_KINDS = new Set(["chain", "strategy", "oi"]);
+  const feed = LIVE_KINDS.has(kind) ? watch([], "quote", (ticks) => applyTicks(ticks)) : null;
+  /** canonical symbol -> [row index, "ce" | "pe"] for the chain on screen */
+  let legIndex = new Map();
+  function syncLive() {
+    if (!feed) return;
+    if (!st.live || !st.chain) return feed.update([]);
+    legIndex = new Map();
+    st.chain.rows.forEach((r, i) => {
+      if (r.ce?.symbol) legIndex.set(r.ce.symbol, [i, "ce"]);
+      if (r.pe?.symbol) legIndex.set(r.pe.symbol, [i, "pe"]);
+    });
+    const idx = INDEX_SYMBOL[st.underlying];
+    feed.update([...(idx ? [idx] : []), ...st.futures.map((f) => f.symbol).filter(Boolean), ...legIndex.keys()]);
+  }
+  /** A tick's OI is taken only when it is plainly in the same unit as the chain's (within 2x), else left as it was. */
+  const sameUnit = (a, b) => Number.isFinite(a) && Number.isFinite(b) && b > 0 && a / b < 2 && a / b > 0.5;
+  function applyTicks(ticks) {
+    if (!st.chain || !st.live) return;
+    let rows = null;
+    let newest = 0;
+    for (const [sym, t] of ticks) {
+      if (Number.isFinite(t.receivedAt)) newest = Math.max(newest, t.receivedAt);
+      const at = legIndex.get(sym);
+      if (at) {
+        rows ??= st.chain.rows.slice();
+        const [i, side] = at;
+        const row = rows[i] === st.chain.rows[i] ? { ...rows[i] } : rows[i];
+        const leg = row[side];
+        if (!leg) continue;
+        const next = { ...leg };
+        if (isFigure(t.ltp)) next.ltp = t.ltp;
+        if (isFigure(t.bid)) next.bid = t.bid;
+        if (isFigure(t.ask)) next.ask = t.ask;
+        if (isFigure(t.volume)) next.volume = t.volume;
+        if (isFigure(t.change)) next.change = t.change;
+        if (isFigure(t.oi) && sameUnit(t.oi, leg.oi)) {
+          if (isFigure(leg.oiChange)) next.oiChange = leg.oiChange + (t.oi - leg.oi);
+          next.oi = t.oi;
+        }
+        row[side] = next;
+        rows[i] = row;
+        continue;
+      }
+      if (sym === INDEX_SYMBOL[st.underlying] || st.futures.some((f) => f.symbol === sym)) {
+        const q = st.quotes.get(sym) ?? { symbol: sym };
+        st.quotes.set(sym, { ...q, ltp: t.ltp ?? q.ltp, change: t.change ?? q.change, changePct: t.changePct ?? q.changePct, bid: t.bid ?? q.bid, ask: t.ask ?? q.ask, oi: t.oi ?? q.oi, volume: t.volume ?? q.volume });
+        if (sym === INDEX_SYMBOL[st.underlying] && isFigure(t.ltp)) {
+          rows ??= st.chain.rows.slice();
+        }
+      }
+    }
+    if (!rows) return;
+    const idxTick = ticks.get(INDEX_SYMBOL[st.underlying]);
+    st.chain = { ...st.chain, rows, ...(idxTick && isFigure(idxTick.ltp) ? { underlyingLtp: idxTick.ltp } : {}) };
+    if (newest) st.freshness = { ...(st.freshness ?? {}), asOf: new Date(newest).toISOString(), ageMs: 0, stale: false, source: "stream" };
+    st.lastOk = new Date().toISOString();
+    // The chain and the builder redraw on this frame; OI Analysis (it charts every strike) at most once a second.
+    if (kind !== "oi") return drawAll();
+    if (oiDrawTimer) return;
+    const wait = Math.max(0, 1000 - (performance.now() - oiDrawnAt));
+    oiDrawTimer = setTimeout(() => {
+      oiDrawTimer = 0;
+      oiDrawnAt = performance.now();
+      if (pageRoot.isConnected) drawAll();
+    }, wait);
+  }
+  let oiDrawTimer = 0;
+  let oiDrawnAt = 0;
+
   async function loadPositions() {
     if (!st.account) return;
     const r = await optional(api(`/v1/positions?account=${encodeURIComponent(st.account)}`));
@@ -2051,6 +2148,7 @@ async function renderDesk(kind) {
   const onRoute = () => setTimeout(() => mounted && !pageRoot.isConnected && cleanup(), 0);
   let refRo = null;
   function cleanup() {
+    feed?.stop();
     clearInterval(ageTimer);
     refRo?.disconnect();
     ctxRo?.disconnect();
@@ -2644,7 +2742,8 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
   for (const [k, , scope] of CHAIN_COLUMNS) if (scope === "row") COLS[k].row = true;
 
   /** The width the chain can use: its panel (or, before it is on screen, the page column). */
-  const availW = () => host.clientWidth || document.getElementById("content")?.clientWidth || (typeof innerWidth === "number" ? innerWidth - 32 : 1200);
+  // The ResizeObserver below keeps lastAvail current, so a refresh never forces a layout just to read the width.
+  const availW = () => lastAvail || host.clientWidth || document.getElementById("content")?.clientWidth || (typeof innerWidth === "number" ? innerWidth - 32 : 1200);
   /**
    * Cells per part, in screen order. Both sides: calls mirror puts around the strike (row columns just right of
    * it). One side: the strike comes first and that side reads outwards from it. The fit engine keeps what fits the
@@ -2907,7 +3006,13 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       const now = num(q?.ltp);
       const prev = td.__ltp;
       td.__ltp = now;
-      if (prev !== undefined && prev !== null && now !== null && now !== prev) flashes.push([td, now > prev]);
+      // At most one flash per cell every FLASH_GAP_MS: with the live stream a liquid strike ticks every frame, and a
+      // flash on each tick was a constant repaint (most of the page's main-thread time) and read as noise.
+      const t = performance.now();
+      if (prev !== undefined && prev !== null && now !== null && now !== prev && !(t - (td.__flashAt ?? -Infinity) < FLASH_GAP_MS)) {
+        td.__flashAt = t;
+        flashes.push([td, now > prev]);
+      }
     }
   }
 
@@ -2981,15 +3086,22 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
    * Tall screens with a mouse: the ±10 / ±20 window grows to fill the table's height (strikes each side that fit
    * under the head, above the totals), never below the choice. Phones and touch keep the window as chosen.
    */
+  // Measured once per table, window height and density (fitHeight clears it when the page above the table moves):
+  // measuring on every refresh forced a full layout of the chain each time.
+  let fillMemo = null;
   const fillStrikes = () => {
     const d = device();
     const w = built?.wrap;
     if (d.phone || d.coarse || !w?.isConnected || typeof innerHeight !== "number") return 0;
+    const key = `${innerHeight}|${cfg().dense}|${densityNow()}`;
+    if (fillMemo && fillMemo.key === key && fillMemo.wrap === w) return fillMemo.value;
     const top = w.getBoundingClientRect().top + (built.thead?.offsetHeight || 0);
     const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(cfg().dense ? "--chain-row-1" : "--chain-row")) || 40;
     // Less the totals row, the key legend, the page's bottom padding and the spot divider row.
     const rows = Math.floor((innerHeight - top - 36 - 30 - 24) / rowH) - 1;
-    return Math.max(0, Math.floor(rows / 2));
+    const value = Math.max(0, Math.floor(rows / 2));
+    fillMemo = { key, wrap: w, value };
+    return value;
   };
   // The fill count the table was last drawn with: a density or window-height change that alters it redraws at once
   // (onWinResize), instead of waiting for the next data refresh.
@@ -3353,6 +3465,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
   // and the key legend stay on screen without page scroll.
   const noteRo = typeof ResizeObserver === "function" ? new ResizeObserver(() => fitHeight()) : null;
   function fitHeight() {
+    fillMemo = null;
     const w = built?.wrap;
     if (!w?.isConnected) return;
     const top = w.getBoundingClientRect().top + (window.scrollY || 0);
@@ -3449,7 +3562,9 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
         built = null;
         return;
       }
-      lastAvail = host.clientWidth || lastAvail;
+      // Read the width only until the ResizeObserver has measured it: a read here, after the page's other writes,
+      // forced a full layout of the chain on every refresh.
+      if (!lastAvail) lastAvail = host.clientWidth || lastAvail;
       const L = layout();
       const sig = layoutSig(L);
       const key = [x.c.underlying, x.c.expiry, sig].join("|");

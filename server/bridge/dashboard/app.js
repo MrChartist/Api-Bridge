@@ -167,34 +167,179 @@ export class ApiError extends Error {
   }
 }
 
-/** Call the Bridge. Returns { data, headers, status, ms, text }. With raw: true, error answers are returned too. */
-export async function api(path, { method = "GET", body, raw = false } = {}) {
-  const headers = { Authorization: `Bearer ${memoryKey}`, "X-MCB-Client": "dashboard" };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
-  const t0 = performance.now();
-  let res;
-  try {
-    res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-  } catch {
-    throw new ApiError("The Bridge did not answer.", { network: true });
-  }
-  const ms = Math.round(performance.now() - t0);
-  const ct = res.headers.get("content-type") ?? "";
-  const text = await res.text();
-  let data = text;
-  if (ct.includes("json") && text) {
+// ── The shared fetch layer ──
+//
+// Every page reads through api(). For GET it adds three things, so pages that ask for the same data share it:
+//  1. one request per URL at a time: a second caller of a URL already on its way waits for the same answer;
+//  2. a short memory of answers (SHARE_MS): parts of a page and other pages asking within a moment get the same one;
+//  3. paint from memory on a page switch: during the first moments after a switch (beginNavigation), an answer up to
+//     PAINT_FROM_CACHE_MS old is used at once and a fresh one is fetched behind it; pages that show market data label
+//     it with its own data time, and onRevalidated() lets the router redraw the other pages when the fresh one differs.
+// Never from memory: one-time and audit reads, and states a person acts on (safety, tickets, order preview). Any
+// write (POST, PUT, PATCH, DELETE) forgets every remembered answer, so what follows an order is always fresh.
+
+/** Answers shared between callers asking within this many ms. */
+export const SHARE_MS = 1000;
+/** On a page switch, an answer up to this old paints at once while a fresh one is fetched. */
+export const PAINT_FROM_CACHE_MS = 30_000;
+/** How long after a page switch its first reads may paint from memory. */
+export const NAV_WINDOW_MS = 2500;
+const CACHE_MAX = 300;
+/** GETs never answered from memory (one-time, audit, safety-critical or diagnostics). */
+const NO_CACHE_RE = /^\/v1\/(stream\/token|sign-in|requests|audit|safety|tickets|orders\/preview|readiness|limits|usage)(\/|\?|$)/;
+/** Market reads that take ?priority=background when prefetched (a click on the same thing raises it). */
+const MARKET_RE = /^\/v1\/(optionchain|quotes|ltp|expiries|depth|history)\?/;
+
+/** POSTs that read or start something and change no state the pages show: they keep the remembered answers. */
+const READ_LIKE_POST_RE = /^\/v1\/(stream\/token|sign-in|orders\/preview|margin\/preview|strategy\/(price|payoff|preview))(\/|\?|$)/;
+/** Whether a write may change what the remembered answers say (pure). */
+export const forgetsAnswers = (method, path) => method !== "GET" && !READ_LIKE_POST_RE.test(String(path));
+
+/** Whether a GET path may be remembered (pure). */
+export const cacheable = (path) => typeof path === "string" && path.startsWith("/v1/") && !NO_CACHE_RE.test(path);
+
+/**
+ * May a remembered answer of this age be used now (pure)? Shared answers are always fine; older ones only while a page
+ * is switching in. @returns {"fresh"|"paint"|null}
+ */
+export function cacheUse(ageMs, navigating) {
+  if (!(ageMs >= 0)) return null;
+  if (ageMs <= SHARE_MS) return "fresh";
+  if (navigating && ageMs <= PAINT_FROM_CACHE_MS) return "paint";
+  return null;
+}
+
+const answers = new Map(); // path -> { at, ok, status, ct, text, headers }
+const inflight = new Map(); // path -> Promise<answer>
+const routeReads = new Map(); // page -> Set<path> read while it switched in (what to prefetch on hover)
+const revalidatedListeners = new Set();
+let navUntil = 0;
+let navPage = null;
+
+/** The router calls this when a page starts to render: its first reads may paint from memory. */
+export function beginNavigation(page) {
+  navPage = typeof page === "string" ? page : null;
+  navUntil = performance.now() + NAV_WINDOW_MS;
+}
+/** Call fn(path) when an answer painted from memory was refreshed and came back different. */
+export function onRevalidated(fn) {
+  revalidatedListeners.add(fn);
+  return () => revalidatedListeners.delete(fn);
+}
+
+function remember(path, a) {
+  answers.delete(path);
+  answers.set(path, a);
+  if (answers.size > CACHE_MAX) answers.delete(answers.keys().next().value);
+}
+
+/** One network GET per path at a time; ok answers are remembered. */
+function fetchShared(path, { headers, priority = null } = {}) {
+  const running = inflight.get(path);
+  if (running) return running;
+  const url = priority === "background" && MARKET_RE.test(path) ? `${path}&priority=background` : path;
+  const p = (async () => {
+    const t0 = performance.now();
+    let res;
     try {
-      data = JSON.parse(text);
+      res = await fetch(url, { headers });
+    } catch {
+      throw new ApiError("The Bridge did not answer.", { network: true });
+    }
+    const a = { at: Date.now(), ok: res.ok, status: res.status, ct: res.headers.get("content-type") ?? "", text: await res.text(), headers: res.headers, ms: Math.round(performance.now() - t0) };
+    if (a.ok && cacheable(path)) remember(path, a);
+    return a;
+  })().finally(() => inflight.delete(path));
+  inflight.set(path, p);
+  return p;
+}
+
+function baseHeaders(page = navPage) {
+  const headers = { Authorization: `Bearer ${memoryKey}`, "X-MCB-Client": "dashboard" };
+  // Which page asked (the Bridge credits its broker calls to it on API › Rate limits).
+  if (page && /^[a-z-]{2,20}$/.test(page)) headers["X-MCB-Page"] = page;
+  return headers;
+}
+
+/** An answer as api() returns it: parsed afresh for each caller, so no page can change another page's data. */
+function toResult(a, { raw, ms }) {
+  let data = a.text;
+  if (a.ct.includes("json") && a.text) {
+    try {
+      data = JSON.parse(a.text);
     } catch {
       /* leave as text */
     }
   }
-  if (!res.ok && !raw) {
+  if (!a.ok && !raw) {
     // problem+json (detail / title), or a proxy's or broker's own shape ({ error: { message } }, { message }).
     const said = data?.detail ?? data?.title ?? (typeof data?.error === "string" ? data.error : data?.error?.message) ?? data?.message;
-    throw new ApiError(typeof said === "string" && said ? said : `HTTP ${res.status}`, { status: res.status, code: data?.code ?? data?.error?.code, body: data });
+    throw new ApiError(typeof said === "string" && said ? said : `HTTP ${a.status}`, { status: a.status, code: data?.code ?? data?.error?.code, body: data });
   }
-  return { data, headers: res.headers, status: res.status, ms, text };
+  return { data, headers: a.headers, status: a.status, ms, text: a.text };
+}
+
+/** Fetch `path` again behind an answer painted from memory; tell the router when it changed. */
+function revalidate(path, served) {
+  fetchShared(path, { headers: baseHeaders() })
+    .then((a) => {
+      if (a.ok && a.text !== served.text) for (const fn of revalidatedListeners) fn(path);
+    })
+    .catch(() => {});
+}
+
+/**
+ * Call the Bridge. Returns { data, headers, status, ms, text, cached? }. With raw: true, error answers are returned
+ * too (and nothing is shared or remembered: the test console shows the real call). `fresh: true` skips the memory.
+ */
+export async function api(path, { method = "GET", body, raw = false, fresh = false } = {}) {
+  const headers = baseHeaders();
+  if (method !== "GET" || raw) {
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const forget = forgetsAnswers(method, path);
+    if (forget) answers.clear();
+    const t0 = performance.now();
+    let res;
+    try {
+      res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    } catch {
+      throw new ApiError("The Bridge did not answer.", { network: true });
+    }
+    const a = { ok: res.ok, status: res.status, ct: res.headers.get("content-type") ?? "", text: await res.text(), headers: res.headers };
+    if (forget) answers.clear();
+    return toResult(a, { raw, ms: Math.round(performance.now() - t0) });
+  }
+  const navigating = performance.now() < navUntil;
+  if (navigating && navPage && cacheable(path)) {
+    let reads = routeReads.get(navPage);
+    if (!reads) routeReads.set(navPage, (reads = new Set()));
+    if (reads.size < 16) reads.add(path);
+  }
+  if (!fresh && cacheable(path)) {
+    const hit = answers.get(path);
+    const use = hit ? cacheUse(Date.now() - hit.at, navigating) : null;
+    if (use) {
+      if (use === "paint") revalidate(path, hit);
+      return { ...toResult(hit, { raw, ms: 0 }), cached: use };
+    }
+  }
+  const t0 = performance.now();
+  const a = await fetchShared(path, { headers });
+  return toResult(a, { raw, ms: Math.round(performance.now() - t0) });
+}
+
+/**
+ * Warm what a page reads before it is opened (menu hover or focus): its reads from the last visit that are not
+ * remembered already, market data at background priority. Never more than one request per path.
+ */
+export function prefetchPage(page) {
+  const reads = routeReads.get(page);
+  if (!reads || !memoryKey) return;
+  for (const path of reads) {
+    const hit = answers.get(path);
+    if (hit && Date.now() - hit.at <= 5000) continue;
+    fetchShared(path, { headers: baseHeaders("prefetch"), priority: "background" }).catch(() => {});
+  }
 }
 export const optional = (p) => p.then((r) => r, (error) => ({ error }));
 
