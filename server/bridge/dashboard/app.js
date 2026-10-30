@@ -685,9 +685,9 @@ export function card({ title, sub, actions, body, flush = false, cls = "", id, g
   );
 }
 
-/** A numbered section eyebrow ("01  GET STARTED ———"), as IPO Decode's SectionEyebrow. */
-export function sectionEyebrow(index, label) {
-  return h("div", { class: "sec-eyebrow" }, h("b", {}, index), h("span", {}, label), h("i", { "aria-hidden": "true" }));
+/** A plain section label over a group that has no title of its own (Home's "Today" figures). No pill, no rule. */
+export function sectionEyebrow(label) {
+  return h("h2", { class: "sec-eyebrow" }, label);
 }
 
 export function meterRow(name, used, limit, valueText) {

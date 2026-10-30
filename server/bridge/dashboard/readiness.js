@@ -387,11 +387,14 @@ async function stopAll() {
   }
 }
 
-/** One account as a stacked block: head, reasons, facts (the popover, phone and tablet cards). */
-export function accountBlock(row, { compact = false } = {}) {
+/**
+ * One account as a stacked block: head, reasons, facts (the popover, phone and tablet cards). `plain` drops the inner
+ * surface: the Safety card with one live account shows the facts straight in its body as a key / value list.
+ */
+export function accountBlock(row, { compact = false, plain = false } = {}) {
   return h(
     "article",
-    { class: `rd-acct${compact ? " compact" : ""}`, "data-state": row.state.key },
+    { class: `rd-acct${compact ? " compact" : ""}${plain ? " plain" : ""}`, "data-state": row.state.key },
     h(
       "header",
       { class: "rd-acct-head" },
@@ -578,7 +581,9 @@ export async function readinessCard({ cardFn, demo = false } = {}) {
     const sent = snap.notifications?.wouldHaveSent ?? [];
     body.replaceChildren(
       ...[
-        rows.length
+        rows.length === 1
+          ? accountBlock(rows[0], { plain: true })
+          : rows.length
           ? h("div", { class: "rd-accts" }, accountsTable(rows), h("div", { class: "rd-stack" }, rows.map((r) => accountBlock(r))))
           : h("p", { class: "muted" }, "No live account is set up, so there is nothing to check. Paper orders do not need a broker session or a static IP."),
         demo ? demoControls(snap) : null,
@@ -640,7 +645,7 @@ export async function readinessCard({ cardFn, demo = false } = {}) {
     return h(
       "section",
       { class: "rd-sec rd-demo" },
-      h("h3", {}, "Simulate (demo)"),
+      h("h3", {}, "Demo tools: simulate a problem"),
       h(
         "div",
         { class: "rd-demo-btns", role: "group", "aria-label": "Simulate a readiness problem" },

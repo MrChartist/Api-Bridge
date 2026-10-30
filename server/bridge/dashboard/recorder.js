@@ -10,7 +10,7 @@
 // Pure view-model helpers (statePill, tilesModel, coverageRows, budgetModel, diskModel, verdictView, formBody,
 // fitToCarry, stocksFromSearch, gapRange, stackCoverage) are exported for recorder.test.mjs; DOM code runs only in a
 // browser. Numbers become text through format.js only. Copy describes facts and never advises (copyRules.mjs).
-import { alertBox, api, app, emptyState, h, icon, istTime, meterRow, modal, optional, pill, sheetPopover, toast } from "./app.js";
+import { alertBox, api, app, emptyState, h, icon, istTime, meterRow, modal, mountToolbarCtx, optional, pill, sheetPopover, toast } from "./app.js";
 import { DASH, ageText, formatDayMonth, formatFixed, formatInt, isFigure } from "./format.js";
 import { every, keepFocus } from "./views.js";
 
@@ -342,7 +342,7 @@ const dot = (tone) => h("span", { class: `rec-dot${tone ? ` ${tone}` : ""}`, "ar
 function tileEl(t) {
   return h(
     "section",
-    { class: `card stat rec-tile`, "data-tile": t.key },
+    { class: `desk-panel stat rec-tile`, "data-tile": t.key },
     h("div", { class: "stat-head" }, h("span", { class: "label" }, t.label)),
     h("span", { class: "value" }, t.key === "state" ? dot(t.tone) : null, h("span", { class: "rec-val" }, t.value)),
     t.sub ? h("span", { class: "sub" }, t.sub) : null,
@@ -711,7 +711,7 @@ function feasibilityEl(rows, broker) {
           h(
             "tr",
             { class: r.broker === broker ? "rec-mine" : undefined, "aria-current": r.broker === broker ? "true" : undefined },
-            h("td", { class: "lead", "data-label": "Broker" }, h("strong", {}, r.label), r.broker === broker ? h("span", { class: "rec-kind" }, "In use") : null),
+            h("td", { class: "lead", "data-label": "Broker" }, h("strong", {}, r.label), r.broker === broker ? h("span", { class: "rec-yours" }, "Yours") : null),
             h("td", { "data-label": "Live feed" }, r.feed),
             h("td", { class: "wrap", "data-label": "REST" }, r.rest),
             h("td", { "data-label": "Index chains" }, r.indices),
@@ -723,7 +723,7 @@ function feasibilityEl(rows, broker) {
   );
   return h(
     "details",
-    { class: "card rec-feas" },
+    { class: "desk-panel rec-feas", "data-panel": "rec-feas" },
     h("summary", {}, h("span", { class: "rec-feas-t" }, "Which brokers can record what"), h("span", { class: "rec-feas-s" }, feasibilityNote(rows, broker) || "Default settings, from each broker's published limits")),
     h("div", { class: "rec-feas-body" }, h("p", { class: "muted small" }, "Generated from the broker limit table and the recorder's planner with the default settings. Figures marked unverified are conservative defaults."), table),
   );
@@ -746,23 +746,22 @@ export async function renderRecorderPage() {
   const settingsHost = h("div", { class: "rec-settings-host" });
   const errEl = h("div", { class: "rec-err" });
 
-  const covCard = h(
-    "section",
-    { class: "card rec-coverage", "data-panel": "rec-coverage" },
-    h("header", { class: "card-head" }, h("div", { class: "card-titles" }, h("h2", {}, "Coverage today"), covSub)),
-    h("div", { class: "card-body flush" }, covBody),
-  );
-  const budgetCard = h("section", { class: "card rec-budget" }, h("header", { class: "card-head" }, h("div", { class: "card-titles" }, h("h2", {}, "Budget"), h("p", {}, "The recorder's share of this account's limits"))), h("div", { class: "card-body" }, budgetBody));
-  const diskCard = h("section", { class: "card rec-disk" }, h("header", { class: "card-head" }, h("div", { class: "card-titles" }, h("h2", {}, "Disk"), h("p", {}, "Day files, compressed at the end of each day"))), h("div", { class: "card-body" }, diskBody));
-  const settingsCard = h(
-    "section",
-    { class: "card rec-settings-card", "data-panel": "rec-settings" },
-    h("header", { class: "card-head" }, h("div", { class: "card-titles" }, h("h2", {}, "Settings"), h("p", {}, "What to record, from which account, and how much of its budget to use"))),
-    h("div", { class: "card-body" }, settingsHost),
-  );
+  // Desk panels, as on the data pages the recordings feed (OI, Volatility): one edge, one radius, the dense gap.
+  const panel = (cls, key, title, sub, body, flush = false) =>
+    h("section", { class: `desk-panel ${cls}`, "data-panel": key, "aria-label": title }, h("header", { class: "panel-head rec-head" }, h("div", { class: "rec-titles" }, h("h2", {}, title), sub)), h("div", { class: flush ? "rec-body flush" : "rec-body" }, body));
+  const covCard = panel("rec-coverage", "rec-coverage", "Coverage today", covSub, covBody, true);
+  const budgetCard = panel("rec-budget", "rec-budget", "Budget", h("p", {}, "The recorder's share of this account's limits"), budgetBody);
+  const diskCard = panel("rec-disk", "rec-disk", "Disk", h("p", {}, "Day files, compressed at the end of each day"), diskBody);
+  const settingsCard = panel("rec-settings-card", "rec-settings", "Settings", h("p", {}, "What to record, from which account, and how much of its budget to use"), settingsHost);
+
+  // The desk top bar names the page and its state (the page head is hidden on desk pages), as the other desk pages do.
+  const ctxSub = h("span", { class: "ctx-sub" });
+  mountToolbarCtx("recorder", h("div", { class: "ctx-cap glass" }, h("span", { class: "ctx-item ctx-rec" }, h("span", { class: "ctx-main" }, "Data recorder"), ctxSub)), h("span", { class: "ctx-spacer" }));
 
   function drawStatus() {
     keepFocus(tilesEl, () => fill(tilesEl, tilesModel(status).map(tileEl)));
+    const st = tilesModel(status).find((t) => t.key === "state");
+    ctxSub.textContent = [st?.value, status.account?.id].filter(Boolean).join(" · ");
     const warns = (status.warnings ?? []).filter((w) => !(demo && /^Demo clock/.test(w)));
     fill(warnEl, warns.map((w) => alertBox({ title: w }, "warn")), status.holidaySuspected ? alertBox({ title: "Today looks like an unlisted holiday", detail: "The first minutes had no change and no volume. Today's records are kept but left out of reads unless asked for." }, "warn") : null);
     const rows = coverageRows(status);

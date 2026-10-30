@@ -4,7 +4,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DASH, MINUS, ageText, formatCompact, formatCompactTick, formatDayMonth, formatFixed, formatInput, formatInt, formatNumber, formatPercent, formatRupee, formatRupeeGrouped, formatSigned, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, MINUS, ageText, formatCompact, formatCompactTick, formatDayMonth, formatFixed, formatInput, formatInt, formatNumber, formatPercent, formatRupee, formatGrouped, formatRupeeGrouped, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 
 describe("dashboard number format", () => {
   it("prints figures without grouping commas", () => {
@@ -40,6 +40,14 @@ describe("dashboard number format", () => {
     expect(formatRupeeGrouped(-500)).toBe("−₹500");
     expect(formatRupeeGrouped(0)).toBe("₹0");
     expect(formatRupeeGrouped(null)).toBe(DASH);
+    expect(formatRupeeGrouped(10000, 2)).toBe("₹10,000.00");
+    expect(formatRupeeGrouped(170626, 2)).toBe("₹1,70,626.00");
+    expect(formatRupeeGrouped(-0.001, 2)).toBe("₹0.00");
+    expect(formatGrouped(26395.9)).toBe("26,395.90");
+    expect(formatGrouped(-1234.5)).toBe("−1,234.50");
+    expect(formatGrouped(999)).toBe("999.00");
+    expect(formatGrouped(1234567, 0)).toBe("12,34,567");
+    expect(formatGrouped(undefined)).toBe(DASH);
     expect(formatRupee(-1204)).toBe("−₹1204.00");
     expect(formatRupee(-1204)).not.toMatch(/₹-/);
   });

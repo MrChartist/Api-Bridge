@@ -1,7 +1,8 @@
 // format.js — the only place the dashboard turns a number into display text (the Mr. Chartist house rule, as in
 // IPO Decode's utils/number-format.js).
 //
-// Figures are printed WITHOUT thousands separators: ₹125000.50, 3000, 1234.56%. Decimal points, the rupee sign, the
+// Figures are printed WITHOUT thousands separators: ₹125000.50, 3000, 1234.56% (formatGrouped and formatRupeeGrouped are
+// the exception, for a figure read on its own: a snapshot tile, a limit). Decimal points, the rupee sign, the
 // percent sign and meaningful precision are kept. A negative starts with the true minus sign U+2212 ("−4.10", "−₹42.00"),
 // never a hyphen (TYPE-SYSTEM.md §4). Only display changes: values sent to the Bridge, maths and input parsing never
 // pass through here (formatInput is the one exception: an editable field's text, which keeps the ASCII hyphen so the
@@ -103,20 +104,31 @@ export function formatSignedRupee(value, dp = 2) {
   return `${n > 0 ? "+" : MINUS}₹${t}`;
 }
 
+/** Indian digit grouping of a plain figure ("1234567.50" → "12,34,567.50"); the sign and decimals pass through. */
+function groupIndian(text) {
+  const [, sign, int, frac = ""] = /^(-?)(\d+)(\.\d+)?$/.exec(text) ?? [null, "", text];
+  const last3 = int.slice(-3);
+  const rest = int.slice(0, -3);
+  return `${sign}${rest ? `${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${last3}` : last3}${frac}`;
+}
+
 /**
- * Whole rupees with Indian grouping ("₹1,750", "₹10,000", "₹1,25,000", "−₹500"), built with string maths. The one
- * exception to the no-separator rule: sentences that sit next to the Bridge's own messages (the readiness facts beside
- * "₹1,750 of ₹10,000 daily loss left." from server/bridge/readiness/checks.mjs) print the same figure the same way.
+ * Rupees with Indian grouping ("₹1,750", "₹10,000", "₹1,25,000", "−₹500"; with `dp` 2: "₹1,70,626.00"). The one
+ * exception to the no-separator rule, for figures read on their own rather than in a column: sentences that sit next
+ * to the Bridge's own messages (the readiness facts beside "₹1,750 of ₹10,000 daily loss left." from
+ * server/bridge/readiness/checks.mjs), the Home market snapshot and the daily limits. Whole rupees by default.
  * Missing → "--".
  */
-export function formatRupeeGrouped(value) {
+export function formatRupeeGrouped(value, dp = 0) {
   if (!isFigure(value)) return DASH;
-  const n = Math.round(Number(value));
-  const s = String(Math.abs(n));
-  const last3 = s.slice(-3);
-  const rest = s.slice(0, -3);
-  const grouped = rest ? `${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${last3}` : last3;
-  return `${n < 0 ? MINUS : ""}₹${grouped}`;
+  const abs = fixedPlain(Math.abs(Number(value)), dp);
+  return `${Number(value) < 0 && Number(abs) !== 0 ? MINUS : ""}₹${groupIndian(abs)}`;
+}
+
+/** A figure with Indian grouping and exactly `dp` decimals ("26,395.90", "−1,234.50"): index levels read on their own. Missing → "--". */
+export function formatGrouped(value, dp = 2) {
+  if (!isFigure(value)) return DASH;
+  return trueMinus(groupIndian(fixedPlain(value, dp)));
 }
 
 /** An editable field's starting text: fixed decimals, no grouping, an ASCII hyphen (the field's parser reads it back). Missing → "". */

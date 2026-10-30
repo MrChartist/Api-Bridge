@@ -35,7 +35,7 @@ import {
   DEMO_EXPLAINER,
 } from "./app.js";
 import { STATE_TEXT, STATE_TONE, homeSafetyLine, readinessCard, readinessPill, refreshReadiness } from "./readiness.js";
-import { DASH, formatFixed, formatInt, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, formatFixed, formatGrouped, formatInt, formatRupee, formatRupeeGrouped, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { renderArbPage, renderChainPage, renderOiPage, renderPositionsPage, renderStrategyPage, renderVolPage } from "./desk.js";
 import { renderCalendarPage } from "./calendar.js";
 import { renderScreenerPage } from "./screener.js";
@@ -287,7 +287,7 @@ export const PAGES = [
       },
     ],
   },
-  { id: "recorder", label: "Data recorder", icon: "clock", tint: "indigo", group: "Bridge", title: "Data recorder", sub: "Option chains recorded every minute on this computer, with the browser closed", render: renderRecorderPage },
+  { id: "recorder", label: "Data recorder", icon: "clock", tint: "indigo", group: "Bridge", layout: "desk", title: "Data recorder", sub: "Option chains recorded every minute on this computer, with the browser closed", render: renderRecorderPage },
 ];
 
 /**
@@ -973,18 +973,15 @@ async function renderScanner() {
     const labels = Object.keys(results[0]?.values ?? {});
     // Fixed decimals per column: whole numbers when every value in the column is whole, else 2.
     const dp = Object.fromEntries(labels.map((l) => [l, results.every((r) => !isFigure(r.values[l]) || Number.isInteger(Number(r.values[l]))) ? 0 : 2]));
-    const rows = h(
-      "div",
-      { class: "card" },
-      table(
-        [{ label: "Symbol", cell: (r) => h("strong", {}, r.symbol) }, ...labels.map((l) => ({ label: l, num: true, cell: (r) => formatFixed(r.values[l], dp[l]) })), { label: "Data", cell: (r) => pill(r.source === "backup" ? `backup · ${r.provider}` : r.accountId ?? r.source, r.source === "backup" ? "warn" : "") }],
-        results,
-        emptyState("scan", job.status === "completed" ? "Nothing matched" : "Scanning…", job.status === "completed" ? "No symbol met the condition on its last candle." : "Results appear here when the scan finishes."),
-        { mobile: "scroll" },
-      ),
+    // The results sit straight in the scan card (no card in a card).
+    const rows = table(
+      [{ label: "Symbol", cell: (r) => h("strong", {}, r.symbol) }, ...labels.map((l) => ({ label: l, num: true, cell: (r) => formatFixed(r.values[l], dp[l]) })), { label: "Data", cell: (r) => pill(r.source === "backup" ? `backup · ${r.provider}` : r.accountId ?? r.source, r.source === "backup" ? "warn" : "") }],
+      results,
+      emptyState("scan", job.status === "completed" ? "Nothing matched" : "Scanning…", job.status === "completed" ? "No symbol met the condition on its last candle." : "Results appear here when the scan finishes."),
+      { mobile: "scroll" },
     );
-    const errs = (job.errors ?? []).length ? h("details", { class: "disclosure" }, h("summary", {}, `${formatInt(job.errors.length)} symbol(s) could not be scanned`), h("div", { class: "card" }, table([{ label: "Symbol", cell: (e) => e.symbol }, { label: "Code", cell: (e) => e.code }, { label: "Message", wrap: true, cell: (e) => e.message }], job.errors.slice(0, 100), null))) : null;
-    out.replaceChildren(head, rows, errs ?? "");
+    const errs = (job.errors ?? []).length ? h("details", { class: "disclosure" }, h("summary", {}, `${formatInt(job.errors.length)} symbol(s) could not be scanned`), table([{ label: "Symbol", cell: (e) => e.symbol }, { label: "Code", cell: (e) => e.code }, { label: "Message", wrap: true, cell: (e) => e.message }], job.errors.slice(0, 100), null)) : null;
+    out.replaceChildren(...[head, rows, errs].filter(Boolean));
   };
   planBtn.addEventListener("click", async () => {
     try {
@@ -1056,7 +1053,7 @@ async function renderScanner() {
     card({
       glyph: "scan",
       tint: "mint",
-      title: "New scan",
+      title: "Stock scanner",
       sub: "The condition is checked on each symbol's last candle. Scans run behind charts and orders, and share the work over your pooled accounts.",
       body: h(
         "div",
@@ -1065,7 +1062,7 @@ async function renderScanner() {
         h("label", { class: "field" }, "Symbols", h("span", { class: "hint" }, "Only when Universe is “My symbols”."), syms),
         h("label", { class: "field" }, "Condition", h("span", { class: "hint" }, "Fields: open high low close volume change_pct. Functions: sma ema rsi atr macd supertrend vwap highest lowest avg_volume … “crosses above”, x[1] for the previous bar."), cond),
         examples,
-        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Columns", h("span", { class: "hint" }, "Comma-separated expressions."), cols), h("label", { class: "field" }, "Sort by", sortBy)),
+        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Columns", h("span", { class: "hint" }, "Comma-separated expressions."), cols), h("label", { class: "field" }, "Sort by", h("span", { class: "hint" }, "Highest value first."), sortBy)),
         h("div", { class: "row" }, runBtn, planBtn),
         out,
       ),
@@ -1088,8 +1085,6 @@ async function renderHome() {
   const accs = accounts.data.data ?? [];
   const keyRows = keys.data?.data ?? [];
   const nodes = [];
-  let section = 0;
-  const eyebrow = (label) => sectionEyebrow(String(++section).padStart(2, "0"), label);
 
   // Welcome checklist
   if (!local.get(FLAG.hideChecklist)) {
@@ -1110,7 +1105,6 @@ async function renderHome() {
     const fill = h("span");
     fill.style.width = `${(done / state.length) * 100}%`;
     nodes.push(
-      eyebrow("Get started"),
       card({
         glyph: "check",
         tint: "green",
@@ -1140,15 +1134,20 @@ async function renderHome() {
   const saved = sv ? (sv.servedFromStream ?? 0) + (sv.servedFromCache ?? 0) + (sv.coalesced ?? 0) + (sv.batched ?? 0) : null;
   const ord = orders.data?.data ?? null;
   const sd = streams.data?.data;
+  // The four tiles have no card title of their own, so "Today" labels them (the other Home cards are titled).
   nodes.push(
-    eyebrow("Today"),
     h(
-      "div",
-      { class: "grid cols-4 stats" },
+      "section",
+      { "aria-label": "Today" },
+      sectionEyebrow("Today"),
+      h(
+        "div",
+        { class: "grid cols-4 stats" },
       stat("Accounts connected", `${formatInt(connected)}/${formatInt(accs.length)}`, accs.length ? accs.map((a) => a.id).join(", ") : "None configured", "accounts", "indigo"),
       stat("Broker calls saved today", formatInt(saved), "Stream, cache, coalescing and batching", "bolt", "purple"),
       stat("Live symbols", formatInt(sd?.symbols), sd ? `${formatInt(sd.downstream?.connections ?? 0)} client connection(s)` : "Stream statistics are not available", "activity", "teal"),
       stat("Orders today", formatInt(ord?.length), ord ? `${formatInt(ord.filter((o) => o.mode === "paper").length)} paper · ${formatInt(ord.filter((o) => o.mode === "live").length)} live` : "Orders are not available", "orders", "orange"),
+      ),
     ),
   );
 
@@ -1162,7 +1161,7 @@ async function renderHome() {
           "div",
           { class: "quote" },
           h("span", { class: "sym" }, h("span", {}, q.symbol.split(":")[1]), h("small", {}, q.freshness?.source ?? "")),
-          h("span", { class: "px" }, formatFixed(q.ltp, 2)),
+          h("span", { class: "px" }, formatGrouped(q.ltp, 2)),
           delta(q.change, `${formatSigned(q.change)} (${formatSigned(q.changePct)}%)`),
         ),
       ),
@@ -1189,7 +1188,6 @@ async function renderHome() {
   const readySnap = await refreshReadiness();
   const readyPill = readySnap ? readinessPill(readySnap) : null;
   nodes.push(
-    eyebrow("Your Bridge"),
     h(
       "div",
       { class: "grid side" },
@@ -1226,6 +1224,24 @@ async function renderHome() {
     ),
   );
   return nodes;
+}
+
+/**
+ * An account's capabilities on one line: the first two as chips, then a "+N" chip (three chips at most) that opens the rest in a popover,
+ * so every account row keeps one height (about 64px on a desktop) however much its broker can do.
+ */
+const CAPS_SHOWN = 2;
+function capabilityChips(a) {
+  const caps = a.capabilities ?? [];
+  const rest = caps.slice(CAPS_SHOWN);
+  const more = rest.length
+    ? h("button", { type: "button", class: "chip-btn acct-caps-more", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-label": `${formatInt(rest.length)} more things ${a.label} can do` }, `+${formatInt(rest.length)}`)
+    : null;
+  more?.addEventListener("click", () => {
+    more.setAttribute("aria-expanded", "true");
+    sheetPopover({ trigger: more, title: `${a.label} can also`, body: h("div", { class: "chips acct-caps-all" }, rest.map((c) => h("span", { class: "chip" }, c))) });
+  });
+  return h("div", { class: "chips acct-caps" }, caps.slice(0, CAPS_SHOWN).map((c) => h("span", { class: "chip", title: c }, c)), more);
 }
 
 /** A metric card: tinted icon and label, the figure, a footnote (IPO Decode's Metric). */
@@ -1518,6 +1534,8 @@ export function holderText(entry) {
   const who = entry.label || entry.holder;
   return `${who} · ${rel} · ${entry.inFamily ? "Family" : "Outside family"}`;
 }
+/** The Accounts row's holder pill, the deciding word first so a narrow cell keeps it: "Family · You (demo) · Self". */
+const holderPillText = (e) => `${e.inFamily ? "Family" : "Outside family"} · ${e.label || e.holder} · ${e.relationship ? HOLDER_REL[e.relationship] ?? e.relationship : "No relationship"}`;
 const HOLDER_REL = { self: "Self", spouse: "Spouse", "dependent-child": "Dependent child", "dependent-parent": "Dependent parent", huf: "HUF", other: "Other" };
 
 /** Edit a holder's relationship and label (PUT /v1/book/holders/{holder}: admin, this computer). */
@@ -1567,8 +1585,8 @@ async function renderAccounts() {
     return h(
       "div",
       { class: "acct-holder" },
-      h("span", { class: "bk-rel", "data-tone": e.inFamily ? "ok" : "warn" }, `Holder: ${holderText(e)}`),
-      e.locked ? h("span", { class: "muted small" }, "set in bridge.config.json") : h("button", { type: "button", class: "small link-btn", "aria-label": `Edit the relationship of holder ${e.holder}`, onclick: () => holderSheet(e, book.relationships) }, "Edit relationship"),
+      h("span", { class: "bk-rel", "data-tone": e.inFamily ? "ok" : "warn", title: `Holder: ${holderText(e)}` }, h("span", { class: "pal-sr-only" }, "Holder: "), holderPillText(e)),
+      e.locked ? h("span", { class: "muted small" }, "set in bridge.config.json") : h("button", { type: "button", class: "small link-btn", "aria-label": `Edit the relationship of holder ${e.holder}`, onclick: () => holderSheet(e, book.relationships) }, "Edit"),
     );
   };
   const list = brokers.data.data ?? [];
@@ -1599,10 +1617,10 @@ async function renderAccounts() {
     body: table(
       [
         { label: "Account", wrap: true, cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id), holderCell(a)) },
-        { label: "Broker", cell: (a) => (a.broker === "paper" ? "Paper (simulator)" : brokerCell(a.broker, brokerOf(a)?.name ?? a.broker)) },
+        { label: "Broker", wrap: true, cell: (a) => (a.broker === "paper" ? "Paper (simulator)" : brokerCell(a.broker, brokerOf(a)?.name ?? a.broker)) },
         { label: "Session", cell: (a) => h("div", {}, sessionPill(a.session?.state), a.session?.expiresAt ? h("div", { class: "muted small" }, `until ${istDateTime(a.session.expiresAt)}`) : null) },
         { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")) },
-        { label: "Can do", wrap: true, cell: (a) => h("div", { class: "chips" }, (a.capabilities ?? []).slice(0, 6).map((c) => h("span", { class: "chip" }, c)), (a.capabilities?.length ?? 0) > 6 ? h("span", { class: "chip" }, `+${a.capabilities.length - 6}`) : null) },
+        { label: "Can do", cell: (a) => capabilityChips(a) },
         {
           label: "",
           cell: (a) => {
@@ -1960,7 +1978,13 @@ async function renderOrders() {
       glyph: "orders",
       tint: "orange",
       title: "Today's orders",
-      actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/api/console?endpoint=order") }, icon("plus"), "Place a paper order"),
+      // Orders are placed from the chain's ticket; the JSON route is for trying the API (API › Test console).
+      actions: h(
+        "div",
+        { class: "row" },
+        h("button", { type: "button", class: "small quiet", onclick: () => (location.hash = "#/api/console?endpoint=order") }, "Send as JSON"),
+        h("button", { type: "button", class: "small primary", onclick: () => (location.hash = "#/chain") }, "Trade from the chain"),
+      ),
       flush: true,
       body: orders.error
         ? h("div", { class: "card-body" }, alertBox(orders.error))
@@ -1976,33 +2000,40 @@ async function renderOrders() {
               { label: "Mode", cell: (o) => (o.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
             ],
             ord,
-            emptyState("orders", "No orders today", "Paper orders from the test console, your scripts, webhooks and AI assistants show up here.", nextStep("Place a paper order", "#/api/console?endpoint=order")),
+            emptyState("orders", "No orders today", "Paper orders from the option chain, your scripts, webhooks and AI assistants show up here.", nextStep("Trade from the chain", "#/chain")),
           ),
     }),
   );
 
-  for (const a of accs.filter((x) => x.broker === "paper")) {
-    const [pos, funds] = await Promise.all([optional(api(`/v1/positions?account=${encodeURIComponent(a.id)}`)), optional(api(`/v1/funds?account=${encodeURIComponent(a.id)}`))]);
-    const f = funds.data?.data?.funds ?? funds.data?.data ?? {};
-    const rows = pos.data?.data ?? [];
+  // One summary line per paper account; the positions themselves live on the Positions page.
+  const paper = accs.filter((x) => x.broker === "paper");
+  if (paper.length) {
+    const sums = await Promise.all(
+      paper.map(async (a) => {
+        const [pos, funds] = await Promise.all([optional(api(`/v1/positions?account=${encodeURIComponent(a.id)}`)), optional(api(`/v1/funds?account=${encodeURIComponent(a.id)}`))]);
+        const f = funds.data?.data?.funds ?? funds.data?.data ?? {};
+        const rows = pos.data?.data ?? null;
+        return { a, f, open: rows ? rows.filter((p) => Number(p.netQty) !== 0).length : null };
+      }),
+    );
     nodes.push(
       card({
         glyph: "wallet",
         tint: "teal",
-        title: /paper/i.test(a.label ?? "") ? a.label : `${a.label} (paper)`,
-        sub: `Cash ${formatRupee(f.availableCash)} · used margin ${formatRupee(f.usedMargin)} · realised ${formatRupee(f.realisedPnl)} · unrealised ${formatRupee(f.unrealisedPnl)}`,
+        title: "Paper accounts",
+        sub: "Open positions, margin and P&L in one line each. Positions has the legs, the payoff and the exits.",
         flush: true,
         body: table(
           [
-            { label: "Symbol", cell: (p) => h("strong", {}, p.symbol) },
-            { label: "Product", cell: (p) => p.product },
-            { label: "Net qty", num: true, cell: (p) => formatInt(p.netQty) },
-            { label: "Avg", num: true, cell: (p) => formatFixed(p.avgPrice, 2) },
-            { label: "LTP", num: true, cell: (p) => formatFixed(p.ltp, 2) },
-            { label: "P&L", num: true, cell: (p) => pnl(p.pnl) },
+            { label: "Account", cell: ({ a }) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
+            { label: "Open positions", num: true, cell: ({ open }) => formatInt(open) },
+            { label: "Cash", num: true, cell: ({ f }) => formatRupee(f.availableCash) },
+            { label: "Used margin", num: true, cell: ({ f }) => formatRupee(f.usedMargin) },
+            { label: "Realised", num: true, cell: ({ f }) => pnl(f.realisedPnl) },
+            { label: "Unrealised", num: true, cell: ({ f }) => pnl(f.unrealisedPnl) },
+            { label: "", cell: ({ a }) => h("button", { type: "button", class: "small", "aria-label": `Positions of ${a.label}`, onclick: () => (location.hash = "#/positions") }, "Positions", icon("chevron")) },
           ],
-          rows,
-          emptyState("orders", "No open paper positions", `Place a paper order to practise with ${formatRupee(1000000, 0)} of virtual money.`, nextStep("Place a paper order", "#/api/console?endpoint=order")),
+          sums,
         ),
       }),
     );
@@ -2104,26 +2135,32 @@ async function renderSafety() {
     tint: "orange",
     title: "Daily limits per account",
     sub: `IST day ${s.day ?? ""}. Paper and live are counted separately.`,
-    actions: verifyBtn,
     flush: true,
     body: table(
       [
         { label: "Account", cell: (a) => h("strong", {}, a.accountId) },
         { label: "Orders today", num: true, cell: (a) => `${formatInt((a.ordersToday ?? 0) + (a.paperOrdersToday ?? 0))} / ${formatInt(a.limits?.dailyMaxOrders)}` },
         { label: "P&L today", num: true, cell: (a) => pnl(isFigure(a.realisedPnlToday) || isFigure(a.paperRealisedPnlToday) ? (a.realisedPnlToday ?? 0) + (a.paperRealisedPnlToday ?? 0) : null) },
-        { label: "Max loss", num: true, cell: (a) => formatRupee(a.limits?.dailyMaxLoss) },
-        { label: "Max order value", num: true, cell: (a) => formatRupee(a.limits?.maxOrderValue) },
+        { label: "Max loss", num: true, cell: (a) => formatRupeeGrouped(a.limits?.dailyMaxLoss, 2) },
+        { label: "Max order value", num: true, cell: (a) => formatRupeeGrouped(a.limits?.maxOrderValue, 2) },
         { label: "Max lots", num: true, cell: (a) => formatInt(a.limits?.maxLotsPerOrder) },
         { label: "Orders / s", num: true, cell: (a) => formatInt(a.limits?.orderRatePerSecond) },
-        { label: "Market orders", cell: (a) => a.limits?.marketOrders ?? "protect" },
+        { label: "Market orders", cell: (a) => cap(a.limits?.marketOrders ?? "protect") },
       ],
       s.accounts ?? [],
       emptyState("safety", "No accounts", "Daily limits appear once an account is configured.", nextStep("Go to Accounts", "#/accounts")),
     ),
   });
+  // The audit chain check: a narrow card beside Live trading (the limits table gets the full width so no column is cut).
+  const audit = card({
+    glyph: "activity",
+    tint: "indigo",
+    title: "Audit log",
+    body: h("div", { class: "stack" }, h("p", { class: "muted" }, "Every order, key change and kill-switch action is written to a hash chain. Verify checks that no record was changed or removed."), h("div", { class: "row" }, verifyBtn)),
+  });
   // Trading readiness (docs/spec/p1-05-readiness.md §6.4): between the kill switch and live trading.
   const ready = await readinessCard({ cardFn: card, demo: app.state.demo }).catch(() => null);
-  return [killCard, ready, h("div", { class: "grid side" }, limits, live)].filter(Boolean);
+  return [killCard, ready, limits, h("div", { class: "grid side" }, live, audit)].filter(Boolean);
 }
 
 // ── Keys ──

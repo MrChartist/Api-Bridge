@@ -357,6 +357,7 @@ export async function renderCalendarPage() {
     month: /^\d{4}-\d{2}$/.test(saved.month ?? "") && Math.abs(daysBetween(`${saved.month}-01`, `${today.slice(0, 7)}-01`) ?? 999) < 400 ? saved.month : today.slice(0, 7),
     mwplQuery: "",
     mwplSort: "pct",
+    mwplAll: false,
     uniDate: today,
     ref: null,
   };
@@ -679,6 +680,7 @@ export async function renderCalendarPage() {
     st.mwplSort = sortSeg.value;
     drawBan();
   });
+  const MWPL_TOP = 12;
   const search = h("input", { type: "search", class: "cal-search", placeholder: "Symbol", "aria-label": "Find a symbol", autocomplete: "off", spellcheck: "false" });
   search.addEventListener("input", () => {
     st.mwplQuery = search.value;
@@ -714,6 +716,16 @@ export async function renderCalendarPage() {
       return fill(mwplHost, fail(m.error));
     }
     const rows = mwplView(m.data?.items ?? [], { query: st.mwplQuery, sort: st.mwplSort });
+    // The top rows, then one row button for the rest: the page scrolls, never a second scroll box inside the panel.
+    const shown = st.mwplAll ? rows : rows.slice(0, MWPL_TOP);
+    const toggle = (all) => () => {
+      st.mwplAll = all;
+      drawBan();
+    };
+    const more =
+      rows.length > MWPL_TOP
+        ? h("tfoot", {}, h("tr", {}, h("td", { colspan: "4" }, h("button", { type: "button", class: "small quiet cal-more", "aria-expanded": String(st.mwplAll), onclick: toggle(!st.mwplAll) }, st.mwplAll ? `Show the top ${formatInt(MWPL_TOP)}` : `Show all ${formatInt(rows.length)}`))))
+        : null;
     fill(mwplHost, 
       rows.length
         ? h(
@@ -723,13 +735,14 @@ export async function renderCalendarPage() {
             h(
               "tbody",
               {},
-              rows.map((r) => {
+              shown.map((r) => {
                 const p = num(r.mwplPct);
                 const bar = h("span", { class: `cal-bar ${r.band ?? "normal"}`, "aria-hidden": "true" });
                 bar.style.setProperty("--w", `${Math.max(0, Math.min(100, p ?? 0))}%`);
                 return h("tr", { class: r.band === "ban" ? "ban" : undefined }, h("th", { scope: "row" }, r.symbol), h("td", { class: "num" }, p === null ? DASH : formatFixed(p, 1)), h("td", { class: "bar-col" }, h("span", { class: "cal-track" }, bar)), h("td", {}, h("span", { class: `cal-band ${r.band ?? "normal"}` }, r.band === "ban" ? "In ban" : r.band === "high" ? "High" : "Normal")));
               }),
             ),
+            more,
           )
         : h("p", { class: "muted small pad" }, `No symbol matches "${st.mwplQuery}".`),
     );
