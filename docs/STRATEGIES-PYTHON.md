@@ -86,14 +86,14 @@ restarted.
 Every order carries a `clientOrderId` of `A-<id>-<run>-<n>` (the id is the file name: `ema_crossover.py` is
 `ema_crossover`). That is how the strategy, the Algo page and its P&L find its orders among everything else on the
 account, and how positions carry over when it restarts on the same day. A strategy's positions are its own: `exit_all`
-never touches orders placed by hand or by another strategy.
+never touches orders placed by hand or by another strategy. On the Algo page a running strategy shows its orders since Start; "Orders today" and "P&L today" cover every run of it today, since positions carry over from one run to the next.
 
 ## 3. The examples
 
 | File | What it does | Paper orders in the demo |
 |---|---|---|
 | `short_straddle.py` | Sells the ATM call and put of the nearest weekly expiry. Exits both when the combined premium rises `stop_loss_pct` (stop loss) or falls `target_pct` (target), or when the IST clock passes `square_off` while it runs. `max_entries` straddles a day. | Two sells at start, two buys on exit or Stop |
-| `ema_crossover.py` | Bars of the nearest NIFTY or BANKNIFTY future from live ticks; fast EMA above slow is long, below is short. `trade = "option"` (default) buys the ATM call or put; `trade = "future"` trades the future, which needs `safety.maxOrderValue` raised (one NIFTY lot is about ₹17 lakh against the default ₹2 lakh, so the Bridge refuses it). Warm-up from history when the key may read it, else from live bars. | An option when the EMAs are ready, a reversal on each cross |
+| `ema_crossover.py` | Bars of the nearest NIFTY or BANKNIFTY future from live ticks; fast EMA above slow is long, below is short. A cross counts once the fast EMA clears the slow one by `band_pct` (0.02 %), and each side is held `hold_bars` bars (3), so noise around the cross does not flip-flop. `trade = "option"` (default) buys the ATM call or put; `trade = "future"` trades the future, which needs `safety.maxOrderValue` raised (one NIFTY lot is about ₹17 lakh against the default ₹2 lakh, so the Bridge refuses it). Warm-up from history when the key may read it, else from live bars. | An option when the EMAs are ready, a reversal on each cross |
 | `iron_condor.py` | Sells a call and a put near `short_delta`, buys wings `wing_width` points out (wings first). Every 10 s it adds up the position delta from the live chain; past `adjust_delta` per lot it rolls the untested side closer, once that side's short option has drifted 0.05 or more below `short_delta`. `max_adjustments` a day. | Four legs at start, two to four per roll |
 | `oi_walls.py` | Every 15 s reads `/v1/analytics/oi`. Support is the put strike with the most OI at least `min_gap` points below the spot, resistance the call strike with the most at least `min_gap` above it. PCR at or above `bull_pcr` sells only the put, at or below `bear_pcr` only the call, between them both. A leg is bought back when the spot breaks its wall, on a premium stop loss, or when the PCR no longer wants it. | One or two sells at start, buy-backs on breaks |
 
@@ -130,7 +130,7 @@ What a running strategy can do:
 - **The Bridge's gates on every order.** Orders go through `POST /v1/orders` with an Idempotency-Key: kill switch,
   per-order lots and value, price band, market-order policy, daily order count and daily loss, the order-rate cap and
   the paper/live decision. A refused order is logged on the Algo page (`Order refused: BUY 20 lots ... INVALID_ORDER`)
-  and raised to the strategy; the strategy keeps running.
+  and raised to the strategy; the strategy keeps running. A refusal a restart cannot fix (kill switch, a daily limit, the key's scope or account) that escapes the strategy ends it with exit 4, and it is not restarted. The daily order count also applies to exits: a strategy that reaches it cannot close its legs until the next day (or the limit is raised), so leave room in `safety.dailyMaxOrders` for exits.
 - **The kill switch stops every strategy** at once (SIGTERM, so `on_stop` runs; ended after 3 s) and no strategy can
   start while it is on. Its own orders are refused anyway while it is on. **Stop all** on the Algo page stops every
   strategy without touching other tools.

@@ -154,10 +154,10 @@ export async function renderAlgoPage() {
       h(
         "span",
         { class: "algo-row-meta" },
-        h("span", { class: `algo-c-acct${s.account ? "" : " muted"}`, title: "Account" }, s.account ?? "No account"),
+        h("span", { class: `algo-c-acct${s.account ? "" : " muted"}`, title: s.account ? `Account ${s.account}` : "Account" }, s.account ?? "No account"),
         h("span", { class: `algo-mode ${active && s.mode === "live" ? "live" : ""}`.trim() }, modeText(active ? s.mode : "paper")),
         h("span", { class: "algo-c-pnl num", title: "P&L today from this strategy's own orders" }, s.pnl ? money(s.pnl.total) : h("span", { class: "muted" }, "Not run today")),
-        h("span", { class: "algo-c-ord num", title: "Orders today" }, s.pnl || s.orderCount ? `${formatInt(s.orderCount)} order${s.orderCount === 1 ? "" : "s"}` : ""),
+        h("span", { class: "algo-c-ord num", title: active ? "Orders since Start" : "Orders today, every run" }, ordersText(s, active)),
         h("span", { class: "algo-c-up num", title: "Uptime" }, active ? uptimeText(s.uptimeMs) : ""),
       ),
       h("span", { class: "algo-c-act" }, act),
@@ -184,8 +184,8 @@ export async function renderAlgoPage() {
     listNote.hidden = !notes.length;
   }
 
-  function fact(label, value) {
-    return h("div", { class: "algo-fact" }, h("dt", {}, label), h("dd", {}, value));
+  function fact(label, value, title) {
+    return h("div", { class: "algo-fact", title }, h("dt", {}, label), h("dd", {}, value));
   }
 
   function drawDetail() {
@@ -205,15 +205,16 @@ export async function renderAlgoPage() {
     dAlert.replaceChildren(problem ? h("span", {}, icon("warn"), h("span", {}, problem)) : "");
     const hb = heartbeatText(s.heartbeatAgeMs);
     dFacts.replaceChildren(
-      fact("P&L today", money(s.pnl?.total)),
+      fact("P&L today", money(s.pnl?.total), "Every run of this strategy today, from its own fills"),
       fact("Realised", money(s.pnl?.realised)),
       fact("Open", money(s.pnl?.unrealised)),
-      fact("Orders", formatInt(s.orderCount)),
+      fact("Orders since start", active ? formatInt(s.runOrderCount) : DASH),
+      fact("Orders today", formatInt(s.orderCount)),
       fact("Uptime", active ? uptimeText(s.uptimeMs) : DASH),
       fact("Restarts", `${formatInt(s.restarts)} of ${formatInt(s.maxRestarts)}`),
       fact("Ticks", formatInt(s.counts?.ticks ?? 0)),
       // A failed strategy's reason is in the alert above; a stopped one says why it stopped.
-      fact("Health", active ? h("span", { class: hb.late ? "warn-text" : undefined }, hb.text) : s.stopReason && s.status !== "failed" ? h("span", { class: "muted", title: s.stopReason }, s.stopReason) : DASH),
+      fact(active ? "Heartbeat" : "Last stop", active ? h("span", { class: hb.late ? "warn-text" : undefined }, hb.text) : s.stopReason && s.status !== "failed" ? h("span", { class: "muted", title: s.stopReason }, s.stopReason) : DASH),
     );
     startBtn.hidden = liveBtn.hidden = active;
     stopBtn.hidden = !active;
@@ -341,6 +342,12 @@ export async function renderAlgoPage() {
       ),
     );
     ordersHost.replaceChildren(...[posTable, ordTable].filter(Boolean));
+  }
+  /** Orders since Start while it runs, else every run today (the detail shows both). */
+  function ordersText(s, active) {
+    if (!s.pnl && !s.orderCount) return "";
+    const n = active ? s.runOrderCount : s.orderCount;
+    return `${formatInt(n)} order${n === 1 ? "" : "s"}`;
   }
   const short = (sym) => String(sym ?? "").replace(/^(NFO|BFO|NSE|BSE|MCX|CDS):/, "");
   const statusWord = (s) => (s === "filled" ? "Filled" : s === "rejected" ? h("span", { class: "down" }, "Rejected") : s ? `${s[0].toUpperCase()}${s.slice(1).replace(/_/g, " ")}` : DASH);
