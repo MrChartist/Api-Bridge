@@ -151,8 +151,12 @@ WARN  market-data    No market-data source connected (log in dhan-main). ... or 
 ## Try demo mode
 
 ```bash
-npm start -- --demo --open
+npm run dev
 ```
+
+This starts the Bridge in demo mode and opens the dashboard already signed in, so there is no key to type. If no
+browser opens, the terminal prints a one-time sign-in link: open it within 10 minutes. (`npm run dev` is short for
+`npm start -- --demo --open`.)
 
 Demo mode lets you try **everything** with no broker account: the dashboard, the test console, Excel,
 Python, Node, webhooks and AI tools. A built-in sample market gives repeatable quotes, depth, option chains with
