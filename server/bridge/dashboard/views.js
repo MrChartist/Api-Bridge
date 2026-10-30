@@ -60,6 +60,7 @@ const PAGE_MODULES = Object.freeze({
   participants: () => import("./participants.js"),
   recorder: () => import("./recorder.js"),
   events: () => import("./events.js"),
+  journal: () => import("./journal.js"),
 });
 /** A page renderer that loads its module first. `.module` names it, for preloading. */
 function lazyPage(mod, name) {
@@ -78,6 +79,7 @@ const renderScreenerPage = lazyPage("screener", "renderScreenerPage");
 const renderParticipantsPage = lazyPage("participants", "renderParticipantsPage");
 const renderRecorderPage = lazyPage("recorder", "renderRecorderPage");
 const renderEventsPage = lazyPage("events", "renderEventsPage");
+const renderJournalPage = lazyPage("journal", "renderJournalPage");
 
 /** Load a page's module and warm its data ahead of a click (menu hover or focus). Idempotent and cheap. */
 export function preloadPage(pageId) {
@@ -297,7 +299,14 @@ export const PAGES = [
   { id: "chain", label: "Option Chain", short: "Chain", icon: "chart", tint: "green", tab: true, key: 2, group: "Trade", layout: "desk", title: "Option Chain", get sub() { return `Live chain with OI, IV and Greeks. ${touchWord()} a bid or ask to trade`; }, render: renderChainPage },
   { id: "strategy", label: "Strategy Builder", icon: "strategy", tint: "purple", key: 3, group: "Trade", layout: "desk", title: "Strategy Builder", sub: "Payoff, breakevens, POP and margin before you trade", render: renderStrategyPage },
   { id: "positions", label: "Positions", icon: "wallet", tint: "teal", tab: true, key: 4, group: "Trade", layout: "desk", title: "Option positions", sub: "Open option positions with P&L, net Δ and θ", render: renderPositionsPage },
-  { id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, key: 5, group: "Trade", title: "Orders", sub: "Paper by default. Pending confirmations wait here", render: renderOrders },
+  {
+    id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, key: 5, group: "Trade", title: "Orders", sub: "Paper by default. Pending confirmations wait here",
+    defaultTab: "book",
+    tabs: [
+      { id: "book", label: "Orders", page: "orders", command: "Orders", keywords: "orders confirmations tickets modify cancel paper", render: renderOrders },
+      { id: "journal", label: "Journal", page: "journal", command: "Trade journal", icon: "list", tint: "teal", keywords: "journal trades tags notes setup win rate expectancy drawdown calendar heatmap daily pnl csv export", sub: "Every fill as a trade: tags, notes, a P&L calendar and stats", render: renderJournalPage },
+    ],
+  },
   { id: "safety", label: "Safety", icon: "safety", tint: "red", key: 6, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
   {
     id: "oi", label: "OI Analysis", icon: "bars", tint: "orange", key: 7, group: "Markets", layout: "desk", title: "OI Analysis", sub: "Open interest and OI chg by strike, build-up and walls",
@@ -354,6 +363,7 @@ export const LEGACY = {
   scanner: "screeners/stocks",
   events: "screeners/events",
   participants: "oi/participants",
+  journal: "orders/journal",
 };
 
 /**

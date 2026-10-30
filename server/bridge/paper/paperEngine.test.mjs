@@ -775,3 +775,54 @@ describe("portfolio margin (hedges get their benefit)", () => {
     expect(m.after).toBe(243_750);
   });
 });
+
+describe("daily P&L snapshots and tagged fills (the journal's inputs)", () => {
+  it("trades carry the order's tag and client order id", async () => {
+    const { engine } = rig();
+    await engine.place("paper-1", buy(RELIANCE, 2, { clientOrderId: "strat-abc-0", tag: "mcbstrat" }));
+    const t = (await engine.trades("paper-1")).items[0];
+    expect(t).toMatchObject({ clientOrderId: "strat-abc-0", tag: "mcbstrat", side: "BUY", qty: 2 });
+  });
+
+  it("takes a snapshot on demand, measures the day from the start, and keeps one row per day", async () => {
+    const r = rig();
+    await r.engine.place("paper-1", buy(RELIANCE, 10));
+    r.tick(RELIANCE, 1450);
+    const s1 = await r.engine.snapshot("paper-1");
+    expect(s1).toMatchObject({ day: "2026-10-19", source: "manual", openPositions: 1 });
+    expect(s1.pnl).toBeCloseTo(s1.equity - (await r.engine.account("paper-1")).startingCapital, 2);
+    const s2 = await r.engine.snapshot("paper-1");
+    expect((await r.engine.daily("paper-1")).length).toBe(1);
+    expect(s2.at >= s1.at).toBe(true);
+  });
+
+  it("takes the end-of-day row after the session end, and a manual one never replaces it", async () => {
+    const r = rig();
+    await r.engine.place("paper-1", buy(RELIANCE, 1));
+    r.clock.t = at("2026-10-19T15:45:00");
+    await r.engine.runOnce();
+    let d = await r.engine.daily("paper-1");
+    expect(d.map((x) => [x.day, x.source])).toEqual([["2026-10-19", "eod"]]);
+    const m = await r.engine.snapshot("paper-1");
+    expect(m.source).toBe("eod");
+    // Next day: the day roll keeps yesterday's row and today's change is measured from it.
+    r.clock.t = at("2026-10-20T10:00:00");
+    r.tick(RELIANCE, 1500);
+    const s = await r.engine.snapshot("paper-1");
+    d = await r.engine.daily("paper-1");
+    expect(d.map((x) => x.day)).toEqual(["2026-10-19", "2026-10-20"]);
+    expect(s.pnl).toBeCloseTo(s.equity - d[0].equity, 2);
+  });
+
+  it("a day that ends without a session-end pass gets its row at the day roll; history survives restart and reset", async () => {
+    const r = rig();
+    await r.engine.place("paper-1", buy(RELIANCE, 1));
+    r.clock.t = at("2026-10-20T09:20:00");
+    await r.engine.runOnce();
+    expect((await r.engine.daily("paper-1")).map((x) => [x.day, x.source])).toEqual([["2026-10-19", "eod"]]);
+    r.restart();
+    expect((await r.engine.daily("paper-1")).length).toBe(1);
+    await r.engine.reset("paper-1", {});
+    expect((await r.engine.daily("paper-1")).length).toBe(1);
+  });
+});

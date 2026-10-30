@@ -27,5 +27,6 @@ import participants from "../participants/module.mjs";
 import fno from "../fno/module.mjs";
 import events from "../events/module.mjs";
 import alerts from "../alerts/module.mjs";
+import journal from "../journal/module.mjs";
 
-export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, reference, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, backup, scanner, recorder, vol, book, compat, notify, participants, fno, events, alerts]);
+export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, reference, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, backup, scanner, recorder, vol, book, compat, notify, participants, fno, events, alerts, journal]);
