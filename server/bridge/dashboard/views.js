@@ -65,6 +65,7 @@ const PAGE_MODULES = Object.freeze({
   recorder: () => import("./recorder.js"),
   events: () => import("./events.js"),
   journal: () => import("./journal.js"),
+  statement: () => import("./statement.js"),
   watchlists: () => import("./watchlists.js"),
   scanner: () => import("./scanner.js"),
   analytics: () => import("./analytics.js"),
@@ -96,6 +97,7 @@ const renderParticipantsPage = lazyPage("participants", "renderParticipantsPage"
 const renderRecorderPage = lazyPage("recorder", "renderRecorderPage");
 const renderEventsPage = lazyPage("events", "renderEventsPage");
 const renderJournalPage = lazyPage("journal", "renderJournalPage");
+const renderStatementPage = lazyPage("statement", "renderStatementPage");
 const renderWatchlistsPage = lazyPage("watchlists", "renderWatchlistsPage");
 const renderScannerPage = lazyPage("scanner", "renderScannerPage");
 const renderAlgoPage = lazyPage("algo", "renderAlgoPage");
@@ -324,6 +326,7 @@ export const PAGES = [
     tabs: [
       { id: "book", label: "Orders", page: "orders", command: "Orders", keywords: "orders confirmations tickets modify cancel paper", render: renderOrders },
       { id: "trades", label: "Trades", page: "trades", command: "Trade book", icon: "list", tint: "orange", keywords: "trades trade book fills executions turnover charges csv", sub: "Every fill with buy, sell and turnover totals", render: renderTradesPage },
+      { id: "statement", label: "Statement", page: "statement", command: "Statement, tax P&L and ledger", icon: "list", tint: "teal", keywords: "statement tax pnl p&l turnover icai stt charges ledger financial year fy capital gains stcg ltcg speculative business income export xlsx", sub: "Realised P&L by year and segment, F&O turnover, charges and the paper ledger", render: renderStatementPage },
       { id: "journal", label: "Journal", page: "journal", command: "Trade journal", icon: "list", tint: "teal", keywords: "journal trades tags notes setup win rate expectancy drawdown calendar heatmap daily pnl csv export", sub: "Every fill as a trade: tags, notes, a P&L calendar and stats", render: renderJournalPage },
     ],
   },
