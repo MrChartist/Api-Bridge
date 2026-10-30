@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../core/app.mjs";
 import { loadConfig } from "../core/config.mjs";
 import { createNullLogger } from "../core/logger.mjs";
+import { createDemoRegistry } from "../demo/demoMode.mjs";
 
 let app;
 let base;
@@ -19,11 +20,17 @@ let readKey;
 let monthly; // the last listed expiry: the monthly one, the only kind that has a future
 let weekly; // the nearest expiry
 let expiries;
+const START = Date.parse("2026-10-28T11:00:00+05:30");
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "mcb-analytics-int-"));
   const { config } = loadConfig({ raw: { dataDir: dir, server: { port: 0 }, logging: { level: "silent" } }, env: {}, demo: true });
-  app = await createApp({ config, logger: createNullLogger() });
+  // The Bridge and the demo market run on a clock that starts on a trading weekday (Wed 28 Oct 2026, 11:00 IST) and
+  // moves in real time from there. On the real clock the monthly future, basis and Greeks grid failed whenever the
+  // suite ran on an NSE holiday (Tue 10 Nov 2026 reproduced it).
+  const offset = START - Date.now();
+  const now = () => Date.now() + offset;
+  app = await createApp({ config, logger: createNullLogger(), clock: { now }, brokers: createDemoRegistry({ now }) });
   const { port } = await app.listen();
   base = `http://127.0.0.1:${port}`;
   ({ key: readKey } = await app.deps.keyStore.create({ label: "reader", scopes: ["read"], accounts: "*" }));
@@ -240,7 +247,7 @@ describe("futures, basis and flows", () => {
   });
 
   it("GET /time-machine returns bars with ATM strikes", async () => {
-    const from = new Date(Date.now() - 5 * 86_400_000).toISOString().slice(0, 10);
+    const from = new Date(START - 5 * 86_400_000).toISOString().slice(0, 10);
     const d = expectEnvelope(await get(`/v1/analytics/time-machine?symbol=NSE:NIFTY&interval=1d&from=${from}`));
     expect(d).toMatchObject({ interval: "1d", symbol: expect.stringContaining("NIFTY") });
     expect(d.count).toBeGreaterThan(0);

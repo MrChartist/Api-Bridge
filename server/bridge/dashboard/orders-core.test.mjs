@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayRows, filterOrders, filterTrades, openByMode, orderBucket, orderCounts, tradeTotals } from "./orders-core.js";
+import { dayRows, depthView, filterOrders, filterTrades, openByMode, orderBucket, orderCounts, tradeTotals } from "./orders-core.js";
 
 const O = (o) => ({ orderId: "PAPER-1", accountId: "demo-paper", symbol: "NFO:NIFTY-2026-11-03-25850-CE", side: "BUY", status: "filled", mode: "paper", ...o });
 const list = [
@@ -63,5 +63,28 @@ describe("positions Day view", () => {
     const r = dayRows([{ symbol: "NFO:A", netQty: 65, ltp: 10, buyQty: 65, buyAvg: 9 }]);
     expect(r.rows[0].dayPnl).toBeNull();
     expect(r).toMatchObject({ total: null, missing: 1 });
+  });
+});
+
+describe("market depth in the ticket", () => {
+  const L = (price, qty, orders = 1) => ({ price, qty, orders });
+  const depth = { bids: [L(186.2, 350, 9), L(185.9, 450), L(185.6, 600), L(185.3, 1000), L(185, 800)], asks: [L(186.5, 625), L(186.8, 400), L(187.1, 0), L(187.4, 300)] };
+  it("pairs levels best first, totals each side and scales the bars to the largest level", () => {
+    const v = depthView(depth);
+    expect(v.rows).toHaveLength(5);
+    expect(v.rows[0]).toEqual({ bid: L(186.2, 350, 9), ask: L(186.5, 625) });
+    expect(v.rows[3].ask).toBeNull(); // an empty (zero) level is dropped, so asks run out first
+    expect([v.totalBid, v.totalAsk, v.maxQty]).toEqual([3200, 1325, 1000]);
+    expect(v.bidShare).toBeCloseTo(3200 / 4525, 9);
+    expect(v.available).toBe(5);
+  });
+  it("shows up to twenty levels when the source sends them, five by default", () => {
+    const many = { bids: Array.from({ length: 20 }, (_, i) => L(100 - i, 10)), asks: Array.from({ length: 20 }, (_, i) => L(101 + i, 10)) };
+    expect(depthView(many).rows).toHaveLength(5);
+    expect(depthView(many, 20).rows).toHaveLength(20);
+    expect(depthView(many).available).toBe(20);
+  });
+  it("has nothing to draw without depth", () => {
+    expect(depthView(null)).toEqual({ rows: [], totalBid: 0, totalAsk: 0, maxQty: 0, bidShare: null, available: 0 });
   });
 });

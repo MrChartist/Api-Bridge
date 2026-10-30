@@ -241,6 +241,28 @@ export function openStream(url) {
   });
 }
 
+/**
+ * A stopwatch for "within N s" acceptance checks: `stop()` gives the wall time and this process's CPU time (every
+ * thread: the event loop and the libuv pool that runs scrypt and file writes) since it started.
+ *
+ * Why CPU time: the Bridge under test runs in this process, so its CPU time is the work it did to get there. Wall
+ * time also counts every other test worker and process on the machine; on a 4-core machine running the full suite
+ * in parallel it stretched 5 s of work past 5.4 s while the work itself had not changed. So the spec's budget is
+ * asserted on CPU time, and wall time gets a loose bound (WAIT_SLACK_MS) that still catches a step that sleeps on a
+ * timer (a recorder that waits for the next minute instead of recording at once).
+ */
+export function stopwatch() {
+  const wall0 = Date.now();
+  const cpu0 = process.cpuUsage();
+  return () => {
+    const c = process.cpuUsage(cpu0);
+    return { wallMs: Date.now() - wall0, cpuMs: (c.user + c.system) / 1000 };
+  };
+}
+
+/** The wall-time bound beside a CPU budget: under 60 s, so a wait for the next minute still fails. */
+export const WAIT_SLACK_MS = 30_000;
+
 /** Poll `fn` until it returns a truthy value (or throw after `ms`). */
 export async function eventually(fn, { ms = 3000, every = 20 } = {}) {
   const end = Date.now() + ms;
