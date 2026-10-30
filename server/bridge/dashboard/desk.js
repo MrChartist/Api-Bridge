@@ -2544,14 +2544,27 @@ async function renderDesk(kind) {
   };
   // Leaving the page: the router swaps #content on hashchange, so check once it has.
   // Before the first load finishes the page is not in the document yet: wait for it, then check.
-  const onRoute = () => setTimeout(() => mounted && !pageRoot.isConnected && cleanup(), 0);
+  // Left while still loading (not mounted yet): check again once the load is done, else nothing ever tidied this page
+  // up (its live watch, timers and observers kept the whole page alive).
+  const onRoute = () =>
+    setTimeout(() => {
+      if (pageRoot.isConnected) return;
+      if (mounted) cleanup();
+      else loaded?.then(() => setTimeout(() => !pageRoot.isConnected && cleanup(), 0));
+    }, 0);
   let refRo = null;
+  let cleaned = false;
   function cleanup() {
+    if (cleaned) return;
+    cleaned = true;
+    // The document-wide key handler reads activeDesk: let go of this page (it kept the whole left page alive).
+    if (activeDesk && !activeDesk.root?.isConnected) activeDesk = null;
     feed?.stop();
     clearInterval(ageTimer);
     refRo?.disconnect();
     ctxRo?.disconnect();
     headRo?.disconnect();
+    refChipEl.destroy?.();
     document.querySelector(".toolbar-title")?.classList.remove("icon-only");
     chain.destroy();
     document.getElementById("content")?.removeAttribute("data-stale");
@@ -2596,6 +2609,8 @@ async function renderDesk(kind) {
   if (typeof ResizeObserver === "function") {
     let roomW = -1;
     ctxRo = new ResizeObserver((entries) => {
+      // It watches the shared toolbar slot, which outlives this page: let go once the capsule is gone.
+      if (!capsule.isConnected && mounted) return ctxRo?.disconnect();
       const w = Math.round(entries[entries.length - 1]?.contentRect?.width ?? -1);
       if (w === roomW) return;
       roomW = w;

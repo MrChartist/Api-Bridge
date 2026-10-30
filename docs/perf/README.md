@@ -26,7 +26,11 @@ real broker over the internet does (100 to 400 ms is typical). It is off unless 
 ### What it records, per page
 
 Pages: Home, Option Chain, Strategy, Positions, Orders, OI Analysis, Volatility, Screeners (Options), Live events,
-Accounts, API (Keys) and API › Rate limits. Chromium at 1440 x 900, dark.
+Accounts, API (Keys) and API › Rate limits, and (round 4) Exposure, Flow, Futures, Risk, Strategy lab and Watchlists.
+Chromium at 1440 x 900 (`--viewport WxH` to change), dark. Also per page: paint, layout and style ms per second from a
+`--trace` second Chromium trace (6 by default), main-thread and script ms per second (CDP `Performance.getMetrics`) and
+the JS heap after a forced GC at the start and end of the steady window. `--soak N` holds the main pages open for N
+minutes (one browser each) plus a tab that changes page every 4 s, and reports the heap growth.
 
 | Figure | How |
 |---|---|

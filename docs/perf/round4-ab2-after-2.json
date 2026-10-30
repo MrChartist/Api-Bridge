@@ -1,0 +1,128 @@
+{
+  "at": "2026-10-30T22:29:51.331Z",
+  "node": "v22.22.0",
+  "seconds": 20,
+  "latencyMs": 200,
+  "pages": [
+    {
+      "page": "chain",
+      "firstData": 1217,
+      "fcp": 188,
+      "jsKB": 2337,
+      "cssKB": 787,
+      "jsFiles": 49,
+      "reloadLoadMs": 263,
+      "switchFirst": 776,
+      "switchBack": 542,
+      "switchCached": 268,
+      "heapStartKB": 5299,
+      "paintMsPerS": 70,
+      "layoutMsPerS": 10,
+      "styleMsPerS": 18,
+      "mainMsPerS": 298,
+      "scriptMsPerS": 45,
+      "heapEndKB": 5564,
+      "restPerMin": 66,
+      "duplicates": 0,
+      "duplicateUrls": {},
+      "brokerPerMinRaw": 3,
+      "brokerByClass": {
+        "quote": 1
+      },
+      "longTasks": 11,
+      "longTaskMs": 888,
+      "longTaskMax": 145,
+      "tickToCell": {
+        "n": 24,
+        "p50": 72,
+        "p95": 147,
+        "max": 367,
+        "samples": [
+          74,
+          88,
+          59,
+          101,
+          118,
+          367,
+          46,
+          145,
+          74,
+          147,
+          84,
+          90,
+          56,
+          93,
+          40,
+          48,
+          15,
+          72,
+          30,
+          65,
+          28,
+          50,
+          58,
+          64
+        ]
+      },
+      "topRequests": {
+        "GET /v1/optionchain": 7,
+        "GET /v1/quotes": 7,
+        "GET /v1/positions": 7,
+        "GET /v1/alerts/inbox": 1
+      },
+      "brokerPerMinNet": 3
+    },
+    {
+      "page": "oi",
+      "firstData": null,
+      "fcp": 164,
+      "jsKB": 2337,
+      "cssKB": 787,
+      "jsFiles": 49,
+      "reloadLoadMs": 231,
+      "switchFirst": null,
+      "switchBack": 805,
+      "switchCached": null,
+      "heapStartKB": 7322,
+      "paintMsPerS": 23,
+      "layoutMsPerS": 11,
+      "styleMsPerS": 13,
+      "mainMsPerS": 121,
+      "scriptMsPerS": 29,
+      "heapEndKB": 7026,
+      "restPerMin": 66,
+      "duplicates": 0,
+      "duplicateUrls": {},
+      "brokerPerMinRaw": 0,
+      "brokerByClass": {},
+      "longTasks": 0,
+      "longTaskMs": 0,
+      "longTaskMax": 0,
+      "tickToCell": {
+        "n": 5,
+        "p50": 31,
+        "p95": 89,
+        "max": 89,
+        "samples": [
+          56,
+          89,
+          31,
+          30,
+          27
+        ]
+      },
+      "topRequests": {
+        "GET /v1/optionchain": 7,
+        "GET /v1/quotes": 7,
+        "GET /v1/positions": 7,
+        "GET /v1/alerts/inbox": 1
+      },
+      "brokerPerMinNet": 0
+    }
+  ],
+  "idle": {
+    "seconds": 10,
+    "brokerPerMin": 0,
+    "byClass": {}
+  }
+}
