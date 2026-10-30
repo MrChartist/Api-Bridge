@@ -378,17 +378,25 @@ between reads.
 | 34 | Tests: vol/agreement, analytics.integration | Failed in every full run: "Hook timed out" in afterAll. `app.close()` waited for the demo book seed, and a seed step sitting in the market-data queue never returns on the frozen clock these tests inject. | Shutdown waits for the seed at most 3 s (`book/module.mjs SEED_STOP_WAIT_MS`). Test: `book/stop.test.mjs` closes a demo Bridge mid-seed on a frozen clock (it timed out at 30 s before). Full suite: 352 files passed. |
 | 35 | Tests: futuresChain | Expiries 10, 40 and 70 days ahead can share a month (1 and 31 January), so the test depended on the run date. | Mid-month in three different months. |
 
+### Round 3: QA's own leftovers
+
+| # | Page | Was | Now |
+|---|---|---|---|
+| 36 | Algo, no strategies (1440) | The strategies card took the left half and the right half stayed empty. | The right column offers the four shipped examples, each with its file name and what it does, an "Add the four examples" button and the template guide. Once a strategy exists it gives way to the strategy's detail. The empty list does not repeat the button beside it. Phones: list, then examples, then the guide (`algo.js`, `app.css`). |
+| 37 | Volatility › Event vol | The term chart was evenly spaced by expiry. | Spaced by days to expiry (`seriesLayout` `at`). |
+| 38 | Flow (demo) | BANKNIFTY calls 2 to 3 % out of the money read 20 to 75 times their OI: the volume hump was wider than the OI hump. | Volume uses the OI's width (`OI_WIDTH_STEPS`), and in-the-money strikes trade a quarter as much: BANKNIFTY reads 2 to 3 times in the money, 8 at the money and 17 at 20 strikes out. Flow's top rows, the outliers it ranks, read 9 to 27 times. The OI hump follows a two-day average while volume follows spot, so the side the market moved to reads higher. Tested in `demo.test.mjs`. |
+| 39 | Strategy hero | Max loss "below 24250 / above 25700"; max profit "24500–25450". | "if NIFTY closes below 24250 or above 25700", "if NIFTY closes between 24500 and 25450". Phones keep the levels only, which fit the two-line sub ("below 24250 or above 25700"). `strategy.js closeText`, tested. |
+
+Shots in `scratchpad/qa2/p2/shots/`:
+- Algo: `algo-1440.png` before; `after-algo-1440.png` and `after-algo-390.png` after.
+- Event vol: `after-vol-event.png` before; `after-vol-event2.png` after.
+- Flow: `after-flow2.png` before; `after-flow3.png` after.
+- Strategy: `f3-ic-1440-dark.png` before; `after-ic-1100.png`, `after-ic-1440.png` and `after-ic-390.png` after.
+
 ### Left (not fixed here)
 
-- **Flow › Unusual activity (demo):** BANKNIFTY calls 2 to 3 % out of the money still read 20 to 75 times their OI,
-  because the demo OI hump is narrower than the volume hump. Better than "> 100x" on every row, but a real monthly
-  reads 2 to 5 times.
-- **Algo page** (its own agent's area): at 1440 the strategies card takes half the width and the right half stays
-  empty until a strategy exists.
-- **Event vol:** the event date is the browser's own date field ("11/04/2026" in an en-US browser), and its term chart
-  is still evenly spaced by expiry, like the other term-structure charts.
-- **Strategy:** Max loss "below 24250 / above 25700" and "Now −₹139" next to a what-if P&L of ₹0 are still open from
-  the first QA pass.
+- **Event vol:** the event date is the browser's own date field ("11/04/2026" in an en-US browser).
+- **Strategy:** "Now −₹139" (at mid, after charges) next to a what-if P&L of ₹0 is still open from the first QA pass.
 - **Tests under heavy machine load** (load average 15 to 30 from parallel agents): `recorder/store.test` "full-day
   read ≤ 300 ms" took 342 to 1297 ms and `hooks/routes` "acknowledges within 50 ms" timed out. Both pass on a quiet
   machine. Not loosened.

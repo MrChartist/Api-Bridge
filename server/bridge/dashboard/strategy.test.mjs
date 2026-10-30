@@ -645,3 +645,18 @@ describe("round 2: suggestions by view", () => {
     expect(bear.every((t) => O.PRESETS.find((p) => p.id === t.id).group === "bear")).toBe(true);
   });
 });
+
+describe("where max profit and max loss hold, in words", () => {
+  it("reads like a sentence about the close", async () => {
+    const { closeText } = await import("./strategy.js");
+    expect(closeText("NIFTY", [[22000, 24250], [25700, 28000]], 22000, 28000)).toBe("if NIFTY closes below 24250 or above 25700");
+    expect(closeText("NIFTY", [[24500, 25450]], 22000, 28000)).toBe("if NIFTY closes between 24500 and 25450");
+    expect(closeText("NIFTY", [[26000, 28000]], 22000, 28000)).toBe("if NIFTY closes above 26000");
+    expect(closeText("BANKNIFTY", [[58000, 58000.4]], 50000, 66000)).toBe("if BANKNIFTY closes at 58000");
+    expect(closeText("NIFTY", [[22000, 28000]], 22000, 28000)).toBe("everywhere");
+    expect(closeText("NIFTY", [], 22000, 28000)).toBe("");
+    // Phones keep the levels only
+    expect(closeText("NIFTY", [[22000, 24250], [25700, 28000]], 22000, 28000, { short: true })).toBe("below 24250 or above 25700");
+    expect(closeText("NIFTY", [[24500, 25450]], 22000, 28000, { short: true })).toBe("24500–25450");
+  });
+});
