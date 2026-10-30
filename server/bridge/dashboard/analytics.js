@@ -258,7 +258,7 @@ export function fitDesk(root, cap) {
     // One head height on every panel: a long description moves behind a "?" beside the title (as the Market calendar's
     // panels do); a short one stays inline.
     const sub = head?.querySelector(".card-titles > p");
-    if (sub && sub.textContent.length > 64) {
+    if (sub && sub.textContent.length > 44) {
       const title = head.querySelector(".card-titles h2")?.textContent ?? "About this panel";
       const text = sub.textContent;
       const help = h("button", { type: "button", class: "icon-btn tiny an-help", "aria-label": `About ${title}`, title: text }, h("span", { "aria-hidden": "true" }, "?"));
@@ -282,7 +282,7 @@ export function fitDesk(root, cap) {
     if (!head && body) {
       const shown = [...body.children].filter((x) => !x.hidden && !x.classList.contains("an-gone") && x.tagName !== "DATALIST");
       const fields = shown.flatMap((x) => [...x.querySelectorAll(":scope > .field:not(.ctx-owned):not(.ctx-refresh)")]).filter((f) => !f.hidden);
-      if (shown.length && shown.every((x) => x.classList.contains("form-grid")) && fields.length <= 5) card.classList.add("an-formbar");
+      if (shown.length && shown.every((x) => x.classList.contains("form-grid")) && fields.length <= 7) card.classList.add("an-formbar");
     }
     const t = card.querySelector("table");
     if (t && t.querySelectorAll("thead th").length > 6) card.classList.add("an-wide");

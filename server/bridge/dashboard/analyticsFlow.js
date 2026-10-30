@@ -7,10 +7,10 @@
 // decides geometry, wording and request building is pure and exported for analyticsFlow.test.mjs; only the functions
 // further down touch the DOM. views.js adds the pages with analyticsFlowPages(() => helpers) after the other
 // analytics pages.
-import { alertBox, api, emptyState, h, icon, istTime, optional, pill, table } from "./app.js";
+import { alertBox, api, emptyState, h, icon, istTime, optional, pill, sheetPopover, table } from "./app.js";
 import { DASH, MINUS, formatFixed, formatInt, formatNumber, formatSigned, isFigure } from "./format.js";
-import { chainControls, chartHost, compact, demoPill, legend, linear, nextId, niceScale, readNumber, s, statusRow, strikeBars, svgRoot, tile, tiles } from "./analyticsViews.js";
-import { barTimeLabel, dayLabel, rulerLayout, seriesLayout } from "./analyticsMore.js";
+import { chainControls, chartHeight, chartHost, compact, demoPill, legend, linear, nextId, niceScale, readNumber, s, statusRow, strikeBars, svgRoot, tile, tiles } from "./analyticsViews.js";
+import { barTimeLabel, dayLabel, rulerLayout, seriesChart, seriesLayout } from "./analyticsMore.js";
 
 // ───────────────────────── pure helpers ─────────────────────────
 
@@ -111,6 +111,54 @@ export const scoreTone = (v) => (Number(v) >= 60 ? "hot" : Number(v) >= 35 ? "wa
 // ── tide ──
 
 /** Sentiment chip: a word, the pill tone and the score text. */
+/**
+ * Call and put premium traded through the session as two lines, each point the sum over the last `k` intervals
+ * (15 minutes at the 5-minute demo replay), in ₹ crore, so a quiet interval is not a dot at zero and one burst does not
+ * flatten the rest. Pure.
+ */
+export function tideFlowSeries(points, k = 3) {
+  const pts = points ?? [];
+  const roll = (key) =>
+    pts.map((p, i) => {
+      let sum = 0;
+      for (let j = Math.max(0, i - k + 1); j <= i; j++) sum += Math.max(0, Number(pts[j][key]) || 0);
+      return { label: barTimeLabel(p.ts / 1000, "time"), y: Math.round(sum / 1e5) / 100 };
+    });
+  return [
+    { id: "call", label: "Calls (₹ Cr, 15 min)", cls: "s1", points: roll("callPremium") },
+    { id: "put", label: "Puts (₹ Cr, 15 min)", cls: "s2", dash: "6 3", points: roll("putPremium") },
+  ];
+}
+
+/** The sentiment in one plain sentence (pure). */
+export function sentimentWords(sent) {
+  const label = sent?.label ?? "neutral";
+  if (label === "bullish") return "More premium went into calls bought and puts sold: a bullish lean.";
+  if (label === "bearish") return "More premium went into puts bought and calls sold: a bearish lean.";
+  return isFigure(sent?.score) ? "Bought and sold premium roughly balance." : "Not enough classified premium yet.";
+}
+
+/** A gauge from −1 (bearish) to +1 (bullish) with the neutral band shaded and the score marked. */
+function sentimentGauge(sent) {
+  const score = isFigure(sent?.score) ? Math.max(-1, Math.min(1, Number(sent.score))) : null;
+  const th = isFigure(sent?.threshold) ? Number(sent.threshold) : 0.1;
+  const W = 300;
+  const x = (v) => r1(((v + 1) / 2) * W);
+  const svg = s("svg", { class: "chart sent-gauge", viewBox: `0 0 ${W} 26`, preserveAspectRatio: "none", role: "img", "aria-label": score === null ? "No score yet" : `Score ${formatSigned(score, 2)} on a scale from minus 1, bearish, to plus 1, bullish`, focusable: "false" });
+  svg.append(s("rect", { class: "meter-track", x: 0, y: 8, width: W, height: 10, rx: 5 }), s("rect", { class: "band", x: x(-th), y: 8, width: x(th) - x(-th), height: 10 }));
+  if (score !== null) svg.append(s("rect", { class: `meter-fill ${score >= 0 ? "up" : "down"}`, x: Math.min(x(0), x(score)), y: 8, width: Math.max(2, Math.abs(x(score) - x(0))), height: 10, rx: 3 }), s("line", { class: "zero-line", x1: x(0), x2: x(0), y1: 4, y2: 22 }));
+  return h("div", { class: "sent-gauge-wrap" }, svg, h("div", { class: "sent-gauge-ends", "aria-hidden": "true" }, h("span", {}, "Bearish"), h("span", {}, "Bullish")));
+}
+
+/** The sentiment's formula and threshold behind "?" (a sheet), not printed on the page. */
+function ruleHelp(sent) {
+  if (!sent?.rule) return null;
+  const text = `${sent.rule}${isFigure(sent.threshold) ? ` Neutral inside ±${formatFixed(sent.threshold, 2)}.` : ""}`;
+  const b = h("button", { type: "button", class: "icon-btn tiny an-help", "aria-label": "How the sentiment is worked out", title: text }, h("span", { "aria-hidden": "true" }, "?"));
+  b.addEventListener("click", () => sheetPopover({ trigger: b, title: "How the sentiment is worked out", body: h("p", { class: "an-help-text" }, text) }));
+  return b;
+}
+
 export function sentimentView(sent) {
   const label = sent?.label ?? "neutral";
   return { label, text: { bullish: "Bullish", bearish: "Bearish", neutral: "Neutral" }[label] ?? "Neutral", tone: label === "bullish" ? "ok" : label === "bearish" ? "bad" : "", score: isFigure(sent?.score) ? formatSigned(sent.score, 2) : null };
@@ -132,8 +180,19 @@ export function tideBarsLayout(points, { width = 640, height = 210 } = {}) {
   const plotW = w - padL - padR;
   const slot = plotW / Math.max(1, n);
   const bw = Math.max(2, Math.min(28, slot * 0.64));
-  const sc = niceScale(-Math.max(0, ...points.map((p) => Number(p.putPremium) || 0)), Math.max(0, ...points.map((p) => Number(p.callPremium) || 0)), 4);
-  const y = linear(sc.min, sc.max, height - padB, padT);
+  // A robust reach: the 95th percentile with 15 % headroom (at least the median of the top three), so one burst does
+  // not flatten every other interval to a dot. A bar beyond it is drawn to the edge and says so in its title.
+  const reach = (vals) => {
+    const v = vals.filter((x) => x > 0).sort((a, b) => a - b);
+    if (!v.length) return 0;
+    const p95 = v[Math.min(v.length - 1, Math.floor(v.length * 0.95))];
+    return Math.min(v.at(-1), Math.max(p95 * 1.15, v[Math.max(0, v.length - 3)]));
+  };
+  const hiC = reach(points.map((p) => Number(p.callPremium) || 0));
+  const hiP = reach(points.map((p) => Number(p.putPremium) || 0));
+  const sc = niceScale(-hiP, hiC, 4);
+  const y0 = linear(sc.min, sc.max, height - padB, padT);
+  const y = (v) => y0(Math.max(sc.min, Math.min(sc.max, v)));
   const zeroY = r1(y(0));
   const cx = (i) => padL + slot * (i + 0.5);
   return {
@@ -142,7 +201,8 @@ export function tideBarsLayout(points, { width = 640, height = 210 } = {}) {
       const c = Math.max(0, Number(p.callPremium) || 0);
       const pu = Math.max(0, Number(p.putPremium) || 0);
       const time = barTimeLabel(p.ts / 1000, "time");
-      return { x: r1(cx(i) - bw / 2), w: r1(bw), callY: r1(y(c)), callH: r1(zeroY - y(c)), putY: zeroY, putH: r1(y(-pu) - zeroY), title: `${time} IST: calls ${inr(c)}, puts ${inr(pu)}` };
+      const over = c > sc.max || pu > -sc.min ? " (beyond the scale)" : "";
+      return { x: r1(cx(i) - bw / 2), w: r1(bw), callY: r1(y(c)), callH: r1(zeroY - y(c)), putY: zeroY, putH: r1(y(-pu) - zeroY), title: `${time} IST: calls ${inr(c)}, puts ${inr(pu)}${over}` };
     }),
     yTicks: sc.ticks.map((t) => ({ y: r1(y(t)), label: compact(t), value: t })),
     xTicks: timeTicks(points, plotW, cx),
@@ -417,7 +477,7 @@ export function dataTable(columns, rows, { sort, onSort, onSelect, selected, row
 /** Call premium up, put premium down, per interval. */
 function tideBars(points, label) {
   return chartHost((w) => {
-    const L = tideBarsLayout(points, { width: w });
+    const L = tideBarsLayout(points, { width: w, height: Math.round(chartHeight(w) * 0.7) });
     const svg = svgRoot(L.width, L.height, label);
     for (const t of L.yTicks) svg.append(s("line", { class: "grid-line", x1: L.padL, x2: L.plotRight, y1: t.y, y2: t.y }), s("text", { class: "tick", x: L.padL - 6, y: t.y + 4, "text-anchor": "end" }, t.label));
     for (const t of L.xTicks) svg.append(s("text", { class: "tick", x: t.x, y: L.height - 8, "text-anchor": "middle" }, t.label));
@@ -515,7 +575,8 @@ async function renderUnusual(H) {
           { label: "#", cell: (_, i) => h("span", { class: "muted" }, String(i + 1)) },
           { label: "Contract", cell: (c) => h("div", { class: "cell-two" }, h("button", { type: "button", class: "row-pick" }, `${c.underlying} ${formatInt(c.strike)} ${c.side === "call" ? "CE" : "PE"}`), h("span", { class: "muted small" }, dayLabel(c.expiry))) },
           { label: "Score", num: true, cell: (c) => h("span", { class: `score-chip ${scoreTone(c.score)}` }, formatFixed(c.score, 1)) },
-          { label: "Flags", cell: (c) => h("div", { class: "flags" }, c.flags?.length ? c.flags.map((f) => h("span", { class: `pill sm ${flagInfo(f).tone}`, title: flagInfo(f).hint }, flagInfo(f).label)) : h("span", { class: "muted small" }, "None")) },
+          // Two flags and a "+N" chip (the rest in its tooltip), so a row stays one line on a wide screen.
+          { label: "Flags", cell: (c) => h("div", { class: "flags" }, c.flags?.length ? [...c.flags.slice(0, 2).map((f) => h("span", { class: `pill sm ${flagInfo(f).tone}`, title: flagInfo(f).hint }, flagInfo(f).label)), c.flags.length > 2 ? h("span", { class: "pill sm flag-more", title: c.flags.slice(2).map((f) => flagInfo(f).label).join(", ") }, `+${formatInt(c.flags.length - 2)}`) : null] : h("span", { class: "muted small" }, "None")) },
           { label: "Volume / OI", num: true, cell: (c) => h("div", { class: "cell-two num" }, h("span", {}, isFigure(c.volOi) ? `${formatFixed(c.volOi, 2)}x` : DASH), h("span", { class: "muted small" }, `${compact(c.volume)} / ${compact(c.oi)}`)) },
           { label: "Premium", num: true, cell: (c) => (isFigure(c.premiumInr) ? inr(c.premiumInr) : h("span", { class: "muted", title: "The chain has no lot size, so premium cannot be worked out" }, DASH)) },
           { label: "Aggressor (proxy)", cell: (c) => { const a = aggressorInfo(c.aggressor); return h("div", { class: "cell-two" }, h("span", { class: a.tone || undefined }, a.text), h("span", { class: "muted small" }, a.sub)); } },
@@ -612,10 +673,10 @@ async function renderTide(H) {
         sectionCard(
           "Sentiment",
           "From the split of bought and sold premium (a proxy).",
-          h("div", { class: "row" }, pill(sent.text, sent.tone), sent.score ? h("span", { class: "chip-score mono" }, `Score ${sent.score}`) : null, d.sentiment?.proxy ? pill("Proxy", "info") : null),
-          h("p", { class: "rule-text" }, d.sentiment?.rule ?? DASH),
+          h("div", { class: "row" }, pill(sent.text, sent.tone), sent.score ? h("span", { class: "chip-score mono" }, `Score ${sent.score}`) : null, d.sentiment?.proxy ? pill("Proxy", "info") : null, ruleHelp(d.sentiment)),
+          sentimentGauge(d.sentiment),
+          h("p", { class: "sent-words" }, sentimentWords(d.sentiment)),
           d.sentiment?.reason ? h("p", { class: "muted small" }, d.sentiment.reason) : null,
-          isFigure(d.sentiment?.threshold) ? h("p", { class: "muted small" }, `Neutral inside ±${formatFixed(d.sentiment.threshold, 2)}.`) : null,
           d.window ? h("p", { class: "muted small" }, `Last ${formatInt(d.window.minutes)} min: net ${inr(d.window.net)}, directional ${inr(d.window.directionalNet)}.`) : null,
         ),
         sectionCard("Bought and sold (proxy)", "Premium split by where the price sat in the spread.", kv([["Calls bought", inr(t.callBuyAggressive)], ["Calls sold", inr(t.callSellAggressive)], ["Puts bought", inr(t.putBuyAggressive)], ["Puts sold", inr(t.putSellAggressive)], ["Unclassified", inr(t.unclassified)]])),
@@ -623,8 +684,8 @@ async function renderTide(H) {
       sectionCard(
         "Premium flow through the session",
         `${d.underlying} ${d.expiry}: premium traded between snapshots, each interval shown at its end. Times are IST.`,
-        legend([{ cls: "call", label: "Call premium" }, { cls: "put", label: "Put premium" }]),
-        tideBars(pts, `Call and put premium traded in each of ${pts.length} intervals for ${d.underlying}. Total calls ${inr(t.callPremium)}, puts ${inr(t.putPremium)}.`),
+        legend([{ cls: "s1", label: "Call premium" }, { cls: "s2", label: "Put premium" }]),
+        seriesChart(tideFlowSeries(pts), { label: `Call and put premium traded over rolling 15 minutes through the session for ${d.underlying}. Total calls ${inr(t.callPremium)}, puts ${inr(t.putPremium)}.`, yDecimals: 0 }),
         h("h3", { class: "chart-title" }, "Cumulative net premium"),
         cumulativeChart(pts, `Cumulative call minus put premium for ${d.underlying}, now ${inr(t.cumulativeNet)}.`),
       ),
@@ -659,7 +720,10 @@ async function renderTide(H) {
     }, { quiet });
   const controls = chainControls(H, { onChange: () => load(), onError: (e) => out.replaceChildren(H.errorBox(e)), withStrikes: false });
   controls.show({ expiry: true, strikes: false });
-  controls.node.lastElementChild.before(windowF.wrap, topF.wrap);
+  const recHint = "Readings only accrue while a page or an alert rule is polling the Bridge. Close this page and the series has a gap until something reads it again.";
+  const recHelp = h("button", { type: "button", class: "icon-btn tiny an-help", "aria-label": "About recording", title: recHint }, h("span", { "aria-hidden": "true" }, "?"));
+  recHelp.addEventListener("click", () => sheetPopover({ trigger: recHelp, title: "Recording", body: h("p", { class: "an-help-text" }, recHint) }));
+  controls.node.lastElementChild.before(windowF.wrap, topF.wrap, h("div", { class: "field check-field" }, recLabel, recHelp));
   for (const x of [windowF, topF]) x.el.addEventListener("change", () => load());
   rec.addEventListener("change", () => load(true));
   const root = h(
@@ -668,7 +732,7 @@ async function renderTide(H) {
     h(
       "section",
       { class: "card" },
-      h("div", { class: "card-body stack" }, controls.node, recLabel, h("p", { class: "hint recording-hint" }, icon("clock"), "Readings only accrue while a page or an alert rule is polling the Bridge. Close this page and the series has a gap until something reads it again.")),
+      h("div", { class: "card-body stack" }, controls.node),
     ),
     out,
   );
