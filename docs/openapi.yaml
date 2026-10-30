@@ -1065,7 +1065,7 @@ paths:
     get:
       tags: [Analytics]
       operationId: getAnalyticsSurface
-      summary: ATM IV, skew and term structure across the next expiries
+      summary: ATM IV, skew and term structure across the next expiries (ones past their 15:30 IST cutoff are skipped)
       x-stream: S15
       x-scope: read
       parameters:
@@ -1103,17 +1103,17 @@ paths:
       tags: [Analytics]
       operationId: getAnalyticsGreeks
       summary: Black-Scholes IV and Greeks for one option
-      description: Send exactly one of `iv` (percent) or `price` (premium). `rate` is in percent (default 6.5). Pure calculation, no broker call.
+      description: Send exactly one of `iv` (percent) or `price` (premium). `rate` is in percent (default 6.5). Pure calculation, no broker call. A `price` below intrinsic value, or one no volatility under 500 % explains, is refused with 400.
       x-stream: S15
       x-scope: read
       parameters:
-        - { name: spot, in: query, required: true, schema: { type: number } }
-        - { name: strike, in: query, required: true, schema: { type: number } }
+        - { name: spot, in: query, required: true, schema: { type: number, minimum: 0.01, maximum: 1000000000 } }
+        - { name: strike, in: query, required: true, schema: { type: number, minimum: 0.01, maximum: 1000000000 } }
         - { name: type, in: query, required: true, schema: { type: string, enum: [CE, PE] } }
-        - { name: days, in: query, required: true, description: Calendar days to expiry (at least 0.25 is used)., schema: { type: number, minimum: 0 } }
-        - { name: iv, in: query, schema: { type: number } }
-        - { name: price, in: query, schema: { type: number } }
-        - { name: rate, in: query, schema: { type: number, minimum: 0 } }
+        - { name: days, in: query, required: true, description: Calendar days to expiry (at least 0.25 is used)., schema: { type: number, minimum: 0, maximum: 3650 } }
+        - { name: iv, in: query, description: Implied volatility in percent., schema: { type: number, minimum: 0.01, maximum: 500 } }
+        - { name: price, in: query, description: Option premium. Must be at least the intrinsic value and explainable by a volatility under 500 %., schema: { type: number, minimum: 0.01, maximum: 1000000000 } }
+        - { name: rate, in: query, description: Risk-free rate in percent (default 6.5)., schema: { type: number, minimum: 0, maximum: 100 } }
       responses:
         "200": { $ref: "#/components/responses/AnalyticsResult" }
         "4XX": { $ref: "#/components/responses/Problem" }
@@ -1124,6 +1124,7 @@ paths:
       tags: [Analytics]
       operationId: postAnalyticsPayoff
       summary: Expiry payoff curve, max profit and loss and break-evens for a multi-leg strategy
+      description: Max profit and loss cover every price from 0 up, not just the plotted range, and are null when unbounded. A loss reached only at a price of 0 (long future, short put) is finite and flagged `lossAtZero`. Break-evens are exact. A range and step that give more than 5000 points are refused with 400.
       x-stream: S15
       x-scope: read
       requestBody:
@@ -1144,14 +1145,14 @@ paths:
                     properties:
                       type: { type: string, enum: [CE, PE, FUT] }
                       side: { type: string, enum: [buy, sell] }
-                      strike: { type: number }
-                      price: { type: number, minimum: 0 }
-                      lots: { type: integer, default: 1 }
-                      lotSize: { type: integer, default: 1 }
-                spot: { type: number }
-                from: { type: number }
-                to: { type: number }
-                step: { type: number }
+                      strike: { type: number, exclusiveMinimum: 0, maximum: 1000000000, description: Required for CE and PE. }
+                      price: { type: number, minimum: 0, maximum: 1000000000 }
+                      lots: { type: integer, minimum: 1, maximum: 10000, default: 1 }
+                      lotSize: { type: integer, minimum: 1, maximum: 100000, default: 1 }
+                spot: { type: number, exclusiveMinimum: 0, maximum: 1000000000 }
+                from: { type: number, minimum: 0, maximum: 1000000000 }
+                to: { type: number, exclusiveMinimum: 0, maximum: 1000000000, description: Must be greater than `from`. }
+                step: { type: number, exclusiveMinimum: 0, description: "The range divided by the step may give at most 5000 points." }
       responses:
         "200": { $ref: "#/components/responses/AnalyticsResult" }
         "4XX": { $ref: "#/components/responses/Problem" }
@@ -1172,12 +1173,12 @@ paths:
               type: object
               required: [capital, riskPct, entry, stop]
               properties:
-                capital: { type: number }
-                riskPct: { type: number, description: Percent of capital to risk. }
-                entry: { type: number }
-                stop: { type: number }
-                lotSize: { type: integer, default: 1 }
-                maxLots: { type: integer }
+                capital: { type: number, exclusiveMinimum: 0, maximum: 1000000000000 }
+                riskPct: { type: number, exclusiveMinimum: 0, maximum: 100, description: Percent of capital to risk. }
+                entry: { type: number, exclusiveMinimum: 0, maximum: 1000000000 }
+                stop: { type: number, exclusiveMinimum: 0, maximum: 1000000000 }
+                lotSize: { type: integer, minimum: 1, maximum: 100000, default: 1 }
+                maxLots: { type: integer, minimum: 0, maximum: 10000000 }
       responses:
         "200": { $ref: "#/components/responses/AnalyticsResult" }
         "4XX": { $ref: "#/components/responses/Problem" }
@@ -1380,7 +1381,7 @@ paths:
       parameters:
         - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
         - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
-        - { name: interval, in: query, schema: { type: string, enum: ["1m", "3m", "5m", "10m", "15m", "30m", "1h", "1d"], default: 1d } }
+        - { name: interval, in: query, schema: { type: string, enum: ["1m", "3m", "5m", "10m", "15m", "30m", "60m", "1d"], default: 1d } }
         - { name: countback, in: query, description: Number of candles (default 30)., schema: { type: integer, minimum: 1, maximum: 1000, default: 30 } }
         - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/AccountQueryOptional"
@@ -1395,7 +1396,7 @@ paths:
       tags: [Analytics]
       operationId: getAnalyticsFiiDii
       summary: FII and DII cash-market buy, sell and net (INR crore), rolling sums and net-flow streak
-      description: From the NSE public site (meta.source is "nse", meta.fetchedAt is the fetch time). NSE publishes one session per call, so history builds up in the Bridge; meta.available says how many sessions it holds. Cached for five minutes.
+      description: From the NSE public site (meta.source is "nse", meta.fetchedAt is the fetch time). NSE publishes one session per call, so the Bridge accumulates history (newest 250 sessions, saved in its data folder and kept across restarts); meta.available says how many sessions it holds, persisted plus fetched. Cached for five minutes.
       x-stream: S15
       x-scope: read
       parameters:
@@ -1410,7 +1411,7 @@ paths:
       tags: [Analytics]
       operationId: getAnalyticsExpiryDay
       summary: Expiry-day digest (time to expiry, ATM straddle, max pain, OI walls, gamma regime, flags)
-      description: Uses the nearest upcoming expiry unless expiry is given. Time to expiry counts to 15:30 IST on the expiry date.
+      description: Uses the nearest expiry whose 15:30 IST cutoff has not passed unless expiry is given. Time to expiry counts to 15:30 IST on the expiry date.
       x-stream: S15
       x-scope: read
       parameters:
@@ -1549,14 +1550,14 @@ paths:
               required: [symbol, quantity, lotSize]
               properties:
                 symbol: { type: string, description: Canonical Bridge symbol, example: "NFO:NIFTY-2026-11-24-FUT" }
-                quantity: { type: integer, minimum: 1, description: Total units; must be a multiple of lotSize. }
-                lotSize: { type: integer, minimum: 1 }
-                freezeQty: { type: integer, minimum: 1, description: Units. Required when the table has no entry; otherwise it can only lower the limit. }
+                quantity: { type: integer, minimum: 1, maximum: 100000000, description: Total units; must be a multiple of lotSize. A plan needing more than 500 child orders is refused. }
+                lotSize: { type: integer, minimum: 1, maximum: 100000 }
+                freezeQty: { type: integer, minimum: 1, maximum: 100000000, description: Units. Required when the table has no entry; otherwise it can only lower the limit. }
                 iceberg:
                   type: object
                   additionalProperties: false
                   properties:
-                    sliceLots: { type: integer, minimum: 1, description: Lots per slice (never above the freeze limit). }
+                    sliceLots: { type: integer, minimum: 1, maximum: 100000, description: Lots per slice (never above the freeze limit). }
                     delayMs: { type: integer, minimum: 0, maximum: 3600000, default: 500 }
       responses:
         "200": { $ref: "#/components/responses/AnalyticsResult" }

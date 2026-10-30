@@ -16,8 +16,8 @@ import { z } from "zod";
 import { BridgeError } from "../core/errors.mjs";
 import { defaultOptionExchange } from "../market/chain.mjs";
 import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
-import { bsPrice, computeGreeks, daysBetween, DEFAULT_RATE } from "../../lib/blackScholes.mjs";
-import { futuresBasis, gammaExposure, ivSkew, oiAnalysis, positionSize, strategyPayoff } from "./math.mjs";
+import { bsPrice, computeGreeks, computeIVAndGreeks, daysBetween, DEFAULT_RATE } from "../../lib/blackScholes.mjs";
+import { futuresBasis, gammaExposure, ivSkew, nowMsOf, oiAnalysis, positionSize, strategyPayoff, upcomingExpiries } from "./math.mjs";
 
 const invalid = (path, detail) => new BridgeError("VALIDATION_FAILED", detail, { errors: [{ path, message: detail }] });
 const opt = (q, name) => {
@@ -30,14 +30,14 @@ function intParam(q, name, min, max, dflt) {
   if (!/^\d+$/.test(v) || Number(v) < min || Number(v) > max) throw invalid(name, `${name} must be a whole number from ${min} to ${max}.`);
   return Number(v);
 }
-function numParam(q, name, { min = -Infinity, required = false } = {}) {
+function numParam(q, name, { min = -Infinity, max = Infinity, required = false } = {}) {
   const v = opt(q, name);
   if (v === undefined) {
     if (required) throw invalid(name, `${name} is required.`);
     return undefined;
   }
   const n = Number(v);
-  if (!Number.isFinite(n) || n < min) throw invalid(name, `${name} must be a number${min > -Infinity ? ` of at least ${min}` : ""}.`);
+  if (!Number.isFinite(n) || n < min || n > max) throw invalid(name, `${name} must be a number${min > -Infinity ? ` of at least ${min}` : ""}${max < Infinity ? `${min > -Infinity ? " and" : " of"} at most ${max}` : ""}.`);
   return n;
 }
 
@@ -51,25 +51,25 @@ function parseBody(schema, body) {
 const leg = z.strictObject({
   type: z.enum(["CE", "PE", "FUT"]),
   side: z.enum(["buy", "sell"]),
-  strike: z.number().positive().optional(),
-  price: z.number().min(0),
+  strike: z.number().positive().max(1e9).optional(),
+  price: z.number().min(0).max(1e9),
   lots: z.number().int().min(1).max(10_000).default(1),
   lotSize: z.number().int().min(1).max(100_000).default(1),
 });
 const payoffBody = z.strictObject({
   legs: z.array(leg).min(1).max(12),
-  spot: z.number().positive().optional(),
-  from: z.number().min(0).optional(),
-  to: z.number().positive().optional(),
-  step: z.number().positive().optional(),
+  spot: z.number().positive().max(1e9).optional(),
+  from: z.number().min(0).max(1e9).optional(),
+  to: z.number().positive().max(1e9).optional(),
+  step: z.number().positive().max(1e9).optional(),
 });
 const sizeBody = z.strictObject({
-  capital: z.number().positive(),
+  capital: z.number().positive().max(1e12),
   riskPct: z.number().positive().max(100),
-  entry: z.number().positive(),
-  stop: z.number().positive(),
-  lotSize: z.number().int().min(1).default(1),
-  maxLots: z.number().int().min(0).optional(),
+  entry: z.number().positive().max(1e9),
+  stop: z.number().positive().max(1e9),
+  lotSize: z.number().int().min(1).max(100_000).default(1),
+  maxLots: z.number().int().min(0).max(10_000_000).optional(),
 });
 
 /** @param {object} deps full deps passed to register() */
@@ -108,13 +108,13 @@ export function createAnalyticsRoutes(deps) {
       const strikes = intParam(ctx.query, "strikes", 1, 100, 10);
       const opts = readOptions(ctx);
       const list = await md().expiries(underlying, opts);
-      const today = new Date().toISOString().slice(0, 10);
-      const picked = list.expiries.filter((e) => e >= today).slice(0, count);
+      const nowMs = nowMsOf(deps);
+      const picked = upcomingExpiries(list.expiries, nowMs).slice(0, count);
       const slices = [];
       for (const expiry of picked) {
         const chain = await md().optionChain({ underlying, expiry, strikes, greeks: true }, opts);
         const s = ivSkew(chain);
-        slices.push({ expiry, daysToExpiry: Math.round(daysBetween(new Date(), expiry) * 100) / 100, atmIv: s.atmIv, riskReversal: s.riskReversal, points: s.points });
+        slices.push({ expiry, daysToExpiry: Math.round(daysBetween(new Date(nowMs), expiry) * 100) / 100, atmIv: s.atmIv, riskReversal: s.riskReversal, points: s.points });
       }
       const [near, far] = [slices[0]?.atmIv, slices.at(-1)?.atmIv];
       const termStructure = slices.length < 2 || near == null || far == null ? null : far > near ? "contango" : far < near ? "backwardation" : "flat";
@@ -135,7 +135,7 @@ export function createAnalyticsRoutes(deps) {
       const px = (sym) => r.items.find((i) => i.symbol === sym)?.ltp ?? null;
       const spot = px(spotSym);
       const future = px(futSym);
-      const days = daysBetween(new Date(), expiry);
+      const days = daysBetween(new Date(nowMsOf(deps)), expiry);
       return {
         data: { underlying: underlying.toUpperCase(), expiry, spotSymbol: spotSym, futureSymbol: futSym, spot, future, daysToExpiry: Math.round(days * 100) / 100, ...futuresBasis({ spot, future, daysToExpiry: days }) },
         errors: r.errors,
@@ -145,34 +145,27 @@ export function createAnalyticsRoutes(deps) {
 
     async greeks(ctx) {
       const q = ctx.query;
-      const spot = numParam(q, "spot", { required: true, min: 0.01 });
-      const strike = numParam(q, "strike", { required: true, min: 0.01 });
-      const days = numParam(q, "days", { required: true, min: 0 });
+      const spot = numParam(q, "spot", { required: true, min: 0.01, max: 1e9 });
+      const strike = numParam(q, "strike", { required: true, min: 0.01, max: 1e9 });
+      const days = numParam(q, "days", { required: true, min: 0, max: 3650 });
       const type = (opt(q, "type") ?? "").toUpperCase();
       if (type !== "CE" && type !== "PE") throw invalid("type", "type must be CE or PE.");
-      const iv = numParam(q, "iv", { min: 0.01 });
-      const price = numParam(q, "price", { min: 0.01 });
+      const iv = numParam(q, "iv", { min: 0.01, max: 500 });
+      const price = numParam(q, "price", { min: 0.01, max: 1e9 });
       if ((iv === undefined) === (price === undefined)) throw invalid("iv", "Send exactly one of iv (percent) or price (option premium).");
-      const rate = numParam(q, "rate", { min: 0 }) ?? DEFAULT_RATE * 100;
+      const rate = numParam(q, "rate", { min: 0, max: 100 }) ?? DEFAULT_RATE * 100;
       let vol = iv === undefined ? undefined : iv / 100;
       if (vol === undefined) {
-        // Same bisection the chain uses for brokers without Greeks, kept local so the calculator takes a bare price.
-        const years = Math.max(days, 0.25) / 365;
-        let lo = 0.001;
-        let hi = 5;
-        if (bsPrice({ spot, strike, rate: rate / 100, vol: hi, years, type }) < price) throw invalid("price", "That premium cannot be explained by any volatility below 500 %.");
-        for (let i = 0; i < 60; i++) {
-          const mid = (lo + hi) / 2;
-          if (bsPrice({ spot, strike, rate: rate / 100, vol: mid, years, type }) > price) hi = mid;
-          else lo = mid;
-        }
-        vol = (lo + hi) / 2;
+        // The same solver the chain uses for brokers without Greeks: it refuses a premium below intrinsic value or one no volatility under 500 % can explain.
+        const solved = computeIVAndGreeks({ ltp: price, spot, strike, daysToExpiry: days, type, rate: rate / 100 });
+        if (!(solved.iv > 0)) throw invalid("price", "That premium is below the option's intrinsic value or cannot be explained by any volatility below 500 %.");
+        vol = solved.iv / 100;
       }
       const g = computeGreeks({ spot, strike, daysToExpiry: days, type, vol, rate: rate / 100 });
       const years = Math.max(days, 0.25) / 365;
       const theoretical = bsPrice({ spot, strike, rate: rate / 100, vol, years, type });
-      const r4 = (v) => Math.round(v * 1e4) / 1e4;
-      return { data: { spot, strike, type, daysToExpiry: days, ratePct: rate, ivPct: r4(vol * 100), price: r4(theoretical), delta: r4(g.delta), gamma: Math.round(g.gamma * 1e6) / 1e6, theta: r4(g.theta), vega: r4(g.vega) }, meta: { requestId: ctx.requestId } };
+      const r4 = (v) => (Number.isFinite(v) ? Math.round(v * 1e4) / 1e4 : null);
+      return { data: { spot, strike, type, daysToExpiry: days, ratePct: rate, ivPct: r4(vol * 100), price: r4(theoretical), delta: r4(g.delta), gamma: Number.isFinite(g.gamma) ? Math.round(g.gamma * 1e6) / 1e6 : null, theta: r4(g.theta), vega: r4(g.vega) }, meta: { requestId: ctx.requestId } };
     },
 
     async payoff(ctx) {

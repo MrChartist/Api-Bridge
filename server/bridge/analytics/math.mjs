@@ -3,8 +3,17 @@
  * plain numbers. No I/O. Ported from the OptionsDesk analysis pages (OI analysis, gamma exposure, skew, strategy
  * payoff, position sizer, futures basis) so every tool reads them from the Bridge instead.
  */
+import { BridgeError } from "../core/errors.mjs";
+
 const num = (v) => (Number.isFinite(Number(v)) && v !== null && v !== "" ? Number(v) : 0);
 const round = (v, d = 2) => (Number.isFinite(v) ? Math.round(v * 10 ** d) / 10 ** d : null);
+/** Cutoff for an expiring option: 15:30 IST on the expiry date, as epoch ms. */
+export const expiryCutoffMs = (expiry) => Date.parse(`${expiry}T15:30:00+05:30`);
+/** Current time in ms from whatever clock the deps carry (deps.now(), deps.clock.now(), else the wall clock). */
+export const nowMsOf = (deps) => (typeof deps?.now === "function" ? deps.now() : deps?.clock?.now ? deps.clock.now() : Date.now());
+/** Expiries (YYYY-MM-DD) whose 15:30 IST cutoff has not passed yet, soonest first. */
+export const upcomingExpiries = (expiries, nowMs) => [...(expiries ?? [])].filter((e) => expiryCutoffMs(e) > nowMs).sort();
+
 const rowsOf = (chain) => (Array.isArray(chain?.rows) ? chain.rows : []);
 
 /** Highest-N strikes by `pick(row)`, ties broken by strike. */
@@ -17,6 +26,8 @@ const top = (rows, pick, n) =>
 
 /** Expiry price (among listed strikes) at which option writers pay out the least. */
 export function maxPain(rows) {
+  // With no open interest every settlement price costs writers nothing, so there is no max pain to report.
+  if (!rows.some((r) => num(r.ce?.oi) > 0 || num(r.pe?.oi) > 0)) return null;
   let best = Infinity;
   let at = null;
   for (const k of rows) {
@@ -126,10 +137,16 @@ export function ivSkew(chain, { width = 3 } = {}) {
   };
 }
 
+export const MAX_CURVE_POINTS = 5000;
+const vf = (message, path = "step") => new BridgeError("VALIDATION_FAILED", message, { errors: [{ path, message }] });
+
 /**
  * Strategy payoff at expiry. Legs: { type: "CE"|"PE"|"FUT", side: "buy"|"sell", strike, price, lots, lotSize }
- * (strike is ignored for FUT, where `price` is the entry price). Returns the curve, max profit and loss
- * (null when unbounded), and the break-even prices.
+ * (strike is ignored for FUT, where `price` is the entry price). Returns the plotted curve (from/to/step, at most
+ * MAX_CURVE_POINTS points), max profit and loss over all prices from 0 up (null when unbounded; a loss that is only
+ * reached at a price of 0, such as a short put, is finite and flagged `lossAtZero`), and the exact break-even prices.
+ * The payoff is piecewise linear with kinks only at the strikes, so extremes and break-evens are solved on those
+ * kinks, independent of the plotted range or step.
  */
 export function strategyPayoff(legs, { spot, from, to, step } = {}) {
   const strikes = legs.filter((l) => l.type !== "FUT").map((l) => l.strike);
@@ -137,7 +154,10 @@ export function strategyPayoff(legs, { spot, from, to, step } = {}) {
   if (!anchors.length) return { curve: [], maxProfit: null, maxLoss: null, breakevens: [], netPremium: 0 };
   const lo = from ?? Math.max(0, Math.min(...anchors) * 0.85);
   const hi = to ?? Math.max(...anchors) * 1.15;
+  if (!(hi > lo)) throw vf("to must be greater than from.", "to");
   const stp = step ?? Math.max((hi - lo) / 200, 0.05);
+  const count = Math.floor((hi - lo) / stp + 1e-9) + 1;
+  if (count > MAX_CURVE_POINTS) throw vf(`That range and step make ${count} points; the limit is ${MAX_CURVE_POINTS}. Widen the step or narrow from/to.`);
   const at = (p) =>
     legs.reduce((t, l) => {
       const qty = (l.lots ?? 1) * (l.lotSize ?? 1) * (l.side === "buy" ? 1 : -1);
@@ -145,26 +165,48 @@ export function strategyPayoff(legs, { spot, from, to, step } = {}) {
       return t + qty * (value - l.price);
     }, 0);
   const curve = [];
-  for (let p = lo; p < hi + stp / 2; p += stp) curve.push({ price: round(p, 2), pnl: round(at(p), 2) });
-  const breakevens = [];
-  for (let i = 1; i < curve.length; i++) {
-    const a = curve[i - 1];
-    const b = curve[i];
-    if (a.pnl === 0) breakevens.push(a.price);
-    else if (a.pnl * b.pnl < 0) breakevens.push(round(a.price + ((0 - a.pnl) * (b.price - a.price)) / (b.pnl - a.pnl), 2));
+  for (let i = 0; i < count; i++) {
+    const p = lo + i * stp;
+    curve.push({ price: round(p, 2), pnl: round(at(p), 2) });
   }
-  // Slope beyond the ends tells whether the loss or profit is unbounded.
-  const slopeUp = at(hi * 2) - at(hi);
-  const slopeDown = at(0) - at(Math.max(lo, 1));
-  const pnls = curve.map((c) => c.pnl);
+
+  // Kinks: price 0 and every strike. Beyond the highest strike the payoff is a straight line.
+  const kinks = [...new Set([0, ...strikes.filter((k) => Number.isFinite(k) && k > 0)])].sort((a, b) => a - b);
+  const top = kinks.at(-1);
+  const farA = Math.max(top, 1) * 2;
+  const slopeUp = at(farA * 2) - at(farA);
+  const kinkPnl = kinks.map(at);
+  const pnls = [...curve.map((c) => c.pnl), ...kinkPnl.map((v) => round(v, 2))];
+  const eps = 1e-9;
+  const unboundedProfit = slopeUp > eps;
+  const unboundedLoss = slopeUp < -eps;
+  const minPnl = Math.min(...pnls);
+  // Downside-open (long future, short put): the payoff keeps falling all the way to a price of 0.
+  const lossAtZero = !unboundedLoss && round(kinkPnl[0], 2) === minPnl && at(kinks[1] ?? 1) - kinkPnl[0] > eps;
+
+  // Exact zero crossings between consecutive kinks, then along the final straight line.
+  const breakevens = [];
+  for (let i = 0; i + 1 < kinks.length; i++) {
+    const [x0, x1, y0, y1] = [kinks[i], kinks[i + 1], kinkPnl[i], kinkPnl[i + 1]];
+    if ((y0 < -eps && y1 > eps) || (y0 > eps && y1 < -eps)) breakevens.push(x0 + ((0 - y0) * (x1 - x0)) / (y1 - y0));
+  }
+  if (Math.abs(slopeUp) > eps) {
+    const root = top - kinkPnl.at(-1) / (slopeUp / farA);
+    if (root > top + eps) breakevens.push(root);
+  }
+  // A kink that sits exactly on zero with a non-zero payoff next to it is a break-even too.
+  kinks.forEach((k, i) => {
+    if (k > 0 && Math.abs(kinkPnl[i]) <= eps && (Math.abs(kinkPnl[i - 1] ?? 0) > eps || Math.abs(kinkPnl[i + 1] ?? slopeUp) > eps)) breakevens.push(k);
+  });
   const netPremium = legs.reduce((t, l) => t + (l.lots ?? 1) * (l.lotSize ?? 1) * l.price * (l.type === "FUT" ? 0 : l.side === "buy" ? -1 : 1), 0);
   return {
     curve,
-    maxProfit: slopeUp > 1e-9 ? null : round(Math.max(...pnls, at(0)), 2),
-    maxLoss: slopeUp < -1e-9 || slopeDown < -1e-9 ? null : round(Math.min(...pnls, at(0)), 2),
-    unboundedProfit: slopeUp > 1e-9,
-    unboundedLoss: slopeUp < -1e-9,
-    breakevens: [...new Set(breakevens)],
+    maxProfit: unboundedProfit ? null : round(Math.max(...pnls), 2),
+    maxLoss: unboundedLoss ? null : round(minPnl, 2),
+    unboundedProfit,
+    unboundedLoss,
+    lossAtZero,
+    breakevens: [...new Set(breakevens.map((b) => round(b, 2)))].sort((a, b) => a - b),
     netPremium: round(netPremium, 2),
   };
 }

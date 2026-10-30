@@ -259,14 +259,26 @@ export function createAlertRules(deps) {
       if (rules.length >= MAX_RULES) throw new BridgeError("VALIDATION_FAILED", `At most ${MAX_RULES} alert rules.`);
       const rule = { id: newId(), ...parsed.data, underlying: parsed.data.underlying.toUpperCase(), allowedAccounts: who.allowedAccounts, keyId: who.keyId ?? null, createdAt: iso(), state: {}, lastCheck: null, lastFiredAt: null, fireCount: 0, lastStartedAt: null };
       rules.push(rule);
-      persist();
+      try {
+        persist();
+      } catch (err) {
+        rules.pop(); // a rule that could not be stored would vanish on restart, so do not pretend it exists
+        log?.warn?.("could not save alert rules", { err: err?.message });
+        throw new BridgeError("INTERNAL", "The alert rule could not be saved to disk.");
+      }
       return structuredClone(rule);
     },
     remove(id) {
       const i = rules.findIndex((r) => r.id === id);
       if (i < 0) throw new BridgeError("NOT_FOUND", `No alert rule ${id}.`);
       const [r] = rules.splice(i, 1);
-      persist();
+      try {
+        persist();
+      } catch (err) {
+        rules.splice(i, 0, r);
+        log?.warn?.("could not save alert rules", { err: err?.message });
+        throw new BridgeError("INTERNAL", "The alert rule could not be removed from disk, so it was kept.");
+      }
       return r;
     },
     check,
@@ -306,7 +318,8 @@ export function alertRulesFor(deps) {
 }
 
 const seesAll = (ctx) => ctx.principal?.kind === "local" || ctx.scopes?.has?.("admin");
-const owns = (ctx, rec) => seesAll(ctx) || (rec.keyId ?? null) === (ctx.key?.id ?? null);
+// A rule with no keyId belongs to the local owner; a caller with no key must not match it by both being null.
+const owns = (ctx, rec) => seesAll(ctx) || (rec.keyId != null && rec.keyId === ctx.key?.id);
 const who = (ctx) => ({ allowedAccounts: allowedAccountsFor(ctx), keyId: ctx.key?.id ?? null });
 const view = ({ allowedAccounts: _a, keyId: _k, ...r }) => r;
 

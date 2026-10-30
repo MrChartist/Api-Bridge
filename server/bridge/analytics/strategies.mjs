@@ -166,15 +166,9 @@ export function analyseLegs(legs, { spot, ivPct, days }) {
   const lo = spot * 0.6;
   const hi = spot * 1.4;
   const p = strategyPayoff(legs, { spot, from: lo, to: hi, step: (hi - lo) / 1600 });
-  // strategyPayoff reports a downside-open leg (long future, short put) as unbounded; the loss at spot 0 is finite.
-  const atZero = strategyPayoff(legs, { spot, from: 0, to: 1, step: 1 }).curve[0]?.pnl ?? null;
   const unboundedLoss = Boolean(p.unboundedLoss);
-  let maxLoss = p.maxLoss;
-  let lossAtZero = false;
-  if (!unboundedLoss && maxLoss === null && atZero !== null) {
-    maxLoss = Math.min(atZero, ...p.curve.map((c) => c.pnl));
-    lossAtZero = true;
-  }
+  const maxLoss = p.maxLoss;
+  const lossAtZero = Boolean(p.lossAtZero);
   const loss = maxLoss === null ? null : Math.abs(Math.min(0, maxLoss));
   const riskReward = p.maxProfit !== null && loss !== null && loss > 0 ? round(p.maxProfit / loss, 3) : null;
   return {
@@ -232,7 +226,7 @@ export function findStrategies(chain, { view, maxLoss, days, futurePrice = null,
 export function strategyRoutes(deps) {
   const md = () => deps.marketData;
   const meta = (ctx, opts, freshness) => ({ requestId: ctx.requestId, accountId: opts.accountId ?? null, ...(freshness ? { freshness } : {}) });
-  const nowDate = () => new Date(typeof deps.now === "function" ? deps.now() : Date.now());
+  const nowDate = () => new Date(typeof deps.now === "function" ? deps.now() : deps.clock?.now ? deps.clock.now() : Date.now());
 
   function intParam(q, name, min, max) {
     const v = opt(q, name);

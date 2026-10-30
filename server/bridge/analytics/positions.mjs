@@ -54,6 +54,9 @@ export function planSlices({ quantity, lotSize, freezeQty, sliceLots }) {
   if (maxLotsPerOrder < 1) throw invalid("lotSize", `One lot (${lotSize}) is larger than the freeze quantity (${freezeQty}); check the lot size.`);
   const per = Math.min(maxLotsPerOrder, sliceLots ?? maxLotsPerOrder);
   const totalLots = quantity / lotSize;
+  // Count before building: a one-lot slice size on a huge quantity would otherwise allocate millions of slices first.
+  const count = Math.ceil(totalLots / per);
+  if (count > MAX_SLICES) throw invalid("quantity", `That plan needs ${count} orders; the limit is ${MAX_SLICES}. Split the request.`);
   const slices = [];
   for (let left = totalLots; left > 0; left -= per) slices.push(Math.min(left, per));
   return { maxLotsPerOrder, slices };

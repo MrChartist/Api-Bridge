@@ -10,7 +10,7 @@ import { BridgeError } from "../core/errors.mjs";
 import { defaultOptionExchange } from "../market/chain.mjs";
 import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
 import { daysBetween } from "../../lib/blackScholes.mjs";
-import { futuresBasis } from "./math.mjs";
+import { futuresBasis, nowMsOf, upcomingExpiries } from "./math.mjs";
 
 const invalid = (path, detail) => new BridgeError("VALIDATION_FAILED", detail, { errors: [{ path, message: detail }] });
 const opt = (q, name) => {
@@ -18,7 +18,7 @@ const opt = (q, name) => {
   return v === null || v === "" ? undefined : v;
 };
 const round = (n, d) => (n === null || n === undefined || !Number.isFinite(n) ? null : Math.round(n * 10 ** d) / 10 ** d);
-const INTERVALS = ["1m", "3m", "5m", "10m", "15m", "30m", "1h", "1d"];
+const INTERVALS = ["1m", "3m", "5m", "10m", "15m", "30m", "60m", "1d"];
 
 function intParam(q, name, min, max, dflt) {
   const v = opt(q, name);
@@ -64,8 +64,8 @@ export function futuresChainRoutes(deps) {
     const fx = defaultOptionExchange(underlying);
     const spotSym = `${fx === "BFO" ? "BSE" : "NSE"}:${underlying}`;
     const list = await md().expiries(underlying, opts);
-    const today = new Date().toISOString().slice(0, 10);
-    const picked = list.expiries.filter((e) => e >= today).slice(0, count);
+    const nowMs = nowMsOf(deps);
+    const picked = upcomingExpiries(list.expiries, nowMs).slice(0, count);
     if (picked.length === 0) throw new BridgeError("SYMBOL_NOT_FOUND", `No upcoming futures expiries were found for ${underlying}.`);
     const futSyms = picked.map((e) => `${fx}:${underlying}-${e}-FUT`);
     const r = await md().quotes([spotSym, ...futSyms], opts);
@@ -74,7 +74,7 @@ export function futuresChainRoutes(deps) {
 
     const futures = picked.map((expiry, i) => {
       const q = byMap.get(futSyms[i]);
-      const days = daysBetween(new Date(), expiry);
+      const days = daysBetween(new Date(nowMs), expiry);
       const ltp = q?.ltp ?? null;
       return {
         expiry,

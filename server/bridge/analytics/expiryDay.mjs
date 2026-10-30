@@ -12,7 +12,7 @@
 import { BridgeError } from "../core/errors.mjs";
 import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
 import { istDate, toIstIso } from "../market/time.mjs";
-import { gammaExposure, oiAnalysis } from "./math.mjs";
+import { expiryCutoffMs, gammaExposure, nowMsOf, oiAnalysis, upcomingExpiries } from "./math.mjs";
 
 const invalid = (path, detail) => new BridgeError("VALIDATION_FAILED", detail, { errors: [{ path, message: detail }] });
 const opt = (q, name) => {
@@ -32,8 +32,7 @@ function numParam(q, name, { min, max, dflt } = {}) {
   return n;
 }
 
-/** Cutoff for an expiring option: 15:30 IST on the expiry date, as epoch ms. */
-export const expiryCutoffMs = (expiry) => Date.parse(`${expiry}T15:30:00+05:30`);
+export { expiryCutoffMs };
 
 /** Hours from `nowMs` to the 15:30 IST cutoff of `expiry`; 0 once it has passed. */
 export function hoursToExpiry(expiry, nowMs) {
@@ -46,7 +45,7 @@ const stepFor = (underlying) => STEPS[String(underlying).toUpperCase()] ?? 50;
 
 export function expiryDayRoutes(deps) {
   const md = () => deps.marketData;
-  const now = () => (typeof deps.now === "function" ? deps.now() : Date.now());
+  const now = () => nowMsOf(deps);
   const readOptions = (ctx, o) => readOptionsBase(ctx, { ...o, autoBackup: autoBackupFor(deps) });
   const meta = (ctx, opts, freshness) => ({ requestId: ctx.requestId, accountId: opts.accountId ?? null, ...(freshness ? { freshness } : {}) });
 
@@ -66,7 +65,8 @@ export function expiryDayRoutes(deps) {
     if (!expiry) {
       const list = await md().expiries(underlying, opts);
       const today = istDate(nowMs);
-      expiry = list.expiries.filter((e) => e >= today).sort()[0];
+      // Nearest expiry still trading; if every listed one is past its cutoff, fall back to today's (flagged EXPIRY_PASSED).
+      expiry = upcomingExpiries(list.expiries, nowMs)[0] ?? list.expiries.filter((e) => e >= today).sort()[0];
       if (!expiry) throw new BridgeError("SYMBOL_NOT_FOUND", `No upcoming expiry was found for ${underlying}.`);
     }
 
@@ -170,7 +170,7 @@ export function expiryDayRoutes(deps) {
     const h = await md().history(params, opts);
     const bare = h.symbol.split(":").pop().split("-")[0];
     const strikeStep = step ?? stepFor(bare);
-    const atmOf = (px) => Math.round(px / strikeStep) * strikeStep;
+    const atmOf = (px) => round(Math.round(px / strikeStep) * strikeStep, 6);
     let prevAtm = null;
     const first = h.candles[0]?.open ?? null;
     const bars = h.candles.map((c) => {
