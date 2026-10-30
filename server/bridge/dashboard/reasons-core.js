@@ -2,9 +2,12 @@
 // what happened; this adds the next step a trader can take. Matched on the error code and, where one code covers
 // several rules (INVALID_ORDER), on the Bridge's own wording. Null when there is nothing useful to add.
 
+// A fix may depend on the account's mode: a paper user is never pointed at a broker. While the daily gate also stops
+// exits (the open reduce-only question, ux-audit.md "Safety pass"), no fix says "close from Positions".
+const KILL = (mode) => `Find out why it is on, then release it on the Safety page.${mode === "live" ? " Your broker's app can still close positions." : ""}`;
 const RULES = [
-  [/kill switch/i, "KILL_SWITCH_ACTIVE", "Find out why it is on, then release it on the Safety page. Your broker's app can still close positions."],
-  [/loss of .* today|daily limit of ₹|dailyMaxLoss/i, "DAILY_LIMIT_REACHED", "To cut risk today, close in your broker's app. The daily loss limit is set on the Safety page."],
+  [/kill switch/i, "KILL_SWITCH_ACTIVE", KILL],
+  [/loss of .* today|daily limit of ₹|dailyMaxLoss/i, "DAILY_LIMIT_REACHED", (mode) => (mode === "live" ? "To cut risk today, close in your broker's app. The daily loss limit is set on the Safety page." : "Paper orders resume tomorrow (IST). Raise or reset the paper limit on the Safety page.")],
   [/orders today|daily limit \(/i, "DAILY_LIMIT_REACHED", "The count resets at midnight IST; the limit (dailyMaxOrders) is on the Safety page."],
   [/lots is above the per-order limit|order value .* is above the per-order limit/i, "INVALID_ORDER", "Send fewer lots, or place it from the Strategy Builder as a basket: it slices to your per-order limits."],
   [/away from the last traded price/i, "INVALID_ORDER", "Move the limit nearer the last price, or use a market order (sent with protection at LTP ± 2 %)."],
@@ -24,7 +27,7 @@ const RULES = [
 
 /** Codes whose next step does not depend on the wording. */
 const BY_CODE = {
-  KILL_SWITCH_ACTIVE: RULES[0][2],
+  KILL_SWITCH_ACTIVE: KILL,
   ORDER_RATE_LIMITED: "Wait a second and send it again.",
   MARKET_CLOSED: RULES[6][2],
   CONFIRMATION_REQUIRED: RULES[9][2],
@@ -37,13 +40,17 @@ const BY_CODE = {
 
 /**
  * The next step for a refusal or a rejected order.
- * @param {{ code?: string, message?: string, detail?: string, statusMessage?: string } | string | null} e
+ * @param {{ code?: string, message?: string, detail?: string, statusMessage?: string, mode?: "paper"|"live" } | string | null} e
+ *   `mode` is the account's (from the order or the ticket); without it the Bridge's wording decides ("a live loss",
+ *   "live orders"), else paper.
  * @returns {string | null}
  */
 export function whatToDo(e) {
   if (!e) return null;
   const code = typeof e === "string" ? null : (e.code ?? null);
   const text = typeof e === "string" ? e : String(e.message ?? e.detail ?? e.statusMessage ?? "");
-  for (const [re, c, fix] of RULES) if ((c === null || c === code || code === null) && re.test(text)) return fix;
-  return code && BY_CODE[code] ? BY_CODE[code] : null;
+  const mode = (typeof e === "object" && e.mode) || (/\blive (loss|orders)\b/i.test(text) ? "live" : "paper");
+  const say = (fix) => (typeof fix === "function" ? fix(mode) : fix);
+  for (const [re, c, fix] of RULES) if ((c === null || c === code || code === null) && re.test(text)) return say(fix);
+  return code && BY_CODE[code] ? say(BY_CODE[code]) : null;
 }
