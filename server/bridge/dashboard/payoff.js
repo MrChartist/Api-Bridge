@@ -364,7 +364,20 @@ export function drawPayoff(host, { onPin, onMarker, heights = [340, 280, 232] } 
     const pills = [pMax, pMin].filter((q) => q.g.getAttribute("visibility") === "visible").map((q) => [Number(q.r.getAttribute("x")), Number(q.r.getAttribute("y"))]);
     const overPill = (x0, y0) => pills.some(([px, py]) => px < x0 + hw && px + 100 > x0 && py < y0 + hh && py + 18 > y0);
     const cost = ([x0, y0]) => hitsCurve(x0, x0 + hw, y0, y0 + hh, lines) + (overPill(x0, y0) ? 5 : 0);
-    const free = corners.reduce((a, c) => (cost(c) < cost(a) ? c : a), corners[0]);
+    let free = corners.reduce((a, c) => (cost(c) < cost(a) ? c : a), corners[0]);
+    // No clear corner inside the plot (a narrow chart where the curves fill it): the strip above the plot, beside the
+    // spot pill, where no curve is drawn. Left first, then right; skipped where the spot pill sits.
+    if (cost(free) > 0) {
+      const sp = pSpot.g.getAttribute("visibility") === "visible" ? [Number(pSpot.r.getAttribute("x")), Number(pSpot.r.getAttribute("width")) || 70] : null;
+      const xs = sp ? [L, W - R - hw, sp[0] - hw - 8, sp[0] + sp[1] + 8] : [L];
+      const above = xs.find((x0) => x0 >= L && x0 + hw <= W - R && (!sp || sp[0] > x0 + hw + 6 || sp[0] + sp[1] < x0 - 6));
+      // Nowhere clear (a phone, spot in the middle): no hint this time rather than a hint on the curve.
+      if (above === undefined) {
+        hint.hidden = true;
+        return;
+      }
+      free = [above, Math.max(0, T - hh - 2)];
+    }
     hint.style.left = `${Math.round(free[0])}px`;
     hint.style.top = `${Math.round(free[1])}px`;
   }

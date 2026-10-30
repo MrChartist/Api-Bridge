@@ -131,5 +131,11 @@ export function createEventsService(deps, opts = {}) {
       };
     },
     demoMarket: () => demoMarket,
+    /** A saved scan's new match as a "Scan hit" row (scanner/scanService.mjs). Returns the record or null. */
+    scanHit({ symbol, name, savedId, side = null, ltp = null, changePct = null }) {
+      if (!cfg.enabled) return null;
+      const dir = side === "up" ? 1 : side === "down" ? -1 : 0;
+      return engine.external({ symbol, kind: "scan_hit", variant: String(savedId ?? name ?? ""), label: String(name ?? "Scan hit").slice(0, 80), dir, text: `Scan "${String(name ?? "").slice(0, 80)}" matched`, ltp, changePct });
+    },
   };
 }

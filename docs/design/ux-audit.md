@@ -106,3 +106,34 @@ Under `/tmp/claude-0/-home-user-api-bridge/f0059dc2-aa37-55ea-b3a6-c17ba0d3d4a5/
 - `ev*`: Live events
 - `ord-*`: orders and reset
 - `norm*`: normal mode
+
+## Trading pass (30 October 2026, second half)
+
+Built from the proposals above, then brainstormed page by page.
+
+### Built
+
+| Proposal | What shipped | Where |
+|---|---|---|
+| 1 Hedge-aware paper margin | One portfolio model for the paper engine, the ticket, the Strategy margin line and the Positions bar: a 16-scenario price and vol scan per underlying (Black-76 at each leg's IV, one day ahead), premium for buys, 2 % / 3.5 % exposure, a calendar charge and expiry-day ELM. Labelled "approximate, not the exchange's SPAN". NIFTY iron condor (200-point wings): ₹87k, was ₹5.33L. Naked short 26150 PE ₹1.63L; with a 25950 PE bought ₹44k. | `dashboard/span-margin.js` (+ test), `paper/paperEngine.mjs`, `POST /v1/paper/accounts/{id}/margin`, `docs/guides/paper-margin.md` |
+| 2 Structures from the chain | Right-click a strike (long-press the strike cell on touch, or T): straddle, strangle ±1σ, iron condor, bull call and bear put spreads, butterfly, calendar into the next expiry, long straddle. Each item lists its legs; the Strategy Builder opens filled, with Undo. | `options.js aroundStrikeLegs` (+ test), `desk.js strategyMenu`, `strategy.js` |
+| 3 Position alerts | P&L above or below, spot above or below, delta outside a band (lots), expiry within N minutes, a leg at N× its average. All or any, once or every N minutes, edge-fired with a latch that survives a restart. In-app bell and toast; optional notify targets through `option.alert`. Notify only. | `dashboard/alert-core.js` (+ test), `server/bridge/alerts/` (+ test), `alerts.js` |
+| 8 Undo | Cancel a paper order: Undo places the unfilled part again through every check. Reset paper funds: Undo within 2 minutes. Live orders are never re-sent from a toast. | `views.js`, `POST /v1/paper/accounts/{id}/reset/undo` |
+| 9 Ticket charges | Charges round trip (brokerage, STT, exchange, SEBI, stamp, GST from the reference table), max loss and breakeven after charges, and "With your positions: adds" from the paper engine. | `flows.js riskAfterCharges` (+ test), `desk.js` |
+| P2-12 Demo funds | Demo paper accounts start with ₹25 lakh; the seeded book now uses about 10 %. | `paper/config.mjs`, `paperEngine.mjs` |
+| Wide screens | Home is a cockpit (indices, P&L today, open positions with delta, expiry and what to watch, live events, today's calendar, API and broker health) on 1 to 5 columns. API › Keys puts Create beside the list from 1700 px. Accounts already filled the width. | `cockpit.js`, `views.js`, `app.css` |
+
+### Proposals by page (not built)
+
+- **Option Chain:** a payoff preview in the build-around menu (hover an item); "Alert on this strike" in the contract sheet (premium or IV level); one-click "hedge this short" (buy the wing 1σ out) from a position row in the chain.
+- **Strategy Builder:** what-if sliders shared with Positions (one state for spot, IV and days); a margin breakdown popover (premium, scan, exposure, calendar) from the margin line; "Set alerts for this strategy" that pre-fills the breakevens as spot levels.
+- **Positions:** roll to the next expiry for a whole group in one sheet (today per leg); a P&L calendar heatmap from paper history (needs a daily P&L snapshot in the paper store); a trailing "lock in" alert (P&L falls N % from its high).
+- **Orders:** Undo after Modify (put back the old price and quantity); "Repeat" for a filled order.
+- **Safety:** show which alerts and guards are on beside the kill switch.
+- **OI Analysis and Volatility:** an "Explain this" box in plain words (what the PCR, walls and build-up say now; where IV sits against its range and what that means for buyers and sellers), built from the existing verdict functions.
+- **Screeners:** "Alert me when this matches" on a screener row (needs the P1-11 chain conditions).
+- **Market calendar:** add position alerts' expiry warnings to the calendar day.
+- **Accounts:** a "Today" column (P&L and margin used) using the cockpit's reads; saved-for-later demo accounts (proposal 7 above).
+- **API:** per-key usage sparkline (proposal 10 above); an alerts webhook example in Integrations.
+- **Data recorder:** feed the alert evaluator from recorder snapshots so chain-level alerts need no extra calls.
+- **Paper margin:** calibrate the scan ranges against broker basket-margin figures once P1-10's calibration log exists; inter-commodity credit (NIFTY against BANKNIFTY).

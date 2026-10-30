@@ -96,6 +96,8 @@ describe("loadReference", () => {
     expect(refSession(b)).toMatchObject({ open: REF_DEFAULTS.session.open, close: REF_DEFAULTS.session.close });
     expect(chipModel(b).tone).toBe("bad");
     expect(bannerModel(b).shown[0].text).toBe("Reference data unavailable: using dashboard defaults");
+    // Said once per tab: later pages leave it to the chip's red "Defaults".
+    expect(bannerModel(b, { fallbackSeen: true }).all.some((x) => x.kind === "fallback")).toBe(false);
     fail = false;
     expect((await loadReference("NIFTY", { get, now: REF_RETRY_MS + 1 })).fallback).toBeUndefined();
     // A bundle without a session is not trusted either.

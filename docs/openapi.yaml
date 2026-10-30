@@ -97,6 +97,8 @@ tags:
     description: Paper and live orders with idempotency and safety checks.
   - name: Paper
     description: The paper-trading engine.
+  - name: Alerts
+    description: Position alerts (P&L, spot, delta, time to expiry, premium multiple). They notify only; they never place an order.
   - name: Limits
     description: Broker limits, budgets and usage.
   - name: Safety
@@ -1879,6 +1881,188 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/alerts:
+    get:
+      tags: [Alerts]
+      operationId: listAlerts
+      summary: Position alerts on the accounts this key may use
+      description: Rules with their latch state and last values. Alerts only notify; they never place an order.
+      x-stream: S24
+      x-scope: read
+      responses:
+        "200":
+          description: Alert rules, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Alerts]
+      operationId: createAlert
+      summary: Create a position alert
+      x-stream: S24
+      x-scope: paper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 80 }
+                account: { type: string }
+                underlying: { type: string }
+                symbols: { type: [array, "null"], items: { type: string }, maxItems: 24 }
+                conditions:
+                  type: array
+                  minItems: 1
+                  maxItems: 5
+                  items:
+                    type: object
+                    required: [kind, value]
+                    properties:
+                      kind: { type: string, enum: [pnl_above, pnl_below, spot_above, spot_below, delta_outside, expiry_within, premium_multiple] }
+                      value: { type: number }
+                      value2: { type: number, description: "delta_outside: the upper bound (value is the lower)." }
+                match: { type: string, enum: [all, any] }
+                repeat: { type: string, enum: [once, every] }
+                cooldownMin: { type: number, minimum: 1, maximum: 1440 }
+                notify: { type: boolean, description: "Also send through the notify targets that listen to option.alert." }
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: The new alert.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/alerts/inbox:
+    get:
+      tags: [Alerts]
+      operationId: alertInbox
+      summary: Alert fires, newest first, with the unread count
+      x-stream: S24
+      x-scope: read
+      responses:
+        "200":
+          description: Fires.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/alerts/inbox/read:
+    post:
+      tags: [Alerts]
+      operationId: markAlertsRead
+      summary: Mark every fire read
+      x-stream: S24
+      x-scope: read
+      responses:
+        "200":
+          description: The inbox, all read.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/alerts/{alertId}:
+    parameters:
+      - name: alertId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      tags: [Alerts]
+      operationId: updateAlert
+      summary: Change an alert, or switch it on or off
+      x-stream: S24
+      x-scope: paper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 80 }
+                account: { type: string }
+                underlying: { type: string }
+                symbols: { type: [array, "null"], items: { type: string }, maxItems: 24 }
+                conditions:
+                  type: array
+                  minItems: 1
+                  maxItems: 5
+                  items:
+                    type: object
+                    required: [kind, value]
+                    properties:
+                      kind: { type: string, enum: [pnl_above, pnl_below, spot_above, spot_below, delta_outside, expiry_within, premium_multiple] }
+                      value: { type: number }
+                      value2: { type: number, description: "delta_outside: the upper bound (value is the lower)." }
+                match: { type: string, enum: [all, any] }
+                repeat: { type: string, enum: [once, every] }
+                cooldownMin: { type: number, minimum: 1, maximum: 1440 }
+                notify: { type: boolean, description: "Also send through the notify targets that listen to option.alert." }
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: The changed alert.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Alerts]
+      operationId: deleteAlert
+      summary: Delete an alert
+      x-stream: S24
+      x-scope: paper
+      responses:
+        "200":
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/safety:
     get:
       tags: [Safety]
@@ -3089,6 +3273,33 @@ paths:
         "5XX": { $ref: "#/components/responses/Problem" }
 
   /v1/scanner/saved/{savedId}:
+    patch:
+      tags: [Scanner]
+      operationId: updateSavedScan
+      summary: Rename a saved scan or change its request, schedule (everyMinutes, atClose), notify, builder model or columns
+      description: A changed request starts a new "new since last run" baseline.
+      x-stream: S13
+      x-scope: read
+      parameters:
+        - { name: savedId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SavedScanPatch" }
+      responses:
+        "200":
+          description: The saved scan.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
     delete:
       tags: [Scanner]
       operationId: deleteSavedScan
@@ -3137,6 +3348,165 @@ paths:
           content:
             application/json:
               schema: { type: object }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/saved/{savedId}/duplicate:
+    post:
+      tags: [Scanner]
+      operationId: duplicateSavedScan
+      summary: Copy a saved scan ("<name> (copy)"), without its run history
+      x-stream: S13
+      x-scope: read
+      parameters:
+        - { name: savedId, in: path, required: true, schema: { type: string } }
+      responses:
+        "201":
+          description: The copy.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/saved/{savedId}/results:
+    get:
+      tags: [Scanner]
+      operationId: savedScanResults
+      summary: The last run's matches of a saved scan, with "new since last run" marks
+      description: Accepts ?key= (read keys) so a spreadsheet can read it, for example =TEXTSPLIT(WEBSERVICE(".../results?format=text&key="&BridgeKey), ",").
+      x-stream: S13
+      x-scope: read
+      parameters:
+        - { name: savedId, in: path, required: true, schema: { type: string } }
+        - { name: format, in: query, description: "json (default), csv, or text (the matched tickers joined by commas, for Excel TEXTSPLIT).", schema: { type: string, enum: [json, csv, text] } }
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/library:
+    get:
+      tags: [Scanner]
+      operationId: scanLibrary
+      summary: Ready-made scans (price, F&O, option chain), the builder's values and comparisons, and the result columns
+      x-stream: S13
+      x-scope: read
+      responses:
+        "200":
+          description: The library.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/compile:
+    post:
+      tags: [Scanner]
+      operationId: compileScan
+      summary: "Builder model to condition text, or condition text to a builder model (null with a reason when the builder cannot show it)"
+      x-stream: S13
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Send builder or condition.
+              properties:
+                builder: { type: object, description: "{ join: and|or, rules: [{ left: { id, p? }, op, right?: { id, p? } | { num }, mult? } | { join, rules }] }" }
+                condition: { type: string, maxLength: 1000, example: "close > highest(20)[1] and volume > 2 * avg_volume(20)[1]" }
+      responses:
+        "200":
+          description: { condition, model, reason, needs }.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/count:
+    post:
+      tags: [Scanner]
+      operationId: countScan
+      summary: Live count of matches while a live scan is edited
+      description: Re-evaluates the condition over the facts the last live run collected, so it makes no broker call ({ matched, evaluated, total, sample, missing }).
+      x-stream: S13
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScanRequest" }
+      responses:
+        "200":
+          description: The count.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/scanner/scan:
+    get:
+      tags: [Scanner]
+      operationId: scanFromQuery
+      summary: Run a scan from the query string and wait for it (json, csv or text)
+      description: Accepts ?key= (read keys) for spreadsheets. Answers 202 with the job when it does not finish within waitMs (default 30000).
+      x-stream: S13
+      x-scope: read
+      parameters:
+        - { name: condition, in: query, required: true, schema: { type: string, maxLength: 1000 }, example: "gap_pct > 2" }
+        - { name: universe, in: query, description: "Default FNO.", schema: { type: string } }
+        - { name: symbols, in: query, description: "Comma-separated symbols instead of a universe.", schema: { type: string } }
+        - { name: interval, in: query, description: "Default live.", schema: { type: string } }
+        - { name: sort, in: query, schema: { type: string } }
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 5000 } }
+        - { name: waitMs, in: query, schema: { type: integer, minimum: 0, maximum: 120000 } }
+        - { name: format, in: query, description: "json (default), csv, or text (the matched tickers joined by commas, for Excel TEXTSPLIT).", schema: { type: string, enum: [json, csv, text] } }
+      responses:
+        "200":
+          description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
@@ -5987,7 +6357,7 @@ components:
         name: { type: string, maxLength: 80 }
         universe: { type: string, description: "FNO, NIFTY50, INDICES or a name from scanner.universes" }
         symbols: { type: array, items: { type: string }, maxItems: 5000 }
-        interval: { type: string, enum: ["1m", "3m", "5m", "10m", "15m", "30m", "60m", "1d", "1w", "1M"], default: "1d" }
+        interval: { type: string, enum: ["1m", "3m", "5m", "10m", "15m", "30m", "60m", "1d", "1w", "1M", "live"], default: "1d", description: "live: daily bars with today's bar live at the end, plus the facts (OI change, PCR, IV rank, MWPL ...; GET /v1/scanner/library lists them)." }
         lookback: { type: integer, minimum: 2, maximum: 5000, description: "Bars per symbol; default from the condition" }
         condition: { type: string, maxLength: 1000, example: "rsi(14) > 60 and close crosses above ema(20)" }
         columns: { type: array, maxItems: 12, items: { type: string }, example: ["rsi(14)", "close / sma(200) - 1"] }
@@ -6004,8 +6374,26 @@ components:
       properties:
         name: { type: string, maxLength: 80 }
         request: { $ref: "#/components/schemas/ScanRequest" }
-        everyMinutes: { type: integer, minimum: 1, maximum: 1440 }
+        everyMinutes: { type: integer, minimum: 1, maximum: 1440, nullable: true }
         marketHoursOnly: { type: boolean, default: true }
+        atClose: { type: boolean, default: false, description: "Run once after the close (15:31 IST) on trading days." }
+        notify: { type: boolean, default: true, description: "Send scan.alert to the notification targets." }
+        builder: { type: object, nullable: true, description: "The builder model, so the scan reopens in the builder." }
+        libraryId: { type: string, nullable: true }
+        columns: { type: array, maxItems: 20, items: { type: string } }
+    SavedScanPatch:
+      type: object
+      description: Any of the SavedScanRequest fields.
+      properties:
+        name: { type: string, maxLength: 80 }
+        request: { $ref: "#/components/schemas/ScanRequest" }
+        everyMinutes: { type: integer, minimum: 1, maximum: 1440, nullable: true }
+        marketHoursOnly: { type: boolean }
+        atClose: { type: boolean }
+        notify: { type: boolean }
+        builder: { type: object, nullable: true }
+        libraryId: { type: string, nullable: true }
+        columns: { type: array, maxItems: 20, items: { type: string } }
 
     Freshness:
       type: object

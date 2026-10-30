@@ -6,7 +6,8 @@
  *     "maxRunning": 2,               // scans running at once (others queue)
  *     "keepJobs": 50,                // finished scans kept in memory for GET /v1/scanner/jobs
  *     "perAccountConcurrency": 4,    // candle requests in flight per account (the rate-limit engine still paces them)
- *     "schedule": true,              // run saved scans that have everyMinutes
+ *     "schedule": true,              // run saved scans that have everyMinutes or atClose
+ *     "budgetShare": 0.5,            // live scans' background share of each broker window (max 0.5)
  *     "universes": { "MYWATCH": ["NSE:RELIANCE", "NSE:TCS"] }
  *   }
  */
@@ -21,6 +22,8 @@ export const SCANNER_CONFIG_SCHEMA = z
     keepJobs: z.number().int().min(1).max(500).default(50),
     perAccountConcurrency: z.number().int().min(1).max(20).default(4),
     schedule: z.boolean().default(true),
+    /** Live scans' share of each broker window for their background reads (the background gate; at most 0.5). */
+    budgetShare: z.number().min(0.05).max(0.5).default(0.5),
     universes: z
       .record(z.string().regex(/^[A-Z0-9_]{2,32}$/, "universe names are 2-32 capital letters, digits or _"), z.array(symbol).min(1).max(5000))
       .default({}),

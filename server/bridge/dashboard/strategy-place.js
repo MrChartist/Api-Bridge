@@ -8,6 +8,7 @@ import { DASH, formatFixed, formatInt, isFigure } from "./format.js";
 import { money, moneyEl } from "./payoff.js";
 import * as O from "./options.js";
 import { segField, segmented } from "./views.js";
+import { basketMarginBody, basketProgress, expandSlices, orderRows } from "./basket-core.js";
 
 const TERMINAL = new Set(["filled", "rejected", "cancelled", "expired"]);
 /** Server messages print Indian digit grouping (3 lakh as 3,00,000); the dashboard never shows grouping commas. */
@@ -28,16 +29,22 @@ const tickOf = (it) => (Number(it.tickSize) > 0 ? Number(it.tickSize) : 0.05);
 export function openPlacement(o) {
   const { account: a, items, mode = "entry" } = o;
   const exit = mode === "exit";
-  const rows = items.map((it, i) => ({
-    ...it,
-    i,
-    limit: O.roundToTick(it.price, tickOf(it), it.side === "BUY" ? "sell" : "buy"),
-    status: "queued",
-    order: null,
-    preview: null,
-    error: null,
-  }));
   const cfg = { ...o.cfg };
+  // Rows are the orders that go out: each item split under its freeze quantity (basket-core.js), put in send order
+  // (buys first for the margin benefit, or as listed). Rebuilt when the order changes or a freeze is learned.
+  const limits = new Map();
+  const buildRows = () =>
+    orderRows(expandSlices(items), cfg.order === "as-listed" ? "as-listed" : "buys-first", { exit }).map((it, i) => ({
+      ...it,
+      i,
+      limit: limits.get(it.item) ?? O.roundToTick(it.price, tickOf(it), it.side === "BUY" ? "sell" : "buy"),
+      status: "queued",
+      order: null,
+      preview: null,
+      error: null,
+    }));
+  let rows = buildRows();
+  let stopReq = false;
   const liveSeg = a.liveAllowedByConfig ? segmented("Mode", [["paper", "Paper"], ["live", "Live"]], "paper") : null;
   const ack = h("input", { type: "checkbox" });
   const ackRow = h("label", { class: "check live-ack", hidden: true }, ack, `I understand these are real orders to ${a.label}.`);
@@ -53,6 +60,10 @@ export function openPlacement(o) {
   const isLive = () => liveSeg?.value === "live";
   const prodSeg = segmented("Product", [["INTRADAY", "Intraday"], ["MARGIN", "Carry (NRML)"]], cfg.product === "INTRADAY" ? "INTRADAY" : "MARGIN");
   const waitSeg = segmented("Hedge wait", [["5", "5 s"], ["15", "15 s"], ["30", "30 s"]], String(cfg.hedgeWait ?? 15));
+  const orderSeg = exit ? null : segmented("Send order", [["buys-first", "Buys first"], ["as-listed", "As listed"]], cfg.order === "as-listed" ? "as-listed" : "buys-first");
+  if (orderSeg) orderSeg.title = "Buys first: each buy fills before any sell goes, so the sells get the hedge benefit on margin.";
+  // The whole basket's margin before anything is sent: the paper engine's figure against this account's book.
+  const marginLine = h("p", { class: "place-margin muted", role: "status" });
   const live = h("p", { class: "sr-only", "aria-live": "polite" });
   const say = (t) => {
     live.textContent = t;
@@ -95,10 +106,12 @@ export function openPlacement(o) {
           {},
           rows.map((r) => {
             const qty = r.lots * r.lotSize;
-            const slices = Number(r.freezeQty) > 0 && qty > r.freezeQty ? Math.ceil(qty / r.freezeQty) : 1;
+            const slices = r.slices ?? 1;
             const input = h("input", { type: "number", min: "0.05", step: String(tickOf(r)), inputmode: "decimal", class: "limit-in", value: isFigure(r.limit) ? String(r.limit) : "", "aria-label": `Limit price for ${r.side === "BUY" ? "buy" : "sell"} ${r.label}` });
             input.addEventListener("input", () => {
               r.limit = isFigure(input.value) ? Number(input.value) : null;
+              for (const x of rows) if (x.item === r.item && x !== r) x.limit = r.limit;
+              limits.set(r.item, r.limit);
               drawButtons();
             });
             const q = () => r.quote?.() ?? null;
@@ -106,6 +119,9 @@ export function openPlacement(o) {
               if (!isFigure(v)) return;
               r.limit = O.roundToTick(v, tickOf(r), r.side === "BUY" ? "buy" : "sell");
               input.value = String(r.limit);
+              for (const x of rows) if (x.item === r.item && x !== r) x.limit = r.limit;
+              limits.set(r.item, r.limit);
+              legTable();
               drawButtons();
             };
             const touch = showTouch && phase === "confirm" && !r.fut
@@ -116,8 +132,8 @@ export function openPlacement(o) {
               "tr",
               { class: `st-${r.status}` },
               h("td", { class: "num" }, formatInt(r.i + 1)),
-              h("td", {}, h("span", { class: "pos-leg" }, h("span", { class: `side-tag ${r.side === "BUY" ? "buy" : "sell"}` }, r.side === "BUY" ? "B" : "S"), h("span", {}, h("strong", {}, r.label), h("small", {}, r.phase === "short" ? "short leg" : exit ? "close" : "hedge first")))),
-              h("td", { class: "num" }, formatInt(r.lots), h("small", { class: "block muted" }, `${formatInt(qty)} qty${slices > 1 ? ` · ${formatInt(slices)} slices` : ""}`)),
+              h("td", {}, h("span", { class: "pos-leg" }, h("span", { class: `side-tag ${r.side === "BUY" ? "buy" : "sell"}` }, r.side === "BUY" ? "B" : "S"), h("span", {}, h("strong", {}, r.label), h("small", {}, r.phase === "short" ? "short leg" : r.phase === "listed" ? "as listed" : exit ? "close" : "buy first")))),
+              h("td", { class: "num" }, formatInt(r.lots), h("small", { class: "block muted" }, `${formatInt(qty)} qty${slices > 1 ? ` · slice ${formatInt(r.slice)} of ${formatInt(slices)}` : ""}`)),
               phase === "confirm"
                 ? h("td", { class: "num" }, input, touch)
                 : h("td", { class: "num" }, r.order ? `${formatInt(r.order.filledQuantity ?? 0)} / ${formatInt(r.order.quantity ?? qty)}` : DASH, r.order?.avgPrice ? h("small", { class: "block muted" }, `@ ${formatFixed(r.order.avgPrice, 2)}`) : null),
@@ -188,6 +204,22 @@ export function openPlacement(o) {
       }),
     );
     if (phase !== "confirm" || gen !== pfGen) return;
+    // A freeze quantity learned from the preview that this basket is above: split the item and check the slices.
+    let resliced = false;
+    for (const r of rows) {
+      const it = items[r.item];
+      if (it && Number(r.freezeQty) > 0 && it.freezeQty !== r.freezeQty) {
+        it.freezeQty = r.freezeQty;
+        if (r.lots * r.lotSize > r.freezeQty) resliced = true;
+      }
+    }
+    if (resliced) {
+      rows = buildRows();
+      legTable();
+      drawButtons();
+      preflight();
+      return;
+    }
     const stale = rows.flatMap((r) => r.checks ?? []).filter((c) => c?.code === "LOT_SIZE_STALE");
     if (!gate && stale.length && o.lotGateFor) {
       const g = o.lotGateFor(stale);
@@ -333,19 +365,33 @@ export function openPlacement(o) {
       o.onCfg?.({ product: prodSeg.value, hedgeWait: Number(waitSeg.value) });
     }
     phase = "running";
+    stopReq = false;
     syncClose();
     form.hidden = true;
     moved.hidden = true;
-    actions.replaceChildren();
+    marginLine.hidden = true;
+    const stopBtn = h("button", {
+      type: "button",
+      class: "small",
+      onclick: () => {
+        stopReq = true;
+        stopBtn.disabled = true;
+        stopBtn.textContent = "Stopping";
+        say("Stopping: no more legs will be sent");
+      },
+    }, "Cancel remaining");
+    actions.replaceChildren(stopBtn);
     status.replaceChildren(h("p", { class: "muted" }, exit ? "Closing: short legs first, each waited until filled." : "Placing: hedges first, each waited until filled."));
     legTable();
     for (const r of rows.slice(from)) {
       // Only rows with nothing on the book are sent: an open, part-filled, timed-out or unknown order is never resent.
       if (r.status !== "queued") continue;
+      if (stopReq) return cancelRemaining();
       const ok = await send(r);
       if (!ok) return stopped(r);
       if (r.phase === "hedge") {
-        let filled = await pollUntil(r, waitMs(), (x) => x.status === "filled");
+        let filled = await pollUntil(r, waitMs(), (x) => x.status === "filled" || stopReq);
+        if (stopReq) return cancelRemaining();
         while (!filled && !TERMINAL.has(r.status)) {
           const choice = await hedgeTimeout(r);
           status.replaceChildren(h("p", { class: "muted" }, "Placing…"));
@@ -368,6 +414,20 @@ export function openPlacement(o) {
     finish();
   }
 
+  /** Cancel remaining: nothing more is sent, and the orders still working are cancelled. Filled legs stay. */
+  async function cancelRemaining() {
+    for (const x of rows) if (x.status === "queued") x.status = "skipped";
+    const open = rows.filter((r) => r.order && (r.status === "open" || r.status === "partial" || r.status === "timeout"));
+    status.replaceChildren(h("p", { class: "muted" }, open.length ? "Cancelling the orders still working" : "Stopped"));
+    for (const r of open) {
+      await optional(api(`/v1/orders/${encodeURIComponent(r.order.orderId)}`, { method: "DELETE" }));
+      const res = await optional(api(`/v1/orders/${encodeURIComponent(r.order.orderId)}`));
+      if (res.data?.data) fromOrder(r, res.data.data);
+    }
+    const p = basketProgress(rows);
+    say(`Stopped: ${p.filled} of ${p.total} filled`);
+    return stopped();
+  }
   function finish() {
     phase = "done";
     syncClose();
@@ -393,7 +453,7 @@ export function openPlacement(o) {
     const n = rows.filter((r) => r.status === "filled").length;
     const shortsOut = rows.some((r) => r.phase === "short" && r.order);
     say(`Placed ${n} of ${rows.length}`);
-    status.replaceChildren(h("p", { class: "warn-text" }, `Placed ${formatInt(n)} of ${formatInt(rows.length)}${!shortsOut && !exit && filled.length ? " · hedges in, shorts not sent" : ""}.`));
+    status.replaceChildren(h("p", { class: "warn-text" }, `Placed ${formatInt(n)} of ${formatInt(rows.length)}${!shortsOut && !exit && filled.length ? " · buys in, sells not sent" : ""}.`));
     // Retry only a row with no live order (rejected, cancelled, expired, not sent). An open or part-filled order is
     // still working: resending it would double the leg.
     const retryAt = O.retryIndex(rows);
@@ -476,7 +536,7 @@ export function openPlacement(o) {
   const form = h(
     "div",
     { class: "place-form" },
-    h("div", { class: "ticket-grid" }, segField("Product", prodSeg), segField("Hedge wait", waitSeg)),
+    h("div", { class: "ticket-grid" }, segField("Product", prodSeg), segField("Hedge wait", waitSeg), orderSeg ? segField("Send order", orderSeg) : null),
     // Orders go to: the account is chosen here, where it matters (strategy.md §3.1); a change reopens the sheet.
     o.accountRow ? h("div", { class: "place-acct" }, o.accountRow(() => closeSheet?.({ reopen: true })), modeBadge) : h("p", { class: "muted small ticket-acct one-line" }, h("span", { class: "acct-name" }, a.label), " ", modeBadge),
     liveSeg ? segField("Mode", liveSeg) : null,
@@ -497,6 +557,14 @@ export function openPlacement(o) {
     drawButtons();
     preflight();
   });
+  orderSeg?.addEventListener("change", () => {
+    cfg.order = orderSeg.value;
+    o.onCfg?.({ order: orderSeg.value });
+    rows = buildRows();
+    legTable();
+    drawButtons();
+    preflight();
+  });
   ack.addEventListener("change", drawButtons);
   gateBox.addEventListener("change", () => {
     for (const r of rows) r.preview = null;
@@ -505,10 +573,29 @@ export function openPlacement(o) {
     preflight();
   });
 
+  async function loadBasketMargin() {
+    const b = basketMarginBody(items.map((it, k) => ({ ...it, price: limits.get(k) ?? it.price })));
+    if (a.broker !== "paper" || !b) {
+      marginLine.textContent = a.broker === "paper" ? "" : "Margin for live orders is the broker's own figure; the broker checks it as each order arrives.";
+      return;
+    }
+    marginLine.textContent = "Reading the basket's margin";
+    const res = await optional(api(`/v1/paper/accounts/${encodeURIComponent(a.id)}/margin`, { method: "POST", body: b }));
+    const m = res.data?.data;
+    if (!m) {
+      marginLine.textContent = res.error ? `Basket margin unavailable: ${ungroup(res.error.message)}` : "";
+      return;
+    }
+    const short = isFigure(m.available) && m.change > m.available;
+    marginLine.className = `place-margin ${short ? "bad-text" : "muted"}`;
+    marginLine.textContent = `Whole basket ≈ ${money(m.alone, { signed: false })} on its own · ${m.change < -0.5 ? `frees ${money(-m.change, { signed: false })} on this book` : `adds ${money(Math.max(0, m.change), { signed: false })} to this book`} · free ${money(m.available, { signed: false })}${m.standalone > m.alone + 1 ? ` · hedges save ${money(m.standalone - m.alone, { signed: false })}` : ""}. Paper model, approximate.`;
+  }
+
   legTable();
   drawWarnings();
   drawButtons();
   preflight();
+  loadBasketMargin();
   const done = modal({
     title: o.title,
     canClose,
@@ -517,7 +604,7 @@ export function openPlacement(o) {
         if (!canClose()) return;
         close(v, true);
       };
-      return h("div", { class: "stack place-sheet" }, summary, legsHost, moved, warnHost, form, status, live, actions);
+      return h("div", { class: "stack place-sheet" }, summary, marginLine, legsHost, moved, warnHost, form, status, live, actions);
     },
     buttons: [],
   });

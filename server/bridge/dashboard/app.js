@@ -473,6 +473,7 @@ export const ICONS = {
   chevron: '<path d="m9 6 6 6-6 6"/>',
   pause: '<path d="M8.5 5v14M15.5 5v14"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   logout: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>',
   chart: '<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/>',
@@ -563,17 +564,42 @@ function toastCovers(t) {
 }
 
 /**
- * Wide screens: the toast sits top centre under the toolbar (app.css). When a control is under it there (a narrow
- * desktop where a panel head fills its row) it moves to the bottom right, if that covers fewer controls. Phones and
- * tablets keep bottom centre above the tab bar.
+ * The control the person used last (pointer or key), so a toast never lands on it: a slider dragged on Strategy, the
+ * button just pressed. Kept for 4s; after that only the count of covered controls decides.
+ */
+let lastUsed = null;
+let lastUsedAt = 0;
+if (typeof document !== "undefined") {
+  const note = (e) => {
+    const c = e.target?.closest?.(TOAST_CONTROLS);
+    if (!c || c.closest?.("#toast")) return;
+    lastUsed = c;
+    lastUsedAt = Date.now();
+  };
+  document.addEventListener("pointerdown", note, true);
+  document.addEventListener("keydown", note, true);
+  document.addEventListener("input", note, true);
+}
+function coversLast(t) {
+  if (!lastUsed?.isConnected || Date.now() - lastUsedAt > 4000) return false;
+  const r = t.getBoundingClientRect();
+  const q = lastUsed.getBoundingClientRect();
+  return r.width > 0 && q.width > 0 && !(q.right <= r.left - 4 || q.left >= r.right + 4 || q.bottom <= r.top - 4 || q.top >= r.bottom + 4);
+}
+
+/**
+ * Where the toast goes. Wide screens: top centre under the toolbar (app.css), else the bottom right
+ * ([data-place="low"]). Phones and tablets: bottom centre above the tab bar and any sticky bottom bar, else top centre
+ * under the toolbar ([data-place="top"]). The other place is taken when the first covers the control just used, or
+ * covers more controls; neither place ever reaches the tab bar.
  */
 function placeToast(t) {
   delete t.dataset.place;
-  if (!window.matchMedia?.("(min-width: 1024px)").matches) return;
-  const top = toastCovers(t);
-  if (!top) return;
-  t.dataset.place = "low";
-  if (toastCovers(t) >= top) delete t.dataset.place;
+  const cost = () => (coversLast(t) ? 100 : 0) + toastCovers(t);
+  const first = cost();
+  if (!first) return;
+  t.dataset.place = window.matchMedia?.("(min-width: 1024px)").matches ? "low" : "top";
+  if (cost() >= first) delete t.dataset.place;
 }
 
 /**
@@ -1470,6 +1496,8 @@ async function signIn() {
   await startRouter();
   // The trading-readiness badge in the toolbar (every page; docs/spec/p1-05-readiness.md §6.3).
   import("./readiness.js").then((m) => m.mountReadinessBadge()).catch(() => {});
+  // Position alerts: the bell (unread fires, every alert) once there is an alert (alerts.js).
+  import("./alerts.js").then((m) => m.mountAlertBell()).catch(() => {});
 }
 
 if (typeof document !== "undefined" && document.getElementById("login-form")) {

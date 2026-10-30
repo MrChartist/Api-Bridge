@@ -10,6 +10,7 @@ Get Bridge events on your phone or into your own automations (n8n, Zapier, Make,
 | `safety.kill_switch` | the kill switch is engaged or released | always |
 | `account.status` | a broker session expires or errors | expired / error only |
 | `limits.throttled` | a broker answered "rate limited" | broker throttles only |
+| `option.alert` | a position alert fires (Positions › Alert, or `POST /v1/alerts`) and the alert has "Also send to my notification channels" on | per alert |
 | `trading.readiness` | a live account cannot trade (session gone, IP mismatch, daily limit, kill switch), recovers, or is not ready at the 09:00 pre-open check | at most one message per account per 15 minutes for the same reasons; warnings only at 09:00 |
 
 Each target listens to the events you list (default `scan.alert`, `safety.kill_switch` and `trading.readiness`).
