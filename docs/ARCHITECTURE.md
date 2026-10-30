@@ -98,6 +98,7 @@ data/
 | `guards/` | S25 | `guards` (planned, `p1-12`) | `/v1/guards*` |
 | `participants/` | S26 | `participants` (planned, `p1-12`) | participant OI |
 | `book/` | S27 | `book` (planned, `p1-12`) | `/v1/book` |
+| `strategies/` | S30 | (routes only; `docs/STRATEGIES-PYTHON.md`): runs the user's Python strategy files from `<Bridge home>/strategies` as child processes, one API key per run limited to one account, paper by default; heartbeat, restart back-off, kill switch stops all; dashboard `algo.js` (Trade › Algo) | `/v1/strategies*` (admin, loopback) |
 | `demo/` | lead | demo adapter and config; `routes.mjs`: demo-only routes (`/v1/demo/*`, registered only in demo mode, `x-demo-only: true` in OpenAPI) | `/v1/demo/*` (demo mode only) |
 | `server/brokers/`, `server/lib/` | frozen | broker adapters and helpers (existing, tested); `server/lib/jsonl.mjs` is the shared append-only store helper (F0) | none directly |
 
