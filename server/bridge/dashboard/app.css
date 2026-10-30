@@ -972,10 +972,15 @@ button.live-ctl { --btn-h: var(--ctl-h); --btn-bg: var(--mat-glass); --btn-line:
 @media (max-width: 460px) {
   .toolbar { gap: 6px; }
   .toolbar-title { padding-inline: 12px; }
-  /* Card pages name themselves in the large title right below, so the bar keeps the page glyph only ("Home" was cut
-     to "Ho…" beside the budget and kill-switch controls). */
-  :root:not([data-layout="desk"]) .toolbar-title { flex: none; width: var(--ctl-h); padding: 0; justify-content: center; }
-  :root:not([data-layout="desk"]) .toolbar-title > span:last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  /* The bar keeps the page glyph only ("Home" was cut to "Ho…" and "Data recorder" to "Data record" beside the
+     budget and kill-switch controls); card pages name themselves in the large title below, and the label stays for
+     screen readers. */
+  .toolbar-title { flex: none; width: var(--ctl-h); padding: 0; justify-content: center; }
+  /* Pages whose capsule only names them: the glyph does that here ("Data recorder" was cut to "Data record"), and
+     Participants keeps its day without the exchange ("NSE 29 O"). */
+  .ctx-cap:has(> .ctx-rec:only-child) { display: none; }
+  .pt-ctx .ctx-pt-ex { display: none; }
+  .toolbar-title > span:last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .toolbar-actions { gap: 6px; }
   button.toolbar-demo { width: var(--ctl-h); padding: 0; justify-content: center; }
   .toolbar-demo > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -1821,7 +1826,7 @@ button.start-row:hover { --btn-bg: var(--mat-fill-1); }
 .broker:hover { background: var(--mat-fill-2); }
 .broker .top { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .broker .names { flex: 1; min-width: 0; }
-.broker .nm { font: 500 14.5px/1.25 var(--font-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.broker .nm { font: 500 14.5px/1.25 var(--font-body); overflow-wrap: anywhere; text-wrap: balance; }  /* wraps: "Motilal Oswal" was cut to "Motilal O…" at 1280 */
 .broker .id { font: 400 12px/1.3 var(--font-mono); color: hsl(var(--foreground) / var(--a-quiet)); }
 .broker-foot { gap: 8px; flex-wrap: nowrap; align-items: center; }
 .dir-search { width: min(280px, 100%); }
@@ -3420,10 +3425,10 @@ button.toast-undo { --btn-h: 28px; --btn-px: 10px; --btn-fs: 13px; --btn-bg: tra
 }
 /* The hero follows the analysis column's own width (desktop only: below 1024px .strat-analysis is display: contents
    and the tablet/phone rules lay the hero out). Five cells in a row need about 580px; narrower (about 1024-1400px
-   windows) it is three over two, and under 380px (about 1024-1080px) two per row with Net across the top. */
+   windows; 680 px, as "Unlimited ↘" and its stress line wrapped at 1100) it is three over two, and under 380px (about 1024-1080px) two per row with Net across the top. */
 .strat-analysis { container: strat-an / inline-size; }
 @media (min-width: 1024px) {
-  @container strat-an (max-width: 579px) {
+  @container strat-an (max-width: 679px) {
     .strat-hero { grid-template-columns: repeat(6, minmax(0, 1fr)); row-gap: 10px; }
     .strat-hero .hero-c { grid-column: span 2; padding: 0 10px; }
     .strat-hero .hero-c:nth-child(1) { padding-left: 0; }
@@ -4360,6 +4365,10 @@ button.pos-gauge:focus-visible { outline: 2px solid var(--sel-ring); outline-off
 .pos-cap-sub:empty { display: none; }
 .pos-cap-warn[hidden] { display: none; }
 .pos-stress { display: flex; gap: 6px; flex-wrap: nowrap; margin-top: 2px; }
+/* A narrow capital column (about 290 px at 1024-1180 windows): the four ±σ chips go two by two instead of running into
+   each other. */
+.pos-cap { container: pos-cap / inline-size; }
+@container pos-cap (max-width: 359px) { .pos-stress:not(.scen) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .pos-stress[hidden] { display: none; }
 button.pos-schip { flex: 1 1 0; min-width: 0; min-height: 26px; height: 26px; padding: 0 6px; gap: 4px; font-size: 12px; justify-content: center; border-radius: 999px; box-shadow: none; font: 500 12px/1 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
 button.pos-schip .k { opacity: 0.78; font-weight: 600; }
@@ -4643,6 +4652,13 @@ table.pos-matrix { width: 100%; table-layout: fixed; border-collapse: separate; 
 table.pos-matrix th, table.pos-matrix td { padding: 0 8px; height: 28px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: inset 0 calc(-1 * var(--hl)) 0 hsl(var(--background) / 0.55); }
 table.pos-matrix thead th { height: 26px; font: var(--t-table-head); color: hsl(var(--foreground) / var(--a-quiet)); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 table.pos-matrix thead th:first-child, table.pos-matrix tbody th { width: 34%; }
+/* A narrow risk column (about 400 px at 1024-1180 windows): the figures read "−₹3…". The spot column gives way and
+   cells pad 4 px, so "−₹35K" fits five across. */
+.pos-matrix-wrap { container: pos-mx / inline-size; }
+@container pos-mx (max-width: 479px) {
+  table.pos-matrix thead th:first-child, table.pos-matrix tbody th { width: 25%; }
+  table.pos-matrix th, table.pos-matrix td { padding: 0 4px; }
+}
 @media (min-width: 1024px) { table.pos-matrix thead th:first-child, table.pos-matrix tbody th { width: 100px; } }
 table.pos-matrix tbody th { text-align: left; font: 500 12px/1 var(--font-numeric); }
 table.pos-matrix tbody th small { margin-left: 6px; font: 500 12px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
@@ -4863,6 +4879,7 @@ label.pos-inc-hit { display: inline-flex; align-items: center; justify-content: 
 .vol-kpi { container-type: inline-size; position: relative; }
 .desk-stats.vol-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: visible; scroll-snap-type: none; box-shadow: none; }
 .desk-stats.vol-tiles .desk-stat { min-width: 0; min-height: 64px; padding: 9px 12px 10px; gap: 3px; }
+/* Eight across from 1000 px; a narrow tile wraps its sub between parts (vol.js setTile). */
 @container (min-width: 1000px) { .desk-stats.vol-tiles { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
 .vol-tiles .desk-stat[title] { cursor: help; }
 .vol-tiles .desk-stat .label { font-size: 12px; }
@@ -4875,7 +4892,7 @@ label.pos-inc-hit { display: inline-flex; align-items: center; justify-content: 
 /* One line per sub, so the strip keeps even tile heights: the parts after the first shrink (ellipsis) first, and a
    separator rides with the part after it (never ends a line). The full text is the sub's title. */
 /* Segments that do not fit move to a second line (two at most); a lone sentence wraps there too. */
-.vol-tiles .desk-stat .sub { display: flex; flex-wrap: wrap; min-width: 0; max-height: 2.6em; font-size: 12px; overflow: hidden; color: hsl(var(--foreground) / var(--a-label)); }
+.vol-tiles .desk-stat .sub { display: flex; flex-wrap: wrap; column-gap: 0.3em; min-width: 0; max-height: 2.6em; font-size: 12px; overflow: hidden; color: hsl(var(--foreground) / var(--a-label)); }
 .vol-tiles .desk-stat .sub .seg { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
 .vol-tiles .desk-stat .sub .seg:first-child { flex-shrink: 0; max-width: 100%; }
 .vol-tiles .desk-stat .label, .vol-tiles .desk-stat.na .value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -6832,7 +6849,9 @@ table.chain tfoot .foot-pcr { white-space: nowrap; }
 
 /* Panel tools: none on phones (one column, nothing to arrange); on touch tablets they sit in flow in a 44 px strip
    at the top of the panel, so they never cover its content. */
-@media (max-width: 719px) { :root[data-layout="desk"] #content > .movable > :is(.panel-tools, .panel-edge) { display: none; } }
+/* Phones, every page: the move / maximise pill sat over card titles (Safety: "Trading re⠿⤢ss"). Order is kept from a
+   wider screen. */
+@media (max-width: 719px) { #content > .movable > :is(.panel-tools, .panel-edge) { display: none; } }
 @media (pointer: coarse) and (min-width: 720px) {
   :root[data-layout="desk"] #content > .movable > .panel-edge { display: none; }
   :root[data-layout="desk"] #content > .movable .panel-tools.in-head { position: static; display: flex; flex: none; gap: 0; margin-left: auto; padding: 0; transform: none; opacity: 1; pointer-events: auto; border-radius: 99px; background: var(--mat-fill-1); box-shadow: none; }
@@ -6888,6 +6907,7 @@ button.ref-chip[data-tone="bad"] { color: hsl(var(--neg-ink)); }
 #toolbar-ctx > button.ref-chip[data-fit="short"] { flex: none; }
 #toolbar-ctx > button.ref-chip[data-fit="short"] .ref-chip-ic { display: none; }
 #toolbar-ctx > .ctx-acct { flex: none; }
+#toolbar-ctx.ctx-no-ref > button.ref-chip { display: none; }
 /* Tablets: the spot keeps its % change only and a live control is its dot (the time is in its label), so the chip
    keeps most of its words beside the full capsule. */
 @media (min-width: 720px) and (max-width: 1023px) {
@@ -6899,8 +6919,10 @@ button.ref-chip[data-tone="bad"] { color: hsl(var(--neg-ink)); }
    pill its amber dot and Ready its glyph (all keep their words in the label); the capsule then
    keeps the spot and its % change (fitCtx drops the rest). */
 @media (min-width: 1024px) and (max-width: 1279px) {
-  :root[data-layout="desk"] #toolbar-ctx button.live-ctl[data-kind="live"] { min-width: 40px; padding: 0 14px; justify-content: center; }
-  :root[data-layout="desk"] #toolbar-ctx button.live-ctl[data-kind="live"] .live-txt { display: none; }
+  /* Every state, not only live: "Stale · 25 s old" pushed the spot off the capsule on Arbitrage. The dot keeps its
+     colour (amber stale, red not updating) and the label and title keep the words. */
+  :root[data-layout="desk"] #toolbar-ctx button.live-ctl { min-width: 40px; padding: 0 14px; justify-content: center; }
+  :root[data-layout="desk"] #toolbar-ctx button.live-ctl .live-txt { display: none; }
   :root[data-layout="desk"] button.toolbar-demo { width: var(--ctl-h); padding: 0; justify-content: center; }
   :root[data-layout="desk"] .toolbar-demo > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   :root[data-layout="desk"] button.toolbar-ready-btn { width: var(--ctl-h); padding: 0; justify-content: center; }
@@ -7978,6 +8000,11 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
 :root[data-density="compact"] .pos-scen { padding: 6px 10px 8px; gap: 6px; }
 /* Compact OI ladder and card heads. */
 :root[data-density="compact"] table.oi-ladder { --desk-row: 32px; }
+/* Two lines (the change, then % and the build-up tag) in a 32 px row: no gap and a 14 px tag line, so the change no
+   longer rides up over the row rule above (1024 to 1366 px). */
+:root[data-density="compact"] table.oi-ladder .dwrap { gap: 1px; }
+:root[data-density="compact"] table.oi-ladder .dsub { min-height: 14px; }
+:root[data-density="compact"] table.oi-ladder .dsub .obu { height: 14px; }
 :root[data-density="compact"] .card-head { padding-top: 10px; }
 
 /* ── Wide screens: more detail, not more margin ── */
@@ -8196,7 +8223,7 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .ev-cond-list code { font: 400 12px/1.35 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); overflow-wrap: anywhere; }
 /* Tablet: drop the strength column of the stock feed so the context keeps its room. */
 @media (min-width: 720px) and (max-width: 1279px) {
-  .ev-scroll[data-mode="feed"][data-asset="stock"] :is(.ev-head, .ev-row) { grid-template-columns: 66px minmax(120px, 1fr) minmax(150px, 0.9fr) 80px 72px minmax(160px, 2fr) 50px; }
+  .ev-scroll[data-mode="feed"][data-asset="stock"] :is(.ev-head, .ev-row) { grid-template-columns: 66px minmax(120px, 1fr) minmax(150px, 0.9fr) 80px 72px minmax(160px, 2fr) 60px; }  /* 60: the "Count" head fits (it read "Co…") */
   .ev-scroll[data-mode="feed"][data-asset="stock"] :is(.ev-head, .ev-row) > :nth-child(4) { display: none; }
 }
 /* Orders (views.js renderOrders): the contract on one line, the reason under a refused order, actions side by side. */

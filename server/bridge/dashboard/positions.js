@@ -1009,10 +1009,19 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
    * already hide IV, Vega and P&L % (CSS).
    */
   const FIT_DROP = ["pnlPct", "vega", "iv", "dbar", "gamma", "sg", "pbars"];
+  // The table also widens after a draw (marks, the σ gauge and the bars fill in): refit whenever it changes size, so
+  // no column is left cut at the panel edge (1024 px: Distance and the group's Exit were cut).
+  const fitRo = typeof ResizeObserver === "function" ? new ResizeObserver(() => fitTable()) : null;
+  let fitWatched = null;
   function fitTable() {
     const wrap = bodyEl.querySelector(".pos-wrap");
     const table = wrap?.querySelector("table.pos-table");
     if (!table) return;
+    if (fitRo && fitWatched !== table) {
+      if (fitWatched) fitRo.unobserve(fitWatched);
+      fitWatched = table;
+      fitRo.observe(table);
+    }
     for (const k of FIT_DROP) table.classList.remove(`fit-${k}`);
     if (!wrap.clientWidth) return;
     for (const k of FIT_DROP) {
