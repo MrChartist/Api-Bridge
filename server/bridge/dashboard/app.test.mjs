@@ -295,7 +295,7 @@ describe("UI pass 3 §5: the menu and the merged pages", async () => {
   });
 
   it("each tab sets its own layout and data-page; plain pages are untouched", () => {
-    expect(route("#/screeners/stocks")).toMatchObject({ view: "scanner", layout: "", redirect: null });
+    expect(route("#/screeners/stocks")).toMatchObject({ view: "scanner", layout: "desk", redirect: null });
     expect(route("#/screeners/arbitrage")).toMatchObject({ view: "arb", layout: "desk" });
     expect(route("#/oi")).toMatchObject({ view: "oi", layout: "desk" });
     expect(route("#/api/console?endpoint=order")).toMatchObject({ view: "console", layout: "", query: "endpoint=order", redirect: null });

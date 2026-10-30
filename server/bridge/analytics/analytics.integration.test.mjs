@@ -99,7 +99,8 @@ describe("chain-based routes (read key)", () => {
       expect(list.length).toBeGreaterThan(0);
       for (const x of list) expect([isNum(x.strike), isNum(x.value)]).toEqual([true, true]);
     }
-    expect(nullPaths(d)).toEqual([]);
+    // PCR of the OI change has no value while calls shed OI (a ratio over a change of zero or less).
+    expect(nullPaths(d).filter((p) => !(p === "pcrOiChange" && !(d.totals.ceOiChange > 0)))).toEqual([]);
   });
 
   it("GET /gex: the fields the dashboard reads, all numeric", async () => {
@@ -110,7 +111,7 @@ describe("chain-based routes (read key)", () => {
     // No sign change in the running total (random demo prices) means no flip strike: null is the honest answer.
     expect(d.flipStrike === null || isNum(d.flipStrike), "flipStrike").toBe(true);
     for (const s of d.strikes) for (const k of ["strike", "callGex", "putGex", "netGex"]) expect(isNum(s[k]), `strikes.${k}`).toBe(true);
-    expect(nullPaths(d)).toEqual([]);
+    expect(nullPaths(d).filter((p) => p !== "flipStrike")).toEqual([]);
   });
 
   it("GET /skew: the fields the dashboard reads, all numeric", async () => {

@@ -16,6 +16,7 @@ import { analyticsPages } from "./analyticsViews.js";
 import { analyticsMorePages } from "./analyticsMore.js";
 import { analyticsFlowPages, filingsTabs, tabbedPage } from "./analyticsFlow.js";
 import { analyticsRiskPages } from "./analyticsRisk.js";
+import { analyticsTimePages } from "./analyticsTime.js";
 import { UNDERLYING_CHIPS, isFormPage, nowShowing, workspace } from "./workspace.js";
 import { errorBox, field, segField, segmented } from "./views.js";
 
@@ -52,6 +53,8 @@ export const VIEWS = Object.freeze({
   "an-volstats": ["screener", "vol", { expiry: false, strikes: false }],
   oichange: ["oichange", "change", { expiry: true, strikes: true }],
   "an-spurts": ["oichange", "spurts", { expiry: true, strikes: true }],
+  "an-strikehist": ["strikehist", null, { expiry: true, strikes: false }],
+  "an-cone": ["cone", null, { expiry: false, strikes: false }],
   expiry: ["expiry", "digest", { expiry: true, strikes: false }],
 });
 
@@ -109,7 +112,7 @@ function newsTab(kind) {
 
 function sources(tab) {
   const H = () => helpers(tab);
-  const all = [...analyticsPages(H), ...analyticsMorePages(H), ...analyticsFlowPages(H), ...analyticsRiskPages(H)];
+  const all = [...analyticsPages(H), ...analyticsMorePages(H), ...analyticsFlowPages(H), ...analyticsRiskPages(H), ...analyticsTimePages(H)];
   const filings = [...filingsTabs(), { id: "announcements", label: "Announcements", build: newsTab("announcements") }, { id: "regulatory", label: "SEBI and RBI", build: newsTab("regulatory") }];
   all.push({ id: "filings", render: () => tabbedPage(H(), { label: "Filings", tabs: filings }) });
   return all;

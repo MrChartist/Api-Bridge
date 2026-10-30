@@ -127,11 +127,25 @@ export function straddleHistory(ceCandles, peCandles) {
  * @param {object} chain
  * @param {Array<{time:number, ce:number, pe:number, straddle:number}>} [history]
  */
-export function straddleSummary(chain, history = []) {
+/** The strangle's two rows (pure): the call `width` strikes above the ATM, the put `width` below; null for 0 or off the chain. */
+export function strangleRows(chain, width) {
+  const w = Number(width) || 0;
+  if (w <= 0) return null;
+  const rows = [...rowsOf(chain)].sort((a, b) => a.strike - b.strike);
+  const i = rows.findIndex((r) => r.strike === chain?.atmStrike);
+  if (i < 0 || !rows[i + w] || !rows[i - w]) return null;
+  return { ce: rows[i + w], pe: rows[i - w] };
+}
+
+export function straddleSummary(chain, history = [], { width = 0 } = {}) {
   const spot = num(chain?.underlyingLtp);
   const row = rowsOf(chain).find((r) => r.strike === chain?.atmStrike) ?? null;
-  const ce = num(row?.ce?.ltp);
-  const pe = num(row?.pe?.ltp);
+  // A strangle (width > 0): the call `width` strikes above the ATM and the put `width` strikes below it.
+  const pair = strangleRows(chain, width);
+  const ceRow = pair?.ce ?? row;
+  const peRow = pair?.pe ?? row;
+  const ce = num(ceRow?.ce?.ltp);
+  const pe = num(peRow?.pe?.ltp);
   const premium = ce > 0 && pe > 0 ? round(ce + pe) : null;
   const first = history[0]?.straddle ?? null;
   const last = history.at(-1)?.straddle ?? null;
@@ -143,8 +157,11 @@ export function straddleSummary(chain, history = []) {
     expiry: chain?.expiry ?? null,
     spot,
     atmStrike: row?.strike ?? null,
-    ceSymbol: row?.ce?.symbol ?? null,
-    peSymbol: row?.pe?.symbol ?? null,
+    width: pair ? width : 0,
+    callStrike: ceRow?.strike ?? null,
+    putStrike: peRow?.strike ?? null,
+    ceSymbol: ceRow?.ce?.symbol ?? null,
+    peSymbol: peRow?.pe?.symbol ?? null,
     ce,
     pe,
     premium,
@@ -152,8 +169,8 @@ export function straddleSummary(chain, history = []) {
     changePct: change === null ? null : round((change / base) * 100, 2),
     impliedMove,
     impliedMovePct: impliedMove === null ? null : round((impliedMove / spot) * 100, 2),
-    upperBreakeven: premium !== null && row ? round(row.strike + premium) : null,
-    lowerBreakeven: premium !== null && row ? round(row.strike - premium) : null,
+    upperBreakeven: premium !== null && ceRow ? round(ceRow.strike + premium) : null,
+    lowerBreakeven: premium !== null && peRow ? round(peRow.strike - premium) : null,
     historyHigh: history.length ? Math.max(...history.map((h) => h.straddle)) : null,
     historyLow: history.length ? Math.min(...history.map((h) => h.straddle)) : null,
     lastHistoryPoint: last,
@@ -241,20 +258,25 @@ export function greeksGridRoutes(deps) {
         if (!INTERVALS.includes(interval)) throw invalid("interval", `interval must be one of ${INTERVALS.join(", ")}.`);
         const countback = intParam(ctx.query, "countback", 1, 5000, 75);
         const { chain, opts, underlying, expiry } = await chainFor(ctx, { greeks: false });
+        const width = intParam(ctx.query, "width", 0, 10, 0);
         const atm = chain.atmStrike;
         const row = rowsOf(chain).find((r) => r.strike === atm);
+        const pair = strangleRows(chain, width);
+        if (width > 0 && !pair) throw invalid("width", `The chain has no strikes ${width} away from the ATM on both sides; ask for more strikes or a smaller width.`);
         let history = [];
         if (row) {
           const fx = defaultOptionExchange(underlying);
-          const ceSym = row.ce?.symbol ?? legSymbol(fx, underlying, expiry, atm, "CE");
-          const peSym = row.pe?.symbol ?? legSymbol(fx, underlying, expiry, atm, "PE");
+          const ceRow = pair?.ce ?? row;
+          const peRow = pair?.pe ?? row;
+          const ceSym = ceRow.ce?.symbol ?? legSymbol(fx, underlying, expiry, ceRow.strike, "CE");
+          const peSym = peRow.pe?.symbol ?? legSymbol(fx, underlying, expiry, peRow.strike, "PE");
           const [ce, pe] = await Promise.all([
             md().history({ symbol: ceSym, interval, countback }, opts),
             md().history({ symbol: peSym, interval, countback }, opts),
           ]);
           history = straddleHistory(ce.candles, pe.candles);
         }
-        return { data: { interval, countback, ...straddleSummary(chain, history) }, meta: meta(ctx, opts, chain.freshness) };
+        return { data: { interval, countback, ...straddleSummary(chain, history, { width }) }, meta: meta(ctx, opts, chain.freshness) };
       },
     ],
   ];

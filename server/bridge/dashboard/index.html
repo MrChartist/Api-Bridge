@@ -6,6 +6,8 @@
   <meta name="color-scheme" content="light dark">
   <title>Mr. Chartist API Bridge</title>
   <link rel="icon" href="/dashboard/logo.svg" type="image/svg+xml">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F2F2F7">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000">
   <link rel="preload" href="/dashboard/font-chartist-sans-flex.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/dashboard/font-chartist-sans.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/dashboard/app.css">
@@ -35,7 +37,7 @@
       <div id="login-demo" class="login-demo" hidden><span class="pill demo">Demo data</span><span>This Bridge runs in demo mode: sample prices, no broker, paper orders only.</span></div>
       <div class="login-head">
         <div class="eyebrow">Local dashboard · this computer only</div>
-        <h1>Sign in with your admin key</h1>
+        <h1>Sign in with your <em class="serif">admin key</em></h1>
         <p class="muted">The key was printed once when you ran the setup. It stays in this browser tab and is forgotten when you close it.</p>
       </div>
       <form id="login-form" class="stack">
@@ -47,11 +49,15 @@
       <div id="login-error" role="alert"></div>
       <div class="login-help-list">
         <strong>No key yet?</strong>
-        <ol>
-          <li>Just trying it? In the Bridge folder, run <code>npm run dev</code>: demo mode, opened already signed in, no key needed. Or</li>
-          <li>run <code>npm run bridge -- init</code> (first time), or</li>
-          <li><code>npm run bridge -- keys create --label me --scope admin,paper</code></li>
-        </ol>
+        <p class="muted">Run one of these in the Bridge folder:</p>
+        <dl class="login-cmds">
+          <dt>Just trying it: demo mode, opens signed in</dt>
+          <dd><code>npm run dev</code></dd>
+          <dt>First time: set up and print an admin key</dt>
+          <dd><code>npm run bridge -- init</code></dd>
+          <dt>Another key</dt>
+          <dd><code>npm run bridge -- keys create --label me --scope admin,paper</code></dd>
+        </dl>
         <p class="muted">Lost your key? You do not need it here: open the Bridge again from its shortcut, or run <code>mc-bridge open</code> (in the Bridge folder: <code>npm run bridge -- open</code>). The dashboard then opens already signed in.</p>
       </div>
     </div>

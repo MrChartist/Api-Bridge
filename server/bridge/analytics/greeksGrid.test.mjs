@@ -102,3 +102,16 @@ describe("routes", () => {
     await expect(routes["/v1/analytics/greeks-grid"].h(ctx("expiry=2026-10-27"))).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 });
+
+describe("strangle", async () => {
+  const { strangleRows, straddleSummary } = await import("./greeksGrid.mjs");
+  const chain = { underlyingLtp: 100, atmStrike: 100, rows: [90, 95, 100, 105, 110].map((k) => ({ strike: k, ce: { ltp: Math.max(1, 110 - k) / 2, symbol: `C${k}` }, pe: { ltp: Math.max(1, k - 90) / 2, symbol: `P${k}` } })) };
+  it("takes the call width strikes above the ATM and the put width strikes below; 0 is the straddle", () => {
+    expect(strangleRows(chain, 0)).toBeNull();
+    expect(strangleRows(chain, 1)).toMatchObject({ ce: { strike: 105 }, pe: { strike: 95 } });
+    expect(strangleRows(chain, 3)).toBeNull();
+    const s = straddleSummary(chain, [], { width: 2 });
+    expect(s).toMatchObject({ width: 2, callStrike: 110, putStrike: 90, ce: 0.5, pe: 0.5, premium: 1, upperBreakeven: 111, lowerBreakeven: 89 });
+    expect(straddleSummary(chain, []).callStrike).toBe(100);
+  });
+});

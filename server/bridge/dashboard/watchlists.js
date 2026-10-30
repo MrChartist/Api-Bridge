@@ -4,12 +4,17 @@
 // turns its WATCHLIST universe on) and one shows on Home. Data: /v1/watchlists (watchlist-core.js does the maths on
 // the Bridge). Numbers become text only through format.js. Reads and lists only: nothing here places an order.
 import { api, app, emptyState, errorState, h, icon, istTime, modal, optional, toast } from "./app.js";
-import { DASH, formatCompact, formatDayMonth, formatFixed, formatGrouped, formatInt, formatSigned, isFigure } from "./format.js";
+import { setBar, svgEl } from "./viz.js";
+import { DASH, formatCompact, formatDayMonth, formatFixed, formatInt, formatSigned, isFigure } from "./format.js";
 import { clearFieldError, fieldError } from "./flows.js";
-import { normaliseSymbol, sortRows } from "./watchlist-core.js";
+import { normaliseSymbol, sessionCloses, sortRows } from "./watchlist-core.js";
 
 const SLOT = "mcb.dashboard.watchlists";
 const REFRESH_MS = 5000;
+/** Intraday sparklines: 5-minute candles of the latest session, fetched one symbol at a time, again every 5 minutes. */
+const SPARK_MS = 5 * 60 * 1000;
+const SPARK_MAX_SYMBOLS = 20;
+
 const tone = (v) => (isFigure(v) && v > 0 ? "up" : isFigure(v) && v < 0 ? "down" : "");
 const pct = (v) => h("span", { class: `nowrap ${tone(v)}` }, isFigure(v) ? `${formatSigned(v, 2)}%` : DASH);
 const CHAINABLE = new Set(["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX"]);
@@ -42,6 +47,45 @@ export async function renderWatchlistsPage() {
   if (!lists.some((l) => l.id === st.id)) st.id = lists[0]?.id ?? null;
   let quotes = null;
   let timer = 0;
+  // symbol -> { at, closes }: the intraday line (the live price is added as its last point on each draw).
+  const sparks = new Map();
+  let sparkBusy = false;
+  async function loadSparks() {
+    const l = cur();
+    if (sparkBusy || !l) return;
+    sparkBusy = true;
+    try {
+      for (const s of l.symbols.slice(0, SPARK_MAX_SYMBOLS)) {
+        const c = sparks.get(s);
+        if (c && Date.now() - c.at < SPARK_MS) continue;
+        const r = await optional(api(`/v1/history?symbol=${encodeURIComponent(s)}&interval=5m&countback=80`));
+        if (!tableHost.isConnected) return;
+        sparks.set(s, { at: Date.now(), closes: r.error ? [] : sessionCloses(r.data?.data?.candles ?? r.data?.candles) });
+      }
+    } finally {
+      sparkBusy = false;
+    }
+    draw();
+  }
+  /** The session so far as a line: up in the gain ink, down in the loss ink, the previous close as a dotted level. */
+  function sparkFor(r) {
+    const closes = [...(sparks.get(r.symbol)?.closes ?? [])];
+    if (isFigure(r.ltp) && closes.length) closes.push(r.ltp);
+    if (closes.length < 3) return h("span", { class: "wl-spark wl-spark-none", "aria-hidden": "true" });
+    const prev = isFigure(r.ltp) && isFigure(r.change) ? r.ltp - r.change : null;
+    const all = prev === null ? closes : [...closes, prev];
+    const lo = Math.min(...all);
+    const hi = Math.max(...all);
+    const W = 160;
+    const H = 32;
+    const y = (v) => (hi - lo < 1e-9 ? H / 2 : 2 + (1 - (v - lo) / (hi - lo)) * (H - 4));
+    const pts = closes.map((v, i) => `${formatFixed((i / (closes.length - 1)) * W, 1)},${formatFixed(y(v), 1)}`).join(" ");
+    const up = closes[closes.length - 1] >= (prev ?? closes[0]);
+    const svg = svgEl("svg", { class: `wl-spark ${up ? "up" : "down"}`, viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", role: "img", "aria-label": `${r.name} today: ${formatInt(closes.length)} points, ${up ? "up" : "down"} on the day` });
+    if (prev !== null) svg.append(svgEl("line", { class: "wl-spark-prev", x1: 0, x2: W, y1: y(prev), y2: y(prev) }));
+    svg.append(svgEl("polyline", { points: pts }));
+    return svg;
+  }
 
   const listSel = h("select", { "aria-label": "Watchlist", class: "wl-sel" });
   listSel.addEventListener("change", () => {
@@ -192,11 +236,18 @@ export async function renderWatchlistsPage() {
     }
     const byS = new Map((quotes?.rows ?? []).map((r) => [r.symbol, r]));
     const rows = sortRows(l.symbols.map((s) => byS.get(s) ?? { symbol: s, name: s.split(":")[1] }), st.sort, st.dir);
-    tableHost.replaceChildren(
-      h(
+    // The day's move as a bar from a centre line, on one scale for the list (the widest move reaches the edge).
+    const span = Math.max(0.5, ...rows.map((r) => (isFigure(r.changePct) ? Math.abs(r.changePct) : 0)));
+    const moveBar = (v) => {
+      if (!isFigure(v)) return null;
+      const b = h("i", { class: v >= 0 ? "up" : "down" });
+      setBar(b, Math.abs(v), span);
+      return h("span", { class: "wl-move", title: `${formatSigned(v, 2)}% today, on one scale for the list` }, b);
+    };
+    const table = h(
         "table",
         { class: "desk-table wl-table" },
-        h("thead", {}, h("tr", {}, head("name", "Symbol", false), head("ltp", "Last"), head("changePct", "Chg %"), head("oiChangePct", "OI chg (fut)", true, "Near future's OI against its OI at the previous day's close"), head("iv", "ATM IV (front)", true, "The front expiry's ATM IV: the average of the ATM call and put IV, as the Option Chain and Volatility show it. HV20 under it"), head("ivr", "IV rank"), h("th", { scope: "col" }, h("span", { class: "sr-only" }, "Actions")))),
+        h("thead", {}, h("tr", {}, head("name", "Symbol", false), head("ltp", "Last"), head("changePct", "Chg %"), head("oiChangePct", "OI chg (fut)", true, "Near future's OI against its OI at the previous day's close"), head("iv", "ATM IV (front)", true, "The front expiry's ATM IV: the average of the ATM call and put IV, as the Option Chain and Volatility show it. HV20 under it"), head("ivr", "IV rank"), h("th", { scope: "col", class: "wl-move-h", title: "The session in 5-minute steps (the dotted line is the previous close), then the day's % change on one scale for the list" }, "Today"), h("th", { scope: "col" }, h("span", { class: "sr-only" }, "Actions")))),
         h(
           "tbody",
           {},
@@ -205,11 +256,12 @@ export async function renderWatchlistsPage() {
               "tr",
               {},
               h("th", { scope: "row" }, h("strong", {}, r.name), h("small", { class: "block muted" }, r.symbol.split(":")[0])),
-              h("td", { class: "num" }, formatGrouped(r.ltp, 2), isFigure(r.change) ? h("small", { class: `block ${tone(r.change)}` }, formatSigned(r.change, 2)) : null),
+              h("td", { class: "num" }, isFigure(r.ltp) ? formatFixed(r.ltp, 2) : DASH, isFigure(r.change) ? h("small", { class: `block ${tone(r.change)}` }, formatSigned(r.change, 2)) : null),
               h("td", { class: "num" }, pct(r.changePct)),
               h("td", { class: "num", title: oiTitle(r) }, r.oi === null || r.oi === undefined ? DASH : h("span", {}, pct(r.oiChangePct), h("small", { class: "block muted" }, `OI ${formatCompact(r.oi)}`))),
               h("td", { class: "num", title: isFigure(r.iv) ? `ATM IV of the ${formatDayMonth(r.ivExpiry)} expiry (front), as on the Option Chain` : r.fno ? "No front-expiry chain to read the ATM IV from yet" : "Not an F&O symbol" }, isFigure(r.iv) ? `${formatFixed(r.iv, 1)}%` : DASH, isFigure(r.hv20) ? h("small", { class: "block muted" }, `HV20 ${formatFixed(r.hv20, 1)}`) : null),
               h("td", { class: "num" }, isFigure(r.ivr) ? formatInt(r.ivr) : DASH),
+              h("td", { class: "wl-move-c" }, h("span", { class: "wl-today" }, sparkFor(r), moveBar(r.changePct))),
               h(
                 "td",
                 { class: "act wl-acts" },
@@ -219,8 +271,9 @@ export async function renderWatchlistsPage() {
             ),
           ),
         ),
-      ),
-    );
+      );
+    table.style.setProperty("--n", String(rows.length));
+    tableHost.replaceChildren(table);
     status.textContent = quotes ? `Updated ${istTime(quotes.at)} · every ${formatInt(REFRESH_MS / 1000)} s${quotes.errors?.length ? ` · ${formatInt(quotes.errors.length)} not priced` : ""}` : "Loading prices";
   }
   function setDeskUnderlying(u) {
@@ -240,6 +293,7 @@ export async function renderWatchlistsPage() {
     if (!r.error) quotes = r.data.data;
     else status.textContent = `Prices unavailable: ${r.error.message}`;
     draw();
+    loadSparks();
     timer = setTimeout(() => tableHost.isConnected && load(), REFRESH_MS);
   }
   draw();
