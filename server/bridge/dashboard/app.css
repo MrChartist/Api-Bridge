@@ -7072,6 +7072,9 @@ button.toolbar-budget-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.
 .toolbar-budget[data-tone="bad"] .bud-num { color: hsl(var(--ios-red-ink)); }
 /* Narrow toolbars keep the dot and this second only. */
 @media (max-width: 1279px) { .toolbar-budget :is(.bud-sep, .bud-min) { display: none; } }
+/* The Options pages' top bar carries the underlying, expiry, spot and live control: there the capsule shows this
+   second only (the popover has the minute). */
+:root[data-layout="desk"] .toolbar-budget :is(.bud-sep, .bud-min) { display: none; }
 @media (max-width: 719px) { .toolbar-budget .bud-lbl { display: none; } button.toolbar-budget-btn { --btn-px: 10px; } }
 .bud-pop { display: flex; flex-direction: column; gap: 12px; min-width: min(300px, 80vw); max-width: 360px; font-size: 13px; }
 .bud-stream { display: flex; align-items: center; gap: 8px; font-weight: 500; }

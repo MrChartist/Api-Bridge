@@ -184,8 +184,10 @@ function initScript() {
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
-  // Tick to cell: the first cell change after a new data time, painted on the next frame.
+  // Tick to cell: the first cell change after a NEW data time (newer than anything painted so far: a refresh that
+  // brings older data than the stream already showed is not a tick), painted on the next frame.
   let pendingCells = false;
+  let paintedUpTo = 0;
   const mo = new MutationObserver((list) => {
     if (pendingCells) return;
     if (!list.some((m) => (m.target.nodeType === 3 ? m.target.parentElement : m.target)?.closest?.("td, .q-cell, [data-cell]"))) return;
@@ -195,6 +197,8 @@ function initScript() {
       if (!P.dataAt.length) return;
       const latest = Math.max(...P.dataAt);
       P.dataAt.length = 0;
+      if (latest <= paintedUpTo) return;
+      paintedUpTo = latest;
       P.cellSamples.push(Date.now() - latest);
     });
   });

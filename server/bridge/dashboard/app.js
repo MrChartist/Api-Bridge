@@ -184,6 +184,8 @@ export const SHARE_MS = 1000;
 export const PAINT_FROM_CACHE_MS = 30_000;
 /** How long after a page switch its first reads may paint from memory. */
 export const NAV_WINDOW_MS = 2500;
+/** A prefetched answer serves the next ask for this long. */
+export const PREFETCH_USE_MS = 4000;
 const CACHE_MAX = 300;
 /** GETs never answered from memory (one-time, audit, safety-critical or diagnostics). */
 const NO_CACHE_RE = /^\/v1\/(stream\/token|sign-in|requests|audit|safety|tickets|orders\/preview|readiness|limits|usage)(\/|\?|$)/;
@@ -246,7 +248,7 @@ function fetchShared(path, { headers, priority = null } = {}) {
     } catch {
       throw new ApiError("The Bridge did not answer.", { network: true });
     }
-    const a = { at: Date.now(), ok: res.ok, status: res.status, ct: res.headers.get("content-type") ?? "", text: await res.text(), headers: res.headers, ms: Math.round(performance.now() - t0) };
+    const a = { at: Date.now(), ok: res.ok, status: res.status, ct: res.headers.get("content-type") ?? "", text: await res.text(), headers: res.headers, ms: Math.round(performance.now() - t0), prefetched: priority === "background" };
     if (a.ok && cacheable(path)) remember(path, a);
     return a;
   })().finally(() => inflight.delete(path));
@@ -317,8 +319,11 @@ export async function api(path, { method = "GET", body, raw = false, fresh = fal
   }
   if (!fresh && cacheable(path)) {
     const hit = answers.get(path);
-    const use = hit ? cacheUse(Date.now() - hit.at, navigating) : null;
+    const age = hit ? Date.now() - hit.at : NaN;
+    // A prefetched answer (the expiry chip under the pointer) serves the click that follows it for a few seconds.
+    const use = hit ? cacheUse(age, navigating) ?? (hit.prefetched && age <= PREFETCH_USE_MS ? "fresh" : null) : null;
     if (use) {
+      hit.prefetched = false; // a prefetch serves one ask; the page's own refreshes go to the Bridge
       if (use === "paint") revalidate(path, hit);
       return { ...toResult(hit, { raw, ms: 0 }), cached: use };
     }
@@ -334,12 +339,20 @@ export async function api(path, { method = "GET", body, raw = false, fresh = fal
  */
 export function prefetchPage(page) {
   const reads = routeReads.get(page);
-  if (!reads || !memoryKey) return;
-  for (const path of reads) {
-    const hit = answers.get(path);
-    if (hit && Date.now() - hit.at <= 5000) continue;
-    fetchShared(path, { headers: baseHeaders("prefetch"), priority: "background" }).catch(() => {});
-  }
+  if (!reads) return;
+  for (const path of reads) prefetch(path);
+}
+
+/**
+ * Warm one GET a person is about to ask for (an expiry chip under the pointer): fetched once at background priority
+ * unless an answer under 5 s old is remembered; a click on it then paints from memory (the page-switch window) or joins
+ * the request already on its way.
+ */
+export function prefetch(path) {
+  if (!memoryKey || !cacheable(path)) return;
+  const hit = answers.get(path);
+  if (hit && Date.now() - hit.at <= 5000) return;
+  fetchShared(path, { headers: baseHeaders("prefetch"), priority: "background" }).catch(() => {});
 }
 export const optional = (p) => p.then((r) => r, (error) => ({ error }));
 
