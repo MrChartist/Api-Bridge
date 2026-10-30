@@ -5046,6 +5046,40 @@ export function probProfit(f, { forward, ivPct, years, n = 600 } = {}) {
  * The price intervals where `test(value)` holds on a sampled curve: [[a, b]], ends found by linear interpolation; an
  * interval that reaches the first sample starts at 0 and one that reaches the last runs to Infinity.
  */
+/**
+ * Where the expiry payoff is at its maximum and at its minimum, as price intervals ([a, b], b = Infinity above the
+ * range): { maxProfit, maxLoss, lo, hi }. Read from the gross payoff (before charges: exit charges grow with the
+ * exercised intrinsic, so a net curve keeps sloping past the wings and a tolerance band would land 100 points
+ * outside them). With every option leg expiring together the payoff is linear between strikes, so its value at
+ * {0, every strike, hi} is exact and the edges are the strikes themselves (an iron condor's max loss is below its
+ * long put and above its long call; a short put's worst case is the point 0). A leg that expires later bends the curve: then 400 samples plus the strikes,
+ * within 0.5% of the curve's span. Null for no active legs.
+ * @param {{ years?: number|null, ivShift?: number, lo: number, hi: number }} o
+ */
+export function extremeIntervals(legs, lotSize, { years = null, ivShift = 0, lo, hi } = {}) {
+  const act = activeLegs(legs);
+  if (!act.length || !(num(lo) !== null && num(hi) !== null && hi > lo)) return null;
+  const T = num(years);
+  const f = strategyPayoff(act, lotSize, { years: T, ivShift });
+  const strikes = [...new Set(act.filter((l) => !isFut(l)).map((l) => l.strike))].filter((k) => k > 0).sort((a, b) => a - b);
+  const a = Math.max(0, Math.min(lo, strikes.length ? strikes[0] * 0.98 : lo));
+  const b = Math.max(hi, strikes.length ? strikes[strikes.length - 1] * 1.02 : hi);
+  const later = T !== null && act.some((l) => !isFut(l) && num(l.years) !== null && l.years - T > 1e-6 && num(l.iv) !== null);
+  const pts = later
+    ? [...new Set([...Array.from({ length: 401 }, (_, i) => a + ((b - a) * i) / 400), ...strikes.filter((k) => k > a && k < b)])].sort((x, y) => x - y)
+    : [0, ...strikes.filter((k) => k > 0 && k < b), b];
+  const vals = pts.map(f);
+  const max = Math.max(...vals);
+  const min = Math.min(...vals);
+  const tol = later ? Math.max(1, (max - min) * 0.005) : 0.5;
+  const at = (level, dir) => {
+    const test = dir > 0 ? (v) => v >= level : (v) => v <= level;
+    test.level = level;
+    return intervalsWhere(pts, vals, test);
+  };
+  return { maxProfit: at(max - tol, 1), maxLoss: at(min + tol, -1), lo: pts[0], hi: b };
+}
+
 export function intervalsWhere(xs, vals, test) {
   const out = [];
   let start = null;
