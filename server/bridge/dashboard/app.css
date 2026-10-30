@@ -1437,6 +1437,7 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 .field .hint, .hint { font: 400 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 label.check { display: flex; align-items: center; gap: 10px; min-height: 32px; font: 400 14px/1.4 var(--font-body); color: hsl(var(--foreground)); cursor: pointer; }
 /* Orders › Cancel all: the Bridge's orders and those placed outside it, each counted and listed. */
+.ca-slot { display: contents; }
 .ca-group { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 0.5px solid var(--mat-separator); }
 .ca-head { margin: 0; font: 600 14px/1.3 var(--font-body); color: hsl(var(--foreground)); }
 .ca-group p { margin: 0; }

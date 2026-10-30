@@ -3,7 +3,7 @@
 import { alertBox, api, card, emptyState, h, istTime, modal, optional, table, toast } from "./app.js";
 import { contractName } from "./flows.js";
 import { DASH, formatDayMonth, formatFixed, formatInt, formatPercent, formatRupee, formatRupeeGrouped } from "./format.js";
-import { ORDER_FILTERS, cancelAllBody, cancelAllGroups, cancelAllReport, filterOrders, filterTrades, fundsView, openByMode, orderCounts } from "./orders-core.js";
+import { ORDER_FILTERS, cancelAllBody, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, filterOrders, filterTrades, fundsView, openByMode, orderCounts } from "./orders-core.js";
 import { fillTotals } from "./statement-core.js";
 
 const KEY = "mcb.orders.filters";
@@ -51,9 +51,17 @@ export function ordersCard({ ord, error, byId, columns, empty, actions, refresh 
   const search = h("input", { type: "search", class: "bk-ob-search", placeholder: "Search contract, order id or tag", "aria-label": "Search orders", autocomplete: "off", spellcheck: "false" });
   search.addEventListener("input", () => ((f.q = search.value), draw()));
   const open = openByMode(ord);
-  const cancelAll = open.total
-    ? h("button", { type: "button", class: "small", onclick: () => cancelAllFlow(labelOf).then((report) => report && showReport(report, refresh)) }, `Cancel all open (${formatInt(open.total)})`)
-    : null;
+  // Cancel all: shown from the page's own open orders at once, then from a dry run's count of both groups, so orders
+  // placed outside the Bridge (in the broker's app) show it too.
+  const cancelAll = h("span", { class: "ca-slot" });
+  const drawCancelAll = (groups) => {
+    const b = cancelAllButton(open.total, groups);
+    cancelAll.replaceChildren(b.show ? h("button", { type: "button", class: "small", onclick: () => cancelAllFlow(labelOf).then((report) => report && showReport(report, refresh)) }, b.label) : "");
+  };
+  drawCancelAll(null);
+  optional(api("/v1/orders/cancel-all", { method: "POST", body: { dryRun: true } })).then((r) => {
+    if (!r.error) drawCancelAll(cancelAllGroups(r.data?.data));
+  });
   const bar = h("div", { class: "bk-ob-bar" }, status.el, side.el, search);
   function draw() {
     status.draw(f.status, counts);
@@ -114,7 +122,7 @@ async function cancelAllFlow(labelOf = (id) => id) {
   const parts = [g.paper ? `${formatInt(g.paper)} paper` : null, g.live ? `${formatInt(g.live)} live` : null].filter(Boolean).join(" and ");
   const also = theirs ? h("input", { type: "checkbox" }) : null;
   const ok = await modal({
-    title: `Cancel ${formatInt(ours)} open order${ours === 1 ? "" : "s"}?`,
+    title: cancelAllTitle(g),
     body: h(
       "div",
       { class: "stack ca-body" },

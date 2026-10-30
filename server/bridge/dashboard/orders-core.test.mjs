@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cancelAllBody, cancelAllGroups, cancelAllReport, dayRows, depthView, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, tradeTotals } from "./orders-core.js";
+import { cancelAllBody, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, dayRows, depthView, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, tradeTotals } from "./orders-core.js";
 
 const O = (o) => ({ orderId: "PAPER-1", accountId: "demo-paper", symbol: "NFO:NIFTY-2026-11-03-25850-CE", side: "BUY", status: "filled", mode: "paper", ...o });
 const list = [
@@ -116,6 +116,19 @@ describe("Cancel all: Bridge orders and orders placed outside the Bridge", () =>
     expect(g.external.map((o) => o.orderId)).toEqual(["MANUAL-9"]);
     expect(g).toMatchObject({ total: 3, paper: 1, live: 1 });
     expect(cancelAllGroups(null)).toEqual({ bridge: [], external: [], total: 0, paper: 0, live: 0 });
+  });
+  it("the button shows when anything is open in either group, counted from the dry run once it is in", () => {
+    const onlyOutside = cancelAllGroups({ bridge: { open: [] }, external: { open: [{ orderId: "M1", mode: "live" }, { orderId: "M2", mode: "live" }] } });
+    expect(cancelAllButton(0, onlyOutside)).toEqual({ show: true, count: 2, label: "Cancel all open (2)" });
+    expect(cancelAllButton(3, null)).toEqual({ show: true, count: 3, label: "Cancel all open (3)" }); // before the dry run answers
+    expect(cancelAllButton(3, cancelAllGroups(dry))).toEqual({ show: true, count: 3, label: "Cancel all open (3)" });
+    expect(cancelAllButton(0, null)).toEqual({ show: false, count: 0, label: "" });
+    expect(cancelAllButton(2, cancelAllGroups({ bridge: { open: [] }, external: { open: [] } }))).toEqual({ show: false, count: 0, label: "" });
+  });
+  it("the question names what would go: the Bridge's orders, or only outside ones when the Bridge has none open", () => {
+    expect(cancelAllTitle(cancelAllGroups(dry))).toBe("Cancel 2 open orders?");
+    expect(cancelAllTitle(cancelAllGroups({ bridge: { open: [{ orderId: "A" }] }, external: { open: [] } }))).toBe("Cancel 1 open order?");
+    expect(cancelAllTitle(cancelAllGroups({ bridge: { open: [] }, external: { open: [{ orderId: "M" }] } }))).toBe("1 open order placed outside the Bridge");
   });
   it("sends bridgeOnly unless the outside orders were ticked", () => {
     expect(cancelAllBody(false)).toEqual({ bridgeOnly: true });

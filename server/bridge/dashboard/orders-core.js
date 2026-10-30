@@ -64,6 +64,25 @@ export function cancelAllGroups(dry) {
   return { bridge, external, total: bridge.length + external.length, paper: bridge.filter((o) => o.mode !== "live").length, live: bridge.filter((o) => o.mode === "live").length };
 }
 
+/**
+ * Cancel all's button: the page's own open orders until the dry run answers, then the dry run's count of both groups
+ * (so it also shows when only orders placed outside the Bridge are open).
+ * @param {number} pageOpen  open orders in the page's list (the Bridge's own)
+ * @param {ReturnType<typeof cancelAllGroups> | null} groups  the dry run's groups, or null before it answers
+ */
+export function cancelAllButton(pageOpen, groups) {
+  const count = groups ? groups.total : pageOpen;
+  return count > 0 ? { show: true, count, label: `Cancel all open (${formatInt(count)})` } : { show: false, count: 0, label: "" };
+}
+
+/** Cancel all's question: the Bridge's open orders, or (none of those) the ones placed outside it, to tick. */
+export function cancelAllTitle(g) {
+  const n = g.bridge.length;
+  if (n) return `Cancel ${formatInt(n)} open order${n === 1 ? "" : "s"}?`;
+  const m = g.external.length;
+  return `${formatInt(m)} open order${m === 1 ? "" : "s"} placed outside the Bridge`;
+}
+
 /** The cancel-all body: Bridge orders only unless the trader ticked "Also cancel … placed outside the Bridge". */
 export function cancelAllBody(includeExternal = false) {
   return { bridgeOnly: includeExternal !== true };
