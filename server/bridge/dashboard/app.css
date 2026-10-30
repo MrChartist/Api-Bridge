@@ -9210,6 +9210,9 @@ button.bk-chip { display: inline-flex; align-items: center; gap: 6px; min-height
    the page head is hidden, so a page-scrolling table sticks under the desk top bar. */
 .an-page .card .table-wrap.scroll-box > table > thead th { top: 0; }
 :root[data-layout="desk"] .an-page .card .table-wrap:not(.scroll-box) > table > thead th { top: calc(var(--desk-top) - 8px); }
+/* A table wider than its panel (not .fits) is its own sideways scroll box, so the desk offset would push its head down
+   over the first row (Futures at 768, Risk › Execution costs, Flow › Filings at 1440): there the head sits at the top. */
+:root[data-layout="desk"] .an-page .card .table-wrap:not(.scroll-box):not(.fits) > table > thead th { top: 0; }
 /* A panel that is only a short form (a tab's own filters): one compact bar across the row, label beside its field. */
 .an-page .card.an-formbar { grid-column: 1 / -1; }
 .an-page .card.an-formbar > .card-body { padding: 6px 12px; }
