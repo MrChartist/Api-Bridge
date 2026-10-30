@@ -101,6 +101,37 @@ function defaultFetcher(deps) {
 }
 
 /** @returns {Array<[string, string, {scope: "read"}, (ctx: any) => Promise<object>]>} */
+/**
+ * Demo mode: a deterministic history of `n` weekday sessions before `todayIso` (newest first), so the page shows
+ * streaks and rolling sums like a Bridge that has run for weeks. FII swing wider than DII and lean the other way most
+ * days, as they do. Never used outside demo mode. Pure.
+ */
+export function demoFiiDiiHistory(todayIso, n = 60) {
+  const rows = [];
+  const hash = (str) => {
+    let x = 2166136261;
+    for (const ch of str) x = Math.imul(x ^ ch.charCodeAt(0), 16777619) >>> 0;
+    return x / 4294967296;
+  };
+  const r2 = (v) => Math.round(v * 100) / 100;
+  let t = Date.parse(`${todayIso}T00:00:00Z`);
+  let regime = 0;
+  while (rows.length < n) {
+    t -= 86_400_000;
+    const d = new Date(t);
+    if (d.getUTCDay() === 0 || d.getUTCDay() === 6) continue;
+    const iso = d.toISOString().slice(0, 10);
+    if (rows.length % 5 === 0) regime = regime === 0 ? 1 : hash(`${iso}r`) < 0.7 ? -regime : regime; // runs of buying or selling, a week or so long
+    const fiiNet = regime * (600 + 3200 * hash(`${iso}f`)) - 900 * (hash(`${iso}g`) - 0.5);
+    const diiNet = -0.7 * fiiNet + 1400 * (hash(`${iso}d`) - 0.4);
+    const fiiGross = 14000 + 9000 * hash(`${iso}fb`);
+    const diiGross = 12000 + 6000 * hash(`${iso}db`);
+    const side = (gross, net) => ({ buy: r2((gross + net) / 2), sell: r2((gross - net) / 2), net: r2(net) });
+    rows.push({ date: iso, fii: side(fiiGross, fiiNet), dii: side(diiGross, diiNet) });
+  }
+  return rows;
+}
+
 export function flowsRoutes(deps) {
   const fetcher = extra(deps, "fiiDiiFetcher") ?? defaultFetcher(deps);
   const now = () => (extra(deps, "clock")?.now ? deps.clock.now() : Date.now());
@@ -177,6 +208,11 @@ export function flowsRoutes(deps) {
       throw new BridgeError("UPSTREAM_ERROR", "The FII/DII fetch failed unexpectedly.", { cause: err });
     }
     for (const e of parseFiiDii(json)) history.set(e.date, e);
+    // Demo: the sessions before the demo feed's latest one come from the demo history (labelled source "demo").
+    if (extra(deps, "config")?.demo && history.size < 30) {
+      const newest = sortedRows()[0]?.date ?? new Date(now() + 19_800_000).toISOString().slice(0, 10);
+      for (const e of demoFiiDiiHistory(newest, 60)) if (!history.has(e.date)) history.set(e.date, e);
+    }
     trim();
     fetchedAt = now();
     save();
@@ -213,7 +249,7 @@ export function flowsRoutes(deps) {
         rolling: rollingSums(all, WINDOWS.filter((w) => w <= MAX_DAYS)),
         streak: { fii: netStreak(all, "fii"), dii: netStreak(all, "dii") },
       },
-      meta: { requestId: ctx.requestId, source: "nse", fetchedAt: fetchedAt ? new Date(fetchedAt).toISOString() : null, requested: days, available: all.length, stale },
+      meta: { requestId: ctx.requestId, source: extra(deps, "config")?.demo ? "demo" : "nse", fetchedAt: fetchedAt ? new Date(fetchedAt).toISOString() : null, requested: days, available: all.length, stale },
     };
   }
 

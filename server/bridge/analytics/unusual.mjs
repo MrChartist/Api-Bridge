@@ -7,7 +7,7 @@
  */
 import { BridgeError } from "../core/errors.mjs";
 import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
-import { nowMsOf, upcomingExpiries } from "./math.mjs";
+import { nowMsOf, unitMultiplier, upcomingExpiries } from "./math.mjs";
 
 const invalid = (path, detail) => new BridgeError("VALIDATION_FAILED", detail, { errors: [{ path, message: detail }] });
 const opt = (q, name) => {
@@ -45,7 +45,7 @@ export const METHOD = Object.freeze({
     "score = 30*min(volOi/3,1) + 25*min(premiumInr/20000000,1) + 15*min(otmPct/5,1) + 15*min(|iv/atmIv-1|/0.5,1) + 15*min(oiChangePct/20,1); " +
     "each term is clamped to 0..1 before weighting, missing inputs contribute 0, result rounded to 1 decimal (0-100). Contracts with volume <= 0 or no ltp are skipped.",
   volOi: "volume / open interest (null when OI is 0).",
-  premiumInr: "volume x ltp x lotSize in INR; null when the chain carries no lot size.",
+  premiumInr: "volume x ltp in INR (volume is in units on this Bridge); null when the chain carries no lot size.",
   otmPct: "distance of strike from spot as % of spot, positive when out of the money, negative when in the money.",
   ivVsAtm: "contract IV / ATM IV (mean of ATM call and put IV), so 1.0 is in line.",
   oiChangePct: "oiChange / (oi - oiChange) x 100 (growth over the prior open interest); null when prior OI is 0.",
@@ -98,7 +98,8 @@ export function scanChain(chain) {
       const oi = num(leg.oi) ?? 0;
       const oiChange = num(leg.oiChange);
       const volOi = oi > 0 ? volume / oi : null;
-      const premiumInr = lot ? volume * ltp * lot : null;
+      // Volume is in units on this Bridge (unitMultiplier 1); a chain marked units: "lots" counts contracts.
+      const premiumInr = lot ? volume * ltp * unitMultiplier(chain) : null;
       const otmRaw = spot > 0 ? (side === "call" ? r.strike - spot : spot - r.strike) / spot * 100 : null;
       const iv = num(leg.iv) > 0 ? Number(leg.iv) : null;
       const ivVsAtm = iv && atmIv ? iv / atmIv : null;

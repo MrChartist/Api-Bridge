@@ -9,7 +9,7 @@
 //  - the page fills the content area as a grid of panels (app.css "15 · ANALYTICS"): KPI tiles become one figures
 //    strip, cards become desk panels, a panel's own view switch moves into its head, wide tables span the row.
 // Reads go through api() (shared answers, one request per URL at a time); nothing here polls.
-import { DEMO_EXPLAINER, api, app, h, icon, istTime, mountToolbarCtx, sheetPopover } from "./app.js";
+import { DEMO_EXPLAINER, alertBox, api, app, emptyState, h, icon, istDateTime, istTime, mountToolbarCtx, pill, sheetPopover, table } from "./app.js";
 import { openPalette } from "./palette.js";
 import { DASH } from "./format.js";
 import { analyticsPages } from "./analyticsViews.js";
@@ -29,7 +29,7 @@ export const VIEWS = Object.freeze({
   greeksgrid: ["greeksgrid", "grid", { expiry: true, strikes: true }],
   "an-straddle": ["greeksgrid", "straddle", { expiry: true, strikes: false }],
   // Analytics › Flow
-  unusual: ["unusual", null, { expiry: true, strikes: false }],
+  unusual: ["unusual", null, { underlying: false, expiry: false, strikes: false }],
   tide: ["tide", null, { expiry: true, strikes: false }],
   flows: ["flows", null, { underlying: false, expiry: false, strikes: false }],
   "an-filings": ["filings", null, { underlying: false, expiry: false, strikes: false }],
@@ -50,12 +50,63 @@ export const VIEWS = Object.freeze({
   expiry: ["expiry", "digest", { expiry: true, strikes: false }],
 });
 
+/**
+ * A public page (NSE, SEBI, RBI) that did not answer as expected is not a broker refusal: say what it is, that the
+ * addresses are unverified, and that Refresh tries again. Everything else goes to the shell's error box.
+ */
+export function analyticsError(err, labels) {
+  if (err?.code === "UPSTREAM_ERROR") {
+    return alertBox({ title: "The public data source did not answer as expected", detail: `${err.message ?? "No answer."} NSE, SEBI and RBI addresses are unverified and change without notice. Refresh tries again; nothing else on the page is affected.` }, "warn");
+  }
+  return errorBox(err, labels);
+}
+
 /** The helpers PR 17's pages take (views.js owns them), plus the tab to draw. */
-const helpers = (tab) => ({ segmented, segField, field, errorBox, tab });
+const helpers = (tab) => ({ segmented, segField, field, errorBox: analyticsError, tab });
+
+/** NSE announcements and SEBI / RBI notices (GET /v1/analytics/news/*): a table each, unverified sources labelled. */
+function newsTab(kind) {
+  return async (H) => {
+    const path = kind === "announcements" ? "/v1/analytics/news/announcements?days=7" : "/v1/analytics/news/regulatory?source=all&days=30";
+    let res;
+    try {
+      res = await api(path);
+    } catch (err) {
+      return H.errorBox(err);
+    }
+    const items = res.data?.data?.items ?? [];
+    const meta = res.data?.meta ?? {};
+    const label = meta.source === "demo" || app.state.demo ? "Demo rows" : "Public source, unverified address";
+    const cols =
+      kind === "announcements"
+        ? [
+            { label: "Time", cell: (r) => istDateTime(r.publishedAt) },
+            { label: "Symbol", cell: (r) => h("strong", {}, r.symbol) },
+            { label: "Subject", cell: (r) => r.subject },
+            { label: "Detail", cell: (r) => h("span", { class: "an-wrap" }, r.detail ?? "") },
+          ]
+        : [
+            { label: "Time", cell: (r) => istDateTime(r.publishedAt) },
+            { label: "Source", cell: (r) => (r.source === "sebi" ? "SEBI" : "RBI") },
+            { label: "Title", cell: (r) => h("span", { class: "an-wrap" }, r.title) },
+            { label: "Tags", cell: (r) => h("span", { class: "flags" }, (r.tags ?? []).map((t) => pill(t, "sm"))) },
+          ];
+    const title = kind === "announcements" ? "NSE corporate announcements" : "SEBI and RBI notices";
+    const sub = kind === "announcements" ? "The last 7 days, newest first." : "Circulars, press releases, notifications and speeches from the last 30 days.";
+    return h(
+      "section",
+      { class: "card an-wide" },
+      h("header", { class: "card-head" }, h("div", { class: "card-titles" }, h("h2", {}, title), h("p", {}, sub)), h("div", { class: "card-actions" }, pill(label, "info"))),
+      h("div", { class: "card-body flush" }, items.length ? table(cols, items) : emptyState("list", "Nothing published in this window", "Try again later; the source is read when this tab opens.")),
+    );
+  };
+}
+
 function sources(tab) {
   const H = () => helpers(tab);
   const all = [...analyticsPages(H), ...analyticsMorePages(H), ...analyticsFlowPages(H)];
-  all.push({ id: "filings", render: () => tabbedPage(H(), { label: "Filings", tabs: filingsTabs() }) });
+  const filings = [...filingsTabs(), { id: "announcements", label: "Announcements", build: newsTab("announcements") }, { id: "regulatory", label: "SEBI and RBI", build: newsTab("regulatory") }];
+  all.push({ id: "filings", render: () => tabbedPage(H(), { label: "Filings", tabs: filings }) });
   return all;
 }
 
@@ -181,7 +232,9 @@ export function fitDesk(root, cap) {
     row.dataset.fit = "1";
     const pill = row.querySelector(".pill");
     const asOf = [...row.querySelectorAll(".muted")].map((x) => x.textContent).find((t) => /as of/.test(t));
-    if (pill) cap?.setFresh([pill.textContent, asOf?.replace(/^as of /, "")].filter(Boolean).join(" · "), toneOf(pill));
+    // Public-data pages (NSE files) carry no market freshness: say when they were read instead of "unknown".
+    if (pill && /unknown/i.test(pill.textContent)) cap?.setFresh(`${app.state.demo ? "Demo rows" : "Public data"} · read ${istTime(new Date().toISOString())}`, "info");
+    else if (pill) cap?.setFresh([pill.textContent, asOf?.replace(/^as of /, "")].filter(Boolean).join(" · "), toneOf(pill));
   }
   // Controls whose every field the capsule owns: hide their whole card.
   for (const c of root.querySelectorAll(".analytics-controls:not([data-fit])")) {
@@ -202,6 +255,16 @@ export function fitDesk(root, cap) {
     card.classList.add("an-panel");
     const head = card.querySelector(":scope > .card-head");
     const body = card.querySelector(":scope > .card-body");
+    // One head height on every panel: a long description moves behind a "?" beside the title (as the Market calendar's
+    // panels do); a short one stays inline.
+    const sub = head?.querySelector(".card-titles > p");
+    if (sub && sub.textContent.length > 64) {
+      const title = head.querySelector(".card-titles h2")?.textContent ?? "About this panel";
+      const text = sub.textContent;
+      const help = h("button", { type: "button", class: "icon-btn tiny an-help", "aria-label": `About ${title}`, title: text }, h("span", { "aria-hidden": "true" }, "?"));
+      help.addEventListener("click", () => sheetPopover({ trigger: help, title, body: h("p", { class: "an-help-text" }, text) }));
+      sub.replaceWith(help);
+    }
     // A view switch (segmented control) at the top of the body sits in the head on the right, as on every desk panel.
     const sf = body?.querySelector(":scope > .stack > .seg-field, :scope > .seg-field");
     if (head && sf && (sf === body.firstElementChild || sf === body.firstElementChild?.firstElementChild)) {
@@ -237,14 +300,6 @@ export function lastSpan(n, cols) {
   return r === 0 ? 1 : cols - r + 1;
 }
 
-/** Whether panels of these heights should not share a row: one is under 280 px and the tallest is 2.5 times it (pure). */
-export function stackRow(heights) {
-  const hs = heights.filter((x) => x > 0);
-  if (hs.length < 2) return false;
-  const lo = Math.min(...hs);
-  return lo < 280 && Math.max(...hs) > lo * 2.5;
-}
-
 /** The grid's items: children of the page and of its flattened stacks that draw a box. */
 function gridItems(root) {
   const out = [];
@@ -260,29 +315,44 @@ function gridItems(root) {
 }
 
 /** Let the last panel of the panels between two full-width rows take what is left of its row (no empty band). */
-function balanceRows(root) {
-  const cols = getComputedStyle(root).gridTemplateColumns.split(" ").filter(Boolean).length;
+/** Rows of the masonry grid, in px (app.css .an-page.an-masonry grid-auto-rows). */
+export const MASONRY_ROW = 4;
+/** How many masonry rows a panel `h` px tall takes with `gap` px between rows (pure). */
+export const masonrySpan = (h, gap, row = MASONRY_ROW) => Math.max(1, Math.ceil((h + gap) / (row + gap)));
+
+/**
+ * Lay the panels out as a masonry: each panel takes as many 4 px rows as its height, and the grid fills holes
+ * (grid-auto-flow: dense), so a short panel beside a tall one is followed by the next panel instead of a band of
+ * nothing. Panels between two full-width rows that are fewer than the columns widen to fill the row.
+ */
+function balanceRows(root, watch) {
+  const cs = getComputedStyle(root);
+  const cols = cs.gridTemplateColumns.split(" ").filter(Boolean).length;
+  const gap = parseFloat(cs.rowGap) || 0;
+  const items = gridItems(root);
+  for (const el of items) {
+    el.style.removeProperty("grid-column");
+    el.style.removeProperty("grid-row-end");
+  }
   let run = [];
   const flush = () => {
-    const span = lastSpan(run.length, cols);
-    run.forEach((el, i) => el.style.setProperty("grid-column", i === run.length - 1 && span > 1 ? `span ${span}` : ""));
-    // A short panel beside a tall one would leave a band of nothing under it: such a row stacks instead.
-    for (let i = 0; cols > 1 && i < run.length; i += cols) {
-      const row = run.slice(i, i + cols);
-      if (row.length < 2) continue;
-      const hs = row.map((el) => el.getBoundingClientRect().height);
-      if (stackRow(hs)) for (const el of row) el.style.setProperty("grid-column", "1 / -1");
+    if (run.length && run.length < cols) {
+      const span = lastSpan(run.length, cols);
+      if (span > 1) run.at(-1).style.setProperty("grid-column", `span ${span}`);
     }
     run = [];
   };
-  const items = gridItems(root);
-  for (const el of items) el.style.removeProperty("grid-column");
   for (const el of items) {
-    const full = getComputedStyle(el).gridColumnEnd === "-1";
-    if (full) flush();
+    if (getComputedStyle(el).gridColumnEnd === "-1") flush();
     else run.push(el);
   }
   flush();
+  // Heights after the widths are settled (a widened panel may redraw shorter or taller).
+  for (const el of items) {
+    el.style.setProperty("grid-row-end", `span ${masonrySpan(el.getBoundingClientRect().height, gap)}`);
+    watch?.(el);
+  }
+  root.classList.toggle("an-masonry", cols > 1);
 }
 
 /**
@@ -315,7 +385,7 @@ export async function renderAnalyticsView(view) {
       queued = false;
       if (!wrap.isConnected) return;
       fitDesk(wrap, cap);
-      balanceRows(wrap);
+      balanceRows(wrap, watch);
     });
   };
   const mo = new MutationObserver((list) => {
@@ -324,6 +394,7 @@ export async function renderAnalyticsView(view) {
     if (list.some((m) => m.target === wrap || m.target.classList?.contains("stack") || m.target.classList?.contains("an-panel"))) again();
   });
   mo.observe(wrap, { childList: true, subtree: true });
+  let watch = null;
   if (typeof ResizeObserver !== "undefined") {
     let lastW = 0;
     const ro = new ResizeObserver(([e]) => {
@@ -332,6 +403,21 @@ export async function renderAnalyticsView(view) {
       if (w !== lastW) ((lastW = w), again());
     });
     ro.observe(wrap);
+    // A panel whose height changes (a chart redrawn at its width, rows loaded) takes its new number of rows.
+    const heights = new WeakMap();
+    const panels = new ResizeObserver((entries) => {
+      if (!wrap.isConnected) return panels.disconnect();
+      if (entries.some((e) => Math.abs((heights.get(e.target) ?? -1) - e.contentRect.height) > 2)) {
+        for (const e of entries) heights.set(e.target, e.contentRect.height);
+        again();
+      }
+    });
+    const seen = new WeakSet();
+    watch = (el) => {
+      if (seen.has(el)) return;
+      seen.add(el);
+      panels.observe(el);
+    };
   }
   return wrap;
 }

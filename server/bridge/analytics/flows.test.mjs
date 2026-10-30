@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { BridgeError } from "../core/errors.mjs";
-import { flowsRoutes, netStreak, parseFiiDii } from "./flows.mjs";
+import { demoFiiDiiHistory, flowsRoutes, netStreak, parseFiiDii } from "./flows.mjs";
 
 const nse = (date, fii, dii) => [
   { category: "DII", date, buyValue: "1,000.50", sellValue: String(1000.5 - dii), netValue: String(dii) },
@@ -160,5 +160,20 @@ describe("fii-dii", () => {
       expect(r.data.days.length).toBe(1);
       expect(warnings.length).toBeGreaterThan(0);
     });
+  });
+});
+
+describe("fii-dii demo history", () => {
+  it("is weekdays only, before the given day, newest first, consistent sides and the same every time", () => {
+    const rows = demoFiiDiiHistory("2026-10-30", 40);
+    expect(rows).toHaveLength(40);
+    expect(rows[0].date).toBe("2026-10-29");
+    for (const r of rows) {
+      expect([0, 6]).not.toContain(new Date(`${r.date}T00:00:00Z`).getUTCDay());
+      for (const s of [r.fii, r.dii]) expect(s.buy - s.sell).toBeCloseTo(s.net, 1);
+    }
+    expect(rows.map((r) => r.date)).toEqual([...rows.map((r) => r.date)].sort().reverse());
+    expect(demoFiiDiiHistory("2026-10-30", 40)).toEqual(rows);
+    expect(netStreak(rows, "fii").count).toBeGreaterThan(0);
   });
 });

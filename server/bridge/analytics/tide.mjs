@@ -3,7 +3,7 @@
  * Unusual Whales' Market Tide. Read-only. Every call to the route (or to recordTide) reads the option chain and keeps a
  * snapshot of per-contract cumulative volume, ltp and bid/ask in a bounded per-underlying ring. Between two consecutive
  * snapshots, premium traded per contract is estimated as
- *     (volume now - volume before) x mid price x lot size
+ *     (volume now - volume before) x mid price (volume in units on this Bridge)
  * where mid is (bid + ask) / 2 when both sides are quoted, else ltp. It is split into call and put, and into buy- and
  * sell-aggressive with a PROXY: where the last traded price sits inside the bid/ask spread (position = (ltp - bid) /
  * (ask - bid); at or above AGGRESSOR_BUY_AT counts as bought at the ask, at or below AGGRESSOR_SELL_AT as sold at the
@@ -21,7 +21,9 @@ import { join } from "node:path";
 import { BridgeError } from "../core/errors.mjs";
 import { writeFileAtomic } from "../auth/fsUtil.mjs";
 import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
-import { nowMsOf, upcomingExpiries } from "./math.mjs";
+import { nowMsOf, unitMultiplier, upcomingExpiries } from "./math.mjs";
+import { demoChainAt } from "../demo/demoAdapter.mjs";
+import { DEFAULT_SESSIONS } from "../reference/defaults.mjs";
 
 /** Proxy thresholds: share of the bid-ask spread at which an ltp is read as an aggressive buy or sell. */
 export const AGGRESSOR_BUY_AT = 0.6;
@@ -217,7 +219,8 @@ export function createTideStore({ clock = { now: () => Date.now() }, dataDir = n
         states.set(u, st);
         while (states.size > maxKeys) states.delete(states.keys().next().value);
       }
-      const lot = pos(chain?.lotSize);
+      // Volume is in units on this Bridge: the multiplier is 1 unless the chain counts contracts (units: "lots").
+      const lot = pos(chain?.lotSize) === null ? null : unitMultiplier(chain);
       if (lot !== null) st.lotSize = lot;
       const snap = tideSnapshot(chain, ts);
       const last = st.ring.at(-1);
@@ -308,20 +311,79 @@ export function tideView(st, { windowMin, top = 5, nowMs } = {}) {
     ...(windowMin ? { window: { minutes: windowMin, callPremium: round(win.callPremium), putPremium: round(win.putPremium), net: round(win.callPremium - win.putPremium), directionalNet: round(directional(win)) } } : {}),
     sentiment: tideSentiment(t),
     topStrikes: rankedStrikes,
-    notes: [AGGRESSOR_NOTE, "premium = change in cumulative volume x mid price x lot size between consecutive snapshots; snapshots exist only when this route is called"],
+    notes: [AGGRESSOR_NOTE, "premium = change in cumulative volume (units) x mid price between consecutive snapshots; snapshots exist only when this route is called"],
   };
 }
 
 const stores = new WeakMap();
 /** The store shared by the route and recordTide: deps.tide when given, else one created per deps object. */
+/** Demo mode replays the session up to now through this clock (seedDemoSession); otherwise it is the real clock. */
+const replayAt = new WeakMap();
 function storeFor(deps) {
   if (deps.tide) return deps.tide;
   let s = stores.get(deps);
   if (!s) {
-    s = createTideStore({ clock: { now: () => nowMsOf(deps) }, dataDir: deps.paths?.dataDir ?? null });
+    s = createTideStore({ clock: { now: () => replayAt.get(deps) ?? nowMsOf(deps) }, dataDir: deps.paths?.dataDir ?? null });
     stores.set(deps, s);
   }
   return s;
+}
+
+const isDemo = (deps) => {
+  try {
+    return Boolean(deps.config?.demo);
+  } catch {
+    return false;
+  }
+};
+/**
+ * The demo quotes its options with the last price at the middle of the spread, which the bid/ask aggressor proxy
+ * cannot classify. For the replayed session only, each print leans toward the bid or the ask (per contract and
+ * interval, between 15 % and 85 % of the spread), as real prints do when buyers or sellers press. Pure.
+ */
+export function leanPrints(chain, t) {
+  if (!chain) return null;
+  const lean = (key) => {
+    let x = 2166136261;
+    for (const ch of `${key}|${Math.floor(t / 300_000)}`) x = Math.imul(x ^ ch.charCodeAt(0), 16777619) >>> 0;
+    return 0.15 + 0.7 * (x / 4294967296);
+  };
+  const leg = (l, key) => {
+    if (!l || !(l.ask > l.bid) || !(l.ltp > 0)) return l;
+    const spread = l.ask - l.bid;
+    const f = lean(key);
+    return { ...l, bid: Math.max(0, l.ltp - spread * f), ask: l.ltp + spread * (1 - f) };
+  };
+  return { ...chain, rows: chain.rows.map((r) => ({ ...r, ce: leg(r.ce, `${r.strike}CE`), pe: leg(r.pe, `${r.strike}PE`) })) };
+}
+
+const seeded = new WeakMap();
+/**
+ * Demo mode: a Bridge that just started has no readings yet, so the chart would be empty for minutes. The demo chain
+ * is known at any instant, so the session so far (open to now, or to the close) is replayed every 5 minutes into the
+ * store, once per underlying, expiry and day. Never used outside demo mode.
+ */
+function seedDemoSession(deps, store, underlying, expiry) {
+  const now = nowMsOf(deps);
+  const day = istDay(now);
+  const key = `${underlying}|${expiry}|${day}`;
+  const done = seeded.get(deps) ?? new Set();
+  seeded.set(deps, done);
+  if (done.has(key) || (store.session(underlying)?.points?.length ?? 0) > 3) return;
+  done.add(key);
+  const { open, close } = DEFAULT_SESSIONS.NSE;
+  const from = Date.parse(`${day}T${open}:00+05:30`);
+  const to = Math.min(now - 60_000, Date.parse(`${day}T${close}:00+05:30`));
+  try {
+    for (let t = from; t <= to; t += 5 * 60_000) {
+      const chain = leanPrints(demoChainAt(underlying, expiry, t), t);
+      if (!chain) break;
+      replayAt.set(deps, t);
+      store.record(underlying, expiry, chain);
+    }
+  } finally {
+    replayAt.delete(deps);
+  }
 }
 
 function cleanUnderlying(v) {
@@ -374,6 +436,7 @@ export function tideRoutes(deps) {
       if (strikes !== undefined) params.strikes = strikes;
       const chain = await deps.marketData.optionChain(params, opts);
       const store = storeFor(deps);
+      if (isDemo(deps)) seedDemoSession(deps, store, underlying, expiry);
       const rec = store.record(underlying, expiry, chain);
       const view = tideView(store.session(underlying), { windowMin, top, nowMs: store.clock.now() });
       return {

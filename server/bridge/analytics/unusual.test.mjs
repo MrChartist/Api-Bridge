@@ -3,7 +3,7 @@ import { aggressorProxy, scanChain, scoreOf, unusualRoutes } from "./unusual.mjs
 import { createFakeMarketData } from "../market/fake.mjs";
 
 const leg = (symbol, o = {}) => ({ symbol, ltp: 100, bid: 99, ask: 101, oi: 1000, oiChange: 0, volume: 100, iv: 15, ...o });
-const chainOf = (rows, extra = {}) => ({ underlyingLtp: 25000, lotSize: 75, rows, ...extra });
+const chainOf = (rows, extra = {}) => ({ underlyingLtp: 25000, lotSize: 75, units: "lots", rows, ...extra });
 const ctx = (query) => ({ query: new URLSearchParams(query), requestId: "r1", principal: { kind: "local" }, requireAccountAccess() {} });
 const S = (k, r) => `NFO:NIFTY-2026-12-31-${k}-${r}`;
 
@@ -73,7 +73,8 @@ describe("route", () => {
     const e = "expiry=2026-12-31";
     expect((await handler(ctx(`underlyings=NIFTY&${e}&side=put`))).data.contracts.every((c) => c.side === "put")).toBe(true);
     expect((await handler(ctx(`underlyings=NIFTY&${e}&minVolOi=2`))).data.contracts.map((c) => c.strike)).toEqual([26000]);
-    expect((await handler(ctx(`underlyings=NIFTY&${e}&minPremium=1000000`))).data.count).toBe(1);
+    // Through marketData volume is in units, so premium is volume x price (no lot multiplier).
+    expect((await handler(ctx(`underlyings=NIFTY&${e}&minPremium=${Math.round(1_000_000 / 75)}`))).data.count).toBe(1);
     const byPrem = await handler(ctx(`underlyings=NIFTY&${e}&sort=premium&limit=2`));
     expect(byPrem.data.contracts).toHaveLength(2);
     expect(byPrem.data.count).toBe(4);

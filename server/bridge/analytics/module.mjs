@@ -30,6 +30,7 @@ import { derivDepthRoutes } from "./derivDepth.mjs";
 import { riskRoutes } from "./risk.mjs";
 import { fieldsRoutes } from "./fields.mjs";
 import { marketsRoutes } from "./markets.mjs";
+import { demoMarketEventsFetcher, demoNewsFeedsFetcher } from "./demoFeeds.mjs";
 
 /** [method, path, route options, handler name] for the routes in routes.mjs. */
 export const ROUTES = Object.freeze([
@@ -52,7 +53,15 @@ const FEATURE_ROUTES = Object.freeze([oiTrackerRoutes, greeksGridRoutes, strateg
 export default defineModule({
   name: "analytics",
   stream: "S15",
-  register(app, deps) {
+  register(app, base) {
+    // Demo mode: NSE, SEBI and RBI public data come from demoFeeds.mjs (no network), labelled demo by the routes.
+    let demo = false;
+    try {
+      demo = Boolean(base.config?.demo);
+    } catch {
+      demo = false;
+    }
+    const deps = demo ? Object.create(base, { marketEventsFetcher: { value: demoMarketEventsFetcher }, newsFeedsFetcher: { value: demoNewsFeedsFetcher } }) : base;
     const handlers = createAnalyticsRoutes(deps);
     for (const [method, path, options, name] of ROUTES) app.route(method, path, handlers[name], options);
     for (const build of FEATURE_ROUTES) for (const [method, path, options, handler] of build(deps)) app.route(method, path, handler, options);
