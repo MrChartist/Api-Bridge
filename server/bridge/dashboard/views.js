@@ -42,6 +42,7 @@ import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { renderScreenerPage } from "./screener.js";
 import { renderParticipantsPage } from "./participants.js";
 import { renderRecorderPage } from "./recorder.js";
+import { renderEventsPage } from "./events.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
@@ -261,11 +262,12 @@ export const PAGES = [
   },
   { id: "vol", label: "Volatility", icon: "wave", tint: "pink", group: "Markets", layout: "desk", title: "Volatility", sub: "Smile, skew, term structure and expected move", render: renderVolPage },
   {
-    id: "screeners", label: "Screeners", icon: "radar", tint: "yellow", key: 8, group: "Markets", layout: "desk", title: "Screeners", sub: "Options, arbitrage and stocks, ranked and scanned",
+    id: "screeners", label: "Screeners", icon: "radar", tint: "yellow", key: 8, group: "Markets", layout: "desk", title: "Screeners", sub: "Options, arbitrage, live events and stocks, ranked and scanned",
     defaultTab: "options",
     tabs: [
       { id: "options", label: "Options", page: "screener", layout: "desk", command: "Option Screener", keywords: "screener unusual activity build-up rich cheap premium hedges", sub: "Scan every underlying and expiry for unusual activity, build-ups, rich or cheap premium, hedges and arbitrage", render: renderScreenerPage },
       { id: "arbitrage", label: "Arbitrage", page: "arb", layout: "desk", command: "Arbitrage scanner", icon: "scale", tint: "indigo", keywords: "arb parity box conversion reversal basis", sub: "Parity, boxes and futures basis at executable prices, after charges", render: renderArbPage },
+      { id: "events", label: "Live events", page: "events", layout: "desk", command: "Live events", icon: "bolt", tint: "orange", keywords: "events event selector spider circuit only buyers only sellers volume surge gap day high breakout alerts live oi build-up iv spike wall", sub: "Circuits, volume surges, gaps, breakouts, F&O OI and option events as they happen", render: renderEventsPage },
       { id: "stocks", label: "Stocks", page: "scanner", layout: "", command: "Stock scanner", icon: "scan", tint: "mint", keywords: "scanner scan condition rsi universe", sub: "Scan big universes with a readable condition, shared out over your accounts", render: renderScanner },
     ],
   },
@@ -303,6 +305,7 @@ export const LEGACY = {
   screener: "screeners/options",
   arb: "screeners/arbitrage",
   scanner: "screeners/stocks",
+  events: "screeners/events",
   participants: "oi/participants",
 };
 

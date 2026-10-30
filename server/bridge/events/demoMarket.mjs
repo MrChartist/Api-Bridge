@@ -80,7 +80,7 @@ export function createDemoMarket({ engine, clock, startMs = clock.now(), scale =
     const small = Boolean(spec.small);
     const prev = r2(spec.base * R.range(0.97, 1.03));
     const tick = idx ? 0.05 : tickOf(prev);
-    const dVol = idx ? R.range(0.006, 0.011) : small ? R.range(0.025, 0.045) : R.range(0.012, 0.024);
+    const dVol = idx ? R.range(0.006, 0.011) : small ? R.range(0.018, 0.032) : R.range(0.01, 0.02);
     let gap = R.normal() * dVol * 0.35;
     if (!idx && R.next() < (small ? 0.18 : 0.1)) gap = (R.next() < 0.55 ? 1 : -1) * R.range(0.012, small ? 0.06 : 0.035);
     const avgVol = idx ? 0 : Math.round((small ? R.range(4e4, 6e5) : R.range(8e5, 1.2e7)) / 10) * 10;
@@ -151,7 +151,7 @@ export function createDemoMarket({ engine, clock, startMs = clock.now(), scale =
     engine.setContext(s.symbol, s.ctx);
     if (spec.fno && !idx) {
       const futSym = `NFO:${spec.symbol}-FUT`;
-      s.fut = { symbol: futSym, oi: Math.round(R.range(2e6, 3e7) / 100) * 100, carry: R.range(0.002, 0.008), oiDrift: R.normal() * 0.004, oiRegimeUntil: R.range(15, 80), surgeAt: R.next() < 0.3 ? R.range(20, 300) : null };
+      s.fut = { symbol: futSym, oi: Math.round(R.range(2e6, 3e7) / 100) * 100, carry: R.range(0.002, 0.008), oiDrift: R.normal() * 0.0015, oiRegimeUntil: R.range(15, 80), surgeAt: R.next() < 0.3 ? R.range(20, 300) : null };
       s.fut.oiPrev = s.fut.oi;
       engine.register({ symbol: futSym, kind: "FUT", stock: s.symbol, lot: demoUnderlying(spec.symbol)?.lot ?? 1, segment: "NFO", tags: { fno: true } });
     }
@@ -236,6 +236,11 @@ export function createDemoMarket({ engine, clock, startMs = clock.now(), scale =
         else px = Math.max(lo + s.tick * 2, px * (1 + 0.0004 * dtSec));
       }
     }
+    // Every stock stays inside its band: the script's band, else 20 % for a small cap and 10 % for an F&O stock.
+    if (s.kind !== "INDEX") {
+      const cap = (s.band ?? (s.small ? 20 : 10)) / 100;
+      px = Math.min(s.prev * (1 + cap), Math.max(s.prev * (1 - cap), px));
+    }
     px = Math.max(s.tick, onTick(px, s.tick));
     s.price = px;
     s.hi = s.hi === null ? Math.max(s.open, px) : Math.max(s.hi, px);
@@ -282,10 +287,10 @@ export function createDemoMarket({ engine, clock, startMs = clock.now(), scale =
     const f = s.fut;
     const R = s.R;
     if (minute >= f.oiRegimeUntil) {
-      f.oiDrift = R.normal() * 0.006;
+      f.oiDrift = R.normal() * 0.0015;
       f.oiRegimeUntil = minute + R.range(15, 80);
     }
-    let g = (f.oiDrift / 60) * dtSec + R.normal() * 0.0003 * Math.sqrt(dtSec);
+    let g = (f.oiDrift / 60) * dtSec + R.normal() * 0.00008 * Math.sqrt(dtSec);
     if (f.surgeAt !== null && minute >= f.surgeAt && minute < f.surgeAt + 8) g += (0.006 / 60) * dtSec * (s.drift >= 0 ? 1 : 1.2);
     f.oi = Math.max(1000, Math.round((f.oi * (1 + g)) / 100) * 100);
     const ltp = onTick(s.price * (1 + f.carry), 0.05);
@@ -331,11 +336,13 @@ export function createDemoMarket({ engine, clock, startMs = clock.now(), scale =
    * @param {number} ms
    * @param {{ dtSec?: number, chains?: boolean }} [o]
    */
-  function step(ms, { dtSec = 1, withChains = true } = {}) {
+  function step(ms, { dtSec = 1, withChains = true, part = 0, parts = 1 } = {}) {
     const minute = minuteOf(ms);
     if (minute >= 374) return 0;
     let n = 0;
-    for (const s of stocks) {
+    // `part` of `parts`: a live demo spreads one second's quotes over several short slices, as a feed would.
+    for (let i = part; i < stocks.length; i += parts) {
+      const s = stocks[i];
       engine.ingest(stepStock(s, minute, dtSec), ms);
       n += 1;
       if (s.fut) {
@@ -344,7 +351,8 @@ export function createDemoMarket({ engine, clock, startMs = clock.now(), scale =
       }
     }
     if (withChains) {
-      for (const c of chains) {
+      for (let i = part; i < chains.length; i += parts) {
+        const c = chains[i];
         const snap = chainQuotes(c, minute, dtSec);
         for (const r of snap.rows) {
           for (const side of ["ce", "pe"]) if (r[side]) (engine.ingest(r[side], ms), (n += 1));
