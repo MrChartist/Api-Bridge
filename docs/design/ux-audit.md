@@ -318,3 +318,77 @@ Options, from least to most change:
 Recommendation: **B**, behind `safety.reduceOnlyExempt: true` (default off until checked against each broker's live
 positions), never C. Not the kill switch: it stays a full stop, and cancels already pass it.
 
+
+## QA pass 2 (31 Oct)
+
+The whole site after a day of parallel work: redesigns, the PR 17 analytics pages, brand colours, soft buttons, demo
+prices, broker features, the Algo page. Demo Bridge from the QA worktree on port 4660, with a fresh home in
+`scratchpad/qa2/home` for each round. It ran from Saturday 00:30 IST, a weekend after the close. Playwright went
+through every sidebar page and every tab (49 routes once Algo and the new Volatility and OI tabs landed) at 1920 dark,
+1440 light, 1280 dark, 768 dark and 390 dark. Each page was checked for:
+- console errors and failed requests;
+- horizontal scroll and text clipped without an ellipsis;
+- overlapping text boxes (glyph rectangles);
+- "null", "undefined", "NaN", "Infinity" and the em dash;
+- "Loading" still on screen after 2.8 s;
+- a near-empty main panel.
+
+Scripts are in `scratchpad/qa2/p2/`:
+- `sweep.cjs` is the page scan;
+- `flow.cjs <item>` runs one flow each: ticket, orders, ic, exit, pnl, ctrlk, release, wladd, alert, scan, theme,
+  switch;
+- `o-f6.cjs` is the kill-switch run;
+- `cmp.mjs`, `walkcheck.mjs` and `hist.mjs` are the demo price probes.
+
+Shots are in `scratchpad/qa2/p2/shots/`: `r1-*` and `r2-*` before, `r3-*` and `after-*` after.
+
+### Flows (paper)
+
+All worked end to end:
+- **Chain ticket:** place; resting limit; Modify to 2 lots; Cancel with Undo.
+- **Strategy Builder:** iron condor placed, 4 of 4 filled, hedges first.
+- **Positions:** Exit (MARGIN legs close as MARGIN).
+- **Watchlists:** add SBIN.
+- **Alerts:** a position alert, which shows in the bell.
+- **Stocks scan:** runs (4 of 204 match Gap up).
+- **Ctrl K:** a trade ("buy 2 nifty 26300 ce" opens a 130-qty ticket) and navigation (positions, volat, risk,
+  exposure, orders).
+- **Theme:** light from the palette.
+- **Accounts:** switching on Positions.
+- **Kill switch:** blocks the chain ticket, the Ctrl K ticket, the basket, the roll and the exit, and no order reached
+  the Bridge; release needs RELEASE.
+- **Price band:** the ticket refuses a limit 20 % from LTP ("the limit is 3 %").
+
+P&L agrees on Home (per account), Positions (all accounts), Accounts › Today, Risk (paper account: legs, margin
+16.9 % of ₹25 L, delta ₹2.3 L on BANKNIFTY as on Positions) and `GET /v1/positions` to the rupee, given the tick
+between reads.
+
+### Found and fixed
+
+| # | Page | Was | Now |
+|---|---|---|---|
+| 26 | Watchlists sparklines, history, backtest, HV20 | The demo intraday path was three fixed sines. The 11-minute one, sampled every 5 minutes, drew a sawtooth. They kept running after the close, so the live price (the sparkline's last point) jumped off the last 5-minute bar. The walk also stepped on weekend days: Monday opened 2 to 5 % away from Friday's close, and Saturday's quote moved a full day. | Inside a session the price runs along a seeded Brownian bridge from the previous close to the day's close. Outside it the price holds at the close, with a wiggle of at most 0.04 % that fades in and out, so the demo still ticks. History candles, sparklines, the backtest, HV20, IV rank and live quotes all read this one function. Monday opens on Friday's close. `previousClose` is the close before the latest session, so a Saturday shows Friday's change (`demoAdapter.mjs`; tested in `demo.test.mjs`: after-hours price, Monday open, daily close, Saturday change, no lag-1 sawtooth). |
+| 27 | Demo spot across a restart | A Bridge restarted on newer code jumped from about 26200 to 25030 and fired a bracket stop. | Diagnosis: spot is a pure function of time, and a restart on the same code is continuous (24977.10, then 24976.55). The 26200 level came from the price function before the random walk (94952ae). Test: two adapters made at different times agree (`demo.test.mjs`). CHANGELOG: "Demo price path changed. A demo Bridge updated across this version may see a one-off gap, which can fire open demo triggers." |
+| 28 | Futures at 768, Risk › Execution costs at 768, Flow › Filings at 1440 | When a table is wider than its panel it scrolls sideways inside its own box, and the desk's sticky offset pushed its head down over the first row. At 768 the futures row could not be read. | Such heads sit at top 0 (`app.css`, `.an-page` scoped). |
+| 29 | OI › Strike history | The IV axis read "21.3, 21.2, 21.2, 21.1". | Ticks get as many decimals as their step needs (`analyticsViews.js tickDecimals`, tested). |
+| 30 | Volatility › Cone | Expiries were evenly spaced, so 3 days and 14 days drew the same width. ISO dates; no +2σ column. | Points sit at days to expiry, so the cone widens with √time (`seriesLayout` takes `at`, tested). Dates read "3 Nov". The table has +2σ. |
+| 31 | Futures | "2026-11-23"; "Days left 23.6". Demo listed one index future, so Roll cost and Calendar spreads stayed empty. | "23 Nov"; "Calendar days 23". Index futures on the next three monthlies. The route adds the instrument master's FUT expiries to an option list that stops at the weeklies (tested). |
+| 32 | Flow and every analytics figure | "50.9k / 90" beside "5.77 L". Far strikes with 1 lot of OI traded more than 1000 lots, so every top row read "> 100x". | One suffix style ("50.9 K", "5.77 L", "1.25 Cr"). Demo option volume falls away from the money like OI does. |
+| 33 | Volatility › Forward, RR and BF, Event vol | Expiry cells printed "2026-11-03". | "3 Nov", with the ISO date in the tooltip. |
+| 34 | Tests: vol/agreement, analytics.integration | Failed in every full run: "Hook timed out" in afterAll. `app.close()` waited for the demo book seed, and a seed step sitting in the market-data queue never returns on the frozen clock these tests inject. | Shutdown waits for the seed at most 3 s (`book/module.mjs SEED_STOP_WAIT_MS`). Test: `book/stop.test.mjs` closes a demo Bridge mid-seed on a frozen clock (it timed out at 30 s before). Full suite: 352 files passed. |
+| 35 | Tests: futuresChain | Expiries 10, 40 and 70 days ahead can share a month (1 and 31 January), so the test depended on the run date. | Mid-month in three different months. |
+
+### Left (not fixed here)
+
+- **Flow › Unusual activity (demo):** BANKNIFTY calls 2 to 3 % out of the money still read 20 to 75 times their OI,
+  because the demo OI hump is narrower than the volume hump. Better than "> 100x" on every row, but a real monthly
+  reads 2 to 5 times.
+- **Algo page** (its own agent's area): at 1440 the strategies card takes half the width and the right half stays
+  empty until a strategy exists.
+- **Event vol:** the event date is the browser's own date field ("11/04/2026" in an en-US browser), and its term chart
+  is still evenly spaced by expiry, like the other term-structure charts.
+- **Strategy:** Max loss "below 24250 / above 25700" and "Now −₹139" next to a what-if P&L of ₹0 are still open from
+  the first QA pass.
+- **Tests under heavy machine load** (load average 15 to 30 from parallel agents): `recorder/store.test` "full-day
+  read ≤ 300 ms" took 342 to 1297 ms and `hooks/routes` "acknowledges within 50 ms" timed out. Both pass on a quiet
+  machine. Not loosened.
