@@ -8523,6 +8523,11 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
   .sc-page { grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); align-items: start; }
   .sc-side-col { position: sticky; top: calc(var(--toolbar-h) + var(--safe-t) + 12px); }
   .sc-lib-list { max-height: calc(100dvh - var(--toolbar-h) - 220px); overflow: auto; }
+  /* One screen: both columns end at the window's bottom edge, the results card taking what the builder leaves (a
+     short match list ends inside its card, not in a gap beside the taller scan list). */
+  .sc-page { align-items: stretch; min-height: calc(100dvh - var(--desk-top) - 70px); }
+  .sc-side-col > * { flex: 1 1 auto; }
+  .sc-main-col > .sc-results { flex: 1 1 auto; }
 }
 .sc-lib .segmented { align-self: flex-start; max-width: 100%; }
 .sc-lib-list { display: flex; flex-direction: column; min-width: 0; }
