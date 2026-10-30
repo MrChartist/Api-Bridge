@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 // views.js imports desk.js (the router), which imports oi.js: load it first so the circular import settles.
 await import("./views.js");
-const { OI_DEFAULTS, oiConfig } = await import("./oi.js");
+const { OI_DEFAULTS, oiConfig, changePct } = await import("./oi.js");
 
 describe("OI page settings", () => {
   it("fills defaults for an empty or broken save", () => {
@@ -36,6 +36,16 @@ describe("OI page settings", () => {
 });
 
 // docs/design/oi.md §14: the page's colours come from the data-viz tokens, not the old blue / orange accents.
+describe("OI ladder % change", () => {
+  it("fits the column: one decimal under 100 %, whole above, a multiple from +1000 %", () => {
+    expect(changePct(12.34)).toBe("+12.3%");
+    expect(changePct(-45.6)).toBe("\u221245.6%");
+    expect(changePct(616.1)).toBe("+616%");
+    expect(changePct(26800)).toBe("\u00d7269");
+    expect(changePct(null)).toBe("\u2013");
+  });
+});
+
 describe("OI page colours (static)", () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const css = readFileSync(resolve(here, "app.css"), "utf8");

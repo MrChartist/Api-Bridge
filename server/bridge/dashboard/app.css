@@ -4268,6 +4268,9 @@ table.oi-help-table thead th { font-size: 12px; color: hsl(var(--foreground) / v
   table.oi-ladder th.k.spot-in::before, table.oi-ladder th.k.spot-in::after, .oi-ring-svg, .oi-win button.oi-nudge { animation: none; }
   .oi-ring { animation: none; outline: 2px solid hsl(var(--ring, var(--foreground))); outline-offset: 1px; }
 }
+/* Strikes shown only to fill the ladder's box (outside the band the figures read): the same row, quieter. */
+table.oi-ladder tbody tr.oi-xband > td { opacity: 0.55; }
+table.oi-ladder tbody tr.oi-xband > th.k .kv { color: hsl(var(--foreground) / var(--a-label)); }
 
 /* ───────────────────────── 12f · POSITIONS AND RISK ─────────────────────────
    The book on one underlying as a risk desk (docs/design/positions.md, round 2): a book strip of Hero · Greeks ·
@@ -8199,6 +8202,30 @@ button.wl-sort { min-height: 0; padding: 0; background: none; box-shadow: none; 
   .oi-main .oi-ladder-col > * { position: sticky; top: calc(var(--desk-top) + 8px); }
   .oi-main .oi-side { grid-area: side; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-self: stretch; box-shadow: inset var(--hl) 0 0 var(--mat-separator), inset 0 var(--hl) 0 var(--mat-separator); }
   .oi-main .oi-side > .oi-block, .oi-main .oi-side > .oi-block:nth-child(n) { box-shadow: inset var(--hl) 0 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+}
+
+/* One screen (1800 px and up): the chart takes the height the ladder leaves, and the side blocks pair by height
+   (walls over max pain, build-up over movers), so neither column ends in a blank half. */
+@media (min-width: 1800px) {
+  .oi-main .oi-prof-box, .oi-main .oi-prof-skel { height: clamp(200px, calc(100dvh - 760px), 560px); }
+  .oi-main .oi-side { grid-template-areas: "walls build" "walls movers" "pain movers"; grid-template-rows: auto auto 1fr; }
+  .oi-main .oi-side > .oi-walls { grid-area: walls; }
+  .oi-main .oi-side > .oi-build { grid-area: build; }
+  .oi-main .oi-side > .oi-movers { grid-area: movers; }
+  .oi-main .oi-side > .oi-painb { grid-area: pain; }
+}
+/* Wide screens (1800 px and up): the tables beside the history, so the eight value columns are not stretched across
+   the whole page with the history below the fold; both panels run to the same bottom edge. */
+@media (min-width: 1800px) {
+  :root[data-page="participants"] #content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: stretch; }
+  :root[data-page="participants"] #content > * { grid-column: 1 / -1; }
+  :root[data-page="participants"] #content > [data-panel="pt-table"] { grid-column: 1; }
+  :root[data-page="participants"] #content > [data-panel="pt-hist"] { grid-column: 2; display: flex; flex-direction: column; }
+  :root[data-page="participants"] .pt-hist-body { flex: 1 1 auto; display: flex; flex-direction: column; }
+  :root[data-page="participants"] .pt-hist-body > .pt-multiples:not(.pt-skel) { flex: 1 1 auto; grid-auto-rows: minmax(176px, 1fr); }
+  :root[data-page="participants"] .pt-multiples:not(.pt-skel) .pt-multiple { display: flex; flex-direction: column; }
+  :root[data-page="participants"] .pt-multiples:not(.pt-skel) .pt-chart { flex: 1 1 0; height: auto; min-height: 136px; }
+  :root[data-page="participants"] .pt-multiples:not(.pt-skel) .pt-chart > svg { position: absolute; top: 0; left: 0; }
 }
 
 /* Volatility (1800 px and up): the surface beside the expiries table, the IV-by-strike table beside the read. */
