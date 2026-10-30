@@ -245,6 +245,23 @@ describe("strategies", () => {
     expect(presetLegs("nope", chain)).toEqual([]);
   });
 
+  it("builds strategies around any strike from the chain", () => {
+    const strikes = chain.rows.map((r) => r.strike);
+    const k = strikes[1];
+    expect(A.aroundStrikeLegs("short-straddle", chain, k)).toEqual([
+      { right: "CE", strike: k, side: "SELL", lots: 1 },
+      { right: "PE", strike: k, side: "SELL", lots: 1 },
+    ]);
+    const fly = A.aroundStrikeLegs("long-call-fly", chain, k, { move: 50 });
+    expect(fly.find((l) => l.side === "SELL")).toMatchObject({ strike: k, lots: 2 });
+    expect(A.aroundStrikeLegs("call-calendar", chain, k)).toEqual([]);
+    const cal = A.aroundStrikeLegs("call-calendar", { ...chain, expiry: "2026-11-03" }, k, { back: "2026-11-10" });
+    expect(cal.map((l) => `${l.side} ${l.strike} ${l.expiry}`)).toEqual([`SELL ${k} 2026-11-03`, `BUY ${k} 2026-11-10`]);
+    expect(A.aroundStrikeLegs("short-straddle", chain, 1)).toEqual([]);
+    expect(A.aroundStrikeLegs("box", chain, k)).toEqual([]);
+    expect(A.AROUND_STRIKE.map(([id]) => id)).toContain("iron-condor");
+  });
+
   it("net Greeks sign by side", () => {
     const c = { lotSize: 75, rows: [{ strike: 26000, ce: { delta: 0.5, theta: -10 }, pe: { delta: -0.5, theta: -9 } }] };
     const g = netGreeks([L("CE", 26000, "SELL", 1), L("PE", 26000, "SELL", 1)], c);

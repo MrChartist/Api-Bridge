@@ -166,6 +166,23 @@ export function ticketRisk({ side, right, strike, price, qty, kind = "OPT" }) {
   return side === "SELL" ? { maxLoss: capped, maxProfit: premium, breakeven, premium } : { maxLoss: premium, maxProfit: capped, breakeven, premium };
 }
 
+/**
+ * The ticket's risk after charges. `entry` is the charges to open (brokerage, STT, exchange, SEBI, stamp, GST), `exit`
+ * the charges to square off at the same premium. Max loss adds the entry charges (an option left to expire pays no
+ * exit order); breakeven moves by the round trip per unit, against the trade: up for a call bought or a put sold,
+ * down for a put bought or a call sold.
+ * @param {{ maxLoss: number|null, breakeven: number } | null} risk  ticketRisk()
+ * @returns {{ charges: number, entry: number, exit: number, maxLoss: number|null, breakeven: number } | null}
+ */
+export function riskAfterCharges(risk, { side, right, qty, entry, exit = entry }) {
+  const q = Number(qty);
+  const e = Number(entry);
+  const x = Number(exit);
+  if (!risk || !(q > 0) || !Number.isFinite(e) || !Number.isFinite(x)) return null;
+  const up = (side === "SELL") === (right === "PE") ? 1 : -1;
+  return { charges: e + x, entry: e, exit: x, maxLoss: risk.maxLoss === null ? null : risk.maxLoss + e, breakeven: risk.breakeven + (up * (e + x)) / q };
+}
+
 // ── Excel: one live cell per contract (pure) ──
 
 /**

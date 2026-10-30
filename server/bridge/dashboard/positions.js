@@ -17,6 +17,7 @@ import { SCOPES, createBookView } from "./book-view.js";
 import { segField, segmented } from "./views.js";
 import { heatCell, setBar, svgEl } from "./viz.js";
 import { eventChip, refCharges, refRate, refSession, upcomingEvents } from "./reference.js";
+import { SPAN_METHOD, portfolioMargin } from "./span-margin.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const CHAIN_STRIKES = 40;
@@ -728,7 +729,11 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const used = num(f?.usedMargin);
     const avail = num(f?.availableCash);
     const total = used !== null && avail !== null && used + avail > 0 ? used + avail : num(f?.totalBalance);
-    const est = O.bookMargin(legs.filter((l) => l.q && l.priced));
+    // The same portfolio model as the paper engine, the ticket and Strategy (span-margin.js): hedges across strikes,
+    // expiries and futures of this underlying are credited.
+    const held = legs.filter((l) => l.q && l.priced);
+    const F = num(held.find((l) => num(l.F) !== null)?.F) ?? spot;
+    const est = held.length && F ? portfolioMargin(held.map((l) => ({ underlying: st.underlying, kind: l.kind, right: l.right, strike: l.strike, expiry: l.expiry, qty: l.q, cost: num(l.avg) ?? num(l.mark), mark: num(l.mark) ?? num(l.avg), iv: num(l.iv) })), { nowMs: Date.now(), forwards: { [st.underlying]: F } }) : null;
     const has = used !== null && total > 0;
     const util = has ? used / total : null;
     const mb = has && est ? Math.min(est.required, used) : null;
@@ -753,7 +758,8 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     segBook.hidden = !mb;
     const sub = has ? `${mb ? `≈ this book ${ru(mb)}${est.required > used ? "+" : ""} · ` : ""}free ${ru(avail ?? total - used)}` : "";
     if (capSub.textContent !== sub) capSub.textContent = sub;
-    capEl.title = `Account-wide margin from your broker. 'This book' is an estimate without hedge benefit across expiries${est && est.required > (used ?? Infinity) ? ` (≥ ${ru(est.required)})` : ""}.${util !== null && util >= 0.7 ? ` ${formatPercent(util * 100, 1)} of funds used.` : ""}`;
+    const saved = est && est.benefit > 1 ? ` Hedges save about ${ru(est.benefit)} against each leg on its own (${ru(est.standalone)}).` : "";
+    capEl.title = `Account-wide margin from your broker or the paper engine. 'This book' is the portfolio estimate${est && est.required > (used ?? Infinity) ? ` (≥ ${ru(est.required)})` : ""}.${saved} ${SPAN_METHOD}${util !== null && util >= 0.7 ? ` ${formatPercent(util * 100, 1)} of funds used.` : ""}`;
   }
   /** ±1σ / ±2σ P&L now (§4.3): the book chips (desktop / tablet) and the Scenario tab's (phone), on the heatmap scale. */
   let stressRows = [];

@@ -2568,6 +2568,8 @@ button.preset:hover { background: var(--mat-fill-1); }
 .ticket-figs > div:first-child { box-shadow: none; }
 .ticket-figs > div { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; white-space: nowrap; font: 500 15px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; box-shadow: calc(-1 * var(--hl)) 0 0 var(--mat-separator); }
 .ticket-figs small { font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.ticket-after { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0 0; font: 500 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.ticket-after strong { font: 500 12.5px/1.4 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground)); white-space: nowrap; }
 .ticket-checks { list-style: none; margin: 0; padding: 10px 0 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; line-height: 1.4; }
 .ticket-checks li { display: flex; align-items: baseline; gap: 8px; }
 .ticket-checks .dot { width: 6px; height: 6px; flex: none; border-radius: 99px; transform: translateY(-1px); }
@@ -2888,6 +2890,7 @@ button.sec-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
 .mbar .mb-free[hidden] { display: none; }
 .mb-sub { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font: 500 12px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .mb-short-t { color: hsl(var(--warn-ink)); font-weight: 600; }
+.mb-save-t { color: hsl(var(--pos-ink)); font-weight: 500; }
 .risk-sec.greeks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 button.gk { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "k k" "v v" "s spark"; align-items: center; gap: 3px 4px; min-height: 64px; padding: 8px; border-radius: 10px; text-align: left; background: var(--mat-fill-1); box-shadow: none; }
 button.gk:hover { background: var(--mat-fill-2); }
@@ -3208,6 +3211,8 @@ input.picker-filter { width: 96px; min-height: 30px; padding: 4px 10px; border-r
 
 /* Menus (leg ⋯, expiry, tools, head, chart) */
 .popover.menu-pop { width: min(300px, calc(100vw - 32px)); }
+.popover.menu-pop.strike-menu { width: min(400px, calc(100vw - 32px)); }
+.strike-menu .menu-list button.menu-item small { white-space: normal; }
 .menu-list { gap: 2px; padding: 4px; }
 .menu-list button.menu-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 36px; padding: 6px 10px; border-radius: 8px; background: transparent; box-shadow: none; text-align: left; font: 500 13px/1.25 var(--font-body); }
 .menu-list button.menu-item:hover:not(:disabled) { background: var(--mat-fill-2); }

@@ -1,6 +1,6 @@
 // The pure rules behind the Create a key and Add a broker flows (flows.js).
 import { describe, expect, it } from "vitest";
-import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, excelFormula, capabilityLabel, capabilitySummary, contractName, defaultKeyName, orderStatusText, istDay, keyFormProblem, keyUse, sessionText, ticketRisk } from "./flows.js";
+import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, excelFormula, capabilityLabel, capabilitySummary, contractName, defaultKeyName, orderStatusText, istDay, keyFormProblem, keyUse, riskAfterCharges, sessionText, ticketRisk } from "./flows.js";
 import { loginFormSpec } from "./app.js";
 import { snippets } from "./snippets.js";
 
@@ -48,6 +48,18 @@ describe("Trade ticket risk", () => {
     expect(ticketRisk({ side: "SELL", right: "CE", strike: 26400, price: 300, qty: 65 })).toMatchObject({ maxLoss: null, maxProfit: 19500, breakeven: 26700 });
     expect(ticketRisk({ side: "SELL", right: "PE", strike: 26400, price: 250, qty: 65 })).toMatchObject({ maxLoss: (26400 - 250) * 65, maxProfit: 16250 });
     for (const bad of [{ kind: "FUT" }, { price: 0 }, { qty: null }, { right: "XX" }]) expect(ticketRisk({ side: "BUY", right: "CE", strike: 100, price: 1, qty: 1, ...bad })).toBeNull();
+  });
+});
+
+describe("Ticket risk after charges", () => {
+  it("adds entry charges to max loss and moves breakeven by the round trip per unit", () => {
+    const buyCe = riskAfterCharges(ticketRisk({ side: "BUY", right: "CE", strike: 26400, price: 300, qty: 65 }), { side: "BUY", right: "CE", qty: 65, entry: 30, exit: 35 });
+    expect(buyCe).toEqual({ charges: 65, entry: 30, exit: 35, maxLoss: 19530, breakeven: 26701 });
+    expect(riskAfterCharges(ticketRisk({ side: "BUY", right: "PE", strike: 26400, price: 250, qty: 65 }), { side: "BUY", right: "PE", qty: 65, entry: 65 }).breakeven).toBe(26148);
+    const sellCe = riskAfterCharges(ticketRisk({ side: "SELL", right: "CE", strike: 26400, price: 300, qty: 65 }), { side: "SELL", right: "CE", qty: 65, entry: 65, exit: 0 });
+    expect(sellCe).toMatchObject({ maxLoss: null, breakeven: 26699 });
+    expect(riskAfterCharges(null, { side: "BUY", right: "CE", qty: 1, entry: 1 })).toBeNull();
+    expect(riskAfterCharges({ maxLoss: 1, breakeven: 1 }, { side: "BUY", right: "CE", qty: 0, entry: 1 })).toBeNull();
   });
 });
 

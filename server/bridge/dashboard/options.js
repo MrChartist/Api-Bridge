@@ -685,6 +685,32 @@ export function presetLegs(id, chain, { move = null, forward = null, fut = null,
   }
 }
 
+/**
+ * Strategies built around one strike from the chain (right-click or long-press a strike, or T on the focused one):
+ * [id, menu label, what it is for]. The ids are presets; the strike stands in for the ATM.
+ */
+export const AROUND_STRIKE = Object.freeze([
+  ["short-straddle", "Straddle here", "Sell the call and put at this strike"],
+  ["short-strangle", "Strangle ±1σ", "Sell a call and a put one expected move away"],
+  ["iron-condor", "Iron condor around here", "Short strangle ±1σ with wings: defined risk"],
+  ["bull-call", "Bull call spread from here", "Buy this call, sell one 1σ higher"],
+  ["bear-put", "Bear put spread from here", "Buy this put, sell one 1σ lower"],
+  ["long-call-fly", "Butterfly at this strike", "Buy the wings, sell two at this strike"],
+  ["call-calendar", "Calendar, next expiry", "Sell this expiry's call, buy the next one's"],
+  ["long-straddle", "Long straddle here", "Buy the call and put: a big move either way"],
+]);
+
+/**
+ * Legs of an AROUND_STRIKE strategy centred on `strike` (presetLegs with the strike as ATM and forward). `move` is
+ * the 1σ move in points; `back` the next expiry for a calendar. [] when the chain cannot make it.
+ */
+export function aroundStrikeLegs(id, chain, strike, { move = null, back = null } = {}) {
+  const K = num(strike);
+  if (K === null || !(chain?.rows ?? []).some((r) => r.strike === K)) return [];
+  if (!AROUND_STRIKE.some(([x]) => x === id)) return [];
+  return presetLegs(id, { ...chain, atmStrike: K }, { move, forward: K, back });
+}
+
 // ── Persona reads (the numbers a buyer, seller, hedger or arbitrageur decides on) ──
 
 /** Breakeven at expiry for a long option bought at `premium`: CE K + P, PE K − P (null when P is missing or BE ≤ 0). */

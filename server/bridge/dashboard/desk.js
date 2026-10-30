@@ -17,12 +17,13 @@ import { createPositionsPage } from "./positions.js";
 import { cap, every, segField, segmented, stopTimer } from "./views.js";
 import { wideExtras } from "./layout-prefs.js";
 import { createVolPage, volConfig } from "./vol.js";
-import { demoStaleAsked, lotConfirmGate, lotStaleCheck, loadReference, refBanners, refCalendar, refChip, refRate, refSession, refSignature } from "./reference.js";
+import { demoStaleAsked, lotConfirmGate, lotStaleCheck, loadReference, refBanners, refCalendar, refCharges, refChip, refRate, refSession, refSignature } from "./reference.js";
 import { readinessSheetRow } from "./readiness.js";
 import { clockNote, loadPricingContext } from "./vol-context.js";
 import { animatePage, barsEnter, countUp, flashValue, stopCount } from "./motion.js";
-import { ticketRisk } from "./flows.js";
+import { riskAfterCharges, ticketRisk } from "./flows.js";
 import { watch } from "./live.js";
+import { SPAN_METHOD, marginLegsOf, portfolioMargin } from "./span-margin.js";
 
 const SLOT = "mcb.dashboard.desk";
 /** The index underlyings the Options pages list (live) and the three the demo serves; the Option Screener shares them. */
@@ -74,6 +75,7 @@ const CHAIN_KEYS = [
   [["B"], "buy", "Order ticket: buy at the ask"],
   [["S"], "sell", "Order ticket: sell at the bid"],
   [["⇧B", "⇧S"], "add to strategy", "Add a buy / sell leg to the strategy"],
+  [["T"], "build around", "Build a strategy around the strike: straddle, strangle, condor, spreads, butterfly, calendar (right-click or long-press the strike too)"],
   [["X"], "exit", "Exit the position you hold in this contract"],
   [["G"], "ATM", "Back to ATM (Home too)"],
   [["P"], "pause", "Pause / resume live updates"],
@@ -81,7 +83,9 @@ const CHAIN_KEYS = [
   [["?"], "keys", "This list"],
   [["Esc"], "clear", "Clear the focus; close the sheet or search"],
 ];
-const KEY_LEGEND = CHAIN_KEYS.filter((k) => !["R", "Esc", "M", "X"].includes(k[0][0]));
+const KEY_LEGEND = CHAIN_KEYS.filter((k) => !["R", "Esc", "M", "X", "T"].includes(k[0][0]));
+/** A strategy built from the chain, handed to the Strategy Builder (which offers Undo): { u, label, prev }. */
+export const FROM_CHAIN_SLOT = "mcb.dashboard.fromChain";
 const readPrefs = () => {
   try {
     return JSON.parse(local.get(SLOT) ?? "{}") ?? {};
@@ -1193,6 +1197,7 @@ async function renderDesk(kind) {
     // The toolbar's Select button mirrors select mode however it changes (m, Esc, Done, a new expiry).
     onSelectChange: (on) => selectBtn.setAttribute("aria-pressed", String(on)),
     onHold: (strike, side) => holdLeg({ right: side === "pe" ? "PE" : "CE", strike, side: "BUY" }),
+    onStrikeMenu: (strike, anchor) => strategyMenu(strike, anchor),
     // null on the last listed expiry: the empty state then shows no button that would do nothing.
     onNextExpiry: () => {
       const i = st.expiries.indexOf(st.expiry);
@@ -1399,6 +1404,33 @@ async function renderDesk(kind) {
     toast(`${leg.side === "BUY" ? "Buy" : "Sell"} ${formatInt(leg.strike)} ${leg.right} added to Strategy Builder`);
   }
 
+  /**
+   * Right-click (or long-press the strike, or T): build a strategy around this strike. The legs replace the
+   * underlying's draft in the Strategy Builder, which opens with the payoff and an Undo for the old draft.
+   */
+  function strategyMenu(strike, anchor) {
+    const x = lastX;
+    if (!x) return;
+    const back = O.backExpiry(st.expiries ?? [], x.c.expiry);
+    let handle = null;
+    const legText = (ls) => ls.map((l) => `${l.side === "SELL" ? "Sell" : "Buy"}${l.lots > 1 ? ` ${formatInt(l.lots)}×` : ""} ${formatInt(l.strike)} ${l.right}${l.expiry && l.expiry !== x.c.expiry ? " next" : ""}`).join(" · ");
+    const items = O.AROUND_STRIKE.map(([id, label, what]) => {
+      const legs = O.aroundStrikeLegs(id, x.c, strike, { move: x.move, back });
+      return h("button", { type: "button", class: "menu-item", disabled: !legs.length, title: what, onclick: () => (handle?.close(), buildAround(label, strike, legs)) }, label, h("small", {}, legs.length ? legText(legs) : id === "call-calendar" ? "No later expiry is listed" : what));
+    });
+    handle = sheetPopover({ trigger: anchor, title: `Build around ${formatInt(strike)}`, body: h("div", { class: "menu-list stack" }, items), cls: "menu-pop strike-menu" });
+  }
+  function buildAround(label, strike, legs) {
+    const x = lastX;
+    if (!x || !legs.length) return;
+    const u = st.underlying;
+    const prev = structuredClone(basket());
+    st.baskets[u] = legs.map((l) => ({ right: l.right, strike: l.strike, side: l.side, lots: l.lots, expiry: l.expiry ?? x.c.expiry }));
+    save();
+    local.set(FROM_CHAIN_SLOT, JSON.stringify({ u, label: `${label} at ${formatInt(strike)}`, prev }));
+    location.hash = "#/strategy";
+  }
+
   /** A press-and-hold on a chain row (touch): one buy lot of that contract into this expiry's strategy, with Undo. */
   function holdLeg(leg) {
     const legs = basket();
@@ -1593,7 +1625,18 @@ async function renderDesk(kind) {
         const px = b.price ?? (b.side === "BUY" ? num(q0?.ask) : num(q0?.bid)) ?? num(q0?.ltp);
         const risk = !fut && !exit && row ? ticketRisk({ side: b.side, right, strike: row.strike, price: px, qty: r.quantity }) : null;
         const fwd = num(st.chain?.underlyingLtp);
-        const mg = risk && b.side === "SELL" && fwd ? O.marginEstimate([{ strike: row.strike, right, side: "SELL", lots: Math.max(1, Math.round(r.quantity / lotSize)), lotSize, price: px }], lotSize, { forward: fwd }) : null;
+        // Margin: the same portfolio model as the paper engine, Strategy and Positions (span-margin.js).
+        const u = st.chain?.underlying ?? st.underlying;
+        const leg = { kind: fut ? "FUT" : "OPT", side: b.side, strike: fut ? null : row?.strike, right: fut ? null : right, expiry: ex, units: r.quantity, price: px, iv: fut ? null : num(quote()?.iv) };
+        const mg = !exit && (b.side === "SELL" || fut) && fwd && isFigure(px) ? portfolioMargin(marginLegsOf([leg], { underlying: u }), { nowMs: Date.now(), forwards: { [u]: fwd } }) : null;
+        // The paper engine's own figure counts what the account holds (a hedge adds little or nothing).
+        const withBook = num(r.margin?.required);
+        // Charges: open at this price, square off at the same price (brokerage, STT, exchange, SEBI, stamp, GST).
+        const rates = refCharges(st.ref);
+        const chLeg = (sd) => ({ kind: fut ? "FUT" : "OPT", side: sd, price: px, lots: 1, lotSize: r.quantity, strike: row?.strike, right, symbol: sym });
+        const entryCh = isFigure(px) && r.quantity > 0 ? O.charges([chLeg(b.side)], rates, { lotSize: r.quantity }).total : null;
+        const exitCh = isFigure(entryCh) ? O.charges([chLeg(b.side === "BUY" ? "SELL" : "BUY")], rates, { lotSize: r.quantity }).total : null;
+        const after = risk && isFigure(entryCh) ? riskAfterCharges(risk, { side: b.side, right, qty: r.quantity, entry: entryCh, exit: exitCh }) : null;
         const lossText = risk ? (risk.maxLoss === null ? "Unlimited" : formatRupee(risk.maxLoss, 0)) : null;
         previewEl.replaceChildren(
           h(
@@ -1603,10 +1646,19 @@ async function renderDesk(kind) {
             h("div", {}, h("small", {}, b.side === "BUY" ? "You pay" : "You receive"), formatRupee(r.estimatedValue, 0)),
             risk ? h("div", { title: "The most this order can lose at expiry, before charges" }, h("small", {}, "Max loss"), h("span", { class: risk.maxLoss === null ? "down" : "" }, lossText)) : null,
             risk ? h("div", { title: "Where the underlying must settle at expiry for this order to break even, before charges" }, h("small", {}, "Breakeven"), formatFixed(risk.breakeven, 2)) : null,
-            mg ? h("div", { title: "An estimate (price scan plus exposure). The broker's figure is final." }, h("small", {}, "Margin ≈"), formatRupee(mg.required, 0)) : null,
+            mg ? h("div", { title: SPAN_METHOD }, h("small", {}, "Margin ≈"), formatRupee(mg.required, 0)) : null,
             // Paper is said once (the account); only a live order gets a Mode figure, in red.
             r.mode === "live" ? h("div", {}, h("small", {}, "Mode"), h("span", { class: "down" }, "LIVE")) : null,
           ),
+          isFigure(entryCh)
+            ? h(
+                "p",
+                { class: "ticket-after", title: "Charges from the reference table: brokerage, STT, exchange and SEBI fees, stamp duty and GST. Round trip: open now, square off at the same price." },
+                h("span", {}, "Charges ≈ ", h("strong", {}, formatRupee(entryCh + exitCh, 0)), " round trip"),
+                after ? h("span", {}, "After charges: max loss ", h("strong", {}, after.maxLoss === null ? "Unlimited" : formatRupee(after.maxLoss, 0)), ", breakeven ", h("strong", {}, formatFixed(after.breakeven, 2))) : null,
+                mg && isFigure(withBook) && Math.abs(withBook - mg.required) > Math.max(1, mg.required * 0.02) ? h("span", { title: "From the paper engine, with the positions this account already holds." }, "With your positions: adds ", h("strong", {}, formatRupee(Math.max(0, withBook), 0))) : null,
+              )
+            : null,
           ...(checks.length ? [h("ul", { class: "ticket-checks" }, checks.map((x) => h("li", { class: x.severity === "block" ? "bad" : "warn" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, `${x.severity === "block" ? "Blocked: " : ""}${x.message}`))))] : []),
         );
       } catch (err) {
@@ -2025,6 +2077,7 @@ async function renderDesk(kind) {
       }
       if (k === "b" || k === "s") return openTicket({ row, right, side: k === "b" ? "BUY" : "SELL" }), true;
       if (k === "B" || k === "S") return addLeg({ right, strike: row.strike, side: k === "B" ? "BUY" : "SELL" }), true;
+      if (k === "t") return strategyMenu(row.strike, chain.rowHead?.(row.strike) ?? null), true;
       if (k === "x") {
         const sym = row[target.side]?.symbol;
         const p = sym ? st.positions.find((q) => q.symbol === sym && Number(q.netQty)) : null;
@@ -2434,7 +2487,7 @@ function chainSkeleton(label) {
   );
 }
 
-function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, onWindowAll, onLeg = null, onPick = null, onRelayout = null, onNextExpiry = null, onSelectChange = null, onHold = null }) {
+function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, onWindowAll, onLeg = null, onPick = null, onRelayout = null, onNextExpiry = null, onSelectChange = null, onHold = null, onStrikeMenu = null }) {
   let built = null;
   let centred = false;
   let lastX = null;
@@ -2848,6 +2901,8 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     tr.addEventListener("pointerdown", (e) => {
       if (!onHold || e.pointerType === "mouse" || !device().coarse || selecting || L.side === "none" || e.target.closest("button")) return;
       const side = sideOf(e);
+      // Holding the strike itself opens "Build around this strike"; holding a call or put cell adds a buy leg.
+      const onStrike = Boolean(onStrikeMenu) && Boolean(e.target.closest("th.strike-col"));
       clearTimeout(hold?.t);
       const h0 = { x: e.clientX, y: e.clientY, fired: false, t: 0 };
       h0.t = setTimeout(() => {
@@ -2859,7 +2914,8 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
           setTimeout(() => tr.classList.remove("hold-pulse"), 260);
         }
         navigator.vibrate?.(12);
-        onHold(strike, side);
+        if (onStrike) onStrikeMenu(strike, th);
+        else onHold(strike, side);
       }, 500);
       hold = h0;
     });
@@ -2867,7 +2923,13 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       if (hold && !hold.fired && Math.hypot(e.clientX - hold.x, e.clientY - hold.y) > 8) dropHold();
     });
     for (const ev of ["pointerup", "pointercancel", "pointerleave"]) tr.addEventListener(ev, dropHold);
-    tr.addEventListener("contextmenu", (e) => hold?.fired && e.preventDefault());
+    tr.addEventListener("contextmenu", (e) => {
+      if (hold?.fired) return e.preventDefault();
+      // Right-click a strike: build a strategy around it (selection mode keeps the browser's menu).
+      if (!onStrikeMenu || selecting) return;
+      e.preventDefault();
+      onStrikeMenu(strike, th);
+    });
     tr.addEventListener("click", (e) => {
       if (hold?.fired) {
         hold = null;
@@ -3772,6 +3834,11 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     fitInfo: () => lastFit,
     visibleStrikes: () => (built?.rows ? [...built.rows].filter(([, b]) => !b.tr.hidden).map(([k]) => k) : []),
     atmStrike: () => O.atmRow(st.chain)?.strike ?? null,
+    /** The strike cell of a row (the anchor of the build-around menu), or the row itself. */
+    rowHead: (strike) => {
+      const b = built?.rows?.get(strike);
+      return b ? (b.tr.querySelector("th.strike-col") ?? b.tr) : null;
+    },
     /** The side a key or tap acts on in the current layout. */
     sideNow: () => (built?.L.side === "ce" || built?.L.side === "pe" ? built.L.side : st.focus?.side ?? "ce"),
     layoutSide: () => built?.L.side ?? null,

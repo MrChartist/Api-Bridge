@@ -12,9 +12,12 @@ import { openPlacement } from "./strategy-place.js";
 import { keepFocus, segmented } from "./views.js";
 import { reducedMotion } from "./motion.js";
 import { nextSessionUnits } from "./vol-context.js";
+import { SPAN_METHOD, marginLegsOf, portfolioMargin } from "./span-margin.js";
 
 const SAVES = "mcb.dashboard.strategies";
 const NAMES = "mcb.dashboard.strategyNames";
+/** desk.js FROM_CHAIN_SLOT: a strategy built around a strike in the chain. */
+const FROM_CHAIN = "mcb.dashboard.fromChain";
 const YEAR_MS = 365 * 86400000;
 const DAY_MS = 86400000;
 const NO_CHANGE = Symbol("no change");
@@ -328,7 +331,8 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const net = ok && cfg().net ? O.strategyCharges(act, refCharges(st.ref), { lotSize: lot, forward: xx.F, ivPct: ivNow, years: T }) : null;
     const stats = ok ? O.strategyStats(act, lot, { forward: xx.F, ivPct: xx.sm.atmIv, years: T, ivShift: shift, spot: xx.spot, charges: net }) : null;
     const expiryToday = O.isExpiryDay(front);
-    const est = ok ? O.marginEstimate(act, lot, { forward: xx.F, years: T, expiryToday }) : null;
+    // One margin model everywhere (span-margin.js): the paper engine, the ticket, this line and Positions agree.
+    const est = ok && xx.F ? portfolioMargin(marginLegsOf(act.map((l) => ({ ...l, units: O.legUnits(l, lot), iv: l.kind === "OPT" ? l.iv : null })), { underlying: xx.c.underlying, lotSize: lot, expiry: xx.c.expiry }), { nowMs: now, forwards: { [xx.c.underlying]: xx.F }, ivs: { [xx.c.underlying]: xx.sm.atmIv } }) : null;
     const acct = pv.sig === sigOf(act) ? pv.margin : null;
     const margin = acct ?? est?.required ?? null;
     const basis = xx.F !== null && xx.spot !== null ? xx.F - xx.spot : 0;
@@ -1259,9 +1263,17 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     mRight.replaceChildren(...(isFigure(free) ? [h("span", { class: "mb-k" }, "Free "), h("strong", {}, rupees(free))] : [h("span", { class: "mb-k" }, account() ? "Funds unavailable" : "No account")]));
     const est = r.est?.required;
     const sh = isFigure(req) && isFigure(free) && req > free ? req - free : null;
+    const pp = pv.sig === sigOf(r.act) ? pv.paper : null;
+    // The hedge benefit: what the same legs would block one by one, against the portfolio figure.
+    const naked = pp ? pp.standalone : r.est?.standalone;
+    const alone = pp ? pp.alone : est;
+    const saves = isFigure(naked) && isFigure(alone) && naked - alone > 1 ? naked - alone : null;
+    const tip = `${SPAN_METHOD} Each leg on its own would need ${isFigure(naked) ? rupees(naked) : DASH}.${pp && pp.change < pp.alone - 1 ? ` With what this paper account already holds, it adds ${rupees(Math.max(0, pp.change))}.` : ""}`;
+    const what = r.exit ? "Closing these legs releases margin" : pp ? "Paper figure · hedges credited" : acctFig ? `Account figure${isFigure(est) && Math.abs(est - req) > 1 ? ` · portfolio ≈ ${rupees(est)}` : ""}` : "Portfolio estimate · SPAN-like + exposure";
     mSub.replaceChildren(
       ...[
-        h("span", { title: "Paper accounts block margin per leg with no hedge benefit; exchanges give hedged baskets a large benefit. The estimate approximates SPAN + exposure; your broker's figure is final." }, r.exit ? "Closing these legs releases margin" : acctFig ? `Account figure${isFigure(est) && Math.abs(est - req) > 1 ? ` · hedged ≈ ${rupees(est)}` : ""}` : "Estimate · SPAN + exposure", " ⓘ"),
+        h("span", { title: tip }, what, " ⓘ"),
+        !r.exit && saves ? h("span", { class: "mb-save-t", title: tip }, `Hedge saves ${rupees(saves)}`) : null,
         sh ? h("span", { class: "mb-short-t" }, `Short by ${rupees(sh)}`) : null,
       ].filter(Boolean),
     );
@@ -1976,7 +1988,14 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       if (isFigure(d?.margin?.required)) total += d.margin.required;
       else all = false;
     }
-    pv = { sig, margin: all ? total : null, loading: false, freeze, failed: res.some((r) => r.error) };
+    // Paper: one basket call, so hedges between the legs (and with what the account holds) are credited.
+    let paper = null;
+    if (a.broker === "paper" && all) {
+      const r = await optional(api(`/v1/paper/accounts/${enc(a.id)}/margin`, { method: "POST", body: { legs: act.map((l) => ({ symbol: l.symbol, side: isHeld(l) ? (l.side === "BUY" ? "SELL" : "BUY") : l.side, lots: l.lots, ...(isFigure(l.price) && l.price > 0 ? { price: l.manual ? l.livePrice ?? l.price : l.price } : {}) })) } }));
+      if (sigOf(priced.filter((l) => l.on !== false && l.symbol && isFigure(l.price))) !== sig) return;
+      paper = r.data?.data ?? null;
+    }
+    pv = { sig, margin: paper ? Math.max(0, paper.change) : all ? total : null, paper, loading: false, freeze, failed: res.some((r) => r.error) };
     if (x) {
       priced = price(x);
       drawAnalysis();
@@ -2509,6 +2528,20 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
 
   loadFunds();
   drawSuggestShell();
+
+  // Built from the chain (right-click a strike): the legs are already the draft; offer Undo back to the old draft.
+  try {
+    const fc = JSON.parse(app.local.get(FROM_CHAIN) ?? "null");
+    app.local.set(FROM_CHAIN, null);
+    if (fc && fc.u === st.underlying && Array.isArray(fc.prev)) {
+      undo = { key: fc.u, legs: O.migrateLegs(fc.prev, st.expiry, { lotSize: num(st.chain?.lotSize) }), label: String(fc.label ?? "Strategy from the chain") };
+      setName(null);
+      animateNext = true;
+      setTimeout(() => undoToast(undo?.label ?? ""), 0);
+    }
+  } catch {
+    // a broken hand-off is ignored: the draft is already in place
+  }
 
   return {
     panel,
