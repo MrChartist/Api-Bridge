@@ -123,8 +123,7 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
   const reason = h("p", { class: "cs-reason", hidden: true });
   const legBuy = h("button", { type: "button", class: "small" }, "Add buy leg");
   const legSell = h("button", { type: "button", class: "small" }, "Add sell leg");
-  // The owner's chart engine plugs in here; until then a labelled placeholder (no fake chart).
-  // The owner's chart engine, once one registers (null until then: h() drops it).
+  // The owner's chart engine, once one registers (null until then: h() drops it, so no empty slot shows).
   const chartSlotEl = chartSlot("Price chart of this contract");
   const grid = h("div", { class: "cs-groups" });
   const warns = h("ul", { class: "ticket-checks cs-warns", "aria-label": "Before you trade", hidden: true });
