@@ -177,6 +177,42 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
       : emptyState("radar", "Nothing yet today", "Events start once prices stream in.", null, { compact: true }),
   });
 
+  // ── Your watchlist (the list marked Show on Home) ──
+  const wlRes = await optional(api("/v1/watchlists"));
+  const homeList = (wlRes.data?.data?.items ?? []).find((l) => l.home) ?? null;
+  const wlBody = h("div", { class: "ck-wl" });
+  const fillWl = async () => {
+    if (!homeList?.symbols.length) return;
+    const r = await optional(api(`/v1/watchlists/${encodeURIComponent(homeList.id)}/quotes`, { fresh: true }));
+    const rows = r.data?.data?.rows ?? [];
+    wlBody.replaceChildren(
+      h(
+        "ul",
+        { class: "ck-wl-list" },
+        rows.slice(0, 10).map((x) =>
+          h(
+            "li",
+            {},
+            h("strong", {}, x.name),
+            h("span", { class: "ck-wl-px" }, formatGrouped(x.ltp, 2)),
+            h("span", { class: `ck-wl-ch ${tone(x.changePct)}` }, isFigure(x.changePct) ? `${formatSigned(x.changePct, 2)}%` : DASH),
+            h("small", { class: "ck-wl-iv" }, isFigure(x.iv) ? `IV ${formatFixed(x.iv, 1)}` : isFigure(x.oiChangePct) ? `OI ${formatSigned(x.oiChangePct, 1)}%` : ""),
+          ),
+        ),
+      ),
+    );
+  };
+  await fillWl().catch(() => {});
+  const wlCard = card({
+    glyph: "list",
+    tint: "blue",
+    title: homeList ? homeList.name : "Watchlist",
+    sub: homeList ? "Your list on Home: last price, % change and IV" : "Pick a list to show here",
+    cls: "ck-card ck-a-wl",
+    actions: h("a", { class: "lk small", href: "#/screeners/watchlists" }, homeList ? "Edit" : "Watchlists"),
+    body: homeList?.symbols.length ? wlBody : emptyState("list", "No list on Home", "Mark a watchlist Show on Home and its quotes appear here.", h("a", { class: "lk", href: "#/screeners/watchlists" }, "Open watchlists"), { compact: true }),
+  });
+
   // ── Market calendar today ──
   const bundles = refs.map((r) => r.data?.data).filter(Boolean);
   const ses = bundles[0]?.session ?? null;
@@ -258,11 +294,12 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
     ),
   });
 
-  const grid = h("div", { class: "cockpit" }, pnlCard, posCard, evCard, calCard, healthCard);
+  const grid = h("div", { class: "cockpit" }, pnlCard, posCard, evCard, calCard, healthCard, wlCard);
   return {
     nodes: [strip.el, grid],
     refresh: async () => {
       await strip.fill().catch(() => {});
+      await fillWl().catch(() => {});
     },
   };
 }
