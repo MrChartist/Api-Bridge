@@ -10,6 +10,7 @@
  *   GET    /v1/triggers/{triggerId}          scope read
  *   PATCH  /v1/triggers/{triggerId}          scope paper  { legs: [{ trigger?, price?, trail? }] }
  *   DELETE /v1/triggers/{triggerId}          scope paper  cancel
+ *   (PATCH and DELETE on a live trigger also need the live scope; AI assistant keys cannot PATCH.)
  *
  * Every order a trigger sends goes through orders.place (all safety gates) as source "guard"; see triggerService.mjs.
  */
