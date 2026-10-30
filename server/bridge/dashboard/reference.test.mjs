@@ -290,7 +290,8 @@ describe("banners and the chip", () => {
     expect(m.shown[0].text).toBe("Contract data is 2 trading days old (lot sizes from 27 Oct). Check the lot size before ordering in lots.");
     expect(m.shown.map((x) => x.kind)).not.toContain("holiday-expiry-shift");
     expect(staleText(BUNDLE)).toBeNull();
-    expect(bannerModel(BUNDLE, { rateNote: true }).shown[0]).toMatchObject({ kind: "rate", link: "#/calendar" });
+    // The rate is never a banner (ui-pass-3.md §6): banners are notices to act on; the chip says where the rate comes from.
+    expect(bannerModel(BUNDLE, { rateNote: true }).all.map((x) => x.kind)).not.toContain("rate");
     expect(bannerModel(BUNDLE).shown).toEqual([]);
   });
 
@@ -325,6 +326,15 @@ describe("banners and the chip", () => {
     expect(chipModel(fallbackBundle("NIFTY"), { lot: 65 })).toMatchObject({ text: "Lot 65 · Defaults", tone: "bad" });
     expect(chipModel(fallbackBundle("NIFTY"))).toMatchObject({ text: "Reference: defaults", short: "Reference: defaults", tone: "bad" });
     expect(chipModel(fallbackBundle("NIFTY")).aria).toContain("Reference data unavailable");
+  });
+
+  it("chip names a default or old rate on the pages that price with it, with the warn dot", () => {
+    const m = chipModel(BUNDLE, { lot: 65, rate: true, now: Date.UTC(2026, 9, 29, 5) });
+    expect(m).toMatchObject({ text: "Lot 65 · Freeze 1800 · Rate 6.50 % default", rateWarn: true, dot: true, tone: "normal" });
+    expect(chipModel(BUNDLE, { lot: 65, now: Date.UTC(2026, 9, 29, 5) })).toMatchObject({ rateWarn: false });
+    const sourced = { ...BUNDLE, rate: { value: 0.0571, asOf: "2026-10-28", source: "91-day T-bill", quality: "user", stale: false } };
+    expect(chipModel(sourced, { lot: 65, rate: true, now: Date.UTC(2026, 9, 29, 5) })).toMatchObject({ text: "Lot 65 · Freeze 1800", rateWarn: false });
+    expect(chipModel({ ...sourced, rate: { ...sourced.rate, stale: true } }, { lot: 65, rate: true, now: Date.UTC(2026, 9, 29, 5) }).text).toBe("Lot 65 · Freeze 1800 · Rate 5.71 % old");
   });
 
   it("facts sheet rows carry each value's source", () => {

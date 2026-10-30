@@ -22,17 +22,28 @@ export function searchIcon() {
   return s;
 }
 
+/** The type credit the SIL Open Font License asks for (dashboard/fonts/LICENSE.md): the About line. */
+export const TYPE_CREDIT = "Type: Chartist Sans Flex (from Google Sans Flex by Google), Chartist Sans (from Plus Jakarta Sans by Tokotype) and Chartist Serif (from Instrument Serif by Instrument), under the SIL Open Font License 1.1.";
+
 /**
- * Fuzzy match: every character of the query appears in order in the text. Higher is better, -1 means no match.
- * Prefix and word-start hits score more; gaps cost a little. Pure.
+ * Match a query against a label. Higher is better, -1 means no match. Tiers: exact or prefix (1000s) > a word start
+ * (800s) > a substring (600s) > every character in order (fuzzy, under 600). A fuzzy hit must score at least
+ * 3 per query character, so "rate" finds Rate limits and not every label with an r, an a, a t and an e. Pure.
  */
 export function fuzzyScore(query, text) {
   const q = String(query).toLowerCase().replace(/\s+/g, " ").trim();
   const t = String(text).toLowerCase();
   if (!q) return 0;
+  if (t === q) return 2000;
   const direct = t.indexOf(q);
   if (direct === 0) return 1000 - t.length;
-  if (direct > 0) return (/\W/.test(t[direct - 1]) ? 800 : 600) - direct - t.length / 10;
+  if (direct > 0) {
+    // A later word start beats an earlier mid-word hit ("limits" in "Rate limits" before "slimits").
+    const words = [...t.matchAll(/(^|\W)(\w)/g)].map((m) => m.index + m[1].length);
+    const at = words.find((w) => t.startsWith(q, w));
+    if (at !== undefined) return 800 - at - t.length / 10;
+    return 600 - direct - t.length / 10;
+  }
   let score = 0;
   let ti = 0;
   let last = -1;
@@ -45,7 +56,7 @@ export function fuzzyScore(query, text) {
     last = at;
     ti = at + 1;
   }
-  return score;
+  return score >= q.replace(/ /g, "").length * 3 ? Math.min(score, 599) : -1;
 }
 
 /** Rank commands for a query (label, then keywords). Pure. */
@@ -79,26 +90,38 @@ function currentTheme() {
   return document.documentElement.getAttribute("data-theme") ?? "auto";
 }
 
+/** The group a page sits under in the palette: its sidebar group, "Home" for the first (unlabelled) one. */
+const groupOf = (p) => p.group || "Home";
+
+/**
+ * The palette's commands: one per page, one per tab of a tabbed page (API › Keys …), the extra destinations a tab
+ * lists (each Integrations tool, the audit log; found by searching only), then the actions. Shortcut hints come from
+ * the page's curated `key`. Pure apart from reading `ctx`.
+ */
+export function pageCommands(pages, mod = modKey()) {
+  const out = [];
+  for (const p of pages) {
+    const hint = p.key ? [mod, String(p.key)] : null;
+    if (!p.tabs?.length) {
+      out.push({ id: `page-${p.id}`, group: groupOf(p), label: p.label, keywords: `${p.title} ${p.sub} ${p.keywords ?? ""} go open page`, icon: p.icon, tint: p.tint, sub: p.sub, hint, route: p.id });
+      continue;
+    }
+    p.tabs.forEach((t, i) => {
+      out.push({ id: `page-${p.id}-${t.id}`, group: groupOf(p), label: t.command ?? `${p.label} ${t.label}`, keywords: `${p.label} ${t.label} ${t.page} ${t.keywords ?? ""} go open page tab`, icon: t.icon ?? p.icon, tint: t.tint ?? p.tint, sub: `${p.label} › ${t.label}`, hint: i === 0 ? hint : null, route: `${p.id}/${t.id}` });
+      for (const x of t.extras ?? []) out.push({ id: `page-${p.id}-${t.id}-${x.id}`, group: groupOf(p), label: x.label, keywords: `${x.keywords ?? ""} ${t.label}`, icon: x.icon ?? t.icon ?? p.icon, tint: x.tint ?? t.tint ?? p.tint, sub: x.sub ?? `${p.label} › ${t.label}`, hint: null, route: x.route, searchOnly: true });
+    });
+  }
+  return out;
+}
+
 function commands() {
-  const pages = ctx.pages();
-  const mod = modKey();
-  const pageCmds = pages.map((p, i) => ({
-    id: `page-${p.id}`,
-    group: "Pages",
-    label: p.label,
-    keywords: `${p.title} ${p.sub} go open page`,
-    icon: p.icon,
-    tint: p.tint,
-    sub: p.sub,
-    hint: i < 9 ? [mod, String(i + 1)] : null,
-    run: () => ctx.go(p.id),
-  }));
+  const pageCmds = pageCommands(ctx.pages()).map((c) => ({ ...c, run: () => ctx.go(c.route) }));
   const actions = [
-    { id: "scan", label: "Run a scan", sub: "Write a condition on the Scanner page", keywords: "scanner screener condition rsi", icon: "scan", tint: "mint", run: () => ctx.go("scanner", "#scan-condition") },
+    { id: "scan", label: "Run a scan", sub: "Write a condition in Screeners › Stocks", keywords: "scanner screener condition rsi", icon: "scan", tint: "mint", run: () => ctx.go("screeners/stocks", "#scan-condition") },
     { id: "kill", label: "Engage kill switch", sub: "Stop every new order, from every tool", keywords: "stop all orders safety emergency halt", icon: "power", tint: "red", run: () => ctx.go("safety", "#kill-action") },
-    { id: "key", label: "Create API key", sub: "One key per tool, with only the access it needs", keywords: "new token keys access", icon: "keys", tint: "pink", run: () => ctx.go("keys", "#key-label") },
-    { id: "console", label: "Open test console", sub: "Try any call and see what comes back", keywords: "try request call endpoint quote", icon: "console", tint: "teal", run: () => ctx.go("console") },
-    { id: "paper", label: "Place a paper order", sub: "The order form in the test console", keywords: "buy sell trade order console", icon: "orders", tint: "orange", run: () => ctx.go("console?endpoint=order") },
+    { id: "key", label: "Create API key", sub: "One key per tool, with only the access it needs", keywords: "new token keys access", icon: "keys", tint: "pink", run: () => ctx.go("api/keys", "#key-label") },
+    { id: "console", label: "Open test console", sub: "Try any call and see what comes back", keywords: "try request call endpoint quote", icon: "console", tint: "teal", run: () => ctx.go("api/console") },
+    { id: "paper", label: "Place a paper order", sub: "Send a paper order as JSON in the test console", keywords: "buy sell trade order console", icon: "orders", tint: "orange", run: () => ctx.go("api/console?endpoint=order") },
     { id: "theme", label: "Toggle theme", sub: `Now ${currentTheme() === "auto" ? "Auto" : currentTheme() === "light" ? "Light" : "Dark"}`, keywords: "dark light appearance mode", icon: "moon", tint: "indigo", run: () => setTheme({ auto: "light", light: "dark", dark: "auto" }[currentTheme()] ?? "auto") },
     { id: "theme-light", label: "Theme: Light", keywords: "appearance", icon: "sun", tint: "gray", run: () => setTheme("light") },
     { id: "theme-dark", label: "Theme: Dark", keywords: "appearance night", icon: "moon", tint: "gray", run: () => setTheme("dark") },
@@ -160,14 +183,15 @@ function build() {
 }
 
 function draw() {
-  results = rank(commands(), input.value);
+  const q = input.value.trim();
+  results = rank(q ? commands() : commands().filter((c) => !c.searchOnly), input.value);
   if (activeIndex >= results.length) activeIndex = Math.max(0, results.length - 1);
   const items = [];
   let group = null;
   results.forEach((c, i) => {
     if (!input.value.trim() && c.group !== group) {
       group = c.group;
-      items.push(h("li", { class: "palette-group", role: "presentation" }, group === "Pages" ? "Go to" : group));
+      items.push(h("li", { class: "palette-group", role: "presentation" }, group));
     }
     const hint = c.hint ? kbd(...c.hint) : c.hintText ? h("span", { class: "palette-hint" }, c.hintText) : null;
     const li = h(
@@ -177,7 +201,7 @@ function draw() {
       h(
         "span",
         { class: "palette-text" },
-        h("span", { class: "palette-label" }, c.label, input.value.trim() ? h("span", { class: "palette-kind" }, c.group === "Pages" ? "Page" : "Action") : null),
+        h("span", { class: "palette-label" }, c.label, input.value.trim() ? h("span", { class: "palette-kind" }, c.group === "Actions" ? "Action" : "Page") : null),
         c.sub ? h("span", { class: "palette-sub" }, c.sub) : null,
       ),
       hint ? h("span", { class: "palette-right", "aria-hidden": "true" }, hint) : null,
@@ -239,7 +263,7 @@ function onKey(e) {
 function runAt(i) {
   const c = results[i];
   if (!c) return;
-  const navigates = c.group === "Pages" || ["scan", "kill", "key", "console", "paper"].includes(c.id);
+  const navigates = c.group !== "Actions" || ["scan", "kill", "key", "console", "paper"].includes(c.id);
   closePalette({ restore: !navigates });
   c.run();
 }
@@ -274,7 +298,7 @@ export function shortcutList() {
     { keys: [mod, "K"], what: "Search pages and actions" },
     { keys: ["/"], what: "Search (when not typing in a field)" },
     { keys: ["?"], what: "Show these shortcuts" },
-    ...pages.slice(0, 9).map((p, i) => ({ keys: [mod, String(i + 1)], what: `Go to ${p.label}` })),
+    ...pages.filter((p) => p.key).sort((a, b) => a.key - b.key).map((p) => ({ keys: [mod, String(p.key)], what: `Go to ${p.label}` })),
     { keys: ["↑", "↓"], what: "Move through search results" },
     { keys: ["↵"], what: "Open the selected result" },
     { keys: ["esc"], what: "Close search or a dialog" },
@@ -302,15 +326,17 @@ export function showShortcuts() {
       { class: "stack shortcuts-sheet" },
       h("table", { class: "shortcuts" }, h("caption", { class: "pal-sr-only" }, "Keyboard shortcuts"), h("thead", { class: "pal-sr-only" }, h("tr", {}, h("th", { scope: "col" }, "Keys"), h("th", { scope: "col" }, "Action"))), h("tbody", {}, rows)),
       h("p", { class: "muted small" }, isMac() ? "Some browsers keep ⌘1 to ⌘9 for switching tabs; the search (⌘K) always works." : "Some browsers keep Ctrl+1 to Ctrl+9 for switching tabs; the search (Ctrl+K) always works."),
+      h("p", { class: "type-credit" }, h("strong", {}, "About. "), TYPE_CREDIT),
     ),
     buttons: [{ label: "Done", cls: "primary", value: true }],
   });
 }
 
-/** The shortcut label for page n (0-based), e.g. "⌘1", or null past the ninth page. */
-export function pageShortcut(i) {
-  if (i > 8) return null;
-  return { label: isMac() ? `⌘${i + 1}` : `Ctrl+${i + 1}`, aria: `${ariaMod()}+${i + 1}` };
+/** The shortcut of a page (its curated `key`, 1 to 9) or of a key number, e.g. "⌘1"; null for a page without one. */
+export function pageShortcut(pageOrKey) {
+  const k = typeof pageOrKey === "object" ? pageOrKey?.key : pageOrKey;
+  if (!Number.isInteger(k) || k < 1 || k > 9) return null;
+  return { label: isMac() ? `⌘${k}` : `Ctrl+${k}`, aria: `${ariaMod()}+${k}` };
 }
 
 function onGlobalKey(e) {
@@ -325,8 +351,8 @@ function onGlobalKey(e) {
   }
   if (mod && !e.altKey && !e.shiftKey && /^Digit[1-9]$/.test(e.code)) {
     if (otherDialogOpen()) return;
-    const i = Number(e.code.slice(5)) - 1;
-    const p = ctx.pages()[i];
+    const k = Number(e.code.slice(5));
+    const p = ctx.pages().find((x) => x.key === k);
     if (!p) return;
     e.preventDefault();
     closePalette({ restore: false });

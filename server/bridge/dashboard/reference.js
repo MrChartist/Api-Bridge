@@ -373,16 +373,16 @@ export function upcomingEvents(events, days = Infinity) {
 
 /**
  * What the banners above a page say (spec §5.3): [{ id, kind, tone, text, hideable }], the stale warning first, then
- * one per event within BANNER_DAYS that is not hidden today. `max` banners show; `more` counts the rest.
+ * one per event within BANNER_DAYS that is not hidden today. `max` banners show; `more` counts the rest. Banners are
+ * for notices to act on only: where the rate comes from is said in the chip (chipModel `rate`, ui-pass-3.md §6).
  */
-export function bannerModel(b, { hidden = {}, max = 2, rateNote = false } = {}) {
+export function bannerModel(b, { hidden = {}, max = 2 } = {}) {
   const out = [];
   if (b?.fallback) out.push({ id: "fallback", kind: "fallback", tone: "bad", text: "Reference data unavailable: using dashboard defaults", detail: "Session times, the rate and charges are the dashboard's built-in values until the Bridge answers.", hideable: false });
   const stale = staleText(b);
   if (stale) out.push({ id: "stale", kind: "stale", tone: "warn", text: stale.text, detail: stale.detail, hideable: false });
   const events = upcomingEvents(b?.events).filter((e) => !hidden[eventId(e)]);
   for (const e of events) out.push({ id: eventId(e), kind: e.kind, tone: "info", text: e.text || eventShort(e), detail: null, hideable: true, event: e });
-  if (rateNote && rateNeedsNote(b) && !b?.fallback) out.push({ id: "rate", kind: "rate", tone: "quiet", text: `Rate: ${rateText(b)}.`, detail: null, hideable: false, link: "#/calendar" });
   return { shown: out.slice(0, max), more: Math.max(0, out.length - max), all: out };
 }
 
@@ -409,7 +409,7 @@ export function staleText(b) {
  * The chip's words (spec §5.2): { text, short, aria, tone, dot, count }. Desktop shows `text` ("Lot 65 · Freeze 1800
  * · 1 event"), tablets `short` plus the count, phones the lot and a dot.
  */
-export function chipModel(b, { lot = null, now = Date.now() } = {}) {
+export function chipModel(b, { lot = null, now = Date.now(), rate = false } = {}) {
   const L = num(lot) ?? num(b?.lots?.current);
   const freeze = num(b?.freeze?.freezeQty);
   const events = upcomingEvents(b?.events);
@@ -420,13 +420,21 @@ export function chipModel(b, { lot = null, now = Date.now() } = {}) {
   if (b?.lots?.stale) extra.push("Stale");
   const tomorrow = b?.fallback ? null : holidayTomorrow(b, now);
   if (tomorrow) extra.push("Holiday tomorrow");
+  // Pages that price with the rate (Volatility, Arbitrage) say where it comes from when it is a default or old.
+  const rateWarn = Boolean(rate) && !b?.fallback && rateNeedsNote(b);
+  if (rateWarn) extra.push(rateChipText(b));
   const tone = b?.fallback ? "bad" : b?.lots?.stale || b?.lots?.conflict ? "warn" : "normal";
   // A fallback with no lot to show (the Market calendar page has no chain): "Reference: defaults", not "Lot --".
   const noLot = b?.fallback && L === null;
   const text = noLot ? "Reference: defaults" : b?.fallback ? `${parts[0]} · Defaults` : [...parts, ...extra].join(" · ");
   const short = noLot ? text : [parts[0], ...extra.filter((x) => x !== "Stale" && x !== "Holiday tomorrow").slice(0, 1)].join(" · ");
   const aria = b?.fallback ? `${parts.join(", ")}. Reference data unavailable: using dashboard defaults. Open contract facts.` : `${[...parts, ...extra].join(", ")}. Open contract facts.`;
-  return { text, short, aria, tone, dot: Boolean(events.length || tone !== "normal" || tomorrow), count: events.length };
+  return { text, short, aria, tone, dot: Boolean(events.length || tone !== "normal" || tomorrow || rateWarn), rateWarn, count: events.length };
+}
+/** "Rate 6.50 % default" / "Rate 5.71 % old": the rate's chip word, when rateNeedsNote(b). */
+export function rateChipText(b) {
+  const r = refRate(b);
+  return `Rate ${formatFixed(r.value * 100, 2)} % ${r.isDefault ? "default" : "old"}`;
 }
 /** The holiday on the IST day after `now`, when that day is a weekday holiday in the bundle (a weekend is closed anyway). */
 export function holidayTomorrow(b, now) {
@@ -467,7 +475,7 @@ const media = (q) => (typeof matchMedia === "function" ? matchMedia(q).matches :
  * `getLot()` are read on every update(), so the chip follows the page's underlying.
  * @returns {{ el: HTMLElement, update: () => void, open: () => void }}
  */
-export function refChip({ getBundle, getLot = () => null }) {
+export function refChip({ getBundle, getLot = () => null, rate = false }) {
   const text = h("span", { class: "ref-chip-text" });
   const dot = h("span", { class: "ref-chip-dot", "aria-hidden": "true", hidden: true });
   const el = h("button", { type: "button", class: "ref-chip glass", "aria-haspopup": "dialog", hidden: true }, h("span", { class: "ref-chip-ic", "aria-hidden": "true" }, icon("calendar")), text, dot);
@@ -478,7 +486,7 @@ export function refChip({ getBundle, getLot = () => null }) {
       el.hidden = true;
       return;
     }
-    const m = chipModel(b, { lot: getLot() });
+    const m = chipModel(b, { lot: getLot(), rate });
     const phone = media("(max-width: 719px)");
     const tablet = !phone && media("(max-width: 1023px)");
     const words = phone ? m.text.split(" · ")[0] : tablet ? m.short : m.text;
@@ -488,7 +496,8 @@ export function refChip({ getBundle, getLot = () => null }) {
     sig = s;
     text.textContent = words;
     el.dataset.tone = m.tone;
-    dot.hidden = !(m.dot && (phone || tablet));
+    // The rate's warn dot shows at every width (its words drop first on phones); the rest only where words are cut.
+    dot.hidden = !(m.rateWarn || (m.dot && (phone || tablet)));
     el.setAttribute("aria-label", m.aria);
     el.title = m.text;
   };
@@ -513,10 +522,10 @@ export function openFacts(trigger, b, lot) {
 
 /**
  * The banner strip above a page body (spec §5.3). update(bundle) redraws it; at most 2 banners show (1 on phones),
- * "+N more" opens the facts sheet. Events can be hidden until tomorrow. `rateNote` adds the rate line (vol, arb).
+ * "+N more" opens the facts sheet. Events can be hidden until tomorrow.
  * @returns {{ el: HTMLElement, update: (b: object|null) => void }}
  */
-export function refBanners({ rateNote = false, onMore = null, now = () => Date.now() } = {}) {
+export function refBanners({ onMore = null, now = () => Date.now() } = {}) {
   const el = h("div", { class: "ref-banners", "data-fixed": "", hidden: true, role: "region", "aria-label": "Contract notices" });
   let last = null;
   let sig = "";
@@ -529,7 +538,7 @@ export function refBanners({ rateNote = false, onMore = null, now = () => Date.n
     const today = istDate(now());
     const phone = media("(max-width: 719px)");
     const max = phone ? 1 : 2;
-    const m = bannerModel(b, { hidden: readHidden(today), max, rateNote });
+    const m = bannerModel(b, { hidden: readHidden(today), max });
     const s = JSON.stringify([m.shown.map((x) => [x.id, x.text]), m.more, phone]);
     if (s === sig) return;
     sig = s;
@@ -539,7 +548,7 @@ export function refBanners({ rateNote = false, onMore = null, now = () => Date.n
         h(
           "div",
           { class: `ref-banner ${x.tone}`, "data-kind": x.kind, role: x.tone === "bad" || x.tone === "warn" ? "alert" : "status" },
-          icon(x.tone === "info" || x.tone === "quiet" ? "calendar" : "warn"),
+          icon(x.tone === "info" ? "calendar" : "warn"),
           // Phones clamp the text to two lines: there it is a button that expands it (keyboard and switch access
           // included); elsewhere nothing is clamped, so it is plain text and not a tab stop.
           phone

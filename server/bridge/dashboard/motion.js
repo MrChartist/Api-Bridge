@@ -458,8 +458,8 @@ const raf2 = (fn) => (typeof requestAnimationFrame === "function" ? requestAnima
 
 /**
  * Flash a value's background green (up) or red (down) once; the text colour never changes. Restarts on every call
- * without a reflow (two identical keyframe names alternate through data-flash a / b). Reduced motion: a 2 px
- * leading-edge marker for 3 s instead.
+ * without a reflow (two identical keyframe names alternate through data-flash a / b). Reduced motion: a still
+ * whole-value tint for 3 s instead (never an edge bar).
  * @param {Element} el @param {"up"|"down"|boolean} dir
  */
 export function flashValue(el, dir) {

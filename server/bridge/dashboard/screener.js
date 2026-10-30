@@ -1893,8 +1893,9 @@ export function renderScreenerPage() {
   }
   const titleOf = (r) => (r.kind === "arb" ? `${r.type} · ${r.chain}` : r.name);
   const chartSlotBox = (r) => {
+    // null until a chart engine registers (app.js chartSlot); h() drops it.
     const box = chartSlot("Price and IV history", r ? `${r.underlying}: your chart engine plugs in here` : "Your chart engine plugs in here");
-    box.classList.add("scr-slot");
+    box?.classList.add("scr-slot");
     return box;
   };
 

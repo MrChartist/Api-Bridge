@@ -5,7 +5,7 @@
 //
 // The desk owns the data: `read(strike, side)` returns { x (the chain context), row, q (the leg), position, name,
 // canTrade, paused, warnings }. Numbers are formatted by format.js only; the maths is options.js.
-import { h, icon } from "./app.js";
+import { chartSlot, h, icon } from "./app.js";
 import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
 import { segmented } from "./views.js";
@@ -124,7 +124,8 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
   const legBuy = h("button", { type: "button", class: "small" }, "Add buy leg");
   const legSell = h("button", { type: "button", class: "small" }, "Add sell leg");
   // The owner's chart engine plugs in here; until then a labelled placeholder (no fake chart).
-  const chartSlotEl = h("div", { class: "cs-chart-slot", role: "img", "aria-label": "Chart engine slot: price chart of this contract" }, h("span", { class: "chart-slot-kicker" }, "Chart engine slot"), h("span", {}, "Price chart of this contract"));
+  // The owner's chart engine, once one registers (null until then: h() drops it).
+  const chartSlotEl = chartSlot("Price chart of this contract");
   const grid = h("div", { class: "cs-groups" });
   const warns = h("ul", { class: "ticket-checks cs-warns", "aria-label": "Before you trade", hidden: true });
   const grab = h("div", { class: "cs-grab", "aria-hidden": "true" });

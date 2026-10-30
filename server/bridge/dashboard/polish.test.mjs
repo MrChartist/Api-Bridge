@@ -166,9 +166,124 @@ describe("Foundation §3: tokens", () => {
   it("has no --seg-thumb left", () => {
     expect(css + palette).not.toMatch(/--seg-thumb/);
   });
-  it("sets panel radius 16 and panel gap 12", () => {
-    expect(css).toMatch(/--r-panel:\s*16px/);
-    expect(css).toMatch(/--panel-gap:\s*12px/);
+  it("defines the UI pass 3 scales in the first :root (radii, edge, spacing, z-index)", () => {
+    // docs/design/ui-pass-3.md §2-§4: one panel radius (20), the inner / popover / sheet radii, one L1 edge, the panel
+    // gaps (24, dense 12 on desk pages) and the stacking tiers.
+    expect(light).toMatch(/--r-panel:\s*20px;/);
+    expect(light).toMatch(/--r-inner:\s*12px;/);
+    expect(light).toMatch(/--r-pop:\s*16px;/);
+    expect(light).toMatch(/--r-sheet:\s*28px;/);
+    expect(light).toMatch(/--edge-1:\s*0 0 0 var\(--hl\) var\(--mat-separator\);/);
+    expect(light).toMatch(/--panel-shadow:\s*var\(--edge-1\);/);
+    expect(light).toMatch(/--panel-gap:\s*24px;/);
+    expect(light).toMatch(/--panel-gap-dense:\s*12px;/);
+    expect(css).toMatch(/:root\[data-layout="desk"\] \{ --panel-gap: var\(--panel-gap-dense\); \}/);
+    for (const t of ["--page-gutter", "--panel-head-h", "--ctl-h", "--page-tabs-h", "--surface-raised"]) expect(light, t).toMatch(new RegExp(`${t}:\\s*[^;]+;`));
+    const z = { sticky: 2, "sticky-corner": 3, pinned: 6, raised: 20, veil: 40, chrome: 50, popover: 60, "panel-max": 70, toast: 90 };
+    for (const [k, v] of Object.entries(z)) expect(light, `--z-${k}`).toMatch(new RegExp(`--z-${k}:\\s*${v};`));
+    // The radius and gap live in the first :root only (not redefined as literals further down).
+    expect(css.match(/--r-panel:\s*\d/g)?.length).toBe(1);
+  });
+  it("dark shadows are pure drop shadows (the L1 edge is --edge-1, never a ring inside a shadow token)", () => {
+    for (const body of [darkMedia, darkForced]) {
+      for (const t of ["--shadow-1", "--shadow-2", "--shadow-3", "--shadow-float"]) expect(body.match(new RegExp(`${t}:\\s*([^;]+);`))?.[1], t).not.toMatch(/^0 0 0 /);
+      expect(body).toMatch(/--panel-shadow:\s*var\(--edge-1\);/);
+    }
+  });
+});
+
+describe("UI pass 3 §1: no strips in the shared CSS", () => {
+  // The foundation's sections (ui-pass-3.md §11): 0-12 and the desk base, movable panels, the reference banners and
+  // chip, responsive and accessibility, and palette.css. Page sections follow the same rule as their areas land.
+  const shared = [
+    css.slice(0, css.indexOf("/* ── The chain (docs/design/chain.md")),
+    section("12c · MOVABLE PANELS", "12d · STRATEGY BUILDER"),
+    section("12r · REFERENCE DATA AND MARKET CALENDAR", "── Market calendar page ──"),
+    section("13 · RESPONSIVE", "── Positions scope"),
+    palette,
+  ].join("\n");
+  const sharedRules = rules(withoutForcedColors(shared));
+  /** The comma-separated layers of a box-shadow value (commas inside hsl() / calc() / var() are not layer breaks). */
+  const layers = (v) => {
+    const out = [];
+    let depth = 0;
+    let cur = "";
+    for (const ch of v) {
+      if (ch === "(") depth++;
+      if (ch === ")") depth--;
+      if (ch === "," && depth === 0) {
+        out.push(cur.trim());
+        cur = "";
+      } else cur += ch;
+    }
+    if (cur.trim()) out.push(cur.trim());
+    return out;
+  };
+  /** The neutral edge colours a rule may draw (a separator hairline is not a strip). */
+  const NEUTRAL = /var\(--mat-(separator|hairline)\)|transparent/;
+  /** Accent, status and selection colours: never on one side of anything. */
+  const ACCENT = /var\(--(sel-bg|sel-fg|sel-ring|pos|neg|warn|dv-|ios-|c-|edge\b|tone|tint|btn-buy|btn-sell|itm-edge)/;
+  /** Data marks are not strips (ui-pass-3.md §1): chart legend keys draw their line style. */
+  const DATA_MARKS = /\.dv-key\b/;
+  const px = (t) => (/^calc\(|var\(--hl\)/.test(t) ? 0.5 : Math.abs(parseFloat(t)) || 0);
+  it("finds the shared rules", () => expect(sharedRules.length).toBeGreaterThan(400));
+  it("no one-sided inset box-shadow in an accent, status or selection colour (and none of 1.5 px or more at all)", () => {
+    const bad = [];
+    for (const r of sharedRules) {
+      const decls = [...r.body.matchAll(/box-shadow:\s*([^;]+)/g)].map((m) => m[1]);
+      for (const v of decls) {
+        for (const layer of layers(v)) {
+          const m = layer.match(/^inset\s+(\S+)\s+(\S+)(?:\s+(\S+))?/);
+          if (!m) continue;
+          const [x, y] = [m[1], m[2]];
+          const oneSided = (px(x) > 0) !== (px(y) > 0) || (x !== "0" && y !== "0" && !(px(x) === 0 && px(y) === 0));
+          if (!oneSided) continue;
+          // A hairline (under 1.5 px) in a neutral ink is a separator or the button system's glass specular, not a strip.
+          if (!ACCENT.test(layer) && Math.max(px(x), px(y)) < 1.5) continue;
+          bad.push(`${r.selector} → ${layer}`);
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+  it("no thin ::before / ::after bar along one edge in a colour other than the separator", () => {
+    const bad = sharedRules.filter((r) => {
+      if (!/::?(before|after)\s*$/.test(r.selector.split(",").pop())) return false;
+      const thin = /(?:^|[\s;])(width|height):\s*(0?\.\d+|[1-4])px/.test(r.body) || /(?:^|[\s;])(width|height):\s*var\(--hl\)/.test(r.body);
+      const edge = /(?:^|[\s;])(left|right|top|bottom):\s*0\b/.test(r.body) || /inset:\s*0 auto|inset:\s*auto 0|inset:\s*0 0 auto|inset:\s*auto auto 0/.test(r.body);
+      const colour = r.body.match(/background(?:-color)?:\s*([^;]+)/)?.[1] ?? "";
+      return thin && edge && colour && !NEUTRAL.test(colour);
+    });
+    expect(bad.map((r) => r.selector)).toEqual([]);
+  });
+  it("no one-sided border in a colour other than the separator", () => {
+    const bad = [];
+    for (const r of sharedRules.filter((x) => !DATA_MARKS.test(x.selector))) for (const m of r.body.matchAll(/border-(top|right|bottom|left):\s*([^;]+)/g)) if (!/^(0|none)\b/.test(m[2].trim()) && !NEUTRAL.test(m[2])) bad.push(`${r.selector} → ${m[0]}`);
+    expect(bad).toEqual([]);
+  });
+  it("the current nav item and the More sheet's current row are fills, never a leading bar", () => {
+    expect(css).not.toMatch(/\.nav a\[aria-current="page"\]::before/);
+    expect(stripComments(css)).not.toMatch(/\.list-row\[aria-current="page"\][^{]*\{[^}]*inset 3px/);
+    expect(css).toMatch(/\.nav a\[aria-current="page"\] \{[^}]*background: var\(--mat-fill-3\)/);
+  });
+  it("cards are L1: opaque, one edge, no drop shadow, no blur, no top highlight; no card-in-card surface", () => {
+    const card = block(css, ".card");
+    expect(card).toMatch(/background: var\(--mat-grouped-solid\)/);
+    expect(card).toMatch(/box-shadow: var\(--edge-1\)/);
+    expect(card).not.toMatch(/backdrop-filter|--spec-top|--shadow-/);
+    expect(block(css, ".card .card")).toMatch(/background: transparent/);
+    expect(stripComments(css)).not.toMatch(/\.icon-tile \{[^}]*linear-gradient/);
+  });
+  it("hover fills on rows and nav items only on a hovering pointer (a tap never leaves a second selected look)", () => {
+    const loose = sharedRules.filter((r) => /(\.nav a|\.list-row|tbody tr):hover/.test(r.selector) && /background/.test(r.body) && !/transparent/.test(r.body) && !r.media.includes("hover: hover"));
+    expect(loose.map((r) => r.selector)).toEqual([]);
+  });
+});
+
+describe("UI pass 3 §4: one stacking scale", () => {
+  it("no literal z-index of 10 or more in app.css or palette.css", () => {
+    const hits = [...stripComments(css + palette).matchAll(/z-index:\s*(\d+)/g)].map((m) => Number(m[1])).filter((n) => n >= 10);
+    expect(hits).toEqual([]);
   });
 });
 

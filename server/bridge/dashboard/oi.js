@@ -452,9 +452,10 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
   );
 
   // ── Timeline (the owner's chart engine plugs in here) ──
+  // null until a chart engine registers (app.js chartSlot); h() drops it from the panel then.
   const slot = chartSlot("Call OI, Put OI, PCR, Max Pain and spot vs time");
-  slot.classList.add("oi-tslot");
-  const slotLabel = slot.querySelector(".chart-slot-label");
+  slot?.classList.add("oi-tslot");
+  const slotLabel = slot?.querySelector(".chart-slot-label");
   const coverageEl = h("p", { class: "oi-note" });
   const migrateEl = h("p", { class: "oi-note oi-migrate" });
   const snapBody = h("div", { class: "oi-snaps-body" });
@@ -1383,11 +1384,11 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const series = seriesCache.data;
     const n = series.length;
     const label = `Call OI, Put OI, PCR, Max Pain and spot vs time · ${plural(n, "point")} ready`;
-    if (slotLabel.textContent !== label) {
+    if (slot && slotLabel && slotLabel.textContent !== label) {
       slotLabel.textContent = label;
       slot.setAttribute("aria-label", `Chart engine slot: ${label}`);
     }
-    slot.classList.toggle("short", n < 10);
+    slot?.classList.toggle("short", n < 10);
     const sc = byServer && e?.cov ? e.cov : null;
     const notPlanned = !byServer && e?.inPlan === false;
     const cov = sc

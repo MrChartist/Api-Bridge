@@ -393,7 +393,7 @@ export async function participantSummaryCached(now = Date.now(), fetcher = api) 
 /** The OI page's participant line: an <a> that updates itself for the underlying in view. */
 export function oiParticipantLine() {
   const text = h("span", { class: "oi-part-text" });
-  const el = h("a", { class: "oi-part", href: "#/participants", hidden: true }, icon("people"), text, h("span", { class: "oi-part-go" }, h("span", { class: "oi-part-sep", "aria-hidden": "true" }, "· "), "Participants", h("span", { "aria-hidden": "true" }, " →")));
+  const el = h("a", { class: "oi-part", href: "#/oi/participants", hidden: true }, icon("people"), text, h("span", { class: "oi-part-go" }, h("span", { class: "oi-part-sep", "aria-hidden": "true" }, "· "), "Participants", h("span", { "aria-hidden": "true" }, " →")));
   let sig = "";
   return {
     el,

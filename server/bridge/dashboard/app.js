@@ -295,6 +295,7 @@ export function toast(text, { tone = "ok" } = {}) {
   const info = tone === "info";
   t.replaceChildren(h("span", { class: `toast-icon${info ? " info" : ""}` }, icon(info ? "info" : "check")), h("span", { class: "toast-text" }, text));
   t.hidden = false;
+  raiseToast(t);
   if (wasHidden) bannerIn(t);
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => {
@@ -303,6 +304,20 @@ export function toast(text, { tone = "ok" } = {}) {
       if (toast.gen === gen) t.hidden = true;
     });
   }, 2600);
+}
+
+/**
+ * The toast is a manual popover (index.html): re-showing it makes it the newest top-layer entry, so it sits above an
+ * open sheet or palette. Browsers without popovers keep the fixed --z-toast layer.
+ */
+function raiseToast(t) {
+  if (typeof t.showPopover !== "function") return;
+  try {
+    if (t.matches(":popover-open")) t.hidePopover();
+    t.showPopover();
+  } catch {
+    /* not in the document, or popovers unsupported: the CSS layer still shows it */
+  }
 }
 
 export async function copyText(text, label = "Copied") {
@@ -332,13 +347,16 @@ export function highlightJson(text) {
   });
 }
 
-/** A code block with a copy button. `onCopy` runs after copying (the welcome checklist listens). */
+/**
+ * A code block: a head row (title, Copy) above the code, so Copy never covers it; the code scrolls sideways instead of
+ * wrapping mid-token. `onCopy` runs after copying (the welcome checklist listens).
+ */
 export function codeBlock(code, { title, json = false, onCopy } = {}) {
   const pre = h("pre", { tabindex: "0" });
   if (json) pre.innerHTML = highlightJson(code);
   else pre.textContent = code;
   const btn = h("button", { type: "button", class: "small copy", onclick: () => copyText(code).then(() => onCopy?.()) }, icon("copy"), "Copy");
-  return h("div", { class: "code-block" }, title ? h("div", { class: "code-title" }, title) : null, h("div", { class: "code" }, pre, btn));
+  return h("div", { class: "code-block" }, h("div", { class: "code-head" }, h("div", { class: "code-title" }, title ?? ""), btn), h("div", { class: "code" }, pre));
 }
 
 /**
@@ -487,8 +505,12 @@ export function mountToolbarCtx(page, ...nodes) {
 /** The one demo indicator's explanation (the toolbar's "Demo" and the phone ⋯ badge). */
 export const DEMO_EXPLAINER = "Sample prices generated on this computer. Not live market data. Orders are paper only.";
 
-/** The shared placeholder for the owner's chart engine: fixed aspect ratio, dashed hairline, centred caption. */
+/**
+ * The shared slot for the owner's chart engine. Nothing is drawn until an engine registers (`app.chartEngine`): the
+ * function returns null then, so every caller filters it out (replaceChildren(null) would print "null").
+ */
 export function chartSlot(label, sub = "") {
+  if (!app.chartEngine) return null;
   return h("div", { class: "chart-slot-box", role: "img", "aria-label": `Chart engine slot: ${label}` }, h("span", { class: "chart-slot-kicker" }, "Chart engine slot"), h("span", { class: "chart-slot-label" }, label), sub ? h("span", { class: "chart-slot-sub" }, sub) : null);
 }
 

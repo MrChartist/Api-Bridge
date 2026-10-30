@@ -1,7 +1,7 @@
 /* Command palette in the Spotlight style of IPO Decode (shell.css .spot*), keyboard-shortcut sheet and small
    accessibility helpers. Uses the app.css tokens. */
 
-/* ── Palette panel: thick glass, 26px corners, a big search field, rows with tinted icon tiles ── */
+/* ── Palette panel (L4): thick glass, sheet corners, a big search field, rows with tinted icon tiles ── */
 dialog.palette {
   position: fixed;
   inset: max(12vh, 64px) 0 auto 0;
@@ -10,13 +10,13 @@ dialog.palette {
   max-height: min(560px, calc(100dvh - max(12vh, 64px) - 24px));
   padding: 0;
   border: 0;
-  border-radius: 26px;
+  border-radius: var(--r-sheet);
   overflow: hidden;
   color: hsl(var(--foreground));
   background: var(--mat-thick);
   -webkit-backdrop-filter: blur(44px) saturate(200%);
   backdrop-filter: blur(44px) saturate(200%);
-  box-shadow: var(--shadow-float);
+  box-shadow: var(--edge-1), var(--shadow-float);
   flex-direction: column;
 }
 dialog.palette[open] { display: flex; animation: palette-in 220ms var(--ease-out); }
@@ -52,7 +52,7 @@ button.palette-x svg { width: 18px; height: 18px; }
 
 .palette-list { list-style: none; margin: 0; padding: 8px; overflow-y: auto; overscroll-behavior: contain; flex: 1; min-height: 0; }
 .palette-group { padding: 10px 12px 4px; font: var(--t-label); line-height: 1; color: hsl(var(--foreground) / var(--a-quiet)); }
-.palette-option { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 12px; border-radius: 14px; cursor: pointer; font: 500 15px/1.25 var(--font-body); letter-spacing: -0.01em; }
+.palette-option { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 12px; border-radius: var(--r-ctl); cursor: pointer; font: 500 15px/1.25 var(--font-body); letter-spacing: -0.01em; }
 .palette-option .icon-tile { width: 32px; height: 32px; border-radius: 9px; }
 .palette-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .palette-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -111,7 +111,7 @@ div.field.seg-field .segmented.wraps { flex-wrap: wrap; border-radius: 18px; }
   position: fixed;
   top: max(10px, var(--safe-t));
   left: 10px;
-  z-index: 1000;
+  z-index: var(--z-toast);
   padding: 10px 16px;
   border-radius: 999px;
   background: hsl(var(--ios-blue-fill));

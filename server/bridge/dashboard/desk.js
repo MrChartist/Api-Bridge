@@ -285,7 +285,8 @@ async function renderDesk(kind) {
   const liveOrders = h("span", { class: "ctx-live-orders", hidden: true, title: "Orders from this page go to a live broker account" }, "LIVE orders");
   // Tablets and phones: the one demo indicator is a small "Demo" pill of its own before the live control (a safety
   // marker, not a badge on ⋯ that reads as a count). Desktop has the toolbar's own Demo pill.
-  const moreBtn = h("button", { type: "button", class: "icon-btn ctx-more", "aria-haspopup": "dialog", "aria-label": "More: account, trading readiness, refresh, search, theme", onclick: () => openCtxSheet() }, icon("more"), h("span", { class: "rd-more-dot", "aria-hidden": "true" }));
+  // Phones (< 720 px): the Demo word folds into ⋯ (an amber dot on it, the explanation in its sheet; ui-pass-3.md §6).
+  const moreBtn = h("button", { type: "button", class: "icon-btn ctx-more", "aria-haspopup": "dialog", "aria-label": `More: account, trading readiness, refresh, search, theme${app.state.demo ? ", demo data" : ""}`, onclick: () => openCtxSheet() }, icon("more"), h("span", { class: "rd-more-dot", "aria-hidden": "true" }), app.state.demo ? h("span", { class: "demo-badge", "aria-hidden": "true" }) : null);
   const demoPill = app.state.demo ? h("span", { class: "ctx-demo", "data-demo-indicator": "", title: `Demo data: ${DEMO_EXPLAINER}` }, "Demo") : null;
   let ctxSig = "";
   let capsule = null;
@@ -397,6 +398,7 @@ async function renderDesk(kind) {
       { class: "ctx-sheet" },
       TRADING.has(kind) && tradable.length ? h("label", { class: "field" }, "Orders go to", h("span", { class: "ctx-row" }, aSel, acctBadge)) : null,
       h("div", { class: "ctx-row" }, h("span", {}, "Lot size"), h("strong", {}, lotV.data)),
+      app.state.demo ? h("p", { class: "ctx-demo-note" }, h("span", { class: "pill demo" }, "Demo"), h("span", {}, DEMO_EXPLAINER)) : null,
       // Trading readiness: the toolbar badge folds away here on tablets and phones (docs/spec/p1-05-readiness.md §6.5).
       readinessSheetRow(() => sheetRef?.close(), moreBtn),
       h(
@@ -606,8 +608,9 @@ async function renderDesk(kind) {
     st.positionsError = r.error ?? null;
   }
   // ── Reference data (docs/spec/p1-02-reference.md §5): one bundle per underlying, re-read every 10 minutes ──
-  const refChipEl = refChip({ getBundle: () => st.ref, getLot: () => num(st.chain?.lotSize) ?? num(st.ref?.lots?.current) });
-  const refBannersEl = refBanners({ rateNote: kind === "vol" || kind === "arb", onMore: () => refChipEl.open() });
+  // Volatility and Arbitrage price with the rate: the chip says where it comes from when it is a default or old.
+  const refChipEl = refChip({ getBundle: () => st.ref, getLot: () => num(st.chain?.lotSize) ?? num(st.ref?.lots?.current), rate: kind === "vol" || kind === "arb" });
+  const refBannersEl = refBanners({ onMore: () => refChipEl.open() });
   async function loadRef() {
     const u = st.underlying;
     // The reference bundle and the vol-time clock (GET /v1/vol/clock: every page prices on the Bridge's clock).

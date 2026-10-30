@@ -170,8 +170,8 @@ describe("corporate-action preview wiring", () => {
 });
 
 describe("page registration and copy", () => {
-  it("is an Options page with a calendar glyph", () => {
-    expect(PAGES.find((p) => p.id === "calendar")).toMatchObject({ label: "Market calendar", icon: "calendar", group: "Options", layout: "desk" });
+  it("is a Markets page (ui-pass-3.md §5.1) with a calendar glyph", () => {
+    expect(PAGES.find((p) => p.id === "calendar")).toMatchObject({ label: "Market calendar", icon: "calendar", group: "Markets", layout: "desk" });
   });
   it("describes facts only and carries the disclaimer", () => {
     expect(checkSource(readFileSync(new URL("./calendar.js", import.meta.url), "utf8"))).toEqual([]);

@@ -68,14 +68,9 @@
       </a>
       <button type="button" id="sb-search" class="sb-search"><span class="sb-search-label">Search</span></button>
       <nav id="nav" class="nav sidebar-scroll" aria-label="Pages"></nav>
+      <!-- One account row: it opens Appearance, Keyboard shortcuts, About and Forget key (views.js accountPopover). -->
       <div class="sb-foot">
-        <div class="segmented appearance" id="theme" role="group" aria-label="Appearance">
-          <button type="button" data-theme-choice="light">Light</button>
-          <button type="button" data-theme-choice="dark">Dark</button>
-          <button type="button" data-theme-choice="auto">Auto</button>
-        </div>
-        <div class="who"><span class="dot"></span><span id="who">Signed in</span></div>
-        <button type="button" id="logout" class="plain small" data-action="logout">Forget key</button>
+        <button type="button" id="sb-account" class="sb-account who" aria-haspopup="dialog" aria-expanded="false" title="Appearance, shortcuts and your key"><span class="dot" aria-hidden="true"></span><span id="who">Signed in</span></button>
       </div>
     </aside>
 
@@ -111,6 +106,6 @@
     <nav id="tabbar" class="tabbar glass glass-strong" aria-label="Primary pages"></nav>
   </div>
   <dialog id="dialog" class="sheet"></dialog>
-  <div id="toast" class="toast glass" role="status" aria-live="polite" hidden></div>
+  <div id="toast" class="toast glass" role="status" aria-live="polite" popover="manual" hidden></div>
 </body>
 </html>

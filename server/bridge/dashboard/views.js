@@ -42,7 +42,7 @@ import { renderScreenerPage } from "./screener.js";
 import { renderParticipantsPage } from "./participants.js";
 import { renderRecorderPage } from "./recorder.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
-import { initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
+import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
 const $ = (id) => document.getElementById(id);
 const local = app.local;
@@ -222,33 +222,139 @@ function restoreFocus(container, saved) {
 
 // ── Pages ──
 
+/** The Integrations tab's tools (its inner segmented control; each is also a ⌘K destination). */
+const INTEGRATION_TOOLS = [
+  ["webhooks", "Webhooks"],
+  ["python", "Python"],
+  ["node", "Node"],
+  ["excel", "Excel and Sheets"],
+  ["amibroker", "AmiBroker"],
+  ["claude", "Claude (MCP)"],
+  ["chatgpt", "ChatGPT / OpenAI"],
+  ["rest", "REST / curl"],
+];
+
 /**
- * The one list of pages: it feeds the sidebar, the phone tab bar, the More sheet and the ⌘K palette. `tint` is an iOS
- * system colour name (the page's glyph colour everywhere), `tab: true` puts it in the phone tab bar (`short` labels it there), `headline` is the
- * large title when it differs from `title` (one serif accent word at most).
+ * The one list of pages: it feeds the sidebar, the phone tab bar, the More sheet and the ⌘K palette
+ * (docs/design/ui-pass-3.md §5). `group` is the sidebar group ("" for Home, which has no label), `tint` an iOS system
+ * colour name (the page's glyph colour everywhere), `key` the curated ⌘1 to ⌘9 shortcut, `tab: true` puts it in the
+ * phone tab bar (`short` labels it there), `headline` is the large title when it differs from `title` (one serif accent
+ * word at most). A page with `tabs` is one page with a tab strip: each tab names the legacy page id it renders (`page`,
+ * which keeps every `:root[data-page]` rule and old link working), may set its own `layout` and `sub`, and `command`
+ * is its ⌘K label; `extras` are further ⌘K destinations inside it.
  */
 export const PAGES = [
-  { id: "home", label: "Home", icon: "home", tint: "blue", tab: true, group: "Overview", title: "Home", headline: ["Your ", { serif: "Bridge" }], sub: "Your accounts, today's activity and safety, on this computer", render: renderHome },
-  { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", group: "Overview", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
-  { id: "console", label: "Test console", icon: "console", tint: "teal", group: "Overview", title: "Test console", sub: "Try any call and see exactly what comes back", render: renderConsole },
-  { id: "limits", label: "Rate limits", icon: "limits", tint: "purple", group: "Overview", title: "Rate limits", sub: "Live usage against each broker's limits, and the calls the Bridge saved", render: renderLimits },
-  { id: "recorder", label: "Data recorder", icon: "clock", tint: "indigo", group: "Overview", title: "Data recorder", sub: "Option chains recorded every minute on this computer, with the browser closed", render: renderRecorderPage },
-  { id: "scanner", label: "Scanner", icon: "scan", tint: "mint", group: "Overview", title: "Scanner", sub: "Scan big universes with a readable condition, shared out over your accounts", render: renderScanner },
-  { id: "chain", label: "Option Chain", short: "Chain", icon: "chart", tint: "green", tab: true, group: "Options", layout: "desk", title: "Option Chain", get sub() { return `Live chain with OI, IV and Greeks. ${touchWord()} a bid or ask to trade`; }, render: renderChainPage },
-  { id: "strategy", label: "Strategy Builder", icon: "strategy", tint: "purple", group: "Options", layout: "desk", title: "Strategy Builder", sub: "Payoff, breakevens, POP and margin before you trade", render: renderStrategyPage },
-  { id: "oi", label: "OI Analysis", icon: "bars", tint: "orange", group: "Options", layout: "desk", title: "OI Analysis", sub: "Open interest and OI chg by strike, build-up and walls", render: renderOiPage },
-  { id: "participants", label: "Participant OI", short: "Participants", icon: "people", tint: "teal", group: "Options", layout: "desk", title: "Participant OI", sub: "NSE participant-wise open interest: Client, DII, FII and Pro, by day", render: renderParticipantsPage },
-  { id: "vol", label: "Volatility", icon: "wave", tint: "pink", group: "Options", layout: "desk", title: "Volatility", sub: "Smile, skew, term structure and expected move", render: renderVolPage },
-  { id: "screener", label: "Option Screener", short: "Screener", icon: "radar", tint: "yellow", group: "Options", layout: "desk", title: "Option Screener", sub: "Scan every underlying and expiry for unusual activity, build-ups, rich or cheap premium, hedges and arbitrage", render: renderScreenerPage },
-  { id: "arb", label: "Arbitrage", icon: "scale", tint: "indigo", group: "Options", layout: "desk", title: "Arbitrage scanner", sub: "Parity, boxes and futures basis at executable prices, after charges", render: renderArbPage },
-  { id: "positions", label: "Positions", icon: "wallet", tint: "teal", group: "Options", layout: "desk", title: "Option positions", sub: "Open option positions with P&L, net Δ and θ", render: renderPositionsPage },
-  { id: "calendar", label: "Market calendar", icon: "calendar", tint: "teal", group: "Options", layout: "desk", title: "Market calendar", sub: "Expiries, holidays, lot sizes, ban list and corporate actions, with their sources", render: renderCalendarPage },
-  { id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, group: "Trading", title: "Orders and positions", sub: "Paper by default. Pending confirmations wait here", render: renderOrders },
-  { id: "safety", label: "Safety", icon: "safety", tint: "red", tab: true, group: "Trading", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
-  { id: "keys", label: "API keys", icon: "keys", tint: "pink", group: "Connect", title: "API keys", sub: "One key per tool, with only the access it needs", render: renderKeys },
-  { id: "integrations", label: "Integrations", icon: "integrations", tint: "blue", group: "Connect", title: "Integrations", sub: "Copy-paste setup for webhooks, Python, Excel, Claude and more", render: renderIntegrations },
-  { id: "activity", label: "Activity", icon: "activity", tint: "gray", group: "Connect", title: "Activity", sub: "Recent requests and the tamper-evident audit log", render: renderActivity },
+  { id: "home", label: "Home", icon: "home", tint: "blue", tab: true, key: 1, group: "", title: "Home", headline: ["Your ", { serif: "Bridge" }], sub: "Your accounts, today's activity and safety, on this computer", render: renderHome },
+  { id: "chain", label: "Option Chain", short: "Chain", icon: "chart", tint: "green", tab: true, key: 2, group: "Trade", layout: "desk", title: "Option Chain", get sub() { return `Live chain with OI, IV and Greeks. ${touchWord()} a bid or ask to trade`; }, render: renderChainPage },
+  { id: "strategy", label: "Strategy Builder", icon: "strategy", tint: "purple", key: 3, group: "Trade", layout: "desk", title: "Strategy Builder", sub: "Payoff, breakevens, POP and margin before you trade", render: renderStrategyPage },
+  { id: "positions", label: "Positions", icon: "wallet", tint: "teal", tab: true, key: 4, group: "Trade", layout: "desk", title: "Option positions", sub: "Open option positions with P&L, net Δ and θ", render: renderPositionsPage },
+  { id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, key: 5, group: "Trade", title: "Orders", sub: "Paper by default. Pending confirmations wait here", render: renderOrders },
+  { id: "safety", label: "Safety", icon: "safety", tint: "red", key: 6, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
+  {
+    id: "oi", label: "OI Analysis", icon: "bars", tint: "orange", key: 7, group: "Markets", layout: "desk", title: "OI Analysis", sub: "Open interest and OI chg by strike, build-up and walls",
+    defaultTab: "strike",
+    tabs: [
+      { id: "strike", label: "By strike", page: "oi", command: "OI Analysis", keywords: "open interest build-up walls max pain pcr", render: renderOiPage },
+      { id: "participants", label: "Participants", page: "participants", command: "Participant OI", icon: "people", tint: "teal", keywords: "participants fii dii client pro", sub: "NSE participant-wise open interest: Client, DII, FII and Pro, by day", render: renderParticipantsPage },
+    ],
+  },
+  { id: "vol", label: "Volatility", icon: "wave", tint: "pink", group: "Markets", layout: "desk", title: "Volatility", sub: "Smile, skew, term structure and expected move", render: renderVolPage },
+  {
+    id: "screeners", label: "Screeners", icon: "radar", tint: "yellow", key: 8, group: "Markets", layout: "desk", title: "Screeners", sub: "Options, arbitrage and stocks, ranked and scanned",
+    defaultTab: "options",
+    tabs: [
+      { id: "options", label: "Options", page: "screener", layout: "desk", command: "Option Screener", keywords: "screener unusual activity build-up rich cheap premium hedges", sub: "Scan every underlying and expiry for unusual activity, build-ups, rich or cheap premium, hedges and arbitrage", render: renderScreenerPage },
+      { id: "arbitrage", label: "Arbitrage", page: "arb", layout: "desk", command: "Arbitrage scanner", icon: "scale", tint: "indigo", keywords: "arb parity box conversion reversal basis", sub: "Parity, boxes and futures basis at executable prices, after charges", render: renderArbPage },
+      { id: "stocks", label: "Stocks", page: "scanner", layout: "", command: "Stock scanner", icon: "scan", tint: "mint", keywords: "scanner scan condition rsi universe", sub: "Scan big universes with a readable condition, shared out over your accounts", render: renderScanner },
+    ],
+  },
+  { id: "calendar", label: "Market calendar", icon: "calendar", tint: "teal", group: "Markets", layout: "desk", title: "Market calendar", sub: "Expiries, holidays, lot sizes, ban list and corporate actions, with their sources", render: renderCalendarPage },
+  { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
+  {
+    id: "api", label: "API", icon: "keys", tint: "pink", key: 9, group: "Bridge", title: "API", sub: "Keys, integrations, a test console, rate limits and the request log",
+    defaultTab: "keys",
+    tabs: [
+      { id: "keys", label: "Keys", page: "keys", command: "API keys", keywords: "keys token access create revoke", render: renderKeys },
+      {
+        id: "integrations", label: "Integrations", page: "integrations", command: "Integrations", icon: "integrations", tint: "blue", keywords: "integrations snippets connect tools sdk", render: renderIntegrations,
+        extras: INTEGRATION_TOOLS.map(([id, label]) => ({ id, label: id === "webhooks" ? "Webhooks" : `${label} snippet`, route: `api/integrations?tool=${id}`, keywords: id === "webhooks" ? "webhook alert chartink gocharting hooks" : `${id} snippet setup code`, sub: `API › Integrations › ${label}` })),
+      },
+      { id: "console", label: "Test console", page: "console", command: "Test console", icon: "console", tint: "teal", keywords: "console try request call endpoint", render: renderConsole },
+      { id: "limits", label: "Rate limits", page: "limits", command: "Rate limits", icon: "limits", tint: "purple", keywords: "limits usage throttle budget", render: renderLimits },
+      {
+        id: "activity", label: "Activity", page: "activity", command: "Activity", icon: "activity", tint: "gray", keywords: "activity requests log", render: renderActivity,
+        extras: [{ id: "audit", label: "Audit log", route: "api/activity?view=audit", keywords: "audit log hash chain tamper", sub: "API › Activity › Audit log" }],
+      },
+    ],
+  },
+  { id: "recorder", label: "Data recorder", icon: "clock", tint: "indigo", group: "Bridge", title: "Data recorder", sub: "Option chains recorded every minute on this computer, with the browser closed", render: renderRecorderPage },
 ];
+
+/**
+ * Old page ids that became tabs (ui-pass-3.md §5.2): an old link or bookmark opens the tab, keeping its ?query.
+ */
+export const LEGACY = {
+  console: "api/console",
+  limits: "api/limits",
+  keys: "api/keys",
+  integrations: "api/integrations",
+  activity: "api/activity",
+  screener: "screeners/options",
+  arb: "screeners/arbitrage",
+  scanner: "screeners/stocks",
+  participants: "oi/participants",
+};
+
+/**
+ * Where a hash leads (pure): { page, tab, query, redirect, view, layout }. `#/<page>/<tab>?query`; a LEGACY id is
+ * rewritten (`redirect` is the hash to put in its place; Integrations' old `?tab=` becomes `?tool=`); an unknown page
+ * is Home, an unknown or missing tab the page's last tab (`lastTab(pageId)`) or its default. `view` is the legacy page
+ * id the view renders as (the `data-page` value), `layout` the tab's layout, else the page's.
+ */
+export function resolveRoute(hash, { pages = PAGES, lastTab = () => null } = {}) {
+  let raw = String(hash ?? "").replace(/^#\/?/, "");
+  // A one-time sign-in fragment (#signin=..., app.js removes it at start-up) is never a page name.
+  if (raw.startsWith("signin=")) raw = "";
+  const q = raw.indexOf("?");
+  let path = (q < 0 ? raw : raw.slice(0, q)).toLowerCase();
+  let query = q < 0 ? "" : raw.slice(q + 1);
+  let redirect = null;
+  const head = path.split("/")[0];
+  if (Object.hasOwn(LEGACY, head) && !path.includes("/")) {
+    path = LEGACY[head];
+    if (head === "integrations") {
+      const qs = new URLSearchParams(query);
+      if (qs.has("tab") && !qs.has("tool")) qs.set("tool", qs.get("tab"));
+      qs.delete("tab");
+      query = qs.toString();
+    }
+    redirect = `#/${path}${query ? `?${query}` : ""}`;
+  }
+  const [pageId, tabId] = path.split("/");
+  const page = pages.find((p) => p.id === pageId) ?? pages[0];
+  let tab = null;
+  if (page.tabs?.length) {
+    const find = (id) => (id ? page.tabs.find((t) => t.id === id) : undefined);
+    tab = find(tabId) ?? find(lastTab(page.id)) ?? find(page.defaultTab) ?? page.tabs[0];
+  }
+  return { page, tab, query, redirect, view: tab?.page ?? page.id, layout: tab?.layout ?? page.layout ?? "" };
+}
+
+const TAB_SLOT = (pageId) => `mcb.tab.${pageId}`;
+const readLastTab = (pageId) => {
+  try {
+    return localStorage.getItem(TAB_SLOT(pageId));
+  } catch {
+    return null;
+  }
+};
+const rememberTab = (pageId, tabId) => {
+  try {
+    localStorage.setItem(TAB_SLOT(pageId), tabId);
+  } catch {
+    /* private mode or storage off: the default tab opens next time */
+  }
+};
 
 let timer = null;
 let renderSeq = 0;
@@ -266,9 +372,10 @@ function nav(active) {
   for (const p of PAGES) {
     if (p.group !== group) {
       group = p.group;
-      out.push(h("div", { class: "nav-group" }, group));
+      // The first group (Home) has no label.
+      if (group) out.push(h("div", { class: "nav-group" }, group));
     }
-    const sc = pageShortcut(PAGES.indexOf(p));
+    const sc = pageShortcut(p);
     out.push(
       h(
         "a",
@@ -280,12 +387,51 @@ function nav(active) {
     );
   }
   $("nav").replaceChildren(...out);
+  edgeFades($("nav"), "y");
   const anim = motionHooks?.animateNav;
   if (typeof anim === "function") anim($("nav"));
   tabbar(active);
 }
 
-/** The phone / tablet tab bar: the four `tab` pages and More (a sheet with every page, appearance and the key). */
+/**
+ * Overflow hints (ui-pass-3.md §1.4): a scroller gets fade-l / fade-r (or fade-b, axis "y") only while there is more
+ * to see on that side. Wired once per element; call again after its content changes.
+ */
+export function edgeFades(el, axis = "x") {
+  if (!el) return;
+  const update = () => {
+    if (axis === "y") {
+      el.classList.toggle("fade-b", el.scrollTop + el.clientHeight < el.scrollHeight - 1);
+      return;
+    }
+    const max = el.scrollWidth - el.clientWidth;
+    el.classList.toggle("fade-l", max > 1 && el.scrollLeft > 1);
+    el.classList.toggle("fade-r", max > 1 && el.scrollLeft < max - 1);
+  };
+  if (!el.dataset.fades) {
+    el.dataset.fades = axis;
+    el.addEventListener("scroll", update, { passive: true });
+    if (typeof ResizeObserver === "function") new ResizeObserver(update).observe(el);
+  }
+  update();
+}
+
+/**
+ * Card tables (ui-pass-3.md §4): a table that fits its card is not a scroll box (.fits), so its sticky head sticks to
+ * the page; a wider one scrolls sideways with a fade on the side that has more.
+ */
+function fitTables(root) {
+  for (const w of root.querySelectorAll(".card .table-wrap")) {
+    const t = w.querySelector(":scope > table");
+    if (!t) continue;
+    const fits = t.offsetWidth <= w.clientWidth + 1;
+    w.classList.toggle("fits", fits);
+    if (fits) w.classList.remove("fade-l", "fade-r");
+    else edgeFades(w);
+  }
+}
+
+/** The phone / tablet tab bar: the four `tab` pages and More (a sheet with the other pages, appearance and the key). */
 function tabbar(active) {
   const bar = $("tabbar");
   if (!bar) return;
@@ -305,9 +451,14 @@ function tabbar(active) {
   );
 }
 
-/** "More" (phones and tablets): every page grouped as in the sidebar, appearance, and the signed-in key. */
+/**
+ * "More" (phones and tablets): the pages not in the tab bar, grouped as in the sidebar (labels only, one row per page;
+ * the current one filled with a trailing check), then appearance and the signed-in key.
+ */
 function moreSheet(active) {
-  const groups = [...new Set(PAGES.map((p) => p.group))];
+  // Safety leads Trade here: it is the one trading page a phone keeps a tap away (the toolbar's readiness pill too).
+  const pages = PAGES.filter((p) => !p.tab).sort((a, b) => (b.id === "safety") - (a.id === "safety"));
+  const groups = [...new Set(pages.map((p) => p.group))];
   return modal({
     title: "More",
     body: (close) => {
@@ -328,17 +479,17 @@ function moreSheet(active) {
           h(
             "section",
             {},
-            h("div", { class: "eyebrow list-label" }, g),
+            g ? h("div", { class: "eyebrow list-label" }, g) : null,
             h(
               "div",
               { class: "list" },
-              PAGES.filter((p) => p.group === g).map((p) =>
+              pages.filter((p) => p.group === g).map((p) =>
                 h(
                   "button",
                   { type: "button", class: "list-row", "aria-current": p.id === active ? "page" : undefined, onclick: () => goTo(p.id) },
                   iconTile(p.icon, p.tint, "md"),
-                  h("span", { class: "names" }, h("span", { class: "nm" }, p.label), h("span", { class: "sub" }, p.sub)),
-                  chevron(),
+                  h("span", { class: "names" }, h("span", { class: "nm" }, p.label)),
+                  p.id === active ? checkMark() : chevron(),
                 ),
               ),
             ),
@@ -358,18 +509,48 @@ function moreSheet(active) {
             "div",
             { class: "list" },
             h("div", { class: "list-row" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", { class: "names" }, h("span", { class: "nm" }, "Signed in"), h("span", { class: "sub" }, app.state.who ?? ""))),
-            h("button", { type: "button", class: "list-row", onclick: () => { close(undefined); showShortcutsLater(); } }, iconTile("info", "gray", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, "Keyboard shortcuts")), chevron()),
+            h("button", { type: "button", class: "list-row more-shortcuts", onclick: () => { close(undefined); showShortcutsLater(); } }, iconTile("info", "gray", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, "Keyboard shortcuts")), chevron()),
             h("button", { type: "button", class: "list-row", "data-action": "logout" }, iconTile("logout", "red", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, "Forget key"), h("span", { class: "sub" }, "Sign out of this tab"))),
           ),
         ),
+        h("p", { class: "type-credit" }, TYPE_CREDIT),
       );
     },
   });
+}
+
+/**
+ * The sidebar's account row opens this (an L3 popover): appearance, keyboard shortcuts, the About line (the font
+ * credit) and Forget key.
+ */
+function accountPopover(trigger) {
+  const body = h(
+    "div",
+    { class: "acct-pop" },
+    h("span", { class: "acct-pop-label", id: "acct-appearance" }, "Appearance"),
+    appearanceControl("acct-appearance"),
+    h(
+      "div",
+      { class: "acct-pop-acts" },
+      h("button", { type: "button", class: "small", onclick: () => { pop.close(); showShortcutsLater(); } }, icon("info"), "Keyboard shortcuts"),
+      h("button", { type: "button", class: "small plain", "data-action": "logout" }, icon("logout"), "Forget key"),
+    ),
+    h("p", { class: "type-credit" }, h("strong", {}, "About. "), TYPE_CREDIT),
+  );
+  const pop = sheetPopover({ trigger, title: app.state.who ?? "Signed in", body, cls: "acct-popover" });
+  return pop;
 }
 const showShortcutsLater = () => setTimeout(() => import("./palette.js").then((m) => m.showShortcuts()), 260);
 const chevron = () => {
   const s = icon("chevron");
   s.classList.add("chev");
+  return s;
+};
+/** The More sheet's mark for the current page: a check in the selection ink, where the others have a chevron. */
+const checkMark = () => {
+  const s = icon("check");
+  s.classList.add("check");
+  s.setAttribute("aria-hidden", "true");
   return s;
 };
 /** The Mr. Chartist symbol (the sprite in index.html). */
@@ -415,47 +596,60 @@ function headline(page) {
 const IST_DAY = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
 async function show() {
-  const raw = location.hash.replace(/^#\/?/, "").split("?")[0];
-  // A one-time sign-in fragment (#signin=..., app.js removes it at start-up) is never a page name.
-  const id = (raw && !raw.startsWith("signin=") ? raw : "home").toLowerCase();
-  const page = PAGES.find((p) => p.id === id) ?? PAGES[0];
-  const changed = page.id !== shownPage;
-  shownPage = page.id;
+  const route = resolveRoute(location.hash, { lastTab: readLastTab });
+  // An old link (#/console?endpoint=order) becomes its tab's address, without a second history entry.
+  if (route.redirect && typeof history !== "undefined") history.replaceState(history.state, "", route.redirect);
+  const { page, tab } = route;
+  if (tab) rememberTab(page.id, tab.id);
+  const changed = route.view !== shownPage;
+  shownPage = route.view;
   clearInterval(timer);
   $("toast").hidden = true;
   nav(page.id);
-  // Pages can restyle the shell (the Option Desk hides the large title and runs edge to edge).
-  document.documentElement.dataset.page = page.id;
-  document.documentElement.dataset.layout = page.layout ?? "";
+  // Pages can restyle the shell (the Option Desk hides the large title and runs edge to edge). data-page is the view's
+  // own id (a tab's legacy page id), data-route the page in the menu.
+  const root = $("content");
+  document.documentElement.dataset.page = route.view;
+  document.documentElement.dataset.route = page.id;
+  document.documentElement.dataset.layout = route.layout;
   document.documentElement.classList.remove("panel-max-open");
-  document.title = `${page.label} · Mr. Chartist API Bridge`;
+  root.classList.toggle("api-page", page.id === "api");
+  document.title = tab ? `${tab.label} · ${page.label} · Mr. Chartist API Bridge` : `${page.label} · Mr. Chartist API Bridge`;
   $("toolbar-icon").replaceChildren(pageGlyph(page));
-  $("toolbar-label").textContent = page.label;
+  $("toolbar-label").textContent = tab ? `${page.label}: ${tab.label}` : page.label;
   $("page-eyebrow").textContent = page.id === "home" ? IST_DAY.format(new Date()) : page.group;
   $("page-title").replaceChildren(...headline(page));
-  $("page-sub").textContent = page.sub;
+  $("page-sub").textContent = tab?.sub ?? page.sub;
   $("toolbar-demo").hidden = !app.state.demo;
   // The Options pages mount their context (underlying, expiry, spot, live) here on render; every other page has none.
   const ctx = $("toolbar-ctx");
-  if (changed || page.layout !== "desk") {
+  if (changed || route.layout !== "desk") {
     ctx.replaceChildren();
     ctx.hidden = true;
   }
   const seq = ++renderSeq;
-  const root = $("content");
+  // A tabbed page: the tab strip is the first row of the page; only the chosen tab renders (and refreshes).
+  const tabs = tab ? pageTabs(page, tab, root) : null;
+  if (!tabs) {
+    root.removeAttribute("role");
+    root.setAttribute("aria-labelledby", "page-title");
+  }
   root.setAttribute("aria-busy", "true");
-  root.replaceChildren(h("p", { class: "muted" }, "Loading…"));
+  root.replaceChildren(...[tabs, h("p", { class: "muted" }, "Loading…")].filter(Boolean));
+  if (tabs) edgeFades(tabs.firstElementChild);
   try {
-    const nodes = await page.render();
+    const nodes = await (tab?.render ?? page.render)();
     if (seq !== renderSeq) return;
-    root.replaceChildren(...[nodes].flat());
-    arrangePanels(root, page.id);
+    root.replaceChildren(...[tabs, nodes].flat().filter(Boolean));
+    arrangePanels(root, route.view);
+    fitTables(root);
   } catch (err) {
     if (seq !== renderSeq) return;
-    root.replaceChildren(alertBox(err));
+    root.replaceChildren(...[tabs, alertBox(err)].filter(Boolean));
   }
   root.removeAttribute("aria-busy");
-  announce(changed ? `${page.title} page` : `${page.title} refreshed`);
+  const title = tab ? `${page.title}: ${tab.label}` : page.title;
+  announce(changed ? `${title} page` : `${title} refreshed`);
   if (pendingFocus) {
     const target = pendingFocus === true ? null : root.querySelector(pendingFocus);
     pendingFocus = null;
@@ -465,6 +659,17 @@ async function show() {
   const anim = motionHooks?.animatePage;
   if (typeof anim === "function") anim(root);
   refreshTicketCount();
+}
+
+/**
+ * The tab strip of a tabbed page (ui-pass-3.md §5.2): a segmented tab list, the page's first row. Picking a tab goes
+ * to `#/<page>/<tab>` (the hash is the state), so back and forward walk the tabs. #content is its tab panel.
+ */
+function pageTabs(page, tab, panel) {
+  const bar = h("div", { class: "segmented page-tabs", role: "tablist", id: `page-tabs-${page.id}`, "aria-label": `${page.label} sections` });
+  drawTabs(bar, panel, page.tabs.map((t) => [t.id, t.label]), tab.id, (id) => go(`${page.id}/${id}`, `#page-tabs-${page.id}-${id}`));
+  // A full-width row of its own (pages that lay their panels out in a wrapping row stretch every child).
+  return h("div", { class: "page-tabs-row", "data-fixed": "" }, bar);
 }
 
 // ── Movable panels ──
@@ -637,7 +842,10 @@ function setupA11y() {
   if (!$("route-announcer")) document.body.append(h("div", { id: "route-announcer", class: "pal-sr-only", role: "status", "aria-live": "polite", "aria-atomic": "true" }));
   const content = $("content");
   content.setAttribute("aria-labelledby", "page-title");
-  const mo = new MutationObserver(() => labelTables(content));
+  const mo = new MutationObserver(() => {
+    labelTables(content);
+    fitTables(content);
+  });
   mo.observe(content, { childList: true, subtree: true });
 }
 
@@ -651,6 +859,14 @@ function setupChrome() {
     h("button", { type: "button", class: "icon-btn toolbar-search-m", "aria-label": "Search pages and actions", "aria-keyshortcuts": aria, onclick: () => openPalette() }, searchIcon()),
     h("button", { type: "button", class: "icon-btn toolbar-refresh", title: "Reload this page's data", "aria-label": "Reload this page's data", onclick: () => show() }, icon("refresh")),
   );
+  // The sidebar's foot: one account row that opens appearance, shortcuts, About and Forget key.
+  const acct = $("sb-account");
+  if (acct && !acct.dataset.ready) {
+    acct.dataset.ready = "1";
+    acct.append(icon("chevron"));
+    acct.addEventListener("click", () => accountPopover(acct));
+  }
+  addEventListener("resize", () => fitTables($("content")));
   // The one demo indicator explains itself.
   const demo = $("toolbar-demo");
   if (demo && !demo.dataset.ready) {
@@ -667,8 +883,6 @@ function setupChrome() {
     sb.append(kbd(mod, "K"));
     sb.addEventListener("click", () => openPalette());
   }
-  // The sidebar's appearance buttons get their glyphs here (index.html carries the words).
-  for (const b of document.querySelectorAll("#theme [data-theme-choice]")) if (!b.querySelector("svg")) b.prepend(icon({ light: "sun", dark: "moon", auto: "monitor" }[b.dataset.themeChoice] ?? "monitor"));
   // The IST clock in the toolbar (wide screens). It claims nothing about the market being open.
   const clock = $("clock");
   const IST_CLOCK = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hourCycle: "h23", hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -679,7 +893,10 @@ function setupChrome() {
   setInterval(tick, 1000);
 }
 
-/** Go to a page from the palette or a shortcut; focus moves into the page (or to `focusSelector`) once it is drawn. */
+/**
+ * Go to a page from the palette, a shortcut or a tab: `id` is a page id, `page/tab` or either with a `?query`
+ * (`api/integrations?tool=python`). Focus moves into the page (or to `focusSelector`) once it is drawn.
+ */
 function go(id, focusSelector) {
   pendingFocus = focusSelector ?? true;
   const hash = `#/${id}`;
@@ -886,9 +1103,9 @@ async function renderHome() {
         : hasBroker
           ? { title: "Log in to your broker", text: "Open Accounts and press Log in. Most brokers ask again every morning; it takes a few seconds.", go: "accounts", cta: "Log in" }
           : { title: "Add your broker and log in", text: "Choose your broker, then log in with its API details, right here. Nothing is sent anywhere but your broker.", go: "accounts?add=1", cta: "Add a broker" },
-      key: { title: "Create a key for each tool", text: "A read-only key for spreadsheets and AI, a paper key for scripts. Never share your admin key.", go: "keys", cta: "Create a key" },
-      snippet: { title: "Copy a snippet for Python, Excel, Claude or webhooks", text: "Ready-made setup with your Bridge address filled in.", go: "integrations", cta: "Integrations" },
-      test: { title: "Make your first call", text: "Fetch a quote or an option chain in the test console and see the rate-limit headers.", go: "console", cta: "Test console" },
+      key: { title: "Create a key for each tool", text: "A read-only key for spreadsheets and AI, a paper key for scripts. Never share your admin key.", go: "api/keys", cta: "Create a key" },
+      snippet: { title: "Copy a snippet for Python, Excel, Claude or webhooks", text: "Ready-made setup with your Bridge address filled in.", go: "api/integrations", cta: "Integrations" },
+      test: { title: "Make your first call", text: "Fetch a quote or an option chain in the test console and see the rate-limit headers.", go: "api/console", cta: "Test console" },
     };
     const fill = h("span");
     fill.style.width = `${(done / state.length) * 100}%`;
@@ -1006,12 +1223,6 @@ async function renderHome() {
           h("p", { class: "muted small" }, `Bridge ${app.state.health?.version ?? ""} · up ${formatInt((app.state.health?.uptimeSeconds ?? 0) / 60)} min · listening on this computer only`),
         ),
       }),
-    ),
-    // The type credit the SIL Open Font License asks for (dashboard/fonts/LICENSE.md).
-    h(
-      "p",
-      { class: "muted small type-credit" },
-      "Type: Chartist Sans Flex (from Google Sans Flex by Google), Chartist Sans (from Plus Jakarta Sans by Tokotype) and Chartist Serif (from Instrument Serif by Instrument), under the SIL Open Font License 1.1.",
     ),
   );
   return nodes;
@@ -1486,7 +1697,7 @@ async function renderConsole() {
   const paperAcc = accounts.find((a) => a.broker === "paper")?.id ?? accounts[0]?.id ?? "paper";
   const dataAcc = accounts.find((a) => a.broker !== "paper")?.id ?? paperAcc;
   const select = h("select", { "aria-label": "Endpoint" }, ENDPOINTS.map((e) => h("option", { value: e.id }, e.label)));
-  // #/console?endpoint=order opens a given endpoint (the Orders page links straight to the order form).
+  // #/api/console?endpoint=order opens a given endpoint (the Orders page links straight to the order form).
   const wanted = new URLSearchParams(location.hash.split("?")[1] ?? "").get("endpoint");
   if (ENDPOINTS.some((e) => e.id === wanted)) select.value = wanted;
   const fieldsBox = h("div", { class: "stack" });
@@ -1581,7 +1792,7 @@ async function renderConsole() {
             {},
             friendly ? h("div", { class: "card-body" }, friendly) : null,
             h("dl", { class: "kv" }, ...["x-request-id", "ratelimit", "ratelimit-policy", "x-mcb-data", "content-type"].flatMap((n) => (hdr(n) ? [h("dt", {}, n), h("dd", {}, hdr(n))] : []))),
-            h("div", { class: "code" }, pre, h("button", { type: "button", class: "small copy", onclick: () => copyText(pretty) }, icon("copy"), "Copy")),
+            h("div", { class: "code" }, h("div", { class: "code-head" }, h("span", { class: "code-title" }, "Body"), h("button", { type: "button", class: "small copy", onclick: () => copyText(pretty) }, icon("copy"), "Copy")), pre),
           ),
         }),
       );
@@ -1738,7 +1949,7 @@ async function renderOrders() {
               },
             ],
             tk,
-            emptyState("inbox", "Nothing waiting", "When an AI assistant prepares an order, it appears here for you to check every field and confirm.", nextStep("Set up an AI assistant", "#/integrations?tab=claude")),
+            emptyState("inbox", "Nothing waiting", "When an AI assistant prepares an order, it appears here for you to check every field and confirm.", nextStep("Set up an AI assistant", "#/api/integrations?tool=claude")),
           ),
     }),
   );
@@ -1749,7 +1960,7 @@ async function renderOrders() {
       glyph: "orders",
       tint: "orange",
       title: "Today's orders",
-      actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/console?endpoint=order") }, icon("plus"), "Place a paper order"),
+      actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/api/console?endpoint=order") }, icon("plus"), "Place a paper order"),
       flush: true,
       body: orders.error
         ? h("div", { class: "card-body" }, alertBox(orders.error))
@@ -1765,7 +1976,7 @@ async function renderOrders() {
               { label: "Mode", cell: (o) => (o.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
             ],
             ord,
-            emptyState("orders", "No orders today", "Paper orders from the test console, your scripts, webhooks and AI assistants show up here.", nextStep("Place a paper order", "#/console?endpoint=order")),
+            emptyState("orders", "No orders today", "Paper orders from the test console, your scripts, webhooks and AI assistants show up here.", nextStep("Place a paper order", "#/api/console?endpoint=order")),
           ),
     }),
   );
@@ -1791,7 +2002,7 @@ async function renderOrders() {
             { label: "P&L", num: true, cell: (p) => pnl(p.pnl) },
           ],
           rows,
-          emptyState("orders", "No open paper positions", `Place a paper order to practise with ${formatRupee(1000000, 0)} of virtual money.`, nextStep("Place a paper order", "#/console?endpoint=order")),
+          emptyState("orders", "No open paper positions", `Place a paper order to practise with ${formatRupee(1000000, 0)} of virtual money.`, nextStep("Place a paper order", "#/api/console?endpoint=order")),
         ),
       }),
     );
@@ -2017,16 +2228,7 @@ async function renderKeys() {
 
 // ── Integrations ──
 
-const TABS = [
-  ["webhooks", "Webhooks"],
-  ["python", "Python"],
-  ["node", "Node"],
-  ["excel", "Excel & Sheets"],
-  ["amibroker", "AmiBroker"],
-  ["claude", "Claude (MCP)"],
-  ["chatgpt", "ChatGPT / OpenAI"],
-  ["rest", "REST / curl"],
-];
+const TABS = INTEGRATION_TOOLS;
 const INTRO = {
   webhooks: "Alerts that place paper orders through a webhook: signed generic JSON from your scripts, ChartInk scans or GoCharting alerts.",
   python: "The Python SDK: standard library only, Python 3.9+. Paper orders get an Idempotency-Key automatically.",
@@ -2039,23 +2241,40 @@ const INTRO = {
 };
 const GUIDES = { webhooks: "webhooks", python: "python", node: "typescript", excel: "excel-sheets", amibroker: "amibroker", claude: "mcp", chatgpt: "chatgpt-openai", rest: "streaming" };
 
+/** The hash's query (`#/api/integrations?tool=python` → URLSearchParams). */
+const hashParams = () => new URLSearchParams(location.hash.split("?")[1] ?? "");
+/** Put one query value in the address without a navigation (the page is already showing it). */
+function setHashParam(key, value) {
+  const [path] = location.hash.split("?");
+  const qs = hashParams();
+  qs.set(key, value);
+  history.replaceState(history.state, "", `${path}?${qs}`);
+}
+
+/**
+ * API › Integrations: one panel. Its tools are an inner segmented control (?tool=, and the old ?tab=); the webhook
+ * form sits straight in the panel and the code blocks are its only inner surfaces.
+ */
 async function renderIntegrations() {
   const accounts = (await api("/v1/accounts")).data.data ?? [];
   const paperAcc = accounts.find((a) => a.broker === "paper")?.id ?? "paper";
   const createdKeys = {};
   const tabsBar = h("div", { class: "tabs", role: "tablist", "aria-label": "Tools" });
-  const panel = h("div", { class: "card-body stack" });
-  const params = new URLSearchParams(location.hash.split("?")[1] ?? "");
-  let active = TABS.some(([id]) => id === params.get("tab")) ? params.get("tab") : "webhooks";
+  const panel = h("div", { class: "integ-panel" });
+  const params = hashParams();
+  const asked = params.get("tool") ?? params.get("tab");
+  let active = TABS.some(([id]) => id === asked) ? asked : "webhooks";
 
   const draw = async () => {
     drawTabs(tabsBar, panel, TABS, active, (id) => {
       active = id;
+      setHashParam("tool", id);
       draw();
     });
+    edgeFades(tabsBar);
     const s = snippets({ base: location.origin, key: createdKeys[active] ?? null, account: paperAcc, symbol: "NSE:NIFTY", folder: app.state.meta?.installDir || undefined })[active];
     const preset = KEY_PRESETS[active];
-    const keyBtn = preset && h("button", { type: "button", class: createdKeys[active] ? "small" : "small tinted" }, icon("keys"), createdKeys[active] ? "Key created" : `Create a ${preset.scopes.join("+")} key for this`);
+    const keyBtn = preset && h("button", { type: "button", class: "small" }, icon("keys"), createdKeys[active] ? "Key created" : `Create a ${preset.scopes.join("+")} key for this`);
     if (keyBtn) keyBtn.disabled = Boolean(createdKeys[active]);
     keyBtn?.addEventListener("click", async () => {
       try {
@@ -2070,16 +2289,19 @@ async function renderIntegrations() {
         toast(err.message);
       }
     });
-    const parts = [
-      h("div", { class: "row" }, h("p", { class: "grow muted" }, INTRO[active]), ...(keyBtn ? [keyBtn] : []), h("a", { href: `https://github.com/MrChartist/api-bridge/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener", "aria-label": `${TABS.find(([id]) => id === active)[1]} guide (opens in a new tab)` }, "Guide ↗")),
+    const intro = h(
+      "div",
+      { class: "card-body stack" },
+      h("div", { class: "row" }, h("p", { class: "grow muted" }, INTRO[active], " ", h("span", { class: "nowrap" }, `Your Bridge address: ${location.origin}`)), ...(keyBtn ? [keyBtn] : []), h("a", { href: `https://github.com/MrChartist/api-bridge/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener", "aria-label": `${TABS.find(([id]) => id === active)[1]} guide (opens in a new tab)` }, "Guide ↗")),
       createdKeys[active] ? h("div", { class: "alert info" }, icon("info"), h("div", {}, h("strong", {}, "Your new key is in the snippets below."), h("span", { class: "detail" }, "It is shown only on this page and only until you leave it."))) : null,
-    ];
-    if (active === "webhooks") parts.push(await webhookPanel(paperAcc));
-    for (const sn of s) parts.push(codeBlock(sn.code, { title: sn.title, json: sn.lang === "json", onCopy: markCopied }));
+    );
+    const parts = [intro];
+    if (active === "webhooks") parts.push(...(await webhookPanel(paperAcc)));
+    if (s.length) parts.push(h("div", { class: "card-body stack" }, s.map((sn) => codeBlock(sn.code, { title: sn.title, json: sn.lang === "json", onCopy: markCopied }))));
     panel.replaceChildren(...parts.filter(Boolean));
   };
   await draw();
-  return card({ glyph: "integrations", tint: "blue", title: "Connect your tools", sub: `Your Bridge address: ${location.origin}`, flush: true, body: h("div", {}, tabsBar, panel) });
+  return card({ flush: true, cls: "integ-card", body: h("div", {}, tabsBar, panel) });
 }
 
 async function webhookPanel(paperAcc) {
@@ -2117,8 +2339,8 @@ async function webhookPanel(paperAcc) {
     },
   ];
   // Only the table is redrawn when a hook is added, so the one-time secret URL in `box` stays on screen.
-  const tableSlot = h("div");
-  const drawTable = () => tableSlot.replaceChildren(...[table(columns, list, h("p", { class: "card-body muted small" }, "No webhooks yet. Fill in the form above and choose Create webhook."))].filter(Boolean));
+  const tableSlot = h("div", { class: "integ-hooks" });
+  const drawTable = () => tableSlot.replaceChildren(...[table(columns, list, h("p", { class: "integ-empty muted small" }, "No webhooks yet. Fill in the form above and choose Create webhook."))].filter(Boolean));
   drawTable();
   btn.addEventListener("click", async () => {
     busy(btn, true);
@@ -2140,13 +2362,16 @@ async function webhookPanel(paperAcc) {
       busy(btn, false);
     }
   });
-  return h(
-    "div",
-    { class: "card" },
-    h("div", { class: "card-head" }, iconTile("bolt", "orange"), h("div", { class: "card-titles" }, h("h3", {}, "Alert webhook"), h("p", {}, `Each hook has its own secret URL and places paper orders on ${paperAcc}.`))),
-    h("div", { class: "card-body stack" }, h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field" }, "Source", source), segField("Side", side), segField("Order type", orderType, { wide: true }), segField("Product", product), h("label", { class: "field" }, "Max lots per alert", lots), btn), box),
+  return [
+    h(
+      "div",
+      { class: "card-body stack integ-hook-form" },
+      h("div", { class: "card-titles" }, h("h3", {}, "Alert webhook"), h("p", {}, `Each hook has its own secret URL and places paper orders on ${paperAcc}.`)),
+      h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field" }, "Source", source), segField("Side", side), segField("Order type", orderType, { wide: true }), segField("Product", product), h("label", { class: "field" }, "Max lots per alert", lots), btn),
+      box,
+    ),
     tableSlot,
-  );
+  ];
 }
 
 // ── Activity ──
@@ -2154,7 +2379,8 @@ async function webhookPanel(paperAcc) {
 async function renderActivity() {
   const tabsBar = h("div", { class: "tabs", role: "tablist", "aria-label": "Activity" });
   const body = h("div");
-  let active = "requests";
+  // #/api/activity?view=audit opens the audit log (the ⌘K "Audit log" entry).
+  let active = hashParams().get("view") === "audit" ? "audit" : "requests";
   let showAll = false;
   const hideOwn = h("input", { type: "checkbox" });
   hideOwn.checked = local.get(FLAG.hideOwn) !== "0";
@@ -2166,6 +2392,7 @@ async function renderActivity() {
   const drawActivity = async () => {
     drawTabs(tabsBar, body, [["requests", "Requests"], ["audit", "Audit log"]], active, (id) => {
       active = id;
+      setHashParam("view", id);
       draw();
     });
     if (active === "requests") {
@@ -2185,7 +2412,7 @@ async function renderActivity() {
             { label: "Key", cell: (x) => (x.keyId ? h("span", { class: "mono small" }, x.keyId) : h("span", { class: "muted" }, "None")) },
           ],
           rows,
-          emptyState("activity", "No requests yet", hideOwn.checked ? "Requests from your scripts, charts, Excel and AI tools appear here. Untick the box to see the dashboard's own." : "Requests appear here as they arrive.", nextStep("Make a call in the test console", "#/console")),
+          emptyState("activity", "No requests yet", hideOwn.checked ? "Requests from your scripts, charts, Excel and AI tools appear here. Untick the box to see the dashboard's own." : "Requests appear here as they arrive.", nextStep("Make a call in the test console", "#/api/console")),
           { mobile: "scroll" },
         ),
         ...(more ? [more] : []), // replaceChildren would print a null as the text "null"
