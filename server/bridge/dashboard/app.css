@@ -1773,10 +1773,46 @@ button.start-row:hover { --btn-bg: var(--mat-fill-1); }
 .cockpit { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--panel-gap); align-items: start; }
 .ck-a-pnl { grid-area: pnl; } .ck-a-pos { grid-area: pos; } .ck-a-ev { grid-area: ev; } .ck-a-cal { grid-area: cal; } .ck-a-hl { grid-area: hl; } .ck-a-wl { grid-area: wl; }
 .cockpit { grid-template-areas: "pnl" "pos" "wl" "ev" "cal" "hl"; }
-@media (min-width: 720px) { .cockpit { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "pnl cal" "pos pos" "wl ev" "hl hl"; } }
-@media (min-width: 1280px) { .cockpit { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: "pnl pos pos" "ev cal hl" "wl wl hl"; } }
-@media (min-width: 1700px) { .ck-idx { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "n n" "p c"; } .cockpit { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-areas: "pnl pos pos ev" "cal hl hl ev" "wl wl wl ev"; } }
-@media (min-width: 2300px) { .cockpit { grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-areas: "pnl pos pos ev cal" "pnl pos pos ev hl" "wl wl wl ev hl"; } }
+/* From tablet up the cards stretch to their row, so every column ends on one line. Latest live events is the elastic
+   card: it takes the height its row leaves and scrolls inside (contain: size keeps its 40 events from growing the row).
+   The watchlist and the card lists share out any spare height between their rows, so no card ends half empty. */
+@media (min-width: 720px) {
+  .cockpit { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "pnl cal" "pos pos" "hl ev" "wl ev"; align-items: stretch; }
+  .ck-card { display: flex; flex-direction: column; }
+  .ck-card > .card-head { flex: none; }
+  .ck-card > .card-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .ck-pnl, .ck-cal, .ck-health, .ck-wl { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  :is(.ck-pnl, .ck-cal, .ck-health) > .ck-list { flex: 1 1 auto; }
+  .ck-list > li { flex: 1 1 auto; }
+  .ck-a-pos .ck-table { flex: 1 1 auto; }
+  .ck-wl-list { flex: 1 1 auto; align-content: stretch; }
+  .ck-wl-list li { align-content: center; }
+  .ck-a-ev { contain: size; min-height: 360px; }
+  .ck-a-ev > .card-body { overflow-y: auto; overscroll-behavior: contain; padding-top: 4px; }
+  .ck-a-ev .ck-events { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); column-gap: 24px; align-content: start; }
+  /* A stretched table: the row header stays a cell, so its rule lines up with the rest of the row. */
+  .ck-a-pos .ck-table tbody th { display: table-cell; vertical-align: middle; }
+  .ck-a-pos .ck-table tbody th > :is(strong, small) { display: block; }
+}
+/* Tablet: six index tiles as two rows of three, not four and two. */
+@media (min-width: 720px) and (max-width: 1279px) { .ck-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 1280px) {
+  /* Desktop: the cockpit fills the window under the indices; the last row takes what is left. */
+  :root[data-page="home"] .app-main { display: flex; flex-direction: column; }
+  :root[data-page="home"] .app-main > .container-wide { flex: 1 1 auto; display: flex; flex-direction: column; }
+  :root[data-page="home"] #content { flex: 1 1 auto; }
+  :root[data-page="home"] #content > .cockpit { flex: 1 1 auto; }
+  :root[data-page="home"] .app-foot { margin-top: 16px; }
+  .cockpit { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto auto minmax(0, 1fr); grid-template-areas: "pnl pos pos" "cal hl ev" "wl wl ev"; }
+}
+@media (min-width: 1700px) {
+  .ck-idx { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "n n" "p c"; }
+  .cockpit { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "pnl pos pos cal" "hl wl ev ev"; }
+  .ck-a-wl .ck-wl-list { grid-template-columns: minmax(0, 1fr); }
+}
+@media (min-width: 2300px) {
+  .cockpit { grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-areas: "pnl pos pos cal hl" "wl ev ev ev ev"; }
+}
 .ck-card .card-body { padding-top: 10px; }
 .ck-hero { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
 .ck-big { font: 600 26px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; white-space: nowrap; }
@@ -1816,6 +1852,7 @@ button.start-row:hover { --btn-bg: var(--mat-fill-1); }
 .ck-events small { font: 500 12px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }  /* two lines: the OI figure stays readable */
 .ck-watch-in, .ck-exp-in { display: none; }
 @media (max-width: 719px) {
+  .ck-events li:nth-child(n+9) { display: none; }
   .ck-table .c-delta, .ck-table .c-watch, .ck-table .c-exp { display: none; }
   .ck-exp-in { display: inline; }
   .ck-table tbody th { white-space: normal; min-width: 0; }

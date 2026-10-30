@@ -71,7 +71,7 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
   const [quotes, book, events, refs] = await Promise.all([
     strip.fill().catch(() => []),
     waiting ? null : readBook(),
-    optional(api("/v1/events?limit=8")),
+    optional(api("/v1/events?limit=80")),
     Promise.all(["NIFTY", "BANKNIFTY", "SENSEX"].map((u) => optional(api(`/v1/reference/bundle?underlying=${u}`)))),
   ]);
   const spots = Object.fromEntries((quotes ?? []).map((q) => [q.symbol.split(":")[1], q.ltp]));
@@ -191,7 +191,7 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
       ? h(
           "ul",
           { class: "ck-events" },
-          evs.slice(0, 8).map((e) =>
+          evs.slice(0, 80).map((e) =>
             h(
               "li",
               { class: `side-${e.side ?? "neutral"}` },
@@ -248,7 +248,7 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
     .flatMap((b) => (b.expiries ?? []).map((e) => ({ u: b.underlying, ...e })))
     .filter((e) => {
       const d = daysFrom(e.date, today);
-      return d >= 0 && d <= 7;
+      return d >= 0 && d <= 14;
     })
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.u.localeCompare(b.u)));
   const hols = (bundles[0]?.holidays ?? []).filter((x) => {
@@ -273,7 +273,7 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
               const d = daysFrom(e.date, today);
               return h("li", {}, h("span", { class: "ck-l" }, h("strong", {}, `${e.u} ${e.kind === "monthly" ? "monthly" : "weekly"} expiry`), h("small", {}, `${dayText(e.date)}${e.shifted ? " · moved for a holiday" : ""}`)), d === 0 ? pill("Today", "warn") : h("span", { class: "muted" }, d === 1 ? "Tomorrow" : `In ${formatInt(d)} days`));
             })
-          : h("li", { class: "muted" }, "No index expiry in the next 7 days."),
+          : h("li", { class: "muted" }, "No index expiry in the next 14 days."),
       ),
       hols.length ? h("p", { class: "ck-note" }, `Holiday${hols.length > 1 ? "s" : ""}: ${hols.map((x) => `${dayText(x.date)} (${x.label})`).join(", ")}`) : null,
       bundles[0]?.nextTradingDay ? h("p", { class: "ck-note" }, `Next trading day ${dayText(bundles[0].nextTradingDay)}`) : null,
