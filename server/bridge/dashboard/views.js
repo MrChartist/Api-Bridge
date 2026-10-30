@@ -2445,12 +2445,12 @@ async function renderOrders() {
     }),
   );
 
-  // One summary line per paper account; the positions themselves live on the Positions page. Every rupee figure in
-  // this table uses Indian grouping (the P&L columns too, with an explicit + for gains).
+  // The Funds card in whole rupees with Indian grouping (the P&L columns too, with an explicit + for gains), like the
+  // other money summaries.
   const pnlGrouped = (v) => {
     if (!isFigure(v)) return DASH;
-    const text = formatRupeeGrouped(v, 2);
-    const zero = text === "₹0.00";
+    const text = formatRupeeGrouped(v, 0);
+    const zero = text === "₹0";
     const n = Number(v);
     return h("span", { class: zero ? undefined : n > 0 ? "up" : "down" }, n > 0 && !zero ? `+${text}` : text);
   };
