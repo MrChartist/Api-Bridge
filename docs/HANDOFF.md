@@ -168,6 +168,46 @@ Left:
 - **Trader tools (30 Oct, evening, `docs/design/ux-audit.md` "Trader tools"):** shared what-if (Positions and Strategy), roll sheet, basket orders (margin first, freeze slicing, buys first, Cancel remaining), trade journal with daily P&L snapshots, expiry desk, watchlists, Explain this on OI and Volatility, Ctrl K trading, Accounts today and the Excel workbook.
 - **Still open:** the proposals in the audit's "Trading pass" and "Trader tools" sections.
 
+### 3d3. Second build day (30 Oct, afternoon)
+
+What landed, each with tests. Details are in `docs/design/ux-audit.md` ("Trading pass", "Trader tools", "QA pass (30 Oct)", "Safety pass") and `docs/perf/baseline.md`.
+
+- **Paper margin:** a portfolio margin that credits hedges (`dashboard/span-margin.js`, `docs/guides/paper-margin.md`). One model is shared by the engine, ticket, Strategy and Positions.
+- **Option Chain:**
+  - build around a strike (right-click, long-press, T);
+  - ticket charges and after-charges figures;
+  - Excel formula per contract.
+- **Positions:**
+  - shared what-if (also on Strategy);
+  - roll a leg or group;
+  - alerts (`server/bridge/alerts/`, notify only);
+  - expiry desk.
+- **Basket orders:** margin first, slicing at min(freeze, per-order lots, per-order value), buys first, cancel remaining. Exits use the same slicer.
+- **Orders and journal:** Orders › Journal with tags, notes, setup, P&L calendar and stats; the paper engine takes daily snapshots.
+- **Scanners:**
+  - number scans, plain-word builder, 34-scan library, saved and scheduled scans; hits go to Live events;
+  - option-screener quick scans;
+  - daily-bar pre-warm.
+- **Watchlists:** front-expiry ATM IV, OI change; they feed Live events and Home.
+- **Market pages:** "Explain this" on OI and Vol.
+- **Ctrl K trading:** "buy 2 nifty 26300 ce", "sell nifty straddle 3 nov".
+- **Home and Accounts:** Home cockpit; Accounts Today column and Excel workbook (.xlsx with WEBSERVICE formulas).
+- **Speed** (3 rounds):
+  - shared fetch layer, one WebSocket, stream-first chains, positions on the stream;
+  - per-cell chain patches split across frames, compositor-only animations;
+  - API budget indicator and Rate limits chart; events REST guaranteed share on strict brokers.
+  - Chain tick-to-cell p95 is about 100 ms (it was 1,842 ms); busiest scenario 4–5 broker calls/min (was 32).
+- **Safety:** a modify now passes every per-order check (lots, value, band, freeze, kill switch).
+- **First run:** Home shows the demo seed's progress; the seed is about twice as fast.
+
+**Open decision for the user:** should orders the Bridge verifies as reduce-only be exempt from `dailyMaxLoss` and the daily order count? The proposal is `safety.reduceOnlyExempt`, default off and audited; see the "Safety pass" section. Nothing has changed until the user decides.
+
+**Known left:**
+- rare 650–930 ms chain tick outliers;
+- OI lower panels rebuild every 2 s;
+- Excel workbook only on Accounts;
+- live broker paths (journal fills, basket sends, events fallback) checked by code and tests, not end to end with a real broker.
+
 ### 3e. Check everything by hand
 
 At phone 390, tablet 820, laptop 1280 and desktop 1440, in light and dark, go through every menu page and every tab.
