@@ -7445,6 +7445,7 @@ button.toolbar-bell-btn svg { width: 17px; height: 17px; fill: none; stroke: cur
 .al-rule.off .al-rule-t { opacity: 0.6; }
 .al-rule-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; font: 500 13px/1.3 var(--font-body); }
 .al-rule-t small { font: 500 12px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.al-rule.al-mrule { grid-template-columns: minmax(0, 1fr) auto; }
 .al-note { margin: 0; font: 500 12px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .al-conds { display: flex; flex-direction: column; gap: 8px; }
 .al-cond { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(70px, 1fr) auto minmax(70px, 1fr) auto; align-items: center; gap: 6px 8px; }
@@ -8701,6 +8702,12 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 @media (max-width: 1279px) { .sc-lib-list { max-height: 360px; overflow: auto; overscroll-behavior: contain; } }
 .sc-pick-item, .sc-pick-group, .sc-lib-row { flex: none; }
 .sc-pick-body, .sc-cols, .sc-export, .sc-menu .menu-list { padding: 8px 14px 14px; }
+
+/* ── Palette: page codes and a page's help (palette.js runCommand, from PR 17's command line) ── */
+.pal-codes { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 8px 16px; margin: 0; }
+.pal-codes > div { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.pal-codes dt { flex: none; min-width: 44px; font: 600 13px/1.3 var(--font-numeric); color: hsl(var(--foreground)); }
+.pal-codes dd { margin: 0; font: 400 14px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); overflow-wrap: anywhere; }
 
 /* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────
    Inline-SVG charts: every colour is a theme token (so light and dark both work), every size is an SVG attribute

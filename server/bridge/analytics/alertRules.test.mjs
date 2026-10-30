@@ -275,3 +275,28 @@ describe("new metrics", () => {
     expect(svc.list()).toHaveLength(2);
   });
 });
+
+describe("per-strike and IV-change market rules", async () => {
+  const { alertRuleSchema, evaluateRule, strikeOiChangePct } = await import("./alertRules.mjs");
+  it("needs a strike and right for a per-strike metric, and refuses them elsewhere", () => {
+    const base = { name: "x", underlying: "NIFTY", expiry: "2026-11-26", op: "above", value: 20 };
+    expect(alertRuleSchema.safeParse({ ...base, metric: "strike_oi_change" }).success).toBe(false);
+    expect(alertRuleSchema.safeParse({ ...base, metric: "strike_oi_change", strike: 26000, right: "PE" }).success).toBe(true);
+    expect(alertRuleSchema.safeParse({ ...base, metric: "atm_iv", strike: 26000, right: "PE" }).success).toBe(false);
+  });
+  it("OI change is in % of the previous close", () => {
+    expect(strikeOiChangePct({ oi: 1250, oiChange: 250 })).toBe(25);
+    expect(strikeOiChangePct({ oi: 100, oiChange: 100 })).toBeNull();
+    expect(strikeOiChangePct(null)).toBeNull();
+  });
+  it("ATM IV change: the day's first reading is the base; it fires on the edge and a new day starts over", () => {
+    const r = { underlying: "NIFTY", metric: "atm_iv_change", op: "above", value: 2 };
+    const a = evaluateRule(r, { atmIv: 14, day: "2026-11-02" });
+    expect(a.status).toBe("baseline");
+    const b = evaluateRule({ ...r, state: a.state }, { atmIv: 16.5, day: "2026-11-02" });
+    expect([b.fired, b.value]).toEqual([true, 2.5]);
+    const c = evaluateRule({ ...r, state: b.state }, { atmIv: 17, day: "2026-11-02" });
+    expect(c.fired).toBe(false);
+    expect(evaluateRule({ ...r, state: c.state }, { atmIv: 17, day: "2026-11-03" }).status).toBe("baseline");
+  });
+});

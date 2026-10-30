@@ -44,15 +44,17 @@ import { createTideStore, tideView } from "./tide.mjs";
 import { MIN_IV_DAYS, rankAndPercentile } from "./volStats.mjs";
 import { scanChain } from "./unusual.mjs";
 
-export const ALERT_METRICS = Object.freeze(["pcr_oi", "max_pain_distance", "gex_regime", "atm_iv", "basis_pct", "spot_cross", "unusual_count", "tide_sentiment", "iv_rank", "fii_net_streak", "volume_spike"]);
-const THRESHOLD = new Set(["pcr_oi", "max_pain_distance", "atm_iv", "basis_pct", "unusual_count", "iv_rank", "fii_net_streak", "volume_spike"]);
+export const ALERT_METRICS = Object.freeze(["pcr_oi", "max_pain_distance", "gex_regime", "atm_iv", "basis_pct", "spot_cross", "unusual_count", "tide_sentiment", "iv_rank", "fii_net_streak", "volume_spike", "strike_oi_change", "strike_iv", "atm_iv_change"]);
+const THRESHOLD = new Set(["pcr_oi", "max_pain_distance", "atm_iv", "basis_pct", "unusual_count", "iv_rank", "fii_net_streak", "volume_spike", "strike_oi_change", "strike_iv", "atm_iv_change"]);
+/** Metrics on one contract: they need strike and right. */
+const PER_STRIKE = new Set(["strike_oi_change", "strike_iv"]);
 /** Label-change metrics: metric -> state key and the labels `to` may name. */
 const CHANGE = Object.freeze({ gex_regime: { key: "regime", to: ["positive", "negative", "neutral"] }, tide_sentiment: { key: "label", to: ["bullish", "bearish", "neutral"] } });
-const NEEDS_EXPIRY = new Set(["pcr_oi", "max_pain_distance", "gex_regime", "atm_iv", "basis_pct", "unusual_count", "tide_sentiment", "iv_rank"]);
+const NEEDS_EXPIRY = new Set(["pcr_oi", "max_pain_distance", "gex_regime", "atm_iv", "basis_pct", "unusual_count", "tide_sentiment", "iv_rank", "strike_oi_change", "strike_iv", "atm_iv_change"]);
 const DEFAULT_MIN_SCORE = 50;
 const VOLUME_DAYS = 20;
 /** metric -> the field of the metrics object it reads */
-const FIELD = Object.freeze({ pcr_oi: "pcrOi", max_pain_distance: "maxPainDistancePct", gex_regime: "gexRegime", atm_iv: "atmIv", basis_pct: "basisPct", spot_cross: "spot", unusual_count: "unusualCount", tide_sentiment: "tideSentiment", iv_rank: "ivRank", fii_net_streak: "fiiNetStreak", volume_spike: "volumeRatio" });
+const FIELD = Object.freeze({ pcr_oi: "pcrOi", max_pain_distance: "maxPainDistancePct", gex_regime: "gexRegime", atm_iv: "atmIv", basis_pct: "basisPct", spot_cross: "spot", unusual_count: "unusualCount", tide_sentiment: "tideSentiment", iv_rank: "ivRank", fii_net_streak: "fiiNetStreak", volume_spike: "volumeRatio", strike_oi_change: "strikeOiChangePct", strike_iv: "strikeIv", atm_iv_change: "atmIv" });
 const MAX_RULES = 100;
 
 export const alertRuleSchema = z
@@ -69,6 +71,9 @@ export const alertRuleSchema = z
     to: z.enum(["positive", "negative", "neutral", "bullish", "bearish"]).optional(),
     /** unusual_count only: the least unusual-activity score (0-100) a contract needs to be counted. Default 50. */
     minScore: z.number().min(0).max(100).optional(),
+    /** strike_oi_change and strike_iv: the contract watched. */
+    strike: z.number().positive().finite().optional(),
+    right: z.enum(["CE", "PE"]).optional(),
     everyMinutes: z.number().int().min(1).max(1440).optional(),
     marketHoursOnly: z.boolean().default(true),
     enabled: z.boolean().default(true),
@@ -85,12 +90,14 @@ export const alertRuleSchema = z
     if (r.to !== undefined && !CHANGE[r.metric]) bad("to", "to applies to gex_regime and tide_sentiment only.");
     else if (r.to !== undefined && !CHANGE[r.metric].to.includes(r.to)) bad("to", `to must be one of ${CHANGE[r.metric].to.join(", ")} for ${r.metric}.`);
     if (r.minScore !== undefined && r.metric !== "unusual_count") bad("minScore", "minScore applies to unusual_count only.");
+    if (PER_STRIKE.has(r.metric) && (r.strike === undefined || !r.right)) bad("strike", `strike and right (CE or PE) are required for ${r.metric}.`);
+    if (!PER_STRIKE.has(r.metric) && (r.strike !== undefined || r.right !== undefined)) bad("strike", "strike and right apply to strike_oi_change and strike_iv only.");
   });
 
 const round = (v, d = 3) => (Number.isFinite(v) ? Math.round(v * 10 ** d) / 10 ** d : null);
 const isNum = (v) => typeof v === "number" && Number.isFinite(v);
 
-const LABEL = { pcr_oi: "PCR (OI)", max_pain_distance: "Max pain distance %", atm_iv: "ATM IV %", basis_pct: "Futures basis %", spot_cross: "Spot", gex_regime: "Net GEX regime", unusual_count: "Unusual contracts", tide_sentiment: "Flow sentiment", iv_rank: "ATM IV rank", fii_net_streak: "FII net streak (days, + buying)", volume_spike: "Volume vs 20-day average (x)" };
+const LABEL = { strike_oi_change: "OI change % of the strike", strike_iv: "IV % of the strike", atm_iv_change: "ATM IV change since the day's first check (points)", pcr_oi: "PCR (OI)", max_pain_distance: "Max pain distance %", atm_iv: "ATM IV %", basis_pct: "Futures basis %", spot_cross: "Spot", gex_regime: "Net GEX regime", unusual_count: "Unusual contracts", tide_sentiment: "Flow sentiment", iv_rank: "ATM IV rank", fii_net_streak: "FII net streak (days, + buying)", volume_spike: "Volume vs 20-day average (x)" };
 
 /**
  * Pure edge-triggered evaluation. `metrics` is { pcrOi, maxPainDistancePct, gexRegime, atmIv, basisPct, spot, unusualCount, tideSentiment, ivRank, fiiNetStreak, volumeRatio } (null
@@ -113,6 +120,17 @@ export function evaluateRule(rule, metrics) {
   }
   if (!isNum(value)) return none;
 
+  if (rule.metric === "atm_iv_change") {
+    // The day's first reading is the baseline; the change is measured from it, and a new IST day starts a new one.
+    const day = typeof metrics?.day === "string" ? metrics.day : null;
+    if (!day) return none;
+    if (prev.day !== day || !isNum(prev.base)) return { ...none, status: "baseline", value, state: { day, base: value, active: false } };
+    const change = round(value - prev.base, 2);
+    const condition = rule.op === "above" ? change > rule.value : change < rule.value;
+    const fired = condition && prev.active !== true;
+    return { fired, status: "ok", value: change, condition, state: { day, base: prev.base, active: condition }, message: fired ? `${rule.underlying} ${label} is ${rule.op} ${rule.value} (now ${change}, ATM IV ${value})` : null };
+  }
+
   if (rule.metric === "spot_cross") {
     const level = rule.value;
     const side = value > level ? "above" : value < level ? "below" : (prev.side ?? null);
@@ -133,6 +151,15 @@ export function evaluateRule(rule, metrics) {
  * @param {object} [opts] marketData read options (allowedAccounts, accountId, signal ...)
  * @returns {Promise<object>} metrics for evaluateRule, plus `freshness` when the source reports one
  */
+/** A contract's OI change since the previous close in % of that close (pure); null without a previous OI above 0. */
+export function strikeOiChangePct(leg) {
+  const oi = Number(leg?.oi);
+  const chg = Number(leg?.oiChange);
+  if (!Number.isFinite(oi) || !Number.isFinite(chg)) return null;
+  const prevOi = oi - chg;
+  return prevOi > 0 ? round((chg / prevOi) * 100, 2) : null;
+}
+
 export async function metricsFor(rule, deps, opts = {}) {
   const md = deps.marketData;
   const u = rule.underlying.toUpperCase();
@@ -161,9 +188,20 @@ export async function metricsFor(rule, deps, opts = {}) {
       out.freshness = c.freshness;
       break;
     }
-    case "atm_iv": {
+    case "atm_iv":
+    case "atm_iv_change": {
       const c = await chain(true);
       out.atmIv = ivSkew(c).atmIv;
+      out.day = new Date(Date.now() + 19_800_000).toISOString().slice(0, 10);
+      out.freshness = c.freshness;
+      break;
+    }
+    case "strike_oi_change":
+    case "strike_iv": {
+      const c = await chain(rule.metric === "strike_iv");
+      const leg = (c.rows ?? []).find((r) => Number(r.strike) === Number(rule.strike))?.[rule.right === "PE" ? "pe" : "ce"];
+      out.strikeOiChangePct = strikeOiChangePct(leg);
+      out.strikeIv = Number(leg?.iv) > 0 ? round(Number(leg.iv), 2) : null;
       out.freshness = c.freshness;
       break;
     }

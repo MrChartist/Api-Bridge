@@ -35,7 +35,7 @@ describe("alert-core: rules", () => {
     expect(ruleProblems(rule([{ kind: "x", value: 1 }]))[0]).toMatch(/unknown kind/);
     expect(ruleProblems(rule([{ kind: "pnl_above", value: 1 }], { symbols: ["NFO:BANKNIFTY-2026-11-03-60000-CE"] }))[0]).toMatch(/contracts on the underlying/);
     expect(ruleProblems({ ...rule([{ kind: "pnl_above", value: 1 }]), account: "" })).toContain("Choose an account.");
-    expect(ALERT_KINDS).toHaveLength(7);
+    expect(ALERT_KINDS).toHaveLength(9);
   });
 });
 
@@ -93,5 +93,21 @@ describe("alert-core: conditions and edges", () => {
     expect(step(rule(both, { match: "any" }), m, null, NOW).fire).toBe(true);
     const blind = step(rule(both), { ...m, spot: null }, null, NOW);
     expect(blind).toMatchObject({ fire: false, met: null, state: { blind: true } });
+  });
+});
+
+describe("alert-core: theta and vega", () => {
+  const now = Date.parse("2026-11-01T10:00:00+05:30");
+  const T = (Date.parse("2026-11-26T15:30:00+05:30") - now) / (365 * 86_400_000);
+  const ce = black76(26000, 26000, T, 15, "CE");
+  const pos = [{ symbol: "NFO:NIFTY-2026-11-26-26000-CE", netQty: -65, ltp: ce, avgPrice: ce, pnl: 0 }];
+  it("a short option book decays: theta below zero is the sellers' gain shown as the holder's loss, vega negative", () => {
+    const m = groupMetrics(pos, { underlying: "NIFTY", spot: 26000, nowMs: now });
+    // A short call earns theta (positive) and loses on a rise in IV (negative vega).
+    expect(m.theta).toBeGreaterThan(0);
+    expect(m.vega).toBeLessThan(0);
+    expect(evalCondition({ kind: "theta_below", value: 0 }, m).met).toBe(false);
+    expect(evalCondition({ kind: "vega_outside", value: -100, value2: 100 }, m).met).toBe(m.vega < -100);
+    expect(ruleProblems({ account: "p", underlying: "NIFTY", conditions: [{ kind: "vega_outside", value: 5, value2: 1 }] })).toEqual(["Condition 1: the upper vega must be above the lower one."]);
   });
 });

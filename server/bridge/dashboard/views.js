@@ -46,6 +46,7 @@ import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText, startupText } from "./flows.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
+import { PAGE_CODES } from "./workspace.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -1174,10 +1175,27 @@ async function refreshTicketCount() {
 // Motion helpers (animatePage / animateNav), when motion.js provides them. Loaded lazily so Node tests never touch it.
 let motionHooks = null;
 
+/**
+ * PR 17's page codes that open a page here, with the page's name (the palette's command line, "banknifty oc", and
+ * the g-key sequences). A code whose page id does not resolve (it would land on Home) is left out. Pure.
+ */
+const CODE_ROUTES = Object.freeze({ gex: "exposure/strike", payoff: "strategy" }); // PR 17 ids with no LEGACY entry of their own
+export function paletteCodes() {
+  const out = [];
+  for (const id of Object.keys(PAGE_CODES)) {
+    const route = CODE_ROUTES[id] ?? id;
+    const r = resolveRoute(`#/${route}`);
+    if (r.page.id === "home" && id !== "home") continue;
+    if (r.page.id !== route.split("/")[0] && !Object.hasOwn(LEGACY, route)) continue;
+    out.push({ id, route, label: r.tab ? `${r.page.label} › ${r.tab.label}` : r.page.label });
+  }
+  return out;
+}
+
 export async function startRouter() {
   setupA11y();
   setupChrome();
-  initPalette({ pages: () => PAGES, go, refresh: () => show({ refresh: true }) });
+  initPalette({ pages: () => PAGES, go, refresh: () => show({ refresh: true }), codes: paletteCodes });
   try {
     motionHooks = await import("./motion.js");
   } catch {

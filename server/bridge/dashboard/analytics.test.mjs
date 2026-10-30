@@ -6,7 +6,8 @@ import { skewSeries } from "./analyticsViews.js";
 import { OPT_VIEWS, cumulativeFlows, flowRowH, legsToBasket, optimizerQuery, payoffWindow } from "./analyticsMore.js";
 import { ruleText, volOiText } from "./analyticsFlow.js";
 import { backtestBody, concentrationWords, equitySeries, histogramLayout, inrShort, pickAccount, weightText } from "./analyticsRisk.js";
-import { LEGACY, PAGES, resolveRoute } from "./views.js";
+import { LEGACY, PAGES, paletteCodes, resolveRoute } from "./views.js";
+import { commandResult } from "./palette.js";
 
 describe("analytics host", () => {
   it("lets the last panel take what is left of its row", () => {
@@ -104,6 +105,17 @@ describe("analytics host", () => {
     const q = new URLSearchParams(optimizerQuery(v, { view: "neutral", objective: "riskReward", minPop: "55", maxLoss: "", capital: "200000" }).query);
     expect(Object.fromEntries(q)).toEqual({ underlying: "NIFTY", expiry: "2026-11-03", view: "neutral", objective: "riskReward", top: "6", capital: "200000", minPop: "55" });
     expect(optimizerQuery(v, { view: "bullish", minPop: "120", maxLoss: "0" }).problems).toHaveLength(2);
+  });
+
+  it("palette: PR 17's command line opens a page on an underlying, or its help; every code it lists opens a page", () => {
+    const codes = paletteCodes();
+    const ids = codes.map((c) => c.id);
+    expect(ids).toEqual(expect.arrayContaining(["chain", "oi", "gex", "futures", "tide", "unusual"]));
+    for (const c of codes) expect(resolveRoute(`#/${c.id}`).page === "home" && c.id !== "home", c.id).toBe(false);
+    expect(commandResult("banknifty oc", codes)).toMatchObject({ kind: "go", page: "chain", symbol: "BANKNIFTY", label: "Option Chain for BANKNIFTY" });
+    expect(commandResult("help gx", codes)).toMatchObject({ kind: "help", page: "gex" });
+    expect(commandResult("help", codes)).toMatchObject({ kind: "codes" });
+    expect(commandResult("iron condor", codes)).toBeNull();
   });
 
   it("names a day the way the desk does", () => {

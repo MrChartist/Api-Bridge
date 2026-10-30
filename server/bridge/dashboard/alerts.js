@@ -5,7 +5,8 @@
 import { api, h, icon, modal, optional, sheetPopover, toast } from "./app.js";
 import { fieldError } from "./flows.js";
 import { formatFixed, formatInt, formatSigned, formatSignedRupee, isFigure } from "./format.js";
-import { ALERT_KINDS, DEFAULT_COOLDOWN_MIN, ruleProblems, symbolParts } from "./alert-core.js";
+import { ALERT_KINDS, BAND_KINDS, DEFAULT_COOLDOWN_MIN, ruleProblems, symbolParts } from "./alert-core.js";
+import { workspace } from "./workspace.js";
 
 const POLL_MS = 15_000;
 const WHEN = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -17,8 +18,10 @@ const KIND_TEXT = Object.freeze({
   delta_outside: "Delta outside (lots)",
   expiry_within: "Expiry within (minutes)",
   premium_multiple: "A leg's price reaches (× average)",
+  theta_below: "Theta at or below (₹ a day)",
+  vega_outside: "Vega outside (₹ per IV point)",
 });
-const st = { mounted: false, timer: 0, seen: new Set(), first: true, unread: 0, readAt: null, rules: [], items: [] };
+const st = { mounted: false, timer: 0, seen: new Set(), first: true, unread: 0, readAt: null, rules: [], market: [], items: [] };
 const num = (v) => (isFigure(v) ? Number(v) : null);
 
 /** Plain words for one condition. Delta is shown in lots when the lot size is known. */
@@ -37,6 +40,10 @@ export function conditionText(c, lot = null) {
       return c.value >= 120 ? `Expiry within ${formatFixed(c.value / 60, 1)} h` : `Expiry within ${formatInt(c.value)} min`;
     case "premium_multiple":
       return `A leg at ${formatFixed(c.value, 1)}× its average price`;
+    case "theta_below":
+      return `Theta at or below ${formatSignedRupee(c.value, 0)} a day`;
+    case "vega_outside":
+      return `Vega outside ${formatSignedRupee(c.value, 0)} to ${formatSignedRupee(c.value2, 0)} per IV point`;
     default:
       return String(c.kind);
   }
@@ -61,9 +68,9 @@ function drawBell() {
   const slot = document.getElementById("toolbar-bell");
   const btn = bellButton();
   if (!slot || !btn) return;
-  const active = st.rules.filter((r) => r.enabled).length;
+  const active = st.rules.filter((r) => r.enabled).length + st.market.filter((r) => r.enabled !== false).length;
   // Shown once there is something to show: an alert, or a fire not yet read.
-  slot.hidden = !st.rules.length && !st.unread;
+  slot.hidden = !st.rules.length && !st.market.length && !st.unread;
   const count = btn.querySelector(".bell-count");
   count.hidden = !st.unread;
   count.textContent = st.unread > 9 ? "9+" : formatInt(st.unread);
@@ -72,8 +79,9 @@ function drawBell() {
 }
 
 async function refresh() {
-  const [inbox, rules] = await Promise.all([optional(api("/v1/alerts/inbox")), optional(api("/v1/alerts"))]);
+  const [inbox, rules, market] = await Promise.all([optional(api("/v1/alerts/inbox")), optional(api("/v1/alerts")), optional(api("/v1/alerts/market"))]);
   if (rules.data) st.rules = rules.data.data?.items ?? [];
+  if (market.data) st.market = Array.isArray(market.data.data) ? market.data.data : market.data.data?.items ?? [];
   const d = inbox.data?.data;
   if (d) {
     st.unread = Number(d.unread) || 0;
@@ -146,6 +154,33 @@ function openBell(trigger) {
         : [h("p", { class: "muted" }, "No alerts yet. Add one from Positions: Alert on the book, a group or a leg.")]),
     );
   drawRules();
+  // Market alerts (PR 17's alert rules: PCR, IV, OI at a strike, basis, flow …), checked by the same Bridge engine.
+  const market = h("div", { class: "al-rules" });
+  const drawMarket = async () => {
+    const M = await import("./analyticsMore.js");
+    market.replaceChildren(
+      ...(st.market.length
+        ? st.market.map((r) => {
+            const del = h("button", { type: "button", class: "icon-btn tiny", "aria-label": `Delete ${r.name}`, title: "Delete" }, icon("close"));
+            del.addEventListener("click", async () => {
+              const res = await optional(api(`/v1/alerts/market/${encodeURIComponent(r.id)}`, { method: "DELETE" }));
+              if (res.error) return toast(res.error.message ?? "Could not delete the alert.", { tone: "error" });
+              toast(`Deleted: ${r.name}`);
+              await refresh();
+              drawMarket();
+            });
+            const state = M.ruleState(r);
+            return h("div", { class: `al-rule al-mrule${r.enabled === false ? " off" : ""}` }, h("div", { class: "al-rule-t" }, h("strong", {}, r.name), h("small", {}, `${M.describeRule(r).replace(/^Tell me when /, "").replace(/\.$/, "")} · ${state.text}`)), del);
+          })
+        : [h("p", { class: "muted" }, "None yet: watch PCR, IV, OI at a strike, basis or flow on an underlying.")]),
+    );
+  };
+  drawMarket();
+  const newMarket = h("button", { type: "button", class: "small" }, icon("plus"), "New market alert");
+  newMarket.addEventListener("click", () => {
+    newMarket.closest("dialog")?.close?.(); // the bell sheet makes way for the form
+    openMarketAlertSheet();
+  });
   const markBtn = h("button", { type: "button", class: "small", disabled: !st.unread }, "Mark all read");
   markBtn.addEventListener("click", async () => {
     await optional(api("/v1/alerts/inbox/read", { method: "POST" }));
@@ -158,7 +193,7 @@ function openBell(trigger) {
     title: "Alerts",
     cls: "al-pop",
     head: [markBtn],
-    body: h("div", { class: "al-body" }, h("h3", { class: "al-h" }, "Fired"), list, h("h3", { class: "al-h" }, "Your alerts"), rules, h("p", { class: "al-note" }, "Alerts are checked on the Bridge every 15 s, even with this page closed. They only notify: no order is placed.")),
+    body: h("div", { class: "al-body" }, h("h3", { class: "al-h" }, "Fired"), list, h("h3", { class: "al-h" }, "Your alerts"), rules, h("h3", { class: "al-h" }, "Market alerts"), market, newMarket, h("p", { class: "al-note" }, "Alerts are checked on the Bridge every 15 s, even with this page closed. They only notify: no order is placed.")),
     onClose: () => trigger.setAttribute("aria-expanded", "false"),
   });
 }
@@ -191,6 +226,10 @@ export async function openAlertSheet(o) {
         return { value: 60 };
       case "premium_multiple":
         return { value: 2 };
+      case "theta_below":
+        return { value: -5000 };
+      case "vega_outside":
+        return { value: -5000, value2: 5000 };
       default:
         return { value: "" };
     }
@@ -199,8 +238,9 @@ export async function openAlertSheet(o) {
     if (conds.length >= 5) return;
     const sel = h("select", { "aria-label": "Condition" }, ALERT_KINDS.map((k) => h("option", { value: k, selected: k === kind }, KIND_TEXT[k])));
     const v1 = h("input", { type: "number", inputmode: "decimal", step: "any", value: String(init.value ?? ""), "aria-label": "Value" });
-    const v2 = h("input", { type: "number", inputmode: "decimal", step: "any", value: String(init.value2 ?? ""), "aria-label": "Upper value", hidden: kind !== "delta_outside" });
-    const to = h("span", { class: "muted", hidden: kind !== "delta_outside" }, "to");
+    const band = (k) => BAND_KINDS.includes(k);
+    const v2 = h("input", { type: "number", inputmode: "decimal", step: "any", value: String(init.value2 ?? ""), "aria-label": "Upper value", hidden: !band(kind) });
+    const to = h("span", { class: "muted", hidden: !band(kind) }, "to");
     const del = h("button", { type: "button", class: "icon-btn tiny", "aria-label": "Remove this condition" }, icon("close"));
     const now = h("small", { class: "al-now" });
     const row = h("div", { class: "al-cond" }, sel, v1, to, v2, del, now);
@@ -215,6 +255,8 @@ export async function openAlertSheet(o) {
         delta_outside: isFigure(o.delta) && lot ? `Delta now ${formatSigned(o.delta / lot, 2)} lots` : lot ? "" : "No lot size: units",
         expiry_within: "Before 15:30 IST on the nearest expiry",
         premium_multiple: "2 = the premium doubled (a short's stop, a long's target)",
+        theta_below: "Rupees a calendar day; a long option book's theta is below 0",
+        vega_outside: "Rupees the book gains or loses for a 1 point rise in IV",
       }[k];
       now.textContent = t ?? "";
     };
@@ -222,7 +264,7 @@ export async function openAlertSheet(o) {
       const s = suggest(sel.value);
       v1.value = String(s.value ?? "");
       v2.value = String(s.value2 ?? "");
-      v2.hidden = to.hidden = sel.value !== "delta_outside";
+      v2.hidden = to.hidden = !band(sel.value);
       hint();
     });
     del.addEventListener("click", () => {
@@ -267,16 +309,92 @@ export async function openAlertSheet(o) {
           const conditions = conds.map(({ sel, v1, v2 }) => {
             const k = sel.value;
             const toUnits = (v) => (k === "delta_outside" && lot ? Number(v) * lot : Number(v));
-            return { kind: k, value: toUnits(v1.value), ...(k === "delta_outside" ? { value2: toUnits(v2.value) } : {}) };
+            return { kind: k, value: toUnits(v1.value), ...(BAND_KINDS.includes(k) ? { value2: toUnits(v2.value) } : {}) };
           });
           const rule = { name: name.value.trim() || undefined, account: o.account, underlying: o.underlying, symbols: o.symbols ?? null, conditions, match: match.value, repeat: repeat.value, cooldownMin: DEFAULT_COOLDOWN_MIN, notify: notify.checked };
-          const bad = conds.find(({ v1, v2, sel }) => v1.value === "" || (sel.value === "delta_outside" && v2.value === ""));
+          const bad = conds.find(({ v1, v2, sel }) => v1.value === "" || (BAND_KINDS.includes(sel.value) && v2.value === ""));
           if (bad) return fieldError(bad.v1.value === "" ? bad.v1 : bad.v2, "Give a number."), false;
           const problems = ruleProblems(rule);
           if (problems.length) return (err.textContent = problems.join(" ")), false;
           const res = await optional(api("/v1/alerts", { method: "POST", body: rule }));
           if (res.error) return (err.textContent = res.error.message ?? "Could not create the alert."), false;
           toast(`Alert on: ${res.data?.data?.name ?? rule.name ?? o.underlying}`);
+          alertsChanged();
+          return true;
+        },
+      },
+    ],
+  });
+}
+
+/**
+ * Create a market alert (POST /v1/alerts/market, the Bridge's alert-rule engine): one metric on an underlying, checked
+ * every few minutes in market hours. Alerts only notify: nothing is bought or sold.
+ */
+export async function openMarketAlertSheet() {
+  const M = await import("./analyticsMore.js");
+  const sel = (label, opts, value) => {
+    const el = h("select", { "aria-label": label }, opts.map(([v, t]) => h("option", { value: v }, t)));
+    if (value !== undefined) el.value = value;
+    return el;
+  };
+  const metric = sel("Watch", M.RULE_METRICS.map((m) => [m.id, m.label]), "atm_iv");
+  const underlying = h("input", { type: "text", value: workspace.state.underlying || "NIFTY", autocapitalize: "characters", spellcheck: "false", "aria-label": "Underlying" });
+  const expiry = h("select", { "aria-label": "Expiry" });
+  const strike = h("input", { type: "number", inputmode: "decimal", step: "any", "aria-label": "Strike" });
+  const right = sel("Side", [["CE", "Call (CE)"], ["PE", "Put (PE)"]]);
+  const op = sel("When it", [["above", "Rises above"], ["below", "Falls below"]]);
+  const cross = sel("Crossing", [["either", "Either way"], ["above", "Upward"], ["below", "Downward"]]);
+  const to = h("select", { "aria-label": "Changes to" });
+  const value = h("input", { type: "number", inputmode: "decimal", step: "any", "aria-label": "Value" });
+  const every = h("input", { type: "number", inputmode: "numeric", min: "1", max: "1440", step: "1", value: "5", "aria-label": "Check every (minutes)" });
+  const hint = h("p", { class: "muted small" });
+  const err = h("p", { class: "field-msg", role: "alert" });
+  const f = (label, el) => h("label", { class: "field" }, label, el);
+  const fExpiry = f("Expiry", expiry);
+  const fStrike = h("div", { class: "row al-opts" }, f("Strike", strike), f("Side", right));
+  const fOp = f("When it", op);
+  const fCross = f("Crossing", cross);
+  const fTo = f("Changes to", to);
+  const fValue = f("Value", value);
+  const loadExpiries = async () => {
+    const r = await optional(api(`/v1/expiries?underlying=${encodeURIComponent(underlying.value.trim().toUpperCase())}`));
+    const list = (r.data?.data?.expiries ?? []).slice(0, 8);
+    expiry.replaceChildren(...list.map((e) => h("option", { value: e }, e)));
+    if (list.includes(workspace.state.expiry)) expiry.value = workspace.state.expiry;
+  };
+  const sync = () => {
+    const m = M.metricInfo(metric.value);
+    fExpiry.hidden = Boolean(m.noExpiry);
+    fStrike.hidden = !m.perStrike;
+    fOp.hidden = m.kind !== "threshold";
+    fCross.hidden = m.kind !== "cross";
+    fTo.hidden = m.kind !== "regime";
+    fValue.hidden = m.kind === "regime";
+    to.replaceChildren(h("option", { value: "" }, "Any change"), ...(m.to ?? ["positive", "negative", "neutral"]).map((x) => h("option", { value: x }, x[0].toUpperCase() + x.slice(1))));
+    value.placeholder = m.example ?? "";
+    hint.textContent = m.hint ?? "";
+  };
+  metric.addEventListener("change", sync);
+  underlying.addEventListener("change", loadExpiries);
+  sync();
+  await loadExpiries();
+  const body = h("div", { class: "stack al-form" }, f("Watch", metric), hint, h("div", { class: "row al-opts" }, f("Underlying", underlying), fExpiry), fStrike, h("div", { class: "row al-opts" }, fOp, fCross, fTo, fValue), f("Check every (minutes, market hours)", every), h("p", { class: "al-note" }, "Checked on the Bridge, with this page closed too. Alerts only notify: nothing is bought or sold."), err);
+  await modal({
+    title: "New market alert",
+    body,
+    buttons: [
+      { label: "Cancel", value: false },
+      {
+        label: "Create alert",
+        cls: "primary",
+        onClick: async () => {
+          const m = M.metricInfo(metric.value);
+          const r = M.ruleBody({ name: "", underlying: underlying.value, expiry: expiry.value, metric: m.id, op: m.kind === "cross" ? cross.value : op.value, value: value.value, to: to.value, every: every.value, marketHoursOnly: true, strike: strike.value, right: right.value });
+          if (!r.ok) return (err.textContent = r.errors.join(" ")), false;
+          const res = await optional(api("/v1/alerts/market", { method: "POST", body: r.body }));
+          if (res.error) return (err.textContent = res.error.message ?? "Could not create the alert."), false;
+          toast(`Alert on: ${res.data?.data?.name ?? r.body.name}`);
           alertsChanged();
           return true;
         },

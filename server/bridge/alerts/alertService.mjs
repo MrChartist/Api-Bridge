@@ -46,6 +46,10 @@ export function conditionWords(c) {
       return `delta outside ${fixed(c.value, 0)} to ${fixed(c.value2, 0)}`;
     case "expiry_within":
       return `expiry within ${Math.round(c.value)} min`;
+    case "theta_below":
+      return `theta at or below ${rupee(c.value)} a day`;
+    case "vega_outside":
+      return `vega outside ${rupee(c.value)} to ${rupee(c.value2)} per IV point`;
     case "premium_multiple":
       return `a leg at ${fixed(c.value, 1)}× its average price`;
     default:
@@ -130,7 +134,7 @@ export function createAlertService(deps, { timers = { setInterval, clearInterval
       account: String(input.account ?? prev?.account ?? ""),
       underlying: String(input.underlying ?? prev?.underlying ?? "").toUpperCase(),
       symbols: input.symbols === undefined ? (prev?.symbols ?? null) : input.symbols,
-      conditions: (input.conditions ?? prev?.conditions ?? []).map((c) => ({ kind: c.kind, value: Number(c.value), ...(c.kind === "delta_outside" ? { value2: Number(c.value2) } : {}) })),
+      conditions: (input.conditions ?? prev?.conditions ?? []).map((c) => ({ kind: c.kind, value: Number(c.value), ...(c.kind === "delta_outside" || c.kind === "vega_outside" ? { value2: Number(c.value2) } : {}) })),
       match: input.match ?? prev?.match ?? "any",
       repeat: input.repeat ?? prev?.repeat ?? "once",
       cooldownMin: Number(input.cooldownMin ?? prev?.cooldownMin ?? DEFAULT_COOLDOWN_MIN),
@@ -185,7 +189,7 @@ export function createAlertService(deps, { timers = { setInterval, clearInterval
       const s = step(r, m, r.state, t);
       const prev = JSON.stringify(r.state ?? null);
       r.state = s.state;
-      r.last = { at: new Date(t).toISOString(), pnl: m.pnl, spot: m.spot, delta: m.delta, minutesToExpiry: m.minutesToExpiry, premiumMultiple: m.premiumMultiple, legs: m.legs };
+      r.last = { at: new Date(t).toISOString(), pnl: m.pnl, spot: m.spot, delta: m.delta, theta: m.theta ?? null, vega: m.vega ?? null, minutesToExpiry: m.minutesToExpiry, premiumMultiple: m.premiumMultiple, legs: m.legs };
       if (JSON.stringify(r.state) !== prev) changed = true;
       if (!s.fire) continue;
       fired += 1;
