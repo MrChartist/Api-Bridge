@@ -37,12 +37,17 @@ const fill = (el, ...kids) => el.replaceChildren(...kids.flat(Infinity).filter((
 const ticker = (s) => String(s ?? "").split(":").pop();
 const clone = (x) => structuredClone(x);
 
+/** Result columns that are changes: shown with their sign, as % chg is. */
+const SIGNED_COLS = new Set(["fut_oi_change_pct", "gap_pct", "basis_pct"]);
+
 /** A fact value as text by its unit (pure). */
 export function factText(v, unit) {
   if (!isFigure(v)) return DASH;
   switch (unit) {
     case "pct":
       return `${formatFixed(v, 2)}%`;
+    case "spct":
+      return `${formatSigned(v, 2)}%`;
     case "pts":
       return formatSigned(v, 1);
     case "x":
@@ -196,7 +201,7 @@ export async function renderScannerPage() {
     const v = await modal({ title: "Rename scan", body: h("label", { class: "field" }, "Name", input), buttons: [{ label: "Cancel", value: null }, { label: "Rename", cls: "primary", value: "ok" }] });
     if (v !== "ok" || !input.value.trim()) return;
     const r = await optional(api(`/v1/scanner/saved/${encodeURIComponent(s.id)}`, { method: "PATCH", body: { name: input.value.trim() } }));
-    if (r.error) return toast(r.error.message ?? "Could not rename", { tone: "bad" });
+    if (r.error) return toast(r.error.message ?? "Could not rename", { tone: "error" });
     if (st.savedId === s.id) {
       st.name = input.value.trim();
       nameInput.value = st.name;
@@ -206,7 +211,7 @@ export async function renderScannerPage() {
   }
   async function duplicateSaved(s) {
     const r = await optional(api(`/v1/scanner/saved/${encodeURIComponent(s.id)}/duplicate`, { method: "POST" }));
-    if (r.error) return toast(r.error.message ?? "Could not duplicate", { tone: "bad" });
+    if (r.error) return toast(r.error.message ?? "Could not duplicate", { tone: "error" });
     toast(`Saved a copy: ${r.data.data.name}`);
     reloadSaved();
   }
@@ -214,7 +219,7 @@ export async function renderScannerPage() {
     const v = await modal({ title: `Delete ${s.name}?`, body: h("p", {}, "The scan, its schedule and its last results go. Live events rows it made stay."), buttons: [{ label: "Cancel", value: null }, { label: "Delete", cls: "primary", value: "ok" }] });
     if (v !== "ok") return;
     const r = await optional(api(`/v1/scanner/saved/${encodeURIComponent(s.id)}`, { method: "DELETE" }));
-    if (r.error) return toast(r.error.message ?? "Could not delete", { tone: "bad" });
+    if (r.error) return toast(r.error.message ?? "Could not delete", { tone: "error" });
     if (st.savedId === s.id) st.savedId = null;
     toast("Deleted");
     reloadSaved();
@@ -589,7 +594,7 @@ export async function renderScannerPage() {
     const v = await modal({ title: s ? `Save ${s.name}` : "Save scan", body, buttons });
     if (!v) return;
     const mins = Number(every.value);
-    if (when.value === "every" && (!Number.isInteger(mins) || mins < 1 || mins > 1440)) return toast("Minutes: a whole number from 1 to 1440", { tone: "bad" });
+    if (when.value === "every" && (!Number.isInteger(mins) || mins < 1 || mins > 1440)) return toast("Minutes: a whole number from 1 to 1440", { tone: "error" });
     const payload = {
       name: name.value.trim() || "Untitled scan",
       request: currentRequest(),
@@ -602,7 +607,7 @@ export async function renderScannerPage() {
     };
     payload.request.name = payload.name;
     const r = v === "update" ? await optional(api(`/v1/scanner/saved/${encodeURIComponent(s.id)}`, { method: "PATCH", body: payload })) : await optional(api("/v1/scanner/saved", { method: "POST", body: payload }));
-    if (r.error) return toast(r.error.message ?? "Could not save", { tone: "bad" });
+    if (r.error) return toast(r.error.message ?? "Could not save", { tone: "error" });
     st.savedId = r.data.data.id;
     st.name = r.data.data.name;
     nameInput.value = st.name;
@@ -734,7 +739,7 @@ export async function renderScannerPage() {
             "tr",
             { tabindex: "0", class: r.isNew ? "is-new" : undefined, onclick: () => openSheet(r), onkeydown: (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), openSheet(r)) },
             h("td", { class: "lead" }, h("span", { class: "sc-sym" }, ticker(r.symbol)), r.isNew ? h("span", { class: "pill info sc-new" }, "New") : null),
-            cols.map((c) => h("td", { class: `${c.unit === "text" ? "sc-text-cell" : "num"}${c.id === "change_pct" && isFigure(r.facts?.change_pct) ? (r.facts.change_pct >= 0 ? " up" : " down") : ""}` }, c.id === "sector" ? (r.facts?.sector ?? DASH) : c.id === "change_pct" ? (isFigure(r.facts?.change_pct) ? `${formatSigned(r.facts.change_pct, 2)}%` : DASH) : factText(r.facts?.[c.id], c.unit))),
+            cols.map((c) => h("td", { class: `${c.unit === "text" ? "sc-text-cell" : "num"}${c.id === "change_pct" && isFigure(r.facts?.change_pct) ? (r.facts.change_pct >= 0 ? " up" : " down") : ""}` }, c.id === "sector" ? (r.facts?.sector ?? DASH) : c.id === "change_pct" ? (isFigure(r.facts?.change_pct) ? `${formatSigned(r.facts.change_pct, 2)}%` : DASH) : factText(r.facts?.[c.id], SIGNED_COLS.has(c.id) ? "spct" : c.unit))),
           ),
         ),
       ),
@@ -790,10 +795,10 @@ export async function renderScannerPage() {
   async function addToWatchlist(symbol) {
     const r = await optional(api("/v1/events/selection"));
     const sel = r.data?.data;
-    if (!sel) return toast(r.error?.message ?? "Could not read the watchlist.", { tone: "bad" });
+    if (!sel) return toast(r.error?.message ?? "Could not read the watchlist.", { tone: "error" });
     if ((sel.watchlist ?? []).includes(symbol)) return toast("Already on the watchlist");
     const w = await optional(api("/v1/events/selection", { method: "PUT", body: { ...sel, watchlist: [...(sel.watchlist ?? []), symbol], universes: sel.universes.includes("WATCHLIST") ? sel.universes : [...sel.universes, "WATCHLIST"] } }));
-    if (w.error) return toast(w.error.message ?? "Could not add", { tone: "bad" });
+    if (w.error) return toast(w.error.message ?? "Could not add", { tone: "error" });
     toast(`${ticker(symbol)} added to the watchlist`);
   }
 

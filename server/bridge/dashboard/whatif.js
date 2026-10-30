@@ -4,7 +4,7 @@
 // Θ, vega and margin (span-margin.js, through whatif-core.js). Both pages hand it the same state object (the desk's
 // st.whatIf), so a scenario set on one page is there on the other. Numbers become text only through format.js.
 import { h, icon } from "./app.js";
-import { formatFixed, formatInt, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
+import { formatCompact, formatFixed, formatInt, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { WHATIF_LIMITS, clampWhatIf, daysStep } from "./whatif-core.js";
 
 const rs = (v, dp = 0) => formatSignedRupee(v, dp);
@@ -177,7 +177,7 @@ export function createWhatIf({ state, onInput, onCommit = () => {}, title = "Wha
       fig("Γ", formatSigned(g.gamma, 2), `now ${formatSigned(f.greeks0.gamma, 2)}`),
       fig("Θ /day", rs(g.theta), `now ${rs(f.greeks0.theta)}`),
       fig("Vega /pt", rs(g.vega), `now ${rs(f.greeks0.vega)}`),
-      fig("Margin ≈", formatRupee(f.margin, 0), f.marginChange === null ? "" : h("span", { class: f.marginChange > 0.5 ? "down" : f.marginChange < -0.5 ? "up" : "" }, `${rs(f.marginChange)} vs now`)),
+      fig("Margin ≈", isFigure(f.margin) && f.margin >= 1e5 ? `₹${formatCompact(f.margin)}` : formatRupee(f.margin, 0), f.marginChange === null ? "" : h("span", { class: f.marginChange > 0.5 ? "down" : f.marginChange < -0.5 ? "up" : "" }, `${rs(f.marginChange)} vs now`)),
     );
     if (note) figs.append(h("p", { class: "muted wi-note" }, note));
   }

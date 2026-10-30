@@ -759,6 +759,9 @@ export function createPaperEngine(deps, options = {}) {
   // ───────────────────────────── time-based work ─────────────────────────────
 
   function expireDayOrders(st, t) {
+    // Demo: the sample market ticks at any hour, so a resting DAY order stays open until the day rolls (rollDay) instead
+    // of expiring the moment it is placed after the close (a basket would be left part-filled).
+    if (config?.demo) return false;
     let changed = false;
     for (const o of st.orders) {
       if (isPending(o) && t >= sessionEndAt(o.exchange, t)) {

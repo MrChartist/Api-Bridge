@@ -509,3 +509,17 @@ describe("Reference data and Market calendar (docs/spec/p1-02-reference.md §5)"
     }
   });
 });
+
+describe("toast tones (QA pass, 30 Oct)", () => {
+  it("every toast names a tone toast() knows, so a problem never shows the green tick", () => {
+    const known = new Set(["ok", "info", "warn", "error"]);
+    const bad = [];
+    for (const f of jsFiles) {
+      for (const line of read(f).split("\n")) {
+        if (!line.includes("toast(")) continue;
+        for (const m of line.matchAll(/toast\([^;]*?\{ tone: "([a-z]*)" \}/g)) if (!known.has(m[1])) bad.push(`${f}: ${m[1]}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+});

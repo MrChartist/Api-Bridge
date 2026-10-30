@@ -182,7 +182,7 @@ export function rollMargin(book, plan, { underlying, nowMs, Fnow, Fnext = null, 
 export function rollItems(plan, { product = "MARGIN", label = (x) => x } = {}) {
   const out = [];
   for (const r of plan.rolls) {
-    out.push({ side: r.close.side, symbol: r.leg.symbol, label: label({ strike: r.leg.strike, right: r.leg.right, expiry: r.leg.expiry, close: true }), lots: r.lots, lotSize: r.lot, price: r.close.price, product: r.leg.product ?? product, quote: () => r.leg.quote ?? null, freezeQty: r.leg.freeze ?? null, leg: r.leg });
+    out.push({ side: r.close.side, closing: true, symbol: r.leg.symbol, label: label({ strike: r.leg.strike, right: r.leg.right, expiry: r.leg.expiry, close: true }), lots: r.lots, lotSize: r.lot, price: r.close.price, product: r.leg.product ?? product, quote: () => r.leg.quote ?? null, freezeQty: r.leg.freeze ?? null, leg: r.leg });
     out.push({ side: r.open.side, symbol: r.open.symbol, label: label({ strike: r.open.strike, right: r.open.right, expiry: r.open.expiry, close: false }), lots: r.lots, lotSize: r.lot, price: r.open.price, product: r.leg.product ?? product, quote: () => r.open.quote ?? null, freezeQty: r.leg.freeze ?? null, leg: null });
   }
   return out;

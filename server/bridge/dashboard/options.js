@@ -4030,6 +4030,15 @@ export function staleness({ chainAsOf = null, futAsOf = null, now = Date.now(), 
 
 /** Minutes past midnight IST. */
 const istMinutes = (ms) => Math.floor((((ms + IST_OFFSET_MS) % 86400000) + 86400000) % 86400000 / 60000);
+/**
+ * The order ticket's starting product. A given product is kept (an exit closes what it holds); otherwise Intraday
+ * until the 15:20 IST square-off and Margin (NRML) from then to midnight, when new intraday orders are refused.
+ */
+export function ticketProduct(product, nowMs = Date.now(), squareOffMin = 15 * 60 + 20) {
+  if (product === "MARGIN" || product === "CNC") return "MARGIN";
+  if (product === "INTRADAY") return "INTRADAY";
+  return istMinutes(nowMs) >= squareOffMin ? "MARGIN" : "INTRADAY";
+}
 /** Flag codes, in priority order (most important first). */
 export const ARB_FLAGS = Object.freeze(["LOT_MISMATCH", "CROSSED", "ORDER_LIMIT", "STALE", "EXPIRY_DAY", "MARKET_CLOSED", "NEAR_CLOSE", "WIDE", "THIN", "ONE_SIDED", "NO_FUTURE", "FREEZE", "EXERCISE_STT"]);
 /**

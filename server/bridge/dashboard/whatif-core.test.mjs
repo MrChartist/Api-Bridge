@@ -43,6 +43,16 @@ describe("what-if figures", () => {
     expect(f.margin).toBeGreaterThan(50_000);
   });
 
+  it("anchors margin to the page's own figure when given, so one screen never shows two margins", () => {
+    const base = whatIfFigures(strangle, { pct: 3, dIv: 0, days: 0 }, { underlying: "NIFTY", spot: 26302, nowMs: NOW });
+    const now = whatIfFigures(strangle, { pct: 0 }, { underlying: "NIFTY", spot: 26302, nowMs: NOW, marginNow: 87_249 });
+    expect(now.margin).toBe(87_249);
+    expect(now.marginChange).toBeCloseTo(0, 6);
+    const up = whatIfFigures(strangle, { pct: 3, dIv: 0, days: 0 }, { underlying: "NIFTY", spot: 26302, nowMs: NOW, marginNow: 87_249 });
+    expect(up.margin0).toBe(87_249);
+    expect(up.marginChange).toBeCloseTo(base.marginChange, 6);
+  });
+
   it("a short strangle loses on a big move and on an IV rise, gains on time", () => {
     const up = whatIfFigures(strangle, { pct: 3, dIv: 0, days: 0 }, { underlying: "NIFTY", spot: 26302, nowMs: NOW });
     expect(up.change).toBeLessThan(-10_000);

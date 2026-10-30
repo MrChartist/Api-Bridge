@@ -765,10 +765,10 @@ export async function renderEventsPage() {
   async function addToWatchlist(symbol, btn) {
     const r = await optional(api("/v1/events/selection"));
     const sel = r.data?.data;
-    if (!sel) return toast(r.error?.message ?? "Could not read the selection.", { tone: "bad" });
+    if (!sel) return toast(r.error?.message ?? "Could not read the selection.", { tone: "error" });
     if (sel.watchlist.includes(symbol)) return toast("Already on the watchlist");
     const w = await optional(api("/v1/events/selection", { method: "PUT", body: { ...sel, watchlist: [...sel.watchlist, symbol], universes: sel.universes.includes("WATCHLIST") ? sel.universes : [...sel.universes, "WATCHLIST"] } }));
-    if (w.error) return toast(w.error.message, { tone: "bad" });
+    if (w.error) return toast(w.error.message, { tone: "error" });
     btn.disabled = true;
     toast(`${symbol.split(":")[1]} added to the events watchlist`);
   }
@@ -776,7 +776,7 @@ export async function renderEventsPage() {
   // ── Event picker ──
   pickBtn.addEventListener("click", async () => {
     const r = await optional(api("/v1/events/selection"));
-    if (r.error) return toast(r.error.message, { tone: "bad" });
+    if (r.error) return toast(r.error.message, { tone: "error" });
     let sel = r.data.data;
     const host = h("div", { class: "ev-picker" });
     const draw = () => {
@@ -827,7 +827,7 @@ export async function renderEventsPage() {
           onClick: async () => {
             const w = await optional(api("/v1/events/selection", { method: "PUT", body: sel }));
             if (w.error) {
-              toast(w.error.message, { tone: "bad" });
+              toast(w.error.message, { tone: "error" });
               return false;
             }
             toast("Event selection saved");
@@ -861,7 +861,7 @@ export async function renderEventsPage() {
                 h("span", { class: `ev-chip ${c.side}` }, c.side === "bull" ? "Bull" : c.side === "bear" ? "Bear" : "Neutral"),
                 h("button", { type: "button", class: "small plain", "aria-label": `Delete ${c.name}`, onclick: async () => {
                   const d = await optional(api(`/v1/events/conditions/${encodeURIComponent(c.id)}`, { method: "DELETE" }));
-                  if (d.error) return toast(d.error.message, { tone: "bad" });
+                  if (d.error) return toast(d.error.message, { tone: "error" });
                   load();
                 } }, icon("close")),
               ),

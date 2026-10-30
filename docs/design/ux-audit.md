@@ -178,3 +178,80 @@ pure and tested; every new route is in `docs/openapi.yaml` with a test; demo mod
 - **Workbook:** a Journal sheet (closed trades and the stats as formulas) and a Google Sheets variant with IMPORTDATA.
 - **Accounts at 1024 px:** with the holder column (demo) the accounts table stacks into cards at 1024 px; a narrower
   broker cell would keep it a table.
+
+## QA pass (30 Oct)
+
+Every flow used end to end like a trader, in demo mode, after 18:00 IST (after the close: several bugs only show
+then). A demo Bridge on port 4550 with a private home, deleted for each fresh pass (first run included); Playwright at
+1920 dark, 390 light and 820 dark, plus keyboard-only runs. Every page got a DOM text scan for "null", "undefined",
+"NaN", "Infinity" and "[object Object]" (text, title, aria-label, placeholder, input values), the em dash and
+horizontal scroll. Scripts: `scratchpad/qa/*.cjs` (`sweep.cjs` the page scan, `f2` to `f10` one per flow,
+`pairs.cjs` the before / after shots against an untouched copy of the branch on port 4551).
+
+### Tested
+
+| Flow | What was checked |
+|---|---|
+| First run | Get started (1 of 4 after a CLI key); cockpit P&L = sum of the account rows; legs 10 = books; Home, Accounts › Today and Positions agree per account; margin % and free funds match Positions. |
+| Option Chain | Ticket from the ask: pay, max loss, breakeven, charges (1 and 2 lots, by hand); paper buy lands in Orders, Positions (Δ +68 for 2 lots of a 0.51 Δ call) and the Journal; right-click › Iron condor lands in Strategy with Undo; Ctrl K "buy 2 nifty 26300 ce" (Home, Positions, OI) opens a 130-qty ticket; "sell nifty straddle 3 nov" (Accounts, Chain) fills Strategy; contract sheet Excel formula copies the right `=VALUE(WEBSERVICE(…))`. Build-up tags, walls, PCR, volume PCR, straddle and net OI change checked against the rows. |
+| Strategy | Templates; what-if spot, IV, days shared with Positions both ways and Reset; hedged margin vs naked ("Hedge saves"); a 40-lot basket slices 27 + 13 under the 1800 freeze and buys go first; a 30-lot one sent (raised limits in a test config); Cancel remaining withdraws the open hedge and marks the rest "Not sent". |
+| Positions | What-if; Roll group and the leg menu's roll; alert "spot at or above" fired by the Bridge in about 25 s, bell count, list and toast; Exit, Exit all, Exit group sheets; Expiry desk (time value, max pain, pin risk distances by hand) and Square off. |
+| Orders, Journal | Modify (invalid price and a non-lot quantity refused on the field), Cancel, Undo (placed again); Journal tags, setup, notes saved; stats by tag, setup, underlying, strategy; calendar month total; CSV (34 lines, no bad tokens); Snapshot today. |
+| Safety | Kill switch blocks the chain ticket, the Ctrl K ticket, the basket, the roll and the exit ticket (buttons disabled, reason shown, no order reached the Bridge); release needs RELEASE. |
+| OI, Volatility, Participants | Explain this matches the tiles (PCR, walls, max pain; ATM IV, HV20, IV rank and percentile, 25Δ skew and fly); participants long % and nets by hand. |
+| Screeners | Stocks library (3 tabs), builder to Advanced and back (two rules survive), Save every 5 min, Run now, Export CSV, Excel formula and API URL (works with `curl`, `format=csv` too); Watchlists new, add (incl. a bad symbol), remove, rename sheet; Live events rows, side sheet, its Buy. |
+| Accounts | Workbook downloads and opens in openpyxl (Setup, Watchlist, Positions, the `BridgeKey` name); its `/xl` formulas answer with an Excel key; Add your broker (Zerodha guide); Reset funds and Undo (positions back). |
+| API | Empty name refused on the field; Excel defaults; Copy key; the key works in `/xl/ltp?key=`, then fails after Revoke; Test console; Rate limits; budget popover. |
+| Recorder, Calendar | Coverage and gaps; holidays, moved expiries, lots and freeze. |
+
+### Found and fixed
+
+| # | Page | Symptom | Fix |
+|---|---|---|---|
+| 1 | Option Chain ticket | After 15:20 IST every paper buy from the chain was "Rejected" (Intraday after the square-off), shown with the green tick and no reason. | The ticket starts on Margin (NRML) from 15:20 to midnight (`options.js ticketProduct`, tested); a rejected or cancelled order toasts in the error tone with the Bridge's reason. |
+| 2 | Strategy › Place (paper) | After the close a resting limit leg expired the moment it was sent, so an iron condor ended "Placed 3 of 4" (a short call missing); Orders › Modify and Undo could not be used after 15:30. | Demo only: a resting DAY order stays open until the day rolls, as the demo market ticks at any hour (`paperEngine.mjs`, tested). Live and normal paper keep the session-end expiry. |
+| 3 | Everywhere (Ctrl K) | Escape on a sheet, then Ctrl K at once: the palette did not open and the typed text went into the closing ticket ("Buy 2263000 lots"). | A closing sheet is inert and the palette closes it at once (`app.js modal`, `palette.js`). |
+| 4 | 17 toasts (Scanner, Live events, Calendar, Participants) | Problems used tone "bad", which `toast()` does not know, so they showed the green success tick. | Tone "error"; `polish.test.mjs` fails on any toast with an unknown tone. |
+| 5 | Strategy | Two margins for the same legs: Risk & capital ₹87,249 (paper engine) and what-if "Margin ≈ ₹83,311, ₹0 vs now". | The what-if starts from the page's figure and moves it by the model's change (`whatIfFigures marginNow`, tested). |
+| 6 | Option Chain → any page | An open order ticket stayed over the next page after a link, Back or a hash change. | Leaving the desk closes it (`desk.js` cleanup). |
+| 7 | Toolbar budget popover | Printed "null" between Today and Saved today when no job ran. | Nulls filtered before `replaceChildren` (`budget.js`). |
+| 8 | Roll › Review | Closing a long was labelled "short leg"; buying back a short "buy first". | Roll's closing orders carry `closing`; the sheet says "close" (`roll-core.js`, tested). |
+| 9 | Stocks scanner | OI chg % showed "1.61%" next to "−0.76%" (no + sign). | Change columns (OI chg %, Gap %, Basis %) are signed. |
+| 10 | Journal | "1 fills". | "1 fill". |
+| 11 | Home, Accounts, Strategy what-if | "free ₹2413463", "+₹1069.25" beside "margin ₹48,211", "Margin ≈ ₹170174". | Free funds and what-if margin as on Positions (₹24.13L, ₹1.70L); Accounts › Today P&L in whole rupees as on Home. |
+
+Before / after shots (`scratchpad/qa/shots/`): `pair-ticket-after-close-*`, `pair-basket-after-close-*`,
+`pair-ctrlk-after-escape-*`, `pair-problem-toast-tone-*`, `pair-strategy-two-margins-*`, `pair-budget-null-*`,
+`pair-ticket-over-next-page-*`.
+
+### Left (not fixed here)
+
+For the speed agent (`events.js`, `live.js`, `desk.js` area):
+- **Live events side sheet Buy / Sell** on a symbol the demo instrument master does not list (MALABPOLY) opens a sheet
+  that can only fail ("not in any connected broker's instrument master"). Hide or disable the buttons when the symbol
+  does not resolve. Its order is fixed at Intraday (refused after 15:20) and `lotSize: 1` (wrong for an F&O symbol).
+- **Chain LTP sub-figure** is the % change without a % sign ("−55.5" reads as points).
+
+Others:
+- **Watchlist IV** mixes measures: indices show the 30-day constant-maturity IV (NIFTY 24.3%), stocks the scanner's ATM
+  IV, while the chain and Volatility show the front expiry's ATM IV (28.5%). Needs a front-expiry ATM IV from the
+  server for indices, or a column label per source. Index rows show no OI change: quotes carry no previous-day OI.
+- **Freeze slicing in demo:** slices of 27 lots always exceed the demo per-order limit of 10 lots, so a big basket is
+  blocked slice by slice. Safety limits were not loosened; a note in the sheet ("per-order limit 10 lots: lower the
+  size or raise the limit") would help.
+- **Order ticket:** Enter in the lots field does not place (the main button is the coloured Buy / Sell, not
+  `.primary`). Safer as it is; documented here so nobody "fixes" it by accident.
+- **Modify** asks for quantity in units while the ticket uses lots; its error shows "The Bridge answered 422" and the
+  message twice.
+- **Exit sheets** say "Margin effect: shown by your broker" on paper accounts, where the paper model knows it. Square
+  off does not mention an exit order already working.
+- **Strategy:** "Now −₹149" (marked at mid, after charges) beside the what-if's P&L ₹0 at the neutral scenario; Max loss
+  "below 25121 / above 27379" (exercise STT makes the far tails a little worse) reads oddly.
+- **Scanner:** saving an edited library scan keeps the library name; scheduled runs wait for market hours even in demo,
+  so "new since last run" and Scan hit rows need market hours or Run now twice.
+- **Watchlists:** an unknown symbol (FOOBAR) is added silently ("1 not priced"); duplicate list names are allowed.
+- **Safety** limits table shows account ids and paise; **Recorder** counts are ungrouped (436400 leg rows).
+- **First run:** Home opened within a second of the start shows the demo book half seeded (7 legs, "not family" at
+  ₹0); a reload a few seconds later shows all 10. The seed could finish before the dashboard link is printed.
+- **Tests:** `screens.test.mjs` "recomputes every tab over about 1000 legs quickly" failed once in a full run under
+  load and passes alone; one full run had one failed file and the rerun was clean. Not loosened.

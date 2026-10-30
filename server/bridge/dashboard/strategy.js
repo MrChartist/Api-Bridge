@@ -1139,7 +1139,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       const sigma = R.b1 && isFigure(x.F) ? ((R.b1.hi - x.F) / x.F) * 100 : null;
       wiPanel.setRange({ S: x.spot, sigma, first, max: first });
       const bl = strategyBookLegs(R.act, { lot: R.lot, forward: x.F, nowMs: now0 });
-      wiPanel.drawFigures(whatIfFigures(bl, W, { underlying: x.c.underlying, spot: x.spot, nowMs: now0, atmIv: x.sm.atmIv }), { note: "This strategy on its own. The same scenario applies on Positions." });
+      wiPanel.drawFigures(whatIfFigures(bl, W, { underlying: x.c.underlying, spot: x.spot, nowMs: now0, atmIv: x.sm.atmIv, marginNow: R.exit ? null : R.margin }), { note: "This strategy. Margin moves from the Risk & capital figure. The same scenario applies on Positions." });
     }
     if (!R) {
       tSlider.disabled = ivSlider.disabled = true;

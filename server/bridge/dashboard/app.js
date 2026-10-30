@@ -1070,6 +1070,10 @@ export function modal({ title, body, buttons = [], canClose = null }) {
   d.classList.add("sheet");
   return new Promise((resolve) => {
     const token = (modal.token = {});
+    // A sheet that is still sliding away from an earlier modal takes no more input; this one starts live.
+    d.inert = false;
+    delete d.dataset.closing;
+    d.closeNow = null;
     let settled = false;
     let closing = false;
     const finish = (v) => {
@@ -1078,7 +1082,12 @@ export function modal({ title, body, buttons = [], canClose = null }) {
       d.removeEventListener("cancel", onCancel);
       d.removeEventListener("close", onClose);
       d.removeEventListener("click", onBackdrop);
-      if (modal.token === token) lockScroll(false);
+      if (modal.token === token) {
+        lockScroll(false);
+        d.inert = false;
+        delete d.dataset.closing;
+        d.closeNow = null;
+      }
       resolve(v);
     };
     // Animate the sheet away, then close the native dialog (focus returns to the opener) and resolve.
@@ -1088,10 +1097,17 @@ export function modal({ title, body, buttons = [], canClose = null }) {
       if (closing || settled) return;
       if (!force && canClose && canClose() === false) return;
       closing = true;
-      sheetOut(d, d).then(() => {
+      // While it slides away the sheet is inert: keys typed meanwhile (Ctrl K, a search) never land in its fields.
+      // closeNow() ends the slide at once, for the palette opening over it.
+      d.inert = true;
+      d.dataset.closing = "";
+      const done = () => {
+        if (settled) return;
         if (modal.token === token && d.open) d.close();
         finish(v);
-      });
+      };
+      d.closeNow = done;
+      sheetOut(d, d).then(done);
     };
     // Escape: keep the native behaviour (resolves undefined) but let the sheet slide away first.
     const onCancel = (e) => {

@@ -2763,3 +2763,19 @@ describe("the vol-time clock on the pages (P1-3b, §5.1, §6.1)", () => {
     for (const k of ["black76", "impliedVolB76", "atmIvAt", "legPrice", "normCdf", "sigmaMove", "skewMetrics", "realisedVol"]) expect(O[k]).toBe(P[k]);
   });
 });
+
+describe("ticketProduct", () => {
+  const ist = (hm) => Date.parse(`2026-10-30T${hm}:00+05:30`);
+  it("starts on Intraday in the session and on Margin after the 15:20 IST square-off", () => {
+    expect(A.ticketProduct(undefined, ist("10:00"))).toBe("INTRADAY");
+    expect(A.ticketProduct(undefined, ist("15:19"))).toBe("INTRADAY");
+    expect(A.ticketProduct(undefined, ist("15:20"))).toBe("MARGIN");
+    expect(A.ticketProduct(undefined, ist("18:17"))).toBe("MARGIN");
+    expect(A.ticketProduct(undefined, ist("08:00"))).toBe("INTRADAY");
+  });
+  it("keeps a given product", () => {
+    expect(A.ticketProduct("INTRADAY", ist("18:00"))).toBe("INTRADAY");
+    expect(A.ticketProduct("CNC", ist("10:00"))).toBe("MARGIN");
+    expect(A.ticketProduct("MARGIN", ist("10:00"))).toBe("MARGIN");
+  });
+});

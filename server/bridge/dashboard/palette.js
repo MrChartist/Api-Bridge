@@ -80,7 +80,11 @@ let activeIndex = 0;
 let returnFocus = null;
 
 const isTyping = (el) => Boolean(el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)));
-const otherDialogOpen = () => Boolean(document.getElementById("dialog")?.open);
+/** The page sheet is open and not on its way out (a closing sheet is inert and gives way to the palette). */
+const otherDialogOpen = () => {
+  const d = document.getElementById("dialog");
+  return Boolean(d?.open) && !("closing" in d.dataset);
+};
 
 function setTheme(choice) {
   chooseTheme(choice);
@@ -310,6 +314,8 @@ function runAt(i) {
 
 export function openPalette() {
   if (!ctx || otherDialogOpen()) return;
+  // A sheet still sliding away closes now, so its focus return cannot pull focus out of the palette.
+  document.getElementById("dialog")?.closeNow?.();
   if (!dlg) build();
   if (dlg.open) return input.focus();
   returnFocus = document.activeElement;

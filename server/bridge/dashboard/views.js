@@ -143,9 +143,9 @@ function delta(value, text) {
   return h("span", { class: `delta ${dir}` }, h("span", { "aria-hidden": "true" }, n > 0 ? "▲" : n < 0 ? "▼" : "•"), text);
 }
 /** Money with the gain / loss colour and an explicit sign (P&L). */
-export function pnl(v) {
+export function pnl(v, dp = 2) {
   if (!isFigure(v)) return DASH;
-  const text = formatSignedRupee(v);
+  const text = formatSignedRupee(v, dp);
   const n = Number(v);
   return h("span", { class: text.startsWith("₹") ? undefined : n > 0 ? "up" : "down" }, text);
 }
@@ -1728,7 +1728,7 @@ async function fillToday(accs) {
       }
       const t = accountToday({ accountId: a.id, positions: p.data?.data ?? null, funds: f.data?.data ?? null, orders: orders.data?.data ?? [], nowMs: Date.now() });
       el.replaceChildren(
-        h("div", { class: "acct-today-pnl" }, pnl(t.pnl), h("span", { class: "muted small" }, ` · ${formatInt(t.open)} open`)),
+        h("div", { class: "acct-today-pnl" }, pnl(t.pnl, 0), h("span", { class: "muted small" }, ` · ${formatInt(t.open)} open`)),
         h("div", { class: "muted small" }, `${formatInt(t.orders)} order${t.orders === 1 ? "" : "s"}${t.orders ? ` (${formatInt(t.filled)} filled)` : ""} · margin ${t.margin === null ? DASH : formatRupeeGrouped(t.margin)}`),
       );
     }),

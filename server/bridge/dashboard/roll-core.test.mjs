@@ -86,5 +86,7 @@ describe("roll plan and money", () => {
       ["BUY", "25750 PE close", 1],
       ["SELL", "25750 PE", 1],
     ]);
+    // The order sheet labels the closing orders "close", not "short leg" or "buy first".
+    expect(items.map((i) => Boolean(i.closing))).toEqual([true, false, true, false]);
   });
 });

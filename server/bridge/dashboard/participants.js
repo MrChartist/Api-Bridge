@@ -639,7 +639,7 @@ export async function renderParticipantsPage() {
       saveCsv(`participant-oi_${summary.date}.csv`, r.text);
       toast("CSV saved");
     } catch (err) {
-      toast(err?.message ?? "Could not make the CSV", { tone: "bad" });
+      toast(err?.message ?? "Could not make the CSV", { tone: "error" });
     }
   });
   const sideSeg = segmented("Index or stock", [["IDX", "Index"], ["STK", "Stock"]], st.side);
