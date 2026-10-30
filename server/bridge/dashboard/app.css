@@ -4989,8 +4989,8 @@ label.pos-inc-hit { display: inline-flex; align-items: center; justify-content: 
 .vol-kpi { container-type: inline-size; position: relative; }
 .desk-stats.vol-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: visible; scroll-snap-type: none; box-shadow: none; }
 .desk-stats.vol-tiles .desk-stat { min-width: 0; min-height: 64px; padding: 9px 12px 10px; gap: 3px; }
-/* Eight across from 1000 px; a narrow tile wraps its sub between parts (vol.js setTile). */
-@container (min-width: 1000px) { .desk-stats.vol-tiles { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+/* Eight across only where each tile holds its sub-line on one line (about 175 px); narrower panels go 4 × 2. */
+@container (min-width: 1400px) { .desk-stats.vol-tiles { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
 .vol-tiles .desk-stat[title] { cursor: help; }
 .vol-tiles .desk-stat .label { font-size: 12px; }
 .vol-tiles .desk-stat .value { border-radius: 4px; transition: color var(--dur-2) var(--ease-std); }
@@ -5332,9 +5332,12 @@ button.vol-select[aria-pressed="true"]:hover .vol-sel-dot { box-shadow: none; }
 .vol-read { container-type: inline-size; }
 .vol-read-grid { display: grid; grid-template-columns: minmax(0, 1fr); }
 .vol-read-col + .vol-read-col { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
-@container (min-width: 1100px) {
-  .vol-read-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .vol-read-col + .vol-read-col { box-shadow: inset var(--hl) 0 0 var(--mat-separator); }
+/* Wide panels: the four trader types two by two (the read no longer runs a screen below the strikes), and the
+   arbitrage checks as one row under them, so neither column ends half empty. */
+@container (min-width: 720px) {
+  .vol-personas { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 20px; align-items: start; }
+  .vol-personas > :not(.vol-persona) { grid-column: 1 / -1; }
+  .vol-persona + .vol-persona { margin-top: 0; }
 }
 .vol-personas, .vol-arb { padding: 4px 12px 10px; }
 .vol-persona { padding: 8px 0; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
@@ -8296,6 +8299,11 @@ button.wl-sort { min-height: 0; padding: 0; background: none; box-shadow: none; 
   :root[data-page="vol"] #content > * { grid-column: 1 / -1; }
   :root[data-page="vol"] #content > [data-panel="vol-surface"], :root[data-page="vol"] #content > [data-panel="vol-strikes"] { grid-column: 1; }
   :root[data-page="vol"] #content > [data-panel="vol-term"], :root[data-page="vol"] #content > [data-panel="vol-read"] { grid-column: 2; }
+  /* Paired panels share one bottom edge: the strikes table grows into the height its neighbour sets (no intrinsic
+     height of its own, so the 41 rows scroll inside it instead of stretching the row). */
+  :root[data-page="vol"] #content { align-items: stretch; }
+  :root[data-page="vol"] #content > [data-panel="vol-strikes"] { display: flex; flex-direction: column; }
+  :root[data-page="vol"] #content > [data-panel="vol-strikes"] .vol-strikes-wrap { flex: 1 1 auto; min-height: 420px; max-height: none; contain: size; }
 }
 
 /* Positions (2200 px and up): the positions table beside the risk panel. */
