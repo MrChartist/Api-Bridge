@@ -2769,7 +2769,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
         return cg(
           [
             selecting ? h("span", { class: `pick${on ? " on" : ""}`, role: "checkbox", "aria-checked": String(on), "aria-label": `Select ${formatInt(row.strike)} ${R(side)}` }) : null,
-            held ? h("span", { class: `held ${held > 0 ? "long" : "short"}`, title: `You hold ${formatSigned(held, 0)} lot(s)` }, formatSigned(held, 0)) : null,
+            held ? h("span", { class: `held ${held > 0 ? "long" : "short"}`, title: heldTitle(held), "aria-label": heldTitle(held) }, formatSigned(held, 0)) : null,
             h("strong", isFigure(q?.tickAgeMs) ? { class: "quiet-leg", title: `Last trade, ${ageText(q.tickAgeMs)}: no trade since on a live feed` } : {}, g(q?.ltp, 2)),
           ].filter(Boolean),
           cfg().pct ? sub(pct === null ? "" : formatSignedPercent(pct, 1), pct > 0 ? "up" : pct < 0 ? "down" : "") : null,
@@ -3350,7 +3350,6 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     return new Set(O.rowsAroundAtm(x.c, st.strikesView === "all" ? Infinity : Math.max(Number(st.strikesView) || 10, drawnFill)).map((r) => r.strike));
   };
 
-  const PHONE_TAG = { mp: "MP", cw: "C wall", pw: "P wall" };
   /** Strike tags in priority order (ATM > Max pain > walls > ±1σ > ±2σ): [class, text, title]. */
   function tagsFor(row, x) {
     const c = cfg();
@@ -3527,14 +3526,14 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     L.mid.forEach((k, i) => patchCell(b.mid[i], k, null, row, "mid", x, flashes));
     const tags = tagsFor(row, x);
     // At most two tags in a cell (one, in short form, on a phone's narrow strike column); the rest are in its title.
-    const shown = L.phone ? tags.slice(0, 1).map(([cl, t, title]) => [cl, PHONE_TAG[cl] ?? t, `${t}: ${title}`]) : tags.slice(0, 2);
+    const shown = strikeTagsShown(tags, L.phone);
     const sig = `${row.strike}|${shown.map((t) => t[1]).join(",")}|${tags.length}`;
     if (b.th.__sig !== sig) {
       const before = new Set((b.th.__tags ?? "").split(",").filter(Boolean));
       const pop = !built.first && motion && b.th.__sig !== undefined;
       b.th.__sig = sig;
       b.th.__tags = shown.map((t) => t[1]).join(",");
-      b.th.title = tags.length > shown.length ? tags.map((t) => t[1]).join(" · ") : "";
+      b.th.title = tags.length > 1 ? tags.map((t) => t[1]).join(" · ") : "";
       b.th.replaceChildren(
         h(
           "span",
@@ -4172,4 +4171,24 @@ function heldLots(positions, lot) {
     if (q) out.set(p.symbol, Math.round((q / lot) * 100) / 100);
   }
   return out;
+}
+
+/** The held-lots badge before a chain LTP: what the signed number means, in words. */
+export function heldTitle(lots) {
+  const n = Math.abs(lots);
+  return `Your position: ${lots > 0 ? "long" : "short"} ${formatInt(n)} lot${n === 1 ? "" : "s"} in this contract`;
+}
+
+const PHONE_TAG = { mp: "MP", cw: "C wall", pw: "P wall" };
+const SHORT_TAG = { mp: "MP", cw: "CW", pw: "PW" };
+/**
+ * The strike tags a chain cell shows, from tagsFor's [class, text, title] list in priority order. A phone shows one
+ * (short form); a desktop cell shows two, and in short form whenever there are two, so ATM + Max Pain + a wall never
+ * spill out of the strike column. A shortened tag keeps its full name in its title.
+ */
+export function strikeTagsShown(tags, phone = false) {
+  const list = Array.isArray(tags) ? tags : [];
+  if (phone) return list.slice(0, 1).map(([cl, t, title]) => [cl, PHONE_TAG[cl] ?? t, `${t}: ${title}`]);
+  const two = list.slice(0, 2);
+  return two.length < 2 ? two : two.map(([cl, t, title]) => (SHORT_TAG[cl] ? [cl, SHORT_TAG[cl], `${t}: ${title}`] : [cl, t, title]));
 }
