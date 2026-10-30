@@ -2142,7 +2142,7 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
   --ink-soft: 1; --soft-op: 0.92; --stale-op: 0.86; --chip-tint: 0.08; --mark-a: 1;
   /* Strong inks for small text on a gain / loss / info / warn tint, light only (brand.md §2.3): the brand inks reach 4.5:1
      on the bare canvas but fell to 4.0 to 4.47:1 on an 8 to 16 % tint. Dark keeps the brand inks. */
-  --gain-ink-strong: 135 60.8% 25%; --loss-ink-strong: 354 100% 36%; --info-ink-strong: 211 100% 33%; --warn-ink-strong: 26 100% 28%; --ok-ink-strong: 137 64% 23%; --bad-ink-strong: 356 78% 35%;
+  --gain-ink-strong: 135 60.8% 25%; --loss-ink-strong: 354 100% 36%; --info-ink-strong: 211 100% 33%; --warn-ink-strong: 26 100% 28%; --ok-ink-strong: 137 64% 23%; --bad-ink-strong: 356 78% 35%; --badge-red: var(--ios-red-fill);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -2156,7 +2156,7 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
     --surface-2: hsl(0 0% 8%);
     --c-neutral: hsl(0 0% 100% / 0.34);
     --bar-a: 0.6; --heat-a0: 0.06; --heat-a1: 0.42;
-    --ink-soft: 0.8; --soft-op: 0.75; --stale-op: 0.72; --chip-tint: 0.14; --mark-a: 0.85; --gain-ink-strong: var(--pos-ink); --loss-ink-strong: var(--neg-ink); --info-ink-strong: var(--ios-blue-ink); --warn-ink-strong: var(--ios-orange-ink); --ok-ink-strong: var(--ios-green-ink); --bad-ink-strong: var(--ios-red-ink);
+    --ink-soft: 0.8; --soft-op: 0.75; --stale-op: 0.72; --chip-tint: 0.14; --mark-a: 0.85; --gain-ink-strong: var(--pos-ink); --loss-ink-strong: var(--neg-ink); --info-ink-strong: var(--ios-blue-ink); --warn-ink-strong: var(--ios-orange-ink); --ok-ink-strong: var(--ios-green-ink); --bad-ink-strong: var(--ios-red-ink); --badge-red: var(--ios-red);
   }
 }
 :root[data-theme="dark"] {
@@ -2170,7 +2170,7 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
   --surface-2: hsl(0 0% 8%);
   --c-neutral: hsl(0 0% 100% / 0.34);
   --bar-a: 0.6; --heat-a0: 0.06; --heat-a1: 0.42;
-  --ink-soft: 0.8; --soft-op: 0.75; --stale-op: 0.72; --chip-tint: 0.14; --mark-a: 0.85; --gain-ink-strong: var(--pos-ink); --loss-ink-strong: var(--neg-ink); --info-ink-strong: var(--ios-blue-ink); --warn-ink-strong: var(--ios-orange-ink); --ok-ink-strong: var(--ios-green-ink); --bad-ink-strong: var(--ios-red-ink);
+  --ink-soft: 0.8; --soft-op: 0.75; --stale-op: 0.72; --chip-tint: 0.14; --mark-a: 0.85; --gain-ink-strong: var(--pos-ink); --loss-ink-strong: var(--neg-ink); --info-ink-strong: var(--ios-blue-ink); --warn-ink-strong: var(--ios-orange-ink); --ok-ink-strong: var(--ios-green-ink); --bad-ink-strong: var(--ios-red-ink); --badge-red: var(--ios-red);
 }
 
 .chain-panel { position: relative; }
@@ -2370,8 +2370,9 @@ table.chain .spot-tag .fut { color: hsl(var(--foreground) / var(--a-quiet)); }
 /* Bid / Ask (§4.11): you sell at the bid (sell ink), buy at the ask (buy ink); hover or focus = a solid capsule with an
    S / B prefix. */
 button.q-btn { min-height: 24px; padding: 0 6px; margin: 0 -6px; border-radius: 6px; font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; background: transparent; box-shadow: none; }
-button.q-btn.sell { color: hsl(var(--c-sell-ink) / var(--ink-soft)); font-weight: 500; }
-button.q-btn.buy { color: hsl(var(--c-buy-ink) / var(--ink-soft)); font-weight: 500; }
+/* Bid / ask are what you trade at: full ink in both themes (the soft 0.8 ink was 3.8 to 4.3:1 on dark rows). */
+button.q-btn.sell { color: hsl(var(--c-sell-ink)); font-weight: 500; }
+button.q-btn.buy { color: hsl(var(--c-buy-ink)); font-weight: 500; }
 button.q-btn.buy:is(:hover, :focus-visible):not(:disabled) { background: hsl(var(--btn-buy)); color: hsl(var(--btn-trade-fg)); }
 button.q-btn.sell:is(:hover, :focus-visible):not(:disabled) { background: hsl(var(--btn-sell)); color: hsl(var(--btn-trade-fg)); }
 button.q-btn.buy:is(:hover, :focus-visible):not(:disabled)::before { content: "B"; margin-right: 5px; font-size: 12px; opacity: 0.85; }
@@ -2776,6 +2777,9 @@ button.preset:hover { background: var(--mat-fill-1); }
 .ticket-grid > .field > :is(select, input, .segmented, .acct-pick, .ticket-acct) { width: 100%; }
 /* Phones: two segments share half the sheet; their buttons split it evenly with less side padding. */
 @media (max-width: 719px) { .ticket-grid > .field > .segmented button { flex: 1 1 0; min-width: 0; padding: 0 6px; } }
+/* When (Now · At a price · At the open) needs the whole row: in half a phone ticket its labels ran into each other
+   ("At a pricAt the ope"). The trigger price goes under it. */
+.ticket-grid.bk-when { grid-template-columns: minmax(0, 1fr); }
 .ticket-grid > .field > .ticket-acct { min-height: 0; align-self: center; }
 .ticket-grid > .field > .acct-pick-row { width: 100%; }
 .ticket-grid .acct-pick-row select.acct-pick { flex: 1 1 auto; width: 100%; max-width: none; }
@@ -7454,7 +7458,8 @@ button.toolbar-budget-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.
 .toolbar-bell[hidden] { display: none; }
 button.toolbar-bell-btn { --btn-h: var(--ctl-h); --btn-px: 0; --btn-bg: var(--btn-soft); --btn-line: transparent; position: relative; width: var(--ctl-h); height: var(--ctl-h); justify-content: center; color: hsl(var(--foreground)); }
 button.toolbar-bell-btn svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
-.bell-count { position: absolute; top: 2px; right: 0; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px; background: hsl(var(--ios-red)); color: hsl(var(--background)); font: 600 12px/18px var(--font-numeric); text-align: center; box-shadow: 0 0 0 2px hsl(var(--background)); }
+/* Light: white on the deeper red fill (the canvas ink on --ios-red was 3.2:1); dark: unchanged, black on --ios-red. */
+.bell-count { position: absolute; top: 2px; right: 0; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px; background: hsl(var(--badge-red)); color: hsl(var(--btn-trade-fg)); font: 600 12px/18px var(--font-numeric); text-align: center; box-shadow: 0 0 0 2px hsl(var(--background)); }
 .bell-count[hidden] { display: none; }
 @media (pointer: coarse) { button.toolbar-bell-btn { width: 44px; height: 44px; } }
 .popover.al-pop { width: min(420px, calc(100vw - 32px)); }
@@ -7468,7 +7473,12 @@ button.toolbar-bell-btn svg { width: 17px; height: 17px; fill: none; stroke: cur
 .al-fire.unread { box-shadow: inset 0 0 0 var(--hl) hsl(var(--warn) / 0.6); }
 .al-rules { display: flex; flex-direction: column; gap: 2px; }
 .al-rule { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 6px 4px; }
-.al-rule.off .al-rule-t { opacity: 0.6; }
+/* An off rule reads quieter by ink, not by opacity (0.6 put its line at 3.0:1 on light). */
+.al-rule.off .al-rule-t strong { color: hsl(var(--foreground) / var(--a-label)); }
+.al-rule.off .al-rule-t small { color: hsl(var(--foreground) / var(--a-quiet)); }
+/* The on / off switch: a 44 px hit area on touch, the box itself unchanged. */
+.al-sw { display: inline-flex; align-items: center; justify-content: center; }
+@media (pointer: coarse) { .al-sw { min-width: 44px; min-height: 44px; margin: -10px -8px; } }
 .al-rule-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; font: 500 13px/1.3 var(--font-body); }
 .al-rule-t small { font: 500 12px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .al-rule.al-mrule { grid-template-columns: minmax(0, 1fr) auto; }
@@ -9025,8 +9035,8 @@ p.bk-fix { font-size: 13px; }
 
 /* Tinted chips: small gain / loss / info / warn text on a tint uses the strong inks (light: 4.5:1 or more; dark: the brand
    inks, unchanged). Only these chips; everything else keeps --pos-ink / --neg-ink. */
-.ev-chip.bull, .obu-LB, .obu-SC, .oi-tone-pill[data-tone="up"], .scr-pill.t-pos { color: hsl(var(--gain-ink-strong)); }
-.ev-chip.bear, .obu-SB, .obu-LU, .oi-tone-pill[data-tone="down"], .scr-pill.t-neg, table.chain .held.short { color: hsl(var(--loss-ink-strong)); }
+.ev-chip.bull, .obu-LB, .obu-SC, .oi-tone-pill[data-tone="up"], .scr-pill.t-pos, .bk-rel[data-tone="ok"], :is(table.chain, .cs-m) .bu-LB { color: hsl(var(--gain-ink-strong)); }
+.ev-chip.bear, .obu-SB, .obu-LU, .oi-tone-pill[data-tone="down"], .scr-pill.t-neg, table.chain .held.short, :is(table.chain, .cs-m) .bu-SB { color: hsl(var(--loss-ink-strong)); }
 
 /* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────
    Inline-SVG charts: every colour is a theme token (so light and dark both work), every size is an SVG attribute
