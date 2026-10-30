@@ -8885,6 +8885,13 @@ p.bk-fix { font-size: 13px; }
 /* The page: strategies and the guide on one side, the chosen strategy on the other. */
 .algo-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--panel-gap); min-width: 0; }
 .algo-side { display: flex; flex-direction: column; gap: var(--panel-gap); min-width: 0; }
+.algo-right { display: flex; flex-direction: column; gap: var(--panel-gap); min-width: 0; }
+.algo-starter[hidden] { display: none; }
+.algo-ex-list { list-style: none; margin: 0; padding: 0 var(--card-pad); display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.algo-ex { display: flex; flex-direction: column; gap: 4px; padding: 12px; border-radius: var(--r-inner); background: var(--mat-fill-1); }
+.algo-ex-t { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.algo-ex p { margin: 0; color: hsl(var(--foreground) / var(--a-label)); }
+.algo-ex-acts { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px var(--card-pad) var(--card-pad); }
 .algo-list { container-type: inline-size; display: flex; flex-direction: column; min-width: 0; }
 .algo-rows { display: flex; flex-direction: column; padding: 10px 0 8px; min-width: 0; }
 .algo-note { margin: 0; padding: 0 var(--card-pad) var(--card-pad); }
@@ -8988,9 +8995,9 @@ p.bk-fix { font-size: 13px; }
 
 /* Below desktop one column: the list, then the chosen strategy, then the guide. */
 @media (max-width: 1279px) {
-  .algo-side { display: contents; }
+  .algo-side, .algo-right { display: contents; }
   .algo-list { order: 1; }
-  .algo-detail { order: 2; }
+  .algo-detail, .algo-starter { order: 2; }
   .algo-howto { order: 3; }
 }
 /* Tablet: the detail's settings beside its log, orders under both. */
@@ -9003,6 +9010,8 @@ p.bk-fix { font-size: 13px; }
   :root[data-page="algo"] .app-main > .container-wide { flex: 1 1 auto; display: flex; flex-direction: column; }
   :root[data-page="algo"] #content { flex: 1 1 auto; }
   .algo-grid { flex: 1 1 auto; grid-template-columns: minmax(460px, 5fr) minmax(0, 7fr); align-items: stretch; }
+  /* With the examples beside it, the empty list does not repeat their button. */
+  .algo-grid:has(.algo-starter:not([hidden])) .algo-list .empty-acts { display: none; }
   .algo-howto { flex: 1 1 auto; }
   .algo-howto > .code-block { flex: 1 1 auto; }
   /* The template scrolls inside the space the list leaves, so the guide never makes the page taller. */

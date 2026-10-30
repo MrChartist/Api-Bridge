@@ -24,6 +24,14 @@ const prefs = () => {
   }
 };
 
+/** The shipped examples (sdk/python/examples/strategies): name, file and what it does. */
+const EXAMPLES = [
+  ["Short straddle", "short_straddle.py", "Sells the ATM call and put of the nearest weekly expiry; exits both on a stop loss or a target on the combined premium, or at the square-off time."],
+  ["EMA crossover", "ema_crossover.py", "Follows a fast EMA crossing a slow EMA on the nearest index future, with an ATM option or the future itself."],
+  ["Iron condor", "iron_condor.py", "A short strangle near a chosen delta with bought wings; rolls the untested side when the position delta drifts."],
+  ["OI walls", "oi_walls.py", "Sells the put at the OI support and the call at the OI resistance, biased by the put-call ratio, with a stop loss per leg."],
+];
+
 export async function renderAlgoPage() {
   const first = await optional(api("/v1/strategies", { fresh: true }));
   if (first.error) return [errorState(first.error, { onRetry: () => (location.hash = "#/algo") })];
@@ -132,7 +140,21 @@ export async function renderAlgoPage() {
     dFacts,
     h("div", { class: "algo-dbody" }, settings, logPane, ordersPane),
   );
-  const grid = h("div", { class: "algo-grid" }, h("div", { class: "algo-side" }, listCard, howto), detail);
+  // ── nothing chosen yet (no strategies): the right column offers the shipped examples and the template ──
+  const starter = h(
+    "section",
+    { class: "card algo-starter" },
+    h("header", { class: "card-head" }, h("div", { class: "card-titles" }, h("h2", {}, "Create from an example"), h("p", {}, "The four strategies the Bridge ships. Each one runs in paper until you start it live"))),
+    h(
+      "ul",
+      { class: "algo-ex-list" },
+      EXAMPLES.map(([name, file, text]) => h("li", { class: "algo-ex" }, h("div", { class: "algo-ex-t" }, h("strong", {}, name), h("span", { class: "muted small" }, file)), h("p", { class: "small" }, text))),
+    ),
+    h("div", { class: "algo-ex-acts" }, h("button", { type: "button", class: "primary", onclick: () => addExamples() }, icon("plus"), h("span", {}, "Add the four examples")), h("span", { class: "muted small" }, "Copied into the strategies folder; a file already there is never overwritten.")),
+  );
+  const side = h("div", { class: "algo-side" }, listCard, howto);
+  const right = h("div", { class: "algo-right" }, detail, starter);
+  const grid = h("div", { class: "algo-grid" }, side, right);
 
   const cur = () => st.data.items.find((s) => s.id === st.sel) ?? null;
 
@@ -200,6 +222,10 @@ export async function renderAlgoPage() {
   function drawDetail() {
     const s = cur();
     detail.hidden = !s;
+    // With nothing to show on the right, the examples and the template (the guide) fill it instead of empty space.
+    starter.hidden = Boolean(s);
+    if (s && howto.parentElement !== side) side.append(howto);
+    if (!s && howto.parentElement !== right) right.append(howto);
     if (!s) return;
     const d = st.detail?.id === s.id ? st.detail : null;
     const stt = statusOf(s.status);

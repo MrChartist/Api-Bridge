@@ -429,8 +429,8 @@ async function renderEventVol(H) {
           legend([{ cls: "s1", label: "ATM IV" }, { cls: "s2", label: "Forward vol into the expiry, dashed" }]),
           seriesChart(
             [
-              { id: "atm", label: "ATM IV", cls: "s1", points: atm.map((x) => ({ label: axisDay(x.expiry), y: x.atmIvPct })) },
-              { id: "fwd", label: "Forward vol", cls: "s2", dash: "6 4", points: atm.map((x, i) => ({ label: axisDay(x.expiry), y: i === 0 ? x.atmIvPct : (fwd[i - 1]?.forwardVolPct ?? null) })) },
+              { id: "atm", label: "ATM IV", cls: "s1", points: atm.map((x) => ({ label: axisDay(x.expiry), at: x.daysToExpiry, y: x.atmIvPct })) },
+              { id: "fwd", label: "Forward vol", cls: "s2", dash: "6 4", points: atm.map((x, i) => ({ label: axisDay(x.expiry), at: x.daysToExpiry, y: i === 0 ? x.atmIvPct : (fwd[i - 1]?.forwardVolPct ?? null) })) },
             ],
             { label: `${u} ATM IV and forward vol by expiry, percent`, yDecimals: 1, refs: calm === null ? [] : [{ y: calm, label: "Calmest" }] },
           ),

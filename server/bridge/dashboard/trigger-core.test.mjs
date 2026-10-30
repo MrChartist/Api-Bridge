@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { refSession } from "./reference.js";
 import { amoWhenText, checksForLaterDay, marketClosedAt, distancePct, exitChipText, pnlAt, slTriggerStart, stopOrderProblem, stopOrderText, gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, kindText, legText, outcomeText, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
 
 const leg = (o) => ({ op: "below", trigger: 98.5, role: "stop", trail: null, order: { side: "SELL", quantity: 130, orderType: "MARKET" }, ...o });
@@ -136,12 +137,16 @@ describe("after-market orders in words", () => {
     expect(triggerProblem({ ...f, price: null })?.field).toBe("price");
   });
   it("knows when the market is closed (weekends, before 09:15, from 15:30 IST)", () => {
-    const at = (iso) => marketClosedAt(Date.parse(iso));
+    const at = (iso) => marketClosedAt(Date.parse(iso), refSession(null));
     expect(at("2026-10-30T09:14:00+05:30")).toBe(true);
     expect(at("2026-10-30T09:15:00+05:30")).toBe(false);
     expect(at("2026-10-30T15:29:00+05:30")).toBe(false);
     expect(at("2026-10-30T15:30:00+05:30")).toBe(true);
     expect(at("2026-10-31T11:00:00+05:30")).toBe(true); // Saturday
+    // A holiday from the bundle's calendar, and the session times from the bundle (never constants in trigger-core).
+    expect(marketClosedAt(Date.parse("2026-11-10T11:00:00+05:30"), refSession(null), (d) => d !== "2026-11-10")).toBe(true);
+    expect(marketClosedAt(Date.parse("2026-10-30T09:20:00+05:30"), { open: "09:30", close: "15:30" })).toBe(true);
+    expect(marketClosedAt(Date.parse("2026-10-30T09:20:00+05:30"), null)).toBe(false);
   });
 });
 

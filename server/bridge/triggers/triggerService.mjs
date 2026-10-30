@@ -29,6 +29,8 @@ import { decideMode } from "../orders/modeDecision.mjs";
 import { istIso } from "../orders/time.mjs";
 import { OPEN_STATUSES, TRIGGER_ORIGINS, TRIGGER_TYPES, legProblems, opFor, reduceOnlyQty, step, toTick } from "./triggerCore.mjs";
 import { marketSession } from "../../lib/marketHours.mjs";
+import { defaultSessionFor } from "../reference/defaults.mjs";
+import { PAPER_DEFAULTS } from "../paper/config.mjs";
 
 export const MAX_OPEN = 200;
 export const KEPT_CLOSED = 300;
@@ -46,13 +48,14 @@ const invalid = (path, message) => new BridgeError("VALIDATION_FAILED", message,
  * every gate (pre-open is not used: 09:15 only). No broker adapter maps a native AMO flag yet, so live AMOs are
  * Bridge-held too and say so (`held: "bridge"`); a native one would be "broker".
  */
-const OPEN_HHMM = "09:15";
+/** Session times come from the reference store's defaults (reference/defaults.mjs), never literals here. */
+const sessionOf = (exchange) => defaultSessionFor(exchange) ?? defaultSessionFor("NFO");
 const istDayOf = (ms) => istIso(ms).slice(0, 10);
 const atIst = (day, hhmm) => Date.parse(`${day}T${hhmm}:00+05:30`);
 const addDays = (day, n) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
-/** IST 15:30 on a "YYYY-MM-DD" day (contract expiry close). */
-const closeOf = (day) => Date.parse(`${day}T15:30:00+05:30`);
+/** The session close on a "YYYY-MM-DD" day (a contract's expiry close), IST. */
+const closeOf = (day, exchange = "NFO") => atIst(day, sessionOf(exchange).close);
 
 /**
  * @param {object} deps core deps plus orders, marketData, symbols, accounts
@@ -113,6 +116,9 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
     return { ...structuredClone(rest), owner: owner ? { label: owner.label ?? null, keyId: owner.keyId ?? null } : null };
   }
 
+  /** The intraday square-off time (the paper engine's setting, HH:MM IST). */
+  const squareOffTime = () => deps.config?.paper?.squareOff?.time ?? PAPER_DEFAULTS.squareOffTime;
+
   /** Whether an IST day is a trading day: the reference calendar when there is one (holidays), else weekdays. */
   function tradingDay(day, exchange) {
     try {
@@ -127,12 +133,13 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
   /** The next session open (09:15 IST) at or after `t`: today's if it is a trading day and not yet open, else the next. */
   function nextOpen(t, exchange) {
     let day = istDayOf(t);
-    if (tradingDay(day, exchange) && t < atIst(day, OPEN_HHMM)) return atIst(day, OPEN_HHMM);
+    const open = sessionOf(exchange).open;
+    if (tradingDay(day, exchange) && t < atIst(day, open)) return atIst(day, open);
     for (let i = 0; i < 15; i += 1) {
       day = addDays(day, 1);
-      if (tradingDay(day, exchange)) return atIst(day, OPEN_HHMM);
+      if (tradingDay(day, exchange)) return atIst(day, open);
     }
-    return atIst(day, OPEN_HHMM);
+    return atIst(day, open);
   }
   /** Whether the market takes orders now (regular session on a trading day). */
   function marketOpenNow(t, exchange) {
@@ -250,14 +257,14 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
     if (product === "INTRADAY") {
       // An intraday order sent on a later day would be squared off: an intraday trigger ends at the 15:20 square-off
       // (today's, or the next day's when it is set after it).
-      const cut = Date.parse(`${istIso(t0).slice(0, 10)}T15:20:00+05:30`);
+      const cut = atIst(istIso(t0).slice(0, 10), squareOffTime());
       expires = Math.min(expires, cut > t0 ? cut : cut + 86_400_000);
     }
     // An after-market order is for the next session only: it goes at 09:15 and lapses at that day's close (15:20 for
     // intraday) if the Bridge could not send it.
     const openAt = amo ? nextOpen(t0, resolved.exchange) : null;
     if (amo) {
-      expires = atIst(istDayOf(openAt), product === "INTRADAY" ? "15:20" : "15:30");
+      expires = atIst(istDayOf(openAt), product === "INTRADAY" ? squareOffTime() : sessionOf(resolved.exchange).close);
       if (resolved.expiry && closeOf(resolved.expiry) < expires) expires = closeOf(resolved.expiry);
     }
     if (amo && expires <= openAt) throw invalid("symbol", "The contract expires before the next session opens.");

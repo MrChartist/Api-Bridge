@@ -208,6 +208,57 @@ What landed, each with tests. Details are in `docs/design/ux-audit.md` ("Trading
 - Excel workbook only on Accounts;
 - live broker paths (journal fills, basket sends, events fallback) checked by code and tests, not end to end with a real broker.
 
+### 3d4. Third build day (30 to 31 Oct)
+
+What landed, each with tests. Details are in the commits, `docs/design/broker-gap.md` and `docs/design/ux-audit.md`
+("QA pass 2 (31 Oct)").
+
+- **Broker gap #1–#10** (`broker-gap.md` §7):
+  - GTT single and OCO, plus trailing stops, on a server trigger engine (`server/bridge/triggers/`);
+  - stop and target on the ticket entry, and on a position, with exits on the Bridge;
+  - SL and SL-M in the ticket, and Modify changes the trigger;
+  - Orders filters, Cancel all and a trade book;
+  - Convert between Intraday and carry (MIS and NRML) with the margin effect, and Positions Net and Day views;
+  - five-level depth in the ticket;
+  - refusals and rejections say what to do;
+  - after-market orders, queued and sent at 09:15 through every gate.
+  - #11 (tax P&L and ledger) and #12 (funds card) are not built.
+- **Python strategies (Trade › Algo):** the SDK strategy API, a runner on the Bridge, four examples and the page, in
+  paper by default with every order through the gates. Algo loop rounds 1 to 4. Guide: `docs/STRATEGIES-PYTHON.md`.
+- **Volatility depth tabs:** Forward, RR and BF, and Event vol (`dashboard/analyticsDepth.js`).
+- **Speed round 4:**
+  - watchlist prices come from the stream (broker calls 12 a minute to 0);
+  - the screener's first rows show in about 1.5 s (was 17 s);
+  - triggers and the bell poll less;
+  - the capsule no longer refits on every tick;
+  - `scripts/perf/run.mjs` covers the new pages and has `--soak`.
+- **Accessibility and mobile:**
+  - Tab stays inside sheets;
+  - result regions are not live;
+  - off legend toggles stay readable;
+  - touch targets are at least 44 px.
+- **Light theme:** token fixes from a sweep of every page and tab at 1920 and 390.
+- **QA pass 2:**
+  - demo prices follow one path for history and live quotes;
+  - three monthly index futures in demo;
+  - analytics fixes (cone by time, day-month dates, one unit style, table heads);
+  - Algo's empty state offers the examples;
+  - Strategy says "if NIFTY closes below X or above Y".
+- **Test stability:**
+  - the analytics integration suite runs on a pinned trading day;
+  - a demo Bridge's shutdown waits at most 3 s for the book seed (it hung on frozen test clocks);
+  - `futuresChain.test` no longer depends on the run date.
+  - A full run passes on a quiet machine. Under heavy load two timing tests (store read ≤ 300 ms, webhook ack ≤ 50 ms)
+    can fail; they are not loosened.
+
+**Open decisions for the user:**
+- **`safety.reduceOnlyExempt`:** exempt orders the Bridge verifies as reduce-only from `dailyMaxLoss` and the daily
+  order count. Proposal B in the "Safety pass" section; nothing changed.
+- **Digit grouping:** figures print without grouping commas ("₹12191"), except the existing `formatRupeeGrouped` uses.
+  Decide whether money should group in the Indian style ("₹12,191").
+- **BANKEX:** the recorder's default indices include it, but demo mode has no BANKEX (the demo recorder refuses it)
+  and Goodwill publishes no BFO master. Decide whether demo should list it or the default should drop it.
+
 ### 3e. Check everything by hand
 
 At phone 390, tablet 820, laptop 1280 and desktop 1440, in light and dark, go through every menu page and every tab.
@@ -260,4 +311,5 @@ decisions, the aliases, the fixes and what is not done. Pages: Analytics › Exp
 tabs in OI Analysis (OI change, Strike history, Spurts, Expiry day) and Volatility (Skew, Surface, Cone, Forward, RR and BF, Event vol, Vol stats).
 Host: `dashboard/analytics.js` (VIEWS, capsule, `fitDesk`, masonry). Page code: `analyticsViews.js`,
 `analyticsMore.js`, `analyticsFlow.js`, `analyticsRisk.js`, `analyticsTime.js`. CSS: app.css sections 15, 16, 17 and
-15d, all under `.an-page` (tested). Demo prices are a seeded random walk (`demo/demoAdapter.mjs` `walkAt`).
+15d, all under `.an-page` (tested). Demo prices are a seeded random walk with a seeded path inside each session and a hold outside it
+(`demo/demoAdapter.mjs` `walkAt`), so history and live quotes agree.
