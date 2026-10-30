@@ -12,9 +12,10 @@
 export const CLIENT_PREFIX = "recorder";
 
 /**
- * @param {{ hub: object, maxPerClient?: number, maxPerRequest?: number, logger?: any }} opts
+ * @param {{ hub: object, maxPerClient?: number, maxPerRequest?: number, logger?: any, prefix?: string }} opts
+ *   prefix: the hub client id prefix ("recorder"; the live events engine uses "events")
  */
-export function createStreamSource({ hub, maxPerClient = 500, maxPerRequest = 200, logger }) {
+export function createStreamSource({ hub, maxPerClient = 500, maxPerRequest = 200, logger, prefix = CLIENT_PREFIX }) {
   /** symbol -> client id */
   const owner = new Map();
   /** client id -> Set(symbol) */
@@ -25,7 +26,7 @@ export function createStreamSource({ hub, maxPerClient = 500, maxPerRequest = 20
 
   const clientWithRoom = () => {
     for (const [id, set] of clients) if (set.size < maxPerClient) return id;
-    const id = `${CLIENT_PREFIX}:${clients.size}`;
+    const id = `${prefix}:${clients.size}`;
     clients.set(id, new Set());
     return id;
   };

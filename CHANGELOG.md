@@ -4,6 +4,14 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ## [Unreleased]
 
+### Live events
+
+- **Live events engine (server).** Detects 33 price, gap, volume, circuit (only buyers / only sellers / unlocked),
+  level, pivot, swing, F&O OI and option events (strike OI surge and build-up, premium spike, IV spike and crush,
+  walls, PCR, max pain, straddle, basis, unusual volume) on stream ticks across F&O stocks, indices and your watchlist,
+  with repeats counted inside a cool-down, a day store, `GET /v1/events*` routes, the `subscribe_events` stream op
+  and a lively demo feed. Guide: `docs/guides/live-events.md`. The dashboard page follows.
+
 ### Easy install
 
 - **One-line installers, no Node.js needed.** `irm …/install.ps1 | iex` (Windows) and `curl -fsSL …/install.sh | sh`

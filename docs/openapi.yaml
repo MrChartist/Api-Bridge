@@ -113,6 +113,8 @@ tags:
     description: Inbound alerts from ChartInk, GoCharting and signed senders.
   - name: AI (MCP)
     description: Model Context Protocol endpoint for AI assistants.
+  - name: Events
+    description: Live market events (Spider-style event selector, better) detected on stream ticks across a universe of stocks, indices and option chains.
   - name: Scanner
     description: Condition scans over big universes, spread over your pooled accounts at background priority.
   - name: Compat REST
@@ -2473,6 +2475,196 @@ paths:
       responses:
         "200":
           description: Scan data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/events:
+    get:
+      tags: [Events]
+      operationId: listMarketEvents
+      summary: Today's live events, newest first (or a past day with date)
+      x-stream: S28
+      x-scope: read
+      parameters:
+        - { name: since, in: query, required: false, schema: { type: integer } }
+        - { name: kind, in: query, required: false, schema: { type: string } }
+        - { name: side, in: query, required: false, schema: { type: string } }
+        - { name: asset, in: query, required: false, schema: { type: string } }
+        - { name: symbol, in: query, required: false, schema: { type: string } }
+        - { name: q, in: query, required: false, schema: { type: string } }
+        - { name: minPrice, in: query, required: false, schema: { type: number } }
+        - { name: first, in: query, required: false, schema: { type: string } }
+        - { name: limit, in: query, required: false, schema: { type: integer } }
+        - { name: date, in: query, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: Events data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/events/catalogue:
+    get:
+      tags: [Events]
+      operationId: getEventCatalogue
+      summary: Event kinds with definitions and parameters, categories, presets and universes
+      x-stream: S28
+      x-scope: read
+      responses:
+        "200":
+          description: Events data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/events/selection:
+    get:
+      tags: [Events]
+      operationId: getEventSelection
+      summary: The selected event kinds, their parameters, universes and watchlist
+      x-stream: S28
+      x-scope: read
+      responses:
+        "200":
+          description: Events data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [Events]
+      operationId: putEventSelection
+      summary: Replace the event selection
+      x-stream: S28
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, description: "kinds { kind: { on, params } }, universes, optionMode (indices | stocks | both), watchlist, cooldownSeconds. Values are clamped to the catalogue." }
+      responses:
+        "200":
+          description: Events data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/events/summary:
+    get:
+      tags: [Events]
+      operationId: getEventSummary
+      summary: Counts by kind and side today, and the bull/bear balance
+      x-stream: S28
+      x-scope: read
+      parameters:
+        - { name: asset, in: query, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: Events data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/events/symbols/{symbol}:
+    get:
+      tags: [Events]
+      operationId: getSymbolEvents
+      summary: One symbol's events today with its key levels
+      x-stream: S28
+      x-scope: read
+      parameters:
+        - { name: symbol, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Events data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/events/chain:
+    get:
+      tags: [Events]
+      operationId: getEventChainRow
+      summary: One strike's chain row as the events engine sees it
+      x-stream: S28
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: false, schema: { type: string } }
+        - { name: expiry, in: query, required: false, schema: { type: string } }
+        - { name: strike, in: query, required: false, schema: { type: number } }
+      responses:
+        "200":
+          description: Events data.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: {}
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/events/status:
+    get:
+      tags: [Events]
+      operationId: getEventStatus
+      summary: What the events engine tracks, its sources and per-tick timing
+      x-stream: S28
+      x-scope: read
+      responses:
+        "200":
+          description: Events data.
           content:
             application/json:
               schema:

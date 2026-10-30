@@ -48,6 +48,7 @@ The BRD has 13 builds; the last spec file covers two of them. If capacity drops 
 | S25 | `guards` | orders, marketData, streamHub, safety, audit, readiness, margin, reference, accounts, book |
 | S26 | `participants` | reference |
 | S27 | `book` | orders, marketData, accounts |
+| S28 | `events` (live events, `docs/guides/live-events.md`) | marketData, streamHub, accounts, scheduler, symbols, recorder (optional) |
 
 ---
 

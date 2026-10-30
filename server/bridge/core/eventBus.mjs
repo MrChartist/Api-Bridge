@@ -40,6 +40,7 @@
  *  option.alert          an alert rule fired (p1-11)
  *  strategy.guard        guard state change (p1-12 §3.3)
  *  participants.updated  { date, source, changed }   (p1-12)
+ *  market.event          { type: "new" | "update", event }   a live event record or a repeat inside its cool-down (S28 events)
  */
 export const TOPICS = Object.freeze([
   "tick",
@@ -71,6 +72,7 @@ export const TOPICS = Object.freeze([
   "option.alert",
   "strategy.guard",
   "participants.updated",
+  "market.event",
 ]);
 
 /**
