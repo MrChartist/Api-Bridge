@@ -8,6 +8,7 @@ import { ruleText, volOiText } from "./analyticsFlow.js";
 import { backtestBody, concentrationWords, equitySeries, histogramLayout, inrShort, pickAccount, weightText } from "./analyticsRisk.js";
 import { LEGACY, PAGES, paletteCodes, resolveRoute } from "./views.js";
 import { commandResult } from "./palette.js";
+import { firstLast, probabilityCone, strikeSeries } from "./analyticsTime.js";
 
 describe("analytics host", () => {
   it("lets the last panel take what is left of its row", () => {
@@ -116,6 +117,46 @@ describe("analytics host", () => {
     expect(commandResult("help gx", codes)).toMatchObject({ kind: "help", page: "gex" });
     expect(commandResult("help", codes)).toMatchObject({ kind: "codes" });
     expect(commandResult("iron condor", codes)).toBeNull();
+  });
+
+  it("strike history: picks one strike out of each recorded snapshot; a snapshot without it is a gap", () => {
+    const snaps = [
+      { ts: "2026-11-02T09:20:00+05:30", spot: 26000, strikes: [25900, 26000], ce: { oi: [10, 100], iv: [20, 18] }, pe: { oi: [5, 200], iv: [21, 19] } },
+      { ts: "2026-11-02T09:25:00+05:30", spot: 26000, strikes: [26050, 26100], ce: { oi: [1, 2] }, pe: { oi: [3, 4] } },
+      { ts: "2026-11-02T09:30:00+05:30", spot: 26000, strikes: [26000, 26050], ce: { oi: [150, 1], iv: [18.5, 1] }, pe: { oi: [180, 1], iv: [19.5, 1] } },
+    ];
+    const rows = strikeSeries(snaps, 26000);
+    expect(rows.map((r) => [r.ceOi, r.peOi, r.ceIv])).toEqual([[100, 200, 18], [150, 180, 18.5]]);
+    expect(firstLast(rows, "peOi")).toEqual({ first: 200, last: 180, change: -20 });
+  });
+
+  it("strike history: warm-up and partial snapshots are gaps, and a zero reading is no reading", () => {
+    const at = (ts, extra, ce, pe) => ({ ts, spot: 26000, strikes: [26000], ce, pe, ...extra });
+    const rows = strikeSeries(
+      [
+        at("00:00", {}, { oi: [0], iv: [52] }, { oi: [0], iv: [52] }), // the recorder warming up
+        at("00:05", { lotSize: 65 }, { oi: [65], iv: [20] }, { oi: [0], iv: [20] }), // one lot is not a position
+        at("00:10", { spot: null }, { oi: [90], iv: [20] }, { oi: [90], iv: [20] }),
+        at("00:12", { strikes: [26050] }, { oi: [500] }, { oi: [500] }), // a partial chain without this strike
+        at("00:13", {}, { oi: [3] }, { oi: [2] }), // still warming up: far under the strike's usual OI
+        at("00:15", {}, { oi: [100], iv: [0] }, { oi: [200], iv: [19] }),
+        at("00:20", {}, { oi: [120], iv: [18] }, { oi: [210], iv: [19] }),
+        at("00:25", { partial: true, missingLegs: 6 }, { oi: [130], iv: [18] }, { oi: [215], iv: [19] }), // partial, but this strike is there
+      ],
+      26000,
+    );
+    expect(rows.map((r) => r.time)).toEqual(["00:15", "00:20", "00:25"]);
+    expect(rows[0].ceIv).toBeNull();
+    expect(firstLast(rows, "ceOi").change).toBe(30); // 100 at 00:15 to 130 at 00:25
+  });
+
+  it("probability cone: spot × e^(±kσ√t) per expiry, nearest first; an expiry without IV is left out", () => {
+    const c = probabilityCone(100, [{ expiry: "2026-12-31", daysToExpiry: 365, atmIv: 20 }, { expiry: "2026-11-03", daysToExpiry: 3, atmIv: null }]);
+    expect(c).toHaveLength(1);
+    expect(c[0].up1).toBeCloseTo(100 * Math.exp(0.2), 2);
+    expect(c[0].down2).toBeCloseTo(100 * Math.exp(-0.4), 2);
+    expect(c[0].sdPct).toBe(20);
+    expect(probabilityCone(0, [])).toEqual([]);
   });
 
   it("names a day the way the desk does", () => {

@@ -66,6 +66,7 @@ const PAGE_MODULES = Object.freeze({
   watchlists: () => import("./watchlists.js"),
   scanner: () => import("./scanner.js"),
   analytics: () => import("./analytics.js"),
+  algo: () => import("./algo.js"),
 });
 /** A page renderer that loads its module first. `.module` names it, for preloading. */
 function lazyPage(mod, name) {
@@ -95,6 +96,7 @@ const renderEventsPage = lazyPage("events", "renderEventsPage");
 const renderJournalPage = lazyPage("journal", "renderJournalPage");
 const renderWatchlistsPage = lazyPage("watchlists", "renderWatchlistsPage");
 const renderScannerPage = lazyPage("scanner", "renderScannerPage");
+const renderAlgoPage = lazyPage("algo", "renderAlgoPage");
 
 /** Load a page's module and warm its data ahead of a click (menu hover or focus). Idempotent and cheap. */
 export function preloadPage(pageId) {
@@ -323,6 +325,7 @@ export const PAGES = [
     ],
   },
   { id: "safety", label: "Safety", icon: "safety", tint: "red", key: 6, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
+  { id: "algo", label: "Algo", icon: "console", tint: "indigo", group: "Trade", title: "Algo", headline: ["Python ", { serif: "strategies" }], sub: "Your Python strategies, run by the Bridge. Paper by default; every order passes the safety gates", render: renderAlgoPage },
   {
     id: "oi", label: "OI Analysis", icon: "bars", tint: "orange", key: 7, group: "Markets", layout: "desk", title: "OI Analysis", sub: "Open interest and OI chg by strike, build-up and walls",
     defaultTab: "strike",
@@ -330,6 +333,7 @@ export const PAGES = [
       { id: "strike", label: "By strike", page: "oi", command: "OI Analysis", keywords: "open interest build-up walls max pain pcr", render: renderOiPage },
       { id: "participants", label: "Participants", page: "participants", command: "Participant OI", icon: "people", tint: "teal", keywords: "participants fii dii client pro", sub: "NSE participant-wise open interest: Client, DII, FII and Pro, by day", render: renderParticipantsPage },
       anTab("change", "OI change", "oichange", { command: "OI change", icon: "activity", tint: "orange", keywords: "oi change build-up unwinding long short covering window", sub: "Open interest added or cut over a window, and who is acting, by strike" }),
+      anTab("history", "Strike history", "an-strikehist", { command: "OI and IV of a strike over time", icon: "clock", tint: "orange", keywords: "strike history oi iv over time session recorded call put", sub: "One strike's call and put OI and IV through the session, from the Bridge's recorder" }),
       anTab("spurts", "Spurts", "an-spurts", { command: "OI spurts", icon: "bolt", tint: "orange", keywords: "oi spurts jump baseline surge", sub: "Strikes whose open interest jumped most against their rolling baseline" }),
       anTab("expiry", "Expiry day", "expiry", { command: "Expiry day digest", icon: "clock", tint: "red", keywords: "expiry day digest time left straddle max pain walls gamma flags", sub: "Time left, the ATM straddle, max pain, OI walls and gamma flags for the expiry, in one view" }),
     ],
@@ -341,6 +345,7 @@ export const PAGES = [
       { id: "overview", label: "Overview", page: "vol", command: "Volatility", keywords: "smile skew term structure expected move iv surface", render: renderVolPage },
       anTab("skew", "Skew", "skew", { command: "IV skew", icon: "wave", tint: "pink", keywords: "iv skew call put risk reversal strike smile", sub: "Call and put IV by strike for one expiry, with the risk reversal" }),
       anTab("surface", "Surface", "an-surface", { command: "IV surface", icon: "wave", tint: "pink", keywords: "iv surface across expiries term structure lines", sub: "IV by strike for the next expiries, one line each, and the term structure" }),
+      anTab("cone", "Cone", "an-cone", { command: "Probability cone", icon: "wave", tint: "pink", keywords: "probability cone expected move sigma range expiry iv", sub: "The ±1σ and ±2σ range each expiry's ATM IV implies" }),
       anTab("stats", "Vol stats", "an-volstats", { command: "Vol stats and IV rank", icon: "chart", tint: "pink", keywords: "hv historical volatility iv rank percentile expected move cone", sub: "Historical volatility, ATM IV against HV, expected move, IV rank and the term structure" }),
     ],
   },
@@ -464,6 +469,8 @@ export const LEGACY = {
   "an-volstats": "vol/stats",
   oichange: "oi/change",
   "an-spurts": "oi/spurts",
+  "an-strikehist": "oi/history",
+  "an-cone": "vol/cone",
   expiry: "oi/expiry",
 };
 
@@ -2383,6 +2390,10 @@ async function renderOrders() {
     }),
   );
 
+  // GTT, OCO, stops, targets and trailing stops checked on the Bridge (triggers.js), above the day's orders so an
+  // open stop is never below a long list; it refreshes itself.
+  nodes.push(triggersCard(byId));
+
   const ord = orders.data?.data ?? [];
   nodes.push(
     card({
@@ -2425,9 +2436,6 @@ async function renderOrders() {
           ),
     }),
   );
-
-  // GTT, OCO, stops, targets and trailing stops checked on the Bridge (triggers.js); refreshes itself.
-  nodes.push(triggersCard(byId));
 
   // One summary line per paper account; the positions themselves live on the Positions page. Every rupee figure in
   // this table uses Indian grouping (the P&L columns too, with an explicit + for gains).
@@ -2497,9 +2505,12 @@ function orderActions(o) {
     // A refusal from the Bridge, said once: under its field when it names one, else on one line above the buttons.
     const err = h("p", { class: "bad-text", role: "alert", hidden: true });
     const limit = o.orderType === "LIMIT" || o.orderType === "SL";
+    // A stop-loss order (SL, SL-M) changes its trigger here too.
+    const stop = o.orderType === "SL" || o.orderType === "SL-M";
+    const trig = h("input", { id: "mod-trigger", type: "number", min: "0.05", step: "0.05", inputmode: "decimal", value: isFigure(o.triggerPrice) ? String(o.triggerPrice) : "" });
     const ok = await modal({
       title: `Modify ${o.side === "BUY" ? "buy" : "sell"} ${name}`,
-      body: h("div", { class: "stack" }, h("div", { class: "form-grid" }, h("label", { class: "field", for: "mod-qty" }, h("span", {}, inLots ? "Lots" : "Quantity"), qty, units), limit ? field("Limit price", price) : null), err),
+      body: h("div", { class: "stack" }, h("div", { class: "form-grid" }, h("label", { class: "field", for: "mod-qty" }, h("span", {}, inLots ? "Lots" : "Quantity"), qty, units), stop ? field("Trigger price", trig) : null, limit ? field("Limit price", price) : null), err),
       buttons: [
         { label: "Keep as is", value: false },
         {
@@ -2507,15 +2518,15 @@ function orderActions(o) {
           cls: "primary",
           onClick: async () => {
             err.hidden = true;
-            const c = modifyChange({ lots: qty.value, lotSize, order: o, price: price.value, limit });
-            if (c.error) return fieldError(c.error.field === "price" ? price : qty, c.error.message);
+            const c = modifyChange({ lots: qty.value, lotSize, order: o, price: price.value, limit, trigger: trig.value, stop });
+            if (c.error) return fieldError(c.error.field === "price" ? price : c.error.field === "trigger" ? trig : qty, c.error.message);
             try {
               await api(`/v1/orders/${encodeURIComponent(o.orderId)}`, { method: "PATCH", body: c.body });
               return true;
             } catch (e) {
-              const f = (Array.isArray(e?.body?.errors) ? e.body.errors : []).find((x) => /^(quantity|lots|price)$/.test(String(x.path ?? "").split(".").pop()));
+              const f = (Array.isArray(e?.body?.errors) ? e.body.errors : []).find((x) => /^(quantity|lots|price|triggerPrice)$/.test(String(x.path ?? "").split(".").pop()));
               const msg = String(f?.message ?? e?.message ?? "Not changed").replace(/(\d),(?=\d)/g, "$1");
-              if (f) return fieldError(String(f.path).endsWith("price") ? price : qty, msg);
+              if (f) return fieldError(String(f.path).endsWith("triggerPrice") ? trig : String(f.path).endsWith("price") ? price : qty, msg);
               err.textContent = `Not changed: ${msg}`;
               err.hidden = false;
               return false;

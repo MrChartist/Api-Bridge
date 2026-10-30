@@ -59,6 +59,15 @@ export function niceScale(min, max, count = 5) {
   return { min: nmin, max: nmax, step, ticks };
 }
 
+/**
+ * Decimals for axis labels a `step` apart (pure): at least `min`, and enough that neighbouring ticks never read the
+ * same (a 0.05 step at 1 decimal drew "21.3, 21.2, 21.2, 21.1" on Strike history's IV axis).
+ */
+export function tickDecimals(step, min = 0) {
+  if (!(step > 0)) return min;
+  return Math.max(min, Math.min(6, Math.ceil(-Math.log10(step) - 1e-9)));
+}
+
 /** A linear map from a domain to a range (a flat domain maps to the middle). */
 export const linear = (d0, d1, r0, r1) => (v) => (d1 === d0 ? (r0 + r1) / 2 : r0 + ((v - d0) / (d1 - d0)) * (r1 - r0));
 
@@ -159,7 +168,7 @@ export function lineLayout(series, { width = 640, height, padL = 44, padR = 14, 
     x: (v) => r1(x(v)),
     y: (v) => r1(y(v)),
     xTicks,
-    yTicks: ysc.ticks.map((t) => ({ y: r1(y(t)), label: formatFixed(t, yDecimals), value: t })),
+    yTicks: ysc.ticks.map((t) => ({ y: r1(y(t)), label: formatFixed(t, tickDecimals(ysc.step, yDecimals)), value: t })),
     paths,
     empty: pts.length === 0,
   };

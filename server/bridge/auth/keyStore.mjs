@@ -397,6 +397,15 @@ export function createKeyStore(deps, opts = {}) {
         }
         let id = generateKeyId();
         while (records.has(id)) id = generateKeyId();
+        // The file holds at most MAX_KEYS * 2 records (keysFileSchema): past that it would fail validation and every
+        // key would be refused. Revoked keys can never authenticate again, so the oldest revoked ones make room
+        // (strategy runs mint and revoke a key each, docs/STRATEGIES-PYTHON.md). Active keys are never dropped.
+        let kept = records;
+        if (records.size >= MAX_KEYS * 2) {
+          const revoked = [...records.values()].filter((r) => r.revokedAt).sort((a, b) => a.revokedAt.localeCompare(b.revokedAt) || a.id.localeCompare(b.id));
+          kept = new Map(records);
+          for (const r of revoked.slice(0, records.size - MAX_KEYS * 2 + 1)) kept.delete(r.id);
+        }
         const stored = {
           id,
           label: v.label,
@@ -412,7 +421,7 @@ export function createKeyStore(deps, opts = {}) {
           salt: salt.toString("base64"),
           hash: hash.toString("base64"),
         };
-        const next = new Map(records).set(id, hydrate(stored));
+        const next = new Map(kept).set(id, hydrate(stored));
         const prev = records;
         records = next;
         try {

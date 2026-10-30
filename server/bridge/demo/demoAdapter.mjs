@@ -7,8 +7,10 @@
  *    each with monthly stock futures and options on the nearest 3 monthly expiries (P1-6: lots from the demo
  *    reference table, the demo strike-step table including fractional strikes, ±20 strikes, and 6 adjusted "-ADJ"
  *    contracts on the demo split stock);
- *  - prices: a function of wall-clock time per symbol (a seeded day-to-day random walk with drift, plus minute-scale
- *    wiggles), so the same instant always gives the same price and ticks keep moving even when the real market is shut;
+ *  - prices: a function of wall-clock time per symbol (a seeded day-to-day random walk with drift, and inside each
+ *    session a seeded Brownian bridge from the previous close to the day's close; outside the session the price holds
+ *    at the last close with a tiny wiggle), so the same instant always gives the same price, history candles and live
+ *    quotes agree, and ticks keep moving even when the real market is shut;
  *  - option chains: Black-76 prices on the vol-time clock (dashboard/pricing.js, the same core the server and pages
  *    use) from a smile around a time-varying IV level anchored to the demo's own realised vol, with open interest
  *    peaking near the money that changes through the day (whole lots), and bid/ask sizes; ±45 strikes per chain;
@@ -225,13 +227,78 @@ function walkLevel(symbol, k) {
   while (w.down.length <= -off) w.down.push(w.down[w.down.length - 1] - w.step(WALK_ANCHOR - w.down.length + 1));
   return w.down[-off];
 }
-/** The walk's log level at epoch ms t: yesterday's close level plus today's step spread over the session. */
+/** Weekday test on an IST day number (day 0 was a Thursday). */
+const isWeekdayNo = (k) => {
+  const dow = new Date(k * DAY_MS).getUTCDay();
+  return dow !== 0 && dow !== 6;
+};
+/** The weekday IST day number strictly before `k`. */
+function weekdayBefore(k) {
+  let j = k - 1;
+  while (!isWeekdayNo(j)) j -= 1;
+  return j;
+}
+const SESSION_OPEN_MIN = 555; // 09:15 IST
+const SESSION_MINUTES = 375; // 09:15 to 15:30 IST
+const BRIDGES = new Map();
+/**
+ * The session's own path (log units) at the minute nodes 0 … 375 of weekday k: a seeded Brownian bridge, 0 at the open
+ * and at the close, so a day opens on the previous close and closes on the walk's level. Its scale is the walk's daily
+ * volatility spread over the session's minutes, so 5-minute bars read like a market (the fixed sine waves this replaces
+ * drew a sawtooth when sampled every 5 minutes).
+ */
+function sessionBridge(symbol, k) {
+  const key = `${symbol}|${k}`;
+  const hit = BRIDGES.get(key);
+  if (hit) return hit;
+  const s = walkParams(symbol).sigma / Math.sqrt(252 * SESSION_MINUTES);
+  const w = new Float64Array(SESSION_MINUTES + 1);
+  for (let i = 1; i <= SESSION_MINUTES; i += 1) w[i] = w[i - 1] + s * normalOf(`${symbol}:min:${k}:${i}`);
+  const end = w[SESSION_MINUTES];
+  for (let i = 1; i <= SESSION_MINUTES; i += 1) w[i] -= (i / SESSION_MINUTES) * end;
+  if (BRIDGES.size >= 6000) BRIDGES.clear();
+  BRIDGES.set(key, w);
+  return w;
+}
+/**
+ * The walk's log level at epoch ms t. In a weekday session (09:15 to 15:30 IST) it moves from the previous weekday's
+ * close level to today's along the session bridge; outside it (evenings, nights, weekends) it holds at the last
+ * session's close. So history candles (NSE hours on weekdays) and live quotes come from one path: after the close the
+ * live price is the last 5-minute close, and Monday opens on Friday's close (the weekend's steps are taken in Monday's
+ * session).
+ */
 export function walkAt(symbol, t) {
   const k = Math.floor((t + IST_OFFSET_MS) / DAY_MS);
   const min = ((t + IST_OFFSET_MS) % DAY_MS) / 60_000;
-  const f = Math.max(0, Math.min(1, (min - 555) / 375));
-  const a = walkLevel(symbol, k - 1);
-  return a + f * (walkLevel(symbol, k) - a);
+  if (!isWeekdayNo(k)) return walkLevel(symbol, weekdayBefore(k));
+  if (min < SESSION_OPEN_MIN) return walkLevel(symbol, weekdayBefore(k));
+  const m = min - SESSION_OPEN_MIN;
+  if (m >= SESSION_MINUTES) return walkLevel(symbol, k);
+  const a = walkLevel(symbol, weekdayBefore(k));
+  const b = walkLevel(symbol, k);
+  const br = sessionBridge(symbol, k);
+  const i = Math.floor(m);
+  return a + (m / SESSION_MINUTES) * (b - a) + br[i] + (m - i) * (br[i + 1] - br[i]);
+}
+
+/**
+ * A small wiggle outside the session so the demo still ticks at any hour (resting paper orders, scheduled scans): at most
+ * 0.04 %, faded in over the 15 minutes after the close and out over the 15 before the next open, so the price after
+ * hours stays on the last 5-minute close to the eye and the next session opens exactly on it.
+ */
+function afterHoursWiggle(symbol, t) {
+  const k = Math.floor((t + IST_OFFSET_MS) / DAY_MS);
+  const min = ((t + IST_OFFSET_MS) % DAY_MS) / 60_000;
+  const closeMin = SESSION_OPEN_MIN + SESSION_MINUTES;
+  if (isWeekdayNo(k) && min >= SESSION_OPEN_MIN && min < closeMin) return 0;
+  const lastClose = isWeekdayNo(k) && min >= closeMin ? k : weekdayBefore(k);
+  let nextOpen = isWeekdayNo(k) && min < SESSION_OPEN_MIN ? k : k + 1;
+  while (!isWeekdayNo(nextOpen)) nextOpen += 1;
+  const since = (k - lastClose) * 1440 + min - closeMin;
+  const until = (nextOpen - k) * 1440 + SESSION_OPEN_MIN - min;
+  const fade = Math.max(0, Math.min(1, since / 15, until / 15));
+  const s = t / 1000;
+  return fade * (0.00025 * Math.sin((2 * Math.PI * s) / 660 + phase(`${symbol}:e`)) + 0.00015 * Math.sin((2 * Math.PI * s) / 97 + phase(`${symbol}:f`)));
 }
 
 /** Spot price of a demo underlying at epoch ms `t`. The same for the same instant. */
@@ -239,11 +306,7 @@ export function spotAt(symbol, t) {
   const u = BY_SYMBOL.get(symbol);
   if (!u) return null;
   if (symbol === "INDIAVIX") return vixAt(t);
-  const s = t / 1000;
-  // Minute-scale wiggles on top of the day-to-day walk, so ticks keep moving inside a session.
-  const fast = 0.0024 * Math.sin((2 * Math.PI * s) / 3180 + phase(`${symbol}:d`)) + 0.0011 * Math.sin((2 * Math.PI * s) / 660 + phase(`${symbol}:e`)) + 0.0004 * Math.sin((2 * Math.PI * s) / 97 + phase(`${symbol}:f`));
-  const amp = u.kind === "EQ" ? 1.6 : 1;
-  return fix(u.base * Math.exp(walkAt(symbol, t) + amp * fast), u.tick);
+  return fix(u.base * Math.exp(walkAt(symbol, t) + afterHoursWiggle(symbol, t)), u.tick);
 }
 
 /** IST calendar parts for epoch ms. */
@@ -262,9 +325,13 @@ const isWeekday = (t) => {
   return dow !== 0 && dow !== 6;
 };
 
-/** The last weekday 15:30 IST strictly before the IST date of `t` (yesterday's close). */
+/**
+ * The close before the latest session: 15:30 IST on the weekday before the day `sessionOpen(t)` opens. In a session
+ * and in the evening that is yesterday's close; on a weekend or before 09:15 it is the close before the last session,
+ * so a Saturday shows Friday's change (as a broker does), not a flat line against Friday's own close.
+ */
 function previousClose(t) {
-  let x = istAt(t, 15, 30) - DAY_MS;
+  let x = istAt(sessionOpen(t), 15, 30) - DAY_MS;
   while (!isWeekday(x)) x -= DAY_MS;
   return x;
 }
