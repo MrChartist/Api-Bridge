@@ -12,6 +12,11 @@ import { api } from "./app.js";
 export const LINGER_MS = 15_000;
 /** Largest subscribe op the Bridge takes in one message (stream.maxSymbolsPerRequest default). */
 export const OP_CHUNK = 200;
+/**
+ * Ticks are handed to pages at most this often. A broker feed sends a burst of ticks over a few frames; one delivery
+ * per burst means one redraw of the chain instead of four (each redraw is a full patch and layout of the table).
+ */
+export const DELIVER_MIN_MS = 150;
 
 /**
  * What to subscribe and unsubscribe (pure): `want` symbol -> mode, `have` symbol -> mode on the wire. A symbol whose
@@ -57,6 +62,7 @@ let syncQueued = false;
 let pendingTicks = new Map();
 let frameQueued = false;
 let lingerTimer = null;
+let deliveredAt = 0;
 
 const inBrowser = () => typeof window !== "undefined" && typeof WebSocket !== "undefined";
 
@@ -142,6 +148,7 @@ function scheduleLingerSweep() {
 
 function deliver() {
   frameQueued = false;
+  deliveredAt = typeof performance !== "undefined" ? performance.now() : Date.now();
   const batch = pendingTicks;
   pendingTicks = new Map();
   for (const w of watchers) {
@@ -167,7 +174,10 @@ function acceptTick(t) {
   if (!frameQueued) {
     frameQueued = true;
     // A hidden tab gets no animation frames; deliver on a timer there so the data is current when it comes back.
+    // Otherwise the next frame, but no sooner than DELIVER_MIN_MS after the last delivery.
+    const wait = Math.max(0, DELIVER_MIN_MS - (performance.now() - deliveredAt));
     if (typeof document !== "undefined" && document.hidden) setTimeout(deliver, 250);
+    else if (wait > 0) setTimeout(() => requestAnimationFrame(deliver), wait);
     else requestAnimationFrame(deliver);
   }
 }

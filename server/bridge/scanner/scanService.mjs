@@ -40,6 +40,7 @@ import { runAsConsumer } from "../ratelimit/consumer.mjs";
 import { buildFacts, dailyFacts, istDay, liveBars } from "./facts.mjs";
 import { createDemoFacts } from "./demoFacts.mjs";
 import { createLiveFacts, needsOf } from "./liveFacts.mjs";
+import { createPrewarm } from "./prewarm.mjs";
 import { FNO_STOCKS } from "./sectors.mjs";
 import { defaultSessionFor } from "../reference/defaults.mjs";
 
@@ -117,6 +118,8 @@ export function createScanner(deps) {
   const liveFacts = demo
     ? null
     : createLiveFacts({ marketData: deps.marketData, accounts: deps.accounts, scheduler: deps.scheduler, symbols: deps.symbols, recorder: deps.recorder, reference: deps.reference, fno: deps.fno, bus: deps.bus, clock: deps.clock, dataDir: deps.paths?.dataDir ?? null, share: cfg.budgetShare, logger: log });
+  // Daily bars for NIFTY50 and FNO filled before the first scan (prewarm.mjs): at start and after each close.
+  const prewarm = liveFacts ? createPrewarm({ liveFacts, universes, scheduler: deps.scheduler, clock: deps.clock, logger: log }) : null;
   /** Live collects run one at a time, so the broker calls credited to "Scanner" during one belong to it. */
   let collectChain = Promise.resolve();
   /** symbol -> the newest raw parts a live run collected (the live count re-reads these: no broker call). */
@@ -729,6 +732,26 @@ export function createScanner(deps) {
       return job;
     },
     /** Dry run: which accounts would serve it and roughly how long it would take. */
+    /**
+     * Facts for a few symbols outside a scan (Screeners › Watchlists): { symbol → { fno, atm_iv, hv20, iv_rank,
+     * iv_percentile, fut_oi, fut_oi_change_pct } }. Futures OI change is against the previous day's OI, the same base
+     * the stock scanner uses. Live mode reads daily bars (cached), futures and their previous OI, and IV history; it
+     * reads chains only when `chain` is set (a chain call per stock).
+     */
+    async factsFor(symbols, { chain = false } = {}) {
+      const list = [...new Set(symbols)].slice(0, 100);
+      const needs = new Set(["daily", "futures", "futuresPrevOi", "ivHistory", ...(chain ? ["chain"] : [])]);
+      const got = await collectRaw(list, needs, undefined);
+      const out = {};
+      for (const sym of list) {
+        const r = got.value.raw.get(sym);
+        if (!r) continue;
+        const f = buildFacts(r, now());
+        out[sym] = { fno: Boolean(r.meta?.fno ?? r.fut ?? r.chain), atm_iv: f.atm_iv ?? null, hv20: f.hv20 ?? null, iv_rank: f.iv_rank ?? null, iv_percentile: f.iv_percentile ?? null, fut_oi: f.fut_oi ?? null, fut_oi_change_pct: f.fut_oi_change_pct ?? null };
+      }
+      return out;
+    },
+
     async plan(input, who = {}) {
       const compiled = await compile(input);
       const p = plan(compiled.request.source, who.allowedAccounts, compiled.symbols.length);
@@ -853,7 +876,11 @@ export function createScanner(deps) {
 
     tick,
     /** Live facts cache state (status page, tests). */
-    factsStatus: () => (liveFacts ? liveFacts.status() : { demo: true }),
+    factsStatus: () => (liveFacts ? { ...liveFacts.status(), prewarm: prewarm?.status() ?? null } : { demo: true }),
+    /** Start the daily-bar pre-warm (module start; not in demo mode). */
+    startPrewarm() {
+      prewarm?.start();
+    },
     startSchedule() {
       if (!cfg.schedule || timer) return;
       timer = setInterval(() => {
@@ -864,6 +891,7 @@ export function createScanner(deps) {
     stop() {
       if (timer) clearInterval(timer);
       timer = null;
+      prewarm?.stop();
       for (const j of jobs.values()) if (j.status === "running") j.abort.abort();
     },
   };

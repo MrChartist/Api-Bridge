@@ -1726,6 +1726,7 @@ button.start-row:hover { --btn-bg: var(--mat-fill-1); }
   :root[data-page="home"] #content > .cockpit > .ck-a-pnl { order: 2; }
   :root[data-page="home"] #content > .cockpit > .ck-a-pos { order: 3; }
   :root[data-page="home"] #content > .cockpit > .ck-a-ev { order: 4; }
+  :root[data-page="home"] #content > .cockpit > .ck-a-wl { order: 4; }
   :root[data-page="home"] #content > .home-start { order: 5; }
   :root[data-page="home"] #content > .cockpit > .ck-a-cal { order: 6; }
   :root[data-page="home"] #content > .cockpit > .ck-a-hl { order: 7; }
@@ -1758,12 +1759,12 @@ button.start-row:hover { --btn-bg: var(--mat-fill-1); }
 .ck-px { grid-area: p; font: 500 18px/1.15 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ck-ch { grid-area: c; font: 500 12px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .cockpit { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--panel-gap); align-items: start; }
-.ck-a-pnl { grid-area: pnl; } .ck-a-pos { grid-area: pos; } .ck-a-ev { grid-area: ev; } .ck-a-cal { grid-area: cal; } .ck-a-hl { grid-area: hl; }
-.cockpit { grid-template-areas: "pnl" "pos" "ev" "cal" "hl"; }
-@media (min-width: 720px) { .cockpit { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "pnl cal" "pos pos" "ev hl"; } }
-@media (min-width: 1280px) { .cockpit { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: "pnl pos pos" "ev cal hl"; } }
-@media (min-width: 1700px) { .ck-idx { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "n n" "p c"; } .cockpit { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-areas: "pnl pos pos ev" "cal hl hl ev"; } }
-@media (min-width: 2300px) { .cockpit { grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-areas: "pnl pos pos ev cal" "pnl pos pos ev hl"; } }
+.ck-a-pnl { grid-area: pnl; } .ck-a-pos { grid-area: pos; } .ck-a-ev { grid-area: ev; } .ck-a-cal { grid-area: cal; } .ck-a-hl { grid-area: hl; } .ck-a-wl { grid-area: wl; }
+.cockpit { grid-template-areas: "pnl" "pos" "wl" "ev" "cal" "hl"; }
+@media (min-width: 720px) { .cockpit { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "pnl cal" "pos pos" "wl ev" "hl hl"; } }
+@media (min-width: 1280px) { .cockpit { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: "pnl pos pos" "ev cal hl" "wl wl hl"; } }
+@media (min-width: 1700px) { .ck-idx { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "n n" "p c"; } .cockpit { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-areas: "pnl pos pos ev" "cal hl hl ev" "wl wl wl ev"; } }
+@media (min-width: 2300px) { .cockpit { grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-areas: "pnl pos pos ev cal" "pnl pos pos ev hl" "wl wl wl ev hl"; } }
 .ck-card .card-body { padding-top: 10px; }
 .ck-hero { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
 .ck-big { font: 600 26px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; white-space: nowrap; }
@@ -7256,8 +7257,11 @@ button.toolbar-budget-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.
 .toolbar-budget[data-tone="bad"] .bud-num { color: hsl(var(--ios-red-ink)); }
 /* Narrow toolbars keep the dot and this second only. */
 @media (max-width: 1279px) { .toolbar-budget :is(.bud-sep, .bud-min) { display: none; } }
+/* The Options pages' top bar carries the underlying, expiry, spot and live control: there the capsule shows this
+   second only (the popover has the minute). */
+:root[data-layout="desk"] .toolbar-budget :is(.bud-sep, .bud-min) { display: none; }
 @media (max-width: 719px) { .toolbar-budget .bud-lbl { display: none; } button.toolbar-budget-btn { --btn-px: 10px; } }
-.bud-pop { display: flex; flex-direction: column; gap: 12px; min-width: min(300px, 80vw); max-width: 360px; font-size: 13px; }
+.bud-pop { display: flex; flex-direction: column; gap: 12px; min-width: min(300px, 80vw); max-width: 360px; padding: 4px 16px 14px; font-size: 13px; }
 .bud-stream { display: flex; align-items: center; gap: 8px; font-weight: 500; }
 .bud-acct { display: flex; flex-direction: column; gap: 6px; padding-bottom: 10px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 .bud-acct-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
@@ -7271,6 +7275,7 @@ button.toolbar-budget-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.
 .bud-saved-parts { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
 .bud-part { display: inline-flex; gap: 6px; }
 .bud-more { font-weight: 500; }
+.bud-jobs { display: grid; gap: 6px; padding-bottom: 10px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 /* Rate limits tab: calls per second against the limit over two minutes, and who used the budget. */
 .rl-chart { display: block; width: 100%; height: 120px; }
 .rl-chart .rl-grid { stroke: var(--mat-hairline); stroke-width: 1; }
@@ -7736,6 +7741,40 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
 .xp-n { white-space: nowrap; }
 .xp-pins, .xp-settle { margin: 0; font-size: 12.5px; }
 @media (max-width: 719px) { .xp-gamma li { grid-template-columns: 72px minmax(30px, 1fr); } .xp-gamma .xp-n { grid-column: 1 / -1; } }
+
+/* Home › your watchlist (cockpit.js): one row per symbol, name, last, % change, IV or OI change. */
+.ck-wl-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 2px 16px; }
+.ck-wl-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: baseline; gap: 2px 10px; padding: 6px 0; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); font: 500 13px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.ck-wl-list strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ck-wl-iv { grid-column: 1 / -1; font-size: 12px; color: hsl(var(--foreground) / var(--a-label)); }
+.ck-wl-iv:empty { display: none; }
+/* Screeners › Watchlists (watchlists.js). */
+.wl-card { padding: 14px var(--card-pad, 16px) 8px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.wl-bar, .wl-addrow { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; min-width: 0; }
+.wl-sel { width: auto; max-width: 260px; min-height: 36px; field-sizing: content; }
+.wl-add-in { flex: 1 1 220px; min-width: 0; max-width: 420px; min-height: 36px; }
+.wl-flag { font-size: 13px; }
+.wl-flag[hidden] { display: none; }
+.wl-table-wrap { overflow-x: auto; margin: 0 calc(-1 * var(--card-pad, 16px)); }
+/* The card's own edge closes the table: no row rule (or the row header's own hairline) under the last row. */
+.wl-table tbody tr:last-child > * { box-shadow: none; border-bottom: 0; }
+.wl-table th[scope="row"] { text-align: left; font-weight: 500; }
+button.wl-sort { min-height: 0; padding: 0; background: none; box-shadow: none; font: inherit; color: inherit; --fin: 0; }
+.wl-acts { white-space: nowrap; text-align: right; }
+@media (pointer: coarse) { .wl-sel, .wl-add-in { min-height: 44px; } }
+
+/* "Explain this" (explain.js) on OI Analysis and Volatility: a folded box under the summary tiles. */
+.ex-box { margin-top: 10px; border-radius: var(--r-sm); background: var(--mat-fill-1, hsl(var(--foreground) / 0.03)); padding: 0 12px; }
+.ex-box[hidden] { display: none; }
+.ex-sum { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-height: 36px; padding: 8px 0; cursor: pointer; list-style: none; }
+.ex-sum::-webkit-details-marker { display: none; }
+.ex-sum::before { content: "›"; display: inline-block; width: 12px; transition: transform var(--dur-2) var(--ease-std); }
+.ex-box[open] > .ex-sum::before { transform: rotate(90deg); }
+.ex-title { font: 600 13px/1.2 var(--font-body); }
+.ex-hint { font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.ex-list { margin: 0; padding: 0 0 4px 18px; display: flex; flex-direction: column; gap: 6px; font: 400 13px/1.5 var(--font-body); max-width: 980px; }
+.ex-note { margin: 6px 0 10px; font: 500 12px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+@media (pointer: coarse) { .ex-sum { min-height: 44px; } }
 
 /* ───────────────────────── 13 · RESPONSIVE ───────────────────────── */
 @media (max-width: 1279px) {

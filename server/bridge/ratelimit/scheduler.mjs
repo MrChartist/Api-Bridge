@@ -129,6 +129,8 @@ export function createScheduler(deps, options = {}) {
   const consumers = new Map();
   let timer = null;
   let timerAt = Infinity;
+  /** When a non-background read or an order was last scheduled (userActiveAt). */
+  let lastUserAt = -Infinity;
   let stopped = false;
   const offs = [];
 
@@ -597,6 +599,8 @@ export function createScheduler(deps, options = {}) {
     const key = endpointClass !== "order" && typeof coalesceKey === "string" && coalesceKey.length > 0 ? coalesceKey : null;
 
     const consumer = currentConsumer() ?? (priority === "background" ? "Background jobs" : null);
+    // A person (or their tool) is asking: background pre-warms wait while this is recent (userActiveAt).
+    if (priority !== "background") lastUserAt = t;
     const existing = key ? inflight.get(key) : null;
     if (existing && !existing.settled) {
       existing.waiters += 1;
@@ -868,6 +872,8 @@ export function createScheduler(deps, options = {}) {
     policyFor,
     usage,
     checkClient,
+    /** Epoch ms of the last non-background broker request (an order or a read a person or tool is waiting on). */
+    userActiveAt: () => lastUserAt,
     /** Record a saved broker call (see the exported recordSaving). */
     recordSaving: (kind, count = 1) => bumpSaving(kind, count),
     /** Broker calls and saved calls credited to one consumer today ({ calls: 0, saved: 0 } when none). Read-only. */

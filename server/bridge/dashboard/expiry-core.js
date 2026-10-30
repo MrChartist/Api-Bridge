@@ -9,9 +9,9 @@ const IST = 19_800_000;
 const DAY_MS = 86_400_000;
 export const istDayOf = (ms) => new Date(ms + IST).toISOString().slice(0, 10);
 
-/** Epoch ms of the close ("HH:MM" IST) on an expiry day. */
-export function closeMs(expiry, close = "15:30") {
-  return Date.parse(`${expiry}T${close}:00+05:30`);
+/** Epoch ms of the close ("HH:MM" IST, from the reference session) on an expiry day; NaN without one. */
+export function closeMs(expiry, close) {
+  return /^\d{2}:\d{2}$/.test(String(close ?? "")) ? Date.parse(`${expiry}T${close}:00+05:30`) : NaN;
 }
 
 /** The next weekday after an IST day (holidays aside): "today or the next session" for Friday reaches Monday. */
@@ -25,11 +25,11 @@ export function nextSessionDay(day) {
  * The expiry the desk shows: the nearest held expiry that is today or the next session, else null. `{ expiry, when:
  * "today"|"next" }`.
  */
-export function deskExpiry(legs, nowMs) {
+export function deskExpiry(legs, nowMs, close) {
   const today = istDayOf(nowMs);
   const next = nextSessionDay(today);
   const exps = [...new Set((legs ?? []).filter((l) => num(l.q) && l.expiry).map((l) => l.expiry))].sort();
-  const e = exps.find((x) => x === today && nowMs < closeMs(x)) ?? exps.find((x) => x > today && x <= next);
+  const e = exps.find((x) => x === today && !(nowMs >= closeMs(x, close))) ?? exps.find((x) => x > today && x <= next);
   return e ? { expiry: e, when: e === today ? "today" : "next" } : null;
 }
 

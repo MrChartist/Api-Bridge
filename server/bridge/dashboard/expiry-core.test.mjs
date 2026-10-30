@@ -8,7 +8,7 @@ describe("which expiry the desk shows", () => {
   const legs = [leg(26000, "CE", -65), { ...leg(26000, "PE", -65), expiry: "2026-11-10" }];
   it("today before the close, or the next session", () => {
     expect(deskExpiry(legs, at("2026-11-03T10:00:00"))).toEqual({ expiry: "2026-11-03", when: "today" });
-    expect(deskExpiry(legs, at("2026-11-03T15:31:00"))).toBeNull();
+    expect(deskExpiry(legs, at("2026-11-03T15:31:00"), "15:30")).toBeNull();
     expect(deskExpiry(legs, at("2026-11-02T10:00:00"))).toEqual({ expiry: "2026-11-03", when: "next" });
     expect(deskExpiry(legs, at("2026-10-30T10:00:00"))).toBeNull();
     // Friday's next session is Monday.
@@ -16,7 +16,7 @@ describe("which expiry the desk shows", () => {
     expect(deskExpiry([{ ...legs[0], expiry: "2026-11-02" }], at("2026-10-30T12:00:00"))?.when).toBe("next");
   });
   it("counts down to the close", () => {
-    expect(countdownText(closeMs("2026-11-03") - at("2026-11-03T12:18:00"))).toBe("3 h 12 min");
+    expect(countdownText(closeMs("2026-11-03", "15:30") - at("2026-11-03T12:18:00"))).toBe("3 h 12 min");
     expect(countdownText(45_000)).toBe("45 s");
     expect(countdownText((94 * 60 + 1) * 60_000)).toBe("3 d 22 h");
     expect(countdownText(-1)).toBe("closed");

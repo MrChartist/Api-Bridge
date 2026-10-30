@@ -94,7 +94,9 @@ export function mountBudget(host, live) {
     host.dataset.stream = v.stream;
     sec.textContent = v.second ? `${windowText(v.second)} s` : DASH;
     min.textContent = v.minute ? `${windowText(v.minute)} min` : DASH;
-    btn.setAttribute("aria-label", `Broker API budget: ${v.second ? `${windowText(v.second)} this second` : "no per-second limit"}, ${v.minute ? `${windowText(v.minute)} this minute` : "no per-minute limit"}. ${STREAM_TEXT[v.stream]}. ${formatInt(v.savedToday)} calls saved today.`);
+    const job = (msg?.jobs ?? [])[0];
+    host.dataset.job = job ? "1" : "";
+    btn.setAttribute("aria-label", `Broker API budget: ${v.second ? `${windowText(v.second)} this second` : "no per-second limit"}, ${v.minute ? `${windowText(v.minute)} this minute` : "no per-minute limit"}. ${STREAM_TEXT[v.stream]}. ${formatInt(v.savedToday)} calls saved today.${job ? ` ${job.label} ${jobText(job)}.` : ""}`);
     if (popBody?.isConnected) popBody.replaceChildren(...popContent(msg, v));
   };
   btn.addEventListener("click", () => {
@@ -131,9 +133,15 @@ function popContent(msg, v) {
     ),
   );
   const parts = savedParts(msg?.savings);
+  const jobs = (msg?.jobs ?? []).map((j) => {
+    const bar = h("span", { class: "bud-bar ok", "aria-hidden": "true" }, h("i"));
+    bar.firstChild.style.setProperty("--w", `${j.total > 0 ? Math.min(100, Math.round((j.done / j.total) * 100)) : 0}%`);
+    return h("div", { class: "bud-win bud-job" }, h("span", { class: "muted" }, j.label), bar, h("span", { class: "bud-num" }, jobText(j)));
+  });
   return [
     h("div", { class: `bud-stream bud-${v.stream}` }, h("span", { class: "bud-dot", "aria-hidden": "true" }), STREAM_TEXT[v.stream], msg?.stream?.subscriptions ? h("span", { class: "muted" }, `${formatInt(msg.stream.subscriptions)} symbols`) : null),
     ...rows,
+    jobs.length ? h("div", { class: "bud-jobs" }, jobs) : null,
     h(
       "div",
       { class: "bud-saved" },
@@ -202,6 +210,9 @@ export function usageChart(counts, limit, label) {
   if (limit) root.append(svg("line", { class: "rl-limit", x1: 0, x2: W, y1: y(limit), y2: y(limit), "vector-effect": "non-scaling-stroke" }));
   return root;
 }
+
+/** "34/200", or "34/200 · paused" while a person is using the broker (pure). */
+export const jobText = (j) => `${formatInt(j?.done ?? 0)}/${formatInt(j?.total ?? 0)}${j?.paused ? " · paused" : ""}`;
 
 function winRow(label, w) {
   const tone = w ? shareTone(w.used, w.limit) : "ok";

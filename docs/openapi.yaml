@@ -99,6 +99,8 @@ tags:
     description: The paper-trading engine.
   - name: Alerts
     description: Position alerts (P&L, spot, delta, time to expiry, premium multiple). They notify only; they never place an order.
+  - name: Watchlists
+    description: Named lists of symbols, priced with % change, OI change for F&O and IV. One list can feed Live events and one the Home page.
   - name: Journal
     description: The trade journal. Fills grouped into trades by strategy group, with tags, notes, setup, daily P&L and stats. Read only; it places nothing.
   - name: Limits
@@ -675,8 +677,20 @@ paths:
       tags: [Limits]
       operationId: getUsage
       summary: How much of each budget is used, queued and saved by streaming, caching and coalescing
+      description: |
+        Per account and endpoint class: the binding window, every window (`windows`: this second, this minute, today) and
+        today's counters. `series=1` adds each account's calls per second over the last two minutes (`series`).
+        `view=budget` answers the dashboard's budget summary instead (the `budget` stream message). Admin keys also get
+        `consumers`: today's broker calls and saved calls per dashboard page, API key label, MCP, compat and background job.
       x-stream: S3
       x-scope: read
+      parameters:
+        - name: series
+          in: query
+          schema: { type: boolean, default: false }
+        - name: view
+          in: query
+          schema: { type: string, enum: [budget] }
       responses:
         "200":
           description: Usage report.
@@ -850,6 +864,8 @@ paths:
         - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
+        - $ref: "#/components/parameters/Swr"
+        - $ref: "#/components/parameters/ReadPriority"
       responses:
         "200":
           description: Prices; symbols that failed are listed in `errors`.
@@ -877,6 +893,8 @@ paths:
         - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
+        - $ref: "#/components/parameters/Swr"
+        - $ref: "#/components/parameters/ReadPriority"
       responses:
         "200":
           description: Quotes.
@@ -903,6 +921,7 @@ paths:
         - $ref: "#/components/parameters/SymbolQuery"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
+        - $ref: "#/components/parameters/ReadPriority"
       responses:
         "200":
           description: Depth.
@@ -1037,6 +1056,8 @@ paths:
         - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
+        - $ref: "#/components/parameters/Swr"
+        - $ref: "#/components/parameters/ReadPriority"
       responses:
         "200":
           description: Chain.
@@ -2014,6 +2035,145 @@ paths:
       responses:
         "200":
           description: The inbox, all read.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/watchlists:
+    get:
+      tags: [Watchlists]
+      operationId: listWatchlists
+      summary: Every watchlist
+      x-stream: S29
+      x-scope: read
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Watchlists]
+      operationId: createWatchlist
+      summary: Create a watchlist
+      x-stream: S29
+      x-scope: paper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 40 }
+                symbols: { type: array, maxItems: 100, items: { type: string, description: "EXCHANGE:NAME, for example NSE:RELIANCE" } }
+                events: { type: boolean, description: This list feeds Live events' WATCHLIST universe (one list at a time). }
+                home: { type: boolean, description: This list shows on the Home page (one list at a time). }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/watchlists/{listId}:
+    parameters:
+      - name: listId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      tags: [Watchlists]
+      operationId: updateWatchlist
+      summary: Rename a list, change its symbols, or set it to feed Live events or Home
+      x-stream: S29
+      x-scope: paper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 40 }
+                symbols: { type: array, maxItems: 100, items: { type: string, description: "EXCHANGE:NAME, for example NSE:RELIANCE" } }
+                events: { type: boolean, description: This list feeds Live events' WATCHLIST universe (one list at a time). }
+                home: { type: boolean, description: This list shows on the Home page (one list at a time). }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Watchlists]
+      operationId: deleteWatchlist
+      summary: Delete a watchlist
+      x-stream: S29
+      x-scope: paper
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/watchlists/{listId}/quotes:
+    parameters:
+      - name: listId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Watchlists]
+      operationId: watchlistQuotes
+      summary: A list priced: last price, % change, the near future's OI and its change today, ATM IV
+      description: >-
+        One quotes call for the list and its near futures (batched and cached by the market-data service); the near
+        future is found once a day per symbol; IV, IV rank and HV20 come from the vol service's memory summary (no broker
+        call). OI change is measured from the first OI this Bridge saw for the contract today.
+      x-stream: S29
+      x-scope: read
+      responses:
+        "200":
+          description: OK.
           content:
             application/json:
               schema:
@@ -6064,6 +6224,16 @@ components:
       in: query
       description: Oldest data you accept, in ms. 0 forces a live read (still within rate limits). Default depends on the endpoint (LTP 1000, quotes 2000, chain 3000).
       schema: { type: integer, minimum: 0, maximum: 3600000 }
+    Swr:
+      name: swr
+      in: query
+      description: Stale-while-revalidate. When only an older cached value exists (inside market.stale.maxStaleMs), answer with it at once, labelled `freshness.stale` and `freshness.revalidating`, and refresh it in the background (one refresh however many readers ask).
+      schema: { type: boolean, default: false }
+    ReadPriority:
+      name: priority
+      in: query
+      description: "`background` for a prefetch: it waits behind every interactive read, and a read for the same thing joins it and raises its priority. Reads never run at order priority."
+      schema: { type: string, enum: [interactive, background], default: interactive }
     Limit:
       name: limit
       in: query
@@ -6545,6 +6715,7 @@ components:
         accountId: { type: [string, "null"], description: "Account whose connection supplied the data." }
         broker: { type: [string, "null"] }
         provider: { type: string, enum: [yahoo, nse], description: "Only for source backup: which public source supplied it." }
+        revalidating: { type: boolean, description: "Only with ?swr=true: this older value was answered at once and a refresh is running behind it." }
 
     BrokerInfo:
       type: object

@@ -1707,7 +1707,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
    */
   function expiryScope() {
     const open = legs.filter((l) => l.q && l.priced !== false);
-    let x = deskExpiry(open, Date.now());
+    let x = deskExpiry(open, Date.now(), refSession(st.ref).close);
     if (!x && open.length) x = { expiry: [...new Set(open.map((l) => l.expiry))].sort()[0], when: "later" };
     if (!x) return null;
     return { ...x, legs: open.filter((l) => l.expiry === x.expiry) };

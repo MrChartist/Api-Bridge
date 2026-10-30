@@ -22,6 +22,8 @@ import { fromServerSnapshot, oiStore, serverCoverageFor, serverCoverageText, sna
 import { oiParticipantLine } from "./participants.js";
 import { segmented } from "./views.js";
 import { legend, scrubber, setBar, spotPill, svgEl } from "./viz.js";
+import { explainBox } from "./explain.js";
+import { explainOi } from "./explain-core.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const WINDOW_IDS = O.OI_WINDOWS.map((w) => w[0]);
@@ -264,7 +266,8 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     t.el.title = title;
     t.el.classList.toggle("warn", warn);
   }
-  const summaryEl = h("section", { class: "desk-panel oi-summary", "data-panel": "oi-summary", "data-fixed": "", "aria-label": "OI summary" }, verdictEl, liveEl, tilesEl, partLine.el);
+  const explain = explainBox("oi");
+  const summaryEl = h("section", { class: "desk-panel oi-summary", "data-panel": "oi-summary", "data-fixed": "", "aria-label": "OI summary" }, verdictEl, liveEl, tilesEl, partLine.el, explain.el);
 
   // ── Controls ──
   const winChips = h("div", { class: "segmented oi-win", role: "group", "aria-label": "Window" });
@@ -751,6 +754,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     if (tonePill.hidden === showPill) tonePill.hidden = !showPill;
     const fullVerdict = `${pillTxt ? `${pillTxt} · ` : ""}${vText}`;
     if (verdictEl.title !== fullVerdict) verdictEl.title = fullVerdict;
+    explain.set(combined ? [] : explainOi({ spot, pcr: pcrChain.oi, pcrRef, callWall: R1?.strike, putWall: S1?.strike, maxPain: mp?.strike, buildup: bu, sessionsLeft: sessions }));
     partLine.update(st.underlying).catch(() => {});
     // The polite region speaks at most once a minute, but at once for a new underlying, expiry or scope, and for a
     // wall that moved.

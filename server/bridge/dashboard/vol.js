@@ -13,6 +13,8 @@ import { edgeFades, segmented } from "./views.js";
 import { heatCell, svgEl } from "./viz.js";
 import { rateText, refRate, refSession } from "./reference.js";
 import { clockNote } from "./vol-context.js";
+import { explainBox } from "./explain.js";
+import { explainVol } from "./explain-core.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -277,7 +279,21 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     t.value.className = `value${tone ? ` ${tone}` : ""}`;
   }
   const tilesRow = h("div", { class: "desk-stats vol-tiles" }, [...tiles.values()].map((t) => t.el));
-  const kpiEl = h("section", { class: "desk-panel vol-kpi", "data-panel": "vol-kpi", "aria-label": "Volatility summary" }, tilesRow);
+  const explain = explainBox("vol");
+  const kpiEl = h("section", { class: "desk-panel vol-kpi", "data-panel": "vol-kpi", "aria-label": "Volatility summary" }, tilesRow, explain.el);
+  // IV rank for the explanation: the vol service's memory summary (no broker call), once per underlying.
+  const rankMemo = new Map();
+  function rankOf(u) {
+    if (!u) return null;
+    if (!rankMemo.has(u)) {
+      rankMemo.set(u, null);
+      optional(api(`/v1/vol/summary?underlyings=${encodeURIComponent(u)}`)).then((r) => {
+        const it = r.data?.data?.items?.[0];
+        if (it?.available) rankMemo.set(u, { ivr: it.ivr ?? null, ivp: it.ivp ?? null });
+      });
+    }
+    return rankMemo.get(u);
+  }
   // Phones scroll the tiles sideways: a fade shows only on a side with more tiles (its size settles once mounted).
   edgeFades(tilesRow);
 
@@ -1028,6 +1044,8 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       tiles.get("hv").mv.dataset.lead = (r.atmIv ?? 0) >= m.hv20 ? "iv" : "hv";
     }
     drawRank();
+    const rk = rankOf(m.chain?.underlying ?? null);
+    explain.set(explainVol({ atmIv: r.atmIv, hv20: m.hv20, ivr: rk?.ivr ?? null, ivp: rk?.ivp ?? null, put25: r.skew?.put25?.iv ?? null, call25: r.skew?.call25?.iv ?? null, term: (m.rows ?? []).filter((x) => !x.dim) }));
   }
   function drawRank() {
     setTile("rank", { value: "Unavailable", sub: "Needs 252 days of IV history", cls: "na", title: "IV rank and IV percentile need a stored daily ATM IV. The Bridge does not record one yet.", aria: "IV rank: unavailable. Needs 252 days of stored IV history" });

@@ -7,6 +7,7 @@
 import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, pulse, reducedMotion, sheetIn, sheetOut, shake } from "./motion.js";
 import { DASH, ageText, formatRupee } from "./format.js";
 import { DENSITY_SLOT, SIDEBAR_SLOT, parseDensity, resolveDensity, resolveSidebar, toggleSidebar } from "./layout-prefs.js";
+import { watch as liveWatch } from "./live.js";
 
 // Page hooks for views.js (optional: app.js start-up already runs them automatically; both are idempotent).
 export { animateNav, animatePage };
@@ -104,6 +105,23 @@ const session = store("session");
 const local = store("local");
 let memoryKey = session.get(KEY_SLOT);
 
+/**
+ * The page module the address opens with (pure): the Options desk, screeners, calendar, recorder or live events load
+ * on demand (views.js); fetching the one this tab opens on alongside views.js saves a round of loading on a cold start.
+ */
+export function bootModuleFor(hash) {
+  const page = String(hash ?? "").replace(/^#\/?/, "").split(/[/?]/)[0].toLowerCase();
+  if (["chain", "strategy", "positions", "oi", "vol"].includes(page)) return "./desk.js";
+  if (page === "screeners") return /^#\/?screeners\/events/.test(hash) ? "./events.js" : /^#\/?screeners\/stocks/.test(hash) ? null : /^#\/?screeners\/arbitrage/.test(hash) ? "./desk.js" : "./screener.js";
+  if (page === "calendar") return "./calendar.js";
+  if (page === "recorder") return "./recorder.js";
+  return null;
+}
+if (typeof location !== "undefined" && memoryKey) {
+  const mod = bootModuleFor(location.hash);
+  if (mod) import(mod).catch(() => {});
+}
+
 export function setKey(k) {
   memoryKey = k || null;
   session.set(KEY_SLOT, memoryKey);
@@ -184,6 +202,8 @@ export const SHARE_MS = 1000;
 export const PAINT_FROM_CACHE_MS = 30_000;
 /** How long after a page switch its first reads may paint from memory. */
 export const NAV_WINDOW_MS = 2500;
+/** A prefetched answer serves the next ask for this long. */
+export const PREFETCH_USE_MS = 4000;
 const CACHE_MAX = 300;
 /** GETs never answered from memory (one-time, audit, safety-critical or diagnostics). */
 const NO_CACHE_RE = /^\/v1\/(stream\/token|sign-in|requests|audit|safety|tickets|orders\/preview|readiness|limits|usage)(\/|\?|$)/;
@@ -191,7 +211,7 @@ const NO_CACHE_RE = /^\/v1\/(stream\/token|sign-in|requests|audit|safety|tickets
 const MARKET_RE = /^\/v1\/(optionchain|quotes|ltp|expiries|depth|history)\?/;
 
 /** POSTs that read or start something and change no state the pages show: they keep the remembered answers. */
-const READ_LIKE_POST_RE = /^\/v1\/(stream\/token|sign-in|orders\/preview|margin\/preview|strategy\/(price|payoff|preview))(\/|\?|$)/;
+const READ_LIKE_POST_RE = /^\/v1\/(stream\/token|sign-in|orders\/preview|margin\/preview|readiness\/check|scanner\/plan|reference\/corporate-actions\/preview|paper\/accounts\/[^/]+\/margin|strategy\/(price|payoff|preview))(\/|\?|$)/;
 /** Whether a write may change what the remembered answers say (pure). */
 export const forgetsAnswers = (method, path) => method !== "GET" && !READ_LIKE_POST_RE.test(String(path));
 
@@ -246,7 +266,7 @@ function fetchShared(path, { headers, priority = null } = {}) {
     } catch {
       throw new ApiError("The Bridge did not answer.", { network: true });
     }
-    const a = { at: Date.now(), ok: res.ok, status: res.status, ct: res.headers.get("content-type") ?? "", text: await res.text(), headers: res.headers, ms: Math.round(performance.now() - t0) };
+    const a = { at: Date.now(), ok: res.ok, status: res.status, ct: res.headers.get("content-type") ?? "", text: await res.text(), headers: res.headers, ms: Math.round(performance.now() - t0), prefetched: priority === "background" };
     if (a.ok && cacheable(path)) remember(path, a);
     return a;
   })().finally(() => inflight.delete(path));
@@ -315,10 +335,14 @@ export async function api(path, { method = "GET", body, raw = false, fresh = fal
     if (!reads) routeReads.set(navPage, (reads = new Set()));
     if (reads.size < 16) reads.add(path);
   }
+  noteRead(path);
   if (!fresh && cacheable(path)) {
     const hit = answers.get(path);
-    const use = hit ? cacheUse(Date.now() - hit.at, navigating) : null;
+    const age = hit ? Date.now() - hit.at : NaN;
+    // A prefetched answer (the expiry chip under the pointer) serves the click that follows it for a few seconds.
+    const use = hit ? cacheUse(age, navigating) ?? (hit.prefetched && age <= PREFETCH_USE_MS ? "fresh" : null) : null;
     if (use) {
+      hit.prefetched = false; // a prefetch serves one ask; the page's own refreshes go to the Bridge
       if (use === "paint") revalidate(path, hit);
       return { ...toResult(hit, { raw, ms: 0 }), cached: use };
     }
@@ -328,18 +352,73 @@ export async function api(path, { method = "GET", body, raw = false, fresh = fal
   return toResult(a, { raw, ms: Math.round(performance.now() - t0) });
 }
 
+// ── Polls become stream subscriptions ──
+// A page that reads the same /v1/quotes or /v1/ltp URL again within AUTO_WATCH_MS is polling: its symbols are then
+// watched on the shared live connection (live.js) until it stops, so the Bridge answers the next polls from ticks
+// instead of the broker. Positions, Home, Strategy and the screeners get this without knowing about it.
+export const AUTO_WATCH_MS = 15_000;
+const AUTO_WATCH_MAX = 400;
+const AUTO_WATCH_RE = /^\/v1\/(quotes|ltp)\?(?:[^#]*&)?symbols=([^&#]+)/;
+const autoWatches = new Map(); // path -> { seen, handle, timer, n }
+let autoWatched = 0;
+
+/** The symbols and stream mode of a polled read, or null (pure). */
+export function pollTarget(path) {
+  const m = AUTO_WATCH_RE.exec(String(path));
+  if (!m) return null;
+  let raw = m[2];
+  try {
+    raw = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  const symbols = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  return symbols.length ? { symbols, mode: m[1] === "quotes" ? "quote" : "ltp" } : null;
+}
+
+function noteRead(path) {
+  const target = pollTarget(path);
+  if (!target || typeof window === "undefined") return;
+  const now = Date.now();
+  const w = autoWatches.get(path);
+  if (!w) {
+    autoWatches.set(path, { seen: now, handle: null, timer: null, n: 0 });
+    return;
+  }
+  if (!w.handle && now - w.seen <= AUTO_WATCH_MS && autoWatched + target.symbols.length <= AUTO_WATCH_MAX) {
+    w.n = target.symbols.length;
+    autoWatched += w.n;
+    w.handle = liveWatch(target.symbols, target.mode, () => {});
+  }
+  w.seen = now;
+  clearTimeout(w.timer);
+  w.timer = setTimeout(() => {
+    w.handle?.stop();
+    if (w.handle) autoWatched -= w.n;
+    autoWatches.delete(path);
+  }, AUTO_WATCH_MS);
+}
+
 /**
  * Warm what a page reads before it is opened (menu hover or focus): its reads from the last visit that are not
  * remembered already, market data at background priority. Never more than one request per path.
  */
 export function prefetchPage(page) {
   const reads = routeReads.get(page);
-  if (!reads || !memoryKey) return;
-  for (const path of reads) {
-    const hit = answers.get(path);
-    if (hit && Date.now() - hit.at <= 5000) continue;
-    fetchShared(path, { headers: baseHeaders("prefetch"), priority: "background" }).catch(() => {});
-  }
+  if (!reads) return;
+  for (const path of reads) prefetch(path);
+}
+
+/**
+ * Warm one GET a person is about to ask for (an expiry chip under the pointer): fetched once at background priority
+ * unless an answer under 5 s old is remembered; a click on it then paints from memory (the page-switch window) or joins
+ * the request already on its way.
+ */
+export function prefetch(path) {
+  if (!memoryKey || !cacheable(path)) return;
+  const hit = answers.get(path);
+  if (hit && Date.now() - hit.at <= 5000) return;
+  fetchShared(path, { headers: baseHeaders("prefetch"), priority: "background" }).catch(() => {});
 }
 export const optional = (p) => p.then((r) => r, (error) => ({ error }));
 
