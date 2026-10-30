@@ -261,7 +261,7 @@ describe("UI pass 3 §5: the menu and the merged pages", async () => {
 
   it("every tab names a legacy page id and every legacy id resolves to a tab of the page it names", () => {
     const tabbed = PAGES.filter((p) => p.tabs);
-    expect(tabbed.map((p) => p.id)).toEqual(["orders", "oi", "vol", "screeners", "exposure", "flow", "futures", "lab", "api"]);
+    expect(tabbed.map((p) => p.id)).toEqual(["orders", "oi", "vol", "screeners", "exposure", "flow", "futures", "lab", "risk", "api"]);
     for (const p of tabbed) {
       expect(p.tabs.some((t) => t.id === p.defaultTab), p.id).toBe(true);
       for (const t of p.tabs) {

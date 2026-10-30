@@ -2109,8 +2109,20 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     for (const s of ids) rowRefs.get(s)?.el.classList.toggle("hl", on);
   };
   let markerHover = null;
+  // Desktop: the payoff grows until the risk panel reaches the window's foot (a short book left ~130 px of empty page
+  // under it at 2560 x 1440); the scenario grid's rows stretch with it. Never below 360 px, never above 820 px.
+  const fillHeight = () => {
+    const base = typeof innerHeight === "number" ? Math.max(360, Math.min(520, Math.round(innerHeight * 0.36))) : 360;
+    const plot = payoffBox.querySelector(".payoff-plot");
+    if (!plot?.isConnected || typeof innerHeight !== "number") return base;
+    const r = plot.getBoundingClientRect();
+    if (!r.height) return base;
+    const top = r.top + (window.scrollY || 0);
+    const below = Math.max(0, payoffBox.getBoundingClientRect().bottom - r.bottom) + 28;
+    return Math.max(base, Math.min(820, Math.floor(innerHeight - top - below)));
+  };
   const pay = drawPayoff(payoffBox, {
-    heights: [360, 300, 240],
+    heights: [fillHeight, 300, 240],
     onMarker: (id) => {
       if (markerHover) hoverRows([markerHover], false);
       markerHover = id;

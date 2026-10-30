@@ -240,13 +240,6 @@ export function syntheticItems(strikes, atm) {
 }
 export const directionWord = (d) => ({ "sell-synthetic": "Synthetic is dear", "buy-synthetic": "Synthetic is cheap" })[d] ?? DASH;
 
-export const VIEW_CHOICES = [
-  ["bullish", "Bullish: I expect a rise"],
-  ["bearish", "Bearish: I expect a fall"],
-  ["neutral", "Neutral: I expect little movement"],
-  ["rangebound", "Range-bound: I expect it to stay between two levels"],
-  ["volatile", "Volatile: I expect a big move either way"],
-];
 /** "Buy 24500 CE at 120.00" for one built leg. */
 export function legPhrase(l) {
   const side = l.side === "sell" ? "Sell" : "Buy";
@@ -924,34 +917,79 @@ function openInPayoff(legs, underlying, expiry) {
   location.hash = go.hash;
 }
 
-function drawFind(res, wb) {
+/** The optimizer's views: range-bound templates are among the neutral ones (GET /v1/analytics/optimizer). */
+export const OPT_VIEWS = [
+  ["neutral", "Neutral or range-bound"],
+  ["bullish", "Bullish"],
+  ["bearish", "Bearish"],
+  ["volatile", "Volatile, either way"],
+];
+export const OBJECTIVES = [
+  ["expectedValue", "Expected value"],
+  ["popAdjusted", "Value per rupee, times chance"],
+  ["riskReward", "Reward for risk"],
+];
+
+/** The optimizer's query from the Finder's fields (pure). Returns { query } or { problems }. */
+export function optimizerQuery(v, o) {
+  const p = new URLSearchParams({ underlying: v.underlying, expiry: v.expiry, view: o.view, objective: o.objective || "expectedValue", top: "6" });
+  const problems = [];
+  const opt = (key, text, name, { min, max }) => {
+    if (!String(text ?? "").trim()) return;
+    const n = readNumber(text);
+    if (n === null || n <= min || n > max) problems.push(`${name} must be a number above ${min}${max < Infinity ? ` up to ${max}` : ""}, or empty.`);
+    else p.set(key, String(n));
+  };
+  opt("maxLoss", o.maxLoss, "The largest loss", { min: 0, max: Infinity });
+  opt("capital", o.capital, "Capital", { min: 0, max: Infinity });
+  if (String(o.minPop ?? "").trim()) {
+    const n = readNumber(o.minPop);
+    if (n === null || n < 0 || n > 100) problems.push("The lowest chance of profit must be from 0 to 100, or empty.");
+    else p.set("minPop", String(n));
+  }
+  return problems.length ? { problems } : { query: p.toString() };
+}
+
+function drawOptimize(res, wb) {
   const d = res.data?.data ?? {};
   const fr = res.data?.meta?.freshness;
   const results = d.results ?? [];
-  const view = VIEW_CHOICES.find(([id]) => id === d.view)?.[1].split(":")[0] ?? d.view;
+  const view = OPT_VIEWS.find(([id]) => id === d.view)?.[1].split(":")[0] ?? d.view;
+  const rank = OBJECTIVES.find(([id]) => id === d.objective)?.[1] ?? d.objective;
   const head = [
     statusRow(fr),
-    tiles(tile("Your view", view ?? DASH, "Strategies that fit it"), tile("Spot", isFigure(d.spot) ? formatFixed(d.spot, 2) : DASH, d.underlying ?? ""), tile("At-the-money IV", isFigure(d.atmIv) ? `${formatFixed(d.atmIv, 2)}%` : DASH, d.atmIvSource === "straddle" ? "Worked out from the straddle price" : "From the chain"), tile("Days left", isFigure(d.daysToExpiry) ? formatFixed(d.daysToExpiry, 1) : DASH, `${formatInt(results.length)} shown of ${formatInt(d.candidates)} tried`)),
+    tiles(
+      tile("Your view", view ?? DASH, `Ranked by ${String(rank).toLowerCase()}`),
+      tile("Spot", isFigure(d.spot) ? formatFixed(d.spot, 2) : DASH, `${d.underlying ?? ""}, ATM ${isFigure(d.atmStrike) ? formatInt(d.atmStrike) : DASH}`),
+      tile("At-the-money IV", isFigure(d.atmIv) ? `${formatFixed(d.atmIv, 2)}%` : DASH, d.atmIvSource === "straddle" ? "Worked out from the straddle price" : "From the chain"),
+      tile("Searched", formatInt(d.evaluated ?? 0), `${formatInt(d.passed ?? 0)} passed your limits, ${formatFixed(d.daysToExpiry, 1)} days left`),
+    ),
   ];
   if (!results.length) {
-    return [...head, emptyState("scan", "Nothing fits", d.maxLoss ? `No strategy for this view keeps the worst loss within ${formatRupee(d.maxLoss)}. Raise the limit or leave it empty.` : "The chain has no strikes that build a strategy for this view. Try another expiry.")];
+    return [...head, emptyState("scan", "Nothing fits", "No strike choice for this view passes the limits. Loosen the largest loss, the lowest chance or the capital, or try another expiry.")];
   }
+  const figures = (r) => [
+    ["Expected value", money(r.expectedValue), Number(r.expectedValue) >= 0 ? "up" : "down"],
+    ["Chance of profit", isFigure(r.probabilityOfProfitPct) ? formatPercent(r.probabilityOfProfitPct, 1) : DASH, ""],
+    ["Max profit", r.unboundedProfit ? "Unlimited" : money(r.maxProfit), "up"],
+    ["Max loss", r.unboundedRisk ? "Unlimited" : money(r.maxLoss), "down"],
+    [r.credit ? "Net credit" : "Net debit", isFigure(r.netPremium) ? formatRupee(Math.abs(r.netPremium)) : DASH, ""],
+    ["Capital", money(r.capitalRequired), ""],
+    ["Break-evens", r.breakevens?.length ? r.breakevens.map((b) => formatFixed(b, 2)).join(", ") : "None", ""],
+    ["Reward for risk", r.unboundedRisk ? "Risk not capped" : isFigure(r.riskReward) ? `${formatFixed(r.riskReward, 2)} to 1` : DASH, ""],
+  ];
   return [
     ...head,
-    h("p", { class: "muted small" }, "Ranked by a mix of reward for risk, chance of profit and net credit. This is arithmetic on today's prices, not advice, and nothing here places an order."),
-    h(
-      "div",
-      { class: "grid cols-2 strategy-grid" },
-      results.map((r) =>
-        card({
-          title: `${r.rank}. ${r.name}`,
-          sub: r.unboundedRisk ? "Risk is unlimited" : `Worst loss ${money(r.maxLoss)}`,
-          actions: pill(r.credit ? "Credit" : "Debit", r.credit ? "ok" : "info"),
-          cls: "strategy",
-          body: h("div", { class: "stack" }, kv(strategyFigures(r)), legList(r.legs), h("div", { class: "row" }, h("button", { type: "button", class: "small primary", onclick: () => openInPayoff(r.legs, d.underlying, d.expiry) }, icon("chart"), "Open in Strategy Builder"), h("button", { type: "button", class: "small", onclick: () => wb.goTo("build", { template: r.template, offset: r.params?.offset ?? "", width: r.params?.width ?? "" }) }, "Fine-tune"))),
-        }),
-      ),
+    ...results.map((r) =>
+      card({
+        title: `${r.rank}. ${r.name}`,
+        sub: `${formatInt(r.lots)} lot${r.lots === 1 ? "" : "s"}; capital is ${r.capitalBasis === "max loss" ? "the most it can lose" : "its loss on a 2.5 sigma move"}`,
+        actions: pill(r.credit ? "Credit" : "Debit", r.credit ? "ok" : "info"),
+        cls: "strategy",
+        body: h("div", { class: "stack" }, kv(figures(r)), legList(r.legs), h("div", { class: "row" }, h("button", { type: "button", class: "small primary", onclick: () => openInPayoff(r.legs, d.underlying, d.expiry) }, icon("chart"), "Open in Strategy Builder"), h("button", { type: "button", class: "small", onclick: () => wb.goTo("build", { template: r.template, offset: r.params?.offset ?? "", width: r.params?.width ?? "", lots: r.lots ?? 1 }) }, "Fine-tune"))),
+      }),
     ),
+    h("p", { class: "muted small" }, "A screening model: the expiry price is lognormal around today's spot at the ATM IV, with no skew. Arithmetic on today's prices, not advice; nothing here places an order."),
   ];
 }
 
@@ -991,18 +1029,19 @@ async function renderStrategies(H) {
         label: "Find by view",
         expiry: true,
         strikes: false,
+        // One finder: the optimizer searches every template's strikes and widths (GET /v1/analytics/optimizer); the
+        // older ranking (GET /v1/analytics/strategies/find) stays as an API route.
         fields: [
-          { key: "view", label: "My view of the market", type: "select", options: VIEW_CHOICES, value: "neutral", wide: true },
-          { key: "maxLoss", label: "Largest loss I accept (₹)", type: "number", placeholder: "No limit", min: "0", hint: "Strategies with unlimited risk are left out when this is set." },
+          { key: "view", label: "My view", type: "select", options: OPT_VIEWS, value: "neutral" },
+          { key: "objective", label: "Rank by", type: "select", options: OBJECTIVES, value: "expectedValue" },
+          { key: "minPop", label: "Lowest chance of profit %", type: "number", placeholder: "Any", min: "0", max: "100" },
+          { key: "maxLoss", label: "Largest loss (₹)", type: "number", placeholder: "No limit", min: "0" },
+          { key: "capital", label: "Capital (₹)", type: "number", placeholder: "One lot", min: "0" },
         ],
         run: async ({ v, o, wb: w }) => {
-          const p = new URLSearchParams({ underlying: v.underlying, expiry: v.expiry, view: o.view });
-          if (String(o.maxLoss).trim()) {
-            const m = readNumber(o.maxLoss);
-            if (m === null || m <= 0) return H.errorBox({ title: "Check the number", detail: "The largest loss must be a number above 0, or empty." });
-            p.set("maxLoss", String(m));
-          }
-          return drawFind(await api(`/v1/analytics/strategies/find?${p}`), w);
+          const r = optimizerQuery(v, o);
+          if (r.problems) return H.errorBox({ title: "Check the numbers", detail: r.problems.join(" ") });
+          return drawOptimize(await api(`/v1/analytics/optimizer?${r.query}`), w);
         },
       },
       {

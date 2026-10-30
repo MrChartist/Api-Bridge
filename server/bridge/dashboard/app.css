@@ -7515,6 +7515,17 @@ button.rd-sheet-row { display: flex; gap: 10px; width: 100%; }
 .rd-acct.plain .rd-fact { grid-template-columns: 160px minmax(0, 1fr); gap: 16px; padding: 10px 0; }
 @media (max-width: 719px) { .rd-acct.plain .rd-fact { grid-template-columns: 92px minmax(0, 1fr); gap: 10px; } }
 .rd-acct.plain .rd-fact:last-child { padding-bottom: 0; }
+/* Safety: Live trading and Audit log end on one line (the audit card stopped 110 px short of its neighbour). */
+.grid.side.safety-row { align-items: stretch; }
+/* Safety: a CLI command never breaks at its hyphen ("mc-" / "bridge kill" on a phone). */
+.cli-cmd { white-space: nowrap; }
+/* Safety, desktop: the six checks three across (two rows), not six full-width rows with their value in the first
+   third and the rest of the line empty. */
+@media (min-width: 1280px) {
+  :root[data-page="safety"] .rd-acct.plain .rd-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 28px; }
+  :root[data-page="safety"] .rd-acct.plain .rd-fact { grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 10px 0; }
+  :root[data-page="safety"] .rd-acct.plain .rd-fact:nth-last-child(-n + 3) { box-shadow: none; padding-bottom: 0; }
+}
 
 /* Safety page card */
 .rd-head-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
@@ -8515,6 +8526,30 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .order-status { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .order-why { max-width: 280px; white-space: normal; }
 .order-acts { flex-wrap: nowrap; gap: 8px; }
+/* Nothing pending: the card is its head line (title, the one-line reason, Set up an AI assistant). */
+.orders-pending.none > .card-body { display: none; }
+.orders-pending.none > .card-head { padding-bottom: var(--card-pad); }
+/* Phones: an order is three short lines (contract and status; side, quantity, price and mode; time and account), not
+   nine labelled rows of 250 px. Cells: 1 time, 2 account, 3 contract, 4 side, 5 qty, 6 avg price, 7 status, 8 mode,
+   9 actions. */
+@media (max-width: 719px) {
+  .orders-today .table-wrap.stack tr { display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto; grid-template-areas: "c c c c st" "sd q p . md" "t a a a a" "x x x x x"; gap: 4px 8px; align-items: center; padding: 10px var(--card-pad); }
+  .orders-today .table-wrap.stack td, .orders-today .table-wrap.stack td.lead { display: block; padding: 0; text-align: left; font-weight: 500; }
+  .orders-today .table-wrap.stack td::before { display: none; }
+  .orders-today .table-wrap.stack td:nth-child(1) { grid-area: t; }
+  .orders-today .table-wrap.stack td:nth-child(2) { grid-area: a; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .orders-today .table-wrap.stack td:is(:nth-child(1), :nth-child(2)) { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+  .orders-today .table-wrap.stack td:nth-child(3) { grid-area: c; min-width: 0; }
+  .orders-today .table-wrap.stack td:nth-child(4) { grid-area: sd; }
+  .orders-today .table-wrap.stack td:nth-child(5) { grid-area: q; font-variant-numeric: tabular-nums; }
+  .orders-today .table-wrap.stack td:nth-child(6) { grid-area: p; font-variant-numeric: tabular-nums; }
+  .orders-today .table-wrap.stack td:nth-child(6)::before { display: inline; content: "@ "; font: inherit; color: hsl(var(--foreground) / var(--a-quiet)); }
+  .orders-today .table-wrap.stack td:nth-child(7) { grid-area: st; justify-self: end; }
+  .orders-today .table-wrap.stack td:nth-child(7) .order-status { align-items: flex-end; }
+  .orders-today .table-wrap.stack td:nth-child(8) { grid-area: md; justify-self: end; }
+  .orders-today .table-wrap.stack td.act { grid-area: x; padding-top: 4px; }
+  .orders-today .order-contract .muted.small { font-size: 12px; }
+}
 /* A short-of-margin block on a paper account says how to fix it (strategy-place.js). */
 .strat-warn-fix { color: hsl(var(--foreground) / var(--a-label)); }
 
@@ -8951,3 +8986,6 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .an-page .sent-gauge-wrap .sent-gauge { max-width: none; height: 26px; }
 .an-page .sent-gauge-ends { display: flex; justify-content: space-between; font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .an-page details.disclosure { grid-column: 1 / -1; }
+/* Strategy lab › Backtest (analyticsRisk.js): the entry and exit conditions get the width a formula needs. */
+.an-page .an-bt-form .an-bt-rules { grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
+.an-page .an-bt-form .an-bt-rules input { font-family: var(--font-numeric); }

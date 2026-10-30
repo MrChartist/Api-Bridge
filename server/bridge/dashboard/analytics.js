@@ -15,6 +15,7 @@ import { DASH } from "./format.js";
 import { analyticsPages } from "./analyticsViews.js";
 import { analyticsMorePages } from "./analyticsMore.js";
 import { analyticsFlowPages, filingsTabs, tabbedPage } from "./analyticsFlow.js";
+import { analyticsRiskPages } from "./analyticsRisk.js";
 import { UNDERLYING_CHIPS, isFormPage, nowShowing, workspace } from "./workspace.js";
 import { errorBox, field, segField, segmented } from "./views.js";
 
@@ -41,6 +42,10 @@ export const VIEWS = Object.freeze({
   strategies: ["strategies", "find", { expiry: true, strikes: false }],
   "an-templates": ["strategies", "build", { expiry: true, strikes: false }],
   calculators: ["calculators", null, { underlying: false, expiry: false, strikes: false }],
+  "an-backtest": ["backtest", null, { underlying: false, expiry: false, strikes: false }],
+  // Analytics › Risk
+  "an-risk": ["risk", "var", { underlying: false, expiry: false, strikes: false }],
+  "an-tca": ["risk", "costs", { underlying: false, expiry: false, strikes: false }],
   // Markets › Volatility, Markets › OI Analysis
   skew: ["skew", "skew", { expiry: true, strikes: true }],
   "an-surface": ["skew", "surface", { expiry: false, strikes: true }],
@@ -104,7 +109,7 @@ function newsTab(kind) {
 
 function sources(tab) {
   const H = () => helpers(tab);
-  const all = [...analyticsPages(H), ...analyticsMorePages(H), ...analyticsFlowPages(H)];
+  const all = [...analyticsPages(H), ...analyticsMorePages(H), ...analyticsFlowPages(H), ...analyticsRiskPages(H)];
   const filings = [...filingsTabs(), { id: "announcements", label: "Announcements", build: newsTab("announcements") }, { id: "regulatory", label: "SEBI and RBI", build: newsTab("regulatory") }];
   all.push({ id: "filings", render: () => tabbedPage(H(), { label: "Filings", tabs: filings }) });
   return all;

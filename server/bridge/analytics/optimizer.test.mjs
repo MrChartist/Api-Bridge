@@ -102,9 +102,9 @@ describe("optimizer", () => {
     }
   });
 
-  it("only reads", async () => {
+  it("only reads (the chain, the expiries for the month's future, and its quote)", async () => {
     const { md, h, ctx } = setup();
     await h(ctx("view=bullish"));
-    expect(md.calls.every(([name]) => ["optionChain", "quotes"].includes(name))).toBe(true);
+    expect(md.calls.every(([name]) => ["optionChain", "quotes", "expiries"].includes(name))).toBe(true);
   });
 });

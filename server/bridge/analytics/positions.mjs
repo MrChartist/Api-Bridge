@@ -16,6 +16,7 @@ import { freezeEntryFor } from "../symbols/freezeQuantities.mjs";
 import { ACCOUNT_RE } from "../orders/orderValidation.mjs";
 import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
 import { computeIVAndGreeks, daysBetween } from "../../lib/blackScholes.mjs";
+import { pinMarketRead } from "./math.mjs";
 
 export const MAX_SLICES = 500;
 
@@ -221,8 +222,8 @@ export function positionRoutes(deps) {
         /* reported as skipped */
       }
     }
-    const opts = readOptions(ctx);
-    opts.accountId = account;
+    // A paper account's chains come from the data accounts (it has no market data of its own).
+    const opts = pinMarketRead(readOptions(ctx), deps.config, account, autoBackupFor(deps));
     const chains = new Map();
     const errors = [];
     let freshness;

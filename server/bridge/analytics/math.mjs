@@ -88,6 +88,32 @@ export function unitMultiplier(chain) {
 }
 
 /**
+ * The account to pin a market read to when a route reads one account's positions. A paper account has no market data
+ * of its own (its broker is "paper"), so its chains and candles come from the Bridge's data accounts, as the
+ * dashboard's own pages read them; any other account reads through its own broker. Pure.
+ */
+export function marketAccountFor(config, account) {
+  if (!account) return undefined;
+  const acc = (config?.accounts ?? []).find((a) => a.id === account);
+  return acc?.broker === "paper" ? undefined : account;
+}
+
+/**
+ * Market-read options for a route that reads one account's positions: `opts` (from readOptionsBase, which pins a
+ * `?account=` query) pinned to `account` unless that is a paper account, which reads through the data accounts with
+ * the same backup rule as an unpinned read. Mutates and returns `opts`.
+ */
+export function pinMarketRead(opts, config, account, autoBackup = false) {
+  const pin = marketAccountFor(config, account);
+  if (pin) opts.accountId = pin;
+  else if (account) {
+    delete opts.accountId;
+    if (autoBackup) opts.allowBackup = true;
+  }
+  return opts;
+}
+
+/**
  * Futures expire once a month, on the month's last listed expiry (index options also have weekly expiries, which
  * have no future). The monthly expiries in a list, sorted. Pure.
  */
