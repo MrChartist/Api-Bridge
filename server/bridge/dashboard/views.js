@@ -9,7 +9,7 @@ import {
   checklistState,
   codeBlock,
   confirmCodeNotice,
-  copyText,
+  copyButton,
   currentKey,
   emptyState,
   fillLoginUrl,
@@ -42,11 +42,12 @@ import { renderScreenerPage } from "./screener.js";
 import { renderParticipantsPage } from "./participants.js";
 import { renderRecorderPage } from "./recorder.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
+import { KEY_USES, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, sessionText } from "./flows.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
 const $ = (id) => document.getElementById(id);
 const local = app.local;
-const FLAG = { copied: "mcb.dashboard.copied", tested: "mcb.dashboard.tested", hideChecklist: "mcb.dashboard.hideChecklist", hideOwn: "mcb.dashboard.hideOwnRequests" };
+const FLAG = { copied: "mcb.dashboard.copied", tested: "mcb.dashboard.tested", hideChecklist: "mcb.dashboard.hideChecklist", hideOwn: "mcb.dashboard.hideOwnRequests", chain: "mcb.dashboard.chainOpened", traded: "mcb.dashboard.paperTraded" };
 const markCopied = () => local.set(FLAG.copied, "1");
 /** A button at work (BUTTON-SYSTEM.md §9): disabled, its label swapped for a turning ring, its width kept. */
 const busy = (b, on) => {
@@ -57,7 +58,12 @@ const busy = (b, on) => {
 const scopeChip = (s) => h("span", { class: `chip scope-${s}` }, s);
 /** Sentence case for a status word from the API ("filled" → "Filled"). */
 export const cap = (s) => (s ? `${String(s)[0].toUpperCase()}${String(s).slice(1)}` : DASH);
-const sessionPill = (s) => pill(cap(s), s === "connected" ? "ok" : s === "expired" || s === "error" ? "bad" : "warn");
+/** A broker session in plain words ("Logged in", "Not logged in", "Expired: log in again"); a paper account is "Ready". */
+const sessionPill = (s, broker) => {
+  if (broker === "paper") return pill("Ready", "ok");
+  const t = sessionText(s);
+  return pill(t.text, t.tone);
+};
 const sum = (o) => Object.values(o ?? {}).reduce((a, b) => a + (Number(b) || 0), 0);
 const initials = (name) => String(name).replace(/\(.*?\)/g, "").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 /** A table cell: the broker's small logo and its name (paper accounts and unknown brokers: the name alone). */
@@ -603,6 +609,7 @@ async function show() {
   if (route.redirect && typeof history !== "undefined") history.replaceState(history.state, "", route.redirect);
   const { page, tab } = route;
   if (tab) rememberTab(page.id, tab.id);
+  if (page.id === "chain") local.set(FLAG.chain, "1"); // ticks the Home checklist step
   const changed = route.view !== shownPage;
   shownPage = route.view;
   clearInterval(timer);
@@ -1106,19 +1113,22 @@ async function renderHome() {
 
   // Welcome checklist
   if (!local.get(FLAG.hideChecklist)) {
-    const state = checklistState({ demo: app.state.demo, accounts: accs, keys: keyRows, copied: local.get(FLAG.copied), tested: local.get(FLAG.tested) });
+    const ordersAll = orders.data?.data ?? [];
+    // Remember a paper trade once seen, so the step stays ticked after today's orders roll over.
+    if (ordersAll.some((o) => o?.mode === "paper" && o.tag !== "DEMOSEED")) local.set(FLAG.traded, "1");
+    const state = checklistState({ demo: app.state.demo, accounts: accs, keys: keyRows, chainOpened: local.get(FLAG.chain), traded: local.get(FLAG.traded), orders: ordersAll });
     const done = state.filter((s) => s.done).length;
     // The broker step goes straight to the next action: add a broker when there is none, else log in.
     const hasBroker = accs.some((a) => a.broker !== "paper");
     const ITEMS = {
       broker: app.state.demo
-        ? { title: "Demo mode is on: sample data is ready", text: "Everything works with sample prices. When you are ready, close the Bridge and start it normally to add your broker.", go: "accounts", cta: "Accounts" }
+        ? { title: "Explore with sample data, or add your broker", text: "Demo mode is on: everything works with sample prices. Add your broker to see what connecting it takes and save it for your next normal start.", go: "accounts?add=1", cta: "Add your broker" }
         : hasBroker
           ? { title: "Log in to your broker", text: "Open Accounts and press Log in. Most brokers ask again every morning; it takes a few seconds.", go: "accounts", cta: "Log in" }
           : { title: "Add your broker and log in", text: "Choose your broker, then log in with its API details, right here. Nothing is sent anywhere but your broker.", go: "accounts?add=1", cta: "Add a broker" },
-      key: { title: "Create a key for each tool", text: "A read-only key for spreadsheets and AI, a paper key for scripts. Never share your admin key.", go: "api/keys", cta: "Create a key" },
-      snippet: { title: "Copy a snippet for Python, Excel, Claude or webhooks", text: "Ready-made setup with your Bridge address filled in.", go: "api/integrations", cta: "Integrations" },
-      test: { title: "Make your first call", text: "Fetch a quote or an option chain in the test console and see the rate-limit headers.", go: "api/console", cta: "Test console" },
+      key: { title: "Create a key for Excel or AI", text: "Pick the tool and get a key with a setup ready to paste (Excel formula, Claude config, Python).", go: "api/keys", cta: "Create a key" },
+      chain: { title: "Open the option chain", text: "Prices, OI and Greeks for NIFTY, BANKNIFTY and SENSEX. Click any price to open a trade ticket.", go: "chain", cta: "Option Chain" },
+      trade: { title: "Place a paper trade", text: "Click a bid or ask in the chain, check the ticket and send it. Paper only: no real money moves.", go: "chain", cta: "Try it" },
     };
     const fill = h("span");
     fill.style.width = `${(done / state.length) * 100}%`;
@@ -1126,8 +1136,8 @@ async function renderHome() {
       card({
         glyph: "check",
         tint: "green",
-        title: "Welcome to your Bridge",
-        sub: `${formatInt(done)} of ${formatInt(state.length)} done. One local API for all your broker accounts.`,
+        title: done === state.length ? "You are all set" : "Get started",
+        sub: done === state.length ? "Every first step is done. Hide this card when you like; it stays hidden." : `${formatInt(done)} of ${formatInt(state.length)} done. Each step ticks itself off as you go.`,
         actions: h(
           "div",
           { class: "row" },
@@ -1219,11 +1229,11 @@ async function renderHome() {
           [
             { label: "Account", wrap: true, cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
             { label: "Broker", cell: (a) => brokerCell(a.broker, a.broker) },
-            { label: "Session", cell: (a) => sessionPill(a.session?.state) },
+            { label: "Session", cell: (a) => sessionPill(a.session?.state, a.broker) },
             { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")) },
           ],
           accs,
-          emptyState("accounts", "No accounts yet", "Add your broker: choose it, then log in with its API details.", app.state.demo ? null : nextStep("Add a broker", "#/accounts?add=1")),
+          emptyState("accounts", "No accounts yet", "Add your broker: choose it, then log in with its API details.", nextStep("Add a broker", "#/accounts?add=1")),
         ),
       }),
       card({
@@ -1248,18 +1258,17 @@ async function renderHome() {
  * An account's capabilities on one line: the first as a chip, then a "+N" chip (two chips at most) that opens the rest in a popover,
  * so every account row keeps one height (about 64px on a desktop) however much its broker can do.
  */
-const CAPS_SHOWN = 1;
 function capabilityChips(a) {
   const caps = a.capabilities ?? [];
-  const rest = caps.slice(CAPS_SHOWN);
-  const more = rest.length
-    ? h("button", { type: "button", class: "chip-btn acct-caps-more", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-label": `${formatInt(rest.length)} more things ${a.label} can do` }, `+${formatInt(rest.length)}`)
+  // One summary chip in words ("Data and orders"); the full list, also in words, behind "+N".
+  const more = caps.length
+    ? h("button", { type: "button", class: "chip-btn acct-caps-more", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-label": `Everything ${a.label} can do (${formatInt(caps.length)})` }, `+${formatInt(caps.length)}`)
     : null;
   more?.addEventListener("click", () => {
     more.setAttribute("aria-expanded", "true");
-    sheetPopover({ trigger: more, title: `${a.label} can also`, body: h("div", { class: "chips acct-caps-all" }, rest.map((c) => h("span", { class: "chip" }, c))) });
+    sheetPopover({ trigger: more, title: `${a.label} can do`, body: h("div", { class: "chips acct-caps-all" }, caps.map((c) => h("span", { class: "chip" }, capabilityLabel(c)))) });
   });
-  return h("div", { class: "chips acct-caps" }, caps.slice(0, CAPS_SHOWN).map((c) => h("span", { class: "chip", title: c }, c)), more);
+  return h("div", { class: "chips acct-caps" }, caps.length ? h("span", { class: "chip" }, capabilitySummary(caps)) : null, more);
 }
 
 /** A metric card: tinted icon and label, the figure, a footnote (IPO Decode's Metric). */
@@ -1291,74 +1300,161 @@ function errorBox(err, labels = {}) {
   return box;
 }
 
+/** One broker as a row of the pick lists (name, how it logs in, Verified / Beta). */
+function brokerPickRow(b, checked, onPick) {
+  const radio = h("input", { type: "radio", name: "add-broker", value: b.id, checked });
+  radio.addEventListener("change", () => onPick(b.id));
+  return h(
+    "label",
+    { class: "pick-row" },
+    radio,
+    b.paper ? h("span", { class: "avatar" }, "P") : brokerAvatar(b),
+    h("span", { class: "names" }, h("span", { class: "nm" }, b.name), h("span", { class: "sub" }, b.paper ? "Simulated orders with real prices" : AUTH_KIND_LABEL[b.authKind] ?? b.authKind)),
+    b.paper ? pill("Simulator") : b.verified ? pill("Verified", "ok") : pill("Beta", "warn"),
+  );
+}
+
+/** A searchable broker list: the search field, the radio list, and redraw/selection plumbing. */
+function brokerPicker(brokers, initial, onPick) {
+  let chosen = brokers.some((b) => b.id === initial) ? initial : null;
+  const realCount = brokers.filter((b) => !b.paper).length;
+  const search = h("input", { type: "search", placeholder: `Search ${formatInt(realCount)} brokers…`, "aria-label": "Search brokers", autocomplete: "off", spellcheck: "false" });
+  const picker = h("div", { class: "pick-list", role: "radiogroup", "aria-label": "Broker" });
+  const draw = () => {
+    const rows = brokers.filter((b) => brokerMatches(b, search.value));
+    picker.replaceChildren(...rows.map((b) => brokerPickRow(b, b.id === chosen, (id) => ((chosen = id), onPick(id)))));
+    if (!rows.length) picker.replaceChildren(h("p", { class: "muted small pick-empty" }, `No broker matches “${search.value}”. Try its short name, like “kite” or “angel”.`));
+  };
+  search.addEventListener("input", draw);
+  // Enter in the search picks the only match (or the first), so a typed name plus Enter is enough.
+  search.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const first = picker.querySelector("input[type=radio]");
+    if (!first) return;
+    e.preventDefault();
+    e.stopPropagation();
+    first.checked = true;
+    first.dispatchEvent(new Event("change"));
+    first.focus();
+  });
+  draw();
+  // A preselected broker is scrolled into view once the sheet is open.
+  if (chosen) setTimeout(() => picker.querySelector("input:checked")?.closest(".pick-row")?.scrollIntoView?.({ block: "nearest" }), 60);
+  return { search, picker, chosen: () => chosen };
+}
+
+/**
+ * Demo mode's "Add a broker": demo runs on sample prices, so nothing is connected here. Pick a broker, see what
+ * connecting it takes (its fields, step by step), and save it to the config file for the next normal start
+ * (POST /v1/accounts in demo mode). Resolves with the answer, or null when cancelled.
+ */
+function demoBrokerSheet(list, { preselect } = {}) {
+  const brokers = realBrokers(list);
+  const guide = h("div", { class: "setup-guide", "aria-live": "polite" });
+  const pickErr = h("div", { "aria-live": "polite" });
+  const err = h("div", { "aria-live": "polite" });
+  const leave = h("input", { type: "checkbox", checked: true });
+  const drawGuide = (id) => {
+    pickErr.replaceChildren();
+    const b = brokers.find((x) => x.id === id);
+    if (!b) {
+      guide.replaceChildren(h("p", { class: "muted small" }, "Choose your broker to see what connecting it takes."));
+      return;
+    }
+    const steps = brokerSetupSteps(b, loginFormSpec(b), { demo: true });
+    guide.replaceChildren(
+      h("div", { class: "setup-head" }, brokerAvatar(b), h("strong", {}, `Connecting ${b.name}`), b.verified ? pill("Verified", "ok") : pill("Beta", "warn")),
+      h(
+        "ol",
+        { class: "setup-steps" },
+        steps.map((st) => h("li", {}, h("strong", {}, st.title), h("span", {}, st.text), st.fields?.length ? h("span", { class: "chips" }, st.fields.map((f) => h("span", { class: "chip" }, f))) : null)),
+      ),
+    );
+  };
+  const pick = brokerPicker(brokers, preselect, drawGuide);
+  drawGuide(pick.chosen());
+  return modal({
+    title: "Add a broker",
+    body: h(
+      "div",
+      { class: "stack" },
+      alertBox({ title: "You are in demo mode", detail: "Demo runs on sample prices, so no broker is connected here. Pick yours to see what connecting it takes, and save it for when you start the Bridge normally." }, "info"),
+      pick.search,
+      pick.picker,
+      pickErr,
+      guide,
+      h("label", { class: "check" }, leave, "Start normally next time (turns demo mode off in the config file)"),
+      err,
+    ),
+    buttons: [
+      { label: "Cancel", value: null },
+      {
+        label: "Save for normal mode",
+        cls: "primary",
+        onClick: async () => {
+          const chosen = pick.chosen();
+          if (!chosen) {
+            pickErr.replaceChildren(h("p", { class: "field-msg", role: "alert" }, "Choose your broker from the list first."));
+            pick.search.focus();
+            return false;
+          }
+          try {
+            const r = await api("/v1/accounts", { method: "POST", body: { broker: chosen, leaveDemo: leave.checked } });
+            return { ...r.data.data, broker: brokers.find((b) => b.id === chosen) };
+          } catch (e) {
+            err.replaceChildren(errorBox(e, { broker: "Broker" }));
+            return false;
+          }
+        },
+      },
+    ],
+  });
+}
+
 /**
  * "Add a broker" sheet: a searchable list of the brokers (verified / beta), an optional name and id. Resolves with
- * the POST /v1/accounts answer ({ account, restartNeeded, configFile }) or null when cancelled.
+ * the POST /v1/accounts answer ({ account, restartNeeded, configFile }) or null when cancelled. Demo mode opens
+ * demoBrokerSheet instead (never a dead end).
  */
 function addBrokerSheet(list, { preselect } = {}) {
-  if (app.state.demo) {
-    return modal({
-      title: "Add a broker",
-      body: alertBox({ title: "Demo mode is on", detail: "Demo mode uses sample accounts only. Close the Bridge and start it normally (not in demo mode) to add your own broker." }, "info"),
-      buttons: [{ label: "OK", cls: "primary", value: null }],
-    });
-  }
+  if (app.state.demo) return demoBrokerSheet(list, { preselect });
   const brokers = [...realBrokers(list).filter((b) => b.available !== false), PAPER_CHOICE];
-  let chosen = brokers.some((b) => b.id === preselect) ? preselect : null;
-  const search = h("input", { type: "search", placeholder: `Search ${brokers.length - 1} brokers…`, "aria-label": "Search brokers", autocomplete: "off", spellcheck: "false" });
-  const picker = h("div", { class: "pick-list", role: "radiogroup", "aria-label": "Broker" });
   const nameInput = h("input", { id: "add-label", type: "text", maxlength: "60", autocomplete: "off", placeholder: "A name you will recognise" });
   const idInput = h("input", { id: "add-id", type: "text", maxlength: "32", autocomplete: "off", spellcheck: "false", autocapitalize: "off", placeholder: "Picked for you, e.g. zerodha-main" });
+  const pickErr = h("div", { "aria-live": "polite" });
   const err = h("div", { "aria-live": "polite" });
-  const describe = () => {
-    const b = brokers.find((x) => x.id === chosen);
+  const idBox = h("details", { class: "disclosure" }, h("summary", {}, "Account id (optional)"), field("Account id", idInput, "Used by scripts and spreadsheets to pick this account: 2-32 lowercase letters, digits or hyphens."));
+  const describe = (id) => {
+    pickErr.replaceChildren();
+    const b = brokers.find((x) => x.id === id);
     nameInput.placeholder = b ? (b.paper ? "Paper account" : `${b.name} (main)`) : "A name you will recognise";
     idInput.placeholder = b ? `Picked for you, e.g. ${b.paper ? "paper-2" : `${b.id}-main`}` : "Picked for you, e.g. zerodha-main";
   };
-  const option = (b) => {
-    const radio = h("input", { type: "radio", name: "add-broker", value: b.id, checked: b.id === chosen });
-    radio.addEventListener("change", () => {
-      chosen = b.id;
-      err.replaceChildren();
-      describe();
-    });
-    return h(
-      "label",
-      { class: "pick-row" },
-      radio,
-      b.paper ? h("span", { class: "avatar" }, "P") : brokerAvatar(b),
-      h("span", { class: "names" }, h("span", { class: "nm" }, b.name), h("span", { class: "sub" }, b.paper ? "Simulated orders with real prices" : AUTH_KIND_LABEL[b.authKind] ?? b.authKind)),
-      b.paper ? pill("Simulator") : b.verified ? pill("Verified", "ok") : pill("Beta", "warn"),
-    );
-  };
-  const draw = () => {
-    const rows = brokers.filter((b) => brokerMatches(b, search.value));
-    picker.replaceChildren(...rows.map(option));
-    if (!rows.length) picker.replaceChildren(h("p", { class: "muted small pick-empty" }, `No broker matches “${search.value}”.`));
-  };
-  search.addEventListener("input", draw);
-  draw();
-  describe();
+  const pick = brokerPicker(brokers, preselect, describe);
+  describe(pick.chosen());
   return modal({
     title: "Add a broker",
     body: h(
       "div",
       { class: "stack" },
       h("p", { class: "muted" }, "Choose your broker. You log in on the next step; nothing is sent to the broker yet. New accounts are paper only."),
-      search,
-      picker,
+      pick.search,
+      pick.picker,
+      pickErr,
       field("Name (optional)", nameInput),
-      h("details", { class: "disclosure" }, h("summary", {}, "Account id (optional)"), field("Account id", idInput, "Used by scripts and spreadsheets to pick this account: 2-32 lowercase letters, digits or hyphens.")),
+      idBox,
       err,
     ),
     buttons: [
       { label: "Cancel", value: null },
       {
-        label: "Add",
+        label: "Add and log in",
         cls: "primary",
         onClick: async () => {
+          const chosen = pick.chosen();
           if (!chosen) {
-            err.replaceChildren(alertBox({ title: "Choose a broker", detail: "Pick your broker from the list first." }, "warn"));
+            pickErr.replaceChildren(h("p", { class: "field-msg", role: "alert" }, "Choose your broker from the list first."));
+            pick.search.focus();
             return false;
           }
           const body = { broker: chosen };
@@ -1368,6 +1464,14 @@ function addBrokerSheet(list, { preselect } = {}) {
             const r = await api("/v1/accounts", { method: "POST", body });
             return r.data.data;
           } catch (e) {
+            // A problem with one field goes under that field; anything else above the buttons.
+            const paths = (Array.isArray(e?.body?.errors) ? e.body.errors : []).map((x) => String(x.path ?? "").split(".").pop());
+            const one = e?.body?.errors?.[0];
+            if (paths[0] === "id") {
+              idBox.open = true;
+              return fieldError(idInput, one.message ? `${cap(one.message)}.` : e.message);
+            }
+            if (paths[0] === "label") return fieldError(nameInput, one.message ? `${cap(one.message)}.` : e.message);
             err.replaceChildren(errorBox(e, { id: "Account id", label: "Name", broker: "Broker" }));
             return false;
           }
@@ -1377,21 +1481,48 @@ function addBrokerSheet(list, { preselect } = {}) {
   });
 }
 
+/** After a demo-mode save: what happens next, step by step. */
+function demoSavedSheet(r) {
+  const name = r.broker?.name ?? "your broker";
+  return modal({
+    title: `${name} is saved`,
+    body: h(
+      "div",
+      { class: "stack" },
+      h("p", {}, `It will be ready to log in the next time the Bridge starts normally, as a paper account (${r.savedId}). Demo keeps running until then.`),
+      h("ol", { class: "setup-steps" }, afterDemoSaveSteps(r, name).map((t) => h("li", {}, h("span", {}, t)))),
+      h("p", { class: "muted small" }, `Saved in ${r.configFile}`),
+    ),
+    buttons: [{ label: "Done", cls: "primary", value: true }],
+  });
+}
+
 /** Add an account, then go straight on to logging in to it. */
 async function addAccountFlow(list, opts) {
   const added = await addBrokerSheet(list, opts);
   if (!added) return;
+  if (added.savedForLater) {
+    await demoSavedSheet(added);
+    return show();
+  }
   if (added.restartNeeded || !added.account) {
     await modal({
-      title: "Saved",
-      body: alertBox({ title: "Restart the Bridge to use the new account", detail: `It was saved to ${added.configFile}. Close the Bridge and start it again, then log in on this page.` }, "info"),
-      buttons: [{ label: "OK", cls: "primary", value: true }],
+      title: "Saved: one more step",
+      body: h(
+        "div",
+        { class: "stack" },
+        alertBox({ title: "Restart the Bridge to use the new account", detail: "This Bridge could not load it while running, so it was saved for the next start." }, "info"),
+        h("ol", { class: "setup-steps" }, ["Close the Bridge window (or press Ctrl+C in it).", "Start it again from the Start menu, the Desktop or the same command.", "Open Accounts and press Log in next to the new account."].map((t) => h("li", {}, h("span", {}, t)))),
+        h("p", { class: "muted small" }, `Saved in ${added.configFile}`),
+      ),
+      buttons: [{ label: "Done", cls: "primary", value: true }],
     });
     return show();
   }
   await show();
-  toast(`Added ${added.account.label}`);
-  if (added.account.broker !== "paper") await loginSheet(added.account, list.find((b) => b.id === added.account.broker));
+  if (added.account.broker === "paper") return toast(`Added ${added.account.label}. It is ready for paper orders.`);
+  toast(`Added ${added.account.label}. Now log in to it.`);
+  await loginSheet(added.account, list.find((b) => b.id === added.account.broker));
 }
 
 /**
@@ -1455,15 +1586,23 @@ function loginSheet(a, broker) {
   let busy = false;
   const submit = async () => {
     if (busy) return false;
+    result.replaceChildren();
+    // Checked before anything leaves the page, and shown on the field itself: a missing or malformed one-time code or
+    // PIN. (Saved fields are not all required: some brokers fill a token in themselves from the day's code.)
+    for (const [f, input] of inputs) {
+      if (f.group === "secrets" && !input.value.trim()) return fieldError(input, `Type your ${f.label} to log in.`);
+      if (f.group === "secrets" && f.pattern && !new RegExp(`^${f.pattern}$`).test(input.value.trim())) return fieldError(input, `${f.label} is ${f.maxlength ?? 6} digits.`);
+    }
     let body = loginBody(spec, (f) => inputs.get(f).value);
     // Off the page at once, whatever happens next.
     for (const i of inputs.values()) i.value = "";
     if (!Object.keys(body.values).length && !body.secrets) {
-      result.replaceChildren(alertBox({ title: "Nothing to send", detail: spec.keepHint ? "Type at least the fields that changed (for most brokers: today's token or code)." : "Fill in the fields above first." }, "warn"));
-      return false;
+      const firstInput = inputs.values().next().value;
+      return fieldError(firstInput, spec.keepHint ? "Type at least the fields that changed (for most brokers: today's token or code)." : `Type your ${broker.name} details first.`);
     }
     busy = true;
-    result.replaceChildren(h("p", { class: "muted small" }, `Logging in to ${broker.name}…`));
+    loginBtn?.setAttribute("aria-busy", "true");
+    result.replaceChildren(h("p", { class: "muted small", role: "status" }, `Logging in to ${broker.name}…`));
     let state;
     try {
       state = (await api(`/v1/accounts/${encodeURIComponent(a.id)}/session`, { method: "POST", body })).data.data;
@@ -1473,12 +1612,13 @@ function loginSheet(a, broker) {
     } finally {
       body = null;
       busy = false;
+      loginBtn?.removeAttribute("aria-busy");
     }
     if (state?.state === "connected") {
       show().then(() => toast(`${a.label}: logged in${state.expiresAt ? `, until ${istDateTime(state.expiresAt)}` : ""}`));
       return true;
     }
-    result.replaceChildren(alertBox({ title: "The broker did not accept this", detail: `${state?.message ?? "No reason given."} Check the fields and try again.` }));
+    result.replaceChildren(alertBox({ title: `${broker.name} did not accept this`, detail: `${state?.message ?? "No reason given."} Check the fields and try again. One-time codes change every 30 seconds.` }));
     return false;
   };
   let loginBtn = null;
@@ -1620,7 +1760,7 @@ async function renderAccounts() {
     busy(btn, true);
     try {
       const r = await api(`/v1/accounts/${encodeURIComponent(a.id)}/test`, { method: "POST" });
-      toast(r.data?.data?.ok ? `${a.id}: connection OK` : `${a.id}: ${r.data?.data?.message ?? "not OK"}`);
+      toast(r.data?.data?.ok ? `${a.label}: connection OK` : `${a.label}: ${r.data?.data?.message ?? "the broker did not answer"}`, { tone: r.data?.data?.ok ? "ok" : "error" });
     } catch (err) {
       modal({ title: `Test ${a.id}`, body: alertBox(err), buttons: [{ label: "Close", value: true }] });
     } finally {
@@ -1636,7 +1776,7 @@ async function renderAccounts() {
     tint: "indigo",
     title: "Your accounts",
     sub: "Several brokers and several accounts per broker are fine. New accounts are paper only.",
-    actions: app.state.demo ? null : addButton("small primary"),
+    actions: addButton("small primary", app.state.demo ? "Add your broker" : "Add a broker"),
     flush: true,
     body: table(
       [
@@ -1651,7 +1791,7 @@ async function renderAccounts() {
             h(
               "div",
               { class: "acct-session" },
-              h("span", { class: "acct-session-pills" }, sessionPill(a.session?.state), a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")),
+              h("span", { class: "acct-session-pills" }, sessionPill(a.session?.state, a.broker), a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")),
               a.session?.expiresAt ? h("div", { class: "muted small" }, `until ${istDateTime(a.session.expiresAt)}`) : null,
             ),
         },
@@ -1684,7 +1824,7 @@ async function renderAccounts() {
         },
       ],
       accs,
-      emptyState("accounts", "No accounts yet", "Add your broker to get started: choose it, then log in with its API details. It takes a minute.", app.state.demo ? null : addButton()),
+      emptyState("accounts", "No accounts yet", "Add your broker to get started: choose it, then log in with its API details. It takes a minute.", addButton()),
       { mobile: "stack-wide" },
     ),
   });
@@ -1710,7 +1850,7 @@ async function renderAccounts() {
             "div",
             { class: "row broker-foot" },
             h("div", { class: "chips grow" }, h("span", { class: "chip" }, AUTH_KIND_LABEL[b.authKind] ?? b.authKind), b.capabilities.includes("feed") ? h("span", { class: "chip" }, "live feed") : null, b.capabilities.includes("historical") ? h("span", { class: "chip" }, "history") : null, b.capabilities.includes("placeOrder") ? h("span", { class: "chip" }, "orders") : null),
-            app.state.demo ? null : h("button", { type: "button", class: "small", "aria-label": `Add a ${b.name} account`, onclick: () => addAccountFlow(list, { preselect: b.id }) }, "Add"),
+            h("button", { type: "button", class: "small", "aria-label": `Add a ${b.name} account`, onclick: () => addAccountFlow(list, { preselect: b.id }) }, app.state.demo ? "Set up" : "Add"),
           ),
         ),
       ),
@@ -1723,7 +1863,7 @@ async function renderAccounts() {
     glyph: "plug",
     tint: "blue",
     title: "Supported brokers",
-    sub: `${real.length} brokers. Dhan is verified with a live account; the others are beta (tested against recorded samples).${app.state.demo ? " Demo mode loads none of them." : ""}`,
+    sub: `${real.length} brokers. Dhan is verified with a live account; the others are beta (tested against recorded samples).${app.state.demo ? " In demo mode, Set up shows what connecting one takes and saves it for your next normal start." : ""}`,
     actions: search,
     flush: true,
     body: grid,
@@ -1854,7 +1994,7 @@ async function renderConsole() {
             {},
             friendly ? h("div", { class: "card-body" }, friendly) : null,
             h("dl", { class: "kv" }, ...["x-request-id", "ratelimit", "ratelimit-policy", "x-mcb-data", "content-type"].flatMap((n) => (hdr(n) ? [h("dt", {}, n), h("dd", {}, hdr(n))] : []))),
-            h("div", { class: "code" }, h("div", { class: "code-head" }, h("span", { class: "code-title" }, "Body"), h("button", { type: "button", class: "small copy", onclick: () => copyText(pretty) }, icon("copy"), "Copy")), pre),
+            h("div", { class: "code" }, h("div", { class: "code-head" }, h("span", { class: "code-title" }, "Body"), copyButton(() => pretty, { ariaLabel: "Copy the response body" })), pre),
           ),
         }),
       );
@@ -2096,7 +2236,7 @@ async function confirmTicket(t, byId) {
   try {
     const r = await api(`/v1/tickets/${encodeURIComponent(t.ticketId)}/confirm`, { method: "POST" });
     const n = confirmCodeNotice(t.ticketId, r.data);
-    if (n) await modal({ title: "Confirmed", body: h("div", { class: "stack" }, h("p", {}, n.text), h("div", { class: "secret-box" }, h("code", {}, n.token), h("button", { type: "button", class: "small", onclick: () => copyText(n.token) }, icon("copy"), "Copy"))), buttons: [{ label: "Done", cls: "primary", value: true }] });
+    if (n) await modal({ title: "Confirmed", body: h("div", { class: "stack" }, h("p", {}, n.text), h("div", { class: "secret-box" }, h("code", {}, n.token), copyButton(n.token, { cls: "small" }))), buttons: [{ label: "Done", cls: "primary", value: true }] });
   } catch (err) {
     await modal({ title: "Could not confirm", body: alertBox(err), buttons: [{ label: "Close", value: true }] });
   }
@@ -2117,7 +2257,7 @@ async function renderSafety() {
     const go = await modal({
       title: "Allow orders again?",
       body: h("div", { class: "stack" }, h("p", {}, "Needs an admin key, from this computer."), h("label", { class: "field" }, "Type RELEASE to confirm", typed)),
-      buttons: [{ label: "Cancel", value: false }, { label: "Release", cls: "primary", onClick: () => (typed.value === "RELEASE" ? true : (toast("Type RELEASE exactly"), false)) }],
+      buttons: [{ label: "Cancel", value: false }, { label: "Release", cls: "primary", onClick: () => (typed.value === "RELEASE" ? true : (toast("Type RELEASE exactly, in capitals", { tone: "warn" }), false)) }],
     });
     if (!go) return;
     try {
@@ -2134,9 +2274,9 @@ async function renderSafety() {
     try {
       const r = await api("/v1/audit/verify");
       const d = r.data.data ?? {};
-      toast(d.ok ? `Audit chain intact (${formatInt(d.checked)} records)` : `Audit chain broken at ${d.brokenAt}`);
+      toast(d.ok ? `Audit chain intact (${formatInt(d.checked)} records)` : `Audit chain broken at ${d.brokenAt}`, { tone: d.ok ? "ok" : "error" });
     } catch (err) {
-      toast(err.message);
+      toast(err.message, { tone: "error" });
     } finally {
       busy(btn, false);
     }
@@ -2209,42 +2349,114 @@ async function renderSafety() {
 
 // ── Keys ──
 
+/** Where each snippet group goes, as the "Paste it into" tabs after a key is made. */
+const SNIPPET_TABS = Object.freeze({ excel: "Excel and Sheets", claude: "Claude (MCP)", chatgpt: "ChatGPT / OpenAI", python: "Python", node: "Node", amibroker: "AmiBroker", rest: "curl" });
+const CLIENT_LABEL = Object.freeze({ excel: "Excel / Sheets", mcp: "AI assistant", script: "Script", ui: "App", other: "Other" });
+const ACCESS_LABEL = Object.freeze({ read: "Read only: prices, charts, AI", paper: "Paper trading: read + paper orders", "admin,paper": "Admin: manage the Bridge" });
+
+/**
+ * The key just made, shown big: the key with Copy (and a Copied state), a clear shown-once warning, and setups ready
+ * to paste for the tool it is for (the key already filled in). Nothing here is stored; leaving the page forgets it.
+ */
+function newKeyPanel({ key, label, use, scopes, account, onDone }) {
+  const tabs = [...new Set([...use.snippets, "excel", "python", "node", "claude", "rest"])].filter((id) => SNIPPET_TABS[id]);
+  // A key that may not sit in a URL gets no spreadsheet tab (spreadsheets can only send it that way).
+  const usable = tabs.filter((id) => !(id === "excel" || id === "amibroker") || use.allowQuery);
+  const all = snippets({ base: location.origin, key, account, symbol: "NSE:NIFTY", folder: app.state.meta?.installDir || undefined });
+  const body = h("div", { class: "stack" });
+  const seg = segmented("Paste it into", usable.map((id) => [id, SNIPPET_TABS[id]]), usable[0]);
+  const draw = () => body.replaceChildren(...(all[seg.value] ?? []).map((sn) => codeBlock(sn.code, { title: sn.title, json: sn.lang === "json", onCopy: markCopied })));
+  seg.addEventListener("change", draw);
+  draw();
+  const keyCode = h("code", { class: "new-key-value" }, key);
+  return h(
+    "section",
+    { class: "new-key", "aria-label": `New key ${label}`, tabindex: "-1" },
+    h("div", { class: "new-key-head" }, h("span", { class: "new-key-tick", "aria-hidden": "true" }, icon("check")), h("div", { class: "grow" }, h("strong", {}, `Key created: ${label}`), h("span", { class: "muted small" }, `${scopes.join(" + ")} access · ${use.label}`))),
+    alertBox({ title: "Copy it now. It is shown only once.", detail: "The Bridge keeps only a fingerprint of it. If you lose it, revoke it below and create another." }, "warn"),
+    h("div", { class: "new-key-row" }, keyCode, copyButton(key, { label: "Copy key", toastLabel: "Key copied", cls: "primary", onCopy: markCopied })),
+    h("div", { class: "new-key-snips stack" }, h("div", { class: "row" }, h("strong", {}, "Paste it into"), seg), body),
+    h("div", { class: "row" }, h("span", { class: "grow muted small" }, "Leaving this page hides the key for good."), h("button", { type: "button", class: "small", onclick: onDone }, "I have copied it, hide it")),
+  );
+}
+
 async function renderKeys() {
   const [keys, accounts] = await Promise.all([api("/v1/keys"), api("/v1/accounts")]);
   const rows = keys.data.data ?? [];
   const accs = accounts.data.data ?? [];
-  const createdBox = h("div");
-  const label = h("input", { id: "key-label", placeholder: "e.g. Excel prices", maxlength: "60", "aria-required": "true" });
-  const scope = h("select", {}, h("option", { value: "read" }, "Read only: prices, charts, AI"), h("option", { value: "paper" }, "Paper trading: read + paper orders"), h("option", { value: "admin,paper" }, "Admin: manage the Bridge"));
-  const acct = h("select", {}, h("option", { value: "*" }, "All accounts"), accs.map((a) => h("option", { value: a.id }, a.id)));
-  const client = h("select", {}, ["script", "excel", "mcp", "ui", "other"].map((c) => h("option", { value: c }, { script: "Script (Python, Node)", excel: "Excel / Sheets", mcp: "AI assistant (MCP)", ui: "App / dashboard", other: "Other" }[c])));
+  const paperAcc = accs.find((a) => a.broker === "paper")?.id ?? "paper";
+  let labels = rows.map((k) => k.label);
+  const createdBox = h("div", { class: "new-key-box" });
+  const formErr = h("div", { "aria-live": "polite" });
+  // "Used by" comes first: it fills in the name, the access, the expiry and URL use, so Create works first time.
+  const usedBy = h("select", { id: "key-use" }, KEY_USES.map((u) => h("option", { value: u.id }, u.label)));
+  const label = h("input", { id: "key-label", maxlength: "60", "aria-required": "true", autocomplete: "off" });
+  const scope = h("select", { id: "key-access" }, Object.entries(ACCESS_LABEL).map(([v, t]) => h("option", { value: v }, t)));
+  const acct = h("select", { id: "key-accounts" }, h("option", { value: "*" }, "All accounts"), accs.map((a) => h("option", { value: a.id }, `${a.label} (${a.id})`)));
   const expires = segmented("Expires", [["", "Never"], ["7", "7 days"], ["30", "30 days"], ["90", "90 days"]], "");
-  const urlUse = h("input", { type: "checkbox" });
+  const urlUse = h("input", { type: "checkbox", id: "key-url" });
   const createBtn = h("button", { type: "button", class: "primary" }, icon("plus"), "Create key");
-  createBtn.addEventListener("click", async () => {
-    if (!label.value.trim()) {
-      label.focus();
-      return toast("Give the key a name");
+  // What the person changed by hand is kept when they switch "Used by"; the rest follows the tool.
+  const touched = { label: false, scope: false, expires: false, url: false };
+  label.addEventListener("input", () => (touched.label = label.value.trim() !== ""));
+  scope.addEventListener("change", () => (touched.scope = true));
+  expires.addEventListener("click", () => (touched.expires = true));
+  urlUse.addEventListener("change", () => (touched.url = true));
+  const applyUse = () => {
+    const u = keyUse(usedBy.value);
+    if (!touched.label) {
+      label.value = defaultKeyName(u.id, new Date(), labels);
+      clearFieldError(label);
     }
+    if (!touched.scope) {
+      scope.value = u.scopes.join(",");
+      clearFieldError(scope);
+    }
+    if (!touched.expires) expires.value = u.expiresDays ? String(u.expiresDays) : "";
+    if (!touched.url) urlUse.checked = u.allowQuery;
+  };
+  usedBy.addEventListener("change", applyUse);
+  applyUse();
+  const create = async () => {
+    formErr.replaceChildren();
+    const u = keyUse(usedBy.value);
+    const scopes = scope.value.split(",");
+    const problem = keyFormProblem({ label: label.value, scopes, allowQuery: urlUse.checked });
+    if (problem) return fieldError(problem.field === "label" ? label : scope, problem.message);
     busy(createBtn, true);
     try {
-      const body = { label: label.value.trim(), scopes: scope.value.split(","), accounts: acct.value === "*" ? "*" : [acct.value], clientKind: client.value };
+      const body = { label: label.value.trim(), scopes, accounts: acct.value === "*" ? "*" : [acct.value], clientKind: u.clientKind };
       if (expires.value) body.expiresAt = new Date(Date.now() + Number(expires.value) * 86_400_000).toISOString();
       if (urlUse.checked) body.allowQuery = true;
       const r = await api("/v1/keys", { method: "POST", body });
       const k = r.data.data?.key;
-      createdBox.replaceChildren(
-        h("div", { class: "secret-box" }, h("strong", {}, "Copy it now, it is shown only once:"), h("code", {}, k), h("button", { type: "button", class: "small primary", onclick: () => copyText(k, "Key copied") }, icon("copy"), "Copy")),
-      );
-      label.value = "";
+      const made = body.label;
+      createdBox.replaceChildren(newKeyPanel({ key: k, label: made, use: { ...u, allowQuery: urlUse.checked }, scopes, account: acct.value === "*" ? paperAcc : acct.value, onDone: () => createdBox.replaceChildren() }));
+      createdBox.firstElementChild?.scrollIntoView?.({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      createdBox.querySelector(".new-key-row button")?.focus({ preventScroll: true });
+      toast(`Key created: ${made}. Copy it now.`);
+      labels = [...labels, made];
+      touched.label = false;
+      applyUse();
       await drawTable();
     } catch (err) {
-      createdBox.replaceChildren(alertBox(err));
+      const one = err?.body?.errors?.[0];
+      const at = String(one?.path ?? "").split(".").pop();
+      if (at === "label") fieldError(label, one.message ? `${cap(one.message)}.` : err.message);
+      else formErr.replaceChildren(errorBox(err, { label: "Name", scopes: "Access", accounts: "Accounts", expiresAt: "Expires" }));
     } finally {
       busy(createBtn, false);
     }
+  };
+  createBtn.addEventListener("click", create);
+  label.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.isComposing) {
+      e.preventDefault();
+      create();
+    }
   });
 
+  const ownId = String(currentKey() ?? "").split("_")[1] ?? null;
   const tableBox = h("div");
   const drawTable = async (list) => {
     const data = list ?? (await api("/v1/keys")).data.data ?? [];
@@ -2252,11 +2464,11 @@ async function renderKeys() {
     tableBox.replaceChildren(
       table(
         [
-          { label: "Name", cell: (k) => h("div", {}, h("strong", {}, k.label), h("div", { class: "muted small mono" }, k.id)) },
+          { label: "Name", cell: (k) => h("div", {}, h("strong", {}, k.label), h("div", { class: "muted small mono" }, k.id, k.id === ownId ? h("span", { class: "chip own-key" }, "this browser") : null)) },
           { label: "Scopes", cell: (k) => h("div", { class: "chips" }, k.scopes.slice().sort().map(scopeChip), k.allowQuery ? h("span", { class: "chip" }, "URL ok") : null) },
           { label: "Accounts", cell: (k) => (k.accounts === "*" ? "All" : k.accounts.join(", ")) },
-          { label: "For", cell: (k) => k.clientKind ?? DASH },
-          { label: "Last used", cell: (k) => istDateTime(k.lastUsedAt) },
+          { label: "For", cell: (k) => CLIENT_LABEL[k.clientKind] ?? k.clientKind ?? DASH },
+          { label: "Last used", cell: (k) => (k.lastUsedAt ? istDateTime(k.lastUsedAt) : "Never") },
           { label: "Expires", cell: (k) => (k.expiresAt ? istDateTime(k.expiresAt) : "Never") },
           { label: "Status", cell: status },
           {
@@ -2268,15 +2480,28 @@ async function renderKeys() {
                     type: "button",
                     class: "small plain",
                     "aria-label": `Revoke key ${k.label}`,
-                    onclick: async () => {
-                      const ok = await modal({ title: `Revoke “${k.label}”?`, body: h("p", {}, "It stops working on its very next request, and its open streams close. This cannot be undone."), buttons: [{ label: "Cancel", value: false }, { label: "Revoke", cls: "primary", value: true }] });
+                    onclick: async (e) => {
+                      const btn = e.currentTarget;
+                      const own = k.id === ownId;
+                      const ok = await modal({
+                        title: `Revoke “${k.label}”?`,
+                        body: h(
+                          "div",
+                          { class: "stack" },
+                          h("p", {}, "It stops working on its very next request, and its open streams close. This cannot be undone."),
+                          own ? alertBox({ title: "This browser is signed in with this key", detail: "You will be signed out at once. Sign in again with another admin key, or make a sign-in link with the CLI." }, "warn") : null,
+                        ),
+                        buttons: [{ label: "Cancel", value: false }, { label: own ? "Revoke and sign out" : "Revoke", cls: "primary", value: true }],
+                      });
                       if (!ok) return;
+                      busy(btn, true);
                       try {
                         await api(`/v1/keys/${encodeURIComponent(k.id)}`, { method: "DELETE" });
-                        toast("Key revoked");
+                        toast(`Revoked ${k.label}`);
                       } catch (err) {
-                        toast(err.message);
+                        toast(`Could not revoke ${k.label}: ${err.message}`, { tone: "error" });
                       }
+                      busy(btn, false);
                       drawTable();
                     },
                   }, "Revoke"),
@@ -2294,16 +2519,25 @@ async function renderKeys() {
       glyph: "plus",
       tint: "pink",
       title: "Create a key",
-      sub: "Least access wins: charts and AI need read, scripts that trade on paper need paper. Live keys are made from the terminal only.",
+      sub: "One key per tool. Pick the tool and the rest is filled in with the least access it needs. Live keys are made from the terminal only.",
       body: h(
         "div",
         { class: "stack" },
-        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field wide" }, "Access", scope), h("label", { class: "field" }, "Accounts", acct), h("label", { class: "field" }, "Used by", client), segField("Expires", expires, { wide: true })),
+        h(
+          "div",
+          { class: "form-grid" },
+          field("Used by", usedBy, "Sets the name, the access and the expiry for you"),
+          field("Name", label),
+          h("label", { class: "field wide", for: "key-access" }, h("span", {}, "Access"), scope),
+          h("label", { class: "field", for: "key-accounts" }, h("span", {}, "Accounts"), acct),
+          segField("Expires", expires, { wide: true }),
+        ),
         h("div", { class: "row" }, h("label", { class: "check" }, urlUse, "Allow in URLs (?key=), for Excel and Google Sheets. Read-only keys only."), h("span", { class: "grow" }), createBtn),
+        formErr,
         createdBox,
       ),
     }),
-    card({ glyph: "keys", tint: "pink", title: "Your keys", sub: "Only a hash of each key is stored. The key itself was shown once.", flush: true, body: tableBox }),
+    card({ glyph: "keys", tint: "pink", title: "Your keys", sub: "Only a fingerprint (hash) of each key is stored. The key itself was shown once.", flush: true, body: tableBox }),
   ];
 }
 
@@ -2367,7 +2601,7 @@ async function renderIntegrations() {
         toast("Key created and filled in below. Copy it now: it is shown only once.");
         draw();
       } catch (err) {
-        toast(err.message);
+        toast(err.message, { tone: "error" });
       }
     });
     const intro = h(
@@ -2431,8 +2665,8 @@ async function webhookPanel(paperAcc) {
       list.push(d);
       drawTable();
       box.replaceChildren(...[
-        h("div", { class: "secret-box" }, h("strong", {}, "Webhook URL (its secret token is shown once):"), h("code", {}, d.url), h("button", { type: "button", class: "small primary", onclick: () => copyText(d.url, "URL copied").then(markCopied) }, icon("copy"), "Copy")),
-        d.signingSecret ? h("div", { class: "secret-box" }, h("strong", {}, "Signing secret (shown once; sign every request with it):"), h("code", {}, d.signingSecret), h("button", { type: "button", class: "small primary", onclick: () => copyText(d.signingSecret, "Secret copied").then(markCopied) }, icon("copy"), "Copy")) : null,
+        h("div", { class: "secret-box" }, h("strong", {}, "Webhook URL (its secret token is shown once):"), h("code", {}, d.url), copyButton(d.url, { cls: "small primary", toastLabel: "URL copied", onCopy: markCopied })),
+        d.signingSecret ? h("div", { class: "secret-box" }, h("strong", {}, "Signing secret (shown once; sign every request with it):"), h("code", {}, d.signingSecret), copyButton(d.signingSecret, { cls: "small primary", toastLabel: "Secret copied", onCopy: markCopied })) : null,
         ...(d.templates ?? []).slice(0, 1).map((t) => codeBlock(t.message, { title: t.name, json: t.contentType === "application/json" && t.message.startsWith("{"), onCopy: markCopied })),
         ...(d.warnings ?? []).map((w) => alertBox({ title: "Note", detail: w }, "warn")),
         h("p", { class: "muted small" }, "Hosted alert services post from the internet, so point a tunnel (for example Cloudflare Tunnel) at the public ingress listener, which serves /hooks only. Paper orders by default."),

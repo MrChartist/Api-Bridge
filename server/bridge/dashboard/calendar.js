@@ -392,7 +392,7 @@ export async function renderCalendarPage() {
     const csvBtn = csv ? h("button", { type: "button", class: "small cal-csv", title: "Download as CSV", "aria-label": "Download as CSV" }, icon("external"), h("span", { class: "cal-csv-t" }, "CSV")) : null;
     csvBtn?.addEventListener("click", () => {
       const rows = csv.rows();
-      if (!rows.length) return toast("Nothing to export yet");
+      if (!rows.length) return toast("Nothing to export yet", { tone: "info" });
       download(`${csv.name}-${today}.csv`, toCsv(CSV_COLUMNS[csv.cols], rows));
     });
     const body = h("div", { class: "cal-body" });
@@ -409,7 +409,7 @@ export async function renderCalendarPage() {
       a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     } catch {
-      toast("This browser could not save the file");
+      toast("This browser could not save the file", { tone: "error" });
     }
   }
   const loading = (label) => h("p", { class: "cal-loading muted small" }, label);

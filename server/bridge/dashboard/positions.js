@@ -1394,20 +1394,20 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const l = legs.find((x) => x.symbol === sym);
     if (!l || l.kind !== "OPT" || !l.q) return;
     const toExp = kind === "next" ? O.nextExpiry(d.expiries ?? [], l.expiry) : l.expiry;
-    if (!toExp) return toast("No later expiry is listed for this underlying");
+    if (!toExp) return toast("No later expiry is listed for this underlying", { tone: "info" });
     let chain = d.chains.get(toExp)?.chain ?? null;
     if (!chain) {
       const r = await optional(api(`/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(toExp)}&strikes=${CHAIN_STRIKES}&greeks=true&ivModel=b76-forward`));
       chain = r.data?.data ?? null;
     }
-    if (!chain?.rows?.length) return toast(`Couldn't load the ${expiryText(toExp)} chain`);
+    if (!chain?.rows?.length) return toast(`Couldn't load the ${expiryText(toExp)} chain`, { tone: "error" });
     const side = l.right === "PE" ? "pe" : "ce";
     const strikes = chain.rows.map((r) => r.strike);
     const quoteAt = (k) => chain.rows.find((r) => r.strike === k)?.[side] ?? null;
     let toStrike = l.strike;
     if (kind === "out" || kind === "in") toStrike = O.rollStrike(strikes, l, spot, kind);
     if (kind === "wing") toStrike = O.wingStrike(strikes, { kind: "OPT", strike: l.strike, right: l.right, side: "SELL", price: l.mark }, (k) => O.mid(quoteAt(k)) ?? num(quoteAt(k)?.ltp));
-    if (toStrike === null || toStrike === undefined) return toast("No listed strike in that direction");
+    if (toStrike === null || toStrike === undefined) return toast("No listed strike in that direction", { tone: "info" });
     const q = quoteAt(toStrike);
     const prefix = String(l.symbol).split(":")[0] || "NFO";
     const newSym = q?.symbol ?? `${prefix}:${st.underlying}-${toExp}-${toStrike}-${l.right}`;
@@ -1501,7 +1501,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const whole = Math.floor(abs / l.lot);
     const n = Math.floor((whole * pct) / 100 + 1e-9);
     // A part exit that cannot split into a whole lot is not offered (legActions); never widen it to a full exit here.
-    if (pct < 100 && n < 1) return toast("This leg cannot be split: exit it in full");
+    if (pct < 100 && n < 1) return toast("This leg cannot be split: exit it in full", { tone: "info" });
     const qty = pct >= 100 ? abs : n * l.lot;
     openTicket({
       row: { strike: l.strike },
@@ -1526,14 +1526,14 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   // ── Analyse in the builder ──
   function analyse(g) {
     const opts = g.legs.filter((l) => l.q && l.kind === "OPT");
-    if (!opts.length) return toast("No option legs in this group: futures are not in the builder yet");
+    if (!opts.length) return toast("No option legs in this group: futures are not in the builder yet", { tone: "info" });
     const exp = g.expiry ?? opts[0].expiry;
     const legsOut = opts
       .filter((l) => l.expiry === exp)
       .map((l) => ({ kind: "OPT", right: l.right, strike: l.strike, expiry: l.expiry, side: l.q > 0 ? "BUY" : "SELL", lots: Math.max(1, Math.ceil(Math.abs(l.q) / l.lot)), units: Math.abs(l.q), lotSize: l.lot, entry: l.avg, entryTag: "avg", product: l.product, symbol: l.symbol }))
       .slice(0, O.MAX_LEGS);
-    if (g.legs.some((l) => l.q && l.kind === "FUT")) toast("Futures are not in the builder yet");
-    else if (opts.some((l) => l.expiry !== exp)) toast("The builder is single-expiry: other expiries are left out");
+    if (g.legs.some((l) => l.q && l.kind === "FUT")) toast("Futures are not in the builder yet", { tone: "info" });
+    else if (opts.some((l) => l.expiry !== exp)) toast("The builder is single-expiry: other expiries are left out", { tone: "warn" });
     st.baskets[`${st.underlying}|${exp}`] = legsOut;
     st.expiry = exp;
     save();
@@ -1543,7 +1543,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   // ── Exit plan (Exit all / group / selected) ──
   async function openExitPlan(scope, label) {
     const a = account();
-    if (!a) return toast("Choose an account that can place orders first.");
+    if (!a) return toast("Choose an account that can place orders first.", { tone: "warn" });
     const syms = scope.filter((l) => l.q).map((l) => l.symbol);
     if (!syms.length) return;
     const current = () => legs.filter((l) => syms.includes(l.symbol) && l.q);
@@ -2674,7 +2674,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     if ((k === "ArrowDown" || k === "ArrowUp") && !onControl && focusSym) return moveFocus(k === "ArrowDown" ? 1 : -1);
     if (k === " " && f && !onControl) return rowClick(f.symbol, false), true;
     if (k === "i" && f) return toggleInclude([f.symbol], !f.inc), true;
-    if (k === "x") return f ? exitLeg(f.symbol) : toast("Focus a leg first (J / K)"), true;
+    if (k === "x") return f ? exitLeg(f.symbol) : toast("Focus a leg first (J / K)", { tone: "info" }), true;
     if (k === "X") return legs.some((l) => l.q) && openExitPlan(legs.filter((l) => l.q), ""), true;
     if (k === "a" && f) {
       const g = groups.find((x) => x.legs.includes(f));

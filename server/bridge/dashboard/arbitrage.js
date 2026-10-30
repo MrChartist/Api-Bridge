@@ -1503,7 +1503,7 @@ export function arbPanels(ctx) {
     return out;
   }
   function copyLegs(s) {
-    if (!s?.legs?.length) return toast("Nothing to copy for this row");
+    if (!s?.legs?.length) return toast("Nothing to copy for this row", { tone: "info" });
     const lines = O.sendOrder(s.legs).map((l) => `${l.side} ${l.symbol} ${formatInt(l.units)} @ ${formatFixed(l.price, 2)}`);
     const sum = s.kind === "cal" ? `${KIND_NAME.cal} roll long ${formatRupee(s.cal.rollLong, 0)}/lot` : `${KIND_NAME[s.kind]} net ${rupeeSigned(s.net)} after charges${s.kind === "lbox" || s.kind === "sbox" ? ` · ${pct(s.rate, 2)}/yr` : ""}`;
     copyText([...lines, sum].join("\n"), "Legs copied");
@@ -1536,7 +1536,7 @@ export function arbPanels(ctx) {
   // ── Order preview, then place (safety gates unchanged: every leg previewed, then POST /v1/orders) ──
   async function openOrders(s, m) {
     const a = ctx.account();
-    if (!a) return toast("Choose an account that can place orders first.");
+    if (!a) return toast("Choose an account that can place orders first.", { tone: "warn" });
     if (!s?.legs?.length) return;
     // Freeze quantity for the option legs (one call per underlying), before slicing.
     await loadOptFreeze(s.legs.find((l) => l.kind !== "FUT")?.symbol);

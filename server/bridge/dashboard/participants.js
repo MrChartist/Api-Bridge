@@ -781,15 +781,15 @@ export async function renderParticipantsPage() {
     drawHistory();
   });
   tableBtn.addEventListener("click", () => {
-    if (!days) return toast("History is still loading");
+    if (!days) return toast("History is still loading", { tone: "info" });
     st.showTable = !st.showTable;
     tableBtn.setAttribute("aria-pressed", String(st.showTable));
     save();
     drawHistory();
   });
   histCsv.addEventListener("click", () => {
-    if (!days) return toast("History is still loading");
-    if (!model?.dates.length) return toast("No history to save yet");
+    if (!days) return toast("History is still loading", { tone: "info" });
+    if (!model?.dates.length) return toast("No history to save yet", { tone: "info" });
     saveCsv(`participant-oi-history_${model.from}_${model.to}.csv`, toCsvText(historyCsv(model)));
     toast("CSV saved");
   });

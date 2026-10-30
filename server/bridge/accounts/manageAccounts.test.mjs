@@ -308,18 +308,75 @@ describe("without a config file", () => {
 });
 
 describe("demo mode", () => {
-  it("refuses to add or remove accounts with a friendly message", async () => {
+  const demoBoot = async ({ raw = {}, fileContent } = {}) => {
     const dir = mkdtempSync(join(tmpdir(), "mcb-manage-demo-"));
-    const { config } = loadConfig({ raw: { server: { port: 0 }, dataDir: dir }, env: {}, demo: true });
+    const { config } = loadConfig({ raw: { server: { port: 0 }, dataDir: dir, ...raw }, env: {}, demo: true });
     const file = join(dir, "bridge.config.json");
-    const b = await boot({ config, configFile: file });
+    if (fileContent) writeFileSync(file, `${JSON.stringify(fileContent, null, 2)}\n`);
+    return { file, b: await boot({ config, configFile: file }) };
+  };
+
+  it("refuses to remove accounts, and never loads an added one into the running demo", async () => {
+    const { file, b } = await demoBoot();
+    try {
+      const ids = (await b.call("GET", "/v1/accounts", { key: READ })).json.data.map((a) => a.id);
+      expect((await b.call("DELETE", `/v1/accounts/${ids[0]}`, { key: ADMIN })).json.detail).toMatch(/Demo mode/);
+      const r = await b.call("POST", "/v1/accounts", { key: ADMIN, body: { broker: "dhan" } });
+      expect(r.status).toBe(201);
+      expect(r.json.data).toMatchObject({ account: null, savedId: "dhan-main", restartNeeded: true, savedForLater: true });
+      // The running demo still has only its sample accounts.
+      expect((await b.call("GET", "/v1/accounts", { key: READ })).json.data.map((a) => a.id)).toEqual(ids);
+      // Saved paper-only, exactly as a normal start would add it.
+      const saved = JSON.parse(readFileSync(file, "utf8")).accounts;
+      expect(saved).toEqual([{ id: "dhan-main", broker: "dhan", label: expect.any(String), holder: "self", live: { enabled: false, allowedSources: ["rest"] }, marketData: { pooling: false } }]);
+    } finally {
+      await b.app.close();
+    }
+  });
+
+  it("turns demo off in the file only when asked, and refuses paper, unknown brokers and extra fields", async () => {
+    const { file, b } = await demoBoot({ fileContent: { demo: true, accounts: [] } });
+    try {
+      for (const body of [{ broker: "paper" }, { broker: "nosuch" }, { broker: "demo" }, { broker: "dhan", live: { enabled: true } }, { broker: "dhan", leaveDemo: "yes" }]) {
+        expect((await b.call("POST", "/v1/accounts", { key: ADMIN, body })).status).toBe(400);
+      }
+      const keep = await b.call("POST", "/v1/accounts", { key: ADMIN, body: { broker: "dhan" } });
+      expect(keep.json.data).toMatchObject({ demoWasInFile: true, demoTurnedOff: false });
+      expect(JSON.parse(readFileSync(file, "utf8")).demo).toBe(true);
+      const leave = await b.call("POST", "/v1/accounts", { key: ADMIN, body: { broker: "zerodha", leaveDemo: true } });
+      expect(leave.json.data).toMatchObject({ savedId: "zerodha-main", demoWasInFile: true, demoTurnedOff: true });
+      const obj = JSON.parse(readFileSync(file, "utf8"));
+      expect(obj.demo).toBeUndefined();
+      expect(obj.accounts.map((a) => a.id)).toEqual(["dhan-main", "zerodha-main"]);
+      expect(obj.accounts.every((a) => a.live.enabled === false)).toBe(true);
+      // Only from this computer.
+      expect((await b.call("POST", "/v1/accounts", { key: ADMIN, body: { broker: "dhan" }, remote: true })).status).toBe(403);
+    } finally {
+      await b.app.close();
+    }
+  });
+
+  it("refuses to save anything when the demo dashboard is served to other computers", async () => {
+    const { file, b } = await demoBoot({ raw: { server: { port: 0, remoteDashboard: true } } });
     try {
       const r = await b.call("POST", "/v1/accounts", { key: ADMIN, body: { broker: "dhan" } });
       expect(r.status).toBe(400);
       expect(r.json.detail).toMatch(/Demo mode uses its own sample accounts/);
-      const ids = (await b.call("GET", "/v1/accounts", { key: READ })).json.data.map((a) => a.id);
-      expect((await b.call("DELETE", `/v1/accounts/${ids[0]}`, { key: ADMIN })).json.detail).toMatch(/Demo mode/);
       expect(existsSync(file)).toBe(false);
+    } finally {
+      await b.app.close();
+    }
+  });
+
+  it("lists every real broker with the fields its login will ask for", async () => {
+    const { b } = await demoBoot();
+    try {
+      const list = (await b.call("GET", "/v1/brokers", { key: READ })).json.data;
+      // The test registry holds three stubs; the other real brokers come from the catalogue, marked unavailable.
+      const listed = list.filter((x) => x.available === false);
+      expect(listed.length).toBeGreaterThan(30);
+      for (const x of listed) expect(Array.isArray(x.credentialFields)).toBe(true);
+      expect(listed.some((x) => x.credentialFields.length > 0)).toBe(true);
     } finally {
       await b.app.close();
     }

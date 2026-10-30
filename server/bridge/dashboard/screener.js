@@ -1360,7 +1360,7 @@ export function renderScreenerPage() {
     const p = preset();
     const pins = cfg.pins?.[p.id] ?? [];
     const on = pins.includes(key);
-    if (!on && pins.length >= S.MAX_PINS) return toast(`Up to ${S.MAX_PINS} pinned rows per tab`);
+    if (!on && pins.length >= S.MAX_PINS) return toast(`Up to ${S.MAX_PINS} pinned rows per tab`, { tone: "info" });
     const next = on ? pins.filter((k) => k !== key) : [...pins, key];
     setCfg({ pins: { ...cfg.pins, [p.id]: next } });
     paneSig = "";

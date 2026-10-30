@@ -291,9 +291,13 @@ export function toast(text, { tone = "ok" } = {}) {
   const t = document.getElementById("toast");
   const gen = (toast.gen = (toast.gen ?? 0) + 1);
   const wasHidden = t.hidden;
-  // "info": a refused or not-yet-possible action (a neutral ⓘ, not the success check).
-  const info = tone === "info";
-  t.replaceChildren(h("span", { class: `toast-icon${info ? " info" : ""}` }, icon(info ? "info" : "check")), h("span", { class: "toast-text" }, text));
+  // Tones: "ok" a done action (green check); "info" a refused or not-yet-possible action (neutral ⓘ); "warn" a caution
+  // (amber !); "error" a failure (red !, read out at once, stays a little longer). Never the green check for a problem.
+  const kind = TOAST_TONES.has(tone) ? tone : "ok";
+  const glyph = kind === "ok" ? "check" : kind === "info" ? "info" : "warn";
+  t.dataset.tone = kind;
+  t.setAttribute("role", kind === "error" ? "alert" : "status");
+  t.replaceChildren(h("span", { class: `toast-icon${kind === "ok" ? "" : ` ${kind}`}` }, icon(glyph)), h("span", { class: "toast-text" }, text));
   t.hidden = false;
   raiseToast(t);
   placeToast(t);
@@ -304,8 +308,9 @@ export function toast(text, { tone = "ok" } = {}) {
     bannerOut(t).then(() => {
       if (toast.gen === gen) t.hidden = true;
     });
-  }, 2600);
+  }, kind === "error" || kind === "warn" ? 4200 : 2600);
 }
+const TOAST_TONES = new Set(["ok", "info", "warn", "error"]);
 
 const TOAST_CONTROLS = "button, a[href], input, select, textarea, summary, [role=tab], [role=button]";
 
@@ -357,6 +362,7 @@ function raiseToast(t) {
 }
 
 export async function copyText(text, label = "Copied") {
+  let ok = true;
   try {
     await navigator.clipboard.writeText(text);
   } catch {
@@ -364,13 +370,33 @@ export async function copyText(text, label = "Copied") {
     document.body.append(ta);
     ta.select();
     try {
-      document.execCommand("copy");
+      ok = document.execCommand("copy");
     } catch {
-      /* the person can still select the text */
+      ok = false; /* the person can still select the text */
     }
     ta.remove();
   }
-  toast(label);
+  if (ok) toast(label);
+  else toast("This browser blocked copying. Select the text and press Ctrl+C.", { tone: "warn" });
+  return ok;
+}
+
+/** A Copy button that answers on itself too: "Copied" with a check for a moment, then back to its label. */
+export function copyButton(getText, { label = "Copy", done = "Copied", toastLabel = "Copied", cls = "small copy", onCopy, ariaLabel } = {}) {
+  const b = h("button", { type: "button", class: cls, ...(ariaLabel ? { "aria-label": ariaLabel } : {}) }, icon("copy"), label);
+  b.addEventListener("click", async () => {
+    const ok = await copyText(typeof getText === "function" ? getText() : getText, toastLabel);
+    if (!ok) return;
+    onCopy?.();
+    clearTimeout(b._copiedTimer);
+    b.dataset.copied = "true";
+    b.replaceChildren(icon("check"), done);
+    b._copiedTimer = setTimeout(() => {
+      delete b.dataset.copied;
+      b.replaceChildren(icon("copy"), label);
+    }, 1800);
+  });
+  return b;
 }
 
 /** Highlight JSON text (escaped first, so nothing in the data is ever interpreted as HTML). Pure. */
@@ -391,7 +417,7 @@ export function codeBlock(code, { title, json = false, onCopy } = {}) {
   const pre = h("pre", { tabindex: "0" });
   if (json) pre.innerHTML = highlightJson(code);
   else pre.textContent = code;
-  const btn = h("button", { type: "button", class: "small copy", onclick: () => copyText(code).then(() => onCopy?.()) }, icon("copy"), "Copy");
+  const btn = copyButton(code, { onCopy, ariaLabel: title ? `Copy: ${title}` : "Copy" });
   return h("div", { class: "code-block" }, h("div", { class: "code-head" }, h("div", { class: "code-title" }, title ?? ""), btn), h("div", { class: "code" }, pre));
 }
 
@@ -661,6 +687,18 @@ export function sheetPopover({ trigger, title, body, head = [], cls = "", onClos
     d.addEventListener("keydown", onKey);
     d.addEventListener("close", onDlgClose);
     d.addEventListener("click", onBackdrop);
+    // Enter in a one-line field presses the sheet's main (primary) action, as in any form. Fields that use Enter
+    // themselves (search pickers, textareas, a focused button) stop it first or are skipped here.
+    d.onkeydown = (e) => {
+      if (e.key !== "Enter" || e.isComposing || e.defaultPrevented || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+      const el = e.target;
+      if (!(el instanceof HTMLInputElement) || ["checkbox", "radio", "button", "submit", "search", "file"].includes(el.type)) return;
+      if (el.closest("form")) return; // a form inside the sheet handles its own submit
+      const primary = [...d.querySelectorAll(".dialog-actions > button.primary")].pop();
+      if (!primary || primary.disabled) return;
+      e.preventDefault();
+      primary.click();
+    };
     if (!d.open) d.showModal();
     lockScroll(true);
     sheetIn(d, d);
@@ -899,15 +937,17 @@ export function confirmCodeNotice(ticketId, result) {
  * Welcome checklist state from what the Bridge reports plus what this browser remembers. Pure.
  * @returns {Array<{ id: string, done: boolean }>}
  */
-export function checklistState({ demo = false, accounts = [], keys = [], copied = false, tested = false }) {
+export function checklistState({ demo = false, accounts = [], keys = [], chainOpened = false, traded = false, orders = [] }) {
   const brokerConnected = accounts.some((a) => a.broker !== "paper" && a.session?.state === "connected");
-  // Keys made by sign-in links are the dashboard's own, not a key for a tool.
-  const activeKeys = keys.filter((k) => !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) < Date.now()) && !(k.clientKind === "ui" && k.label === SIGN_IN_KEY_LABEL));
+  // A key for a tool: active, not the dashboard's own sign-in key and not an admin key (init makes one of those).
+  const toolKeys = keys.filter((k) => !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) < Date.now()) && !(k.clientKind === "ui" && k.label === SIGN_IN_KEY_LABEL) && !(k.scopes ?? []).includes("admin"));
+  // A paper order the person placed (demo mode seeds a few of its own, tagged DEMOSEED).
+  const placed = orders.some((o) => o?.mode === "paper" && o.tag !== "DEMOSEED");
   return [
     { id: "broker", done: demo || brokerConnected },
-    { id: "key", done: activeKeys.length >= 2 },
-    { id: "snippet", done: Boolean(copied) },
-    { id: "test", done: Boolean(tested) },
+    { id: "key", done: toolKeys.length >= 1 },
+    { id: "chain", done: Boolean(chainOpened) },
+    { id: "trade", done: Boolean(traded) || placed },
   ];
 }
 
