@@ -7755,6 +7755,19 @@ button.wl-sort { min-height: 0; padding: 0; background: none; box-shadow: none; 
 .wl-acts { white-space: nowrap; text-align: right; }
 @media (pointer: coarse) { .wl-sel, .wl-add-in { min-height: 44px; } }
 
+/* "Explain this" (explain.js) on OI Analysis and Volatility: a folded box under the summary tiles. */
+.ex-box { margin-top: 10px; border-radius: var(--r-sm); background: var(--mat-fill-1, hsl(var(--foreground) / 0.03)); padding: 0 12px; }
+.ex-box[hidden] { display: none; }
+.ex-sum { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-height: 36px; padding: 8px 0; cursor: pointer; list-style: none; }
+.ex-sum::-webkit-details-marker { display: none; }
+.ex-sum::before { content: "›"; display: inline-block; width: 12px; transition: transform var(--dur-2) var(--ease-std); }
+.ex-box[open] > .ex-sum::before { transform: rotate(90deg); }
+.ex-title { font: 600 13px/1.2 var(--font-body); }
+.ex-hint { font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.ex-list { margin: 0; padding: 0 0 4px 18px; display: flex; flex-direction: column; gap: 6px; font: 400 13px/1.5 var(--font-body); max-width: 980px; }
+.ex-note { margin: 6px 0 10px; font: 500 12px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+@media (pointer: coarse) { .ex-sum { min-height: 44px; } }
+
 /* ───────────────────────── 13 · RESPONSIVE ───────────────────────── */
 @media (max-width: 1279px) {
   .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }

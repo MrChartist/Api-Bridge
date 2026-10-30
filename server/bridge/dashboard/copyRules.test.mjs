@@ -26,6 +26,8 @@ const NEUTRAL_COPY_FILES = Object.freeze({
   "whatif-core.js": ["SELL"],
   "journal.js": ["buy", "sell"], // the side-tag class names
   "journal-core.js": ["BUY", "SELL"],
+  "explain-core.js": [],
+  "explain.js": [],
   // Screeners › Stocks: the scan library, the builder's values and the results describe numbers, never advice.
   "scanner.js": ["BUY"], // the ATM straddle handed to Strategy Builder names its legs' side
   "scan-builder.js": [],
