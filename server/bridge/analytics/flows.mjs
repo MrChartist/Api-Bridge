@@ -5,18 +5,24 @@
  *
  * Source: NSE's public /api/fiidiiTradeReact, fetched with the backup module's cookie-aware HTTP client (same
  * timeout, browser headers and BridgeError mapping). NSE publishes only the latest session per call, so each fetch is
- * merged into an in-memory history (newest 60 sessions) and `days` is served from that; early after a restart the
- * response may hold fewer than `days` rows (meta.available says how many).
+ * merged by date (newest source wins) into a history of the newest 250 sessions. When deps.paths.dataDir is set the
+ * history is loaded lazily on first use from, and saved atomically (0600) to, <dataDir>/analytics/fii-dii.json; a
+ * corrupt file is moved aside, and disk errors are logged, never surfaced. meta.available counts persisted plus
+ * fetched sessions; rows are always ordered newest date first.
  *
- * deps (all optional): fiiDiiFetcher: async () => rows[] (tests inject this), fetchImpl, clock, config.backup.timeoutMs.
+ * deps (all optional): fiiDiiFetcher: async () => rows[] (tests inject this), fetchImpl, clock, config.backup.timeoutMs,
+ * paths.dataDir, logger.
  */
+import { readFileSync, renameSync } from "node:fs";
+import { join } from "node:path";
+import { writeFileAtomic } from "../auth/fsUtil.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { createHttpClient } from "../backup/httpClient.mjs";
 import { NSE_BASE, nseDateToIso } from "../backup/providers/nse.mjs";
 
 export const FII_DII_URL = `${NSE_BASE}/api/fiidiiTradeReact`;
 export const CACHE_TTL_MS = 5 * 60_000;
-const MAX_HISTORY = 60;
+const MAX_HISTORY = 250;
 const MAX_DAYS = 60;
 const WINDOWS = Object.freeze([1, 5, 10, 20]);
 
@@ -98,8 +104,67 @@ function defaultFetcher(deps) {
 export function flowsRoutes(deps) {
   const fetcher = extra(deps, "fiiDiiFetcher") ?? defaultFetcher(deps);
   const now = () => (extra(deps, "clock")?.now ? deps.clock.now() : Date.now());
+  const dataDir = extra(deps, "paths")?.dataDir;
+  const filePath = dataDir ? join(dataDir, "analytics", "fii-dii.json") : null;
+  const baseLog = extra(deps, "logger");
+  const log = baseLog?.child ? baseLog.child({ module: "fii-dii" }) : baseLog;
+  const warn = (msg, err) => {
+    try {
+      log?.warn?.({ err: err?.message ?? String(err) }, msg);
+    } catch {
+      /* logging must never fail a request */
+    }
+  };
   /** iso date -> session row */
   const history = new Map();
+  let loaded = false;
+
+  const validSide = (x) => x && ["buy", "sell", "net"].every((k) => typeof x[k] === "number" && Number.isFinite(x[k]));
+  const validRow = (r) => r && typeof r.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.date) && validSide(r.fii) && validSide(r.dii);
+  const trim = () => {
+    for (const k of [...history.keys()].sort().reverse().slice(MAX_HISTORY)) history.delete(k);
+  };
+
+  /** Lazy, once: read persisted sessions. Never throws. */
+  function load() {
+    if (loaded) return;
+    loaded = true;
+    if (!filePath) return;
+    let text;
+    try {
+      text = readFileSync(filePath, "utf8");
+    } catch (err) {
+      if (err?.code !== "ENOENT") warn("fii-dii history unreadable; starting empty", err);
+      return;
+    }
+    try {
+      const doc = JSON.parse(text);
+      if (!doc || !Array.isArray(doc.rows)) throw new Error("unexpected shape");
+      for (const r of doc.rows) if (validRow(r)) history.set(r.date, { date: r.date, fii: r.fii, dii: r.dii });
+      trim();
+    } catch (err) {
+      history.clear();
+      warn("fii-dii history file is corrupt; moving it aside", err);
+      try {
+        renameSync(filePath, `${filePath}.corrupt-${now()}`);
+      } catch (e2) {
+        warn("could not move the corrupt fii-dii file aside", e2);
+      }
+    }
+  }
+
+  function save() {
+    if (!filePath) return;
+    try {
+      const rows = sortedRows().map((d) => ({ date: d.date, fii: d.fii, dii: d.dii }));
+      writeFileAtomic(filePath, `${JSON.stringify({ version: 1, rows }, null, 2)}\n`);
+    } catch (err) {
+      warn("could not persist fii-dii history", err);
+    }
+  }
+
+  /** Newest date first; dates are unique keys so the order is total and deterministic. */
+  const sortedRows = () => [...history.values()].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
   let fetchedAt = 0;
   let inflight = null;
 
@@ -112,11 +177,13 @@ export function flowsRoutes(deps) {
       throw new BridgeError("UPSTREAM_ERROR", "The FII/DII fetch failed unexpectedly.", { cause: err });
     }
     for (const e of parseFiiDii(json)) history.set(e.date, e);
-    for (const k of [...history.keys()].sort().reverse().slice(MAX_HISTORY)) history.delete(k);
+    trim();
     fetchedAt = now();
+    save();
   }
 
   async function ensureFresh() {
+    load();
     if (history.size && now() - fetchedAt < CACHE_TTL_MS) return;
     inflight ??= refresh().finally(() => {
       inflight = null;
@@ -136,7 +203,7 @@ export function flowsRoutes(deps) {
       days = Number(raw);
     }
     await ensureFresh();
-    const all = [...history.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
+    const all = sortedRows();
     const rows = all.slice(0, days);
     const stale = now() - fetchedAt >= CACHE_TTL_MS;
     return {
@@ -146,7 +213,7 @@ export function flowsRoutes(deps) {
         rolling: rollingSums(all, WINDOWS.filter((w) => w <= MAX_DAYS)),
         streak: { fii: netStreak(all, "fii"), dii: netStreak(all, "dii") },
       },
-      meta: { requestId: ctx.requestId, source: "nse", fetchedAt: new Date(fetchedAt).toISOString(), requested: days, available: all.length, stale },
+      meta: { requestId: ctx.requestId, source: "nse", fetchedAt: fetchedAt ? new Date(fetchedAt).toISOString() : null, requested: days, available: all.length, stale },
     };
   }
 

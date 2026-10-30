@@ -35,8 +35,9 @@ curl -H "Authorization: Bearer $KEY" \
 
 ## Things to know
 
-- **History is built while the Bridge runs.** OI change, OI spurts and FII/DII keep their snapshots in memory, so
-  right after a restart they have little to compare with. Responses say how much they had (`snapshots`, `available`).
+- **History is built while the Bridge runs.** OI change and OI spurts keep their snapshots in memory, so right after a
+  restart they have little to compare with. FII/DII sessions are saved to `analytics/fii-dii.json` in the data folder
+  (newest 250 sessions) and reloaded after a restart. Responses say how much they had (`snapshots`, `available`).
 - **Computed, not advice.** Gamma exposure assumes dealers are long calls and short puts. The strategy finder's
   probability of profit is a lognormal estimate from ATM IV. Treat both as a guide.
 - **Alert rules** are kept per key in `analytics/alert-rules.json` in the data folder and send through the existing
