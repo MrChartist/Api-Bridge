@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amoWhenText, marketClosedAt, distancePct, exitChipText, pnlAt, slTriggerStart, stopOrderProblem, stopOrderText, gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, kindText, legText, outcomeText, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
+import { amoWhenText, checksForLaterDay, marketClosedAt, distancePct, exitChipText, pnlAt, slTriggerStart, stopOrderProblem, stopOrderText, gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, kindText, legText, outcomeText, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
 
 const leg = (o) => ({ op: "below", trigger: 98.5, role: "stop", trail: null, order: { side: "SELL", quantity: 130, orderType: "MARKET" }, ...o });
 
@@ -142,5 +142,18 @@ describe("after-market orders in words", () => {
     expect(at("2026-10-30T15:29:00+05:30")).toBe(false);
     expect(at("2026-10-30T15:30:00+05:30")).toBe(true);
     expect(at("2026-10-31T11:00:00+05:30")).toBe(true); // Saturday
+  });
+});
+
+describe("checks for an order sent on a later day", () => {
+  it("drops today's daily counters and keeps per-order limits, the kill switch and live gates", () => {
+    const checks = [
+      { code: "DAILY_LIMIT_REACHED", severity: "block", message: "Account demo-paper has a paper loss of ₹31,651.5 today" },
+      { code: "INVALID_ORDER", severity: "block", message: "12 lots is above the per-order limit of 10 lots." },
+      { code: "KILL_SWITCH_ACTIVE", severity: "block", message: "The kill switch is on." },
+      { code: "PAPER_ONLY", severity: "block", message: "Live trading is off" },
+    ];
+    expect(checksForLaterDay(checks).map((c) => c.code)).toEqual(["INVALID_ORDER", "KILL_SWITCH_ACTIVE", "PAPER_ONLY"]);
+    expect(checksForLaterDay(null)).toEqual([]);
   });
 });

@@ -26,7 +26,7 @@ import { depthView } from "./orders-core.js";
 import { whatToDo } from "./reasons-core.js";
 import { watch } from "./live.js";
 import { SPAN_METHOD, marginLegsOf, portfolioMargin } from "./span-margin.js";
-import { gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, marketClosedAt, opFor, slTriggerStart, stopOrderProblem, stopOrderText, triggerBody, triggerProblem } from "./trigger-core.js";
+import { checksForLaterDay, gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, marketClosedAt, opFor, slTriggerStart, stopOrderProblem, stopOrderText, triggerBody, triggerProblem } from "./trigger-core.js";
 
 const SLOT = "mcb.dashboard.desk";
 /** The index underlyings the Options pages list (live) and the three the demo serves; the Option Screener shares them. */
@@ -1907,7 +1907,7 @@ async function renderDesk(kind) {
           return;
         }
         last = r;
-        const checks = [...(r.checks ?? [])].sort((x, y) => (x.severity === "block" ? -1 : 0) - (y.severity === "block" ? -1 : 0));
+        const checks = [...(amo() ? checksForLaterDay(r.checks) : (r.checks ?? []))].sort((x, y) => (x.severity === "block" ? -1 : 0) - (y.severity === "block" ? -1 : 0));
         // What this order risks before it is sent (an opening option order): max loss, breakeven at expiry and, for a
         // sell, the approximate margin. Before charges; the broker's own margin figure is final.
         const q0 = quote();
