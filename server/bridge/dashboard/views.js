@@ -37,8 +37,9 @@ import { analyticsFlowPages } from "./analyticsFlow.js";
 import { DASH, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
-import { initChrome, navGroup, pageRendered, pageShown } from "./chrome.js";
-import { recents } from "./workspace.js";
+import { initChrome, navGroup, pageCodeChip, pageRendered, pageShown, startPage, syncGroupBadges } from "./chrome.js";
+import { addExports } from "./export.js";
+import { codeOf, goKeyTable, recents } from "./workspace.js";
 
 const $ = (id) => document.getElementById(id);
 const local = app.local;
@@ -216,11 +217,14 @@ const pageGlyph = (p) => {
 
 function nav(active) {
   const activeGroup = PAGES.find((p) => p.id === active)?.group ?? null;
+  const goKeys = Object.fromEntries(Object.entries(goKeyTable(PAGES.map((x) => x.id))).map(([k, id]) => [id, k]));
   const link = (p) => {
     const sc = pageShortcut(PAGES.indexOf(p));
+    // The tooltip names the page, its code for the search bar and its keys: "Option chain · OC · g c · Ctrl+7".
+    const tip = [p.label, codeOf(p.id), goKeys[p.id] ? `g ${[...goKeys[p.id]].join(" ")}` : null, sc?.label].filter(Boolean).join(" · ");
     return h(
       "a",
-      { href: `#/${p.id}`, class: `tint-${p.tint}`, "aria-current": p.id === active ? "page" : undefined, "data-page": p.id, title: sc ? `${p.label} (${sc.label})` : p.label, "aria-keyshortcuts": sc?.aria },
+      { href: `#/${p.id}`, class: `tint-${p.tint}`, "aria-current": p.id === active ? "page" : undefined, "data-page": p.id, title: tip, "aria-keyshortcuts": sc?.aria },
       icon(p.icon),
       h("span", { class: "lbl" }, p.label),
       p.id === "orders" ? h("span", { class: "count", id: "nav-tickets", "data-tickets": "", hidden: true }) : null,
@@ -233,6 +237,7 @@ function nav(active) {
   const anim = motionHooks?.animateNav;
   if (typeof anim === "function") anim($("nav"));
   tabbar(active);
+  paintTickets(ticketCount); // the rebuilt counters start hidden: show what is known until the next fetch
 }
 
 /** The phone / tablet tab bar: the four `tab` pages and More (a sheet with every page, appearance and the key). */
@@ -373,7 +378,7 @@ const IST_DAY = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", wee
 async function show({ silent = false } = {}) {
   const raw = location.hash.replace(/^#\/?/, "").split("?")[0];
   // A one-time sign-in fragment (#signin=..., app.js removes it at start-up) is never a page name.
-  const id = (raw && !raw.startsWith("signin=") ? raw : "home").toLowerCase();
+  const id = (raw && !raw.startsWith("signin=") ? raw : startPage()).toLowerCase();
   const page = PAGES.find((p) => p.id === id) ?? PAGES[0];
   const changed = page.id !== shownPage;
   if (silent && changed) return;
@@ -406,7 +411,7 @@ async function show({ silent = false } = {}) {
   document.title = `${page.label} · Mr. Chartist API Bridge`;
   $("toolbar-icon").replaceChildren(pageGlyph(page));
   $("toolbar-label").textContent = page.label;
-  $("page-eyebrow").textContent = page.id === "home" ? IST_DAY.format(new Date()) : page.group;
+  $("page-eyebrow").replaceChildren(page.id === "home" ? IST_DAY.format(new Date()) : page.group, pageCodeChip(page) ?? "");
   $("page-title").replaceChildren(...headline(page));
   $("page-sub").textContent = page.sub;
   $("toolbar-demo").hidden = !app.state.demo;
@@ -470,7 +475,10 @@ function setupA11y() {
   if (!$("route-announcer")) document.body.append(h("div", { id: "route-announcer", class: "pal-sr-only", role: "status", "aria-live": "polite", "aria-atomic": "true" }));
   const content = $("content");
   content.setAttribute("aria-labelledby", "page-title");
-  const mo = new MutationObserver(() => labelTables(content));
+  const mo = new MutationObserver(() => {
+    labelTables(content);
+    addExports(content, toast); // CSV and Copy TSV above every table (export.js); a table opts out with data-noexport
+  });
   mo.observe(content, { childList: true, subtree: true });
 }
 
@@ -514,14 +522,19 @@ function go(id, focusSelector) {
   else location.hash = hash;
 }
 
-async function refreshTicketCount() {
-  const r = await optional(api("/v1/tickets"));
-  const n = r.data?.data?.length ?? 0;
+let ticketCount = 0;
+function paintTickets(n) {
   for (const el of document.querySelectorAll("[data-tickets]")) {
     el.hidden = n === 0;
     el.textContent = formatInt(n);
     el.setAttribute("aria-label", `${n} waiting`);
   }
+  syncGroupBadges(); // a folded group shows the total on its own header
+}
+async function refreshTicketCount() {
+  const r = await optional(api("/v1/tickets"));
+  ticketCount = r.data?.data?.length ?? 0;
+  paintTickets(ticketCount);
 }
 
 // Motion helpers (animatePage / animateNav), when motion.js provides them. Loaded lazily so Node tests never touch it.
@@ -530,7 +543,7 @@ let motionHooks = null;
 export async function startRouter() {
   setupA11y();
   setupChrome();
-  initChrome({ go, reload: () => show(), silentReload: () => show({ silent: true }) });
+  initChrome({ go, reload: () => show(), silentReload: () => show({ silent: true }), pages: () => PAGES });
   initPalette({ pages: () => PAGES, go, refresh: () => show(), currentPage: () => shownPage });
   try {
     motionHooks = await import("./motion.js");

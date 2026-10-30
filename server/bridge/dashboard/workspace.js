@@ -184,6 +184,13 @@ export function createNavState(store = safeStore("local")) {
   return {
     isOpen: (group, activeGroup) => group === activeGroup || !collapsed.has(group),
     isCollapsedPref: (group) => collapsed.has(group),
+    /** The saved collapsed group names. */
+    collapsed: () => [...collapsed],
+    /** Replace the saved choice (a layout being applied). */
+    replace(groups) {
+      collapsed = new Set((Array.isArray(groups) ? groups : []).filter((g) => typeof g === "string"));
+      save();
+    },
     /** Flip a group. Returns the new open state of its saved choice. */
     toggle(group) {
       if (collapsed.has(group)) collapsed.delete(group);
@@ -297,15 +304,16 @@ export function marketStatus(now = Date.now()) {
 // ───────────────────────── Vim-style navigation ─────────────────────────
 
 /**
- * The second key of "g then <key>" for each page id. Mnemonic where it can be (g o = OI, g g = gamma, g c = chain);
- * a page missing from this table simply has no shortcut. Letters b and q are left free.
+ * What follows "g" for each page id: one key where a free letter exists, else a two-letter code (g e x = Exposure,
+ * g s c = Screener). A key may never be the start of a longer one (that would be ambiguous), so Scanner is "sn" and
+ * Expiry day "ed", leaving "s" and "e" as prefixes only. goKeyTable() enforces that for any table it is given.
  */
 export const GO_KEYS = Object.freeze({
   home: "h",
   accounts: "a",
   console: "t",
   limits: "r",
-  scanner: "s",
+  scanner: "sn",
   orders: "d",
   safety: "k",
   keys: "y",
@@ -319,7 +327,7 @@ export const GO_KEYS = Object.freeze({
   calculators: "x",
   futures: "f",
   flows: "l",
-  expiry: "e",
+  expiry: "ed",
   oichange: "n",
   strategies: "m",
   greeksgrid: "w",
@@ -327,50 +335,115 @@ export const GO_KEYS = Object.freeze({
   positions: "z",
   unusual: "b",
   tide: "q",
+  exposure: "ex",
+  screener: "sc",
 });
 
-/** { key: pageId } for the pages that exist (so a removed page frees its key). Pure. */
+/**
+ * A unique 2 to 4 letter code for every page, shown in the nav tooltip and the page header and typed in the command
+ * line ("banknifty oc", "oi nifty", "help gx"). None may equal EQ, FUT, OPT or HELP (see ASSET_TOKENS).
+ */
+export const PAGE_CODES = Object.freeze({
+  home: "HM",
+  accounts: "ACT",
+  console: "CON",
+  limits: "RL",
+  scanner: "SCN",
+  orders: "ORD",
+  safety: "SAF",
+  keys: "KEY",
+  integrations: "INT",
+  activity: "LOG",
+  chain: "OC",
+  oi: "OI",
+  gex: "GX",
+  skew: "SK",
+  payoff: "PAY",
+  calculators: "CALC",
+  futures: "FTR",
+  flows: "FII",
+  expiry: "XD",
+  oichange: "OIC",
+  strategies: "STR",
+  greeksgrid: "GRK",
+  alerts: "ALR",
+  positions: "POS",
+  unusual: "UOA",
+  tide: "TIDE",
+  exposure: "EXP",
+  screener: "SCR",
+});
+export const codeOf = (id) => PAGE_CODES[id] ?? null;
+/** { CODE: pageId } for the pages that exist. Pure. */
+export function codeTable(pageIds, map = PAGE_CODES) {
+  const have = new Set(pageIds);
+  const out = {};
+  for (const [id, code] of Object.entries(map)) if (have.has(id) && !(code in out)) out[code] = id;
+  return out;
+}
+
+/** { key: pageId } for the pages that exist (so a removed page frees its key). A key that starts a longer one is dropped. Pure. */
 export function goKeyTable(pageIds, map = GO_KEYS) {
   const have = new Set(pageIds);
   const out = {};
   for (const [id, key] of Object.entries(map)) if (have.has(id) && !(key in out)) out[key] = id;
+  const keys = Object.keys(out);
+  for (const k of keys) if (keys.some((o) => o !== k && o.startsWith(k))) delete out[k];
   return out;
 }
 
 /**
- * A two-key sequence recogniser: the leader key (g) arms it, the next key within `timeoutMs` picks the page.
- * It never fires while the person is typing: the caller reports that with `typing: true`, which also disarms it.
- * `feed` returns { kind: "none" } (not ours, let the key through), { kind: "pending" } or { kind: "go", id }.
+ * A key-sequence recogniser: the leader key (g) arms it, then one or two keys (within `timeoutMs` of the previous key)
+ * pick the page. A key that is a whole code ends the sequence at once; a key that only starts longer codes waits for
+ * the next one, so one- and two-key codes never clash. It never fires while the person is typing: the caller reports
+ * that with `typing: true`, which also disarms it.
+ * `feed` returns { kind: "none" } (not ours, let the key through), { kind: "pending", typed } or { kind: "go", id }.
  */
 export function createSequencer({ table, leader = "g", timeoutMs = 1500, now = () => Date.now() }) {
-  let armedAt = null;
+  let armedAt = null; // when the last key of the sequence arrived
+  let typed = ""; // keys after the leader so far
   const tableRef = () => (typeof table === "function" ? table() : table);
+  const reset = () => {
+    armedAt = null;
+    typed = "";
+  };
   return {
     isPending: () => armedAt !== null && now() - armedAt <= timeoutMs,
-    cancel() {
-      armedAt = null;
-    },
+    typed: () => typed,
+    cancel: reset,
     feed(key, { typing = false, modifier = false, shift = false, repeat = false } = {}) {
       if (typing || modifier) {
-        armedAt = null;
+        reset();
         return { kind: "none" };
       }
       if (repeat) return { kind: armedAt === null ? "none" : "pending" };
       const k = String(key ?? "");
       const live = armedAt !== null && now() - armedAt <= timeoutMs;
       if (!live) {
-        armedAt = null;
+        reset();
         if (k === leader && !shift) {
           armedAt = now();
           return { kind: "pending" };
         }
         return { kind: "none" };
       }
-      armedAt = null;
-      if (k === "Escape") return { kind: "none" };
-      if (shift || k.length !== 1) return { kind: "none" };
-      const id = tableRef()[k.toLowerCase()];
-      return id ? { kind: "go", id } : { kind: "none" };
+      if (k === "Escape" || shift || k.length !== 1) {
+        reset();
+        return { kind: "none" };
+      }
+      const next = typed + k.toLowerCase();
+      const t = tableRef();
+      if (next in t) {
+        reset();
+        return { kind: "go", id: t[next] };
+      }
+      if (Object.keys(t).some((code) => code.startsWith(next))) {
+        typed = next;
+        armedAt = now();
+        return { kind: "pending" };
+      }
+      reset();
+      return { kind: "none" };
     },
   };
 }
@@ -412,6 +485,16 @@ export const PAGE_KEYWORDS = Object.freeze({
 /** Pages whose content is data only, so re-running their loader on a timer is safe (no forms or half-typed input). */
 export const AUTO_REFRESH_PAGES = Object.freeze(["home", "limits", "orders", "activity", "chain", "oi", "gex", "skew", "futures", "flows", "expiry", "oichange", "greeksgrid", "unusual", "tide", "exposure"]);
 export const isAutoRefreshable = (id) => AUTO_REFRESH_PAGES.includes(id);
+
+/**
+ * Pages built around a form (their own inputs, drafts or results the person is working on). Changing the context bar
+ * must not re-run their loader: they keep their state and just read the new context when the person next runs them.
+ * Every other page is a data page and is redrawn with the new context.
+ */
+export const FORM_PAGES = Object.freeze(["payoff", "calculators", "strategies", "alerts", "positions"]);
+export const isFormPage = (id) => FORM_PAGES.includes(id);
+/** The page on screen (set by chrome.js), so shared controls can tell a form page from a data page. */
+export const nowShowing = { id: null };
 
 // ───────────────────────── auto-refresh ─────────────────────────
 

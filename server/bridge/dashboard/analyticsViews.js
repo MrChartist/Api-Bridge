@@ -10,7 +10,7 @@
 // error display) live in views.js and are handed in lazily so this file never imports views.js.
 import { api, app, emptyState, h, icon, istTime, pill, table } from "./app.js";
 import { DASH, formatFixed, formatInt, formatNumber, formatSigned, isFigure } from "./format.js";
-import { UNDERLYING_CHIPS, workspace } from "./workspace.js";
+import { UNDERLYING_CHIPS, isFormPage, nowShowing, workspace } from "./workspace.js";
 
 // ───────────────────────── pure helpers ─────────────────────────
 
@@ -453,8 +453,15 @@ export const tiles = (...t) => h("div", { class: "grid cols-4 stats" }, t);
 /**
  * Underlying, expiry and strikes controls. `onChange()` runs after any change; `expiry()` etc. read the choice.
  * Loads the expiry list from /v1/expiries (errors go to `onError`).
+ *
+ * The header's context bar is the one place to choose underlying, expiry and strikes on an Analytics page, so by default
+ * these three fields are kept (they hold the page's working values) but hidden, and a one-line summary says what is in
+ * use. `local: true` keeps them visible for a page whose form needs an explicit target of its own (Alert rules).
+ * On a form page the controls follow the bar without re-running the page: the expiry list is refreshed quietly and
+ * `onContext()` (if given) runs, but `onChange` does not, so drafts and results stay as they are. Data pages are
+ * redrawn by the router when the bar changes, so they need no following.
  */
-export function chainControls(H, { onChange, onError, withStrikes = true, strikeChoices = STRIKE_CHOICES }) {
+export function chainControls(H, { onChange, onError, withStrikes = true, strikeChoices = STRIKE_CHOICES, local = false, onContext }) {
   const uId = nextId("an-u");
   const eId = nextId("an-e");
   const kId = nextId("an-k");
@@ -466,7 +473,7 @@ export function chainControls(H, { onChange, onError, withStrikes = true, strike
   const expiryField = H.field("Expiry", expiry);
   const underlyingField = H.field("Underlying", underlying);
   const strikesField = withStrikes ? H.field("Strikes", strikes) : null;
-  const loadExpiries = async () => {
+  const loadExpiries = async ({ quiet = false } = {}) => {
     selection.underlying = underlying.value.trim().toUpperCase() || "NIFTY";
     underlying.value = selection.underlying;
     expiry.disabled = true;
@@ -480,7 +487,7 @@ export function chainControls(H, { onChange, onError, withStrikes = true, strike
     } catch (err) {
       expiry.replaceChildren(h("option", { value: "" }, "Unavailable"));
       selection.expiry = "";
-      onError?.(err);
+      if (!quiet) onError?.(err);
       expiry.disabled = false;
       return false;
     }
@@ -498,19 +505,57 @@ export function chainControls(H, { onChange, onError, withStrikes = true, strike
     selection.strikes = Number(strikes.value);
     onChange();
   });
-  const node = h("div", { class: "form-grid analytics-controls" }, underlyingField, list, expiryField, strikesField, h("div", { class: "field" }, h("span", { class: "pal-sr-only" }, "Refresh"), refresh));
+  for (const f of [underlyingField, expiryField, strikesField]) f?.classList.add("ctx-owned"); // hidden by CSS while the context bar owns them
+  const summary = h("p", { class: "ctx-summary" });
+  const node = h("div", { class: `form-grid analytics-controls${local ? "" : " ctx-managed"}` }, local ? null : summary, underlyingField, list, expiryField, strikesField, h("div", { class: "field" }, h("span", { class: "pal-sr-only" }, "Refresh"), refresh));
+  const paintSummary = () => {
+    const bits = [h("b", {}, selection.underlying)];
+    if (!expiryField.hidden) bits.push(h("span", {}, selection.expiry || "no expiry"));
+    if (strikesField && !strikesField.hidden) bits.push(h("span", {}, `±${selection.strikes} strikes`));
+    summary.replaceChildren(...bits.flatMap((b, i) => (i ? [h("i", { "aria-hidden": "true" }, "·"), b] : [b])), h("span", { class: "ctx-summary-hint" }, "Change these in the context bar above."));
+  };
+  paintSummary();
+  let seen = false;
+  let syncing = false;
+  const unsubscribe = workspace.subscribe(async (_now, changed) => {
+    paintSummary(); // also while the page is still loading (the default expiry arrives before the node is attached)
+    if (!node.isConnected) {
+      if (seen) unsubscribe();
+      return;
+    }
+    seen = true;
+    if (syncing || !isFormPage(nowShowing.id)) return; // a data page is redrawn by the router instead
+    syncing = true;
+    try {
+      if (changed.includes("underlying")) {
+        underlying.value = selection.underlying;
+        await loadExpiries({ quiet: true });
+      } else if (changed.includes("expiry") && selection.expiry && expiry.value !== selection.expiry) {
+        if (![...expiry.options].some((o) => o.value === selection.expiry)) expiry.append(h("option", { value: selection.expiry }, selection.expiry));
+        expiry.value = selection.expiry;
+      }
+      if (changed.includes("strikes") && ![...strikes.options].some((o) => o.value === String(selection.strikes))) strikes.append(h("option", { value: String(selection.strikes) }, `${selection.strikes} each side`));
+      strikes.value = String(selection.strikes);
+      paintSummary();
+      onContext?.();
+    } finally {
+      syncing = false;
+    }
+  });
   return {
     node,
     init: loadExpiries,
     values: () => ({ underlying: selection.underlying, expiry: expiry.value || selection.expiry, strikes: selection.strikes }),
     showExpiry: (on) => {
       expiryField.hidden = !on;
+      paintSummary();
     },
     /** Show only the fields a page needs: { underlying, expiry, strikes } (true shows, false hides). */
     show: ({ underlying: u = true, expiry: e = true, strikes: k = true } = {}) => {
       underlyingField.hidden = !u;
       expiryField.hidden = !e;
       if (strikesField) strikesField.hidden = !k;
+      paintSummary();
     },
   };
 }

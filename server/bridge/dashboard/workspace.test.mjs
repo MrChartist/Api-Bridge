@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { GO_KEYS, PAGE_KEYWORDS, REFRESH_CHOICES, backoffDelay, createContext, createNavState, createRecents, createRefresher, createDensity, createSequencer, expiryNote, formatCountdown, goKeyTable, isAutoRefreshable, marketStatus, normalizeContext, normalizeUnderlying, pushRecent, safeStore, stampText, upcomingExpiries } from "./workspace.js";
+import { FORM_PAGES, GO_KEYS, PAGE_CODES, PAGE_KEYWORDS, codeTable, isFormPage, REFRESH_CHOICES, backoffDelay, createContext, createNavState, createRecents, createRefresher, createDensity, createSequencer, expiryNote, formatCountdown, goKeyTable, isAutoRefreshable, marketStatus, normalizeContext, normalizeUnderlying, pushRecent, safeStore, stampText, upcomingExpiries } from "./workspace.js";
 
 /** A Storage stand-in. `broken` makes every call throw, like blocked storage. */
 const memory = (broken = false) => {
@@ -183,12 +183,57 @@ describe("Vim-style navigation", () => {
   const table = goKeyTable(pages);
   it("maps g then o to OI and g then g to gamma, only for pages that exist", () => {
     expect(table).toEqual({ h: "home", o: "oi", g: "gex", c: "chain", p: "payoff" });
+    expect(goKeyTable(["scanner", "screener", "expiry", "exposure"])).toEqual({ sn: "scanner", sc: "screener", ed: "expiry", ex: "exposure" });
     expect(goKeyTable(["new-page"])).toEqual({});
   });
   it("gives every page its own key", () => {
     const keys = Object.values(GO_KEYS);
     expect(new Set(keys).size).toBe(keys.length);
     expect(Object.keys(GO_KEYS).every((id) => id in PAGE_KEYWORDS)).toBe(true);
+  });
+  it("gives every page a code and no key is the start of another", () => {
+    const all = goKeyTable(Object.keys(GO_KEYS));
+    expect(Object.keys(all).length).toBe(Object.keys(GO_KEYS).length);
+    expect(Object.keys(all).every((k) => k.length <= 2)).toBe(true);
+    expect(all.ex).toBe("exposure");
+    expect(all.sc).toBe("screener");
+    for (const a of Object.keys(all)) for (const b of Object.keys(all)) if (a !== b) expect(b.startsWith(a)).toBe(false);
+    // a clashing table loses the shorter key rather than becoming ambiguous
+    expect(goKeyTable(["a", "b"], { a: "e", b: "ex" })).toEqual({ ex: "b" });
+    const codes = Object.values(PAGE_CODES);
+    expect(new Set(codes).size).toBe(codes.length);
+    expect(codes.every((c) => /^[A-Z]{2,4}$/.test(c) && !["EQ", "FUT", "OPT", "HELP"].includes(c))).toBe(true);
+    expect(Object.keys(PAGE_CODES).sort()).toEqual(Object.keys(GO_KEYS).sort());
+    expect(codeTable(["chain", "oi"])).toEqual({ OC: "chain", OI: "oi" });
+  });
+  it("supports one- and two-key sequences unambiguously (g e x, g s c, g c)", () => {
+    const t2 = goKeyTable(Object.keys(GO_KEYS));
+    let t = 0;
+    const s = createSequencer({ table: t2, now: () => t });
+    s.feed("g");
+    expect(s.feed("e")).toEqual({ kind: "pending" }); // e only starts ex and ed
+    expect(s.typed()).toBe("e");
+    expect(s.feed("x")).toEqual({ kind: "go", id: "exposure" });
+    s.feed("g");
+    s.feed("s");
+    expect(s.feed("c")).toEqual({ kind: "go", id: "screener" });
+    s.feed("g");
+    s.feed("s");
+    expect(s.feed("n")).toEqual({ kind: "go", id: "scanner" });
+    s.feed("g");
+    expect(s.feed("c")).toEqual({ kind: "go", id: "chain" }); // a whole one-key code fires at once
+    s.feed("g");
+    s.feed("e");
+    expect(s.feed("z")).toEqual({ kind: "none" }); // dead end disarms
+    expect(s.isPending()).toBe(false);
+    s.feed("g");
+    s.feed("e");
+    t = 2000; // the second key came too late
+    expect(s.feed("x")).toEqual({ kind: "none" });
+  });
+  it("form pages are the five Analytics forms", () => {
+    expect([...FORM_PAGES].sort()).toEqual(["alerts", "calculators", "payoff", "positions", "strategies"]);
+    expect(isFormPage("chain")).toBe(false);
   });
   it("arms on g, then goes on the second key", () => {
     let t = 0;
@@ -224,6 +269,15 @@ describe("Vim-style navigation", () => {
     s.feed("g");
     expect(s.feed("g", { repeat: true })).toEqual({ kind: "pending" });
     expect(s.feed("O", { shift: true })).toEqual({ kind: "none" });
+  });
+});
+
+describe("every page is classified for refresh", () => {
+  it("is refreshable, a form page, or deliberately manual (so a new page must be decided)", () => {
+    const manual = ["accounts", "console", "safety", "keys", "integrations", "scanner", "screener"]; // forms, tokens, filters or secrets: Reload only
+    for (const id of Object.keys(PAGE_CODES)) expect(isAutoRefreshable(id) || isFormPage(id) || manual.includes(id), id).toBe(true);
+    expect(isAutoRefreshable("exposure")).toBe(true);
+    for (const id of FORM_PAGES) expect(isAutoRefreshable(id), id).toBe(false);
   });
 });
 

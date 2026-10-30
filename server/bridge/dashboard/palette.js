@@ -1,8 +1,9 @@
 // Command palette (Spotlight style) and keyboard shortcuts for the dashboard.
 // Browser only: nothing here touches the DOM until initPalette() runs (views.js calls it from startRouter()).
 import { chooseTheme, copyText, h, icon, iconTile, lockScroll, modal, toast } from "./app.js";
-import { openExpirySheet, setKeyHint, setRefreshInterval, setUnderlying, toggleDensity } from "./chrome.js";
-import { PAGE_KEYWORDS, REFRESH_CHOICES, UNDERLYING_CHIPS, createSequencer, goKeyTable, recents, workspace } from "./workspace.js";
+import { applyLayout, exportSavedLayouts, historyBack, historyForward, openExpirySheet, openHelp, openLayouts, resetHomePage, savedLayouts, setHomePage, setKeyHint, setRefreshInterval, setUnderlying, toggleDensity } from "./chrome.js";
+import { PAGE_KEYWORDS, REFRESH_CHOICES, UNDERLYING_CHIPS, createSequencer, codeOf, goKeyTable, nowShowing, recents, workspace } from "./workspace.js";
+import { parseCommand } from "./terminal.js";
 
 /** True on Apple platforms, where shortcuts use ⌘ instead of Ctrl. */
 export const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "");
@@ -109,11 +110,12 @@ function commands() {
     id: `page-${p.id}`,
     group: "Pages",
     label: p.label,
-    keywords: `${p.title} ${p.sub} ${p.group} ${p.id} ${PAGE_KEYWORDS[p.id] ?? ""} go open page`,
+    keywords: `${p.title} ${p.sub} ${p.group} ${p.id} ${codeOf(p.id) ?? ""} ${PAGE_KEYWORDS[p.id] ?? ""} go open page`,
     icon: p.icon,
     tint: p.tint,
     sub: p.sub,
-    hint: keyOf(p.id) ? ["g", keyOf(p.id)] : i < 9 ? [mod, String(i + 1)] : null,
+    code: codeOf(p.id),
+    hint: keyOf(p.id) ? ["g", ...keyOf(p.id)] : i < 9 ? [mod, String(i + 1)] : null,
     run: () => ctx.go(p.id),
   }));
   // The last few pages visited (not the one open now), only while the search box is empty.
@@ -139,6 +141,11 @@ function commands() {
     { id: "theme-auto", label: "Theme: Auto (match system)", keywords: "appearance system", icon: "monitor", tint: "gray", run: () => setTheme("auto") },
     { id: "copy-url", label: "Copy dashboard URL", keywords: "link address share", icon: "copy", tint: "gray", run: () => copyText(`${location.origin}/dashboard`, "Dashboard URL copied") },
     { id: "refresh", label: "Refresh this page", keywords: "reload update data", icon: "refresh", tint: "gray", run: () => ctx.refresh() },
+    { id: "layouts", label: "Layouts…", sub: "Save, load, export or import named workspaces", keywords: "layout layouts preset workspace save load export import", icon: "list", tint: "indigo", opensDialog: true, run: () => openLayouts() },
+    { id: "history-back", label: "Back", sub: "To the previous page and context", keywords: "history back previous", icon: "chevron", tint: "gray", hint: ["["], run: () => historyBack() },
+    { id: "history-fwd", label: "Forward", sub: "To the next page and context", keywords: "history forward next", icon: "chevron", tint: "gray", hint: ["]"], run: () => historyForward() },
+    { id: "set-home", label: "Start page: use this page", sub: "Open here when the address names no page", keywords: "home start landing default page", icon: "home", tint: "blue", run: () => setHomePage() },
+    { id: "page-help", label: "Help for this page", sub: "What it is for and what its fields mean (also: help <code>)", keywords: "help ? explain docs guide fields", icon: "info", tint: "gray", opensDialog: true, run: () => openHelp(nowShowing.id) },
     { id: "shortcuts", label: "Keyboard shortcuts", keywords: "help keys hotkeys vim go", icon: "info", tint: "gray", hint: ["?"], opensDialog: true, run: () => showShortcuts() },
   ].map((a) => ({ ...a, group: "Actions" }));
   // Shown only when searching: one command per quick underlying, and each auto-refresh cadence.
@@ -166,6 +173,12 @@ function commands() {
         toast(r.ms ? `Auto-refresh every ${r.short}` : "Auto-refresh off");
       },
     })),
+    { id: "layout-save", group: "Actions", label: "Layout: Save current…", sub: "Name this workspace to keep it", keywords: "layout save preset workspace", icon: "list", tint: "indigo", opensDialog: true, run: () => openLayouts({ focus: "save" }) },
+    { id: "layout-manage", group: "Actions", label: "Layout: Manage…", sub: "Load, delete, export or import", keywords: "layout manage load delete import export", icon: "list", tint: "indigo", opensDialog: true, run: () => openLayouts({ focus: "none" }) },
+    { id: "layout-export", group: "Actions", label: "Layout: Export all (JSON file)", keywords: "layout export download backup json", icon: "copy", tint: "indigo", run: () => exportSavedLayouts() },
+    { id: "layout-import", group: "Actions", label: "Layout: Import from a JSON file…", sub: "Opens the layouts dialog", keywords: "layout import upload restore json", icon: "inbox", tint: "indigo", opensDialog: true, run: () => openLayouts({ focus: "none" }) },
+    ...savedLayouts().map((l) => ({ id: `layout-load-${l.name}`, group: "Actions", label: `Layout: ${l.name}`, sub: `Load ${l.underlying}${l.expiry ? ` ${l.expiry}` : ""}, ±${l.strikes}, ${l.density}`, keywords: "layout load preset workspace", icon: "list", tint: "indigo", navigates: true, run: () => applyLayout(l) })),
+    { id: "reset-home", group: "Actions", label: "Reset start page to Home", keywords: "home start landing default page reset", icon: "home", tint: "blue", run: () => resetHomePage() },
   ].map((x) => ({ ...x, searchOnly: true }));
   return [...recent, ...pageCmds, ...actions, ...searchOnly];
 }
@@ -178,8 +191,8 @@ function build() {
     "aria-expanded": "true",
     "aria-controls": "palette-list",
     "aria-autocomplete": "list",
-    "aria-label": "Search pages and actions",
-    placeholder: "Search pages, actions, underlyings",
+    "aria-label": "Search pages and actions, or type a command such as banknifty oc",
+    placeholder: "Search, or type a command: banknifty oc · oi nifty · help gx",
     autocomplete: "off",
     spellcheck: "false",
   });
@@ -219,12 +232,51 @@ function build() {
   document.body.append(dlg);
 }
 
+/**
+ * "banknifty oc", "oi nifty", "reliance fut" or "help gx" as a command (terminal.js has the grammar). It is offered as the
+ * first result, except when its symbol is also an ordinary word of a page name ("oi change"), where the page match stays first.
+ */
+function commandResult(q) {
+  const pages = ctx.pages();
+  const cmd = parseCommand(q, pages.map((p) => p.id));
+  if (!cmd) return null;
+  if (cmd.kind === "help") {
+    if (!cmd.id) return { item: { id: "cmd-help", group: "Actions", label: "Help", sub: "Type help <page code>, for example help oc", icon: "info", tint: "gray", opensDialog: true, run: () => showShortcuts() } };
+    const p = pages.find((x) => x.id === cmd.id);
+    return { item: { id: `cmd-help-${cmd.id}`, group: "Actions", label: `Help: ${cmd.code}`, sub: `What ${p.title} is for and what its fields mean`, icon: "info", tint: "blue", opensDialog: true, run: () => openHelp(cmd.id) } };
+  }
+  const p = pages.find((x) => x.id === cmd.id);
+  const word = cmd.symbol?.toLowerCase();
+  const isWord = word && !UNDERLYING_CHIPS.includes(cmd.symbol) && pages.some((x) => `${x.label} ${x.title} ${x.sub} ${PAGE_KEYWORDS[x.id] ?? ""}`.toLowerCase().split(/\W+/).includes(word));
+  const sym = cmd.symbol ? ` · ${cmd.symbol}` : "";
+  return {
+    afterFirst: Boolean(isWord),
+    item: {
+      id: "cmd-go",
+      group: "Actions",
+      label: `${cmd.code}${sym}${cmd.asset ? ` · ${cmd.asset}` : ""}`,
+      sub: `${p.title}${cmd.symbol ? `, underlying set to ${cmd.symbol}` : ""}${cmd.hints.length ? `. ${cmd.hints[0]}` : ""}`,
+      icon: p.icon,
+      tint: p.tint,
+      navigates: true,
+      kind: "Command",
+      run: () => {
+        if (cmd.symbol) setUnderlying(cmd.symbol, { navigateTo: p.id });
+        else ctx.go(p.id);
+        if (cmd.hints.length) toast(cmd.hints[0]);
+      },
+    },
+  };
+}
+
 function draw() {
   const q = input.value.trim();
   results = rank(commands().filter((c) => (q ? !c.emptyOnly : !c.searchOnly)), input.value);
   // "underlying reliance" (or "go to underlying X"): any symbol, not only the five quick picks (a prefix of a quick pick, like "fin", finds the pick instead).
   const sym = SYMBOL_QUERY.exec(q)?.[1]?.toUpperCase();
   if (sym && !UNDERLYING_CHIPS.some((u) => u.startsWith(sym))) results.unshift({ id: `underlying-custom`, group: "Actions", label: `Go to underlying ${sym}`, sub: `Use ${sym} on every Analytics page`, icon: "chart", tint: "orange", run: () => goUnderlying(sym) });
+  const cmd = commandResult(q);
+  if (cmd) results.splice(cmd.afterFirst && results.length ? 1 : 0, 0, cmd.item);
   if (activeIndex >= results.length) activeIndex = Math.max(0, results.length - 1);
   const items = [];
   let group = null;
@@ -241,10 +293,10 @@ function draw() {
       h(
         "span",
         { class: "palette-text" },
-        h("span", { class: "palette-label" }, c.label, input.value.trim() ? h("span", { class: "palette-kind" }, c.group === "Pages" || c.group === "Recent" ? "Page" : "Action") : null),
+        h("span", { class: "palette-label" }, c.label, input.value.trim() ? h("span", { class: "palette-kind" }, c.kind ?? (c.group === "Pages" || c.group === "Recent" ? "Page" : "Action")) : null),
         c.sub ? h("span", { class: "palette-sub" }, c.sub) : null,
       ),
-      hint ? h("span", { class: "palette-right", "aria-hidden": "true" }, hint) : null,
+      hint || c.code ? h("span", { class: "palette-right", "aria-hidden": "true" }, c.code ? h("span", { class: "palette-code" }, c.code) : null, hint) : null,
     );
     li.addEventListener("mousemove", () => {
       if (activeIndex !== i) {
@@ -303,7 +355,7 @@ function onKey(e) {
 function runAt(i) {
   const c = results[i];
   if (!c) return;
-  const navigates = c.group === "Pages" || c.group === "Recent" || c.opensDialog || c.id.startsWith("underlying-") || ["scan", "kill", "key", "console", "paper"].includes(c.id);
+  const navigates = c.navigates || c.group === "Pages" || c.group === "Recent" || c.opensDialog || c.id.startsWith("underlying-") || ["scan", "kill", "key", "console", "paper"].includes(c.id);
   closePalette({ restore: !navigates });
   c.run();
 }
@@ -338,7 +390,11 @@ export function shortcutList() {
     { keys: [mod, "K"], what: "Search pages and actions" },
     { keys: ["/"], what: "Search (when not typing in a field)" },
     { keys: ["?"], what: "Show these shortcuts" },
-    { keys: ["g", "then a key"], what: "Go to a page (Vim style), see the list below" },
+    { keys: ["g", "then 1 or 2 keys"], what: "Go to a page (Vim style), for example g c or g e x; see the list below" },
+    { keys: ["["], what: "Back to the previous page and context" },
+    { keys: ["]"], what: "Forward" },
+    { keys: ["help oc"], what: "In search: type help or ? and a page code to open that page's help" },
+    { keys: ["banknifty oc"], what: "In search: a symbol and a page code (either order) sets the underlying and opens the page; add EQ, FUT or OPT for the instrument type" },
     ...(pages.length ? [{ keys: [mod, "1 to 9"], what: `Go to the first nine pages, in sidebar order (${pages.slice(0, 3).map((p) => p.label).join(", ")} ...)` }] : []),
     { keys: ["↑", "↓"], what: "Move through search results" },
     { keys: ["↵"], what: "Open the selected result" },
@@ -352,7 +408,7 @@ export function goShortcutList() {
   const pages = ctx?.pages() ?? [];
   const table = goKeyTable(pages.map((p) => p.id));
   const keyOf = Object.fromEntries(Object.entries(table).map(([k, id]) => [id, k]));
-  return pages.filter((p) => keyOf[p.id]).map((p) => ({ key: keyOf[p.id], id: p.id, label: p.label, group: p.group }));
+  return pages.filter((p) => keyOf[p.id]).map((p) => ({ key: keyOf[p.id], id: p.id, label: p.label, group: p.group, code: codeOf(p.id) }));
 }
 
 export function showShortcuts() {
@@ -394,10 +450,10 @@ function goSection() {
         "div",
         { class: "go-group" },
         h("div", { class: "eyebrow" }, g),
-        h("ul", { class: "go-list" }, all.filter((x) => x.group === g).map((x) => h("li", {}, kbd(x.key), h("span", {}, x.label)))),
+        h("ul", { class: "go-list" }, all.filter((x) => x.group === g).map((x) => h("li", {}, kbd(...x.key), h("span", {}, x.label), x.code ? h("span", { class: "go-code" }, x.code) : null))),
       ),
     ),
-    h("p", { class: "muted small" }, "These keys never fire while you are typing in a field. Press Esc to cancel after g."),
+    h("p", { class: "muted small" }, "These keys never fire while you are typing in a field. Press Esc to cancel after g. The grey code on the right is the page's code for the search bar (for example banknifty oc)."),
   );
 }
 
@@ -431,7 +487,7 @@ function onGlobalKey(e) {
     return;
   }
   if (/^(Shift|Control|Alt|Meta|CapsLock|AltGraph)$/.test(e.key)) return;
-  const blocked = e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target) || dlg?.open || otherDialogOpen();
+  const blocked = e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target) || dlg?.open || otherDialogOpen() || Boolean(document.querySelector("dialog[open]"));
   // Vim-style "g then a key": never while typing in a field or with a dialog open (that also disarms the g).
   const step = sequencer().feed(e.key, { typing: blocked, shift: e.shiftKey, repeat: e.repeat });
   if (blocked) {
@@ -448,7 +504,11 @@ function onGlobalKey(e) {
     ctx.go(step.id);
     return;
   }
-  if (e.key === "/") {
+  if ((e.key === "[" || e.key === "]") && !e.shiftKey && !e.repeat) {
+    e.preventDefault();
+    if (e.key === "[") historyBack();
+    else historyForward();
+  } else if (e.key === "/") {
     e.preventDefault();
     openPalette();
   } else if (e.key === "?") {

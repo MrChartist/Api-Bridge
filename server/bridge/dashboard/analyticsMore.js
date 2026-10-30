@@ -1164,7 +1164,8 @@ async function renderAlerts(H) {
   const hoursField = h("div", { class: "field" }, h("span", { class: "pal-sr-only" }, "Market hours"), h("label", { class: "check", for: hoursEl.id }, hoursEl, "Only during market hours"));
   const preview = h("p", { class: "rule-sentence", role: "status" });
   const formOut = h("div", { class: "stack", "aria-live": "polite" });
-  const controls = chainControls(H, { onChange: () => update(), onError: (e) => formOut.replaceChildren(H.errorBox(e)), withStrikes: false });
+  // A rule names its own target, so its underlying and expiry stay visible (they still follow the context bar).
+  const controls = chainControls(H, { onChange: () => update(), onContext: () => update(), onError: (e) => formOut.replaceChildren(H.errorBox(e)), withStrikes: false, local: true });
   controls.node.querySelector("button")?.closest(".field")?.remove();
   const fields = () => ({ name: nameF.el.value, underlying: controls.values().underlying, expiry: controls.values().expiry, metric: metricF.el.value, op: opF.el.value, value: valueF.el.value, to: toF.el.value, every: everyF.el.value, marketHoursOnly: hoursEl.checked });
   const update = () => {
