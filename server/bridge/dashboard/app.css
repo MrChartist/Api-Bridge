@@ -665,6 +665,8 @@ code { font-size: 0.92em; padding: 1px 6px; border-radius: 6px; background: var(
   box-shadow: var(--shadow-2);
 }
 .glass-strong { background: var(--mat-glass-strong); }
+/* Toolbar capsules are soft, not glass: a near-opaque surface, no backdrop blur (see .scroll-edge). */
+.toolbar .glass { background: var(--mat-thick); -webkit-backdrop-filter: none; backdrop-filter: none; }
 .glass::before, dialog.sheet::before, dialog.palette::before, .icon-btn::before {
   content: "";
   position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
@@ -689,9 +691,9 @@ code { font-size: 0.92em; padding: 1px 6px; border-radius: 6px; background: var(
 /* Scroll-edge veils: content dissolves under the toolbar (and the phone tab bar) instead of being cut by a hard bar. */
 .scroll-edge {
   position: fixed; top: 0; left: 0; right: 0; height: calc(var(--toolbar-h) + 34px + var(--safe-t)); z-index: var(--z-veil); pointer-events: none;
-  background: linear-gradient(to bottom, hsl(var(--background) / 0.86), hsl(var(--background) / 0.5) 55%, transparent);
-  -webkit-backdrop-filter: blur(14px) saturate(160%);
-  backdrop-filter: blur(14px) saturate(160%);
+  /* No blur: a backdrop-filter here (and on the toolbar capsules) re-filtered the page under it on every change, about
+     half the main thread of a live chain in software paint (docs/perf/baseline.md, round 4). A plain veil instead. */
+  background: linear-gradient(to bottom, hsl(var(--background) / 0.94), hsl(var(--background) / 0.66) 55%, transparent);
   -webkit-mask-image: linear-gradient(to bottom, #000 42%, transparent);
   mask-image: linear-gradient(to bottom, #000 42%, transparent);
 }
@@ -2138,6 +2140,9 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
   --bar-a: 0.75; --heat-a0: 0.05; --heat-a1: 0.32;
   /* Softened ink (bid / ask, CE / PE IV, small figures): full strength on white, where 80 % fell under 4.5:1. */
   --ink-soft: 1; --soft-op: 0.92; --stale-op: 0.86; --chip-tint: 0.08; --mark-a: 1;
+  /* Strong inks for small text on a gain / loss / info / warn tint, light only (brand.md §2.3): the brand inks reach 4.5:1
+     on the bare canvas but fell to 4.0 to 4.47:1 on an 8 to 16 % tint. Dark keeps the brand inks. */
+  --gain-ink-strong: 135 60.8% 25%; --loss-ink-strong: 354 100% 36%; --info-ink-strong: 211 100% 33%; --warn-ink-strong: 26 100% 28%; --ok-ink-strong: 137 64% 23%; --bad-ink-strong: 356 78% 35%;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -2151,7 +2156,7 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
     --surface-2: hsl(0 0% 8%);
     --c-neutral: hsl(0 0% 100% / 0.34);
     --bar-a: 0.6; --heat-a0: 0.06; --heat-a1: 0.42;
-    --ink-soft: 0.8; --soft-op: 0.75; --stale-op: 0.72; --chip-tint: 0.14; --mark-a: 0.85;
+    --ink-soft: 0.8; --soft-op: 0.75; --stale-op: 0.72; --chip-tint: 0.14; --mark-a: 0.85; --gain-ink-strong: var(--pos-ink); --loss-ink-strong: var(--neg-ink); --info-ink-strong: var(--ios-blue-ink); --warn-ink-strong: var(--ios-orange-ink); --ok-ink-strong: var(--ios-green-ink); --bad-ink-strong: var(--ios-red-ink);
   }
 }
 :root[data-theme="dark"] {
@@ -2165,7 +2170,7 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
   --surface-2: hsl(0 0% 8%);
   --c-neutral: hsl(0 0% 100% / 0.34);
   --bar-a: 0.6; --heat-a0: 0.06; --heat-a1: 0.42;
-  --ink-soft: 0.8; --soft-op: 0.75; --stale-op: 0.72; --chip-tint: 0.14; --mark-a: 0.85;
+  --ink-soft: 0.8; --soft-op: 0.75; --stale-op: 0.72; --chip-tint: 0.14; --mark-a: 0.85; --gain-ink-strong: var(--pos-ink); --loss-ink-strong: var(--neg-ink); --info-ink-strong: var(--ios-blue-ink); --warn-ink-strong: var(--ios-orange-ink); --ok-ink-strong: var(--ios-green-ink); --bad-ink-strong: var(--ios-red-ink);
 }
 
 .chain-panel { position: relative; }
@@ -8837,6 +8842,19 @@ span.bk-depth-lvl.empty { display: flex; justify-content: center; color: hsl(var
 .bk-fix { color: hsl(var(--foreground) / var(--a-label)); font: 500 12px/1.4 var(--font-body); margin: 0; }
 p.bk-fix { font-size: 13px; }
 .ticket-checks .bk-fix { display: block; margin-top: 2px; }
+.bk-st-note { margin: 0; padding: 8px 16px 14px; }
+.bk-st-acct { max-width: 260px; }
+@media (max-width: 719px) { .ticket-figs.bk-tb-figs { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); } .ticket-figs.bk-tb-figs > div { white-space: normal; } }
+.bk-st-pair { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 1024px) { .bk-st-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.bk-st-pair > .card { margin: 0; }
+.bk-st-col { display: grid; gap: 14px; align-content: start; min-width: 0; }
+/* Orders › Funds: margin utilisation per account. */
+.bk-util { display: inline-flex; align-items: center; gap: 8px; font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bk-util-track { position: relative; width: 72px; height: 6px; border-radius: 3px; background: var(--mat-fill-1); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); overflow: hidden; }
+.bk-util-bar { position: absolute; inset: 0 auto 0 0; width: calc(var(--w, 0) * 100%); background: hsl(var(--pos)); }
+.bk-util-bar[data-level="warn"] { background: hsl(var(--warn)); }
+.bk-util-bar[data-level="neg"] { background: hsl(var(--neg)); }
 /* End of broker features. */
 
 /* ───────────────────────── Trade › Algo (algo.js, docs/STRATEGIES-PYTHON.md) ───────────────────────── */
@@ -9013,6 +9031,11 @@ p.bk-fix { font-size: 13px; }
   .algo-row-main { --btn-h: 44px; }
   .algo-pane-head label.check { min-height: 44px; }
 }
+
+/* Tinted chips: small gain / loss / info / warn text on a tint uses the strong inks (light: 4.5:1 or more; dark: the brand
+   inks, unchanged). Only these chips; everything else keeps --pos-ink / --neg-ink. */
+.ev-chip.bull, .obu-LB, .obu-SC, .oi-tone-pill[data-tone="up"], .scr-pill.t-pos { color: hsl(var(--gain-ink-strong)); }
+.ev-chip.bear, .obu-SB, .obu-LU, .oi-tone-pill[data-tone="down"], .scr-pill.t-neg, table.chain .held.short { color: hsl(var(--loss-ink-strong)); }
 
 /* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────
    Inline-SVG charts: every colour is a theme token (so light and dark both work), every size is an SVG attribute
@@ -9354,3 +9377,9 @@ p.bk-fix { font-size: 13px; }
 .an-page .an-ev-windows .an-sub-head { margin: 0; font: 600 13px/1.3 var(--font-display); }
 .an-page .an-ev-windows p.muted.small { margin: 0; }
 .an-page .an-ev-parts dd { margin: 0; font: 400 13px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; text-align: right; }
+
+/* Analytics pills on a tint: the strong inks (see the tinted-chip rules before section 15). */
+.an-page .pill.sm.ok { color: hsl(var(--ok-ink-strong)); }
+.an-page .pill.sm.bad { color: hsl(var(--bad-ink-strong)); }
+.an-page .pill.sm.info { color: hsl(var(--info-ink-strong)); }
+.an-page .pill.sm.warn { color: hsl(var(--warn-ink-strong)); }

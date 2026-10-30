@@ -125,3 +125,18 @@ export function depthView(depth, max = 5) {
   const available = Math.max(depth?.bids?.length ?? 0, depth?.asks?.length ?? 0);
   return { rows, totalBid, totalAsk, maxQty, bidShare: totalBid + totalAsk > 0 ? totalBid / (totalBid + totalAsk) : null, available };
 }
+
+/**
+ * One account's funds for the Funds card: what is free to trade, what margin is blocked, collateral (pledged holdings,
+ * when the source reports it) and how much of the total is used. Missing figures stay null.
+ * @param {{ availableCash?: number|null, usedMargin?: number|null, collateral?: number|null, totalBalance?: number|null } | null} f
+ */
+export function fundsView(f) {
+  const n = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+  const available = n(f?.availableCash);
+  const used = n(f?.usedMargin);
+  const collateral = n(f?.collateral);
+  const total = available !== null && used !== null ? available + used : n(f?.totalBalance);
+  const util = used !== null && total !== null && total > 0 ? Math.min(1, Math.max(0, used / total)) : null;
+  return { available, used, collateral, total, util, level: util === null ? "none" : util >= 0.9 ? "neg" : util >= 0.7 ? "warn" : "ok" };
+}

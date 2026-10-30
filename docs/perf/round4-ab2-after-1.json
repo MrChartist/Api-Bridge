@@ -1,0 +1,140 @@
+{
+  "at": "2026-10-30T22:25:30.070Z",
+  "node": "v22.22.0",
+  "seconds": 20,
+  "latencyMs": 200,
+  "pages": [
+    {
+      "page": "chain",
+      "firstData": 1684,
+      "fcp": 360,
+      "jsKB": 2336,
+      "cssKB": 787,
+      "jsFiles": 49,
+      "reloadLoadMs": 155,
+      "switchFirst": 575,
+      "switchBack": 413,
+      "switchCached": 201,
+      "heapStartKB": 5373,
+      "paintMsPerS": 91,
+      "layoutMsPerS": 18,
+      "styleMsPerS": 25,
+      "mainMsPerS": 237,
+      "scriptMsPerS": 34,
+      "heapEndKB": 5610,
+      "restPerMin": 66,
+      "duplicates": 0,
+      "duplicateUrls": {},
+      "brokerPerMinRaw": 3,
+      "brokerByClass": {
+        "quote": 1
+      },
+      "longTasks": 2,
+      "longTaskMs": 158,
+      "longTaskMax": 102,
+      "tickToCell": {
+        "n": 33,
+        "p50": 53,
+        "p95": 127,
+        "max": 133,
+        "samples": [
+          39,
+          101,
+          127,
+          64,
+          86,
+          133,
+          66,
+          99,
+          61,
+          84,
+          50,
+          37,
+          58,
+          37,
+          44,
+          24,
+          84,
+          106,
+          48,
+          65,
+          75,
+          49,
+          43,
+          53,
+          79,
+          32,
+          27,
+          35,
+          18,
+          69,
+          19,
+          47,
+          27
+        ]
+      },
+      "topRequests": {
+        "GET /v1/optionchain": 7,
+        "GET /v1/quotes": 7,
+        "GET /v1/positions": 7,
+        "GET /v1/alerts/inbox": 1
+      },
+      "brokerPerMinNet": 0
+    },
+    {
+      "page": "oi",
+      "firstData": null,
+      "fcp": 148,
+      "jsKB": 2336,
+      "cssKB": 787,
+      "jsFiles": 49,
+      "reloadLoadMs": 154,
+      "switchFirst": null,
+      "switchBack": 619,
+      "switchCached": null,
+      "heapStartKB": 7007,
+      "paintMsPerS": 27,
+      "layoutMsPerS": 8,
+      "styleMsPerS": 15,
+      "mainMsPerS": 130,
+      "scriptMsPerS": 33,
+      "heapEndKB": 6977,
+      "restPerMin": 66,
+      "duplicates": 0,
+      "duplicateUrls": {},
+      "brokerPerMinRaw": 0,
+      "brokerByClass": {},
+      "longTasks": 0,
+      "longTaskMs": 0,
+      "longTaskMax": 0,
+      "tickToCell": {
+        "n": 6,
+        "p50": 39,
+        "p95": 86,
+        "max": 86,
+        "samples": [
+          37,
+          59,
+          86,
+          31,
+          39,
+          35
+        ]
+      },
+      "topRequests": {
+        "GET /v1/optionchain": 7,
+        "GET /v1/quotes": 7,
+        "GET /v1/positions": 7,
+        "GET /v1/alerts/inbox": 1
+      },
+      "brokerPerMinNet": 0
+    }
+  ],
+  "idle": {
+    "seconds": 10,
+    "brokerPerMin": 42,
+    "byClass": {
+      "chain": 7
+    }
+  }
+}

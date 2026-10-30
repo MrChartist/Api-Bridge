@@ -2,8 +2,9 @@
 // with totals. Filters are a per-viewer convenience (localStorage); the books come from GET /v1/orders and /v1/trades.
 import { alertBox, api, card, emptyState, h, istTime, modal, optional, table, toast } from "./app.js";
 import { contractName } from "./flows.js";
-import { formatDayMonth, formatFixed, formatInt, formatRupee } from "./format.js";
-import { ORDER_FILTERS, filterOrders, filterTrades, openByMode, orderCounts, tradeTotals } from "./orders-core.js";
+import { DASH, formatDayMonth, formatFixed, formatInt, formatPercent, formatRupee, formatRupeeGrouped } from "./format.js";
+import { ORDER_FILTERS, filterOrders, filterTrades, fundsView, openByMode, orderCounts } from "./orders-core.js";
+import { fillTotals } from "./statement-core.js";
 
 const KEY = "mcb.orders.filters";
 function loadFilters() {
@@ -109,7 +110,8 @@ async function cancelAllFlow(open) {
 
 /** Orders › Trades: every fill on the accounts this key may use, newest first, with buy, sell and turnover totals. */
 export async function renderTradesPage() {
-  const [trades, accounts] = await Promise.all([optional(api("/v1/trades?limit=500")), optional(api("/v1/accounts"))]);
+  // Charges come from the ticket's model (statement.js, loaded with this tab), so they add up with the Statement.
+  const [trades, accounts, model] = await Promise.all([optional(api("/v1/trades?limit=500")), optional(api("/v1/accounts")), import("./statement.js").then((m) => m.chargesModel())]);
   const byId = new Map((accounts.data?.data ?? []).map((a) => [a.id, a]));
   const labelOf = (id) => byId.get(id)?.label ?? id;
   const list = [...(trades.data?.data ?? [])].sort((a, b) => Date.parse(b.tradedAt) - Date.parse(a.tradedAt));
@@ -127,15 +129,15 @@ export async function renderTradesPage() {
     { label: "Qty", num: true, cell: (t) => formatInt(t.qty ?? t.quantity) },
     { label: "Price", num: true, cell: (t) => formatFixed(t.price, 2) },
     { label: "Value", num: true, cell: (t) => formatRupee((Number(t.qty ?? t.quantity) || 0) * (Number(t.price) || 0), 0) },
-    { label: "Charges", num: true, cell: (t) => formatRupee(t.charges, 2) },
+    { label: "Charges ≈", num: true, cell: (t) => formatRupee(model.chargesOf(t)?.total, 2) },
     { label: "Order", cell: (t) => h("span", { class: "mono muted small" }, t.orderId) },
   ];
   const fig = (label, value) => h("div", {}, h("small", {}, label), value);
   function draw() {
     side.draw(f.side);
     const rows = filterTrades(list, { ...f, labelOf });
-    const t = tradeTotals(rows);
-    totalsEl.replaceChildren(fig("Trades", formatInt(t.count)), fig("Bought", formatRupee(t.buyValue, 0)), fig("Sold", formatRupee(t.sellValue, 0)), fig("Turnover", formatRupee(t.turnover, 0)), fig("Charges", formatRupee(t.charges, 2)));
+    const t = fillTotals(rows, { chargesOf: model.chargesOf });
+    totalsEl.replaceChildren(fig("Trades", formatInt(t.count)), fig("Bought", formatRupee(t.buyValue, 0)), fig("Sold", formatRupee(t.sellValue, 0)), fig("Traded value", formatRupee(t.turnoverValue, 0)), fig("Charges ≈", formatRupee(t.charges.total, 2)));
     body.replaceChildren(table(columns, rows, emptyState("orders", list.length ? "No trades match" : "No trades yet", list.length ? "Change the side or clear the search." : "Fills from the chain, your scripts, triggers and webhooks show up here.", null, { compact: true })));
   }
   draw();
@@ -144,9 +146,56 @@ export async function renderTradesPage() {
       glyph: "list",
       tint: "teal",
       title: "Trade book",
-      sub: "Every fill, newest first. Paper charges are the paper engine's brokerage; statutory charges are in the ticket and the journal.",
+      sub: "Every fill, newest first. Charges are estimated with the ticket's model (brokerage, STT, exchange, SEBI, stamp, GST); Orders › Statement itemises them.",
       flush: true,
       body: trades.error ? h("div", { class: "card-body" }, alertBox(trades.error)) : h("div", {}, h("div", { class: "bk-ob-bar" }, side.el, search), totalsEl, body),
     }),
   ];
+}
+
+/**
+ * Funds for every account in one card: available, margin used, collateral, a utilisation bar, realised and
+ * unrealised P&L and open positions. Paper accounts read the paper engine; a broker account reads the broker (one funds
+ * and one positions call each, when the page draws), and says why when it cannot.
+ * @param {Array<{ id: string, label: string, broker: string }>} accs
+ * @param {(v: number|null) => Node|string} pnl  the page's grouped, signed P&L cell
+ */
+export async function fundsCard(accs, pnl) {
+  const list = accs.filter((a) => a.broker !== "demo");
+  if (!list.length) return null;
+  const rows = await Promise.all(
+    list.map(async (a) => {
+      const [funds, pos] = await Promise.all([optional(api(`/v1/funds?account=${encodeURIComponent(a.id)}`)), optional(api(`/v1/positions?account=${encodeURIComponent(a.id)}`))]);
+      const f = funds.data?.data?.funds ?? funds.data?.data ?? null;
+      const items = pos.data?.data ?? null;
+      return { a, f, v: fundsView(f), error: funds.error ?? null, open: items ? items.filter((p) => Number(p.netQty) !== 0).length : null };
+    }),
+  );
+  const util = (v) => {
+    if (v.util === null) return DASH;
+    const bar = h("span", { class: "bk-util-bar", "data-level": v.level, "aria-hidden": "true" });
+    bar.style.setProperty("--w", String(v.util));
+    return h("span", { class: "bk-util", title: `${formatPercent(v.util * 100, 1)} of ${formatRupeeGrouped(v.total, 0)} is blocked as margin` }, h("span", { class: "bk-util-track" }, bar), formatPercent(v.util * 100, 0));
+  };
+  return card({
+    glyph: "wallet",
+    tint: "teal",
+    title: "Funds",
+    sub: "Every account: what is free to trade, the margin in use, collateral and P&L. Paper from the paper engine; a broker account as the broker reports it.",
+    flush: true,
+    body: table(
+      [
+        { label: "Account", cell: ({ a }) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small" }, a.broker === "paper" ? "Paper" : `${a.broker} · as reported`)) },
+        { label: "Available", num: true, cell: ({ v, error }) => (error ? h("span", { class: "muted small", title: error.message }, "Not available") : formatRupeeGrouped(v.available, 0)) },
+        { label: "Margin used", num: true, cell: ({ v, error }) => (error ? DASH : formatRupeeGrouped(v.used, 0)) },
+        { label: "Collateral", num: true, cell: ({ v, a, error }) => (error ? DASH : v.collateral === null ? h("span", { class: "muted small", title: a.broker === "paper" ? "Paper accounts have no pledged holdings" : "The broker did not report collateral" }, DASH) : formatRupeeGrouped(v.collateral, 0)) },
+        { label: "Used", cell: ({ v, error }) => (error ? DASH : util(v)) },
+        { label: "Realised", num: true, cell: ({ f, error }) => (error ? DASH : pnl(f?.realisedPnl)) },
+        { label: "Unrealised", num: true, cell: ({ f, error }) => (error ? DASH : pnl(f?.unrealisedPnl)) },
+        { label: "Open", num: true, cell: ({ open }) => formatInt(open) },
+        { label: "", cell: ({ a, error }) => (error ? h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/accounts") }, "Accounts") : h("button", { type: "button", class: "small", "aria-label": `Positions of ${a.label}`, onclick: () => (location.hash = "#/positions") }, "Positions")) },
+      ],
+      rows,
+    ),
+  });
 }

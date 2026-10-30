@@ -119,3 +119,21 @@ Effort: S (hours), M (a day), L (more). Built in this order; each lands as its o
   scopes. A live trigger needs `guard` in the account's `live.allowedSources` (off by default), the key's `live`
   scope and every other live gate at fire time. A refusal is recorded on the trigger, never retried around a gate.
 - Paper is the default for every new control.
+
+## 9. Statement method (Orders › Statement)
+
+An estimate for the trader's records, not tax advice; the broker's tax P&L and contract notes are final, and a CA
+confirms how it is filed. Tax payable is not computed.
+
+- **Realised P&L:** first in, first out per contract and product, from the Bridge's fills (`statement-core.js`).
+- **F&O turnover:** the sum of the absolute profit or loss of each settled trade; for options the premium is part of
+  that settled difference. Source: ICAI, *Guidance Note on Tax Audit under Section 44AB of the Income-tax Act, 1961*
+  (revised 2023), the paragraphs on how turnover is computed for derivatives (futures and options); the ICAI site
+  publishes the current edition.
+- **Segments:** F&O as non-speculative business income (Income-tax Act s. 43(5) proviso (d) excludes eligible
+  exchange-traded derivatives from speculation); equity intraday as speculative business income; equity delivery as
+  short-term (held 12 months or less) or long-term capital gains.
+- **Charges:** the ticket's model (`options.js charges`) with the reference table's rates: brokerage, STT, exchange
+  and IPFT, SEBI fee, stamp duty, GST. The Trades tab uses the same model, so the totals agree for the same days.
+- **Ledger:** paper accounts only (opening cash, realised P&L and charges by day, closing). For a live account the
+  broker's ledger is the source of truth.

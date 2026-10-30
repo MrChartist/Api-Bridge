@@ -48,7 +48,7 @@ import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabili
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 import { PAGE_CODES } from "./workspace.js";
 import { triggersCard } from "./triggers.js";
-import { ordersCard, renderTradesPage } from "./orders-book.js";
+import { fundsCard, ordersCard, renderTradesPage } from "./orders-book.js";
 import { whatToDo } from "./reasons-core.js";
 
 const $ = (id) => document.getElementById(id);
@@ -65,6 +65,7 @@ const PAGE_MODULES = Object.freeze({
   recorder: () => import("./recorder.js"),
   events: () => import("./events.js"),
   journal: () => import("./journal.js"),
+  statement: () => import("./statement.js"),
   watchlists: () => import("./watchlists.js"),
   scanner: () => import("./scanner.js"),
   analytics: () => import("./analytics.js"),
@@ -96,6 +97,7 @@ const renderParticipantsPage = lazyPage("participants", "renderParticipantsPage"
 const renderRecorderPage = lazyPage("recorder", "renderRecorderPage");
 const renderEventsPage = lazyPage("events", "renderEventsPage");
 const renderJournalPage = lazyPage("journal", "renderJournalPage");
+const renderStatementPage = lazyPage("statement", "renderStatementPage");
 const renderWatchlistsPage = lazyPage("watchlists", "renderWatchlistsPage");
 const renderScannerPage = lazyPage("scanner", "renderScannerPage");
 const renderAlgoPage = lazyPage("algo", "renderAlgoPage");
@@ -324,6 +326,7 @@ export const PAGES = [
     tabs: [
       { id: "book", label: "Orders", page: "orders", command: "Orders", keywords: "orders confirmations tickets modify cancel paper", render: renderOrders },
       { id: "trades", label: "Trades", page: "trades", command: "Trade book", icon: "list", tint: "orange", keywords: "trades trade book fills executions turnover charges csv", sub: "Every fill with buy, sell and turnover totals", render: renderTradesPage },
+      { id: "statement", label: "Statement", page: "statement", command: "Statement, tax P&L and ledger", icon: "list", tint: "teal", keywords: "statement tax pnl p&l turnover icai stt charges ledger financial year fy capital gains stcg ltcg speculative business income export xlsx", sub: "Realised P&L by year and segment, F&O turnover, charges and the paper ledger", render: renderStatementPage },
       { id: "journal", label: "Journal", page: "journal", command: "Trade journal", icon: "list", tint: "teal", keywords: "journal trades tags notes setup win rate expectancy drawdown calendar heatmap daily pnl csv export", sub: "Every fill as a trade: tags, notes, a P&L calendar and stats", render: renderJournalPage },
     ],
   },
@@ -2451,38 +2454,9 @@ async function renderOrders() {
     const n = Number(v);
     return h("span", { class: zero ? undefined : n > 0 ? "up" : "down" }, n > 0 && !zero ? `+${text}` : text);
   };
-  const paper = accs.filter((x) => x.broker === "paper");
-  if (paper.length) {
-    const sums = await Promise.all(
-      paper.map(async (a) => {
-        const [pos, funds] = await Promise.all([optional(api(`/v1/positions?account=${encodeURIComponent(a.id)}`)), optional(api(`/v1/funds?account=${encodeURIComponent(a.id)}`))]);
-        const f = funds.data?.data?.funds ?? funds.data?.data ?? {};
-        const rows = pos.data?.data ?? null;
-        return { a, f, open: rows ? rows.filter((p) => Number(p.netQty) !== 0).length : null };
-      }),
-    );
-    nodes.push(
-      card({
-        glyph: "wallet",
-        tint: "teal",
-        title: "Paper accounts",
-        sub: "Open positions, margin and P&L in one line each. Positions has the legs, the payoff and the exits.",
-        flush: true,
-        body: table(
-          [
-            { label: "Account", cell: ({ a }) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
-            { label: "Open positions", num: true, cell: ({ open }) => formatInt(open) },
-            { label: "Cash", num: true, cell: ({ f }) => formatRupeeGrouped(f.availableCash, 2) },
-            { label: "Used margin", num: true, cell: ({ f }) => formatRupeeGrouped(f.usedMargin, 2) },
-            { label: "Realised", num: true, cell: ({ f }) => pnlGrouped(f.realisedPnl) },
-            { label: "Unrealised", num: true, cell: ({ f }) => pnlGrouped(f.unrealisedPnl) },
-            { label: "", cell: ({ a }) => h("button", { type: "button", class: "small", "aria-label": `Positions of ${a.label}`, onclick: () => (location.hash = "#/positions") }, "Positions", icon("chevron")) },
-          ],
-          sums,
-        ),
-      }),
-    );
-  }
+  // Funds for every account (orders-book.js): available, margin used, collateral, utilisation and P&L.
+  const funds = await fundsCard(accs, pnlGrouped);
+  if (funds) nodes.push(funds);
   return nodes;
 }
 
