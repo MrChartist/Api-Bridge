@@ -1134,3 +1134,47 @@ dialog.sheet::backdrop { background: hsl(240 20% 4% / 0.42); -webkit-backdrop-fi
 @media (forced-colors: active) {
   .chart .bar, .chart .area, .chart .band { forced-color-adjust: none; }
 }
+
+/* ───────────────────────── 16 · ANALYTICS, MORE PAGES (analyticsMore.js) ─────────────────────────
+   Tab controls, grouped bars, the price ruler, key-figure lists, strategy cards, flags and the alert-rule builder.
+   Same rules as section 15: theme tokens only, sizes live in SVG attributes, no style attributes. */
+.analytics-controls, .analytics-options { grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); }
+.analytics-options { align-items: end; }
+.card-flush { margin: 0 calc(-1 * var(--card-pad)); min-width: 0; }
+.chart .bar.s1 { fill: hsl(var(--ios-blue-ink)); }
+.chart .bar.s2 { fill: hsl(var(--ios-orange-ink)); }
+.chart .band.atm { fill: hsl(var(--ios-blue) / 0.10); }
+.chart .range-fill { fill: hsl(var(--ios-green) / 0.22); stroke: hsl(var(--ios-green-ink) / 0.55); stroke-width: 1; }
+.chart .axis-line { stroke: hsl(var(--foreground) / 0.45); stroke-width: 1.5; stroke-linecap: round; }
+.chart .leader { stroke: hsl(var(--foreground) / 0.4); stroke-width: 1; }
+.chart .m-dot { fill: hsl(var(--background)); stroke: hsl(var(--foreground)); stroke-width: 2; }
+.chart .leader.spot, .chart .m-dot.spot { stroke: hsl(var(--foreground)); stroke-width: 2; }
+.chart .m-dot.spot { fill: hsl(var(--foreground)); }
+.chart .leader.pain, .chart .m-dot.pain, .chart .leader.flip, .chart .m-dot.flip { stroke: hsl(var(--ios-purple-ink)); }
+.chart .leader.call, .chart .m-dot.call { stroke: hsl(var(--ios-blue-ink)); }
+.chart .leader.put, .chart .m-dot.put { stroke: hsl(var(--ios-orange-ink)); }
+.chart .leader.be, .chart .m-dot.be { stroke: hsl(var(--ios-green-ink)); }
+.chart text.m-text.pain, .chart text.m-text.flip { fill: hsl(var(--ios-purple-ink)); }
+.chart text.m-text.call { fill: hsl(var(--ios-blue-ink)); }
+.chart text.m-text.put { fill: hsl(var(--ios-orange-ink)); }
+.chart text.m-text.be { fill: hsl(var(--ios-green-ink)); }
+.kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); gap: 12px 16px; margin: 0; padding: 0; }
+.kv > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.kv dt { font: 500 12.5px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.kv dd { margin: 0; font: 650 15px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.kv dd.up { color: hsl(var(--ios-green-ink)); }
+.kv dd.down { color: hsl(var(--ios-red-ink)); }
+.flag-list, .leg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.flag-list li, .leg-list li { display: flex; align-items: flex-start; gap: 10px; min-width: 0; font: 400 14px/1.45 var(--font-body); }
+.flag-list li > span:not(.pill), .leg-list li > span:not(.pill) { min-width: 0; overflow-wrap: anywhere; }
+.flag-list .pill, .leg-list .pill { flex: none; }
+.strategy-grid { align-items: start; }
+.strategy .card-head { align-items: flex-start; }
+.preview { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: var(--r-md); background: hsl(var(--ios-blue) / 0.08); box-shadow: inset 0 0 0 1px hsl(var(--ios-blue) / 0.2); }
+.preview .label { font: 600 12px/1.2 var(--font-body); letter-spacing: 0.04em; text-transform: uppercase; color: hsl(var(--ios-blue-ink)); }
+.rule-sentence { font: 600 16px/1.4 var(--font-display); letter-spacing: -0.012em; overflow-wrap: anywhere; }
+.field > label.check { font-weight: 400; color: hsl(var(--foreground)); }
+.table-wrap .row.nowrap { justify-content: flex-start; }
+@media (min-width: 720px) { .seg-field > .segmented { align-self: flex-start; } }
+.chart text.m-text { paint-order: stroke; stroke: var(--mat-grouped-solid, hsl(var(--background))); stroke-width: 4px; stroke-linejoin: round; }
+.analytics-options .wide-field { grid-column: 1 / -1; }

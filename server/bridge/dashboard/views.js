@@ -31,6 +31,7 @@ import {
   toast,
 } from "./app.js";
 import { analyticsPages } from "./analyticsViews.js";
+import { analyticsMorePages } from "./analyticsMore.js";
 import { DASH, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
@@ -195,6 +196,7 @@ export const PAGES = [
   // Analytics (analyticsViews.js). Appended last so the existing pages keep their numbered shortcuts. The helpers are
   // read when a page is drawn, after this module has finished loading.
   ...analyticsPages(() => ({ segmented, segField, field, errorBox })),
+  ...analyticsMorePages(() => ({ segmented, segField, field, errorBox })),
 ];
 
 let timer = null;
@@ -227,6 +229,7 @@ function nav(active) {
     );
   }
   $("nav").replaceChildren(...out);
+  $("nav").querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: "nearest" });
   const anim = motionHooks?.animateNav;
   if (typeof anim === "function") anim($("nav"));
   tabbar(active);

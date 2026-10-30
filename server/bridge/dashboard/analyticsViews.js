@@ -63,11 +63,15 @@ export const linear = (d0, d1, r0, r1) => (v) => (d1 === d0 ? (r0 + r1) / 2 : r0
 
 const r1 = (v) => Math.round(v * 10) / 10;
 
+/** Width of one character of a 10.5px bold chart tag, used to reserve room for it. */
+export const TAG_CHAR_W = 6.6;
+
 /**
  * Horizontal bars per strike, drawn from a zero line (so calls and puts, or positive and negative exposure, sit on
- * opposite sides). `items`: [{ label, bars: [{ value, cls, title }], tag? }] in display order. Returns the geometry.
+ * opposite sides). `items`: [{ label, bars: [{ value, cls, title }], tag? }] in display order. `group` stacks the bars of a
+ * row one above the other (two series on the same side). Returns the geometry.
  */
-export function divergingLayout(items, { width = 640, rowH = 22, labelW = 56, tagW = 46, topPad = 6, axisH = 24, absAxis = false } = {}) {
+export function divergingLayout(items, { width = 640, rowH = 22, labelW = 56, tagW = 0, topPad = 6, axisH = 24, absAxis = false, group = false, tickFormat } = {}) {
   const w = Math.max(240, width);
   const max = Math.max(0, ...items.flatMap((i) => i.bars.map((b) => Math.abs(Number(b.value) || 0))));
   const hasNeg = items.some((i) => i.bars.some((b) => Number(b.value) < 0));
@@ -76,11 +80,18 @@ export function divergingLayout(items, { width = 640, rowH = 22, labelW = 56, ta
   // Keep the zero line in the middle when both signs exist: the larger side decides both bounds.
   const lo = hasNeg && hasPos ? -Math.max(Math.abs(scale.min), scale.max) : scale.min;
   const hi = hasNeg && hasPos ? Math.max(Math.abs(scale.min), scale.max) : scale.max;
+  // The tag column (Max pain, ATM, Flip) is reserved to the right of the plot and sized to the longest tag, so a tag can
+  // never sit over the end of a bar.
+  const tagLen = Math.max(0, ...items.map((i) => (i.tag ? String(i.tag).length : 0)));
+  const tagCol = Math.max(tagW, tagLen ? Math.ceil(tagLen * TAG_CHAR_W + 12) : 12);
   const plotL = labelW;
-  const plotR = w - tagW;
+  const plotR = w - tagCol;
   const x = linear(lo, hi, plotL, plotR);
   const x0 = x(0);
-  const bh = Math.max(4, Math.round(rowH * 0.62));
+  const nBars = Math.max(1, ...items.map((i) => i.bars.length));
+  // Side by side (call and put on opposite sides of zero) share one line; grouped bars (two series on the same side) stack.
+  const slots = group ? nBars : 1;
+  const bh = group ? Math.max(3, Math.floor((rowH * 0.84 - (slots - 1) * 2) / slots)) : Math.max(4, Math.round(rowH * 0.62));
   const rows = items.map((it, i) => {
     const y = topPad + i * rowH;
     return {
@@ -88,15 +99,16 @@ export function divergingLayout(items, { width = 640, rowH = 22, labelW = 56, ta
       label: it.label,
       tag: it.tag ?? null,
       band: it.band ?? null,
-      bars: it.bars.map((b) => {
+      bars: it.bars.map((b, k) => {
         const v = Number(b.value) || 0;
         const xv = x(v);
-        return { x: r1(Math.min(x0, xv)), y: r1(y + (rowH - bh) / 2), w: r1(Math.abs(xv - x0)), h: bh, cls: b.cls, title: b.title, value: v };
+        const by = group ? y + (rowH - (slots * bh + (slots - 1) * 2)) / 2 + k * (bh + 2) : y + (rowH - bh) / 2;
+        return { x: r1(Math.min(x0, xv)), y: r1(by), w: r1(Math.abs(xv - x0)), h: bh, cls: b.cls, title: b.title, value: v };
       }),
     };
   });
-  const ticks = niceScale(lo, hi, 4).ticks.filter((t) => t >= lo - 1e-9 && t <= hi + 1e-9).map((t) => ({ x: r1(x(t)), label: compact(absAxis ? Math.abs(t) : t), value: t }));
-  return { width: w, height: topPad + items.length * rowH + axisH, plotL, plotR, x0: r1(x0), rowH, labelW, rows, ticks, bottom: topPad + items.length * rowH };
+  const ticks = niceScale(lo, hi, 4).ticks.filter((t) => t >= lo - 1e-9 && t <= hi + 1e-9).map((t) => ({ x: r1(x(t)), label: tickFormat ? tickFormat(absAxis ? Math.abs(t) : t) : compact(absAxis ? Math.abs(t) : t), value: t }));
+  return { width: w, height: topPad + items.length * rowH + axisH, plotL, plotR, tagX: w - 4, tagW: tagCol, x0: r1(x0), rowH, labelW, rows, ticks, bottom: topPad + items.length * rowH };
 }
 
 /**
@@ -323,16 +335,16 @@ export function chainRows(chain) {
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 /** An SVG element: attributes as given (class via "class"), children appended. No style attributes anywhere. */
-function s(tag, attrs, ...children) {
+export function s(tag, attrs, ...children) {
   const e = document.createElementNS(SVG_NS, tag);
   for (const [k, v] of Object.entries(attrs ?? {})) if (v !== undefined && v !== null && v !== false) e.setAttribute(k, String(v));
   for (const c of children.flat(Infinity)) if (c !== null && c !== undefined && c !== false) e.append(c instanceof Node ? c : document.createTextNode(String(c)));
   return e;
 }
-const svgRoot = (w, hgt, label) => s("svg", { class: "chart", viewBox: `0 0 ${w} ${hgt}`, width: w, height: hgt, role: "img", "aria-label": label, focusable: "false" });
+export const svgRoot = (w, hgt, label) => s("svg", { class: "chart", viewBox: `0 0 ${w} ${hgt}`, width: w, height: hgt, role: "img", "aria-label": label, focusable: "false" });
 
 /** A container that redraws `build(width)` when its width changes (phone rotation, sidebar, window). */
-function chartHost(build) {
+export function chartHost(build) {
   const host = h("div", { class: "chart-host" });
   let last = 0;
   const draw = () => {
@@ -347,21 +359,21 @@ function chartHost(build) {
   return host;
 }
 
-function legend(entries) {
+export function legend(entries) {
   return h("ul", { class: "chart-legend", "aria-label": "Legend" }, entries.map((e) => h("li", {}, h("i", { class: `swatch ${e.cls}`, "aria-hidden": "true" }), e.label)));
 }
 
 /** Strike bars (OI butterfly, GEX): see divergingLayout. */
-function strikeBars(items, { label, absAxis = false, formatTitle }) {
+export function strikeBars(items, { label, absAxis = false, formatTitle, layout = {} }) {
   return chartHost((w) => {
-    const L = divergingLayout(items, { width: w, absAxis });
+    const L = divergingLayout(items, { width: w, absAxis, ...layout });
     const svg = svgRoot(L.width, L.height, label);
     for (const t of L.ticks) svg.append(s("line", { class: "grid-line", x1: t.x, x2: t.x, y1: 0, y2: L.bottom }), s("text", { class: "tick", x: t.x, y: L.bottom + 16, "text-anchor": "middle" }, t.label));
     for (const r of L.rows) {
       if (r.band) svg.append(s("rect", { class: `band ${r.band}`, x: 0, y: r.y, width: L.width, height: L.rowH, rx: 4 }));
       svg.append(s("text", { class: r.band ? "strike strong" : "strike", x: L.labelW - 8, y: r.y + L.rowH / 2 + 4, "text-anchor": "end" }, r.label));
       for (const b of r.bars) if (b.w > 0) svg.append(s("rect", { class: `bar ${b.cls}`, x: b.x, y: b.y, width: Math.max(1, b.w), height: b.h, rx: 2 }, s("title", {}, b.title ?? formatTitle?.(r, b))));
-      if (r.tag) svg.append(s("text", { class: "tag", x: L.width - 4, y: r.y + L.rowH / 2 + 4, "text-anchor": "end" }, r.tag));
+      if (r.tag) svg.append(s("text", { class: "tag", x: L.tagX, y: r.y + L.rowH / 2 + 4, "text-anchor": "end" }, r.tag));
     }
     svg.append(s("line", { class: "zero-line", x1: L.x0, x2: L.x0, y1: 0, y2: L.bottom }));
     return svg;
@@ -369,7 +381,7 @@ function strikeBars(items, { label, absAxis = false, formatTitle }) {
 }
 
 /** Lines over a numeric x axis (strike). `marker` draws a dashed vertical line with a label. */
-function lineChart(series, { label, marker, yDecimals = 1 }) {
+export function lineChart(series, { label, marker, yDecimals = 1 }) {
   return chartHost((w) => {
     const L = lineLayout(series, { width: w, yDecimals });
     const svg = svgRoot(L.width, L.height, label);
@@ -386,7 +398,7 @@ function lineChart(series, { label, marker, yDecimals = 1 }) {
 }
 
 let clipSeq = 0;
-function payoffChart(curve, { breakevens, spot, label }) {
+export function payoffChart(curve, { breakevens, spot, label }) {
   return chartHost((w) => {
     const L = payoffLayout(curve, { width: w, breakevens, spot });
     const svg = svgRoot(L.width, L.height, label);
@@ -405,7 +417,7 @@ function payoffChart(curve, { breakevens, spot, label }) {
 }
 
 /** A "show as table" disclosure under a chart, so the numbers are reachable without the picture. */
-function dataDisclosure(summary, columns, rows) {
+export function dataDisclosure(summary, columns, rows) {
   return h("details", { class: "disclosure" }, h("summary", {}, summary), h("div", { class: "card" }, table(columns, rows, h("p", { class: "muted small" }, "No data."), { mobile: "scroll" })));
 }
 
@@ -413,11 +425,13 @@ function dataDisclosure(summary, columns, rows) {
 
 const UNDERLYINGS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"];
 const STRIKE_CHOICES = [5, 10, 15, 20, 30];
+/** Legs another page (Strategies) hands to the payoff page: { legs: editor legs, spot: text } or null. Read once. */
+export const handoff = { payoff: null };
 /** What the person last chose, kept while moving between analytics pages (this tab only). */
-const selection = { underlying: "NIFTY", expiry: "", strikes: 10 };
+export const selection = { underlying: "NIFTY", expiry: "", strikes: 10 };
 let uid = 0;
-const nextId = (p) => `${p}-${++uid}`;
-const demoPill = () => (app.state.demo ? pill("Demo data", "demo") : null);
+export const nextId = (p) => `${p}-${++uid}`;
+export const demoPill = () => (app.state.demo ? pill("Demo data", "demo") : null);
 
 /** The freshness label row every data page shows (plus the demo label in demo mode). */
 export function statusRow(freshness, extra) {
@@ -425,27 +439,29 @@ export function statusRow(freshness, extra) {
   return h("div", { class: "row analytics-status" }, pill(f.text, f.tone), freshness?.asOf ? h("span", { class: "muted small" }, `as of ${istTime(freshness.asOf)} IST`) : null, demoPill(), extra ?? null);
 }
 /** For pages that only calculate (no market data): says so instead of a freshness. */
-const calcStatus = () => h("div", { class: "row analytics-status" }, pill("Calculated on this Bridge · no market data", "info"), demoPill());
+export const calcStatus = () => h("div", { class: "row analytics-status" }, pill("Calculated on this Bridge · no market data", "info"), demoPill());
 
-function tile(label, value, sub, tone) {
+export function tile(label, value, sub, tone) {
   return h("section", { class: "card stat" }, h("div", { class: "stat-head" }, h("span", { class: "label" }, label)), h("span", { class: tone ? `value ${tone}` : "value" }, value), sub ? h("span", { class: "sub" }, sub) : null);
 }
-const tiles = (...t) => h("div", { class: "grid cols-4 stats" }, t);
+export const tiles = (...t) => h("div", { class: "grid cols-4 stats" }, t);
 
 /**
  * Underlying, expiry and strikes controls. `onChange()` runs after any change; `expiry()` etc. read the choice.
  * Loads the expiry list from /v1/expiries (errors go to `onError`).
  */
-function chainControls(H, { onChange, onError, withStrikes = true, strikeChoices = STRIKE_CHOICES }) {
+export function chainControls(H, { onChange, onError, withStrikes = true, strikeChoices = STRIKE_CHOICES }) {
   const uId = nextId("an-u");
   const eId = nextId("an-e");
   const kId = nextId("an-k");
   const underlying = h("input", { id: uId, list: `${uId}-list`, value: selection.underlying, spellcheck: "false", autocomplete: "off", autocapitalize: "characters", maxlength: 30 });
   const list = h("datalist", { id: `${uId}-list` }, UNDERLYINGS.map((u) => h("option", { value: u })));
   const expiry = h("select", { id: eId }, h("option", { value: "" }, "Loading…"));
-  const strikes = h("select", { id: kId }, strikeChoices.map((n) => h("option", { value: String(n), selected: n === selection.strikes }, `${n} each side of ATM`)));
+  const strikes = h("select", { id: kId }, strikeChoices.map((n) => h("option", { value: String(n), selected: n === selection.strikes }, `${n} each side`)));
   const refresh = h("button", { type: "button", class: "small", onclick: () => onChange() }, icon("refresh"), "Refresh");
   const expiryField = H.field("Expiry", expiry);
+  const underlyingField = H.field("Underlying", underlying);
+  const strikesField = withStrikes ? H.field("Strikes", strikes) : null;
   const loadExpiries = async () => {
     selection.underlying = underlying.value.trim().toUpperCase() || "NIFTY";
     underlying.value = selection.underlying;
@@ -478,13 +494,19 @@ function chainControls(H, { onChange, onError, withStrikes = true, strikeChoices
     selection.strikes = Number(strikes.value);
     onChange();
   });
-  const node = h("div", { class: "form-grid analytics-controls" }, H.field("Underlying", underlying), list, expiryField, withStrikes ? H.field("Strikes", strikes) : null, h("div", { class: "field" }, h("span", { class: "pal-sr-only" }, "Refresh"), refresh));
+  const node = h("div", { class: "form-grid analytics-controls" }, underlyingField, list, expiryField, strikesField, h("div", { class: "field" }, h("span", { class: "pal-sr-only" }, "Refresh"), refresh));
   return {
     node,
     init: loadExpiries,
     values: () => ({ underlying: selection.underlying, expiry: expiry.value || selection.expiry, strikes: selection.strikes }),
     showExpiry: (on) => {
       expiryField.hidden = !on;
+    },
+    /** Show only the fields a page needs: { underlying, expiry, strikes } (true shows, false hides). */
+    show: ({ underlying: u = true, expiry: e = true, strikes: k = true } = {}) => {
+      underlyingField.hidden = !u;
+      expiryField.hidden = !e;
+      if (strikesField) strikesField.hidden = !k;
     },
   };
 }
@@ -493,7 +515,7 @@ function chainControls(H, { onChange, onError, withStrikes = true, strikeChoices
  * The shape of every chain-based page: controls card, then a result area that shows the freshness label, the demo
  * label and the drawing, or the Bridge's error in the existing alert display.
  */
-async function chainPage(H, { endpoint, needsExpiry = true, draw, controlsExtra, strikeChoices }) {
+export async function chainPage(H, { endpoint, needsExpiry = true, draw, controlsExtra, strikeChoices }) {
   const out = h("div", { class: "stack", "aria-live": "polite" });
   let seq = 0;
   const load = async () => {
@@ -520,8 +542,8 @@ async function chainPage(H, { endpoint, needsExpiry = true, draw, controlsExtra,
 
 // ───────────────────────── pages ─────────────────────────
 
-const callPutLegend = () => legend([{ cls: "call", label: "Call (CE)" }, { cls: "put", label: "Put (PE)" }]);
-const q = (v, extra = {}) => new URLSearchParams({ underlying: v.underlying, expiry: v.expiry, strikes: String(v.strikes), ...extra }).toString();
+export const callPutLegend = () => legend([{ cls: "call", label: "Call (CE)" }, { cls: "put", label: "Put (PE)" }]);
+export const q = (v, extra = {}) => new URLSearchParams({ underlying: v.underlying, expiry: v.expiry, strikes: String(v.strikes), ...extra }).toString();
 
 async function renderChain(H) {
   return chainPage(H, {
@@ -661,7 +683,10 @@ async function renderSkew(H) {
 async function renderPayoff(H) {
   const legs = [];
   const blank = () => ({ type: "CE", side: "buy", strike: "", price: "", lots: "1", lotSize: "1" });
-  legs.push(blank());
+  const incoming = handoff.payoff;
+  handoff.payoff = null;
+  if (incoming?.legs?.length) legs.push(...incoming.legs.slice(0, 12).map((l) => ({ ...l })));
+  else legs.push(blank());
   const legsBox = h("div", { class: "stack legs" });
   const out = h("div", { class: "stack", "aria-live": "polite" });
   const spot = h("input", { id: nextId("an-spot"), type: "number", inputmode: "decimal", step: "any", min: "0", placeholder: "Optional" });
@@ -755,9 +780,14 @@ async function renderPayoff(H) {
 
   ctl = chainControls(H, { onChange: () => {}, onError: (e) => out.replaceChildren(H.errorBox(e)), withStrikes: false });
   await ctl.init();
+  if (incoming?.legs?.length) {
+    spot.value = String(incoming.spot ?? "");
+    presetNote.textContent = incoming.note ?? "";
+  }
   drawLegs();
   const addLeg = h("button", { type: "button", class: "small", onclick: () => { if (legs.length < 12) legs.push(blank()); drawLegs(); } }, icon("plus"), "Add leg");
   const run = h("button", { type: "button", class: "primary", onclick: calculate }, icon("play"), "Draw payoff");
+  if (incoming?.legs?.length) await calculate();
   return h(
     "div",
     { class: "stack" },

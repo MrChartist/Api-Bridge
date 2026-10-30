@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { analyticsPages, chainRows, compact, divergingLayout, freshnessLabel, greeksQuery, legsToBody, lineLayout, niceScale, payoffLayout, presetLegs, readNumber, sizeBody, surfaceSeries } from "./analyticsViews.js";
+import { analyticsMorePages, barTimeLabel, countdownText, describeRule, dryRunText, flowItems, gridItems, legsToEditor, lotSplitBody, oiChangeItems, rollingRows, ruleBody, ruleState, rulerLayout, seriesLayout, streakText, windowNote } from "./analyticsMore.js";
+import { analyticsPages, TAG_CHAR_W, chainRows, compact, divergingLayout, freshnessLabel, greeksQuery, legsToBody, lineLayout, niceScale, payoffLayout, presetLegs, readNumber, sizeBody, surfaceSeries } from "./analyticsViews.js";
 
 describe("freshness and numbers", () => {
   it("labels freshness with source, age and staleness", () => {
@@ -45,6 +46,19 @@ describe("bar layout", () => {
       expect(call.x + call.w).toBeLessThanOrEqual(L.plotR + 1);
     }
     expect(L.rows[0].bars[0].w).toBeGreaterThan(L.rows[1].bars[0].w);
+  });
+  it("reserves a tag column wide enough for the longest tag, so Max pain never touches a bar", () => {
+    const rows = [{ label: "1", tag: "Max pain", band: "pain", bars: [{ value: 100, cls: "call" }] }, { label: "2", bars: [{ value: 90, cls: "call" }] }];
+    for (const width of [240, 360, 900]) {
+      const L = divergingLayout(rows, { width });
+      expect(L.tagX - "Max pain".length * TAG_CHAR_W).toBeGreaterThanOrEqual(L.plotR);
+      for (const r of L.rows) for (const b of r.bars) expect(b.x + b.w).toBeLessThanOrEqual(L.plotR + 1);
+    }
+  });
+  it("stacks grouped bars of one row without overlap", () => {
+    const L = divergingLayout([{ label: "a", bars: [{ value: 5, cls: "s1" }, { value: 7, cls: "s2" }] }], { width: 400, rowH: 30, group: true });
+    const [a, b] = L.rows[0].bars;
+    expect(b.y).toBeGreaterThanOrEqual(a.y + a.h);
   });
   it("works for tiny widths, empty and one-sided data", () => {
     expect(divergingLayout([], { width: 100 }).rows).toEqual([]);
@@ -109,7 +123,76 @@ describe("request building", () => {
   });
 });
 
+describe("more analytics: pure helpers", () => {
+  it("lays out series and a ruler inside the width, with no label overlapping another in its lane", () => {
+    const L = seriesLayout([{ id: "a", label: "A", cls: "s1", points: Array.from({ length: 30 }, (_, i) => ({ label: `d${i}`, y: i % 5 })) }], { width: 300, refs: [{ y: 2, label: "Avg" }] });
+    expect(L.xTicks.length).toBeLessThan(6);
+    expect(L.paths[0].d.startsWith("M")).toBe(true);
+    expect(seriesLayout([{ id: "a", label: "A", cls: "s1", points: [] }]).empty).toBe(true);
+    const R = rulerLayout([{ id: "a", label: "Spot", value: 100 }, { id: "b", label: "Max pain", value: 101 }, { id: "c", label: "Wall", value: 160 }], { width: 300, band: { from: 90, to: 120 } });
+    const byLane = new Map();
+    for (const i of R.items) {
+      expect(i.left).toBeGreaterThanOrEqual(0);
+      expect(i.left + i.text.length * TAG_CHAR_W).toBeLessThanOrEqual(300);
+      byLane.set(i.lane, [...(byLane.get(i.lane) ?? []), i]);
+    }
+    for (const list of byLane.values()) for (let k = 1; k < list.length; k++) expect(list[k].left).toBeGreaterThanOrEqual(list[k - 1].left + list[k - 1].text.length * TAG_CHAR_W);
+    expect(R.lanes).toBeGreaterThan(1);
+    expect(rulerLayout([], {}).empty).toBe(true);
+  });
+  it("words flows, streaks, countdowns and windows", () => {
+    expect(streakText({ direction: "selling", count: 3 })).toMatchObject({ value: "Net selling", sub: "3 sessions in a row" });
+    expect(streakText({ direction: "flat", count: 0 }).value).toBe("Flat");
+    expect(flowItems([{ date: "2026-10-30", fii: { buy: 10, sell: 4, net: 6 }, dii: { buy: 1, sell: 3, net: -2 } }])[0].bars.map((b) => b.value)).toEqual([6, -2]);
+    expect(rollingRows([{ window: 5, days: 3, fiiNet: 1, diiNet: 2 }])[0]).toMatchObject({ label: "Last 5 sessions", partial: true });
+    expect(countdownText(19.5)).toBe("19 h 30 min");
+    expect(countdownText(0)).toBe("Expired");
+    expect(countdownText(72)).toBe("3.0 days");
+    expect(windowNote({ from: 0, to: 600_000, windowCovered: false, windowMs: 900_000 })).toMatch(/asked for 15 min/);
+    expect(barTimeLabel(1_793_000_000, "day")).toMatch(/Oct|Nov/);
+  });
+  it("shapes OI change, greeks and strategy hand-off data", () => {
+    const items = oiChangeItems([{ strike: 100, side: "CE", oiChange: 5 }, { strike: 100, side: "PE", oiChange: -3 }, { strike: 110, side: "CE", oiChange: 1 }]);
+    expect(items.map((i) => i.label)).toEqual(["110", "100"]);
+    expect(items[1].bars.map((b) => b.value)).toEqual([5, -3]);
+    expect(gridItems([{ strike: 100, ce: { gamma: 0.1 }, pe: { gamma: null } }], "gamma")[0].bars.map((b) => b.value)).toEqual([0.1, 0]);
+    expect(legsToEditor([{ type: "FUT", side: "buy", strike: null, price: 100, lots: 1, lotSize: 75 }, { type: "CE", side: "sell", strike: 24500, price: 80.5, lots: 2, lotSize: 75 }])).toEqual([
+      { type: "FUT", side: "buy", strike: "", price: "100", lots: "1", lotSize: "75" },
+      { type: "CE", side: "sell", strike: "24500", price: "80.5", lots: "2", lotSize: "75" },
+    ]);
+  });
+  it("describes and validates alert rules in plain language", () => {
+    expect(describeRule({ metric: "pcr_oi", underlying: "nifty", expiry: "2026-11-05", op: "above", value: 1.2 })).toBe("Tell me when NIFTY's PCR (OI) rises above 1.2 (expiry 2026-11-05).");
+    expect(describeRule({ metric: "spot_cross", underlying: "NIFTY", op: "either", value: 24500 })).toBe("Tell me when NIFTY crosses 24500 in either direction.");
+    expect(describeRule({ metric: "gex_regime", underlying: "NIFTY", expiry: "2026-11-05", to: "negative" })).toMatch(/changes to negative/);
+    const ok = ruleBody({ name: "", underlying: "nifty", expiry: "2026-11-05", metric: "atm_iv", op: "below", value: "12", to: "", every: "15", marketHoursOnly: true });
+    expect(ok).toEqual({ ok: true, body: { name: "NIFTY's ATM IV falls below 12% (expiry 2026-11-05)", underlying: "NIFTY", metric: "atm_iv", marketHoursOnly: true, enabled: true, expiry: "2026-11-05", value: 12, op: "below", everyMinutes: 15 } });
+    expect(ruleBody({ underlying: "NIFTY", expiry: "", metric: "pcr_oi", op: "above", value: "", every: "0", marketHoursOnly: true }).errors).toHaveLength(3);
+    expect(ruleBody({ underlying: "NIFTY", metric: "spot_cross", op: "either", value: "24500", every: "", marketHoursOnly: true }).body).not.toHaveProperty("expiry");
+    expect(ruleBody({ underlying: "NIFTY", expiry: "2026-11-05", metric: "gex_regime", to: "negative", value: "9", marketHoursOnly: false }).body).toMatchObject({ to: "negative" });
+    expect(ruleState({ enabled: true, lastCheck: { status: "ok", condition: false } }).tone).toBe("ok");
+    expect(ruleState({ disabledReason: "key revoked" }).tone).toBe("bad");
+    expect(dryRunText({ status: "baseline" })).toMatch(/starting reading/);
+  });
+  it("builds the lot-split body from lots", () => {
+    expect(lotSplitBody({ symbol: " NFO:NIFTY-2026-11-24-FUT ", lots: "100", lotSize: "75", freezeQty: "", iceberg: true, sliceLots: "", delayMs: "250" })).toEqual({ ok: true, body: { symbol: "NFO:NIFTY-2026-11-24-FUT", quantity: 7500, lotSize: 75, iceberg: { delayMs: 250 } } });
+    expect(lotSplitBody({ symbol: "", lots: "1", lotSize: "1" }).ok).toBe(false);
+    expect(lotSplitBody({ symbol: "X", lots: "1.5", lotSize: "1" }).ok).toBe(false);
+  });
+});
+
 describe("pages and CSP", () => {
+  it("adds the remaining pages to the same group, after the first six", () => {
+    const more = analyticsMorePages(() => ({}));
+    expect(more.map((p) => p.id)).toEqual(["futures", "flows", "expiry", "oichange", "strategies", "greeksgrid", "alerts", "positions"]);
+    expect(new Set(more.map((p) => p.group))).toEqual(new Set(["Analytics"]));
+    const ids = [...analyticsPages(() => ({})), ...more].map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(more.some((p) => p.tab)).toBe(false);
+  });
+  it("serves analyticsMore.js from the dashboard allowlist", () => {
+    expect(readFileSync(new URL("../core/app.mjs", import.meta.url), "utf8")).toMatch(/"analyticsMore\.js": "text\/javascript/);
+  });
   it("adds the Analytics group with unique ids, labels and shortcuts-free tab bar entries", () => {
     const pages = analyticsPages(() => ({}));
     expect(pages.map((p) => p.id)).toEqual(["chain", "oi", "gex", "skew", "payoff", "calculators"]);
@@ -117,11 +200,11 @@ describe("pages and CSP", () => {
     for (const p of pages) expect(typeof p.render).toBe("function");
     expect(pages.some((p) => p.tab)).toBe(false);
   });
-  it("uses no inline styles, external hosts or locale number formatting", () => {
-    const src = readFileSync(new URL("./analyticsViews.js", import.meta.url), "utf8");
+  it.each(["./analyticsViews.js", "./analyticsMore.js"])("%s uses no inline styles, external hosts or locale number formatting", (file) => {
+    const src = readFileSync(new URL(file, import.meta.url), "utf8");
     expect(src).not.toMatch(/setAttribute\(\s*["']style|\bstyle:|innerHTML|outerHTML|insertAdjacentHTML/);
     // The only URL is the SVG namespace, which is an identifier, not a request.
-    expect(src.match(/https?:\/\/[^"\s]+/g)).toEqual(["http://www.w3.org/2000/svg"]);
+    expect(src.match(/https?:\/\/[^"\s]+/g) ?? []).toEqual(file.endsWith("Views.js") ? ["http://www.w3.org/2000/svg"] : []);
     expect(src).not.toMatch(/Intl\.NumberFormat|\.toLocaleString\(|toFixed\(/);
   });
 });
