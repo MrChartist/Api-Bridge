@@ -80,6 +80,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "trigger-core.js": "text/javascript; charset=utf-8",
   "triggers.js": "text/javascript; charset=utf-8",
   "orders-core.js": "text/javascript; charset=utf-8",
+  "reasons-core.js": "text/javascript; charset=utf-8",
   "orders-book.js": "text/javascript; charset=utf-8",
   "snippets.js": "text/javascript; charset=utf-8",
   "flows.js": "text/javascript; charset=utf-8",

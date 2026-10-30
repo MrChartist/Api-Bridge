@@ -8832,6 +8832,9 @@ span.bk-depth-lvl.empty { display: flex; justify-content: center; color: hsl(var
 .bk-depth-foot { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 6px 8px 0; font: 500 12px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-label)); }
 .bk-depth-share { position: relative; height: 4px; border-radius: 2px; background: hsl(var(--ios-red) / 0.5); overflow: hidden; }
 .bk-depth-share::before { content: ""; position: absolute; inset: 0 auto 0 0; width: calc(var(--w, 0.5) * 100%); background: hsl(var(--ios-blue)); }
+.bk-fix { color: hsl(var(--foreground) / var(--a-label)); font: 500 12px/1.4 var(--font-body); margin: 0; }
+p.bk-fix { font-size: 13px; }
+.ticket-checks .bk-fix { display: block; margin-top: 2px; }
 /* End of broker features. */
 
 /* ───────────────────────── Trade › Algo (algo.js, docs/STRATEGIES-PYTHON.md) ───────────────────────── */

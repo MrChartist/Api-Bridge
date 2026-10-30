@@ -23,6 +23,7 @@ import { clockNote, loadPricingContext } from "./vol-context.js";
 import { animatePage, barsEnter, countUp, flashValue, stopCount } from "./motion.js";
 import { riskAfterCharges, ticketRisk } from "./flows.js";
 import { depthView } from "./orders-core.js";
+import { whatToDo } from "./reasons-core.js";
 import { watch } from "./live.js";
 import { SPAN_METHOD, marginLegsOf, portfolioMargin } from "./span-margin.js";
 import { gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, opFor, slTriggerStart, stopOrderProblem, stopOrderText, triggerBody, triggerProblem } from "./trigger-core.js";
@@ -1664,6 +1665,11 @@ async function renderDesk(kind) {
     const ack = h("input", { type: "checkbox" });
     const ackRow = h("label", { class: "check live-ack", hidden: true }, ack, `I understand this sends a real order to ${a.label}.`);
     const quoteLine = h("div", { class: "ticket-quote" });
+    // A refusal from the Bridge, in its own words, then the next step (reasons-core.js) when there is one.
+    const refusalNodes = (err) => {
+      const fix = whatToDo(err);
+      return [alertBox(err), ...(fix ? [h("p", { class: "bk-fix" }, h("strong", {}, "What to do: "), fix)] : [])];
+    };
     // Market depth (GET /v1/depth): read every 2 s only while it is open, so a closed panel costs no broker calls.
     // Five levels a side; twenty where the source sends them. A tap on a price makes it the limit.
     const depthSum = h("span", { class: "muted small bk-depth-sum" });
@@ -1728,6 +1734,7 @@ async function renderDesk(kind) {
       if (!depthBox.isConnected) return;
       depthLast = r;
       drawDepth();
+      drawQuote();
     }
     depthBox.addEventListener("toggle", () => {
       clearInterval(depthTimer);
@@ -1828,6 +1835,11 @@ async function renderDesk(kind) {
       if (!placeBtn) return;
       const b = body();
       const blocked = (last?.checks ?? []).some((x) => x?.severity === "block");
+      // A disabled button says why on hover and to screen readers (the reason may be below the fold).
+      const firstBlock = blocked && !gtt() ? (last.checks.find((x) => x?.severity === "block")?.message ?? null) : null;
+      placeBtn.title = firstBlock ?? "";
+      if (firstBlock) placeBtn.setAttribute("aria-description", firstBlock);
+      else placeBtn.removeAttribute("aria-description");
       const size = `${b.side === "BUY" ? "Buy" : "Sell"} ${inUnits ? `${formatInt(b.quantity)} qty` : `${formatInt(b.lots)} lot${b.lots === 1 ? "" : "s"}`}`;
       // On a phone the footer has room for "Set GTT" only (the side is the button's colour, the size is above).
       const narrow = typeof matchMedia === "function" && matchMedia("(max-width: 719px)").matches;
@@ -1840,8 +1852,13 @@ async function renderDesk(kind) {
     };
     const drawQuote = () => {
       const q = quote();
+      // While the depth panel is open, the strip's bid and ask are its top of book (one snapshot, so they agree);
+      // otherwise the chain's quote.
+      const top = depthBox.open && !depthLast?.error ? depthLast?.data?.data : null;
+      const bid = num(top?.bids?.[0]?.price) ?? q?.bid;
+      const ask = num(top?.asks?.[0]?.price) ?? q?.ask;
       const cell = (l, v, cls) => h("span", { class: cls }, h("small", {}, l), isFigure(v) ? formatFixed(v, 2) : DASH);
-      quoteLine.replaceChildren(cell("Bid", q?.bid, "bid"), cell("LTP", q?.ltp), cell("Ask", q?.ask, "ask"), h("span", {}, h("small", {}, "IV"), fut ? DASH : formatFixed(q?.iv, 1)), h("span", {}, h("small", {}, "Δ"), fut ? "1.00" : formatFixed(q?.delta, 2)));
+      quoteLine.replaceChildren(cell("Bid", bid, "bid"), cell("LTP", q?.ltp), cell("Ask", ask, "ask"), h("span", {}, h("small", {}, "IV"), fut ? DASH : formatFixed(q?.iv, 1)), h("span", {}, h("small", {}, "Δ"), fut ? "1.00" : formatFixed(q?.delta, 2)));
     };
     let previewSeq = 0;
     let previewTimer = null;
@@ -1940,12 +1957,12 @@ async function renderDesk(kind) {
               )
             : null,
           // A GTT's order is checked against the market when it fires: today's refusals are said as "When it fires".
-          ...(checks.length ? [h("ul", { class: "ticket-checks" }, checks.map((x) => h("li", { class: x.severity === "block" && !gtt() ? "bad" : "warn" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, `${x.severity === "block" ? (gtt() ? "If this held when it fires, it would be refused: " : "Blocked: ") : ""}${x.message}`))))] : []),
+          ...(checks.length ? [h("ul", { class: "ticket-checks" }, checks.map((x) => h("li", { class: x.severity === "block" && !gtt() ? "bad" : "warn" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, `${x.severity === "block" ? (gtt() ? "If this held when it fires, it would be refused: " : "Blocked: ") : ""}${x.message}`, x.severity === "block" && whatToDo(x) ? h("span", { class: "bk-fix" }, `What to do: ${whatToDo(x)}`) : null))))] : []),
         );
       } catch (err) {
         if (seq !== previewSeq) return;
         last = null;
-        previewEl.replaceChildren(alertBox(err));
+        previewEl.replaceChildren(...refusalNodes(err));
       }
       drawButton();
     }
@@ -2122,7 +2139,7 @@ async function renderDesk(kind) {
                 toast(`GTT set: ${b.side === "BUY" ? "buy" : "sell"} ${name} when LTP ${t.legs?.[0]?.op === "above" ? "≥" : "≤"} ${formatFixed(t.legs?.[0]?.trigger, 2)}. See Orders › Triggers.`);
                 return "placed";
               } catch (err) {
-                previewEl.replaceChildren(alertBox(err));
+                previewEl.replaceChildren(...refusalNodes(err));
                 drawButton();
                 return false;
               }
@@ -2146,7 +2163,7 @@ async function renderDesk(kind) {
               toast(`${r.status === "filled" ? "Filled" : cap(r.status)}: ${r.side} ${formatInt(r.quantity)} ${name}${isFigure(r.avgPrice) ? ` @ ${formatFixed(r.avgPrice, 2)}` : ""}${r.mode === "live" ? " · LIVE" : " · paper"}${refused && r.statusMessage ? `. ${r.statusMessage}` : ""}${exitsNote}`, { tone: refused || exitsNote.includes("NOT") ? "error" : "ok" });
               return "placed";
             } catch (err) {
-              previewEl.replaceChildren(alertBox(err));
+              previewEl.replaceChildren(...refusalNodes(err));
               drawButton();
               return false;
             }

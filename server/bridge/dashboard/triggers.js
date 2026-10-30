@@ -3,6 +3,7 @@
 import { alertBox, api, card, emptyState, h, istDateTime, modal, optional, pill, table, toast } from "./app.js";
 import { contractName, fieldError } from "./flows.js";
 import { DASH, formatFixed, formatInput, formatInt, formatPercent, formatSignedRupee, isFigure } from "./format.js";
+import { whatToDo } from "./reasons-core.js";
 import { OPEN_TRIGGER, distancePct, exitChipText, kindText, legText, outcomeText, pnlAt, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
 
 export { exitChipText };
@@ -243,7 +244,9 @@ export function triggersCard(byId) {
       cell: (t) => {
         const s = statusText(t);
         const why = outcomeText(t);
-        return h("div", { class: "order-status" }, pill(s.text, s.tone), why ? h("div", { class: "muted small order-why" }, why) : null);
+        // A failed or refused fire: the next step, when there is one (reasons-core.js).
+        const fix = t.status === "failed" || t.result?.status === "rejected" || t.result?.code ? whatToDo({ code: t.result?.code ?? null, message: t.result?.message ?? "" }) : null;
+        return h("div", { class: "order-status" }, pill(s.text, s.tone), why ? h("div", { class: "muted small order-why" }, why) : null, fix ? h("div", { class: "small bk-fix" }, fix) : null);
       },
     },
     { label: "Mode", cell: (t) => (t.mode === "live" ? pill("Live", "bad") : pill("Paper")) },

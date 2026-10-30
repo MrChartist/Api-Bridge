@@ -49,6 +49,7 @@ import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searc
 import { PAGE_CODES } from "./workspace.js";
 import { triggersCard } from "./triggers.js";
 import { ordersCard, renderTradesPage } from "./orders-book.js";
+import { whatToDo } from "./reasons-core.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -2428,7 +2429,10 @@ async function renderOrders() {
                 cell: (o) => {
                   const t = orderStatusText(o.status);
                   // Why it was refused or cancelled, right under the pill (the broker's or the paper engine's words).
-                  return h("div", { class: "order-status" }, pill(t.text, t.tone), o.statusMessage && ["rejected", "expired", "outcome_unknown"].includes(o.status) ? h("div", { class: "muted small order-why" }, o.statusMessage) : null);
+                  // ...and the next step, in plain words, when there is one (reasons-core.js).
+                  const why = o.statusMessage && ["rejected", "expired", "outcome_unknown"].includes(o.status) ? o.statusMessage : null;
+                  const fix = why || o.status === "outcome_unknown" ? whatToDo({ code: o.status === "outcome_unknown" ? "OUTCOME_UNKNOWN" : null, message: why ?? "" }) : null;
+                  return h("div", { class: "order-status" }, pill(t.text, t.tone), why ? h("div", { class: "muted small order-why" }, why) : null, fix ? h("div", { class: "small bk-fix" }, fix) : null);
                 },
               },
               { label: "Mode", cell: (o) => (o.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
