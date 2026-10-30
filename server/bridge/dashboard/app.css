@@ -143,6 +143,8 @@ html { font-synthesis-weight: none; }
   --btn-paper: 0 0% 100%;
   --btn-edge: hsl(0 0% 0% / 0.14);
   --btn-edge-hover: hsl(0 0% 0% / 0.26);
+  --btn-soft: hsl(240 6% 10% / 0.06);
+  --btn-soft-hover: hsl(240 6% 10% / 0.1);
   --btn-buy: var(--pos-ink);
   --btn-sell: var(--neg-ink);
   --btn-trade-fg: 0 0% 100%;
@@ -402,6 +404,8 @@ html { font-synthesis-weight: none; }
     --btn-paper: 0 0% 0%;
     --btn-edge: hsl(0 0% 100% / 0.2);
     --btn-edge-hover: hsl(0 0% 100% / 0.34);
+    --btn-soft: hsl(0 0% 100% / 0.08);
+    --btn-soft-hover: hsl(0 0% 100% / 0.13);
     --btn-buy: var(--pos);
     --btn-sell: var(--neg);
     --btn-trade-fg: 0 0% 0%;
@@ -521,6 +525,8 @@ html { font-synthesis-weight: none; }
   --btn-paper: 0 0% 0%;
   --btn-edge: hsl(0 0% 100% / 0.2);
   --btn-edge-hover: hsl(0 0% 100% / 0.34);
+  --btn-soft: hsl(0 0% 100% / 0.08);
+  --btn-soft-hover: hsl(0 0% 100% / 0.13);
   --btn-buy: var(--pos);
   --btn-sell: var(--neg);
   --btn-trade-fg: 0 0% 0%;
@@ -806,7 +812,7 @@ button.sb-account > svg:last-child { width: 16px; height: 16px; flex: none; fill
   display: inline-flex; align-items: center; gap: 8px; height: var(--ctl-h); padding: 0 14px; border-radius: 999px; flex: none; white-space: nowrap;
   font: 500 13px/1 var(--font-body); color: hsl(var(--foreground) / 0.8);
 }
-button.toolbar-demo { --btn-h: var(--ctl-h); --btn-px: 14px; --btn-fs: 12.5px; --btn-bg: var(--mat-glass); --btn-line: transparent; height: auto; color: hsl(var(--foreground)); }
+button.toolbar-demo { --btn-h: var(--ctl-h); --btn-px: 14px; --btn-fs: 12.5px; --btn-bg: var(--btn-soft); --btn-line: transparent; height: auto; color: hsl(var(--foreground)); }
 .toolbar-demo i, .demo-badge { width: 8px; height: 8px; border-radius: 50%; background: hsl(var(--warn)); box-shadow: 0 0 0 1px hsl(var(--warn-ink) / 0.6); }
 .toolbar-clock { display: none; font-family: var(--font-numeric); color: hsl(var(--foreground)); }
 .toolbar-clock small { font: 500 12px/1 var(--font-body); letter-spacing: 0.04em; color: hsl(var(--foreground) / var(--a-quiet)); }
@@ -814,10 +820,9 @@ button.toolbar-demo { --btn-h: var(--ctl-h); --btn-px: 14px; --btn-fs: 12.5px; -
 .toolbar-actions { display: inline-flex; align-items: center; gap: 10px; flex: 0 1 auto; min-width: 0; }
 .toolbar-search {
   display: none; align-items: center; gap: 8px; height: var(--ctl-h); min-height: var(--ctl-h); padding: 0 14px; border-radius: 999px; min-width: 0; flex: 0 1 auto;
-  font: 500 14px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); --btn-bg: var(--mat-glass); --btn-line: transparent;
-  -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur);
+  font: 500 14px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); --btn-bg: var(--btn-soft); --btn-line: transparent;
 }
-@media (hover: hover) { .toolbar-search:hover { --btn-bg: var(--mat-glass-strong); --btn-line: transparent; } }
+@media (hover: hover) { .toolbar-search:hover { --btn-bg: var(--btn-soft-hover); --btn-line: transparent; } }
 .toolbar-search svg { width: 16px; height: 16px; }
 .toolbar-search .kbd-group { margin-left: auto; }
 /* The label gives way first, so Refresh never falls off the right edge (the wider text face, 1024 to 1440 px). */
@@ -890,10 +895,9 @@ button.toolbar-demo { --btn-h: var(--ctl-h); --btn-px: 14px; --btn-fs: 12.5px; -
 .ctx-demo { display: none; flex: none; align-items: center; height: 24px; padding: 0 8px; border-radius: 99px; font: 500 12px/1 var(--font-body); letter-spacing: 0.02em; color: hsl(var(--warn-ink)); box-shadow: inset 0 0 0 1px hsl(var(--warn)); }
 @media (max-width: 1023px) { .ctx-demo { display: inline-flex; } }
 /* Live control: a status, not a selection (green dot + data time on a glass pill). */
-button.live-ctl { --btn-h: var(--ctl-h); --btn-bg: var(--mat-glass); --btn-line: transparent; flex: none; gap: 7px; height: var(--ctl-h); padding: 0 14px 0 12px;
-  font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground));
-  -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur); }
-@media (hover: hover) { button.live-ctl:hover { --btn-bg: var(--mat-glass-strong); --btn-line: transparent; } }
+button.live-ctl { --btn-h: var(--ctl-h); --btn-bg: var(--btn-soft); --btn-line: transparent; flex: none; gap: 7px; height: var(--ctl-h); padding: 0 14px 0 12px;
+  font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground)); }
+@media (hover: hover) { button.live-ctl:hover { --btn-bg: var(--btn-soft-hover); --btn-line: transparent; } }
 .live-ctl .live-dot { width: 7px; height: 7px; border-radius: 99px; flex: none; background: hsl(var(--pos)); }
 .live-ctl .live-glyph:empty { display: none; }
 .live-ctl .live-glyph svg { width: 13px; height: 13px; stroke-width: 2.6; }
@@ -1301,27 +1305,21 @@ td strong { font-weight: 600; }
    a background, edge, radius or shadow of its own (buttonSystem.test.mjs). */
 button, .btn {
   --btn-h: 44px; --btn-px: 18px; --btn-fs: 14px; --btn-ic: 16px; --btn-rr: 10px; --btn-r: 999px; --press: 0.97;
-  /* The finish (§6), iOS glass: --fin 1 is all of it, 0.6 on a wide button, 0 on a quiet one until hover. The fill
-     stays exactly the paper or the ink; the sheen (top 46 %), the rim, the base shade and the shadow are light and
-     shade laid on top. --btn-lift doubles the shadow on hover. */
+  /* The finish (§6) is soft and flat: a tinted fill (--btn-soft), no sheen, no specular rim, no drop shadow, no blur.
+     --fin and --btn-lift stay as no-op hooks for older rules. */
   --fin: 1;
   --btn-lift: 1;
-  --btn-bg: hsl(var(--btn-paper));
+  --btn-bg: var(--btn-soft);
   --btn-fg: hsl(var(--btn-ink));
-  --btn-line: var(--btn-edge);
+  --btn-line: transparent;
   position: relative;
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   min-height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
   font: 600 var(--btn-fs)/1 var(--font-body); letter-spacing: -0.006em; white-space: nowrap; text-align: center; text-decoration: none;
   color: var(--btn-fg); cursor: pointer;
   background-color: var(--btn-bg);
-  background-image: linear-gradient(hsl(0 0% 100% / calc(0.16 * var(--fin))), hsl(0 0% 100% / 0) 46%);
-  box-shadow:
-    inset 0 0 0 1px var(--btn-line),
-    inset 0 var(--hl) 0 hsl(0 0% 100% / calc(0.34 * var(--fin))),
-    inset 0 -1px 0 hsl(0 0% 0% / calc(0.08 * var(--fin))),
-    0 1px 2px hsl(0 0% 0% / calc(0.06 * var(--fin) * var(--btn-lift))),
-    0 2px 6px -2px hsl(0 0% 0% / calc(0.12 * var(--fin) * var(--btn-lift)));
+  background-image: none;
+  box-shadow: inset 0 0 0 1px var(--btn-line);
   transition: background-color var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out), box-shadow var(--dur-hover) var(--ease-out), opacity var(--dur-hover) var(--ease-out), scale var(--dur-spring) var(--ease-press);
 }
 a.btn:hover { text-decoration: none; }
@@ -1343,7 +1341,7 @@ button svg, .btn svg { width: var(--btn-ic); height: var(--btn-ic); flex: none; 
 /* Intents (§2). */
 :where(button, .btn).primary { --btn-bg: hsl(var(--btn-ink)); --btn-fg: hsl(var(--btn-paper)); --btn-line: transparent; }
 :where(button, .btn):is(.quiet, .ghost, .plain) { --btn-bg: transparent; --btn-line: transparent; --fin: 0; }
-:where(button, .btn):is(.glass, .copy), .icon-btn { --btn-bg: var(--mat-glass); --btn-line: transparent; -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur); }
+:where(button, .btn):is(.glass, .copy), .icon-btn { --btn-bg: var(--btn-soft); --btn-line: transparent; }
 .btn:is(.buy, .sell) { --btn-fg: hsl(var(--btn-trade-fg)); --btn-line: transparent; }
 .btn.buy { --btn-bg: hsl(var(--btn-buy)); }
 .btn.sell { --btn-bg: hsl(var(--btn-sell)); }
@@ -1353,10 +1351,10 @@ button svg, .btn svg { width: var(--btn-ic); height: var(--btn-ic); flex: none; 
 /* Hover fades (§7): the edge, the shadow and a quiet button's fill cross-fade; nothing moves. Fine pointers only, so
    a tap never leaves a hover look behind. */
 @media (hover: hover) {
-  :where(button, .btn):hover:not(:disabled) { --btn-line: var(--btn-edge-hover); --btn-lift: 2; }
+  :where(button, .btn):hover:not(:disabled) { --btn-bg: var(--btn-soft-hover); }
   :where(button, .btn):is(.primary, .buy, .sell, .glass, .copy, .icon-btn):hover:not(:disabled) { --btn-line: transparent; }
-  :where(button, .btn):is(.quiet, .ghost, .plain):hover:not(:disabled) { --btn-bg: hsl(var(--btn-paper)); --fin: 1; }
-  :where(button, .btn):is(.glass, .copy, .icon-btn):hover:not(:disabled) { --btn-bg: var(--mat-glass-strong); }
+  :where(button, .btn):is(.quiet, .ghost, .plain):hover:not(:disabled) { --btn-bg: var(--btn-soft); }
+  :where(button, .btn):is(.glass, .copy, .icon-btn):hover:not(:disabled) { --btn-bg: var(--btn-soft-hover); }
 }
 
 /* States (§9). Focus: a 2 px ring in the button's own ink, inside the shape; no outer ring. Disabled: the fill stays
@@ -1384,7 +1382,7 @@ button svg, .btn svg { width: var(--btn-ic); height: var(--btn-ic); flex: none; 
    the same height and width, 8 px apart, or share one .join. */
 .join {
   display: inline-flex; align-items: stretch; gap: 0; min-width: 0; border-radius: 999px;
-  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.06), 0 2px 6px -2px hsl(0 0% 0% / 0.12);
+  box-shadow: none;
   transition: scale var(--dur-spring) var(--ease-press);
 }
 .join > :where(button, .btn) { --btn-lift: 0; --press: 1; flex: 1 1 0; min-width: 0; }
@@ -1395,7 +1393,7 @@ button svg, .btn svg { width: var(--btn-ic); height: var(--btn-ic); flex: none; 
 .join:is(.rect, .full) > :where(button, .btn) { --btn-r: var(--btn-rr); --fin: 0.6; }
 .join.full { display: flex; width: 100%; }
 .join:has(> :active:not(:disabled)) { scale: 0.985; transition-duration: var(--dur-press); transition-timing-function: var(--ease-out); }
-@media (hover: hover) { .join:hover > :where(button, .btn):not(:disabled) { --btn-line: var(--btn-edge-hover); } }
+@media (hover: hover) { .join > :where(button, .btn):hover:not(:disabled) { --btn-bg: var(--btn-soft-hover); } }
 /* Buy and Sell as a pair: the same size, 8 px apart. */
 .trade-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 
@@ -6074,7 +6072,7 @@ table.arb-pv small.block { display: block; margin-top: 3px; white-space: normal;
 .scr-grow { flex: 1 1 auto; min-width: 0; }
 
 /* Toolbar: "3 underlyings · 7 chains" (opens the underlying chips) and the live control (auto + time + scan). */
-button.scr-ctx { --btn-h: 40px; --btn-bg: var(--mat-glass); --btn-line: transparent; color: inherit; font: inherit; flex: none; min-width: max-content; }
+button.scr-ctx { --btn-h: 40px; --btn-bg: var(--btn-soft); --btn-line: transparent; color: inherit; font: inherit; flex: none; min-width: max-content; }
 /* Beside the context capsule the reference chip gives way: it shrinks (ellipsis) rather than squeezing the capsule. */
 button.scr-ctx ~ button.ref-chip { flex: 0 1 auto; min-width: 0; }
 button.scr-ctx ~ button.ref-chip .ref-chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -6085,7 +6083,7 @@ button.scr-ctx ~ button.ref-chip .ref-chip-text { min-width: 0; overflow: hidden
   button.scr-ctx ~ button.ref-chip { display: none; }
 }
 button.scr-ctx .ctx-main::after { content: ""; width: 12px; height: 12px; flex: none; background: hsl(var(--foreground) / var(--a-label)); -webkit-mask: var(--chev-mask) center / 12px 12px no-repeat; mask: var(--chev-mask) center / 12px 12px no-repeat; }
-@media (hover: hover) { button.scr-ctx:hover { --btn-bg: var(--mat-glass-strong); --btn-line: transparent; } }
+@media (hover: hover) { button.scr-ctx:hover { --btn-bg: var(--btn-soft-hover); --btn-line: transparent; } }
 .scr-live { flex: none; display: inline-flex; align-items: center; height: 40px; padding: 0 2px; border-radius: 999px; box-shadow: var(--shadow-1); }
 .scr-live button { height: 36px; min-height: 36px; padding: 0; border-radius: 999px; background: transparent; box-shadow: none; color: hsl(var(--foreground)); }
 .scr-live button:hover { background: var(--mat-fill-1); }
@@ -7007,7 +7005,7 @@ a.small-link:hover { text-decoration: underline; }
 /* ───────────────────────── 12r · REFERENCE DATA AND MARKET CALENDAR (docs/spec/p1-02-reference.md §5) ─────────────────────────
    The reference chip in the Options top bar, the banners above a page, the ticket's lot-size check, position event
    chips and the Market calendar page. Shared tokens only: label / quiet ink, the warn and neg inks, separators. */
-button.ref-chip { --btn-bg: var(--mat-glass); --btn-line: transparent; -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur); flex: none; display: inline-flex; align-items: center; gap: 7px; height: 40px; min-height: 0; padding: 0 14px 0 12px; border-radius: 999px; font: 600 13px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; cursor: pointer; }
+button.ref-chip { --btn-bg: var(--btn-soft); --btn-line: transparent; flex: none; display: inline-flex; align-items: center; gap: 7px; height: 40px; min-height: 0; padding: 0 14px 0 12px; border-radius: 999px; font: 600 13px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; cursor: pointer; }
 button.ref-chip[hidden] { display: none; }
 button.ref-chip:hover { color: hsl(var(--foreground)); }
 .ref-chip-ic svg { width: 15px; height: 15px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: 0.8; }
@@ -7345,7 +7343,7 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
    consumers (views.js renderLimits). Tokens only; numbers tabular. */
 .toolbar-budget { display: inline-flex; flex: none; min-width: 0; }
 .toolbar-budget[hidden] { display: none; }
-button.toolbar-budget-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.5px; --btn-bg: var(--mat-glass); --btn-line: transparent; height: auto; gap: 6px; color: hsl(var(--foreground)); }
+button.toolbar-budget-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.5px; --btn-bg: var(--btn-soft); --btn-line: transparent; height: auto; gap: 6px; color: hsl(var(--foreground)); }
 .bud-lbl { font: 500 12px/1 var(--font-body); letter-spacing: 0.02em; color: hsl(var(--foreground) / var(--a-label)); }
 .bud-num { font-family: var(--font-numeric); font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bud-sep { color: hsl(var(--foreground) / var(--a-quiet)); }
@@ -7394,7 +7392,7 @@ button.toolbar-budget-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.
 /* Position alerts: the toolbar bell (shown once there is an alert), its popover and the alert sheet (alerts.js). */
 .toolbar-bell { display: inline-flex; flex: none; }
 .toolbar-bell[hidden] { display: none; }
-button.toolbar-bell-btn { --btn-h: var(--ctl-h); --btn-px: 0; --btn-bg: var(--mat-glass); --btn-line: transparent; position: relative; width: var(--ctl-h); height: var(--ctl-h); justify-content: center; color: hsl(var(--foreground)); }
+button.toolbar-bell-btn { --btn-h: var(--ctl-h); --btn-px: 0; --btn-bg: var(--btn-soft); --btn-line: transparent; position: relative; width: var(--ctl-h); height: var(--ctl-h); justify-content: center; color: hsl(var(--foreground)); }
 button.toolbar-bell-btn svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .bell-count { position: absolute; top: 2px; right: 0; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px; background: hsl(var(--ios-red)); color: hsl(var(--background)); font: 600 12px/18px var(--font-numeric); text-align: center; box-shadow: 0 0 0 2px hsl(var(--background)); }
 .bell-count[hidden] { display: none; }
@@ -7424,7 +7422,7 @@ button.toolbar-bell-btn svg { width: 17px; height: 17px; fill: none; stroke: cur
 @media (max-width: 719px) { .al-cond, .al-cond:has(input[hidden]) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; } .al-cond select { grid-column: 1 / -1; } }
 .toolbar-ready { display: inline-flex; flex: none; min-width: 0; }
 .toolbar-ready[hidden] { display: none; }
-button.toolbar-ready-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.5px; --btn-bg: var(--mat-glass); --btn-line: transparent; height: auto; gap: 8px; max-width: 34ch; color: hsl(var(--foreground)); }
+button.toolbar-ready-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.5px; --btn-bg: var(--btn-soft); --btn-line: transparent; height: auto; gap: 8px; max-width: 34ch; color: hsl(var(--foreground)); }
 .rd-glyph { position: relative; display: inline-grid; place-items: center; flex: none; width: 16px; height: 16px; color: hsl(var(--foreground) / var(--a-label)); }
 .rd-glyph svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; }
 .rd-glyph .pdot { position: absolute; top: -2px; right: -3px; width: 8px; height: 8px; border-radius: 99px; background: hsl(var(--foreground) / 0.4); box-shadow: 0 0 0 2px hsl(var(--background)); }
