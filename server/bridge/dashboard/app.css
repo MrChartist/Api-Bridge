@@ -6068,6 +6068,10 @@ table.arb-pv small.block { display: block; margin-top: 3px; white-space: normal;
   :root[data-layout="desk"][data-page="screener"] .content > .scr-main { flex: 1 1 calc(100% - 372px); }
   :root[data-layout="desk"][data-page="screener"] .content > .scr-detail { flex: 0 0 360px; }
   :root[data-layout="desk"] #content > .scr-detail.movable:not(.panel-max) { position: sticky; top: calc(var(--toolbar-h) + var(--safe-t) + 14px); }
+  /* The results panel reaches the window's bottom edge (the footer with it), so a short list (Overview ranks chains)
+     ends in its own panel, not in a gap under it and beside a taller detail column. */
+  :root[data-layout="desk"][data-page="screener"] .content > .scr-main:not(.panel-max) { display: flex; flex-direction: column; min-height: calc(100dvh - var(--desk-top) - 70px); }
+  :root[data-layout="desk"][data-page="screener"] .content > .scr-main:not(.panel-max) > .scr-foot { margin-top: auto; }
 }
 @media (max-width: 1279px) { .scr-detail { display: none; } }
 
@@ -6166,6 +6170,12 @@ button.scr-sortchip, .scr-count-m { display: none; }
 @container scr (max-width: 900px) {
   .scr-tools .scr-rescan { width: 32px; padding: 0; justify-content: center; }
   .scr-tools .scr-rescan .scr-lbl { display: none; }
+}
+/* A panel too narrow for the eight tabs and the tools on one row (1024 to 1366 px beside the detail column): the tabs
+   take their own row, every tab in view, and the tools sit on the row under them (no tab cut behind a fade). */
+@container scr (min-width: 560px) and (max-width: 900px) {
+  .scr-head { flex-wrap: wrap; row-gap: 6px; }
+  .scr-tabwrap { flex: 1 1 100%; }
 }
 @container scr (max-width: 780px) {
   .scr-tools .scr-filters-btn .scr-lbl { display: none; }
@@ -6487,7 +6497,7 @@ button.scr-pin.on-pin span { color: hsl(var(--warn)); }
 .scr-detail-body { container-type: inline-size; container-name: scrd; }
 /* Metric groups: two columns of label-over-value cells (compact tiles). */
 .scr-kv.two { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
-.scr-kv.two > div { flex-direction: column; align-items: flex-start; gap: 2px; }
+.scr-kv.two > div { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 2px; }
 .scr-kv.two dt { font-size: 12px; color: hsl(var(--foreground) / var(--a-quiet)); }
 .scr-kv.two dd { text-align: left; font-weight: 500; }
 @container scrd (min-width: 520px) { .scr-kv.two { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
