@@ -26,9 +26,20 @@ class ShortStraddle(Strategy):
     }
 
     def on_start(self):
-        self.legs = [s for s, q in self.positions().items() if q < 0 and s.endswith(("-CE", "-PE"))]
+        held = {s: q for s, q in self.positions().items() if q}
+        self.legs = []
         self.entry = None
         self._was_before_square_off = self.now().strftime("%H:%M") < self.p.square_off
+        shorts = sorted(s for s, q in held.items() if q < 0)
+        if len(held) == 2 and len(shorts) == 2 and {s[-2:] for s in shorts} == {"CE", "PE"} and len({s[:-3].rsplit("-", 1)[0] for s in shorts}) == 1:
+            self.legs = shorts
+        elif held:
+            # One leg left over (part of an exit was refused): close it rather than run half a straddle.
+            self.log.info("Found %d leftover leg%s that are not a whole straddle; closing them first: %s", len(held), "" if len(held) == 1 else "s", ", ".join("%s %+d" % sq for sq in sorted(held.items())))
+            self.exit_all()
+            if any(self.positions().values()):
+                self.stop("could not close the leftover legs")
+                return
         if self.legs:
             book = self.pnl()["positions"]
             self.entry = sum(book[s]["avg"] for s in self.legs)
