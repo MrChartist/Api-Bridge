@@ -4732,7 +4732,12 @@ button.chip-btn { min-height: 24px; padding: 0 8px; font: 500 12px/1 var(--font-
 .wi-reset-btn { margin-left: auto; min-height: 26px; padding: 0 8px; font-size: 12px; gap: 4px; }
 .wi-reset-btn svg { width: 12px; height: 12px; }
 .wi-reset-btn[hidden] { display: none; }
-.wi-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 6px; min-width: 0; }
+/* Flex, not an auto-fit grid: the grid kept empty tracks, so six figures stopped at three quarters of a wide panel. */
+.wi-figs { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.wi-figs > .wi-fig { flex: 1 1 100px; }
+/* Narrow panels: three per row (3 + 3), never five and a lone sixth across the whole width. */
+@container wi (max-width: 640px) { .wi-figs > .wi-fig { flex-basis: calc(33.333% - 6px); } }
+.wi-figs > :not(.wi-fig) { flex: 1 1 100%; }
 .wi-fig { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 6px 8px; border-radius: var(--r-sm); background: var(--mat-fill-1, hsl(var(--foreground) / 0.03)); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
 .wi-k { font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .wi-v { font: 600 14px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -8634,7 +8639,7 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .chart-legend .swatch.loss { background: hsl(var(--ios-red) / 0.6); }
 .chain tr.atm td { background: hsl(var(--ios-blue) / 0.10); }
 .atm-flag { margin-left: 6px; padding: 1px 6px; border-radius: 99px; font: 600 12px/1.4 var(--font-numeric); background: hsl(var(--ios-blue) / 0.16); color: hsl(var(--ios-blue-ink)); }
-.leg-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr)); gap: 10px; align-items: end; padding: 12px; border-radius: var(--r-md, 14px); background: var(--mat-fill-1); }
+.leg-row:not(.strat-legs > *) { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr)); gap: 10px; align-items: end; padding: 12px; border-radius: var(--r-md, 14px); background: var(--mat-fill-1); }
 .leg-row .leg-remove { justify-self: start; }
 @media (forced-colors: active) {
   .chart .bar, .chart .area, .chart .band { forced-color-adjust: none; }

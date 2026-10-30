@@ -108,7 +108,11 @@ function inkFlash(el, dir) {
  *   refresh: () => void, switchTo: (u: string, e: string) => Promise<void>, onPositions: () => void }} o
  */
 export function createBuilder({ st, save, account, acctPicker = null, refresh, switchTo, onPositions }) {
+  // Suggest from my view starts open on a tall desktop window (it fills the builder column, which otherwise ends in
+  // empty panel under its head) until the user opens or closes it themselves; that choice is then kept.
+  const sgUnset = typeof st.scfg?.suggestOpen !== "boolean";
   st.scfg = O.strategyConfig(st.scfg);
+  if (sgUnset && typeof matchMedia === "function" && matchMedia("(min-width: 1280px) and (min-height: 1000px) and (hover: hover)").matches) st.scfg.suggestOpen = true;
   // The what-if scenario is the desk's st.whatIf ({ pct, dIv, days }), shared with Positions (whatif.js). The builder's
   // own target date and IV shift read and write it, so the payoff, the hero and the shared panel always agree.
   const W = (st.whatIf = normWhatIf(st.whatIf, Date.now()));

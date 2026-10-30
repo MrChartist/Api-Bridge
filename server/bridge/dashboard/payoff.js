@@ -72,8 +72,13 @@ function xTicks(lo, hi, plotW, unit) {
 }
 const mq = (q) => typeof matchMedia === "function" && matchMedia(q).matches;
 const coarse = () => mq("(pointer: coarse)");
-/** 340 px on desktop, 280 on tablet, 232 on phone (§3); a page may pass its own [desktop, tablet, phone]. */
-const heightsFor = (hs) => (mq("(max-width: 719px)") ? hs[2] : mq("(max-width: 1023px)") ? hs[1] : hs[0]);
+/**
+ * 340 px on desktop, 280 on tablet, 232 on phone (§3); a page may pass its own [desktop, tablet, phone]. A tall desktop
+ * window grows the desktop height with it (36% of the window, at most 520 px), so a 1440 px screen gets a payoff that
+ * reads, not a strip with empty page under the page's panels.
+ */
+const heightsFor = (hs) =>
+  mq("(max-width: 719px)") ? hs[2] : mq("(max-width: 1023px)") ? hs[1] : typeof innerHeight === "number" ? Math.max(hs[0], Math.min(520, Math.round(innerHeight * 0.36))) : hs[0];
 const ease = (t) => 1 - (1 - t) ** 3;
 const MORPH_MS = 360;
 const HINT_KEY = "mcb.payoff.hinted";
