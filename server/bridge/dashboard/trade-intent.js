@@ -94,6 +94,27 @@ export function pickExpiry(expiries, date, today) {
   return list.find((e) => Number(e.slice(5, 7)) === m && Number(e.slice(8, 10)) === d) ?? null;
 }
 
+/**
+ * Where a typed trade goes and what the desk reads there (pure). One leg: the chain, with `jump` (focus the strike)
+ * and `ticket` (open the order ticket filled in); a structure: the Strategy Builder, with its legs (`legs`, from the
+ * chain's presets) under the underlying. The hash always differs from the current one (`nowHash`): the router redraws
+ * only on a hash change, so a trade typed while already on the chain still opens its ticket.
+ * @returns {{ prefs: object, hash: string }}
+ */
+export function intentHandoff(x, { expiry, desk = {}, legs = null, nowHash = "", stamp = Date.now() }) {
+  const base = desk && typeof desk === "object" && !Array.isArray(desk) ? { ...desk } : {};
+  const page = x.kind === "leg" ? "chain" : "strategy";
+  const plain = `#/${page}`;
+  const hash = String(nowHash ?? "").split("?")[0] === plain ? `${plain}?trade=${stamp.toString(36)}` : plain;
+  if (x.kind === "leg") {
+    return { hash, prefs: { ...base, underlying: x.underlying, expiry, jump: { underlying: x.underlying, expiry, strike: x.strike, side: x.right === "PE" ? "pe" : "ce" }, ticket: { strike: x.strike, right: x.right, side: x.side, lots: x.lots } } };
+  }
+  const baskets = { ...(base.baskets && typeof base.baskets === "object" ? base.baskets : {}) };
+  for (const k of Object.keys(baskets)) if (k === x.underlying || k.startsWith(`${x.underlying}|`)) delete baskets[k];
+  baskets[x.underlying] = (legs ?? []).map((l) => ({ ...l, expiry: l.expiry ?? expiry }));
+  return { hash, prefs: { ...base, underlying: x.underlying, expiry, baskets } };
+}
+
 /** The palette's label for an intent: "Buy 2 lots NIFTY 26000 CE · nearest expiry". */
 export function intentLabel(x, expiryText = (e) => e) {
   const exp = x.date ? (x.date.iso ? expiryText(x.date.iso) : `${x.date.md[1]} ${MONTHS[x.date.md[0] - 1][0]}${MONTHS[x.date.md[0] - 1].slice(1).toLowerCase()}`) : "nearest expiry";

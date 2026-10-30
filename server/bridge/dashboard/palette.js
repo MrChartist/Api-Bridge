@@ -1,7 +1,7 @@
 // Command palette (Spotlight style) and keyboard shortcuts for the dashboard.
 // Browser only: nothing here touches the DOM until initPalette() runs (views.js calls it from startRouter()).
 import { api, app, chooseTheme, copyText, h, icon, iconTile, lockScroll, modal, toast } from "./app.js";
-import { intentLabel, parseTradeIntent, pickExpiry } from "./trade-intent.js";
+import { intentHandoff, intentLabel, parseTradeIntent, pickExpiry } from "./trade-intent.js";
 
 /** True on Apple platforms, where shortcuts use ⌘ instead of Ctrl. */
 export const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "");
@@ -241,18 +241,22 @@ async function openIntent(x) {
     desk = {};
   }
   if (x.kind === "leg") {
-    app.local.set(DESK, JSON.stringify({ ...desk, underlying: x.underlying, expiry, jump: { underlying: x.underlying, expiry, strike: x.strike, side: x.right === "PE" ? "pe" : "ce" }, ticket: { strike: x.strike, right: x.right, side: x.side, lots: x.lots } }));
-    location.hash = "#/chain";
+    const go = intentHandoff(x, { expiry, desk, nowHash: location.hash });
+    app.local.set(DESK, JSON.stringify(go.prefs));
+    app.local.set("mcb.dashboard.tradeHandoff", JSON.stringify({ underlying: go.prefs.underlying, expiry: go.prefs.expiry, jump: go.prefs.jump, ticket: go.prefs.ticket }));
+    location.hash = go.hash;
     return;
   }
   const r = await api(`/v1/optionchain?underlying=${encodeURIComponent(x.underlying)}&expiry=${encodeURIComponent(expiry)}&strikes=40`).catch((err) => ({ error: err }));
   const chain = r?.data?.data;
   if (!chain?.rows?.length) return toast(`Couldn't load the ${x.underlying} chain`, { tone: "error" });
-  const [O, S] = await Promise.all([import("./options.js"), import("./screens.js")]);
+  const O = await import("./options.js");
   const legs = O.presetLegs(x.preset, chain).map((l) => ({ ...l, lots: (l.lots ?? 1) * x.lots }));
   if (!legs.length) return toast("That structure needs more strikes than the chain lists", { tone: "warn" });
-  app.local.set(DESK, JSON.stringify(S.handoffPrefs({ ...desk, baskets: { ...(desk.baskets ?? {}), [x.underlying]: [] } }, { underlying: x.underlying, expiry, legs })));
-  location.hash = "#/strategy";
+  const go = intentHandoff(x, { expiry, desk, legs, nowHash: location.hash });
+  app.local.set(DESK, JSON.stringify(go.prefs));
+  app.local.set("mcb.dashboard.tradeHandoff", JSON.stringify({ underlying: go.prefs.underlying, expiry: go.prefs.expiry, baskets: go.prefs.baskets }));
+  location.hash = go.hash;
   toast(`${intentLabel(x)} is in the Strategy Builder. Review, then Place`);
 }
 

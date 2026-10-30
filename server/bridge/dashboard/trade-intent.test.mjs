@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { intentLabel, parseTradeIntent, pickExpiry } from "./trade-intent.js";
+import { intentHandoff, intentLabel, parseTradeIntent, pickExpiry } from "./trade-intent.js";
 
 describe("typed trades", () => {
   it("one leg: side, lots, underlying, strike and right in any order", () => {
@@ -26,6 +26,25 @@ describe("typed trades", () => {
     expect(pickExpiry(ex, { md: [11, 10] }, "2026-10-30")).toBe("2026-11-10");
     expect(pickExpiry(ex, { md: [11, 11] }, "2026-10-30")).toBeNull();
     expect(pickExpiry(ex, { iso: "2026-11-24" }, "2026-10-30")).toBe("2026-11-24");
+  });
+
+  it("action → ticket: the chain gets the strike to focus and a filled ticket; on the chain already, the hash still changes", () => {
+    const x = parseTradeIntent("buy 2 nifty 26300 ce");
+    const a = intentHandoff(x, { expiry: "2026-11-03", desk: { underlying: "SENSEX", live: true }, nowHash: "#/home", stamp: 1 });
+    expect(a.hash).toBe("#/chain");
+    expect(a.prefs).toMatchObject({ underlying: "NIFTY", expiry: "2026-11-03", live: true, jump: { strike: 26300, side: "ce", expiry: "2026-11-03" }, ticket: { strike: 26300, right: "CE", side: "BUY", lots: 2 } });
+    const b = intentHandoff(x, { expiry: "2026-11-03", nowHash: "#/chain", stamp: 35 });
+    expect(b.hash).toBe("#/chain?trade=z");
+    expect(intentHandoff(x, { expiry: "2026-11-03", nowHash: "#/chain?trade=y", stamp: 36 }).hash).toBe("#/chain?trade=10");
+  });
+
+  it("action → basket: the Strategy Builder gets the structure's legs, replacing that underlying's draft", () => {
+    const x = parseTradeIntent("sell nifty straddle 3 nov");
+    const legs = [{ right: "CE", strike: 26350, side: "SELL", lots: 1 }, { right: "PE", strike: 26350, side: "SELL", lots: 1 }];
+    const g = intentHandoff(x, { expiry: "2026-11-03", desk: { baskets: { NIFTY: [{ strike: 1 }], "NIFTY|2026-10-27": [], BANKNIFTY: [{ strike: 2 }] } }, legs, nowHash: "#/strategy", stamp: 1 });
+    expect(g.hash).toBe("#/strategy?trade=1");
+    expect(g.prefs.baskets).toEqual({ BANKNIFTY: [{ strike: 2 }], NIFTY: legs.map((l) => ({ ...l, expiry: "2026-11-03" })) });
+    expect(g.prefs).toMatchObject({ underlying: "NIFTY", expiry: "2026-11-03" });
   });
 
   it("labels what will open", () => {

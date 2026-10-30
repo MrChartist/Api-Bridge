@@ -86,6 +86,8 @@ const CHAIN_KEYS = [
 const KEY_LEGEND = CHAIN_KEYS.filter((k) => !["R", "Esc", "M", "X", "T"].includes(k[0][0]));
 /** A strategy built from the chain, handed to the Strategy Builder (which offers Undo): { u, label, prev }. */
 export const FROM_CHAIN_SLOT = "mcb.dashboard.fromChain";
+/** A typed trade from the palette (trade-intent.js intentHandoff): { underlying, expiry, jump, ticket } or { ..., baskets }. */
+export const TRADE_HANDOFF_SLOT = "mcb.dashboard.tradeHandoff";
 const readPrefs = () => {
   try {
     return JSON.parse(local.get(SLOT) ?? "{}") ?? {};
@@ -127,7 +129,19 @@ export const renderArbPage = () => renderDesk("arb");
 async function renderDesk(kind) {
   const accounts = (await api("/v1/accounts")).data.data ?? [];
   const tradable = accounts.filter((a) => a.enabled && (a.capabilities ?? []).includes("placeOrder"));
-  const prefs = readPrefs();
+  // A typed trade from the Ctrl K palette arrives in its own slot (TRADE_HANDOFF_SLOT), which the page on screen
+  // cannot overwrite when it saves its state on the way out; it is read once here and cleared.
+  let prefs = readPrefs();
+  try {
+    const ho = JSON.parse(local.get(TRADE_HANDOFF_SLOT) ?? "null");
+    if (ho && typeof ho === "object" && (kind === "chain" ? ho.ticket : ho.baskets)) {
+      local.set(TRADE_HANDOFF_SLOT, null);
+      prefs = { ...prefs, ...ho };
+      local.set(SLOT, JSON.stringify(prefs));
+    }
+  } catch {
+    // No handoff.
+  }
   const base = app.state.demo ? DEMO_UNDERLYINGS : UNDERLYINGS;
   // A stock opened from a watchlist's Chain link (prefs.stockChain) joins the underlying list for the session.
   const stock = typeof prefs.stockChain === "string" && /^[A-Z0-9&-]{1,20}$/.test(prefs.stockChain) ? prefs.stockChain : null;

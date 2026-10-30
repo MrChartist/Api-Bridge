@@ -289,7 +289,8 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       rankMemo.set(u, null);
       optional(api(`/v1/vol/summary?underlyings=${encodeURIComponent(u)}`)).then((r) => {
         const it = r.data?.data?.items?.[0];
-        if (it?.available) rankMemo.set(u, { ivr: it.ivr ?? null, ivp: it.ivp ?? null });
+        if (it?.available) rankMemo.set(u, { ivr: it.ivr ?? null, ivp: it.ivp ?? null, n: it.n ?? null, partial: Boolean(it.partial) });
+        if (kpiEl.isConnected && last) drawKpi(last);
       });
     }
     return rankMemo.get(u);
@@ -961,7 +962,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     kpiEl.classList.toggle("loading", !r);
     if (!r) {
       for (const [k] of TILES) if (k !== "rank") setTile(k, { cls: "skel-t" });
-      drawRank();
+      drawRank(null);
       return;
     }
     setTile("fwd", {
@@ -1043,11 +1044,17 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       seg(tp.seg, a, b);
       tiles.get("hv").mv.dataset.lead = (r.atmIv ?? 0) >= m.hv20 ? "iv" : "hv";
     }
-    drawRank();
+    // One source for the IV rank tile and the explanation (the vol service's summary): without a rank, neither shows one.
     const rk = rankOf(m.chain?.underlying ?? null);
-    explain.set(explainVol({ atmIv: r.atmIv, hv20: m.hv20, ivr: rk?.ivr ?? null, ivp: rk?.ivp ?? null, put25: r.skew?.put25?.iv ?? null, call25: r.skew?.call25?.iv ?? null, term: (m.rows ?? []).filter((x) => !x.dim) }));
+    const shown = rk && rk.ivr !== null ? rk : null;
+    drawRank(shown);
+    explain.set(explainVol({ atmIv: r.atmIv, hv20: m.hv20, ivr: shown?.ivr ?? null, ivp: shown?.ivp ?? null, put25: r.skew?.put25?.iv ?? null, call25: r.skew?.call25?.iv ?? null, term: (m.rows ?? []).filter((x) => !x.dim) }));
   }
-  function drawRank() {
+  function drawRank(rk) {
+    if (rk) {
+      setTile("rank", { value: formatInt(rk.ivr), sub: `pctl ${rk.ivp === null ? "n/a" : formatInt(rk.ivp)} · ${formatInt(rk.n)} days${rk.partial ? " (partial)" : ""}`, title: "IV rank and IV percentile over the lookback, from the Bridge's daily vol store (GET /v1/vol/summary)", aria: `IV rank ${formatInt(rk.ivr)}, percentile ${rk.ivp === null ? "not available" : formatInt(rk.ivp)}, over ${formatInt(rk.n)} days` });
+      return;
+    }
     setTile("rank", { value: "Unavailable", sub: "Needs 252 days of IV history", cls: "na", title: "IV rank and IV percentile need a stored daily ATM IV. The Bridge does not record one yet.", aria: "IV rank: unavailable. Needs 252 days of stored IV history" });
   }
 
