@@ -7330,7 +7330,9 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
 /* Tablet: the chip keeps the lot and the event count; desktop: two columns from 1024 px. */
 @media (min-width: 1024px) {
   .cal-cols { grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); align-items: start; }
+  .cal-cols.three { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr); }
 }
+.cal-col[hidden] { display: none; }
 @media (max-width: 1279px) {
   .cal-status-row { flex-direction: column; align-items: stretch; gap: 8px; }
   .cal-status-lead { flex-direction: row; align-items: baseline; gap: 10px; }
