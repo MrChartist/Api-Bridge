@@ -9,6 +9,9 @@
  *   GET /v1/expiries?underlying=NIFTY[&exchange=NFO][&account=]
  *   GET /v1/optionchain?underlying=NIFTY&expiry=2026-10-27[&strikes=10][&greeks=false][&ivModel=b76-forward][&account=][&maxAgeMs=]
  *
+ * Every read also takes ?swr=true (stale-while-revalidate: an older cached value now, labelled `stale` and
+ * `revalidating`, refreshed in the background) and ?priority=background (a prefetch; it never runs ahead of a click).
+ *
  * A pinned read (`account=`) is checked against the key's account list (ctx.requireAccountAccess) before anything
  * else happens. An unpinned read is served only by accounts the key may use (allowedAccountsFor): a key limited to
  * some accounts never borrows another account's market-data entitlement or rate budget. meta.accountId echoes the pinned account (null when the read was pooled; each item's freshness says
@@ -102,6 +105,15 @@ function readOptionsBase(ctx, { maxAge = true, autoBackup = false } = {}) {
     if (m !== undefined) opts.maxAgeMs = m;
   }
   if (opts.accountId === undefined && boolParam(q, "backup", autoBackup)) opts.allowBackup = true;
+  // ?swr=true: an older cached value (labelled stale and revalidating) now, a fresh one for the next read.
+  if (boolParam(q, "swr", false)) opts.staleWhileRevalidate = true;
+  // ?priority=background: a prefetch. It may only lower the priority, so a person's click always goes first (a click
+  // that asks for the same thing joins the prefetch and raises it).
+  const pri = opt(q, "priority");
+  if (pri !== undefined) {
+    if (pri !== "background" && pri !== "interactive") throw invalid("priority", "priority may be background or interactive.");
+    opts.priority = pri;
+  }
   return opts;
 }
 

@@ -18,7 +18,7 @@ export const MAX_CLIENT_FRAME_BYTES = 64 * 1024;
  *   config: object, clock: { now(): number }, logger: object }} opts
  * @returns {{ handleUpgrade(args: { req: any, socket: any, head: Buffer, url: URL, log?: object, reject: (statusLine: string) => void }): Promise<void>, close(): void }}
  */
-export function createWsEndpoint({ hub, bus, keyStore, registry, config: cfg, clock, logger }) {
+export function createWsEndpoint({ hub, bus, keyStore, registry, config: cfg, clock, logger, scheduler = null }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_CLIENT_FRAME_BYTES, perMessageDeflate: false, clientTracking: false });
 
   async function handleUpgrade({ req, socket, head, url, reject }) {
@@ -48,7 +48,7 @@ export function createWsEndpoint({ hub, bus, keyStore, registry, config: cfg, cl
       },
       onDrain: (cb) => socket.once("drain", cb),
     };
-    const session = createClientSession({ id, kind: "ws", key, hub, bus, transport, config: cfg, clock, logger, keyStore, onClosed: (s) => registry.remove(s) });
+    const session = createClientSession({ id, kind: "ws", key, hub, bus, transport, config: cfg, clock, logger, keyStore, scheduler, onClosed: (s) => registry.remove(s) });
     registry.add(session);
 
     let alive = true;

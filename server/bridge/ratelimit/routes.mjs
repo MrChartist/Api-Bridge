@@ -4,6 +4,7 @@
  */
 import { effectiveAccountLimits } from "../core/config.mjs";
 import { BridgeError } from "../core/errors.mjs";
+import { budgetSummary } from "./budget.mjs";
 
 const ACCOUNT_ID = /^[a-z0-9][a-z0-9-]{1,31}$/;
 
@@ -77,17 +78,36 @@ export function createLimitRoutes(deps) {
       };
     },
 
-    /** GET /v1/usage */
+    /**
+     * GET /v1/usage[?series=1][?view=budget]: per account and class the binding window, every window (`windows`: this second, this
+     * minute ...) and today's counters; with series=1 each account's calls per second over the last two minutes.
+     * `consumers` (what used the budget today) is shown to admin keys and this computer only: it names API keys.
+     */
     getUsage(ctx) {
       const visible = visibleAccountIds(ctx);
-      const report = scheduler.usage();
+      if (ctx.query.get("view") === "budget") {
+        let feeds = [];
+        try {
+          feeds = deps.streamHub?.stats?.().upstreams ?? [];
+        } catch {
+          feeds = [];
+        }
+        return { data: budgetSummary(scheduler.usage(), visible, { feeds }), meta: { requestId: ctx.requestId } };
+      }
+      const wantSeries = ["1", "true"].includes(String(ctx.query.get("series") ?? "").toLowerCase());
+      const report = scheduler.usage({ series: wantSeries });
       const rows = report.accounts
         .filter((r) => canSee(visible, r.accountId))
         .map((r) => ({
           ...r,
-          classes: Object.fromEntries(Object.entries(r.classes).map(([k, v]) => [k, { ...v, limit: finite(v.limit) }])),
+          classes: Object.fromEntries(
+            Object.entries(r.classes).map(([k, v]) => [k, { ...v, limit: finite(v.limit), ...(Array.isArray(v.windows) ? { windows: v.windows.map((w) => ({ ...w, limit: finite(w.limit) })) } : {}) }]),
+          ),
         }));
-      return { data: { accounts: rows, savings: report.savings, generatedAt: report.generatedAt }, meta: { requestId: ctx.requestId } };
+      const admin = ctx.principal?.kind === "local" || Boolean(ctx.scopes?.has?.("admin"));
+      const data = { accounts: rows, savings: report.savings, generatedAt: report.generatedAt };
+      if (admin && Array.isArray(report.consumers)) data.consumers = report.consumers;
+      return { data, meta: { requestId: ctx.requestId } };
     },
   };
 }

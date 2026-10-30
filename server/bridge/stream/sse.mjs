@@ -37,7 +37,7 @@ const usable = (r, t) => Boolean(r) && !r.revokedAt && !(r.expiresAt && Date.par
  *   logger: object, cors?: { allowedOrigins?: string[] } }} opts
  * @returns {(ctx: import("../core/context.mjs").RequestContext) => Promise<void>}
  */
-export function createSseHandler({ hub, bus, keyStore, registry, config: cfg, clock, logger, cors }) {
+export function createSseHandler({ hub, bus, keyStore, registry, config: cfg, clock, logger, cors, scheduler = null }) {
   const corsCheck = createCors(cors ?? {});
   /** @type {Map<string, { keyId: string, sub: string, active: boolean, expiresAt: number }>} token tag -> grant */
   const grants = new Map();
@@ -77,6 +77,7 @@ export function createSseHandler({ hub, bus, keyStore, registry, config: cfg, cl
     const mode = ctx.query.get("mode") ?? "ltp";
     const orders = ["1", "true", "yes"].includes(String(ctx.query.get("orders") ?? "").toLowerCase());
     const scans = ["1", "true", "yes"].includes(String(ctx.query.get("scans") ?? "").toLowerCase());
+    const budget = ["1", "true", "yes"].includes(String(ctx.query.get("budget") ?? "").toLowerCase());
     const events = ["1", "true", "yes", "stock", "option"].includes(String(ctx.query.get("events") ?? "").toLowerCase());
     if (!STREAM_MODES.includes(mode)) throw new BridgeError("VALIDATION_FAILED", `mode must be one of ${STREAM_MODES.join(", ")}.`);
     if (!symbols.length && !orders && !scans && !events) throw new BridgeError("VALIDATION_FAILED", "Give the symbols to stream, e.g. ?symbols=NSE:NIFTY,NSE:RELIANCE.");
@@ -129,6 +130,7 @@ export function createSseHandler({ hub, bus, keyStore, registry, config: cfg, cl
       clock,
       logger: ctx.log ?? logger,
       keyStore,
+      scheduler,
       onClosed: (s) => registry.remove(s),
     });
     registry.add(session);
@@ -142,6 +144,7 @@ export function createSseHandler({ hub, bus, keyStore, registry, config: cfg, cl
     if (symbols.length) await session.handleOp({ op: "subscribe", symbols, mode });
     if (orders) await session.handleOp({ op: "subscribe_orders" });
     if (scans) await session.handleOp({ op: "subscribe_scans" });
+    if (budget) await session.handleOp({ op: "subscribe_budget" });
     if (events) {
       const asset = String(ctx.query.get("events")).toLowerCase();
       await session.handleOp({ op: "subscribe_events", ...(asset === "stock" || asset === "option" ? { asset } : {}) });
