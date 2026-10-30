@@ -20,7 +20,7 @@ The **Done** column says what changed, and where.
 |---|---|---|---|
 | P0 | 5 | 5 | 0 |
 | P1 | 18 | 17 | 1 |
-| P2 | 14 | 8 | 6 |
+| P2 | 14 | 10 | 4 |
 
 ## P0: broken
 
@@ -69,9 +69,9 @@ The **Done** column says what changed, and where.
 | 8 | The Key "Last used" column showed "–" for keys never used. | **Fixed.** It shows "Never". |
 | 9 | In demo, a saved broker is not listed on Accounts until the next normal start. | Proposal: list saved-for-later accounts under the demo ones. |
 | 10 | Stock scanner condition examples are code (`rsi(14) > 60 and close > sma(50)`). | Proposal: a plain label for each, such as "RSI above 60 and above the 50-day average". |
-| 11 | Normal mode with no broker: "Reference data unavailable: using dashboard defaults" banner on every Options page. | Proposal: show it once per session, or fold it into the readiness pill. |
+| 11 | Normal mode with no broker: "Reference data unavailable: using dashboard defaults" banner on every Options page. | **Fixed.** Shown once per browser tab; the reference chip keeps its red "Defaults" on later pages. |
 | 12 | Demo paper account starts with ₹8.49L of ₹10L in use by seeded positions. | Proposal: seed demo paper accounts with ₹25 lakh, or seed fewer shorts. |
-| 13 | `?` on Home after closing Ctrl K once did not open shortcuts in the test run (focus was likely left in the sidebar search). | Proposal: return focus to the page after the palette closes. |
+| 13 | `?` on Home after closing Ctrl K once did not open shortcuts in the test run (focus was likely left in the sidebar search). | **Checked.** `?` opens the shortcuts after Ctrl K closes by Escape, a click outside or the sidebar Search button. |
 | 14 | The order ticket's risk figures are before charges. | Proposal: add charges, as the Strategy Builder does. |
 
 ## Checked and working (no change needed)
