@@ -83,3 +83,17 @@ curl -H "Authorization: Bearer $KEY" \
   the order's limit price and covers paper orders only.
 - **Unverified public sources.** The SEBI, RBI and NSE feed addresses, the central-bank dates and the sector index
   symbols are assumptions to confirm against live sources. Responses say so in `meta`.
+
+## Notes for this Bridge (after the PR 17 merge)
+
+- **Units.** OI and volume are units of the underlying (contracts × lot size). Exposure, unusual activity, the screener
+  and tide do not multiply by the lot size again; a chain that says `units: "lots"` is converted.
+- **Futures are monthly.** A weekly option expiry reads its month's future (basis, synthetics, strategies, optimizer).
+- **Aliases.** `/v1/analytics/alert-rules*` = `/v1/alerts/market*`; `/v1/analytics/watchlists*` reads
+  `/v1/watchlists`; `/v1/analytics/participants` reads the participant OI store.
+- **Risk on a paper account** reads chains and candles through the data accounts.
+- **Straddle** takes `width` (0 to 10): a strangle that many strikes either side of the ATM.
+- **Market alert metrics** add `strike_oi_change` and `strike_iv` (with `strike` and `right`) and `atm_iv_change`
+  (points against the day's first check).
+- **Demo.** NSE, SEBI and RBI feeds are demo rows in demo mode; live, their addresses are unverified and a failure says
+  so and leaves the rest of the page alone.
