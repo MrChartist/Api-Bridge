@@ -6,7 +6,8 @@
 // format.js. The maths that decides geometry, wording and request bodies is pure and exported for
 // analyticsViews.test.mjs; only the functions further down touch the DOM. views.js adds the pages with
 // analyticsMorePages(() => helpers), after the first six, so the numbered shortcuts do not move.
-import { alertBox, api, card, emptyState, h, icon, istDateTime, modal, pill, table, toast } from "./app.js";
+import { alertBox, api, app, card, emptyState, h, icon, istDateTime, modal, pill, table, toast } from "./app.js";
+import { intentHandoff } from "./trade-intent.js";
 import { DASH, formatFixed, formatInt, formatNumber, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import { TAG_CHAR_W, calcStatus, chainControls, chartHeight, chartHost, compact, dataDisclosure, demoPill, handoff, legend, linear, nextId, niceScale, payoffChart, readNumber, s, statusRow, strikeBars, svgRoot, tile, tiles } from "./analyticsViews.js";
 
@@ -447,6 +448,10 @@ async function workbench(H, { tabs, label = "View" }) {
     t.box = t.fieldMap.size ? h("div", { class: "form-grid analytics-options", hidden: true }, [...t.fieldMap.values()].map((f) => f.wrap)) : null;
     for (const f of t.fieldMap.values()) f.el.addEventListener("change", () => (f.spec.onChange?.(Object.fromEntries([...t.fieldMap].map(([k, x]) => [k, x.el]))), load()));
     t.values = () => Object.fromEntries([...t.fieldMap].map(([k, f]) => [k, f.el.value]));
+    // A field that fills others (Templates: the strategy sets its offset and width) runs once at the start, so a tab
+    // opened directly (a page tab of the dashboard) starts with its defaults, not empty fields.
+    const els = Object.fromEntries([...t.fieldMap].map(([k, f]) => [k, f.el]));
+    for (const f of t.fieldMap.values()) f.spec.onChange?.(els);
   }
   async function load() {
     const mine = ++seq;
@@ -887,9 +892,36 @@ async function renderOiChange(H) {
 function legList(legs) {
   return h("ul", { class: "leg-list" }, legs.map((l) => h("li", {}, pill(l.side === "sell" ? "Sell" : "Buy", l.side === "sell" ? "warn" : "info"), h("span", {}, legPhrase(l).replace(/^(Buy|Sell) /, ""), h("span", { class: "muted" }, ` · ${formatInt(l.lots)} lot${l.lots === 1 ? "" : "s"} of ${formatInt(l.lotSize)}`)))));
 }
-function openInPayoff(legs, spot, text) {
-  handoff.payoff = { legs: legsToEditor(legs), spot: isFigure(spot) ? String(spot) : "", note: text };
-  location.hash = "#/payoff";
+/**
+ * The part of a payoff curve worth drawing (pure): from a little below the lowest strike to a little above the highest
+ * (the strikes' span, at least 3 % of spot, on each side), so an iron condor is not a spike in a 6,000-point plot.
+ */
+export function payoffWindow(curve, legs, spot) {
+  const ks = (legs ?? []).map((l) => Number(l.strike)).filter((k) => k > 0);
+  if (!ks.length || !(curve ?? []).length) return curve ?? [];
+  const lo = Math.min(...ks);
+  const hi = Math.max(...ks);
+  const pad = Math.max(hi - lo, (Number(spot) > 0 ? Number(spot) : lo) * 0.03);
+  const out = curve.filter((p) => p.price >= lo - pad && p.price <= hi + pad);
+  return out.length >= 5 ? out : curve;
+}
+
+/**
+ * Strategy legs as the Strategy Builder's basket legs (pure): { right, strike, side, lots, expiry }; a future leg is
+ * left out (the builder adds futures itself). The one payoff page is the Strategy Builder.
+ */
+export function legsToBasket(legs, expiry) {
+  return (legs ?? []).filter((l) => l.type === "CE" || l.type === "PE").map((l) => ({ right: l.type, strike: Number(l.strike), side: l.side === "sell" ? "SELL" : "BUY", lots: Math.max(1, Number(l.lots) || 1), expiry }));
+}
+
+/** Open legs in the Strategy Builder (the same handoff the Ctrl K trade line uses); nothing is sent. */
+function openInPayoff(legs, underlying, expiry) {
+  const basket = legsToBasket(legs, expiry);
+  if (!basket.length) return toast("These legs have no option the Strategy Builder can take", { tone: "warn" });
+  const go = intentHandoff({ kind: "structure", underlying }, { expiry, desk: {}, legs: basket, nowHash: location.hash });
+  // The desk reads this slot once on its next draw (desk.js TRADE_HANDOFF_SLOT), as for a typed trade.
+  app.local.set("mcb.dashboard.tradeHandoff", JSON.stringify({ underlying, expiry, baskets: go.prefs.baskets }));
+  location.hash = go.hash;
 }
 
 function drawFind(res, wb) {
@@ -916,7 +948,7 @@ function drawFind(res, wb) {
           sub: r.unboundedRisk ? "Risk is unlimited" : `Worst loss ${money(r.maxLoss)}`,
           actions: pill(r.credit ? "Credit" : "Debit", r.credit ? "ok" : "info"),
           cls: "strategy",
-          body: h("div", { class: "stack" }, kv(strategyFigures(r)), legList(r.legs), h("div", { class: "row" }, h("button", { type: "button", class: "small primary", onclick: () => openInPayoff(r.legs, d.spot, `From the Strategies page: ${r.name}, ${d.underlying} ${d.expiry}.`) }, icon("chart"), "Draw payoff"), h("button", { type: "button", class: "small", onclick: () => wb.goTo("build", { template: r.template, offset: r.params?.offset ?? "", width: r.params?.width ?? "" }) }, "Fine-tune"))),
+          body: h("div", { class: "stack" }, kv(strategyFigures(r)), legList(r.legs), h("div", { class: "row" }, h("button", { type: "button", class: "small primary", onclick: () => openInPayoff(r.legs, d.underlying, d.expiry) }, icon("chart"), "Open in Strategy Builder"), h("button", { type: "button", class: "small", onclick: () => wb.goTo("build", { template: r.template, offset: r.params?.offset ?? "", width: r.params?.width ?? "" }) }, "Fine-tune"))),
         }),
       ),
     ),
@@ -926,14 +958,14 @@ function drawFind(res, wb) {
 function drawBuild(res, o) {
   const d = res.data?.data ?? {};
   const fr = res.data?.meta?.freshness;
-  const curve = d.curve ?? [];
+  const curve = payoffWindow(d.curve ?? [], d.legs ?? [], d.spot);
   return [
     statusRow(fr),
     tiles(tile("Max profit", d.unboundedProfit ? "Unlimited" : money(d.maxProfit), "At expiry", d.unboundedProfit || Number(d.maxProfit) > 0 ? "up" : undefined), tile("Max loss", d.unboundedRisk ? "Unlimited" : money(d.maxLoss), d.lossAtZero ? "If the underlying fell to zero" : "At expiry", d.unboundedRisk || Number(d.maxLoss) < 0 ? "down" : undefined), tile(d.credit ? "Net credit" : "Net debit", isFigure(d.netPremium) ? money(Math.abs(d.netPremium)) : DASH, "Premium received minus paid"), tile("Chance of profit", isFigure(d.probabilityOfProfit) ? formatPercent(Number(d.probabilityOfProfit) * 100, 1) : DASH, isFigure(d.atmIv) ? `From ${formatFixed(d.atmIv, 1)}% IV, ${formatFixed(d.daysToExpiry, 1)} days` : "Needs an IV")),
     h(
       "div",
       { class: "grid cols-2" },
-      sectionCard(d.name ?? "Strategy", `${d.underlying ?? ""} ${d.expiry ?? ""}, ${formatInt(o.lots)} lot${Number(o.lots) === 1 ? "" : "s"}. Strikes count from the at-the-money ${isFigure(d.atmStrike) ? formatInt(d.atmStrike) : ""}.`, legList(d.legs ?? []), kv(strategyFigures(d).slice(4)), h("div", { class: "row" }, h("button", { type: "button", class: "small primary", onclick: () => openInPayoff(d.legs ?? [], d.spot, `From the Strategies page: ${d.name}, ${d.underlying} ${d.expiry}.`) }, icon("chart"), "Open in Strategy payoff"))),
+      sectionCard(d.name ?? "Strategy", `${d.underlying ?? ""} ${d.expiry ?? ""}, ${formatInt(o.lots)} lot${Number(o.lots) === 1 ? "" : "s"}. Strikes count from the at-the-money ${isFigure(d.atmStrike) ? formatInt(d.atmStrike) : ""}.`, legList(d.legs ?? []), kv(strategyFigures(d).slice(4)), h("div", { class: "row" }, h("button", { type: "button", class: "small primary", onclick: () => openInPayoff(d.legs ?? [], d.underlying, d.expiry) }, icon("chart"), "Open in Strategy Builder"))),
       sectionCard("Payoff at expiry", "Profit or loss in rupees against the underlying's price at expiry.", legend([{ cls: "profit", label: "Profit" }, { cls: "loss", label: "Loss" }]), curve.length ? payoffChart(curve, { breakevens: d.breakevens ?? [], spot: d.spot, label: `${d.name} payoff at expiry. Max profit ${d.unboundedProfit ? "unlimited" : money(d.maxProfit)}, max loss ${d.unboundedRisk ? "unlimited" : money(d.maxLoss)}.` }) : h("p", { class: "muted" }, "No curve to draw.")),
     ),
   ];

@@ -9,6 +9,7 @@
 import { BridgeError } from "../core/errors.mjs";
 import { defaultOptionExchange, legSymbol } from "../market/chain.mjs";
 import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
+import { futureExpiryFor } from "./math.mjs";
 
 const num = (v) => (v !== null && v !== undefined && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
 const round = (v, d = 2) => (Number.isFinite(v) ? Math.round(v * 10 ** d) / 10 ** d : null);
@@ -209,7 +210,14 @@ export function greeksGridRoutes(deps) {
       async (ctx) => {
         const { chain, opts, underlying, expiry } = await chainFor(ctx, { greeks: false });
         const fx = defaultOptionExchange(underlying);
-        const futureSymbol = `${fx}:${underlying}-${expiry}-FUT`;
+        // The future that goes with this option expiry (weekly expiries have none: the month's future).
+        let futExpiry = expiry;
+        try {
+          futExpiry = futureExpiryFor((await md().expiries(underlying, opts))?.expiries, expiry) ?? expiry;
+        } catch {
+          futExpiry = expiry;
+        }
+        const futureSymbol = `${fx}:${underlying}-${futExpiry}-FUT`;
         let future = null;
         let errors;
         try {

@@ -181,6 +181,33 @@ describe("strategies", () => {
     expect(s.pop).toBeLessThan(0.9);
   });
 
+  it("max profit and max loss ranges sit on the strikes, not on a sampled grid", () => {
+    const ext = (legs) => A.extremeIntervals(legs, 65, { lo: 24500, hi: 28000 });
+    const round = (iv) => iv.map(([a, b]) => [Math.round(a), b === Infinity ? b : Math.round(b)]);
+    // Iron condor 25250 / 25600 / 26950 / 27300: max loss below the long put and above the long call.
+    const ic = [L("PE", 25250, "BUY", 91), L("PE", 25600, "SELL", 114), L("CE", 26950, "SELL", 82), L("CE", 27300, "BUY", 52)];
+    const e = ext(ic);
+    expect(round(e.maxLoss)).toEqual([[0, 25250], [27300, Infinity]]);
+    expect(round(e.maxProfit)).toEqual([[25600, 26950]]);
+    // Put credit spread 25600 / 25250: max loss below 25250, max profit above 25600.
+    const pcs = ext([L("PE", 25600, "SELL", 114), L("PE", 25250, "BUY", 91)]);
+    expect(round(pcs.maxLoss)).toEqual([[0, 25250]]);
+    expect(round(pcs.maxProfit)).toEqual([[25600, Infinity]]);
+    // Long call butterfly: max profit at the body only; max loss outside the wings.
+    const fly = ext([L("CE", 26200, "BUY", 150), L("CE", 26300, "SELL", 100, 2), L("CE", 26400, "BUY", 60)]);
+    expect(round(fly.maxProfit)).toEqual([[26300, 26300]]);
+    expect(round(fly.maxLoss)).toEqual([[0, 26200], [26400, Infinity]]);
+    // Jade lizard (short put, short call spread, credit above the spread width): worst case below the put, from 0.
+    const jl = ext([L("PE", 25800, "SELL", 120), L("CE", 26500, "SELL", 70), L("CE", 26600, "BUY", 40)]);
+    expect(round(jl.maxLoss)).toEqual([[0, 0]]);
+    expect(round(jl.maxProfit)).toEqual([[25800, 26500]]);
+    // 1 × 2 put ratio (buy 26000, sell 2 × 25800): max profit at the short strike; the worst case is at 0.
+    const ratio = ext([L("PE", 26000, "BUY", 150), L("PE", 25800, "SELL", 80, 2)]);
+    expect(round(ratio.maxProfit)).toEqual([[25800, 25800]]);
+    expect(round(ratio.maxLoss)).toEqual([[0, 0]]);
+    expect(A.extremeIntervals([], 65, { lo: 1, hi: 2 })).toBeNull();
+  });
+
   it("bull call spread: capped both ways, one breakeven", () => {
     const legs = [L("CE", 26000, "BUY", 110), L("CE", 26100, "SELL", 60)];
     const s = strategyStats(legs, 75);

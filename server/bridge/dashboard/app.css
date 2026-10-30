@@ -143,6 +143,8 @@ html { font-synthesis-weight: none; }
   --btn-paper: 0 0% 100%;
   --btn-edge: hsl(0 0% 0% / 0.14);
   --btn-edge-hover: hsl(0 0% 0% / 0.26);
+  --btn-soft: hsl(240 6% 10% / 0.06);
+  --btn-soft-hover: hsl(240 6% 10% / 0.1);
   --btn-buy: var(--pos-ink);
   --btn-sell: var(--neg-ink);
   --btn-trade-fg: 0 0% 100%;
@@ -402,6 +404,8 @@ html { font-synthesis-weight: none; }
     --btn-paper: 0 0% 0%;
     --btn-edge: hsl(0 0% 100% / 0.2);
     --btn-edge-hover: hsl(0 0% 100% / 0.34);
+    --btn-soft: hsl(0 0% 100% / 0.08);
+    --btn-soft-hover: hsl(0 0% 100% / 0.13);
     --btn-buy: var(--pos);
     --btn-sell: var(--neg);
     --btn-trade-fg: 0 0% 0%;
@@ -521,6 +525,8 @@ html { font-synthesis-weight: none; }
   --btn-paper: 0 0% 0%;
   --btn-edge: hsl(0 0% 100% / 0.2);
   --btn-edge-hover: hsl(0 0% 100% / 0.34);
+  --btn-soft: hsl(0 0% 100% / 0.08);
+  --btn-soft-hover: hsl(0 0% 100% / 0.13);
   --btn-buy: var(--pos);
   --btn-sell: var(--neg);
   --btn-trade-fg: 0 0% 0%;
@@ -806,7 +812,7 @@ button.sb-account > svg:last-child { width: 16px; height: 16px; flex: none; fill
   display: inline-flex; align-items: center; gap: 8px; height: var(--ctl-h); padding: 0 14px; border-radius: 999px; flex: none; white-space: nowrap;
   font: 500 13px/1 var(--font-body); color: hsl(var(--foreground) / 0.8);
 }
-button.toolbar-demo { --btn-h: var(--ctl-h); --btn-px: 14px; --btn-fs: 12.5px; --btn-bg: var(--mat-glass); --btn-line: transparent; height: auto; color: hsl(var(--foreground)); }
+button.toolbar-demo { --btn-h: var(--ctl-h); --btn-px: 14px; --btn-fs: 12.5px; --btn-bg: var(--btn-soft); --btn-line: transparent; height: auto; color: hsl(var(--foreground)); }
 .toolbar-demo i, .demo-badge { width: 8px; height: 8px; border-radius: 50%; background: hsl(var(--warn)); box-shadow: 0 0 0 1px hsl(var(--warn-ink) / 0.6); }
 .toolbar-clock { display: none; font-family: var(--font-numeric); color: hsl(var(--foreground)); }
 .toolbar-clock small { font: 500 12px/1 var(--font-body); letter-spacing: 0.04em; color: hsl(var(--foreground) / var(--a-quiet)); }
@@ -814,10 +820,9 @@ button.toolbar-demo { --btn-h: var(--ctl-h); --btn-px: 14px; --btn-fs: 12.5px; -
 .toolbar-actions { display: inline-flex; align-items: center; gap: 10px; flex: 0 1 auto; min-width: 0; }
 .toolbar-search {
   display: none; align-items: center; gap: 8px; height: var(--ctl-h); min-height: var(--ctl-h); padding: 0 14px; border-radius: 999px; min-width: 0; flex: 0 1 auto;
-  font: 500 14px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); --btn-bg: var(--mat-glass); --btn-line: transparent;
-  -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur);
+  font: 500 14px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); --btn-bg: var(--btn-soft); --btn-line: transparent;
 }
-@media (hover: hover) { .toolbar-search:hover { --btn-bg: var(--mat-glass-strong); --btn-line: transparent; } }
+@media (hover: hover) { .toolbar-search:hover { --btn-bg: var(--btn-soft-hover); --btn-line: transparent; } }
 .toolbar-search svg { width: 16px; height: 16px; }
 .toolbar-search .kbd-group { margin-left: auto; }
 /* The label gives way first, so Refresh never falls off the right edge (the wider text face, 1024 to 1440 px). */
@@ -890,10 +895,9 @@ button.toolbar-demo { --btn-h: var(--ctl-h); --btn-px: 14px; --btn-fs: 12.5px; -
 .ctx-demo { display: none; flex: none; align-items: center; height: 24px; padding: 0 8px; border-radius: 99px; font: 500 12px/1 var(--font-body); letter-spacing: 0.02em; color: hsl(var(--warn-ink)); box-shadow: inset 0 0 0 1px hsl(var(--warn)); }
 @media (max-width: 1023px) { .ctx-demo { display: inline-flex; } }
 /* Live control: a status, not a selection (green dot + data time on a glass pill). */
-button.live-ctl { --btn-h: var(--ctl-h); --btn-bg: var(--mat-glass); --btn-line: transparent; flex: none; gap: 7px; height: var(--ctl-h); padding: 0 14px 0 12px;
-  font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground));
-  -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur); }
-@media (hover: hover) { button.live-ctl:hover { --btn-bg: var(--mat-glass-strong); --btn-line: transparent; } }
+button.live-ctl { --btn-h: var(--ctl-h); --btn-bg: var(--btn-soft); --btn-line: transparent; flex: none; gap: 7px; height: var(--ctl-h); padding: 0 14px 0 12px;
+  font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground)); }
+@media (hover: hover) { button.live-ctl:hover { --btn-bg: var(--btn-soft-hover); --btn-line: transparent; } }
 .live-ctl .live-dot { width: 7px; height: 7px; border-radius: 99px; flex: none; background: hsl(var(--pos)); }
 .live-ctl .live-glyph:empty { display: none; }
 .live-ctl .live-glyph svg { width: 13px; height: 13px; stroke-width: 2.6; }
@@ -1301,27 +1305,21 @@ td strong { font-weight: 600; }
    a background, edge, radius or shadow of its own (buttonSystem.test.mjs). */
 button, .btn {
   --btn-h: 44px; --btn-px: 18px; --btn-fs: 14px; --btn-ic: 16px; --btn-rr: 10px; --btn-r: 999px; --press: 0.97;
-  /* The finish (§6), iOS glass: --fin 1 is all of it, 0.6 on a wide button, 0 on a quiet one until hover. The fill
-     stays exactly the paper or the ink; the sheen (top 46 %), the rim, the base shade and the shadow are light and
-     shade laid on top. --btn-lift doubles the shadow on hover. */
+  /* The finish (§6) is soft and flat: a tinted fill (--btn-soft), no sheen, no specular rim, no drop shadow, no blur.
+     --fin and --btn-lift stay as no-op hooks for older rules. */
   --fin: 1;
   --btn-lift: 1;
-  --btn-bg: hsl(var(--btn-paper));
+  --btn-bg: var(--btn-soft);
   --btn-fg: hsl(var(--btn-ink));
-  --btn-line: var(--btn-edge);
+  --btn-line: transparent;
   position: relative;
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   min-height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
   font: 600 var(--btn-fs)/1 var(--font-body); letter-spacing: -0.006em; white-space: nowrap; text-align: center; text-decoration: none;
   color: var(--btn-fg); cursor: pointer;
   background-color: var(--btn-bg);
-  background-image: linear-gradient(hsl(0 0% 100% / calc(0.16 * var(--fin))), hsl(0 0% 100% / 0) 46%);
-  box-shadow:
-    inset 0 0 0 1px var(--btn-line),
-    inset 0 var(--hl) 0 hsl(0 0% 100% / calc(0.34 * var(--fin))),
-    inset 0 -1px 0 hsl(0 0% 0% / calc(0.08 * var(--fin))),
-    0 1px 2px hsl(0 0% 0% / calc(0.06 * var(--fin) * var(--btn-lift))),
-    0 2px 6px -2px hsl(0 0% 0% / calc(0.12 * var(--fin) * var(--btn-lift)));
+  background-image: none;
+  box-shadow: inset 0 0 0 1px var(--btn-line);
   transition: background-color var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out), box-shadow var(--dur-hover) var(--ease-out), opacity var(--dur-hover) var(--ease-out), scale var(--dur-spring) var(--ease-press);
 }
 a.btn:hover { text-decoration: none; }
@@ -1343,7 +1341,7 @@ button svg, .btn svg { width: var(--btn-ic); height: var(--btn-ic); flex: none; 
 /* Intents (§2). */
 :where(button, .btn).primary { --btn-bg: hsl(var(--btn-ink)); --btn-fg: hsl(var(--btn-paper)); --btn-line: transparent; }
 :where(button, .btn):is(.quiet, .ghost, .plain) { --btn-bg: transparent; --btn-line: transparent; --fin: 0; }
-:where(button, .btn):is(.glass, .copy), .icon-btn { --btn-bg: var(--mat-glass); --btn-line: transparent; -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur); }
+:where(button, .btn):is(.glass, .copy), .icon-btn { --btn-bg: var(--btn-soft); --btn-line: transparent; }
 .btn:is(.buy, .sell) { --btn-fg: hsl(var(--btn-trade-fg)); --btn-line: transparent; }
 .btn.buy { --btn-bg: hsl(var(--btn-buy)); }
 .btn.sell { --btn-bg: hsl(var(--btn-sell)); }
@@ -1353,10 +1351,10 @@ button svg, .btn svg { width: var(--btn-ic); height: var(--btn-ic); flex: none; 
 /* Hover fades (§7): the edge, the shadow and a quiet button's fill cross-fade; nothing moves. Fine pointers only, so
    a tap never leaves a hover look behind. */
 @media (hover: hover) {
-  :where(button, .btn):hover:not(:disabled) { --btn-line: var(--btn-edge-hover); --btn-lift: 2; }
+  :where(button, .btn):hover:not(:disabled) { --btn-bg: var(--btn-soft-hover); }
   :where(button, .btn):is(.primary, .buy, .sell, .glass, .copy, .icon-btn):hover:not(:disabled) { --btn-line: transparent; }
-  :where(button, .btn):is(.quiet, .ghost, .plain):hover:not(:disabled) { --btn-bg: hsl(var(--btn-paper)); --fin: 1; }
-  :where(button, .btn):is(.glass, .copy, .icon-btn):hover:not(:disabled) { --btn-bg: var(--mat-glass-strong); }
+  :where(button, .btn):is(.quiet, .ghost, .plain):hover:not(:disabled) { --btn-bg: var(--btn-soft); }
+  :where(button, .btn):is(.glass, .copy, .icon-btn):hover:not(:disabled) { --btn-bg: var(--btn-soft-hover); }
 }
 
 /* States (§9). Focus: a 2 px ring in the button's own ink, inside the shape; no outer ring. Disabled: the fill stays
@@ -1384,7 +1382,7 @@ button svg, .btn svg { width: var(--btn-ic); height: var(--btn-ic); flex: none; 
    the same height and width, 8 px apart, or share one .join. */
 .join {
   display: inline-flex; align-items: stretch; gap: 0; min-width: 0; border-radius: 999px;
-  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.06), 0 2px 6px -2px hsl(0 0% 0% / 0.12);
+  box-shadow: none;
   transition: scale var(--dur-spring) var(--ease-press);
 }
 .join > :where(button, .btn) { --btn-lift: 0; --press: 1; flex: 1 1 0; min-width: 0; }
@@ -1395,7 +1393,7 @@ button svg, .btn svg { width: var(--btn-ic); height: var(--btn-ic); flex: none; 
 .join:is(.rect, .full) > :where(button, .btn) { --btn-r: var(--btn-rr); --fin: 0.6; }
 .join.full { display: flex; width: 100%; }
 .join:has(> :active:not(:disabled)) { scale: 0.985; transition-duration: var(--dur-press); transition-timing-function: var(--ease-out); }
-@media (hover: hover) { .join:hover > :where(button, .btn):not(:disabled) { --btn-line: var(--btn-edge-hover); } }
+@media (hover: hover) { .join > :where(button, .btn):hover:not(:disabled) { --btn-bg: var(--btn-soft-hover); } }
 /* Buy and Sell as a pair: the same size, 8 px apart. */
 .trade-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 
@@ -4737,7 +4735,12 @@ button.chip-btn { min-height: 24px; padding: 0 8px; font: 500 12px/1 var(--font-
 .wi-reset-btn { margin-left: auto; min-height: 26px; padding: 0 8px; font-size: 12px; gap: 4px; }
 .wi-reset-btn svg { width: 12px; height: 12px; }
 .wi-reset-btn[hidden] { display: none; }
-.wi-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 6px; min-width: 0; }
+/* Flex, not an auto-fit grid: the grid kept empty tracks, so six figures stopped at three quarters of a wide panel. */
+.wi-figs { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.wi-figs > .wi-fig { flex: 1 1 100px; }
+/* Narrow panels: three per row (3 + 3), never five and a lone sixth across the whole width. */
+@container wi (max-width: 640px) { .wi-figs > .wi-fig { flex-basis: calc(33.333% - 6px); } }
+.wi-figs > :not(.wi-fig) { flex: 1 1 100%; }
 .wi-fig { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 6px 8px; border-radius: var(--r-sm); background: var(--mat-fill-1, hsl(var(--foreground) / 0.03)); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
 .wi-k { font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .wi-v { font: 600 14px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -6072,7 +6075,7 @@ table.arb-pv small.block { display: block; margin-top: 3px; white-space: normal;
 .scr-grow { flex: 1 1 auto; min-width: 0; }
 
 /* Toolbar: "3 underlyings · 7 chains" (opens the underlying chips) and the live control (auto + time + scan). */
-button.scr-ctx { --btn-h: 40px; --btn-bg: var(--mat-glass); --btn-line: transparent; color: inherit; font: inherit; flex: none; min-width: max-content; }
+button.scr-ctx { --btn-h: 40px; --btn-bg: var(--btn-soft); --btn-line: transparent; color: inherit; font: inherit; flex: none; min-width: max-content; }
 /* Beside the context capsule the reference chip gives way: it shrinks (ellipsis) rather than squeezing the capsule. */
 button.scr-ctx ~ button.ref-chip { flex: 0 1 auto; min-width: 0; }
 button.scr-ctx ~ button.ref-chip .ref-chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -6083,7 +6086,7 @@ button.scr-ctx ~ button.ref-chip .ref-chip-text { min-width: 0; overflow: hidden
   button.scr-ctx ~ button.ref-chip { display: none; }
 }
 button.scr-ctx .ctx-main::after { content: ""; width: 12px; height: 12px; flex: none; background: hsl(var(--foreground) / var(--a-label)); -webkit-mask: var(--chev-mask) center / 12px 12px no-repeat; mask: var(--chev-mask) center / 12px 12px no-repeat; }
-@media (hover: hover) { button.scr-ctx:hover { --btn-bg: var(--mat-glass-strong); --btn-line: transparent; } }
+@media (hover: hover) { button.scr-ctx:hover { --btn-bg: var(--btn-soft-hover); --btn-line: transparent; } }
 .scr-live { flex: none; display: inline-flex; align-items: center; height: 40px; padding: 0 2px; border-radius: 999px; box-shadow: var(--shadow-1); }
 .scr-live button { height: 36px; min-height: 36px; padding: 0; border-radius: 999px; background: transparent; box-shadow: none; color: hsl(var(--foreground)); }
 .scr-live button:hover { background: var(--mat-fill-1); }
@@ -7005,7 +7008,7 @@ a.small-link:hover { text-decoration: underline; }
 /* ───────────────────────── 12r · REFERENCE DATA AND MARKET CALENDAR (docs/spec/p1-02-reference.md §5) ─────────────────────────
    The reference chip in the Options top bar, the banners above a page, the ticket's lot-size check, position event
    chips and the Market calendar page. Shared tokens only: label / quiet ink, the warn and neg inks, separators. */
-button.ref-chip { --btn-bg: var(--mat-glass); --btn-line: transparent; -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur); flex: none; display: inline-flex; align-items: center; gap: 7px; height: 40px; min-height: 0; padding: 0 14px 0 12px; border-radius: 999px; font: 600 13px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; cursor: pointer; }
+button.ref-chip { --btn-bg: var(--btn-soft); --btn-line: transparent; flex: none; display: inline-flex; align-items: center; gap: 7px; height: 40px; min-height: 0; padding: 0 14px 0 12px; border-radius: 999px; font: 600 13px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; cursor: pointer; }
 button.ref-chip[hidden] { display: none; }
 button.ref-chip:hover { color: hsl(var(--foreground)); }
 .ref-chip-ic svg { width: 15px; height: 15px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: 0.8; }
@@ -7343,7 +7346,7 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
    consumers (views.js renderLimits). Tokens only; numbers tabular. */
 .toolbar-budget { display: inline-flex; flex: none; min-width: 0; }
 .toolbar-budget[hidden] { display: none; }
-button.toolbar-budget-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.5px; --btn-bg: var(--mat-glass); --btn-line: transparent; height: auto; gap: 6px; color: hsl(var(--foreground)); }
+button.toolbar-budget-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.5px; --btn-bg: var(--btn-soft); --btn-line: transparent; height: auto; gap: 6px; color: hsl(var(--foreground)); }
 .bud-lbl { font: 500 12px/1 var(--font-body); letter-spacing: 0.02em; color: hsl(var(--foreground) / var(--a-label)); }
 .bud-num { font-family: var(--font-numeric); font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bud-sep { color: hsl(var(--foreground) / var(--a-quiet)); }
@@ -7392,7 +7395,7 @@ button.toolbar-budget-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.
 /* Position alerts: the toolbar bell (shown once there is an alert), its popover and the alert sheet (alerts.js). */
 .toolbar-bell { display: inline-flex; flex: none; }
 .toolbar-bell[hidden] { display: none; }
-button.toolbar-bell-btn { --btn-h: var(--ctl-h); --btn-px: 0; --btn-bg: var(--mat-glass); --btn-line: transparent; position: relative; width: var(--ctl-h); height: var(--ctl-h); justify-content: center; color: hsl(var(--foreground)); }
+button.toolbar-bell-btn { --btn-h: var(--ctl-h); --btn-px: 0; --btn-bg: var(--btn-soft); --btn-line: transparent; position: relative; width: var(--ctl-h); height: var(--ctl-h); justify-content: center; color: hsl(var(--foreground)); }
 button.toolbar-bell-btn svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .bell-count { position: absolute; top: 2px; right: 0; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px; background: hsl(var(--ios-red)); color: hsl(var(--background)); font: 600 12px/18px var(--font-numeric); text-align: center; box-shadow: 0 0 0 2px hsl(var(--background)); }
 .bell-count[hidden] { display: none; }
@@ -7422,7 +7425,7 @@ button.toolbar-bell-btn svg { width: 17px; height: 17px; fill: none; stroke: cur
 @media (max-width: 719px) { .al-cond, .al-cond:has(input[hidden]) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; } .al-cond select { grid-column: 1 / -1; } }
 .toolbar-ready { display: inline-flex; flex: none; min-width: 0; }
 .toolbar-ready[hidden] { display: none; }
-button.toolbar-ready-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.5px; --btn-bg: var(--mat-glass); --btn-line: transparent; height: auto; gap: 8px; max-width: 34ch; color: hsl(var(--foreground)); }
+button.toolbar-ready-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.5px; --btn-bg: var(--btn-soft); --btn-line: transparent; height: auto; gap: 8px; max-width: 34ch; color: hsl(var(--foreground)); }
 .rd-glyph { position: relative; display: inline-grid; place-items: center; flex: none; width: 16px; height: 16px; color: hsl(var(--foreground) / var(--a-label)); }
 .rd-glyph svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; }
 .rd-glyph .pdot { position: absolute; top: -2px; right: -3px; width: 8px; height: 8px; border-radius: 99px; background: hsl(var(--foreground) / 0.4); box-shadow: 0 0 0 2px hsl(var(--background)); }
@@ -8604,177 +8607,177 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 /* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────
    Inline-SVG charts: every colour is a theme token (so light and dark both work), every size is an SVG attribute
    (no style attributes: the dashboard CSP is style-src 'self'). Series are told apart by colour AND dash or position. */
-.analytics-status { gap: 8px 12px; }
-.analytics-controls { align-items: end; }
-.analytics-mode { margin-top: 14px; }
-.chart-host { width: 100%; min-width: 0; }
-.chart { display: block; width: 100%; height: auto; overflow: visible; }
-.chart text { font: 12px/1 var(--font-numeric); fill: hsl(var(--foreground) / var(--a-label)); }
-.chart text.strike { font-weight: 500; fill: hsl(var(--foreground) / 0.8); }
-.chart text.strike.strong, .chart text.tag { font-weight: 600; fill: hsl(var(--foreground)); }
-.chart text.tag { font-size: 12px; }
-.chart .grid-line { stroke: var(--mat-separator); stroke-width: 1; }
-.chart .zero-line { stroke: hsl(var(--foreground) / 0.45); stroke-width: 1; }
-.chart .marker-line { stroke: hsl(var(--foreground) / 0.55); stroke-width: 1; stroke-dasharray: 4 3; }
-.chart .band { fill: hsl(var(--ios-blue) / 0.10); stroke: hsl(var(--ios-blue-ink) / 0.5); stroke-width: 1; }
-.chart .band.pain { fill: hsl(var(--ios-purple) / 0.12); stroke: hsl(var(--ios-purple-ink) / 0.6); }
-.chart .bar.call, .chart .line.call, .chart .dot.call { fill: hsl(var(--ios-blue-ink)); }
-.chart .bar.put, .chart .line.put, .chart .dot.put { fill: hsl(var(--ios-orange-ink)); }
-.chart .line { fill: none; stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
-.chart .line.call { stroke: hsl(var(--ios-blue-ink)); }
-.chart .line.put { stroke: hsl(var(--ios-orange-ink)); }
-.chart .line.s1, .chart .dot.s1 { stroke: hsl(var(--ios-blue-ink)); fill: hsl(var(--ios-blue-ink)); }
-.chart .line.s2, .chart .dot.s2 { stroke: hsl(var(--ios-orange-ink)); fill: hsl(var(--ios-orange-ink)); }
-.chart .line.s3, .chart .dot.s3 { stroke: hsl(var(--ios-teal-ink)); fill: hsl(var(--ios-teal-ink)); }
-.chart .line.s4, .chart .dot.s4 { stroke: hsl(var(--ios-purple-ink)); fill: hsl(var(--ios-purple-ink)); }
-.chart .line.s5, .chart .dot.s5 { stroke: hsl(var(--ios-pink-ink)); fill: hsl(var(--ios-pink-ink)); }
-.chart .line.s6, .chart .dot.s6 { stroke: hsl(var(--ios-green-ink)); fill: hsl(var(--ios-green-ink)); }
-.chart .line.s1, .chart .line.s2, .chart .line.s3, .chart .line.s4, .chart .line.s5, .chart .line.s6 { fill: none; }
-.chart .dot { stroke: none; opacity: 0.9; }
-.chart .line.payoff { stroke: hsl(var(--foreground)); stroke-width: 2; }
-.chart .area.profit { fill: hsl(var(--ios-green) / 0.28); }
-.chart .area.loss { fill: hsl(var(--ios-red) / 0.26); }
-.chart .be-dot { fill: hsl(var(--background)); stroke: hsl(var(--foreground)); stroke-width: 2; }
-.chart-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; list-style: none; margin: 0 0 10px; padding: 0; font: 500 13px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
-.chart-legend li { display: inline-flex; align-items: center; gap: 6px; }
-.chart-legend .swatch { width: 12px; height: 12px; border-radius: 3px; background: hsl(var(--foreground) / 0.4); }
-.chart-legend .swatch.call, .chart-legend .swatch.s1 { background: hsl(var(--ios-blue-ink)); }
-.chart-legend .swatch.put, .chart-legend .swatch.s2 { background: hsl(var(--ios-orange-ink)); }
-.chart-legend .swatch.s3 { background: hsl(var(--ios-teal-ink)); }
-.chart-legend .swatch.s4 { background: hsl(var(--ios-purple-ink)); }
-.chart-legend .swatch.s5 { background: hsl(var(--ios-pink-ink)); }
-.chart-legend .swatch.s6 { background: hsl(var(--ios-green-ink)); }
-.chart-legend .swatch.profit { background: hsl(var(--ios-green) / 0.6); }
-.chart-legend .swatch.loss { background: hsl(var(--ios-red) / 0.6); }
-.chain tr.atm td { background: hsl(var(--ios-blue) / 0.10); }
-.atm-flag { margin-left: 6px; padding: 1px 6px; border-radius: 99px; font: 600 12px/1.4 var(--font-numeric); background: hsl(var(--ios-blue) / 0.16); color: hsl(var(--ios-blue-ink)); }
-.leg-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr)); gap: 10px; align-items: end; padding: 12px; border-radius: var(--r-md, 14px); background: var(--mat-fill-1); }
-.leg-row .leg-remove { justify-self: start; }
+.an-page .analytics-status { gap: 8px 12px; }
+.an-page .analytics-controls { align-items: end; }
+.an-page .analytics-mode { margin-top: 14px; }
+.an-page .chart-host { width: 100%; min-width: 0; }
+.an-page .chart { display: block; width: 100%; height: auto; overflow: visible; }
+.an-page .chart text { font: 12px/1 var(--font-numeric); fill: hsl(var(--foreground) / var(--a-label)); }
+.an-page .chart text.strike { font-weight: 500; fill: hsl(var(--foreground) / 0.8); }
+.an-page .chart text.strike.strong, .an-page .chart text.tag { font-weight: 600; fill: hsl(var(--foreground)); }
+.an-page .chart text.tag { font-size: 12px; }
+.an-page .chart .grid-line { stroke: var(--mat-separator); stroke-width: 1; }
+.an-page .chart .zero-line { stroke: hsl(var(--foreground) / 0.45); stroke-width: 1; }
+.an-page .chart .marker-line { stroke: hsl(var(--foreground) / 0.55); stroke-width: 1; stroke-dasharray: 4 3; }
+.an-page .chart .band { fill: hsl(var(--ios-blue) / 0.10); stroke: hsl(var(--ios-blue-ink) / 0.5); stroke-width: 1; }
+.an-page .chart .band.pain { fill: hsl(var(--ios-purple) / 0.12); stroke: hsl(var(--ios-purple-ink) / 0.6); }
+.an-page .chart .bar.call, .an-page .chart .line.call, .an-page .chart .dot.call { fill: hsl(var(--ios-blue-ink)); }
+.an-page .chart .bar.put, .an-page .chart .line.put, .an-page .chart .dot.put { fill: hsl(var(--ios-orange-ink)); }
+.an-page .chart .line { fill: none; stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
+.an-page .chart .line.call { stroke: hsl(var(--ios-blue-ink)); }
+.an-page .chart .line.put { stroke: hsl(var(--ios-orange-ink)); }
+.an-page .chart .line.s1, .an-page .chart .dot.s1 { stroke: hsl(var(--ios-blue-ink)); fill: hsl(var(--ios-blue-ink)); }
+.an-page .chart .line.s2, .an-page .chart .dot.s2 { stroke: hsl(var(--ios-orange-ink)); fill: hsl(var(--ios-orange-ink)); }
+.an-page .chart .line.s3, .an-page .chart .dot.s3 { stroke: hsl(var(--ios-teal-ink)); fill: hsl(var(--ios-teal-ink)); }
+.an-page .chart .line.s4, .an-page .chart .dot.s4 { stroke: hsl(var(--ios-purple-ink)); fill: hsl(var(--ios-purple-ink)); }
+.an-page .chart .line.s5, .an-page .chart .dot.s5 { stroke: hsl(var(--ios-pink-ink)); fill: hsl(var(--ios-pink-ink)); }
+.an-page .chart .line.s6, .an-page .chart .dot.s6 { stroke: hsl(var(--ios-green-ink)); fill: hsl(var(--ios-green-ink)); }
+.an-page .chart .line.s1, .an-page .chart .line.s2, .an-page .chart .line.s3, .an-page .chart .line.s4, .an-page .chart .line.s5, .an-page .chart .line.s6 { fill: none; }
+.an-page .chart .dot { stroke: none; opacity: 0.9; }
+.an-page .chart .line.payoff { stroke: hsl(var(--foreground)); stroke-width: 2; }
+.an-page .chart .area.profit { fill: hsl(var(--ios-green) / 0.28); }
+.an-page .chart .area.loss { fill: hsl(var(--ios-red) / 0.26); }
+.an-page .chart .be-dot { fill: hsl(var(--background)); stroke: hsl(var(--foreground)); stroke-width: 2; }
+.an-page .chart-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; list-style: none; margin: 0 0 10px; padding: 0; font: 500 13px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.an-page .chart-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.an-page .chart-legend .swatch { width: 12px; height: 12px; border-radius: 3px; background: hsl(var(--foreground) / 0.4); }
+.an-page .chart-legend .swatch.call, .an-page .chart-legend .swatch.s1 { background: hsl(var(--ios-blue-ink)); }
+.an-page .chart-legend .swatch.put, .an-page .chart-legend .swatch.s2 { background: hsl(var(--ios-orange-ink)); }
+.an-page .chart-legend .swatch.s3 { background: hsl(var(--ios-teal-ink)); }
+.an-page .chart-legend .swatch.s4 { background: hsl(var(--ios-purple-ink)); }
+.an-page .chart-legend .swatch.s5 { background: hsl(var(--ios-pink-ink)); }
+.an-page .chart-legend .swatch.s6 { background: hsl(var(--ios-green-ink)); }
+.an-page .chart-legend .swatch.profit { background: hsl(var(--ios-green) / 0.6); }
+.an-page .chart-legend .swatch.loss { background: hsl(var(--ios-red) / 0.6); }
+.an-page .chain tr.atm td { background: hsl(var(--ios-blue) / 0.10); }
+.an-page .atm-flag { margin-left: 6px; padding: 1px 6px; border-radius: 99px; font: 600 12px/1.4 var(--font-numeric); background: hsl(var(--ios-blue) / 0.16); color: hsl(var(--ios-blue-ink)); }
+.an-page .an-leg-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr)); gap: 10px; align-items: end; padding: 12px; border-radius: var(--r-md, 14px); background: var(--mat-fill-1); }
+.an-page .an-leg-row .an-leg-remove { justify-self: start; }
 @media (forced-colors: active) {
-  .chart .bar, .chart .area, .chart .band { forced-color-adjust: none; }
+  .an-page .chart .bar, .an-page .chart .area, .an-page .chart .band { forced-color-adjust: none; }
 }
 
 /* ───────────────────────── 16 · ANALYTICS, MORE PAGES (analyticsMore.js) ─────────────────────────
    Tab controls, grouped bars, the price ruler, key-figure lists, strategy cards, flags and the alert-rule builder.
    Same rules as section 15: theme tokens only, sizes live in SVG attributes, no style attributes. */
-.analytics-controls, .analytics-options { grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); }
-.analytics-options { align-items: end; }
-.card-flush { margin: 0 calc(-1 * var(--card-pad)); min-width: 0; }
-.chart .bar.s1 { fill: hsl(var(--ios-blue-ink)); }
-.chart .bar.s2 { fill: hsl(var(--ios-orange-ink)); }
-.chart .band.atm { fill: hsl(var(--ios-blue) / 0.10); }
-.chart .range-fill { fill: hsl(var(--ios-green) / 0.22); stroke: hsl(var(--ios-green-ink) / 0.55); stroke-width: 1; }
-.chart .axis-line { stroke: hsl(var(--foreground) / 0.45); stroke-width: 1.5; stroke-linecap: round; }
-.chart .leader { stroke: hsl(var(--foreground) / 0.4); stroke-width: 1; }
-.chart .m-dot { fill: hsl(var(--background)); stroke: hsl(var(--foreground)); stroke-width: 2; }
-.chart .leader.spot, .chart .m-dot.spot { stroke: hsl(var(--foreground)); stroke-width: 2; }
-.chart .m-dot.spot { fill: hsl(var(--foreground)); }
-.chart .leader.pain, .chart .m-dot.pain, .chart .leader.flip, .chart .m-dot.flip { stroke: hsl(var(--ios-purple-ink)); }
-.chart .leader.call, .chart .m-dot.call { stroke: hsl(var(--ios-blue-ink)); }
-.chart .leader.put, .chart .m-dot.put { stroke: hsl(var(--ios-orange-ink)); }
-.chart .leader.be, .chart .m-dot.be { stroke: hsl(var(--ios-green-ink)); }
-.chart text.m-text.pain, .chart text.m-text.flip { fill: hsl(var(--ios-purple-ink)); }
-.chart text.m-text.call { fill: hsl(var(--ios-blue-ink)); }
-.chart text.m-text.put { fill: hsl(var(--ios-orange-ink)); }
-.chart text.m-text.be { fill: hsl(var(--ios-green-ink)); }
-.kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); gap: 12px 16px; margin: 0; padding: 0; }
-.kv > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.kv dt { font: 500 12.5px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
-.kv dd { margin: 0; font: 600 15px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.kv dd.up { color: hsl(var(--ios-green-ink)); }
-.kv dd.down { color: hsl(var(--ios-red-ink)); }
-.flag-list, .leg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.flag-list li, .leg-list li { display: flex; align-items: flex-start; gap: 10px; min-width: 0; font: 400 14px/1.45 var(--font-body); }
-.flag-list li > span:not(.pill), .leg-list li > span:not(.pill) { min-width: 0; overflow-wrap: anywhere; }
-.flag-list .pill, .leg-list .pill { flex: none; }
-.strategy-grid { align-items: start; }
-.strategy .card-head { align-items: flex-start; }
-.preview { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: var(--r-md); background: hsl(var(--ios-blue) / 0.08); box-shadow: inset 0 0 0 1px hsl(var(--ios-blue) / 0.2); }
-.preview .label { font: 600 12px/1.2 var(--font-body); letter-spacing: 0.02em; text-transform: uppercase; color: hsl(var(--ios-blue-ink)); }
-.rule-sentence { font: 600 16px/1.4 var(--font-display); letter-spacing: -0.012em; overflow-wrap: anywhere; }
-.field > label.check { font-weight: 400; color: hsl(var(--foreground)); }
-.table-wrap .row.nowrap { justify-content: flex-start; }
-@media (min-width: 720px) { .seg-field > .segmented { align-self: flex-start; } }
-.chart text.m-text { paint-order: stroke; stroke: var(--mat-grouped-solid, hsl(var(--background))); stroke-width: 4px; stroke-linejoin: round; }
-.analytics-options .wide-field { grid-column: 1 / -1; }
+.an-page .analytics-controls, .an-page .analytics-options { grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); }
+.an-page .analytics-options { align-items: end; }
+.an-page .card-flush { margin: 0 calc(-1 * var(--card-pad)); min-width: 0; }
+.an-page .chart .bar.s1 { fill: hsl(var(--ios-blue-ink)); }
+.an-page .chart .bar.s2 { fill: hsl(var(--ios-orange-ink)); }
+.an-page .chart .band.atm { fill: hsl(var(--ios-blue) / 0.10); }
+.an-page .chart .range-fill { fill: hsl(var(--ios-green) / 0.22); stroke: hsl(var(--ios-green-ink) / 0.55); stroke-width: 1; }
+.an-page .chart .axis-line { stroke: hsl(var(--foreground) / 0.45); stroke-width: 1.5; stroke-linecap: round; }
+.an-page .chart .leader { stroke: hsl(var(--foreground) / 0.4); stroke-width: 1; }
+.an-page .chart .m-dot { fill: hsl(var(--background)); stroke: hsl(var(--foreground)); stroke-width: 2; }
+.an-page .chart .leader.spot, .an-page .chart .m-dot.spot { stroke: hsl(var(--foreground)); stroke-width: 2; }
+.an-page .chart .m-dot.spot { fill: hsl(var(--foreground)); }
+.an-page .chart .leader.pain, .an-page .chart .m-dot.pain, .an-page .chart .leader.flip, .an-page .chart .m-dot.flip { stroke: hsl(var(--ios-purple-ink)); }
+.an-page .chart .leader.call, .an-page .chart .m-dot.call { stroke: hsl(var(--ios-blue-ink)); }
+.an-page .chart .leader.put, .an-page .chart .m-dot.put { stroke: hsl(var(--ios-orange-ink)); }
+.an-page .chart .leader.be, .an-page .chart .m-dot.be { stroke: hsl(var(--ios-green-ink)); }
+.an-page .chart text.m-text.pain, .an-page .chart text.m-text.flip { fill: hsl(var(--ios-purple-ink)); }
+.an-page .chart text.m-text.call { fill: hsl(var(--ios-blue-ink)); }
+.an-page .chart text.m-text.put { fill: hsl(var(--ios-orange-ink)); }
+.an-page .chart text.m-text.be { fill: hsl(var(--ios-green-ink)); }
+.an-page .kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); gap: 12px 16px; margin: 0; padding: 0; }
+.an-page .kv > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.an-page .kv dt { font: 500 12.5px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.an-page .kv dd { margin: 0; font: 600 15px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.an-page .kv dd.up { color: hsl(var(--ios-green-ink)); }
+.an-page .kv dd.down { color: hsl(var(--ios-red-ink)); }
+.an-page .flag-list, .an-page .leg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.an-page .flag-list li, .an-page .leg-list li { display: flex; align-items: flex-start; gap: 10px; min-width: 0; font: 400 14px/1.45 var(--font-body); }
+.an-page .flag-list li > span:not(.pill), .an-page .leg-list li > span:not(.pill) { min-width: 0; overflow-wrap: anywhere; }
+.an-page .flag-list .pill, .an-page .leg-list .pill { flex: none; }
+.an-page .strategy-grid { align-items: start; }
+.an-page .strategy .card-head { align-items: flex-start; }
+.an-page .preview { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: var(--r-md); background: hsl(var(--ios-blue) / 0.08); box-shadow: inset 0 0 0 1px hsl(var(--ios-blue) / 0.2); }
+.an-page .preview .label { font: 600 12px/1.2 var(--font-body); letter-spacing: 0.02em; text-transform: uppercase; color: hsl(var(--ios-blue-ink)); }
+.an-page .rule-sentence { font: 600 16px/1.4 var(--font-display); letter-spacing: -0.012em; overflow-wrap: anywhere; }
+.an-page .field > label.check { font-weight: 400; color: hsl(var(--foreground)); }
+.an-page .table-wrap .row.nowrap { justify-content: flex-start; }
+@media (min-width: 720px) { .an-page .seg-field > .segmented { align-self: flex-start; } }
+.an-page .chart text.m-text { paint-order: stroke; stroke: var(--mat-grouped-solid, hsl(var(--background))); stroke-width: 4px; stroke-linejoin: round; }
+.an-page .analytics-options .wide-field { grid-column: 1 / -1; }
 
 /* ───────────────────────── 17 · ANALYTICS, FLOW AND VOL PAGES (analyticsFlow.js) ─────────────────────────
    Unusual activity, Market tide, Exposure and Screener and vol: score chips and flag pills, selectable and sortable
    tables that scroll inside their card, the OI heatmap (an HTML table: a class per cell, never a style attribute),
    tide area fills and the small score bars. Theme tokens only, so light and dark both work. */
-.flow-tabs { min-width: 0; }
-.pill.sm { padding: 2px 8px; font-size: 12px; }
-.cell-two { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.cell-two.num { align-items: flex-end; }
-.cell-two > .muted.small { margin-top: 0; font-size: 12px; }
-.cell-two > .up { color: hsl(var(--ios-green-ink)); font-weight: 600; }
-.cell-two > .down { color: hsl(var(--ios-red-ink)); font-weight: 600; }
-.clip { display: inline-block; max-width: min(220px, 40vw); overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
-.flags { display: flex; flex-wrap: wrap; gap: 4px; min-width: 120px; max-width: 300px; }
-@media (max-width: 760px) { .form-grid > .field.span-all { grid-column: 1 / -1; } }
-td .flags { white-space: normal; }
-.score-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 46px; padding: 3px 10px; border-radius: 99px; font: 600 13.5px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; background: var(--mat-fill-2); color: hsl(var(--foreground)); }
-.score-chip.hot { background: hsl(var(--ios-red) / 0.16); color: hsl(var(--ios-red-ink)); }
-.score-chip.warm { background: hsl(var(--ios-orange) / 0.18); color: hsl(var(--ios-orange-ink)); }
-.score-chip.cool { background: hsl(var(--ios-blue) / 0.13); color: hsl(var(--ios-blue-ink)); }
-.table-wrap.scroll-box { max-height: min(68vh, 620px); overflow: auto; overscroll-behavior: contain; }
-.scroll-box thead th { position: sticky; top: 0; z-index: 2; background: var(--mat-grouped-solid); box-shadow: inset 0 -0.5px 0 var(--mat-separator); }
-.scroll-box thead th { border-bottom: 0; }
-.pick-table tbody tr.selectable { cursor: pointer; }
-.pick-table tbody tr[aria-selected="true"] > td { background-color: var(--mat-fill-2); }
-button.row-pick { min-height: 0; padding: 0; background: transparent; box-shadow: none; border-radius: 6px; font: 600 14px/1.3 var(--font-body); color: hsl(var(--foreground)); justify-content: flex-start; }
-button.row-pick:hover { background: transparent; color: hsl(var(--ios-blue-ink)); }
-th button.th-sort { min-height: 0; padding: 0; gap: 4px; background: transparent; box-shadow: none; border-radius: 4px; font: inherit; color: inherit; letter-spacing: inherit; }
-th button.th-sort:hover { background: transparent; color: hsl(var(--foreground)); }
-th button.th-sort::after { content: "\2195"; font-size: 12px; opacity: 0.35; }
-th[aria-sort="ascending"] button.th-sort::after { content: "\2191"; opacity: 1; color: hsl(var(--ios-blue-ink)); }
-th[aria-sort="descending"] button.th-sort::after { content: "\2193"; opacity: 1; color: hsl(var(--ios-blue-ink)); }
-th[aria-sort="ascending"], th[aria-sort="descending"] { color: hsl(var(--foreground)); }
-.chart .meter-track { fill: var(--mat-fill-2); }
-.chart .meter-fill { fill: hsl(var(--ios-blue-ink)); }
-.chart .area.call { fill: hsl(var(--ios-blue) / 0.22); }
-.chart .area.put { fill: hsl(var(--ios-orange) / 0.24); }
-.chart .band.wall-call { fill: hsl(var(--ios-blue) / 0.10); stroke: hsl(var(--ios-blue-ink) / 0.5); stroke-width: 1; }
-.chart .band.wall-put { fill: hsl(var(--ios-orange) / 0.12); stroke: hsl(var(--ios-orange-ink) / 0.55); stroke-width: 1; }
-.chart-legend .swatch.swatch-wall-call { background: hsl(var(--ios-blue) / 0.18); box-shadow: inset 0 0 0 1px hsl(var(--ios-blue-ink) / 0.6); }
-.chart-legend .swatch.swatch-wall-put { background: hsl(var(--ios-orange) / 0.2); box-shadow: inset 0 0 0 1px hsl(var(--ios-orange-ink) / 0.65); }
-.chart-legend .swatch.swatch-flip { background: hsl(var(--ios-purple) / 0.2); box-shadow: inset 0 0 0 1px hsl(var(--ios-purple-ink) / 0.65); }
-.chart-legend .swatch.heat-sample { width: 34px; background: linear-gradient(90deg, hsl(var(--ios-purple) / 0.08), hsl(var(--ios-purple) / 0.6)); }
-.chart-legend .swatch.top-sample { box-shadow: inset 0 0 0 2px hsl(var(--foreground)); background: transparent; }
-.chart-title { margin: 14px 0 6px; font: 600 14px/1.3 var(--font-display); letter-spacing: -0.01em; }
-.chip-score { font-size: 14px; color: hsl(var(--foreground) / var(--a-label)); }
-.rule-text { font: 400 14px/1.5 var(--font-body); overflow-wrap: anywhere; }
-.recording-hint { display: flex; align-items: flex-start; gap: 8px; }
-.recording-hint svg { width: 16px; height: 16px; flex: none; margin-top: 1px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.note-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
-.method p { overflow-wrap: anywhere; margin: 0; }
-.filter-grid { margin-top: 10px; }
+.an-page .flow-tabs { min-width: 0; }
+.an-page .pill.sm { padding: 2px 8px; font-size: 12px; }
+.an-page .cell-two { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.an-page .cell-two.num { align-items: flex-end; }
+.an-page .cell-two > .muted.small { margin-top: 0; font-size: 12px; }
+.an-page .cell-two > .up { color: hsl(var(--ios-green-ink)); font-weight: 600; }
+.an-page .cell-two > .down { color: hsl(var(--ios-red-ink)); font-weight: 600; }
+.an-page .clip { display: inline-block; max-width: min(220px, 40vw); overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.an-page .flags { display: flex; flex-wrap: wrap; gap: 4px; min-width: 120px; max-width: 300px; }
+@media (max-width: 760px) { .an-page .form-grid > .field.span-all { grid-column: 1 / -1; } }
+.an-page td .flags { white-space: normal; }
+.an-page .score-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 46px; padding: 3px 10px; border-radius: 99px; font: 600 13.5px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; background: var(--mat-fill-2); color: hsl(var(--foreground)); }
+.an-page .score-chip.hot { background: hsl(var(--ios-red) / 0.16); color: hsl(var(--ios-red-ink)); }
+.an-page .score-chip.warm { background: hsl(var(--ios-orange) / 0.18); color: hsl(var(--ios-orange-ink)); }
+.an-page .score-chip.cool { background: hsl(var(--ios-blue) / 0.13); color: hsl(var(--ios-blue-ink)); }
+.an-page .table-wrap.scroll-box { max-height: min(68vh, 620px); overflow: auto; overscroll-behavior: contain; }
+.an-page .scroll-box thead th { position: sticky; top: 0; z-index: 2; background: var(--mat-grouped-solid); box-shadow: inset 0 -0.5px 0 var(--mat-separator); }
+.an-page .scroll-box thead th { border-bottom: 0; }
+.an-page .pick-table tbody tr.selectable { cursor: pointer; }
+.an-page .pick-table tbody tr[aria-selected="true"] > td { background-color: var(--mat-fill-2); }
+.an-page button.row-pick { min-height: 0; padding: 0; background: transparent; box-shadow: none; border-radius: 6px; font: 600 14px/1.3 var(--font-body); color: hsl(var(--foreground)); justify-content: flex-start; }
+.an-page button.row-pick:hover { background: transparent; color: hsl(var(--ios-blue-ink)); }
+.an-page th button.th-sort { min-height: 0; padding: 0; gap: 4px; background: transparent; box-shadow: none; border-radius: 4px; font: inherit; color: inherit; letter-spacing: inherit; }
+.an-page th button.th-sort:hover { background: transparent; color: hsl(var(--foreground)); }
+.an-page th button.th-sort::after { content: "\2195"; font-size: 12px; opacity: 0.35; }
+.an-page th[aria-sort="ascending"] button.th-sort::after { content: "\2191"; opacity: 1; color: hsl(var(--ios-blue-ink)); }
+.an-page th[aria-sort="descending"] button.th-sort::after { content: "\2193"; opacity: 1; color: hsl(var(--ios-blue-ink)); }
+.an-page th[aria-sort="ascending"], .an-page th[aria-sort="descending"] { color: hsl(var(--foreground)); }
+.an-page .chart .meter-track { fill: var(--mat-fill-2); }
+.an-page .chart .meter-fill { fill: hsl(var(--ios-blue-ink)); }
+.an-page .chart .area.call { fill: hsl(var(--ios-blue) / 0.22); }
+.an-page .chart .area.put { fill: hsl(var(--ios-orange) / 0.24); }
+.an-page .chart .band.wall-call { fill: hsl(var(--ios-blue) / 0.10); stroke: hsl(var(--ios-blue-ink) / 0.5); stroke-width: 1; }
+.an-page .chart .band.wall-put { fill: hsl(var(--ios-orange) / 0.12); stroke: hsl(var(--ios-orange-ink) / 0.55); stroke-width: 1; }
+.an-page .chart-legend .swatch.swatch-wall-call { background: hsl(var(--ios-blue) / 0.18); box-shadow: inset 0 0 0 1px hsl(var(--ios-blue-ink) / 0.6); }
+.an-page .chart-legend .swatch.swatch-wall-put { background: hsl(var(--ios-orange) / 0.2); box-shadow: inset 0 0 0 1px hsl(var(--ios-orange-ink) / 0.65); }
+.an-page .chart-legend .swatch.swatch-flip { background: hsl(var(--ios-purple) / 0.2); box-shadow: inset 0 0 0 1px hsl(var(--ios-purple-ink) / 0.65); }
+.an-page .chart-legend .swatch.heat-sample { width: 34px; background: linear-gradient(90deg, hsl(var(--ios-purple) / 0.08), hsl(var(--ios-purple) / 0.6)); }
+.an-page .chart-legend .swatch.top-sample { box-shadow: inset 0 0 0 2px hsl(var(--foreground)); background: transparent; }
+.an-page .chart-title { margin: 14px 0 6px; font: 600 14px/1.3 var(--font-display); letter-spacing: -0.01em; }
+.an-page .chip-score { font-size: 14px; color: hsl(var(--foreground) / var(--a-label)); }
+.an-page .rule-text { font: 400 14px/1.5 var(--font-body); overflow-wrap: anywhere; }
+.an-page .recording-hint { display: flex; align-items: flex-start; gap: 8px; }
+.an-page .recording-hint svg { width: 16px; height: 16px; flex: none; margin-top: 1px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.an-page .note-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.an-page .method p { overflow-wrap: anywhere; margin: 0; }
+.an-page .filter-grid { margin-top: 10px; }
 /* OI heatmap: --tint is the hue, --heat the strength of one cell; the highest cells get an outline and a rank number. */
-.heatmap { --tint: var(--ios-purple); }
-.heatmap.heat-call { --tint: var(--ios-blue); }
-.heatmap.heat-put { --tint: var(--ios-orange); }
-.heatmap table { border-collapse: separate; border-spacing: 0; }
-.heatmap th, .heatmap td { padding: 9px 12px; font-size: 13px; }
-.heatmap thead th { text-align: right; }
-.heatmap thead th.strike-col { text-align: left; }
-.heatmap th.strike-col { position: sticky; left: 0; z-index: 1; text-align: left; font: 600 13px/1.3 var(--font-numeric); background: var(--mat-grouped-solid); box-shadow: inset -0.5px 0 0 var(--mat-separator); }
-.heatmap thead th.strike-col { z-index: 3; }
-.heatmap tbody tr:hover td { background: transparent; }
-.heatmap td.hm { position: relative; text-align: right; font-variant-numeric: tabular-nums; background: hsl(var(--tint) / var(--heat, 0)); }
-.heatmap td.hm-0 { --heat: 0; }
-.heatmap td.hm-1 { --heat: 0.08; }
-.heatmap td.hm-2 { --heat: 0.18; }
-.heatmap td.hm-3 { --heat: 0.3; }
-.heatmap td.hm-4 { --heat: 0.45; }
-.heatmap td.hm-5 { --heat: 0.62; font-weight: 600; }
-.heatmap td.hm.top { box-shadow: inset 0 0 0 2px hsl(var(--foreground)); font-weight: 600; }
-.heatmap td .rank { position: absolute; top: 1px; left: 3px; font: 600 12px/1 var(--font-numeric); color: hsl(var(--foreground)); opacity: 0.85; }
-.heatmap td.hm-all, .heatmap tfoot td { color: hsl(var(--foreground) / var(--a-label)); }
-.heatmap tfoot th, .heatmap tfoot td { font-weight: 600; border-top: 0.5px solid var(--mat-separator); background: var(--mat-grouped-solid); }
-.heatmap tfoot th.strike-col { z-index: 1; }
+.an-page .heatmap { --tint: var(--ios-purple); }
+.an-page .heatmap.heat-call { --tint: var(--ios-blue); }
+.an-page .heatmap.heat-put { --tint: var(--ios-orange); }
+.an-page .heatmap table { border-collapse: separate; border-spacing: 0; }
+.an-page .heatmap th, .an-page .heatmap td { padding: 9px 12px; font-size: 13px; }
+.an-page .heatmap thead th { text-align: right; }
+.an-page .heatmap thead th.strike-col { text-align: left; }
+.an-page .heatmap th.strike-col { position: sticky; left: 0; z-index: 1; text-align: left; font: 600 13px/1.3 var(--font-numeric); background: var(--mat-grouped-solid); box-shadow: inset -0.5px 0 0 var(--mat-separator); }
+.an-page .heatmap thead th.strike-col { z-index: 3; }
+.an-page .heatmap tbody tr:hover td { background: transparent; }
+.an-page .heatmap td.hm { position: relative; text-align: right; font-variant-numeric: tabular-nums; background: hsl(var(--tint) / var(--heat, 0)); }
+.an-page .heatmap td.hm-0 { --heat: 0; }
+.an-page .heatmap td.hm-1 { --heat: 0.08; }
+.an-page .heatmap td.hm-2 { --heat: 0.18; }
+.an-page .heatmap td.hm-3 { --heat: 0.3; }
+.an-page .heatmap td.hm-4 { --heat: 0.45; }
+.an-page .heatmap td.hm-5 { --heat: 0.62; font-weight: 600; }
+.an-page .heatmap td.hm.top { box-shadow: inset 0 0 0 2px hsl(var(--foreground)); font-weight: 600; }
+.an-page .heatmap td .rank { position: absolute; top: 1px; left: 3px; font: 600 12px/1 var(--font-numeric); color: hsl(var(--foreground)); opacity: 0.85; }
+.an-page .heatmap td.hm-all, .an-page .heatmap tfoot td { color: hsl(var(--foreground) / var(--a-label)); }
+.an-page .heatmap tfoot th, .an-page .heatmap tfoot td { font-weight: 600; border-top: 0.5px solid var(--mat-separator); background: var(--mat-grouped-solid); }
+.an-page .heatmap tfoot th.strike-col { z-index: 1; }
 @media (forced-colors: active) {
-  .heatmap td.hm { forced-color-adjust: none; border: 1px solid CanvasText; }
-  .chart .meter-fill, .chart .area { forced-color-adjust: none; }
+  .an-page .heatmap td.hm { forced-color-adjust: none; border: 1px solid CanvasText; }
+  .an-page .chart .meter-fill, .an-page .chart .area { forced-color-adjust: none; }
 }
 
 
@@ -8863,11 +8866,11 @@ th[aria-sort="ascending"], th[aria-sort="descending"] { color: hsl(var(--foregro
 @media (max-width: 719px) { .an-cap .ctx-k { display: none; } }
 .an-ctx-sheet .field select { width: 100%; }
 /* A line series is a stroke: PR 17's colour rules for call and put also filled it (the skew drew an orange wedge). */
-.chart .line.call, .chart .line.put { fill: none; }
+.an-page .chart .line.call, .an-page .chart .line.put { fill: none; }
 
 /* Hollow markers (a series drawn on top of another, e.g. call IV over put IV): ring in the series colour. */
-.chart .dot.hollow { fill: var(--mat-grouped-solid); stroke-width: 1.75; opacity: 1; }
-.chart .dot.call.hollow { stroke: hsl(var(--ios-blue-ink)); }
+.an-page .chart .dot.hollow { fill: var(--mat-grouped-solid); stroke-width: 1.75; opacity: 1; }
+.an-page .chart .dot.call.hollow { stroke: hsl(var(--ios-blue-ink)); }
 .an-page .an-wrap { white-space: normal; overflow-wrap: anywhere; }
 /* A page tab's own sub-views (Flow › Filings: Deals, Insiders, …): a compact switch under the page tabs, not a
    full-width bar with a label repeating the tab's name. */
@@ -8921,3 +8924,4 @@ th[aria-sort="ascending"], th[aria-sort="descending"] { color: hsl(var(--foregro
 .an-page .sent-gauge-wrap { max-width: 460px; }
 .an-page .sent-gauge-wrap .sent-gauge { max-width: none; height: 26px; }
 .an-page .sent-gauge-ends { display: flex; justify-content: space-between; font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.an-page details.disclosure { grid-column: 1 / -1; }

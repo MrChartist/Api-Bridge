@@ -17,7 +17,7 @@ import { BridgeError } from "../core/errors.mjs";
 import { defaultOptionExchange } from "../market/chain.mjs";
 import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
 import { bsPrice, computeGreeks, computeIVAndGreeks, daysBetween, DEFAULT_RATE } from "../../lib/blackScholes.mjs";
-import { futuresBasis, gammaExposure, ivSkew, nowMsOf, oiAnalysis, positionSize, strategyPayoff, upcomingExpiries } from "./math.mjs";
+import { futureExpiryFor, futuresBasis, gammaExposure, ivSkew, nowMsOf, oiAnalysis, positionSize, strategyPayoff, upcomingExpiries } from "./math.mjs";
 
 const invalid = (path, detail) => new BridgeError("VALIDATION_FAILED", detail, { errors: [{ path, message: detail }] });
 const opt = (q, name) => {
@@ -134,12 +134,19 @@ export function createAnalyticsRoutes(deps) {
       const fx = defaultOptionExchange(underlying);
       const cash = fx === "BFO" ? "BSE" : "NSE";
       const spotSym = `${cash}:${underlying.toUpperCase()}`;
-      const futSym = `${fx}:${underlying.toUpperCase()}-${expiry}-FUT`;
+      // A weekly option expiry has no future: its month's future is the one read.
+      let futExpiry = expiry;
+      try {
+        futExpiry = futureExpiryFor((await md().expiries(underlying.toUpperCase(), opts))?.expiries, expiry) ?? expiry;
+      } catch {
+        futExpiry = expiry;
+      }
+      const futSym = `${fx}:${underlying.toUpperCase()}-${futExpiry}-FUT`;
       const r = await md().quotes([spotSym, futSym], opts);
       const px = (sym) => r.items.find((i) => i.symbol === sym)?.ltp ?? null;
       const spot = px(spotSym);
       const future = px(futSym);
-      const days = daysBetween(new Date(nowMsOf(deps)), expiry);
+      const days = daysBetween(new Date(nowMsOf(deps)), futExpiry); // the future's own expiry carries the basis
       return {
         data: { underlying: underlying.toUpperCase(), expiry, spotSymbol: spotSym, futureSymbol: futSym, spot, future, daysToExpiry: Math.round(days * 100) / 100, ...futuresBasis({ spot, future, daysToExpiry: days }) },
         errors: r.errors,
