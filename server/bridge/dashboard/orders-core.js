@@ -107,3 +107,21 @@ export function dayRows(positions) {
   rows.sort((a, b) => Math.abs(b.dayPnl ?? 0) - Math.abs(a.dayPnl ?? 0));
   return { rows, total: rows.length && missing < rows.length ? total : null, missing };
 }
+
+/**
+ * Market depth as the ticket draws it: rows pairing the n-th bid with the n-th ask, the total quantity each side
+ * shows, the largest level (for the bars) and the bid share of the shown quantity. Levels arrive best first.
+ * @param {{ bids?: Array<{ price: number, qty: number, orders?: number|null }>, asks?: Array<{ price: number, qty: number, orders?: number|null }> } | null} depth
+ * @param {number} [max] the most levels to show a side (5 by default; 20 where the source gives that many)
+ */
+export function depthView(depth, max = 5) {
+  const bids = (depth?.bids ?? []).filter((l) => Number(l?.qty) > 0).slice(0, max);
+  const asks = (depth?.asks ?? []).filter((l) => Number(l?.qty) > 0).slice(0, max);
+  const n = Math.max(bids.length, asks.length);
+  const rows = Array.from({ length: n }, (_, i) => ({ bid: bids[i] ?? null, ask: asks[i] ?? null }));
+  const totalBid = bids.reduce((s, l) => s + Number(l.qty), 0);
+  const totalAsk = asks.reduce((s, l) => s + Number(l.qty), 0);
+  const maxQty = Math.max(0, ...bids.map((l) => Number(l.qty)), ...asks.map((l) => Number(l.qty)));
+  const available = Math.max(depth?.bids?.length ?? 0, depth?.asks?.length ?? 0);
+  return { rows, totalBid, totalAsk, maxQty, bidShare: totalBid + totalAsk > 0 ? totalBid / (totalBid + totalAsk) : null, available };
+}

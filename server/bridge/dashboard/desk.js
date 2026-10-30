@@ -22,6 +22,7 @@ import { readinessSheetRow } from "./readiness.js";
 import { clockNote, loadPricingContext } from "./vol-context.js";
 import { animatePage, barsEnter, countUp, flashValue, stopCount } from "./motion.js";
 import { riskAfterCharges, ticketRisk } from "./flows.js";
+import { depthView } from "./orders-core.js";
 import { watch } from "./live.js";
 import { SPAN_METHOD, marginLegsOf, portfolioMargin } from "./span-margin.js";
 import { gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, opFor, slTriggerStart, stopOrderProblem, stopOrderText, triggerBody, triggerProblem } from "./trigger-core.js";
@@ -1663,6 +1664,79 @@ async function renderDesk(kind) {
     const ack = h("input", { type: "checkbox" });
     const ackRow = h("label", { class: "check live-ack", hidden: true }, ack, `I understand this sends a real order to ${a.label}.`);
     const quoteLine = h("div", { class: "ticket-quote" });
+    // Market depth (GET /v1/depth): read every 2 s only while it is open, so a closed panel costs no broker calls.
+    // Five levels a side; twenty where the source sends them. A tap on a price makes it the limit.
+    const depthSum = h("span", { class: "muted small bk-depth-sum" });
+    const depthBody = h("div", { class: "bk-depth-body" });
+    const depthBox = h("details", { class: "bk-depth" }, h("summary", {}, h("span", {}, "Market depth"), depthSum), depthBody);
+    let depthTimer = null;
+    let depthMax = 5;
+    let depthLast = null;
+    const pickPrice = (px) => {
+      if (typeSeg.value !== "LIMIT" && typeSeg.value !== "SL") typeSeg.value = "LIMIT";
+      price.value = String(px);
+      priceTyped = true;
+      changed();
+    };
+    function drawDepth() {
+      const r = depthLast;
+      if (!r) return;
+      if (r.error) {
+        depthSum.textContent = "";
+        return depthBody.replaceChildren(h("p", { class: "muted small" }, `Depth is not available: ${r.error.message ?? "the source sent none"}.`));
+      }
+      const v = depthView(r.data?.data, depthMax);
+      depthSum.textContent = `Bid ${formatInt(v.totalBid)} · Ask ${formatInt(v.totalAsk)}`;
+      const bar = (qty, cls) => {
+        const el = h("span", { class: `bk-depth-bar ${cls}`, "aria-hidden": "true" });
+        el.style.setProperty("--w", v.maxQty ? String(Number(qty) / v.maxQty) : "0");
+        return el;
+      };
+      const cell = (l, side) =>
+        l
+          ? h(
+              "button",
+              { type: "button", class: `bk-depth-lvl ${side}`, title: `Use ${formatFixed(l.price, 2)} as the limit price` },
+              bar(l.qty, side),
+              side === "bid" ? h("span", { class: "bk-depth-o" }, l.orders === null || l.orders === undefined ? DASH : formatInt(l.orders)) : null,
+              side === "bid" ? h("span", { class: "bk-depth-q" }, formatInt(l.qty)) : null,
+              h("span", { class: "bk-depth-p" }, formatFixed(l.price, 2)),
+              side === "ask" ? h("span", { class: "bk-depth-q" }, formatInt(l.qty)) : null,
+              side === "ask" ? h("span", { class: "bk-depth-o" }, l.orders === null || l.orders === undefined ? DASH : formatInt(l.orders)) : null,
+            )
+          : h("span", { class: `bk-depth-lvl empty ${side}` }, DASH);
+      const rows = v.rows.map((row) => {
+        const b = cell(row.bid, "bid");
+        const s = cell(row.ask, "ask");
+        if (row.bid) b.addEventListener("click", () => pickPrice(row.bid.price));
+        if (row.ask) s.addEventListener("click", () => pickPrice(row.ask.price));
+        return h("div", { class: "bk-depth-row" }, b, s);
+      });
+      const share = h("span", { class: "bk-depth-share", "aria-hidden": "true" });
+      share.style.setProperty("--w", v.bidShare === null ? "0.5" : String(v.bidShare));
+      depthBody.replaceChildren(
+        h("div", { class: "bk-depth-row bk-depth-headrow", "aria-hidden": "true" }, h("span", {}, h("span", {}, "Orders"), h("span", {}, "Qty"), h("span", {}, "Bid")), h("span", {}, h("span", {}, "Ask"), h("span", {}, "Qty"), h("span", {}, "Orders"))),
+        ...rows,
+        h("div", { class: "bk-depth-foot" }, h("span", {}, `Total bid ${formatInt(v.totalBid)}`), share, h("span", {}, `Total ask ${formatInt(v.totalAsk)}`)),
+        v.available > 5
+          ? h("button", { type: "button", class: "small plain", onclick: () => ((depthMax = depthMax === 5 ? 20 : 5), drawDepth()) }, depthMax === 5 ? `Show ${formatInt(Math.min(20, v.available))} levels` : "Show 5 levels")
+          : h("p", { class: "muted small" }, "Five levels a side from the source. Twenty-level depth shows here when the broker sends it."),
+      );
+    }
+    async function loadDepth() {
+      const r = await optional(api(`/v1/depth?symbol=${encodeURIComponent(sym)}`));
+      if (!depthBox.isConnected) return;
+      depthLast = r;
+      drawDepth();
+    }
+    depthBox.addEventListener("toggle", () => {
+      clearInterval(depthTimer);
+      depthTimer = null;
+      if (depthBox.open) {
+        loadDepth();
+        depthTimer = setInterval(() => (depthBox.isConnected && depthBox.open ? loadDepth() : clearInterval(depthTimer)), 2000);
+      }
+    });
     // Advisory warnings from the chain (spread, liquidity, freeze qty, expiry day...): the server checks still decide.
     const warnEl = h("ul", { class: "ticket-checks ticket-warns", "aria-label": "Before you trade", hidden: true });
     // Lot-size confirmation (docs/spec/p1-02-reference.md §5.4): when the reference lot data is stale or disagrees
@@ -2005,6 +2079,7 @@ async function renderDesk(kind) {
         "div",
         { class: "stack ticket" },
         quoteLine,
+        depthBox,
         // An exit's side is fixed (the other side would add to the position): a label, not a control.
         exit ? h("div", { class: "field" }, h("span", {}, "Side"), h("span", { class: "ticket-acct" }, side === "BUY" ? "Buy to close" : "Sell to close", h("span", { class: "muted small" }, "· to add, use the chain"))) : segField("Side", sideSeg),
         h("div", { class: "ticket-grid" }, h("label", { class: "field" }, h("span", {}, inUnits ? "Quantity " : "Lots ", lotHint), lots), segField("Type", typeSeg)),
@@ -2082,6 +2157,7 @@ async function renderDesk(kind) {
     changed();
     const result = await done;
     clearInterval(quoteTimer);
+    clearInterval(depthTimer);
     clearTimeout(previewTimer);
     if (reopen) {
       // The account changed: a new ticket for it (its paper / live gates differ), unless the page has gone.
