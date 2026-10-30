@@ -387,8 +387,12 @@ between reads.
 | 38 | Flow (demo) | BANKNIFTY calls 2 to 3 % out of the money read 20 to 75 times their OI: the volume hump was wider than the OI hump. | Volume uses the OI's width (`OI_WIDTH_STEPS`), and in-the-money strikes trade a quarter as much: BANKNIFTY reads 2 to 3 times in the money, 8 at the money and 17 at 20 strikes out. Flow's top rows, the outliers it ranks, read 9 to 27 times. The OI hump follows a two-day average while volume follows spot, so the side the market moved to reads higher. Tested in `demo.test.mjs`. |
 | 39 | Strategy hero | Max loss "below 24250 / above 25700"; max profit "24500–25450". | "if NIFTY closes below 24250 or above 25700", "if NIFTY closes between 24500 and 25450". Phones keep the levels only, which fit the two-line sub ("below 24250 or above 25700"). `strategy.js closeText`, tested. |
 
+| 40 | Algo, no strategies | Round 3's first cut showed three "Add the examples" buttons (top bar, empty list, examples panel). | One: the examples panel's. The empty list says "No strategies yet" with one line, and "How to write one" stays under it in the left column. |
+| 41 | Strategy | "Now −₹139" sat beside a what-if P&L of ₹0. The what-if runs from the leg prices; "Now" is the legs at the model's mid less the entry prices at the touch and the entry charges, so it is the cost of putting the trade on. | Both kept, now labelled: "Now, after costs" (with a tooltip saying what it holds), and the what-if note says its P&L runs from the leg prices, before the spread and charges. |
+
 Shots in `scratchpad/qa2/p2/shots/`:
-- Algo: `algo-1440.png` before; `after-algo-1440.png` and `after-algo-390.png` after.
+- Algo: `algo-1440.png` before; `after-algo-1440c.png` and `after-algo-390c.png` after.
+- Strategy "Now": `after-ic-now-1440.png`.
 - Event vol: `after-vol-event.png` before; `after-vol-event2.png` after.
 - Flow: `after-flow2.png` before; `after-flow3.png` after.
 - Strategy: `f3-ic-1440-dark.png` before; `after-ic-1100.png`, `after-ic-1440.png` and `after-ic-390.png` after.
@@ -396,7 +400,6 @@ Shots in `scratchpad/qa2/p2/shots/`:
 ### Left (not fixed here)
 
 - **Event vol:** the event date is the browser's own date field ("11/04/2026" in an en-US browser).
-- **Strategy:** "Now −₹139" (at mid, after charges) next to a what-if P&L of ₹0 is still open from the first QA pass.
 - **Tests under heavy machine load** (load average 15 to 30 from parallel agents): `recorder/store.test` "full-day
   read ≤ 300 ms" took 342 to 1297 ms and `hooks/routes` "acknowledges within 50 ms" timed out. Both pass on a quiet
   machine. Not loosened.

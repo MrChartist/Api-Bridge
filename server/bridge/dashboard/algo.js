@@ -200,12 +200,8 @@ export async function renderAlgoPage() {
     const items = st.data.items;
     if (!st.data.exists || !items.length) {
       listBody.replaceChildren(
-        emptyState(
-          "console",
-          st.data.exists ? "No strategies in the folder yet" : "No strategies folder yet",
-          st.data.problem ? `${st.data.problem}.` : "Add the four examples (short straddle, EMA crossover, iron condor, OI walls) or save your own .py file in the folder.",
-          h("button", { type: "button", class: "primary", onclick: () => addExamples() }, icon("plus"), h("span", {}, "Add the examples")),
-        ),
+        // One way to add the examples: the "Create from an example" panel beside (under, on phones) the list.
+        emptyState("console", "No strategies yet", st.data.problem ? `${st.data.problem}.` : "Start from an example, or save your own .py file in the strategies folder.", null, { compact: true }),
       );
     } else listBody.replaceChildren(...items.map(row));
     const notes = [];
@@ -222,10 +218,9 @@ export async function renderAlgoPage() {
   function drawDetail() {
     const s = cur();
     detail.hidden = !s;
-    // With nothing to show on the right, the examples and the template (the guide) fill it instead of empty space.
+    // With nothing to show on the right, the examples fill it (their button is the only "add" on the page then).
     starter.hidden = Boolean(s);
-    if (s && howto.parentElement !== side) side.append(howto);
-    if (!s && howto.parentElement !== right) right.append(howto);
+    if (!s) addBtn.hidden = true;
     if (!s) return;
     const d = st.detail?.id === s.id ? st.detail : null;
     const stt = statusOf(s.status);

@@ -213,16 +213,20 @@ What landed, each with tests. Details are in `docs/design/ux-audit.md` ("Trading
 What landed, each with tests. Details are in the commits, `docs/design/broker-gap.md` and `docs/design/ux-audit.md`
 ("QA pass 2 (31 Oct)").
 
-- **Broker gap #1–#10** (`broker-gap.md` §7):
+- **Broker gap #1–#12, all built** (`broker-gap.md` §7, built list):
   - GTT single and OCO, plus trailing stops, on a server trigger engine (`server/bridge/triggers/`);
   - stop and target on the ticket entry, and on a position, with exits on the Bridge;
   - SL and SL-M in the ticket, and Modify changes the trigger;
   - Orders filters, Cancel all and a trade book;
-  - Convert between Intraday and carry (MIS and NRML) with the margin effect, and Positions Net and Day views;
-  - five-level depth in the ticket;
+  - Convert between Intraday and carry (MIS and NRML): a Positions row action that shows the margin effect first;
+    Positions also gets Net and Day views;
+  - market depth in the ticket: five levels a side (twenty where the broker sends them), and the ticket's quote
+    agrees with its depth;
   - refusals and rejections say what to do;
-  - after-market orders, queued and sent at 09:15 through every gate.
-  - #11 (tax P&L and ledger) and #12 (funds card) are not built.
+  - after-market orders: held on the Bridge, sent at 09:15 on the next trading day through every gate, lapse at
+    that day's close; not warned about today's daily limits;
+  - #11 Orders › Statement: realised P&L by year and segment, F&O turnover, charges and a ledger;
+  - #12 Orders › Funds: every account's available cash, margin used, collateral and P&L.
 - **Python strategies (Trade › Algo):** the SDK strategy API, a runner on the Bridge, four examples and the page, in
   paper by default with every order through the gates. Algo loop rounds 1 to 4. Guide: `docs/STRATEGIES-PYTHON.md`.
 - **Volatility depth tabs:** Forward, RR and BF, and Event vol (`dashboard/analyticsDepth.js`).
