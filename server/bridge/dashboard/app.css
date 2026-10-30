@@ -7638,6 +7638,55 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
   details.rec-feas > summary { min-height: 44px; }
 }
 
+/* ───────────────────────── 12t · TRADER TOOLS: journal, watchlists, expiry desk, explain ───────────────────────── */
+/* Orders › Journal (journal.js): a toolbar, six summary tiles, the P&L calendar beside the stats, then the trades. */
+.jr-top { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.jr-bar { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; min-width: 0; }
+.jr-field { display: flex; align-items: center; gap: 8px; min-width: 0; font: 500 12.5px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.jr-field select { width: auto; max-width: 240px; min-height: 36px; field-sizing: content; }
+.jr-grow { flex: 1 1 auto; }
+.jr-note { margin: 0; }
+.jr-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; min-width: 0; }
+.jr-tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 12px 14px; border-radius: var(--r-md, 12px); background: var(--mat-grouped-solid); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
+.jr-k { font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.jr-v { font: 600 20px/1.15 var(--font-numeric); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.jr-s { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.jr-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--panel-gap); min-width: 0; }
+@media (min-width: 1280px) { .jr-grid { grid-template-columns: minmax(380px, 5fr) minmax(0, 7fr); align-items: start; } }
+.jr-monthnav { display: flex; align-items: center; gap: 6px; }
+.jr-month { min-width: 9.5em; text-align: center; font: 600 13.5px/1.2 var(--font-body); }
+.jr-prev svg { transform: rotate(180deg); }
+.jr-cal-grid { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.jr-cal-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.jr-cal-dow span { font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); text-align: center; }
+.jr-day { display: flex; flex-direction: column; justify-content: space-between; gap: 2px; min-width: 0; min-height: 52px; padding: 5px 6px; border-radius: 8px; }
+.jr-day:not([data-div]) { background: var(--mat-fill-1, hsl(var(--foreground) / 0.03)); }
+.jr-day.out { background: transparent; }
+.jr-day.today { box-shadow: inset 0 0 0 2px var(--sel-ring); }
+.jr-dn { font: 500 12px/1 var(--font-numeric); opacity: 0.8; }
+.jr-dv { font: 600 12px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jr-cal-sum { margin: 10px 0 0; }
+.jr-stats table td, .jr-stats table th { white-space: nowrap; }
+.jr-stats { overflow-x: auto; }
+/* The card-wide sticky header is offset by the toolbar height; inside this scroll box that offset pushed it over the rows. */
+.card .jr-stats .table-wrap > table > thead th { position: static; }
+.jr-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.jr-filters select { width: auto; min-height: 36px; field-sizing: content; }
+.jr-filters select[hidden] { display: none; }
+.jr-trade strong { font-weight: 600; }
+.jr-pills { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.jr-tags { display: inline-flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.jr-tags small.block { flex-basis: 100%; }
+.jr-legs { margin: 0; }
+.jr-sheet textarea { width: 100%; min-height: 110px; resize: vertical; }
+@media (max-width: 719px) {
+  .jr-day { min-height: 44px; padding: 4px; }
+  .jr-dv { font-size: 12px; }
+  .jr-v { font-size: 18px; }
+  .jr-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (pointer: coarse) { .jr-field select, .jr-filters select { min-height: 44px; } }
+
 /* ───────────────────────── 13 · RESPONSIVE ───────────────────────── */
 @media (max-width: 1279px) {
   .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
