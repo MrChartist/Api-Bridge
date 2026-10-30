@@ -44,6 +44,14 @@ const OUT = arg("out");
 const SHOTS = arg("shots");
 /** Simulated broker round trip for the demo adapter (a real broker answers a REST read in roughly 100-400 ms). */
 const LATENCY = Number(arg("latency", "200"));
+/** Seconds of the steady window that are traced for paint, layout and style (Chromium trace, renderer main thread). */
+const TRACE = Number(arg("trace", "6"));
+/** Minutes of the heap soak (0: no soak). */
+const SOAK = Number(arg("soak", "0"));
+const VIEWPORT = (() => {
+  const [w, h] = String(arg("viewport", "1440x900")).split("x").map(Number);
+  return { width: w || 1440, height: h || 900 };
+})();
 
 export const PAGES = [
   ["home", "#/home"],
@@ -58,7 +66,16 @@ export const PAGES = [
   ["accounts", "#/accounts"],
   ["api", "#/api/keys"],
   ["limits", "#/api/limits"],
+  // Pages added on 30 October (perf round 4).
+  ["exposure", "#/exposure/strike"],
+  ["flow", "#/flow/unusual"],
+  ["futures", "#/futures/chain"],
+  ["risk", "#/risk/var"],
+  ["lab", "#/lab/finder"],
+  ["watchlists", "#/screeners/watchlists"],
 ];
+/** Pages that stay open for the --soak run (JS heap over --soak minutes); "cycle" walks every page in turn. */
+const SOAK_PAGES = ["chain", "oi", "strategy", "positions", "orders", "watchlists", "exposure", "flow", "cycle"];
 
 function loadPlaywright() {
   try {
@@ -252,6 +269,46 @@ function tapRequests(page) {
   };
 }
 
+/** JS heap after a forced garbage collection (CDP), in KB. */
+async function heapKB(page) {
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await cdp.send("HeapProfiler.collectGarbage");
+    const { usedSize } = await cdp.send("Runtime.getHeapUsage");
+    return Math.round(usedSize / 1024);
+  } finally {
+    await cdp.detach().catch(() => {});
+  }
+}
+
+/** Chromium's own main-thread counters (CDP Performance.getMetrics), in seconds. */
+async function metrics(cdp) {
+  const { metrics: m } = await cdp.send("Performance.getMetrics");
+  return Object.fromEntries(m.map((x) => [x.name, x.value]));
+}
+
+/**
+ * Trace `seconds` of the page and sum the renderer main thread's paint (Paint, PrePaint, Layerize, UpdateLayerTree,
+ * PaintImage), layout (Layout) and style (UpdateLayoutTree, RecalculateStyles) work, in ms per second.
+ */
+async function traceRender(browser, page, seconds) {
+  await browser.startTracing(page, { categories: ["devtools.timeline", "disabled-by-default-devtools.timeline"] });
+  await sleep(seconds * 1000);
+  const buf = await browser.stopTracing();
+  const events = JSON.parse(buf.toString()).traceEvents ?? [];
+  const mainTids = new Set(events.filter((e) => e.name === "thread_name" && e.args?.name === "CrRendererMain").map((e) => `${e.pid}:${e.tid}`));
+  const sum = { paint: 0, layout: 0, style: 0 };
+  const PAINT = new Set(["Paint", "PrePaint", "Layerize", "UpdateLayerTree", "PaintImage"]);
+  const STYLE = new Set(["UpdateLayoutTree", "RecalculateStyles"]);
+  for (const e of events) {
+    if (e.ph !== "X" || !e.dur || !mainTids.has(`${e.pid}:${e.tid}`)) continue;
+    if (PAINT.has(e.name)) sum.paint += e.dur / 1000;
+    else if (e.name === "Layout") sum.layout += e.dur / 1000;
+    else if (STYLE.has(e.name)) sum.style += e.dur / 1000;
+  }
+  return { paintMsPerS: Math.round(sum.paint / seconds), layoutMsPerS: Math.round(sum.layout / seconds), styleMsPerS: Math.round(sum.style / seconds) };
+}
+
 async function waitUseful(page, timeoutMs = 15_000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
@@ -271,7 +328,7 @@ async function switchTo(page, hash) {
 }
 
 async function newPage(browser, base, key) {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark" });
+  const ctx = await browser.newContext({ viewport: VIEWPORT, colorScheme: "dark" });
   await ctx.addInitScript((k) => sessionStorage.setItem("mcb.dashboard.key", k), key);
   await ctx.addInitScript(initScript);
   const page = await ctx.newPage();
@@ -336,10 +393,22 @@ async function measurePage(browser, base, key, id, hash) {
       window.__perf.cellSamples.length = 0;
     });
     tap.reset();
+    out.heapStartKB = await heapKB(page);
+    const cdp = await ctx.newCDPSession(page);
+    await cdp.send("Performance.enable");
+    const m0 = await metrics(cdp);
     const before = await brokerCalls(base, key);
     const t0 = Date.now();
-    await sleep(SECONDS * 1000);
+    if (TRACE > 0 && TRACE < SECONDS) {
+      Object.assign(out, await traceRender(browser, page, TRACE));
+      await sleep(SECONDS * 1000 - (Date.now() - t0));
+    } else await sleep(SECONDS * 1000);
     const after = await brokerCalls(base, key);
+    const m1 = await metrics(cdp);
+    const secs = (Date.now() - t0) / 1000;
+    out.mainMsPerS = Math.round(((m1.TaskDuration - m0.TaskDuration) * 1000) / secs);
+    out.scriptMsPerS = Math.round(((m1.ScriptDuration - m0.ScriptDuration) * 1000) / secs);
+    out.heapEndKB = await heapKB(page);
     const mins = (Date.now() - t0) / 60_000;
     const reqs = tap.since(t0);
     const perf = await page.evaluate(() => ({ longTasks: window.__perf.longTasks, cells: window.__perf.cellSamples }));
@@ -381,6 +450,60 @@ async function busiest(browser, base, key) {
   return { seconds: BUSY, brokerCalls: after.calls - before.calls, brokerPerMinRaw: Math.round((after.calls - before.calls) / mins), byClass: diffClass(before, after) };
 }
 
+/**
+ * JS heap over SOAK minutes: every page in SOAK_PAGES open in its own browser (its own renderer process, so the heaps do
+ * not mix), heap after a forced GC at 1 minute and at the end. "cycle" switches page every 4 s through every page.
+ */
+async function soak(base, key) {
+  const { chromium } = loadPlaywright();
+  const runs = [];
+  for (const id of SOAK_PAGES) {
+    const browser = await chromium.launch();
+    const { ctx, page } = await newPage(browser, base, key);
+    const hash = id === "cycle" ? "#/home" : PAGES.find((p) => p[0] === id)[1];
+    await page.goto(`${base}/dashboard${hash}`, { waitUntil: "load" });
+    runs.push({ id, browser, ctx, page });
+  }
+  let stop = false;
+  const cyc = runs.find((r) => r.id === "cycle");
+  const cycling = (async () => {
+    if (!cyc) return 0;
+    let n = 0;
+    while (!stop) {
+      for (const [, hash] of PAGES) {
+        if (stop) break;
+        await cyc.page.evaluate((h) => (location.hash = h), hash).catch(() => {});
+        n += 1;
+        await sleep(4000);
+      }
+    }
+    return n;
+  })();
+  await sleep(60_000);
+  for (const r of runs) {
+    if (r.id === "cycle") await r.page.evaluate(() => (location.hash = "#/home"));
+    await sleep(r.id === "cycle" ? 1500 : 0);
+    r.heap1 = await heapKB(r.page);
+    r.nodes1 = await r.page.evaluate(() => document.getElementsByTagName("*").length);
+  }
+  await sleep(SOAK * 60_000 - 60_000);
+  stop = true;
+  const switches = await cycling;
+  const out = {};
+  for (const r of runs) {
+    if (r.id === "cycle") {
+      await r.page.evaluate(() => (location.hash = "#/home"));
+      await sleep(1500);
+    }
+    const heapEnd = await heapKB(r.page);
+    const nodesEnd = await r.page.evaluate(() => document.getElementsByTagName("*").length);
+    out[r.id] = { heap1minKB: r.heap1, heapEndKB: heapEnd, growthKB: heapEnd - r.heap1, nodes1min: r.nodes1, nodesEnd, ...(r.id === "cycle" ? { switches } : {}) };
+    console.error(`soak ${r.id}: ${JSON.stringify(out[r.id])}`);
+    await r.browser.close();
+  }
+  return { minutes: SOAK, pages: out };
+}
+
 async function idleRate(base, key) {
   const before = await brokerCalls(base, key);
   const t0 = Date.now();
@@ -414,6 +537,7 @@ async function main() {
       result.busiest.brokerPerMinNet = Math.max(0, result.busiest.brokerPerMinRaw - result.idle.brokerPerMin);
       console.error(`busiest: ${JSON.stringify(result.busiest)}`);
     }
+    if (SOAK > 0) result.soak = await soak(bridge.base, bridge.key);
   } finally {
     await browser.close();
     await bridge.stop();

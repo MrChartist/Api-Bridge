@@ -9,6 +9,9 @@ import { ALERT_KINDS, BAND_KINDS, DEFAULT_COOLDOWN_MIN, ruleProblems, symbolPart
 import { workspace } from "./workspace.js";
 
 const POLL_MS = 15_000;
+/** The rule lists change when someone edits them (this tab says so through alertsChanged) or when one fires: read them
+ * every fourth poll, not on every one (the inbox poll alone is one request every 15 s on every page). */
+const LIST_EVERY = 4;
 const WHEN = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const KIND_TEXT = Object.freeze({
   pnl_below: "P&L at or below",
@@ -78,8 +81,10 @@ function drawBell() {
   btn.title = st.unread ? `${formatInt(st.unread)} alert${st.unread === 1 ? "" : "s"} fired` : `${formatInt(active)} alert${active === 1 ? "" : "s"} on`;
 }
 
-async function refresh() {
-  const [inbox, rules, market] = await Promise.all([optional(api("/v1/alerts/inbox")), optional(api("/v1/alerts")), optional(api("/v1/alerts/market"))]);
+let polls = 0;
+async function refresh({ lists = true } = {}) {
+  const none = Promise.resolve({});
+  const [inbox, rules, market] = await Promise.all([optional(api("/v1/alerts/inbox")), lists ? optional(api("/v1/alerts")) : none, lists ? optional(api("/v1/alerts/market")) : none]);
   if (rules.data) st.rules = rules.data.data?.items ?? [];
   if (market.data) st.market = Array.isArray(market.data.data) ? market.data.data : market.data.data?.items ?? [];
   const d = inbox.data?.data;
@@ -90,6 +95,8 @@ async function refresh() {
     // A fire this page has not seen yet: say it once (not on the first load, which only catches up).
     const fresh = st.items.filter((f) => !st.seen.has(f.id));
     for (const f of st.items) st.seen.add(f.id);
+    // A fire can change a rule (a one-shot turns off): the lists follow on the next poll.
+    if (fresh.length && !lists) polls = 0;
     if (!st.first && fresh.length) {
       const f = fresh[0];
       toast(h("span", { class: "toast-undo-row" }, `Alert: ${f.name} · `, h("button", { type: "button", class: "toast-undo", onclick: () => openBell(bellButton()) }, fresh.length > 1 ? `${formatInt(fresh.length)} new` : "Open")), { tone: "warn" });
@@ -105,7 +112,7 @@ export function mountAlertBell() {
   st.mounted = true;
   const tick = () => {
     clearTimeout(st.timer);
-    if (document.visibilityState === "visible") refresh().catch(() => {});
+    if (document.visibilityState === "visible") refresh({ lists: polls++ % LIST_EVERY === 0 }).catch(() => {});
     st.timer = setTimeout(tick, POLL_MS);
   };
   document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && tick());
