@@ -6,8 +6,7 @@ three times its usual pace, a call wall moving up, an IV spike. It is the idea o
 the time of each event, its strength in words, repeats counted instead of repeated, a day history, a stream and an
 API. Server module: `server/bridge/events/` (stream S28).
 
-Status: the server engine, REST, stream topic and demo feed are in place. In demo mode the simulated session starts on the first read of `/v1/events*`. The dashboard page (Markets > Screeners >
-Live events) is **not built yet**; see "Not done" at the end.
+Dashboard: **Markets > Screeners > Live events** (`#/screeners/events`). Status: the server engine, REST, stream topic, demo feed and the page are in place. In demo mode the simulated session starts on the first read of `/v1/events*`. 
 
 ## How it is fed (speed first, inside the broker budget)
 
@@ -183,10 +182,34 @@ Storage: `dataDir/events/YYYY-MM-DD.jsonl` (demo: `events-demo/`), one line per 
 `events`: `enabled`, `maxSymbols` (600), `futures` (true), `budgetShare` (0.25, max 0.5), `pollSeconds` (15),
 `staleAfterMs` (20000), `chainEveryMs` (1000), `keepDays` (30), `maxEventsPerDay` (20000), `cashList`, `demoScale`.
 
+## The page
+
+- **Feed**, newest on top: time, symbol (name, F&O / IDX tags), event chip coloured by side, strength, LTP, % change,
+  context and the repeat count; options mode shows underlying, strike, CE/PE, expiry, event, premium, ΔOI lots, IV.
+  Rows are 30 px on a mouse, 44 px on touch, cards on a phone. **By stock** gives one row per symbol with its events
+  today, bull and bear counts and the latest time.
+- **Filters**: Stocks or Options, All / Bull / Bear, event kind, search, minimum price. **Pause** holds new rows
+  (and counts them), **Sound** and **Notify** (both off by default), **Events** (the picker: categories with toggles and
+  parameters, presets, saved on the Bridge), **Conditions** (the custom-conditions editor), **CSV**.
+- A row opens a side sheet: for a stock its key levels (day range, previous day, VWAP, pivots, 52-week range, 5 % band)
+  and events today, with Option Chain, Watchlist and paper Buy / Sell (the strategy placement sheet, preview first);
+  for an option event that strike's CE and PE row (LTP, OI, ΔOI, IV), the chain summary and Open in Option Chain /
+  Buy or Sell to Strategy Builder. Keyboard: ↑ ↓ (j k) move, Enter opens, `/` searches, `p` pauses.
+
+### Speed
+
+Events reach the page only over the WebSocket (`subscribe_events`); the page reads `GET /v1/events` once on open and
+once after a reconnect. Messages are queued and painted once per animation frame; only the visible rows exist
+(virtualised, keyed by event id), and an update replaces only the cells that changed, with a short flash that respects
+reduced motion. In demo the simulated feed is spread over ten slices a second, like a broker feed.
+
+Tick to paint (the Bridge's detection time to the frame after the row is drawn), measured with
+`node scripts/events-paint.mjs --base http://127.0.0.1:4391 --key <key> --seconds 90` (Playwright, Chromium,
+1440 × 900): **p50 42 to 46 ms, p95 61 to 110 ms** over four 60 to 90 s runs on the demo Bridge (the higher p95 on a machine shared with other Bridges); the target is p95 ≤ 100 ms. Add `?debug=1` to the page address to see the
+running p95 in the summary strip.
+
 ## Not done yet
 
-- The dashboard page (Markets > Screeners > Live events: feed, picker, filters, By stock, summary strip, side sheet,
-  sound and notification, CSV, phone cards) and its screenshots.
 - The MCP tool (`get_market_events` in the opt-in `options` toolset).
 - Option volume against "the same time on average days" (needs per-strike volume history from the recorder's daily
   store); today unusual option volume is volume / OI.
