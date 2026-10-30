@@ -29,6 +29,7 @@ import { decideMode } from "../orders/modeDecision.mjs";
 import { istIso } from "../orders/time.mjs";
 import { OPEN_STATUSES, TRIGGER_ORIGINS, TRIGGER_TYPES, legProblems, opFor, reduceOnlyQty, step, toTick } from "./triggerCore.mjs";
 import { marketSession } from "../../lib/marketHours.mjs";
+import { DEFAULT_SESSIONS } from "../reference/defaults.mjs";
 
 export const MAX_OPEN = 200;
 export const KEPT_CLOSED = 300;
@@ -46,7 +47,7 @@ const invalid = (path, message) => new BridgeError("VALIDATION_FAILED", message,
  * every gate (pre-open is not used: 09:15 only). No broker adapter maps a native AMO flag yet, so live AMOs are
  * Bridge-held too and say so (`held: "bridge"`); a native one would be "broker".
  */
-const OPEN_HHMM = "09:15";
+const OPEN_HHMM = DEFAULT_SESSIONS.NFO.open;
 const istDayOf = (ms) => istIso(ms).slice(0, 10);
 const atIst = (day, hhmm) => Date.parse(`${day}T${hhmm}:00+05:30`);
 const addDays = (day, n) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
@@ -257,7 +258,7 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
     // intraday) if the Bridge could not send it.
     const openAt = amo ? nextOpen(t0, resolved.exchange) : null;
     if (amo) {
-      expires = atIst(istDayOf(openAt), product === "INTRADAY" ? "15:20" : "15:30");
+      expires = atIst(istDayOf(openAt), product === "INTRADAY" ? "15:20" : DEFAULT_SESSIONS.NFO.close);
       if (resolved.expiry && closeOf(resolved.expiry) < expires) expires = closeOf(resolved.expiry);
     }
     if (amo && expires <= openAt) throw invalid("symbol", "The contract expires before the next session opens.");

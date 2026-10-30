@@ -1,6 +1,7 @@
 // Triggers (GTT, OCO, trailing stops, stops and targets) in plain words, and the request bodies the sheets send.
 // Pure: no DOM, no fetch, no clock. The engine is on the Bridge (server/bridge/triggers/); this only describes it.
 import { DASH, formatFixed, formatInt, isFigure } from "./format.js";
+import { REF_DEFAULTS, hmMinutes } from "./reference.js";
 
 /** Triggers that can still fire. */
 export const OPEN_TRIGGER = Object.freeze(new Set(["waiting", "active", "firing"]));
@@ -112,7 +113,7 @@ export function marketClosedAt(ms) {
   const d = new Date(ms + 19_800_000);
   const wd = d.getUTCDay();
   const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
-  return wd === 0 || wd === 6 || mins < 9 * 60 + 15 || mins >= 15 * 60 + 30;
+  return wd === 0 || wd === 6 || mins < hmMinutes(REF_DEFAULTS.session.open) || mins >= hmMinutes(REF_DEFAULTS.session.close);
 }
 
 /** When an after-market order goes, and where it is held: "Goes at 09:15 on Mon 26 Oct · held on this Bridge". */
