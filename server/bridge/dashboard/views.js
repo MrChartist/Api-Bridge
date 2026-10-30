@@ -44,7 +44,7 @@ import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { busiestClass, mountBudget, perSecondLimit, usageChart, windowText } from "./budget.js";
 import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
-import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText } from "./flows.js";
+import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText, startupText } from "./flows.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
 const $ = (id) => document.getElementById(id);
@@ -1090,13 +1090,18 @@ export async function startRouter() {
 // ── Home ──
 
 async function renderHome() {
-  const [accounts, keys, usage, safety, streams, orders] = await Promise.all([
+  // While the Bridge starts (the demo book seed), it holds positions, funds and orders so no client reads a partial
+  // book. Home does not wait on them: it draws at once and the cockpit shows the seed's progress (GET /v1/health).
+  const health = optional(api("/v1/health", { fresh: true }));
+  const starting = health.then((r) => (startupText(r.data?.startup) ? r.data.startup : null));
+  const [accounts, keys, usage, safety, streams, orders, startup] = await Promise.all([
     api("/v1/accounts"),
     optional(api("/v1/keys")),
     optional(api("/v1/usage")),
     optional(api("/v1/safety")),
     optional(api("/v1/stream/stats")),
-    optional(api("/v1/orders?limit=100")),
+    starting.then((st) => (st ? { data: null } : optional(api("/v1/orders?limit=100")))),
+    starting,
   ]);
   const accs = accounts.data.data ?? [];
   const keyRows = keys.data?.data ?? [];
@@ -1176,7 +1181,7 @@ async function renderHome() {
   // The cockpit: indices, P&L today, open positions with risk, live events, today's calendar, API and broker health.
   const readySnap = await refreshReadiness();
   const { cockpit } = await import("./cockpit.js");
-  const ck = await cockpit({ accs, orders, streams, usage, safety, keys, readyPill: readySnap ? readinessPill(readySnap) : null });
+  const ck = await cockpit({ accs, orders, streams, usage, safety, keys, readyPill: readySnap ? readinessPill(readySnap) : null, starting: startup });
   nodes.push(...ck.nodes);
   every(5000, ck.refresh);
   return nodes;

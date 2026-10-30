@@ -56,6 +56,36 @@ describe("demo book seed and lot sizes", () => {
     }
   });
 
+  it("reports its progress leg by leg, and prices each account's legs and spots in one read before placing them", async () => {
+    const { deps, calls } = fakes(-75);
+    const seen = [];
+    const events = [];
+    deps.progress = (p) => seen.push({ ...p });
+    deps.marketData.ltp = async (symbols, opts) => (events.push(["ltp", symbols, opts]), { items: [] });
+    const place = deps.orders.place;
+    deps.orders.place = async (ctx, o, x) => (events.push(["place", o.symbol]), place(ctx, o, x));
+    await seedDemoBook(deps);
+    const n = calls.place.length;
+    expect(n).toBe(4);
+    expect(seen[0]).toEqual({ done: 0, total: null });
+    expect(seen[1]).toEqual({ done: 0, total: n });
+    expect(seen.at(-1)).toEqual({ done: n, total: n });
+    // Never a count that goes back or past the total.
+    for (let i = 1; i < seen.length; i += 1) expect(seen[i].done).toBeGreaterThanOrEqual(seen[i - 1].done);
+    expect(events[0][0]).toBe("ltp");
+    expect(events[0][1]).toEqual(expect.arrayContaining([...calls.place.map((o) => o.symbol), "NSE:NIFTY"]));
+    expect(events[0][2]).toEqual({ priority: "background" });
+    expect(events.slice(1).every((e) => e[0] === "place")).toBe(true);
+  });
+
+  it("a book already seeded reports no legs to place", async () => {
+    const { deps } = fakes(-LOT);
+    const seen = [];
+    deps.progress = (p) => seen.push(p);
+    await seedDemoBook(deps);
+    expect(seen.at(-1)).toEqual({ done: 0, total: 0 });
+  });
+
   it("leaves a book in whole lots alone", async () => {
     const { deps, calls } = fakes(-LOT);
     const r = await seedDemoBook(deps);

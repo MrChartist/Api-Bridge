@@ -26,7 +26,7 @@ import { SERVICE_CONTRACTS, isStub } from "./contracts.mjs";
 import { createHttpContext, expandScopes, newRequestId } from "./context.mjs";
 import { BridgeError, problemHeaders, toProblem } from "./errors.mjs";
 import { createEventBus } from "./eventBus.mjs";
-import { armStartup, openStartup } from "./startup.mjs";
+import { armStartup, openStartup, startupStatus } from "./startup.mjs";
 import { isControlToken, removeControlToken, writeControlToken } from "./controlToken.mjs";
 import { Reply, noContent, parseBody, readBody, send, sendProblem, text } from "./http.mjs";
 import { createLogger } from "./logger.mjs";
@@ -209,7 +209,10 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
   core.get(
     "/v1/health",
     (ctx) => {
-      const basic = { status: "ok", version: BRIDGE_VERSION, apiVersion: API_VERSION, ...(config.demo ? { demo: true, dataNotice: DEMO_NOTICE } : {}) };
+      // While the Bridge starts, the reads it holds (positions, funds, orders, trades, the book) and how far the jobs
+      // they wait for have got: a page shows that progress instead of a silent wait (core/startup.mjs).
+      const starting = startupStatus(deps);
+      const basic = { status: "ok", version: BRIDGE_VERSION, apiVersion: API_VERSION, ...(config.demo ? { demo: true, dataNotice: DEMO_NOTICE } : {}), ...(starting ? { startup: starting } : {}) };
       if (!ctx.loopback) return basic;
       const services = {};
       for (const name of Object.keys(SERVICE_CONTRACTS)) services[name] = isStub(deps[name]) ? "not_built" : "ready";

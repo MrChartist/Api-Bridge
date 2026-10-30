@@ -6592,6 +6592,24 @@ components:
         services:
           type: object
           additionalProperties: { type: string, enum: [ready, not_built] }
+        startup:
+          type: object
+          description: >-
+            Present only while the Bridge is starting and holds positions, funds, orders, trades and the book (at most
+            20 s) until its start-up jobs finish (in demo mode, the demo book seed), so no client reads a partial book.
+            Each job's progress lets a page show it instead of a silent wait. Absent once those reads answer.
+          required: [ready, jobs]
+          properties:
+            ready: { type: boolean, enum: [false] }
+            jobs:
+              type: array
+              items:
+                type: object
+                required: [name, done, total]
+                properties:
+                  name: { type: string, description: 'For example "demo book seed".' }
+                  done: { type: [integer, "null"], description: "Steps done (seeded legs), null until the job reports." }
+                  total: { type: [integer, "null"], description: "Steps in all, null until known." }
     MetaInfo:
       type: object
       required: [bridgeVersion, apiVersion, brokers, modules, routes]

@@ -6,6 +6,9 @@
  *   app.listen()                      arms the gate before it binds, and opens it (in the background) once every
  *                                     module has started and every job settled, or STARTUP_WAIT_MS passed
  *   await startupReady(deps)          a read waits while the gate is armed and not yet open (bounded the same way)
+ *   startupProgress(deps, name, p)    a job reports how far it is ({ done, total }, either may be null)
+ *   startupStatus(deps)               null when nothing waits; else { ready: false, jobs: [{ name, done, total }] }
+ *                                     (GET /v1/health carries it, so a page can show progress instead of a silent wait)
  *
  * Nothing is armed outside listen() (tests that only register modules never wait). A job that fails is logged by its
  * module; the gate opens either way.
@@ -14,7 +17,7 @@ export const STARTUP_WAIT_MS = 20_000;
 
 const state = new WeakMap();
 const of = (deps) => {
-  if (!state.has(deps)) state.set(deps, { armed: false, open: false, jobs: [], waiters: [] });
+  if (!state.has(deps)) state.set(deps, { armed: false, open: false, jobs: [], waiters: [], progress: new Map() });
   return state.get(deps);
 };
 const settle = (p) => Promise.resolve(p).then(
@@ -26,6 +29,22 @@ const settle = (p) => Promise.resolve(p).then(
 export function startupJob(deps, name, promise) {
   of(deps).jobs.push({ name, promise: settle(promise) });
   return promise;
+}
+
+/** A job's progress so far ({ done, total }: counts, or null while unknown). Kept until the gate opens. */
+export function startupProgress(deps, name, { done = null, total = null } = {}) {
+  const fin = (v) => (Number.isFinite(v) && v >= 0 ? Math.floor(v) : null);
+  of(deps).progress.set(name, { done: fin(done), total: fin(total) });
+}
+
+/**
+ * What the Bridge is still doing before it answers gated reads: null once open (or outside listen()), else
+ * { ready: false, jobs: [{ name, done, total }] } with each job's last reported progress (null counts until it reports).
+ */
+export function startupStatus(deps) {
+  const s = state.get(deps);
+  if (!s || !s.armed || s.open) return null;
+  return { ready: false, jobs: s.jobs.map((j) => ({ name: j.name, done: s.progress.get(j.name)?.done ?? null, total: s.progress.get(j.name)?.total ?? null })) };
 }
 
 /** Called by app.listen() before binding. */
