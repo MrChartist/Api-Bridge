@@ -437,7 +437,7 @@ html { font-synthesis-weight: none; }
     --warn-ink: 50 100% 52%;
     --dv-iv: 260 60.8% 62%;
     --dv-iv-ink: 267 100% 77.5%;
-    --dv-band: 257 26.5% 13.3%;
+    --dv-band: 257 26.5% 17%;
     --neutral-ink: hsl(var(--foreground) / 0.70);
     --dv-spot: var(--foreground);
     --dv-today: var(--ios-blue);
@@ -446,7 +446,7 @@ html { font-synthesis-weight: none; }
     --dv-axis: hsl(var(--foreground) / 0.54);
     --dv-zero: hsl(var(--foreground) / 0.35);
     /* Sequential (violet, 5 steps: intensity) and diverging (red to green, 7 steps: signed), each with its text ink. */
-    --seq-1: 258 38% 13.9%; --seq-ink-1: var(--foreground);
+    --seq-1: 258 38% 18%; --seq-ink-1: var(--foreground);
     --seq-2: 257 44% 24.5%; --seq-ink-2: var(--foreground);
     --seq-3: 258 43.4% 40.2%; --seq-ink-3: var(--foreground);
     --seq-4: 260 60.8% 62%; --seq-ink-4: 0 0% 0%;
@@ -559,7 +559,7 @@ html { font-synthesis-weight: none; }
   --warn-ink: 50 100% 52%;
   --dv-iv: 260 60.8% 62%;
   --dv-iv-ink: 267 100% 77.5%;
-  --dv-band: 257 26.5% 13.3%;
+  --dv-band: 257 26.5% 17%;
   --neutral-ink: hsl(var(--foreground) / 0.70);
   --dv-spot: var(--foreground);
   --dv-today: var(--ios-blue);
@@ -568,7 +568,7 @@ html { font-synthesis-weight: none; }
   --dv-axis: hsl(var(--foreground) / 0.54);
   --dv-zero: hsl(var(--foreground) / 0.35);
   /* Sequential (violet, 5 steps: intensity) and diverging (red to green, 7 steps: signed), each with its text ink. */
-  --seq-1: 258 38% 13.9%; --seq-ink-1: var(--foreground);
+  --seq-1: 258 38% 18%; --seq-ink-1: var(--foreground);
   --seq-2: 257 44% 24.5%; --seq-ink-2: var(--foreground);
   --seq-3: 258 43.4% 40.2%; --seq-ink-3: var(--foreground);
   --seq-4: 260 60.8% 62%; --seq-ink-4: 0 0% 0%;

@@ -213,7 +213,7 @@ Text ("ink") values hold at least 4.5:1 on card. Fill values hold at least 3:1 o
 | `--dv-spot` | #000000 | #FFFFFF | 21.0 / 17.0 | same | spot line, ATM marker, "now" cursor |
 | `--dv-iv` / `--dv-iv-ink` | #7F55DB / #6E35D6 | #8A63D9 / #BF8CFF | 6.7 / 7.8 | 5.0 / 4.5 | IV series, vol accent |
 | `--dv-hv` | fg / 0.55 dashed 4 3 | same | n/a | n/a | realised vol, comparison curves |
-| `--dv-band` | #F2EEFB (violet 10 % on card) | #1E192B (violet 14 %) | n/a | area | ±1σ band. ±2σ is the same colour at half alpha |
+| `--dv-band` | #F2EEFB (violet 10 % on card) | #262037 (lifted to stay visible on the #1C1C1E card) | n/a | area | ±1σ band. ±2σ is the same colour at half alpha |
 | `--dv-today` | `--ios-blue` dashed 5 4 | same | n/a | 1.5 px line | payoff today / T+n curve (no call/put series on a payoff chart, so blue is free there) |
 | `--dv-grid` | fg / 0.06 | fg / 0.07 | n/a | n/a | grid lines (horizontal only) |
 | `--dv-axis` | fg / 0.60 | fg / 0.54 | text = `--a-quiet` | n/a | tick labels 10.5 px tabular |
@@ -239,7 +239,7 @@ The call and put fills have similar luminance (1.3:1 against each other). Hue an
 
 | Step | Light | Text on it | Dark | Text on it |
 |---|---|---|---|---|
-| 1 | #F3EEFE | fg 17.4 | #1E1631 | fg 15.7 |
+| 1 | #F3EEFE | fg 18.5 | #271C3F | fg 15.9 |
 | 2 | #DDCCFB | fg 13.3 | #33235A | fg 12.5 |
 | 3 | #B898F2 | fg 8.3 | #553A93 | fg 7.9 |
 | 4 | #7F55DB | **#FFF** 5.0 | #8A63D9 | **#000** 4.9 |

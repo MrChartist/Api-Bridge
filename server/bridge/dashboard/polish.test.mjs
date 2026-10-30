@@ -409,7 +409,7 @@ describe("Foundation §4: contrast of the data-viz colours (WCAG 2.x)", () => {
   it("the sequential and diverging steps carry readable text (≥ 4.5:1 on their ink)", () => {
     const steps = {
       light: { seq: [["#F3EEFE", "#000000"], ["#DDCCFB", "#000000"], ["#B898F2", "#000000"], ["#7F55DB", "#FFFFFF"], ["#4E2AA6", "#FFFFFF"]], div: [["#D70015", "#FFFFFF"], ["#F08A84", "#000000"], ["#FBD9D6", "#000000"], ["#F2F2F3", "#000000"], ["#CDEFD7", "#000000"], ["#6FCB8B", "#000000"], ["#1F7F37", "#FFFFFF"]] },
-      dark: { seq: [["#1E1631", "#FFFFFF"], ["#33235A", "#FFFFFF"], ["#553A93", "#FFFFFF"], ["#8A63D9", "#000000"], ["#C7A8FF", "#000000"]], div: [["#ED756A", "#000000"], ["#B8423C", "#FFFFFF"], ["#5A2725", "#FFFFFF"], ["#1C1C20", "#FFFFFF"], ["#1E4D2C", "#FFFFFF"], ["#237F3F", "#FFFFFF"], ["#64C775", "#000000"]] },
+      dark: { seq: [["#271C3F", "#FFFFFF"], ["#33235A", "#FFFFFF"], ["#553A93", "#FFFFFF"], ["#8A63D9", "#000000"], ["#C7A8FF", "#000000"]], div: [["#ED756A", "#000000"], ["#B8423C", "#FFFFFF"], ["#5A2725", "#FFFFFF"], ["#1C1C20", "#FFFFFF"], ["#1E4D2C", "#FFFFFF"], ["#237F3F", "#FFFFFF"], ["#64C775", "#000000"]] },
     };
     for (const [theme, s] of Object.entries(steps)) for (const [bg, ink] of [...s.seq, ...s.div]) expect(ratio(bg, ink), `${theme} ${bg}`).toBeGreaterThanOrEqual(4.5);
   });
