@@ -464,6 +464,9 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
     for (const t of state.items.filter((x) => x.status === "firing")) {
       const o = await placedBefore(t);
       if (o) close(t, "triggered", { orderId: o.orderId, status: o.status, message: o.status === "rejected" ? o.statusMessage ?? null : null, recovered: true });
+      // Its time ran out while the Bridge was stopped (an intraday trigger on a later day, an AMO after its session):
+      // the condition it fired on is gone, so nothing is sent.
+      else if (Date.parse(t.expiresAt) <= now()) close(t, "expired", { message: "The Bridge stopped while this trigger was firing, and it expired before the Bridge started again. Nothing was sent." });
       else await send(t, t.legs[t.firedLeg ?? 0]);
     }
   }

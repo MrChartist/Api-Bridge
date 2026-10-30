@@ -461,4 +461,23 @@ describe("adversarial review: cancels and scopes", () => {
     md.setPrice("NSE:RELIANCE", 1406);
     expect(await s2.runOnce()).toBe(0);
   });
+
+  it("a trigger left firing that expired while the Bridge was stopped is not sent on restart", async () => {
+    await at("2026-10-29", "15:10");
+    md.setPrice("NSE:RELIANCE", 1400);
+    const s1 = createTriggerService(app.deps, quiet);
+    const t = await s1.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "INTRADAY", legs: [{ trigger: 1405, order: { side: "BUY", quantity: 1 } }] });
+    expect(t.expiresAt).toBe("2026-10-29T15:20:00.000+05:30");
+    // The Bridge marked it firing and stopped before the order went out; it starts again the next morning.
+    const file = join(dataDir, "triggers", "triggers.json");
+    const disk = JSON.parse(readFileSync(file, "utf8"));
+    Object.assign(disk.items.find((x) => x.id === t.id), { status: "firing", firedLeg: 0, firedAt: "2026-10-29T15:19:00.000+05:30" });
+    writeFileSync(file, JSON.stringify(disk));
+    await at("2026-10-30", "09:20");
+    const again = createTriggerService(app.deps, quiet);
+    await again.recover();
+    expect(again.get(ctx("paper"), t.id).status).toBe("expired");
+    const sent = (await app.deps.orders.list(ctx("paper"), { accountId: "paper", limit: 500 })).items.filter((o) => o.clientOrderId === t.id);
+    expect(sent).toHaveLength(0);
+  });
 });
