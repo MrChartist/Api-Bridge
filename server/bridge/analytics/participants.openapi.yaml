@@ -1,0 +1,22 @@
+  /v1/analytics/participants:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsParticipants
+      summary: FII, DII, Pro and Client F&O open interest by participant, with day-on-day change and sentiment
+      description: >-
+        Per session and participant, index futures, index options (with call and put legs), stock futures and stock options,
+        each as long, short, net, long/short ratio and long percent, plus the change from the previous session and a derived
+        net-position sentiment (strongly_bullish to strongly_bearish; a positioning read, not a forecast). Source is NSE's daily
+        participant-wise OI file (fao_participant_oi_ddmmyyyy.csv on nsearchives.nseindia.com). The URL pattern and column layout
+        are assumed and unverified without network access; a changed shape returns UPSTREAM_ERROR. NSE publishes after the close,
+        so the newest session may be the previous trading day. The Bridge accumulates history (newest 250 sessions, saved in its
+        data folder); meta.available says how many it holds and meta.stale is true when a refresh failed and cached data was served.
+        Cached for five minutes.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: days, in: query, description: Sessions to return, newest first., schema: { type: integer, minimum: 1, maximum: 60, default: 10 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
