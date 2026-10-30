@@ -77,7 +77,7 @@ describe("analytics host", () => {
     expect(concentrationWords(2, 2)).toBe("Spread evenly over 2 underlyings");
     expect(concentrationWords(1.4, 3)).toBe("Weighted like 1.4 even underlyings");
     expect(concentrationWords(1, 1)).toBe("All in one underlying");
-    expect(inrShort(-4800)).toBe("\u2212₹4.8k");
+    expect(inrShort(-4800)).toBe("\u2212₹4.8 K");
     expect(weightText(0.2532)).toBe("25.3%");
   });
 

@@ -12,7 +12,7 @@ describe("freshness and numbers", () => {
   it("prints compact Indian figures and -- for missing", () => {
     expect(compact(12_500_000)).toBe("1.25 Cr");
     expect(compact(-450_000)).toBe("−4.5 L");
-    expect(compact(12_300)).toBe("12.3k");
+    expect(compact(12_300)).toBe("12.3 K");
     expect(compact(800)).toBe("800");
     expect(compact(null)).toBe("–");
   });
@@ -31,6 +31,17 @@ describe("freshness and numbers", () => {
     const L = seriesLayout([{ id: "ce", label: "CE IV", cls: "call", points: [21.11, 21.29, 21.13, 21.24].map((y, i) => ({ label: String(i), y })) }], { width: 600, height: 300, yDecimals: 1 });
     const labels = L.yTicks.map((t) => t.label);
     expect(new Set(labels).size).toBe(labels.length);
+  });
+  it("places points that carry `at` by their time (the cone by days to expiry), not one step each", () => {
+    const pts = [[0, "Now"], [3, "3 Nov"], [9, "9 Nov"], [24, "24 Nov"]].map(([at, label], i) => ({ label, at, y: 100 + i }));
+    const L = seriesLayout([{ id: "u", label: "+1σ", cls: "s1", points: pts }], { width: 640, height: 300, padL: 50, padR: 14 });
+    const xs = L.paths[0].dots.map((d) => d.x);
+    // 3 days of 24 is an eighth of the plot, not a third
+    expect(xs[1] - xs[0]).toBeCloseTo(((640 - 64) * 3) / 24, 0);
+    expect(L.xTicks.map((t) => t.label)).toEqual(["Now", "3 Nov", "9 Nov", "24 Nov"]);
+    // Without `at`, points stay evenly spaced
+    const even = seriesLayout([{ id: "u", label: "x", cls: "s1", points: pts.map(({ label, y }) => ({ label, y })) }], { width: 640, height: 300, padL: 50, padR: 14 });
+    expect(even.paths[0].dots[1].x - even.paths[0].dots[0].x).toBeCloseTo((640 - 64) / 3, 0);
   });
   it("reads numbers strictly", () => {
     expect(readNumber(" 12.5 ")).toBe(12.5);

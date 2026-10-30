@@ -3,9 +3,15 @@ import { createFakeMarketData } from "../market/fake.mjs";
 import { futuresChainRoutes, seriesStats } from "./futuresChain.mjs";
 
 const iso = (days) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
-const E1 = iso(10);
-const E2 = iso(40);
-const E3 = iso(70);
+// Futures are monthly, so each expiry sits mid-month in its own month (10 and 40 days ahead could share a month,
+// e.g. 1 and 31 January, and the route would keep only the later one).
+const midMonth = (ahead) => {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + ahead, 15)).toISOString().slice(0, 10);
+};
+const E1 = midMonth(1);
+const E2 = midMonth(2);
+const E3 = midMonth(3);
 
 function setup() {
   const md = createFakeMarketData();
@@ -40,6 +46,20 @@ describe("futuresChainRoutes", () => {
     expect(r.data.calendarSpreads[1].spread).toBeNull();
     expect(r.data.rollCostPct).toBe(0.399);
     expect(r.meta.requestId).toBe("r1");
+  });
+
+  it("adds the instrument master's futures when the option expiries stop before them (weekly-only option lists)", async () => {
+    const md = createFakeMarketData();
+    md.setExpiries("NIFTY", [E1]);
+    md.setQuote("NSE:NIFTY", { ltp: 25000 });
+    md.setQuote(`NFO:NIFTY-${E1}-FUT`, { ltp: 25050 });
+    md.setQuote(`NFO:NIFTY-${E2}-FUT`, { ltp: 25150 });
+    const symbols = { search: async (q) => ({ items: q.kind === "FUT" ? [E1, E2].map((expiry) => ({ underlying: "NIFTY", expiry })).concat([{ underlying: "NIFTYNXT50", expiry: E3 }]) : [] }) };
+    const h = Object.fromEntries(futuresChainRoutes({ marketData: md, symbols }).map(([, path, , fn]) => [path, fn]));
+    const r = await h["/v1/analytics/futures"]({ query: new URLSearchParams("underlying=NIFTY"), requestId: "r", requireAccountAccess() {} });
+    expect(r.data.futures.map((f) => f.expiry)).toEqual([E1, E2]);
+    expect(r.data.rollCostPct).toBe(0.399);
+    expect(r.data.calendarSpreads).toHaveLength(1);
   });
 
   it("validates input", async () => {

@@ -657,7 +657,7 @@ export function demoInstruments(t) {
     rows.push({ token: `DM-${u.symbol}`, exchange: u.exchange, tradingSymbol: u.symbol, underlying: u.symbol, instrumentType: u.kind, expiry: null, strike: null, optionType: null, lotSize: 1, tickSize: u.tick, name: u.name });
     if (!u.deriv) continue;
     const stock = u.kind === "EQ";
-    // Stock futures on the same 3 monthly expiries as the options (P1-6); index futures on the next 2 monthlies.
+    // Stock futures on the same 3 monthly expiries as the options (P1-6); index futures on the next 3 monthlies (as NSE and BSE list them).
     for (const e of stock ? expiriesFor(u.symbol, t) : monthlyExpiries(u, t)) {
       rows.push({ token: `DM-${u.symbol}-${e}-FUT`, exchange: u.deriv, tradingSymbol: `${u.symbol}-${e}-FUT`, underlying: u.symbol, instrumentType: stock ? "FUTSTK" : "FUTIDX", expiry: e, strike: null, optionType: null, lotSize: contractLot(u, e, t), tickSize: 0.05, name: `${u.name} future` });
     }
@@ -713,7 +713,7 @@ function monthlyExpiries(u, t) {
   const out = [];
   let y = start.y;
   let m = start.m;
-  while (out.length < 2) {
+  while (out.length < 3) {
     const last = new Date(Date.UTC(y, m + 1, 0));
     while (last.getUTCDay() !== target) last.setUTCDate(last.getUTCDate() - 1);
     const iso = shiftForHoliday(isoDate(last.getUTCFullYear(), last.getUTCMonth(), last.getUTCDate()), u.deriv);
@@ -745,6 +745,13 @@ export function priceOf(token, t) {
   return optionPrice(p.symbol, p.expiry, p.strike, p.right, t);
 }
 
+/**
+ * An option's traded lots a minute from its closeness to the money (`near`, 1 at the money). It falls away like the
+ * open interest does: a flat floor of 4 lots a minute gave far strikes with 1 lot of OI over 1000 lots of volume, so
+ * every top row of Flow › Unusual activity read "> 100x".
+ */
+const optionLotsPerMinute = (near) => 204 * near;
+
 /** A full quote for a token at `t`. */
 export function quoteOf(token, exchange, t) {
   const p = parseToken(token);
@@ -767,7 +774,7 @@ export function quoteOf(token, exchange, t) {
   const up = (n) => Math.ceil(n / tick - 1e-9) * tick;
   const bid = Number(down(Math.min(ltp, ltp - spread / 2)).toFixed(4));
   const ask = Number(Math.max(up(ltp + spread / 2), bid + tick).toFixed(4));
-  const perMinute = p.kind === "spot" ? 5200 : p.kind === "fut" ? 30 : 4 + 200 * near;
+  const perMinute = p.kind === "spot" ? 5200 : p.kind === "fut" ? 30 : optionLotsPerMinute(near);
   // Contract lot (an adjusted contract's own lot); stock derivatives' volume scaled like their OI (P1-6).
   const lot = p.kind === "spot" ? 1 : contractLot(u, p.expiry, t) * (p.adjusted ? DEMO_ADJ_FACTOR : 1);
   const scale = p.kind === "opt" ? u.oiScale ?? 1 : 1;
@@ -815,7 +822,7 @@ export function demoChainAt(symbol, expiry, t, strikesEachSide = STRIKES_EACH_SI
       const spread = Math.max(0.05 * (1 + Math.round(3 * (1 - near))), ltp * 0.0015);
       const bid = Number(Math.max(0, Math.floor((ltp - spread / 2) / 0.05 + 1e-9) * 0.05).toFixed(2));
       const ask = Number(Math.max(Math.ceil((ltp + spread / 2) / 0.05 - 1e-9) * 0.05, bid + 0.05).toFixed(2));
-      const volume = Math.max(1, Math.round((4 + 200 * near) * (u.oiScale ?? 1) * minutes * (0.7 + 0.6 * unit(`${symbol}:${expiry}:${k}:${right}:vol`)))) * lot;
+      const volume = Math.max(1, Math.round(optionLotsPerMinute(near) * (u.oiScale ?? 1) * minutes * (0.7 + 0.6 * unit(`${symbol}:${expiry}:${k}:${right}:vol`)))) * lot;
       const sizes = depthSizes(`DM-${symbol}-${expiry}-${k}-${right}`, lot, t);
       return { symbol: `${u.deriv}:${symbol}-${expiry}-${k}-${right}`, ltp, bid, ask, bidQty: sizes.bidQty, askQty: sizes.askQty, oi: oiWith(octx, k, right), volume };
     };
