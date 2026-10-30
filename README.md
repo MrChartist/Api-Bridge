@@ -288,6 +288,8 @@ Indicators: SMA, EMA, WMA, RSI, MACD, ATR, Bollinger, Supertrend, VWAP, highest/
 your pooled accounts, fall back to backup candles, and can be saved to run every few minutes with an alert on the
 WebSocket when new symbols match. Guide: [docs/guides/scanner.md](docs/guides/scanner.md).
 
+Option analytics (OI, gamma exposure, skew, futures basis, strategy payoff and more): [docs/guides/analytics.md](docs/guides/analytics.md).
+
 <img src="docs/screenshots/feature-scanner-results-dark.webp" alt="Scanner page after a NIFTY 50 scan: the condition rsi(14) > 60 and close > sma(50), 50 of 50 symbols scanned, 13 matches sorted by RSI" width="820">
 
 ### Alerts on your phone
