@@ -48,7 +48,7 @@ import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabili
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 import { PAGE_CODES } from "./workspace.js";
 import { triggersCard } from "./triggers.js";
-import { ordersCard, renderTradesPage } from "./orders-book.js";
+import { fundsCard, ordersCard, renderTradesPage } from "./orders-book.js";
 import { whatToDo } from "./reasons-core.js";
 
 const $ = (id) => document.getElementById(id);
@@ -2454,38 +2454,9 @@ async function renderOrders() {
     const n = Number(v);
     return h("span", { class: zero ? undefined : n > 0 ? "up" : "down" }, n > 0 && !zero ? `+${text}` : text);
   };
-  const paper = accs.filter((x) => x.broker === "paper");
-  if (paper.length) {
-    const sums = await Promise.all(
-      paper.map(async (a) => {
-        const [pos, funds] = await Promise.all([optional(api(`/v1/positions?account=${encodeURIComponent(a.id)}`)), optional(api(`/v1/funds?account=${encodeURIComponent(a.id)}`))]);
-        const f = funds.data?.data?.funds ?? funds.data?.data ?? {};
-        const rows = pos.data?.data ?? null;
-        return { a, f, open: rows ? rows.filter((p) => Number(p.netQty) !== 0).length : null };
-      }),
-    );
-    nodes.push(
-      card({
-        glyph: "wallet",
-        tint: "teal",
-        title: "Paper accounts",
-        sub: "Open positions, margin and P&L in one line each. Positions has the legs, the payoff and the exits.",
-        flush: true,
-        body: table(
-          [
-            { label: "Account", cell: ({ a }) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
-            { label: "Open positions", num: true, cell: ({ open }) => formatInt(open) },
-            { label: "Cash", num: true, cell: ({ f }) => formatRupeeGrouped(f.availableCash, 2) },
-            { label: "Used margin", num: true, cell: ({ f }) => formatRupeeGrouped(f.usedMargin, 2) },
-            { label: "Realised", num: true, cell: ({ f }) => pnlGrouped(f.realisedPnl) },
-            { label: "Unrealised", num: true, cell: ({ f }) => pnlGrouped(f.unrealisedPnl) },
-            { label: "", cell: ({ a }) => h("button", { type: "button", class: "small", "aria-label": `Positions of ${a.label}`, onclick: () => (location.hash = "#/positions") }, "Positions", icon("chevron")) },
-          ],
-          sums,
-        ),
-      }),
-    );
-  }
+  // Funds for every account (orders-book.js): available, margin used, collateral, utilisation and P&L.
+  const funds = await fundsCard(accs, pnlGrouped);
+  if (funds) nodes.push(funds);
   return nodes;
 }
 

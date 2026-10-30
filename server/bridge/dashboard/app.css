@@ -8844,6 +8844,12 @@ p.bk-fix { font-size: 13px; }
 @media (min-width: 1024px) { .bk-st-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .bk-st-pair > .card { margin: 0; }
 .bk-st-col { display: grid; gap: 14px; align-content: start; min-width: 0; }
+/* Orders › Funds: margin utilisation per account. */
+.bk-util { display: inline-flex; align-items: center; gap: 8px; font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bk-util-track { position: relative; width: 72px; height: 6px; border-radius: 3px; background: var(--mat-fill-1); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); overflow: hidden; }
+.bk-util-bar { position: absolute; inset: 0 auto 0 0; width: calc(var(--w, 0) * 100%); background: hsl(var(--pos)); }
+.bk-util-bar[data-level="warn"] { background: hsl(var(--warn)); }
+.bk-util-bar[data-level="neg"] { background: hsl(var(--neg)); }
 /* End of broker features. */
 
 /* ───────────────────────── Trade › Algo (algo.js, docs/STRATEGIES-PYTHON.md) ───────────────────────── */
