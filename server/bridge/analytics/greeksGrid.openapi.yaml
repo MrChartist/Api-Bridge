@@ -1,0 +1,59 @@
+  /v1/analytics/greeks-grid:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsGreeksGrid
+      summary: Per-strike delta, gamma, theta, vega and IV for calls and puts, with column totals and peak gamma and vega strikes
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: strikes, in: query, description: Strikes kept on each side of ATM., schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/synthetic:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsSynthetic
+      summary: Synthetic future per strike from put-call parity (strike + CE - PE), against spot and futures, with the arbitrage gap
+      description: The gap is the synthetic minus the futures price, or minus spot when no futures quote is available (`referenceSource` says which).
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: strikes, in: query, description: Strikes kept on each side of ATM., schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/straddle:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsStraddle
+      summary: ATM straddle premium now and its history, with percent change and implied move
+      description: History joins the ATM call and put candles on time. Percent change is against the first history point; implied move is straddle premium over spot.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: interval, in: query, schema: { type: string, enum: ["1m", "3m", "5m", "10m", "15m", "30m", "60m"], default: 5m } }
+        - { name: countback, in: query, schema: { type: integer, minimum: 1, maximum: 5000, default: 75 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
