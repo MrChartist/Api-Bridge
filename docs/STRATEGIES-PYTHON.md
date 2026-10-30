@@ -124,7 +124,9 @@ What a running strategy can do:
   you chose, `clientKind: "script"`. It is passed in the child's environment, held only in memory, never written to
   disk or logs, and revoked when the strategy stops, finishes, fails or the Bridge shuts down. A key left over by a
   crash of the Bridge itself is revoked at the next start: the key store marks each run's key (`purpose:
-  "strategy-run"`), so they are found even when `strategies/state.json` cannot be read. (Revoked keys are pruned oldest first when the key file
+  "strategy-run"`), so they are found even when `strategies/state.json` cannot be read. An unreadable state file is
+  kept aside as `state.json.corrupt-<ms>` (its saved accounts and params can be copied back by hand), never
+  overwritten. (Revoked keys are pruned oldest first when the key file
   nears its 1000-record limit; active keys never are.) The key cannot set triggers (`POST /v1/triggers` answers
   `SCOPE_REQUIRED`): a trigger would outlive the run and its revoked key, so a strategy manages its own exits. Nor
   can it change or cancel one (`PATCH`/`DELETE /v1/triggers/{id}`): your stops and targets stay as you set them.

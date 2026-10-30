@@ -23,7 +23,7 @@
  *  - the kill switch stops every strategy at once and no strategy starts while it is on.
  */
 import { execFile, spawn } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { liveAllowedByConfig } from "../core/config.mjs";
@@ -90,8 +90,17 @@ export function createStrategyRunner(deps, opts = {}) {
   let saved = { settings: {}, keys: [] };
   const loaded = readJsonState(statePath);
   if (loaded.status === "ok") saved = { settings: loaded.value.settings && typeof loaded.value.settings === "object" ? loaded.value.settings : {}, keys: Array.isArray(loaded.value.keys) ? loaded.value.keys.filter((k) => typeof k === "string") : [] };
-  // Its run keys are still found and revoked at start: the key store marks them (purpose "strategy-run").
-  else if (loaded.status === "corrupt") log?.warn?.("strategies state file unreadable; starting empty", { path: statePath });
+  // Its run keys are still found and revoked at start: the key store marks them (purpose "strategy-run"). The file is
+  // kept aside (never overwritten by the next save) so its saved settings can be recovered by hand.
+  else if (loaded.status === "corrupt") {
+    const aside = `${statePath}.corrupt-${now()}`;
+    try {
+      renameSync(statePath, aside);
+    } catch {
+      /* nothing more to do */
+    }
+    log?.warn?.("strategies state file unreadable; starting empty (the file was kept aside)", { path: statePath, keptAs: aside });
+  }
   const persist = () => {
     try {
       writeJsonState(statePath, { version: 1, settings: saved.settings, keys: saved.keys });
