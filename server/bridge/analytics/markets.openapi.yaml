@@ -1,0 +1,115 @@
+  /v1/analytics/markets/indices:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsIndices
+      summary: Index strip with India VIX and the day-range position
+      description: "Every index the instrument master knows (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, SENSEX, INDIA VIX and more, at most 60) from ONE batched quote call. Each item has ltp, change, changePct, dayHigh, dayLow and rangePosition (0 to 1). Cost: 1 quote call; no candles."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/movers:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsMovers
+      summary: Top movers over one batched quote pass
+      description: "Gainers, losers, volume, turnover or open interest over the FNO or NIFTY50 universe, sorted on the server. The quote pass is cached for 15 seconds and shared by all clients, so concurrent calls join one pass. Cash quotes carry no open interest, so by=oi can be empty. Cost: 0 to 2 quote calls (200 symbols per call); no candles."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: universe, in: query, schema: { type: string, enum: [FNO, NIFTY50], default: FNO } }
+        - { name: by, in: query, schema: { type: string, enum: [gainers, losers, volume, turnover, oi], default: gainers } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 10 } }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/sectors:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsSectors
+      summary: Sector index heatmap for 1D, 1W or 1M
+      description: "NIFTY sector indices ranked by change. 1d comes from one quote call; 1w and 1m use daily candles (background priority, up to 12 reads, cached for the IST day). drill=KEY adds the changePct of that sector's NIFTY 50 constituents from the shared quote snapshot. Cost: 1 quote call, plus up to 12 cached candle reads for 1w and 1m, plus a shared snapshot when drilling."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: tf, in: query, schema: { type: string, enum: [1d, 1w, 1m], default: 1d } }
+        - { name: drill, in: query, description: "Sector key such as BANK, IT, AUTO, FMCG, PHARMA, METAL, ENERGY, REALTY, PSUBANK, PVTBANK, FINSERV or MEDIA.", schema: { type: string, maxLength: 12 } }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/breadth:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsBreadth
+      summary: Advance/decline now and the cached daily breadth
+      description: "advanceDecline comes from the shared quote snapshot. The rest (new 52-week highs and lows, percent above the 20, 50 and 200 day averages, advance/decline line) is computed by a background job over daily candles of the FNO universe, cached for the day and saved to disk. status is pending, ready or partial; computedAt says when. Starting the job is POST /v1/analytics/markets/breadth/refresh. Cost: 0 to 2 quote calls; reading never makes candle calls."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/breadth/refresh:
+    post:
+      tags: [Analytics]
+      operationId: refreshAnalyticsMarketsBreadth
+      summary: Start the breadth job without waiting for it
+      description: "Starts the background breadth job and answers 202 at once. Answers 200 with started false when a job is already running or a complete result is under 30 minutes old. Cost: none now; the job reads up to 250 cached daily-candle series at background priority, 3 at a time."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "202": { $ref: "#/components/responses/AnalyticsResult" }
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/rotation:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsRotation
+      summary: Relative rotation of sectors against NIFTY
+      description: "A labelled proxy for relative rotation (the official formula is closed): RS-Ratio and RS-Momentum are 100 plus a rolling z-score of the smoothed relative strength and of its rate of change. Each item has a quadrant (leading, weakening, lagging, improving) and a tail of earlier points. Cost: up to 13 cached daily-candle reads at background priority; no quotes."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: tf, in: query, schema: { type: string, enum: [1d, 1w], default: 1w } }
+        - { name: tail, in: query, description: Earlier points to return per sector., schema: { type: integer, minimum: 0, maximum: 12, default: 5 } }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/correlation:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsCorrelation
+      summary: Correlation matrix of daily returns
+      description: "Pearson correlation of daily log returns, pairwise on common dates, for NIFTY50 or a comma-separated list of 2 to 60 symbols, with the most and least correlated pairs. A pair with fewer than 20 shared days, or a flat series, is null. Cost: up to 60 cached daily-candle reads at background priority; no quotes."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: universe, in: query, description: "NIFTY50 or comma-separated symbols (at most 60).", schema: { type: string, default: NIFTY50 } }
+        - { name: days, in: query, schema: { type: integer, enum: [60, 120, 250], default: 120 } }
+        - { name: pairs, in: query, description: Pairs in each of the most and least correlated lists., schema: { type: integer, minimum: 1, maximum: 20, default: 5 } }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
