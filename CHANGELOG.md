@@ -4,6 +4,23 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ## [Unreleased]
 
+### Analytics from PR 17, in this dashboard's design
+
+- **Analytics pages.** Exposure, Flow, Futures, Strategy lab and Risk, plus PR 17 tabs inside OI Analysis and
+  Volatility, drawn as desk pages: the context in the top-bar capsule, panels in a masonry grid that fills the screen.
+- **Risk.** One-day VaR and expected shortfall with the simulated P&L histogram, exposure and delta by underlying,
+  concentration, and paper execution costs.
+- **Strategy lab.** One finder on the optimizer, templates handed to the Strategy Builder, calculators, and a
+  read-only backtest of a scanner rule.
+- **Time series.** Strike history (OI and IV of one strike from the recorder), strangle premium, probability cone.
+- **Alerts.** Market alerts in the bell (14 metrics, including OI change and IV at a strike and ATM IV change), and
+  theta and vega conditions on position alerts.
+- **Palette.** `banknifty oc`, `help gx` and `g` + go-key.
+- **Fixes.** OI in units (PR 17 counted lots twice); monthly futures for weekly expiries; paper accounts' risk reads
+  priced through the data accounts; tide only in market hours; SVG bar heights.
+- **Demo.** Prices follow a seeded random walk (drift 10 to 12 %, vol 18 to 35 % in regimes) instead of waves around a
+  fixed level.
+
 ### Live events
 
 - **Live events engine (server).** Detects 37 price, gap, volume, circuit (only buyers / only sellers / unlocked),
