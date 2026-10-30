@@ -7,13 +7,14 @@
  * spreads and long straddles; opened in the morning, closed one to four sessions later. About 60 % close in profit.
  */
 import { buildTrades } from "../dashboard/journal-core.js";
+import { DEMO_INDEX_LOT } from "../reference/demoTables.mjs";
 
 const DAY_MS = 86_400_000;
 const IST = 19_800_000;
 const UNDERLYINGS = [
-  { u: "NIFTY", ex: "NFO", spot: 25_900, step: 50, perLot: 65, expiryDow: 2 },
-  { u: "BANKNIFTY", ex: "NFO", spot: 57_800, step: 100, perLot: 30, expiryDow: 2, monthly: true },
-  { u: "SENSEX", ex: "BFO", spot: 84_600, step: 100, perLot: 20, expiryDow: 4 },
+  { u: "NIFTY", ex: "NFO", spot: 25_900, step: 50, perLot: DEMO_INDEX_LOT.NIFTY, expiryDow: 2 },
+  { u: "BANKNIFTY", ex: "NFO", spot: 57_800, step: 100, perLot: DEMO_INDEX_LOT.BANKNIFTY, expiryDow: 2, monthly: true },
+  { u: "SENSEX", ex: "BFO", spot: 84_600, step: 100, perLot: DEMO_INDEX_LOT.SENSEX, expiryDow: 4 },
 ];
 const STRUCTURES = [
   { name: "strangle", legs: [["SELL", "CE", 0.02, 0.0035], ["SELL", "PE", -0.02, 0.004]] },
@@ -79,7 +80,7 @@ export function demoJournalHistory({ nowMs, account, weeks = 6 }) {
       const expiry = expiryOn(closeDay, U.expiryDow, U.monthly);
       const win = rand() < 0.6;
       const lots = 1 + (rand() < 0.25 ? 1 : 0);
-      const units = lots * U.perLot; // sample sizes only: the demo history is not reference data
+      const units = lots * U.perLot; // the current demo lot (reference/demoTables.mjs), so sample trades are whole lots
       const seller = S.legs.filter((l) => l[0] === "SELL").length > S.legs.filter((l) => l[0] === "BUY").length;
       const target = (win ? 1 : -1) * (seller ? (win ? 1500 + rand() * 6500 : 2500 + rand() * 9500) : win ? 3000 + rand() * 9000 : 1500 + rand() * 5000) * lots;
       const tOpen = atIst(openDay, 9, 20 + Math.floor(rand() * 35));

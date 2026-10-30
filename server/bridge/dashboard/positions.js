@@ -22,6 +22,7 @@ import { legWords, openAlertSheet, rulesFor } from "./alerts.js";
 import { createWhatIf } from "./whatif.js";
 import { ROLL_MODES, rollBreakevens, rollItems, rollMargin, rollMoney, rollPlan } from "./roll-core.js";
 import { openPlacement } from "./strategy-place.js";
+import { closeMs, countdownText, decayLeft, deskExpiry, gammaByStrike, pinRisk, settlementRisk } from "./expiry-core.js";
 import { normWhatIf, whatIfFigures } from "./whatif-core.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
@@ -525,6 +526,15 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     onClock();
   });
   const riskPanel = h("section", { class: "desk-panel pos-riskp", "data-panel": "risk", "aria-label": "Payoff and scenarios", hidden: true }, h("div", { class: "panel-head" }, h("span", { class: "panel-title" }, h("strong", {}, "Risk"), h("span", { class: "muted pos-risk-sub" })), riskSeg), riskBody);
+  // ── Expiry-day desk (expiry-core.js): shown when a held expiry is today or the next session ──
+  const xpBody = h("div", { class: "xp-body" });
+  const xpTitle = h("span", { class: "muted xp-sub" });
+  const xpClock = h("span", { class: "xp-clock", "aria-live": "off" });
+  const xpSquare = h("button", { type: "button", class: "small", onclick: () => squareOffExpiring() }, "Square off expiring legs");
+  let xpOpen = false;
+  const xpToggle = h("button", { type: "button", class: "small quiet", "aria-expanded": "false", onclick: () => ((xpOpen = !xpOpen), drawExpiryDesk()) });
+  const xpPanel = h("section", { class: "desk-panel xp-panel", "data-panel": "expiry", "aria-label": "Expiry-day desk", hidden: true }, h("div", { class: "panel-head" }, h("span", { class: "panel-title" }, h("strong", {}, "Expiry desk"), xpTitle), h("span", { class: "xp-head-r" }, xpClock, xpToggle, xpSquare)), xpBody);
+  let xpState = null;
   const slotPanel = h(
     "section",
     { class: "desk-panel pos-slot", "data-panel": "chartslot", "aria-label": "Chart engine slot", hidden: true },
@@ -1011,10 +1021,19 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
    * already hide IV, Vega and P&L % (CSS).
    */
   const FIT_DROP = ["pnlPct", "vega", "iv", "dbar", "gamma", "sg", "pbars"];
+  // The table also widens after a draw (marks, the σ gauge and the bars fill in): refit whenever it changes size, so
+  // no column is left cut at the panel edge (1024 px: Distance and the group's Exit were cut).
+  const fitRo = typeof ResizeObserver === "function" ? new ResizeObserver(() => fitTable()) : null;
+  let fitWatched = null;
   function fitTable() {
     const wrap = bodyEl.querySelector(".pos-wrap");
     const table = wrap?.querySelector("table.pos-table");
     if (!table) return;
+    if (fitRo && fitWatched !== table) {
+      if (fitWatched) fitRo.unobserve(fitWatched);
+      fitWatched = table;
+      fitRo.observe(table);
+    }
     for (const k of FIT_DROP) table.classList.remove(`fit-${k}`);
     if (!wrap.clientWidth) return;
     for (const k of FIT_DROP) {
@@ -1682,6 +1701,97 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   }
 
   // ── Exit plan (Exit all / group / selected) ──
+  /**
+   * The legs the desk is about: a held expiry today or the next session opens the desk by itself; otherwise the
+   * nearest held expiry is offered folded ("Open the expiry desk"), so it can be read ahead of the day.
+   */
+  function expiryScope() {
+    const open = legs.filter((l) => l.q && l.priced !== false);
+    let x = deskExpiry(open, Date.now(), refSession(st.ref).close);
+    if (!x && open.length) x = { expiry: [...new Set(open.map((l) => l.expiry))].sort()[0], when: "later" };
+    if (!x) return null;
+    return { ...x, legs: open.filter((l) => l.expiry === x.expiry) };
+  }
+  function drawExpiryDesk() {
+    const xs = expiryScope();
+    xpState = xs;
+    xpPanel.hidden = !xs;
+    if (!xs) return;
+    const shown = xs.when !== "later" || xpOpen;
+    xpBody.hidden = !shown;
+    xpSquare.hidden = !shown;
+    xpToggle.hidden = xs.when !== "later";
+    xpToggle.textContent = xpOpen ? "Fold" : "Open the expiry desk";
+    xpToggle.setAttribute("aria-expanded", String(xpOpen));
+    const chain = d.chains.get(xs.expiry)?.chain ?? null;
+    const rows = chain?.rows ?? [];
+    const S = spot;
+    const mp = rows.length ? O.maxPain(rows) : null;
+    const cw = rows.length ? O.oiWall(rows, "ce")?.strike ?? null : null;
+    const pw = rows.length ? O.oiWall(rows, "pe")?.strike ?? null : null;
+    xpTitle.textContent = ` · ${expiryText(xs.expiry)} ${xs.when === "today" ? "expires today" : xs.when === "next" ? "expires next session" : "is the nearest expiry held"} · ${plural(xs.legs.length, "leg")}`;
+    drawXpClock();
+    const opts = xs.legs.filter((l) => l.kind === "OPT");
+    const gamma = gammaByStrike(opts, S);
+    const pins = pinRisk(opts, { spot: S, maxPain: mp, walls: [cw, pw].filter(isFigure) });
+    const decay = decayLeft(opts, S);
+    const settle = settlementRisk(opts, { spot: S, underlying: st.underlying });
+    const gMax = Math.max(1, ...gamma.map((g) => Math.abs(g.pnlPer1pct)));
+    const kv = (k, v, sub) => h("div", { class: "xp-fig" }, h("span", { class: "xp-k" }, k), h("span", { class: "xp-v" }, v), sub ? h("span", { class: "xp-s" }, sub) : null);
+    const figs = h(
+      "div",
+      { class: "xp-figs" },
+      kv("Time value left", money(decay.total), decay.total >= 0 ? "held short: decays toward you by the close if spot stays" : "held long: decays against you by the close if spot stays"),
+      kv("Max pain", mp === null ? DASH : formatInt(mp), isFigure(mp) && S ? `${formatSigned(((mp - S) / S) * 100, 2)}% from spot` : "from this expiry's OI"),
+      kv("Call wall / put wall", `${cw === null ? DASH : formatInt(cw)} / ${pw === null ? DASH : formatInt(pw)}`, "largest call and put OI"),
+      kv("Spot", formatFixed(S, 2), `close ${refSession(st.ref).close} IST`),
+    );
+    const gList = gamma.length
+      ? h(
+          "ul",
+          { class: "xp-gamma", "aria-label": "Gamma by strike" },
+          ...gamma.map((g) => {
+            const bar = h("span", { class: `xp-bar ${g.pnlPer1pct < 0 ? "neg" : "pos"}` });
+            bar.style.setProperty("--w", `${Math.round((Math.abs(g.pnlPer1pct) / gMax) * 100)}%`);
+            return h("li", {}, h("span", { class: "xp-k" }, formatInt(g.strike), S && Math.abs(g.strike - S) <= S * 0.005 ? h("small", { class: "muted" }, " near spot") : null), h("span", { class: "xp-track" }, bar), h("span", { class: "xp-n", title: "Δ change for a 1 % move, and the P&L from gamma alone over that move" }, `Δ ${formatSigned(g.deltaPer1pct, 0)} · ${rs(g.pnlPer1pct)}`));
+          }),
+        )
+      : h("p", { class: "muted small" }, "No option Greeks for the expiring legs yet.");
+    const pinList = pins.length
+      ? h(
+          "ul",
+          { class: "desk-list xp-pins" },
+          ...pins.map((p) =>
+            h(
+              "li",
+              {},
+              h("strong", {}, `${formatInt(p.strike)} ${p.right}`),
+              ` short ${formatInt(Math.abs(p.q))} · ${formatSigned(p.dist, 0)} pts (${formatSigned(p.distPct, 2)}%) from spot`,
+              [p.atSpot ? "within 0.5 % of spot" : null, p.atMaxPain ? "at max pain" : null, p.atWall ? "at an OI wall" : null].filter(Boolean).length ? h("span", { class: "warn-text" }, ` · ${[p.atSpot ? "within 0.5 % of spot" : null, p.atMaxPain ? "at max pain" : null, p.atWall ? "at an OI wall" : null].filter(Boolean).join(", ")}`) : null,
+            ),
+          ),
+        )
+      : h("p", { class: "muted small" }, "No short option legs in this expiry.");
+    const KIND = { physical: "settles by delivery of shares (stock option)", exercise: "in the money: left open, it is exercised and pays STT on the intrinsic value", assigned: "in the money: left open, it is assigned at the settlement price" };
+    const setList = settle.length
+      ? h("ul", { class: "desk-list xp-settle" }, ...settle.map((r) => h("li", {}, h("strong", {}, `${formatInt(r.strike)} ${r.right}`), ` ${r.q > 0 ? "long" : "short"} ${formatInt(Math.abs(r.q))} · ${KIND[r.kind]}${r.itm ? ` · intrinsic ${rs(r.intrinsic)}` : " · within 1 % of the strike"}`)))
+      : h("p", { class: "muted small" }, "No leg is in the money at spot.");
+    xpBody.replaceChildren(
+      figs,
+      h("div", { class: "xp-cols" }, h("section", { class: "xp-col" }, h("h3", {}, "Gamma by strike"), gList), h("section", { class: "xp-col" }, h("h3", {}, "Pin risk"), pinList), h("section", { class: "xp-col" }, h("h3", {}, "Settlement"), setList)),
+    );
+  }
+  function drawXpClock() {
+    if (!xpState) return;
+    const left = closeMs(xpState.expiry, refSession(st.ref).close) - Date.now();
+    xpClock.textContent = xpState.when === "today" ? `${countdownText(left)} to the close` : `${countdownText(left)} to its close`;
+  }
+  const xpTimer = setInterval(() => xpPanel.isConnected && !xpPanel.hidden && drawXpClock(), 1000);
+  function squareOffExpiring() {
+    const xs = expiryScope();
+    if (!xs?.legs.length) return toast("No expiring legs", { tone: "info" });
+    openExitPlan(xs.legs, `${expiryText(xs.expiry)} expiry`);
+  }
   async function openExitPlan(scope, label) {
     const a = account();
     if (!a) return toast("Choose an account that can place orders first.", { tone: "warn" });
@@ -2725,6 +2835,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     hedgePanel.hidden = !has;
     if (has) drawHedge();
     drawRisk();
+    drawExpiryDesk();
     // POP comes from the risk pass: only the Greeks footer depends on it (the book is not drawn twice).
     if (legs.length) drawGreeksFoot();
     slotPanel.hidden = !cfg().chartSlot || !has;
@@ -2839,7 +2950,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   applyScope();
 
   return {
-    panels: [scopeBar, bookView.el, bookPanel, posPanel, riskPanel, slotPanel],
+    panels: [scopeBar, bookView.el, bookPanel, xpPanel, posPanel, riskPanel, slotPanel],
     root,
     tick,
     /** Spot and the index quote, for the top bar. */
@@ -2892,6 +3003,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       for (const m of mqs) m.removeEventListener("change", onDevice);
       window.removeEventListener("resize", onResize);
       clearTimeout(hvTimer);
+      clearInterval(xpTimer);
       clearTimeout(compTimer);
       // The payoff's document listener, ResizeObserver and any morph frame must not outlive the page.
       pay.destroy();

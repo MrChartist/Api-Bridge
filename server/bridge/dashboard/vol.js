@@ -266,7 +266,8 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       t.num = n;
       t.painted = true;
     }
-    if (sub && sub.includes(" · ")) t.sub.replaceChildren(...sub.split(" · ").map((sg, i) => h("span", { class: "seg" }, i ? ` · ${sg}` : sg)));
+    // A narrow tile wraps between parts; the dot stays at the end of the first line, never leading the next.
+    if (sub && sub.includes(" · ")) t.sub.replaceChildren(...sub.split(" · ").map((sg, i, all) => h("span", { class: "seg" }, i < all.length - 1 ? `${sg} ·` : sg)));
     else t.sub.textContent = sub || " ";
     if (sub) t.sub.title = sub;
     else t.sub.removeAttribute("title");

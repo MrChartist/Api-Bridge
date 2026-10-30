@@ -405,15 +405,20 @@ async function renderDesk(kind) {
   let ctxFitFrame = 0;
   function fitCtx() {
     const cap = capsule;
-    if (!cap?.isConnected || (kind !== "chain" && kind !== "strategy")) return;
+    if (!cap?.isConnected) return;
     cap.classList.remove(...CTX_DROP);
     // The page pill is always its icon here (the sidebar and the tab bar name the page), in every state, so the line
     // never shifts when the data arrives; then figures drop.
     document.querySelector(".toolbar-title")?.classList.add("icon-only");
+    const bar = cap.parentElement;
+    bar?.classList.remove("ctx-no-ref");
     for (const c of CTX_DROP) {
       if (cap.scrollWidth <= cap.clientWidth + 1) break;
       cap.classList.add(c);
     }
+    // Still cut (a phone: the expiry read "3"): the reference chip gives way last; the lot size stays in the ⋯ sheet
+    // and the contract facts.
+    if (bar && cap.scrollWidth > cap.clientWidth + 1) bar.classList.add("ctx-no-ref");
   }
   /** Phones and tablets: account, refresh, live, search, theme and (in demo mode) what the demo data is. */
   let ctxSheet = null;
@@ -2246,7 +2251,8 @@ async function renderDesk(kind) {
     refRo = new ResizeObserver(() => chain.fitHeight());
     refRo.observe(refBannersEl.el);
   }
-  if (wide && typeof ResizeObserver === "function") {
+  // Every desk page fits its capsule (OI, Volatility, Positions too: at 1280 px the % change was cut to "(−1").
+  if (typeof ResizeObserver === "function") {
     ctxRo = new ResizeObserver(() => fitCtx());
     ctxRo.observe(capsule);
     if (capsule.parentNode) ctxRo.observe(capsule.parentNode);

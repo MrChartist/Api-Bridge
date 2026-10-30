@@ -4,7 +4,9 @@
  *   Holder tags (book-demo/holders.json, set only when missing, so a change made on the Accounts page sticks):
  *     demo → self ("You (demo)"), demo-spouse → spouse, demo-other → other.
  *   Paper book (through orders.place with a local principal, mode "paper", tag DEMOSEED, nearest expiry after today), for each
- *   paper account that holds no open F&O position:
+ *   paper account that holds no open F&O position, or whose open F&O legs are no longer whole lots of the instrument's
+ *   current lot size (a demo home seeded before a lot change, NIFTY 75 → 65: the book is reset and seeded again, so the
+ *   quantities always follow the reference lot and never a number written here):
  *     demo-paper:         NIFTY short strangle, 1 lot, strikes ±2 % from spot (the spec's 2 lots do not fit the
  *                         paper account's default ₹10 lakh capital next to the spread); BANKNIFTY bull call spread, 1 lot
  *     demo-paper-spouse:  SENSEX iron condor, 1 lot, shorts ±1.5 %, wings ±3 %
@@ -37,6 +39,21 @@ async function chainOf(marketData, underlying, today) {
   const spot = Number(chain?.underlyingLtp);
   if (!rows.length || !(spot > 0)) throw new Error(`no ${underlying} chain`);
   return { expiry, rows, spot, expiries: ex.expiries };
+}
+
+/**
+ * True when an open leg is not a whole number of its instrument's current lot (from the instrument master, which the
+ * demo builds from the reference tables). Legs whose lot cannot be read are left alone.
+ * @param {{ symbol: string, netQty: number }[]} legs
+ * @param {{ resolve(symbol: string): Promise<{ lotSize?: number | null }> } | undefined} symbols
+ */
+export async function offLot(legs, symbols) {
+  if (typeof symbols?.resolve !== "function") return false;
+  for (const p of legs) {
+    const lot = Number((await Promise.resolve(symbols.resolve(p.symbol)).catch(() => null))?.lotSize);
+    if (lot > 0 && Number(p.netQty) % lot !== 0) return true;
+  }
+  return false;
 }
 
 /** The legs to seed per account: [{ symbol, side, lots }] in send order (buys first). */
@@ -79,11 +96,24 @@ export async function seedDemoBook(deps) {
   const ctx = createCallContext({ source: "system", principal: { kind: "local", id: "cli" }, scopes: ["paper"], log: logger });
   const accounts = [DEMO_PAPER_ACCOUNT, DEMO_SPOUSE_ACCOUNT, DEMO_OTHER_ACCOUNT].filter((id) => (deps.config.accounts ?? []).some((a) => a.id === id));
   const empty = [];
+  const reseeded = [];
+  // The lot check reads the instrument master: make sure it is loaded (never throws).
+  await Promise.resolve(deps.symbols?.warm?.()).catch(() => null);
   for (const id of accounts) {
     const r = await orders.positions(ctx, id, { mode: "paper" });
-    const open = (r?.items ?? []).some((p) => Number(p.netQty) && /^(NFO|BFO):/.test(String(p.symbol)));
-    if (!open) empty.push(id);
+    const fno = (r?.items ?? []).filter((p) => Number(p.netQty) && /^(NFO|BFO):/.test(String(p.symbol)));
+    if (!fno.length) {
+      empty.push(id);
+      continue;
+    }
+    if (typeof deps.paper?.reset === "function" && (await offLot(fno, deps.symbols))) {
+      const acct = await Promise.resolve(deps.paper.account?.(id)).catch(() => null);
+      await deps.paper.reset(id, acct?.startingCapital ? { startingCapital: acct.startingCapital } : {});
+      empty.push(id);
+      reseeded.push(id);
+    }
   }
+  if (reseeded.length) logger?.info?.("demo book reseeded: lot sizes changed since it was seeded", { accounts: reseeded });
   if (!empty.length) return { tagged, seeded: [] };
   const day = new Date((deps.clock?.now?.() ?? Date.now()) + 19_800_000).toISOString().slice(0, 10);
   const plan = await demoSeedPlan({ marketData, today: day });

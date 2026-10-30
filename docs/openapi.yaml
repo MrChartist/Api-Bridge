@@ -99,6 +99,8 @@ tags:
     description: The paper-trading engine.
   - name: Alerts
     description: Position alerts (P&L, spot, delta, time to expiry, premium multiple). They notify only; they never place an order.
+  - name: Watchlists
+    description: Named lists of symbols, priced with % change, OI change for F&O and IV. One list can feed Live events and one the Home page.
   - name: Journal
     description: The trade journal. Fills grouped into trades by strategy group, with tags, notes, setup, daily P&L and stats. Read only; it places nothing.
   - name: Limits
@@ -2033,6 +2035,145 @@ paths:
       responses:
         "200":
           description: The inbox, all read.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/watchlists:
+    get:
+      tags: [Watchlists]
+      operationId: listWatchlists
+      summary: Every watchlist
+      x-stream: S29
+      x-scope: read
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Watchlists]
+      operationId: createWatchlist
+      summary: Create a watchlist
+      x-stream: S29
+      x-scope: paper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 40 }
+                symbols: { type: array, maxItems: 100, items: { type: string, description: "EXCHANGE:NAME, for example NSE:RELIANCE" } }
+                events: { type: boolean, description: This list feeds Live events' WATCHLIST universe (one list at a time). }
+                home: { type: boolean, description: This list shows on the Home page (one list at a time). }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/watchlists/{listId}:
+    parameters:
+      - name: listId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      tags: [Watchlists]
+      operationId: updateWatchlist
+      summary: Rename a list, change its symbols, or set it to feed Live events or Home
+      x-stream: S29
+      x-scope: paper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 40 }
+                symbols: { type: array, maxItems: 100, items: { type: string, description: "EXCHANGE:NAME, for example NSE:RELIANCE" } }
+                events: { type: boolean, description: This list feeds Live events' WATCHLIST universe (one list at a time). }
+                home: { type: boolean, description: This list shows on the Home page (one list at a time). }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Watchlists]
+      operationId: deleteWatchlist
+      summary: Delete a watchlist
+      x-stream: S29
+      x-scope: paper
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/watchlists/{listId}/quotes:
+    parameters:
+      - name: listId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Watchlists]
+      operationId: watchlistQuotes
+      summary: A list priced: last price, % change, the near future's OI and its change today, ATM IV
+      description: >-
+        One quotes call for the list and its near futures (batched and cached by the market-data service); the near
+        future is found once a day per symbol; IV, IV rank and HV20 come from the vol service's memory summary (no broker
+        call). OI change is measured from the first OI this Bridge saw for the contract today.
+      x-stream: S29
+      x-scope: read
+      responses:
+        "200":
+          description: OK.
           content:
             application/json:
               schema:

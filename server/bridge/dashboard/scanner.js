@@ -821,6 +821,6 @@ export async function renderScannerPage() {
   loadEditor();
   drawResults();
   // Open with the first library scan's results, so the page is never empty.
-  queueMicrotask(() => runScan());
+  queueMicrotask(() => openLibrary(LIBRARY[0].id, true));
   return [h("div", { class: "sc-page" }, h("div", { class: "sc-side-col" }, libCard), h("div", { class: "sc-main-col" }, builderCard, resultsCard))];
 }
