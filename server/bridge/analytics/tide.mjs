@@ -24,6 +24,7 @@ import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
 import { nowMsOf, unitMultiplier, upcomingExpiries } from "./math.mjs";
 import { demoChainAt } from "../demo/demoAdapter.mjs";
 import { DEFAULT_SESSIONS } from "../reference/defaults.mjs";
+import { marketSession } from "../../lib/marketHours.mjs";
 
 /** Proxy thresholds: share of the bid-ask spread at which an ltp is read as an aggressive buy or sell. */
 export const AGGRESSOR_BUY_AT = 0.6;
@@ -437,7 +438,11 @@ export function tideRoutes(deps) {
       const chain = await deps.marketData.optionChain(params, opts);
       const store = storeFor(deps);
       if (isDemo(deps)) seedDemoSession(deps, store, underlying, expiry);
-      const rec = store.record(underlying, expiry, chain);
+      // Readings are taken only while the market trades: after the close a reading would add an interval that spans
+      // the evening (and the chart's axis would run to now). The session so far is still shown.
+      const st = marketSession(new Date(nowMsOf(deps))).state;
+      const open = st === "OPEN" || st === "SPECIAL";
+      const rec = open ? store.record(underlying, expiry, chain) : { recorded: false, reason: "market_closed", persistence: "unchanged" };
       const view = tideView(store.session(underlying), { windowMin, top, nowMs: store.clock.now() });
       return {
         data: { underlying, underlyingLtp: chain?.underlyingLtp ?? null, ...view, recorded: rec.recorded, persistence: rec.persistence },

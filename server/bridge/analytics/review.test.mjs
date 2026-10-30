@@ -98,10 +98,11 @@ describe("expiry handling in IST", () => {
   });
   it("futures chain skips an expired expiry", async () => {
     const { md, deps } = mk("2026-10-27T11:00:00Z");
-    md.setQuote("NFO:NIFTY-2026-11-03-FUT", { ltp: 25100 });
+    // Futures are monthly: of 27 Oct (expired at 15:30 IST), 3 Nov and 10 Nov the future is November's, on 10 Nov.
+    md.setQuote("NFO:NIFTY-2026-11-10-FUT", { ltp: 25100 });
     const h = Object.fromEntries(futuresChainRoutes(deps).map(([, p, , fn]) => [p, fn]));
     const r = await h["/v1/analytics/futures"](ctxOf("underlying=NIFTY&expiries=1"));
-    expect(r.data.futures.map((f) => f.expiry)).toEqual(["2026-11-03"]);
+    expect(r.data.futures.map((f) => f.expiry)).toEqual(["2026-11-10"]);
   });
   it("expiry-day defaults to the next expiry once today's cutoff has passed", async () => {
     const { deps } = mk("2026-10-27T11:00:00Z");

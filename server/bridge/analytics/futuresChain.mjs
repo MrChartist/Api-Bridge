@@ -10,7 +10,7 @@ import { BridgeError } from "../core/errors.mjs";
 import { defaultOptionExchange } from "../market/chain.mjs";
 import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
 import { daysBetween } from "../../lib/blackScholes.mjs";
-import { futuresBasis, nowMsOf, upcomingExpiries } from "./math.mjs";
+import { futureExpiryFor, futuresBasis, monthlyExpiries, nowMsOf, upcomingExpiries } from "./math.mjs";
 
 const invalid = (path, detail) => new BridgeError("VALIDATION_FAILED", detail, { errors: [{ path, message: detail }] });
 const opt = (q, name) => {
@@ -65,7 +65,8 @@ export function futuresChainRoutes(deps) {
     const spotSym = `${fx === "BFO" ? "BSE" : "NSE"}:${underlying}`;
     const list = await md().expiries(underlying, opts);
     const nowMs = nowMsOf(deps);
-    const picked = upcomingExpiries(list.expiries, nowMs).slice(0, count);
+    // Futures are monthly: the weekly option expiries have none.
+    const picked = monthlyExpiries(upcomingExpiries(list.expiries, nowMs)).slice(0, count);
     if (picked.length === 0) throw new BridgeError("SYMBOL_NOT_FOUND", `No upcoming futures expiries were found for ${underlying}.`);
     const futSyms = picked.map((e) => `${fx}:${underlying}-${e}-FUT`);
     const r = await md().quotes([spotSym, ...futSyms], opts);
@@ -127,7 +128,14 @@ export function futuresChainRoutes(deps) {
     const opts = readOptions(ctx);
     const fx = defaultOptionExchange(underlying);
     const spotSym = `${fx === "BFO" ? "BSE" : "NSE"}:${underlying}`;
-    const futSym = `${fx}:${underlying}-${expiry}-FUT`;
+    // A weekly option expiry has no future of its own: its month's future is the one read.
+    let futExpiry = expiry;
+    try {
+      futExpiry = futureExpiryFor((await md().expiries(underlying, opts))?.expiries, expiry) ?? expiry;
+    } catch {
+      futExpiry = expiry;
+    }
+    const futSym = `${fx}:${underlying}-${futExpiry}-FUT`;
     const [f, s] = await Promise.allSettled([
       md().history({ symbol: futSym, interval, countback }, opts),
       md().history({ symbol: spotSym, interval, countback }, opts),
