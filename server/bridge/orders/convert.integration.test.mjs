@@ -106,4 +106,24 @@ describe("convert a position between products", () => {
     const e = await reject(app.deps.orders.convertPosition(ctx(), { account: "paper", symbol: OPT, from: "MARGIN", to: "INTRADAY", lots: 1 }));
     expect(e.detail).toMatch(/past the intraday square-off time/);
   });
+
+  it("Day view: the next day a carried position starts from the previous close, and a conversion keeps the day's P&L whole", async () => {
+    md.setPrice(OPT, 140);
+    await pos(); // the last mark of the day: 140
+    await clock.advance(18 * 3600_000); // the next day, 09:30 IST
+    await app.deps.paper.runOnce();
+    let p = await pos();
+    expect(p.MARGIN).toMatchObject({ netQty: 3 * LOT, overnightQty: 3 * LOT, prevClose: 140, buyQty: 0, sellQty: 0 });
+    md.setPrice(OPT, 150);
+    await trade("BUY", 1, "INTRADAY", 150);
+    p = await pos();
+    const before = (p.MARGIN.dayPnl ?? 0) + (p.INTRADAY.dayPnl ?? 0);
+    expect(p.MARGIN.dayPnl).toBeCloseTo((p.MARGIN.ltp - 140) * 3 * LOT, 6);
+    expect(p.INTRADAY.dayPnl).toBeCloseTo((p.INTRADAY.ltp - 150) * LOT, 6);
+    await app.deps.orders.convertPosition(ctx(), { account: "paper", symbol: OPT, from: "MARGIN", to: "INTRADAY", lots: 2 });
+    p = await pos();
+    expect(p.INTRADAY.overnightQty).toBe(2 * LOT);
+    expect(p.MARGIN.overnightQty).toBe(LOT);
+    expect(p.MARGIN.dayPnl + p.INTRADAY.dayPnl).toBeCloseTo(before, 6);
+  });
 });

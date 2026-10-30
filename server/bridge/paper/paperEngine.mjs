@@ -234,7 +234,9 @@ export function createPaperEngine(deps, options = {}) {
     for (const o of st.orders) if (isPending(o)) setStatus(o, "expired", "Expired at the end of the trading day.", t);
     for (const [k, p] of Object.entries(st.positions)) {
       if (p.netQty === 0) delete st.positions[k];
-      else Object.assign(p, { realisedPnl: 0, buyQty: 0, sellQty: 0, buyValue: 0, sellValue: 0 });
+      // Carried into the new day: the quantity and the last mark become the day's starting point (the Day view's P&L
+      // is measured from the previous close, as brokers do).
+      else Object.assign(p, { realisedPnl: 0, buyQty: 0, sellQty: 0, buyValue: 0, sellValue: 0, overnightQty: p.netQty, prevClose: lastPrice.get(p.symbol)?.ltp ?? st.marks?.[p.symbol]?.ltp ?? p.avgPrice });
     }
     st.day = today;
     st.ordersToday = 0;
@@ -972,16 +974,25 @@ export function createPaperEngine(deps, options = {}) {
       const value = quantity * src.avgPrice;
       dst.avgPrice = (Math.abs(dst.netQty) * dst.avgPrice + value) / (Math.abs(dst.netQty) + quantity);
       dst.netQty += dir * quantity;
-      if (dir > 0) {
-        dst.buyQty += quantity;
-        dst.buyValue += value;
-        src.buyQty = Math.max(0, src.buyQty - quantity);
-        src.buyValue = Math.max(0, src.buyValue - value);
-      } else {
-        dst.sellQty += quantity;
-        dst.sellValue += value;
-        src.sellQty = Math.max(0, src.sellQty - quantity);
-        src.sellValue = Math.max(0, src.sellValue - value);
+      // The day's figures move with the units so each product's Day P&L stays right: carried units first (with the
+      // previous close), then today's buys (or sells) at today's average.
+      const carried = Math.sign(src.overnightQty ?? 0) === dir ? Math.min(quantity, Math.abs(src.overnightQty ?? 0)) : 0;
+      if (carried) {
+        src.overnightQty -= dir * carried;
+        dst.overnightQty = (dst.overnightQty ?? 0) + dir * carried;
+        dst.prevClose = src.prevClose;
+      }
+      const today = quantity - carried;
+      if (today) {
+        const side = dir > 0 ? "buy" : "sell";
+        const q = `${side}Qty`;
+        const v = `${side}Value`;
+        const avg = src[q] > 0 ? src[v] / src[q] : src.avgPrice;
+        const moved = Math.min(today, src[q]);
+        src[q] -= moved;
+        src[v] = Math.max(0, src[v] - moved * avg);
+        dst[q] += moved;
+        dst[v] += moved * avg;
       }
       if (dst.openedDay === undefined || (src.openedDay !== undefined && src.openedDay < dst.openedDay)) dst.openedDay = src.openedDay;
       src.netQty -= dir * quantity;
@@ -1109,6 +1120,10 @@ export function createPaperEngine(deps, options = {}) {
           sellQty: p.sellQty,
           buyAvg: p.buyQty ? round4(p.buyValue / p.buyQty) : null,
           sellAvg: p.sellQty ? round4(p.sellValue / p.sellQty) : null,
+          // Day view: buys and sells today, what was carried in and its previous close, and today's P&L from them.
+          overnightQty: p.overnightQty ?? 0,
+          prevClose: p.overnightQty ? (p.prevClose ?? null) : null,
+          dayPnl: p.netQty !== 0 && (ltp === null || ltp === undefined) ? null : round2(p.sellValue - p.buyValue + p.netQty * (ltp ?? 0) - (p.overnightQty ?? 0) * (p.prevClose ?? 0)),
         };
       });
     },
