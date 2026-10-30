@@ -7515,6 +7515,17 @@ button.rd-sheet-row { display: flex; gap: 10px; width: 100%; }
 .rd-acct.plain .rd-fact { grid-template-columns: 160px minmax(0, 1fr); gap: 16px; padding: 10px 0; }
 @media (max-width: 719px) { .rd-acct.plain .rd-fact { grid-template-columns: 92px minmax(0, 1fr); gap: 10px; } }
 .rd-acct.plain .rd-fact:last-child { padding-bottom: 0; }
+/* Safety: Live trading and Audit log end on one line (the audit card stopped 110 px short of its neighbour). */
+.grid.side.safety-row { align-items: stretch; }
+/* Safety: a CLI command never breaks at its hyphen ("mc-" / "bridge kill" on a phone). */
+.cli-cmd { white-space: nowrap; }
+/* Safety, desktop: the six checks three across (two rows), not six full-width rows with their value in the first
+   third and the rest of the line empty. */
+@media (min-width: 1280px) {
+  :root[data-page="safety"] .rd-acct.plain .rd-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 28px; }
+  :root[data-page="safety"] .rd-acct.plain .rd-fact { grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 10px 0; }
+  :root[data-page="safety"] .rd-acct.plain .rd-fact:nth-last-child(-n + 3) { box-shadow: none; padding-bottom: 0; }
+}
 
 /* Safety page card */
 .rd-head-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }

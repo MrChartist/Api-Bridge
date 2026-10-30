@@ -2388,7 +2388,15 @@ async function renderOrders() {
     }),
   );
 
-  // One summary line per paper account; the positions themselves live on the Positions page.
+  // One summary line per paper account; the positions themselves live on the Positions page. Every rupee figure in
+  // this table uses Indian grouping (the P&L columns too, with an explicit + for gains).
+  const pnlGrouped = (v) => {
+    if (!isFigure(v)) return DASH;
+    const text = formatRupeeGrouped(v, 2);
+    const zero = text === "₹0.00";
+    const n = Number(v);
+    return h("span", { class: zero ? undefined : n > 0 ? "up" : "down" }, n > 0 && !zero ? `+${text}` : text);
+  };
   const paper = accs.filter((x) => x.broker === "paper");
   if (paper.length) {
     const sums = await Promise.all(
@@ -2412,8 +2420,8 @@ async function renderOrders() {
             { label: "Open positions", num: true, cell: ({ open }) => formatInt(open) },
             { label: "Cash", num: true, cell: ({ f }) => formatRupeeGrouped(f.availableCash, 2) },
             { label: "Used margin", num: true, cell: ({ f }) => formatRupeeGrouped(f.usedMargin, 2) },
-            { label: "Realised", num: true, cell: ({ f }) => pnl(f.realisedPnl) },
-            { label: "Unrealised", num: true, cell: ({ f }) => pnl(f.unrealisedPnl) },
+            { label: "Realised", num: true, cell: ({ f }) => pnlGrouped(f.realisedPnl) },
+            { label: "Unrealised", num: true, cell: ({ f }) => pnlGrouped(f.unrealisedPnl) },
             { label: "", cell: ({ a }) => h("button", { type: "button", class: "small", "aria-label": `Positions of ${a.label}`, onclick: () => (location.hash = "#/positions") }, "Positions", icon("chevron")) },
           ],
           sums,
@@ -2582,7 +2590,7 @@ async function renderSafety() {
     "section",
     { class: `card kill${ks.engaged ? " engaged" : ""}` },
     iconTile(ks.engaged ? "stop" : "power", ks.engaged ? "red" : "green", "lg"),
-    h("div", { class: "stack" }, h("h2", {}, ks.engaged ? "Kill switch is on: no orders are sent" : "Kill switch is off"), h("p", { class: "muted" }, ks.engaged ? `Engaged ${istDateTime(ks.at)} by ${ks.by ?? "?"}: ${ks.reason ?? ""}` : "One click stops every new order from every tool: REST, webhooks, AI assistants and the CLI. Also: mc-bridge kill.")),
+    h("div", { class: "stack" }, h("h2", {}, ks.engaged ? "Kill switch is on: no orders are sent" : "Kill switch is off"), h("p", { class: "muted" }, ks.engaged ? `Engaged ${istDateTime(ks.at)} by ${ks.by ?? "?"}: ${ks.reason ?? ""}` : ["One click stops every new order from every tool: REST, webhooks, AI assistants and the CLI. Also: ", h("span", { class: "cli-cmd" }, "mc-bridge kill"), "."])),
     h("div", { class: "actions" }, ks.engaged ? h("button", { type: "button", id: "kill-action", class: "primary", onclick: release }, "Release (admin)") : h("button", { type: "button", id: "kill-action", class: "primary", onclick: engage }, icon("stop"), "Stop all orders")),
   );
   const live = card({
@@ -2639,7 +2647,7 @@ async function renderSafety() {
   });
   // Trading readiness (docs/spec/p1-05-readiness.md §6.4): between the kill switch and live trading.
   const ready = await readinessCard({ cardFn: card, demo: app.state.demo }).catch(() => null);
-  return [killCard, ready, limits, h("div", { class: "grid side" }, live, audit)].filter(Boolean);
+  return [killCard, ready, limits, h("div", { class: "grid side safety-row" }, live, audit)].filter(Boolean);
 }
 
 // ── Keys ──
