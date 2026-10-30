@@ -175,7 +175,7 @@ html { font-synthesis-weight: none; }
   --warn-ink: 39 100% 27.1%;
   --dv-iv: 259 65% 59.6%;
   --dv-iv-ink: 261 66.3% 52.4%;
-  --dv-band: 258 61.9% 95.9%;
+  --dv-band: 258 62% 94%; /* 1.21:1 on white, so the ±2σ half-strength band still shows (was 95.9 %: 1.12, half 1.06) */
   --neutral-ink: hsl(var(--foreground) / 0.70);
   --dv-spot: var(--foreground);
   --dv-today: var(--ios-blue);
@@ -1173,13 +1173,13 @@ button.live-ctl { --btn-h: var(--ctl-h); --btn-bg: var(--btn-soft); --btn-line: 
   font: 500 12px/1 var(--font-body); letter-spacing: 0; color: hsl(var(--foreground) / 0.72); background: var(--mat-fill-2);
 }
 .pill .pdot { width: 6px; height: 6px; border-radius: 99px; flex: none; background: currentColor; }
-.pill.ok { color: hsl(var(--ios-green-ink)); background: hsl(var(--ios-green) / 0.16); }
+.pill.ok { color: hsl(var(--ios-green-ink)); background: hsl(var(--ios-green) / var(--chip-tint)); }
 .pill.ok .pdot { background: hsl(var(--ios-green)); }
-.pill.bad { color: hsl(var(--ios-red-ink)); background: hsl(var(--ios-red) / 0.14); }
+.pill.bad { color: hsl(var(--ios-red-ink)); background: hsl(var(--ios-red) / var(--chip-tint)); }
 .pill.bad .pdot { background: hsl(var(--ios-red)); }
-.pill.warn { color: hsl(var(--ios-orange-ink)); background: hsl(var(--ios-orange) / 0.16); }
+.pill.warn { color: hsl(var(--ios-orange-ink)); background: hsl(var(--ios-orange) / var(--chip-tint)); }
 .pill.warn .pdot { background: hsl(var(--ios-orange)); }
-.pill.info { color: hsl(var(--ios-blue-ink)); background: hsl(var(--ios-blue) / 0.14); }
+.pill.info { color: hsl(var(--ios-blue-ink)); background: hsl(var(--ios-blue) / var(--chip-tint)); }
 .pill.demo { color: hsl(var(--ios-orange-ink)); background: hsl(var(--ios-orange) / 0.16); box-shadow: inset 0 0 0 1px hsl(var(--ios-orange) / 0.3); }
 /* A signed change: ▲ / ▼ with the gain / loss colour (never colour alone), as plain text: never a filled pill behind a
    figure (BUTTON-SYSTEM.md §11). */
@@ -1534,7 +1534,8 @@ input[type="checkbox"]:not(.switch input):disabled, input[type="radio"]:disabled
 .dv-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 0; padding: 0; list-style: none; font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .dv-legend li { display: inline-flex; align-items: center; gap: 6px; min-height: 20px; }
 .dv-legend button { min-height: 24px; padding: 0 8px 0 6px; gap: 6px; border-radius: 999px; font: inherit; color: inherit; background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); }
-.dv-legend button[aria-pressed="false"] { opacity: 0.35; }
+.dv-legend button[aria-pressed="false"] { color: hsl(var(--foreground) / var(--a-quiet)); box-shadow: inset 0 0 0 1px var(--mat-separator); }
+.dv-legend button[aria-pressed="false"] .dv-key { opacity: 0.35; }
 .dv-key { flex: none; display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
 .dv-key.line { width: 14px; height: 2px; border-radius: 1px; }
 .dv-key.dash { width: 14px; height: 0; border-top: 2px dashed currentColor; background: none; border-radius: 0; }
@@ -2135,7 +2136,7 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
   --c-neutral: hsl(240 6% 10% / 0.34);
   --bar-a: 0.75; --heat-a0: 0.05; --heat-a1: 0.32;
   /* Softened ink (bid / ask, CE / PE IV, small figures): full strength on white, where 80 % fell under 4.5:1. */
-  --ink-soft: 1; --soft-op: 0.92; --stale-op: 0.86; --chip-tint: 0.08;
+  --ink-soft: 1; --soft-op: 0.92; --stale-op: 0.86; --chip-tint: 0.08; --mark-a: 1;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -2149,7 +2150,7 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
     --surface-2: hsl(0 0% 8%);
     --c-neutral: hsl(0 0% 100% / 0.34);
     --bar-a: 0.6; --heat-a0: 0.06; --heat-a1: 0.42;
-    --ink-soft: 0.8; --soft-op: 0.75; --stale-op: 0.72; --chip-tint: 0.14;
+    --ink-soft: 0.8; --soft-op: 0.75; --stale-op: 0.72; --chip-tint: 0.14; --mark-a: 0.85;
   }
 }
 :root[data-theme="dark"] {
@@ -2163,7 +2164,7 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
   --surface-2: hsl(0 0% 8%);
   --c-neutral: hsl(0 0% 100% / 0.34);
   --bar-a: 0.6; --heat-a0: 0.06; --heat-a1: 0.42;
-  --ink-soft: 0.8; --soft-op: 0.75; --stale-op: 0.72; --chip-tint: 0.14;
+  --ink-soft: 0.8; --soft-op: 0.75; --stale-op: 0.72; --chip-tint: 0.14; --mark-a: 0.85;
 }
 
 .chain-panel { position: relative; }
@@ -2266,8 +2267,8 @@ table.chain .tag.mp { gap: 4px; }
 table.chain .tag.mp::before { content: ""; width: 5px; height: 5px; transform: rotate(45deg); background: hsl(var(--foreground) / 0.55); }
 table.chain .tag.cw { color: hsl(var(--c-call-ink)); box-shadow: inset 0 0 0 1px hsl(var(--c-call) / 0.7); }
 table.chain .tag.pw { color: hsl(var(--c-put-ink)); box-shadow: inset 0 0 0 1px hsl(var(--c-put) / 0.7); }
-table.chain .tag.em, table.chain .tag.em2 { padding: 0 2px; box-shadow: none; color: hsl(var(--c-atm-ink) / 0.85); }
-table.chain .tag.em2 { color: hsl(var(--c-atm-ink) / 0.65); }
+table.chain .tag.em, table.chain .tag.em2 { padding: 0 2px; box-shadow: none; color: hsl(var(--c-atm-ink) / var(--ink-soft)); }
+table.chain .tag.em2 { color: hsl(var(--c-atm-ink) / var(--soft-op)); }
 table.chain .tag.pop { animation: chain-tag-pop 160ms var(--ease-out); }
 @keyframes chain-tag-pop { from { transform: scale(0.8); opacity: 0; } }
 
@@ -2316,8 +2317,8 @@ table.chain td:is(.heat-pos, .heat-neg) .l1 { color: hsl(var(--foreground)); }
 
 /* Build-up by meaning (§4.9): filled = new positions (LB, SB), outline = closing (SC, LU); green = price up. */
 table.chain .bu, .cs-m .bu { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 16px; padding: 0 4px; border-radius: 4px; font: 500 12px/1 var(--font-body); letter-spacing: 0.03em; cursor: help; }
-:is(table.chain, .cs-m) .bu-LB { color: hsl(var(--pos-ink)); background: hsl(var(--pos) / 0.16); }
-:is(table.chain, .cs-m) .bu-SB { color: hsl(var(--neg-ink)); background: hsl(var(--neg) / 0.16); }
+:is(table.chain, .cs-m) .bu-LB { color: hsl(var(--pos-ink)); background: hsl(var(--pos) / var(--chip-tint)); }
+:is(table.chain, .cs-m) .bu-SB { color: hsl(var(--neg-ink)); background: hsl(var(--neg) / var(--chip-tint)); }
 :is(table.chain, .cs-m) .bu-SC { color: hsl(var(--pos-ink)); box-shadow: inset 0 0 0 1px hsl(var(--pos) / 0.8); }
 :is(table.chain, .cs-m) .bu-LU { color: hsl(var(--neg-ink)); box-shadow: inset 0 0 0 1px hsl(var(--neg) / 0.8); }
 /* 16Δ / 30Δ: a superscript chip after the delta (no block of colour). */
@@ -3718,8 +3719,8 @@ button.toast-undo { --btn-h: 28px; --btn-px: 10px; --btn-fs: 13px; --btn-bg: tra
 .oi-quiet { font-weight: 400; color: hsl(var(--foreground) / var(--a-quiet)); }
 /* The tone pill: ▲ bullish / ▼ bearish on a tint, ↔ range and · mixed outlined (a range is neutral). */
 .oi-tone-pill { display: inline-flex; align-items: center; height: 22px; margin-right: 8px; padding: 0 8px; border-radius: 999px; font: 500 12.5px/1 var(--font-body); white-space: nowrap; vertical-align: 1px; color: hsl(var(--foreground)); box-shadow: inset 0 0 0 1px var(--mat-separator); }
-.oi-tone-pill[data-tone="up"] { color: hsl(var(--pos-ink)); background: hsl(var(--pos) / 0.14); box-shadow: none; }
-.oi-tone-pill[data-tone="down"] { color: hsl(var(--neg-ink)); background: hsl(var(--neg) / 0.14); box-shadow: none; }
+.oi-tone-pill[data-tone="up"] { color: hsl(var(--pos-ink)); background: hsl(var(--pos) / var(--chip-tint)); box-shadow: none; }
+.oi-tone-pill[data-tone="down"] { color: hsl(var(--neg-ink)); background: hsl(var(--neg) / var(--chip-tint)); box-shadow: none; }
 .oi-tone-pill[data-tone="mixed"] { color: var(--neutral-ink); }
 .oi-verdict .oi-tone-pill { margin-right: 10px; }
 
@@ -3820,8 +3821,8 @@ button.toast-undo { --btn-h: 28px; --btn-px: 10px; --btn-fs: 13px; --btn-bg: tra
 .oi-rk.pe, .oi-sc.pe { color: hsl(var(--dv-put-ink)); background: hsl(var(--dv-put) / 0.16); }
 .obu { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 15px; padding: 0 4px; border-radius: 3px; font: 500 12px/1 var(--font-body); letter-spacing: 0.03em; cursor: help; color: var(--neutral-ink); box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.18); }
 .obu[hidden] { display: none; }
-.obu-LB, .obu-SC { color: hsl(var(--pos-ink)); background: hsl(var(--pos) / 0.14); box-shadow: none; }
-.obu-SB, .obu-LU { color: hsl(var(--neg-ink)); background: hsl(var(--neg) / 0.14); box-shadow: none; }
+.obu-LB, .obu-SC { color: hsl(var(--pos-ink)); background: hsl(var(--pos) / var(--chip-tint)); box-shadow: none; }
+.obu-SB, .obu-LU { color: hsl(var(--neg-ink)); background: hsl(var(--neg) / var(--chip-tint)); box-shadow: none; }
 .obu-CH { color: var(--neutral-ink); }
 .oi-eff { font-weight: 600; white-space: nowrap; }
 
@@ -3842,8 +3843,8 @@ button.toast-undo { --btn-h: 28px; --btn-px: 10px; --btn-fs: 13px; --btn-bg: tra
 .oi-tip-foot { margin-top: 4px; font: 500 12px/1.3 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); }
 svg .oi-b { transform-box: fill-box; transform-origin: center bottom; transform: scaleY(var(--v, 0)); transition: transform var(--dur-3) var(--ease-std); }
 svg .oi-b.dn { transform-origin: center top; stroke-width: 1; vector-effect: non-scaling-stroke; }
-svg .oi-b.ce { fill: hsl(var(--dv-call)); fill-opacity: 0.85; }
-svg .oi-b.pe { fill: hsl(var(--dv-put)); fill-opacity: 0.85; }
+svg .oi-b.ce { fill: hsl(var(--dv-call)); fill-opacity: var(--mark-a); }
+svg .oi-b.pe { fill: hsl(var(--dv-put)); fill-opacity: var(--mark-a); }
 svg .oi-b.out { fill-opacity: 0.6; }
 svg .oi-b.r2 { fill-opacity: 0.92; }
 svg .oi-b.r1 { fill-opacity: 1; }
@@ -4130,7 +4131,7 @@ table.oi-matrix td.oi-heat[data-div="3"] { background-color: hsl(var(--div-p3));
 table.oi-matrix td.oi-heat[data-div] small { opacity: 0.85; }
 table.oi-matrix td.oi-heat { transition: background-color var(--dur-3) var(--ease-std), color var(--dur-3) var(--ease-std); }
 table.oi-matrix td strong { display: block; font: 500 13px/1.1 var(--font-numeric); }
-table.oi-matrix td small { display: block; font: 500 12px/1.15 var(--font-numeric); opacity: 0.8; }
+table.oi-matrix td small { display: block; font: 500 12px/1.15 var(--font-numeric); opacity: var(--soft-op); }
 table.oi-matrix td.dom { box-shadow: inset 0 0 0 2px hsl(var(--foreground)), inset 0 0 0 3px hsl(var(--background) / 0.6); }
 table.oi-matrix td.dom strong { font-weight: 600; }
 .oi-bu-line { font-family: var(--font-body); }
@@ -4340,7 +4341,7 @@ table.oi-help-table thead th { font-size: 12px; color: hsl(var(--foreground) / v
   .oi-ring { animation: none; outline: 2px solid hsl(var(--ring, var(--foreground))); outline-offset: 1px; }
 }
 /* Strikes shown only to fill the ladder's box (outside the band the figures read): the same row, quieter. */
-table.oi-ladder tbody tr.oi-xband > td { opacity: 0.5; }
+table.oi-ladder tbody tr.oi-xband > td { opacity: var(--ink-soft); } /* full in light, 0.8 in dark: 0.5 put red figures at 2.6:1 on white; the strike cell still marks the band */
 table.oi-ladder tbody tr.oi-xband > th.k { background: var(--mat-grouped-solid); }
 table.oi-ladder tbody tr.oi-xband > th.k .kv { color: hsl(var(--foreground) / var(--a-label)); }
 /* The band's edges: a dashed rule across the row where the band starts and ends. */
@@ -7198,7 +7199,7 @@ button.cal-csv svg { width: 13px; height: 13px; }
 .cal-grid th.we { color: hsl(var(--foreground) / var(--a-quiet)); }
 .cal-cell { height: 74px; padding: 6px 5px; vertical-align: top; border-radius: var(--r-inner); background: var(--mat-fill-1); overflow: hidden; white-space: normal; }
 .cal-cell.out { background: transparent; }
-.cal-cell.out .cal-day { color: hsl(var(--foreground) / 0.3); }
+.cal-cell.out .cal-day { color: hsl(var(--foreground) / var(--a-quiet)); font-weight: 400; }
 /* Weekends read as background in both themes: no fill (light: no ring either; dark adds a faint ring so the
    recessed cell still shows its place in the grid). */
 .cal-cell.we:not(.spe) { background: transparent; }
@@ -8075,8 +8076,8 @@ svg .wl-spark-prev { stroke: hsl(var(--foreground) / 0.35); stroke-width: 1; str
 .bk-hname { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; flex: 1 1 auto; }
 .bk-hname strong { font: 600 15px/1.2 var(--font-display); }
 .bk-rel { padding: 3px 8px; border-radius: 99px; font: 600 12px/1.2 var(--font-body); white-space: nowrap; color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-2); }
-.bk-rel[data-tone="ok"] { color: hsl(var(--pos-ink)); background: hsl(var(--pos) / 0.14); }
-.bk-rel[data-tone="warn"] { color: hsl(var(--warn-ink)); background: hsl(var(--warn) / 0.16); }
+.bk-rel[data-tone="ok"] { color: hsl(var(--pos-ink)); background: hsl(var(--pos) / var(--chip-tint)); }
+.bk-rel[data-tone="warn"] { color: hsl(var(--warn-ink)); background: hsl(var(--warn) / var(--chip-tint)); }
 .bk-hsum { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; text-align: right; }
 .bk-hpnl { white-space: nowrap; font: 600 17px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; }
 .bk-hsum small { font: 500 12px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; }
@@ -8492,8 +8493,8 @@ svg .wl-spark-prev { stroke: hsl(var(--foreground) / 0.35); stroke-width: 1; str
 .ev-row .side-tag { width: 26px; min-width: 26px; height: 20px; min-height: 20px; }
 .ev-row .c-kinds { display: flex; gap: 4px; }
 .ev-chip { display: inline-flex; align-items: center; max-width: 100%; min-height: 20px; padding: 0 8px; border-radius: 999px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / 0.8); background: var(--mat-fill-2); }
-.ev-chip.bull { color: hsl(var(--pos-ink)); background: hsl(var(--pos) / var(--chip-tint, 0.14)); }
-.ev-chip.bear { color: hsl(var(--neg-ink)); background: hsl(var(--neg) / var(--chip-tint, 0.14)); }
+.ev-chip.bull { color: hsl(var(--pos-ink)); background: linear-gradient(hsl(var(--pos) / var(--chip-tint, 0.14)), hsl(var(--pos) / var(--chip-tint, 0.14))), var(--mat-grouped-solid); }
+.ev-chip.bear { color: hsl(var(--neg-ink)); background: linear-gradient(hsl(var(--neg) / var(--chip-tint, 0.14)), hsl(var(--neg) / var(--chip-tint, 0.14))), var(--mat-grouped-solid); }
 .ev-more { margin-left: 6px; font: 500 12px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
 @media (hover: hover) { .ev-row:hover { background: var(--mat-fill-1); } }
 .ev-row.sel { background: linear-gradient(var(--mat-fill-2), var(--mat-fill-2)), var(--mat-grouped-solid); }
@@ -9099,8 +9100,8 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .an-page .an-bt-form .an-bt-rules { grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
 .an-page .an-bt-form .an-bt-rules input { font-family: var(--font-numeric); }
 /* Analytics › Risk: the simulated one-day P&L histogram; days at or beyond the VaR loss are the tail. */
-.an-page .chart .bar.body { fill: hsl(var(--foreground) / 0.26); }
-.an-page .chart .bar.tail { fill: hsl(var(--neg) / 0.75); }
+.an-page .chart .bar.body { fill: hsl(var(--foreground) / 0.45); }
+.an-page .chart .bar.tail { fill: hsl(var(--neg)); }
 .an-page .chart .marker-line.es { stroke: hsl(var(--neg)); }
 /* Volatility › Forward, RR and BF, Event vol (analyticsDepth.js): a redrawn group of panels flows into the grid, and
    the event's variance split reads as a short term list. */
