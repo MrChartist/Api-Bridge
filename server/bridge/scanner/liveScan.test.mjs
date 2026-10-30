@@ -178,6 +178,7 @@ describe("demo: every library scan", () => {
       expect(v.results.length, `${s.id} hits`).toBeGreaterThan(0);
       expect(v.results.length, `${s.id} not everything`).toBeLessThan(80);
       expect(v.stats.brokerCalls).toBe(0);
+      for (const r of v.results) expect(Math.abs(r.facts.change_pct), `${s.id} ${r.symbol} inside the 10 % band`).toBeLessThanOrEqual(10);
       expect(v.stats.symbols).toBeGreaterThan(180);
       expect(v.results[0].facts.sector === null || typeof v.results[0].facts.sector === "string").toBe(true);
     }
