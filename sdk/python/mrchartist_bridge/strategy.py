@@ -791,6 +791,11 @@ class Strategy:
                 self.refresh_orders()
             except (BridgeApiError, BridgeConnectionError) as e:
                 self.log.warn("Could not read earlier orders: %s", e)
+            held = {s: q for s, q in self.positions().items() if q}
+            if held:
+                # Positions this strategy opened in an earlier run today are its own and carry over: say so.
+                self.log.info("Resumed %d open leg%s from an earlier run today: %s", len(held), "" if len(held) == 1 else "s", ", ".join("%s %+d" % sq for sq in sorted(held.items())))
+            self.log.emit("resumed", legs=len(held))
             self.on_start()
             symbols = list(dict.fromkeys(list(self.symbols) + self._extra_symbols))
             if stream is None:
@@ -907,6 +912,18 @@ def load_strategy_class(path: str) -> type:
 _PARAM_FACTORIES = {"Param"}
 
 
+class FileProblem(ValueError):
+    """A problem in a strategy file, with the line it is on (None when it is about the whole file)."""
+
+    def __init__(self, message: str, line: Optional[int] = None) -> None:
+        super().__init__(message)
+        self.line = line
+
+
+def _at(node: Optional[ast.AST]) -> Optional[int]:
+    return getattr(node, "lineno", None)
+
+
 def describe_file(path: str) -> Dict[str, Any]:
     """What the dashboard needs about a strategy file, read WITHOUT running it (Python's ast, literals only):
     its class, name, description, symbols, timeframes and declared params."""
@@ -920,9 +937,10 @@ def describe_file(path: str) -> Dict[str, Any]:
             chosen = next((c for c in classes if c.name == n.value.id), None)
     if chosen is None:
         if len(classes) != 1:
-            raise ValueError("The file must define exactly one class that extends Strategy (found %d)" % len(classes))
+            raise FileProblem("The file must define exactly one class that extends Strategy (found %d)" % len(classes), _at(classes[1]) if len(classes) > 1 else None)
         chosen = classes[0]
     out: Dict[str, Any] = {"className": chosen.name, "name": "", "description": ast.get_docstring(chosen) or "", "symbols": [], "timeframes": [], "params": [], "timerSeconds": 0}
+    params_line = tf_line = None
     for stmt in chosen.body:
         target, value = None, None
         if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
@@ -939,17 +957,20 @@ def describe_file(path: str) -> Dict[str, Any]:
             v = _literal(value)
             if isinstance(v, (list, tuple)) and all(isinstance(x, str) for x in v):
                 out[target] = list(v)
+                if target == "timeframes":
+                    tf_line = stmt.lineno
         elif target == "timer_seconds":
             v = _literal(value)
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 out["timerSeconds"] = v
         elif target == "params":
             out["params"] = _params_from_ast(value)
+            params_line = stmt.lineno
     if not out["name"]:
         out["name"] = chosen.name
     for tf in out["timeframes"]:
         if tf not in TIMEFRAMES:
-            raise ValueError("Unknown timeframe %r" % tf)
+            raise FileProblem("Unknown timeframe %r (use %s)" % (tf, ", ".join(TIMEFRAMES)), tf_line)
     return out
 
 
@@ -973,26 +994,26 @@ def _literal(node: ast.AST) -> Any:
 
 def _params_from_ast(node: ast.AST) -> List[Dict[str, Any]]:
     if not isinstance(node, ast.Dict):
-        raise ValueError("params must be a dict literal: {\"name\": Param(default, ...)}")
+        raise FileProblem("params must be a dict literal: {\"name\": Param(default, ...)}", _at(node))
     out = []
     for k, v in zip(node.keys, node.values):
         name = _literal(k) if k is not None else _MISSING
         if not isinstance(name, str) or not name.isidentifier():
-            raise ValueError("Param names must be plain identifiers in quotes")
+            raise FileProblem("Param names must be plain identifiers in quotes", _at(k) or _at(v))
         if not (isinstance(v, ast.Call) and _base_name(v.func) in _PARAM_FACTORIES):
-            raise ValueError("params[%r] must be Param(...)" % name)
+            raise FileProblem("params[%r] must be Param(...)" % name, _at(v))
         args = [_literal(a) for a in v.args]
         kwargs = {kw.arg: _literal(kw.value) for kw in v.keywords if kw.arg}
         if len(args) != 1 or args[0] is _MISSING or any(x is _MISSING for x in kwargs.values()):
-            raise ValueError("params[%r]: use literal values only (numbers, text, True/False, lists)" % name)
+            raise FileProblem("params[%r]: use literal values only (numbers, text, True/False, lists)" % name, _at(v))
         allowed = {"min", "max", "choices", "step", "help", "label", "kind"}
         extra = set(kwargs) - allowed
         if extra:
-            raise ValueError("params[%r]: unknown option %s" % (name, ", ".join(sorted(extra))))
+            raise FileProblem("params[%r]: unknown option %s" % (name, ", ".join(sorted(extra))), _at(v))
         try:
             out.append(Param(args[0], **kwargs).to_json(name))  # type: ignore[arg-type]
         except (TypeError, ValueError) as e:
-            raise ValueError("params[%r]: %s" % (name, e)) from None
+            raise FileProblem("params[%r]: %s" % (name, e), _at(v)) from None
     return out
 
 
@@ -1028,8 +1049,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(json.dumps({"ok": True, "strategy": describe_file(args[1])}))
             return 0
         except (OSError, SyntaxError, ValueError) as e:
-            msg = "%s: %s" % (type(e).__name__, e) if isinstance(e, SyntaxError) else str(e)
-            print(json.dumps({"ok": False, "error": msg[:500]}))
+            if isinstance(e, SyntaxError):
+                msg, line = "%s: %s" % (type(e).__name__, e.msg), e.lineno
+            else:
+                msg, line = str(e), getattr(e, "line", None)
+            print(json.dumps({"ok": False, "error": msg[:500], "line": line}))
             return EXIT_CONFIG
     if len(args) == 2 and args[0] == "run":
         return run_file(args[1])

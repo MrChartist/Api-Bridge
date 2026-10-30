@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { distancePct, exitChipText, pnlAt, slTriggerStart, stopOrderProblem, stopOrderText, gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, kindText, legText, outcomeText, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
+import { amoWhenText, checksForLaterDay, marketClosedAt, distancePct, exitChipText, pnlAt, slTriggerStart, stopOrderProblem, stopOrderText, gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, kindText, legText, outcomeText, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
 
 const leg = (o) => ({ op: "below", trigger: 98.5, role: "stop", trail: null, order: { side: "SELL", quantity: 130, orderType: "MARKET" }, ...o });
 
@@ -117,5 +117,43 @@ describe("stop-loss orders on the ticket", () => {
   it("says what the order does", () => {
     expect(stopOrderText({ side: "BUY", orderType: "SL-M", trigger: 253.2 })).toBe("Sends a market buy when LTP rises to 253.20. Rests at the exchange until then.");
     expect(stopOrderText({ side: "SELL", orderType: "SL", trigger: 575.05, price: 572.15 })).toBe("Sends a limit sell at 572.15 when LTP falls to 575.05. Rests at the exchange until then.");
+  });
+});
+
+describe("after-market orders in words", () => {
+  const amo = { origin: "amo", type: "single", status: "active", held: "bridge", openAt: "2026-11-02T09:15:00.000+05:30", legs: [{ op: "open", trigger: null, role: "entry", order: { side: "BUY", quantity: 65, orderType: "LIMIT", price: 121 } }] };
+  it("names it, says when it goes and that this Bridge must be running", () => {
+    expect(kindText(amo)).toBe("After-market order");
+    expect(statusText(amo)).toEqual({ text: "Queued for the open", tone: "info" });
+    expect(legText(amo.legs[0], 65)).toBe("Buy 1 lot at 121.00 at the open");
+    expect(amoWhenText(amo)).toBe("Goes at 09:15 on Mon 2 Nov · Held on this Bridge: it must be running at 09:15 IST");
+    expect(amoWhenText({ ...amo, held: "broker" })).toMatch(/Queued at your broker$/);
+  });
+  it("builds the body and checks the limit", () => {
+    const f = { account: "p", symbol: "NFO:X", product: "MARGIN", side: "BUY", units: 65, origin: "amo", orderType: "LIMIT", price: 121 };
+    expect(triggerBody(f)).toEqual({ account: "p", symbol: "NFO:X", product: "MARGIN", origin: "amo", type: "single", legs: [{ role: "entry", order: { side: "BUY", quantity: 65, orderType: "LIMIT", price: 121 } }] });
+    expect(triggerProblem(f)).toBeNull();
+    expect(triggerProblem({ ...f, price: null })?.field).toBe("price");
+  });
+  it("knows when the market is closed (weekends, before 09:15, from 15:30 IST)", () => {
+    const at = (iso) => marketClosedAt(Date.parse(iso));
+    expect(at("2026-10-30T09:14:00+05:30")).toBe(true);
+    expect(at("2026-10-30T09:15:00+05:30")).toBe(false);
+    expect(at("2026-10-30T15:29:00+05:30")).toBe(false);
+    expect(at("2026-10-30T15:30:00+05:30")).toBe(true);
+    expect(at("2026-10-31T11:00:00+05:30")).toBe(true); // Saturday
+  });
+});
+
+describe("checks for an order sent on a later day", () => {
+  it("drops today's daily counters and keeps per-order limits, the kill switch and live gates", () => {
+    const checks = [
+      { code: "DAILY_LIMIT_REACHED", severity: "block", message: "Account demo-paper has a paper loss of ₹31,651.5 today" },
+      { code: "INVALID_ORDER", severity: "block", message: "12 lots is above the per-order limit of 10 lots." },
+      { code: "KILL_SWITCH_ACTIVE", severity: "block", message: "The kill switch is on." },
+      { code: "PAPER_ONLY", severity: "block", message: "Live trading is off" },
+    ];
+    expect(checksForLaterDay(checks).map((c) => c.code)).toEqual(["INVALID_ORDER", "KILL_SWITCH_ACTIVE", "PAPER_ONLY"]);
+    expect(checksForLaterDay(null)).toEqual([]);
   });
 });

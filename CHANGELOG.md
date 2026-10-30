@@ -19,7 +19,10 @@ All notable changes to this project are listed here. The format follows [Keep a 
 - **Fixes.** OI in units (PR 17 counted lots twice); monthly futures for weekly expiries; paper accounts' risk reads
   priced through the data accounts; tide only in market hours; SVG bar heights.
 - **Demo.** Prices follow a seeded random walk (drift 10 to 12 %, vol 18 to 35 % in regimes) instead of waves around a
-  fixed level.
+  fixed level. Inside a session the price follows a seeded path from the previous close to the day's close; outside it
+  the price holds at the close, so history, sparklines and live quotes agree. Three monthly index futures.
+- **Demo price path changed.** A demo Bridge updated across this version may see a one-off gap, which can fire open
+  demo triggers.
 
 ### Live events
 

@@ -286,3 +286,84 @@ describe("trigger engine", () => {
     svc.cancel(ctx("paper"), t.id);
   });
 });
+
+describe("after-market orders (held on this Bridge, sent at 09:15)", () => {
+  const istNow = () => new Date(clock.now() + 19_800_000).toISOString().slice(0, 16);
+  async function toIst(day, hhmm) {
+    const target = Date.parse(`${day}T${hhmm}:00+05:30`);
+    if (target > clock.now()) await clock.advance(target - clock.now());
+  }
+
+  it("is refused while the market is open", async () => {
+    await toIst("2026-10-19", "11:00");
+    setPx(120);
+    const e = await reject(svc.create(ctx("paper"), { account: "paper", symbol: OPT, product: "MARGIN", origin: "amo", legs: [{ order: { side: "BUY", lots: 1, orderType: "LIMIT", price: 121 } }] }));
+    expect(e.detail).toMatch(/market is open: place the order now/);
+  });
+
+  it("set after the close, goes at 09:15 the next trading day through every gate, and not before", async () => {
+    await toIst("2026-10-23", "16:05"); // Friday after the close
+    setPx(120);
+    const t = await svc.create(ctx("paper"), { account: "paper", symbol: OPT, product: "MARGIN", origin: "amo", legs: [{ order: { side: "BUY", lots: 1, orderType: "LIMIT", price: 121 } }] });
+    expect(t).toMatchObject({ origin: "amo", status: "active", held: "bridge", openAt: "2026-10-26T09:15:00.000+05:30", reduceOnly: false });
+    expect(t.legs[0]).toMatchObject({ op: "open", trigger: null, role: "entry" });
+    expect(t.expiresAt).toBe("2026-10-26T15:30:00.000+05:30");
+    expect(await svc.runOnce()).toBe(0);
+    await toIst("2026-10-26", "09:14");
+    expect(await svc.runOnce()).toBe(0);
+    await toIst("2026-10-26", "09:15");
+    expect(await svc.runOnce()).toBe(1);
+    const after = svc.get(ctx("paper"), t.id);
+    expect(after.status).toBe("triggered");
+    const o = await app.deps.orders.get(ctx("paper"), after.result.orderId);
+    expect(o).toMatchObject({ side: "BUY", orderType: "LIMIT", price: 121, source: "guard", clientOrderId: t.id });
+    expect(istNow()).toBe("2026-10-26T09:15");
+  });
+
+  it("a market AMO is not sent when the open gaps beyond the price band", async () => {
+    await toIst("2026-10-26", "16:00");
+    setPx(120);
+    const t = await svc.create(ctx("paper"), { account: "paper", symbol: OPT, product: "MARGIN", origin: "amo", legs: [{ order: { side: "BUY", lots: 1, orderType: "MARKET" } }] });
+    expect(t.openAt).toBe("2026-10-27T09:15:00.000+05:30");
+    await toIst("2026-10-27", "09:15");
+    setPx(140); // +16.7 % at the open
+    await svc.runOnce();
+    const after = svc.get(ctx("paper"), t.id);
+    expect(after.status).toBe("failed");
+    expect(after.result).toMatchObject({ code: "PRICE_BAND" });
+    expect(after.result.message).toMatch(/opened 16\.67% away from 120/);
+  });
+});
+
+describe("an after-market order is not warned about today's daily limits", () => {
+  it("daily loss used up today + an AMO for the next session: no daily-limit warning (a same-day GTT keeps it)", async () => {
+    const at = async (day, hhmm) => {
+      const target = Date.parse(`${day}T${hhmm}:00+05:30`);
+      if (target > clock.now()) await clock.advance(target - clock.now());
+    };
+    await at("2026-10-27", "10:00");
+    try {
+      await app.deps.safety.releaseKillSwitch?.(createCallContext({ source: "cli", principal: { kind: "local", id: "cli" }, log, scopes: ["admin"] }), { confirm: "RELEASE" });
+    } catch {
+      /* not engaged */
+    }
+    // Lose more than the daily limit today: 10 lots bought at 120 and sold at 100.
+    setPx(120);
+    await app.deps.orders.place(ctx("paper"), { account: "paper", symbol: OPT, side: "BUY", quantity: 10 * LOT, product: "MARGIN", orderType: "MARKET" });
+    await clock.advance(1000);
+    setPx(100);
+    await app.deps.orders.place(ctx("paper"), { account: "paper", symbol: OPT, side: "SELL", quantity: 10 * LOT, product: "MARGIN", orderType: "MARKET" });
+    await clock.advance(1000);
+    const today = await reject(app.deps.orders.place(ctx("paper"), { account: "paper", symbol: OPT, side: "BUY", quantity: LOT, product: "MARGIN", orderType: "MARKET" }));
+    expect(today.code).toBe("DAILY_LIMIT_REACHED");
+    await at("2026-10-27", "16:00");
+    // The option expires today; the next session's order is an equity one.
+    md.setPrice("NSE:RELIANCE", 1400);
+    const amo = await svc.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", origin: "amo", legs: [{ order: { side: "BUY", quantity: 1, orderType: "LIMIT", price: 1401 } }] });
+    expect(amo.warnings.join(" ")).not.toMatch(/daily limit/);
+    const gtt = await svc.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", legs: [{ trigger: 1410, order: { side: "BUY", quantity: 1 } }] });
+    expect(gtt.warnings.join(" ")).toMatch(/daily limit/);
+    svc.cancel(ctx("paper"), amo.id);
+    svc.cancel(ctx("paper"), gtt.id);
+  });
+});

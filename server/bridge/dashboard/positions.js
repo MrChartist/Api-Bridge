@@ -8,7 +8,7 @@
 // futures and missing legs, instruments, funds) and its panels. Everything is built once and patched on each tick.
 // The maths is in options.js (pure, tested); numbers become text through format.js only. Orders always go through
 // POST /v1/orders/preview and /v1/orders, so the Bridge's safety gates apply unchanged.
-import { alertBox, api, chartSlot, emptyState, errorState, h, icon, istTime, loadingState, modal, optional, toast, touchWord, keyHint } from "./app.js";
+import { alertBox, api, chartSlot, emptyState, errorState, h, icon, istTime, loadingState, modal, optional, table, toast, touchWord, keyHint } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { barsEnter, countUp, flashValue, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
@@ -26,6 +26,8 @@ import { orderLimitsOf, sliceNotes } from "./basket-core.js";
 import { closeMs, countdownText, decayLeft, deskExpiry, gammaByStrike, pinRisk, settlementRisk } from "./expiry-core.js";
 import { normWhatIf, whatIfFigures } from "./whatif-core.js";
 import { cachedTriggers, exitChipText, openPositionExits, openTriggers } from "./triggers.js";
+import { dayRows } from "./orders-core.js";
+import { contractName } from "./flows.js";
 
 
 /**
@@ -506,6 +508,58 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   alertBtn.addEventListener("click", () => alertOn(null, "every leg"));
   const bulkEl = h("div", { class: "pos-bulk", hidden: true, role: "region", "aria-label": "Selected legs" });
   const bodyEl = h("div", { class: "pos-body" });
+  // Net (the book, the default) or Day: today's buys and sells, what was carried in and today's P&L, for every
+  // underlying in the account, as brokers show it. A per-viewer choice.
+  let dayMode = false;
+  try {
+    dayMode = localStorage.getItem("mcb.positions.view") === "day";
+  } catch {
+    /* private window */
+  }
+  const viewSeg = segmented("Positions view", [["net", "Net"], ["day", "Day"]], dayMode ? "day" : "net");
+  viewSeg.classList.add("bk-view-seg");
+  const dayEl = h("div", { class: "bk-day", hidden: !dayMode });
+  viewSeg.addEventListener("change", () => {
+    dayMode = viewSeg.value === "day";
+    try {
+      localStorage.setItem("mcb.positions.view", dayMode ? "day" : "net");
+    } catch {
+      /* private window */
+    }
+    draw();
+  });
+  function drawDay() {
+    const { rows, total, missing } = dayRows(d.all ?? []);
+    // The head names what the Day table holds: every underlying's contracts traded or carried today.
+    const daySig = `day|${rows.length}`;
+    if (titleEl.__sig !== daySig) {
+      titleEl.__sig = daySig;
+      titleEl.replaceChildren(h("strong", {}, "Today's trades"), h("span", { class: "muted" }, rows.length ? ` · ${plural(rows.length, "contract")}` : ""));
+    }
+    const qtyAt = (q, avg) => (q ? h("span", { class: "bk-nw" }, `${formatInt(q)} @ ${formatFixed(avg, 2)}`) : DASH);
+    dayEl.replaceChildren(
+      h(
+        "div",
+        { class: "bk-day-head" },
+        h("span", {}, "Today's P&L"),
+        h("strong", {}, total === null ? DASH : money(total)),
+        h("span", { class: "muted small" }, `${missing ? `${plural(missing, "row")} without day figures from the source · ` : ""}carried legs from the previous close, every underlying in this account`),
+      ),
+      table(
+        [
+          { label: "Contract", wrap: true, cell: (r) => h("div", { class: "order-contract", title: r.symbol }, h("strong", {}, contractName(r.symbol)), h("div", { class: "muted small" }, PRODUCT[r.product] ?? r.product ?? "")) },
+          { label: "Carried in", num: true, cell: (r) => (r.carried ? h("span", { class: "bk-nw" }, `${formatSigned(r.carried, 0)} @ ${formatFixed(r.prevClose, 2)}`) : DASH) },
+          { label: "Bought", num: true, cell: (r) => qtyAt(r.buy, r.buyAvg) },
+          { label: "Sold", num: true, cell: (r) => qtyAt(r.sell, r.sellAvg) },
+          { label: "Net", num: true, cell: (r) => formatSigned(r.netQty, 0) },
+          { label: "LTP", num: true, cell: (r) => formatFixed(r.ltp, 2) },
+          { label: "Day P&L", num: true, cell: (r) => (r.dayPnl === null ? DASH : money(r.dayPnl)) },
+        ],
+        rows,
+        emptyState("wallet", "Nothing traded or carried today", "Positions you trade today or carry in show here with the day's P&L.", null, { compact: true }),
+      ),
+    );
+  }
   // The hedge helper is the Positions panel's collapsible footer (a head-height row under the table), not a panel.
   const hedgeHead = h("button", { type: "button", class: "pos-hedge-head", "aria-expanded": "false" });
   const hedgeBody = h("div", { class: "pos-hedge-body", hidden: true });
@@ -513,8 +567,9 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   const posPanel = h(
     "section",
     { class: "desk-panel pos-panel", "data-panel": "positions", "aria-label": "Positions" },
-    h("div", { class: "panel-head pos-head" }, titleEl, h("div", { class: "chain-tools" }, alertBtn, exitAllBtn, gearBtn)),
+    h("div", { class: "panel-head pos-head" }, titleEl, h("div", { class: "chain-tools" }, viewSeg, alertBtn, exitAllBtn, gearBtn)),
     bodyEl,
+    dayEl,
     bulkEl,
     hedgePanel,
   );
@@ -995,7 +1050,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const narrow = isNarrow();
     const visibleLegs = legs.filter((l) => l.q || cfg().closed);
     const titleSig = `${st.underlying}|${visibleLegs.filter((l) => l.q).length}|${a?.label}`;
-    if (titleEl.__sig !== titleSig) {
+    if (!dayMode && titleEl.__sig !== titleSig) {
       titleEl.__sig = titleSig;
       const n = visibleLegs.filter((l) => l.q).length;
       titleEl.replaceChildren(h("strong", {}, `${st.underlying} positions`), h("span", { class: "muted" }, n ? ` · ${plural(n, "leg")}` : ""));
@@ -1444,6 +1499,67 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     });
   }
 
+  /**
+   * Convert a leg between Intraday (MIS) and carry (NRML): POST /v1/positions/convert. Paper moves the quantity at its
+   * average price; a live account is told to convert in the broker's app (no adapter maps it yet).
+   */
+  async function convertLeg(l) {
+    const a = account();
+    if (a && a.broker !== "paper") return toast("Convert live positions in your broker's app or terminal: the Bridge does not send conversions yet.", { tone: "info" });
+    const to = l.product === "INTRADAY" ? "MARGIN" : "INTRADAY";
+    const lot = l.lot || 1;
+    const whole = Math.floor(Math.abs(l.q) / lot);
+    const inLots = lot > 1 && Math.abs(l.q) % lot === 0;
+    const qty = h("input", { id: "bk-cv-qty", type: "number", inputmode: "numeric", min: "1", step: "1", max: String(inLots ? whole : Math.abs(l.q)), value: String(inLots ? whole : Math.abs(l.q)) });
+    const err = h("p", { class: "bad-text", role: "alert", hidden: true });
+    const name = `${st.underlying} ${legName(l)} ${expiryText(l.expiry)}`;
+    // The margin effect: the paper engine's model (the one Positions shows) charges Intraday and Carry the same, so the
+    // account's blocked margin does not move; brokers that give Intraday leverage charge more for Carry.
+    const used = num(d.funds?.usedMargin);
+    const marginLine = used !== null ? h("p", { class: "bk-cv-margin" }, "Margin ≈ ", h("strong", { class: "bk-nw" }, formatRupee(used, 0)), " → ", h("strong", { class: "bk-nw" }, formatRupee(used, 0)), h("span", { class: "muted" }, " (this account, paper model: Intraday and Carry are margined alike. A broker that gives Intraday leverage asks more for Carry.)")) : null;
+    const ok = await modal({
+      title: `Convert ${name} to ${PRODUCT[to]}`,
+      body: h(
+        "div",
+        { class: "stack" },
+        h("p", { class: "muted" }, `${l.q > 0 ? "Long" : "Short"} ${inLots ? plural(whole, "lot") : `${formatInt(Math.abs(l.q))} qty`} in ${PRODUCT[l.product]} · avg ${formatFixed(l.avg, 2)}`),
+        h("label", { class: "field", for: "bk-cv-qty" }, h("span", {}, inLots ? "Lots to convert" : "Quantity to convert"), qty),
+        marginLine,
+        h(
+          "p",
+          { class: "muted small" },
+          to === "MARGIN"
+            ? "Carry (NRML) is not squared off at 15:20 and needs full margin overnight. No order is sent; the average price stays."
+            : "Intraday is squared off at 15:20 today. No order is sent; the average price stays.",
+        ),
+        err,
+      ),
+      buttons: [
+        { label: "Keep as is", value: false },
+        {
+          label: "Convert",
+          cls: "primary",
+          onClick: async () => {
+            err.hidden = true;
+            const n = Math.max(1, Math.floor(Number(qty.value) || 0));
+            try {
+              await api("/v1/positions/convert", { method: "POST", body: { account: st.account, symbol: l.symbol, from: l.product, to, ...(inLots ? { lots: n } : { quantity: n }) } });
+              return true;
+            } catch (e) {
+              err.textContent = `Not converted: ${e?.message ?? "refused"}`;
+              err.hidden = false;
+              return false;
+            }
+          },
+        },
+      ],
+    });
+    if (ok) {
+      toast(`Converted ${name} to ${PRODUCT[to]}`);
+      tick();
+    }
+  }
+
   /** Stop and target on one leg: exits at market on the Bridge (triggers.js). Live accounts send live, if allowed. */
   async function stopsOn(l) {
     if (scopeNow() !== "account" || !st.account) return toast("Choose one account to set a stop and target.", { tone: "info" });
@@ -1467,6 +1583,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     return [
       ["Exit…", () => exitLeg(l.symbol), "exit"],
       ...part,
+      ...(l.q && scopeNow() === "account" && (l.product === "INTRADAY" || l.product === "MARGIN") ? [[l.product === "INTRADAY" ? "Convert to Carry (NRML)…" : "Convert to Intraday…", () => convertLeg(l)]] : []),
       ...(l.q && scopeNow() === "account" ? [[exitChipText(cachedTriggers(st.account), l.symbol) ? "Stop and target (set)…" : "Stop and target…", () => stopsOn(l)]] : []),
       ...(l.q ? [["Alert on this leg…", () => alertOn([l], legWords(l.symbol))]] : []),
       [l.inc ? "Exclude from risk" : "Include in risk", () => toggleInclude([l.symbol], !l.inc)],
@@ -2962,8 +3079,14 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     drawBook();
     drawWarnings();
     drawPositions();
-    hedgePanel.hidden = !has;
+    // Day view: the same panel shows today's figures instead of the book's legs.
+    bodyEl.hidden = dayMode;
+    bulkEl.hidden = dayMode || bulkEl.hidden;
+    dayEl.hidden = !dayMode;
+    if (dayMode) drawDay();
+    hedgePanel.hidden = !has || dayMode;
     if (has) drawHedge();
+    if (dayMode) hedgePanel.hidden = true;
     drawRisk();
     drawExpiryDesk();
     // POP comes from the risk pass: only the Greeks footer depends on it (the book is not drawn twice).

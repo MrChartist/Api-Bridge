@@ -22,9 +22,11 @@ import { readinessSheetRow } from "./readiness.js";
 import { clockNote, loadPricingContext } from "./vol-context.js";
 import { animatePage, barsEnter, countUp, flashValue, stopCount } from "./motion.js";
 import { riskAfterCharges, ticketRisk } from "./flows.js";
+import { depthView } from "./orders-core.js";
+import { whatToDo } from "./reasons-core.js";
 import { watch } from "./live.js";
 import { SPAN_METHOD, marginLegsOf, portfolioMargin } from "./span-margin.js";
-import { gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, opFor, slTriggerStart, stopOrderProblem, stopOrderText, triggerBody, triggerProblem } from "./trigger-core.js";
+import { checksForLaterDay, gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, marketClosedAt, opFor, slTriggerStart, stopOrderProblem, stopOrderText, triggerBody, triggerProblem } from "./trigger-core.js";
 
 const SLOT = "mcb.dashboard.desk";
 /** The index underlyings the Options pages list (live) and the three the demo serves; the Option Screener shares them. */
@@ -1626,8 +1628,13 @@ async function renderDesk(kind) {
     const slField = h("label", { class: "field bk-sl", for: "bk-sl-trig", hidden: true }, h("span", {}, "Trigger price"), slTrig);
     const slHint = h("p", { class: "hint bk-trig-hint", "aria-live": "polite", hidden: true });
     // When: now, or at a price (a GTT the Bridge holds and sends through every check when LTP reaches the trigger).
-    const whenSeg = exit ? null : segmented("When", [["now", "Now"], ["gtt", "At a price"]], "now");
+    // After the close (and before 09:15) a third choice: an after-market order the Bridge sends at the next open.
+    const closedNow = marketClosedAt(Date.now());
+    const whenSeg = exit ? null : segmented("When", [["now", "Now"], ["gtt", "At a price"], ...(closedNow ? [["amo", "At the open"]] : [])], closedNow ? "amo" : "now");
     const gtt = () => whenSeg?.value === "gtt";
+    const amo = () => whenSeg?.value === "amo";
+    /** Sent later (a GTT or an AMO): today's refusals are said as what would happen then. */
+    const later = () => gtt() || amo();
     const trig = h("input", { type: "number", min: "0.05", step: String(tick), inputmode: "decimal", "aria-describedby": "bk-trig-hint" });
     const trigHint = h("p", { class: "hint bk-trig-hint", id: "bk-trig-hint", "aria-live": "polite", hidden: true });
     const trigField = h("label", { class: "field bk-trig", hidden: true }, h("span", {}, "Trigger price"), trig);
@@ -1663,6 +1670,85 @@ async function renderDesk(kind) {
     const ack = h("input", { type: "checkbox" });
     const ackRow = h("label", { class: "check live-ack", hidden: true }, ack, `I understand this sends a real order to ${a.label}.`);
     const quoteLine = h("div", { class: "ticket-quote" });
+    // A refusal from the Bridge, in its own words, then the next step (reasons-core.js) when there is one.
+    const refusalNodes = (err) => {
+      const fix = whatToDo({ code: err?.code, message: err?.message ?? err?.detail, mode: live() ? "live" : "paper" });
+      return [alertBox(err), ...(fix ? [h("p", { class: "bk-fix" }, h("strong", {}, "What to do: "), fix)] : [])];
+    };
+    // Market depth (GET /v1/depth): read every 2 s only while it is open, so a closed panel costs no broker calls.
+    // Five levels a side; twenty where the source sends them. A tap on a price makes it the limit.
+    const depthSum = h("span", { class: "muted small bk-depth-sum" });
+    const depthBody = h("div", { class: "bk-depth-body" });
+    const depthBox = h("details", { class: "bk-depth" }, h("summary", {}, h("span", {}, "Market depth"), depthSum), depthBody);
+    let depthTimer = null;
+    let depthMax = 5;
+    let depthLast = null;
+    const pickPrice = (px) => {
+      if (typeSeg.value !== "LIMIT" && typeSeg.value !== "SL") typeSeg.value = "LIMIT";
+      price.value = String(px);
+      priceTyped = true;
+      changed();
+    };
+    function drawDepth() {
+      const r = depthLast;
+      if (!r) return;
+      if (r.error) {
+        depthSum.textContent = "";
+        return depthBody.replaceChildren(h("p", { class: "muted small" }, `Depth is not available: ${r.error.message ?? "the source sent none"}.`));
+      }
+      const v = depthView(r.data?.data, depthMax);
+      depthSum.textContent = `Bid ${formatInt(v.totalBid)} · Ask ${formatInt(v.totalAsk)}`;
+      const bar = (qty, cls) => {
+        const el = h("span", { class: `bk-depth-bar ${cls}`, "aria-hidden": "true" });
+        el.style.setProperty("--w", v.maxQty ? String(Number(qty) / v.maxQty) : "0");
+        return el;
+      };
+      const cell = (l, side) =>
+        l
+          ? h(
+              "button",
+              { type: "button", class: `bk-depth-lvl ${side}`, title: `Use ${formatFixed(l.price, 2)} as the limit price` },
+              bar(l.qty, side),
+              side === "bid" ? h("span", { class: "bk-depth-o" }, l.orders === null || l.orders === undefined ? DASH : formatInt(l.orders)) : null,
+              side === "bid" ? h("span", { class: "bk-depth-q" }, formatInt(l.qty)) : null,
+              h("span", { class: "bk-depth-p" }, formatFixed(l.price, 2)),
+              side === "ask" ? h("span", { class: "bk-depth-q" }, formatInt(l.qty)) : null,
+              side === "ask" ? h("span", { class: "bk-depth-o" }, l.orders === null || l.orders === undefined ? DASH : formatInt(l.orders)) : null,
+            )
+          : h("span", { class: `bk-depth-lvl empty ${side}` }, DASH);
+      const rows = v.rows.map((row) => {
+        const b = cell(row.bid, "bid");
+        const s = cell(row.ask, "ask");
+        if (row.bid) b.addEventListener("click", () => pickPrice(row.bid.price));
+        if (row.ask) s.addEventListener("click", () => pickPrice(row.ask.price));
+        return h("div", { class: "bk-depth-row" }, b, s);
+      });
+      const share = h("span", { class: "bk-depth-share", "aria-hidden": "true" });
+      share.style.setProperty("--w", v.bidShare === null ? "0.5" : String(v.bidShare));
+      depthBody.replaceChildren(
+        h("div", { class: "bk-depth-row bk-depth-headrow", "aria-hidden": "true" }, h("span", {}, h("span", {}, "Orders"), h("span", {}, "Qty"), h("span", {}, "Bid")), h("span", {}, h("span", {}, "Ask"), h("span", {}, "Qty"), h("span", {}, "Orders"))),
+        ...rows,
+        h("div", { class: "bk-depth-foot" }, h("span", {}, `Total bid ${formatInt(v.totalBid)}`), share, h("span", {}, `Total ask ${formatInt(v.totalAsk)}`)),
+        v.available > 5
+          ? h("button", { type: "button", class: "small plain", onclick: () => ((depthMax = depthMax === 5 ? 20 : 5), drawDepth()) }, depthMax === 5 ? `Show ${formatInt(Math.min(20, v.available))} levels` : "Show 5 levels")
+          : h("p", { class: "muted small" }, "Five levels a side from the source. Twenty-level depth shows here when the broker sends it."),
+      );
+    }
+    async function loadDepth() {
+      const r = await optional(api(`/v1/depth?symbol=${encodeURIComponent(sym)}`));
+      if (!depthBox.isConnected) return;
+      depthLast = r;
+      drawDepth();
+      drawQuote();
+    }
+    depthBox.addEventListener("toggle", () => {
+      clearInterval(depthTimer);
+      depthTimer = null;
+      if (depthBox.open) {
+        loadDepth();
+        depthTimer = setInterval(() => (depthBox.isConnected && depthBox.open ? loadDepth() : clearInterval(depthTimer)), 2000);
+      }
+    });
     // Advisory warnings from the chain (spread, liquidity, freeze qty, expiry day...): the server checks still decide.
     const warnEl = h("ul", { class: "ticket-checks ticket-warns", "aria-label": "Before you trade", hidden: true });
     // Lot-size confirmation (docs/spec/p1-02-reference.md §5.4): when the reference lot data is stale or disagrees
@@ -1754,20 +1840,35 @@ async function renderDesk(kind) {
       if (!placeBtn) return;
       const b = body();
       const blocked = (last?.checks ?? []).some((x) => x?.severity === "block");
+      // A disabled button says why on hover and to screen readers (the reason may be below the fold).
+      const firstBlock = blocked && !later() ? (last.checks.find((x) => x?.severity === "block")?.message ?? null) : null;
+      placeBtn.title = firstBlock ?? "";
+      if (firstBlock) placeBtn.setAttribute("aria-description", firstBlock);
+      else placeBtn.removeAttribute("aria-description");
       const size = `${b.side === "BUY" ? "Buy" : "Sell"} ${inUnits ? `${formatInt(b.quantity)} qty` : `${formatInt(b.lots)} lot${b.lots === 1 ? "" : "s"}`}`;
       // On a phone the footer has room for "Set GTT" only (the side is the button's colour, the size is above).
       const narrow = typeof matchMedia === "function" && matchMedia("(max-width: 719px)").matches;
-      placeBtn.textContent = `${gtt() ? (narrow ? "Set GTT" : `Set GTT: ${size}`) : size}${live() ? " · LIVE" : ""}`;
+      placeBtn.textContent = `${gtt() ? (narrow ? "Set GTT" : `Set GTT: ${size}`) : amo() ? (narrow ? "Queue AMO" : `Queue AMO: ${size}`) : size}${live() ? " · LIVE" : ""}`;
       placeBtn.className = b.side === "BUY" ? "btn buy" : "btn sell";
+      // Refused by a check: the standard disabled button, saying so (the reason is its title and in the preview).
+      if (firstBlock) {
+        placeBtn.textContent = "Blocked";
+        placeBtn.className = "btn";
+      }
       // A GTT is checked again when it fires: a price band against today's price does not stop setting it.
       const gttBad = gtt() && (!isFigure(trig.value) || Number(trig.value) <= 0);
       const slBad = isStop() && Boolean(stopOrderProblem({ side: b.side, orderType: b.orderType, trigger: b.triggerPrice, price: b.price, ltp: num(quote()?.ltp) }));
-      placeBtn.disabled = (!gtt() && blocked) || gttBad || slBad || !gateOk() || (live() && !ack.checked) || ((typeSeg.value === "LIMIT" || typeSeg.value === "SL") && !isFigure(price.value));
+      placeBtn.disabled = (!later() && blocked) || gttBad || slBad || !gateOk() || (live() && !ack.checked) || ((typeSeg.value === "LIMIT" || typeSeg.value === "SL") && !isFigure(price.value));
     };
     const drawQuote = () => {
       const q = quote();
+      // While the depth panel is open, the strip's bid and ask are its top of book (one snapshot, so they agree);
+      // otherwise the chain's quote.
+      const top = depthBox.open && !depthLast?.error ? depthLast?.data?.data : null;
+      const bid = num(top?.bids?.[0]?.price) ?? q?.bid;
+      const ask = num(top?.asks?.[0]?.price) ?? q?.ask;
       const cell = (l, v, cls) => h("span", { class: cls }, h("small", {}, l), isFigure(v) ? formatFixed(v, 2) : DASH);
-      quoteLine.replaceChildren(cell("Bid", q?.bid, "bid"), cell("LTP", q?.ltp), cell("Ask", q?.ask, "ask"), h("span", {}, h("small", {}, "IV"), fut ? DASH : formatFixed(q?.iv, 1)), h("span", {}, h("small", {}, "Δ"), fut ? "1.00" : formatFixed(q?.delta, 2)));
+      quoteLine.replaceChildren(cell("Bid", bid, "bid"), cell("LTP", q?.ltp), cell("Ask", ask, "ask"), h("span", {}, h("small", {}, "IV"), fut ? DASH : formatFixed(q?.iv, 1)), h("span", {}, h("small", {}, "Δ"), fut ? "1.00" : formatFixed(q?.delta, 2)));
     };
     let previewSeq = 0;
     let previewTimer = null;
@@ -1806,7 +1907,7 @@ async function renderDesk(kind) {
           return;
         }
         last = r;
-        const checks = [...(r.checks ?? [])].sort((x, y) => (x.severity === "block" ? -1 : 0) - (y.severity === "block" ? -1 : 0));
+        const checks = [...(amo() ? checksForLaterDay(r.checks) : (r.checks ?? []))].sort((x, y) => (x.severity === "block" ? -1 : 0) - (y.severity === "block" ? -1 : 0));
         // What this order risks before it is sent (an opening option order): max loss, breakeven at expiry and, for a
         // sell, the approximate margin. Before charges; the broker's own margin figure is final.
         const q0 = quote();
@@ -1829,7 +1930,7 @@ async function renderDesk(kind) {
         const lossText = risk ? (risk.maxLoss === null ? "Unlimited" : formatRupee(risk.maxLoss, 0)) : null;
         // With a stop and target on the entry: the loss at the stop and the reward at the target, from the expected
         // fill; the full max loss stays on screen as what a gap through the stop can cost.
-        const exitF = !gtt() && exitsWanted() && !triggerProblem(exitsFields()) ? exitsFields() : null;
+        const exitF = !later() && exitsWanted() && !triggerProblem(exitsFields()) ? exitsFields() : null;
         const atStop = exitF && isFigure(exitF.stop) && isFigure(px) ? Math.abs(px - exitF.stop) * r.quantity : null;
         const atTarget = exitF && isFigure(exitF.target) && isFigure(px) ? Math.abs(exitF.target - px) * r.quantity : null;
         const exitFigs =
@@ -1866,12 +1967,12 @@ async function renderDesk(kind) {
               )
             : null,
           // A GTT's order is checked against the market when it fires: today's refusals are said as "When it fires".
-          ...(checks.length ? [h("ul", { class: "ticket-checks" }, checks.map((x) => h("li", { class: x.severity === "block" && !gtt() ? "bad" : "warn" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, `${x.severity === "block" ? (gtt() ? "If this held when it fires, it would be refused: " : "Blocked: ") : ""}${x.message}`))))] : []),
+          ...(checks.length ? [h("ul", { class: "ticket-checks" }, checks.map((x) => h("li", { class: x.severity === "block" && !later() ? "bad" : "warn" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, `${x.severity === "block" ? (later() ? `If this held when it ${amo() ? "goes at the open" : "fires"}, it would be refused: ` : "Blocked: ") : ""}${x.message}`, x.severity === "block" && whatToDo({ ...x, mode: live() ? "live" : "paper" }) ? h("span", { class: "bk-fix" }, `What to do: ${whatToDo({ ...x, mode: live() ? "live" : "paper" })}`) : null))))] : []),
         );
       } catch (err) {
         if (seq !== previewSeq) return;
         last = null;
-        previewEl.replaceChildren(alertBox(err));
+        previewEl.replaceChildren(...refusalNodes(err));
       }
       drawButton();
     }
@@ -1917,10 +2018,17 @@ async function renderDesk(kind) {
       // A stop-loss order is already conditional: the When row (a Bridge GTT) is for limit and market orders.
       if (whenRow) whenRow.hidden = isStop();
       trigField.hidden = !gtt();
-      trigHint.hidden = !gtt();
+      trigHint.hidden = !later();
+      if (amo()) {
+        // Held on this Bridge (no adapter queues a native AMO yet): it must be running at 09:15. Limit by default;
+        // a market order takes the opening price and is not sent if the open gaps beyond the price band.
+        const mkt = typeSeg.value === "MARKET";
+        trigHint.textContent = `Goes at 09:15 IST on the next trading day, through every check. Held on this Bridge: it must be running at 09:15 IST.${mkt ? " A market order takes the opening price, which can gap far from today's close; it is not sent if the open is beyond your price band." : ""}`;
+        trigHint.classList.toggle("bad-text", mkt);
+      }
       if (exitsBox) {
-        // Gtt entries carry no exits here (set them on the position once it fills).
-        exitsBox.hidden = gtt();
+        // GTT and AMO entries carry no exits here (set them on the position once it fills).
+        exitsBox.hidden = later();
         exitsHint.textContent = exitsText();
       }
       if (gtt()) {
@@ -1955,7 +2063,7 @@ async function renderDesk(kind) {
     for (const el of [prodSeg, modeSeg].filter(Boolean)) el.addEventListener("change", changed);
     typeSeg.addEventListener("change", () => {
       if (isStop()) {
-        if (whenSeg && gtt()) whenSeg.value = "now";
+        if (whenSeg && later()) whenSeg.value = "now";
         if (!isFigure(slTrig.value)) {
           const s = slTriggerStart(sideSeg.value, num(quote()?.ltp), tick);
           if (s !== null) slTrig.value = String(s);
@@ -1970,6 +2078,8 @@ async function renderDesk(kind) {
     price.addEventListener("input", () => (priceTyped = true));
     for (const el of [lots, price, trig, stopIn, targetIn, trailIn]) el.addEventListener("input", changed);
     whenSeg?.addEventListener("change", () => {
+      // An after-market order defaults to Limit (Market is allowed, with the gap warning under it).
+      if (amo() && typeSeg.value === "MARKET") typeSeg.value = "LIMIT";
       if (gtt()) {
         priceTyped = false;
         // Intraday orders sent on a later day are squared off: a GTT starts as carry (NRML); Intraday stays possible
@@ -2005,6 +2115,7 @@ async function renderDesk(kind) {
         "div",
         { class: "stack ticket" },
         quoteLine,
+        depthBox,
         // An exit's side is fixed (the other side would add to the position): a label, not a control.
         exit ? h("div", { class: "field" }, h("span", {}, "Side"), h("span", { class: "ticket-acct" }, side === "BUY" ? "Buy to close" : "Sell to close", h("span", { class: "muted small" }, "· to add, use the chain"))) : segField("Side", sideSeg),
         h("div", { class: "ticket-grid" }, h("label", { class: "field" }, h("span", {}, inUnits ? "Quantity " : "Lots ", lotHint), lots), segField("Type", typeSeg)),
@@ -2033,6 +2144,25 @@ async function renderDesk(kind) {
             syncGate();
             if (!gateOk()) return (drawButton(), false);
             placeBtn.disabled = true;
+            if (amo()) {
+              const b = body();
+              const f = { account: a.id, symbol: sym, product: b.product, mode: b.mode, side: b.side, units: units(), origin: "amo", orderType: b.orderType, price: b.price };
+              const bad = triggerProblem(f);
+              if (bad) {
+                previewEl.replaceChildren(alertBox({ title: bad.message }));
+                drawButton();
+                return false;
+              }
+              try {
+                await api("/v1/triggers", { method: "POST", body: triggerBody(f) });
+                toast(`After-market order queued: ${b.side === "BUY" ? "buy" : "sell"} ${name} at 09:15. Held on this Bridge: it must be running then. See Orders › Triggers.`);
+                return "placed";
+              } catch (err) {
+                previewEl.replaceChildren(...refusalNodes(err));
+                drawButton();
+                return false;
+              }
+            }
             if (gtt()) {
               const b = body();
               const f = { account: a.id, symbol: sym, product: b.product, mode: b.mode, side: b.side, units: units(), origin: "gtt", entry: Number(trig.value), orderType: b.orderType, price: b.price, ltp: num(quote()?.ltp) };
@@ -2047,7 +2177,7 @@ async function renderDesk(kind) {
                 toast(`GTT set: ${b.side === "BUY" ? "buy" : "sell"} ${name} when LTP ${t.legs?.[0]?.op === "above" ? "≥" : "≤"} ${formatFixed(t.legs?.[0]?.trigger, 2)}. See Orders › Triggers.`);
                 return "placed";
               } catch (err) {
-                previewEl.replaceChildren(alertBox(err));
+                previewEl.replaceChildren(...refusalNodes(err));
                 drawButton();
                 return false;
               }
@@ -2071,7 +2201,7 @@ async function renderDesk(kind) {
               toast(`${r.status === "filled" ? "Filled" : cap(r.status)}: ${r.side} ${formatInt(r.quantity)} ${name}${isFigure(r.avgPrice) ? ` @ ${formatFixed(r.avgPrice, 2)}` : ""}${r.mode === "live" ? " · LIVE" : " · paper"}${refused && r.statusMessage ? `. ${r.statusMessage}` : ""}${exitsNote}`, { tone: refused || exitsNote.includes("NOT") ? "error" : "ok" });
               return "placed";
             } catch (err) {
-              previewEl.replaceChildren(alertBox(err));
+              previewEl.replaceChildren(...refusalNodes(err));
               drawButton();
               return false;
             }
@@ -2082,6 +2212,7 @@ async function renderDesk(kind) {
     changed();
     const result = await done;
     clearInterval(quoteTimer);
+    clearInterval(depthTimer);
     clearTimeout(previewTimer);
     if (reopen) {
       // The account changed: a new ticket for it (its paper / live gates differ), unless the page has gone.

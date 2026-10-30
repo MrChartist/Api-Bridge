@@ -104,8 +104,37 @@ export function stopOrderText({ side, orderType, trigger, price }) {
   return orderType === "SL-M" ? `Sends a market ${side === "BUY" ? "buy" : "sell"} ${when}. Rests at the exchange until then.` : `Sends a limit ${side === "BUY" ? "buy" : "sell"} at ${isFigure(price) ? formatFixed(price, 2) : DASH} ${when}. Rests at the exchange until then.`;
 }
 
+/**
+ * Whether the market takes orders at `ms` (09:15 to 15:30 IST on a weekday; holidays are the Bridge's to know, so an
+ * after-market order set on a holiday is still checked there). The ticket offers "At the open" when this is false.
+ */
+export function marketClosedAt(ms) {
+  const d = new Date(ms + 19_800_000);
+  const wd = d.getUTCDay();
+  const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+  return wd === 0 || wd === 6 || mins < 9 * 60 + 15 || mins >= 15 * 60 + 30;
+}
+
+/** When an after-market order goes, and where it is held: "Goes at 09:15 on Mon 26 Oct · held on this Bridge". */
+export function amoWhenText(t) {
+  const at = t.openAt ? new Date(Date.parse(t.openAt) + 19_800_000) : null;
+  const day = at ? `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][at.getUTCDay()]} ${formatInt(at.getUTCDate())} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][at.getUTCMonth()]}` : null;
+  const where = t.held === "broker" ? "Queued at your broker" : "Held on this Bridge: it must be running at 09:15 IST";
+  return `${day ? `Goes at 09:15 on ${day}` : "Goes at the next open"} · ${where}`;
+}
+
+/**
+ * The order checks that still apply to an order sent on a later IST day (an after-market order): today's daily
+ * counters (DAILY_LIMIT_REACHED: the day's loss and order count) reset at the day roll, so they are left out; per-order
+ * limits, the kill switch, the price band and the live gates stay.
+ */
+export function checksForLaterDay(checks) {
+  return (checks ?? []).filter((c) => c?.code !== "DAILY_LIMIT_REACHED");
+}
+
 /** What kind of trigger it is, in the words brokers use. */
 export function kindText(t) {
+  if (t.origin === "amo") return "After-market order";
   if (t.origin === "bracket") return t.type === "oco" ? "Stop and target (on entry)" : t.legs?.[0]?.role === "target" ? "Target (on entry)" : "Stop (on entry)";
   const trails = (t.legs ?? []).some((l) => l.trail);
   if (t.origin === "position") {
@@ -122,6 +151,7 @@ export function statusText(t) {
     case "waiting":
       return { text: "Waits for the entry to fill", tone: "warn" };
     case "active":
+      if (t.origin === "amo") return { text: t.result?.code ? "Queued · retrying" : "Queued for the open", tone: "info" };
       return { text: t.result?.code ? "Active · retrying" : "Active", tone: "info" };
     case "firing":
       return { text: "Sending", tone: "warn" };
@@ -148,6 +178,7 @@ const sizeText = (units, lotSize) => {
 export function legText(leg, lotSize = 1) {
   const side = leg.order?.side === "BUY" ? "Buy" : "Sell";
   const how = leg.order?.orderType === "LIMIT" ? `at ${formatFixed(leg.order.price, 2)}` : "at market";
+  if (leg.op === "open") return `${side} ${sizeText(leg.order?.quantity, lotSize)} ${how} at the open`;
   const cmp = leg.op === "above" ? "≥" : "≤";
   const trail = leg.trail ? (isFigure(leg.trail.points) ? ` · trails ${formatFixed(leg.trail.points, 2)}` : ` · trails ${formatFixed(leg.trail.pct, 1)}%`) : "";
   return `${side} ${sizeText(leg.order?.quantity, lotSize)} ${how} when LTP ${cmp} ${formatFixed(leg.trigger, 2)}${trail}`;
@@ -176,6 +207,7 @@ export function outcomeText(t) {
 export function triggerBody(f) {
   const order = (px) => ({ side: f.side, quantity: f.units, orderType: f.orderType === "LIMIT" ? "LIMIT" : "MARKET", ...(f.orderType === "LIMIT" && isFigure(px) ? { price: Number(px) } : {}) });
   const base = { account: f.account, symbol: f.symbol, product: f.product, ...(f.mode === "live" ? { mode: "live" } : {}), origin: f.origin ?? "gtt", ...(f.parentOrderId ? { parentOrderId: f.parentOrderId } : {}) };
+  if (f.origin === "amo") return { ...base, type: "single", legs: [{ role: "entry", order: order(f.price) }] };
   if ((f.origin ?? "gtt") === "gtt") {
     const trail = isFigure(f.trail) && Number(f.trail) > 0 ? { trail: { points: Number(f.trail) } } : {};
     return { ...base, type: "single", legs: [{ trigger: Number(f.entry), role: "entry", ...trail, order: order(f.price) }] };
@@ -196,6 +228,7 @@ export function triggerBody(f) {
 export function triggerProblem(f) {
   const ltp = isFigure(f.ltp) ? Number(f.ltp) : null;
   if (!(Number(f.units) > 0)) return { field: "qty", message: "Enter a quantity." };
+  if (f.origin === "amo") return f.orderType === "LIMIT" && !(Number(f.price) > 0) ? { field: "price", message: "Enter a limit price, or use a market order." } : null;
   if ((f.origin ?? "gtt") === "gtt") {
     if (!(Number(f.entry) > 0)) return { field: "entry", message: "Enter the trigger price." };
     if (ltp !== null && Number(f.entry) === ltp) return { field: "entry", message: "The trigger is the price now. Place the order instead." };

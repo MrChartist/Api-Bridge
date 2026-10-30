@@ -155,6 +155,28 @@ describe("demo adapter", () => {
     }
   });
 
+  it("lists the next three monthly index futures, so Futures has a roll cost and calendar spreads", () => {
+    const rows = demoInstruments(Date.parse("2026-10-31T01:30:00+05:30"));
+    const futs = (u) => rows.filter((r) => r.underlying === u && r.instrumentType === "FUTIDX").map((r) => r.expiry);
+    // Last Tuesday of the month; 24 Nov is a holiday in the demo calendar, so November's moves to the 23rd.
+    expect(futs("NIFTY")).toEqual(["2026-11-23", "2026-12-29", "2027-01-26"]);
+    for (const u of ["NIFTY", "BANKNIFTY", "SENSEX"]) expect(futs(u)).toHaveLength(3);
+  });
+
+  it("spot is continuous across a restart: adapters made at different times give the same price for the same instant", async () => {
+    const t = Date.parse("2026-10-31T01:30:00+05:30");
+    const first = createDemoAdapter({ now: () => t });
+    const one = (await first.fetchLTP(null, "NIFTY")).data.last_price;
+    // A later "process": more of the walk and the session paths already memoised, other instants asked first.
+    for (const x of [Date.parse("2027-03-01T11:00:00+05:30"), Date.parse("2025-06-02T10:00:00+05:30"), t - 7 * 86_400_000]) spotAt("NIFTY", x);
+    const second = createDemoAdapter({ now: () => t });
+    const two = (await second.fetchLTP(null, "NIFTY")).data.last_price;
+    expect(two).toBe(one);
+    // And a few seconds apart the price moves by the wiggle at most, never a gap.
+    const later = createDemoAdapter({ now: () => t + 5000 });
+    expect(Math.abs((await later.fetchLTP(null, "NIFTY")).data.last_price / one - 1)).toBeLessThan(0.0005);
+  });
+
   it("history and live quotes come from one path: after the close the live price is the last 5-minute close", () => {
     const ist = (s) => Date.parse(`${s}+05:30`);
     for (const sym of ["HDFCBANK", "RELIANCE", "NIFTY"]) {
@@ -393,6 +415,33 @@ describe("demo recorder (p1-01 §8, e2e step 5)", () => {
     expect(existsSync(join(dir, "recorder"))).toBe(false);
   });
 
+});
+
+// The back-fill on its own Bridge with 10 strikes a side instead of the default 40: what is checked (minutes since the
+// session start, their quality, daily rows for the previous weekdays) does not depend on the strike count, and the
+// default plan's back-fill (2 weekdays x 20 chains x 75 slots of 81 strikes) was about 10 s of CPU, which under the
+// full parallel suite on a 4-core machine ran past 45 s of wall time. The default plan itself is checked above.
+describe("demo recorder back-fill (p1-01 §8, e2e step 5)", () => {
+  let app;
+  let base;
+  let key;
+  beforeAll(async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mcb-demo-bf-"));
+    const { config } = loadConfig({ raw: { dataDir: dir, server: { port: 0 }, logging: { level: "silent" }, recorder: { indexStrikes: 10 } }, env: {}, demo: true });
+    const offset = REC_NOW - Date.now();
+    app = await createApp({ config, logger: createNullLogger(), clock: { now: () => Date.now() + offset } });
+    const { port } = await app.listen();
+    base = `http://127.0.0.1:${port}`;
+    ({ key } = await app.deps.keyStore.create({ label: "t", scopes: ["read"], accounts: "*" }));
+  });
+  afterAll(async () => {
+    await app?.close();
+  });
+  const get = async (path) => {
+    const r = await fetch(base + path, { headers: { Authorization: `Bearer ${key}` } });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  };
+
   it("within seconds the nearest NIFTY expiry has back-filled minutes since the day start, and daily rows for previous weekdays", async () => {
     const e = (await get("/v1/expiries?underlying=NIFTY")).body.data.expiries[0];
     let page = null;
@@ -408,7 +457,7 @@ describe("demo recorder (p1-01 §8, e2e step 5)", () => {
     await app.deps.recorder.backfillDone();
     const daily = (await get("/v1/options/daily?underlying=NIFTY")).body.data.rows;
     expect(new Set(daily.map((r) => r.date)).size).toBeGreaterThanOrEqual(2);
-  }, 30_000);
+  }, 60_000); // the whole back-fill is the work under test (about 5 s of CPU here); nothing in it sleeps
 });
 
 describe("demo mode config", () => {

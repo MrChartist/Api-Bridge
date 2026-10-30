@@ -5,7 +5,7 @@
 //    underlying's quote for spot). A lognormal reading of IV, not a forecast.
 // Reads go through api(); nothing polls. Figures become text through format.js only.
 import { api, card, emptyState, h, table } from "./app.js";
-import { DASH, formatFixed, formatInt, formatPercent, formatSigned, isFigure } from "./format.js";
+import { DASH, formatDayMonth, formatFixed, formatInt, formatPercent, formatSigned, isFigure } from "./format.js";
 import { legend, nextId, statusRow, tile, tiles } from "./analyticsViews.js";
 import { seriesChart } from "./analyticsMore.js";
 import { spotSymbolOf } from "./alert-core.js";
@@ -161,22 +161,26 @@ async function renderCone(H) {
     const spot = (quote.data?.data?.items ?? quote.data?.data ?? []).find?.((q) => q.symbol === sym)?.ltp ?? null;
     const cone = probabilityCone(spot, surf.data?.data?.expiries);
     if (!cone.length) return emptyState("info", "No cone to draw", "The expiries came back without an ATM IV or a spot price.");
-    const pt = (y, label) => ({ label, y });
+    // Points sit at their days to expiry (`at`), so the cone widens with √time instead of one step per expiry.
+    const pt = (y, label, at) => ({ label, y, at });
     const now = "Now";
+    const line = (k) => [pt(spot, now, 0), ...cone.map((c) => pt(c[k], formatDayMonth(c.expiry), c.days))];
     const series = [
-      { id: "u2", label: "+2σ", cls: "s2", dash: "6 4", points: [pt(spot, now), ...cone.map((c) => pt(c.up2, c.expiry.slice(5)))] },
-      { id: "u1", label: "+1σ", cls: "s1", points: [pt(spot, now), ...cone.map((c) => pt(c.up1, c.expiry.slice(5)))] },
-      { id: "d1", label: "−1σ", cls: "s1", points: [pt(spot, now), ...cone.map((c) => pt(c.down1, c.expiry.slice(5)))] },
-      { id: "d2", label: "−2σ", cls: "s2", dash: "6 4", points: [pt(spot, now), ...cone.map((c) => pt(c.down2, c.expiry.slice(5)))] },
+      { id: "u2", label: "+2σ", cls: "s2", dash: "6 4", points: line("up2") },
+      { id: "u1", label: "+1σ", cls: "s1", points: line("up1") },
+      { id: "d1", label: "−1σ", cls: "s1", points: line("down1") },
+      { id: "d2", label: "−2σ", cls: "s2", dash: "6 4", points: line("down2") },
     ];
+    const calDays = (d) => formatInt(Math.floor(d));
     const cols = [
-      { label: "Expiry", cell: (r) => h("strong", {}, r.expiry) },
-      { label: "Days", num: true, cell: (r) => formatFixed(r.days, 1) },
+      { label: "Expiry", cell: (r) => h("strong", { title: r.expiry }, formatDayMonth(r.expiry)) },
+      { label: "Calendar days", num: true, cell: (r) => calDays(r.days) },
       { label: "ATM IV", num: true, cell: (r) => formatPercent(r.atmIv, 2) },
       { label: "1σ move", num: true, cell: (r) => `±${formatFixed(r.sdPct, 2)}%` },
       { label: "−2σ", num: true, cell: (r) => formatFixed(r.down2, 0) },
       { label: "−1σ", num: true, cell: (r) => formatFixed(r.down1, 0) },
       { label: "+1σ", num: true, cell: (r) => formatFixed(r.up1, 0) },
+      { label: "+2σ", num: true, cell: (r) => formatFixed(r.up2, 0) },
     ];
     const near = cone[0];
     return h(
@@ -185,9 +189,9 @@ async function renderCone(H) {
       statusRow(surf.data?.meta?.freshness),
       tiles(
         tile(`${u} spot`, formatFixed(spot, 2), "The cone starts here"),
-        tile(`1σ to ${near.expiry}`, `${formatFixed(near.down1, 0)} to ${formatFixed(near.up1, 0)}`, `About 68 % of outcomes, ±${formatFixed(near.sdPct, 2)}%`),
-        tile(`2σ to ${near.expiry}`, `${formatFixed(near.down2, 0)} to ${formatFixed(near.up2, 0)}`, "About 95 % of outcomes"),
-        tile("Furthest expiry", cone.at(-1).expiry, `1σ ±${formatFixed(cone.at(-1).sdPct, 2)}% in ${formatFixed(cone.at(-1).days, 0)} days`),
+        tile(`1σ to ${formatDayMonth(near.expiry)}`, `${formatFixed(near.down1, 0)} to ${formatFixed(near.up1, 0)}`, `About 68 % of outcomes, ±${formatFixed(near.sdPct, 2)}%`),
+        tile(`2σ to ${formatDayMonth(near.expiry)}`, `${formatFixed(near.down2, 0)} to ${formatFixed(near.up2, 0)}`, "About 95 % of outcomes"),
+        tile("Furthest expiry", formatDayMonth(cone.at(-1).expiry), `1σ ±${formatFixed(cone.at(-1).sdPct, 2)}% in ${calDays(cone.at(-1).days)} calendar days`),
       ),
       card({ title: "Probability cone", sub: "Spot × e^(±kσ√t) from each expiry's ATM IV: a lognormal reading of what the options price in, not a forecast", body: h("div", { class: "stack" }, legend([{ cls: "s1", label: "±1σ, about 68 % of outcomes" }, { cls: "s2", label: "±2σ, about 95 %" }]), seriesChart(series, { label: `${u} probability cone by expiry`, yDecimals: 0 })) }),
       card({ title: "By expiry", sub: "The cone's levels", body: table(cols, cone, emptyState("list", "No expiries", "")), flush: true }),

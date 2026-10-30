@@ -32,12 +32,20 @@ class IronCondor(Strategy):
             raise ConfigError("wing_width must be a multiple of %d for %s" % (STEP[self.p.underlying], self.p.underlying))
         self.adjustments = 0
         self.waiting = False
-        held = {s: q for s, q in self.positions().items() if q and option_parts(s)}
-        if held:
+        held = {s: q for s, q in self.positions().items() if q}
+        if held and self.whole_condor(held):
             self.expiry = option_parts(next(iter(held)))["expiry"]
             self.log.info("Picked up the open condor: %s", ", ".join("%s %+d" % sq for sq in sorted(held.items())))
             self.subscribe(list(held))
             return
+        if held:
+            # Leftovers of a condor cut short (the kill switch or a limit refused part of an exit or a roll): close
+            # them and start clean, rather than managing a lopsided position as if it were a condor.
+            self.log.info("Found %d leftover leg%s that are not a whole condor; closing them first: %s", len(held), "" if len(held) == 1 else "s", ", ".join("%s %+d" % sq for sq in sorted(held.items())))
+            self.exit_all()
+            if any(self.positions().values()):
+                self.stop("could not close the leftover legs")
+                return
         self.expiry = self.nearest_expiry(self.p.underlying)
         chain = self.option_chain(self.p.underlying, self.expiry, strikes=30)
         try:
@@ -48,6 +56,22 @@ class IronCondor(Strategy):
             self.log.warn("The Bridge refused a leg (%s); closing what was opened", e.code)
             self.exit_all()
             self.stop("entry refused: %s" % e.code)
+
+    @staticmethod
+    def whole_condor(held):
+        """One short and one long of each right, all options of one expiry, the long further out than the short."""
+        parts = {s: option_parts(s) for s in held}
+        if len(held) != 4 or any(p is None for p in parts.values()) or len({p["expiry"] for p in parts.values()}) != 1:
+            return False
+        for right in ("CE", "PE"):
+            side = [(parts[s]["strike"], q) for s, q in held.items() if parts[s]["right"] == right]
+            shorts = [k for k, q in side if q < 0]
+            longs = [k for k, q in side if q > 0]
+            if len(shorts) != 1 or len(longs) != 1:
+                return False
+            if (longs[0] - shorts[0]) * (1 if right == "CE" else -1) <= 0:
+                return False
+        return True
 
     def pick(self, chain, right):
         """The contract of `right` whose |delta| is closest to short_delta, and its wing."""

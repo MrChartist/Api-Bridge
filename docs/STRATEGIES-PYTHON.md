@@ -86,7 +86,7 @@ restarted.
 Every order carries a `clientOrderId` of `A-<id>-<run>-<n>` (the id is the file name: `ema_crossover.py` is
 `ema_crossover`). That is how the strategy, the Algo page and its P&L find its orders among everything else on the
 account, and how positions carry over when it restarts on the same day. A strategy's positions are its own: `exit_all`
-never touches orders placed by hand or by another strategy. On the Algo page a running strategy shows its orders since Start; "Orders today" and "P&L today" cover every run of it today, since positions carry over from one run to the next.
+never touches orders placed by hand or by another strategy. On the Algo page a running strategy shows its orders since Start; "Orders today" and "P&L today" cover every run of it today, since positions carry over from one run to the next. A run that takes over open legs logs "Resumed N open legs from an earlier run today" and the page says so above its figures; the straddle and condor examples close leftovers that are not a whole position (part of an exit refused by the kill switch or a limit) before entering again.
 
 ## 3. The examples
 

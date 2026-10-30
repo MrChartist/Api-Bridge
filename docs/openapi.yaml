@@ -1381,6 +1381,46 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/positions/convert:
+    post:
+      tags: [Portfolio]
+      operationId: convertPosition
+      summary: Convert a position between Intraday (MIS) and carry (NRML)
+      description: >-
+        Paper: moves the quantity to the other product at its average price (no order, no fill, no charge); refused
+        into Intraday after the square-off time, while the kill switch is on, or when the other product holds the
+        opposite side. Live: not supported through the Bridge yet (CAPABILITY_UNSUPPORTED); convert in the broker's app.
+      x-stream: S7
+      x-scope: paper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [account, symbol, from, to]
+              properties:
+                account: { type: string }
+                symbol: { type: string }
+                from: { type: string, enum: [INTRADAY, MARGIN, CNC] }
+                to: { type: string, enum: [INTRADAY, MARGIN, CNC] }
+                quantity: { type: integer, minimum: 1 }
+                lots: { type: integer, minimum: 1 }
+                mode: { type: string, enum: [paper, live] }
+      responses:
+        "200":
+          description: The conversion.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/holdings:
     get:
       tags: [Portfolio]
@@ -8268,7 +8308,7 @@ components:
         symbol: { type: string }
         product: { type: string, enum: [INTRADAY, MARGIN, CNC, MTF] }
         type: { type: string, enum: [single, oco] }
-        origin: { type: string, enum: [gtt, bracket, position], default: gtt }
+        origin: { type: string, enum: [gtt, bracket, position, amo], default: gtt, description: "amo: an after-market order, one leg without a trigger, held on this Bridge and sent at 09:15 IST on the next trading day through every check." }
         parentOrderId: { type: string, description: "bracket: the entry order; the exits arm when it fills." }
         mode: { type: string, enum: [paper, live], default: paper }
         name: { type: string, maxLength: 80 }
@@ -8285,7 +8325,9 @@ components:
         product: { type: string }
         mode: { type: string, enum: [paper, live] }
         type: { type: string, enum: [single, oco] }
-        origin: { type: string, enum: [gtt, bracket, position] }
+        origin: { type: string, enum: [gtt, bracket, position, amo] }
+        openAt: { type: string, description: "amo: when it goes out (09:15 IST on the next trading day)." }
+        held: { type: string, enum: [bridge, broker], description: "amo: held on this Bridge (it must be running at 09:15) or queued at the broker." }
         reduceOnly: { type: boolean }
         status: { type: string, enum: [waiting, active, firing, triggered, cancelled, failed, expired] }
         legs: { type: array, items: { type: object, additionalProperties: true } }
