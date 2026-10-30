@@ -48,6 +48,7 @@ import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabili
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 import { PAGE_CODES } from "./workspace.js";
 import { triggersCard } from "./triggers.js";
+import { ordersCard, renderTradesPage } from "./orders-book.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -321,6 +322,7 @@ export const PAGES = [
     defaultTab: "book",
     tabs: [
       { id: "book", label: "Orders", page: "orders", command: "Orders", keywords: "orders confirmations tickets modify cancel paper", render: renderOrders },
+      { id: "trades", label: "Trades", page: "trades", command: "Trade book", icon: "list", tint: "orange", keywords: "trades trade book fills executions turnover charges csv", sub: "Every fill with buy, sell and turnover totals", render: renderTradesPage },
       { id: "journal", label: "Journal", page: "journal", command: "Trade journal", icon: "list", tint: "teal", keywords: "journal trades tags notes setup win rate expectancy drawdown calendar heatmap daily pnl csv export", sub: "Every fill as a trade: tags, notes, a P&L calendar and stats", render: renderJournalPage },
     ],
   },
@@ -2388,24 +2390,19 @@ async function renderOrders() {
   nodes.push(triggersCard(byId));
 
   const ord = orders.data?.data ?? [];
+  // The day's orders with status and side filters, a search and Cancel all (orders-book.js).
   nodes.push(
-    card({
-      glyph: "orders",
-      tint: "orange",
-      title: "Today's orders",
-      cls: "orders-today",
+    ordersCard({
+      ord,
+      error: orders.error ?? null,
+      byId,
+      refresh: () => show(),
       // Orders are placed from the chain's ticket; the JSON route is for trying the API (API › Test console).
-      actions: h(
-        "div",
-        { class: "row" },
+      actions: [
         h("button", { type: "button", class: "small quiet", onclick: () => (location.hash = "#/api/console?endpoint=order") }, "Send as JSON"),
         h("button", { type: "button", class: "small primary", onclick: () => (location.hash = "#/chain") }, "Trade from the chain"),
-      ),
-      flush: true,
-      body: orders.error
-        ? h("div", { class: "card-body" }, alertBox(orders.error))
-        : table(
-            [
+      ],
+      columns: [
               { label: "Time", cell: (o) => istTime(o.placedAt) },
               { label: "Account", cell: (o) => byId.get(o.accountId)?.label ?? o.accountId },
               { label: "Contract", wrap: true, cell: (o) => h("div", { title: o.symbol, class: "order-contract" }, h("strong", {}, contractName(o.symbol)), h("div", { class: "muted small" }, `${o.orderType ?? ""}${isFigure(o.price) ? ` @ ${formatFixed(o.price, 2)}` : ""} · ${o.product ?? ""}`)) },
@@ -2423,10 +2420,8 @@ async function renderOrders() {
               },
               { label: "Mode", cell: (o) => (o.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
               { label: "", cell: (o) => (WORKING_ORDER.has(o.status) ? orderActions(o) : "") },
-            ],
-            ord,
-            emptyState("orders", "No orders today", "Paper orders from the option chain, your scripts, webhooks and AI assistants show up here.", nextStep("Trade from the chain", "#/chain")),
-          ),
+      ],
+      empty: emptyState("orders", "No orders today", "Paper orders from the option chain, your scripts, webhooks and AI assistants show up here.", nextStep("Trade from the chain", "#/chain")),
     }),
   );
 
