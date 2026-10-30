@@ -123,7 +123,8 @@ What a running strategy can do:
 - **One key per run.** Each start mints an API key with scope `paper` (or `live`, below) limited to the one account
   you chose, `clientKind: "script"`. It is passed in the child's environment, held only in memory, never written to
   disk or logs, and revoked when the strategy stops, finishes, fails or the Bridge shuts down. A key left over by a
-  crash of the Bridge itself is revoked at the next start. (Revoked keys are pruned oldest first when the key file
+  crash of the Bridge itself is revoked at the next start: the key store marks each run's key (`purpose:
+  "strategy-run"`), so they are found even when `strategies/state.json` cannot be read. (Revoked keys are pruned oldest first when the key file
   nears its 1000-record limit; active keys never are.) The key cannot set triggers (`POST /v1/triggers` answers
   `SCOPE_REQUIRED`): a trigger would outlive the run and its revoked key, so a strategy manages its own exits.
 - **A clean environment.** The child gets PATH, HOME, the locale and the variables it needs (`MCB_BRIDGE_URL`,

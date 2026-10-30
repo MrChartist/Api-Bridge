@@ -90,6 +90,7 @@ export function createStrategyRunner(deps, opts = {}) {
   let saved = { settings: {}, keys: [] };
   const loaded = readJsonState(statePath);
   if (loaded.status === "ok") saved = { settings: loaded.value.settings && typeof loaded.value.settings === "object" ? loaded.value.settings : {}, keys: Array.isArray(loaded.value.keys) ? loaded.value.keys.filter((k) => typeof k === "string") : [] };
+  // Its run keys are still found and revoked at start: the key store marks them (purpose "strategy-run").
   else if (loaded.status === "corrupt") log?.warn?.("strategies state file unreadable; starting empty", { path: statePath });
   const persist = () => {
     try {
@@ -706,10 +707,22 @@ export function createStrategyRunner(deps, opts = {}) {
     if (ids.length) log?.warn?.("kill switch stopped strategies", { strategies: ids });
   });
 
-  /** Revoke keys of runs that did not end cleanly (the Bridge stopped without stopping them). */
+  /**
+   * Revoke keys of runs that did not end cleanly (the Bridge stopped without stopping them): the ones listed in the
+   * state file and every active key the key store marks as a strategy run's, so an unreadable state file loses none.
+   */
   async function revokeOrphans() {
     const live = new Set([...runtimes.values()].map((r) => r.keyId).filter(Boolean));
-    for (const k of saved.keys) if (!live.has(k)) await revokeKey(k);
+    const orphans = new Set(saved.keys);
+    try {
+      const t = now();
+      for (const r of (await deps.keyStore?.list?.()) ?? []) {
+        if (r.purpose === "strategy-run" && !r.revokedAt && !(r.expiresAt && Date.parse(r.expiresAt) <= t)) orphans.add(r.id);
+      }
+    } catch (err) {
+      log?.warn?.("could not list keys to revoke strategy run keys", { code: err?.code });
+    }
+    for (const k of orphans) if (!live.has(k)) await revokeKey(k);
   }
 
   /** Stop everything and wait for the processes (at most stopGraceMs + 1 s). */
