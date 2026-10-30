@@ -103,6 +103,9 @@ export function oiConfig(saved, { underlying = null, expiries = null } = {}) {
 function select(label, options, value, cls) {
   return h("select", { "aria-label": label, class: cls }, options.map(([v, t]) => h("option", { value: v, selected: v === value }, t)));
 }
+/** A % change that fits the ladder's Δ column: one decimal under 100 %, whole above, and a multiple ("×27") from
+ * +1000 % (an OI that grew from almost nothing reads as "×269", not "+26800.0%"). */
+export const changePct = (v) => (v === null || v === undefined ? DASH : v >= 1000 ? `×${formatCompact(1 + v / 100)}` : `${formatSigned(v, Math.abs(v) >= 100 ? 0 : 1)}%`);
 const signedPct = (v, dp = 1) => (v === null || v === undefined ? DASH : `${formatSigned(v, dp)}%`);
 /** "1 snapshot", "2 snapshots". */
 const plural = (n, word) => `${formatInt(n)} ${word}${n === 1 ? "" : "s"}`;
@@ -414,6 +417,23 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     onOpenChain: (strike, side) => openInChain(strike, side),
     onSelect: (k) => selectStrike(k, "ladder"),
   });
+  // Strikes each side of ATM the ladder's box holds when it has a fixed height (wide panels): a band that leaves the
+  // box half empty shows the neighbouring strikes too, quieter, so the column is never a block of blank rows. The
+  // band's figures (PCR, walls, build-up) still read only the band.
+  let fitN = 0;
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(() => {
+      const wrapEl = ladder.el.firstElementChild;
+      const fixed = wrapEl && getComputedStyle(wrapEl).position === "absolute";
+      const tbl = ladder.el.querySelector("table.oi-ladder");
+      const rowH = (tbl && parseFloat(getComputedStyle(tbl).getPropertyValue("--desk-row"))) || 36;
+      const n = fixed ? Math.max(0, Math.floor((ladder.el.clientHeight - 44) / rowH / 2) - 1) : 0;
+      if (n !== fitN) {
+        fitN = n;
+        if (lastX) draw(lastX);
+      }
+    }).observe(ladder.el);
+  }
   const keysEl = h(
     "div",
     { class: "desk-keys oi-keys" },
@@ -869,7 +889,8 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     syncWindowControls();
 
     // The chart and the ladder share one model of the band.
-    const lm = ladderModel({ x, rows, inBand, atm, spot, mp, wallMap, combined, unit, fq, fd, winLabel, em });
+    const inView = (i) => inBand(i) || Math.abs(i - ai) <= fitN;
+    const lm = ladderModel({ x, rows, inBand: inView, inBandStrict: inBand, atm, spot, mp, wallMap, combined, unit, fq, fd, winLabel, em });
     profile.draw(profileModel({ rows, inBand, ai, atm, spot, mp, wallMap, em, lm, fq, fd, div, combined, unit, winLabel, R1, S1, chartOn: cfg().chart }), moved);
     ladder.draw(lm, moved, { snap: live });
     paintLinked();
@@ -919,7 +940,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     return snaps.length ? `Recording since ${O.istHm(snaps[0].t)} · ${plural(snaps.length, "snapshot")} · every 1 min` : "Recording starts with the next update · every 1 min";
   }
 
-  function ladderModel({ x, rows, inBand, atm, spot, mp, wallMap, combined, unit, fq, fd, winLabel, em }) {
+  function ladderModel({ x, rows, inBand, inBandStrict = inBand, atm, spot, mp, wallMap, combined, unit, fq, fd, winLabel, em }) {
     const metric = cfg().metric;
     const held = new Map();
     for (const r of x.c.rows) {
@@ -978,7 +999,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
           txt: shown,
           dTxt: fd(leg.d),
           dNum: num(leg.d),
-          pTxt: leg.dPct === null ? (leg.d > 0 && leg.oiRef === 0 ? "new" : "") : signedPct(leg.dPct),
+          pTxt: leg.dPct === null ? (leg.d > 0 && leg.oiRef === 0 ? "new" : "") : changePct(leg.dPct),
           bu: leg.cls,
           buTitle: leg.cls ? `${O.BUILDUP_NAMES[leg.cls]} on ${s === "ce" ? "calls" : "puts"} = ${read[0]}: ${read[1]} for the underlying` : "",
           rank: wt ? Number(wt.slice(1)) : 0,
@@ -990,6 +1011,8 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       return {
         strike: r.strike,
         inBand: shownRow,
+        // Shown to fill the ladder's box, outside the band the page's figures read.
+        xband: shownRow && !inBandStrict(i),
         atm: r.strike === atm,
         inEm,
         out: hasEm && !inEm,
@@ -1080,7 +1103,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
         oiTo: m.fq(leg.oi),
         d: num(leg.d),
         dTxt: m.fd(leg.d),
-        pct: leg.dPct !== null ? signedPct(leg.dPct) : leg.d > 0 && leg.oiRef === 0 ? "new" : "",
+        pct: leg.dPct !== null ? changePct(leg.dPct) : leg.d > 0 && leg.oiRef === 0 ? "new" : "",
         ltp: leg.ltp !== null ? formatFixed(leg.ltp, 2) : null,
         dLtp: num(leg.dLtp),
         dLtpTxt: leg.dLtp !== null ? formatSigned(leg.dLtp, 2) : "",
@@ -1254,7 +1277,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const maxAbs = Math.max(0, ...movers.adds.map((m) => Math.abs(m.d)), ...movers.unwinds.map((m) => Math.abs(m.d)));
     // Only what is shown goes into the signature (formatted text, the bar's rounded share, signs), so a tick that moves
     // a raw figure without changing what reads on screen rebuilds nothing.
-    const item = (m) => ({ k: m.strike, side: m.side, d: sign(m.d), f: r3(maxAbs ? Math.abs(m.d) / maxAbs : 0), dTxt: fd(m.d), pct: m.dPct === null ? "new" : signedPct(m.dPct, 0), dLtp: sign(m.dLtp), ltp: m.dLtp === null ? "" : formatSigned(m.dLtp, 1), cls: m.cls, wall: m.wall ?? "" });
+    const item = (m) => ({ k: m.strike, side: m.side, d: sign(m.d), f: r3(maxAbs ? Math.abs(m.d) / maxAbs : 0), dTxt: fd(m.d), pct: m.dPct === null ? "new" : changePct(m.dPct), dLtp: sign(m.dLtp), ltp: m.dLtp === null ? "" : formatSigned(m.dLtp, 1), cls: m.cls, wall: m.wall ?? "" });
     const data = { adds: movers.adds.map(item), unwinds: movers.unwinds.map(item), winLabel, tab: moverTab };
     const sig = JSON.stringify(data);
     if (moversEl.__sig === sig) return;
@@ -1755,6 +1778,8 @@ function createProfile({ onPick, onToggle, onJump }) {
   let built = null;
   let m = null;
   let W = 0;
+  // The box's height comes from the page's CSS (taller where the panel has the room, oi.md); 200 px by default.
+  let BH = 0;
   let ymax = 0;
   let entered = new Set();
   let pinK = null;
@@ -1789,8 +1814,10 @@ function createProfile({ onPick, onToggle, onJump }) {
   if (typeof ResizeObserver === "function") {
     new ResizeObserver(() => {
       const w = Math.round(box.clientWidth);
-      if (w && w !== W && m) {
+      const hh = Math.round(box.clientHeight);
+      if (w && (w !== W || hh !== BH) && m) {
         W = w;
+        BH = hh;
         built = null;
         render(false);
       }
@@ -1841,7 +1868,8 @@ function createProfile({ onPick, onToggle, onJump }) {
     W = W || Math.round(box.clientWidth);
     if (!W) return;
     const phone = isPhone();
-    const H = phone ? 160 : 200;
+    BH = BH || Math.round(box.clientHeight);
+    const H = phone ? 160 : Math.max(200, BH || 200);
     const n = m.pts.length;
     const metric = m.metric;
     const plotW = Math.max(10, W - PAD.l - PAD.r);
@@ -2686,7 +2714,7 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
       // Rows outside the band are not drawn: they are patched when the band shows them (their signatures differ then).
       if (!r.inBand) continue;
       const isSpot = Boolean(r.spotLine);
-      const rowSig = `${r.atm}|${r.inEm}|${r.out}|${isSpot}`;
+      const rowSig = `${r.atm}|${r.inEm}|${r.out}|${isSpot}|${r.xband}`;
       if (b.sig !== rowSig) {
         const hop = b.sig !== "" && isSpot && !b.tr.classList.contains("spot-line");
         b.sig = rowSig;
@@ -2694,6 +2722,9 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
         b.tr.classList.toggle("in-em", r.inEm);
         b.tr.classList.toggle("out-em", r.out);
         b.tr.classList.toggle("spot-line", isSpot);
+        b.tr.classList.toggle("oi-xband", Boolean(r.xband));
+        if (r.xband) b.tr.title = "Outside the strike band: not counted in PCR, walls or build-up";
+        else b.tr.removeAttribute("title");
         if (hop) {
           b.th.classList.remove("spot-in");
           requestAnimationFrame(() => b.th.classList.add("spot-in"));

@@ -546,7 +546,8 @@ function cardsEl(model) {
 /** Draw one small multiple into its host (re-run on resize). `first`: the multiple that labels revision marks. */
 function drawSpark(host, s, model, first = false) {
   const W = Math.max(220, Math.round(host.clientWidth || 320));
-  const H = 136;
+  // 136 px, or taller where the page lets the multiples fill their panel (wide screens, app.css 12p).
+  const H = Math.max(136, Math.round(host.clientHeight || 136));
   const revs = model.revisions.length > 0;
   // With revision marks, the label sits in a strip above the plot (never over the lines).
   const padT = revs ? 22 : 10;
@@ -709,8 +710,10 @@ export async function renderParticipantsPage() {
     }
     hosts.forEach(({ host, s }, k) => {
       const w = Math.round(host.clientWidth);
-      if (host.__w === w) return;
+      const hh = Math.round(host.clientHeight);
+      if (host.__w === w && host.__h === hh) return;
       host.__w = w;
+      host.__h = hh;
       host.__g = drawSpark(host, s, model, k === 0);
     });
   }
