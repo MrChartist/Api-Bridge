@@ -8908,6 +8908,8 @@ p.bk-fix { font-size: 13px; }
 .algo-ddesc { margin: 10px var(--card-pad) 0; font: 400 14px/1.5 var(--font-body); max-width: 90ch; }
 .algo-dalert { display: flex; margin: 12px var(--card-pad) 0; padding: 10px 14px; border-radius: var(--r-inner); font: 400 13.5px/1.45 var(--font-body); }
 .algo-dalert[hidden] { display: none; }
+.algo-resumed { margin: 12px var(--card-pad) 0; padding: 8px 12px; border-radius: 10px; font: 400 13.5px/1.45 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-1); }
+.algo-resumed[hidden] { display: none; }
 .algo-dalert > span { display: flex; align-items: flex-start; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
 .algo-dalert svg { width: 16px; height: 16px; flex: none; margin-top: 2px; fill: none; stroke: currentColor; stroke-width: 2; }
 .algo-dalert.bad { color: hsl(var(--ios-red-ink)); background: hsl(var(--ios-red) / 0.1); }
