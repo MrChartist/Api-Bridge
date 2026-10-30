@@ -46,6 +46,7 @@ import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText, startupText } from "./flows.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
+import { PAGE_CODES } from "./workspace.js";
 import { triggersCard } from "./triggers.js";
 
 const $ = (id) => document.getElementById(id);
@@ -329,6 +330,7 @@ export const PAGES = [
       { id: "strike", label: "By strike", page: "oi", command: "OI Analysis", keywords: "open interest build-up walls max pain pcr", render: renderOiPage },
       { id: "participants", label: "Participants", page: "participants", command: "Participant OI", icon: "people", tint: "teal", keywords: "participants fii dii client pro", sub: "NSE participant-wise open interest: Client, DII, FII and Pro, by day", render: renderParticipantsPage },
       anTab("change", "OI change", "oichange", { command: "OI change", icon: "activity", tint: "orange", keywords: "oi change build-up unwinding long short covering window", sub: "Open interest added or cut over a window, and who is acting, by strike" }),
+      anTab("history", "Strike history", "an-strikehist", { command: "OI and IV of a strike over time", icon: "clock", tint: "orange", keywords: "strike history oi iv over time session recorded call put", sub: "One strike's call and put OI and IV through the session, from the Bridge's recorder" }),
       anTab("spurts", "Spurts", "an-spurts", { command: "OI spurts", icon: "bolt", tint: "orange", keywords: "oi spurts jump baseline surge", sub: "Strikes whose open interest jumped most against their rolling baseline" }),
       anTab("expiry", "Expiry day", "expiry", { command: "Expiry day digest", icon: "clock", tint: "red", keywords: "expiry day digest time left straddle max pain walls gamma flags", sub: "Time left, the ATM straddle, max pain, OI walls and gamma flags for the expiry, in one view" }),
     ],
@@ -340,6 +342,7 @@ export const PAGES = [
       { id: "overview", label: "Overview", page: "vol", command: "Volatility", keywords: "smile skew term structure expected move iv surface", render: renderVolPage },
       anTab("skew", "Skew", "skew", { command: "IV skew", icon: "wave", tint: "pink", keywords: "iv skew call put risk reversal strike smile", sub: "Call and put IV by strike for one expiry, with the risk reversal" }),
       anTab("surface", "Surface", "an-surface", { command: "IV surface", icon: "wave", tint: "pink", keywords: "iv surface across expiries term structure lines", sub: "IV by strike for the next expiries, one line each, and the term structure" }),
+      anTab("cone", "Cone", "an-cone", { command: "Probability cone", icon: "wave", tint: "pink", keywords: "probability cone expected move sigma range expiry iv", sub: "The ±1σ and ±2σ range each expiry's ATM IV implies" }),
       anTab("stats", "Vol stats", "an-volstats", { command: "Vol stats and IV rank", icon: "chart", tint: "pink", keywords: "hv historical volatility iv rank percentile expected move cone", sub: "Historical volatility, ATM IV against HV, expected move, IV rank and the term structure" }),
     ],
   },
@@ -463,6 +466,8 @@ export const LEGACY = {
   "an-volstats": "vol/stats",
   oichange: "oi/change",
   "an-spurts": "oi/spurts",
+  "an-strikehist": "oi/history",
+  "an-cone": "vol/cone",
   expiry: "oi/expiry",
 };
 
@@ -1175,10 +1180,27 @@ async function refreshTicketCount() {
 // Motion helpers (animatePage / animateNav), when motion.js provides them. Loaded lazily so Node tests never touch it.
 let motionHooks = null;
 
+/**
+ * PR 17's page codes that open a page here, with the page's name (the palette's command line, "banknifty oc", and
+ * the g-key sequences). A code whose page id does not resolve (it would land on Home) is left out. Pure.
+ */
+const CODE_ROUTES = Object.freeze({ gex: "exposure/strike", payoff: "strategy" }); // PR 17 ids with no LEGACY entry of their own
+export function paletteCodes() {
+  const out = [];
+  for (const id of Object.keys(PAGE_CODES)) {
+    const route = CODE_ROUTES[id] ?? id;
+    const r = resolveRoute(`#/${route}`);
+    if (r.page.id === "home" && id !== "home") continue;
+    if (r.page.id !== route.split("/")[0] && !Object.hasOwn(LEGACY, route)) continue;
+    out.push({ id, route, label: r.tab ? `${r.page.label} › ${r.tab.label}` : r.page.label });
+  }
+  return out;
+}
+
 export async function startRouter() {
   setupA11y();
   setupChrome();
-  initPalette({ pages: () => PAGES, go, refresh: () => show({ refresh: true }) });
+  initPalette({ pages: () => PAGES, go, refresh: () => show({ refresh: true }), codes: paletteCodes });
   try {
     motionHooks = await import("./motion.js");
   } catch {

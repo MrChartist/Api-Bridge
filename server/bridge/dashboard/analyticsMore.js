@@ -268,7 +268,15 @@ export const RULE_METRICS = [
   { id: "atm_iv", label: "At-the-money IV", short: "ATM IV", kind: "threshold", unit: "%", hint: "Implied volatility of the at-the-money options, in percent.", example: "15" },
   { id: "basis_pct", label: "Futures basis", short: "futures basis", kind: "threshold", unit: "% of spot", hint: "Future minus spot, in percent of spot.", example: "0.4" },
   { id: "gex_regime", label: "Gamma regime changes", short: "gamma regime", kind: "regime", unit: "", hint: "Fires when dealer gamma flips between positive, negative and neutral.", example: "" },
-  { id: "spot_cross", label: "Spot crosses a level", short: "spot", kind: "cross", unit: "", hint: "Fires when the underlying's price crosses the level you type.", example: "24500" },
+  { id: "spot_cross", label: "Spot crosses a level", short: "spot", kind: "cross", unit: "", hint: "Fires when the underlying's price crosses the level you type.", example: "24500", noExpiry: true },
+  { id: "strike_oi_change", label: "OI change at one strike", short: "OI change", kind: "threshold", unit: "% since the previous close", hint: "Open interest added (or cut) at the strike since the previous close, in percent of that close.", example: "25", perStrike: true },
+  { id: "strike_iv", label: "IV at one strike", short: "IV", kind: "threshold", unit: "%", hint: "Implied volatility of the contract at that strike, in percent.", example: "18", perStrike: true },
+  { id: "atm_iv_change", label: "ATM IV change today", short: "ATM IV change", kind: "threshold", unit: "points", hint: "ATM IV now against the day's first check, in volatility points (a rise of 2 is 14% to 16%).", example: "2" },
+  { id: "iv_rank", label: "ATM IV rank", short: "IV rank", kind: "threshold", unit: "", hint: "Where today's ATM IV sits in its past year, 0 to 100.", example: "80" },
+  { id: "unusual_count", label: "Unusual contracts", short: "count of unusual contracts", kind: "threshold", unit: "", hint: "Contracts scoring 50 or more on Flow › Unusual activity.", example: "3" },
+  { id: "tide_sentiment", label: "Flow sentiment changes", short: "flow sentiment", kind: "regime", unit: "", hint: "Fires when Market tide's sentiment turns bullish, bearish or neutral.", example: "", to: ["bullish", "bearish", "neutral"] },
+  { id: "volume_spike", label: "Volume against its 20-day average", short: "volume against its 20-day average", kind: "threshold", unit: "x", hint: "Today's volume as a multiple of the 20-day average.", example: "2", noExpiry: true },
+  { id: "fii_net_streak", label: "FII buying or selling streak", short: "FII net streak", kind: "threshold", unit: "days", hint: "Days in a row of FII net buying (positive) or selling (negative).", example: "3", noExpiry: true },
 ];
 export const metricInfo = (id) => RULE_METRICS.find((m) => m.id === id) ?? RULE_METRICS[0];
 
@@ -276,12 +284,13 @@ export const metricInfo = (id) => RULE_METRICS.find((m) => m.id === id) ?? RULE_
 export function describeRule(r) {
   const m = metricInfo(r.metric);
   const u = String(r.underlying ?? "").toUpperCase() || "the underlying";
-  const where = r.expiry && r.metric !== "spot_cross" ? ` (expiry ${r.expiry})` : "";
+  const where = r.expiry && !m.noExpiry ? ` (expiry ${r.expiry})` : "";
+  const at = m.perStrike && isFigure(r.strike) ? ` at ${formatInt(r.strike)} ${r.right ?? ""}`.trimEnd() : "";
   const val = isFigure(r.value) ? formatNumber(r.value, { maximumFractionDigits: 4 }) : "...";
-  if (m.kind === "regime") return `Tell me when ${u}'s gamma regime changes${r.to ? ` to ${r.to}` : ""}${where}.`;
+  if (m.kind === "regime") return `Tell me when ${u}'s ${m.short} changes${r.to ? ` to ${r.to}` : ""}${where}.`;
   if (m.kind === "cross") return r.op === "above" ? `Tell me when ${u} moves up through ${val}.` : r.op === "below" ? `Tell me when ${u} moves down through ${val}.` : `Tell me when ${u} crosses ${val} in either direction.`;
   const unit = m.unit === "%" ? "%" : m.unit ? ` ${m.unit}` : "";
-  return `Tell me when ${u}'s ${m.short} ${r.op === "below" ? "falls below" : "rises above"} ${val}${unit}${where}.`;
+  return `Tell me when ${u}'s ${m.short}${at} ${r.op === "below" ? "falls below" : "rises above"} ${val}${unit}${where}.`;
 }
 
 /**
@@ -294,9 +303,15 @@ export function ruleBody(f) {
   const underlying = String(f.underlying ?? "").trim().toUpperCase();
   if (!/^[A-Z0-9&_-]{1,30}$/.test(underlying)) errors.push("Underlying must be a symbol such as NIFTY.");
   const body = { name: "", underlying, metric: m.id, marketHoursOnly: Boolean(f.marketHoursOnly), enabled: true };
-  if (m.id !== "spot_cross") {
+  if (!m.noExpiry) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(f.expiry ?? ""))) errors.push("Pick an expiry.");
     else body.expiry = f.expiry;
+  }
+  if (m.perStrike) {
+    const k = readNumber(f.strike);
+    if (k === null || k <= 0) errors.push("Type the strike to watch.");
+    else body.strike = k;
+    body.right = f.right === "PE" ? "PE" : "CE";
   }
   if (m.kind !== "regime") {
     const v = readNumber(f.value);
@@ -305,6 +320,7 @@ export function ruleBody(f) {
     else if (m.id === "atm_iv" && v <= 0) errors.push("IV must be above 0.");
     else if (m.id === "max_pain_distance" && v < 0) errors.push("The distance cannot be below 0.");
     else if (m.id === "spot_cross" && v <= 0) errors.push("The level must be above 0.");
+    else if (m.id === "strike_iv" && v <= 0) errors.push("IV must be above 0.");
     else body.value = v;
     body.op = m.kind === "cross" ? (["above", "below", "either"].includes(f.op) ? f.op : "either") : f.op === "below" ? "below" : "above";
   } else if (f.to) body.to = f.to;
@@ -1131,8 +1147,11 @@ function drawStraddle(res) {
   const d = res.data?.data ?? {};
   const fr = res.data?.meta?.freshness;
   const hist = d.history ?? [];
+  const strangle = Number(d.width) > 0;
+  const what = strangle ? "Strangle" : "Straddle";
+  const at = strangle ? `${formatInt(d.callStrike)} CE and ${formatInt(d.putStrike)} PE` : `at ${isFigure(d.atmStrike) ? formatInt(d.atmStrike) : DASH}`;
   const head = tiles(
-    tile("Straddle price", money(d.premium), `Call ${isFigure(d.ce) ? formatFixed(d.ce, 2) : DASH} + put ${isFigure(d.pe) ? formatFixed(d.pe, 2) : DASH} at ${isFigure(d.atmStrike) ? formatInt(d.atmStrike) : DASH}`),
+    tile(`${what} price`, money(d.premium), `Call ${isFigure(d.ce) ? formatFixed(d.ce, 2) : DASH} + put ${isFigure(d.pe) ? formatFixed(d.pe, 2) : DASH} ${at}`),
     tile("Since the start of the history", isFigure(d.changePct) ? `${formatSigned(d.changePct, 2)}%` : DASH, isFigure(d.change) ? `${formatSigned(d.change, 2)} points` : "Needs history", signedClass(d.change)),
     tile("Implied move", isFigure(d.impliedMove) ? `${formatFixed(d.impliedMove, 2)}` : DASH, isFigure(d.impliedMovePct) ? `${formatFixed(d.impliedMovePct, 2)}% of spot, up or down` : ""),
     tile("Break-evens", isFigure(d.lowerBreakeven) ? `${formatFixed(d.lowerBreakeven, 0)} to ${formatFixed(d.upperBreakeven, 0)}` : DASH, "Expiry prices where a buyer breaks even"),
@@ -1143,7 +1162,7 @@ function drawStraddle(res) {
   return [
     statusRow(fr),
     head,
-    sectionCard("Straddle price over time", `The at-the-money call plus put at ${d.interval} candles. A falling line is time decay and shrinking IV; a rising one is the market pricing a bigger move.`, legend([{ cls: "s1", label: "Straddle price" }]), seriesChart([{ id: "st", label: "Straddle", cls: "s1", points: pts }], { label: `ATM straddle price over ${hist.length} candles for ${d.underlying} ${d.expiry}. Now ${money(d.premium)}, high ${isFigure(d.historyHigh) ? formatFixed(d.historyHigh, 2) : "unknown"}, low ${isFigure(d.historyLow) ? formatFixed(d.historyLow, 2) : "unknown"}.`, refs: isFigure(d.historyHigh) && isFigure(d.historyLow) ? [{ y: d.historyHigh, label: "High" }, { y: d.historyLow, label: "Low" }] : [] })),
+    sectionCard(`${what} price over time`, `${strangle ? `The ${formatInt(d.callStrike)} call plus the ${formatInt(d.putStrike)} put` : "The at-the-money call plus put"} at ${d.interval} candles. A falling line is time decay and shrinking IV; a rising one is the market pricing a bigger move.`, legend([{ cls: "s1", label: `${what} price` }]), seriesChart([{ id: "st", label: what, cls: "s1", points: pts }], { label: `${strangle ? `${formatInt(d.callStrike)} / ${formatInt(d.putStrike)} strangle` : "ATM straddle"} price over ${hist.length} candles for ${d.underlying} ${d.expiry}. Now ${money(d.premium)}, high ${isFigure(d.historyHigh) ? formatFixed(d.historyHigh, 2) : "unknown"}, low ${isFigure(d.historyLow) ? formatFixed(d.historyLow, 2) : "unknown"}.`, refs: isFigure(d.historyHigh) && isFigure(d.historyLow) ? [{ y: d.historyHigh, label: "High" }, { y: d.historyLow, label: "Low" }] : [] })),
     dataDisclosure("Show as a table", [{ label: "Time", cell: (r) => h("strong", {}, istDateTime(new Date(r.time * 1000).toISOString())) }, { label: "Call", num: true, cell: (r) => formatFixed(r.ce, 2) }, { label: "Put", num: true, cell: (r) => formatFixed(r.pe, 2) }, { label: "Straddle", num: true, cell: (r) => formatFixed(r.straddle, 2) }], [...hist].reverse().slice(0, 100)),
   ];
 }
@@ -1157,10 +1176,11 @@ async function renderGreeksGrid(H) {
         label: "ATM straddle",
         expiry: true,
         fields: [
+          { key: "width", label: "Pair", type: "select", options: [["0", "ATM straddle"], ["1", "Strangle ±1 strike"], ["2", "Strangle ±2 strikes"], ["3", "Strangle ±3 strikes"], ["5", "Strangle ±5 strikes"]], value: "0" },
           { key: "interval", label: "Candle", type: "select", options: [["1m", "1 minute"], ["5m", "5 minutes"], ["15m", "15 minutes"], ["30m", "30 minutes"], ["60m", "1 hour"]], value: "5m" },
           { key: "countback", label: "How many candles", type: "select", options: [["75", "75"], ["150", "150"], ["300", "300"]], value: "75" },
         ],
-        run: async ({ v, o }) => drawStraddle(await api(`/v1/analytics/straddle?${new URLSearchParams({ underlying: v.underlying, expiry: v.expiry, interval: o.interval, countback: o.countback })}`)),
+        run: async ({ v, o }) => drawStraddle(await api(`/v1/analytics/straddle?${new URLSearchParams({ underlying: v.underlying, expiry: v.expiry, interval: o.interval, countback: o.countback, width: o.width || "0", strikes: "15" })}`)),
       },
     ],
   });

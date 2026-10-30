@@ -6,7 +6,9 @@ import { skewSeries } from "./analyticsViews.js";
 import { OPT_VIEWS, cumulativeFlows, flowRowH, legsToBasket, optimizerQuery, payoffWindow } from "./analyticsMore.js";
 import { ruleText, volOiText } from "./analyticsFlow.js";
 import { backtestBody, concentrationWords, equitySeries, histogramLayout, inrShort, pickAccount, weightText } from "./analyticsRisk.js";
-import { LEGACY, PAGES, resolveRoute } from "./views.js";
+import { LEGACY, PAGES, paletteCodes, resolveRoute } from "./views.js";
+import { commandResult } from "./palette.js";
+import { firstLast, probabilityCone, strikeSeries } from "./analyticsTime.js";
 
 describe("analytics host", () => {
   it("lets the last panel take what is left of its row", () => {
@@ -104,6 +106,37 @@ describe("analytics host", () => {
     const q = new URLSearchParams(optimizerQuery(v, { view: "neutral", objective: "riskReward", minPop: "55", maxLoss: "", capital: "200000" }).query);
     expect(Object.fromEntries(q)).toEqual({ underlying: "NIFTY", expiry: "2026-11-03", view: "neutral", objective: "riskReward", top: "6", capital: "200000", minPop: "55" });
     expect(optimizerQuery(v, { view: "bullish", minPop: "120", maxLoss: "0" }).problems).toHaveLength(2);
+  });
+
+  it("palette: PR 17's command line opens a page on an underlying, or its help; every code it lists opens a page", () => {
+    const codes = paletteCodes();
+    const ids = codes.map((c) => c.id);
+    expect(ids).toEqual(expect.arrayContaining(["chain", "oi", "gex", "futures", "tide", "unusual"]));
+    for (const c of codes) expect(resolveRoute(`#/${c.id}`).page === "home" && c.id !== "home", c.id).toBe(false);
+    expect(commandResult("banknifty oc", codes)).toMatchObject({ kind: "go", page: "chain", symbol: "BANKNIFTY", label: "Option Chain for BANKNIFTY" });
+    expect(commandResult("help gx", codes)).toMatchObject({ kind: "help", page: "gex" });
+    expect(commandResult("help", codes)).toMatchObject({ kind: "codes" });
+    expect(commandResult("iron condor", codes)).toBeNull();
+  });
+
+  it("strike history: picks one strike out of each recorded snapshot; a snapshot without it is a gap", () => {
+    const snaps = [
+      { ts: "2026-11-02T09:20:00+05:30", strikes: [25900, 26000], ce: { oi: [10, 100], iv: [20, 18] }, pe: { oi: [5, 200], iv: [21, 19] } },
+      { ts: "2026-11-02T09:25:00+05:30", strikes: [26050, 26100], ce: { oi: [1, 2] }, pe: { oi: [3, 4] } },
+      { ts: "2026-11-02T09:30:00+05:30", strikes: [26000, 26050], ce: { oi: [150, 1], iv: [18.5, 1] }, pe: { oi: [180, 1], iv: [19.5, 1] } },
+    ];
+    const rows = strikeSeries(snaps, 26000);
+    expect(rows.map((r) => [r.ceOi, r.peOi, r.ceIv])).toEqual([[100, 200, 18], [150, 180, 18.5]]);
+    expect(firstLast(rows, "peOi")).toEqual({ first: 200, last: 180, change: -20 });
+  });
+
+  it("probability cone: spot × e^(±kσ√t) per expiry, nearest first; an expiry without IV is left out", () => {
+    const c = probabilityCone(100, [{ expiry: "2026-12-31", daysToExpiry: 365, atmIv: 20 }, { expiry: "2026-11-03", daysToExpiry: 3, atmIv: null }]);
+    expect(c).toHaveLength(1);
+    expect(c[0].up1).toBeCloseTo(100 * Math.exp(0.2), 2);
+    expect(c[0].down2).toBeCloseTo(100 * Math.exp(-0.4), 2);
+    expect(c[0].sdPct).toBe(20);
+    expect(probabilityCone(0, [])).toEqual([]);
   });
 
   it("names a day the way the desk does", () => {
