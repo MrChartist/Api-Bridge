@@ -791,6 +791,11 @@ class Strategy:
                 self.refresh_orders()
             except (BridgeApiError, BridgeConnectionError) as e:
                 self.log.warn("Could not read earlier orders: %s", e)
+            held = {s: q for s, q in self.positions().items() if q}
+            if held:
+                # Positions this strategy opened in an earlier run today are its own and carry over: say so.
+                self.log.info("Resumed %d open leg%s from an earlier run today: %s", len(held), "" if len(held) == 1 else "s", ", ".join("%s %+d" % sq for sq in sorted(held.items())))
+            self.log.emit("resumed", legs=len(held))
             self.on_start()
             symbols = list(dict.fromkeys(list(self.symbols) + self._extra_symbols))
             if stream is None:

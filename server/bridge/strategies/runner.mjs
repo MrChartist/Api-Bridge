@@ -270,6 +270,8 @@ export function createStrategyRunner(deps, opts = {}) {
       // Orders since Start was pressed (restarts included); orderCount is every run today.
       runOrderCount: b && rt.startedAt ? b.orders.filter((o) => Date.parse(o.placedAt) >= rt.startedAt - 1000).length : 0,
       lastRunDay: set.lastRunDay ?? null,
+      // Open legs from an earlier run today that this run took over (its open P&L includes them).
+      resumedLegs: ACTIVE.has(rt.status) ? rt.resumedLegs ?? 0 : 0,
     };
   }
 
@@ -384,7 +386,7 @@ export function createStrategyRunner(deps, opts = {}) {
     saved.keys = [...new Set([...saved.keys, record.id])];
     saved.settings[id] = { account, params: values, lastRunDay: istDay(now()), lastMode: mode };
     persist();
-    Object.assign(rt, { status: "starting", account, mode, params: values, key, keyId: record.id, runId: newRunId(), startedAt: now(), restarts: 0, crashes: 0, lastExit: null, lastError: null, stopReason: null, stopRequested: false, counts: {}, hello: null, lastErrorLine: null, baseUrl });
+    Object.assign(rt, { status: "starting", account, mode, params: values, key, keyId: record.id, runId: newRunId(), startedAt: now(), restarts: 0, crashes: 0, lastExit: null, lastError: null, stopReason: null, stopRequested: false, counts: {}, hello: null, lastErrorLine: null, resumedLegs: 0, baseUrl });
     pnlCache.delete(id);
     note(rt, "info", `Start requested: ${mode} on ${account}${Object.keys(values).length ? `, ${paramsText(values)}` : ""}`);
     await audit(ctx, "strategy.started", account, { strategy: id, file: f.file, mode, runId: rt.runId, keyId: record.id, params: values });
@@ -469,6 +471,10 @@ export function createStrategyRunner(deps, opts = {}) {
         rt.hello = m;
         rt.lastBeat = now();
         if (rt.status === "starting") rt.status = "running";
+        return;
+      }
+      if (m.t === "resumed") {
+        rt.resumedLegs = Number.isInteger(m.legs) ? m.legs : 0;
         return;
       }
       if (m.t === "order") {

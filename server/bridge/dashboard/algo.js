@@ -80,6 +80,7 @@ export async function renderAlgoPage() {
   const dDesc = h("p", { class: "muted algo-ddesc" });
   const dAlert = h("div", { class: "algo-dalert", hidden: true });
   const dFacts = h("dl", { class: "algo-facts" });
+  const dResumed = h("p", { class: "algo-resumed", hidden: true });
   const startBtn = h("button", { type: "button", class: "primary", onclick: () => start("paper") }, icon("play"), h("span", {}, "Start paper"));
   const liveBtn = h("button", { type: "button", class: "quiet", onclick: () => start("live") }, h("span", {}, "Start live"));
   const stopBtn = h("button", { type: "button", onclick: () => stop() }, icon("stop"), h("span", {}, "Stop"));
@@ -127,6 +128,7 @@ export async function renderAlgoPage() {
     h("header", { class: "algo-dhead" }, h("div", { class: "algo-dtitles" }, h("div", { class: "algo-dline" }, dTitle, dStatus), dFile), h("div", { class: "algo-dacts" }, startBtn, liveBtn, stopBtn)),
     dDesc,
     dAlert,
+    dResumed,
     dFacts,
     h("div", { class: "algo-dbody" }, settings, logPane, ordersPane),
   );
@@ -211,10 +213,12 @@ export async function renderAlgoPage() {
     dAlert.className = `algo-dalert ${s.problem || s.status === "failed" ? "bad" : "warn"}`;
     dAlert.replaceChildren(problem ? h("span", {}, icon("warn"), h("span", {}, problem)) : "");
     const hb = heartbeatText(s.heartbeatAgeMs);
+    dResumed.hidden = !(active && s.resumedLegs);
+    dResumed.textContent = active && s.resumedLegs ? `Resumed ${formatInt(s.resumedLegs)} open leg${s.resumedLegs === 1 ? "" : "s"} from an earlier run today. Open P&L and Stop include ${s.resumedLegs === 1 ? "it" : "them"}; Orders since start counts only this run.` : "";
     dFacts.replaceChildren(
       fact("P&L today", money(s.pnl?.total), "Every run of this strategy today, from its own fills"),
       fact("Realised", money(s.pnl?.realised)),
-      fact("Open", money(s.pnl?.unrealised)),
+      fact("Open", money(s.pnl?.unrealised), s.resumedLegs ? "Includes the legs resumed from an earlier run today" : undefined),
       fact("Orders since start", active ? formatInt(s.runOrderCount) : DASH),
       fact("Orders today", formatInt(s.orderCount)),
       fact("Uptime", active ? uptimeText(s.uptimeMs) : DASH),

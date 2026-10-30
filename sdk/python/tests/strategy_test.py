@@ -639,3 +639,40 @@ def test_oi_walls_run_sells_each_wall_once_while_nothing_changes(bridge):
     orders = full_run(s, bridge, walk(300, step=2))  # the spot stays well inside the walls
     sells = [o for o in orders if o["side"] == "SELL"]
     assert len(sells) == 2 and len(orders) == 4  # two entries, two exits on stop
+
+
+def test_leftover_legs_that_are_not_a_whole_position_are_closed_before_a_fresh_entry(bridge):
+    # A lone condor wing left by a cut-short exit: closed, then a whole condor opened.
+    seed, _ = make(load("iron_condor.py"), bridge, sid="left_ic")
+    seed.buy("NFO:NIFTY-%s-26400-CE" % EXPIRY, lots=1)
+    ic, out = make(load("iron_condor.py"), bridge, sid="left_ic")
+    ic.refresh_orders()
+    ic.on_start()
+    assert any("not a whole condor" in m for m in logs(out))
+    held = {s: q for s, q in ic.positions().items() if q}
+    assert len(held) == 4 and type(ic).whole_condor(held)
+    # A lone straddle leg: closed, then both legs sold.
+    seed, _ = make(load("short_straddle.py"), bridge, sid="left_sd")
+    seed.sell("NFO:NIFTY-%s-26000-PE" % EXPIRY, lots=1)
+    sd, out = make(load("short_straddle.py"), bridge, {"max_entries": 5}, sid="left_sd")
+    sd.refresh_orders()
+    sd.on_start()
+    assert any("not a whole straddle" in m for m in logs(out))
+    held = {s: q for s, q in sd.positions().items() if q}
+    assert sorted(s[-2:] for s in held) == ["CE", "PE"] and all(q < 0 for q in held.values())
+
+
+def test_a_new_run_says_which_legs_it_resumed_and_places_no_new_entry(bridge):
+    first, _ = make(load("iron_condor.py"), bridge, sid="resume_ic")
+    first.on_start()  # four legs, left open (no on_stop): the Bridge stopped, say
+    again, out = make(load("iron_condor.py"), bridge, sid="resume_ic", clock=Clock())
+    again.run_id = "run002"
+    ended = FakeStream()
+    ended.close()  # the stream ends at once: the run stops (as a crash) right after on_start
+    assert again.run(stream=ended, install_signals=False, watch_stdin=False) == 1
+    msgs = messages(out)
+    assert [m for m in msgs if m["t"] == "resumed"] == [{"t": "resumed", "legs": 4}]
+    assert any(m.startswith("Resumed 4 open legs from an earlier run today") for m in logs(out))
+    # It placed no entry of its own: on_stop's exits (shorts bought back first) are the only orders of the new run.
+    new = [o for o in again.orders() if "-run002-" in o["clientOrderId"]]
+    assert len(new) == 4 and {o["side"] for o in new[:2]} == {"BUY"}
