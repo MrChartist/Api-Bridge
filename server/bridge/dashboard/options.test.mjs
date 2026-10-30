@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import * as A from "./options.js";
 import { REF_DEFAULTS, refCharges } from "./reference.js";
+import { sliceNotes } from "./basket-core.js";
 
 /** The reference values the pages pass in (reference.js fallback: the same figures the demo Bridge serves). */
 const RATES = refCharges(null);
@@ -1002,6 +1003,7 @@ describe("exit plan", () => {
   it("slices above the freeze quantity and exits partial whole lots", () => {
     const big = O.exitPlan([{ symbol: "B", kind: "OPT", q: -4000, avg: 1, lot: 75, freeze: 1800, quote: q(1, 1.1) }]).orders[0];
     expect(big.slices).toEqual([1800, 1800, 400]);
+    expect(big).toMatchObject({ slicedBy: "freeze", perLots: 24 });
     // A part exit never sends more than asked: floor(lots · p); a leg that cannot be split is skipped, not exited in full.
     expect(O.exitPlan([{ ...legs[0], q: 225 }], { pct: 50 }).orders[0].qty).toBe(75);
     expect(O.exitPlan([{ ...legs[0], q: 300 }], { pct: 50 }).orders[0].qty).toBe(150);
@@ -1016,7 +1018,32 @@ describe("exit plan", () => {
     expect(O.canPartExit({ q: -75, lot: 75 }, 100)).toBe(true);
     expect(O.canPartExit({ q: 150, lot: 75 }, 50)).toBe(true);
     expect(O.canPartExit({ q: 150, lot: 75 }, 25)).toBe(false);
-  });  it("never turns a quote-less leg into a market order unless market was chosen", () => {
+  });
+  it("slices like the basket: at the smallest of the freeze, the lots limit and the value limit at the order's price", () => {
+    // 40 lots of 65 at 100: freeze 1800 is 27 lots; maxLotsPerOrder 10 wins.
+    const leg = { symbol: "S", kind: "OPT", q: -2600, avg: 120, lot: 65, freeze: 1800, quote: q(99.95, 100.05) };
+    const byLots = O.exitPlan([leg], { limits: { maxLotsPerOrder: 10, maxOrderValue: 1e9 } }).orders[0];
+    expect(byLots.slices).toEqual([650, 650, 650, 650]);
+    expect(byLots).toMatchObject({ slicedBy: "lots", perLots: 10 });
+    // ₹2,00,000 at 100 x 65 per lot is 30 lots, above the 10-lot limit: the lots limit still wins.
+    expect(O.exitPlan([leg], { limits: { maxLotsPerOrder: 10, maxOrderValue: 200_000 } }).orders[0].perLots).toBe(10);
+    // ₹50,000 at 100 is 7 lots (7 x 6500 = 45,500): 7 + 7 + 7 + 7 + 7 + 5.
+    const byValue = O.exitPlan([leg], { limits: { maxLotsPerOrder: 10, maxOrderValue: 50_000 } }).orders[0];
+    expect(byValue.slices.map((u) => u / 65)).toEqual([7, 7, 7, 7, 7, 5]);
+    expect(byValue.slicedBy).toBe("value");
+    // A market exit is valued at the touch (the ask, to buy back).
+    const mkt = O.exitPlan([leg], { type: "market", limits: { maxOrderValue: 50_000 } }).orders[0];
+    expect(mkt.perLots).toBe(Math.floor(50_000 / (100.05 * 65)));
+    // Without limits (not read yet) the freeze alone, as before; under every cap, one order.
+    expect(O.exitPlan([leg]).orders[0].slices).toEqual([1755, 845]);
+    expect(O.exitPlan([leg], { limits: null }).orders[0].slicedBy).toBe("freeze");
+    const small = O.exitPlan([{ ...leg, q: -650 }], { limits: { maxLotsPerOrder: 10, maxOrderValue: 200_000 } }).orders[0];
+    expect(small).toMatchObject({ slices: [650], slicedBy: null, perLots: null });
+    // The same notes as the basket sheet, from the same basket-core.js text.
+    const rows = [byLots, byValue].map((o, i) => ({ slicedBy: o.slicedBy, slice: 1, lots: o.perLots, label: `L${i}` }));
+    expect(sliceNotes(rows)).toEqual(["Sliced to 10 lots per order: your per-order limit (Safety)", "Sliced to 7 lots per order: your per-order value limit (Safety) at this price"]);
+  });
+  it("never turns a quote-less leg into a market order unless market was chosen", () => {
     const bare = { symbol: "W", kind: "OPT", q: -75, avg: 2, lot: 75, quote: null, mark: null, greeks: { delta: -0.02 } };
     for (const type of ["mid", "touch"]) {
       const p = O.exitPlan([legs[1], bare], { type });

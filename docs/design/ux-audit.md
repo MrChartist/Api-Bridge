@@ -237,16 +237,14 @@ Others (still open; the rest of this list was fixed in the follow-up below):
 - **Order ticket:** Enter in the lots field does not place (the main button is the coloured Buy / Sell, not
   `.primary`). Safer as it is; documented here so nobody "fixes" it by accident.
 - **Square off** does not mention an exit order already working.
-- **Exit sheets** still slice at the freeze only (`options.js exitPlan`): a 40-lot exit in demo is refused slice by
-  slice by the 10-lot per-order limit, as baskets were. Same fix as the basket (`perOrderCap`) when it is needed.
+- ~~**Exit sheets** still slice at the freeze only~~: fixed in the safety pass below (#24).
 - **Strategy:** "Now −₹149" (marked at mid, after charges) beside the what-if's P&L ₹0 at the neutral scenario; Max loss
   "below 25121 / above 27379" (exercise STT makes the far tails a little worse) reads oddly.
 - **Recorder** counts are ungrouped (436400 leg rows).
 - **Market calendar** at 1024: a holiday cell that also has "unverified" (Diwali Padwa) has no room for that line (the
   tooltip and the cell's sheet say it); the special session's first word wraps inside the word ("Muhura t").
-- **Modify safety (server, not changed here):** a paper modify to 20 lots (₹2.27 lakh) passed although the account's
-  limits are 10 lots and ₹2 lakh an order: `orderService` checks a modify without the lot size or value. Worth a look
-  by whoever owns the safety gates; nothing was loosened or changed there.
+- ~~**Modify safety (server)**: a paper modify to 20 lots passed the 10-lot / ₹2 lakh limits~~: fixed in the safety
+  pass below (#23).
 - **Live events search placeholder** cut at 1024 ("Search symbol or ev"): it is `events.js`'s own input, not a shared
   component, so it is left for the speed agent.
 - **Tests:** `screens.test.mjs` "recomputes every tab over about 1000 legs quickly" failed once in a full run under
@@ -277,3 +275,44 @@ Before / after shots (`scratchpad/qa2/shots/`): `*-watchlist-1440-dark`, `*-bask
 `after-basket14-1440-dark` (15 lots, sendable), `*-modify-error-1440-dark`, `*-exitall-1440-dark`,
 `*-scansave-1440-dark`, `*-scansched-list-1440-dark`, `*-wl-unknown-1440-dark`, `*-wl-dupname-1440-dark`,
 `*-safety-1440-dark`, `*-home-first-second-1440-dark`, `*-cal-1024-dark`.
+
+### Safety pass (30 Oct, night)
+
+Demo Bridge from the worktree on port 4580; Playwright at 1440 dark and 390 light. Scripts and shots in
+`scratchpad/safety2/` (`exit.cjs`, `shots/before-*`, `shots/after-*`).
+
+| # | Page | Was | Now |
+|---|---|---|---|
+| 23 | Orders › Modify (server) | A modify reached SafetyGuard with no lot size, no value and (paper) no LTP: a 5-lot paper order could be raised to 20 lots, past `maxLotsPerOrder` and `maxOrderValue`. | Every modify, paper and live, is checked like a new order on the order as it would stand after the change (`orderService.mjs modifyShape`): lots from the lot size, value from the new quantity × the new limit (or trigger) price, × LTP for a market order, the price band, the market-order policy, market hours and the kill switch. A change above the freeze quantity is refused (a change cannot be sliced). A paper modify whose value or lots cannot be worked out now says so instead of passing silently. Live modify keeps all its opt-ins. Tests: `modifyLimits.integration.test.mjs` (real SafetyGuard and PaperEngine: above the lot limit, above the value limit, within limits, to MARKET at LTP, above freeze, kill switch), `orderService.live.test.mjs`, `safetyGuard.test.mjs`. `safety.md` says it. |
+| 24 | Positions › Exit, Exit all, Exit group, Exit selected, Square off | Exit plans sliced at the freeze only: 40 lots went as 1755 + 845 units and both orders were blocked by the 10-lot and ₹2 lakh limits. The single Exit ticket sent 40 lots as one order (blocked three ways). | `options.js exitPlan` slices with the basket's `perOrderCap` at the smallest of the freeze, `maxLotsPerOrder` and `maxOrderValue` at the order's price (the touch for a market exit); the sheet says why with the basket's own line ("Sliced to 10 lots per order: your per-order limit (Safety)"). The limits come from GET /v1/safety (`basket-core.js orderLimitsOf`, shared with the basket) and are read before the first preview. An Exit (or Exit 25 / 50 / 75 %) on one leg that is larger than one order opens the same sliced plan for that leg instead of a ticket the Bridge would refuse; smaller exits keep the ticket. Slices go at least 220 ms apart and a 429 rate refusal waits and retries the same client order id, so 12 slices are not refused by the 5-a-second cap. Checked: 40 lots exit as 4 × 10, all filled, leg flat. Tests in `options.test.mjs`. |
+
+#### Proposal: should exits be exempt from per-order limits? (for the owner to decide; nothing changed)
+
+Today an exit is a new order like any other: every gate applies. That is the safe default, and this pass keeps it.
+The sheets now slice exits under the limits, so per-order lots and value no longer stop a close. What can still
+stop a user closing risk through the Bridge:
+
+1. **Daily loss.** `dailyMaxLoss` refuses every `place` once the day's loss is past the limit, including a sell that
+   closes a long or a buy that covers a short. A user who is losing cannot cut the loss here (the broker app still
+   can). This is the strongest case for an exemption.
+2. **Daily order count.** Each slice counts. A 40-lot exit under a 10-lot limit is 4 of the 100 orders; a busy day can
+   leave no room to close.
+3. **Per-order lots and value.** Now handled by slicing, at the cost of more orders (point 2) and more time.
+4. **Price band.** A limit exit far from LTP is refused, which is right; a market exit is protected at LTP ± 2%.
+
+Options, from least to most change:
+
+- **A. Keep as is** (this pass). Users close from the broker app when a daily limit blocks them.
+- **B. Reduce-only exemption from the daily loss and daily count limits only.** An order is "reduce-only" when the
+  Bridge itself (not the client) sees that it only shrinks an existing position in that account and product and does
+  not cross zero, read from the paper engine or the broker's positions at check time, the same reading the F&O ban
+  rule already uses (`heldQtyOf`). Such an order still meets the kill switch, the rate cap, the price band, market
+  hours, the freeze, per-order lots and value (sliced), and live opt-ins; it still counts towards the day's total but
+  is not refused by it. Audited as `safety.reduce_only_exempt`.
+- **C. B plus per-order lots and value.** A reduce-only order may be one order up to the freeze. Fewer orders, but a
+  per-order limit is also a fat-finger guard (a wrong quantity on a position you hold is still a big order), so this
+  adds less than it risks now that exits slice.
+
+Recommendation: **B**, behind `safety.reduceOnlyExempt: true` (default off until checked against each broker's live
+positions), never C. Not the kill switch: it stays a full stop, and cancels already pass it.
+

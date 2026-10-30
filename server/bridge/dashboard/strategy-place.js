@@ -8,7 +8,7 @@ import { DASH, formatFixed, formatInt, isFigure } from "./format.js";
 import { money, moneyEl } from "./payoff.js";
 import * as O from "./options.js";
 import { segField, segmented } from "./views.js";
-import { basketMarginBody, basketProgress, expandSlices, orderRows, sliceNotes } from "./basket-core.js";
+import { basketMarginBody, basketProgress, expandSlices, orderLimitsOf, orderRows, sliceNotes } from "./basket-core.js";
 
 const TERMINAL = new Set(["filled", "rejected", "cancelled", "expired"]);
 /** Server messages print Indian digit grouping (3 lakh as 3,00,000); the dashboard never shows grouping commas. */
@@ -86,8 +86,7 @@ export function openPlacement(o) {
   /** The account's per-order limits (maxLotsPerOrder, maxOrderValue), read once when the sheet opens. */
   async function loadOrderLimits() {
     const r = await optional(api("/v1/safety"));
-    const acct = (r.data?.data?.accounts ?? []).find((x) => x.accountId === a.id);
-    orderLimits = acct?.limits ? { maxLotsPerOrder: acct.limits.maxLotsPerOrder ?? null, maxOrderValue: acct.limits.maxOrderValue ?? null } : null;
+    orderLimits = orderLimitsOf(r.data?.data, a.id);
   }
   let phase = "confirm"; // confirm | running | paused | done
   // While orders are going out (or a hedge waits for a choice) the sheet cannot be closed: no Escape, X or backdrop.

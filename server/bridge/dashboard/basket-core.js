@@ -37,6 +37,17 @@ export function perOrderCap(leg, limits = {}) {
 }
 
 /**
+ * An account's per-order limits from GET /v1/safety's data ({ maxLotsPerOrder, maxOrderValue }), or null when the
+ * account is not listed. The basket and exit sheets slice under these; they are read, never changed.
+ * @param {{ accounts?: Array<{ accountId: string, limits?: object }> } | null | undefined} safety
+ * @param {string} accountId
+ */
+export function orderLimitsOf(safety, accountId) {
+  const acct = (safety?.accounts ?? []).find((x) => x.accountId === accountId);
+  return acct?.limits ? { maxLotsPerOrder: acct.limits.maxLotsPerOrder ?? null, maxOrderValue: acct.limits.maxOrderValue ?? null } : null;
+}
+
+/**
  * Lots per slice for one leg: as many whole lots as fit under the freeze quantity (at least one lot). An order of
  * `lots` lots of `lotSize` is split into these (the last slice takes the rest). No freeze, or under it: one slice.
  * With `limits` (the account's per-order limits), a slice also fits maxLotsPerOrder and maxOrderValue at `price`.

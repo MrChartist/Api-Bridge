@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { basketMarginBody, basketProgress, expandSlices, orderRows, perOrderCap, sliceLots, sliceNotes } from "./basket-core.js";
+import { basketMarginBody, basketProgress, expandSlices, orderLimitsOf, orderRows, perOrderCap, sliceLots, sliceNotes } from "./basket-core.js";
+
+describe("orderLimitsOf", () => {
+  it("reads one account's per-order limits from GET /v1/safety, null when it is not listed", () => {
+    const safety = { accounts: [{ accountId: "a", limits: { maxLotsPerOrder: 10, maxOrderValue: 200000, dailyMaxOrders: 100 } }, { accountId: "b" }] };
+    expect(orderLimitsOf(safety, "a")).toEqual({ maxLotsPerOrder: 10, maxOrderValue: 200000 });
+    expect(orderLimitsOf(safety, "b")).toBeNull();
+    expect(orderLimitsOf(safety, "c")).toBeNull();
+    expect(orderLimitsOf(null, "a")).toBeNull();
+  });
+});
 
 describe("freeze slicing", () => {
   it("splits whole lots under the freeze quantity, the last slice taking the rest", () => {

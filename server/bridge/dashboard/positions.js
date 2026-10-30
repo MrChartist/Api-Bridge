@@ -22,6 +22,7 @@ import { legWords, openAlertSheet, rulesFor } from "./alerts.js";
 import { createWhatIf } from "./whatif.js";
 import { ROLL_MODES, rollBreakevens, rollItems, rollMargin, rollMoney, rollPlan } from "./roll-core.js";
 import { openPlacement } from "./strategy-place.js";
+import { orderLimitsOf, sliceNotes } from "./basket-core.js";
 import { closeMs, countdownText, decayLeft, deskExpiry, gammaByStrike, pinRisk, settlementRisk } from "./expiry-core.js";
 import { normWhatIf, whatIfFigures } from "./whatif-core.js";
 
@@ -1683,8 +1684,21 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   }
   const openInChain = (l) => goChain(l.expiry, l.strike, l.right === "PE" ? "pe" : "ce");
 
+  /**
+   * The account's per-order limits (GET /v1/safety), kept for a minute per account: the exit sheets slice under them
+   * exactly as the basket does (basket-core.js). Null when they cannot be read (the freeze alone then applies).
+   */
+  let limitsMemo = { id: null, at: 0, v: null };
+  async function orderLimitsFor(a) {
+    if (limitsMemo.id === a.id && Date.now() - limitsMemo.at < 60_000) return limitsMemo.v;
+    const r = await optional(api("/v1/safety"));
+    const v = orderLimitsOf(r.data?.data, a.id);
+    if (r.data) limitsMemo = { id: a.id, at: Date.now(), v };
+    return v;
+  }
+
   // ── Single exit (the ticket) ──
-  function exitLeg(sym, pct = 100) {
+  async function exitLeg(sym, pct = 100) {
     const l = legs.find((x) => x.symbol === sym);
     if (!l || !l.q) return;
     const abs = Math.abs(l.q);
@@ -1693,6 +1707,14 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     // A part exit that cannot split into a whole lot is not offered (legActions); never widen it to a full exit here.
     if (pct < 100 && n < 1) return toast("This leg cannot be split: exit it in full", { tone: "info" });
     const qty = pct >= 100 ? abs : n * l.lot;
+    // Larger than one order may be (freeze, or this account's per-order lots or value limit at the exit price): the
+    // ticket sends one order, which the Bridge would refuse, so the exit plan sheet slices it like a basket.
+    const a = account();
+    if (a) {
+      const limits = await orderLimitsFor(a);
+      const one = O.exitPlan([{ ...l, quote: legQuote(l.symbol)() ?? l.quote }], { type: cfg().exitType, pct, limits }).orders[0];
+      if (one && one.slices.length > 1) return openExitPlan([l], "", { pct });
+    }
     openTicket({
       row: { strike: l.strike },
       right: l.right ?? "CE",
@@ -1822,20 +1844,24 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     if (!xs?.legs.length) return toast("No expiring legs", { tone: "info" });
     openExitPlan(xs.legs, `${expiryText(xs.expiry)} expiry`);
   }
-  async function openExitPlan(scope, label) {
+  async function openExitPlan(scope, label, { pct: pct0 = 100 } = {}) {
     const a = account();
     if (!a) return toast("Choose an account that can place orders first.", { tone: "warn" });
     const syms = scope.filter((l) => l.q).map((l) => l.symbol);
     if (!syms.length) return;
     const current = () => legs.filter((l) => syms.includes(l.symbol) && l.q);
     let type = cfg().exitType;
-    let pct = 100;
+    let pct = pct0;
     let sending = false;
+    // The account's per-order limits: every order is sliced under them and the freeze (basket-core.js perOrderCap,
+    // the basket's slicer). Nothing is previewed until they are read, so the first checks describe the real slices.
+    let limits = null;
+    let limitsReady = false;
     let finished = false;
     const lockedGroups = groups.filter((g) => g.structure.locked && g.legs.some((l) => syms.includes(l.symbol)));
     if (lockedGroups.length && type === "market") type = "mid";
     const typeSeg = segmented("Order type", [["mid", "Limit at mid"], ["touch", "At touch"], ["market", "Market"]], type);
-    const sizeSeg = segmented("Size", [["100", "100%"], ["50", "50%"], ["25", "25%"]], "100");
+    const sizeSeg = segmented("Size", [100, 75, 50, 25].filter((p) => p !== 75 || pct0 === 75).map((p) => [String(p), `${p}%`]), String(pct0));
     const modeSeg = a.liveAllowedByConfig ? segmented("Mode", [["paper", "Paper"], ["live", "Live"]], "paper") : null;
     const ack = h("input", { type: "checkbox" });
     const ackRow = h("label", { class: "check live-ack", hidden: true }, ack, `I understand these send real orders to ${a.label}.`);
@@ -1843,6 +1869,8 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const unpricedNote = h("p", { class: "pos-note bad", hidden: true }, "A leg has no bid, ask or LTP, so no limit price can be set. It is never sent at market: exit it from its own ticket, or choose Market.");
     const skipNote = h("p", { class: "pos-note warn", hidden: true, role: "status" });
     const listEl = h("ol", { class: "pos-plan" });
+    // Why orders were split: the freeze quantity or this account's per-order limit, once per reason (the basket's text).
+    const sliceEl = h("ul", { class: "ticket-checks place-slices", hidden: true, role: "note" });
     const totalsEl = h("div", { class: "ticket-figs pos-plan-tot" });
     // Margin effect: a paper account's own model works it out here; a broker account's figure is the broker's.
     const paperAcct = a.broker === "paper";
@@ -1865,15 +1893,22 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         pct = 100;
         sizeSeg.value = "100";
       }
-      plan = O.exitPlan(current(), { type, pct });
+      plan = O.exitPlan(current(), { type, pct, limits });
       const nSkip = plan.skipped.length;
       const skipText = nSkip ? `${plural(nSkip, "leg")} skipped: ${nSkip === 1 ? "it cannot" : "they cannot"} be split into whole lots at ${formatInt(pct)}% (${plan.skipped.map((l) => legName(l)).join(", ")})` : "";
       if (skipNote.textContent !== skipText) skipNote.textContent = skipText;
       skipNote.hidden = !nSkip;
-      const sig = JSON.stringify(plan.orders.map((o) => [o.symbol, o.side, o.qty, o.price, o.unpriced, Math.round(o.slip ?? 0)]));
+      const sig = JSON.stringify(plan.orders.map((o) => [o.symbol, o.side, o.qty, o.slices, o.price, o.unpriced, Math.round(o.slip ?? 0)]));
       // The checks shown (and the Send button) must describe the plan that will be sent: preview it again on change.
-      const ps = JSON.stringify([live(), plan.orders.map((o) => [o.symbol, o.side, o.qty, o.price, o.market])]);
-      if (ps !== pvSig) schedulePreview(ps);
+      const ps = JSON.stringify([live(), plan.orders.map((o) => [o.symbol, o.side, o.qty, o.slices[0], o.price, o.market])]);
+      if (limitsReady && ps !== pvSig) schedulePreview(ps);
+      const notes = sliceNotes(plan.orders.filter((o) => o.slicedBy).map((o) => ({ slicedBy: o.slicedBy, slice: 1, lots: o.perLots, label: legName(o.leg) })));
+      const nSig = notes.join("|");
+      if (sliceEl.__sig !== nSig) {
+        sliceEl.__sig = nSig;
+        sliceEl.hidden = !notes.length;
+        sliceEl.replaceChildren(...notes.map((t) => h("li", { class: "info" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, t))));
+      }
       if (listEl.__sig !== sig) {
         listEl.__sig = sig;
         listEl.replaceChildren(
@@ -1917,7 +1952,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const preview = async () => {
       const seq = ++pvSeq;
       pvPending = true;
-      const p = O.exitPlan(current(), { type, pct });
+      const p = O.exitPlan(current(), { type, pct, limits });
       const priced = p.orders.filter((o) => !o.unpriced);
       const res = await Promise.all(priced.map((o) => optional(api("/v1/orders/preview", { method: "POST", body: orderBody(o, o.slices[0]) }))));
       if (seq !== pvSeq) return;
@@ -1959,7 +1994,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       if (sending) sendBtn.setAttribute("aria-busy", "true");
       else sendBtn.removeAttribute("aria-busy");
       sendBtn.disabled = sending || blocked || pvPending || Boolean(plan?.unpriced) || !plan?.count || (live() && !ack.checked);
-      sendBtn.title = plan?.unpriced ? "A leg has no quote to price a limit order: exit it from its own ticket" : pvPending ? "Checking with the Bridge…" : "";
+      sendBtn.title = plan?.unpriced ? "A leg has no quote to price a limit order: exit it from its own ticket" : pvPending ? (limitsReady ? "Checking with the Bridge…" : "Reading your per-order limits…") : "";
     };
     typeSeg.addEventListener("change", () => ((type = typeSeg.value), draw()));
     sizeSeg.addEventListener("change", () => ((pct = Number(sizeSeg.value)), draw()));
@@ -1967,6 +2002,23 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     ack.addEventListener("change", drawSend);
     const timer = setInterval(draw, 3000);
     const lockText = lockedGroups.length ? `This group is a locked ${lockedGroups.map((g) => g.structure.name.toLowerCase()).join(", ")}. Exiting leg by leg can break the lock; limit orders at mid are recommended.` : "";
+    // Slices go one at a time under the account's order-rate cap (5 a second by default): at least 220 ms apart, and a
+    // rate refusal (429, nothing was placed) waits the time the Bridge names and tries the same client order id again.
+    let lastSent = 0;
+    async function sendPaced(b) {
+      for (let tries = 0; ; tries += 1) {
+        const gap = 220 - (Date.now() - lastSent);
+        if (gap > 0) await new Promise((r) => setTimeout(r, gap));
+        lastSent = Date.now();
+        try {
+          return await api("/v1/orders", { method: "POST", body: b });
+        } catch (err) {
+          if (err.status !== 429 || err.code !== "ORDER_RATE_LIMITED" || tries >= 4) throw err;
+          const wait = Number(err.body?.retryAfterMs);
+          await new Promise((r) => setTimeout(r, (Number.isFinite(wait) && wait > 0 ? Math.min(wait, 2000) : 1000) + 50));
+        }
+      }
+    }
     async function send() {
       sending = true;
       drawSend();
@@ -1979,7 +2031,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         try {
           for (const [j, q] of o.slices.entries()) {
             statusEl.replaceChildren(h("p", { class: "muted" }, `Sending ${formatInt(i + 1)} of ${formatInt(total)}: ${o.side === "BUY" ? "buy" : "sell"} ${formatInt(q)} ${legName(o.leg)}…`));
-            await api("/v1/orders", { method: "POST", body: { ...orderBody(o, q), clientOrderId: `${batch}-${i}-${j}` } });
+            await sendPaced({ ...orderBody(o, q), clientOrderId: `${batch}-${i}-${j}` });
           }
           done += 1;
         } catch (err) {
@@ -2016,6 +2068,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       ackRow,
       skipNote,
       h("div", { class: "field" }, h("span", {}, "Send order: shorts first (largest Δ), then longs, futures last"), listEl),
+      sliceEl,
       totalsEl,
       checksEl,
       statusEl,
@@ -2040,6 +2093,11 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       ],
     });
     draw();
+    orderLimitsFor(a).then((v) => {
+      limits = v;
+      limitsReady = true;
+      draw();
+    });
     await done;
     clearInterval(timer);
     clearTimeout(pvTimer);
