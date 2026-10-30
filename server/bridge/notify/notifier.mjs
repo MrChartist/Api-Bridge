@@ -131,6 +131,8 @@ export function createNotifier(deps) {
     if (!t.events.includes(topic)) return false;
     if (topic === "order.updated") return t.orderModes.includes(p?.mode) && t.orderStatuses.includes(p?.status);
     if (topic === "scan.completed") return Boolean(p?.savedId);
+    // A saved scan can turn its notifications off (scanner saved.notify); older payloads without the flag still send.
+    if (topic === "scan.alert") return p?.notify !== false;
     if (topic === "account.status") return p?.session === "expired" || p?.session === "error";
     if (topic === "limits.throttled") return p?.upstream === true;
     // The readiness monitor decides (dedupe, cooldown, warn is never pushed); every change still goes on the bus.

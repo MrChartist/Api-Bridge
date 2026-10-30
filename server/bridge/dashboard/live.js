@@ -46,6 +46,8 @@ const lingering = new Map(); // symbol -> { mode, until }
 const onWire = new Map(); // symbol -> mode
 const latest = new Map(); // symbol -> merged tick
 const budgetListeners = new Set();
+/** Saved-scan alerts (subscribe_scans): fn(msg) for each { type: "scan", event: "alert" }. */
+const scanListeners = new Set();
 const statusListeners = new Set();
 let lastBudget = null;
 let ws = null;
@@ -102,7 +104,7 @@ function send(op) {
 function sync() {
   syncQueued = false;
   if (!inBrowser()) return;
-  if (!ws && (watchers.size || budgetListeners.size)) connect();
+  if (!ws && (watchers.size || budgetListeners.size || scanListeners.size)) connect();
   if (ws?.readyState !== 1) return;
   const { subscribe, unsubscribe } = subscriptionDiff(wanted(), onWire);
   for (const [mode, syms] of subscribe) {
@@ -198,6 +200,7 @@ async function connect() {
     onWire.clear();
     setState("live");
     if (budgetListeners.size) send({ op: "subscribe_budget" });
+    if (scanListeners.size) send({ op: "subscribe_scans" });
     queueSync();
   };
   sock.onmessage = (m) => {
@@ -218,6 +221,14 @@ async function connect() {
           /* keep going */
         }
       }
+    } else if (msg.type === "scan" && msg.event === "alert") {
+      for (const fn of scanListeners) {
+        try {
+          fn(msg);
+        } catch {
+          /* keep going */
+        }
+      }
     } else if (msg.type === "error" && msg.op === "subscribe" && Array.isArray(msg.symbols)) {
       // Over a subscription cap: those symbols stay with polling (the pages keep their REST refresh).
       for (const s of msg.symbols) onWire.delete(s);
@@ -228,7 +239,7 @@ async function connect() {
   sock.onclose = () => {
     if (ws === sock) ws = null;
     onWire.clear();
-    if (watchers.size || budgetListeners.size) later();
+    if (watchers.size || budgetListeners.size || scanListeners.size) later();
     else setState("off");
   };
 }
@@ -290,5 +301,16 @@ export function onBudget(fn) {
   return () => {
     budgetListeners.delete(fn);
     if (!budgetListeners.size) send({ op: "unsubscribe_budget" });
+  };
+}
+
+/** Listen for saved-scan alerts (new matches). Returns an unsubscribe function. */
+export function onScanAlerts(fn) {
+  scanListeners.add(fn);
+  if (ws?.readyState === 1 && scanListeners.size === 1) send({ op: "subscribe_scans" });
+  queueSync();
+  return () => {
+    scanListeners.delete(fn);
+    if (!scanListeners.size) send({ op: "unsubscribe_scans" });
   };
 }

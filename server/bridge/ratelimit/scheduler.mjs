@@ -870,6 +870,12 @@ export function createScheduler(deps, options = {}) {
     checkClient,
     /** Record a saved broker call (see the exported recordSaving). */
     recordSaving: (kind, count = 1) => bumpSaving(kind, count),
+    /** Broker calls and saved calls credited to one consumer today ({ calls: 0, saved: 0 } when none). Read-only. */
+    consumerCalls: (name) => {
+      rollSavings();
+      const row = consumers.get(name);
+      return { calls: row?.calls ?? 0, saved: row?.saved ?? 0 };
+    },
     /** This caller's budget without spending it (/v1/limits). */
     clientBudget: (ctx) => client.peek(ctx),
     /** The effective policy for one account (broker policy lowered by that account's overrides). */

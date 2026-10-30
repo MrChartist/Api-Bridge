@@ -564,6 +564,19 @@ export function createEventsEngine(deps) {
       chain.dirty = true;
     },
 
+    /**
+     * A hit found outside the tick path (a saved scan's new match). It becomes one row like any other event: the
+     * label is the scan's name, the variant its id, so each scan folds its own repeats within the cooldown.
+     * @param {{ symbol: string, kind: string, variant?: string, label: string, dir?: number, text?: string, ltp?: number|null, changePct?: number|null }} hit
+     */
+    external(hit, atMs) {
+      if (!hit?.symbol || !KIND_BY_ID.has(hit.kind) || !compiled.on.has(hit.kind)) return null;
+      const ms = num(atMs) ?? clock.now();
+      if (istDate(ms) !== day) rollDay(ms);
+      const base = metaBase(hit.symbol, num(hit.ltp), num(hit.changePct));
+      return fire({ kind: hit.kind, variant: hit.variant ?? "", dir: hit.dir ?? 0, label: hit.label, strength: null, text: hit.text ?? hit.label }, base, ms);
+    },
+
     /** Evaluate dirty chains (chain-level detectors). Called by a short timer. */
     flush(atMs) {
       const ms = num(atMs) ?? clock.now();
