@@ -172,6 +172,8 @@ export async function seedDemoBook(deps) {
       // A start-up job like the recorder: each paper fill prices its leg (LTP, depth, the spot), so wait until those
       // reads leave the quote windows at least half free for what a person asks in the first seconds.
       await pace(SEED_ORDER_COST);
+      // The Bridge is stopping (seconds after a first demo start): leave the rest, so shutdown never waits on it.
+      if (deps.stopped?.()) break;
       const r = await orders.place(
         ctx,
         { account: id, symbol: leg.symbol, side: leg.side, lots: leg.lots, product: "MARGIN", orderType: "MARKET", mode: "paper", tag: SEED_TAG },
@@ -179,6 +181,7 @@ export async function seedDemoBook(deps) {
       );
       if (r?.order?.status === "rejected") logger?.warn?.("demo book seed order rejected", { account: id, symbol: leg.symbol, message: r.order.statusMessage });
     }
+    if (deps.stopped?.()) break;
     seeded.push(id);
   }
   logger?.info?.("demo book seeded", { accounts: seeded });
