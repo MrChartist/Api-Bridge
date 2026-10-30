@@ -18,6 +18,7 @@ import { segField, segmented } from "./views.js";
 import { heatCell, setBar, svgEl } from "./viz.js";
 import { eventChip, refCharges, refRate, refSession, upcomingEvents } from "./reference.js";
 import { SPAN_METHOD, portfolioMargin } from "./span-margin.js";
+import { legWords, openAlertSheet, rulesFor } from "./alerts.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const CHAIN_STRIKES = 40;
@@ -471,6 +472,9 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   const titleEl = h("span", { class: "panel-title" });
   const gearBtn = h("button", { type: "button", class: "small gear-btn", "aria-haspopup": "dialog", "aria-label": "Customise positions", title: "Columns, grouping, scenario and exit defaults" }, icon("sliders"), h("span", { class: "gear-label" }, "Customise"));
   const exitAllBtn = h("button", { type: "button", class: "small", hidden: true, title: "Exit plan for every leg (Shift+X)" }, "Exit all");
+  // Alerts on this book: P&L, spot, delta, time to expiry or a leg's premium (checked on the Bridge; notify only).
+  const alertBtn = h("button", { type: "button", class: "small", hidden: true, title: "Alert on this book: P&L, spot, delta, time to expiry or a leg's premium" }, icon("bell"), h("span", { class: "al-btn-t" }, "Alert"));
+  alertBtn.addEventListener("click", () => alertOn(null, "every leg"));
   const bulkEl = h("div", { class: "pos-bulk", hidden: true, role: "region", "aria-label": "Selected legs" });
   const bodyEl = h("div", { class: "pos-body" });
   // The hedge helper is the Positions panel's collapsible footer (a head-height row under the table), not a panel.
@@ -480,7 +484,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   const posPanel = h(
     "section",
     { class: "desk-panel pos-panel", "data-panel": "positions", "aria-label": "Positions" },
-    h("div", { class: "panel-head pos-head" }, titleEl, h("div", { class: "chain-tools" }, exitAllBtn, gearBtn)),
+    h("div", { class: "panel-head pos-head" }, titleEl, h("div", { class: "chain-tools" }, alertBtn, exitAllBtn, gearBtn)),
     bodyEl,
     bulkEl,
     hedgePanel,
@@ -946,6 +950,10 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       titleEl.replaceChildren(h("strong", {}, `${st.underlying} positions`), h("span", { class: "muted" }, n ? ` · ${plural(n, "leg")}` : ""));
     }
     exitAllBtn.hidden = !legs.some((l) => l.q);
+    alertBtn.hidden = scopeNow() !== "account" || !legs.some((l) => l.q);
+    const nAlerts = alertBtn.hidden ? 0 : rulesFor(st.account, st.underlying).filter((r) => r.enabled).length;
+    const at = nAlerts ? `Alert · ${formatInt(nAlerts)} on` : "Alert";
+    if (alertBtn.lastChild.textContent !== at) alertBtn.lastChild.textContent = at;
     // Exit all: say how many legs have a spread wider than 5 % of mid (a market or touch exit costs more there).
     const wide = O.wideSpreadCount(legs.filter((l) => l.q && l.quote).map((l) => l.quote));
     const allText = wide ? `Exit all · ${plural(wide, "wide spread")}` : "Exit all";
@@ -1049,6 +1057,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         { class: "pos-gacts" },
         g.expiry ? h("button", { type: "button", class: "small plain", onclick: () => analyse(g), title: "Open this expiry's option legs in the strategy builder (exact quantities)" }, "Analyse") : null,
         h("button", { type: "button", class: "small", onclick: () => openExitPlan(g.legs.filter((l) => l.q), `${groupTitle(g).split(" · ")[0]}`) }, "Exit group"),
+        g.legs.some((l) => l.q) ? h("button", { type: "button", class: "small plain", "aria-label": `Alert on ${groupTitle(g).split(" · ")[0]}`, title: "Alert on this group: P&L, spot, delta, time to expiry or a leg's premium", onclick: () => alertOn(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, icon("bell")) : null,
       );
       head.append(h("th", { scope: "rowgroup", colspan: String(ncol) }, h("div", { class: "pos-gline" }, incHit, title, glyph.el, h("span", { class: "pos-gp" }, gpnl, gbar.el), stats, acts), locked));
       groupRefs.set(g.key, { inc, title, stats, locked, glyph, gpnl, gbar });
@@ -1353,6 +1362,24 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     );
   }
   /** The row's ⋯ menu (desktop / tablet) and the card's action sheet (phone) share these actions. */
+  /** The alert sheet for the whole book (ls null), a group or one leg, with the figures it starts from. */
+  function alertOn(ls, scopeText) {
+    if (scopeNow() !== "account" || !st.account) return toast("Choose one account to set an alert.", { tone: "info" });
+    const held = (ls ?? legs).filter((l) => l.q);
+    const known = held.filter((l) => num(l.pnl) !== null);
+    openAlertSheet({
+      account: st.account,
+      accountLabel: account()?.label ?? st.account,
+      underlying: st.underlying,
+      symbols: ls ? held.map((l) => l.symbol) : null,
+      scopeText,
+      lot: held.find((l) => l.lot)?.lot ?? null,
+      spot,
+      pnl: known.length ? known.reduce((a, l) => a + Number(l.pnl), 0) : null,
+      delta: ls ? null : (book?.delta ?? null),
+    });
+  }
+
   function legActions(l) {
     const g = groups.find((x) => x.legs.includes(l));
     // Part exits only when they split into at least one whole lot (a 1-lot leg has "Exit…" alone): never a full
@@ -1365,6 +1392,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     return [
       ["Exit…", () => exitLeg(l.symbol), "exit"],
       ...part,
+      ...(l.q ? [["Alert on this leg…", () => alertOn([l], legWords(l.symbol))]] : []),
       [l.inc ? "Exclude from risk" : "Include in risk", () => toggleInclude([l.symbol], !l.inc)],
       ...(g?.expiry && l.kind === "OPT" ? [["Analyse this expiry", () => analyse(g)]] : []),
       ...(l.kind === "OPT" ? [["Open in chain", () => openInChain(l)]] : []),

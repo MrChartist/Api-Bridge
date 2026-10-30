@@ -22,6 +22,7 @@ export const SHARED_MODULES = Object.freeze({
   "margin-core.js": "P1-10a",
   "expiry-costs.js": "P1-6a",
   "span-margin.js": "paper-margin",
+  "alert-core.js": "position-alerts",
   "guard-core.js": "P1-12a",
   "book-core.js": "P1-13b",
 });

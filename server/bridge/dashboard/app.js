@@ -249,6 +249,7 @@ export const ICONS = {
   chevron: '<path d="m9 6 6 6-6 6"/>',
   pause: '<path d="M8.5 5v14M15.5 5v14"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   logout: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>',
   chart: '<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/>',
@@ -1246,6 +1247,8 @@ async function signIn() {
   await startRouter();
   // The trading-readiness badge in the toolbar (every page; docs/spec/p1-05-readiness.md §6.3).
   import("./readiness.js").then((m) => m.mountReadinessBadge()).catch(() => {});
+  // Position alerts: the bell (unread fires, every alert) once there is an alert (alerts.js).
+  import("./alerts.js").then((m) => m.mountAlertBell()).catch(() => {});
 }
 
 if (typeof document !== "undefined" && document.getElementById("login-form")) {

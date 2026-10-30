@@ -122,14 +122,14 @@ describe("dashboard number format", () => {
   });
 
   it("no other dashboard file hand-builds a hyphen sign for a figure (MINUS from format.js instead)", () => {
-    for (const f of ["app.js", "views.js", "flows.js", "options.js", "desk.js", "chain-sheet.js", "oi.js", "strategy.js", "strategy-place.js", "payoff.js", "positions.js", "book-core.js", "book-view.js", "vol.js", "vol-curves.js", "arbitrage.js", "screener.js", "screens.js", "viz.js", "readiness.js", "events.js", "layout-prefs.js", "span-margin.js"]) {
+    for (const f of ["app.js", "views.js", "flows.js", "options.js", "desk.js", "chain-sheet.js", "oi.js", "strategy.js", "strategy-place.js", "payoff.js", "positions.js", "book-core.js", "book-view.js", "vol.js", "vol-curves.js", "arbitrage.js", "screener.js", "screens.js", "viz.js", "readiness.js", "events.js", "layout-prefs.js", "span-margin.js", "alert-core.js", "alerts.js"]) {
       const src = readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
       expect(src, f).not.toMatch(/\? "-" :|: "-"\)|-\$\{(?:format|fmt|rupee|money)|["`]-₹/);
     }
   });
 
   it("no other dashboard file formats numbers with the locale formatter", () => {
-    for (const f of ["app.js", "views.js", "palette.js", "motion.js", "snippets.js", "flows.js", "options.js", "pricing.js", "expiry-costs.js", "desk.js", "chain-sheet.js", "oi.js", "oi-store.js", "oi-series.js", "strategy.js", "strategy-place.js", "payoff.js", "positions.js", "book-core.js", "book-view.js", "vol.js", "vol-curves.js", "arbitrage.js", "screener.js", "screens.js", "viz.js", "reference.js", "calendar.js", "participants.js", "readiness.js", "recorder.js", "vol-context.js", "events.js", "layout-prefs.js", "span-margin.js"]) {
+    for (const f of ["app.js", "views.js", "palette.js", "motion.js", "snippets.js", "flows.js", "options.js", "pricing.js", "expiry-costs.js", "desk.js", "chain-sheet.js", "oi.js", "oi-store.js", "oi-series.js", "strategy.js", "strategy-place.js", "payoff.js", "positions.js", "book-core.js", "book-view.js", "vol.js", "vol-curves.js", "arbitrage.js", "screener.js", "screens.js", "viz.js", "reference.js", "calendar.js", "participants.js", "readiness.js", "recorder.js", "vol-context.js", "events.js", "layout-prefs.js", "span-margin.js", "alert-core.js", "alerts.js"]) {
       const src = readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
       expect(src, f).not.toMatch(/Intl\.NumberFormat|\.toLocaleString\(|toLocaleTimeString|toFixed\(/);
       expect(src, f).not.toMatch(/₹\d{1,3},\d/);

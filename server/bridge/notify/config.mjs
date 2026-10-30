@@ -16,7 +16,7 @@
  */
 import { z } from "zod";
 
-export const NOTIFY_EVENTS = Object.freeze(["scan.alert", "scan.completed", "order.updated", "safety.kill_switch", "account.status", "limits.throttled", "trading.readiness"]);
+export const NOTIFY_EVENTS = Object.freeze(["scan.alert", "scan.completed", "order.updated", "safety.kill_switch", "account.status", "limits.throttled", "trading.readiness", "option.alert"]);
 /** Events a target gets when it lists none. trading.readiness (p1-05) is on by default: an account that cannot trade matters. */
 export const DEFAULT_NOTIFY_EVENTS = Object.freeze(["scan.alert", "safety.kill_switch", "trading.readiness"]);
 const envName = z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/, "an environment variable name such as MCB_TELEGRAM_BOT_TOKEN");

@@ -135,6 +135,8 @@ export function createNotifier(deps) {
     if (topic === "limits.throttled") return p?.upstream === true;
     // The readiness monitor decides (dedupe, cooldown, warn is never pushed); every change still goes on the bus.
     if (topic === "trading.readiness") return p?.notify === true;
+    // Position alerts: only rules that ask to be sent ("Also send to my notification channels").
+    if (topic === "option.alert") return p?.notify === true;
     return true;
   }
 

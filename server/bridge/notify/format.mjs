@@ -87,6 +87,8 @@ export function formatEvent(topic, p = {}) {
       return { title: `Broker rate limit hit on ${clip(p.accountId, 40)}`, text: `${p.endpointClass} calls paused for ${Math.ceil((p.retryAfterMs ?? 0) / 1000)} s` };
     case "trading.readiness":
       return formatReadiness(p);
+    case "option.alert":
+      return { title: clip(p.title ?? `Alert: ${p.name ?? ""}`, 120), text: clip(p.text ?? "") };
     case "test":
       return { title: "Mr. Chartist API Bridge: test message", text: "Notifications from your Bridge reach this place." };
     default:
