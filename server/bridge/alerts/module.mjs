@@ -9,11 +9,20 @@
  *   GET    /v1/alerts/inbox           scope read   fires, newest first, and how many are unread
  *   POST   /v1/alerts/inbox/read      scope read   mark every fire read
  *
- * The evaluation loop (alertService.mjs) runs from start() and only notifies: it places no order.
+ *   GET    /v1/alerts/market                       scope read   market rules (PR 17's 11 analytics metrics)
+ *   POST   /v1/alerts/market                       scope read   save { name, underlying, expiry?, metric, op?, value?, to?, ... }
+ *   DELETE /v1/alerts/market/{ruleId}              scope read
+ *   POST   /v1/alerts/market/{ruleId}/check        scope read   evaluate now (?dryRun=true leaves state and phone alone)
+ *   /v1/analytics/alert-rules[...]                              the same four, PR 17's paths (aliases)
+ *
+ * Market rules run in analytics/alertRules.mjs (chain metrics through marketData, background priority); a fire lands in
+ * this module's inbox, so the bell shows position and market alerts together. The evaluation loops run from start()
+ * and only notify: they place no order.
  */
 import { BridgeError } from "../core/errors.mjs";
 import { defineModule } from "../core/modules.mjs";
 import { createAlertService } from "./alertService.mjs";
+import { alertRuleRoutes, alertRulesFor } from "../analytics/alertRules.mjs";
 
 export const ROUTES = Object.freeze([
   ["GET", "/v1/alerts", { scope: "read" }, "list"],
@@ -23,6 +32,9 @@ export const ROUTES = Object.freeze([
   ["PUT", "/v1/alerts/:alertId", { scope: "paper" }, "update"],
   ["DELETE", "/v1/alerts/:alertId", { scope: "paper", body: "none" }, "remove"],
 ]);
+
+/** Where the market rules are served: ours first, then PR 17's paths (aliases, docs/design/pr17-integration.md). */
+export const MARKET_BASES = Object.freeze(["/v1/alerts/market", "/v1/analytics/alert-rules"]);
 
 const services = new WeakMap();
 
@@ -74,12 +86,18 @@ export default defineModule({
       },
     };
     for (const [method, path, options, name] of ROUTES) app.route(method, path, handlers[name], options);
+    // Market rules: one engine, the canonical paths and PR 17's alias paths.
+    for (const base of MARKET_BASES) for (const [method, path, options, handler] of alertRuleRoutes(deps, { base })) app.route(method, path, handler, options);
+    // A market rule's fire goes into the same inbox as position alerts (notify already sends it as scan.alert).
+    deps.bus?.on?.("analytics.alert", (p) => svc.record({ ruleId: p.ruleId, name: p.name, underlying: p.underlying, text: p.message, at: p.at, values: { metric: p.metric, value: p.value, expiry: p.expiry } }));
   },
   async start(deps) {
     services.get(deps)?.start();
+    alertRulesFor(deps)?.startSchedule?.();
   },
   async stop(deps) {
     services.get(deps)?.stop();
+    alertRulesFor(deps)?.stop?.();
   },
 });
 

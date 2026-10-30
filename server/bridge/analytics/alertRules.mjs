@@ -1,5 +1,6 @@
 /**
- * Saved alert rules over analytics metrics — stream S15. Ported from the OptionsDesk AlertRuleBuilder, but the rules
+ * Market alert rules over analytics metrics — stream S15, hosted by the alerts module (one alert system: the bell's
+ * inbox shows their fires; canonical routes /v1/alerts/market, PR 17's /v1/analytics/alert-rules kept as an alias). Ported from the OptionsDesk AlertRuleBuilder, but the rules
  * read the Bridge's own analytics (chain, quotes, math.mjs) and are delivered through the notify service.
  *
  *   GET    /v1/analytics/alert-rules                  the caller's rules, with their last check
@@ -340,8 +341,9 @@ export function createAlertRules(deps) {
   }
 
   /** Evaluate one stored rule now. `dryRun` leaves its state alone and sends nothing. */
-  async function check(rule, { dryRun = false, signal } = {}) {
+  async function check(rule, { dryRun = false, signal, priority } = {}) {
     const opts = {};
+    if (priority) opts.priority = priority;
     if (rule.allowedAccounts) opts.allowedAccounts = rule.allowedAccounts;
     if (signal) opts.signal = signal;
     const metrics = await metricsFor(rule, deps, opts);
@@ -409,7 +411,7 @@ export function createAlertRules(deps) {
         if (!due(r, t)) continue;
         r.lastStartedAt = iso(t);
         try {
-          await check(r);
+          await check(r, { priority: "background" });
         } catch (err) {
           r.lastError = { code: err?.code ?? "INTERNAL", message: err?.detail ?? "Internal error.", at: iso(t) };
           safePersist();
@@ -444,7 +446,7 @@ const who = (ctx) => ({ allowedAccounts: allowedAccountsFor(ctx), keyId: ctx.key
 const view = ({ allowedAccounts: _a, keyId: _k, ...r }) => r;
 
 /** @returns {Array<[string, string, object, (ctx: object) => Promise<object>]>} */
-export function alertRuleRoutes(deps) {
+export function alertRuleRoutes(deps, { base = "/v1/analytics/alert-rules" } = {}) {
   const svc = alertRulesFor(deps);
   const find = (ctx) => {
     const r = svc.get(ctx.params.ruleId);
@@ -452,11 +454,11 @@ export function alertRuleRoutes(deps) {
     return r;
   };
   return [
-    ["GET", "/v1/analytics/alert-rules", { scope: "read" }, async (ctx) => ({ data: svc.list().filter((r) => owns(ctx, r)).map(view), meta: { requestId: ctx.requestId } })],
-    ["POST", "/v1/analytics/alert-rules", { scope: "read" }, async (ctx) => json({ data: view(svc.save(ctx.body, who(ctx))), meta: { requestId: ctx.requestId } }, { status: 201 })],
+    ["GET", base, { scope: "read" }, async (ctx) => ({ data: svc.list().filter((r) => owns(ctx, r)).map(view), meta: { requestId: ctx.requestId } })],
+    ["POST", base, { scope: "read" }, async (ctx) => json({ data: view(svc.save(ctx.body, who(ctx))), meta: { requestId: ctx.requestId } }, { status: 201 })],
     [
       "DELETE",
-      "/v1/analytics/alert-rules/:ruleId",
+      `${base}/:ruleId`,
       { scope: "read", body: "none" },
       async (ctx) => {
         const r = find(ctx);
@@ -466,7 +468,7 @@ export function alertRuleRoutes(deps) {
     ],
     [
       "POST",
-      "/v1/analytics/alert-rules/:ruleId/check",
+      `${base}/:ruleId/check`,
       { scope: "read", body: "none" },
       async (ctx) => {
         const r = find(ctx);

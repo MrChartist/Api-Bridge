@@ -1,9 +1,6 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { BridgeError } from "../core/errors.mjs";
-import { parseParticipantCsv, participantsRoutes, participantsUrl, productsOf, sentimentOf } from "./participants.mjs";
+import { fromStoreDay, parseParticipantCsv, participantsRoutes, participantsUrl, productsOf, sentimentOf } from "./participants.mjs";
 
 const HEAD = "Client Type,Future Index Long,Future Index Short,Future Stock Long,Future Stock Short,Option Index Call Long,Option Index Put Long,Option Index Call Short,Option Index Put Short,Option Stock Call Long,Option Stock Put Long,Option Stock Call Short,Option Stock Put Short,Total Long Contracts,Total Short Contracts";
 const line = (name, v) => `${name},${v.join(",")},0,0`;
@@ -18,26 +15,24 @@ const csv = (k = 1) =>
     "TOTAL,1,1,1,1,1,1,1,1,1,1,1,1,0,0",
   ].join("\r\n");
 const ctx = (qs = "") => ({ requestId: "r1", query: new URLSearchParams(qs) });
-// 2026-10-30 is a Friday
-const NOW = Date.parse("2026-10-30T20:00:00+05:30");
-const setup = (files, extraDeps = {}) => {
-  let t = NOW;
-  const calls = [];
-  const participantsFetcher = async (iso) => {
-    calls.push(iso);
-    const f = files[iso];
-    if (f instanceof Error) throw f;
-    return f ?? null;
-  };
-  const [[, , , h]] = participantsRoutes({ participantsFetcher, clock: { now: () => t }, ...extraDeps });
-  return { h, calls, tick: (ms) => (t += ms) };
+/** Our store's day shape (participants/ series): { date, rows: { FII: { IDX_FUT: [long, short], ... } } }. */
+const KEYMAP = { IDX_FUT: ["fil", "fis"], IDX_CE: ["icl", "ics"], IDX_PE: ["ipl", "ips"], STK_FUT: ["sfl", "sfs"], STK_CE: ["scl", "scs"], STK_PE: ["spl", "sps"] };
+const storeDay = (date, k = 1) => {
+  const raw = parseParticipantCsv(csv(k));
+  const rows = {};
+  for (const [store, name] of [["FII", "FII"], ["DII", "DII"], ["PRO", "Pro"], ["CLIENT", "Client"]]) rows[store] = Object.fromEntries(Object.entries(KEYMAP).map(([x, [l, sh]]) => [x, [raw[name][l], raw[name][sh]]]));
+  return { date, rows };
 };
-const dirs = [];
-afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
+const setup = (days) => {
+  const asked = [];
+  const participants = { series: (q) => (asked.push(q), days) };
+  const [[, , , h]] = participantsRoutes({ participants });
+  return { h, asked };
+};
 
 describe("participants", () => {
   it("declares its route and builds the archive URL", () => {
-    const [[m, p, o]] = participantsRoutes({ participantsFetcher: async () => null });
+    const [[m, p, o]] = participantsRoutes({ participants: { series: () => [] } });
     expect([m, p, o]).toEqual(["GET", "/v1/analytics/participants", { scope: "read" }]);
     expect(participantsUrl("2026-10-30")).toBe("https://nsearchives.nseindia.com/content/nsccl/fao_participant_oi_30102026.csv");
   });
@@ -65,56 +60,29 @@ describe("participants", () => {
     expect(() => parseParticipantCsv(csv().replace("FII,", "XXX,"))).toThrow(/no row for FII/);
   });
 
-  it("reports sessions with day-on-day change, skipping holidays", async () => {
-    // Thu 29 has no file (holiday); Wed 28 and Fri 30 do
-    const { h, calls } = setup({ "2026-10-30": csv(1), "2026-10-28": csv(2) });
-    const r = await h(ctx("days=2"));
+  it("is an alias over the participant OI store: sessions newest first with day-on-day change", async () => {
+    const { h } = setup([storeDay("2026-10-28", 2), storeDay("2026-10-30", 1)]);
+    const r = await h(ctx("days=5"));
     expect(r.data.sessions.map((s) => s.date)).toEqual(["2026-10-30", "2026-10-28"]);
     expect(r.data.sessions[0].previousDate).toBe("2026-10-28");
-    expect(r.data.sessions[0].participants.FII.change.indexFutures).toEqual({ long: -900, short: -100, net: -800 });
-    expect(r.data.latest.sentiment.FII).toBe("strongly_bullish");
-    expect(r.meta.source).toBe("nse-archives");
-    expect(r.meta.notes).toMatch(/unverified/);
-    expect(calls.every((d) => !["2026-10-31", "2026-10-25"].includes(d))).toBe(true); // weekends not requested
+    expect(r.data.sessions[0].participants.FII.indexFutures).toMatchObject({ long: 900, short: 100 });
+    expect(r.data.sessions[0].participants.FII.change.indexFutures).toMatchObject({ long: -900, short: -100 });
+    expect(r.data.sessions[1].participants.FII.change).toBeNull();
+    expect(r.data.latest).toMatchObject({ date: "2026-10-30" });
+    expect(r.meta).toMatchObject({ source: "participants-store", aliasOf: "/v1/participants/oi", available: 2 });
   });
 
-  it("caches within the TTL and serves stale on refresh failure", async () => {
-    const files = { "2026-10-30": csv() };
-    const { h, calls, tick } = setup(files);
-    await h(ctx("days=1"));
-    const n = calls.length;
-    await h(ctx("days=1"));
-    expect(calls.length).toBe(n);
-    tick(3 * 86_400_000);
-    files["2026-11-02"] = new BridgeError("UPSTREAM_ERROR", "down");
-    const r = await h(ctx("days=1"));
-    expect(r.meta.stale).toBe(true);
-    expect(r.data.sessions[0].date).toBe("2026-10-30");
+  it("maps the store's rows and skips a day with a missing participant", () => {
+    const d = fromStoreDay(storeDay("2026-10-30"));
+    expect(d.rows.FII).toEqual(parseParticipantCsv(csv()).FII);
+    const broken = storeDay("2026-10-29");
+    delete broken.rows.DII;
+    expect(fromStoreDay(broken)).toBeNull();
   });
 
-  it("surfaces UPSTREAM_ERROR when nothing is cached and the shape is wrong", async () => {
-    const { h } = setup({ "2026-10-30": "nonsense" });
-    await expect(h(ctx())).rejects.toMatchObject({ code: "UPSTREAM_ERROR" });
-  });
-
-  it("validates days", async () => {
-    const { h } = setup({});
-    for (const bad of ["0", "61", "x", "1.5"]) await expect(h(ctx(`days=${bad}`))).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
-  });
-
-  it("persists history and reloads it; a corrupt file is moved aside", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "part-"));
-    dirs.push(dir);
-    const deps = { paths: { dataDir: dir } };
-    await setup({ "2026-10-30": csv() }, deps).h(ctx("days=1"));
-    const file = join(dir, "analytics", "participants.json");
-    expect(JSON.parse(readFileSync(file, "utf8")).rows[0].date).toBe("2026-10-30");
-    const second = setup({}, deps);
-    const r = await second.h(ctx("days=1"));
-    expect(r.data.sessions[0].date).toBe("2026-10-30");
-    writeFileSync(file, "{not json");
-    const third = setup({ "2026-10-30": csv() }, deps);
-    await third.h(ctx("days=1"));
-    expect(readdirSync(join(dir, "analytics")).some((f) => f.includes("corrupt"))).toBe(true);
+  it("says UPSTREAM_ERROR when the store has nothing, and validates days", async () => {
+    await expect(setup([]).h(ctx())).rejects.toMatchObject({ code: "UPSTREAM_ERROR" });
+    await expect(participantsRoutes({})[0][3](ctx())).rejects.toMatchObject({ code: "UPSTREAM_ERROR" });
+    for (const bad of ["0", "61", "x"]) await expect(setup([storeDay("2026-10-30")]).h(ctx(`days=${bad}`))).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 });

@@ -2,11 +2,12 @@
  * analytics module — stream S15: options analytics computed from the Bridge's own chain, quotes and Black-Scholes
  * (OI and PCR, OI change, max pain, gamma exposure, IV skew and term structure, Greeks grid, synthetics, straddle,
  * futures chain and basis, FII/DII flows, expiry-day digest, strategy templates and finder, Greeks calculator,
- * payoff, position sizing, lot-split plans, position Greeks, alert rules). Nothing here can place an order: lot-split
- * only plans, and the only state kept is the saved alert rules.
+ * payoff, position sizing, lot-split plans, position Greeks). Nothing here can place an order: lot-split only plans.
+ * Alert rules on these metrics are served by the alerts module (one alert system; /v1/alerts/market, with
+ * /v1/analytics/alert-rules as an alias), and watchlists by the watchlists module (/v1/analytics/watchlists is an
+ * alias there); docs/design/pr17-integration.md.
  */
 import { defineModule } from "../core/modules.mjs";
-import { alertRuleRoutes, alertRulesFor } from "./alertRules.mjs";
 import { expiryDayRoutes } from "./expiryDay.mjs";
 import { flowsRoutes } from "./flows.mjs";
 import { futuresChainRoutes } from "./futuresChain.mjs";
@@ -21,7 +22,6 @@ import { tideRoutes } from "./tide.mjs";
 import { screenerRoutes } from "./screener.mjs";
 import { marketEventsRoutes } from "./marketEvents.mjs";
 import { exposureRoutes } from "./exposure.mjs";
-import { watchlistRoutes } from "./watchlist.mjs";
 import { optimizerRoutes } from "./optimizer.mjs";
 import { participantsRoutes } from "./participants.mjs";
 import { backtestRoutes } from "./backtest.mjs";
@@ -44,10 +44,10 @@ export const ROUTES = Object.freeze([
 ]);
 
 /** The services analytics reads. Nothing here may reach safety or place an order: orders is read only (positions, holdings, funds, trades, order list). */
-export const USED_SERVICES = Object.freeze(["marketData", "orders", "accounts", "backupData", "symbols"]);
+export const USED_SERVICES = Object.freeze(["marketData", "orders", "accounts", "backupData", "symbols", "participants"]);
 
 /** Feature files that build their own [method, path, options, handler] entries. */
-const FEATURE_ROUTES = Object.freeze([oiTrackerRoutes, greeksGridRoutes, strategyRoutes, futuresChainRoutes, flowsRoutes, expiryDayRoutes, alertRuleRoutes, positionRoutes, unusualRoutes, tideRoutes, exposureRoutes, volStatsRoutes, marketEventsRoutes, screenerRoutes, backtestRoutes, participantsRoutes, optimizerRoutes, watchlistRoutes, marketsRoutes, fieldsRoutes, riskRoutes, derivDepthRoutes, newsFeedsRoutes]);
+const FEATURE_ROUTES = Object.freeze([oiTrackerRoutes, greeksGridRoutes, strategyRoutes, futuresChainRoutes, flowsRoutes, expiryDayRoutes, positionRoutes, unusualRoutes, tideRoutes, exposureRoutes, volStatsRoutes, marketEventsRoutes, screenerRoutes, backtestRoutes, participantsRoutes, optimizerRoutes, marketsRoutes, fieldsRoutes, riskRoutes, derivDepthRoutes, newsFeedsRoutes]);
 
 export default defineModule({
   name: "analytics",
@@ -56,11 +56,5 @@ export default defineModule({
     const handlers = createAnalyticsRoutes(deps);
     for (const [method, path, options, name] of ROUTES) app.route(method, path, handlers[name], options);
     for (const build of FEATURE_ROUTES) for (const [method, path, options, handler] of build(deps)) app.route(method, path, handler, options);
-  },
-  async start(deps) {
-    alertRulesFor(deps)?.startSchedule?.();
-  },
-  async stop(deps) {
-    alertRulesFor(deps)?.stop?.();
   },
 });

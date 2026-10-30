@@ -78,6 +78,7 @@ export function createAlertService(deps, { timers = { setInterval, clearInterval
   let timer = null;
   let running = false;
   const lastLive = new Map();
+  let marketSeq = 0;
 
   function load() {
     try {
@@ -257,9 +258,16 @@ export function createAlertService(deps, { timers = { setInterval, clearInterval
       state.rules = state.rules.filter((x) => x.id !== id);
       save();
     },
-    /** Fires, newest first, with how many are unread. */
+    /** A market rule's fire (alerts/module.mjs hears analytics.alert): into the same inbox, with no account. */
+    record({ ruleId, name, underlying, text, at, values } = {}) {
+      const t = Date.parse(at) || now();
+      const f = { id: `fire_${t.toString(36)}_m${(marketSeq += 1)}`, kind: "market", ruleId: ruleId ?? null, name: String(name ?? "Market alert"), account: null, underlying: underlying ?? null, at: new Date(t).toISOString(), title: String(name ?? "Market alert"), text: String(text ?? ""), values: values ?? null };
+      logFire(f);
+      return f;
+    },
+    /** Fires, newest first, with how many are unread. Market fires carry no account, so every key that reads sees them. */
     inbox(allowed = () => true, { limit = 50 } = {}) {
-      const mine = fires.filter((f) => allowed(f.account));
+      const mine = fires.filter((f) => f.account === null || f.account === undefined || allowed(f.account));
       const unread = mine.filter((f) => Date.parse(f.at) > state.readAt).length;
       return { items: mine.slice(-limit).reverse(), unread, readAt: state.readAt ? new Date(state.readAt).toISOString() : null };
     },

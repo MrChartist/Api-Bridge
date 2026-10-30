@@ -77,6 +77,12 @@ export function watchRow(symbol, quote, { future = null, oi = null, vol = null }
     ltp,
     change,
     changePct,
+    // The day's range and volume from the same quote (PR 17's watchlist columns, ported).
+    open: num(quote?.open),
+    dayHigh: num(quote?.high),
+    dayLow: num(quote?.low),
+    prevClose: close,
+    volume: num(quote?.volume),
     future,
     oi: oi?.oi ?? null,
     oiChange: oi?.change ?? null,

@@ -2285,6 +2285,91 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/alerts/market:
+    get:
+      tags: [Alerts]
+      operationId: listMarketAlerts
+      summary: Market alerts (PCR, max pain, gamma regime, ATM IV, basis, spot, unusual activity, tide, IV rank, FII streak, volume)
+      description: The caller's rules with their last check, last fire and armed state. Admin and local callers see every rule.
+      x-stream: S24
+      x-scope: read
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Alerts]
+      operationId: createMarketAlert
+      summary: Save an alert rule
+      description: |
+        Metrics: `pcr_oi`, `max_pain_distance` (percent of spot), `atm_iv`, `basis_pct` take `op` above/below and `value`;
+        `gex_regime` fires when the net gamma regime changes (optionally only `to` one regime); `spot_cross` fires when spot
+        crosses `value` (`op` above/below/either). Every metric except `spot_cross` needs `expiry`. A rule fires once per
+        crossing and re-arms when the condition clears; with `everyMinutes` it is checked by itself. Delivery goes through
+        the notify targets (event `scan.alert`).
+        `unusual_count` counts unusual contracts with score at or above `minScore` (default 50), `op` above/below and `value`;
+        `tide_sentiment` fires when option-flow sentiment changes (optionally only `to` bullish/bearish/neutral);
+        `iv_rank` is the ATM IV rank 0-100 over stored IV history (no data until 20 days are stored), `op` above/below;
+        `fii_net_streak` is the signed run of same-sign FII net days (+3 buying, -3 selling), `op` above/below;
+        `volume_spike` is latest daily volume over the previous 20-day average (futures when `expiry` is given, else spot).
+        `expiry` is required for every metric except `spot_cross`, `fii_net_streak` and `volume_spike`.
+      x-stream: S24
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, underlying, metric]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                underlying: { type: string, maxLength: 30, example: NIFTY }
+                expiry: { type: string, format: date }
+                metric: { type: string, enum: [pcr_oi, max_pain_distance, gex_regime, atm_iv, basis_pct, spot_cross, unusual_count, tide_sentiment, iv_rank, fii_net_streak, volume_spike] }
+                op: { type: string, enum: [above, below, either] }
+                value: { type: number }
+                to: { type: string, enum: [positive, negative, neutral, bullish, bearish], description: "gex_regime (positive/negative/neutral) or tide_sentiment (bullish/bearish/neutral) only" }
+                minScore: { type: number, minimum: 0, maximum: 100, description: unusual_count only }
+                everyMinutes: { type: integer, minimum: 1, maximum: 1440 }
+                marketHoursOnly: { type: boolean, default: true }
+                enabled: { type: boolean, default: true }
+      responses:
+        "201": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/alerts/market/{ruleId}:
+    delete:
+      tags: [Alerts]
+      operationId: deleteMarketAlert
+      summary: Delete an alert rule
+      x-stream: S24
+      x-scope: read
+      parameters:
+        - { name: ruleId, in: path, required: true, schema: { type: string, maxLength: 64 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/alerts/market/{ruleId}/check:
+    post:
+      tags: [Alerts]
+      operationId: checkMarketAlert
+      summary: Evaluate an alert rule now
+      description: Reads the metric and applies the edge trigger. With `dryRun=true` the rule's state is left alone and nothing is sent.
+      x-stream: S24
+      x-scope: read
+      parameters:
+        - { name: ruleId, in: path, required: true, schema: { type: string, maxLength: 64 } }
+        - { name: dryRun, in: query, required: false, schema: { type: boolean, default: false } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/alerts/{alertId}:
     parameters:
       - name: alertId
@@ -6605,9 +6690,9 @@ paths:
     get:
       tags: [Analytics]
       operationId: listAnalyticsAlertRules
-      summary: Saved alert rules over analytics metrics
+      summary: Alias of /v1/alerts/market: saved alert rules over analytics metrics
       description: The caller's rules with their last check, last fire and armed state. Admin and local callers see every rule.
-      x-stream: S15
+      x-stream: S24
       x-scope: read
       responses:
         "200": { $ref: "#/components/responses/AnalyticsResult" }
@@ -6616,7 +6701,7 @@ paths:
     post:
       tags: [Analytics]
       operationId: createAnalyticsAlertRule
-      summary: Save an alert rule
+      summary: Alias of /v1/alerts/market: save an alert rule
       description: |
         Metrics: `pcr_oi`, `max_pain_distance` (percent of spot), `atm_iv`, `basis_pct` take `op` above/below and `value`;
         `gex_regime` fires when the net gamma regime changes (optionally only `to` one regime); `spot_cross` fires when spot
@@ -6629,7 +6714,7 @@ paths:
         `fii_net_streak` is the signed run of same-sign FII net days (+3 buying, -3 selling), `op` above/below;
         `volume_spike` is latest daily volume over the previous 20-day average (futures when `expiry` is given, else spot).
         `expiry` is required for every metric except `spot_cross`, `fii_net_streak` and `volume_spike`.
-      x-stream: S15
+      x-stream: S24
       x-scope: read
       requestBody:
         required: true
@@ -6660,8 +6745,8 @@ paths:
     delete:
       tags: [Analytics]
       operationId: deleteAnalyticsAlertRule
-      summary: Delete an alert rule
-      x-stream: S15
+      summary: Alias of /v1/alerts/market/{ruleId}: delete an alert rule
+      x-stream: S24
       x-scope: read
       parameters:
         - { name: ruleId, in: path, required: true, schema: { type: string, maxLength: 64 } }
@@ -6674,9 +6759,9 @@ paths:
     post:
       tags: [Analytics]
       operationId: checkAnalyticsAlertRule
-      summary: Evaluate an alert rule now
+      summary: Alias of /v1/alerts/market/{ruleId}/check: evaluate an alert rule now
       description: Reads the metric and applies the edge trigger. With `dryRun=true` the rule's state is left alone and nothing is sent.
-      x-stream: S15
+      x-stream: S24
       x-scope: read
       parameters:
         - { name: ruleId, in: path, required: true, schema: { type: string, maxLength: 64 } }
@@ -7064,7 +7149,7 @@ paths:
     get:
       tags: [Analytics]
       operationId: getAnalyticsParticipants
-      summary: FII, DII, Pro and Client F&O open interest by participant, with day-on-day change and sentiment
+      summary: Alias of /v1/participants/oi in PR 17's shape: fII, DII, Pro and Client F&O open interest by participant, with day-on-day change and sentiment
       description: >-
         Per session and participant, index futures, index options (with call and put legs), stock futures and stock options,
         each as long, short, net, long/short ratio and long percent, plus the change from the previous session and a derived
@@ -7117,8 +7202,8 @@ paths:
     get:
       tags: [Analytics]
       operationId: listAnalyticsWatchlists
-      summary: The caller's watchlists (a default Index & F&O leaders list is created on first use)
-      x-stream: S15
+      summary: Alias of /v1/watchlists: the caller's watchlists (every list on this Bridge, as an array)
+      x-stream: S29
       x-scope: read
       responses:
         "200": { $ref: "#/components/responses/AnalyticsResult" }
@@ -7127,8 +7212,8 @@ paths:
     post:
       tags: [Analytics]
       operationId: createAnalyticsWatchlist
-      summary: Create a watchlist (up to 100 symbols, 20 lists per key)
-      x-stream: S15
+      summary: Alias of /v1/watchlists: create a watchlist (up to 100 symbols, 20 lists)
+      x-stream: S29
       x-scope: read
       requestBody:
         required: true
@@ -7149,9 +7234,9 @@ paths:
     put:
       tags: [Analytics]
       operationId: updateAnalyticsWatchlist
-      summary: Rename a watchlist, replace its symbols, or add and remove some
+      summary: Alias of /v1/watchlists/{listId}: rename a watchlist, replace its symbols, or add and remove some
       description: Give name, symbols, or add and remove. symbols replaces the list and cannot be combined with add or remove.
-      x-stream: S15
+      x-stream: S29
       x-scope: read
       parameters:
         - { name: listId, in: path, required: true, schema: { type: string } }
@@ -7174,8 +7259,8 @@ paths:
     delete:
       tags: [Analytics]
       operationId: deleteAnalyticsWatchlist
-      summary: Delete a watchlist
-      x-stream: S15
+      summary: Alias of /v1/watchlists/{listId}: delete a watchlist
+      x-stream: S29
       x-scope: read
       parameters:
         - { name: listId, in: path, required: true, schema: { type: string } }
@@ -7187,9 +7272,9 @@ paths:
     get:
       tags: [Analytics]
       operationId: getAnalyticsWatchlistQuotes
-      summary: Live quotes for a watchlist (ltp, change, changePct, volume, oi, dayHigh, dayLow)
+      summary: Alias of /v1/watchlists/{listId}/quotes: live quotes for a watchlist (ltp, change, changePct, volume, oi, dayHigh, dayLow)
       description: Symbols that could not be quoted are listed in errors and never fail the call; meta carries the stalest item's freshness.
-      x-stream: S15
+      x-stream: S29
       x-scope: read
       parameters:
         - $ref: "#/components/parameters/Backup"

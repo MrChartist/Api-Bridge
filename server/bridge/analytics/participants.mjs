@@ -1,42 +1,25 @@
 /**
- * Participant-wise F&O open interest (FII, DII, Pro, Client) — stream S15, read scope, no broker account.
+ * Participant-wise F&O open interest (FII, DII, Pro, Client) in PR 17's shape — stream S15, read scope, no broker.
  *
  *   GET /v1/analytics/participants[?days=10]   per session: index futures, index options, stock futures, stock options
  *                                              (long, short, net, long/short ratio, long %), day-on-day change, sentiment
  *
- * Source: NSE's daily fao_participant_oi_DDMMYYYY.csv on nsearchives.nseindia.com (ASSUMED URL pattern and column
- * layout, NOT verified against a live session; see ROUTE_NOTES). Each missing weekday in the lookback window is fetched
- * with the backup module's cookie-aware HTTP client, parsed by header name (case, spacing and column order tolerated)
- * and merged by date into a history of the newest 250 sessions, loaded lazily from and saved atomically (0600) to
- * <dataDir>/analytics/participants.json when deps.paths.dataDir is set (corrupt file moved aside, disk errors logged
- * only). A 404 means "not published yet or a holiday": today is retried on every refresh, older dates are remembered as
- * absent for the process lifetime. A file whose shape is not recognised raises UPSTREAM_ERROR. Refresh failures serve
- * the cached history with meta.stale true.
+ * An alias over the Bridge's one participant OI store (server/bridge/participants, GET /v1/participants/oi), which
+ * fetches NSE's daily file, keeps the history and has a demo history. This file keeps PR 17's pure parts: the CSV
+ * reader (for tests and tools), the product groups and the sentiment read.
  *
  * Sentiment (derived, not from NSE): futures score = index-futures net / gross (-1..1); options score = directional
  * index-option net, (call long + put short - put long - call short) / their sum (-1..1), contracts not delta-weighted.
  * score = 0.7 * futures + 0.3 * options; >= 0.5 strongly_bullish, >= 0.15 bullish, <= -0.5 strongly_bearish,
  * <= -0.15 bearish, else neutral. A positioning read, not a forecast.
- *
- * deps (all optional): participantsFetcher: async (isoDate) => csv text | null (null = not published; tests inject
- * this), fetchImpl, clock, config.backup.timeoutMs, paths.dataDir, logger.
  */
-import { readFileSync, renameSync } from "node:fs";
-import { join } from "node:path";
-import { writeFileAtomic } from "../auth/fsUtil.mjs";
 import { BridgeError } from "../core/errors.mjs";
-import { createHttpClient } from "../backup/httpClient.mjs";
-import { NSE_BASE } from "../backup/providers/nse.mjs";
 
 export const ARCHIVE_BASE = "https://nsearchives.nseindia.com";
 export const participantsUrl = (iso) => `${ARCHIVE_BASE}/content/nsccl/fao_participant_oi_${iso.slice(8, 10)}${iso.slice(5, 7)}${iso.slice(0, 4)}.csv`;
-export const CACHE_TTL_MS = 5 * 60_000;
 export const ROUTE_NOTES =
-  "The URL pattern (nsearchives.nseindia.com/content/nsccl/fao_participant_oi_ddmmyyyy.csv) and the CSV column layout are assumed from NSE site knowledge and unverified without network access. A changed shape raises UPSTREAM_ERROR.";
-const MAX_HISTORY = 250;
+  "Read from the participant OI store (GET /v1/participants/oi). The NSE URL pattern (nsearchives.nseindia.com/content/nsccl/fao_participant_oi_ddmmyyyy.csv) and the CSV column layout are assumed from NSE site knowledge and unverified without network access. A changed shape raises UPSTREAM_ERROR.";
 const MAX_DAYS = 60;
-const MAX_FETCH_PER_REFRESH = 40;
-const BATCH = 4;
 const IST_OFFSET_MS = 5.5 * 3600_000;
 const DAY_MS = 86_400_000;
 export const PARTICIPANTS = Object.freeze(["FII", "DII", "Pro", "Client"]);
@@ -150,155 +133,34 @@ export function sentimentOf(r) {
 const GROUPS = ["indexFutures", "indexOptions", "stockFutures", "stockOptions"];
 const change = (cur, prev) => ({ long: cur.long - prev.long, short: cur.short - prev.short, net: cur.net - prev.net });
 
-function defaultFetcher(deps) {
-  const base = extra(deps, "fetchImpl") ?? globalThis.fetch;
-  // The shared client parses JSON; wrap the CSV body so the same client (cookies, timeout, error mapping) carries it.
-  const wrapped = async (url, init) => {
-    const res = await base(url, init);
-    if (!String(url).startsWith(ARCHIVE_BASE)) return res;
-    const csv = res.status >= 200 && res.status < 300 ? await res.text() : "";
-    return { status: res.status, headers: res.headers, text: async () => JSON.stringify({ csv }) };
-  };
-  const http = createHttpClient({ fetchImpl: wrapped, timeoutMs: extra(deps, "config")?.backup?.timeoutMs ?? 8000, provider: "NSE India" });
-  return async (iso) => {
-    const { status, json } = await http.get(participantsUrl(iso), { accept404: true, headers: { Accept: "text/csv, */*", Referer: `${NSE_BASE}/all-reports-derivatives` } });
-    if (status === 404 || status === 403) return null;
-    if (status >= 400) throw upstream(`NSE archives answered HTTP ${status} for the participant OI file.`);
-    return json?.csv ?? null;
-  };
+/** Our store's instrument rows ([long, short] each) as this module's raw keys. */
+const FROM_STORE = Object.freeze({ IDX_FUT: ["fil", "fis"], IDX_CE: ["icl", "ics"], IDX_PE: ["ipl", "ips"], STK_FUT: ["sfl", "sfs"], STK_CE: ["scl", "scs"], STK_PE: ["spl", "sps"] });
+const STORE_NAMES = Object.freeze({ FII: "FII", DII: "DII", PRO: "Pro", CLIENT: "Client" });
+
+/** One stored day (participants/ series row) as { date, rows: { FII: { fil, ... }, ... } }, or null when a row is missing. */
+export function fromStoreDay(day) {
+  const rows = {};
+  for (const [store, name] of Object.entries(STORE_NAMES)) {
+    const src = day?.rows?.[store];
+    if (!src) return null;
+    const r = {};
+    for (const [x, [lk, sk]] of Object.entries(FROM_STORE)) {
+      const v = src[x];
+      if (!Array.isArray(v) || !Number.isFinite(v[0]) || !Number.isFinite(v[1])) return null;
+      r[lk] = v[0];
+      r[sk] = v[1];
+    }
+    rows[name] = r;
+  }
+  return { date: day.date, rows };
 }
 
-/** @returns {Array<[string, string, {scope: "read"}, (ctx: any) => Promise<object>]>} */
+/**
+ * GET /v1/analytics/participants: an alias over the Bridge's one participant OI store (server/bridge/participants,
+ * GET /v1/participants/oi), kept for PR 17's shape: per session the four product groups, sentiment and day-on-day
+ * change. It reads the store only (no NSE request of its own); docs/design/pr17-integration.md.
+ */
 export function participantsRoutes(deps) {
-  const fetcher = extra(deps, "participantsFetcher") ?? defaultFetcher(deps);
-  const now = () => (extra(deps, "clock")?.now ? deps.clock.now() : Date.now());
-  const dataDir = extra(deps, "paths")?.dataDir;
-  const filePath = dataDir ? join(dataDir, "analytics", "participants.json") : null;
-  const baseLog = extra(deps, "logger");
-  const log = baseLog?.child ? baseLog.child({ module: "participants" }) : baseLog;
-  const warn = (msg, err) => {
-    try {
-      log?.warn?.({ err: err?.message ?? String(err) }, msg);
-    } catch {
-      /* logging must never fail a request */
-    }
-  };
-  /** iso date -> { date, rows: { FII: raw, ... } } */
-  const history = new Map();
-  /** iso dates known to have no file (holidays), this process only */
-  const absent = new Set();
-  let loaded = false;
-
-  const validRow = (r) => r && typeof r.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.date) && r.rows && PARTICIPANTS.every((p) => KEYS.every((k) => Number.isFinite(r.rows[p]?.[k])));
-  const trim = () => {
-    for (const k of [...history.keys()].sort().reverse().slice(MAX_HISTORY)) history.delete(k);
-  };
-  const sortedRows = () => [...history.values()].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-
-  function load() {
-    if (loaded) return;
-    loaded = true;
-    if (!filePath) return;
-    let text;
-    try {
-      text = readFileSync(filePath, "utf8");
-    } catch (err) {
-      if (err?.code !== "ENOENT") warn("participants history unreadable; starting empty", err);
-      return;
-    }
-    try {
-      const doc = JSON.parse(text);
-      if (!doc || !Array.isArray(doc.rows)) throw new Error("unexpected shape");
-      for (const r of doc.rows) if (validRow(r)) history.set(r.date, { date: r.date, rows: r.rows });
-      trim();
-    } catch (err) {
-      history.clear();
-      warn("participants history file is corrupt; moving it aside", err);
-      try {
-        renameSync(filePath, `${filePath}.corrupt-${now()}`);
-      } catch (e2) {
-        warn("could not move the corrupt participants file aside", e2);
-      }
-    }
-  }
-
-  function save() {
-    if (!filePath) return;
-    try {
-      writeFileAtomic(filePath, `${JSON.stringify({ version: 1, rows: sortedRows() }, null, 2)}\n`);
-    } catch (err) {
-      warn("could not persist participants history", err);
-    }
-  }
-
-  const istToday = () => new Date(now() + IST_OFFSET_MS).toISOString().slice(0, 10);
-
-  /** Weekdays newest first, within a lookback sized for `want` sessions, that are neither held nor known absent. */
-  function missingDates(want) {
-    const out = [];
-    const today = Date.parse(`${istToday()}T00:00:00Z`);
-    const span = Math.min(Math.ceil(want * 1.6) + 6, 400);
-    for (let i = 0; i < span && out.length < MAX_FETCH_PER_REFRESH; i++) {
-      const d = new Date(today - i * DAY_MS);
-      if ([0, 6].includes(d.getUTCDay())) continue;
-      const iso = d.toISOString().slice(0, 10);
-      if (!history.has(iso) && !absent.has(iso)) out.push(iso);
-    }
-    return out;
-  }
-
-  let fetchedAt = 0;
-  let inflight = null;
-  let wantSessions = 11;
-  let covered = 0;
-
-  async function fetchOne(iso) {
-    let text;
-    try {
-      text = await fetcher(iso);
-    } catch (err) {
-      if (err instanceof BridgeError) throw err;
-      throw new BridgeError("UPSTREAM_ERROR", "The participant OI fetch failed unexpectedly.", { cause: err });
-    }
-    return { iso, rows: text === null || text === undefined ? null : parseParticipantCsv(text) };
-  }
-
-  async function refresh() {
-    const want = wantSessions;
-    const dates = missingDates(want);
-    const today = istToday();
-    let firstErr = null;
-    for (let i = 0; i < dates.length; i += BATCH) {
-      const settled = await Promise.allSettled(dates.slice(i, i + BATCH).map(fetchOne));
-      for (const [j, s] of settled.entries()) {
-        const iso = dates[i + j];
-        if (s.status === "rejected") firstErr ??= s.reason;
-        else if (s.value.rows) history.set(iso, { date: iso, rows: s.value.rows });
-        else if (iso < today) absent.add(iso);
-      }
-    }
-    trim();
-    if (dates.length) save();
-    if (firstErr) throw firstErr;
-    if (!history.size) throw upstream("NSE has published no participant OI files in the lookback window.");
-    fetchedAt = now();
-    covered = Math.max(covered, want);
-  }
-
-  async function ensureFresh(days) {
-    load();
-    wantSessions = Math.max(wantSessions, days + 1);
-    if (history.size && now() - fetchedAt < CACHE_TTL_MS && covered >= days + 1) return;
-    inflight ??= refresh().finally(() => {
-      inflight = null;
-    });
-    try {
-      await inflight;
-    } catch (err) {
-      if (!history.size) throw err;
-    }
-  }
-
   async function handler(ctx) {
     const raw = ctx.query.get("days");
     let days = 10;
@@ -306,35 +168,29 @@ export function participantsRoutes(deps) {
       if (!/^\d+$/.test(raw) || Number(raw) < 1 || Number(raw) > MAX_DAYS) throw invalid("days", `days must be a whole number from 1 to ${MAX_DAYS}.`);
       days = Number(raw);
     }
-    await ensureFresh(days);
-    const all = sortedRows();
-    const sessions = all.slice(0, days).map((s) => {
-      const prev = all[all.indexOf(s) + 1] ?? null;
+    const svc = extra(deps, "participants");
+    if (!svc || typeof svc.series !== "function") throw upstream("Participant OI is not available on this Bridge.");
+    const from = new Date(Date.now() - (days * 2 + 14) * DAY_MS + IST_OFFSET_MS).toISOString().slice(0, 10);
+    const all = svc
+      .series({ from })
+      .map(fromStoreDay)
+      .filter(Boolean)
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    if (!all.length) throw upstream("No participant OI has been stored yet. It arrives after the close; see Markets > OI Analysis > Participants.");
+    const sessions = all.slice(0, days).map((s, i) => {
+      const prev = all[i + 1] ?? null;
       const participants = {};
       for (const p of PARTICIPANTS) {
         const cur = productsOf(s.rows[p]);
         const prv = prev ? productsOf(prev.rows[p]) : null;
-        participants[p] = {
-          ...cur,
-          sentiment: sentimentOf(s.rows[p]),
-          change: prv ? Object.fromEntries([...GROUPS, "total"].map((g) => [g, change(cur[g], prv[g])])) : null,
-        };
+        participants[p] = { ...cur, sentiment: sentimentOf(s.rows[p]), change: prv ? Object.fromEntries([...GROUPS, "total"].map((g) => [g, change(cur[g], prv[g])])) : null };
       }
       return { date: s.date, previousDate: prev?.date ?? null, participants };
     });
-    const stale = !fetchedAt || now() - fetchedAt >= CACHE_TTL_MS;
     return {
-      data: {
-        unit: "contracts",
-        sessions,
-        latest: sessions[0] ? { date: sessions[0].date, sentiment: Object.fromEntries(PARTICIPANTS.map((p) => [p, sessions[0].participants[p].sentiment.label])) } : null,
-      },
-      meta: {
-        requestId: ctx.requestId, source: "nse-archives", fetchedAt: fetchedAt ? new Date(fetchedAt).toISOString() : null,
-        requested: days, available: all.length, stale, notes: ROUTE_NOTES,
-      },
+      data: { unit: "contracts", sessions, latest: { date: sessions[0].date, sentiment: Object.fromEntries(PARTICIPANTS.map((p) => [p, sessions[0].participants[p].sentiment.label])) } },
+      meta: { requestId: ctx.requestId, source: "participants-store", aliasOf: "/v1/participants/oi", requested: days, available: all.length, stale: false, notes: ROUTE_NOTES },
     };
   }
-
   return [["GET", "/v1/analytics/participants", { scope: "read" }, handler]];
 }

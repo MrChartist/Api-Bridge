@@ -73,6 +73,7 @@ export const TOPICS = Object.freeze([
   "strategy.guard",
   "participants.updated",
   "market.event",
+  "analytics.alert",
 ]);
 
 /**
