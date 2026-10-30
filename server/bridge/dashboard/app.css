@@ -1692,7 +1692,7 @@ svg .dv-pill text { fill: hsl(var(--sel-fg)); font: 500 12px/1 var(--font-numeri
 .secret-box code { flex: 1 1 220px; min-width: 0; padding: 8px 10px; background: hsl(var(--card)); border-radius: 10px; word-break: break-all; }
 
 /* ───────────────────────── 10 · BARS, METERS, CHECKLIST, QUOTES ───────────────────────── */
-.bar { height: 6px; min-width: 60px; background: var(--mat-fill-2); border-radius: 99px; overflow: hidden; }
+.bar:not(rect) { height: 6px; min-width: 60px; background: var(--mat-fill-2); border-radius: 99px; overflow: hidden; }
 .bar > span { display: block; height: 100%; width: 0; background: hsl(var(--ios-blue)); border-radius: 99px; transition: width 400ms var(--ease-out); }
 .bar.ok > span { background: hsl(var(--ios-green)); }
 .bar.warn > span { background: hsl(var(--ios-orange)); }
@@ -9028,3 +9028,7 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 /* Strategy lab › Backtest (analyticsRisk.js): the entry and exit conditions get the width a formula needs. */
 .an-page .an-bt-form .an-bt-rules { grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
 .an-page .an-bt-form .an-bt-rules input { font-family: var(--font-numeric); }
+/* Analytics › Risk: the simulated one-day P&L histogram; days at or beyond the VaR loss are the tail. */
+.an-page .chart .bar.body { fill: hsl(var(--foreground) / 0.26); }
+.an-page .chart .bar.tail { fill: hsl(var(--neg) / 0.75); }
+.an-page .chart .marker-line.es { stroke: hsl(var(--neg)); }
