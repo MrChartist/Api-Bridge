@@ -77,3 +77,33 @@ export function tradeTotals(list) {
   }
   return t;
 }
+
+/**
+ * The Day view of positions (as brokers show it): what was bought and sold today, what was carried in, and today's
+ * P&L, measured from the previous close for carried units: sell value − buy value + net × LTP − carried × previous
+ * close. A row the source did not give day figures for (a broker that reports none) has dayPnl null.
+ * @param {object[]} positions GET /v1/positions rows
+ * @returns {{ rows: object[], total: number|null, missing: number }}
+ */
+export function dayRows(positions) {
+  const rows = [];
+  let total = 0;
+  let missing = 0;
+  for (const p of positions ?? []) {
+    const buy = Number(p.buyQty) || 0;
+    const sell = Number(p.sellQty) || 0;
+    const carried = Number(p.overnightQty) || 0;
+    if (!buy && !sell && !carried && !Number(p.netQty)) continue;
+    let dayPnl = p.dayPnl;
+    if (dayPnl === undefined || dayPnl === null) {
+      const ltp = Number(p.ltp);
+      const known = p.overnightQty !== undefined && (Number(p.netQty) === 0 || Number.isFinite(ltp)) && (!carried || Number.isFinite(Number(p.prevClose)));
+      dayPnl = known ? sell * (Number(p.sellAvg) || 0) - buy * (Number(p.buyAvg) || 0) + (Number(p.netQty) || 0) * (Number.isFinite(ltp) ? ltp : 0) - carried * (Number(p.prevClose) || 0) : null;
+    }
+    if (dayPnl === null) missing += 1;
+    else total += Number(dayPnl);
+    rows.push({ ...p, buy, sell, carried, dayPnl: dayPnl === null ? null : Number(dayPnl) });
+  }
+  rows.sort((a, b) => Math.abs(b.dayPnl ?? 0) - Math.abs(a.dayPnl ?? 0));
+  return { rows, total: rows.length && missing < rows.length ? total : null, missing };
+}

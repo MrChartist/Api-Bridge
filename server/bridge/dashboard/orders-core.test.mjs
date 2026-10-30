@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterOrders, filterTrades, openByMode, orderBucket, orderCounts, tradeTotals } from "./orders-core.js";
+import { dayRows, filterOrders, filterTrades, openByMode, orderBucket, orderCounts, tradeTotals } from "./orders-core.js";
 
 const O = (o) => ({ orderId: "PAPER-1", accountId: "demo-paper", symbol: "NFO:NIFTY-2026-11-03-25850-CE", side: "BUY", status: "filled", mode: "paper", ...o });
 const list = [
@@ -42,5 +42,26 @@ describe("trade book", () => {
   it("filters by side and search", () => {
     expect(filterTrades(trades, { side: "SELL" }).map((t) => t.tradeId)).toEqual(["T2"]);
     expect(filterTrades(trades, { q: "reliance" }).map((t) => t.tradeId)).toEqual(["T3"]);
+  });
+});
+
+describe("positions Day view", () => {
+  it("measures carried units from the previous close and today's trades from their prices", () => {
+    // Carried 65 long from a 100 close, bought 65 more at 110 today, now 120: (120 − 100)·65 + (120 − 110)·65 = 1950.
+    const carried = { symbol: "NFO:NIFTY-2026-11-03-25000-CE", product: "MARGIN", netQty: 130, ltp: 120, overnightQty: 65, prevClose: 100, buyQty: 65, buyAvg: 110, sellQty: 0, sellAvg: null };
+    // Bought 65 at 50 and sold them at 58 today: closed, +520.
+    const closed = { symbol: "NFO:NIFTY-2026-11-03-26000-PE", product: "INTRADAY", netQty: 0, ltp: null, overnightQty: 0, buyQty: 65, buyAvg: 50, sellQty: 65, sellAvg: 58 };
+    // The paper engine sends its own dayPnl; it wins.
+    const given = { symbol: "NSE:RELIANCE", product: "CNC", netQty: 10, ltp: 1400, overnightQty: 10, prevClose: 1390, buyQty: 0, sellQty: 0, dayPnl: 100 };
+    const flatOld = { symbol: "X", netQty: 0, buyQty: 0, sellQty: 0, overnightQty: 0 };
+    const r = dayRows([closed, carried, given, flatOld]);
+    expect(r.rows.map((x) => [x.symbol.slice(-8), x.dayPnl])).toEqual([["25000-CE", 1950], ["26000-PE", 520], ["RELIANCE", 100]]);
+    expect(r.total).toBe(2570);
+    expect(r.missing).toBe(0);
+  });
+  it("says when a source gives no day figures (a broker that reports none)", () => {
+    const r = dayRows([{ symbol: "NFO:A", netQty: 65, ltp: 10, buyQty: 65, buyAvg: 9 }]);
+    expect(r.rows[0].dayPnl).toBeNull();
+    expect(r).toMatchObject({ total: null, missing: 1 });
   });
 });
