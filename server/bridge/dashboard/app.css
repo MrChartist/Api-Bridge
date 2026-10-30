@@ -6068,6 +6068,10 @@ table.arb-pv small.block { display: block; margin-top: 3px; white-space: normal;
   :root[data-layout="desk"][data-page="screener"] .content > .scr-main { flex: 1 1 calc(100% - 372px); }
   :root[data-layout="desk"][data-page="screener"] .content > .scr-detail { flex: 0 0 360px; }
   :root[data-layout="desk"] #content > .scr-detail.movable:not(.panel-max) { position: sticky; top: calc(var(--toolbar-h) + var(--safe-t) + 14px); }
+  /* The results panel reaches the window's bottom edge (the footer with it), so a short list (Overview ranks chains)
+     ends in its own panel, not in a gap under it and beside a taller detail column. */
+  :root[data-layout="desk"][data-page="screener"] .content > .scr-main:not(.panel-max) { display: flex; flex-direction: column; min-height: calc(100dvh - var(--desk-top) - 70px); }
+  :root[data-layout="desk"][data-page="screener"] .content > .scr-main:not(.panel-max) > .scr-foot { margin-top: auto; }
 }
 @media (max-width: 1279px) { .scr-detail { display: none; } }
 
@@ -6166,6 +6170,12 @@ button.scr-sortchip, .scr-count-m { display: none; }
 @container scr (max-width: 900px) {
   .scr-tools .scr-rescan { width: 32px; padding: 0; justify-content: center; }
   .scr-tools .scr-rescan .scr-lbl { display: none; }
+}
+/* A panel too narrow for the eight tabs and the tools on one row (1024 to 1366 px beside the detail column): the tabs
+   take their own row, every tab in view, and the tools sit on the row under them (no tab cut behind a fade). */
+@container scr (min-width: 560px) and (max-width: 900px) {
+  .scr-head { flex-wrap: wrap; row-gap: 6px; }
+  .scr-tabwrap { flex: 1 1 100%; }
 }
 @container scr (max-width: 780px) {
   .scr-tools .scr-filters-btn .scr-lbl { display: none; }
@@ -6487,7 +6497,7 @@ button.scr-pin.on-pin span { color: hsl(var(--warn)); }
 .scr-detail-body { container-type: inline-size; container-name: scrd; }
 /* Metric groups: two columns of label-over-value cells (compact tiles). */
 .scr-kv.two { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
-.scr-kv.two > div { flex-direction: column; align-items: flex-start; gap: 2px; }
+.scr-kv.two > div { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 2px; }
 .scr-kv.two dt { font-size: 12px; color: hsl(var(--foreground) / var(--a-quiet)); }
 .scr-kv.two dd { text-align: left; font-weight: 500; }
 @container scrd (min-width: 520px) { .scr-kv.two { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
@@ -8309,12 +8319,13 @@ button.wl-sort { min-height: 0; padding: 0; background: none; box-shadow: none; 
   :root[data-page="vol"] #content > [data-panel="vol-strikes"] .vol-strikes-wrap { flex: 1 1 auto; min-height: 420px; max-height: none; contain: size; }
 }
 
-/* Positions (2200 px and up): the positions table beside the risk panel. */
+/* Positions (2200 px and up): the panels stay stacked full width (side by side, a short book left the whole lower
+   left of the screen empty under the table), and the risk panel gives the scenario side more room. */
 @media (min-width: 2200px) {
-  :root[data-page="positions"] #content:has(> [data-panel="risk"]:not([hidden])) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
-  :root[data-page="positions"] #content > * { grid-column: 1 / -1; }
-  :root[data-page="positions"] #content:has(> [data-panel="risk"]:not([hidden])) > [data-panel="positions"] { grid-column: 1; }
-  :root[data-page="positions"] #content > [data-panel="risk"] { grid-column: 2; }
+  .pos-risk { grid-template-columns: minmax(0, 1.3fr) minmax(0, 2fr); }
+  /* What-if on top (its six figures in one row), then the grid, which takes the rest of the payoff's height. */
+  .pos-scen > .pos-matrix-wrap { flex: 1 1 auto; min-height: 0; }
+  .pos-scen > .pos-matrix-wrap > table.pos-matrix { height: 100%; }
 }
 
 
@@ -8494,6 +8505,30 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .order-status { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .order-why { max-width: 280px; white-space: normal; }
 .order-acts { flex-wrap: nowrap; gap: 8px; }
+/* Nothing pending: the card is its head line (title, the one-line reason, Set up an AI assistant). */
+.orders-pending.none > .card-body { display: none; }
+.orders-pending.none > .card-head { padding-bottom: var(--card-pad); }
+/* Phones: an order is three short lines (contract and status; side, quantity, price and mode; time and account), not
+   nine labelled rows of 250 px. Cells: 1 time, 2 account, 3 contract, 4 side, 5 qty, 6 avg price, 7 status, 8 mode,
+   9 actions. */
+@media (max-width: 719px) {
+  .orders-today .table-wrap.stack tr { display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto; grid-template-areas: "c c c c st" "sd q p . md" "t a a a a" "x x x x x"; gap: 4px 8px; align-items: center; padding: 10px var(--card-pad); }
+  .orders-today .table-wrap.stack td, .orders-today .table-wrap.stack td.lead { display: block; padding: 0; text-align: left; font-weight: 500; }
+  .orders-today .table-wrap.stack td::before { display: none; }
+  .orders-today .table-wrap.stack td:nth-child(1) { grid-area: t; }
+  .orders-today .table-wrap.stack td:nth-child(2) { grid-area: a; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .orders-today .table-wrap.stack td:is(:nth-child(1), :nth-child(2)) { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+  .orders-today .table-wrap.stack td:nth-child(3) { grid-area: c; min-width: 0; }
+  .orders-today .table-wrap.stack td:nth-child(4) { grid-area: sd; }
+  .orders-today .table-wrap.stack td:nth-child(5) { grid-area: q; font-variant-numeric: tabular-nums; }
+  .orders-today .table-wrap.stack td:nth-child(6) { grid-area: p; font-variant-numeric: tabular-nums; }
+  .orders-today .table-wrap.stack td:nth-child(6)::before { display: inline; content: "@ "; font: inherit; color: hsl(var(--foreground) / var(--a-quiet)); }
+  .orders-today .table-wrap.stack td:nth-child(7) { grid-area: st; justify-self: end; }
+  .orders-today .table-wrap.stack td:nth-child(7) .order-status { align-items: flex-end; }
+  .orders-today .table-wrap.stack td:nth-child(8) { grid-area: md; justify-self: end; }
+  .orders-today .table-wrap.stack td.act { grid-area: x; padding-top: 4px; }
+  .orders-today .order-contract .muted.small { font-size: 12px; }
+}
 /* A short-of-margin block on a paper account says how to fix it (strategy-place.js). */
 .strat-warn-fix { color: hsl(var(--foreground) / var(--a-label)); }
 

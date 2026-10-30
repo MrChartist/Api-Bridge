@@ -2314,7 +2314,21 @@ async function renderOrders() {
   const nodes = [];
 
   const tk = tickets.data?.data ?? [];
-  nodes.push(
+  // Nothing waiting: the card is its head line only (it was a 300 px empty state above the day's orders).
+  if (!tickets.error && !tk.length)
+    nodes.push(
+      card({
+        glyph: "inbox",
+        tint: "orange",
+        title: "Pending confirmations",
+        sub: "Nothing waiting. When an AI assistant or a confirmation-required webhook prepares an order, it waits here until you check every field and confirm.",
+        cls: "orders-pending none",
+        actions: nextStep("Set up an AI assistant", "#/api/integrations?tool=claude", "small"),
+        flush: true,
+        body: null,
+      }),
+    );
+  else nodes.push(
     card({
       glyph: "inbox",
       tint: "orange",
@@ -2349,6 +2363,7 @@ async function renderOrders() {
       glyph: "orders",
       tint: "orange",
       title: "Today's orders",
+      cls: "orders-today",
       // Orders are placed from the chain's ticket; the JSON route is for trying the API (API › Test console).
       actions: h(
         "div",
@@ -2407,8 +2422,8 @@ async function renderOrders() {
           [
             { label: "Account", cell: ({ a }) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
             { label: "Open positions", num: true, cell: ({ open }) => formatInt(open) },
-            { label: "Cash", num: true, cell: ({ f }) => formatRupee(f.availableCash) },
-            { label: "Used margin", num: true, cell: ({ f }) => formatRupee(f.usedMargin) },
+            { label: "Cash", num: true, cell: ({ f }) => formatRupeeGrouped(f.availableCash, 2) },
+            { label: "Used margin", num: true, cell: ({ f }) => formatRupeeGrouped(f.usedMargin, 2) },
             { label: "Realised", num: true, cell: ({ f }) => pnl(f.realisedPnl) },
             { label: "Unrealised", num: true, cell: ({ f }) => pnl(f.unrealisedPnl) },
             { label: "", cell: ({ a }) => h("button", { type: "button", class: "small", "aria-label": `Positions of ${a.label}`, onclick: () => (location.hash = "#/positions") }, "Positions", icon("chevron")) },

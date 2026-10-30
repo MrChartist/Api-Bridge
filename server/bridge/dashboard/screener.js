@@ -398,9 +398,18 @@ export function renderScreenerPage() {
   const emptyEl = h("div", { class: "scr-empty", hidden: true });
   const footCount = h("span", { class: "scr-count" });
   const moreBtn = h("button", { type: "button", class: "small scr-more", hidden: true });
+  // A short list (Overview ranks chains, so 3 underlyings give 8 rows): the way to a longer one, beside the count.
+  // Every underlying on: one more expiry each instead.
+  const allOn = () => list.every((u) => cfg.underlyings.includes(u));
+  const scanMoreBtn = h("button", {
+    type: "button",
+    class: "small plain scr-scan-more",
+    hidden: true,
+    onclick: () => (allOn() ? setCfg({ expiries: Math.min(3, cfg.expiries + 1) }, { rescan: true }) : openUnderlyings()),
+  });
   const issuesEl = h("details", { class: "scr-issues", hidden: true });
   const methodEl = h("details", { class: "scr-method" });
-  const foot = h("div", { class: "scr-foot" }, issuesEl, h("div", { class: "scr-foot-row" }, footCount, moreBtn, h("span", { class: "scr-grow" }), methodEl));
+  const foot = h("div", { class: "scr-foot" }, issuesEl, h("div", { class: "scr-foot-row" }, footCount, moreBtn, scanMoreBtn, h("span", { class: "scr-grow" }), methodEl));
 
   const head = h("header", { class: "scr-head" }, tabWrap, tools, progressEl);
   // Quick scans: the option-chain scans of the stock scanner's library, per strike here (a screen, a sort and a filter
@@ -1363,10 +1372,10 @@ export function renderScreenerPage() {
   function fitCols() {
     if (wrap.hidden || phone()) return;
     const over = () => wrap.scrollWidth > wrap.clientWidth + 1;
-    if (wide()) {
-      if (wrap.dataset.fit) delete wrap.dataset.fit;
-      return;
-    }
+    // Every width: beside the detail column a wide tab (Overview's 16 columns) overflows at 1920 px too, so chip
+    // columns keep the chip, then priority-2 columns go, before anything is cut at the edge.
+    delete wrap.dataset.fit;
+    if (!over()) return;
     wrap.dataset.fit = "0";
     if (over()) wrap.dataset.fit = "1";
     if (over()) wrap.dataset.fit = "2";
@@ -2893,6 +2902,9 @@ export function renderScreenerPage() {
       const more = Math.min(cfg.rows, result.total - showing - entries.filter((e) => e.pinned && !e.gone).length);
       moreBtn.hidden = more <= 0;
       moreBtn.textContent = `Show ${formatInt(more)} more`;
+      const canMore = !allOn() || cfg.expiries < 3;
+      scanMoreBtn.hidden = more > 0 || result.total >= 20 || !canMore;
+      scanMoreBtn.textContent = allOn() ? `Scan ${formatInt(Math.min(3, cfg.expiries + 1))} expiries each` : "Add underlyings to scan";
     }
     if (selKey && !recByKey(selKey)) selKey = null;
     refChipEl.update();
