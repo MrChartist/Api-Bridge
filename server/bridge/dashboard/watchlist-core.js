@@ -108,3 +108,12 @@ export function sortRows(rows, key = "name", dir = 1) {
 
 /** Excel / Sheets: the Bridge's quote formula for a symbol, as the Integrations snippets write it. */
 export const excelQuote = (symbol, field = "ltp") => `=BRIDGE.QUOTE("${symbol}","${field}")`;
+
+/** The latest session's closes from GET /v1/history candles: the candles that share the last one's IST date. */
+export function sessionCloses(candles) {
+  const list = (candles ?? []).filter((c) => num(c?.close) !== null && num(c?.time) !== null);
+  if (!list.length) return [];
+  const day = (c) => Math.floor((Number(c.time) * 1000 + 19800000) / 86400000);
+  const last = day(list[list.length - 1]);
+  return list.filter((c) => day(c) === last).map((c) => Number(c.close));
+}

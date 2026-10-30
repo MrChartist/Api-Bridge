@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createNullLogger } from "../core/logger.mjs";
 import { createWatchlistService } from "./watchlistService.mjs";
 import { ROUTES } from "./module.mjs";
-import { frontExpiry, nearFuture, normaliseSymbol, oiChange, prevFutureOi, sortRows, watchRow } from "../dashboard/watchlist-core.js";
+import { frontExpiry, nearFuture, normaliseSymbol, oiChange, prevFutureOi, sessionCloses, sortRows, watchRow } from "../dashboard/watchlist-core.js";
 
 const NOW = Date.parse("2026-10-30T11:00:00+05:30");
 
@@ -181,5 +181,20 @@ describe("watchlist service", () => {
 
   it("declares read scope for reads and paper scope for changes", () => {
     for (const [m, , o] of ROUTES) expect(o.scope).toBe(m === "GET" ? "read" : "paper");
+  });
+});
+
+describe("the intraday sparkline's closes", () => {
+  it("keeps only the latest IST session and drops bad candles", () => {
+    const at = (iso) => Date.parse(iso) / 1000;
+    const candles = [
+      { time: at("2026-10-29T15:25:00+05:30"), close: 100 },
+      { time: at("2026-10-30T09:15:00+05:30"), close: 101 },
+      { time: at("2026-10-30T09:20:00+05:30"), close: null },
+      { time: at("2026-10-30T15:25:00+05:30"), close: 103 },
+    ];
+    expect(sessionCloses(candles)).toEqual([101, 103]);
+    expect(sessionCloses([])).toEqual([]);
+    expect(sessionCloses(null)).toEqual([]);
   });
 });

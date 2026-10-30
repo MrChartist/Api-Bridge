@@ -2061,11 +2061,20 @@ dialog.sheet::backdrop { background: hsl(240 20% 4% / 0.42); -webkit-backdrop-fi
 
 /* ───────────────────────── 12 · SIGN-IN ───────────────────────── */
 .login { min-height: 100vh; min-height: 100svh; display: grid; place-items: center; padding: max(24px, var(--safe-t)) max(16px, var(--safe-r)) max(24px, var(--safe-b)) max(16px, var(--safe-l)); }
-.login-card { width: min(480px, 100%); padding: clamp(22px, 5vw, 32px); display: flex; flex-direction: column; gap: 22px; }
+.login-card { width: min(520px, 100%); padding: clamp(22px, 5vw, 32px); display: flex; flex-direction: column; gap: 22px; }
 .login-head { display: flex; flex-direction: column; gap: 8px; }
 .login-head h1 { font: 600 clamp(1.6rem, 5vw, 2rem)/1.1 var(--font-display); letter-spacing: -0.032em; }
 .login-card .login-demo { margin: 0; }
 .login-help-list { display: flex; flex-direction: column; gap: 8px; padding: 16px; border-radius: var(--r-md); background: var(--mat-fill-1); font-size: 14px; }
+/* The commands: a label over each, the command on its own line (never broken mid-command), scrolling sideways in
+   its own box on a narrow phone. The empty error line takes no gap. */
+.login-card #login-error:empty { display: none; }
+.login-cmds { display: grid; gap: 4px; margin: 0; }
+.login-cmds dt { margin-top: 6px; font: 500 13px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.login-cmds dt:first-child { margin-top: 0; }
+.login-cmds dd { margin: 0; overflow-x: auto; }
+.login-cmds dd code { display: inline-block; white-space: nowrap; padding: 4px 8px; }
+.login-help-list > p { margin: 0; }
 .login-help-list ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: hsl(var(--foreground) / var(--a-label)); }
 
 /* ───────────────────────── 12b · OPTION DESK ─────────────────────────
@@ -7915,6 +7924,21 @@ button.wl-sort { min-height: 0; padding: 0; background: none; box-shadow: none; 
    takes the table's spare width (the figures keep their own), and goes on phones. */
 .wl-table th.wl-move-h { width: 34%; text-align: center; font-weight: 400; color: hsl(var(--foreground) / var(--a-quiet)); }
 .wl-move-c { padding-left: 24px; padding-right: 24px; }
+.wl-today { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 20px; }
+.wl-spark { display: block; width: 100%; height: 32px; overflow: visible; }
+svg.wl-spark polyline { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+svg.wl-spark.up polyline { stroke: hsl(var(--pos)); }
+svg.wl-spark.down polyline { stroke: hsl(var(--neg)); }
+svg .wl-spark-prev { stroke: hsl(var(--foreground) / 0.35); stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
+/* Desk (1024 px and up): the card reaches the window's bottom edge and a short list's rows grow to fill it (a long
+   list keeps its rows and scrolls inside the card). */
+@media (min-width: 1024px) {
+  :root[data-layout="desk"] .wl-card { height: calc(100dvh - var(--desk-top) - 70px); min-height: 420px; padding-bottom: 0; }
+  :root[data-layout="desk"] .wl-card > .wl-table-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; container-type: size; }
+  :root[data-layout="desk"] .wl-table thead th { top: 0; }
+  /* Each row a share of the box (--n rows, set by watchlists.js), never under 58 px or over 120 px. */
+  :root[data-layout="desk"] .wl-table tbody tr { height: clamp(58px, calc((100cqh - 40px) / var(--n, 8)), 120px); }
+}
 .wl-move { position: relative; display: block; height: 10px; border-radius: 5px; background: var(--mat-fill-1); }
 .wl-move::before { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: hsl(var(--foreground) / 0.35); }
 .wl-move > i { position: absolute; top: 0; bottom: 0; width: 50%; transform: scaleX(var(--v, 0)); }
