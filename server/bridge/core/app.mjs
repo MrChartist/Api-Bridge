@@ -104,6 +104,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "strategy-place.js": "text/javascript; charset=utf-8",
   "payoff.js": "text/javascript; charset=utf-8",
   "viz.js": "text/javascript; charset=utf-8",
+  "layout-prefs.js": "text/javascript; charset=utf-8",
   "motion.min.js": "text/javascript; charset=utf-8",
   "palette.css": "text/css; charset=utf-8",
   "app.css": "text/css; charset=utf-8",

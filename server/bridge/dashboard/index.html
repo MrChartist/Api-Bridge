@@ -61,7 +61,7 @@
     <div class="scroll-edge" aria-hidden="true"></div>
     <div class="scroll-edge-b" aria-hidden="true"></div>
 
-    <!-- Wide screens (1024px and up): the floating glass sidebar. -->
+    <!-- Wide screens (1024px and up): the sidebar, flush on the left edge; the icon rail from 1024 to 1279 px or when collapsed. -->
     <aside id="sidebar" class="sidebar glass glass-strong" aria-label="Sidebar">
       <a class="sb-brand lockup" href="#/home" aria-label="API Bridge home">
         <svg class="lockup-symbol" viewBox="0 0 1024 1024" aria-hidden="true" focusable="false"><use href="#mc-symbol"/></svg>
@@ -69,9 +69,10 @@
       </a>
       <button type="button" id="sb-search" class="sb-search"><span class="sb-search-label">Search</span></button>
       <nav id="nav" class="nav sidebar-scroll" aria-label="Pages"></nav>
-      <!-- One account row: it opens Appearance, Keyboard shortcuts, About and Forget key (views.js accountPopover). -->
+      <!-- One account row: it opens Appearance, Density, Keyboard shortcuts, About and Forget key (views.js accountPopover); then the rail toggle. -->
       <div class="sb-foot">
         <button type="button" id="sb-account" class="sb-account who" aria-haspopup="dialog" aria-expanded="false" title="Appearance, shortcuts and your key"><span class="dot" aria-hidden="true"></span><span id="who">Signed in</span></button>
+        <button type="button" id="sb-toggle" class="sb-toggle" aria-controls="sidebar" aria-expanded="true" aria-label="Collapse the sidebar to icons" title="Collapse the sidebar to icons"></button>
       </div>
     </aside>
 

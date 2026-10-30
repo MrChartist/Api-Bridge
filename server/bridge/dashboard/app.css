@@ -228,11 +228,15 @@ html { font-synthesis-weight: none; }
   --ease-press: cubic-bezier(0.3, 1.25, 0.5, 1);
 
   /* Shell */
-  --sidebar-w: 264px;
+  /* The sidebar is flush on the left edge (216 px, or the 56 px icon rail); --sb-w is the one drawn (section 15). The
+     page fills the rest of the window: no centred column, a 12 to 16 px gutter. */
+  --sidebar-w: 216px;
+  --rail-w: 56px;
+  --sb-w: 0px;
   --toolbar-h: 56px;
   --tabbar-h: 68px;
-  --page-gutter: clamp(16px, 3vw, 32px);
-  --content-max: 1480px;
+  --page-gutter: clamp(12px, 1.1vw, 16px);
+  --content-max: none;
   --card-pad: clamp(16px, 2.2vw, 24px);
   /* Spacing (docs/design/ui-pass-3.md §3): panels on a page sit --panel-gap apart (dense on the desk pages, below);
      every panel / card head is at least --panel-head-h tall; every toolbar capsule is --ctl-h. */
@@ -241,6 +245,15 @@ html { font-synthesis-weight: none; }
   --panel-head-h: 52px;
   --ctl-h: 40px;
   --page-tabs-h: 40px;
+  /* Density (ui-pass-3.md §12): the comfortable values; :root[data-density="compact"] (section 15) tightens them.
+     Generic table cells, the desk top offset, the chain's two-line and one-line rows, the KPI tiles, list rows. */
+  --th-py: 12px;
+  --td-py: 13px;
+  --cell-px: 16px;
+  --desk-top: 70px;
+  --chain-row: 40px;
+  --chain-row-1: 30px;
+  --list-row-h: 52px;
 
   /* Elevation (ui-pass-3.md §2): one edge for every resting panel (L1), drawn once on all four sides, no shadow.
      Shadows mean "floats" (popovers L3, sheets L4, chrome). */
@@ -685,8 +698,8 @@ code { font-size: 0.92em; padding: 1px 6px; border-radius: 6px; background: var(
   min-height: 100svh;
   padding: calc(var(--toolbar-h) + 16px + var(--safe-t)) 0 24px;
 }
-/* The page column: a 16px gutter (the toolbar uses the same inset, so its pills line up with the content edge),
-   capped at --content-max and centred beside the sidebar on very wide screens. */
+/* The page column: a 12 to 16 px gutter (the toolbar uses the same inset, so its pills line up with the content edge).
+   No cap: on a wide screen the page shows more, not more margin (ui-pass-3.md §12). */
 .container-wide {
   width: 100%;
   max-width: var(--content-max);
@@ -712,10 +725,12 @@ code { font-size: 0.92em; padding: 1px 6px; border-radius: 6px; background: var(
   display: none; flex-direction: column; gap: 4px;
 }
 @media (min-width: 1024px) {
+  :root { --sb-w: var(--sidebar-w); }
+  :root[data-sb="rail"] { --sb-w: var(--rail-w); }
   .sidebar { display: flex; }
-  .app-shell { padding-left: calc(var(--sidebar-w) + 28px); }
+  .app-shell { padding-left: var(--sb-w); }
   .app-main { padding-top: calc(var(--toolbar-h) + 24px); }
-  .scroll-edge { left: calc(var(--sidebar-w) + 28px); }
+  .scroll-edge { left: var(--sb-w); }
   .scroll-edge-b { display: none; }
 }
 .sb-brand { padding: 6px 8px 12px; }
@@ -767,16 +782,15 @@ button.sb-account > svg:last-child { width: 16px; height: 16px; flex: none; fill
 /* Toolbar: page name, demo state, clock, search, refresh — pills floating over the scroll-edge veil. */
 .toolbar {
   position: fixed; z-index: var(--z-chrome); top: calc(10px + var(--safe-t));
-  left: max(var(--page-gutter), var(--safe-l)); right: max(var(--page-gutter), var(--safe-r)); height: 44px;
+  left: max(var(--page-gutter), var(--safe-l)); right: max(var(--page-gutter), var(--safe-r)); height: calc(var(--ctl-h) + 4px);
   display: flex; align-items: center; gap: 10px; pointer-events: none;
 }
 .toolbar > * { pointer-events: auto; }
 @media (min-width: 1024px) {
   .toolbar {
-    --shell-side: max(0px, calc((100% - var(--sidebar-w) - 28px - var(--content-max)) / 2));
-    top: 14px;
-    left: calc(var(--sidebar-w) + 28px + var(--shell-side) + var(--page-gutter));
-    right: calc(var(--shell-side) + var(--page-gutter));
+    top: 10px;
+    left: calc(var(--sb-w) + var(--page-gutter));
+    right: var(--page-gutter);
   }
 }
 .toolbar-title {
@@ -799,7 +813,7 @@ button.toolbar-demo { --btn-h: var(--ctl-h); --btn-px: 14px; --btn-fs: 12.5px; -
 @media (min-width: 1180px) { .toolbar-clock { display: inline-flex; } }
 .toolbar-actions { display: inline-flex; align-items: center; gap: 10px; flex: 0 1 auto; min-width: 0; }
 .toolbar-search {
-  display: none; align-items: center; gap: 8px; height: 40px; min-height: 40px; padding: 0 14px; border-radius: 999px; min-width: 0; flex: 0 1 auto;
+  display: none; align-items: center; gap: 8px; height: var(--ctl-h); min-height: var(--ctl-h); padding: 0 14px; border-radius: 999px; min-width: 0; flex: 0 1 auto;
   font: 500 14px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); --btn-bg: var(--mat-glass); --btn-line: transparent;
   -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur);
 }
@@ -821,14 +835,14 @@ button.toolbar-demo { --btn-h: var(--ctl-h); --btn-px: 14px; --btn-fs: 12.5px; -
 .toolbar-ctx { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; }
 /* The Options pages start right under the bar (8 px below it): the top space is always there, so it holds data. */
 :root[data-layout="desk"] .app-main { padding-top: calc(62px + var(--safe-t)); }
-@media (min-width: 1024px) { :root[data-layout="desk"] .app-main { padding-top: 70px; } }
+@media (min-width: 1024px) { :root[data-layout="desk"] .app-main { padding-top: var(--desk-top); } }
 .toolbar-ctx[hidden] { display: none; }
 :root[data-layout="desk"] .toolbar-spacer, :root[data-layout="desk"] #clock, :root[data-layout="desk"] .toolbar-refresh, :root[data-layout="desk"] .toolbar-search { display: none !important; }
 @media (max-width: 1023px) { :root[data-layout="desk"] .toolbar-search-m { display: inline-grid !important; } }
 :root[data-layout="desk"] .toolbar-title { flex: none; }
 :root[data-layout="desk"] .toolbar-title { width: var(--ctl-h); padding: 0; justify-content: center; }
 :root[data-layout="desk"] .toolbar-title > span:last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.ctx-cap { display: flex; align-items: center; min-width: 0; height: 40px; padding: 0 4px; border-radius: 999px; flex: 0 1 auto; overflow: hidden; }
+.ctx-cap { display: flex; align-items: center; min-width: 0; height: var(--ctl-h); padding: 0 4px; border-radius: 999px; flex: 0 1 auto; overflow: hidden; }
 .ctx-item { position: relative; display: inline-flex; flex-direction: column; justify-content: center; gap: 2px; height: 100%; padding: 0 12px; min-width: 0; flex: none; white-space: nowrap; }
 .ctx-item + .ctx-item::before { content: ""; position: absolute; left: 0; top: 50%; width: 1px; height: 18px; margin-top: -9px; background: var(--mat-separator); }
 .ctx-main { display: inline-flex; align-items: center; gap: 4px; font: 500 13.5px/1.1 var(--font-body); color: hsl(var(--foreground)); }
@@ -853,8 +867,8 @@ button.toolbar-demo { --btn-h: var(--ctl-h); --btn-px: 14px; --btn-fs: 12.5px; -
 .ctx-chip { flex: none; padding: 4px 9px; border-radius: 99px; font: 500 12px/1 var(--font-body); color: hsl(var(--warn-ink)); background: hsl(var(--warn) / 0.16); white-space: nowrap; cursor: help; }
 .ctx-chip[hidden] { display: none; }
 .ctx-spacer { flex: 1 1 0; min-width: 0; }
-.ctx-acct { display: inline-flex; align-items: center; gap: 2px; height: 40px; padding: 0 6px 0 0; border-radius: 999px; flex: 0 1 auto; min-width: 0; }
-.ctx-acct select { width: auto; max-width: 200px; min-height: 0; height: 40px; padding: 0 30px 0 14px; border-radius: 999px; font: 500 13px/1 var(--font-body); background: var(--select-chevron) no-repeat right 10px center / 14px 14px, transparent; text-overflow: ellipsis; field-sizing: content; }
+.ctx-acct { display: inline-flex; align-items: center; gap: 2px; height: var(--ctl-h); padding: 0 6px 0 0; border-radius: 999px; flex: 0 1 auto; min-width: 0; }
+.ctx-acct select { width: auto; max-width: 200px; min-height: 0; height: var(--ctl-h); padding: 0 30px 0 14px; border-radius: 999px; font: 500 13px/1 var(--font-body); background: var(--select-chevron) no-repeat right 10px center / 14px 14px, transparent; text-overflow: ellipsis; field-sizing: content; }
 .ctx-acct .acct-badge { margin-right: 2px; }
 .ctx-acct a.acct-connect { padding: 0 12px; }
 .ctx-scr .ctx-main { font: 500 13px/1.1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
@@ -876,7 +890,7 @@ button.toolbar-demo { --btn-h: var(--ctl-h); --btn-px: 14px; --btn-fs: 12.5px; -
 .ctx-demo { display: none; flex: none; align-items: center; height: 24px; padding: 0 8px; border-radius: 99px; font: 500 12px/1 var(--font-body); letter-spacing: 0.02em; color: hsl(var(--warn-ink)); box-shadow: inset 0 0 0 1px hsl(var(--warn)); }
 @media (max-width: 1023px) { .ctx-demo { display: inline-flex; } }
 /* Live control: a status, not a selection (green dot + data time on a glass pill). */
-button.live-ctl { --btn-h: 40px; --btn-bg: var(--mat-glass); --btn-line: transparent; flex: none; gap: 7px; height: 40px; padding: 0 14px 0 12px;
+button.live-ctl { --btn-h: var(--ctl-h); --btn-bg: var(--mat-glass); --btn-line: transparent; flex: none; gap: 7px; height: var(--ctl-h); padding: 0 14px 0 12px;
   font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground));
   -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur); }
 @media (hover: hover) { button.live-ctl:hover { --btn-bg: var(--mat-glass-strong); --btn-line: transparent; } }
@@ -1174,9 +1188,9 @@ kbd, .kbd {
 table { width: 100%; border-collapse: separate; border-spacing: 0; font: var(--t-table); font-variant-numeric: tabular-nums; }
 th {
   font: var(--t-table-head); text-align: left; white-space: nowrap;
-  padding: 12px 16px; color: hsl(var(--foreground) / 0.78); border-bottom: 0.5px solid var(--mat-separator);
+  padding: var(--th-py) var(--cell-px); color: hsl(var(--foreground) / 0.78); border-bottom: 0.5px solid var(--mat-separator);
 }
-td { padding: 13px 16px; border-bottom: 0.5px solid var(--mat-separator); color: hsl(var(--foreground) / 0.92); white-space: nowrap; vertical-align: middle; }
+td { padding: var(--td-py) var(--cell-px); border-bottom: 0.5px solid var(--mat-separator); color: hsl(var(--foreground) / 0.92); white-space: nowrap; vertical-align: middle; }
 th:first-child, td:first-child { padding-left: var(--card-pad); }
 th:last-child, td:last-child { padding-right: var(--card-pad); }
 tbody tr:last-child td { border-bottom: 0; }
@@ -1837,7 +1851,7 @@ dialog.sheet::backdrop { background: hsl(240 20% 4% / 0.42); -webkit-backdrop-fi
 .toast-text { min-width: 0; }
 @media (min-width: 1024px) {
   .toast {
-    inset: calc(var(--toolbar-h) + var(--safe-t) + 8px) auto auto calc(var(--sidebar-w) + 28px + (100vw - var(--sidebar-w) - 28px) / 2);
+    inset: calc(var(--toolbar-h) + var(--safe-t) + 8px) auto auto calc(var(--sb-w) + (100vw - var(--sb-w)) / 2);
     transform: translateX(-50%); max-width: 380px; width: max-content; border-radius: var(--r-pop);
   }
   .toast[data-place="low"] { inset: auto var(--page-gutter) calc(24px + var(--safe-b)) auto; transform: none; }
@@ -1947,8 +1961,8 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
 
 .chain-panel { position: relative; }
 .chain-wrap { max-height: min(70vh, 860px); overflow: auto; overscroll-behavior: contain; }
-table.chain { --desk-row: 40px; width: 100%; border-collapse: separate; border-spacing: 0; font: var(--t-table); line-height: 1.2; font-variant-numeric: tabular-nums; }
-table.chain.dense { --desk-row: 30px; }
+table.chain { --desk-row: var(--chain-row); width: 100%; border-collapse: separate; border-spacing: 0; font: var(--t-table); line-height: 1.2; font-variant-numeric: tabular-nums; }
+table.chain.dense { --desk-row: var(--chain-row-1); }
 table.chain th, table.chain td { height: var(--desk-row); padding: 0 8px; border: 0; white-space: nowrap; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 table.chain th:first-child, table.chain td:first-child { padding-left: 12px; }
 table.chain th:last-child, table.chain td:last-child { padding-right: 12px; }
@@ -2457,7 +2471,7 @@ select.acct-pick { width: auto; min-width: 0; max-width: 220px; min-height: 32px
 @media (pointer: coarse) {
   .cs-side button { min-height: 44px; }
   .icon-btn.cs-close { width: 44px; height: 44px; min-height: 44px; }
-  table.chain, table.chain.dense { --desk-row: 48px; }
+  table.chain, table.chain.dense { --desk-row: 44px; }
   .atm-pill { min-height: 44px; }
   input.strike-search, select.preset-sel, .chain-search .search-btn { min-height: 44px; }
   .chain-tools .segmented button { min-height: 44px; }
@@ -7628,3 +7642,160 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
   .accounts-card .broker-cell { min-width: 190px; }
 }
 .bk-card-g > span { white-space: nowrap; }
+
+/* ───────────────────────── 15 · SPACE AND DENSITY ─────────────────────────
+   docs/design/ui-pass-3.md §12. The page fills the window beside a flush sidebar (or its icon rail), and the density
+   (compact on a desktop with a mouse, comfortable on touch) sets row heights, cell padding, the top bar, the KPI strip
+   and panel padding through tokens. Wide screens add detail (columns, tiles, side-by-side panels), never whitespace. */
+
+/* Sidebar, wide screens: flush on the left edge, one separator hairline on its right; the icon rail (56 px) from 1024 to
+   1279 px or when collapsed (app.js applyLayout sets data-sb; the choice is kept in this browser). */
+@media (min-width: 1024px) {
+  .sidebar.glass {
+    top: 0; left: 0; bottom: 0; width: var(--sb-w); border-radius: 0; padding: 10px 8px 8px; gap: 2px;
+    background: var(--mat-grouped-solid); -webkit-backdrop-filter: none; backdrop-filter: none;
+    box-shadow: inset calc(-1 * var(--hl)) 0 0 var(--mat-separator);
+    transition: width var(--dur-2) var(--ease-std);
+  }
+  .sidebar.glass::before { display: none; }
+  .sb-brand { padding: 4px 6px 10px; }
+  .sb-foot { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px; padding-top: 6px; }
+  button.sb-toggle { --btn-bg: transparent; --btn-line: transparent; --btn-h: 36px; --btn-px: 0; --fin: 0; width: 36px; flex: none; border-radius: var(--r-ctl); color: hsl(var(--foreground) / var(--a-label)); }
+  button.sb-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  @media (hover: hover) { button.sb-toggle:hover { --btn-bg: var(--mat-fill-1); color: hsl(var(--foreground)); } }
+  :root[data-sb="rail"] .sidebar { padding-inline: 8px; }
+  :root[data-sb="rail"] .sb-brand { justify-content: center; padding: 4px 0 10px; }
+  :root[data-sb="rail"] :is(.sidebar .lockup-text, .sb-search-label, .sb-search .kbd-group, .nav a .lbl, button.sb-account #who) {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+  :root[data-sb="rail"] .sb-search { justify-content: center; padding: 0; }
+  :root[data-sb="rail"] .nav a { justify-content: center; padding: 0; }
+  :root[data-sb="rail"] .nav a .count { position: absolute; top: 1px; right: 1px; min-width: 18px; height: 18px; padding: 0 4px; }
+  /* Group labels become a short separator (the words stay for screen readers). */
+  :root[data-sb="rail"] .nav-group { height: 17px; padding: 0; overflow: hidden; color: transparent; background: linear-gradient(var(--mat-separator), var(--mat-separator)) center / 24px var(--hl) no-repeat; }
+  :root[data-sb="rail"] .sb-foot { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+  :root[data-sb="rail"] .sb-foot button.sb-toggle { order: -1; }
+  :root[data-sb="rail"] button.sb-account { width: 40px; justify-content: center; --btn-px: 0; }
+  :root[data-sb="rail"] button.sb-account > svg:last-child { display: none; }
+}
+
+/* Density: compact (a fine pointer on a desktop, or chosen) tightens every token below. Touch is never compact
+   (layout-prefs.js), and the coarse-pointer rules keep 44 px targets in any case. */
+:root[data-density="compact"] {
+  --toolbar-h: 46px;
+  --ctl-h: 34px;
+  --page-tabs-h: 34px;
+  --panel-head-h: 40px;
+  --panel-gap: 12px;
+  --panel-gap-dense: 8px;
+  --card-pad: 14px;
+  --desk-top: 50px;
+  --th-py: 6px;
+  --td-py: 6px;
+  --cell-px: 12px;
+  --desk-row: 28px;
+  --chain-row: 30px;
+  --chain-row-1: 24px;
+  --kpi-py: 4px;
+  --list-row-h: 40px;
+}
+:root[data-density="compact"] .toolbar { top: calc(6px + var(--safe-t)); }
+:root[data-density="compact"] .app-main { padding-top: calc(var(--toolbar-h) + 12px + var(--safe-t)); }
+:root[data-density="compact"][data-layout="desk"] .app-main { padding-top: calc(var(--desk-top) + var(--safe-t)); }
+:root[data-density="compact"] .page-head { margin-bottom: 12px; }
+:root[data-density="compact"] .page-sub { margin-top: 2px; }
+:root[data-density="compact"] .large-title { font-size: clamp(1.5rem, 2.4vw, 1.9rem); }
+:root[data-density="compact"] .ctx-cap, :root[data-density="compact"] .ctx-acct { height: var(--ctl-h); }
+:root[data-density="compact"] .ctx-acct select { height: var(--ctl-h); }
+:root[data-density="compact"] .segmented.page-tabs button { font-size: 13px; }
+/* KPI strips: one line less of air per tile. */
+:root[data-density="compact"] .desk-stat { padding: 5px 12px 6px; gap: 1px; }
+:root[data-density="compact"] .chain-kpis .desk-stat { min-height: 46px; padding: 4px 10px 5px 12px; gap: 1px; }
+:root[data-density="compact"] .chain-kpis .desk-stat.has-mv .mv { top: 17px; }
+:root[data-density="compact"] .desk-stat .value { font-size: 16px; }
+/* Panel heads and padding. */
+:root[data-density="compact"] .desk-pad { padding: 12px; }
+:root[data-density="compact"] .stat { padding: 12px 14px 14px; }
+:root[data-density="compact"] .stat .value { margin-top: 6px; }
+:root[data-density="compact"] .list-row { min-height: var(--list-row-h); padding-block: 6px; }
+/* The chain: 30 px two-line rows (figure and bar, 15 + 12), 24 px with Compact rows; the key legend 24 px. */
+:root[data-density="compact"] table.chain .cg { grid-template-rows: 15px 12px; }
+:root[data-density="compact"] table.chain .cg > .l1 { height: 15px; line-height: 15px; }
+:root[data-density="compact"] table.chain .cg > .l2 { line-height: 12px; }
+:root[data-density="compact"] table.chain.dense .cg { grid-template-rows: 15px; }
+:root[data-density="compact"] table.chain thead tr.side-head th { height: 20px; }
+:root[data-density="compact"] table.chain thead tr.col-head th { top: 20px; height: 24px; }
+:root[data-density="compact"] table.chain thead tr.col-head.first th { top: 0; }
+:root[data-density="compact"] table.chain tfoot :is(td, th) { height: 30px; }
+:root[data-density="compact"] .desk-keys { height: 24px; }
+:root[data-density="compact"] .exp-strip { padding-top: 6px; }
+:root[data-density="compact"] button.exp-chip { min-height: 24px; }
+:root[data-density="compact"] .toolbar .icon-btn { --btn-h: var(--ctl-h); }
+@media (pointer: coarse) { :root[data-density="compact"] .toolbar .icon-btn { --btn-h: 44px; } }
+/* The density control (account popover, More sheet): hidden on touch, which is always comfortable. */
+.segmented.density { width: 100%; }
+.segmented.density button { flex: 1 1 0; }
+.more-density { padding-top: 12px; }
+@media (pointer: coarse) { .density-ctl { display: none !important; } }
+
+/* Compact: the top veil only covers the bar (it would otherwise dim the first row of figures under it). */
+:root[data-density="compact"] .scroll-edge { height: calc(var(--toolbar-h) + 2px + var(--safe-t)); }
+/* Compact chain: the strike tags fit their 12 px line (no overlap into the next row). */
+:root[data-density="compact"] table.chain .tags { height: 12px; }
+:root[data-density="compact"] table.chain .tag { height: 13px; padding: 0 4px; line-height: 13px; border-radius: 3px; }
+:root[data-density="compact"] table.chain tbody tr { scroll-margin: 52px 0 36px; }
+/* Compact positions: one line less of padding per row. */
+:root[data-density="compact"] table.pos-table :is(th, td) { padding-top: 4px; padding-bottom: 4px; }
+:root[data-density="compact"] .pos-bgrid > * { padding: 8px 12px; }
+:root[data-density="compact"] .pos-payoff { padding: 6px 10px 4px; }
+:root[data-density="compact"] .pos-scen { padding: 6px 10px 8px; gap: 6px; }
+/* Compact OI ladder and card heads. */
+:root[data-density="compact"] table.oi-ladder { --desk-row: 32px; }
+:root[data-density="compact"] .card-head { padding-top: 10px; }
+
+/* ── Wide screens: more detail, not more margin ── */
+/* The chain (1600 px and up): the key legend moves up beside the expiry chips, so the table gets its row back. */
+@media (min-width: 1600px) {
+  .chain-panel:has(> .exp-strip:not(:empty)) { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+  .chain-panel:has(> .exp-strip:not(:empty)) > * { grid-column: 1 / -1; }
+  .chain-panel:has(> .exp-strip:not(:empty)) > .exp-strip { grid-column: 1; grid-row: 1; }
+  .chain-panel:has(> .exp-strip:not(:empty)) > .desk-keys { grid-column: 2; grid-row: 1; align-self: end; height: 28px; box-shadow: none; padding-right: 14px; }
+}
+/* KPI strip: more tiles as the width allows (desk.js builds them; each shows from its breakpoint). */
+.chain-kpis .desk-stat:is(.kpi-wide, .kpi-xwide) { display: none; }
+@media (min-width: 1280px) {
+  .desk-stats.sum-strip.chain-kpis { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+}
+@media (min-width: 1600px) { .chain-kpis .desk-stat.kpi-wide { display: flex; } }
+@media (min-width: 1920px) { .chain-kpis .desk-stat.kpi-xwide { display: flex; } }
+
+/* OI Analysis (1800 px and up): the ladder on the left, the chart and the side blocks (walls, build-up, movers, max
+   pain, two across) on the right, all on one screen. */
+@media (min-width: 1800px) {
+  .oi-main { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); grid-template-areas: "head head" "err err" "ladder legend" "ladder chart" "ladder side"; grid-template-rows: auto auto auto auto 1fr; align-items: start; }
+  .oi-main > .oi-head { grid-area: head; }
+  .oi-main > .oi-err-bar { grid-area: err; }
+  .oi-main > .oi-legend-row { grid-area: legend; box-shadow: inset var(--hl) 0 0 var(--mat-separator); }
+  .oi-main > .oi-prof { grid-area: chart; box-shadow: inset var(--hl) 0 0 var(--mat-separator); }
+  .oi-main > .oi-body { display: contents; }
+  .oi-main .oi-ladder-col { grid-area: ladder; align-self: stretch; box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+  .oi-main .oi-ladder-col > * { position: sticky; top: calc(var(--desk-top) + 8px); }
+  .oi-main .oi-side { grid-area: side; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-self: stretch; box-shadow: inset var(--hl) 0 0 var(--mat-separator), inset 0 var(--hl) 0 var(--mat-separator); }
+  .oi-main .oi-side > .oi-block, .oi-main .oi-side > .oi-block:nth-child(n) { box-shadow: inset var(--hl) 0 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+}
+
+/* Volatility (1800 px and up): the surface beside the expiries table, the IV-by-strike table beside the read. */
+@media (min-width: 1800px) {
+  :root[data-page="vol"] #content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  :root[data-page="vol"] #content > * { grid-column: 1 / -1; }
+  :root[data-page="vol"] #content > [data-panel="vol-surface"], :root[data-page="vol"] #content > [data-panel="vol-strikes"] { grid-column: 1; }
+  :root[data-page="vol"] #content > [data-panel="vol-term"], :root[data-page="vol"] #content > [data-panel="vol-read"] { grid-column: 2; }
+}
+
+/* Positions (2200 px and up): the positions table beside the risk panel. */
+@media (min-width: 2200px) {
+  :root[data-page="positions"] #content:has(> [data-panel="risk"]:not([hidden])) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  :root[data-page="positions"] #content > * { grid-column: 1 / -1; }
+  :root[data-page="positions"] #content:has(> [data-panel="risk"]:not([hidden])) > [data-panel="positions"] { grid-column: 1; }
+  :root[data-page="positions"] #content > [data-panel="risk"] { grid-column: 2; }
+}

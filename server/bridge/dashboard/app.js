@@ -6,6 +6,7 @@
 
 import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, pulse, reducedMotion, sheetIn, sheetOut, shake } from "./motion.js";
 import { DASH, ageText, formatRupee } from "./format.js";
+import { DENSITY_SLOT, SIDEBAR_SLOT, parseDensity, resolveDensity, resolveSidebar, toggleSidebar } from "./layout-prefs.js";
 
 // Page hooks for views.js (optional: app.js start-up already runs them automatically; both are idempotent).
 export { animateNav, animatePage };
@@ -267,6 +268,9 @@ export const ICONS = {
   people: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.6 2.7-6 6-6s6 2.4 6 6"/><circle cx="17" cy="9" r="2.6"/><path d="M15.5 14.3c3 .2 5.5 2.3 5.5 5.7"/>',
   download: '<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>',
   calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01"/>',
+  sidebar: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/><path d="m15 10-2 2 2 2"/>',
+  rail: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/><path d="m13 10 2 2-2 2"/>',
+  density: '<path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>',
   radar: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 12 18.4 5.6"/><circle cx="15.5" cy="9.5" r="1.1"/>',
 };
 export function icon(name) {
@@ -1094,6 +1098,54 @@ export function applyTheme(choice) {
   for (const b of document.querySelectorAll("[data-theme-choice]")) b.setAttribute("aria-pressed", String(b.dataset.themeChoice === (choice ?? "auto")));
 }
 
+// ── Space: the sidebar (full or icon rail) and the density (compact or comfortable), layout-prefs.js ──
+
+const finePointer = () => typeof matchMedia === "function" && matchMedia("(pointer: fine)").matches;
+/** Resolve the stored sidebar and density choices for this screen and set data-sb / data-density on <html>. */
+export function applyLayout() {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  const w = typeof innerWidth === "number" ? innerWidth : 0;
+  const sb = resolveSidebar(local.get(SIDEBAR_SLOT), w);
+  const density = resolveDensity(local.get(DENSITY_SLOT), { fine: finePointer(), width: w });
+  const changed = root.dataset.sb !== sb || root.dataset.density !== density;
+  if (root.dataset.sb !== sb) root.dataset.sb = sb;
+  if (root.dataset.density !== density) root.dataset.density = density;
+  const t = document.getElementById("sb-toggle");
+  if (t) {
+    const rail = sb === "rail";
+    const label = rail ? "Expand the sidebar" : "Collapse the sidebar to icons";
+    t.setAttribute("aria-expanded", String(!rail));
+    t.setAttribute("aria-label", label);
+    t.title = label;
+    if (t.dataset.icon !== sb) {
+      t.dataset.icon = sb;
+      t.replaceChildren(icon(rail ? "rail" : "sidebar"));
+    }
+  }
+  const choice = parseDensity(local.get(DENSITY_SLOT));
+  for (const b of document.querySelectorAll("[data-density-choice]")) b.setAttribute("aria-pressed", String(b.dataset.densityChoice === choice));
+  return changed;
+}
+/** Re-fit what measures itself (the chain's columns and height, charts) after the sidebar or density changed. */
+const relayout = () => {
+  if (applyLayout() && typeof dispatchEvent === "function") requestAnimationFrame(() => dispatchEvent(new Event("resize")));
+};
+/** Compact, comfortable or auto (compact with a mouse on a desktop), remembered in this browser. */
+export function chooseDensity(choice) {
+  const c = parseDensity(choice);
+  local.set(DENSITY_SLOT, c === "auto" ? null : c);
+  relayout();
+}
+/** The sidebar's toggle: the icon rail or the full sidebar, remembered in this browser. */
+export function toggleSidebarRail() {
+  const cur = document.documentElement.dataset.sb;
+  if (cur !== "rail" && cur !== "full") return;
+  const next = toggleSidebar(cur, innerWidth);
+  local.set(SIDEBAR_SLOT, next === "auto" ? null : next);
+  relayout();
+}
+
 /** Apply an appearance (auto, light or dark) and remember it in this browser. */
 export function chooseTheme(choice) {
   const c = choice === "light" || choice === "dark" ? choice : "auto";
@@ -1156,13 +1208,19 @@ async function signIn() {
 
 if (typeof document !== "undefined" && document.getElementById("login-form")) {
   applyTheme(local.get(THEME_SLOT) ?? "auto");
+  applyLayout();
+  addEventListener("resize", () => applyLayout(), { passive: true });
+  if (typeof matchMedia === "function") matchMedia("(pointer: fine)").addEventListener?.("change", relayout);
   // Motion: page / sidebar entrances on navigation (a button press is CSS: app.css 8a).
   installAutoAnimations();
   // Appearance buttons (the sidebar's and the More sheet's) and "Forget key", wherever they are drawn.
   document.addEventListener("click", (e) => {
     const t = /** @type {Element} */ (e.target);
     const choice = t?.closest?.("[data-theme-choice]");
+    const dens = t?.closest?.("[data-density-choice]");
     if (choice) chooseTheme(/** @type {HTMLElement} */ (choice).dataset.themeChoice);
+    else if (dens) chooseDensity(/** @type {HTMLElement} */ (dens).dataset.densityChoice);
+    else if (t?.closest?.("#sb-toggle")) toggleSidebarRail();
     else if (t?.closest?.("[data-action=logout]")) forgetKey();
     revealInRow(t?.closest?.("button, [role=tab], [role=radio]"));
   });
