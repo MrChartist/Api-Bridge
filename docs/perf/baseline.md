@@ -267,3 +267,94 @@ OI tick to cell is unchanged in substance (it redraws every strike at most twice
   (`events.quietMaxMs`); the page uses the tab's one live connection. `events/feedCalls.test.mjs` counts the calls.
 - **Polled positions stream**, **next-expiry prefetch**, **start-up seed paced through the background gate**: see
   README §2 and §3.
+
+# After round 3
+
+Raw results: `round3-before-1.json` … `round3-before-4.json` and `round3-after-1.json` … `round3-after-4.json` (Chain,
+OI Analysis, busiest scenario; rounds 1 and 2 also Strategy and Live events). Same machine and settings as above
+(4 vCPU, Node 22.22, headless Chromium, `--latency 200`, 30 s steady window, 60 s busiest, 30 s idle). Rounds
+interleaved: after, before, after, before, twice. Before: commit `8d7ea71` (the branch when round 3 started). After:
+`7d5ae9a` for rounds 1 and 2, `b9d355a` for rounds 3 and 4 (the same plus OI taking ticks every 50 ms instead of
+150 ms). Another agent ran its test suites on the same machine during part of these runs: read the spread.
+
+## Summary
+
+| | Before | After |
+|---|---|---|
+| Main thread busy, Option Chain (ms per second, two rounds) | 255 (263, 247) | 147 (154, 139), **42 % less** |
+| Main thread busy, OI Analysis | 276 (243, 308) | 132 (127, 137), **52 % less** |
+| Main thread busy, a still page (Accounts) | 58 (56, 60) | 6 (5, 6), **90 % less** |
+| Chain long tasks in 30 s, count (four rounds) | 3 (6, 4, 1, 1) | 2 (2, 0, 3, 1) |
+| Chain tick to cell p50 / p95, ms | 51 / 82 (84, 82, 88, 73) | 47 / 101 (103, 71, 138, 91) |
+| OI tick to cell p95, ms | 559 (548, 589, 551, 549) | 239 (215, 263) with the 150 ms gap; 102 (111, 92) with 50 ms |
+| OI tick to cell p50, ms | 70 (58, 105, 60, 55) | 58 (66, 82, 45, 39) |
+| OI long tasks in 30 s | 6 (1, 23, 0, 1) | 4 (2, 13, 0, 2) |
+| Busiest scenario, broker calls / min | 5 (7, 0, 0, 14) | 4 (0, 14, 0, 0): unchanged, the recorder's chains |
+
+"Main thread busy" is Chromium's own `TaskDuration` (CDP `Performance.getMetrics`) over 30 s of the steady page,
+divided by the seconds, from a separate interleaved pair of runs (after, before, after, before; each a fresh demo
+Bridge). It counts style, layout and paint as well as script, so it shows what the long-task and tick-to-cell figures
+hide on a fast machine.
+
+## Read this first: what the numbers say, and what they do not
+
+- **The cost was paint.** A trace of the chain before this round spent about 290 ms of every second painting: the
+  signed-in dot's endless Motion animation (a JS `scale` loop) repainted the whole page layer on every frame, and the
+  chain's LTP flash (an animated background-color) repainted the whole table on every frame of every flash. Both now
+  run on the compositor (opacity and transform of an overlay); the same trace paints about 15 ms a second. That is
+  the 42 to 90 % less main-thread time above, and it is why a still page is now nearly free.
+- **Chain tick to cell did not improve in this session, and missed 100 ms in two of four after rounds.** The before
+  side was already at or under 100 ms in all four rounds today (82 mean; round 2's before was 225 ms and more on a
+  busier machine). With about 40 ticks a round, p95 is the second-slowest tick, so two slow ticks decide it: after-3
+  had 113 and 138 ms next to a 750 ms one-off. One-off ticks of 650 to 930 ms appear on both sides (before-b 647,
+  after-a 932 in the 60 s tick-to-cell probes), so they are not new; their cause is not found yet.
+- **Chain long tasks**: at most 2 in 30 s in three of four after rounds (3 in after-3), against 6 and 4 in two before
+  rounds. The 3 s refresh no longer redraws every row in one task: it patches the rows nearest the focus (or spot)
+  and the rest a few milliseconds a frame.
+- **OI Analysis**: the 500+ ms outliers are gone: p95 559 to 239 ms, and to 102 ms (111, 92) once the page took ticks
+  every 50 ms. The rest of the gap was the live connection's 150 ms delivery gap: a tick that arrived just after a
+  delivery waited for the next one. The one round with 13 and 23 long tasks (after-2, before-2) ran while the other
+  agent's tests did.
+- **Live events REST on strict brokers** cannot be measured in demo (the demo events engine reads no broker). The
+  call-count tests on Dhan's policy (market quote 1 a second) are the figure: before, the fallback made no call at all
+  in three minutes (the share never fits a 1-call window); now one batched call at most every 10 s while nobody uses
+  the broker (6 broker calls for the five refused stocks in three minutes, the cache answering the other rounds),
+  never two within 10 s, and none while a person reads quotes every 5 s.
+- Idle broker calls (24 against 30 a minute) are the recorder's minute rounds and the demo seed landing in the window
+  or not; they did not change.
+
+## Per page (four rounds)
+
+| Page | Figure | Before | After |
+|---|---|---|---|
+| chain | First data, ms | 682 (891, 633, 570, 634) | 648 (866, 558, 601, 567) |
+| chain | Switch (from cache), ms | 175 (207, 200, 168, 125) | 133 (183, 185, 163, 1) |
+| chain | Broker / min (raw) | 3 (4, 2, 2, 2) | 2 (2, 2, 2, 2) |
+| chain | Long tasks (count / ms) | 3 (6, 4, 1, 1) / 183 (361, 235, 73, 64) | 2 (2, 0, 3, 1) / 96 (101, 0, 200, 83) |
+| chain | Tick to cell p50 / p95, ms | 51 (54, 50, 49, 49) / 82 (84, 82, 88, 73) | 47 (52, 42, 49, 46) / 101 (103, 71, 138, 91) |
+| oi | Broker / min (raw) | 3 (0, 10, 0, 0) | 1 (0, 0, 0, 2) |
+| oi | Long tasks (count / ms) | 6 (1, 23, 0, 1) / 395 (57, 1461, 0, 63) | 4 (2, 13, 0, 2) / 403 (131, 1273, 0, 207) |
+| oi | Tick to cell p50 / p95, ms | 70 (58, 105, 60, 55) / 559 (548, 589, 551, 549) | 58 (66, 82, 45, 39) / 170 (215, 263, 111, 92) |
+| Idle Bridge (no page), broker calls / min | | 24 (18, 18, 40, 20) | 30 (18, 42, 40, 20) |
+| Busiest, broker calls / min, raw | | 5 (7, 0, 0, 14) | 4 (0, 14, 0, 0) |
+
+## What changed in round 3
+
+- **Compositor-only animations**: the breathing dot (`motion.js pulse`, `.dv-breathe`: CSS opacity and transform on
+  its own layer, paused on `:root.tab-hidden`, none under reduced motion), the live dot's ring, the chain's LTP flash
+  and the OI ladder's change flash (an overlay's opacity), the top-line ink (holds, then settles in one step).
+- **Chain work split across frames** (`desk.js` `runRows` / `drainRows`): ticks and the refresh patch the rows nearest
+  the focus first, about 5 ms of script a frame; the totals row is its own step.
+- **OI Analysis live path** (`oi.js draw({ live })`): ladder and tiles on every delivery (every 50 ms at most), panels
+  every 2 s in their own task; out-of-band rows format nothing; tooltips are formatted on hover; bars snap on ticks.
+- **Table labelling once a frame** (`views.js`), not on every cell change.
+- **Guaranteed share for the Live events REST fallback** (`events.restEverySeconds`, `backgroundGate.floorDecision`),
+  shown in the budget popover as the job "Live events by REST".
+- Harness: tick to cell also records `max` and the samples.
+
+## Not done
+
+- The rare 650 to 930 ms tick-to-cell one-offs on the chain (both sides): not traced to a cause.
+- Chain p95 at or under 100 ms in every round: met in two of four after rounds.
+- OI's panels (walls, movers, expiries table) still rebuild their DOM when their figures change (at most every 2 s on
+  ticks, in their own task); they are not patched per row like the ladder.

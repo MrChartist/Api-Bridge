@@ -1,0 +1,95 @@
+{
+  "at": "2026-10-30T15:37:11.086Z",
+  "node": "v22.22.0",
+  "seconds": 30,
+  "latencyMs": 200,
+  "pages": [
+    {
+      "page": "chain",
+      "firstData": 634,
+      "fcp": 124,
+      "jsKB": 2169,
+      "cssKB": 708,
+      "jsFiles": 42,
+      "reloadLoadMs": 160,
+      "switchFirst": 308,
+      "switchBack": 390,
+      "switchCached": 125,
+      "restPerMin": 70,
+      "duplicates": 0,
+      "duplicateUrls": {},
+      "brokerPerMinRaw": 2,
+      "brokerByClass": {
+        "quote": 1
+      },
+      "longTasks": 1,
+      "longTaskMs": 64,
+      "longTaskMax": 64,
+      "tickToCell": {
+        "n": 37,
+        "p50": 49,
+        "p95": 73
+      },
+      "topRequests": {
+        "GET /v1/optionchain": 10,
+        "GET /v1/quotes": 10,
+        "GET /v1/positions": 10,
+        "GET /v1/alerts/inbox": 2,
+        "GET /v1/alerts": 2,
+        "GET /v1/readiness": 1
+      },
+      "brokerPerMinNet": 0
+    },
+    {
+      "page": "oi",
+      "firstData": null,
+      "fcp": 116,
+      "jsKB": 2169,
+      "cssKB": 708,
+      "jsFiles": 42,
+      "reloadLoadMs": 89,
+      "switchFirst": null,
+      "switchBack": 547,
+      "switchCached": null,
+      "restPerMin": 70,
+      "duplicates": 0,
+      "duplicateUrls": {},
+      "brokerPerMinRaw": 0,
+      "brokerByClass": {},
+      "longTasks": 1,
+      "longTaskMs": 63,
+      "longTaskMax": 63,
+      "tickToCell": {
+        "n": 30,
+        "p50": 55,
+        "p95": 549
+      },
+      "topRequests": {
+        "GET /v1/optionchain": 10,
+        "GET /v1/quotes": 10,
+        "GET /v1/positions": 10,
+        "GET /v1/alerts/inbox": 2,
+        "GET /v1/alerts": 2,
+        "GET /v1/readiness": 1
+      },
+      "brokerPerMinNet": 0
+    }
+  ],
+  "idle": {
+    "seconds": 30,
+    "brokerPerMin": 20,
+    "byClass": {
+      "quote": 5,
+      "depth": 5
+    }
+  },
+  "busiest": {
+    "seconds": 60,
+    "brokerCalls": 14,
+    "brokerPerMinRaw": 14,
+    "byClass": {
+      "chain": 14
+    },
+    "brokerPerMinNet": 0
+  }
+}

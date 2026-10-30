@@ -79,7 +79,12 @@ MCP, your own scripts), goes through one path in `server/bridge/market/marketDat
    runs. Not in demo mode (the demo scanner reads no broker).
 9. **Live events on real brokers** (`events/feed.mjs`): the universe rides the same hub subscriptions; REST only for
    symbols the hub refused, never ticked, or whose feed went silent. A symbol that is only quiet on a live feed is not
-   polled (up to `events.quietMaxMs`, 5 min). `events/feedCalls.test.mjs` counts the broker calls.
+   polled (up to `events.quietMaxMs`, 5 min). Where the quote class allows 1 call a second (Dhan, Angel One,
+   Firstock), the background share never fits a 1-call window; there a **guaranteed share** applies: one batched call
+   (up to the broker's batch size, the symbols read longest ago first) at most every `events.restEverySeconds` (10 s),
+   only while nobody has used the broker for 10 s, only in a second nobody else uses, with every longer window keeping
+   its floor (`ratelimit/backgroundGate.mjs` `floorDecision`), at background priority. The budget popover lists it as
+   the job "Live events by REST". `events/feedCalls.test.mjs` counts the broker calls, on Arrow's policy and on Dhan's.
 10. **Start-up jobs leave headroom**: the demo book seed reads at background priority and paces each paper order
    through the shared background gate, so a person's first reads find the quote windows at least half free.
 11. The scheduler never exceeds a broker's published per-second, per-minute and per-day limits, and backs off a
@@ -109,13 +114,29 @@ readers).
   (`import()`, no build step).
 - **One live connection per tab** (`dashboard/live.js`): pages watch symbols; a symbol watched by several pages is
   subscribed once and kept 15 s after the last page leaves. Ticks are delivered once per animation frame, and no
-  sooner than 150 ms after a page's last delivery unless the page patches cells (the chain takes every frame). The
+  sooner than 150 ms after a page's last delivery unless the page patches cells (the chain takes every frame, OI
+  Analysis every 50 ms). The
   chain, OI and Strategy pages watch their legs, the index and its futures; their refreshes are then stream-built on
   the Bridge. Live events arrive on the same connection (`onMarketEvents`).
 - **Per-cell chain patches**: a tick updates only the cells of the legs that ticked (text nodes and classes; IV and
   Greeks repriced on the chain's own Black-76 pricing block; the parity cells of that strike), and bar lengths snap
   instead of animating each hair of change. A full redraw only when the structure moves (ATM, the index crossing a
   strike, an OI window, expiry, columns) and on the 3 s refresh for chain-wide figures.
+- **Chain work split across frames**: a tick or a 3 s refresh patches the rows nearest the focused strike (else spot)
+  in its own task and leaves the rest to the next frames, about 5 ms of script a frame (`desk.js` `drainRows`); rows
+  that come into the window are drawn at once, a new table in one go. Each cell still writes only what changed.
+- **OI Analysis on ticks**: the ladder rows and the tiles follow each delivery (every cell signature-checked; bars
+  snap); the panels below (walls, build-up, movers, expiries, max pain, timeline) are redrawn at most every 2 s on
+  ticks, and always in a task of their own, never inside the tick's or the refresh's. Rows outside the band format
+  nothing; a bar's tooltip is formatted when the pointer reaches it.
+- **Animations on the compositor**: the signed-in dot breathes with a CSS opacity and transform animation on its own
+  layer (Motion's JS `scale` loop repainted the whole page layer every frame), paused while the tab is hidden
+  (`:root.tab-hidden`) and none under reduced motion. The live dot's ring, the chain's LTP flash and the OI ladder's
+  change flash fade an overlay's opacity instead of animating box-shadow or background-color (which repainted the
+  whole table on every frame of every flash); the top-line spot and KPI ink holds, then settles in one step.
+  `perf.test.mjs` checks the keyframes.
+- **Table labelling at most once a frame**: the page-wide observer that names tables and fits them (`views.js`) used
+  to run, and read a table's width, on every cell change.
 - **No `:has()` on page containers**: a `:has()` rule whose subject is `.content` or `.app-main` made every change
   inside the page a style recalculation of all ~2000 nodes under it (40 to 90 ms per chain tick in Chromium). Page
   layouts key off `:root[data-page]`; `perf.test.mjs` keeps it that way.
