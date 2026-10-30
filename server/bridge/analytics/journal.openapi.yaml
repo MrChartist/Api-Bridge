@@ -1,0 +1,99 @@
+  /v1/analytics/journal:
+    get:
+      tags: [Analytics]
+      operationId: listAnalyticsJournal
+      summary: Trade journal entries, newest exit first
+      description: Your own trade notes, stored locally by the Bridge. Entries tied to an account are shown only to keys that may use it. Each entry carries its net `pnl`. `data` is `{ entries, total }`.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: account, in: query, schema: { type: string } }
+        - { name: strategy, in: query, schema: { type: string } }
+        - { name: tag, in: query, schema: { type: string } }
+        - { name: from, in: query, description: Earliest exit time (date or ISO timestamp)., schema: { type: string } }
+        - { name: to, in: query, description: Latest exit time (date or ISO timestamp)., schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 200 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Analytics]
+      operationId: addAnalyticsJournalEntry
+      summary: Add a trade journal entry
+      description: Writes only to the Bridge's local journal file. It cannot place or change an order.
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [symbol, side, qty, entryPrice, exitPrice, entryAt, exitAt]
+              properties:
+                symbol: { type: string, maxLength: 64 }
+                side: { type: string, enum: [buy, sell] }
+                qty: { type: number, exclusiveMinimum: 0 }
+                entryPrice: { type: number, minimum: 0 }
+                exitPrice: { type: number, minimum: 0 }
+                entryAt: { type: string, format: date-time }
+                exitAt: { type: string, format: date-time }
+                fees: { type: number, minimum: 0, default: 0 }
+                strategy: { type: string, maxLength: 64 }
+                tags: { type: array, maxItems: 20, items: { type: string, maxLength: 32 } }
+                notes: { type: string, maxLength: 4000 }
+                account: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/journal/{entryId}:
+    delete:
+      tags: [Analytics]
+      operationId: deleteAnalyticsJournalEntry
+      summary: Delete a trade journal entry
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: entryId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/journal/stats:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsJournalStats
+      summary: Journal statistics
+      description: Net P&L, win rate, profit factor, average win and loss, expectancy, max drawdown, best and worst trade, and P&L by strategy, weekday (IST) and tag. Takes the same filters as the list.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: account, in: query, schema: { type: string } }
+        - { name: strategy, in: query, schema: { type: string } }
+        - { name: tag, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string } }
+        - { name: to, in: query, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/journal/import-paper:
+    post:
+      tags: [Analytics]
+      operationId: importAnalyticsJournalPaper
+      summary: Import closed paper trades into the journal
+      description: Pairs the paper account's fills first-in first-out into closed round trips and adds the new ones as entries (strategy and tag `paper`). Repeating the call adds nothing twice. Paper is only read.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: account, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
