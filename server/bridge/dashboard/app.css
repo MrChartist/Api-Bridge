@@ -1890,14 +1890,17 @@ button.start-row:hover { --btn-bg: var(--mat-fill-1); }
 .quote .delta { align-self: flex-start; }
 
 /* ───────────────────────── 11 · ACCOUNTS, BROKERS, SHEETS ───────────────────────── */
-.brokers { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 12px; padding: 4px var(--card-pad) var(--card-pad); }
+/* Six broker cards across at 1920 px: the name may take two lines (never three, as at 250 px) and the foot (chips and
+   Set up) sits on each card's bottom edge, so the cards in a row line up. */
+.brokers { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 12px; padding: 4px var(--card-pad) var(--card-pad); }
 .broker { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 20px; background: var(--mat-fill-1); min-width: 0; transition: background-color var(--dur-fast); }
 .broker:hover { background: var(--mat-fill-2); }
 .broker .top { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .broker .names { flex: 1; min-width: 0; }
-.broker .nm { font: 500 14.5px/1.25 var(--font-body); overflow-wrap: anywhere; text-wrap: balance; }  /* wraps: "Motilal Oswal" was cut to "Motilal O…" at 1280 */
+.broker .nm { font: 500 14.5px/1.25 var(--font-body); overflow-wrap: break-word; text-wrap: balance; }  /* wraps: "Motilal Oswal" was cut to "Motilal O…" at 1280 */
 .broker .id { font: 400 12px/1.3 var(--font-mono); color: hsl(var(--foreground) / var(--a-quiet)); }
-.broker-foot { gap: 8px; flex-wrap: nowrap; align-items: center; }
+.broker-foot { gap: 8px; flex-wrap: nowrap; align-items: flex-end; margin-top: auto; }
+.broker-foot > .chips { gap: 4px 6px; }
 .dir-search { width: min(280px, 100%); }
 /* Accounts "Can do": three chips and a "+N" chip on one line (the rest open in a popover), so rows keep one height. */
 .chips.acct-caps { flex-wrap: nowrap; }
