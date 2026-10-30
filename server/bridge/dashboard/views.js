@@ -2503,7 +2503,14 @@ function orderActions(o) {
     const trig = h("input", { id: "mod-trigger", type: "number", min: "0.05", step: "0.05", inputmode: "decimal", value: isFigure(o.triggerPrice) ? String(o.triggerPrice) : "" });
     const ok = await modal({
       title: `Modify ${o.side === "BUY" ? "buy" : "sell"} ${name}`,
-      body: h("div", { class: "stack" }, h("div", { class: "form-grid" }, h("label", { class: "field", for: "mod-qty" }, h("span", {}, inLots ? "Lots" : "Quantity"), qty, units), stop ? field("Trigger price", trig) : null, limit ? field("Limit price", price) : null), err),
+      // Lots on its own row with its hint; the trigger and the limit side by side (a pair), or one full width.
+      body: h(
+        "div",
+        { class: "stack" },
+        h("label", { class: "field", for: "mod-qty" }, h("span", {}, inLots ? "Lots" : "Quantity"), qty, units),
+        stop || limit ? h("div", { class: "form-grid bk-pair" }, stop ? field("Trigger price", trig) : null, limit ? field("Limit price", price) : null) : null,
+        err,
+      ),
       buttons: [
         { label: "Keep as is", value: false },
         {

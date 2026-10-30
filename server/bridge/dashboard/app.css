@@ -8788,6 +8788,7 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .ticket .segmented button[data-value="SL-M"] { white-space: nowrap; }
 /* Phones: the four order types take the row's whole width under Lots. */
 @media (max-width: 719px) { .ticket-grid > .field:has(> .bk-type-seg) { grid-column: 1 / -1; } }
+.bk-pair > :only-child { grid-column: 1 / -1; }
 /* End of broker features. */
 
 /* ───────────────────────── Trade › Algo (algo.js, docs/STRATEGIES-PYTHON.md) ───────────────────────── */
