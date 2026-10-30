@@ -247,8 +247,9 @@ describe("UI pass 3 §5: the menu and the merged pages", async () => {
   const route = (hash, lastTab = () => null) => resolveRoute(hash, { lastTab });
 
   it("has 13 pages in four groups, in the order of the sidebar", () => {
-    expect(PAGES.map((p) => p.id)).toEqual(["home", "chain", "strategy", "positions", "orders", "safety", "oi", "vol", "screeners", "calendar", "accounts", "api", "recorder"]);
-    expect([...new Set(PAGES.map((p) => p.group))]).toEqual(["", "Trade", "Markets", "Bridge"]);
+    // PR 17's Analytics group sits between Markets and Bridge (docs/design/pr17-integration.md).
+    expect(PAGES.filter((p) => p.group !== "Analytics").map((p) => p.id)).toEqual(["home", "chain", "strategy", "positions", "orders", "safety", "oi", "vol", "screeners", "calendar", "accounts", "api", "recorder"]);
+    expect([...new Set(PAGES.map((p) => p.group))]).toEqual(["", "Trade", "Markets", "Analytics", "Bridge"]);
     expect(PAGES.filter((p) => p.tab).map((p) => p.id)).toEqual(["home", "chain", "positions", "orders"]);
     expect(PAGES.find((p) => p.id === "orders").title).toBe("Orders");
   });
@@ -321,7 +322,7 @@ describe("UI pass 3 §5: the menu and the merged pages", async () => {
     expect(byLabel["API keys"]).toMatchObject({ route: "api/keys", sub: "API › Keys", hint: ["Ctrl", "9"] });
     expect(byLabel["Python snippet"]).toMatchObject({ route: "api/integrations?tool=python", searchOnly: true });
     expect(byLabel["Audit log"].route).toBe("api/activity?view=audit");
-    expect([...new Set(cmds.map((c) => c.group))]).toEqual(["Home", "Trade", "Markets", "Bridge"]);
+    expect([...new Set(cmds.map((c) => c.group))]).toEqual(["Home", "Trade", "Markets", "Analytics", "Bridge"]);
     expect(rank(cmds, "rate")[0].label).toBe("Rate limits");
     expect(rank(cmds, "console")[0].label).toBe("Test console");
     // A scattered in-order match is not enough: three points per query character.

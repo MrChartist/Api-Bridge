@@ -187,6 +187,21 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The last transient failure (network, 429 or 5xx) seen by api(), numbered. Auto-refresh compares `seq` before and
+ * after a page reload to learn whether it should back off (pages draw their own error boxes and do not throw).
+ */
+export const apiHealth = { seq: 0, failure: null };
+const noteFailure = (status, retryAfterMs = 0) => {
+  apiHealth.failure = { seq: ++apiHealth.seq, status: status ?? null, retryAfterMs };
+};
+const noteStatus = (res) => {
+  if (res.status === 429 || res.status >= 500) {
+    const ra = Number(res.headers.get("retry-after"));
+    noteFailure(res.status, Number.isFinite(ra) && ra > 0 ? ra * 1000 : 0);
+  }
+};
+
 // ── The shared fetch layer ──
 //
 // Every page reads through api(). For GET it adds three things, so pages that ask for the same data share it:
@@ -266,8 +281,10 @@ function fetchShared(path, { headers, priority = null } = {}) {
     try {
       res = await fetch(url, { headers });
     } catch {
+      noteFailure(null);
       throw new ApiError("The Bridge did not answer.", { network: true });
     }
+    noteStatus(res);
     const a = { at: Date.now(), ok: res.ok, status: res.status, ct: res.headers.get("content-type") ?? "", text: await res.text(), headers: res.headers, ms: Math.round(performance.now() - t0), prefetched: priority === "background" };
     if (a.ok && cacheable(path)) remember(path, a);
     return a;
@@ -328,8 +345,10 @@ export async function api(path, { method = "GET", body, raw = false, fresh = fal
     try {
       res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     } catch {
+      noteFailure(null);
       throw new ApiError("The Bridge did not answer.", { network: true });
     }
+    noteStatus(res);
     const a = { ok: res.ok, status: res.status, ct: res.headers.get("content-type") ?? "", text: await res.text(), headers: res.headers };
     if (forget) answers.clear();
     return toResult(a, { raw, ms: Math.round(performance.now() - t0) });

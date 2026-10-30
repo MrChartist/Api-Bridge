@@ -45,6 +45,9 @@ import { busiestClass, mountBudget, perSecondLimit, usageChart, windowText } fro
 import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText, startupText } from "./flows.js";
+import { analyticsPages } from "./analyticsViews.js";
+import { analyticsMorePages } from "./analyticsMore.js";
+import { analyticsFlowPages } from "./analyticsFlow.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
 const $ = (id) => document.getElementById(id);
@@ -353,6 +356,15 @@ export const PAGES = [
   },
   { id: "recorder", label: "Data recorder", icon: "clock", tint: "indigo", group: "Bridge", layout: "desk", title: "Data recorder", sub: "Option chains recorded every minute on this computer, with the browser closed", render: renderRecorderPage },
 ];
+// PR 17's Analytics pages (transitional: added as they came, minus the ids our pages and old links already own; the
+// redesign replaces this with tabbed pages in our design, docs/design/pr17-integration.md). Helpers are read when a
+// page draws.
+{
+  const helpers = () => ({ segmented, segField, field, errorBox });
+  const taken = new Set([...PAGES.map((p) => p.id), "console", "limits", "keys", "integrations", "activity", "screener", "arb", "scanner", "events", "participants", "journal", "watchlists"]);
+  const at = PAGES.findIndex((p) => p.group === "Bridge");
+  PAGES.splice(at, 0, ...[...analyticsPages(helpers), ...analyticsMorePages(helpers), ...analyticsFlowPages(helpers)].filter((p) => !taken.has(p.id)));
+}
 
 /**
  * Old page ids that became tabs (ui-pass-3.md §5.2): an old link or bookmark opens the tab, keeping its ?query.

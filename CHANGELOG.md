@@ -14,6 +14,24 @@ All notable changes to this project are listed here. The format follows [Keep a 
   events with strike OI, and live custom conditions in the scanner language (`/v1/events/conditions`). Guide:
   `docs/guides/live-events.md`.
 
+### Options analytics and terminal dashboard
+
+- **Read-only options analytics API** under `/v1/analytics/...`: OI and PCR, max pain, OI change and spurts, gamma, delta,
+  vanna and charm exposure, IV skew, surface and term structure, Greeks grid, synthetics, straddle, futures chain and
+  basis, expiry-day digest, strategy templates, finder and optimizer, payoff, Greeks and position-size calculators,
+  lot-split plans, position Greeks, a condition-based backtest, participant OI, FII/DII flows, unusual options activity,
+  market tide, vol stats with IV rank, a contract screener, markets overview (indices, movers, sectors, breadth,
+  rotation, correlation), risk scenarios, VaR and what-if, watchlists, and alert rules on 11 metrics. Nothing in it
+  places an order. See `docs/guides/analytics.md`.
+- **Field access** (`/v1/fields`, `/v1/fields/history`, `/v1/fields/bulk`, `/v1/fields/search`, `POST /v1/batch`): a
+  Bloomberg-style field catalogue with snapshot, history and bulk reads and CSV output.
+- **NSE, SEBI and RBI public data** (deals, insiders, events, announcements, regulatory wire, F&O ban list): best effort,
+  personal use, endpoints unverified without network access, with stale-serve and clear `UPSTREAM_ERROR` messages.
+- **Dashboard terminal shell:** an Analytics page group, a shared underlying, expiry and strikes context bar, a
+  `[symbol] [code]` command line with `HELP`, `g` key navigation, history, saved layouts, auto-refresh with backoff, an
+  IST market-status chip, compact density, and CSV export on every table.
+- **Roadmap:** a Bloomberg-inspired terminal plan in `ROADMAP.md`.
+
 ### Easy install
 
 - **One-line installers, no Node.js needed.** `irm …/install.ps1 | iex` (Windows) and `curl -fsSL …/install.sh | sh`

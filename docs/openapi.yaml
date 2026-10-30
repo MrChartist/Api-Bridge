@@ -145,6 +145,8 @@ tags:
   - name: Options data
     description: Recorded option-chain snapshots (every minute in session), daily derived statistics and the recorder's status (stream S17). Stored only on this computer.
 
+  - name: Analytics
+    description: Options analytics from the Bridge's own chain and quotes (OI, gamma exposure, skew, basis, Greeks, payoff, position size). Computed from the Bridge's own data; saved alert rules are the only thing it stores.
 paths:
   /v1/health:
     get:
@@ -2164,7 +2166,7 @@ paths:
     get:
       tags: [Watchlists]
       operationId: watchlistQuotes
-      summary: A list priced: last price, % change, the near future's OI and its change today, ATM IV
+      summary: "A list priced: last price, % change, the near future's OI and its change today, ATM IV"
       description: >-
         One quotes call for the list and its near futures (batched and cached by the market-data service); the near
         future is found once a day per symbol; IV, IV rank and HV20 come from the vol service's memory summary (no broker
@@ -6153,6 +6155,1579 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/analytics/oi:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsOi
+      summary: Open interest, put-call ratio, max pain, support and resistance
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: strikes, in: query, description: Strikes on each side of ATM., schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/gex:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsGex
+      summary: Dealer gamma exposure by strike and the flip strike
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: strikes, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/skew:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsSkew
+      summary: IV by strike, ATM IV and risk reversal
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: strikes, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - { name: width, in: query, description: Strikes either side of ATM for the risk reversal (default 3)., schema: { type: integer, minimum: 1, maximum: 20 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/surface:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsSurface
+      summary: ATM IV, skew and term structure across the next expiries (ones past their 15:30 IST cutoff are skipped)
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiries, in: query, description: How many upcoming expiries (default 3)., schema: { type: integer, minimum: 1, maximum: 6 } }
+        - { name: strikes, in: query, description: Strikes each side of ATM (default 10)., schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/basis:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsBasis
+      summary: Futures basis against spot, with annualised carry
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/greeks:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsGreeks
+      summary: Black-Scholes IV and Greeks for one option
+      description: Send exactly one of `iv` (percent) or `price` (premium). `rate` is in percent (default 6.5). Pure calculation, no broker call. A `price` below intrinsic value, or one no volatility under 500 % explains, is refused with 400.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: spot, in: query, required: true, schema: { type: number, minimum: 0.01, maximum: 1000000000 } }
+        - { name: strike, in: query, required: true, schema: { type: number, minimum: 0.01, maximum: 1000000000 } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [CE, PE] } }
+        - { name: days, in: query, required: true, description: Calendar days to expiry (at least 0.25 is used)., schema: { type: number, minimum: 0, maximum: 3650 } }
+        - { name: iv, in: query, description: Implied volatility in percent., schema: { type: number, minimum: 0.01, maximum: 500 } }
+        - { name: price, in: query, description: Option premium. Must be at least the intrinsic value and explainable by a volatility under 500 %., schema: { type: number, minimum: 0.01, maximum: 1000000000 } }
+        - { name: rate, in: query, description: Risk-free rate in percent (default 6.5)., schema: { type: number, minimum: 0, maximum: 100 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/payoff:
+    post:
+      tags: [Analytics]
+      operationId: postAnalyticsPayoff
+      summary: Expiry payoff curve, max profit and loss and break-evens for a multi-leg strategy
+      description: Max profit and loss cover every price from 0 up, not just the plotted range, and are null when unbounded. A loss reached only at a price of 0 (long future, short put) is finite and flagged `lossAtZero`. Break-evens are exact. A range and step that give more than 5000 points are refused with 400.
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [legs]
+              properties:
+                legs:
+                  type: array
+                  minItems: 1
+                  maxItems: 12
+                  items:
+                    type: object
+                    required: [type, side, price]
+                    properties:
+                      type: { type: string, enum: [CE, PE, FUT] }
+                      side: { type: string, enum: [buy, sell] }
+                      strike: { type: number, exclusiveMinimum: 0, maximum: 1000000000, description: Required for CE and PE. }
+                      price: { type: number, minimum: 0, maximum: 1000000000 }
+                      lots: { type: integer, minimum: 1, maximum: 10000, default: 1 }
+                      lotSize: { type: integer, minimum: 1, maximum: 100000, default: 1 }
+                spot: { type: number, exclusiveMinimum: 0, maximum: 1000000000 }
+                from: { type: number, minimum: 0, maximum: 1000000000 }
+                to: { type: number, exclusiveMinimum: 0, maximum: 1000000000, description: Must be greater than `from`. }
+                step: { type: number, exclusiveMinimum: 0, description: "The range divided by the step may give at most 5000 points." }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/position-size:
+    post:
+      tags: [Analytics]
+      operationId: postAnalyticsPositionSize
+      summary: Lots to trade for a risk budget
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [capital, riskPct, entry, stop]
+              properties:
+                capital: { type: number, exclusiveMinimum: 0, maximum: 1000000000000 }
+                riskPct: { type: number, exclusiveMinimum: 0, maximum: 100, description: Percent of capital to risk. }
+                entry: { type: number, exclusiveMinimum: 0, maximum: 1000000000 }
+                stop: { type: number, exclusiveMinimum: 0, maximum: 1000000000 }
+                lotSize: { type: integer, minimum: 1, maximum: 100000, default: 1 }
+                maxLots: { type: integer, minimum: 0, maximum: 10000000 }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/oi-change:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsOiChange
+      summary: OI change by strike over a window, with build-up classification
+      description: >-
+        Compares the newest in-memory chain snapshot with the one about `windowMin` minutes earlier (history builds up as this route
+        and oi-spurts are called; it is lost on restart). Each strike and side is classed long build-up, short build-up, long unwinding or
+        short covering from the option price change against the OI change.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: windowMin, in: query, description: Window in minutes (default 15)., schema: { type: number, minimum: 1, maximum: 1440 } }
+        - { name: top, in: query, description: Keep only the biggest absolute OI changes., schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { name: strikes, in: query, description: Strikes on each side of ATM., schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/oi-spurts:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsOiSpurts
+      summary: Strikes whose OI jumped most against a rolling baseline
+      description: >-
+        Needs at least two snapshots. `multiple` is the newest jump divided by the mean absolute jump of earlier intervals in the
+        lookback (null while there is no baseline).
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: lookbackMin, in: query, description: Baseline lookback in minutes (default 60)., schema: { type: number, minimum: 1, maximum: 1440 } }
+        - { name: minChangePct, in: query, description: Smallest percent OI jump that counts (default 5)., schema: { type: number, minimum: 0 } }
+        - { name: top, in: query, description: Rows to return (default 10)., schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { name: strikes, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/greeks-grid:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsGreeksGrid
+      summary: Per-strike delta, gamma, theta, vega and IV for calls and puts, with column totals and peak gamma and vega strikes
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: strikes, in: query, description: Strikes kept on each side of ATM., schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/synthetic:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsSynthetic
+      summary: Synthetic future per strike from put-call parity (strike + CE - PE), against spot and futures, with the arbitrage gap
+      description: The gap is the synthetic minus the futures price, or minus spot when no futures quote is available (`referenceSource` says which).
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: strikes, in: query, description: Strikes kept on each side of ATM., schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/straddle:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsStraddle
+      summary: ATM straddle premium now and its history, with percent change and implied move
+      description: History joins the ATM call and put candles on time. Percent change is against the first history point; implied move is straddle premium over spot.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: interval, in: query, schema: { type: string, enum: ["1m", "3m", "5m", "10m", "15m", "30m", "60m"], default: 5m } }
+        - { name: countback, in: query, schema: { type: integer, minimum: 1, maximum: 5000, default: 75 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/strategies:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsStrategies
+      summary: Strategy templates and supported market views
+      description: Lists the templates (straddles, strangles, vertical spreads, iron condor and butterfly, butterfly, covered call, protective put) with their default `offset` and `width` (in listed strikes). Pure, no broker call.
+      x-stream: S15
+      x-scope: read
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/strategies/build:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsStrategyBuild
+      summary: Build one strategy from the live chain, with payoff and probability of profit
+      description: Picks strikes by ATM and `offset`/`width` (counted in listed strikes), prices legs from leg ltp (bid/ask mid if missing), takes lot size from the chain, and returns the legs, max profit and loss, break-evens, net premium and a lognormal probability of profit from ATM IV. Never places an order.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: template, in: query, required: true, description: A template id from /v1/analytics/strategies., schema: { type: string } }
+        - { name: offset, in: query, description: Strikes from ATM to the anchor strike (negative is below). Defaults per template., schema: { type: integer, minimum: -20, maximum: 20 } }
+        - { name: width, in: query, description: Strikes between legs or to the wings. Defaults per template., schema: { type: integer, minimum: 1, maximum: 20 } }
+        - { name: lots, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 1 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/strategies/find:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsStrategyFind
+      summary: Rank strategies for a market view
+      description: Instantiates the templates matching `view` over a small offset/width grid, runs the payoff on each and ranks them by a blend of risk-reward, probability of profit and net credit. Strategies with unbounded risk carry `unboundedRisk` true and are excluded when `maxLoss` is given, as is anything whose max loss exceeds it.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: view, in: query, required: true, schema: { type: string, enum: [bullish, bearish, neutral, volatile, rangebound] } }
+        - { name: maxLoss, in: query, description: Maximum loss budget in rupees., schema: { type: number, exclusiveMinimum: 0 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/futures:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsFutures
+      summary: Futures chain with basis, carry, calendar spreads and roll cost
+      description: Each upcoming future (ltp, oi, volume, basis against spot, annualised carry), calendar spreads between consecutive expiries, and the roll cost percent of the nearest pair. Quotes that could not be read are listed in `errors`.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiries, in: query, description: How many upcoming expiries to include (default 3)., schema: { type: integer, minimum: 1, maximum: 6, default: 3 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/basis-history:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsBasisHistory
+      summary: Futures basis history against spot, with mean, min, max and z-score
+      description: Joins the future's and the spot's candles on time. Returns basis and basis percent per candle plus statistics, including the z-score of the latest value. A failed leg is reported in `errors` with an empty series.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: interval, in: query, schema: { type: string, enum: ["1m", "3m", "5m", "10m", "15m", "30m", "60m", "1d"], default: 1d } }
+        - { name: countback, in: query, description: Number of candles (default 30)., schema: { type: integer, minimum: 1, maximum: 1000, default: 30 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/fii-dii:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsFiiDii
+      summary: FII and DII cash-market buy, sell and net (INR crore), rolling sums and net-flow streak
+      description: From the NSE public site (meta.source is "nse", meta.fetchedAt is the fetch time). NSE publishes one session per call, so the Bridge accumulates history (newest 250 sessions, saved in its data folder and kept across restarts); meta.available says how many sessions it holds, persisted plus fetched. Cached for five minutes.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: days, in: query, description: Sessions to return, newest first., schema: { type: integer, minimum: 1, maximum: 60, default: 10 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/expiry-day:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsExpiryDay
+      summary: Expiry-day digest (time to expiry, ATM straddle, max pain, OI walls, gamma regime, flags)
+      description: Uses the nearest expiry whose 15:30 IST cutoff has not passed unless expiry is given. Time to expiry counts to 15:30 IST on the expiry date.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, schema: { type: string, format: date } }
+        - { name: strikes, in: query, description: Strikes on each side of ATM., schema: { type: integer, minimum: 1, maximum: 100 } }
+        - { name: maxPainPct, in: query, description: Flag when spot is this percent or more away from max pain (default 0.5)., schema: { type: number, minimum: 0 } }
+        - { name: decayPct, in: query, description: Flag when the ATM straddle has lost this percent of its day-open price (default 50)., schema: { type: number, minimum: 0, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/time-machine:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsTimeMachine
+      summary: Replay helper, historical candles with the ATM strike and move per bar
+      description: Historical option chains are not stored, so premiums, OI and Greeks are not returned for past bars; the response lists this under limitations.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: symbol, in: query, required: true, schema: { type: string }, example: "NSE:NIFTY" }
+        - { name: interval, in: query, required: true, schema: { $ref: "#/components/schemas/Interval" } }
+        - { name: from, in: query, required: true, schema: { type: string } }
+        - { name: to, in: query, schema: { type: string } }
+        - { name: step, in: query, description: Strike spacing used to find the ATM strike (default by underlying)., schema: { type: number, minimum: 0.01 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/alert-rules:
+    get:
+      tags: [Analytics]
+      operationId: listAnalyticsAlertRules
+      summary: Saved alert rules over analytics metrics
+      description: The caller's rules with their last check, last fire and armed state. Admin and local callers see every rule.
+      x-stream: S15
+      x-scope: read
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Analytics]
+      operationId: createAnalyticsAlertRule
+      summary: Save an alert rule
+      description: |
+        Metrics: `pcr_oi`, `max_pain_distance` (percent of spot), `atm_iv`, `basis_pct` take `op` above/below and `value`;
+        `gex_regime` fires when the net gamma regime changes (optionally only `to` one regime); `spot_cross` fires when spot
+        crosses `value` (`op` above/below/either). Every metric except `spot_cross` needs `expiry`. A rule fires once per
+        crossing and re-arms when the condition clears; with `everyMinutes` it is checked by itself. Delivery goes through
+        the notify targets (event `scan.alert`).
+        `unusual_count` counts unusual contracts with score at or above `minScore` (default 50), `op` above/below and `value`;
+        `tide_sentiment` fires when option-flow sentiment changes (optionally only `to` bullish/bearish/neutral);
+        `iv_rank` is the ATM IV rank 0-100 over stored IV history (no data until 20 days are stored), `op` above/below;
+        `fii_net_streak` is the signed run of same-sign FII net days (+3 buying, -3 selling), `op` above/below;
+        `volume_spike` is latest daily volume over the previous 20-day average (futures when `expiry` is given, else spot).
+        `expiry` is required for every metric except `spot_cross`, `fii_net_streak` and `volume_spike`.
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, underlying, metric]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                underlying: { type: string, maxLength: 30, example: NIFTY }
+                expiry: { type: string, format: date }
+                metric: { type: string, enum: [pcr_oi, max_pain_distance, gex_regime, atm_iv, basis_pct, spot_cross, unusual_count, tide_sentiment, iv_rank, fii_net_streak, volume_spike] }
+                op: { type: string, enum: [above, below, either] }
+                value: { type: number }
+                to: { type: string, enum: [positive, negative, neutral, bullish, bearish], description: "gex_regime (positive/negative/neutral) or tide_sentiment (bullish/bearish/neutral) only" }
+                minScore: { type: number, minimum: 0, maximum: 100, description: unusual_count only }
+                everyMinutes: { type: integer, minimum: 1, maximum: 1440 }
+                marketHoursOnly: { type: boolean, default: true }
+                enabled: { type: boolean, default: true }
+      responses:
+        "201": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/alert-rules/{ruleId}:
+    delete:
+      tags: [Analytics]
+      operationId: deleteAnalyticsAlertRule
+      summary: Delete an alert rule
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: ruleId, in: path, required: true, schema: { type: string, maxLength: 64 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/alert-rules/{ruleId}/check:
+    post:
+      tags: [Analytics]
+      operationId: checkAnalyticsAlertRule
+      summary: Evaluate an alert rule now
+      description: Reads the metric and applies the edge trigger. With `dryRun=true` the rule's state is left alone and nothing is sent.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: ruleId, in: path, required: true, schema: { type: string, maxLength: 64 } }
+        - { name: dryRun, in: query, required: false, schema: { type: boolean, default: false } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/lot-split:
+    post:
+      tags: [Analytics]
+      operationId: postAnalyticsLotSplit
+      summary: Plan freeze-quantity slices (plan only)
+      description: >-
+        Splits a total quantity into child-order slices that are lot multiples and at most the exchange freeze quantity
+        (built-in table; unverified snapshot, flagged in `warnings`). Optionally returns an iceberg schedule (slice size and
+        delay). PLAN ONLY: nothing is placed. Send each child through `POST /v1/orders`, which keeps every safety gate.
+        For contracts without a built-in freeze quantity (stock derivatives) `freezeQty` is required; where the table has
+        one, the lower of the two is used.
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [symbol, quantity, lotSize]
+              properties:
+                symbol: { type: string, description: Canonical Bridge symbol, example: "NFO:NIFTY-2026-11-24-FUT" }
+                quantity: { type: integer, minimum: 1, maximum: 100000000, description: Total units; must be a multiple of lotSize. A plan needing more than 500 child orders is refused. }
+                lotSize: { type: integer, minimum: 1, maximum: 100000 }
+                freezeQty: { type: integer, minimum: 1, maximum: 100000000, description: Units. Required when the table has no entry; otherwise it can only lower the limit. }
+                iceberg:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    sliceLots: { type: integer, minimum: 1, maximum: 100000, description: Lots per slice (never above the freeze limit). }
+                    delayMs: { type: integer, minimum: 0, maximum: 3600000, default: 500 }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/position-greeks:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsPositionGreeks
+      summary: Greeks and delta-adjusted exposure of open option positions
+      description: >-
+        Reads the account's open positions, fetches each option leg's Greeks from the chain (Black-Scholes from the leg's
+        LTP when the chain has none) and returns per-position and net delta, gamma, theta, vega, delta-adjusted exposure
+        and a per-underlying rollup. Non-option positions are listed under `skipped`; legs whose chain could not be read
+        have `greeksAvailable: false` and the failure is in `errors`. `meta.freshness` is the chain's.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: account, in: query, required: true, schema: { type: string } }
+        - { name: mode, in: query, schema: { type: string, enum: [paper, live] } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/unusual:
+    get:
+      tags: [Analytics]
+      operationId: analyticsUnusual
+      summary: Unusual options activity scanner
+      description: >-
+        Scans the option chains of up to 10 underlyings for unusual activity. Per contract it returns volume/OI,
+        traded premium in INR (volume x ltp x lot size), OTM distance, IV versus ATM IV, OI change, a bid/ask
+        aggressor proxy (not trade-tape data) and a transparent 0-100 score whose formula is returned under
+        data.method. Flags are VOLUME_SPIKE, BIG_PREMIUM, OTM_LOTTERY, IV_ANOMALY and OI_BUILDUP. Per-underlying
+        failures are reported in errors instead of failing the request.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - name: underlyings
+          in: query
+          required: true
+          description: Comma-separated underlyings, 1 to 10, for example NIFTY,BANKNIFTY.
+          schema: { type: string }
+        - name: expiry
+          in: query
+          description: Expiry as YYYY-MM-DD. Defaults to each underlying's nearest upcoming expiry.
+          schema: { type: string, format: date }
+        - name: minPremium
+          in: query
+          description: Minimum traded premium in INR.
+          schema: { type: number, minimum: 0, default: 0 }
+        - name: minVolOi
+          in: query
+          description: Minimum volume/OI ratio.
+          schema: { type: number, minimum: 0, default: 0 }
+        - name: side
+          in: query
+          schema: { type: string, enum: [call, put, both], default: both }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [score, premium, volOi], default: score }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+      responses:
+        "200":
+          $ref: "#/components/responses/AnalyticsResult"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/analytics/tide:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsTide
+      summary: Market Tide, net call versus put premium flow through the session
+      description: Estimates premium traded per interval from consecutive chain snapshots (volume change x mid price x lot size), split into calls and puts and into buy and sell aggressive using where ltp sits inside the bid-ask spread (a proxy, not trade direction). Snapshots are taken when this route is called, so the series only has points from when it was polled. The session resets on a new IST trading day.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, description: Defaults to the nearest upcoming expiry. Changing it restarts the tracked session., schema: { type: string, format: date } }
+        - { name: windowMin, in: query, description: Only return series points from the last N minutes, and a window total., schema: { type: integer, minimum: 1, maximum: 1440 } }
+        - { name: strikes, in: query, description: Strikes on each side of ATM., schema: { type: integer, minimum: 1, maximum: 100 } }
+        - { name: top, in: query, description: Number of top strikes by flow., schema: { type: integer, minimum: 1, maximum: 50, default: 5 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/exposure:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsExposure
+      summary: Delta, gamma, vanna and charm exposure by strike with walls and the zero-gamma level
+      description: Dealers are assumed long calls and short puts. Delta INR per point, gamma INR per 1% move, vanna INR per point per vol point, charm INR per point per day. Legs without usable IV or gamma are counted in skippedLegs.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: strikes, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/exposure/expiries:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsExposureExpiries
+      summary: Gamma and delta exposure summed over the next expiries with per-expiry share
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiries, in: query, description: Number of upcoming expiries (default 3)., schema: { type: integer, minimum: 1, maximum: 6 } }
+        - { name: strikes, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/oi-explorer:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsOiExplorer
+      summary: Call and put open interest by strike and expiry with totals and the highest cells
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiries, in: query, description: Number of upcoming expiries (default 4)., schema: { type: integer, minimum: 1, maximum: 8 } }
+        - { name: strikes, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/vol-stats:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsVolStats
+      summary: Volatility stats (HV 10/20/30/60, Parkinson, ATM IV, IV vs HV, IV rank, expected move)
+      description: HV is annualised with sqrt(252) from daily candles, in percent, with the rank and percentile of the current HV20 over the lookback. ATM IV comes from the nearest expiry with at least 3 days left. The IV minus HV20 spread and ratio carry a label, rich above 1.15, cheap below 0.85, otherwise fair. The Bridge stores one ATM-IV point per underlying per IST day (newest 400 days); until 20 days exist, ivRank and ivPercentile are null, ivHistoryDays says how many there are and ivRankFallback holds the HV20 rank. expectedMove is the 1-sigma move to that expiry, spot x iv x sqrt(dte/365).
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 }, example: NIFTY }
+        - { name: days, in: query, description: Daily-candle lookback for HV and its rank (default 250)., schema: { type: integer, minimum: 30, maximum: 1000, default: 250 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/vol-stats/term:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsVolStatsTerm
+      summary: ATM IV for the next 4 expiries (volatility term structure)
+      description: Percent IV at the ATM strike of each of the next four expiries whose 15:30 IST cutoff has not passed, with termStructure contango, backwardation or flat (nearest against furthest).
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 }, example: NIFTY }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/deals:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsDeals
+      summary: NSE block or bulk deals (symbol, client, buy/sell, quantity, price, value in INR crore) with top buyers and sellers
+      description: From the NSE public site (meta.source is "nse", meta.fetchedAt is the fetch time, meta.stale is true when a refresh failed and an older copy is served). Cached for five minutes per query. India analogue of dark-pool prints.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: kind, in: query, required: true, schema: { type: string, enum: [block, bulk] } }
+        - { name: days, in: query, description: Calendar days back., schema: { type: integer, minimum: 1, maximum: 90, default: 5 } }
+        - { name: symbol, in: query, description: NSE ticker., schema: { type: string, maxLength: 20 } }
+        - { name: minValue, in: query, description: Minimum deal value in INR crore., schema: { type: number, minimum: 0 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/insiders:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsInsiders
+      summary: NSE insider-trading (SEBI PIT) disclosures with a net insider buying summary
+      description: From the NSE public site (meta.source is "nse"). Each row has person category, acquisition or disposal, securities, value in INR crore, mode and date. Cached for five minutes per query.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: symbol, in: query, description: NSE ticker., schema: { type: string, maxLength: 20 } }
+        - { name: days, in: query, description: Calendar days back., schema: { type: integer, minimum: 1, maximum: 90, default: 30 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/events:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsEvents
+      summary: NSE corporate events, board meetings and results calendar grouped by day
+      description: From the NSE public site (meta.source is "nse"). Looks forward from today for the given number of days; each event has purpose and description. Cached for five minutes per query.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: symbol, in: query, description: NSE ticker., schema: { type: string, maxLength: 20 } }
+        - { name: days, in: query, description: Calendar days ahead., schema: { type: integer, minimum: 1, maximum: 60, default: 14 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/screener:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsScreener
+      summary: Contract screener. Filter and sort every option contract in up to five chains, with premium traded, moneyness, breakeven, probability ITM, theta percent, spread and a liquidity flag
+      description: |
+        Delta filters use the absolute delta. `minPremium` and `maxPremium` bound the option price (ltp, INR per unit).
+        `sort=premium` orders by premium traded (ltp x volume x lot size, INR); `sort=theta` orders by daily theta as a percent of premium.
+        Contracts missing a field never pass a filter on it and sort last. The response reports `scanned`, `matched` and `returned`;
+        an underlying that fails to load is listed in `errors` and the others are still screened.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlyings, in: query, required: true, description: One to five comma-separated underlyings., schema: { type: string, example: "NIFTY,BANKNIFTY" } }
+        - { name: expiry, in: query, description: YYYY-MM-DD. Default is each underlying's nearest upcoming expiry., schema: { type: string, format: date } }
+        - { name: type, in: query, schema: { type: string, enum: [call, put, both], default: both } }
+        - { name: minDelta, in: query, description: Minimum absolute delta., schema: { type: number, minimum: 0, maximum: 1 } }
+        - { name: maxDelta, in: query, description: Maximum absolute delta., schema: { type: number, minimum: 0, maximum: 1 } }
+        - { name: minIv, in: query, description: Minimum IV in percent., schema: { type: number, minimum: 0, maximum: 1000 } }
+        - { name: maxIv, in: query, description: Maximum IV in percent., schema: { type: number, minimum: 0, maximum: 1000 } }
+        - { name: minOi, in: query, schema: { type: number, minimum: 0 } }
+        - { name: minVolume, in: query, schema: { type: number, minimum: 0 } }
+        - { name: minPremium, in: query, description: Minimum option price in INR., schema: { type: number, minimum: 0 } }
+        - { name: maxPremium, in: query, description: Maximum option price in INR., schema: { type: number, minimum: 0 } }
+        - { name: minDte, in: query, description: Minimum days to expiry., schema: { type: number, minimum: 0, maximum: 3650 } }
+        - { name: maxDte, in: query, description: Maximum days to expiry., schema: { type: number, minimum: 0, maximum: 3650 } }
+        - { name: maxSpreadPct, in: query, description: Maximum bid-ask spread as a percent of mid., schema: { type: number, minimum: 0 } }
+        - { name: moneyness, in: query, schema: { type: string, enum: [itm, atm, otm, any], default: any } }
+        - { name: sort, in: query, schema: { type: string, enum: [oi, volume, iv, delta, premium, theta, ltp, spread], default: oi } }
+        - { name: dir, in: query, schema: { type: string, enum: [asc, desc], default: desc } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/screener/presets:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsScreenerPresets
+      summary: Six named screener presets (high-IV puts, liquid ATM weeklies, cheap OTM lottery, high-theta sellers, big OI walls, tight spreads) as ready-made query strings
+      x-stream: S15
+      x-scope: read
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/backtest:
+    post:
+      tags: [Analytics]
+      operationId: postAnalyticsBacktest
+      summary: Replay a scanner-language entry (and optional exit) condition over historical candles
+      description: |
+        Signals are read on the bar close and filled at the next bar open (no lookahead). One position at a time, long or
+        short, with optional stop loss, target and maximum bars in trade. Fees and slippage apply to every fill. Returns the
+        trades, the equity curve and statistics (total return, CAGR, win rate, profit factor, expectancy, maximum drawdown with
+        dates, daily Sharpe, exposure, best and worst trade) next to a buy-and-hold comparison. `data.method` spells out every
+        fill, fee and Sharpe assumption. Past performance is not predictive. Limits: 5000 bars, 2000 trades; conditions follow
+        the scanner language and its length and complexity caps. Read-only: nothing here places an order.
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [symbol, entry]
+              properties:
+                symbol: { type: string, example: "NSE:RELIANCE" }
+                interval: { $ref: "#/components/schemas/Interval" }
+                from: { type: string, format: date, description: "First day (YYYY-MM-DD). Not with countback." }
+                to: { type: string, format: date, description: "Last day (YYYY-MM-DD). Needs from or countback." }
+                countback: { type: integer, minimum: 2, maximum: 5000, description: "Bars to fetch, ending at to (default now). Default 500 when no range is given." }
+                entry: { type: string, maxLength: 1000, example: "ema(20) crosses above ema(50)" }
+                exit: { type: string, maxLength: 1000, example: "ema(20) crosses below ema(50)" }
+                stopLossPct: { type: number, exclusiveMinimum: 0, maximum: 100 }
+                targetPct: { type: number, exclusiveMinimum: 0, maximum: 1000 }
+                maxBarsInTrade: { type: integer, minimum: 1, maximum: 5000 }
+                side: { type: string, enum: [long, short], default: long }
+                initialCapital: { type: number, exclusiveMinimum: 0, maximum: 1000000000000, default: 100000 }
+                quantity: { type: integer, minimum: 1, description: "Units per trade. Not with capitalPct." }
+                capitalPct: { type: number, exclusiveMinimum: 0, maximum: 100, description: "Share of current equity per trade (default 100). Not with quantity." }
+                feesPct: { type: number, minimum: 0, maximum: 5, default: 0.05, description: "Percent of notional on each fill." }
+                slippagePct: { type: number, minimum: 0, maximum: 5, default: 0.05, description: "Percent against you on each fill." }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/backtest/examples:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsBacktestExamples
+      summary: Five ready-made backtest request bodies (EMA cross, RSI mean reversion, 20-day breakout, Supertrend short, Bollinger bounce)
+      x-stream: S15
+      x-scope: read
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/participants:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsParticipants
+      summary: FII, DII, Pro and Client F&O open interest by participant, with day-on-day change and sentiment
+      description: >-
+        Per session and participant, index futures, index options (with call and put legs), stock futures and stock options,
+        each as long, short, net, long/short ratio and long percent, plus the change from the previous session and a derived
+        net-position sentiment (strongly_bullish to strongly_bearish; a positioning read, not a forecast). Source is NSE's daily
+        participant-wise OI file (fao_participant_oi_ddmmyyyy.csv on nsearchives.nseindia.com). The URL pattern and column layout
+        are assumed and unverified without network access; a changed shape returns UPSTREAM_ERROR. NSE publishes after the close,
+        so the newest session may be the previous trading day. The Bridge accumulates history (newest 250 sessions, saved in its
+        data folder); meta.available says how many it holds and meta.stale is true when a refresh failed and cached data was served.
+        Cached for five minutes.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: days, in: query, description: Sessions to return, newest first., schema: { type: integer, minimum: 1, maximum: 60, default: 10 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/optimizer:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsOptimizer
+      summary: Best option strategies for a market view, by grid search on the live chain
+      description: >-
+        Tries every strategy template that fits the view over strike offsets and widths (at most 2,000 candidates) and returns
+        the top N with net credit or debit, max profit and loss, break-evens, probability of profit, expected value, a margin-light
+        capital estimate (max loss based; not SPAN margin) and a plain-language rationale. Model: lognormal expiry price with zero
+        drift and flat ATM implied volatility, payoff integrated numerically over a fixed 801-point grid of plus or minus 5 sigma;
+        a screening model, not a forecast. Lots are 1 unless capital is given, then sized to fit capital (and maxLoss).
+        Unbounded-risk strategies are excluded when maxLoss is set. Read-only; places no orders.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: view, in: query, required: true, schema: { type: string, enum: [bullish, bearish, neutral, volatile] } }
+        - { name: maxLoss, in: query, description: Largest acceptable loss in rupees on the sized position., schema: { type: number, exclusiveMinimum: 0 } }
+        - { name: minPop, in: query, description: Smallest acceptable probability of profit, in percent., schema: { type: number, minimum: 0, maximum: 100 } }
+        - { name: capital, in: query, description: Capital in rupees; sizes the lots and drops strategies that do not fit., schema: { type: number, exclusiveMinimum: 0 } }
+        - { name: objective, in: query, schema: { type: string, enum: [expectedValue, popAdjusted, riskReward], default: expectedValue } }
+        - { name: top, in: query, description: Strategies to return., schema: { type: integer, minimum: 1, maximum: 20, default: 5 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/watchlists:
+    get:
+      tags: [Analytics]
+      operationId: listAnalyticsWatchlists
+      summary: The caller's watchlists (a default Index & F&O leaders list is created on first use)
+      x-stream: S15
+      x-scope: read
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Analytics]
+      operationId: createAnalyticsWatchlist
+      summary: Create a watchlist (up to 100 symbols, 20 lists per key)
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                symbols: { type: array, maxItems: 100, items: { type: string, example: "NSE:RELIANCE" } }
+      responses:
+        "201": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/watchlists/{listId}:
+    put:
+      tags: [Analytics]
+      operationId: updateAnalyticsWatchlist
+      summary: Rename a watchlist, replace its symbols, or add and remove some
+      description: Give name, symbols, or add and remove. symbols replaces the list and cannot be combined with add or remove.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: listId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                symbols: { type: array, maxItems: 100, items: { type: string } }
+                add: { type: array, maxItems: 100, items: { type: string } }
+                remove: { type: array, maxItems: 100, items: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Analytics]
+      operationId: deleteAnalyticsWatchlist
+      summary: Delete a watchlist
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: listId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/watchlists/{listId}/quotes:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsWatchlistQuotes
+      summary: Live quotes for a watchlist (ltp, change, changePct, volume, oi, dayHigh, dayLow)
+      description: Symbols that could not be quoted are listed in errors and never fail the call; meta carries the stalest item's freshness.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+        - { name: listId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/indices:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsIndices
+      summary: Index strip with India VIX and the day-range position
+      description: "Every index the instrument master knows (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, SENSEX, INDIA VIX and more, at most 60) from ONE batched quote call. Each item has ltp, change, changePct, dayHigh, dayLow and rangePosition (0 to 1). Cost: 1 quote call; no candles."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/movers:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsMovers
+      summary: Top movers over one batched quote pass
+      description: "Gainers, losers, volume, turnover or open interest over the FNO or NIFTY50 universe, sorted on the server. The quote pass is cached for 15 seconds and shared by all clients, so concurrent calls join one pass. Cash quotes carry no open interest, so by=oi can be empty. Cost: 0 to 2 quote calls (200 symbols per call); no candles."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: universe, in: query, schema: { type: string, enum: [FNO, NIFTY50], default: FNO } }
+        - { name: by, in: query, schema: { type: string, enum: [gainers, losers, volume, turnover, oi], default: gainers } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 10 } }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/sectors:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsSectors
+      summary: Sector index heatmap for 1D, 1W or 1M
+      description: "NIFTY sector indices ranked by change. 1d comes from one quote call; 1w and 1m use daily candles (background priority, up to 12 reads, cached for the IST day). drill=KEY adds the changePct of that sector's NIFTY 50 constituents from the shared quote snapshot. Cost: 1 quote call, plus up to 12 cached candle reads for 1w and 1m, plus a shared snapshot when drilling."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: tf, in: query, schema: { type: string, enum: [1d, 1w, 1m], default: 1d } }
+        - { name: drill, in: query, description: "Sector key such as BANK, IT, AUTO, FMCG, PHARMA, METAL, ENERGY, REALTY, PSUBANK, PVTBANK, FINSERV or MEDIA.", schema: { type: string, maxLength: 12 } }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/breadth:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsBreadth
+      summary: Advance/decline now and the cached daily breadth
+      description: "advanceDecline comes from the shared quote snapshot. The rest (new 52-week highs and lows, percent above the 20, 50 and 200 day averages, advance/decline line) is computed by a background job over daily candles of the FNO universe, cached for the day and saved to disk. status is pending, ready or partial; computedAt says when. Starting the job is POST /v1/analytics/markets/breadth/refresh. Cost: 0 to 2 quote calls; reading never makes candle calls."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/breadth/refresh:
+    post:
+      tags: [Analytics]
+      operationId: refreshAnalyticsMarketsBreadth
+      summary: Start the breadth job without waiting for it
+      description: "Starts the background breadth job and answers 202 at once. Answers 200 with started false when a job is already running or a complete result is under 30 minutes old. Cost: none now; the job reads up to 250 cached daily-candle series at background priority, 3 at a time."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "202": { $ref: "#/components/responses/AnalyticsResult" }
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/rotation:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsRotation
+      summary: Relative rotation of sectors against NIFTY
+      description: "A labelled proxy for relative rotation (the official formula is closed): RS-Ratio and RS-Momentum are 100 plus a rolling z-score of the smoothed relative strength and of its rate of change. Each item has a quadrant (leading, weakening, lagging, improving) and a tail of earlier points. Cost: up to 13 cached daily-candle reads at background priority; no quotes."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: tf, in: query, schema: { type: string, enum: [1d, 1w], default: 1w } }
+        - { name: tail, in: query, description: Earlier points to return per sector., schema: { type: integer, minimum: 0, maximum: 12, default: 5 } }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/correlation:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsCorrelation
+      summary: Correlation matrix of daily returns
+      description: "Pearson correlation of daily log returns, pairwise on common dates, for NIFTY50 or a comma-separated list of 2 to 60 symbols, with the most and least correlated pairs. A pair with fewer than 20 shared days, or a flat series, is null. Cost: up to 60 cached daily-candle reads at background priority; no quotes."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: universe, in: query, description: "NIFTY50 or comma-separated symbols (at most 60).", schema: { type: string, default: NIFTY50 } }
+        - { name: days, in: query, schema: { type: integer, enum: [60, 120, 250], default: 120 } }
+        - { name: pairs, in: query, description: Pairs in each of the most and least correlated lists., schema: { type: integer, minimum: 1, maximum: 20, default: 5 } }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/fields/search:
+    get:
+      tags: [Analytics]
+      operationId: searchFields
+      summary: Search the field catalogue by id, alias or description
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: q, in: query, description: "Words to look for, for example open interest. Empty lists the catalogue.", schema: { type: string, maxLength: 100 } }
+        - { name: category, in: query, schema: { type: string, enum: [price, volume, derivatives, greeks, volatility, analytics, reference] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+        - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/fields:
+    get:
+      tags: [Analytics]
+      operationId: getFields
+      summary: Symbol by field grid in one batched read (BDP)
+      description: |
+        Up to 50 symbols by 20 fields. Quotes are read in one marketData call and option chains once per underlying and
+        expiry. A field that does not apply to a symbol, or that could not be read, is null with an entry in `errors`
+        (symbol, field, code, message); the call itself still succeeds. `override` changes iv, Greeks and the chain
+        fields: expiry picks another expiry, rate re-solves iv and Greeks at that percent rate.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: symbols, in: query, required: true, description: "Comma-separated canonical symbols, at most 50.", schema: { type: string } }
+        - { name: fields, in: query, required: true, description: "Comma-separated field ids or aliases, at most 20.", schema: { type: string } }
+        - { name: override, in: query, description: "For example expiry:2026-11-27,rate:6.5.", schema: { type: string } }
+        - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/fields/history:
+    get:
+      tags: [Analytics]
+      operationId: getFieldsHistory
+      summary: Daily history by field with period aggregation (BDH)
+      description: |
+        Up to 10 symbols and about ten years of days. period W and M aggregate daily bars (open of the first, high and
+        low across, close of the last, volume summed). fill=prev adds a row for every calendar period with no bar,
+        carrying prices and open interest forward with volume 0 and filled true.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: symbols, in: query, required: true, schema: { type: string } }
+        - { name: fields, in: query, description: "open, high, low, close, prev_close, change, change_pct, volume, oi. Default close.", schema: { type: string } }
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, description: Defaults to today (IST)., schema: { type: string, format: date } }
+        - { name: period, in: query, schema: { type: string, enum: [D, W, M], default: D } }
+        - { name: fill, in: query, schema: { type: string, enum: [none, prev], default: none } }
+        - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/fields/bulk:
+    get:
+      tags: [Analytics]
+      operationId: getFieldsBulk
+      summary: Bulk data for an underlying, the option chain or its expiries (BDS)
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: symbol, in: query, required: true, description: "Underlying, for example NIFTY or NSE:NIFTY.", schema: { type: string, maxLength: 40 } }
+        - { name: field, in: query, required: true, schema: { type: string, enum: [CHAIN, EXPIRIES] } }
+        - { name: expiry, in: query, description: Required for CHAIN., schema: { type: string, format: date } }
+        - { name: strikes, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - { name: greeks, in: query, schema: { type: boolean, default: true } }
+        - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/batch:
+    post:
+      tags: [Analytics]
+      operationId: postBatch
+      summary: Up to 20 read requests in one call
+      description: |
+        Each item runs through the route's own handler. Allowed paths are GET /v1/fields, /v1/fields/search,
+        /v1/fields/history, /v1/fields/bulk, /v1/quotes, /v1/ltp and /v1/analytics/{oi,gex,skew,surface,basis,greeks};
+        any other path answers status 400 or 404 for that item only. The outer call is 200 whenever the envelope is valid.
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requests]
+              properties:
+                requests:
+                  type: array
+                  minItems: 1
+                  maxItems: 20
+                  items:
+                    type: object
+                    required: [id, path]
+                    properties:
+                      id: { type: string, minLength: 1, maxLength: 64 }
+                      path: { type: string, example: /v1/fields }
+                      query: { type: object, additionalProperties: true }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/risk/scenario:
+    post:
+      tags: [Analytics]
+      operationId: postAnalyticsRiskScenario
+      summary: Full-reprice P&L grid over spot, IV and days, for the book and per underlying
+      description: Black-Scholes full reprice for every cell of spotShocksPct x ivShocksPts x daysForward (at most 400 cells), with a delta-gamma-vega-theta Taylor approximation and its error per cell. Send exactly one of account (reads the positions through the orders service) or positions (explicit legs, units not lots). P&L is against the Black-Scholes model price at the current spot, IV and time, so the zero cell is 0. Shocks are parallel across underlyings, IV shocks are absolute vol points, futures and cash legs move one for one with spot. Options with no usable IV or price, and expired legs, are listed under skipped. Read-only; nothing is ordered.
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account: { type: string }
+                mode: { type: string, enum: [paper, live] }
+                positions:
+                  type: array
+                  maxItems: 200
+                  items:
+                    type: object
+                    required: [symbol, netQty]
+                    properties:
+                      symbol: { type: string, example: "NFO:NIFTY-2026-11-24-25000-CE" }
+                      netQty: { type: integer, description: Signed units. Negative is short. }
+                      price: { type: number }
+                      spot: { type: number }
+                      ivPct: { type: number }
+                spotShocksPct: { type: array, maxItems: 41, items: { type: number, minimum: -99, maximum: 100 }, example: [-5, -2.5, 0, 2.5, 5] }
+                ivShocksPts: { type: array, maxItems: 41, items: { type: number, minimum: -100, maximum: 100 }, example: [-5, 0, 5] }
+                daysForward: { type: array, maxItems: 41, items: { type: number, minimum: 0, maximum: 365 }, example: [0, 1, 3] }
+                maxCells: { type: integer, minimum: 1, maximum: 400, default: 400 }
+                ratePct: { type: number, minimum: 0, maximum: 100, description: Risk-free rate in percent (default 6.5). }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/risk/exposure:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsRiskExposure
+      summary: Gross, net, long and short notional and delta-adjusted exposure
+      description: Notional is the absolute quantity times the underlying price. Delta-adjusted exposure is quantity times delta times underlying price, per underlying and in total. Funds, used margin and total balance are returned exactly as the account reports them; when the adapter cannot supply them funds is null with a note, and nothing is estimated (no SPAN or exposure margin is computed).
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: account, in: query, required: true, description: Account id from your config., schema: { type: string }, example: paper }
+        - { name: mode, in: query, schema: { type: string, enum: [paper, live] } }
+        - { name: includeHoldings, in: query, description: Also count equity holdings., schema: { type: boolean, default: false } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/risk/concentration:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsRiskConcentration
+      summary: Top-N position weights, underlying and sector share, HHI
+      description: Weights are shares of gross notional. HHI is the sum of squared underlying weights (1 means one underlying). Sectors come from a small static map; names it does not know are Unclassified.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: account, in: query, required: true, description: Account id from your config., schema: { type: string }, example: paper }
+        - { name: top, in: query, description: How many top positions to list., schema: { type: integer, minimum: 1, maximum: 20, default: 5 } }
+        - { name: mode, in: query, schema: { type: string, enum: [paper, live] } }
+        - { name: includeHoldings, in: query, schema: { type: boolean, default: false } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/risk/var:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsRiskVar
+      summary: 1-day historical-simulation VaR and expected shortfall (an estimate)
+      description: Reprices the book fully for each past daily return of its underlyings (spot only, IV and time held, aligned by IST date). Falls back to delta-normal when fewer than 30 aligned days exist, and says so in method and note. The delta-normal figure is also returned as a cross-check. Underlyings without enough history are listed and left out. This is an estimate from past moves, not a limit.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: account, in: query, required: true, description: Account id from your config., schema: { type: string }, example: paper }
+        - { name: days, in: query, description: Daily-candle lookback., schema: { type: integer, minimum: 30, maximum: 1000, default: 250 } }
+        - { name: confidence, in: query, schema: { type: integer, enum: [95, 99], default: 95 } }
+        - { name: method, in: query, schema: { type: string, enum: [auto, historical, delta-normal], default: auto } }
+        - { name: mode, in: query, schema: { type: string, enum: [paper, live] } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/risk/whatif:
+    post:
+      tags: [Analytics]
+      operationId: postAnalyticsRiskWhatif
+      summary: Exposure, concentration and VaR before and after a hypothetical position (plan only)
+      description: Adds order-like legs to the account's current book and compares exposure, concentration and VaR. Nothing is sent or placed; margin for the added legs is not computed (the adapters expose funds, not a margin calculator), so requiredForAdd is null.
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [account, add]
+              properties:
+                account: { type: string }
+                mode: { type: string, enum: [paper, live] }
+                add:
+                  type: array
+                  minItems: 1
+                  maxItems: 20
+                  items:
+                    type: object
+                    required: [symbol, side, quantity]
+                    properties:
+                      symbol: { type: string }
+                      side: { type: string, enum: [BUY, SELL] }
+                      quantity: { type: integer, minimum: 1, description: Units, not lots. }
+                      price: { type: number }
+                days: { type: integer, minimum: 30, maximum: 1000, default: 250 }
+                confidence: { type: integer, enum: [95, 99], default: 95 }
+                topN: { type: integer, minimum: 1, maximum: 20, default: 5 }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/risk/tca:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsRiskTca
+      summary: Transaction cost analysis from paper fills (slippage vs limit, fees, fill latency)
+      description: Joins paper trades to their orders. Slippage is measured against the order's limit price only, because the paper store does not record an arrival price; market orders are not measured. Fees are the single brokerage figure per trade. Latency is fill time minus order placement time. The unavailable list states every field the store lacks (arrival price, bid and ask at fill, post-fill price, charge breakdown, partial fills).
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: account, in: query, required: true, description: A paper account id., schema: { type: string }, example: paper }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 200 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/forward-curve:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsForwardCurve
+      summary: Implied forward, carry and dividend yield per expiry from put-call parity
+      description: F = K + (C - P) e^{rT}, averaged over up to three strikes nearest spot that have both legs priced (mid when bid and ask exist, else LTP). Carry is ln(F/S)/T annualised and implied dividend yield is the rate minus carry. An expiry with thin data or under half a day left returns forward null with a reason.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 }, example: NIFTY }
+        - { name: expiries, in: query, description: How many upcoming expiries., schema: { type: integer, minimum: 1, maximum: 12, default: 6 } }
+        - { name: ratePct, in: query, description: Risk-free rate in percent (default 6.5)., schema: { type: number, minimum: 0, maximum: 100 } }
+        - { name: account, in: query, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/rr-bf:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsRrBf
+      summary: Risk reversal and butterfly at 25 and 10 delta (and one more)
+      description: Rebuilds the smile in call-delta space from the OTM legs and interpolates linearly, never extrapolating. RR is IV of the call minus IV of the put at that delta; BF is the average of the two minus ATM IV. Everything is null, with a reason, when the smile has fewer than five usable points or does not reach that delta on both wings.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 }, example: NIFTY }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date }, example: "2026-11-24" }
+        - { name: delta, in: query, description: Delta to report as requested; 25 and 10 are always included., schema: { type: integer, minimum: 1, maximum: 49, default: 25 } }
+        - { name: account, in: query, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/vol-cone:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsVolCone
+      summary: HV percentiles by tenor, current vs cone, VRP against ATM IV, forward vol between expiries
+      description: Rolling close-to-close HV (annualised, percent) for 10, 20, 30, 60 and 90 day tenors with min, 5th, 25th, 50th, 75th, 95th percentile and max, the current value and its percentile. VRP is the nearest ATM IV (at least 3 days left) minus the HV of the closest tenor. Forward vol between consecutive expiries is sqrt((s2^2 T2 - s1^2 T1) / (T2 - T1)), null when total variance falls with maturity. A tenor with fewer than 20 rolling windows has null percentiles.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 }, example: NIFTY }
+        - { name: days, in: query, description: Daily-candle lookback., schema: { type: integer, minimum: 120, maximum: 1500, default: 500 } }
+        - { name: expiries, in: query, description: How many expiries for the term and forward vol., schema: { type: integer, minimum: 1, maximum: 6, default: 4 } }
+        - { name: account, in: query, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/event-vol:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsEventVol
+      summary: Implied event move from total-variance differences around a date
+      description: With E1 the last expiry before the event and E2 the first on or after it (event time taken as 09:15 IST), event variance is s2^2 T2 - s1^2 T1 - sigma_b^2 (T2 - T1), where sigma_b is the pre-event ATM IV unless baselineVolPct is sent. With no pre-event expiry the baseline is HV20. The implied 1-sigma move is its square root as a percent of spot. Null, with a reason, when there is no premium above the baseline or no expiry after the event.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 }, example: NIFTY }
+        - { name: event, in: query, required: true, description: A future date within 400 days., schema: { type: string, format: date }, example: "2026-12-04" }
+        - { name: baselineVolPct, in: query, description: Override the baseline vol in percent., schema: { type: number, minimum: 1, maximum: 300 } }
+        - { name: account, in: query, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/news/regulatory:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsNewsRegulatory
+      summary: SEBI and RBI regulatory wire, deduplicated and tagged (fno, margin, lot-size, circular, expiry)
+      description: From the SEBI combined RSS and the RBI press release, notification and speech RSS feeds. Parsed without entity expansion; a DOCTYPE, ENTITY, oversize or non-feed response is an upstream error. Cached ten minutes, stale copy served if a refresh fails; meta.failedFeeds lists feeds that failed. Endpoints are unverified (assumed URLs, see ENDPOINTS in newsFeeds.mjs). Personal, local use only. meta carries source, fetchedAt, stale and note.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: source, in: query, schema: { type: string, enum: [sebi, rbi, all], default: all } }
+        - { name: days, in: query, description: Look-back window in days., schema: { type: integer, minimum: 1, maximum: 90, default: 7 } }
+        - { name: q, in: query, description: Keywords; every word must appear (case-insensitive)., schema: { type: string, maxLength: 100 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/news/announcements:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsNewsAnnouncements
+      summary: NSE corporate announcements, deduplicated by attachment id
+      description: From NSE's public corporate-announcements API through the cookie-primed client. Cached five minutes. Endpoints are unverified (assumed URLs, see ENDPOINTS in newsFeeds.mjs). Personal, local use only. meta carries source, fetchedAt, stale and note.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: symbol, in: query, schema: { type: string, maxLength: 20 } }
+        - { name: days, in: query, schema: { type: integer, minimum: 1, maximum: 30, default: 3 } }
+        - { name: q, in: query, description: Keywords; every word must appear (case-insensitive)., schema: { type: string, maxLength: 100 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/calendar/central-banks:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsCalendarCentralBanks
+      summary: Upcoming central-bank decision dates with a day countdown
+      description: Curated by hand (RBI MPC, US FOMC, ECB), not fetched; verify against the official calendar. Dates the author was unsure of are omitted, so a missing meeting does not mean none exists. daysUntil is computed from the Bridge clock in IST. Endpoints are unverified (assumed URLs, see ENDPOINTS in newsFeeds.mjs). Personal, local use only. meta carries source, fetchedAt, stale and note.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: bank, in: query, schema: { type: string, enum: [RBI, FOMC, ECB] } }
+        - { name: days, in: query, schema: { type: integer, minimum: 1, maximum: 400, default: 365 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/calendar/fno-ban:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsCalendarFnoBan
+      summary: NSE F&O securities in ban, with entries and exits versus the previously saved list
+      description: From NSE's fo_secban.csv. The previous list is kept in the Bridge data folder, so the first call is a baseline (baseline true, no entries or exits). Cached fifteen minutes. Endpoints are unverified (assumed URLs, see ENDPOINTS in newsFeeds.mjs). Personal, local use only. meta carries source, fetchedAt, stale and note.
+      x-stream: S15
+      x-scope: read
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/calendar/timeline:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsCalendarTimeline
+      summary: Events, central-bank dates and option expiries merged into one dated list
+      description: Merges NSE event-calendar rows, curated central-bank dates and expiries from market data for the given underlyings. A source that fails is reported under meta.sources and does not fail the call. Endpoints are unverified (assumed URLs, see ENDPOINTS in newsFeeds.mjs). Personal, local use only. meta carries source, fetchedAt, stale and note.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: days, in: query, schema: { type: integer, minimum: 1, maximum: 60, default: 14 } }
+        - { name: underlyings, in: query, description: Up to five comma-separated underlyings for expiry dates., schema: { type: string, default: NIFTY } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -6265,6 +7840,17 @@ components:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
 
+    AnalyticsResult:
+      description: Computed analytics. `data` is specific to the route; chain-based routes add `meta.freshness`.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, meta]
+            properties:
+              data: { type: object, additionalProperties: true }
+              errors: { type: array, items: { type: object, additionalProperties: true } }
+              meta: { $ref: "#/components/schemas/Meta" }
   schemas:
     PaperDailyPnl:
       type: object
