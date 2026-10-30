@@ -205,7 +205,7 @@ reduced motion. In demo the simulated feed is spread over ten slices a second, l
 
 Tick to paint (the Bridge's detection time to the frame after the row is drawn), measured with
 `node scripts/events-paint.mjs --base http://127.0.0.1:4391 --key <key> --seconds 90` (Playwright, Chromium,
-1440 × 900): **p50 42 ms, p95 61 ms, max 68 ms** on the demo Bridge. Add `?debug=1` to the page address to see the
+1440 × 900): **p50 42 to 46 ms, p95 61 to 110 ms** over four 60 to 90 s runs on the demo Bridge (the higher p95 on a machine shared with other Bridges); the target is p95 ≤ 100 ms. Add `?debug=1` to the page address to see the
 running p95 in the summary strip.
 
 ## Not done yet

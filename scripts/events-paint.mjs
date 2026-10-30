@@ -89,7 +89,7 @@ if (shots) {
   await s2.p.screenshot({ path: join(shots, "events-sheet-desktop-dark.png") });
   await s2.p.keyboard.press("Escape");
   await s2.p.waitForTimeout(500);
-  await s2.p.click("text=Events");
+  await s2.p.click('.ev-ctl-actions button:has-text("Events")');
   await s2.p.waitForTimeout(800);
   await s2.p.screenshot({ path: join(shots, "events-picker-desktop-dark.png") });
   await s2.ctx.close();

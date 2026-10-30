@@ -151,7 +151,7 @@ export function createDemoMarket({ engine, clock, startMs = clock.now(), scale =
     engine.setContext(s.symbol, s.ctx);
     if (spec.fno && !idx) {
       const futSym = `NFO:${spec.symbol}-FUT`;
-      s.fut = { symbol: futSym, oi: Math.round(R.range(2e6, 3e7) / 100) * 100, carry: R.range(0.002, 0.008), oiDrift: R.normal() * 0.004, oiRegimeUntil: R.range(15, 80), surgeAt: R.next() < 0.3 ? R.range(20, 300) : null };
+      s.fut = { symbol: futSym, oi: Math.round(R.range(2e6, 3e7) / 100) * 100, carry: R.range(0.002, 0.008), oiDrift: R.normal() * 0.0015, oiRegimeUntil: R.range(15, 80), surgeAt: R.next() < 0.3 ? R.range(20, 300) : null };
       s.fut.oiPrev = s.fut.oi;
       engine.register({ symbol: futSym, kind: "FUT", stock: s.symbol, lot: demoUnderlying(spec.symbol)?.lot ?? 1, segment: "NFO", tags: { fno: true } });
     }
@@ -287,10 +287,10 @@ export function createDemoMarket({ engine, clock, startMs = clock.now(), scale =
     const f = s.fut;
     const R = s.R;
     if (minute >= f.oiRegimeUntil) {
-      f.oiDrift = R.normal() * 0.006;
+      f.oiDrift = R.normal() * 0.0015;
       f.oiRegimeUntil = minute + R.range(15, 80);
     }
-    let g = (f.oiDrift / 60) * dtSec + R.normal() * 0.0003 * Math.sqrt(dtSec);
+    let g = (f.oiDrift / 60) * dtSec + R.normal() * 0.00008 * Math.sqrt(dtSec);
     if (f.surgeAt !== null && minute >= f.surgeAt && minute < f.surgeAt + 8) g += (0.006 / 60) * dtSec * (s.drift >= 0 ? 1 : 1.2);
     f.oi = Math.max(1000, Math.round((f.oi * (1 + g)) / 100) * 100);
     const ltp = onTick(s.price * (1 + f.carry), 0.05);

@@ -7765,3 +7765,8 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .ev-cond-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; min-height: 44px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 .ev-cond-list li > span:first-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .ev-cond-list code { font: 400 12px/1.35 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); overflow-wrap: anywhere; }
+/* Tablet: drop the strength column of the stock feed so the context keeps its room. */
+@media (min-width: 720px) and (max-width: 1279px) {
+  .ev-scroll[data-mode="feed"][data-asset="stock"] :is(.ev-head, .ev-row) { grid-template-columns: 66px minmax(120px, 1fr) minmax(150px, 0.9fr) 80px 72px minmax(160px, 2fr) 50px; }
+  .ev-scroll[data-mode="feed"][data-asset="stock"] :is(.ev-head, .ev-row) > :nth-child(4) { display: none; }
+}
