@@ -3,6 +3,7 @@
 import { alertBox, api, card, emptyState, h, istDateTime, modal, optional, pill, table, toast } from "./app.js";
 import { contractName, fieldError } from "./flows.js";
 import { DASH, formatFixed, formatInput, formatInt, formatPercent, formatSignedRupee, isFigure } from "./format.js";
+import { whatToDo } from "./reasons-core.js";
 import { OPEN_TRIGGER, distancePct, exitChipText, kindText, legText, outcomeText, pnlAt, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
 
 export { exitChipText };
@@ -124,6 +125,8 @@ export async function openPositionExits({ account, accountLabel, live, leg, name
 }
 
 const REFRESH_MS = 2000;
+/** With no open trigger nothing moves on its own (a new one comes from this tab's ticket or the API): a slower read. */
+const IDLE_REFRESH_MS = 10_000;
 
 /** The legs, one line each, with how far the price is from each. */
 function legsCell(t) {
@@ -241,7 +244,9 @@ export function triggersCard(byId) {
       cell: (t) => {
         const s = statusText(t);
         const why = outcomeText(t);
-        return h("div", { class: "order-status" }, pill(s.text, s.tone), why ? h("div", { class: "muted small order-why" }, why) : null);
+        // A failed or refused fire: the next step, when there is one (reasons-core.js).
+        const fix = t.status === "failed" || t.result?.status === "rejected" || t.result?.code ? whatToDo({ code: t.result?.code ?? null, message: t.result?.message ?? "" }) : null;
+        return h("div", { class: "order-status" }, pill(s.text, s.tone), why ? h("div", { class: "muted small order-why" }, why) : null, fix ? h("div", { class: "small bk-fix" }, fix) : null);
       },
     },
     { label: "Mode", cell: (t) => (t.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
@@ -279,12 +284,17 @@ export function triggersCard(byId) {
     draw(r.data?.data ?? []);
   }
   refresh();
+  // Every 2 s while a trigger is open (its LTP and distance move), every 10 s otherwise, none while the tab is hidden.
   // Stops once the card has been on screen and is gone (the page changed).
   let seen = false;
   let misses = 0;
+  let sinceRead = 0;
   const timer = setInterval(() => {
     if (node.isConnected) {
       seen = true;
+      sinceRead += REFRESH_MS;
+      if (document.hidden || sinceRead < (last.some((t) => OPEN_TRIGGER.has(t.status)) ? REFRESH_MS : IDLE_REFRESH_MS)) return;
+      sinceRead = 0;
       refresh();
     } else if (seen || ++misses > 5) clearInterval(timer);
   }, REFRESH_MS);

@@ -415,6 +415,33 @@ describe("demo recorder (p1-01 §8, e2e step 5)", () => {
     expect(existsSync(join(dir, "recorder"))).toBe(false);
   });
 
+});
+
+// The back-fill on its own Bridge with 10 strikes a side instead of the default 40: what is checked (minutes since the
+// session start, their quality, daily rows for the previous weekdays) does not depend on the strike count, and the
+// default plan's back-fill (2 weekdays x 20 chains x 75 slots of 81 strikes) was about 10 s of CPU, which under the
+// full parallel suite on a 4-core machine ran past 45 s of wall time. The default plan itself is checked above.
+describe("demo recorder back-fill (p1-01 §8, e2e step 5)", () => {
+  let app;
+  let base;
+  let key;
+  beforeAll(async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mcb-demo-bf-"));
+    const { config } = loadConfig({ raw: { dataDir: dir, server: { port: 0 }, logging: { level: "silent" }, recorder: { indexStrikes: 10 } }, env: {}, demo: true });
+    const offset = REC_NOW - Date.now();
+    app = await createApp({ config, logger: createNullLogger(), clock: { now: () => Date.now() + offset } });
+    const { port } = await app.listen();
+    base = `http://127.0.0.1:${port}`;
+    ({ key } = await app.deps.keyStore.create({ label: "t", scopes: ["read"], accounts: "*" }));
+  });
+  afterAll(async () => {
+    await app?.close();
+  });
+  const get = async (path) => {
+    const r = await fetch(base + path, { headers: { Authorization: `Bearer ${key}` } });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  };
+
   it("within seconds the nearest NIFTY expiry has back-filled minutes since the day start, and daily rows for previous weekdays", async () => {
     const e = (await get("/v1/expiries?underlying=NIFTY")).body.data.expiries[0];
     let page = null;
@@ -430,7 +457,7 @@ describe("demo recorder (p1-01 §8, e2e step 5)", () => {
     await app.deps.recorder.backfillDone();
     const daily = (await get("/v1/options/daily?underlying=NIFTY")).body.data.rows;
     expect(new Set(daily.map((r) => r.date)).size).toBeGreaterThanOrEqual(2);
-  }, 30_000);
+  }, 60_000); // the whole back-fill is the work under test (about 5 s of CPU here); nothing in it sleeps
 });
 
 describe("demo mode config", () => {

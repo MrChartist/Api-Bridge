@@ -144,14 +144,27 @@ def test_describe_reads_literals_without_running(tmp_path):
     d = describe_file(str(f))
     assert d == {"className": "A", "name": "A thing", "description": "Doc line.", "symbols": ["NSE:NIFTY"], "timeframes": ["1m"], "timerSeconds": 5, "params": [{"name": "lots", "kind": "int", "default": 2, "min": 1, "max": 9, "help": "Lots"}, {"name": "u", "kind": "choice", "default": "NIFTY", "choices": ["NIFTY", "BANKNIFTY"]}]}
     f.write_text('from mrchartist_bridge.strategy import Strategy, Param\nclass A(Strategy):\n    params = {"x": Param(open("/etc/passwd").read())}\n')
-    with pytest.raises(ValueError, match="literal values only"):
+    with pytest.raises(ValueError, match="literal values only") as e:
         describe_file(str(f))
+    assert e.value.line == 3
     f.write_text("class A: pass\n")
     with pytest.raises(ValueError, match="exactly one class"):
         describe_file(str(f))
     f.write_text('from mrchartist_bridge.strategy import Strategy\nclass A(Strategy):\n    timeframes = ["7m"]\n')
     with pytest.raises(ValueError, match="Unknown timeframe"):
         describe_file(str(f))
+
+
+def test_describe_cli_reports_the_line_of_a_problem(tmp_path):
+    env = dict(os.environ, PYTHONPATH=str(SDK))
+    f = tmp_path / "s.py"
+    f.write_text("from mrchartist_bridge.strategy import Strategy\n\nclass A(Strategy)\n    pass\n")
+    r = subprocess.run([sys.executable, "-m", "mrchartist_bridge", "strategy", "describe", str(f)], capture_output=True, text=True, env=env, cwd=str(SDK), timeout=30)
+    d = json.loads(r.stdout)
+    assert r.returncode == 3 and d["ok"] is False and d["line"] == 3 and d["error"].startswith("SyntaxError")
+    f.write_text('from mrchartist_bridge.strategy import Strategy, Param\nclass A(Strategy):\n    timeframes = ["1m"]\n    params = {\n        "a": Param(1),\n        "b": Param(1, colour=2),\n    }\n')
+    d = json.loads(subprocess.run([sys.executable, "-m", "mrchartist_bridge", "strategy", "describe", str(f)], capture_output=True, text=True, env=env, cwd=str(SDK), timeout=30).stdout)
+    assert d["line"] == 6 and "unknown option colour" in d["error"]
 
 
 def test_describe_cli_and_examples_and_template():
@@ -528,3 +541,101 @@ def test_iron_condor_closes_a_partial_condor(bridge):
     s.on_start()
     assert s.positions() == {} and s.stopping
     assert any("refused a leg" in m for m in logs(out))
+
+
+# ── a whole run of each example stays inside its order budget (no re-entry churn) ──
+
+
+def walk(n, start=26000.0, step=6.0, seed=7):
+    import random
+
+    r = random.Random(seed)
+    x = start
+    out = []
+    for _ in range(n):
+        x += r.uniform(-step, step)
+        out.append(round(x, 2))
+    return out
+
+
+def full_run(s, bridge, spots, *, symbol="NSE:NIFTY", every_tick=None):
+    """on_start, then one tick (and, for timer strategies, one on_timer) per spot, then on_stop: a run in fast time."""
+    s.on_start()
+    t0 = 1_793_340_000_000
+    for i, x in enumerate(spots):
+        if s.stopping:
+            break
+        bridge.spot = x
+        s.dispatch(tick(every_tick or symbol, x + (100 if every_tick else 0), t0 + i * 15_000))
+        if type(s).timer_seconds:
+            s._call(s.on_timer)
+    s.on_stop()
+    return s.orders()
+
+
+def test_short_straddle_run_places_two_entries_and_two_exits_at_most(bridge):
+    s, _ = make(load("short_straddle.py"), bridge, {"max_entries": 5}, sid="budget_sd")
+    orders = full_run(s, bridge, walk(400))
+    assert [o["side"] for o in orders].count("SELL") == 2
+    assert len(orders) <= 4 and s.positions() == {}
+
+
+def test_short_straddle_after_its_exit_does_not_enter_again_in_the_same_run(bridge):
+    s, _ = make(load("short_straddle.py"), bridge, {"max_entries": 5, "stop_loss_pct": 5}, sid="budget_sd2")
+    s.on_start()
+    for sym in s.legs:
+        bridge.prices[sym] = 400.0  # the premium jumps: stop loss
+    for _ in range(50):
+        if not s.stopping:
+            s.on_timer()
+        s.dispatch(tick("NSE:NIFTY", 26000, 1_793_340_000_000))
+    s.on_stop()
+    assert len(s.orders()) == 4 and s.stopping
+
+
+def test_iron_condor_run_stays_inside_entry_plus_rolls_plus_exit(bridge):
+    s, _ = make(load("iron_condor.py"), bridge, {"adjust_delta": 0.02, "max_adjustments": 3}, sid="budget_ic")
+    orders = full_run(s, bridge, walk(400, step=25, seed=3))
+    assert len(orders) <= 4 + 4 * 3 + 4, len(orders)
+    assert s.adjustments <= 4  # 3 rolls, plus the one "used up" notice
+
+
+def test_iron_condor_does_not_roll_a_side_that_is_already_at_short_delta(bridge):
+    s, out = make(load("iron_condor.py"), bridge, {"adjust_delta": 0.02}, sid="budget_ic2")
+    s.on_start()
+    bridge.spot += 40  # net delta passes 0.02, but the put side is still near 0.2 delta
+    for _ in range(20):
+        s.on_timer()
+    assert len(s.orders()) == 4
+    assert any("nothing to roll" in m for m in logs(out))
+
+
+def test_ema_crossover_holds_each_side_and_ignores_noise_inside_the_band(bridge):
+    s, out = make(load("ema_crossover.py"), bridge, {"timeframe": "15s", "fast": 3, "slow": 8, "hold_bars": 3, "band_pct": 0.02}, sid="budget_ema")
+    s.on_start()
+    fut = s.future
+    t0 = 1_793_340_000_000
+    # Noise of +-2 points around 26100 (under 0.01 %): after the first entry nothing may flip.
+    noise = [26100 + (2 if i % 2 else -2) for i in range(200)]
+    for i, x in enumerate(noise):
+        s.dispatch(tick(fut, x, t0 + i * 15_000))
+    assert len(s.orders()) <= 1
+    # A trending, choppy walk: every reversal is at least hold_bars bars after the last one.
+    s2, out2 = make(load("ema_crossover.py"), bridge, {"timeframe": "15s", "fast": 3, "slow": 8, "hold_bars": 3}, sid="budget_ema2")
+    s2.on_start()
+    flips = []
+    for i, x in enumerate(walk(600, step=15, seed=11)):
+        before = len(s2.orders())
+        s2.dispatch(tick(fut, x, t0 + i * 15_000))
+        if len(s2.orders()) > before:
+            flips.append(i)
+    gaps = [b - a for a, b in zip(flips, flips[1:])]
+    assert gaps and min(gaps) >= 3
+    assert len(s2.orders()) <= 1 + 2 * (600 // 3)
+
+
+def test_oi_walls_run_sells_each_wall_once_while_nothing_changes(bridge):
+    s, _ = make(load("oi_walls.py"), bridge, sid="budget_oi")
+    orders = full_run(s, bridge, walk(300, step=2))  # the spot stays well inside the walls
+    sells = [o for o in orders if o["side"] == "SELL"]
+    assert len(sells) == 2 and len(orders) == 4  # two entries, two exits on stop

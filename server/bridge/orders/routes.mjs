@@ -11,6 +11,7 @@
  *   GET    /v1/orders/{orderId}     PATCH (OrderChanges)          DELETE
  *   GET    /v1/trades?account=&mode=&limit=&cursor=
  *   GET    /v1/positions?account=&mode=   /v1/holdings?account=   /v1/funds?account=&mode=
+ *   POST   /v1/positions/convert    { account, symbol, from, to, quantity | lots, mode? }   Intraday ↔ carry (paper)
  *   GET    /v1/tickets              POST /v1/tickets/{ticketId}/confirm   (admin, this computer only)
  */
 import { BridgeError } from "../core/errors.mjs";
@@ -146,6 +147,11 @@ export function createOrderRoutes(deps) {
       const accountId = accountParam(ctx.query, { required: true });
       const r = await svc().positions(ctx, accountId, { mode: modeParam(ctx.query) });
       return { data: r.items, meta: meta(ctx, { accountId, mode: r.freshness.source === "paper" ? "paper" : "live", freshness: r.freshness }) };
+    },
+
+    async convertPosition(ctx) {
+      const data = await svc().convertPosition(ctx, ctx.body);
+      return { data, meta: meta(ctx, { accountId: data.accountId, mode: data.mode }) };
     },
 
     async holdings(ctx) {

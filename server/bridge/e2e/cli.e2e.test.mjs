@@ -66,7 +66,7 @@ beforeAll(async () => {
     });
     server.once("exit", (code) => rej(new Error(`mc-bridge start exited with ${code}: ${err}`)));
   });
-}, 30_000);
+});
 
 afterAll(async () => {
   if (server && server.exitCode === null) {

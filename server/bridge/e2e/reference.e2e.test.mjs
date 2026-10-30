@@ -248,7 +248,7 @@ describe("a non-demo Bridge with archives on, served the fixtures by a fake fetc
     expect(uni.items.map((i) => i.symbol)).toEqual(expect.arrayContaining(["NIFTY", "BANKNIFTY", "RELIANCE", "M&M"]));
     expect(uni.items.find((i) => i.symbol === "RELIANCE")).toMatchObject({ kind: "stock", since: "2025-12-24", sinceIsFirstFetch: true });
     expect(uni.knownSince).toBe("2025-12-24");
-  }, 30_000);
+  });
 
   it("a second sync with a revised file shows the lot-revision event", async () => {
     lotsFile = "mktlots-revision.csv";
@@ -256,5 +256,5 @@ describe("a non-demo Bridge with archives on, served the fixtures by a fake fetc
     await syncLots();
     const ev = (await b.http("/v1/reference/events?days=7&underlying=NIFTY")).json.data.items;
     expect(ev.find((e) => e.kind === "lot-revision")).toMatchObject({ underlying: "NIFTY", effectiveOn: "2025-12-31", ref: { lotBefore: 75, lotAfter: 65 } });
-  }, 30_000);
+  });
 });

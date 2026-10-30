@@ -244,6 +244,11 @@ function paintMarket() {
   const el = ui?.market;
   if (!el) return;
   const m = marketStatus(Date.now());
+  // Runs every second: touch the DOM only when the text changes (each rewrite cost a style, layout and paint pass of the
+  // top bar, every second, on every page).
+  const sig = `${m.state}|${m.text}|${m.short}`;
+  if (el.__sig === sig) return;
+  el.__sig = sig;
   el.className = `pill market-chip ${m.state === "open" ? "ok" : m.state === "preopen" ? "warn" : ""}`.trim();
   el.dataset.state = m.state;
   el.replaceChildren(h("span", { class: "pdot", "aria-hidden": "true" }), h("span", { class: "mk-long" }, m.text), h("span", { class: "mk-short" }, m.short));

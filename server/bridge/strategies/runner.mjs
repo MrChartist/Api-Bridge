@@ -34,6 +34,11 @@ import { readJsonState, writeJsonState } from "../safety/stateFile.mjs";
 import { RingLog, backoffMs, checkParams, childEnv, orderPrefix, parseLine, strategyBook, strategyIdOf } from "./book.mjs";
 
 export const EXIT_CONFIG = 3;
+/** Params for a log line: "lots 1 · stop_loss_pct 30 · exit_on_stop yes". */
+export const paramsText = (values) =>
+  Object.entries(values)
+    .map(([k, v]) => `${k} ${v === true ? "yes" : v === false ? "no" : String(v)}`)
+    .join(" · ");
 /** The SDK's exit code when the Bridge refused the strategy for good (kill switch, daily limit, scope): not restarted. */
 export const EXIT_REFUSED = 4;
 export const STATUSES = Object.freeze(["stopped", "starting", "running", "stopping", "restarting", "finished", "failed"]);
@@ -183,7 +188,7 @@ export function createStrategyRunner(deps, opts = {}) {
         try {
           const r = JSON.parse(String(stdout ?? "").trim().split("\n").pop());
           if (r && r.ok && r.strategy) return done({ ok: true, strategy: r.strategy });
-          return done({ ok: false, error: String(r?.error ?? "The file could not be read") });
+          return done({ ok: false, error: String(r?.error ?? "The file could not be read"), line: Number.isInteger(r?.line) ? r.line : null });
         } catch {
           return done({ ok: false, error: err ? `Could not read the file (${err.killed ? "timed out" : `exit ${err.code}`})` : "Could not read the file" });
         }
@@ -238,6 +243,7 @@ export function createStrategyRunner(deps, opts = {}) {
       name: d?.ok ? d.strategy.name : rt.id,
       description: d?.ok ? d.strategy.description : "",
       problem: d && !d.ok ? d.error : null,
+      problemLine: d && !d.ok ? (d.line ?? null) : null,
       params: d?.ok ? d.strategy.params : [],
       symbols: d?.ok ? d.strategy.symbols : [],
       timeframes: d?.ok ? d.strategy.timeframes : [],
@@ -261,6 +267,8 @@ export function createStrategyRunner(deps, opts = {}) {
       logSeq: rt.log.seq,
       pnl: b?.book ? { realised: b.book.realised, unrealised: b.book.unrealised, total: b.book.total, open: b.book.open } : null,
       orderCount: b ? b.orders.length : 0,
+      // Orders since Start was pressed (restarts included); orderCount is every run today.
+      runOrderCount: b && rt.startedAt ? b.orders.filter((o) => Date.parse(o.placedAt) >= rt.startedAt - 1000).length : 0,
       lastRunDay: set.lastRunDay ?? null,
     };
   }
@@ -362,7 +370,7 @@ export function createStrategyRunner(deps, opts = {}) {
     const mode = b.mode === undefined ? "paper" : b.mode;
     if (mode !== "paper" && mode !== "live") throw new BridgeError("VALIDATION_FAILED", 'mode is "paper" or "live".', { errors: [{ path: "mode", message: "paper or live" }] });
     const d = await describe(f);
-    if (!d.ok) throw new BridgeError("VALIDATION_FAILED", `${f.file}: ${d.error}`);
+    if (!d.ok) throw new BridgeError("VALIDATION_FAILED", `${f.file}${d.line ? `, line ${d.line}` : ""}: ${d.error}`);
     const merged = { ...(saved.settings[id]?.params ?? {}), ...(b.params && typeof b.params === "object" ? b.params : {}) };
     // Saved values for params the file no longer declares are dropped quietly; values sent now are checked strictly.
     const declared = new Set(d.strategy.params.map((p) => p.name));
@@ -378,7 +386,7 @@ export function createStrategyRunner(deps, opts = {}) {
     persist();
     Object.assign(rt, { status: "starting", account, mode, params: values, key, keyId: record.id, runId: newRunId(), startedAt: now(), restarts: 0, crashes: 0, lastExit: null, lastError: null, stopReason: null, stopRequested: false, counts: {}, hello: null, lastErrorLine: null, baseUrl });
     pnlCache.delete(id);
-    note(rt, "info", `Start requested: ${mode} on ${account}${Object.keys(values).length ? ` with ${JSON.stringify(values)}` : ""}`);
+    note(rt, "info", `Start requested: ${mode} on ${account}${Object.keys(values).length ? `, ${paramsText(values)}` : ""}`);
     await audit(ctx, "strategy.started", account, { strategy: id, file: f.file, mode, runId: rt.runId, keyId: record.id, params: values });
     spawnRun(rt, f);
     return rt;

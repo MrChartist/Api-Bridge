@@ -112,7 +112,9 @@ export function badgeModel(snapshot, { demo = false, now = Date.now(), failedAt 
   if (overall === "cannot_trade") {
     const bad = live.filter((a) => a.state === "cannot_trade");
     const who = bad.length >= 2 ? plural(bad.length, "account") : bad[0]?.brokerName || accountName(bad[0]);
-    return out("cannot_trade", "bad", `Cannot trade: ${who}`, "Cannot trade");
+    // One account: name what blocks it in a few words ("Cannot trade: Demo · order limit used up"); the sheet has the rest.
+    const why = bad.length === 1 ? ((bad[0].reasons ?? []).find((r) => r.severity === "fail") ?? (bad[0].reasons ?? [])[0]) : null;
+    return out("cannot_trade", "bad", `Cannot trade: ${who}${why ? ` · ${reasonShort(why.code)}` : ""}`, "Cannot trade");
   }
   if (overall === "warn") {
     const first = live.flatMap((a) => (a.state === "warn" ? a.reasons ?? [] : []))[0] ?? live.flatMap((a) => a.reasons ?? [])[0];

@@ -48,6 +48,8 @@ import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabili
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 import { PAGE_CODES } from "./workspace.js";
 import { triggersCard } from "./triggers.js";
+import { ordersCard, renderTradesPage } from "./orders-book.js";
+import { whatToDo } from "./reasons-core.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -321,6 +323,7 @@ export const PAGES = [
     defaultTab: "book",
     tabs: [
       { id: "book", label: "Orders", page: "orders", command: "Orders", keywords: "orders confirmations tickets modify cancel paper", render: renderOrders },
+      { id: "trades", label: "Trades", page: "trades", command: "Trade book", icon: "list", tint: "orange", keywords: "trades trade book fills executions turnover charges csv", sub: "Every fill with buy, sell and turnover totals", render: renderTradesPage },
       { id: "journal", label: "Journal", page: "journal", command: "Trade journal", icon: "list", tint: "teal", keywords: "journal trades tags notes setup win rate expectancy drawdown calendar heatmap daily pnl csv export", sub: "Every fill as a trade: tags, notes, a P&L calendar and stats", render: renderJournalPage },
     ],
   },
@@ -346,6 +349,9 @@ export const PAGES = [
       anTab("skew", "Skew", "skew", { command: "IV skew", icon: "wave", tint: "pink", keywords: "iv skew call put risk reversal strike smile", sub: "Call and put IV by strike for one expiry, with the risk reversal" }),
       anTab("surface", "Surface", "an-surface", { command: "IV surface", icon: "wave", tint: "pink", keywords: "iv surface across expiries term structure lines", sub: "IV by strike for the next expiries, one line each, and the term structure" }),
       anTab("cone", "Cone", "an-cone", { command: "Probability cone", icon: "wave", tint: "pink", keywords: "probability cone expected move sigma range expiry iv", sub: "The ±1σ and ±2σ range each expiry's ATM IV implies" }),
+      anTab("forward", "Forward", "an-forward", { command: "Forward curve", icon: "chart", tint: "pink", keywords: "forward curve put call parity basis carry dividend yield implied forward expiry", sub: "Each expiry's implied forward from put-call parity, its basis, carry and implied dividend yield" }),
+      anTab("rrbf", "RR and BF", "an-rrbf", { command: "Risk reversal and butterfly term structure", icon: "wave", tint: "pink", keywords: "risk reversal butterfly rr bf 25 delta 10 delta skew term structure wings", sub: "Risk reversal and butterfly at 25 and 10 delta for each expiry" }),
+      anTab("event", "Event vol", "an-eventvol", { command: "Event vol", icon: "calendar", tint: "pink", keywords: "event vol implied move results policy budget election total variance forward vol term structure", sub: "The move the options price in for a dated event, from the expiries either side of it" }),
       anTab("stats", "Vol stats", "an-volstats", { command: "Vol stats and IV rank", icon: "chart", tint: "pink", keywords: "hv historical volatility iv rank percentile expected move cone", sub: "Historical volatility, ATM IV against HV, expected move, IV rank and the term structure" }),
     ],
   },
@@ -471,6 +477,9 @@ export const LEGACY = {
   "an-spurts": "oi/spurts",
   "an-strikehist": "oi/history",
   "an-cone": "vol/cone",
+  "an-forward": "vol/forward",
+  "an-rrbf": "vol/rrbf",
+  "an-eventvol": "vol/event",
   expiry: "oi/expiry",
 };
 
@@ -1152,8 +1161,15 @@ function setupChrome() {
   // The IST clock in the toolbar (wide screens). It claims nothing about the market being open.
   const clock = $("clock");
   const IST_CLOCK = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hourCycle: "h23", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  // Each second only the time's text node changes (new nodes every second restyled the toolbar).
+  let clockText = null;
   const tick = () => {
-    if (clock && clock.offsetParent !== null) clock.replaceChildren(IST_CLOCK.format(new Date()), h("small", {}, "IST"));
+    if (!clock || clock.offsetParent === null) return;
+    if (!clockText || clockText.parentNode !== clock) {
+      clockText = document.createTextNode("");
+      clock.replaceChildren(clockText, h("small", {}, "IST"));
+    }
+    clockText.data = IST_CLOCK.format(new Date());
   };
   tick();
   setInterval(tick, 1000);
@@ -2388,24 +2404,19 @@ async function renderOrders() {
   nodes.push(triggersCard(byId));
 
   const ord = orders.data?.data ?? [];
+  // The day's orders with status and side filters, a search and Cancel all (orders-book.js).
   nodes.push(
-    card({
-      glyph: "orders",
-      tint: "orange",
-      title: "Today's orders",
-      cls: "orders-today",
+    ordersCard({
+      ord,
+      error: orders.error ?? null,
+      byId,
+      refresh: () => show(),
       // Orders are placed from the chain's ticket; the JSON route is for trying the API (API › Test console).
-      actions: h(
-        "div",
-        { class: "row" },
+      actions: [
         h("button", { type: "button", class: "small quiet", onclick: () => (location.hash = "#/api/console?endpoint=order") }, "Send as JSON"),
         h("button", { type: "button", class: "small primary", onclick: () => (location.hash = "#/chain") }, "Trade from the chain"),
-      ),
-      flush: true,
-      body: orders.error
-        ? h("div", { class: "card-body" }, alertBox(orders.error))
-        : table(
-            [
+      ],
+      columns: [
               { label: "Time", cell: (o) => istTime(o.placedAt) },
               { label: "Account", cell: (o) => byId.get(o.accountId)?.label ?? o.accountId },
               { label: "Contract", wrap: true, cell: (o) => h("div", { title: o.symbol, class: "order-contract" }, h("strong", {}, contractName(o.symbol)), h("div", { class: "muted small" }, `${o.orderType ?? ""}${isFigure(o.price) ? ` @ ${formatFixed(o.price, 2)}` : ""} · ${o.product ?? ""}`)) },
@@ -2418,15 +2429,16 @@ async function renderOrders() {
                 cell: (o) => {
                   const t = orderStatusText(o.status);
                   // Why it was refused or cancelled, right under the pill (the broker's or the paper engine's words).
-                  return h("div", { class: "order-status" }, pill(t.text, t.tone), o.statusMessage && ["rejected", "expired", "outcome_unknown"].includes(o.status) ? h("div", { class: "muted small order-why" }, o.statusMessage) : null);
+                  // ...and the next step, in plain words, when there is one (reasons-core.js).
+                  const why = o.statusMessage && ["rejected", "expired", "outcome_unknown"].includes(o.status) ? o.statusMessage : null;
+                  const fix = why || o.status === "outcome_unknown" ? whatToDo({ code: o.status === "outcome_unknown" ? "OUTCOME_UNKNOWN" : null, message: why ?? "" }) : null;
+                  return h("div", { class: "order-status" }, pill(t.text, t.tone), why ? h("div", { class: "muted small order-why" }, why) : null, fix ? h("div", { class: "small bk-fix" }, fix) : null);
                 },
               },
               { label: "Mode", cell: (o) => (o.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
               { label: "", cell: (o) => (WORKING_ORDER.has(o.status) ? orderActions(o) : "") },
-            ],
-            ord,
-            emptyState("orders", "No orders today", "Paper orders from the option chain, your scripts, webhooks and AI assistants show up here.", nextStep("Trade from the chain", "#/chain")),
-          ),
+      ],
+      empty: emptyState("orders", "No orders today", "Paper orders from the option chain, your scripts, webhooks and AI assistants show up here.", nextStep("Trade from the chain", "#/chain")),
     }),
   );
 
@@ -2503,7 +2515,14 @@ function orderActions(o) {
     const trig = h("input", { id: "mod-trigger", type: "number", min: "0.05", step: "0.05", inputmode: "decimal", value: isFigure(o.triggerPrice) ? String(o.triggerPrice) : "" });
     const ok = await modal({
       title: `Modify ${o.side === "BUY" ? "buy" : "sell"} ${name}`,
-      body: h("div", { class: "stack" }, h("div", { class: "form-grid" }, h("label", { class: "field", for: "mod-qty" }, h("span", {}, inLots ? "Lots" : "Quantity"), qty, units), stop ? field("Trigger price", trig) : null, limit ? field("Limit price", price) : null), err),
+      // Lots on its own row with its hint; the trigger and the limit side by side (a pair), or one full width.
+      body: h(
+        "div",
+        { class: "stack" },
+        h("label", { class: "field", for: "mod-qty" }, h("span", {}, inLots ? "Lots" : "Quantity"), qty, units),
+        stop || limit ? h("div", { class: "form-grid bk-pair" }, stop ? field("Trigger price", trig) : null, limit ? field("Limit price", price) : null) : null,
+        err,
+      ),
       buttons: [
         { label: "Keep as is", value: false },
         {
@@ -2977,7 +2996,7 @@ async function webhookPanel(paperAcc) {
   const side = segmented("Side", [["", "From the alert"], ["BUY", "BUY"], ["SELL", "SELL"]], "");
   const orderType = segmented("Order type", [["LIMIT", "LIMIT (safer)"], ["MARKET", "MARKET (protected)"]], "LIMIT");
   const product = segmented("Product", ["INTRADAY", "MARGIN", "CNC"].map((p) => [p, p]), "INTRADAY");
-  const lots = h("input", { type: "number", value: "1", min: "1", max: "50" });
+  const lots = h("input", { type: "number", inputmode: "numeric", value: "1", min: "1", max: "50" });
   const btn = h("button", { type: "button", class: "primary" }, icon("plus"), "Create webhook");
   const columns = [
     { label: "Hook", cell: (x) => h("div", {}, h("strong", {}, x.label), h("div", { class: "muted small mono" }, x.id)) },
