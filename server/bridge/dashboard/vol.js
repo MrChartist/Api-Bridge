@@ -9,7 +9,7 @@ import { DASH, formatFixed, formatInt, formatPercent, formatRupee, formatSigned,
 import { countUp, flashValue, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
 import { plotSkeleton, smileChart, smileLabel, termChart } from "./vol-curves.js";
-import { segmented } from "./views.js";
+import { edgeFades, segmented } from "./views.js";
 import { heatCell, svgEl } from "./viz.js";
 import { rateText, refRate, refSession } from "./reference.js";
 import { clockNote } from "./vol-context.js";
@@ -275,7 +275,10 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     t.el.className = `desk-stat vol-t-${k}${cls ? ` ${cls}` : ""}`;
     t.value.className = `value${tone ? ` ${tone}` : ""}`;
   }
-  const kpiEl = h("section", { class: "desk-panel vol-kpi", "data-panel": "vol-kpi", "aria-label": "Volatility summary" }, h("div", { class: "desk-stats vol-tiles" }, [...tiles.values()].map((t) => t.el)));
+  const tilesRow = h("div", { class: "desk-stats vol-tiles" }, [...tiles.values()].map((t) => t.el));
+  const kpiEl = h("section", { class: "desk-panel vol-kpi", "data-panel": "vol-kpi", "aria-label": "Volatility summary" }, tilesRow);
+  // Phones scroll the tiles sideways: a fade shows only on a side with more tiles (its size settles once mounted).
+  edgeFades(tilesRow);
 
   // ── Curves: smile and term (one capsule on phones: Smile | Term | Surface) ──
   const xSeg = segmented("Smile x-axis", X_AXES, cfg().x);
@@ -459,13 +462,16 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     h("div", { class: "vol-read-grid" }, h("div", { class: "vol-read-col" }, h("div", { class: "panel-head" }, h("div", { class: "vol-title" }, h("strong", {}, "Read"), h("span", { class: "vol-sub" }, "By trader type"))), readBody), h("div", { class: "vol-read-col" }, h("div", { class: "panel-head" }, h("div", { class: "vol-title" }, h("strong", {}, "Arbitrage checks"), h("span", { class: "vol-sub" }, "At bid/ask, this expiry"))), arbBody)),
   );
 
-  // ── Chart engine slot (ATM IV and HV20 over time: the owner's engine plugs in here) ──
-  const historyEl = h(
-    "section",
-    { class: "desk-panel vol-history", "data-panel": "vol-history", "aria-label": "ATM IV and HV20 over time" },
-    h("div", { class: "panel-head" }, h("div", { class: "vol-title" }, h("strong", {}, "ATM IV and HV20 over time"), h("span", { class: "vol-sub" }, "Chart engine slot"))),
-    chartSlot("ATM IV and HV20 over time", "Will show the daily ATM IV of the front expiry against 20-day realised vol"),
-  );
+  // ── Chart engine slot (ATM IV and HV20 over time: the owner's engine plugs in here). No engine, no panel. ──
+  const historySlot = chartSlot("ATM IV and HV20 over time", "Will show the daily ATM IV of the front expiry against 20-day realised vol");
+  const historyEl = historySlot
+    ? h(
+        "section",
+        { class: "desk-panel vol-history", "data-panel": "vol-history", "aria-label": "ATM IV and HV20 over time" },
+        h("div", { class: "panel-head" }, h("div", { class: "vol-title" }, h("strong", {}, "ATM IV and HV20 over time"), h("span", { class: "vol-sub" }, "Chart engine slot"))),
+        historySlot,
+      )
+    : null;
 
   // ── Methodology ──
   const methodAge = h("li", {});
@@ -914,7 +920,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     last = m;
     // No expiries at all: one empty state in the curves panel, nothing else.
     const none = !st.expiries.length && Boolean(st.empty);
-    for (const el of [kpiEl, surfaceEl, termEl, strikesEl, readEl, historyEl, methodEl]) if (el.hidden !== none) el.hidden = none;
+    for (const el of [kpiEl, surfaceEl, termEl, strikesEl, readEl, historyEl, methodEl]) if (el && el.hidden !== none) el.hidden = none;
     curvesEl.classList.toggle("no-exp", none);
     lap("kpi", () => drawKpi(m));
     lap("curves", () => drawCurves(m));
@@ -1045,6 +1051,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       } else ul.append(h("li", { title: it.title }, key, h("span", {}, it.label)));
     }
     host.replaceChildren(ul);
+    edgeFades(host);
   }
 
   // ── Curves ──
@@ -1760,7 +1767,9 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
         else td.removeAttribute("title");
       };
       const isAtm = p.strike === r.atmStrike;
-      set("k", () => [h("span", { class: "vol-k" }, formatInt(p.strike)), ...t.map(([x, side]) => h("span", { class: `vol-chip ${side}` }, x))], undefined, `${isAtm}|${t.map((x) => x[0]).join()}`);
+      // A parity gap: the warn dot before the strike (the row dims in CSS); no edge stripe.
+      const gapDot = p.gap ? h("span", { class: "vol-warn-dot", title: "CE and PE IV bands do not overlap: a parity gap" }) : null;
+      set("k", () => [gapDot, h("span", { class: "vol-k" }, formatInt(p.strike)), ...t.map(([x, side]) => h("span", { class: `vol-chip ${side}` }, x))].filter(Boolean), undefined, `${isAtm}|${Boolean(p.gap)}|${t.map((x) => x[0]).join()}`);
       set("m", minus(formatSigned(p.m, 1)));
       const baCell = (leg, side) => () => {
         if (!leg || leg.bidIv === null || leg.askIv === null || leg.bidIv === undefined || leg.askIv === undefined || baLo === null || !(baHi > baLo)) return [DASH];
@@ -2023,7 +2032,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
 
   const phoneOrder = media(MQ_PHONE);
   return {
-    panels: phoneOrder ? [kpiEl, curvesEl, surfaceEl, termEl, readEl, strikesEl, historyEl, methodEl] : [kpiEl, curvesEl, surfaceEl, termEl, strikesEl, readEl, historyEl, methodEl],
+    panels: (phoneOrder ? [kpiEl, curvesEl, surfaceEl, termEl, readEl, strikesEl, historyEl, methodEl] : [kpiEl, curvesEl, surfaceEl, termEl, strikesEl, readEl, historyEl, methodEl]).filter(Boolean),
     root: curvesEl,
     draw,
     onKey,

@@ -1,5 +1,5 @@
-// Participant OI page (#/participants, stream S26; docs/spec/p1-12-guard-participants.md §6.7) and the one-line tile
-// on the OI page. NSE's participant-wise open interest: Client, DII, FII and Pro long and short contracts in index and
+// Participant OI page (OI Analysis › Participants, #/oi/participants; stream S26; docs/spec/p1-12-guard-participants.md
+// §6.7) and the one-line tile on the OI page. NSE's participant-wise open interest: Client, DII, FII and Pro long and short contracts in index and
 // stock futures and options, one file a day after the close.
 //
 // The view-models (tilesModel, tableModel, cardsModel, historyModel, sparkGeometry, oiTileText, pageState) are pure
@@ -678,12 +678,14 @@ export async function renderParticipantsPage() {
   const tableBtn = h("button", { type: "button", class: "small pt-tbl-btn", "aria-pressed": String(st.showTable) }, icon("list"), h("span", { class: "pt-csv-l" }, "Table"));
   const histCsv = h("button", { type: "button", class: "small pt-csv", title: "Download the history in view as CSV" }, icon("download"), h("span", { class: "pt-csv-l" }, "CSV"));
   const histSub = h("span", { class: "pt-sub" }, "Trading days · gaps are days without a file");
+  const ptSlot = chartSlot("Participant OI history", "FII index-futures long %, FII net, client index call and put nets by day");
   const histPanel = h(
     "section",
     { class: "desk-panel pt-hist", "data-panel": "pt-hist", "aria-label": "Participant OI history" },
     h("div", { class: "panel-head" }, h("div", { class: "pt-title" }, h("strong", {}, "History"), histSub), h("div", { class: "pt-ctl" }, rangeSeg, tableBtn, histCsv)),
     // The owner's chart engine plugs in here; the SVG small multiples, table and CSV below are the fallback.
-    h("div", { class: "pt-slot-wrap" }, chartSlot("Participant OI history", "FII index-futures long %, FII net, client index call and put nets by day")),
+    // (chartSlot is null until an engine registers; then no wrapper either, so no empty box sits above the multiples.)
+    ptSlot ? h("div", { class: "pt-slot-wrap" }, ptSlot) : null,
     histBody,
   );
   let days = null;

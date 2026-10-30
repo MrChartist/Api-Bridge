@@ -2348,7 +2348,10 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
     // Spot lives in the strike column's head (a contrast pill) and as a line between the two strikes it sits between,
     // so no label ever covers a row's tags or the ATM pill.
     const kSpot = h("span", { class: "oi-kspot", "aria-hidden": "true", hidden: true });
-    const head = h("tr", {}, h("th", { scope: "col", class: "d ce", "aria-label": "Call OI chg" }, "Δ OI"), h("th", { scope: "col", class: "ob ce" }, hce), h("th", { scope: "col", class: "k" }, h("span", { class: "kt" }, "Strike"), kSpot), h("th", { scope: "col", class: "ob pe" }, hpe), h("th", { scope: "col", class: "d pe", "aria-label": "Put OI chg" }, "Δ OI"));
+    // Calls / Puts carry a 10 px swatch of their bar colour (the chart legend's), no coloured underline.
+    const sw = () => h("span", { class: "oi-sw", "aria-hidden": "true" });
+    const kHead = h("th", { scope: "col", class: "k" }, h("span", { class: "kt" }, "Strike"), kSpot);
+    const head = h("tr", {}, h("th", { scope: "col", class: "d ce", "aria-label": "Call OI chg" }, "Δ OI"), h("th", { scope: "col", class: "ob ce" }, sw(), hce), kHead, h("th", { scope: "col", class: "ob pe" }, sw(), hpe), h("th", { scope: "col", class: "d pe", "aria-label": "Put OI chg" }, "Δ OI"));
     const tbody = h("tbody");
     const rows = new Map();
     const order = [];
@@ -2367,7 +2370,8 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
     });
     const hadFocus = wrap.contains(document.activeElement) && document.activeElement?.matches?.("tr[data-k]");
     wrap.replaceChildren(tbl);
-    built = { key: m.key, ks: m.ks, tbl, caption, hce, hpe, kSpot, tbody, rows, order, detail, max: 0, first: true };
+    built = { key: m.key, ks: m.ks, tbl, caption, hce, hpe, kSpot, kHead, tbody, rows, order, detail, max: 0, first: true };
+    placePill();
     if (sel !== null && !rows.has(sel)) sel = null;
     if (open !== null && !rows.has(open)) open = null;
     // A rebuild (metric, unit, scope) keeps the selection: mark it again, keep it tabbable and keep focus on it.
@@ -2564,8 +2568,17 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
     scheduleAtmCheck();
   };
   addEventListener("scroll", onPageScroll, { passive: true });
+  /** Phones: the pill lives in the sticky ladder head (in place of the "Strike" title), never over rows; larger
+   *  screens: it floats over the ladder's foot. */
+  function placePill() {
+    const into = isPhone() && built ? built.kHead : el;
+    if (atmPill.parentNode === into) return;
+    if (into === el) el.append(atmPill);
+    else into.insertBefore(atmPill, built.kSpot);
+  }
   /** The floating "↕ ATM 26400" pill: shown while the ATM row is out of the visible part, pointing towards it. */
   function checkAtm() {
+    placePill();
     const b = built && atm !== null ? built.rows.get(atm) : null;
     if (!b || b.tr.hidden || !wrap.isConnected) {
       if (!atmPill.hidden) atmPill.hidden = true;
@@ -2580,7 +2593,8 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
     const show = onScreen && (above || below);
     if (atmPill.hidden === show) atmPill.hidden = !show;
     if (show) {
-      const t = `${above ? "↑" : "↓"} ATM ${formatInt(atm)}`;
+      // In the phone head's 70 px strike column the figure is left out (the aria-label keeps it).
+      const t = `${above ? "↑" : "↓"} ATM${isPhone() ? "" : ` ${formatInt(atm)}`}`;
       if (atmPill.textContent !== t) atmPill.textContent = t;
       atmPill.setAttribute("aria-label", `Back to ATM ${formatInt(atm)} (G)`);
     }

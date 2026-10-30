@@ -6,12 +6,13 @@
 // Round 2 (docs/design/screener.md): a visible ranking (rank column, violet heat, movement since the last sweep),
 // CE / PE identity, per-tab visual columns, phone cards with micro-visuals, an always-on detail column from 1280 px
 // with a score ring and a risk payoff, the toolbar live control with the chain dots, pins and a match map.
-import { alertBox, api, app, chartSlot, h, icon, istTime, modal, mountToolbarCtx, sheetPopover, toast } from "./app.js";
+import { DEMO_EXPLAINER, alertBox, api, app, chartSlot, h, icon, istTime, modal, mountToolbarCtx, sheetPopover, toast } from "./app.js";
 import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import { DEMO_UNDERLYINGS, UNDERLYINGS } from "./desk.js";
 import { barsEnter, countUp, flashValue, lineReveal, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
 import * as S from "./screens.js";
+import { readinessSheetRow } from "./readiness.js";
 import { dayText, loadReference, refBanners, refCharges, refChip, refRate, refSession, refSignature } from "./reference.js";
 import { every, segmented, stopTimer } from "./views.js";
 import { hbar, heatCell, setBar, spotPill, svgEl } from "./viz.js";
@@ -412,8 +413,7 @@ export function renderScreenerPage() {
   const liveDot = h("span", { class: "scr-ldot", "aria-hidden": "true" });
   const liveText = document.createTextNode("Starting");
   // Phones: the dot carries the time ("● 09:10") or the sweep count, so it reads without the popover.
-  const liveHm = h("span", { class: "scr-live-hm", "aria-hidden": "true" });
-  const liveDotBtn = h("button", { type: "button", class: "scr-live-dot", "aria-keyshortcuts": "A" }, liveDot, liveHm);
+  const liveDotBtn = h("button", { type: "button", class: "scr-live-dot", "aria-keyshortcuts": "A" }, liveDot);
   const liveTxtBtn = h("button", { type: "button", class: "scr-live-txt", "aria-haspopup": "dialog", "aria-expanded": "false" }, h("span", { class: "scr-live-w" }, liveText));
   const liveEl = h("div", { class: "scr-live glass" }, liveDotBtn, liveTxtBtn);
 
@@ -762,8 +762,6 @@ export function renderScreenerPage() {
     const chainsText = running || got.length === total ? `${formatInt(total)} chain${total === 1 ? "" : "s"}` : `${formatInt(got.length)} of ${formatInt(total)} chains`;
     const uText = phone() ? (n === 1 ? cfg.underlyings[0] : `${cfg.underlyings[0]}+${formatInt(n - 1)}`) : `${formatInt(n)} underlying${n === 1 ? "" : "s"}`;
     const ctxText = `${uText}${plan && !phone() ? ` · ${chainsText}` : ""}`;
-    const hm = running && progress.total ? `${formatInt(Math.min(progress.done + (progress.current ? 1 : 0), progress.total))}/${formatInt(progress.total)}` : oldest ? S.istHm(oldest.fetchedAt) : "";
-    if (liveHm.textContent !== hm) liveHm.textContent = hm;
     if (ctxMain.textContent !== ctxText) ctxMain.textContent = ctxText;
     // The full list for screen readers (the phone text abbreviates it as "NIFTY+2").
     const ctxAria = `Underlyings in the scan: ${cfg.underlyings.join(", ")}${plan ? `, ${chainsText}` : ""}`;
@@ -1856,7 +1854,7 @@ export function renderScreenerPage() {
     if (sig === paneSig) return;
     paneSig = sig;
     if (!r) {
-      paneBody.replaceChildren(h("div", { class: "scr-pane-empty" }, h("p", { class: "scr-pane-hint" }, "Select a row to see its score, risk, every number and the actions."), chartSlotBox(null)));
+      paneBody.replaceChildren(h("div", { class: "scr-pane-empty" }, h("p", { class: "scr-pane-hint" }, "Select a row to see its score, risk, every number and the actions."), chartSlotBox(null)));  // h() drops a null slot
       return;
     }
     const keepScroll = paneBody.scrollTop;
@@ -1890,6 +1888,14 @@ export function renderScreenerPage() {
       if (opener?.isConnected) opener.focus({ preventScroll: true });
     });
     d.classList.add("scr-sheet");
+    // Pin and close as one group at the end of the sheet's title row.
+    const pin = view.querySelector(".scr-d-head > .scr-pin");
+    const closeBtn = d.querySelector(".sheet-head > .sheet-close");
+    if (pin && closeBtn) {
+      const group = h("div", { class: "scr-d-btns" });
+      closeBtn.replaceWith(group);
+      group.append(pin, closeBtn);
+    }
   }
   const titleOf = (r) => (r.kind === "arb" ? `${r.type} · ${r.chain}` : r.name);
   const chartSlotBox = (r) => {
@@ -1915,8 +1921,11 @@ export function renderScreenerPage() {
       h(
         "header",
         { class: "scr-d-head" },
-        pane ? h("div", { class: "scr-d-top" }, titleEl, h("span", { class: "scr-grow" }), pinBtn, h("button", { type: "button", class: "icon-btn tiny", "aria-label": "Close", title: "Close", onclick: () => select(null) }, icon("close"))) : null,
-        h("div", { class: "scr-d-top" }, h("p", { class: "scr-d-sub" }, sub, stale ? h("span", { class: "ink-warn" }, ` · Data ${S.ageText(age)} old`) : null), pane ? null : h("span", { class: "scr-grow" }), pane ? null : pinBtn),
+        // The title row ends in one group (pin, close); the sub line has the full width below it. In a sheet the
+        // sheet's own head holds the title and close, and openSheet() moves the pin next to close.
+        pane ? h("div", { class: "scr-d-top" }, titleEl, h("div", { class: "scr-d-btns" }, pinBtn, h("button", { type: "button", class: "icon-btn tiny", "aria-label": "Close", title: "Close", onclick: () => select(null) }, icon("close")))) : null,
+        h("p", { class: "scr-d-sub" }, sub, stale ? h("span", { class: "ink-warn" }, ` · Data ${S.ageText(age)} old`) : null),
+        pane ? null : pinBtn,
       ),
     );
     if (r.kind === "contract") {
@@ -1924,7 +1933,9 @@ export function renderScreenerPage() {
       if (sc) parts.push(scoreBlock(sc, p.id === "buy" ? "Buy score" : "Sell score"));
       else parts.push(heroBlock(r, p));
     } else parts.push(heroBlock(r, p));
-    parts.push(h("div", { class: "scr-d-slot" }, chartSlotBox(r)));
+    // No engine, no slot box (and no empty wrapper either).
+    const slotBox = chartSlotBox(r);
+    if (slotBox) parts.push(h("div", { class: "scr-d-slot" }, slotBox));
     if (r.kind === "contract") {
       const side = p.id === "sell" ? "SELL" : "BUY";
       parts.push(riskChart(r, side, p.id === "sell" ? r.wing : null));
@@ -2949,6 +2960,34 @@ export function renderScreenerPage() {
   draw();
   // Read the reference bundles at once (charges, rate, session close and the chip), not only when a sweep starts.
   loadRefs();
-  mountToolbarCtx("screener", ctxBtn, refChipEl.el, h("span", { class: "ctx-spacer" }), liveEl);
+  // Below 1024 px the page folds its toolbar like the other desk pages (ui-pass-3.md §6): ⋯ holds readiness, Rescan,
+  // Search and Appearance; tablets keep a small Demo pill, phones fold the Demo word into ⋯ (an amber dot on it).
+  let ctxSheet = null;
+  const ctxMoreBtn = h("button", { type: "button", class: "icon-btn ctx-more", "aria-haspopup": "dialog", "aria-label": `More: trading readiness, rescan, search, theme${app.state.demo ? ", demo data" : ""}` }, icon("more"), h("span", { class: "rd-more-dot", "aria-hidden": "true" }), app.state.demo ? h("span", { class: "demo-badge", "aria-hidden": "true" }) : null);
+  ctxMoreBtn.addEventListener("click", () => {
+    if (ctxSheet) return ctxSheet.close();
+    const theme = document.documentElement.getAttribute("data-theme") ?? "auto";
+    const close = () => ctxSheet?.close();
+    const body = h(
+      "div",
+      { class: "ctx-sheet" },
+      app.state.demo ? h("p", { class: "ctx-demo-note" }, h("span", { class: "pill demo" }, "Demo"), h("span", {}, DEMO_EXPLAINER)) : null,
+      readinessSheetRow(close, ctxMoreBtn),
+      h(
+        "div",
+        { class: "ctx-acts" },
+        h("button", { type: "button", class: "small", onclick: () => (close(), rescan()) }, icon("refresh"), "Rescan"),
+        h("button", { type: "button", class: "small", onclick: () => (close(), document.querySelector(".toolbar-search-m")?.click()) }, icon("search"), "Search"),
+      ),
+      h(
+        "div",
+        { class: "segmented", role: "group", "aria-label": "Appearance" },
+        [["light", "Light", "sun"], ["dark", "Dark", "moon"], ["auto", "Auto", "monitor"]].map(([v, label, ic]) => h("button", { type: "button", "data-theme-choice": v, "aria-pressed": String(theme === v) }, icon(ic), label)),
+      ),
+    );
+    ctxSheet = sheetPopover({ trigger: ctxMoreBtn, title: "Option Screener", body, onClose: () => (ctxSheet = null) });
+  });
+  const demoPill = app.state.demo ? h("span", { class: "ctx-demo", "data-demo-indicator": "", title: DEMO_EXPLAINER }, "Demo") : null;
+  mountToolbarCtx("screener", ctxBtn, refChipEl.el, h("span", { class: "ctx-spacer" }), demoPill, liveEl, ctxMoreBtn);
   return [refBannersEl.el, main, detail];
 }

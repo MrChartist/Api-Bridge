@@ -11,7 +11,7 @@ import { DASH, MINUS, formatCompact, formatFixed, formatInput, formatInt, format
 import { flashValue, lineReveal, reducedMotion } from "./motion.js";
 import * as O from "./options.js";
 import { refCharges, refSession } from "./reference.js";
-import { segmented } from "./views.js";
+import { edgeFades, segmented } from "./views.js";
 import { legend, setBar, spotPill, svgEl } from "./viz.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
@@ -246,6 +246,8 @@ export function arbPanels(ctx) {
   const railCards = SLOTS.map((slot) => railCard(slot));
   const railRow = h("div", { class: "arb-rail-row" }, railCards.map((c) => c.el));
   const railEl = h("section", { class: "arb-rail", "data-panel": "opportunities", "aria-label": "Best opportunities" }, railNote, railErr, railRow);
+  // Phones scroll the rail sideways: a fade shows only on a side with more cards.
+  edgeFades(railRow);
   function railCard(slot) {
     const kind = h("span", { class: "arb-o-kind" });
     const tags = h("span", { class: "arb-o-tags" });
@@ -410,7 +412,9 @@ export function arbPanels(ctx) {
     notesSummary.replaceChildren(h("strong", {}, `Risk notes · ${formatInt(n)}`), notesDetails.open ? null : h("span", { class: "arb-sub" }, `${RISK_NOTES[0][0]}…`));
   }
   drawNotes();
-  const chartEl = h("section", { class: "desk-panel arb-chart", "data-panel": "chart-slot", "aria-label": "Chart engine slot" }, chartSlot("Implied forward and box rate by strike over time"));
+  // The chart-engine slot is a panel only once an engine is registered (no placeholder box until then).
+  const chartBox = chartSlot("Implied forward and box rate by strike over time");
+  const chartEl = chartBox ? h("section", { class: "desk-panel arb-chart", "data-panel": "chart-slot", "aria-label": "Chart engine slot" }, chartBox) : null;
 
   // ── Model: everything the page shows, from the chain, futures quotes and settings ──
   function futQuote(inst) {
@@ -763,7 +767,10 @@ export function arbPanels(ctx) {
     setVal(main, v.main ?? DASH, v.v, { rel: 0.05 });
     td.__strong = main;
     const bar = v.bar ? h("span", { class: "arb-basis", "aria-hidden": "true" }, setBar(h("span", { class: "dv-bar", "data-dv": "iv" }), v.bar.value, v.bar.max)) : null;
-    td.replaceChildren(h("span", { class: "two" }, bar ? h("span", { class: "arb-bar-row" }, bar, main) : main, small));
+    // An opportunity's Net cell: pos ink with a small tick before the figure (no leading bar on the row).
+    const tick = /\bedge-cell\b/.test(v.cls ?? "") ? h("span", { class: "arb-edge-ic", "aria-hidden": "true" }, icon("check")) : null;
+    const lead = bar ?? tick;
+    td.replaceChildren(h("span", { class: "two" }, lead ? h("span", { class: "arb-bar-row" }, lead, main) : main, small));
   }
   function calCells(cal, span) {
     const pair = (l, v, t) => h("span", { class: "arb-cal-f", title: t }, h("small", {}, l), v);
@@ -2208,7 +2215,8 @@ export function arbPanels(ctx) {
       if (o.cover) card.cover.set(o.cover, { compact: false });
       card.alt.hidden = !o.alt;
       card.alt.replaceChildren(...[o.alt].flat().filter((x) => x !== null && x !== undefined));
-      card.meta.textContent = o.meta ?? "";
+      // Stale: a warn dot leads the meta line (the card also dims); no edge bar.
+      card.meta.replaceChildren(...[o.edge === "stale" ? h("i", { class: "arb-wdot", "aria-hidden": "true" }) : null, o.meta ?? ""].filter((x) => x !== null));
       card.meta.className = `arb-o-meta ${o.metaInk ?? ""}`;
       card.btn.hidden = !o.btn;
       card.btn.textContent = o.btn ?? "";
@@ -3052,7 +3060,7 @@ export function arbPanels(ctx) {
   }
 
   return {
-    panels: [ladderEl, railEl, scanEl, notesEl, chartEl],
+    panels: [ladderEl, railEl, scanEl, notesEl, chartEl].filter(Boolean),
     root: scanEl,
     draw,
     tick,
