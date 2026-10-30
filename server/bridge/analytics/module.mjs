@@ -21,6 +21,10 @@ import { tideRoutes } from "./tide.mjs";
 import { screenerRoutes } from "./screener.mjs";
 import { marketEventsRoutes } from "./marketEvents.mjs";
 import { exposureRoutes } from "./exposure.mjs";
+import { watchlistRoutes } from "./watchlist.mjs";
+import { optimizerRoutes } from "./optimizer.mjs";
+import { participantsRoutes } from "./participants.mjs";
+import { backtestRoutes } from "./backtest.mjs";
 
 /** [method, path, route options, handler name] for the routes in routes.mjs. */
 export const ROUTES = Object.freeze([
@@ -38,7 +42,7 @@ export const ROUTES = Object.freeze([
 export const USED_SERVICES = Object.freeze(["marketData", "orders", "accounts", "backupData"]);
 
 /** Feature files that build their own [method, path, options, handler] entries. */
-const FEATURE_ROUTES = Object.freeze([oiTrackerRoutes, greeksGridRoutes, strategyRoutes, futuresChainRoutes, flowsRoutes, expiryDayRoutes, alertRuleRoutes, positionRoutes, unusualRoutes, tideRoutes, exposureRoutes, volStatsRoutes, marketEventsRoutes, screenerRoutes]);
+const FEATURE_ROUTES = Object.freeze([oiTrackerRoutes, greeksGridRoutes, strategyRoutes, futuresChainRoutes, flowsRoutes, expiryDayRoutes, alertRuleRoutes, positionRoutes, unusualRoutes, tideRoutes, exposureRoutes, volStatsRoutes, marketEventsRoutes, screenerRoutes, backtestRoutes, participantsRoutes, optimizerRoutes, watchlistRoutes]);
 
 export default defineModule({
   name: "analytics",

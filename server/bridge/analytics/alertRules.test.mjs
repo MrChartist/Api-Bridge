@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -166,5 +166,112 @@ describe("service and routes", () => {
     await svc.tick();
     expect(svc.get(bad.id).lastError.code).toBeTruthy();
     expect(events).toEqual([]);
+  });
+});
+
+describe("new metrics", () => {
+  const dirs = [];
+  afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
+  const tmp = () => {
+    const d = mkdtempSync(join(tmpdir(), "alert-metrics-"));
+    dirs.push(d);
+    return d;
+  };
+  const hot = (volume) => ({ symbol: "x", ltp: 10, bid: 9.5, ask: 10.5, oi: 100, oiChange: 50, volume, iv: 15 });
+  const busy = { ...chain, rows: [{ strike: 25000, ce: hot(400), pe: hot(400) }, { strike: 25100, ce: hot(1), pe: leg(100, { ltp: 10, volume: 1 }) }] };
+  const mdWith = () => {
+    const m = createFakeMarketData({ prices: { "NSE:NIFTY": 25000 } });
+    m.setChain("NIFTY", "2026-10-27", busy);
+    return m;
+  };
+
+  it("unusual_count counts contracts at or above minScore and is threshold-validated", async () => {
+    const marketData = mdWith();
+    const loose = await metricsFor({ ...base, metric: "unusual_count", minScore: 20 }, { marketData });
+    const strict = await metricsFor({ ...base, metric: "unusual_count", minScore: 99 }, { marketData });
+    expect(loose.unusualCount).toBeGreaterThanOrEqual(2);
+    expect(strict.unusualCount).toBe(0);
+    const r = { ...base, metric: "unusual_count", op: "above", value: 1 };
+    expect(evaluateRule(r, { unusualCount: 3 }).fired).toBe(true);
+    expect(evaluateRule({ ...r, state: { active: true } }, { unusualCount: 4 }).fired).toBe(false);
+    expect(evaluateRule(r, { unusualCount: 0 })).toMatchObject({ fired: false, condition: false });
+  });
+
+  it("tide_sentiment baselines, then fires on a change to the wanted label", async () => {
+    const totals = (callBuy, putBuy) => ({ callPremium: callBuy, putPremium: putBuy, callBuy, callSell: 0, putBuy, putSell: 0 });
+    let t = totals(100, 0);
+    const tide = { record: () => ({ recorded: true }), session: () => ({ totals: t, points: [], strikes: new Map() }) };
+    const rule = { ...base, metric: "tide_sentiment" };
+    const m1 = await metricsFor(rule, { marketData: mdWith(), tide });
+    expect(m1.tideSentiment).toBe("bullish");
+    const a = evaluateRule(rule, m1);
+    expect(a).toMatchObject({ status: "baseline", state: { label: "bullish" } });
+    t = totals(0, 100);
+    const m2 = await metricsFor(rule, { marketData: mdWith(), tide });
+    const b = evaluateRule({ ...rule, state: a.state }, m2);
+    expect(b.fired).toBe(true);
+    expect(b.message).toContain("bullish to bearish");
+    expect(evaluateRule({ ...rule, to: "neutral", state: a.state }, m2).fired).toBe(false);
+    t = totals(0, 0);
+    expect((await metricsFor(rule, { marketData: mdWith(), tide })).tideSentiment).toBeNull();
+    expect(evaluateRule(rule, { tideSentiment: null }).status).toBe("no_data");
+  });
+
+  it("iv_rank is null with short history and ranks the live ATM IV against stored history", async () => {
+    const dir = tmp();
+    const marketData = mdWith();
+    const deps = { marketData, paths: { dataDir: dir } };
+    const rule = { ...base, metric: "iv_rank" };
+    expect((await metricsFor(rule, deps)).ivRank).toBeNull();
+    const series = Array.from({ length: 25 }, (_, i) => ({ date: `2026-09-${String(i + 1).padStart(2, "0")}`, iv: 10 + i * 0.4 }));
+    mkdirSync(join(dir, "analytics"), { recursive: true });
+    writeFileSync(join(dir, "analytics", "iv-history.json"), JSON.stringify({ version: 1, series: { NIFTY: series } }));
+    const m = await metricsFor(rule, deps);
+    expect(m.ivRank).toBeGreaterThan(0);
+    expect(m.ivRank).toBeLessThan(100);
+    expect(evaluateRule({ ...rule, op: "above", value: 10 }, { ivRank: null }).status).toBe("no_data");
+    expect(evaluateRule({ ...rule, op: "above", value: 10 }, { ivRank: 55 }).fired).toBe(true);
+  });
+
+  it("fii_net_streak is signed (buying +, selling -)", async () => {
+    const row = (date, cat, net) => ({ category: cat, date, buyValue: Math.max(net, 0) + 100, sellValue: Math.max(-net, 0) + 100, netValue: net });
+    const days = [["30-Oct-2026", -5], ["29-Oct-2026", -3], ["28-Oct-2026", -1], ["27-Oct-2026", 4]];
+    const raw = days.flatMap(([d, n]) => [row(d, "FII/FPI *", n), row(d, "DII **", 1)]);
+    const rule = { ...base, metric: "fii_net_streak", op: "below", value: -2 };
+    const m = await metricsFor(rule, { marketData: mdWith(), fiiDiiFetcher: async () => raw, clock: { now: () => 1 } });
+    expect(m.fiiNetStreak).toBe(-3);
+    expect(evaluateRule(rule, m).fired).toBe(true);
+    expect((await metricsFor(rule, { marketData: mdWith(), fiiDiiFetcher: async () => { throw new Error("down"); }, clock: { now: () => 1 } })).fiiNetStreak).toBeNull();
+  });
+
+  it("volume_spike compares the latest day with the 20-day average, futures when expiry is given", async () => {
+    const marketData = createFakeMarketData({ prices: { "NSE:NIFTY": 25000 } });
+    const mk = (vols) => vols.map((volume, i) => ({ time: 1_700_000_000 + i * 86_400, open: 1, high: 1, low: 1, close: 1, volume }));
+    marketData.setCandles("NSE:NIFTY", "1d", mk([...Array(20).fill(1000), 3000]));
+    marketData.setCandles("NFO:NIFTY-2026-10-27-FUT", "1d", mk([100, 100]));
+    const spot = await metricsFor({ ...base, expiry: undefined, metric: "volume_spike" }, { marketData });
+    expect(spot.volumeRatio).toBe(3);
+    expect(evaluateRule({ ...base, metric: "volume_spike", op: "above", value: 2 }, spot).fired).toBe(true);
+    expect((await metricsFor({ ...base, metric: "volume_spike" }, { marketData })).volumeRatio).toBeNull(); // too little history
+    expect(marketData.calls.filter((c) => c[0] === "history").at(-1)[1]).toMatchObject({ symbol: "NFO:NIFTY-2026-10-27-FUT", countback: 21 });
+  });
+
+  it("validates the new fields and rolls a save back when the disk write fails", () => {
+    const dir = tmp();
+    const svc = createAlertRules({ marketData: createFakeMarketData(), clock: { now: () => 0 }, paths: { dataDir: dir } });
+    const bad = (r) => expect(() => svc.save({ name: "n", underlying: "NIFTY", ...r })).toThrow();
+    bad({ metric: "unusual_count", op: "above", value: 1 }); // expiry
+    bad({ metric: "tide_sentiment", expiry: "2026-10-27", to: "positive" });
+    bad({ metric: "gex_regime", expiry: "2026-10-27", to: "bullish" });
+    bad({ metric: "pcr_oi", expiry: "2026-10-27", op: "above", value: 1, minScore: 5 });
+    bad({ metric: "fii_net_streak", op: "above" });
+    expect(svc.save({ name: "f", underlying: "nifty", metric: "fii_net_streak", op: "above", value: 3 }).metric).toBe("fii_net_streak");
+    expect(svc.save({ name: "v", underlying: "nifty", metric: "volume_spike", op: "above", value: 2 }).expiry).toBeUndefined();
+    // make the target directory unwritable: replace analytics/ with a file
+    rmSync(join(dir, "analytics"), { recursive: true, force: true });
+    writeFileSync(join(dir, "analytics"), "x");
+    chmodSync(join(dir, "analytics"), 0o600);
+    expect(() => svc.save({ name: "g", underlying: "nifty", metric: "iv_rank", expiry: "2026-10-27", op: "below", value: 20 })).toThrow(/could not be saved/);
+    expect(svc.list()).toHaveLength(2);
   });
 });

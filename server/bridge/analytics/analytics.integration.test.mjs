@@ -408,3 +408,39 @@ describe("Unusual-Whales-style routes on the real app", () => {
     }
   });
 });
+
+describe("backtest, optimizer and watchlists on the real app", () => {
+  it("runs a backtest example end to end on demo candles", async () => {
+    const ex = expectEnvelope(await get("/v1/analytics/backtest/examples"));
+    const examples = Array.isArray(ex) ? ex : (ex.examples ?? Object.values(ex));
+    expect(examples.length).toBeGreaterThanOrEqual(5);
+    const body = examples[0].body ?? examples[0];
+    const r = await call("POST", "/v1/analytics/backtest", body);
+    expect([200, 400, 404], r.text.slice(0, 300)).toContain(r.status);
+    if (r.status === 200) {
+      expect(r.body.data).toHaveProperty("stats");
+      expect(r.text).not.toMatch(/NaN|Infinity/);
+    }
+  });
+  it("rejects an unknown backtest field", async () => {
+    const r = await call("POST", "/v1/analytics/backtest", { symbol: "NSE:NIFTY", entry: "close > 1", nope: true });
+    expect(r.status).toBe(400);
+    expect(r.body.code).toBe("VALIDATION_FAILED");
+  });
+  it("optimizer answers for a view", async () => {
+    const r = await get(`/v1/analytics/optimizer?underlying=NIFTY&expiry=${monthly}&view=neutral&top=3`);
+    expectEnvelope(r);
+    expect(r.text).not.toMatch(/NaN|Infinity/);
+  });
+  it("creates, lists, quotes and deletes a watchlist", async () => {
+    const list = expectEnvelope(await get("/v1/analytics/watchlists"));
+    expect(Array.isArray(list)).toBe(true);
+    const made = await call("POST", "/v1/analytics/watchlists", { name: "t1", symbols: ["NSE:NIFTY", "NSE:RELIANCE"] });
+    expect(made.status, made.text.slice(0, 300)).toBe(201);
+    const id = made.body.data.id;
+    const q = expectEnvelope(await get(`/v1/analytics/watchlists/${id}/quotes`));
+    expect(q.length ?? q.items?.length ?? 0).toBeGreaterThan(0);
+    const del = await call("DELETE", `/v1/analytics/watchlists/${id}`);
+    expect(del.status).toBe(200);
+  });
+});

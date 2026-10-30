@@ -34,6 +34,10 @@ curl -H "Authorization: Bearer $KEY" \
 | `GET /v1/analytics/deals` | NSE block and bulk deals with top buyers and sellers |
 | `GET /v1/analytics/insiders` | NSE insider-trading disclosures with net insider buying |
 | `GET /v1/analytics/events` | NSE results and corporate-events calendar |
+| `POST /v1/analytics/backtest` (`/examples`) | Test an entry and exit condition on candles: signal on the bar close, fill on the next open, fees and slippage, stop and target, trades, equity curve, drawdown, Sharpe and buy-and-hold. It tests price rules, not multi-leg option strategies |
+| `GET /v1/analytics/participants` | FII, DII, Pro and Client open interest by product (index and stock, futures and options), long and short, net and day-on-day change |
+| `GET /v1/analytics/optimizer` | Searches every strategy template, strike offset and width on the live chain and ranks by expected value, probability of profit or risk-reward, under your loss and capital limits |
+| `/v1/analytics/watchlists` | Saved watchlists per key (a default F&O leaders list is created on first use) and a one-call quotes route per list |
 | `GET /v1/analytics/strategies` (`/build`, `/find`) | 13 strategy templates, built from the live chain, and a ranked finder by market view |
 | `POST /v1/analytics/payoff` | Expiry payoff curve, max profit and loss and break-evens for your own legs |
 | `GET /v1/analytics/greeks` | Black-Scholes IV and Greeks for one option, from a price or an IV |
@@ -59,3 +63,10 @@ curl -H "Authorization: Bearer $KEY" \
   route says `UPSTREAM_ERROR` instead of guessing, and serves the last good answer when it has one.
 - **Gamma exposure assumes OI is in contracts.** It multiplies OI by lot size. If your broker reports OI in units, the
   rupee figures are too large by the lot size, though the sign, the flip level and the shape are unaffected.
+- **Backtests are simple on purpose.** One position at a time, signals on the bar close and fills on the next open, and
+  fees and slippage default to 0.05 % each. Past results say nothing certain about the future.
+- **The optimizer assumes flat IV.** It uses the at-the-money IV for the whole smile and counts capital as the worst
+  loss, not exchange margin, so treat the ranking as a guide.
+- **Participant OI** reads NSE's daily participant-wise file, whose address and columns are assumed. The route says
+  `UPSTREAM_ERROR` if NSE changes it.
+- **New alert metrics:** `unusual_count`, `tide_sentiment`, `iv_rank`, `fii_net_streak` and `volume_spike`.

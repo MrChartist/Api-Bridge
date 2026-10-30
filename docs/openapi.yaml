@@ -1471,6 +1471,12 @@ paths:
         crosses `value` (`op` above/below/either). Every metric except `spot_cross` needs `expiry`. A rule fires once per
         crossing and re-arms when the condition clears; with `everyMinutes` it is checked by itself. Delivery goes through
         the notify targets (event `scan.alert`).
+        `unusual_count` counts unusual contracts with score at or above `minScore` (default 50), `op` above/below and `value`;
+        `tide_sentiment` fires when option-flow sentiment changes (optionally only `to` bullish/bearish/neutral);
+        `iv_rank` is the ATM IV rank 0-100 over stored IV history (no data until 20 days are stored), `op` above/below;
+        `fii_net_streak` is the signed run of same-sign FII net days (+3 buying, -3 selling), `op` above/below;
+        `volume_spike` is latest daily volume over the previous 20-day average (futures when `expiry` is given, else spot).
+        `expiry` is required for every metric except `spot_cross`, `fii_net_streak` and `volume_spike`.
       x-stream: S15
       x-scope: read
       requestBody:
@@ -1485,10 +1491,11 @@ paths:
                 name: { type: string, minLength: 1, maxLength: 80 }
                 underlying: { type: string, maxLength: 30, example: NIFTY }
                 expiry: { type: string, format: date }
-                metric: { type: string, enum: [pcr_oi, max_pain_distance, gex_regime, atm_iv, basis_pct, spot_cross] }
+                metric: { type: string, enum: [pcr_oi, max_pain_distance, gex_regime, atm_iv, basis_pct, spot_cross, unusual_count, tide_sentiment, iv_rank, fii_net_streak, volume_spike] }
                 op: { type: string, enum: [above, below, either] }
                 value: { type: number }
-                to: { type: string, enum: [positive, negative, neutral], description: gex_regime only }
+                to: { type: string, enum: [positive, negative, neutral, bullish, bearish], description: "gex_regime (positive/negative/neutral) or tide_sentiment (bullish/bearish/neutral) only" }
+                minScore: { type: number, minimum: 0, maximum: 100, description: unusual_count only }
                 everyMinutes: { type: integer, minimum: 1, maximum: 1440 }
                 marketHoursOnly: { type: boolean, default: true }
                 enabled: { type: boolean, default: true }
@@ -1840,6 +1847,203 @@ paths:
       summary: Six named screener presets (high-IV puts, liquid ATM weeklies, cheap OTM lottery, high-theta sellers, big OI walls, tight spreads) as ready-made query strings
       x-stream: S15
       x-scope: read
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/backtest:
+    post:
+      tags: [Analytics]
+      operationId: postAnalyticsBacktest
+      summary: Replay a scanner-language entry (and optional exit) condition over historical candles
+      description: |
+        Signals are read on the bar close and filled at the next bar open (no lookahead). One position at a time, long or
+        short, with optional stop loss, target and maximum bars in trade. Fees and slippage apply to every fill. Returns the
+        trades, the equity curve and statistics (total return, CAGR, win rate, profit factor, expectancy, maximum drawdown with
+        dates, daily Sharpe, exposure, best and worst trade) next to a buy-and-hold comparison. `data.method` spells out every
+        fill, fee and Sharpe assumption. Past performance is not predictive. Limits: 5000 bars, 2000 trades; conditions follow
+        the scanner language and its length and complexity caps. Read-only: nothing here places an order.
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [symbol, entry]
+              properties:
+                symbol: { type: string, example: "NSE:RELIANCE" }
+                interval: { $ref: "#/components/schemas/Interval" }
+                from: { type: string, format: date, description: "First day (YYYY-MM-DD). Not with countback." }
+                to: { type: string, format: date, description: "Last day (YYYY-MM-DD). Needs from or countback." }
+                countback: { type: integer, minimum: 2, maximum: 5000, description: "Bars to fetch, ending at to (default now). Default 500 when no range is given." }
+                entry: { type: string, maxLength: 1000, example: "ema(20) crosses above ema(50)" }
+                exit: { type: string, maxLength: 1000, example: "ema(20) crosses below ema(50)" }
+                stopLossPct: { type: number, exclusiveMinimum: 0, maximum: 100 }
+                targetPct: { type: number, exclusiveMinimum: 0, maximum: 1000 }
+                maxBarsInTrade: { type: integer, minimum: 1, maximum: 5000 }
+                side: { type: string, enum: [long, short], default: long }
+                initialCapital: { type: number, exclusiveMinimum: 0, maximum: 1000000000000, default: 100000 }
+                quantity: { type: integer, minimum: 1, description: "Units per trade. Not with capitalPct." }
+                capitalPct: { type: number, exclusiveMinimum: 0, maximum: 100, description: "Share of current equity per trade (default 100). Not with quantity." }
+                feesPct: { type: number, minimum: 0, maximum: 5, default: 0.05, description: "Percent of notional on each fill." }
+                slippagePct: { type: number, minimum: 0, maximum: 5, default: 0.05, description: "Percent against you on each fill." }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/backtest/examples:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsBacktestExamples
+      summary: Five ready-made backtest request bodies (EMA cross, RSI mean reversion, 20-day breakout, Supertrend short, Bollinger bounce)
+      x-stream: S15
+      x-scope: read
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/participants:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsParticipants
+      summary: FII, DII, Pro and Client F&O open interest by participant, with day-on-day change and sentiment
+      description: >-
+        Per session and participant, index futures, index options (with call and put legs), stock futures and stock options,
+        each as long, short, net, long/short ratio and long percent, plus the change from the previous session and a derived
+        net-position sentiment (strongly_bullish to strongly_bearish; a positioning read, not a forecast). Source is NSE's daily
+        participant-wise OI file (fao_participant_oi_ddmmyyyy.csv on nsearchives.nseindia.com). The URL pattern and column layout
+        are assumed and unverified without network access; a changed shape returns UPSTREAM_ERROR. NSE publishes after the close,
+        so the newest session may be the previous trading day. The Bridge accumulates history (newest 250 sessions, saved in its
+        data folder); meta.available says how many it holds and meta.stale is true when a refresh failed and cached data was served.
+        Cached for five minutes.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: days, in: query, description: Sessions to return, newest first., schema: { type: integer, minimum: 1, maximum: 60, default: 10 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/optimizer:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsOptimizer
+      summary: Best option strategies for a market view, by grid search on the live chain
+      description: >-
+        Tries every strategy template that fits the view over strike offsets and widths (at most 2,000 candidates) and returns
+        the top N with net credit or debit, max profit and loss, break-evens, probability of profit, expected value, a margin-light
+        capital estimate (max loss based; not SPAN margin) and a plain-language rationale. Model: lognormal expiry price with zero
+        drift and flat ATM implied volatility, payoff integrated numerically over a fixed 801-point grid of plus or minus 5 sigma;
+        a screening model, not a forecast. Lots are 1 unless capital is given, then sized to fit capital (and maxLoss).
+        Unbounded-risk strategies are excluded when maxLoss is set. Read-only; places no orders.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: view, in: query, required: true, schema: { type: string, enum: [bullish, bearish, neutral, volatile] } }
+        - { name: maxLoss, in: query, description: Largest acceptable loss in rupees on the sized position., schema: { type: number, exclusiveMinimum: 0 } }
+        - { name: minPop, in: query, description: Smallest acceptable probability of profit, in percent., schema: { type: number, minimum: 0, maximum: 100 } }
+        - { name: capital, in: query, description: Capital in rupees; sizes the lots and drops strategies that do not fit., schema: { type: number, exclusiveMinimum: 0 } }
+        - { name: objective, in: query, schema: { type: string, enum: [expectedValue, popAdjusted, riskReward], default: expectedValue } }
+        - { name: top, in: query, description: Strategies to return., schema: { type: integer, minimum: 1, maximum: 20, default: 5 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/watchlists:
+    get:
+      tags: [Analytics]
+      operationId: listAnalyticsWatchlists
+      summary: The caller's watchlists (a default Index & F&O leaders list is created on first use)
+      x-stream: S15
+      x-scope: read
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Analytics]
+      operationId: createAnalyticsWatchlist
+      summary: Create a watchlist (up to 100 symbols, 20 lists per key)
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                symbols: { type: array, maxItems: 100, items: { type: string, example: "NSE:RELIANCE" } }
+      responses:
+        "201": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/watchlists/{listId}:
+    put:
+      tags: [Analytics]
+      operationId: updateAnalyticsWatchlist
+      summary: Rename a watchlist, replace its symbols, or add and remove some
+      description: Give name, symbols, or add and remove. symbols replaces the list and cannot be combined with add or remove.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: listId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                symbols: { type: array, maxItems: 100, items: { type: string } }
+                add: { type: array, maxItems: 100, items: { type: string } }
+                remove: { type: array, maxItems: 100, items: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Analytics]
+      operationId: deleteAnalyticsWatchlist
+      summary: Delete a watchlist
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: listId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/watchlists/{listId}/quotes:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsWatchlistQuotes
+      summary: Live quotes for a watchlist (ltp, change, changePct, volume, oi, dayHigh, dayLow)
+      description: Symbols that could not be quoted are listed in errors and never fail the call; meta carries the stalest item's freshness.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+        - { name: listId, in: path, required: true, schema: { type: string } }
       responses:
         "200": { $ref: "#/components/responses/AnalyticsResult" }
         "4XX": { $ref: "#/components/responses/Problem" }

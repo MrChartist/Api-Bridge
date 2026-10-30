@@ -9,7 +9,12 @@
  *
  * Metrics: pcr_oi (above/below), max_pain_distance (|spot - max pain| as percent of spot, above/below), gex_regime
  * (net gamma exposure flips sign, optionally only `to` one regime), atm_iv (above/below, percent), basis_pct (futures
- * basis as percent of spot, above/below) and spot_cross (spot crosses `value`, op above/below/either).
+ * basis as percent of spot, above/below) and spot_cross (spot crosses `value`, op above/below/either), plus:
+ *   unusual_count   number of unusual option contracts (unusual.mjs score >= minScore, default 50) for the expiry, above/below
+ *   tide_sentiment  option-flow sentiment (tide.mjs) changes label, optionally only `to` bullish/bearish/neutral
+ *   iv_rank         ATM IV rank 0-100 over the stored IV history (volStats.mjs); no data until MIN_IV_DAYS days are stored
+ *   fii_net_streak  signed run of same-sign FII net days (flows.mjs): +3 = three days of buying, -3 = three of selling
+ *   volume_spike    latest daily volume / average of the previous 20 days (futures when expiry is given, else spot)
  *
  * Edge trigger: a rule fires once when its condition turns true and re-arms when it clears. A threshold rule whose
  * condition is already true on its first check fires then; crossing and regime rules need a baseline first, so their
@@ -32,12 +37,21 @@ import { defaultOptionExchange } from "../market/chain.mjs";
 import { allowedAccountsFor } from "../market/routes.mjs";
 import { marketSession } from "../../lib/marketHours.mjs";
 import { daysBetween } from "../../lib/blackScholes.mjs";
+import { netStreak, parseFiiDii } from "./flows.mjs";
 import { futuresBasis, gammaExposure, ivSkew, oiAnalysis } from "./math.mjs";
+import { createTideStore, tideView } from "./tide.mjs";
+import { MIN_IV_DAYS, rankAndPercentile } from "./volStats.mjs";
+import { scanChain } from "./unusual.mjs";
 
-export const ALERT_METRICS = Object.freeze(["pcr_oi", "max_pain_distance", "gex_regime", "atm_iv", "basis_pct", "spot_cross"]);
-const THRESHOLD = new Set(["pcr_oi", "max_pain_distance", "atm_iv", "basis_pct"]);
+export const ALERT_METRICS = Object.freeze(["pcr_oi", "max_pain_distance", "gex_regime", "atm_iv", "basis_pct", "spot_cross", "unusual_count", "tide_sentiment", "iv_rank", "fii_net_streak", "volume_spike"]);
+const THRESHOLD = new Set(["pcr_oi", "max_pain_distance", "atm_iv", "basis_pct", "unusual_count", "iv_rank", "fii_net_streak", "volume_spike"]);
+/** Label-change metrics: metric -> state key and the labels `to` may name. */
+const CHANGE = Object.freeze({ gex_regime: { key: "regime", to: ["positive", "negative", "neutral"] }, tide_sentiment: { key: "label", to: ["bullish", "bearish", "neutral"] } });
+const NEEDS_EXPIRY = new Set(["pcr_oi", "max_pain_distance", "gex_regime", "atm_iv", "basis_pct", "unusual_count", "tide_sentiment", "iv_rank"]);
+const DEFAULT_MIN_SCORE = 50;
+const VOLUME_DAYS = 20;
 /** metric -> the field of the metrics object it reads */
-const FIELD = Object.freeze({ pcr_oi: "pcrOi", max_pain_distance: "maxPainDistancePct", gex_regime: "gexRegime", atm_iv: "atmIv", basis_pct: "basisPct", spot_cross: "spot" });
+const FIELD = Object.freeze({ pcr_oi: "pcrOi", max_pain_distance: "maxPainDistancePct", gex_regime: "gexRegime", atm_iv: "atmIv", basis_pct: "basisPct", spot_cross: "spot", unusual_count: "unusualCount", tide_sentiment: "tideSentiment", iv_rank: "ivRank", fii_net_streak: "fiiNetStreak", volume_spike: "volumeRatio" });
 const MAX_RULES = 100;
 
 export const alertRuleSchema = z
@@ -51,7 +65,9 @@ export const alertRuleSchema = z
     op: z.enum(["above", "below", "either"]).optional(),
     value: z.number().finite().optional(),
     /** gex_regime only: fire only when the regime changes to this one. */
-    to: z.enum(["positive", "negative", "neutral"]).optional(),
+    to: z.enum(["positive", "negative", "neutral", "bullish", "bearish"]).optional(),
+    /** unusual_count only: the least unusual-activity score (0-100) a contract needs to be counted. Default 50. */
+    minScore: z.number().min(0).max(100).optional(),
     everyMinutes: z.number().int().min(1).max(1440).optional(),
     marketHoursOnly: z.boolean().default(true),
     enabled: z.boolean().default(true),
@@ -59,22 +75,24 @@ export const alertRuleSchema = z
   .strict()
   .superRefine((r, ctx) => {
     const bad = (path, message) => ctx.addIssue({ code: "custom", path: [path], message });
-    if (r.metric !== "spot_cross" && !r.expiry) bad("expiry", `expiry is required for ${r.metric}.`);
+    if (NEEDS_EXPIRY.has(r.metric) && !r.expiry) bad("expiry", `expiry is required for ${r.metric}.`);
     if (THRESHOLD.has(r.metric)) {
       if (r.value === undefined) bad("value", `value is required for ${r.metric}.`);
       if (r.op !== "above" && r.op !== "below") bad("op", `op must be above or below for ${r.metric}.`);
     }
     if (r.metric === "spot_cross" && r.value === undefined) bad("value", "value (the level) is required for spot_cross.");
-    if (r.to !== undefined && r.metric !== "gex_regime") bad("to", "to applies to gex_regime only.");
+    if (r.to !== undefined && !CHANGE[r.metric]) bad("to", "to applies to gex_regime and tide_sentiment only.");
+    else if (r.to !== undefined && !CHANGE[r.metric].to.includes(r.to)) bad("to", `to must be one of ${CHANGE[r.metric].to.join(", ")} for ${r.metric}.`);
+    if (r.minScore !== undefined && r.metric !== "unusual_count") bad("minScore", "minScore applies to unusual_count only.");
   });
 
 const round = (v, d = 3) => (Number.isFinite(v) ? Math.round(v * 10 ** d) / 10 ** d : null);
 const isNum = (v) => typeof v === "number" && Number.isFinite(v);
 
-const LABEL = { pcr_oi: "PCR (OI)", max_pain_distance: "Max pain distance %", atm_iv: "ATM IV %", basis_pct: "Futures basis %", spot_cross: "Spot", gex_regime: "Net GEX regime" };
+const LABEL = { pcr_oi: "PCR (OI)", max_pain_distance: "Max pain distance %", atm_iv: "ATM IV %", basis_pct: "Futures basis %", spot_cross: "Spot", gex_regime: "Net GEX regime", unusual_count: "Unusual contracts", tide_sentiment: "Flow sentiment", iv_rank: "ATM IV rank", fii_net_streak: "FII net streak (days, + buying)", volume_spike: "Volume vs 20-day average (x)" };
 
 /**
- * Pure edge-triggered evaluation. `metrics` is { pcrOi, maxPainDistancePct, gexRegime, atmIv, basisPct, spot } (null
+ * Pure edge-triggered evaluation. `metrics` is { pcrOi, maxPainDistancePct, gexRegime, atmIv, basisPct, spot, unusualCount, tideSentiment, ivRank, fiiNetStreak, volumeRatio } (null
  * or missing when unknown). `rule.state` is what the previous check left behind; it is not mutated, the new state is
  * returned. @returns {{ fired: boolean, status: "ok"|"baseline"|"no_data", value: number|string|null, condition: boolean|null, state: object, message: string|null }}
  */
@@ -84,12 +102,13 @@ export function evaluateRule(rule, metrics) {
   const label = LABEL[rule.metric];
   const none = { fired: false, status: "no_data", value: null, condition: null, state: { ...prev }, message: null };
 
-  if (rule.metric === "gex_regime") {
+  const change = CHANGE[rule.metric];
+  if (change) {
     if (typeof value !== "string") return none;
-    if (prev.regime === undefined) return { ...none, status: "baseline", value, state: { regime: value } };
-    const changed = value !== prev.regime && (!rule.to || rule.to === value);
-    const fired = changed;
-    return { fired, status: "ok", value, condition: changed, state: { regime: value }, message: fired ? `${rule.underlying} ${label} changed from ${prev.regime} to ${value}` : null };
+    const was = prev[change.key];
+    if (was === undefined) return { ...none, status: "baseline", value, state: { [change.key]: value } };
+    const changed = value !== was && (!rule.to || rule.to === value);
+    return { fired: changed, status: "ok", value, condition: changed, state: { [change.key]: value }, message: changed ? `${rule.underlying} ${label} changed from ${was} to ${value}` : null };
   }
   if (!isNum(value)) return none;
 
@@ -164,10 +183,111 @@ export async function metricsFor(rule, deps, opts = {}) {
       out.spot = r.items.find((i) => i.symbol === sym)?.ltp ?? null;
       break;
     }
+    case "unusual_count": {
+      const c = await chain(true);
+      const min = rule.minScore ?? DEFAULT_MIN_SCORE;
+      out.unusualCount = scanChain(c).filter((x) => x.score >= min).length;
+      out.freshness = c.freshness;
+      break;
+    }
+    case "tide_sentiment": {
+      const c = await chain(false);
+      const store = tideStoreFor(deps);
+      store.record(u, rule.expiry, c);
+      const s = tideView(store.session(u)).sentiment;
+      out.tideSentiment = s.score === null ? null : s.label;
+      out.freshness = c.freshness;
+      break;
+    }
+    case "iv_rank": {
+      const c = await chain(true);
+      const atm = ivSkew(c).atmIv;
+      out.atmIv = isNum(atm) ? atm : null;
+      const series = storedIvSeries(deps, u).map((p) => p.iv);
+      if (out.atmIv !== null) series.push(out.atmIv); // today's reading as the newest point; a same-day stored point only adds a duplicate
+      out.ivHistoryDays = series.length;
+      out.ivRank = out.atmIv !== null && series.length >= MIN_IV_DAYS ? rankAndPercentile(series).rank : null;
+      out.freshness = c.freshness;
+      break;
+    }
+    case "fii_net_streak": {
+      const rows = await fiiRows(deps);
+      const s = netStreak(rows, "fii");
+      out.fiiNetStreak = rows.length ? (s.direction === "selling" ? -s.count : s.count) : null;
+      break;
+    }
+    case "volume_spike": {
+      const fx = defaultOptionExchange(u);
+      const sym = rule.expiry ? `${fx}:${u}-${rule.expiry}-FUT` : `${fx === "BFO" ? "BSE" : "NSE"}:${u}`;
+      const h = await md.history({ symbol: sym, interval: "1d", countback: VOLUME_DAYS + 1 }, opts);
+      const vols = (h.candles ?? []).map((k) => Number(k?.volume));
+      const latest = vols.at(-1);
+      const prior = vols.slice(0, -1).filter((v) => v > 0);
+      const avg = prior.length >= 5 ? prior.reduce((a, b) => a + b, 0) / prior.length : null;
+      out.volumeRatio = isNum(latest) && latest > 0 && avg ? round(latest / avg, 2) : null;
+      out.freshness = h.freshness;
+      break;
+    }
     default:
       throw new BridgeError("VALIDATION_FAILED", `Unknown alert metric ${rule.metric}.`);
   }
   return out;
+}
+
+const tideStores = new WeakMap();
+/** deps.tide when the host shares one, else a store of our own (kept in memory, one per deps). */
+function tideStoreFor(deps) {
+  if (deps.tide) return deps.tide;
+  let s = tideStores.get(deps);
+  if (!s) tideStores.set(deps, (s = createTideStore({ clock: deps.clock ?? { now: () => Date.now() } })));
+  return s;
+}
+
+/**
+ * Local helper (volStats keeps its IV history private to its route closure, so it cannot be imported): the stored
+ * ATM IV series for an underlying from <dataDir>/analytics/iv-history.json, oldest first. Read only; [] when absent.
+ */
+function storedIvSeries(deps, underlying) {
+  const dataDir = deps.paths?.dataDir;
+  if (!dataDir) return [];
+  try {
+    const pts = JSON.parse(readFileSync(join(dataDir, "analytics", "iv-history.json"), "utf8"))?.series?.[underlying];
+    if (!Array.isArray(pts)) return [];
+    return pts.filter((p) => p && /^\d{4}-\d{2}-\d{2}$/.test(p.date) && isNum(p.iv) && p.iv > 0).sort((a, b) => (a.date < b.date ? -1 : 1));
+  } catch {
+    return [];
+  }
+}
+
+const fiiCache = new WeakMap();
+/**
+ * Local helper (flows.mjs does not export its history or default fetcher): FII/DII sessions newest first, from
+ * deps.fiiDiiFetcher (+ parseFiiDii) when the host provides one, else the rows flows.mjs persisted to
+ * <dataDir>/analytics/fii-dii.json. Cached 5 minutes. [] when neither is available.
+ */
+async function fiiRows(deps) {
+  const t = deps.clock?.now?.() ?? Date.now();
+  const hit = fiiCache.get(deps);
+  if (hit && t - hit.at < 5 * 60_000) return hit.rows;
+  let rows = [];
+  if (typeof deps.fiiDiiFetcher === "function") {
+    try {
+      rows = parseFiiDii(await deps.fiiDiiFetcher());
+    } catch {
+      rows = [];
+    }
+  }
+  if (!rows.length && deps.paths?.dataDir) {
+    try {
+      const raw = JSON.parse(readFileSync(join(deps.paths.dataDir, "analytics", "fii-dii.json"), "utf8"));
+      rows = (Array.isArray(raw?.rows) ? raw.rows : []).filter((r) => r && typeof r.date === "string" && isNum(r.fii?.net) && isNum(r.dii?.net));
+    } catch {
+      rows = [];
+    }
+  }
+  rows = [...rows].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  fiiCache.set(deps, { at: t, rows });
+  return rows;
 }
 
 const newId = () => `arule_${randomBytes(8).toString("hex")}`;
