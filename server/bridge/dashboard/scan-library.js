@@ -75,6 +75,55 @@ export const LIBRARY = Object.freeze(
 export const LIBRARY_BY_ID = new Map(LIBRARY.map((s) => [s.id, s]));
 
 /**
+ * The option-chain scans as Option Screener quick scans (Screeners › Options): each picks a screen, its sort and a
+ * filter patch over the per-strike records the screener already holds, so a quick scan costs no network.
+ * library: the stock-scanner scan it mirrors (per symbol there, per strike here).
+ */
+export const OPTION_QUICK_SCANS = Object.freeze(
+  [
+    { id: "q-oi-change", label: "Largest OI change", library: "oi-change-strike", preset: "buildup", sort: { by: "oiChgPct", dir: "desc" }, filters: {} },
+    { id: "q-vol-oi", label: "Volume ÷ OI", library: "unusual-option-volume", preset: "unusual", sort: { by: "volOi", dir: "desc" }, filters: {} },
+    { id: "q-over-atm", label: "IV over its neighbours", library: "put-skew-steep", preset: "ivout", sort: { by: "bump", dir: "desc" }, filters: {}, dir: 1 },
+    { id: "q-under-atm", label: "IV under its neighbours", library: "call-skew-under", preset: "ivout", sort: { by: "bump", dir: "asc" }, filters: {}, dir: -1 },
+    { id: "q-straddle", label: "Straddle % of spot", library: "straddle-over-move", preset: "overview", sort: { by: "straddlePct", dir: "desc" }, filters: {} },
+    { id: "q-pcr", label: "PCR", library: "pcr-high", preset: "overview", sort: { by: "pcr", dir: "desc" }, filters: {} },
+  ].map((q) => Object.freeze({ ...q, sort: Object.freeze(q.sort), filters: Object.freeze(q.filters) })),
+);
+
+/**
+ * The screener config patch for a quick scan (pure): its screen, its sort for that screen, and its filters laid over
+ * the screen's current ones. `dir` (IV over or under the neighbours) sets the screen's direction filter to its second
+ * (over) or third (under) option, read from `directionOptions` (screens.js FILTERS.direction.options).
+ * @param {{ preset: string, sort: object, filters: object }} cfg the screener config (screens.js screenerConfig)
+ * @param {string} id
+ * @param {Array<[string, string]>} [directionOptions]
+ */
+export function quickScanPatch(cfg, id, directionOptions = []) {
+  const q = OPTION_QUICK_SCANS.find((x) => x.id === id);
+  if (!q) return null;
+  return { preset: q.preset, sort: { ...(cfg?.sort ?? {}), [q.preset]: { ...q.sort } }, filters: { ...(cfg?.filters ?? {}), [q.preset]: { ...(cfg?.filters?.[q.preset] ?? {}), ...quickFilters(q, directionOptions) } } };
+}
+
+function quickFilters(q, directionOptions) {
+  const out = { ...q.filters };
+  const dirValue = q.dir === 1 ? directionOptions[1]?.[0] : q.dir === -1 ? directionOptions[2]?.[0] : undefined;
+  if (dirValue !== undefined) out.direction = dirValue;
+  return out;
+}
+
+/** The quick scan the config shows now (same screen, sort and filter values), or null. */
+export function activeQuickScan(cfg, directionOptions = []) {
+  return (
+    OPTION_QUICK_SCANS.find((q) => {
+      if (cfg?.preset !== q.preset) return false;
+      const s = cfg.sort?.[q.preset];
+      if (!s || s.by !== q.sort.by || s.dir !== q.sort.dir) return false;
+      return Object.entries(quickFilters(q, directionOptions)).every(([k, v]) => JSON.stringify(cfg.filters?.[q.preset]?.[k]) === JSON.stringify(v));
+    })?.id ?? null
+  );
+}
+
+/**
  * The scan request for a library scan (POST /v1/scanner/jobs body): the live interval, the F&O universe unless one is
  * given, sorted by the scan's own column.
  */

@@ -139,7 +139,7 @@ export async function renderScannerPage() {
           const last = s.lastRun;
           const row = h(
             "div",
-            { class: `sc-lib-row${st.savedId === s.id ? " on" : ""}`, role: "listitem" },
+            { class: `sc-lib-row${st.savedId === s.id ? " is-cur" : ""}`, role: "listitem" },
             h(
               "button",
               { type: "button", class: "sc-lib-main no-dot", onclick: () => openSaved(s, true), title: s.request?.condition ?? "" },
@@ -158,7 +158,7 @@ export async function renderScannerPage() {
       list.map((s) =>
         h(
           "div",
-          { class: `sc-lib-row${st.libraryId === s.id && !st.savedId ? " on" : ""}`, role: "listitem" },
+          { class: `sc-lib-row${st.libraryId === s.id && !st.savedId ? " is-cur" : ""}`, role: "listitem" },
           h("button", { type: "button", class: "sc-lib-main", onclick: () => openLibrary(s.id, true) }, h("span", { class: `sc-side ${s.side}`, "aria-hidden": "true" }), h("strong", {}, s.name), h("small", {}, s.plain)),
           h("button", { type: "button", class: "icon-btn tiny quiet", "aria-label": `Edit ${s.name}`, title: "Open in the builder without running", onclick: () => openLibrary(s.id, false) }, icon("sliders")),
         ),
@@ -345,7 +345,7 @@ export async function renderScannerPage() {
               items.map((o) =>
                 h(
                   "button",
-                  { type: "button", role: "option", class: `sc-pick-item${o.id === ref?.id ? " on" : ""}`, "aria-selected": String(o.id === ref?.id), title: o.doc ?? "", onclick: () => (pop.close(), onPick(o.params.length ? { id: o.id, p: Object.fromEntries(o.params.map((p) => [p.key, ref?.id === o.id ? (ref.p?.[p.key] ?? p.def) : p.def])) } : { id: o.id })) },
+                  { type: "button", role: "option", class: `sc-pick-item${o.id === ref?.id ? " is-cur" : ""}`, "aria-selected": String(o.id === ref?.id), title: o.doc ?? "", onclick: () => (pop.close(), onPick(o.params.length ? { id: o.id, p: Object.fromEntries(o.params.map((p) => [p.key, ref?.id === o.id ? (ref.p?.[p.key] ?? p.def) : p.def])) } : { id: o.id })) },
                   h("span", {}, o.label.replace("{n}", "n")),
                   h("small", {}, o.doc ?? ""),
                 ),

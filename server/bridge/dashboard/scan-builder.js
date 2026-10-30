@@ -300,10 +300,15 @@ export function searchOperands(query) {
   if (!q) return [...OPERANDS];
   const words = q.split(/\s+/);
   const groupLabel = new Map(GROUPS.map((g) => [g.id, g.label.toLowerCase()]));
-  return OPERANDS.filter((o) => {
-    const hay = `${o.label} ${o.id} ${groupLabel.get(o.group) ?? ""} ${o.doc ?? ""}`.toLowerCase();
-    return words.every((w) => hay.includes(w));
+  // Names first (whole-word starts, so "iv" finds IV rank, not "live"); definitions only when names find little.
+  const starts = (hay, w) => hay.split(/[^a-z0-9%]+/).some((t) => t.startsWith(w));
+  const byName = OPERANDS.filter((o) => {
+    const hay = `${o.label} ${o.id.replace(/_/g, " ")} ${groupLabel.get(o.group) ?? ""}`.toLowerCase();
+    return words.every((w) => starts(hay, w));
   });
+  if (byName.length >= 3) return byName;
+  const byDoc = OPERANDS.filter((o) => !byName.includes(o) && words.every((w) => starts(`${o.label} ${o.doc ?? ""}`.toLowerCase(), w)));
+  return [...byName, ...byDoc];
 }
 
 /** Result columns the table can show (every row carries these facts). `sector` is text. */

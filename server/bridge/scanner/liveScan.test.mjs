@@ -400,6 +400,31 @@ describe("API budget: a 200-symbol live scan", () => {
   });
 });
 
+describe("Option Screener quick scans", () => {
+  it("each picks a real screen and a real column of it, with the screen's own direction values", async () => {
+    const S = await import("../dashboard/screens.js");
+    const { OPTION_QUICK_SCANS, quickScanPatch, activeQuickScan, LIBRARY_BY_ID } = await import("../dashboard/scan-library.js");
+    const dir = S.FILTERS.direction.options;
+    let cfg = S.screenerConfig({}, { list: S.SCAN_UNDERLYINGS });
+    for (const q of OPTION_QUICK_SCANS) {
+      const preset = S.presetById(q.preset);
+      expect(preset.id, q.id).toBe(q.preset);
+      expect(preset.columns.some((c) => c.id === q.sort.by), `${q.id} sorts by ${q.sort.by}`).toBe(true);
+      expect(LIBRARY_BY_ID.has(q.library)).toBe(true);
+      cfg = S.screenerConfig({ ...cfg, ...quickScanPatch(cfg, q.id, dir) }, { list: S.SCAN_UNDERLYINGS });
+      expect(cfg.preset).toBe(q.preset);
+      expect(cfg.sort[q.preset]).toEqual(q.sort);
+      expect(activeQuickScan(cfg, dir)).toBe(q.id);
+    }
+    const over = S.screenerConfig({ ...cfg, ...quickScanPatch(cfg, "q-over-atm", dir) }, { list: S.SCAN_UNDERLYINGS });
+    expect(over.filters.ivout.direction).toBe(dir[1][0]);
+    const under = S.screenerConfig({ ...over, ...quickScanPatch(over, "q-under-atm", dir) }, { list: S.SCAN_UNDERLYINGS });
+    expect(under.filters.ivout.direction).toBe(dir[2][0]);
+    expect(activeQuickScan({ ...under, sort: { ...under.sort, ivout: { by: "iv", dir: "desc" } } }, dir)).toBeNull();
+    expect(quickScanPatch(cfg, "nope")).toBeNull();
+  });
+});
+
 describe("Live events: Scan hit rows", () => {
   it("a scan hit is one row labelled with the scan's name, folded within the cooldown, off when the kind is off", async () => {
     const { createEventsEngine } = await import("../events/engine.mjs");

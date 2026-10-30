@@ -8234,7 +8234,7 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .sc-lib .segmented { align-self: flex-start; max-width: 100%; }
 .sc-lib-list { display: flex; flex-direction: column; min-width: 0; }
 .sc-lib-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px; border-radius: 8px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
-.sc-lib-row.on { background: hsl(var(--foreground) / 0.06); }
+.sc-lib-row.is-cur { background: hsl(var(--foreground) / 0.06); }
 .sc-lib-main { --btn-bg: transparent; --btn-line: transparent; --fin: 0; --btn-r: 8px; display: grid; grid-template-columns: 8px minmax(0, 1fr); grid-template-areas: "dot name" "dot sub"; align-items: center; justify-items: start; gap: 2px 8px; min-height: 44px; height: auto; padding: 6px 8px; text-align: left; white-space: normal; }
 .sc-lib-main > strong { grid-area: name; font: 600 13.5px/1.25 var(--font-body); }
 .sc-lib-main > small { grid-area: sub; font: 400 12px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
@@ -8273,7 +8273,7 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .sc-pick-list { display: flex; flex-direction: column; max-height: min(420px, 60dvh); overflow: auto; }
 .sc-pick-group { padding: 8px 4px 4px; font: 600 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .sc-pick-item { --btn-bg: transparent; --btn-line: transparent; --fin: 0; --btn-r: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; height: auto; min-height: 40px; padding: 6px 8px; text-align: left; white-space: normal; }
-.sc-pick-item.on { background: hsl(var(--foreground) / 0.07); }
+.sc-pick-item.is-cur { background: hsl(var(--foreground) / 0.07); }
 .sc-pick-item > span { font: 600 13px/1.25 var(--font-body); }
 .sc-pick-item > small { font: 400 12px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .sc-res { display: flex; flex-direction: column; min-width: 0; }
@@ -8313,3 +8313,10 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
   .sc-op, .sc-kind, .sc-param, .sc-num, .sc-mult, .sc-filter, .sc-uni, .sc-bars, .sc-name, .sc-search { min-height: 44px; }
   .sc-table th, .sc-table td { height: 44px; }
 }
+/* Option Screener quick scans (screener.js): the option-chain scans of the stock scanner library as chips under the
+   screen tabs; a pressed chip is the scan in use. */
+.scr-quick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 12px 8px; background: var(--mat-grouped-solid); }
+.scr-quick-label { font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); margin-right: 4px; }
+/* Below 1280 px the scan list sits above the builder: it scrolls in its card so the builder and results stay near. */
+@media (max-width: 1279px) { .sc-lib-list { max-height: 360px; overflow: auto; overscroll-behavior: contain; } }
+.sc-pick-item, .sc-pick-group, .sc-lib-row { flex: none; }
