@@ -211,7 +211,7 @@ const NO_CACHE_RE = /^\/v1\/(stream\/token|sign-in|requests|audit|safety|tickets
 const MARKET_RE = /^\/v1\/(optionchain|quotes|ltp|expiries|depth|history)\?/;
 
 /** POSTs that read or start something and change no state the pages show: they keep the remembered answers. */
-const READ_LIKE_POST_RE = /^\/v1\/(stream\/token|sign-in|orders\/preview|margin\/preview|strategy\/(price|payoff|preview))(\/|\?|$)/;
+const READ_LIKE_POST_RE = /^\/v1\/(stream\/token|sign-in|orders\/preview|margin\/preview|readiness\/check|scanner\/plan|reference\/corporate-actions\/preview|paper\/accounts\/[^/]+\/margin|strategy\/(price|payoff|preview))(\/|\?|$)/;
 /** Whether a write may change what the remembered answers say (pure). */
 export const forgetsAnswers = (method, path) => method !== "GET" && !READ_LIKE_POST_RE.test(String(path));
 

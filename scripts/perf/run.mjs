@@ -170,7 +170,8 @@ function initScript() {
   const useful = () => {
     const c = document.getElementById("content");
     if (!c || c.hasAttribute("aria-busy")) return false;
-    if (c.querySelector(".skel-state")) return false;
+    // Any skeleton (the generic one, the chain's layout-shaped one, a skeleton bar) means the data is not drawn yet.
+    if (c.querySelector(".skel-state, .chain-skel, .skel")) return false;
     const t = c.textContent.trim();
     if (!t || t === "Loading…" || t.endsWith("Loading…")) return false;
     return c.querySelectorAll("*").length > 20;
