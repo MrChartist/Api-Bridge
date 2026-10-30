@@ -8383,10 +8383,19 @@ button.wl-sort { min-height: 0; padding: 0; background: none; box-shadow: none; 
 
 .ev-scroll { --ev-rh: 30px; position: relative; overflow: auto; height: clamp(320px, calc(100dvh - 250px), 4000px); outline: none; font-variant-numeric: tabular-nums; }
 @media (pointer: coarse) { .ev-scroll { --ev-rh: 44px; } }
+/* Desktop: the panel ends at the window's bottom edge whatever height its controls take (one or two rows), so the page
+   never scrolls a few pixels; the feed takes what the controls leave. */
+@media (min-width: 1024px) {
+  :root[data-layout="desk"] .ev-panel { height: calc(100dvh - var(--desk-top) - 70px); }
+  :root[data-layout="desk"] .ev-panel > .ev-scroll { flex: 1 1 auto; height: auto; min-height: 320px; }
+}
 .ev-scroll:focus-visible { box-shadow: inset 0 0 0 2px var(--sel-ring); }
 .ev-head, .ev-row { display: grid; align-items: center; column-gap: 0; }
-.ev-scroll[data-mode="feed"][data-asset="stock"] :is(.ev-head, .ev-row) { grid-template-columns: 70px minmax(150px, 1.3fr) minmax(170px, 1fr) 82px 84px 76px minmax(200px, 2.6fr) 60px; }
-.ev-scroll[data-mode="feed"][data-asset="option"] :is(.ev-head, .ev-row) { grid-template-columns: 70px minmax(110px, 1fr) 72px 48px 58px minmax(180px, 1fr) 76px 80px 52px minmax(200px, 2.4fr) 60px; }
+/* Symbol and event take a small share (their minimum holds a 30-character name, the longest event chip), so a window gives most of its room to the
+   context, the last column (the count sits before it, beside the figures, not alone at the far edge); the time holds
+   "23:50:44" at every width. */
+.ev-scroll[data-mode="feed"][data-asset="stock"] :is(.ev-head, .ev-row) { grid-template-columns: 78px minmax(140px, 0.45fr) minmax(170px, 0.45fr) 82px 84px 76px 60px minmax(200px, 2fr); }
+.ev-scroll[data-mode="feed"][data-asset="option"] :is(.ev-head, .ev-row) { grid-template-columns: 78px minmax(110px, 1fr) 72px 48px 58px minmax(180px, 1fr) 76px 80px 52px 60px minmax(200px, 2.4fr); }
 .ev-scroll[data-mode="stock"] :is(.ev-head, .ev-row) { grid-template-columns: minmax(150px, 1.3fr) 84px 76px minmax(240px, 3fr) 56px 56px 76px; }
 .ev-head { position: sticky; top: 0; z-index: var(--z-sticky); min-height: 30px; background: var(--mat-grouped-solid); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 .ev-head > span { padding: 0 8px; font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -8395,6 +8404,7 @@ button.wl-sort { min-height: 0; padding: 0; background: none; box-shadow: none; 
 .ev-row { position: absolute; left: 0; right: 0; top: 0; height: var(--ev-rh); cursor: pointer; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); will-change: transform; }
 .ev-row > span { min-width: 0; padding: 0 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 400 13px/1.2 var(--font-body); }
 .ev-row .num, .ev-head .num { text-align: right; font-family: var(--font-numeric); }
+.ev-row .c-ctx, .ev-head > :last-child { padding-left: 16px; }
 .ev-row .c-time { font: 400 12.5px/1.2 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); }
 .ev-row .c-sym { display: flex; align-items: baseline; gap: 6px; }
 .ev-row .c-sym strong { font-weight: 600; white-space: nowrap; }

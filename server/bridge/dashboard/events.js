@@ -311,8 +311,8 @@ export async function renderEventsPage() {
     mode === "stock"
       ? ["Symbol", "LTP", "% chg", "Events today", "Bull", "Bear", "Latest"]
       : f.asset === "option"
-        ? ["Time", "Underlying", "Strike", "Side", "Expiry", "Event", "Premium", "ΔOI lots", "IV", "Context", "Count"]
-        : ["Time", "Symbol", "Event", "Strength", "LTP", "% chg", "Context", "Count"];
+        ? ["Time", "Underlying", "Strike", "Side", "Expiry", "Event", "Premium", "ΔOI lots", "IV", "Count", "Context"]
+        : ["Time", "Symbol", "Event", "Strength", "LTP", "% chg", "Count", "Context"];
   const NUMERIC = new Set(["LTP", "% chg", "Strike", "Premium", "ΔOI lots", "IV", "Bull", "Bear", "Strength", "Count"]);
   function drawHead() {
     scroller.dataset.mode = mode;
@@ -350,11 +350,11 @@ export async function renderEventsPage() {
         h("span", { role: "cell", class: "num c-prem" }, m.premium),
         h("span", { role: "cell", class: "num c-doi" }, m.doi),
         h("span", { role: "cell", class: "num c-iv" }, m.iv),
-        ctx,
         count,
+        ctx,
       ];
     }
-    return [h("span", { role: "cell", class: "c-time" }, m.time), sym, chip, h("span", { role: "cell", class: "num c-str", title: m.strengthTitle }, m.strength), h("span", { role: "cell", class: "num c-ltp" }, m.ltp), h("span", { role: "cell", class: `num c-chg ${m.chgTone}` }, m.chg), ctx, count];
+    return [h("span", { role: "cell", class: "c-time" }, m.time), sym, chip, h("span", { role: "cell", class: "num c-str", title: m.strengthTitle }, m.strength), h("span", { role: "cell", class: "num c-ltp" }, m.ltp), h("span", { role: "cell", class: `num c-chg ${m.chgTone}` }, m.chg), count, ctx];
   }
 
   function makeRow(item) {
