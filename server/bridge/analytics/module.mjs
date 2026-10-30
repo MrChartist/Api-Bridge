@@ -25,6 +25,11 @@ import { watchlistRoutes } from "./watchlist.mjs";
 import { optimizerRoutes } from "./optimizer.mjs";
 import { participantsRoutes } from "./participants.mjs";
 import { backtestRoutes } from "./backtest.mjs";
+import { newsFeedsRoutes } from "./newsFeeds.mjs";
+import { derivDepthRoutes } from "./derivDepth.mjs";
+import { riskRoutes } from "./risk.mjs";
+import { fieldsRoutes } from "./fields.mjs";
+import { marketsRoutes } from "./markets.mjs";
 
 /** [method, path, route options, handler name] for the routes in routes.mjs. */
 export const ROUTES = Object.freeze([
@@ -38,11 +43,11 @@ export const ROUTES = Object.freeze([
   ["POST", "/v1/analytics/position-size", { scope: "read" }, "positionSize"],
 ]);
 
-/** The services analytics reads. Nothing here may reach paper or safety, and orders only for reading positions. */
-export const USED_SERVICES = Object.freeze(["marketData", "orders", "accounts", "backupData"]);
+/** The services analytics reads. Nothing here may reach safety or place an order: orders is read only (positions, holdings, funds, trades, order list). */
+export const USED_SERVICES = Object.freeze(["marketData", "orders", "accounts", "backupData", "symbols"]);
 
 /** Feature files that build their own [method, path, options, handler] entries. */
-const FEATURE_ROUTES = Object.freeze([oiTrackerRoutes, greeksGridRoutes, strategyRoutes, futuresChainRoutes, flowsRoutes, expiryDayRoutes, alertRuleRoutes, positionRoutes, unusualRoutes, tideRoutes, exposureRoutes, volStatsRoutes, marketEventsRoutes, screenerRoutes, backtestRoutes, participantsRoutes, optimizerRoutes, watchlistRoutes]);
+const FEATURE_ROUTES = Object.freeze([oiTrackerRoutes, greeksGridRoutes, strategyRoutes, futuresChainRoutes, flowsRoutes, expiryDayRoutes, alertRuleRoutes, positionRoutes, unusualRoutes, tideRoutes, exposureRoutes, volStatsRoutes, marketEventsRoutes, screenerRoutes, backtestRoutes, participantsRoutes, optimizerRoutes, watchlistRoutes, marketsRoutes, fieldsRoutes, riskRoutes, derivDepthRoutes, newsFeedsRoutes]);
 
 export default defineModule({
   name: "analytics",

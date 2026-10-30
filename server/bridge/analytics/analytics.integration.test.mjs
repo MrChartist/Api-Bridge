@@ -450,3 +450,50 @@ describe("backtest, optimizer and watchlists on the real app", () => {
     expect(del.status).toBe(200);
   });
 });
+
+describe("markets, fields, risk and derivatives depth on the real app", () => {
+  const noBad = (r) => expect(r.text).not.toMatch(/NaN|Infinity/);
+  it.each([
+    ["/v1/analytics/markets/indices"],
+    ["/v1/analytics/markets/movers?universe=NIFTY50&by=gainers&limit=5"],
+    ["/v1/analytics/markets/sectors?tf=1d"],
+    ["/v1/analytics/markets/breadth"],
+    ["/v1/fields/search?q=gamma"],
+    ["/v1/fields?symbols=NSE:NIFTY,NSE:RELIANCE&fields=ltp,change_pct,volume"],
+    ["/v1/fields/bulk?symbol=NIFTY&field=EXPIRIES"],
+    ["/v1/analytics/vol-cone?underlying=NIFTY"],
+  ])("GET %s answers {data, meta} with no NaN", async (path) => {
+    const r = await get(path);
+    expectEnvelope(r);
+    noBad(r);
+  });
+  it("forward curve, rr-bf and event-vol answer or refuse cleanly", async () => {
+    for (const path of ["/v1/analytics/forward-curve?underlying=NIFTY", `/v1/analytics/rr-bf?underlying=NIFTY&expiry=${monthly}`, `/v1/analytics/event-vol?underlying=NIFTY&event=${monthly}`]) {
+      const r = await get(path);
+      expect([200, 400, 404], `${path} ${r.text.slice(0, 200)}`).toContain(r.status);
+      noBad(r);
+    }
+  });
+  it("prices a scenario grid for explicit legs", async () => {
+    const r = await call("POST", "/v1/analytics/risk/scenario", {
+      positions: [{ symbol: `NFO:NIFTY-${monthly}-24500-CE`, qty: 75, price: 120, iv: 15, spot: 24500 }],
+      spotShocksPct: [-2, 0, 2],
+      ivShocksPts: [-1, 0, 1],
+      daysForward: [0, 1],
+    });
+    expect([200, 400, 404], r.text.slice(0, 300)).toContain(r.status);
+    noBad(r);
+  });
+  it("batch runs field and analytics requests", async () => {
+    const r = await call("POST", "/v1/batch", { requests: [{ id: "a", path: "/v1/fields/search", query: { q: "oi" } }] });
+    expect([200, 400], r.text.slice(0, 300)).toContain(r.status);
+    noBad(r);
+  });
+  it("rejects bad field requests", async () => {
+    for (const path of ["/v1/fields?symbols=NSE:NIFTY&fields=nope_not_a_field", "/v1/fields?fields=ltp"]) {
+      const r = await get(path);
+      expect(r.status, path).toBe(400);
+      expect(r.body.code).toBe("VALIDATION_FAILED");
+    }
+  });
+});

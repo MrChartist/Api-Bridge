@@ -2049,6 +2049,533 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/analytics/markets/indices:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsIndices
+      summary: Index strip with India VIX and the day-range position
+      description: "Every index the instrument master knows (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, SENSEX, INDIA VIX and more, at most 60) from ONE batched quote call. Each item has ltp, change, changePct, dayHigh, dayLow and rangePosition (0 to 1). Cost: 1 quote call; no candles."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/movers:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsMovers
+      summary: Top movers over one batched quote pass
+      description: "Gainers, losers, volume, turnover or open interest over the FNO or NIFTY50 universe, sorted on the server. The quote pass is cached for 15 seconds and shared by all clients, so concurrent calls join one pass. Cash quotes carry no open interest, so by=oi can be empty. Cost: 0 to 2 quote calls (200 symbols per call); no candles."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: universe, in: query, schema: { type: string, enum: [FNO, NIFTY50], default: FNO } }
+        - { name: by, in: query, schema: { type: string, enum: [gainers, losers, volume, turnover, oi], default: gainers } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 10 } }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/sectors:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsSectors
+      summary: Sector index heatmap for 1D, 1W or 1M
+      description: "NIFTY sector indices ranked by change. 1d comes from one quote call; 1w and 1m use daily candles (background priority, up to 12 reads, cached for the IST day). drill=KEY adds the changePct of that sector's NIFTY 50 constituents from the shared quote snapshot. Cost: 1 quote call, plus up to 12 cached candle reads for 1w and 1m, plus a shared snapshot when drilling."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: tf, in: query, schema: { type: string, enum: [1d, 1w, 1m], default: 1d } }
+        - { name: drill, in: query, description: "Sector key such as BANK, IT, AUTO, FMCG, PHARMA, METAL, ENERGY, REALTY, PSUBANK, PVTBANK, FINSERV or MEDIA.", schema: { type: string, maxLength: 12 } }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/breadth:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsBreadth
+      summary: Advance/decline now and the cached daily breadth
+      description: "advanceDecline comes from the shared quote snapshot. The rest (new 52-week highs and lows, percent above the 20, 50 and 200 day averages, advance/decline line) is computed by a background job over daily candles of the FNO universe, cached for the day and saved to disk. status is pending, ready or partial; computedAt says when. Starting the job is POST /v1/analytics/markets/breadth/refresh. Cost: 0 to 2 quote calls; reading never makes candle calls."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/breadth/refresh:
+    post:
+      tags: [Analytics]
+      operationId: refreshAnalyticsMarketsBreadth
+      summary: Start the breadth job without waiting for it
+      description: "Starts the background breadth job and answers 202 at once. Answers 200 with started false when a job is already running or a complete result is under 30 minutes old. Cost: none now; the job reads up to 250 cached daily-candle series at background priority, 3 at a time."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "202": { $ref: "#/components/responses/AnalyticsResult" }
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/rotation:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsRotation
+      summary: Relative rotation of sectors against NIFTY
+      description: "A labelled proxy for relative rotation (the official formula is closed): RS-Ratio and RS-Momentum are 100 plus a rolling z-score of the smoothed relative strength and of its rate of change. Each item has a quadrant (leading, weakening, lagging, improving) and a tail of earlier points. Cost: up to 13 cached daily-candle reads at background priority; no quotes."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: tf, in: query, schema: { type: string, enum: [1d, 1w], default: 1w } }
+        - { name: tail, in: query, description: Earlier points to return per sector., schema: { type: integer, minimum: 0, maximum: 12, default: 5 } }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/markets/correlation:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsMarketsCorrelation
+      summary: Correlation matrix of daily returns
+      description: "Pearson correlation of daily log returns, pairwise on common dates, for NIFTY50 or a comma-separated list of 2 to 60 symbols, with the most and least correlated pairs. A pair with fewer than 20 shared days, or a flat series, is null. Cost: up to 60 cached daily-candle reads at background priority; no quotes."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: universe, in: query, description: "NIFTY50 or comma-separated symbols (at most 60).", schema: { type: string, default: NIFTY50 } }
+        - { name: days, in: query, schema: { type: integer, enum: [60, 120, 250], default: 120 } }
+        - { name: pairs, in: query, description: Pairs in each of the most and least correlated lists., schema: { type: integer, minimum: 1, maximum: 20, default: 5 } }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/fields/search:
+    get:
+      tags: [Analytics]
+      operationId: searchFields
+      summary: Search the field catalogue by id, alias or description
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: q, in: query, description: "Words to look for, for example open interest. Empty lists the catalogue.", schema: { type: string, maxLength: 100 } }
+        - { name: category, in: query, schema: { type: string, enum: [price, volume, derivatives, greeks, volatility, analytics, reference] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+        - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/fields:
+    get:
+      tags: [Analytics]
+      operationId: getFields
+      summary: Symbol by field grid in one batched read (BDP)
+      description: |
+        Up to 50 symbols by 20 fields. Quotes are read in one marketData call and option chains once per underlying and
+        expiry. A field that does not apply to a symbol, or that could not be read, is null with an entry in `errors`
+        (symbol, field, code, message); the call itself still succeeds. `override` changes iv, Greeks and the chain
+        fields: expiry picks another expiry, rate re-solves iv and Greeks at that percent rate.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: symbols, in: query, required: true, description: "Comma-separated canonical symbols, at most 50.", schema: { type: string } }
+        - { name: fields, in: query, required: true, description: "Comma-separated field ids or aliases, at most 20.", schema: { type: string } }
+        - { name: override, in: query, description: "For example expiry:2026-11-27,rate:6.5.", schema: { type: string } }
+        - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/fields/history:
+    get:
+      tags: [Analytics]
+      operationId: getFieldsHistory
+      summary: Daily history by field with period aggregation (BDH)
+      description: |
+        Up to 10 symbols and about ten years of days. period W and M aggregate daily bars (open of the first, high and
+        low across, close of the last, volume summed). fill=prev adds a row for every calendar period with no bar,
+        carrying prices and open interest forward with volume 0 and filled true.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: symbols, in: query, required: true, schema: { type: string } }
+        - { name: fields, in: query, description: "open, high, low, close, prev_close, change, change_pct, volume, oi. Default close.", schema: { type: string } }
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, description: Defaults to today (IST)., schema: { type: string, format: date } }
+        - { name: period, in: query, schema: { type: string, enum: [D, W, M], default: D } }
+        - { name: fill, in: query, schema: { type: string, enum: [none, prev], default: none } }
+        - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/fields/bulk:
+    get:
+      tags: [Analytics]
+      operationId: getFieldsBulk
+      summary: Bulk data for an underlying, the option chain or its expiries (BDS)
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: symbol, in: query, required: true, description: "Underlying, for example NIFTY or NSE:NIFTY.", schema: { type: string, maxLength: 40 } }
+        - { name: field, in: query, required: true, schema: { type: string, enum: [CHAIN, EXPIRIES] } }
+        - { name: expiry, in: query, description: Required for CHAIN., schema: { type: string, format: date } }
+        - { name: strikes, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - { name: greeks, in: query, schema: { type: boolean, default: true } }
+        - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/batch:
+    post:
+      tags: [Analytics]
+      operationId: postBatch
+      summary: Up to 20 read requests in one call
+      description: |
+        Each item runs through the route's own handler. Allowed paths are GET /v1/fields, /v1/fields/search,
+        /v1/fields/history, /v1/fields/bulk, /v1/quotes, /v1/ltp and /v1/analytics/{oi,gex,skew,surface,basis,greeks};
+        any other path answers status 400 or 404 for that item only. The outer call is 200 whenever the envelope is valid.
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requests]
+              properties:
+                requests:
+                  type: array
+                  minItems: 1
+                  maxItems: 20
+                  items:
+                    type: object
+                    required: [id, path]
+                    properties:
+                      id: { type: string, minLength: 1, maxLength: 64 }
+                      path: { type: string, example: /v1/fields }
+                      query: { type: object, additionalProperties: true }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/risk/scenario:
+    post:
+      tags: [Analytics]
+      operationId: postAnalyticsRiskScenario
+      summary: Full-reprice P&L grid over spot, IV and days, for the book and per underlying
+      description: Black-Scholes full reprice for every cell of spotShocksPct x ivShocksPts x daysForward (at most 400 cells), with a delta-gamma-vega-theta Taylor approximation and its error per cell. Send exactly one of account (reads the positions through the orders service) or positions (explicit legs, units not lots). P&L is against the Black-Scholes model price at the current spot, IV and time, so the zero cell is 0. Shocks are parallel across underlyings, IV shocks are absolute vol points, futures and cash legs move one for one with spot. Options with no usable IV or price, and expired legs, are listed under skipped. Read-only; nothing is ordered.
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account: { type: string }
+                mode: { type: string, enum: [paper, live] }
+                positions:
+                  type: array
+                  maxItems: 200
+                  items:
+                    type: object
+                    required: [symbol, netQty]
+                    properties:
+                      symbol: { type: string, example: "NFO:NIFTY-2026-11-24-25000-CE" }
+                      netQty: { type: integer, description: Signed units. Negative is short. }
+                      price: { type: number }
+                      spot: { type: number }
+                      ivPct: { type: number }
+                spotShocksPct: { type: array, maxItems: 41, items: { type: number, minimum: -99, maximum: 100 }, example: [-5, -2.5, 0, 2.5, 5] }
+                ivShocksPts: { type: array, maxItems: 41, items: { type: number, minimum: -100, maximum: 100 }, example: [-5, 0, 5] }
+                daysForward: { type: array, maxItems: 41, items: { type: number, minimum: 0, maximum: 365 }, example: [0, 1, 3] }
+                maxCells: { type: integer, minimum: 1, maximum: 400, default: 400 }
+                ratePct: { type: number, minimum: 0, maximum: 100, description: Risk-free rate in percent (default 6.5). }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/risk/exposure:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsRiskExposure
+      summary: Gross, net, long and short notional and delta-adjusted exposure
+      description: Notional is the absolute quantity times the underlying price. Delta-adjusted exposure is quantity times delta times underlying price, per underlying and in total. Funds, used margin and total balance are returned exactly as the account reports them; when the adapter cannot supply them funds is null with a note, and nothing is estimated (no SPAN or exposure margin is computed).
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: account, in: query, required: true, description: Account id from your config., schema: { type: string }, example: paper }
+        - { name: mode, in: query, schema: { type: string, enum: [paper, live] } }
+        - { name: includeHoldings, in: query, description: Also count equity holdings., schema: { type: boolean, default: false } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/risk/concentration:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsRiskConcentration
+      summary: Top-N position weights, underlying and sector share, HHI
+      description: Weights are shares of gross notional. HHI is the sum of squared underlying weights (1 means one underlying). Sectors come from a small static map; names it does not know are Unclassified.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: account, in: query, required: true, description: Account id from your config., schema: { type: string }, example: paper }
+        - { name: top, in: query, description: How many top positions to list., schema: { type: integer, minimum: 1, maximum: 20, default: 5 } }
+        - { name: mode, in: query, schema: { type: string, enum: [paper, live] } }
+        - { name: includeHoldings, in: query, schema: { type: boolean, default: false } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/risk/var:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsRiskVar
+      summary: 1-day historical-simulation VaR and expected shortfall (an estimate)
+      description: Reprices the book fully for each past daily return of its underlyings (spot only, IV and time held, aligned by IST date). Falls back to delta-normal when fewer than 30 aligned days exist, and says so in method and note. The delta-normal figure is also returned as a cross-check. Underlyings without enough history are listed and left out. This is an estimate from past moves, not a limit.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: account, in: query, required: true, description: Account id from your config., schema: { type: string }, example: paper }
+        - { name: days, in: query, description: Daily-candle lookback., schema: { type: integer, minimum: 30, maximum: 1000, default: 250 } }
+        - { name: confidence, in: query, schema: { type: integer, enum: [95, 99], default: 95 } }
+        - { name: method, in: query, schema: { type: string, enum: [auto, historical, delta-normal], default: auto } }
+        - { name: mode, in: query, schema: { type: string, enum: [paper, live] } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/risk/whatif:
+    post:
+      tags: [Analytics]
+      operationId: postAnalyticsRiskWhatif
+      summary: Exposure, concentration and VaR before and after a hypothetical position (plan only)
+      description: Adds order-like legs to the account's current book and compares exposure, concentration and VaR. Nothing is sent or placed; margin for the added legs is not computed (the adapters expose funds, not a margin calculator), so requiredForAdd is null.
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [account, add]
+              properties:
+                account: { type: string }
+                mode: { type: string, enum: [paper, live] }
+                add:
+                  type: array
+                  minItems: 1
+                  maxItems: 20
+                  items:
+                    type: object
+                    required: [symbol, side, quantity]
+                    properties:
+                      symbol: { type: string }
+                      side: { type: string, enum: [BUY, SELL] }
+                      quantity: { type: integer, minimum: 1, description: Units, not lots. }
+                      price: { type: number }
+                days: { type: integer, minimum: 30, maximum: 1000, default: 250 }
+                confidence: { type: integer, enum: [95, 99], default: 95 }
+                topN: { type: integer, minimum: 1, maximum: 20, default: 5 }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/risk/tca:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsRiskTca
+      summary: Transaction cost analysis from paper fills (slippage vs limit, fees, fill latency)
+      description: Joins paper trades to their orders. Slippage is measured against the order's limit price only, because the paper store does not record an arrival price; market orders are not measured. Fees are the single brokerage figure per trade. Latency is fill time minus order placement time. The unavailable list states every field the store lacks (arrival price, bid and ask at fill, post-fill price, charge breakdown, partial fills).
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: account, in: query, required: true, description: A paper account id., schema: { type: string }, example: paper }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 200 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/forward-curve:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsForwardCurve
+      summary: Implied forward, carry and dividend yield per expiry from put-call parity
+      description: F = K + (C - P) e^{rT}, averaged over up to three strikes nearest spot that have both legs priced (mid when bid and ask exist, else LTP). Carry is ln(F/S)/T annualised and implied dividend yield is the rate minus carry. An expiry with thin data or under half a day left returns forward null with a reason.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 }, example: NIFTY }
+        - { name: expiries, in: query, description: How many upcoming expiries., schema: { type: integer, minimum: 1, maximum: 12, default: 6 } }
+        - { name: ratePct, in: query, description: Risk-free rate in percent (default 6.5)., schema: { type: number, minimum: 0, maximum: 100 } }
+        - { name: account, in: query, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/rr-bf:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsRrBf
+      summary: Risk reversal and butterfly at 25 and 10 delta (and one more)
+      description: Rebuilds the smile in call-delta space from the OTM legs and interpolates linearly, never extrapolating. RR is IV of the call minus IV of the put at that delta; BF is the average of the two minus ATM IV. Everything is null, with a reason, when the smile has fewer than five usable points or does not reach that delta on both wings.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 }, example: NIFTY }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date }, example: "2026-11-24" }
+        - { name: delta, in: query, description: Delta to report as requested; 25 and 10 are always included., schema: { type: integer, minimum: 1, maximum: 49, default: 25 } }
+        - { name: account, in: query, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/vol-cone:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsVolCone
+      summary: HV percentiles by tenor, current vs cone, VRP against ATM IV, forward vol between expiries
+      description: Rolling close-to-close HV (annualised, percent) for 10, 20, 30, 60 and 90 day tenors with min, 5th, 25th, 50th, 75th, 95th percentile and max, the current value and its percentile. VRP is the nearest ATM IV (at least 3 days left) minus the HV of the closest tenor. Forward vol between consecutive expiries is sqrt((s2^2 T2 - s1^2 T1) / (T2 - T1)), null when total variance falls with maturity. A tenor with fewer than 20 rolling windows has null percentiles.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 }, example: NIFTY }
+        - { name: days, in: query, description: Daily-candle lookback., schema: { type: integer, minimum: 120, maximum: 1500, default: 500 } }
+        - { name: expiries, in: query, description: How many expiries for the term and forward vol., schema: { type: integer, minimum: 1, maximum: 6, default: 4 } }
+        - { name: account, in: query, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/event-vol:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsEventVol
+      summary: Implied event move from total-variance differences around a date
+      description: With E1 the last expiry before the event and E2 the first on or after it (event time taken as 09:15 IST), event variance is s2^2 T2 - s1^2 T1 - sigma_b^2 (T2 - T1), where sigma_b is the pre-event ATM IV unless baselineVolPct is sent. With no pre-event expiry the baseline is HV20. The implied 1-sigma move is its square root as a percent of spot. Null, with a reason, when there is no premium above the baseline or no expiry after the event.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 }, example: NIFTY }
+        - { name: event, in: query, required: true, description: A future date within 400 days., schema: { type: string, format: date }, example: "2026-12-04" }
+        - { name: baselineVolPct, in: query, description: Override the baseline vol in percent., schema: { type: number, minimum: 1, maximum: 300 } }
+        - { name: account, in: query, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/news/regulatory:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsNewsRegulatory
+      summary: SEBI and RBI regulatory wire, deduplicated and tagged (fno, margin, lot-size, circular, expiry)
+      description: From the SEBI combined RSS and the RBI press release, notification and speech RSS feeds. Parsed without entity expansion; a DOCTYPE, ENTITY, oversize or non-feed response is an upstream error. Cached ten minutes, stale copy served if a refresh fails; meta.failedFeeds lists feeds that failed. Endpoints are unverified (assumed URLs, see ENDPOINTS in newsFeeds.mjs). Personal, local use only. meta carries source, fetchedAt, stale and note.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: source, in: query, schema: { type: string, enum: [sebi, rbi, all], default: all } }
+        - { name: days, in: query, description: Look-back window in days., schema: { type: integer, minimum: 1, maximum: 90, default: 7 } }
+        - { name: q, in: query, description: Keywords; every word must appear (case-insensitive)., schema: { type: string, maxLength: 100 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/news/announcements:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsNewsAnnouncements
+      summary: NSE corporate announcements, deduplicated by attachment id
+      description: From NSE's public corporate-announcements API through the cookie-primed client. Cached five minutes. Endpoints are unverified (assumed URLs, see ENDPOINTS in newsFeeds.mjs). Personal, local use only. meta carries source, fetchedAt, stale and note.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: symbol, in: query, schema: { type: string, maxLength: 20 } }
+        - { name: days, in: query, schema: { type: integer, minimum: 1, maximum: 30, default: 3 } }
+        - { name: q, in: query, description: Keywords; every word must appear (case-insensitive)., schema: { type: string, maxLength: 100 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/calendar/central-banks:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsCalendarCentralBanks
+      summary: Upcoming central-bank decision dates with a day countdown
+      description: Curated by hand (RBI MPC, US FOMC, ECB), not fetched; verify against the official calendar. Dates the author was unsure of are omitted, so a missing meeting does not mean none exists. daysUntil is computed from the Bridge clock in IST. Endpoints are unverified (assumed URLs, see ENDPOINTS in newsFeeds.mjs). Personal, local use only. meta carries source, fetchedAt, stale and note.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: bank, in: query, schema: { type: string, enum: [RBI, FOMC, ECB] } }
+        - { name: days, in: query, schema: { type: integer, minimum: 1, maximum: 400, default: 365 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/calendar/fno-ban:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsCalendarFnoBan
+      summary: NSE F&O securities in ban, with entries and exits versus the previously saved list
+      description: From NSE's fo_secban.csv. The previous list is kept in the Bridge data folder, so the first call is a baseline (baseline true, no entries or exits). Cached fifteen minutes. Endpoints are unverified (assumed URLs, see ENDPOINTS in newsFeeds.mjs). Personal, local use only. meta carries source, fetchedAt, stale and note.
+      x-stream: S15
+      x-scope: read
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/calendar/timeline:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsCalendarTimeline
+      summary: Events, central-bank dates and option expiries merged into one dated list
+      description: Merges NSE event-calendar rows, curated central-bank dates and expiries from market data for the given underlyings. A source that fails is reported under meta.sources and does not fail the call. Endpoints are unverified (assumed URLs, see ENDPOINTS in newsFeeds.mjs). Personal, local use only. meta carries source, fetchedAt, stale and note.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: days, in: query, schema: { type: integer, minimum: 1, maximum: 60, default: 14 } }
+        - { name: underlyings, in: query, description: Up to five comma-separated underlyings for expiry dates., schema: { type: string, default: NIFTY } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/stream:
     get:
       tags: [Streaming]

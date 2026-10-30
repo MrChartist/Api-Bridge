@@ -38,6 +38,12 @@ curl -H "Authorization: Bearer $KEY" \
 | `GET /v1/analytics/participants` | FII, DII, Pro and Client open interest by product (index and stock, futures and options), long and short, net and day-on-day change |
 | `GET /v1/analytics/optimizer` | Searches every strategy template, strike offset and width on the live chain and ranks by expected value, probability of profit or risk-reward, under your loss and capital limits |
 | `/v1/analytics/watchlists` | Saved watchlists per key (a default F&O leaders list is created on first use) and a one-call quotes route per list |
+| `GET /v1/analytics/markets/...` | `indices` (with India VIX), `movers`, `sectors` (1D/1W/1M and drill-down), `breadth` (advance/decline, new highs and lows, share above the 50 and 200-day averages, built once after the close), `rotation` and `correlation` |
+| `GET /v1/fields`, `/search`, `/history`, `/bulk`, `POST /v1/batch` | Bloomberg-style field access: a symbol-by-field grid (BDP), history by field with day, week or month bars (BDH), bulk chain or expiries (BDS), a searchable field catalogue, overrides, `format=csv` and batch requests |
+| `/v1/analytics/risk/...` | `scenario` (full-reprice P&L over spot, IV and days), `exposure`, `concentration`, `var`, `whatif` and `tca`. Read only: nothing here places an order |
+| `GET /v1/analytics/forward-curve`, `/rr-bf`, `/vol-cone`, `/event-vol` | Implied forward and carry per expiry, 25 and 10 delta risk reversal and butterfly, the vol cone with IV against realised, and the move implied around an event |
+| `GET /v1/analytics/news/regulatory`, `/news/announcements` | SEBI and RBI notices, NSE announcements with keyword filtering |
+| `GET /v1/analytics/calendar/central-banks`, `/fno-ban`, `/timeline` | Central-bank dates, F&O ban list changes and one merged timeline of events, expiries and decisions |
 | `GET /v1/analytics/strategies` (`/build`, `/find`) | 13 strategy templates, built from the live chain, and a ranked finder by market view |
 | `POST /v1/analytics/payoff` | Expiry payoff curve, max profit and loss and break-evens for your own legs |
 | `GET /v1/analytics/greeks` | Black-Scholes IV and Greeks for one option, from a price or an IV |
@@ -70,3 +76,10 @@ curl -H "Authorization: Bearer $KEY" \
 - **Participant OI** reads NSE's daily participant-wise file, whose address and columns are assumed. The route says
   `UPSTREAM_ERROR` if NSE changes it.
 - **New alert metrics:** `unusual_count`, `tide_sentiment`, `iv_rank`, `fii_net_streak` and `volume_spike`.
+- **Two risk-reversal signs.** `/skew` reports put IV minus call IV (positive means puts are richer); `/rr-bf` follows
+  the usual quoting convention, call IV minus put IV. Read the field description before comparing them.
+- **Margin is not available from the brokers.** The adapters give funds and used margin but no margin calculator, so
+  a what-if reports required margin as null. Paper trades carry no arrival price, so TCA measures slippage against
+  the order's limit price and covers paper orders only.
+- **Unverified public sources.** The SEBI, RBI and NSE feed addresses, the central-bank dates and the sector index
+  symbols are assumptions to confirm against live sources. Responses say so in `meta`.
