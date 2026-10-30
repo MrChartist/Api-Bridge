@@ -1610,23 +1610,35 @@ export function createOrderService(deps) {
   }
 
   /**
+   * Cancel every working order on the accounts this key may use, in two groups: orders the Bridge placed (paper and
+   * live) and live orders placed outside it (in the broker's app or terminal).
    * @param {RequestContext} ctx
-   * @param {{ accountId?: string, mode?: "paper"|"live", bridgeOnly?: boolean }} [opts]  bridgeOnly: leave broker
-   *   orders the Bridge did not place (e.g. a stop-loss set in the broker app) alone.
+   * @param {{ accountId?: string, mode?: "paper"|"live", bridgeOnly?: boolean, dryRun?: boolean }} [opts]
+   *   bridgeOnly: leave broker orders the Bridge did not place (e.g. a stop-loss set in the broker app) alone.
+   *   dryRun: cancel nothing; list what is open in each group (`bridge.open`, `external.open`).
+   * @returns {Promise<{ cancelled: string[], failed: object[], bridge: { cancelled: string[], open?: object[] },
+   *   external: { cancelled: string[], left: string[], open?: object[] }, dryRun?: true }>}
    */
-  async function cancelAll(ctx, { accountId, mode, bridgeOnly = false } = {}) {
+  async function cancelAll(ctx, { accountId, mode, bridgeOnly = false, dryRun = false } = {}) {
     const accounts = accountId ? [accountFor(ctx, accountId).summary] : accessibleAccounts(ctx);
     const cancelled = [];
     const failed = [];
+    const bridge = { cancelled: [], ...(dryRun ? { open: [] } : {}) };
+    const external = { cancelled: [], left: [], ...(dryRun ? { open: [] } : {}) };
     const canLive = ctx.scopes?.has("live") || ctx.principal?.kind === "local";
     for (const acc of accounts) {
       if (mode !== "live") {
         try {
           const open = await pagedAll((cursor) => deps.paper.orders(acc.id, { limit: MAX_PAGE, cursor }), cfg.maxOrderLookups);
           for (const o of open.filter((x) => !TERMINAL_STATUSES.has(x.status))) {
+            if (dryRun) {
+              bridge.open.push({ orderId: o.orderId, accountId: acc.id, mode: "paper", symbol: o.symbol, side: o.side, quantity: o.quantity, status: o.status, external: false });
+              continue;
+            }
             try {
               const out = await deps.paper.cancel(acc.id, o.orderId);
               cancelled.push(o.orderId);
+              bridge.cancelled.push(o.orderId);
               recordEvent(acc.id, { action: "cancel", mode: "paper", status: out?.status ?? "cancelled" });
               if (out) emitUpdate(out);
             } catch (err) {
@@ -1650,18 +1662,40 @@ export function createOrderService(deps) {
           if (mode === "live" || bridgeOpen || err?.code !== "CAPABILITY_UNSUPPORTED") failed.push({ input: acc.id, code: err?.code ?? "INTERNAL", message: err?.detail ?? "The broker order book could not be read." });
           continue;
         }
-        const ours = bridgeOnly ? brokerIndex(acc.id) : null;
-        for (const row of (book ?? []).filter((r) => OPEN_BOOK_STATUSES.has(r.status) && (!ours || ours.has(String(r.orderId))))) {
+        const ours = brokerIndex(acc.id);
+        const listed = new Set();
+        for (const row of (book ?? []).filter((r) => OPEN_BOOK_STATUSES.has(r.status))) {
+          const brokerId = String(row.orderId);
+          const mine = ours.get(brokerId) ?? null;
+          if (dryRun) {
+            if (mine) {
+              const rec = live.get(mine);
+              if (rec && !listed.has(mine)) {
+                listed.add(mine);
+                bridge.open.push({ orderId: mine, accountId: acc.id, mode: "live", symbol: rec.order.symbol, side: rec.order.side, quantity: rec.order.quantity, status: rec.order.status, external: false });
+              }
+            } else {
+              external.open.push({ orderId: brokerId, accountId: acc.id, mode: "live", symbol: row.exchange && row.tradingSymbol ? `${row.exchange}:${row.tradingSymbol}` : String(row.tradingSymbol ?? row.symbol ?? ""), side: row.side ?? null, quantity: Number(row.pendingQty ?? row.qty ?? 0) || null, status: String(row.status).toLowerCase(), external: true });
+            }
+            continue;
+          }
+          if (!mine && bridgeOnly) {
+            external.left.push(brokerId);
+            continue;
+          }
           try {
-            cancelled.push(await cancelBrokerOrder(ctx, acc.id, acc.broker, row.orderId));
+            const id = await cancelBrokerOrder(ctx, acc.id, acc.broker, row.orderId);
+            cancelled.push(id);
+            (mine ? bridge : external).cancelled.push(id);
           } catch (err) {
-            failed.push({ orderId: String(row.orderId), code: err?.code ?? "INTERNAL", message: err?.detail ?? "The order could not be cancelled." });
+            failed.push({ orderId: brokerId, code: err?.code ?? "INTERNAL", message: err?.detail ?? "The order could not be cancelled." });
           }
         }
       }
     }
-    await audit(ctx, "order.cancel_all", { accountId: accountId ?? null, data: { mode: mode ?? "all", bridgeOnly, cancelled: cancelled.length, failed: failed.length } });
-    return { cancelled, failed };
+    if (dryRun) return { dryRun: true, cancelled, failed, bridge, external };
+    await audit(ctx, "order.cancel_all", { accountId: accountId ?? null, data: { mode: mode ?? "all", bridgeOnly, cancelled: cancelled.length, cancelledOutsideBridge: external.cancelled.length, leftOutsideBridge: external.left.length, failed: failed.length } });
+    return { cancelled, failed, bridge, external };
   }
 
   // ───────────────────────────── reads ─────────────────────────────

@@ -219,18 +219,25 @@ export function createFakeOrderService({ accounts = ["paper"], liveAccounts = []
       return { order: structuredClone(o), replayed: false };
     },
 
-    async cancelAll(ctx, { accountId, mode } = {}) {
+    async cancelAll(ctx, { accountId, mode, dryRun = false } = {}) {
       calls.push(["cancelAll", { accountId, mode }]);
       if (accountId) ctx.requireAccountAccess(accountId);
       const cancelled = [];
+      const open = [];
       for (const o of orders.values()) {
         if ((accountId && o.accountId !== accountId) || (mode && o.mode !== mode) || !canAccess(ctx, o.accountId) || TERMINAL_STATUSES.has(o.status)) continue;
+        if (dryRun) {
+          open.push({ orderId: o.orderId, accountId: o.accountId, mode: o.mode, symbol: o.symbol, side: o.side, quantity: o.quantity, status: o.status, external: false });
+          continue;
+        }
         o.status = "cancelled";
         o.legs[0].status = "cancelled";
         cancelled.push(o.orderId);
         emit(o);
       }
-      return { cancelled, failed: [] };
+      // Every order here was placed through the Bridge; there are none placed outside it.
+      if (dryRun) return { dryRun: true, cancelled, failed: [], bridge: { cancelled: [], open }, external: { cancelled: [], left: [], open: [] } };
+      return { cancelled, failed: [], bridge: { cancelled: [...cancelled] }, external: { cancelled: [], left: [] } };
     },
 
     async get(ctx, orderId) {

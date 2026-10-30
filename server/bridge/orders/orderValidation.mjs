@@ -86,6 +86,10 @@ export const cancelAllSchema = z
   .object({
     account: z.string().regex(ACCOUNT_RE).optional(),
     mode: z.enum(["paper", "live"]).optional(),
+    /** Leave orders placed outside the Bridge (in the broker's app) open. Default false: cancel them too. */
+    bridgeOnly: z.boolean().optional(),
+    /** Cancel nothing: list what is open, the Bridge's orders and those placed outside it. */
+    dryRun: z.boolean().optional(),
   })
   .strict();
 

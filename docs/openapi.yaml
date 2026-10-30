@@ -1580,9 +1580,11 @@ paths:
               properties:
                 account: { $ref: "#/components/schemas/AccountId" }
                 mode: { type: string, enum: [paper, live] }
+                bridgeOnly: { type: boolean, default: false, description: "Leave live orders placed outside the Bridge (in the broker's app or terminal) open. The dashboard's Cancel all sends true unless you tick the box to cancel those too." }
+                dryRun: { type: boolean, default: false, description: "Cancel nothing; list what is open in each group (bridge.open, external.open)." }
       responses:
         "200":
-          description: What was cancelled.
+          description: What was cancelled, in two groups.
           content:
             application/json:
               schema:
@@ -1591,10 +1593,26 @@ paths:
                 properties:
                   data:
                     type: object
-                    required: [cancelled, failed]
+                    required: [cancelled, failed, bridge, external]
                     properties:
-                      cancelled: { type: array, items: { type: string } }
+                      cancelled: { type: array, items: { type: string }, description: Every order cancelled (both groups). }
                       failed: { type: array, items: { $ref: "#/components/schemas/ItemError" } }
+                      dryRun: { type: boolean }
+                      bridge:
+                        type: object
+                        description: Orders the Bridge placed (paper and live).
+                        required: [cancelled]
+                        properties:
+                          cancelled: { type: array, items: { type: string } }
+                          open: { type: array, items: { $ref: "#/components/schemas/CancelAllOpenOrder" }, description: dryRun only. }
+                      external:
+                        type: object
+                        description: Live orders placed outside the Bridge (broker order ids).
+                        required: [cancelled, left]
+                        properties:
+                          cancelled: { type: array, items: { type: string } }
+                          left: { type: array, items: { type: string }, description: Left open because bridgeOnly was true. }
+                          open: { type: array, items: { $ref: "#/components/schemas/CancelAllOpenOrder" }, description: dryRun only. }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -8931,6 +8949,18 @@ components:
         expiresAt: { type: [string, "null"], format: date-time }
         lastUsedAt: { type: [string, "null"], format: date-time }
         revokedAt: { type: [string, "null"], format: date-time }
+    CancelAllOpenOrder:
+      type: object
+      required: [orderId, accountId, mode, external]
+      properties:
+        orderId: { type: string, description: "The Bridge order id, or the broker's order id for one placed outside the Bridge." }
+        accountId: { type: string }
+        mode: { type: string, enum: [paper, live] }
+        symbol: { type: string }
+        side: { type: [string, "null"] }
+        quantity: { type: [integer, "null"] }
+        status: { type: string }
+        external: { type: boolean }
     KeyCreateRequest:
       type: object
       required: [label, scopes]

@@ -233,8 +233,14 @@ describe("other order routes", () => {
   it("cancel-all validates its body", async () => {
     const ok = await call("POST", "/v1/orders/cancel-all", { body: { account: "paper", mode: "paper" } });
     expect(ok.status).toBe(200);
-    expect(ok.json.data).toEqual({ cancelled: expect.any(Array), failed: [] });
+    expect(ok.json.data).toEqual({ cancelled: expect.any(Array), failed: [], bridge: { cancelled: expect.any(Array) }, external: { cancelled: [], left: [] } });
     expect((await call("POST", "/v1/orders/cancel-all", { body: { everything: true } })).status).toBe(400);
+    const only = await call("POST", "/v1/orders/cancel-all", { body: { account: "paper", bridgeOnly: true } });
+    expect(only.status).toBe(200);
+    const dry = await call("POST", "/v1/orders/cancel-all", { body: { account: "paper", dryRun: true } });
+    expect(dry.status).toBe(200);
+    expect(dry.json.data).toMatchObject({ dryRun: true, cancelled: [], bridge: { cancelled: [], open: expect.any(Array) }, external: { cancelled: [], left: [], open: [] } });
+    expect((await call("POST", "/v1/orders/cancel-all", { body: { bridgeOnly: "yes" } })).status).toBe(400);
   });
 
   it("trades", async () => {

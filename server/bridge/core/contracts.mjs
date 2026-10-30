@@ -443,7 +443,9 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *      never see the confirmToken; they listen for "ticket.confirmed"). ctx.confirmationRequired marks such hooks.
    *  modify(ctx, orderId, changes, { idempotencyKey? }) -> Promise<{ order: OrderResult, replayed: boolean }>
    *  cancel(ctx, orderId, { idempotencyKey? }) -> Promise<{ order: OrderResult, replayed: boolean }>
-   *  cancelAll(ctx, { accountId?, mode? }) -> Promise<{ cancelled: string[], failed: Array<{ orderId, code, message }> }>
+   *  cancelAll(ctx, { accountId?, mode?, bridgeOnly?, dryRun? }) -> Promise<{ cancelled: string[], failed: Array<{ orderId, code, message }>,
+   *      bridge: { cancelled: string[], open? }, external: { cancelled: string[], left: string[], open? }, dryRun? }>
+   *      (bridge: orders the Bridge placed; external: live orders placed outside it, left open when bridgeOnly)
    *  get(ctx, orderId) -> Promise<OrderResult>                     throws ORDER_NOT_FOUND
    *  getByClientId(ctx, clientOrderId) -> Promise<OrderResult>
    *  list(ctx, { accountId?, status?, mode?, limit?, cursor? }) -> Promise<Page>

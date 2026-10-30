@@ -423,6 +423,31 @@ describe("cancel-all and the kill switch", () => {
     expect(h.zerodha.cancelled.map((c) => c.orderId).sort()).toEqual(["MANUAL-9", "ZERODHA-1001"]);
   });
 
+  it("bridgeOnly leaves orders placed outside the Bridge open, and the answer says what was cancelled in each group", async () => {
+    const h = buildHarness();
+    const { order } = await h.svc.place(h.ctx(), liveOrder());
+    const paper = await h.svc.place(h.ctx(), liveOrder({ mode: "paper" }));
+    h.zerodha.book = [bookRow({ orderId: "ZERODHA-1001", status: "OPEN" }), bookRow({ orderId: "MANUAL-9", status: "TRIGGER_PENDING", side: "SELL", qty: 5, pendingQty: 5 }), bookRow({ orderId: "DONE-1", status: "COMPLETE" })];
+    // A dry run lists both groups and cancels nothing.
+    const dry = await h.svc.cancelAll(h.ctx(), { accountId: "zerodha-main", dryRun: true });
+    expect(dry).toMatchObject({ dryRun: true, cancelled: [], failed: [] });
+    expect(dry.bridge.open.map((o) => o.orderId).sort()).toEqual([order.orderId, paper.order.orderId].sort());
+    expect(dry.external.open).toEqual([{ orderId: "MANUAL-9", accountId: "zerodha-main", mode: "live", symbol: "NSE:RELIANCE", side: "SELL", quantity: 5, status: "trigger_pending", external: true }]);
+    expect(h.zerodha.cancelled).toHaveLength(0);
+    expect(h.audit.records.filter((r) => r.type === "order.cancel_all")).toHaveLength(0);
+    // Bridge orders only.
+    const r = await h.svc.cancelAll(h.ctx(), { accountId: "zerodha-main", bridgeOnly: true });
+    expect(r.failed).toEqual([]);
+    expect(r.cancelled.sort()).toEqual([order.orderId, paper.order.orderId].sort());
+    expect(r.bridge.cancelled.sort()).toEqual([order.orderId, paper.order.orderId].sort());
+    expect(r.external).toEqual({ cancelled: [], left: ["MANUAL-9"] });
+    expect(h.zerodha.cancelled.map((c) => c.orderId)).toEqual(["ZERODHA-1001"]);
+    // Then the outside one too, when asked.
+    h.zerodha.book = [bookRow({ orderId: "MANUAL-9", status: "TRIGGER_PENDING" })];
+    const all = await h.svc.cancelAll(h.ctx(), { accountId: "zerodha-main", bridgeOnly: false });
+    expect(all).toMatchObject({ cancelled: ["MANUAL-9"], bridge: { cancelled: [] }, external: { cancelled: ["MANUAL-9"], left: [] } });
+  });
+
   it("a key without the live scope cancels only paper orders", async () => {
     const h = buildHarness();
     await h.svc.place(h.ctx(), liveOrder());

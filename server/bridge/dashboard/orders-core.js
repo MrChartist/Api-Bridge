@@ -1,5 +1,6 @@
 // Orders and trade book: filters, counts and totals (pure: no DOM, no fetch, no clock).
 import { contractName } from "./flows.js";
+import { formatInt } from "./format.js";
 
 /** The status filter's choices, in order. */
 export const ORDER_FILTERS = Object.freeze([
@@ -51,6 +52,36 @@ export function orderCounts(list) {
 export function openByMode(list) {
   const open = (list ?? []).filter((o) => orderBucket(o.status) === "open");
   return { total: open.length, paper: open.filter((o) => o.mode !== "live").length, live: open.filter((o) => o.mode === "live").length };
+}
+
+/**
+ * Cancel all's two groups, from POST /v1/orders/cancel-all { dryRun: true }: orders the Bridge placed (paper and live)
+ * and live orders placed outside the Bridge (in the broker's app). total counts both; paper and live are the Bridge's.
+ */
+export function cancelAllGroups(dry) {
+  const bridge = dry?.bridge?.open ?? [];
+  const external = dry?.external?.open ?? [];
+  return { bridge, external, total: bridge.length + external.length, paper: bridge.filter((o) => o.mode !== "live").length, live: bridge.filter((o) => o.mode === "live").length };
+}
+
+/** The cancel-all body: Bridge orders only unless the trader ticked "Also cancel … placed outside the Bridge". */
+export function cancelAllBody(includeExternal = false) {
+  return { bridgeOnly: includeExternal !== true };
+}
+
+const ordersWord = (n) => `${formatInt(n)} order${n === 1 ? "" : "s"}`;
+
+/** What Cancel all did, in each group, in one line: { text, tone }. */
+export function cancelAllReport(d) {
+  const ours = d?.bridge?.cancelled?.length ?? 0;
+  const theirs = d?.external?.cancelled?.length ?? 0;
+  const left = d?.external?.left?.length ?? 0;
+  const failed = d?.failed ?? [];
+  let text = `Cancelled ${formatInt(ours)} Bridge ${ours === 1 ? "order" : "orders"}`;
+  text += theirs ? ` and ${ordersWord(theirs)} placed outside the Bridge.` : ".";
+  if (left) text += ` ${ordersWord(left)} placed outside the Bridge left open.`;
+  if (failed.length) text += ` ${formatInt(failed.length)} not cancelled: ${failed[0]?.message ?? "refused"}`;
+  return { text, tone: failed.length ? "warn" : "ok" };
 }
 
 /** Trades that pass the filters. */

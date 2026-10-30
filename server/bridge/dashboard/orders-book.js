@@ -3,7 +3,7 @@
 import { alertBox, api, card, emptyState, h, istTime, modal, optional, table, toast } from "./app.js";
 import { contractName } from "./flows.js";
 import { DASH, formatDayMonth, formatFixed, formatInt, formatPercent, formatRupee, formatRupeeGrouped } from "./format.js";
-import { ORDER_FILTERS, filterOrders, filterTrades, fundsView, openByMode, orderCounts } from "./orders-core.js";
+import { ORDER_FILTERS, cancelAllBody, cancelAllGroups, cancelAllReport, filterOrders, filterTrades, fundsView, openByMode, orderCounts } from "./orders-core.js";
 import { fillTotals } from "./statement-core.js";
 
 const KEY = "mcb.orders.filters";
@@ -52,7 +52,7 @@ export function ordersCard({ ord, error, byId, columns, empty, actions, refresh 
   search.addEventListener("input", () => ((f.q = search.value), draw()));
   const open = openByMode(ord);
   const cancelAll = open.total
-    ? h("button", { type: "button", class: "small", onclick: () => cancelAllFlow(open).then((done) => done && refresh()) }, `Cancel all open (${formatInt(open.total)})`)
+    ? h("button", { type: "button", class: "small", onclick: () => cancelAllFlow(labelOf).then((report) => report && showReport(report, refresh)) }, `Cancel all open (${formatInt(open.total)})`)
     : null;
   const bar = h("div", { class: "bk-ob-bar" }, status.el, side.el, search);
   function draw() {
@@ -79,33 +79,71 @@ export function ordersCard({ ord, error, byId, columns, empty, actions, refresh 
   });
 }
 
-/** Cancel every working order on the accounts this key may use (paper and live), after one question. */
-async function cancelAllFlow(open) {
-  const parts = [open.paper ? `${formatInt(open.paper)} paper` : null, open.live ? `${formatInt(open.live)} live` : null].filter(Boolean).join(" and ");
+/** Redraw the page, then say what Cancel all did: the redraw hides any toast, so the report goes up after it starts. */
+function showReport(report, refresh) {
+  refresh();
+  if (report.text) toast(report.text, { tone: report.tone });
+}
+
+/** One open order in Cancel all's lists: side, quantity, contract, account and mode. */
+function cancelRow(o, labelOf) {
+  const qty = o.quantity ? `${formatInt(o.quantity)} ` : "";
+  return h("li", { class: "ca-row" }, h("span", { class: "ca-what" }, `${o.side ?? ""} ${qty}${o.symbol ? contractName(o.symbol) : o.orderId}`.trim()), h("span", { class: "muted small" }, `${labelOf(o.accountId)} · ${o.mode === "live" ? "live" : "paper"}`));
+}
+function cancelList(rows, labelOf) {
+  const shown = rows.slice(0, 6);
+  return h("ul", { class: "ca-list" }, ...shown.map((o) => cancelRow(o, labelOf)), rows.length > shown.length ? h("li", { class: "muted small" }, `and ${formatInt(rows.length - shown.length)} more`) : null);
+}
+
+/**
+ * Cancel the working orders on the accounts this key may use, after one question that counts and lists both groups:
+ * orders the Bridge placed (cancelled), and live orders placed outside the Bridge, in the broker's app (left open
+ * unless the trader ticks the box). The request body matches the choice. Resolves the report ({ text, tone }: what
+ * each group got) or null when nothing was sent.
+ */
+async function cancelAllFlow(labelOf = (id) => id) {
+  const dry = await optional(api("/v1/orders/cancel-all", { method: "POST", body: { dryRun: true } }));
+  if (dry.error) {
+    toast(`Could not read the open orders: ${dry.error.message ?? "refused"}`, { tone: "error" });
+    return null;
+  }
+  const g = cancelAllGroups(dry.data?.data);
+  if (!g.total) return { text: "No open orders to cancel", tone: "info" };
+  const ours = g.bridge.length;
+  const theirs = g.external.length;
+  const parts = [g.paper ? `${formatInt(g.paper)} paper` : null, g.live ? `${formatInt(g.live)} live` : null].filter(Boolean).join(" and ");
+  const also = theirs ? h("input", { type: "checkbox" }) : null;
   const ok = await modal({
-    title: `Cancel all ${formatInt(open.total)} open order${open.total === 1 ? "" : "s"}?`,
+    title: `Cancel ${formatInt(ours)} open order${ours === 1 ? "" : "s"}?`,
     body: h(
       "div",
-      { class: "stack" },
-      h("p", {}, `The unfilled part of ${parts} order${open.total === 1 ? "" : "s"} is withdrawn. What already filled stays in Positions.`),
+      { class: "stack ca-body" },
+      h("p", {}, "The unfilled part is withdrawn. What already filled stays in Positions."),
+      h("section", { class: "ca-group" }, h("h3", { class: "ca-head" }, `Placed through the Bridge · ${formatInt(ours)}`), ours ? h("p", { class: "muted small" }, `${parts}: cancelled.`) : h("p", { class: "muted small" }, "None open."), ours ? cancelList(g.bridge, labelOf) : null),
+      theirs
+        ? h(
+            "section",
+            { class: "ca-group" },
+            h("h3", { class: "ca-head" }, `Placed outside the Bridge · ${formatInt(theirs)}`),
+            h("p", { class: "muted small" }, "In your broker's app or terminal, such as a stop-loss you set there. Left open unless you tick the box."),
+            cancelList(g.external, labelOf),
+            h("label", { class: "check" }, also, `Also cancel ${formatInt(theirs)} order${theirs === 1 ? "" : "s"} placed outside the Bridge`),
+          )
+        : null,
       h("p", { class: "muted" }, "Triggers (GTT, stops and targets) are not touched: cancel those in Triggers above."),
     ),
     buttons: [
       { label: "Keep them", value: false },
-      { label: "Cancel all", cls: "primary", value: true },
+      { label: "Cancel orders", cls: "primary", value: true },
     ],
   });
-  if (!ok) return false;
-  const r = await optional(api("/v1/orders/cancel-all", { method: "POST", body: {} }));
+  if (!ok) return null;
+  const r = await optional(api("/v1/orders/cancel-all", { method: "POST", body: cancelAllBody(also?.checked === true) }));
   if (r.error) {
     toast(`Not cancelled: ${r.error.message ?? "refused"}`, { tone: "error" });
-    return false;
+    return null;
   }
-  const d = r.data?.data ?? {};
-  const n = d.cancelled?.length ?? 0;
-  const failed = d.failed ?? [];
-  toast(failed.length ? `Cancelled ${formatInt(n)}; ${formatInt(failed.length)} not cancelled: ${failed[0]?.message ?? "refused"}` : `Cancelled ${formatInt(n)} order${n === 1 ? "" : "s"}`, { tone: failed.length ? "warn" : "ok" });
-  return true;
+  return cancelAllReport(r.data?.data);
 }
 
 /** Orders › Trades: every fill on the accounts this key may use, newest first, with buy, sell and turnover totals. */

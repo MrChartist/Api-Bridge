@@ -6,7 +6,7 @@
  *   GET    /v1/orders?account=&mode=&status=&limit=&cursor=      list (both modes when mode is absent)
  *   POST   /v1/orders               Idempotency-Key header        201, Idempotency-Replayed: true on replay
  *   POST   /v1/orders/preview
- *   POST   /v1/orders/cancel-all    { account?, mode? }
+ *   POST   /v1/orders/cancel-all    { account?, mode?, bridgeOnly?, dryRun? }
  *   GET    /v1/orders/by-client-id/{clientOrderId}
  *   GET    /v1/orders/{orderId}     PATCH (OrderChanges)          DELETE
  *   GET    /v1/trades?account=&mode=&limit=&cursor=
@@ -105,7 +105,7 @@ export function createOrderRoutes(deps) {
     async cancelAll(ctx) {
       idempotencyKey(ctx); // validated; cancel-all is naturally idempotent
       const body = parseWith(cancelAllSchema, ctx.body ?? {}, "The cancel-all request is not valid.");
-      const data = await svc().cancelAll(ctx, { accountId: body.account, mode: body.mode });
+      const data = await svc().cancelAll(ctx, { accountId: body.account, mode: body.mode, bridgeOnly: body.bridgeOnly === true, dryRun: body.dryRun === true });
       return { data, meta: meta(ctx, { accountId: body.account ?? null, ...(body.mode ? { mode: body.mode } : {}) }) };
     },
 

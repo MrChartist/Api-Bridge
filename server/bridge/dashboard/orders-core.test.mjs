@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayRows, depthView, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, tradeTotals } from "./orders-core.js";
+import { cancelAllBody, cancelAllGroups, cancelAllReport, dayRows, depthView, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, tradeTotals } from "./orders-core.js";
 
 const O = (o) => ({ orderId: "PAPER-1", accountId: "demo-paper", symbol: "NFO:NIFTY-2026-11-03-25850-CE", side: "BUY", status: "filled", mode: "paper", ...o });
 const list = [
@@ -99,5 +99,32 @@ describe("funds per account", () => {
   it("leaves what the source did not send empty", () => {
     expect(fundsView(null)).toEqual({ available: null, used: null, collateral: null, total: null, util: null, level: "none" });
     expect(fundsView({ totalBalance: 100 })).toMatchObject({ total: 100, util: null });
+  });
+});
+
+describe("Cancel all: Bridge orders and orders placed outside the Bridge", () => {
+  const dry = {
+    dryRun: true,
+    cancelled: [],
+    failed: [],
+    bridge: { cancelled: [], open: [{ orderId: "PAPER-1", mode: "paper", external: false }, { orderId: "BR-2", mode: "live", external: false }] },
+    external: { cancelled: [], left: [], open: [{ orderId: "MANUAL-9", mode: "live", external: true }] },
+  };
+  it("counts and lists both groups from the dry run", () => {
+    const g = cancelAllGroups(dry);
+    expect(g.bridge.map((o) => o.orderId)).toEqual(["PAPER-1", "BR-2"]);
+    expect(g.external.map((o) => o.orderId)).toEqual(["MANUAL-9"]);
+    expect(g).toMatchObject({ total: 3, paper: 1, live: 1 });
+    expect(cancelAllGroups(null)).toEqual({ bridge: [], external: [], total: 0, paper: 0, live: 0 });
+  });
+  it("sends bridgeOnly unless the outside orders were ticked", () => {
+    expect(cancelAllBody(false)).toEqual({ bridgeOnly: true });
+    expect(cancelAllBody(true)).toEqual({ bridgeOnly: false });
+    expect(cancelAllBody()).toEqual({ bridgeOnly: true });
+  });
+  it("reports what was cancelled in each group, and what was left", () => {
+    expect(cancelAllReport({ cancelled: ["A", "B"], failed: [], bridge: { cancelled: ["A", "B"] }, external: { cancelled: [], left: ["M"] } })).toEqual({ tone: "ok", text: "Cancelled 2 Bridge orders. 1 order placed outside the Bridge left open." });
+    expect(cancelAllReport({ cancelled: ["A", "M"], failed: [], bridge: { cancelled: ["A"] }, external: { cancelled: ["M"], left: [] } })).toEqual({ tone: "ok", text: "Cancelled 1 Bridge order and 1 order placed outside the Bridge." });
+    expect(cancelAllReport({ cancelled: [], failed: [{ orderId: "A", message: "Too late" }], bridge: { cancelled: [] }, external: { cancelled: [], left: [] } })).toEqual({ tone: "warn", text: "Cancelled 0 Bridge orders. 1 not cancelled: Too late" });
   });
 });
