@@ -1642,10 +1642,19 @@ async function renderAccounts() {
       [
         { label: "Account", wrap: true, cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
         ...(book ? [{ label: "Holder", cell: (a) => holderCell(a) ?? h("span", { class: "muted small" }, "No holder") }] : []),
-        { label: "Broker", wrap: true, cell: (a) => (a.broker === "paper" ? "Paper (simulator)" : brokerCell(a.broker, brokerOf(a)?.name ?? a.broker)) },
-        { label: "Session", cell: (a) => h("div", {}, sessionPill(a.session?.state), a.session?.expiresAt ? h("div", { class: "muted small" }, `until ${istDateTime(a.session.expiresAt)}`) : null) },
-        { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")) },
-        { label: "Can do", cell: (a) => capabilityChips(a) },
+        // Broker and what it can do share a cell, and Session carries the mode under its pill, so the table fits its
+        // card from 1100px up without a sideways scroll (two fewer columns).
+        { label: "Broker", wrap: true, cell: (a) => h("div", { class: "acct-broker" }, a.broker === "paper" ? h("span", {}, "Paper (simulator)") : brokerCell(a.broker, brokerOf(a)?.name ?? a.broker), capabilityChips(a)) },
+        {
+          label: "Session",
+          cell: (a) =>
+            h(
+              "div",
+              { class: "acct-session" },
+              h("span", { class: "acct-session-pills" }, sessionPill(a.session?.state), a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")),
+              a.session?.expiresAt ? h("div", { class: "muted small" }, `until ${istDateTime(a.session.expiresAt)}`) : null,
+            ),
+        },
         {
           label: "",
           cell: (a) => {
@@ -1654,12 +1663,22 @@ async function renderAccounts() {
             t.addEventListener("click", () => testAccount(a, t));
             if (app.state.demo) return t;
             const connected = a.session?.state === "connected";
+            const loginText = connected ? "Log in again" : "Log in";
+            const login = () => loginSheet(a, brokerOf(a));
+            // A narrow card (accounts-card container < 1080px, app.css) shows these as one ⋯ menu instead of a row.
+            const more = h("button", { type: "button", class: "icon-btn acct-acts-more", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-label": `Actions for ${a.label}: test, ${loginText.toLowerCase()}${a.liveAllowedByConfig ? "" : ", remove"}` }, icon("more"));
+            more.addEventListener("click", () => {
+              more.setAttribute("aria-expanded", "true");
+              let handle = null;
+              const item = (label, fn, cls = "") => h("button", { type: "button", class: `menu-item${cls}`, onclick: () => (handle?.close(), setTimeout(fn, 0)) }, label);
+              const items = [item("Test connection", () => testAccount(a, more)), item(loginText, login), a.liveAllowedByConfig ? null : item("Remove", () => removeAccountSheet(a), " destructive")].filter(Boolean);
+              handle = sheetPopover({ trigger: more, title: a.label, body: h("div", { class: "menu-list stack" }, items), cls: "menu-pop" });
+            });
             return h(
               "div",
-              { class: "row" },
-              t,
-              h("button", { type: "button", class: connected ? "small" : "small primary", "aria-label": `${connected ? "Log in again to" : "Log in to"} ${a.label}`, onclick: () => loginSheet(a, brokerOf(a)) }, connected ? "Log in again" : "Log in"),
-              a.liveAllowedByConfig ? null : removeButton(a),
+              { class: "acct-acts" },
+              h("div", { class: "row acct-acts-inline" }, t, h("button", { type: "button", class: connected ? "small" : "small primary", "aria-label": `${loginText === "Log in" ? "Log in to" : "Log in again to"} ${a.label}`, onclick: login }, loginText), a.liveAllowedByConfig ? null : removeButton(a)),
+              more,
             );
           },
         },

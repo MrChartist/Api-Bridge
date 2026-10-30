@@ -1040,9 +1040,10 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const lotsN = r.act.reduce((a, l) => a + l.lots, 0);
     const n = s.net;
     const afterCh = r.ch ? n - r.ch.total : null;
-    // Figures never break inside: each sits in a nowrap span; the sub may wrap between parts (two lines at most).
+    // Figures never break inside: each sits in a nowrap span; the sub may wrap between parts ("after charges" and its
+    // figure are two parts, so a narrow Net column wraps before the amount instead of running past its divider).
     const nw = (t) => h("span", { class: "nw" }, t);
-    const netSub = h("span", {}, nw(plural(lotsN, "lot")), afterCh !== null && cfg().net ? [" ", nw(`· ${isPhone() ? "net" : "after charges"} ${rupees(afterCh)}`)] : null);
+    const netSub = h("span", {}, nw(plural(lotsN, "lot")), afterCh !== null && cfg().net ? [" ", nw(`· ${isPhone() ? "net" : "after charges"}`), " ", nw(rupees(afterCh))] : null);
     setHero(hero.net, `${n > 0.5 ? "Credit" : n < -0.5 ? "Debit" : "Even"} ${rupees(Math.abs(n))}`, netSub, { cls: "neutral" });
     const m = r.model;
     const sfx = s.approx ? " · sampled" : "";

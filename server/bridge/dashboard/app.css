@@ -1708,6 +1708,28 @@ svg .dv-pill text { fill: hsl(var(--sel-fg)); font: 500 12px/1 var(--font-numeri
 button.chip-btn.acct-caps-more { min-height: 22px; padding: 0 9px; font: 500 12px/1 var(--font-body); }
 .chips.acct-caps-all { gap: 6px; max-width: 320px; padding: 4px 16px 16px; }
 @media (max-width: 719px) { .chips.acct-caps-all { max-width: none; } }
+/* Your accounts: Broker holds the "can do" chips under the name and Session holds the mode pill, so the table has five
+   columns. From 1100px (where it stops stacking) the card is the container: under 1000px wide (about 1100-1365px
+   windows) the Test / Log in / Remove row becomes one ⋯ menu and the account, holder and broker names may wrap, so the table
+   always fits with no sideways scroll. */
+.accounts-card { container: acct / inline-size; }
+.acct-broker, .acct-session { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.acct-session-pills { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.acct-session .muted.small { margin-top: 0; }
+.accounts-card td.wrap { min-width: 150px; }
+.acct-acts { display: flex; justify-content: flex-end; }
+.acct-acts-inline { flex-wrap: nowrap; }
+button.icon-btn.acct-acts-more { display: none; width: 36px; height: 36px; }
+button.icon-btn.acct-acts-more svg { width: 18px; height: 18px; fill: currentColor; stroke: currentColor; }
+@media (min-width: 1100px) {
+  @container acct (max-width: 1079px) {
+    .accounts-card .table-wrap td.lead strong, .accounts-card .table-wrap .acct-holder-who { white-space: normal; }
+    .accounts-card .table-wrap .broker-cell { min-width: 0; }
+    .acct-acts-inline { display: none; }
+    button.icon-btn.acct-acts-more { display: inline-grid; }
+  }
+}
+@media (max-width: 1099px) { .acct-broker, .acct-session { align-items: flex-end; } .acct-acts { justify-content: flex-start; } }
 .card-actions > .dir-search { flex: 1 1 200px; }
 
 /* Avatars: a broker's logo on a white tile (logos are made for light backgrounds), or its initials. */
@@ -2926,7 +2948,7 @@ button.sg-card .sg-meta { grid-area: m; min-width: 0; font: 500 12px/1.3 var(--f
 .be-list .be-v { white-space: nowrap; }
 .pop-line { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .pop-ring { flex: none; display: block; }
-.hero-pop .hero-s { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hero-pop .hero-s { display: block; }
 .ring-track { fill: none; stroke: var(--mat-fill-3); stroke-width: 4; }
 .ring-arc { fill: none; stroke: hsl(var(--pos)); stroke-width: 4; stroke-linecap: round; transition: stroke-dashoffset 420ms var(--ease-out); }
 .ring-arc.warn { stroke: hsl(var(--warn)); }
@@ -3258,6 +3280,26 @@ button.toast-undo { --btn-h: 28px; --btn-px: 10px; --btn-fs: 13px; --btn-bg: tra
   .leg-row { grid-template-columns: 22px 24px minmax(96px, 1fr) 32px 50px 70px 60px 28px; grid-template-areas: "on side strike right exp lots price more"; }
   .leg-delta { display: none; }
   .strat-hero .hero-v { font-size: 16px; }
+}
+/* The hero follows the analysis column's own width (desktop only: below 1024px .strat-analysis is display: contents
+   and the tablet/phone rules lay the hero out). Five cells in a row need about 580px; narrower (about 1024-1400px
+   windows) it is three over two, and under 380px (about 1024-1080px) two per row with Net across the top. */
+.strat-analysis { container: strat-an / inline-size; }
+@media (min-width: 1024px) {
+  @container strat-an (max-width: 579px) {
+    .strat-hero { grid-template-columns: repeat(6, minmax(0, 1fr)); row-gap: 10px; }
+    .strat-hero .hero-c { grid-column: span 2; padding: 0 10px; }
+    .strat-hero .hero-c:nth-child(1) { padding-left: 0; }
+    .strat-hero .hero-c:nth-child(3) { box-shadow: none; }
+    .strat-hero .hero-c:nth-child(4), .strat-hero .hero-c:nth-child(5) { grid-column: span 3; padding-top: 10px; box-shadow: inset 0 var(--hl) 0 var(--mat-hairline); }
+    .strat-hero .hero-c:nth-child(4) { padding-left: 0; box-shadow: inset 0 var(--hl) 0 var(--mat-hairline), inset calc(-1 * var(--hl)) 0 0 var(--mat-hairline); }
+  }
+  @container strat-an (max-width: 379px) {
+    .strat-hero { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .strat-hero .hero-c:nth-child(n) { grid-column: span 1; padding: 10px 10px 0; box-shadow: inset 0 var(--hl) 0 var(--mat-hairline); }
+    .strat-hero .hero-c:nth-child(1) { grid-column: 1 / -1; padding: 0; box-shadow: none; }
+    .strat-hero .hero-c:nth-child(2n) { padding-left: 0; box-shadow: inset 0 var(--hl) 0 var(--mat-hairline), inset calc(-1 * var(--hl)) 0 0 var(--mat-hairline); }
+  }
 }
 
 /* Tablet and phone: one column in the order hero → payoff → what-if → presets → legs → tools → risk → table → suggest. */
@@ -6688,6 +6730,17 @@ button.ref-chip[data-tone="bad"] { color: hsl(var(--neg-ink)); }
   #toolbar-ctx button.live-ctl[data-kind="live"] { min-width: 44px; padding: 0 14px; justify-content: center; }
   #toolbar-ctx button.live-ctl[data-kind="live"] .live-txt { display: none; }
 }
+/* Narrow desktops (1024-1279px) on the desk pages: the sidebar takes 280px, so the live control is its dot and the demo
+   pill its amber dot and Ready its glyph (all keep their words in the label); the capsule then
+   keeps the spot and its % change (fitCtx drops the rest). */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  :root[data-layout="desk"] #toolbar-ctx button.live-ctl[data-kind="live"] { min-width: 40px; padding: 0 14px; justify-content: center; }
+  :root[data-layout="desk"] #toolbar-ctx button.live-ctl[data-kind="live"] .live-txt { display: none; }
+  :root[data-layout="desk"] button.toolbar-demo { width: var(--ctl-h); padding: 0; justify-content: center; }
+  :root[data-layout="desk"] .toolbar-demo > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  :root[data-layout="desk"] button.toolbar-ready-btn { width: var(--ctl-h); padding: 0; justify-content: center; }
+  :root[data-layout="desk"] .toolbar-ready .rd-long, :root[data-layout="desk"] .toolbar-ready .rd-short { display: none; }
+}
 /* Phones: the chip is short ("Lot 65") and keeps its size; the underlying never shrinks under the expiry (it used to,
    and the two labels overlapped). The capsule clips instead, so the chain and the builder drop figures (fitCtx). */
 @media (max-width: 719px) {
@@ -7566,7 +7619,7 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
 /* Stacked cards (tablet, phone): the holder sits right-aligned like the other labelled rows. */
 @media (max-width: 1099px) { .acct-holder { align-items: flex-end; text-align: right; } }
 @media (min-width: 1100px) {
-  /* One height per row (about 62px): two short lines in every cell, slightly tighter cell gaps so seven columns fit. */
+  /* Slightly tighter cell gaps so the five columns fit (the narrow-card rules are with .accounts-card above). */
   .accounts-card th, .accounts-card td { padding-inline: 8px; }
   .accounts-card td { padding-block: 11px; }
   .accounts-card th:first-child, .accounts-card td:first-child { padding-left: var(--card-pad); }
