@@ -13,8 +13,9 @@ export const LINGER_MS = 15_000;
 /** Largest subscribe op the Bridge takes in one message (stream.maxSymbolsPerRequest default). */
 export const OP_CHUNK = 200;
 /**
- * Ticks are handed to pages at most this often. A broker feed sends a burst of ticks over a few frames; one delivery
- * per burst means one redraw of the chain instead of four (each redraw is a full patch and layout of the table).
+ * Ticks are handed to a page at most this often by default. A broker feed sends a burst of ticks over a few frames;
+ * one delivery per burst means one redraw of a page that redraws a whole view (OI Analysis, the Strategy Builder)
+ * instead of four. A page that patches only the cells a tick changed asks for every frame (watch(..., { minGapMs: 0 })).
  */
 export const DELIVER_MIN_MS = 150;
 
@@ -53,18 +54,29 @@ const latest = new Map(); // symbol -> merged tick
 const budgetListeners = new Set();
 /** Saved-scan alerts (subscribe_scans): fn(msg) for each { type: "scan", event: "alert" }. */
 const scanListeners = new Set();
+/** Live market events (subscribe_events, S28): { onEvent(msg), onReconnect?(), opened } per listener. */
+const eventListeners = new Set();
 const statusListeners = new Set();
 let lastBudget = null;
 let ws = null;
 let state = "off"; // off | connecting | live | down
 let retry = 0;
 let syncQueued = false;
-let pendingTicks = new Map();
 let frameQueued = false;
+let frameDue = 0;
 let lingerTimer = null;
-let deliveredAt = 0;
 
 const inBrowser = () => typeof window !== "undefined" && typeof WebSocket !== "undefined";
+
+function safely(fn) {
+  try {
+    fn();
+  } catch {
+    /* one listener's error must not stop the others */
+  }
+}
+
+const wantsConnection = () => watchers.size > 0 || budgetListeners.size > 0 || scanListeners.size > 0 || eventListeners.size > 0;
 
 function setState(s) {
   if (s === state) return;
@@ -110,7 +122,7 @@ function send(op) {
 function sync() {
   syncQueued = false;
   if (!inBrowser()) return;
-  if (!ws && (watchers.size || budgetListeners.size || scanListeners.size)) connect();
+  if (!ws && wantsConnection()) connect();
   if (ws?.readyState !== 1) return;
   const { subscribe, unsubscribe } = subscriptionDiff(wanted(), onWire);
   for (const [mode, syms] of subscribe) {
@@ -146,40 +158,59 @@ function scheduleLingerSweep() {
   }, Math.max(250, next - Date.now() + 50));
 }
 
+const clockMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+
+/** Hand each watcher its pending ticks when its own gap since its last delivery has passed; queue the rest. */
 function deliver() {
   frameQueued = false;
-  deliveredAt = typeof performance !== "undefined" ? performance.now() : Date.now();
-  const batch = pendingTicks;
-  pendingTicks = new Map();
+  const t = clockMs();
+  let next = Infinity;
   for (const w of watchers) {
-    let mine = null;
-    for (const [sym, tick] of batch) {
-      if (!w.symbols.has(sym)) continue;
-      (mine ??= new Map()).set(sym, tick);
+    if (!w.pending.size) continue;
+    const wait = w.minGapMs - (t - w.deliveredAt);
+    if (wait > 1) {
+      next = Math.min(next, wait);
+      continue;
     }
-    if (!mine) continue;
+    const mine = w.pending;
+    w.pending = new Map();
+    w.deliveredAt = t;
     try {
       w.onTicks(mine);
     } catch {
       /* one page's error must not stop another page's ticks */
     }
   }
+  if (next < Infinity) queueFrame(next);
+}
+
+/**
+ * The next delivery: the next animation frame, `wait` ms from now at the soonest. A hidden tab gets no animation
+ * frames; it is delivered on a timer there so the data is current when it comes back.
+ */
+function queueFrame(wait = 0) {
+  const due = clockMs() + wait;
+  // One delivery queued at a time, unless this one is due sooner (a per-frame watcher behind a 150 ms one).
+  if (frameQueued && due >= frameDue - 1) return;
+  frameQueued = true;
+  frameDue = due;
+  if (typeof document !== "undefined" && document.hidden) setTimeout(deliver, Math.max(250, wait));
+  else if (wait > 1) setTimeout(() => requestAnimationFrame(deliver), wait);
+  else requestAnimationFrame(deliver);
 }
 
 function acceptTick(t) {
   if (!t?.symbol) return;
   const merged = mergeTick(latest.get(t.symbol), t);
   latest.set(t.symbol, merged);
-  pendingTicks.set(t.symbol, merged);
-  if (!frameQueued) {
-    frameQueued = true;
-    // A hidden tab gets no animation frames; deliver on a timer there so the data is current when it comes back.
-    // Otherwise the next frame, but no sooner than DELIVER_MIN_MS after the last delivery.
-    const wait = Math.max(0, DELIVER_MIN_MS - (performance.now() - deliveredAt));
-    if (typeof document !== "undefined" && document.hidden) setTimeout(deliver, 250);
-    else if (wait > 0) setTimeout(() => requestAnimationFrame(deliver), wait);
-    else requestAnimationFrame(deliver);
+  let soonest = Infinity;
+  const now = clockMs();
+  for (const w of watchers) {
+    if (!w.symbols.has(t.symbol)) continue;
+    w.pending.set(t.symbol, merged);
+    soonest = Math.min(soonest, Math.max(0, w.minGapMs - (now - w.deliveredAt)));
   }
+  if (soonest < Infinity) queueFrame(soonest);
 }
 
 async function connect() {
@@ -211,6 +242,12 @@ async function connect() {
     setState("live");
     if (budgetListeners.size) send({ op: "subscribe_budget" });
     if (scanListeners.size) send({ op: "subscribe_scans" });
+    if (eventListeners.size) send({ op: "subscribe_events" });
+    // A listener that was already listening before this connection missed what happened while it was down.
+    for (const l of eventListeners) {
+      if (l.opened) safely(() => l.onReconnect?.());
+      l.opened = true;
+    }
     queueSync();
   };
   sock.onmessage = (m) => {
@@ -239,6 +276,8 @@ async function connect() {
           /* keep going */
         }
       }
+    } else if (msg.type === "market_event") {
+      for (const l of eventListeners) safely(() => l.onEvent(msg));
     } else if (msg.type === "error" && msg.op === "subscribe" && Array.isArray(msg.symbols)) {
       // Over a subscription cap: those symbols stay with polling (the pages keep their REST refresh).
       for (const s of msg.symbols) onWire.delete(s);
@@ -249,7 +288,7 @@ async function connect() {
   sock.onclose = () => {
     if (ws === sock) ws = null;
     onWire.clear();
-    if (watchers.size || budgetListeners.size || scanListeners.size) later();
+    if (wantsConnection()) later();
     else setState("off");
   };
 }
@@ -262,13 +301,16 @@ function later() {
 
 /**
  * Watch symbols. `onTicks(Map<symbol, tick>)` runs at most once per animation frame with the newest tick of each
- * changed symbol (merged with what was known). Returns { update(symbols), stop(), last(symbol) }.
+ * changed symbol (merged with what was known), and no sooner than `minGapMs` after its last delivery
+ * (DELIVER_MIN_MS by default: a page that redraws a whole view per delivery; 0 for a page that patches only the
+ * cells a tick changed, such as the option chain). Returns { update(symbols), stop(), last(symbol) }.
  * @param {string[]} symbols canonical symbols
  * @param {"ltp"|"quote"|"depth"} mode
  * @param {(ticks: Map<string, object>) => void} onTicks
+ * @param {{ minGapMs?: number }} [opts]
  */
-export function watch(symbols, mode, onTicks) {
-  const w = { symbols: new Set(symbols ?? []), mode, onTicks };
+export function watch(symbols, mode, onTicks, { minGapMs = DELIVER_MIN_MS } = {}) {
+  const w = { symbols: new Set(symbols ?? []), mode, onTicks, minGapMs: Math.max(0, Number(minGapMs) || 0), pending: new Map(), deliveredAt: -Infinity };
   watchers.add(w);
   for (const s of w.symbols) lingering.delete(s);
   queueSync();
@@ -284,6 +326,7 @@ export function watch(symbols, mode, onTicks) {
       const n = new Set(next ?? []);
       release([...w.symbols].filter((s) => !n.has(s)));
       for (const s of n) lingering.delete(s);
+      for (const s of w.pending.keys()) if (!n.has(s)) w.pending.delete(s);
       w.symbols = n;
       queueSync();
     },
@@ -311,6 +354,24 @@ export function onBudget(fn) {
   return () => {
     budgetListeners.delete(fn);
     if (!budgetListeners.size) send({ op: "unsubscribe_budget" });
+  };
+}
+
+/**
+ * Listen for live market events (op subscribe_events, docs/asyncapi.yaml) on the tab's one connection.
+ * `onEvent(msg)` gets each { type: "market_event", action, event }; `onReconnect()` runs when the connection came
+ * back after a drop (fetch what was missed). Returns an unsubscribe function.
+ * @param {(msg: object) => void} onEvent
+ * @param {{ onReconnect?: () => void }} [opts]
+ */
+export function onMarketEvents(onEvent, { onReconnect } = {}) {
+  const l = { onEvent, onReconnect, opened: ws?.readyState === 1 };
+  eventListeners.add(l);
+  if (ws?.readyState === 1 && eventListeners.size === 1) send({ op: "subscribe_events" });
+  queueSync();
+  return () => {
+    if (!eventListeners.delete(l)) return;
+    if (!eventListeners.size) send({ op: "unsubscribe_events" });
   };
 }
 

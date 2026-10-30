@@ -313,8 +313,11 @@ function revalidate(path, served) {
 /**
  * Call the Bridge. Returns { data, headers, status, ms, text, cached? }. With raw: true, error answers are returned
  * too (and nothing is shared or remembered: the test console shows the real call). `fresh: true` skips the memory.
+ * `paintOld: true` treats this read like a page switch: a remembered answer up to PAINT_FROM_CACHE_MS old (a
+ * prefetch, say) is returned at once with `cached: "paint"` while a fresh one is fetched behind it (the caller reads
+ * again to get it; the second read joins that request).
  */
-export async function api(path, { method = "GET", body, raw = false, fresh = false } = {}) {
+export async function api(path, { method = "GET", body, raw = false, fresh = false, paintOld = false } = {}) {
   const headers = baseHeaders();
   if (method !== "GET" || raw) {
     if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -342,7 +345,7 @@ export async function api(path, { method = "GET", body, raw = false, fresh = fal
     const hit = answers.get(path);
     const age = hit ? Date.now() - hit.at : NaN;
     // A prefetched answer (the expiry chip under the pointer) serves the click that follows it for a few seconds.
-    const use = hit ? cacheUse(age, navigating) ?? (hit.prefetched && age <= PREFETCH_USE_MS ? "fresh" : null) : null;
+    const use = hit ? cacheUse(age, navigating || paintOld) ?? (hit.prefetched && age <= PREFETCH_USE_MS ? "fresh" : null) : null;
     if (use) {
       hit.prefetched = false; // a prefetch serves one ask; the page's own refreshes go to the Bridge
       if (use === "paint") revalidate(path, hit);
@@ -351,7 +354,10 @@ export async function api(path, { method = "GET", body, raw = false, fresh = fal
   }
   const t0 = performance.now();
   const a = await fetchShared(path, { headers });
-  return toResult(a, { raw, ms: Math.round(performance.now() - t0) });
+  const out = toResult(a, { raw, ms: Math.round(performance.now() - t0) });
+  const held = positionSymbols(path, out.data);
+  if (held) noteRead(path, { symbols: held, mode: "ltp", update: true });
+  return out;
 }
 
 // ── Polls become stream subscriptions ──
@@ -378,8 +384,20 @@ export function pollTarget(path) {
   return symbols.length ? { symbols, mode: m[1] === "quotes" ? "quote" : "ltp" } : null;
 }
 
-function noteRead(path) {
-  const target = pollTarget(path);
+/**
+ * The open positions' symbols in a /v1/positions answer (pure): a page polling positions (the chain, OI and Strategy
+ * read them every few seconds for held lots and delta) has them watched too, so the Bridge marks them to market from
+ * ticks instead of a broker read per poll. Null for any other path.
+ */
+export function positionSymbols(path, body) {
+  if (!/^\/v1\/positions(?:\?|$)/.test(String(path))) return null;
+  const rows = Array.isArray(body?.data) ? body.data : [];
+  const out = new Set();
+  for (const p of rows) if (typeof p?.symbol === "string" && Number(p.netQty)) out.add(p.symbol);
+  return [...out].slice(0, 100);
+}
+
+function noteRead(path, target = pollTarget(path)) {
   if (!target || typeof window === "undefined") return;
   const now = Date.now();
   const w = autoWatches.get(path);
@@ -387,7 +405,15 @@ function noteRead(path) {
     autoWatches.set(path, { seen: now, handle: null, timer: null, n: 0 });
     return;
   }
-  if (!w.handle && now - w.seen <= AUTO_WATCH_MS && autoWatched + target.symbols.length <= AUTO_WATCH_MAX) {
+  if (w.handle && target.update && now - w.seen <= AUTO_WATCH_MS) {
+    // Positions change (a fill, a close): follow them, within the same cap.
+    const extra = target.symbols.length - w.n;
+    if (autoWatched + extra <= AUTO_WATCH_MAX) {
+      w.handle.update(target.symbols);
+      autoWatched += extra;
+      w.n = target.symbols.length;
+    }
+  } else if (!w.handle && now - w.seen <= AUTO_WATCH_MS && target.symbols.length && autoWatched + target.symbols.length <= AUTO_WATCH_MAX) {
     w.n = target.symbols.length;
     autoWatched += w.n;
     w.handle = liveWatch(target.symbols, target.mode, () => {});

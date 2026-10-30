@@ -182,3 +182,88 @@ Greeks are well under a frame.
 | Busiest: quote calls in the window | 20 (20, 20) | 20 (20, 20) |
 
 Busiest scenario: 37 % fewer broker calls (raw, background jobs included).
+
+# After round 2
+
+Raw results: `round2-before-1.json`, `round2-before-2.json`, `round2-after-1.json`, `round2-after-2.json` (Chain, Strategy,
+OI Analysis, Live events, busiest scenario) and `round2-before-3-chain.json`, `round2-after-3-chain.json` (a third
+Chain-only pair). Same machine and settings as above (4 vCPU, Node 22.22, headless Chromium, `--latency 200`, 30 s
+steady window, 60 s busiest, 30 s idle), rounds interleaved: after, before, after, before, then after, before.
+Before: commit `614fa1b` (the branch when round 2 started). After: commit `6c2137e`.
+
+## Summary
+
+| | Before | After |
+|---|---|---|
+| Chain tick to cell, p95 (three rounds) | 259 ms (319, 225, 234) | 104 ms (135, 92, 86) |
+| Chain tick to cell, p50 | 92 ms (124, 77, 74) | 56 ms (71, 52, 46) |
+| Chain long tasks in 30 s, count / ms | 43 (75, 26, 27) / 3173 ms | 6 (13, 2, 3) / 377 ms |
+| Busiest scenario (Chain + OI + Strategy + Live events), broker calls / min | 28 (35, 20) | 5 (9, 0) |
+| of which quote calls in 60 s | 20 (20, 20) | 0 (0, 0) |
+| of which chain calls in 60 s (the recorder's background REST chains) | 8 (15, 0) | 5 (9, 0) |
+| Chain page alone, broker calls / min | 20 (20, 20) | 9 (16, 2) |
+| Strategy page alone, broker calls / min | 20 (20, 20) | 0 (0, 0) |
+| Live events page, broker calls / min | 0 | 0 (the 18 in one round are recorder chains, see below) |
+
+## Read this first: noise and what the numbers are
+
+- **Tick to cell p95 ≤ 100 ms**: met in two of the three after rounds (92, 86) and missed in one (135, the round with
+  13 long tasks). The mean of the three is 104 ms, the median 92 ms. Single runs on a quiet Bridge during the work
+  gave 76 to 102 ms. Every before round was 225 ms or more. Treat "about 100 ms in headless software paint, under
+  half of before" as the honest result; a desktop browser with a GPU paints faster.
+- **Long tasks**: the per-tick full redraw is gone (ticks now patch cells); what is left is mostly the 3 s REST
+  refresh, which still redraws chain-wide figures (totals, PCR, bar scales, tags) in one task.
+- **The 20 quote calls a minute were not the Live events engine.** In demo the events engine runs on its own
+  simulator and makes no broker call. They were the paper positions the Chain, OI and Strategy pages poll every 3 s
+  (`/v1/positions`), each marked to market by a broker read for legs no page streamed. A polled positions read now has
+  its open positions watched on the live connection, and those calls are gone (busiest: 20 to 0).
+- **Per-page broker figures include background jobs**: the recorder's REST chains (demo plan: 14 index chains) land
+  in whichever window they fall in (chain 7 on one after Chain round, chain 9 on the events after-2 round). The
+  busiest and idle rows are the better broker figures.
+- **Idle is higher after (19 against 14 a minute)**: the demo book seed now paces its nine paper orders through the
+  background gate, so its reads (quote and depth) fall in the harness's idle window (which starts 3 s after boot)
+  instead of a burst in the first second. Same calls, spread out; it is the fix for the flaky
+  `fno/routes.test.mjs`.
+- Strategy and OI first data and switch times stay "–" for the reason given above (a skeleton bar slot never leaves).
+
+## Per page (rounds 1 and 2)
+
+| Page | Figure | Before | After |
+|---|---|---|---|
+| chain | First data, ms | 906 (1122, 689) | 740 (873, 606) |
+| chain | Switch (first), ms | 236 (4, 467) | 145 (1, 289) |
+| chain | Switch (from cache), ms | 191 (185, 196) | 186 (168, 203) |
+| chain | Broker / min (raw) | 20 (20, 20) | 9 (16, 2) |
+| chain | Long tasks (count / ms) | 51 (75, 26) / 3915 (6151, 1679) | 8 (13, 2) / 477 (815, 139) |
+| chain | Tick to cell p50 / p95, ms | 101 (124, 77) / 272 (319, 225) | 62 (71, 52) / 114 (135, 92) |
+| strategy | Broker / min (raw) | 20 (20, 20) | 0 (0, 0) |
+| strategy | Long tasks (count / ms) | 0 (0, 0) / 0 (0, 0) | 1 (1, 0) / 26 (52, 0) |
+| oi | Broker / min (raw) | 27 (20, 34) | 4 (0, 8) |
+| oi | Long tasks (count / ms) | 5 (7, 3) / 383 (600, 166) | 0 (0, 0) / 0 (0, 0) |
+| oi | Tick to cell p50 / p95, ms | 67 (67, 67) / 317 (85, 549) | 50 (48, 52) / 304 (537, 70) |
+| events | First data, ms | 348 (346, 350) | 326 (329, 323) |
+| events | Switch (from cache), ms | 37 (33, 41) | 37 (39, 34) |
+| events | Broker / min (raw) | 0 (0, 0) | 9 (0, 18) |
+| Idle Bridge (no page), broker calls / min | | 14 (22, 6) | 19 (18, 20) |
+| Busiest, broker calls / min, raw | | 28 (35, 20) | 5 (9, 0) |
+
+OI tick to cell is unchanged in substance (it redraws every strike at most twice a second; one round each side had a
+500+ ms outlier).
+
+## What changed in round 2
+
+- **Chain per-cell live path** (`desk.js` `patchLive` / `patchLegs`, `live.js` per-watcher gap): ticks are delivered to
+  the chain every frame and patch only the cells of the legs that ticked; IV and Greeks of a ticked leg are repriced
+  on the chain's own Black-76 pricing block (`options.js repriceLeg`, checked against the server's figures in
+  `market/ivModel.test.mjs`); the parity cells of that strike are redone. Full redraw only on a structural change.
+- **The biggest single cost was CSS**: `:has()` rules whose subject was `.content` or `.app-main` turned every DOM
+  change in the page into a style recalculation of ~2000 nodes (40 to 90 ms a tick). They now key off
+  `:root[data-page]`.
+- `morph()` writes only what differs, without allocating; bar lengths snap on live ticks; Greek column signatures are
+  their displayed text, so a refresh with the same rounded figure writes nothing.
+- **Quiet strikes** (`market.quietLegMaxAgeMs`, 60 s): a stream-first chain no longer falls back to the broker because
+  an illiquid far leg has not traded, while its feed is live; labelled with `tickAgeMs` and `freshness.quiet`.
+- **Live events**: on real brokers, REST only for symbols the hub refused, never ticked, or whose feed went silent
+  (`events.quietMaxMs`); the page uses the tab's one live connection. `events/feedCalls.test.mjs` counts the calls.
+- **Polled positions stream**, **next-expiry prefetch**, **start-up seed paced through the background gate**: see
+  README §2 and §3.

@@ -1,0 +1,52 @@
+{
+  "at": "2026-10-30T13:58:58.228Z",
+  "node": "v22.22.0",
+  "seconds": 30,
+  "latencyMs": 200,
+  "pages": [
+    {
+      "page": "chain",
+      "firstData": 785,
+      "fcp": 164,
+      "jsKB": 2128,
+      "cssKB": 706,
+      "jsFiles": 39,
+      "reloadLoadMs": 108,
+      "switchFirst": 359,
+      "switchBack": 376,
+      "switchCached": 141,
+      "restPerMin": 70,
+      "duplicates": 0,
+      "duplicateUrls": {},
+      "brokerPerMinRaw": 20,
+      "brokerByClass": {
+        "quote": 10
+      },
+      "longTasks": 27,
+      "longTaskMs": 1690,
+      "longTaskMax": 119,
+      "tickToCell": {
+        "n": 34,
+        "p50": 74,
+        "p95": 234
+      },
+      "topRequests": {
+        "GET /v1/optionchain": 10,
+        "GET /v1/quotes": 10,
+        "GET /v1/positions": 10,
+        "GET /v1/alerts/inbox": 2,
+        "GET /v1/alerts": 2,
+        "GET /v1/readiness": 1
+      },
+      "brokerPerMinNet": 2
+    }
+  ],
+  "idle": {
+    "seconds": 10,
+    "brokerPerMin": 18,
+    "byClass": {
+      "quote": 1,
+      "depth": 2
+    }
+  }
+}

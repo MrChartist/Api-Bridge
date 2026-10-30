@@ -17,6 +17,8 @@ import { createUniverse } from "./universe.mjs";
 
 const READ = Object.freeze({ scope: "read" });
 const WRITE = Object.freeze({ scope: "admin", loopbackOnly: true });
+/** The picker's price read waits at most this long for a per-second quote window to refill (docs/spec/p1-06 §3.3). */
+const HEADROOM_WAIT_MS = 1000;
 
 /** [method, path, route options, handler name] — docs/openapi.yaml, x-stream S19. */
 export const ROUTES = Object.freeze([
@@ -111,7 +113,13 @@ export function createFno(deps) {
     }
     if (!account) return { byUnderlying: new Map(), meta: { loaded: false, reason: "BROKER_UNAVAILABLE" } };
     try {
-      const h = deps.scheduler.headroom(account, "quote");
+      let h = deps.scheduler.headroom(account, "quote");
+      // A per-second window that refills within a second is a moment's burst, not an exhausted class: look again once
+      // it has refilled (at most HEADROOM_WAIT_MS) before answering without prices.
+      if (Number.isFinite(h?.remaining) && h.remaining < 2 && h.resetMs > 0 && h.resetMs <= HEADROOM_WAIT_MS) {
+        await new Promise((r) => setTimeout(r, h.resetMs + 5));
+        h = deps.scheduler.headroom(account, "quote");
+      }
       if (Number.isFinite(h?.remaining) && h.remaining < 2) return { byUnderlying: new Map(), meta: { loaded: false, reason: "NO_HEADROOM" } };
     } catch {
       // unknown headroom: try the read

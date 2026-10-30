@@ -463,6 +463,29 @@ export function createMarketDataService(deps) {
     }
   }
 
+  /**
+   * A chain leg whose last tick is older than the freshness target, trusted because nothing traded: its subscription
+   * is live, its feed is delivering ticks now (some symbol ticked within `targetMs`, and the feed is not silent), the
+   * tick came on the current connection, and it is no older than market.quietLegMaxAgeMs. Null otherwise.
+   */
+  function quietFromStream(symbol, pinned, targetMs) {
+    const maxMs = cfg.quietLegMaxAgeMs;
+    if (!(maxMs > 0) || typeof streamHub.feedInfo !== "function") return null;
+    try {
+      const info = streamHub.feedInfo(symbol);
+      if (!info || info.stale || !Number.isFinite(info.lastTickAt) || now() - info.lastTickAt > targetMs) return null;
+      const t = streamHub.lastTick(symbol);
+      if (!t || (pinned && t.accountId !== pinned) || !tickHasQuote(t) || !Number.isFinite(t.receivedAt)) return null;
+      if (Number.isFinite(info.connectedAt) && t.receivedAt < info.connectedAt) return null;
+      if (now() - t.receivedAt > maxMs) return null;
+      const fields = tickFields(t);
+      if (!fields) return null;
+      return { fields, at: t.receivedAt, accountId: t.accountId ?? null, broker: t.broker ?? null, quiet: true };
+    } catch {
+      return null;
+    }
+  }
+
   // ── LTP and quotes ──
 
   const quoteKey = (symbol) => `q|${symbol}`;
@@ -1266,13 +1289,15 @@ export function createMarketDataService(deps) {
     const window = trimStrikes(rows, atm, strikes);
     const lotSize = base.value.lotSize ?? null;
     let oldest = spot.at;
+    let quietLegs = 0;
+    let quietOldest = null;
     const out = [];
     for (const row of window) {
       const next = { strike: row.strike, ce: null, pe: null };
       for (const side of ["ce", "pe"]) {
         const leg = row[side];
         if (!leg) continue;
-        const s = fromStream(leg.symbol, true, pinned, targetMs);
+        const s = fromStream(leg.symbol, true, pinned, targetMs) ?? quietFromStream(leg.symbol, pinned, targetMs);
         if (!s) return null;
         const unit = oiUnitFor(s.broker ?? base.broker, "stream");
         const tickOi = s.fields.oi ?? null;
@@ -1298,12 +1323,18 @@ export function createMarketDataService(deps) {
         delete fields.symbol;
         delete fields.greeksSource;
         next[side] = finishLeg(fields, { symbol: leg.symbol, declared: null, greeks, spot: spot.fields.ltp, strike: row.strike, expiry, right: side.toUpperCase(), nowMs: now(), rate: riskFreeRate() });
-        if (s.at < oldest) oldest = s.at;
+        if (s.quiet) {
+          // Its own label: the price is the last trade, this old. The chain's asOf stays that of the live legs.
+          next[side].tickAgeMs = Math.max(0, Math.round(now() - s.at));
+          quietLegs += 1;
+          quietOldest = quietOldest === null ? s.at : Math.min(quietOldest, s.at);
+        } else if (s.at < oldest) oldest = s.at;
       }
       out.push(next);
     }
     if (!out.length) return null;
-    return { value: { underlyingLtp: spot.fields.ltp, rows: out, lotSize }, at: oldest, accountId: spot.accountId ?? base.accountId, broker: spot.broker ?? base.broker };
+    const quiet = quietLegs ? { legs: quietLegs, oldestTickAgeMs: Math.max(0, Math.round(now() - quietOldest)), maxAgeMs: cfg.quietLegMaxAgeMs } : null;
+    return { value: { underlyingLtp: spot.fields.ltp, rows: out, lotSize }, at: oldest, accountId: spot.accountId ?? base.accountId, broker: spot.broker ?? base.broker, quiet };
   }
 
   /** In-flight background refreshes of stale-while-revalidate chain reads, by cache key. */
@@ -1336,7 +1367,9 @@ export function createMarketDataService(deps) {
     const live = streamChain({ underlying, expiry: p.expiry, strikes: p.strikes, greeks, pinned, targetMs });
     if (live) {
       saving("stream");
-      return keyed(chainResult(underlying, p.expiry, live.value, p.strikes, freshness({ source: "stream", at: live.at, now: now(), targetMs, accountId: live.accountId, broker: live.broker }), facts), live.value.rows);
+      const fresh = freshness({ source: "stream", at: live.at, now: now(), targetMs, accountId: live.accountId, broker: live.broker });
+      if (live.quiet) fresh.quiet = live.quiet;
+      return keyed(chainResult(underlying, p.expiry, live.value, p.strikes, fresh, facts), live.value.rows);
     }
     const stale = staleEntry(key, pinned);
     const serveStale = () => {

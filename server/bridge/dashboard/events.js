@@ -1,5 +1,5 @@
 // Live events (#/screeners/events, docs/guides/live-events.md): market events as they are detected on the Bridge,
-// streamed over /v1/stream (subscribe_events) and painted once per animation frame. A summary strip (counts, bull and
+// streamed over the tab's one live connection (live.js, op subscribe_events) and painted once per animation frame. A summary strip (counts, bull and
 // bear balance, the busiest kinds), the controls (stocks or options, bull / bear, kind, search, feed or by stock, pause,
 // sound, the event picker, custom conditions, CSV), and a virtualised list: only the visible rows exist, keyed by
 // event id, so an update touches only the cells that changed. A row opens a side sheet with the stock's levels and
@@ -14,6 +14,7 @@ import { api, app, h, icon, istTime, modal, mountToolbarCtx, optional, toast } f
 import { DASH, formatFixed, formatInt, formatSigned, isFigure } from "./format.js";
 import { handoffPrefs } from "./screens.js";
 import { segmented } from "./views.js";
+import { liveState, onLiveState, onMarketEvents } from "./live.js";
 
 const DESK_SLOT = "mcb.dashboard.desk";
 const local = { get: (k) => app.local?.get?.(k) ?? null, set: (k, v) => app.local?.set?.(k, v) };
@@ -655,25 +656,39 @@ export async function renderEventsPage() {
     const list = r.data?.data ?? [];
     return list.find((a) => a.broker === "paper" || /paper/.test(a.id)) ?? null;
   }
-  async function ticket(item, side) {
+  /** The instrument behind a symbol (lot size, kind), or null when no connected broker's master lists it. */
+  async function instrumentOf(sym) {
+    const r = await optional(api(`/v1/instruments/${encodeURIComponent(sym)}`));
+    const d = r.data?.data;
+    return d && Number(d.lotSize) > 0 ? { lotSize: Number(d.lotSize), kind: d.kind ?? null } : null;
+  }
+  async function ticket(item, side, inst) {
+    if (!inst) return toast(`${item.symbol.split(":")[1]} is not in a connected broker's instrument master, so it cannot be traded here.`, { tone: "warn" });
     const a = await paperAccount();
     if (!a) return toast("No paper account to trade on.", { tone: "warn" });
-    const { openPlacement } = await import("./strategy-place.js");
+    const [{ openPlacement }, { ticketProduct }] = await Promise.all([import("./strategy-place.js"), import("./options.js")]);
+    // The chain ticket's default: Intraday until the 15:20 IST square-off, then carry forward (NRML for F&O,
+    // delivery for cash), so an order after the square-off is not refused.
+    const carry = ticketProduct(null) === "MARGIN";
+    const product = carry ? (inst.kind === "EQ" ? "CNC" : "MARGIN") : "INTRADAY";
     document.querySelector("#dialog .sheet-close")?.click();
     await new Promise((r) => setTimeout(r, 250));
     const sym = item.symbol;
     openPlacement({
       title: `${side === "BUY" ? "Buy" : "Sell"} ${sym.split(":")[1]} (paper)`,
       account: { ...a, liveAllowedByConfig: false },
-      items: [{ leg: 1, side, phase: side === "BUY" ? "hedge" : "short", symbol: sym, label: sym.split(":")[1], lots: 1, lotSize: 1, price: item.ltp, product: "INTRADAY", quote: () => ({ ltp: item.ltp, bid: null, ask: null }) }],
-      cfg: { product: "INTRADAY", hedgeWait: 15 },
+      items: [{ leg: 1, side, phase: side === "BUY" ? "hedge" : "short", symbol: sym, label: sym.split(":")[1], lots: 1, lotSize: inst.lotSize, price: item.ltp, product, quote: () => ({ ltp: item.ltp, bid: null, ask: null }) }],
+      cfg: { product, hedgeWait: 15 },
     });
   }
 
   async function stockSheet(item) {
-    const r = await optional(api(`/v1/events/symbols/${encodeURIComponent(item.symbol)}`));
+    const [r, inst] = await Promise.all([optional(api(`/v1/events/symbols/${encodeURIComponent(item.symbol)}`)), instrumentOf(item.symbol)]);
     const v = r.data?.data;
     if (!v) return h("p", {}, r.error?.message ?? "Could not load this symbol.");
+    // Buy / Sell only for a symbol a connected broker lists (the demo cash list is events-only): disabled, with why.
+    const noTrade = inst ? null : "Not in a connected broker's instrument master, so it cannot be traded here";
+    const tradeBtn = (side) => h("button", { type: "button", class: `small btn ${side === "BUY" ? "buy" : "sell"}`, disabled: Boolean(noTrade), title: noTrade ?? undefined, onclick: () => ticket(v.ltp === null ? item : { ...item, ltp: v.ltp }, side, inst) }, side === "BUY" ? "Buy" : "Sell");
     const L = v.levels ?? {};
     const pv = L.pivots ?? {};
     const band5 = (L.bands ?? []).find((b) => b.pct === 5);
@@ -700,10 +715,10 @@ export async function renderEventsPage() {
       h("div", { class: "ev-sheet-actions" },
         canChain ? h("button", { type: "button", class: "small", onclick: () => toChain(underlying, v.chains?.[0]?.expiry ?? null, null, null) }, icon("chart"), h("span", {}, "Option Chain")) : null,
         watchBtn,
-        h("button", { type: "button", class: "small btn buy", onclick: () => ticket(v.ltp === null ? item : { ...item, ltp: v.ltp }, "BUY") }, "Buy"),
-        h("button", { type: "button", class: "small btn sell", onclick: () => ticket(v.ltp === null ? item : { ...item, ltp: v.ltp }, "SELL") }, "Sell"),
+        tradeBtn("BUY"),
+        tradeBtn("SELL"),
       ),
-      h("p", { class: "muted small" }, app.state.demo ? "Orders from here are paper orders on demo prices." : "Orders from here are paper orders."),
+      h("p", { class: "muted small" }, noTrade ? `${noTrade}.` : app.state.demo ? "Orders from here are paper orders on demo prices." : "Orders from here are paper orders."),
       h("h3", { class: "ev-sheet-h" }, `Events today (${formatInt((v.events ?? []).length)})`),
       eventList(v.events ?? []),
     ];
@@ -902,64 +917,30 @@ export async function renderEventsPage() {
 
   // ── Stream ──
   const connPill = h("span", { class: "pill tiny ev-conn" }, h("span", { class: "pdot" }), "Connecting");
-  let ws = null;
-  let retry = 0;
-  let closedByPage = false;
+  // Events arrive on the tab's one live connection (live.js), shared with the budget capsule and any page watching
+  // symbols: no second WebSocket and no second stream token.
   const setConn = (text, tone) => {
     connPill.className = `pill tiny ev-conn ${tone}`;
     connPill.replaceChildren(h("span", { class: "pdot" }), text);
   };
-  async function connect() {
-    if (closedByPage) return;
-    const t = await optional(api("/v1/stream/token", { method: "POST" }));
-    if (t.error || closedByPage) return later();
-    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/v1/stream?token=${encodeURIComponent(t.data.data.token)}`;
-    try {
-      ws = new WebSocket(url);
-    } catch {
-      return later();
-    }
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ op: "subscribe_events" }));
-      setConn("Live", "ok");
-      const wasRetry = retry > 0;
-      retry = 0;
-      if (wasRetry) catchUp();
-    };
-    ws.onmessage = (m) => {
-      let msg;
-      try {
-        msg = JSON.parse(m.data);
-      } catch {
-        return;
-      }
-      if (msg.type === "market_event") accept(msg.action, msg.event);
-    };
-    ws.onclose = () => {
-      ws = null;
-      if (!closedByPage) later();
-    };
-  }
-  function later() {
-    setConn("Reconnecting", "warn");
-    retry += 1;
-    setTimeout(connect, Math.min(15_000, 500 * 2 ** Math.min(retry, 5)));
-  }
+  const showState = (s) => (s === "live" ? setConn("Live", "ok") : s === "down" ? setConn("Reconnecting", "warn") : setConn("Connecting", ""));
   /** After a reconnect: fetch what was missed, once. */
   async function catchUp() {
     const r = await optional(api(`/v1/events?since=${lastSeq}&limit=5000`));
     for (const ev of (r.data?.data ?? []).reverse()) accept("new", ev);
   }
+  const offEvents = onMarketEvents((msg) => accept(msg.action, msg.event), { onReconnect: () => catchUp() });
+  const offState = onLiveState(showState);
+  showState(liveState());
   const stop = () => {
-    closedByPage = true;
-    ws?.close();
+    offEvents();
+    offState();
     window.removeEventListener("hashchange", onHash);
   };
   const onHash = () => {
     if (!/^#\/?(screeners\/events|events)\b/.test(location.hash)) stop();
   };
   window.addEventListener("hashchange", onHash);
-  connect();
 
   mountToolbarCtx("events", h("div", { class: "ctx-cap glass" }, h("span", { class: "ctx-item ev-ctx" }, h("span", { class: "ctx-main" }, "Live events"), connPill)), h("span", { class: "ctx-spacer" }));
 

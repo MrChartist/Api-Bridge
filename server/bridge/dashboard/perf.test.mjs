@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { DASHBOARD_FILES } from "../core/app.mjs";
-import { NAV_WINDOW_MS, PAINT_FROM_CACHE_MS, SHARE_MS, cacheUse, cacheable, forgetsAnswers, pollTarget } from "./app.js";
+import { NAV_WINDOW_MS, PAINT_FROM_CACHE_MS, SHARE_MS, cacheUse, cacheable, forgetsAnswers, pollTarget, positionSymbols } from "./app.js";
 import { budgetView, busiestClass, perSecondLimit, savedParts, shareTone, windowText } from "./budget.js";
 import { mergeTick, subscriptionDiff } from "./live.js";
 
@@ -39,6 +39,14 @@ describe("polls become stream subscriptions", () => {
     expect(pollTarget("/v1/ltp?symbols=NSE:RELIANCE,NSE:INFY&maxAgeMs=500")).toEqual({ symbols: ["NSE:RELIANCE", "NSE:INFY"], mode: "ltp" });
     expect(pollTarget("/v1/optionchain?underlying=NIFTY")).toBeNull();
     expect(pollTarget("/v1/quotes?symbols=%E0%A4")).toBeNull();
+  });
+
+  it("reads the open positions of a polled positions answer, once each", () => {
+    const body = { data: [{ symbol: "NFO:NIFTY-2026-11-03-26000-CE", netQty: -65 }, { symbol: "NFO:NIFTY-2026-11-03-26000-CE", netQty: 65 }, { symbol: "NSE:INFY", netQty: 0 }, { symbol: null, netQty: 5 }] };
+    expect(positionSymbols("/v1/positions?account=demo-paper", body)).toEqual(["NFO:NIFTY-2026-11-03-26000-CE"]);
+    expect(positionSymbols("/v1/positions", { data: [] })).toEqual([]);
+    expect(positionSymbols("/v1/positionsx", body)).toBeNull();
+    expect(positionSymbols("/v1/quotes?symbols=NSE:INFY", body)).toBeNull();
   });
 });
 
@@ -112,5 +120,35 @@ describe("served and lazy", () => {
       expect(views, m).not.toMatch(new RegExp(`^import [^;]+ from "\\./${m.replace(".", "\\.")}";`, "m"));
       expect(views, m).toContain(`import("./${m}")`);
     }
+  });
+});
+
+describe("live paths stay cheap", () => {
+  const read = (f) => readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
+
+  it("styles no page container by :has(): a :has() on .content or .app-main restyled the whole page on every chain tick", () => {
+    // Measured in Chromium: such a rule made every change inside #content a style recalculation of the 2000 nodes
+    // under it (40-90 ms a tick on the chain). Page-specific layout keys off :root[data-page] instead.
+    const css = read("app.css");
+    expect(css).not.toMatch(/(\.content|\.app-main)(?:[.:#[\w-]|\([^)]*\))*:has\(/);
+  });
+
+  it("opens one WebSocket per tab: pages use live.js", () => {
+    for (const f of Object.keys(DASHBOARD_FILES).filter((n) => n.endsWith(".js") && n !== "live.js" && !n.startsWith("motion"))) {
+      expect(read(f), f).not.toMatch(/new WebSocket\(/);
+    }
+  });
+
+  it("the chain takes ticks every frame and patches only the legs that ticked", () => {
+    const desk = read("desk.js");
+    expect(desk).toMatch(/kind === "chain" \? \{ minGapMs: 0 \}/);
+    expect(desk).toContain("chain.patchLegs(x, touched");
+  });
+
+  it("warms the next expiry after a chain loads and paints a warmed answer on the first read of an expiry", () => {
+    const desk = read("desk.js");
+    expect(desk).toMatch(/if \(first\) \{\s+loadedKey = key;\s+prefetchNextExpiry\(\);/);
+    expect(desk).toContain("api(chainPath(st.expiry), { paintOld: first })");
+    expect(read("app.js")).toContain("cacheUse(age, navigating || paintOld)");
   });
 });

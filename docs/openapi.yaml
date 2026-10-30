@@ -5832,7 +5832,8 @@ paths:
         The underlying list behind the picker: the point-in-time F&O universe (reference store) merged with the
         instrument masters (masters only when NSE downloads are off; `source` says which). Memory only and no broker
         call unless withQuotes=1, which adds one batched quote read (interactive priority, cached 60 s, skipped with
-        quotes.loaded false and reason NO_HEADROOM when the quote class has fewer than 2 tokens). strikeStep is
+        quotes.loaded false and reason NO_HEADROOM when the quote class has fewer than 2 tokens after waiting at most
+        1 s for a per-second window to refill). strikeStep is
         inferred from listed strikes (null with fewer than 3). ban is null for indices and { available false, reason }
         when no ban data is recorded.
       x-stream: S19
@@ -6716,6 +6717,13 @@ components:
         broker: { type: [string, "null"] }
         provider: { type: string, enum: [yahoo, nse], description: "Only for source backup: which public source supplied it." }
         revalidating: { type: boolean, description: "Only with ?swr=true: this older value was answered at once and a refresh is running behind it." }
+        quiet:
+          type: object
+          description: "Stream-first option chains only: legs whose last tick is older than the freshness target, used because nothing traded (live subscription, feed ticking now, tick from the current connection, at most market.quietLegMaxAgeMs old). Each such leg carries tickAgeMs. asOf and ageMs describe the live legs and the spot."
+          properties:
+            legs: { type: integer, minimum: 1 }
+            oldestTickAgeMs: { type: integer, minimum: 0 }
+            maxAgeMs: { type: integer, minimum: 0 }
 
     BrokerInfo:
       type: object
@@ -6982,6 +6990,7 @@ components:
             (oiChangeSince says when); null = unknown.
         oiChangeSince: { type: string, description: "day-baseline only: IST HH:MM of the baseline." }
         brokerIv: { type: [number, "null"], description: "The broker's own IV (percent), when it sent one and ivModel=b76-forward recomputed iv." }
+        tickAgeMs: { type: integer, minimum: 0, description: "Stream-first chains only, on a quiet leg (freshness.quiet): how old its last tick is. The figures are its last trade; no tick on a live subscription means no trade since." }
         ivReason:
           type: [string, "null"]
           enum: [SETTLING, NOQUOTE, TICK, INTRINSIC, RANGE, SETTLED, NOFORWARD, null]

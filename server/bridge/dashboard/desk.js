@@ -6,7 +6,7 @@
 // then patched cell by cell, so nothing flickers, scroll and keyboard focus stay put, and only cells that changed
 // flash. The maths lives in options.js (pure, tested); numbers are formatted by format.js only.
 import { DEMO_EXPLAINER, alertBox, api, app, emptyState, errorState, h, icon, liveControl, loadingState, modal, mountToolbarCtx, optional, prefetch, sheetPopover, toast, touchWord } from "./app.js";
-import { DASH, MINUS, ageText, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, MINUS, ageText, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedPercent, formatSignedRupee, isFigure } from "./format.js";
 import { arbPanels } from "./arbitrage.js";
 import { openChainSheet } from "./chain-sheet.js";
 import { createOiPage, oiConfig } from "./oi.js";
@@ -36,6 +36,8 @@ const OI_FETCH_STRIKES = 100;
 /** The Volatility page reads the 10Δ wings of monthlies: a wider window than the chain. */
 const VOL_STRIKES = 60;
 const REFRESH_MS = 3000;
+/** After a chain loads, the next expiry is prefetched this much later (background priority). */
+const NEXT_EXPIRY_DELAY_MS = 1500;
 /** Shortest gap between two price flashes on one chain cell (live ticks arrive every frame on liquid strikes). */
 const FLASH_GAP_MS = 2500;
 /** Outside market hours nothing moves: refresh every 30 s instead. */
@@ -554,7 +556,8 @@ async function renderDesk(kind) {
     const seq = ++st.seq;
     eSel.disabled = true;
     try {
-      const r = await api(`/v1/expiries?underlying=${encodeURIComponent(st.underlying)}`);
+      // An expiry list read up to 30 s ago (the picker warmed it) answers at once; it changes once a day.
+      const r = await api(`/v1/expiries?underlying=${encodeURIComponent(st.underlying)}`, { paintOld: true });
       if (seq !== st.seq) return false;
       const ex = r.data.data?.expiries ?? [];
       if (!ex.length) {
@@ -636,6 +639,24 @@ async function renderDesk(kind) {
     const strikes = kind === "oi" ? OI_FETCH_STRIKES : kind === "vol" ? VOL_STRIKES : FETCH_STRIKES;
     return `/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(expiry)}&strikes=${strikes}&greeks=${kind === "vol" ? "false" : "true"}&ivModel=b76-forward`;
   }
+  /** underlying|expiry of the last chain loaded (a new one may paint from a prefetch and warms the next expiry). */
+  let loadedKey = null;
+  let nextTimer = 0;
+  /**
+   * After a chain loads, warm the next expiry's (background priority, one read): the most likely next click. Waits
+   * for a quiet moment so it never competes with this page's own first reads.
+   */
+  function prefetchNextExpiry() {
+    if (!["chain", "oi", "strategy"].includes(kind)) return;
+    clearTimeout(nextTimer);
+    nextTimer = setTimeout(() => {
+      const i = st.expiries.indexOf(st.expiry);
+      const next = i >= 0 ? st.expiries[i + 1] : null;
+      if (!next || !pageRoot.isConnected || document.hidden) return;
+      const idle = typeof requestIdleCallback === "function" ? requestIdleCallback : (fn) => setTimeout(fn, 0);
+      idle(() => prefetch(chainPath(next)));
+    }, NEXT_EXPIRY_DELAY_MS);
+  }
   async function loadChain({ draw = true } = {}) {
     if (!st.expiry) return;
     const seq = st.seq;
@@ -643,7 +664,11 @@ async function renderDesk(kind) {
     try {
       // The Volatility page recomputes IVs and deltas itself (no server Greeks); every page loads the index quote,
       // which the top bar's spot and its change come from.
-      const [r] = await Promise.all([api(chainPath(st.expiry)), loadQuotes()]);
+      // The first read of an expiry may paint a prefetched answer at once (its freshness label says how old) while
+      // the fresh one is fetched; the read right after joins that fetch.
+      const key = `${st.underlying}|${st.expiry}`;
+      const first = key !== loadedKey;
+      const [r] = await Promise.all([api(chainPath(st.expiry), { paintOld: first }), loadQuotes()]);
       if (seq !== st.seq) return;
       st.chain = r.data.data;
       st.freshness = r.data.data?.freshness ?? r.data.meta?.freshness ?? null;
@@ -652,6 +677,11 @@ async function renderDesk(kind) {
       st.lastOk = new Date().toISOString();
       syncLive();
       if (store && st.chain) store.offer(st.chain, Date.now(), { demo: Boolean(app.state.demo), session: refSession(st.ref), isTradingDay: refCalendar(st.ref).isTradingDay }).catch(() => {});
+      if (r.cached === "paint") setTimeout(() => seq === st.seq && loadChain({ draw }), 0);
+      if (first) {
+        loadedKey = key;
+        prefetchNextExpiry();
+      }
     } catch (err) {
       if (seq !== st.seq) return;
       st.error = err;
@@ -663,7 +693,9 @@ async function renderDesk(kind) {
   // refresh below costs the broker nothing while the stream is up. The chain and the Strategy Builder redraw on each
   // frame that brought ticks, OI Analysis at most twice a second. Greeks stay from the last refresh (a few seconds).
   const LIVE_KINDS = new Set(["chain", "strategy", "oi"]);
-  const feed = LIVE_KINDS.has(kind) ? watch([], "quote", (ticks) => applyTicks(ticks)) : null;
+  // The chain patches only the cells a tick changed, so it takes every frame; the builder and OI redraw a whole view
+  // per delivery and keep the default gap.
+  const feed = LIVE_KINDS.has(kind) ? watch([], "quote", (ticks) => applyTicks(ticks), kind === "chain" ? { minGapMs: 0 } : undefined) : null;
   /** canonical symbol -> [row index, "ce" | "pe"] for the chain on screen */
   let legIndex = new Map();
   function syncLive() {
@@ -683,6 +715,10 @@ async function renderDesk(kind) {
     if (!st.chain || !st.live) return;
     let rows = null;
     let newest = 0;
+    let futMoved = false;
+    /** strike -> sides whose leg ticked (the chain patches only these cells) */
+    const touched = new Map();
+    const pricing = st.chain.pricing ?? null;
     for (const [sym, t] of ticks) {
       if (Number.isFinite(t.receivedAt)) newest = Math.max(newest, t.receivedAt);
       const at = legIndex.get(sym);
@@ -692,8 +728,9 @@ async function renderDesk(kind) {
         const row = rows[i] === st.chain.rows[i] ? { ...rows[i] } : rows[i];
         const leg = row[side];
         if (!leg) continue;
-        const next = { ...leg };
+        let next = { ...leg };
         if (isFigure(t.ltp)) next.ltp = t.ltp;
+        delete next.tickAgeMs; // it just ticked: no longer a quiet leg
         if (isFigure(t.bid)) next.bid = t.bid;
         if (isFigure(t.ask)) next.ask = t.ask;
         if (isFigure(t.volume)) next.volume = t.volume;
@@ -702,24 +739,31 @@ async function renderDesk(kind) {
           if (isFigure(leg.oiChange)) next.oiChange = leg.oiChange + (t.oi - leg.oi);
           next.oi = t.oi;
         }
+        // IV and Greeks follow the new mid (Black-76 on the last refresh's forward and clock), for this leg only.
+        if (next.bid !== leg.bid || next.ask !== leg.ask || next.ltp !== leg.ltp) next = O.repriceLeg(next, row.strike, side === "ce" ? "CE" : "PE", pricing);
         row[side] = next;
         rows[i] = row;
+        if (!touched.has(row.strike)) touched.set(row.strike, new Set());
+        touched.get(row.strike).add(side);
         continue;
       }
-      if (sym === INDEX_SYMBOL[st.underlying] || st.futures.some((f) => f.symbol === sym)) {
+      const isIndex = sym === INDEX_SYMBOL[st.underlying];
+      if (isIndex || st.futures.some((f) => f.symbol === sym)) {
         const q = st.quotes.get(sym) ?? { symbol: sym };
         st.quotes.set(sym, { ...q, ltp: t.ltp ?? q.ltp, change: t.change ?? q.change, changePct: t.changePct ?? q.changePct, bid: t.bid ?? q.bid, ask: t.ask ?? q.ask, oi: t.oi ?? q.oi, volume: t.volume ?? q.volume });
-        if (sym === INDEX_SYMBOL[st.underlying] && isFigure(t.ltp)) {
-          rows ??= st.chain.rows.slice();
-        }
+        if (isIndex && isFigure(t.ltp)) rows ??= st.chain.rows.slice();
+        else if (!isIndex) futMoved = true;
       }
     }
     if (!rows) return;
     const idxTick = ticks.get(INDEX_SYMBOL[st.underlying]);
+    const prevSpot = num(st.chain.underlyingLtp);
     st.chain = { ...st.chain, rows, ...(idxTick && isFigure(idxTick.ltp) ? { underlyingLtp: idxTick.ltp } : {}) };
     if (newest) st.freshness = { ...(st.freshness ?? {}), asOf: new Date(newest).toISOString(), ageMs: 0, stale: false, source: "stream" };
     st.lastOk = new Date().toISOString();
-    // The chain and the builder redraw on this frame; OI Analysis (it charts every strike) at most twice a second.
+    // The chain patches the cells that changed on this frame (a full redraw only when the table's structure moves);
+    // the builder redraws on this frame; OI Analysis (it charts every strike) at most twice a second.
+    if (kind === "chain") return patchLive(touched, prevSpot, futMoved) || drawAll();
     if (kind !== "oi") return drawAll();
     if (oiDrawTimer) return;
     const wait = Math.max(0, 500 - (performance.now() - oiDrawnAt));
@@ -731,6 +775,47 @@ async function renderDesk(kind) {
   }
   let oiDrawTimer = 0;
   let oiDrawnAt = 0;
+  /**
+   * The chain's live-tick path: the legs that ticked get their cells patched (text nodes and classes only, their IV
+   * and Greeks repriced above, the parity cells of their strikes redone), the spot divider and the top bar follow the
+   * index. Chain-wide figures (totals, PCR, max pain, bar scales, tags) wait for the next refresh (3 s). False when
+   * the table's structure would change (ATM moved, the index crossed a strike, a snapshot OI window, a parity column
+   * on a futures tick, nothing built yet): the caller then draws in full.
+   */
+  function patchLive(touched, prevSpot, futMoved) {
+    const x0 = lastX;
+    if (!x0 || x0.windowed || x0.c.underlying !== st.chain.underlying || x0.c.expiry !== st.chain.expiry) return false;
+    const spot = num(st.chain.underlyingLtp);
+    const spotMoved = spot !== null && spot !== prevSpot;
+    if (spotMoved) {
+      const lo = Math.min(spot, prevSpot ?? spot);
+      const hi = Math.max(spot, prevSpot ?? spot);
+      let atm = null;
+      for (const r of st.chain.rows) {
+        if (prevSpot !== null && r.strike > lo && r.strike <= hi) return false; // an ITM boundary moved
+        if (atm === null || Math.abs(r.strike - spot) < Math.abs(atm - spot)) atm = r.strike;
+      }
+      if (atm !== x0.sm.atm) return false;
+    }
+    const same = futMoved ? st.futures.find((f) => f.expiry === st.chain.expiry) : null;
+    if (same && x0.syn.size && chain.hasParity()) return false; // Dev and Edge read the future: draw them all
+    const t0 = performance.now();
+    const sameQ = same ? st.quotes.get(same.symbol) : null;
+    const x = {
+      ...x0,
+      c: st.chain,
+      ...(spotMoved ? { spot, sm: { ...x0.sm, spot } } : {}),
+      indexQuote: st.quotes.get(INDEX_SYMBOL[st.chain.underlying] ?? "") ?? x0.indexQuote,
+      ...(sameQ && num(sameQ.ltp) !== null ? { sameFut: { expiry: same.expiry, ltp: sameQ.ltp } } : {}),
+    };
+    if (!chain.patchLegs(x, touched, { spot: spotMoved || Boolean(sameQ) })) return false;
+    lastX = x;
+    st.patchMs = Math.round((performance.now() - t0) * 10) / 10;
+    if (spotMoved || sameQ) drawCtx();
+    sheet?.update();
+    drawClock();
+    return true;
+  }
 
   async function loadPositions() {
     if (!st.account) return;
@@ -914,6 +999,11 @@ async function renderDesk(kind) {
       netDelta,
       hedgeOwn: own,
       winLabel: w?.label ?? null,
+      // What the live-tick path (patchLive) needs to redo the parity cells of one strike, and whether the rows are a
+      // window over stored snapshots (then a tick is drawn in full).
+      growth,
+      edgeRef,
+      windowed: Boolean(w?.ref),
       // Build-up over the window reads the price change over the same window.
       winQ: w?.ref ? (q) => q && { change: q.winChange, oiChange: q.oiChange } : (q) => q,
     };
@@ -2171,6 +2261,17 @@ async function renderDesk(kind) {
   bindKeys();
 
   // ── Wiring ──
+  // Reaching for the underlying picker warms the other underlyings' expiry lists (one cached read each, background
+  // priority), so a switch goes straight to its chain. Their chains are not prefetched: a native select does not say
+  // which option is under the pointer, and a chain read per underlying would spend the chain budget on guesses.
+  let warmedU = false;
+  const warmUnderlyings = () => {
+    if (warmedU) return;
+    warmedU = true;
+    for (const u of list) if (u !== st.underlying) prefetch(`/v1/expiries?underlying=${encodeURIComponent(u)}`);
+  };
+  uSel.addEventListener("pointerenter", warmUnderlyings);
+  uSel.addEventListener("focus", warmUnderlyings);
   uSel.addEventListener("change", () => {
     st.underlying = uSel.value;
     st.expiry = null;
@@ -2493,24 +2594,44 @@ export const device = () => ({ phone: media(MQ_PHONE).matches, narrow: media(MQ_
 const reducedMotion = () => media("(prefers-reduced-motion: reduce)").matches;
 const finePointer = () => media("(hover: hover) and (pointer: fine)").matches;
 
-/** Make live node `a` match freshly built node `b` (same tags and child counts): true when done in place. */
-function morph(a, b) {
+/**
+ * Make live node `a` match freshly built node `b` (same tags and child counts): true when done in place. Only what
+ * differs is written (a text node's data, an attribute), so a live tick costs the browser a text change, not a new
+ * subtree. No arrays are allocated: it runs for every changed chain cell on every frame that brought ticks.
+ * `snap`: a style change (a bar's length) is applied without its CSS transition. Live ticks move a bar by a hair;
+ * animating each one kept 30 to 70 transitions running and the table repainting on most frames. A refresh (snap
+ * false) animates again from wherever the bar is.
+ */
+function morph(a, b, snap = false) {
   if (a.nodeType !== b.nodeType || a.nodeName !== b.nodeName) return false;
   if (a.nodeType === 3) {
     if (a.data !== b.data) a.data = b.data;
     return true;
   }
-  if (a.nodeType !== 1 || a.childNodes.length !== b.childNodes.length) return false;
-  for (const at of [...a.attributes]) if (!b.hasAttribute(at.name)) a.removeAttribute(at.name);
-  for (const at of b.attributes) {
+  const an = a.childNodes;
+  const bn = b.childNodes;
+  if (a.nodeType !== 1 || an.length !== bn.length) return false;
+  const aa = a.attributes;
+  const ba = b.attributes;
+  for (let i = aa.length - 1; i >= 0; i -= 1) {
+    const name = aa[i].name;
+    if (!b.hasAttribute(name)) a.removeAttribute(name);
+  }
+  for (let i = 0; i < ba.length; i += 1) {
+    const at = ba[i];
     if (at.name === "style") {
       // Through the CSSOM: the dashboard's CSP refuses inline style attributes.
-      if (a.style.cssText !== b.style.cssText) a.style.cssText = b.style.cssText;
+      const want = b.style.cssText;
+      const snapped = Boolean(a.style.transition);
+      if (snapped) a.style.removeProperty("transition");
+      if (a.style.cssText !== want) {
+        a.style.cssText = want;
+        if (snap) a.style.transition = "none";
+      } else if (snapped && snap) a.style.transition = "none";
     } else if (a.getAttribute(at.name) !== at.value) a.setAttribute(at.name, at.value);
   }
-  const ac = [...a.childNodes];
-  const bc = [...b.childNodes];
-  for (let i = 0; i < ac.length; i += 1) if (!morph(ac[i], bc[i])) a.replaceChild(bc[i], ac[i]);
+  // From the end: a child that cannot be morphed moves out of `b`, which shifts only the indices after it.
+  for (let i = an.length - 1; i >= 0; i -= 1) if (!morph(an[i], bn[i], snap)) a.replaceChild(bn[i], an[i]);
   return true;
 }
 
@@ -2630,11 +2751,11 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
         return barred(text, x.maxVol ? (num(q?.volume) ?? 0) / x.maxVol : 0, "vol", cfg().bars.vol, hot ? "hot" : "");
       },
     },
-    iv: { label: "IV", v: (q) => q?.iv, r: (q) => g(q?.iv, 1) },
+    iv: { label: "IV", v: (q) => g(q?.iv, 1), r: (q) => g(q?.iv, 1) },
     ltp: {
       label: "LTP",
       ltp: true,
-      v: (q, row, side, x) => [q?.ltp, q?.change, x.held.get(q?.symbol), selecting, picked.has(pickKey(row.strike, side))],
+      v: (q, row, side, x) => [q?.ltp, q?.change, x.held.get(q?.symbol), selecting, picked.has(pickKey(row.strike, side)), isFigure(q?.tickAgeMs) ? Math.floor(q.tickAgeMs / 10_000) : null],
       r: (q, row, side, x) => {
         const pct = O.changePct(q);
         const held = x.held.get(q?.symbol);
@@ -2643,24 +2764,24 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
           [
             selecting ? h("span", { class: `pick${on ? " on" : ""}`, role: "checkbox", "aria-checked": String(on), "aria-label": `Select ${formatInt(row.strike)} ${R(side)}` }) : null,
             held ? h("span", { class: `held ${held > 0 ? "long" : "short"}`, title: `You hold ${formatSigned(held, 0)} lot(s)` }, formatSigned(held, 0)) : null,
-            h("strong", {}, g(q?.ltp, 2)),
+            h("strong", isFigure(q?.tickAgeMs) ? { class: "quiet-leg", title: `Last trade, ${ageText(q.tickAgeMs)}: no trade since on a live feed` } : {}, g(q?.ltp, 2)),
           ].filter(Boolean),
-          cfg().pct ? sub(pct === null ? "" : formatSigned(pct, 1), pct > 0 ? "up" : pct < 0 ? "down" : "") : null,
+          cfg().pct ? sub(pct === null ? "" : formatSignedPercent(pct, 1), pct > 0 ? "up" : pct < 0 ? "down" : "") : null,
         );
       },
     },
     delta: {
       label: "Delta",
       title: "Delta. 16Δ / 30Δ mark the strikes nearest those deltas on each side",
-      v: (q, row, side, x) => [q?.delta, x.targets[side].get(row.strike) ?? ""],
+      v: (q, row, side, x) => [g(q?.delta, 2), x.targets[side].get(row.strike) ?? ""],
       r: (q, row, side, x) => {
         const dt = x.targets[side].get(row.strike);
         return cg(dt ? [g(q?.delta, 2), h("sup", { class: "dt", title: `Nearest the ${dt} target on this side` }, dt)] : g(q?.delta, 2));
       },
     },
-    gamma: { label: "Gamma", v: (q) => q?.gamma, r: (q) => g(q?.gamma, 4) },
-    theta: { label: "Theta", v: (q) => q?.theta, r: (q) => g(q?.theta, 1) },
-    vega: { label: "Vega", v: (q) => q?.vega, r: (q) => g(q?.vega, 1) },
+    gamma: { label: "Gamma", v: (q) => g(q?.gamma, 4), r: (q) => g(q?.gamma, 4) },
+    theta: { label: "Theta", v: (q) => g(q?.theta, 1), r: (q) => g(q?.theta, 1) },
+    vega: { label: "Vega", v: (q) => g(q?.vega, 1), r: (q) => g(q?.vega, 1) },
     pitm: {
       label: "P(ITM)",
       title: "Probability of finishing in the money (Black-76 on the forward)",
@@ -3078,21 +3199,21 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
   }
 
   /** Patch one cell when what it depends on changed; LTP changes are queued to flash in one frame. */
-  function patchCell(td, k, q, row, side, x, flashes) {
+  function patchCell(td, k, q, row, side, x, flashes, snap = false) {
     const col = COLS[k];
     if (col.trade) {
       const price = col.trade === "BUY" ? q?.ask : q?.bid;
       const sig = `${price}|${col.trade === "BUY" ? q?.bid : ""}|${st.account ? 1 : 0}`;
       if (td.__sig === sig) return;
       td.__sig = sig;
-      setCell(td, tradeButton(q, row, side, col.trade));
+      setCell(td, tradeButton(q, row, side, col.trade), snap);
       return;
     }
     const v = col.row ? col.v(row, row, side, x) : col.v(q, row, side, x);
     const sig = v !== null && typeof v === "object" ? JSON.stringify(v) : String(v);
     if (td.__sig === sig) return;
     td.__sig = sig;
-    setCell(td, col.row ? col.r(row, row, side, x) : q ? col.r(q, row, side, x) : DASH);
+    setCell(td, col.row ? col.r(row, row, side, x) : q ? col.r(q, row, side, x) : DASH, snap);
     // Cell-fill heat (Customise → Bar style): the side (OI) or the change's sign (OI chg) at an alpha that grows with
     // the share of the largest; the figure stays in the foreground ink.
     if (col.heat) {
@@ -3126,10 +3247,10 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
    * shape is the same: far fewer DOM mutations per tick, and a bar keeps its element, so its CSS transition resizes it
    * from the old length instead of regrowing it.
    */
-  function setCell(td, content) {
+  function setCell(td, content, snap = false) {
     const node = typeof content === "string" || typeof content === "number" ? cg(String(content)) : content;
     const f = td.firstChild;
-    if (!(f && f === td.lastChild && morph(f, node))) td.replaceChildren(node);
+    if (!(f && f === td.lastChild && morph(f, node, snap))) td.replaceChildren(node);
   }
 
   /**
@@ -3773,6 +3894,49 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       };
       if (wrap.isConnected && wrap.clientWidth) place();
       else requestAnimationFrame(place);
+    },
+    /** True when the table shows parity columns (Synthetic, Dev, Edge: they read the future and both legs). */
+    hasParity: () => Boolean(built?.L.mid.length),
+    /**
+     * Live ticks: patch only the cells of the legs that ticked (`touched`: strike -> Set of "ce" / "pe"), the parity
+     * cells of their strikes and, with `spot`, the spot divider. Every cell keeps its node; only changed text nodes
+     * and classes are written (patchCell compares each cell's own signature). False when the table on screen is not
+     * built for this chain and layout (the caller then draws in full).
+     * @param {object} x  the last full draw's context with this chain's rows (desk.js patchLive)
+     * @param {Map<number, Set<string>>} touched
+     */
+    patchLegs(x, touched, { spot = false } = {}) {
+      if (!built || built.stale || !host.contains(built.wrap) || built.key !== [x.c.underlying, x.c.expiry, built.sig].join("|")) return false;
+      lastX = x;
+      const L = built.L;
+      const flashes = [];
+      let rowAt = null;
+      for (const [strike, sides] of touched) {
+        const b = built.rows.get(strike);
+        // Rows outside the window are patched when they come back into it.
+        if (!b || b.tr.hidden) continue;
+        rowAt ??= new Map(x.c.rows.map((r) => [r.strike, r]));
+        const row = rowAt.get(strike);
+        if (!row) continue;
+        for (const side of sides) {
+          const cells = b[side];
+          if (!cells?.length) continue;
+          const q = row[side];
+          L[side].forEach((k, i) => patchCell(cells[i], k, q, row, side, x, flashes, true));
+        }
+        if (L.mid.length) {
+          x.syn.set(strike, O.synthetic(row, x.growth));
+          x.edge.set(strike, O.parityEdge(row, x.edgeRef, x.growth));
+          L.mid.forEach((k, i) => patchCell(b.mid[i], k, null, row, "mid", x, flashes, true));
+        }
+      }
+      if (spot) drawSpot(x);
+      if (flashes.length) {
+        requestAnimationFrame(() => {
+          for (const [td, up] of flashes) flashValue(td, up ? "up" : "down");
+        });
+      }
+      return true;
     },
     /** A one-line status above the table (errors after data), or null to hide it. */
     note(content) {

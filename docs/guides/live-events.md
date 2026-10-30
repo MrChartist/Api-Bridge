@@ -18,7 +18,10 @@ Dashboard: **Markets > Screeners > Live events** (`#/screeners/events`). Status:
   call) and every leg runs through the leg detectors; option ticks the recorder streams arrive through the same bus.
   Chain-level reads (walls, PCR, max pain, straddle, ATM IV, basis) use `dashboard/options.js` `chainSummary` and run
   at most once a second per chain, off the tick path.
-- **REST only as a fallback.** Symbols the hub refused or that have had no tick for `staleAfterMs` are polled in
+- **REST only as a fallback.** Symbols the hub refused, that never ticked, or that have had no tick for `staleAfterMs`
+  while their feed is not live are polled. A held symbol that is only quiet on a feed ticking now is not: no tick on a
+  live subscription means no trade (up to `quietMaxMs`, 5 min by default; `GET /v1/events/status` counts them in
+  `feed.rest.quiet`). Polls go out in
   batches with `marketData.quotes` at background priority, only when `ratelimit/backgroundGate.mjs` allows it, with
   `backgroundShare` = `events.budgetShare` (default 0.25, never above 0.5). A refused round waits for the next one.
 - **Previous-day context** (previous close, high, low, volume, 20-day average volume, 52-week range) comes from daily
@@ -180,7 +183,8 @@ Storage: `dataDir/events/YYYY-MM-DD.jsonl` (demo: `events-demo/`), one line per 
 ## Config
 
 `events`: `enabled`, `maxSymbols` (600), `futures` (true), `budgetShare` (0.25, max 0.5), `pollSeconds` (15),
-`staleAfterMs` (20000), `chainEveryMs` (1000), `keepDays` (30), `maxEventsPerDay` (20000), `cashList`, `demoScale`.
+`staleAfterMs` (20000), `quietMaxMs` (300000, 0 = poll quiet symbols too), `chainEveryMs` (1000), `keepDays` (30),
+`maxEventsPerDay` (20000), `cashList`, `demoScale`.
 
 ## The page
 

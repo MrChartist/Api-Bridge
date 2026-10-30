@@ -847,6 +847,21 @@ export function createStreamHub(deps, { random = Math.random } = {}) {
     return Boolean(up?.connected && up.feed && up.refs.has(sub.refKey));
   }
 
+  /**
+   * The feed behind a live subscription, for judging a quiet symbol's last tick (market data's stream-first chains):
+   * when the feed connected (a tick from before is from an earlier connection), when it last delivered any tick, and
+   * whether it has gone silent (no tick at all for stream.staleAfterMs). Null when the symbol is not live.
+   * @param {string} symbol
+   * @returns {{ connectedAt: number|null, lastTickAt: number|null, stale: boolean } | null}
+   */
+  function feedInfo(symbol) {
+    const sub = lookup(symbol);
+    if (!sub) return null;
+    const up = upstreams.get(sub.accountId);
+    if (!(up?.connected && up.feed && up.refs.has(sub.refKey))) return null;
+    return { connectedAt: up.connectedAt ?? null, lastTickAt: up.lastTickAt ?? null, stale: Boolean(up.stale) };
+  }
+
   /** @returns {{ clients: number, symbols: number, upstreams: object[] }} */
   function stats() {
     return {
@@ -880,6 +895,7 @@ export function createStreamHub(deps, { random = Math.random } = {}) {
     lastTick,
     isLive,
     stats,
+    feedInfo,
 
     // ── internal helpers for this stream's endpoints (other streams use only the contract methods) ──
     /**

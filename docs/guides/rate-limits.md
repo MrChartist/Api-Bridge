@@ -16,6 +16,10 @@ For every market-data request, in order:
    ticks over the day's broker chain, which supplies the previous-day OI behind OI change (`source = "stream"`, no
    broker call). The dashboard's chain, OI and Strategy pages subscribe their legs, so their refreshes, and every other
    reader of the same window (the recorder, your scripts), cost the broker nothing while the stream is up.
+   A **quiet strike** (an illiquid far leg that has not traded) does not force a broker read: on a live subscription
+   no tick means no trade, so its last tick is used while the feed is ticking now, the tick came on the current
+   connection and it is at most `market.quietLegMaxAgeMs` old (60 s by default, 0 turns it off). Such legs carry
+   `tickAgeMs`, and `freshness.quiet` counts them (`asOf` stays that of the live legs and the spot).
 2. **Freshness cache.** A value younger than its freshness target is reused (`source = "cache"`). Defaults: LTP 1 s,
    quote 2 s, depth 1 s, option chain 3 s, expiries 5 min, history 1 min. Tighten them freely in `market.freshness`;
    they can be loosened only up to documented maximums. A caller may ask for fresher data with `maxAgeMs`.

@@ -70,7 +70,8 @@ export default defineModule({
     if (!b) return;
     // Demo: holder tags and a paper book across three holders, so the family view has something to show at once.
     // Seeding runs in the background (paper orders priced from the demo feed); a failure is logged, never fatal.
-    const job = seedDemoBook({ ...deps, store: b.store }).catch((err) => deps.logger?.warn?.("demo book seed failed", { error: err?.message }));
+    b.stopping = false;
+    const job = seedDemoBook({ ...deps, store: b.store, stopped: () => b.stopping }).catch((err) => deps.logger?.warn?.("demo book seed failed", { error: err?.message }));
     b.seeding = job;
     // Positions, funds, orders and the book wait for the seed while the Bridge starts, so a page opened at once never
     // shows a half-seeded book (core/startup.mjs).
@@ -78,6 +79,8 @@ export default defineModule({
   },
   async stop(deps) {
     // Let a running demo seed finish (or fail) before the paper engine and stores shut down.
-    await built.get(deps)?.seeding;
+    const b = built.get(deps);
+    if (b) b.stopping = true; // a seed waiting for headroom stops waiting
+    await b?.seeding;
   },
 });

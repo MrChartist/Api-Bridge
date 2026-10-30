@@ -226,11 +226,12 @@ Before / after shots (`scratchpad/qa/shots/`): `pair-ticket-after-close-*`, `pai
 
 ### Left (not fixed here)
 
-For the speed agent (`events.js`, `live.js`, `desk.js` area):
-- **Live events side sheet Buy / Sell** on a symbol the demo instrument master does not list (MALABPOLY) opens a sheet
-  that can only fail ("not in any connected broker's instrument master"). Hide or disable the buttons when the symbol
-  does not resolve. Its order is fixed at Intraday (refused after 15:20) and `lotSize: 1` (wrong for an F&O symbol).
-- **Chain LTP sub-figure** is the % change without a % sign ("−55.5" reads as points).
+Done since in the speed work (round 2):
+- **Live events side sheet Buy / Sell**: disabled, with the reason in its title and under the buttons, when no
+  connected broker's master lists the symbol (`GET /v1/instruments/{symbol}`); the order takes the instrument's lot and
+  the chain ticket's product rule (`options.js ticketProduct`: Intraday until 15:20 IST, then NRML for F&O, delivery
+  for cash).
+- **Chain LTP sub-figure** reads "+14.7%" / "−38.0%" (`format.js formatSignedPercent`).
 
 Others (still open; the rest of this list was fixed in the follow-up below):
 - **Order ticket:** Enter in the lots field does not place (the main button is the coloured Buy / Sell, not

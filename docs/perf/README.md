@@ -59,7 +59,10 @@ MCP, your own scripts), goes through one path in `server/bridge/market/marketDat
    per symbol serves every client.
 2. **Stream-first option chains.** A chain read whose whole strike window is live on the stream is built from the
    ticks over the day's broker chain (which supplies the previous-day OI for OI change), with no broker call. Any leg
-   without a fresh tick, or no spot tick, falls back to the cache and the broker.
+   without a fresh tick, or no spot tick, falls back to the cache and the broker. A **quiet strike** (a far leg that
+   has not traded) does not: on a live subscription no tick means no trade, so its last tick is used while its feed is
+   ticking now and the tick came on the current connection, up to `market.quietLegMaxAgeMs` (60 s). Such legs carry
+   `tickAgeMs` and are counted in `freshness.quiet`; `asOf` stays that of the live legs.
 3. **Freshness cache**, shared by every consumer, with honest labels (`freshness.source`, `asOf`, `ageMs`, `stale`).
 4. **In-flight sharing.** A read that is already on its way to the broker is joined, not repeated (coalesce keys in
    the scheduler, plus the per-symbol in-flight map).
@@ -74,7 +77,12 @@ MCP, your own scripts), goes through one path in `server/bridge/market/marketDat
    non-background broker request happened in the last 10 s. The first scan of the day then makes no daily-bar calls
    (a cold 200-symbol scan was about 200 calls and 219 s). The budget popover shows "Preparing scans N/200" while it
    runs. Not in demo mode (the demo scanner reads no broker).
-9. The scheduler never exceeds a broker's published per-second, per-minute and per-day limits, and backs off a
+9. **Live events on real brokers** (`events/feed.mjs`): the universe rides the same hub subscriptions; REST only for
+   symbols the hub refused, never ticked, or whose feed went silent. A symbol that is only quiet on a live feed is not
+   polled (up to `events.quietMaxMs`, 5 min). `events/feedCalls.test.mjs` counts the broker calls.
+10. **Start-up jobs leave headroom**: the demo book seed reads at background priority and paces each paper order
+   through the shared background gate, so a person's first reads find the quote windows at least half free.
+11. The scheduler never exceeds a broker's published per-second, per-minute and per-day limits, and backs off a
    throttled account and class (unchanged).
 
 `server/bridge/market/sharedReads.test.mjs` counts real broker calls through the real scheduler (Dhan policy) for:
@@ -89,13 +97,28 @@ readers).
   refresh are drawn again once if it differs. Writes forget every remembered answer. Never from memory: stream
   tokens, sign-in, safety, tickets, order preview, audit, limits and usage.
 - **Prefetch**: hovering or focusing a menu item loads the page's module and warms its reads; hovering an expiry
-  chip warms that chain (background priority).
+  chip warms that chain (background priority). After a chain loads, the next expiry's chain is warmed once (1.5 s
+  later, idle time, background priority), and the first read of an expiry paints a warmed answer at once (`api(path,
+  { paintOld: true })`, its freshness label says how old) while the fresh one is fetched. Reaching for the underlying
+  picker warms the other underlyings' expiry lists (not their chains: a native select does not say which option is
+  under the pointer).
+- **Polled positions stream too**: a page that reads `/v1/positions` again within 15 s has the open positions watched
+  on the live connection, so the Bridge marks paper and live positions from ticks (in demo this was the 20 quote calls
+  a minute of the busiest scenario).
 - **Page modules on demand**: the Options desk, screeners, calendar, recorder and live events load on first visit
   (`import()`, no build step).
 - **One live connection per tab** (`dashboard/live.js`): pages watch symbols; a symbol watched by several pages is
-  subscribed once and kept 15 s after the last page leaves. Ticks are delivered once per animation frame. The chain,
-  OI and Strategy pages watch their legs, the index and its futures; their refreshes are then stream-built on the
-  Bridge.
+  subscribed once and kept 15 s after the last page leaves. Ticks are delivered once per animation frame, and no
+  sooner than 150 ms after a page's last delivery unless the page patches cells (the chain takes every frame). The
+  chain, OI and Strategy pages watch their legs, the index and its futures; their refreshes are then stream-built on
+  the Bridge. Live events arrive on the same connection (`onMarketEvents`).
+- **Per-cell chain patches**: a tick updates only the cells of the legs that ticked (text nodes and classes; IV and
+  Greeks repriced on the chain's own Black-76 pricing block; the parity cells of that strike), and bar lengths snap
+  instead of animating each hair of change. A full redraw only when the structure moves (ATM, the index crossing a
+  strike, an OI window, expiry, columns) and on the 3 s refresh for chain-wide figures.
+- **No `:has()` on page containers**: a `:has()` rule whose subject is `.content` or `.app-main` made every change
+  inside the page a style recalculation of all ~2000 nodes under it (40 to 90 ms per chain tick in Chromium). Page
+  layouts key off `:root[data-page]`; `perf.test.mjs` keeps it that way.
 - **No layout thrash in the chain**: the width comes from a ResizeObserver, the fill height is measured once per
   window size, the top bar is fitted in the next frame and only when its text length changed, and a cell flashes at
   most once every 2.5 s.

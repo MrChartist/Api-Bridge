@@ -15,6 +15,8 @@
  * Hedges are bought before the shorts are sold, as a person would place them.
  */
 import { createCallContext } from "../core/context.mjs";
+import { isStub } from "../core/contracts.mjs";
+import { createBackgroundGate } from "../ratelimit/backgroundGate.mjs";
 import { DEMO_PAPER_ACCOUNT, DEMO_SPOUSE_ACCOUNT, DEMO_OTHER_ACCOUNT } from "../demo/demoMode.mjs";
 
 export const DEMO_HOLDER_TAGS = Object.freeze({
@@ -24,17 +26,60 @@ export const DEMO_HOLDER_TAGS = Object.freeze({
 });
 
 const SEED_TAG = "DEMOSEED";
+/** Quote-class reads one seeded paper order makes (its LTP, its depth, the underlying's spot). */
+const SEED_ORDER_COST = 3;
+/** Reads the seed plan makes (three underlyings: expiries and a chain each, in the shared quote family). */
+const SEED_CHAIN_COST = 3;
+/** The longest the seed waits for headroom before it goes anyway (the scheduler still never exceeds a limit). */
+const SEED_WAIT_MAX_MS = 15_000;
+
+/**
+ * Wait (at most SEED_WAIT_MAX_MS) until the shared background gate says `cost` quote-class reads keep every window
+ * of the market data account at least half free. No scheduler or account (tests), or the Bridge stopping: no wait.
+ */
+function backgroundPace(deps) {
+  const stopped = typeof deps.stopped === "function" ? deps.stopped : () => false;
+  const scheduler = deps.scheduler;
+  if (!scheduler || isStub(scheduler) || typeof scheduler.headroom !== "function") return async () => {};
+  const gate = createBackgroundGate({ scheduler });
+  let account = null;
+  try {
+    account = deps.accounts?.marketDataCandidates?.({ capability: "quotes" })?.[0] ?? null;
+  } catch {
+    account = null;
+  }
+  if (!account) return async () => {};
+  const sleep = (ms) =>
+    new Promise((r) => {
+      const t = setTimeout(r, ms);
+      t.unref?.();
+    });
+  return async (cost) => {
+    const until = Date.now() + SEED_WAIT_MAX_MS;
+    while (Date.now() < until && !stopped()) {
+      let wait;
+      try {
+        if (gate.allow(account, "quote", { cost })) return;
+        wait = gate.waitMs(account, "quote", { cost });
+      } catch {
+        return;
+      }
+      await sleep(Math.min(1000, Math.max(50, wait || 250)));
+    }
+  };
+}
 
 /** The row whose strike is nearest `target`. */
 const nearest = (rows, target) => rows.reduce((best, r) => (Math.abs(r.strike - target) < Math.abs(best.strike - target) ? r : best), rows[0]);
 
 /** The nearest expiry's chain for an underlying (rows with ce/pe symbols, spot). */
-async function chainOf(marketData, underlying, today) {
-  const ex = await marketData.expiries(underlying, {});
+async function chainOf(marketData, underlying, today, priority) {
+  const opts = priority ? { priority } : {};
+  const ex = await marketData.expiries(underlying, opts);
   // The nearest expiry after today (an expiry-day seed at night would be worthless by the time anyone looks).
   const expiry = (ex?.expiries ?? []).find((e) => e > today) ?? (ex?.expiries ?? [])[0];
   if (!expiry) throw new Error(`no ${underlying} expiry`);
-  const chain = await marketData.optionChain({ underlying, expiry, strikes: 40 }, {});
+  const chain = await marketData.optionChain({ underlying, expiry, strikes: 40 }, opts);
   const rows = (chain?.rows ?? []).filter((r) => r.ce?.symbol && r.pe?.symbol);
   const spot = Number(chain?.underlyingLtp);
   if (!rows.length || !(spot > 0)) throw new Error(`no ${underlying} chain`);
@@ -57,10 +102,10 @@ export async function offLot(legs, symbols) {
 }
 
 /** The legs to seed per account: [{ symbol, side, lots }] in send order (buys first). */
-export async function demoSeedPlan({ marketData, today }) {
-  const nifty = await chainOf(marketData, "NIFTY", today);
-  const bank = await chainOf(marketData, "BANKNIFTY", today);
-  const sensex = await chainOf(marketData, "SENSEX", today);
+export async function demoSeedPlan({ marketData, today, priority }) {
+  const nifty = await chainOf(marketData, "NIFTY", today, priority);
+  const bank = await chainOf(marketData, "BANKNIFTY", today, priority);
+  const sensex = await chainOf(marketData, "SENSEX", today, priority);
   const plan = {};
   plan[DEMO_PAPER_ACCOUNT] = [
     { symbol: nearest(bank.rows, bank.spot).ce.symbol, side: "BUY", lots: 1 },
@@ -116,12 +161,19 @@ export async function seedDemoBook(deps) {
   if (reseeded.length) logger?.info?.("demo book reseeded: lot sizes changed since it was seeded", { accounts: reseeded });
   if (!empty.length) return { tagged, seeded: [] };
   const day = new Date((deps.clock?.now?.() ?? Date.now()) + 19_800_000).toISOString().slice(0, 10);
-  const plan = await demoSeedPlan({ marketData, today: day });
+  const pace = backgroundPace(deps);
+  await pace(SEED_CHAIN_COST);
+  const plan = await demoSeedPlan({ marketData, today: day, priority: "background" });
   const seeded = [];
   for (const id of empty) {
     let i = 0;
     for (const leg of plan[id] ?? []) {
       i += 1;
+      // A start-up job like the recorder: each paper fill prices its leg (LTP, depth, the spot), so wait until those
+      // reads leave the quote windows at least half free for what a person asks in the first seconds.
+      await pace(SEED_ORDER_COST);
+      // The Bridge is stopping (seconds after a first demo start): leave the rest, so shutdown never waits on it.
+      if (deps.stopped?.()) break;
       const r = await orders.place(
         ctx,
         { account: id, symbol: leg.symbol, side: leg.side, lots: leg.lots, product: "MARGIN", orderType: "MARKET", mode: "paper", tag: SEED_TAG },
@@ -129,6 +181,7 @@ export async function seedDemoBook(deps) {
       );
       if (r?.order?.status === "rejected") logger?.warn?.("demo book seed order rejected", { account: id, symbol: leg.symbol, message: r.order.statusMessage });
     }
+    if (deps.stopped?.()) break;
     seeded.push(id);
   }
   logger?.info?.("demo book seeded", { accounts: seeded });
