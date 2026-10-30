@@ -341,7 +341,8 @@ export async function openMarketAlertSheet() {
   const metric = sel("Watch", M.RULE_METRICS.map((m) => [m.id, m.label]), "atm_iv");
   const underlying = h("input", { type: "text", value: workspace.state.underlying || "NIFTY", autocapitalize: "characters", spellcheck: "false", "aria-label": "Underlying" });
   const expiry = h("select", { "aria-label": "Expiry" });
-  const strike = h("input", { type: "number", inputmode: "decimal", step: "any", "aria-label": "Strike" });
+  // The strike is picked from the chain (ATM first), so a strike the chain does not list cannot be saved.
+  const strike = h("select", { "aria-label": "Strike" });
   const right = sel("Side", [["CE", "Call (CE)"], ["PE", "Put (PE)"]]);
   const op = sel("When it", [["above", "Rises above"], ["below", "Falls below"]]);
   const cross = sel("Crossing", [["either", "Either way"], ["above", "Upward"], ["below", "Downward"]]);
@@ -357,12 +358,22 @@ export async function openMarketAlertSheet() {
   const fCross = f("Crossing", cross);
   const fTo = f("Changes to", to);
   const fValue = f("Value", value);
+  const loadStrikes = async () => {
+    if (!expiry.value) return strike.replaceChildren();
+    const r = await optional(api(`/v1/optionchain?underlying=${encodeURIComponent(underlying.value.trim().toUpperCase())}&expiry=${encodeURIComponent(expiry.value)}&strikes=20`));
+    const c = r.data?.data ?? {};
+    const ks = (c.rows ?? []).map((x) => Number(x.strike)).filter((k) => k > 0);
+    strike.replaceChildren(...ks.map((k) => h("option", { value: String(k) }, `${formatInt(k)}${k === c.atmStrike ? " (ATM)" : ""}`)));
+    if (ks.includes(c.atmStrike)) strike.value = String(c.atmStrike);
+  };
   const loadExpiries = async () => {
     const r = await optional(api(`/v1/expiries?underlying=${encodeURIComponent(underlying.value.trim().toUpperCase())}`));
     const list = (r.data?.data?.expiries ?? []).slice(0, 8);
     expiry.replaceChildren(...list.map((e) => h("option", { value: e }, e)));
     if (list.includes(workspace.state.expiry)) expiry.value = workspace.state.expiry;
+    await loadStrikes();
   };
+  expiry.addEventListener("change", loadStrikes);
   const sync = () => {
     const m = M.metricInfo(metric.value);
     fExpiry.hidden = Boolean(m.noExpiry);

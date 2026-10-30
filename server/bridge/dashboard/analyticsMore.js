@@ -1147,8 +1147,11 @@ function drawStraddle(res) {
   const d = res.data?.data ?? {};
   const fr = res.data?.meta?.freshness;
   const hist = d.history ?? [];
+  const strangle = Number(d.width) > 0;
+  const what = strangle ? "Strangle" : "Straddle";
+  const at = strangle ? `${formatInt(d.callStrike)} CE and ${formatInt(d.putStrike)} PE` : `at ${isFigure(d.atmStrike) ? formatInt(d.atmStrike) : DASH}`;
   const head = tiles(
-    tile("Straddle price", money(d.premium), `Call ${isFigure(d.ce) ? formatFixed(d.ce, 2) : DASH} + put ${isFigure(d.pe) ? formatFixed(d.pe, 2) : DASH} at ${isFigure(d.atmStrike) ? formatInt(d.atmStrike) : DASH}`),
+    tile(`${what} price`, money(d.premium), `Call ${isFigure(d.ce) ? formatFixed(d.ce, 2) : DASH} + put ${isFigure(d.pe) ? formatFixed(d.pe, 2) : DASH} ${at}`),
     tile("Since the start of the history", isFigure(d.changePct) ? `${formatSigned(d.changePct, 2)}%` : DASH, isFigure(d.change) ? `${formatSigned(d.change, 2)} points` : "Needs history", signedClass(d.change)),
     tile("Implied move", isFigure(d.impliedMove) ? `${formatFixed(d.impliedMove, 2)}` : DASH, isFigure(d.impliedMovePct) ? `${formatFixed(d.impliedMovePct, 2)}% of spot, up or down` : ""),
     tile("Break-evens", isFigure(d.lowerBreakeven) ? `${formatFixed(d.lowerBreakeven, 0)} to ${formatFixed(d.upperBreakeven, 0)}` : DASH, "Expiry prices where a buyer breaks even"),
@@ -1159,7 +1162,7 @@ function drawStraddle(res) {
   return [
     statusRow(fr),
     head,
-    sectionCard("Straddle price over time", `The at-the-money call plus put at ${d.interval} candles. A falling line is time decay and shrinking IV; a rising one is the market pricing a bigger move.`, legend([{ cls: "s1", label: "Straddle price" }]), seriesChart([{ id: "st", label: "Straddle", cls: "s1", points: pts }], { label: `ATM straddle price over ${hist.length} candles for ${d.underlying} ${d.expiry}. Now ${money(d.premium)}, high ${isFigure(d.historyHigh) ? formatFixed(d.historyHigh, 2) : "unknown"}, low ${isFigure(d.historyLow) ? formatFixed(d.historyLow, 2) : "unknown"}.`, refs: isFigure(d.historyHigh) && isFigure(d.historyLow) ? [{ y: d.historyHigh, label: "High" }, { y: d.historyLow, label: "Low" }] : [] })),
+    sectionCard(`${what} price over time`, `${strangle ? `The ${formatInt(d.callStrike)} call plus the ${formatInt(d.putStrike)} put` : "The at-the-money call plus put"} at ${d.interval} candles. A falling line is time decay and shrinking IV; a rising one is the market pricing a bigger move.`, legend([{ cls: "s1", label: `${what} price` }]), seriesChart([{ id: "st", label: what, cls: "s1", points: pts }], { label: `${strangle ? `${formatInt(d.callStrike)} / ${formatInt(d.putStrike)} strangle` : "ATM straddle"} price over ${hist.length} candles for ${d.underlying} ${d.expiry}. Now ${money(d.premium)}, high ${isFigure(d.historyHigh) ? formatFixed(d.historyHigh, 2) : "unknown"}, low ${isFigure(d.historyLow) ? formatFixed(d.historyLow, 2) : "unknown"}.`, refs: isFigure(d.historyHigh) && isFigure(d.historyLow) ? [{ y: d.historyHigh, label: "High" }, { y: d.historyLow, label: "Low" }] : [] })),
     dataDisclosure("Show as a table", [{ label: "Time", cell: (r) => h("strong", {}, istDateTime(new Date(r.time * 1000).toISOString())) }, { label: "Call", num: true, cell: (r) => formatFixed(r.ce, 2) }, { label: "Put", num: true, cell: (r) => formatFixed(r.pe, 2) }, { label: "Straddle", num: true, cell: (r) => formatFixed(r.straddle, 2) }], [...hist].reverse().slice(0, 100)),
   ];
 }
@@ -1173,10 +1176,11 @@ async function renderGreeksGrid(H) {
         label: "ATM straddle",
         expiry: true,
         fields: [
+          { key: "width", label: "Pair", type: "select", options: [["0", "ATM straddle"], ["1", "Strangle ±1 strike"], ["2", "Strangle ±2 strikes"], ["3", "Strangle ±3 strikes"], ["5", "Strangle ±5 strikes"]], value: "0" },
           { key: "interval", label: "Candle", type: "select", options: [["1m", "1 minute"], ["5m", "5 minutes"], ["15m", "15 minutes"], ["30m", "30 minutes"], ["60m", "1 hour"]], value: "5m" },
           { key: "countback", label: "How many candles", type: "select", options: [["75", "75"], ["150", "150"], ["300", "300"]], value: "75" },
         ],
-        run: async ({ v, o }) => drawStraddle(await api(`/v1/analytics/straddle?${new URLSearchParams({ underlying: v.underlying, expiry: v.expiry, interval: o.interval, countback: o.countback })}`)),
+        run: async ({ v, o }) => drawStraddle(await api(`/v1/analytics/straddle?${new URLSearchParams({ underlying: v.underlying, expiry: v.expiry, interval: o.interval, countback: o.countback, width: o.width || "0", strikes: "15" })}`)),
       },
     ],
   });

@@ -141,6 +141,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "analyticsMore.js": "text/javascript; charset=utf-8",
   "analyticsFlow.js": "text/javascript; charset=utf-8",
   "analyticsRisk.js": "text/javascript; charset=utf-8",
+  "analyticsTime.js": "text/javascript; charset=utf-8",
   "workspace.js": "text/javascript; charset=utf-8",
   "chrome.js": "text/javascript; charset=utf-8",
   "terminal.js": "text/javascript; charset=utf-8",
