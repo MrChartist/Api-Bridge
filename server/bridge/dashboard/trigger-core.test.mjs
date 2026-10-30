@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { distancePct, gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, kindText, legText, outcomeText, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
+import { distancePct, exitChipText, pnlAt, gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, kindText, legText, outcomeText, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
 
 const leg = (o) => ({ op: "below", trigger: 98.5, role: "stop", trail: null, order: { side: "SELL", quantity: 130, orderType: "MARKET" }, ...o });
 
@@ -74,5 +74,26 @@ describe("trigger bodies and checks", () => {
     expect(triggerProblem({ ...base, side: "BUY", origin: "position", stop: 95 })?.message).toBe("A stop for a short goes above 100.00.");
     expect(triggerProblem({ ...base, origin: "position", stop: 90, target: 120 })).toBeNull();
     expect(triggerProblem({ ...base, origin: "gtt", entry: 110, orderType: "LIMIT" })?.field).toBe("price");
+  });
+});
+
+describe("position stop and target", () => {
+  it("P&L at an exit price: (price − average) × signed quantity", () => {
+    expect(pnlAt(449, 559.65, 65)).toBeCloseTo(-7192.25, 6);
+    expect(pnlAt(110, 130.25, -65)).toBeCloseTo(1316.25, 6);
+    expect(pnlAt(null, 1, 1)).toBeNull();
+  });
+  it("the chip lists open exits on the symbol: SL, TSL when it trails, T for the target; not GTT entries or waiting brackets", () => {
+    const sym = "NFO:NIFTY-2026-11-03-25800-CE";
+    const t = (o) => ({ symbol: sym, reduceOnly: true, status: "active", legs: [], ...o });
+    const list = [
+      t({ legs: [leg({ trigger: 449 }), leg({ role: "target", op: "above", trigger: 785 })] }),
+      t({ legs: [leg({ trigger: 450, trail: { points: 5 } })] }),
+      t({ status: "waiting", legs: [leg({ trigger: 1 })] }),
+      t({ reduceOnly: false, legs: [leg({ trigger: 2 })] }),
+      t({ status: "triggered", legs: [leg({ trigger: 3 })] }),
+    ];
+    expect(exitChipText(list, sym)).toBe("SL 449.00 · T 785.00 · TSL 450.00");
+    expect(exitChipText(list, "NFO:OTHER")).toBeNull();
   });
 });

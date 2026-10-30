@@ -49,6 +49,25 @@ export function gttFillPrice({ orderType, price, trigger }) {
   return isFigure(trigger) ? Number(trigger) : null;
 }
 
+/**
+ * P&L of a position if it is closed at `price`: (price − average) × signed quantity. Null without the figures.
+ * @param {number} price @param {number} avg @param {number} qty signed units (long +, short −)
+ */
+export function pnlAt(price, avg, qty) {
+  if (!isFigure(price) || !isFigure(avg) || !isFigure(qty)) return null;
+  return (Number(price) - Number(avg)) * Number(qty);
+}
+
+/** The short chip for a position's open exits: "SL 449.00 · T 785.00" (trailing: "TSL"), or null. */
+export function exitChipText(triggers, symbol) {
+  const mine = (triggers ?? []).filter((t) => t.symbol === symbol && t.reduceOnly && OPEN_TRIGGER.has(t.status) && t.status !== "waiting");
+  if (!mine.length) return null;
+  const parts = [];
+  for (const t of mine)
+    for (const l of t.legs ?? []) parts.push(`${l.role === "target" ? "T" : l.trail ? "TSL" : "SL"} ${formatFixed(l.trigger, 2)}`);
+  return parts.join(" · ");
+}
+
 /** What kind of trigger it is, in the words brokers use. */
 export function kindText(t) {
   if (t.origin === "bracket") return t.type === "oco" ? "Stop and target (on entry)" : t.legs?.[0]?.role === "target" ? "Target (on entry)" : "Stop (on entry)";
