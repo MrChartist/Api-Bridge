@@ -204,7 +204,12 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
     // Good till: a year, the contract's expiry close, or for intraday the IST day's close.
     let expires = t0 + YEAR_MS;
     if (resolved.expiry) expires = Math.min(expires, closeOf(resolved.expiry));
-    if (product === "INTRADAY") expires = Math.min(expires, Date.parse(`${istIso(t0).slice(0, 10)}T15:20:00+05:30`) > t0 ? Date.parse(`${istIso(t0).slice(0, 10)}T15:20:00+05:30`) : t0 + 86_400_000);
+    if (product === "INTRADAY") {
+      // An intraday order sent on a later day would be squared off: an intraday trigger ends at the 15:20 square-off
+      // (today's, or the next day's when it is set after it).
+      const cut = Date.parse(`${istIso(t0).slice(0, 10)}T15:20:00+05:30`);
+      expires = Math.min(expires, cut > t0 ? cut : cut + 86_400_000);
+    }
     if (input.expiresAt) {
       const want = Date.parse(String(input.expiresAt));
       if (!Number.isFinite(want) || want <= t0) throw invalid("expiresAt", "expiresAt must be a future time.");

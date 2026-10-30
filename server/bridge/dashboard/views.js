@@ -2380,6 +2380,10 @@ async function renderOrders() {
     }),
   );
 
+  // GTT, OCO, stops, targets and trailing stops checked on the Bridge (triggers.js), above the day's orders so an
+  // open stop is never below a long list; it refreshes itself.
+  nodes.push(triggersCard(byId));
+
   const ord = orders.data?.data ?? [];
   nodes.push(
     card({
@@ -2422,9 +2426,6 @@ async function renderOrders() {
           ),
     }),
   );
-
-  // GTT, OCO, stops, targets and trailing stops checked on the Bridge (triggers.js); refreshes itself.
-  nodes.push(triggersCard(byId));
 
   // One summary line per paper account; the positions themselves live on the Positions page. Every rupee figure in
   // this table uses Indian grouping (the P&L columns too, with an explicit + for gains).

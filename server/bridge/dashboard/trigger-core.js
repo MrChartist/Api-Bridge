@@ -11,6 +11,44 @@ export function opFor(trigger, ltp) {
   return Number(trigger) > Number(ltp) ? "above" : "below";
 }
 
+/** Default buffer between a GTT's trigger and its limit price: 0.5 % (a buy pays up to it, a sell down to it). */
+export const GTT_BUFFER_PCT = 0.5;
+
+const tickRound = (v, tick, dir) => {
+  const t = Number(tick) > 0 ? Number(tick) : 0.05;
+  const u = v / t;
+  return Math.round((dir === "up" ? Math.ceil(u - 1e-9) : Math.floor(u + 1e-9)) * t * 1e6) / 1e6;
+};
+
+/**
+ * The limit price a GTT's order should carry so it fills when it fires: the trigger plus a buffer for a buy, minus it
+ * for a sell, rounded to the tick away from the trigger. Null without a trigger.
+ */
+export function gttLimit(trigger, side, tick = 0.05, bufferPct = GTT_BUFFER_PCT) {
+  if (!isFigure(trigger) || Number(trigger) <= 0) return null;
+  const t = Number(trigger);
+  return side === "BUY" ? tickRound(t * (1 + bufferPct / 100), tick, "up") : Math.max(Number(tick) || 0.05, tickRound(t * (1 - bufferPct / 100), tick, "down"));
+}
+
+/** A warning when a GTT's limit is on the wrong side of its trigger (it would rest unfilled once it fires), else null. */
+export function gttLimitWarning(side, trigger, limit) {
+  if (!isFigure(trigger) || !isFigure(limit)) return null;
+  if (side === "BUY" && Number(limit) < Number(trigger)) return `A buy limit of ${formatFixed(limit, 2)} is under the trigger ${formatFixed(trigger, 2)}: when it fires the order may rest unfilled. Use ${formatFixed(trigger, 2)} or more, or a market order.`;
+  if (side === "SELL" && Number(limit) > Number(trigger)) return `A sell limit of ${formatFixed(limit, 2)} is over the trigger ${formatFixed(trigger, 2)}: when it fires the order may rest unfilled. Use ${formatFixed(trigger, 2)} or less, or a market order.`;
+  return null;
+}
+
+/** How long a GTT lasts for a product: an intraday one ends at today's 15:20 square-off; carry lasts to expiry. */
+export function gttValidityText(product) {
+  return product === "INTRADAY" ? "Intraday: good till 15:20 today, then cancelled." : "Good till the contract expires.";
+}
+
+/** The price a GTT entry is expected to fill at: its limit, or the trigger for a market order. */
+export function gttFillPrice({ orderType, price, trigger }) {
+  if (orderType === "LIMIT" && isFigure(price)) return Number(price);
+  return isFigure(trigger) ? Number(trigger) : null;
+}
+
 /** What kind of trigger it is, in the words brokers use. */
 export function kindText(t) {
   if (t.origin === "bracket") return t.type === "oco" ? "Stop and target (on entry)" : t.legs?.[0]?.role === "target" ? "Target (on entry)" : "Stop (on entry)";

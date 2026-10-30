@@ -111,6 +111,25 @@ describe("trigger engine", () => {
     expect(await svc.runOnce()).toBe(0); // fired triggers are done
   });
 
+  it("an intraday trigger ends at today's 15:20 square-off and expires there; carry lasts to the contract's expiry", async () => {
+    setPx(120);
+    const mis = await svc.create(ctx("paper"), { account: "paper", symbol: OPT, product: "INTRADAY", legs: [{ trigger: 140, order: { side: "BUY", lots: 1 } }] });
+    const day = new Date(clock.now() + 19_800_000).toISOString().slice(0, 10);
+    expect(mis.expiresAt).toBe(`${day}T15:20:00.000+05:30`);
+    const nrml = await svc.create(ctx("paper"), { account: "paper", symbol: OPT, product: "MARGIN", legs: [{ trigger: 140, order: { side: "BUY", lots: 1 } }] });
+    expect(nrml.expiresAt).toBe("2026-10-27T15:30:00.000+05:30");
+    const real = clock.now;
+    clock.now = () => Date.parse(`${day}T15:20:01+05:30`);
+    try {
+      await svc.runOnce();
+    } finally {
+      clock.now = real;
+    }
+    expect(svc.get(ctx("paper"), mis.id)).toMatchObject({ status: "expired" });
+    expect(svc.get(ctx("paper"), nrml.id).status).toBe("active");
+    svc.cancel(ctx("paper"), nrml.id);
+  });
+
   it("an OCO exit: the stop fires, the target is gone with it; reduce-only sends no more than is held", async () => {
     await buyLots(2);
     const before = await held();

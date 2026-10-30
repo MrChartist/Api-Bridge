@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { distancePct, kindText, legText, outcomeText, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
+import { distancePct, gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, kindText, legText, outcomeText, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
 
 const leg = (o) => ({ op: "below", trigger: 98.5, role: "stop", trail: null, order: { side: "SELL", quantity: 130, orderType: "MARKET" }, ...o });
 
@@ -24,6 +24,29 @@ describe("trigger words", () => {
     expect(outcomeText({ status: "triggered", lotSize: 65, fireLtp: 97.2, result: { status: "filled", quantity: 130 } })).toBe("Order filled · 2 lots · LTP was 97.20");
     expect(outcomeText({ status: "failed", result: { message: "The kill switch is on." } })).toBe("The kill switch is on.");
     expect(distancePct(leg(), 100)).toBeCloseTo(1.5, 6);
+  });
+});
+
+describe("GTT limit, validity and expected fill", () => {
+  it("defaults the limit to the trigger plus 0.5 % for a buy, minus for a sell, on the tick away from the trigger", () => {
+    expect(gttLimit(586.7, "BUY", 0.05)).toBe(589.65); // 589.6335 up to the tick
+    expect(gttLimit(586.7, "SELL", 0.05)).toBe(583.75); // 583.7665 down to the tick
+    expect(gttLimit(586.7, "BUY", 0.05, 0)).toBe(586.7);
+    expect(gttLimit(null, "BUY")).toBeNull();
+  });
+  it("warns when a typed limit is on the wrong side of the trigger", () => {
+    expect(gttLimitWarning("BUY", 586.7, 575.65)).toMatch(/^A buy limit of 575\.65 is under the trigger 586\.70: when it fires the order may rest unfilled/);
+    expect(gttLimitWarning("SELL", 100, 101)).toMatch(/sell limit of 101\.00 is over the trigger 100\.00/);
+    expect(gttLimitWarning("BUY", 586.7, 586.7)).toBeNull();
+    expect(gttLimitWarning("SELL", 100, 99)).toBeNull();
+  });
+  it("says how long it lasts by product: intraday ends at today's square-off", () => {
+    expect(gttValidityText("INTRADAY")).toBe("Intraday: good till 15:20 today, then cancelled.");
+    expect(gttValidityText("MARGIN")).toBe("Good till the contract expires.");
+  });
+  it("prices You pay, max loss and breakeven at the expected fill: the limit, or the trigger for market", () => {
+    expect(gttFillPrice({ orderType: "LIMIT", price: 589.65, trigger: 586.7 })).toBe(589.65);
+    expect(gttFillPrice({ orderType: "MARKET", price: undefined, trigger: 586.7 })).toBe(586.7);
   });
 });
 
