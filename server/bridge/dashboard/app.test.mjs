@@ -64,15 +64,20 @@ describe("dashboard helpers", async () => {
     expect(friendlyError({ status: 418, message: "teapot" })).toEqual({ title: "The Bridge answered 418", detail: "teapot" });
   });
 
-  it("works out the welcome checklist", () => {
-    const keys = [{ id: "a" }, { id: "b", revokedAt: "2026-01-01" }];
+  it("works out the welcome checklist (broker or demo, a key for a tool, the chain, a paper trade)", () => {
+    // Init's admin key and a revoked key are not keys for a tool.
+    const keys = [{ id: "a", scopes: ["admin", "paper"] }, { id: "b", scopes: ["read"], revokedAt: "2026-01-01" }];
+    expect(checklistState({ demo: true, keys }).map((s) => s.id)).toEqual(["broker", "key", "chain", "trade"]);
     expect(checklistState({ demo: true, keys }).map((s) => s.done)).toEqual([true, false, false, false]);
     const accounts = [{ broker: "dhan", session: { state: "connected" } }];
-    expect(checklistState({ accounts, keys: [{ id: "a" }, { id: "b" }], copied: "1", tested: "1" }).every((s) => s.done)).toBe(true);
+    expect(checklistState({ accounts, keys: [{ id: "c", scopes: ["read"] }], chainOpened: "1", traded: "1" }).every((s) => s.done)).toBe(true);
     expect(checklistState({ accounts: [{ broker: "paper", session: { state: "connected" } }] })[0].done).toBe(false);
     // A key made by a sign-in link is not a key for a tool.
-    const signedIn = [{ id: "a", clientKind: "ui", label: "admin (created by init)" }, { id: "b", clientKind: "ui", label: "Dashboard sign-in" }];
+    const signedIn = [{ id: "a", clientKind: "ui", label: "admin (created by init)", scopes: ["admin"] }, { id: "b", clientKind: "ui", label: "Dashboard sign-in", scopes: ["read"] }];
     expect(checklistState({ keys: signedIn })[1].done).toBe(false);
+    // Demo's own seeded orders do not tick the trade step; one placed by the person does.
+    expect(checklistState({ orders: [{ mode: "paper", tag: "DEMOSEED" }] })[3].done).toBe(false);
+    expect(checklistState({ orders: [{ mode: "paper", tag: null }] })[3].done).toBe(true);
   });
 
   it("escapes data before highlighting JSON", () => {

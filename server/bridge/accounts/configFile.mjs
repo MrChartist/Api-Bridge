@@ -60,9 +60,10 @@ export function configFileAccountIds(path) {
  * since the Bridge started).
  * @param {string} path
  * @param {Record<string, unknown>} entry  as it should appear in the file
- * @returns {Promise<{ created: boolean }>}  created: the file did not exist before
+ * @param {{ leaveDemo?: boolean }} [opts]  leaveDemo: also delete a top-level "demo": true (demo-mode save, opt-in)
+ * @returns {Promise<{ created: boolean, demoWasInFile: boolean, demoTurnedOff: boolean }>}  created: the file did not exist before
  */
-export function addAccountToConfigFile(path, entry) {
+export function addAccountToConfigFile(path, entry, { leaveDemo = false } = {}) {
   return serialised(() => {
     const created = !existsSync(path);
     const obj = readForEdit(path);
@@ -71,8 +72,11 @@ export function addAccountToConfigFile(path, entry) {
       throw new BridgeError("VALIDATION_FAILED", `The account id "${entry.id}" is already in your config file. Choose another id, or restart the Bridge to load it.`);
     }
     obj.accounts = [...accounts, entry];
+    // Saved from demo mode: turn demo off in the file too, so the next start loads the account (opt-in, see routes).
+    const demoWasInFile = obj.demo === true;
+    if (leaveDemo && demoWasInFile) delete obj.demo;
     writeChecked(path, obj);
-    return { created };
+    return { created, demoWasInFile, demoTurnedOff: leaveDemo && demoWasInFile };
   });
 }
 

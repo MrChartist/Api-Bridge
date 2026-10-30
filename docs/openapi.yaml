@@ -323,7 +323,12 @@ paths:
         paper only: live trading is turned on only by editing the config file. Without `id` the Bridge picks
         `<broker>-main`, then `<broker>-2` ... (`paper`, `paper-2` ... for paper accounts). Log in afterwards with
         POST /v1/accounts/{accountId}/session. Admin scope with an admin key that may use every account, this computer
-        only. Refused in demo mode. Audited as `account.added`.
+        only. Audited as `account.added`.
+
+        Demo mode saves a real broker's account for the next normal start instead (`savedForLater: true`,
+        `account: null`): the same paper-only entry is written to the file, nothing is loaded and no broker is
+        contacted. `leaveDemo: true` also removes `"demo": true` from the file. Paper accounts are refused in demo mode
+        (it has its own), and so is everything when the demo dashboard is served to other computers.
       x-stream: S1
       x-scope: admin
       x-loopback-only: true
@@ -351,6 +356,10 @@ paths:
                           - type: "null"
                       restartNeeded: { type: boolean }
                       configFile: { type: string, description: "The config file the account was saved to." }
+                      savedForLater: { type: boolean, description: "Demo mode: saved to the file only, loaded on the next normal start." }
+                      savedId: { type: string, description: "Demo mode: the id the saved account will have." }
+                      demoWasInFile: { type: boolean, description: "Demo mode: the file itself turns demo mode on." }
+                      demoTurnedOff: { type: boolean, description: "Demo mode: `demo` was removed from the file (leaveDemo)." }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -5962,6 +5971,7 @@ components:
         broker: { type: string, description: "An adapter id from GET /v1/brokers, or paper." }
         id: { type: string, pattern: "^[a-z0-9][a-z0-9-]{1,31}$", description: "Optional; the Bridge picks one when it is left out." }
         label: { type: string, maxLength: 60, description: "A name you will recognise. Optional." }
+        leaveDemo: { type: boolean, description: "Demo mode only: also remove `\"demo\": true` from the config file, so the next start is normal." }
 
     SessionConnectRequest:
       type: object

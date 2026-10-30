@@ -68,19 +68,30 @@ section 4.
 
 ### 3c. Live events feed (stocks and options)
 
-The goal is a faster, clearer version of the Spider IRIS "Event Selector": a live list of stocks crossing events as
-they happen. Events:
+Built: Markets › Screeners › Live events (`#/screeners/events`). Guide: `docs/guides/live-events.md`, server in `server/bridge/events/`.
 
-- **Bullish:** new high of day, gap up, volume above the previous day.
-- **Bearish:** new low of day, gap down, volume below.
-- **Misc:** pivot crossovers, upper and lower circuit ("only buyers" / "only sellers"), swings, gap close.
+- 37 event kinds:
+  - day high/low, gaps and gap fill
+  - volume surges
+  - only buyers / only sellers (circuit lock and unlock)
+  - previous-day, pivot, 52-week and all-time levels
+  - swings
+  - F&O OI build-up
+  - option OI, IV, premium, walls, PCR, max pain, straddle, basis, unusual volume
+  - spot crossing a strike
+- One alert per move: all-time high > 52-week high > previous-day high > day high. Lower ones are folded into the top row.
+- Live custom conditions in plain text (up to 50), fired on the false-to-true edge.
+- Measured speed:
+  - engine: p95 0.014 ms per tick;
+  - tick to screen: p95 61–110 ms across three runs on a busy machine. The target is 100 ms or less; check it with `node scripts/events-paint.mjs`, or `?debug=1` on the page.
 
-Then the same for options: OI spikes, IV jumps, PCR shifts, straddle breaks, wall moves.
-
-- Speed targets: 100 ms or less from tick to paint at p95; a perf test at 2,000 events per second across 500 symbols.
-- An agent built this as stream S28 `events` (`docs/guides/live-events.md`). Check `git log --grep=events` on this
-  branch; if it is not there, look for a pushed `events` branch.
-- Then: run it in demo, measure tick-to-paint in the browser, and compare against Spider on your machine.
+Left to do:
+- MCP tool `get_market_events`.
+- Option volume measured against average days. It needs per-strike volume history; today the check is volume / OI.
+- A desk order ticket in the side sheet. It uses the strategy placement sheet today.
+- Test the live broker path (`events/feed.mjs`); only demo was run end to end.
+- In demo, a stream-only client starts nothing until something reads `/v1/events*`.
+- Run the full test suite on a quiet machine. Three tests (fno/routes, vol/agreement, hooks/routes) failed once each under load and passed alone.
 
 ### 3d. Mid-width layout (1024–1399 px)
 

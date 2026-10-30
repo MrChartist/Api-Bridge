@@ -7799,6 +7799,37 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
   :root[data-page="positions"] #content:has(> [data-panel="risk"]:not([hidden])) > [data-panel="positions"] { grid-column: 1; }
   :root[data-page="positions"] #content > [data-panel="risk"] { grid-column: 2; }
 
+
+/* ───────────────────────── 15 · FLOWS: inline errors, toast tones, setup guides, the new key (flows.js, views.js) ───────────────────────── */
+/* A field with a problem: a whole red ring (never one edge), the message under it in red ink. */
+:is(input, select, textarea)[aria-invalid="true"] { box-shadow: inset 0 0 0 1.5px hsl(var(--ios-red)); }
+:is(input, select, textarea)[aria-invalid="true"]:focus { box-shadow: inset 0 0 0 1.5px hsl(var(--ios-red)), 0 0 0 3px hsl(var(--ios-red) / 0.28); }
+.field-msg { display: block; margin: 0; font: 500 13px/1.4 var(--font-body); color: hsl(var(--ios-red-ink)); }
+/* Toast tones (app.js toast): only a done action gets the green check. */
+.toast-icon.warn { background: hsl(var(--ios-orange)); }
+.toast-icon.error { background: hsl(var(--ios-red)); }
+.toast-icon.warn svg, .toast-icon.error svg { width: 13px; height: 13px; stroke: #fff; stroke-width: 2.6; }
+/* Step-by-step guides (Add a broker in demo mode, after a save). */
+.setup-guide { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border-radius: var(--r-inner); background: var(--mat-fill-1); }
+.setup-guide > p { margin: 0; }
+.setup-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.setup-head .avatar { width: 28px; height: 28px; border-radius: 8px; }
+.setup-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; font: 400 14px/1.45 var(--font-body); }
+.setup-steps li { padding-left: 4px; }
+.setup-steps li > strong { display: block; font-weight: 600; }
+.setup-steps li > span { display: block; color: hsl(var(--foreground) / var(--a-label)); }
+.setup-steps .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+/* The key just created (API › Keys). */
+.new-key { display: flex; flex-direction: column; gap: 14px; padding: 18px; border-radius: var(--r-inner); background: hsl(var(--ios-green) / 0.07); box-shadow: inset 0 0 0 1px hsl(var(--ios-green) / 0.3); outline: none; }
+.new-key-head { display: flex; align-items: center; gap: 12px; }
+.new-key-head .grow { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.new-key-tick { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; flex: none; background: hsl(var(--ios-green)); }
+.new-key-tick svg { width: 16px; height: 16px; fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.new-key-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.new-key-value { flex: 1 1 280px; min-width: 0; padding: 12px 14px; border-radius: var(--r-inner); background: hsl(var(--card)); box-shadow: 0 0 0 var(--hl) var(--mat-separator); font-size: 14px; line-height: 1.4; word-break: break-all; user-select: all; }
+.new-key-snips > .row { align-items: center; gap: 12px; flex-wrap: wrap; }
+.new-key-snips .segmented { max-width: 100%; overflow-x: auto; }
+.chip.own-key { margin-left: 6px; }
 /* ── Live events page (Screeners › Live events, events.js) ──
    One desk panel: controls, the summary strip, then a virtualised list (only visible rows exist; each row is placed
    with translateY at a fixed height, --ev-rh, which events.js mirrors). Dense on a fine pointer (30 px rows), 44 px on

@@ -172,7 +172,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     toast(h("span", { class: "toast-undo-row" }, `${label} · `, h("button", { type: "button", class: "toast-undo", onclick: () => doUndo() }, "Undo")));
   }
   function doUndo() {
-    if (!undo) return toast("Nothing to undo");
+    if (!undo) return toast("Nothing to undo", { tone: "info" });
     const u = undo;
     undo = null;
     st.baskets[u.key] = u.legs;
@@ -622,9 +622,9 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
   }
   function applyPreset(p) {
     if (!x) return;
-    if (p.needsFut && !fut()) return toast(`No future found for ${st.underlying}.`);
+    if (p.needsFut && !fut()) return toast(`No future found for ${st.underlying}.`, { tone: "warn" });
     const raw = O.presetLegs(p.id, x.c, presetOpts());
-    if (!raw.length) return toast(p.multi ? "No later expiry is listed for a calendar." : "This strategy needs strikes the chain does not have.");
+    if (!raw.length) return toast(p.multi ? "No later expiry is listed for a calendar." : "This strategy needs strikes the chain does not have.", { tone: "warn" });
     const withSyms = raw.map((l) => (l.kind === "FUT" ? l : { ...l, expiry: l.expiry ?? x.c.expiry, symbol: symOf({ ...l, expiry: l.expiry ?? x.c.expiry }), lotSize: x.lot }));
     setName(null);
     setLegs(withSyms, { undoLabel: `${p.name} applied`, keepWhatIf: false });
@@ -642,7 +642,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       const k = O.stepStrike(strikesOf(l.expiry), l.strike, dir);
       return k === null || k === l.strike ? null : { ...l, strike: k, symbol: null, entry: undefined, entryTag: undefined };
     });
-    if (next.some((l) => l === null)) return toast("A leg is at the edge of the loaded strikes");
+    if (next.some((l) => l === null)) return toast("A leg is at the edge of the loaded strikes", { tone: "warn" });
     setLegs(next.map((l) => (l.kind === "FUT" ? l : { ...l, symbol: symOf(l) })));
     announce(`Strikes shifted ${dir > 0 ? "up" : "down"}`);
   }
@@ -665,7 +665,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const isFut = leg.kind === "FUT";
     const exp = leg.expiry ?? st.expiry;
     const same = cur.find((l) => (isFut ? l.kind === "FUT" && l.symbol === leg.symbol : l.kind === "OPT" && l.strike === leg.strike && l.right === leg.right && l.expiry === exp) && l.side === leg.side && (l.entry === undefined || l.entry === null));
-    if (!same && cur.length >= O.MAX_LEGS) return toast(`Up to ${O.MAX_LEGS} legs`);
+    if (!same && cur.length >= O.MAX_LEGS) return toast(`Up to ${O.MAX_LEGS} legs`, { tone: "warn" });
     mutate((ls) => {
       const s = ls.find((l) => l.id === same?.id);
       if (s) s.lots += leg.lots ?? 1;
@@ -703,7 +703,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     if (!l || l.expiry === e) return;
     const other = new Set(cur.filter((y) => y.id !== id && y.kind === "OPT" && y.expiry !== x?.c.expiry).map((y) => y.expiry));
     if (e !== x?.c.expiry) other.add(e);
-    if (other.size > 3) return toast("Up to 3 later expiries in one strategy");
+    if (other.size > 3) return toast("Up to 3 later expiries in one strategy", { tone: "warn" });
     mutateLeg(id, (y) => {
       y.expiry = e;
       y.symbol = null;
@@ -1657,11 +1657,11 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
 
   // ── Adjustments (§5.8): delta-neutralise preview, convert ──
   function proposeNeutral() {
-    if (!R?.ok || !isFigure(R.greeks?.delta)) return toast("Needs priced legs");
+    if (!R?.ok || !isFigure(R.greeks?.delta)) return toast("Needs priced legs", { tone: "info" });
     const f = fut();
     const atm = O.atmRow(x.c);
     const p = O.neutraliseDelta({ deltaUnits: R.greeks.delta, lot: R.lot, fut: f ? { lotSize: num(f.lotSize) || R.lot } : null, atm: atm ? { strike: atm.strike, ceDelta: atm.ce?.delta, peDelta: atm.pe?.delta } : null });
-    if (!p) return toast("Already close to delta-neutral");
+    if (!p) return toast("Already close to delta-neutral", { tone: "info" });
     neutral = { ...p, fut: f };
     drawAdjust();
   }
@@ -1681,7 +1681,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const p = neutral;
     if (!p) return;
     neutral = null;
-    if (legs().length >= O.MAX_LEGS) return toast(`Up to ${O.MAX_LEGS} legs`);
+    if (legs().length >= O.MAX_LEGS) return toast(`Up to ${O.MAX_LEGS} legs`, { tone: "warn" });
     const leg = p.kind === "FUT" ? { kind: "FUT", side: p.side, lots: p.lots, symbol: p.fut.symbol, expiry: p.fut.expiry, lotSize: p.fut.lotSize } : { kind: "OPT", right: p.right, strike: p.strike, side: p.side, lots: p.lots, expiry: x.c.expiry, symbol: symOf({ kind: "OPT", right: p.right, strike: p.strike, expiry: x.c.expiry }), lotSize: x.lot };
     mutate((ls) => ls.push(leg), { undoLabel: "Delta-neutralised" });
   }
@@ -1719,7 +1719,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const roll = (k) => mutateLeg(id, (y) => ((y.strike = k), (y.symbol = symOf({ ...y, strike: k })), delete y.entry, delete y.entryTag), { undoLabel: `${name} rolled to ${formatInt(k)}` });
     menu(trigger, `${l.side === "BUY" ? "Buy" : "Sell"} ${name} · ${expiryText(l.expiry)}`, [
       [l.on === false ? "Switch on" : "Switch off", () => mutateLeg(id, (y) => (y.on = y.on === false)), { sub: l.on === false ? "back in the figures" : "keeps the leg, leaves it out of the figures" }],
-      ["Duplicate", () => (legs().length >= O.MAX_LEGS ? toast(`Up to ${O.MAX_LEGS} legs`) : mutate((ls) => ls.splice(ls.findIndex((y) => y.id === id) + 1, 0, { ...structuredClone(l), id: undefined }), { undoLabel: `${name} duplicated` }))],
+      ["Duplicate", () => (legs().length >= O.MAX_LEGS ? toast(`Up to ${O.MAX_LEGS} legs`, { tone: "warn" }) : mutate((ls) => ls.splice(ls.findIndex((y) => y.id === id) + 1, 0, { ...structuredClone(l), id: undefined }), { undoLabel: `${name} duplicated` }))],
       l.kind === "OPT" ? ["Roll strike out", () => roll(outK), { disabled: outK === null, sub: outK !== null ? `to ${formatInt(outK)}, away from spot` : "at the edge" }] : null,
       l.kind === "OPT" ? ["Roll strike in", () => roll(inK), { disabled: inK === null, sub: inK !== null ? `to ${formatInt(inK)}, towards spot` : "at spot" }] : null,
       l.kind === "OPT" ? ["Roll to next expiry", () => setLegExpiry(id, nx), { disabled: !nx, sub: nx ? `same strike, ${expiryText(nx)}` : "no later expiry" }] : null,
@@ -1987,11 +1987,11 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
   async function place() {
     if (!R || !x) return;
     const a = account();
-    if (!a) return toast("Choose an account that can place orders first.");
+    if (!a) return toast("Choose an account that can place orders first.", { tone: "warn" });
     if (!R.act.length) return;
     // A block still opens the sheet (Confirm disabled, the reason listed, the account switchable there); only legs
     // without a price stop here, since there is nothing to send.
-    if (!R.ok) return toast(R.dead.length ? R.warnings[0].text : "Every leg needs a price");
+    if (!R.ok) return toast(R.dead.length ? R.warnings[0].text : "Every leg needs a price", { tone: "warn" });
     const exit = closeMode();
     const plan = O.placementPlan(R.act, exit ? "exit" : "entry", { spot: x.spot });
     const items = plan.map((p) => {
@@ -2434,7 +2434,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       try {
         parsed = JSON.parse(await f.text());
       } catch {
-        return toast("That file is not JSON");
+        return toast("That file is not JSON", { tone: "error" });
       }
       const { items, skipped } = O.normaliseSaved(parsed);
       const cur = readSaves();

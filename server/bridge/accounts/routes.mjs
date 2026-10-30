@@ -17,7 +17,11 @@
  *  - Removing refuses an account with live trading set up in the file (remove those in the file, on purpose) and the
  *    last paper account. It deletes the account's saved keys and session from SecretStore; its paper-trading
  *    history files stay in the data folder.
- *  - Demo mode refuses both: demo replaces the accounts with its sample ones.
+ *  - Demo mode refuses removing, and adding to the running Bridge (demo replaces the accounts with its sample ones).
+ *    It can SAVE a real broker's account for the next normal start: the same paper-only entry is written to the
+ *    config file, nothing is loaded, no broker is contacted and no secret is accepted (login happens after the
+ *    restart). With `leaveDemo: true` a `"demo": true` in the file is removed in the same write. Refused when the
+ *    dashboard is served to other computers (server.remoteDashboard), so a public demo never edits its file.
  */
 import { isStub } from "../core/contracts.mjs";
 import { accountSchema, deepFreeze } from "../core/config.mjs";
@@ -29,6 +33,7 @@ import { createBrokerRegistry } from "../../brokers/registry.mjs";
 
 const ACCOUNT_ID_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 const ADD_FIELDS = new Set(["broker", "id", "label"]);
+const DEMO_ADD_FIELDS = new Set(["broker", "id", "label", "leaveDemo"]);
 const DEMO_REFUSAL = "Demo mode uses its own sample accounts. Close the Bridge and start it again without demo mode to add or remove your broker accounts.";
 
 /**
@@ -114,8 +119,13 @@ function realBrokerCatalogue() {
         authKind: adapter.capabilities?.auth?.kind ?? "apiKeyToken",
         capabilities: adapterCapabilities(adapter),
         verified: VERIFIED_BROKERS.includes(id),
+        // Field names and labels only (what the login form will ask for after a normal start); never values.
+        credentialFields: Array.isArray(adapter.credentialFields) ? [...adapter.credentialFields] : [],
+        loginFields: (adapter.capabilities?.auth?.loginFields ?? []).map((f) => ({ key: f.key, label: f.label ?? f.key, kind: f.kind ?? "secret" })),
+        tokenExpiry: adapter.capabilities?.auth?.tokenExpiry ?? null,
+        ...(loginUrlTemplate(adapter) ? { loginUrl: loginUrlTemplate(adapter) } : {}),
         available: false,
-        note: "Not loaded in demo mode. Start without --demo to connect this broker.",
+        note: "Not loaded in demo mode. Save it now and log in after you start the Bridge normally.",
       };
     });
   return catalogueCache;
@@ -187,17 +197,22 @@ export function createAccountRoutes(deps, { policies = {} } = {}) {
     /** POST /v1/accounts (admin, loopback only, unlimited admin key): add a paper-only account and use it at once. */
     async addAccount(ctx) {
       requireWholeBridge(ctx);
-      if (deps.config?.demo) throw new BridgeError("VALIDATION_FAILED", DEMO_REFUSAL);
+      const demo = deps.config?.demo === true;
+      if (demo && deps.config?.server?.remoteDashboard) throw new BridgeError("VALIDATION_FAILED", DEMO_REFUSAL);
       const body = ctx.body;
       if (!body || typeof body !== "object" || Array.isArray(body)) throw new BridgeError("VALIDATION_FAILED", "Send { broker, id?, label? } as a JSON object.");
-      const extra = Object.keys(body).filter((k) => !ADD_FIELDS.has(k));
+      const extra = Object.keys(body).filter((k) => !(demo ? DEMO_ADD_FIELDS : ADD_FIELDS).has(k));
       if (extra.length) {
         throw new BridgeError("VALIDATION_FAILED", "Only broker, id and label can be set here. Live trading and other settings are changed in the config file.", {
           errors: extra.slice(0, 5).map((k) => ({ path: String(k).slice(0, 40), message: "unknown field" })),
         });
       }
       const broker = typeof body.broker === "string" ? body.broker.trim().toLowerCase() : "";
-      const known = broker === PAPER_BROKER || (broker !== "demo" && /^[a-z0-9]{2,20}$/.test(broker) && deps.brokers.has(broker));
+      if (demo && broker === PAPER_BROKER) throw new BridgeError("VALIDATION_FAILED", "Demo mode already has a paper account (demo-paper). Choose your broker to save it for when you start normally.", { errors: [{ path: "broker", message: "demo already has paper" }] });
+      if (body.leaveDemo !== undefined && typeof body.leaveDemo !== "boolean") throw new BridgeError("VALIDATION_FAILED", "leaveDemo must be true or false.", { errors: [{ path: "leaveDemo", message: "must be true or false" }] });
+      const known = demo
+        ? /^[a-z0-9]{2,20}$/.test(broker) && realBrokerCatalogue().some((b) => b.id === broker)
+        : broker === PAPER_BROKER || (broker !== "demo" && /^[a-z0-9]{2,20}$/.test(broker) && deps.brokers.has(broker));
       if (!known) throw new BridgeError("VALIDATION_FAILED", "Choose one of the supported brokers (GET /v1/brokers lists them), or paper.", { errors: [{ path: "broker", message: "unknown broker" }] });
       if (body.label !== undefined && typeof body.label !== "string") throw new BridgeError("VALIDATION_FAILED", "The name must be text.", { errors: [{ path: "label", message: "must be text" }] });
       const label = typeof body.label === "string" ? body.label.trim().replace(/\s+/g, " ") : "";
@@ -221,6 +236,12 @@ export function createAccountRoutes(deps, { policies = {} } = {}) {
       const parsed = accountSchema.safeParse(entry);
       if (!parsed.success) throw new BridgeError("VALIDATION_FAILED", `This account cannot be added: ${parsed.error.issues[0]?.message ?? "not valid"}.`);
 
+      if (demo) {
+        // Saved for the next normal start only: nothing is loaded into this demo Bridge.
+        const { created, demoWasInFile, demoTurnedOff } = await addAccountToConfigFile(configFile, entry, { leaveDemo: body.leaveDemo === true });
+        await audit(deps, ctx, "account.added", id, { broker, label: entry.label, restartNeeded: true, savedFromDemo: true, demoTurnedOff, configFileCreated: created });
+        return json({ data: { account: null, savedId: id, restartNeeded: true, savedForLater: true, demoWasInFile, demoTurnedOff, configFile }, meta: meta(ctx, { accountId: id }) }, { status: 201 });
+      }
       const { created } = await addAccountToConfigFile(configFile, entry);
       let account = null;
       let restartNeeded = true;

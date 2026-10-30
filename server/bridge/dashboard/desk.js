@@ -21,6 +21,7 @@ import { demoStaleAsked, lotConfirmGate, lotStaleCheck, loadReference, refBanner
 import { readinessSheetRow } from "./readiness.js";
 import { clockNote, loadPricingContext } from "./vol-context.js";
 import { animatePage, barsEnter, countUp, flashValue, stopCount } from "./motion.js";
+import { ticketRisk } from "./flows.js";
 
 const SLOT = "mcb.dashboard.desk";
 /** The index underlyings the Options pages list (live) and the three the demo serves; the Option Screener shares them. */
@@ -471,7 +472,7 @@ async function renderDesk(kind) {
             openInChain(strike, side);
           },
           setUnderlying: (u) => {
-            if (!list.includes(u)) return toast(`${u} is not on this desk's list`);
+            if (!list.includes(u)) return toast(`${u} is not on this desk's list`, { tone: "info" });
             st.underlying = u;
             uSel.value = u;
             save();
@@ -1295,7 +1296,7 @@ async function renderDesk(kind) {
     const legs = basket();
     const same = legs.find((l) => (l.kind ?? "OPT") === "OPT" && l.strike === leg.strike && l.right === leg.right && l.side === leg.side && (l.entry === undefined || l.entry === null));
     if (same) same.lots += leg.lots ?? 1;
-    else if (legs.length >= O.MAX_LEGS) return toast(`The strategy holds up to ${O.MAX_LEGS} legs`);
+    else if (legs.length >= O.MAX_LEGS) return toast(`The strategy holds up to ${O.MAX_LEGS} legs`, { tone: "warn" });
     else legs.push({ right: leg.right, strike: leg.strike, side: leg.side, lots: leg.lots ?? 1, expiry: st.expiry });
     save();
     toast(`${leg.side === "BUY" ? "Buy" : "Sell"} ${formatInt(leg.strike)} ${leg.right} added to Strategy Builder`);
@@ -1307,7 +1308,7 @@ async function renderDesk(kind) {
     const match = (l) => (l.kind ?? "OPT") === "OPT" && l.strike === leg.strike && l.right === leg.right && l.side === leg.side && (l.entry === undefined || l.entry === null);
     const same = legs.find(match);
     if (same) same.lots += 1;
-    else if (legs.length >= O.MAX_LEGS) return toast(`The strategy holds up to ${O.MAX_LEGS} legs`);
+    else if (legs.length >= O.MAX_LEGS) return toast(`The strategy holds up to ${O.MAX_LEGS} legs`, { tone: "warn" });
     else legs.push({ right: leg.right, strike: leg.strike, side: leg.side, lots: 1, expiry: st.expiry });
     save();
     const undo = () => {
@@ -1331,12 +1332,12 @@ async function renderDesk(kind) {
   async function openTicket({ row, right, side, qty, symbol, product, orderType = "LIMIT", expiry, exit = false, quote: quoteIn = null, units: oddUnits = false, lotSize: lotIn = null, kind = "OPT", name: nameIn = null, tick: tickIn = null, freezeQty = null, price: priceIn = null, held: heldIn = null, account: accountIn = null }) {
     // `account` presets the leg's own account (Positions All accounts / Family: every exit goes to that account).
     const a = accountIn ? tradable.find((x) => x.id === accountIn) ?? null : account();
-    if (!a) return toast(accountIn ? `${accountIn} cannot place orders from this dashboard.` : "Choose an account that can place orders first.");
+    if (!a) return toast(accountIn ? `${accountIn} cannot place orders from this dashboard.` : "Choose an account that can place orders first.", { tone: "warn" });
     const c = st.chain;
     const ex = expiry ?? c?.expiry;
     const fut = kind === "FUT";
     const sym = symbol ?? row?.[right.toLowerCase()]?.symbol;
-    if (!sym) return toast("This contract has no symbol in the chain.");
+    if (!sym) return toast("This contract has no symbol in the chain.", { tone: "error" });
     const lotSize = num(lotIn) || num(c?.lotSize) || 1;
     const tick = num(tickIn) || 0.05;
     const quote = quoteIn ?? (() => (st.chain?.expiry === ex ? st.chain.rows.find((r) => r.strike === row.strike)?.[right.toLowerCase()] : row?.[right.toLowerCase()]) ?? null);
@@ -1489,12 +1490,23 @@ async function renderDesk(kind) {
         }
         last = r;
         const checks = [...(r.checks ?? [])].sort((x, y) => (x.severity === "block" ? -1 : 0) - (y.severity === "block" ? -1 : 0));
+        // What this order risks before it is sent (an opening option order): max loss, breakeven at expiry and, for a
+        // sell, the approximate margin. Before charges; the broker's own margin figure is final.
+        const q0 = quote();
+        const px = b.price ?? (b.side === "BUY" ? num(q0?.ask) : num(q0?.bid)) ?? num(q0?.ltp);
+        const risk = !fut && !exit && row ? ticketRisk({ side: b.side, right, strike: row.strike, price: px, qty: r.quantity }) : null;
+        const fwd = num(st.chain?.underlyingLtp);
+        const mg = risk && b.side === "SELL" && fwd ? O.marginEstimate([{ strike: row.strike, right, side: "SELL", lots: Math.max(1, Math.round(r.quantity / lotSize)), lotSize, price: px }], lotSize, { forward: fwd }) : null;
+        const lossText = risk ? (risk.maxLoss === null ? "Unlimited" : formatRupee(risk.maxLoss, 0)) : null;
         previewEl.replaceChildren(
           h(
             "div",
-            { class: "ticket-figs" },
+            { class: `ticket-figs${risk ? " with-risk" : ""}` },
             h("div", {}, h("small", {}, "Quantity"), `${formatInt(r.quantity)}`),
             h("div", {}, h("small", {}, b.side === "BUY" ? "You pay" : "You receive"), formatRupee(r.estimatedValue, 0)),
+            risk ? h("div", { title: "The most this order can lose at expiry, before charges" }, h("small", {}, "Max loss"), h("span", { class: risk.maxLoss === null ? "down" : "" }, lossText)) : null,
+            risk ? h("div", { title: "Where the underlying must settle at expiry for this order to break even, before charges" }, h("small", {}, "Breakeven"), formatFixed(risk.breakeven, 2)) : null,
+            mg ? h("div", { title: "An estimate (price scan plus exposure). The broker's figure is final." }, h("small", {}, "Margin ≈"), formatRupee(mg.required, 0)) : null,
             // Paper is said once (the account); only a live order gets a Mode figure, in red.
             r.mode === "live" ? h("div", {}, h("small", {}, "Mode"), h("span", { class: "down" }, "LIVE")) : null,
           ),
@@ -1919,7 +1931,7 @@ async function renderDesk(kind) {
       if (k === "x") {
         const sym = row[target.side]?.symbol;
         const p = sym ? st.positions.find((q) => q.symbol === sym && Number(q.netQty)) : null;
-        return p ? exitPosition(p) : toast(`No position in ${formatInt(row.strike)} ${right}`), true;
+        return p ? exitPosition(p) : toast(`No position in ${formatInt(row.strike)} ${right}`, { tone: "info" }), true;
       }
       return false;
     },
