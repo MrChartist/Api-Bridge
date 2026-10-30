@@ -165,7 +165,8 @@ Left:
   - Undo for a cancelled paper order and for a paper reset;
   - demo paper accounts start with ₹25 lakh;
   - Home cockpit; API › Keys side by side from 1700 px.
-- **Still open:** Excel workbook download, and the per-page proposals in the audit's "Trading pass" section.
+- **Trader tools (30 Oct, evening, `docs/design/ux-audit.md` "Trader tools"):** shared what-if (Positions and Strategy), roll sheet, basket orders (margin first, freeze slicing, buys first, Cancel remaining), trade journal with daily P&L snapshots, expiry desk, watchlists, Explain this on OI and Volatility, Ctrl K trading, Accounts today and the Excel workbook.
+- **Still open:** the proposals in the audit's "Trading pass" and "Trader tools" sections.
 
 ### 3e. Check everything by hand
 
