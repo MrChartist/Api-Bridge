@@ -35,6 +35,9 @@ async function allTrades(account) {
   return { items: out, error: null };
 }
 
+/** Short column heads for the by-year table (the by-segment table says each in full). */
+const SHORT_SEGMENT = { fno: "F&O", intraday: "Intraday", stcg: "STCG", ltcg: "LTCG" };
+
 const KEY = "mcb.statement";
 const remember = (v) => {
   try {
@@ -87,7 +90,7 @@ export async function renderStatementPage() {
     last = { s, years, acc, from, to };
     const fig = (label, value, cls) => h("div", {}, h("small", {}, label), cls ? h("span", { class: cls }, value) : value);
     const tone = (v) => (v > 0 ? "up" : v < 0 ? "down" : undefined);
-    root.replaceChildren(
+    const cards = [
       card({
         glyph: "list",
         tint: "teal",
@@ -162,7 +165,7 @@ export async function renderStatementPage() {
         body: table(
           [
             { label: "Year", cell: (r) => r.label },
-            ...SEGMENTS.map(([k, label]) => ({ label, num: true, cell: (r) => (r.segments[k] ? h("span", { class: tone(r.segments[k]) }, formatSignedRupee(r.segments[k], 0)) : DASH) })),
+            ...SEGMENTS.map(([k]) => ({ label: SHORT_SEGMENT[k], num: true, cell: (r) => (r.segments[k] ? h("span", { class: tone(r.segments[k]) }, formatSignedRupee(r.segments[k], 0)) : DASH) })),
           ],
           years,
           emptyState("calendar", "No closed trades yet", null, null, { compact: true }),
@@ -207,7 +210,11 @@ export async function renderStatementPage() {
           emptyState("orders", "No closed trades in this period", null, null, { compact: true }),
         ),
       }),
-    );
+    ];
+    // Wide screens: By segment, By financial year and the Ledger stacked beside Charges, so neither column leaves a
+    // gap (one column below 1024 px).
+    const pair = (x, y) => h("div", { class: "bk-st-pair" }, x, y);
+    root.replaceChildren(cards[0], pair(h("div", { class: "bk-st-col" }, cards[1], cards[3], cards[4]), cards[2]), cards[5]);
   }
   acctSel.addEventListener("change", () => ((accountId = acctSel.value), draw()));
   xlsxBtn.addEventListener("click", () => {
