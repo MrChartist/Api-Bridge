@@ -42,6 +42,8 @@ const NEXT_EXPIRY_DELAY_MS = 1500;
 const FLASH_GAP_MS = 2500;
 /** The chain's work per frame on a tick or a refresh (ms of script); the rows left over go to the next frame. */
 const FRAME_BUDGET_MS = 5;
+/** OI Analysis takes live ticks at most this often (ms). */
+const OI_GAP_MS = 50;
 /** Outside market hours nothing moves: refresh every 30 s instead. */
 const CLOSED_REFRESH_MS = 30000;
 /** Pages that place orders show the account select (P1: a control only where it changes what the page does). */
@@ -696,9 +698,10 @@ async function renderDesk(kind) {
   // frame that brought ticks, OI Analysis patches its ladder and tiles (its panels every 2 s). Greeks stay from the
   // last refresh (a few seconds).
   const LIVE_KINDS = new Set(["chain", "strategy", "oi"]);
-  // The chain patches only the cells a tick changed, so it takes every frame; the builder and OI redraw a view per
-  // delivery and keep the default gap.
-  const feed = LIVE_KINDS.has(kind) ? watch([], "quote", (ticks) => applyTicks(ticks), kind === "chain" ? { minGapMs: 0 } : undefined) : null;
+  // The chain patches only the cells a tick changed, so it takes every frame. OI Analysis patches its ladder and tiles
+  // (a few ms) and takes ticks every OI_GAP_MS: with the default 150 ms, a tick that came just after a delivery
+  // waited for the next one (its 200 ms tick-to-cell outliers). The builder redraws a whole view and keeps the default.
+  const feed = LIVE_KINDS.has(kind) ? watch([], "quote", (ticks) => applyTicks(ticks), kind === "chain" ? { minGapMs: 0 } : kind === "oi" ? { minGapMs: OI_GAP_MS } : undefined) : null;
   /** canonical symbol -> [row index, "ce" | "pe"] for the chain on screen */
   let legIndex = new Map();
   function syncLive() {
