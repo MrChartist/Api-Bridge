@@ -132,7 +132,7 @@ export function openPlacement(o) {
               "tr",
               { class: `st-${r.status}` },
               h("td", { class: "num" }, formatInt(r.i + 1)),
-              h("td", {}, h("span", { class: "pos-leg" }, h("span", { class: `side-tag ${r.side === "BUY" ? "buy" : "sell"}` }, r.side === "BUY" ? "B" : "S"), h("span", {}, h("strong", {}, r.label), h("small", {}, r.phase === "short" ? "short leg" : r.phase === "listed" ? "as listed" : exit ? "close" : "buy first")))),
+              h("td", {}, h("span", { class: "pos-leg" }, h("span", { class: `side-tag ${r.side === "BUY" ? "buy" : "sell"}` }, r.side === "BUY" ? "B" : "S"), h("span", {}, h("strong", {}, r.label), h("small", {}, r.closing || exit ? "close" : r.phase === "short" ? "short leg" : r.phase === "listed" ? "as listed" : "buy first")))),
               h("td", { class: "num" }, formatInt(r.lots), h("small", { class: "block muted" }, `${formatInt(qty)} qty${slices > 1 ? ` · slice ${formatInt(r.slice)} of ${formatInt(slices)}` : ""}`)),
               phase === "confirm"
                 ? h("td", { class: "num" }, input, touch)

@@ -492,7 +492,7 @@ export async function renderCalendarPage() {
       box.disabled = false;
       if (r.error) {
         box.checked = !box.checked;
-        return toast(r.error.message ?? "Could not change the demo lot data", { tone: "bad" });
+        return toast(r.error.message ?? "Could not change the demo lot data", { tone: "error" });
       }
       toast(box.checked ? "Demo lot data now reads as two trading days old on every page" : "Demo lot data is current again");
       clearReferenceCache();
@@ -516,7 +516,7 @@ export async function renderCalendarPage() {
     btn.disabled = true;
     const r = await optional(api("/v1/reference/sources", { method: "PUT", body: { nseArchives: true } }));
     btn.disabled = false;
-    if (r.error) return toast(r.error.message ?? "Could not turn it on", { tone: "bad" });
+    if (r.error) return toast(r.error.message ?? "Could not turn it on", { tone: "error" });
     toast("NSE archive downloads are on: the first sync starts shortly");
     clearReferenceCache();
     loadAll();
@@ -526,7 +526,7 @@ export async function renderCalendarPage() {
     btn.disabled = true;
     const r = await optional(api("/v1/reference/sources", { method: "PUT", body: { nseArchives: false } }));
     btn.disabled = false;
-    if (r.error) return toast(r.error.message ?? "Could not turn it off", { tone: "bad" });
+    if (r.error) return toast(r.error.message ?? "Could not turn it off", { tone: "error" });
     toast("NSE archive downloads are off");
     clearReferenceCache();
     loadAll();
@@ -833,7 +833,7 @@ export async function renderCalendarPage() {
   }
   async function removeAction(x) {
     const r = await optional(api(`/v1/reference/corporate-actions/${encodeURIComponent(x.id)}`, { method: "DELETE" }));
-    if (r.error) return toast(r.error.message ?? "Could not remove it", { tone: "bad" });
+    if (r.error) return toast(r.error.message ?? "Could not remove it", { tone: "error" });
     toast(`${x.symbol} action removed`);
     clearReferenceCache();
     loadActions();

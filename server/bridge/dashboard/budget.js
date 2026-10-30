@@ -97,11 +97,11 @@ export function mountBudget(host, live) {
     const job = (msg?.jobs ?? [])[0];
     host.dataset.job = job ? "1" : "";
     btn.setAttribute("aria-label", `Broker API budget: ${v.second ? `${windowText(v.second)} this second` : "no per-second limit"}, ${v.minute ? `${windowText(v.minute)} this minute` : "no per-minute limit"}. ${STREAM_TEXT[v.stream]}. ${formatInt(v.savedToday)} calls saved today.${job ? ` ${job.label} ${jobText(job)}.` : ""}`);
-    if (popBody?.isConnected) popBody.replaceChildren(...popContent(msg, v));
+    if (popBody?.isConnected) popBody.replaceChildren(...popContent(msg, v).filter(Boolean));
   };
   btn.addEventListener("click", () => {
     popBody = h("div", { class: "bud-pop" });
-    popBody.replaceChildren(...popContent(msg, budgetView(msg, live.liveState())));
+    popBody.replaceChildren(...popContent(msg, budgetView(msg, live.liveState())).filter(Boolean));
     btn.setAttribute("aria-expanded", "true");
     sheetPopover({ trigger: btn, title: "API budget", body: popBody, cls: "bud-popover", onClose: () => (popBody = null) });
   });

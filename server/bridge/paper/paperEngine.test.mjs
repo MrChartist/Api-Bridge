@@ -45,7 +45,7 @@ function fakeTimers() {
 /**
  * A full engine over a temp dir. `rig.restart()` builds a new engine on the same dir, clock, bus and market data.
  */
-function rig({ dir = mkdtempSync(join(tmpdir(), "mcb-paper-")), paper = {}, prices = { [RELIANCE]: 1400, [NIFTY_CE]: 120, [NIFTY_FUT]: 25_000, [CRUDE]: 6000 }, t0 = at("2026-10-19T10:00:00"), reference } = {}) {
+function rig({ dir = mkdtempSync(join(tmpdir(), "mcb-paper-")), paper = {}, prices = { [RELIANCE]: 1400, [NIFTY_CE]: 120, [NIFTY_FUT]: 25_000, [CRUDE]: 6000 }, t0 = at("2026-10-19T10:00:00"), reference, demo = false } = {}) {
   const clock = { t: t0, now() { return this.t; } };
   const config = {
     accounts: [
@@ -54,6 +54,7 @@ function rig({ dir = mkdtempSync(join(tmpdir(), "mcb-paper-")), paper = {}, pric
       { id: "zerodha-main", broker: "zerodha" },
     ],
     paper: paperConfig(paper),
+    ...(demo ? { demo: true } : {}),
   };
   const bus = createEventBus();
   const events = [];
@@ -495,6 +496,14 @@ describe("time-based behaviour (fake clock)", () => {
     r.clock.t = at("2026-10-19T15:30:00");
     await r.engine.runOnce();
     expect(await r.engine.order("paper-1", o.orderId)).toMatchObject({ status: "expired", statusMessage: expect.stringMatching(/session/) });
+  });
+
+  it("in demo (prices tick at any hour) a DAY order placed after the close rests until the day rolls", async () => {
+    const r = rig({ t0: at("2026-10-19T18:00:00"), demo: true });
+    const o = await r.engine.place("paper-1", { ...buy(RELIANCE, 1), product: "CNC", orderType: "LIMIT", price: 1300 });
+    r.clock.t = at("2026-10-19T18:05:00");
+    await r.engine.runOnce();
+    expect((await r.engine.order("paper-1", o.orderId)).status).toBe("open");
   });
 
   it("with no sessionEnd.time configured, DAY orders expire at the reference session close", async () => {

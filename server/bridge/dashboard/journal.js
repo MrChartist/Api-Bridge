@@ -181,7 +181,7 @@ export async function renderJournalPage() {
       table(
         [
           { label: "Opened", cell: (t) => h("span", { class: "nowrap" }, istDateTime(new Date(t.openedAt).toISOString())) },
-          { label: "Trade", wrap: true, cell: (t) => h("div", { class: "jr-trade" }, h("strong", {}, `${t.underlying}${t.expiry ? ` ${dayText(t.expiry)}` : ""} · ${t.structure}`), h("div", { class: "muted small" }, `${formatInt(t.fills)} fills · ${accounts.length > 1 ? `${labelOf(t.account)} · ` : ""}${t.status === "closed" ? `closed ${istDateTime(new Date(t.closedAt).toISOString())}` : "open"}`)) },
+          { label: "Trade", wrap: true, cell: (t) => h("div", { class: "jr-trade" }, h("strong", {}, `${t.underlying}${t.expiry ? ` ${dayText(t.expiry)}` : ""} · ${t.structure}`), h("div", { class: "muted small" }, `${formatInt(t.fills)} ${t.fills === 1 ? "fill" : "fills"} · ${accounts.length > 1 ? `${labelOf(t.account)} · ` : ""}${t.status === "closed" ? `closed ${istDateTime(new Date(t.closedAt).toISOString())}` : "open"}`)) },
           { label: "Status", cell: (t) => h("span", { class: "jr-pills" }, t.status === "open" ? pill("Open", "warn") : pill("Closed"), t.sample ? pill("Sample") : t.mode === "live" ? pill("Live", "bad") : null) },
           { label: "P&L", num: true, cell: (t) => money(t.pnl) },
           { label: "Tags", wrap: true, cell: (t) => h("span", { class: "jr-tags" }, ...(t.tags ?? []).map((g) => h("span", { class: "chip" }, g)), t.setup ? h("small", { class: "block muted" }, t.setup) : null) },
@@ -202,7 +202,7 @@ export async function renderJournalPage() {
     const body = h(
       "div",
       { class: "stack jr-sheet" },
-      h("p", { class: "muted small" }, `${t.status === "open" ? "Open" : "Closed"} · ${formatInt(t.fills)} fills · charges ${rs(-t.charges)} · P&L `, money(t.pnl)),
+      h("p", { class: "muted small" }, `${t.status === "open" ? "Open" : "Closed"} · ${formatInt(t.fills)} ${t.fills === 1 ? "fill" : "fills"} · charges ${rs(-t.charges)} · P&L `, money(t.pnl)),
       t.legs?.length ? legs : null,
       field("Tags", tagsIn, "Comma separated. Stats group by them."),
       field("Setup", setupIn),

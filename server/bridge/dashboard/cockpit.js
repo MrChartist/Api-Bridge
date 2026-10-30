@@ -3,7 +3,7 @@
 // (3 at 1440 px, 4 at 1920 px, 5 at 2560 px) using the density tokens. Every figure becomes text through format.js;
 // the grouping maths is alert-core.js (pure, tested). Reads only: nothing here places an order.
 import { api, app, card, emptyState, h, optional, pill } from "./app.js";
-import { DASH, formatFixed, formatGrouped, formatInt, formatPercent, formatSigned, formatSignedRupee, formatRupee, isFigure } from "./format.js";
+import { DASH, formatCompact, formatFixed, formatGrouped, formatInt, formatPercent, formatSigned, formatSignedRupee, formatRupee, isFigure } from "./format.js";
 import { bookGroups } from "./alert-core.js";
 import { sessionText } from "./flows.js";
 
@@ -98,7 +98,7 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
               return h(
                 "li",
                 {},
-                h("span", { class: "ck-l" }, h("strong", {}, x.a.label), h("small", {}, x.error ? "Positions unavailable" : pct === null ? `${formatInt(x.open)} open` : `Margin ${formatPercent(pct * 100, 0)} · free ${formatRupee(x.free, 0)}`)),
+                h("span", { class: "ck-l" }, h("strong", {}, x.a.label), h("small", {}, x.error ? "Positions unavailable" : pct === null ? `${formatInt(x.open)} open` : `Margin ${formatPercent(pct * 100, 0)} · free ${isFigure(x.free) && x.free >= 0 ? `₹${formatCompact(x.free)}` : formatRupee(x.free, 0)}`)),
                 h("span", { class: "ck-bar", "aria-hidden": "true" }, bar),
                 signed(x.pnl),
               );

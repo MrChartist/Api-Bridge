@@ -920,6 +920,8 @@ async function renderDesk(kind) {
   }
 
   let lastX = null;
+  /** The open order ticket's close, so leaving the page closes it (it would sit over the next page otherwise). */
+  let ticketCloser = null;
   let enteredKey = null;
   let chainTools = null;
   /** The chain's tools act on a chain: switched off (inert, dimmed) while there is none. */
@@ -1522,7 +1524,7 @@ async function renderDesk(kind) {
     const midPx = (sd) => O.roundToTick(O.mid(quote()), tick, sd === "BUY" ? "buy" : "sell");
     const startPx = isFigure(priceIn) ? Number(priceIn) : exit ? midPx(side) ?? O.touchPrice(quote(), side, tick) : O.touchPrice(quote(), side, tick);
     const price = h("input", { type: "number", min: "0.05", step: String(tick), inputmode: "decimal", value: String(startPx ?? "") });
-    const prodSeg = segmented("Product", [["INTRADAY", "Intraday"], ["MARGIN", "Margin (NRML)"]], product === "MARGIN" || product === "CNC" ? "MARGIN" : "INTRADAY");
+    const prodSeg = segmented("Product", [["INTRADAY", "Intraday"], ["MARGIN", "Margin (NRML)"]], O.ticketProduct(product));
     const modeSeg = a.liveAllowedByConfig ? segmented("Mode", [["paper", "Paper"], ["live", "Live"]], "paper") : null;
     const ack = h("input", { type: "checkbox" });
     const ackRow = h("label", { class: "check live-ack", hidden: true }, ack, `I understand this sends a real order to ${a.label}.`);
@@ -1742,7 +1744,7 @@ async function renderDesk(kind) {
     }, { label: false })) : null;
     const done = modal({
       title: exit ? `Exit ${name}` : name,
-      body: (close) => (closeTicket = close) && h(
+      body: (close) => (closeTicket = ticketCloser = close) && h(
         "div",
         { class: "stack ticket" },
         quoteLine,
@@ -1771,7 +1773,8 @@ async function renderDesk(kind) {
             placeBtn.disabled = true;
             try {
               const r = (await api("/v1/orders", { method: "POST", body: { ...body(), clientOrderId } })).data.data;
-              toast(`${r.status === "filled" ? "Filled" : cap(r.status)}: ${r.side} ${formatInt(r.quantity)} ${name}${isFigure(r.avgPrice) ? ` @ ${formatFixed(r.avgPrice, 2)}` : ""}${r.mode === "live" ? " · LIVE" : " · paper"}`);
+              const refused = r.status === "rejected" || r.status === "cancelled";
+              toast(`${r.status === "filled" ? "Filled" : cap(r.status)}: ${r.side} ${formatInt(r.quantity)} ${name}${isFigure(r.avgPrice) ? ` @ ${formatFixed(r.avgPrice, 2)}` : ""}${r.mode === "live" ? " · LIVE" : " · paper"}${refused && r.statusMessage ? `. ${r.statusMessage}` : ""}`, { tone: refused ? "error" : "ok" });
               return "placed";
             } catch (err) {
               previewEl.replaceChildren(alertBox(err));
@@ -2249,6 +2252,7 @@ async function renderDesk(kind) {
     document.getElementById("content")?.removeAttribute("data-stale");
     custom?.close();
     ctxSheet?.close();
+    ticketCloser?.(undefined, true);
     document.removeEventListener("visibilitychange", onVisible);
     window.removeEventListener("hashchange", onRoute);
     for (const m of mqs) m.removeEventListener("change", onDevice);

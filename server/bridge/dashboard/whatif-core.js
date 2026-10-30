@@ -112,9 +112,11 @@ export function scenarioMarginLegs(legs, underlying, shift = {}) {
 /**
  * Every figure the what-if panel shows, now and at the scenario:
  * { pnl, pnl0, change, greeks, greeks0, margin, margin0, marginChange, legs (counted), spot (scenario spot) }.
- * `ctx`: { underlying, spot, nowMs, atmIv }. Margin is null without a forward.
+ * `ctx`: { underlying, spot, nowMs, atmIv, marginNow }. Margin is null without a forward. `marginNow` is the page's own
+ * margin figure (the paper engine's, which credits what the account holds): when given, "now" is that figure and the
+ * scenario moves it by the model's change, so the panel never shows a second, different margin for the same legs.
  */
-export function whatIfFigures(legs, w, { underlying = "", spot = null, nowMs = 0, atmIv = null } = {}) {
+export function whatIfFigures(legs, w, { underlying = "", spot = null, nowMs = 0, atmIv = null, marginNow = null } = {}) {
   const shift = { dS: (num(w?.pct) ?? 0) / 100, dIv: num(w?.dIv) ?? 0, days: num(w?.days) ?? 0 };
   const inc = (legs ?? []).filter(counts);
   const pnl0 = scenarioPnl(inc, {});
@@ -128,6 +130,10 @@ export function whatIfFigures(legs, w, { underlying = "", spot = null, nowMs = 0
     const ivs = num(atmIv) !== null ? { [underlying]: num(atmIv) } : {};
     margin0 = portfolioMargin(scenarioMarginLegs(inc, underlying, {}), { nowMs, forwards: { [underlying]: F }, ivs }).required;
     margin = portfolioMargin(scenarioMarginLegs(inc, underlying, shift), { nowMs: nowMs + shift.days * DAY_MS, forwards: { [underlying]: F * (1 + shift.dS) }, ivs: num(atmIv) !== null ? { [underlying]: Math.max(0.5, num(atmIv) + shift.dIv) } : {} }).required;
+  }
+  if (margin !== null && margin0 !== null && num(marginNow) !== null) {
+    margin = Math.max(0, num(marginNow) + (margin - margin0));
+    margin0 = num(marginNow);
   }
   return {
     legs: inc.length,
