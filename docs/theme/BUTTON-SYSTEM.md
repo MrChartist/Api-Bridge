@@ -150,6 +150,13 @@ at 600, the same in every size.
 
 ## Dashboard adaptation
 
+**Soft finish (30 Oct 2026, owner's request):** the dashboard drops the glossy glass finish. Every button is flat: a
+soft tinted fill (`--btn-soft`, a little stronger on hover with `--btn-soft-hover`), no sheen, no specular rim, no
+drop shadow and no backdrop blur. Primary, buy and sell keep their solid ink, gain or loss fill, also flat. The glass
+pills in the toolbar (`.toolbar-demo`, `.live-ctl`, `.toolbar-search`, `.scr-ctx`, `.ref-chip`, budget, bell, ready)
+use the same soft fill. `--fin` and `--btn-lift` remain as no-op hooks. Section 6 above describes the website, not the
+dashboard.
+
 _Added for the API Bridge dashboard (`server/bridge/dashboard/`). The text above is the site's rulebook, unchanged;
 this section says how the dashboard carries it out, and where it deliberately differs._
 

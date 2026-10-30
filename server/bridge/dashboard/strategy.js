@@ -1043,13 +1043,9 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     }
   }
   /** "at 25957–26893", "above 26000", "below 25800 / above 27050" from the intervals at a level. */
-  function intervalText(xs, vals, level, dir) {
-    const test = dir > 0 ? (v) => v >= level : (v) => v <= level;
-    test.level = level;
-    const iv = O.intervalsWhere(xs, vals, test);
-    const part = ([a, b]) => (a <= 0 && b === Infinity ? "everywhere" : a <= 0 || a <= xs[0] ? `below ${formatInt(b)}` : b === Infinity || b >= xs[xs.length - 1] ? `above ${formatInt(a)}` : Math.abs(b - a) < 1 ? `at ${formatInt(a)}` : `${formatInt(a)}–${formatInt(b)}`);
-    const t = iv.slice(0, 2).map(part).join(" / ");
-    return t;
+  function intervalText(iv, lo, hi) {
+    const part = ([a, b]) => (a <= lo && b >= hi ? "everywhere" : a <= 0 && b < 1 ? "if it falls to 0" : a <= lo ? `below ${formatInt(b)}` : b >= hi ? `above ${formatInt(a)}` : Math.abs(b - a) < 1 ? `at ${formatInt(a)}` : `${formatInt(a)}–${formatInt(b)}`);
+    return (iv ?? []).slice(0, 2).map(part).join(" / ");
   }
   function drawHero() {
     const r = R;
@@ -1073,17 +1069,20 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     setHero(hero.net, `${n > 0.5 ? "Credit" : n < -0.5 ? "Debit" : "Even"} ${rupees(Math.abs(n))}`, netSub, { cls: "neutral" });
     const m = r.model;
     const sfx = s.approx ? " · sampled" : "";
+    // Where max profit and max loss hold: from the expiry payoff's own kinks (the strikes), not the sampled chart.
+    const ext = O.extremeIntervals(r.act, r.lot, { years: r.T, ivShift: r.shift, lo: m.xs[0], hi: m.xs[m.xs.length - 1] });
+    const extText = (k) => (ext ? intervalText(ext[k], ext.lo, ext.hi) : "");
     if (s.locked !== null && s.locked !== undefined) {
       hero.maxProfit.l.textContent = "Locked P&L";
       setHero(hero.maxProfit, rupees(s.locked, true), `Implied ${isFigure(r.ratios.implied) ? formatPercent(r.ratios.implied * 100, 1) : DASH}/yr`, { cls: s.locked > 0 ? "up" : "down", title: "Riskless at expiry if every leg fills at these prices" });
     } else {
       hero.maxProfit.l.textContent = "Max profit";
-      setHero(hero.maxProfit, s.maxProfit === null ? "Unlimited ↗" : nw(rupees(s.maxProfit, true)), s.maxProfit === null ? "above the top strike" : `${intervalText(m.xs, m.expiry, s.maxProfit - Math.max(1, Math.abs(s.maxProfit) * 0.005), 1)}${sfx}`, { cls: s.maxProfit === null || s.maxProfit > 0 ? "up" : "down", flash: 1 });
+      setHero(hero.maxProfit, s.maxProfit === null ? "Unlimited ↗" : nw(rupees(s.maxProfit, true)), s.maxProfit === null ? "above the top strike" : `${extText("maxProfit")}${sfx}`, { cls: s.maxProfit === null || s.maxProfit > 0 ? "up" : "down", flash: 1 });
     }
     setHero(
       hero.maxLoss,
       s.maxLoss === null ? "Unlimited ↘" : nw(rupees(s.maxLoss, true)),
-      s.maxLoss === null ? (s.stress ? `${rupees(s.stress.value, true)} at +2σ (${formatInt(s.stress.price)})` : "above the top strike") : `${intervalText(m.xs, m.expiry, s.maxLoss + Math.max(1, Math.abs(s.maxLoss) * 0.005), -1) || "far from the strikes"}${sfx}`,
+      s.maxLoss === null ? (s.stress ? `${rupees(s.stress.value, true)} at +2σ (${formatInt(s.stress.price)})` : "above the top strike") : `${extText("maxLoss") || "far from the strikes"}${sfx}`,
       { cls: s.maxLoss === null || s.maxLoss < 0 ? "down" : "up", flash: -1 },
     );
     const pop = s.pop;
