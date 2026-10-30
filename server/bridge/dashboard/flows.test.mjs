@@ -1,6 +1,6 @@
 // The pure rules behind the Create a key and Add a broker flows (flows.js).
 import { describe, expect, it } from "vitest";
-import { KEY_USES, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, capabilitySummary, defaultKeyName, istDay, keyFormProblem, keyUse, sessionText, ticketRisk } from "./flows.js";
+import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, capabilitySummary, contractName, defaultKeyName, orderStatusText, istDay, keyFormProblem, keyUse, sessionText, ticketRisk } from "./flows.js";
 import { loginFormSpec } from "./app.js";
 import { snippets } from "./snippets.js";
 
@@ -48,6 +48,19 @@ describe("Trade ticket risk", () => {
     expect(ticketRisk({ side: "SELL", right: "CE", strike: 26400, price: 300, qty: 65 })).toMatchObject({ maxLoss: null, maxProfit: 19500, breakeven: 26700 });
     expect(ticketRisk({ side: "SELL", right: "PE", strike: 26400, price: 250, qty: 65 })).toMatchObject({ maxLoss: (26400 - 250) * 65, maxProfit: 16250 });
     for (const bad of [{ kind: "FUT" }, { price: 0 }, { qty: null }, { right: "XX" }]) expect(ticketRisk({ side: "BUY", right: "CE", strike: 100, price: 1, qty: 1, ...bad })).toBeNull();
+  });
+});
+
+describe("Orders in plain words", () => {
+  it("reads a contract and an order status the way traders say them", () => {
+    expect(contractName("NFO:NIFTY-2026-11-03-27000-CE")).toBe("NIFTY 3 Nov 27000 CE");
+    expect(contractName("BFO:SENSEX-2026-11-05-82900-PE")).toBe("SENSEX 5 Nov 82900 PE");
+    expect(contractName("NFO:BANKNIFTY-2026-11-25-FUT")).toBe("BANKNIFTY 25 Nov FUT");
+    expect(contractName("NSE:RELIANCE")).toBe("RELIANCE");
+    expect(contractName("NFO:M&M-2026-11-25-3200.5-CE")).toBe("M&M 25 Nov 3200.5 CE");
+    expect(orderStatusText("trigger_pending").text).toBe("Waiting for trigger");
+    expect(orderStatusText("rejected").tone).toBe("bad");
+    expect(WORKING_ORDER.has("open") && !WORKING_ORDER.has("filled")).toBe(true);
   });
 });
 

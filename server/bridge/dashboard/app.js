@@ -670,6 +670,7 @@ export function sheetPopover({ trigger, title, body, head = [], cls = "", onClos
     d.replaceChildren(h("div", { class: "sheet-grabber", "aria-hidden": "true" }), el);
     d.setAttribute("aria-labelledby", "pop-title");
     d.setAttribute("aria-modal", "true");
+    d.onkeydown = null;
     const onKey = (e) => trap(e, d);
     const onBackdrop = (e) => {
       if (e.target !== d) return;
@@ -687,18 +688,6 @@ export function sheetPopover({ trigger, title, body, head = [], cls = "", onClos
     d.addEventListener("keydown", onKey);
     d.addEventListener("close", onDlgClose);
     d.addEventListener("click", onBackdrop);
-    // Enter in a one-line field presses the sheet's main (primary) action, as in any form. Fields that use Enter
-    // themselves (search pickers, textareas, a focused button) stop it first or are skipped here.
-    d.onkeydown = (e) => {
-      if (e.key !== "Enter" || e.isComposing || e.defaultPrevented || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
-      const el = e.target;
-      if (!(el instanceof HTMLInputElement) || ["checkbox", "radio", "button", "submit", "search", "file"].includes(el.type)) return;
-      if (el.closest("form")) return; // a form inside the sheet handles its own submit
-      const primary = [...d.querySelectorAll(".dialog-actions > button.primary")].pop();
-      if (!primary || primary.disabled) return;
-      e.preventDefault();
-      primary.click();
-    };
     if (!d.open) d.showModal();
     lockScroll(true);
     sheetIn(d, d);
@@ -876,6 +865,18 @@ export function modal({ title, body, buttons = [], canClose = null }) {
     d.addEventListener("cancel", onCancel);
     d.addEventListener("close", onClose);
     d.addEventListener("click", onBackdrop);
+    // Enter in a one-line field presses the sheet's main (primary) action, as in any form. Fields that use Enter
+    // themselves (search pickers, textareas, a focused button) stop it first or are skipped here.
+    d.onkeydown = (e) => {
+      if (e.key !== "Enter" || e.isComposing || e.defaultPrevented || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+      const el = e.target;
+      if (!(el instanceof HTMLInputElement) || ["checkbox", "radio", "button", "submit", "search", "file"].includes(el.type)) return;
+      if (el.closest("form")) return; // a form inside the sheet handles its own submit
+      const primary = [...d.querySelectorAll(".dialog-actions > button.primary")].pop();
+      if (!primary || primary.disabled) return;
+      e.preventDefault();
+      primary.click();
+    };
     if (!d.open) d.showModal();
     lockScroll(true);
     d.querySelector(".dialog-body")?.scrollTo?.(0, 0);

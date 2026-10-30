@@ -7800,3 +7800,10 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
   .ev-scroll[data-mode="feed"][data-asset="stock"] :is(.ev-head, .ev-row) { grid-template-columns: 66px minmax(120px, 1fr) minmax(150px, 0.9fr) 80px 72px minmax(160px, 2fr) 50px; }
   .ev-scroll[data-mode="feed"][data-asset="stock"] :is(.ev-head, .ev-row) > :nth-child(4) { display: none; }
 }
+/* Orders (views.js renderOrders): the contract on one line, the reason under a refused order, actions side by side. */
+.order-contract strong { white-space: nowrap; }
+.order-status { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.order-why { max-width: 280px; white-space: normal; }
+.order-acts { flex-wrap: nowrap; gap: 8px; }
+/* A short-of-margin block on a paper account says how to fix it (strategy-place.js). */
+.strat-warn-fix { color: hsl(var(--foreground) / var(--a-label)); }

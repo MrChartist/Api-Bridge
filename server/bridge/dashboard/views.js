@@ -43,7 +43,7 @@ import { renderParticipantsPage } from "./participants.js";
 import { renderRecorderPage } from "./recorder.js";
 import { renderEventsPage } from "./events.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
-import { KEY_USES, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, sessionText } from "./flows.js";
+import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, sessionText } from "./flows.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
 const $ = (id) => document.getElementById(id);
@@ -1688,6 +1688,46 @@ function removeAccountSheet(a) {
   });
 }
 
+/** Reset a paper account, optionally with more (or less) paper money: POST /v1/paper/accounts/{id}/reset. */
+async function paperResetSheet(a) {
+  const info = (await optional(api(`/v1/paper/accounts/${encodeURIComponent(a.id)}`))).data?.data ?? null;
+  const funds = info?.funds ?? null;
+  const start = Number(info?.startingCapital) || 1_000_000;
+  const CHOICES = [1_000_000, 2_500_000, 5_000_000, 10_000_000];
+  const pick = segmented("Starting money", CHOICES.map((v) => [String(v), formatRupeeGrouped(v)]), String(CHOICES.includes(start) ? start : CHOICES[0]));
+  const err = h("div", { "aria-live": "polite" });
+  const done = await modal({
+    title: `Reset ${a.label}?`,
+    body: h(
+      "div",
+      { class: "stack" },
+      funds
+        ? h("div", { class: "ticket-figs" }, h("div", {}, h("small", {}, "Started with"), formatRupeeGrouped(start)), h("div", {}, h("small", {}, "Margin in use"), formatRupeeGrouped(funds.usedMargin)), h("div", {}, h("small", {}, "Free now"), formatRupeeGrouped(funds.availableCash)))
+        : null,
+      alertBox({ title: "This clears the account's paper orders and positions", detail: "It starts again with the money you choose below. Only this paper account changes; no real account or money is touched." }, "warn"),
+      segField("Starting money", pick, { wide: true }),
+      err,
+    ),
+    buttons: [
+      { label: "Cancel", value: false },
+      {
+        label: "Reset paper account",
+        cls: "primary",
+        onClick: async () => {
+          try {
+            await api(`/v1/paper/accounts/${encodeURIComponent(a.id)}/reset`, { method: "POST", body: { startingCapital: Number(pick.value) } });
+            return true;
+          } catch (e) {
+            err.replaceChildren(errorBox(e));
+            return false;
+          }
+        },
+      },
+    ],
+  });
+  if (done) show().then(() => toast(`${a.label} starts again with ${formatRupeeGrouped(Number(pick.value))}`));
+}
+
 /** The holder text an account card shows (P1-13 §6.8): "Asha · Spouse · Family" / "friend · Other · Outside family". */
 export function holderText(entry) {
   if (!entry) return null;
@@ -1801,7 +1841,7 @@ async function renderAccounts() {
         {
           label: "",
           cell: (a) => {
-            if (a.broker === "paper") return h("div", { class: "row" }, h("span", { class: "muted small" }, "Simulator"), !app.state.demo && paperCount > 1 ? removeButton(a) : null);
+            if (a.broker === "paper") return h("div", { class: "row" }, h("button", { type: "button", class: "small", "aria-label": `Reset ${a.label} or add paper money`, onclick: () => paperResetSheet(a) }, "Reset funds"), !app.state.demo && paperCount > 1 ? removeButton(a) : null);
             const t = h("button", { type: "button", class: "small", "aria-label": `Test ${a.id}` }, "Test");
             t.addEventListener("click", () => testAccount(a, t));
             if (app.state.demo) return t;
@@ -1872,6 +1912,13 @@ async function renderAccounts() {
     body: grid,
   });
 
+  // #/accounts?reset=<paper id>, from a "short of margin" block: open the reset sheet for that paper account.
+  const resetId = /[?&]reset=([a-z0-9-]+)/.exec(location.hash)?.[1];
+  if (resetId) {
+    history.replaceState(null, "", "#/accounts");
+    const acc = accs.find((x) => x.id === resetId && x.broker === "paper");
+    if (acc) setTimeout(() => paperResetSheet(acc), 0);
+  }
   // #/accounts?add=1 (or ?add=<broker id>), from the Home page: open the sheet once the page is drawn.
   const want = /[?&]add=([a-z0-9]+)/.exec(location.hash)?.[1];
   if (want) {
@@ -2178,13 +2225,22 @@ async function renderOrders() {
         : table(
             [
               { label: "Time", cell: (o) => istTime(o.placedAt) },
-              { label: "Account", cell: (o) => o.accountId },
-              { label: "Symbol", cell: (o) => h("strong", {}, o.symbol) },
+              { label: "Account", cell: (o) => byId.get(o.accountId)?.label ?? o.accountId },
+              { label: "Contract", wrap: true, cell: (o) => h("div", { title: o.symbol, class: "order-contract" }, h("strong", {}, contractName(o.symbol)), h("div", { class: "muted small" }, `${o.orderType ?? ""}${isFigure(o.price) ? ` @ ${formatFixed(o.price, 2)}` : ""} · ${o.product ?? ""}`)) },
               { label: "Side", cell: (o) => h("span", { class: "order-side" }, o.side) },
-              { label: "Qty", num: true, cell: (o) => formatInt(o.quantity) },
+              { label: "Qty", num: true, cell: (o) => (o.filledQuantity && o.filledQuantity !== o.quantity ? `${formatInt(o.filledQuantity)}/${formatInt(o.quantity)}` : formatInt(o.quantity)) },
               { label: "Avg price", num: true, cell: (o) => formatFixed(o.avgPrice, 2) },
-              { label: "Status", cell: (o) => pill(cap(o.status), o.status === "filled" ? "ok" : o.status === "rejected" ? "bad" : "warn") },
+              {
+                label: "Status",
+                wrap: true,
+                cell: (o) => {
+                  const t = orderStatusText(o.status);
+                  // Why it was refused or cancelled, right under the pill (the broker's or the paper engine's words).
+                  return h("div", { class: "order-status" }, pill(t.text, t.tone), o.statusMessage && ["rejected", "expired", "outcome_unknown"].includes(o.status) ? h("div", { class: "muted small order-why" }, o.statusMessage) : null);
+                },
+              },
               { label: "Mode", cell: (o) => (o.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
+              { label: "", cell: (o) => (WORKING_ORDER.has(o.status) ? orderActions(o) : "") },
             ],
             ord,
             emptyState("orders", "No orders today", "Paper orders from the option chain, your scripts, webhooks and AI assistants show up here.", nextStep("Trade from the chain", "#/chain")),
@@ -2226,6 +2282,73 @@ async function renderOrders() {
     );
   }
   return nodes;
+}
+
+/** Modify and Cancel for a working order (PATCH / DELETE /v1/orders/{id}); each answers with a toast and a redraw. */
+function orderActions(o) {
+  const name = contractName(o.symbol);
+  const modify = async () => {
+    const qty = h("input", { id: "mod-qty", type: "number", min: "1", step: "1", inputmode: "numeric", value: String(o.quantity ?? "") });
+    const price = h("input", { id: "mod-price", type: "number", min: "0.05", step: "0.05", inputmode: "decimal", value: isFigure(o.price) ? String(o.price) : "" });
+    const err = h("div", { "aria-live": "polite" });
+    const limit = o.orderType === "LIMIT" || o.orderType === "SL";
+    const ok = await modal({
+      title: `Modify ${o.side === "BUY" ? "buy" : "sell"} ${name}`,
+      body: h("div", { class: "stack" }, h("div", { class: "form-grid" }, field("Quantity", qty, `Filled so far: ${formatInt(o.filledQuantity ?? 0)}`), limit ? field("Limit price", price) : null), err),
+      buttons: [
+        { label: "Keep as is", value: false },
+        {
+          label: "Save change",
+          cls: "primary",
+          onClick: async () => {
+            const body = {};
+            const q = Math.floor(Number(qty.value));
+            if (!(q >= 1)) return fieldError(qty, "Quantity must be 1 or more.");
+            if (q !== o.quantity) body.quantity = q;
+            if (limit) {
+              const px = Number(price.value);
+              if (!(px > 0)) return fieldError(price, "Enter a limit price above 0.");
+              if (px !== o.price) body.price = px;
+            }
+            if (!Object.keys(body).length) return fieldError(limit ? price : qty, "Change the quantity or the price first.");
+            try {
+              await api(`/v1/orders/${encodeURIComponent(o.orderId)}`, { method: "PATCH", body });
+              return true;
+            } catch (e) {
+              err.replaceChildren(errorBox(e, { quantity: "Quantity", price: "Limit price" }));
+              return false;
+            }
+          },
+        },
+      ],
+    });
+    if (ok) show().then(() => toast(`Modified ${name}`));
+  };
+  const cancel = async () => {
+    const err = h("div", { "aria-live": "polite" });
+    const ok = await modal({
+      title: `Cancel ${o.side === "BUY" ? "buy" : "sell"} ${name}?`,
+      body: h("div", { class: "stack" }, h("p", {}, `The unfilled part (${formatInt((o.quantity ?? 0) - (o.filledQuantity ?? 0))} qty) is withdrawn. What already filled stays in Positions.`), err),
+      buttons: [
+        { label: "Keep it", value: false },
+        {
+          label: "Cancel order",
+          cls: "primary",
+          onClick: async () => {
+            try {
+              await api(`/v1/orders/${encodeURIComponent(o.orderId)}`, { method: "DELETE" });
+              return true;
+            } catch (e) {
+              err.replaceChildren(errorBox(e));
+              return false;
+            }
+          },
+        },
+      ],
+    });
+    if (ok) show().then(() => toast(`Cancelled ${name}`));
+  };
+  return h("div", { class: "row order-acts" }, h("button", { type: "button", class: "small", "aria-label": `Modify ${name}`, onclick: modify }, "Modify"), h("button", { type: "button", class: "small", "aria-label": `Cancel ${name}`, onclick: cancel }, "Cancel"));
 }
 
 async function confirmTicket(t, byId) {

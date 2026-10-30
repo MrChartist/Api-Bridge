@@ -166,6 +166,32 @@ export function ticketRisk({ side, right, strike, price, qty, kind = "OPT" }) {
   return side === "SELL" ? { maxLoss: capped, maxProfit: premium, breakeven, premium } : { maxLoss: premium, maxProfit: capped, breakeven, premium };
 }
 
+// ── Orders (pure) ──
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/**
+ * A Bridge symbol as people read it: "NFO:NIFTY-2026-11-03-27000-CE" → "NIFTY 3 Nov 27000 CE", "…-FUT" → "NIFTY 25 Nov
+ * FUT", "NSE:RELIANCE" → "RELIANCE". Anything else comes back without its exchange prefix.
+ */
+export function contractName(symbol) {
+  const s = String(symbol ?? "");
+  const bare = s.includes(":") ? s.slice(s.indexOf(":") + 1) : s;
+  const m = /^(.+)-(\d{4})-(\d{2})-(\d{2})-(?:(\d+(?:\.\d+)?)-(CE|PE)|(FUT))$/.exec(bare);
+  if (!m) return bare;
+  const day = `${formatInt(Number(m[4]))} ${MONTHS[Number(m[3]) - 1] ?? m[3]}`;
+  return m[7] ? `${m[1]} ${day} FUT` : `${m[1]} ${day} ${m[5]} ${m[6]}`;
+}
+
+/** Order states that are still working (can be modified or cancelled). */
+export const WORKING_ORDER = Object.freeze(new Set(["pending", "open", "trigger_pending", "partially_filled"]));
+
+/** The order status in plain words with its tone. */
+export function orderStatusText(status) {
+  const map = { filled: ["Filled", "ok"], rejected: ["Rejected", "bad"], cancelled: ["Cancelled", ""], expired: ["Expired", ""], open: ["Open", "warn"], pending: ["Sending", "warn"], trigger_pending: ["Waiting for trigger", "warn"], partially_filled: ["Part filled", "warn"], outcome_unknown: ["Unknown: check with the broker", "bad"] };
+  const [text, tone] = map[status] ?? [status ? `${String(status)[0].toUpperCase()}${String(status).slice(1)}` : "Unknown", "warn"];
+  return { text, tone };
+}
+
 // ── Accounts: plain words for what the API reports (pure) ──
 
 /** What an account can do, in words people use (GET /v1/accounts capabilities are API names). */
