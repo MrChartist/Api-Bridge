@@ -385,12 +385,21 @@ export const PAGES = [
     ],
   },
   {
-    id: "lab", label: "Strategy lab", icon: "strategy", tint: "mint", group: "Analytics", layout: "desk", title: "Strategy lab", sub: "Find strategies for a view, build from templates and work out Greeks and position size",
+    id: "lab", label: "Strategy lab", icon: "strategy", tint: "mint", group: "Analytics", layout: "desk", title: "Strategy lab", sub: "Find strategies for a view, build from templates, work out Greeks and size, and backtest a rule",
     defaultTab: "finder",
     tabs: [
       anTab("finder", "Finder", "strategies", { command: "Strategy finder", keywords: "strategy finder view bullish bearish neutral rank pop", sub: "Strategies for your market view, ranked, built from the live chain" }),
       anTab("templates", "Templates", "an-templates", { command: "Strategy templates", keywords: "templates iron condor straddle strangle spread build", sub: "Thirteen templates built from the live chain, with their payoff" }),
       anTab("calculators", "Calculators", "calculators", { command: "Greeks and position size calculators", icon: "limits", keywords: "calculator greeks iv black scholes position size risk lots", sub: "Greeks for one option from a price or an IV, and lots for a risk budget" }),
+      anTab("backtest", "Backtest", "an-backtest", { command: "Backtest a rule", icon: "play", keywords: "backtest rule replay history candles rsi ema breakout equity drawdown sharpe win rate", sub: "Replay an entry and exit rule over past candles: equity, drawdown and every trade" }),
+    ],
+  },
+  {
+    id: "risk", label: "Risk", icon: "safety", tint: "red", group: "Analytics", layout: "desk", title: "Risk", sub: "Value at risk, exposure and concentration of an account's book, and what its fills cost",
+    defaultTab: "var",
+    tabs: [
+      anTab("var", "VaR and exposure", "an-risk", { command: "Value at risk", keywords: "var value at risk expected shortfall exposure notional delta concentration hhi sector margin", sub: "One-day VaR and expected shortfall, exposure by underlying and concentration" }),
+      anTab("costs", "Execution costs", "an-tca", { command: "Execution costs", icon: "orders", keywords: "tca transaction cost slippage charges latency fills paper", sub: "Slippage, charges and fill latency from the paper account's fills" }),
     ],
   },
   { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
@@ -445,6 +454,9 @@ export const LEGACY = {
   strategies: "lab/finder",
   "an-templates": "lab/templates",
   calculators: "lab/calculators",
+  "an-backtest": "lab/backtest",
+  "an-risk": "risk/var",
+  "an-tca": "risk/costs",
   skew: "vol/skew",
   "an-surface": "vol/surface",
   "an-volstats": "vol/stats",

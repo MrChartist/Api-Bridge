@@ -26,7 +26,7 @@ import { BridgeError } from "../core/errors.mjs";
 import { defaultOptionExchange } from "../market/chain.mjs";
 import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
 import { daysBetween } from "../../lib/blackScholes.mjs";
-import { strategyPayoff } from "./math.mjs";
+import { futureExpiryFor, strategyPayoff } from "./math.mjs";
 import { atmIvOf, buildTemplate, TEMPLATES } from "./strategies.mjs";
 
 export const OPTIMIZER_VIEWS = Object.freeze(["bullish", "bearish", "neutral", "volatile"]);
@@ -202,7 +202,9 @@ export function optimizerRoutes(deps) {
     let futurePrice = null;
     if (TEMPLATES.some((t) => t.usesFuture && t.views.includes(view))) {
       try {
-        const sym = `${defaultOptionExchange(u)}:${u}-${expiry}-FUT`;
+        // Futures are monthly: a weekly option expiry uses its month's future.
+        const futExpiry = futureExpiryFor((await md().expiries(underlying, opts))?.expiries, expiry) ?? expiry;
+        const sym = `${defaultOptionExchange(u)}:${u}-${futExpiry}-FUT`;
         futurePrice = (await md().quotes([sym], opts)).items.find((i) => i.symbol === sym)?.ltp ?? null;
       } catch {
         futurePrice = null;

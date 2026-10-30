@@ -13,7 +13,7 @@ import { BridgeError } from "../core/errors.mjs";
 import { defaultOptionExchange } from "../market/chain.mjs";
 import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
 import { daysBetween } from "../../lib/blackScholes.mjs";
-import { strategyPayoff } from "./math.mjs";
+import { futureExpiryFor, strategyPayoff } from "./math.mjs";
 
 const invalid = (path, detail) => new BridgeError("VALIDATION_FAILED", detail, { errors: [{ path, message: detail }] });
 const opt = (q, name) => {
@@ -247,7 +247,9 @@ export function strategyRoutes(deps) {
     if (needFuture) {
       try {
         const u = underlying.toUpperCase();
-        const sym = `${defaultOptionExchange(u)}:${u}-${expiry}-FUT`;
+        // Futures are monthly: a weekly option expiry uses its month's future.
+        const futExpiry = futureExpiryFor((await md().expiries(underlying, opts))?.expiries, expiry) ?? expiry;
+        const sym = `${defaultOptionExchange(u)}:${u}-${futExpiry}-FUT`;
         futurePrice = (await md().quotes([sym], opts)).items.find((i) => i.symbol === sym)?.ltp ?? null;
       } catch {
         futurePrice = null; // FUT legs then price at spot
