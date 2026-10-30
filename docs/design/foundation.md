@@ -90,38 +90,38 @@ Evidence: screenshots of all 7 Options pages at 390×844, 820×1180 and 1440×90
 
 ## 3. Tokens: surfaces, text and selection
 
-Dark and light change from warm to **neutral** surfaces. The brand copper glow (`--wall-a`) stays on the light theme only and is set to `transparent` in dark: a coloured wash on black is what makes the current dark theme look muddy.
+Dark and light change from warm to **neutral** surfaces. The wallpaper glow (`--wall-a`) is `transparent` in both themes: the parent brand draws a plain canvas (docs/design/brand.md §2), and a coloured wash on black is what made the old dark theme look muddy.
 
 All values go in `app.css` §1 (light) and both dark blocks (§1b, kept identical). Existing names stay so that other pages keep working; their values change. New names are marked **new**.
 
 ### 3.1 Surfaces
 | Token | Light | Dark | Used for |
 |---|---|---|---|
-| `--background` | `240 5% 96%` (#F4F4F5) | `240 9% 2%` (#050506) | page canvas, `html`, `body` |
-| `--card` / `--mat-grouped-solid` | #FFFFFF | `240 7% 5.5%` (#0D0D0F) | every `.desk-panel`, card, table body |
-| `--mat-grouped` | `hsl(0 0% 100% / 0.92)` | `hsl(240 7% 5.5% / 0.94)` | non-desk cards (keep the glass feel off on desk) |
-| `--surface-raised` **new** | #FFFFFF + `--shadow-float` | #16161A | popovers, sheets, palette, tooltips |
-| `--mat-thick` | `hsl(0 0% 100% / 0.96)` | `hsl(240 7% 9% / 0.96)` | glass chrome |
-| `--mat-glass` | `hsl(0 0% 100% / 0.62)` | `hsl(240 6% 8% / 0.62)` | toolbar pills, tab bar |
-| `--mat-glass-strong` | `hsl(0 0% 100% / 0.78)` | `hsl(240 6% 6% / 0.80)` | sidebar |
-| `--mat-fill-1` | `hsl(240 6% 10% / 0.045)` → #F4F4F4 on card | `hsl(0 0% 100% / 0.045)` → #18181A | control track, ITM tint, hover |
-| `--mat-fill-2` | `/ 0.075` → #ECECEC | `/ 0.075` → #1F1F21 | skeleton, input bg, segmented track |
-| `--mat-fill-3` | `/ 0.12` → #E0E0E0 | `/ 0.12` → #2A2A2C | pressed, switch off track |
+| `--background` | `240 23.8% 95.9%` (#F2F2F7) | `0 0% 0%` (#000000) | page canvas, `html`, `body` |
+| `--card` / `--mat-grouped-solid` | #FFFFFF | `240 3.4% 11.4%` (#1C1C1E) | every `.desk-panel`, card, table body |
+| `--mat-grouped` | `hsl(0 0% 100% / 0.92)` | `hsl(240 3.4% 11.4% / 0.94)` | non-desk cards (keep the glass feel off on desk) |
+| `--surface-raised` **new** | #FFFFFF + `--shadow-float` | #2C2C2E | popovers, sheets, palette, tooltips |
+| `--mat-thick` | `hsl(0 0% 100% / 0.96)` | `hsl(240 3% 13% / 0.96)` | glass chrome |
+| `--mat-glass` | `hsl(0 0% 100% / 0.62)` | `hsl(240 3% 11% / 0.62)` | toolbar pills, tab bar |
+| `--mat-glass-strong` | `hsl(0 0% 100% / 0.78)` | `hsl(240 3% 9% / 0.80)` | sidebar |
+| `--mat-fill-1` | `hsl(240 6% 10% / 0.045)` → #F4F4F4 on card | `hsl(0 0% 100% / 0.045)` → #262628 | control track, ITM tint, hover |
+| `--mat-fill-2` | `/ 0.075` → #ECECEC | `/ 0.075` → #2D2D2F | skeleton, input bg, segmented track |
+| `--mat-fill-3` | `/ 0.12` → #E0E0E0 | `/ 0.12` → #373739 | pressed, switch off track |
 | `--mat-hairline` | `hsl(240 6% 10% / 0.07)` | `hsl(0 0% 100% / 0.07)` | row rules inside tables |
 | `--mat-separator` | `hsl(240 6% 10% / 0.10)` (1.25:1) | `hsl(0 0% 100% / 0.11)` (1.32:1) | panel edges, section dividers, column groups |
 | `--seg-track` **new** | `hsl(240 6% 10% / 0.06)` (≈#EDEDEF) | `hsl(0 0% 100% / 0.06)` (≈#1A1A1D) | capsule bar background |
 | `--shadow-1` | unchanged | `0 0 0 var(--hl) hsl(0 0% 100% / 0.06)` (no drop shadow on black: it is invisible and only muddies) | panel |
-| `--wall-a` | unchanged (copper glow) | `transparent` | wallpaper |
+| `--wall-a` | `transparent` | `transparent` | wallpaper (off in both themes) |
 | `--seg-thumb`, `--seg-thumb-shadow` | **removed** (replaced by `--sel-*`) | | |
 
-The page canvas and cards differ only slightly in dark (#050506 vs #0D0D0F). The panel edge `--mat-separator` keeps panels visible; avoid shadows.
+In dark the cards (#1C1C1E) sit clearly above the black canvas (#000000), as on mrchartist.com. The panel edge `--mat-separator` still draws the edge; avoid shadows.
 
 ### 3.2 Text ladder (on `--card`)
 | Token | Light | Dark | Contrast on card |
 |---|---|---|---|
-| `--foreground` | `240 6% 4%` (#0A0A0B) | `240 11% 96%` (#F4F4F6) | 19.8 / 17.7 |
-| `--a-label` (secondary) | 0.70 | 0.70 | 7.6 / 8.9 |
-| `--a-quiet` (captions, axis ticks; the floor) | **0.60** | **0.54** | 5.3 / 5.6 (light on canvas 5.1) |
+| `--foreground` | `0 0% 0%` (#000000) | `0 0% 100%` (#FFFFFF) | 21.0 / 17.0 |
+| `--a-label` (secondary) | 0.70 | 0.70 | 8.45 / 8.87 |
+| `--a-quiet` (captions, axis ticks; the floor) | **0.60** | **0.54** | 5.74 / 5.83 (light on canvas 5.15) |
 | disabled | 0.38 (not text that must be read) | 0.38 | n/a |
 
 Rule: never go below `--a-quiet` for any text, including axis labels and table sub-lines.
@@ -129,12 +129,12 @@ Rule: never go below `--a-quiet` for any text, including axis labels and table s
 ### 3.3 Selection: the contrast state (**new**, the owner's rule)
 | Token | Light | Dark |
 |---|---|---|
-| `--sel-bg` | #0A0A0B | #FFFFFF |
+| `--sel-bg` | #000000 | #FFFFFF |
 | `--sel-fg` | #FFFFFF | #000000 |
 | `--sel-ring` (focus on a selected item) | `hsl(211 100% 45%)` 2 px, offset 2 px | `hsl(211 100% 62%)` 2 px, offset 2 px |
 
 Contrast figures:
-- selected label: dark 21:1, light 19.8:1;
+- selected label: dark 21:1, light 21:1;
 - thumb against track: dark 17.4:1, light 16.9:1;
 - unselected label (`--foreground / --a-label` on `--seg-track`): dark 8.3:1, light 7.1:1.
 
@@ -206,11 +206,11 @@ Text ("ink") values hold at least 4.5:1 on card. Fill values hold at least 3:1 o
 |---|---|---|---|---|---|
 | `--dv-call` (fill) / `--dv-call-ink` | #1C7BEA / #0A62C9 | #3A93F0 / #4AA8FF | 5.8 / 7.7 | 4.1 / 6.1 | calls (CE): OI bars, call wing, CE column headers |
 | `--dv-put` / `--dv-put-ink` | #E07800 / #A65300 | #F28A1A / #FF9F2E | 5.4 / 9.5 | 3.1 / 7.8 | puts (PE) |
-| `--pos` / `--pos-ink` | #1FA347 / #0A7A33 | #30D158 / #30D158 | 5.5 / 9.6 | 3.3 / 9.6 | gain, up-tick, OI added, buy |
-| `--neg` / `--neg-ink` | #E2382E / #C9241C | #FF5A50 / #FF5A50 | 5.6 / 6.3 | 4.3 / 6.3 | loss, down-tick, OI removed, sell |
+| `--pos` / `--pos-ink` | #22A34A / #1F7F37 | #50B863 / #64C775 | 5.1 / 8.1 | 3.3 / 6.8 | gain, up-tick, OI added, buy |
+| `--neg` / `--neg-ink` | #FF3B30 / #D70015 | #E46156 / #ED756A | 5.4 / 6.0 | 3.6 / 5.0 | loss, down-tick, OI removed, sell |
 | `--neutral-ink` | fg / 0.70 | fg / 0.70 | 7.6 / 8.9 | n/a | unchanged, flat |
 | `--warn` / `--warn-ink` | #F5B800 / #8A5A00 | #FFD60A / #FFD60A | 5.9 / 13.8 | (dot + icon) | stale data, tested strike, wide spread, expiry day |
-| `--dv-spot` | #0A0A0B | #F4F4F6 | 19.8 / 17.7 | same | spot line, ATM marker, "now" cursor |
+| `--dv-spot` | #000000 | #FFFFFF | 21.0 / 17.0 | same | spot line, ATM marker, "now" cursor |
 | `--dv-iv` / `--dv-iv-ink` | #7F55DB / #6E35D6 | #8A63D9 / #BF8CFF | 6.7 / 7.8 | 5.0 / 4.5 | IV series, vol accent |
 | `--dv-hv` | fg / 0.55 dashed 4 3 | same | n/a | n/a | realised vol, comparison curves |
 | `--dv-band` | #F2EEFB (violet 10 % on card) | #1E192B (violet 14 %) | n/a | area | ±1σ band. ±2σ is the same colour at half alpha |
@@ -220,7 +220,7 @@ Text ("ink") values hold at least 4.5:1 on card. Fill values hold at least 3:1 o
 
 Text on solid fills:
 - Light: white on `--pos` is 3.3:1, so a white label on a green fill must be ≥ 14 px bold. Prefer the ink colour on a tint.
-- Dark: black on `--pos` is 10.4:1 and black on `--neg` is 6.8:1. **Buy/Sell buttons in dark use black text.**
+- Dark: black on `--pos` is 8.4:1 and black on `--neg` is 6.1:1. **Buy/Sell buttons in dark use black text.**
 
 The call and put fills have similar luminance (1.3:1 against each other). Hue and **position** carry the difference: calls are always left of the strike, puts right; on charts, calls are the right wing above the forward. The phone one-sided chain shows a CE/PE capsule. Never rely on colour alone.
 
@@ -252,13 +252,13 @@ The call and put fills have similar luminance (1.3:1 against each other). Hue an
 
 | Step | Light | Text | Dark | Text |
 |---|---|---|---|---|
-| −3 | #C9241C | #FFF 5.6 | #FF5A50 | #000 6.8 |
+| −3 | #D70015 | #FFF 5.4 | #ED756A | #000 7.4 |
 | −2 | #F08A84 | #000 8.2 | #B8423C | #FFF 4.9 |
 | −1 | #FBD9D6 | #000 15.1 | #5A2725 | #FFF 10.9 |
 | 0 | #F2F2F3 | #000 17.7 | #1C1C20 | #FFF 15.5 |
 | +1 | #CDEFD7 | #000 16.0 | #1E4D2C | #FFF 8.9 |
 | +2 | #6FCB8B | #000 10.0 | #237F3F | #FFF 5.0 |
-| +3 | #0A7A33 | #FFF 5.5 | #30D158 | #000 10.4 |
+| +3 | #1F7F37 | #FFF 5.1 | #64C775 | #000 10.0 |
 
 The `--div-ink-*` tokens carry the text colour per step. Mapping: `step = sign(v) · min(3, ceil(3 · |v| / m))`, where `m` is the 95th percentile of |v|. Within the dead-band `|v| < m/20` the step is 0. A pure helper `divStep(v, m)` and `seqStep(v, lo, hi)` goes in `options.js` (tested in `options.test.mjs`) so the page units share it.
 

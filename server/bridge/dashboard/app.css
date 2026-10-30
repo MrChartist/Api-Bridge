@@ -1,7 +1,7 @@
 /* Mr. Chartist API Bridge — local dashboard.
 
    The look is the Mr. Chartist "Liquid Glass" design system, ported from IPO Decode (docs/DESIGN-IOS27.md there):
-   near-black (#050506) / neutral paper (#F4F4F5) canvas, iOS system colours, glass for the chrome only (sidebar,
+   black (#000000) / neutral paper (#F2F2F7) canvas, iOS system colours, glass for the chrome only (sidebar,
    toolbar, tab bar, sheets), calm grouped cards for content, fully round controls, the contrast state for every
    selection (white on dark, near-black on light), one data-viz palette and one set of motion primitives
    (docs/design/foundation.md), spring motion (motion.js), and three self-hosted typefaces. Nothing is loaded from another site (CSP: font-src,
@@ -106,10 +106,12 @@ html { font-synthesis-weight: none; }
   --ios-blue-fill-hover: 211 100% 38%;
   --ios-red-fill: 3 82% 47%;
 
-  /* Semantics: neutral paper canvas (#F4F4F5), white cards */
-  --background: 240 4.8% 95.9%;
-  --foreground: 240 4.8% 4.1%;
+  /* Semantics: neutral paper canvas (#F2F2F7), pure black ink, white cards */
+  --background: 240 23.8% 95.9%;
+  --foreground: 0 0% 0%;
   --card: 0 0% 100%;
+  /* The brand accent: the one italic serif word in a headline (.serif). Never a link, button, nav item, series or status. */
+  --brand-wine: 332 61.5% 37.6%;
   /* Text alpha ladder over --foreground: --a-label for secondary text (about 6:1), --a-quiet for captions (the floor). */
   --a-label: 0.70;
   --a-quiet: 0.60;
@@ -134,7 +136,7 @@ html { font-synthesis-weight: none; }
   --seg-track: hsl(240 6% 10% / 0.06);
   --surface-raised: hsl(0 0% 100%);
   /* Selection: the contrast state. Selected = black capsule, white text (white / black in dark). */
-  --sel-bg: 240 4.8% 4.1%;
+  --sel-bg: 0 0% 0%;
   --sel-fg: 0 0% 100%;
   --sel-ring: hsl(211 100% 45%);
   /* Buttons (docs/theme/BUTTON-SYSTEM.md, §8 below): the ink and the paper are pure black and pure white, never the
@@ -154,8 +156,8 @@ html { font-synthesis-weight: none; }
   --shadow-3: 0 2px 4px hsl(240 10% 10% / 0.05), 0 18px 48px hsl(240 10% 10% / 0.12);
   --shadow-float: 0 4px 12px hsl(240 10% 10% / 0.08), 0 30px 80px hsl(240 10% 10% / 0.20);
   --spec-top: inset 0 1px 0 hsl(0 0% 100% / 0.9);
-  /* Wallpaper — one faint copper glow, as on the main website. */
-  --wall-a: hsl(22 70% 60% / 0.16);
+  /* Wallpaper: off in both themes (the parent brand draws a plain canvas). */
+  --wall-a: transparent;
 
 
   /* Data visualisation (docs/design/foundation.md §4): calls blue, puts orange, gain / loss green / red, spot = the
@@ -165,10 +167,10 @@ html { font-synthesis-weight: none; }
   --dv-put: 32 100% 43.9%;
   --dv-put-ink: 30 100% 32.5%;
   --dv-bar-a: 1;  /* OI bar fill alpha: full on white (3:1), 0.85 on near-black */
-  --pos: 138 68% 38%;
-  --pos-ink: 142 84.8% 25.9%;
-  --neg: 3 75.6% 53.3%;
-  --neg-ink: 3 75.5% 44.9%;
+  --pos: 138.6 65.5% 38.6%;
+  --pos-ink: 135 60.8% 31%;
+  --neg: 3.2 100% 59.4%;
+  --neg-ink: 354.1 100% 42.2%;
   --warn: 45 100% 48%;
   --warn-ink: 39 100% 27.1%;
   --dv-iv: 259 65% 59.6%;
@@ -187,13 +189,13 @@ html { font-synthesis-weight: none; }
   --seq-3: 261 77.6% 77.3%; --seq-ink-3: var(--foreground);
   --seq-4: 259 65% 59.6%; --seq-ink-4: 0 0% 100%;
   --seq-5: 257 59.6% 40.8%; --seq-ink-5: 0 0% 100%;
-  --div-n3: 3 75.5% 44.9%; --div-ink-n3: 0 0% 100%;
+  --div-n3: 354.1 100% 42.2%; --div-ink-n3: 0 0% 100%;
   --div-n2: 3 78.3% 72.9%; --div-ink-n2: 0 0% 0%;
   --div-n1: 5 82.2% 91.2%; --div-ink-n1: 0 0% 0%;
   --div-0: 240 4% 95.1%; --div-ink-0: 0 0% 0%;
   --div-p1: 138 51.5% 87.1%; --div-ink-p1: 0 0% 0%;
   --div-p2: 138 46.9% 61.6%; --div-ink-p2: 0 0% 0%;
-  --div-p3: 142 84.8% 25.9%; --div-ink-p3: 0 0% 100%;
+  --div-p3: 135 60.8% 31%; --div-ink-p3: 0 0% 100%;
   /* IV-family diverging (vs ATM on the IV surface): cheaper = teal, richer = the violet seq steps. Not money. */
   --ivc-1: 184 48% 91%; --ivc-ink-1: var(--foreground);
   --ivc-2: 185 42% 76%; --ivc-ink-2: var(--foreground);
@@ -369,25 +371,26 @@ html { font-synthesis-weight: none; }
     --ios-blue-fill-hover: 211 100% 49%;
     --ios-red-fill: 3 80% 48%;
 
-    /* Semantics: near-black neutral canvas (#050506), cards #0D0D0F, raised #16161A */
-    --background: 0 0% 1.6%;
-    --foreground: 240 10% 96.1%;
-    --card: 0 0% 5.1%;
+    /* Semantics: black canvas (#000000), cards #1C1C1E, raised #2C2C2E */
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
+    --card: 240 3.4% 11.4%;
+    --brand-wine: 333.5 70.6% 66.7%;
     --a-label: 0.70;
     --a-quiet: 0.54;
     /* Light text on black reads bolder: reading text steps down 20 (TYPE-SYSTEM.md §3). */
     --fw-body: 380;
 
     /* Materials: no warm tint, no drop shadows on black (a hairline ring carries the edge) */
-    --mat-grouped: hsl(0 0% 5.1% / 0.94);
-    --mat-grouped-solid: hsl(0 0% 5.1%);
-    --mat-grouped-hover: hsl(240 7% 8% / 0.96);
+    --mat-grouped: hsl(240 3.4% 11.4% / 0.94);
+    --mat-grouped-solid: hsl(240 3.4% 11.4%);
+    --mat-grouped-hover: hsl(240 2.6% 14.9% / 0.96);
     --mat-fill-1: hsl(0 0% 100% / 0.045);
     --mat-fill-2: hsl(0 0% 100% / 0.075);
     --mat-fill-3: hsl(0 0% 100% / 0.12);
-    --mat-glass: hsl(240 6% 8% / 0.62);
-    --mat-glass-strong: hsl(240 6% 6% / 0.80);
-    --mat-thick: hsl(240 7% 9% / 0.96);
+    --mat-glass: hsl(240 3% 11% / 0.62);
+    --mat-glass-strong: hsl(240 3% 9% / 0.80);
+    --mat-thick: hsl(240 3% 13% / 0.96);
     --mat-hairline: hsl(0 0% 100% / 0.07);
     --mat-separator: hsl(0 0% 100% / 0.11);
     --mat-rim-a: hsl(0 0% 100% / 0.22);
@@ -396,7 +399,7 @@ html { font-synthesis-weight: none; }
     --mat-blur: blur(32px) saturate(160%);
     --mat-blur-soft: blur(20px) saturate(130%);
     --seg-track: hsl(0 0% 100% / 0.06);
-    --surface-raised: hsl(240 8.3% 9.4%);
+    --surface-raised: hsl(240 2.2% 17.6%);
     --sel-bg: 0 0% 100%;
     --sel-fg: 0 0% 0%;
     --sel-ring: hsl(211 100% 62%);
@@ -426,10 +429,10 @@ html { font-synthesis-weight: none; }
     --dv-put-ink: 32 100% 59%;
     --dv-bar-a: 0.85;  /* OI bar fill alpha: full on white (3:1), 0.85 on near-black */
     --itm-fill: hsl(0 0% 100% / 0.075);
-    --pos: 135 63.6% 50.4%;
-    --pos-ink: 135 63.6% 50.4%;
-    --neg: 3 100% 65.7%;
-    --neg-ink: 3 100% 65.7%;
+    --pos: 131 42.3% 51.8%;
+    --pos-ink: 130.3 46.9% 58.6%;
+    --neg: 4.6 72.4% 61.6%;
+    --neg-ink: 5 78.4% 67.3%;
     --warn: 50 100% 52%;
     --warn-ink: 50 100% 52%;
     --dv-iv: 260 60.8% 62%;
@@ -448,13 +451,13 @@ html { font-synthesis-weight: none; }
     --seq-3: 258 43.4% 40.2%; --seq-ink-3: var(--foreground);
     --seq-4: 260 60.8% 62%; --seq-ink-4: 0 0% 0%;
     --seq-5: 261 100% 82.9%; --seq-ink-5: 0 0% 0%;
-    --div-n3: 3 100% 65.7%; --div-ink-n3: 0 0% 0%;
+    --div-n3: 5 78.4% 67.3%; --div-ink-n3: 0 0% 0%;
     --div-n2: 3 50.8% 47.8%; --div-ink-n2: 0 0% 100%;
     --div-n1: 2 41.7% 24.9%; --div-ink-n1: 0 0% 100%;
     --div-0: 240 6.7% 11.8%; --div-ink-0: 0 0% 100%;
     --div-p1: 138 43.9% 21%; --div-ink-p1: 0 0% 100%;
     --div-p2: 138 56.8% 31.8%; --div-ink-p2: 0 0% 100%;
-    --div-p3: 135 63.6% 50.4%; --div-ink-p3: 0 0% 0%;
+    --div-p3: 130.3 46.9% 58.6%; --div-ink-p3: 0 0% 0%;
     --ivc-1: 186 34% 14%; --ivc-ink-1: var(--foreground);
     --ivc-2: 186 40% 25%; --ivc-ink-2: var(--foreground);
     --ivc-3: 184 52% 56%; --ivc-ink-3: 0 0% 0%;
@@ -490,25 +493,26 @@ html { font-synthesis-weight: none; }
   --ios-blue-fill-hover: 211 100% 49%;
   --ios-red-fill: 3 80% 48%;
 
-  /* Semantics: near-black neutral canvas (#050506), cards #0D0D0F, raised #16161A */
-  --background: 0 0% 1.6%;
-  --foreground: 240 10% 96.1%;
-  --card: 0 0% 5.1%;
+  /* Semantics: black canvas (#000000), cards #1C1C1E, raised #2C2C2E */
+  --background: 0 0% 0%;
+  --foreground: 0 0% 100%;
+  --card: 240 3.4% 11.4%;
+  --brand-wine: 333.5 70.6% 66.7%;
   --a-label: 0.70;
   --a-quiet: 0.54;
   /* Light text on black reads bolder: reading text steps down 20 (TYPE-SYSTEM.md §3). */
   --fw-body: 380;
 
   /* Materials: no warm tint, no drop shadows on black (a hairline ring carries the edge) */
-  --mat-grouped: hsl(0 0% 5.1% / 0.94);
-  --mat-grouped-solid: hsl(0 0% 5.1%);
-  --mat-grouped-hover: hsl(240 7% 8% / 0.96);
+  --mat-grouped: hsl(240 3.4% 11.4% / 0.94);
+  --mat-grouped-solid: hsl(240 3.4% 11.4%);
+  --mat-grouped-hover: hsl(240 2.6% 14.9% / 0.96);
   --mat-fill-1: hsl(0 0% 100% / 0.045);
   --mat-fill-2: hsl(0 0% 100% / 0.075);
   --mat-fill-3: hsl(0 0% 100% / 0.12);
-  --mat-glass: hsl(240 6% 8% / 0.62);
-  --mat-glass-strong: hsl(240 6% 6% / 0.80);
-  --mat-thick: hsl(240 7% 9% / 0.96);
+  --mat-glass: hsl(240 3% 11% / 0.62);
+  --mat-glass-strong: hsl(240 3% 9% / 0.80);
+  --mat-thick: hsl(240 3% 13% / 0.96);
   --mat-hairline: hsl(0 0% 100% / 0.07);
   --mat-separator: hsl(0 0% 100% / 0.11);
   --mat-rim-a: hsl(0 0% 100% / 0.22);
@@ -517,7 +521,7 @@ html { font-synthesis-weight: none; }
   --mat-blur: blur(32px) saturate(160%);
   --mat-blur-soft: blur(20px) saturate(130%);
   --seg-track: hsl(0 0% 100% / 0.06);
-  --surface-raised: hsl(240 8.3% 9.4%);
+  --surface-raised: hsl(240 2.2% 17.6%);
   --sel-bg: 0 0% 100%;
   --sel-fg: 0 0% 0%;
   --sel-ring: hsl(211 100% 62%);
@@ -547,10 +551,10 @@ html { font-synthesis-weight: none; }
   --dv-put-ink: 32 100% 59%;
   --dv-bar-a: 0.85;  /* OI bar fill alpha: full on white (3:1), 0.85 on near-black */
     --itm-fill: hsl(0 0% 100% / 0.075);
-  --pos: 135 63.6% 50.4%;
-  --pos-ink: 135 63.6% 50.4%;
-  --neg: 3 100% 65.7%;
-  --neg-ink: 3 100% 65.7%;
+  --pos: 131 42.3% 51.8%;
+  --pos-ink: 130.3 46.9% 58.6%;
+  --neg: 4.6 72.4% 61.6%;
+  --neg-ink: 5 78.4% 67.3%;
   --warn: 50 100% 52%;
   --warn-ink: 50 100% 52%;
   --dv-iv: 260 60.8% 62%;
@@ -569,13 +573,13 @@ html { font-synthesis-weight: none; }
   --seq-3: 258 43.4% 40.2%; --seq-ink-3: var(--foreground);
   --seq-4: 260 60.8% 62%; --seq-ink-4: 0 0% 0%;
   --seq-5: 261 100% 82.9%; --seq-ink-5: 0 0% 0%;
-  --div-n3: 3 100% 65.7%; --div-ink-n3: 0 0% 0%;
+  --div-n3: 5 78.4% 67.3%; --div-ink-n3: 0 0% 0%;
   --div-n2: 3 50.8% 47.8%; --div-ink-n2: 0 0% 100%;
   --div-n1: 2 41.7% 24.9%; --div-ink-n1: 0 0% 100%;
   --div-0: 240 6.7% 11.8%; --div-ink-0: 0 0% 100%;
   --div-p1: 138 43.9% 21%; --div-ink-p1: 0 0% 100%;
   --div-p2: 138 56.8% 31.8%; --div-ink-p2: 0 0% 100%;
-  --div-p3: 135 63.6% 50.4%; --div-ink-p3: 0 0% 0%;
+  --div-p3: 130.3 46.9% 58.6%; --div-ink-p3: 0 0% 0%;
   --ivc-1: 186 34% 14%; --ivc-ink-1: var(--foreground);
   --ivc-2: 186 40% 25%; --ivc-ink-2: var(--foreground);
   --ivc-3: 184 52% 56%; --ivc-ink-3: 0 0% 0%;
@@ -612,7 +616,7 @@ body {
   -webkit-tap-highlight-color: transparent;
   overflow-x: clip;
 }
-/* The wallpaper the glass refracts: one soft copper glow, never a pattern. */
+/* The wallpaper the glass refracts: off in both themes (--wall-a is transparent), never a pattern. */
 body::before {
   content: "";
   position: fixed; inset: -10%; z-index: -2; pointer-events: none;
@@ -1024,7 +1028,8 @@ button.live-ctl { --btn-h: var(--ctl-h); --btn-bg: var(--btn-soft); --btn-line: 
 .page-head .eyebrow { margin-bottom: 6px; }
 .eyebrow:empty { display: none; }
 .large-title { font: var(--fw-heading) clamp(1.7rem, 3.4vw, 2.2rem)/1.06 var(--font-display); letter-spacing: -0.034em; overflow-wrap: anywhere; }
-.serif { font: italic 400 1.08em/1 var(--font-serif-accent); letter-spacing: -0.01em; }
+/* The one accent word per page (brand.md §3.2): Chartist Serif italic in wine on a quiet hairline pane. */
+.serif { font: italic 400 1.08em/1 var(--font-serif-accent); letter-spacing: -0.01em; color: hsl(var(--brand-wine)); padding: 0 0.16em 0.04em; border-radius: 0.22em; background: var(--mat-fill-1); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
 .page-sub { font: var(--t-small); color: hsl(var(--foreground) / var(--a-label)); margin: 6px 0 0; max-width: 860px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .page-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; min-width: 0; max-width: 100%; }
 .page-actions:empty { display: none; }
