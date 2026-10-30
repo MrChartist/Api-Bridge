@@ -8,6 +8,7 @@ const leg = (u, k, r, o = {}) => ({ symbol: sym(u, k, r), ltp: 50, bid: 49.5, as
 const chainFor = (u, spot) => ({
   underlyingLtp: spot,
   lotSize: 75,
+  units: "lots", // these fixtures count contracts (the Bridge itself reports units)
   rows: [
     { strike: spot - 100, ce: leg(u, spot - 100, "CE", { ltp: 120, delta: 0.8, iv: 14, oi: 9000 }), pe: leg(u, spot - 100, "PE", { ltp: 8, delta: -0.1, iv: 25, oi: 20000, volume: 900 }) },
     { strike: spot, ce: leg(u, spot, "CE"), pe: leg(u, spot, "PE", { iv: 18 }) },

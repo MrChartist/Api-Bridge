@@ -7,12 +7,12 @@
  *   GET /v1/analytics/screener/presets      six ready-made query strings
  *
  * Conventions: delta filters and sort use |delta| (so puts and calls compare); minPremium/maxPremium bound the option
- * price (ltp, INR per unit); sort=premium orders by premium traded (ltp x volume x lot size, INR); sort=theta orders by
+ * price (ltp, INR per unit); sort=premium orders by premium traded (ltp x volume in units, INR); sort=theta orders by
  * theta as a percent of premium per day. A contract missing a field cannot pass a filter on that field and sorts last.
  */
 import { BridgeError } from "../core/errors.mjs";
 import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
-import { expiryCutoffMs, nowMsOf, upcomingExpiries } from "./math.mjs";
+import { expiryCutoffMs, nowMsOf, unitMultiplier, upcomingExpiries } from "./math.mjs";
 
 export const MAX_UNDERLYINGS = 5;
 export const MAX_LIMIT = 200;
@@ -104,7 +104,7 @@ export function contractRow(leg, right, strike, c) {
   const breakeven = ltp === null ? null : isCall ? strike + ltp : strike - ltp;
   const spreadPct = bid > 0 && ask > 0 && ask >= bid ? ((ask - bid) / ((ask + bid) / 2)) * 100 : null;
   const lot = c.lotSize > 0 ? c.lotSize : null;
-  const premiumTraded = ltp !== null && volume !== null ? ltp * volume * (lot ?? 1) : null;
+  const premiumTraded = ltp !== null && volume !== null ? ltp * volume * (c.units === "lots" ? (lot ?? 1) : 1) : null;
   const thetaPct = theta !== null && ltp > 0 ? (Math.abs(theta) / ltp) * 100 : null;
   const liquid = oi >= LIQUID.minOi && volume >= LIQUID.minVolume && spreadPct !== null && spreadPct <= LIQUID.maxSpreadPct;
   return {
@@ -176,7 +176,7 @@ export function sortRows(rows, sort, dir) {
 export function chainContracts(chain, { underlying, expiry, nowMs }) {
   const spot = num(chain?.underlyingLtp);
   const atm = num(chain?.atmStrike);
-  const c = { underlying, expiry, spot: spot > 0 ? spot : null, atm, lotSize: num(chain?.lotSize), dte: Math.max(0, (expiryCutoffMs(expiry) - nowMs) / DAY_MS) };
+  const c = { underlying, expiry, spot: spot > 0 ? spot : null, atm, lotSize: num(chain?.lotSize), units: chain?.units ?? "units", dte: Math.max(0, (expiryCutoffMs(expiry) - nowMs) / DAY_MS) };
   const out = [];
   for (const r of Array.isArray(chain?.rows) ? chain.rows : []) {
     if (r.ce) out.push(contractRow(r.ce, "CE", r.strike, c));

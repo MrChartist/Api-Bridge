@@ -147,7 +147,7 @@ export function lineLayout(series, { width = 640, height, padL = 44, padR = 14, 
       pen = true;
       dots.push({ x: px, y: py, title: `${s.label}: strike ${formatInt(p.x)}, ${formatFixed(p.y, yDecimals)}%` });
     }
-    return { id: s.id, label: s.label, cls: s.cls, dash: s.dash ?? null, d, dots };
+    return { id: s.id, label: s.label, cls: s.cls, dash: s.dash ?? null, hollow: Boolean(s.hollow), d, dots };
   });
   return {
     width: w,
@@ -316,6 +316,14 @@ export function sizeBody({ capital, riskPct, entry, stop, lotSize, maxLots }) {
 }
 
 /** Series for the surface chart: one line per expiry (the mean of call and put IV at each strike). */
+/** The skew's two lines, put first (underneath, solid) and call on top (dashed, hollow markers). Pure. */
+export function skewSeries(points) {
+  return [
+    { id: "pe", label: "Put IV", cls: "put", points: (points ?? []).map((p) => ({ x: p.strike, y: p.peIv })) },
+    { id: "ce", label: "Call IV", cls: "call", dash: "7 5", hollow: true, points: (points ?? []).map((p) => ({ x: p.strike, y: p.ceIv })) },
+  ];
+}
+
 export const SURFACE_CLASSES = ["s1", "s2", "s3", "s4", "s5", "s6"];
 const SURFACE_DASH = [null, "6 3", "2 3", "8 3 2 3", "1 4", "10 4"];
 export function surfaceSeries(expiries) {
@@ -403,7 +411,7 @@ export function lineChart(series, { label, marker, yDecimals = 1 }) {
     if (marker && isFigure(marker.x)) svg.append(s("line", { class: "marker-line", x1: L.x(marker.x), x2: L.x(marker.x), y1: L.padT, y2: L.height - L.padB }), s("text", { class: "tag", x: L.x(marker.x), y: L.padT + 10, "text-anchor": "middle" }, marker.label));
     for (const p of L.paths) {
       if (p.d) svg.append(s("path", { class: `line ${p.cls}`, d: p.d, "stroke-dasharray": p.dash }));
-      for (const d of p.dots) svg.append(s("circle", { class: `dot ${p.cls}`, cx: d.x, cy: d.y, r: 3 }, s("title", {}, d.title)));
+      for (const d of p.dots) svg.append(s("circle", { class: `dot ${p.cls}${p.hollow ? " hollow" : ""}`, cx: d.x, cy: d.y, r: p.hollow ? 4 : 3 }, s("title", {}, d.title)));
     }
     return svg;
   });
@@ -724,15 +732,14 @@ async function renderSkew(H) {
           dataDisclosure("Show as a table", [{ label: "Expiry", cell: (r) => h("strong", {}, r.expiry) }, { label: "Days", num: true, cell: (r) => formatFixed(r.daysToExpiry, 1) }, { label: "ATM IV %", num: true, cell: (r) => formatFixed(r.atmIv, 2) }, { label: "Risk reversal", num: true, cell: (r) => formatSigned(r.riskReversal, 2) }], slices),
         ];
       }
-      const series = [
-        { id: "ce", label: "Call IV", cls: "call", points: d.points.map((p) => ({ x: p.strike, y: p.ceIv })) },
-        { id: "pe", label: "Put IV", cls: "put", dash: "6 3", points: d.points.map((p) => ({ x: p.strike, y: p.peIv })) },
-      ];
+      // Call and put IV often sit on top of each other (one vol per strike when parity holds): the put is drawn
+      // first as a solid line and the call on top, dashed with hollow markers, so both stay visible.
+      const series = skewSeries(d.points);
       const skewWord = { "put-heavy": "Puts richer than calls", "call-heavy": "Calls richer than puts", flat: "Roughly flat" }[d.skew] ?? DASH;
       return [
         statusRow(freshness),
         tiles(tile("ATM IV", isFigure(d.atmIv) ? `${formatFixed(d.atmIv, 2)}%` : DASH, `Strike ${isFigure(d.atmStrike) ? formatInt(d.atmStrike) : DASH}`), tile("Risk reversal", isFigure(d.riskReversal) ? formatSigned(d.riskReversal, 2) : DASH, `Put IV at ${isFigure(d.putStrike) ? formatInt(d.putStrike) : DASH} minus call IV at ${isFigure(d.callStrike) ? formatInt(d.callStrike) : DASH}`), tile("Skew", d.skew ?? DASH, skewWord), tile("Expiry", d.expiry ?? DASH, d.underlying ?? "")),
-        h("section", { class: "card" }, h("header", { class: "card-head" }, h("div", { class: "card-titles" }, h("h2", {}, "IV skew"), h("p", {}, "Implied volatility in percent by strike. The dashed vertical line is the at-the-money strike."))), h("div", { class: "card-body" }, callPutLegend(), lineChart(series, { label: `Call and put implied volatility by strike for ${d.underlying} ${d.expiry}`, marker: isFigure(d.atmStrike) ? { x: d.atmStrike, label: "ATM" } : null }))),
+        h("section", { class: "card" }, h("header", { class: "card-head" }, h("div", { class: "card-titles" }, h("h2", {}, "IV skew"), h("p", {}, "Implied volatility in percent by strike. The dashed vertical line is the at-the-money strike."))), h("div", { class: "card-body" }, legend([{ cls: "call", label: "Call IV (CE), dashed" }, { cls: "put", label: "Put IV (PE)" }]), lineChart(series, { label: `Call and put implied volatility by strike for ${d.underlying} ${d.expiry}`, marker: isFigure(d.atmStrike) ? { x: d.atmStrike, label: "ATM" } : null }))),
         dataDisclosure("Show as a table", [{ label: "Strike", cell: (r) => h("strong", {}, formatInt(r.strike)) }, { label: "Call IV %", num: true, cell: (r) => formatFixed(r.ceIv, 2) }, { label: "Put IV %", num: true, cell: (r) => formatFixed(r.peIv, 2) }], d.points),
       ];
     },

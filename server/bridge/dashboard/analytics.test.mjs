@@ -1,7 +1,8 @@
 // The host of PR 17's analytics pages in this shell (analytics.js): the pure parts and the wiring to the menu.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { VIEWS, lastSpan, shortDay, stackRow } from "./analytics.js";
+import { MASONRY_ROW, VIEWS, lastSpan, masonrySpan, shortDay } from "./analytics.js";
+import { skewSeries } from "./analyticsViews.js";
 import { LEGACY, PAGES, resolveRoute } from "./views.js";
 
 describe("analytics host", () => {
@@ -15,11 +16,19 @@ describe("analytics host", () => {
     expect(lastSpan(0, 3)).toBe(1);
   });
 
-  it("stacks a row when a short panel would leave a band of nothing beside a tall one", () => {
-    expect(stackRow([900, 150])).toBe(true);
-    expect(stackRow([600, 500])).toBe(false);
-    expect(stackRow([900, 400])).toBe(false); // the short one is tall enough to hold its own
-    expect(stackRow([500])).toBe(false);
+  it("draws the call IV on top of the put IV, dashed with hollow markers, so equal IVs stay visible", () => {
+    const [under, over] = skewSeries([{ strike: 100, ceIv: 20, peIv: 20 }]);
+    expect([under.id, over.id]).toEqual(["pe", "ce"]);
+    expect(under.dash).toBeUndefined();
+    expect(over).toMatchObject({ dash: expect.any(String), hollow: true });
+  });
+
+  it("gives each panel as many masonry rows as its height needs, gap included", () => {
+    expect(MASONRY_ROW).toBe(4);
+    expect(masonrySpan(0, 12)).toBe(1);
+    expect(masonrySpan(4, 0)).toBe(1);
+    expect(masonrySpan(100, 12)).toBe(7); // 7 rows of 4 px and 6 gaps of 12 px = 100 px
+    expect(masonrySpan(101, 12)).toBe(8);
   });
 
   it("names a day the way the desk does", () => {
