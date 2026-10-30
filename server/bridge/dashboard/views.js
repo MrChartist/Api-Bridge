@@ -350,7 +350,7 @@ export const PAGES = [
       { id: "arbitrage", label: "Arbitrage", page: "arb", layout: "desk", command: "Arbitrage scanner", icon: "scale", tint: "indigo", keywords: "arb parity box conversion reversal basis", sub: "Parity, boxes and futures basis at executable prices, after charges", render: renderArbPage },
       { id: "events", label: "Live events", page: "events", layout: "desk", command: "Live events", icon: "bolt", tint: "orange", keywords: "events event selector spider circuit only buyers only sellers volume surge gap day high breakout alerts live oi build-up iv spike wall", sub: "Circuits, volume surges, gaps, breakouts, F&O OI and option events as they happen", render: renderEventsPage },
       { id: "watchlists", label: "Watchlists", page: "watchlists", layout: "", command: "Watchlists", icon: "list", tint: "blue", keywords: "watchlist watch list quotes change oi iv favourites", sub: "Your lists with live quotes, % change, OI change for F&O and IV. One feeds Live events, one shows on Home", render: renderWatchlistsPage },
-      { id: "stocks", label: "Stocks", page: "scanner", layout: "", command: "Stock scanner", icon: "scan", tint: "mint", keywords: "scanner scan condition rsi universe gap 52-week circuit nr7 inside day build-up oi spike ban pcr iv rank basis rollover max pain straddle skew", sub: "Price, F&O and option-chain scans in plain words, saved and scheduled", render: renderScannerPage },
+      { id: "stocks", label: "Stocks", page: "scanner", layout: "desk", command: "Stock scanner", icon: "scan", tint: "mint", keywords: "scanner scan condition rsi universe gap 52-week circuit nr7 inside day build-up oi spike ban pcr iv rank basis rollover max pain straddle skew", sub: "Price, F&O and option-chain scans in plain words, saved and scheduled", render: renderScannerPage },
     ],
   },
   { id: "calendar", label: "Market calendar", icon: "calendar", tint: "teal", group: "Markets", layout: "desk", title: "Market calendar", sub: "Expiries, holidays, lot sizes, ban list and corporate actions, with their sources", render: renderCalendarPage },
@@ -2400,7 +2400,15 @@ async function renderOrders() {
     }),
   );
 
-  // One summary line per paper account; the positions themselves live on the Positions page.
+  // One summary line per paper account; the positions themselves live on the Positions page. Every rupee figure in
+  // this table uses Indian grouping (the P&L columns too, with an explicit + for gains).
+  const pnlGrouped = (v) => {
+    if (!isFigure(v)) return DASH;
+    const text = formatRupeeGrouped(v, 2);
+    const zero = text === "₹0.00";
+    const n = Number(v);
+    return h("span", { class: zero ? undefined : n > 0 ? "up" : "down" }, n > 0 && !zero ? `+${text}` : text);
+  };
   const paper = accs.filter((x) => x.broker === "paper");
   if (paper.length) {
     const sums = await Promise.all(
@@ -2424,8 +2432,8 @@ async function renderOrders() {
             { label: "Open positions", num: true, cell: ({ open }) => formatInt(open) },
             { label: "Cash", num: true, cell: ({ f }) => formatRupeeGrouped(f.availableCash, 2) },
             { label: "Used margin", num: true, cell: ({ f }) => formatRupeeGrouped(f.usedMargin, 2) },
-            { label: "Realised", num: true, cell: ({ f }) => pnl(f.realisedPnl) },
-            { label: "Unrealised", num: true, cell: ({ f }) => pnl(f.unrealisedPnl) },
+            { label: "Realised", num: true, cell: ({ f }) => pnlGrouped(f.realisedPnl) },
+            { label: "Unrealised", num: true, cell: ({ f }) => pnlGrouped(f.unrealisedPnl) },
             { label: "", cell: ({ a }) => h("button", { type: "button", class: "small", "aria-label": `Positions of ${a.label}`, onclick: () => (location.hash = "#/positions") }, "Positions", icon("chevron")) },
           ],
           sums,
@@ -2594,7 +2602,7 @@ async function renderSafety() {
     "section",
     { class: `card kill${ks.engaged ? " engaged" : ""}` },
     iconTile(ks.engaged ? "stop" : "power", ks.engaged ? "red" : "green", "lg"),
-    h("div", { class: "stack" }, h("h2", {}, ks.engaged ? "Kill switch is on: no orders are sent" : "Kill switch is off"), h("p", { class: "muted" }, ks.engaged ? `Engaged ${istDateTime(ks.at)} by ${ks.by ?? "?"}: ${ks.reason ?? ""}` : "One click stops every new order from every tool: REST, webhooks, AI assistants and the CLI. Also: mc-bridge kill.")),
+    h("div", { class: "stack" }, h("h2", {}, ks.engaged ? "Kill switch is on: no orders are sent" : "Kill switch is off"), h("p", { class: "muted" }, ks.engaged ? `Engaged ${istDateTime(ks.at)} by ${ks.by ?? "?"}: ${ks.reason ?? ""}` : ["One click stops every new order from every tool: REST, webhooks, AI assistants and the CLI. Also: ", h("span", { class: "cli-cmd" }, "mc-bridge kill"), "."])),
     h("div", { class: "actions" }, ks.engaged ? h("button", { type: "button", id: "kill-action", class: "primary", onclick: release }, "Release (admin)") : h("button", { type: "button", id: "kill-action", class: "primary", onclick: engage }, icon("stop"), "Stop all orders")),
   );
   const live = card({
@@ -2651,7 +2659,7 @@ async function renderSafety() {
   });
   // Trading readiness (docs/spec/p1-05-readiness.md §6.4): between the kill switch and live trading.
   const ready = await readinessCard({ cardFn: card, demo: app.state.demo }).catch(() => null);
-  return [killCard, ready, limits, h("div", { class: "grid side" }, live, audit)].filter(Boolean);
+  return [killCard, ready, limits, h("div", { class: "grid side safety-row" }, live, audit)].filter(Boolean);
 }
 
 // ── Keys ──
