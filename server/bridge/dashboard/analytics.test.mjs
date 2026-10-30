@@ -5,7 +5,7 @@ import { MASONRY_ROW, VIEWS, lastSpan, masonrySpan, shortDay } from "./analytics
 import { skewSeries } from "./analyticsViews.js";
 import { OPT_VIEWS, cumulativeFlows, flowRowH, legsToBasket, optimizerQuery, payoffWindow } from "./analyticsMore.js";
 import { ruleText, volOiText } from "./analyticsFlow.js";
-import { backtestBody, concentrationWords, equitySeries, inrShort, pickAccount, weightText } from "./analyticsRisk.js";
+import { backtestBody, concentrationWords, equitySeries, histogramLayout, inrShort, pickAccount, weightText } from "./analyticsRisk.js";
 import { LEGACY, PAGES, resolveRoute } from "./views.js";
 
 describe("analytics host", () => {
@@ -77,6 +77,15 @@ describe("analytics host", () => {
     expect(concentrationWords(1, 1)).toBe("All in one underlying");
     expect(inrShort(-4800)).toBe("\u2212₹4.8k");
     expect(weightText(0.2532)).toBe("25.3%");
+  });
+
+  it("Risk: the P&L histogram marks the days at or beyond the VaR loss as the tail, with VaR and ES lines", () => {
+    const bins = [{ from: -300, to: -200, count: 2 }, { from: -200, to: -100, count: 5 }, { from: -100, to: 0, count: 40 }, { from: 0, to: 100, count: 50 }];
+    const L = histogramLayout(bins, { width: 400, height: 200, varLoss: 200, esLoss: 250 });
+    expect(L.bars.map((b) => b.tail)).toEqual([true, false, false, false]);
+    expect(L.lines.map((l) => l.label)).toEqual(["VaR", "ES"]);
+    expect(L.lines[1].x).toBeLessThan(L.lines[0].x); // the shortfall is the bigger loss, further left
+    expect(histogramLayout([], {}).empty).toBe(true);
   });
 
   it("Backtest: the form becomes the POST body, and a bad field is named", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BridgeError } from "../core/errors.mjs";
 import { createFakeMarketData } from "../market/fake.mjs";
-import { concentrationOf, exposureOf, modelLeg, optionGreeks, riskRoutes, scenarioGrid, varOf } from "./risk.mjs";
+import { concentrationOf, exposureOf, modelLeg, optionGreeks, riskRoutes, pnlHistogram, scenarioGrid, varOf } from "./risk.mjs";
 
 const NOW = Date.parse("2026-10-30T10:00:00+05:30");
 const ctxFor = (query = "", body, requireAccountAccess = () => {}) => ({ query: new URLSearchParams(query), body, requestId: "r1", principal: { kind: "local" }, requireAccountAccess });
@@ -359,5 +359,17 @@ describe("route table and grid core", () => {
     const g = scenarioGrid([m], { spotShocksPct: [-2, 2], ivShocksPts: [0], daysForward: [0], rate: 0.065 });
     expect(g.cells.map((c) => c.pnl)).toEqual([-32500, 32500]);
     expect(g.cells.every((c) => c.taylorError === 0)).toBe(true);
+  });
+});
+
+describe("pnlHistogram", () => {
+  it("buckets the simulated day P&Ls from the worst to the best, every day counted once", () => {
+    const h = pnlHistogram([-100, -50, 0, 0, 50, 100], 4);
+    expect(h).toHaveLength(4);
+    expect(h[0]).toEqual({ from: -100, to: -50, count: 1 });
+    expect(h.at(-1)).toEqual({ from: 50, to: 100, count: 2 });
+    expect(h.reduce((t, b) => t + b.count, 0)).toBe(6);
+    expect(pnlHistogram([5, 5])).toEqual([{ from: 5, to: 5, count: 2 }]);
+    expect(pnlHistogram([])).toEqual([]);
   });
 });

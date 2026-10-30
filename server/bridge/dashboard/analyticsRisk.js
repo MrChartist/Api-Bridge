@@ -6,8 +6,9 @@
 // Reads go through api(); nothing polls. Figures become text through format.js only.
 import { api, app, card, emptyState, h, icon, pill, table } from "./app.js";
 import { DASH, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
-import { compact, nextId, readNumber, statusRow, tile, tiles } from "./analyticsViews.js";
+import { chartHeight, chartHost, compact, niceScale, nextId, readNumber, s as svgEl, statusRow, strikeBars, svgRoot, tile, tiles } from "./analyticsViews.js";
 import { seriesChart } from "./analyticsMore.js";
+import { contractName } from "./flows.js";
 
 const DESK_SLOT = "mcb.dashboard.desk";
 
@@ -69,6 +70,43 @@ export function equitySeries(curve, start, max = 400) {
   return [{ id: "eq", label: "Return %", cls: "s1", points: keep.map((p) => ({ label: String(p.date ?? "").slice(0, 10), y: isFigure(p.equity) ? Math.round((Number(p.equity) / base - 1) * 10000) / 100 : null })) }];
 }
 
+/**
+ * The VaR histogram's geometry (pure): bins [{ from, to, count }] as bars across `width`, the bins at or beyond the VaR
+ * loss marked as the tail, and the x of the VaR and expected-shortfall lines (a loss is a P&L of minus that figure).
+ */
+export function histogramLayout(bins, { width = 640, height = 260, varLoss = null, esLoss = null, padL = 40, padR = 12, padT = 18, padB = 28 } = {}) {
+  const list = bins ?? [];
+  if (!list.length) return { width, height, bars: [], ticks: [], lines: [], empty: true };
+  const lo = list[0].from;
+  const hi = list.at(-1).to;
+  const span = hi > lo ? hi - lo : 1;
+  const x = (v) => padL + ((v - lo) / span) * (width - padL - padR);
+  const maxN = Math.max(1, ...list.map((b) => b.count));
+  const ys = niceScale(0, maxN, 4);
+  const y = (n) => height - padB - (n / ys.max) * (height - padT - padB);
+  const cut = isFigure(varLoss) ? -Number(varLoss) : null;
+  const bars = list.map((b) => ({ x: x(b.from) + 1, w: Math.max(1, x(b.to) - x(b.from) - 2), y: y(b.count), h: height - padB - y(b.count), tail: cut !== null && b.to <= cut + 1e-9, title: b.count }));
+  const lines = [
+    isFigure(varLoss) ? { x: x(-Number(varLoss)), label: "VaR", cls: "var" } : null,
+    isFigure(esLoss) ? { x: x(-Number(esLoss)), label: "ES", cls: "es" } : null,
+  ].filter((l) => l && l.x >= padL && l.x <= width - padR);
+  const xt = niceScale(lo, hi, Math.max(3, Math.floor((width - padL - padR) / 110)));
+  return { width, height, padL, padR, padB, bars, lines, yTicks: ys.ticks.map((t) => ({ y: y(t), label: formatInt(t) })), ticks: xt.ticks.filter((t) => t >= lo && t <= hi).map((t) => ({ x: x(t), label: inrShort(t) })), empty: false };
+}
+
+function varHistogram(bins, v) {
+  return chartHost((w) => {
+    const L = histogramLayout(bins, { width: w, height: Math.min(chartHeight(w) * 0.7, 340), varLoss: v.var, esLoss: v.expectedShortfall });
+    const svg = svgRoot(L.width, L.height, `Distribution of ${formatInt(v.observations)} simulated one-day P&Ls, with the VaR and expected shortfall.`);
+    if (L.empty) return svg;
+    for (const t of L.yTicks) svg.append(svgEl("line", { class: "grid-line", x1: L.padL, x2: L.width - L.padR, y1: t.y, y2: t.y }), svgEl("text", { class: "tick", x: L.padL - 6, y: t.y + 4, "text-anchor": "end" }, t.label));
+    for (const t of L.ticks) svg.append(svgEl("text", { class: "tick", x: t.x, y: L.height - 8, "text-anchor": "middle" }, t.label));
+    for (const b of L.bars) svg.append(svgEl("rect", { class: `bar ${b.tail ? "tail" : "body"}`, x: b.x, y: b.y, width: b.w, height: Math.max(0, b.h), rx: 2 }, svgEl("title", {}, `${formatInt(b.title)} days`)));
+    for (const l of L.lines) svg.append(svgEl("line", { class: `marker-line ${l.cls}`, x1: l.x, x2: l.x, y1: 12, y2: L.height - L.padB }), svgEl("text", { class: "tag", x: l.x + (l.cls === "es" ? -4 : 4), y: 12, "text-anchor": l.cls === "es" ? "end" : "start" }, l.label));
+    return svg;
+  });
+}
+
 const signed = (v, dp = 2, suffix = "") => (isFigure(v) ? h("span", { class: Number(v) > 0 ? "up" : Number(v) < 0 ? "down" : undefined }, `${formatSigned(v, dp)}${suffix}`) : DASH);
 const loading = () => h("p", { class: "muted", role: "status" }, "Loading…");
 
@@ -118,7 +156,7 @@ function drawRisk(v, ex, co, account) {
     { label: "Weight", num: true, cell: (r) => weightText(r.weight) },
   ];
   const posCols = [
-    { label: "Position", cell: (r) => h("span", { class: "an-wrap" }, r.symbol) },
+    { label: "Position", cell: (r) => h("span", { class: "an-wrap", title: r.symbol }, contractName(r.symbol)) },
     { label: "Notional", num: true, cell: (r) => inrShort(r.notional) },
     { label: "Weight", num: true, cell: (r) => weightText(r.weight) },
   ];
@@ -143,10 +181,20 @@ function drawRisk(v, ex, co, account) {
     statusRow(fr),
     strip,
     card({ title: "Exposure by underlying", sub: "Notional is quantity times the underlying's price", body: table(undCols, und, emptyState("list", "No open positions", `${account} has no priced positions.`, null, { compact: true }), { mobile: "stack" }), flush: true }),
-    card({ title: "Value at risk", sub: `${var_.label ?? "Estimate only."} ${method}`, actions: pill(`${conf}%, 1 day`, "info"), body: h("div", { class: "stack" }, kv(varRows), warn.length ? h("ul", { class: "note-list muted small" }, warn.map((w) => h("li", {}, w))) : null) }),
+    card({ title: "Value at risk", sub: `${var_.label ?? "Estimate only."} ${method}`, actions: pill(`${conf}%, 1 day`, "info"), body: h("div", { class: "stack" }, kv(varRows), (var_.distribution ?? []).length ? varHistogram(var_.distribution, var_) : null, warn.length ? h("ul", { class: "note-list muted small" }, warn.map((w) => h("li", {}, w))) : null) }),
+    und.length
+      ? card({
+          title: "Delta exposure by underlying",
+          sub: "Rupees each underlying moves the book for a 1x move in its price; right is long, left is short",
+          body: strikeBars(
+            und.map((u) => ({ label: u.underlying, bars: [{ value: Number(u.deltaExposure) || 0, cls: Number(u.deltaExposure) >= 0 ? "call" : "put", title: `${u.underlying}: ${inrShort(u.deltaExposure)}` }] })),
+            { label: "Delta exposure by underlying, in rupees", layout: { rowH: 34, labelW: 96, tickFormat: (x) => inrShort(x) } },
+          ),
+        })
+      : null,
     card({ title: "Largest positions", sub: `By gross notional; HHI ${isFigure(c.hhi10000) ? formatInt(c.hhi10000) : DASH} of 10000. ${c.note ?? ""}`, body: table(posCols, c.topPositions ?? [], emptyState("list", "No positions", "", null, { compact: true }), { mobile: "stack" }), flush: true }),
     card({ title: "By sector", sub: "Sectors come from a small built-in map", body: h("dl", { class: "kv" }, (c.bySector ?? []).map((s) => h("div", {}, h("dt", {}, s.sector), h("dd", {}, `${weightText(s.weight)} · ${inrShort(s.notional)}`)))) }),
-    skipped.length ? card({ title: "Left out", sub: "Legs the risk figures could not price", body: h("ul", { class: "note-list muted small" }, skipped.map((s) => h("li", {}, `${s.symbol}: ${s.reason}`))) }) : null,
+    skipped.length ? card({ title: "Left out", sub: "Legs the risk figures could not price", body: h("ul", { class: "note-list muted small" }, skipped.map((x) => h("li", {}, `${contractName(x.symbol)}: ${x.reason}`))) }) : null,
   ];
 }
 
@@ -178,7 +226,7 @@ function drawCosts(res) {
   const d = res.data?.data ?? {};
   const fills = d.fills ?? [];
   const cols = [
-    { label: "Symbol", cell: (r) => h("span", { class: "an-wrap" }, r.symbol) },
+    { label: "Contract", cell: (r) => h("span", { class: "an-wrap", title: r.symbol }, contractName(r.symbol)) },
     { label: "Side", cell: (r) => pill(r.side === "SELL" ? "Sell" : "Buy", r.side === "SELL" ? "warn" : "info") },
     { label: "Quantity", num: true, cell: (r) => formatInt(r.qty) },
     { label: "Price", num: true, cell: (r) => formatFixed(r.price, 2) },
@@ -232,10 +280,7 @@ function drawBacktest(res) {
   const cols = [
     { label: "Entry", cell: (r) => r.entryDate ?? DASH },
     { label: "Closed", cell: (r) => r.exitDate ?? DASH },
-    { label: "Side", cell: (r) => (r.side === "short" ? "Short" : "Long") },
-    { label: "Entry price", num: true, cell: (r) => formatFixed(r.entryPrice, 2) },
-    { label: "Exit price", num: true, cell: (r) => formatFixed(r.exitPrice, 2) },
-    { label: "Quantity", num: true, cell: (r) => formatInt(r.qty ?? r.quantity) },
+    { label: "Prices", num: true, cell: (r) => `${formatFixed(r.entryPrice, 2)} to ${formatFixed(r.exitPrice, 2)}` },
     { label: "Net P&L", num: true, cell: (r) => (isFigure(r.netPnl) ? h("span", { class: Number(r.netPnl) >= 0 ? "up" : "down" }, formatRupee(r.netPnl, 0)) : DASH) },
     { label: "Return", num: true, cell: (r) => signed(r.returnPct, 2, "%") },
     { label: "Exit", cell: (r) => EXIT_WORDS[r.exitReason] ?? r.exitReason ?? DASH },
@@ -245,11 +290,11 @@ function drawBacktest(res) {
     statusRow(fr),
     tiles(
       tile("Total return", isFigure(st.totalReturnPct) ? `${formatSigned(st.totalReturnPct, 2)}%` : DASH, `Ends at ${formatRupee(st.finalEquity, 0)}`, Number(st.totalReturnPct) >= 0 ? "up" : "down"),
-      tile("Against buy and hold", isFigure(bh.strategyMinusBuyAndHoldPct) ? `${formatSigned(bh.strategyMinusBuyAndHoldPct, 2)} pts` : DASH, isFigure(bh.totalReturnPct) ? `Buy and hold ${formatSigned(bh.totalReturnPct, 2)}%` : ""),
+      tile("Against buy and hold", isFigure(st.totalReturnPct) && isFigure(bh.totalReturnPct) ? `${formatSigned(st.totalReturnPct, 1)}% vs ${formatSigned(bh.totalReturnPct, 1)}%` : DASH, "Buy and hold: the same capital, first open to last close"),
       tile("Win rate", isFigure(st.winRatePct) ? formatPercent(st.winRatePct, 1) : DASH, `${formatInt(st.trades ?? 0)} trades`),
       tile("Max drawdown", isFigure(st.maxDrawdownPct) ? `${formatFixed(st.maxDrawdownPct, 2)}%` : DASH, st.troughDate ? `Low on ${String(st.troughDate).slice(0, 10)}` : "", Number(st.maxDrawdownPct) > 0 ? "down" : undefined),
     ),
-    card({ title: "Return on capital, %", sub: `${d.symbol ?? ""} ${d.interval ?? ""}, ${formatInt(d.period?.bars ?? 0)} bars from ${String(d.period?.from ?? DASH).slice(0, 10)} to ${String(d.period?.to ?? DASH).slice(0, 10)}`, body: seriesChart(equitySeries(d.equityCurve, d.request?.initialCapital), { label: `Return of the backtest in percent, ${d.symbol}`, yDecimals: 0, refs: [{ y: 0, label: "Start" }] }) }),
+    card({ title: "Return on capital, %", sub: `${d.symbol ?? ""} ${d.interval ?? ""}, ${formatInt(d.period?.bars ?? 0)} bars from ${String(d.period?.from ?? DASH).slice(0, 10)} to ${String(d.period?.to ?? DASH).slice(0, 10)}`, actions: res.data?.meta?.demo ? pill("Demo history: not real prices", "warn") : null, body: seriesChart(equitySeries(d.equityCurve, d.request?.initialCapital), { label: `Return of the backtest in percent, ${d.symbol}`, yDecimals: 0, refs: [{ y: 0, label: "" }] }) }),
     card({
       title: "Statistics",
       sub: d.method?.summary ?? "",

@@ -8,7 +8,7 @@
 // with a score ring and a risk payoff, the toolbar live control with the chain dots, pins and a match map.
 import { DEMO_EXPLAINER, alertBox, api, app, chartSlot, h, icon, istTime, modal, mountToolbarCtx, sheetPopover, toast } from "./app.js";
 import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
-import { DEMO_UNDERLYINGS, UNDERLYINGS } from "./desk.js";
+import { UNDERLYINGS } from "./desk.js";
 import { barsEnter, countUp, flashValue, lineReveal, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
 import * as S from "./screens.js";
@@ -292,7 +292,7 @@ export function renderScreenerPage() {
   // A reload of the same route (header Reload, palette, go() to this page) renders again without a hashchange:
   // retire the previous instance first so its listeners, timers and sweep do not outlive it.
   activePage?.cleanup?.();
-  const list = app.state.demo ? DEMO_UNDERLYINGS : UNDERLYINGS;
+  const list = app.state.demo ? S.SCAN_DEMO_LIST : [...UNDERLYINGS, ...S.SCAN_STOCKS];
   let cfg = S.screenerConfig(read(SLOT), { list, demo: Boolean(app.state.demo) });
   const saved = read(SLOT);
   let autoOn = saved?.autoOn !== false;
@@ -381,6 +381,9 @@ export function renderScreenerPage() {
   const banners = h("div", { class: "scr-banners" });
   const mapBody = h("div", { class: "scr-map-body" });
   const mapEl = h("div", { class: "scr-map", id: "scr-map", hidden: true }, mapBody);
+  // Overview, in the height a short list leaves (wide screens): every chain as a dot, IV/HV up, straddle % across.
+  const scatBody = h("div", { class: "scr-scat-body" });
+  const scatEl = h("div", { class: "scr-scat", hidden: true }, scatBody);
   const mapBtn = h("button", { type: "button", class: "small plain scr-map-btn", "aria-controls": "scr-map", "aria-expanded": String(mapOpen), title: "A scatter of every match: |Δ| across, the ranking up" }, h("span", { class: "scr-map-i", "aria-hidden": "true" }, "⁘"), "Match map");
   mapBtn.addEventListener("click", () => {
     mapOpen = !mapOpen;
@@ -433,7 +436,7 @@ export function renderScreenerPage() {
     const on = activeQuickScan(cfg, dirOptions);
     for (const b of quickBtns) b.setAttribute("aria-pressed", String(b.dataset.id === on));
   }
-  const main = h("section", { class: "desk-panel scr-main", "data-panel": "screener-main", "aria-label": "Option Screener" }, head, quickRow, chipRow, legendRow, banners, mapEl, wrap, cards, emptyEl, foot, live);
+  const main = h("section", { class: "desk-panel scr-main", "data-panel": "screener-main", "aria-label": "Option Screener" }, head, quickRow, chipRow, legendRow, banners, mapEl, wrap, scatEl, cards, emptyEl, foot, live);
   const paneBody = h("div", { class: "scr-pane" });
   const detail = h("section", { class: "desk-panel scr-detail", "data-panel": "screener-detail", "aria-label": "Selected row" }, paneBody);
   const root = main;
@@ -1631,6 +1634,89 @@ export function renderScreenerPage() {
     if (p.id === "buy") return { get: (r) => r.buy?.raw ?? r.scoreBuy, log: false, label: "Score", fixed: [0, 100], fmt: (v) => formatInt(v) };
     return { get: (r) => r.sell?.raw ?? r.scoreSell, log: false, label: "Score", fixed: [0, 100], fmt: (v) => formatInt(v) };
   }
+  // ── The chain scatter (Overview, wide screens, when the list leaves room under the table) ──
+  let scatSig = "";
+  const SCAT = { l: 46, r: 14, t: 26, b: 26, minH: 180 };
+  function drawScatter(force = false) {
+    const p = preset();
+    const rows = p.id === "overview" && wide() && result?.rows?.length ? result.rows : null;
+    if (!rows) {
+      scatEl.hidden = true;
+      scatSig = "";
+      return;
+    }
+    scatEl.hidden = false;
+    const W = Math.round(scatEl.clientWidth);
+    const H = Math.round(scatEl.clientHeight);
+    // Too little room under the table: no chart (the list is long enough to fill the panel).
+    if (W < 320 || H < SCAT.minH) {
+      scatEl.classList.add("scr-scat-off");
+      scatSig = "";
+      return;
+    }
+    scatEl.classList.remove("scr-scat-off");
+    const pts = rows.map((r) => ({ r, x: num(r.straddlePct), y: num(r.ivHvRatio) })).filter((d) => d.x !== null && d.y !== null);
+    const sig = `${W}|${H}|${selKey}|${pts.map((d) => `${d.r.key}:${formatFixed(d.x, 2)}:${formatFixed(d.y, 2)}`).join(",")}`;
+    if (!force && sig === scatSig) return;
+    scatSig = sig;
+    if (!pts.length) return scatBody.replaceChildren();
+    const legendH = 26;
+    const plotH = H - legendH;
+    const { l, r: rr, t, b } = SCAT;
+    const xs = pts.map((d) => d.x);
+    const ys = pts.map((d) => d.y);
+    const pad = (lo, hi, m) => [lo - Math.max((hi - lo) * 0.08, m), hi + Math.max((hi - lo) * 0.08, m)];
+    const [x0, x1] = pad(Math.min(...xs), Math.max(...xs), 0.2);
+    // The y axis always shows the 1.0x line (IV equal to HV), the line the verdict is read against.
+    const [y0, y1] = pad(Math.min(1, ...ys), Math.max(1, ...ys), 0.05);
+    const X = (v) => l + ((v - x0) / (x1 - x0)) * (W - l - rr);
+    const Y = (v) => t + (1 - (v - y0) / (y1 - y0)) * (plotH - t - b);
+    const svg = svgEl("svg", { class: "scr-scat-svg", viewBox: `0 0 ${W} ${plotH}`, width: W, height: plotH, role: "img", "aria-label": `${formatInt(pts.length)} chains by straddle % of spot and IV/HV` });
+    for (const v of O.niceTicks(x0, x1, 6).filter((v) => v >= x0 && v <= x1)) {
+      svg.append(svgEl("line", { class: "dv-grid", x1: X(v), x2: X(v), y1: t, y2: plotH - b }));
+      svg.append(svgEl("text", { class: "dv-tick", x: X(v), y: plotH - 8, "text-anchor": "middle" }, `${formatFixed(v, 1)}%`));
+    }
+    for (const v of O.niceTicks(y0, y1, 4).filter((v) => v >= y0 && v <= y1)) {
+      svg.append(svgEl("line", { class: "dv-grid", x1: l, x2: W - rr, y1: Y(v), y2: Y(v) }));
+      svg.append(svgEl("text", { class: "dv-tick", x: l - 6, y: Y(v) + 4, "text-anchor": "end" }, `${formatFixed(v, 2)}×`));
+    }
+    svg.append(svgEl("line", { class: "scr-scat-one", x1: l, x2: W - rr, y1: Y(1), y2: Y(1) }));
+    svg.append(svgEl("text", { class: "dv-tick", x: W - rr, y: Y(1) - 5, "text-anchor": "end" }, "IV = HV"));
+    svg.append(svgEl("text", { class: "dv-tick", x: W - rr, y: plotH - 8 - 14, "text-anchor": "end" }, "Straddle % of spot"));
+    svg.append(svgEl("text", { class: "dv-tick", x: l, y: t - 10 }, "IV/HV"));
+    const g = svgEl("g", { class: "scr-scat-dots" });
+    // Labels for as many dots as fit without overlapping a label or another dot, the highest IV/HV first.
+    const boxes = pts.map((d) => [X(d.x) - 6, Y(d.y) - 6, X(d.x) + 6, Y(d.y) + 6]);
+    const order = [...pts].sort((a, c) => c.y - a.y);
+    const labels = svgEl("g", { class: "scr-scat-labels" });
+    for (const d of order) {
+      const v = d.r.verdict?.label ?? "";
+      const tone = v.startsWith("Rich") ? "rich" : v.startsWith("Cheap") ? "cheap" : "fair";
+      const sel = d.r.key === selKey;
+      const cx = X(d.x);
+      const cy = Y(d.y);
+      g.append(svgEl("circle", { cx, cy, r: sel ? 6 : 4.5, class: `scr-sdot ${tone}${sel ? " sel" : ""}`, "data-key": d.r.key }, svgEl("title", {}, `${d.r.name} · IV/HV ${formatFixed(d.y, 2)}× · straddle ${formatFixed(d.x, 2)}% · ${v || "no verdict"}`)));
+      const txt = d.r.name ?? d.r.underlying;
+      const w = 7.2 * txt.length + 4;
+      const box = [cx + 7, cy - 8, cx + 7 + w, cy + 6];
+      if (box[2] > W - rr || boxes.some((o) => box[0] < o[2] && box[2] > o[0] && box[1] < o[3] && box[3] > o[1])) continue;
+      boxes.push(box);
+      labels.append(svgEl("text", { class: "scr-scat-l", x: cx + 8, y: cy + 4 }, txt));
+    }
+    svg.append(g, labels);
+    const sel = pts.find((d) => d.r.key === selKey);
+    if (sel) svg.append(svgEl("circle", { class: "scr-dot-ring", cx: X(sel.x), cy: Y(sel.y), r: 9 }));
+    scatBody.replaceChildren(
+      h("ul", { class: "dv-legend scr-scat-lg", "aria-hidden": "true" }, h("li", {}, h("span", { class: "dv-key dot scr-k-rich" }), "Rich"), h("li", {}, h("span", { class: "dv-key dot scr-k-fair" }), "Fair"), h("li", {}, h("span", { class: "dv-key dot scr-k-cheap" }), "Cheap"), h("li", { class: "scr-lg-note" }, "Every scanned chain: IV/HV up, straddle % of spot across. Click a dot to select it")),
+      svg,
+    );
+  }
+  scatBody.addEventListener("click", (e) => {
+    const c = e.target.closest?.("circle[data-key]");
+    if (c) select(c.getAttribute("data-key"), { scroll: true });
+  });
+  if (typeof ResizeObserver === "function") new ResizeObserver(() => drawScatter()).observe(scatEl);
+
   function drawMap(force = false) {
     const p = preset();
     const on = wide() && CONTRACT.has(p.id) && Boolean(result?.total);
@@ -2910,6 +2996,7 @@ export function renderScreenerPage() {
     refChipEl.update();
     drawLegend();
     drawMap();
+    drawScatter();
     drawPane();
     try {
       if (local.get("mcb.debug")) window.__scrMs = Math.round((performance.now() - t0) * 10) / 10;

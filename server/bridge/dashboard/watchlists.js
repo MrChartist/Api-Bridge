@@ -4,7 +4,8 @@
 // turns its WATCHLIST universe on) and one shows on Home. Data: /v1/watchlists (watchlist-core.js does the maths on
 // the Bridge). Numbers become text only through format.js. Reads and lists only: nothing here places an order.
 import { api, app, emptyState, errorState, h, icon, istTime, modal, optional, toast } from "./app.js";
-import { DASH, formatCompact, formatDayMonth, formatFixed, formatGrouped, formatInt, formatSigned, isFigure } from "./format.js";
+import { setBar } from "./viz.js";
+import { DASH, formatCompact, formatDayMonth, formatFixed, formatInt, formatSigned, isFigure } from "./format.js";
 import { clearFieldError, fieldError } from "./flows.js";
 import { normaliseSymbol, sortRows } from "./watchlist-core.js";
 
@@ -192,11 +193,19 @@ export async function renderWatchlistsPage() {
     }
     const byS = new Map((quotes?.rows ?? []).map((r) => [r.symbol, r]));
     const rows = sortRows(l.symbols.map((s) => byS.get(s) ?? { symbol: s, name: s.split(":")[1] }), st.sort, st.dir);
+    // The day's move as a bar from a centre line, on one scale for the list (the widest move reaches the edge).
+    const span = Math.max(0.5, ...rows.map((r) => (isFigure(r.changePct) ? Math.abs(r.changePct) : 0)));
+    const moveBar = (v) => {
+      if (!isFigure(v)) return null;
+      const b = h("i", { class: v >= 0 ? "up" : "down" });
+      setBar(b, Math.abs(v), span);
+      return h("span", { class: "wl-move", title: `${formatSigned(v, 2)}% today` }, b);
+    };
     tableHost.replaceChildren(
       h(
         "table",
         { class: "desk-table wl-table" },
-        h("thead", {}, h("tr", {}, head("name", "Symbol", false), head("ltp", "Last"), head("changePct", "Chg %"), head("oiChangePct", "OI chg (fut)", true, "Near future's OI against its OI at the previous day's close"), head("iv", "ATM IV (front)", true, "The front expiry's ATM IV: the average of the ATM call and put IV, as the Option Chain and Volatility show it. HV20 under it"), head("ivr", "IV rank"), h("th", { scope: "col" }, h("span", { class: "sr-only" }, "Actions")))),
+        h("thead", {}, h("tr", {}, head("name", "Symbol", false), head("ltp", "Last"), head("changePct", "Chg %"), head("oiChangePct", "OI chg (fut)", true, "Near future's OI against its OI at the previous day's close"), head("iv", "ATM IV (front)", true, "The front expiry's ATM IV: the average of the ATM call and put IV, as the Option Chain and Volatility show it. HV20 under it"), head("ivr", "IV rank"), h("th", { scope: "col", class: "wl-move-h" }, "Today, on one scale"), h("th", { scope: "col" }, h("span", { class: "sr-only" }, "Actions")))),
         h(
           "tbody",
           {},
@@ -205,11 +214,12 @@ export async function renderWatchlistsPage() {
               "tr",
               {},
               h("th", { scope: "row" }, h("strong", {}, r.name), h("small", { class: "block muted" }, r.symbol.split(":")[0])),
-              h("td", { class: "num" }, formatGrouped(r.ltp, 2), isFigure(r.change) ? h("small", { class: `block ${tone(r.change)}` }, formatSigned(r.change, 2)) : null),
+              h("td", { class: "num" }, isFigure(r.ltp) ? formatFixed(r.ltp, 2) : DASH, isFigure(r.change) ? h("small", { class: `block ${tone(r.change)}` }, formatSigned(r.change, 2)) : null),
               h("td", { class: "num" }, pct(r.changePct)),
               h("td", { class: "num", title: oiTitle(r) }, r.oi === null || r.oi === undefined ? DASH : h("span", {}, pct(r.oiChangePct), h("small", { class: "block muted" }, `OI ${formatCompact(r.oi)}`))),
               h("td", { class: "num", title: isFigure(r.iv) ? `ATM IV of the ${formatDayMonth(r.ivExpiry)} expiry (front), as on the Option Chain` : r.fno ? "No front-expiry chain to read the ATM IV from yet" : "Not an F&O symbol" }, isFigure(r.iv) ? `${formatFixed(r.iv, 1)}%` : DASH, isFigure(r.hv20) ? h("small", { class: "block muted" }, `HV20 ${formatFixed(r.hv20, 1)}`) : null),
               h("td", { class: "num" }, isFigure(r.ivr) ? formatInt(r.ivr) : DASH),
+              h("td", { class: "wl-move-c" }, moveBar(r.changePct)),
               h(
                 "td",
                 { class: "act wl-acts" },
