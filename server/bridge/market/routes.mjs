@@ -79,7 +79,7 @@ export function allowedAccountsFor(ctx) {
  * unpinned reads, and maxAgeMs.
  * @param {import("../core/context.mjs").RequestContext} ctx
  */
-function readOptionsBase(ctx, { maxAge = true, autoBackup = false } = {}) {
+export function readOptionsBase(ctx, { maxAge = true, autoBackup = false } = {}) {
   const q = ctx.query;
   const opts = { signal: ctx.signal };
   const allowed = allowedAccountsFor(ctx);

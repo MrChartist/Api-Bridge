@@ -23,7 +23,7 @@ function normPDF(x) {
   return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
 }
 
-function bsPrice({ spot, strike, rate, vol, years, type }) {
+export function bsPrice({ spot, strike, rate, vol, years, type }) {
   const intrinsic = type === "CE" ? Math.max(0, spot - strike) : Math.max(0, strike - spot);
   if (years <= 0 || vol <= 0) return intrinsic;
   const d1 = (Math.log(spot / strike) + (rate + 0.5 * vol * vol) * years) / (vol * Math.sqrt(years));
@@ -53,7 +53,7 @@ function solveIV({ price, spot, strike, daysToExpiry, type, rate = DEFAULT_RATE 
   return iv >= 4.99 ? null : iv;
 }
 
-function computeGreeks({ spot, strike, daysToExpiry, type, vol, rate = DEFAULT_RATE }) {
+export function computeGreeks({ spot, strike, daysToExpiry, type, vol, rate = DEFAULT_RATE }) {
   const years = Math.max(daysToExpiry, 0.25) / DAYS_PER_YEAR;
   if (!(vol > 0) || !(spot > 0) || !(strike > 0)) return { delta: 0, gamma: 0, theta: 0, vega: 0 };
 

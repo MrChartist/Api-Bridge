@@ -102,6 +102,8 @@ tags:
     description: Inbound alerts from ChartInk, GoCharting and signed senders.
   - name: AI (MCP)
     description: Model Context Protocol endpoint for AI assistants.
+  - name: Analytics
+    description: Options analytics from the Bridge's own chain and quotes (OI, gamma exposure, skew, basis, Greeks, payoff, position size). Read only.
   - name: Scanner
     description: Condition scans over big universes, spread over your pooled accounts at background priority.
   - name: Compat REST
@@ -998,6 +1000,186 @@ paths:
                 properties:
                   data: { $ref: "#/components/schemas/OptionChain" }
                   meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/oi:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsOi
+      summary: Open interest, put-call ratio, max pain, support and resistance
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: strikes, in: query, description: Strikes on each side of ATM., schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/gex:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsGex
+      summary: Dealer gamma exposure by strike and the flip strike
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: strikes, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/skew:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsSkew
+      summary: IV by strike, ATM IV and risk reversal
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: strikes, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - { name: width, in: query, description: Strikes either side of ATM for the risk reversal (default 3)., schema: { type: integer, minimum: 1, maximum: 20 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/surface:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsSurface
+      summary: ATM IV, skew and term structure across the next expiries
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiries, in: query, description: How many upcoming expiries (default 3)., schema: { type: integer, minimum: 1, maximum: 6 } }
+        - { name: strikes, in: query, description: Strikes each side of ATM (default 10)., schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/basis:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsBasis
+      summary: Futures basis against spot, with annualised carry
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/greeks:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsGreeks
+      summary: Black-Scholes IV and Greeks for one option
+      description: Send exactly one of `iv` (percent) or `price` (premium). `rate` is in percent (default 6.5). Pure calculation, no broker call.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: spot, in: query, required: true, schema: { type: number } }
+        - { name: strike, in: query, required: true, schema: { type: number } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [CE, PE] } }
+        - { name: days, in: query, required: true, description: Calendar days to expiry (at least 0.25 is used)., schema: { type: number, minimum: 0 } }
+        - { name: iv, in: query, schema: { type: number } }
+        - { name: price, in: query, schema: { type: number } }
+        - { name: rate, in: query, schema: { type: number, minimum: 0 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/payoff:
+    post:
+      tags: [Analytics]
+      operationId: postAnalyticsPayoff
+      summary: Expiry payoff curve, max profit and loss and break-evens for a multi-leg strategy
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [legs]
+              properties:
+                legs:
+                  type: array
+                  minItems: 1
+                  maxItems: 12
+                  items:
+                    type: object
+                    required: [type, side, price]
+                    properties:
+                      type: { type: string, enum: [CE, PE, FUT] }
+                      side: { type: string, enum: [buy, sell] }
+                      strike: { type: number }
+                      price: { type: number, minimum: 0 }
+                      lots: { type: integer, default: 1 }
+                      lotSize: { type: integer, default: 1 }
+                spot: { type: number }
+                from: { type: number }
+                to: { type: number }
+                step: { type: number }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/position-size:
+    post:
+      tags: [Analytics]
+      operationId: postAnalyticsPositionSize
+      summary: Lots to trade for a risk budget
+      x-stream: S15
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [capital, riskPct, entry, stop]
+              properties:
+                capital: { type: number }
+                riskPct: { type: number, description: Percent of capital to risk. }
+                entry: { type: number }
+                stop: { type: number }
+                lotSize: { type: integer, default: 1 }
+                maxLots: { type: integer }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
@@ -3482,6 +3664,17 @@ components:
       schema: { type: string, minLength: 8, maxLength: 255, pattern: "^[A-Za-z0-9_.:-]+$" }
 
   responses:
+    AnalyticsResult:
+      description: Computed analytics. `data` is specific to the route; chain-based routes add `meta.freshness`.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, meta]
+            properties:
+              data: { type: object, additionalProperties: true }
+              errors: { type: array, items: { type: object, additionalProperties: true } }
+              meta: { $ref: "#/components/schemas/Meta" }
     Problem:
       description: Error (RFC 9457 problem details).
       headers:
