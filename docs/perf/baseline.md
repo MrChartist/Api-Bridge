@@ -358,3 +358,97 @@ hide on a fast machine.
 - Chain p95 at or under 100 ms in every round: met in two of four after rounds.
 - OI's panels (walls, movers, expiries table) still rebuild their DOM when their figures change (at most every 2 s on
   ticks, in their own task); they are not patched per row like the ladder.
+
+# Round 4 (30 October, after the new pages)
+
+Raw results in this folder:
+- `round4-all-pages-1.json`: every page, the new ones included, on the branch as it stood.
+- `round4-ab1-{before,after}-{1,2}.json`: Home, Chain, Strategy, OI, Orders, Screener and Watchlists, rounds interleaved.
+- `round4-ab2-*.json`: Chain and OI, interleaved, on a quiet machine.
+- `round4-soak-after-1.json`: a 10-minute heap soak.
+
+How they were run:
+- Before: `8f404f8` (the branch when the round started). After: this round's commits.
+- Same harness on both sides, 20 s steady windows, `--latency 200`, port 4670.
+- The harness now also records the new pages:
+  - paint / layout / style ms per second, from a 6 s Chromium trace of the renderer main thread;
+  - main-thread and script ms per second (CDP `Performance.getMetrics`);
+  - JS heap after a forced GC at the start and end of the window;
+  - `--soak N`: heap over N minutes, one browser per page plus a tab that switches page every 4 s.
+
+## Read this first
+
+- `ab1` ran while other agents' test suites kept the load average at 10 to 19 on 4 vCPU. Paint, long-task and
+  tick-to-cell figures moved by 2× between rounds of the same side there. Only the request, broker and first-data
+  figures are reliable in `ab1`. `ab2` ran right after a reboot (load 3 to 7) and is the one to read for Chain and OI.
+- On a quiet machine the Chain is where round 3 left it: 0 to 11 long tasks in 20 s, tick to cell p95 98 to 178 ms.
+  The 40 to 70 long tasks and 400 to 600 main-thread ms/s of the first all-pages run were machine load, not a regression.
+
+## Summary
+
+| | Before | After |
+|---|---|---|
+| Option Screener (15 underlyings, 32 chains), first data | 17.6 s (18.4, 16.9) | **2.1 s** (2.6, 1.5) |
+| Option Screener, switch from Home | 12.2 s (12.9, 11.6) | 0.4 s (0.01, 0.8) |
+| Watchlists, broker calls / min | 12 (12, 12) | **0** (0, 0) |
+| Watchlists, tick to cell p95 | no ticks (5 s poll) | 65 ms (54, 75) |
+| Home, broker calls / min | 18 (18, 18) | 3 (6, 0) |
+| Orders (Triggers card), REST / min | 39 (38, 39) | **9** (9, 9) |
+| Every page, bell REST / min | 12 (inbox + 2 rule lists every 15 s) | 5 (inbox every 15 s, lists every 60 s) |
+| Route switching, JS heap per cycle of 18 pages (`leak.mjs`-style walk) | +5.8 MB (13.0, 18.9, 24.7 MB) | **+1.1 MB** (11.1, 12.2, 13.3 MB) |
+| Detached DOM nodes after 3 cycles | 22,761 | 3,975 |
+
+## Heap over 10 minutes (soak, after, while the machine was loaded)
+
+| Page held open | Heap at 1 min | At 10 min | Growth |
+|---|---|---|---|
+| Chain | 4.3 MB | 4.9 MB | +0.6 MB |
+| OI Analysis | 5.0 MB | 5.9 MB | +0.9 MB |
+| Strategy | 4.4 MB | 5.2 MB | +0.8 MB |
+| Positions | 4.8 MB | 5.1 MB | +0.3 MB |
+| Orders, Watchlists, Exposure, Flow | 1.8 to 2.7 MB | same | −0.1 to +0.02 MB |
+| A tab switching page every 4 s (149 switches) | 12.4 MB | 49.1 MB | **+36.7 MB**: the leak fixed below |
+
+The pages held open level off (the growth is caches filling: chain history, the OI timeline). Changing page leaked.
+Every desk page (Chain, OI, Strategy, Positions, Volatility, Arbitrage), the screener and the calendar stayed alive
+after you left. The cause was the reference chip's ResizeObserver: it watches the shared toolbar slot `#toolbar-ctx`,
+which outlives every page, and was never disconnected.
+
+## Chain and OI on a quiet machine (`ab2`)
+
+| Page | Figure | Before | After |
+|---|---|---|---|
+| chain | Main thread, ms / s | 207 (167, 247) | 268 (237, 298) |
+| chain | Paint, ms / s | 92 (62, 122) | 81 (91, 70) |
+| chain | Long tasks in 20 s | 6 (0, 11) | 7 (2, 11) |
+| chain | Tick to cell p50 / p95, ms | 61 / 138 (52 / 98, 69 / 178) | 63 / 137 (53 / 127, 72 / 147) |
+| oi | Main thread, ms / s | 173 (129, 216) | 126 (130, 121) |
+| oi | Long tasks in 20 s | 4 (1, 6) | 0 (0, 0) |
+| oi | Tick to cell p95, ms | 94 (46, 141) | 88 (86, 89) |
+
+No change outside the spread. The toolbar's backdrop blur is gone (see below), but these runs cannot show its effect.
+A same-page CSS A/B (`exp.mjs`: the blur put back with an injected stylesheet, three interleaved pairs of 2 × 4 s
+traces) gave about 350 against 230 main-thread ms/s and 66 against 28 paint ms/s, blur against no blur, with a wide
+spread.
+
+## What changed in round 4
+
+- **Watchlists and Home's list card stream.** The list's symbols and near futures are watched on `live.js`, so the
+  Bridge answers the 5 s poll from ticks. Last and Chg % change in place on each tick. The table and its sparklines are
+  rebuilt only when a figure changed.
+- **Watchlist quotes on the Bridge** read the expiries and the vol summaries of every symbol together, not one after
+  another.
+- **Option Screener.** The first underlying's nearest chain is read as soon as its expiries are known, and HV20 after
+  the chains (it only feeds the IV-against-HV figure).
+- **Orders › Triggers.** Reads every 2 s while a trigger is open, every 10 s otherwise, and never while the tab is
+  hidden.
+- **The bell.** The inbox every 15 s. The rule lists every fourth poll, after any change, and after a new fire.
+- **No measure loop per tick.** The desk's toolbar capsule refits when its room changes, not when its own figures
+  resize it. The market chip and the IST clock write the DOM only when their text changes.
+- **No backdrop blur in the toolbar or on the scroll-edge veil.** The toolbar capsules use the near-opaque
+  `--mat-thick` surface, and the veil is a plain gradient (owner's decision: soft, not glossy).
+- **Leaks on route change:**
+  - the reference chip disconnects its observer when the page goes (desk, screener, calendar);
+  - a desk page left while still loading is tidied up once its load ends, and cleanup runs at most once;
+  - the desk's document-wide key handler lets go of the page;
+  - OI's window scroll listener and Live events' key listener are removed when you leave the page.

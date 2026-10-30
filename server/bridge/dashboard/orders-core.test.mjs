@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayRows, depthView, filterOrders, filterTrades, openByMode, orderBucket, orderCounts, tradeTotals } from "./orders-core.js";
+import { dayRows, depthView, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, tradeTotals } from "./orders-core.js";
 
 const O = (o) => ({ orderId: "PAPER-1", accountId: "demo-paper", symbol: "NFO:NIFTY-2026-11-03-25850-CE", side: "BUY", status: "filled", mode: "paper", ...o });
 const list = [
@@ -86,5 +86,18 @@ describe("market depth in the ticket", () => {
   });
   it("has nothing to draw without depth", () => {
     expect(depthView(null)).toEqual({ rows: [], totalBid: 0, totalAsk: 0, maxQty: 0, bidShare: null, available: 0 });
+  });
+});
+
+describe("funds per account", () => {
+  it("free, used, collateral and how much of the total is in use, with a level", () => {
+    expect(fundsView({ availableCash: 2_206_000, usedMargin: 294_000, collateral: null })).toEqual({ available: 2_206_000, used: 294_000, collateral: null, total: 2_500_000, util: 0.1176, level: "ok" });
+    expect(fundsView({ availableCash: 20_000, usedMargin: 80_000 }).level).toBe("warn");
+    expect(fundsView({ availableCash: 5_000, usedMargin: 95_000, collateral: 150_000 })).toMatchObject({ util: 0.95, level: "neg", collateral: 150_000 });
+    expect(fundsView({ availableCash: -1000, usedMargin: 51_000 }).util).toBe(1);
+  });
+  it("leaves what the source did not send empty", () => {
+    expect(fundsView(null)).toEqual({ available: null, used: null, collateral: null, total: null, util: null, level: "none" });
+    expect(fundsView({ totalBalance: 100 })).toMatchObject({ total: 100, util: null });
   });
 });

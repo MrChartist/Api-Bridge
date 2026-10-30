@@ -1155,6 +1155,7 @@ export async function renderCalendarPage() {
   const onRoute = () => setTimeout(() => !statusEl.isConnected && cleanup(), 0);
   window.addEventListener("hashchange", onRoute);
   function cleanup() {
+    chip.destroy?.();
     mq?.removeEventListener("change", onMq);
     window.removeEventListener("hashchange", onRoute);
     clearTimeout(monthTimer);

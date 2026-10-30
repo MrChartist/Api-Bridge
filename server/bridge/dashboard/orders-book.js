@@ -2,8 +2,8 @@
 // with totals. Filters are a per-viewer convenience (localStorage); the books come from GET /v1/orders and /v1/trades.
 import { alertBox, api, card, emptyState, h, istTime, modal, optional, table, toast } from "./app.js";
 import { contractName } from "./flows.js";
-import { formatDayMonth, formatFixed, formatInt, formatRupee } from "./format.js";
-import { ORDER_FILTERS, filterOrders, filterTrades, openByMode, orderCounts } from "./orders-core.js";
+import { DASH, formatDayMonth, formatFixed, formatInt, formatPercent, formatRupee, formatRupeeGrouped } from "./format.js";
+import { ORDER_FILTERS, filterOrders, filterTrades, fundsView, openByMode, orderCounts } from "./orders-core.js";
 import { fillTotals } from "./statement-core.js";
 
 const KEY = "mcb.orders.filters";
@@ -151,4 +151,51 @@ export async function renderTradesPage() {
       body: trades.error ? h("div", { class: "card-body" }, alertBox(trades.error)) : h("div", {}, h("div", { class: "bk-ob-bar" }, side.el, search), totalsEl, body),
     }),
   ];
+}
+
+/**
+ * Funds for every account in one card: available, margin used, collateral, a utilisation bar, realised and
+ * unrealised P&L and open positions. Paper accounts read the paper engine; a broker account reads the broker (one funds
+ * and one positions call each, when the page draws), and says why when it cannot.
+ * @param {Array<{ id: string, label: string, broker: string }>} accs
+ * @param {(v: number|null) => Node|string} pnl  the page's grouped, signed P&L cell
+ */
+export async function fundsCard(accs, pnl) {
+  const list = accs.filter((a) => a.broker !== "demo");
+  if (!list.length) return null;
+  const rows = await Promise.all(
+    list.map(async (a) => {
+      const [funds, pos] = await Promise.all([optional(api(`/v1/funds?account=${encodeURIComponent(a.id)}`)), optional(api(`/v1/positions?account=${encodeURIComponent(a.id)}`))]);
+      const f = funds.data?.data?.funds ?? funds.data?.data ?? null;
+      const items = pos.data?.data ?? null;
+      return { a, f, v: fundsView(f), error: funds.error ?? null, open: items ? items.filter((p) => Number(p.netQty) !== 0).length : null };
+    }),
+  );
+  const util = (v) => {
+    if (v.util === null) return DASH;
+    const bar = h("span", { class: "bk-util-bar", "data-level": v.level, "aria-hidden": "true" });
+    bar.style.setProperty("--w", String(v.util));
+    return h("span", { class: "bk-util", title: `${formatPercent(v.util * 100, 1)} of ${formatRupeeGrouped(v.total, 0)} is blocked as margin` }, h("span", { class: "bk-util-track" }, bar), formatPercent(v.util * 100, 0));
+  };
+  return card({
+    glyph: "wallet",
+    tint: "teal",
+    title: "Funds",
+    sub: "Every account: what is free to trade, the margin in use, collateral and P&L. Paper from the paper engine; a broker account as the broker reports it.",
+    flush: true,
+    body: table(
+      [
+        { label: "Account", cell: ({ a }) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small" }, a.broker === "paper" ? "Paper" : `${a.broker} · as reported`)) },
+        { label: "Available", num: true, cell: ({ v, error }) => (error ? h("span", { class: "muted small", title: error.message }, "Not available") : formatRupeeGrouped(v.available, 0)) },
+        { label: "Margin used", num: true, cell: ({ v, error }) => (error ? DASH : formatRupeeGrouped(v.used, 0)) },
+        { label: "Collateral", num: true, cell: ({ v, a, error }) => (error ? DASH : v.collateral === null ? h("span", { class: "muted small", title: a.broker === "paper" ? "Paper accounts have no pledged holdings" : "The broker did not report collateral" }, DASH) : formatRupeeGrouped(v.collateral, 0)) },
+        { label: "Used", cell: ({ v, error }) => (error ? DASH : util(v)) },
+        { label: "Realised", num: true, cell: ({ f, error }) => (error ? DASH : pnl(f?.realisedPnl)) },
+        { label: "Unrealised", num: true, cell: ({ f, error }) => (error ? DASH : pnl(f?.unrealisedPnl)) },
+        { label: "Open", num: true, cell: ({ open }) => formatInt(open) },
+        { label: "", cell: ({ a, error }) => (error ? h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/accounts") }, "Accounts") : h("button", { type: "button", class: "small", "aria-label": `Positions of ${a.label}`, onclick: () => (location.hash = "#/positions") }, "Positions")) },
+      ],
+      rows,
+    ),
+  });
 }

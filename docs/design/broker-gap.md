@@ -137,3 +137,26 @@ confirms how it is filed. Tax payable is not computed.
   and IPFT, SEBI fee, stamp duty, GST. The Trades tab uses the same model, so the totals agree for the same days.
 - **Ledger:** paper accounts only (opening cash, realised P&L and charges by day, closing). For a live account the
   broker's ledger is the source of truth.
+
+## 10. Built (30 to 31 October 2026)
+
+Each row is one commit on `claude/happy-carson-2a6o3y`, with tests, checked on a demo Bridge at 1920 and 390 px.
+
+| # | Feature | Where | Notes |
+|---|---|---|---|
+| 1 | Server trigger engine: GTT single and OCO | `server/bridge/triggers/`, `/v1/triggers*`, Orders › Triggers, ticket When: At a price | Every fire calls `orders.place` as source `guard` with the creator's scopes; live needs `guard` in `live.allowedSources`; AI keys cannot set triggers. Atomic store; restart resolves a firing trigger by its clientOrderId, one Idempotency-Key per trigger. |
+| 2 | Stop and target on the ticket (bracket) | `desk.js` Stop and target, origin `bracket` | Arms on the entry's fill with the filled quantity; reduce-only; max loss at the stop, if it gaps, reward and reward to risk. |
+| 3 | Position stop and target with auto exit | Positions › leg › Stop and target…, chips under the leg | Reduce-only, cancels itself when the position is flat. |
+| 4 | Trailing stop | `trail: { points | pct }` on any stop leg | Only tightens. |
+| 5 | SL and SL-M in the ticket; trigger in Modify | `desk.js`, `views.js orderActions`, `flows.js modifyChange` | |
+| 6 | Order filters, Cancel all, trade book | `orders-book.js`, Orders › Trades | |
+| 7 | Convert MIS↔NRML | `POST /v1/positions/convert`, Positions › leg | Paper only; live is refused with where to convert. |
+| 7a | Day / Net on Positions | `orders-core.js dayRows`, paper `overnightQty`, `prevClose`, `dayPnl` | |
+| 8 | Market depth in the ticket | `desk.js` depth panel, `orders-core.js depthView` | Five levels; twenty where the source sends them (no adapter does yet). |
+| 9 | What to do, in plain words | `reasons-core.js`, ticket, Orders, Triggers | Follows the account's mode. |
+| 10 | After-market orders | origin `amo` in the trigger engine | Held on this Bridge, sent at the session open; a market AMO is not sent past the price band. Native broker AMO (Dhan `afterMarketOrder`) is a follow-up for the adapter owner. |
+| 11 | Statement: tax P&L, turnover, charges, ledger | Orders › Statement, `statement-core.js`, §9 above | Estimate, not tax advice. |
+| 12 | Funds for every account | Orders › Funds, `orders-core.js fundsView` | |
+
+Proposed to other teams (not built here): per-strike OI and IV over time, the strangle chart, a probability cone,
+per-strike OI/IV and theta/vega alert conditions (the bell), Dhan's 20-level depth feed and native AMO in the adapter.

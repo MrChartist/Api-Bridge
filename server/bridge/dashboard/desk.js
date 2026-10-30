@@ -1629,7 +1629,7 @@ async function renderDesk(kind) {
     const slHint = h("p", { class: "hint bk-trig-hint", "aria-live": "polite", hidden: true });
     // When: now, or at a price (a GTT the Bridge holds and sends through every check when LTP reaches the trigger).
     // After the close (and before 09:15) a third choice: an after-market order the Bridge sends at the next open.
-    const closedNow = marketClosedAt(Date.now());
+    const closedNow = marketClosedAt(Date.now(), refSession(st.ref), refCalendar(st.ref).isTradingDay);
     const whenSeg = exit ? null : segmented("When", [["now", "Now"], ["gtt", "At a price"], ...(closedNow ? [["amo", "At the open"]] : [])], closedNow ? "amo" : "now");
     const gtt = () => whenSeg?.value === "gtt";
     const amo = () => whenSeg?.value === "amo";
@@ -2023,7 +2023,8 @@ async function renderDesk(kind) {
         // Held on this Bridge (no adapter queues a native AMO yet): it must be running at 09:15. Limit by default;
         // a market order takes the opening price and is not sent if the open gaps beyond the price band.
         const mkt = typeSeg.value === "MARKET";
-        trigHint.textContent = `Goes at 09:15 IST on the next trading day, through every check. Held on this Bridge: it must be running at 09:15 IST.${mkt ? " A market order takes the opening price, which can gap far from today's close; it is not sent if the open is beyond your price band." : ""}`;
+        const open = refSession(st.ref).open;
+        trigHint.textContent = `Goes at ${open} IST on the next trading day, through every check. Held on this Bridge: it must be running at ${open} IST.${mkt ? " A market order takes the opening price, which can gap far from today's close; it is not sent if the open is beyond your price band." : ""}`;
         trigHint.classList.toggle("bad-text", mkt);
       }
       if (exitsBox) {
@@ -2155,7 +2156,7 @@ async function renderDesk(kind) {
               }
               try {
                 await api("/v1/triggers", { method: "POST", body: triggerBody(f) });
-                toast(`After-market order queued: ${b.side === "BUY" ? "buy" : "sell"} ${name} at 09:15. Held on this Bridge: it must be running then. See Orders › Triggers.`);
+                toast(`After-market order queued: ${b.side === "BUY" ? "buy" : "sell"} ${name} at ${refSession(st.ref).open}. Held on this Bridge: it must be running then. See Orders › Triggers.`);
                 return "placed";
               } catch (err) {
                 previewEl.replaceChildren(...refusalNodes(err));
@@ -2675,14 +2676,27 @@ async function renderDesk(kind) {
   };
   // Leaving the page: the router swaps #content on hashchange, so check once it has.
   // Before the first load finishes the page is not in the document yet: wait for it, then check.
-  const onRoute = () => setTimeout(() => mounted && !pageRoot.isConnected && cleanup(), 0);
+  // Left while still loading (not mounted yet): check again once the load is done, else nothing ever tidied this page
+  // up (its live watch, timers and observers kept the whole page alive).
+  const onRoute = () =>
+    setTimeout(() => {
+      if (pageRoot.isConnected) return;
+      if (mounted) cleanup();
+      else loaded?.then(() => setTimeout(() => !pageRoot.isConnected && cleanup(), 0));
+    }, 0);
   let refRo = null;
+  let cleaned = false;
   function cleanup() {
+    if (cleaned) return;
+    cleaned = true;
+    // The document-wide key handler reads activeDesk: let go of this page (it kept the whole left page alive).
+    if (activeDesk && !activeDesk.root?.isConnected) activeDesk = null;
     feed?.stop();
     clearInterval(ageTimer);
     refRo?.disconnect();
     ctxRo?.disconnect();
     headRo?.disconnect();
+    refChipEl.destroy?.();
     document.querySelector(".toolbar-title")?.classList.remove("icon-only");
     chain.destroy();
     document.getElementById("content")?.removeAttribute("data-stale");
@@ -2727,6 +2741,8 @@ async function renderDesk(kind) {
   if (typeof ResizeObserver === "function") {
     let roomW = -1;
     ctxRo = new ResizeObserver((entries) => {
+      // It watches the shared toolbar slot, which outlives this page: let go once the capsule is gone.
+      if (!capsule.isConnected && mounted) return ctxRo?.disconnect();
       const w = Math.round(entries[entries.length - 1]?.contentRect?.width ?? -1);
       if (w === roomW) return;
       roomW = w;

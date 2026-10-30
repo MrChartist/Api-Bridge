@@ -486,7 +486,15 @@ export function refChip({ getBundle, getLot = () => null, rate = false }) {
   // only its first fact ("Lot 65") and keeps that width; the rest stays in its title and the facts sheet.
   let ro = null;
   let watched = null;
+  // The bar it watches (#toolbar-ctx) outlives the page: once the chip has left it, stop watching, or the observer kept
+  // this chip's page (getBundle and getLot close over it) alive for good, one whole desk page per visit.
+  const destroy = () => {
+    ro?.disconnect();
+    ro = null;
+    watched = null;
+  };
   const fit = () => {
+    if (watched && !el.isConnected) return destroy();
     if (!el.isConnected || el.hidden || !full || full === brief) return;
     // The bar's own width too: a short chip keeps its width, so only the bar says when the whole line fits again.
     if (ro && el.parentElement && watched !== el.parentElement) {
@@ -530,7 +538,7 @@ export function refChip({ getBundle, getLot = () => null, rate = false }) {
   };
   const open = () => openFacts(el, getBundle(), getLot());
   el.addEventListener("click", open);
-  return { el, update, open };
+  return { el, update, open, destroy };
 }
 
 /** The "Contract facts" popover (a bottom sheet on phones). */

@@ -104,23 +104,38 @@ export function stopOrderText({ side, orderType, trigger, price }) {
   return orderType === "SL-M" ? `Sends a market ${side === "BUY" ? "buy" : "sell"} ${when}. Rests at the exchange until then.` : `Sends a limit ${side === "BUY" ? "buy" : "sell"} at ${isFigure(price) ? formatFixed(price, 2) : DASH} ${when}. Rests at the exchange until then.`;
 }
 
+const hm = (s) => {
+  const m = /^(\d{2}):(\d{2})$/.exec(String(s ?? ""));
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+};
+
 /**
- * Whether the market takes orders at `ms` (09:15 to 15:30 IST on a weekday; holidays are the Bridge's to know, so an
- * after-market order set on a holiday is still checked there). The ticket offers "At the open" when this is false.
+ * Whether the market takes orders at `ms`: inside the session's open and close (IST "HH:MM", the reference bundle's
+ * session, reference.js refSession) on a trading day (`isTradingDay`, the bundle's calendar; weekdays without one).
+ * The ticket offers "At the open" when this is true. Without a session it cannot say, so it answers false.
+ * @param {number} ms
+ * @param {{ open?: string, close?: string }} session
+ * @param {(day: string) => boolean} [isTradingDay]
  */
-export function marketClosedAt(ms) {
+export function marketClosedAt(ms, session, isTradingDay) {
+  const open = hm(session?.open);
+  const close = hm(session?.close);
+  if (open === null || close === null) return false;
   const d = new Date(ms + 19_800_000);
-  const wd = d.getUTCDay();
+  const day = d.toISOString().slice(0, 10);
+  const trading = typeof isTradingDay === "function" ? isTradingDay(day) : d.getUTCDay() !== 0 && d.getUTCDay() !== 6;
   const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
-  return wd === 0 || wd === 6 || mins < 9 * 60 + 15 || mins >= 15 * 60 + 30;
+  return !trading || mins < open || mins >= close;
 }
 
 /** When an after-market order goes, and where it is held: "Goes at 09:15 on Mon 26 Oct · held on this Bridge". */
 export function amoWhenText(t) {
   const at = t.openAt ? new Date(Date.parse(t.openAt) + 19_800_000) : null;
   const day = at ? `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][at.getUTCDay()]} ${formatInt(at.getUTCDate())} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][at.getUTCMonth()]}` : null;
-  const where = t.held === "broker" ? "Queued at your broker" : "Held on this Bridge: it must be running at 09:15 IST";
-  return `${day ? `Goes at 09:15 on ${day}` : "Goes at the next open"} · ${where}`;
+  // The time is the order's own (openAt: the session open from the reference store), never a constant here.
+  const hhmm = at ? at.toISOString().slice(11, 16) : null;
+  const where = t.held === "broker" ? "Queued at your broker" : `Held on this Bridge: it must be running at ${hhmm ?? "the open"}${hhmm ? " IST" : ""}`;
+  return `${day ? `Goes at ${hhmm} on ${day}` : "Goes at the next open"} · ${where}`;
 }
 
 /**
