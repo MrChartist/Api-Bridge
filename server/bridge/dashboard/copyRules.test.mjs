@@ -21,6 +21,11 @@ const NEUTRAL_COPY_FILES = Object.freeze({
   // P1-2b (docs/spec/p1-02-reference.md §7.2): reference chips, banners and the Market calendar describe facts only.
   "reference.js": [],
   "calendar.js": [],
+  // Trader tools (ux-audit.md, trading pass 2): the what-if panel and the journal state figures, never advice.
+  "whatif.js": [],
+  "whatif-core.js": ["SELL"],
+  "journal.js": ["buy", "sell"], // the side-tag class names
+  "journal-core.js": ["BUY", "SELL"],
   // Screeners › Stocks: the scan library, the builder's values and the results describe numbers, never advice.
   "scanner.js": ["BUY"], // the ATM straddle handed to Strategy Builder names its legs' side
   "scan-builder.js": [],

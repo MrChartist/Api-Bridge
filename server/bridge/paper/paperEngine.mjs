@@ -49,6 +49,8 @@ export const PAGE_DEFAULT = 100;
 export const PAGE_MAX = 500;
 /** A reset can be undone for this long (ms). */
 export const UNDO_RESET_MS = 120_000;
+/** Daily P&L snapshots kept per paper account (about three years of trading days). */
+export const DAILY_KEPT = 800;
 /** Prices fetched for a new order must be at most this old (ms). */
 const FRESH_MS = 1000;
 
@@ -227,6 +229,8 @@ export function createPaperEngine(deps, options = {}) {
     const today = istDay(now());
     if (st.day === today) return false;
     const t = now();
+    // The day that ends gets its end-of-day snapshot from the last marks, if the session-end pass did not take one.
+    if (st.day && !(st.daily ?? []).some((x) => x.day === st.day && x.source === "eod")) takeSnapshot(st, "eod", t, st.day);
     for (const o of st.orders) if (isPending(o)) setStatus(o, "expired", "Expired at the end of the trading day.", t);
     for (const [k, p] of Object.entries(st.positions)) {
       if (p.netQty === 0) delete st.positions[k];
@@ -235,6 +239,52 @@ export function createPaperEngine(deps, options = {}) {
     st.day = today;
     st.ordersToday = 0;
     return true;
+  }
+
+  // ───────────────────────────── daily P&L snapshots ─────────────────────────────
+  // One row per IST day in st.daily: { day, at, source ("eod" | "manual"), equity, realised, unrealised, charges,
+  // pnl (the day's change in equity), usedMargin, openPositions }. End of day: the first maintenance pass after the
+  // session end, or the day roll; on demand: snapshot(). A later snapshot of the same day replaces an earlier one,
+  // except that a manual one never replaces the end-of-day row. Kept for DAILY_KEPT days.
+  function equityOf(st) {
+    const unrealised = Object.values(st.positions).reduce((a, p) => a + unrealisedOf(p).unrealised, 0);
+    return { equity: st.startingCapital + st.realisedTotal - st.charges + unrealised, unrealised };
+  }
+  function takeSnapshot(st, source, t, day = istDay(t)) {
+    const list = (st.daily = Array.isArray(st.daily) ? st.daily : []);
+    const prev = [...list].reverse().find((x) => x.day < day) ?? null;
+    const { equity, unrealised } = equityOf(st);
+    // After a reset the day is measured from the new starting capital, not from the old book's equity.
+    const resetSince = st.resetAt && (!prev || Date.parse(st.resetAt) > Date.parse(prev.at));
+    const base = prev && !resetSince ? prev.equity : resetSince || !prev ? st.startingCapital : prev.equity;
+    let usedMarginNow = null;
+    try {
+      usedMarginNow = usedMargin(st);
+    } catch {
+      usedMarginNow = null;
+    }
+    const row = {
+      day,
+      at: toIstIso(t),
+      source,
+      equity: round2(equity),
+      realised: round2(st.realisedTotal),
+      unrealised: round2(unrealised),
+      charges: round2(st.charges),
+      pnl: round2(equity - base),
+      usedMargin: usedMarginNow === null ? null : round2(usedMarginNow),
+      openPositions: Object.values(st.positions).filter((p) => p.netQty !== 0).length,
+    };
+    const i = list.findIndex((x) => x.day === day);
+    if (i >= 0) {
+      if (list[i].source === "eod" && source !== "eod") return list[i];
+      list[i] = row;
+    } else {
+      list.push(row);
+      list.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+    }
+    if (list.length > DAILY_KEPT) list.splice(0, list.length - DAILY_KEPT);
+    return row;
   }
 
   function nextOrderId() {
@@ -586,6 +636,8 @@ export function createPaperEngine(deps, options = {}) {
       price,
       charges: charge,
       tradedAt: toIstIso(t),
+      clientOrderId: o.clientOrderId ?? null,
+      tag: o.tag ?? null,
     });
     setStatus(o, "filled", o.statusMessage ?? null, t, { realisedPnl: round2(realised) });
   }
@@ -1030,6 +1082,25 @@ export function createPaperEngine(deps, options = {}) {
       };
     },
 
+    /**
+     * Take today's P&L snapshot now (marked to the latest prices). It replaces an earlier manual one for today; it
+     * never replaces today's end-of-day row, which it returns instead.
+     */
+    async snapshot(accountId) {
+      await markPositions(book(accountId));
+      await ensureSpots(bookSymbols(book(accountId)));
+      const st = book(accountId);
+      const row = takeSnapshot(st, "manual", now());
+      save(st);
+      return { ...row };
+    },
+
+    /** The daily P&L snapshots, oldest first (up to DAILY_KEPT days). */
+    async daily(accountId) {
+      const st = book(accountId);
+      return (st.daily ?? []).map((x) => ({ ...x }));
+    },
+
     /** Account summary (PaperAccount without funds and fillModel, which the route adds). */
     async account(accountId) {
       const st = book(accountId);
@@ -1050,6 +1121,8 @@ export function createPaperEngine(deps, options = {}) {
       for (const o of before.orders) if (isPending(o)) Object.assign(o, { status: "cancelled", statusMessage: "Cancelled by a paper account reset.", updatedAt: toIstIso(t) });
       undo.set(accountId, { state: before, at: t });
       const fresh = freshState(accountId, capital, st.createdAt, toIstIso(t));
+      // The daily P&L history is a record of what happened, not part of the book: it survives a reset.
+      fresh.daily = [...(st.daily ?? [])];
       books.set(accountId, fresh);
       save(fresh);
     },
@@ -1113,6 +1186,11 @@ export function createPaperEngine(deps, options = {}) {
           let changed = rollDay(st);
           if (await squareOff(st)) changed = true;
           if (expireDayOrders(st, now())) changed = true;
+          const t = now();
+          if (t >= sessionEndAt("NSE", t) && !(st.daily ?? []).some((x) => x.day === istDay(t) && x.source === "eod") && (st.trades.length || Object.keys(st.positions).length)) {
+            takeSnapshot(st, "eod", t);
+            changed = true;
+          }
           if (changed && books.get(st.accountId) === st) save(st);
         }
         await pollPending();

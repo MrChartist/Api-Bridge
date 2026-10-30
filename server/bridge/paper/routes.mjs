@@ -4,6 +4,8 @@
  *   GET  /v1/paper/accounts/{accountId}          scope read
  *   POST /v1/paper/accounts/{accountId}/reset    scope paper   body: { startingCapital? } (₹10,000 to ₹100,00,00,000)
  *   POST /v1/paper/accounts/{accountId}/reset/undo  scope paper  puts back the book from before the last reset (2 min)
+ *   GET  /v1/paper/accounts/{accountId}/daily    scope read    the daily P&L snapshots (end of day, and on demand)
+ *   POST /v1/paper/accounts/{accountId}/daily    scope paper   take today's snapshot now
  *   POST /v1/paper/accounts/{accountId}/margin   scope read    body: { legs: [{ symbol, side, quantity|lots, price? }] }
  *        the basket's margin against the book, portfolio model (dashboard/span-margin.js); nothing is placed
  *
@@ -77,6 +79,16 @@ export function createPaperRoutes(deps) {
       }
       const legs = parsed.data.legs.map((l) => ({ ...l, orderType: l.price === undefined ? "MARKET" : "LIMIT", product: l.product ?? "MARGIN" }));
       return { data: await deps.paper.estimateBasketMargin(accountId, legs), meta: meta(ctx, accountId) };
+    },
+
+    async daily(ctx) {
+      const accountId = accountParam(ctx);
+      return { data: { items: await deps.paper.daily(accountId) }, meta: meta(ctx, accountId) };
+    },
+
+    async snapshot(ctx) {
+      const accountId = accountParam(ctx);
+      return { data: await deps.paper.snapshot(accountId), meta: meta(ctx, accountId) };
     },
 
     async undoReset(ctx) {
