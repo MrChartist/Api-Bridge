@@ -37,10 +37,11 @@ function parseWith(schema, value, detail) {
  * @param {{ config: any, service: ReturnType<typeof import("./bookService.mjs").createBookService>,
  *   store: ReturnType<typeof import("./holderStore.mjs").createHolderStore>, audit?: any }} deps
  */
-export function createBookRoutes({ config, service, store, audit }) {
+export function createBookRoutes({ config, service, store, audit, ready = null }) {
   return {
     /** GET /v1/book */
     async getBook(ctx) {
+      if (ready) await ready();
       const allowed = ["view", "underlying", "account", "mode", "format"];
       for (const k of new Set(ctx.query.keys())) {
         if (!allowed.includes(k)) throw new BridgeError("VALIDATION_FAILED", `Unknown query parameter ${k}.`, { errors: [{ path: k, message: "not allowed" }] });

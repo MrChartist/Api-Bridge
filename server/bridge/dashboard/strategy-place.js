@@ -8,7 +8,7 @@ import { DASH, formatFixed, formatInt, isFigure } from "./format.js";
 import { money, moneyEl } from "./payoff.js";
 import * as O from "./options.js";
 import { segField, segmented } from "./views.js";
-import { basketMarginBody, basketProgress, expandSlices, orderRows } from "./basket-core.js";
+import { basketMarginBody, basketProgress, expandSlices, orderRows, sliceNotes } from "./basket-core.js";
 
 const TERMINAL = new Set(["filled", "rejected", "cancelled", "expired"]);
 /** Server messages print Indian digit grouping (3 lakh as 3,00,000); the dashboard never shows grouping commas. */
@@ -30,11 +30,13 @@ export function openPlacement(o) {
   const { account: a, items, mode = "entry" } = o;
   const exit = mode === "exit";
   const cfg = { ...o.cfg };
-  // Rows are the orders that go out: each item split under its freeze quantity (basket-core.js), put in send order
-  // (buys first for the margin benefit, or as listed). Rebuilt when the order changes or a freeze is learned.
+  // Rows are the orders that go out: each item split under its freeze quantity and the account's per-order lots and
+  // value limits (basket-core.js; the limits come from GET /v1/safety and are only obeyed, never raised), put in send
+  // order (buys first for the margin benefit, or as listed). Rebuilt when the order changes or a freeze is learned.
   const limits = new Map();
+  let orderLimits = null;
   const buildRows = () =>
-    orderRows(expandSlices(items), cfg.order === "as-listed" ? "as-listed" : "buys-first", { exit }).map((it, i) => ({
+    orderRows(expandSlices(items.map((it, k) => ({ ...it, price: limits.get(k) ?? it.price })), orderLimits), cfg.order === "as-listed" ? "as-listed" : "buys-first", { exit }).map((it, i) => ({
       ...it,
       i,
       limit: limits.get(it.item) ?? O.roundToTick(it.price, tickOf(it), it.side === "BUY" ? "sell" : "buy"),
@@ -74,6 +76,19 @@ export function openPlacement(o) {
   const actions = h("div", { class: "place-actions" });
   const legsHost = h("div", { class: "table-wrap place-legs" });
   const warnHost = h("ul", { class: "ticket-checks strat-warn-list" });
+  // Why legs were split: the freeze quantity, or this account's per-order limit (said once per reason).
+  const sliceHost = h("ul", { class: "ticket-checks place-slices", hidden: true, role: "note" });
+  function drawSliceNotes() {
+    const notes = sliceNotes(rows);
+    sliceHost.hidden = !notes.length;
+    sliceHost.replaceChildren(...notes.map((t) => h("li", { class: "info" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, t))));
+  }
+  /** The account's per-order limits (maxLotsPerOrder, maxOrderValue), read once when the sheet opens. */
+  async function loadOrderLimits() {
+    const r = await optional(api("/v1/safety"));
+    const acct = (r.data?.data?.accounts ?? []).find((x) => x.accountId === a.id);
+    orderLimits = acct?.limits ? { maxLotsPerOrder: acct.limits.maxLotsPerOrder ?? null, maxOrderValue: acct.limits.maxOrderValue ?? null } : null;
+  }
   let phase = "confirm"; // confirm | running | paused | done
   // While orders are going out (or a hedge waits for a choice) the sheet cannot be closed: no Escape, X or backdrop.
   const canClose = () => phase !== "running" && phase !== "paused";
@@ -157,7 +172,9 @@ export function openPlacement(o) {
     : null;
 
   function drawWarnings() {
-    const w = o.warnings ?? [];
+    // How each leg is split is said once, by the slice notes (freeze or per-order limit): the strategy's own freeze
+    // lines are left out here.
+    const w = (o.warnings ?? []).filter((x) => x.code !== "FREEZE");
     warnHost.hidden = !w.length;
     // A paper account short of funds is never a dead end: say that hedges are already credited, and where
     // to add paper money (Accounts › Reset with more capital).
@@ -215,6 +232,7 @@ export function openPlacement(o) {
     }
     if (resliced) {
       rows = buildRows();
+      drawSliceNotes();
       legTable();
       drawButtons();
       preflight();
@@ -561,6 +579,7 @@ export function openPlacement(o) {
     cfg.order = orderSeg.value;
     o.onCfg?.({ order: orderSeg.value });
     rows = buildRows();
+    drawSliceNotes();
     legTable();
     drawButtons();
     preflight();
@@ -594,7 +613,15 @@ export function openPlacement(o) {
   legTable();
   drawWarnings();
   drawButtons();
-  preflight();
+  // The first checks wait for the per-order limits, so they check the slices that will be sent.
+  loadOrderLimits().then(() => {
+    if (phase !== "confirm") return;
+    rows = buildRows();
+    drawSliceNotes();
+    legTable();
+    drawButtons();
+    preflight();
+  });
   loadBasketMargin();
   const done = modal({
     title: o.title,
@@ -604,7 +631,7 @@ export function openPlacement(o) {
         if (!canClose()) return;
         close(v, true);
       };
-      return h("div", { class: "stack place-sheet" }, summary, marginLine, legsHost, moved, warnHost, form, status, live, actions);
+      return h("div", { class: "stack place-sheet" }, summary, marginLine, legsHost, sliceHost, moved, warnHost, form, status, live, actions);
     },
     buttons: [],
   });

@@ -17,13 +17,28 @@ import { SCOPES, createBookView } from "./book-view.js";
 import { segField, segmented } from "./views.js";
 import { heatCell, setBar, svgEl } from "./viz.js";
 import { eventChip, refCharges, refRate, refSession, upcomingEvents } from "./reference.js";
-import { SPAN_METHOD, portfolioMargin } from "./span-margin.js";
+import { SPAN_METHOD, marginImpact, portfolioMargin } from "./span-margin.js";
 import { legWords, openAlertSheet, rulesFor } from "./alerts.js";
 import { createWhatIf } from "./whatif.js";
 import { ROLL_MODES, rollBreakevens, rollItems, rollMargin, rollMoney, rollPlan } from "./roll-core.js";
 import { openPlacement } from "./strategy-place.js";
 import { closeMs, countdownText, decayLeft, deskExpiry, gammaByStrike, pinRisk, settlementRisk } from "./expiry-core.js";
 import { normWhatIf, whatIfFigures } from "./whatif-core.js";
+
+
+/**
+ * The exit sheet's margin line. Paper: the margin the exit releases (or adds, when closing a hedge leaves a short
+ * uncovered), from the paper engine's model. Live or a broker account: the broker's figure decides.
+ */
+export function exitMarginText(effect, paper, underlying = "") {
+  if (!paper) return "Margin effect: shown by your broker on the order.";
+  if (!effect) return "Margin effect: not worked out (no price for the forward yet).";
+  const ch = effect.change;
+  const amt = marginText;
+  const on = `${underlying ? `${underlying} ` : ""}margin ${amt(effect.before)} now, ${amt(effect.after)} after; paper margin model`;
+  if (Math.abs(ch) < 1) return `Margin unchanged by this exit (${on}).`;
+  return ch < 0 ? `Margin released ≈ ${amt(-ch)} (${on}).` : `Margin goes up ≈ ${amt(ch)}: this exit removes a hedge (${on}).`;
+}
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const CHAIN_STRIKES = 40;
@@ -59,6 +74,8 @@ const rk = (v) => {
 };
 /** Unsigned compact rupees: "₹9.22L". */
 const ru = (v) => (!isFigure(v) ? DASH : `₹${formatCompact(Math.abs(v))}`);
+/** A margin amount, unsigned: "₹1.70L" from a lakh, whole rupees below, as Positions and Strategy show margin. */
+const marginText = (v) => (!isFigure(v) ? DASH : Math.abs(v) >= 1e5 ? ru(v) : formatRupee(Math.abs(Math.round(v)), 0));
 const toneOf = (v) => (!isFigure(v) ? "fg" : Math.round(v) > 0 ? "pos" : Math.round(v) < 0 ? "neg" : "fg");
 
 /**
@@ -745,6 +762,19 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     if (greeksFoot.textContent !== foot) greeksFoot.textContent = foot;
     greeksFoot.title = "Model probability · uncalibrated: the chance the book is in profit at the first expiry, lognormal at the ATM IV. Later-expiry legs are valued by the model. Θ/ν: trading days of decay one vol point is worth";
   }
+  /** A book leg as a span-margin.js leg (the paper engine's model): the quantity signed, priced at cost or mark. */
+  const marginLeg = (l, qty = l.q) => ({ underlying: st.underlying, kind: l.kind, right: l.right, strike: l.strike, expiry: l.expiry, qty, cost: num(l.avg) ?? num(l.mark), mark: num(l.mark) ?? num(l.avg), iv: num(l.iv) });
+  /**
+   * Paper margin change from some orders on this book, with the same model as the paper engine (span-margin.js):
+   * { before, after, change } in rupees, or null without a price for the forward. `orders`: [{ leg, side, qty }].
+   */
+  function paperMarginEffect(orders) {
+    const held = legs.filter((l) => l.q && l.priced);
+    const F = num(held.find((l) => num(l.F) !== null)?.F) ?? spot;
+    if (!held.length || !F) return null;
+    const added = (orders ?? []).filter((o) => o.leg && o.qty > 0).map((o) => marginLeg(o.leg, (o.side === "BUY" ? 1 : -1) * o.qty));
+    return marginImpact(held.map((l) => marginLeg(l)), added, { nowMs: Date.now(), forwards: { [st.underlying]: F } });
+  }
   function drawCapital() {
     const f = d.funds;
     const used = num(f?.usedMargin);
@@ -754,7 +784,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     // expiries and futures of this underlying are credited.
     const held = legs.filter((l) => l.q && l.priced);
     const F = num(held.find((l) => num(l.F) !== null)?.F) ?? spot;
-    const est = held.length && F ? portfolioMargin(held.map((l) => ({ underlying: st.underlying, kind: l.kind, right: l.right, strike: l.strike, expiry: l.expiry, qty: l.q, cost: num(l.avg) ?? num(l.mark), mark: num(l.mark) ?? num(l.avg), iv: num(l.iv) })), { nowMs: Date.now(), forwards: { [st.underlying]: F } }) : null;
+    const est = held.length && F ? portfolioMargin(held.map((l) => marginLeg(l)), { nowMs: Date.now(), forwards: { [st.underlying]: F } }) : null;
     const has = used !== null && total > 0;
     const util = has ? used / total : null;
     const mb = has && est ? Math.min(est.required, used) : null;
@@ -1814,6 +1844,9 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const skipNote = h("p", { class: "pos-note warn", hidden: true, role: "status" });
     const listEl = h("ol", { class: "pos-plan" });
     const totalsEl = h("div", { class: "ticket-figs pos-plan-tot" });
+    // Margin effect: a paper account's own model works it out here; a broker account's figure is the broker's.
+    const paperAcct = a.broker === "paper";
+    const marginEl = h("p", { class: "muted small pos-plan-margin", title: paperAcct ? SPAN_METHOD : undefined });
     const checksEl = h("ul", { class: "ticket-checks", hidden: true });
     const statusEl = h("div", { class: "pos-plan-status", "aria-live": "polite" });
     let plan = null;
@@ -1862,6 +1895,8 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         h("div", {}, h("small", {}, "Est. slippage"), formatRupee(plan.slippage, 0)),
         h("div", {}, h("small", {}, "Est. P&L if filled"), money(plan.pnl)),
       );
+      const mText = exitMarginText(paperAcct && !live() ? paperMarginEffect(plan.orders) : null, paperAcct && !live(), st.underlying);
+      if (marginEl.textContent !== mText) marginEl.textContent = mText;
       mktNote.hidden = type !== "market";
       unpricedNote.hidden = !plan.unpriced;
       ackRow.hidden = !live();
@@ -1984,7 +2019,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       totalsEl,
       checksEl,
       statusEl,
-      h("p", { class: "muted small" }, "Margin effect: shown by your broker on the order."),
+      marginEl,
     );
     const done = modal({
       title: `Exit ${plural(syms.length, "leg")} · ${st.underlying}${label ? ` · ${label}` : ""}`,
@@ -2683,10 +2718,17 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
             h("div", {}, h("dt", {}, "P&L at −2σ −1σ +1σ +2σ"), h("dd", {}, sp ? sigCut.map((k) => h("span", { class: "block" }, `${k > 0 ? "+" : "−"}${Math.abs(k)}σ ${rc(pnlAt(inc, k))} → `, h("span", { class: tone(pnlAt(withH, k)) }, rc(pnlAt(withH, k))))) : DASH)),
           ),
         ),
-        h("p", { class: "muted small" }, [...plan.notes, early ? `Hedge expires ${expiryText(early.expiry)}, before your ${expiryText(lastExp)} exposure` : null, "Margin effect: shown by your broker on the order"].filter(Boolean).join(" · ")),
+        h("p", { class: "muted small" }, [...plan.notes, early ? `Hedge expires ${expiryText(early.expiry)}, before your ${expiryText(lastExp)} exposure` : null, hedgeMarginText(lg)].filter(Boolean).join(" · ")),
       );
     }
     previewHedge();
+  }
+  /** The hedge's margin effect: a paper account's model works it out; a broker account's figure is the broker's. */
+  function hedgeMarginText(lg) {
+    if (account()?.broker !== "paper" || !lg.length) return "Margin effect: shown by your broker on the order";
+    const e = paperMarginEffect(lg.map((l) => ({ leg: { kind: l.kind, right: l.right ?? null, strike: l.strike ?? null, expiry: l.expiry, avg: l.mark, mark: l.mark }, side: l.side, qty: l.units })));
+    if (!e) return "Margin effect: not worked out (no price for the forward yet)";
+    return Math.abs(e.change) < 1 ? "Margin unchanged (paper margin model)" : `Margin ${e.change < 0 ? "released" : "added"} ≈ ${marginText(e.change)} (paper margin model)`;
   }
   let hvTimer = null;
   let hvSeq = 0;

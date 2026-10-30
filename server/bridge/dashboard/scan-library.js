@@ -133,3 +133,31 @@ export function libraryRequest(id, { universe = "FNO", model = null } = {}) {
   const condition = model ? compileModel(model).text : s.condition;
   return { name: s.name, universe, interval: "live", condition, sort: { by: s.sort, order: s.order } };
 }
+
+const squash = (t) => String(t ?? "").replace(/\s+/g, " ").trim();
+
+/**
+ * True when the scan on screen is no longer the library scan `id` it was opened from: another condition (as written
+ * or as the builder compiles it), another universe, or another sort. A library scan saved with changes needs a name of
+ * its own (see savedScanName).
+ */
+export function libraryEdited(id, { condition, universe = "FNO", sort = null } = {}) {
+  const s = LIBRARY_BY_ID.get(id);
+  if (!s) return false;
+  const c = squash(condition);
+  const same = c === squash(s.condition) || c === squash(compileModel(s.model).text);
+  const sameSort = !sort?.by || (sort.by === s.sort && (sort.order ?? "desc") === (s.order ?? "desc"));
+  return !same || String(universe ?? "FNO").toUpperCase() !== "FNO" || !sameSort;
+}
+
+/**
+ * The name a save sheet offers: an edited library scan gets "<name> (edited)" in place of the library's own name, so
+ * the saved copy never passes for the library scan. A name the person typed is kept.
+ */
+export function savedScanName(name, libraryId, edited) {
+  const lib = libraryId ? (LIBRARY_BY_ID.get(libraryId)?.name ?? null) : null;
+  const n = squash(name);
+  if (!lib) return n;
+  if (!n || n === lib) return edited ? `${lib} (edited)` : lib;
+  return n;
+}

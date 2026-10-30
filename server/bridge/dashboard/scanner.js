@@ -11,7 +11,8 @@ import { api, app, card, copyButton, copyText, emptyState, h, icon, istDateTime,
 import { DASH, formatCompact, formatFixed, formatInt, formatNumber, formatSigned, isFigure } from "./format.js";
 import { excelFormula } from "./flows.js";
 import { COLUMNS, GROUPS, OPERAND_BY_ID, OPS, BOOL_OPS, compileModel, describeModel, emptyRule, filterRows, isBool, operandLabel, opWords, resultsCsv, searchOperands, sortRows } from "./scan-builder.js";
-import { LIBRARY, LIBRARY_BY_ID, LIBRARY_GROUPS, libraryRequest } from "./scan-library.js";
+import { LIBRARY, LIBRARY_BY_ID, LIBRARY_GROUPS, libraryEdited, libraryRequest, savedScanName } from "./scan-library.js";
+import { fieldError } from "./flows.js";
 import { handoffPrefs } from "./screens.js";
 import { segmented } from "./views.js";
 
@@ -130,7 +131,8 @@ export async function renderScannerPage() {
 
   function scheduleText(s) {
     const parts = [];
-    if (s.everyMinutes) parts.push(`Every ${formatInt(s.everyMinutes)} min${s.marketHoursOnly === false ? "" : " in market hours"}`);
+    // Demo: the demo market ticks at any hour, so schedules run after hours too (the Bridge allows it in demo only).
+    if (s.everyMinutes) parts.push(`Every ${formatInt(s.everyMinutes)} min${s.marketHoursOnly === false ? "" : app.state.demo ? " (demo: any hour)" : " in market hours"}`);
     if (s.atClose) parts.push("At the close");
     return parts.length ? parts.join(" · ") : "On demand";
   }
@@ -567,11 +569,15 @@ export async function renderScannerPage() {
 
   async function saveSheet(existing) {
     const s = existing ?? saved.find((x) => x.id === st.savedId) ?? null;
-    const name = h("input", { value: s?.name ?? (st.name || (st.libraryId ? LIBRARY_BY_ID.get(st.libraryId)?.name : "") || ""), maxlength: "80", "aria-label": "Name" });
+    // A library scan saved with changes gets a name of its own ("Gap up (edited)"), never the library's name.
+    const lib = !s && st.libraryId ? (LIBRARY_BY_ID.get(st.libraryId) ?? null) : null;
+    const req0 = currentRequest();
+    const edited = Boolean(lib) && libraryEdited(lib.id, { condition: req0.condition, universe: req0.universe, sort: req0.sort });
+    const name = h("input", { id: "sc-save-name", value: s?.name ?? (lib ? savedScanName(st.name, lib.id, edited) : st.name || ""), maxlength: "80", "aria-label": "Name" });
     const initial = s?.atClose ? "close" : s?.everyMinutes ? "every" : "demand";
     const when = segmented("When it runs", [["demand", "On demand"], ["every", "Every N min"], ["close", "At the close"]], initial);
     const every = h("input", { type: "number", min: "1", max: "1440", step: "1", value: String(s?.everyMinutes ?? 15), "aria-label": "Minutes", class: "sc-every" });
-    const everyWrap = h("label", { class: "field sc-every-wrap" }, "Every (minutes, in market hours)", every);
+    const everyWrap = h("label", { class: "field sc-every-wrap" }, app.state.demo ? "Every (minutes; demo: also after hours)" : "Every (minutes, in market hours)", every);
     const notify = h("input", { type: "checkbox", checked: s ? s.notify !== false : true });
     const sync = () => (everyWrap.hidden = when.value !== "every");
     when.addEventListener("change", sync);
@@ -581,7 +587,7 @@ export async function renderScannerPage() {
     const body = h(
       "div",
       { class: "stack sc-save" },
-      h("label", { class: "field" }, "Name", name),
+      h("label", { class: "field", for: "sc-save-name" }, "Name", name, edited ? h("span", { class: "hint" }, `Changed from the library's ${lib.name}: save it under a name of its own.`) : null),
       h("div", { class: "field" }, h("span", {}, "When it runs"), when),
       everyWrap,
       h("label", { class: "check" }, notify, h("span", {}, "Also send new matches to my notification channels")),
@@ -590,8 +596,10 @@ export async function renderScannerPage() {
     );
     const buttons = [{ label: "Cancel", value: null }];
     if (asNew) buttons.push({ label: "Save as new", value: "new" });
-    buttons.push({ label: s ? "Save changes" : "Save", cls: "primary", value: s ? "update" : "new" });
-    const v = await modal({ title: s ? `Save ${s.name}` : "Save scan", body, buttons });
+    // An edited library scan cannot keep the library's name: the sheet stays open and says so under the field.
+    const named = (v) => () => (edited && name.value.trim() === lib.name ? fieldError(name, `${lib.name} is the library scan's name. Name your edited copy, for example ${lib.name} (edited).`) : v);
+    buttons.push({ label: s ? "Save changes" : "Save", cls: "primary", onClick: named(s ? "update" : "new") });
+    const v = await modal({ title: s ? `Save ${s.name}` : edited ? `Save your edited ${lib.name}` : "Save scan", body, buttons });
     if (!v) return;
     const mins = Number(every.value);
     if (when.value === "every" && (!Number.isInteger(mins) || mins < 1 || mins > 1440)) return toast("Minutes: a whole number from 1 to 1440", { tone: "error" });

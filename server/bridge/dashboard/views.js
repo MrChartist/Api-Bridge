@@ -44,7 +44,7 @@ import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { busiestClass, mountBudget, perSecondLimit, usageChart, windowText } from "./budget.js";
 import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
-import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, sessionText } from "./flows.js";
+import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText } from "./flows.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
 const $ = (id) => document.getElementById(id);
@@ -1217,7 +1217,8 @@ const field = (labelText, input, hint) => h("label", { class: "field", for: inpu
 /** A failed call as an alert, with the Bridge's per-field messages (field names only, never values) when it sent any. */
 function errorBox(err, labels = {}) {
   const box = alertBox(err);
-  const errors = Array.isArray(err?.body?.errors) ? err.body.errors : [];
+  // A field message that only repeats the alert's own text is not listed again.
+  const errors = (Array.isArray(err?.body?.errors) ? err.body.errors : []).filter((e) => e?.message && e.message !== err?.message && e.message !== err?.body?.detail);
   if (errors.length) {
     const list = h("ul", { class: "field-errors" }, errors.slice(0, 6).map((e) => {
       const key = String(e.path ?? "").split(".").pop();
@@ -2319,34 +2320,47 @@ async function renderOrders() {
 function orderActions(o) {
   const name = contractName(o.symbol);
   const modify = async () => {
-    const qty = h("input", { id: "mod-qty", type: "number", min: "1", step: "1", inputmode: "numeric", value: String(o.quantity ?? "") });
+    // Asked in lots, as on the ticket (the quantity in units under it). The lot size is the instrument's; without one
+    // (an equity, or the master not loaded) a lot is one unit and the field says "Quantity".
+    const inst = await optional(api(`/v1/instruments/${encodeURIComponent(o.symbol)}`));
+    const lotSize = Number(inst.data?.data?.lotSize) > 0 ? Number(inst.data.data.lotSize) : 1;
+    const inLots = lotSize > 1;
+    const lotsNow = (o.quantity ?? 0) / lotSize;
+    const qty = h("input", { id: "mod-qty", type: "number", min: "1", step: "1", inputmode: "numeric", value: Number.isInteger(lotsNow) ? String(lotsNow) : String(o.quantity ?? "") });
     const price = h("input", { id: "mod-price", type: "number", min: "0.05", step: "0.05", inputmode: "decimal", value: isFigure(o.price) ? String(o.price) : "" });
-    const err = h("div", { "aria-live": "polite" });
+    const units = h("span", { class: "hint", "aria-live": "polite" });
+    const filled = o.filledQuantity ?? 0;
+    const filledText = filled > 0 ? `${inLots ? `${formatInt(Math.floor(filled / lotSize))} lots` : formatInt(filled)} filled` : "none filled yet";
+    const showUnits = () => {
+      const c = modifyChange({ lots: qty.value, lotSize, order: o, price: price.value, limit: false });
+      units.textContent = inLots ? `${c.quantity === null ? DASH : formatInt(c.quantity)} qty · lot ${formatInt(lotSize)} · ${filledText}` : `Filled so far: ${formatInt(filled)}`;
+    };
+    qty.addEventListener("input", showUnits);
+    showUnits();
+    // A refusal from the Bridge, said once: under its field when it names one, else on one line above the buttons.
+    const err = h("p", { class: "bad-text", role: "alert", hidden: true });
     const limit = o.orderType === "LIMIT" || o.orderType === "SL";
     const ok = await modal({
       title: `Modify ${o.side === "BUY" ? "buy" : "sell"} ${name}`,
-      body: h("div", { class: "stack" }, h("div", { class: "form-grid" }, field("Quantity", qty, `Filled so far: ${formatInt(o.filledQuantity ?? 0)}`), limit ? field("Limit price", price) : null), err),
+      body: h("div", { class: "stack" }, h("div", { class: "form-grid" }, h("label", { class: "field", for: "mod-qty" }, h("span", {}, inLots ? "Lots" : "Quantity"), qty, units), limit ? field("Limit price", price) : null), err),
       buttons: [
         { label: "Keep as is", value: false },
         {
           label: "Save change",
           cls: "primary",
           onClick: async () => {
-            const body = {};
-            const q = Math.floor(Number(qty.value));
-            if (!(q >= 1)) return fieldError(qty, "Quantity must be 1 or more.");
-            if (q !== o.quantity) body.quantity = q;
-            if (limit) {
-              const px = Number(price.value);
-              if (!(px > 0)) return fieldError(price, "Enter a limit price above 0.");
-              if (px !== o.price) body.price = px;
-            }
-            if (!Object.keys(body).length) return fieldError(limit ? price : qty, "Change the quantity or the price first.");
+            err.hidden = true;
+            const c = modifyChange({ lots: qty.value, lotSize, order: o, price: price.value, limit });
+            if (c.error) return fieldError(c.error.field === "price" ? price : qty, c.error.message);
             try {
-              await api(`/v1/orders/${encodeURIComponent(o.orderId)}`, { method: "PATCH", body });
+              await api(`/v1/orders/${encodeURIComponent(o.orderId)}`, { method: "PATCH", body: c.body });
               return true;
             } catch (e) {
-              err.replaceChildren(errorBox(e, { quantity: "Quantity", price: "Limit price" }));
+              const f = (Array.isArray(e?.body?.errors) ? e.body.errors : []).find((x) => /^(quantity|lots|price)$/.test(String(x.path ?? "").split(".").pop()));
+              const msg = String(f?.message ?? e?.message ?? "Not changed").replace(/(\d),(?=\d)/g, "$1");
+              if (f) return fieldError(String(f.path).endsWith("price") ? price : qty, msg);
+              err.textContent = `Not changed: ${msg}`;
+              err.hidden = false;
               return false;
             }
           },
@@ -2415,7 +2429,10 @@ async function confirmTicket(t, byId) {
 // ── Safety ──
 
 async function renderSafety() {
-  const s = (await api("/v1/safety")).data.data;
+  const [safety, accounts] = await Promise.all([api("/v1/safety"), optional(api("/v1/accounts"))]);
+  const s = safety.data.data;
+  // Accounts by their names, as everywhere else; the id stays in the tooltip for API users.
+  const names = new Map((accounts.data?.data ?? []).map((a) => [a.id, a.label]));
   const ks = s.killSwitch ?? {};
   const engage = async () => {
     if (await confirmEngageKillSwitch()) refreshReadiness();
@@ -2491,11 +2508,12 @@ async function renderSafety() {
     flush: true,
     body: table(
       [
-        { label: "Account", cell: (a) => h("strong", {}, a.accountId) },
+        { label: "Account", cell: (a) => h("strong", { title: `Account id ${a.accountId}` }, names.get(a.accountId) || a.accountId) },
         { label: "Orders today", num: true, cell: (a) => `${formatInt((a.ordersToday ?? 0) + (a.paperOrdersToday ?? 0))} / ${formatInt(a.limits?.dailyMaxOrders)}` },
-        { label: "P&L today", num: true, cell: (a) => pnl(isFigure(a.realisedPnlToday) || isFigure(a.paperRealisedPnlToday) ? (a.realisedPnlToday ?? 0) + (a.paperRealisedPnlToday ?? 0) : null) },
-        { label: "Max loss", num: true, cell: (a) => formatRupeeGrouped(a.limits?.dailyMaxLoss, 2) },
-        { label: "Max order value", num: true, cell: (a) => formatRupeeGrouped(a.limits?.maxOrderValue, 2) },
+        { label: "P&L today", num: true, cell: (a) => pnl(isFigure(a.realisedPnlToday) || isFigure(a.paperRealisedPnlToday) ? (a.realisedPnlToday ?? 0) + (a.paperRealisedPnlToday ?? 0) : null, 0) },
+        // Limits are whole rupees: no paise.
+        { label: "Max loss", num: true, cell: (a) => formatRupeeGrouped(a.limits?.dailyMaxLoss, 0) },
+        { label: "Max order value", num: true, cell: (a) => formatRupeeGrouped(a.limits?.maxOrderValue, 0) },
         { label: "Max lots", num: true, cell: (a) => formatInt(a.limits?.maxLotsPerOrder) },
         { label: "Orders / s", num: true, cell: (a) => formatInt(a.limits?.orderRatePerSecond) },
         { label: "Market orders", cell: (a) => cap(a.limits?.marketOrders ?? "protect") },

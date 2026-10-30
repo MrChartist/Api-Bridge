@@ -15,6 +15,7 @@
  */
 import { BridgeError } from "../core/errors.mjs";
 import { json } from "../core/http.mjs";
+import { startupReady } from "../core/startup.mjs";
 import { ACCOUNT_RE, CLIENT_ORDER_ID_RE, ORDER_STATUSES, cancelAllSchema, parseWith } from "./orderValidation.mjs";
 
 const invalid = (path, detail) => new BridgeError("VALIDATION_FAILED", detail, { errors: [{ path, message: detail }] });
@@ -78,6 +79,8 @@ export function createOrderRoutes(deps) {
   const svc = () => deps.orders;
   return {
     async listOrders(ctx) {
+      // While the Bridge starts, wait for startup jobs (the demo book seed): never a half-seeded book.
+      await startupReady(deps);
       const q = ctx.query;
       const status = opt(q, "status");
       if (status !== undefined && !ORDER_STATUSES.includes(status)) throw invalid("status", `status must be one of ${ORDER_STATUSES.join(", ")}.`);
@@ -128,6 +131,8 @@ export function createOrderRoutes(deps) {
     },
 
     async listTrades(ctx) {
+      // While the Bridge starts, wait for startup jobs (the demo book seed): never a half-seeded book.
+      await startupReady(deps);
       const q = ctx.query;
       const accountId = accountParam(q, { required: false });
       const mode = modeParam(q);
@@ -136,6 +141,8 @@ export function createOrderRoutes(deps) {
     },
 
     async positions(ctx) {
+      // While the Bridge starts, wait for startup jobs (the demo book seed): never a half-seeded book.
+      await startupReady(deps);
       const accountId = accountParam(ctx.query, { required: true });
       const r = await svc().positions(ctx, accountId, { mode: modeParam(ctx.query) });
       return { data: r.items, meta: meta(ctx, { accountId, mode: r.freshness.source === "paper" ? "paper" : "live", freshness: r.freshness }) };
@@ -148,6 +155,8 @@ export function createOrderRoutes(deps) {
     },
 
     async funds(ctx) {
+      // While the Bridge starts, wait for startup jobs (the demo book seed): never a half-seeded book.
+      await startupReady(deps);
       const accountId = accountParam(ctx.query, { required: true });
       const r = await svc().funds(ctx, accountId, { mode: modeParam(ctx.query) });
       return { data: r.funds, meta: meta(ctx, { accountId, mode: r.freshness.source === "paper" ? "paper" : "live", freshness: r.freshness }) };

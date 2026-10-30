@@ -232,26 +232,47 @@ For the speed agent (`events.js`, `live.js`, `desk.js` area):
   does not resolve. Its order is fixed at Intraday (refused after 15:20) and `lotSize: 1` (wrong for an F&O symbol).
 - **Chain LTP sub-figure** is the % change without a % sign ("−55.5" reads as points).
 
-Others:
-- **Watchlist IV** mixes measures: indices show the 30-day constant-maturity IV (NIFTY 24.3%), stocks the scanner's ATM
-  IV, while the chain and Volatility show the front expiry's ATM IV (28.5%). Needs a front-expiry ATM IV from the
-  server for indices, or a column label per source. Index rows show no OI change: quotes carry no previous-day OI.
-- **Freeze slicing in demo:** slices of 27 lots always exceed the demo per-order limit of 10 lots, so a big basket is
-  blocked slice by slice. Safety limits were not loosened; a note in the sheet ("per-order limit 10 lots: lower the
-  size or raise the limit") would help.
+Others (still open; the rest of this list was fixed in the follow-up below):
 - **Order ticket:** Enter in the lots field does not place (the main button is the coloured Buy / Sell, not
   `.primary`). Safer as it is; documented here so nobody "fixes" it by accident.
-- **Modify** asks for quantity in units while the ticket uses lots; its error shows "The Bridge answered 422" and the
-  message twice.
-- **Exit sheets** say "Margin effect: shown by your broker" on paper accounts, where the paper model knows it. Square
-  off does not mention an exit order already working.
+- **Square off** does not mention an exit order already working.
+- **Exit sheets** still slice at the freeze only (`options.js exitPlan`): a 40-lot exit in demo is refused slice by
+  slice by the 10-lot per-order limit, as baskets were. Same fix as the basket (`perOrderCap`) when it is needed.
 - **Strategy:** "Now −₹149" (marked at mid, after charges) beside the what-if's P&L ₹0 at the neutral scenario; Max loss
   "below 25121 / above 27379" (exercise STT makes the far tails a little worse) reads oddly.
-- **Scanner:** saving an edited library scan keeps the library name; scheduled runs wait for market hours even in demo,
-  so "new since last run" and Scan hit rows need market hours or Run now twice.
-- **Watchlists:** an unknown symbol (FOOBAR) is added silently ("1 not priced"); duplicate list names are allowed.
-- **Safety** limits table shows account ids and paise; **Recorder** counts are ungrouped (436400 leg rows).
-- **First run:** Home opened within a second of the start shows the demo book half seeded (7 legs, "not family" at
-  ₹0); a reload a few seconds later shows all 10. The seed could finish before the dashboard link is printed.
+- **Recorder** counts are ungrouped (436400 leg rows).
+- **Market calendar** at 1024: a holiday cell that also has "unverified" (Diwali Padwa) has no room for that line (the
+  tooltip and the cell's sheet say it); the special session's first word wraps inside the word ("Muhura t").
+- **Modify safety (server, not changed here):** a paper modify to 20 lots (₹2.27 lakh) passed although the account's
+  limits are 10 lots and ₹2 lakh an order: `orderService` checks a modify without the lot size or value. Worth a look
+  by whoever owns the safety gates; nothing was loosened or changed there.
+- **Live events search placeholder** cut at 1024 ("Search symbol or ev"): it is `events.js`'s own input, not a shared
+  component, so it is left for the speed agent.
 - **Tests:** `screens.test.mjs` "recomputes every tab over about 1000 legs quickly" failed once in a full run under
   load and passes alone; one full run had one failed file and the rerun was clean. Not loosened.
+
+### Fixed in the follow-up (30 Oct, evening)
+
+Checked again in demo after 19:00 IST against a fresh Bridge on port 4560 (and an untouched copy of the branch on
+4561 for the before shots); Playwright at 1440 dark, 1024 dark and 390 light. Scripts: `scratchpad/qa2/cap.cjs` (one
+flow per argument), `home.cjs` (Home the moment the Bridge answers), `sweep.cjs`; shots in `scratchpad/qa2/shots/`
+as `before-*` and `after-*`.
+
+| # | Page | Was | Now |
+|---|---|---|---|
+| 12 | Screeners › Watchlists, Home | IV mixed measures: NIFTY 24.3% (30-day constant maturity) while Chain and Volatility showed 28.5%; stocks the scanner's own ATM IV (RELIANCE 42.4% beside a chain at 37.2%). | One measure for every row: the front expiry's ATM IV, read from that expiry's chain with `chainSummary` exactly as the Option Chain reads it (NIFTY 28.6% beside the chain's 28.58%, RELIANCE 37.4%). Background priority, kept 30 s, at most 8 chains a call. Column "ATM IV (front)", tooltip with the expiry; Home's IV says the same. IV rank and HV20 unchanged (`watchlistService.mjs`, `watchlist-core.js frontExpiry`, tested). |
+| 13 | Watchlists | Index rows had no OI change (quotes carry no previous-day OI). | The near future's OI against its OI at the previous recorded close, from the Data recorder's daily rows (same expiry), tooltip "against its OI at the 29 Oct close (Data recorder)"; "–" with the old tooltip when nothing is recorded (asked again after 5 minutes). Demo futures OI does not move between days, so demo shows 0.00% (`prevFutureOi`, tested). |
+| 14 | Strategy › Place | A 40-lot basket sliced 27 + 13 under the freeze, and every slice failed the demo per-order limit of 10 lots. | Slices at the smaller of the freeze, the account's `maxLotsPerOrder` and `maxOrderValue` at the leg's price (GET /v1/safety, read when the sheet opens, before the first checks): 10 + 10 + 10 + 10. The sheet says why once: "Sliced to 10 lots per order: your per-order limit (Safety)". No limit is raised (`basket-core.js perOrderCap`, `sliceNotes`; tests in `basket-core.test.mjs`). |
+| 15 | Orders › Modify | Asked in units while the ticket asks in lots; a refusal showed "The Bridge answered 422", the reason, and the reason again. | Asks in lots, "195 qty · lot 65 · none filled yet" under the field; whole lots and the filled part are checked on the field (`flows.js modifyChange`, tested); a refusal shows once, under its field when it names one, else one line. `INVALID_ORDER` reads "The order was refused" everywhere, and an alert no longer repeats its own text in the field list. |
+| 16 | Positions › Exit, Exit all, Exit group; hedge helper | "Margin effect: shown by your broker" on paper accounts. | Paper: "Margin released ≈ ₹1.72L (NIFTY margin ₹1.72L now, ₹0 after; paper margin model)" from `span-margin.js marginImpact` (the paper engine's model; the Margin tile behind the sheet reads the same ₹1.72L). An exit that lifts a hedge says the margin goes up. Live and broker accounts keep the broker line. |
+| 17 | Stocks scanner › Save | An edited library scan was saved under the library's name ("Saved: Gap up"). | The sheet is titled "Save your edited Gap up", offers "Gap up (edited)" and refuses the library's own name on the field (`scan-library.js libraryEdited`, `savedScanName`, tested). |
+| 18 | Stocks scanner, schedules | Scheduled scans waited for market hours even in demo. | Demo runs them at any hour (the demo market ticks at any hour), labelled "Every 1 min (demo: any hour)" and "Every (minutes; demo: also after hours)"; normal mode keeps market hours (`scanService.mjs due`, tested). Checked: the 1-minute scan ran at 19:46 IST. |
+| 19 | Watchlists | FOOBAR was added silently ("1 not priced"); a second list named Banks was allowed. | Symbols new to a list must be in the instrument master (without a loaded master nothing can be checked and they are kept); the refusal is under the Add field. Names are unique, any case, on the Bridge and in the sheet (tested). |
+| 20 | Safety | Limits table showed account ids and paise (₹2,00,000.00). | Account names (id in the tooltip), whole rupees. |
+| 21 | Home, first run | Home opened a second after the start showed 1 or 7 legs and "not family ₹0". | `core/startup.mjs`: `listen()` arms a gate before binding; positions, funds, orders, trades and the book wait for the demo seed (bounded 20 s); everything else answers at once. Measured: positions asked 0.5 s after the first health answer came back at 3.2 s with the seeded leg; Home showed 10 legs at once (tested). |
+| 22 | Market calendar at 1024 | "Mahatma Gandhi…" cut in the month cell. | Holiday names in the cell use their everyday short form on two lines ("Gandhi Jayanti", "Ambedkar Jayanti", "Guru Nanak", "Diwali Padwa"); the whole cell's tooltip, its sheet and the list keep the full name (`calendar.js holidayShort`, tested). |
+
+Before / after shots (`scratchpad/qa2/shots/`): `*-watchlist-1440-dark`, `*-basket-1440-dark` (40 lots) and
+`after-basket14-1440-dark` (15 lots, sendable), `*-modify-error-1440-dark`, `*-exitall-1440-dark`,
+`*-scansave-1440-dark`, `*-scansched-list-1440-dark`, `*-wl-unknown-1440-dark`, `*-wl-dupname-1440-dark`,
+`*-safety-1440-dark`, `*-home-first-second-1440-dark`, `*-cal-1024-dark`.

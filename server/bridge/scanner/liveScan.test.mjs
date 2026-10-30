@@ -9,7 +9,7 @@ import { createFakeAccountManager } from "../accounts/fake.mjs";
 import { createEventBus } from "../core/eventBus.mjs";
 import { createNullLogger } from "../core/logger.mjs";
 import { COLUMNS, FACTS, OPERANDS, compileModel, describeModel, filterRows, matchOperand, resultsCsv, ruleWords, searchOperands, sortRows } from "../dashboard/scan-builder.js";
-import { LIBRARY, libraryRequest } from "../dashboard/scan-library.js";
+import { LIBRARY, libraryEdited, libraryRequest, savedScanName } from "../dashboard/scan-library.js";
 import { stubStreamHub } from "../market/__fixtures__/helpers.mjs";
 import { createMarketDataService } from "../market/marketDataService.mjs";
 import { createManualClock } from "../ratelimit/fake.mjs";
@@ -205,6 +205,23 @@ describe("demo: every library scan", () => {
     expect(c.matched).toBeGreaterThan(0);
     expect(c.sample.length).toBe(Math.min(8, c.matched));
     await expect(scanner.count({ universe: "NIFTY50", condition: "close > 1" })).rejects.toThrow(/live scans/);
+  });
+});
+
+describe("saving an edited library scan", () => {
+  it("knows when the scan on screen is no longer the library's and offers a name of its own", () => {
+    const lib = LIBRARY[0];
+    const req = libraryRequest(lib.id);
+    expect(libraryEdited(lib.id, req)).toBe(false);
+    expect(libraryEdited(lib.id, { ...req, condition: `${req.condition}  ` })).toBe(false);
+    expect(libraryEdited(lib.id, { ...req, condition: `${req.condition} and close > 1` })).toBe(true);
+    expect(libraryEdited(lib.id, { ...req, universe: "NIFTY50" })).toBe(true);
+    expect(libraryEdited(lib.id, { ...req, sort: { by: "close", order: "asc" } })).toBe(true);
+    expect(savedScanName(lib.name, lib.id, true)).toBe(`${lib.name} (edited)`);
+    expect(savedScanName("", lib.id, true)).toBe(`${lib.name} (edited)`);
+    expect(savedScanName(lib.name, lib.id, false)).toBe(lib.name);
+    expect(savedScanName("My breakout", lib.id, true)).toBe("My breakout");
+    expect(savedScanName("Mine", null, true)).toBe("Mine");
   });
 });
 

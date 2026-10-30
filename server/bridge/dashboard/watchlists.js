@@ -1,9 +1,11 @@
-// watchlists.js: Screeners › Watchlists. Your named lists with live quotes, % change, the near future's OI change today
-// for F&O, and ATM IV with its rank. One list can feed Live events (it writes the events selection's watchlist and
+// watchlists.js: Screeners › Watchlists. Your named lists with live quotes, % change, the near future's OI change against
+// the previous day for F&O, and the front expiry's ATM IV (the same figure as the Option Chain and Volatility) with
+// its rank. One list can feed Live events (it writes the events selection's watchlist and
 // turns its WATCHLIST universe on) and one shows on Home. Data: /v1/watchlists (watchlist-core.js does the maths on
 // the Bridge). Numbers become text only through format.js. Reads and lists only: nothing here places an order.
 import { api, app, emptyState, errorState, h, icon, istTime, modal, optional, toast } from "./app.js";
-import { DASH, formatCompact, formatFixed, formatGrouped, formatInt, formatSigned, isFigure } from "./format.js";
+import { DASH, formatCompact, formatDayMonth, formatFixed, formatGrouped, formatInt, formatSigned, isFigure } from "./format.js";
+import { clearFieldError, fieldError } from "./flows.js";
 import { normaliseSymbol, sortRows } from "./watchlist-core.js";
 
 const SLOT = "mcb.dashboard.watchlists";
@@ -62,10 +64,12 @@ export async function renderWatchlistsPage() {
   const tableHost = h("div", { class: "table-wrap wl-table-wrap" });
   const cur = () => lists.find((l) => l.id === st.id) ?? null;
 
-  async function put(id, body) {
+  /** Save a change. A refusal shows on `field` when one is given (inline, once), else as a toast. */
+  async function put(id, body, field = null) {
     const r = await optional(api(`/v1/watchlists/${encodeURIComponent(id)}`, { method: "PUT", body }));
     if (r.error) {
-      toast(`Not saved: ${r.error.message}`, { tone: "error" });
+      if (field) fieldError(field, r.error.message);
+      else toast(`Not saved: ${r.error.message}`, { tone: "error" });
       return null;
     }
     lists = lists.map((l) => (l.id === id ? r.data.data : body.events ? { ...l, events: false } : body.home ? { ...l, home: false } : l));
@@ -95,9 +99,11 @@ export async function renderWatchlistsPage() {
     const parts = addIn.value.split(/[\s,]+/).filter(Boolean);
     const good = parts.map(normaliseSymbol);
     const bad = parts.filter((_, i) => !good[i]);
-    if (bad.length) return toast(`Not a symbol: ${bad.join(", ")}`, { tone: "warn" });
+    clearFieldError(addIn);
+    if (bad.length) return fieldError(addIn, `Not a symbol: ${bad.join(", ")}. Use a name such as RELIANCE or NSE:TCS.`);
     if (!good.length) return;
-    const saved = await put(l.id, { symbols: [...l.symbols, ...good.filter((s) => !l.symbols.includes(s))] });
+    // Unknown symbols (not in the instrument master) are refused by the Bridge and said here, under the field.
+    const saved = await put(l.id, { symbols: [...l.symbols, ...good.filter((s) => !l.symbols.includes(s))] }, addIn);
     if (!saved) return;
     addIn.value = "";
     if (saved.events) await feedEvents(saved.symbols);
@@ -115,9 +121,25 @@ export async function renderWatchlistsPage() {
   async function editList(l) {
     const name = h("input", { id: "wl-name", type: "text", maxlength: "40", value: l?.name ?? "", autocomplete: "off" });
     const body = h("div", { class: "stack" }, h("label", { class: "field", for: "wl-name" }, h("span", {}, "Name"), name));
+    const taken = (v) => lists.some((x) => x !== l && x.name.toLowerCase() === v.trim().toLowerCase());
+    // The name is checked here first (empty, already used), then by the Bridge; a refusal stays in the sheet.
+    const submit = async () => {
+      const v = name.value.trim();
+      if (!v) return fieldError(name, "Give the list a name.");
+      if (taken(v)) return fieldError(name, `A list named ${v} already exists. Choose another name.`);
+      if (l) {
+        if (v === l.name) return true;
+        return Boolean(await put(l.id, { name: v }, name));
+      }
+      const r = await optional(api("/v1/watchlists", { method: "POST", body: { name: v, symbols: [] } }));
+      if (r.error) return fieldError(name, r.error.message);
+      lists.push(r.data.data);
+      st.id = r.data.data.id;
+      return true;
+    };
     const buttons = [{ label: "Cancel", value: false }];
     if (l) buttons.push({ label: "Delete list", cls: "quiet", value: "delete" });
-    buttons.push({ label: l ? "Save" : "Create", cls: "primary", value: true });
+    buttons.push({ label: l ? "Save" : "Create", cls: "primary", onClick: submit });
     const v = await modal({ title: l ? `Edit ${l.name}` : "New watchlist", body, buttons });
     if (v === "delete") {
       const ok = await modal({ title: `Delete ${l.name}?`, body: h("p", {}, `${formatInt(l.symbols.length)} symbols. Live events and Home keep working without it.`), buttons: [{ label: "Keep", value: false }, { label: "Delete", cls: "primary", value: true }] });
@@ -133,24 +155,23 @@ export async function renderWatchlistsPage() {
       return;
     }
     if (!v) return;
-    if (l) {
-      if (await put(l.id, { name: name.value })) draw();
-      return;
-    }
-    const r = await optional(api("/v1/watchlists", { method: "POST", body: { name: name.value, symbols: [] } }));
-    if (r.error) return toast(`Not created: ${r.error.message}`, { tone: "error" });
-    lists.push(r.data.data);
-    st.id = r.data.data.id;
+    if (l) return draw();
     save();
     quotes = null;
     draw();
     addIn.focus();
   }
 
-  const head = (key, label, num = true) => {
+  const head = (key, label, num = true, title = null) => {
     const on = st.sort === key;
     const b = h("button", { type: "button", class: "wl-sort", "aria-label": `Sort by ${label}`, onclick: () => ((st.dir = on ? -st.dir : key === "name" ? 1 : -1), (st.sort = key), save(), draw()) }, label, on ? h("span", { "aria-hidden": "true" }, st.dir > 0 ? " ↑" : " ↓") : null);
-    return h("th", { scope: "col", class: num ? "num" : undefined, "aria-sort": on ? (st.dir > 0 ? "ascending" : "descending") : "none" }, b);
+    return h("th", { scope: "col", class: num ? "num" : undefined, title: title ?? undefined, "aria-sort": on ? (st.dir > 0 ? "ascending" : "descending") : "none" }, b);
+  };
+  const oiTitle = (r) => {
+    if (r.oi === null || r.oi === undefined) return "No future";
+    if (!isFigure(r.oiChangePct)) return "No previous-day OI for this future yet (the recorder keeps one from its first full day)";
+    const rec = /^recorder (\d{4}-\d{2}-\d{2})$/.exec(r.oiBase ?? "");
+    return rec ? `Near future: OI against its OI at the ${formatDayMonth(rec[1])} close (Data recorder)` : "Near future: OI against the previous day's OI";
   };
   function draw() {
     listSel.replaceChildren(...lists.map((l) => h("option", { value: l.id, selected: l.id === st.id }, `${l.name} · ${formatInt(l.symbols.length)}`)));
@@ -175,7 +196,7 @@ export async function renderWatchlistsPage() {
       h(
         "table",
         { class: "desk-table wl-table" },
-        h("thead", {}, h("tr", {}, head("name", "Symbol", false), head("ltp", "Last"), head("changePct", "Chg %"), head("oiChangePct", "OI chg (fut)"), head("iv", "IV"), head("ivr", "IV rank"), h("th", { scope: "col" }, h("span", { class: "sr-only" }, "Actions")))),
+        h("thead", {}, h("tr", {}, head("name", "Symbol", false), head("ltp", "Last"), head("changePct", "Chg %"), head("oiChangePct", "OI chg (fut)", true, "Near future's OI against its OI at the previous day's close"), head("iv", "ATM IV (front)", true, "The front expiry's ATM IV: the average of the ATM call and put IV, as the Option Chain and Volatility show it. HV20 under it"), head("ivr", "IV rank"), h("th", { scope: "col" }, h("span", { class: "sr-only" }, "Actions")))),
         h(
           "tbody",
           {},
@@ -186,8 +207,8 @@ export async function renderWatchlistsPage() {
               h("th", { scope: "row" }, h("strong", {}, r.name), h("small", { class: "block muted" }, r.symbol.split(":")[0])),
               h("td", { class: "num" }, formatGrouped(r.ltp, 2), isFigure(r.change) ? h("small", { class: `block ${tone(r.change)}` }, formatSigned(r.change, 2)) : null),
               h("td", { class: "num" }, pct(r.changePct)),
-              h("td", { class: "num", title: r.oi === null || r.oi === undefined ? "No future" : isFigure(r.oiChangePct) ? "Near future: OI against the previous day's OI" : "No previous-day OI from this data source" }, r.oi === null || r.oi === undefined ? DASH : h("span", {}, pct(r.oiChangePct), h("small", { class: "block muted" }, `OI ${formatCompact(r.oi)}`))),
-              h("td", { class: "num" }, isFigure(r.iv) ? `${formatFixed(r.iv, 1)}%` : DASH, isFigure(r.hv20) ? h("small", { class: "block muted" }, `HV20 ${formatFixed(r.hv20, 1)}`) : null),
+              h("td", { class: "num", title: oiTitle(r) }, r.oi === null || r.oi === undefined ? DASH : h("span", {}, pct(r.oiChangePct), h("small", { class: "block muted" }, `OI ${formatCompact(r.oi)}`))),
+              h("td", { class: "num", title: isFigure(r.iv) ? `ATM IV of the ${formatDayMonth(r.ivExpiry)} expiry (front), as on the Option Chain` : r.fno ? "No front-expiry chain to read the ATM IV from yet" : "Not an F&O symbol" }, isFigure(r.iv) ? `${formatFixed(r.iv, 1)}%` : DASH, isFigure(r.hv20) ? h("small", { class: "block muted" }, `HV20 ${formatFixed(r.hv20, 1)}`) : null),
               h("td", { class: "num" }, isFigure(r.ivr) ? formatInt(r.ivr) : DASH),
               h(
                 "td",
@@ -228,7 +249,8 @@ export async function renderWatchlistsPage() {
       "section",
       { class: "card wl-card" },
       h("div", { class: "wl-bar" }, h("label", { class: "jr-field" }, h("span", {}, "List"), listSel), newBtn, editBtn, h("span", { class: "jr-grow" }), evLbl, homeLbl),
-      h("div", { class: "wl-addrow" }, addIn, addBtn, status),
+      // The field and its message (an unknown symbol) stay together; Add stays beside the field.
+      h("div", { class: "wl-addrow" }, h("div", { class: "field wl-add-field" }, addIn), addBtn, status),
       tableHost,
     ),
   ];

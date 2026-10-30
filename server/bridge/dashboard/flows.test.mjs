@@ -1,6 +1,6 @@
 // The pure rules behind the Create a key and Add a broker flows (flows.js).
 import { describe, expect, it } from "vitest";
-import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, excelFormula, capabilityLabel, capabilitySummary, contractName, defaultKeyName, orderStatusText, istDay, keyFormProblem, keyUse, riskAfterCharges, sessionText, ticketRisk } from "./flows.js";
+import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, excelFormula, capabilityLabel, capabilitySummary, contractName, defaultKeyName, orderStatusText, istDay, keyFormProblem, keyUse, modifyChange, riskAfterCharges, sessionText, ticketRisk } from "./flows.js";
 import { loginFormSpec } from "./app.js";
 import { snippets } from "./snippets.js";
 
@@ -80,6 +80,21 @@ describe("Orders in plain words", () => {
     expect(orderStatusText("trigger_pending").text).toBe("Waiting for trigger");
     expect(orderStatusText("rejected").tone).toBe("bad");
     expect(WORKING_ORDER.has("open") && !WORKING_ORDER.has("filled")).toBe(true);
+  });
+
+  it("Modify asks in lots like the ticket and sends the quantity in units", () => {
+    const o = { quantity: 65, filledQuantity: 0, price: 120 };
+    expect(modifyChange({ lots: "2", lotSize: 65, order: o, price: "120" })).toEqual({ body: { quantity: 130 }, quantity: 130 });
+    expect(modifyChange({ lots: "1", lotSize: 65, order: o, price: "118.5" })).toEqual({ body: { price: 118.5 }, quantity: 65 });
+    expect(modifyChange({ lots: "1.5", lotSize: 65, order: o, price: "120" }).error).toEqual({ field: "quantity", message: "Whole lots only." });
+    expect(modifyChange({ lots: "0", lotSize: 65, order: o, price: "120" }).error.message).toBe("Lots must be 1 or more.");
+    expect(modifyChange({ lots: "1", lotSize: 65, order: o, price: "120" }).error).toEqual({ field: "price", message: "Change the lots or the price first." });
+    expect(modifyChange({ lots: "1", lotSize: 65, order: { ...o, quantity: 195, filledQuantity: 130 }, price: "120" }).error.message).toBe("At least the 2 lots already filled.");
+    expect(modifyChange({ lots: "2", lotSize: 65, order: o, price: "0" }).error.field).toBe("price");
+    // A market order has no price field; an equity is asked in units.
+    expect(modifyChange({ lots: "3", lotSize: 65, order: o, limit: false })).toEqual({ body: { quantity: 195 }, quantity: 195 });
+    expect(modifyChange({ lots: "10", lotSize: 1, order: { quantity: 5, price: 100 }, price: "100" })).toEqual({ body: { quantity: 10 }, quantity: 10 });
+    expect(modifyChange({ lots: "", lotSize: 1, order: o, price: "1" }).error.message).toBe("Quantity must be 1 or more.");
   });
 });
 

@@ -166,6 +166,8 @@ export function friendlyError(err) {
       return { title: "Symbol not found", detail: `${detail} If you have not logged in to your broker today, log in on Accounts: the contract list comes from your broker. Symbols look like NSE:RELIANCE or NFO:NIFTY-2026-10-27-25000-CE.` };
     case "VALIDATION_FAILED":
       return { title: "Please check the form", detail };
+    case "INVALID_ORDER":
+      return { title: "The order was refused", detail };
     case "NOT_IMPLEMENTED":
       return { title: "Not available yet", detail };
     default:

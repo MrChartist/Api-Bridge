@@ -31,8 +31,8 @@ export default defineModule({
     const meta = (ctx) => ({ requestId: ctx.requestId });
     const handlers = {
       list: async (ctx) => ({ data: { items: svc.list() }, meta: meta(ctx) }),
-      create: async (ctx) => ({ data: svc.create(ctx.body), meta: meta(ctx) }),
-      update: async (ctx) => ({ data: svc.update(ctx.params.listId, ctx.body), meta: meta(ctx) }),
+      create: async (ctx) => ({ data: await svc.create(ctx.body), meta: meta(ctx) }),
+      update: async (ctx) => ({ data: await svc.update(ctx.params.listId, ctx.body), meta: meta(ctx) }),
       remove: async (ctx) => ({ data: svc.remove(ctx.params.listId), meta: meta(ctx) }),
       quotes: async (ctx) => ({ data: await svc.quotes(ctx.params.listId), meta: meta(ctx) }),
     };

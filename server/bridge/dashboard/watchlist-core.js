@@ -36,7 +36,34 @@ export function oiChange(oi, first) {
   return { oi: o, change: o - f, changePct: ((o - f) / f) * 100 };
 }
 
-/** One priced row: symbol, name, index, ltp, change, changePct, the future's OI and change, IV, IV rank, HV20. */
+/**
+ * The front expiry: the first listed expiry on or after today, the one the Option Chain opens on (its ATM IV is the
+ * watchlist's IV, for indices and stocks alike). Null without one.
+ */
+export function frontExpiry(expiries, today) {
+  return [...(expiries ?? [])].filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(String(x)) && x >= today).sort()[0] ?? null;
+}
+
+/**
+ * The previous trading day's OI of a future from the recorder's daily rows (raw S3 rows: { date, fut: { x, oi } }):
+ * the latest row before `today` whose near future is `expiry`. Null when none was recorded.
+ */
+export function prevFutureOi(rows, expiry, today) {
+  let best = null;
+  for (const r of rows ?? []) {
+    const f = r?.fut ?? r?.future;
+    const x = f?.x ?? f?.expiry;
+    const oi = num(f?.oi);
+    if (!r?.date || r.date >= today || x !== expiry || oi === null || oi <= 0) continue;
+    if (!best || r.date > best.date) best = { date: r.date, oi };
+  }
+  return best;
+}
+
+/**
+ * One priced row: symbol, name, index, ltp, change, changePct, the future's OI and change, IV (the front expiry's ATM
+ * IV, as on the Option Chain and Volatility: the mean of the ATM call and put IV) with its expiry, IV rank, HV20.
+ */
 export function watchRow(symbol, quote, { future = null, oi = null, vol = null } = {}) {
   const ltp = num(quote?.ltp);
   const close = num(quote?.close);
@@ -55,6 +82,7 @@ export function watchRow(symbol, quote, { future = null, oi = null, vol = null }
     oiChange: oi?.change ?? null,
     oiChangePct: oi?.changePct ?? null,
     iv: num(vol?.iv),
+    ivExpiry: vol?.expiry ?? null,
     ivr: num(vol?.ivr),
     hv20: num(vol?.hv20),
   };

@@ -78,7 +78,7 @@ export const scanRequestSchema = z
 const savedFields = {
   name: z.string().trim().min(1).max(80),
   request: z.unknown(),
-  /** Run by itself every N minutes (market hours only unless marketHoursOnly is false). */
+  /** Run by itself every N minutes (market hours only unless marketHoursOnly is false; any hour in demo mode). */
   everyMinutes: z.number().int().min(1).max(1440).nullable().optional(),
   marketHoursOnly: z.boolean().default(true),
   /** Run once after the close (15:31 IST) on each trading day. */
@@ -689,7 +689,9 @@ export function createScanner(deps) {
   function due(s, t) {
     if (dueAtClose(s, t)) return true;
     if (!s.everyMinutes || s.disabledReason) return false;
-    if (s.marketHoursOnly !== false) {
+    // Demo: the demo market ticks at any hour, so a schedule runs after hours too (the dashboard labels it "demo: any
+    // hour"). Normal mode keeps market hours.
+    if (s.marketHoursOnly !== false && !demo) {
       // Holiday-aware when the reference calendar (stream S16) is running; lib/marketHours otherwise.
       const st = referenceSessionState(t) ?? marketSession(new Date(t)).state;
       if (st !== "OPEN" && st !== "SPECIAL") return false;
