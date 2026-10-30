@@ -129,10 +129,10 @@ export function createLiveFacts(deps) {
         log?.warn?.("scanner: the daily cache could not be read; starting it again");
       }
     }
-    // Keep only today's file.
+    // Keep only today's file and a next day's one the after-close pre-warm made (prewarm below).
     if (dir && existsSync(dir)) {
       try {
-        for (const name of readdirSync(dir)) if (/^daily-\d{4}-\d{2}-\d{2}\.json$/.test(name) && name !== `daily-${d}.json`) rmSync(join(dir, name), { force: true });
+        for (const name of readdirSync(dir)) if (/^daily-\d{4}-\d{2}-\d{2}\.json$/.test(name) && name < `daily-${d}.json`) rmSync(join(dir, name), { force: true });
       } catch {
         // best effort
       }
@@ -437,5 +437,72 @@ export function createLiveFacts(deps) {
     },
     /** Daily cache size (status). */
     status: () => ({ day, dailyCached: daily.size, ivSymbols: loadIv().size }),
+    /**
+     * Fill the daily-bar cache ahead of the first scan (scanner/prewarm.mjs). For today: the same cache and day file
+     * scans use (loadDaily, one symbol at a time through the background gate). For a later day (`forDay`, after the
+     * close): bars complete up to that day go into its own day file, which becomes the cache when the day starts.
+     * `paused()` is asked before each symbol; while it says true the pre-warm waits.
+     * @param {string[]} symbols canonical
+     * @param {{ forDay?: string, signal?: AbortSignal, paused?: () => boolean, onProgress?: (done: number, total: number) => void }} o
+     * @returns {Promise<{ fetched: number, cached: number, errors: number }>}
+     */
+    async prewarm(symbols, { forDay, signal, paused = () => false, onProgress = () => {} } = {}) {
+      rollDay();
+      const target = forDay && forDay > day ? forDay : day;
+      const usage = { quotes: {}, dailyCached: 0, dailyFetched: 0, gateWaits: 0, errors: [] };
+      let store = daily;
+      if (target !== day) {
+        store = new Map();
+        const f = dayFile(target);
+        if (f && existsSync(f)) {
+          try {
+            const doc = JSON.parse(readFileSync(f, "utf8"));
+            if (doc?.version === 1 && doc.date === target) for (const [s, v] of Object.entries(doc.daily ?? {})) store.set(s, v);
+          } catch {
+            // start it again
+          }
+        }
+      }
+      const total = symbols.length;
+      let done = symbols.filter((s) => store.has(s)).length;
+      usage.dailyCached = done;
+      onProgress(done, total);
+      let sinceSave = 0;
+      const saveTarget = () => {
+        if (target === day) return saveDay();
+        const f = dayFile(target);
+        if (!f) return;
+        try {
+          mkdirSync(dir, { recursive: true, mode: 0o700 });
+          writeFileAtomic(f, `${JSON.stringify({ version: 1, date: target, daily: Object.fromEntries(store), oiBase: {}, futPrevOi: {} })}\n`);
+        } catch (err) {
+          log?.warn?.("scanner: could not save the next day's daily cache", { err: err?.message });
+        }
+      };
+      for (const s of symbols) {
+        if (signal?.aborted) break;
+        if (store.has(s)) continue;
+        while (paused() && !signal?.aborted) await sleep(2000, signal).catch(() => {});
+        if (signal?.aborted) break;
+        try {
+          await admit("history", "historical", signal, usage);
+          const h = await deps.marketData.history({ symbol: s, interval: "1d", countback: DAILY_BARS }, readOpts(signal));
+          const bars = completedBars(h.candles, target);
+          store.set(s, { bars: bars.map((b) => [b.time, b.open, b.high, b.low, b.close, Number.isFinite(b.volume) ? b.volume : null]), facts: dailyFacts(bars), source: h.freshness?.source ?? null });
+          usage.dailyFetched += 1;
+        } catch (err) {
+          if (err?.name === "AbortError" || signal?.aborted) break;
+          usage.errors.push({ symbol: s, part: "daily", code: err?.code ?? "INTERNAL" });
+        }
+        done += 1;
+        onProgress(done, total);
+        if ((sinceSave += 1) >= 20) {
+          sinceSave = 0;
+          saveTarget();
+        }
+      }
+      saveTarget();
+      return { fetched: usage.dailyFetched, cached: usage.dailyCached, errors: usage.errors.length };
+    },
   };
 }

@@ -68,7 +68,13 @@ MCP, your own scripts), goes through one path in `server/bridge/market/marketDat
    `stale: true` and `revalidating: true`, and one refresh runs behind it.
 7. **Priority**: `order` > `live` > `interactive` > `background`. Prefetches ask with `?priority=background`, so a click
    always goes first; a click that asks for the same thing joins the prefetch and raises it.
-8. The scheduler never exceeds a broker's published per-second, per-minute and per-day limits, and backs off a
+8. **Scanner pre-warm** (`scanner/prewarm.mjs`): the daily bars of NIFTY50 and FNO (about 200 symbols) go into the
+   scanner's own daily cache (`<home>/data/scanner/daily-<date>.json`) 30 s after start and again at 15:50 IST for the
+   next weekday, one symbol at a time at background priority through the shared gate, paused while any
+   non-background broker request happened in the last 10 s. The first scan of the day then makes no daily-bar calls
+   (a cold 200-symbol scan was about 200 calls and 219 s). The budget popover shows "Preparing scans N/200" while it
+   runs. Not in demo mode (the demo scanner reads no broker).
+9. The scheduler never exceeds a broker's published per-second, per-minute and per-day limits, and backs off a
    throttled account and class (unchanged).
 
 `server/bridge/market/sharedReads.test.mjs` counts real broker calls through the real scheduler (Dhan policy) for:

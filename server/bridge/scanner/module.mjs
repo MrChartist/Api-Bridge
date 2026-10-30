@@ -74,6 +74,7 @@ export default defineModule({
   },
   async start(deps) {
     scanners.get(deps)?.startSchedule();
+    scanners.get(deps)?.startPrewarm?.();
   },
   async stop(deps) {
     scanners.get(deps)?.stop();
