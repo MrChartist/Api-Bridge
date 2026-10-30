@@ -303,10 +303,20 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
     return view(t);
   }
 
+  /**
+   * Who may change or cancel a trigger: a key that may use its account and, for a live trigger, has the "live" scope
+   * (as for changing or cancelling a live order). AI assistant keys cannot change one (they cannot set one either).
+   */
+  function requireWrite(ctx, t, action) {
+    ctx.requireAccountAccess(t.account);
+    if (action === "change" && ctx.key?.clientKind === "mcp") throw new BridgeError("SCOPE_REQUIRED", "Triggers place orders on their own later, so AI assistant keys cannot change them. Change them from the dashboard or a script.");
+    if (t.mode === "live" && !(ctx.scopes?.has("live") || ctx.principal?.kind === "local")) throw new BridgeError("SCOPE_REQUIRED", `${action === "change" ? "Changing" : "Cancelling"} a live trigger needs a key with the "live" scope.`);
+  }
+
   /** Change a trigger price, a limit price or the trail of an open trigger (not while it is firing). */
   async function update(ctx, id, changes) {
     const t = find(id);
-    ctx.requireAccountAccess(t.account);
+    requireWrite(ctx, t, "change");
     if (!["waiting", "active"].includes(t.status)) throw new BridgeError("STATE_CONFLICT", `Trigger ${id} is ${t.status}; only a waiting or active trigger can be changed.`);
     const legs = Array.isArray(changes?.legs) ? changes.legs : null;
     if (!legs || legs.length !== t.legs.length) throw invalid("legs", `Send legs as a list of ${t.legs.length}, in order, with the fields to change.`);
@@ -332,7 +342,7 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
 
   function cancel(ctx, id, reason = "Cancelled by you.") {
     const t = find(id);
-    ctx.requireAccountAccess(t.account);
+    requireWrite(ctx, t, "cancel");
     if (!["waiting", "active"].includes(t.status)) throw new BridgeError("STATE_CONFLICT", `Trigger ${id} is ${t.status}; it cannot be cancelled now.`);
     close(t, "cancelled", { message: reason });
     return view(t);
@@ -446,7 +456,8 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
 
   /** A bracket's exits arm when its entry fills (with the filled quantity); a cancelled or rejected entry cancels them. */
   async function syncParent(t, order) {
-    if (!order) return;
+    // Only a bracket still waiting: it may have been cancelled (or armed) while its entry order was being read.
+    if (!order || t.status !== "waiting") return;
     if (order.status === "filled") {
       const q = Number(order.filledQuantity ?? order.quantity);
       for (const leg of t.legs) if (q > 0) leg.order.quantity = Math.min(leg.order.quantity, q);
@@ -475,13 +486,14 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
         try {
           await syncParent(t, await deps.orders.get(ctxFor(t), t.parentOrderId));
         } catch (err) {
-          if (err?.code === "ORDER_NOT_FOUND") close(t, "cancelled", { message: "The entry order was not found." });
+          if (err?.code === "ORDER_NOT_FOUND" && t.status === "waiting") close(t, "cancelled", { message: "The entry order was not found." });
         }
       }
       // After-market orders: at the open, one gap check for a market order, then the normal fire (every gate).
       for (const t of state.items.filter((x) => x.status === "active" && x.origin === "amo" && Date.parse(x.openAt) <= t0 && (!x.retryAt || Date.parse(x.retryAt) <= t0))) {
         const leg = t.legs[0];
         const px = await ltpOf(t.symbol, t.mode);
+        if (t.status !== "active") continue; // cancelled (or expired) while the price was read: never sent
         if (leg.order.orderType === "MARKET") {
           const band = Number(deps.safety?.limits?.(t.account)?.limits?.priceBandPct);
           const ref = Number(t.ltpAtCreate);

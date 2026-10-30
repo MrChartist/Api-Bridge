@@ -367,3 +367,72 @@ describe("an after-market order is not warned about today's daily limits", () =>
     svc.cancel(ctx("paper"), gtt.id);
   });
 });
+
+describe("adversarial review: cancels and scopes", () => {
+  const quiet = { timers: { setInterval: () => 0, clearInterval: () => {} } };
+  const at = async (day, hhmm) => {
+    const target = Date.parse(`${day}T${hhmm}:00+05:30`);
+    if (target > clock.now()) await clock.advance(target - clock.now());
+  };
+
+  it("an after-market order cancelled while the engine reads the opening price is not sent", async () => {
+    await at("2026-10-28", "16:00");
+    md.setPrice("NSE:RELIANCE", 1400);
+    let during = null;
+    const marketData = { ...md, ltp: async (...a) => {
+      const r = await md.ltp(...a);
+      const f = during;
+      during = null;
+      f?.();
+      return r;
+    } };
+    const s2 = createTriggerService({ ...app.deps, marketData }, quiet);
+    const t = await s2.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", origin: "amo", legs: [{ order: { side: "BUY", quantity: 1, orderType: "LIMIT", price: 1401 } }] });
+    await at("2026-10-29", "09:15");
+    during = () => s2.cancel(ctx("paper"), t.id);
+    expect(await s2.runOnce()).toBe(0);
+    expect(s2.get(ctx("paper"), t.id).status).toBe("cancelled");
+    const sent = (await app.deps.orders.list(ctx("paper"), { accountId: "paper", limit: 500 })).items.filter((o) => o.clientOrderId === t.id);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("a bracket cancelled while the engine reads its entry order stays cancelled (is not re-armed)", async () => {
+    await at("2026-10-29", "10:00");
+    md.setPrice("NSE:RELIANCE", 1400);
+    const entry = (await app.deps.orders.place(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", side: "BUY", quantity: 1, product: "CNC", orderType: "MARKET" })).order;
+    await clock.advance(1000);
+    let during = null;
+    const orders = { ...app.deps.orders, get: async (...a) => {
+      const r = await app.deps.orders.get(...a);
+      const f = during;
+      during = null;
+      f?.();
+      return r;
+    } };
+    const s2 = createTriggerService({ ...app.deps, orders }, quiet);
+    const t = await s2.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", origin: "bracket", parentOrderId: entry.orderId, legs: [{ trigger: 1300, op: "below", order: { side: "SELL", quantity: 1 } }] });
+    expect(t.status).toBe("waiting");
+    expect((await app.deps.orders.get(ctx("paper"), entry.orderId)).status).toBe("filled");
+    during = () => s2.cancel(ctx("paper"), t.id);
+    await s2.runOnce();
+    expect(s2.get(ctx("paper"), t.id).status).toBe("cancelled");
+  });
+
+  it("a live trigger cannot be changed or cancelled by a key without the live scope; an AI assistant key cannot change one", async () => {
+    await at("2026-10-29", "10:30");
+    md.setPrice("NSE:RELIANCE", 1400);
+    const s2 = createTriggerService(app.deps, quiet);
+    const t = await s2.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", legs: [{ trigger: 1450, order: { side: "BUY", quantity: 1 } }] });
+    const m = await reject(s2.update(ctx("mcp"), t.id, { legs: [{ trigger: 1410 }] }));
+    expect(m.code).toBe("SCOPE_REQUIRED");
+    // As if it had been set live by a live key (a paper account cannot hold one): a paper key may not steer it.
+    s2._state().items.find((x) => x.id === t.id).mode = "live";
+    const u = await reject(s2.update(ctx("paper"), t.id, { legs: [{ trigger: 1401 }] }));
+    expect(u.code).toBe("SCOPE_REQUIRED");
+    const c = await reject(Promise.resolve().then(() => s2.cancel(ctx("paper"), t.id)));
+    expect(c.code).toBe("SCOPE_REQUIRED");
+    expect(s2.get(ctx("paper"), t.id).legs[0].trigger).toBe(1450);
+    s2.cancel(ctx("live"), t.id);
+    expect(s2.get(ctx("paper"), t.id).status).toBe("cancelled");
+  });
+});
