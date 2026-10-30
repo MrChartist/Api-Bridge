@@ -3228,6 +3228,13 @@ button.toast-undo { --btn-h: 28px; --btn-px: 10px; --btn-fs: 13px; --btn-bg: tra
 /* The sticky bar (≤ 1023): toasts and the page's last row stay above it (--bottom-extra = its 56 px + 12 px margin,
    app.css 4 · SHELL), only while it shows (it hides with no legs). */
 @media (max-width: 1023px) { :root[data-page="strategy"]:has(.strat-bar:not([hidden])) { --bottom-extra: 68px; } }
+/* The bar is in flow (sticky, the panel's last child), so the page needs no room under it: without the extra bottom
+   padding the bar's resting place at the end of the scroll is its stuck place, and the toast stays above it there too.
+   The panel clips the bar's backing, which would otherwise run past the panel's bottom edge onto the page. */
+@media (max-width: 1023px) {
+  :root[data-page="strategy"] .app-main { padding-bottom: calc(var(--tabbar-h) + 24px + var(--safe-b)); }
+  :root[data-page="strategy"] .strat-panel { overflow: clip; }
+}
 
 /* Desktop: the build column (legs, risk, suggest) stays in view while the analysis scrolls; .no-stick when taller. */
 @media (min-width: 1024px) {
@@ -6613,6 +6620,8 @@ table.chain tfoot .foot-pcr { white-space: nowrap; }
   :root[data-layout="desk"] #content > .movable > .panel-edge { display: none; }
   :root[data-layout="desk"] #content > .movable .panel-tools.in-head { position: static; display: flex; flex: none; gap: 0; margin-left: auto; padding: 0; transform: none; opacity: 1; pointer-events: auto; border-radius: 99px; background: var(--mat-fill-1); box-shadow: none; }
   :root[data-layout="desk"] #content > .movable > .panel-tools { position: static; display: flex; justify-content: flex-end; gap: 0; height: 44px; padding: 0 4px; transform: none; opacity: 1; pointer-events: auto; border-radius: 0; background: none; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+  /* A movable that is not a panel (a row of cards) has no edge for the strip's rule to close: no rule there. */
+  :root[data-layout="desk"] #content > .movable:not(.desk-panel) > .panel-tools { box-shadow: none; }
 }
 
 /* Touch targets: 44 × 44 on coarse pointers for every Options control (PRD 08 §9.4). */
@@ -6655,6 +6664,24 @@ button.ref-chip[data-tone="warn"] { color: hsl(var(--warn-ink)); }
 button.ref-chip[data-tone="bad"] { color: hsl(var(--neg-ink)); }
 .ref-chip-dot { width: 7px; height: 7px; border-radius: 99px; background: hsl(var(--warn)); box-shadow: 0 0 0 1px hsl(var(--warn-ink) / 0.6); flex: none; }
 .ref-chip-dot[hidden] { display: none; }
+/* In the Options top bar the chip gives way first: it shrinks to its icon (text ellipsis) before the context capsule
+   is squeezed, so the spot and the account pill are never cut or pushed under the live control. */
+#toolbar-ctx > button.ref-chip { flex: 0 1000 auto; min-width: 40px; overflow: hidden; }
+#toolbar-ctx > button.ref-chip .ref-chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#toolbar-ctx > .ctx-acct { flex: none; }
+/* Tablets: the spot keeps its % change only and a live control is its dot (the time is in its label), so the chip
+   keeps most of its words beside the full capsule. */
+@media (min-width: 720px) and (max-width: 1023px) {
+  .ctx-spot .chg-abs { display: none; }
+  #toolbar-ctx button.live-ctl[data-kind="live"] { min-width: 44px; padding: 0 14px; justify-content: center; }
+  #toolbar-ctx button.live-ctl[data-kind="live"] .live-txt { display: none; }
+}
+/* Phones: the chip is short ("Lot 65") and keeps its size; the underlying never shrinks under the expiry (it used to,
+   and the two labels overlapped). The capsule clips instead, so the chain and the builder drop figures (fitCtx). */
+@media (max-width: 719px) {
+  #toolbar-ctx > button.ref-chip { flex: none; }
+  .ctx-cap .ctx-u { flex-shrink: 0; }
+}
 
 .ref-facts { display: flex; flex-direction: column; gap: 10px; min-width: min(360px, 100%); padding: 2px 16px 14px; }
 .ref-facts-list { display: flex; flex-direction: column; margin: 0; }
@@ -6739,7 +6766,7 @@ button.cal-help { width: 30px; height: 30px; font: 600 13px/1 var(--font-body); 
 button.cal-csv svg { width: 13px; height: 13px; }
 .cal-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .cal-body h3 { margin: 4px 0 0; font: 600 13px/1.2 var(--font-body); }
-.cal-body h3 small { font-weight: 500; color: hsl(var(--foreground) / var(--a-quiet)); }
+.cal-body h3 small { font-size: 12px; font-weight: 500; color: hsl(var(--foreground) / var(--a-quiet)); }
 .cal-loading { margin: 0; padding: 18px 0; }
 .cal-method { margin: 0; padding: 4px 16px 16px; max-width: 46ch; font: 400 13.5px/1.55 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .cal-note-line { margin: 0; font: 500 13px/1.45 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }

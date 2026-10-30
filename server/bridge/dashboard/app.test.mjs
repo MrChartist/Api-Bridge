@@ -303,6 +303,8 @@ describe("UI pass 3 §5: the menu and the merged pages", async () => {
     expect(route("#signin=abc").page.id).toBe("home");
     expect(route("#/api").tab.id).toBe("keys");
     expect(route("#/api/nope").tab.id).toBe("keys");
+    expect(route("#/api/nope").redirect).toBe("#/api/keys");
+    expect(route("#/api/keys").redirect).toBe(null);
     expect(route("#/api", (id) => (id === "api" ? "limits" : null)).tab.id).toBe("limits");
     expect(route("#/api/nope", () => "gone").tab.id).toBe("keys");
   });

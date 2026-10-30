@@ -1969,7 +1969,8 @@ function createProfile({ onPick, onToggle, onJump }) {
       for (const i of want) {
         if (taken.includes(i)) continue;
         const x = xOf(i);
-        if (taken.some((j) => Math.abs(xOf(j) - x) < 44)) continue;
+        // The ATM pill is wider than a strike label ("◆ 26450"): keep half of it plus half a label clear of it.
+        if (taken.some((j) => Math.abs(xOf(j) - x) < (m.pts[j].k === m.atm && atmW ? atmW / 2 + 22 : 44))) continue;
         taken.push(i);
         const txt = formatInt(m.pts[i].k);
         if (m.pts[i].k === m.atm) {

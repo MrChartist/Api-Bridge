@@ -737,14 +737,15 @@ export async function renderRecorderPage() {
   const accounts = (accountsRes.data?.data ?? []).filter((a) => a.broker !== "paper" && (a.capabilities ?? []).includes("optionChain"));
   const canEdit = onThisComputer();
 
-  const tilesEl = h("div", { class: "grid cols-4 stats rec-tiles" });
-  const warnEl = h("div", { class: "rec-warns" });
+  // The tiles, notices and the coverage row keep their place (data-fixed); only the full-width panels move.
+  const tilesEl = h("div", { class: "grid cols-4 stats rec-tiles", "data-fixed": "" });
+  const warnEl = h("div", { class: "rec-warns", "data-fixed": "" });
   const covBody = h("div", { class: "rec-cov-body" });
   const covSub = h("p", {});
   const budgetBody = h("div", { class: "rec-budget-body" });
   const diskBody = h("div", { class: "rec-disk-body" });
   const settingsHost = h("div", { class: "rec-settings-host" });
-  const errEl = h("div", { class: "rec-err" });
+  const errEl = h("div", { class: "rec-err", "data-fixed": "" });
 
   // Desk panels, as on the data pages the recordings feed (OI, Volatility): one edge, one radius, the dense gap.
   const panel = (cls, key, title, sub, body, flush = false) =>
@@ -905,7 +906,7 @@ export async function renderRecorderPage() {
     errEl,
     tilesEl,
     warnEl,
-    h("div", { class: "rec-main" }, covCard, h("div", { class: "rec-side" }, budgetCard, diskCard)),
+    h("div", { class: "rec-main", "data-fixed": "" }, covCard, h("div", { class: "rec-side" }, budgetCard, diskCard)),
     settingsCard,
     feasibilityEl(feasibility, status.account?.broker ?? null),
     footer,

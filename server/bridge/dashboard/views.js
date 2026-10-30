@@ -336,6 +336,8 @@ export function resolveRoute(hash, { pages = PAGES, lastTab = () => null } = {})
   if (page.tabs?.length) {
     const find = (id) => (id ? page.tabs.find((t) => t.id === id) : undefined);
     tab = find(tabId) ?? find(lastTab(page.id)) ?? find(page.defaultTab) ?? page.tabs[0];
+    // A tab that no longer exists (#/api/nope) shows its stand-in under the stand-in's own address.
+    if (tabId && tab.id !== tabId) redirect = `#/${page.id}/${tab.id}${query ? `?${query}` : ""}`;
   }
   return { page, tab, query, redirect, view: tab?.page ?? page.id, layout: tab?.layout ?? page.layout ?? "" };
 }
@@ -616,7 +618,8 @@ async function show() {
   root.classList.toggle("api-page", page.id === "api");
   document.title = tab ? `${tab.label} · ${page.label} · Mr. Chartist API Bridge` : `${page.label} · Mr. Chartist API Bridge`;
   $("toolbar-icon").replaceChildren(pageGlyph(page));
-  $("toolbar-label").textContent = tab ? `${page.label}: ${tab.label}` : page.label;
+  // The page name only: the tab strip right under it names the tab ("API: Integrations" clipped on phones).
+  $("toolbar-label").textContent = page.label;
   $("page-eyebrow").textContent = page.id === "home" ? IST_DAY.format(new Date()) : page.group;
   $("page-title").replaceChildren(...headline(page));
   $("page-sub").textContent = tab?.sub ?? page.sub;
@@ -684,7 +687,8 @@ const saveLayout = (root, pageId) => local.set(layoutSlot(pageId), JSON.stringif
  * maximise it, and put the panels in the order this browser saved for the page. Panels marked data-fixed stay put.
  */
 function arrangePanels(root, pageId) {
-  const items = [...root.children].filter((el) => !el.hasAttribute("data-fixed") && !el.matches("p, .alert"));
+  // Empty hosts (an error or notice slot that fills later) are not panels: a move strip on them is a bare rule.
+  const items = [...root.children].filter((el) => !el.hasAttribute("data-fixed") && !el.matches("p, .alert") && (el.firstElementChild || el.textContent.trim()));
   if (items.length < 2 && !items.some((el) => el.dataset.panel)) return;
   items.forEach((el, i) => {
     el.dataset.panelKey = panelKey(el, i);
