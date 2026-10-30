@@ -205,14 +205,14 @@ describe("chain-based routes (read key)", () => {
 });
 
 describe("futures, basis and flows", () => {
-  it("GET /basis on the monthly expiry has a numeric basis; the weekly one reports the missing future", async () => {
+  it("GET /basis on the monthly expiry has a numeric basis; a weekly expiry reads its month's future", async () => {
     const d = expectEnvelope(await get(`/v1/analytics/basis?underlying=NIFTY&expiry=${monthly}`));
     for (const k of ["spot", "future", "daysToExpiry", "basis", "basisPct", "annualisedPct"]) expect(isNum(d[k]), k).toBe(true);
     expect(d.state).toBe("contango");
     const w = await get(`/v1/analytics/basis?underlying=NIFTY&expiry=${weekly}`);
     expect(w.status).toBe(200);
-    expect(w.body.data.future).toBeNull();
-    expect(w.body.errors[0]).toMatchObject({ code: "SYMBOL_NOT_FOUND" });
+    expect(isNum(w.body.data.future)).toBe(true);
+    expect(w.body.data.futureSymbol).toContain(`-${monthly}-FUT`);
   });
 
   it("GET /futures: the monthly future is priced; weeklies are null with an error entry", async () => {

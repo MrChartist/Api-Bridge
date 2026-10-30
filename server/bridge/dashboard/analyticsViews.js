@@ -779,14 +779,14 @@ async function renderPayoff(H) {
         strike.disabled = l.type === "FUT";
         return h(
           "div",
-          { class: "leg-row", role: "group", "aria-label": `Leg ${i + 1}` },
+          { class: "an-leg-row", role: "group", "aria-label": `Leg ${i + 1}` },
           H.field("Type", type),
           H.field("Side", sel("side", [["buy", "Buy"], ["sell", "Sell"]], "side")),
           H.field("Strike", strike),
           H.field("Price", num("price", "price")),
           H.field("Lots", num("lots", "lots", { step: "1", min: "1" })),
           H.field("Lot size", num("lotSize", "lot size", { step: "1", min: "1" })),
-          h("button", { type: "button", class: "small leg-remove", "aria-label": `Remove leg ${i + 1}`, disabled: legs.length < 2, onclick: () => { legs.splice(i, 1); drawLegs(); } }, icon("close"), "Remove"),
+          h("button", { type: "button", class: "small an-leg-remove", "aria-label": `Remove leg ${i + 1}`, disabled: legs.length < 2, onclick: () => { legs.splice(i, 1); drawLegs(); } }, icon("close"), "Remove"),
         );
       }),
     );
@@ -883,7 +883,7 @@ async function renderCalculators(H) {
   // Greeks
   const g = { spot: mkNum("g-spot", {}), strike: mkNum("g-strike"), days: mkNum("g-days", { min: "0" }), iv: mkNum("g-iv", { min: "0" }), price: mkNum("g-price", { min: "0" }), rate: mkNum("g-rate", { min: "0", placeholder: "6.5" }) };
   const type = H.segmented("Option type", [["CE", "Call"], ["PE", "Put"]], "CE");
-  const mode = H.segmented("Known value", [["iv", "I know the IV"], ["price", "I know the price"]], "iv");
+  const mode = H.segmented("Known value", [["iv", "IV"], ["price", "Price"]], "iv");
   const ivField = H.field("IV (percent)", g.iv);
   const priceField = H.field("Option price", g.price);
   priceField.hidden = true;

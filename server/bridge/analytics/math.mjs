@@ -87,6 +87,22 @@ export function unitMultiplier(chain) {
   return chain?.units === "lots" ? num(chain?.lotSize) || 1 : 1;
 }
 
+/**
+ * Futures expire once a month, on the month's last listed expiry (index options also have weekly expiries, which
+ * have no future). The monthly expiries in a list, sorted. Pure.
+ */
+export function monthlyExpiries(expiries) {
+  const by = new Map();
+  for (const e of [...(expiries ?? [])].filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(String(x))).sort()) by.set(e.slice(0, 7), e);
+  return [...by.values()];
+}
+
+/** The future that goes with an option expiry: its month's monthly expiry, else the next one; null when none. Pure. */
+export function futureExpiryFor(expiries, expiry) {
+  const monthly = monthlyExpiries([...(expiries ?? []), expiry].filter(Boolean));
+  return monthly.find((e) => e >= expiry) ?? null;
+}
+
 export function gammaExposure(chain) {
   const rows = rowsOf(chain);
   const spot = num(chain?.underlyingLtp);

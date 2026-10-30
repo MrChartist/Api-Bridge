@@ -130,6 +130,12 @@ export function tideFlowSeries(points, k = 3) {
   ];
 }
 
+/** Volume against OI for a cell: above 100 times it reads ">100x" (a far strike with almost no open interest), the exact figure in the tooltip. Pure. */
+export function volOiText(v) {
+  if (!isFigure(v)) return DASH;
+  return Number(v) > 100 ? ">100x" : `${formatFixed(v, 2)}x`;
+}
+
 /** The sentiment in one plain sentence (pure). */
 export function sentimentWords(sent) {
   const label = sent?.label ?? "neutral";
@@ -150,13 +156,10 @@ function sentimentGauge(sent) {
   return h("div", { class: "sent-gauge-wrap" }, svg, h("div", { class: "sent-gauge-ends", "aria-hidden": "true" }, h("span", {}, "Bearish"), h("span", {}, "Bullish")));
 }
 
-/** The sentiment's formula and threshold behind "?" (a sheet), not printed on the page. */
-function ruleHelp(sent) {
-  if (!sent?.rule) return null;
-  const text = `${sent.rule}${isFigure(sent.threshold) ? ` Neutral inside ±${formatFixed(sent.threshold, 2)}.` : ""}`;
-  const b = h("button", { type: "button", class: "icon-btn tiny an-help", "aria-label": "How the sentiment is worked out", title: text }, h("span", { "aria-hidden": "true" }, "?"));
-  b.addEventListener("click", () => sheetPopover({ trigger: b, title: "How the sentiment is worked out", body: h("p", { class: "an-help-text" }, text) }));
-  return b;
+/** The sentiment's formula and threshold, for the panel's "?" (not printed on the page). Pure. */
+export function ruleText(sent) {
+  if (!sent?.rule) return "";
+  return `${sent.rule}${isFigure(sent.threshold) ? ` Neutral inside ±${formatFixed(sent.threshold, 2)}.` : ""}`;
 }
 
 export function sentimentView(sent) {
@@ -577,7 +580,7 @@ async function renderUnusual(H) {
           { label: "Score", num: true, cell: (c) => h("span", { class: `score-chip ${scoreTone(c.score)}` }, formatFixed(c.score, 1)) },
           // Two flags and a "+N" chip (the rest in its tooltip), so a row stays one line on a wide screen.
           { label: "Flags", cell: (c) => h("div", { class: "flags" }, c.flags?.length ? [...c.flags.slice(0, 2).map((f) => h("span", { class: `pill sm ${flagInfo(f).tone}`, title: flagInfo(f).hint }, flagInfo(f).label)), c.flags.length > 2 ? h("span", { class: "pill sm flag-more", title: c.flags.slice(2).map((f) => flagInfo(f).label).join(", ") }, `+${formatInt(c.flags.length - 2)}`) : null] : h("span", { class: "muted small" }, "None")) },
-          { label: "Volume / OI", num: true, cell: (c) => h("div", { class: "cell-two num" }, h("span", {}, isFigure(c.volOi) ? `${formatFixed(c.volOi, 2)}x` : DASH), h("span", { class: "muted small" }, `${compact(c.volume)} / ${compact(c.oi)}`)) },
+          { label: "Volume / OI", num: true, cell: (c) => h("div", { class: "cell-two num" }, h("span", { title: isFigure(c.volOi) ? `${formatFixed(c.volOi, 2)}x` : undefined }, volOiText(c.volOi)), h("span", { class: "muted small" }, `${compact(c.volume)} / ${compact(c.oi)}`)) },
           { label: "Premium", num: true, cell: (c) => (isFigure(c.premiumInr) ? inr(c.premiumInr) : h("span", { class: "muted", title: "The chain has no lot size, so premium cannot be worked out" }, DASH)) },
           { label: "Aggressor (proxy)", cell: (c) => { const a = aggressorInfo(c.aggressor); return h("div", { class: "cell-two" }, h("span", { class: a.tone || undefined }, a.text), h("span", { class: "muted small" }, a.sub)); } },
           { label: "OTM %", num: true, cell: (c) => (isFigure(c.otmPct) ? formatFixed(c.otmPct, 1) : DASH) },
@@ -672,8 +675,9 @@ async function renderTide(H) {
         { class: "grid cols-2" },
         sectionCard(
           "Sentiment",
-          "From the split of bought and sold premium (a proxy).",
-          h("div", { class: "row" }, pill(sent.text, sent.tone), sent.score ? h("span", { class: "chip-score mono" }, `Score ${sent.score}`) : null, d.sentiment?.proxy ? pill("Proxy", "info") : null, ruleHelp(d.sentiment)),
+          // One "?" in the head holds the description and the formula (analytics.js moves a long description there).
+          `From the split of bought and sold premium (a proxy). ${ruleText(d.sentiment)}`.trim(),
+          h("div", { class: "row" }, pill(sent.text, sent.tone), sent.score ? h("span", { class: "chip-score mono" }, `Score ${sent.score}`) : null, d.sentiment?.proxy ? pill("Proxy", "info") : null),
           sentimentGauge(d.sentiment),
           h("p", { class: "sent-words" }, sentimentWords(d.sentiment)),
           d.sentiment?.reason ? h("p", { class: "muted small" }, d.sentiment.reason) : null,
