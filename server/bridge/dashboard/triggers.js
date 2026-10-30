@@ -245,7 +245,7 @@ export function triggersCard(byId) {
         const s = statusText(t);
         const why = outcomeText(t);
         // A failed or refused fire: the next step, when there is one (reasons-core.js).
-        const fix = t.status === "failed" || t.result?.status === "rejected" || t.result?.code ? whatToDo({ code: t.result?.code ?? null, message: t.result?.message ?? "" }) : null;
+        const fix = t.status === "failed" || t.result?.status === "rejected" || t.result?.code ? whatToDo({ code: t.result?.code ?? null, message: t.result?.message ?? "", mode: t.mode }) : null;
         return h("div", { class: "order-status" }, pill(s.text, s.tone), why ? h("div", { class: "muted small order-why" }, why) : null, fix ? h("div", { class: "small bk-fix" }, fix) : null);
       },
     },
