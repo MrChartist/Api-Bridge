@@ -1284,7 +1284,7 @@ async function renderDesk(kind) {
       mvSig: JSON.stringify([x.band1?.lo, x.band1?.hi, Math.round(sm.spot ?? 0), sm.maxPain]),
     });
     const be = sm.straddle && sm.atm ? [sm.atm - sm.straddle, sm.atm + sm.straddle] : null;
-    setTile("straddle", "Straddle", formatFixed(sm.straddle, 2), sm.straddle && sm.spot ? `${formatPercent((sm.straddle / sm.spot) * 100, 2)} of spot${be ? ` · BE ${formatInt(be[0])} – ${formatInt(be[1])}` : ""}` : "", { title: "ATM call + put: the market's price for a move either way; BE = the ATM strike ± the straddle", n: sm.straddle, fmt: (v) => formatFixed(v, 2) });
+    setTile("straddle", "Straddle", formatFixed(sm.straddle, 2), sm.straddle && sm.spot ? `${formatPercent((sm.straddle / sm.spot) * 100, 2)} of spot` : "", { title: `ATM call + put as a % of spot: the market's price for a move either way${be ? `. Breakevens ${formatInt(be[0])} – ${formatInt(be[1])} (the ATM strike ± the straddle)` : ""}`, n: sm.straddle, fmt: (v) => formatFixed(v, 2) });
     setTile("pcr", "PCR", formatFixed(sm.pcr, 2), `Net OI chg ${formatCompact(sm.netOiChange, { signed: true })}`, {
       n: sm.pcr,
       fmt: (v) => formatFixed(v, 2),
@@ -1298,17 +1298,17 @@ async function renderDesk(kind) {
     const wallSub = (w) => {
       if (!w) return "";
       const p = away(w.strike);
-      return `OI ${formatCompact(w.oi)}${p === null ? "" : ` · ${formatPercent(Math.abs(p), 1)} ${p < 0 ? "below" : "above"} spot`}`;
+      return `OI ${formatCompact(w.oi)}${p === null ? "" : ` · ${formatSigned(p, 1)}%`}`;
     };
-    setTile("pw", "Put wall", formatInt(sm.support?.strike), wallSub(sm.support), { title: `Strike with the most put OI of the ${formatInt(n)} loaded: support`, vcls: "ink-put" });
-    setTile("cw", "Call wall", formatInt(sm.resistance?.strike), wallSub(sm.resistance), { title: `Strike with the most call OI of the ${formatInt(n)} loaded: resistance`, vcls: "ink-call" });
+    setTile("pw", "Put wall", formatInt(sm.support?.strike), wallSub(sm.support), { title: `Strike with the most put OI of the ${formatInt(n)} loaded: support. OI, then its distance from spot`, vcls: "ink-put" });
+    setTile("cw", "Call wall", formatInt(sm.resistance?.strike), wallSub(sm.resistance), { title: `Strike with the most call OI of the ${formatInt(n)} loaded: resistance. OI, then its distance from spot`, vcls: "ink-call" });
     // Wide screens (app.css section 16 shows them from 1600 and 1920 px): the future and its basis, call and put OI
     // with today's change, and the volume PCR. The figures exist already; a wide screen has room for them.
     const chg = (v) => `chg ${formatCompact(v, { signed: true })}`;
     setTile("fut", fut ? "Future" : "Synthetic F", fwd === null ? DASH : formatFixed(fwd, fut ? 2 : 0), fwd !== null && sm.spot !== null ? `Basis ${formatSigned(fwd - sm.spot, 1)}` : "", { cls: "kpi-wide", title: fut ? "The same-expiry future and its basis to spot" : "Synthetic future from put-call parity; no future is listed for this expiry" });
     setTile("ceoi", "Call OI", formatCompact(sm.ceOi), chg(sm.ceOiChange), { cls: "kpi-wide", vcls: "ink-call", title: `Call OI over the ${formatInt(n)} strikes loaded, and today's change` });
     setTile("peoi", "Put OI", formatCompact(sm.peOi), chg(sm.peOiChange), { cls: "kpi-xwide", vcls: "ink-put", title: `Put OI over the ${formatInt(n)} strikes loaded, and today's change` });
-    setTile("vpcr", "Volume PCR", formatFixed(sm.pcrVolume, 2), `Calls ${formatCompact(sm.ceVolume)} · Puts ${formatCompact(sm.peVolume)}`, { cls: "kpi-xwide", title: "Put volume ÷ call volume today, over the strikes loaded" });
+    setTile("vpcr", "Volume PCR", formatFixed(sm.pcrVolume, 2), `C ${formatCompact(sm.ceVolume)} · P ${formatCompact(sm.peVolume)}`, { cls: "kpi-xwide", title: `Put volume ÷ call volume today, over the strikes loaded. Calls ${formatCompact(sm.ceVolume)}, puts ${formatCompact(sm.peVolume)}` });
   }
   /** The chain's extra KPI tiles: [key, label, class] (shown from 1600 px, kpi-wide, and 1920 px, kpi-xwide). */
   const WIDE_KPIS = [["fut", "Future", "kpi-wide"], ["ceoi", "Call OI", "kpi-wide"], ["peoi", "Put OI", "kpi-xwide"], ["vpcr", "Volume PCR", "kpi-xwide"]];
@@ -2769,7 +2769,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
         return cg(
           [
             selecting ? h("span", { class: `pick${on ? " on" : ""}`, role: "checkbox", "aria-checked": String(on), "aria-label": `Select ${formatInt(row.strike)} ${R(side)}` }) : null,
-            held ? h("span", { class: `held ${held > 0 ? "long" : "short"}`, title: `You hold ${formatSigned(held, 0)} lot(s)` }, formatSigned(held, 0)) : null,
+            held ? h("span", { class: `held ${held > 0 ? "long" : "short"}`, title: heldTitle(held), "aria-label": heldTitle(held) }, formatSigned(held, 0)) : null,
             h("strong", isFigure(q?.tickAgeMs) ? { class: "quiet-leg", title: `Last trade, ${ageText(q.tickAgeMs)}: no trade since on a live feed` } : {}, g(q?.ltp, 2)),
           ].filter(Boolean),
           cfg().pct ? sub(pct === null ? "" : formatSignedPercent(pct, 1), pct > 0 ? "up" : pct < 0 ? "down" : "") : null,
@@ -3329,9 +3329,13 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     if (fillMemo && fillMemo.key === key && fillMemo.wrap === w) return fillMemo.value;
     const top = w.getBoundingClientRect().top + (built.thead?.offsetHeight || 0);
     const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(cfg().dense ? "--chain-row-1" : "--chain-row")) || 40;
-    // Less the totals row, the key legend, the page's bottom padding and the spot divider row.
-    const rows = Math.floor((innerHeight - top - 36 - 30 - 24) / rowH) - 1;
-    const value = Math.max(0, Math.floor(rows / 2));
+    // Less the totals row, the key legend (only when it sits below the table: wide screens put it beside the expiry
+    // chips), the page's bottom padding and the spot divider row. Round up: the table scrolls inside, so a part row at
+    // the foot fills the panel instead of leaving a band of empty page under the totals.
+    const keys = host.parentNode?.querySelector?.(".desk-keys");
+    const legend = keys && getComputedStyle(keys).display !== "none" && keys.getBoundingClientRect().top >= w.getBoundingClientRect().top ? 30 : 0;
+    const rows = (innerHeight - top - 36 - legend - 24) / rowH - 1;
+    const value = Math.max(0, Math.ceil((rows - 1) / 2));
     fillMemo = { key, wrap: w, value };
     return value;
   };
@@ -3346,7 +3350,6 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     return new Set(O.rowsAroundAtm(x.c, st.strikesView === "all" ? Infinity : Math.max(Number(st.strikesView) || 10, drawnFill)).map((r) => r.strike));
   };
 
-  const PHONE_TAG = { mp: "MP", cw: "C wall", pw: "P wall" };
   /** Strike tags in priority order (ATM > Max pain > walls > ±1σ > ±2σ): [class, text, title]. */
   function tagsFor(row, x) {
     const c = cfg();
@@ -3523,14 +3526,14 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     L.mid.forEach((k, i) => patchCell(b.mid[i], k, null, row, "mid", x, flashes));
     const tags = tagsFor(row, x);
     // At most two tags in a cell (one, in short form, on a phone's narrow strike column); the rest are in its title.
-    const shown = L.phone ? tags.slice(0, 1).map(([cl, t, title]) => [cl, PHONE_TAG[cl] ?? t, `${t}: ${title}`]) : tags.slice(0, 2);
+    const shown = strikeTagsShown(tags, L.phone);
     const sig = `${row.strike}|${shown.map((t) => t[1]).join(",")}|${tags.length}`;
     if (b.th.__sig !== sig) {
       const before = new Set((b.th.__tags ?? "").split(",").filter(Boolean));
       const pop = !built.first && motion && b.th.__sig !== undefined;
       b.th.__sig = sig;
       b.th.__tags = shown.map((t) => t[1]).join(",");
-      b.th.title = tags.length > shown.length ? tags.map((t) => t[1]).join(" · ") : "";
+      b.th.title = tags.length > 1 ? tags.map((t) => t[1]).join(" · ") : "";
       b.th.replaceChildren(
         h(
           "span",
@@ -4168,4 +4171,24 @@ function heldLots(positions, lot) {
     if (q) out.set(p.symbol, Math.round((q / lot) * 100) / 100);
   }
   return out;
+}
+
+/** The held-lots badge before a chain LTP: what the signed number means, in words. */
+export function heldTitle(lots) {
+  const n = Math.abs(lots);
+  return `Your position: ${lots > 0 ? "long" : "short"} ${formatInt(n)} lot${n === 1 ? "" : "s"} in this contract`;
+}
+
+const PHONE_TAG = { mp: "MP", cw: "C wall", pw: "P wall" };
+const SHORT_TAG = { mp: "MP", cw: "CW", pw: "PW" };
+/**
+ * The strike tags a chain cell shows, from tagsFor's [class, text, title] list in priority order. A phone shows one
+ * (short form); a desktop cell shows two, and in short form whenever there are two, so ATM + Max Pain + a wall never
+ * spill out of the strike column. A shortened tag keeps its full name in its title.
+ */
+export function strikeTagsShown(tags, phone = false) {
+  const list = Array.isArray(tags) ? tags : [];
+  if (phone) return list.slice(0, 1).map(([cl, t, title]) => [cl, PHONE_TAG[cl] ?? t, `${t}: ${title}`]);
+  const two = list.slice(0, 2);
+  return two.length < 2 ? two : two.map(([cl, t, title]) => (SHORT_TAG[cl] ? [cl, SHORT_TAG[cl], `${t}: ${title}`] : [cl, t, title]));
 }

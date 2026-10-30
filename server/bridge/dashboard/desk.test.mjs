@@ -104,3 +104,20 @@ describe("chain round 2: presets and the fit engine", () => {
     expect(tight.hidden).toEqual(["bu"]);
   });
 });
+
+describe("strike tags in a chain cell", () => {
+  it("shows ATM + Max Pain + a wall in short forms, two at most, full names kept in titles", async () => {
+    const { strikeTagsShown, heldTitle } = await import("./desk.js");
+    const tags = [["atm", "ATM", "At the money"], ["mp", "Max Pain", "Settlement"], ["cw", "Call wall", "Most call OI"]];
+    const shown = strikeTagsShown(tags, false);
+    expect(shown.map((t) => t[1])).toEqual(["ATM", "MP"]);
+    expect(shown[1][2]).toBe("Max Pain: Settlement");
+    expect(strikeTagsShown([["mp", "Max Pain", "x"], ["cw", "Call wall", "y"]]).map((t) => t[1])).toEqual(["MP", "CW"]);
+    // One tag keeps its full name on a desktop; a phone shows one, in its phone form.
+    expect(strikeTagsShown([["cw", "Call wall", "y"]]).map((t) => t[1])).toEqual(["Call wall"]);
+    expect(strikeTagsShown(tags.slice(1), true).map((t) => t[1])).toEqual(["MP"]);
+    expect(strikeTagsShown(null)).toEqual([]);
+    expect(heldTitle(-1)).toBe("Your position: short 1 lot in this contract");
+    expect(heldTitle(3)).toBe("Your position: long 3 lots in this contract");
+  });
+});

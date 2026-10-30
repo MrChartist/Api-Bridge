@@ -372,7 +372,7 @@ export function lotSplitBody({ symbol, lots, lotSize, freezeQty, iceberg, sliceL
 // ───────────────────────── SVG (DOM) ─────────────────────────
 
 /** A line chart over candles. See seriesLayout. */
-function seriesChart(series, { label, yDecimals = 2, refs = [] }) {
+export function seriesChart(series, { label, yDecimals = 2, refs = [] }) {
   return chartHost((w) => {
     const L = seriesLayout(series, { width: w, yDecimals, refs, height: chartHeight(w) });
     const svg = svgRoot(L.width, L.height, label);
@@ -660,9 +660,35 @@ function drawFlows(res) {
     status,
     short ? note("Only part of the history is held so far", `This Bridge holds ${meta.available} session${meta.available === 1 ? "" : "s"} of the ${meta.requested} you asked for. NSE publishes one session at a time, so the history builds up while the Bridge runs and starts empty after a restart.`) : null,
     tiles(netTile("FII", latest.fii), netTile("DII", latest.dii), tile("FII run", fs.value, fs.sub, fs.tone), tile("DII run", ds.value, ds.sub, ds.tone)),
-    sectionCard("Net flow by session", "Cash-market buying less selling in ₹ crore, newest session first. Bars to the right are net buying, to the left net selling.", legend([{ cls: "s1", label: "FII / FPI" }, { cls: "s2", label: "DII" }]), strikeBars(flowItems(days), { label: `FII and DII net flows over ${days.length} sessions. Latest FII ${formatSigned(latest.fii.net, 2)} crore, DII ${formatSigned(latest.dii.net, 2)} crore.`, layout: { group: true, rowH: days.length > 20 ? 22 : 30, labelW: 52, tickFormat: (v) => formatInt(v) } })),
-    sectionCard("Rolling sums", "Net flow added up over the latest sessions the Bridge holds.", h("div", { class: "card-flush" }, table(cols, rows, emptyState("list", "No sums", ""), { mobile: "stack" }))),
-    dataDisclosure("Show as a table", detail, days),
+    // Rows grow to use the window's height (a short list is not a band of empty plot), between 26 and 46 px.
+    sectionCard("Net flow by session", "₹ crore, newest first. Right of zero is net buying.", legend([{ cls: "s1", label: "FII / FPI" }, { cls: "s2", label: "DII" }]), strikeBars(flowItems(days), { label: `FII and DII net flows over ${days.length} sessions. Latest FII ${formatSigned(latest.fii.net, 2)} crore, DII ${formatSigned(latest.dii.net, 2)} crore.`, layout: { group: true, rowH: flowRowH(days.length), labelW: 52, tickFormat: (v) => formatNumber(v, { maximumFractionDigits: 0 }) } })),
+    sectionCard("Cumulative net", "₹ crore, added up from the oldest session shown.", legend([{ cls: "s1", label: "FII / FPI" }, { cls: "s2", label: "DII" }]), seriesChart(cumulativeFlows(days), { label: `Cumulative FII and DII net flows over ${days.length} sessions`, yDecimals: 0 })),
+    sectionCard("Rolling sums", "Net flow over the latest sessions held.", h("div", { class: "card-flush" }, table(cols, rows, emptyState("list", "No sums", ""), { mobile: "stack" }))),
+    sectionCard("Sessions", "Bought, sold and net by session, ₹ crore.", h("div", { class: "card-flush" }, table(detail, days, h("p", { class: "muted small" }, "No data."), { mobile: "scroll" }))),
+  ];
+}
+
+/** Row height of the net-flow bars: the window's room shared by the sessions, 26 to 46 px (pure apart from the window). */
+export function flowRowH(n, room = typeof innerHeight === "number" ? innerHeight - 380 : 400) {
+  return Math.round(Math.max(26, Math.min(46, room / Math.max(1, n))));
+}
+
+/** Running FII and DII net, oldest session first, as two series for seriesChart (pure). */
+export function cumulativeFlows(days) {
+  const asc = [...(days ?? [])].reverse();
+  let f = 0;
+  let d = 0;
+  const fii = [];
+  const dii = [];
+  for (const r of asc) {
+    f += Number(r.fii?.net) || 0;
+    d += Number(r.dii?.net) || 0;
+    fii.push({ label: dayLabel(r.date), y: Math.round(f * 100) / 100 });
+    dii.push({ label: dayLabel(r.date), y: Math.round(d * 100) / 100 });
+  }
+  return [
+    { id: "fii", label: "FII", cls: "s1", points: fii },
+    { id: "dii", label: "DII", cls: "s2", dash: "6 3", points: dii },
   ];
 }
 

@@ -5,7 +5,7 @@
 import { api, app, card, emptyState, h, loadingState, optional, pill } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatGrouped, formatInt, formatPercent, formatSigned, formatSignedRupee, formatRupee, isFigure } from "./format.js";
 import { bookGroups } from "./alert-core.js";
-import { sessionText, startupText } from "./flows.js";
+import { contractName, orderStatusText, sessionText, startupText } from "./flows.js";
 
 const INDICES = ["NSE:NIFTY", "NSE:BANKNIFTY", "NSE:FINNIFTY", "NSE:MIDCPNIFTY", "BSE:SENSEX", "NSE:INDIAVIX"];
 const NAMES = { NIFTY: "NIFTY 50", BANKNIFTY: "BANK NIFTY", FINNIFTY: "FIN NIFTY", MIDCPNIFTY: "MIDCAP SELECT", SENSEX: "SENSEX", INDIAVIX: "INDIA VIX" };
@@ -288,6 +288,28 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
   const ks = safety.data?.data?.killSwitch;
   const ordersText = (ord) => (ord ? `${formatInt(ord.filter((o) => o.mode === "paper").length)} paper · ${formatInt(ord.filter((o) => o.mode === "live").length)} live` : DASH);
   const ordersDd = h("dd", {}, ordersText(orders.data?.data ?? null));
+  // Latest orders, newest first: the health card's elastic part on wide screens (the account rows keep their height).
+  const recentList = h("ul", { class: "ck-recent-list" });
+  const fillRecent = (ord) =>
+    recentList.replaceChildren(
+      ...(ord ?? [])
+        .slice()
+        .sort((a, b) => String(b.placedAt ?? "").localeCompare(String(a.placedAt ?? "")))
+        .slice(0, 12)
+        .map((o) => {
+          const st = orderStatusText(o.status);
+          const t = Date.parse(o.placedAt ?? "");
+          return h(
+            "li",
+            { title: o.symbol },
+            h("time", { datetime: o.placedAt ?? "" }, Number.isFinite(t) ? TIME.format(new Date(t)) : DASH),
+            h("span", { class: "ck-l" }, h("strong", {}, contractName(o.symbol)), h("small", {}, `${o.side === "SELL" ? "Sell" : "Buy"} ${formatInt(o.quantity)}${isFigure(o.avgPrice) ? ` @ ${formatFixed(o.avgPrice, 2)}` : ""} · ${o.mode === "live" ? "Live" : "Paper"}`)),
+            h("span", { class: `ck-st ${st.tone}`.trim() }, st.text),
+          );
+        }),
+    );
+  fillRecent(orders.data?.data ?? null);
+  const recentBlock = h("div", { class: "ck-recent" }, h("h3", { class: "ck-sub" }, "Latest orders"), recentList);
   const keyRows = keys.data?.data ?? [];
   const healthCard = card({
     glyph: "activity",
@@ -319,6 +341,7 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
         h("dt", {}, "API keys"),
         h("dd", {}, formatInt(keyRows.filter((k) => !k.revokedAt).length)),
       ),
+      recentList.childElementCount ? recentBlock : null,
       h("div", { class: "row ck-pills" }, ks?.engaged ? pill("Kill switch on", "bad") : pill("Kill switch off", "ok"), readyPill, safety.data?.data?.liveTrading ? pill("Live trading on", "bad") : pill("Paper only")),
     ),
   });
@@ -348,6 +371,7 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
         pnlCard = nextPnl;
         posCard = nextPos;
         ordersDd.textContent = ordersText(ord.data?.data ?? null);
+        fillRecent(ord.data?.data ?? null);
         return;
       }
     })().catch(() => {});
