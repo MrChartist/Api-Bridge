@@ -152,7 +152,7 @@ export async function renderAlgoPage() {
     const active = isActive(s.status);
     const act = active
       ? h("button", { type: "button", class: "small", "aria-label": `Stop ${s.name}`, onclick: (e) => (e.stopPropagation(), stop(s.id)) }, icon("stop"), h("span", {}, "Stop"))
-      : h("button", { type: "button", class: "small primary", disabled: Boolean(s.problem) || st.data.killSwitch, "aria-label": `Start ${s.name} in paper`, onclick: (e) => (e.stopPropagation(), selectAnd(s.id, () => start("paper"))) }, icon("play"), h("span", {}, "Start"));
+      : h("button", { type: "button", class: s.problem || st.data.killSwitch ? "small" : "small primary", disabled: Boolean(s.problem) || st.data.killSwitch, "aria-label": `Start ${s.name} in paper`, onclick: (e) => (e.stopPropagation(), selectAnd(s.id, () => start("paper"))) }, icon("play"), h("span", {}, "Start"));
     const r = h(
       "div",
       { class: `algo-row${s.id === st.sel ? " sel" : ""}`, role: "listitem" },
@@ -226,6 +226,8 @@ export async function renderAlgoPage() {
     startBtn.hidden = liveBtn.hidden = active;
     stopBtn.hidden = !active;
     startBtn.disabled = liveBtn.disabled = Boolean(s.problem) || st.data.killSwitch || st.busy;
+    // A start that cannot happen (a broken file, the kill switch) is not drawn as the page's main action.
+    startBtn.classList.toggle("primary", !(s.problem || st.data.killSwitch));
     stopBtn.disabled = s.status === "stopping" || st.busy;
     saveBtn.disabled = active || Boolean(s.problem);
     // The form is drawn again only for another strategy, a changed file, or after a start or stop (not while typing).

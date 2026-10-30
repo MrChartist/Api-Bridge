@@ -64,7 +64,7 @@ beforeAll(async () => {
   const { config } = loadConfig({ raw: { dataDir, server: { port: 0 }, logging: { level: "silent" }, fno: { demo: { callDelayMs: 0 } }, recorder: { enabled: false } }, env: {}, demo: true });
   app = await createApp({ config, overrides: { keyStore }, logger: createNullLogger() });
   ({ port } = await app.listen());
-}, 30_000);
+});
 
 afterAll(async () => {
   await app?.close();

@@ -87,12 +87,20 @@ describe("badgeModel (spec §6.2)", () => {
   });
   it("cannot_trade → bad, the broker's name; with 2 or more accounts the count", () => {
     const bad = account({ state: "cannot_trade", reasons: [IP_MISMATCH] });
-    expect(badgeModel(snap([bad], { overall: "cannot_trade" }))).toMatchObject({ cls: "bad", dot: "bad", text: "Cannot trade: Zerodha", short: "Cannot trade" });
+    expect(badgeModel(snap([bad], { overall: "cannot_trade" }))).toMatchObject({ cls: "bad", dot: "bad", text: "Cannot trade: Zerodha · IP mismatch", short: "Cannot trade" });
     const two = [bad, account({ accountId: "dhan-main", broker: "dhan", brokerName: "Dhan", state: "cannot_trade", reasons: [IP_MISMATCH] })];
     expect(badgeModel(snap(two, { overall: "cannot_trade" })).text).toBe("Cannot trade: 2 accounts");
     // A paper-only account in the list does not count.
     const paper = account({ accountId: "p", state: "cannot_trade", live: { allowedByConfig: false } });
-    expect(badgeModel(snap([bad, paper], { overall: "cannot_trade" })).text).toBe("Cannot trade: Zerodha");
+    expect(badgeModel(snap([bad, paper], { overall: "cannot_trade" })).text).toBe("Cannot trade: Zerodha · IP mismatch");
+  });
+  it("cannot_trade names the blocker: the demo account with today's order limit used up", () => {
+    const demo = account({ accountId: "demo", broker: "demo", brokerName: "Demo", simulated: true, state: "cannot_trade", reasons: [{ check: "dailyOrders", code: "DAILY_ORDERS_EXHAUSTED", severity: "fail", message: "Today's order limit is used up (100 of 100)." }] });
+    expect(badgeModel(snap([demo], { overall: "cannot_trade" }))).toMatchObject({ cls: "bad", text: "Cannot trade: Demo · order limit used up", short: "Cannot trade" });
+    // A warning listed first does not hide the failing check; no reasons at all leaves the name alone.
+    const mixed = account({ state: "cannot_trade", reasons: [{ check: "dailyLoss", code: "DAILY_LOSS_NEAR", severity: "warn" }, { check: "killSwitch", code: "KILL_SWITCH", severity: "fail" }] });
+    expect(badgeModel(snap([mixed], { overall: "cannot_trade" })).text).toBe("Cannot trade: Zerodha · kill switch on");
+    expect(badgeModel(snap([account({ state: "cannot_trade", reasons: [] })], { overall: "cannot_trade" })).text).toBe("Cannot trade: Zerodha");
   });
   it("paper_only → neutral 'Paper only'; unknown → 'Checking…', or 'Not checked since 15:44' when stale", () => {
     expect(badgeModel(snap([], { overall: "paper_only", paperOnly: true }))).toMatchObject({ cls: "", dot: "none", text: "Paper only" });

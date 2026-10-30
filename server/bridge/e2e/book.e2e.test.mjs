@@ -25,7 +25,7 @@ beforeAll(async () => {
   base = `http://127.0.0.1:${port}`;
   ({ key } = await app.deps.keyStore.create({ label: "t", scopes: ["admin", "paper"], accounts: "*" }));
   await bookFor(app.deps).seeding;
-}, 30_000);
+});
 
 afterAll(async () => {
   await app?.close();

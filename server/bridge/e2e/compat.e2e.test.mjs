@@ -10,6 +10,7 @@ import { createApp } from "../core/app.mjs";
 import { loadConfig } from "../core/config.mjs";
 import { createNullLogger } from "../core/logger.mjs";
 import { expiryToIso, isoToCompact, isoToDashed, toCanonical, fromCanonical } from "../compat/mapping.mjs";
+import { eventually } from "./fixtures.mjs";
 
 describe("compat mapping", () => {
   it("reads and writes compact symbols and dates", () => {
@@ -122,23 +123,20 @@ describe("compat REST over HTTP (demo mode)", () => {
   });
 
   it("smart orders move towards the target position; closeposition squares off", async () => {
-    // let the paper engine fill the market order from the demo market
-    const wait = () => new Promise((r) => setTimeout(r, 2500));
+    // The paper engine fills a market order from the demo market on its own tick: wait for the position to show
+    // (polling, not a fixed sleep, so a busy machine only makes this slower, never wrong).
+    const openQty = async () => (await post("openposition", { apikey: trader, strategy: "t", symbol: "TCS", exchange: "NSE", product: "MIS" })).body.quantity;
     const first = await post("placesmartorder", { apikey: trader, strategy: "t", symbol: "TCS", exchange: "NSE", action: "BUY", quantity: 0, position_size: 3, pricetype: "MARKET", product: "MIS" });
     expect(first.body.status).toBe("success");
-    await wait();
-    const pos = await post("openposition", { apikey: trader, strategy: "t", symbol: "TCS", exchange: "NSE", product: "MIS" });
-    expect(pos.body.quantity).toBe("3");
+    expect(await eventually(async () => ((await openQty()) === "3" ? "3" : null), { ms: 15_000, every: 100 })).toBe("3");
     const again = await post("placesmartorder", { apikey: trader, strategy: "t", symbol: "TCS", exchange: "NSE", action: "BUY", quantity: 0, position_size: 3, pricetype: "MARKET", product: "MIS" });
     expect(again.body.message).toMatch(/No action needed/);
     const pb = await post("positionbook", { apikey: trader });
     expect(pb.body.data.find((p) => p.symbol === "TCS").quantity).toBe("3");
     const close = await post("closeposition", { apikey: trader, strategy: "t" });
     expect(close.body.status).toBe("success");
-    await wait();
-    const after = await post("openposition", { apikey: trader, strategy: "t", symbol: "TCS", exchange: "NSE", product: "MIS" });
-    expect(after.body.quantity).toBe("0");
-  }, 15_000);
+    expect(await eventually(async () => ((await openQty()) === "0" ? "0" : null), { ms: 15_000, every: 100 })).toBe("0");
+  });
 
   it("basket and split orders report each order", async () => {
     const b = await post("basketorder", {
@@ -190,7 +188,7 @@ describe("compat REST over HTTP (demo mode)", () => {
     ws.send(JSON.stringify({ action: "unsubscribe_all" }));
     expect(await next((m) => m.type === "unsubscribe")).toMatchObject({ status: "success" });
     ws.close();
-  }, 20_000);
+  });
 
   it("WebSocket: a bad key is refused and closed", async () => {
     const ws = new WebSocket(`${base.replace("http", "ws")}/api/v1/ws`);
