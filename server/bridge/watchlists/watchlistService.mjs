@@ -2,9 +2,10 @@
  * User watchlists: named lists of symbols in the Bridge home (<dataDir>/watchlists/lists.json, atomic writes), and
  * one read that prices a list for the dashboard: last price, % change, OI and its change today for F&O, and ATM IV.
  *
- * Budget: one quotes call for the whole list (the market-data service batches, caches and streams it); the near
- * future of an F&O underlying is found once a day per symbol; IV comes from the vol service's memory summary, which
- * makes no broker call. OI change is measured from the first OI this Bridge saw for the contract today.
+ * Stocks reuse the stock scanner's facts (scanner/facts.mjs: ATM IV, HV20, IV rank, the near future's OI and its
+ * change against the previous day's OI; demoFacts in demo). Indices read one quotes call for their near futures and
+ * the vol service's memory summary for IV (no broker call); their OI change is against the previous day's OI when the
+ * quote carries it (`oiPrev`), else it is left blank.
  *
  * A list may be marked `events` (it feeds Live events' WATCHLIST universe; the dashboard writes the events selection)
  * and `home` (shown on the Home cockpit). Reads and writes only lists: it places nothing.
@@ -14,6 +15,7 @@ import { join } from "node:path";
 import { BridgeError } from "../core/errors.mjs";
 import { writeFileAtomic } from "../auth/fsUtil.mjs";
 import { normaliseSymbol, nearFuture, oiChange, watchRow } from "../dashboard/watchlist-core.js";
+import { scannerFor } from "../scanner/module.mjs";
 
 export const MAX_LISTS = 20;
 export const MAX_SYMBOLS = 100;
@@ -26,13 +28,11 @@ const DEMO_LISTS = Object.freeze([
 const istDay = (ms) => new Date(ms + 19_800_000).toISOString().slice(0, 10);
 
 /** @param {object} deps core deps plus marketData and (optional) vol */
-export function createWatchlistService(deps) {
+export function createWatchlistService(deps, { factsFor = null } = {}) {
   const dir = join(deps.paths.dataDir, "watchlists");
   const file = join(dir, "lists.json");
   const now = () => deps.clock?.now?.() ?? Date.now();
   let state = null;
-  /** symbol -> { day, oi }: the first OI seen today. */
-  const firstOi = new Map();
   /** underlying -> { day, symbol|null }: the near future, found once a day. */
   const futures = new Map();
 
@@ -147,6 +147,18 @@ export function createWatchlistService(deps) {
           errors.push({ symbol: null, message: err?.message ?? "Quotes are unavailable." });
         }
       }
+      // Stocks: the scanner's facts (previous-day OI base, IV and IV rank).
+      let facts = {};
+      const scanner = scannerFor(deps);
+      const source = factsFor ?? (scanner && typeof scanner.factsFor === "function" ? (syms) => scanner.factsFor(syms) : null);
+      const stocks = l.symbols.filter((s) => !watchRow(s, null).index);
+      if (source && stocks.length) {
+        try {
+          facts = (await source(stocks)) ?? {};
+        } catch (err) {
+          errors.push({ symbol: null, message: `Stock facts unavailable: ${err?.message ?? "error"}` });
+        }
+      }
       let vol = new Map();
       const unders = [...new Set(l.symbols.map((s) => s.split(":")[1]))].slice(0, 20);
       if (deps.vol && typeof deps.vol.summary === "function" && unders.length) {
@@ -164,12 +176,17 @@ export function createWatchlistService(deps) {
         const f = futOf(s);
         const fq = f ? q.get(f) : null;
         let oi = null;
-        if (fq && Number.isFinite(Number(fq.oi))) {
-          const first = firstOi.get(f);
-          if (!first || first.day !== day) firstOi.set(f, { day, oi: Number(fq.oi) });
-          oi = oiChange(Number(fq.oi), firstOi.get(f).oi);
+        const fx = facts[s] ?? null;
+        if (fx && fx.fut_oi !== null) {
+          oi = { oi: fx.fut_oi, change: null, changePct: fx.fut_oi_change_pct };
+        } else if (fq && Number.isFinite(Number(fq.oi))) {
+          const prev = Number(fq.oiPrev ?? fq.prevOi);
+          // Without a previous-day OI from the source, the OI shows with no change (never a change from an intraday base).
+          oi = Number.isFinite(prev) && prev > 0 ? oiChange(Number(fq.oi), prev) : { oi: Number(fq.oi), change: null, changePct: null };
         }
-        return watchRow(s, q.get(s) ?? null, { future: f, oi, vol: vol.get(s.split(":")[1]) ?? null });
+        const v = vol.get(s.split(":")[1]) ?? (fx ? { iv: fx.atm_iv, ivr: fx.iv_rank, hv20: fx.hv20 } : null);
+        const row = watchRow(s, q.get(s) ?? null, { future: f ?? (fx?.fno ? "near future" : null), oi, vol: v });
+        return { ...row, fno: Boolean(f || fx?.fno || row.index) };
       });
       return { id: l.id, name: l.name, at: new Date(t).toISOString(), rows, errors };
     },

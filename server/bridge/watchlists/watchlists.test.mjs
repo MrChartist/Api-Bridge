@@ -14,6 +14,7 @@ function rig({ demo = false } = {}) {
   const clock = { t: NOW, now() { return this.t; } };
   const calls = { quotes: 0, expiries: 0, vol: 0 };
   const oi = { v: 1_000_000 };
+  const box = { prevOi: null };
   const deps = {
     paths: { dataDir: dir },
     clock,
@@ -26,12 +27,14 @@ function rig({ demo = false } = {}) {
       },
       quotes: async (syms) => {
         calls.quotes += 1;
-        return { items: syms.map((s) => (s.endsWith("-FUT") ? { symbol: s, ltp: 1410, oi: oi.v } : { symbol: s, ltp: 1400, close: 1380 })), errors: [] };
+        return { items: syms.map((s) => (s.endsWith("-FUT") ? { symbol: s, ltp: 1410, oi: oi.v, ...(box.prevOi ? { oiPrev: box.prevOi } : {}) } : { symbol: s, ltp: 1400, close: 1380 })), errors: [] };
       },
     },
     vol: { summary: async ({ underlyings }) => ((calls.vol += 1), { items: [{ underlying: underlyings[0], available: underlyings[0] === "RELIANCE", iv: 24.5, ivr: 40, hv20: 21 }] }) },
   };
-  return { dir, clock, calls, oi, deps, svc: createWatchlistService(deps) };
+  const out = { dir, clock, calls, oi, deps, svc: createWatchlistService(deps) };
+  Object.defineProperty(out, "prevOi", { set: (v) => (box.prevOi = v) });
+  return out;
 }
 
 describe("watchlist maths", () => {
@@ -72,17 +75,29 @@ describe("watchlist service", () => {
     expect(createWatchlistService(r.deps).list()).toHaveLength(1);
   });
 
-  it("prices a list in one quotes call, finds futures once a day and measures OI change from the first read", async () => {
+  it("prices a list in one quotes call, finds futures once a day, and measures OI change from the previous day's OI only", async () => {
     const r = rig();
     const l = r.svc.create({ name: "F&O", symbols: ["NSE:RELIANCE", "NSE:TCS"] });
     const q1 = await r.svc.quotes(l.id);
     expect(r.calls.quotes).toBe(1);
-    expect(q1.rows[0]).toMatchObject({ symbol: "NSE:RELIANCE", future: "NFO:RELIANCE-2026-11-24-FUT", oi: 1_000_000, oiChange: 0, iv: 24.5 });
-    expect(q1.rows[1]).toMatchObject({ symbol: "NSE:TCS", future: null, oi: null, iv: null });
-    r.oi.v = 1_050_000;
+    // No previous-day OI in the quote: the OI shows, its change stays blank (never 0 % from an intraday base).
+    expect(q1.rows[0]).toMatchObject({ symbol: "NSE:RELIANCE", future: "NFO:RELIANCE-2026-11-24-FUT", oi: 1_000_000, oiChangePct: null, iv: 24.5, fno: true });
+    expect(q1.rows[1]).toMatchObject({ symbol: "NSE:TCS", future: null, oi: null, iv: null, fno: false });
+    r.prevOi = 800_000;
     const q2 = await r.svc.quotes(l.id);
-    expect(q2.rows[0].oiChangePct).toBeCloseTo(5, 6);
+    expect(q2.rows[0].oiChangePct).toBeCloseTo(25, 6);
     expect(r.calls.expiries).toBe(2);
+  });
+
+  it("stocks reuse the stock scanner's facts: previous-day OI change, ATM IV and IV rank", async () => {
+    const r = rig();
+    const asked = [];
+    const svc = createWatchlistService(r.deps, { factsFor: async (syms) => (asked.push(...syms), { "NSE:TCS": { fno: true, atm_iv: 21.5, iv_rank: 62, hv20: 18, fut_oi: 5_000_000, fut_oi_change_pct: -3.2 } }) });
+    const l = svc.create({ name: "Mixed", symbols: ["NSE:NIFTY", "NSE:TCS"] });
+    const q = await svc.quotes(l.id);
+    expect(asked).toEqual(["NSE:TCS"]);
+    expect(q.rows[1]).toMatchObject({ symbol: "NSE:TCS", fno: true, iv: 21.5, ivr: 62, hv20: 18, oi: 5_000_000, oiChangePct: -3.2 });
+    expect(q.rows[0]).toMatchObject({ symbol: "NSE:NIFTY", fno: true });
   });
 
   it("demo mode starts with two lists, one on Home and feeding Live events", () => {

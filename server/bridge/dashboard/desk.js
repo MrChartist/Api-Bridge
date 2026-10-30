@@ -128,7 +128,10 @@ async function renderDesk(kind) {
   const accounts = (await api("/v1/accounts")).data.data ?? [];
   const tradable = accounts.filter((a) => a.enabled && (a.capabilities ?? []).includes("placeOrder"));
   const prefs = readPrefs();
-  const list = app.state.demo ? DEMO_UNDERLYINGS : UNDERLYINGS;
+  const base = app.state.demo ? DEMO_UNDERLYINGS : UNDERLYINGS;
+  // A stock opened from a watchlist's Chain link (prefs.stockChain) joins the underlying list for the session.
+  const stock = typeof prefs.stockChain === "string" && /^[A-Z0-9&-]{1,20}$/.test(prefs.stockChain) ? prefs.stockChain : null;
+  const list = stock && !base.includes(stock) ? [...base, stock] : base;
   const st = {
     underlying: list.includes(prefs.underlying) ? prefs.underlying : list[0],
     expiry: prefs.expiry ?? null,

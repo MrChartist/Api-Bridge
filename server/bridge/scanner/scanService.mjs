@@ -729,6 +729,26 @@ export function createScanner(deps) {
       return job;
     },
     /** Dry run: which accounts would serve it and roughly how long it would take. */
+    /**
+     * Facts for a few symbols outside a scan (Screeners › Watchlists): { symbol → { fno, atm_iv, hv20, iv_rank,
+     * iv_percentile, fut_oi, fut_oi_change_pct } }. Futures OI change is against the previous day's OI, the same base
+     * the stock scanner uses. Live mode reads daily bars (cached), futures and their previous OI, and IV history; it
+     * reads chains only when `chain` is set (a chain call per stock).
+     */
+    async factsFor(symbols, { chain = false } = {}) {
+      const list = [...new Set(symbols)].slice(0, 100);
+      const needs = new Set(["daily", "futures", "futuresPrevOi", "ivHistory", ...(chain ? ["chain"] : [])]);
+      const got = await collectRaw(list, needs, undefined);
+      const out = {};
+      for (const sym of list) {
+        const r = got.value.raw.get(sym);
+        if (!r) continue;
+        const f = buildFacts(r, now());
+        out[sym] = { fno: Boolean(r.meta?.fno ?? r.fut ?? r.chain), atm_iv: f.atm_iv ?? null, hv20: f.hv20 ?? null, iv_rank: f.iv_rank ?? null, iv_percentile: f.iv_percentile ?? null, fut_oi: f.fut_oi ?? null, fut_oi_change_pct: f.fut_oi_change_pct ?? null };
+      }
+      return out;
+    },
+
     async plan(input, who = {}) {
       const compiled = await compile(input);
       const p = plan(compiled.request.source, who.allowedAccounts, compiled.symbols.length);

@@ -7744,6 +7744,8 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
 .wl-flag { font-size: 13px; }
 .wl-flag[hidden] { display: none; }
 .wl-table-wrap { overflow-x: auto; margin: 0 calc(-1 * var(--card-pad, 16px)); }
+/* The card's own edge closes the table: no row rule (or the row header's own hairline) under the last row. */
+.wl-table tbody tr:last-child > * { box-shadow: none; border-bottom: 0; }
 .wl-table th[scope="row"] { text-align: left; font-weight: 500; }
 button.wl-sort { min-height: 0; padding: 0; background: none; box-shadow: none; font: inherit; color: inherit; --fin: 0; }
 .wl-acts { white-space: nowrap; text-align: right; }

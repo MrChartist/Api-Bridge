@@ -186,13 +186,13 @@ export async function renderWatchlistsPage() {
               h("th", { scope: "row" }, h("strong", {}, r.name), h("small", { class: "block muted" }, r.symbol.split(":")[0])),
               h("td", { class: "num" }, formatGrouped(r.ltp, 2), isFigure(r.change) ? h("small", { class: `block ${tone(r.change)}` }, formatSigned(r.change, 2)) : null),
               h("td", { class: "num" }, pct(r.changePct)),
-              h("td", { class: "num", title: r.future ? `${r.future}: OI against the first reading today` : "No future" }, r.oi === null || r.oi === undefined ? DASH : h("span", {}, pct(r.oiChangePct), h("small", { class: "block muted" }, `OI ${formatCompact(r.oi)}`))),
+              h("td", { class: "num", title: r.oi === null || r.oi === undefined ? "No future" : isFigure(r.oiChangePct) ? "Near future: OI against the previous day's OI" : "No previous-day OI from this data source" }, r.oi === null || r.oi === undefined ? DASH : h("span", {}, pct(r.oiChangePct), h("small", { class: "block muted" }, `OI ${formatCompact(r.oi)}`))),
               h("td", { class: "num" }, isFigure(r.iv) ? `${formatFixed(r.iv, 1)}%` : DASH, isFigure(r.hv20) ? h("small", { class: "block muted" }, `HV20 ${formatFixed(r.hv20, 1)}`) : null),
               h("td", { class: "num" }, isFigure(r.ivr) ? formatInt(r.ivr) : DASH),
               h(
                 "td",
                 { class: "act wl-acts" },
-                CHAINABLE.has(r.name) ? h("a", { class: "btn small quiet", href: "#/chain", onclick: () => setDeskUnderlying(r.name), "aria-label": `${r.name} option chain` }, "Chain") : null,
+                r.fno || CHAINABLE.has(r.name) ? h("a", { class: "btn small quiet", href: "#/chain", onclick: () => setDeskUnderlying(r.name), "aria-label": `${r.name} option chain` }, "Chain") : null,
                 h("button", { type: "button", class: "small quiet icon-only", "aria-label": `Remove ${r.name}`, title: "Remove from the list", onclick: () => removeSymbol(r.symbol) }, icon("close")),
               ),
             ),
@@ -205,7 +205,7 @@ export async function renderWatchlistsPage() {
   function setDeskUnderlying(u) {
     try {
       const d = JSON.parse(app.local.get("mcb.dashboard.desk") ?? "{}") ?? {};
-      app.local.set("mcb.dashboard.desk", JSON.stringify({ ...d, underlying: u, expiry: null }));
+      app.local.set("mcb.dashboard.desk", JSON.stringify({ ...d, underlying: u, expiry: null, stockChain: CHAINABLE.has(u) ? null : u }));
     } catch {
       // The chain opens on its last underlying.
     }
