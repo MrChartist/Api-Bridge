@@ -341,8 +341,8 @@ export function detectStock(s, quote, sel, t) {
       if (pv) {
         for (const name of ["S1", "P", "R1"]) {
           const lv = pv[name];
-          if (last <= lv && ltp > lv) hits.push({ kind: "pivot_cross", variant: `${name}u`, dir: 1, strength: lv, text: `crossed above ${name} ${f2(lv)}` });
-          else if (last >= lv && ltp < lv) hits.push({ kind: "pivot_cross", variant: `${name}d`, dir: -1, strength: lv, text: `crossed below ${name} ${f2(lv)}` });
+          if (last <= lv && ltp > lv) hits.push({ kind: "pivot_cross", variant: `${name}u`, dir: 1, strength: r2(((ltp - lv) / lv) * 100), text: `crossed above ${name} ${f2(lv)}` });
+          else if (last >= lv && ltp < lv) hits.push({ kind: "pivot_cross", variant: `${name}d`, dir: -1, strength: r2(((ltp - lv) / lv) * 100), text: `crossed below ${name} ${f2(lv)}` });
         }
       }
     }

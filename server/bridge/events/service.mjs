@@ -59,13 +59,14 @@ export function createEventsService(deps, opts = {}) {
       demoMarket = createDemoMarket({ engine, clock: deps.clock, scale: cfg.demoScale });
       if (opts.backfill !== false) await demoMarket.backfillAsync(undefined, undefined, () => !started);
       if (!started) return;
-      const stepMs = opts.demoStepMs ?? 1000;
-      let last = deps.clock.now();
+      // Ten slices a second, each a tenth of the symbols, so quotes (and events) arrive spread out as from a feed.
+      const PARTS = 10;
+      const sliceMs = Math.max(20, Math.round((opts.demoStepMs ?? 1000) / PARTS));
+      let part = 0;
       const t = setInterval(() => {
-        const now = deps.clock.now();
-        demoMarket.step(now, { dtSec: Math.max(0.2, (now - last) / 1000) });
-        last = now;
-      }, stepMs);
+        demoMarket.step(deps.clock.now(), { dtSec: (sliceMs * PARTS) / 1000, part, parts: PARTS });
+        part = (part + 1) % PARTS;
+      }, sliceMs);
       t.unref?.();
       timers.push(t);
     } else {

@@ -190,6 +190,7 @@ Order follows setup: create a key, connect a tool, try a call, watch limits, aud
 ### 5.4 Other merges (and why)
 
 - **Screeners** = Options (current Option Screener) + Arbitrage + Stocks (current Scanner). Three scanners in two groups confused users; the Option Screener's sub already promises arbitrage. Arbitrage keeps its desk layout as a tab (per-tab layout, §5.2); Stocks is a card-layout tab.
+- **Live events** (added after this pass) is a fourth Screeners tab, `#/screeners/events` (legacy `#/events`), desk layout, between Arbitrage and Stocks. Why here: it answers the same question as the other screeners (which symbols deserve a look now), over the same universes, but pushed live instead of run on demand; a separate menu item would add a 14th row for a sibling of Stocks, and Trade is for acting, not finding. Ctrl K finds it as "Live events" (keywords: event selector, circuit, only buyers, volume surge).
 - **OI Analysis** gets a Participants tab. Both are open interest; OI already links to Participants. Participant OI is desk layout like OI, so the shell is identical.
 - **Market calendar** stays its own item in Markets (reference data with sources, linked from every contract notice). Not merged with Participants: different data and different readers.
 - **Data recorder** moves to Bridge and is restyled as a desk page (desk panels, desk header) so it matches the data pages it feeds. Not tabbed into anything: it is a background service with settings.
