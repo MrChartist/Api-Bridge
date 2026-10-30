@@ -187,6 +187,19 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
     const mode = input.mode === "live" ? "live" : "paper";
     if (state.items.filter((t) => OPEN_STATUSES.has(t.status)).length >= MAX_OPEN) throw invalid("", `At most ${MAX_OPEN} open triggers. Cancel one first.`);
     if (origin === "bracket" && typeof input.parentOrderId !== "string") throw invalid("parentOrderId", "A bracket trigger needs the entry order's id (parentOrderId).");
+    if (origin === "bracket") {
+      // The exits close what the entry opened, so they run in the entry's mode: a paper exit can never close a live
+      // entry, and a live exit must never send for a paper one.
+      let entry;
+      try {
+        entry = await deps.orders.get(ctx, input.parentOrderId);
+      } catch (err) {
+        if (err?.code === "ORDER_NOT_FOUND") throw invalid("parentOrderId", `The entry order ${input.parentOrderId} was not found.`);
+        throw err;
+      }
+      const entryMode = entry?.mode === "live" ? "live" : "paper";
+      if (entryMode !== mode) throw invalid("mode", `The entry order is ${entryMode} and this bracket is ${mode}: a bracket's exits run in its entry's mode. Send mode "${entryMode}".`);
+    }
 
     // The owner's scopes travel with the trigger: a paper key's trigger can never send live.
     const scopes = [...ctx.scopes].filter((s) => s === "read" || s === "paper" || s === "live");

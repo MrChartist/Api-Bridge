@@ -2195,8 +2195,9 @@ async function renderDesk(kind) {
               const refused = r.status === "rejected" || r.status === "cancelled";
               let exitsNote = "";
               if (exits && !refused) {
-                // The entry is placed; its exits wait on the Bridge for the fill. If they are refused, say so plainly.
-                const t = await optional(api("/v1/triggers", { method: "POST", body: triggerBody({ ...exits, parentOrderId: r.orderId }) }));
+                // The entry is placed; its exits wait on the Bridge for the fill, in the mode the entry went in (the
+                // Bridge refuses a bracket whose mode differs). If they are refused, say so plainly.
+                const t = await optional(api("/v1/triggers", { method: "POST", body: triggerBody({ ...exits, mode: r.mode === "live" ? "live" : "paper", parentOrderId: r.orderId }) }));
                 exitsNote = t.error ? `. Stop and target NOT set: ${t.error.message ?? "refused"}` : `. Stop and target set (Orders › Triggers)`;
               }
               toast(`${r.status === "filled" ? "Filled" : cap(r.status)}: ${r.side} ${formatInt(r.quantity)} ${name}${isFigure(r.avgPrice) ? ` @ ${formatFixed(r.avgPrice, 2)}` : ""}${r.mode === "live" ? " · LIVE" : " · paper"}${refused && r.statusMessage ? `. ${r.statusMessage}` : ""}${exitsNote}`, { tone: refused || exitsNote.includes("NOT") ? "error" : "ok" });

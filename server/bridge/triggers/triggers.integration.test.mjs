@@ -499,4 +499,28 @@ describe("review follow-ups", () => {
     expect(e.detail).toMatch(/strateg/i);
     expect(s2.list(() => true, { status: "open" }).filter((t) => t.owner?.keyId === "stratkey001")).toHaveLength(0);
   });
+
+  it("a bracket's mode must match its entry order's mode: a paper bracket on a live entry is refused when it is set", async () => {
+    await at("2026-11-02", "10:30");
+    md.setPrice("NSE:RELIANCE", 1400);
+    const entry = (await app.deps.orders.place(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", side: "BUY", quantity: 1, product: "CNC", orderType: "LIMIT", price: 1390 })).order;
+    // As a live entry would read (a paper account cannot hold one).
+    const orders = { ...app.deps.orders, get: async (...a) => ({ ...(await app.deps.orders.get(...a)), mode: "live" }) };
+    const s2 = createTriggerService({ ...app.deps, orders }, quiet);
+    const body = { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", origin: "bracket", parentOrderId: entry.orderId, legs: [{ trigger: 1300, op: "below", order: { side: "SELL", quantity: 1 } }] };
+    const e = await reject(s2.create(ctx("paper"), body));
+    expect(e.code).toBe("VALIDATION_FAILED");
+    expect(e.detail).toMatch(/entry order is live.*bracket is paper/);
+    expect(s2.list(() => true, { status: "open" }).filter((t) => t.parentOrderId === entry.orderId)).toHaveLength(0);
+    // The same bracket on the paper entry it really is: set.
+    const s3 = createTriggerService(app.deps, quiet);
+    const ok = await s3.create(ctx("paper"), body);
+    expect(ok).toMatchObject({ status: "waiting", mode: "paper" });
+    s3.cancel(ctx("paper"), ok.id);
+    // An entry that does not exist is refused at once, not left waiting.
+    const gone = await reject(s3.create(ctx("paper"), { ...body, parentOrderId: "PAPER-NOPE-1" }));
+    expect(gone.code).toBe("VALIDATION_FAILED");
+    expect(gone.detail).toMatch(/entry order .* was not found/);
+    await app.deps.orders.cancel(ctx("paper"), entry.orderId);
+  });
 });
