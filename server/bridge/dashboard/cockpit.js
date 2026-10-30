@@ -109,7 +109,8 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
   });
 
   // ── Open positions with risk ──
-  const allPos = posRes.flatMap((r) => r.data?.data ?? []);
+  // Each read is for one account; a broker that leaves accountId off its rows (the demo feed) still groups by it.
+  const allPos = posRes.flatMap((r, i) => (r.data?.data ?? []).map((p) => (p.accountId ? p : { ...p, accountId: readable[i].id })));
   const groups = bookGroups(allPos, { spots, nowMs: now });
   const label = (id) => accs.find((a) => a.id === id)?.label ?? id;
   const posCard = card({
@@ -124,7 +125,7 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
       ? h(
           "table",
           { class: "ck-table" },
-          h("thead", {}, h("tr", {}, [["Book"], ["Legs"], ["P&L"], ["Delta", "c-delta"], ["Expiry"], ["Watch", "c-watch"]].map(([t, c]) => h("th", { scope: "col", class: c }, t)))),
+          h("thead", {}, h("tr", {}, [["Book"], ["Legs"], ["P&L"], ["Delta", "c-delta"], ["Expiry", "c-exp"], ["Watch", "c-watch"]].map(([t, c]) => h("th", { scope: "col", class: c }, t)))),
           h(
             "tbody",
             {},
@@ -137,12 +138,12 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
               return h(
                 "tr",
                 {},
-                // Phones drop the Delta and Watch columns; what to watch then shows under the book's name.
-                h("th", { scope: "row" }, h("strong", {}, g.underlying), h("small", {}, label(g.account)), watch.length ? h("span", { class: "ck-watch-in" }, watch.map((p) => p.cloneNode(true))) : null),
+                // Phones drop the Delta, Expiry and Watch columns; the expiry and what to watch then show under the book's name.
+                h("th", { scope: "row" }, h("strong", {}, g.underlying), h("small", {}, label(g.account), h("span", { class: "ck-exp-in" }, ` · ${exp}`)), watch.length ? h("span", { class: "ck-watch-in" }, watch.map((p) => p.cloneNode(true))) : null),
                 h("td", { class: "num" }, `${formatInt(g.legs)}${g.shorts ? ` · ${formatInt(g.shorts)} short` : ""}`),
                 h("td", { class: "num" }, signed(g.pnl)),
                 h("td", { class: "num c-delta", title: "Net delta in units of the underlying (Black-76 at each leg's implied vol)" }, num(g.delta) === null ? DASH : formatSigned(g.delta, 0)),
-                h("td", { class: "num" }, exp),
+                h("td", { class: "num c-exp" }, exp),
                 h("td", { class: "c-watch" }, watch.length ? watch : h("span", { class: "muted" }, "Calm")),
               );
             }),
