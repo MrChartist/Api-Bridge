@@ -10,6 +10,7 @@
 // error display) live in views.js and are handed in lazily so this file never imports views.js.
 import { api, app, emptyState, h, icon, istTime, pill, table } from "./app.js";
 import { DASH, formatFixed, formatInt, formatNumber, formatSigned, isFigure } from "./format.js";
+import { UNDERLYING_CHIPS, workspace } from "./workspace.js";
 
 // ───────────────────────── pure helpers ─────────────────────────
 
@@ -423,12 +424,15 @@ export function dataDisclosure(summary, columns, rows) {
 
 // ───────────────────────── page scaffolding ─────────────────────────
 
-const UNDERLYINGS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"];
+const UNDERLYINGS = UNDERLYING_CHIPS;
 const STRIKE_CHOICES = [5, 10, 15, 20, 30];
 /** Legs another page (Strategies) hands to the payoff page: { legs: editor legs, spot: text } or null. Read once. */
 export const handoff = { payoff: null };
-/** What the person last chose, kept while moving between analytics pages (this tab only). */
-export const selection = { underlying: "NIFTY", expiry: "", strikes: 10 };
+/**
+ * What the person last chose, shared by every analytics page and the header's context bar, and remembered across reloads
+ * (workspace.js: its fields validate, persist and notify when assigned).
+ */
+export const selection = workspace.state;
 let uid = 0;
 export const nextId = (p) => `${p}-${++uid}`;
 export const demoPill = () => (app.state.demo ? pill("Demo data", "demo") : null);

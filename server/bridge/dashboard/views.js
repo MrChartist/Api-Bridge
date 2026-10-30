@@ -3,6 +3,7 @@
 import {
   alertBox,
   api,
+  apiHealth,
   app,
   brokerMatches,
   card,
@@ -32,9 +33,12 @@ import {
 } from "./app.js";
 import { analyticsPages } from "./analyticsViews.js";
 import { analyticsMorePages } from "./analyticsMore.js";
+import { analyticsFlowPages } from "./analyticsFlow.js";
 import { DASH, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
+import { initChrome, navGroup, pageRendered, pageShown } from "./chrome.js";
+import { recents } from "./workspace.js";
 
 const $ = (id) => document.getElementById(id);
 const local = app.local;
@@ -197,6 +201,7 @@ export const PAGES = [
   // read when a page is drawn, after this module has finished loading.
   ...analyticsPages(() => ({ segmented, segField, field, errorBox })),
   ...analyticsMorePages(() => ({ segmented, segField, field, errorBox })),
+  ...analyticsFlowPages(() => ({ segmented, segField, field, errorBox })),
 ];
 
 let timer = null;
@@ -210,24 +215,19 @@ const pageGlyph = (p) => {
 };
 
 function nav(active) {
-  const out = [];
-  let group = null;
-  for (const p of PAGES) {
-    if (p.group !== group) {
-      group = p.group;
-      out.push(h("div", { class: "nav-group" }, group));
-    }
+  const activeGroup = PAGES.find((p) => p.id === active)?.group ?? null;
+  const link = (p) => {
     const sc = pageShortcut(PAGES.indexOf(p));
-    out.push(
-      h(
-        "a",
-        { href: `#/${p.id}`, class: `tint-${p.tint}`, "aria-current": p.id === active ? "page" : undefined, "data-page": p.id, title: sc ? `${p.label} (${sc.label})` : p.label, "aria-keyshortcuts": sc?.aria },
-        icon(p.icon),
-        h("span", { class: "lbl" }, p.label),
-        p.id === "orders" ? h("span", { class: "count", id: "nav-tickets", "data-tickets": "", hidden: true }) : null,
-      ),
+    return h(
+      "a",
+      { href: `#/${p.id}`, class: `tint-${p.tint}`, "aria-current": p.id === active ? "page" : undefined, "data-page": p.id, title: sc ? `${p.label} (${sc.label})` : p.label, "aria-keyshortcuts": sc?.aria },
+      icon(p.icon),
+      h("span", { class: "lbl" }, p.label),
+      p.id === "orders" ? h("span", { class: "count", id: "nav-tickets", "data-tickets": "", hidden: true }) : null,
     );
-  }
+  };
+  // One collapsible group per section (a button with aria-expanded); the group that holds the current page stays open.
+  const out = [...new Set(PAGES.map((p) => p.group))].map((g) => navGroup({ name: g, active: activeGroup, children: PAGES.filter((p) => p.group === g).map(link) }));
   $("nav").replaceChildren(...out);
   $("nav").querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: "nearest" });
   const anim = motionHooks?.animateNav;
@@ -275,24 +275,27 @@ function moreSheet(active) {
           h("span", { class: "lockup-text" }, h("span", { class: "lockup-name" }, "API Bridge"), h("span", { class: "lockup-sub" }, "by Mr. Chartist")),
         ),
         groups.map((g) =>
-          h(
-            "section",
-            {},
-            h("div", { class: "eyebrow list-label" }, g),
-            h(
-              "div",
-              { class: "list" },
-              PAGES.filter((p) => p.group === g).map((p) =>
-                h(
-                  "button",
-                  { type: "button", class: "list-row", "aria-current": p.id === active ? "page" : undefined, onclick: () => goTo(p.id) },
-                  iconTile(p.icon, p.tint, "md"),
-                  h("span", { class: "names" }, h("span", { class: "nm" }, p.label), h("span", { class: "sub" }, p.sub)),
-                  chevron(),
+          navGroup({
+            name: g,
+            variant: "more",
+            active: PAGES.find((p) => p.id === active)?.group ?? null,
+            children: [
+              h(
+                "div",
+                { class: "list" },
+                PAGES.filter((p) => p.group === g).map((p) =>
+                  h(
+                    "button",
+                    { type: "button", class: "list-row", "aria-current": p.id === active ? "page" : undefined, onclick: () => goTo(p.id) },
+                    iconTile(p.icon, p.tint, "md"),
+                    h("span", { class: "names" }, h("span", { class: "nm" }, p.label), h("span", { class: "sub" }, p.sub)),
+                    chevron(),
+                  ),
                 ),
               ),
-            ),
-          ),
+            ],
+            count: PAGES.filter((p) => p.group === g).length,
+          }),
         ),
         h(
           "section",
@@ -362,16 +365,44 @@ function headline(page) {
 /** Home's eyebrow is today's date in IST; every other page names its group. */
 const IST_DAY = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
-async function show() {
+/**
+ * Draw the page named by the hash. With `silent: true` (the auto-refresh timer) the page's loader is re-run without the
+ * Loading… state, title changes, scroll reset or announcement; the new content replaces the old only when the Bridge
+ * answered, and segmented views, focus and scroll are kept. A silent run rejects when the Bridge failed.
+ */
+async function show({ silent = false } = {}) {
   const raw = location.hash.replace(/^#\/?/, "").split("?")[0];
   // A one-time sign-in fragment (#signin=..., app.js removes it at start-up) is never a page name.
   const id = (raw && !raw.startsWith("signin=") ? raw : "home").toLowerCase();
   const page = PAGES.find((p) => p.id === id) ?? PAGES[0];
   const changed = page.id !== shownPage;
+  if (silent && changed) return;
   shownPage = page.id;
+  const root = $("content");
+  if (silent) {
+    if (root.getAttribute("aria-busy") === "true") return;
+    const mark = apiHealth.seq;
+    const seq = ++renderSeq;
+    const nodes = [await page.render()].flat();
+    if (seq !== renderSeq) return;
+    // The Bridge failed while the page was loading: keep the data on screen and let the refresher back off.
+    if (apiHealth.seq > mark) throw Object.assign(new Error("The Bridge did not answer the refresh."), { status: apiHealth.failure?.status, retryAfterMs: apiHealth.failure?.retryAfterMs });
+    const views = [...root.querySelectorAll(".segmented")].map((s) => s.querySelector('[aria-pressed="true"]')?.textContent ?? null);
+    keepFocus(root, () => root.replaceChildren(...nodes));
+    // Put each segmented view back where the person had it (the new page starts on its default).
+    root.querySelectorAll(".segmented").forEach((s, i) => {
+      const want = views[i];
+      if (want === null || want === undefined) return;
+      const btn = [...s.querySelectorAll("button")].find((b) => b.textContent === want);
+      if (btn && btn.getAttribute("aria-pressed") !== "true") btn.click();
+    });
+    return;
+  }
   clearInterval(timer);
   $("toast").hidden = true;
   nav(page.id);
+  if (changed) recents.push(page.id);
+  pageShown(page);
   document.title = `${page.label} · Mr. Chartist API Bridge`;
   $("toolbar-icon").replaceChildren(pageGlyph(page));
   $("toolbar-label").textContent = page.label;
@@ -380,7 +411,6 @@ async function show() {
   $("page-sub").textContent = page.sub;
   $("toolbar-demo").hidden = !app.state.demo;
   const seq = ++renderSeq;
-  const root = $("content");
   root.setAttribute("aria-busy", "true");
   root.replaceChildren(h("p", { class: "muted" }, "Loading…"));
   try {
@@ -401,6 +431,7 @@ async function show() {
   if (changed) window.scrollTo({ top: 0 });
   const anim = motionHooks?.animatePage;
   if (typeof anim === "function") anim(root);
+  pageRendered();
   refreshTicketCount();
 }
 
@@ -499,7 +530,8 @@ let motionHooks = null;
 export async function startRouter() {
   setupA11y();
   setupChrome();
-  initPalette({ pages: () => PAGES, go, refresh: () => show() });
+  initChrome({ go, reload: () => show(), silentReload: () => show({ silent: true }) });
+  initPalette({ pages: () => PAGES, go, refresh: () => show(), currentPage: () => shownPage });
   try {
     motionHooks = await import("./motion.js");
   } catch {

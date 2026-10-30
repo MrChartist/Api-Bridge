@@ -57,7 +57,8 @@ const get = (p, key) => call("GET", p, undefined, key);
 
 /** Paths (like `strikes[3].ceIv`) of every null / non-finite number in a JSON value. */
 function nullPaths(v, path = "") {
-  if (v === null) return path.endsWith(".direction") ? [] : [path || "(root)"];
+  // A strike with no usable IV (premium below intrinsic in the random demo prices) is a legitimate null.
+  if (v === null) return path.endsWith(".direction") || /points\[\d+\]\.(ceIv|peIv)$/.test(path) ? [] : [path || "(root)"];
   if (typeof v === "number") return Number.isFinite(v) ? [] : [path];
   if (Array.isArray(v)) return v.flatMap((x, i) => nullPaths(x, `${path}[${i}]`));
   // `direction` is null where a strike has no gap to call (a legitimate empty value).
@@ -105,7 +106,9 @@ describe("chain-based routes (read key)", () => {
     const d = expectEnvelope(await get(`/v1/analytics/gex?underlying=NIFTY&expiry=${monthly}&strikes=10`));
     expect(d).toMatchObject({ underlying: "NIFTY", expiry: monthly, unit: expect.any(String) });
     expect(["positive", "negative", "neutral"]).toContain(d.regime);
-    for (const k of ["netGex", "flipStrike", "largestStrike", "lotSize"]) expect(isNum(d[k]), k).toBe(true);
+    for (const k of ["netGex", "largestStrike", "lotSize"]) expect(isNum(d[k]), k).toBe(true);
+    // No sign change in the running total (random demo prices) means no flip strike: null is the honest answer.
+    expect(d.flipStrike === null || isNum(d.flipStrike), "flipStrike").toBe(true);
     for (const s of d.strikes) for (const k of ["strike", "callGex", "putGex", "netGex"]) expect(isNum(s[k]), `strikes.${k}`).toBe(true);
     expect(nullPaths(d)).toEqual([]);
   });
@@ -128,7 +131,10 @@ describe("chain-based routes (read key)", () => {
     for (const e of d.expiries) {
       expect(typeof e.expiry).toBe("string");
       for (const k of ["daysToExpiry", "atmIv", "riskReversal"]) expect(isNum(e[k]), `${e.expiry} ${k}`).toBe(true);
-      for (const p of e.points) for (const k of ["strike", "ceIv", "peIv"]) expect(isNum(p[k]), `${e.expiry} points.${k}`).toBe(true);
+      for (const p of e.points) {
+        expect(isNum(p.strike), `${e.expiry} points.strike`).toBe(true);
+        for (const k of ["ceIv", "peIv"]) expect(p[k] === null || isNum(p[k]), `${e.expiry} points.${k}`).toBe(true);
+      }
     }
     expect(nullPaths(d)).toEqual([]);
   });

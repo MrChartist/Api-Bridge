@@ -1,6 +1,8 @@
 // Command palette (Spotlight style) and keyboard shortcuts for the dashboard.
 // Browser only: nothing here touches the DOM until initPalette() runs (views.js calls it from startRouter()).
 import { chooseTheme, copyText, h, icon, iconTile, lockScroll, modal, toast } from "./app.js";
+import { openExpirySheet, setKeyHint, setRefreshInterval, setUnderlying, toggleDensity } from "./chrome.js";
+import { PAGE_KEYWORDS, REFRESH_CHOICES, UNDERLYING_CHIPS, createSequencer, goKeyTable, recents, workspace } from "./workspace.js";
 
 /** True on Apple platforms, where shortcuts use ⌘ instead of Ctrl. */
 export const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "");
@@ -48,12 +50,19 @@ export function fuzzyScore(query, text) {
   return score;
 }
 
+/** Every word of the query appears somewhere in the keywords ("open interest" finds the OI page). Pure. */
+function keywordHit(keywords, query) {
+  const hay = `${keywords ?? ""}`.toLowerCase();
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return words.length > 0 && words.every((w) => hay.includes(w));
+}
+
 /** Rank commands for a query (label, then keywords). Pure. */
 export function rank(commands, query) {
   if (!query.trim()) return commands;
   return commands
     // Fuzzy on the visible label; keywords (synonyms) count only as whole-substring hits, so results stay relevant.
-    .map((c, i) => ({ c, i, s: Math.max(fuzzyScore(query, c.label), `${c.keywords ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()) ? 50 : -1) }))
+    .map((c, i) => ({ c, i, s: Math.max(fuzzyScore(query, c.label), keywordHit(c.keywords, query) ? 50 : -1) }))
     .filter((x) => x.s >= 0)
     .sort((a, b) => b.s - a.s || a.i - b.i)
     .map((x) => x.c);
@@ -79,35 +88,86 @@ function currentTheme() {
   return document.documentElement.getAttribute("data-theme") ?? "auto";
 }
 
+const SYMBOL_QUERY = /^(?:go to |set |use |switch to )?(?:underlying|symbol)\s+([A-Za-z0-9&_-]{1,30})$/i;
+const onAnalytics = () => ctx.pages().find((p) => p.id === ctx.currentPage?.())?.group === "Analytics";
+
+/** Make `u` the underlying everywhere; from a non-Analytics page go to the option chain with it. */
+function goUnderlying(u) {
+  setUnderlying(u, { navigateTo: onAnalytics() ? undefined : "chain" });
+  toast(`Underlying: ${u}`);
+}
+
 function commands() {
   const pages = ctx.pages();
   const mod = modKey();
+  const keyOf = (() => {
+    const t = goKeyTable(pages.map((p) => p.id));
+    const byId = Object.fromEntries(Object.entries(t).map(([k, id]) => [id, k]));
+    return (id) => byId[id];
+  })();
   const pageCmds = pages.map((p, i) => ({
     id: `page-${p.id}`,
     group: "Pages",
     label: p.label,
-    keywords: `${p.title} ${p.sub} go open page`,
+    keywords: `${p.title} ${p.sub} ${p.group} ${p.id} ${PAGE_KEYWORDS[p.id] ?? ""} go open page`,
     icon: p.icon,
     tint: p.tint,
     sub: p.sub,
-    hint: i < 9 ? [mod, String(i + 1)] : null,
+    hint: keyOf(p.id) ? ["g", keyOf(p.id)] : i < 9 ? [mod, String(i + 1)] : null,
     run: () => ctx.go(p.id),
   }));
+  // The last few pages visited (not the one open now), only while the search box is empty.
+  const recent = recents
+    .list()
+    .filter((id) => id !== ctx.currentPage?.())
+    .map((id) => pageCmds.find((c) => c.id === `page-${id}`))
+    .filter(Boolean)
+    .slice(0, 4)
+    .map((c) => ({ ...c, id: `recent-${c.id}`, group: "Recent", emptyOnly: true }));
+  const c = workspace.get();
   const actions = [
     { id: "scan", label: "Run a scan", sub: "Write a condition on the Scanner page", keywords: "scanner screener condition rsi", icon: "scan", tint: "mint", run: () => ctx.go("scanner", "#scan-condition") },
     { id: "kill", label: "Engage kill switch", sub: "Stop every new order, from every tool", keywords: "stop all orders safety emergency halt", icon: "power", tint: "red", run: () => ctx.go("safety", "#kill-action") },
     { id: "key", label: "Create API key", sub: "One key per tool, with only the access it needs", keywords: "new token keys access", icon: "keys", tint: "pink", run: () => ctx.go("keys", "#key-label") },
     { id: "console", label: "Open test console", sub: "Try any call and see what comes back", keywords: "try request call endpoint quote", icon: "console", tint: "teal", run: () => ctx.go("console") },
     { id: "paper", label: "Place a paper order", sub: "The order form in the test console", keywords: "buy sell trade order console", icon: "orders", tint: "orange", run: () => ctx.go("console?endpoint=order") },
+    { id: "set-expiry", label: "Set expiry…", sub: `For ${c.underlying} on every Analytics page (now ${c.expiry || "not chosen"})`, keywords: "expiry expiration date contract weekly monthly change choose", icon: "clock", tint: "red", opensDialog: true, run: () => openExpirySheet() },
+    { id: "density", label: "Toggle compact density", sub: `Now ${document.body.classList.contains("density-compact") ? "Compact" : "Comfortable"}. Tighter tables and cards`, keywords: "density compact comfortable tight rows spacing", icon: "list", tint: "gray", run: () => toast(`Density: ${toggleDensity() === "compact" ? "Compact" : "Comfortable"}`) },
     { id: "theme", label: "Toggle theme", sub: `Now ${currentTheme() === "auto" ? "Auto" : currentTheme() === "light" ? "Light" : "Dark"}`, keywords: "dark light appearance mode", icon: "moon", tint: "indigo", run: () => setTheme({ auto: "light", light: "dark", dark: "auto" }[currentTheme()] ?? "auto") },
     { id: "theme-light", label: "Theme: Light", keywords: "appearance", icon: "sun", tint: "gray", run: () => setTheme("light") },
     { id: "theme-dark", label: "Theme: Dark", keywords: "appearance night", icon: "moon", tint: "gray", run: () => setTheme("dark") },
     { id: "theme-auto", label: "Theme: Auto (match system)", keywords: "appearance system", icon: "monitor", tint: "gray", run: () => setTheme("auto") },
     { id: "copy-url", label: "Copy dashboard URL", keywords: "link address share", icon: "copy", tint: "gray", run: () => copyText(`${location.origin}/dashboard`, "Dashboard URL copied") },
     { id: "refresh", label: "Refresh this page", keywords: "reload update data", icon: "refresh", tint: "gray", run: () => ctx.refresh() },
-    { id: "shortcuts", label: "Keyboard shortcuts", keywords: "help keys hotkeys", icon: "info", tint: "gray", hint: ["?"], run: () => showShortcuts() },
+    { id: "shortcuts", label: "Keyboard shortcuts", keywords: "help keys hotkeys vim go", icon: "info", tint: "gray", hint: ["?"], opensDialog: true, run: () => showShortcuts() },
   ].map((a) => ({ ...a, group: "Actions" }));
-  return [...pageCmds, ...actions];
+  // Shown only when searching: one command per quick underlying, and each auto-refresh cadence.
+  const searchOnly = [
+    ...UNDERLYING_CHIPS.map((u) => ({
+      id: `underlying-${u}`,
+      group: "Actions",
+      label: `Go to underlying ${u}`,
+      sub: `Use ${u} on every Analytics page${u === c.underlying ? " (current)" : ""}`,
+      keywords: `underlying symbol index switch set ${u}`,
+      icon: "chart",
+      tint: "orange",
+      run: () => goUnderlying(u),
+    })),
+    ...REFRESH_CHOICES.map((r) => ({
+      id: `refresh-${r.ms}`,
+      group: "Actions",
+      label: `Auto-refresh: ${r.short}`,
+      sub: r.ms ? `Re-run the page's data every ${r.short} (data pages only)` : "Stop refreshing automatically",
+      keywords: "auto refresh automatic poll live update interval timer",
+      icon: "refresh",
+      tint: "gray",
+      run: () => {
+        setRefreshInterval(r.ms);
+        toast(r.ms ? `Auto-refresh every ${r.short}` : "Auto-refresh off");
+      },
+    })),
+  ].map((x) => ({ ...x, searchOnly: true }));
+  return [...recent, ...pageCmds, ...actions, ...searchOnly];
 }
 
 function build() {
@@ -119,7 +179,7 @@ function build() {
     "aria-controls": "palette-list",
     "aria-autocomplete": "list",
     "aria-label": "Search pages and actions",
-    placeholder: "Search pages and actions",
+    placeholder: "Search pages, actions, underlyings",
     autocomplete: "off",
     spellcheck: "false",
   });
@@ -160,7 +220,11 @@ function build() {
 }
 
 function draw() {
-  results = rank(commands(), input.value);
+  const q = input.value.trim();
+  results = rank(commands().filter((c) => (q ? !c.emptyOnly : !c.searchOnly)), input.value);
+  // "underlying reliance" (or "go to underlying X"): any symbol, not only the five quick picks (a prefix of a quick pick, like "fin", finds the pick instead).
+  const sym = SYMBOL_QUERY.exec(q)?.[1]?.toUpperCase();
+  if (sym && !UNDERLYING_CHIPS.some((u) => u.startsWith(sym))) results.unshift({ id: `underlying-custom`, group: "Actions", label: `Go to underlying ${sym}`, sub: `Use ${sym} on every Analytics page`, icon: "chart", tint: "orange", run: () => goUnderlying(sym) });
   if (activeIndex >= results.length) activeIndex = Math.max(0, results.length - 1);
   const items = [];
   let group = null;
@@ -177,7 +241,7 @@ function draw() {
       h(
         "span",
         { class: "palette-text" },
-        h("span", { class: "palette-label" }, c.label, input.value.trim() ? h("span", { class: "palette-kind" }, c.group === "Pages" ? "Page" : "Action") : null),
+        h("span", { class: "palette-label" }, c.label, input.value.trim() ? h("span", { class: "palette-kind" }, c.group === "Pages" || c.group === "Recent" ? "Page" : "Action") : null),
         c.sub ? h("span", { class: "palette-sub" }, c.sub) : null,
       ),
       hint ? h("span", { class: "palette-right", "aria-hidden": "true" }, hint) : null,
@@ -239,7 +303,7 @@ function onKey(e) {
 function runAt(i) {
   const c = results[i];
   if (!c) return;
-  const navigates = c.group === "Pages" || ["scan", "kill", "key", "console", "paper"].includes(c.id);
+  const navigates = c.group === "Pages" || c.group === "Recent" || c.opensDialog || c.id.startsWith("underlying-") || ["scan", "kill", "key", "console", "paper"].includes(c.id);
   closePalette({ restore: !navigates });
   c.run();
 }
@@ -274,12 +338,21 @@ export function shortcutList() {
     { keys: [mod, "K"], what: "Search pages and actions" },
     { keys: ["/"], what: "Search (when not typing in a field)" },
     { keys: ["?"], what: "Show these shortcuts" },
-    ...pages.slice(0, 9).map((p, i) => ({ keys: [mod, String(i + 1)], what: `Go to ${p.label}` })),
+    { keys: ["g", "then a key"], what: "Go to a page (Vim style), see the list below" },
+    ...(pages.length ? [{ keys: [mod, "1 to 9"], what: `Go to the first nine pages, in sidebar order (${pages.slice(0, 3).map((p) => p.label).join(", ")} ...)` }] : []),
     { keys: ["↑", "↓"], what: "Move through search results" },
     { keys: ["↵"], what: "Open the selected result" },
     { keys: ["esc"], what: "Close search or a dialog" },
     { keys: ["Tab"], what: "Move to the next control (Shift+Tab goes back)" },
   ];
+}
+
+/** The "g then <key>" table for the pages that exist: [{ key, id, label }] in page order. */
+export function goShortcutList() {
+  const pages = ctx?.pages() ?? [];
+  const table = goKeyTable(pages.map((p) => p.id));
+  const keyOf = Object.fromEntries(Object.entries(table).map(([k, id]) => [id, k]));
+  return pages.filter((p) => keyOf[p.id]).map((p) => ({ key: keyOf[p.id], id: p.id, label: p.label, group: p.group }));
 }
 
 export function showShortcuts() {
@@ -301,10 +374,31 @@ export function showShortcuts() {
       "div",
       { class: "stack shortcuts-sheet" },
       h("table", { class: "shortcuts" }, h("caption", { class: "pal-sr-only" }, "Keyboard shortcuts"), h("thead", { class: "pal-sr-only" }, h("tr", {}, h("th", { scope: "col" }, "Keys"), h("th", { scope: "col" }, "Action"))), h("tbody", {}, rows)),
+      goSection(),
       h("p", { class: "muted small" }, isMac() ? "Some browsers keep ⌘1 to ⌘9 for switching tabs; the search (⌘K) always works." : "Some browsers keep Ctrl+1 to Ctrl+9 for switching tabs; the search (Ctrl+K) always works."),
     ),
     buttons: [{ label: "Done", cls: "primary", value: true }],
   });
+}
+
+/** The Vim-style section of the shortcuts sheet: every page with its second key, grouped as in the sidebar. */
+function goSection() {
+  const all = goShortcutList();
+  const groups = [...new Set(all.map((x) => x.group))];
+  return h(
+    "section",
+    { class: "go-keys", "aria-labelledby": "go-keys-title" },
+    h("h3", { id: "go-keys-title", class: "go-keys-title" }, h("span", {}, "Go to a page: press"), kbd("g"), h("span", {}, "then the page's key")),
+    groups.map((g) =>
+      h(
+        "div",
+        { class: "go-group" },
+        h("div", { class: "eyebrow" }, g),
+        h("ul", { class: "go-list" }, all.filter((x) => x.group === g).map((x) => h("li", {}, kbd(x.key), h("span", {}, x.label)))),
+      ),
+    ),
+    h("p", { class: "muted small" }, "These keys never fire while you are typing in a field. Press Esc to cancel after g."),
+  );
 }
 
 /** The shortcut label for page n (0-based), e.g. "⌘1", or null past the ninth page. */
@@ -312,6 +406,9 @@ export function pageShortcut(i) {
   if (i > 8) return null;
   return { label: isMac() ? `⌘${i + 1}` : `Ctrl+${i + 1}`, aria: `${ariaMod()}+${i + 1}` };
 }
+
+let seq = null;
+const sequencer = () => (seq ??= createSequencer({ table: () => goKeyTable(ctx.pages().map((p) => p.id)) }));
 
 function onGlobalKey(e) {
   if (e.defaultPrevented || e.isComposing) return;
@@ -333,7 +430,24 @@ function onGlobalKey(e) {
     ctx.go(p.id);
     return;
   }
-  if (e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target) || dlg?.open || otherDialogOpen()) return;
+  if (/^(Shift|Control|Alt|Meta|CapsLock|AltGraph)$/.test(e.key)) return;
+  const blocked = e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target) || dlg?.open || otherDialogOpen();
+  // Vim-style "g then a key": never while typing in a field or with a dialog open (that also disarms the g).
+  const step = sequencer().feed(e.key, { typing: blocked, shift: e.shiftKey, repeat: e.repeat });
+  if (blocked) {
+    setKeyHint(false);
+    return;
+  }
+  if (step.kind === "pending") {
+    setKeyHint(true);
+    return;
+  }
+  setKeyHint(false);
+  if (step.kind === "go") {
+    e.preventDefault();
+    ctx.go(step.id);
+    return;
+  }
   if (e.key === "/") {
     e.preventDefault();
     openPalette();
