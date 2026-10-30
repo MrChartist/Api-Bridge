@@ -123,6 +123,15 @@ export function amoWhenText(t) {
   return `${day ? `Goes at 09:15 on ${day}` : "Goes at the next open"} · ${where}`;
 }
 
+/**
+ * The order checks that still apply to an order sent on a later IST day (an after-market order): today's daily
+ * counters (DAILY_LIMIT_REACHED: the day's loss and order count) reset at the day roll, so they are left out; per-order
+ * limits, the kill switch, the price band and the live gates stay.
+ */
+export function checksForLaterDay(checks) {
+  return (checks ?? []).filter((c) => c?.code !== "DAILY_LIMIT_REACHED");
+}
+
 /** What kind of trigger it is, in the words brokers use. */
 export function kindText(t) {
   if (t.origin === "amo") return "After-market order";

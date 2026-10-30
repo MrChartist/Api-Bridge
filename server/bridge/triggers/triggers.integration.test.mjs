@@ -334,3 +334,36 @@ describe("after-market orders (held on this Bridge, sent at 09:15)", () => {
     expect(after.result.message).toMatch(/opened 16\.67% away from 120/);
   });
 });
+
+describe("an after-market order is not warned about today's daily limits", () => {
+  it("daily loss used up today + an AMO for the next session: no daily-limit warning (a same-day GTT keeps it)", async () => {
+    const at = async (day, hhmm) => {
+      const target = Date.parse(`${day}T${hhmm}:00+05:30`);
+      if (target > clock.now()) await clock.advance(target - clock.now());
+    };
+    await at("2026-10-27", "10:00");
+    try {
+      await app.deps.safety.releaseKillSwitch?.(createCallContext({ source: "cli", principal: { kind: "local", id: "cli" }, log, scopes: ["admin"] }), { confirm: "RELEASE" });
+    } catch {
+      /* not engaged */
+    }
+    // Lose more than the daily limit today: 10 lots bought at 120 and sold at 100.
+    setPx(120);
+    await app.deps.orders.place(ctx("paper"), { account: "paper", symbol: OPT, side: "BUY", quantity: 10 * LOT, product: "MARGIN", orderType: "MARKET" });
+    await clock.advance(1000);
+    setPx(100);
+    await app.deps.orders.place(ctx("paper"), { account: "paper", symbol: OPT, side: "SELL", quantity: 10 * LOT, product: "MARGIN", orderType: "MARKET" });
+    await clock.advance(1000);
+    const today = await reject(app.deps.orders.place(ctx("paper"), { account: "paper", symbol: OPT, side: "BUY", quantity: LOT, product: "MARGIN", orderType: "MARKET" }));
+    expect(today.code).toBe("DAILY_LIMIT_REACHED");
+    await at("2026-10-27", "16:00");
+    // The option expires today; the next session's order is an equity one.
+    md.setPrice("NSE:RELIANCE", 1400);
+    const amo = await svc.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", origin: "amo", legs: [{ order: { side: "BUY", quantity: 1, orderType: "LIMIT", price: 1401 } }] });
+    expect(amo.warnings.join(" ")).not.toMatch(/daily limit/);
+    const gtt = await svc.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", legs: [{ trigger: 1410, order: { side: "BUY", quantity: 1 } }] });
+    expect(gtt.warnings.join(" ")).toMatch(/daily limit/);
+    svc.cancel(ctx("paper"), amo.id);
+    svc.cancel(ctx("paper"), gtt.id);
+  });
+});
