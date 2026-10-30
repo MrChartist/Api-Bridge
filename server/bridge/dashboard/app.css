@@ -7665,6 +7665,8 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
 .jr-cal-sum { margin: 10px 0 0; }
 .jr-stats table td, .jr-stats table th { white-space: nowrap; }
 .jr-stats { overflow-x: auto; }
+/* The card-wide sticky header is offset by the toolbar height; inside this scroll box that offset pushed it over the rows. */
+.card .jr-stats .table-wrap > table > thead th { position: static; }
 .jr-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .jr-filters select { width: auto; min-height: 36px; field-sizing: content; }
 .jr-filters select[hidden] { display: none; }
