@@ -121,7 +121,7 @@ export function friendlyError(err) {
   if (err?.network) return { title: "Cannot reach the Bridge", detail: "Is it still running? Start it again from its shortcut (or the start file you double-clicked), then refresh this page." };
   switch (err?.code) {
     case "UNAUTHENTICATED":
-      return { title: "That key was not accepted", detail: "It may be mistyped, expired or revoked. Open the Bridge again from its shortcut (or run mc-bridge open) to sign in without a key, or create a new one with: npm run bridge -- keys create --label me --scope admin,paper" };
+      return { title: "That key was not accepted", detail: "It may be mistyped, expired or revoked, or made by another Bridge (each Bridge only accepts its own keys). To sign in without a key, run npm run dev in the Bridge folder (demo mode) or npm run bridge -- open while it runs; or create one with: npm run bridge -- keys create --label me --scope admin,paper" };
     case "SCOPE_REQUIRED":
       return { title: "This key is not allowed to do that", detail: `${detail} Sign in with an admin key to manage the Bridge.` };
     case "LOOPBACK_ONLY":
