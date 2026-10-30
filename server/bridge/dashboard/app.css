@@ -4306,8 +4306,13 @@ table.oi-help-table thead th { font-size: 12px; color: hsl(var(--foreground) / v
   .oi-ring { animation: none; outline: 2px solid hsl(var(--ring, var(--foreground))); outline-offset: 1px; }
 }
 /* Strikes shown only to fill the ladder's box (outside the band the figures read): the same row, quieter. */
-table.oi-ladder tbody tr.oi-xband > td { opacity: 0.55; }
+table.oi-ladder tbody tr.oi-xband > td { opacity: 0.5; }
+table.oi-ladder tbody tr.oi-xband > th.k { background: var(--mat-grouped-solid); }
 table.oi-ladder tbody tr.oi-xband > th.k .kv { color: hsl(var(--foreground) / var(--a-label)); }
+/* The band's edges: a dashed rule across the row where the band starts and ends. */
+table.oi-ladder tbody tr.oi-xband + tr:not(.oi-xband) > td, table.oi-ladder tbody tr:not(.oi-xband):has(+ tr.oi-xband) > td { background-image: repeating-linear-gradient(90deg, hsl(var(--foreground) / 0.55) 0 4px, transparent 4px 8px); background-size: 100% 1px; background-repeat: no-repeat; }
+table.oi-ladder tbody tr.oi-xband + tr:not(.oi-xband) > td { background-position: left top; }
+table.oi-ladder tbody tr:not(.oi-xband):has(+ tr.oi-xband) > td { background-position: left bottom; }
 
 /* ───────────────────────── 12f · POSITIONS AND RISK ─────────────────────────
    The book on one underlying as a risk desk (docs/design/positions.md, round 2): a book strip of Hero · Greeks ·
@@ -6717,7 +6722,8 @@ svg .scr-dot:hover { r: 5px; }
 .pt-tbl-btn[aria-pressed="true"] { background: hsl(var(--sel-bg)); color: hsl(var(--sel-fg)); box-shadow: none; }
 .pt-tables { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
 .pt-group + .pt-group { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
-.pt-group-h { margin: 0; padding: 10px 14px 4px; font: 600 12px/1.2 var(--font-body); letter-spacing: 0.02em; text-transform: uppercase; color: hsl(var(--foreground) / var(--a-quiet)); }
+/* Sentence case, as every label (docs/design/brand.md §5). */
+.pt-group-h { margin: 0; padding: 10px 14px 4px; font: 600 13px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .pt-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
 .pt-wrap:focus-visible { outline: 2px solid var(--sel-ring); outline-offset: -2px; }
 /* The three group tables share one column grid (Participant 120 px, eight equal value columns), so the columns line
