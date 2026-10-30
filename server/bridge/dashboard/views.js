@@ -651,7 +651,8 @@ async function show() {
     root.replaceChildren(...[tabs, alertBox(err)].filter(Boolean));
   }
   root.removeAttribute("aria-busy");
-  const title = tab ? `${page.title}: ${tab.label}` : page.title;
+  if (tabs) revealActiveTab(tabs.firstElementChild);
+  const title = tab ?`${page.title}: ${tab.label}` : page.title;
   announce(changed ? `${title} page` : `${title} refreshed`);
   if (pendingFocus) {
     const target = pendingFocus === true ? null : root.querySelector(pendingFocus);
@@ -662,6 +663,19 @@ async function show() {
   const anim = motionHooks?.animatePage;
   if (typeof anim === "function") anim(root);
   refreshTicketCount();
+}
+
+/**
+ * On a phone the page tab strip scrolls sideways: bring the current tab fully into view (API › Rate limits sat half
+ * cut off at the right edge). Called once the strip is in the page for good (re-inserting it resets its scroll).
+ */
+function revealActiveTab(bar) {
+  const sel = bar?.querySelector('[aria-selected="true"]');
+  if (!sel || bar.scrollWidth <= bar.clientWidth) return;
+  const b = bar.getBoundingClientRect();
+  const s = sel.getBoundingClientRect();
+  if (s.right > b.right - 4) bar.scrollLeft += s.right - b.right + 24;
+  else if (s.left < b.left + 4) bar.scrollLeft -= b.left - s.left + 24;
 }
 
 /**
@@ -1231,10 +1245,10 @@ async function renderHome() {
 }
 
 /**
- * An account's capabilities on one line: the first two as chips, then a "+N" chip (three chips at most) that opens the rest in a popover,
+ * An account's capabilities on one line: the first as a chip, then a "+N" chip (two chips at most) that opens the rest in a popover,
  * so every account row keeps one height (about 64px on a desktop) however much its broker can do.
  */
-const CAPS_SHOWN = 2;
+const CAPS_SHOWN = 1;
 function capabilityChips(a) {
   const caps = a.capabilities ?? [];
   const rest = caps.slice(CAPS_SHOWN);
@@ -1538,8 +1552,8 @@ export function holderText(entry) {
   const who = entry.label || entry.holder;
   return `${who} · ${rel} · ${entry.inFamily ? "Family" : "Outside family"}`;
 }
-/** The Accounts row's holder pill, the deciding word first so a narrow cell keeps it: "Family · You (demo) · Self". */
-const holderPillText = (e) => `${e.inFamily ? "Family" : "Outside family"} · ${e.label || e.holder} · ${e.relationship ? HOLDER_REL[e.relationship] ?? e.relationship : "No relationship"}`;
+/** The Accounts row's holder line under its Family pill: "You (demo) · Self". */
+const holderWhoText = (e) => `${e.label || e.holder} · ${e.relationship ? HOLDER_REL[e.relationship] ?? e.relationship : "No relationship"}`;
 const HOLDER_REL = { self: "Self", spouse: "Spouse", "dependent-child": "Dependent child", "dependent-parent": "Dependent parent", huf: "HUF", other: "Other" };
 
 /** Edit a holder's relationship and label (PUT /v1/book/holders/{holder}: admin, this computer). */
@@ -1586,11 +1600,17 @@ async function renderAccounts() {
   const holderCell = (a) => {
     const e = holderOfAcc(a.id);
     if (!e) return null;
+    // Two short lines, like the Account cell beside it: the deciding Family pill and Edit, then who and how related.
     return h(
       "div",
-      { class: "acct-holder" },
-      h("span", { class: "bk-rel", "data-tone": e.inFamily ? "ok" : "warn", title: `Holder: ${holderText(e)}` }, h("span", { class: "pal-sr-only" }, "Holder: "), holderPillText(e)),
-      e.locked ? h("span", { class: "muted small" }, "set in bridge.config.json") : h("button", { type: "button", class: "small link-btn", "aria-label": `Edit the relationship of holder ${e.holder}`, onclick: () => holderSheet(e, book.relationships) }, "Edit"),
+      { class: "acct-holder", title: `Holder: ${holderText(e)}` },
+      h(
+        "span",
+        { class: "acct-holder-top" },
+        h("span", { class: "bk-rel", "data-tone": e.inFamily ? "ok" : "warn" }, e.inFamily ? "Family" : "Outside family"),
+        e.locked ? h("span", { class: "muted small" }, "set in bridge.config.json") : h("button", { type: "button", class: "small link-btn", "aria-label": `Edit the relationship of holder ${e.holder}`, onclick: () => holderSheet(e, book.relationships) }, "Edit"),
+      ),
+      h("span", { class: "muted small acct-holder-who" }, holderWhoText(e)),
     );
   };
   const list = brokers.data.data ?? [];
@@ -1620,11 +1640,21 @@ async function renderAccounts() {
     flush: true,
     body: table(
       [
-        { label: "Account", wrap: true, cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id), holderCell(a)) },
-        { label: "Broker", wrap: true, cell: (a) => (a.broker === "paper" ? "Paper (simulator)" : brokerCell(a.broker, brokerOf(a)?.name ?? a.broker)) },
-        { label: "Session", cell: (a) => h("div", {}, sessionPill(a.session?.state), a.session?.expiresAt ? h("div", { class: "muted small" }, `until ${istDateTime(a.session.expiresAt)}`) : null) },
-        { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")) },
-        { label: "Can do", cell: (a) => capabilityChips(a) },
+        { label: "Account", wrap: true, cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
+        ...(book ? [{ label: "Holder", cell: (a) => holderCell(a) ?? h("span", { class: "muted small" }, "No holder") }] : []),
+        // Broker and what it can do share a cell, and Session carries the mode under its pill, so the table fits its
+        // card from 1100px up without a sideways scroll (two fewer columns).
+        { label: "Broker", wrap: true, cell: (a) => h("div", { class: "acct-broker" }, a.broker === "paper" ? h("span", {}, "Paper (simulator)") : brokerCell(a.broker, brokerOf(a)?.name ?? a.broker), capabilityChips(a)) },
+        {
+          label: "Session",
+          cell: (a) =>
+            h(
+              "div",
+              { class: "acct-session" },
+              h("span", { class: "acct-session-pills" }, sessionPill(a.session?.state), a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")),
+              a.session?.expiresAt ? h("div", { class: "muted small" }, `until ${istDateTime(a.session.expiresAt)}`) : null,
+            ),
+        },
         {
           label: "",
           cell: (a) => {
@@ -1633,12 +1663,22 @@ async function renderAccounts() {
             t.addEventListener("click", () => testAccount(a, t));
             if (app.state.demo) return t;
             const connected = a.session?.state === "connected";
+            const loginText = connected ? "Log in again" : "Log in";
+            const login = () => loginSheet(a, brokerOf(a));
+            // A narrow card (accounts-card container < 1080px, app.css) shows these as one ⋯ menu instead of a row.
+            const more = h("button", { type: "button", class: "icon-btn acct-acts-more", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-label": `Actions for ${a.label}: test, ${loginText.toLowerCase()}${a.liveAllowedByConfig ? "" : ", remove"}` }, icon("more"));
+            more.addEventListener("click", () => {
+              more.setAttribute("aria-expanded", "true");
+              let handle = null;
+              const item = (label, fn, cls = "") => h("button", { type: "button", class: `menu-item${cls}`, onclick: () => (handle?.close(), setTimeout(fn, 0)) }, label);
+              const items = [item("Test connection", () => testAccount(a, more)), item(loginText, login), a.liveAllowedByConfig ? null : item("Remove", () => removeAccountSheet(a), " destructive")].filter(Boolean);
+              handle = sheetPopover({ trigger: more, title: a.label, body: h("div", { class: "menu-list stack" }, items), cls: "menu-pop" });
+            });
             return h(
               "div",
-              { class: "row" },
-              t,
-              h("button", { type: "button", class: connected ? "small" : "small primary", "aria-label": `${connected ? "Log in again to" : "Log in to"} ${a.label}`, onclick: () => loginSheet(a, brokerOf(a)) }, connected ? "Log in again" : "Log in"),
-              a.liveAllowedByConfig ? null : removeButton(a),
+              { class: "acct-acts" },
+              h("div", { class: "row acct-acts-inline" }, t, h("button", { type: "button", class: connected ? "small" : "small primary", "aria-label": `${loginText === "Log in" ? "Log in to" : "Log in again to"} ${a.label}`, onclick: login }, loginText), a.liveAllowedByConfig ? null : removeButton(a)),
+              more,
             );
           },
         },

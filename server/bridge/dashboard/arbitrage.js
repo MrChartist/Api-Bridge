@@ -1277,7 +1277,7 @@ export function arbPanels(ctx) {
           kv([
             ["Break-even", `needs ${formatFixed(s.breakEvenPts, 2)} pts gross per unit`],
             ["Capital ≈", money(s.capital)],
-            [isBox ? "Net rate %/yr" : "Net %/yr over hurdle", m.expiryDay ? "-- (expiry day)" : h("span", { class: isBox ? (vs === null ? "" : vs >= 0 ? "ink-pos" : "ink-neg") : inkOf(annual === null ? null : annual * 100, 2) }, isBox ? pct(annual, 2) : pctSigned(annual, 2))],
+            [isBox ? "Net rate %/yr" : "Net %/yr over hurdle", m.expiryDay ? `${DASH} (expiry day)` : h("span", { class: isBox ? (vs === null ? "" : vs >= 0 ? "ink-pos" : "ink-neg") : inkOf(annual === null ? null : annual * 100, 2) }, isBox ? pct(annual, 2) : pctSigned(annual, 2))],
             ["Hurdle", formatPercent(m.hRate * 100, 2)],
             [isBox ? "vs hurdle" : "Excess over hurdle", vs === null ? DASH : bpChip(vs)],
           ]),

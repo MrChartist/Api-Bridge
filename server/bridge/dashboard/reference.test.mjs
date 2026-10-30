@@ -165,7 +165,7 @@ describe("values from a bundle", () => {
   it("formats dates without Intl", () => {
     expect(dayText("2026-10-27")).toBe("27 Oct");
     expect(dayText("2026-11-24", { weekday: true, year: true })).toBe("Tue 24 Nov 2026");
-    expect(dayText("x")).toBe("--");
+    expect(dayText("x")).toBe("–");
   });
 });
 

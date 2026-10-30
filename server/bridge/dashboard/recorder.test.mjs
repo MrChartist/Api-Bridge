@@ -84,7 +84,7 @@ describe("state, tiles and coverage", () => {
     expect(bytesText(41725013)).toBe("39.8 MB");
     expect(bytesText(10737418240)).toBe("10.0 GB");
     expect(bytesText(182000000000)).toBe("170 GB");
-    expect(bytesText(null)).toBe("--");
+    expect(bytesText(null)).toBe("–");
   });
 
   it("coverage rows, refused chains last with the reason", () => {
@@ -117,7 +117,7 @@ describe("state, tiles and coverage", () => {
 
   it("chains not due yet read as waiting, with no bar, counted apart", () => {
     const rows = coverageRows({ coverage: [{ underlying: "NIFTY", expiry: "2026-11-03", expectedSlots: 10, recordedSlots: 10, gapSlots: 0 }, { underlying: "BANKNIFTY", expiry: "2027-01-26", expectedSlots: 0, recordedSlots: 0, gapSlots: 0 }] });
-    expect(rows[1]).toMatchObject({ waiting: true, recText: "Not due yet", gapText: "--", ratio: null });
+    expect(rows[1]).toMatchObject({ waiting: true, recText: "Not due yet", gapText: "–", ratio: null });
     expect(coverageCounts(rows)).toBe("1 chain recording · 1 waiting");
   });
 
@@ -133,7 +133,7 @@ describe("state, tiles and coverage", () => {
   it("gap ranges and reasons in plain words", () => {
     expect(gapRange({ from: "2026-10-29T10:41:00.000+05:30", to: "2026-10-29T10:43:00.000+05:30" })).toBe("10:41–10:43");
     expect(gapRange({ from: Date.parse("2026-10-29T10:41:00+05:30"), to: Date.parse("2026-10-29T10:41:00+05:30") })).toBe("10:41");
-    expect(gapRange({ from: "nope" })).toBe("--");
+    expect(gapRange({ from: "nope" })).toBe("–");
     expect(gapReason("bridge-down")).toBe("Bridge not running");
     expect(gapReason("budget")).toBe("REST budget used");
   });

@@ -1035,7 +1035,7 @@ async function renderDesk(kind) {
     const fwd = fut ? num(fut.ltp) : F;
     const lot = num(c.lotSize);
     // Phones: the line has no room for the lot and the future, so the first tile's sub line carries them.
-    const ivSub = phone ? `${lot ? `Lot ${formatInt(lot)}` : "Lot --"}${fwd !== null ? ` · ${fut ? "Fut" : "F"} ${formatInt(fwd)}` : ""}` : day ? `1 trading day ±${formatInt(day)}` : t.label;
+    const ivSub = phone ? `${lot ? `Lot ${formatInt(lot)}` : `Lot ${DASH}`}${fwd !== null ? ` · ${fut ? "Fut" : "F"} ${formatInt(fwd)}` : ""}` : day ? `1 trading day ±${formatInt(day)}` : t.label;
     // Foreground ink: on the chain violet means "put" (bars, header, the put wall), so IV takes no hue.
     setTile("iv", "ATM IV", formatPercent(sm.atmIv, 2), ivSub, { title: `Average of the ATM call and put IV${day ? `; 1σ move over one trading day ±${formatInt(day)}` : ""}. ${clockNote().join(" ")}`, n: sm.atmIv, fmt: (v) => formatPercent(v, 2) });
     setTile("em", "Expected move", move ? `±${formatInt(move)}` : DASH, x.band1 ? `${formatInt(x.band1.lo)} – ${formatInt(x.band1.hi)}` : "", {

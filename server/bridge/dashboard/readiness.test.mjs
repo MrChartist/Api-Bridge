@@ -68,7 +68,7 @@ const IP_MISMATCH = { check: "egress", code: "IP_MISMATCH", severity: "fail", me
 describe("times (IST, pure)", () => {
   it("prints 24 h IST clock times and relative days", () => {
     expect(istHm("2026-10-29T04:42:31Z")).toBe("10:12");
-    expect(istHm(null)).toBe("--");
+    expect(istHm(null)).toBe("–");
     expect(istWhen("2026-10-30T06:00:00+05:30", NOW)).toBe("06:00 tomorrow");
     expect(istWhen("2026-10-29T15:00:00+05:30", NOW)).toBe("15:00");
     expect(istWhen("2026-11-02T09:00:00+05:30", NOW)).toBe("09:00 on 2 Nov");

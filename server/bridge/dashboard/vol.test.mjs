@@ -49,7 +49,7 @@ describe("Volatility page settings", () => {
     const empty = { days: null, atmIv: null, straddle: null, straddlePct: null, move: null, movePct: null, lo: null, hi: null, rr25: null, bf25: null, perDay: null, atmStrike: null, ceIv: null, peIv: null, rupee: null, beLo: null, beHi: null, ratio: null, rr10: null, F: null, basis: null, carryPct: null, futGap: null, hedge: null };
     for (const col of VOL_TERM_COLUMNS) {
       const v = col.cell(empty, {});
-      expect(String(v.t), col.id).toMatch(/^(--|n\/a)$/);
+      expect(String(v.t), col.id).toMatch(/^(–|n\/a)$/);
       expect(`${v.t}${v.s ?? ""}`).not.toMatch(/null|undefined|NaN/);
     }
   });

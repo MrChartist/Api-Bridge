@@ -1205,6 +1205,8 @@ td.wrap { white-space: normal; min-width: 180px; overflow-wrap: anywhere; }
 td .muted.small { font-size: 12.5px; margin-top: 2px; }
 td strong { font-weight: 600; }
 .broker-cell { display: inline-flex; align-items: center; gap: 8px; }
+/* The missing-value placeholder (format.js DASH, an en dash) in a table cell: quiet ink. */
+.empty-dash { color: hsl(var(--foreground) / var(--a-quiet)); }
 
 /* Phones: a stacked table is a grouped list — one block per row, label left, value right. */
 @media (max-width: 719px) {
@@ -1702,10 +1704,32 @@ svg .dv-pill text { fill: hsl(var(--sel-fg)); font: 500 12px/1 var(--font-numeri
 .dir-search { width: min(280px, 100%); }
 /* Accounts "Can do": three chips and a "+N" chip on one line (the rest open in a popover), so rows keep one height. */
 .chips.acct-caps { flex-wrap: nowrap; }
-.chips.acct-caps > .chip { display: block; max-width: 100px; overflow: hidden; text-overflow: ellipsis; line-height: 22px; }
+.chips.acct-caps > .chip { display: block; max-width: 120px; overflow: hidden; text-overflow: ellipsis; line-height: 22px; }
 button.chip-btn.acct-caps-more { min-height: 22px; padding: 0 9px; font: 500 12px/1 var(--font-body); }
 .chips.acct-caps-all { gap: 6px; max-width: 320px; padding: 4px 16px 16px; }
 @media (max-width: 719px) { .chips.acct-caps-all { max-width: none; } }
+/* Your accounts: Broker holds the "can do" chips under the name and Session holds the mode pill, so the table has five
+   columns. From 1100px (where it stops stacking) the card is the container: under 1000px wide (about 1100-1365px
+   windows) the Test / Log in / Remove row becomes one ⋯ menu and the account, holder and broker names may wrap, so the table
+   always fits with no sideways scroll. */
+.accounts-card { container: acct / inline-size; }
+.acct-broker, .acct-session { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.acct-session-pills { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.acct-session .muted.small { margin-top: 0; }
+.accounts-card td.wrap { min-width: 150px; }
+.acct-acts { display: flex; justify-content: flex-end; }
+.acct-acts-inline { flex-wrap: nowrap; }
+button.icon-btn.acct-acts-more { display: none; width: 36px; height: 36px; }
+button.icon-btn.acct-acts-more svg { width: 18px; height: 18px; fill: currentColor; stroke: currentColor; }
+@media (min-width: 1100px) {
+  @container acct (max-width: 1079px) {
+    .accounts-card .table-wrap td.lead strong, .accounts-card .table-wrap .acct-holder-who { white-space: normal; }
+    .accounts-card .table-wrap .broker-cell { min-width: 0; }
+    .acct-acts-inline { display: none; }
+    button.icon-btn.acct-acts-more { display: inline-grid; }
+  }
+}
+@media (max-width: 1099px) { .acct-broker, .acct-session { align-items: flex-end; } .acct-acts { justify-content: flex-start; } }
 .card-actions > .dir-search { flex: 1 1 200px; }
 
 /* Avatars: a broker's logo on a white tile (logos are made for light backgrounds), or its initials. */
@@ -1794,8 +1818,10 @@ dialog.sheet::backdrop { background: hsl(240 20% 4% / 0.42); -webkit-backdrop-fi
 }
 
 /* Toast: a HUD capsule (chrome). It is a manual popover (app.js toast), so it sits in the top layer above an open
-   sheet. Wide screens: top-right under the toolbar, clear of table totals and bottom bars. Below 1024px: bottom centre
-   above the tab bar and any sticky bottom bar (a page with one sets --bottom-extra). */
+   sheet. Wide screens: top centre of the content column under the toolbar, where panel heads keep their title and no
+   controls (the Strategy Saved / Place buttons and desk panel head actions sit at the right). If it would still cover
+   a control there (a narrow desktop; app.js placeToast), it moves to the bottom right ([data-place="low"]). Below
+   1024px: bottom centre above the tab bar and any sticky bottom bar (a page with one sets --bottom-extra). */
 .toast {
   position: fixed; z-index: var(--z-toast); inset: auto auto calc(var(--tabbar-h) + var(--bottom-extra, 0px) + 20px + var(--safe-b)) 50%; transform: translateX(-50%);
   margin: 0; border: 0; color: hsl(var(--foreground)); overflow: visible;
@@ -1809,7 +1835,13 @@ dialog.sheet::backdrop { background: hsl(240 20% 4% / 0.42); -webkit-backdrop-fi
 .toast-icon.info { background: hsl(var(--foreground)); }
 .toast-icon.info svg { width: 14px; height: 14px; stroke: hsl(var(--background)); stroke-width: 2.4; }
 .toast-text { min-width: 0; }
-@media (min-width: 1024px) { .toast { inset: calc(var(--toolbar-h) + var(--safe-t) + 8px) var(--page-gutter) auto auto; transform: none; max-width: 380px; width: auto; border-radius: var(--r-pop); } }
+@media (min-width: 1024px) {
+  .toast {
+    inset: calc(var(--toolbar-h) + var(--safe-t) + 8px) auto auto calc(var(--sidebar-w) + 28px + (100vw - var(--sidebar-w) - 28px) / 2);
+    transform: translateX(-50%); max-width: 380px; width: max-content; border-radius: var(--r-pop);
+  }
+  .toast[data-place="low"] { inset: auto var(--page-gutter) calc(24px + var(--safe-b)) auto; transform: none; }
+}
 
 /* Alerts */
 .alert { display: flex; gap: 12px; align-items: flex-start; padding: 13px 16px; border-radius: var(--r-md); font: 400 14px/1.45 var(--font-body); color: hsl(var(--foreground)); }
@@ -2774,7 +2806,7 @@ button.leg-price.manual { color: hsl(var(--c-atm-ink)); }
 .leg-price .px-dead { font: 500 12px/1 var(--font-body); color: hsl(var(--warn-ink)); }
 .strat-warns .warn-acts { display: inline-flex; gap: 4px; margin-left: auto; }
 .strat-warns .warn-acts button { min-height: 26px; padding: 0 8px; font-size: 12px; }
-.hero-s .nw { white-space: nowrap; }
+.hero-s .nw, .hero-v .nw { white-space: nowrap; }
 .ebar.delta i.neg, .ebar.delta i.pos { background: hsl(var(--foreground) / 0.42); }
 .leg-price .px-none::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 4px; border-radius: 50%; background: hsl(var(--warn)); vertical-align: middle; }
 .leg-row.leg-head .leg-price { grid-area: price; min-height: 0; padding-right: 4px; text-align: right; }
@@ -2916,7 +2948,7 @@ button.sg-card .sg-meta { grid-area: m; min-width: 0; font: 500 12px/1.3 var(--f
 .be-list .be-v { white-space: nowrap; }
 .pop-line { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .pop-ring { flex: none; display: block; }
-.hero-pop .hero-s { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hero-pop .hero-s { display: block; }
 .ring-track { fill: none; stroke: var(--mat-fill-3); stroke-width: 4; }
 .ring-arc { fill: none; stroke: hsl(var(--pos)); stroke-width: 4; stroke-linecap: round; transition: stroke-dashoffset 420ms var(--ease-out); }
 .ring-arc.warn { stroke: hsl(var(--warn)); }
@@ -3248,6 +3280,26 @@ button.toast-undo { --btn-h: 28px; --btn-px: 10px; --btn-fs: 13px; --btn-bg: tra
   .leg-row { grid-template-columns: 22px 24px minmax(96px, 1fr) 32px 50px 70px 60px 28px; grid-template-areas: "on side strike right exp lots price more"; }
   .leg-delta { display: none; }
   .strat-hero .hero-v { font-size: 16px; }
+}
+/* The hero follows the analysis column's own width (desktop only: below 1024px .strat-analysis is display: contents
+   and the tablet/phone rules lay the hero out). Five cells in a row need about 580px; narrower (about 1024-1400px
+   windows) it is three over two, and under 380px (about 1024-1080px) two per row with Net across the top. */
+.strat-analysis { container: strat-an / inline-size; }
+@media (min-width: 1024px) {
+  @container strat-an (max-width: 579px) {
+    .strat-hero { grid-template-columns: repeat(6, minmax(0, 1fr)); row-gap: 10px; }
+    .strat-hero .hero-c { grid-column: span 2; padding: 0 10px; }
+    .strat-hero .hero-c:nth-child(1) { padding-left: 0; }
+    .strat-hero .hero-c:nth-child(3) { box-shadow: none; }
+    .strat-hero .hero-c:nth-child(4), .strat-hero .hero-c:nth-child(5) { grid-column: span 3; padding-top: 10px; box-shadow: inset 0 var(--hl) 0 var(--mat-hairline); }
+    .strat-hero .hero-c:nth-child(4) { padding-left: 0; box-shadow: inset 0 var(--hl) 0 var(--mat-hairline), inset calc(-1 * var(--hl)) 0 0 var(--mat-hairline); }
+  }
+  @container strat-an (max-width: 379px) {
+    .strat-hero { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .strat-hero .hero-c:nth-child(n) { grid-column: span 1; padding: 10px 10px 0; box-shadow: inset 0 var(--hl) 0 var(--mat-hairline); }
+    .strat-hero .hero-c:nth-child(1) { grid-column: 1 / -1; padding: 0; box-shadow: none; }
+    .strat-hero .hero-c:nth-child(2n) { padding-left: 0; box-shadow: inset 0 var(--hl) 0 var(--mat-hairline), inset calc(-1 * var(--hl)) 0 0 var(--mat-hairline); }
+  }
 }
 
 /* Tablet and phone: one column in the order hero → payoff → what-if → presets → legs → tools → risk → table → suggest. */
@@ -6291,9 +6343,11 @@ button.scr-sort-dir { width: 44px; min-height: 44px; padding: 0; justify-content
   .scr-count-m { display: block; margin-left: auto; font: 500 12.5px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; }
   .scr-chips, .scr-legend, .scr-map { display: none; }
   .scr-banner { padding-top: 8px; }
-  .scr-foot-row { flex-direction: column; align-items: stretch; padding: 8px 12px; }
+  /* Stacked: no spacer row and no row gap, so "How it works" (a 44px touch row) sits right under the count. */
+  .scr-foot-row { flex-direction: column; align-items: stretch; row-gap: 0; padding: 8px 12px 0; }
+  .scr-foot-row .scr-grow { display: none; }
   .scr-foot-row .scr-count { text-align: center; }
-  button.scr-more { min-height: 44px; width: 100%; justify-content: center; }
+  button.scr-more { min-height: 44px; width: 100%; justify-content: center; margin-top: 8px; }
   .scr-method, .scr-method[open] > summary { margin: 0 auto; }
   .scr-f-num input { width: 80px; }
   .scr-slot.chart-slot-box { height: 160px; }
@@ -6675,6 +6729,17 @@ button.ref-chip[data-tone="bad"] { color: hsl(var(--neg-ink)); }
   .ctx-spot .chg-abs { display: none; }
   #toolbar-ctx button.live-ctl[data-kind="live"] { min-width: 44px; padding: 0 14px; justify-content: center; }
   #toolbar-ctx button.live-ctl[data-kind="live"] .live-txt { display: none; }
+}
+/* Narrow desktops (1024-1279px) on the desk pages: the sidebar takes 280px, so the live control is its dot and the demo
+   pill its amber dot and Ready its glyph (all keep their words in the label); the capsule then
+   keeps the spot and its % change (fitCtx drops the rest). */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  :root[data-layout="desk"] #toolbar-ctx button.live-ctl[data-kind="live"] { min-width: 40px; padding: 0 14px; justify-content: center; }
+  :root[data-layout="desk"] #toolbar-ctx button.live-ctl[data-kind="live"] .live-txt { display: none; }
+  :root[data-layout="desk"] button.toolbar-demo { width: var(--ctl-h); padding: 0; justify-content: center; }
+  :root[data-layout="desk"] .toolbar-demo > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  :root[data-layout="desk"] button.toolbar-ready-btn { width: var(--ctl-h); padding: 0; justify-content: center; }
+  :root[data-layout="desk"] .toolbar-ready .rd-long, :root[data-layout="desk"] .toolbar-ready .rd-short { display: none; }
 }
 /* Phones: the chip is short ("Lot 65") and keeps its size; the underlying never shrinks under the expiry (it used to,
    and the two labels overlapped). The capsule clips instead, so the chain and the builder drop figures (fitCtx). */
@@ -7544,22 +7609,22 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
   .bk-check-hit { width: 44px; height: 44px; margin: -12px -8px -12px -12px; }
   .bk-legs .bk-c-sel { width: 44px; }
 }
-.acct-holder { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 .acct-family-note { margin: 0; padding: 12px var(--card-pad) var(--card-pad); }
-/* The holder and its Edit link share one line under the id (three short lines per account row). */
-.acct-holder { margin-top: 4px; }
-.acct-holder button.link-btn { min-height: 24px; padding: 0 4px; background: none; box-shadow: none; font: 600 12.5px/1.2 var(--font-body); color: hsl(var(--ios-blue-ink)); }
+/* Holder column: the Family pill and Edit, then "who · relationship" (two lines, like the Account cell). */
+.acct-holder { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.acct-holder-top { display: inline-flex; align-items: center; gap: 6px; }
+.acct-holder button.link-btn { min-height: 0; padding: 0 2px; background: none; box-shadow: none; font: 600 13px/1.3 var(--font-body); color: hsl(var(--ios-blue-ink)); }
 .acct-holder button.link-btn:hover { text-decoration: underline; background: none; }
-@media (pointer: coarse) { .acct-holder button.link-btn { min-height: 44px; padding: 0 10px; } }
-.acct-holder .bk-rel { white-space: normal; }
-@media (min-width: 1024px) {
-  .accounts-card td:first-child { min-width: 240px; }
-  /* The account (name, id, holder) takes the spare width so its holder line does not wrap; the broker name wraps. */
-  .accounts-card th:first-child { width: 34%; }
-  /* One holder line: the pill ellipsises (its title has the whole text) before the Edit link wraps under it. */
-  .acct-holder { flex-wrap: nowrap; width: 0; min-width: 100%; }
-  .acct-holder .bk-rel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .acct-holder button.link-btn { flex: none; }
+.acct-holder .bk-rel { border-radius: 8px; padding: 2px 8px; }
+/* Stacked cards (tablet, phone): the holder sits right-aligned like the other labelled rows. */
+@media (max-width: 1099px) { .acct-holder { align-items: flex-end; text-align: right; } }
+@media (min-width: 1100px) {
+  /* Slightly tighter cell gaps so the five columns fit (the narrow-card rules are with .accounts-card above). */
+  .accounts-card th, .accounts-card td { padding-inline: 8px; }
+  .accounts-card td { padding-block: 11px; }
+  .accounts-card th:first-child, .accounts-card td:first-child { padding-left: var(--card-pad); }
+  .accounts-card th:last-child, .accounts-card td:last-child { padding-right: var(--card-pad); }
+  .accounts-card td.lead strong, .accounts-card .acct-holder-who { white-space: nowrap; }
+  .accounts-card .broker-cell { min-width: 190px; }
 }
-.acct-holder .bk-rel { border-radius: 8px; }
 .bk-card-g > span { white-space: nowrap; }
