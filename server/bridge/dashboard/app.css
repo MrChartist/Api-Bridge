@@ -7643,7 +7643,7 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
 }
 .bk-card-g > span { white-space: nowrap; }
 
-/* ───────────────────────── 15 · SPACE AND DENSITY ─────────────────────────
+/* ───────────────────────── 16 · SPACE AND DENSITY ─────────────────────────
    docs/design/ui-pass-3.md §12. The page fills the window beside a flush sidebar (or its icon rail), and the density
    (compact on a desktop with a mouse, comfortable on touch) sets row heights, cell padding, the top bar, the KPI strip
    and panel padding through tokens. Wide screens add detail (columns, tiles, side-by-side panels), never whitespace. */
@@ -7798,6 +7798,7 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
   :root[data-page="positions"] #content > * { grid-column: 1 / -1; }
   :root[data-page="positions"] #content:has(> [data-panel="risk"]:not([hidden])) > [data-panel="positions"] { grid-column: 1; }
   :root[data-page="positions"] #content > [data-panel="risk"] { grid-column: 2; }
+}
 
 
 /* ───────────────────────── 15 · FLOWS: inline errors, toast tones, setup guides, the new key (flows.js, views.js) ───────────────────────── */
@@ -7971,3 +7972,7 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
   .ev-scroll[data-mode="feed"][data-asset="stock"] :is(.ev-head, .ev-row) { grid-template-columns: 66px minmax(120px, 1fr) minmax(150px, 0.9fr) 80px 72px minmax(160px, 2fr) 50px; }
   .ev-scroll[data-mode="feed"][data-asset="stock"] :is(.ev-head, .ev-row) > :nth-child(4) { display: none; }
 }
+
+/* Strategy Builder (1800 px and up): a wider build column, so preset cards and leg rows read on one line. */
+@media (min-width: 1800px) { .strat-grid { grid-template-columns: 560px minmax(0, 1fr); } }
+@media (min-width: 2400px) { .strat-grid { grid-template-columns: 640px minmax(0, 1fr); } }

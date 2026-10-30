@@ -1065,7 +1065,7 @@ async function renderDesk(kind) {
     };
     setTile("pw", "Put wall", formatInt(sm.support?.strike), wallSub(sm.support), { title: `Strike with the most put OI of the ${formatInt(n)} loaded: support`, vcls: "ink-put" });
     setTile("cw", "Call wall", formatInt(sm.resistance?.strike), wallSub(sm.resistance), { title: `Strike with the most call OI of the ${formatInt(n)} loaded: resistance`, vcls: "ink-call" });
-    // Wide screens (app.css section 15 shows them from 1600 and 1920 px): the future and its basis, call and put OI
+    // Wide screens (app.css section 16 shows them from 1600 and 1920 px): the future and its basis, call and put OI
     // with today's change, and the volume PCR. The figures exist already; a wide screen has room for them.
     const chg = (v) => `chg ${formatCompact(v, { signed: true })}`;
     setTile("fut", fut ? "Future" : "Synthetic F", fwd === null ? DASH : formatFixed(fwd, fut ? 2 : 0), fwd !== null && sm.spot !== null ? `Basis ${formatSigned(fwd - sm.spot, 1)}` : "", { cls: "kpi-wide", title: fut ? "The same-expiry future and its basis to spot" : "Synthetic future from put-call parity; no future is listed for this expiry" });
@@ -3350,7 +3350,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     const bar = document.querySelector(".tabbar");
     const barH = bar && getComputedStyle(bar).display !== "none" ? Math.max(0, innerHeight - bar.getBoundingClientRect().top) + 8 : 0;
     const keys = host.parentNode?.querySelector?.(".desk-keys");
-    // Wide screens put the key legend beside the expiry chips (app.css section 15): then it is not below the table.
+    // Wide screens put the key legend beside the expiry chips (app.css section 16): then it is not below the table.
     const below = keys && getComputedStyle(keys).display !== "none" && keys.getBoundingClientRect().top >= w.getBoundingClientRect().top ? keys.offsetHeight : 0;
     const want = Math.max(320, Math.floor(innerHeight - top - below - 14 - barH));
     const px = `${want}px`;

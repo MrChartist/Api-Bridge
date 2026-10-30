@@ -593,7 +593,7 @@ function appearanceControl(labelledBy) {
 
 /**
  * Compact / Comfortable / Auto (app.js handles the clicks for every copy). Auto is compact with a mouse on a desktop;
- * touch screens are always comfortable, so the control is hidden there (app.css section 15).
+ * touch screens are always comfortable, so the control is hidden there (app.css section 16).
  */
 function densityControl(labelledBy) {
   let current = "auto";

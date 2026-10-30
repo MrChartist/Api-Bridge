@@ -96,6 +96,18 @@ describe("app.css: the space and density tokens", () => {
     expect(rule).toMatch(/border-radius: 0/);
     expect(rule).toMatch(/inset calc\(-1 \* var\(--hl\)\) 0 0 var\(--mat-separator\)/);
   });
+  it("closes every block it opens (a merge that drops a brace swallows every rule after it)", () => {
+    for (const f of ["./app.css", "./palette.css"]) {
+      const text = readFileSync(new URL(f, import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+      let depth = 0;
+      for (const ch of text) {
+        if (ch === "{") depth += 1;
+        else if (ch === "}") depth -= 1;
+        expect(depth, f).toBeGreaterThanOrEqual(0);
+      }
+      expect(depth, f).toBe(0);
+    }
+  });
   it("uses the cell tokens in the generic table rules", () => {
     expect(css).toMatch(/td \{ padding: var\(--td-py\) var\(--cell-px\);/);
     expect(css).toMatch(/table\.chain \{ --desk-row: var\(--chain-row\);/);

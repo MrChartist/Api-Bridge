@@ -1,7 +1,7 @@
 /**
  * Space and density preferences (pure logic, no DOM): the sidebar (full, icon rail, or automatic) and the density
  * (compact, comfortable, or automatic). app.js reads the stored choice, resolves it for the screen and sets
- * `data-sb` and `data-density` on <html>; app.css section 15 draws the rest from tokens.
+ * `data-sb` and `data-density` on <html>; app.css section 16 draws the rest from tokens.
  *
  * Automatic sidebar: the icon rail from 1024 to 1279 px, the full sidebar from 1280 px; below 1024 px there is no
  * sidebar (the tab bar). Automatic density: compact with a fine pointer (mouse, trackpad) on a screen 1024 px or wider,

@@ -268,7 +268,7 @@ A trading screen should hold as much as it can without feeling cramped. This sec
 
 **Density.**
 - `data-density` on `<html>` is `compact` or `comfortable`. Auto: compact with a fine pointer on a screen 1024 px or wider; a coarse pointer is always comfortable, so touch keeps its 44 px targets. A choice (Compact, Comfortable, Auto) lives in the account popover and the More sheet (hidden on touch) and in localStorage `mcb.dashboard.density`.
-- Tokens (first `:root`, comfortable values; compact in app.css section 15): `--th-py` 12 / 6, `--td-py` 13 / 6, `--cell-px` 16 / 12, `--chain-row` 40 / 30, `--chain-row-1` 30 / 24 (Customise "Compact rows"), `--desk-top` 70 / 50, `--toolbar-h` 56 / 46, `--ctl-h` 40 / 34, `--panel-head-h` 52 / 40, `--panel-gap` 24 / 12, `--panel-gap-dense` 12 / 8, `--card-pad` / 14, `--list-row-h` 52 / 40.
+- Tokens (first `:root`, comfortable values; compact in app.css section 16): `--th-py` 12 / 6, `--td-py` 13 / 6, `--cell-px` 16 / 12, `--chain-row` 40 / 30, `--chain-row-1` 30 / 24 (Customise "Compact rows"), `--desk-top` 70 / 50, `--toolbar-h` 56 / 46, `--ctl-h` 40 / 34, `--panel-head-h` 52 / 40, `--panel-gap` 24 / 12, `--panel-gap-dense` 12 / 8, `--card-pad` / 14, `--list-row-h` 52 / 40.
 - Logic is pure and tested: `layout-prefs.js` (`parseSidebar`, `parseDensity`, `resolveSidebar`, `resolveDensity`, `toggleSidebar`, `wideExtras`), `layout-prefs.test.mjs`.
 
 **Wide screens add detail.**
