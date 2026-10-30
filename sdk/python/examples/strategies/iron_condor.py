@@ -1,9 +1,10 @@
 """Iron condor with an adjustment when the position's delta drifts.
 
 Sells an out-of-the-money call and put near short_delta and buys wings wing_width points further out (wings first,
-so the margin stays low). Every check_seconds it adds up the position's delta from the live chain. When the net delta
+so the margin stays low). Every 10 seconds it adds up the position's delta from the live chain. When the net delta
 per lot drifts past adjust_delta, the side the market moved away from (the untested side) is rolled closer: its
-spread is bought back and sold again at short_delta. At most max_adjustments a day.
+spread is bought back and sold again at short_delta, once its short option has drifted 0.05 or more below short_delta.
+At most max_adjustments a day.
 """
 
 from mrchartist_bridge.errors import BridgeApiError
@@ -30,6 +31,7 @@ class IronCondor(Strategy):
         if self.p.wing_width % STEP[self.p.underlying]:
             raise ConfigError("wing_width must be a multiple of %d for %s" % (STEP[self.p.underlying], self.p.underlying))
         self.adjustments = 0
+        self.waiting = False
         held = {s: q for s, q in self.positions().items() if q and option_parts(s)}
         if held:
             self.expiry = option_parts(next(iter(held)))["expiry"]
@@ -94,6 +96,14 @@ class IronCondor(Strategy):
             return
         # Negative delta: the market rose against the short call, so the put side is untested (and the reverse).
         untested = "PE" if per_lot < 0 else "CE"
+        # Roll only a side that has drifted away from short_delta: rolling one that is already there changes nothing.
+        shorts = [abs((legs.get(sym) or {}).get("delta") or 0) for sym, q in self.positions().items() if q < 0 and (option_parts(sym) or {}).get("right") == untested]
+        if shorts and max(shorts) >= self.p.short_delta - 0.05:
+            if not self.waiting:
+                self.log.info("Net delta %.2f per lot is past %.2f, but the %s side is still near delta %.2f: nothing to roll", per_lot, self.p.adjust_delta, untested, self.p.short_delta)
+                self.waiting = True
+            return
+        self.waiting = False
         self.adjustments += 1
         self.log.info("Net delta %.2f per lot passed %.2f: rolling the %s side closer (adjustment %d)", per_lot, self.p.adjust_delta, untested, self.adjustments)
         self.close_side(untested)

@@ -8876,7 +8876,7 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .algo-ll.muted { display: block; color: hsl(var(--foreground) / var(--a-quiet)); font-family: var(--font-body); }
 
 /* Orders and positions it holds */
-.algo-orders-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; overflow-x: auto; }
+.algo-orders-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; max-height: 440px; overflow: auto; overscroll-behavior: contain; }
 .algo-orders table.desk-table { width: 100%; border-collapse: collapse; font: 400 13px/1.35 var(--font-body); }
 .algo-orders table.desk-table th, .algo-orders table.desk-table td { padding: 7px 10px; text-align: left; white-space: nowrap; }
 .algo-orders table.desk-table :is(th, td).num { text-align: right; font-family: var(--font-numeric); font-variant-numeric: tabular-nums; }
@@ -8912,7 +8912,8 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
   .algo-dbody { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(320px, 1fr) auto; grid-template-areas: "set" "log" "ord"; }
 }
 @media (min-width: 1700px) {
-  .algo-dbody { grid-template-columns: minmax(340px, 5fr) minmax(0, 6fr); grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "set log" "ord log"; }
+  /* Settings beside the log (the log takes the height that is left), orders under both at full width. */
+  .algo-dbody { grid-template-columns: minmax(340px, 5fr) minmax(0, 6fr); grid-template-rows: minmax(0, 1fr) auto; grid-template-areas: "set log" "ord ord"; }
   .algo-log-lines { max-height: none; }
 }
 @media (min-width: 2300px) {
