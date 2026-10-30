@@ -221,7 +221,8 @@ export function createReferenceService(deps, opts = {}) {
     let source;
     let quality;
     if (demo) {
-      asOf = demoStale ? cal.prevTradingDay(cal.prevTradingDay(cal.isTradingDay(t) ? t : cal.nextTradingDay(t))) : t;
+      // Two sessions back from the latest session (on a weekend or holiday that is the last one, not the next).
+      asOf = demoStale ? cal.prevTradingDay(cal.prevTradingDay(cal.isTradingDay(t) ? t : cal.prevTradingDay(t))) : t;
       source = DEMO_SOURCE;
       quality = "demo";
     } else if ((lotsDoc.rows ?? []).length && state.datasets.lots?.asOf) {
