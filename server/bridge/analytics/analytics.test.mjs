@@ -141,3 +141,14 @@ describe("units of OI and volume", async () => {
     expect(units.netGex).toBeCloseTo(lots.netGex, 6); // 650 units = 10 lots of 65
   });
 });
+
+describe("market reads for one account's positions", async () => {
+  const { pinMarketRead } = await import("./math.mjs");
+  const config = { accounts: [{ id: "dhan-main", broker: "dhan" }, { id: "paper-1", broker: "paper" }] };
+  it("reads a paper account's chains through the data accounts, and a broker account through its own broker", () => {
+    expect(pinMarketRead({ accountId: "paper-1" }, config, "paper-1", true)).toEqual({ allowBackup: true });
+    expect(pinMarketRead({ accountId: "paper-1" }, config, "paper-1", false)).toEqual({});
+    expect(pinMarketRead({}, config, "dhan-main")).toEqual({ accountId: "dhan-main" });
+    expect(pinMarketRead({ maxAge: 5 }, config, undefined)).toEqual({ maxAge: 5 });
+  });
+});
