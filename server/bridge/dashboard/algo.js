@@ -85,12 +85,19 @@ export async function renderAlgoPage() {
   const stopBtn = h("button", { type: "button", onclick: () => stop() }, icon("stop"), h("span", {}, "Stop"));
   const acctSel = h("select", { id: "algo-account", "aria-label": "Account" });
   const paramsHost = h("div", { class: "algo-params" });
+  // One line over the form when values need a fix (each field also says what is wrong under it).
+  const formMsg = h("p", { class: "algo-form-msg", role: "alert", hidden: true });
+  const showFormMsg = (n) => {
+    formMsg.hidden = !n;
+    formMsg.textContent = n ? `${formatInt(n)} setting${n === 1 ? " needs" : "s need"} a fix before the start. See the message under ${n === 1 ? "it" : "each"}.` : "";
+  };
   const saveBtn = h("button", { type: "button", class: "small quiet", onclick: () => saveSettings() }, "Save settings");
   const settings = h(
     "section",
     { class: "algo-pane algo-settings", "aria-label": "Settings" },
     h("div", { class: "algo-pane-head" }, h("h3", {}, "Settings"), saveBtn),
     h("label", { class: "field algo-acct", for: "algo-account" }, h("span", {}, "Account"), acctSel),
+    formMsg,
     paramsHost,
   );
   const logList = h("ol", { class: "algo-log-lines", "aria-live": "off" });
@@ -149,7 +156,7 @@ export async function renderAlgoPage() {
     const r = h(
       "div",
       { class: `algo-row${s.id === st.sel ? " sel" : ""}`, role: "listitem" },
-      h("button", { type: "button", class: "quiet algo-row-main", "aria-current": s.id === st.sel ? "true" : undefined, onclick: () => select(s.id) }, h("strong", {}, s.name), h("span", { class: "muted small" }, s.file ?? s.id)),
+      h("button", { type: "button", class: "quiet algo-row-main", "aria-current": s.id === st.sel ? "true" : undefined, onclick: () => select(s.id) }, h("strong", {}, s.name), h("span", { class: "muted small" }, s.file ?? s.id), s.problem ? h("span", { class: "algo-row-problem" }, problemText(s)) : null),
       h("span", { class: "algo-c-status" }, pill(stt.text, stt.tone)),
       h(
         "span",
@@ -199,7 +206,7 @@ export async function renderAlgoPage() {
     dFile.textContent = s.file ? `${s.file} · ${s.id}` : s.id;
     dStatus.replaceChildren(pill(stt.text, stt.tone), h("span", { class: `algo-mode ${active && s.mode === "live" ? "live" : ""}`.trim() }, modeText(active ? s.mode : "paper")));
     dDesc.textContent = s.description || "No description in the file (add description = \"...\" to the class).";
-    const problem = s.problem ?? (s.status === "failed" ? s.lastError : null) ?? (s.status === "restarting" ? s.lastError : null);
+    const problem = s.problem ? `${problemText(s)}. Fix the file and save it: this page reads it again within 2 s.` : (s.status === "failed" || s.status === "restarting" ? s.lastError : null);
     dAlert.hidden = !problem;
     dAlert.className = `algo-dalert ${s.problem || s.status === "failed" ? "bad" : "warn"}`;
     dAlert.replaceChildren(problem ? h("span", {}, icon("warn"), h("span", {}, problem)) : "");
@@ -212,7 +219,7 @@ export async function renderAlgoPage() {
       fact("Orders today", formatInt(s.orderCount)),
       fact("Uptime", active ? uptimeText(s.uptimeMs) : DASH),
       fact("Restarts", `${formatInt(s.restarts)} of ${formatInt(s.maxRestarts)}`),
-      fact("Ticks", formatInt(s.counts?.ticks ?? 0)),
+      fact("Ticks", active ? formatInt(s.counts?.ticks ?? 0) : DASH),
       // A failed strategy's reason is in the alert above; a stopped one says why it stopped.
       fact(active ? "Heartbeat" : "Last stop", active ? h("span", { class: hb.late ? "warn-text" : undefined }, hb.text) : s.stopReason && s.status !== "failed" ? h("span", { class: "muted", title: s.stopReason }, s.stopReason) : DASH),
     );
@@ -232,6 +239,7 @@ export async function renderAlgoPage() {
   function drawForm(s, active) {
     st.formFor = `${s.id}:${JSON.stringify(s.params)}:${active}`;
     st.dirty = false;
+    showFormMsg(0);
     const ids = new Set(accounts.map((a) => a.id));
     const opts = accounts.map((a) => h("option", { value: a.id, selected: a.id === s.account }, `${a.label ?? a.id}${a.broker === "paper" ? " (paper)" : ""}`));
     if (s.account && !ids.has(s.account)) opts.unshift(h("option", { value: s.account, selected: true }, s.account));
@@ -257,7 +265,11 @@ export async function renderAlgoPage() {
         else if (f.input === "number") input = h("input", { id, type: "number", inputmode: f.kind === "int" ? "numeric" : "decimal", value: isFigure(f.value) ? formatNumber(f.value, { maximumFractionDigits: 6 }) : "", min: isFigure(f.min) ? formatNumber(f.min, { maximumFractionDigits: 6 }) : undefined, max: isFigure(f.max) ? formatNumber(f.max, { maximumFractionDigits: 6 }) : undefined, step: f.step === "any" ? "any" : isFigure(f.step) ? formatNumber(f.step, { maximumFractionDigits: 6 }) : undefined });
         else input = h("input", { id, type: "text", value: String(f.value ?? ""), maxlength: "200", autocomplete: "off", spellcheck: "false" });
         input.disabled = active;
-        input.addEventListener("input", () => ((st.dirty = true), clearFieldError(input)));
+        input.addEventListener("input", () => {
+          st.dirty = true;
+          clearFieldError(input);
+          if (!paramsHost.querySelector("[aria-invalid='true']")) showFormMsg(0);
+        });
         input.addEventListener("change", () => (st.dirty = true));
         inputs.set(f.name, input);
         if (f.input === "checkbox") return h("label", { class: "check algo-param algo-param-bool", title: f.help || undefined }, input, h("span", {}, f.label));
@@ -279,6 +291,7 @@ export async function renderAlgoPage() {
       fieldError(inputs.get(name), msg, { focus: firstBad });
       firstBad = false;
     }
+    showFormMsg(Object.keys(errors).length);
     return Object.keys(errors).length ? null : values;
   }
 
@@ -296,6 +309,7 @@ export async function renderAlgoPage() {
       fieldError(acctSel, err.body.errors.find((e) => e.path === "account").message);
       any = true;
     }
+    showFormMsg(Object.keys(errs).length);
     return any;
   }
 
@@ -349,6 +363,8 @@ export async function renderAlgoPage() {
     const n = active ? s.runOrderCount : s.orderCount;
     return `${formatInt(n)} order${n === 1 ? "" : "s"}`;
   }
+  /** "bad.py, line 4: params['x']: use literal values only". */
+  const problemText = (s) => `${s.file ?? s.id}${s.problemLine ? `, line ${formatInt(s.problemLine)}` : ""}: ${s.problem}`;
   const short = (sym) => String(sym ?? "").replace(/^(NFO|BFO|NSE|BSE|MCX|CDS):/, "");
   const statusWord = (s) => (s === "filled" ? "Filled" : s === "rejected" ? h("span", { class: "down" }, "Rejected") : s ? `${s[0].toUpperCase()}${s.slice(1).replace(/_/g, " ")}` : DASH);
 

@@ -131,6 +131,7 @@ describe.skipIf(!hasPython)("Python strategies end to end (demo)", () => {
     ]);
     // Describe never runs the file: the open() call is not a literal, so it is a problem, not a read of /etc/passwd.
     expect(d.items.find((s) => s.id === "bad").problem).toMatch(/literal values only/);
+    expect(d.items.find((s) => s.id === "bad").problemLine).toBe(5);
     expect(d.skipped.map((s) => s.file).sort()).toEqual(["linked.py", "shared.py"]);
     expect(d.skipped.find((s) => s.file === "linked.py").reason).toMatch(/Symbolic links/);
     expect(d.skipped.find((s) => s.file === "shared.py").reason).toMatch(/other users can change/i);

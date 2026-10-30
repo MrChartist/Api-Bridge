@@ -144,14 +144,27 @@ def test_describe_reads_literals_without_running(tmp_path):
     d = describe_file(str(f))
     assert d == {"className": "A", "name": "A thing", "description": "Doc line.", "symbols": ["NSE:NIFTY"], "timeframes": ["1m"], "timerSeconds": 5, "params": [{"name": "lots", "kind": "int", "default": 2, "min": 1, "max": 9, "help": "Lots"}, {"name": "u", "kind": "choice", "default": "NIFTY", "choices": ["NIFTY", "BANKNIFTY"]}]}
     f.write_text('from mrchartist_bridge.strategy import Strategy, Param\nclass A(Strategy):\n    params = {"x": Param(open("/etc/passwd").read())}\n')
-    with pytest.raises(ValueError, match="literal values only"):
+    with pytest.raises(ValueError, match="literal values only") as e:
         describe_file(str(f))
+    assert e.value.line == 3
     f.write_text("class A: pass\n")
     with pytest.raises(ValueError, match="exactly one class"):
         describe_file(str(f))
     f.write_text('from mrchartist_bridge.strategy import Strategy\nclass A(Strategy):\n    timeframes = ["7m"]\n')
     with pytest.raises(ValueError, match="Unknown timeframe"):
         describe_file(str(f))
+
+
+def test_describe_cli_reports_the_line_of_a_problem(tmp_path):
+    env = dict(os.environ, PYTHONPATH=str(SDK))
+    f = tmp_path / "s.py"
+    f.write_text("from mrchartist_bridge.strategy import Strategy\n\nclass A(Strategy)\n    pass\n")
+    r = subprocess.run([sys.executable, "-m", "mrchartist_bridge", "strategy", "describe", str(f)], capture_output=True, text=True, env=env, cwd=str(SDK), timeout=30)
+    d = json.loads(r.stdout)
+    assert r.returncode == 3 and d["ok"] is False and d["line"] == 3 and d["error"].startswith("SyntaxError")
+    f.write_text('from mrchartist_bridge.strategy import Strategy, Param\nclass A(Strategy):\n    timeframes = ["1m"]\n    params = {\n        "a": Param(1),\n        "b": Param(1, colour=2),\n    }\n')
+    d = json.loads(subprocess.run([sys.executable, "-m", "mrchartist_bridge", "strategy", "describe", str(f)], capture_output=True, text=True, env=env, cwd=str(SDK), timeout=30).stdout)
+    assert d["line"] == 6 and "unknown option colour" in d["error"]
 
 
 def test_describe_cli_and_examples_and_template():
