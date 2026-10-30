@@ -6,7 +6,7 @@
 // then patched cell by cell, so nothing flickers, scroll and keyboard focus stay put, and only cells that changed
 // flash. The maths lives in options.js (pure, tested); numbers are formatted by format.js only.
 import { DEMO_EXPLAINER, alertBox, api, app, emptyState, errorState, h, icon, liveControl, loadingState, modal, mountToolbarCtx, optional, sheetPopover, toast, touchWord } from "./app.js";
-import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, MINUS, ageText, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { arbPanels } from "./arbitrage.js";
 import { openChainSheet } from "./chain-sheet.js";
 import { createOiPage, oiConfig } from "./oi.js";
@@ -182,8 +182,10 @@ async function renderDesk(kind) {
   };
   syncPreset();
   const gearBtn = h("button", { type: "button", class: "small gear-btn", "aria-haspopup": "dialog", "aria-label": "Customise the chain", title: "Customise the chain: columns, bars, tags" }, icon("sliders"), h("span", { class: "gear-label" }, "Customise"));
-  const search = h("input", { type: "search", inputmode: "decimal", enterkeyhint: "go", autocomplete: "off", spellcheck: "false", class: "strike-search", "aria-label": "Go to strike", placeholder: "Strike, +3, 1σ" });
+  const search = h("input", { type: "search", inputmode: "decimal", enterkeyhint: "go", autocomplete: "off", spellcheck: "false", class: "strike-search", "aria-label": "Go to strike", placeholder: "Strike or ±n" });
   const searchBtn = h("button", { type: "button", class: "icon-btn search-btn", "aria-label": "Go to strike", title: "Go to strike (/)" }, icon("search"));
+  const staleText = document.createTextNode("Stale");
+  const stalePill = h("span", { class: "pill warn chain-stale", role: "status", hidden: true }, h("span", { class: "pdot", "aria-hidden": "true" }), staleText);
   const searchHint = h("span", { class: "search-hint", id: "strike-search-hint", role: "status", hidden: true }, "Try 26400, +3, 1σ, atm, mp");
   search.setAttribute("aria-describedby", "strike-search-hint");
   // The hint is a line of its own under the head row (it pushes the table down, never covers the column headers).
@@ -887,6 +889,12 @@ async function renderDesk(kind) {
     const content = document.getElementById("content");
     const staleNow = (f.kind === "stale" || f.kind === "error") && Boolean(st.lastOk);
     if (content && content.hasAttribute("data-stale") !== staleNow) content.toggleAttribute("data-stale", staleNow);
+    // The chain says so in its head too: an amber "Stale · 12 s old" pill (no bar across the panel).
+    if (stalePill.hidden === staleNow) stalePill.hidden = !staleNow;
+    if (staleNow) {
+      const t = `${f.kind === "error" ? "Not updating" : "Stale"}${f.ageMs === null ? "" : ` · ${ageText(f.ageMs)}`}`;
+      if (staleText.data !== t) staleText.data = t;
+    }
     const today = O.isExpiryDay(st.expiry);
     if (expiryChip.hidden === today) expiryChip.hidden = !today;
     if (st.live && timerReady && wantMs() !== timerMs) startTimer();
@@ -1102,11 +1110,12 @@ async function renderDesk(kind) {
     location.hash = "#/strategy";
   }
   /**
-   * The chain head stays one row (chain.md §3.3): when it runs out of room, step by step the Select / Customise labels
-   * fold to icons, search folds to its button, the presets become a select and the OI window a compact select. The key
+   * The chain head stays one row (chain.md §3.3): when it runs out of room, step by step the presets become a select
+   * (they give way first, so search keeps its width), the Select / Customise labels fold to icons, search folds to its
+   * button and the OI window becomes a compact select. The key
    * legend shows only on a panel of 900 px or more, and drops trailing keys that do not fit.
    */
-  const HEAD_STEPS = ["ch-icons", "ch-search", "ch-presets", "ch-win"];
+  const HEAD_STEPS = ["ch-presets", "ch-icons", "ch-search", "ch-win"];
   function fitHead() {
     const t = chainTools;
     if (!t?.isConnected || !t.clientWidth) return;
@@ -1757,7 +1766,33 @@ async function renderDesk(kind) {
       } else if (i >= 0) focusables()[i]?.focus({ preventScroll: true });
     };
     origDraw();
-    custom = sheetPopover({ trigger: gearBtn, title: "Customise", head: [reset], body: wrap, cls: "customise", onClose: () => (custom = null) });
+    // Desktop and tablet: anchored under the button (6 px gap), never flipped above it; a tall list scrolls inside
+    // (max-height = the room left to the viewport's bottom less 16 px). Runs after the popover's own placement.
+    let raf = 0;
+    const anchor = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const el = custom?.el;
+        if (!el?.isConnected || !el.classList.contains("floating")) return;
+        const top = Math.max(8, Math.round(gearBtn.getBoundingClientRect().bottom + 6));
+        // Tablets: it ends above the floating tab bar too, not over it.
+        const bar = document.querySelector(".tabbar");
+        const floor = bar && getComputedStyle(bar).display !== "none" ? Math.min(innerHeight - 16, bar.getBoundingClientRect().top - 8) : innerHeight - 16;
+        el.style.top = `${top}px`;
+        el.style.maxHeight = `${Math.max(160, floor - top)}px`;
+      });
+    };
+    const unanchor = () => {
+      cancelAnimationFrame(raf);
+      removeEventListener("resize", anchor);
+      removeEventListener("scroll", anchor, true);
+    };
+    custom = sheetPopover({ trigger: gearBtn, title: "Customise", head: [reset], body: wrap, cls: "customise", onClose: () => { unanchor(); custom = null; } });
+    if (custom.el?.classList.contains("floating")) {
+      anchor();
+      addEventListener("resize", anchor);
+      addEventListener("scroll", anchor, true);
+    }
   }
 
   // ── Strike search ──
@@ -2057,7 +2092,7 @@ async function renderDesk(kind) {
         "section",
         { class: "desk-panel chain-panel", "data-panel": "chain", "aria-label": "Option chain" },
         expStrip,
-        h("div", { class: "chain-head panel-head" }, (chainTools = h("div", { class: "chain-tools" }, searchBox, chain.phoneBar, strikesSel, strikesSeg, viewSeg, presetSel, winSeg, winSel, h("span", { class: "tools-spacer" }), hiddenChip, selectBtn, gearBtn)), searchHint),
+        h("div", { class: "chain-head panel-head" }, (chainTools = h("div", { class: "chain-tools" }, searchBox, chain.phoneBar, strikesSel, strikesSeg, viewSeg, presetSel, winSeg, winSel, h("span", { class: "tools-spacer" }), stalePill, hiddenChip, selectBtn, gearBtn)), searchHint),
         chainEl,
         keysEl,
       ),
@@ -2068,7 +2103,7 @@ async function renderDesk(kind) {
   }
   // The builder's own hero strip and the one top line replace the chain summary here (strategy.md §3.1).
   // Every page: the reference banners (events within 7 days, stale data) first, above the page body.
-  if (kind === "strategy") return [refBannersEl.el, builder.panel, builder.slot];
+  if (kind === "strategy") return [refBannersEl.el, builder.panel];
   if (kind === "oi") return [refBannersEl.el, ...oiPage.panels];
   // Volatility: its own KPI strip, so no shared summary.
   if (kind === "vol") return [refBannersEl.el, ...volPage.panels];
@@ -2754,18 +2789,20 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     const c = cfg();
     const span = L.ce.length + L.pe.length + L.mid.length + 1;
     const sideBtn = (side, label) =>
-      h("button", { type: "button", class: "side-btn", title: c.side === side ? "Show calls and puts" : `Show ${label.toLowerCase()} only (${side === "ce" ? "C" : "V"})`, "aria-pressed": String(c.side === side), onclick: () => onSide(c.side === side ? "both" : side) }, side === "ce" ? "‹ " : "", label, side === "pe" ? " ›" : "");
+      h("button", { type: "button", class: "side-btn", title: c.side === side ? "Show calls and puts" : `Show ${label.toLowerCase()} only (${side === "ce" ? "C" : "V"})`, "aria-pressed": String(c.side === side), onclick: () => onSide(c.side === side ? "both" : side) }, side === "ce" ? "‹ " : "", h("i", { class: "side-sw", "aria-hidden": "true" }), label, side === "pe" ? " ›" : "");
     const midHead = L.mid.length ? [h("th", { colspan: L.mid.length, scope: "colgroup", class: "mid-col" }, L.mid.some((k) => ["syn", "dev", "edge"].includes(k)) ? "Parity" : "Strike")] : [];
     const sideHead = L.phone
       ? null
       : L.side === "both"
         ? h("tr", { class: "side-head" }, h("th", { colspan: L.ce.length, scope: "colgroup", class: "sh-ce" }, sideBtn("ce", "Calls")), h("th", { class: "strike-col" }, ""), midHead, h("th", { colspan: L.pe.length, scope: "colgroup", class: "sh-pe" }, sideBtn("pe", "Puts")))
-        : h("tr", { class: "side-head" }, h("th", { class: "strike-col" }, ""), midHead, h("th", { colspan: L.ce.length + L.pe.length, scope: "colgroup", class: L.side === "pe" ? "sh-pe" : L.side === "ce" ? "sh-ce" : undefined }, h("button", { type: "button", class: "side-btn on", onclick: () => onSide("both") }, `${L.side === "ce" ? "Calls" : "Puts"} only`, h("span", { "aria-hidden": "true" }, " ×"))));
+        : h("tr", { class: "side-head" }, h("th", { class: "strike-col" }, ""), midHead, h("th", { colspan: L.ce.length + L.pe.length, scope: "colgroup", class: L.side === "pe" ? "sh-pe" : L.side === "ce" ? "sh-ce" : undefined }, h("button", { type: "button", class: "side-btn on", onclick: () => onSide("both") }, h("i", { class: "side-sw", "aria-hidden": "true" }), `${L.side === "ce" ? "Calls" : "Puts"} only`, h("span", { "aria-hidden": "true" }, " ×"))));
     const heads = [];
     const colCells = [];
     const colHead = L.order.flatMap((part) => {
       if (part === "strike") {
-        const th = h("th", { scope: "col", class: "strike-col" }, "Strike");
+        // A one-side phone view has no side head: the Strike header names the side with a CE / PE chip.
+        const oneSide = L.phone && (L.side === "ce" || L.side === "pe");
+        const th = h("th", { scope: "col", class: "strike-col" }, "Strike", oneSide ? h("span", { class: `side-chip ${L.side}` }, L.side.toUpperCase()) : null);
         colCells.push([th, "strike"]);
         return [th];
       }

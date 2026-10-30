@@ -1958,18 +1958,22 @@ table.chain .l1.wall { font-weight: 600; }
 table.chain .l1.hot { color: hsl(var(--warn-ink)); font-weight: 600; }
 table.chain .l1.hot::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: hsl(var(--warn)); }
 
-/* Header: CALLS / PUTS in their side ink with a 2 px side-colour underline (the legend), then the column names. A
-   10 px fade under the header, so a half-scrolled row never looks cut. */
+/* Header: CALLS / PUTS in their side ink after a 10 px filled swatch (the chart legend), then the column names. The
+   head is opaque with one neutral hairline (no fade, no coloured underline); rows scroll in under it and stop clear of
+   it (scroll-margin below). */
 table.chain thead th { position: sticky; z-index: 3; background: var(--mat-grouped-solid); font: var(--t-table-head); color: hsl(var(--foreground) / var(--a-quiet)); }
 table.chain thead tr.side-head th { top: 0; height: 24px; text-align: center; font: 500 12px/1 var(--font-body); letter-spacing: 0.02em; text-transform: uppercase; color: hsl(var(--foreground) / var(--a-label)); }
-table.chain thead tr.side-head th.sh-ce { color: hsl(var(--c-call-ink)); box-shadow: inset 0 -2px 0 hsl(var(--c-call)); }
-table.chain thead tr.side-head th.sh-pe { color: hsl(var(--c-put-ink)); box-shadow: inset 0 -2px 0 hsl(var(--c-put)); }
+table.chain thead tr.side-head th.sh-ce { color: hsl(var(--c-call-ink)); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+table.chain thead tr.side-head th.sh-pe { color: hsl(var(--c-put-ink)); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+table.chain .side-btn .side-sw { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; vertical-align: -1px; background: currentColor; }
 table.chain thead tr.side-head th.mid-col { color: hsl(var(--foreground) / var(--a-quiet)); }
 table.chain thead tr.col-head th { top: 24px; height: 28px; white-space: nowrap; box-shadow: inset 0 -1px 0 var(--mat-separator); cursor: help; }
 table.chain thead tr.col-head.first th { top: 0; }
-table.chain thead tr.col-head th::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 10px; background: linear-gradient(var(--mat-grouped-solid), transparent); pointer-events: none; }
-table.chain thead tr.col-head.edge-ce th { box-shadow: inset 0 3px 0 hsl(var(--c-call)), inset 0 -1px 0 var(--mat-separator); color: hsl(var(--foreground) / var(--a-label)); }
-table.chain thead tr.col-head.edge-pe th { box-shadow: inset 0 3px 0 hsl(var(--c-put)), inset 0 -1px 0 var(--mat-separator); color: hsl(var(--foreground) / var(--a-label)); }
+/* One-side views: no side-head row; the Strike header carries a CE / PE chip in the side ink instead of a top rule. */
+table.chain thead tr.col-head:is(.edge-ce, .edge-pe) th { color: hsl(var(--foreground) / var(--a-label)); }
+table.chain .side-chip { display: inline-flex; align-items: center; height: 16px; margin-left: 6px; padding: 0 5px; border-radius: 4px; font: 600 12px/1 var(--font-body); letter-spacing: 0.02em; vertical-align: 1px; }
+table.chain .side-chip.ce { color: hsl(var(--c-call-ink)); background: hsl(var(--c-call) / 0.14); }
+table.chain .side-chip.pe { color: hsl(var(--c-put-ink)); background: hsl(var(--c-put) / 0.14); }
 table.chain .lbl-short { display: none; }
 table.chain .side-btn { min-height: 22px; padding: 0 8px; border-radius: 6px; background: transparent; box-shadow: none; font: 500 12px/1 var(--font-body); letter-spacing: 0.02em; text-transform: uppercase; color: inherit; }
 table.chain .side-btn:not(.on):hover { background: var(--mat-fill-2); }
@@ -2003,17 +2007,18 @@ table.chain .tag.pop { animation: chain-tag-pop 160ms var(--ease-out); }
 @keyframes chain-tag-pop { from { transform: scale(0.8); opacity: 0; } }
 
 /* Rows: hairline rules only; ITM a neutral lift; ATM strike in the ATM blue at 12 %; the ±1σ band a faint blue wash on
-   the strike column with an edge mark at its first and last strike. */
+   the strike column, its first and last strike named by the σ tags (no edge mark). */
 table.chain tbody tr { cursor: pointer; scroll-margin: 64px 0 44px; }
 table.chain tbody tr:focus { outline: none; }
 table.chain tbody tr:focus-visible:not(.focus) th { box-shadow: inset 0 0 0 2px hsl(var(--c-atm) / 0.7); }
 table.chain td.itm { background-color: var(--itm-wash); }
 table.chain tr.in-em > th.strike-col { background-image: linear-gradient(var(--em-wash), var(--em-wash)); }
-table.chain tr.em-edge > th.strike-col { box-shadow: inset 2px 0 0 hsl(var(--c-atm) / 0.5), inset -1px 0 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 table.chain tr.atm > th.strike-col { background-image: linear-gradient(hsl(var(--c-atm) / 0.12), hsl(var(--c-atm) / 0.12)); transition: background-image 200ms var(--ease-out); }
 table.chain tr.atm .strike-col .k { color: hsl(var(--c-atm-ink)); }
 @media (hover: hover) and (pointer: fine) { table.chain tbody tr:not(.spot-row):hover > td { background-image: linear-gradient(var(--mat-fill-1), var(--mat-fill-1)); } }
-table.chain tr.focus > td, table.chain tr.focus > th { box-shadow: inset 0 1.5px 0 hsl(var(--c-atm)), inset 0 -1.5px 0 hsl(var(--c-atm)); }
+/* The keyboard row: a whole-row fill, and a full ring on the strike cell (never a rule on one or two sides). */
+table.chain tr.focus > td, table.chain tr.focus > th { background-image: linear-gradient(var(--mat-fill-2), var(--mat-fill-2)); }
+table.chain tr.focus > th.strike-col { box-shadow: inset 0 0 0 2px var(--sel-ring); }
 table.chain td.fside { background-image: linear-gradient(hsl(var(--c-atm) / 0.07), hsl(var(--c-atm) / 0.07)); }
 table.chain tr.jump > td, table.chain tr.jump > th { animation: chain-jump 600ms var(--ease-out); }
 @keyframes chain-jump { from { box-shadow: inset 0 0 0 999px hsl(var(--c-atm) / 0.18); } }
@@ -2174,8 +2179,9 @@ button.exp-chip:not([aria-pressed="true"]) { background: transparent; box-shadow
 button.exp-chip .ec-t { font: 500 12px/1 var(--font-numeric); opacity: 0.75; }
 @media (max-width: 719px) { .exp-strip { display: none; } }
 
-/* Stale data (§8): the table dims (0.7, shared), and a 2 px amber bar runs along the top of the panel. */
-#content[data-stale] .chain-panel::before { content: ""; position: absolute; top: 0; left: 0; right: 0; z-index: 8; height: 2px; background: hsl(var(--warn)); }
+/* Stale data (§8): the table dims (0.7, shared), and an amber "Stale · 12 s old" pill shows in the chain head. */
+.chain-head .chain-stale { flex: none; }
+.chain-head .chain-stale[hidden] { display: none; }
 
 /* Loading: a skeleton shaped like the chain (header, strike rows with a figure and a bar slot, totals). */
 .chain-skel { padding: 0 12px 10px; }
@@ -2315,6 +2321,7 @@ button.gear-btn[aria-expanded="true"] { --btn-line: var(--btn-edge-hover); --btn
 .chain-search .search-btn { --btn-bg: hsl(var(--btn-paper)); --btn-line: var(--btn-edge); display: none; width: 34px; height: 34px; min-height: 34px; padding: 0; }
 .chain-search .search-btn svg { width: 16px; height: 16px; }
 input.strike-search { width: 140px; min-height: 32px; padding: 4px 26px 4px 10px; border-radius: 9px; font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; }
+@media (min-width: 1280px) { input.strike-search { width: 170px; } }
 
 .search-kbd { position: absolute; right: 7px; min-width: 16px; height: 17px; padding: 0 4px; font-size: 12px; pointer-events: none; box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
 .strike-search:focus + .search-kbd, .strike-search:not(:placeholder-shown) + .search-kbd { display: none; }
@@ -2333,7 +2340,8 @@ select.preset-sel { display: none; width: auto; min-height: 32px; padding: 4px 3
 .keys-table td { padding: 7px 0; color: hsl(var(--foreground) / var(--a-label)); }
 .keys-table tr + tr > * { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
 .keys-table kbd { margin-right: 4px; }
-.ticket-warns, .cs-warns { border-radius: var(--r-md); background: hsl(var(--ios-orange) / 0.08); box-shadow: none; }
+/* Warnings before a trade: the same dotted list as the preview's checks, straight on the sheet (no filled box). */
+.ticket-warns, .cs-warns { padding: 0; border-radius: 0; background: none; box-shadow: none; }
 .ticket-warns[hidden] { display: none; }
 
 /* Action sheet (chain-sheet.js): a bottom sheet on phones, a panel on the right from 720 px up. */
@@ -2376,18 +2384,26 @@ select.acct-pick { width: auto; min-width: 0; max-width: 220px; min-height: 32px
 .cs-bar > span { display: block; height: 100%; border-radius: 2px; transform-origin: left center; transition: transform 420ms var(--ease-out); }
 .cs-m dd.oi-call .cs-bar > span { background: hsl(var(--c-call)); }
 .cs-m dd.oi-put .cs-bar > span { background: hsl(var(--c-put)); }
-.cs-chart-slot { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 96px; border-radius: var(--r-md); font: 500 12.5px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); outline: max(1px, var(--hl)) dashed hsl(var(--foreground) / 0.22); outline-offset: -1px; background: var(--mat-fill-1); }
 .cs-reason { margin: -4px 0 0; font: 500 12.5px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .cs-reason[hidden] { display: none; }
 .cs-more { display: flex; gap: 8px; }
 .cs-more button { flex: 1 1 0; min-width: 0; min-height: 34px; padding: 0 8px; font-size: 13px; }
-.cs-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; border-radius: var(--r-md); box-shadow: 0 0 0 var(--hl) var(--mat-separator); overflow: hidden; }
+.cs-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; }
+/* Figures sit on the sheet itself: inner rules only (no ring, no box), the last column without a trailing rule. */
 .cs-m { min-width: 0; padding: 8px 10px; box-shadow: inset calc(-1 * var(--hl)) 0 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+.cs-m:first-child, .cs-m:nth-child(3n + 1) { padding-left: 0; }
+.cs-m:nth-child(3n) { box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 .cs-m dt { margin-bottom: 4px; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .cs-m dd { margin: 0; font: 500 13.5px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cs-m .cs-sub { display: block; margin-top: 2px; font: 500 12px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cs-m .cs-sub:empty { display: none; }
-@media (max-width: 719px) { .cs-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 719px) {
+  .cs-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cs-m:nth-child(3n + 1) { padding-left: 10px; }
+  .cs-m:nth-child(2n + 1) { padding-left: 0; }
+  .cs-m:nth-child(n) { box-shadow: inset calc(-1 * var(--hl)) 0 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+  .cs-m:nth-child(2n) { box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+}
 .cs-m dd.up { color: hsl(var(--pos-ink)); }
 .cs-m dd.down { color: hsl(var(--neg-ink)); }
 .cs-m dd.warn-ink { color: hsl(var(--warn-ink)); }
@@ -2471,24 +2487,35 @@ button.preset:hover { background: var(--mat-fill-1); }
 
 /* Order ticket. */
 .ticket { gap: 14px; }
-.ticket-quote { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-radius: var(--r-md); box-shadow: 0 0 0 var(--hl) var(--mat-separator); overflow: hidden; }
+/* The quote strip and the preview's figures: one look, a strip ruled top and bottom by hairlines (no box around it). */
+.ticket-quote { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); box-shadow: inset 0 var(--hl) 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); overflow: hidden; }
 .ticket-quote > span { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; font: 500 14px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; box-shadow: calc(-1 * var(--hl)) 0 0 var(--mat-separator); }
 .ticket-quote small { font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .ticket-quote .bid { color: hsl(var(--c-sell-ink)); }
 .ticket-quote .ask { color: hsl(var(--c-buy-ink)); }
-.ticket-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: end; }
+/* Two fields side by side: a label row and a control row (subgrid), so both labels share a line and both controls a
+   bottom edge, whatever each label holds. */
+.ticket-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 12px; row-gap: 6px; align-items: end; }
+.ticket-grid > .field { display: grid; grid-row: span 2; grid-template-rows: subgrid; row-gap: 6px; align-items: end; }
+.ticket-grid > .field > span:first-child { line-height: 1.3; }
+.ticket-grid > .field > :is(select, input, .segmented, .acct-pick, .ticket-acct) { width: 100%; }
+/* Phones: two segments share half the sheet; their buttons split it evenly with less side padding. */
+@media (max-width: 719px) { .ticket-grid > .field > .segmented button { flex: 1 1 0; min-width: 0; padding: 0 6px; } }
+.ticket-grid > .field > .ticket-acct { min-height: 0; align-self: center; }
+.ticket-grid > .field > .acct-pick-row { width: 100%; }
+.ticket-grid .acct-pick-row select.acct-pick { flex: 1 1 auto; width: 100%; max-width: none; }
 .price-row { display: flex; gap: 8px; align-items: center; }
 .price-row input { flex: 1 1 auto; font: 500 16px/1 var(--font-numeric); font-variant-numeric: tabular-nums; }
 .touch-btns { display: flex; flex: none; }
 .touch-btns button { --btn-px: 12px; }
 .join.rect.touch-btns { border-radius: 8px; }  /* small halves: 8 px, the bar follows them */
-.ticket-preview { border-radius: var(--r-md); box-shadow: 0 0 0 var(--hl) var(--mat-separator); overflow: hidden; }
 .ticket-preview:empty { display: none; }
-.ticket-preview .pad, .ticket-preview > .alert { margin: 10px 12px; }
-.ticket-figs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
-.ticket-figs > div { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; font: 500 15px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; box-shadow: calc(-1 * var(--hl)) 0 0 var(--mat-separator); }
+.ticket-preview > .alert { margin: 0; }
+.ticket-figs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); box-shadow: inset 0 var(--hl) 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); overflow: hidden; }
+.ticket-figs > div:first-child { box-shadow: none; }
+.ticket-figs > div { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; white-space: nowrap; font: 500 15px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; box-shadow: calc(-1 * var(--hl)) 0 0 var(--mat-separator); }
 .ticket-figs small { font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
-.ticket-checks { list-style: none; margin: 0; padding: 9px 12px 10px; display: flex; flex-direction: column; gap: 6px; box-shadow: inset 0 var(--hl) 0 var(--mat-separator); font-size: 12.5px; line-height: 1.4; }
+.ticket-checks { list-style: none; margin: 0; padding: 10px 0 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; line-height: 1.4; }
 .ticket-checks li { display: flex; align-items: baseline; gap: 8px; }
 .ticket-checks .dot { width: 6px; height: 6px; flex: none; border-radius: 99px; transform: translateY(-1px); }
 .ticket-checks .bad { color: hsl(var(--ios-red-ink)); }
@@ -2609,7 +2636,7 @@ html.panel-max-open { overflow: hidden; }
 .strat-panel button.link-btn:hover { text-decoration: underline; background: none; }
 
 /* Head: the auto-name (click to rename), legs and expiries; Saved, Save, gear, ⋯ and a solid Place. */
-.strat-head { flex-wrap: nowrap; gap: 12px; min-height: 52px; }
+.strat-head { flex-wrap: nowrap; gap: 12px; min-height: var(--panel-head-h); padding: 8px var(--sp-x); }
 .strat-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex: 1 1 auto; flex-wrap: wrap; }
 button.strat-name { display: block; justify-content: flex-start; min-height: 30px; padding: 0 6px; margin-left: -6px; border-radius: 8px; background: transparent; box-shadow: none; font: 600 16px/1.2 var(--font-display); letter-spacing: -0.01em; color: hsl(var(--foreground)); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 button.strat-name:hover:not(:disabled) { background: var(--mat-fill-1); }
@@ -2623,12 +2650,16 @@ input.strat-name-in { min-height: 30px; width: min(360px, 60vw); padding: 2px 8p
 /* Place: solid buy blue with white text whenever placing is possible; a warning adds an amber dot; only a block greys it. */
 .strat-panel button.place-btn.blocked { cursor: not-allowed; }
 .strat-panel button.place-btn.has-warn::after { content: ""; position: absolute; top: -2px; right: -2px; width: 9px; height: 9px; border-radius: 50%; background: hsl(var(--warn)); box-shadow: 0 0 0 2px var(--mat-grouped-solid); }
-.strat-stale { display: flex; align-items: center; gap: 10px; padding: 6px var(--sp-x); font: 500 12.5px/1.3 var(--font-body); color: hsl(var(--warn-ink)); box-shadow: inset 0 2px 0 hsl(var(--warn)), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); border-radius: var(--r-panel, 16px) var(--r-panel, 16px) 0 0; }
+/* Stale prices: a whole-surface amber tone with a warn dot (no top rule); the bottom separator divides it from the head. */
+.strat-stale { display: flex; align-items: center; gap: 10px; padding: 6px var(--sp-x); font: 500 12.5px/1.3 var(--font-body); color: hsl(var(--warn-ink)); background: hsl(var(--warn) / 0.10); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); border-radius: var(--r-panel) var(--r-panel) 0 0; }
+.strat-stale::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: hsl(var(--warn)); }
 .strat-stale[hidden] { display: none; }
 .strat-panel.is-stale .strat-analysis, .strat-panel.is-stale .strat-legs { opacity: 0.72; }
 
 /* Grid: build 480 | analysis (≥ 1280), 420 | analysis (1024–1279), one ordered column below. */
-.strat-grid { display: grid; grid-template-columns: 480px minmax(0, 1fr); align-items: start; }
+/* Columns stretch to the row's height, so the analysis column's leading rule runs the full height of the grid (the
+   sticky build column keeps working: its own content sticks inside the stretched cell, see .strat-build below). */
+.strat-grid { display: grid; grid-template-columns: 480px minmax(0, 1fr); align-items: stretch; }
 .strat-build { display: flex; flex-direction: column; gap: 0; min-width: 0; padding: 12px 0 16px; }
 .strat-build > * + * { margin-top: 12px; }
 .strat-build > [hidden] + * { margin-top: 12px; }
@@ -2681,19 +2712,17 @@ button.preset-card.on .glyph-svg .g-line { stroke: currentColor; }
 .sheet-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .popover.preset-pop { width: min(560px, calc(100vw - 32px)); }
 
-/* Legs: a 3 px side stripe (buy blue / sell red), dot include toggle, B / S tag, ‹ strike ›, CE / PE chip, expiry
-   pill, lots stepper, price (click to override), IV, Δ and ⋯. Hairline rows, no outer box. */
+/* Legs: dot include toggle, B / S tag (it carries the direction, in the buy / sell tint; no side stripe), ‹ strike ›,
+   CE / PE chip, expiry pill, lots stepper, price (click to override), IV, Δ and ⋯. Hairline rows, no outer box. */
 .strat-legs { display: flex; flex-direction: column; }
 .strat-legs:empty { display: none; }
 .leg-row {
   display: grid; grid-template-columns: 22px 24px minmax(96px, 1fr) 32px 50px 70px 60px 40px 28px;
   grid-template-areas: "on side strike right exp lots price delta more";
   align-items: center; gap: 2px; min-height: 42px; padding: 2px 0 2px 8px; font: 500 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums;
-  box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline), inset 3px 0 0 transparent; transition: background var(--dur-1);
+  box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); transition: background var(--dur-1);
 }
-.leg-row.buy { box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline), inset 3px 0 0 hsl(var(--c-buy)); }
-.leg-row.sell { box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline), inset 3px 0 0 hsl(var(--c-sell)); }
-.leg-row:not(.leg-head):hover { background: var(--mat-fill-1); }
+@media (hover: hover) { .leg-row:not(.leg-head):hover { background: var(--mat-fill-1); } }
 .leg-row.leg-head { min-height: 26px; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 .leg-row.leg-head .leg-strike { justify-content: center; }
 .leg-row.leg-head .leg-lots { justify-content: center; }
@@ -2775,7 +2804,10 @@ input.size-in { width: 34px; min-height: 26px; height: 26px; padding: 0 2px; tex
 .size-x { font: 500 12px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); padding-right: 2px; }
 button.tools-more { width: 32px; height: 32px; min-height: 32px; }
 .leg-count { margin-left: auto; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
-.strat-adjust { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; font: 500 12.5px/1.35 var(--font-body); background: hsl(var(--c-atm) / 0.06); box-shadow: inset 2px 0 0 hsl(var(--c-atm)); }
+/* The delta-neutral proposal: an ATM-tinted callout ringed whole, an info icon first (no side bar). */
+.strat-adjust { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; font: 500 12.5px/1.35 var(--font-body); border-radius: var(--r-inner); background: hsl(var(--c-atm) / 0.06); box-shadow: inset 0 0 0 var(--hl) hsl(var(--c-atm) / 0.4); }
+.strat-panel .strat-adjust { margin-inline: var(--sp-x); padding-inline: 12px; }
+.strat-adjust > svg { flex: none; width: 16px; height: 16px; color: hsl(var(--c-atm-ink)); }
 .strat-adjust[hidden] { display: none; }
 .adj-t { flex: 1 1 220px; }
 
@@ -2872,10 +2904,12 @@ button.sg-card .sg-meta { grid-area: m; min-width: 0; font: 500 12px/1.3 var(--f
 .hero-v.neutral { color: hsl(var(--foreground)); }
 .hero-s { font: 500 12px/1.3 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); min-width: 0; }
 .hero-breakevens .hero-v .be-list.many { font-size: 15px; }
-.be-list { display: inline-flex; flex-wrap: wrap; gap: 0 8px; }
-.hero-v .be-v + .be-v::before, .hero-s .be-v + .be-v::before { content: "· "; color: hsl(var(--foreground) / var(--a-quiet)); font-weight: 500; }
-.hero-pop { padding-right: 44px; }
-.pop-ring { position: absolute; right: 10px; top: 50%; margin-top: -14px; }
+/* Breakevens: units spaced by the gap alone (no dot separators, so a wrapped line never starts with one). */
+.be-list { display: inline-flex; flex-wrap: wrap; gap: 0 10px; }
+.be-list .be-v { white-space: nowrap; }
+.pop-line { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.pop-ring { flex: none; display: block; }
+.hero-pop .hero-s { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ring-track { fill: none; stroke: var(--mat-fill-3); stroke-width: 4; }
 .ring-arc { fill: none; stroke: hsl(var(--pos)); stroke-width: 4; stroke-linecap: round; transition: stroke-dashoffset 420ms var(--ease-out); }
 .ring-arc.warn { stroke: hsl(var(--warn)); }
@@ -3006,7 +3040,8 @@ button.tip-x { display: none; min-height: 20px; width: 20px; height: 20px; paddi
 .ghost-band { fill: hsl(var(--pos) / 0.05); }
 .ghost-zero { stroke: hsl(var(--foreground) / 0.1); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .ghost-line { fill: none; stroke: hsl(var(--foreground) / 0.12); stroke-width: 2.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.ghost-copy { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0 20px; text-align: center; }
+/* The words sit on an opaque pill of the panel surface, so the ghost curve never runs through them. */
+.ghost-copy { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; max-width: calc(100% - 32px); padding: 12px 24px; border-radius: 999px; text-align: center; background: var(--mat-grouped-solid); box-shadow: var(--edge-1); }
 .ghost-copy strong { font: 500 14px/1.3 var(--font-body); color: hsl(var(--foreground)); }
 .ghost-sub { display: inline-flex; align-items: baseline; gap: 4px; font: 500 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 
@@ -3061,8 +3096,8 @@ table.pnl-table th, table.pnl-table td { height: 32px; padding: 0 12px; font: va
 table.pnl-table thead th, table.grid-table thead th { height: 30px; font: var(--t-table-head); color: hsl(var(--foreground) / var(--a-quiet)); background: var(--surface-2); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); position: sticky; top: 0; z-index: 1; }
 table.pnl-table td.c-move, table.pnl-table td.c-sig { color: hsl(var(--foreground) / var(--a-label)); }
 table.pnl-table tr.in1s td { background: hsl(var(--foreground) / 0.035); }
-table.pnl-table tr.spot td { font-weight: 600; background: var(--mat-fill-2); }
-table.pnl-table tr.spot td:first-child { box-shadow: inset 3px 0 0 hsl(var(--sel-bg)), inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+/* The spot row: a whole-row fill and 600 weight (no leading bar). */
+table.pnl-table tr.spot > * { font-weight: 600; background: var(--mat-fill-2); }
 table.pnl-table tr.be td { font-style: italic; color: hsl(var(--foreground) / var(--a-label)); }
 .be-tag { font: 500 12px/1 var(--font-body); font-style: normal; color: hsl(var(--foreground) / var(--a-quiet)); }
 table.pnl-table .mv-sub { display: none; }
@@ -3074,8 +3109,10 @@ table.pnl-table .c-bar { width: 132px; padding-right: 12px; }
 .ebar i.pos { left: 50%; background: hsl(var(--pos) / 0.6); }
 table.grid-table th, table.grid-table td { height: 30px; min-width: 64px; padding: 0 8px; font: var(--t-table); line-height: 1; text-align: right; white-space: nowrap; }
 table.grid-table tbody th { font-weight: 600; color: hsl(var(--foreground)); background: var(--surface-2); position: sticky; left: 0; z-index: 1; box-shadow: inset calc(-1 * var(--hl)) 0 0 var(--mat-separator); }
-table.grid-table tbody tr.spot th { box-shadow: inset 3px 0 0 hsl(var(--sel-bg)), inset calc(-1 * var(--hl)) 0 0 var(--mat-separator); }
-table.grid-table thead th.tcol { box-shadow: inset 0 2px 0 hsl(var(--c-atm)), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); color: hsl(var(--c-atm-ink)); }
+/* Spot row: its header cell filled (fill-2 over the solid sticky layer) at 600. Target column: tinted whole in the ATM
+   blue, outlined on both sides down the column (no top rule). */
+table.grid-table tbody tr.spot th { font-weight: 600; background: linear-gradient(var(--mat-fill-2), var(--mat-fill-2)), var(--surface-2); }
+table.grid-table thead th.tcol { background: linear-gradient(hsl(var(--c-atm) / 0.12), hsl(var(--c-atm) / 0.12)), var(--surface-2); color: hsl(var(--c-atm-ink)); box-shadow: inset 1px 0 0 hsl(var(--c-atm) / 0.5), inset -1px 0 0 hsl(var(--c-atm) / 0.5), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 table.grid-table td.hc { cursor: pointer; box-shadow: inset 0 0 0 0.5px hsl(var(--foreground) / 0.04); transition: background-color var(--dur-2); }
 /* Heat cells: the sign lives in the tint and the ± prefix; the text is plain ink so it reads on every strength. */
 table.grid-table td.hc.pos { color: hsl(var(--foreground)); background: hsl(var(--pos) / calc(var(--heat-a0) + var(--heat-a1) * var(--hx, 0))); }
@@ -3105,7 +3142,7 @@ input.picker-filter { width: 96px; min-height: 30px; padding: 4px 10px; border-r
 .picker-rows { overflow: auto; overscroll-behavior: contain; max-height: calc(60vh - 110px); position: relative; }
 .pk-row { min-height: 34px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 .pk-row.atm .pk-k strong { padding: 2px 8px; border-radius: 99px; background: hsl(var(--sel-bg)); color: hsl(var(--sel-fg)); }
-.pk-row.focus { background: var(--mat-fill-2); box-shadow: inset 2px 0 0 hsl(var(--sel-bg)); }
+.pk-row.focus { background: var(--mat-fill-2); box-shadow: inset 0 0 0 2px var(--sel-ring); }
 .pk-row .pk-btns.side-on button { box-shadow: 0 0 0 1.5px hsl(var(--sel-bg)); }
 .pk-k { text-align: center; }
 .pk-k small { font-size: 12px; }
@@ -3127,9 +3164,9 @@ input.picker-filter { width: 96px; min-height: 30px; padding: 4px 10px; border-r
 
 /* Confirm sheet */
 .place-sheet { gap: 12px; }
-.place-sum { grid-template-columns: repeat(4, minmax(0, 1fr)); border-radius: var(--r-md); box-shadow: 0 0 0 var(--hl) var(--mat-separator); }
-.place-sum > div:first-child { box-shadow: none; }
-.place-legs { border-radius: var(--r-md); box-shadow: 0 0 0 var(--hl) var(--mat-separator); }
+.place-sum { grid-auto-flow: row; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+/* The legs table sits on the sheet (no ring box): its own row rules are the only lines. */
+.place-legs { overflow-x: auto; }
 .place-acct { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font: 500 13px/1.3 var(--font-body); }
 table.place-table { width: 100%; border-collapse: collapse; }
 table.place-table th, table.place-table td { padding: 7px 8px; vertical-align: middle; }
@@ -3154,7 +3191,8 @@ table.place-table td.num .block { white-space: nowrap; }
 .place-moved[hidden] { display: none; }
 .place-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .place-status p { margin: 0 0 6px; }
-.strat-warn-list { border-radius: var(--r-md); box-shadow: 0 0 0 var(--hl) var(--mat-separator); }
+.strat-warn-list { padding: 0; }
+.strat-warn-list:empty { display: none; }
 .strat-warn-list[hidden] { display: none; }
 
 /* Saved list, toast undo, chart slot */
@@ -3178,16 +3216,11 @@ table.place-table td.num .block { white-space: nowrap; }
 .menu-list button { width: 100%; justify-content: flex-start; }
 .toast-undo-row { display: inline-flex; align-items: center; gap: 4px; }
 button.toast-undo { --btn-h: 28px; --btn-px: 10px; --btn-fs: 13px; --btn-bg: transparent; --btn-line: transparent; --fin: 0; }
-.chart-slot { overflow: hidden; }
-button.chart-slot-toggle { width: 100%; min-height: 44px; justify-content: flex-start; gap: 10px; padding: 0 14px; border-radius: 0; background: transparent; text-align: left; flex-wrap: wrap; row-gap: 2px; }
-button.chart-slot-toggle .slot-title { font: 500 13.5px/1.2 var(--font-body); }
-button.chart-slot-toggle .slot-sub { flex: 1 1 260px; font: 400 12px/1.3 var(--font-body); white-space: normal; }
-button.chart-slot-toggle svg { margin-left: auto; transition: transform var(--dur-fast); }
-button.chart-slot-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
-.chart-slot-body { display: grid; place-items: center; height: 240px; margin: 0 14px 14px; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--mat-separator); text-align: center; padding: 0 20px; }
-.chart-slot-body[hidden] { display: none; }
-/* The sticky bar (≤ 1023): toasts and the page's last row stay above it (--bottom-extra, app.css 4 · SHELL). */
-@media (max-width: 1023px) { :root[data-page="strategy"] { --bottom-extra: 68px; } }
+/* The price chart (payoff ⋯ → Price chart, only once a chart engine registers): the engine's slot in a sheet. */
+.strat-price-chart .chart-slot-box { aspect-ratio: auto; height: min(420px, 60vh); }
+/* The sticky bar (≤ 1023): toasts and the page's last row stay above it (--bottom-extra = its 56 px + 12 px margin,
+   app.css 4 · SHELL), only while it shows (it hides with no legs). */
+@media (max-width: 1023px) { :root[data-page="strategy"]:has(.strat-bar:not([hidden])) { --bottom-extra: 68px; } }
 
 /* Desktop: the build column (legs, risk, suggest) stays in view while the analysis scrolls; .no-stick when taller. */
 @media (min-width: 1024px) {
@@ -3219,8 +3252,12 @@ button.chart-slot-toggle[aria-expanded="true"] svg { transform: rotate(180deg); 
   .strat-actions .head-place { display: none; }
   .strat-bar {
     position: sticky; bottom: calc(var(--tabbar-h) + 12px + var(--safe-b)); z-index: var(--z-raised); order: 20; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; margin: 12px 8px 0; padding: 8px 8px 8px 16px;
-    background: var(--mat-thick); -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur); box-shadow: inset 0 var(--hl) 0 var(--mat-separator), 0 0 0 var(--hl) var(--mat-separator), 0 -8px 24px hsl(0 0% 0% / 0.14); border-radius: var(--r-lg);
+    background: var(--mat-grouped-solid); box-shadow: none; outline: var(--hl) solid var(--mat-separator); outline-offset: 0; border-radius: var(--r-lg);
   }
+  /* Its backing: the panel's solid surface from just above the bar down under the tab bar (chrome stays above it,
+     --z-raised < --z-chrome), so no row shows through between the bar and the tab bar. The bar's edge is an outline,
+     which paints above this backing. */
+  .strat-bar::before { content: ""; position: absolute; z-index: -1; left: -8px; right: -8px; top: -8px; bottom: calc(-1 * (var(--tabbar-h) + 12px + var(--safe-b))); background: var(--mat-grouped-solid); pointer-events: none; }
   .strat-bar[hidden] { display: none; }
   .bar-figs { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .bar-net { font: 500 15px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; }
@@ -3293,7 +3330,7 @@ button.chart-slot-toggle[aria-expanded="true"] svg { transform: rotate(180deg); 
   .hero-k { font-size: 12px; letter-spacing: 0.04em; }
   .hero-s { font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .hero-breakevens .hero-v .be-list.many { font-size: 14px; }
-  .pop-ring { right: 8px; margin-top: -6px; }
+
   .strat-payoff { padding-top: 6px; }
   .payoff-head .legend { gap: 4px 10px; font-size: 12px; }
   .curves-lbl { display: none; }
@@ -3349,6 +3386,7 @@ button.chart-slot-toggle[aria-expanded="true"] svg { transform: rotate(180deg); 
   .place-sum > div:nth-child(4) { box-shadow: calc(-1 * var(--hl)) 0 0 var(--mat-separator), 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
   .popover.customise { position: fixed; top: auto; left: 8px; right: 8px; bottom: calc(8px + var(--safe-b)); z-index: var(--z-popover); width: auto; max-height: 80vh; border-radius: var(--r-lg); }
   .strat-bar { margin: 12px 0 0; }
+  .strat-bar::before { left: 0; right: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   .strat-panel *, .place-sheet *, .sg-card { transition: none !important; animation: none !important; }
@@ -4172,10 +4210,12 @@ table.pos-table tr.pos-ghead th { padding: 7px 12px; text-align: left; font: 500
 .pos-locked[hidden] { display: none; }
 table.pos-table tbody tr[data-key] { cursor: default; }
 table.pos-table tbody tr[data-key] > td { transition: background-color var(--dur-1) var(--ease-std); }
-table.pos-table tbody tr[data-key]:hover > td, table.pos-table tr.hl > td { background-color: var(--mat-fill-1); }
+@media (hover: hover) { table.pos-table tbody tr[data-key]:hover > td { background-color: var(--mat-fill-1); } }
 table.pos-table tr.hl > td { background-color: var(--mat-fill-2); }
-table.pos-table tr.sel > td, table.pos-table tr.focus > td { background-color: var(--mat-fill-2); }
-table.pos-table tr.sel > :first-child, table.pos-table tr.focus > :first-child { box-shadow: inset 2px 0 0 hsl(var(--sel-bg)), inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+/* Selected: the whole row filled (its checkbox says it is ticked). Keyboard row: a full ring round the row (all four
+   sides), never a leading bar. */
+table.pos-table tr.sel > td { background-color: var(--mat-fill-2); }
+table.pos-table tr.focus { outline: 2px solid var(--sel-ring); outline-offset: -2px; }
 table.pos-table tr.excluded td:not(.c-inc):not(.act) { color: hsl(var(--foreground) / var(--a-quiet)); }
 table.pos-table tr.excluded .pos-div, table.pos-table tr.excluded .pos-sg { opacity: 0.45; }
 table.pos-table tr.closed td { color: hsl(var(--foreground) / var(--a-quiet)); }
@@ -4229,7 +4269,8 @@ table.pos-table thead th.c-inc { font-size: 12px; letter-spacing: 0.04em; }
 .nowrap { white-space: nowrap; }
 .warn-ink { color: hsl(var(--warn-ink)); }
 .block { display: block; }
-.pos-bulk { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font: 500 13px/1 var(--font-body); background: var(--mat-fill-1); box-shadow: inset 0 var(--hl) 0 var(--mat-separator), inset 2px 0 0 hsl(var(--sel-bg)); }
+/* The bulk bar: a fill-1 strip under a top hairline (no leading bar). */
+.pos-bulk { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font: 500 13px/1 var(--font-body); background: var(--mat-fill-1); box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
 .pos-bulk[hidden] { display: none; }
 .pos-bulk button { min-height: 28px; }
 .pos-empty p { margin: 0 0 8px; }
@@ -4364,7 +4405,8 @@ table.pos-matrix thead th:first-child, table.pos-matrix tbody th { width: 34%; }
 @media (min-width: 1024px) { table.pos-matrix thead th:first-child, table.pos-matrix tbody th { width: 100px; } }
 table.pos-matrix tbody th { text-align: left; font: 500 12px/1 var(--font-numeric); }
 table.pos-matrix tbody th small { margin-left: 6px; font: 500 12px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
-table.pos-matrix tbody tr.spot th { font-weight: 600; box-shadow: inset 2px 0 0 hsl(var(--sel-bg)), inset 0 calc(-1 * var(--hl)) 0 hsl(var(--background) / 0.55); }
+/* The spot row's header cell: filled (fill-2) at 600, no leading bar. */
+table.pos-matrix tbody tr.spot th { font-weight: 600; background: var(--mat-fill-2); }
 table.pos-matrix td { cursor: pointer; text-align: right; }
 table.pos-matrix td.cur { font-weight: 600; }
 table.pos-matrix td.beyond { background-image: repeating-linear-gradient(135deg, hsl(var(--neg) / 0.35) 0 1px, transparent 1px 5px); }
@@ -4396,11 +4438,14 @@ table.pos-gtable td, table.pos-gtable thead th.num { overflow: visible; }
 .pos-matrix-foot strong { color: hsl(var(--foreground)); font-weight: 600; text-align: right; }
 .pos-matrix-foot strong.up { color: hsl(var(--pos-ink)); } .pos-matrix-foot strong.down { color: hsl(var(--neg-ink)); }
 
-/* Hedge helper. */
-button.pos-hedge-head { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 8px 12px; border-radius: 0; justify-content: flex-start; text-align: left; background: transparent; box-shadow: none; flex-wrap: wrap; row-gap: 2px; }
-button.pos-hedge-head strong { font: 600 14px/1.2 var(--font-display); }
+/* Hedge helper: the Positions panel's collapsible footer, a head-height row under a separator. */
+.pos-hedge { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+.pos-hedge[hidden] { display: none; }
+button.pos-hedge-head { display: flex; align-items: center; gap: 10px; width: 100%; min-height: var(--panel-head-h); padding: 8px 12px; border-radius: 0 0 var(--r-panel) var(--r-panel); justify-content: flex-start; text-align: left; background: transparent; box-shadow: none; flex-wrap: wrap; row-gap: 2px; }
+button.pos-hedge-head strong { font: 600 15px/1.2 var(--font-display); letter-spacing: -0.01em; }
 .pos-hedge-line { flex: 1 1 260px; font: 500 12.5px/1.35 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-label)); white-space: normal; }
 button.pos-hedge-head svg { flex: none; width: 14px; height: 14px; margin-left: auto; transform: rotate(90deg); transition: transform var(--dur-fast); }
+button.pos-hedge-head[aria-expanded="true"] { border-radius: 0; }
 button.pos-hedge-head[aria-expanded="true"] svg { transform: rotate(-90deg); }
 .pos-hedge-body { display: flex; flex-direction: column; gap: 12px; padding: 4px 12px 12px; box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
 .pos-hedge-body[hidden] { display: none; }
@@ -4420,7 +4465,7 @@ table.pos-bca tbody th { text-align: left; font: 500 12.5px/1.2 var(--font-body)
 .pos-hedge-facts dd { margin: 0; }
 .pos-hedge-out { display: flex; flex-direction: column; gap: 10px; }
 .pos-hedge-out p { margin: 0; }
-.pos-hedge-body .ticket-checks { border-radius: var(--r-sm); box-shadow: 0 0 0 var(--hl) var(--mat-separator); }
+.pos-hedge-body .ticket-checks { padding: 0; }
 .pos-hedge-body .ticket-checks[hidden] { display: none; }
 .pos-hedge-acts { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .pos-slot-box { height: 160px; margin: 12px; border-radius: var(--r-md); background: none; box-shadow: none; outline: 1px dashed var(--mat-separator); outline-offset: -1px; }
@@ -4441,10 +4486,10 @@ table.pos-bca tbody th { text-align: left; font: 500 12.5px/1.2 var(--font-body)
 .pos-plan-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .pos-plan-name small, .pos-plan .num small { font: 500 12px/1.2 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
 .pos-plan .num { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-weight: 600; }
-.pos-plan-tot { border-radius: var(--r-md); box-shadow: 0 0 0 var(--hl) var(--mat-separator); overflow: hidden; }
+.pos-plan-tot { overflow: hidden; }
 .pos-plan-status:empty { display: none; }
 .pos-plan-status p { margin: 0; }
-.pos-exit .ticket-checks { border-radius: var(--r-md); box-shadow: 0 0 0 var(--hl) var(--mat-separator); }
+.pos-exit .ticket-checks { padding: 0; }
 .pos-exit .ticket-checks[hidden] { display: none; }
 .pct-btns { flex-wrap: wrap; }
 
@@ -7272,7 +7317,7 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
 .pos-scope { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; min-width: 0; }
 .pos-scope .segmented { flex: none; }
 .pos-scope-hint { font-size: 12.5px; min-width: 0; }
-:root:is([data-pos-scope="all"], [data-pos-scope="family"]) #content > :is(.pos-book, .pos-panel, .pos-riskp, .pos-hedge, .pos-slot) { display: none !important; }
+:root:is([data-pos-scope="all"], [data-pos-scope="family"]) #content > :is(.pos-book, .pos-panel, .pos-riskp, .pos-slot) { display: none !important; }
 :root:is([data-pos-scope="all"], [data-pos-scope="family"]) #toolbar-ctx .ctx-acct { display: none; }
 /* The book spans every underlying and keeps its own "as of" time: one underlying's spot, lot chip and live clock would
    only freeze (and read stale) while the book is on screen, so they leave the toolbar. */
@@ -7302,8 +7347,8 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
   .bk-bulk > span { flex: 1 1 100%; white-space: normal; overflow-wrap: anywhere; }
   .bk-after[data-bulk] .bk-notes { padding-bottom: 120px; }
 }
-.bk-hhead { display: flex; align-items: center; justify-content: flex-start; gap: 10px 14px; font: inherit; white-space: normal; width: 100%; min-height: 52px; padding: 10px 12px; border: 0; border-radius: 0; background: none; color: inherit; text-align: left; cursor: pointer; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
-.bk-hhead:hover { background: var(--mat-fill-1); }
+.bk-hhead { display: flex; align-items: center; justify-content: flex-start; gap: 10px 14px; font: inherit; white-space: normal; width: 100%; min-height: var(--panel-head-h); padding: 8px 12px; border: 0; border-radius: 0; background: none; color: inherit; text-align: left; cursor: pointer; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+@media (hover: hover) { .bk-hhead:hover { background: var(--mat-fill-1); } }
 .bk-hname { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; flex: 1 1 auto; }
 .bk-hname strong { font: 600 15px/1.2 var(--font-display); }
 .bk-rel { padding: 3px 8px; border-radius: 99px; font: 600 12px/1.2 var(--font-body); white-space: nowrap; color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-2); }
@@ -7314,7 +7359,8 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
 .bk-hsum small { font: 500 12px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; }
 .bk-chev { flex: none; display: inline-flex; color: hsl(var(--foreground) / var(--a-quiet)); transition: transform var(--dur-2, 0.2s) var(--ease-std); }
 .bk-hhead[aria-expanded="true"] .bk-chev { transform: rotate(90deg); }
-.bk-holder:not([data-in-family]) .bk-hhead { box-shadow: inset 3px 0 0 hsl(var(--warn)), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+/* A holder outside the family: the whole head takes the amber tone (its "Not in family" pill names it), no side bar. */
+.bk-holder:not([data-in-family]) .bk-hhead { background: hsl(var(--warn) / 0.08); }
 .bk-accts { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; padding: 10px 12px; }
 .bk-acct { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 9px 11px; border-radius: var(--r-sm); background: var(--mat-fill-1); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
 .bk-acct[data-error] { box-shadow: inset 0 0 0 var(--hl) hsl(var(--warn) / 0.7); }
@@ -7342,7 +7388,7 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
 .bk-legs td { padding: 5px 8px; white-space: nowrap; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 .bk-legs tr:last-child td { box-shadow: none; }
 .bk-legs :is(th, td).num { text-align: right; }
-.bk-legs tr[data-selected] td { background: hsl(var(--sel-bg) / 0.06); }
+.bk-legs tr[data-selected] td { background: var(--mat-fill-2); }
 .bk-c-sel { width: 36px; padding-right: 0 !important; }
 .bk-legs .bk-c-act { width: 1%; text-align: right; }
 .bk-legs :is(th, td):first-child { padding-left: 12px; }

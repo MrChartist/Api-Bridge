@@ -522,8 +522,11 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
   };
   const hero = { net: heroCell("net", "Net"), maxProfit: heroCell("maxProfit", "Max profit"), maxLoss: heroCell("maxLoss", "Max loss"), pop: heroCell("pop", "POP"), breakevens: heroCell("breakevens", "Breakevens") };
   const ringArc = sv("circle", { class: "ring-arc", cx: 14, cy: 14, r: 11, "stroke-dasharray": "69.12", "stroke-dashoffset": "69.12", transform: "rotate(-90 14 14)" });
-  const ring = sv("svg", { class: "pop-ring", viewBox: "0 0 28 28", width: 28, height: 28, "aria-hidden": "true" }, sv("circle", { class: "ring-track", cx: 14, cy: 14, r: 11 }), ringArc);
-  hero.pop.el.append(ring);
+  const ring = sv("svg", { class: "pop-ring", viewBox: "0 0 28 28", width: 24, height: 24, "aria-hidden": "true" }, sv("circle", { class: "ring-track", cx: 14, cy: 14, r: 11 }), ringArc);
+  // The POP ring sits inline before the value (one line: ring, figure), not in a padded corner of the cell.
+  const popLine = h("span", { class: "pop-line" });
+  hero.pop.v.replaceWith(popLine);
+  popLine.append(ring, hero.pop.v);
   const heroEl = h("div", { class: "strat-hero sx", role: "group", "aria-label": "Key figures" }, ...HERO.map((k) => hero[k].el));
   const warnEl = h("div", { class: "strat-warns sx", "aria-label": "Warnings" });
   // Payoff
@@ -584,15 +587,14 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
   const grid = h("div", { class: "strat-grid" }, build, analysis, skel);
   const panel = h("section", { class: "desk-panel strat-panel is-loading", "data-panel": "strategy", "aria-label": "Strategy builder" }, staleBar, head, grid, keysEl, bar, liveRegion);
 
-  // Chart-engine slot: collapsed by default; the engine reads window.__mcbStrategyOverlay() when it arrives.
-  const slotBody = h("div", { class: "chart-slot-body", hidden: true }, chartSlot("Price chart with your strikes, breakevens and ±σ", "They overlay here once the chart engine is connected."));
-  slotBody.dataset.chartSlot = "strategy";
-  const slotBtn = h("button", { type: "button", class: "chart-slot-toggle", "aria-expanded": "false" }, h("span", { class: "slot-title" }, "Price chart · chart engine slot"), h("span", { class: "muted slot-sub" }, "Your strikes, breakevens and ±σ will overlay here once the chart engine is connected."), icon("down"));
-  slotBtn.addEventListener("click", () => {
-    slotBody.hidden = !slotBody.hidden;
-    slotBtn.setAttribute("aria-expanded", String(!slotBody.hidden));
-  });
-  const slot = h("section", { class: "desk-panel chart-slot", "data-panel": "price-chart", "aria-label": "Price chart (chart engine slot)" }, slotBtn, slotBody);
+  // The price chart: no placeholder panel; once a chart engine registers, the payoff ⋯ menu offers it (a sheet with
+  // the engine's slot). The engine reads window.__mcbStrategyOverlay() for the strikes, breakevens and ±σ.
+  function openPriceChart() {
+    const box = chartSlot("Price chart with your strikes, breakevens and ±σ");
+    if (!box) return;
+    box.dataset.chartSlot = "strategy";
+    modal({ title: "Price chart", body: h("div", { class: "strat-price-chart" }, box), buttons: [{ label: "Close", value: false }] });
+  }
   window.__mcbStrategyOverlay = () => ({
     underlying: st.underlying,
     strikes: R ? [...new Set(R.act.filter((l) => l.kind === "OPT").map((l) => l.strike))] : [],
@@ -1049,11 +1051,11 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       setHero(hero.maxProfit, rupees(s.locked, true), `Implied ${isFigure(r.ratios.implied) ? formatPercent(r.ratios.implied * 100, 1) : DASH}/yr`, { cls: s.locked > 0 ? "up" : "down", title: "Riskless at expiry if every leg fills at these prices" });
     } else {
       hero.maxProfit.l.textContent = "Max profit";
-      setHero(hero.maxProfit, s.maxProfit === null ? "Unlimited ↗" : rupees(s.maxProfit, true), s.maxProfit === null ? "above the top strike" : `${intervalText(m.xs, m.expiry, s.maxProfit - Math.max(1, Math.abs(s.maxProfit) * 0.005), 1)}${sfx}`, { cls: s.maxProfit === null || s.maxProfit > 0 ? "up" : "down", flash: 1 });
+      setHero(hero.maxProfit, s.maxProfit === null ? "Unlimited ↗" : nw(rupees(s.maxProfit, true)), s.maxProfit === null ? "above the top strike" : `${intervalText(m.xs, m.expiry, s.maxProfit - Math.max(1, Math.abs(s.maxProfit) * 0.005), 1)}${sfx}`, { cls: s.maxProfit === null || s.maxProfit > 0 ? "up" : "down", flash: 1 });
     }
     setHero(
       hero.maxLoss,
-      s.maxLoss === null ? "Unlimited ↘" : rupees(s.maxLoss, true),
+      s.maxLoss === null ? "Unlimited ↘" : nw(rupees(s.maxLoss, true)),
       s.maxLoss === null ? (s.stress ? `${rupees(s.stress.value, true)} at +2σ (${formatInt(s.stress.price)})` : "above the top strike") : `${intervalText(m.xs, m.expiry, s.maxLoss + Math.max(1, Math.abs(s.maxLoss) * 0.005), -1) || "far from the strikes"}${sfx}`,
       { cls: s.maxLoss === null || s.maxLoss < 0 ? "down" : "up", flash: -1 },
     );
@@ -1668,6 +1670,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const p = neutral;
     const what = p.kind === "FUT" ? `${p.side === "BUY" ? "Buy" : "Sell"} ${formatInt(p.lots)} FUT ${expiryText(p.fut?.expiry)}` : `${p.side === "BUY" ? "Buy" : "Sell"} ${formatInt(p.lots)} × ${formatInt(p.strike)} ${p.right}`;
     adjustEl.replaceChildren(
+      icon("info"),
       h("span", { class: "adj-t" }, `Adds ${what} · Δ ${formatSigned((R.greeks?.delta ?? 0) / R.lot, 2)} → ${formatSigned(p.after / R.lot, 2)} lots`),
       h("button", { type: "button", class: "small", onclick: () => applyNeutral() }, "Apply"),
       h("button", { type: "button", class: "small plain", onclick: () => ((neutral = null), drawAdjust()) }, "Cancel"),
@@ -1782,6 +1785,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
         sw("Show per-leg payoffs", c.perLeg, (v) => setCfg({ perLeg: v }), "Each leg's expiry P&L; hover a leg to pick it out"),
         h("div", { class: "pop-segs" }, h("span", { class: "muted small" }, "Y axis"), ySeg),
         compareItem ? h("button", { type: "button", class: "small plain", onclick: () => ((compareItem = null), drawAnalysis()) }, `Stop comparing "${compareItem.name}"`) : null,
+        app.chartEngine ? h("button", { type: "button", class: "small plain", onclick: () => openPriceChart() }, "Price chart with your strikes") : null,
       ),
     });
   }
@@ -2507,7 +2511,6 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
 
   return {
     panel,
-    slot,
     /** The desk's context for this tick (null while there is no chain); `stale` = the last refresh's error. */
     draw(xx0, { error = null, onRetry = null, stale = null, lastOk = null, live = true } = {}) {
       // A chain with no strikes is a loaded state, not a loading one: "--" figures and a plain reason.

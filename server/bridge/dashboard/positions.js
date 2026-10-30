@@ -472,12 +472,17 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   const exitAllBtn = h("button", { type: "button", class: "small", hidden: true, title: "Exit plan for every leg (Shift+X)" }, "Exit all");
   const bulkEl = h("div", { class: "pos-bulk", hidden: true, role: "region", "aria-label": "Selected legs" });
   const bodyEl = h("div", { class: "pos-body" });
+  // The hedge helper is the Positions panel's collapsible footer (a head-height row under the table), not a panel.
+  const hedgeHead = h("button", { type: "button", class: "pos-hedge-head", "aria-expanded": "false" });
+  const hedgeBody = h("div", { class: "pos-hedge-body", hidden: true });
+  const hedgePanel = h("div", { class: "pos-hedge", role: "region", "aria-label": "Hedge helper", hidden: true }, hedgeHead, hedgeBody);
   const posPanel = h(
     "section",
     { class: "desk-panel pos-panel", "data-panel": "positions", "aria-label": "Positions" },
     h("div", { class: "panel-head pos-head" }, titleEl, h("div", { class: "chain-tools" }, exitAllBtn, gearBtn)),
     bodyEl,
     bulkEl,
+    hedgePanel,
   );
   const riskSeg = segmented("Risk view", [["payoff", "Payoff"], ["scenario", "Scenario"], ["greeks", "Greeks"]], riskTab);
   riskSeg.classList.add("pos-risk-seg");
@@ -508,9 +513,6 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     onClock();
   });
   const riskPanel = h("section", { class: "desk-panel pos-riskp", "data-panel": "risk", "aria-label": "Payoff and scenarios", hidden: true }, h("div", { class: "panel-head" }, h("span", { class: "panel-title" }, h("strong", {}, "Risk"), h("span", { class: "muted pos-risk-sub" })), riskSeg), riskBody);
-  const hedgeHead = h("button", { type: "button", class: "pos-hedge-head", "aria-expanded": "false" });
-  const hedgeBody = h("div", { class: "pos-hedge-body", hidden: true });
-  const hedgePanel = h("section", { class: "desk-panel pos-hedge", "data-panel": "hedge", "aria-label": "Hedge helper", hidden: true }, hedgeHead, hedgeBody);
   const slotPanel = h(
     "section",
     { class: "desk-panel pos-slot", "data-panel": "chartslot", "aria-label": "Chart engine slot", hidden: true },
@@ -2749,7 +2751,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   applyScope();
 
   return {
-    panels: [scopeBar, bookView.el, bookPanel, posPanel, riskPanel, hedgePanel, slotPanel],
+    panels: [scopeBar, bookView.el, bookPanel, posPanel, riskPanel, slotPanel],
     root,
     tick,
     /** Spot and the index quote, for the top bar. */
