@@ -7908,6 +7908,16 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
 .wl-table th[scope="row"] { text-align: left; font-weight: 500; }
 button.wl-sort { min-height: 0; padding: 0; background: none; box-shadow: none; font: inherit; color: inherit; --fin: 0; }
 .wl-acts { white-space: nowrap; text-align: right; }
+/* The day's move on one scale for the list: a bar from the centre line, right and green up, left and red down. It
+   takes the table's spare width (the figures keep their own), and goes on phones. */
+.wl-table th.wl-move-h { width: 34%; text-align: center; font-weight: 400; color: hsl(var(--foreground) / var(--a-quiet)); }
+.wl-move-c { padding-left: 24px; padding-right: 24px; }
+.wl-move { position: relative; display: block; height: 10px; border-radius: 5px; background: var(--mat-fill-1); }
+.wl-move::before { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: hsl(var(--foreground) / 0.35); }
+.wl-move > i { position: absolute; top: 0; bottom: 0; width: 50%; transform: scaleX(var(--v, 0)); }
+.wl-move > i.up { left: 50%; transform-origin: left center; border-radius: 0 5px 5px 0; background: hsl(var(--pos)); }
+.wl-move > i.down { right: 50%; transform-origin: right center; border-radius: 5px 0 0 5px; background: hsl(var(--neg)); }
+@media (max-width: 1023px) { .wl-table :is(th.wl-move-h, td.wl-move-c) { display: none; } }
 @media (pointer: coarse) { .wl-sel, .wl-add-in, .wl-addrow > .wl-status { min-height: 44px; } }
 
 /* "Explain this" (explain.js) on OI Analysis and Volatility: a folded box under the summary tiles. */
