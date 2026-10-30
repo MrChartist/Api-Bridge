@@ -57,9 +57,10 @@ const get = (p, key) => call("GET", p, undefined, key);
 
 /** Paths (like `strikes[3].ceIv`) of every null / non-finite number in a JSON value. */
 function nullPaths(v, path = "") {
-  if (v === null) return [path || "(root)"];
+  if (v === null) return path.endsWith(".direction") ? [] : [path || "(root)"];
   if (typeof v === "number") return Number.isFinite(v) ? [] : [path];
   if (Array.isArray(v)) return v.flatMap((x, i) => nullPaths(x, `${path}[${i}]`));
+  // `direction` is null where a strike has no gap to call (a legitimate empty value).
   if (v && typeof v === "object") return Object.entries(v).flatMap(([k, x]) => nullPaths(x, path ? `${path}.${k}` : k));
   return [];
 }
@@ -355,12 +356,14 @@ describe("bad input is 400 VALIDATION_FAILED", () => {
 describe("authentication", () => {
   it("every analytics route is 401 without a key and with a wrong key", async () => {
     const routes = app.router.list().filter((r) => r.pattern.startsWith("/v1/analytics"));
-    expect(routes.length).toBeGreaterThanOrEqual(27);
-    for (const r of routes) {
+    expect(routes.length).toBeGreaterThanOrEqual(36);
+    // Wrong keys count towards the Bridge's brute-force limit, so only a sample of routes gets one.
+    for (const [i, r] of routes.entries()) {
       const path = r.pattern.replace(":ruleId", "rule_x");
       const none = await call(r.method, path, r.method === "POST" ? {} : undefined, null);
       expect(none.status, `${r.method} ${path}`).toBe(401);
       expect(none.body.code).toBe("UNAUTHENTICATED");
+      if (i % 8 !== 0) continue;
       const wrong = await call(r.method, path, r.method === "POST" ? {} : undefined, "mcb_not_a_real_key");
       expect(wrong.status, `${r.method} ${path} wrong key`).toBe(401);
     }
@@ -376,5 +379,32 @@ describe("authentication", () => {
     expect((await get(`/v1/analytics/oi?underlying=NIFTY&expiry=${monthly}`, key)).status).toBe(200);
     expect((await call("POST", "/v1/analytics/position-size", { capital: 1000, riskPct: 1, entry: 10, stop: 9 }, key)).status).toBe(200);
     expect((await call("GET", "/v1/keys", undefined, key)).status).toBe(403);
+  });
+});
+
+describe("Unusual-Whales-style routes on the real app", () => {
+  const paths = [
+    () => `/v1/analytics/unusual?underlyings=NIFTY&expiry=${monthly}`,
+    () => `/v1/analytics/tide?underlying=NIFTY&expiry=${monthly}`,
+    () => `/v1/analytics/exposure?underlying=NIFTY&expiry=${monthly}`,
+    () => "/v1/analytics/exposure/expiries?underlying=NIFTY&expiries=2",
+    () => "/v1/analytics/oi-explorer?underlying=NIFTY&expiries=2",
+    () => "/v1/analytics/vol-stats?underlying=NIFTY",
+    () => "/v1/analytics/vol-stats/term?underlying=NIFTY",
+    () => `/v1/analytics/screener?underlyings=NIFTY&expiry=${monthly}&limit=10`,
+    () => "/v1/analytics/screener/presets",
+  ];
+  it.each(paths.map((p, i) => [i, p]))("route %i answers {data, meta} with no NaN", async (_i, build) => {
+    const path = build();
+    const r = await get(path);
+    expectEnvelope(r);
+    expect(r.text).not.toMatch(/NaN|Infinity/);
+  });
+  it("rejects bad screener and unusual input", async () => {
+    for (const path of ["/v1/analytics/screener?underlyings=NIFTY&minDelta=0.9&maxDelta=0.1", "/v1/analytics/unusual?underlyings=", "/v1/analytics/tide"]) {
+      const r = await get(path);
+      expect(r.status, path).toBe(400);
+      expect(r.body.code).toBe("VALIDATION_FAILED");
+    }
   });
 });

@@ -1584,6 +1584,267 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/analytics/unusual:
+    get:
+      tags: [Analytics]
+      operationId: analyticsUnusual
+      summary: Unusual options activity scanner
+      description: >-
+        Scans the option chains of up to 10 underlyings for unusual activity. Per contract it returns volume/OI,
+        traded premium in INR (volume x ltp x lot size), OTM distance, IV versus ATM IV, OI change, a bid/ask
+        aggressor proxy (not trade-tape data) and a transparent 0-100 score whose formula is returned under
+        data.method. Flags are VOLUME_SPIKE, BIG_PREMIUM, OTM_LOTTERY, IV_ANOMALY and OI_BUILDUP. Per-underlying
+        failures are reported in errors instead of failing the request.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - name: underlyings
+          in: query
+          required: true
+          description: Comma-separated underlyings, 1 to 10, for example NIFTY,BANKNIFTY.
+          schema: { type: string }
+        - name: expiry
+          in: query
+          description: Expiry as YYYY-MM-DD. Defaults to each underlying's nearest upcoming expiry.
+          schema: { type: string, format: date }
+        - name: minPremium
+          in: query
+          description: Minimum traded premium in INR.
+          schema: { type: number, minimum: 0, default: 0 }
+        - name: minVolOi
+          in: query
+          description: Minimum volume/OI ratio.
+          schema: { type: number, minimum: 0, default: 0 }
+        - name: side
+          in: query
+          schema: { type: string, enum: [call, put, both], default: both }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [score, premium, volOi], default: score }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+      responses:
+        "200":
+          $ref: "#/components/responses/AnalyticsResult"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /v1/analytics/tide:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsTide
+      summary: Market Tide, net call versus put premium flow through the session
+      description: Estimates premium traded per interval from consecutive chain snapshots (volume change x mid price x lot size), split into calls and puts and into buy and sell aggressive using where ltp sits inside the bid-ask spread (a proxy, not trade direction). Snapshots are taken when this route is called, so the series only has points from when it was polled. The session resets on a new IST trading day.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, description: Defaults to the nearest upcoming expiry. Changing it restarts the tracked session., schema: { type: string, format: date } }
+        - { name: windowMin, in: query, description: Only return series points from the last N minutes, and a window total., schema: { type: integer, minimum: 1, maximum: 1440 } }
+        - { name: strikes, in: query, description: Strikes on each side of ATM., schema: { type: integer, minimum: 1, maximum: 100 } }
+        - { name: top, in: query, description: Number of top strikes by flow., schema: { type: integer, minimum: 1, maximum: 50, default: 5 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/exposure:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsExposure
+      summary: Delta, gamma, vanna and charm exposure by strike with walls and the zero-gamma level
+      description: Dealers are assumed long calls and short puts. Delta INR per point, gamma INR per 1% move, vanna INR per point per vol point, charm INR per point per day. Legs without usable IV or gamma are counted in skippedLegs.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: strikes, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/exposure/expiries:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsExposureExpiries
+      summary: Gamma and delta exposure summed over the next expiries with per-expiry share
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiries, in: query, description: Number of upcoming expiries (default 3)., schema: { type: integer, minimum: 1, maximum: 6 } }
+        - { name: strikes, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/oi-explorer:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsOiExplorer
+      summary: Call and put open interest by strike and expiry with totals and the highest cells
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiries, in: query, description: Number of upcoming expiries (default 4)., schema: { type: integer, minimum: 1, maximum: 8 } }
+        - { name: strikes, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/vol-stats:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsVolStats
+      summary: Volatility stats (HV 10/20/30/60, Parkinson, ATM IV, IV vs HV, IV rank, expected move)
+      description: HV is annualised with sqrt(252) from daily candles, in percent, with the rank and percentile of the current HV20 over the lookback. ATM IV comes from the nearest expiry with at least 3 days left. The IV minus HV20 spread and ratio carry a label, rich above 1.15, cheap below 0.85, otherwise fair. The Bridge stores one ATM-IV point per underlying per IST day (newest 400 days); until 20 days exist, ivRank and ivPercentile are null, ivHistoryDays says how many there are and ivRankFallback holds the HV20 rank. expectedMove is the 1-sigma move to that expiry, spot x iv x sqrt(dte/365).
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 }, example: NIFTY }
+        - { name: days, in: query, description: Daily-candle lookback for HV and its rank (default 250)., schema: { type: integer, minimum: 30, maximum: 1000, default: 250 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/vol-stats/term:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsVolStatsTerm
+      summary: ATM IV for the next 4 expiries (volatility term structure)
+      description: Percent IV at the ATM strike of each of the next four expiries whose 15:30 IST cutoff has not passed, with termStructure contango, backwardation or flat (nearest against furthest).
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 }, example: NIFTY }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/deals:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsDeals
+      summary: NSE block or bulk deals (symbol, client, buy/sell, quantity, price, value in INR crore) with top buyers and sellers
+      description: From the NSE public site (meta.source is "nse", meta.fetchedAt is the fetch time, meta.stale is true when a refresh failed and an older copy is served). Cached for five minutes per query. India analogue of dark-pool prints.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: kind, in: query, required: true, schema: { type: string, enum: [block, bulk] } }
+        - { name: days, in: query, description: Calendar days back., schema: { type: integer, minimum: 1, maximum: 90, default: 5 } }
+        - { name: symbol, in: query, description: NSE ticker., schema: { type: string, maxLength: 20 } }
+        - { name: minValue, in: query, description: Minimum deal value in INR crore., schema: { type: number, minimum: 0 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/insiders:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsInsiders
+      summary: NSE insider-trading (SEBI PIT) disclosures with a net insider buying summary
+      description: From the NSE public site (meta.source is "nse"). Each row has person category, acquisition or disposal, securities, value in INR crore, mode and date. Cached for five minutes per query.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: symbol, in: query, description: NSE ticker., schema: { type: string, maxLength: 20 } }
+        - { name: days, in: query, description: Calendar days back., schema: { type: integer, minimum: 1, maximum: 90, default: 30 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/events:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsEvents
+      summary: NSE corporate events, board meetings and results calendar grouped by day
+      description: From the NSE public site (meta.source is "nse"). Looks forward from today for the given number of days; each event has purpose and description. Cached for five minutes per query.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: symbol, in: query, description: NSE ticker., schema: { type: string, maxLength: 20 } }
+        - { name: days, in: query, description: Calendar days ahead., schema: { type: integer, minimum: 1, maximum: 60, default: 14 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/screener:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsScreener
+      summary: Contract screener. Filter and sort every option contract in up to five chains, with premium traded, moneyness, breakeven, probability ITM, theta percent, spread and a liquidity flag
+      description: |
+        Delta filters use the absolute delta. `minPremium` and `maxPremium` bound the option price (ltp, INR per unit).
+        `sort=premium` orders by premium traded (ltp x volume x lot size, INR); `sort=theta` orders by daily theta as a percent of premium.
+        Contracts missing a field never pass a filter on it and sort last. The response reports `scanned`, `matched` and `returned`;
+        an underlying that fails to load is listed in `errors` and the others are still screened.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlyings, in: query, required: true, description: One to five comma-separated underlyings., schema: { type: string, example: "NIFTY,BANKNIFTY" } }
+        - { name: expiry, in: query, description: YYYY-MM-DD. Default is each underlying's nearest upcoming expiry., schema: { type: string, format: date } }
+        - { name: type, in: query, schema: { type: string, enum: [call, put, both], default: both } }
+        - { name: minDelta, in: query, description: Minimum absolute delta., schema: { type: number, minimum: 0, maximum: 1 } }
+        - { name: maxDelta, in: query, description: Maximum absolute delta., schema: { type: number, minimum: 0, maximum: 1 } }
+        - { name: minIv, in: query, description: Minimum IV in percent., schema: { type: number, minimum: 0, maximum: 1000 } }
+        - { name: maxIv, in: query, description: Maximum IV in percent., schema: { type: number, minimum: 0, maximum: 1000 } }
+        - { name: minOi, in: query, schema: { type: number, minimum: 0 } }
+        - { name: minVolume, in: query, schema: { type: number, minimum: 0 } }
+        - { name: minPremium, in: query, description: Minimum option price in INR., schema: { type: number, minimum: 0 } }
+        - { name: maxPremium, in: query, description: Maximum option price in INR., schema: { type: number, minimum: 0 } }
+        - { name: minDte, in: query, description: Minimum days to expiry., schema: { type: number, minimum: 0, maximum: 3650 } }
+        - { name: maxDte, in: query, description: Maximum days to expiry., schema: { type: number, minimum: 0, maximum: 3650 } }
+        - { name: maxSpreadPct, in: query, description: Maximum bid-ask spread as a percent of mid., schema: { type: number, minimum: 0 } }
+        - { name: moneyness, in: query, schema: { type: string, enum: [itm, atm, otm, any], default: any } }
+        - { name: sort, in: query, schema: { type: string, enum: [oi, volume, iv, delta, premium, theta, ltp, spread], default: oi } }
+        - { name: dir, in: query, schema: { type: string, enum: [asc, desc], default: desc } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/screener/presets:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsScreenerPresets
+      summary: Six named screener presets (high-IV puts, liquid ATM weeklies, cheap OTM lottery, high-theta sellers, big OI walls, tight spreads) as ready-made query strings
+      x-stream: S15
+      x-scope: read
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/stream:
     get:
       tags: [Streaming]
