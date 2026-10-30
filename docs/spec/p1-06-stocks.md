@@ -364,7 +364,7 @@ Unavailable data is **not** an error. It returns 200 with `available: false` and
 
 ### 3.3 `GET /v1/options/underlyings?kind=all|index|stock[&q=reli][&withQuotes=1]`
 
-Memory only unless `withQuotes=1`, which adds one batched quote read (interactive priority, cached 60 s, skipped with `quotes: { loaded: false, reason: "NO_HEADROOM" }` if the quote class has < 2 tokens). The `q` filter uses the same ranking as the picker (§6.12). p95 < 10 ms without quotes.
+Memory only unless `withQuotes=1`, which adds one batched quote read (interactive priority, cached 60 s, skipped with `quotes: { loaded: false, reason: "NO_HEADROOM" }` if the quote class has < 2 tokens; a per-second window that refills within 1 s is waited for once first). The `q` filter uses the same ranking as the picker (§6.12). p95 < 10 ms without quotes.
 
 ```json
 { "data": {

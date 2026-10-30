@@ -5832,7 +5832,8 @@ paths:
         The underlying list behind the picker: the point-in-time F&O universe (reference store) merged with the
         instrument masters (masters only when NSE downloads are off; `source` says which). Memory only and no broker
         call unless withQuotes=1, which adds one batched quote read (interactive priority, cached 60 s, skipped with
-        quotes.loaded false and reason NO_HEADROOM when the quote class has fewer than 2 tokens). strikeStep is
+        quotes.loaded false and reason NO_HEADROOM when the quote class has fewer than 2 tokens after waiting at most
+        1 s for a per-second window to refill). strikeStep is
         inferred from listed strikes (null with fewer than 3). ban is null for indices and { available false, reason }
         when no ban data is recorded.
       x-stream: S19

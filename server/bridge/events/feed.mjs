@@ -8,7 +8,9 @@
  *  2. Recorder chains. Option chains come from the recorder (P1-1): each "recorder.snapshot" is read back from the
  *     recorder's memory (recorder.latest, no broker call) into engine.ingestChain, and option-leg ticks the recorder
  *     streams reach the leg detectors through the same bus "tick". The events engine never reads chains itself.
- *  3. REST fallback. Symbols the hub refused (feed caps) or that have had no tick for `staleAfterMs` are polled with
+ *  3. REST fallback. Symbols the hub refused (feed caps), that never ticked, or that have had no tick for
+ *     `staleAfterMs` while their feed is not live are polled. A held symbol that is merely quiet on a feed ticking now
+ *     is not (no tick on a live subscription means no trade; up to `quietMaxMs`). Polls go out with
  *     marketData.quotes in batches at background priority, only when the shared background gate
  *     (ratelimit/backgroundGate.mjs) says the call keeps every window at or above (1 − share) of its limit, and with
  *     `backgroundShare`, so the scheduler re-checks the floor when it takes the budget. A refused poll waits for the
@@ -69,7 +71,7 @@ export function createLiveFeed({ engine, deps, cfg, store, logger }) {
   let stopped = false;
   let polling = false;
   let contextRun = null;
-  const status = { stream: { held: 0, rejected: 0 }, rest: { polls: 0, symbols: 0, refused: 0, lastAt: null }, context: { loaded: 0, missing: 0, pending: 0 }, chains: { snapshots: 0 }, universe: { stocks: 0, futures: 0, chains: 0 } };
+  const status = { stream: { held: 0, rejected: 0 }, rest: { polls: 0, symbols: 0, refused: 0, quiet: 0, lastAt: null }, context: { loaded: 0, missing: 0, pending: 0 }, chains: { snapshots: 0 }, universe: { stocks: 0, futures: 0, chains: 0 } };
 
   // ── universe ──
 
@@ -200,15 +202,47 @@ export function createLiveFeed({ engine, deps, cfg, store, logger }) {
     }
   }
 
+  /**
+   * A held symbol with no tick for a while is quiet, not stale, when its feed is delivering ticks now (some symbol
+   * ticked within staleAfterMs and the hub does not call the feed silent) and its last tick came on the current
+   * connection: on a live subscription no tick means no trade, so a REST read would return the same price. Trusted up
+   * to `quietMaxMs`; 0 turns this off.
+   */
+  function quietOnLiveFeed(symbol, at, t) {
+    if (!(cfg.quietMaxMs > 0) || at === undefined || t - at > cfg.quietMaxMs || typeof hub?.feedInfo !== "function") return false;
+    try {
+      const info = hub.feedInfo(symbol);
+      if (!info || info.stale || !Number.isFinite(info.lastTickAt) || t - info.lastTickAt > cfg.staleAfterMs) return false;
+      return !(Number.isFinite(info.connectedAt) && at < info.connectedAt);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * What the REST fallback must read now (`want`: refused by the hub, never ticked, or stale on a feed that is not
+   * live) and how many symbols are quiet on a live feed instead (`quiet`, no read).
+   */
+  function restWanted(t = now()) {
+    const held = source ? source.held() : new Set();
+    const want = [];
+    let quiet = 0;
+    for (const s of tracked) {
+      const at = lastSeen.get(s);
+      if (at !== undefined && t - at <= cfg.staleAfterMs) continue;
+      if (held.has(s) && quietOnLiveFeed(s, at, t)) quiet += 1;
+      else want.push(s);
+    }
+    return { want, quiet };
+  }
+
   async function poll() {
     if (polling || stopped || !deps.marketData || isStub(deps.marketData)) return;
     polling = true;
     try {
       const t = now();
-      const stale = [...tracked].filter((s) => {
-        const at = lastSeen.get(s);
-        return at === undefined || t - at > cfg.staleAfterMs;
-      });
+      const { want: stale, quiet } = restWanted(t);
+      status.rest.quiet = quiet;
       if (!stale.length) return;
       const acc = dataAccount();
       if (!acc) return;
@@ -302,6 +336,8 @@ export function createLiveFeed({ engine, deps, cfg, store, logger }) {
     /** Re-resolve after a selection change. */
     refresh: () => holdUniverse(),
     poll,
+    /** What a poll now would read by REST, and how many symbols are quiet on a live feed instead (tests). */
+    restWanted: () => restWanted(),
     status: () => ({ ...status, tracked: tracked.size }),
   };
 }

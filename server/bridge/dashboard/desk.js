@@ -36,6 +36,8 @@ const OI_FETCH_STRIKES = 100;
 /** The Volatility page reads the 10Δ wings of monthlies: a wider window than the chain. */
 const VOL_STRIKES = 60;
 const REFRESH_MS = 3000;
+/** After a chain loads, the next expiry is prefetched this much later (background priority). */
+const NEXT_EXPIRY_DELAY_MS = 1500;
 /** Shortest gap between two price flashes on one chain cell (live ticks arrive every frame on liquid strikes). */
 const FLASH_GAP_MS = 2500;
 /** Outside market hours nothing moves: refresh every 30 s instead. */
@@ -554,7 +556,8 @@ async function renderDesk(kind) {
     const seq = ++st.seq;
     eSel.disabled = true;
     try {
-      const r = await api(`/v1/expiries?underlying=${encodeURIComponent(st.underlying)}`);
+      // An expiry list read up to 30 s ago (the picker warmed it) answers at once; it changes once a day.
+      const r = await api(`/v1/expiries?underlying=${encodeURIComponent(st.underlying)}`, { paintOld: true });
       if (seq !== st.seq) return false;
       const ex = r.data.data?.expiries ?? [];
       if (!ex.length) {
@@ -636,6 +639,24 @@ async function renderDesk(kind) {
     const strikes = kind === "oi" ? OI_FETCH_STRIKES : kind === "vol" ? VOL_STRIKES : FETCH_STRIKES;
     return `/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(expiry)}&strikes=${strikes}&greeks=${kind === "vol" ? "false" : "true"}&ivModel=b76-forward`;
   }
+  /** underlying|expiry of the last chain loaded (a new one may paint from a prefetch and warms the next expiry). */
+  let loadedKey = null;
+  let nextTimer = 0;
+  /**
+   * After a chain loads, warm the next expiry's (background priority, one read): the most likely next click. Waits
+   * for a quiet moment so it never competes with this page's own first reads.
+   */
+  function prefetchNextExpiry() {
+    if (!["chain", "oi", "strategy"].includes(kind)) return;
+    clearTimeout(nextTimer);
+    nextTimer = setTimeout(() => {
+      const i = st.expiries.indexOf(st.expiry);
+      const next = i >= 0 ? st.expiries[i + 1] : null;
+      if (!next || !pageRoot.isConnected || document.hidden) return;
+      const idle = typeof requestIdleCallback === "function" ? requestIdleCallback : (fn) => setTimeout(fn, 0);
+      idle(() => prefetch(chainPath(next)));
+    }, NEXT_EXPIRY_DELAY_MS);
+  }
   async function loadChain({ draw = true } = {}) {
     if (!st.expiry) return;
     const seq = st.seq;
@@ -643,7 +664,11 @@ async function renderDesk(kind) {
     try {
       // The Volatility page recomputes IVs and deltas itself (no server Greeks); every page loads the index quote,
       // which the top bar's spot and its change come from.
-      const [r] = await Promise.all([api(chainPath(st.expiry)), loadQuotes()]);
+      // The first read of an expiry may paint a prefetched answer at once (its freshness label says how old) while
+      // the fresh one is fetched; the read right after joins that fetch.
+      const key = `${st.underlying}|${st.expiry}`;
+      const first = key !== loadedKey;
+      const [r] = await Promise.all([api(chainPath(st.expiry), { paintOld: first }), loadQuotes()]);
       if (seq !== st.seq) return;
       st.chain = r.data.data;
       st.freshness = r.data.data?.freshness ?? r.data.meta?.freshness ?? null;
@@ -652,6 +677,11 @@ async function renderDesk(kind) {
       st.lastOk = new Date().toISOString();
       syncLive();
       if (store && st.chain) store.offer(st.chain, Date.now(), { demo: Boolean(app.state.demo), session: refSession(st.ref), isTradingDay: refCalendar(st.ref).isTradingDay }).catch(() => {});
+      if (r.cached === "paint") setTimeout(() => seq === st.seq && loadChain({ draw }), 0);
+      if (first) {
+        loadedKey = key;
+        prefetchNextExpiry();
+      }
     } catch (err) {
       if (seq !== st.seq) return;
       st.error = err;
@@ -2228,6 +2258,17 @@ async function renderDesk(kind) {
   bindKeys();
 
   // ── Wiring ──
+  // Reaching for the underlying picker warms the other underlyings' expiry lists (one cached read each, background
+  // priority), so a switch goes straight to its chain. Their chains are not prefetched: a native select does not say
+  // which option is under the pointer, and a chain read per underlying would spend the chain budget on guesses.
+  let warmedU = false;
+  const warmUnderlyings = () => {
+    if (warmedU) return;
+    warmedU = true;
+    for (const u of list) if (u !== st.underlying) prefetch(`/v1/expiries?underlying=${encodeURIComponent(u)}`);
+  };
+  uSel.addEventListener("pointerenter", warmUnderlyings);
+  uSel.addEventListener("focus", warmUnderlyings);
   uSel.addEventListener("change", () => {
     st.underlying = uSel.value;
     st.expiry = null;
