@@ -6,6 +6,8 @@
   <meta name="color-scheme" content="light dark">
   <title>Mr. Chartist API Bridge</title>
   <link rel="icon" href="/dashboard/logo.svg" type="image/svg+xml">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F2F2F7">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000">
   <link rel="preload" href="/dashboard/font-chartist-sans-flex.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/dashboard/font-chartist-sans.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/dashboard/app.css">
@@ -35,7 +37,7 @@
       <div id="login-demo" class="login-demo" hidden><span class="pill demo">Demo data</span><span>This Bridge runs in demo mode: sample prices, no broker, paper orders only.</span></div>
       <div class="login-head">
         <div class="eyebrow">Local dashboard · this computer only</div>
-        <h1>Sign in with your admin key</h1>
+        <h1>Sign in with your <em class="serif">admin key</em></h1>
         <p class="muted">The key was printed once when you ran the setup. It stays in this browser tab and is forgotten when you close it.</p>
       </div>
       <form id="login-form" class="stack">
