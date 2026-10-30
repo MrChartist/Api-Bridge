@@ -530,6 +530,12 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   });
   function drawDay() {
     const { rows, total, missing } = dayRows(d.all ?? []);
+    // The head names what the Day table holds: every underlying's contracts traded or carried today.
+    const daySig = `day|${rows.length}`;
+    if (titleEl.__sig !== daySig) {
+      titleEl.__sig = daySig;
+      titleEl.replaceChildren(h("strong", {}, "Today's trades"), h("span", { class: "muted" }, rows.length ? ` · ${plural(rows.length, "contract")}` : ""));
+    }
     const qtyAt = (q, avg) => (q ? h("span", { class: "bk-nw" }, `${formatInt(q)} @ ${formatFixed(avg, 2)}`) : DASH);
     dayEl.replaceChildren(
       h(
@@ -1044,7 +1050,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const narrow = isNarrow();
     const visibleLegs = legs.filter((l) => l.q || cfg().closed);
     const titleSig = `${st.underlying}|${visibleLegs.filter((l) => l.q).length}|${a?.label}`;
-    if (titleEl.__sig !== titleSig) {
+    if (!dayMode && titleEl.__sig !== titleSig) {
       titleEl.__sig = titleSig;
       const n = visibleLegs.filter((l) => l.q).length;
       titleEl.replaceChildren(h("strong", {}, `${st.underlying} positions`), h("span", { class: "muted" }, n ? ` · ${plural(n, "leg")}` : ""));
