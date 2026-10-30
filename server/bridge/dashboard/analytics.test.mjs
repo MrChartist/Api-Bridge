@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { MASONRY_ROW, VIEWS, lastSpan, masonrySpan, shortDay } from "./analytics.js";
 import { skewSeries } from "./analyticsViews.js";
+import { cumulativeFlows, flowRowH } from "./analyticsMore.js";
 import { LEGACY, PAGES, resolveRoute } from "./views.js";
 
 describe("analytics host", () => {
@@ -29,6 +30,16 @@ describe("analytics host", () => {
     expect(masonrySpan(4, 0)).toBe(1);
     expect(masonrySpan(100, 12)).toBe(7); // 7 rows of 4 px and 6 gaps of 12 px = 100 px
     expect(masonrySpan(101, 12)).toBe(8);
+  });
+
+  it("FII and DII: the cumulative series run oldest first; bar rows use the room the window has", () => {
+    const days = [{ date: "2026-10-30", fii: { net: 100 }, dii: { net: -40 } }, { date: "2026-10-29", fii: { net: -30 }, dii: { net: 10 } }];
+    const [fii, dii] = cumulativeFlows(days);
+    expect(fii.points.map((p) => p.y)).toEqual([-30, 70]);
+    expect(dii.points.map((p) => p.y)).toEqual([10, -30]);
+    expect(flowRowH(10, 300)).toBe(30);
+    expect(flowRowH(60, 300)).toBe(26);
+    expect(flowRowH(2, 900)).toBe(46);
   });
 
   it("names a day the way the desk does", () => {

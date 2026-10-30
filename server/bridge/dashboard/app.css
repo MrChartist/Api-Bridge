@@ -8760,7 +8760,7 @@ th[aria-sort="ascending"], th[aria-sort="descending"] { color: hsl(var(--foregro
 .an-page .card.an-formbar .form-grid { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; }
 .an-page .card.an-formbar .field { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; min-width: 0; margin: 0; }
 .an-page .card.an-formbar .field > span:first-child { font: 500 13px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; }
-.an-page .card.an-formbar :is(select, input) { width: auto; min-width: 96px; min-height: var(--ctl-h); }
+.an-page .card.an-formbar :is(select, input:not([type="checkbox"])) { width: auto; min-width: 96px; min-height: var(--ctl-h); }
 .an-page .card.an-formbar .hint { display: none; }
 /* Under 720 px the strikes pick moves into the ⋯ sheet (with underlying and expiry again), so the capsule fits. */
 @media (max-width: 719px) { .an-cap .ctx-k { display: none; } }
@@ -8802,3 +8802,25 @@ th[aria-sort="ascending"], th[aria-sort="descending"] { color: hsl(var(--foregro
   .an-page .an-panel > .card-head { flex-wrap: wrap; }
   .an-page .an-panel > .card-head .card-titles p { white-space: normal; }
 }
+/* Unusual activity: the score is intensity, not good or bad (one accent at three strengths). */
+.an-page .score-chip { background: hsl(var(--ios-blue) / 0.10); color: hsl(var(--foreground)); font-weight: 600; }
+.an-page .score-chip.cool { background: hsl(var(--ios-blue) / 0.12); color: hsl(var(--foreground)); }
+.an-page .score-chip.warm { background: hsl(var(--ios-blue) / 0.22); color: hsl(var(--foreground)); }
+.an-page .score-chip.hot { background: hsl(var(--ios-blue) / 0.36); color: hsl(var(--foreground)); }
+.an-page .flags { flex-wrap: nowrap; max-width: none; min-width: 0; }
+.an-page .pill.flag-more { background: var(--mat-fill-2); color: hsl(var(--foreground) / var(--a-label)); cursor: help; }
+@media (max-width: 1439px) { .an-page .flags { flex-wrap: wrap; } }
+/* Market tide: the sentiment as a gauge and one sentence; the formula is behind "?". */
+.an-page .sent-gauge { width: 100%; max-width: 460px; height: auto; margin: 4px 0 2px; }
+.an-page .sent-gauge .band { fill: hsl(var(--foreground) / 0.08); stroke: none; }
+.an-page .sent-gauge .meter-fill.up { fill: hsl(var(--pos)); }
+.an-page .sent-gauge .meter-fill.down { fill: hsl(var(--neg)); }
+.an-page .sent-words { margin: 0; font: 400 14px/1.45 var(--font-body); }
+.an-page .card.an-formbar .check-field { gap: 4px; }
+.an-page .card.an-formbar .check-field label.check { display: inline-flex; align-items: center; gap: 8px; font: 500 13px/1.2 var(--font-body); white-space: nowrap; }
+.an-page .card.an-formbar .seg-field .segmented button { min-height: 32px; padding: 0 12px; font-size: 13px; }
+.an-page .card.an-formbar button:not(.icon-btn) { --btn-h: var(--ctl-h); }
+@media (pointer: coarse) { .an-page .card.an-formbar .seg-field .segmented button { min-height: 44px; } }
+.an-page .sent-gauge-wrap { max-width: 460px; }
+.an-page .sent-gauge-wrap .sent-gauge { max-width: none; height: 26px; }
+.an-page .sent-gauge-ends { display: flex; justify-content: space-between; font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
