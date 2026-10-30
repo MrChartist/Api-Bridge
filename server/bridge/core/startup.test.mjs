@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { armStartup, openStartup, startupJob, startupReady } from "./startup.mjs";
+import { armStartup, openStartup, startupJob, startupProgress, startupReady, startupStatus } from "./startup.mjs";
 
 const tick = () => new Promise((r) => setTimeout(r, 5));
 
@@ -36,5 +36,22 @@ describe("startup jobs (the demo book seed)", () => {
     await openStartup(deps, { maxMs: 30 });
     expect(Date.now() - t0).toBeLessThan(1000);
     await expect(startupReady(deps)).resolves.toBeUndefined();
+  });
+
+  it("reports each job's progress while the gate is shut, and nothing once it opens", async () => {
+    expect(startupStatus({})).toBeNull();
+    const deps = {};
+    armStartup(deps);
+    let finish;
+    startupJob(deps, "demo book seed", new Promise((r) => (finish = r)));
+    expect(startupStatus(deps)).toEqual({ ready: false, jobs: [{ name: "demo book seed", done: null, total: null }] });
+    startupProgress(deps, "demo book seed", { done: 6, total: 9 });
+    expect(startupStatus(deps).jobs[0]).toEqual({ name: "demo book seed", done: 6, total: 9 });
+    startupProgress(deps, "demo book seed", { done: -1, total: Number.NaN });
+    expect(startupStatus(deps).jobs[0]).toMatchObject({ done: null, total: null });
+    const opened = openStartup(deps);
+    finish();
+    await opened;
+    expect(startupStatus(deps)).toBeNull();
   });
 });

@@ -26,8 +26,14 @@ export const DEMO_HOLDER_TAGS = Object.freeze({
 });
 
 const SEED_TAG = "DEMOSEED";
-/** Quote-class reads one seeded paper order makes (its LTP, its depth, the underlying's spot). */
-const SEED_ORDER_COST = 3;
+/**
+ * Quote-class reads one seeded paper order still makes: its depth. Its LTP and the underlying's spot come from one
+ * batched read per account made just before that account's legs (SEED_PREFETCH_COST), so the paper engine and the
+ * order checks find them in the market data cache (it used to be 3 reads an order, paced to about 10 s at start).
+ */
+const SEED_ORDER_COST = 1;
+/** One batched LTP read for an account's legs and their underlyings' spots. */
+const SEED_PREFETCH_COST = 1;
 /** Reads the seed plan makes (three underlyings: expiries and a chain each, in the shared quote family). */
 const SEED_CHAIN_COST = 3;
 /** The longest the seed waits for headroom before it goes anyway (the scheduler still never exceeds a limit). */
@@ -124,13 +130,30 @@ export async function demoSeedPlan({ marketData, today, priority }) {
   return plan;
 }
 
+/** The spot of an F&O contract's underlying (NFO:NIFTY-... is NSE:NIFTY, BFO:SENSEX-... is BSE:SENSEX), or null. */
+export const spotOf = (symbol) => {
+  const m = /^(NFO|BFO):([A-Z0-9&]+)-/.exec(String(symbol));
+  return m ? `${m[1] === "BFO" ? "BSE" : "NSE"}:${m[2]}` : null;
+};
+
 /**
- * Seed demo holder tags and paper books. Safe to call on every demo start.
- * @param {{ config: any, orders: any, marketData: any, symbols: any, store: any, logger: any, clock?: { now(): number } }} deps
+ * Seed demo holder tags and paper books. Safe to call on every demo start. `progress({ done, total })`, when given,
+ * hears how many legs are placed out of how many (total null until the plan is known), so a page can say "Setting up
+ * the demo book · 6 of 9 legs" while reads of the book wait for it.
+ * @param {{ config: any, orders: any, marketData: any, symbols: any, store: any, logger: any, clock?: { now(): number },
+ *   progress?: (p: { done: number, total: number | null }) => void }} deps
  * @returns {Promise<{ tagged: string[], seeded: string[] }>}
  */
 export async function seedDemoBook(deps) {
   const { orders, marketData, store, logger } = deps;
+  const progress = (done, total) => {
+    try {
+      deps.progress?.({ done, total });
+    } catch {
+      // progress is a courtesy; it never stops the seed
+    }
+  };
+  progress(0, null);
   const tagged = [];
   const cur = store.tags();
   for (const [holder, tag] of Object.entries(DEMO_HOLDER_TAGS)) {
@@ -159,15 +182,29 @@ export async function seedDemoBook(deps) {
     }
   }
   if (reseeded.length) logger?.info?.("demo book reseeded: lot sizes changed since it was seeded", { accounts: reseeded });
-  if (!empty.length) return { tagged, seeded: [] };
+  if (!empty.length) {
+    progress(0, 0);
+    return { tagged, seeded: [] };
+  }
   const day = new Date((deps.clock?.now?.() ?? Date.now()) + 19_800_000).toISOString().slice(0, 10);
   const pace = backgroundPace(deps);
   await pace(SEED_CHAIN_COST);
   const plan = await demoSeedPlan({ marketData, today: day, priority: "background" });
+  const total = empty.reduce((n, id) => n + (plan[id]?.length ?? 0), 0);
+  let done = 0;
+  progress(done, total);
   const seeded = [];
   for (const id of empty) {
+    // One batched read prices this account's legs and their underlyings, so each order below finds its LTP and spot
+    // fresh in the cache instead of reading them one by one (a failure only means the orders read them themselves).
+    const legs = plan[id] ?? [];
+    const prefetch = [...new Set([...legs.map((l) => l.symbol), ...legs.map((l) => spotOf(l.symbol)).filter(Boolean)])];
+    if (prefetch.length && typeof marketData?.ltp === "function") {
+      await pace(SEED_PREFETCH_COST);
+      await Promise.resolve(marketData.ltp(prefetch, { priority: "background" })).catch(() => null);
+    }
     let i = 0;
-    for (const leg of plan[id] ?? []) {
+    for (const leg of legs) {
       i += 1;
       // A start-up job like the recorder: each paper fill prices its leg (LTP, depth, the spot), so wait until those
       // reads leave the quote windows at least half free for what a person asks in the first seconds.
@@ -180,6 +217,8 @@ export async function seedDemoBook(deps) {
         { idempotencyKey: `demoseed-${id}-${day}-${i}-${leg.symbol}` },
       );
       if (r?.order?.status === "rejected") logger?.warn?.("demo book seed order rejected", { account: id, symbol: leg.symbol, message: r.order.statusMessage });
+      done += 1;
+      progress(done, total);
     }
     if (deps.stopped?.()) break;
     seeded.push(id);

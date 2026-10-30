@@ -1,6 +1,6 @@
 // The pure rules behind the Create a key and Add a broker flows (flows.js).
 import { describe, expect, it } from "vitest";
-import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, excelFormula, capabilityLabel, capabilitySummary, contractName, defaultKeyName, orderStatusText, istDay, keyFormProblem, keyUse, modifyChange, riskAfterCharges, sessionText, ticketRisk } from "./flows.js";
+import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, excelFormula, capabilityLabel, capabilitySummary, contractName, defaultKeyName, orderStatusText, istDay, keyFormProblem, keyUse, modifyChange, riskAfterCharges, sessionText, startupText, ticketRisk } from "./flows.js";
 import { loginFormSpec } from "./app.js";
 import { snippets } from "./snippets.js";
 
@@ -108,6 +108,16 @@ describe("Accounts in plain words", () => {
     expect(sessionText("missing")).toEqual({ text: "Not logged in", tone: "warn" });
     expect(sessionText("expired").tone).toBe("bad");
     expect(sessionText("connected").text).toBe("Logged in");
+  });
+
+  it("says what the Bridge is doing at start (GET /v1/health startup), never a partial count as done", () => {
+    const seed = (done, total) => ({ ready: false, jobs: [{ name: "demo book seed", done, total }] });
+    expect(startupText(seed(6, 9))).toBe("Setting up the demo book · 6 of 9 legs");
+    expect(startupText(seed(0, null))).toBe("Setting up the demo book");
+    expect(startupText(seed(12, 9))).toBe("Setting up the demo book · 9 of 9 legs");
+    expect(startupText({ ready: false, jobs: [{ name: "other", done: null, total: null }] })).toBe("The Bridge is starting");
+    expect(startupText(null)).toBeNull();
+    expect(startupText({ ready: true, jobs: [] })).toBeNull();
   });
 });
 

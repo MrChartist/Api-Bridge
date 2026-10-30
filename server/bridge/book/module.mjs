@@ -9,7 +9,7 @@
  */
 import { isStub } from "../core/contracts.mjs";
 import { defineModule } from "../core/modules.mjs";
-import { startupJob, startupReady } from "../core/startup.mjs";
+import { startupJob, startupProgress, startupReady } from "../core/startup.mjs";
 import { createBookService } from "./bookService.mjs";
 import { BOOK_CONFIG_SCHEMA } from "./config.mjs";
 import { seedDemoBook } from "./demoBook.mjs";
@@ -71,7 +71,8 @@ export default defineModule({
     // Demo: holder tags and a paper book across three holders, so the family view has something to show at once.
     // Seeding runs in the background (paper orders priced from the demo feed); a failure is logged, never fatal.
     b.stopping = false;
-    const job = seedDemoBook({ ...deps, store: b.store, stopped: () => b.stopping }).catch((err) => deps.logger?.warn?.("demo book seed failed", { error: err?.message }));
+    const progress = (p) => startupProgress(deps, "demo book seed", p);
+    const job = seedDemoBook({ ...deps, store: b.store, stopped: () => b.stopping, progress }).catch((err) => deps.logger?.warn?.("demo book seed failed", { error: err?.message }));
     b.seeding = job;
     // Positions, funds, orders and the book wait for the seed while the Bridge starts, so a page opened at once never
     // shows a half-seeded book (core/startup.mjs).

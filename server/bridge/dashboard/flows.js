@@ -279,6 +279,23 @@ export function capabilitySummary(caps = []) {
   return data && orders ? "Data and orders" : orders ? "Orders only" : data ? "Data only" : "Account only";
 }
 
+/**
+ * What the Bridge is still doing at start, in words, from GET /v1/health `startup` ({ ready: false, jobs: [{ name,
+ * done, total }] }): "Setting up the demo book · 6 of 9 legs" while the demo seed runs (counts once the plan is
+ * known), "Setting up the demo book" before that, "The Bridge is starting" for any other job. Null when nothing waits.
+ * @param {{ ready?: boolean, jobs?: Array<{ name: string, done: number|null, total: number|null }> } | null | undefined} startup
+ */
+export function startupText(startup) {
+  if (!startup || startup.ready !== false) return null;
+  const jobs = Array.isArray(startup.jobs) ? startup.jobs : [];
+  const seed = jobs.find((j) => j?.name === "demo book seed");
+  if (!seed) return "The Bridge is starting";
+  const total = Number(seed.total);
+  const done = Number(seed.done);
+  if (!(total > 0) || !Number.isFinite(done)) return "Setting up the demo book";
+  return `Setting up the demo book · ${formatInt(Math.min(done, total))} of ${formatInt(total)} legs`;
+}
+
 /** A broker session's state in plain words, with its tone (GET /v1/accounts session.state). */
 export function sessionText(state) {
   switch (state) {
