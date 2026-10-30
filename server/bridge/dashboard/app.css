@@ -8971,3 +8971,6 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .an-page .sent-gauge-wrap .sent-gauge { max-width: none; height: 26px; }
 .an-page .sent-gauge-ends { display: flex; justify-content: space-between; font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .an-page details.disclosure { grid-column: 1 / -1; }
+/* Strategy lab › Backtest (analyticsRisk.js): the entry and exit conditions get the width a formula needs. */
+.an-page .an-bt-form .an-bt-rules { grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
+.an-page .an-bt-form .an-bt-rules input { font-family: var(--font-numeric); }

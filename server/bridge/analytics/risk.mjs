@@ -28,7 +28,7 @@ import { parseSymbol } from "../core/symbolFormat.mjs";
 import { ACCOUNT_RE } from "../orders/orderValidation.mjs";
 import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
 import { bsPrice, computeIVAndGreeks, DEFAULT_RATE } from "../../lib/blackScholes.mjs";
-import { expiryCutoffMs, nowMsOf } from "./math.mjs";
+import { expiryCutoffMs, nowMsOf, pinMarketRead } from "./math.mjs";
 
 export const MAX_CELLS = 400;
 export const MAX_LEGS = 200;
@@ -422,8 +422,7 @@ export function riskRoutes(deps) {
   const md = () => deps.marketData;
   const baseOpts = (ctx, account) => {
     const o = readOptionsBase(ctx, { autoBackup: autoBackupFor(deps) });
-    if (account) o.accountId = account;
-    return o;
+    return pinMarketRead(o, deps.config, account, autoBackupFor(deps));
   };
   const errLine = (e, extra = {}) => ({ ...extra, code: e?.code ?? "UPSTREAM_ERROR", message: String(e?.message ?? e).slice(0, 200) });
 
@@ -559,8 +558,7 @@ export function riskRoutes(deps) {
     }
     const history = {};
     const errors = [];
-    const opts = readOptionsBase(ctx, { maxAge: false, autoBackup: autoBackupFor(deps) });
-    if (account) opts.accountId = account;
+    const opts = pinMarketRead(readOptionsBase(ctx, { maxAge: false, autoBackup: autoBackupFor(deps) }), deps.config, account, autoBackupFor(deps));
     let n = 0;
     for (const [u, symbol] of seen) {
       if (++n > MAX_UNDERLYINGS) {

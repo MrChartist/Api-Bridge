@@ -3,8 +3,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { MASONRY_ROW, VIEWS, lastSpan, masonrySpan, shortDay } from "./analytics.js";
 import { skewSeries } from "./analyticsViews.js";
-import { cumulativeFlows, flowRowH, legsToBasket, payoffWindow } from "./analyticsMore.js";
+import { OPT_VIEWS, cumulativeFlows, flowRowH, legsToBasket, optimizerQuery, payoffWindow } from "./analyticsMore.js";
 import { ruleText, volOiText } from "./analyticsFlow.js";
+import { backtestBody, concentrationWords, equitySeries, inrShort, pickAccount, weightText } from "./analyticsRisk.js";
 import { LEGACY, PAGES, resolveRoute } from "./views.js";
 
 describe("analytics host", () => {
@@ -66,6 +67,36 @@ describe("analytics host", () => {
     expect(payoffWindow(curve, [], 26200)).toBe(curve);
   });
 
+  it("Risk: starts on the desk's account, else paper; says concentration in words; short rupees with a true minus", () => {
+    const accs = [{ id: "demo", broker: "demo", capabilities: ["quotes"] }, { id: "zerodha", broker: "zerodha", capabilities: ["positions"] }, { id: "paper-1", broker: "paper", capabilities: ["positions"] }];
+    expect(pickAccount(accs, "zerodha")).toBe("zerodha");
+    expect(pickAccount(accs, "demo")).toBe("paper-1");
+    expect(pickAccount([], null)).toBeNull();
+    expect(concentrationWords(2, 2)).toBe("Spread evenly over 2 underlyings");
+    expect(concentrationWords(1.4, 3)).toBe("Weighted like 1.4 even underlyings");
+    expect(concentrationWords(1, 1)).toBe("All in one underlying");
+    expect(inrShort(-4800)).toBe("\u2212₹4.8k");
+    expect(weightText(0.2532)).toBe("25.3%");
+  });
+
+  it("Backtest: the form becomes the POST body, and a bad field is named", () => {
+    const ok = backtestBody({ symbol: "nse:reliance", interval: "1d", entry: "rsi(14) < 30", exit: "", side: "long", countback: "500", stopLossPct: "4", targetPct: "", maxBarsInTrade: "" });
+    expect(ok.body).toEqual({ symbol: "NSE:RELIANCE", interval: "1d", entry: "rsi(14) < 30", side: "long", countback: 500, stopLossPct: 4 });
+    expect(backtestBody({ symbol: "RELIANCE", entry: "", countback: "1.5" }).problems).toHaveLength(3);
+    const eq = equitySeries(Array.from({ length: 1000 }, (_, i) => ({ date: `2026-01-01 09:${i}`, equity: 1000 + i })), 1000, 400);
+    expect(eq[0].points.length).toBeLessThanOrEqual(401);
+    expect(eq[0].points[0].y).toBe(0);
+    expect(eq[0].points.at(-1).y).toBe(99.9); // 1999 on 1000 is +99.9 %
+  });
+
+  it("Finder: one finder on the optimizer; range-bound is in neutral; limits become the query", () => {
+    expect(OPT_VIEWS.map(([v]) => v)).toEqual(["neutral", "bullish", "bearish", "volatile"]);
+    const v = { underlying: "NIFTY", expiry: "2026-11-03" };
+    const q = new URLSearchParams(optimizerQuery(v, { view: "neutral", objective: "riskReward", minPop: "55", maxLoss: "", capital: "200000" }).query);
+    expect(Object.fromEntries(q)).toEqual({ underlying: "NIFTY", expiry: "2026-11-03", view: "neutral", objective: "riskReward", top: "6", capital: "200000", minPop: "55" });
+    expect(optimizerQuery(v, { view: "bullish", minPop: "120", maxLoss: "0" }).problems).toHaveLength(2);
+  });
+
   it("names a day the way the desk does", () => {
     expect(shortDay("2026-11-03")).toBe("3 Nov");
     expect(shortDay("")).toBe("–");
@@ -83,7 +114,7 @@ describe("analytics host", () => {
 
   it("the Analytics menu stays short: tabbed pages, not one item per view", () => {
     const an = PAGES.filter((p) => p.group === "Analytics");
-    expect(an.map((p) => p.id)).toEqual(["exposure", "flow", "futures", "lab"]);
+    expect(an.map((p) => p.id)).toEqual(["exposure", "flow", "futures", "lab", "risk"]);
     for (const p of an) expect(p.tabs.length).toBeGreaterThan(1);
   });
 
