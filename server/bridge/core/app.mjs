@@ -92,6 +92,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "alert-core.js": "text/javascript; charset=utf-8",
   "alerts.js": "text/javascript; charset=utf-8",
   "cockpit.js": "text/javascript; charset=utf-8",
+  "expiry-core.js": "text/javascript; charset=utf-8",
   "journal.js": "text/javascript; charset=utf-8",
   "journal-core.js": "text/javascript; charset=utf-8",
   "roll-core.js": "text/javascript; charset=utf-8",
