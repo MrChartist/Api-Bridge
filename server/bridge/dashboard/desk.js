@@ -487,8 +487,10 @@ async function renderDesk(kind) {
    *  scrolled to the middle of the table, then forgets it. save() never writes either key. */
   const handoff = prefs.focus ?? prefs.jump;
   let jump = kind === "chain" && handoff && typeof handoff === "object" ? handoff : null;
-  if (prefs.jump || prefs.focus) {
-    const { jump: _drop, focus: _drop2, ...rest } = prefs;
+  // A typed trade from the Ctrl K palette: once the chain is on screen, the ticket opens filled in (never sent).
+  let ticketIntent = kind === "chain" && prefs.ticket && typeof prefs.ticket === "object" ? prefs.ticket : null;
+  if (prefs.jump || prefs.focus || prefs.ticket) {
+    const { jump: _drop, focus: _drop2, ticket: _drop3, ...rest } = prefs;
     local.set(SLOT, JSON.stringify(rest));
   }
   const oiPage = kind === "oi" ? createOiPage({ st, save, retry: () => reloadAll(), openInChain, demo: () => Boolean(app.state.demo) }) : null;
@@ -976,6 +978,16 @@ async function renderDesk(kind) {
             st.focus = { strike: jump.strike, side };
             chain.paintFocus(true, true);
           }
+          const row = ticketIntent ? x.c.rows.find((r) => r.strike === ticketIntent.strike) : null;
+          if (row) {
+            const t = ticketIntent;
+            ticketIntent = null;
+            setTimeout(() => openTicket({ row, right: t.right, side: t.side, qty: t.lots * (num(x.lot) || num(x.c.lotSize) || 1) }), 0);
+          }
+        }
+        if (ticketIntent) {
+          toast(`${ticketIntent.strike} is not listed in this chain`, { tone: "warn" });
+          ticketIntent = null;
         }
         jump = null;
       }
