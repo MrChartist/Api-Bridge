@@ -25,7 +25,7 @@ export function freshnessLabel(f) {
   return { text, tone: f.stale || f.source === "backup" ? "warn" : f.source === "stream" ? "ok" : "info" };
 }
 
-/** Indian-style short number: 1.25 Cr, 4.5 L, 12.3k, 800. Missing → DASH (an en dash). */
+/** Indian-style short number: 1.25 Cr, 4.5 L, 12.3 K, 800 (every suffix after a space: K, L or Cr). Missing → DASH (an en dash). */
 export function compact(value) {
   if (!isFigure(value)) return DASH;
   const n = Number(value);
@@ -34,7 +34,7 @@ export function compact(value) {
   const f = (v, dp) => formatNumber(v, { maximumFractionDigits: dp });
   if (a >= 1e7) return `${sign}${f(a / 1e7, 2)} Cr`;
   if (a >= 1e5) return `${sign}${f(a / 1e5, 2)} L`;
-  if (a >= 1e3) return `${sign}${f(a / 1e3, 1)}k`;
+  if (a >= 1e3) return `${sign}${f(a / 1e3, 1)} K`;
   return `${sign}${f(a, 0)}`;
 }
 

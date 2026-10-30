@@ -28,6 +28,8 @@ export const ROUTES = Object.freeze([
 export const USED_SERVICES = Object.freeze(["orders", "marketData", "accounts", "symbols", "reference", "audit"]);
 
 const built = new WeakMap();
+/** The longest Bridge shutdown waits for a running demo book seed. */
+export const SEED_STOP_WAIT_MS = 3000;
 
 /** { service, store, gate } register() built for these deps (MCP, guards, alerts and tests), or null before. */
 export function bookFor(deps) {
@@ -82,6 +84,13 @@ export default defineModule({
     // Let a running demo seed finish (or fail) before the paper engine and stores shut down.
     const b = built.get(deps);
     if (b) b.stopping = true; // a seed waiting for headroom stops waiting
-    await b?.seeding;
+    // It checks `stopping` between steps, but a step can sit in the market-data queue, whose windows move with the
+    // Bridge clock: with a clock that stands still (tests inject one) that wait never ends and close() hung for good.
+    // So stop waits at most SEED_STOP_WAIT_MS; anything the seed does after that is caught and logged.
+    if (b?.seeding) {
+      let timer;
+      await Promise.race([b.seeding, new Promise((r) => (timer = setTimeout(r, SEED_STOP_WAIT_MS)))]);
+      clearTimeout(timer);
+    }
   },
 });

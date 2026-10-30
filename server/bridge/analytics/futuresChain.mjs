@@ -51,6 +51,23 @@ export function seriesStats(values) {
   };
 }
 
+/** Future expiries of an underlying from the instrument master (deps.symbols), [] when it is not loaded. */
+async function masterFutureExpiries(deps, underlying, exchange) {
+  let symbols;
+  try {
+    symbols = deps?.symbols;
+  } catch {
+    return [];
+  }
+  if (typeof symbols?.search !== "function") return [];
+  try {
+    const res = await symbols.search({ q: underlying, underlying, kind: "FUT", exchange, limit: 50 });
+    return [...new Set((res?.items ?? []).filter((r) => r?.underlying === underlying && /^\d{4}-\d{2}-\d{2}$/.test(String(r.expiry ?? ""))).map((r) => r.expiry))];
+  } catch {
+    return [];
+  }
+}
+
 /** @param {object} deps */
 export function futuresChainRoutes(deps) {
   const md = () => deps.marketData;
@@ -65,8 +82,11 @@ export function futuresChainRoutes(deps) {
     const spotSym = `${fx === "BFO" ? "BSE" : "NSE"}:${underlying}`;
     const list = await md().expiries(underlying, opts);
     const nowMs = nowMsOf(deps);
-    // Futures are monthly: the weekly option expiries have none.
-    const picked = monthlyExpiries(upcomingExpiries(list.expiries, nowMs)).slice(0, count);
+    // Futures are monthly: the weekly option expiries have none. The option list can stop before the next monthly
+    // futures (four weeklies in demo; brokers that list only near options), so the instrument master's own FUT rows
+    // are added when it is loaded.
+    const futExpiries = await masterFutureExpiries(deps, underlying, fx);
+    const picked = monthlyExpiries(upcomingExpiries([...new Set([...list.expiries, ...futExpiries])], nowMs)).slice(0, count);
     if (picked.length === 0) throw new BridgeError("SYMBOL_NOT_FOUND", `No upcoming futures expiries were found for ${underlying}.`);
     const futSyms = picked.map((e) => `${fx}:${underlying}-${e}-FUT`);
     const r = await md().quotes([spotSym, ...futSyms], opts);

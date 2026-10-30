@@ -4,7 +4,7 @@ import { alertBox, api, card, emptyState, h, istDateTime, modal, optional, pill,
 import { contractName, fieldError } from "./flows.js";
 import { DASH, formatFixed, formatInput, formatInt, formatPercent, formatSignedRupee, isFigure } from "./format.js";
 import { whatToDo } from "./reasons-core.js";
-import { OPEN_TRIGGER, distancePct, exitChipText, kindText, legText, outcomeText, pnlAt, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
+import { OPEN_TRIGGER, amoWhenText, distancePct, exitChipText, kindText, legText, outcomeText, pnlAt, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
 
 export { exitChipText };
 
@@ -137,6 +137,8 @@ function legsCell(t) {
       const d = OPEN_TRIGGER.has(t.status) && t.status !== "waiting" ? distancePct(l, t.lastLtp) : null;
       return h("div", { class: "bk-leg", "data-role": l.role }, h("span", {}, legText(l, t.lotSize)), d !== null ? h("span", { class: "muted small" }, ` · ${formatPercent(d, 1)} away`) : null);
     }),
+    // An after-market order: when it goes and where it is held (this Bridge must be running at 09:15).
+    t.origin === "amo" && OPEN_TRIGGER.has(t.status) ? h("div", { class: "muted small" }, amoWhenText(t)) : null,
   );
 }
 
@@ -227,7 +229,7 @@ export function triggersCard(byId) {
     glyph: "bolt",
     tint: "orange",
     title: "Triggers",
-    sub: "GTT, OCO, stops, targets and trailing stops. The Bridge checks them every second, with the browser closed; each fire goes through every safety check.",
+    sub: "GTT, OCO, stops, targets, trailing stops and after-market orders. The Bridge checks them every second, with the browser closed; each fire goes through every safety check.",
     cls: "bk-triggers",
     actions: h("div", { class: "row" }, count, doneBtn),
     flush: true,
@@ -257,7 +259,7 @@ export function triggersCard(byId) {
           ? h(
               "div",
               { class: "row order-acts" },
-              h("button", { type: "button", class: "small", "aria-label": `Edit trigger on ${contractName(t.symbol)}`, onclick: async () => (await editTrigger(t)) && (toast("Trigger changed"), refresh()) }, "Edit"),
+              t.origin === "amo" ? null : h("button", { type: "button", class: "small", "aria-label": `Edit trigger on ${contractName(t.symbol)}`, onclick: async () => (await editTrigger(t)) && (toast("Trigger changed"), refresh()) }, "Edit"),
               h("button", { type: "button", class: "small", "aria-label": `Cancel trigger on ${contractName(t.symbol)}`, onclick: async () => (await cancelTrigger(t)) && refresh() }, "Cancel"),
             )
           : "",

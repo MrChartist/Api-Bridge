@@ -28,6 +28,7 @@ import { writeFileAtomic } from "../auth/fsUtil.mjs";
 import { decideMode } from "../orders/modeDecision.mjs";
 import { istIso } from "../orders/time.mjs";
 import { OPEN_STATUSES, TRIGGER_ORIGINS, TRIGGER_TYPES, legProblems, opFor, reduceOnlyQty, step, toTick } from "./triggerCore.mjs";
+import { marketSession } from "../../lib/marketHours.mjs";
 
 export const MAX_OPEN = 200;
 export const KEPT_CLOSED = 300;
@@ -39,6 +40,16 @@ const RETRY_MS = 30_000;
 const SHAPE_CODES = new Set(["SYMBOL_NOT_FOUND", "INVALID_ORDER", "CAPABILITY_UNSUPPORTED"]);
 
 const invalid = (path, message) => new BridgeError("VALIDATION_FAILED", message, { errors: [{ path, message }] });
+
+/**
+ * After-market orders (origin "amo") are held on this Bridge and sent at 09:15 IST on the next trading day, through
+ * every gate (pre-open is not used: 09:15 only). No broker adapter maps a native AMO flag yet, so live AMOs are
+ * Bridge-held too and say so (`held: "bridge"`); a native one would be "broker".
+ */
+const OPEN_HHMM = "09:15";
+const istDayOf = (ms) => istIso(ms).slice(0, 10);
+const atIst = (day, hhmm) => Date.parse(`${day}T${hhmm}:00+05:30`);
+const addDays = (day, n) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
 /** IST 15:30 on a "YYYY-MM-DD" day (contract expiry close). */
 const closeOf = (day) => Date.parse(`${day}T15:30:00+05:30`);
@@ -102,6 +113,32 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
     return { ...structuredClone(rest), owner: owner ? { label: owner.label ?? null, keyId: owner.keyId ?? null } : null };
   }
 
+  /** Whether an IST day is a trading day: the reference calendar when there is one (holidays), else weekdays. */
+  function tradingDay(day, exchange) {
+    try {
+      const cal = deps.reference?.calendar?.();
+      if (cal && typeof cal.isTradingDay === "function") return cal.isTradingDay(day, exchange === "BFO" || exchange === "BSE" ? "BFO" : "NFO");
+    } catch {
+      /* fall through */
+    }
+    const wd = new Date(`${day}T00:00:00Z`).getUTCDay();
+    return wd !== 0 && wd !== 6;
+  }
+  /** The next session open (09:15 IST) at or after `t`: today's if it is a trading day and not yet open, else the next. */
+  function nextOpen(t, exchange) {
+    let day = istDayOf(t);
+    if (tradingDay(day, exchange) && t < atIst(day, OPEN_HHMM)) return atIst(day, OPEN_HHMM);
+    for (let i = 0; i < 15; i += 1) {
+      day = addDays(day, 1);
+      if (tradingDay(day, exchange)) return atIst(day, OPEN_HHMM);
+    }
+    return atIst(day, OPEN_HHMM);
+  }
+  /** Whether the market takes orders now (regular session on a trading day). */
+  function marketOpenNow(t, exchange) {
+    return tradingDay(istDayOf(t), exchange) && marketSession(new Date(t)).state === "OPEN";
+  }
+
   async function ltpOf(symbol, mode) {
     try {
       const r = await deps.marketData.ltp([symbol], { maxAgeMs: 2000, priority: mode === "live" ? "live" : "interactive" });
@@ -154,8 +191,13 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
     }
     const tick = Number(resolved.tickSize) > 0 ? Number(resolved.tickSize) : 0.05;
     const lotSize = Number(resolved.lotSize) > 0 ? Number(resolved.lotSize) : 1;
+    const amo = origin === "amo";
+    if (amo) {
+      if (type !== "single" || !Array.isArray(input.legs) || input.legs.length !== 1) throw invalid("legs", "An after-market order has one leg.");
+      if (marketOpenNow(now(), resolved.exchange)) throw invalid("origin", "The market is open: place the order now instead of as an after-market order.");
+    }
     const ltp = origin === "bracket" ? null : await ltpOf(resolved.canonical, mode);
-    if (origin !== "bracket" && ltp === null) throw new BridgeError("BROKER_UNAVAILABLE", `No current price for ${resolved.canonical}, so the trigger side cannot be set. Try again in a moment.`);
+    if (origin !== "bracket" && !amo && ltp === null) throw new BridgeError("BROKER_UNAVAILABLE", `No current price for ${resolved.canonical}, so the trigger side cannot be set. Try again in a moment.`);
 
     const legs = (Array.isArray(input.legs) ? input.legs : []).map((l, i) => {
       const o = l?.order ?? {};
@@ -166,12 +208,12 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
       const orderType = o.orderType ?? "MARKET";
       if (!["LIMIT", "MARKET"].includes(orderType)) throw invalid(`legs.${i}.order.orderType`, "A trigger's order is LIMIT or MARKET.");
       if (orderType === "LIMIT" && !(Number(o.price) > 0)) throw invalid(`legs.${i}.order.price`, "A LIMIT leg needs a price above zero.");
-      const trigger = toTick(Number(l.trigger), tick);
-      const op = l.op ?? (ltp !== null ? opFor(trigger, ltp) : null);
+      const trigger = amo ? null : toTick(Number(l.trigger), tick);
+      const op = amo ? "open" : (l.op ?? (ltp !== null ? opFor(trigger, ltp) : null));
       if (op === null) throw invalid(`legs.${i}.trigger`, `The trigger equals the price now (${ltp}). Place the order instead, or move the trigger.`);
       const trail = l.trail && (Number(l.trail.points) > 0 || Number(l.trail.pct) > 0) ? (Number(l.trail.points) > 0 ? { points: Number(l.trail.points) } : { pct: Number(l.trail.pct) }) : null;
       return {
-        role: ["entry", "stop", "target"].includes(l.role) ? l.role : origin === "gtt" ? "entry" : op === (o.side === "SELL" ? "below" : "above") ? "stop" : "target",
+        role: ["entry", "stop", "target"].includes(l.role) ? l.role : origin === "gtt" || amo ? "entry" : op === (o.side === "SELL" ? "below" : "above") ? "stop" : "target",
         op,
         trigger,
         trail,
@@ -179,9 +221,9 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
         order: { side: o.side, quantity: units, orderType, ...(orderType === "LIMIT" ? { price: toTick(Number(o.price), tick) } : {}) },
       };
     });
-    const problems = legProblems(type, legs, ltp);
+    const problems = amo ? [] : legProblems(type, legs, ltp);
     if (problems.length) throw new BridgeError("VALIDATION_FAILED", problems[0].message, { errors: problems });
-    if (origin !== "gtt" && legs.some((l) => l.order.side !== legs[0].order.side)) throw invalid("legs", "An exit's legs close the same position, so they are on the same side.");
+    if (origin !== "gtt" && !amo && legs.some((l) => l.order.side !== legs[0].order.side)) throw invalid("legs", "An exit's legs close the same position, so they are on the same side.");
 
     // The order shape is checked now through the normal preview (symbol, lots, tick). Safety limits are checked
     // again when it fires, against that moment's book; here they only become warnings shown on the trigger.
@@ -210,13 +252,21 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
       const cut = Date.parse(`${istIso(t0).slice(0, 10)}T15:20:00+05:30`);
       expires = Math.min(expires, cut > t0 ? cut : cut + 86_400_000);
     }
-    if (input.expiresAt) {
+    // An after-market order is for the next session only: it goes at 09:15 and lapses at that day's close (15:20 for
+    // intraday) if the Bridge could not send it.
+    const openAt = amo ? nextOpen(t0, resolved.exchange) : null;
+    if (amo) {
+      expires = atIst(istDayOf(openAt), product === "INTRADAY" ? "15:20" : "15:30");
+      if (resolved.expiry && closeOf(resolved.expiry) < expires) expires = closeOf(resolved.expiry);
+    }
+    if (amo && expires <= openAt) throw invalid("symbol", "The contract expires before the next session opens.");
+    if (input.expiresAt && !amo) {
       const want = Date.parse(String(input.expiresAt));
       if (!Number.isFinite(want) || want <= t0) throw invalid("expiresAt", "expiresAt must be a future time.");
       expires = Math.min(expires, want);
     }
     const id = `trg_${randomBytes(6).toString("hex")}`;
-    const name = String(input.name ?? "").slice(0, 80) || `${resolved.canonical.split(":").pop()} ${type === "oco" ? "OCO" : "GTT"}`;
+    const name = String(input.name ?? "").slice(0, 80) || `${resolved.canonical.split(":").pop()} ${amo ? "AMO" : type === "oco" ? "OCO" : "GTT"}`;
     const t = {
       id,
       name,
@@ -228,7 +278,8 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
       mode,
       type,
       origin,
-      reduceOnly: origin !== "gtt",
+      reduceOnly: origin !== "gtt" && !amo,
+      ...(amo ? { openAt: istIso(openAt), held: "bridge" } : {}),
       parentOrderId: origin === "bracket" ? input.parentOrderId : null,
       legs,
       status: origin === "bracket" ? "waiting" : "active",
@@ -260,6 +311,7 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
     if (!legs || legs.length !== t.legs.length) throw invalid("legs", `Send legs as a list of ${t.legs.length}, in order, with the fields to change.`);
     const next = structuredClone(t.legs);
     legs.forEach((c, i) => {
+      if (c?.trigger !== undefined && t.origin === "amo") throw invalid(`legs.${i}.trigger`, "An after-market order has no trigger; it goes at the open.");
       if (c?.trigger !== undefined) next[i].trigger = toTick(Number(c.trigger), t.tick);
       if (c?.price !== undefined) {
         if (next[i].order.orderType !== "LIMIT") throw invalid(`legs.${i}.price`, "Only a LIMIT leg has a price.");
@@ -267,8 +319,8 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
       }
       if (c?.trail !== undefined) next[i].trail = c.trail && (Number(c.trail.points) > 0 || Number(c.trail.pct) > 0) ? (Number(c.trail.points) > 0 ? { points: Number(c.trail.points) } : { pct: Number(c.trail.pct) }) : null;
     });
-    const ltp = t.status === "waiting" ? null : await ltpOf(t.symbol, t.mode);
-    const problems = legProblems(t.type, next, ltp);
+    const ltp = t.status === "waiting" || t.origin === "amo" ? null : await ltpOf(t.symbol, t.mode);
+    const problems = t.origin === "amo" ? [] : legProblems(t.type, next, ltp);
     if (problems.length) throw new BridgeError("VALIDATION_FAILED", problems[0].message, { errors: problems });
     t.legs = next;
     touch(t);
@@ -425,7 +477,24 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
           if (err?.code === "ORDER_NOT_FOUND") close(t, "cancelled", { message: "The entry order was not found." });
         }
       }
-      const active = state.items.filter((t) => t.status === "active" && (!t.retryAt || Date.parse(t.retryAt) <= t0));
+      // After-market orders: at the open, one gap check for a market order, then the normal fire (every gate).
+      for (const t of state.items.filter((x) => x.status === "active" && x.origin === "amo" && Date.parse(x.openAt) <= t0 && (!x.retryAt || Date.parse(x.retryAt) <= t0))) {
+        const leg = t.legs[0];
+        const px = await ltpOf(t.symbol, t.mode);
+        if (leg.order.orderType === "MARKET") {
+          const band = Number(deps.safety?.limits?.(t.account)?.limits?.priceBandPct);
+          const ref = Number(t.ltpAtCreate);
+          if (px === null) continue; // no opening price yet: wait for one
+          if (band > 0 && ref > 0 && (Math.abs(px - ref) / ref) * 100 > band) {
+            close(t, "failed", { code: "PRICE_BAND", message: `The market opened ${((Math.abs(px - ref) / ref) * 100).toFixed(2)}% away from ${ref} (the price when it was set), beyond the ${band}% price band, so the after-market market order was not sent.` });
+            continue;
+          }
+        }
+        t.lastLtp = px;
+        fired += 1;
+        await fire(t, 0, px);
+      }
+      const active = state.items.filter((t) => t.status === "active" && t.origin !== "amo" && (!t.retryAt || Date.parse(t.retryAt) <= t0));
       const bySymbol = new Map();
       for (const t of active) bySymbol.set(`${t.mode}|${t.symbol}`, [...(bySymbol.get(`${t.mode}|${t.symbol}`) ?? []), t]);
       for (const [key, ts] of bySymbol) {
