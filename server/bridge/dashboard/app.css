@@ -8650,6 +8650,14 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .sc-pick-item, .sc-pick-group, .sc-lib-row { flex: none; }
 .sc-pick-body, .sc-cols, .sc-export, .sc-menu .menu-list { padding: 8px 14px 14px; }
 
+/* Broker features (docs/design/broker-gap.md): triggers in Orders and the ticket's When row. */
+.bk-trig-hint { margin: -2px 0 0; font: 500 12px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.bk-legs { display: grid; gap: 2px; }
+.bk-leg { font: 500 13px/1.35 var(--font-body); }
+.bk-leg .muted { font-variant-numeric: tabular-nums; }
+.bk-triggers .card-actions .row { align-items: center; gap: 8px; }
+/* End of broker features. */
+
 /* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────
    Inline-SVG charts: every colour is a theme token (so light and dark both work), every size is an SVG attribute
    (no style attributes: the dashboard CSP is style-src 'self'). Series are told apart by colour AND dash or position. */

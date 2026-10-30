@@ -46,6 +46,7 @@ import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText, startupText } from "./flows.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
+import { triggersCard } from "./triggers.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -2399,6 +2400,9 @@ async function renderOrders() {
           ),
     }),
   );
+
+  // GTT, OCO, stops, targets and trailing stops checked on the Bridge (triggers.js); refreshes itself.
+  nodes.push(triggersCard(byId));
 
   // One summary line per paper account; the positions themselves live on the Positions page. Every rupee figure in
   // this table uses Indian grouping (the P&L columns too, with an explicit + for gains).
