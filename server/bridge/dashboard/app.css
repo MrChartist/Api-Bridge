@@ -8301,12 +8301,13 @@ button.wl-sort { min-height: 0; padding: 0; background: none; box-shadow: none; 
   :root[data-page="vol"] #content > [data-panel="vol-term"], :root[data-page="vol"] #content > [data-panel="vol-read"] { grid-column: 2; }
 }
 
-/* Positions (2200 px and up): the positions table beside the risk panel. */
+/* Positions (2200 px and up): the panels stay stacked full width (side by side, a short book left the whole lower
+   left of the screen empty under the table), and the risk panel gives the scenario side more room. */
 @media (min-width: 2200px) {
-  :root[data-page="positions"] #content:has(> [data-panel="risk"]:not([hidden])) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
-  :root[data-page="positions"] #content > * { grid-column: 1 / -1; }
-  :root[data-page="positions"] #content:has(> [data-panel="risk"]:not([hidden])) > [data-panel="positions"] { grid-column: 1; }
-  :root[data-page="positions"] #content > [data-panel="risk"] { grid-column: 2; }
+  .pos-risk { grid-template-columns: minmax(0, 1.3fr) minmax(0, 2fr); }
+  /* What-if on top (its six figures in one row), then the grid, which takes the rest of the payoff's height. */
+  .pos-scen > .pos-matrix-wrap { flex: 1 1 auto; min-height: 0; }
+  .pos-scen > .pos-matrix-wrap > table.pos-matrix { height: 100%; }
 }
 
 
