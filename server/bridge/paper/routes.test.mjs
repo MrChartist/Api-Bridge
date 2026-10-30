@@ -131,6 +131,17 @@ describe("paper routes", () => {
     expect(r.json.data.funds.usedMargin).toBe(14_000);
   });
 
+  it("daily P&L: a snapshot on demand needs the paper scope and then lists by day", async () => {
+    expect((await call("/v1/paper/accounts/paper-2/daily", { method: "POST" })).status).toBe(403);
+    const snap = await call("/v1/paper/accounts/paper-2/daily", { key: PAPER, method: "POST" });
+    expect(snap.status).toBe(200);
+    expect(snap.json.data).toMatchObject({ source: "manual", day: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), equity: expect.any(Number), pnl: expect.any(Number) });
+    const list = await call("/v1/paper/accounts/paper-2/daily");
+    expect(list.status).toBe(200);
+    expect(list.json.data.items.map((x) => x.day)).toEqual([snap.json.data.day]);
+    expect((await call("/v1/paper/accounts/paper-1/daily", { key: LIMITED })).status).toBe(403);
+  });
+
   it("404s an unknown account and 403s an account the key may not use", async () => {
     const a = await call("/v1/paper/accounts/nobody");
     expect(a.status).toBe(404);
