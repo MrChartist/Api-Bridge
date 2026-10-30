@@ -501,6 +501,20 @@ describe("review follow-ups", () => {
     expect(s2.list(() => true, { status: "open" }).filter((t) => t.owner?.keyId === "stratkey001")).toHaveLength(0);
   });
 
+  it("a strategy run's own key cannot change or cancel a trigger either (the user's protective stops stay as set)", async () => {
+    await at("2026-11-02", "10:10");
+    md.setPrice("NSE:RELIANCE", 1400);
+    const s2 = createTriggerService(app.deps, quiet);
+    const t = await s2.create(ctx("paper"), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", legs: [{ trigger: 1450, order: { side: "BUY", quantity: 1 } }] });
+    const u = await reject(s2.update(strategyCtx(), t.id, { legs: [{ trigger: 1500 }] }));
+    expect(u.code).toBe("SCOPE_REQUIRED");
+    expect(u.detail).toMatch(/strateg/i);
+    const c = await reject(Promise.resolve().then(() => s2.cancel(strategyCtx(), t.id)));
+    expect(c.code).toBe("SCOPE_REQUIRED");
+    expect(s2.get(ctx("paper"), t.id)).toMatchObject({ status: "active", legs: [{ trigger: 1450 }] });
+    s2.cancel(ctx("paper"), t.id);
+  });
+
   it("a bracket's mode must match its entry order's mode: a paper bracket on a live entry is refused when it is set", async () => {
     await at("2026-11-02", "10:30");
     md.setPrice("NSE:RELIANCE", 1400);

@@ -344,10 +344,13 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
 
   /**
    * Who may change or cancel a trigger: a key that may use its account and, for a live trigger, has the "live" scope
-   * (as for changing or cancelling a live order). AI assistant keys cannot change one (they cannot set one either).
+   * (as for changing or cancelling a live order). AI assistant keys cannot change one (they cannot set one either); a
+   * strategy run's own key can neither change nor cancel one.
    */
   function requireWrite(ctx, t, action) {
     ctx.requireAccountAccess(t.account);
+    // A strategy run's key may not steer the triggers on its account: they are the user's (often protective stops).
+    if (ctx.key?.purpose === "strategy-run") throw new BridgeError("SCOPE_REQUIRED", `A strategy's own key cannot ${action} triggers: they belong to you, not to the strategy run. ${action === "change" ? "Change" : "Cancel"} them from the dashboard or a script.`);
     if (action === "change" && ctx.key?.clientKind === "mcp") throw new BridgeError("SCOPE_REQUIRED", "Triggers place orders on their own later, so AI assistant keys cannot change them. Change them from the dashboard or a script.");
     if (t.mode === "live" && !(ctx.scopes?.has("live") || ctx.principal?.kind === "local")) throw new BridgeError("SCOPE_REQUIRED", `${action === "change" ? "Changing" : "Cancelling"} a live trigger needs a key with the "live" scope.`);
   }

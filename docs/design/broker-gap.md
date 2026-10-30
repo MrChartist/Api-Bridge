@@ -120,7 +120,8 @@ Effort: S (hours), M (a day), L (more). Built in this order; each lands as its o
   scope and every other live gate at fire time. A refusal is recorded on the trigger, never retried around a gate.
 - Who may set a trigger: AI assistant keys cannot, and neither can a Python strategy's own per-run key (refused with
   `SCOPE_REQUIRED`): that key is revoked when the run ends, and a trigger set with it would keep placing orders after
-  the strategy stopped. A strategy manages its own exits.
+  the strategy stopped. A strategy manages its own exits. Its key cannot change or cancel triggers either
+  (`PATCH`/`DELETE /v1/triggers/{id}`), so a run can never move or remove the user's protective stops.
 - A trigger keeps firing after the key that set it is revoked or expires. This is intended: most triggers are
   protective stops and targets, and a stop that silently stopped when a script's key was rotated would leave a
   position unguarded. The trigger keeps the scopes it was set with (never more), and every gate still applies when it

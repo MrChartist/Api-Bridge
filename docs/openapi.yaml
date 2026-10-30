@@ -2088,7 +2088,7 @@ paths:
       tags: [Triggers]
       operationId: updateTrigger
       summary: Change trigger prices, limit prices or the trail
-      description: A live trigger also needs a key with the live scope. AI assistant keys (clientKind mcp) cannot change triggers.
+      description: A live trigger also needs a key with the live scope. AI assistant keys (clientKind mcp) and a Python strategy's own per-run key cannot change triggers (SCOPE_REQUIRED).
       x-stream: S25
       x-scope: paper
       requestBody:
@@ -2124,7 +2124,7 @@ paths:
       tags: [Triggers]
       operationId: cancelTrigger
       summary: Cancel a waiting or active trigger
-      description: A live trigger also needs a key with the live scope.
+      description: A live trigger also needs a key with the live scope. A Python strategy's own per-run key cannot cancel triggers (SCOPE_REQUIRED).
       x-stream: S25
       x-scope: paper
       responses:

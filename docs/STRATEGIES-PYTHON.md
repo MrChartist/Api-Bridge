@@ -126,7 +126,8 @@ What a running strategy can do:
   crash of the Bridge itself is revoked at the next start: the key store marks each run's key (`purpose:
   "strategy-run"`), so they are found even when `strategies/state.json` cannot be read. (Revoked keys are pruned oldest first when the key file
   nears its 1000-record limit; active keys never are.) The key cannot set triggers (`POST /v1/triggers` answers
-  `SCOPE_REQUIRED`): a trigger would outlive the run and its revoked key, so a strategy manages its own exits.
+  `SCOPE_REQUIRED`): a trigger would outlive the run and its revoked key, so a strategy manages its own exits. Nor
+  can it change or cancel one (`PATCH`/`DELETE /v1/triggers/{id}`): your stops and targets stay as you set them.
 - **A clean environment.** The child gets PATH, HOME, the locale and the variables it needs (`MCB_BRIDGE_URL`,
   `MCB_API_KEY`, `MCB_STRATEGY_*`), never the Bridge's own environment (master key, notification tokens and so on).
 - **The Bridge's gates on every order.** Orders go through `POST /v1/orders` with an Idempotency-Key: kill switch,
