@@ -103,6 +103,8 @@ tags:
     description: Named lists of symbols, priced with % change, OI change for F&O and IV. One list can feed Live events and one the Home page.
   - name: Journal
     description: The trade journal. Fills grouped into trades by strategy group, with tags, notes, setup, daily P&L and stats. Read only; it places nothing.
+  - name: Strategies
+    description: Python strategies from the strategies folder, run by the Bridge with a key per run. Paper by default; every order passes the Bridge's safety gates.
   - name: Limits
     description: Broker limits, budgets and usage.
   - name: Safety
@@ -2045,6 +2047,155 @@ paths:
                 properties:
                   data: { type: object, additionalProperties: true }
                   meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/strategies:
+    get:
+      tags: [Strategies]
+      operationId: listStrategies
+      summary: Python strategies in the strategies folder, with status and P&L today
+      description: Every `<id>.py` in the strategies folder of the Bridge home (docs/STRATEGIES-PYTHON.md), with its declared params (read without running the file), status (stopped, starting, running, stopping, restarting, finished, failed), account, mode, uptime, heartbeat, restarts, and the P&L and order count of its own orders today. Files that are skipped say why.
+      x-stream: S30
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200": { $ref: "#/components/responses/StrategyResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/strategies/examples:
+    post:
+      tags: [Strategies]
+      operationId: addStrategyExamples
+      summary: Copy the shipped example strategies into the strategies folder
+      description: Creates the folder (owner only) when missing and copies the examples from sdk/python/examples/strategies. A file that already exists is never overwritten.
+      x-stream: S30
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200": { $ref: "#/components/responses/StrategyResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/strategies/stop-all:
+    post:
+      tags: [Strategies]
+      operationId: stopAllStrategies
+      summary: Stop every running strategy
+      x-stream: S30
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200": { $ref: "#/components/responses/StrategyResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/strategies/{strategyId}:
+    get:
+      tags: [Strategies]
+      operationId: getStrategy
+      summary: One strategy, with its orders and positions today
+      x-stream: S30
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/StrategyId"
+      responses:
+        "200": { $ref: "#/components/responses/StrategyResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/strategies/{strategyId}/logs:
+    get:
+      tags: [Strategies]
+      operationId: getStrategyLogs
+      summary: A strategy's log lines after a sequence number
+      description: The newest lines of the strategy's stdout, stderr and SDK log, kept in memory (strategies.logLines, default 2000). Pass the `last` of the previous answer as `after` to get only new lines.
+      x-stream: S30
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/StrategyId"
+        - { name: after, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 2000 } }
+      responses:
+        "200": { $ref: "#/components/responses/StrategyResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/strategies/{strategyId}/start:
+    post:
+      tags: [Strategies]
+      operationId: startStrategy
+      summary: Start a strategy (paper unless mode is live)
+      description: >-
+        Starts the file as a child process of the system Python with an API key made for this run, limited to `account`
+        (scope paper, or live) and revoked when it stops. Every order goes through POST /v1/orders, so the kill switch,
+        per-order and daily limits and the paper/live gates apply. `mode: "live"` also needs a key with the live scope
+        on this request, `confirmLive` equal to the strategy id (a second confirmation), safety.liveTrading, the
+        account's live.enabled with "rest" in live.allowedSources, and a ready account; otherwise it is refused, never
+        started as paper. Refused while the kill switch is on.
+      x-stream: S30
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/StrategyId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                account: { type: string }
+                mode: { type: string, enum: [paper, live], default: paper }
+                params: { type: object, additionalProperties: true }
+                confirmLive: { type: string, description: The strategy id again, for a live start. }
+      responses:
+        "200": { $ref: "#/components/responses/StrategyResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/strategies/{strategyId}/stop:
+    post:
+      tags: [Strategies]
+      operationId: stopStrategy
+      summary: Stop a strategy
+      description: Sends it a stop (its on_stop runs, for example to close its positions), then ends the process after strategies.stopGraceMs. Its key is revoked.
+      x-stream: S30
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/StrategyId"
+      responses:
+        "200": { $ref: "#/components/responses/StrategyResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/strategies/{strategyId}/settings:
+    put:
+      tags: [Strategies]
+      operationId: saveStrategySettings
+      summary: Save the account and params the next start uses
+      x-stream: S30
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/StrategyId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                account: { type: string }
+                params: { type: object, additionalProperties: true }
+      responses:
+        "200": { $ref: "#/components/responses/StrategyResult" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
@@ -7841,6 +7992,12 @@ components:
       schema: { type: integer }
 
   parameters:
+    StrategyId:
+      name: strategyId
+      in: path
+      required: true
+      description: The file name without .py, lowercase, with - as _.
+      schema: { type: string, pattern: "^[a-z0-9][a-z0-9_]{0,31}$" }
     AccountIdPath:
       name: accountId
       in: path
@@ -7935,6 +8092,16 @@ components:
             properties:
               data: { type: object, additionalProperties: true }
               errors: { type: array, items: { type: object, additionalProperties: true } }
+              meta: { $ref: "#/components/schemas/Meta" }
+    StrategyResult:
+      description: A strategy answer (docs/STRATEGIES-PYTHON.md). `data` depends on the route.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, meta]
+            properties:
+              data: { type: object, additionalProperties: true }
               meta: { $ref: "#/components/schemas/Meta" }
   schemas:
     PaperDailyPnl:

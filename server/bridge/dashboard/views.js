@@ -64,6 +64,7 @@ const PAGE_MODULES = Object.freeze({
   watchlists: () => import("./watchlists.js"),
   scanner: () => import("./scanner.js"),
   analytics: () => import("./analytics.js"),
+  algo: () => import("./algo.js"),
 });
 /** A page renderer that loads its module first. `.module` names it, for preloading. */
 function lazyPage(mod, name) {
@@ -93,6 +94,7 @@ const renderEventsPage = lazyPage("events", "renderEventsPage");
 const renderJournalPage = lazyPage("journal", "renderJournalPage");
 const renderWatchlistsPage = lazyPage("watchlists", "renderWatchlistsPage");
 const renderScannerPage = lazyPage("scanner", "renderScannerPage");
+const renderAlgoPage = lazyPage("algo", "renderAlgoPage");
 
 /** Load a page's module and warm its data ahead of a click (menu hover or focus). Idempotent and cheap. */
 export function preloadPage(pageId) {
@@ -321,6 +323,7 @@ export const PAGES = [
     ],
   },
   { id: "safety", label: "Safety", icon: "safety", tint: "red", key: 6, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
+  { id: "algo", label: "Algo", icon: "console", tint: "indigo", group: "Trade", title: "Algo", headline: ["Python ", { serif: "strategies" }], sub: "Your Python strategies, run by the Bridge. Paper by default; every order passes the safety gates", render: renderAlgoPage },
   {
     id: "oi", label: "OI Analysis", icon: "bars", tint: "orange", key: 7, group: "Markets", layout: "desk", title: "OI Analysis", sub: "Open interest and OI chg by strike, build-up and walls",
     defaultTab: "strike",
