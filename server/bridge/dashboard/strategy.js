@@ -1154,7 +1154,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       const sigma = R.b1 && isFigure(x.F) ? ((R.b1.hi - x.F) / x.F) * 100 : null;
       wiPanel.setRange({ S: x.spot, sigma, first, max: first });
       const bl = strategyBookLegs(R.act, { lot: R.lot, forward: x.F, nowMs: now0 });
-      wiPanel.drawFigures(whatIfFigures(bl, W, { underlying: x.c.underlying, spot: x.spot, nowMs: now0, atmIv: x.sm.atmIv, marginNow: R.exit ? null : R.margin }), { note: "This strategy. Margin moves from the Risk & capital figure. The same scenario applies on Positions." });
+      wiPanel.drawFigures(whatIfFigures(bl, W, { underlying: x.c.underlying, spot: x.spot, nowMs: now0, atmIv: x.sm.atmIv, marginNow: R.exit ? null : R.margin }), { note: "This strategy. P&L runs from the leg prices, before the spread and charges. Margin moves from the Risk & capital figure. The same scenario applies on Positions." });
     }
     if (!R) {
       tSlider.disabled = ivSlider.disabled = true;
@@ -1381,7 +1381,9 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       case "margin":
         return ["Margin", isFigure(r.margin) ? `${r.acct === null ? "≈ " : ""}${rupees(r.margin)}` : DASH, ""];
       case "atTarget":
-        return [r.el > 0 ? "At target" : "Now", money(r.atTarget), r.atTarget > 0.5 ? "up" : r.atTarget < -0.5 ? "down" : ""];
+        // Not the what-if's P&L (that runs from the leg prices, so it is ₹0 now): this is the legs at the model's mid
+        // value less what they cost at the touch and the entry charges, so "now" reads the cost of putting it on.
+        return [`${r.el > 0 ? "At target" : "Now"}${r.net ? ", after costs" : ""}`, money(r.atTarget), r.atTarget > 0.5 ? "up" : r.atTarget < -0.5 ? "down" : "", "Value at the model's mid price, less the entry prices (at the touch) and the entry charges. The what-if P&L runs from the leg prices before costs, so it reads ₹0 now."];
       case "rom":
         return ["ROM", isFigure(r.ratios.rom) ? formatPercent(r.ratios.rom * 100, 1) : DASH, ""];
       case "rr":
@@ -1409,7 +1411,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     if (moreRow.__sig === sig) return;
     moreRow.__sig = sig;
     moreRow.hidden = !items.length;
-    moreRow.replaceChildren(...items.map(([l, v, c]) => h("span", { class: "mf" }, h("span", { class: "mf-k" }, l), h("b", { class: c || undefined }, v))), h("button", { type: "button", class: "link-btn mf-edit", onclick: () => openCustomise() }, "Customise"));
+    moreRow.replaceChildren(...items.map(([l, v, c, title]) => h("span", { class: "mf", title }, h("span", { class: "mf-k" }, l), h("b", { class: c || undefined }, v))), h("button", { type: "button", class: "link-btn mf-edit", onclick: () => openCustomise() }, "Customise"));
   }
 
   // ── P&L table: by spot, price × date grid, greeks across price ──
