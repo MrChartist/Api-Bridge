@@ -1,6 +1,7 @@
 // Command palette (Spotlight style) and keyboard shortcuts for the dashboard.
 // Browser only: nothing here touches the DOM until initPalette() runs (views.js calls it from startRouter()).
-import { chooseTheme, copyText, h, icon, iconTile, lockScroll, modal, toast } from "./app.js";
+import { api, app, chooseTheme, copyText, h, icon, iconTile, lockScroll, modal, toast } from "./app.js";
+import { intentHandoff, intentLabel, parseTradeIntent, pickExpiry } from "./trade-intent.js";
 
 /** True on Apple platforms, where shortcuts use ⌘ instead of Ctrl. */
 export const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "");
@@ -184,7 +185,13 @@ function build() {
 
 function draw() {
   const q = input.value.trim();
-  results = rank(q ? commands() : commands().filter((c) => !c.searchOnly), input.value);
+  // A typed trade ("buy 2 nifty 26000 ce", "sell nifty straddle 3 nov") comes first: it opens a filled ticket or the
+  // Strategy Builder, where the normal confirm applies. Nothing is sent from the palette.
+  const intent = q ? parseTradeIntent(q) : null;
+  const trade = intent
+    ? [{ id: "trade", group: "Actions", label: intentLabel(intent), sub: intent.kind === "leg" ? "Opens the order ticket filled in. Nothing is sent until you confirm it (paper by default)" : "Opens the Strategy Builder with these legs. Place asks before anything is sent", icon: "orders", tint: "green", run: () => openIntent(intent) }]
+    : [];
+  results = [...trade, ...rank(q ? commands() : commands().filter((c) => !c.searchOnly), input.value)];
   if (activeIndex >= results.length) activeIndex = Math.max(0, results.length - 1);
   const items = [];
   let group = null;
@@ -218,6 +225,39 @@ function draw() {
   if (!results.length) items.push(h("li", { class: "palette-empty", role: "presentation" }, `No page or action matches “${input.value.trim()}”.`));
   list.replaceChildren(...items);
   markActive();
+}
+
+/** Open a typed trade: a filled ticket on the chain (one leg) or the Strategy Builder (a structure). Never sends. */
+async function openIntent(x) {
+  const DESK = "mcb.dashboard.desk";
+  const today = new Date(Date.now() + 19_800_000).toISOString().slice(0, 10);
+  const ex = await api(`/v1/expiries?underlying=${encodeURIComponent(x.underlying)}`).catch((err) => ({ error: err }));
+  const expiry = pickExpiry(ex?.data?.data?.expiries ?? [], x.date, today);
+  if (!expiry) return toast(ex?.error ? `Couldn't read ${x.underlying} expiries: ${ex.error.message}` : `No ${x.underlying} expiry on that date`, { tone: "warn" });
+  let desk = {};
+  try {
+    desk = JSON.parse(app.local.get(DESK) ?? "{}") ?? {};
+  } catch {
+    desk = {};
+  }
+  if (x.kind === "leg") {
+    const go = intentHandoff(x, { expiry, desk, nowHash: location.hash });
+    app.local.set(DESK, JSON.stringify(go.prefs));
+    app.local.set("mcb.dashboard.tradeHandoff", JSON.stringify({ underlying: go.prefs.underlying, expiry: go.prefs.expiry, jump: go.prefs.jump, ticket: go.prefs.ticket }));
+    location.hash = go.hash;
+    return;
+  }
+  const r = await api(`/v1/optionchain?underlying=${encodeURIComponent(x.underlying)}&expiry=${encodeURIComponent(expiry)}&strikes=40`).catch((err) => ({ error: err }));
+  const chain = r?.data?.data;
+  if (!chain?.rows?.length) return toast(`Couldn't load the ${x.underlying} chain`, { tone: "error" });
+  const O = await import("./options.js");
+  const legs = O.presetLegs(x.preset, chain).map((l) => ({ ...l, lots: (l.lots ?? 1) * x.lots }));
+  if (!legs.length) return toast("That structure needs more strikes than the chain lists", { tone: "warn" });
+  const go = intentHandoff(x, { expiry, desk, legs, nowHash: location.hash });
+  app.local.set(DESK, JSON.stringify(go.prefs));
+  app.local.set("mcb.dashboard.tradeHandoff", JSON.stringify({ underlying: go.prefs.underlying, expiry: go.prefs.expiry, baskets: go.prefs.baskets }));
+  location.hash = go.hash;
+  toast(`${intentLabel(x)} is in the Strategy Builder. Review, then Place`);
 }
 
 function markActive() {
@@ -263,7 +303,7 @@ function onKey(e) {
 function runAt(i) {
   const c = results[i];
   if (!c) return;
-  const navigates = c.group !== "Actions" || ["scan", "kill", "key", "console", "paper"].includes(c.id);
+  const navigates = c.group !== "Actions" || ["scan", "kill", "key", "console", "paper", "trade"].includes(c.id);
   closePalette({ restore: !navigates });
   c.run();
 }

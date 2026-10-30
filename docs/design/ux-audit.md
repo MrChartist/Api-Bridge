@@ -20,7 +20,7 @@ The **Done** column says what changed, and where.
 |---|---|---|---|
 | P0 | 5 | 5 | 0 |
 | P1 | 18 | 17 | 1 |
-| P2 | 14 | 8 | 6 |
+| P2 | 14 | 10 | 4 |
 
 ## P0: broken
 
@@ -69,9 +69,9 @@ The **Done** column says what changed, and where.
 | 8 | The Key "Last used" column showed "–" for keys never used. | **Fixed.** It shows "Never". |
 | 9 | In demo, a saved broker is not listed on Accounts until the next normal start. | Proposal: list saved-for-later accounts under the demo ones. |
 | 10 | Stock scanner condition examples are code (`rsi(14) > 60 and close > sma(50)`). | Proposal: a plain label for each, such as "RSI above 60 and above the 50-day average". |
-| 11 | Normal mode with no broker: "Reference data unavailable: using dashboard defaults" banner on every Options page. | Proposal: show it once per session, or fold it into the readiness pill. |
+| 11 | Normal mode with no broker: "Reference data unavailable: using dashboard defaults" banner on every Options page. | **Fixed.** Shown once per browser tab; the reference chip keeps its red "Defaults" on later pages. |
 | 12 | Demo paper account starts with ₹8.49L of ₹10L in use by seeded positions. | Proposal: seed demo paper accounts with ₹25 lakh, or seed fewer shorts. |
-| 13 | `?` on Home after closing Ctrl K once did not open shortcuts in the test run (focus was likely left in the sidebar search). | Proposal: return focus to the page after the palette closes. |
+| 13 | `?` on Home after closing Ctrl K once did not open shortcuts in the test run (focus was likely left in the sidebar search). | **Checked.** `?` opens the shortcuts after Ctrl K closes by Escape, a click outside or the sidebar Search button. |
 | 14 | The order ticket's risk figures are before charges. | Proposal: add charges, as the Strategy Builder does. |
 
 ## Checked and working (no change needed)
@@ -137,3 +137,44 @@ Built from the proposals above, then brainstormed page by page.
 - **API:** per-key usage sparkline (proposal 10 above); an alerts webhook example in Integrations.
 - **Data recorder:** feed the alert evaluator from recorder snapshots so chain-level alerts need no extra calls.
 - **Paper margin:** calibrate the scan ranges against broker basket-margin figures once P1-10's calibration log exists; inter-commodity credit (NIFTY against BANKNIFTY).
+
+## Trader tools (30 October 2026, evening)
+
+Built for an Indian options trader, highest value first. No charting work: charts live elsewhere. Every maths module is
+pure and tested; every new route is in `docs/openapi.yaml` with a test; demo mode shows each one with sample data.
+
+### Built
+
+| # | Tool | What shipped | Where |
+|---|---|---|---|
+| 1 | What-if, shared | One panel (spot ±%, IV ± points, days forward, σ and day chips, Reset) with one state, the desk's `st.whatIf`, used by Positions and the Strategy Builder. It shows P&L and its change, Δ, Γ, Θ, vega and margin at the scenario (span-margin at the moved forward, shifted IVs and the later date). Positions can scope it to one expiry group. | `whatif.js`, `whatif-core.js` (+ test) |
+| 2 | Roll | Roll a leg or a whole group (Positions group head and leg menu) to a later expiry: same strikes, same delta, or same distance from the forward. The sheet shows each leg from and to at the touch, net credit or debit, charges, the book's margin before and after, and breakevens that count what the old legs locked in. Review and send opens the basket sheet. | `roll-core.js` (+ test), `positions.js openRoll` |
+| 3 | Basket orders | The order sheet now shows the whole basket's margin first (paper engine), splits legs above the freeze quantity into whole-lot slices (also when a preview reports the freeze), sends buys first or as listed (saved), shows each leg's status live, and has Cancel remaining. Live sends keep every gate. | `basket-core.js` (+ test), `strategy-place.js` |
+| 4 | Trade journal | Orders › Journal: fills grouped into trades by strategy group; tags, notes, setup; P&L calendar heatmap; stats by strategy, tag, setup or underlying (win rate with n, average win and loss, expectancy, max drawdown); CSV. The paper engine stores daily P&L snapshots (end of day and on demand), kept through a reset. Demo: six weeks of sample history. | `journal-core.js` (+ test), `journal.js`, `server/bridge/journal/`, `GET/POST /v1/paper/accounts/{id}/daily`, `GET /v1/journal`, `PUT /v1/journal/trades/{id}` |
+| 5 | Expiry desk | On Positions when a held expiry is today or the next session (else offered folded): countdown to the close, time value left, max pain and walls, gamma by strike, pin risk, legs at risk of assignment, exercise STT or delivery, and Square off expiring legs through the exit plan. | `expiry-core.js` (+ test), `positions.js` |
+| 6 | Watchlists | Screeners › Watchlists: named lists with last price, % change, the near future's OI change against the previous day (stocks from the stock scanner's facts), ATM IV, IV rank, HV20, a chain link for every F&O row. One list feeds Live events, one shows on Home. | `watchlist-core.js`, `watchlists.js`, `server/bridge/watchlists/`, `/v1/watchlists*`, `scanner factsFor` |
+| 7 | Explain this | A folded box on OI Analysis and Volatility that says, in plain neutral words, what the PCR, walls, max pain, build-up, IV against HV, IV rank, skew and term structure measure now. The IV rank tile and the box read the same source. | `explain-core.js` (+ test, copy rules), `explain.js` |
+| 8 | Command bar trading | Ctrl K: "buy 2 nifty 26000 ce" opens the ticket filled in; "sell nifty straddle 3 nov" opens the Strategy Builder with the legs. Nothing is sent from the palette. | `trade-intent.js` (+ test), `palette.js`, `desk.js` |
+| 9 | Accounts today, workbook | Accounts › Session and today: P&L, open positions, orders and margin per account. Excel workbook: Setup (cell BridgeKey, no key written in), Watchlist and Positions as live WEBSERVICE formulas; written without a dependency. | `today-core.js`, `xlsx-core.js`, `workbook-core.js` (+ test), `workbook.js` |
+
+### Proposals (not built)
+
+- **Journal:** roll chains (link the trade a roll closes to the one it opens, with cumulative credit); stats by DTE at
+  entry, weekday and IV rank at entry (store them on the first fill); a weekly review card on Home.
+- **What-if:** a "breakeven move" readout (the spot % that takes the scenario P&L to zero); save named scenarios
+  ("gap down 2 %, IV +4") and apply one with a key.
+- **Roll:** a credit target ("roll for at least ₹X"), which walks strikes until the net meets it; a roll ladder that
+  lists the next three expiries side by side.
+- **Basket:** limit at mid ± ticks with a bounded chase per leg; a margin-after-each-leg line (F9) in the sheet before
+  sending; save a basket and resend it later.
+- **Expiry desk:** the running settlement average from 15:00 (A16) and the payoff at it; an alert "spot within 0.3 % of a
+  short strike in the last hour" from the desk.
+- **Watchlists:** a mini sparkline of today's move per row from the stream; sort and filter by event count from Live
+  events; import a list from a CSV of symbols.
+- **Explain this:** the same box on Positions (what the book's Δ, Θ and vega mean for a 1 % move and a day) and on the
+  Strategy Builder (what POP and the breakevens assume).
+- **Command bar:** "exit nifty 3 nov" (opens the exit plan for that group), "roll nifty 3 nov" (opens the roll sheet),
+  "alert nifty below 25800" (prefills an alert).
+- **Workbook:** a Journal sheet (closed trades and the stats as formulas) and a Google Sheets variant with IMPORTDATA.
+- **Accounts at 1024 px:** with the holder column (demo) the accounts table stacks into cards at 1024 px; a narrower
+  broker cell would keep it a table.

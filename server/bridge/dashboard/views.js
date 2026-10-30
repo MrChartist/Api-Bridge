@@ -1706,6 +1706,34 @@ function holderSheet(entry, relationships) {
   });
 }
 
+/** The Accounts "Today" cell: a placeholder that fills itself (positions, funds, today's orders; today-core.js). */
+const todayCells = new Map();
+function todayCell(a) {
+  const el = h("div", { class: "acct-today", "data-acct": a.id }, a.broker === "paper" || a.session?.state === "connected" ? h("span", { class: "muted small" }, "Reading") : h("span", { class: "muted small" }, "Log in to see today"));
+  todayCells.set(a.id, el);
+  return el;
+}
+async function fillToday(accs) {
+  const readable = accs.filter((a) => a.broker === "paper" || a.session?.state === "connected").slice(0, 8);
+  const { accountToday } = await import("./today-core.js");
+  const orders = await optional(api("/v1/orders?limit=200"));
+  await Promise.all(
+    readable.map(async (a) => {
+      const [p, f] = await Promise.all([optional(api(`/v1/positions?account=${encodeURIComponent(a.id)}`)), optional(api(`/v1/funds?account=${encodeURIComponent(a.id)}`))]);
+      const el = todayCells.get(a.id);
+      if (!el?.isConnected) return;
+      if (p.error && f.error) {
+        el.replaceChildren(h("span", { class: "muted small" }, "Not available"));
+        return;
+      }
+      const t = accountToday({ accountId: a.id, positions: p.data?.data ?? null, funds: f.data?.data ?? null, orders: orders.data?.data ?? [], nowMs: Date.now() });
+      el.replaceChildren(
+        h("div", { class: "acct-today-pnl" }, pnl(t.pnl), h("span", { class: "muted small" }, ` · ${formatInt(t.open)} open`)),
+        h("div", { class: "muted small" }, `${formatInt(t.orders)} order${t.orders === 1 ? "" : "s"}${t.orders ? ` (${formatInt(t.filled)} filled)` : ""} · margin ${t.margin === null ? DASH : formatRupeeGrouped(t.margin)}`),
+      );
+    }),
+  );
+}
 async function renderAccounts() {
   const [accounts, brokers, holdersRes] = await Promise.all([api("/v1/accounts"), api("/v1/brokers"), optional(api("/v1/book/holders"))]);
   const accs = accounts.data.data ?? [];
@@ -1750,7 +1778,7 @@ async function renderAccounts() {
     tint: "indigo",
     title: "Your accounts",
     sub: "Several brokers and several accounts per broker are fine. New accounts are paper only.",
-    actions: addButton("small primary", app.state.demo ? "Add your broker" : "Add a broker"),
+    actions: h("div", { class: "row" }, h("button", { type: "button", class: "small quiet", title: "A .xlsx with your watchlist and open positions as live formulas against this Bridge", onclick: () => import("./workbook.js").then((m) => m.downloadWorkbook()) }, icon("download"), h("span", {}, "Excel workbook")), addButton("small primary", app.state.demo ? "Add your broker" : "Add a broker")),
     flush: true,
     body: table(
       [
@@ -1760,13 +1788,16 @@ async function renderAccounts() {
         // card from 1100px up without a sideways scroll (two fewer columns).
         { label: "Broker", wrap: true, cell: (a) => h("div", { class: "acct-broker" }, a.broker === "paper" ? h("span", {}, "Paper (simulator)") : brokerCell(a.broker, brokerOf(a)?.name ?? a.broker), capabilityChips(a)) },
         {
-          label: "Session",
+          label: "Session and today",
           cell: (a) =>
             h(
               "div",
               { class: "acct-session" },
               h("span", { class: "acct-session-pills" }, sessionPill(a.session?.state, a.broker), a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")),
               a.session?.expiresAt ? h("div", { class: "muted small" }, `until ${istDateTime(a.session.expiresAt)}`) : null,
+              // Today: P&L, orders and margin used, filled in after the table draws (paper and logged-in accounts). It
+              // shares the Session cell so the table keeps fitting its card from 1024 px without a sideways scroll.
+              todayCell(a),
             ),
         },
         {
@@ -1856,6 +1887,7 @@ async function renderAccounts() {
     history.replaceState(null, "", "#/accounts");
     setTimeout(() => addAccountFlow(list, { preselect: want }), 0);
   }
+  setTimeout(() => fillToday(accs).catch(() => {}), 0);
   return [accountsCard, dirCard];
 }
 

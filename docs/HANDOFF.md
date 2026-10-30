@@ -100,23 +100,47 @@ Done (d367b28):
 - the Strategy hero reflows (5, then 3 over 2, then 2 per row); the POP line wraps instead of being cut;
 - the desk toolbar shows status dots only at 1024–1279 px, so spot and % change stay visible.
 
-Still to do:
-- **Toasts below 1024 px:** `placeToast()` in `app.js` returns early there. On Strategy the toast sits over the Target-date slider. Also update `docs/design/ui-pass-3.md` section 4.
-- **Strategy at 1024–1100 px:** the analysis column is only 230–320 px wide. The payoff hover hint overlaps the curve; the margin warning and the Greek tile subs are cut off. The 420 px build column can't shrink because of the leg-row grid, so this needs a layout decision (stack the columns, or collapse the leg rows).
-- **Desk toolbar at 1024 px:** the reference chip ("Lot 65 · Freeze 1800") squeezes down to "L.".
-- **Accounts › Supported brokers at 1280 px:** broker names are cut off with an ellipsis.
-- **Pages not checked at 1024, 1100, 1180, 1280 and 1366 px:**
-  - Home
-  - Option Chain (Customise, ticket)
-  - Positions
-  - Orders
-  - Safety
-  - OI tabs
-  - Volatility
-  - Screeners tabs
-  - Market calendar
-  - API tabs (check the Keys table at 1100–1399)
-  - Data recorder
+Done (polish pass 4, 30 Oct). Checked every page and tab (Home, Option Chain with ticket and Customise, Strategy
+with legs, Positions, Orders, Safety, OI By strike and Participants, Volatility, Screeners Options, Arbitrage, Live
+events and Stocks, Market calendar, Accounts, API Keys, Integrations, Test console, Rate limits and Activity, Data
+recorder) at 1024, 1100, 1180, 1280 and 1366 px in dark and light, and at 390 and 820 px (touch). Light theme at 1440
+and 390 px with a contrast probe. Playwright sweep and probes: `scratchpad/polish4/sweep.cjs`, `contrast.cjs`.
+
+- **Toasts at every width** (`app.js placeToast`): the toast never covers the control just used (pointer, key or
+  input in the last 4 s) or more controls than the other place. Below 1024 px: bottom centre above the tab bar and any
+  sticky bar, else top centre under the toolbar (`[data-place="top"]`); 1024 px and up: top centre, else bottom right.
+  Strategy's target-date slider and chips now keep the toast off them. `ui-pass-3.md` §4 updated.
+- **Strategy 1024 to 1100:** with the rail sidebar the analysis column is now about 510 to 600 px, so the decision
+  was to keep two columns: the Greek tiles go two by two in a build column under 540 px (subs no longer cut), the hero
+  goes three over two below 680 px, and the payoff hint moves above the plot beside the spot pill when no corner is
+  clear (left out when nothing is clear, as on phones).
+- **Reference chip:** says only its first fact ("Lot 65") where the whole line does not fit; on phones it gives way
+  last so the expiry is never cut to "3". **Broker names** wrap on Accounts.
+- **Desk toolbar:** every desk page fits its capsule (OI, Volatility, Arbitrage, Positions too); at 1024 to 1279 the
+  live control is its dot in every state (stale too). Phones: the bar shows the page glyph; Participants and Data
+  recorder capsules fit.
+- **Positions:** the table refits when it widens after a draw (Distance and Exit were cut at 1024); ±σ chips two by
+  two in a narrow capital column (they overlapped); the scenario grid fits its figures ("−₹3…" before).
+- **OI ladder** change and % fit a 32 px compact row; **Volatility** tiles wrap between parts; **Live events** Count
+  column fits; **Customise** caption 12 px; phones: the move / maximise pill no longer sits on card titles.
+- **Home on phones:** cockpit first (indices as one sideways row, P&L today, positions, events), then Get started,
+  which is one row once a step is done (opens on a tap, all widths). Positions on phones drop Delta, Expiry and Watch
+  columns and show expiry and warnings under the book; card head links reach 44 px on touch.
+- **Light theme:** bid / ask, CE / PE IV, expiry chip days, journal days and ±σ keys at full ink on white (tokens
+  `--ink-soft`, `--soft-op`); stale rows and cards dim to 0.86 in light (were 0.55, 2.4:1); weekend heads in the
+  calendar at the quiet ink; event chips on a lighter tint.
+- **Reference data unavailable** banner shows once per browser tab; the chip keeps its red "Defaults".
+- `?` after Ctrl K on Home: checked (Escape, click outside, the sidebar Search button): it opens the shortcuts.
+- **Demo seed:** a demo paper book whose legs are not whole lots of the current lot (seeded at 75 before NIFTY's 65)
+  is reset and seeded again on start; the journal's demo history takes its sizes from the demo lot table.
+
+Left:
+- Market calendar: holiday names in month cells are cut with an ellipsis at 1024 ("Mahatma Gandhi…"); the full name
+  is in the list below the grid.
+- Phone page subtitles stay on one line with an ellipsis (a deliberate one-height header).
+- The contrast probe counts a segmented control's selected label as failing (its thumb is a separate element): read
+  those by eye.
+- Live events search placeholder is cut at 1024 ("Search symbol or ev").
 
 ### 3d2. UX and space passes (done 30 Oct)
 
@@ -141,7 +165,8 @@ Still to do:
   - Undo for a cancelled paper order and for a paper reset;
   - demo paper accounts start with ₹25 lakh;
   - Home cockpit; API › Keys side by side from 1700 px.
-- **Still open:** Excel workbook download, and the per-page proposals in the audit's "Trading pass" section.
+- **Trader tools (30 Oct, evening, `docs/design/ux-audit.md` "Trader tools"):** shared what-if (Positions and Strategy), roll sheet, basket orders (margin first, freeze slicing, buys first, Cancel remaining), trade journal with daily P&L snapshots, expiry desk, watchlists, Explain this on OI and Volatility, Ctrl K trading, Accounts today and the Excel workbook.
+- **Still open:** the proposals in the audit's "Trading pass" and "Trader tools" sections.
 
 ### 3e. Check everything by hand
 
