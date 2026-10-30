@@ -37,6 +37,31 @@ export function fieldError(input, message, { focus = true } = {}) {
 }
 fieldError.n = 0;
 
+/**
+ * Orders › Modify, asked in lots like the ticket: the PATCH body for the change, or the field error to show.
+ * `lots` and `price` are the fields' text; `order` the working order ({ quantity, filledQuantity, price }). A lot of 1
+ * means the field is a plain quantity. Returns { body, quantity } or { error: { field, message }, quantity }.
+ */
+export function modifyChange({ lots, lotSize = 1, order, price, limit = true }) {
+  const ls = Number(lotSize) > 0 ? Number(lotSize) : 1;
+  const word = ls > 1 ? "Lots" : "Quantity";
+  const n = String(lots ?? "").trim() === "" ? NaN : Number(lots);
+  const quantity = Number.isFinite(n) && n > 0 ? Math.round(n * ls) : null;
+  if (!Number.isFinite(n) || n < 1) return { error: { field: "quantity", message: `${word} must be 1 or more.` }, quantity };
+  if (!Number.isInteger(n)) return { error: { field: "quantity", message: ls > 1 ? "Whole lots only." : "Whole units only." }, quantity };
+  const filled = Number(order?.filledQuantity) || 0;
+  if (quantity < filled) return { error: { field: "quantity", message: ls > 1 ? `At least the ${formatInt(filled / ls)} lots already filled.` : `At least the ${formatInt(filled)} already filled.` }, quantity };
+  const body = {};
+  if (quantity !== order?.quantity) body.quantity = quantity;
+  if (limit) {
+    const px = Number(price);
+    if (!(px > 0)) return { error: { field: "price", message: "Enter a limit price above 0." }, quantity };
+    if (px !== order?.price) body.price = px;
+  }
+  if (!Object.keys(body).length) return { error: { field: limit ? "price" : "quantity", message: `Change the ${ls > 1 ? "lots" : "quantity"} or the price first.` }, quantity };
+  return { body, quantity };
+}
+
 /** Undo fieldError() on one input. */
 export function clearFieldError(input) {
   if (!input) return;

@@ -135,8 +135,8 @@ and 390 px with a contrast probe. Playwright sweep and probes: `scratchpad/polis
   is reset and seeded again on start; the journal's demo history takes its sizes from the demo lot table.
 
 Left:
-- Market calendar: holiday names in month cells are cut with an ellipsis at 1024 ("Mahatma Gandhi…"); the full name
-  is in the list below the grid.
+- Market calendar: fixed 30 Oct (evening): month cells show the holiday's short name on two lines ("Gandhi
+  Jayanti") with the full name as the cell's tooltip (`docs/design/ux-audit.md`, QA pass, follow-up).
 - Phone page subtitles stay on one line with an ellipsis (a deliberate one-height header).
 - The contrast probe counts a segmented control's selected label as failing (its thumb is a separate element): read
   those by eye.

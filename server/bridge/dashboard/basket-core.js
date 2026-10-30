@@ -9,18 +9,55 @@ const num = (v) => (v === null || v === undefined || v === "" || !Number.isFinit
 export const SEND_ORDERS = Object.freeze(["buys-first", "as-listed"]);
 
 /**
+ * The most lots one order of this leg may carry: whole lots under the exchange freeze quantity, and under the
+ * account's per-order limits from the safety config (maxLotsPerOrder, and maxOrderValue at the leg's price). The
+ * smallest wins; `by` says which ("freeze", "lots" or "value"), null when nothing caps the leg. At least one lot: a
+ * single lot above a limit is still one order, which the Bridge then refuses and says why. Limits are never raised
+ * here, only obeyed.
+ * @param {{ lotSize?: number, freezeQty?: number|null, price?: number|null }} leg
+ * @param {{ maxLotsPerOrder?: number|null, maxOrderValue?: number|null }} [limits]
+ * @returns {{ per: number|null, by: "freeze"|"lots"|"value"|null }}
+ */
+export function perOrderCap(leg, limits = {}) {
+  const ls = num(leg?.lotSize) > 0 ? num(leg.lotSize) : 1;
+  const caps = [];
+  const fz = num(leg?.freezeQty);
+  // Exchange freeze limits are "more than N is refused": a slice of exactly N units is allowed.
+  if (fz > 0) caps.push(["freeze", Math.floor(fz / ls)]);
+  const ml = num(limits?.maxLotsPerOrder);
+  if (ml > 0) caps.push(["lots", Math.floor(ml)]);
+  const mv = num(limits?.maxOrderValue);
+  const px = num(leg?.price);
+  // The Bridge checks value = price x quantity (the limit price for a limit order).
+  if (mv > 0 && px > 0) caps.push(["value", Math.floor(mv / (px * ls))]);
+  if (!caps.length) return { per: null, by: null };
+  // Ties go to the first listed: the freeze, then the lots limit, then the value limit.
+  const [by, per] = caps.reduce((a, c) => (c[1] < a[1] ? c : a));
+  return { per: Math.max(1, per), by };
+}
+
+/**
+ * An account's per-order limits from GET /v1/safety's data ({ maxLotsPerOrder, maxOrderValue }), or null when the
+ * account is not listed. The basket and exit sheets slice under these; they are read, never changed.
+ * @param {{ accounts?: Array<{ accountId: string, limits?: object }> } | null | undefined} safety
+ * @param {string} accountId
+ */
+export function orderLimitsOf(safety, accountId) {
+  const acct = (safety?.accounts ?? []).find((x) => x.accountId === accountId);
+  return acct?.limits ? { maxLotsPerOrder: acct.limits.maxLotsPerOrder ?? null, maxOrderValue: acct.limits.maxOrderValue ?? null } : null;
+}
+
+/**
  * Lots per slice for one leg: as many whole lots as fit under the freeze quantity (at least one lot). An order of
  * `lots` lots of `lotSize` is split into these (the last slice takes the rest). No freeze, or under it: one slice.
+ * With `limits` (the account's per-order limits), a slice also fits maxLotsPerOrder and maxOrderValue at `price`.
  * @returns {number[]} lots per slice, in send order
  */
-export function sliceLots(lots, lotSize, freezeQty) {
+export function sliceLots(lots, lotSize, freezeQty, limits = null, price = null) {
   const L = Math.max(0, Math.round(num(lots) ?? 0));
-  const ls = num(lotSize) > 0 ? num(lotSize) : 1;
-  const fz = num(freezeQty);
   if (!L) return [];
-  if (!(fz > 0) || L * ls <= fz) return [L];
-  // Exchange freeze limits are "more than N is refused": a slice of exactly N units is allowed.
-  const per = Math.max(1, Math.floor(fz / ls));
+  const { per } = perOrderCap({ lotSize, freezeQty, price }, limits ?? {});
+  if (!per || L <= per) return [L];
   const out = [];
   for (let left = L; left > 0; left -= per) out.push(Math.min(per, left));
   return out;
@@ -28,15 +65,42 @@ export function sliceLots(lots, lotSize, freezeQty) {
 
 /**
  * Expand basket items into the rows that are sent: one row per slice. A row keeps its item's fields, with `lots` the
- * slice's lots, `slice` (1-based) and `slices` (count), `item` the item's index, and the label suffixed " · 2/3".
+ * slice's lots, `slice` (1-based) and `slices` (count), `item` the item's index, the label suffixed " · 2/3", and
+ * `slicedBy` (what set the slice size when the item was split: "freeze", "lots" or "value"). `limits` are the
+ * account's per-order limits ({ maxLotsPerOrder, maxOrderValue }), or null when they are not known.
  */
-export function expandSlices(items) {
+export function expandSlices(items, limits = null) {
   const out = [];
   (items ?? []).forEach((it, item) => {
-    const parts = sliceLots(it.lots, it.lotSize, it.freezeQty);
-    parts.forEach((lots, k) => out.push({ ...it, item, lots, slice: k + 1, slices: parts.length, label: parts.length > 1 ? `${it.label} · ${k + 1}/${parts.length}` : it.label }));
+    const parts = sliceLots(it.lots, it.lotSize, it.freezeQty, limits, it.price);
+    const slicedBy = parts.length > 1 ? perOrderCap(it, limits ?? {}).by : null;
+    parts.forEach((lots, k) => out.push({ ...it, item, lots, slice: k + 1, slices: parts.length, slicedBy, label: parts.length > 1 ? `${it.label} · ${k + 1}/${parts.length}` : it.label }));
   });
   return out;
+}
+
+/**
+ * One line per reason the basket was split, for the sheet: "Sliced to 10 lots per order: your per-order limit
+ * (Safety)". Lines for the freeze say which legs. Empty when nothing was split.
+ * @param {object[]} rows expandSlices() rows
+ */
+export function sliceNotes(rows) {
+  const by = new Map();
+  for (const r of rows ?? []) {
+    if (!r.slicedBy || r.slice !== 1) continue;
+    const per = r.lots;
+    const k = `${r.slicedBy}|${per}`;
+    if (!by.has(k)) by.set(k, { by: r.slicedBy, per, legs: [] });
+    by.get(k).legs.push(String(r.label).replace(/ · \d+\/\d+$/, ""));
+  }
+  const lots = (n) => `${n} lot${n === 1 ? "" : "s"}`;
+  return [...by.values()].map((x) =>
+    x.by === "lots"
+      ? `Sliced to ${lots(x.per)} per order: your per-order limit (Safety)`
+      : x.by === "value"
+        ? `Sliced to ${lots(x.per)} per order: your per-order value limit (Safety) at this price`
+        : `Sliced to ${lots(x.per)} per order: the exchange freeze quantity (${x.legs.join(", ")})`,
+  );
 }
 
 /**

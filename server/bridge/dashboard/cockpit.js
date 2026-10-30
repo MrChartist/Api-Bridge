@@ -197,7 +197,7 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
             h("strong", {}, x.name),
             h("span", { class: "ck-wl-px" }, formatGrouped(x.ltp, 2)),
             h("span", { class: `ck-wl-ch ${tone(x.changePct)}` }, isFigure(x.changePct) ? `${formatSigned(x.changePct, 2)}%` : DASH),
-            h("small", { class: "ck-wl-iv" }, isFigure(x.iv) ? `IV ${formatFixed(x.iv, 1)}` : isFigure(x.oiChangePct) ? `OI ${formatSigned(x.oiChangePct, 1)}%` : ""),
+            h("small", { class: "ck-wl-iv", title: isFigure(x.iv) ? "ATM IV of the front expiry, as on the Option Chain" : undefined }, isFigure(x.iv) ? `IV ${formatFixed(x.iv, 1)}` : isFigure(x.oiChangePct) ? `OI ${formatSigned(x.oiChangePct, 1)}%` : ""),
           ),
         ),
       ),

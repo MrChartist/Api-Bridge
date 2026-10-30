@@ -14,7 +14,9 @@
  *   daily order count          x      -       -     per mode, IST day; a passing place reserves its slot at once
  *   daily loss                 x      -       -     per mode, IST day: paper from the paper engine's fill events,
  *                                                    live from the broker's day P&L read before each live order
- *   max order value / lots     x      x       -     live place with an unknown value is refused
+ *   max order value / lots     x      x       -     a modify is checked on the order after the change (new quantity,
+ *                                                    new price, else LTP); live place or modify with an unknown value
+ *                                                    is refused, paper warns
  *   price band vs LTP          x      x       -     price and trigger price
  *   market-order policy        x      x       -     "reject" refuses MARKET/SL-M; "protect" warns
  *   market hours               x      x       -     live refused when closed; paper warned (not in demo). NSE/BSE/NFO/BFO
@@ -396,7 +398,7 @@ export function createSafetyGuard(deps, opts = {}) {
         const value = typeof i.value === "number" && Number.isFinite(i.value) ? i.value : null;
         if (value !== null) {
           if (value > limits.maxOrderValue) block("INVALID_ORDER", "maxOrderValue", `The order value ${rupees(value)} is above the per-order limit of ${rupees(limits.maxOrderValue)}.`);
-        } else if (action === "place" || (action === "modify" && mode === "live")) {
+        } else {
           if (mode === "live") block("INVALID_ORDER", "maxOrderValue", "The order value could not be worked out (no price or LTP), so the per-order value limit cannot be checked. Send a LIMIT price.");
           else warnings.push("The order value could not be worked out, so the per-order value limit was not checked.");
         }
@@ -406,7 +408,7 @@ export function createSafetyGuard(deps, opts = {}) {
         const lots = finitePos(i.lots) ? i.lots : finitePos(order?.lots) ? order.lots : qty !== null && lotSize ? qty / lotSize : null;
         if (lots !== null) {
           if (lots > limits.maxLotsPerOrder) block("INVALID_ORDER", "maxLotsPerOrder", `${Number(lots.toFixed(4))} lots is above the per-order limit of ${limits.maxLotsPerOrder} lots.`);
-        } else if (action === "place" && DERIVATIVE_EXCHANGES.has(exchangeOf(order?.symbol))) {
+        } else if (DERIVATIVE_EXCHANGES.has(exchangeOf(order?.symbol))) {
           warnings.push("The lot size is not known here, so the per-order lots limit was not checked.");
         }
 

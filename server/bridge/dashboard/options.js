@@ -67,6 +67,7 @@ export function impliedVol(price, forward, strike, years, right) {
   return impliedVolB76(price, forward, strike, years, right, 1);
 }
 import { REF_DEFAULTS, refCharges } from "./reference.js";
+import { perOrderCap } from "./basket-core.js";
 
 // Reference values (docs/spec/p1-02-reference.md §5.6): the rate, the session times and the charge table come from the
 // page's reference bundle (reference.js). Callers pass them in; the defaults below are reference.js's labelled
@@ -2728,12 +2729,17 @@ export function hedgePlan(book, { method = "fut", target = 0, side = "BUY", fut 
 /**
  * Exit orders for a set of legs (pure): short options first (largest |Δ| first), then long options, then futures.
  * `type` "mid" (limit at mid, rounded to tick toward a fill), "touch" (bid to sell, ask to buy) or "market" (estimated
- * at the touch). `pct` < 100 exits floor(lots · p) whole lots; a leg that rounds to 0 lots is listed in `skipped`. Orders above the freeze quantity are split
- * into lot-multiple slices with the remainder last. Slippage = |price − mid| × qty. A limit order with no quote to
- * price it has `price` null and `unpriced` true (`market` is true only for type "market").
+ * at the touch). `pct` < 100 exits floor(lots · p) whole lots; a leg that rounds to 0 lots is listed in `skipped`.
+ * Orders are split into lot-multiple slices (the remainder last) with the basket's slicer (basket-core.js
+ * perOrderCap): at the smallest of the exchange freeze quantity and, with `limits` (the account's per-order
+ * { maxLotsPerOrder, maxOrderValue } from GET /v1/safety), its lots limit and its value limit at the order's price
+ * (the touch for a market order). `slicedBy` says which set the size of a split order ("freeze", "lots" or "value"),
+ * `perLots` the lots per slice. Limits are only obeyed here, never raised: an exit gets no exemption. Slippage =
+ * |price − mid| × qty. A limit order with no quote to price it has `price` null and `unpriced` true (`market` is true
+ * only for type "market").
  * Legs: { symbol, kind, right, strike, expiry, q, avg, lot, freeze, tick, quote, greeks, product }.
  */
-export function exitPlan(legs, { type = "mid", pct = 100 } = {}) {
+export function exitPlan(legs, { type = "mid", pct = 100, limits = null } = {}) {
   const orders = [];
   const skipped = [];
   for (const l of legs ?? []) {
@@ -2763,8 +2769,8 @@ export function exitPlan(legs, { type = "mid", pct = 100 } = {}) {
     // No quote to price a limit from: the order stays a limit, flagged `unpriced` (never turned into a market order).
     const unpriced = !market && num(price) === null;
     const est = market ? touch : price;
-    const fz = num(l.freeze);
-    const per = fz > 0 && qty > fz ? Math.max(L, Math.floor(fz / L) * L) : qty;
+    const cap = perOrderCap({ lotSize: L, freezeQty: num(l.freeze), price: est }, limits ?? {});
+    const per = cap.per !== null && qty > cap.per * L ? cap.per * L : qty;
     const slices = [];
     for (let left = qty; left > 0; left -= per) slices.push(Math.min(per, left));
     const dAbs = Math.abs(l.q * (l.kind === "FUT" ? 1 : num(l.greeks?.delta) ?? 0));
@@ -2774,6 +2780,8 @@ export function exitPlan(legs, { type = "mid", pct = 100 } = {}) {
       side,
       qty,
       slices,
+      slicedBy: slices.length > 1 ? cap.by : null,
+      perLots: slices.length > 1 ? cap.per : null,
       price: unpriced ? null : price,
       market,
       unpriced,

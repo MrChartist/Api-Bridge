@@ -5,7 +5,7 @@ import { checkSource } from "./copyRules.mjs";
 
 // views.js imports desk.js and calendar.js (the router): load it first so the circular import settles as in the browser.
 await import("./views.js");
-const { CAL_DISCLAIMER, CSV_COLUMNS, addMonths, consentText, stampText, calendarEvents, cellLabel, cellMarks, chargeRows, monthGrid, monthList, monthMode, mwplView, previewBody, runPreview, stateWord, statusTiles, strikesAround, toCsv, universeNote } = await import("./calendar.js");
+const { CAL_DISCLAIMER, CSV_COLUMNS, addMonths, holidayShort, consentText, stampText, calendarEvents, cellLabel, cellMarks, chargeRows, monthGrid, monthList, monthMode, mwplView, previewBody, runPreview, stateWord, statusTiles, strikesAround, toCsv, universeNote } = await import("./calendar.js");
 const { PAGES } = await import("./views.js");
 const { exampleStrikeGrid } = await import("../reference/corporateActions.mjs");
 
@@ -47,8 +47,11 @@ describe("month calendar", () => {
   it("keeps grid marks short, with the full text as a tooltip and in the cell's label", () => {
     expect(cellMarks(cell("2026-11-09")).map((m) => m.text)).toEqual(["Weekly", "from Tue 10"]);
     expect(cellMarks(cell("2026-11-09"))[0].full).toBe("Weekly expiry, lot 65");
-    expect(cellMarks(cell("2026-11-10")).map((m) => [m.kind, m.text])).toEqual([["hol", "Diwali Balipratipada"], ["hol-u", "unverified"]]);
+    expect(cellMarks(cell("2026-11-10")).map((m) => [m.kind, m.text])).toEqual([["hol", "Diwali Padwa"], ["hol-u", "unverified"]]);
+    expect(cellMarks(cell("2026-11-10"))[0].full).toBe("Holiday: Diwali Balipratipada (unverified)");
     expect(cellMarks(cell("2026-11-08")).map((m) => m.text)).toEqual(["Muhurat", "18:00–19:00"]);
+    // Long names fit two short lines in a 1024 px cell; the full name is the tooltip.
+    expect(["Mahatma Gandhi Jayanti", "Dr. Baba Saheb Ambedkar Jayanti", "Shri Ram Navami", "Shri Mahavir Jayanti", "Prakash Gurpurb Sri Guru Nanak Dev", "Good Friday", "Muhurat trading"].map(holidayShort)).toEqual(["Gandhi Jayanti", "Ambedkar Jayanti", "Ram Navami", "Mahavir Jayanti", "Guru Nanak", "Good Friday", "Muhurat trading"]);
     expect(cellLabel(cell("2026-11-08"))).toBe("Sun 8 Nov 2026, special session, Muhurat trading 18:00 to 19:00 IST");
     expect(cellLabel(cell("2026-11-09"))).toBe("Mon 9 Nov 2026, trading day, weekly expiry, lot 65, moved from Tue 10 Nov");
     expect(cellLabel(cell("2026-11-10"))).toBe("Tue 10 Nov 2026, holiday, Diwali Balipratipada, unverified");

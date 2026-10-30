@@ -105,6 +105,22 @@ export function calendarEvents(items, underlying) {
     .sort((a, b) => (a.underlying === underlying ? 0 : 1) - (b.underlying === underlying ? 0 : 1) || a.daysAway - b.daysAway);
 }
 
+/** Long holiday names the exchanges use, by their everyday short form (the cell holds two short lines). */
+const HOLIDAY_SHORT = Object.freeze({ "prakash gurpurb sri guru nanak dev": "Guru Nanak", "diwali balipratipada": "Diwali Padwa", "diwali laxmi pujan": "Diwali" });
+/**
+ * A holiday name short enough for a month-grid cell at 1024 px (two lines of about nine letters): known long names
+ * by their everyday form, honorifics dropped ("Mahatma Gandhi Jayanti" → "Gandhi Jayanti", "Shri Ram Navami" →
+ * "Ram Navami", "Dr. Baba Saheb Ambedkar Jayanti" → "Ambedkar Jayanti"). The full name stays in the tooltip, the
+ * cell's sheet and the list below the grid.
+ */
+export function holidayShort(label) {
+  const full = String(label ?? "").replace(/\s+/g, " ").trim();
+  const known = HOLIDAY_SHORT[full.toLowerCase()];
+  if (known) return known;
+  const short = full.replace(/^(?:(?:shri|sri|dr\.?|baba|saheb|mahatma)\s+)+/i, "").replace(/\s*[(/].*$/, "").trim();
+  return short || full;
+}
+
 /**
  * The short marks inside a month-grid cell, each with its full text for a tooltip: [{ kind, text, full }]. The cell is
  * narrow, so expiries say only "Weekly" / "Monthly" (the lot is in the Expiries table) and a move gets its own line.
@@ -112,7 +128,7 @@ export function calendarEvents(items, underlying) {
 export function cellMarks(c) {
   const out = [];
   if (c.holiday) {
-    out.push({ kind: "hol", text: c.holiday.label, full: `Holiday: ${c.holiday.label}${c.holiday.verified ? "" : " (unverified)"}` });
+    out.push({ kind: "hol", text: holidayShort(c.holiday.label), full: `Holiday: ${c.holiday.label}${c.holiday.verified ? "" : " (unverified)"}` });
     if (!c.holiday.verified) out.push({ kind: "hol-u", text: "unverified", full: "Holiday not yet checked against the exchange circular" });
   }
   if (c.special) {
@@ -598,7 +614,8 @@ export async function renderCalendarPage() {
               const ms = c.inMonth ? cellMarks(c) : [];
               const marks = ms.map((m) => h("span", { class: `cal-mark ${m.kind}`, title: m.full }, m.text));
               // A day with marks opens a small sheet with every mark in full (touch screens have no tooltip).
-              const td = h("td", { class: `${cls}${ms.length ? " has-marks" : ""}`, "aria-label": c.inMonth ? cellLabel(c) : undefined, tabindex: ms.length ? "0" : undefined, "aria-haspopup": ms.length ? "dialog" : undefined }, h("span", { class: "cal-day" }, formatInt(c.day)), c.inMonth ? marks : null);
+              // The whole cell carries the full text as its tooltip (a short holiday name is in the cell itself).
+              const td = h("td", { class: `${cls}${ms.length ? " has-marks" : ""}`, title: ms.length ? ms.filter((m) => m.kind !== "spe-t" && m.kind !== "hol-u").map((m) => m.full).join("\n") : undefined, "aria-label": c.inMonth ? cellLabel(c) : undefined, tabindex: ms.length ? "0" : undefined, "aria-haspopup": ms.length ? "dialog" : undefined }, h("span", { class: "cal-day" }, formatInt(c.day)), c.inMonth ? marks : null);
               if (ms.length) {
                 const open = () => sheetPopover({ trigger: td, title: dayText(c.date, { weekday: true, year: true }), body: h("ul", { class: "cal-cell-sheet" }, ms.filter((m) => m.kind !== "spe-t" && m.kind !== "hol-u").map((m) => h("li", {}, m.full))), cls: "cal-cell-pop" });
                 td.addEventListener("click", open);

@@ -363,6 +363,25 @@ describe("modify and cancel (live)", () => {
     expect(h.safety.calls.filter((c) => c[0] === "check").map((c) => c[1].action)).toEqual(["place", "modify", "modify"]);
   });
 
+  it("checks a live change with the order's lot size and its new value (per-order lots and value limits)", async () => {
+    const safety = createStubSafety();
+    const h = buildHarness({ safety });
+    const { order } = await h.svc.place(h.ctx(), liveOrder({ symbol: "NFO:NIFTY-2026-10-27-25000-CE", quantity: 130, product: "INTRADAY", price: 120.5 }));
+    // Refuse what SafetyGuard would refuse at 10 lots / ₹2,00,000, from the intent the service sends.
+    safety.refuse = (i) => (i.action === "modify" && (i.lots > 10 || i.value > 200_000) ? [{ code: "INVALID_ORDER", message: `lots ${i.lots} value ${i.value}` }] : []);
+    const e = await reject(h.svc.modify(h.ctx(), order.orderId, { quantity: 1300 }));
+    expect(e).toMatchObject({ code: "INVALID_ORDER", detail: "lots 20 value 156650" });
+    const intent = safety.calls.filter((c) => c[0] === "check").at(-1)[1];
+    expect(intent).toMatchObject({ mode: "live", action: "modify", quantity: 1300, lots: 20, lotSize: 65, value: 156_650, ltp: 120.5 });
+    expect(h.zerodha.modified).toHaveLength(0);
+    // Above the freeze quantity (1800): a change cannot be sliced, so it is refused before the safety check.
+    expect((await reject(h.svc.modify(h.ctx(), order.orderId, { quantity: 1820 }))).detail).toMatch(/freeze quantity 1800/);
+    const ok = await h.svc.modify(h.ctx(), order.orderId, { quantity: 650, price: 121 });
+    expect(ok.order.quantity).toBe(650);
+    expect(safety.calls.filter((c) => c[0] === "check").at(-1)[1]).toMatchObject({ lots: 10, value: 78_650 });
+    expect(h.zerodha.modified).toHaveLength(1);
+  });
+
   it("validates changes (tick, lot, SL ordering) and refuses AI changes to live orders", async () => {
     const h = buildHarness();
     const { order } = await h.svc.place(h.ctx(), liveOrder());

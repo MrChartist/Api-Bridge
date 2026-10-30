@@ -7778,7 +7778,10 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
 .wl-card { padding: 14px var(--card-pad, 16px) 8px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .wl-bar, .wl-addrow { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; min-width: 0; }
 .wl-sel { width: auto; max-width: 260px; min-height: 36px; field-sizing: content; }
-.wl-add-in { flex: 1 1 220px; min-width: 0; max-width: 420px; min-height: 36px; }
+.wl-add-field { flex: 1 1 220px; min-width: 0; max-width: 420px; gap: 4px; }
+.wl-addrow { align-items: flex-start; }
+.wl-addrow > .wl-status { min-height: 36px; display: inline-flex; align-items: center; }
+.wl-add-in { width: 100%; min-width: 0; min-height: 36px; }
 .wl-flag { font-size: 13px; }
 .wl-flag[hidden] { display: none; }
 .wl-table-wrap { overflow-x: auto; margin: 0 calc(-1 * var(--card-pad, 16px)); }
@@ -7787,7 +7790,7 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
 .wl-table th[scope="row"] { text-align: left; font-weight: 500; }
 button.wl-sort { min-height: 0; padding: 0; background: none; box-shadow: none; font: inherit; color: inherit; --fin: 0; }
 .wl-acts { white-space: nowrap; text-align: right; }
-@media (pointer: coarse) { .wl-sel, .wl-add-in { min-height: 44px; } }
+@media (pointer: coarse) { .wl-sel, .wl-add-in, .wl-addrow > .wl-status { min-height: 44px; } }
 
 /* "Explain this" (explain.js) on OI Analysis and Volatility: a folded box under the summary tiles. */
 .ex-box { margin-top: 10px; border-radius: var(--r-sm); background: var(--mat-fill-1, hsl(var(--foreground) / 0.03)); padding: 0 12px; }

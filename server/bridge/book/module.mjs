@@ -9,6 +9,7 @@
  */
 import { isStub } from "../core/contracts.mjs";
 import { defineModule } from "../core/modules.mjs";
+import { startupJob, startupReady } from "../core/startup.mjs";
 import { createBookService } from "./bookService.mjs";
 import { BOOK_CONFIG_SCHEMA } from "./config.mjs";
 import { seedDemoBook } from "./demoBook.mjs";
@@ -60,7 +61,7 @@ export default defineModule({
     });
     built.set(deps, { service, store, gate: (id) => automationAllowed(deps.config, store.tags(), id) });
     const audit = deps.audit && !isStub(deps.audit) ? deps.audit : null;
-    const handlers = createBookRoutes({ config: deps.config, service, store, audit });
+    const handlers = createBookRoutes({ config: deps.config, service, store, audit, ready: () => startupReady(deps) });
     for (const [method, path, options, name] of ROUTES) app.route(method, path, handlers[name], { ...options });
   },
   async start(deps) {
@@ -72,6 +73,9 @@ export default defineModule({
     b.stopping = false;
     const job = seedDemoBook({ ...deps, store: b.store, stopped: () => b.stopping }).catch((err) => deps.logger?.warn?.("demo book seed failed", { error: err?.message }));
     b.seeding = job;
+    // Positions, funds, orders and the book wait for the seed while the Bridge starts, so a page opened at once never
+    // shows a half-seeded book (core/startup.mjs).
+    startupJob(deps, "demo book seed", job);
   },
   async stop(deps) {
     // Let a running demo seed finish (or fail) before the paper engine and stores shut down.

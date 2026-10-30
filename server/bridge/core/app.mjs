@@ -26,6 +26,7 @@ import { SERVICE_CONTRACTS, isStub } from "./contracts.mjs";
 import { createHttpContext, expandScopes, newRequestId } from "./context.mjs";
 import { BridgeError, problemHeaders, toProblem } from "./errors.mjs";
 import { createEventBus } from "./eventBus.mjs";
+import { armStartup, openStartup } from "./startup.mjs";
 import { isControlToken, removeControlToken, writeControlToken } from "./controlToken.mjs";
 import { Reply, noContent, parseBody, readBody, send, sendProblem, text } from "./http.mjs";
 import { createLogger } from "./logger.mjs";
@@ -504,6 +505,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     async listen() {
       if (started) throw new Error("already listening");
       started = true;
+      // Reads gated on startup jobs (the demo book seed) wait from the first request until the jobs are done.
+      armStartup(deps);
       const bind = (host, port, listener) =>
         new Promise((resolveBind, rejectBind) => {
           const server = makeServer(listener);
@@ -527,6 +530,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         publicPort = await bind(s.publicIngress.host, s.publicIngress.port, pub);
       }
       for (const m of mods) if (m.start) await m.start(deps);
+      // Not awaited: the Bridge answers at once; only the gated reads wait for the startup jobs.
+      openStartup(deps).catch(() => {});
       try {
         controlToken = writeControlToken(config.dataDir);
       } catch (err) {
