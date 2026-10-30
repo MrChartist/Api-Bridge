@@ -964,6 +964,10 @@ export function createPaperEngine(deps, options = {}) {
       if (!(Number.isInteger(quantity) && quantity > 0)) throw badInput("quantity must be a whole number above zero.", "quantity");
       const src = st.positions[posKey(symbol, from)];
       if (!src || src.netQty === 0) throw invalid(`There is no open ${from} position in ${symbol} to convert.`, "symbol");
+      // The same product rule as an order (orderValidation checkInstrumentOrder): never a position that could not be traded.
+      const derivative = src.kind === "FUT" || src.kind === "OPT";
+      if (derivative && (to === "CNC" || to === "MTF")) throw invalid(`${to} is for cash-market shares. Use INTRADAY or MARGIN for ${symbol}.`, "to");
+      if (!derivative && src.kind !== "INDEX" && to === "MARGIN") throw invalid(`MARGIN is the carry-forward product for futures and options. Use CNC, MTF or INTRADAY for ${symbol}.`, "to");
       if (quantity > Math.abs(src.netQty)) throw invalid(`Only ${Math.abs(src.netQty)} is held in ${from}; ${quantity} cannot be converted.`, "quantity");
       const t = now();
       if (to === "INTRADAY" && cfg.squareOff.enabled && t >= squareOffAt(src.exchange, t)) throw invalid("It is past the intraday square-off time, so a position cannot be converted to Intraday now.", "to");

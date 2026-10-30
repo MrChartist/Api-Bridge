@@ -100,6 +100,28 @@ describe("convert a position between products", () => {
     await app.deps.safety.releaseKillSwitch(cli(), { confirm: "RELEASE" });
   });
 
+  it("refuses a product the contract cannot be traded in (shares to MARGIN, F&O to CNC), as an order would be", async () => {
+    md.setPrice("NSE:RELIANCE", 1400);
+    await clock.advance(1000);
+    await app.deps.orders.place(ctx(), { account: "paper", symbol: "NSE:RELIANCE", side: "BUY", quantity: 2, product: "INTRADAY", orderType: "MARKET" });
+    await clock.advance(1000);
+    const eq = await reject(app.deps.orders.convertPosition(ctx(), { account: "paper", symbol: "NSE:RELIANCE", from: "INTRADAY", to: "MARGIN", quantity: 2 }));
+    expect(eq.code).toBe("INVALID_ORDER"); // the code an order with that product gets
+    expect(eq.detail).toMatch(/MARGIN is the carry-forward product for futures and options\. Use CNC/);
+    const shares = async (product) => (await app.deps.orders.positions(ctx(), "paper")).items.filter((p) => p.symbol === "NSE:RELIANCE" && p.product === product).reduce((n, p) => n + p.netQty, 0);
+    expect(await shares("INTRADAY")).toBe(2);
+    expect(await shares("MARGIN")).toBe(0);
+    // Shares to CNC is fine.
+    await app.deps.orders.convertPosition(ctx(), { account: "paper", symbol: "NSE:RELIANCE", from: "INTRADAY", to: "CNC", quantity: 2 });
+    expect(await shares("CNC")).toBe(2);
+    // An option to CNC is refused the same way.
+    const before = await pos();
+    const fno = await reject(app.deps.orders.convertPosition(ctx(), { account: "paper", symbol: OPT, from: "MARGIN", to: "CNC", lots: 1 }));
+    expect(fno.code).toBe("INVALID_ORDER");
+    expect(fno.detail).toMatch(/CNC is for cash-market shares/);
+    expect(await pos()).toEqual(before);
+  });
+
   it("refuses converting into Intraday after the square-off time", async () => {
     await trade("BUY", 1, "INTRADAY", 120); // flatten the Intraday short
     await clock.advance(6 * 3600_000); // 09:30 → 15:30 IST
