@@ -376,9 +376,9 @@ export function upcomingEvents(events, days = Infinity) {
  * one per event within BANNER_DAYS that is not hidden today. `max` banners show; `more` counts the rest. Banners are
  * for notices to act on only: where the rate comes from is said in the chip (chipModel `rate`, ui-pass-3.md §6).
  */
-export function bannerModel(b, { hidden = {}, max = 2 } = {}) {
+export function bannerModel(b, { hidden = {}, max = 2, fallbackSeen = false } = {}) {
   const out = [];
-  if (b?.fallback) out.push({ id: "fallback", kind: "fallback", tone: "bad", text: "Reference data unavailable: using dashboard defaults", detail: "Session times, the rate and charges are the dashboard's built-in values until the Bridge answers.", hideable: false });
+  if (b?.fallback && !fallbackSeen) out.push({ id: "fallback", kind: "fallback", tone: "bad", text: "Reference data unavailable: using dashboard defaults", detail: "Session times, the rate and charges are the dashboard's built-in values until the Bridge answers.", hideable: false });
   const stale = staleText(b);
   if (stale) out.push({ id: "stale", kind: "stale", tone: "warn", text: stale.text, detail: stale.detail, hideable: false });
   const events = upcomingEvents(b?.events).filter((e) => !hidden[eventId(e)]);
@@ -480,6 +480,30 @@ export function refChip({ getBundle, getLot = () => null, rate = false }) {
   const dot = h("span", { class: "ref-chip-dot", "aria-hidden": "true", hidden: true });
   const el = h("button", { type: "button", class: "ref-chip glass", "aria-haspopup": "dialog", hidden: true }, h("span", { class: "ref-chip-ic", "aria-hidden": "true" }, icon("calendar")), text, dot);
   let sig = "";
+  let full = "";
+  let brief = "";
+  // Never an ellipsis inside the facts: where the whole line does not fit (a narrow desktop top bar), the chip says
+  // only its first fact ("Lot 65") and keeps that width; the rest stays in its title and the facts sheet.
+  let ro = null;
+  let watched = null;
+  const fit = () => {
+    if (!el.isConnected || el.hidden || !full || full === brief) return;
+    // The bar's own width too: a short chip keeps its width, so only the bar says when the whole line fits again.
+    if (ro && el.parentElement && watched !== el.parentElement) {
+      watched = el.parentElement;
+      ro.observe(watched);
+    }
+    delete el.dataset.fit;
+    text.textContent = full;
+    if (text.scrollWidth > text.clientWidth + 1) {
+      el.dataset.fit = "short";
+      text.textContent = brief;
+    }
+  };
+  if (typeof ResizeObserver === "function") {
+    ro = new ResizeObserver(() => fit());
+    ro.observe(el);
+  }
   const update = () => {
     const b = getBundle();
     if (!b) {
@@ -494,7 +518,10 @@ export function refChip({ getBundle, getLot = () => null, rate = false }) {
     el.hidden = false;
     if (s === sig) return;
     sig = s;
+    full = words;
+    brief = m.text.split(" · ")[0];
     text.textContent = words;
+    fit();
     el.dataset.tone = m.tone;
     // The rate's warn dot shows at every width (its words drop first on phones); the rest only where words are cut.
     dot.hidden = !(m.rateWarn || (m.dot && (phone || tablet)));
@@ -525,10 +552,15 @@ export function openFacts(trigger, b, lot) {
  * "+N more" opens the facts sheet. Events can be hidden until tomorrow.
  * @returns {{ el: HTMLElement, update: (b: object|null) => void }}
  */
+/** "Reference data unavailable" is said once per browser tab (sessionStorage); after that the chip's red "Defaults" says it. */
+const FALLBACK_SEEN = "mcb.dashboard.refFallbackSeen";
 export function refBanners({ onMore = null, now = () => Date.now() } = {}) {
   const el = h("div", { class: "ref-banners", "data-fixed": "", hidden: true, role: "region", "aria-label": "Contract notices" });
+  const tab = store("session");
   let last = null;
   let sig = "";
+  // The page that first shows the fallback banner keeps it while it is open; later pages skip it.
+  let ownsFallback = false;
   const draw = () => {
     const b = last;
     if (!b) {
@@ -538,7 +570,12 @@ export function refBanners({ onMore = null, now = () => Date.now() } = {}) {
     const today = istDate(now());
     const phone = media("(max-width: 719px)");
     const max = phone ? 1 : 2;
-    const m = bannerModel(b, { hidden: readHidden(today), max });
+    if (b.fallback && !ownsFallback && tab.get(FALLBACK_SEEN) !== "1") {
+      ownsFallback = true;
+      tab.set(FALLBACK_SEEN, "1");
+    }
+    if (!b.fallback && ownsFallback) tab.set(FALLBACK_SEEN, null); // answered again: say it next time it fails
+    const m = bannerModel(b, { hidden: readHidden(today), max, fallbackSeen: !ownsFallback });
     const s = JSON.stringify([m.shown.map((x) => [x.id, x.text]), m.more, phone]);
     if (s === sig) return;
     sig = s;
