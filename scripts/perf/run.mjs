@@ -351,7 +351,7 @@ async function measurePage(browser, base, key, id, hash) {
     out.longTasks = perf.longTasks.length;
     out.longTaskMs = Math.round(perf.longTasks.reduce((a, b) => a + b.ms, 0));
     out.longTaskMax = Math.round(Math.max(0, ...perf.longTasks.map((l) => l.ms)));
-    out.tickToCell = { n: perf.cells.length, p50: pct(perf.cells, 50), p95: pct(perf.cells, 95) };
+    out.tickToCell = { n: perf.cells.length, p50: pct(perf.cells, 50), p95: pct(perf.cells, 95), max: pct(perf.cells, 100), samples: perf.cells.map(Math.round) };
     const top = new Map();
     for (const r of reqs) top.set(r.k.split("?")[0], (top.get(r.k.split("?")[0]) ?? 0) + 1);
     out.topRequests = Object.fromEntries([...top].sort((a, b) => b[1] - a[1]).slice(0, 6));

@@ -5,7 +5,10 @@
  * the real market data service on a manual clock, for a 50-stock universe over a few minutes:
  *  - every stock ticking: no quote call at all;
  *  - quiet stocks (no trade) on a feed that is ticking: still none (no tick on a live subscription = no trade);
- *  - stocks the hub refused, or a feed that went silent: one batched background call per poll round, no more.
+ *  - stocks the hub refused, or a feed that went silent: one batched background call per poll round, no more;
+ *  - the same on Dhan's policy (market quote 1 a second, where the share never fits): the guaranteed share, one
+ *    batched call at most every `restEverySeconds` while nobody uses the broker, never two in one second, none while
+ *    a person is reading quotes.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { createFakeAccountManager } from "../accounts/fake.mjs";
@@ -19,7 +22,8 @@ import { FIFTY, T0, instrumentSpecs, stubAdapter } from "../market/__fixtures__/
 import { createMarketDataService } from "../market/marketDataService.mjs";
 import { parseEventsConfig } from "./config.mjs";
 import { createEventsEngine } from "./engine.mjs";
-import { createLiveFeed } from "./feed.mjs";
+import { IDLE_MS, createLiveFeed } from "./feed.mjs";
+import { listJobs } from "../ratelimit/jobs.mjs";
 import { createEventStore } from "./store.mjs";
 
 let stops = [];
@@ -30,24 +34,26 @@ afterEach(() => {
 
 const QUIET = FIFTY.slice(40); // ten stocks that stop trading after their first tick
 
-function setup({ unknown = [], events = {} } = {}) {
+function setup({ unknown = [], events = {}, broker = "arrow" } = {}) {
   const clock = createManualClock(T0);
   const bus = createEventBus({ logger: createNullLogger() });
-  const base = stubAdapter("arrow");
-  const calls = { quotes: 0, symbols: 0 };
+  const base = stubAdapter(broker);
+  const calls = { quotes: 0, symbols: 0, at: [] };
   const adapter = {
     ...base,
     async fetchQuotes(creds, refs) {
       calls.quotes += 1;
       calls.symbols += refs.length;
+      calls.at.push(clock.now());
       return base.fetchQuotes(creds, refs);
     },
   };
-  const specs = instrumentSpecs().map((s) => ({ ...s, refs: { arrow: s.refs.dhan } }));
-  const accounts = createFakeAccountManager({ accounts: [{ id: "arrow-main", broker: "arrow", adapter, creds: { apiKey: "k", accessToken: "t" } }], bus });
+  const specs = instrumentSpecs().map((s) => ({ ...s, refs: { [broker]: s.refs.dhan } }));
+  const account = `${broker}-main`;
+  const accounts = createFakeAccountManager({ accounts: [{ id: account, broker, adapter, creds: { apiKey: "k", accessToken: "t" } }], bus });
   const scheduler = createScheduler({ config: {}, logger: createNullLogger(), bus, clock, accounts });
   stops.push(() => scheduler.stop?.());
-  const hub = createFakeStreamHub({ bus, clock, unknown, accountId: "arrow-main", broker: "arrow" });
+  const hub = createFakeStreamHub({ bus, clock, unknown, accountId: account, broker });
   const symbols = createFakeSymbolService({ instruments: specs });
   const marketData = createMarketDataService({ config: { market: {} }, logger: createNullLogger(), bus, clock, paths: {}, brokers: {}, accounts, scheduler, symbols, streamHub: hub });
   const cfg = parseEventsConfig({ futures: false, ...events });
@@ -57,12 +63,14 @@ function setup({ unknown = [], events = {} } = {}) {
   const deps = { config: { scanner: { universes: { TEST: FIFTY } } }, clock, bus, marketData, streamHub: hub, accounts, scheduler, symbols };
   const feed = createLiveFeed({ engine, deps, cfg, store, logger: createNullLogger() });
   stops.push(() => feed.stop());
-  return { clock, hub, feed, calls };
+  return { clock, hub, feed, calls, scheduler, account };
 }
 
-/** Run `seconds` of market: every symbol in `ticking()` ticks each second; a poll round every 15 s (pollSeconds). */
-async function market(t, seconds, ticking) {
+/** Run `seconds` of market: every symbol in `ticking()` ticks each second; a poll round every 15 s (pollSeconds).
+ *  `each(s)` runs first in every second (a person reading quotes, say). */
+async function market(t, seconds, ticking, each = null) {
   for (let s = 1; s <= seconds; s += 1) {
+    if (each) await each(s);
     for (const sym of ticking(s)) t.hub.pushTick({ symbol: sym, ltp: 100 + s / 10, bid: 100, ask: 100.1, volume: 1000 + s });
     if (s % 15 === 0) {
       const p = t.feed.poll();
@@ -121,6 +129,46 @@ describe("live events: the universe streams; REST only for what the stream canno
     expect(t.calls.quotes).toBeLessThanOrEqual(12);
     expect(t.calls.symbols).toBeLessThanOrEqual(12 * refused.length);
     expect(t.calls.quotes).toBeGreaterThanOrEqual(5);
+  });
+
+  describe("on a 1-call-a-second quote API (Dhan policy: market quote 1/s)", () => {
+    const refused = FIFTY.slice(0, 5);
+    const run = async (events, person = null) => {
+      const t = setup({ broker: "dhan", unknown: refused, events });
+      await t.feed.refresh();
+      await market(t, 180, () => FIFTY.filter((x) => !refused.includes(x)), person ? (s) => person(t, s) : null);
+      return t;
+    };
+
+    it("without the guaranteed share the fallback never runs (the share never fits a 1-call window)", async () => {
+      const t = await run({ restEverySeconds: 0 });
+      expect(t.calls.quotes).toBe(0);
+      expect(t.feed.status().rest.refused).toBeGreaterThan(0);
+    });
+
+    it("the guaranteed share reads the refused stocks in one batched call per period, never two in a second", async () => {
+      const t = await run({ restEverySeconds: 10 });
+      // 12 poll rounds of 15 s; each may make one guaranteed call (the period is 10 s), each answer is cached for
+      // staleAfterMs, so the refused five are read about every 30 s, as on a broker where the share fits.
+      expect(t.calls.quotes).toBeGreaterThanOrEqual(5);
+      expect(t.calls.quotes).toBeLessThanOrEqual(12);
+      expect(t.calls.symbols).toBeLessThanOrEqual(t.calls.quotes * refused.length);
+      for (let i = 1; i < t.calls.at.length; i += 1) expect(t.calls.at[i] - t.calls.at[i - 1]).toBeGreaterThanOrEqual(10_000);
+      // Every one of them went through the guaranteed share (a read the cache answered makes no call).
+      expect(t.feed.status().rest.floorCalls).toBeGreaterThanOrEqual(t.calls.quotes);
+      // The budget panel shows it as a job.
+      expect(listJobs().find((j) => j.id === "events-rest")).toMatchObject({ label: "Live events by REST", total: refused.length });
+    });
+
+    it("takes no guaranteed call while a person is using the broker", async () => {
+      // An interactive quote read every 5 s (inside IDLE_MS): the fallback waits, users first.
+      expect(IDLE_MS).toBeGreaterThan(5000);
+      const t = await run({ restEverySeconds: 10 }, async (x, s) => {
+        if (s % 5 === 0) await x.scheduler.schedule({ accountId: x.account, endpointClass: "quote", priority: "interactive" }, async () => null);
+      });
+      expect(t.calls.quotes).toBe(0);
+      expect(listJobs().find((j) => j.id === "events-rest")).toMatchObject({ paused: true, done: 0 });
+    });
   });
 
   it("falls back to REST for the whole universe when the feed goes silent", async () => {

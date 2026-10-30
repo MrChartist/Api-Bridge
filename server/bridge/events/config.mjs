@@ -10,6 +10,8 @@
  *     "staleAfterMs": 20000,      // a symbol with no tick for this long is polled ...
  *     "quietMaxMs": 300000,       // ... unless it is held on a feed that is ticking now (no tick = no trade), up to
  *                                 //     this long since its last tick (0: poll every quiet symbol after staleAfterMs)
+ *     "restEverySeconds": 10,     // when the share never fits (a broker with 1 quote call a second), one batched call
+ *                                 //     at most this often while nobody is using the broker (0: never)
  *     "chainEveryMs": 1000,       // chain-level option detectors at most this often per chain
  *     "foldMs": 2000,             // same-direction level events within this window fold into one row
  *     "keepDays": 30,             // day files kept
@@ -29,6 +31,7 @@ export const EVENTS_CONFIG_SCHEMA = z
     pollSeconds: z.number().int().min(5).max(600).default(15),
     staleAfterMs: z.number().int().min(2000).max(600_000).default(20_000),
     quietMaxMs: z.number().int().min(0).max(3_600_000).default(300_000),
+    restEverySeconds: z.number().int().min(0).max(600).refine((v) => v === 0 || v >= 5, "0 (off) or at least 5 seconds").default(10),
     chainEveryMs: z.number().int().min(100).max(60_000).default(1000),
     foldMs: z.number().int().min(0).max(60_000).default(2000),
     keepDays: z.number().int().min(1).max(365).default(30),

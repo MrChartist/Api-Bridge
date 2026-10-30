@@ -133,6 +133,21 @@ describe("live paths stay cheap", () => {
     expect(css).not.toMatch(/(\.content|\.app-main)(?:[.:#[\w-]|\([^)]*\))*:has\(/);
   });
 
+  it("animates live indicators and tick flashes on the compositor (opacity and transform), never the page's paint", () => {
+    // Measured in headless Chromium: Motion's breathing `scale` on the sidebar dot repainted the whole page layer every
+    // frame, and the chain's background-color flash repainted the whole table on every frame of every flash.
+    const css = read("app.css");
+    const frames = (name) => css.match(new RegExp(`^@keyframes ${name} \\{.*\\}$`, "m"))?.[0] ?? "";
+    for (const k of ["dv-breathe", "dv-ring", "dv-ring-b", "chain-tick", "chain-tick-b"]) {
+      expect(frames(k), k).not.toBe("");
+      expect(frames(k), k).not.toMatch(/background|box-shadow|color/);
+    }
+    expect(css).toMatch(/:root\.tab-hidden \.dv-breathe[^{]*\{ animation-play-state: paused; \}/);
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{[^@]*\.dv-breathe \{ animation: none;/);
+    const motion = read("motion.js");
+    expect(motion.slice(motion.indexOf("export function pulse"), motion.indexOf("export function pulse") + 600)).not.toMatch(/animate\(/);
+  });
+
   it("opens one WebSocket per tab: pages use live.js", () => {
     for (const f of Object.keys(DASHBOARD_FILES).filter((n) => n.endsWith(".js") && n !== "live.js" && !n.startsWith("motion"))) {
       expect(read(f), f).not.toMatch(/new WebSocket\(/);

@@ -34,6 +34,10 @@ const BANDS = [["10", "±10"], ["20", "±20"], ["30", "±30"], ["all", "All"]];
 const EXTRA_MAX = 3;
 /** Extra expiries reload every 10th refresh tick (30 s at the desk's 3 s). */
 const EXTRA_EVERY = 10;
+/** A ladder side with nothing to draw (no leg, or a row outside the band). */
+const NO_SIDE = Object.freeze({ val: null, ref: null, d: null, txt: DASH, dTxt: DASH, pTxt: "", bu: null, rank: 0, title: () => "", vol: null });
+/** Live ticks redraw the panels under the ladder (walls, build-up, movers, expiries, max pain) at most this often. */
+const PANELS_LIVE_MS = 2000;
 const MQ_PHONE = "(max-width: 719px)";
 const MQ_COARSE = "(pointer: coarse)";
 const media = (q) => (typeof matchMedia === "function" ? matchMedia(q) : { matches: false });
@@ -654,8 +658,14 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     return { avail, win, hasPrev, combined, ref: avail.get(win) };
   }
 
-  function draw(x) {
+  /**
+   * `live`: a draw for live ticks. The ladder and the tiles follow at once (bars snap instead of animating each hair of
+   * change); the panels below them (walls, build-up, movers, expiries, max pain, timeline) are redrawn at most every
+   * PANELS_LIVE_MS. Every draw leaves the panels to a task of their own, so a refresh is never one long task.
+   */
+  function draw(x, { live = false } = {}) {
     lastX = x;
+    panelsJob = null;
     syncControls();
     drawLegend();
     if (!x) return drawEmpty();
@@ -861,15 +871,35 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     // The chart and the ladder share one model of the band.
     const lm = ladderModel({ x, rows, inBand, atm, spot, mp, wallMap, combined, unit, fq, fd, winLabel, em });
     profile.draw(profileModel({ rows, inBand, ai, atm, spot, mp, wallMap, em, lm, fq, fd, div, combined, unit, winLabel, R1, S1, chartOn: cfg().chart }), moved);
-    ladder.draw(lm, moved);
-
-    drawWalls({ walls, rows, fq, fd, R1ref, S1ref, R1, S1, pin, unit, winLabel });
-    drawBuildup(bu, { scopeTxt, winLabel, th, combined });
-    drawMovers(movers, { fd, winLabel });
-    pain.draw({ mp, spot, em, relevance, key: ctx });
-    drawExpiries(c, now);
-    drawTimeline(key, snaps, session, c);
+    ladder.draw(lm, moved, { snap: live });
     paintLinked();
+
+    panelsJob = () => {
+      drawWalls({ walls, rows, fq, fd, R1ref, S1ref, R1, S1, pin, unit, winLabel });
+      drawBuildup(bu, { scopeTxt, winLabel, th, combined });
+      drawMovers(movers, { fd, winLabel });
+      pain.draw({ mp, spot, em, relevance, key: ctx });
+      drawExpiries(c, now);
+      drawTimeline(key, snaps, session, c);
+      paintLinked();
+    };
+    // A wall that moved is said at once; otherwise live ticks redraw the panels at most every PANELS_LIVE_MS.
+    schedulePanels(live && !moved.ce && !moved.pe ? Math.max(0, PANELS_LIVE_MS - (performance.now() - panelsAt)) : 0);
+  }
+  let panelsJob = null;
+  let panelsTimer = 0;
+  let panelsAt = -Infinity;
+  function schedulePanels(wait) {
+    if (panelsTimer && wait > 0) return;
+    clearTimeout(panelsTimer);
+    panelsTimer = setTimeout(() => {
+      panelsTimer = 0;
+      const job = panelsJob;
+      panelsJob = null;
+      if (!job || !mainEl.isConnected) return;
+      panelsAt = performance.now();
+      job();
+    }, wait);
   }
 
   /** A one-time ring pulse (a wall that moved); reduced motion: a static outline for 3 s. */
@@ -931,9 +961,11 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       if (hasEm && r.strike === em.hi) tags.push({ t: "+1σ", cls: "em", title: "Upper edge of the ±1σ expected move to expiry" });
       if (hasEm && r.strike === em.lo) tags.push({ t: "−1σ", cls: "em", title: "Lower edge of the ±1σ expected move to expiry" });
       const inEm = hasEm && r.strike >= em.lo && r.strike <= em.hi;
+      const shownRow = inBand(i);
       const side = (s) => {
         const leg = r[s];
-        if (!leg) return { val: null, ref: null, d: null, txt: DASH, dTxt: DASH, pTxt: "", bu: null, rank: 0, title: "" };
+        // A row outside the band is not drawn (the ladder patches it when the band shows it): no figures to format.
+        if (!leg || !shownRow) return NO_SIDE;
         const v = val(leg);
         // In "OI chg" the bar is the change, so its figure is the OI (the Δ column already prints the change).
         const shown = fq(metric === "vol" ? leg.v : leg.oi);
@@ -950,12 +982,14 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
           bu: leg.cls,
           buTitle: leg.cls ? `${O.BUILDUP_NAMES[leg.cls]} on ${s === "ce" ? "calls" : "puts"} = ${read[0]}: ${read[1]} for the underlying` : "",
           rank: wt ? Number(wt.slice(1)) : 0,
-          title: `${formatInt(r.strike)} ${SIDE[s]} · OI ${fq(leg.oi)} (${unit}) · Δ ${fd(leg.d)} ${winLabel}${leg.v !== null ? ` · Vol ${fq(leg.v)}` : ""}`,
+          // Formatted only when the pointer comes over the cell (most figures are never hovered).
+          title: () => `${formatInt(r.strike)} ${SIDE[s]} · OI ${fq(leg.oi)} (${unit}) · Δ ${fd(leg.d)} ${winLabel}${leg.v !== null ? ` · Vol ${fq(leg.v)}` : ""}`,
+          vol: leg.v,
         };
       };
       return {
         strike: r.strike,
-        inBand: inBand(i),
+        inBand: shownRow,
         atm: r.strike === atm,
         inEm,
         out: hasEm && !inEm,
@@ -979,6 +1013,8 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
       metric,
       max,
       atm,
+      // What a cell's tooltip says besides its own figures.
+      titleSig: `${unit}|${winLabel}`,
     };
   }
 
@@ -1673,6 +1709,9 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     /** A new underlying or expiry: forget the extras and centre the ladder again. */
     reset({ underlying = false } = {}) {
       if (underlying) extras.clear();
+      clearTimeout(panelsTimer);
+      panelsTimer = 0;
+      panelsJob = null;
       model = null;
       loadingKey = null;
       selK = null;
@@ -2371,7 +2410,7 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
     tbody.addEventListener("click", onClick);
     tbody.addEventListener("pointerover", (e) => {
       const td = e.target.closest?.("td.ob");
-      if (td && td.__title !== undefined) setTitle(td, td.__title);
+      if (td && typeof td.__title === "function") setTitle(td, td.__title());
     });
     const hadFocus = wrap.contains(document.activeElement) && document.activeElement?.matches?.("tr[data-k]");
     wrap.replaceChildren(tbl);
@@ -2621,8 +2660,10 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
   }
   const frac = (v, max) => (v === null || v === undefined || !max ? 0 : v === 0 ? 0 : Math.max(0.02, Math.min(1, Math.abs(v) / max)));
   const fmt3 = (f) => String(Math.round(f * 1000) / 1000);
-  function draw(m, moved = {}) {
+  function draw(m, moved = {}, { snap = false } = {}) {
     if (!built || built.key !== m.key || !wrap.querySelector("table")) build(m);
+    // Live ticks move a bar by a hair: it snaps (an animation per bar per tick kept the page repainting).
+    if (built.tbl.classList.contains("snap") !== snap) built.tbl.classList.toggle("snap", snap);
     else if (built.ks !== m.ks) slide(m);
     atm = m.atm;
     setText(built.caption, m.caption);
@@ -2676,7 +2717,7 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
         const f = frac(q.val, max);
         const neg = m.metric === "chg" && (q.dNum ?? 0) < 0;
         const fs = fmt3(f);
-        const sig = `${fs}|${q.ref}|${q.d}|${q.txt}|${q.rank}|${neg}|${max}|${phone}|${r.out}|${q.title}`;
+        const sig = `${fs}|${q.ref}|${q.d}|${q.txt}|${q.rank}|${neg}|${max}|${phone}|${r.out}|${q.vol}|${m.titleSig}`;
         if (bc.sig !== sig) {
           bc.sig = sig;
           // One write: the bar (and the phone figure's position) read --v from the cell.
@@ -2698,7 +2739,7 @@ function createLadder({ detailFor, onOpenChain, onSelect }) {
           setText(bc.v, q.txt);
           // The tooltip text changes with every figure: it is written when the pointer comes over the cell.
           bc.td.__title = q.title;
-          if (bc.td.matches(":hover")) setTitle(bc.td, q.title);
+          if (bc.td.matches(":hover")) setTitle(bc.td, q.title());
         }
         const dc = b[s].d;
         const dsig = `${q.dTxt}|${q.pTxt}|${q.bu}`;

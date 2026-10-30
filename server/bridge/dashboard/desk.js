@@ -40,6 +40,8 @@ const REFRESH_MS = 3000;
 const NEXT_EXPIRY_DELAY_MS = 1500;
 /** Shortest gap between two price flashes on one chain cell (live ticks arrive every frame on liquid strikes). */
 const FLASH_GAP_MS = 2500;
+/** The chain's work per frame on a tick or a refresh (ms of script); the rows left over go to the next frame. */
+const FRAME_BUDGET_MS = 5;
 /** Outside market hours nothing moves: refresh every 30 s instead. */
 const CLOSED_REFRESH_MS = 30000;
 /** Pages that place orders show the account select (P1: a control only where it changes what the page does). */
@@ -691,10 +693,11 @@ async function renderDesk(kind) {
   // ── Live ticks (live.js): between refreshes the legs on screen, the index and its futures stream in over the one
   // shared connection. The Bridge then builds this page's chain reads from the same ticks (no broker call), so the
   // refresh below costs the broker nothing while the stream is up. The chain and the Strategy Builder redraw on each
-  // frame that brought ticks, OI Analysis at most twice a second. Greeks stay from the last refresh (a few seconds).
+  // frame that brought ticks, OI Analysis patches its ladder and tiles (its panels every 2 s). Greeks stay from the
+  // last refresh (a few seconds).
   const LIVE_KINDS = new Set(["chain", "strategy", "oi"]);
-  // The chain patches only the cells a tick changed, so it takes every frame; the builder and OI redraw a whole view
-  // per delivery and keep the default gap.
+  // The chain patches only the cells a tick changed, so it takes every frame; the builder and OI redraw a view per
+  // delivery and keep the default gap.
   const feed = LIVE_KINDS.has(kind) ? watch([], "quote", (ticks) => applyTicks(ticks), kind === "chain" ? { minGapMs: 0 } : undefined) : null;
   /** canonical symbol -> [row index, "ce" | "pe"] for the chain on screen */
   let legIndex = new Map();
@@ -762,19 +765,19 @@ async function renderDesk(kind) {
     if (newest) st.freshness = { ...(st.freshness ?? {}), asOf: new Date(newest).toISOString(), ageMs: 0, stale: false, source: "stream" };
     st.lastOk = new Date().toISOString();
     // The chain patches the cells that changed on this frame (a full redraw only when the table's structure moves);
-    // the builder redraws on this frame; OI Analysis (it charts every strike) at most twice a second.
+    // the builder redraws on this frame; OI Analysis its ladder and tiles.
     if (kind === "chain") return patchLive(touched, prevSpot, futMoved) || drawAll();
     if (kind !== "oi") return drawAll();
-    if (oiDrawTimer) return;
-    const wait = Math.max(0, 500 - (performance.now() - oiDrawnAt));
-    oiDrawTimer = setTimeout(() => {
-      oiDrawTimer = 0;
-      oiDrawnAt = performance.now();
-      if (pageRoot.isConnected) drawAll();
-    }, wait);
+    // OI Analysis: the ladder rows and the tiles follow on this frame (each cell writes only what changed); the panels
+    // under them at most every 2 s, in a task of their own (oi.js draw `live`).
+    oiLive = true;
+    try {
+      drawAll();
+    } finally {
+      oiLive = false;
+    }
   }
-  let oiDrawTimer = 0;
-  let oiDrawnAt = 0;
+  let oiLive = false;
   /**
    * The chain's live-tick path: the legs that ticked get their cells patched (text nodes and classes only, their IV
    * and Greeks repriced above, the parity cells of their strikes redone), the spot divider and the top bar follow the
@@ -1104,7 +1107,7 @@ async function renderDesk(kind) {
     }
     if (kind === "strategy") builder.draw(x, { stale: st.error ?? null, lastOk: st.lastOk ?? null, live: st.live, onRetry: () => refresh() });
     if (kind === "oi") {
-      oiPage.draw(x);
+      oiPage.draw(x, { live: oiLive });
       st.patchMs = Math.round((performance.now() - t0) * 10) / 10;
       drawClock();
     }
@@ -3358,21 +3361,22 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
   }
 
   function patch(x) {
-    const { sm, spot } = x;
-    const c = cfg();
-    const L = built.L;
+    const { sm } = x;
     const flashes = [];
     const motion = !reducedMotion();
     // The ±N window: rows are hidden, never rebuilt, and the view stays put through an anchor row. Rows that come
     // into the window fade in (staggered 8 ms, 120 ms at most).
     const vis = visibleSet(x);
     let moved = false;
+    /** rows that just came into the window: drawn now, never left blank for a frame */
+    const fresh = new Set();
     for (const [strike, b] of built.rows) if (b.tr.hidden === vis.has(strike)) moved = true;
     if (moved) {
       const a = captureAnchor();
       let n = 0;
       for (const [strike, b] of built.rows) {
         const show = vis.has(strike);
+        if (b.tr.hidden && show) fresh.add(strike);
         if (b.tr.hidden && show && !built.first && motion) {
           b.tr.classList.add("row-in");
           b.tr.style.setProperty("--i", String(Math.min(15, n++)));
@@ -3382,47 +3386,23 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       }
       restoreAnchor(a);
     }
-    for (const row of x.c.rows) {
-      const b = built.rows.get(row.strike);
-      // Rows outside the window are patched when they come back into it (the window is applied above, first).
-      if (!b || b.tr.hidden) continue;
-      for (const side of ["ce", "pe"]) {
-        const cells = b[side];
-        if (!cells.length) continue;
-        const q = row[side];
-        const itm = c.itm && O.inTheMoney(row.strike, side, spot);
-        L[side].forEach((k, i) => {
-          const td = cells[i];
-          patchCell(td, k, q, row, side, x, flashes);
-          if (td.__itm !== itm) td.classList.toggle("itm", (td.__itm = itm));
-        });
+    // A new table draws every row now. A refresh patches the rows nearest the focus (or spot) in this task and the
+    // rest on the next frames, a few milliseconds of work each (drainRows): one task for every row and the chain-wide
+    // figures was the refresh's long task.
+    if (built.first) {
+      later.clear();
+      for (const row of x.c.rows) patchRow(row, x, flashes, motion);
+    } else {
+      const want = [];
+      for (const row of x.c.rows) {
+        const b = built.rows.get(row.strike);
+        if (!b || b.tr.hidden) continue;
+        if (fresh.has(row.strike)) {
+          later.delete(row.strike);
+          patchRow(row, x, flashes, motion);
+        } else want.push([row.strike, FULL]);
       }
-      L.mid.forEach((k, i) => patchCell(b.mid[i], k, null, row, "mid", x, flashes));
-      const tags = tagsFor(row, x);
-      // At most two tags in a cell (one, in short form, on a phone's narrow strike column); the rest are in its title.
-      const shown = L.phone ? tags.slice(0, 1).map(([cl, t, title]) => [cl, PHONE_TAG[cl] ?? t, `${t}: ${title}`]) : tags.slice(0, 2);
-      const sig = `${row.strike}|${shown.map((t) => t[1]).join(",")}|${tags.length}`;
-      if (b.th.__sig !== sig) {
-        const before = new Set((b.th.__tags ?? "").split(",").filter(Boolean));
-        const pop = !built.first && motion && b.th.__sig !== undefined;
-        b.th.__sig = sig;
-        b.th.__tags = shown.map((t) => t[1]).join(",");
-        b.th.title = tags.length > shown.length ? tags.map((t) => t[1]).join(" · ") : "";
-        b.th.replaceChildren(
-          h(
-            "span",
-            { class: "cg strike-cg" },
-            h("span", { class: "l1 k" }, formatInt(row.strike)),
-            shown.length ? h("span", { class: "l2 tags" }, shown.map(([cl, t, title]) => h("span", { class: `tag ${cl}${pop && !before.has(t) ? " pop" : ""}`, title }, t))) : h("span", { class: "l2" }),
-          ),
-        );
-      }
-      const atm = row.strike === sm.atm;
-      const inEm = c.tags.em && x.em1.lo !== null && row.strike >= x.em1.lo && row.strike <= x.em1.hi;
-      const emEdge = inEm && (row.strike === x.em1.lo || row.strike === x.em1.hi);
-      if (b.__atm !== atm) b.tr.classList.toggle("atm", (b.__atm = atm));
-      if (b.__em !== inEm) b.tr.classList.toggle("in-em", (b.__em = inEm));
-      if (b.__emE !== emEdge) b.tr.classList.toggle("em-edge", (b.__emE = emEdge));
+      runRows(want, x, flashes, motion);
     }
     for (const [th, k] of built.heads) {
       const t = headText(k, x);
@@ -3430,7 +3410,144 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       if (lbl.textContent !== t) lbl.textContent = t;
     }
     drawSpot(x);
-    // Footer: totals over the strikes loaded; PCR under the strikes; the median deviation under Dev.
+    patchFoot(x, vis);
+    watchAtm(sm.atm);
+    drawPicks(x);
+    built.first = false;
+    flushFlashes(flashes);
+  }
+
+  /** One frame's flashes, in one frame: the shared dv-flash keyframes (calmer in the chain: 0.14 alpha, 600 ms),
+   *  restarted by alternating data-flash a / b instead of a forced reflow. */
+  function flushFlashes(flashes) {
+    if (!flashes.length) return;
+    requestAnimationFrame(() => {
+      for (const [td, up] of flashes) flashValue(td, up ? "up" : "down");
+    });
+  }
+
+  // ── Work split across frames ──
+  // A tick or a refresh patches rows in order of distance from the focused strike (else spot) until FRAME_BUDGET_MS of
+  // work is done; the rows left wait in `later` for the next frame, merged with whatever comes meanwhile (a row waiting
+  // for a full patch and also ticked stays a full patch). A waiting row is patched against the newest data (lastX).
+  const FULL = "full";
+  const later = new Map();
+  let laterFrame = 0;
+  const rowPriority = (x) => {
+    const at = st.focus?.strike ?? x.spot ?? x.sm.atm ?? 0;
+    return (strike) => Math.abs(strike - at);
+  };
+  function runRows(items, x, flashes, motion = !reducedMotion()) {
+    for (const [strike, what] of items) mergeLater(strike, what);
+    drainRows(x, flashes, motion);
+  }
+  function mergeLater(strike, what) {
+    const had = later.get(strike);
+    if (had === FULL || what === FULL) later.set(strike, FULL);
+    else if (had) for (const s of what) had.add(s);
+    else later.set(strike, new Set(what));
+  }
+  function drainRows(x, flashes, motion) {
+    if (!later.size) return;
+    const pri = rowPriority(x);
+    const order = [...later.keys()].sort((a, b) => pri(a) - pri(b));
+    const rowAt = new Map(x.c.rows.map((r) => [r.strike, r]));
+    const t0 = performance.now();
+    let n = 0;
+    for (const strike of order) {
+      // At least two rows a frame, then as many as fit the budget.
+      if (n >= 2 && performance.now() - t0 > FRAME_BUDGET_MS) break;
+      const what = later.get(strike);
+      later.delete(strike);
+      const b = built?.rows.get(strike);
+      const row = rowAt.get(strike);
+      // Rows outside the window are patched when they come back into it.
+      if (!b || b.tr.hidden || !row) continue;
+      if (what === FULL) patchRow(row, x, flashes, motion);
+      else patchRowLegs(row, what, x, flashes);
+      n += 1;
+    }
+    if (later.size && !laterFrame) {
+      laterFrame = requestAnimationFrame(() => {
+        laterFrame = 0;
+        const x1 = lastX;
+        if (!built || !x1 || !host.contains(built.wrap) || built.key !== [x1.c.underlying, x1.c.expiry, built.sig].join("|")) return later.clear();
+        const fl = [];
+        drainRows(x1, fl, !reducedMotion());
+        flushFlashes(fl);
+      });
+    }
+  }
+  function dropLater() {
+    later.clear();
+    if (laterFrame) cancelAnimationFrame(laterFrame);
+    laterFrame = 0;
+  }
+  /** The cells of the legs that ticked (`sides`), and the parity cells of their strike. */
+  function patchRowLegs(row, sides, x, flashes) {
+    const b = built.rows.get(row.strike);
+    const L = built.L;
+    for (const side of sides) {
+      const cells = b[side];
+      if (!cells?.length) continue;
+      const q = row[side];
+      L[side].forEach((k, i) => patchCell(cells[i], k, q, row, side, x, flashes, true));
+    }
+    if (L.mid.length) {
+      x.syn.set(row.strike, O.synthetic(row, x.growth));
+      x.edge.set(row.strike, O.parityEdge(row, x.edgeRef, x.growth));
+      L.mid.forEach((k, i) => patchCell(b.mid[i], k, null, row, "mid", x, flashes, true));
+    }
+  }
+  /** Every cell, the tags and the row classes of one strike. */
+  function patchRow(row, x, flashes, motion) {
+    const { sm, spot } = x;
+    const c = cfg();
+    const L = built.L;
+    const b = built.rows.get(row.strike);
+    if (!b || b.tr.hidden) return;
+    for (const side of ["ce", "pe"]) {
+      const cells = b[side];
+      if (!cells.length) continue;
+      const q = row[side];
+      const itm = c.itm && O.inTheMoney(row.strike, side, spot);
+      L[side].forEach((k, i) => {
+        const td = cells[i];
+        patchCell(td, k, q, row, side, x, flashes);
+        if (td.__itm !== itm) td.classList.toggle("itm", (td.__itm = itm));
+      });
+    }
+    L.mid.forEach((k, i) => patchCell(b.mid[i], k, null, row, "mid", x, flashes));
+    const tags = tagsFor(row, x);
+    // At most two tags in a cell (one, in short form, on a phone's narrow strike column); the rest are in its title.
+    const shown = L.phone ? tags.slice(0, 1).map(([cl, t, title]) => [cl, PHONE_TAG[cl] ?? t, `${t}: ${title}`]) : tags.slice(0, 2);
+    const sig = `${row.strike}|${shown.map((t) => t[1]).join(",")}|${tags.length}`;
+    if (b.th.__sig !== sig) {
+      const before = new Set((b.th.__tags ?? "").split(",").filter(Boolean));
+      const pop = !built.first && motion && b.th.__sig !== undefined;
+      b.th.__sig = sig;
+      b.th.__tags = shown.map((t) => t[1]).join(",");
+      b.th.title = tags.length > shown.length ? tags.map((t) => t[1]).join(" · ") : "";
+      b.th.replaceChildren(
+        h(
+          "span",
+          { class: "cg strike-cg" },
+          h("span", { class: "l1 k" }, formatInt(row.strike)),
+          shown.length ? h("span", { class: "l2 tags" }, shown.map(([cl, t, title]) => h("span", { class: `tag ${cl}${pop && !before.has(t) ? " pop" : ""}`, title }, t))) : h("span", { class: "l2" }),
+        ),
+      );
+    }
+    const atm = row.strike === sm.atm;
+    const inEm = c.tags.em && x.em1.lo !== null && row.strike >= x.em1.lo && row.strike <= x.em1.hi;
+    const emEdge = inEm && (row.strike === x.em1.lo || row.strike === x.em1.hi);
+    if (b.__atm !== atm) b.tr.classList.toggle("atm", (b.__atm = atm));
+    if (b.__em !== inEm) b.tr.classList.toggle("in-em", (b.__em = inEm));
+    if (b.__emE !== emEdge) b.tr.classList.toggle("em-edge", (b.__emE = emEdge));
+  }
+  /** The totals row: totals over the strikes loaded; PCR under the strikes; the median deviation under Dev. */
+  function patchFoot(x, vis) {
+    const { sm } = x;
+    const L = built.L;
     const u = unit(x);
     const totals = { oi: [sm.ceOi / u, sm.peOi / u], chg: [sm.ceOiChange / u, sm.peOiChange / u], vol: [sm.ceVolume / u, sm.peVolume / u] };
     for (const [i, side] of [[0, "ce"], [1, "pe"]]) {
@@ -3459,16 +3576,6 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     }
     const cap = `${x.c.underlying} ${expiryText(x.c.expiry)} option chain, ${formatInt(vis.size)} strikes, ${L.side === "both" ? "calls left, puts right" : L.side === "ce" ? "calls" : L.side === "pe" ? "puts" : "put-call parity"}`;
     if (built.caption.textContent !== cap) built.caption.textContent = cap;
-    watchAtm(sm.atm);
-    drawPicks(x);
-    built.first = false;
-    if (flashes.length) {
-      // One frame for every flash: the shared dv-flash keyframes (calmer in the chain: 0.14 alpha, 600 ms), restarted
-      // by alternating data-flash a / b instead of a forced reflow.
-      requestAnimationFrame(() => {
-        for (const [td, up] of flashes) flashValue(td, up ? "up" : "down");
-      });
-    }
   }
 
   function drawSpot(x) {
@@ -3765,6 +3872,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     phoneBar,
     reset(keepView = false) {
       extraDrop = 0;
+      dropLater();
       if (!keepView) {
         built = null;
         centred = false;
@@ -3908,34 +4016,17 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     patchLegs(x, touched, { spot = false } = {}) {
       if (!built || built.stale || !host.contains(built.wrap) || built.key !== [x.c.underlying, x.c.expiry, built.sig].join("|")) return false;
       lastX = x;
-      const L = built.L;
       const flashes = [];
-      let rowAt = null;
+      const items = [];
       for (const [strike, sides] of touched) {
         const b = built.rows.get(strike);
         // Rows outside the window are patched when they come back into it.
-        if (!b || b.tr.hidden) continue;
-        rowAt ??= new Map(x.c.rows.map((r) => [r.strike, r]));
-        const row = rowAt.get(strike);
-        if (!row) continue;
-        for (const side of sides) {
-          const cells = b[side];
-          if (!cells?.length) continue;
-          const q = row[side];
-          L[side].forEach((k, i) => patchCell(cells[i], k, q, row, side, x, flashes, true));
-        }
-        if (L.mid.length) {
-          x.syn.set(strike, O.synthetic(row, x.growth));
-          x.edge.set(strike, O.parityEdge(row, x.edgeRef, x.growth));
-          L.mid.forEach((k, i) => patchCell(b.mid[i], k, null, row, "mid", x, flashes, true));
-        }
+        if (b && !b.tr.hidden) items.push([strike, sides]);
       }
+      // The legs nearest the focus (or spot) now, the rest on the next frames (drainRows).
+      runRows(items, x, flashes);
       if (spot) drawSpot(x);
-      if (flashes.length) {
-        requestAnimationFrame(() => {
-          for (const [td, up] of flashes) flashValue(td, up ? "up" : "down");
-        });
-      }
+      flushFlashes(flashes);
       return true;
     },
     /** A one-line status above the table (errors after data), or null to hide it. */

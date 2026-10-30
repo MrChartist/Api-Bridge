@@ -24,6 +24,12 @@ Dashboard: **Markets > Screeners > Live events** (`#/screeners/events`). Status:
   `feed.rest.quiet`). Polls go out in
   batches with `marketData.quotes` at background priority, only when `ratelimit/backgroundGate.mjs` allows it, with
   `backgroundShare` = `events.budgetShare` (default 0.25, never above 0.5). A refused round waits for the next one.
+- **A guaranteed share on strict brokers.** Where the quote class allows 1 call a second (Dhan, Angel One, Firstock),
+  the share never fits a 1-call window, so the fallback would never run. There, while nobody has used the broker for
+  10 s, one batched call (up to the broker's batch size, the symbols read longest ago first) goes out at most every
+  `events.restEverySeconds` (10 s; 0 turns it off), only in a second nobody else uses and with every longer window
+  keeping its usual floor (`backgroundGate.floorDecision`). The scheduler still enforces every published limit. The
+  API budget popover lists it as a job, "Live events by REST", with how many of the symbols that need REST it has read.
 - **Previous-day context** (previous close, high, low, volume, 20-day average volume, 52-week range) comes from daily
   candles, once a day per symbol, one at a time through the same gate, cached in `events/context-<date>.json`.
 - **Demo mode** runs a simulated session (`events/demoMarket.mjs`): about 50 F&O stocks with futures, 5 indices, 90
@@ -183,7 +189,8 @@ Storage: `dataDir/events/YYYY-MM-DD.jsonl` (demo: `events-demo/`), one line per 
 ## Config
 
 `events`: `enabled`, `maxSymbols` (600), `futures` (true), `budgetShare` (0.25, max 0.5), `pollSeconds` (15),
-`staleAfterMs` (20000), `quietMaxMs` (300000, 0 = poll quiet symbols too), `chainEveryMs` (1000), `keepDays` (30),
+`staleAfterMs` (20000), `quietMaxMs` (300000, 0 = poll quiet symbols too), `restEverySeconds` (10, 0 = off),
+`chainEveryMs` (1000), `keepDays` (30),
 `maxEventsPerDay` (20000), `cashList`, `demoScale`.
 
 ## The page

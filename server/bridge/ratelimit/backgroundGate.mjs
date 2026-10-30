@@ -51,6 +51,36 @@ export function gateDecision(view, { share = MAX_BACKGROUND_SHARE, cost = 1 } = 
   return { ok, waitMs: ok ? 0 : Math.ceil(waitMs), binding };
 }
 
+/** Windows this short may be used up by a guaranteed background call (floorDecision): only the per-second ones. */
+const SHORT_WINDOWS = new Set(["1s"]);
+
+/**
+ * The guaranteed share (pure). On a broker whose class allows 1 call a second, `gateDecision` never says yes: the floor
+ * of a 1-call window is the whole window. A job that must still run now and then (the Live events REST fallback) may
+ * then take ONE call when every per-second window is completely free (nothing used, nothing queued, no back-off),
+ * while every longer window (minute, hour, day) still keeps its usual floor. The caller decides how rarely (seconds
+ * between such calls) and only while nobody is using the broker; the scheduler still enforces every published limit.
+ * @returns {{ ok: boolean, waitMs: number }}
+ */
+export function floorDecision(view, { share = MAX_BACKGROUND_SHARE, cost = 1 } = {}) {
+  const s = clampShare(share);
+  const c = normaliseCost(cost);
+  const backoff = Math.max(0, Number(view?.backoffMs) || 0);
+  let waitMs = backoff;
+  let ok = backoff === 0;
+  for (const w of view?.windows ?? []) {
+    if (!Number.isFinite(w.limit)) continue;
+    const floor = SHORT_WINDOWS.has(w.window) ? 0 : Math.ceil((1 - s) * w.limit);
+    // A short window must also be empty: a guaranteed call never shares a second with anyone's call.
+    const free = SHORT_WINDOWS.has(w.window) ? w.remaining >= w.limit : true;
+    if (free && w.remaining - c >= floor) continue;
+    ok = false;
+    waitMs = Math.max(waitMs, w.resetMs > 0 ? w.resetMs : FALLBACK_WAIT_MS);
+  }
+  if (!ok && waitMs === 0) waitMs = FALLBACK_WAIT_MS;
+  return { ok, waitMs: ok ? 0 : Math.ceil(waitMs) };
+}
+
 function clampShare(share) {
   const n = Number(share);
   if (!Number.isFinite(n) || n <= 0) return 0;
@@ -83,6 +113,10 @@ export function createBackgroundGate({ scheduler }) {
     /** 0 when allow() would say yes now; else ms until it is worth asking again. */
     waitMs(accountId, endpointClass, opts = {}) {
       return gateDecision(view(accountId, endpointClass), opts).waitMs;
+    },
+    /** The guaranteed share (floorDecision): one call now uses no second anyone else is using. */
+    allowFloor(accountId, endpointClass, opts = {}) {
+      return floorDecision(view(accountId, endpointClass), opts).ok;
     },
     /** The full decision (for status pages and logs). */
     check(accountId, endpointClass, opts = {}) {

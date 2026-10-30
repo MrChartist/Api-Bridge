@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createFakeAccountManager } from "../accounts/fake.mjs";
 import { TOPICS, createEventBus } from "../core/eventBus.mjs";
 import { createLogger } from "../core/logger.mjs";
-import { MAX_BACKGROUND_SHARE, createBackgroundGate, gateDecision } from "./backgroundGate.mjs";
+import { MAX_BACKGROUND_SHARE, createBackgroundGate, floorDecision, gateDecision } from "./backgroundGate.mjs";
 import { createFakeScheduler, createManualClock } from "./fake.mjs";
 import { createScheduler } from "./scheduler.mjs";
 import { createRateLimiter } from "./tokenBucket.mjs";
@@ -55,6 +55,21 @@ describe("gateDecision", () => {
     expect(gateDecision({ windows: [], backoffMs: 0 }).ok).toBe(true);
     expect(gateDecision({ windows: [{ window: "none", limit: Infinity, remaining: Infinity, resetMs: 0 }] }).ok).toBe(true);
     expect(() => gateDecision({ windows: [] }, { cost: 0 })).toThrow(/cost/);
+  });
+});
+
+describe("floorDecision (the guaranteed share on a 1-call-a-second class)", () => {
+  it("takes a per-second window only when it is completely free; longer windows keep their floor", () => {
+    expect(gateDecision({ windows: [win(1, 1)] }).ok).toBe(false); // the share never fits a 1-call window
+    expect(floorDecision({ windows: [win(1, 1)] }).ok).toBe(true);
+    expect(floorDecision({ windows: [win(1, 0)] }).ok).toBe(false); // someone's call this second (or one queued)
+    expect(floorDecision({ windows: [win(10, 9)] }).ok).toBe(false); // a call in this second already
+    expect(floorDecision({ windows: [win(10, 10)] }).ok).toBe(true);
+    expect(floorDecision({ windows: [win(1, 1), win(60, 31, 30_000, "1m")] }).ok).toBe(true); // 30 ≥ floor 30
+    expect(floorDecision({ windows: [win(1, 1), win(60, 30, 30_000, "1m")] }).ok).toBe(false);
+    expect(floorDecision({ windows: [win(1, 1), win(1000, 400, 60_000, "day")] }).ok).toBe(false);
+    expect(floorDecision({ windows: [win(1, 1)], backoffMs: 3000 })).toEqual({ ok: false, waitMs: 3000 });
+    expect(floorDecision({ windows: [] }).ok).toBe(true);
   });
 });
 

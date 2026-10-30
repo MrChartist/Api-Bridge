@@ -374,28 +374,31 @@ export function shake(el) {
   return run(el, { translate: ["0px 0px", "-10px 0px", "9px 0px", "-7px 0px", "5px 0px", "-3px 0px", "0px 0px"] }, { duration: 0.42, ease: "easeInOut" }, { ms: 1000 });
 }
 
-/** A subtle breathing pulse for live indicators. Returns { stop() }; the element stays fully visible after stop. */
+/**
+ * A subtle breathing pulse for live indicators. Returns { stop() }; the element stays fully visible after stop.
+ * A CSS animation of opacity and transform only (`.dv-breathe`, app.css) on its own compositor layer: no JS frame loop
+ * and no repaint of the page under it on every frame (Motion's `scale` ran a main-thread loop that repainted the whole
+ * page layer about 60 times a second). Paused while the tab is hidden, none under reduced motion (both in app.css).
+ */
 export function pulse(el) {
-  const m = live();
-  if (!m || !isEl(el)) return { stop() {}, finished: done() };
-  let anim;
-  try {
-    anim = m.animate(el, { opacity: [1, 0.45, 1], scale: [1, 0.85, 1] }, { duration: 2.4, ease: "easeInOut", repeat: Infinity });
-  } catch {
-    return { stop() {}, finished: done() };
-  }
+  if (!isEl(el)) return { stop() {}, finished: done() };
+  watchHidden();
+  el.classList.add("dv-breathe");
   return {
     finished: done(),
     stop() {
-      try {
-        anim.stop?.();
-      } catch {
-        /* ignore */
-      }
-      el.style.removeProperty("opacity");
-      el.style.removeProperty("transform");
+      el.classList.remove("dv-breathe");
     },
   };
+}
+let hiddenWatched = false;
+/** `:root.tab-hidden` while the tab is in the background: the endless CSS animations pause on it (app.css). */
+function watchHidden() {
+  if (hiddenWatched || typeof document === "undefined") return;
+  hiddenWatched = true;
+  const sync = () => document.documentElement.classList.toggle("tab-hidden", document.hidden);
+  document.addEventListener("visibilitychange", sync);
+  sync();
 }
 
 // ── Page hooks (idempotent; see the top of this file) ──

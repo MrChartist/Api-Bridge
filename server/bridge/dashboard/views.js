@@ -961,9 +961,16 @@ function setupA11y() {
   if (!$("route-announcer")) document.body.append(h("div", { id: "route-announcer", class: "pal-sr-only", role: "status", "aria-live": "polite", "aria-atomic": "true" }));
   const content = $("content");
   content.setAttribute("aria-labelledby", "page-title");
+  // Once a frame at most: live pages change cells many times a second, and running this on each change searched the
+  // whole page and read a table's width (a forced layout) on every tick.
+  let queued = 0;
   const mo = new MutationObserver(() => {
-    labelTables(content);
-    fitTables(content);
+    if (queued) return;
+    queued = requestAnimationFrame(() => {
+      queued = 0;
+      labelTables(content);
+      fitTables(content);
+    });
   });
   mo.observe(content, { childList: true, subtree: true });
 }

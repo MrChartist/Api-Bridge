@@ -1619,11 +1619,12 @@ svg .dv-pill text { fill: hsl(var(--sel-fg)); font: 500 12px/1 var(--font-numeri
 @keyframes dv-flash-down { from { background-color: hsl(var(--neg) / 0.25); } to { background-color: transparent; } }
 @keyframes dv-flash-down-b { from { background-color: hsl(var(--neg) / 0.25); } to { background-color: transparent; } }
 /* The chain's top-line spot and KPI figures: no block of colour. The text takes the gain / loss ink for 700 ms, then
-   settles (chain.md §6). No underline and no edge bar (ui-pass-3.md §1.1). */
-.ctx-spot .ctx-main.dv-flash-up[data-flash="a"], .chain-kpis .desk-stat .value.dv-flash-up[data-flash="a"] { animation: dv-ink-up 700ms var(--ease-out); }
-.ctx-spot .ctx-main.dv-flash-up[data-flash="b"], .chain-kpis .desk-stat .value.dv-flash-up[data-flash="b"] { animation: dv-ink-up-b 700ms var(--ease-out); }
-.ctx-spot .ctx-main.dv-flash-down[data-flash="a"], .chain-kpis .desk-stat .value.dv-flash-down[data-flash="a"] { animation: dv-ink-down 700ms var(--ease-out); }
-.ctx-spot .ctx-main.dv-flash-down[data-flash="b"], .chain-kpis .desk-stat .value.dv-flash-down[data-flash="b"] { animation: dv-ink-down-b 700ms var(--ease-out); }
+   settles (chain.md §6). No underline and no edge bar (ui-pass-3.md §1.1). The ink holds, then settles in one step: a
+   colour that fades repaints the page layer on every frame, and the index ticks several times a second. */
+.ctx-spot .ctx-main.dv-flash-up[data-flash="a"], .chain-kpis .desk-stat .value.dv-flash-up[data-flash="a"] { animation: dv-ink-up 700ms steps(1, end); }
+.ctx-spot .ctx-main.dv-flash-up[data-flash="b"], .chain-kpis .desk-stat .value.dv-flash-up[data-flash="b"] { animation: dv-ink-up-b 700ms steps(1, end); }
+.ctx-spot .ctx-main.dv-flash-down[data-flash="a"], .chain-kpis .desk-stat .value.dv-flash-down[data-flash="a"] { animation: dv-ink-down 700ms steps(1, end); }
+.ctx-spot .ctx-main.dv-flash-down[data-flash="b"], .chain-kpis .desk-stat .value.dv-flash-down[data-flash="b"] { animation: dv-ink-down-b 700ms steps(1, end); }
 @keyframes dv-ink-up { from { color: hsl(var(--pos-ink)); } }
 @keyframes dv-ink-up-b { from { color: hsl(var(--pos-ink)); } }
 @keyframes dv-ink-down { from { color: hsl(var(--neg-ink)); } }
@@ -1647,9 +1648,20 @@ svg .dv-pill text { fill: hsl(var(--sel-fg)); font: 500 12px/1 var(--font-numeri
 .dv-area-in { animation: dv-fade-in var(--dur-3) var(--ease-out) 120ms both; }
 @keyframes dv-fade-in { from { opacity: 0; } }
 
-/* Live dot: one ring pulse per successful refresh (the class is re-added by the page), never an endless loop. */
-.live-dot.tick-a { animation: dv-live-tick 2s var(--ease-out); }
-.live-dot.tick-b { animation: dv-live-tick-b 2s var(--ease-out); }
+/* Live dot: one ring pulse per successful refresh (the class is re-added by the page), never an endless loop. The ring
+   is a pseudo-element that scales and fades (transform and opacity on its own layer, run by the compositor): the
+   animated box-shadow it replaces repainted the top bar on every frame of every refresh. */
+.live-dot { position: relative; }
+.live-dot::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: hsl(var(--pos) / 0.5); opacity: 0; pointer-events: none; }
+.live-dot.tick-a::after { animation: dv-ring 2s var(--ease-out); will-change: transform, opacity; }
+.live-dot.tick-b::after { animation: dv-ring-b 2s var(--ease-out); will-change: transform, opacity; }
+@keyframes dv-ring { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(2.7); } }
+@keyframes dv-ring-b { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(2.7); } }
+/* The breathing pulse of an always-on indicator (motion.js pulse): opacity and transform only, on its own layer;
+   paused while the tab is hidden, none under reduced motion. */
+.dv-breathe { animation: dv-breathe 2.4s ease-in-out infinite; will-change: opacity, transform; }
+@keyframes dv-breathe { 50% { opacity: 0.45; transform: scale(0.85); } }
+:root.tab-hidden .dv-breathe, :root.tab-hidden .live-dot::after { animation-play-state: paused; }
 @keyframes dv-live-tick { from { box-shadow: 0 0 0 0 hsl(var(--pos) / 0.5); } to { box-shadow: 0 0 0 6px hsl(var(--pos) / 0); } }
 @keyframes dv-live-tick-b { from { box-shadow: 0 0 0 0 hsl(var(--pos) / 0.5); } to { box-shadow: 0 0 0 6px hsl(var(--pos) / 0); } }
 
@@ -1658,7 +1670,7 @@ svg .dv-pill text { fill: hsl(var(--sel-fg)); font: 500 12px/1 var(--font-numeri
 @keyframes dv-pop-in { from { opacity: 0; transform: scale(0.98); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .dv-flash-up, .dv-flash-down, .live-dot.tick-a, .live-dot.tick-b, .dv-area-in, .popover.floating, .chain-jump { animation: none; }
+  .dv-flash-up, .dv-flash-down, .live-dot.tick-a::after, .live-dot.tick-b::after, .dv-area-in, .popover.floating, .chain-jump, .dv-breathe { animation: none; will-change: auto; }
   .skel, .skel-row i { animation: none; background: var(--mat-fill-2); }
   .dv-bar, .vbar > span, .dv-col, svg rect.dv-grow, .dv-heat, .segmented.has-thumb::before, .dv-tip { transition: none; }
 }
@@ -2248,15 +2260,18 @@ table.chain .pick { width: 14px; height: 14px; flex: none; border-radius: 4px; b
 table.chain .pick.on { background: hsl(var(--sel-bg)); box-shadow: none; -webkit-mask: none; position: relative; }
 table.chain .pick.on::after { content: ""; position: absolute; inset: 1px; background: hsl(var(--sel-fg)); -webkit-mask: var(--tick-mask) center / 12px 12px no-repeat; mask: var(--tick-mask) center / 12px 12px no-repeat; }
 
-/* LTP ticks: a calm tint (0.14) that fades in 600 ms; the shared dv-flash classes drive it. */
-table.chain td.dv-flash-up[data-flash="a"] { animation: chain-tick-up 600ms var(--ease-out); }
-table.chain td.dv-flash-up[data-flash="b"] { animation: chain-tick-up-b 600ms var(--ease-out); }
-table.chain td.dv-flash-down[data-flash="a"] { animation: chain-tick-down 600ms var(--ease-out); }
-table.chain td.dv-flash-down[data-flash="b"] { animation: chain-tick-down-b 600ms var(--ease-out); }
-@keyframes chain-tick-up { from { background-color: hsl(var(--pos) / 0.14); } }
-@keyframes chain-tick-up-b { from { background-color: hsl(var(--pos) / 0.14); } }
-@keyframes chain-tick-down { from { background-color: hsl(var(--neg) / 0.14); } }
-@keyframes chain-tick-down-b { from { background-color: hsl(var(--neg) / 0.14); } }
+/* LTP ticks: a calm tint (0.14) that fades in 600 ms; the shared dv-flash classes drive it. The tint is a layer under
+   the figure whose opacity fades (run by the compositor): an animated background-color repainted the whole table on
+   every frame of every flash, which with live ticks was most of the page's main-thread time. */
+table.chain tbody td.c-ltp { position: relative; z-index: 0; }
+table.chain tbody td.c-ltp::before { content: ""; position: absolute; inset: 0; z-index: -1; opacity: 0; pointer-events: none; }
+table.chain td:is(.dv-flash-up, .dv-flash-down) { animation: none; }
+table.chain td.dv-flash-up::before { background: hsl(var(--pos) / 0.14); }
+table.chain td.dv-flash-down::before { background: hsl(var(--neg) / 0.14); }
+table.chain td:is(.dv-flash-up, .dv-flash-down)[data-flash="a"]::before { animation: chain-tick 600ms var(--ease-out); }
+table.chain td:is(.dv-flash-up, .dv-flash-down)[data-flash="b"]::before { animation: chain-tick-b 600ms var(--ease-out); }
+@keyframes chain-tick { from { opacity: 1; } to { opacity: 0; } }
+@keyframes chain-tick-b { from { opacity: 1; } to { opacity: 0; } }
 
 /* Spot divider (§4.5): an 18 px row with a 1 px ATM-blue line and a neutral pill (spot in the foreground ink, the
    change in gain / loss ink, the future quiet). It glides to a new gap (FLIP, 280 ms spring). */
@@ -3902,6 +3917,8 @@ table.oi-ladder .ob.pe .now { border-radius: 0 2px 2px 0; }
 table.oi-ladder.m-chg td.ob.neg .now { transform: none; width: calc(var(--v, 0) * 100%); background: repeating-linear-gradient(135deg, hsl(var(--neg)) 0 1px, transparent 1px 4px), hsl(var(--neg) / 0.22); box-shadow: inset 0 0 0 1px hsl(var(--neg)); }
 table.oi-ladder .ghost { top: 0; width: calc(var(--v, 0) * 100%); height: 12px; border-radius: 2px; background: repeating-linear-gradient(135deg, hsl(var(--sc) / 0.6) 0 1px, transparent 1px 4px); box-shadow: inset 0 0 0 1px hsl(var(--sc) / 0.5); }
 table.oi-ladder .chg { top: 14px; width: 100%; height: 3px; border-radius: 1.5px; background: hsl(var(--pos)); transform: scaleX(var(--v, 0)); transition: transform var(--dur-3) var(--ease-std); }
+/* Live ticks (oi.js ladder.draw snap): the bars take the new length at once. */
+table.oi-ladder.snap :is(.now, .chg) { transition: none; }
 table.oi-ladder .chg.cut { background: hsl(var(--neg)); }
 table.oi-ladder .v { position: relative; z-index: 1; font: 500 12px/1 var(--font-numeric); color: hsl(var(--foreground) / 0.92); }
 table.oi-ladder.m-chg .v { font-size: 12px; font-weight: 500; color: hsl(var(--foreground) / var(--a-label)); }
@@ -3914,6 +3931,15 @@ table.oi-ladder .d.pe .dwrap { align-items: flex-end; }
 table.oi-ladder .dv { padding: 0 2px; margin: 0 -2px; border-radius: 3px; font: 500 13px/1.1 var(--font-numeric); overflow: hidden; text-overflow: ellipsis; color: var(--neutral-ink); }
 table.oi-ladder .dv.pos { color: hsl(var(--pos-ink)); }
 table.oi-ladder .dv.neg { color: hsl(var(--neg-ink)); }
+/* The Δ flash: a wash under the figure whose opacity fades (run by the compositor), as in the chain; an animated
+   background-color repainted the ladder on every frame of every flash. */
+table.oi-ladder .dv { position: relative; z-index: 0; }
+table.oi-ladder .dv::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; opacity: 0; pointer-events: none; }
+table.oi-ladder .dv:is(.dv-flash-up, .dv-flash-down) { animation: none; }
+table.oi-ladder .dv.dv-flash-up::before { background: hsl(var(--pos) / 0.25); }
+table.oi-ladder .dv.dv-flash-down::before { background: hsl(var(--neg) / 0.25); }
+table.oi-ladder .dv:is(.dv-flash-up, .dv-flash-down)[data-flash="a"]::before { animation: chain-tick var(--dur-flash) var(--ease-out); }
+table.oi-ladder .dv:is(.dv-flash-up, .dv-flash-down)[data-flash="b"]::before { animation: chain-tick-b var(--dur-flash) var(--ease-out); }
 table.oi-ladder .dsub { display: inline-flex; align-items: center; gap: 4px; min-height: 15px; }
 table.oi-ladder .d.pe .dsub { flex-direction: row-reverse; }
 table.oi-ladder .dp { font: 500 12px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }

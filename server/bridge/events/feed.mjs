@@ -15,18 +15,30 @@
  *     (ratelimit/backgroundGate.mjs) says the call keeps every window at or above (1 − share) of its limit, and with
  *     `backgroundShare`, so the scheduler re-checks the floor when it takes the budget. A refused poll waits for the
  *     next round; nothing is retried in a loop.
+ *     Guaranteed share: on a broker whose quote class allows 1 call a second (Dhan, Angel One, Firstock …) the share
+ *     never fits, so the fallback would never run. There, while nobody has used the broker for IDLE_MS, ONE batched
+ *     call (up to the broker's batch size, the symbols read longest ago first) may go out every `restEverySeconds`,
+ *     only when every per-second window is completely free and every longer window keeps its usual floor
+ *     (backgroundGate.floorDecision), at background priority. The scheduler still enforces every published limit.
+ *     The budget panel lists it as a job ("Live events by REST").
  *  4. Previous-day context (prev close/high/low/volume, 20-day average volume, 52-week range) from daily candles,
  *     once a day per symbol, one at a time at background priority through the same gate, cached on disk for the day.
  */
 import { isStub } from "../core/contracts.mjs";
 import { MAX_BACKGROUND_SHARE, createBackgroundGate } from "../ratelimit/backgroundGate.mjs";
 import { runAsConsumer } from "../ratelimit/consumer.mjs";
+import { endJob, setJob } from "../ratelimit/jobs.mjs";
 import { createStreamSource } from "../recorder/streamSource.mjs";
 import { INDICES, NIFTY50 } from "../scanner/universes.mjs";
 import { istDate } from "./engine.mjs";
 
 const INDEX_UNDERLYINGS = new Set(["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50", "SENSEX", "BANKEX"]);
 const num = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+/** The guaranteed share waits while a person or a tool used the broker this recently (as the scanner pre-warm does). */
+export const IDLE_MS = 10_000;
+/** The budget panel's job id and label for the REST fallback. */
+const JOB = "events-rest";
+const JOB_LABEL = "Live events by REST";
 
 /** Previous-day context from daily candles (oldest first; the last candle may be today's, which is dropped). */
 export function contextFromCandles(candles, today) {
@@ -65,13 +77,17 @@ export function createLiveFeed({ engine, deps, cfg, store, logger }) {
   const now = () => deps.clock.now();
   /** symbol -> last tick ms */
   const lastSeen = new Map();
+  /** symbol -> when the REST fallback last read it (the guaranteed share reads the longest-unread first) */
+  const restAt = new Map();
+  /** when the last guaranteed-share call went out */
+  let floorAt = -Infinity;
   const tracked = new Set();
   const offs = [];
   const timers = [];
   let stopped = false;
   let polling = false;
   let contextRun = null;
-  const status = { stream: { held: 0, rejected: 0 }, rest: { polls: 0, symbols: 0, refused: 0, quiet: 0, lastAt: null }, context: { loaded: 0, missing: 0, pending: 0 }, chains: { snapshots: 0 }, universe: { stocks: 0, futures: 0, chains: 0 } };
+  const status = { stream: { held: 0, rejected: 0 }, rest: { polls: 0, symbols: 0, refused: 0, quiet: 0, floorCalls: 0, lastAt: null }, context: { loaded: 0, missing: 0, pending: 0 }, chains: { snapshots: 0 }, universe: { stocks: 0, futures: 0, chains: 0 } };
 
   // ── universe ──
 
@@ -236,41 +252,78 @@ export function createLiveFeed({ engine, deps, cfg, store, logger }) {
     return { want, quiet };
   }
 
+  /** The guaranteed share may take a call now: on, its period passed, nobody used the broker lately, a free second. */
+  function floorOpen(acc, t) {
+    if (!gate || !(cfg.restEverySeconds > 0) || t - floorAt < cfg.restEverySeconds * 1000) return false;
+    const userAt = deps.scheduler?.userActiveAt?.();
+    if (Number.isFinite(userAt) && t - userAt < IDLE_MS) return false;
+    return typeof gate.allowFloor === "function" && gate.allowFloor(acc, "quote", { share, cost: 1 });
+  }
+
+  /** The budget panel's job: symbols that need REST, and how many of them REST answered within staleAfterMs. */
+  function showJob(want, t, waiting) {
+    if (!want.length) return endJob(JOB);
+    let done = 0;
+    for (const s of want) if (t - (restAt.get(s) ?? -Infinity) <= cfg.staleAfterMs) done += 1;
+    setJob(JOB, { label: JOB_LABEL, done, total: want.length, paused: waiting });
+  }
+
   async function poll() {
     if (polling || stopped || !deps.marketData || isStub(deps.marketData)) return;
     polling = true;
+    let want = [];
+    let waiting = false;
     try {
       const t = now();
-      const { want: stale, quiet } = restWanted(t);
-      status.rest.quiet = quiet;
-      if (!stale.length) return;
+      const r = restWanted(t);
+      want = r.want;
+      status.rest.quiet = r.quiet;
+      if (!want.length) return;
       const acc = dataAccount();
       if (!acc) return;
+      // The symbols REST read longest ago first, so a small share still goes round the whole list.
+      const stale = [...want].sort((a, b) => (restAt.get(a) ?? -Infinity) - (restAt.get(b) ?? -Infinity));
       const size = Math.min(200, batchSize(acc));
       for (let i = 0; i < stale.length && !stopped; i += size) {
-        const part = stale.slice(i, i + size);
-        if (gate && !gate.allow(acc, "quote", { share, cost: 1 })) {
+        const shared = !gate || gate.allow(acc, "quote", { share, cost: 1 });
+        const floor = !shared && floorOpen(acc, now());
+        if (!shared && !floor) {
           status.rest.refused += 1;
+          waiting = true;
           break; // over the background share: wait for the next round, users first
         }
+        // A guaranteed call reads up to the broker's whole batch in its one call.
+        const part = floor ? stale.slice(i, i + batchSize(acc)) : stale.slice(i, i + size);
+        if (floor) floorAt = now();
         let res;
         try {
-          res = await runAsConsumer("Live events", () => deps.marketData.quotes(part, { priority: "background", backgroundShare: share, maxWaitMs: 1500, maxAgeMs: cfg.staleAfterMs }));
+          res = await runAsConsumer("Live events", () =>
+            deps.marketData.quotes(part, floor ? { priority: "background", maxWaitMs: 1000, maxAgeMs: cfg.staleAfterMs } : { priority: "background", backgroundShare: share, maxWaitMs: 1500, maxAgeMs: cfg.staleAfterMs }),
+          );
         } catch (err) {
           logger?.debug?.("events: quotes poll failed", { err: err?.code ?? err?.message });
           break;
         }
         status.rest.polls += 1;
+        if (floor) status.rest.floorCalls += 1;
         status.rest.symbols += res?.items?.length ?? 0;
+        const readAt = now();
+        for (const s of part) restAt.set(s, readAt);
         for (const q of res?.items ?? []) {
           const at = Date.parse(q.freshness?.asOf ?? "") || now();
           if (q.freshness?.source === "stream") continue; // the tick already went through the bus
           engine.ingest({ ...q, source: "rest" }, at);
         }
+        if (floor) {
+          // One guaranteed call per period; the rest of the list waits for the next one.
+          waiting = i + part.length < stale.length;
+          break;
+        }
       }
       status.rest.lastAt = new Date(now()).toISOString();
     } finally {
       polling = false;
+      if (!stopped) showJob(want, now(), waiting);
     }
   }
 
@@ -329,6 +382,7 @@ export function createLiveFeed({ engine, deps, cfg, store, logger }) {
     },
     stop() {
       stopped = true;
+      endJob(JOB);
       for (const t of timers) clearInterval(t);
       for (const off of offs) off();
       source?.clear();
