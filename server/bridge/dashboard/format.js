@@ -65,6 +65,8 @@ export function formatSigned(value, dp = 2) {
 
 /** A percentage with fixed decimals ("12.3%"). Missing → DASH. */
 export const formatPercent = (value, dp = 1) => (isFigure(value) ? `${formatFixed(value, dp)}%` : DASH);
+/** A signed percentage with its sign and % ("+1.4%", "−55.5%"), or the dash. */
+export const formatSignedPercent = (value, dp = 1) => (isFigure(value) ? `${formatSigned(value, dp)}%` : DASH);
 
 /**
  * Indian compact units for big counts (OI, volume, premium): 1.25Cr, 12.40L, 8.5K, 950. `signed` adds "+" to gains.

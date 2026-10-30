@@ -4,7 +4,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DASH, MINUS, ageText, formatCompact, formatCompactTick, formatDayMonth, formatFixed, formatInput, formatInt, formatNumber, formatPercent, formatRupee, formatGrouped, formatRupeeGrouped, formatSigned, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, MINUS, ageText, formatCompact, formatCompactTick, formatDayMonth, formatFixed, formatInput, formatInt, formatNumber, formatPercent, formatRupee, formatGrouped, formatRupeeGrouped, formatSigned, formatSignedPercent, formatSignedRupee, isFigure } from "./format.js";
 
 describe("dashboard number format", () => {
   it("prints figures without grouping commas", () => {
@@ -15,6 +15,9 @@ describe("dashboard number format", () => {
     expect(formatRupee(1000000, 0)).toBe("₹1000000");
     expect(formatNumber(1234.5678)).toBe("1234.568");
     expect(formatPercent(12.345)).toBe("12.3%");
+    expect(formatSignedPercent(1.44)).toBe("+1.4%");
+    expect(formatSignedPercent(-55.53)).toBe(`${MINUS}55.5%`);
+    expect(formatSignedPercent(null)).toBe(DASH);
   });
 
   it("keeps signs and never prints a negative zero", () => {

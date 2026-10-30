@@ -656,25 +656,39 @@ export async function renderEventsPage() {
     const list = r.data?.data ?? [];
     return list.find((a) => a.broker === "paper" || /paper/.test(a.id)) ?? null;
   }
-  async function ticket(item, side) {
+  /** The instrument behind a symbol (lot size, kind), or null when no connected broker's master lists it. */
+  async function instrumentOf(sym) {
+    const r = await optional(api(`/v1/instruments/${encodeURIComponent(sym)}`));
+    const d = r.data?.data;
+    return d && Number(d.lotSize) > 0 ? { lotSize: Number(d.lotSize), kind: d.kind ?? null } : null;
+  }
+  async function ticket(item, side, inst) {
+    if (!inst) return toast(`${item.symbol.split(":")[1]} is not in a connected broker's instrument master, so it cannot be traded here.`, { tone: "warn" });
     const a = await paperAccount();
     if (!a) return toast("No paper account to trade on.", { tone: "warn" });
-    const { openPlacement } = await import("./strategy-place.js");
+    const [{ openPlacement }, { ticketProduct }] = await Promise.all([import("./strategy-place.js"), import("./options.js")]);
+    // The chain ticket's default: Intraday until the 15:20 IST square-off, then carry forward (NRML for F&O,
+    // delivery for cash), so an order after the square-off is not refused.
+    const carry = ticketProduct(null) === "MARGIN";
+    const product = carry ? (inst.kind === "EQ" ? "CNC" : "MARGIN") : "INTRADAY";
     document.querySelector("#dialog .sheet-close")?.click();
     await new Promise((r) => setTimeout(r, 250));
     const sym = item.symbol;
     openPlacement({
       title: `${side === "BUY" ? "Buy" : "Sell"} ${sym.split(":")[1]} (paper)`,
       account: { ...a, liveAllowedByConfig: false },
-      items: [{ leg: 1, side, phase: side === "BUY" ? "hedge" : "short", symbol: sym, label: sym.split(":")[1], lots: 1, lotSize: 1, price: item.ltp, product: "INTRADAY", quote: () => ({ ltp: item.ltp, bid: null, ask: null }) }],
-      cfg: { product: "INTRADAY", hedgeWait: 15 },
+      items: [{ leg: 1, side, phase: side === "BUY" ? "hedge" : "short", symbol: sym, label: sym.split(":")[1], lots: 1, lotSize: inst.lotSize, price: item.ltp, product, quote: () => ({ ltp: item.ltp, bid: null, ask: null }) }],
+      cfg: { product, hedgeWait: 15 },
     });
   }
 
   async function stockSheet(item) {
-    const r = await optional(api(`/v1/events/symbols/${encodeURIComponent(item.symbol)}`));
+    const [r, inst] = await Promise.all([optional(api(`/v1/events/symbols/${encodeURIComponent(item.symbol)}`)), instrumentOf(item.symbol)]);
     const v = r.data?.data;
     if (!v) return h("p", {}, r.error?.message ?? "Could not load this symbol.");
+    // Buy / Sell only for a symbol a connected broker lists (the demo cash list is events-only): disabled, with why.
+    const noTrade = inst ? null : "Not in a connected broker's instrument master, so it cannot be traded here";
+    const tradeBtn = (side) => h("button", { type: "button", class: `small btn ${side === "BUY" ? "buy" : "sell"}`, disabled: Boolean(noTrade), title: noTrade ?? undefined, onclick: () => ticket(v.ltp === null ? item : { ...item, ltp: v.ltp }, side, inst) }, side === "BUY" ? "Buy" : "Sell");
     const L = v.levels ?? {};
     const pv = L.pivots ?? {};
     const band5 = (L.bands ?? []).find((b) => b.pct === 5);
@@ -701,10 +715,10 @@ export async function renderEventsPage() {
       h("div", { class: "ev-sheet-actions" },
         canChain ? h("button", { type: "button", class: "small", onclick: () => toChain(underlying, v.chains?.[0]?.expiry ?? null, null, null) }, icon("chart"), h("span", {}, "Option Chain")) : null,
         watchBtn,
-        h("button", { type: "button", class: "small btn buy", onclick: () => ticket(v.ltp === null ? item : { ...item, ltp: v.ltp }, "BUY") }, "Buy"),
-        h("button", { type: "button", class: "small btn sell", onclick: () => ticket(v.ltp === null ? item : { ...item, ltp: v.ltp }, "SELL") }, "Sell"),
+        tradeBtn("BUY"),
+        tradeBtn("SELL"),
       ),
-      h("p", { class: "muted small" }, app.state.demo ? "Orders from here are paper orders on demo prices." : "Orders from here are paper orders."),
+      h("p", { class: "muted small" }, noTrade ? `${noTrade}.` : app.state.demo ? "Orders from here are paper orders on demo prices." : "Orders from here are paper orders."),
       h("h3", { class: "ev-sheet-h" }, `Events today (${formatInt((v.events ?? []).length)})`),
       eventList(v.events ?? []),
     ];

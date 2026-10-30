@@ -6,7 +6,7 @@
 // then patched cell by cell, so nothing flickers, scroll and keyboard focus stay put, and only cells that changed
 // flash. The maths lives in options.js (pure, tested); numbers are formatted by format.js only.
 import { DEMO_EXPLAINER, alertBox, api, app, emptyState, errorState, h, icon, liveControl, loadingState, modal, mountToolbarCtx, optional, prefetch, sheetPopover, toast, touchWord } from "./app.js";
-import { DASH, MINUS, ageText, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, MINUS, ageText, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedPercent, formatSignedRupee, isFigure } from "./format.js";
 import { arbPanels } from "./arbitrage.js";
 import { openChainSheet } from "./chain-sheet.js";
 import { createOiPage, oiConfig } from "./oi.js";
@@ -2766,7 +2766,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
             held ? h("span", { class: `held ${held > 0 ? "long" : "short"}`, title: `You hold ${formatSigned(held, 0)} lot(s)` }, formatSigned(held, 0)) : null,
             h("strong", isFigure(q?.tickAgeMs) ? { class: "quiet-leg", title: `Last trade, ${ageText(q.tickAgeMs)}: no trade since on a live feed` } : {}, g(q?.ltp, 2)),
           ].filter(Boolean),
-          cfg().pct ? sub(pct === null ? "" : formatSigned(pct, 1), pct > 0 ? "up" : pct < 0 ? "down" : "") : null,
+          cfg().pct ? sub(pct === null ? "" : formatSignedPercent(pct, 1), pct > 0 ? "up" : pct < 0 ? "down" : "") : null,
         );
       },
     },
