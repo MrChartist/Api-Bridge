@@ -12,6 +12,10 @@ For every market-data request, in order:
    `freshness.source = "stream"` and no broker call. One broker subscription is shared by every client (ten tools on
    one symbol cost one subscription). Feeds are opened per account, with each broker's subscription caps enforced
    (`SUBSCRIPTION_LIMIT` goes only to the client that crossed the cap).
+   An **option chain** whose whole strike window (`strikes=N` around ATM) is live on the stream is built from those
+   ticks over the day's broker chain, which supplies the previous-day OI behind OI change (`source = "stream"`, no
+   broker call). The dashboard's chain, OI and Strategy pages subscribe their legs, so their refreshes, and every other
+   reader of the same window (the recorder, your scripts), cost the broker nothing while the stream is up.
 2. **Freshness cache.** A value younger than its freshness target is reused (`source = "cache"`). Defaults: LTP 1 s,
    quote 2 s, depth 1 s, option chain 3 s, expiries 5 min, history 1 min. Tighten them freely in `market.freshness`;
    they can be loosened only up to documented maximums. A caller may ask for fresher data with `maxAgeMs`.
@@ -89,12 +93,29 @@ Each API key has its own request budget (`ratelimit.client.perSecond`, 50 by def
 one runaway script cannot starve the others. Every response carries `RateLimit` and `RateLimit-Policy` headers
 (IETF draft format).
 
+## Asking for less: stale-while-revalidate and prefetch priority
+
+- `?swr=true` on `/v1/ltp`, `/v1/quotes` and `/v1/optionchain`: when only an older cached value exists (inside
+  `market.stale.maxStaleMs`), it answers at once with `freshness.stale: true` and `freshness.revalidating: true`, and one
+  refresh runs behind it (however many readers ask). The next read gets the fresh value from the cache.
+- `?priority=background`: a prefetch. It waits behind every interactive read; a person's click on the same thing joins
+  it and raises its priority. The dashboard prefetches this way when you hover a menu item or an expiry chip.
+
 ## Seeing it work
 
 ```bash
-curl -H "Authorization: Bearer $KEY" http://127.0.0.1:4300/v1/limits   # effective policy per broker, your key's budget
-curl -H "Authorization: Bearer $KEY" http://127.0.0.1:4300/v1/usage    # per account and class: used, queued, back-off; savings
+curl -H "Authorization: Bearer $KEY" http://127.0.0.1:4300/v1/limits              # effective policy per broker, your key's budget
+curl -H "Authorization: Bearer $KEY" http://127.0.0.1:4300/v1/usage               # per account and class: used, queued, back-off; savings
+curl -H "Authorization: Bearer $KEY" "http://127.0.0.1:4300/v1/usage?series=1"    # + calls per second over the last two minutes
+curl -H "Authorization: Bearer $KEY" "http://127.0.0.1:4300/v1/usage?view=budget" # the dashboard's budget summary
 ```
 
-`savings` counts the broker calls avoided today: served from stream, served from cache, coalesced and batched. The
-dashboard shows the same figures.
+`savings` counts the broker calls avoided today: served from stream, served from cache, coalesced and batched. Each
+class lists every window (`windows`: this second, this minute, today) with what it holds now. Admin keys also get
+`consumers`: today's broker calls and saved calls per dashboard page, API key (by label), MCP, Excel / compat, the
+recorder and Live events.
+
+The dashboard shows the same figures: the **API** capsule in the top bar (this second and this minute against the
+limit, the stream, calls saved today; fed by `budget` messages on the stream, op `subscribe_budget`), and
+**API › Rate limits** (a live calls-per-second chart against the limit, and Top consumers). Measurements of what this
+saves are in [docs/perf/baseline.md](../perf/baseline.md).

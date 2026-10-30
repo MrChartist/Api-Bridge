@@ -684,6 +684,10 @@ components:
             savedToday: { type: integer, description: Broker calls avoided today by the stream, the cache, shared calls and batching. }
             savings: { type: object }
             stream: { type: object, properties: { feeds: { type: integer }, up: { type: integer }, subscriptions: { type: integer } } }
+            jobs:
+              type: array
+              description: Background jobs spending broker budget now, e.g. the scanner's pre-warm ("Preparing scans").
+              items: { type: object, properties: { id: { type: string }, label: { type: string }, done: { type: integer }, total: { type: integer }, paused: { type: boolean } } }
     MarketEventMessage:
       allOf:
         - { $ref: "#/components/schemas/Envelope" }

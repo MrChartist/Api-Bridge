@@ -5,7 +5,7 @@
 // Built for refresh every few seconds: the chain table is built once per (underlying, expiry, strikes, columns) and
 // then patched cell by cell, so nothing flickers, scroll and keyboard focus stay put, and only cells that changed
 // flash. The maths lives in options.js (pure, tested); numbers are formatted by format.js only.
-import { DEMO_EXPLAINER, alertBox, api, app, emptyState, errorState, h, icon, liveControl, loadingState, modal, mountToolbarCtx, optional, sheetPopover, toast, touchWord } from "./app.js";
+import { DEMO_EXPLAINER, alertBox, api, app, emptyState, errorState, h, icon, liveControl, loadingState, modal, mountToolbarCtx, optional, prefetch, sheetPopover, toast, touchWord } from "./app.js";
 import { DASH, MINUS, ageText, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { arbPanels } from "./arbitrage.js";
 import { openChainSheet } from "./chain-sheet.js";
@@ -594,7 +594,7 @@ async function renderDesk(kind) {
       ...list.map((e) => {
         const m = futs ? futs.has(e) : O.isMonthlyExpiry(e, ex);
         const on = e === st.expiry;
-        return h("button", { type: "button", class: "chip-btn exp-chip", "aria-pressed": String(on), title: `${expiryText(e)} · ${O.expiryTag(e, ex).days} to expiry${m ? " · monthly" : ""}`, onclick: () => selectExpiry(e) }, h("span", { class: "ec-d" }, expiryText(e)), h("span", { class: "ec-t" }, `${O.expiryTag(e, ex).days}${m ? " · M" : ""}`));
+        return h("button", { type: "button", class: "chip-btn exp-chip", "aria-pressed": String(on), title: `${expiryText(e)} · ${O.expiryTag(e, ex).days} to expiry${m ? " · monthly" : ""}`, onclick: () => selectExpiry(e), onpointerenter: () => e !== st.expiry && prefetch(chainPath(e)), onfocus: () => e !== st.expiry && prefetch(chainPath(e)) }, h("span", { class: "ec-d" }, expiryText(e)), h("span", { class: "ec-t" }, `${O.expiryTag(e, ex).days}${m ? " · M" : ""}`));
       }),
     );
   }
@@ -615,6 +615,11 @@ async function renderDesk(kind) {
     if (r.error) return;
     for (const q of r.data?.data ?? []) if (q?.symbol) st.quotes.set(q.symbol, q);
   }
+  /** The chain read of this page for an expiry (one URL, so a prefetch and the load share the answer). */
+  function chainPath(expiry) {
+    const strikes = kind === "oi" ? OI_FETCH_STRIKES : kind === "vol" ? VOL_STRIKES : FETCH_STRIKES;
+    return `/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(expiry)}&strikes=${strikes}&greeks=${kind === "vol" ? "false" : "true"}&ivModel=b76-forward`;
+  }
   async function loadChain({ draw = true } = {}) {
     if (!st.expiry) return;
     const seq = st.seq;
@@ -622,8 +627,7 @@ async function renderDesk(kind) {
     try {
       // The Volatility page recomputes IVs and deltas itself (no server Greeks); every page loads the index quote,
       // which the top bar's spot and its change come from.
-      const strikes = kind === "oi" ? OI_FETCH_STRIKES : kind === "vol" ? VOL_STRIKES : FETCH_STRIKES;
-      const [r] = await Promise.all([api(`/v1/optionchain?underlying=${encodeURIComponent(st.underlying)}&expiry=${encodeURIComponent(st.expiry)}&strikes=${strikes}&greeks=${kind === "vol" ? "false" : "true"}&ivModel=b76-forward`), loadQuotes()]);
+      const [r] = await Promise.all([api(chainPath(st.expiry)), loadQuotes()]);
       if (seq !== st.seq) return;
       st.chain = r.data.data;
       st.freshness = r.data.data?.freshness ?? r.data.meta?.freshness ?? null;
@@ -641,7 +645,7 @@ async function renderDesk(kind) {
   // ── Live ticks (live.js): between refreshes the legs on screen, the index and its futures stream in over the one
   // shared connection. The Bridge then builds this page's chain reads from the same ticks (no broker call), so the
   // refresh below costs the broker nothing while the stream is up. The chain and the Strategy Builder redraw on each
-  // frame that brought ticks, OI Analysis at most once a second. Greeks stay from the last refresh (a few seconds).
+  // frame that brought ticks, OI Analysis at most twice a second. Greeks stay from the last refresh (a few seconds).
   const LIVE_KINDS = new Set(["chain", "strategy", "oi"]);
   const feed = LIVE_KINDS.has(kind) ? watch([], "quote", (ticks) => applyTicks(ticks)) : null;
   /** canonical symbol -> [row index, "ce" | "pe"] for the chain on screen */
@@ -699,10 +703,10 @@ async function renderDesk(kind) {
     st.chain = { ...st.chain, rows, ...(idxTick && isFigure(idxTick.ltp) ? { underlyingLtp: idxTick.ltp } : {}) };
     if (newest) st.freshness = { ...(st.freshness ?? {}), asOf: new Date(newest).toISOString(), ageMs: 0, stale: false, source: "stream" };
     st.lastOk = new Date().toISOString();
-    // The chain and the builder redraw on this frame; OI Analysis (it charts every strike) at most once a second.
+    // The chain and the builder redraw on this frame; OI Analysis (it charts every strike) at most twice a second.
     if (kind !== "oi") return drawAll();
     if (oiDrawTimer) return;
-    const wait = Math.max(0, 1000 - (performance.now() - oiDrawnAt));
+    const wait = Math.max(0, 500 - (performance.now() - oiDrawnAt));
     oiDrawTimer = setTimeout(() => {
       oiDrawTimer = 0;
       oiDrawnAt = performance.now();

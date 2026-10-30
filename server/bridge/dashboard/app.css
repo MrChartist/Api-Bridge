@@ -7249,8 +7249,11 @@ button.toolbar-budget-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.
 .toolbar-budget[data-tone="bad"] .bud-num { color: hsl(var(--ios-red-ink)); }
 /* Narrow toolbars keep the dot and this second only. */
 @media (max-width: 1279px) { .toolbar-budget :is(.bud-sep, .bud-min) { display: none; } }
+/* The Options pages' top bar carries the underlying, expiry, spot and live control: there the capsule shows this
+   second only (the popover has the minute). */
+:root[data-layout="desk"] .toolbar-budget :is(.bud-sep, .bud-min) { display: none; }
 @media (max-width: 719px) { .toolbar-budget .bud-lbl { display: none; } button.toolbar-budget-btn { --btn-px: 10px; } }
-.bud-pop { display: flex; flex-direction: column; gap: 12px; min-width: min(300px, 80vw); max-width: 360px; font-size: 13px; }
+.bud-pop { display: flex; flex-direction: column; gap: 12px; min-width: min(300px, 80vw); max-width: 360px; padding: 4px 16px 14px; font-size: 13px; }
 .bud-stream { display: flex; align-items: center; gap: 8px; font-weight: 500; }
 .bud-acct { display: flex; flex-direction: column; gap: 6px; padding-bottom: 10px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 .bud-acct-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
@@ -7264,6 +7267,7 @@ button.toolbar-budget-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.
 .bud-saved-parts { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
 .bud-part { display: inline-flex; gap: 6px; }
 .bud-more { font-weight: 500; }
+.bud-jobs { display: grid; gap: 6px; padding-bottom: 10px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 /* Rate limits tab: calls per second against the limit over two minutes, and who used the budget. */
 .rl-chart { display: block; width: 100%; height: 120px; }
 .rl-chart .rl-grid { stroke: var(--mat-hairline); stroke-width: 1; }

@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { DASHBOARD_FILES } from "../core/app.mjs";
-import { NAV_WINDOW_MS, PAINT_FROM_CACHE_MS, SHARE_MS, cacheUse, cacheable, forgetsAnswers } from "./app.js";
+import { NAV_WINDOW_MS, PAINT_FROM_CACHE_MS, SHARE_MS, cacheUse, cacheable, forgetsAnswers, pollTarget } from "./app.js";
 import { budgetView, busiestClass, perSecondLimit, savedParts, shareTone, windowText } from "./budget.js";
 import { mergeTick, subscriptionDiff } from "./live.js";
 
@@ -30,6 +30,15 @@ describe("fetch layer memory", () => {
     expect(forgetsAnswers("POST", "/v1/stream/token")).toBe(false);
     expect(forgetsAnswers("POST", "/v1/orders/preview")).toBe(false);
     expect(forgetsAnswers("GET", "/v1/orders")).toBe(false);
+  });
+});
+
+describe("polls become stream subscriptions", () => {
+  it("reads the symbols and the mode of a polled quotes or LTP read", () => {
+    expect(pollTarget("/v1/quotes?symbols=NSE%3ANIFTY%2CNFO%3ANIFTY-2026-11-03-26000-CE")).toEqual({ symbols: ["NSE:NIFTY", "NFO:NIFTY-2026-11-03-26000-CE"], mode: "quote" });
+    expect(pollTarget("/v1/ltp?symbols=NSE:RELIANCE,NSE:INFY&maxAgeMs=500")).toEqual({ symbols: ["NSE:RELIANCE", "NSE:INFY"], mode: "ltp" });
+    expect(pollTarget("/v1/optionchain?underlying=NIFTY")).toBeNull();
+    expect(pollTarget("/v1/quotes?symbols=%E0%A4")).toBeNull();
   });
 });
 
