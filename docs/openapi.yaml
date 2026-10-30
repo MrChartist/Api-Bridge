@@ -99,6 +99,8 @@ tags:
     description: The paper-trading engine.
   - name: Alerts
     description: Position alerts (P&L, spot, delta, time to expiry, premium multiple). They notify only; they never place an order.
+  - name: Triggers
+    description: GTT single and OCO, trailing stops, stop and target on an entry, and position stops and targets, checked on the Bridge. Each fire places its order through every check of POST /v1/orders as source guard.
   - name: Watchlists
     description: Named lists of symbols, priced with % change, OI change for F&O and IV. One list can feed Live events and one the Home page.
   - name: Journal
@@ -1934,6 +1936,138 @@ paths:
                       fallback: { type: array, items: { type: string } }
                       available: { type: number }
                       method: { type: string }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/triggers:
+    get:
+      tags: [Triggers]
+      operationId: listTriggers
+      summary: Triggers on the accounts this key may use, newest first
+      x-stream: S25
+      x-scope: read
+      parameters:
+        - { name: account, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string, enum: [open, waiting, active, firing, triggered, cancelled, failed, expired] } }
+      responses:
+        "200":
+          description: Triggers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Trigger" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Triggers]
+      operationId: createTrigger
+      summary: Set a GTT, OCO, trailing stop, bracket exit or position stop and target
+      description: >-
+        A trigger is checked every second on the Bridge. When it fires it places its order through every check of
+        POST /v1/orders (limits, kill switch, live gates) as source guard, with the scopes of the key that set it. Live
+        needs "guard" in the account's live.allowedSources. Bracket and position triggers are reduce-only.
+      x-stream: S25
+      x-scope: paper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TriggerInput" }
+      responses:
+        "200":
+          description: The new trigger.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Trigger" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/triggers/{triggerId}:
+    parameters:
+      - name: triggerId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Triggers]
+      operationId: getTrigger
+      summary: One trigger
+      x-stream: S25
+      x-scope: read
+      responses:
+        "200":
+          description: The trigger.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Trigger" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    patch:
+      tags: [Triggers]
+      operationId: updateTrigger
+      summary: Change trigger prices, limit prices or the trail
+      x-stream: S25
+      x-scope: paper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [legs]
+              properties:
+                legs:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      trigger: { type: number }
+                      price: { type: number }
+                      trail: { type: [object, "null"], properties: { points: { type: number }, pct: { type: number } } }
+      responses:
+        "200":
+          description: The changed trigger.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Trigger" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Triggers]
+      operationId: cancelTrigger
+      summary: Cancel a waiting or active trigger
+      x-stream: S25
+      x-scope: paper
+      responses:
+        "200":
+          description: The cancelled trigger.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Trigger" }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -7937,6 +8071,56 @@ components:
               errors: { type: array, items: { type: object, additionalProperties: true } }
               meta: { $ref: "#/components/schemas/Meta" }
   schemas:
+    TriggerLegInput:
+      type: object
+      required: [trigger, order]
+      properties:
+        trigger: { type: number, exclusiveMinimum: 0 }
+        op: { type: string, enum: [above, below], description: "Default: the side of the price now that the trigger is on." }
+        role: { type: string, enum: [entry, stop, target] }
+        trail: { type: [object, "null"], properties: { points: { type: number }, pct: { type: number, maximum: 50 } } }
+        order:
+          type: object
+          required: [side]
+          properties:
+            side: { type: string, enum: [BUY, SELL] }
+            quantity: { type: integer, minimum: 1 }
+            lots: { type: integer, minimum: 1 }
+            orderType: { type: string, enum: [LIMIT, MARKET], default: MARKET }
+            price: { type: number }
+    TriggerInput:
+      type: object
+      required: [account, symbol, product, legs]
+      properties:
+        account: { type: string }
+        symbol: { type: string }
+        product: { type: string, enum: [INTRADAY, MARGIN, CNC, MTF] }
+        type: { type: string, enum: [single, oco] }
+        origin: { type: string, enum: [gtt, bracket, position], default: gtt }
+        parentOrderId: { type: string, description: "bracket: the entry order; the exits arm when it fills." }
+        mode: { type: string, enum: [paper, live], default: paper }
+        name: { type: string, maxLength: 80 }
+        expiresAt: { type: string, format: date-time }
+        legs: { type: array, minItems: 1, maxItems: 2, items: { $ref: "#/components/schemas/TriggerLegInput" } }
+    Trigger:
+      type: object
+      additionalProperties: true
+      properties:
+        id: { type: string }
+        name: { type: string }
+        account: { type: string }
+        symbol: { type: string }
+        product: { type: string }
+        mode: { type: string, enum: [paper, live] }
+        type: { type: string, enum: [single, oco] }
+        origin: { type: string, enum: [gtt, bracket, position] }
+        reduceOnly: { type: boolean }
+        status: { type: string, enum: [waiting, active, firing, triggered, cancelled, failed, expired] }
+        legs: { type: array, items: { type: object, additionalProperties: true } }
+        expiresAt: { type: string }
+        lastLtp: { type: [number, "null"] }
+        result: { type: [object, "null"], additionalProperties: true, description: "orderId, status, code and message once it fired, failed or was cancelled." }
+        warnings: { type: array, items: { type: string } }
     PaperDailyPnl:
       type: object
       required: [day, at, source, equity, pnl]

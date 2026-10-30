@@ -13,10 +13,14 @@
  *   delta_outside              net delta (units of the underlying) below `value` or above `value2`
  *   expiry_within              the nearest leg expires within `value` minutes
  *   premium_multiple           a leg's price is at least `value` × its average price (2 = it doubled)
+ *   theta_below                the legs' theta (rupees a calendar day) at or below `value` (−5000 = decaying 5000 a day)
+ *   vega_outside               the legs' vega (rupees per IV point) below `value` or above `value2`
  */
-import { b76Delta, impliedVolB76 } from "./pricing.js";
+import { b76Delta, greeks76, impliedVolB76 } from "./pricing.js";
 
-export const ALERT_KINDS = Object.freeze(["pnl_above", "pnl_below", "spot_above", "spot_below", "delta_outside", "expiry_within", "premium_multiple"]);
+export const ALERT_KINDS = Object.freeze(["pnl_above", "pnl_below", "spot_above", "spot_below", "delta_outside", "expiry_within", "premium_multiple", "theta_below", "vega_outside"]);
+/** Kinds with a band: below `value` or above `value2`. */
+export const BAND_KINDS = Object.freeze(["delta_outside", "vega_outside"]);
 export const MAX_CONDITIONS = 5;
 export const DEFAULT_COOLDOWN_MIN = 15;
 
@@ -58,9 +62,9 @@ export function ruleProblems(r) {
     if (!ALERT_KINDS.includes(c?.kind)) return out.push(`${at}: unknown kind.`);
     const v = num(c.value);
     if (v === null) return out.push(`${at}: give a number.`);
-    if (c.kind === "delta_outside") {
+    if (BAND_KINDS.includes(c.kind)) {
       const v2 = num(c.value2);
-      if (v2 === null || v2 <= v) out.push(`${at}: the upper delta must be above the lower one.`);
+      if (v2 === null || v2 <= v) out.push(`${at}: the upper ${c.kind === "vega_outside" ? "vega" : "delta"} must be above the lower one.`);
     }
     if ((c.kind === "spot_above" || c.kind === "spot_below") && v <= 0) out.push(`${at}: the level must be above zero.`);
     if (c.kind === "expiry_within" && (v <= 0 || v > 60 * 24 * 60)) out.push(`${at}: minutes from 1 to 86400.`);
@@ -91,6 +95,9 @@ export function groupMetrics(positions, { underlying, symbols = null, spot = nul
   let pnl = 0;
   let pnlKnown = legs.length > 0;
   let delta = S ? 0 : null;
+  // Theta (rupees a calendar day) and vega (rupees per IV point) of the option legs; null when a leg's IV cannot be read.
+  let theta = S ? 0 : null;
+  let vega = S ? 0 : null;
   let minutes = null;
   let nearest = null;
   let mult = null;
@@ -122,6 +129,11 @@ export function groupMetrics(positions, { underlying, symbols = null, spot = nul
         const T = Math.max(0, (expiryCloseMs(x.expiry) - nowMs) / YEAR_MS);
         const iv = ltp !== null && T > 0 ? impliedVolB76(ltp, S, x.strike, T, x.right) : null;
         let d = iv !== null ? b76Delta(S, x.strike, T, iv, x.right) : null;
+        const g = iv !== null ? greeks76(S, x.strike, T, iv, x.right, { yearBasis: 365 }) : null;
+        if (g && Number.isFinite(g.theta) && Number.isFinite(g.vega)) {
+          if (theta !== null) theta += q * g.theta;
+          if (vega !== null) vega += q * g.vega;
+        } else if (T > 0) theta = vega = null;
         if (d === null) {
           // Expired, or an IV that cannot be solved (a stale or odd price): delta by moneyness keeps the total usable.
           const itm = x.right === "CE" ? S > x.strike : S < x.strike;
@@ -131,7 +143,7 @@ export function groupMetrics(positions, { underlying, symbols = null, spot = nul
       }
     }
   }
-  return { legs: legs.length, pnl: pnlKnown ? pnl : null, spot: S, delta, minutesToExpiry: minutes, premiumMultiple: mult, premiumLeg: multLeg, nearestExpiry: nearest };
+  return { legs: legs.length, pnl: pnlKnown ? pnl : null, spot: S, delta, theta, vega, minutesToExpiry: minutes, premiumMultiple: mult, premiumLeg: multLeg, nearestExpiry: nearest };
 }
 
 /**
@@ -157,7 +169,7 @@ export function bookGroups(positions, { spots = {}, nowMs }) {
 /** One condition against the metrics: { met: true|false|null (no data), value }. */
 export function evalCondition(c, m) {
   const v = num(c?.value);
-  const pick = { pnl_above: m.pnl, pnl_below: m.pnl, spot_above: m.spot, spot_below: m.spot, delta_outside: m.delta, expiry_within: m.minutesToExpiry, premium_multiple: m.premiumMultiple }[c?.kind];
+  const pick = { pnl_above: m.pnl, pnl_below: m.pnl, spot_above: m.spot, spot_below: m.spot, delta_outside: m.delta, expiry_within: m.minutesToExpiry, premium_multiple: m.premiumMultiple, theta_below: m.theta, vega_outside: m.vega }[c?.kind];
   const x = num(pick);
   if (x === null || v === null || !m.legs) return { met: null, value: x };
   switch (c.kind) {
@@ -167,8 +179,10 @@ export function evalCondition(c, m) {
       return { met: x >= v, value: x };
     case "pnl_below":
     case "spot_below":
+    case "theta_below":
       return { met: x <= v, value: x };
     case "delta_outside":
+    case "vega_outside":
       return { met: x < v || x > num(c.value2), value: x };
     case "expiry_within":
       return { met: x <= v && x > 0, value: x };
