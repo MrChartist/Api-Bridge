@@ -5,7 +5,7 @@ import { computeGreeks } from "../../lib/blackScholes.mjs";
 import { createFakeMarketData } from "../market/fake.mjs";
 
 const leg = (o = {}) => ({ symbol: "x", ltp: 50, oi: 100, iv: 15, delta: 0.5, gamma: 0.001, ...o });
-const chain = (rows, extra = {}) => ({ underlying: "NIFTY", expiry: "2026-11-03", underlyingLtp: 25000, lotSize: 75, atmStrike: 25000, rows, ...extra });
+const chain = (rows, extra = {}) => ({ underlying: "NIFTY", expiry: "2026-11-03", underlyingLtp: 25000, lotSize: 75, units: "lots", atmStrike: 25000, rows, ...extra });
 const base = chain([
   { strike: 24900, ce: leg({ delta: 0.7, gamma: 0.0008, oi: 200 }), pe: leg({ delta: -0.3, gamma: 0.0008, oi: 900 }) },
   { strike: 25000, ce: leg({ gamma: 0.0012, oi: 500 }), pe: leg({ delta: -0.5, gamma: 0.0012, oi: 400 }) },

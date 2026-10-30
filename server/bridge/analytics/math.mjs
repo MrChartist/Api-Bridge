@@ -78,10 +78,19 @@ export function oiAnalysis(chain, { top: n = 3 } = {}) {
  * Calls count positive and puts negative (dealers assumed long calls and short puts, the usual convention).
  * `flipStrike` is where the running total from the lowest strike changes sign.
  */
+/**
+ * What one unit of OI or volume in a chain stands for, in units of the underlying. The Bridge reports OI and volume in
+ * UNITS (contracts × lot size; market/oiUnits.mjs), so this is 1. A chain marked `units: "lots"` (counts of
+ * contracts, as PR 17's analytics first assumed) multiplies by its lot size. Pure.
+ */
+export function unitMultiplier(chain) {
+  return chain?.units === "lots" ? num(chain?.lotSize) || 1 : 1;
+}
+
 export function gammaExposure(chain) {
   const rows = rowsOf(chain);
   const spot = num(chain?.underlyingLtp);
-  const lot = num(chain?.lotSize) || 1;
+  const lot = unitMultiplier(chain);
   const k = spot > 0 ? spot * spot * 0.01 * lot : 0;
   let running = 0;
   let flip = null;

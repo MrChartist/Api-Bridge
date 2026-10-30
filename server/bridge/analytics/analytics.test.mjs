@@ -128,3 +128,16 @@ describe("analytics routes", () => {
     expect(ok.data.lots).toBe(100);
   });
 });
+
+describe("units of OI and volume", async () => {
+  const { unitMultiplier, gammaExposure } = await import("./math.mjs");
+  it("takes the Bridge's units as they are, and multiplies only a chain that counts contracts", () => {
+    expect(unitMultiplier({ lotSize: 65 })).toBe(1);
+    expect(unitMultiplier({ lotSize: 65, units: "lots" })).toBe(65);
+    expect(unitMultiplier({ units: "lots" })).toBe(1);
+    const rows = [{ strike: 100, ce: { oi: 650, gamma: 0.01 }, pe: { oi: 0, gamma: 0.01 } }];
+    const units = gammaExposure({ underlyingLtp: 100, lotSize: 65, rows });
+    const lots = gammaExposure({ underlyingLtp: 100, lotSize: 65, units: "lots", rows: [{ strike: 100, ce: { oi: 10, gamma: 0.01 }, pe: { oi: 0, gamma: 0.01 } }] });
+    expect(units.netGex).toBeCloseTo(lots.netGex, 6); // 650 units = 10 lots of 65
+  });
+});

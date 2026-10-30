@@ -8661,8 +8661,7 @@ td .flags { white-space: normal; }
 .scroll-box thead th { position: sticky; top: 0; z-index: 2; background: var(--mat-grouped-solid); box-shadow: inset 0 -0.5px 0 var(--mat-separator); }
 .scroll-box thead th { border-bottom: 0; }
 .pick-table tbody tr.selectable { cursor: pointer; }
-.pick-table tbody tr[aria-selected="true"] td { background: hsl(var(--ios-blue) / 0.10); }
-.pick-table tbody tr[aria-selected="true"] td:first-child { box-shadow: inset 3px 0 0 hsl(var(--ios-blue)); }
+.pick-table tbody tr[aria-selected="true"] > td { background-color: var(--mat-fill-2); }
 button.row-pick { min-height: 0; padding: 0; background: transparent; box-shadow: none; border-radius: 6px; font: 600 14px/1.3 var(--font-body); color: hsl(var(--foreground)); justify-content: flex-start; }
 button.row-pick:hover { background: transparent; color: hsl(var(--ios-blue-ink)); }
 th button.th-sort { min-height: 0; padding: 0; gap: 4px; background: transparent; box-shadow: none; border-radius: 4px; font: inherit; color: inherit; letter-spacing: inherit; }
@@ -8806,3 +8805,37 @@ th[aria-sort="ascending"], th[aria-sort="descending"] { color: hsl(var(--foregro
 /* A line series is a stroke: PR 17's colour rules for call and put also filled it (the skew drew an orange wedge). */
 .chart .line.call, .chart .line.put { fill: none; }
 
+/* Hollow markers (a series drawn on top of another, e.g. call IV over put IV): ring in the series colour. */
+.chart .dot.hollow { fill: var(--mat-grouped-solid); stroke-width: 1.75; opacity: 1; }
+.chart .dot.call.hollow { stroke: hsl(var(--ios-blue-ink)); }
+.an-page .an-wrap { white-space: normal; overflow-wrap: anywhere; }
+/* A page tab's own sub-views (Flow › Filings: Deals, Insiders, …): a compact switch under the page tabs, not a
+   full-width bar with a label repeating the tab's name. */
+.an-page .flow-tabs .seg-field > span:first-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.an-page .flow-tabs .segmented { width: max-content; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.an-page .flow-tabs .segmented button { min-height: 32px; padding: 0 14px; font-size: 13px; }
+@media (pointer: coarse) { .an-page .flow-tabs .segmented button { min-height: 44px; } }
+.an-page .flow-tabs .seg-field { align-items: flex-start; }
+.an-page .flow-tabs .seg-field .segmented { display: inline-flex; width: auto; }
+/* Panel tables: the head sticks inside the panel, never pushed down by the page's own sticky offset. */
+.an-page .card .table-wrap > table > thead th { top: 0; }
+/* Names in tables wrap instead of being cut ("GOLDMAN SACHS (SINGAPOR…"). */
+.an-page .clip { display: inline; max-width: none; overflow: visible; text-overflow: clip; white-space: normal; }
+@media (pointer: coarse) {
+  .an-page label.check { min-height: 44px; display: flex; align-items: center; gap: 10px; }
+  .an-page label.check input[type="checkbox"] { width: 22px; height: 22px; }
+}
+/* Masonry (analytics.js balanceRows): 4 px rows, each panel spans its height, holes are filled. */
+.an-page.an-masonry { grid-auto-rows: 4px; grid-auto-flow: row dense; }
+/* Panel heads: title, a short note inline, or "?" holding a long one; one height everywhere (--panel-head-h). */
+.an-page .an-panel > .card-head { flex-wrap: nowrap; }
+.an-page .an-panel > .card-head .card-titles { flex-wrap: nowrap; align-items: center; min-width: 0; }
+.an-page .an-panel > .card-head .card-titles h2 { white-space: nowrap; }
+.an-page .an-panel > .card-head .card-titles p { min-width: 0; }
+.an-page button.an-help { width: 28px; height: 28px; flex: none; margin-left: 4px; font: 600 13px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.an-help-text { margin: 0; font: 400 14px/1.5 var(--font-body); }
+@media (pointer: coarse) { .an-page button.an-help { width: 44px; height: 44px; } }
+@media (max-width: 719px) {
+  .an-page .an-panel > .card-head { flex-wrap: wrap; }
+  .an-page .an-panel > .card-head .card-titles p { white-space: normal; }
+}

@@ -8,7 +8,7 @@ import { createFakeMarketData } from "../market/fake.mjs";
 const T0 = Date.parse("2026-10-27T05:00:00Z"); // 10:30 IST
 const MIN = 60_000;
 const leg = (volume, ltp, bid, ask) => ({ volume, ltp, bid, ask });
-const chainOf = (rows, lotSize = 10) => ({ underlying: "NIFTY", underlyingLtp: 25000, lotSize, rows: rows.map(([strike, ce, pe]) => ({ strike, ce, pe })) });
+const chainOf = (rows, lotSize = 10) => ({ underlying: "NIFTY", underlyingLtp: 25000, lotSize, units: "lots", rows: rows.map(([strike, ce, pe]) => ({ strike, ce, pe })) });
 
 let dir;
 beforeEach(() => {
@@ -73,16 +73,17 @@ describe("route", () => {
     setVol(md, leg(120, 101, 99, 101), leg(110, 79, 79, 81)); // calls bought 20, puts sold 10
     const second = (await call()).data;
     expect(second.series).toHaveLength(1);
-    expect(second.series[0]).toMatchObject({ callPremium: 20 * 100 * 10, putPremium: 10 * 80 * 10, net: 12_000, cumulativeNet: 12_000, cumulativeDeltaAdjusted: 28_000 });
-    expect(second.totals).toMatchObject({ callPremium: 20_000, putPremium: 8000, net: 12_000, unclassified: 0 });
+    // Through the route the chain comes from marketData, whose volume is in units: premium is volume x price.
+    expect(second.series[0]).toMatchObject({ callPremium: 20 * 100, putPremium: 10 * 80, net: 1_200, cumulativeNet: 1_200, cumulativeDeltaAdjusted: 2_800 });
+    expect(second.totals).toMatchObject({ callPremium: 2_000, putPremium: 800, net: 1_200, unclassified: 0 });
     expect(second.sentiment).toMatchObject({ label: "bullish", proxy: true });
-    expect(second.topStrikes[0]).toMatchObject({ strike: 25000, totalPremium: 28_000 });
+    expect(second.topStrikes[0]).toMatchObject({ strike: 25000, totalPremium: 2_800 });
     clock.t += 5 * MIN;
     setVol(md, leg(120, 101, 99, 101), leg(130, 79, 79, 81)); // puts sold 20 more
     const third = (await call("underlying=NIFTY&expiry=2026-10-27&windowMin=3")).data;
     expect(third.series).toHaveLength(1);
-    expect(third.totals.cumulativeNet).toBe(12_000 - 16_000);
-    expect(third.window).toMatchObject({ minutes: 3, putPremium: 16_000 });
+    expect(third.totals.cumulativeNet).toBe(1_200 - 1_600);
+    expect(third.window).toMatchObject({ minutes: 3, putPremium: 1_600 });
     expect(third.notes.join(" ")).toMatch(/proxy/);
   });
 
@@ -112,7 +113,7 @@ describe("route", () => {
     setVol(b.md, leg(130, 101, 99, 101), leg(100, 80, 79, 81));
     const r = (await b.call()).data;
     expect(r.intervals).toBe(1);
-    expect(r.totals.callPremium).toBe(20_000);
+    expect(r.totals.callPremium).toBe(2_000);
 
     const c = setup();
     c.clock.t = T0 + 24 * 60 * MIN;

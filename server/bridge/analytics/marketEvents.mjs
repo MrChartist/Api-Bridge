@@ -362,7 +362,7 @@ export function marketEventsRoutes(deps) {
   }
   const meta = (ctx, r, extraMeta) => ({
     requestId: ctx.requestId,
-    source: "nse",
+    source: extra(deps, "config")?.demo ? "demo" : "nse",
     fetchedAt: new Date(r.fetchedAt).toISOString(),
     stale: r.stale,
     ...extraMeta,

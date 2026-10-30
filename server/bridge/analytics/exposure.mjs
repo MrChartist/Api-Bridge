@@ -24,7 +24,7 @@ import { z } from "zod";
 import { BridgeError } from "../core/errors.mjs";
 import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
 import { computeGreeks, daysBetween, DEFAULT_RATE } from "../../lib/blackScholes.mjs";
-import { gammaExposure, nowMsOf, upcomingExpiries } from "./math.mjs";
+import { gammaExposure, nowMsOf, unitMultiplier, upcomingExpiries } from "./math.mjs";
 
 const fin = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 const round = (v, d = 0) => (Number.isFinite(v) ? Math.round(v * 10 ** d) / 10 ** d : 0);
@@ -62,7 +62,7 @@ const usable = (leg) => leg && fin(leg.oi) > 0 && fin(leg.iv) > 0 && Number.isFi
 export function greekExposure(chain, { days = 0.25, rate = DEFAULT_RATE } = {}) {
   const rows = Array.isArray(chain?.rows) ? chain.rows : [];
   const spot = fin(chain?.underlyingLtp);
-  const lot = fin(chain?.lotSize) || 1;
+  const lot = unitMultiplier(chain); // OI is in units on this Bridge
   let skipped = 0;
   const side = (leg) => {
     if (!leg || !(fin(leg.oi) > 0)) return null;
