@@ -1811,18 +1811,35 @@ async function renderDesk(kind) {
         const exitCh = isFigure(entryCh) ? O.charges([chLeg(b.side === "BUY" ? "SELL" : "BUY")], rates, { lotSize: r.quantity }).total : null;
         const after = risk && isFigure(entryCh) ? riskAfterCharges(risk, { side: b.side, right, qty: r.quantity, entry: entryCh, exit: exitCh }) : null;
         const lossText = risk ? (risk.maxLoss === null ? "Unlimited" : formatRupee(risk.maxLoss, 0)) : null;
+        // With a stop and target on the entry: the loss at the stop and the reward at the target, from the expected
+        // fill; the full max loss stays on screen as what a gap through the stop can cost.
+        const exitF = !gtt() && exitsWanted() && !triggerProblem(exitsFields()) ? exitsFields() : null;
+        const atStop = exitF && isFigure(exitF.stop) && isFigure(px) ? Math.abs(px - exitF.stop) * r.quantity : null;
+        const atTarget = exitF && isFigure(exitF.target) && isFigure(px) ? Math.abs(exitF.target - px) * r.quantity : null;
+        const exitFigs =
+          atStop !== null || atTarget !== null
+            ? h(
+                "div",
+                { class: "ticket-figs bk-exit-figs" },
+                atStop !== null && risk ? h("div", { title: "The most this order can lose at expiry if the price gaps through the stop" }, h("small", {}, "If it gaps"), h("span", { class: risk.maxLoss === null ? "down" : "" }, lossText)) : null,
+                atTarget !== null ? h("div", { title: "What the target exits at, before charges" }, h("small", {}, "Reward at target"), h("span", { class: "up" }, formatRupee(atTarget, 0))) : null,
+                atStop && atTarget !== null ? h("div", {}, h("small", {}, "Reward : risk"), `${formatFixed(atTarget / atStop, 1)} : 1`) : null,
+              )
+            : null;
         previewEl.replaceChildren(
           h(
             "div",
             { class: `ticket-figs${risk ? " with-risk" : ""}` },
             h("div", {}, h("small", {}, "Quantity"), `${formatInt(r.quantity)}`),
             h("div", {}, h("small", {}, b.side === "BUY" ? "You pay" : "You receive"), formatRupee(gtt() && isFigure(px) ? px * r.quantity : r.estimatedValue, 0)),
-            risk ? h("div", { title: "The most this order can lose at expiry, before charges" }, h("small", {}, "Max loss"), h("span", { class: risk.maxLoss === null ? "down" : "" }, lossText)) : null,
+            risk && atStop === null ? h("div", { title: "The most this order can lose at expiry, before charges" }, h("small", {}, "Max loss"), h("span", { class: risk.maxLoss === null ? "down" : "" }, lossText)) : null,
+            risk && atStop !== null ? h("div", { title: "What the stop exits at, before charges and slippage. A gap past the stop can cost more (below)." }, h("small", {}, "Max loss at stop"), formatRupee(atStop, 0)) : null,
             risk ? h("div", { title: "Where the underlying must settle at expiry for this order to break even, before charges" }, h("small", {}, "Breakeven"), formatFixed(risk.breakeven, 2)) : null,
             mg ? h("div", { title: SPAN_METHOD }, h("small", {}, "Margin ≈"), formatRupee(mg.required, 0)) : null,
             // Paper is said once (the account); only a live order gets a Mode figure, in red.
             r.mode === "live" ? h("div", {}, h("small", {}, "Mode"), h("span", { class: "down" }, "LIVE")) : null,
           ),
+          exitFigs,
           isFigure(entryCh)
             ? h(
                 "p",

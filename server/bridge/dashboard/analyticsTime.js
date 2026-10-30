@@ -15,21 +15,35 @@ const LAKH = 1e5;
 const istClock = (iso) => String(iso ?? "").slice(11, 16);
 
 /**
- * One strike's legs through the recorded snapshots (pure): [{ time, ceOi, peOi, ceIv, peIv }], oldest first. A
- * snapshot that did not record the strike is left out (a gap stays a gap).
+ * One strike's legs through the recorded snapshots (pure): [{ time, ceOi, peOi, ceIv, peIv }], oldest first. Gaps stay
+ * gaps:
+ *  - a snapshot without the underlying's price, or without this strike's legs (a partial chain that missed it), is out;
+ *  - a zero or missing OI or IV is no reading (null); OI of one lot or less is not a real position either;
+ *  - the recorder warming up before the chain was ready (OI at the strike under 5 % of its usual level at the start of
+ *    the series) is trimmed, so the chart and the deltas start at the first real point.
  */
 export function strikeSeries(snapshots, strike) {
-  const out = [];
+  const rows = [];
   for (const s of snapshots ?? []) {
+    if (!(Number(s.spot) > 0)) continue;
     const i = (s.strikes ?? []).indexOf(Number(strike));
     if (i < 0) continue;
+    const lot = Number(s.lotSize) > 0 ? Number(s.lotSize) : 0;
     const pick = (side, f) => {
       const v = s[side]?.[f]?.[i];
-      return isFigure(v) ? Number(v) : null;
+      if (!isFigure(v) || !(Number(v) > 0)) return null;
+      return f === "oi" && Number(v) <= lot ? null : Number(v);
     };
-    out.push({ time: s.ts ?? s.slot, ceOi: pick("ce", "oi"), peOi: pick("pe", "oi"), ceIv: pick("ce", "iv"), peIv: pick("pe", "iv") });
+    const row = { time: s.ts ?? s.slot, ceOi: pick("ce", "oi"), peOi: pick("pe", "oi"), ceIv: pick("ce", "iv"), peIv: pick("pe", "iv") };
+    if (row.ceOi === null && row.peOi === null) continue;
+    rows.push(row);
   }
-  return out;
+  const total = (r) => (r.ceOi ?? 0) + (r.peOi ?? 0);
+  const sorted = rows.map(total).sort((a, b) => a - b);
+  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+  let start = 0;
+  while (start < rows.length - 1 && total(rows[start]) < median * 0.05) start += 1;
+  return rows.slice(start);
 }
 
 /** First and last value of a field, and the change between them (pure). */
@@ -125,13 +139,14 @@ function drawStrikeHistory(res, strike, u, e) {
     card({
       title: "Implied volatility, %",
       sub: "Each leg's IV as the recorder solved it",
-      body: seriesChart(
+      body: h("div", { class: "stack" }, legend([{ cls: "put", label: "Put (PE)" }, { cls: "call", label: "Call (CE), dashed over the put" }]), seriesChart(
         [
-          { id: "ce", label: "CE IV", cls: "call", points: rows.map((r) => ({ label: label(r), y: r.ceIv })) },
-          { id: "pe", label: "PE IV", cls: "put", dash: "6 4", points: rows.map((r) => ({ label: label(r), y: r.peIv })) },
+          // As on Skew: the put underneath, the call on top dashed with hollow markers, so equal IVs both show.
+          { id: "pe", label: "PE IV", cls: "put", points: rows.map((r) => ({ label: label(r), y: r.peIv })) },
+          { id: "ce", label: "CE IV", cls: "call", dash: "6 4", hollow: true, points: rows.map((r) => ({ label: label(r), y: r.ceIv })) },
         ],
         { label: `Call and put IV at ${strike} through the session`, yDecimals: 1 },
-      ),
+      )),
     }),
   ];
 }

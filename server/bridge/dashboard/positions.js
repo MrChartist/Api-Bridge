@@ -25,6 +25,7 @@ import { openPlacement } from "./strategy-place.js";
 import { orderLimitsOf, sliceNotes } from "./basket-core.js";
 import { closeMs, countdownText, decayLeft, deskExpiry, gammaByStrike, pinRisk, settlementRisk } from "./expiry-core.js";
 import { normWhatIf, whatIfFigures } from "./whatif-core.js";
+import { cachedTriggers, exitChipText, openPositionExits, openTriggers } from "./triggers.js";
 
 
 /**
@@ -266,6 +267,8 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       const slow = d.tick % SLOW_EVERY === 1;
       const [pr] = await Promise.all([
         optional(api(`/v1/positions?account=${encodeURIComponent(acc)}`)),
+        // Each leg's stop and target chip (cached 3 s; a failed read keeps the last list).
+        openTriggers(acc),
         d.futuresFor !== u ? loadFutures(u).then(() => loadExpiries(u)) : d.expiriesFor !== u ? loadExpiries(u) : null,
         slow || d.fundsFor !== acc ? loadFunds(acc) : null,
       ]);
@@ -1318,10 +1321,13 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       ref.el.classList.toggle("sel", selected.has(l.symbol));
       ref.el.classList.toggle("focus", focusSym === l.symbol);
       ref.el.setAttribute("aria-selected", String(selected.has(l.symbol)));
-      setCell(ref.cells.get("contract"), `${l.q > 0}|${l.q < 0}|${l.product}|${l.expired}|${l.priced}|${evKey}`, () => {
+      const chip = l.q && scopeNow() === "account" ? exitChipText(cachedTriggers(st.account), l.symbol) : null;
+      setCell(ref.cells.get("contract"), `${l.q > 0}|${l.q < 0}|${l.product}|${l.expired}|${l.priced}|${evKey}|${chip}`, () => {
         const tag = h("span", {});
         sideTag(tag, l);
-        return h("span", { class: "pos-leg" }, tag, h("span", {}, h("strong", {}, ...nameNodes(l), l.q && !l.priced ? h("span", { class: "pos-wdot", title: `Not priced: ${l.why ?? "no quote"}` }) : null), ev ? eventChip(ev) : null, h("small", {}, `${expiryText(l.expiry)} · ${l.expired ? "Expired · settles at close" : PRODUCT[l.product] ?? l.product}`)));
+        // The leg's open stop and target (Bridge triggers): a tap opens them.
+        const chipEl = chip ? h("button", { type: "button", class: "bk-px-chip", title: "Stop and target on the Bridge: exits at market when LTP touches them", onclick: (e) => (e.stopPropagation(), stopsOn(l)) }, chip) : null;
+        return h("span", { class: "pos-leg" }, tag, h("span", {}, h("strong", {}, ...nameNodes(l), l.q && !l.priced ? h("span", { class: "pos-wdot", title: `Not priced: ${l.why ?? "no quote"}` }) : null), ev ? eventChip(ev) : null, chipEl, h("small", {}, `${expiryText(l.expiry)} · ${l.expired ? "Expired · settles at close" : PRODUCT[l.product] ?? l.product}`)));
       });
       for (const k of cols) {
         const td = ref.cells.get(k);
@@ -1438,6 +1444,17 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     });
   }
 
+  /** Stop and target on one leg: exits at market on the Bridge (triggers.js). Live accounts send live, if allowed. */
+  async function stopsOn(l) {
+    if (scopeNow() !== "account" || !st.account) return toast("Choose one account to set a stop and target.", { tone: "info" });
+    const a = account();
+    const done = await openPositionExits({ account: st.account, accountLabel: a?.label ?? st.account, live: Boolean(a && a.broker !== "paper"), leg: { symbol: l.symbol, q: l.q, lot: l.lot, avg: l.avg, mark: l.mark, product: l.product, tick: instCache.get?.(l.symbol)?.tickSize }, name: `${st.underlying} ${legName(l)} ${expiryText(l.expiry)}` });
+    if (done) {
+      await openTriggers(st.account, { fresh: true });
+      draw();
+    }
+  }
+
   function legActions(l) {
     const g = groups.find((x) => x.legs.includes(l));
     // Part exits only when they split into at least one whole lot (a 1-lot leg has "Exit…" alone): never a full
@@ -1450,6 +1467,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     return [
       ["Exit…", () => exitLeg(l.symbol), "exit"],
       ...part,
+      ...(l.q && scopeNow() === "account" ? [[exitChipText(cachedTriggers(st.account), l.symbol) ? "Stop and target (set)…" : "Stop and target…", () => stopsOn(l)]] : []),
       ...(l.q ? [["Alert on this leg…", () => alertOn([l], legWords(l.symbol))]] : []),
       [l.inc ? "Exclude from risk" : "Include in risk", () => toggleInclude([l.symbol], !l.inc)],
       ...(g?.expiry && l.kind === "OPT" ? [["Analyse this expiry", () => analyse(g)]] : []),

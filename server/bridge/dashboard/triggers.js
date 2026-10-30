@@ -2,8 +2,126 @@
 // triggers/). Each fire places its order through every check a normal order meets. Here: the list, Edit and Cancel.
 import { alertBox, api, card, emptyState, h, istDateTime, modal, optional, pill, table, toast } from "./app.js";
 import { contractName, fieldError } from "./flows.js";
-import { DASH, formatFixed, formatPercent, isFigure } from "./format.js";
-import { OPEN_TRIGGER, distancePct, kindText, legText, outcomeText, statusText } from "./trigger-core.js";
+import { DASH, formatFixed, formatInput, formatInt, formatPercent, formatSignedRupee, isFigure } from "./format.js";
+import { OPEN_TRIGGER, distancePct, exitChipText, kindText, legText, outcomeText, pnlAt, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
+
+export { exitChipText };
+
+// ── Open triggers per account, read at most every 3 s (Positions shows each leg's stop and target) ──
+const cache = new Map();
+/** Open triggers on an account (cached 3 s; a failed read keeps the last list). */
+export async function openTriggers(account, { fresh = false } = {}) {
+  const c = cache.get(account);
+  if (!fresh && c && Date.now() - c.at < 3000) return c.items;
+  const r = await optional(api(`/v1/triggers?account=${encodeURIComponent(account)}&status=open`));
+  const items = r.error ? (c?.items ?? []) : (r.data?.data ?? []);
+  cache.set(account, { at: Date.now(), items });
+  return items;
+}
+/** The cached list (no read): for drawing synchronously. */
+export const cachedTriggers = (account) => cache.get(account)?.items ?? [];
+
+/**
+ * Stop and target on one position (Positions › leg › Stop and target…): an OCO (or a single stop or target) that
+ * exits the position at market when LTP touches it, checked on the Bridge. Reduce-only: it never sends more than is
+ * held and cancels itself when the position is closed. A leg that already has one shows it, with Cancel.
+ * @param {{ account: string, accountLabel: string, live: boolean, leg: { symbol: string, q: number, lot: number,
+ *   avg: number|null, mark: number|null, product: string, tick?: number }, name: string }} o
+ */
+export async function openPositionExits({ account, accountLabel, live, leg, name }) {
+  const long = leg.q > 0;
+  const lot = Number(leg.lot) > 0 ? Number(leg.lot) : 1;
+  const tick = Number(leg.tick) > 0 ? Number(leg.tick) : 0.05;
+  const wholeLots = Math.floor(Math.abs(leg.q) / lot);
+  const inLots = lot > 1 && Math.abs(leg.q) % lot === 0;
+  const mk = (id, label, extra = {}) => h("input", { id, type: "number", inputmode: "decimal", min: "0", step: String(tick), "aria-label": label, ...extra });
+  const qty = h("input", { id: "bk-px-qty", type: "number", inputmode: "numeric", min: "1", step: "1", max: String(inLots ? wholeLots : Math.abs(leg.q)), value: String(inLots ? wholeLots : Math.abs(leg.q)) });
+  const ref = isFigure(leg.mark) ? Number(leg.mark) : null;
+  // A start: 30 % against for the stop, 50 % for the target, on the premium (the trader edits them).
+  const stop = mk("bk-px-stop", "Stop price", { value: ref ? formatInput(Math.max(tick, Math.round((long ? ref * 0.7 : ref * 1.3) / tick) * tick), 2) : "" });
+  const target = mk("bk-px-target", "Target price", { value: ref ? formatInput(Math.max(tick, Math.round((long ? ref * 1.5 : ref * 0.5) / tick) * tick), 2) : "" });
+  const trail = mk("bk-px-trail", "Trail the stop by, points", { placeholder: "Off" });
+  const readout = h("p", { class: "hint bk-px-read", "aria-live": "polite" });
+  const err = h("p", { class: "bad-text", role: "alert", hidden: true });
+  const units = () => Math.max(1, Math.floor(Number(qty.value) || 1)) * (inLots ? lot : 1);
+  const fields = () => ({ account, symbol: leg.symbol, product: leg.product ?? "MARGIN", mode: live ? "live" : "paper", side: long ? "SELL" : "BUY", units: Math.min(units(), Math.abs(leg.q)), origin: "position", stop: isFigure(stop.value) && Number(stop.value) > 0 ? Number(stop.value) : null, target: isFigure(target.value) && Number(target.value) > 0 ? Number(target.value) : null, trail: isFigure(trail.value) && Number(trail.value) > 0 ? Number(trail.value) : null, orderType: "MARKET", ltp: ref });
+  const draw = () => {
+    const f = fields();
+    const bad = triggerProblem(f);
+    const signed = long ? f.units : -f.units;
+    // A P&L figure never splits its sign from the number.
+    const at = (px) => h("span", { class: "bk-nw" }, formatSignedRupee(pnlAt(px, leg.avg, signed), 0));
+    readout.classList.toggle("bad-text", Boolean(bad));
+    if (bad) return void (readout.textContent = bad.message);
+    readout.replaceChildren(
+      ...(isFigure(f.stop) ? ["At the stop: ", at(f.stop), ` on these ${inLots ? "lots" : "units"}${f.trail ? ` (the stop then trails ${formatFixed(f.trail, 2)} behind the best price)` : ""}. `] : []),
+      ...(isFigure(f.target) ? ["At the target: ", at(f.target), ". "] : []),
+      "Exits at market; a gap past the stop can cost more.",
+    );
+  };
+  for (const el of [qty, stop, target, trail]) el.addEventListener("input", draw);
+  draw();
+  const have = (await openTriggers(account, { fresh: true })).filter((t) => t.symbol === leg.symbol && t.reduceOnly);
+  const haveList = have.length
+    ? h(
+        "div",
+        { class: "bk-px-have" },
+        h("strong", {}, "Already set on this position"),
+        have.map((t) =>
+          h(
+            "div",
+            { class: "bk-px-row" },
+            h("span", {}, t.legs.map((l) => legText(l, t.lotSize)).join("; ")),
+            h("button", { type: "button", class: "small", onclick: async (e) => { if (await cancelTrigger(t)) e.currentTarget.closest(".bk-px-row")?.remove(); } }, "Cancel"),
+          ),
+        ),
+      )
+    : null;
+  const ok = await modal({
+    title: `Stop and target · ${name}`,
+    body: h(
+      "div",
+      { class: "stack" },
+      h("p", { class: "muted" }, `${long ? "Long" : "Short"} ${inLots ? `${formatInt(wholeLots)} lot${wholeLots === 1 ? "" : "s"}` : `${formatInt(Math.abs(leg.q))} qty`} · avg ${isFigure(leg.avg) ? formatFixed(leg.avg, 2) : DASH} · LTP ${ref !== null ? formatFixed(ref, 2) : DASH} · ${accountLabel}${live ? " · LIVE" : ""}`),
+      haveList,
+      h(
+        "div",
+        { class: "bk-exits-grid bk-px-grid" },
+        h("label", { class: "field", for: "bk-px-qty" }, h("span", {}, inLots ? "Lots" : "Quantity"), qty),
+        h("label", { class: "field", for: "bk-px-stop" }, h("span", {}, "Stop"), stop),
+        h("label", { class: "field", for: "bk-px-target" }, h("span", {}, "Target"), target),
+        h("label", { class: "field", for: "bk-px-trail" }, h("span", {}, "Trail stop by"), trail),
+      ),
+      readout,
+      h("p", { class: "muted small" }, "Checked on this computer every second while the Bridge runs, and sent through every safety check. For a stop held at the exchange, also place an SL order at your broker."),
+      err,
+    ),
+    buttons: [
+      { label: "Close", value: false },
+      {
+        label: live ? "Set stop and target · LIVE" : "Set stop and target",
+        cls: "primary",
+        onClick: async () => {
+          err.hidden = true;
+          const f = fields();
+          const bad = triggerProblem(f);
+          if (bad) return fieldError(bad.field === "target" ? target : bad.field === "qty" ? qty : stop, bad.message);
+          try {
+            await api("/v1/triggers", { method: "POST", body: triggerBody(f) });
+            cache.delete(account);
+            return true;
+          } catch (e) {
+            err.textContent = `Not set: ${e?.message ?? "refused"}`;
+            err.hidden = false;
+            return false;
+          }
+        },
+      },
+    ],
+  });
+  if (ok) toast(`Stop and target set on ${name}. Orders › Triggers lists it.`);
+  return ok;
+}
 
 const REFRESH_MS = 2000;
 
