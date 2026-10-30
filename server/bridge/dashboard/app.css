@@ -2155,6 +2155,9 @@ button.live-toggle.on { background: transparent; color: hsl(var(--foreground)); 
 .chain-wrap { max-height: min(70vh, 860px); overflow: auto; overscroll-behavior: contain; }
 table.chain { --desk-row: var(--chain-row); width: 100%; border-collapse: separate; border-spacing: 0; font: var(--t-table); line-height: 1.2; font-variant-numeric: tabular-nums; }
 table.chain.dense { --desk-row: var(--chain-row-1); }
+/* Option Chain, compact: 32 px rows, so the figure and its % change (16 + 12 px) keep 2 px of air above the row rule
+   instead of touching it. The fill count reads the same token, so the table still fills the window. */
+:root[data-density="compact"][data-page="chain"] { --chain-row: 32px; }
 table.chain th, table.chain td { height: var(--desk-row); padding: 0 8px; border: 0; white-space: nowrap; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 table.chain th:first-child, table.chain td:first-child { padding-left: 12px; }
 table.chain th:last-child, table.chain td:last-child { padding-right: 12px; }
