@@ -38,6 +38,7 @@ import { STATE_TEXT, STATE_TONE, homeSafetyLine, readinessCard, readinessPill, r
 import { DASH, formatFixed, formatGrouped, formatInt, formatRupee, formatRupeeGrouped, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { renderArbPage, renderChainPage, renderOiPage, renderPositionsPage, renderStrategyPage, renderVolPage } from "./desk.js";
 import { renderCalendarPage } from "./calendar.js";
+import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { renderScreenerPage } from "./screener.js";
 import { renderParticipantsPage } from "./participants.js";
 import { renderRecorderPage } from "./recorder.js";
@@ -511,6 +512,8 @@ function moreSheet(active) {
           {},
           h("div", { class: "eyebrow list-label", id: "more-appearance" }, "Appearance"),
           appearanceControl("more-appearance"),
+          h("div", { class: "eyebrow list-label density-ctl more-density", id: "more-density" }, "Density"),
+          densityControl("more-density"),
         ),
         h(
           "section",
@@ -540,6 +543,8 @@ function accountPopover(trigger) {
     { class: "acct-pop" },
     h("span", { class: "acct-pop-label", id: "acct-appearance" }, "Appearance"),
     appearanceControl("acct-appearance"),
+    h("span", { class: "acct-pop-label density-ctl", id: "acct-density" }, "Density"),
+    densityControl("acct-density"),
     h(
       "div",
       { class: "acct-pop-acts" },
@@ -583,6 +588,24 @@ function appearanceControl(labelledBy) {
     "div",
     { class: "segmented appearance", role: "group", "aria-labelledby": labelledBy },
     [["light", "Light", "sun"], ["dark", "Dark", "moon"], ["auto", "Auto", "monitor"]].map(([v, label, ic]) => h("button", { type: "button", "data-theme-choice": v, "aria-pressed": String(current === v) }, icon(ic), label)),
+  );
+}
+
+/**
+ * Compact / Comfortable / Auto (app.js handles the clicks for every copy). Auto is compact with a mouse on a desktop;
+ * touch screens are always comfortable, so the control is hidden there (app.css section 16).
+ */
+function densityControl(labelledBy) {
+  let current = "auto";
+  try {
+    current = parseDensity(localStorage.getItem(DENSITY_SLOT));
+  } catch {
+    /* storage blocked: auto */
+  }
+  return h(
+    "div",
+    { class: "segmented density density-ctl", role: "group", "aria-labelledby": labelledBy },
+    [["compact", "Compact"], ["comfortable", "Comfortable"], ["auto", "Auto"]].map(([v, label]) => h("button", { type: "button", "data-density-choice": v, "aria-pressed": String(current === v), title: v === "auto" ? "Compact with a mouse on a desktop, comfortable on touch" : undefined }, label)),
   );
 }
 

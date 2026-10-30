@@ -15,6 +15,7 @@ import { createBuilder } from "./strategy.js";
 import * as O from "./options.js";
 import { createPositionsPage } from "./positions.js";
 import { cap, every, segField, segmented, stopTimer } from "./views.js";
+import { wideExtras } from "./layout-prefs.js";
 import { createVolPage, volConfig } from "./vol.js";
 import { demoStaleAsked, lotConfirmGate, lotStaleCheck, loadReference, refBanners, refCalendar, refChip, refRate, refSession, refSignature } from "./reference.js";
 import { readinessSheetRow } from "./readiness.js";
@@ -1024,6 +1025,7 @@ async function renderDesk(kind) {
   function drawChainStats(x) {
     if (!x) {
       for (const [k, l] of [["iv", "ATM IV"], ["em", "Expected move"], ["straddle", "Straddle"], ["pcr", "PCR"], ["mp", "Max Pain"], ["pw", "Put wall"], ["cw", "Call wall"]]) setTile(k, l, DASH, "", { mv: k === "em" || k === "pcr" ? () => {} : null });
+      for (const [k, l, cls] of WIDE_KPIS) setTile(k, l, DASH, "", { cls });
       return;
     }
     const { sm, c, F, move } = x;
@@ -1063,7 +1065,16 @@ async function renderDesk(kind) {
     };
     setTile("pw", "Put wall", formatInt(sm.support?.strike), wallSub(sm.support), { title: `Strike with the most put OI of the ${formatInt(n)} loaded: support`, vcls: "ink-put" });
     setTile("cw", "Call wall", formatInt(sm.resistance?.strike), wallSub(sm.resistance), { title: `Strike with the most call OI of the ${formatInt(n)} loaded: resistance`, vcls: "ink-call" });
+    // Wide screens (app.css section 16 shows them from 1600 and 1920 px): the future and its basis, call and put OI
+    // with today's change, and the volume PCR. The figures exist already; a wide screen has room for them.
+    const chg = (v) => `chg ${formatCompact(v, { signed: true })}`;
+    setTile("fut", fut ? "Future" : "Synthetic F", fwd === null ? DASH : formatFixed(fwd, fut ? 2 : 0), fwd !== null && sm.spot !== null ? `Basis ${formatSigned(fwd - sm.spot, 1)}` : "", { cls: "kpi-wide", title: fut ? "The same-expiry future and its basis to spot" : "Synthetic future from put-call parity; no future is listed for this expiry" });
+    setTile("ceoi", "Call OI", formatCompact(sm.ceOi), chg(sm.ceOiChange), { cls: "kpi-wide", vcls: "ink-call", title: `Call OI over the ${formatInt(n)} strikes loaded, and today's change` });
+    setTile("peoi", "Put OI", formatCompact(sm.peOi), chg(sm.peOiChange), { cls: "kpi-xwide", vcls: "ink-put", title: `Put OI over the ${formatInt(n)} strikes loaded, and today's change` });
+    setTile("vpcr", "Volume PCR", formatFixed(sm.pcrVolume, 2), `Calls ${formatCompact(sm.ceVolume)} · Puts ${formatCompact(sm.peVolume)}`, { cls: "kpi-xwide", title: "Put volume ÷ call volume today, over the strikes loaded" });
   }
+  /** The chain's extra KPI tiles: [key, label, class] (shown from 1600 px, kpi-wide, and 1920 px, kpi-xwide). */
+  const WIDE_KPIS = [["fut", "Future", "kpi-wide"], ["ceoi", "Call OI", "kpi-wide"], ["peoi", "Put OI", "kpi-xwide"], ["vpcr", "Volume PCR", "kpi-xwide"]];
 
   // ── The chain ──
   const effSideKey = () => (device().phone ? "phoneSide" : "side");
@@ -1741,7 +1752,7 @@ async function renderDesk(kind) {
       body.replaceChildren(
         h("section", {}, eyebrow("Show"), sideSeg),
         h("section", {}, eyebrow("Preset"), presets),
-        h("section", {}, eyebrow("Columns", ` · from the strike outwards · ${phone ? "use the arrows" : "drag or use the arrows"} to reorder`), h("p", { class: "fit-note" }, h("strong", {}, `Fits ${formatInt(fit.kept)} of ${formatInt(fit.total)}`), " at this width", fit.hidden.length ? ` · hidden: ${fit.hidden.map((k) => (k === "quotes" ? "Bid / Ask" : label(k))).join(", ")}` : ""), list),
+        h("section", {}, eyebrow("Columns", ` · from the strike outwards · ${phone ? "use the arrows" : "drag or use the arrows"} to reorder`), h("p", { class: "fit-note" }, h("strong", {}, `Fits ${formatInt(fit.kept)} of ${formatInt(fit.total)}`), " at this width", fit.hidden.length ? ` · hidden: ${fit.hidden.map((k) => (k === "quotes" ? "Bid / Ask" : label(k))).join(", ")}` : "", fit.added?.length ? ` · added for the width: ${fit.added.map((k) => label(k)).join(", ")}` : ""), list),
         h("section", {}, eyebrow("Bars"), sw("OI bars", () => c.bars.oi, (v) => setCfg({ bars: { ...st.cfg.bars, oi: v } }), "Calls and puts in their colours, one scale"), sw("OI change bars", () => c.bars.chg, (v) => setCfg({ bars: { ...st.cfg.bars, chg: v } }), "Green added, red cut"), sw("Volume bars", () => c.bars.vol, (v) => setCfg({ bars: { ...st.cfg.bars, vol: v } })), h("div", { class: "seg-field" }, h("span", {}, "Bar style"), styleSeg)),
         h(
           "section",
@@ -1752,6 +1763,7 @@ async function renderDesk(kind) {
           sw("Highlight in-the-money", () => c.itm, (v) => setCfg({ itm: v })),
           sw("My positions in the chain", () => c.positions, (v) => setCfg({ positions: v }), "Lots you hold, beside the LTP"),
           sw("Compact rows", () => c.dense, (v) => setCfg({ dense: v })),
+          sw("More columns on wide screens", () => c.wide, (v) => setCfg({ wide: v }), "A preset adds Greeks or OI columns while there is room"),
           quotesRow,
         ),
         h(
@@ -2243,6 +2255,7 @@ export const CHAIN_DEFAULTS = Object.freeze({
   itm: true,
   positions: true,
   dense: false,
+  wide: true,
   oiWin: "day",
   tags: { mp: true, walls: true, em: true, em2: false },
 });
@@ -2265,6 +2278,7 @@ export function chainConfig(saved) {
     itm: bool(c.itm, d.itm),
     positions: bool(c.positions, d.positions),
     dense: bool(c.dense, d.dense),
+    wide: bool(c.wide, d.wide),
     oiWin: ["day", "60", "15"].includes(c.oiWin) ? c.oiWin : d.oiWin,
     tags: { mp: bool(c.tags?.mp, d.tags.mp), walls: bool(c.tags?.walls, d.tags.walls), em: bool(c.tags?.em, d.tags.em), em2: bool(c.tags?.em2, d.tags.em2) },
   };
@@ -2661,7 +2675,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     } else if (d.narrow) cap = 5;
     const sides = side === "both" ? 2 : side === "none" ? 0 : 1;
     // A new context (columns, side, strikes window, chain, device, density): measure afresh, no extra drops.
-    const fk = JSON.stringify([st.chain?.underlying, st.chain?.expiry, c.cols, side, quotes, st.strikesView, c.oiWin, c.dense, c.lots, c.pct, d.phone, d.narrow, d.coarse]);
+    const fk = JSON.stringify([st.chain?.underlying, st.chain?.expiry, c.cols, side, quotes, st.strikesView, c.oiWin, c.dense, c.lots, c.pct, d.phone, d.narrow, d.coarse, typeof document === "undefined" ? "" : document.documentElement.dataset.density]);
     if (fk !== fitKey) {
       fitKey = fk;
       measured = {};
@@ -2678,14 +2692,20 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     const kept = new Set([...sideCols, ...rowCols]);
     const pre = d.phone ? c.cols.filter((k) => COLS[k] && !kept.has(k)) : [];
     const hidden = [...new Set([...pre, ...fit.hidden])].filter((k) => all.has(k));
-    lastFit = { hidden, kept: all.size - hidden.length, total: all.size };
+    // Wide screens (layout-prefs.js wideExtras): with every chosen column on screen and room to spare, a preset adds
+    // its extra columns (Greeks for OI, and so on) next to IV. Never on touch or phones, never for a custom list, and
+    // not while the table's own overflow check is dropping columns.
+    const extras = !d.phone && !d.coarse && c.wide && !hidden.length && !extraDrop && sides ? wideExtras({ preset, cols: c.cols, slack: availW() - sbW - fit.width, sides, widths, used: fit.width }).filter((k) => COLS[k] && !COLS[k].row) : [];
+    lastFit = { hidden, kept: all.size - hidden.length, total: all.size, added: extras };
+    const at = Math.max(fit.side.indexOf("iv"), fit.side.indexOf("ltp")) + 1;
+    const sideCols2 = extras.length ? [...fit.side.slice(0, at), ...extras, ...fit.side.slice(at)] : fit.side;
     const near = fit.quotes ? ["bid", "ask"] : [];
-    const out = [...near, ...fit.side];
+    const out = [...near, ...sideCols2];
     const base = { side, mid: fit.mid, phone: d.phone, narrow: d.narrow, coarse: d.coarse, hidden };
     if (side === "none") return { ...base, order: ["strike", "mid"], ce: [], pe: [] };
     if (side === "ce") return { ...base, order: ["strike", "mid", "ce"], ce: out, pe: [] };
     if (side === "pe") return { ...base, order: ["strike", "mid", "pe"], ce: [], pe: out };
-    return { ...base, order: ["ce", "strike", "mid", "pe"], ce: [...fit.side].reverse().concat(near), pe: out };
+    return { ...base, order: ["ce", "strike", "mid", "pe"], ce: [...sideCols2].reverse().concat(near), pe: out };
   };
   const layoutSig = (L) => JSON.stringify([L.order, L.ce, L.pe, L.mid, L.phone, L.narrow, L.coarse, cfg().dense, cfg().lots, cfg().pct, cfg().bars, cfg().barStyle, cfg().tags, cfg().itm, cfg().positions]);
 
@@ -2957,7 +2977,21 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     built.wrap.scrollTop += b.tr.getBoundingClientRect().top - top - a.off;
     return true;
   }
-  const visibleSet = (x) => new Set(O.rowsAroundAtm(x.c, st.strikesView === "all" ? Infinity : Number(st.strikesView) || 10).map((r) => r.strike));
+  /**
+   * Tall screens with a mouse: the ±10 / ±20 window grows to fill the table's height (strikes each side that fit
+   * under the head, above the totals), never below the choice. Phones and touch keep the window as chosen.
+   */
+  const fillStrikes = () => {
+    const d = device();
+    const w = built?.wrap;
+    if (d.phone || d.coarse || !w?.isConnected || typeof innerHeight !== "number") return 0;
+    const top = w.getBoundingClientRect().top + (built.thead?.offsetHeight || 0);
+    const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(cfg().dense ? "--chain-row-1" : "--chain-row")) || 40;
+    // Less the totals row, the key legend, the page's bottom padding and the spot divider row.
+    const rows = Math.floor((innerHeight - top - 36 - 30 - 24) / rowH) - 1;
+    return Math.max(0, Math.floor(rows / 2));
+  };
+  const visibleSet = (x) => new Set(O.rowsAroundAtm(x.c, st.strikesView === "all" ? Infinity : Math.max(Number(st.strikesView) || 10, fillStrikes())).map((r) => r.strike));
 
   const PHONE_TAG = { mp: "MP", cw: "C wall", pw: "P wall" };
   /** Strike tags in priority order (ATM > Max pain > walls > ±1σ > ±2σ): [class, text, title]. */
@@ -3316,7 +3350,8 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     const bar = document.querySelector(".tabbar");
     const barH = bar && getComputedStyle(bar).display !== "none" ? Math.max(0, innerHeight - bar.getBoundingClientRect().top) + 8 : 0;
     const keys = host.parentNode?.querySelector?.(".desk-keys");
-    const below = keys && getComputedStyle(keys).display !== "none" ? keys.offsetHeight : 0;
+    // Wide screens put the key legend beside the expiry chips (app.css section 16): then it is not below the table.
+    const below = keys && getComputedStyle(keys).display !== "none" && keys.getBoundingClientRect().top >= w.getBoundingClientRect().top ? keys.offsetHeight : 0;
     const want = Math.max(320, Math.floor(innerHeight - top - below - 14 - barH));
     const px = `${want}px`;
     if (w.style.maxHeight !== px) w.style.maxHeight = px;

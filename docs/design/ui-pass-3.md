@@ -253,3 +253,26 @@ F = foundation task, A1/A2/A3 = area. "Rejected" entries give the reason.
 - **app.css**: Foundation owns 0-12 (tokens, base, materials, shell incl. the desk top bar block, cards/lists, pills, tables, controls, 3b selection, 3c data viz/motion, code, bars, sign-in), 12b desk base (lines ~1713-1750), 12c movable, 12y options polish shared rules (popover.floating, chart-slot-box), 12r reference banners/chip (to the `── Market calendar page ──` marker), 13 responsive, 14 accessibility. Areas edit only their own sections; if an area needs a shared token it asks for it rather than adding a literal.
 - **views.js**: Foundation owns PAGES, nav/tabbar/moreSheet, show/go/routing, the API page and the four render functions it hosts (renderKeys, renderIntegrations, renderConsole, renderLimits, renderActivity). Area 3 owns renderHome, renderAccounts, renderOrders, renderSafety, renderScanner. Areas 1 and 2 do not edit views.js.
 - **app.js**: Foundation (chartSlot, toast, shell); Area 3 only `secEyebrow` and Home helpers. **palette.js / palette.css / index.html / reference.js / motion.js / core/app.mjs / format.test.mjs**: Foundation only.
+
+---
+
+## 12. Space and density (space pass, October 2026)
+
+A trading screen should hold as much as it can without feeling cramped. This section supersedes the "capped and centred" page column of §3 and the inset sidebar of §2 (Chrome row).
+
+**Shell.**
+- No content cap (`--content-max: none`): the page fills the window beside the sidebar, fluid to 2560 px and beyond. Page gutter `--page-gutter: clamp(12px, 1.1vw, 16px)`.
+- The sidebar is flush on the left edge, 216 px (`--sidebar-w`), with one separator hairline on its right (`inset calc(-1 * var(--hl)) 0 0 var(--mat-separator)`, a separator, not a strip). No radius, no margin, no float shadow.
+- Icon rail, 56 px (`--rail-w`): labels are visually hidden (screen readers keep them, links keep their `title` tooltip), group labels become a short separator. The toggle sits in the sidebar foot (`#sb-toggle`, `aria-expanded`, label "Collapse the sidebar to icons" / "Expand the sidebar").
+- `--sb-w` is the width drawn. `data-sb` on `<html>` is `none` (< 1024 px), `rail` or `full`. Auto: rail from 1024 to 1279 px, full from 1280 px. A choice is kept in localStorage `mcb.dashboard.sidebar` (try/catch, through `store()`).
+
+**Density.**
+- `data-density` on `<html>` is `compact` or `comfortable`. Auto: compact with a fine pointer on a screen 1024 px or wider; a coarse pointer is always comfortable, so touch keeps its 44 px targets. A choice (Compact, Comfortable, Auto) lives in the account popover and the More sheet (hidden on touch) and in localStorage `mcb.dashboard.density`.
+- Tokens (first `:root`, comfortable values; compact in app.css section 16): `--th-py` 12 / 6, `--td-py` 13 / 6, `--cell-px` 16 / 12, `--chain-row` 40 / 30, `--chain-row-1` 30 / 24 (Customise "Compact rows"), `--desk-top` 70 / 50, `--toolbar-h` 56 / 46, `--ctl-h` 40 / 34, `--panel-head-h` 52 / 40, `--panel-gap` 24 / 12, `--panel-gap-dense` 12 / 8, `--card-pad` / 14, `--list-row-h` 52 / 40.
+- Logic is pure and tested: `layout-prefs.js` (`parseSidebar`, `parseDensity`, `resolveSidebar`, `resolveDensity`, `toggleSidebar`, `wideExtras`), `layout-prefs.test.mjs`.
+
+**Wide screens add detail.**
+- Option Chain: a preset adds its extra columns while every chosen column fits with 12 % to spare (`WIDE_EXTRAS`: OI adds Delta, Theta, Vega, Gamma, P(ITM); Buyer adds IV, OI, OI chg, Vega; and so on), next to IV. Not on touch or phones, not for a custom list; Customise "More columns on wide screens" turns it off and the fit note names what was added. The ±10 / ±20 window grows to fill the table's height on a tall screen with a mouse. From 1600 px the key legend sits beside the expiry chips. The KPI strip adds Future and Call OI from 1600 px, Put OI and Volume PCR from 1920 px.
+- OI Analysis (1800 px and up): ladder on the left; legend, chart and the side blocks (two across) on the right.
+- Volatility (1800 px and up): IV surface beside Expiries, Strikes beside Read.
+- Positions (2200 px and up): the positions table beside the risk panel (while the risk panel is shown).
