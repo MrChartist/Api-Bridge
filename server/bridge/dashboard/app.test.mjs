@@ -21,9 +21,9 @@ describe("dashboard ticket view", () => {
     expect(f.Account).toBe("zerodha-main (zerodha · Main)");
     expect(f.Mode).toMatch(/LIVE/);
     expect(f).toMatchObject({ Side: "BUY", Quantity: "10", Symbol: "NSE:RELIANCE", "Order type": "LIMIT", Product: "CNC", Validity: "DAY", Tag: "ai1" });
-    // Money follows the house rule: rupee sign, no grouping commas, two decimals; a missing value is "--".
+    // Money follows the house rule: rupee sign, no grouping commas, two decimals; a missing value is "–" (DASH).
     expect(f.Price).toBe("₹1400.00");
-    expect(f["Trigger price"]).toBe("--");
+    expect(f["Trigger price"]).toBe("–");
     expect(f["Estimated value"]).toBe("₹14000.00");
     expect(f.Warning).toMatch(/PRICE_FAR_FROM_LTP/);
   });

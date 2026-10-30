@@ -296,6 +296,7 @@ export function toast(text, { tone = "ok" } = {}) {
   t.replaceChildren(h("span", { class: `toast-icon${info ? " info" : ""}` }, icon(info ? "info" : "check")), h("span", { class: "toast-text" }, text));
   t.hidden = false;
   raiseToast(t);
+  placeToast(t);
   if (wasHidden) bannerIn(t);
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => {
@@ -304,6 +305,41 @@ export function toast(text, { tone = "ok" } = {}) {
       if (toast.gen === gen) t.hidden = true;
     });
   }, 2600);
+}
+
+const TOAST_CONTROLS = "button, a[href], input, select, textarea, summary, [role=tab], [role=button]";
+
+/** How many visible controls the toast's box (plus a 4px margin) overlaps. */
+function toastCovers(t) {
+  const r = t.getBoundingClientRect();
+  if (!r.width || typeof document.elementsFromPoint !== "function") return 0;
+  const [l, top, rt, b] = [r.left - 4, r.top - 4, r.right + 4, r.bottom + 4];
+  let n = 0;
+  for (const c of document.querySelectorAll(TOAST_CONTROLS)) {
+    if (t.contains(c)) continue;
+    const q = c.getBoundingClientRect();
+    if (!q.width || q.right <= l || q.left >= rt || q.bottom <= top || q.top >= b) continue;
+    // Count it only where it is really on top there (not under a sheet, scrolled out or clipped by its panel).
+    const x = (Math.max(l, q.left) + Math.min(rt, q.right)) / 2;
+    const y = (Math.max(top, q.top) + Math.min(b, q.bottom)) / 2;
+    const under = document.elementsFromPoint(x, y).find((e) => !t.contains(e));
+    if (under && (under === c || c.contains(under))) n++;
+  }
+  return n;
+}
+
+/**
+ * Wide screens: the toast sits top centre under the toolbar (app.css). When a control is under it there (a narrow
+ * desktop where a panel head fills its row) it moves to the bottom right, if that covers fewer controls. Phones and
+ * tablets keep bottom centre above the tab bar.
+ */
+function placeToast(t) {
+  delete t.dataset.place;
+  if (!window.matchMedia?.("(min-width: 1024px)").matches) return;
+  const top = toastCovers(t);
+  if (!top) return;
+  t.dataset.place = "low";
+  if (toastCovers(t) >= top) delete t.dataset.place;
 }
 
 /**
@@ -657,6 +693,9 @@ export function alertBox(err, cls = "bad") {
  * scrolls sideways inside the card (for logs with many short rows); `mobile: "stack-wide"` stacks on tablets too (below
  * 1100px), for wide tables whose last column holds the row's actions.
  */
+/** A cell whose whole content is the missing-value placeholder draws it in the quiet ink, so it reads as "nothing here". */
+const emptyMark = (v) => (v === DASH ? h("span", { class: "empty-dash" }, DASH) : v);
+
 export function table(columns, rows, empty, { mobile = "stack", caption = null } = {}) {
   if (!rows.length) return empty;
   const cls = (c, i) => [c.num ? "num" : "", c.wrap ? "wrap" : "", c.label ? "" : "act", i === 0 ? "lead" : ""].join(" ").trim() || undefined;
@@ -668,7 +707,7 @@ export function table(columns, rows, empty, { mobile = "stack", caption = null }
       {},
       caption ? h("caption", { class: "sr-only" }, caption) : null,
       h("thead", {}, h("tr", {}, columns.map((c) => h("th", { scope: "col", class: c.num ? "num" : undefined }, c.label || h("span", { class: "pal-sr-only" }, "Actions"))))),
-      h("tbody", {}, rows.map((r) => h("tr", {}, columns.map((c, i) => h("td", { class: cls(c, i), "data-label": c.label || undefined }, c.cell(r)))))),
+      h("tbody", {}, rows.map((r) => h("tr", {}, columns.map((c, i) => h("td", { class: cls(c, i), "data-label": c.label || undefined }, emptyMark(c.cell(r))))))),
     ),
   );
 }

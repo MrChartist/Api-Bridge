@@ -1,6 +1,6 @@
 /**
  * The dashboard's number house rule (format.js, as IPO Decode's utils/number-format.js): no grouping commas, fixed
- * decimals where asked, "--" for a missing figure (never 0), and no other dashboard file formats numbers itself.
+ * decimals where asked, an en dash "–" (DASH) for a missing figure (never 0, never "--"), and no other dashboard file formats numbers itself.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -84,7 +84,7 @@ describe("dashboard number format", () => {
     expect(formatDayMonth(null)).toBe("");
   });
 
-  it("shows -- for missing data, never 0", () => {
+  it("shows an en dash for missing data, never 0 and never --", () => {
     for (const v of [null, undefined, "", Number.NaN, Number.POSITIVE_INFINITY, "abc", true]) {
       expect(isFigure(v)).toBe(false);
       expect(formatInt(v)).toBe(DASH);
@@ -92,7 +92,7 @@ describe("dashboard number format", () => {
       expect(formatRupee(v)).toBe(DASH);
       expect(formatSigned(v)).toBe(DASH);
     }
-    expect(DASH).toBe("--");
+    expect(DASH).toBe("\u2013");
     expect(formatInt(0)).toBe("0");
     expect(formatInt("17")).toBe("17");
   });

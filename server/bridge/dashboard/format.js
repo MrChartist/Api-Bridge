@@ -6,13 +6,13 @@
 // percent sign and meaningful precision are kept. A negative starts with the true minus sign U+2212 ("−4.10", "−₹42.00"),
 // never a hyphen (TYPE-SYSTEM.md §4). Only display changes: values sent to the Bridge, maths and input parsing never
 // pass through here (formatInput is the one exception: an editable field's text, which keeps the ASCII hyphen so the
-// parser reads it back). Missing data prints as "--", never as 0.
+// parser reads it back). Missing data prints as DASH, an en dash "–", never as 0.
 //
 // Use these instead of Number.prototype.toLocaleString or Intl.NumberFormat (format.test.mjs checks the other dashboard
 // files do not reach for them). Pure; safe in Node.
 
-/** What a missing figure prints as. */
-export const DASH = "--";
+/** What a missing figure prints as: one en dash "–" (U+2013), never "--" and never 0. */
+export const DASH = "\u2013";
 /** The true minus sign: every negative figure on the page starts with it. */
 export const MINUS = "\u2212";
 
@@ -37,38 +37,38 @@ export const trueMinus = (text) => String(text).replace(/^-/, MINUS);
 /** True for a finite number (a numeric string counts); null, undefined, "", NaN and Infinity do not. */
 export const isFigure = (value) => value !== null && value !== undefined && value !== "" && typeof value !== "boolean" && Number.isFinite(Number(value));
 
-/** Any number, no grouping. Defaults: up to 3 fraction digits. Missing → "--". */
+/** Any number, no grouping. Defaults: up to 3 fraction digits. Missing → DASH. */
 export function formatNumber(value, options) {
   if (!isFigure(value)) return DASH;
   return trueMinus(plain(value, options));
 }
 
-/** A whole number (rounded). Missing → "--". */
+/** A whole number (rounded). Missing → DASH. */
 export const formatInt = (value) => formatNumber(value, { maximumFractionDigits: 0 });
 
-/** Exactly `dp` decimals: use it for every cell of a numeric column so the decimals line up. Missing → "--". */
+/** Exactly `dp` decimals: use it for every cell of a numeric column so the decimals line up. Missing → DASH. */
 export const formatFixed = (value, dp = 2) => formatNumber(value, { minimumFractionDigits: dp, maximumFractionDigits: dp });
 
-/** ₹ prefix, exactly `dp` decimals (default 2, the money column rule). A negative puts its sign first ("−₹42.00"). Missing → "--". */
+/** ₹ prefix, exactly `dp` decimals (default 2, the money column rule). A negative puts its sign first ("−₹42.00"). Missing → DASH. */
 export function formatRupee(value, dp = 2) {
   if (!isFigure(value)) return DASH;
   const abs = fixedPlain(Math.abs(Number(value)), dp);
   return Number(value) < 0 && Number(abs) !== 0 ? `${MINUS}₹${abs}` : `₹${abs}`;
 }
 
-/** A signed figure with an explicit + for gains ("+12.30", "−4.10", "0.00"), fixed decimals. Missing → "--". */
+/** A signed figure with an explicit + for gains ("+12.30", "−4.10", "0.00"), fixed decimals. Missing → DASH. */
 export function formatSigned(value, dp = 2) {
   if (!isFigure(value)) return DASH;
   const text = fixedPlain(value, dp);
   return Number(text) > 0 ? `+${text}` : trueMinus(text);
 }
 
-/** A percentage with fixed decimals ("12.3%"). Missing → "--". */
+/** A percentage with fixed decimals ("12.3%"). Missing → DASH. */
 export const formatPercent = (value, dp = 1) => (isFigure(value) ? `${formatFixed(value, dp)}%` : DASH);
 
 /**
  * Indian compact units for big counts (OI, volume, premium): 1.25Cr, 12.40L, 8.5K, 950. `signed` adds "+" to gains.
- * Still no grouping; 2 decimals for lakh and crore, 1 for thousand. Missing → "--".
+ * Still no grouping; 2 decimals for lakh and crore, 1 for thousand. Missing → DASH.
  */
 export function formatCompact(value, { signed = false } = {}) {
   if (!isFigure(value)) return DASH;
@@ -94,7 +94,7 @@ export function formatCompactTick(value) {
 
 /**
  * Money with an explicit sign, sign first: "+₹1204.50", "−₹1204.50", "₹0.00" (a value that rounds to zero has no
- * sign). The one money rule for P&L, credit / debit and max profit / loss. Missing → "--".
+ * sign). The one money rule for P&L, credit / debit and max profit / loss. Missing → DASH.
  */
 export function formatSignedRupee(value, dp = 2) {
   if (!isFigure(value)) return DASH;
@@ -117,7 +117,7 @@ function groupIndian(text) {
  * exception to the no-separator rule, for figures read on their own rather than in a column: sentences that sit next
  * to the Bridge's own messages (the readiness facts beside "₹1,750 of ₹10,000 daily loss left." from
  * server/bridge/readiness/checks.mjs), the Home market snapshot and the daily limits. Whole rupees by default.
- * Missing → "--".
+ * Missing → DASH.
  */
 export function formatRupeeGrouped(value, dp = 0) {
   if (!isFigure(value)) return DASH;
@@ -125,7 +125,7 @@ export function formatRupeeGrouped(value, dp = 0) {
   return `${Number(value) < 0 && Number(abs) !== 0 ? MINUS : ""}₹${groupIndian(abs)}`;
 }
 
-/** A figure with Indian grouping and exactly `dp` decimals ("26,395.90", "−1,234.50"): index levels read on their own. Missing → "--". */
+/** A figure with Indian grouping and exactly `dp` decimals ("26,395.90", "−1,234.50"): index levels read on their own. Missing → DASH. */
 export function formatGrouped(value, dp = 2) {
   if (!isFigure(value)) return DASH;
   return trueMinus(groupIndian(fixedPlain(value, dp)));

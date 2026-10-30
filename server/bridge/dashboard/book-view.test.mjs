@@ -68,12 +68,12 @@ describe("book view-model (positions All accounts / Family)", () => {
     const u = vm.holders[0].underlyings[0];
     expect(u.greeks).toBeNull();
     expect(u.greeksMissing).toBe("No market-data account for Asha; Greeks need spot and IV from that holder's own data.");
-    expect(u.legs[0]).toMatchObject({ delta: "--", theta: "--", pnl: "+₹1350", greeksTitle: u.greeksMissing });
+    expect(u.legs[0]).toMatchObject({ delta: "–", theta: "–", pnl: "+₹1350", greeksTitle: u.greeksMissing });
   });
 
   it("an account error shows its message; the demo market-data account is never badged Live", () => {
     const vm = bookViewModel(aggregate([FRIEND], { view: "holders", family: { name: "Family", relationships: [] }, asOf: "t" }), "all");
-    expect(vm.holders[0].accounts[0]).toMatchObject({ error: "Dhan did not answer.", pnlText: "--" });
+    expect(vm.holders[0].accounts[0]).toMatchObject({ error: "Dhan did not answer.", pnlText: "–" });
     expect(vm.holders[0].chip).toEqual({ text: "Other · Outside family", tone: "warn" });
     const demo = bookViewModel({ holders: [{ ...SELF, accounts: [{ ...SELF.accounts[0], broker: "demo" }] }] }, "all");
     expect(demo.holders[0].accounts[0].modeBadge).toBe("Sample");
@@ -111,7 +111,7 @@ describe("book view-model (positions All accounts / Family)", () => {
   it("formatters", () => {
     expect(money(-4888.4)).toBe("−₹4888");
     expect(money(0)).toBe("₹0");
-    expect(money(null)).toBe("--");
+    expect(money(null)).toBe("–");
     expect(moneyCompact(261248)).toBe("+₹2.61L");
     expect(lotsText(-130, 65)).toBe("−2 lots");
     expect(lotsText(65, 65)).toBe("+1 lot");

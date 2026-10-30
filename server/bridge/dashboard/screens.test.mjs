@@ -31,7 +31,7 @@ describe("screener presets", () => {
   });
 
   it("every column formats a missing value as --", () => {
-    for (const p of S.PRESETS) for (const c of p.columns) if (!c.text && c.id !== "name") expect(c.fmt(null, {}), `${p.id}.${c.id}`).toBe("--");
+    for (const p of S.PRESETS) for (const c of p.columns) if (!c.text && c.id !== "name") expect(c.fmt(null, {}), `${p.id}.${c.id}`).toBe("–");
   });
 });
 

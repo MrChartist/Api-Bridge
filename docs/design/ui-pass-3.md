@@ -120,7 +120,7 @@ Tokens in the first `:root`; every literal z-index ≥ 10 in app.css/palette.css
 | `--z-panel-max` | 70 | `.movable.panel-max` |
 | `--z-toast` | 90 | `#toast` fallback |
 
-Dialogs (`dialog.sheet`, palette, modal) use the top layer. The toast becomes `popover="manual"` and calls `hidePopover(); showPopover()` on each show, so it is always the newest top-layer entry and sits above an open sheet. Placement: ≥1024px top-right under the toolbar (`top: calc(var(--toolbar-h) + var(--safe-t) + 8px); right: var(--page-gutter); max-width: 380px`), so it never covers table totals or bottom bars; <1024px bottom-centre above the tab bar **and** above any sticky bottom bar (`bottom: calc(var(--tabbar-h) + var(--bottom-extra, 0px) + 20px + var(--safe-b))`; pages with a sticky bottom bar set `--bottom-extra`).
+Dialogs (`dialog.sheet`, palette, modal) use the top layer. The toast becomes `popover="manual"` and calls `hidePopover(); showPopover()` on each show, so it is always the newest top-layer entry and sits above an open sheet. Placement: ≥1024px top centre of the content column under the toolbar (`top: calc(var(--toolbar-h) + var(--safe-t) + 8px); left:` the content column's centre, `translateX(-50%); max-width: 380px`). Panel heads keep their actions at the right (Strategy Saved / Save / Place, desk panel head buttons), so the middle of that row holds only titles and figures. `placeToast()` (app.js) checks the visible controls under the toast; if any (a narrow desktop where a head fills its row) it moves to the bottom right (`[data-place="low"]`: `right: var(--page-gutter); bottom: calc(24px + var(--safe-b))`) when that covers fewer. Never top-right: there it covered the Strategy Saved / Place buttons and desk head actions for its 2.6s; <1024px bottom-centre above the tab bar **and** above any sticky bottom bar (`bottom: calc(var(--tabbar-h) + var(--bottom-extra, 0px) + 20px + var(--safe-b))`; pages with a sticky bottom bar set `--bottom-extra`).
 
 Sticky table headers on card pages: `.card .table-wrap > table > thead th { position: sticky; top: calc(var(--toolbar-h) + var(--safe-t)); z-index: var(--z-sticky); background: var(--mat-grouped-solid) }`; `.card-body.flush` uses `overflow: clip` (not hidden) so sticky works. Sticky heads are opaque with one hairline, no gradient fade (chain, OI, arb, card tables all alike).
 
@@ -224,7 +224,7 @@ Order follows setup: create a key, connect a tool, try a call, watch limits, aud
 
 ## 8. Numbers
 
-All figures pass through format.js (house rule). Market snapshot tiles, Daily limits, Rate limits use grouped Indian formatting (`formatRupee`, `formatNumber`); empty cells use format.js's empty placeholder (never `--`).
+All figures pass through format.js (house rule). Market snapshot tiles, Daily limits, Rate limits use grouped Indian formatting (`formatRupee`, `formatNumber`); empty cells use format.js's empty placeholder `DASH`, one en dash "–" (U+2013), drawn in the quiet ink inside a `table()` cell (never `--`).
 
 ---
 

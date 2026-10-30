@@ -651,7 +651,8 @@ async function show() {
     root.replaceChildren(...[tabs, alertBox(err)].filter(Boolean));
   }
   root.removeAttribute("aria-busy");
-  const title = tab ? `${page.title}: ${tab.label}` : page.title;
+  if (tabs) revealActiveTab(tabs.firstElementChild);
+  const title = tab ?`${page.title}: ${tab.label}` : page.title;
   announce(changed ? `${title} page` : `${title} refreshed`);
   if (pendingFocus) {
     const target = pendingFocus === true ? null : root.querySelector(pendingFocus);
@@ -662,6 +663,19 @@ async function show() {
   const anim = motionHooks?.animatePage;
   if (typeof anim === "function") anim(root);
   refreshTicketCount();
+}
+
+/**
+ * On a phone the page tab strip scrolls sideways: bring the current tab fully into view (API › Rate limits sat half
+ * cut off at the right edge). Called once the strip is in the page for good (re-inserting it resets its scroll).
+ */
+function revealActiveTab(bar) {
+  const sel = bar?.querySelector('[aria-selected="true"]');
+  if (!sel || bar.scrollWidth <= bar.clientWidth) return;
+  const b = bar.getBoundingClientRect();
+  const s = sel.getBoundingClientRect();
+  if (s.right > b.right - 4) bar.scrollLeft += s.right - b.right + 24;
+  else if (s.left < b.left + 4) bar.scrollLeft -= b.left - s.left + 24;
 }
 
 /**
@@ -1231,10 +1245,10 @@ async function renderHome() {
 }
 
 /**
- * An account's capabilities on one line: the first two as chips, then a "+N" chip (three chips at most) that opens the rest in a popover,
+ * An account's capabilities on one line: the first as a chip, then a "+N" chip (two chips at most) that opens the rest in a popover,
  * so every account row keeps one height (about 64px on a desktop) however much its broker can do.
  */
-const CAPS_SHOWN = 2;
+const CAPS_SHOWN = 1;
 function capabilityChips(a) {
   const caps = a.capabilities ?? [];
   const rest = caps.slice(CAPS_SHOWN);
@@ -1538,8 +1552,8 @@ export function holderText(entry) {
   const who = entry.label || entry.holder;
   return `${who} · ${rel} · ${entry.inFamily ? "Family" : "Outside family"}`;
 }
-/** The Accounts row's holder pill, the deciding word first so a narrow cell keeps it: "Family · You (demo) · Self". */
-const holderPillText = (e) => `${e.inFamily ? "Family" : "Outside family"} · ${e.label || e.holder} · ${e.relationship ? HOLDER_REL[e.relationship] ?? e.relationship : "No relationship"}`;
+/** The Accounts row's holder line under its Family pill: "You (demo) · Self". */
+const holderWhoText = (e) => `${e.label || e.holder} · ${e.relationship ? HOLDER_REL[e.relationship] ?? e.relationship : "No relationship"}`;
 const HOLDER_REL = { self: "Self", spouse: "Spouse", "dependent-child": "Dependent child", "dependent-parent": "Dependent parent", huf: "HUF", other: "Other" };
 
 /** Edit a holder's relationship and label (PUT /v1/book/holders/{holder}: admin, this computer). */
@@ -1586,11 +1600,17 @@ async function renderAccounts() {
   const holderCell = (a) => {
     const e = holderOfAcc(a.id);
     if (!e) return null;
+    // Two short lines, like the Account cell beside it: the deciding Family pill and Edit, then who and how related.
     return h(
       "div",
-      { class: "acct-holder" },
-      h("span", { class: "bk-rel", "data-tone": e.inFamily ? "ok" : "warn", title: `Holder: ${holderText(e)}` }, h("span", { class: "pal-sr-only" }, "Holder: "), holderPillText(e)),
-      e.locked ? h("span", { class: "muted small" }, "set in bridge.config.json") : h("button", { type: "button", class: "small link-btn", "aria-label": `Edit the relationship of holder ${e.holder}`, onclick: () => holderSheet(e, book.relationships) }, "Edit"),
+      { class: "acct-holder", title: `Holder: ${holderText(e)}` },
+      h(
+        "span",
+        { class: "acct-holder-top" },
+        h("span", { class: "bk-rel", "data-tone": e.inFamily ? "ok" : "warn" }, e.inFamily ? "Family" : "Outside family"),
+        e.locked ? h("span", { class: "muted small" }, "set in bridge.config.json") : h("button", { type: "button", class: "small link-btn", "aria-label": `Edit the relationship of holder ${e.holder}`, onclick: () => holderSheet(e, book.relationships) }, "Edit"),
+      ),
+      h("span", { class: "muted small acct-holder-who" }, holderWhoText(e)),
     );
   };
   const list = brokers.data.data ?? [];
@@ -1620,7 +1640,8 @@ async function renderAccounts() {
     flush: true,
     body: table(
       [
-        { label: "Account", wrap: true, cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id), holderCell(a)) },
+        { label: "Account", wrap: true, cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
+        ...(book ? [{ label: "Holder", cell: (a) => holderCell(a) ?? h("span", { class: "muted small" }, "No holder") }] : []),
         { label: "Broker", wrap: true, cell: (a) => (a.broker === "paper" ? "Paper (simulator)" : brokerCell(a.broker, brokerOf(a)?.name ?? a.broker)) },
         { label: "Session", cell: (a) => h("div", {}, sessionPill(a.session?.state), a.session?.expiresAt ? h("div", { class: "muted small" }, `until ${istDateTime(a.session.expiresAt)}`) : null) },
         { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")) },
