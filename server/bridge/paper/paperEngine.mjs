@@ -234,7 +234,9 @@ export function createPaperEngine(deps, options = {}) {
     for (const o of st.orders) if (isPending(o)) setStatus(o, "expired", "Expired at the end of the trading day.", t);
     for (const [k, p] of Object.entries(st.positions)) {
       if (p.netQty === 0) delete st.positions[k];
-      else Object.assign(p, { realisedPnl: 0, buyQty: 0, sellQty: 0, buyValue: 0, sellValue: 0 });
+      // Carried into the new day: the quantity and the last mark become the day's starting point (the Day view's P&L
+      // is measured from the previous close, as brokers do).
+      else Object.assign(p, { realisedPnl: 0, buyQty: 0, sellQty: 0, buyValue: 0, sellValue: 0, overnightQty: p.netQty, prevClose: lastPrice.get(p.symbol)?.ltp ?? st.marks?.[p.symbol]?.ltp ?? p.avgPrice });
     }
     st.day = today;
     st.ordersToday = 0;
@@ -946,6 +948,63 @@ export function createPaperEngine(deps, options = {}) {
       return project(o);
     },
 
+    /**
+     * Convert part or all of a position between products (Intraday MIS and carry NRML), as brokers do: no order, no
+     * fill, no charge. The moved quantity keeps its average price; it joins a position already held in the other
+     * product at the weighted average. Refused when the other product holds the opposite side, when the quantity is
+     * more than is held, and into Intraday at or after the square-off time (it would be squared off at once).
+     * @param {string} accountId
+     * @param {{ symbol: string, from: string, to: string, quantity: number }} c
+     * @returns {Promise<{ from: object, to: object, quantity: number, at: string }>}
+     */
+    async convert(accountId, { symbol, from, to, quantity }) {
+      const st = book(accountId);
+      const PRODUCTS = ["INTRADAY", "MARGIN", "CNC"];
+      if (!PRODUCTS.includes(from) || !PRODUCTS.includes(to) || from === to) throw badInput("from and to must be two different products: INTRADAY, MARGIN or CNC.", "to");
+      if (!(Number.isInteger(quantity) && quantity > 0)) throw badInput("quantity must be a whole number above zero.", "quantity");
+      const src = st.positions[posKey(symbol, from)];
+      if (!src || src.netQty === 0) throw invalid(`There is no open ${from} position in ${symbol} to convert.`, "symbol");
+      if (quantity > Math.abs(src.netQty)) throw invalid(`Only ${Math.abs(src.netQty)} is held in ${from}; ${quantity} cannot be converted.`, "quantity");
+      const t = now();
+      if (to === "INTRADAY" && cfg.squareOff.enabled && t >= squareOffAt(src.exchange, t)) throw invalid("It is past the intraday square-off time, so a position cannot be converted to Intraday now.", "to");
+      const dir = Math.sign(src.netQty);
+      const key = posKey(symbol, to);
+      const dst = st.positions[key] ?? { symbol, product: to, exchange: src.exchange, kind: src.kind, strike: src.strike ?? null, tickSize: src.tickSize, netQty: 0, avgPrice: 0, realisedPnl: 0, buyQty: 0, sellQty: 0, buyValue: 0, sellValue: 0, openedDay: src.openedDay };
+      if (dst.netQty !== 0 && Math.sign(dst.netQty) !== dir) throw invalid(`The ${to} position in ${symbol} is on the other side; close it first, then convert.`, "to");
+      const value = quantity * src.avgPrice;
+      dst.avgPrice = (Math.abs(dst.netQty) * dst.avgPrice + value) / (Math.abs(dst.netQty) + quantity);
+      dst.netQty += dir * quantity;
+      // The day's figures move with the units so each product's Day P&L stays right: carried units first (with the
+      // previous close), then today's buys (or sells) at today's average.
+      const carried = Math.sign(src.overnightQty ?? 0) === dir ? Math.min(quantity, Math.abs(src.overnightQty ?? 0)) : 0;
+      if (carried) {
+        src.overnightQty -= dir * carried;
+        dst.overnightQty = (dst.overnightQty ?? 0) + dir * carried;
+        dst.prevClose = src.prevClose;
+      }
+      const today = quantity - carried;
+      if (today) {
+        const side = dir > 0 ? "buy" : "sell";
+        const q = `${side}Qty`;
+        const v = `${side}Value`;
+        const avg = src[q] > 0 ? src[v] / src[q] : src.avgPrice;
+        const moved = Math.min(today, src[q]);
+        src[q] -= moved;
+        src[v] = Math.max(0, src[v] - moved * avg);
+        dst[q] += moved;
+        dst[v] += moved * avg;
+      }
+      if (dst.openedDay === undefined || (src.openedDay !== undefined && src.openedDay < dst.openedDay)) dst.openedDay = src.openedDay;
+      src.netQty -= dir * quantity;
+      if (src.netQty === 0) src.avgPrice = 0;
+      st.positions[key] = dst;
+      const at = toIstIso(t);
+      (st.conversions ??= []).push({ at, symbol, from, to, quantity: dir * quantity });
+      if (st.conversions.length > 500) st.conversions.splice(0, st.conversions.length - 500);
+      save(st);
+      return { from: { ...src }, to: { ...dst }, quantity, at };
+    },
+
     /** Cancel a pending order. Throws ORDER_NOT_FOUND, or INVALID_ORDER when it is already final. */
     async cancel(accountId, orderId) {
       const st = book(accountId);
@@ -1061,6 +1120,10 @@ export function createPaperEngine(deps, options = {}) {
           sellQty: p.sellQty,
           buyAvg: p.buyQty ? round4(p.buyValue / p.buyQty) : null,
           sellAvg: p.sellQty ? round4(p.sellValue / p.sellQty) : null,
+          // Day view: buys and sells today, what was carried in and its previous close, and today's P&L from them.
+          overnightQty: p.overnightQty ?? 0,
+          prevClose: p.overnightQty ? (p.prevClose ?? null) : null,
+          dayPnl: p.netQty !== 0 && (ltp === null || ltp === undefined) ? null : round2(p.sellValue - p.buyValue + p.netQty * (ltp ?? 0) - (p.overnightQty ?? 0) * (p.prevClose ?? 0)),
         };
       });
     },

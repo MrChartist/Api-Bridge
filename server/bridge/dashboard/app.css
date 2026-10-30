@@ -1534,7 +1534,8 @@ input[type="checkbox"]:not(.switch input):disabled, input[type="radio"]:disabled
 .dv-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 0; padding: 0; list-style: none; font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .dv-legend li { display: inline-flex; align-items: center; gap: 6px; min-height: 20px; }
 .dv-legend button { min-height: 24px; padding: 0 8px 0 6px; gap: 6px; border-radius: 999px; font: inherit; color: inherit; background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); }
-.dv-legend button[aria-pressed="false"] { color: hsl(var(--foreground) / var(--a-quiet)); box-shadow: inset 0 0 0 1px var(--mat-separator); }
+/* An off series: its key fades, its label stays readable (quiet ink, 4.5:1 or more) and is struck through. */
+.dv-legend button[aria-pressed="false"] { color: hsl(var(--foreground) / var(--a-quiet)); text-decoration: line-through; }
 .dv-legend button[aria-pressed="false"] .dv-key { opacity: 0.35; }
 .dv-key { flex: none; display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
 .dv-key.line { width: 14px; height: 2px; border-radius: 1px; }
@@ -1872,7 +1873,7 @@ button.start-row:hover { --btn-bg: var(--mat-fill-1); }
   .ck-table tr > :last-child { padding-right: var(--card-pad); }
 }
 /* Card head links (Positions, Calendar, All events) reach 44px on touch. */
-@media (pointer: coarse) { .card-actions a { display: inline-flex; align-items: center; min-height: 44px; } }
+@media (pointer: coarse) { .card-actions a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; } }
 .ck-kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 10px 0 0; font: 500 12.5px/1.35 var(--font-body); }
 .ck-kv dt { color: hsl(var(--foreground) / var(--a-label)); }
 .ck-kv dd { margin: 0; text-align: right; font-family: var(--font-numeric); font-variant-numeric: tabular-nums; }
@@ -4497,7 +4498,7 @@ button.pos-gauge:focus-visible { outline: 2px solid var(--sel-ring); outline-off
 @container pos-cap (max-width: 359px) { .pos-stress:not(.scen) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .pos-stress[hidden] { display: none; }
 button.pos-schip { flex: 1 1 0; min-width: 0; min-height: 26px; height: 26px; padding: 0 6px; gap: 4px; font-size: 12px; justify-content: center; border-radius: 999px; box-shadow: none; font: 500 12px/1 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
-button.pos-schip .k { opacity: var(--soft-op); font-weight: 600; }
+button.pos-schip .k { opacity: max(var(--soft-op), 0.92); font-weight: 600; }
 button.pos-schip:hover { filter: brightness(1.06); }
 button.pos-schip:focus-visible { outline: 2px solid currentColor; outline-offset: -3px; }
 .pos-stress.in > *, .pos-warn.fresh { animation: pos-rise 180ms var(--ease-out) both; }
@@ -7858,7 +7859,8 @@ details.rec-feas[open] > summary::after { content: "Hide"; }
 .jr-day:not([data-div]) { background: var(--mat-fill-1, hsl(var(--foreground) / 0.03)); }
 .jr-day.out { background: transparent; }
 .jr-day.today { box-shadow: inset 0 0 0 2px var(--sel-ring); }
-.jr-dn { font: 500 12px/1 var(--font-numeric); opacity: var(--soft-op); }
+/* The day number sits on a P&L tint: at --soft-op (0.75) it fell to 3.6:1 on dark. */
+.jr-dn { font: 500 12px/1 var(--font-numeric); opacity: max(var(--soft-op), 0.92); }
 .jr-dv { font: 600 12px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .jr-cal-sum { margin: 10px 0 0; }
 .jr-stats table td, .jr-stats table th { white-space: nowrap; }
@@ -8773,7 +8775,203 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .bk-exits-hint { margin: 8px 0 12px; font: 500 12px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .bk-exits > summary > span:first-child { flex: none; white-space: nowrap; }
 @media (max-width: 719px) { .bk-exits-sum { display: none; } }
+/* Positions: a leg's stop and target chip, and the stop-and-target sheet. */
+.bk-px-chip { display: inline-flex; align-items: center; min-height: 22px; margin: 2px 6px 2px 0; padding: 0 8px; border: 0; border-radius: 999px; font: 500 12px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground)); background: var(--mat-fill-1); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); cursor: pointer; white-space: nowrap; }
+.bk-px-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 719px) { .bk-px-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.bk-px-read { margin: 0; font: 500 13px/1.4 var(--font-body); }
+.bk-px-have { display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--mat-fill-1); font: 500 13px/1.35 var(--font-body); }
+.bk-px-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.bk-exit-figs { margin-top: -1px; }
+.bk-nw { white-space: nowrap; }
+/* The order ticket grows with its fields on tall screens (stop and target add two rows), so the figures stay above
+   the footer; shorter screens keep the usual cap and scroll inside the sheet. */
+@media (min-width: 720px) and (min-height: 900px) { dialog.sheet:has(.ticket) { max-height: min(96vh, 1180px); } }
+/* SL / SL-M: four types share the Type control. */
+.ticket .segmented button[data-value="SL-M"] { white-space: nowrap; }
+/* Phones: the four order types take the row's whole width under Lots. */
+@media (max-width: 719px) { .ticket-grid > .field:has(> .bk-type-seg) { grid-column: 1 / -1; } }
+.bk-pair > :only-child { grid-column: 1 / -1; }
+/* Orders: filters over the day's orders and the trade book. */
+.bk-ob-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 0 16px 12px; }
+.bk-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+button.bk-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border-radius: 999px; background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); font: 500 13px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+@media (pointer: coarse) { button.bk-chip { min-height: 44px; } }
+.bk-chip-n { font: 500 12px/1 var(--font-numeric); font-variant-numeric: tabular-nums; opacity: 0.72; }
+.bk-ob-search { flex: 1 1 220px; min-width: 0; max-width: 360px; margin-left: auto; }
+@media (max-width: 719px) { .bk-ob-search { max-width: none; margin-left: 0; flex-basis: 100%; } }
+.bk-tb-figs { margin: 0 0 4px; }
+.bk-cv-margin { margin: 0; font: 500 13px/1.4 var(--font-body); }
+/* Positions: Net / Day. */
+.bk-day-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; padding: 12px 16px; font: 500 14px/1.3 var(--font-body); }
+.bk-day-head strong { font: 600 20px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.bk-day[hidden], .pos-body[hidden] { display: none; }
+.bk-cv-margin .muted { color: hsl(var(--foreground) / var(--a-quiet)); }
 /* End of broker features. */
+
+/* ───────────────────────── Trade › Algo (algo.js, docs/STRATEGIES-PYTHON.md) ───────────────────────── */
+/* Summary strip: four figures and the folder, then the page actions. */
+.algo-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 14px 28px; padding: 16px var(--card-pad); }
+.algo-kpis { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 36px; flex: 1 1 560px; min-width: 0; }
+.algo-kpi { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.algo-kpi:last-child { flex: 1 1 280px; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "l l" "p c"; align-items: center; column-gap: 8px; }
+.algo-kpi:last-child > .algo-kl { grid-area: l; }
+.algo-kpi:last-child > .algo-path { grid-area: p; }
+.algo-kl { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; }
+.algo-kv { font: 500 22px/1.15 var(--font-numeric); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; white-space: nowrap; }
+.algo-path { font: 400 12.5px/1.4 var(--font-mono); color: hsl(var(--foreground) / var(--a-label)); overflow-wrap: anywhere; min-width: 0; }
+.algo-bar-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.algo-kill { display: inline-flex; text-decoration: none; }
+.algo-kill:hover { text-decoration: none; }
+
+/* The page: strategies and the guide on one side, the chosen strategy on the other. */
+.algo-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--panel-gap); min-width: 0; }
+.algo-side { display: flex; flex-direction: column; gap: var(--panel-gap); min-width: 0; }
+.algo-list { container-type: inline-size; display: flex; flex-direction: column; min-width: 0; }
+.algo-rows { display: flex; flex-direction: column; padding: 10px 0 8px; min-width: 0; }
+.algo-note { margin: 0; padding: 0 var(--card-pad) var(--card-pad); }
+
+/* A strategy row: two lines in a narrow list, one line once the list is wide enough. */
+.algo-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "main status act" "meta meta meta";
+  align-items: center; gap: 4px 12px; padding: 10px var(--card-pad); min-width: 0;
+  box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator);
+}
+.algo-row:last-child { box-shadow: none; }
+.algo-row.sel { background: var(--mat-fill-1); }
+.algo-row-main { grid-area: main; --btn-px: 0; --btn-h: 40px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-width: 0; text-align: left; white-space: normal; }
+.algo-row-main > strong { font: 600 14.5px/1.25 var(--font-body); color: hsl(var(--foreground)); overflow-wrap: anywhere; }
+.algo-row-main > .muted { font: 400 12.5px/1.3 var(--font-mono); }
+.algo-c-status { grid-area: status; }
+.algo-row-problem { font: 400 12.5px/1.35 var(--font-body); color: hsl(var(--ios-red-ink)); overflow-wrap: anywhere; }
+.algo-form-msg { margin: 0; padding: 8px 12px; border-radius: 10px; font: 500 13px/1.4 var(--font-body); color: hsl(var(--ios-red-ink)); background: hsl(var(--ios-red) / 0.1); }
+.algo-form-msg[hidden] { display: none; }
+.algo-c-act { grid-area: act; display: flex; justify-content: flex-end; }
+.algo-row-meta { grid-area: meta; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; min-width: 0; font: 400 13px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.algo-row-meta .num { font-family: var(--font-numeric); font-variant-numeric: tabular-nums; }
+.algo-c-acct { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.algo-mode { display: inline-flex; align-items: center; justify-content: center; min-height: 22px; padding: 2px 8px; border-radius: 999px; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-2); white-space: nowrap; }
+.algo-mode.live { color: hsl(var(--ios-red-ink)); background: hsl(var(--ios-red) / 0.14); }
+@container (min-width: 880px) {
+  .algo-row { grid-template-columns: minmax(140px, 1.4fr) 104px minmax(136px, 1fr) 58px minmax(90px, 110px) 80px 70px 92px; grid-template-areas: none; gap: 8px 14px; }
+  .algo-row > * { grid-area: auto; }
+  .algo-row-meta { display: contents; }
+  .algo-c-pnl, .algo-c-ord, .algo-c-up { text-align: right; }
+}
+
+/* How to write one */
+.algo-howto { display: flex; flex-direction: column; min-width: 0; }
+.algo-steps { margin: 12px var(--card-pad) 14px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font: 400 14px/1.5 var(--font-body); color: hsl(var(--foreground) / 0.86); }
+.algo-steps code { font: 400 13px/1.4 var(--font-mono); }
+.algo-howto > .code-block { margin: 0 var(--card-pad) var(--card-pad); display: flex; flex-direction: column; min-height: 0; }
+.algo-howto .code pre { font-size: 12.5px; line-height: 1.55; }
+
+/* The chosen strategy */
+.algo-detail { display: flex; flex-direction: column; min-width: 0; padding-bottom: var(--card-pad); }
+.algo-dhead { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 12px 16px; padding: var(--card-pad) var(--card-pad) 0; }
+.algo-dtitles { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.algo-dline { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.algo-dtitle { font: 600 22px/1.2 var(--font-display); letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.algo-dstatus { display: inline-flex; align-items: center; gap: 8px; }
+.algo-dfile { font-family: var(--font-mono); }
+.algo-dacts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.algo-ddesc { margin: 10px var(--card-pad) 0; font: 400 14px/1.5 var(--font-body); max-width: 90ch; }
+.algo-dalert { display: flex; margin: 12px var(--card-pad) 0; padding: 10px 14px; border-radius: var(--r-inner); font: 400 13.5px/1.45 var(--font-body); }
+.algo-dalert[hidden] { display: none; }
+.algo-dalert > span { display: flex; align-items: flex-start; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.algo-dalert svg { width: 16px; height: 16px; flex: none; margin-top: 2px; fill: none; stroke: currentColor; stroke-width: 2; }
+.algo-dalert.bad { color: hsl(var(--ios-red-ink)); background: hsl(var(--ios-red) / 0.1); }
+.algo-dalert.warn { color: hsl(var(--ios-orange-ink)); background: hsl(var(--ios-orange) / 0.12); }
+.algo-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 12px 20px; margin: 16px var(--card-pad) 0; }
+.algo-fact { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.algo-fact dt { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.algo-fact dd { margin: 0; font: 500 15px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.algo-fact dd .muted { font: 400 13px/1.3 var(--font-body); }
+.algo-fact .warn-text { color: hsl(var(--ios-orange-ink)); }
+
+.algo-dbody { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "set" "log" "ord"; gap: 16px; margin: 18px var(--card-pad) 0; flex: 1 1 auto; min-height: 0; }
+.algo-pane { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; padding: 14px 16px 16px; border-radius: var(--r-inner); background: var(--mat-fill-1); }
+.algo-pane-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 36px; }
+.algo-pane-head h3 { flex: 1 1 auto; font: 600 15px/1.3 var(--font-display); letter-spacing: -0.01em; }
+.algo-pane-head label.check { min-height: 36px; font-size: 13px; }
+.algo-settings { grid-area: set; }
+.algo-log { grid-area: log; }
+.algo-orders { grid-area: ord; }
+.algo-acct { max-width: 420px; }
+.algo-params { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: 14px 16px; align-items: start; }
+.algo-param small { font: 400 12px/1.35 var(--font-body); }
+.algo-param-bool { align-self: center; min-height: 44px; }
+
+/* The live log: newest at the bottom, follows unless you scroll up. */
+.algo-log-lines { list-style: none; margin: 0; padding: 8px 0; flex: 1 1 0; min-height: 300px; max-height: 70vh; overflow: auto; border-radius: 10px; background: var(--mat-grouped-solid); box-shadow: var(--edge-1); font: 400 12.5px/1.55 var(--font-mono); overscroll-behavior: contain; }
+.algo-ll { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 0 10px; padding: 1px 12px; }
+.algo-ll > time { color: hsl(var(--foreground) / var(--a-quiet)); font-variant-numeric: tabular-nums; }
+.algo-lvl { text-transform: uppercase; font-size: 12px; }
+.algo-lt { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.algo-ll.lv-warn .algo-lvl, .algo-ll.lv-warn .algo-lt { color: hsl(var(--ios-orange-ink)); }
+.algo-ll.lv-error .algo-lvl, .algo-ll.lv-error .algo-lt { color: hsl(var(--ios-red-ink)); }
+.algo-ll.lv-debug { color: hsl(var(--foreground) / var(--a-quiet)); }
+.algo-ll.muted { display: block; color: hsl(var(--foreground) / var(--a-quiet)); font-family: var(--font-body); }
+
+/* Orders and positions it holds */
+.algo-orders-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; max-height: 440px; overflow: auto; overscroll-behavior: contain; }
+.algo-orders table.desk-table { width: 100%; border-collapse: collapse; font: 400 13px/1.35 var(--font-body); }
+.algo-orders table.desk-table th, .algo-orders table.desk-table td { padding: 7px 10px; text-align: left; white-space: nowrap; }
+.algo-orders table.desk-table :is(th, td).num { text-align: right; font-family: var(--font-numeric); font-variant-numeric: tabular-nums; }
+.algo-orders table.desk-table th:first-child, .algo-orders table.desk-table td:first-child { padding-left: 0; }
+.algo-orders table.desk-table thead th { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.algo-orders tbody th { font-weight: 500; }
+.algo-orders table.desk-table tbody tr:last-child :is(th, td) { box-shadow: none; }
+.algo-orders tbody th a { color: inherit; }
+.algo-cap { caption-side: top; text-align: left; padding: 0 0 6px; font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.algo-empty { margin: 0; }
+
+/* Below desktop one column: the list, then the chosen strategy, then the guide. */
+@media (max-width: 1279px) {
+  .algo-side { display: contents; }
+  .algo-list { order: 1; }
+  .algo-detail { order: 2; }
+  .algo-howto { order: 3; }
+}
+/* Tablet: the detail's settings beside its log, orders under both. */
+@media (min-width: 768px) {
+  .algo-dbody { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "set log" "ord ord"; }
+}
+/* Desktop: two columns that fill the window under the page title. */
+@media (min-width: 1280px) {
+  :root[data-page="algo"] .app-main { display: flex; flex-direction: column; }
+  :root[data-page="algo"] .app-main > .container-wide { flex: 1 1 auto; display: flex; flex-direction: column; }
+  :root[data-page="algo"] #content { flex: 1 1 auto; }
+  .algo-grid { flex: 1 1 auto; grid-template-columns: minmax(460px, 5fr) minmax(0, 7fr); align-items: stretch; }
+  .algo-howto { flex: 1 1 auto; }
+  .algo-howto > .code-block { flex: 1 1 auto; }
+  /* The template scrolls inside the space the list leaves, so the guide never makes the page taller. */
+  .algo-howto > .code-block > .code { flex: 1 1 0; min-height: 220px; overflow: auto; }
+  .algo-howto > .code-block > .code > pre { overflow: visible; }
+  .algo-dbody { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(320px, 1fr) auto; grid-template-areas: "set" "log" "ord"; }
+}
+@media (min-width: 1700px) {
+  /* Settings beside the log (the log takes the height that is left), orders under both at full width. */
+  .algo-dbody { grid-template-columns: minmax(340px, 5fr) minmax(0, 6fr); grid-template-rows: minmax(0, 1fr) auto; grid-template-areas: "set log" "ord ord"; }
+  .algo-log-lines { max-height: none; }
+}
+@media (min-width: 2300px) {
+  .algo-grid { grid-template-columns: minmax(640px, 5fr) minmax(0, 8fr); }
+}
+@media (max-width: 767px) {
+  .algo-kpis { gap: 12px 24px; }
+  .algo-kv { font-size: 19px; }
+  .algo-bar-acts { width: 100%; }
+  .algo-bar-acts > button { flex: 1 1 auto; }
+  .algo-dacts { width: 100%; }
+  .algo-dacts > button { flex: 1 1 auto; }
+  .algo-log-lines { min-height: 240px; max-height: 60vh; }
+  .algo-pane { padding: 12px; }
+}
+@media (pointer: coarse) {
+  .algo-row-main { --btn-h: 44px; }
+  .algo-pane-head label.check { min-height: 44px; }
+}
 
 /* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────
    Inline-SVG charts: every colour is a theme token (so light and dark both work), every size is an SVG attribute
@@ -9025,6 +9223,9 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
    the page head is hidden, so a page-scrolling table sticks under the desk top bar. */
 .an-page .card .table-wrap.scroll-box > table > thead th { top: 0; }
 :root[data-layout="desk"] .an-page .card .table-wrap:not(.scroll-box) > table > thead th { top: calc(var(--desk-top) - 8px); }
+/* A table wider than its panel (not .fits) is its own sideways scroll box, so the desk offset would push its head down
+   over the first row (Futures at 768, Risk › Execution costs, Flow › Filings at 1440): there the head sits at the top. */
+:root[data-layout="desk"] .an-page .card .table-wrap:not(.scroll-box):not(.fits) > table > thead th { top: 0; }
 /* A panel that is only a short form (a tab's own filters): one compact bar across the row, label beside its field. */
 .an-page .card.an-formbar { grid-column: 1 / -1; }
 .an-page .card.an-formbar > .card-body { padding: 6px 12px; }

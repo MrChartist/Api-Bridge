@@ -155,6 +155,37 @@ describe("demo adapter", () => {
     }
   });
 
+  it("history and live quotes come from one path: after the close the live price is the last 5-minute close", () => {
+    const ist = (s) => Date.parse(`${s}+05:30`);
+    for (const sym of ["HDFCBANK", "RELIANCE", "NIFTY"]) {
+      const bars = candles(`DM-${sym}`, "5m", ist("2026-10-30T09:15"), ist("2026-10-31T00:40"));
+      expect(bars).toHaveLength(75);
+      const last = bars[bars.length - 1].close;
+      // Saturday night and Friday evening: on the last close to 0.05 % (the after-hours wiggle), never a jump.
+      for (const t of ["2026-10-30T15:30", "2026-10-30T20:00", "2026-10-31T00:40", "2026-11-01T12:00", "2026-11-02T09:14"]) {
+        expect(Math.abs(spotAt(sym, ist(t)) / last - 1)).toBeLessThan(0.0005);
+      }
+      // Monday opens on Friday's close; the daily bar's close is the last 5-minute close.
+      expect(spotAt(sym, ist("2026-11-02T09:15"))).toBe(last);
+      const daily = candles(`DM-${sym}`, "1d", ist("2026-10-26T00:00"), ist("2026-10-31T00:40"));
+      expect(daily[daily.length - 1].close).toBe(last);
+      // On a Saturday the change is Friday's (against Thursday's close), as a broker shows it.
+      const q = quoteOf(`DM-${sym}`, "NSE", ist("2026-10-31T00:40"));
+      expect(q.close).toBe(daily[daily.length - 2].close);
+      // A random walk, not a wave: 5-minute returns have no strong lag-1 pattern (the old sines sampled every 5 minutes
+      // alternated up, down, up: a sawtooth with a lag-1 correlation near -0.5).
+      const r = bars.slice(1).map((b, i) => Math.log(b.close / bars[i].close));
+      const mean = r.reduce((s, x) => s + x, 0) / r.length;
+      let num = 0;
+      let den = 0;
+      for (let i = 0; i < r.length; i += 1) {
+        den += (r[i] - mean) ** 2;
+        if (i) num += (r[i] - mean) * (r[i - 1] - mean);
+      }
+      expect(Math.abs(num / den)).toBeLessThan(0.3);
+    }
+  });
+
   it("demoChainAt builds a light OptionChain-shaped chain fast", () => {
     const e = expiriesFor("NIFTY", T)[0];
     const t0 = performance.now();

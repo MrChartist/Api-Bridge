@@ -111,9 +111,11 @@ async function queued(path, seq) {
 }
 
 /**
- * A sweep over the universe: expiries for every underlying first (so the total is known), HV20 once a day per
- * underlying, then the chains (nearest expiries of every underlying first). Chains fresher than 0.9 × TTL are kept
- * unless `force`. Callbacks redraw progressively.
+ * A sweep over the universe: expiries for every underlying first (so the total is known), with the first underlying's
+ * nearest chain read as soon as its expiries are known (so rows show within a second, not after 15 expiry reads), then
+ * the chains (nearest expiries of every underlying first), then HV20 once a day per underlying (it only feeds the IV
+ * against HV figure, which fills in after). Chains fresher than 0.9 × TTL are kept unless `force`. Callbacks redraw
+ * progressively.
  */
 async function runSweep({ cfg, force, close, onProgress, onChain, onIssue, onHv }) {
   const seq = ++sweepSeq;
@@ -125,6 +127,27 @@ async function runSweep({ cfg, force, close, onProgress, onChain, onIssue, onHv 
   }
   const now = () => Date.now();
   let calls = 0;
+  const ttl = (cfg.auto || 60) * 1000;
+  const early = new Set(); // chains read during the expiries phase (not read again below)
+  async function readChain(u, e) {
+    const key = `${u}|${e}`;
+    const t0 = performance.now();
+    try {
+      const r = await queued(`/v1/optionchain?underlying=${encodeURIComponent(u)}&expiry=${encodeURIComponent(e)}&strikes=${cfg.strikes}&greeks=true&maxAgeMs=5000`, seq);
+      calls += 1;
+      const c = r.data?.data ?? null;
+      const fr = c?.freshness ?? r.data?.meta?.freshness ?? null;
+      cache.set(key, { chain: c, fetchedAt: now(), asOf: fr?.asOf ?? new Date().toISOString(), stale: Boolean(fr?.stale), error: null, ms: Math.round(performance.now() - t0) });
+      onIssue({ key, clear: true });
+    } catch (err) {
+      if (err === CANCELLED) throw err;
+      const prev = cache.get(key);
+      cache.set(key, { ...(prev ?? { chain: null, fetchedAt: 0, asOf: null }), error: err });
+      onIssue({ key, label: S.chainName(u, e), message: err?.rateLimited ? "Rate limited" : String(err?.message ?? err), error: err, retry: { u, e } });
+    }
+    if (seq !== sweepSeq) throw CANCELLED;
+    onChain(key);
+  }
   try {
     for (const u of list) {
       if (skipped.has(u)) {
@@ -153,9 +176,33 @@ async function runSweep({ cfg, force, close, onProgress, onChain, onIssue, onHv 
         continue;
       }
       plan.set(u, S.scanExpiries(ex, { n: cfg.expiries, monthly: cfg.monthly, close }).map((e) => ({ expiry: e, monthly: O.isMonthly(e, ex) })));
+      // The first underlying's nearest chain at once, unless one is remembered fresh: the table has rows early.
+      if (plan.size === 1 && !early.size) {
+        const e = plan.get(u)[0]?.expiry;
+        const have = e ? cache.get(`${u}|${e}`) : null;
+        if (e && (force || !have?.chain || have.error || now() - have.fetchedAt >= ttl * 0.9)) {
+          onProgress({ phase: "chain", label: S.chainName(u, e), current: true });
+          await readChain(u, e);
+          early.add(`${u}|${e}`);
+        }
+      }
     }
     const order = S.scanOrder(new Map([...plan].map(([u, l]) => [u, l.map((x) => x.expiry)])));
-    onProgress({ phase: "plan", plan, total: order.length, done: 0 });
+    onProgress({ phase: "plan", plan, total: order.length, done: early.size });
+    let done = 0;
+    for (const { underlying: u, expiry: e } of order) {
+      const key = `${u}|${e}`;
+      const have = cache.get(key);
+      if (early.has(key) || (!force && have?.chain && !have.error && now() - have.fetchedAt < ttl * 0.9)) {
+        done += 1;
+        onProgress({ phase: "chain", done, total: order.length, label: S.chainName(u, e) });
+        continue;
+      }
+      onProgress({ phase: "chain", done, total: order.length, label: S.chainName(u, e), current: true });
+      await readChain(u, e);
+      done += 1;
+      onProgress({ phase: "chain", done, total: order.length, label: S.chainName(u, e) });
+    }
     // HV20: one daily call per underlying, cached for the IST day; a failure waits for tomorrow or a manual rescan.
     const hv = hvStore();
     for (const u of plan.keys()) {
@@ -171,36 +218,6 @@ async function runSweep({ cfg, force, close, onProgress, onChain, onIssue, onHv 
         hvFailed.add(u);
       }
       onHv();
-    }
-    const ttl = (cfg.auto || 60) * 1000;
-    let done = 0;
-    for (const { underlying: u, expiry: e } of order) {
-      const key = `${u}|${e}`;
-      const have = cache.get(key);
-      if (!force && have?.chain && !have.error && now() - have.fetchedAt < ttl * 0.9) {
-        done += 1;
-        onProgress({ phase: "chain", done, total: order.length, label: S.chainName(u, e) });
-        continue;
-      }
-      onProgress({ phase: "chain", done, total: order.length, label: S.chainName(u, e), current: true });
-      const t0 = performance.now();
-      try {
-        const r = await queued(`/v1/optionchain?underlying=${encodeURIComponent(u)}&expiry=${encodeURIComponent(e)}&strikes=${cfg.strikes}&greeks=true&maxAgeMs=5000`, seq);
-        calls += 1;
-        const c = r.data?.data ?? null;
-        const fr = c?.freshness ?? r.data?.meta?.freshness ?? null;
-        cache.set(key, { chain: c, fetchedAt: now(), asOf: fr?.asOf ?? new Date().toISOString(), stale: Boolean(fr?.stale), error: null, ms: Math.round(performance.now() - t0) });
-        onIssue({ key, clear: true });
-      } catch (err) {
-        if (err === CANCELLED) throw err;
-        const prev = cache.get(key);
-        cache.set(key, { ...(prev ?? { chain: null, fetchedAt: 0, asOf: null }), error: err });
-        onIssue({ key, label: S.chainName(u, e), message: err?.rateLimited ? "Rate limited" : String(err?.message ?? err), error: err, retry: { u, e } });
-      }
-      done += 1;
-      if (seq !== sweepSeq) throw CANCELLED;
-      onChain(key);
-      onProgress({ phase: "chain", done, total: order.length, label: S.chainName(u, e) });
     }
     return { plan, total: order.length, calls, cancelled: false };
   } catch (err) {

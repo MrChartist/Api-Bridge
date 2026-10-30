@@ -8,6 +8,7 @@ import { setBar, svgEl } from "./viz.js";
 import { DASH, formatCompact, formatDayMonth, formatFixed, formatInt, formatSigned, isFigure } from "./format.js";
 import { clearFieldError, fieldError } from "./flows.js";
 import { normaliseSymbol, sessionCloses, sortRows } from "./watchlist-core.js";
+import { watch } from "./live.js";
 
 const SLOT = "mcb.dashboard.watchlists";
 const REFRESH_MS = 5000;
@@ -54,6 +55,7 @@ export async function renderWatchlistsPage() {
     const l = cur();
     if (sparkBusy || !l) return;
     sparkBusy = true;
+    let fetched = 0;
     try {
       for (const s of l.symbols.slice(0, SPARK_MAX_SYMBOLS)) {
         const c = sparks.get(s);
@@ -61,11 +63,14 @@ export async function renderWatchlistsPage() {
         const r = await optional(api(`/v1/history?symbol=${encodeURIComponent(s)}&interval=5m&countback=80`));
         if (!tableHost.isConnected) return;
         sparks.set(s, { at: Date.now(), closes: r.error ? [] : sessionCloses(r.data?.data?.candles ?? r.data?.candles) });
+        fetched += 1;
+        sparkSeq += 1;
       }
     } finally {
       sparkBusy = false;
     }
-    draw();
+    // This runs after every 5 s poll, nearly always with every line still fresh: redraw only when a line was fetched.
+    if (fetched) draw();
   }
   /** The session so far as a line: up in the gain ink, down in the loss ink, the previous close as a dotted level. */
   function sparkFor(r) {
@@ -217,6 +222,55 @@ export async function renderWatchlistsPage() {
     const rec = /^recorder (\d{4}-\d{2}-\d{2})$/.exec(r.oiBase ?? "");
     return rec ? `Near future: OI against its OI at the ${formatDayMonth(rec[1])} close (Data recorder)` : "Near future: OI against the previous day's OI";
   };
+  // Prices follow the shared live connection (live.js): the list's symbols and their near futures are watched, so the
+  // Bridge answers the 5 s poll from ticks (no broker call), and Last and Chg % change on each tick in place.
+  let drawnSig = "";
+  let sparkSeq = 0;
+  const cells = new Map(); // symbol -> { last, chg, row }
+  let live = null;
+  let liveKey = "";
+  function cellsFor(r, last, chg) {
+    cells.set(r.symbol, { last, chg, row: { ...r } });
+    return [last, chg];
+  }
+  function follow(l) {
+    const futs = (quotes?.rows ?? []).map((r) => r.future).filter((f) => typeof f === "string" && f.includes(":"));
+    const want = l && tableHost.isConnected ? [...new Set([...l.symbols, ...futs])].slice(0, 100) : [];
+    const k = want.join(",");
+    if (k === liveKey) return;
+    liveKey = k;
+    if (!want.length) {
+      live?.stop();
+      live = null;
+    } else if (live) live.update(want);
+    else {
+      live = watch(want, "quote", onTicks);
+      // Leaving the page stops the watch once the next page has replaced this one (ticks may have stopped coming).
+      const later = () =>
+        setTimeout(() => {
+          if (tableHost.isConnected) return;
+          removeEventListener("hashchange", later);
+          follow(null);
+        }, 1500);
+      addEventListener("hashchange", later);
+    }
+  }
+  function onTicks(ticks) {
+    if (!tableHost.isConnected) return follow(null);
+    for (const [sym, t] of ticks) {
+      const c = cells.get(sym);
+      const ltp = Number(t?.ltp);
+      if (!c || !Number.isFinite(ltp) || ltp === c.row.ltp) continue;
+      const close = isFigure(c.row.prevClose) ? c.row.prevClose : isFigure(c.row.ltp) && isFigure(c.row.change) ? c.row.ltp - c.row.change : null;
+      c.row.ltp = ltp;
+      if (close) {
+        c.row.change = ltp - close;
+        c.row.changePct = (c.row.change / close) * 100;
+      }
+      c.last.replaceChildren(formatFixed(ltp, 2), ...(isFigure(c.row.change) ? [h("small", { class: `block ${tone(c.row.change)}` }, formatSigned(c.row.change, 2))] : []));
+      c.chg.replaceChildren(pct(c.row.changePct));
+    }
+  }
   function draw() {
     listSel.replaceChildren(...lists.map((l) => h("option", { value: l.id, selected: l.id === st.id }, `${l.name} · ${formatInt(l.symbols.length)}`)));
     const l = cur();
@@ -236,6 +290,11 @@ export async function renderWatchlistsPage() {
     }
     const byS = new Map((quotes?.rows ?? []).map((r) => [r.symbol, r]));
     const rows = sortRows(l.symbols.map((s) => byS.get(s) ?? { symbol: s, name: s.split(":")[1] }), st.sort, st.dir);
+    // The 5 s poll often brings what is on screen already (ticks patched the prices): then nothing is rebuilt.
+    const sig = JSON.stringify([l.id, st.sort, st.dir, sparkSeq, rows.map((r) => [r.symbol, r.ltp, r.change, r.changePct, r.oi, r.oiChangePct, r.iv, r.ivr, r.hv20])]);
+    if (sig === drawnSig && tableHost.querySelector("table")) return paintStatus();
+    drawnSig = sig;
+    cells.clear();
     // The day's move as a bar from a centre line, on one scale for the list (the widest move reaches the edge).
     const span = Math.max(0.5, ...rows.map((r) => (isFigure(r.changePct) ? Math.abs(r.changePct) : 0)));
     const moveBar = (v) => {
@@ -246,7 +305,7 @@ export async function renderWatchlistsPage() {
     };
     const table = h(
         "table",
-        { class: "desk-table wl-table" },
+        { class: "desk-table wl-table", "aria-label": `${l.name}: watchlist prices` },
         h("thead", {}, h("tr", {}, head("name", "Symbol", false), head("ltp", "Last"), head("changePct", "Chg %"), head("oiChangePct", "OI chg (fut)", true, "Near future's OI against its OI at the previous day's close"), head("iv", "ATM IV (front)", true, "The front expiry's ATM IV: the average of the ATM call and put IV, as the Option Chain and Volatility show it. HV20 under it"), head("ivr", "IV rank"), h("th", { scope: "col", class: "wl-move-h", title: "The session in 5-minute steps (the dotted line is the previous close), then the day's % change on one scale for the list" }, "Today"), h("th", { scope: "col" }, h("span", { class: "sr-only" }, "Actions")))),
         h(
           "tbody",
@@ -256,8 +315,7 @@ export async function renderWatchlistsPage() {
               "tr",
               {},
               h("th", { scope: "row" }, h("strong", {}, r.name), h("small", { class: "block muted" }, r.symbol.split(":")[0])),
-              h("td", { class: "num" }, isFigure(r.ltp) ? formatFixed(r.ltp, 2) : DASH, isFigure(r.change) ? h("small", { class: `block ${tone(r.change)}` }, formatSigned(r.change, 2)) : null),
-              h("td", { class: "num" }, pct(r.changePct)),
+              ...cellsFor(r, h("td", { class: "num" }, isFigure(r.ltp) ? formatFixed(r.ltp, 2) : DASH, isFigure(r.change) ? h("small", { class: `block ${tone(r.change)}` }, formatSigned(r.change, 2)) : null), h("td", { class: "num" }, pct(r.changePct))),
               h("td", { class: "num", title: oiTitle(r) }, r.oi === null || r.oi === undefined ? DASH : h("span", {}, pct(r.oiChangePct), h("small", { class: "block muted" }, `OI ${formatCompact(r.oi)}`))),
               h("td", { class: "num", title: isFigure(r.iv) ? `ATM IV of the ${formatDayMonth(r.ivExpiry)} expiry (front), as on the Option Chain` : r.fno ? "No front-expiry chain to read the ATM IV from yet" : "Not an F&O symbol" }, isFigure(r.iv) ? `${formatFixed(r.iv, 1)}%` : DASH, isFigure(r.hv20) ? h("small", { class: "block muted" }, `HV20 ${formatFixed(r.hv20, 1)}`) : null),
               h("td", { class: "num" }, isFigure(r.ivr) ? formatInt(r.ivr) : DASH),
@@ -274,6 +332,10 @@ export async function renderWatchlistsPage() {
       );
     table.style.setProperty("--n", String(rows.length));
     tableHost.replaceChildren(table);
+    paintStatus();
+    follow(l);
+  }
+  function paintStatus() {
     status.textContent = quotes ? `Updated ${istTime(quotes.at)} · every ${formatInt(REFRESH_MS / 1000)} s${quotes.errors?.length ? ` · ${formatInt(quotes.errors.length)} not priced` : ""}` : "Loading prices";
   }
   function setDeskUnderlying(u) {
@@ -287,7 +349,7 @@ export async function renderWatchlistsPage() {
   async function load() {
     clearTimeout(timer);
     const l = cur();
-    if (!l || !l.symbols.length || (!tableHost.isConnected && quotes)) return;
+    if (!l || !l.symbols.length || (!tableHost.isConnected && quotes)) return follow(null);
     const r = await optional(api(`/v1/watchlists/${encodeURIComponent(l.id)}/quotes`, { fresh: true }));
     if (st.id !== l.id) return;
     if (!r.error) quotes = r.data.data;

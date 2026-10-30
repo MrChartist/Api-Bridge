@@ -6,6 +6,7 @@ import { api, app, card, emptyState, h, loadingState, optional, pill } from "./a
 import { DASH, formatCompact, formatFixed, formatGrouped, formatInt, formatPercent, formatSigned, formatSignedRupee, formatRupee, isFigure } from "./format.js";
 import { bookGroups } from "./alert-core.js";
 import { contractName, orderStatusText, sessionText, startupText } from "./flows.js";
+import { watch } from "./live.js";
 
 const INDICES = ["NSE:NIFTY", "NSE:BANKNIFTY", "NSE:FINNIFTY", "NSE:MIDCPNIFTY", "BSE:SENSEX", "NSE:INDIAVIX"];
 const NAMES = { NIFTY: "NIFTY 50", BANKNIFTY: "BANK NIFTY", FINNIFTY: "FIN NIFTY", MIDCPNIFTY: "MIDCAP SELECT", SENSEX: "SENSEX", INDIAVIX: "INDIA VIX" };
@@ -209,10 +210,34 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
   const homeList = (wlRes.data?.data?.items ?? []).find((l) => l.home) ?? null;
   // Its quotes (with each row's front-expiry IV) can take a few seconds at start: the card draws with a skeleton and fills in.
   const wlBody = h("div", { class: "ck-wl" }, loadingState({ rows: 4, cols: 3, label: "Loading quotes" }));
+  // The list's symbols and near futures are watched on the live connection while Home shows them, so the Bridge answers
+  // this 5 s poll from ticks instead of a broker quote call each time.
+  let wlLive = null;
+  let wlSig = "";
   const fillWl = async () => {
     if (!homeList?.symbols.length) return;
     const r = await optional(api(`/v1/watchlists/${encodeURIComponent(homeList.id)}/quotes`, { fresh: true }));
     const rows = r.data?.data?.rows ?? [];
+    if (!wlLive && rows.length && (wlBody.isConnected || !wlSig)) {
+      const futs = rows.map((x) => x.future).filter((f) => typeof f === "string" && f.includes(":"));
+      const stop = () => {
+        if (wlBody.isConnected) return;
+        wlLive?.stop();
+        wlLive = null;
+        removeEventListener("hashchange", later);
+      };
+      // Leaving Home: stopped once the next page has replaced it (or on the next tick, whichever is first).
+      const later = () => setTimeout(stop, 1500);
+      addEventListener("hashchange", later);
+      wlLive = watch([...new Set([...homeList.symbols, ...futs])].slice(0, 60), "quote", stop);
+    } else if (wlLive && !wlBody.isConnected && wlSig) {
+      wlLive.stop();
+      wlLive = null;
+    }
+    // Unchanged figures: nothing is rebuilt.
+    const sig = JSON.stringify(rows.slice(0, 10).map((x) => [x.name, x.ltp, x.changePct, x.iv, x.oiChangePct]));
+    if (sig === wlSig) return;
+    wlSig = sig;
     wlBody.replaceChildren(
       h(
         "ul",

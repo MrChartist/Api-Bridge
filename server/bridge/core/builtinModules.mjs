@@ -31,5 +31,6 @@ import journal from "../journal/module.mjs";
 import watchlists from "../watchlists/module.mjs";
 import analytics from "../analytics/module.mjs";
 import triggers from "../triggers/module.mjs";
+import strategies from "../strategies/module.mjs";
 
-export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, reference, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, backup, scanner, recorder, vol, book, compat, notify, participants, fno, events, alerts, journal, watchlists, analytics, triggers]);
+export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, reference, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, backup, scanner, recorder, vol, book, compat, notify, participants, fno, events, alerts, journal, watchlists, analytics, triggers, strategies]);

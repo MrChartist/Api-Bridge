@@ -48,6 +48,7 @@ import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabili
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 import { PAGE_CODES } from "./workspace.js";
 import { triggersCard } from "./triggers.js";
+import { ordersCard, renderTradesPage } from "./orders-book.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -66,6 +67,7 @@ const PAGE_MODULES = Object.freeze({
   watchlists: () => import("./watchlists.js"),
   scanner: () => import("./scanner.js"),
   analytics: () => import("./analytics.js"),
+  algo: () => import("./algo.js"),
 });
 /** A page renderer that loads its module first. `.module` names it, for preloading. */
 function lazyPage(mod, name) {
@@ -95,6 +97,7 @@ const renderEventsPage = lazyPage("events", "renderEventsPage");
 const renderJournalPage = lazyPage("journal", "renderJournalPage");
 const renderWatchlistsPage = lazyPage("watchlists", "renderWatchlistsPage");
 const renderScannerPage = lazyPage("scanner", "renderScannerPage");
+const renderAlgoPage = lazyPage("algo", "renderAlgoPage");
 
 /** Load a page's module and warm its data ahead of a click (menu hover or focus). Idempotent and cheap. */
 export function preloadPage(pageId) {
@@ -319,10 +322,12 @@ export const PAGES = [
     defaultTab: "book",
     tabs: [
       { id: "book", label: "Orders", page: "orders", command: "Orders", keywords: "orders confirmations tickets modify cancel paper", render: renderOrders },
+      { id: "trades", label: "Trades", page: "trades", command: "Trade book", icon: "list", tint: "orange", keywords: "trades trade book fills executions turnover charges csv", sub: "Every fill with buy, sell and turnover totals", render: renderTradesPage },
       { id: "journal", label: "Journal", page: "journal", command: "Trade journal", icon: "list", tint: "teal", keywords: "journal trades tags notes setup win rate expectancy drawdown calendar heatmap daily pnl csv export", sub: "Every fill as a trade: tags, notes, a P&L calendar and stats", render: renderJournalPage },
     ],
   },
   { id: "safety", label: "Safety", icon: "safety", tint: "red", key: 6, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
+  { id: "algo", label: "Algo", icon: "console", tint: "indigo", group: "Trade", title: "Algo", headline: ["Python ", { serif: "strategies" }], sub: "Your Python strategies, run by the Bridge. Paper by default; every order passes the safety gates", render: renderAlgoPage },
   {
     id: "oi", label: "OI Analysis", icon: "bars", tint: "orange", key: 7, group: "Markets", layout: "desk", title: "OI Analysis", sub: "Open interest and OI chg by strike, build-up and walls",
     defaultTab: "strike",
@@ -1155,8 +1160,15 @@ function setupChrome() {
   // The IST clock in the toolbar (wide screens). It claims nothing about the market being open.
   const clock = $("clock");
   const IST_CLOCK = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hourCycle: "h23", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  // Each second only the time's text node changes (new nodes every second restyled the toolbar).
+  let clockText = null;
   const tick = () => {
-    if (clock && clock.offsetParent !== null) clock.replaceChildren(IST_CLOCK.format(new Date()), h("small", {}, "IST"));
+    if (!clock || clock.offsetParent === null) return;
+    if (!clockText || clockText.parentNode !== clock) {
+      clockText = document.createTextNode("");
+      clock.replaceChildren(clockText, h("small", {}, "IST"));
+    }
+    clockText.data = IST_CLOCK.format(new Date());
   };
   tick();
   setInterval(tick, 1000);
@@ -2391,24 +2403,19 @@ async function renderOrders() {
   nodes.push(triggersCard(byId));
 
   const ord = orders.data?.data ?? [];
+  // The day's orders with status and side filters, a search and Cancel all (orders-book.js).
   nodes.push(
-    card({
-      glyph: "orders",
-      tint: "orange",
-      title: "Today's orders",
-      cls: "orders-today",
+    ordersCard({
+      ord,
+      error: orders.error ?? null,
+      byId,
+      refresh: () => show(),
       // Orders are placed from the chain's ticket; the JSON route is for trying the API (API › Test console).
-      actions: h(
-        "div",
-        { class: "row" },
+      actions: [
         h("button", { type: "button", class: "small quiet", onclick: () => (location.hash = "#/api/console?endpoint=order") }, "Send as JSON"),
         h("button", { type: "button", class: "small primary", onclick: () => (location.hash = "#/chain") }, "Trade from the chain"),
-      ),
-      flush: true,
-      body: orders.error
-        ? h("div", { class: "card-body" }, alertBox(orders.error))
-        : table(
-            [
+      ],
+      columns: [
               { label: "Time", cell: (o) => istTime(o.placedAt) },
               { label: "Account", cell: (o) => byId.get(o.accountId)?.label ?? o.accountId },
               { label: "Contract", wrap: true, cell: (o) => h("div", { title: o.symbol, class: "order-contract" }, h("strong", {}, contractName(o.symbol)), h("div", { class: "muted small" }, `${o.orderType ?? ""}${isFigure(o.price) ? ` @ ${formatFixed(o.price, 2)}` : ""} · ${o.product ?? ""}`)) },
@@ -2426,10 +2433,8 @@ async function renderOrders() {
               },
               { label: "Mode", cell: (o) => (o.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
               { label: "", cell: (o) => (WORKING_ORDER.has(o.status) ? orderActions(o) : "") },
-            ],
-            ord,
-            emptyState("orders", "No orders today", "Paper orders from the option chain, your scripts, webhooks and AI assistants show up here.", nextStep("Trade from the chain", "#/chain")),
-          ),
+      ],
+      empty: emptyState("orders", "No orders today", "Paper orders from the option chain, your scripts, webhooks and AI assistants show up here.", nextStep("Trade from the chain", "#/chain")),
     }),
   );
 
@@ -2501,9 +2506,19 @@ function orderActions(o) {
     // A refusal from the Bridge, said once: under its field when it names one, else on one line above the buttons.
     const err = h("p", { class: "bad-text", role: "alert", hidden: true });
     const limit = o.orderType === "LIMIT" || o.orderType === "SL";
+    // A stop-loss order (SL, SL-M) changes its trigger here too.
+    const stop = o.orderType === "SL" || o.orderType === "SL-M";
+    const trig = h("input", { id: "mod-trigger", type: "number", min: "0.05", step: "0.05", inputmode: "decimal", value: isFigure(o.triggerPrice) ? String(o.triggerPrice) : "" });
     const ok = await modal({
       title: `Modify ${o.side === "BUY" ? "buy" : "sell"} ${name}`,
-      body: h("div", { class: "stack" }, h("div", { class: "form-grid" }, h("label", { class: "field", for: "mod-qty" }, h("span", {}, inLots ? "Lots" : "Quantity"), qty, units), limit ? field("Limit price", price) : null), err),
+      // Lots on its own row with its hint; the trigger and the limit side by side (a pair), or one full width.
+      body: h(
+        "div",
+        { class: "stack" },
+        h("label", { class: "field", for: "mod-qty" }, h("span", {}, inLots ? "Lots" : "Quantity"), qty, units),
+        stop || limit ? h("div", { class: "form-grid bk-pair" }, stop ? field("Trigger price", trig) : null, limit ? field("Limit price", price) : null) : null,
+        err,
+      ),
       buttons: [
         { label: "Keep as is", value: false },
         {
@@ -2511,15 +2526,15 @@ function orderActions(o) {
           cls: "primary",
           onClick: async () => {
             err.hidden = true;
-            const c = modifyChange({ lots: qty.value, lotSize, order: o, price: price.value, limit });
-            if (c.error) return fieldError(c.error.field === "price" ? price : qty, c.error.message);
+            const c = modifyChange({ lots: qty.value, lotSize, order: o, price: price.value, limit, trigger: trig.value, stop });
+            if (c.error) return fieldError(c.error.field === "price" ? price : c.error.field === "trigger" ? trig : qty, c.error.message);
             try {
               await api(`/v1/orders/${encodeURIComponent(o.orderId)}`, { method: "PATCH", body: c.body });
               return true;
             } catch (e) {
-              const f = (Array.isArray(e?.body?.errors) ? e.body.errors : []).find((x) => /^(quantity|lots|price)$/.test(String(x.path ?? "").split(".").pop()));
+              const f = (Array.isArray(e?.body?.errors) ? e.body.errors : []).find((x) => /^(quantity|lots|price|triggerPrice)$/.test(String(x.path ?? "").split(".").pop()));
               const msg = String(f?.message ?? e?.message ?? "Not changed").replace(/(\d),(?=\d)/g, "$1");
-              if (f) return fieldError(String(f.path).endsWith("price") ? price : qty, msg);
+              if (f) return fieldError(String(f.path).endsWith("triggerPrice") ? trig : String(f.path).endsWith("price") ? price : qty, msg);
               err.textContent = `Not changed: ${msg}`;
               err.hidden = false;
               return false;
@@ -2977,7 +2992,7 @@ async function webhookPanel(paperAcc) {
   const side = segmented("Side", [["", "From the alert"], ["BUY", "BUY"], ["SELL", "SELL"]], "");
   const orderType = segmented("Order type", [["LIMIT", "LIMIT (safer)"], ["MARKET", "MARKET (protected)"]], "LIMIT");
   const product = segmented("Product", ["INTRADAY", "MARGIN", "CNC"].map((p) => [p, p]), "INTRADAY");
-  const lots = h("input", { type: "number", value: "1", min: "1", max: "50" });
+  const lots = h("input", { type: "number", inputmode: "numeric", value: "1", min: "1", max: "50" });
   const btn = h("button", { type: "button", class: "primary" }, icon("plus"), "Create webhook");
   const columns = [
     { label: "Hook", cell: (x) => h("div", {}, h("strong", {}, x.label), h("div", { class: "muted small mono" }, x.id)) },

@@ -23,6 +23,7 @@ export const ROUTES = Object.freeze([
   ["DELETE", "/v1/orders/:orderId", { scope: "paper", body: "none" }, "cancelOrder"],
   ["GET", "/v1/trades", { scope: "read" }, "listTrades"],
   ["GET", "/v1/positions", { scope: "read" }, "positions"],
+  ["POST", "/v1/positions/convert", { scope: "paper" }, "convertPosition"],
   ["GET", "/v1/holdings", { scope: "read" }, "holdings"],
   ["GET", "/v1/funds", { scope: "read" }, "funds"],
   ["GET", "/v1/tickets", { scope: "admin", loopbackOnly: true }, "listTickets"],
