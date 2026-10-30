@@ -1381,6 +1381,46 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/positions/convert:
+    post:
+      tags: [Portfolio]
+      operationId: convertPosition
+      summary: Convert a position between Intraday (MIS) and carry (NRML)
+      description: >-
+        Paper: moves the quantity to the other product at its average price (no order, no fill, no charge); refused
+        into Intraday after the square-off time, while the kill switch is on, or when the other product holds the
+        opposite side. Live: not supported through the Bridge yet (CAPABILITY_UNSUPPORTED); convert in the broker's app.
+      x-stream: S7
+      x-scope: paper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [account, symbol, from, to]
+              properties:
+                account: { type: string }
+                symbol: { type: string }
+                from: { type: string, enum: [INTRADAY, MARGIN, CNC] }
+                to: { type: string, enum: [INTRADAY, MARGIN, CNC] }
+                quantity: { type: integer, minimum: 1 }
+                lots: { type: integer, minimum: 1 }
+                mode: { type: string, enum: [paper, live] }
+      responses:
+        "200":
+          description: The conversion.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, additionalProperties: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/holdings:
     get:
       tags: [Portfolio]

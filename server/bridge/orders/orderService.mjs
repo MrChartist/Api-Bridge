@@ -43,6 +43,7 @@ import { ordersConfig } from "./config.mjs";
 import { createIdempotencyStore } from "./idempotencyStore.mjs";
 import { AUTOMATED_SOURCES, decideMode, effectiveSource } from "./modeDecision.mjs";
 import {
+  ACCOUNT_RE,
   IDEMPOTENCY_KEY_RE,
   TERMINAL_STATUSES,
   applyMarketPolicy,
@@ -1779,6 +1780,42 @@ export function createOrderService(deps) {
     return { items, freshness: freshness("broker", res.at, accountId, summary.broker) };
   }
 
+  /**
+   * Convert a position between products (Intraday MIS and carry NRML). Paper: the paper engine moves the quantity (no
+   * order, no fill). Live: no broker adapter maps a conversion yet, so it is refused with where to do it. Refused
+   * while the kill switch is on (a conversion keeps risk open past the square-off). Audited.
+   * @param {{ account: string, symbol: string, from: string, to: string, quantity?: number, lots?: number, mode?: string }} raw
+   */
+  async function convertPosition(ctx, raw) {
+    const body = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const bad = (path, message) => new BridgeError("VALIDATION_FAILED", message, { errors: [{ path, message }] });
+    if (typeof body.account !== "string" || !ACCOUNT_RE.test(body.account)) throw bad("account", "account is required: the account id from your config.");
+    if (typeof body.symbol !== "string" || !body.symbol) throw bad("symbol", "symbol is required.");
+    const PRODUCTS = ["INTRADAY", "MARGIN", "CNC"];
+    if (!PRODUCTS.includes(body.from) || !PRODUCTS.includes(body.to) || body.from === body.to) throw bad("to", "from and to must be two different products: INTRADAY, MARGIN or CNC.");
+    if ((body.quantity === undefined) === (body.lots === undefined)) throw bad("quantity", "Send exactly one of quantity (units) or lots.");
+    const { summary } = accountFor(ctx, body.account);
+    const mode = readMode(summary, body.mode);
+    if (mode === "live") {
+      throw new BridgeError("CAPABILITY_UNSUPPORTED", `Converting a live position is not supported through the Bridge for ${summary.broker} yet. Convert it in your broker's app or terminal.`);
+    }
+    if (deps.safety.killSwitchStatus?.()?.engaged) throw new BridgeError("KILL_SWITCH_ACTIVE", "The kill switch is on, so positions are not converted. Release it on the Safety page first.");
+    let resolved;
+    try {
+      resolved = await deps.symbols.resolve(body.symbol);
+    } catch (err) {
+      throw new BridgeError("SYMBOL_NOT_FOUND", err?.detail ?? `${body.symbol} could not be found.`);
+    }
+    const lot = Number(resolved.lotSize) > 0 ? Number(resolved.lotSize) : 1;
+    const quantity = body.lots !== undefined ? Number(body.lots) * lot : Number(body.quantity);
+    if (!Number.isInteger(quantity) || quantity <= 0) throw bad("quantity", "quantity must be a whole number above zero.");
+    if (quantity % lot !== 0) throw bad("quantity", `quantity must be a whole number of lots (lot ${lot}).`);
+    if (typeof deps.paper?.convert !== "function") throw new BridgeError("CAPABILITY_UNSUPPORTED", "This Bridge's paper engine cannot convert positions.");
+    const out = await deps.paper.convert(summary.id, { symbol: resolved.canonical, from: body.from, to: body.to, quantity });
+    await audit(ctx, "position.converted", { accountId: summary.id, data: { mode: "paper", symbol: resolved.canonical, from: body.from, to: body.to, quantity } });
+    return { accountId: summary.id, mode: "paper", symbol: resolved.canonical, from: body.from, to: body.to, quantity, at: out.at, fromNetQty: out.from.netQty, toNetQty: out.to.netQty };
+  }
+
   async function holdings(ctx, accountId) {
     const { summary } = accountFor(ctx, accountId);
     if (summary.broker === "paper") return { items: [], freshness: freshness("paper", now(), accountId, "paper") };
@@ -1914,6 +1951,7 @@ export function createOrderService(deps) {
     list,
     trades,
     positions,
+    convertPosition,
     holdings,
     funds,
     tickets: listTickets,

@@ -1,8 +1,8 @@
 // Orders › Orders: the day's order book with filters (status, side, search) and Cancel all; Orders › Trades: every fill
 // with totals. Filters are a per-viewer convenience (localStorage); the books come from GET /v1/orders and /v1/trades.
-import { alertBox, api, card, emptyState, h, istDateTime, istTime, modal, optional, table, toast } from "./app.js";
+import { alertBox, api, card, emptyState, h, istTime, modal, optional, table, toast } from "./app.js";
 import { contractName } from "./flows.js";
-import { formatFixed, formatInt, formatRupee } from "./format.js";
+import { formatDayMonth, formatFixed, formatInt, formatRupee } from "./format.js";
 import { ORDER_FILTERS, filterOrders, filterTrades, openByMode, orderCounts, tradeTotals } from "./orders-core.js";
 
 const KEY = "mcb.orders.filters";
@@ -122,7 +122,7 @@ export async function renderTradesPage() {
   const columns = [
     { label: "Time", cell: (t) => istTime(t.tradedAt) },
     { label: "Account", cell: (t) => labelOf(t.accountId) },
-    { label: "Contract", wrap: true, cell: (t) => h("div", { class: "order-contract", title: t.symbol }, h("strong", {}, contractName(t.symbol)), h("div", { class: "muted small" }, `${t.product ?? ""} · ${istDateTime(t.tradedAt)}`)) },
+    { label: "Contract", wrap: true, cell: (t) => h("div", { class: "order-contract", title: t.symbol }, h("strong", {}, contractName(t.symbol)), h("div", { class: "muted small" }, `${t.product ?? ""} · ${formatDayMonth(String(t.tradedAt ?? "").slice(0, 10))}`)) },
     { label: "Side", cell: (t) => h("span", { class: "order-side" }, t.side) },
     { label: "Qty", num: true, cell: (t) => formatInt(t.qty ?? t.quantity) },
     { label: "Price", num: true, cell: (t) => formatFixed(t.price, 2) },
