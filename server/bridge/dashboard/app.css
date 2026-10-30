@@ -1081,3 +1081,56 @@ dialog.sheet::backdrop { background: hsl(240 20% 4% / 0.42); -webkit-backdrop-fi
   .nav a[aria-current="page"], .tab[aria-current="page"], .segmented button[aria-pressed="true"], .tabs button[aria-selected="true"] { outline: 2px solid Highlight; }
   :focus-visible { outline: 2px solid Highlight; }
 }
+
+/* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────
+   Inline-SVG charts: every colour is a theme token (so light and dark both work), every size is an SVG attribute
+   (no style attributes: the dashboard CSP is style-src 'self'). Series are told apart by colour AND dash or position. */
+.analytics-status { gap: 8px 12px; }
+.analytics-controls { align-items: end; }
+.analytics-mode { margin-top: 14px; }
+.chart-host { width: 100%; min-width: 0; }
+.chart { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { font: 11px/1 var(--font-numeric); fill: hsl(var(--foreground) / var(--a-label)); }
+.chart text.strike { font-weight: 500; fill: hsl(var(--foreground) / 0.8); }
+.chart text.strike.strong, .chart text.tag { font-weight: 700; fill: hsl(var(--foreground)); }
+.chart text.tag { font-size: 10.5px; }
+.chart .grid-line { stroke: var(--mat-separator); stroke-width: 1; }
+.chart .zero-line { stroke: hsl(var(--foreground) / 0.45); stroke-width: 1; }
+.chart .marker-line { stroke: hsl(var(--foreground) / 0.55); stroke-width: 1; stroke-dasharray: 4 3; }
+.chart .band { fill: hsl(var(--ios-blue) / 0.10); stroke: hsl(var(--ios-blue-ink) / 0.5); stroke-width: 1; }
+.chart .band.pain { fill: hsl(var(--ios-purple) / 0.12); stroke: hsl(var(--ios-purple-ink) / 0.6); }
+.chart .bar.call, .chart .line.call, .chart .dot.call { fill: hsl(var(--ios-blue-ink)); }
+.chart .bar.put, .chart .line.put, .chart .dot.put { fill: hsl(var(--ios-orange-ink)); }
+.chart .line { fill: none; stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
+.chart .line.call { stroke: hsl(var(--ios-blue-ink)); }
+.chart .line.put { stroke: hsl(var(--ios-orange-ink)); }
+.chart .line.s1, .chart .dot.s1 { stroke: hsl(var(--ios-blue-ink)); fill: hsl(var(--ios-blue-ink)); }
+.chart .line.s2, .chart .dot.s2 { stroke: hsl(var(--ios-orange-ink)); fill: hsl(var(--ios-orange-ink)); }
+.chart .line.s3, .chart .dot.s3 { stroke: hsl(var(--ios-teal-ink)); fill: hsl(var(--ios-teal-ink)); }
+.chart .line.s4, .chart .dot.s4 { stroke: hsl(var(--ios-purple-ink)); fill: hsl(var(--ios-purple-ink)); }
+.chart .line.s5, .chart .dot.s5 { stroke: hsl(var(--ios-pink-ink)); fill: hsl(var(--ios-pink-ink)); }
+.chart .line.s6, .chart .dot.s6 { stroke: hsl(var(--ios-green-ink)); fill: hsl(var(--ios-green-ink)); }
+.chart .line.s1, .chart .line.s2, .chart .line.s3, .chart .line.s4, .chart .line.s5, .chart .line.s6 { fill: none; }
+.chart .dot { stroke: none; opacity: 0.9; }
+.chart .line.payoff { stroke: hsl(var(--foreground)); stroke-width: 2; }
+.chart .area.profit { fill: hsl(var(--ios-green) / 0.28); }
+.chart .area.loss { fill: hsl(var(--ios-red) / 0.26); }
+.chart .be-dot { fill: hsl(var(--background)); stroke: hsl(var(--foreground)); stroke-width: 2; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; list-style: none; margin: 0 0 10px; padding: 0; font: 500 13px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.chart-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.chart-legend .swatch { width: 12px; height: 12px; border-radius: 3px; background: hsl(var(--foreground) / 0.4); }
+.chart-legend .swatch.call, .chart-legend .swatch.s1 { background: hsl(var(--ios-blue-ink)); }
+.chart-legend .swatch.put, .chart-legend .swatch.s2 { background: hsl(var(--ios-orange-ink)); }
+.chart-legend .swatch.s3 { background: hsl(var(--ios-teal-ink)); }
+.chart-legend .swatch.s4 { background: hsl(var(--ios-purple-ink)); }
+.chart-legend .swatch.s5 { background: hsl(var(--ios-pink-ink)); }
+.chart-legend .swatch.s6 { background: hsl(var(--ios-green-ink)); }
+.chart-legend .swatch.profit { background: hsl(var(--ios-green) / 0.6); }
+.chart-legend .swatch.loss { background: hsl(var(--ios-red) / 0.6); }
+.chain tr.atm td { background: hsl(var(--ios-blue) / 0.10); }
+.atm-flag { margin-left: 6px; padding: 1px 6px; border-radius: 99px; font: 700 10.5px/1.4 var(--font-numeric); background: hsl(var(--ios-blue) / 0.16); color: hsl(var(--ios-blue-ink)); }
+.leg-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr)); gap: 10px; align-items: end; padding: 12px; border-radius: var(--r-md, 14px); background: var(--mat-fill-1); }
+.leg-row .leg-remove { justify-self: start; }
+@media (forced-colors: active) {
+  .chart .bar, .chart .area, .chart .band { forced-color-adjust: none; }
+}

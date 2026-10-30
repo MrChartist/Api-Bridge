@@ -30,6 +30,7 @@ import {
   ticketFields,
   toast,
 } from "./app.js";
+import { analyticsPages } from "./analyticsViews.js";
 import { DASH, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
@@ -191,6 +192,9 @@ export const PAGES = [
   { id: "keys", label: "API keys", icon: "keys", tint: "pink", group: "Connect", title: "API keys", sub: "One key per tool, with only the access it needs", render: renderKeys },
   { id: "integrations", label: "Integrations", icon: "integrations", tint: "blue", group: "Connect", title: "Integrations", sub: "Copy-paste setup for webhooks, Python, Excel, Claude and more", render: renderIntegrations },
   { id: "activity", label: "Activity", icon: "activity", tint: "gray", group: "Connect", title: "Activity", sub: "Recent requests and the tamper-evident audit log", render: renderActivity },
+  // Analytics (analyticsViews.js). Appended last so the existing pages keep their numbered shortcuts. The helpers are
+  // read when a page is drawn, after this module has finished loading.
+  ...analyticsPages(() => ({ segmented, segField, field, errorBox })),
 ];
 
 let timer = null;
