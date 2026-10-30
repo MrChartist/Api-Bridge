@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { analyticsMorePages, barTimeLabel, countdownText, describeRule, dryRunText, flowItems, gridItems, legsToEditor, lotSplitBody, oiChangeItems, rollingRows, ruleBody, ruleState, rulerLayout, seriesLayout, streakText, windowNote } from "./analyticsMore.js";
-import { analyticsPages, TAG_CHAR_W, chainRows, compact, divergingLayout, freshnessLabel, greeksQuery, legsToBody, lineLayout, niceScale, payoffLayout, presetLegs, readNumber, sizeBody, surfaceSeries } from "./analyticsViews.js";
+import { analyticsPages, TAG_CHAR_W, chainRows, compact, divergingLayout, freshnessLabel, greeksQuery, legsToBody, lineLayout, niceScale, payoffLayout, presetLegs, readNumber, sizeBody, surfaceSeries, tickDecimals } from "./analyticsViews.js";
 
 describe("freshness and numbers", () => {
   it("labels freshness with source, age and staleness", () => {
@@ -22,6 +22,15 @@ describe("freshness and numbers", () => {
     expect(s.max).toBeGreaterThanOrEqual(97);
     expect(s.ticks[0]).toBe(s.min);
     expect(niceScale(5, 5).max).toBeGreaterThan(5);
+  });
+  it("labels axis ticks with enough decimals that neighbours never read the same", () => {
+    expect(tickDecimals(0.05, 1)).toBe(2);
+    expect(tickDecimals(0.1, 1)).toBe(1);
+    expect(tickDecimals(0.2, 0)).toBe(1);
+    expect(tickDecimals(5, 1)).toBe(1);
+    const L = seriesLayout([{ id: "ce", label: "CE IV", cls: "call", points: [21.11, 21.29, 21.13, 21.24].map((y, i) => ({ label: String(i), y })) }], { width: 600, height: 300, yDecimals: 1 });
+    const labels = L.yTicks.map((t) => t.label);
+    expect(new Set(labels).size).toBe(labels.length);
   });
   it("reads numbers strictly", () => {
     expect(readNumber(" 12.5 ")).toBe(12.5);

@@ -8781,6 +8781,23 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 .bk-px-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .bk-exit-figs { margin-top: -1px; }
 .bk-nw { white-space: nowrap; }
+/* The order ticket grows with its fields on tall screens (stop and target add two rows), so the figures stay above
+   the footer; shorter screens keep the usual cap and scroll inside the sheet. */
+@media (min-width: 720px) and (min-height: 900px) { dialog.sheet:has(.ticket) { max-height: min(96vh, 1180px); } }
+/* SL / SL-M: four types share the Type control. */
+.ticket .segmented button[data-value="SL-M"] { white-space: nowrap; }
+/* Phones: the four order types take the row's whole width under Lots. */
+@media (max-width: 719px) { .ticket-grid > .field:has(> .bk-type-seg) { grid-column: 1 / -1; } }
+.bk-pair > :only-child { grid-column: 1 / -1; }
+/* Orders: filters over the day's orders and the trade book. */
+.bk-ob-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 0 16px 12px; }
+.bk-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+button.bk-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border-radius: 999px; background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); font: 500 13px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+@media (pointer: coarse) { button.bk-chip { min-height: 44px; } }
+.bk-chip-n { font: 500 12px/1 var(--font-numeric); font-variant-numeric: tabular-nums; opacity: 0.72; }
+.bk-ob-search { flex: 1 1 220px; min-width: 0; max-width: 360px; margin-left: auto; }
+@media (max-width: 719px) { .bk-ob-search { max-width: none; margin-left: 0; flex-basis: 100%; } }
+.bk-tb-figs { margin: 0 0 4px; }
 /* End of broker features. */
 
 /* ───────────────────────── Trade › Algo (algo.js, docs/STRATEGIES-PYTHON.md) ───────────────────────── */
@@ -9194,6 +9211,9 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
    the page head is hidden, so a page-scrolling table sticks under the desk top bar. */
 .an-page .card .table-wrap.scroll-box > table > thead th { top: 0; }
 :root[data-layout="desk"] .an-page .card .table-wrap:not(.scroll-box) > table > thead th { top: calc(var(--desk-top) - 8px); }
+/* A table wider than its panel (not .fits) is its own sideways scroll box, so the desk offset would push its head down
+   over the first row (Futures at 768, Risk › Execution costs, Flow › Filings at 1440): there the head sits at the top. */
+:root[data-layout="desk"] .an-page .card .table-wrap:not(.scroll-box):not(.fits) > table > thead th { top: 0; }
 /* A panel that is only a short form (a tab's own filters): one compact bar across the row, label beside its field. */
 .an-page .card.an-formbar { grid-column: 1 / -1; }
 .an-page .card.an-formbar > .card-body { padding: 6px 12px; }

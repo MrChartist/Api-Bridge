@@ -9,7 +9,7 @@
 import { alertBox, api, app, card, emptyState, h, icon, istDateTime, modal, pill, table, toast } from "./app.js";
 import { intentHandoff } from "./trade-intent.js";
 import { DASH, formatFixed, formatInt, formatNumber, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
-import { TAG_CHAR_W, calcStatus, chainControls, chartHeight, chartHost, compact, dataDisclosure, demoPill, handoff, legend, linear, nextId, niceScale, payoffChart, readNumber, s, statusRow, strikeBars, svgRoot, tile, tiles } from "./analyticsViews.js";
+import { TAG_CHAR_W, calcStatus, chainControls, chartHeight, chartHost, compact, dataDisclosure, demoPill, handoff, legend, linear, nextId, niceScale, payoffChart, readNumber, s, statusRow, strikeBars, svgRoot, tickDecimals, tile, tiles } from "./analyticsViews.js";
 
 // ───────────────────────── pure helpers ─────────────────────────
 
@@ -86,7 +86,7 @@ export function seriesLayout(series, { width = 640, height, padL = 50, padR = 14
     plotBottom: hgt - padB,
     empty,
     xTicks,
-    yTicks: ysc.ticks.map((t) => ({ y: r1(y(t)), label: formatFixed(t, yDecimals), value: t })),
+    yTicks: ysc.ticks.map((t) => ({ y: r1(y(t)), label: formatFixed(t, tickDecimals(ysc.step, yDecimals)), value: t })),
     refs: refs.filter((rf) => isFigure(rf.y)).map((rf) => ({ y: r1(y(Number(rf.y))), label: rf.label })),
     paths,
   };

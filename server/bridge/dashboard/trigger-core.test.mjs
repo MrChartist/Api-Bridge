@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { distancePct, exitChipText, pnlAt, gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, kindText, legText, outcomeText, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
+import { distancePct, exitChipText, pnlAt, slTriggerStart, stopOrderProblem, stopOrderText, gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, kindText, legText, outcomeText, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
 
 const leg = (o) => ({ op: "below", trigger: 98.5, role: "stop", trail: null, order: { side: "SELL", quantity: 130, orderType: "MARKET" }, ...o });
 
@@ -95,5 +95,27 @@ describe("position stop and target", () => {
     ];
     expect(exitChipText(list, sym)).toBe("SL 449.00 · T 785.00 · TSL 450.00");
     expect(exitChipText(list, "NFO:OTHER")).toBeNull();
+  });
+});
+
+describe("stop-loss orders on the ticket", () => {
+  it("starts the trigger 1 % beyond the price on the side it waits for", () => {
+    expect(slTriggerStart("BUY", 250.65, 0.05)).toBe(253.2);
+    expect(slTriggerStart("SELL", 580.2, 0.05)).toBe(574.35);
+    expect(slTriggerStart("BUY", null)).toBeNull();
+  });
+  it("checks the trigger side and the SL limit in plain words", () => {
+    expect(stopOrderProblem({ side: "BUY", orderType: "LIMIT" })).toBeNull();
+    expect(stopOrderProblem({ side: "BUY", orderType: "SL-M", trigger: null, ltp: 100 })?.field).toBe("trigger");
+    expect(stopOrderProblem({ side: "BUY", orderType: "SL-M", trigger: 99, ltp: 100 })?.message).toBe("A stop-loss buy triggers above the price now (100.00). For a buy below it, use a limit order.");
+    expect(stopOrderProblem({ side: "SELL", orderType: "SL", trigger: 101, price: 100, ltp: 100 })?.field).toBe("trigger");
+    expect(stopOrderProblem({ side: "SELL", orderType: "SL", trigger: 98, price: 99, ltp: 100 })?.message).toBe("For a stop-loss sell the limit is at or below the trigger.");
+    expect(stopOrderProblem({ side: "BUY", orderType: "SL", trigger: 102, price: 101, ltp: 100 })?.message).toBe("For a stop-loss buy the limit is at or above the trigger.");
+    expect(stopOrderProblem({ side: "BUY", orderType: "SL", trigger: 102, ltp: 100 })?.field).toBe("price");
+    expect(stopOrderProblem({ side: "BUY", orderType: "SL", trigger: 102, price: 102.5, ltp: 100 })).toBeNull();
+  });
+  it("says what the order does", () => {
+    expect(stopOrderText({ side: "BUY", orderType: "SL-M", trigger: 253.2 })).toBe("Sends a market buy when LTP rises to 253.20. Rests at the exchange until then.");
+    expect(stopOrderText({ side: "SELL", orderType: "SL", trigger: 575.05, price: 572.15 })).toBe("Sends a limit sell at 572.15 when LTP falls to 575.05. Rests at the exchange until then.");
   });
 });
