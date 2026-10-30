@@ -14,7 +14,8 @@
  *   8. access log line (method, path WITHOUT query string, status, ms, key id) — never bodies, never keys
  */
 import http from "node:http";
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createBrokerRegistry } from "../../brokers/registry.mjs";
@@ -32,6 +33,7 @@ import { applyModuleConfig, buildServices, validateModules } from "./modules.mjs
 import { createRouter } from "./router.mjs";
 import { BASE_HEADERS, assertNotCrossSiteWrite, assertTransportAllowed, createCors, createHostCheck, isLocalRequest } from "./security.mjs";
 import { registerDemoRoutes } from "../demo/routes.mjs";
+import { httpConsumer, runAsConsumer } from "../ratelimit/consumer.mjs";
 import { DEMO_ACCOUNT_HINT, DEMO_HEADER, DEMO_MARKET_ACCOUNT, DEMO_NOTICE, createDemoRegistry, labelDemoResult } from "../demo/demoMode.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -110,6 +112,8 @@ export const DASHBOARD_FILES = Object.freeze({
   "payoff.js": "text/javascript; charset=utf-8",
   "viz.js": "text/javascript; charset=utf-8",
   "layout-prefs.js": "text/javascript; charset=utf-8",
+  "live.js": "text/javascript; charset=utf-8",
+  "budget.js": "text/javascript; charset=utf-8",
   "motion.min.js": "text/javascript; charset=utf-8",
   "palette.css": "text/css; charset=utf-8",
   "app.css": "text/css; charset=utf-8",
@@ -248,13 +252,41 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     // Object.hasOwn: inherited names such as "constructor" or "__proto__" must not pass the allowlist.
     const type = Object.hasOwn(DASHBOARD_FILES, name) ? DASHBOARD_FILES[name] : undefined;
     if (!type) throw new BridgeError("NOT_FOUND", `No dashboard file ${name}.`);
-    return new Reply(200, readFileSync(resolve(ROOT, "server/bridge/dashboard", name), "utf8"), { "Content-Type": type, "Content-Security-Policy": DASHBOARD_CSP });
+    const file = dashboardSource(name);
+    // ETag + no-cache: the browser keeps every file and asks "still this one?" (a 304 with no body) instead of
+    // downloading the whole dashboard on each load. A file edited on disk gets a new ETag at once.
+    const cacheHeaders = { "Content-Type": type, "Content-Security-Policy": DASHBOARD_CSP, "Cache-Control": "no-cache", ETag: file.etag };
+    if (ifNoneMatch(ifNoneMatchHeader, file.etag)) return new Reply(304, "", cacheHeaders);
+    return new Reply(200, file.body, cacheHeaders);
+  };
+  /** name -> { mtimeMs, size, body, etag }: each dashboard file read once and re-read when it changes on disk. */
+  const dashboardMemo = new Map();
+  function dashboardSource(name) {
+    const path = resolve(ROOT, "server/bridge/dashboard", name);
+    const st = statSync(path);
+    const hit = dashboardMemo.get(name);
+    if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit;
+    const body = readFileSync(path, "utf8");
+    const entry = { mtimeMs: st.mtimeMs, size: st.size, body, etag: `"${createHash("sha1").update(body).digest("base64url").slice(0, 22)}"` };
+    dashboardMemo.set(name, entry);
+    return entry;
+  }
+  /** The If-None-Match of the request being answered (set per dashboard request below). */
+  let ifNoneMatchHeader = null;
+  const ifNoneMatch = (header, etag) => typeof header === "string" && header.split(",").some((t) => t.trim().replace(/^W\//, "") === etag);
+  const dashboardReply = (ctx, name) => {
+    ifNoneMatchHeader = ctx.req?.headers?.["if-none-match"] ?? null;
+    try {
+      return dashboardFile(name);
+    } finally {
+      ifNoneMatchHeader = null;
+    }
   };
   // server.remoteDashboard (demo mode only, enforced by config.mjs) serves the pages to other computers as well.
   const dashboardLocalOnly = !(config.demo && config.server.remoteDashboard);
   core.get("/", () => new Reply(302, "", { Location: "/dashboard" }), { auth: "none", loopbackOnly: dashboardLocalOnly, summary: "Redirect to the local dashboard" });
-  core.get("/dashboard", () => dashboardFile("index.html"), { auth: "none", loopbackOnly: dashboardLocalOnly, summary: "Local dashboard" });
-  core.get("/dashboard/:file", (ctx) => dashboardFile(ctx.params.file), { auth: "none", loopbackOnly: dashboardLocalOnly, summary: "Dashboard assets" });
+  core.get("/dashboard", (ctx) => dashboardReply(ctx, "index.html"), { auth: "none", loopbackOnly: dashboardLocalOnly, summary: "Local dashboard" });
+  core.get("/dashboard/:file", (ctx) => dashboardReply(ctx, ctx.params.file), { auth: "none", loopbackOnly: dashboardLocalOnly, summary: "Dashboard assets" });
   core.get(
     "/openapi.yaml",
     () => text(readFileSync(resolve(ROOT, "docs/openapi.yaml"), "utf8"), { headers: { "Content-Type": "application/yaml; charset=utf-8" } }),
@@ -358,7 +390,9 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         ctx.body = parseBody(raw, req.headers["content-type"], bodyMode);
       }
 
-      const result = await route.handler(ctx);
+      // Every broker call this request causes is credited to its consumer (API › Rate limits, Top consumers).
+      const consumer = httpConsumer({ headers: req.headers, path: url.pathname, principal: ctx.principal });
+      const result = await runAsConsumer(consumer, () => route.handler(ctx));
       if (res.headersSent || res.writableEnded) {
         status = res.statusCode;
         return;

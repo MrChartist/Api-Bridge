@@ -33,21 +33,60 @@ import {
   sheetPopover,
   confirmEngageKillSwitch,
   DEMO_EXPLAINER,
+  beginNavigation,
+  onRevalidated,
+  prefetchPage,
 } from "./app.js";
 import { STATE_TEXT, STATE_TONE, homeSafetyLine, readinessCard, readinessPill, refreshReadiness } from "./readiness.js";
 import { DASH, formatFixed, formatGrouped, formatInt, formatRupee, formatRupeeGrouped, formatSigned, formatSignedRupee, isFigure } from "./format.js";
-import { renderArbPage, renderChainPage, renderOiPage, renderPositionsPage, renderStrategyPage, renderVolPage } from "./desk.js";
-import { renderCalendarPage } from "./calendar.js";
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
-import { renderScreenerPage } from "./screener.js";
-import { renderParticipantsPage } from "./participants.js";
-import { renderRecorderPage } from "./recorder.js";
-import { renderEventsPage } from "./events.js";
+import { busiestClass, mountBudget, perSecondLimit, usageChart, windowText } from "./budget.js";
+import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, sessionText } from "./flows.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 
 const $ = (id) => document.getElementById(id);
+
+// ── Page modules, loaded on first visit ──
+// The heavy pages (the Options desk, screeners, calendar, recorder, live events) are ES modules imported when first
+// opened, so Home, Orders, Accounts and API start without them. Hovering or focusing a menu item loads its module and
+// warms its data (prefetchPage), so the click paints at once.
+const PAGE_MODULES = Object.freeze({
+  desk: () => import("./desk.js"),
+  calendar: () => import("./calendar.js"),
+  screener: () => import("./screener.js"),
+  participants: () => import("./participants.js"),
+  recorder: () => import("./recorder.js"),
+  events: () => import("./events.js"),
+});
+/** A page renderer that loads its module first. `.module` names it, for preloading. */
+function lazyPage(mod, name) {
+  const render = (...args) => PAGE_MODULES[mod]().then((m) => m[name](...args));
+  render.module = mod;
+  return render;
+}
+const renderChainPage = lazyPage("desk", "renderChainPage");
+const renderStrategyPage = lazyPage("desk", "renderStrategyPage");
+const renderPositionsPage = lazyPage("desk", "renderPositionsPage");
+const renderOiPage = lazyPage("desk", "renderOiPage");
+const renderVolPage = lazyPage("desk", "renderVolPage");
+const renderArbPage = lazyPage("desk", "renderArbPage");
+const renderCalendarPage = lazyPage("calendar", "renderCalendarPage");
+const renderScreenerPage = lazyPage("screener", "renderScreenerPage");
+const renderParticipantsPage = lazyPage("participants", "renderParticipantsPage");
+const renderRecorderPage = lazyPage("recorder", "renderRecorderPage");
+const renderEventsPage = lazyPage("events", "renderEventsPage");
+
+/** Load a page's module and warm its data ahead of a click (menu hover or focus). Idempotent and cheap. */
+export function preloadPage(pageId) {
+  const page = PAGES.find((p) => p.id === pageId);
+  if (!page) return;
+  const tab = page.tabs ? page.tabs.find((t) => t.id === (readLastTab(page.id) ?? page.defaultTab)) ?? page.tabs[0] : null;
+  const render = tab?.render ?? page.render;
+  if (render?.module) PAGE_MODULES[render.module]().catch(() => {});
+  prefetchPage(tab?.page ?? page.id);
+}
 const local = app.local;
 const FLAG = { copied: "mcb.dashboard.copied", tested: "mcb.dashboard.tested", hideChecklist: "mcb.dashboard.hideChecklist", hideOwn: "mcb.dashboard.hideOwnRequests", chain: "mcb.dashboard.chainOpened", traded: "mcb.dashboard.paperTraded" };
 const markCopied = () => local.set(FLAG.copied, "1");
@@ -621,6 +660,9 @@ export function every(ms, fn) {
 
 let shownPage = null;
 let pendingFocus = null;
+/** The render (renderSeq) already redrawn after fresh data, and the debounce for it. */
+let redrawnFor = 0;
+let redrawTimer = null;
 
 /** The page's large title: plain text, with at most one word in the serif accent. */
 function headline(page) {
@@ -629,7 +671,12 @@ function headline(page) {
 /** Home's eyebrow is today's date in IST; every other page names its group. */
 const IST_DAY = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
-async function show() {
+/**
+ * Draw the page the hash names. `opts.refresh`: the Reload button, the palette or a redraw after fresh data came in;
+ * a reload never paints from remembered answers.
+ */
+async function show(opts) {
+  const reload = opts?.refresh === true;
   const route = resolveRoute(location.hash, { lastTab: readLastTab });
   // An old link (#/console?endpoint=order) becomes its tab's address, without a second history entry.
   if (route.redirect && typeof history !== "undefined") history.replaceState(history.state, "", route.redirect);
@@ -664,6 +711,9 @@ async function show() {
     ctx.hidden = true;
   }
   const seq = ++renderSeq;
+  // Its first reads may paint from what the dashboard already has (app.js api), then refresh behind it.
+  if (!reload) beginNavigation(route.view);
+  redrawnFor = reload ? seq : 0;
   // A tabbed page: the tab strip is the first row of the page; only the chosen tab renders (and refreshes).
   const tabs = tab ? pageTabs(page, tab, root) : null;
   if (!tabs) {
@@ -908,8 +958,41 @@ function setupChrome() {
   $("toolbar-actions").replaceChildren(
     h("button", { type: "button", class: "toolbar-search search-hint", title: `Search pages and actions (${shortcut})`, "aria-keyshortcuts": aria, onclick: () => openPalette() }, searchIcon(), h("span", { class: "lbl" }, "Search pages and actions"), kbd(mod, "K")),
     h("button", { type: "button", class: "icon-btn toolbar-search-m", "aria-label": "Search pages and actions", "aria-keyshortcuts": aria, onclick: () => openPalette() }, searchIcon()),
-    h("button", { type: "button", class: "icon-btn toolbar-refresh", title: "Reload this page's data", "aria-label": "Reload this page's data", onclick: () => show() }, icon("refresh")),
+    h("button", { type: "button", class: "icon-btn toolbar-refresh", title: "Reload this page's data", "aria-label": "Reload this page's data", onclick: () => show({ refresh: true }) }, icon("refresh")),
   );
+  // The API budget indicator (budget.js), fed by the shared live connection.
+  const budgetSlot = $("toolbar-budget");
+  if (budgetSlot && !budgetSlot.dataset.ready) {
+    budgetSlot.dataset.ready = "1";
+    mountBudget(budgetSlot, live);
+  }
+  // Hover or focus a menu item: load that page's module and warm its data, so the click paints at once.
+  const warmed = new Map();
+  const warm = (e) => {
+    const id = e.target?.closest?.("a[data-page]")?.dataset.page;
+    if (!id || Date.now() - (warmed.get(id) ?? 0) < 3000) return;
+    warmed.set(id, Date.now());
+    preloadPage(id);
+  };
+  for (const bar of [$("nav"), $("tabbar")]) {
+    if (!bar || bar.dataset.warm) continue;
+    bar.dataset.warm = "1";
+    bar.addEventListener("pointerover", warm, { passive: true });
+    bar.addEventListener("focusin", warm);
+  }
+  // A page painted from remembered answers is drawn again once, when a fresh answer differs. The Options pages
+  // refresh themselves every few seconds, and a person typing or reading a dialog is never interrupted.
+  onRevalidated(() => {
+    if (redrawnFor === renderSeq) return;
+    clearTimeout(redrawTimer);
+    redrawTimer = setTimeout(() => {
+      if (redrawnFor === renderSeq || document.documentElement.dataset.layout === "desk") return;
+      const busy = document.activeElement?.closest?.("input, textarea, select, dialog[open], .popover") || $("dialog")?.open;
+      if (busy) return;
+      redrawnFor = renderSeq + 1;
+      show({ refresh: true });
+    }, 120);
+  });
   // The sidebar's foot: one account row that opens appearance, shortcuts, About and Forget key.
   const acct = $("sb-account");
   if (acct && !acct.dataset.ready) {
@@ -971,7 +1054,7 @@ let motionHooks = null;
 export async function startRouter() {
   setupA11y();
   setupChrome();
-  initPalette({ pages: () => PAGES, go, refresh: () => show() });
+  initPalette({ pages: () => PAGES, go, refresh: () => show({ refresh: true }) });
   try {
     motionHooks = await import("./motion.js");
   } catch {
@@ -2105,8 +2188,13 @@ async function renderConsole() {
 
 async function renderLimits() {
   const root = h("div", { class: "stack" });
+  /** accountId -> the endpoint class its chart shows (the busiest, until a person picks another) */
+  const chartClass = new Map();
+  let limitsData = null;
   const draw = async () => {
-    const [usage, limits] = await Promise.all([api("/v1/usage"), api("/v1/limits")]);
+    // The policy table changes only with the config: read it once. Usage (with the per-second history) every 1.5 s.
+    const [usage, limits] = await Promise.all([api("/v1/usage?series=1"), limitsData ? Promise.resolve(limitsData) : api("/v1/limits")]);
+    limitsData = limits;
     const u = usage.data.data ?? {};
     const lim = limits.data.data ?? {};
     const sv = u.savings ?? {};
@@ -2143,6 +2231,69 @@ async function renderLimits() {
       }),
     );
     if (!accounts.length) nodes.push(card({ glyph: "limits", tint: "purple", title: "Broker budgets", body: emptyState("limits", "No broker account in use yet", "Once a broker account is connected, its live budget per endpoint class shows here.", nextStep("Go to Accounts", "#/accounts")) }));
+    // Live: calls per second over two minutes against the per-second limit, one chart per account.
+    for (const a of accounts) {
+      const classes = Object.keys(a.classes ?? {}).filter((c) => (a.classes[c].callsToday ?? 0) > 0 || a.series?.classes?.[c]);
+      const cls = chartClass.get(a.accountId) ?? busiestClass(a);
+      const c = a.classes?.[cls] ?? {};
+      const counts = a.series?.classes?.[cls] ?? new Array(a.series?.seconds ?? 120).fill(0);
+      const limit = perSecondLimit(c);
+      const sec = (c.windows ?? []).find((w) => w.window === "1s");
+      const min = (c.windows ?? []).find((w) => w.window === "1m");
+      const pick = classes.length > 1
+        ? h(
+            "div",
+            { class: "segmented", role: "group", "aria-label": "Endpoint class" },
+            classes.map((k) => h("button", { type: "button", "aria-pressed": String(k === cls), onclick: () => (chartClass.set(a.accountId, k), draw()) }, k)),
+          )
+        : null;
+      nodes.push(
+        card({
+          glyph: "activity",
+          tint: "blue",
+          title: `Live usage · ${a.accountId}`,
+          sub: `${cls}: ${sec ? `${windowText(sec)} this second` : "no per-second limit"}${min ? ` · ${windowText(min)} this minute` : ""}`,
+          actions: pick,
+          body: h(
+            "div",
+            { class: "stack" },
+            usageChart(counts, limit, `${cls} calls per second over the last two minutes${limit ? `, limit ${formatInt(limit)} a second` : ""}`),
+            h("div", { class: "rl-axis" }, h("span", {}, "2 min ago"), h("span", {}, "now")),
+            h("div", { class: "rl-legend" }, h("span", {}, h("i", { class: "sw" }), "Calls per second"), limit ? h("span", {}, h("i", { class: "sw limit" }), `Limit ${formatInt(limit)} a second`) : null),
+          ),
+        }),
+      );
+    }
+    // Who used the budget today (admin keys only: it names API keys).
+    if (Array.isArray(u.consumers) && u.consumers.length) {
+      const top = Math.max(1, ...u.consumers.map((x) => x.calls));
+      nodes.push(
+        card({
+          glyph: "people",
+          tint: "teal",
+          title: "Top consumers today",
+          sub: "Broker calls each page, key or job caused, and the calls it got from the stream, the cache or a shared call instead",
+          flush: true,
+          body: table(
+            [
+              { label: "Consumer", cell: (r) => h("strong", {}, r.name) },
+              { label: "Broker calls", num: true, cell: (r) => formatInt(r.calls) },
+              {
+                label: "Share",
+                cell: (r) => {
+                  const bar = h("span", { class: "rl-cons-bar", "aria-hidden": "true" });
+                  bar.style.setProperty("--w", `${Math.round((r.calls / top) * 100)}%`);
+                  return bar;
+                },
+              },
+              { label: "Saved", num: true, cell: (r) => formatInt(r.saved) },
+            ],
+            u.consumers,
+            emptyState("limits", "No broker calls yet today", ""),
+          ),
+        }),
+      );
+    }
     for (const a of accounts) {
       const classes = Object.entries(a.classes ?? {});
       nodes.push(
@@ -2187,7 +2338,7 @@ async function renderLimits() {
     keepFocus(root, () => root.replaceChildren(...nodes));
   };
   await draw();
-  every(2500, draw);
+  every(1500, draw);
   return root;
 }
 

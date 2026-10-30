@@ -12,6 +12,9 @@
  *   { "op": "subscribe_events", "asset"?: "stock"|"option", "kinds"?: [...], "sides"?: [...], "id"?: ... }
  *                                                  live market events (S28) as they are detected (SSE: &events=1)
  *   { "op": "unsubscribe_events", "id"?: ... }
+ *   { "op": "subscribe_budget", "id"?: ... }      the API budget (ratelimit/budget.mjs) once a second while it changes,
+ *                                                  at least every 5 s; only accounts the key may use (SSE: &budget=1)
+ *   { "op": "unsubscribe_budget", "id"?: ... }
  *   { "op": "ping", "id"?: ... }
  *
  * Server -> client messages, every one with `type` and a per-connection `seq` (1, 2, 3 ... in wire order):
@@ -20,6 +23,7 @@
  *   tick       { symbol, ltp, ... }                                 fields depend on the mode (see tickBody)
  *   order      { order }                                            from "order.updated", only accounts the key may use
  *   scan       { event: progress|completed|alert, jobId, savedId, ... }   only this key's scans (all of them for an admin key)
+ *   budget     { accounts, callsToday, savedToday, savings, stream }   reply to subscribe_budget, then while it changes
  *   market_event { action: new|update, event, sentAt }             a live event record; repeats inside its cool-down
  *                                                  arrive as "update" with the same id and a higher count (conflated
  *                                                  per id, like ticks per symbol)
@@ -39,6 +43,7 @@ import { z } from "zod";
 import { expandScopes } from "../core/context.mjs";
 import { BridgeError, ERROR_CODES } from "../core/errors.mjs";
 import { STREAM_MODES } from "./streamHub.mjs";
+import { budgetSummary } from "../ratelimit/budget.mjs";
 
 const IST_OFFSET_MS = 330 * 60_000;
 /** Epoch ms -> ISO-8601 with +05:30. */
@@ -69,6 +74,8 @@ export const clientOpSchema = z.discriminatedUnion("op", [
     })
     .strict(),
   z.object({ op: z.literal("unsubscribe_events"), id: opId }).strict(),
+  z.object({ op: z.literal("subscribe_budget"), id: opId }).strict(),
+  z.object({ op: z.literal("unsubscribe_budget"), id: opId }).strict(),
   z.object({ op: z.literal("ping"), id: opId }).strict(),
 ]);
 
@@ -194,7 +201,7 @@ export function createSessionRegistry({ max, maxPerKey = Infinity }) {
  *   transport: Transport, config: ReturnType<typeof import("./config.mjs").resolveStreamConfig>, clock: { now(): number },
  *   logger: object, keyStore?: object, onClosed?: (session: object) => void }} opts
  */
-export function createClientSession({ id, kind, key, hub, bus, transport, config: cfg, clock, logger, keyStore, onClosed }) {
+export function createClientSession({ id, kind, key, hub, bus, transport, config: cfg, clock, logger, keyStore, onClosed, scheduler = null }) {
   const log = logger.child({ clientId: id, keyId: key.id });
   const now = () => clock.now();
   let seq = 0;
@@ -381,6 +388,38 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
     eventsFilter = null;
   }
 
+  // ── API budget (the dashboard's budget indicator) ──
+  let budgetTimer = null;
+  let budgetLast = "";
+  let budgetSentAt = 0;
+  const budgetVisible = key.accounts === "*" || key.accounts === undefined ? "*" : new Set(Array.isArray(key.accounts) ? key.accounts : []);
+  function sendBudget(force = false) {
+    if (closed || !scheduler?.usage) return;
+    let msg;
+    try {
+      msg = budgetSummary(scheduler.usage(), budgetVisible, { feeds: hub.stats?.().upstreams ?? [] });
+    } catch (err) {
+      log.debug("budget summary failed", { code: err?.code });
+      return;
+    }
+    const sig = JSON.stringify(msg);
+    if (!force && sig === budgetLast && now() - budgetSentAt < 5000) return;
+    budgetLast = sig;
+    budgetSentAt = now();
+    // One slot: a newer budget replaces one still waiting to be written.
+    enqueue({ type: "budget", ...msg }, "\u0000budget");
+  }
+  function doSubscribeBudget() {
+    sendBudget(true);
+    if (budgetTimer) return;
+    budgetTimer = setInterval(() => sendBudget(false), 1000);
+    budgetTimer.unref?.();
+  }
+  function doUnsubscribeBudget() {
+    clearInterval(budgetTimer);
+    budgetTimer = null;
+  }
+
   // ── heartbeat and key re-check ──
   const beat = setInterval(() => {
     enqueue({ type: "heartbeat", time: istIso(now()), conflated: conflatedSinceBeat });
@@ -451,6 +490,8 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
       else if (op.op === "unsubscribe_scans") doUnsubscribeScans();
       else if (op.op === "subscribe_events") doSubscribeEvents(op);
       else if (op.op === "unsubscribe_events") doUnsubscribeEvents();
+      else if (op.op === "subscribe_budget") doSubscribeBudget();
+      else if (op.op === "unsubscribe_budget") doUnsubscribeBudget();
       else if (op.op === "ping") enqueue({ type: "heartbeat", time: istIso(now()), conflated: conflatedSinceBeat, ...ref });
     } catch (err) {
       if (!(err instanceof BridgeError)) log.error("stream op failed", { op: op.op, err });
@@ -521,6 +562,7 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
     closed = true;
     session.closeReason ??= reason;
     clearInterval(beat);
+    clearInterval(budgetTimer);
     for (const off of offs.splice(0)) off();
     queue.clear();
     hub.dropClient(id);

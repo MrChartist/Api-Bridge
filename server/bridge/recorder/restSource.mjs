@@ -13,6 +13,7 @@
  */
 import { isStub } from "../core/contracts.mjs";
 import { createBackgroundGate } from "../ratelimit/backgroundGate.mjs";
+import { runAsConsumer } from "../ratelimit/consumer.mjs";
 
 export const REST_MAX_WAIT_MS = 1500;
 export const REUSE_CACHE_MS = 20_000;
@@ -67,9 +68,9 @@ export function createRestSource({ marketData, scheduler, backupData }) {
       if (!taken) return { ok: false, reason: "budget", detail: "The recorder's half of the broker budget is used up for this window." };
       let chain;
       try {
-        chain = await marketData.optionChain(
-          { underlying, expiry, strikes, greeks: false },
-          { accountId, priority: "background", maxAgeMs: REUSE_CACHE_MS, maxWaitMs: REST_MAX_WAIT_MS, backgroundShare: share },
+        // Credited to "Data recorder" on API › Rate limits (Top consumers).
+        chain = await runAsConsumer("Data recorder", () =>
+          marketData.optionChain({ underlying, expiry, strikes, greeks: false }, { accountId, priority: "background", maxAgeMs: REUSE_CACHE_MS, maxWaitMs: REST_MAX_WAIT_MS, backgroundShare: share }),
         );
       } catch (err) {
         return { ok: false, reason: gapReasonFor(err), detail: String(err?.detail ?? err?.message ?? "The broker did not answer.").slice(0, 200), code: err?.code ?? null };

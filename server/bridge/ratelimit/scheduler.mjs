@@ -34,6 +34,7 @@ import { bucketPlan, resolvePolicy } from "./policy.mjs";
 import { MAX_BACKGROUND_SHARE } from "./backgroundGate.mjs";
 import { BROKER_POLICIES } from "./brokerPolicies.mjs";
 import { PRIORITY_RANK, createPriorityQueue } from "./priorityQueue.mjs";
+import { currentConsumer } from "./consumer.mjs";
 import { createRateLimiter, istDay, nextIstMidnight, toIstIso } from "./tokenBucket.mjs";
 
 const SESSION_CODES = new Set(["SESSION_LOGIN_REQUIRED", "UPSTREAM_AUTH", "SESSION_EXPIRED"]);
@@ -42,6 +43,10 @@ const UNHEALTHY_STATES = new Set(["expired", "missing", "error"]);
 const MAX_COST = 10_000;
 const MAX_CALLER_WAIT_MS = 3_600_000;
 const MAX_RETRY_AFTER_MS = 3_600_000;
+/** Seconds of per-second call history kept per account (usage({ series: true }), the Rate limits chart). */
+export const SERIES_SECONDS = 120;
+/** Distinct consumer names kept per day; later ones are counted under "Other". */
+const MAX_CONSUMERS = 200;
 
 /** Savings kinds accepted by recordSaving (short alias -> report field). */
 export const SAVING_KINDS = Object.freeze({
@@ -120,6 +125,8 @@ export function createScheduler(deps, options = {}) {
   const policyCache = new Map();
   const client = createClientLimiter(rl.client, clock);
   const savings = { day: istDay(now()), servedFromStream: 0, servedFromCache: 0, coalesced: 0, batched: 0 };
+  /** consumer name -> { calls, saved } for the IST day in `savings.day` */
+  const consumers = new Map();
   let timer = null;
   let timerAt = Infinity;
   let stopped = false;
@@ -170,6 +177,8 @@ export function createScheduler(deps, options = {}) {
       sessionRejected: false,
       statsDay: istDay(now()),
       stats: new Map(ENDPOINT_CLASSES.map((c) => [c, newClassStats()])),
+      /** per-second call counts: slot = epoch second % SERIES_SECONDS -> { sec, counts[class index] } */
+      series: Array.from({ length: SERIES_SECONDS }, () => ({ sec: -1, counts: new Array(ENDPOINT_CLASSES.length).fill(0) })),
     };
     states.set(accountId, st);
     return st;
@@ -182,6 +191,37 @@ export function createScheduler(deps, options = {}) {
       for (const c of ENDPOINT_CLASSES) st.stats.set(c, newClassStats());
     }
     return st.stats.get(cls);
+  }
+
+  const CLASS_INDEX = new Map(ENDPOINT_CLASSES.map((c, i) => [c, i]));
+
+  /** Count `units` broker calls of class `cls` in the account's per-second history. */
+  function noteSeries(st, cls, units, t) {
+    const sec = Math.floor(t / 1000);
+    const slot = st.series[sec % SERIES_SECONDS];
+    if (slot.sec !== sec) {
+      slot.sec = sec;
+      slot.counts.fill(0);
+    }
+    slot.counts[CLASS_INDEX.get(cls)] += units;
+  }
+
+  function consumerRow(name) {
+    rollSavings();
+    let key = name ?? "Other";
+    if (!consumers.has(key) && consumers.size >= MAX_CONSUMERS) key = "Other";
+    let row = consumers.get(key);
+    if (!row) {
+      row = { calls: 0, saved: 0 };
+      consumers.set(key, row);
+    }
+    return row;
+  }
+
+  /** Credit one started broker call to its consumer and the per-second history. */
+  function noteCall(st, cls, units, consumer, t) {
+    noteSeries(st, cls, units, t);
+    consumerRow(consumer).calls += units;
   }
 
   function policyFor(brokerId) {
@@ -426,6 +466,7 @@ export function createScheduler(deps, options = {}) {
     const s = stats(st, sh.endpointClass);
     s.calls += 1;
     s.units += sh.cost;
+    noteCall(st, sh.endpointClass, sh.cost, sh.consumer, t);
     // Run on a microtask so fn never re-enters dispatch() while the queue is being walked.
     Promise.resolve()
       .then(() => sh.fn({ signal: sh.controller.signal, accountId: st.accountId, endpointClass: sh.endpointClass }))
@@ -555,17 +596,18 @@ export function createScheduler(deps, options = {}) {
     const deadline = t + maxWait;
     const key = endpointClass !== "order" && typeof coalesceKey === "string" && coalesceKey.length > 0 ? coalesceKey : null;
 
+    const consumer = currentConsumer() ?? (priority === "background" ? "Background jobs" : null);
     const existing = key ? inflight.get(key) : null;
     if (existing && !existing.settled) {
       existing.waiters += 1;
       stats(existing.st, existing.endpointClass).coalesced += 1;
-      bumpSaving("coalesced", 1);
+      bumpSaving("coalesced", 1, consumer);
       if (floorShare == null) existing.floorShare = null; // a caller without a floor is waiting too
       promote(existing.st, existing, priority, deadline);
       return waitFor(existing.st, existing, signal);
     }
 
-    const sh = { key, st, endpointClass, priority, cost, floorShare, deadline, fn, waiters: 1, settled: false, started: false, item: null, controller: new AbortController() };
+    const sh = { key, st, endpointClass, priority, cost, floorShare, deadline, fn, consumer, waiters: 1, settled: false, started: false, item: null, controller: new AbortController() };
     sh.promise = new Promise((resolve, reject) => {
       sh.resolve = resolve;
       sh.reject = reject;
@@ -596,6 +638,7 @@ export function createScheduler(deps, options = {}) {
       const s = stats(st, endpointClass);
       s.calls += 1;
       s.units += n;
+      noteCall(st, endpointClass, n, currentConsumer() ?? "Background jobs", t);
       return { ok: true, retryAfterMs: 0 };
     }
     const est = waiting ? estimateStart(st, endpointClass, "background", n, t) - t : budgetWait(st, endpointClass, n, t);
@@ -689,20 +732,51 @@ export function createScheduler(deps, options = {}) {
       savings.servedFromCache = 0;
       savings.coalesced = 0;
       savings.batched = 0;
+      consumers.clear();
     }
   }
 
-  function bumpSaving(kind, count) {
+  function bumpSaving(kind, count, consumer = currentConsumer()) {
     const field = SAVING_KINDS[kind];
     const n = Math.floor(Number(count));
     if (!field || !Number.isFinite(n) || n <= 0) return false;
     rollSavings();
     savings[field] += n;
+    if (consumer) consumerRow(consumer).saved += n;
     return true;
   }
 
-  /** Per-account, per-class budgets (binding window), plus today's savings. */
-  function usage() {
+  /** Per-second calls of the last SERIES_SECONDS seconds, oldest first, only classes with any call. */
+  function seriesOf(st, t) {
+    const end = Math.floor(t / 1000);
+    const start = end - SERIES_SECONDS + 1;
+    const out = {};
+    for (let sec = start; sec <= end; sec++) {
+      const slot = st.series[((sec % SERIES_SECONDS) + SERIES_SECONDS) % SERIES_SECONDS];
+      if (slot.sec !== sec) continue;
+      slot.counts.forEach((n, i) => {
+        if (!n) return;
+        const cls = ENDPOINT_CLASSES[i];
+        (out[cls] ??= new Array(SERIES_SECONDS).fill(0))[sec - start] = n;
+      });
+    }
+    return { startSec: start, seconds: SERIES_SECONDS, classes: out };
+  }
+
+  /** Every window of (account, class) with what it holds now: the second and the minute a trader watches. */
+  function windowsOf(st, cls, t) {
+    const out = [];
+    for (const { key, lim } of limitersOf(st, cls)) {
+      for (const w of lim.windows(t)) out.push({ bucket: key, window: w.window, used: w.used, limit: w.limit, resetMs: Math.ceil(w.resetMs) });
+    }
+    return out;
+  }
+
+  /**
+   * Per-account, per-class budgets (binding window and every window), plus today's savings and top consumers.
+   * @param {{ series?: boolean }} [opts]  series: add each account's per-second history (last SERIES_SECONDS s)
+   */
+  function usage({ series = false } = {}) {
     const t = now();
     rollSavings();
     const ids = [];
@@ -736,9 +810,12 @@ export function createScheduler(deps, options = {}) {
           coalescedToday: s.coalesced,
           throttledToday: s.throttled,
           refusedToday: s.rejected,
+          windows: windowsOf(st, cls, t),
         };
       }
-      out.push({ accountId: id, broker: st.broker, healthy: healthy(st), inFlight: st.inFlight, queued: st.queue.size, classes });
+      const row = { accountId: id, broker: st.broker, healthy: healthy(st), inFlight: st.inFlight, queued: st.queue.size, classes };
+      if (series) row.series = seriesOf(st, t);
+      out.push(row);
     }
     return {
       accounts: out,
@@ -749,6 +826,10 @@ export function createScheduler(deps, options = {}) {
         batched: savings.batched,
         since: toIstIso(nextIstMidnight(t) - 86_400_000),
       },
+      consumers: [...consumers]
+        .map(([name, c]) => ({ name, calls: c.calls, saved: c.saved }))
+        .sort((a, b) => b.calls - a.calls || b.saved - a.saved || (a.name < b.name ? -1 : 1))
+        .slice(0, 12),
       generatedAt: toIstIso(t),
     };
   }

@@ -55,7 +55,7 @@ export function applyDemoConfig(cfg) {
 
 /** A registry with only the demo adapter (same shape as server/brokers/registry.mjs). */
 export function createDemoRegistry(opts) {
-  const demo = createDemoAdapter(opts);
+  const demo = withLatency(createDemoAdapter(opts), demoLatencyMs(opts?.latencyMs ?? process.env.MCB_DEMO_LATENCY_MS));
   return {
     has: (id) => id === DEMO_BROKER_ID,
     get(id) {
@@ -64,6 +64,30 @@ export function createDemoRegistry(opts) {
     },
     list: () => [DEMO_BROKER_ID],
   };
+}
+
+/** Simulated broker round trip in ms (0 to 5000; anything else is 0). */
+export function demoLatencyMs(raw) {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.min(5000, Math.round(n)) : 0;
+}
+
+/**
+ * The demo adapter with every REST read (fetch*) answering after `ms`, as a real broker over the internet would
+ * (MCB_DEMO_LATENCY_MS; the performance harness, scripts/perf/run.mjs, sets it). Off (0) by default.
+ */
+export function withLatency(adapter, ms) {
+  if (!(ms > 0)) return adapter;
+  const wait = () => new Promise((r) => setTimeout(r, ms));
+  const out = Object.create(adapter);
+  for (const name of Object.keys(adapter)) {
+    if (typeof adapter[name] !== "function" || !/^fetch[A-Z]/.test(name) || name === "fetchInstruments") continue;
+    out[name] = async (...args) => {
+      await wait();
+      return adapter[name](...args);
+    };
+  }
+  return out;
 }
 
 /**

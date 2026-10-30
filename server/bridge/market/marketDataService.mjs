@@ -68,6 +68,8 @@ const MASTER_MAX_PAGES = 20;
 const BSE_INDICES = new Set(["SENSEX", "BANKEX", "SENSEX50"]);
 /** spreadQuotes(): an account whose quote budget frees up later than this is left out of the split. */
 const SPREAD_MAX_WAIT_MS = 1500;
+/** A stream-first chain overlays ticks on a broker chain of the same day at most this old (it supplies previous OI). */
+const STREAM_BASE_MAX_AGE_MS = 6 * 3_600_000;
 
 const readOptionsSchema = z
   .object({
@@ -84,6 +86,11 @@ const readOptionsSchema = z
     maxWaitMs: z.number().int().min(0).max(60_000).optional(),
     /** Priority "background" only: the scheduler keeps every window at or above (1 − share) of its limit (≤ 0.5). */
     backgroundShare: z.number().min(0).max(0.5).optional(),
+    /**
+     * Stale-while-revalidate: when only an older cached value exists (within market.stale.maxStaleMs), answer with it
+     * at once, labelled `stale: true` and `revalidating: true`, and refresh it in the background for the next read.
+     */
+    staleWhileRevalidate: z.boolean().optional(),
   })
   .passthrough();
 
@@ -232,6 +239,7 @@ export function createMarketDataService(deps) {
       allowBackup: o.allowBackup === true && !o.accountId,
       maxWaitMs: o.maxWaitMs,
       backgroundShare: priority === "background" ? o.backgroundShare : undefined,
+      swr: o.staleWhileRevalidate === true,
     };
   }
 
@@ -670,8 +678,17 @@ export function createMarketDataService(deps) {
           if (staleOk && budgetExhausted(accountId, "quote")) return serveStale();
           // The HTTP caller has gone away (closed tab, cancelled poll): do not queue for broker budget on its behalf.
           if (o.signal?.aborted) throw abortError(o.signal);
+          const callOpts = { maxWaitMs: o.maxWaitMs, backgroundShare: o.backgroundShare };
+          if (staleOk && o.swr) {
+            // Answer now from the older value; the refresh joins any fetch already running and fills the cache.
+            serveStale();
+            const item = items.get(symbol);
+            if (item?.freshness) item.freshness.revalidating = true;
+            const refresh = quotesAccount ? fetchQuote(accountId, symbol, o.priority, true, callOpts) : fetchLtpOnly(accountId, symbol, o.priority, true, callOpts);
+            refresh.catch(() => {});
+            return;
+          }
           try {
-            const callOpts = { maxWaitMs: o.maxWaitMs, backgroundShare: o.backgroundShare };
             const entry = quotesAccount ? await fetchQuote(accountId, symbol, o.priority, Boolean(staleOk), callOpts) : await fetchLtpOnly(accountId, symbol, o.priority, Boolean(staleOk), callOpts);
             if (wantQuote && !entry.value.full) throw new BridgeError("CAPABILITY_UNSUPPORTED", `Only a last price is available for ${symbol}.`);
             items.set(symbol, toItem(symbol, entry.value.fields, freshness({ source: "broker", at: entry.at, now: now(), targetMs, accountId: entry.accountId, broker: entry.broker })));
@@ -1007,8 +1024,20 @@ export function createMarketDataService(deps) {
   /** The cash exchange of an underlying's spot row (always explicit: spot rows live only on NSE and BSE). */
   const cashExchangeOf = (underlying) => (defaultOptionExchange(underlying) === "BFO" ? "BSE" : "NSE");
 
+  /** underlying|expiry -> { at, legs }: the master's legs change once a day, a search for every chain read is waste. */
+  const legsMemo = new Map();
   async function masterLegs(underlying, expiry) {
     if (!usable(symbols)) return [];
+    const memoKey = `${underlying}|${expiry}`;
+    const memo = legsMemo.get(memoKey);
+    if (memo && now() - memo.at < 60_000) return memo.legs;
+    const legs = await masterLegsUncached(underlying, expiry);
+    legsMemo.set(memoKey, { at: now(), legs });
+    if (legsMemo.size > 200) legsMemo.delete(legsMemo.keys().next().value);
+    return legs;
+  }
+
+  async function masterLegsUncached(underlying, expiry) {
     const legs = [];
     let cursor;
     for (let page = 0; page < MASTER_MAX_PAGES; page += 1) {
@@ -1185,13 +1214,100 @@ export function createMarketDataService(deps) {
     return chainResult(underlying, p.expiry, value, p.strikes, freshness({ source: "backup", at: b.at, now: now(), targetMs, provider: b.provider }), await chainFacts(underlying, p.expiry));
   }
 
+  /**
+   * Black-76 repricing, once per chain value: every consumer of the same cached chain (several pages, the events
+   * engine, the recorder) gets the same priced rows instead of solving 180 IVs each. Keyed by the rows array the
+   * chain was built from (chainResult trims to new arrays, so the key is the cached rows plus the strike window).
+   */
+  const b76Memo = new WeakMap();
+  function priceB76Memo(chain, rowsKey) {
+    if (!rowsKey) return priceB76(chain);
+    let byWindow = b76Memo.get(rowsKey);
+    if (!byWindow) {
+      byWindow = new Map();
+      b76Memo.set(rowsKey, byWindow);
+    }
+    const k = `${chain.rows.length}|${chain.rows[0]?.strike ?? ""}`;
+    const hit = byWindow.get(k);
+    if (hit) return { ...hit, freshness: chain.freshness };
+    const priced = priceB76(chain);
+    byWindow.set(k, priced);
+    return priced;
+  }
+
   async function optionChain(params, opts) {
     const parsed = chainSchema.safeParse(params ?? {});
     if (!parsed.success) throw fromValidation(parsed.error);
     const model = parsed.data.ivModel ?? cfg.chain.ivModelDefault;
     const chain = await chainFor(params, opts);
-    return model === "b76-forward" && parsed.data.greeks !== false ? priceB76(chain) : chain;
+    if (!(model === "b76-forward" && parsed.data.greeks !== false)) return chain;
+    return priceB76Memo(chain, chainRowsKey.get(chain));
   }
+
+  /** chain result -> the cached rows array it was cut from (for priceB76Memo). */
+  const chainRowsKey = new WeakMap();
+
+  /**
+   * Stream-first chain (no broker call): when every leg in the requested strike window has a fresh tick from a live
+   * stream subscription (a dashboard page, a strategy or the recorder subscribed them), the chain is the last broker
+   * chain of the day with each leg's prices, OI and volume replaced by its tick. OI change is the tick's OI minus the
+   * previous-day OI the broker chain implied. Greeks are recomputed for the new prices. Null when any leg, the spot or
+   * the base chain is missing, so the caller falls back to the cache and the broker.
+   */
+  function streamChain({ underlying, expiry, strikes, greeks, pinned, targetMs }) {
+    if (!cfg.streamFirst || !usable(streamHub) || !(strikes > 0)) return null;
+    const base = cache.peek(`c|${underlying}|${expiry}|g`) ?? cache.peek(`c|${underlying}|${expiry}|n`);
+    if (!base || (pinned && base.accountId !== pinned) || now() - base.at > STREAM_BASE_MAX_AGE_MS) return null;
+    const spot = fromStream(spotSymbol(underlying), false, pinned, targetMs);
+    if (!spot?.fields?.ltp) return null;
+    const rows = base.value.rows;
+    const atm = atmStrike(rows.map((r) => r.strike), spot.fields.ltp);
+    if (atm === null) return null;
+    const window = trimStrikes(rows, atm, strikes);
+    const lotSize = base.value.lotSize ?? null;
+    let oldest = spot.at;
+    const out = [];
+    for (const row of window) {
+      const next = { strike: row.strike, ce: null, pe: null };
+      for (const side of ["ce", "pe"]) {
+        const leg = row[side];
+        if (!leg) continue;
+        const s = fromStream(leg.symbol, true, pinned, targetMs);
+        if (!s) return null;
+        const unit = oiUnitFor(s.broker ?? base.broker, "stream");
+        const tickOi = s.fields.oi ?? null;
+        const oi = tickOi === null ? null : unit === "lots" ? (lotSize ? tickOi * lotSize : null) : tickOi;
+        if (tickOi !== null && oi === null) return null;
+        const prevOi = Number.isFinite(leg.oi) && Number.isFinite(leg.oiChange) ? leg.oi - leg.oiChange : null;
+        const fields = {
+          ...stripGreeks(leg),
+          ltp: s.fields.ltp ?? leg.ltp ?? null,
+          bid: s.fields.bid ?? leg.bid ?? null,
+          ask: s.fields.ask ?? leg.ask ?? null,
+          volume: s.fields.volume ?? leg.volume ?? null,
+          close: s.fields.close ?? leg.close ?? null,
+          change: s.fields.change ?? leg.change ?? null,
+          oi: oi ?? leg.oi ?? null,
+          oiChange: oi !== null && prevOi !== null ? oi - prevOi : leg.oiChange ?? null,
+          iv: null,
+          delta: null,
+          gamma: null,
+          theta: null,
+          vega: null,
+        };
+        delete fields.symbol;
+        delete fields.greeksSource;
+        next[side] = finishLeg(fields, { symbol: leg.symbol, declared: null, greeks, spot: spot.fields.ltp, strike: row.strike, expiry, right: side.toUpperCase(), nowMs: now(), rate: riskFreeRate() });
+        if (s.at < oldest) oldest = s.at;
+      }
+      out.push(next);
+    }
+    if (!out.length) return null;
+    return { value: { underlyingLtp: spot.fields.ltp, rows: out, lotSize }, at: oldest, accountId: spot.accountId ?? base.accountId, broker: spot.broker ?? base.broker };
+  }
+
+  /** In-flight background refreshes of stale-while-revalidate chain reads, by cache key. */
+  const revalidating = new Map();
 
   const withoutGreeks = (leg) => (leg ? { ...stripGreeks(leg), greeksSource: null } : leg);
 
@@ -1215,7 +1331,12 @@ export function createMarketDataService(deps) {
     }
     if (hit) {
       saving("cache");
-      return chainResult(underlying, p.expiry, hit.value, p.strikes, freshness({ source: "cache", at: hit.at, now: now(), targetMs, accountId: hit.accountId, broker: hit.broker }), facts);
+      return keyed(chainResult(underlying, p.expiry, hit.value, p.strikes, freshness({ source: "cache", at: hit.at, now: now(), targetMs, accountId: hit.accountId, broker: hit.broker }), facts), hit.value.rows);
+    }
+    const live = streamChain({ underlying, expiry: p.expiry, strikes: p.strikes, greeks, pinned, targetMs });
+    if (live) {
+      saving("stream");
+      return keyed(chainResult(underlying, p.expiry, live.value, p.strikes, freshness({ source: "stream", at: live.at, now: now(), targetMs, accountId: live.accountId, broker: live.broker }), facts), live.value.rows);
     }
     const stale = staleEntry(key, pinned);
     const serveStale = () => {
@@ -1224,6 +1345,18 @@ export function createMarketDataService(deps) {
       return chainResult(underlying, p.expiry, stale.value, p.strikes, freshness({ source: "cache", at: stale.at, now: now(), targetMs, stale: true, accountId: stale.accountId, broker: stale.broker }), facts);
     };
     const args = { underlying, expiry: p.expiry, greeks, pinned, priority: o.priority, signal: o.signal, stale: Boolean(stale), targetMs, allowedAccounts: o.allowedAccounts, maxWaitMs: o.maxWaitMs, backgroundShare: o.backgroundShare };
+    if (stale && o.swr) {
+      // Answer at once from the older chain (labelled), and refresh it for the next read; one refresh per chain.
+      if (!revalidating.has(key)) {
+        const job = fetchChainInto(key, { ...args, signal: undefined, stale: false })
+          .catch(() => {})
+          .finally(() => revalidating.delete(key));
+        revalidating.set(key, job);
+      }
+      const out = serveStale();
+      out.freshness.revalidating = true;
+      return keyed(out, stale.value.rows);
+    }
     let got = null;
     try {
       if (cfg.chain.source !== "built") {
@@ -1244,7 +1377,27 @@ export function createMarketDataService(deps) {
     }
     cache.set(key, got.value, { at: got.at, accountId: got.accountId, broker: got.broker });
     const fresh = freshness({ source: got.source, at: got.at, now: now(), targetMs, accountId: got.accountId, broker: got.broker, ...(got.anyStale ? { stale: true } : {}) });
-    return chainResult(underlying, p.expiry, got.value, p.strikes, fresh, facts);
+    return keyed(chainResult(underlying, p.expiry, got.value, p.strikes, fresh, facts), got.value.rows);
+  }
+
+  /** Remember which cached rows a chain result came from (for the Black-76 memo). */
+  function keyed(result, rows) {
+    if (rows && typeof rows === "object") chainRowsKey.set(result, rows);
+    return result;
+  }
+
+  /** The broker (or built) chain for `args`, stored in the cache under `key`: a stale-while-revalidate refresh. */
+  async function fetchChainInto(key, args) {
+    let got = null;
+    if (cfg.chain.source !== "built") {
+      try {
+        got = await brokerChain(args);
+      } catch (err) {
+        if (!(cfg.chain.source === "auto" && err?.code === "CAPABILITY_UNSUPPORTED")) throw err;
+      }
+    }
+    if (!got && cfg.chain.source !== "broker") got = await builtChain(args);
+    if (got && !got.stale) cache.set(key, got.value, { at: got.at, accountId: got.accountId, broker: got.broker });
   }
 
   // ── the service ──

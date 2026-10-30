@@ -7055,6 +7055,51 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
   button.ref-chip, button.cal-tile, .ref-banner { transition: none; }
 }
 
+/* ───────────────────────── 12g2 · API BUDGET (budget.js, docs/perf/README.md) ─────────────────────────
+   The toolbar capsule: stream dot, "API", calls this second and this minute against the broker's limit; tinted only
+   when a window is 70 % or 90 % full. Its popover lists each account. The Rate limits tab's live chart and top
+   consumers (views.js renderLimits). Tokens only; numbers tabular. */
+.toolbar-budget { display: inline-flex; flex: none; min-width: 0; }
+.toolbar-budget[hidden] { display: none; }
+button.toolbar-budget-btn { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 12.5px; --btn-bg: var(--mat-glass); --btn-line: transparent; height: auto; gap: 6px; color: hsl(var(--foreground)); }
+.bud-lbl { font: 500 12px/1 var(--font-body); letter-spacing: 0.02em; color: hsl(var(--foreground) / var(--a-label)); }
+.bud-num { font-family: var(--font-numeric); font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bud-sep { color: hsl(var(--foreground) / var(--a-quiet)); }
+.bud-dot { width: 8px; height: 8px; flex: none; border-radius: 99px; background: hsl(var(--foreground) / 0.4); }
+.toolbar-budget[data-stream="live"] .bud-dot, .bud-stream.bud-live .bud-dot { background: hsl(var(--ios-green)); }
+.toolbar-budget[data-stream="down"] .bud-dot, .bud-stream.bud-down .bud-dot { background: hsl(var(--warn)); }
+.toolbar-budget[data-tone="warn"] .bud-num { color: hsl(var(--warn-ink)); }
+.toolbar-budget[data-tone="bad"] .bud-num { color: hsl(var(--ios-red-ink)); }
+/* Narrow toolbars keep the dot and this second only. */
+@media (max-width: 1279px) { .toolbar-budget :is(.bud-sep, .bud-min) { display: none; } }
+@media (max-width: 719px) { .toolbar-budget .bud-lbl { display: none; } button.toolbar-budget-btn { --btn-px: 10px; } }
+.bud-pop { display: flex; flex-direction: column; gap: 12px; min-width: min(300px, 80vw); max-width: 360px; font-size: 13px; }
+.bud-stream { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.bud-acct { display: flex; flex-direction: column; gap: 6px; padding-bottom: 10px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
+.bud-acct-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.bud-wins { display: grid; gap: 6px; }
+.bud-win { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.bud-bar { height: 6px; border-radius: 99px; background: var(--mat-fill-2); overflow: hidden; }
+.bud-bar i { display: block; width: var(--w, 0%); height: 100%; border-radius: inherit; background: hsl(var(--ios-green)); }
+.bud-bar.warn i { background: hsl(var(--warn)); }
+.bud-bar.bad i { background: hsl(var(--ios-red)); }
+.bud-saved-head { display: flex; justify-content: space-between; gap: 12px; }
+.bud-saved-parts { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
+.bud-part { display: inline-flex; gap: 6px; }
+.bud-more { font-weight: 500; }
+/* Rate limits tab: calls per second against the limit over two minutes, and who used the budget. */
+.rl-chart { display: block; width: 100%; height: 120px; }
+.rl-chart .rl-grid { stroke: var(--mat-hairline); stroke-width: 1; }
+.rl-chart .rl-limit { stroke: hsl(var(--ios-red)); stroke-width: 1.5; stroke-dasharray: 4 4; fill: none; }
+.rl-chart .rl-bar { fill: hsl(var(--ios-blue)); }
+.rl-chart .rl-bar.near { fill: hsl(var(--warn)); }
+.rl-axis { display: flex; justify-content: space-between; font-size: 12px; color: hsl(var(--foreground) / var(--a-quiet)); }
+.rl-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: hsl(var(--foreground) / var(--a-label)); }
+.rl-legend .sw { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; background: hsl(var(--ios-blue)); vertical-align: -1px; }
+.rl-legend .sw.limit { height: 2px; vertical-align: 3px; background: hsl(var(--ios-red)); }
+.rl-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.rl-cons-bar { display: block; height: 6px; min-width: 2px; border-radius: 99px; background: hsl(var(--ios-blue) / 0.7); width: var(--w, 0%); }
+
 /* ───────────────────────── 12h · TRADING READINESS (docs/spec/p1-05-readiness.md §6) ─────────────────────────
    The toolbar badge on every page, its popover / bottom sheet, the Safety page card and the demo controls. State is
    never colour only: every dot sits next to the word, and the phone's icon button names it in aria-label. Tokens only. */

@@ -18,6 +18,7 @@
  */
 import { isStub } from "../core/contracts.mjs";
 import { MAX_BACKGROUND_SHARE, createBackgroundGate } from "../ratelimit/backgroundGate.mjs";
+import { runAsConsumer } from "../ratelimit/consumer.mjs";
 import { createStreamSource } from "../recorder/streamSource.mjs";
 import { INDICES, NIFTY50 } from "../scanner/universes.mjs";
 import { istDate } from "./engine.mjs";
@@ -220,7 +221,7 @@ export function createLiveFeed({ engine, deps, cfg, store, logger }) {
         }
         let res;
         try {
-          res = await deps.marketData.quotes(part, { priority: "background", backgroundShare: share, maxWaitMs: 1500, maxAgeMs: cfg.staleAfterMs });
+          res = await runAsConsumer("Live events", () => deps.marketData.quotes(part, { priority: "background", backgroundShare: share, maxWaitMs: 1500, maxAgeMs: cfg.staleAfterMs }));
         } catch (err) {
           logger?.debug?.("events: quotes poll failed", { err: err?.code ?? err?.message });
           break;
@@ -255,7 +256,7 @@ export function createLiveFeed({ engine, deps, cfg, store, logger }) {
           for (let tries = 0; tries < 30 && !stopped && !gate.allow(acc, "history", { share, cost: 1 }); tries += 1) await sleep(Math.min(5000, gate.waitMs(acc, "history", { share }) || 1000));
         }
         try {
-          const h = await deps.marketData.history({ symbol: s, interval: "1d", countback: 5000 }, { priority: "background", backgroundShare: share, maxWaitMs: 5000 });
+          const h = await runAsConsumer("Live events", () => deps.marketData.history({ symbol: s, interval: "1d", countback: 5000 }, { priority: "background", backgroundShare: share, maxWaitMs: 5000 }));
           const ctx = contextFromCandles(h?.candles, today);
           if (ctx) {
             cached[s] = ctx;
