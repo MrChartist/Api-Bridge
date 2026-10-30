@@ -8320,3 +8320,4 @@ dialog.sheet.ev-sheet { max-height: 85dvh; }
 /* Below 1280 px the scan list sits above the builder: it scrolls in its card so the builder and results stay near. */
 @media (max-width: 1279px) { .sc-lib-list { max-height: 360px; overflow: auto; overscroll-behavior: contain; } }
 .sc-pick-item, .sc-pick-group, .sc-lib-row { flex: none; }
+.sc-pick-body, .sc-cols, .sc-export, .sc-menu .menu-list { padding: 8px 14px 14px; }

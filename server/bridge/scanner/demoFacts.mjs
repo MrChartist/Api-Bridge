@@ -166,6 +166,22 @@ export function createDemoFacts({ now, bootMs = now() }) {
       p.high = r2(Math.max(p.high, last.high * (1 + R.range(0.004, 0.012))));
       p.low = r2(Math.min(p.low, last.low * (1 - R.range(0.004, 0.012))));
     }
+    // A 52-week story needs the extreme within reach of a normal day: lean the older bars until the year's high (low)
+    // sits about 2.5 % from the previous close, so today's move to it stays a few per cent.
+    if (price === "high-52w" || price === "low-52w") {
+      const up = price === "high-52w";
+      for (let pass = 0; pass < 6; pass += 1) {
+        const year = bars.slice(-252, -1);
+        const ext = up ? Math.max(...year.map((x) => x.high)) : Math.min(...year.map((x) => x.low));
+        const target = prevClose * (up ? 1.025 : 0.975);
+        if (up ? ext <= target : ext >= target) break;
+        const k = target / ext;
+        for (let i = 0; i < N - 1; i += 1) {
+          const f = 1 + (k - 1) * Math.min(1, (N - 1 - i) / 30);
+          for (const key of ["open", "high", "low", "close"]) bars[i][key] = r2(bars[i][key] * f);
+        }
+      }
+    }
     // Futures and options shape
     const fno = st.fno?.id;
     const chain = st.chain?.id;
@@ -224,6 +240,9 @@ export function createDemoFacts({ now, bootMs = now() }) {
     if (priceOn === "high-20-volume") move = Math.log((Math.max(h20, last.high) * 1.01) / (prev * Math.exp(gap)));
     if (fnoOn === "long-buildup" || fnoOn === "short-covering") move = Math.log(1 + b.R.range(0.012, 0.03)) - gap;
     if (fnoOn === "short-buildup" || fnoOn === "long-unwinding") move = Math.log(1 - b.R.range(0.012, 0.03)) - gap;
+    // F&O stocks move inside their 10 % band: a story that would need more simply does not hit that symbol today.
+    if (gap + move > 0.095) move = 0.095 - gap;
+    if (gap + move < -0.098) move = -0.098 - gap;
     let open;
     let ltp;
     if (b.priced) {
