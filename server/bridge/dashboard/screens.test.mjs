@@ -132,9 +132,12 @@ describe("chain records and runPreset", () => {
   it("recomputes every tab over about 1000 legs quickly", () => {
     const parts = Array.from({ length: 10 }, (_, i) => S.chainRecords(chain(`2026-11-${String(3 + i).padStart(2, "0")}`), { now: NOW, hv20: 12 }));
     const s = S.finishScan(parts);
-    const t0 = performance.now();
+    // CPU time, not wall time: under the full parallel suite this worker can be descheduled for longer than the work
+    // takes, which says nothing about the code. ≤ 6 ms in a browser; 60 ms leaves room for a cold JIT.
+    const c0 = process.cpuUsage();
     for (const p of S.PRESETS) S.runPreset(S.recordsFor(s, p), p, S.defaultFilters(p), null, { limit: 50 });
-    expect(performance.now() - t0).toBeLessThan(60); // ≤ 6 ms in a browser; generous for CI
+    const c = process.cpuUsage(c0);
+    expect((c.user + c.system) / 1000).toBeLessThan(60);
   });
 });
 

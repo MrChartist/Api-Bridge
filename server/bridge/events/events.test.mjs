@@ -400,5 +400,5 @@ describe("routes (demo Bridge end to end)", () => {
     } finally {
       await app.close?.();
     }
-  }, 40_000);
+  });
 });
