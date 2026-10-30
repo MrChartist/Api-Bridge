@@ -393,10 +393,10 @@ describe("Foundation §4: contrast of the data-viz colours (WCAG 2.x)", () => {
     const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
     return (x + 0.05) / (y + 0.05);
   };
-  // Mirrors docs/design/foundation.md §3.2, §3.3 and §4.1 (card: light #FFFFFF, dark #0D0D0F).
+  // Mirrors docs/design/foundation.md §3.2, §3.3 and §4.1 (card: light #FFFFFF, dark #1C1C1E).
   const T = {
-    light: { card: "#FFFFFF", fg: "#0A0A0B", ink: { call: "#0A62C9", put: "#A65300", pos: "#0A7A33", neg: "#C9241C", warn: "#8A5A00", iv: "#6E35D6" }, fill: { call: "#1C7BEA", put: "#E07800", pos: "#1FA347", neg: "#E2382E", iv: "#7F55DB" }, sel: ["#0A0A0B", "#FFFFFF"] },
-    dark: { card: "#0D0D0F", fg: "#F4F4F6", ink: { call: "#4AA8FF", put: "#FF9F2E", pos: "#30D158", neg: "#FF5A50", warn: "#FFD60A", iv: "#BF8CFF" }, fill: { call: "#3A93F0", put: "#F28A1A", pos: "#30D158", neg: "#FF5A50", iv: "#8A63D9" }, sel: ["#FFFFFF", "#000000"] },
+    light: { card: "#FFFFFF", fg: "#000000", ink: { call: "#0A62C9", put: "#A65300", pos: "#1F7F37", neg: "#D70015", warn: "#8A5A00", iv: "#6E35D6" }, fill: { call: "#1C7BEA", put: "#E07800", pos: "#22A34A", neg: "#FF3B30", iv: "#7F55DB" }, sel: ["#000000", "#FFFFFF"] },
+    dark: { card: "#1C1C1E", fg: "#FFFFFF", ink: { call: "#4AA8FF", put: "#FF9F2E", pos: "#64C775", neg: "#ED756A", warn: "#FFD60A", iv: "#BF8CFF" }, fill: { call: "#3A93F0", put: "#F28A1A", pos: "#50B863", neg: "#E46156", iv: "#8A63D9" }, sel: ["#FFFFFF", "#000000"] },
   };
   for (const [theme, t] of Object.entries(T)) {
     it(`${theme}: text inks hold 4.5:1 and fills 3:1 on a card; the selection pair is ≥ 15:1`, () => {
@@ -408,8 +408,8 @@ describe("Foundation §4: contrast of the data-viz colours (WCAG 2.x)", () => {
   }
   it("the sequential and diverging steps carry readable text (≥ 4.5:1 on their ink)", () => {
     const steps = {
-      light: { seq: [["#F3EEFE", "#0A0A0B"], ["#DDCCFB", "#0A0A0B"], ["#B898F2", "#0A0A0B"], ["#7F55DB", "#FFFFFF"], ["#4E2AA6", "#FFFFFF"]], div: [["#C9241C", "#FFFFFF"], ["#F08A84", "#000000"], ["#FBD9D6", "#000000"], ["#F2F2F3", "#000000"], ["#CDEFD7", "#000000"], ["#6FCB8B", "#000000"], ["#0A7A33", "#FFFFFF"]] },
-      dark: { seq: [["#1E1631", "#F4F4F6"], ["#33235A", "#F4F4F6"], ["#553A93", "#F4F4F6"], ["#8A63D9", "#000000"], ["#C7A8FF", "#000000"]], div: [["#FF5A50", "#000000"], ["#B8423C", "#FFFFFF"], ["#5A2725", "#FFFFFF"], ["#1C1C20", "#FFFFFF"], ["#1E4D2C", "#FFFFFF"], ["#237F3F", "#FFFFFF"], ["#30D158", "#000000"]] },
+      light: { seq: [["#F3EEFE", "#000000"], ["#DDCCFB", "#000000"], ["#B898F2", "#000000"], ["#7F55DB", "#FFFFFF"], ["#4E2AA6", "#FFFFFF"]], div: [["#D70015", "#FFFFFF"], ["#F08A84", "#000000"], ["#FBD9D6", "#000000"], ["#F2F2F3", "#000000"], ["#CDEFD7", "#000000"], ["#6FCB8B", "#000000"], ["#1F7F37", "#FFFFFF"]] },
+      dark: { seq: [["#271C3F", "#FFFFFF"], ["#33235A", "#FFFFFF"], ["#553A93", "#FFFFFF"], ["#8A63D9", "#000000"], ["#C7A8FF", "#000000"]], div: [["#ED756A", "#000000"], ["#B8423C", "#FFFFFF"], ["#5A2725", "#FFFFFF"], ["#1C1C20", "#FFFFFF"], ["#1E4D2C", "#FFFFFF"], ["#237F3F", "#FFFFFF"], ["#64C775", "#000000"]] },
     };
     for (const [theme, s] of Object.entries(steps)) for (const [bg, ink] of [...s.seq, ...s.div]) expect(ratio(bg, ink), `${theme} ${bg}`).toBeGreaterThanOrEqual(4.5);
   });
