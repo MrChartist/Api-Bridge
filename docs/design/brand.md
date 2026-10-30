@@ -268,8 +268,8 @@ unchanged and nothing else (figures, canvas text) uses them.
 
 | Token (`app.css`) | Light | Dark | Used by |
 |---|---|---|---|
-| `--gain-ink-strong` | `135 60.8% 25%` | `var(--pos-ink)` | `.ev-chip.bull`, `.obu-LB`, `.obu-SC`, `.oi-tone-pill[data-tone="up"]`, `.scr-pill.t-pos` |
-| `--loss-ink-strong` | `354 100% 36%` | `var(--neg-ink)` | `.ev-chip.bear`, `.obu-SB`, `.obu-LU`, `.oi-tone-pill[data-tone="down"]`, `.scr-pill.t-neg`, chain `.held.short` |
+| `--gain-ink-strong` | `135 60.8% 25%` | `var(--pos-ink)` | `.ev-chip.bull`, `.obu-LB`, `.obu-SC`, `.oi-tone-pill[data-tone="up"]`, `.scr-pill.t-pos`, `.bk-rel[data-tone="ok"]`, chain `.bu-LB` |
+| `--loss-ink-strong` | `354 100% 36%` | `var(--neg-ink)` | `.ev-chip.bear`, `.obu-SB`, `.obu-LU`, `.oi-tone-pill[data-tone="down"]`, `.scr-pill.t-neg`, chain `.held.short`, chain `.bu-SB` |
 | `--ok-ink-strong` / `--bad-ink-strong` | `137 64% 23%` / `356 78% 35%` | `var(--ios-green-ink)` / `var(--ios-red-ink)` | `.an-page .pill.sm.ok` / `.bad` |
 | `--info-ink-strong` / `--warn-ink-strong` | `211 100% 33%` / `26 100% 28%` | `var(--ios-blue-ink)` / `var(--ios-orange-ink)` | `.an-page .pill.sm.info` / `.warn` |
 
