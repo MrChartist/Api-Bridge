@@ -61,6 +61,7 @@ const PAGE_MODULES = Object.freeze({
   recorder: () => import("./recorder.js"),
   events: () => import("./events.js"),
   journal: () => import("./journal.js"),
+  scanner: () => import("./scanner.js"),
 });
 /** A page renderer that loads its module first. `.module` names it, for preloading. */
 function lazyPage(mod, name) {
@@ -80,6 +81,7 @@ const renderParticipantsPage = lazyPage("participants", "renderParticipantsPage"
 const renderRecorderPage = lazyPage("recorder", "renderRecorderPage");
 const renderEventsPage = lazyPage("events", "renderEventsPage");
 const renderJournalPage = lazyPage("journal", "renderJournalPage");
+const renderScannerPage = lazyPage("scanner", "renderScannerPage");
 
 /** Load a page's module and warm its data ahead of a click (menu hover or focus). Idempotent and cheap. */
 export function preloadPage(pageId) {
@@ -324,7 +326,7 @@ export const PAGES = [
       { id: "options", label: "Options", page: "screener", layout: "desk", command: "Option Screener", keywords: "screener unusual activity build-up rich cheap premium hedges", sub: "Scan every underlying and expiry for unusual activity, build-ups, rich or cheap premium, hedges and arbitrage", render: renderScreenerPage },
       { id: "arbitrage", label: "Arbitrage", page: "arb", layout: "desk", command: "Arbitrage scanner", icon: "scale", tint: "indigo", keywords: "arb parity box conversion reversal basis", sub: "Parity, boxes and futures basis at executable prices, after charges", render: renderArbPage },
       { id: "events", label: "Live events", page: "events", layout: "desk", command: "Live events", icon: "bolt", tint: "orange", keywords: "events event selector spider circuit only buyers only sellers volume surge gap day high breakout alerts live oi build-up iv spike wall", sub: "Circuits, volume surges, gaps, breakouts, F&O OI and option events as they happen", render: renderEventsPage },
-      { id: "stocks", label: "Stocks", page: "scanner", layout: "", command: "Stock scanner", icon: "scan", tint: "mint", keywords: "scanner scan condition rsi universe", sub: "Scan big universes with a readable condition, shared out over your accounts", render: renderScanner },
+      { id: "stocks", label: "Stocks", page: "scanner", layout: "", command: "Stock scanner", icon: "scan", tint: "mint", keywords: "scanner scan condition rsi universe gap 52-week circuit nr7 inside day build-up oi spike ban pcr iv rank basis rollover max pain straddle skew", sub: "Price, F&O and option-chain scans in plain words, saved and scheduled", render: renderScannerPage },
     ],
   },
   { id: "calendar", label: "Market calendar", icon: "calendar", tint: "teal", group: "Markets", layout: "desk", title: "Market calendar", sub: "Expiries, holidays, lot sizes, ban list and corporate actions, with their sources", render: renderCalendarPage },
@@ -977,6 +979,11 @@ function setupChrome() {
   if (budgetSlot && !budgetSlot.dataset.ready) {
     budgetSlot.dataset.ready = "1";
     mountBudget(budgetSlot, live);
+    // A saved scan's new matches (Screeners › Stocks) as a toast on any page; they are rows in Live events too.
+    live.onScanAlerts((m) => {
+      const names = (m.newMatches ?? []).map((s) => String(s).split(":").pop());
+      if (names.length) toast(`Scan "${m.name ?? "Saved scan"}": ${names.slice(0, 4).join(", ")}${names.length > 4 ? ` and ${formatInt(names.length - 4)} more` : ""} new`, { tone: "info" });
+    });
   }
   // Hover or focus a menu item: load that page's module and warm its data, so the click paints at once.
   const warmed = new Map();
@@ -1074,147 +1081,6 @@ export async function startRouter() {
   }
   window.addEventListener("hashchange", show);
   show();
-}
-
-// ── Scanner ──
-
-const SCAN_EXAMPLES = [
-  "rsi(14) > 60 and close > sma(50)",
-  "close crosses above ema(20) and volume > 1.5 * avg_volume(20)",
-  "close > highest(20)[1]",
-  "macd() crosses above macd_signal()",
-  "close > supertrend(10, 3) and change_pct > 2",
-];
-
-async function renderScanner() {
-  const [universes, backup, jobs] = await Promise.all([optional(api("/v1/scanner/universes")), optional(api("/v1/backup/status")), optional(api("/v1/scanner/jobs"))]);
-  const uni = h("select", { "aria-label": "Universe" }, h("option", { value: "" }, "My symbols (below)"), (universes.data?.data ?? []).map((u) => h("option", { value: u.name, selected: u.name === "NIFTY50" }, `${u.name}${u.size ? ` (${u.size})` : ""}`)));
-  const syms = h("input", { placeholder: "NSE:RELIANCE, NSE:TCS …", spellcheck: "false" });
-  syms.disabled = Boolean(uni.value);
-  uni.addEventListener("change", () => (syms.disabled = Boolean(uni.value)));
-  const interval = h("select", { "aria-label": "Interval" }, ["1d", "1w", "60m", "30m", "15m", "5m", "1m"].map((i) => h("option", { value: i }, i)));
-  const source = h("select", { "aria-label": "Source" }, h("option", { value: "auto" }, "Brokers, then backup"), h("option", { value: "broker" }, "Brokers only"), h("option", { value: "backup" }, "Backup only (Yahoo)"));
-  const cond = h("textarea", { id: "scan-condition", rows: 3, spellcheck: "false" }, SCAN_EXAMPLES[0]);
-  const cols = h("input", { value: "rsi(14), close / sma(50) - 1", spellcheck: "false" });
-  const sortBy = h("input", { value: "rsi(14)", spellcheck: "false" });
-  const examples = h("div", { class: "row", role: "group", "aria-label": "Example conditions" }, SCAN_EXAMPLES.map((e) => h("button", { type: "button", class: "small example", title: "Use this condition", onclick: () => { cond.value = e; cond.focus(); } }, e)));
-  const out = h("div", { class: "stack" });
-  const planBtn = h("button", { type: "button", class: "" }, icon("info"), "Plan");
-  const runBtn = h("button", { type: "button", class: "primary" }, icon("play"), "Run scan");
-
-  const request = () => {
-    const r = { interval: interval.value, condition: cond.value.trim(), source: source.value };
-    if (uni.value) r.universe = uni.value;
-    else r.symbols = syms.value.split(/[\s,]+/).filter(Boolean);
-    const c = cols.value.split(",").map((x) => x.trim()).filter(Boolean);
-    if (c.length) r.columns = c;
-    if (sortBy.value.trim()) r.sort = { by: sortBy.value.trim(), order: "desc" };
-    return r;
-  };
-  const drawJob = (job) => {
-    const p = job.progress ?? {};
-    const pools = (job.plan?.pools ?? []).map((x) => (x.kind === "backup" ? "backup sources" : `${x.accountId} ×${x.concurrency}`)).join(", ");
-    const head = h("div", { class: "row" }, pill(cap(job.status), job.status === "completed" ? "ok" : job.status === "failed" ? "bad" : "info"), h("span", { class: "muted small" }, `${formatInt(p.done ?? 0)}/${formatInt(p.total ?? 0)} symbols · ${formatInt(p.matched ?? 0)} matched · ${formatInt(p.errors ?? 0)} errors${pools ? ` · served by ${pools}` : ""}`));
-    const results = job.results ?? [];
-    const labels = Object.keys(results[0]?.values ?? {});
-    // Fixed decimals per column: whole numbers when every value in the column is whole, else 2.
-    const dp = Object.fromEntries(labels.map((l) => [l, results.every((r) => !isFigure(r.values[l]) || Number.isInteger(Number(r.values[l]))) ? 0 : 2]));
-    // The results sit straight in the scan card (no card in a card).
-    const rows = table(
-      [{ label: "Symbol", cell: (r) => h("strong", {}, r.symbol) }, ...labels.map((l) => ({ label: l, num: true, cell: (r) => formatFixed(r.values[l], dp[l]) })), { label: "Data", cell: (r) => pill(r.source === "backup" ? `backup · ${r.provider}` : r.accountId ?? r.source, r.source === "backup" ? "warn" : "") }],
-      results,
-      emptyState("scan", job.status === "completed" ? "Nothing matched" : "Scanning…", job.status === "completed" ? "No symbol met the condition on its last candle." : "Results appear here when the scan finishes."),
-      { mobile: "scroll" },
-    );
-    const errs = (job.errors ?? []).length ? h("details", { class: "disclosure" }, h("summary", {}, `${formatInt(job.errors.length)} symbol(s) could not be scanned`), table([{ label: "Symbol", cell: (e) => e.symbol }, { label: "Code", cell: (e) => e.code }, { label: "Message", wrap: true, cell: (e) => e.message }], job.errors.slice(0, 100), null)) : null;
-    out.replaceChildren(...[head, rows, errs].filter(Boolean));
-  };
-  planBtn.addEventListener("click", async () => {
-    try {
-      const r = (await api("/v1/scanner/plan", { method: "POST", body: request() })).data.data;
-      toast(`${formatInt(r.symbols)} symbols · about ${formatInt(r.estimatedSeconds)} s · ${r.pools.map((x) => x.accountId ?? "backup").join(", ")}`);
-    } catch (err) {
-      out.replaceChildren(alertBox(err));
-    }
-  });
-  runBtn.addEventListener("click", async () => {
-    busy(runBtn, true);
-    out.replaceChildren(h("p", { class: "muted" }, "Scanning…"));
-    try {
-      let job = (await api("/v1/scanner/jobs?waitMs=2000", { method: "POST", body: request() })).data.data;
-      drawJob(job);
-      while (job.status === "queued" || job.status === "running") {
-        await new Promise((r) => setTimeout(r, 1000));
-        job = (await api(`/v1/scanner/jobs/${encodeURIComponent(job.id)}`)).data.data;
-        drawJob(job);
-      }
-    } catch (err) {
-      out.replaceChildren(alertBox(err));
-    } finally {
-      busy(runBtn, false);
-    }
-  });
-
-  const b = backup.data?.data;
-  const backupCard = card({
-    glyph: "plug",
-    tint: "gray",
-    title: "Backup data",
-    sub: "Used only when no broker account can answer; every value is labelled source \"backup\".",
-    actions: b ? pill(b.enabled ? "On" : b.demo ? "Off in demo mode" : "Off", b.enabled ? "ok" : "warn") : null,
-    flush: Boolean(b),
-    body: b
-      ? table(
-          [
-            { label: "Provider", cell: (p) => h("strong", {}, p.name) },
-            { label: "State", cell: (p) => (!p.enabled ? pill("Off", "warn") : p.paused ? pill("Paused", "bad") : pill("Ready", "ok")) },
-            { label: "Calls", num: true, cell: (p) => formatInt(p.calls) },
-            { label: "Errors", num: true, cell: (p) => formatInt(p.errors) },
-            { label: "Last error", wrap: true, cell: (p) => p.lastError?.message ?? DASH },
-          ],
-          b.providers ?? [],
-          null,
-        )
-      : alertBox(backup.error ?? "Backup status is not available."),
-  });
-  const recent = (jobs.data?.data ?? []).slice(0, 10);
-  const recentCard = card({
-    glyph: "clock",
-    tint: "mint",
-    title: "Recent scans",
-    flush: true,
-    body: table(
-      [
-        { label: "Started", cell: (j) => istTime(j.startedAt) },
-        { label: "Condition", wrap: true, cell: (j) => h("code", {}, j.request?.condition ?? "") },
-        { label: "Status", cell: (j) => pill(cap(j.status), j.status === "completed" ? "ok" : j.status === "failed" ? "bad" : "warn") },
-        { label: "Matched", num: true, cell: (j) => formatInt(j.progress?.matched) },
-      ],
-      recent,
-      emptyState("scan", "No scans yet", "Run one above, or from Python, Node, Excel or an AI assistant.", nextStep("Write a condition", () => cond.focus())),
-    ),
-  });
-
-  return [
-    card({
-      glyph: "scan",
-      tint: "mint",
-      title: "Stock scanner",
-      sub: "The condition is checked on each symbol's last candle. Scans run behind charts and orders, and share the work over your pooled accounts.",
-      body: h(
-        "div",
-        { class: "stack" },
-        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Universe", uni), h("label", { class: "field" }, "Interval", interval), h("label", { class: "field" }, "Data", source)),
-        h("label", { class: "field" }, "Symbols", h("span", { class: "hint" }, "Only when Universe is “My symbols”."), syms),
-        h("label", { class: "field" }, "Condition", h("span", { class: "hint" }, "Fields: open high low close volume change_pct. Functions: sma ema rsi atr macd supertrend vwap highest lowest avg_volume … “crosses above”, x[1] for the previous bar."), cond),
-        examples,
-        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Columns", h("span", { class: "hint" }, "Comma-separated expressions."), cols), h("label", { class: "field" }, "Sort by", h("span", { class: "hint" }, "Highest value first."), sortBy)),
-        h("div", { class: "row" }, runBtn, planBtn),
-        out,
-      ),
-    }),
-    h("div", { class: "grid cols-2" }, recentCard, backupCard),
-  ];
 }
 
 // ── Home ──

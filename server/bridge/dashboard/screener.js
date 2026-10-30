@@ -12,6 +12,7 @@ import { DEMO_UNDERLYINGS, UNDERLYINGS } from "./desk.js";
 import { barsEnter, countUp, flashValue, lineReveal, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
 import * as S from "./screens.js";
+import { LIBRARY_BY_ID, OPTION_QUICK_SCANS, activeQuickScan, quickScanPatch } from "./scan-library.js";
 import { readinessSheetRow } from "./readiness.js";
 import { dayText, loadReference, refBanners, refCharges, refChip, refRate, refSession, refSignature } from "./reference.js";
 import { every, segmented, stopTimer } from "./views.js";
@@ -402,7 +403,28 @@ export function renderScreenerPage() {
   const foot = h("div", { class: "scr-foot" }, issuesEl, h("div", { class: "scr-foot-row" }, footCount, moreBtn, h("span", { class: "scr-grow" }), methodEl));
 
   const head = h("header", { class: "scr-head" }, tabWrap, tools, progressEl);
-  const main = h("section", { class: "desk-panel scr-main", "data-panel": "screener-main", "aria-label": "Option Screener" }, head, chipRow, legendRow, banners, mapEl, wrap, cards, emptyEl, foot, live);
+  // Quick scans: the option-chain scans of the stock scanner's library, per strike here (a screen, a sort and a filter
+  // over the records already swept: no network). The chip in use is pressed; any other change releases it.
+  const dirOptions = S.FILTERS.direction?.options ?? [];
+  const quickBtns = OPTION_QUICK_SCANS.map((q) =>
+    h("button", { type: "button", class: "chip-btn scr-quick-chip", "data-id": q.id, "aria-pressed": "false", title: LIBRARY_BY_ID.get(q.library)?.plain ?? "", onclick: () => {
+      const patch = quickScanPatch(cfg, q.id, dirOptions);
+      if (!patch) return;
+      shown = cfg.rows;
+      if (patch.preset !== cfg.preset) {
+        autoSel = true;
+        swapPending = true;
+      }
+      setCfg(patch);
+      centreTab(true);
+    } }, q.label),
+  );
+  const quickRow = h("div", { class: "scr-quick", role: "group", "aria-label": "Quick scans" }, h("span", { class: "scr-quick-label" }, "Quick scans"), quickBtns);
+  function drawQuick() {
+    const on = activeQuickScan(cfg, dirOptions);
+    for (const b of quickBtns) b.setAttribute("aria-pressed", String(b.dataset.id === on));
+  }
+  const main = h("section", { class: "desk-panel scr-main", "data-panel": "screener-main", "aria-label": "Option Screener" }, head, quickRow, chipRow, legendRow, banners, mapEl, wrap, cards, emptyEl, foot, live);
   const paneBody = h("div", { class: "scr-pane" });
   const detail = h("section", { class: "desk-panel scr-detail", "data-panel": "screener-detail", "aria-label": "Selected row" }, paneBody);
   const root = main;
@@ -2811,6 +2833,7 @@ export function renderScreenerPage() {
     sortChip.setAttribute("aria-label", `Sort: ${t}, ${s.dir === "asc" ? "ascending" : "descending"}`);
   }
   function draw() {
+    drawQuick();
     if (destroyed) return;
     const t0 = performance.now();
     const p = preset();

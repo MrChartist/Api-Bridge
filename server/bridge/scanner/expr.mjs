@@ -374,7 +374,7 @@ export function evaluate(tree, cols) {
       case "num":
         return new Array(len).fill(n.v);
       case "field":
-        return FIELDS[n.name](cols);
+        return Object.hasOwn(FIELDS, n.name) ? FIELDS[n.name](cols) : extraSeries(cols, n.name, len);
       case "shift":
         return shift(ev(n.x), n.k);
       case "neg":
@@ -422,6 +422,57 @@ export function evaluate(tree, cols) {
     }
   };
   return ev(tree);
+}
+
+/**
+ * A field the caller supplies as one value for the last bar (the scanner's live facts: OI change, PCR, IV rank ...):
+ * NaN on every earlier bar, so `x[1]` or "crosses" on it is never true, and NaN when the value is missing.
+ */
+function extraSeries(cols, name, len) {
+  const out = new Array(len).fill(NaN);
+  const v = cols.extra?.[name];
+  if (len && v !== null && v !== undefined && v !== "" && isNum(Number(v))) out[len - 1] = Number(v);
+  return out;
+}
+
+const PREC = { or: 1, and: 2, not: 3, cmp: 4, cross: 4, "+": 5, "-": 5, "*": 6, "/": 6, neg: 7 };
+const fmtNum = (v) => (Number.isInteger(v) ? String(v) : String(Math.round(v * 1e6) / 1e6));
+
+/**
+ * The canonical text of a tree: one space around operators, default periods written out, brackets only where the
+ * precedence needs them. parseExpression(toText(t)) gives the same tree back. The builder (dashboard/scan-builder.js)
+ * matches its value templates against this text.
+ */
+export function toText(n) {
+  const prec = (x) => (x.t === "bin" ? PREC[x.op] : (PREC[x.t] ?? 9));
+  const wrap = (x, min) => (prec(x) < min ? `(${toText(x)})` : toText(x));
+  switch (n.t) {
+    case "num":
+      return fmtNum(n.v);
+    case "field":
+      return n.name;
+    case "shift":
+      return `${wrap(n.x, 9)}[${n.k}]`;
+    case "neg":
+      return `-${wrap(n.x, 7)}`;
+    case "not":
+      return `not ${wrap(n.x, 3)}`;
+    case "and":
+    case "or":
+      return `${wrap(n.l, PREC[n.t])} ${n.t} ${wrap(n.r, PREC[n.t] + 1)}`;
+    case "cmp":
+      return `${wrap(n.l, 5)} ${n.op} ${wrap(n.r, 5)}`;
+    case "cross":
+      return `${wrap(n.l, 5)} crosses ${n.dir} ${wrap(n.r, 5)}`;
+    case "bin":
+      return `${wrap(n.l, PREC[n.op])} ${n.op} ${wrap(n.r, PREC[n.op] + 1)}`;
+    case "call": {
+      const parts = n.args.length ? n.args.map(toText) : [...n.periods.map(fmtNum), ...(n.src ? [toText(n.src)] : [])];
+      return `${n.name}(${parts.join(", ")})`;
+    }
+    default:
+      throw new Error(`unknown node ${n.t}`);
+  }
 }
 
 /** True when the condition holds on the last bar. */
