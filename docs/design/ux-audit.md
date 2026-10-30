@@ -251,5 +251,7 @@ Others:
   so "new since last run" and Scan hit rows need market hours or Run now twice.
 - **Watchlists:** an unknown symbol (FOOBAR) is added silently ("1 not priced"); duplicate list names are allowed.
 - **Safety** limits table shows account ids and paise; **Recorder** counts are ungrouped (436400 leg rows).
+- **First run:** Home opened within a second of the start shows the demo book half seeded (7 legs, "not family" at
+  ₹0); a reload a few seconds later shows all 10. The seed could finish before the dashboard link is printed.
 - **Tests:** `screens.test.mjs` "recomputes every tab over about 1000 legs quickly" failed once in a full run under
   load and passes alone; one full run had one failed file and the rerun was clean. Not loosened.
