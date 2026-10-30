@@ -73,7 +73,7 @@ export function seriesLayout(series, { width = 640, height, padL = 50, padR = 14
       pen = true;
       if (showDots) dots.push({ x: px, y: py, title: `${sr.label}, ${p.label}: ${formatFixed(p.y, yDecimals)}` });
     });
-    return { id: sr.id, label: sr.label, cls: sr.cls, dash: sr.dash ?? null, d, dots };
+    return { id: sr.id, label: sr.label, cls: sr.cls, dash: sr.dash ?? null, hollow: Boolean(sr.hollow), d, dots };
   });
   return {
     width: w,
@@ -392,7 +392,7 @@ export function seriesChart(series, { label, yDecimals = 2, refs = [] }) {
     for (const rf of L.refs) svg.append(s("line", { class: "marker-line", x1: L.padL, x2: L.plotRight, y1: rf.y, y2: rf.y }), s("text", { class: "tag", x: L.plotRight - 2, y: rf.y - 5, "text-anchor": "end" }, rf.label));
     for (const p of L.paths) {
       if (p.d) svg.append(s("path", { class: `line ${p.cls}`, d: p.d, "stroke-dasharray": p.dash }));
-      for (const d of p.dots) svg.append(s("circle", { class: `dot ${p.cls}`, cx: d.x, cy: d.y, r: 3 }, s("title", {}, d.title)));
+      for (const d of p.dots) svg.append(s("circle", { class: `dot ${p.cls}${p.hollow ? " hollow" : ""}`, cx: d.x, cy: d.y, r: p.hollow ? 3.5 : 3 }, s("title", {}, d.title)));
     }
     return svg;
   });

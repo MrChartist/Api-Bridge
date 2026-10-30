@@ -11,6 +11,99 @@ export function opFor(trigger, ltp) {
   return Number(trigger) > Number(ltp) ? "above" : "below";
 }
 
+/** Default buffer between a GTT's trigger and its limit price: 0.5 % (a buy pays up to it, a sell down to it). */
+export const GTT_BUFFER_PCT = 0.5;
+
+const tickRound = (v, tick, dir) => {
+  const t = Number(tick) > 0 ? Number(tick) : 0.05;
+  const u = v / t;
+  return Math.round((dir === "up" ? Math.ceil(u - 1e-9) : Math.floor(u + 1e-9)) * t * 1e6) / 1e6;
+};
+
+/**
+ * The limit price a GTT's order should carry so it fills when it fires: the trigger plus a buffer for a buy, minus it
+ * for a sell, rounded to the tick away from the trigger. Null without a trigger.
+ */
+export function gttLimit(trigger, side, tick = 0.05, bufferPct = GTT_BUFFER_PCT) {
+  if (!isFigure(trigger) || Number(trigger) <= 0) return null;
+  const t = Number(trigger);
+  return side === "BUY" ? tickRound(t * (1 + bufferPct / 100), tick, "up") : Math.max(Number(tick) || 0.05, tickRound(t * (1 - bufferPct / 100), tick, "down"));
+}
+
+/** A warning when a GTT's limit is on the wrong side of its trigger (it would rest unfilled once it fires), else null. */
+export function gttLimitWarning(side, trigger, limit) {
+  if (!isFigure(trigger) || !isFigure(limit)) return null;
+  if (side === "BUY" && Number(limit) < Number(trigger)) return `A buy limit of ${formatFixed(limit, 2)} is under the trigger ${formatFixed(trigger, 2)}: when it fires the order may rest unfilled. Use ${formatFixed(trigger, 2)} or more, or a market order.`;
+  if (side === "SELL" && Number(limit) > Number(trigger)) return `A sell limit of ${formatFixed(limit, 2)} is over the trigger ${formatFixed(trigger, 2)}: when it fires the order may rest unfilled. Use ${formatFixed(trigger, 2)} or less, or a market order.`;
+  return null;
+}
+
+/** How long a GTT lasts for a product: an intraday one ends at today's 15:20 square-off; carry lasts to expiry. */
+export function gttValidityText(product) {
+  return product === "INTRADAY" ? "Intraday: good till 15:20 today, then cancelled." : "Good till the contract expires.";
+}
+
+/** The price a GTT entry is expected to fill at: its limit, or the trigger for a market order. */
+export function gttFillPrice({ orderType, price, trigger }) {
+  if (orderType === "LIMIT" && isFigure(price)) return Number(price);
+  return isFigure(trigger) ? Number(trigger) : null;
+}
+
+/**
+ * P&L of a position if it is closed at `price`: (price − average) × signed quantity. Null without the figures.
+ * @param {number} price @param {number} avg @param {number} qty signed units (long +, short −)
+ */
+export function pnlAt(price, avg, qty) {
+  if (!isFigure(price) || !isFigure(avg) || !isFigure(qty)) return null;
+  return (Number(price) - Number(avg)) * Number(qty);
+}
+
+/** The short chip for a position's open exits: "SL 449.00 · T 785.00" (trailing: "TSL"), or null. */
+export function exitChipText(triggers, symbol) {
+  const mine = (triggers ?? []).filter((t) => t.symbol === symbol && t.reduceOnly && OPEN_TRIGGER.has(t.status) && t.status !== "waiting");
+  if (!mine.length) return null;
+  const parts = [];
+  for (const t of mine)
+    for (const l of t.legs ?? []) parts.push(`${l.role === "target" ? "T" : l.trail ? "TSL" : "SL"} ${formatFixed(l.trigger, 2)}`);
+  return parts.join(" · ");
+}
+
+// ── Stop-loss orders (SL, SL-M) on the ticket: held at the exchange (paper: the paper engine), not on the Bridge ──
+
+/** A start for an SL order's trigger: 1 % beyond the price on the side it waits for (above for a buy). */
+export function slTriggerStart(side, ltp, tick = 0.05) {
+  if (!isFigure(ltp) || Number(ltp) <= 0) return null;
+  return tickRound(Number(ltp) * (side === "BUY" ? 1.01 : 0.99), tick, side === "BUY" ? "up" : "down");
+}
+
+/**
+ * What is wrong with an SL or SL-M order's prices, in plain words, or null: the trigger must be past the price now on
+ * the side the order waits for (a buy above, a sell below), and an SL's limit must be at or beyond the trigger.
+ * @returns {{ field: "trigger"|"price", message: string } | null}
+ */
+export function stopOrderProblem({ side, orderType, trigger, price, ltp }) {
+  if (orderType !== "SL" && orderType !== "SL-M") return null;
+  if (!isFigure(trigger) || Number(trigger) <= 0) return { field: "trigger", message: "Enter a trigger price." };
+  const t = Number(trigger);
+  if (isFigure(ltp)) {
+    if (side === "BUY" && t <= Number(ltp)) return { field: "trigger", message: `A stop-loss buy triggers above the price now (${formatFixed(ltp, 2)}). For a buy below it, use a limit order.` };
+    if (side === "SELL" && t >= Number(ltp)) return { field: "trigger", message: `A stop-loss sell triggers below the price now (${formatFixed(ltp, 2)}). For a sell above it, use a limit order.` };
+  }
+  if (orderType === "SL") {
+    if (!isFigure(price) || Number(price) <= 0) return { field: "price", message: "Enter the limit price the order uses once triggered." };
+    if (side === "BUY" && Number(price) < t) return { field: "price", message: "For a stop-loss buy the limit is at or above the trigger." };
+    if (side === "SELL" && Number(price) > t) return { field: "price", message: "For a stop-loss sell the limit is at or below the trigger." };
+  }
+  return null;
+}
+
+/** One line saying what an SL or SL-M order does. */
+export function stopOrderText({ side, orderType, trigger, price }) {
+  if (!isFigure(trigger)) return "";
+  const when = `when LTP ${side === "BUY" ? "rises to" : "falls to"} ${formatFixed(trigger, 2)}`;
+  return orderType === "SL-M" ? `Sends a market ${side === "BUY" ? "buy" : "sell"} ${when}. Rests at the exchange until then.` : `Sends a limit ${side === "BUY" ? "buy" : "sell"} at ${isFigure(price) ? formatFixed(price, 2) : DASH} ${when}. Rests at the exchange until then.`;
+}
+
 /** What kind of trigger it is, in the words brokers use. */
 export function kindText(t) {
   if (t.origin === "bracket") return t.type === "oco" ? "Stop and target (on entry)" : t.legs?.[0]?.role === "target" ? "Target (on entry)" : "Stop (on entry)";

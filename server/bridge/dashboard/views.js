@@ -66,6 +66,7 @@ const PAGE_MODULES = Object.freeze({
   watchlists: () => import("./watchlists.js"),
   scanner: () => import("./scanner.js"),
   analytics: () => import("./analytics.js"),
+  algo: () => import("./algo.js"),
 });
 /** A page renderer that loads its module first. `.module` names it, for preloading. */
 function lazyPage(mod, name) {
@@ -95,6 +96,7 @@ const renderEventsPage = lazyPage("events", "renderEventsPage");
 const renderJournalPage = lazyPage("journal", "renderJournalPage");
 const renderWatchlistsPage = lazyPage("watchlists", "renderWatchlistsPage");
 const renderScannerPage = lazyPage("scanner", "renderScannerPage");
+const renderAlgoPage = lazyPage("algo", "renderAlgoPage");
 
 /** Load a page's module and warm its data ahead of a click (menu hover or focus). Idempotent and cheap. */
 export function preloadPage(pageId) {
@@ -323,6 +325,7 @@ export const PAGES = [
     ],
   },
   { id: "safety", label: "Safety", icon: "safety", tint: "red", key: 6, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
+  { id: "algo", label: "Algo", icon: "console", tint: "indigo", group: "Trade", title: "Algo", headline: ["Python ", { serif: "strategies" }], sub: "Your Python strategies, run by the Bridge. Paper by default; every order passes the safety gates", render: renderAlgoPage },
   {
     id: "oi", label: "OI Analysis", icon: "bars", tint: "orange", key: 7, group: "Markets", layout: "desk", title: "OI Analysis", sub: "Open interest and OI chg by strike, build-up and walls",
     defaultTab: "strike",
@@ -2380,6 +2383,10 @@ async function renderOrders() {
     }),
   );
 
+  // GTT, OCO, stops, targets and trailing stops checked on the Bridge (triggers.js), above the day's orders so an
+  // open stop is never below a long list; it refreshes itself.
+  nodes.push(triggersCard(byId));
+
   const ord = orders.data?.data ?? [];
   nodes.push(
     card({
@@ -2422,9 +2429,6 @@ async function renderOrders() {
           ),
     }),
   );
-
-  // GTT, OCO, stops, targets and trailing stops checked on the Bridge (triggers.js); refreshes itself.
-  nodes.push(triggersCard(byId));
 
   // One summary line per paper account; the positions themselves live on the Positions page. Every rupee figure in
   // this table uses Indian grouping (the P&L columns too, with an explicit + for gains).
@@ -2494,9 +2498,12 @@ function orderActions(o) {
     // A refusal from the Bridge, said once: under its field when it names one, else on one line above the buttons.
     const err = h("p", { class: "bad-text", role: "alert", hidden: true });
     const limit = o.orderType === "LIMIT" || o.orderType === "SL";
+    // A stop-loss order (SL, SL-M) changes its trigger here too.
+    const stop = o.orderType === "SL" || o.orderType === "SL-M";
+    const trig = h("input", { id: "mod-trigger", type: "number", min: "0.05", step: "0.05", inputmode: "decimal", value: isFigure(o.triggerPrice) ? String(o.triggerPrice) : "" });
     const ok = await modal({
       title: `Modify ${o.side === "BUY" ? "buy" : "sell"} ${name}`,
-      body: h("div", { class: "stack" }, h("div", { class: "form-grid" }, h("label", { class: "field", for: "mod-qty" }, h("span", {}, inLots ? "Lots" : "Quantity"), qty, units), limit ? field("Limit price", price) : null), err),
+      body: h("div", { class: "stack" }, h("div", { class: "form-grid" }, h("label", { class: "field", for: "mod-qty" }, h("span", {}, inLots ? "Lots" : "Quantity"), qty, units), stop ? field("Trigger price", trig) : null, limit ? field("Limit price", price) : null), err),
       buttons: [
         { label: "Keep as is", value: false },
         {
@@ -2504,15 +2511,15 @@ function orderActions(o) {
           cls: "primary",
           onClick: async () => {
             err.hidden = true;
-            const c = modifyChange({ lots: qty.value, lotSize, order: o, price: price.value, limit });
-            if (c.error) return fieldError(c.error.field === "price" ? price : qty, c.error.message);
+            const c = modifyChange({ lots: qty.value, lotSize, order: o, price: price.value, limit, trigger: trig.value, stop });
+            if (c.error) return fieldError(c.error.field === "price" ? price : c.error.field === "trigger" ? trig : qty, c.error.message);
             try {
               await api(`/v1/orders/${encodeURIComponent(o.orderId)}`, { method: "PATCH", body: c.body });
               return true;
             } catch (e) {
-              const f = (Array.isArray(e?.body?.errors) ? e.body.errors : []).find((x) => /^(quantity|lots|price)$/.test(String(x.path ?? "").split(".").pop()));
+              const f = (Array.isArray(e?.body?.errors) ? e.body.errors : []).find((x) => /^(quantity|lots|price|triggerPrice)$/.test(String(x.path ?? "").split(".").pop()));
               const msg = String(f?.message ?? e?.message ?? "Not changed").replace(/(\d),(?=\d)/g, "$1");
-              if (f) return fieldError(String(f.path).endsWith("price") ? price : qty, msg);
+              if (f) return fieldError(String(f.path).endsWith("triggerPrice") ? trig : String(f.path).endsWith("price") ? price : qty, msg);
               err.textContent = `Not changed: ${msg}`;
               err.hidden = false;
               return false;

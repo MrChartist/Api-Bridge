@@ -42,7 +42,7 @@ fieldError.n = 0;
  * `lots` and `price` are the fields' text; `order` the working order ({ quantity, filledQuantity, price }). A lot of 1
  * means the field is a plain quantity. Returns { body, quantity } or { error: { field, message }, quantity }.
  */
-export function modifyChange({ lots, lotSize = 1, order, price, limit = true }) {
+export function modifyChange({ lots, lotSize = 1, order, price, limit = true, trigger, stop = false }) {
   const ls = Number(lotSize) > 0 ? Number(lotSize) : 1;
   const word = ls > 1 ? "Lots" : "Quantity";
   const n = String(lots ?? "").trim() === "" ? NaN : Number(lots);
@@ -58,7 +58,18 @@ export function modifyChange({ lots, lotSize = 1, order, price, limit = true }) 
     if (!(px > 0)) return { error: { field: "price", message: "Enter a limit price above 0." }, quantity };
     if (px !== order?.price) body.price = px;
   }
-  if (!Object.keys(body).length) return { error: { field: limit ? "price" : "quantity", message: `Change the ${ls > 1 ? "lots" : "quantity"} or the price first.` }, quantity };
+  // A stop-loss order (SL, SL-M) also changes its trigger. For an SL buy the limit is at or above the trigger, for
+  // a sell at or below it (the exchange's rule; the Bridge checks again).
+  if (stop) {
+    const tp = Number(trigger);
+    if (!(tp > 0)) return { error: { field: "trigger", message: "Enter a trigger price above 0." }, quantity };
+    if (limit && Number(price) > 0) {
+      if (order?.side !== "SELL" && Number(price) < tp) return { error: { field: "price", message: "For this stop-loss order the limit is at or above the trigger." }, quantity };
+      if (order?.side === "SELL" && Number(price) > tp) return { error: { field: "price", message: "For this stop-loss order the limit is at or below the trigger." }, quantity };
+    }
+    if (tp !== order?.triggerPrice) body.triggerPrice = tp;
+  }
+  if (!Object.keys(body).length) return { error: { field: limit ? "price" : stop ? "trigger" : "quantity", message: `Change the ${ls > 1 ? "lots" : "quantity"}${stop ? ", the trigger" : ""} or the price first.` }, quantity };
   return { body, quantity };
 }
 
