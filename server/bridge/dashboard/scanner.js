@@ -15,6 +15,10 @@ import { LIBRARY, LIBRARY_BY_ID, LIBRARY_GROUPS, libraryEdited, libraryRequest, 
 import { fieldError } from "./flows.js";
 import { handoffPrefs } from "./screens.js";
 import { segmented } from "./views.js";
+import { setBar } from "./viz.js";
+
+/** Up to this many matches, the results card also shows the sector and % change charts under the table. */
+const SUMMARY_MAX = 12;
 
 const PREFS_SLOT = "mcb.dashboard.scanner";
 const DESK_SLOT = "mcb.dashboard.desk";
@@ -752,7 +756,43 @@ export async function renderScannerPage() {
         ),
       ),
     );
-    fill(resBody, h("div", { class: "table-wrap scroll-x sc-table-wrap" }, table));
+    fill(resBody, h("div", { class: "table-wrap scroll-x sc-table-wrap" }, table), rows.length <= SUMMARY_MAX ? matchSummary(rows) : null);
+  }
+
+  /**
+   * A short match list (up to SUMMARY_MAX rows) also reads as two small charts under the table: the matches by sector
+   * and each match's % change on the day, so the card's spare height says something.
+   */
+  function matchSummary(rows) {
+    const bySector = new Map();
+    for (const r of rows) {
+      const s = r.facts?.sector || "Other";
+      bySector.set(s, (bySector.get(s) ?? 0) + 1);
+    }
+    const sectors = [...bySector].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const top = sectors[0]?.[1] ?? 1;
+    const chg = rows.filter((r) => isFigure(r.facts?.change_pct)).map((r) => ({ sym: r.symbol, v: r.facts.change_pct })).sort((a, b) => b.v - a.v);
+    const big = Math.max(0.01, ...chg.map((c) => Math.abs(c.v)));
+    // The fill's length goes through the CSSOM (setBar), never a style attribute (the page's CSP is self-only).
+    const bar = (v, cls) => h("span", { class: `sc-sum-trk${cls ? ` ${cls}` : ""}` }, setBar(h("i"), v, 1));
+    return h(
+      "div",
+      { class: "sc-sum" },
+      h(
+        "section",
+        { class: "sc-sum-part", "aria-label": "Matches by sector" },
+        h("h3", { class: "sc-sum-h" }, "By sector", h("small", {}, `${formatInt(rows.length)} matches · ${formatInt(sectors.length)} sectors`)),
+        h("ul", { class: "sc-sum-list" }, sectors.map(([s, n]) => h("li", {}, h("span", { class: "sc-sum-k" }, s), bar(n / top), h("span", { class: "sc-sum-v" }, formatInt(n))))),
+      ),
+      chg.length
+        ? h(
+            "section",
+            { class: "sc-sum-part", "aria-label": "Change on the day" },
+            h("h3", { class: "sc-sum-h" }, "% change today", h("small", {}, "Each match, largest first")),
+            h("ul", { class: "sc-sum-list sc-sum-chg" }, chg.map((c) => h("li", {}, h("span", { class: "sc-sum-k" }, ticker(c.sym)), bar(Math.abs(c.v) / big, c.v >= 0 ? "up" : "down"), h("span", { class: `sc-sum-v ${c.v >= 0 ? "up" : "down"}` }, `${formatSigned(c.v, 2)}%`)))),
+          )
+        : null,
+    );
   }
 
   // ── Side sheet ──

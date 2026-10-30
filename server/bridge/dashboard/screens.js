@@ -929,6 +929,10 @@ export function riskCurve(rec, { side = "SELL", wing = null, n = 120 } = {}) {
 // ── Settings ──
 
 export const SCAN_UNDERLYINGS = Object.freeze(["NIFTY", "BANKNIFTY", "SENSEX"]);
+/** The ten most traded F&O stocks: offered in the screener beside the indices (all scanned by default in demo). */
+export const SCAN_STOCKS = Object.freeze(["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS", "SBIN", "AXISBANK", "LT", "ITC", "BHARTIARTL"]);
+/** The demo's option underlyings (BANKEX is left out on purpose: the demo shows the "not offered" path with it). */
+export const SCAN_DEMO_LIST = Object.freeze(["NIFTY", "BANKNIFTY", "SENSEX", "FINNIFTY", "MIDCPNIFTY", ...SCAN_STOCKS]);
 export const AUTO_CHOICES = Object.freeze([0, 60, 120, 300]);
 export const ROW_CHOICES = Object.freeze([25, 50, 100]);
 export const STRIKE_CHOICES = Object.freeze([20, 30, 40]);
@@ -997,7 +1001,8 @@ export function screenerConfig(saved, { list = SCAN_UNDERLYINGS, demo = false } 
   else if (auto <= 0) auto = 0;
   else if (auto < 60) auto = 60;
   else auto = AUTO_CHOICES.filter((x) => x > 0).reduce((b, x) => (Math.abs(x - auto) < Math.abs(b - auto) ? x : b), 60);
-  const defU = d.underlyings.filter((u) => list.includes(u));
+  // Demo calls cost nothing, so a first visit scans every demo underlying (30+ chains); live keeps the three indices.
+  const defU = demo ? [...list] : d.underlyings.filter((u) => list.includes(u));
   let underlyings = Array.isArray(s.underlyings) ? s.underlyings.filter((u, i, a) => list.includes(u) && a.indexOf(u) === i) : [];
   if (!underlyings.length) underlyings = defU.length ? [...defU] : [list[0]];
   const filters = {};
