@@ -1265,101 +1265,12 @@ async function renderHome() {
     );
   }
 
-  // Today: the figures, then the market snapshot
-  const connected = accs.filter((a) => a.session?.state === "connected").length;
-  const sv = usage.data?.data?.savings;
-  const saved = sv ? (sv.servedFromStream ?? 0) + (sv.servedFromCache ?? 0) + (sv.coalesced ?? 0) + (sv.batched ?? 0) : null;
-  const ord = orders.data?.data ?? null;
-  const sd = streams.data?.data;
-  // The four tiles have no card title of their own, so "Today" labels them (the other Home cards are titled).
-  nodes.push(
-    h(
-      "section",
-      { "aria-label": "Today" },
-      sectionEyebrow("Today"),
-      h(
-        "div",
-        { class: "grid cols-4 stats" },
-      stat("Accounts connected", `${formatInt(connected)}/${formatInt(accs.length)}`, accs.length ? accs.map((a) => a.id).join(", ") : "None configured", "accounts", "indigo"),
-      stat("Broker calls saved today", formatInt(saved), "Stream, cache, coalescing and batching", "bolt", "purple"),
-      stat("Live symbols", formatInt(sd?.symbols), sd ? `${formatInt(sd.downstream?.connections ?? 0)} client connection(s)` : "Stream statistics are not available", "activity", "teal"),
-      stat("Orders today", formatInt(ord?.length), ord ? `${formatInt(ord.filter((o) => o.mode === "paper").length)} paper · ${formatInt(ord.filter((o) => o.mode === "live").length)} live` : "Orders are not available", "orders", "orange"),
-      ),
-    ),
-  );
-
-  const marketAccount = accs.find((a) => a.broker !== "paper" && a.session?.state === "connected");
-  const snapshot = h("div", { class: "quotes" });
-  const fillQuotes = async () => {
-    const r = await api("/v1/quotes?symbols=NSE:NIFTY,NSE:BANKNIFTY,BSE:SENSEX");
-    snapshot.replaceChildren(
-      ...(r.data.data ?? []).map((q) =>
-        h(
-          "div",
-          { class: "quote" },
-          h("span", { class: "sym" }, h("span", {}, q.symbol.split(":")[1]), h("small", {}, q.freshness?.source ?? "")),
-          h("span", { class: "px" }, formatGrouped(q.ltp, 2)),
-          delta(q.change, `${formatSigned(q.change)} (${formatSigned(q.changePct)}%)`),
-        ),
-      ),
-    );
-  };
-  if (marketAccount) {
-    await fillQuotes().catch(() => snapshot.replaceChildren(h("div", { class: "quote" }, h("span", { class: "muted" }, "Prices are not available right now."))));
-    every(5000, fillQuotes);
-  }
-  nodes.push(
-    card({
-      glyph: "chart",
-      tint: "blue",
-      title: "Market snapshot",
-      sub: marketAccount ? `From ${marketAccount.label}, through the rate-limit engine` : "Connect a broker to see prices",
-      flush: true,
-      body: marketAccount ? snapshot : emptyState("plug", "No market data yet", "Quotes, charts and paper orders need one connected broker account, or demo mode.", h("button", { type: "button", class: "primary", onclick: () => (location.hash = accs.some((a) => a.broker !== "paper") || app.state.demo ? "#/accounts" : "#/accounts?add=1") }, "Connect a broker")),
-    }),
-  );
-
-  // Your Bridge: accounts and safety
-  const ks = safety.data?.data?.killSwitch;
-  // Trading readiness, next to the kill-switch pill: the badge's last reading, else a fresh one (local, no broker call).
+  // The cockpit: indices, P&L today, open positions with risk, live events, today's calendar, API and broker health.
   const readySnap = await refreshReadiness();
-  const readyPill = readySnap ? readinessPill(readySnap) : null;
-  nodes.push(
-    h(
-      "div",
-      { class: "grid side" },
-      card({
-        glyph: "accounts",
-        tint: "indigo",
-        title: "Broker accounts",
-        flush: true,
-        actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/accounts") }, "Manage"),
-        body: table(
-          [
-            { label: "Account", wrap: true, cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
-            { label: "Broker", cell: (a) => brokerCell(a.broker, a.broker) },
-            { label: "Session", cell: (a) => sessionPill(a.session?.state, a.broker) },
-            { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")) },
-          ],
-          accs,
-          emptyState("accounts", "No accounts yet", "Add your broker: choose it, then log in with its API details.", nextStep("Add a broker", "#/accounts?add=1")),
-        ),
-      }),
-      card({
-        glyph: "safety",
-        tint: ks?.engaged ? "red" : "green",
-        title: "Safety",
-        actions: h("button", { type: "button", class: "small", onclick: () => (location.hash = "#/safety") }, "Open"),
-        body: h(
-          "div",
-          { class: "stack" },
-          h("div", { class: "row" }, ks?.engaged ? pill("Kill switch on", "bad") : pill("Kill switch off", "ok"), readyPill, safety.data?.data?.liveTrading ? pill("Live trading on", "bad") : pill("Paper only")),
-          h("p", { class: "muted" }, ks?.engaged ? `Engaged ${istDateTime(ks.at)}: ${ks.reason ?? ""}` : (homeSafetyLine(readySnap) ?? "Orders pass every safety check: order-rate cap, daily limits, price band, market-order protection.")),
-          h("p", { class: "muted small" }, `Bridge ${app.state.health?.version ?? ""} · up ${formatInt((app.state.health?.uptimeSeconds ?? 0) / 60)} min · listening on this computer only`),
-        ),
-      }),
-    ),
-  );
+  const { cockpit } = await import("./cockpit.js");
+  const ck = await cockpit({ accs, orders, streams, usage, safety, keys, readyPill: readySnap ? readinessPill(readySnap) : null });
+  nodes.push(...ck.nodes);
+  every(5000, ck.refresh);
   return nodes;
 }
 
@@ -1831,7 +1742,13 @@ async function paperResetSheet(a) {
       },
     ],
   });
-  if (done) show().then(() => toast(`${a.label} starts again with ${formatRupeeGrouped(Number(pick.value))}`));
+  // Undo for 2 minutes, while nothing has been placed since: the Bridge keeps the book from before the reset.
+  const undo = async () => {
+    const r = await optional(api(`/v1/paper/accounts/${encodeURIComponent(a.id)}/reset/undo`, { method: "POST" }));
+    if (r.error) return toast(r.error.message ?? "The reset could not be undone.", { tone: "error" });
+    show().then(() => toast(`${a.label}: positions, orders and funds put back`));
+  };
+  if (done) show().then(() => toast(h("span", { class: "toast-undo-row" }, `${a.label} starts again with ${formatRupeeGrouped(Number(pick.value))} · `, h("button", { type: "button", class: "toast-undo", onclick: undo }, "Undo"))));
 }
 
 /** The holder text an account card shows (P1-13 §6.8): "Asha · Spouse · Family" / "friend · Other · Outside family". */
@@ -2520,7 +2437,19 @@ function orderActions(o) {
         },
       ],
     });
-    if (ok) show().then(() => toast(`Cancelled ${name}`));
+    if (!ok) return;
+    // Undo (paper only): place the unfilled part again, as it was. The order goes through every normal check, so a
+    // price that is no longer valid is refused and said so. Live orders are never re-sent from a toast.
+    const left = (o.quantity ?? 0) - (o.filledQuantity ?? 0);
+    const again = async () => {
+      const body = { account: o.accountId, symbol: o.symbol, side: o.side, quantity: left, product: o.product, orderType: o.orderType, validity: o.validity ?? "DAY", mode: "paper", ...(o.price ? { price: o.price } : {}), ...(o.triggerPrice ? { triggerPrice: o.triggerPrice } : {}), ...(o.tag ? { tag: o.tag } : {}) };
+      const r = await optional(api("/v1/orders", { method: "POST", body }));
+      if (r.error) return toast(`Could not place ${name} again: ${r.error.message ?? "refused"}`, { tone: "error" });
+      const placed = r.data?.data ?? {};
+      show().then(() => toast(placed.status === "rejected" ? `Placed again but rejected: ${placed.statusMessage ?? "no reason given"}` : `${name} placed again`, { tone: placed.status === "rejected" ? "warn" : "ok" }));
+    };
+    const canUndo = o.mode === "paper" && left > 0;
+    show().then(() => toast(canUndo ? h("span", { class: "toast-undo-row" }, `Cancelled ${name} · `, h("button", { type: "button", class: "toast-undo", onclick: again }, "Undo")) : `Cancelled ${name}`));
   };
   return h("div", { class: "row order-acts" }, h("button", { type: "button", class: "small", "aria-label": `Modify ${name}`, onclick: modify }, "Modify"), h("button", { type: "button", class: "small", "aria-label": `Cancel ${name}`, onclick: cancel }, "Cancel"));
 }

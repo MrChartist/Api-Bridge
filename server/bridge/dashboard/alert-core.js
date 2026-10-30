@@ -134,6 +134,26 @@ export function groupMetrics(positions, { underlying, symbols = null, spot = nul
   return { legs: legs.length, pnl: pnlKnown ? pnl : null, spot: S, delta, minutesToExpiry: minutes, premiumMultiple: mult, premiumLeg: multLeg, nearestExpiry: nearest };
 }
 
+/**
+ * Open F&O positions grouped by account and underlying, each with groupMetrics plus its short-leg count, the biggest
+ * |P&L| first (Home's open positions). `spots`: underlying -> price.
+ * @param {Array<{ accountId?: string, symbol: string, netQty: number, avgPrice?: number, ltp?: number, pnl?: number }>} positions
+ */
+export function bookGroups(positions, { spots = {}, nowMs }) {
+  const by = new Map();
+  for (const p of positions ?? []) {
+    if (!p || !num(p.netQty)) continue;
+    const x = symbolParts(p.symbol);
+    if (!x || x.kind === "EQ") continue;
+    const key = `${p.accountId ?? ""}|${x.underlying}`;
+    if (!by.has(key)) by.set(key, { account: p.accountId ?? null, underlying: x.underlying, items: [] });
+    by.get(key).items.push(p);
+  }
+  return [...by.values()]
+    .map((g) => ({ account: g.account, underlying: g.underlying, shorts: g.items.filter((p) => Number(p.netQty) < 0).length, ...groupMetrics(g.items, { underlying: g.underlying, spot: num(spots[g.underlying]), nowMs }) }))
+    .sort((a, b) => Math.abs(b.pnl ?? 0) - Math.abs(a.pnl ?? 0));
+}
+
 /** One condition against the metrics: { met: true|false|null (no data), value }. */
 export function evalCondition(c, m) {
   const v = num(c?.value);

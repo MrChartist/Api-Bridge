@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { black76 } from "./pricing.js";
-import { ALERT_KINDS, evalCondition, groupMetrics, ruleProblems, spotSymbolOf, step, symbolParts } from "./alert-core.js";
+import { ALERT_KINDS, bookGroups, evalCondition, groupMetrics, ruleProblems, spotSymbolOf, step, symbolParts } from "./alert-core.js";
 
 const NOW = Date.parse("2026-11-03T10:00:00+05:30");
 const CE = "NFO:NIFTY-2026-11-03-26500-CE";
@@ -50,6 +50,12 @@ describe("alert-core: metrics", () => {
     const m = groupMetrics([{ symbol: CE, netQty: -65, avgPrice: px, ltp: px, pnl: 0 }, { symbol: FUT, netQty: 65, avgPrice: 26300, ltp: 26300, pnl: 0 }], { underlying: "NIFTY", spot: 26300, nowMs: NOW });
     expect(m.delta).toBeGreaterThan(0);
     expect(m.delta).toBeLessThan(65);
+  });
+  it("groups open F&O positions by account and underlying, biggest P&L first", () => {
+    const g = bookGroups([...pos.map((p) => ({ ...p, accountId: "a" })), { accountId: "b", symbol: CE, netQty: 65, avgPrice: 10, ltp: 12, pnl: 130 }, { accountId: "a", symbol: "NSE:RELIANCE", netQty: 5, pnl: 9 }, { accountId: "a", symbol: PE, netQty: 0, pnl: 0 }], { spots: { NIFTY: 26300 }, nowMs: NOW });
+    expect(g.map((x) => `${x.account} ${x.underlying} ${x.legs} ${x.shorts}`)).toEqual(["a NIFTY 2 2", "a BANKNIFTY 1 0", "b NIFTY 1 0"]);
+    expect(g[0]).toMatchObject({ pnl: -650, spot: 26300, premiumMultiple: 2 });
+    expect(g[1].delta).toBeNull();
   });
   it("a chosen set of symbols narrows the legs; no spot means no delta", () => {
     const m = groupMetrics(pos, { underlying: "NIFTY", symbols: [PE], nowMs: NOW });
