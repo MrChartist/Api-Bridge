@@ -132,15 +132,16 @@ Still to do:
   - Orders get Modify and Cancel;
   - paper fund reset;
   - an Excel formula per contract.
-- **Still open, from the audit's proposals:**
-  - paper margins that credit hedges (spreads are charged as naked shorts);
-  - right-click a strike to build a strategy;
-  - position alerts;
-  - Excel workbook download;
-  - undo for cancel and reset;
-  - charges in the ticket risk;
-  - more demo paper funds (it starts with 85% used);
-  - Home, Accounts and API layouts for wide screens.
+- **Trading pass (30 Oct, `docs/design/ux-audit.md` "Trading pass"):**
+  - paper margin that credits hedges, one model (`span-margin.js`) for the paper engine, ticket, Strategy and
+    Positions; `docs/guides/paper-margin.md`;
+  - right-click, long-press or T on a strike builds a strategy around it in the Strategy Builder;
+  - position alerts (`server/bridge/alerts/`, the bell, Positions › Alert), notify only;
+  - ticket charges with max loss and breakeven after charges;
+  - Undo for a cancelled paper order and for a paper reset;
+  - demo paper accounts start with ₹25 lakh;
+  - Home cockpit; API › Keys side by side from 1700 px.
+- **Still open:** Excel workbook download, and the per-page proposals in the audit's "Trading pass" section.
 
 ### 3e. Check everything by hand
 

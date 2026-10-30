@@ -2743,8 +2743,9 @@ async function renderKeys() {
     );
   };
   await drawTable(rows);
+  // Wide screens (1700 px and up): create on the left, the keys beside it (app.css .keys-split).
   return [
-    card({
+    h("div", { class: "keys-split" }, card({
       glyph: "plus",
       tint: "pink",
       title: "Create a key",
@@ -2766,7 +2767,7 @@ async function renderKeys() {
         createdBox,
       ),
     }),
-    card({ glyph: "keys", tint: "pink", title: "Your keys", sub: "Only a fingerprint (hash) of each key is stored. The key itself was shown once.", flush: true, body: tableBox }),
+    card({ glyph: "keys", tint: "pink", title: "Your keys", sub: "Only a fingerprint (hash) of each key is stored. The key itself was shown once.", flush: true, body: tableBox })),
   ];
 }
 

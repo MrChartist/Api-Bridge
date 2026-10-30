@@ -2,6 +2,16 @@
 
 API changes that need a migration window. Each entry keeps its anchor so `Link` headers can point at it.
 
+## paper-margin-portfolio
+
+Paper accounts margin F&O legs together per underlying (`paper.margin.model`, default `"portfolio"`), with the
+approximate SPAN-like scan in `server/bridge/dashboard/span-margin.js` (docs/guides/paper-margin.md). Hedged spreads,
+iron condors and futures-covered shorts now block far less: a NIFTY iron condor about ₹87k instead of ₹5.33L. Paper
+`usedMargin`, `availableCash` and the order preview's `margin.required` change accordingly; a preview now reports
+what the order adds to the book (a hedge can add 0). `"model": "simple"` keeps the per-leg percentages. New:
+`POST /v1/paper/accounts/{id}/margin` (basket margin, nothing placed), `POST /v1/paper/accounts/{id}/reset/undo`,
+and the position alerts routes under `/v1/alerts` (they notify only). Demo paper accounts start with ₹25 lakh.
+
 ## optionchain-ivmodel
 
 `GET /v1/optionchain` gains `ivModel` (docs/spec/p1-03-pricing-vol.md §3.9, §10).
