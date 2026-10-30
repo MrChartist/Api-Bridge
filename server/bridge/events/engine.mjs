@@ -18,9 +18,14 @@ import { CATEGORIES, KINDS, KIND_BY_ID, clampParam, defaultSelection, sideOf } f
 import { createStockState, detectFuture, detectStock, pivots } from "./detectors.mjs";
 import { createChainState, detectChain, detectLeg, legOf } from "./optionDetectors.mjs";
 import { parseOptionSymbol } from "../dashboard/options.js";
+import { DEFAULT_SESSIONS } from "../reference/defaults.mjs";
 
 const IST_OFFSET_MS = 330 * 60_000;
-const OPEN_MINUTE = 9 * 60 + 15;
+/** The cash session's open in IST minutes, from the reference defaults (special sessions are not modelled here). */
+const OPEN_MINUTE = (() => {
+  const [hh, mm] = String(DEFAULT_SESSIONS.NSE?.open ?? "").split(":").map(Number);
+  return hh * 60 + mm;
+})();
 const num = (v) => (typeof v === "number" ? (Number.isFinite(v) ? v : null) : v === null || v === undefined || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
 /** IST calendar date (YYYY-MM-DD) of epoch ms. */

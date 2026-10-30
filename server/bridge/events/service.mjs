@@ -29,8 +29,18 @@ export function createEventsService(deps, opts = {}) {
   const timers = [];
   let started = false;
 
+  let demoArmed = false;
+  /** Demo mode starts its simulated session on first use (a read of /v1/events*), so an idle demo Bridge costs no CPU. */
+  function touch() {
+    if (demo && demoArmed && !started) start().catch((err) => log?.error?.("events demo start failed", { err }));
+  }
+
   async function start() {
     if (started || !cfg.enabled) return;
+    if (demo && opts.autoStart !== true && !demoArmed) {
+      demoArmed = true;
+      return;
+    }
     started = true;
     store.prune();
     if (demo) {
@@ -61,7 +71,9 @@ export function createEventsService(deps, opts = {}) {
     cfg,
     demo,
     start,
+    touch,
     async stop() {
+      demoArmed = false;
       for (const t of timers) clearInterval(t);
       timers.length = 0;
       feed?.stop();

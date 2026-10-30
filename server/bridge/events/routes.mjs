@@ -46,8 +46,11 @@ export function parseEventQuery(get) {
 }
 
 export function createEventsRoutes(svc) {
-  const meta = (ctx, extra = {}) => ({ requestId: ctx.requestId, ...extra });
-  return {
+  const meta = (ctx, extra = {}) => {
+    svc.touch?.();
+    return { requestId: ctx.requestId, ...extra };
+  };
+  const handlers = {
     async list(ctx) {
       const f = parseEventQuery((k) => ctx.query.get(k));
       const since = intParam(ctx, "since", 0, Number.MAX_SAFE_INTEGER);
@@ -107,4 +110,7 @@ export function createEventsRoutes(svc) {
       return { data: svc.status(), meta: meta(ctx) };
     },
   };
+  // Every read wakes the demo session first (the first list may still be empty while the morning replays).
+  for (const [k, fn] of Object.entries(handlers)) handlers[k] = (ctx) => (svc.touch?.(), fn(ctx));
+  return handlers;
 }

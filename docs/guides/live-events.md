@@ -6,7 +6,7 @@ three times its usual pace, a call wall moving up, an IV spike. It is the idea o
 the time of each event, its strength in words, repeats counted instead of repeated, a day history, a stream and an
 API. Server module: `server/bridge/events/` (stream S28).
 
-Status: the server engine, REST, stream topic and demo feed are in place. The dashboard page (Markets > Screeners >
+Status: the server engine, REST, stream topic and demo feed are in place. In demo mode the simulated session starts on the first read of `/v1/events*`. The dashboard page (Markets > Screeners >
 Live events) is **not built yet**; see "Not done" at the end.
 
 ## How it is fed (speed first, inside the broker budget)
