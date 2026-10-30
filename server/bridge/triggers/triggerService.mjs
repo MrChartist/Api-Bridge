@@ -172,6 +172,9 @@ export function createTriggerService(deps, { timers = { setInterval, clearInterv
   async function create(ctx, input) {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw invalid("", "Send the trigger as a JSON object.");
     if (ctx.key?.clientKind === "mcp") throw new BridgeError("SCOPE_REQUIRED", "Triggers place orders on their own later, so AI assistant keys cannot set them. Set them from the dashboard or a script.");
+    // A strategy run's key is revoked when the run ends; a trigger set with it would keep firing after the strategy
+    // stopped. A strategy manages its own exits (docs/STRATEGIES-PYTHON.md).
+    if (ctx.key?.purpose === "strategy-run") throw new BridgeError("SCOPE_REQUIRED", "A strategy's own key cannot set triggers: a trigger would keep firing after the strategy stops and its key is revoked. Manage exits in the strategy (on_tick, on_stop), or set the trigger from the dashboard or a script.");
     const account = String(input.account ?? "");
     ctx.requireAccountAccess(account);
     const summary = deps.accounts.get(account);

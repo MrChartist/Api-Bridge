@@ -118,6 +118,13 @@ Effort: S (hours), M (a day), L (more). Built in this order; each lands as its o
 - Triggers fire as source `guard` with a `guard` principal limited to the trigger's account and the creating key's
   scopes. A live trigger needs `guard` in the account's `live.allowedSources` (off by default), the key's `live`
   scope and every other live gate at fire time. A refusal is recorded on the trigger, never retried around a gate.
+- Who may set a trigger: AI assistant keys cannot, and neither can a Python strategy's own per-run key (refused with
+  `SCOPE_REQUIRED`): that key is revoked when the run ends, and a trigger set with it would keep placing orders after
+  the strategy stopped. A strategy manages its own exits.
+- A trigger keeps firing after the key that set it is revoked or expires. This is intended: most triggers are
+  protective stops and targets, and a stop that silently stopped when a script's key was rotated would leave a
+  position unguarded. The trigger keeps the scopes it was set with (never more), and every gate still applies when it
+  fires. To stop one, cancel it on Orders › Triggers (or `DELETE /v1/triggers/{id}`).
 - Paper is the default for every new control.
 
 ## 9. Statement method (Orders › Statement)

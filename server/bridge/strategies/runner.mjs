@@ -382,7 +382,7 @@ export function createStrategyRunner(deps, opts = {}) {
     if (mode === "live") await liveChecks(id, account, summary, b, ctx);
 
     const label = `Algo ${id}`.slice(0, 60);
-    const { key, record } = await deps.keyStore.create({ label, scopes: [mode === "live" ? "live" : "paper"], accounts: [account], clientKind: "script" }, { loopback: true });
+    const { key, record } = await deps.keyStore.create({ label, scopes: [mode === "live" ? "live" : "paper"], accounts: [account], clientKind: "script" }, { loopback: true, purpose: "strategy-run" });
     saved.keys = [...new Set([...saved.keys, record.id])];
     saved.settings[id] = { account, params: values, lastRunDay: istDay(now()), lastMode: mode };
     persist();

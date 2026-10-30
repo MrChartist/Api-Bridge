@@ -481,3 +481,22 @@ describe("adversarial review: cancels and scopes", () => {
     expect(sent).toHaveLength(0);
   });
 });
+
+describe("review follow-ups", () => {
+  const quiet = { timers: { setInterval: () => 0, clearInterval: () => {} } };
+  const at = async (day, hhmm) => {
+    const target = Date.parse(`${day}T${hhmm}:00+05:30`);
+    if (target > clock.now()) await clock.advance(target - clock.now());
+  };
+  const strategyCtx = () => createCallContext({ source: "rest", key: { ...KEYS.paper, id: "stratkey001", label: "Algo buyer", purpose: "strategy-run" }, log });
+
+  it("a strategy run's own key cannot set a trigger (it would outlive the run and its revoked key)", async () => {
+    await at("2026-11-02", "10:00");
+    md.setPrice("NSE:RELIANCE", 1400);
+    const s2 = createTriggerService(app.deps, quiet);
+    const e = await reject(s2.create(strategyCtx(), { account: "paper", symbol: "NSE:RELIANCE", product: "CNC", legs: [{ trigger: 1450, order: { side: "BUY", quantity: 1 } }] }));
+    expect(e.code).toBe("SCOPE_REQUIRED");
+    expect(e.detail).toMatch(/strateg/i);
+    expect(s2.list(() => true, { status: "open" }).filter((t) => t.owner?.keyId === "stratkey001")).toHaveLength(0);
+  });
+});

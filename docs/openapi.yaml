@@ -2012,7 +2012,9 @@ paths:
       description: >-
         A trigger is checked every second on the Bridge. When it fires it places its order through every check of
         POST /v1/orders (limits, kill switch, live gates) as source guard, with the scopes of the key that set it. Live
-        needs "guard" in the account's live.allowedSources. Bracket and position triggers are reduce-only.
+        needs "guard" in the account's live.allowedSources. Bracket and position triggers are reduce-only. AI
+        assistant keys and a Python strategy's own per-run key cannot set triggers (SCOPE_REQUIRED). A trigger keeps
+        firing after the key that set it is revoked or expires (protective stops stay on); cancel it to stop it.
       x-stream: S25
       x-scope: paper
       requestBody:
@@ -8916,6 +8918,10 @@ components:
             - { type: array, items: { $ref: "#/components/schemas/AccountId" } }
         allowQuery: { type: boolean }
         clientKind: { type: string, enum: [script, excel, mcp, ui, other] }
+        purpose:
+          type: string
+          enum: [strategy-run]
+          description: Set by the Bridge only, never from a request. strategy-run is a Python strategy's per-run key (revoked when the run ends and at every start); it cannot set triggers.
         createdAt: { type: string, format: date-time }
         expiresAt: { type: [string, "null"], format: date-time }
         lastUsedAt: { type: [string, "null"], format: date-time }
