@@ -168,7 +168,7 @@ async function renderForward(H) {
     const meanCarry = priced.reduce((a, r) => a + (r.carryPct ?? 0), 0) / priced.length;
     const pts = (key) => rows.map((r) => ({ label: axisDay(r.expiry), y: r[key] }));
     const cols = [
-      { label: "Expiry", cell: (r) => h("strong", {}, r.expiry) },
+      { label: "Expiry", cell: (r) => h("strong", { title: r.expiry }, axisDay(r.expiry)) },
       { label: "Days", num: true, cell: (r) => formatFixed(r.dte, 1) },
       { label: "Forward", num: true, cell: (r) => formatFixed(r.forward, 2) },
       { label: "Basis", num: true, cell: (r) => formatSigned(r.basis, 2) },
@@ -257,7 +257,7 @@ async function renderRrBf(H) {
     );
     const near = rows[0];
     const cols = [
-      { label: "Expiry", cell: (r) => h("strong", {}, r.expiry) },
+      { label: "Expiry", cell: (r) => h("strong", { title: r.expiry }, axisDay(r.expiry)) },
       { label: "Days", num: true, cell: (r) => formatFixed(r.dte, 1) },
       { label: "ATM IV", num: true, cell: (r) => formatPercent(r.atm, 2) },
       { label: `Call ${delta}Δ IV`, num: true, cell: (r) => formatPercent(r.callIv, 2) },
@@ -373,7 +373,7 @@ async function renderEventVol(H) {
         d.postEventExpiry ? { what: "after", expiry: d.postEventExpiry.expiry, days: d.postEventExpiry.daysToExpiry, iv: d.postEventExpiry.atmIvPct, variance: d.postEventExpiry.totalVariance } : null,
       ].filter(Boolean);
       const cols = [
-        { label: "Expiry", cell: (x) => h("span", {}, h("strong", {}, x.expiry), h("span", { class: "muted" }, ` ${x.what}`)) },
+        { label: "Expiry", cell: (x) => h("span", {}, h("strong", { title: x.expiry }, axisDay(x.expiry)), h("span", { class: "muted" }, ` ${x.what}`)) },
         { label: "Days", num: true, cell: (x) => formatFixed(x.days, 1) },
         { label: "ATM IV", num: true, cell: (x) => formatPercent(x.iv, 2) },
         { label: "Total variance", num: true, cell: (x) => formatFixed(x.variance, 5) },
