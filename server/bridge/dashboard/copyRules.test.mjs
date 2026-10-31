@@ -45,6 +45,10 @@ const NEUTRAL_COPY_FILES = Object.freeze({
   "chain-help.js": ["POP buy", "POP sell"],
   "chain-insight-core.js": [],
   "chain-insight.js": ["PoP buy", "PoP sell"], // the action sheet's figure labels, matched to their columns
+  // The right rail: lists, the mini chain, depth, alerts and the sector heatmap describe figures, never advice.
+  "right-rail.js": ["BUY"], // the order ticket the mini chain hands to the Option Chain page names its side
+  "right-rail-core.js": [],
+  "sector-map.js": [],
 });
 
 describe("banned-word list", () => {
