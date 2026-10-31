@@ -3,7 +3,7 @@
 // prices, the hero figures, the payoff paths and the table cells change in place, so sliders, focus and scroll never
 // reset. Legs on the left, the answer (hero + payoff + what-if) on the right. The maths is in options.js (pure,
 // tested), drawing in payoff.js, placement in strategy-place.js. Numbers become text only through format.js.
-import { api, app, errorState, h, icon, modal, optional, sheetPopover, toast } from "./app.js";
+import { api, app, copyText, errorState, h, icon, modal, optional, sheetPopover, toast } from "./app.js";
 import { candlesOf, spotSymbol, strategySpec } from "./chart-specs.js";
 import { DASH, formatFixed, formatInt, formatPercent, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
@@ -16,11 +16,14 @@ import { nextSessionUnits } from "./vol-context.js";
 import { SPAN_METHOD, marginLegsOf, portfolioMargin } from "./span-margin.js";
 import { createWhatIf } from "./whatif.js";
 import { normWhatIf, strategyBookLegs, whatIfFigures } from "./whatif-core.js";
+import * as S from "./strategy-core.js";
 
 const SAVES = "mcb.dashboard.strategies";
 const NAMES = "mcb.dashboard.strategyNames";
 /** desk.js FROM_CHAIN_SLOT: a strategy built around a strike in the chain. */
 const FROM_CHAIN = "mcb.dashboard.fromChain";
+/** Spacing, template search and the sizing inputs (strategy-core.js): kept apart from st.scfg, which drops unknown keys. */
+const KIT = "mcb.dashboard.strategyKit";
 const YEAR_MS = 365 * 86400000;
 const DAY_MS = 86400000;
 const NO_CHANGE = Symbol("no change");
@@ -135,6 +138,22 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
   const W = (st.whatIf = normWhatIf(st.whatIf, Date.now()));
   st.baskets = O.migrateBaskets(st.baskets);
   const cfg = () => st.scfg;
+  // Spacing, the template search and the sizing inputs (strategy-core.js), in one local record.
+  const kit = { spacing: "auto", q: "", capital: null, riskPct: 2 };
+  try {
+    const v = JSON.parse(app.local.get(KIT) ?? "{}") ?? {};
+    Object.assign(kit, { spacing: S.normSpacing(v.spacing), capital: num(v.capital), riskPct: num(v.riskPct) ?? 2 });
+  } catch {
+    /* defaults */
+  }
+  function setKit(patch) {
+    Object.assign(kit, patch);
+    try {
+      app.local.set(KIT, JSON.stringify({ spacing: kit.spacing, capital: kit.capital, riskPct: kit.riskPct }));
+    } catch {
+      /* fine without storage */
+    }
+  }
   const wi = {
     get target() {
       return W.days > 0 ? Date.now() + W.days * DAY_MS : null;
@@ -243,7 +262,14 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       /* fine without storage */
     }
   }
-  const autoName = () => O.strategyName(legs());
+  // A structure options.js does not name ("Custom 4-leg") takes the name of the template it matches, if any.
+  const autoName = () => {
+    const n = O.strategyName(legs());
+    const p = /^Custom/.test(n) ? activePreset() : null;
+    if (!p) return n;
+    const ks = [...new Set(legs().filter((l) => l.kind === "OPT" && l.on !== false).map((l) => l.strike))].sort((a, b) => a - b);
+    return ks.length ? `${p.name} ${ks.map(formatInt).join("/")}` : p.name;
+  };
   const draftName = () => (legs().length ? readNames()[key()] || autoName() : "New strategy");
 
   // ── Chains of later expiries (calendars, diagonals): fetched alongside the main one, at most 3 extra ──
@@ -453,7 +479,40 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     drawChips();
   });
   const chips = h("div", { class: "preset-chips", role: "group", "aria-label": "Strategies in this group" });
-  const presetsEl = h("section", { class: "strat-presets sx", "aria-label": "Ready-made strategies" }, h("div", { class: "hscroll" }, groupSeg), h("div", { class: "chips-wrap" }, chips));
+  // Search across every group (names, other names, what each is for) and the Spacing of a ready-made's legs.
+  const tplSearch = h("input", { type: "search", class: "tpl-search", placeholder: `Search ${formatInt(S.TEMPLATES.length)} strategies`, "aria-label": "Search ready-made strategies", autocomplete: "off", spellcheck: "false" });
+  tplSearch.addEventListener("input", () => {
+    kit.q = tplSearch.value.trim();
+    presetsEl.classList.toggle("is-search", Boolean(kit.q));
+    chipsSig = "";
+    drawChips();
+  });
+  tplSearch.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !tplSearch.value) return;
+    e.stopPropagation();
+    tplSearch.value = "";
+    tplSearch.dispatchEvent(new Event("input"));
+  });
+  const spacingSeg = segmented("Spacing", S.SPACINGS, kit.spacing);
+  spacingSeg.classList.add("spacing-seg");
+  spacingSeg.title = "How far apart a ready-made's legs sit: Auto follows the 1σ move; 1, 2, 3 or 5 listed strikes per step";
+  spacingSeg.addEventListener("change", () => {
+    if (spacingSeg.value === kit.spacing) return;
+    // A loaded ready-made is rebuilt at the new spacing; a hand-built position is left alone.
+    const was = activePreset();
+    setKit({ spacing: S.normSpacing(spacingSeg.value) });
+    chipsSig = "";
+    if (was) applyPreset(was, { quiet: true });
+    else drawChips();
+  });
+  const tplEmpty = h("p", { class: "tpl-empty muted small", hidden: true });
+  const presetsEl = h(
+    "section",
+    { class: "strat-presets sx", "aria-label": "Ready-made strategies" },
+    h("div", { class: "tpl-bar" }, h("label", { class: "tpl-search-w" }, icon("search"), tplSearch), h("span", { class: "tpl-spacing" }, h("span", { class: "tool-lbl" }, "Spacing"), spacingSeg)),
+    h("div", { class: "hscroll tpl-groups" }, groupSeg),
+    h("div", { class: "chips-wrap" }, chips, tplEmpty),
+  );
 
   // Legs
   const legsEl = h("div", { class: "strat-legs sx", role: "list", "aria-label": "Legs" });
@@ -462,6 +521,10 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
   const stratBtn = h("button", { type: "button", class: "small plain strat-sheet-btn", "aria-haspopup": "dialog", onclick: () => openPresetSheet(stratBtn) }, "Strategies");
   const shiftDn = h("button", { type: "button", class: "small plain step-btn", "aria-label": "Shift every strike down one step", title: "Shift strikes down ([)", onclick: () => shift(-1) }, "‹");
   const shiftUp = h("button", { type: "button", class: "small plain step-btn", "aria-label": "Shift every strike up one step", title: "Shift strikes up (])", onclick: () => shift(1) }, "›");
+  const widthDn = h("button", { type: "button", class: "small plain step-btn", "aria-label": "Narrower: every leg one strike towards the centre", title: "Width: legs in one strike", onclick: () => moveShape("width", -1) }, "−");
+  const widthUp = h("button", { type: "button", class: "small plain step-btn", "aria-label": "Wider: every leg one strike away from the centre", title: "Width: legs out one strike", onclick: () => moveShape("width", 1) }, "+");
+  const wingDn = h("button", { type: "button", class: "small plain step-btn", "aria-label": "Wings in: bought legs one strike towards the sold ones", title: "Wings: hedges in one strike", onclick: () => moveShape("wings", -1) }, "−");
+  const wingUp = h("button", { type: "button", class: "small plain step-btn", "aria-label": "Wings out: bought legs one strike away from the sold ones", title: "Wings: hedges out one strike", onclick: () => moveShape("wings", 1) }, "+");
   const sizeDn = h("button", { type: "button", class: "small plain step-btn", "aria-label": "Smaller: one size step down", title: "Size down (-)", onclick: () => resize(-1) }, "−");
   const sizeUp = h("button", { type: "button", class: "small plain step-btn", "aria-label": "Bigger: one size step up", title: "Size up (=)", onclick: () => resize(1) }, "+");
   const sizeIn = h("input", { type: "number", min: "1", max: "10000", step: "1", inputmode: "numeric", class: "size-in", "aria-label": "Size multiplier: every leg's lots in proportion" });
@@ -478,6 +541,8 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     h("div", { class: "picker-anchor" }, addBtn),
     stratBtn,
     h("span", { class: "tool-group", role: "group", "aria-label": "Shift strikes" }, shiftDn, h("span", { class: "tool-lbl" }, "Shift"), shiftUp),
+    h("span", { class: "tool-group shape-group", role: "group", "aria-label": "Width" }, widthDn, h("span", { class: "tool-lbl" }, "Width"), widthUp),
+    h("span", { class: "tool-group shape-group", role: "group", "aria-label": "Wings" }, wingDn, h("span", { class: "tool-lbl" }, "Wings"), wingUp),
     h("span", { class: "tool-group size-group", role: "group", "aria-label": "Size" }, h("span", { class: "tool-lbl" }, "Size"), sizeDn, h("label", { class: "size-wrap" }, sizeIn, h("span", { class: "size-x", "aria-hidden": "true" }, "×")), sizeUp),
     toolsMore,
     legCount,
@@ -510,7 +575,8 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
   const pMaxF = fig("P(max profit) ", "Model probability · uncalibrated: the chance the expiry price lands where the strategy makes its maximum");
   const touchF = fig("P(touch) ", "Model probability · uncalibrated: the chance the price touches the nearest breakeven before expiry, about twice the chance it closes beyond it (reflection approximation)");
   const chargesB = h("button", { type: "button", class: "link-btn", "aria-haspopup": "dialog", onclick: () => openCharges(chargesB) }, "Charges");
-  const retLine = h("div", { class: "risk-line ret" }, romF.el, rrF.el, evF.el, chargesB);
+  const sizingB = h("button", { type: "button", class: "link-btn sizing-btn", "aria-haspopup": "dialog", title: "Position sizing: how many of this fit your risk budget and capital", onclick: () => openSizing(sizingB) }, "Sizing");
+  const retLine = h("div", { class: "risk-line ret" }, romF.el, rrF.el, evF.el, chargesB, sizingB);
   const probLine = h("div", { class: "risk-line prob" }, popF.el, pMaxF.el, touchF.el);
   /** Patch a figure's value (text node only) and its colour class. */
   const setFig = (f, t, cls = "") => {
@@ -663,17 +729,29 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
   const symOf = (l) => (l.kind === "FUT" ? l.symbol : chainFor(l.expiry)?.rows.find((r) => r.strike === l.strike)?.[l.right === "CE" ? "ce" : "pe"]?.symbol ?? null);
   function presetOpts() {
     const f = fut();
-    return { move: x.move, forward: x.F, fut: f ? { symbol: f.symbol, expiry: f.expiry, lotSize: f.lotSize } : null, back: O.backExpiry(st.expiries ?? [], x.c.expiry) };
+    return { spacing: kit.spacing, move: x.move, forward: x.F, fut: f ? { symbol: f.symbol, expiry: f.expiry, lotSize: f.lotSize } : null, back: O.backExpiry(st.expiries ?? [], x.c.expiry) };
   }
-  function applyPreset(p) {
+  function applyPreset(p, { quiet = false } = {}) {
     if (!x) return;
     if (p.needsFut && !fut()) return toast(`No future found for ${st.underlying}.`, { tone: "warn" });
-    const raw = O.presetLegs(p.id, x.c, presetOpts());
-    if (!raw.length) return toast(p.multi ? "No later expiry is listed for a calendar." : "This strategy needs strikes the chain does not have.", { tone: "warn" });
+    const raw = S.templateLegs(p.id, x.c, presetOpts());
+    if (!raw.length) return toast(p.multi ? "No later expiry is listed for a calendar." : `This strategy needs strikes the chain does not have.${kit.spacing !== "1" ? " A closer Spacing may fit." : ""}`, { tone: "warn" });
     const withSyms = raw.map((l) => (l.kind === "FUT" ? l : { ...l, expiry: l.expiry ?? x.c.expiry, symbol: symOf({ ...l, expiry: l.expiry ?? x.c.expiry }), lotSize: x.lot }));
     setName(null);
-    setLegs(withSyms, { undoLabel: `${p.name} applied`, keepWhatIf: false });
-    ivSlider.value = "0";
+    setLegs(withSyms, quiet ? { keepWhatIf: true } : { undoLabel: `${p.name} applied`, keepWhatIf: false });
+    if (!quiet) ivSlider.value = "0";
+    else announce(`${p.name} rebuilt at spacing ${kit.spacing === "auto" ? "Auto" : kit.spacing}`);
+  }
+  /** Width or Wings: the whole shape out (+1) or in (−1) by one listed strike (strategy-core.js). */
+  function moveShape(kind, dir) {
+    if (!x || !legs().length) return;
+    const r = (kind === "width" ? S.widenLegs : S.wingLegs)(legs(), strikesOf, dir);
+    if (r.error) {
+      const why = { edge: "A leg is at the edge of the loaded strikes", narrowest: kind === "width" ? "Already at its narrowest" : "The wings are next to the sold strikes", none: kind === "width" ? "Nothing to widen: add a sold leg or two strikes" : "No bought wings outside the sold legs" }[r.error];
+      return toast(why, { tone: "warn" });
+    }
+    setLegs(r.legs.map((l) => (l.kind === "FUT" || l.symbol ? l : { ...l, symbol: symOf(l) })));
+    announce(`${kind === "width" ? "Width" : "Wings"} ${dir > 0 ? "out" : "in"} one strike`);
   }
   function clearAll() {
     if (!legs().length) return;
@@ -957,18 +1035,22 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
   buildRo?.observe(build);
 
   // ── Presets: chips (with legs), cards (empty draft, and the phone sheet) ──
-  function presetItems(g) {
+  function presetItems(g, q = kit.q) {
     const f = fut();
     const opts = { ...presetOpts(), fut: f ? { symbol: f.symbol, expiry: f.expiry, lotSize: f.lotSize } : { symbol: "FUT", expiry: null } };
-    return O.PRESETS.filter((p) => p.group === g).map((p) => {
-      const pl = O.presetLegs(p.id, x.c, opts).map((l) => {
+    return S.searchTemplates(q, g).map((p) => {
+      const pl = S.templateLegs(p.id, x.c, opts).map((l) => {
         const q = l.kind === "FUT" ? st.quotes.get(f?.symbol ?? "") : x.c.rows.find((r) => r.strike === l.strike)?.[l.right === "CE" ? "ce" : "pe"];
         return { ...l, price: O.mid(q) ?? (l.kind === "FUT" ? x.F : 0), basis0: 0, years: l.expiry && l.expiry !== x.c.expiry ? O.yearsToExpiry(l.expiry, Date.now(), refSession(st.ref).close) : x.years, iv: num(q?.iv) ?? x.sm.atmIv };
       });
       const gl = pl.length ? (p.multi ? glyphOfCurve(pl) : O.presetGlyph(pl, x.lot)) : null;
       const netP = O.netPremium(pl, x.lot);
       const disabled = (p.needsFut && !f) || !pl.length;
-      return { p, gl, netP, disabled, title: disabled ? (p.multi ? "No later expiry is listed" : `No future found for ${st.underlying}.`) : `${p.hint} · ${netP >= 0 ? "credit" : "debit"} ${money(Math.abs(netP), { signed: false })} · ${p.risk === "defined" ? "Defined" : "Undefined"} risk` };
+      // The tile's figures: max profit and loss at expiry on this chain, one lot, at mid, before costs.
+      const stats = !disabled && !p.multi ? O.strategyStats(pl, x.lot, { forward: x.F, ivPct: x.sm.atmIv, years: x.years, spot: x.spot }) : null;
+      const why = p.needsFut && !f ? `No future found for ${st.underlying}.` : p.multi ? "No later expiry is listed" : "Needs strikes beyond the loaded chain: try a closer Spacing";
+      const figs = stats ? ` · max profit ${S.tileMoney(stats.maxProfit)} · max loss ${S.tileMoney(stats.maxLoss)}` : "";
+      return { p, gl, netP, disabled, stats, title: disabled ? why : `${p.hint} · ${netP >= 0 ? "credit" : "debit"} ${money(Math.abs(netP), { signed: false })}${figs} · ${p.risk === "defined" ? "Defined" : "Undefined"} risk · one lot at mid, before costs` };
     });
   }
   /** A calendar's glyph: its first-expiry curve sampled (it is not piecewise linear). */
@@ -991,7 +1073,16 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       { type: "button", class: "preset-card", "data-preset": it.p.id, disabled: it.disabled, title: it.title },
       h("span", { class: "pc-glyph" }, it.gl ? glyphSvg(it.gl, { w: 64, hgt: 28 }) : null),
       h("span", { class: "pc-text" }, h("strong", {}, it.p.name), h("small", {}, it.p.hint)),
-      h("span", { class: `pc-risk ${it.p.risk}` }, it.p.risk === "defined" ? "Defined" : "Undefined risk"),
+      h(
+        "span",
+        { class: "pc-meta" },
+        h("span", { class: `pc-risk ${it.p.risk}` }, it.p.risk === "defined" ? "Defined" : "Undefined risk"),
+        it.stats
+          ? h("span", { class: "pc-figs" }, h("span", { class: "pc-fig up", title: "Max profit at expiry, one lot, before costs" }, S.tileMoney(it.stats.maxProfit)), h("span", { class: "pc-fig down", title: "Max loss at expiry, one lot, before costs" }, S.tileMoney(it.stats.maxLoss)))
+          : it.p.multi && !it.disabled
+            ? h("span", { class: "pc-figs" }, h("span", { class: "pc-fig" }, "Two expiries"))
+            : null,
+      ),
     );
     b.addEventListener("click", () => onPick(it.p));
     return b;
@@ -1000,10 +1091,12 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     if (!x) return;
     const g = cfg().group;
     const empty = !legs().length;
-    const sig = `${g}|${x.c.underlying}|${x.c.expiry}|${x.sm.atm}|${fut()?.symbol ?? ""}|${empty}|${(st.expiries ?? []).length}`;
+    const sig = `${g}|${x.c.underlying}|${x.c.expiry}|${x.sm.atm}|${fut()?.symbol ?? ""}|${empty}|${(st.expiries ?? []).length}|${kit.spacing}|${kit.q}`;
     if (sig !== chipsSig) {
       chipsSig = sig;
       const items = presetItems(g);
+      tplEmpty.hidden = items.length > 0;
+      tplEmpty.textContent = items.length ? "" : `No strategy matches "${kit.q}".`;
       chips.className = empty ? "preset-cards" : "preset-chips";
       chips.replaceChildren(
         ...items.map((it) => {
@@ -1018,14 +1111,18 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const cur = legs();
     const opts = presetOpts();
     for (const b of chips.querySelectorAll("[data-preset]")) {
-      const on = O.legsMatch(cur, O.presetLegs(b.dataset.preset, x.c, opts));
+      const on = O.legsMatch(cur, S.templateLegs(b.dataset.preset, x.c, opts));
       if (b.classList.contains("on") !== on) {
         b.classList.toggle("on", on);
         if (b.hasAttribute("aria-pressed")) b.setAttribute("aria-pressed", String(on));
       }
     }
   }
-  const activePreset = () => (x ? O.PRESETS.find((p) => O.legsMatch(legs(), O.presetLegs(p.id, x.c, presetOpts()))) ?? null : null);
+  const activePreset = () => {
+    if (!x || !legs().length) return null;
+    const opts = presetOpts();
+    return S.TEMPLATES.find((p) => O.legsMatch(legs(), S.templateLegs(p.id, x.c, opts))) ?? null;
+  };
   /** Phone (and on demand): the preset gallery in a bottom sheet. */
   function openPresetSheet(trigger) {
     if (!x) return;
@@ -1033,7 +1130,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     seg.classList.add("group-seg");
     const gridEl = h("div", { class: "preset-cards sheet-cards" });
     let handle = null;
-    const fill = () => gridEl.replaceChildren(...presetItems(seg.value).map((it) => presetCard(it, (p) => (handle?.close(), applyPreset(p)))));
+    const fill = () => gridEl.replaceChildren(...presetItems(seg.value, "").map((it) => presetCard(it, (p) => (handle?.close(), applyPreset(p)))));
     seg.addEventListener("change", () => {
       setCfg({ group: seg.value });
       fill();
@@ -1287,6 +1384,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       sum.textContent = "";
       for (const f of [romF, rrF, evF, popF, pMaxF, touchF]) setFig(f, DASH);
       setText(chargesB, `Charges ${DASH}`);
+      drawSizing();
       return;
     }
     riskEl.hidden = false;
@@ -1357,6 +1455,66 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     setText(touchF.label, r.beNear !== null ? `P(touch ${formatInt(r.beNear)}) ` : "P(touch) ");
     setFig(touchF, isFigure(r.pTouch) ? formatPercent(r.pTouch * 100, 0) : DASH);
     sum.textContent = isFigure(req) ? `${acctFig ? "" : "≈ "}${rupees(req)}${sh ? " · short" : ""}` : "";
+    drawSizing();
+  }
+  /** The sizing line: "Fits 3×" against the budget, or the prompt to set one. */
+  function sizingOf() {
+    const r = R;
+    return S.positionSizing({ capital: kit.capital, riskPct: kit.riskPct, maxLoss: r?.ok ? r.stats?.maxLoss : undefined, margin: r?.ok && !r.exit ? r.margin : null });
+  }
+  function drawSizing() {
+    const z = sizingOf();
+    const t = !isFigure(kit.capital) ? "Sizing" : isFigure(z.fits) ? `Fits ${formatInt(z.fits)}×` : `Sizing ${DASH}`;
+    if (sizingB.textContent !== t) sizingB.textContent = t;
+    sizingB.classList.toggle("down", isFigure(z.fits) && z.fits < 1);
+  }
+  let sizingPop = null;
+  function openSizing(trigger) {
+    const capIn = h("input", { type: "number", min: "0", step: "1000", inputmode: "numeric", value: isFigure(kit.capital) ? String(kit.capital) : "", placeholder: "500000", "aria-label": "Trading capital in rupees" });
+    const pctIn = h("input", { type: "number", min: "0.1", max: "100", step: "0.5", inputmode: "decimal", value: String(kit.riskPct), "aria-label": "Risk per position, percent of capital" });
+    const out = h("div", { class: "sizing-out", role: "status" });
+    const useBtn = h("button", { type: "button", class: "small primary" }, "Use this size");
+    const paint = () => {
+      const z = sizingOf();
+      const cur = O.legsGcd(legs());
+      out.replaceChildren(
+        h("div", { class: "sz-row" }, h("span", {}, "Risk budget"), h("strong", {}, isFigure(z.budget) ? rupees(z.budget) : DASH)),
+        h("div", { class: "sz-row" }, h("span", {}, "Max loss now"), h("strong", { class: "down" }, z.unlimited ? "Unlimited" : R?.ok && isFigure(R.stats?.maxLoss) ? money(R.stats.maxLoss) : DASH)),
+        h("div", { class: "sz-row" }, h("span", {}, "By the budget"), h("strong", {}, isFigure(z.byLoss) ? `${formatInt(z.byLoss)}×` : z.unlimited ? "no cap to size by" : DASH)),
+        h("div", { class: "sz-row" }, h("span", {}, "By the margin"), h("strong", {}, isFigure(z.byMargin) ? `${formatInt(z.byMargin)}×` : DASH)),
+        h("div", { class: "sz-row sz-total" }, h("span", {}, "Fits"), h("strong", { class: isFigure(z.fits) ? (z.fits >= 1 ? "up" : "down") : "" }, isFigure(z.fits) ? `${formatInt(z.fits)}× this position` : DASH)),
+      );
+      useBtn.disabled = !isFigure(z.fits) || z.fits < 1 || z.fits === 1;
+      useBtn.textContent = isFigure(z.fits) && z.fits >= 1 ? `Use ${formatInt(z.fits * cur)}× size` : "Use this size";
+    };
+    const onIn = () => {
+      setKit({ capital: num(capIn.value) !== null && Number(capIn.value) > 0 ? Number(capIn.value) : null, riskPct: num(pctIn.value) !== null && Number(pctIn.value) > 0 ? Math.min(100, Number(pctIn.value)) : 2 });
+      paint();
+      drawSizing();
+    };
+    capIn.addEventListener("input", onIn);
+    pctIn.addEventListener("input", onIn);
+    useBtn.addEventListener("click", () => {
+      const z = sizingOf();
+      if (!isFigure(z.fits) || z.fits < 1) return;
+      sizingPop?.close?.();
+      setSize(z.fits * O.legsGcd(legs()));
+    });
+    paint();
+    sizingPop = sheetPopover({
+      trigger,
+      title: "Position sizing",
+      within: build,
+      body: h(
+        "div",
+        { class: "sizing-pop stack" },
+        h("label", { class: "field" }, h("span", {}, "Trading capital (₹)"), capIn),
+        h("label", { class: "field" }, h("span", {}, "Risk per position (%)"), pctIn),
+        out,
+        h("p", { class: "muted small" }, "Counts how many of this position the budget covers at its max loss, and how many the capital covers at its margin. Kept in this browser."),
+        useBtn,
+      ),
+    });
   }
   function openCharges(trigger) {
     if (!R?.ch) return;
@@ -1817,6 +1975,9 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       ["Rename", () => nameBtn.click(), { disabled: !ls.length }],
       [savedBtn.textContent, openSaved],
       ["Save", openSave, { disabled: !ls.length }],
+      ["Copy as text", copyLegsText, { disabled: !ls.length, sub: "one line per leg, for notes or a chat" }],
+      ["Copy share link", copyShareLink, { disabled: !ls.length, sub: "opens these legs at the prices of the day" }],
+      ["Paste legs", openPaste, { sub: "from text: Buy 1 lot NIFTY 24500 CE" }],
       ["Flip all sides", flipAll, { disabled: !ls.length }],
       ["Delta-neutralise", proposeNeutral, { disabled: !ls.length }],
       ["Customise", openCustomise],
@@ -2553,6 +2714,57 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     undoToast(`Loaded "${it.name}"`);
   }
 
+  // ── Copy, share and paste (strategy-core.js): text one leg per line, or a link that carries the legs ──
+  function copyLegsText() {
+    const ls = priced.length ? priced : legs();
+    if (!ls.length) return;
+    copyText(S.legsText({ underlying: st.underlying, name: draftName(), legs: ls }), "Legs copied as text");
+  }
+  function copyShareLink() {
+    if (!legs().length) return;
+    const code = S.shareCode({ underlying: st.underlying, name: readNames()[key()] ?? "", legs: legs() });
+    copyText(`${location.origin}${location.pathname}#/strategy?s=${code}`, "Share link copied: it carries the legs, not the prices");
+  }
+  /** Shared or pasted legs become the draft (Undo puts the old one back); prices are today's quotes. */
+  async function loadLegsFrom({ underlying = null, name = "", legs: ls = [] }, label) {
+    if (!ls.length) return;
+    const u = underlying || key();
+    undo = { key: key(), legs: structuredClone(legs()), label };
+    st.baskets[u] = O.migrateLegs(ls.map(({ price, ...l }) => (void price, l)), st.expiry);
+    animateNext = true;
+    save();
+    if (u !== key()) await switchTo(u, st.expiry);
+    else changed();
+    setName(name || null);
+    drawHead();
+    undoToast(label);
+  }
+  function openPaste() {
+    const ta = h("textarea", { rows: "6", class: "paste-legs", "aria-label": "Legs, one per line", placeholder: "Buy 1 lot NIFTY 24500 CE 3 Nov 2026\nSell 1 lot NIFTY 24600 CE 3 Nov 2026" });
+    const msg = h("p", { class: "warn-text", hidden: true });
+    modal({
+      title: "Paste legs",
+      body: h("div", { class: "stack" }, ta, h("p", { class: "muted small" }, "One leg per line: Buy or Sell, lots, the underlying (optional), strike and CE or PE, or FUT, then the expiry (optional). Prices are taken from the chain, not the text."), msg),
+      buttons: [
+        { label: "Cancel", value: false },
+        {
+          label: "Load legs",
+          cls: "primary",
+          onClick: () => {
+            const r = S.parseLegsText(ta.value);
+            if (!r.legs.length) {
+              msg.hidden = false;
+              msg.textContent = "No line reads as a leg. Try: Buy 1 lot NIFTY 24500 CE";
+              return false;
+            }
+            loadLegsFrom({ underlying: r.underlying, legs: r.legs }, `Pasted ${plural(r.legs.length, "leg")}${r.skipped ? ` · ${formatInt(r.skipped)} line${r.skipped === 1 ? "" : "s"} skipped` : ""}`);
+            return true;
+          },
+        },
+      ],
+    });
+  }
+
   function showKeys() {
     modal({ title: "Strategy builder keys", body: h("table", { class: "keys-table" }, h("tbody", {}, KEYS.map(([k, t]) => h("tr", {}, h("th", { scope: "row" }, k.map((kk) => h("kbd", {}, kk))), h("td", {}, t))))), buttons: [{ label: "Close", value: true }] });
   }
@@ -2575,6 +2787,19 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
 
   loadFunds();
   drawSuggestShell();
+
+  // Opened from a share link (#/strategy?s=…): load its legs once, then drop the code from the address.
+  try {
+    const code = new URLSearchParams(String(location.hash).split("?")[1] ?? "").get("s");
+    if (code) {
+      history.replaceState(null, "", `${location.pathname}${location.search}#/strategy`);
+      const shared = S.readShareCode(code);
+      if (shared) setTimeout(() => loadLegsFrom(shared, `Opened a shared ${shared.name || "strategy"}`), 0);
+      else setTimeout(() => toast("That share link is damaged or from a newer version.", { tone: "warn" }), 0);
+    }
+  } catch {
+    // no history API: the hash stays, nothing else changes
+  }
 
   // Built from the chain (right-click a strike): the legs are already the draft; offer Undo back to the old draft.
   try {
@@ -2674,6 +2899,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
       chart.destroy();
       closePop();
       chargesPop?.close?.();
+      sizingPop?.close?.();
       picker?.close?.();
       picker = null;
       if (window.__mcbStrategyOverlay) delete window.__mcbStrategyOverlay;
