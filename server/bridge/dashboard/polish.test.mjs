@@ -528,4 +528,9 @@ describe("Final sweep (31 Oct)", () => {
   it("a bare <small> never falls under the 12 px type floor (the UA 'smaller' drew 10.4 px in Watchlists)", () => {
     expect(css).toMatch(/:where\(small\) \{ font-size: max\(12px, 0\.8333em\); \}/);
   });
+  it("the Statement ledger's opening and closing balances use Indian grouping, as Funds does", () => {
+    const st = read("statement.js");
+    expect(st).toMatch(/label: "Opening", num: true, cell: \(r\) => formatRupeeGrouped\(r\.opening, 0\)/);
+    expect(st).toMatch(/label: "Closing", num: true, cell: \(r\) => formatRupeeGrouped\(r\.closing, 0\)/);
+  });
 });

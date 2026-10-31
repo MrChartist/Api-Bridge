@@ -3,7 +3,7 @@
 // Loaded on first visit (views.js PAGE_MODULES); the charges model (options.js) comes with it.
 import { alertBox, api, card, emptyState, h, optional, table, toast } from "./app.js";
 import { contractName } from "./flows.js";
-import { DASH, formatDayMonth, formatFixed, formatInt, formatRupee, formatSignedRupee } from "./format.js";
+import { DASH, formatDayMonth, formatFixed, formatInt, formatRupee, formatRupeeGrouped, formatSignedRupee } from "./format.js";
 import * as O from "./options.js";
 import { loadReference, refCharges } from "./reference.js";
 import { CHARGE_LABELS, SEGMENTS, byFinancialYear, fillChargesWith, financialYear, istDayOf, statement } from "./statement-core.js";
@@ -181,10 +181,10 @@ export async function renderStatementPage() {
             body: table(
               [
                 { label: "Day", cell: (r) => formatDayMonth(r.day) },
-                { label: "Opening", num: true, cell: (r) => formatRupee(r.opening, 0) },
+                { label: "Opening", num: true, cell: (r) => formatRupeeGrouped(r.opening, 0) },
                 { label: "Realised", num: true, cell: (r) => h("span", { class: tone(r.realised) }, formatSignedRupee(r.realised, 0)) },
                 { label: "Charges", num: true, cell: (r) => formatRupee(r.charges, 0) },
-                { label: "Closing", num: true, cell: (r) => formatRupee(r.closing, 0) },
+                { label: "Closing", num: true, cell: (r) => formatRupeeGrouped(r.closing, 0) },
               ],
               [...s.ledger].reverse(),
               emptyState("inbox", "No movements in this period", null, null, { compact: true }),
