@@ -48,7 +48,7 @@ import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabili
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 import { PAGE_CODES } from "./workspace.js";
 import { triggersCard } from "./triggers.js";
-import { fundsCard, ordersCard, renderTradesPage } from "./orders-book.js";
+import { fundsCard, ordersCard, renderTradesPage, sideCell } from "./orders-book.js";
 import { whatToDo } from "./reasons-core.js";
 
 const $ = (id) => document.getElementById(id);
@@ -2584,9 +2584,9 @@ async function renderOrders() {
       ],
       columns: [
               { label: "Time", cell: (o) => istTime(o.placedAt) },
-              { label: "Account", cell: (o) => byId.get(o.accountId)?.label ?? o.accountId },
+              { label: "Account", cell: (o) => h("span", { class: "bk-ob-acct", title: byId.get(o.accountId)?.label ?? o.accountId }, byId.get(o.accountId)?.label ?? o.accountId) },
               { label: "Contract", wrap: true, cell: (o) => h("div", { title: o.symbol, class: "order-contract" }, h("strong", {}, contractName(o.symbol)), h("div", { class: "muted small" }, `${o.orderType ?? ""}${isFigure(o.price) ? ` @ ${formatFixed(o.price, 2)}` : ""} · ${o.product ?? ""}`)) },
-              { label: "Side", cell: (o) => h("span", { class: "order-side" }, o.side) },
+              { label: "Side", cell: (o) => sideCell(o.side) },
               { label: "Qty", num: true, cell: (o) => (o.filledQuantity && o.filledQuantity !== o.quantity ? `${formatInt(o.filledQuantity)}/${formatInt(o.quantity)}` : formatInt(o.quantity)) },
               { label: "Avg price", num: true, cell: (o) => formatFixed(o.avgPrice, 2) },
               {
@@ -2598,10 +2598,10 @@ async function renderOrders() {
                   // ...and the next step, in plain words, when there is one (reasons-core.js).
                   const why = o.statusMessage && ["rejected", "expired", "outcome_unknown"].includes(o.status) ? o.statusMessage : null;
                   const fix = why || o.status === "outcome_unknown" ? whatToDo({ code: o.status === "outcome_unknown" ? "OUTCOME_UNKNOWN" : null, message: why ?? "", mode: o.mode }) : null;
-                  return h("div", { class: "order-status" }, pill(t.text, t.tone), why ? h("div", { class: "muted small order-why" }, why) : null, fix ? h("div", { class: "small bk-fix" }, fix) : null);
+                  // Paper is the default (the page says so); a live order says Live beside its status.
+                  return h("div", { class: "order-status" }, h("span", { class: "bk-ob-pills" }, pill(t.text, t.tone), o.mode === "live" ? pill("Live", "bad") : null), why ? h("div", { class: "muted small order-why" }, why) : null, fix ? h("div", { class: "small bk-fix" }, fix) : null);
                 },
               },
-              { label: "Mode", cell: (o) => (o.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
               { label: "", cell: (o) => (WORKING_ORDER.has(o.status) ? orderActions(o) : "") },
       ],
       empty: emptyState("orders", "No orders today", "Paper orders from the option chain, your scripts, webhooks and AI assistants show up here.", nextStep("Trade from the chain", "#/chain")),

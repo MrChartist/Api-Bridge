@@ -226,3 +226,62 @@ export function fundsView(f) {
   const util = used !== null && total !== null && total > 0 ? Math.min(1, Math.max(0, used / total)) : null;
   return { available, used, collateral, total, util, level: util === null ? "none" : util >= 0.9 ? "neg" : util >= 0.7 ? "warn" : "ok" };
 }
+
+// ── Orders suite: the ticket's head and stepper, the book's colours (pure) ──
+
+const fig = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+
+/**
+ * The ticket's head line from a quote: LTP, the day's change (from `change`, else LTP − previous close) and its
+ * percent, the direction for colour, and the bid-ask spread (absolute and as a share of mid). Missing figures stay
+ * null; a crossed or one-sided book has no spread.
+ * @param {{ ltp?: number|null, change?: number|null, close?: number|null, prevClose?: number|null, bid?: number|null, ask?: number|null } | null} q
+ */
+export function quoteHead(q) {
+  const ltp = fig(q?.ltp);
+  const close = fig(q?.close) ?? fig(q?.prevClose);
+  let change = fig(q?.change);
+  if (change === null && ltp !== null && close) change = ltp - close;
+  const base = close ?? (ltp !== null && change !== null ? ltp - change : null);
+  const pct = change !== null && base ? (change / base) * 100 : null;
+  const bid = fig(q?.bid);
+  const ask = fig(q?.ask);
+  const spread = bid !== null && ask !== null && bid > 0 && ask >= bid ? ask - bid : null;
+  const mid = spread !== null ? (bid + ask) / 2 : null;
+  return { ltp, change, pct, dir: change === null ? null : change > 0 ? "up" : change < 0 ? "down" : "flat", spread, spreadPct: spread !== null && mid ? (spread / mid) * 100 : null };
+}
+
+/**
+ * The lots stepper: the typed value moved by `delta`, as a whole number of at least `min` (and at most `max` when
+ * given). A blank or broken entry steps from `min`.
+ */
+export function stepLots(value, delta, { min = 1, max = null } = {}) {
+  const n = Math.floor(Number(value));
+  const from = Number.isFinite(n) && n >= min ? n : min;
+  const to = Math.max(min, from + Math.trunc(Number(delta) || 0));
+  return max !== null && Number.isFinite(Number(max)) ? Math.min(Math.max(min, Math.floor(Number(max))), to) : to;
+}
+
+/** Validity choices for an order sent now: DAY rests until the close; IOC fills what it can at once, the rest goes. */
+export const VALIDITY = Object.freeze([
+  ["DAY", "Day"],
+  ["IOC", "IOC"],
+]);
+
+/** Whether the Validity control applies: an order sent now (not a GTT or an after-market order), limit or market. */
+export function validityApplies({ orderType, later = false } = {}) {
+  return !later && (orderType === "LIMIT" || orderType === "MARKET");
+}
+
+/** The colour of a status filter chip's dot: working orange, filled green, refused red, cancelled neutral. */
+export function bucketTone(bucket) {
+  return { open: "warn", filled: "ok", rejected: "bad", cancelled: "muted" }[bucket] ?? null;
+}
+
+/** A side in words with its colour class (Buy green, Sell red); anything else as given, uncoloured. */
+export function sideView(side) {
+  const s = String(side ?? "").toUpperCase();
+  if (s === "BUY") return { text: "Buy", cls: "buy" };
+  if (s === "SELL") return { text: "Sell", cls: "sell" };
+  return { text: side ? String(side) : "", cls: "" };
+}

@@ -9484,6 +9484,65 @@ p.bk-fix { font-size: 13px; }
 .bk-util-bar { position: absolute; inset: 0 auto 0 0; width: calc(var(--w, 0) * 100%); background: hsl(var(--pos)); }
 .bk-util-bar[data-level="warn"] { background: hsl(var(--warn)); }
 .bk-util-bar[data-level="neg"] { background: hsl(var(--neg)); }
+/* Orders suite (feature/orders-suite): the ticket's head, stepper, summary and callouts; the book's side capsules. */
+.bk-tk-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; margin-top: -6px; }
+.bk-tk-px { display: inline-flex; align-items: baseline; gap: 10px; min-width: 0; }
+.bk-tk-ltp { font: 600 28px/1.05 var(--font-numeric); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.bk-tk-chg { font: 500 14px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-label)); }
+.bk-tk-chg.up { color: hsl(var(--pos-ink)); }
+.bk-tk-chg.down { color: hsl(var(--neg-ink)); }
+.bk-tk-spread { font: 500 12.5px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-quiet)); }
+.ticket .ticket-quote { grid-template-columns: repeat(4, minmax(0, 1fr)); border-radius: 12px; background: var(--mat-fill-1); box-shadow: none; }
+.ticket .ticket-quote > span:first-child { box-shadow: none; }
+/* Buy / Sell: the big coloured choice (the thumb is green or red, see .side-seg). */
+.ticket .segmented.side-seg { display: flex; width: 100%; padding: 3px; }
+.ticket .segmented.side-seg::before { top: 3px; bottom: 3px; }
+.ticket .segmented.side-seg button { flex: 1 1 0; min-height: 40px; font: 600 15px/1 var(--font-body); }
+/* Lots: − field + in one capsule; the field takes typing, the native spinner is gone. */
+.bk-stepper { display: flex; align-items: center; gap: 6px; }
+.bk-stepper > input { flex: 1 1 auto; min-width: 0; width: 100%; text-align: center; font: 600 16px/1 var(--font-numeric); font-variant-numeric: tabular-nums; appearance: textfield; -moz-appearance: textfield; }
+.ticket > .field > .acct-pick-row { width: 100%; }
+.ticket > .field > .acct-pick-row select.acct-pick { flex: 1 1 auto; width: 100%; max-width: none; }
+.bk-stepper > input::-webkit-inner-spin-button, .bk-stepper > input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.bk-stepper > button.bk-step-btn { --btn-h: 40px; --btn-px: 0; --btn-bg: var(--mat-fill-1); flex: none; width: 40px; min-height: 40px; border-radius: 999px; font: 500 18px/1 var(--font-numeric); }
+@media (pointer: coarse) { .bk-stepper > button.bk-step-btn { width: 44px; min-height: 44px; } }
+/* Summary: one rounded panel, three figures a row. */
+.ticket-figs.bk-sum { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border-radius: 12px; background: var(--mat-fill-1); box-shadow: none; }
+.ticket-figs.bk-sum > div { box-shadow: none; padding: 10px 14px; }
+.ticket-figs.bk-sum > div:nth-child(n + 4) { padding-top: 2px; }
+@media (max-width: 719px) { .ticket-figs.bk-sum { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ticket-figs.bk-sum > div:nth-child(n + 3) { padding-top: 2px; } }
+/* Checks and warnings: calm callouts, evenly rounded, tinted by level. */
+.ticket .ticket-checks { gap: 6px; padding-top: 8px; }
+.ticket .ticket-warns { padding-top: 0; }
+.ticket .ticket-checks li { align-items: baseline; padding: 8px 12px; border-radius: 12px; background: var(--mat-fill-1); }
+.ticket .ticket-checks li.warn { background: hsl(var(--ios-orange) / 0.10); color: hsl(var(--foreground) / 0.86); }
+.ticket .ticket-checks li.bad { background: hsl(var(--ios-red) / 0.10); }
+/* Market depth: bid red, ask green (the house rule), as on the strip above it. */
+.ticket .bk-depth-lvl.bid .bk-depth-p { color: hsl(var(--neg-ink)); }
+.ticket .bk-depth-lvl.ask .bk-depth-p { color: hsl(var(--pos-ink)); }
+.ticket .bk-depth-bar.bid { background: hsl(var(--neg)); }
+.ticket .bk-depth-bar.ask { background: hsl(var(--pos)); }
+.ticket .bk-depth-share { background: hsl(var(--pos) / 0.5); }
+.ticket .bk-depth-share::before { background: hsl(var(--neg)); }
+/* The book: side as a coloured capsule, never neutral. */
+.bk-side { display: inline-flex; align-items: center; min-height: 22px; padding: 0 10px; border-radius: 999px; font: 600 12px/1 var(--font-body); }
+.bk-side.buy { color: hsl(var(--pos-ink)); background: hsl(var(--pos) / var(--chip-tint)); }
+.bk-side.sell { color: hsl(var(--neg-ink)); background: hsl(var(--neg) / var(--chip-tint)); }
+.orders-today td.wrap:has(> .order-status) { min-width: 110px; }
+.bk-ob-acct { display: inline-block; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.bk-ob-pills { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+/* Filter chips: a status dot by state; Buy and Sell chips in their colour, selected too. */
+.bk-chip-dot { width: 7px; height: 7px; flex: none; border-radius: 99px; background: hsl(var(--foreground) / 0.35); }
+.bk-chip-dot.ok { background: hsl(var(--ios-green)); }
+.bk-chip-dot.warn { background: hsl(var(--ios-orange)); }
+.bk-chip-dot.bad { background: hsl(var(--ios-red)); }
+button.bk-chip[data-side] { position: relative; isolation: isolate; }
+button.bk-chip[data-side="BUY"] { color: hsl(var(--pos-ink)); }
+button.bk-chip[data-side="SELL"] { color: hsl(var(--neg-ink)); }
+button.bk-chip[data-side][aria-pressed="true"] { color: hsl(var(--btn-trade-fg)); }
+button.bk-chip[data-side][aria-pressed="true"]::before { content: ""; position: absolute; z-index: -1; inset: 0; border-radius: inherit; }
+button.bk-chip[data-side="BUY"][aria-pressed="true"]::before { background: hsl(var(--btn-buy)); }
+button.bk-chip[data-side="SELL"][aria-pressed="true"]::before { background: hsl(var(--btn-sell)); }
 /* End of broker features. */
 
 /* ───────────────────────── Trade › Algo (algo.js, docs/STRATEGIES-PYTHON.md) ───────────────────────── */
