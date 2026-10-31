@@ -228,9 +228,63 @@ describe("chain round 2: presets and the fit engine", () => {
     expect(narrow.side).toContain("iv");
     expect(narrow.hidden).not.toContain("iv");
     expect(narrow.width).toBeLessThanOrEqual(700);
-    // Measured widths replace the estimates: a wider strike column (tags) drops Build-up first.
-    const tight = fitColumns({ side: CHAIN_PRESETS.oi, quotes: true, sides: 2, avail: 1340, order, strikeW: 140 });
+    // Measured widths replace the estimates: a much wider strike column drops Build-up first.
+    const tight = fitColumns({ side: CHAIN_PRESETS.oi, quotes: true, sides: 2, avail: 1340, order, strikeW: 200 });
     expect(tight.hidden).toEqual(["bu"]);
+  });
+});
+
+describe("chain, clean: defaults that fit common widths", () => {
+  // The chain panel's width beside the sidebar at 1280, 1440 and 1600 px windows (measured in the demo Bridge).
+  const PANEL = { 1280: 1026, 1440: 1186, 1600: 1342 };
+  const fitCore = (avail, quotes) => fitColumns({ side: CHAIN_PRESETS.core, quotes, sides: 2, avail, order: dropOrder("core", CHAIN_PRESETS.core) });
+  it("Core leaves Bid / Ask off by default, and picking Core turns them off; Hedger turns them on", async () => {
+    const { presetPatch } = await import("./desk.js");
+    expect(chainConfig({}).quotes).toBe(false);
+    expect(chainConfig(undefined).quotes).toBe(false);
+    expect(chainConfig({ ...chainConfig({ cols: CHAIN_PRESETS.hedger, quotes: true }), ...presetPatch("core") }).quotes).toBe(false);
+    for (const p of ["core", "buyer", "seller", "other"]) expect(presetPatch(p).quotes, p).toBe(false);
+    expect(presetPatch("hedger").quotes).toBe(true);
+    // Still one switch away, and kept once chosen.
+    expect(chainConfig({ ...chainConfig({}), quotes: true }).quotes).toBe(true);
+  });
+  it("a Core chain saved before revision 2 loses the Bid / Ask it had by default, once; other views keep theirs", () => {
+    expect(chainConfig({ cols: CHAIN_PRESETS.core, quotes: true }).quotes).toBe(false);
+    expect(chainConfig({ cols: CHAIN_PRESETS.core, quotes: true }).rev).toBe(2);
+    expect(chainConfig({ cols: CHAIN_PRESETS.core, quotes: true, rev: 2 }).quotes).toBe(true);
+    expect(chainConfig({ cols: CHAIN_PRESETS.buyer, quotes: true }).quotes).toBe(true);
+    expect(chainConfig({ cols: CHAIN_PRESETS.arb, quotes: false }).quotes).toBe(true);
+  });
+  it("Core keeps every column, Build-up included, at 1280, 1440 and 1600 px", () => {
+    for (const [w, avail] of Object.entries(PANEL)) {
+      const f = fitCore(avail, false);
+      expect(f.hidden, `${w} px`).toEqual([]);
+      expect(f.side, `${w} px`).toEqual(CHAIN_PRESETS.core);
+      expect(f.width).toBeLessThanOrEqual(avail);
+    }
+    // With Bid / Ask switched on, 1600 px still holds everything.
+    expect(fitCore(PANEL[1600], true).hidden).toEqual([]);
+  });
+  it("the estimates are the clean cells' real widths: Build-up fits about 120 px, OI and volume carry no side figure", async () => {
+    const { STRIKE_W, BUILDUP_SHORT } = await import("./desk.js");
+    expect(COL_MIN.bu).toBeGreaterThanOrEqual(116);
+    expect(COL_MIN.bu).toBeLessThanOrEqual(124);
+    expect(COL_MIN.oi).toBeLessThan(80);
+    expect(COL_MIN.vol).toBeLessThan(80);
+    expect(STRIKE_W).toBeGreaterThanOrEqual(88);
+    expect(STRIKE_W).toBeLessThanOrEqual(104);
+    // The capsule names stay short (the full names are in the title and the hover card).
+    for (const [code, name] of Object.entries(BUILDUP_SHORT)) expect(name.length, code).toBeLessThanOrEqual(11);
+    expect(Object.keys(BUILDUP_SHORT).sort()).toEqual(["LB", "LU", "NT", "SB", "SC"]);
+  });
+  it("Other and the OI view keep Build-up at 1280 px; Hedger keeps LTP, Bid / Ask, Delta, IV and OI", () => {
+    for (const p of ["other", "oi"]) {
+      const f = fitColumns({ side: CHAIN_PRESETS[p], quotes: false, sides: 2, avail: PANEL[1280], order: dropOrder(p, CHAIN_PRESETS[p]) });
+      expect(f.side, p).toContain("bu");
+    }
+    const h = fitColumns({ side: CHAIN_PRESETS.hedger, quotes: true, sides: 2, avail: PANEL[1280], order: dropOrder("hedger", CHAIN_PRESETS.hedger) });
+    expect(h.quotes).toBe(true);
+    for (const k of ["ltp", "delta", "iv", "oi"]) expect(h.side).toContain(k);
   });
 });
 
