@@ -523,3 +523,9 @@ describe("toast tones (QA pass, 30 Oct)", () => {
     expect(bad).toEqual([]);
   });
 });
+
+describe("Final sweep (31 Oct)", () => {
+  it("a bare <small> never falls under the 12 px type floor (the UA 'smaller' drew 10.4 px in Watchlists)", () => {
+    expect(css).toMatch(/:where\(small\) \{ font-size: max\(12px, 0\.8333em\); \}/);
+  });
+});
