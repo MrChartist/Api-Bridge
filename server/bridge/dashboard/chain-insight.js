@@ -236,9 +236,14 @@ function cellOf(target, host) {
   if (!tr) return null;
   return { el, head: false, strike: Number(tr.dataset.strike), ...id };
 }
+/** A column's title as the header shows it (not the Calls / Puts name sharing an outermost title cell). */
+function headLabel(host, key) {
+  const th = host.querySelector(`thead th.c-${key}`);
+  return (th?.querySelector(".lbl-long") ?? th?.querySelector(".th-t") ?? th)?.textContent?.trim() ?? null;
+}
 function headModel(c, host) {
   const help = cellHelp(c.key);
-  const label = host.querySelector(`thead th.c-${c.key}`)?.textContent?.trim() || c.key;
+  const label = headLabel(host, c.key) || c.key;
   if (!help) return { title: label, sub: "", help: { shows: "A column added since this help was written.", how: DASH, empty: DASH } };
   return { title: help.name, sub: c.part === "ce" ? "Calls" : c.part === "pe" ? "Puts" : "", help };
 }
@@ -249,7 +254,7 @@ function cellModel(c, host, getX) {
   const side = c.part === "ce" || c.part === "pe" ? c.part : null;
   const q = side ? row[side] : null;
   if (side && !q) return null;
-  const label = cellHelp(c.key) ? null : host.querySelector(`thead th.c-${c.key}`)?.textContent?.trim() ?? null;
+  const label = cellHelp(c.key) ? null : headLabel(host, c.key);
   return cardModel(c.key, q, row, side, x, { facts: factsOf(c.key, q, row, side, x), label });
 }
 
