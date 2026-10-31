@@ -15,6 +15,10 @@ node scripts/perf/run.mjs --base http://127.0.0.1:4480 --key mcb_... --seconds 3
 
 # Server hot paths (no Bridge, no browser):
 node scripts/perf/bench-server.mjs [--rounds 200] [--json]
+
+# Request counts for the broker features (round 5): Cancel all's dry run on Orders, the ticket's depth panel, the Algo
+# page with two paper strategies running.
+node scripts/perf/probes.mjs --port 4730 --home /path/to/scratch/home --seconds 20 --out probes.json
 ```
 
 Needs Playwright with Chromium (a global install is fine: the scripts fall back to `npm root -g`).
@@ -26,7 +30,8 @@ real broker over the internet does (100 to 400 ms is typical). It is off unless 
 ### What it records, per page
 
 Pages: Home, Option Chain, Strategy, Positions, Orders, OI Analysis, Volatility, Screeners (Options), Live events,
-Accounts, API (Keys) and API › Rate limits, and (round 4) Exposure, Flow, Futures, Risk, Strategy lab and Watchlists.
+Accounts, API (Keys) and API › Rate limits, (round 4) Exposure, Flow, Futures, Risk, Strategy lab and Watchlists, and
+(round 5) Algo and Volatility › Forward, RR and BF and Event vol.
 Chromium at 1440 x 900 (`--viewport WxH` to change), dark. Also per page: paint, layout and style ms per second from a
 `--trace` second Chromium trace (6 by default), main-thread and script ms per second (CDP `Performance.getMetrics`) and
 the JS heap after a forced GC at the start and end of the steady window. `--soak N` holds the main pages open for N

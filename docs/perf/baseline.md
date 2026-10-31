@@ -452,3 +452,155 @@ spread.
   - a desk page left while still loading is tidied up once its load ends, and cleanup runs at most once;
   - the desk's document-wide key handler lets go of the page;
   - OI's window scroll listener and Live events' key listener are removed when you leave the page.
+
+# Round 5 (31 Oct)
+
+After the late broker features: the Triggers card, Statement, Funds, depth polling while the panel is open, AMO,
+Cancel all's dry run on Orders, the Algo page with its log stream, and the Volatility depth tabs.
+
+Raw results in this folder:
+- `round5-before-{1,2}.json`: every page at `eb80003` (round 4's end).
+- `round5-after-{1,2}.json`: every page at `e073ad4` (the branch when this round started).
+- `round5-fix-1.json`: every page with this round's fixes.
+- `round5-firstdata-{before,fix}-{1,2,3}.json`: Chain, Orders and Futures cold loads only, three interleaved pairs.
+- `round5-probe-*.json`: `probes.mjs` (Cancel all's dry run, the depth panel, Algo with two paper strategies running).
+  `head` is `e073ad4`, `fix` is this round's fixes.
+- `round5-soak-{head,fix}.json`: a 5-minute heap soak with a tab cycling every page, Algo included.
+
+How they were run:
+- 4 vCPU, Node 22, headless Chromium, `--latency 200`, 20 s steady windows, 30 s idle, 60 s busiest, port 4730.
+- Before and after interleaved: before-1, after-1, before-2, after-2, then fix-1. Load average 0.4 to 3 through the
+  page rounds; 4 to 10 during the soaks, while another agent's suite ran.
+- The same harness on both sides. It now also records Algo and the three Volatility depth tabs.
+- Those tabs do not exist at `eb80003`. There the route falls back to Volatility › Overview, so their "before"
+  columns are left out.
+
+## Summary
+
+| | Round 4 end (`eb80003`) | Before fixes (`e073ad4`) | After fixes |
+|---|---|---|---|
+| Orders: Cancel all dry runs per page visit | 0 (no Cancel all count) | **2** (2, 2) | 1 (1, 1) |
+| Orders: dry runs for 3 Reload clicks, 1.5 s apart | 0 | 3 (3, 3) | 2 (2, 2): one within 3 s reuses the count |
+| Orders: dry runs per minute while the page sits still | 0 | 0 (0, 0) | 0 (0, 0) |
+| Orders: REST / min, still | 9 (9, 9) | 9 (9, 9) | 9 |
+| Home, switch back from Orders (from cache), ms | 40 (1, 79) | **270** (272, 268) | 72 |
+| Orders, switch from cache, ms | 26 (26, 26) | 48 (47, 48) | 25 |
+| Ticket depth, `/v1/depth` per minute: ticket shut / panel shut / panel open / shut again / ticket closed | no panel | 0 / 0 / 30 / 0 / 0 | 0 / 0 / 30 / 0 / 0 |
+| Algo, two paper strategies running: REST / min (log, list, detail) | 117 (60, 27, 27) | 117 (60, 27, 27) | 117 (60, 27, 27) |
+| Algo: after six quick clicks between strategies, REST / min | 129 | 129 (129, 129) | 129 (129, 129) |
+| Algo: duplicated log lines shown | 0 | 0 | 0 |
+| Algo, nothing selected (the harness's demo), REST / min | 33 (33, 33) | 33 (33, 33) | 33 |
+| Chain, cold first data, ms (three interleaved pairs) | 523 (547, 529, 493) | – | 751 (761, 766, 725): see "Not done" |
+| Futures, cold first data, ms (three pairs) | 244 (236, 244, 252) | 493 (487, 499) in the page rounds | 498 (498, 498, 499): see "Not done" |
+| Busiest scenario, broker calls / min | 0 (0, 0) | 0 (0, 0) | 0 |
+| Idle Bridge, broker calls / min | 0 (0, 0) | 0 (0, 0) | 0 |
+
+A dry run costs 3 to 9 ms in demo. On a live account it reads the broker's order book, one call per live account.
+
+## Read this first
+
+- **Orders: one Cancel all dry run per render, not a loop.**
+  - The dry run runs on render only: none while the page sits still, and none from the Triggers card's 2 s / 10 s
+    reads (they do not redraw the page).
+  - Two things were wrong with it:
+    - A visit made two. The page paints from remembered answers, then draws once more when a fresh answer differs,
+      and each draw ran its own dry run.
+    - The dry run went through the write path, so each one forgot every remembered answer. Going back to Home after
+      Orders became a cold load: 270 ms against 1 to 79.
+  - Now a dry run keeps the remembered answers. The button reuses its count for 3 s unless a write happened since
+    (cancel, modify, place, Cancel all itself). The Cancel all question always asks afresh, so what you confirm is
+    never an old count.
+- **Depth polls only while its panel is open.** 30 calls a minute open (one every 2 s), none otherwise, and none
+  after the ticket closes. It used to keep going in a hidden tab; it no longer reads while the tab is hidden.
+- **Algo.** The log every 1 s, the list and the selected strategy every 2 s: about 117 requests a minute, all
+  local (no broker calls). Unchanged since round 4.
+  - Clicking between strategies does not stack poll loops (129 a minute right after the clicks, the clicks' own reads
+    included) and shows no duplicated log lines.
+  - Two costs are now gone: a hidden tab kept all three reads going, and a stopped strategy's log was still read
+    every second. A stopped strategy's log is now read every 5 s, a running one's every second, and a hidden tab
+    reads nothing.
+- **The new pages are cheap at rest.** Forward, RR and BF and Event vol make no reads after they load (3 REST a
+  minute: the bell) and 20 to 26 main-thread ms/s. Forward's first data is 1.4 s: it reads six chains one after
+  another.
+- **Heap.** No growth from changing page beyond round 4's figure. Each page held open levels off; Algo held open for
+  5 minutes: +48 KB.
+
+## Heap over 5 minutes (soak, cycling every page every 4 s, 76 switches)
+
+| Page held open | Before fixes: 1 min → 5 min | After fixes: 1 min → 5 min |
+|---|---|---|
+| Chain | 4.3 → 4.4 MB (+0.1) | 4.3 → 4.4 MB (+0.1) |
+| OI Analysis | 5.3 → 5.7 MB (+0.4) | 5.5 → 6.0 MB (+0.5) |
+| Strategy | 4.1 → 4.8 MB (+0.7) | 4.1 → 4.8 MB (+0.7) |
+| Positions | 4.8 → 4.9 MB (+0.1) | 4.8 → 4.9 MB (+0.1) |
+| Orders, Watchlists, Exposure, Flow | 1.8 to 2.7 MB, −0.07 to +0.05 | 1.8 to 2.7 MB, −0.07 to −0.02 |
+| Algo | 1.8 MB (−0.02) | 1.9 MB (+0.05) |
+| Tab cycling all 22 pages | 11.4 → 14.5 MB (+3.0 over about 3.5 cycles) | 11.6 → 14.6 MB (+3.0) |
+
+About +0.85 MB per cycle of 22 pages, against round 4's +1.1 MB per cycle of 18 (13.0 → 24.7 MB before its fix). The
+DOM node count does not grow (1,248 at 1 and 5 minutes).
+
+## Every page (two interleaved rounds each side; after fixes: one round)
+
+| Page | Figure | Round 4 end | Before fixes | After fixes |
+|---|---|---|---|---|
+| home | First data, ms | 2192 (2197, 2187) | 2154 (2166, 2142) | 2173 |
+| home | Switch from cache, ms | 40 (1, 79) | 270 (272, 268) | 72 |
+| chain | First data, ms | 568 (504, 631) | 704 (719, 689) | 762 |
+| chain | Main thread, ms / s | 112 (115, 110) | 108 (109, 108) | 93 |
+| chain | Tick to cell p95, ms | 52 (51, 53) | 48 (49, 48) | 46 |
+| positions | Tick to cell p95, ms | 155 (157, 153) | 108 (51, 164) | 53 |
+| orders | First data, ms | 674 (677, 671) | 702 (713, 690) | 703 |
+| orders | Switch from cache, ms | 26 (26, 26) | 48 (47, 48) | 25 |
+| orders | REST / min | 9 (9, 9) | 9 (9, 9) | 9 |
+| oi | Main thread, ms / s | 80 (81, 78) | 92 (93, 91) | 89 |
+| oi | Tick to cell p95, ms | 101 (136, 66) | 75 (84, 66) | 86 |
+| vol | Broker / min | 27 (27, 27) | 27 (27, 27) | 24 |
+| screener | First data, ms | 753 (747, 759) | 798 (837, 758) | 810 |
+| futures | First data, ms | 264 (282, 246) | 493 (487, 499) | 500 |
+| watchlists | Broker / min | 15 (15, 15) | 16 (18, 15) | 18 |
+| algo | First data, ms | 240 (257, 222) | 268 (251, 285) | 291 |
+| algo | REST / min | 33 (33, 33) | 33 (33, 33) | 33 |
+| volfwd | First data, ms | – | 1434 (1402, 1466) | 1457 |
+| volrrbf | First data, ms | – | 651 (663, 639) | 655 |
+| volevent | First data, ms | – | 1061 (638, 1484) | 560 |
+| volfwd, volrrbf, volevent | REST / min; main thread, ms / s | – | 3; 20 to 24 | 3; 24 to 26 |
+
+The other figures did not move outside the spread:
+- every page: REST / min, duplicates (0 everywhere) and long tasks (0, one 1 on Limits after the fixes);
+- Accounts, API, Limits, Exposure, Flow, Risk and Lab: first data and switch times.
+
+Broker / min on still pages (0 to 30 in single rounds on Positions, Accounts, API, Limits, Exposure and Algo) is the
+recorder's minute round landing in the 20 s window; it moves between rounds of the same side.
+
+## What changed in round 5
+
+- **Cancel all's dry run** (`app.js forgetsAnswers`, `orders-book.js`, `orders-core.js shortMemo`):
+  - a POST with `dryRun: true` keeps the remembered answers;
+  - the Orders button reuses its count for 3 s (`DRY_RUN_REUSE_MS`) unless a write happened since (`writeCount`);
+  - the Cancel all question asks afresh.
+- **Ticket depth** (`desk.js`): no reads while the tab is hidden.
+- **Algo** (`algo.js`, `algo-core.js logGap`): the log every 1 s while the selected strategy runs and every 5 s
+  otherwise; no reads while the tab is hidden.
+- **Harness**: `run.mjs` measures Algo and the three Volatility depth tabs, and the soak holds Algo open. New:
+  `probes.mjs`.
+
+## Not done
+
+- **Chain and Futures first data are about 230 ms slower on a cold load** (523 → 751 and 244 → 498 ms, three
+  interleaved pairs each, consistent).
+  - Cause: the demo instrument master now lists three index futures instead of two (`8409f98`, as NSE lists them).
+    The desk quotes every future with the index before it draws, and the Futures analytics quote all three.
+  - The recorder streams only the two near futures (`recorderService.mjs`, `slice(0, 2)` for an index). So the third
+    is a cold broker read (one 200 ms round trip in demo) on the first load. Request traces: the quote read takes
+    15 ms → 240 ms on the Chain and 3 ms → 337 ms on Futures.
+  - On a real broker the master already listed three, so this is the demo catching up with reality, not new code.
+  - Fix options:
+    - the recorder streams all three index futures (one more stream symbol per index; `plan.mjs` and its test count
+      two);
+    - or the desk draws before the far futures' quotes arrive.
+  - Both are design choices, so neither was made here.
+- **Volatility › Forward reads its six chains one after another** (`derivDepth.mjs forwardCurve`), so its first data is
+  about 1.4 s at 200 ms a read. Exposure and Event vol do the same; the scheduler would pace parallel reads anyway.
+- Algo's log and list reads (117 a minute with a strategy running) could move to the shared live connection. They are
+  local reads and cost no broker calls.

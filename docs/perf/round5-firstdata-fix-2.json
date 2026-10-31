@@ -1,0 +1,127 @@
+{
+  "at": "2026-10-31T02:16:16.695Z",
+  "node": "v22.22.0",
+  "seconds": 5,
+  "latencyMs": 200,
+  "pages": [
+    {
+      "page": "chain",
+      "firstData": 766,
+      "fcp": 128,
+      "jsKB": 2388,
+      "cssKB": 797,
+      "jsFiles": 51,
+      "reloadLoadMs": 84,
+      "switchFirst": 5,
+      "switchBack": 157,
+      "switchCached": 109,
+      "heapStartKB": 5150,
+      "mainMsPerS": 101,
+      "scriptMsPerS": 16,
+      "heapEndKB": 5302,
+      "restPerMin": 83,
+      "duplicates": 0,
+      "duplicateUrls": {},
+      "brokerPerMinRaw": 24,
+      "brokerByClass": {
+        "quote": 1,
+        "chain": 1
+      },
+      "longTasks": 0,
+      "longTaskMs": 0,
+      "longTaskMax": 0,
+      "tickToCell": {
+        "n": 7,
+        "p50": 31,
+        "p95": 41,
+        "max": 41,
+        "samples": [
+          20,
+          30,
+          41,
+          36,
+          31,
+          37,
+          24
+        ]
+      },
+      "topRequests": {
+        "GET /v1/optionchain": 3,
+        "GET /v1/quotes": 2,
+        "GET /v1/positions": 2
+      },
+      "brokerPerMinNet": 24
+    },
+    {
+      "page": "orders",
+      "firstData": 679,
+      "fcp": 104,
+      "jsKB": 765,
+      "cssKB": 797,
+      "jsFiles": 26,
+      "reloadLoadMs": 72,
+      "switchFirst": 44,
+      "switchBack": 109,
+      "switchCached": 28,
+      "heapStartKB": 3231,
+      "mainMsPerS": 19,
+      "scriptMsPerS": 2,
+      "heapEndKB": 3230,
+      "restPerMin": 0,
+      "duplicates": 0,
+      "duplicateUrls": {},
+      "brokerPerMinRaw": 0,
+      "brokerByClass": {},
+      "longTasks": 0,
+      "longTaskMs": 0,
+      "longTaskMax": 0,
+      "tickToCell": {
+        "n": 0,
+        "p50": null,
+        "p95": null,
+        "max": null,
+        "samples": []
+      },
+      "topRequests": {},
+      "brokerPerMinNet": 0
+    },
+    {
+      "page": "futures",
+      "firstData": 498,
+      "fcp": 116,
+      "jsKB": 1096,
+      "cssKB": 797,
+      "jsFiles": 33,
+      "reloadLoadMs": 82,
+      "switchFirst": 55,
+      "switchBack": 331,
+      "switchCached": 27,
+      "heapStartKB": 3428,
+      "mainMsPerS": 17,
+      "scriptMsPerS": 2,
+      "heapEndKB": 3427,
+      "restPerMin": 0,
+      "duplicates": 0,
+      "duplicateUrls": {},
+      "brokerPerMinRaw": 0,
+      "brokerByClass": {},
+      "longTasks": 0,
+      "longTaskMs": 0,
+      "longTaskMax": 0,
+      "tickToCell": {
+        "n": 0,
+        "p50": null,
+        "p95": null,
+        "max": null,
+        "samples": []
+      },
+      "topRequests": {},
+      "brokerPerMinNet": 0
+    }
+  ],
+  "idle": {
+    "seconds": 3,
+    "brokerPerMin": 0,
+    "byClass": {}
+  }
+}
