@@ -4,7 +4,7 @@
 // a short popover per account with a link to API › Rate limits.
 // Pure helpers (budgetView, savedParts) are exported for tests; the DOM code runs only in a browser.
 
-import { h, sheetPopover } from "./app.js";
+import { h, icon, sheetPopover } from "./app.js";
 import { DASH, formatInt } from "./format.js";
 
 /** Tone of a window by how full it is: "ok" below 70 %, "warn" to 90 %, "bad" above. */
@@ -117,38 +117,82 @@ export function mountBudget(host, live) {
   };
 }
 
+/** A one-line plain reading of the fullest window (pure): what the numbers mean for the person, not the numbers. */
+export function headroomText(v) {
+  if (!v.hasBrokers) return "No broker account in use yet.";
+  if (v.backoff) return "The broker asked the Bridge to slow down. Calls wait a moment, then carry on.";
+  const t = heroTone(v);
+  if (t === "bad") return "Almost at the broker's limit this minute. New calls may wait a little.";
+  if (t === "warn") return "Getting busy, still within the broker's limits.";
+  return "Plenty of room. Calls go straight through.";
+}
+
+/**
+ * The hero's tone (pure): the minute window decides, since a one-call-a-second limit is full after any single call and
+ * empties a second later; a broker back-off is always "bad".
+ */
+export const heroTone = (v) => (v.backoff ? "bad" : v.minute ? shareTone(v.minute.used, v.minute.limit) : v.tone);
+
+/** The ring gauge for one window: used / limit, the ring filled to the share and coloured by tone. */
+function ring(label, w) {
+  const R = 26;
+  const C = 2 * Math.PI * R;
+  const share = w && w.limit > 0 ? Math.min(1, w.used / w.limit) : 0;
+  const tone = w ? shareTone(w.used, w.limit) : "ok";
+  const svgEl = svg("svg", { class: "bud-ring-svg", viewBox: "0 0 64 64", "aria-hidden": "true" }, svg("circle", { class: "bud-ring-track", cx: 32, cy: 32, r: R }), svg("circle", { class: "bud-ring-fill", cx: 32, cy: 32, r: R, "stroke-dasharray": Math.round(C * 100) / 100, "stroke-dashoffset": Math.round(C * (1 - share) * 100) / 100 }));
+  return h(
+    "div",
+    { class: `bud-ring ${tone}`, role: "img", "aria-label": `${label}: ${w ? `${formatInt(w.used)} of ${formatInt(w.limit)} calls` : "no limit"}` },
+    h("div", { class: "bud-ring-dial" }, svgEl, h("span", { class: "bud-ring-v" }, h("strong", {}, w ? formatInt(w.used) : DASH), h("small", {}, w ? `of ${formatInt(w.limit)}` : "no limit"))),
+    h("span", { class: "bud-ring-k" }, label),
+  );
+}
+
+const SAVED_TONE = { "Live stream": "green", Cache: "blue", "Shared calls": "purple", Batched: "orange" };
+
 function popContent(msg, v) {
-  const rows = (msg?.accounts ?? []).map((a) =>
+  const accounts = msg?.accounts ?? [];
+  const many = accounts.length > 1;
+  // One row per account: its calls today, and (with several accounts) its own second and minute bars.
+  const rows = accounts.map((a) =>
     h(
       "div",
       { class: "bud-acct" },
-      h("div", { class: "bud-acct-head" }, h("strong", {}, a.accountId), h("span", { class: "muted" }, a.broker), a.backoffMs > 0 ? h("span", { class: "pill bad tiny" }, "Backing off") : null),
-      h(
-        "div",
-        { class: "bud-wins" },
-        winRow("This second", a.second),
-        winRow("This minute", a.minute),
-        h("div", { class: "bud-win" }, h("span", { class: "muted" }, "Today"), h("span", { class: "bud-num" }, `${formatInt(a.callsToday)} calls`)),
-      ),
+      h("div", { class: "bud-acct-head" }, h("strong", {}, a.accountId), h("span", { class: "bud-broker" }, a.broker), a.backoffMs > 0 ? h("span", { class: "pill bad tiny" }, "Backing off") : null, h("span", { class: "bud-today" }, h("strong", { class: "bud-num" }, formatInt(a.callsToday)), " calls today")),
+      many ? h("div", { class: "bud-wins" }, winRow("This second", a.second), winRow("This minute", a.minute)) : null,
     ),
   );
-  const parts = savedParts(msg?.savings);
+  const parts = savedParts(msg?.savings).filter(([, n]) => n > 0);
+  const total = parts.reduce((s, [, n]) => s + n, 0);
+  const split = h("div", { class: "bud-split", "aria-hidden": "true" }, parts.map(([label, n]) => {
+    const seg = h("i", { class: `t-${SAVED_TONE[label] ?? "blue"}` });
+    seg.style.setProperty("--w", `${total > 0 ? (100 * n) / total : 0}%`);
+    return seg;
+  }));
   const jobs = (msg?.jobs ?? []).map((j) => {
-    const bar = h("span", { class: "bud-bar ok", "aria-hidden": "true" }, h("i"));
+    const bar = h("span", { class: `bud-bar ${j.paused ? "paused" : "ok"}`, "aria-hidden": "true" }, h("i"));
     bar.firstChild.style.setProperty("--w", `${j.total > 0 ? Math.min(100, Math.round((j.done / j.total) * 100)) : 0}%`);
-    return h("div", { class: "bud-win bud-job" }, h("span", { class: "muted" }, j.label), bar, h("span", { class: "bud-num" }, jobText(j)));
+    return h(
+      "div",
+      { class: "bud-job" },
+      h("div", { class: "bud-job-head" }, h("span", {}, j.label), j.paused ? h("span", { class: "pill warn tiny" }, "Paused") : null, h("span", { class: "bud-num" }, `${formatInt(j.done ?? 0)} / ${formatInt(j.total ?? 0)}`)),
+      bar,
+      j.paused ? h("small", {}, "Waits while you use the broker, so your own calls always come first.") : null,
+    );
   });
   return [
-    h("div", { class: `bud-stream bud-${v.stream}` }, h("span", { class: "bud-dot", "aria-hidden": "true" }), STREAM_TEXT[v.stream], msg?.stream?.subscriptions ? h("span", { class: "muted" }, `${formatInt(msg.stream.subscriptions)} symbols`) : null),
-    ...rows,
-    jobs.length ? h("div", { class: "bud-jobs" }, jobs) : null,
+    h("div", { class: `bud-hero ${heroTone(v)}` }, h("div", { class: "bud-rings" }, ring("This second", v.second), ring("This minute", v.minute)), h("p", { class: "bud-read" }, headroomText(v))),
+    h("div", { class: `bud-stream bud-${v.stream}` }, h("span", { class: "bud-dot", "aria-hidden": "true" }), h("strong", {}, STREAM_TEXT[v.stream]), msg?.stream?.subscriptions ? h("span", { class: "bud-stream-n" }, `${formatInt(msg.stream.subscriptions)} symbols streaming`) : null),
+    rows.length ? h("div", { class: "bud-accts" }, rows) : null,
+    jobs.length ? h("section", { class: "bud-sec" }, h("h3", {}, "Background work"), jobs) : null,
     h(
-      "div",
-      { class: "bud-saved" },
-      h("div", { class: "bud-saved-head" }, h("span", {}, "Saved today"), h("strong", { class: "bud-num" }, `${formatInt(v.savedToday)} calls`)),
-      h("div", { class: "bud-saved-parts" }, parts.filter(([, n]) => n > 0).map(([label, n]) => h("span", { class: "bud-part" }, h("span", { class: "muted" }, label), h("span", { class: "bud-num" }, formatInt(n))))),
+      "section",
+      { class: "bud-sec bud-saved" },
+      h("div", { class: "bud-saved-head" }, h("h3", {}, "Calls saved today"), h("strong", { class: "bud-big" }, formatInt(v.savedToday))),
+      total ? split : h("small", { class: "bud-none" }, "Nothing saved yet today."),
+      parts.length ? h("div", { class: "bud-legend" }, parts.map(([label, n]) => h("span", { class: `bud-part t-${SAVED_TONE[label] ?? "blue"}` }, h("i", { "aria-hidden": "true" }), h("span", {}, label), h("strong", { class: "bud-num" }, formatInt(n))))) : null,
     ),
-    h("a", { href: "#/api/limits", class: "bud-more" }, "Rate limits and top consumers"),
+    h("a", { href: "#/api/limits", class: "bud-more" }, "Rate limits and top consumers", icon("chevron")),
   ];
 }
 
@@ -219,5 +263,5 @@ function winRow(label, w) {
   const pct = w && w.limit > 0 ? Math.min(100, Math.round((w.used / w.limit) * 100)) : 0;
   const bar = h("span", { class: `bud-bar ${tone}`, "aria-hidden": "true" }, h("i"));
   bar.firstChild.style.setProperty("--w", `${pct}%`);
-  return h("div", { class: "bud-win" }, h("span", { class: "muted" }, label), bar, h("span", { class: "bud-num" }, w ? windowText(w) : DASH));
+  return h("div", { class: "bud-win" }, h("span", { class: "bud-win-k" }, label), bar, h("span", { class: "bud-num" }, w ? windowText(w) : DASH));
 }

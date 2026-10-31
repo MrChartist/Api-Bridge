@@ -108,7 +108,11 @@ export function badgeModel(snapshot, { demo = false, now = Date.now(), failedAt 
   const overall = snapshot.overall ?? "unknown";
   const live = visibleLive(snapshot);
   if (overall === "ready") return out("ready", "ok", "Ready", "Ready");
-  if (overall === "paper_only" || snapshot.paperOnly) return out("paper_only", "", "Paper only", "Paper only");
+  if (overall === "paper_only" || snapshot.paperOnly) {
+    const m = out("paper_only", "info", "Paper trading", "Paper");
+    // The tooltip says what it means: practice orders, nothing reaches a broker.
+    return { ...m, title: "Paper trading: live trading is off, so orders go to the practice account and nothing reaches your broker. Click for details." };
+  }
   if (overall === "cannot_trade") {
     const bad = live.filter((a) => a.state === "cannot_trade");
     const who = bad.length >= 2 ? plural(bad.length, "account") : bad[0]?.brokerName || accountName(bad[0]);
@@ -420,20 +424,49 @@ export function accountBlock(row, { compact = false, plain = false } = {}) {
   );
 }
 
+/**
+ * What the overall state means for the person, in plain words (pure): { tone, glyph, title, text }. The server's own
+ * summary stays as the detail line under it.
+ */
+export function heroModel(snap) {
+  const overall = !snap ? "unknown" : snap.disabled ? "off" : snap.overall === "paper_only" || snap.paperOnly ? "paper_only" : snap.overall ?? "unknown";
+  const first = (snap?.accounts ?? []).flatMap((a) => a.reasons ?? []).find((r) => r.severity === "fail") ?? (snap?.accounts ?? []).flatMap((a) => a.reasons ?? [])[0];
+  switch (overall) {
+    case "ready":
+      return { tone: "ok", glyph: "check", title: "Ready to trade live", text: "Every check passed for your live accounts: session, static IP, limits and the kill switch." };
+    case "paper_only":
+      return { tone: "info", glyph: "orders", title: "Paper trading only", text: "Live trading is off, so every order goes to your practice account. Nothing is sent to a broker and no real money moves. Turn live trading on from Safety when you are ready." };
+    case "warn":
+      return { tone: "warn", glyph: "warn", title: "Check before trading live", text: first?.message ?? "One of the checks needs a look. Orders still go through." };
+    case "cannot_trade":
+      return { tone: "bad", glyph: "stop", title: "Live trading is blocked", text: first?.message ?? "A check fails, so live orders are refused until it is fixed." };
+    case "off":
+      return { tone: "", glyph: "info", title: "Readiness checks are off", text: "The Bridge is not checking live accounts. Turn readiness on in the config to see them here." };
+    default:
+      return { tone: "", glyph: "clock", title: "Checking your accounts", text: "The first reading arrives in a moment." };
+  }
+}
+
 function popoverBody(snap) {
   const rows = rowsModel(snap, { canSeeIp: canSeeIp() });
   const check = h("button", { type: "button", class: "small", onclick: () => checkNow(check).then(() => pop?.close()) }, icon("refresh"), "Check now");
   const stop = h("button", { type: "button", class: "small", onclick: () => afterClose(() => pop?.close(), stopAll) }, icon("stop"), "Stop all orders");
   const open = h("a", { class: "btn small plain", href: "#/safety", onclick: () => pop?.close() }, "Open Safety", icon("chevron"));
   const warning = snap?.notifications?.warning;
+  const hero = heroModel(snap);
   return h(
     "div",
     { class: "rd-pop" },
-    snap ? h("p", { class: "rd-pop-sum" }, h("span", {}, snap.summary ?? ""), h("small", {}, scheduleLine(snap))) : h("p", { class: "rd-pop-sum" }, "Checking…"),
+    h(
+      "section",
+      { class: `rd-hero ${hero.tone}`.trim() },
+      h("span", { class: "rd-hero-ico", "aria-hidden": "true" }, icon(hero.glyph)),
+      h("div", { class: "rd-hero-t" }, h("strong", {}, hero.title), h("p", {}, hero.text), snap ? h("small", {}, scheduleLine(snap)) : null),
+    ),
     state.failedAt ? h("p", { class: "rd-pop-note" }, `The Bridge did not answer; this is the reading from ${istHm(snap?.checkedAt)}.`) : null,
-    rows.length ? rows.map((r) => accountBlock(r, { compact: true })) : h("p", { class: "rd-pop-note" }, "No live account. Paper orders do not need a broker session or a static IP."),
-    warning && !snap?.notifications?.demoOff ? h("p", { class: "rd-pop-note" }, `${warning} `, guide("notifications", "Notifications guide")) : null,
+    rows.length ? h("div", { class: "rd-pop-accts" }, h("h3", { class: "rd-pop-h" }, rows.length === 1 ? "Account checks" : `Account checks · ${formatInt(rows.length)} accounts`), rows.map((r) => accountBlock(hero.tone === "info" ? { ...r, reasons: [], more: 0 } : r, { compact: true }))) : h("p", { class: "rd-pop-note" }, "No live account. Paper orders do not need a broker session or a static IP."),
     h("div", { class: "rd-pop-acts" }, check, stop, open),
+    warning && !snap?.notifications?.demoOff ? h("p", { class: "rd-pop-foot" }, icon("bell"), h("span", {}, "Readiness alerts are not sent anywhere yet. ", guide("notifications", "Set up notifications"))) : null,
   );
 }
 

@@ -832,7 +832,8 @@ async function show(opts) {
   $("toolbar-icon").replaceChildren(pageGlyph(page));
   // The page name only: the tab strip right under it names the tab ("API: Integrations" clipped on phones).
   $("toolbar-label").textContent = page.label;
-  $("page-eyebrow").textContent = page.id === "home" ? IST_DAY.format(new Date()) : page.group;
+  // The date lives in the toolbar clock now; Home has no group, so its eyebrow is empty.
+  $("page-eyebrow").textContent = page.group ?? "";
   $("page-title").replaceChildren(...headline(page));
   $("page-sub").textContent = tab?.sub ?? page.sub;
   $("toolbar-demo").hidden = !app.state.demo;
@@ -1161,21 +1162,103 @@ function setupChrome() {
     sb.append(kbd(mod, "K"));
     sb.addEventListener("click", () => openPalette());
   }
-  // The IST clock in the toolbar (wide screens). It claims nothing about the market being open.
+  // The IST clock in the toolbar (wide screens): today's date and the time. A click opens the market's day: the
+  // session now, today's hours, the next trading day, holidays and expiries ahead (clockPopover).
   const clock = $("clock");
   const IST_CLOCK = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hourCycle: "h23", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  // Each second only the time's text node changes (new nodes every second restyled the toolbar).
+  const IST_SHORT_DAY = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short" });
+  // Each second only the text nodes change (new nodes every second restyled the toolbar).
   let clockText = null;
+  let dayTextNode = null;
+  let clockBtn = null;
   const tick = () => {
     if (!clock || clock.offsetParent === null) return;
-    if (!clockText || clockText.parentNode !== clock) {
+    if (!clockBtn || clockBtn.parentNode !== clock) {
       clockText = document.createTextNode("");
-      clock.replaceChildren(clockText, h("small", {}, "IST"));
+      dayTextNode = document.createTextNode("");
+      clockBtn = h("button", { type: "button", class: "toolbar-clock-btn", "aria-haspopup": "dialog", title: "Today's market: session, holidays and expiries" }, h("span", { class: "clk-day" }, dayTextNode), h("span", { class: "clk-time" }, clockText), h("small", {}, "IST"));
+      clockBtn.addEventListener("click", () => clockPopover(clockBtn));
+      clock.replaceChildren(clockBtn);
+      clock.removeAttribute("aria-hidden");
     }
-    clockText.data = IST_CLOCK.format(new Date());
+    const now = new Date();
+    clockText.data = IST_CLOCK.format(now);
+    dayTextNode.data = IST_SHORT_DAY.format(now);
   };
   tick();
   setInterval(tick, 1000);
+}
+
+/** "2 h 10 min", "45 min", "less than a minute" (pure). */
+export function spanText(ms) {
+  const m = Math.floor(ms / 60_000);
+  if (m < 1) return "less than a minute";
+  const hh = Math.floor(m / 60);
+  return hh ? `${formatInt(hh)} h${m % 60 ? ` ${formatInt(m % 60)} min` : ""}` : `${formatInt(m)} min`;
+}
+
+/**
+ * The market right now (pure): { tone, title, text } from the reference bundle's session (state OPEN, PRE_OPEN, SPECIAL,
+ * HOLIDAY or CLOSED, with open / close "HH:MM" IST) and the IST time of day in minutes.
+ */
+export function marketNow(session, minutesIst, nextTradingDay = null, dayLabel = (d) => d) {
+  const toMin = (t) => (/^\d{2}:\d{2}$/.test(String(t ?? "")) ? Number(t.slice(0, 2)) * 60 + Number(t.slice(3)) : null);
+  const open = toMin(session?.open);
+  const close = toMin(session?.close);
+  const left = (m) => spanText(m * 60_000);
+  const next = nextTradingDay ? ` Next trading day: ${dayLabel(nextTradingDay)}.` : "";
+  switch (session?.state) {
+    case "OPEN":
+      return { tone: "ok", title: "Market open", text: close !== null ? `Closes at ${session.close} IST, in ${left(close - minutesIst)}.` : "Normal trading hours." };
+    case "PRE_OPEN":
+      return { tone: "info", title: "Pre-open session", text: open !== null ? `Normal trading starts at ${session.open} IST, in ${left(open - minutesIst)}.` : "Orders are being collected for the open." };
+    case "SPECIAL":
+      return { tone: "info", title: session.label ?? "Special session", text: close !== null ? `Live until ${session.close} IST.` : "A special session is on." };
+    case "HOLIDAY":
+      return { tone: "warn", title: `Market holiday: ${session.holiday?.label ?? session.label ?? "closed today"}`, text: `No trading today.${next}` };
+    default: {
+      if (open !== null && minutesIst < open) return { tone: "", title: "Market closed", text: `Opens today at ${session.open} IST, in ${left(open - minutesIst)}.` };
+      const weekend = /weekend/i.test(String(session?.label ?? ""));
+      return { tone: "", title: weekend ? "Market closed · weekend" : "Market closed for the day", text: `Normal hours are ${session?.open ?? "09:15"} to ${session?.close ?? "15:30"} IST.${next}` };
+    }
+  }
+}
+
+let clockPop = null;
+/** The clock's popover: the date, the market now, today's hours, next trading day, and holidays and expiries ahead. */
+async function clockPopover(trigger) {
+  const body = h("div", { class: "clk-pop" }, h("p", { class: "muted small" }, "Loading the market calendar…"));
+  clockPop = sheetPopover({ trigger, title: "Today", body, cls: "clk-popover", onClose: () => (clockPop = null) });
+  const ref = await import("./reference.js");
+  const now = Date.now();
+  const today = ref.istDate(now);
+  const until = ref.istDate(now + 21 * 86_400_000);
+  const [nifty, sensex, cal] = await Promise.all([ref.loadReference("NIFTY"), ref.loadReference("SENSEX"), api(`/v1/reference/holidays?from=${today}&to=${until}&exchange=NSE`).catch(() => null)]);
+  if (!body.isConnected) return;
+  const ist = new Date(now + 330 * 60_000);
+  const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  const b = nifty?.session ? nifty : sensex;
+  const ses = b?.session ?? null;
+  const m = marketNow(ses, mins, b?.nextTradingDay, (d) => ref.dayText(d, { weekday: true }));
+  const days = (d) => ref.daysBetween(today, d);
+  const away = (d) => (days(d) === 0 ? "Today" : days(d) === 1 ? "Tomorrow" : `In ${formatInt(days(d))} days`);
+  const hols = (b?.holidays ?? []).filter((x) => days(x.date) >= 0).slice(0, 4);
+  const exps = [nifty, sensex]
+    .flatMap((x) => (x?.expiries ?? []).map((e) => ({ u: x.underlying, ...e })))
+    .filter((e) => days(e.date) >= 0 && days(e.date) <= 14)
+    .sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0))
+    .slice(0, 4);
+  const special = (cal?.data?.data?.specialSessions ?? []).find((s) => days(s.date) >= 0) ?? null;
+  const row = (left, sub, right, cls = "") => h("li", { class: cls }, h("span", { class: "clk-l" }, h("strong", {}, left), sub ? h("small", {}, sub) : null), h("span", { class: "clk-r" }, right));
+  body.replaceChildren(
+    h("div", { class: "clk-date" }, h("strong", {}, IST_DAY.format(new Date(now))), h("small", {}, "India Standard Time")),
+    h("section", { class: `clk-now ${m.tone}`.trim() }, h("span", { class: "clk-now-dot", "aria-hidden": "true" }), h("div", {}, h("strong", {}, m.title), h("p", {}, m.text))),
+    ses?.open ? h("div", { class: "clk-hours" }, ses.preOpen ? h("span", {}, h("small", {}, "Pre-open"), h("strong", {}, ses.preOpen)) : null, h("span", {}, h("small", {}, "Opens"), h("strong", {}, ses.open)), h("span", {}, h("small", {}, "Closes"), h("strong", {}, ses.close))) : null,
+    special ? h("p", { class: "clk-special" }, icon("bolt"), `${special.label ?? "Special session"} on ${ref.dayText(special.date, { weekday: true })}${special.open ? `, ${special.open} to ${special.close} IST` : ""}.`) : null,
+    exps.length ? h("section", { class: "clk-sec" }, h("h3", {}, "Expiries ahead"), h("ul", { class: "clk-list" }, exps.map((e) => row(`${e.u} ${e.kind === "monthly" ? "monthly" : "weekly"}`, `${ref.dayText(e.date, { weekday: true })}${e.shifted ? " · moved for a holiday" : ""}`, away(e.date), e.kind === "monthly" ? "monthly" : "")))) : null,
+    hols.length ? h("section", { class: "clk-sec" }, h("h3", {}, "Holidays ahead"), h("ul", { class: "clk-list" }, hols.map((x) => row(x.label, ref.dayText(x.date, { weekday: true }), away(x.date), "hol")))) : null,
+    h("a", { class: "clk-more", href: "#/calendar", onclick: () => clockPop?.close() }, "Open the market calendar", icon("chevron")),
+  );
 }
 
 /**

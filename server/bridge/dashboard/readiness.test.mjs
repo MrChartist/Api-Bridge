@@ -102,8 +102,9 @@ describe("badgeModel (spec §6.2)", () => {
     expect(badgeModel(snap([mixed], { overall: "cannot_trade" })).text).toBe("Cannot trade: Zerodha · kill switch on");
     expect(badgeModel(snap([account({ state: "cannot_trade", reasons: [] })], { overall: "cannot_trade" })).text).toBe("Cannot trade: Zerodha");
   });
-  it("paper_only → neutral 'Paper only'; unknown → 'Checking…', or 'Not checked since 15:44' when stale", () => {
-    expect(badgeModel(snap([], { overall: "paper_only", paperOnly: true }))).toMatchObject({ cls: "", dot: "none", text: "Paper only" });
+  it("paper_only → blue 'Paper trading' with a tooltip that says what it means; unknown → 'Checking…', or 'Not checked since 15:44' when stale", () => {
+    expect(badgeModel(snap([], { overall: "paper_only", paperOnly: true }))).toMatchObject({ cls: "info", dot: "info", text: "Paper trading", short: "Paper" });
+    expect(badgeModel(snap([], { overall: "paper_only", paperOnly: true })).title).toMatch(/practice account/);
     expect(badgeModel(snap([account({ state: "unknown" })], { overall: "unknown" }))).toMatchObject({ cls: "", text: "Checking…" });
     const stale = account({ state: "unknown", stale: true, checkedAt: "2026-10-28T15:44:02+05:30" });
     expect(badgeModel(snap([stale], { overall: "unknown" }))).toMatchObject({ cls: "", dot: "none", text: "Not checked since 15:44", short: "Not checked" });
@@ -129,7 +130,7 @@ describe("badgeModel (spec §6.2)", () => {
       expect(m.short.length, st).toBeGreaterThan(0);
       expect(m.short.length, st).toBeLessThanOrEqual(m.text.length);
       expect(m.aria.startsWith("Trading readiness: "), st).toBe(true);
-      expect(["ok", "warn", "bad", "none"]).toContain(m.dot);
+      expect(["ok", "warn", "bad", "info", "none"]).toContain(m.dot);
     }
   });
 });
