@@ -878,6 +878,109 @@ export function mountToolbarCtx(page, ...nodes) {
   return true;
 }
 
+/**
+ * The toolbar pickers (underlying, expiry: a transparent native select over a `.ctx-pick` label) open a menu drawn
+ * like the dashboard's popovers instead of the OS list, wherever a mouse or trackpad is used. Touch keeps the native
+ * picker. The select stays the source of truth: a choice sets its value and fires "change", so pages need no wiring.
+ */
+function installCtxPicker() {
+  const fine = () => typeof matchMedia !== "function" || matchMedia("(pointer: fine)").matches;
+  /** @type {{ el: HTMLElement, sel: HTMLSelectElement, label: Element, close: (refocus?: boolean) => void } | null} */
+  let open = null;
+  const pickOf = (t) => {
+    const sel = t?.closest?.(".ctx-pick")?.querySelector("select");
+    return sel && !sel.disabled ? /** @type {HTMLSelectElement} */ (sel) : null;
+  };
+  const show = (sel, viaKeyboard) => {
+    if (open) {
+      const same = open.sel === sel;
+      open.close(false);
+      if (same) return;
+    }
+    const label = sel.closest(".ctx-pick");
+    const items = [...sel.options].map((o) =>
+      h("button", { type: "button", role: "option", class: "ctx-menu-item", "aria-selected": String(o.selected), disabled: o.disabled, "data-value": o.value, tabindex: "-1" },
+        h("span", { class: "ctx-menu-text" }, o.textContent), h("span", { class: "ctx-menu-check", "aria-hidden": "true" })));
+    const el = h("div", { class: "ctx-menu", role: "listbox", "aria-label": sel.getAttribute("aria-label") ?? "" }, items);
+    document.body.append(el);
+    label.classList.add("open");
+    const place = () => {
+      const r = label.getBoundingClientRect();
+      el.style.minWidth = `${Math.max(r.width, 140)}px`;
+      const w = el.offsetWidth;
+      el.style.left = `${Math.max(8, Math.min(r.left, innerWidth - w - 8))}px`;
+      el.style.top = `${r.bottom + 6}px`;
+      el.style.maxHeight = `${Math.max(160, innerHeight - r.bottom - 18)}px`;
+    };
+    place();
+    const focusAt = (i) => {
+      const live = items.filter((b) => !b.disabled);
+      if (!live.length) return;
+      const b = live[(i + live.length) % live.length];
+      b.focus({ preventScroll: true });
+      b.scrollIntoView({ block: "nearest" });
+    };
+    const current = items.find((b) => b.getAttribute("aria-selected") === "true");
+    current?.scrollIntoView({ block: "center" });
+    if (viaKeyboard) focusAt(Math.max(0, items.filter((b) => !b.disabled).indexOf(current)));
+    const outside = (e) => { if (!el.contains(e.target) && !label.contains(e.target)) close(false); };
+    const onScroll = (e) => { if (!el.contains(e.target)) close(false); };
+    const onHash = () => close(false);
+    function close(refocus) {
+      if (open?.el !== el) return;
+      open = null;
+      el.remove();
+      label.classList.remove("open");
+      document.removeEventListener("pointerdown", outside, true);
+      removeEventListener("scroll", onScroll, true);
+      removeEventListener("resize", onHash);
+      removeEventListener("hashchange", onHash);
+      if (refocus) sel.focus({ preventScroll: true });
+    }
+    const choose = (b, refocus) => {
+      close(refocus);
+      if (sel.value === b.dataset.value) return;
+      sel.value = b.dataset.value;
+      sel.dispatchEvent(new Event("input", { bubbles: true }));
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+    el.addEventListener("click", (e) => {
+      const b = /** @type {Element} */ (e.target).closest?.(".ctx-menu-item");
+      if (b && !(/** @type {HTMLButtonElement} */ (b).disabled)) choose(b, false);
+    });
+    el.addEventListener("keydown", (e) => {
+      const live = items.filter((b) => !b.disabled);
+      const i = live.indexOf(/** @type {HTMLButtonElement} */ (document.activeElement));
+      if (e.key === "ArrowDown") focusAt(i + 1);
+      else if (e.key === "ArrowUp") focusAt(i < 0 ? -1 : i - 1);
+      else if (e.key === "Home") focusAt(0);
+      else if (e.key === "End") focusAt(-1);
+      else if (e.key === "Escape" || e.key === "Tab") close(true);
+      else if ((e.key === "Enter" || e.key === " ") && i >= 0) choose(live[i], true);
+      else return;
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    setTimeout(() => open?.el === el && document.addEventListener("pointerdown", outside, true));
+    addEventListener("scroll", onScroll, true);
+    addEventListener("resize", onHash);
+    addEventListener("hashchange", onHash);
+    open = { el, sel, label, close };
+  };
+  document.addEventListener("pointerdown", (e) => {
+    const sel = e.button === 0 && fine() ? pickOf(e.target) : null;
+    if (!sel) return;
+    e.preventDefault(); // no OS list, and no focus ring for a mouse press
+    show(sel, false);
+  }, true);
+  document.addEventListener("keydown", (e) => {
+    const sel = fine() && /** @type {Element} */ (e.target)?.matches?.(".ctx-pick select") ? pickOf(e.target) : null;
+    if (!sel || !(e.key === "Enter" || e.key === " " || (e.key === "ArrowDown" && e.altKey) || e.key === "F4")) return;
+    e.preventDefault();
+    show(sel, true);
+  }, true);
+}
+
 /** The one demo indicator's explanation (the toolbar's "Demo" and the phone ⋯ badge). */
 export const DEMO_EXPLAINER = "Sample prices generated on this computer. Not live market data. Orders are paper only.";
 
@@ -1658,6 +1761,7 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
   if (typeof matchMedia === "function") matchMedia("(pointer: fine)").addEventListener?.("change", relayout);
   // Motion: page / sidebar entrances on navigation (a button press is CSS: app.css 8a).
   installAutoAnimations();
+  installCtxPicker();
   // Appearance buttons (the sidebar's and the More sheet's) and "Forget key", wherever they are drawn.
   document.addEventListener("click", (e) => {
     const t = /** @type {Element} */ (e.target);
