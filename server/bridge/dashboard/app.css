@@ -10078,6 +10078,10 @@ button.bk-chip[data-side="SELL"][aria-pressed="true"]::before { background: hsl(
 .lc-wick[data-dir="down"] { stroke: hsl(var(--neg)); }
 .lc-vol[data-dir="up"] { fill: hsl(var(--pos) / 0.28); }
 .lc-vol[data-dir="down"] { fill: hsl(var(--neg) / 0.28); }
+/* Chart types (chart-pro.js): hollow candles draw rising bodies as outlines; bars are strokes only. */
+.lc-candles[data-style="hollow"] .lc-body[data-dir="up"] { fill: hsl(var(--card)); stroke: hsl(var(--pos)); }
+.lc-ohlc { fill: none; }
+.lc-nogrid :is(.lc-grid, .lc-vgrid) { display: none; }
 
 /* Series. */
 .lc-line { fill: none; stroke: var(--lc-c); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
@@ -10162,6 +10166,167 @@ dialog.sheet.lc-chart-sheet { height: 100dvh; max-height: 100dvh; border-radius:
   .oi-tslot, .pt-slot-wrap .lc-slot, .pos-slot .lc-slot, .vol-history .lc-slot { --lc-h: 190px; }
   .arb-chart .lc-slot, .scr-slot, .cs-body .lc-slot { --lc-h: 170px; }
   .scr-slot, .cs-body .lc-slot { padding: 0; }
+}
+
+/* ───────────────────────── Chart tools (chart-pro.js): header, crosshair, menus, drawings, indicators ─────────────────────────
+   Calm by default: one header line (name, interval, the hovered candle's OHLC and change in its direction colour), capsule
+   controls on the right; the drawing bar, the + on the price axis and the legend's buttons appear only when needed.
+   Floating panels sit in the top layer (popover) and are placed by --pop-x / --pop-y. Colours from tokens only. */
+.lcp .lc-tools { display: block; margin: 0 0 6px; }
+.lcp-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; min-width: 0; }
+.lcp-id { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; min-width: 0; }
+.lcp-title { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.lcp-name { font: 600 14px/1.2 var(--font-body); color: hsl(var(--foreground)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 28ch; }
+.lcp-iv { font: 500 12px/1.2 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
+.lcp-ohlc { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 5px; font: 500 12px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.lcp-k { color: hsl(var(--foreground) / var(--a-quiet)); }
+.lcp-v { color: hsl(var(--foreground) / var(--a-label)); margin-right: 4px; }
+.lcp-v[data-dir="up"] { color: hsl(var(--pos-ink)); }
+.lcp-v[data-dir="down"] { color: hsl(var(--neg-ink)); }
+.lcp-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+.lcp-ranges { display: flex; gap: 2px; padding: 2px; border-radius: 999px; background: var(--mat-fill-1); }
+.lcp-ranges[hidden] { display: none; }
+.lcp-ranges button.chip-btn { min-height: 26px; padding: 0 8px; box-shadow: none; border-radius: 999px; color: hsl(var(--foreground) / var(--a-label)); }
+button.lcp-btn { --btn-h: 30px; --btn-px: 10px; --btn-fs: 12.5px; --btn-ic: 15px; gap: 5px; }
+button.lcp-btn.lcp-icon { width: 30px; padding: 0; }
+button.chip-btn.lcp-btn { min-height: 30px; border-radius: 999px; }
+.lcp-btn[hidden] { display: none; }
+.lcp-glyph { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+@container (max-width: 560px) {
+  .lcp-ranges { display: none; }
+  .lcp-ind-text { display: none; }
+}
+.lcp { container-type: inline-size; }
+
+/* The plot: crosshair cursor, panning and placing states. */
+.lcp-plot { cursor: crosshair; outline: none; }
+.lcp-plot:focus-visible { box-shadow: inset 0 0 0 2px hsl(var(--foreground) / 0.35); border-radius: 6px; }
+.lcp-plot.lcp-panning { cursor: grabbing; }
+.lcp-plot.lcp-over-drawing { cursor: pointer; }
+.lcp-over { position: absolute; inset: 0; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.lcp-cross { stroke: hsl(var(--foreground) / 0.42); stroke-width: 1; stroke-dasharray: 3 3; fill: none; pointer-events: none; }
+.lcp-tag rect { fill: hsl(var(--foreground) / 0.86); }
+.lc-svg .lcp-tag text { font-weight: 600; fill: hsl(var(--background)); }
+.lcp-crossg, .lcp-last, .lcp-measure, .lcp-drawings text { pointer-events: none; }
+.lcp-last line { stroke-width: 1; stroke-dasharray: 1 3; fill: none; }
+.lcp-last[data-dir="up"] line { stroke: hsl(var(--pos) / 0.7); }
+.lcp-last[data-dir="down"] line { stroke: hsl(var(--neg) / 0.7); }
+.lcp-last[data-dir="up"] rect { fill: hsl(var(--pos)); }
+.lcp-last[data-dir="down"] rect { fill: hsl(var(--neg)); }
+.lc-svg .lcp-last text { font-weight: 600; fill: hsl(var(--btn-trade-fg)); }
+
+/* Drawings: one tone each (--lc-c from the .lc-svg tone rules), handles when selected. */
+.lcp-d { --lc-c: hsl(var(--dv-today)); }
+.lcp-dl { stroke: var(--lc-c); stroke-width: 1.5; fill: none; stroke-linecap: round; }
+.lcp-d[data-dash] .lcp-dl { stroke-dasharray: 6 4; }
+.lcp-d[data-sel] .lcp-dl { stroke-width: 2; }
+.lcp-dthin { stroke-width: 1; stroke-dasharray: 2 3; }
+.lcp-dfill { fill: color-mix(in srgb, var(--lc-c) 12%, transparent); }
+rect.lcp-dfill.lcp-dl { stroke-width: 1.25; }
+.lc-svg .lcp-dt { font-weight: 500; fill: var(--lc-ink, hsl(var(--foreground) / var(--a-label))); }
+.lc-svg .lcp-dt[data-tone="pos"] { fill: hsl(var(--pos-ink)); }
+.lc-svg .lcp-dt[data-tone="neg"] { fill: hsl(var(--neg-ink)); }
+.lc-svg .lcp-dt-strong { font-weight: 600; fill: hsl(var(--foreground)); }
+.lc-svg .lcp-dtext { font: 600 13px/1 var(--font-body); fill: var(--lc-c); }
+.lcp-zone { stroke: none; }
+.lcp-zone[data-tone="pos"] { fill: hsl(var(--pos) / 0.16); }
+.lcp-zone[data-tone="neg"] { fill: hsl(var(--neg) / 0.16); }
+.lcp-zone[data-tone="spot"] { fill: hsl(var(--foreground) / 0.08); }
+.lcp-entry { stroke: hsl(var(--foreground) / 0.7); stroke-width: 1.25; }
+.lcp-handle { fill: hsl(var(--card)); stroke: var(--lc-c); stroke-width: 2; }
+.lcp-mtag rect { fill: hsl(var(--foreground) / 0.86); }
+.lcp-mtag[data-tone="pos"] rect { fill: hsl(var(--pos)); }
+.lcp-mtag[data-tone="neg"] rect { fill: hsl(var(--neg)); }
+.lc-svg .lcp-mtag text { font-weight: 600; fill: hsl(var(--btn-trade-fg)); }
+
+/* The + on the price axis. */
+.lcp-plus { position: absolute; left: 0; top: 0; translate: var(--px, 0) var(--py, 0); --btn-h: 20px; width: 20px; min-height: 20px; height: 20px; padding: 0; z-index: var(--z-raised); font: 600 14px/1 var(--font-body); }
+.lcp-plus[hidden] { display: none; }
+
+/* The drawing bar (a vertical glass capsule at the plot's left) and a drawing's own bar. */
+.lcp-toolbar { position: absolute; left: 6px; top: 6px; z-index: var(--z-raised); display: flex; flex-direction: column; gap: 2px; padding: 4px; border-radius: 16px; background: var(--mat-glass); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: var(--edge-1), var(--shadow-2); max-height: calc(100% - 12px); overflow: auto; scrollbar-width: none; }
+.lcp-toolbar[hidden], .lcp-mini[hidden], .lcp-hint[hidden], .lcp-legend[hidden] { display: none; }
+button.lcp-tool { --btn-h: 30px; --btn-ic: 16px; width: 30px; min-height: 30px; padding: 0; border-radius: 10px; box-shadow: none; color: hsl(var(--foreground) / 0.85); }
+.lcp-tsep { height: 1px; margin: 2px 4px; background: var(--mat-separator); }
+.lcp-mini { position: absolute; left: 0; top: 0; translate: var(--mx, 0) var(--my, 0); z-index: var(--z-raised); display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 999px; background: var(--mat-glass); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: var(--edge-1), var(--shadow-2); }
+.lcp-swatches { display: flex; gap: 2px; }
+.lcp-swatch { --btn-h: 26px; width: 26px; min-height: 26px; padding: 0; border-radius: 999px; }
+.lcp-swatch::after { content: ""; width: 12px; height: 12px; border-radius: 999px; background: var(--sw, hsl(var(--foreground))); }
+.lcp-swatch[data-tone="call"] { --sw: hsl(var(--dv-call)); }
+.lcp-swatch[data-tone="put"] { --sw: hsl(var(--dv-put)); }
+.lcp-swatch[data-tone="iv"] { --sw: hsl(var(--dv-iv)); }
+.lcp-swatch[data-tone="warn"] { --sw: hsl(var(--warn)); }
+.lcp-swatch[data-tone="today"] { --sw: hsl(var(--dv-today)); }
+.lcp-swatch[data-tone="pos"] { --sw: hsl(var(--pos)); }
+.lcp-swatch[data-tone="neg"] { --sw: hsl(var(--neg)); }
+.lcp-swatch[data-tone="hv"] { --sw: var(--dv-hv); }
+.lcp-qty { display: inline-flex; align-items: center; gap: 4px; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.lcp-qty input { width: 64px; min-height: 26px; padding: 0 6px; font: 500 12.5px/1 var(--font-numeric); }
+.lcp-hint { position: absolute; left: 50%; bottom: 30px; translate: -50% 0; margin: 0; padding: 5px 12px; border-radius: 999px; z-index: var(--z-raised); pointer-events: none; font: 500 12px/1.2 var(--font-body); color: hsl(var(--background)); background: hsl(var(--foreground) / 0.82); }
+
+/* The legend: one row per indicator over the plot's top left; its buttons show on hover or focus. */
+.lcp-legend { position: absolute; left: 8px; top: 6px; z-index: var(--z-pinned); display: flex; flex-direction: column; align-items: flex-start; gap: 1px; max-width: calc(100% - 90px); pointer-events: none; }
+.lcp-toolbar:not([hidden]) ~ .lcp-legend, .lcp-plot:has(.lcp-toolbar:not([hidden])) .lcp-legend { left: 48px; }
+.lcp-lrow { display: flex; align-items: center; gap: 6px; min-height: 22px; padding: 0 4px; border-radius: 8px; pointer-events: auto; font: 500 12px/1.2 var(--font-numeric); background: color-mix(in srgb, hsl(var(--card)) 72%, transparent); }
+.lcp-lrow[data-hidden] { opacity: 0.5; }
+button.lcp-lname { --btn-h: 22px; min-height: 22px; padding: 0 2px; font: 600 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.lcp-lvals { color: hsl(var(--foreground)); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lcp-lnote { color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; }
+.lcp-lacts { display: none; gap: 0; }
+.lcp-lrow:is(:hover, :focus-within) .lcp-lacts { display: inline-flex; }
+button.lcp-lbtn { --btn-h: 22px; --btn-ic: 14px; width: 22px; min-height: 22px; padding: 0; color: hsl(var(--foreground) / var(--a-label)); }
+
+/* Floating panels: menus, the library, a study's settings, small confirms. */
+.lcp-pop { position: fixed; inset: auto; left: var(--pop-x, 16px); top: var(--pop-y, 16px); margin: 0; padding: 0; border: 0; z-index: var(--z-popover); max-width: calc(100vw - 16px); max-height: min(70vh, 560px); overflow: auto; overscroll-behavior: contain; border-radius: var(--r-pop); color: hsl(var(--foreground)); background: var(--surface-raised); box-shadow: var(--edge-1), var(--shadow-3); animation: dv-pop-in var(--dur-2) var(--ease-std); }
+.lcp-pop:popover-open { display: block; }
+.lcp-menu { display: flex; flex-direction: column; min-width: 220px; padding: 6px; }
+button.lcp-menu-item { --btn-h: 34px; --btn-fs: 13px; justify-content: flex-start; gap: 8px; width: 100%; padding: 0 10px; border-radius: 8px; font-weight: 500; background: transparent; box-shadow: none; color: hsl(var(--foreground)); }
+button.lcp-menu-item[data-tone="pos"] { color: hsl(var(--pos-ink)); font-weight: 600; }
+button.lcp-menu-item[data-tone="neg"] { color: hsl(var(--neg-ink)); font-weight: 600; }
+@media (hover: hover) and (pointer: fine) {
+  button.lcp-menu-item:hover:not(:disabled) { background: var(--mat-fill-1); }
+}
+.lcp-menu-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.lcp-check { display: inline-flex; width: 16px; flex: none; }
+.lcp-kbd { font: 500 12px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
+.lcp-menu-head { margin: 6px 10px 2px; font: 600 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.lcp-sep { height: 1px; margin: 4px 8px; background: var(--mat-separator); }
+.lcp-pop-lib { width: min(400px, calc(100vw - 16px)); }
+.lcp-lib { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+.lcp-lib-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.lcp-lib-head h3 { margin: 0; font: 600 15px/1.2 var(--font-heading); }
+.lcp-sub { margin: 0; font: 400 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.lcp-pad { padding: 8px 10px; }
+.lcp-search { width: 100%; }
+.lcp-lib-list { display: flex; flex-direction: column; max-height: min(52vh, 420px); overflow: auto; overscroll-behavior: contain; }
+.lcp-lib-id { font: 500 12px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
+.lcp-tag-chip { padding: 2px 7px; border-radius: 999px; font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-2); }
+.lcp-lib-on { display: flex; align-items: center; gap: 4px; min-height: 30px; padding: 0 4px 0 10px; font: 600 12.5px/1 var(--font-numeric); }
+.lcp-lib-on > span { flex: 1 1 auto; }
+.lcp-pop-settings, .lcp-pop:not(.lcp-pop-menu):not(.lcp-pop-lib) { width: min(340px, calc(100vw - 16px)); }
+.lcp-settings { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+.lcp-form { display: flex; flex-direction: column; gap: 8px; }
+.lcp-form[hidden] { display: none; }
+.lcp-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; font: 500 13px/1.2 var(--font-body); }
+.lcp-field input, .lcp-field select { width: 140px; }
+.lcp-seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.lcp-seg button.chip-btn { min-height: 30px; padding: 0 12px; border-radius: 999px; font-size: 12.5px; }
+/* The alert's crossing: Upward in the gain colour and Downward in the loss colour, chosen or not (house rule). */
+button.lcp-dirbtn { --btn-h: 30px; --btn-px: 12px; --btn-fs: 12.5px; }
+button.lcp-dirbtn[data-dir="up"] { --btn-fg: hsl(var(--pos-ink)); }
+button.lcp-dirbtn[data-dir="down"] { --btn-fg: hsl(var(--neg-ink)); }
+button.lcp-dirbtn[data-on] { --btn-bg: hsl(var(--sel-bg)); --btn-fg: hsl(var(--sel-fg)); }
+button.lcp-dirbtn[data-on][data-dir="up"] { --btn-bg: hsl(var(--btn-buy)); --btn-fg: hsl(var(--btn-trade-fg)); }
+button.lcp-dirbtn[data-on][data-dir="down"] { --btn-bg: hsl(var(--btn-sell)); --btn-fg: hsl(var(--btn-trade-fg)); }
+.lcp-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.lcp-actions:has(> :only-child) { justify-content: flex-end; }
+@media (prefers-reduced-motion: reduce) {
+  .lcp-pop { animation: none; }
+}
+@media (pointer: coarse) {
+  button.lcp-btn, button.lcp-tool, .lcp-ranges button.chip-btn, button.lcp-menu-item, .lcp-seg button.chip-btn { min-height: 44px; }
+  button.lcp-btn.lcp-icon, button.lcp-tool { width: 44px; }
+  .lcp-swatch { width: 36px; min-height: 36px; }
 }
 
 /* ───────────────────────── Market pulse (pulse.js): movers, technicals, headlines, depth ladder ─────────────────────────

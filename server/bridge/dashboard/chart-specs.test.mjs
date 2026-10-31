@@ -277,24 +277,31 @@ describe("indicators: studies from the ChartistScript core", () => {
     expect(S.studyList(null)).toEqual([]);
     expect(S.studyRequest({ symbol: "NSE:NIFTY", bars: 120, ids: ["rsi"] })).toEqual({ symbol: "NSE:NIFTY", interval: "1d", countback: 120, studies: [{ id: "rsi" }] });
   });
-  it("the chain sheet says when it shows daily candles for indicators", () => {
-    expect(S.contractSpec({ name: "X", candles: [candle(1, 1)], daily: true })).toMatchObject({ label: "X: daily candles" });
-    expect(S.contractSpec({ name: "X", candles: [candle(1, 1)], daily: true }).note).toMatch(/indicators/);
+  it("names the contract chart's interval in its label (the chart's header shows it too, so no note)", () => {
+    expect(S.contractSpec({ name: "X", candles: [candle(1, 1)], daily: true })).toMatchObject({ label: "X: daily candles", note: "" });
+    expect(S.contractSpec({ name: "X", candles: [candle(1, 1)], interval: "15m" }).label).toBe("X: 15-minute candles");
   });
-  it("reads no studies until one is on: the catalogue loads on the picker's first open, compute only with ids", () => {
-    const src = readFileSync(new URL("./chart-lite.js", import.meta.url), "utf8");
+  it("reads no Bridge studies until one is on: the catalogue loads on the library's first open, compute only with one on", () => {
+    const src = readFileSync(new URL("./chart-pro.js", import.meta.url), "utf8");
     expect(src).toMatch(/const loadCatalogue = \(\) => \(catalogue \?\?=/);
-    expect(src).toMatch(/if \(!ids\.length \|\| !candles\?\.data\?\.length \|\| !symbol\) return spec;/);
+    expect(src).toMatch(/if \(!on\.length \|\| !symbol \|\| !daily \|\| !candles\.length\) \{/);
   });
 });
 
 describe("house rules", () => {
   it("chart modules are served, format numbers only through format.js and set no inline styles", () => {
-    for (const f of ["chart-lite.js", "chart-lite-core.js", "chart-specs.js"]) {
+    for (const f of ["chart-lite.js", "chart-lite-core.js", "chart-specs.js", "chart-pro-core.js"]) {
       const src = readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
       expect(src, f).not.toMatch(/Intl\.NumberFormat|\.toLocaleString\(|toFixed\(|innerHTML|setAttribute\(\s*["']style|\.style\./);
       expect(src.match(/https?:\/\//g) ?? [], f).toEqual([]);
     }
+    // The tools place their floating parts with custom properties only (--pop-x, --px, --mx), never a style of their
+    // own; their icons are static strings.
+    const pro = readFileSync(new URL("./chart-pro.js", import.meta.url), "utf8");
+    expect(pro).not.toMatch(/Intl\.NumberFormat|\.toLocaleString\(|toFixed\(|setAttribute\(\s*["']style/);
+    expect(pro.match(/\.style\.(?!setProperty\("--)/g) ?? []).toEqual([]);
+    expect(pro.match(/innerHTML = (?!GLYPH\[name\])/g) ?? []).toEqual([]);
+    expect(pro.match(/https?:\/\//g) ?? []).toEqual([]);
   });
   it("the chart modal is wide on a desktop and the whole screen on a phone, its plot filling the room left", () => {
     const css = readFileSync(new URL("./app.css", import.meta.url), "utf8");

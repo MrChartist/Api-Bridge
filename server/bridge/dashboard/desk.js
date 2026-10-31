@@ -1458,9 +1458,10 @@ async function renderDesk(kind) {
         }
         return { x, row, q, position, name: contractName(st.underlying, x?.c.expiry ?? st.expiry, k, right), canTrade: Boolean(st.account), paused: !st.live, warnings };
       },
-      onTrade: (k, sd, tradeSide) => {
+      // `price`: from the contract chart's menu (buy or sell at a price): the ticket opens with that limit price.
+      onTrade: (k, sd, tradeSide, price = null) => {
         const row = st.chain?.rows.find((r) => r.strike === k);
-        if (row) openTicket({ row, right: sd === "ce" ? "CE" : "PE", side: tradeSide });
+        if (row) openTicket({ row, right: sd === "ce" ? "CE" : "PE", side: tradeSide, price });
       },
       onLeg: (k, sd, legSide) => addLeg({ right: sd === "ce" ? "CE" : "PE", strike: k, side: legSide }),
       onExit: (p) => exitPosition(p),

@@ -134,15 +134,16 @@ export function shortcutRegistry({ mod = "Ctrl", pages = [], goKeys = [], have =
   add("Lists and search", ["↑", "↓"], "Move through results");
   add("Lists and search", ["↵"], "Open the selected result");
   // Workspaces (views.js / palette.js, merged into the base): Shift+1…Shift+6 and the Scalper layout.
-  add("Workspaces", ["⇧1–⇧6"], "Switch workspace: Scalper, Options Trader, Stocks, Options Seller, Market Watch, Custom");
+  add("Workspaces", ["⇧1–⇧6"], "Switch workspace: Scalper, Options Trader, Stocks, Options Seller, Market Watch, the list of all workspaces");
   add("Workspaces", ["Ctrl Alt L"], "Scalper layout: the index with its call and put, side by side or stacked");
-  // Work in progress elsewhere: shown as coming until their own keys exist (`have` says which already do).
-  if (!have.chartKeys) {
-    add("Charts", ["Alt T"], "Trend line", { coming: true });
-    add("Charts", ["Alt H"], "Horizontal line", { coming: true });
-    add("Charts", ["Alt F"], "Fibonacci retracement", { coming: true });
-    add("Charts", ["/"], "Add an indicator (on a focused chart)", { coming: true });
-  }
+  // Charts (chart-pro.js): drawing hotkeys and the indicator library on a hovered or focused chart.
+  add("Charts", ["Alt T"], "Trend line");
+  add("Charts", ["Alt H"], "Horizontal line");
+  add("Charts", ["Alt F"], "Fibonacci retracement");
+  add("Charts", ["/"], "Add an indicator (on a hovered or focused chart; elsewhere / opens search)");
+  add("Charts", ["Esc"], "Cancel the drawing in progress");
+  add("Charts", ["Delete"], "Remove the selected drawing");
+  add("Charts", ["+", "−"], "Zoom in / out (a focused chart)");
   return out;
 }
 

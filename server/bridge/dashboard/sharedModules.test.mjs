@@ -26,6 +26,7 @@ export const SHARED_MODULES = Object.freeze({
   "guard-core.js": "P1-12a",
   "book-core.js": "P1-13b",
   "chart-lite-core.js": "chart-lite",
+  "chart-pro-core.js": "chart-pro",
 });
 
 /** ts-chart.js draws SVG, so it may use the DOM; it still may not fetch or read the clock. */

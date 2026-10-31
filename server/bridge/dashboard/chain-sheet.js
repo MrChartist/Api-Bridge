@@ -130,9 +130,14 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
   // The contract's 5-minute candles (GET /v1/history), reloaded when CE / PE switches the contract; every 60 s while open.
   // With indicators on, daily candles (studies read one candle per session).
   let chartSym = null;
-  const chartSlotEl = chartSlot("Price chart of this contract", { id: "contract", refreshMs: 60_000, expand: true, studies: { symbol: () => chartSym } });
-  const loadContract = (sym, name) => async ({ studies }) =>
-    contractSpec({ name, daily: studies, candles: candlesOf((await bridgeApi(`/v1/history?symbol=${encodeURIComponent(sym)}&interval=${studies ? "1d" : "5m"}&countback=${studies ? 120 : 150}`)).data?.data) });
+  // The chart's menu (right-click, the + on its price axis) opens this sheet's own order ticket at a price.
+  const chartSlotEl = chartSlot("Price chart of this contract", { id: "contract", refreshMs: 60_000, expand: true, symbol: () => chartSym, trade: (side, price) => !closed && onTrade(strike, s, side, price) });
+  // The interval the chart's header picked (else 5-minute candles; daily while a daily-only indicator is on).
+  const loadContract = (sym, name) => async ({ studies, interval }) => {
+    const iv = interval ?? (studies ? "1d" : "5m");
+    const daily = iv === "1d";
+    return { ...contractSpec({ name, daily, candles: candlesOf((await bridgeApi(`/v1/history?symbol=${encodeURIComponent(sym)}&interval=${iv}&countback=${daily ? 250 : 600}`)).data?.data), interval: iv }), interval: iv };
+  };
   const grid = h("div", { class: "cs-groups" });
   const warns = h("ul", { class: "ticket-checks cs-warns", "aria-label": "Before you trade", hidden: true });
   const grab = h("div", { class: "cs-grab", "aria-hidden": "true" });

@@ -40,10 +40,10 @@ describe("shortcut registry", () => {
     expect(shortcutRegistry({ mod: "⌘" }).find((e) => e.what === "Search pages and actions").keys).toEqual(["⌘ K"]);
     expect(shortcutRegistry({ mod: "⌘" }).find((e) => e.what === "Save this strategy").keys).toEqual(["⌘ S"]);
   });
-  it("marks work in progress as coming, and drops it once present", () => {
-    expect(reg.filter((e) => e.coming).map((e) => e.group)).toEqual(["Charts", "Charts", "Charts", "Charts"]);
+  it("lists the chart and workspace keys as real", () => {
+    expect(reg.some((e) => e.coming)).toBe(false);
+    expect(reg.filter((e) => e.group === "Charts").map((e) => e.keys[0]).slice(0, 4)).toEqual(["Alt T", "Alt H", "Alt F", "/"]);
     expect(reg.filter((e) => e.group === "Workspaces").map((e) => e.keys[0])).toEqual(["⇧1–⇧6", "Ctrl Alt L"]);
-    expect(shortcutRegistry({ have: { chartKeys: true } }).some((e) => e.coming)).toBe(false);
   });
   it("matches the positions page's own key list", () => {
     const src = readFileSync(new URL("./positions.js", import.meta.url), "utf8");
