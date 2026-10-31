@@ -10,6 +10,8 @@ import { BANNED_WORDS, checkCopy, checkFiles, checkSource, findBanned, scanJs } 
 /** file -> allowlist (strings or RegExps that name an order side). */
 const NEUTRAL_COPY_FILES = Object.freeze({
   "format.js": [],
+  "chain-metrics.js": [],
+  "chain-facts.js": [],
   "flows.js": ["SELL"], // ticketRisk compares the order side
   "oi-store.js": [],
   "viz.js": [],

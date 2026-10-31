@@ -94,6 +94,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "format.js": "text/javascript; charset=utf-8",
   "options.js": "text/javascript; charset=utf-8",
   "chain-metrics.js": "text/javascript; charset=utf-8",
+  "chain-facts.js": "text/javascript; charset=utf-8",
   "events.js": "text/javascript; charset=utf-8",
   "scanner.js": "text/javascript; charset=utf-8",
   "scan-builder.js": "text/javascript; charset=utf-8",

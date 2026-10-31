@@ -14,6 +14,7 @@ import { oiStore, snapKey } from "./oi-store.js";
 import { createBuilder } from "./strategy.js";
 import * as O from "./options.js";
 import * as M from "./chain-metrics.js";
+import * as CF from "./chain-facts.js";
 import { createPositionsPage } from "./positions.js";
 import { cap, every, segField, segmented, stopTimer } from "./views.js";
 import { wideExtras } from "./layout-prefs.js";
@@ -1052,14 +1053,38 @@ async function renderDesk(kind) {
       edgeRef,
       windowed: Boolean(w?.ref),
       // Build-up over the window reads the price change over the same window.
-      winQ: w?.ref ? (q) => q && { change: q.winChange, oiChange: q.oiChange } : (q) => q,
+      winQ: w?.ref ? (q) => q && { ltp: q.ltp, oi: q.oi, change: q.winChange, oiChange: q.oiChange, close: null } : (q) => q,
+      // The build-up rule's floors: the day's, or the 15 min ones over a recorded window.
+      buWin: w?.ref ? "15" : "day",
       // Rho, Theoretical price and the annualised yields: calendar years to expiry (interest) and the discount factor.
       tcal,
       df: growth > 0 ? 1 / growth : 1,
-      // 5 / 15 min build-up: the reference snapshots, found once per refresh (only while a column needs them).
-      bu5: w?.snaps && st.cfg.cols.includes("bu5") ? M.windowRef(w.snaps, w.now, 5) : null,
-      bu15: w?.snaps && st.cfg.cols.includes("bu15") ? M.windowRef(w.snaps, w.now, 15) : null,
+      // 5 / 15 min build-up: the baseline snapshots, found once per refresh (only while a column needs them).
+      ...minuteRefs(w, c.rows),
+      // The build-up meter's scale: the largest |OI change| on each side (each window has its own).
+      maxChg: { ce: c.rows.reduce((m, r) => Math.max(m, Math.abs(num(r.ce?.oiChange) ?? 0)), 0), pe: c.rows.reduce((m, r) => Math.max(m, Math.abs(num(r.pe?.oiChange) ?? 0)), 0) },
     };
+  }
+  /** The 5 / 15 min build-up baselines (chain-metrics.js windowRef). "Now" is this device's clock while the session is
+   *  live (or the demo runs); otherwise the last snapshot recorded, so the windows read the last minutes of trading. */
+  function minuteRefs(w, rows) {
+    const want5 = st.cfg.cols.includes("bu5");
+    const want15 = st.cfg.cols.includes("bu15");
+    if (!w || (!want5 && !want15)) return { bu5: null, bu15: null };
+    const snaps = w.snaps ?? [];
+    const live = Boolean(app.state.demo) || (O.marketSession(w.now, refSession(st.ref), { isTradingDay: refCalendar(st.ref).isTradingDay }).phase === "open" && !st.freshness?.stale);
+    const now = live ? w.now : snaps.reduce((m, s) => (Number.isFinite(s?.t) ? Math.max(m, s.t) : m), -Infinity);
+    // Each window's meter scale: the largest |OI change| over that window on each side, once per refresh.
+    const withMax = (ref) => {
+      if (ref.state !== "ok") return ref;
+      const max = { ce: 0, pe: 0 };
+      for (const r of rows) for (const side of ["ce", "pe"]) {
+        const rd = M.windowBuildup(r[side], ref, r.strike, side);
+        if (rd.state === "ok") max[side] = Math.max(max[side], Math.abs(rd.dOi));
+      }
+      return { ...ref, max };
+    };
+    return { bu5: want5 ? withMax(M.windowRef(snaps, now, "5", { live })) : null, bu15: want15 ? withMax(M.windowRef(snaps, now, "15", { live })) : null };
   }
 
   let lastX = null;
@@ -3143,21 +3168,57 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
    * The build-up card (bu, bu5, bu15): line 1 the full name and the OI change, line 2 a 10-tick strength meter
    * (|OI change| ÷ the chain's largest) and the change as % of OI. Tinted by meaning; a dash without a reading.
    */
-  const buCard = (code, dOi, pct, x, title) => {
-    if (!code) return cg(h("span", { class: "muted" }, DASH));
-    const ticks = M.strengthTicks(dOi, x.sm.maxOiChange) ?? 0;
-    const ink = dOi > 0 ? "up" : dOi < 0 ? "down" : "";
+  /**
+   * The build-up card (bu, bu5, bu15) for one reading (chain-metrics.js dayBuildup / windowBuildup): line 1 the name
+   * and the OI change, line 2 a 10-tick strength meter (|OI change| ÷ the largest on that side in that window) and the
+   * change as % of OI ("New" for a strike that had none). Green when the premium rose (LB, SC), red when it fell (SB,
+   * LU), neutral fill for Neutral; the tint deepens with the reading's intensity. No reading: a dash whose title names
+   * the cause; a window still warming up counts down instead.
+   */
+  const buCard = (rd, max, x, winLabel) => {
+    if (!rd || rd.state !== "ok") {
+      const why = M.BUILDUP_STATE_TEXT[rd?.state] ?? "";
+      if (rd?.state === "warming" && isFigure(rd.waitMs)) return cg(h("span", { class: "muted", title: why }, `in ${waitText(rd.waitMs)}`));
+      return cg(h("span", { class: "muted", title: why || undefined }, DASH));
+    }
+    const ticks = M.strengthTicks(rd.dOi, max) ?? 0;
+    const ink = rd.dOi > 0 ? "up" : rd.dOi < 0 ? "down" : "";
     const meter = h("span", { class: "bu-meter", "aria-hidden": "true" }, Array.from({ length: 10 }, (_, i) => h("i", { class: i < ticks ? "lit" : undefined })));
-    return h(
+    const pctText = rd.isNew ? "New" : isFigure(rd.oiPct) ? formatSignedPercent(rd.oiPct, 1) : "";
+    const title = `${M.BUILDUP_LABELS[rd.code]} ${winLabel}: premium ${formatSignedPercent(rd.pxPct, 2)} (${formatSigned(rd.dPx, 2)}), OI ${rd.isNew ? "new at this strike" : formatSignedPercent(rd.oiPct, 1)} (${formatCompact(rd.dOi, { signed: true })}). ${rd.code === "NT" ? "One move is inside its floor, so neither side is named. " : ""}Premium up and OI up = Long build-up; down and up = Short build-up; up and down = Short covering; down and down = Long unwinding. Meter = OI change as a share of the largest on this side`;
+    const el = h(
       "span",
-      { class: `cg bu-card bu-${code}`, title },
-      h("span", { class: "l1" }, h("span", { class: "bu-name" }, O.BUILDUP_NAMES[code] ?? code), h("small", { class: `bu-chg ${ink}`.trim() }, isFigure(dOi) ? formatCompact(dOi / unit(x), { signed: true }) : "")),
-      h("span", { class: "l2" }, meter, h("small", { class: `bu-pct ${ink}`.trim() }, isFigure(pct) ? formatSignedPercent(pct, 1) : "")),
+      { class: `cg bu-card bu-${rd.code === "NT" ? "CH" : rd.code}`, title },
+      h("span", { class: "l1" }, h("span", { class: "bu-name" }, M.BUILDUP_LABELS[rd.code]), h("small", { class: `bu-chg ${ink}`.trim() }, formatCompact(rd.dOi / unit(x), { signed: true }))),
+      h("span", { class: "l2" }, meter, h("small", { class: `bu-pct ${ink}`.trim() }, pctText)),
     );
+    el.style.setProperty("--bw", String(r1(M.buildupIntensity(rd, max) * 100) / 100));
+    return el;
   };
-  const buTitle = (code, what) => `${O.BUILDUP_NAMES[code]} ${what}. LB long build-up and SB short build-up are new positions; SC short covering and LU long unwinding are positions closing. Green = price rising, red = price falling. Meter = OI change as a share of the largest on the chain`;
-  /** 5 / 15 min build-up (chain-metrics.js windowBuildup) in the same card. */
-  const buWin = (b, x, win) => buCard(b?.code ?? null, b?.dOi ?? null, b?.pct ?? null, x, b ? buTitle(b.code, `over the last ${win}: price ${formatSigned(b.dPx, 2)}, OI ${formatCompact(b.dOi, { signed: true })}`) : undefined);
+  /** "2m 30s", "48s", "4m": a wait on the build-up windows. */
+  const waitText = (ms) => {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    const m = Math.floor(s / 60);
+    return m && s % 60 ? `${formatInt(m)}m ${formatInt(s % 60)}s` : m ? `${formatInt(m)}m` : `${formatInt(s)}s`;
+  };
+  /**
+   * A Greek cell with its three dashes (chain-metrics.js greekState): a figure; a plain dash for exactly 0 (Delta
+   * prints 0.00); a muted dash when the leg has no IV or Greek, its title saying why.
+   */
+  const greek = (key, q, v, dp) => {
+    const s = M.greekState(key, v);
+    if (s === "value") return g(v, dp);
+    if (s === "zero") return cg(h("span", { title: "Exactly zero" }, DASH));
+    return cg(h("span", { class: "muted", title: `Greek unavailable: ${CF.ivSourceText(q)}` }, DASH));
+  };
+  /** The window build-up columns' cell and dependencies (bu5 / bu15). */
+  const buWinCol = (win, label) => ({
+    v: (q, row, side, x) => {
+      const rd = M.windowBuildup(q, x[`bu${win}`], row.strike, side);
+      return [rd.state, rd.code, rd.dOi, rd.pxPct, isFigure(rd.waitMs) ? Math.ceil(rd.waitMs / 1000) : null, x[`bu${win}`]?.max?.[side], unit(x)];
+    },
+    r: (q, row, side, x) => buCard(M.windowBuildup(q, x[`bu${win}`], row.strike, side), x[`bu${win}`]?.max?.[side], x, `over the last ${label}`),
+  });
   const R = (side) => (side === "ce" ? "CE" : "PE");
   const prem = (q) => O.mid(q);
   const picked = new Map();
@@ -3167,13 +3228,12 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     bu: {
       label: "Build-up",
       short: "B-up",
-      title: "Build-up: Long build-up and Short build-up are new positions (solid tint); Short covering and Long unwinding are positions closing (light tint). Green = price rising, red = price falling. Meter = OI change as a share of the largest on the chain; then the OI change and its % of OI",
-      v: (q, row, side, x) => [O.buildup(x.winQ(q, row, side)), q?.oiChange, q?.oi, x.sm.maxOiChange, unit(x)],
-      r: (q, row, side, x) => {
-        const b = O.buildup(x.winQ(q, row, side));
-        const d = num(q?.oiChange);
-        return buCard(b, d, O.oiChangePct(q), x, b ? buTitle(b, x.winLabel ? `over the last ${x.winLabel}` : "today") : undefined);
+      title: "Build-up since the previous close: the premium's move and the OI move read together. Both must clear a floor (OI 2 %, premium 0.5 %; 1 % and 0.5 % over a recorded window), else Neutral. Green = premium rose, red = premium fell. Meter = OI change as a share of the largest on this side; then the OI change and its % of OI",
+      v: (q, row, side, x) => {
+        const rd = M.dayBuildup(x.winQ(q, row, side), x.buWin);
+        return [rd.state, rd.code, rd.dOi, rd.pxPct, x.maxChg[side], unit(x)];
       },
+      r: (q, row, side, x) => buCard(M.dayBuildup(x.winQ(q, row, side), x.buWin), x.maxChg[side], x, x.winLabel ? `over the last ${x.winLabel}` : "since the previous close"),
     },
     oi: {
       label: "OI",
@@ -3221,7 +3281,12 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
         return cg(line, l2, `pair${hot ? " hot" : ""}`);
       },
     },
-    iv: { label: "IV", v: (q) => g(q?.iv, 1), r: (q) => g(q?.iv, 1) },
+    iv: {
+      label: "IV",
+      title: "Implied volatility: the yearly volatility (%) at which Black-76 on the forward gives the option's price. Hover a dash for why there is none",
+      v: (q) => [g(q?.iv, 1), q?.ivReason ?? "", q?.greeksSource ?? ""],
+      r: (q) => (num(q?.iv) > 0 ? g(q.iv, 1) : cg(h("span", { class: "muted", title: CF.ivSourceText(q) }, DASH))),
+    },
     ltp: {
       label: "LTP",
       ltp: true,
@@ -3243,15 +3308,16 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     delta: {
       label: "Delta",
       title: "Delta. 16Δ / 30Δ mark the strikes nearest those deltas on each side",
-      v: (q, row, side, x) => [g(q?.delta, 2), x.targets[side].get(row.strike) ?? ""],
+      v: (q, row, side, x) => [g(q?.delta, 2), q?.ivReason ?? "", x.targets[side].get(row.strike) ?? ""],
       r: (q, row, side, x) => {
         const dt = x.targets[side].get(row.strike);
+        if (M.greekState("delta", q?.delta) !== "value") return greek("delta", q, q?.delta, 2);
         return cg(dt ? [g(q?.delta, 2), h("sup", { class: "dt", title: `Nearest the ${dt} target on this side` }, dt)] : g(q?.delta, 2));
       },
     },
-    gamma: { label: "Gamma", v: (q) => g(q?.gamma, 4), r: (q) => g(q?.gamma, 4) },
-    theta: { label: "Theta", v: (q) => g(q?.theta, 1), r: (q) => g(q?.theta, 1) },
-    vega: { label: "Vega", v: (q) => g(q?.vega, 1), r: (q) => g(q?.vega, 1) },
+    gamma: { label: "Gamma", title: "Gamma: how much Delta changes for a 1-point move in the underlying (per unit)", v: (q) => [g(q?.gamma, 4), q?.ivReason ?? ""], r: (q) => greek("gamma", q, q?.gamma, 4) },
+    theta: { label: "Theta", title: "Theta: rupees per unit the premium loses in one trading day from time alone, other things equal", v: (q) => [g(q?.theta, 1), q?.ivReason ?? ""], r: (q) => greek("theta", q, q?.theta, 1) },
+    vega: { label: "Vega", title: "Vega: rupees per unit the premium changes for a 1-point change in IV", v: (q) => [g(q?.vega, 1), q?.ivReason ?? ""], r: (q) => greek("vega", q, q?.vega, 1) },
     pitm: {
       label: "P(ITM)",
       title: "Probability of finishing in the money (Black-76 on the forward)",
@@ -3435,8 +3501,8 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     },
     prevClose: { label: "Prev close", title: "Previous close: the option's closing price in the last session", v: (q) => q?.close, r: (q) => g(M.quotePrice(q?.close), 2) },
     avgPx: { label: "Avg price", short: "ATP", title: "Average traded price today (volume-weighted, as the broker sends it). A dash when the data source does not send it", v: (q) => q?.avgPrice, r: (q) => g(M.quotePrice(q?.avgPrice), 2) },
-    high: { label: "High", title: "Today's high: the highest traded price this session. A dash when the data source does not send it", v: (q) => q?.high, r: (q) => g(M.quotePrice(q?.high), 2) },
-    low: { label: "Low", title: "Today's low: the lowest traded price this session. A dash when the data source does not send it", v: (q) => q?.low, r: (q) => g(M.quotePrice(q?.low), 2) },
+    high: { label: "High", title: "Today's high: the highest premium this contract traded at today, never below the live LTP (max of the day high and LTP). A dash when the data source sends no day high", v: (q) => [q?.high, q?.ltp], r: (q) => g(M.dayHigh(q), 2) },
+    low: { label: "Low", title: "Today's low: the lowest premium this contract traded at today, never above the live LTP (min of the day low and LTP). A dash when the data source sends no day low", v: (q) => [q?.low, q?.ltp], r: (q) => g(M.dayLow(q), 2) },
     prevVol: {
       label: "Prev vol",
       head: () => (cfg().lots ? "Prev vol (lots)" : "Prev vol"),
@@ -3445,19 +3511,19 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       r: (q, row, side, x) => formatCompact(num(q?.prevVolume) === null ? null : q.prevVolume / unit(x)),
     },
     volOi: { label: "Vol/OI", title: "Volume ÷ open interest: today's volume as a multiple of the open position (both in contracts)", v: (q) => [q?.volume, q?.oi], r: (q) => g(M.volumeOiRatio(q), 2) },
-    bidPx: { label: "Bid", title: "Best bid: the highest price a buy order is waiting at", v: (q) => q?.bid, r: (q) => cg(g(M.quotePrice(q?.bid), 2), null, "bid-ink") },
-    askPx: { label: "Ask", title: "Best ask: the lowest price a sell order is waiting at", v: (q) => q?.ask, r: (q) => cg(g(M.quotePrice(q?.ask), 2), null, "ask-ink") },
+    bidPx: { label: "Bid", title: "Bid: the highest price bid for the contract right now", v: (q) => q?.bid, r: (q) => cg(g(M.quotePrice(q?.bid), 2), null, "bid-ink") },
+    askPx: { label: "Ask", title: "Ask: the lowest price offered for the contract right now", v: (q) => q?.ask, r: (q) => cg(g(M.quotePrice(q?.ask), 2), null, "ask-ink") },
     bidQty: {
       label: "Bid qty",
       head: () => (cfg().lots ? "Bid qty (lots)" : "Bid qty"),
-      title: "Quantity waiting at the best bid. A dash when the data source does not send it",
+      title: "Quantity waiting at the top bid. A dash when the data source does not send it",
       v: (q, row, side, x) => [q?.bidQty, unit(x)],
       r: (q, row, side, x) => cg(formatCompact(M.quoteQty(q?.bidQty) === null ? null : q.bidQty / unit(x)), null, "bid-ink"),
     },
     askQty: {
       label: "Ask qty",
       head: () => (cfg().lots ? "Ask qty (lots)" : "Ask qty"),
-      title: "Quantity waiting at the best ask. A dash when the data source does not send it",
+      title: "Quantity waiting at the top ask. A dash when the data source does not send it",
       v: (q, row, side, x) => [q?.askQty, unit(x)],
       r: (q, row, side, x) => cg(formatCompact(M.quoteQty(q?.askQty) === null ? null : q.askQty / unit(x)), null, "ask-ink"),
     },
@@ -3465,32 +3531,24 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
       label: "Rho",
       title: "Rho (Black-76, the forward held fixed): change in the option's price for a 1 percentage-point rise in the interest rate, = −(calendar years to expiry) × price ÷ 100, at the leg's IV",
       v: (q, row, side, x) => [q?.iv, Math.round(x.F ?? 0), x.tcal],
-      r: (q, row, side, x) => g(M.rho76(x.F, row.strike, x.years, q?.iv, R(side), x.tcal, x.df), 3),
+      r: (q, row, side, x) => greek("rho", q, M.rho76(x.F, row.strike, x.years, q?.iv, R(side), x.tcal, x.df), 3),
     },
     bu5: {
       label: "B-up 5m",
-      title: "Build-up over the last 5 minutes: price change and OI change since the snapshot this page recorded 5 to 7.5 minutes ago (LB, SB, SC, LU as in Build-up). A dash until the page has recorded that long",
-      v: (q, row, side, x) => {
-        const b = M.windowBuildup(q, x.bu5, row.strike, side);
-        return [b?.code, b?.dOi, x.sm.maxOiChange, unit(x)];
-      },
-      r: (q, row, side, x) => buWin(M.windowBuildup(q, x.bu5, row.strike, side), x, "5 min"),
+      title: "Build-up over the last 5 minutes: premium and OI now against the snapshot this page recorded nearest 5 minutes ago (within 90 s; never a wider window). Floors: OI 1 %, premium 0.5 %, else Neutral. A dash names its cause on hover; a window still recording counts down",
+      ...buWinCol("5", "5 min"),
     },
     bu15: {
       label: "B-up 15m",
-      title: "Build-up over the last 15 minutes: price change and OI change since the snapshot this page recorded 15 to 22.5 minutes ago (LB, SB, SC, LU as in Build-up). A dash until the page has recorded that long",
-      v: (q, row, side, x) => {
-        const b = M.windowBuildup(q, x.bu15, row.strike, side);
-        return [b?.code, b?.dOi, x.sm.maxOiChange, unit(x)];
-      },
-      r: (q, row, side, x) => buWin(M.windowBuildup(q, x.bu15, row.strike, side), x, "15 min"),
+      title: "Build-up over the last 15 minutes: premium and OI now against the snapshot this page recorded nearest 15 minutes ago (within 2 min 30 s; never a wider window). Floors: OI 1 %, premium 0.5 %, else Neutral. A dash names its cause on hover; a window still recording counts down",
+      ...buWinCol("15", "15 min"),
     },
     intrinsic: {
       label: "Intrinsic",
       short: "Intr",
-      title: "Intrinsic value on the forward: call max(0, forward − strike), put max(0, strike − forward). Intrinsic + Time value = premium",
-      v: (q, row, side, x) => Math.round((x.F ?? 0) * 10),
-      r: (q, row, side, x) => g(M.intrinsicValue(row.strike, R(side), x.F), 2),
+      title: "Intrinsic value: the part of the premium already in the money against spot. Call max(0, spot − strike), put max(0, strike − spot); 0.00 out of the money",
+      v: (q, row, side, x) => Math.round((x.spot ?? 0) * 100),
+      r: (q, row, side, x) => g(M.intrinsicValue(row.strike, R(side), x.spot), 2),
     },
     bePct: {
       label: "BE %",
@@ -3501,35 +3559,39 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
         return cg(pct1(v), null, v > 0 ? "up" : v < 0 ? "down" : "");
       },
     },
-    spreadAbs: { label: "Spread ₹", short: "Sprd ₹", title: "Bid-ask spread in rupees: ask − bid (two-sided quotes only)", v: (q) => [q?.bid, q?.ask], r: (q) => g(M.spreadAbs(q), 2) },
+    spreadAbs: { label: "Spread ₹", short: "Sprd ₹", title: "Bid-ask spread in rupees: ask − bid, what crossing the book costs per unit. With no bid it is the whole ask; a dash when the ask is not above the bid (locked or crossed quote) or there is no ask", v: (q) => [q?.bid, q?.ask], r: (q) => g(M.spreadAbs(q), 2) },
     theo: {
       label: "Theo",
       title: "Theoretical price: Black-76 on the chain's forward at the chain's ATM IV for every strike (not this option's own IV), discounted. Mid minus this is what the IV smile adds or takes away",
       v: (q, row, side, x) => [Math.round((x.F ?? 0) * 10), x.sm.atmIv, x.years],
-      r: (q, row, side, x) => g(M.theoPrice(x.F, row.strike, x.years, x.sm.atmIv, R(side), x.df), 2),
-    },
-    relDist: {
-      label: "Dist σ",
-      title: "Relative distance: the strike's distance from the forward in standard deviations to expiry at ATM IV, ln(strike ÷ forward) ÷ (ATM IV × √time) for a call (reversed for a put); out of the money positive",
-      v: (q, row, side, x) => [Math.round(x.F ?? 0), x.sm.atmIv, x.years],
       r: (q, row, side, x) => {
-        const sd = M.relativeDistance(row.strike, R(side), x.F, x.sm.atmIv, x.years);
-        return isFigure(sd) ? `${formatSigned(sd, 2)}σ` : DASH;
+        const t = M.theoPrice(x.F, row.strike, x.years, x.sm.atmIv, R(side), x.df);
+        return t === null ? cg(h("span", { class: "muted", title: "No theoretical price: the chain has no ATM IV or no forward (never priced on a guessed volatility)" }, DASH)) : g(t, 2);
       },
     },
-    bidPct: { label: "Bid %", title: "Bid as % of the strike: bid ÷ strike × 100, the premium a writer collects per rupee of strike", v: (q) => q?.bid, r: (q, row) => cg(formatPercent(M.pctOfStrike(q?.bid, row.strike), 2), null, "bid-ink") },
-    askPct: { label: "Ask %", title: "Ask as % of the strike: ask ÷ strike × 100, the premium a holder pays per rupee of strike", v: (q) => q?.ask, r: (q, row) => cg(formatPercent(M.pctOfStrike(q?.ask, row.strike), 2), null, "ask-ink") },
+    relDist: {
+      label: "Rel dist",
+      title: "Relative distance: (strike − spot) ÷ spot × 100, negative below spot. Under it, the same distance in standard deviations to expiry at ATM IV (out of the money positive)",
+      v: (q, row, side, x) => [Math.round((x.spot ?? 0) * 100), Math.round(x.F ?? 0), x.sm.atmIv, x.years],
+      r: (q, row, side, x) => {
+        const d = M.relativeDistance(row.strike, x.spot);
+        const sd = M.sigmaDist(row.strike, R(side), x.F, x.sm.atmIv, x.years);
+        return two(isFigure(d) ? `${formatSigned(d, 2)}%` : DASH, { text: isFigure(sd) ? `${formatSigned(sd, 2)}σ` : "", force: true });
+      },
+    },
+    bidPct: { label: "Bid %", title: "Bid as % of spot: bid ÷ spot × 100, the premium a writer collects per rupee of the underlying", v: (q, row, side, x) => [q?.bid, Math.round((x.spot ?? 0) * 100)], r: (q, row, side, x) => cg(formatPercent(M.pctOfSpot(q?.bid, x.spot), 2), null, "bid-ink") },
+    askPct: { label: "Ask %", title: "Ask as % of spot: ask ÷ spot × 100, the premium a holder pays per rupee of the underlying", v: (q, row, side, x) => [q?.ask, Math.round((x.spot ?? 0) * 100)], r: (q, row, side, x) => cg(formatPercent(M.pctOfSpot(q?.ask, x.spot), 2), null, "ask-ink") },
     bidPctAnn: {
       label: "Bid % ann.",
-      title: "Bid % annualised: (bid ÷ strike × 100) ÷ calendar years to expiry (365-day year, simple). A dash on expiry day",
-      v: (q, row, side, x) => [q?.bid, x.tcal],
-      r: (q, row, side, x) => cg(formatPercent(M.annualisedPct(M.pctOfStrike(q?.bid, row.strike), x.tcal), 1), null, "bid-ink"),
+      title: "Bid % annualised: Bid % × 365 ÷ days to expiry (whole calendar days, at least 1; simple, not compounded)",
+      v: (q, row, side, x) => [q?.bid, x.tcal, Math.round((x.spot ?? 0) * 100)],
+      r: (q, row, side, x) => cg(formatPercent(M.annualisedPct(M.pctOfSpot(q?.bid, x.spot), x.tcal), 1), null, "bid-ink"),
     },
     askPctAnn: {
       label: "Ask % ann.",
-      title: "Ask % annualised: (ask ÷ strike × 100) ÷ calendar years to expiry (365-day year, simple). A dash on expiry day",
-      v: (q, row, side, x) => [q?.ask, x.tcal],
-      r: (q, row, side, x) => cg(formatPercent(M.annualisedPct(M.pctOfStrike(q?.ask, row.strike), x.tcal), 1), null, "ask-ink"),
+      title: "Ask % annualised: Ask % × 365 ÷ days to expiry (whole calendar days, at least 1; simple, not compounded)",
+      v: (q, row, side, x) => [q?.ask, x.tcal, Math.round((x.spot ?? 0) * 100)],
+      r: (q, row, side, x) => cg(formatPercent(M.annualisedPct(M.pctOfSpot(q?.ask, x.spot), x.tcal), 1), null, "ask-ink"),
     },
     bid: { label: "Bid", trade: "SELL", title: "Bid: you sell here" },
     ask: { label: "Ask", trade: "BUY", title: "Ask: you buy here. Under it, the spread when it is wide (amber over 5%, red over 10%)" },
@@ -4719,6 +4781,11 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
     sideNow: () => (built?.L.side === "ce" || built?.L.side === "pe" ? built.L.side : st.focus?.side ?? "ce"),
     layoutSide: () => built?.L.side ?? null,
     colTitle: (k) => COLS[k]?.title,
+    /** The facts behind one cell (chain-facts.js cellFacts), for a hover card: [{ label, value, note }]. */
+    cellFacts: (k, strike, side) => {
+      const row = lastX?.c.rows.find((r) => r.strike === strike);
+      return row ? CF.cellFacts(k, row[side], row, side, lastX) : [];
+    },
     isRowCol: (k) => Boolean(COLS[k]?.row),
     fitHeight: () => fitHeight(),
     destroy() {
