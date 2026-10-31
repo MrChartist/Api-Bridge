@@ -2282,6 +2282,9 @@ table.chain .l1.warn-ink { color: hsl(var(--warn-ink)); }
 table.chain .l1.call-ink { color: hsl(var(--c-call-ink)); font-weight: 600; }
 table.chain .l1.put-ink { color: hsl(var(--c-put-ink)); font-weight: 600; }
 table.chain .l1.quiet { color: hsl(var(--foreground) / var(--a-quiet)); }
+/* Bid in the sell ink, ask in the buy ink (as the order ticket): the Customise depth and premium-yield columns. */
+table.chain .l1.bid-ink { color: hsl(var(--c-sell-ink)); }
+table.chain .l1.ask-ink { color: hsl(var(--c-buy-ink)); }
 table.chain .l1.pos-accent { color: hsl(var(--pos-ink)); font-weight: 600; }
 table.chain .l1.neg-accent { color: hsl(var(--neg-ink)); font-weight: 600; }
 /* Arb: Dev's diverging bar (one scale down the column: left red below the reference, right green above) and the best
@@ -2402,6 +2405,48 @@ table.chain .bu, .cs-m .bu { display: inline-flex; align-items: center; justify-
 :is(table.chain, .cs-m) .bu-SB { color: hsl(var(--neg-ink)); background: hsl(var(--neg) / var(--chip-tint)); }
 :is(table.chain, .cs-m) .bu-SC { color: hsl(var(--pos-ink)); box-shadow: inset 0 0 0 1px hsl(var(--pos) / 0.8); }
 :is(table.chain, .cs-m) .bu-LU { color: hsl(var(--neg-ink)); box-shadow: inset 0 0 0 1px hsl(var(--neg) / 0.8); }
+/* The build-up card (Build-up, 5 / 15 min build-up): a tinted card filling the cell on the two-line grid. Line 1 the
+   name and the OI change, line 2 a 10-tick strength meter and the change as % of OI. New positions (LB, SB) a solid
+   tint, closing (SC, LU) a light one, churn a neutral fill; it bleeds 2 px into the cell padding so rows keep their
+   height. */
+table.chain .cg.bu-card { justify-items: stretch; margin: -2px -4px; padding: 2px 6px; border-radius: 6px; background: var(--mat-fill-1); box-shadow: none; cursor: help; transition: background-color 420ms var(--ease-out); }
+table.chain .bu-card > .l1 { justify-content: space-between; gap: 8px; }
+table.chain .bu-card > .l2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 12px; }
+table.chain .bu-card .bu-name { font: 500 12px/16px var(--font-body); white-space: nowrap; }
+table.chain .bu-card :is(.bu-chg, .bu-pct) { font: 500 12px/12px var(--font-numeric); white-space: nowrap; }
+table.chain .bu-card :is(.bu-chg, .bu-pct).up { color: hsl(var(--pos-ink)); }
+table.chain .bu-card :is(.bu-chg, .bu-pct).down { color: hsl(var(--neg-ink)); }
+table.chain .bu-card.bu-LB { background: hsl(var(--pos) / var(--chip-tint)); }
+table.chain .bu-card.bu-SB { background: hsl(var(--neg) / var(--chip-tint)); }
+table.chain .bu-card.bu-SC { background: hsl(var(--pos) / calc(var(--chip-tint) * 0.5)); }
+table.chain .bu-card.bu-LU { background: hsl(var(--neg) / calc(var(--chip-tint) * 0.5)); }
+table.chain .bu-card.bu-CH { color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-2); }
+table.chain .bu-meter { display: inline-flex; gap: 1px; flex: none; }
+table.chain .bu-meter > i { width: 4px; height: 6px; border-radius: 1px; background: hsl(var(--foreground) / 0.12); transition: background-color 420ms var(--ease-out); }
+table.chain .bu-card:is(.bu-LB, .bu-SC) .bu-meter > i.lit { background: hsl(var(--pos)); }
+table.chain .bu-card:is(.bu-SB, .bu-LU) .bu-meter > i.lit { background: hsl(var(--neg)); }
+table.chain .bu-card.bu-CH .bu-meter > i.lit { background: hsl(var(--foreground) / var(--a-label)); }
+table.chain.dense .cg.bu-card { margin: 0 -4px; padding: 0 6px; }
+/* OI and Volume: the figure at the start of line 1, its change quieter at the end. */
+table.chain .cg:has(> .l1.pair) { justify-items: stretch; }
+table.chain .l1.pair { justify-content: space-between; gap: 8px; width: 100%; }
+table.chain .l1.pair .pair-side { font: 500 12px/16px var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; }
+table.chain .l1.pair .pair-side.up { color: hsl(var(--pos-ink)); }
+table.chain .l1.pair .pair-side.down { color: hsl(var(--neg-ink)); }
+table.chain .l1.pair.hot .pair-main { color: hsl(var(--warn-ink)); }
+table.chain .l1.pair.hot::before { order: -1; }
+table.chain.phone .l1.pair .pair-side, table.chain.phone .bu-card .bu-chg { display: none; }
+/* Layered bars (OI, Volume): stacked fills on one track, every layer sized by scaleX from the strike side. OI: solid =
+   the previous OI, striped = OI added today; on a cut, solid = today's OI and a red striped ghost up to the previous. */
+table.chain .vbar.split { position: relative; }
+table.chain .vbar.split > span { position: absolute; inset: 0; transform: scaleX(var(--f, 0)); }
+table.chain .vbar.split > span:is(.seg-add, .seg-cut) { border-radius: 0; transform: none; clip-path: inset(0 0 0 calc((1 - var(--f, 0)) * 100%)); transition: clip-path 420ms var(--ease-out); }
+table.chain th.strike-col ~ td .vbar.split > span:is(.seg-add, .seg-cut) { clip-path: inset(0 calc((1 - var(--f, 0)) * 100%) 0 0); }
+table.chain .vbar.oi.ce > span.seg-add { background: repeating-linear-gradient(90deg, hsl(var(--c-call) / var(--bar-a)) 0 2px, transparent 2px 4px); }
+table.chain .vbar.oi.pe > span.seg-add { background: repeating-linear-gradient(90deg, hsl(var(--c-put) / var(--bar-a)) 0 2px, transparent 2px 4px); }
+table.chain .vbar.oi > span.seg-cut { background: repeating-linear-gradient(90deg, hsl(var(--neg) / 0.55) 0 2px, transparent 2px 4px); }
+table.chain .vbar.vol > span.seg-prev { background: hsl(var(--foreground) / 0.18); }
+table.chain .vbar.vol > span.seg-today { background: hsl(var(--foreground) / 0.62); }
 /* 16Δ / 30Δ: a superscript chip after the delta (no block of colour). */
 table.chain sup.dt { margin-left: 1px; font: 500 12px/1 var(--font-numeric); color: hsl(var(--c-atm-ink)); vertical-align: 4px; cursor: help; }
 table.chain .held { display: inline-flex; align-items: center; height: 16px; padding: 0 5px; border-radius: 4px; font: 500 12px/1 var(--font-numeric); }
@@ -2618,7 +2663,7 @@ button.exp-chip .ec-t { font: 500 12px/1 var(--font-numeric); opacity: var(--sof
 }
 @media (prefers-reduced-motion: reduce) {
   table.chain .tag.pop, table.chain tr.row-in > *, table.chain tr.jump > *, table.chain td.dv-flash-up, table.chain td.dv-flash-down { animation: none; }
-  table.chain .vbar > span, table.chain tr.spot-row td.flip, table.chain tr.atm > th.strike-col, table.chain td:is(.heat-call, .heat-put, .heat-pos, .heat-neg) { transition: none; }
+  table.chain .vbar > span, table.chain .vbar.split > span:is(.seg-add, .seg-cut), table.chain :is(.cg.bu-card, .bu-meter > i), table.chain tr.spot-row td.flip, table.chain tr.atm > th.strike-col, table.chain td:is(.heat-call, .heat-put, .heat-pos, .heat-neg) { transition: none; }
 }
 
 /* Panel heads (chain), Customise popover, value bars. */

@@ -61,9 +61,9 @@ describe("chain round 2: presets and the fit engine", () => {
     expect(custom).not.toContain("ltp");
   });
   it("keeps everything that fits and drops in order until the minimum widths fit", () => {
-    const all = fitColumns({ side: CHAIN_PRESETS.oi, quotes: true, sides: 2, avail: 1120, order: dropOrder("oi", CHAIN_PRESETS.oi) });
+    const all = fitColumns({ side: CHAIN_PRESETS.oi, quotes: true, sides: 2, avail: 1340, order: dropOrder("oi", CHAIN_PRESETS.oi) });
     expect(all.hidden).toEqual([]);
-    expect(all.width).toBeLessThanOrEqual(1120);
+    expect(all.width).toBeLessThanOrEqual(1340);
     // A touch tablet (no bid / ask, ~788 px): OI | OI chg | IV | LTP a side.
     const tab = fitColumns({ side: CHAIN_PRESETS.oi, quotes: false, sides: 2, avail: 788, widths: coarseMin(), order: dropOrder("oi", CHAIN_PRESETS.oi), cap: 5 });
     expect(tab.side).toEqual(["ltp", "iv", "chg", "oi"]);
@@ -86,9 +86,9 @@ describe("chain round 2: presets and the fit engine", () => {
     expect(f.quotes).toBe(false);
     expect(COL_MIN.ltp).toBeGreaterThan(0);
   });
-  it("keeps every OI column in a 1116 px panel and brings back what fits after a wider column drops", () => {
+  it("keeps every OI column in a 1340 px panel (the build-up card, OI and volume pairs are wider) and brings back what fits after a wider column drops", () => {
     const order = dropOrder("oi", CHAIN_PRESETS.oi);
-    const wide = fitColumns({ side: CHAIN_PRESETS.oi, quotes: true, sides: 2, avail: 1116, order });
+    const wide = fitColumns({ side: CHAIN_PRESETS.oi, quotes: true, sides: 2, avail: 1340, order });
     expect(wide.side).toEqual(CHAIN_PRESETS.oi);
     expect(wide.quotes).toBe(true);
     expect(wide.side.length + 2).toBe(8);
@@ -100,7 +100,7 @@ describe("chain round 2: presets and the fit engine", () => {
     expect(narrow.hidden).not.toContain("iv");
     expect(narrow.width).toBeLessThanOrEqual(700);
     // Measured widths replace the estimates: a wider strike column (tags) drops Build-up first.
-    const tight = fitColumns({ side: CHAIN_PRESETS.oi, quotes: true, sides: 2, avail: 1116, order, strikeW: 140 });
+    const tight = fitColumns({ side: CHAIN_PRESETS.oi, quotes: true, sides: 2, avail: 1340, order, strikeW: 140 });
     expect(tight.hidden).toEqual(["bu"]);
   });
 });
@@ -119,5 +119,70 @@ describe("strike tags in a chain cell", () => {
     expect(strikeTagsShown(null)).toEqual([]);
     expect(heldTitle(-1)).toBe("Your position: short 1 lot in this contract");
     expect(heldTitle(3)).toBe("Your position: long 3 lots in this contract");
+  });
+});
+
+describe("chain columns: Customise groups and the extra columns", () => {
+  it("every CHAIN_COLUMNS key sits in exactly one COLUMN_GROUPS group, and every group key is a column", async () => {
+    const { COLUMN_GROUPS } = await import("./desk.js");
+    const keys = CHAIN_COLUMNS.map((c) => c[0]);
+    const grouped = COLUMN_GROUPS.flatMap((g) => g.keys);
+    expect(COLUMN_GROUPS.map((g) => g.id)).toEqual(["price", "depth", "greeks", "oi", "other"]);
+    for (const k of keys) expect(grouped.filter((x) => x === k).length, k).toBe(1);
+    for (const k of grouped) expect(keys.includes(k), k).toBe(true);
+    // The new columns, each in its group.
+    const at = (k) => COLUMN_GROUPS.find((g) => g.keys.includes(k))?.id;
+    for (const k of ["ltpChg", "prevClose", "avgPx", "high", "low", "prevVol", "volOi"]) expect(at(k), k).toBe("price");
+    for (const k of ["bidPx", "bidQty", "askPx", "askQty"]) expect(at(k), k).toBe("depth");
+    expect(at("rho")).toBe("greeks");
+    for (const k of ["bu5", "bu15"]) expect(at(k), k).toBe("oi");
+    for (const k of ["intrinsic", "bePct", "spreadAbs", "theo", "relDist", "bidPct", "askPct", "bidPctAnn", "askPctAnn"]) expect(at(k), k).toBe("other");
+  });
+  it("new columns are per side (not per strike), have a width, and keep clear of the Bid and ask switch's keys", () => {
+    const added = CHAIN_COLUMNS.slice(CHAIN_COLUMNS.findIndex((c) => c[0] === "ltpChg"));
+    expect(added.length).toBe(23);
+    for (const [k, , scope] of added) {
+      expect(scope, k).toBeUndefined();
+      expect(COL_MIN[k], k).toBeGreaterThan(0);
+    }
+    const keys = CHAIN_COLUMNS.map((c) => c[0]);
+    expect(keys).not.toContain("bid");
+    expect(keys).not.toContain("ask");
+  });
+});
+
+describe("chain cell shapes: build-up meter, OI and volume bars", () => {
+  it("strength meter: 10 ticks by |OI change| ÷ the largest, at least one for any change, null without data", async () => {
+    const { strengthTicks } = await import("./chain-metrics.js");
+    expect(strengthTicks(500, 1000)).toBe(5);
+    expect(strengthTicks(-1000, 1000)).toBe(10);
+    expect(strengthTicks(2000, 1000)).toBe(10);
+    expect(strengthTicks(1, 1000)).toBe(1);
+    expect(strengthTicks(0, 1000)).toBe(0);
+    expect(strengthTicks(null, 1000)).toBeNull();
+    expect(strengthTicks(500, 0)).toBeNull();
+  });
+  it("OI bar: solid previous OI + striped add, or solid today + striped cut ghost; one bar without a change", async () => {
+    const { oiBarSplit } = await import("./chain-metrics.js");
+    expect(oiBarSplit(800, 200, 1000)).toEqual({ solid: 0.6, outer: 0.8, kind: "add" });
+    expect(oiBarSplit(600, -200, 1000)).toEqual({ solid: 0.6, outer: 0.8, kind: "cut" });
+    expect(oiBarSplit(600, null, 1000)).toEqual({ solid: 0.6, outer: 0.6, kind: null });
+    // A cut from above the chain's largest OI clamps to the track.
+    expect(oiBarSplit(900, -400, 1000)).toEqual({ solid: 0.9, outer: 1, kind: "cut" });
+    // OI added from nothing: no solid part.
+    expect(oiBarSplit(300, 300, 1000)).toEqual({ solid: 0, outer: 0.3, kind: "add" });
+    expect(oiBarSplit(null, 200, 1000)).toBeNull();
+    expect(oiBarSplit(800, 200, 0)).toBeNull();
+  });
+  it("volume: change and the two-tone bar need the previous session's volume; nothing invented without it", async () => {
+    const { volBarSplit, volumeChange } = await import("./chain-metrics.js");
+    expect(volumeChange(1500, 1000)).toBe(500);
+    expect(volumeChange(800, 1000)).toBe(-200);
+    expect(volumeChange(800, null)).toBeNull();
+    expect(volumeChange(null, 1000)).toBeNull();
+    expect(volBarSplit(500, 1000, 1000)).toEqual({ today: 0.5, prev: 1 });
+    expect(volBarSplit(500, undefined, 1000)).toEqual({ today: 0.5, prev: null });
+    expect(volBarSplit(null, 1000, 1000)).toBeNull();
+    expect(volBarSplit(500, 1000, 0)).toBeNull();
   });
 });
