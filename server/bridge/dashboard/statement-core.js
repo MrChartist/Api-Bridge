@@ -166,3 +166,21 @@ export function byFinancialYear(trades) {
   }
   return [...out.values()].sort((a, b) => b.fy.localeCompare(a.fy));
 }
+
+/** Rupees to the paisa for the export: the sums carry float tails (48.751163424999994) that Excel would print. */
+const paise = (v) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v * 100) / 100 : v);
+
+/**
+ * The Statement's .xlsx sheets (Orders › Statement › Excel): summary, segments, charges, years, closed trades and the
+ * ledger. Money and prices to the paisa; counts and quantities as they are.
+ */
+export function statementSheets({ s, years, acc, from, to }) {
+  return [
+    { name: "Summary", rows: [["Account", acc?.label ?? ""], ["From", from], ["To", to], ["Realised P&L", paise(s.realised)], ["F&O turnover (ICAI method)", paise(s.turnover)], ["Charges", paise(s.charges.total)], ["Net after charges", paise(s.net)], ["Note", "Estimate for your records, not tax advice. Confirm with your CA."]] },
+    { name: "By segment", rows: [["Segment", "Reported as", "Trades", "Realised"], ...SEGMENTS.map(([k, label, as]) => [label, as, s.segments[k].trades, paise(s.segments[k].realised)])] },
+    { name: "Charges", rows: [["Charge", "Amount"], ...[...Object.keys(CHARGE_LABELS), "total"].map((k) => [CHARGE_LABELS[k] ?? "Total", paise(s.charges[k])])] },
+    { name: "By year", rows: [["Year", ...SEGMENTS.map(([, label]) => label)], ...years.map((y) => [y.label, ...SEGMENTS.map(([k]) => paise(y.segments[k]))])] },
+    { name: "Closed trades", rows: [["Closed", "Symbol", "Product", "Side", "Qty", "Entry", "Exit", "P&L"], ...s.closed.map((c) => [c.day, c.symbol, c.product ?? "", c.side, c.qty, paise(c.entry), paise(c.exit), paise(c.pnl)])] },
+    { name: "Ledger", rows: [["Day", "Opening", "Realised", "Charges", "Closing"], ...s.ledger.map((r) => [r.day, paise(r.opening), paise(r.realised), paise(r.charges), paise(r.closing)])] },
+  ];
+}

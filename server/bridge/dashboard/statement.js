@@ -6,7 +6,7 @@ import { contractName } from "./flows.js";
 import { DASH, formatDayMonth, formatFixed, formatInt, formatRupee, formatRupeeGrouped, formatSignedRupee } from "./format.js";
 import * as O from "./options.js";
 import { loadReference, refCharges } from "./reference.js";
-import { CHARGE_LABELS, SEGMENTS, byFinancialYear, fillChargesWith, financialYear, istDayOf, statement } from "./statement-core.js";
+import { CHARGE_LABELS, SEGMENTS, byFinancialYear, fillChargesWith, financialYear, istDayOf, statement, statementSheets } from "./statement-core.js";
 import { exportName } from "./export.js";
 import { buildXlsx } from "./xlsx-core.js";
 
@@ -220,16 +220,7 @@ export async function renderStatementPage() {
   xlsxBtn.addEventListener("click", () => {
     if (!last) return;
     const { s, years, acc, from, to } = last;
-    const bytes = buildXlsx({
-      sheets: [
-        { name: "Summary", rows: [["Account", acc?.label ?? ""], ["From", from], ["To", to], ["Realised P&L", s.realised], ["F&O turnover (ICAI method)", s.turnover], ["Charges", s.charges.total], ["Net after charges", s.net], ["Note", "Estimate for your records, not tax advice. Confirm with your CA."]] },
-        { name: "By segment", rows: [["Segment", "Reported as", "Trades", "Realised"], ...SEGMENTS.map(([k, label, as]) => [label, as, s.segments[k].trades, s.segments[k].realised])] },
-        { name: "Charges", rows: [["Charge", "Amount"], ...[...Object.keys(CHARGE_LABELS), "total"].map((k) => [CHARGE_LABELS[k] ?? "Total", s.charges[k]])] },
-        { name: "By year", rows: [["Year", ...SEGMENTS.map(([, label]) => label)], ...years.map((y) => [y.label, ...SEGMENTS.map(([k]) => y.segments[k])])] },
-        { name: "Closed trades", rows: [["Closed", "Symbol", "Product", "Side", "Qty", "Entry", "Exit", "P&L"], ...s.closed.map((c) => [c.day, c.symbol, c.product ?? "", c.side, c.qty, c.entry, c.exit, c.pnl])] },
-        { name: "Ledger", rows: [["Day", "Opening", "Realised", "Charges", "Closing"], ...s.ledger.map((r) => [r.day, r.opening, r.realised, r.charges, r.closing])] },
-      ],
-    });
+    const bytes = buildXlsx({ sheets: statementSheets({ s, years, acc, from, to }) });
     const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
     const a = document.createElement("a");
     a.href = url;

@@ -4,7 +4,7 @@ import { refCharges } from "./reference.js";
 
 const FALLBACK_RATES = refCharges(null);
 import { tradeTotals } from "./orders-core.js";
-import { byFinancialYear, fifoRealised, fillChargesWith, fillTotals, financialYear, statement } from "./statement-core.js";
+import { byFinancialYear, fifoRealised, fillChargesWith, fillTotals, financialYear, statement, statementSheets } from "./statement-core.js";
 
 const OPT = "NFO:NIFTY-2026-11-03-25000-CE";
 const T = (at, side, qty, price, o = {}) => ({ tradedAt: at, side, qty, price, symbol: OPT, product: "MARGIN", ...o });
@@ -74,5 +74,20 @@ describe("statement", () => {
       ["2026-04-02", 100000, -650, 20, 99330],
       ["2026-04-03", 99330, 650, 10, 99970],
     ]);
+  });
+});
+
+describe("statement export", () => {
+  it("writes money to the paisa, not with float tails, and keeps counts as they are", () => {
+    const chargesOf = () => ({ brokerage: 20, stt: 48.751163424999994, txn: 3.1467150000000004, sebi: 0.13916974999999998, stamp: 1, gst: 3.7600259971499995, total: 76.79707412214999 });
+    const s = statement(trades, { from: "2026-04-01", to: "2027-03-31", chargesOf, opening: 2500000 });
+    const sheets = statementSheets({ s, years: byFinancialYear(trades, { chargesOf }), acc: { label: "Paper" }, from: "2026-04-01", to: "2027-03-31" });
+    const cells = sheets.flatMap((sh) => sh.rows.flat()).filter((v) => typeof v === "number");
+    expect(cells.length).toBeGreaterThan(10);
+    for (const v of cells) expect(Math.round(v * 100) / 100).toBe(v);
+    const ch = sheets.find((sh) => sh.name === "Charges").rows;
+    expect(s.charges.stt).not.toBe(Math.round(s.charges.stt * 100) / 100); // the raw sum has a tail
+    expect(ch.find((r) => r[0] === "STT")[1]).toBe(Math.round(s.charges.stt * 100) / 100);
+    expect(sheets.find((sh) => sh.name === "By segment").rows[1][2]).toBe(s.segments.fno.trades);
   });
 });
