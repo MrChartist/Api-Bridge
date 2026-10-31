@@ -1,10 +1,15 @@
 /**
  * Futures chain and basis history (stream S15), ported read-only from OptionsDesk's FuturesChain page.
  *
- *   GET /v1/analytics/futures?underlying=[&expiries=3]                        each upcoming future: ltp, oi, volume, basis, carry; calendar spreads; roll cost
+ *   GET /v1/analytics/futures?underlying=[&expiries=3][&wait=all|near]        each upcoming future: ltp, oi, volume, basis, carry; calendar spreads; roll cost
  *   GET /v1/analytics/basis-history?underlying=&expiry=[&interval=1d&countback=30]  future minus spot per candle, with mean, min, max, z-score
  *
  * Read-only. Partial failures (one expiry with no quote, one leg of the history) go in `errors`, never a throw.
+ *
+ * ?wait=near answers once spot and the NEAR_FUTURES nearest futures are quoted (the recorder streams those). A farther
+ * future whose quote has not arrived by then comes back with `pending: true` and null figures; its read carries on (it
+ * goes through the scheduler like any other and fills the cache), so asking again with the default wait=all joins it.
+ * The dashboard's Futures page draws the first answer and fills the far months in from the second.
  */
 import { BridgeError } from "../core/errors.mjs";
 import { defaultOptionExchange } from "../market/chain.mjs";
@@ -19,6 +24,8 @@ const opt = (q, name) => {
 };
 const round = (n, d) => (n === null || n === undefined || !Number.isFinite(n) ? null : Math.round(n * 10 ** d) / 10 ** d);
 const INTERVALS = ["1m", "3m", "5m", "10m", "15m", "30m", "60m", "1d"];
+/** Futures ?wait=near waits for: the two nearest, the ones the recorder streams (recorderService.mjs). */
+export const NEAR_FUTURES = 2;
 
 function intParam(q, name, min, max, dflt) {
   const v = opt(q, name);
@@ -74,6 +81,27 @@ export function futuresChainRoutes(deps) {
   const readOptions = (ctx) => readOptionsBase(ctx, { autoBackup: autoBackupFor(deps) });
   const meta = (ctx, opts, freshness) => ({ requestId: ctx.requestId, accountId: opts.accountId ?? null, ...(freshness ? { freshness } : {}) });
 
+  /**
+   * Spot and the futures in one read, or (near < futures) the near ones awaited and the far ones read alongside:
+   * a far quote that has not arrived when the near read answers is left out and listed in `pending`.
+   */
+  async function quoteFutures(spotSym, futSyms, opts, near) {
+    if (near >= futSyms.length) return { ...(await md().quotes([spotSym, ...futSyms], opts)), pending: new Set() };
+    const farSyms = futSyms.slice(near);
+    let farDone = null;
+    const far = md()
+      .quotes(farSyms, opts)
+      .then(
+        (v) => (farDone = v),
+        (e) => (farDone = { items: [], errors: farSyms.map((symbol) => ({ symbol, code: e?.code ?? "INTERNAL", message: e?.detail ?? e?.message ?? "Quote failed." })) }),
+      );
+    const r = await md().quotes([spotSym, ...futSyms.slice(0, near)], opts);
+    // A far read that settled while the near one was answered is used; one still running is not waited for.
+    await Promise.race([far, Promise.resolve()]);
+    if (farDone) return { items: [...r.items, ...farDone.items], errors: [...(r.errors ?? []), ...(farDone.errors ?? [])], pending: new Set() };
+    return { ...r, pending: new Set(farSyms) };
+  }
+
   async function chain(ctx) {
     const underlying = underlyingParam(ctx.query);
     const count = intParam(ctx.query, "expiries", 1, 6, 3);
@@ -89,7 +117,9 @@ export function futuresChainRoutes(deps) {
     const picked = monthlyExpiries(upcomingExpiries([...new Set([...list.expiries, ...futExpiries])], nowMs)).slice(0, count);
     if (picked.length === 0) throw new BridgeError("SYMBOL_NOT_FOUND", `No upcoming futures expiries were found for ${underlying}.`);
     const futSyms = picked.map((e) => `${fx}:${underlying}-${e}-FUT`);
-    const r = await md().quotes([spotSym, ...futSyms], opts);
+    const wait = opt(ctx.query, "wait") ?? "all";
+    if (wait !== "all" && wait !== "near") throw invalid("wait", "wait may be all or near.");
+    const r = await quoteFutures(spotSym, futSyms, opts, wait === "near" ? NEAR_FUTURES : futSyms.length);
     const byMap = new Map(r.items.map((i) => [i.symbol, i]));
     const spot = byMap.get(spotSym)?.ltp ?? null;
 
@@ -105,6 +135,7 @@ export function futuresChainRoutes(deps) {
         volume: q?.volume ?? null,
         daysToExpiry: round(days, 2),
         ...futuresBasis({ spot, future: ltp, daysToExpiry: days }),
+        ...(r.pending.has(futSyms[i]) ? { pending: true } : {}),
       };
     });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createFakeMarketData } from "../market/fake.mjs";
-import { futuresChainRoutes, seriesStats } from "./futuresChain.mjs";
+import { NEAR_FUTURES, futuresChainRoutes, seriesStats } from "./futuresChain.mjs";
 
 const iso = (days) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 // Futures are monthly, so each expiry sits mid-month in its own month (10 and 40 days ahead could share a month,
@@ -95,5 +95,55 @@ describe("futuresChainRoutes", () => {
   it("seriesStats handles flat and tiny series", () => {
     expect(seriesStats([5, 5, 5]).zScore).toBeNull();
     expect(seriesStats([]).count).toBe(0);
+  });
+});
+
+describe("futures: ?wait=near does not wait for the far months", () => {
+  /** The fake market data, with quotes for a far future held until `release()` (a cold broker read). */
+  function slowFar() {
+    const { md } = setup();
+    md.setQuote(`NFO:NIFTY-${E3}-FUT`, { ltp: 25250, oi: 600, volume: 100 });
+    let release;
+    const gate = new Promise((r) => (release = r));
+    const asked = [];
+    const marketData = {
+      ...md,
+      expiries: md.expiries,
+      async quotes(list, opts) {
+        asked.push([...list]);
+        if (list.includes(`NFO:NIFTY-${E3}-FUT`)) await gate;
+        return md.quotes(list, opts);
+      },
+    };
+    const h = Object.fromEntries(futuresChainRoutes({ marketData }).map(([, path, , fn]) => [path, fn]));
+    const ctx = (query) => ({ query: new URLSearchParams(query), requestId: "r1", requireAccountAccess() {} });
+    return { h, ctx, release, asked };
+  }
+
+  it("answers with the near months and marks the far one pending; the default waits for every month", async () => {
+    expect(NEAR_FUTURES).toBe(2);
+    const { h, ctx, release, asked } = slowFar();
+    const near = await h["/v1/analytics/futures"](ctx("underlying=NIFTY&expiries=3&wait=near"));
+    expect(near.data.futures.map((f) => [f.expiry, f.ltp, f.pending ?? false])).toEqual([[E1, 25050, false], [E2, 25150, false], [E3, null, true]]);
+    expect(near.data.futures[2]).toMatchObject({ basis: null, annualisedPct: null });
+    expect(near.data.calendarSpreads[1].spread).toBeNull();
+    expect(near.errors).toEqual([]);
+    expect(asked).toEqual([[`NFO:NIFTY-${E3}-FUT`], ["NSE:NIFTY", `NFO:NIFTY-${E1}-FUT`, `NFO:NIFTY-${E2}-FUT`]]);
+    const full = h["/v1/analytics/futures"](ctx("underlying=NIFTY&expiries=3"));
+    release();
+    const r = await full;
+    expect(r.data.futures.map((f) => [f.expiry, f.ltp, f.pending ?? false])).toEqual([[E1, 25050, false], [E2, 25150, false], [E3, 25250, false]]);
+    expect(r.data.calendarSpreads[1].spread).toBe(100);
+  });
+
+  it("uses a far quote that is already there, and changes nothing with two or fewer months", async () => {
+    const { h, ctx, release } = slowFar();
+    release();
+    const r = await h["/v1/analytics/futures"](ctx("underlying=NIFTY&expiries=3&wait=near"));
+    expect(r.data.futures.map((f) => f.pending ?? false)).toEqual([false, false, false]);
+    expect(r.data.futures[2].ltp).toBe(25250);
+    const two = await h["/v1/analytics/futures"](ctx("underlying=NIFTY&expiries=2&wait=near"));
+    expect(two.data.futures.map((f) => f.ltp)).toEqual([25050, 25150]);
+    await expect(h["/v1/analytics/futures"](ctx("underlying=NIFTY&wait=later"))).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 });

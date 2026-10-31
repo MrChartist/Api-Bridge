@@ -520,6 +520,26 @@ async function workbench(H, { tabs, label = "View" }) {
 
 // ───────────────────────── Futures ─────────────────────────
 
+/**
+ * The Futures tab: drawn from the first answer, which waits only for spot and the two nearest futures (?wait=near);
+ * a far month whose quote is still on its way shows "–" and is filled in from a second read (the default wait=all,
+ * which joins the read already running on the Bridge). Resolves with the box to show; the fill-in replaces its
+ * contents.
+ */
+export async function futuresView(read, { underlying, expiries }, draw, boxOf = (nodes) => h("div", { class: "stack" }, nodes)) {
+  const path = (wait) => `/v1/analytics/futures?${new URLSearchParams({ underlying, expiries, ...(wait ? { wait } : {}) })}`;
+  const first = await read(path("near"));
+  const box = boxOf(draw(first));
+  const pending = (first.data?.data?.futures ?? []).some((f) => f?.pending);
+  if (pending)
+    box.filled = read(path(null)).then(
+      // A box no longer on the page (the controls changed) is detached: filling it shows nothing.
+      (full) => box.replaceChildren(...[draw(full)].flat().filter(Boolean)),
+      () => {},
+    );
+  return box;
+}
+
 function drawFutures(res) {
   const d = res.data?.data ?? {};
   const list = d.futures ?? [];
@@ -624,7 +644,7 @@ async function renderFutures(H) {
         id: "chain",
         label: "Futures",
         fields: [{ key: "expiries", label: "Expiries to show", type: "select", options: [["2", "Next 2"], ["3", "Next 3"], ["4", "Next 4"], ["6", "Next 6"]], value: "3" }],
-        run: async ({ v, o }) => drawFutures(await api(`/v1/analytics/futures?${new URLSearchParams({ underlying: v.underlying, expiries: o.expiries })}`)),
+        run: ({ v, o }) => futuresView(api, { underlying: v.underlying, expiries: o.expiries }, drawFutures),
       },
       {
         id: "basis",

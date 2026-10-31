@@ -66,6 +66,29 @@ const pcrSide = (p) => {
 const r1 = (v) => Math.round(v * 10) / 10;
 const local = app.local;
 /** Index symbols for GET /v1/quotes (the spot row's day change). */
+/**
+ * The quotes a desk page waits for before it draws: the index, the two nearest futures (the ones the recorder streams,
+ * so they answer at once) and the selected expiry's own future. The farther futures are cold broker reads (about one
+ * round trip), so while any of them has no quote yet they are read alongside and filled in when they come (`later`).
+ * Once every far future has a quote the page reads them all in one call, as before (no extra request per refresh).
+ */
+export const NEAR_FUTURES = 2;
+export function quotePlan(indexSymbol, futures, expiry, have = () => false) {
+  const now = indexSymbol ? [indexSymbol] : [];
+  const later = [];
+  (futures ?? []).forEach((f, i) => {
+    if (f?.symbol) (i < NEAR_FUTURES || f.expiry === expiry ? now : later).push(f.symbol);
+  });
+  return later.every(have) ? { now: [...now, ...later], later: [] } : { now, later };
+}
+/**
+ * Read `plan.now` and resolve with its answer; `plan.later` is read at the same time and never awaited: `onLater`
+ * gets its answer when it arrives. `read(symbols)` returns a promise of the page's { data, error } answer.
+ */
+export function readQuotes(read, plan, onLater) {
+  if (plan.later.length) read(plan.later).then(onLater, () => {});
+  return plan.now.length ? read(plan.now) : Promise.resolve(null);
+}
 const INDEX_SYMBOL = { NIFTY: "NSE:NIFTY", BANKNIFTY: "NSE:BANKNIFTY", FINNIFTY: "NSE:FINNIFTY", MIDCPNIFTY: "NSE:MIDCPNIFTY", SENSEX: "BSE:SENSEX", BANKEX: "BSE:BANKEX" };
 const EXPIRY_DAY_NOTE = "Index option shorts carry +2% ELM today; no calendar-spread margin benefit; ITM longs left to exercise pay STT 0.125% of intrinsic. Square off to pay 0.1% of premium instead.";
 /** Freeze quantities by symbol (GET /v1/instruments/{symbol}), for the session. */
@@ -632,11 +655,20 @@ async function renderDesk(kind) {
     st.futures = (r.data?.data ?? []).filter((f) => f.kind === "FUT" && f.underlying === u && /^\d{4}-\d{2}-\d{2}$/.test(f.expiry ?? "")).sort((a, b) => (a.expiry < b.expiry ? -1 : 1));
     if (st.futures.length && st.expiries.length) drawExpiryOptions();
   }
-  /** The index and its futures, for the spot row: a failed call leaves the page as it was. */
+  /**
+   * The index and its futures, for the spot row: a failed call leaves the page as it was. A far future without a quote
+   * yet does not hold the draw (quotePlan): its quote is filled in, and the page redrawn, when it arrives.
+   */
   async function loadQuotes() {
-    const syms = [INDEX_SYMBOL[st.underlying], ...st.futures.map((f) => f.symbol)].filter(Boolean);
-    if (!syms.length) return;
-    const r = await optional(api(`/v1/quotes?symbols=${encodeURIComponent(syms.join(","))}`));
+    const u = st.underlying;
+    const plan = quotePlan(INDEX_SYMBOL[u], st.futures, st.expiry, (sym) => st.quotes.has(sym));
+    const read = (syms) => optional(api(`/v1/quotes?symbols=${encodeURIComponent(syms.join(","))}`));
+    const r = await readQuotes(read, plan, (late) => {
+      if (u !== st.underlying || late.error || !pageRoot.isConnected) return;
+      for (const q of late.data?.data ?? []) if (q?.symbol) st.quotes.set(q.symbol, q);
+      if (st.chain) drawAll();
+    });
+    if (!r) return;
     st.quotesError = r.error ?? null;
     if (r.error) return;
     for (const q of r.data?.data ?? []) if (q?.symbol) st.quotes.set(q.symbol, q);
