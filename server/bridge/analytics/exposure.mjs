@@ -24,7 +24,8 @@ import { z } from "zod";
 import { BridgeError } from "../core/errors.mjs";
 import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
 import { computeGreeks, daysBetween, DEFAULT_RATE } from "../../lib/blackScholes.mjs";
-import { gammaExposure, nowMsOf, unitMultiplier, upcomingExpiries } from "./math.mjs";
+import { CHAIN_READS, gammaExposure, nowMsOf, unitMultiplier, upcomingExpiries } from "./math.mjs";
+import { mapSettledLimit } from "../../lib/batch.mjs";
 
 const fin = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 const round = (v, d = 0) => (Number.isFinite(v) ? Math.round(v * 10 ** d) / 10 ** d : 0);
@@ -249,12 +250,13 @@ export function exposureRoutes(deps) {
     const opts = readOptions(ctx);
     const list = await md().expiries(underlying, opts);
     const picked = upcomingExpiries(list.expiries, nowMsOf(deps)).slice(0, count);
-    const charts = [];
-    for (const expiry of picked) {
-      const params = { underlying, expiry, greeks };
-      if (strikes !== undefined) params.strikes = strikes;
-      charts.push({ expiry, chain: await md().optionChain(params, opts) });
-    }
+    // CHAIN_READS chains at a time (each still paced by the rate-limit scheduler), in expiry order; the first failure
+    // in that order fails the request, as reading one after another did.
+    const read = await mapSettledLimit(picked, CHAIN_READS, (expiry) => md().optionChain({ underlying, expiry, greeks, ...(strikes !== undefined ? { strikes } : {}) }, opts));
+    const charts = picked.map((expiry, i) => {
+      if (read[i].status === "rejected") throw read[i].reason;
+      return { expiry, chain: read[i].value };
+    });
     return { underlying: underlying.toUpperCase(), charts, opts, freshness: list.freshness };
   }
 

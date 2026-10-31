@@ -12,6 +12,12 @@ export const expiryCutoffMs = (expiry) => Date.parse(`${expiry}T15:30:00+05:30`)
 /** Current time in ms from whatever clock the deps carry (deps.now(), deps.clock.now(), else the wall clock). */
 export const nowMsOf = (deps) => (typeof deps?.now === "function" ? deps.now() : deps?.clock?.now ? deps.clock.now() : Date.now());
 /** Expiries (YYYY-MM-DD) whose 15:30 IST cutoff has not passed yet, soonest first. */
+/**
+ * Option chains one analytics request reads at once (forward curve, vol cone, event vol, exposure across expiries).
+ * Each read still goes through the rate-limit scheduler (marketData.optionChain), which paces them against the
+ * account's budget; this only bounds how many one request has in flight.
+ */
+export const CHAIN_READS = 3;
 export const upcomingExpiries = (expiries, nowMs) => [...(expiries ?? [])].filter((e) => expiryCutoffMs(e) > nowMs).sort();
 
 const rowsOf = (chain) => (Array.isArray(chain?.rows) ? chain.rows : []);

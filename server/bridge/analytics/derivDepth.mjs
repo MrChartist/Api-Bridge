@@ -32,9 +32,10 @@ import { BridgeError } from "../core/errors.mjs";
 import { defaultOptionExchange } from "../market/chain.mjs";
 import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
 import { computeGreeks, DEFAULT_RATE } from "../../lib/blackScholes.mjs";
-import { expiryCutoffMs, ivSkew, nowMsOf, upcomingExpiries } from "./math.mjs";
+import { CHAIN_READS, expiryCutoffMs, ivSkew, nowMsOf, upcomingExpiries } from "./math.mjs";
 import { closeHv, rollingHv } from "./volStats.mjs";
 import { DEFAULT_SESSIONS } from "../reference/defaults.mjs";
+import { mapSettledLimit } from "../../lib/batch.mjs";
 
 /** The event is assumed at the session open (the reference store's labelled default). */
 const EVENT_OPEN = DEFAULT_SESSIONS.NSE.open;
@@ -218,17 +219,20 @@ export function derivDepthRoutes(deps) {
     const curve = [];
     const errors = [];
     let spot = null;
-    for (const expiry of expiries) {
+    // The chains are read CHAIN_READS at a time and used in expiry order, as one after another would.
+    const read = await mapSettledLimit(expiries, CHAIN_READS, (expiry) => md().optionChain({ underlying, expiry, greeks: false }, opts));
+    expiries.forEach((expiry, i) => {
       const dte = dteOf(expiry, nowMs);
       try {
-        const chain = await md().optionChain({ underlying, expiry, greeks: false }, opts);
+        if (read[i].status === "rejected") throw read[i].reason;
+        const chain = read[i].value;
         spot ??= chain.underlyingLtp > 0 ? chain.underlyingLtp : null;
         curve.push({ expiry, dte: R(dte), ...impliedForward(chain, dte, rate) });
       } catch (e) {
         errors.push(errLine(e, { expiry }));
         curve.push({ expiry, dte: R(dte), forward: null, reason: "chain unavailable" });
       }
-    }
+    });
     const data = { underlying, spot: R(spot), ratePct: R(rate * 100, 3), curve, method: "F = K + (C - P) e^{rT}, mean over up to 3 strikes nearest spot; carry = ln(F/S)/T; implied dividend yield = r - carry" };
     return withErrors({ data, meta: accountMeta(ctx, opts, freshness) }, errors);
   });
@@ -267,9 +271,10 @@ export function derivDepthRoutes(deps) {
     const count = qInt(ctx.query, "expiries", 1, 6, 4);
     const opts = readOptions(ctx);
     const cash = defaultOptionExchange(underlying) === "BFO" ? "BSE" : "NSE";
-    const hist = await md().history({ symbol: `${cash}:${underlying}`, interval: "1d", countback: days + 1 }, readOptions(ctx, { maxAge: false }));
-    const closes = (hist.candles ?? []).filter((c) => c && c.close > 0).map((c) => c.close);
-    const cone = CONE_TENORS.map((n) => {
+    // The daily candles are read while the chains are (below): neither waits for the other.
+    const histRead = md().history({ symbol: `${cash}:${underlying}`, interval: "1d", countback: days + 1 }, readOptions(ctx, { maxAge: false }));
+    histRead.catch(() => {});
+    const coneOf = (closes) => CONE_TENORS.map((n) => {
       const series = rollingHv(closes, n);
       const current = series.length ? series.at(-1) : null;
       if (series.length < MIN_CONE_SAMPLES) return { tenorDays: n, current: closeHv(closes, n), samples: series.length, min: null, p5: null, p25: null, p50: null, p75: null, p95: null, max: null, currentPercentile: null, position: null, reason: `only ${series.length} rolling windows (need ${MIN_CONE_SAMPLES})` };
@@ -283,20 +288,42 @@ export function derivDepthRoutes(deps) {
     const errors = [];
     const slices = [];
     let freshness;
-    const { expiries } = await upcoming(underlying, opts, 12);
-    const nowMs = nowMsOf(deps);
-    for (const expiry of expiries) {
-      const dte = dteOf(expiry, nowMs);
-      if (dte < 3) continue;
-      if (slices.length >= count) break;
-      try {
-        const chain = await md().optionChain({ underlying, expiry, greeks: true }, opts);
-        freshness ??= chain.freshness;
-        slices.push({ expiry, dte, atmIv: ivSkew(chain).atmIv, spot: chain.underlyingLtp });
-      } catch (e) {
-        errors.push(errLine(e, { expiry }));
-      }
+    // A failed expiry list fails the request only after the history is known: a failed history wins, as it did when
+    // it was read first.
+    const listed = await upcoming(underlying, opts, 12).then(
+      (v) => ({ v }),
+      (e) => ({ e }),
+    );
+    if (listed.e) {
+      await histRead;
+      throw listed.e;
     }
+    const { expiries } = listed.v;
+    const nowMs = nowMsOf(deps);
+    // The first `count` expiries at least 3 days out; a chain that fails is replaced by the next expiry. Read in rounds
+    // of the reads still missing (CHAIN_READS at a time), used in expiry order: the same chains, slices and errors as
+    // reading one after another.
+    const candidates = expiries.filter((e) => dteOf(e, nowMs) >= 3);
+    let at = 0;
+    while (slices.length < count && at < candidates.length) {
+      const round = candidates.slice(at, at + (count - slices.length));
+      at += round.length;
+      const read = await mapSettledLimit(round, CHAIN_READS, (expiry) => md().optionChain({ underlying, expiry, greeks: true }, opts));
+      round.forEach((expiry, i) => {
+        const dte = dteOf(expiry, nowMs);
+        try {
+          if (read[i].status === "rejected") throw read[i].reason;
+          const chain = read[i].value;
+          freshness ??= chain.freshness;
+          slices.push({ expiry, dte, atmIv: ivSkew(chain).atmIv, spot: chain.underlyingLtp });
+        } catch (e) {
+          errors.push(errLine(e, { expiry }));
+        }
+      });
+    }
+    const hist = await histRead;
+    const closes = (hist.candles ?? []).filter((c) => c && c.close > 0).map((c) => c.close);
+    const cone = coneOf(closes);
     let vrp = null;
     const near = slices.find((s) => s.atmIv > 0);
     if (near) {
@@ -334,18 +361,20 @@ export function derivDepthRoutes(deps) {
     const base = { underlying, event, eventTimeAssumed: `${EVENT_OPEN} IST on the event date` };
     if (!after) return { data: { ...base, impliedEventMovePct: null, reason: "No listed expiry on or after the event date, so no implied event premium can be read." }, meta: accountMeta(ctx, opts, freshness) };
     const errors = [];
-    const slice = async (expiry) => {
+    // Both chains at once (within CHAIN_READS); results and errors in the order after, before, as before.
+    const wanted = before ? [after, before] : [after];
+    const read = await mapSettledLimit(wanted, CHAIN_READS, (expiry) => md().optionChain({ underlying, expiry, greeks: true }, opts));
+    const [s2, s1 = null] = wanted.map((expiry, i) => {
       try {
-        const chain = await md().optionChain({ underlying, expiry, greeks: true }, opts);
+        if (read[i].status === "rejected") throw read[i].reason;
+        const chain = read[i].value;
         const dte = dteOf(expiry, nowMs);
         return { expiry, dte, atmIv: ivSkew(chain).atmIv, spot: chain.underlyingLtp };
       } catch (e) {
         errors.push(errLine(e, { expiry }));
         return null;
       }
-    };
-    const s2 = await slice(after);
-    const s1 = before ? await slice(before) : null;
+    });
     if (!s2 || !(s2.atmIv > 0)) return withErrors({ data: { ...base, impliedEventMovePct: null, reason: "No usable ATM IV for the expiry after the event." }, meta: accountMeta(ctx, opts, freshness) }, errors);
     const usePre = s1 && s1.atmIv > 0;
     let baseline = baselineParam;
