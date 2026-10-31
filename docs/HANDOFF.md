@@ -254,6 +254,23 @@ What landed, each with tests. Details are in the commits, `docs/design/broker-ga
   - `futuresChain.test` no longer depends on the run date.
   - A full run passes on a quiet machine. Under heavy load two timing tests (store read ≤ 300 ms, webhook ack ≤ 50 ms)
     can fail; they are not loosened.
+- **Safety review of the new order paths** (`server/bridge/triggers/triggers.integration.test.mjs`, "adversarial
+  review" and "review follow-ups"):
+  - a cancelled AMO or bracket can no longer fire; a corrupt `triggers.json` is moved aside, not overwritten; a trigger
+    that fails to save is not armed; an expired trigger left mid-fire is not sent after a restart;
+  - changing or cancelling a live trigger needs `live`; MCP keys and strategy-run keys cannot create, change or
+    cancel triggers (triggers set by other keys keep firing after that key is revoked, so protective stops stay on);
+  - Cancel all cancels Bridge orders by default, with outside orders behind an unticked option, counted separately;
+  - convert carries position triggers to the new product; a partly filled then cancelled bracket entry arms its
+    exits for the filled quantity; a bracket's mode must match its entry's; paper convert refuses untradeable
+    products;
+  - strategy-run keys left by a crash are revoked at start even if `strategies/state.json` is unreadable (it is
+    moved aside).
+- **Final sweep (31 Oct):** every page and tab at 1920 dark, 1440 light and 390 dark plus every paper flow; six small
+  fixes (`ux-audit.md` "Final sweep (31 Oct)"). Algo "Start live" says why it is off; Event vol shows "Event on 4 Nov".
+- **Speed rounds 5 and 5b** (`docs/perf/baseline.md`): the Cancel all dry run no longer clears the cache and runs
+  once per visit; depth and Algo logs pause in hidden tabs; Chain and Futures draw before the far-month future's
+  quote (`/v1/analytics/futures?wait=near`); analytics read option chains 3 at a time through the scheduler.
 
 **Open decisions for the user:**
 - **`safety.reduceOnlyExempt`:** exempt orders the Bridge verifies as reduce-only from `dailyMaxLoss` and the daily
