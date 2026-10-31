@@ -13,6 +13,7 @@ import { UNDERLYINGS } from "./desk.js";
 import { barsEnter, countUp, flashValue, lineReveal, reducedMotion, stopCount } from "./motion.js";
 import * as O from "./options.js";
 import * as S from "./screens.js";
+import * as SC from "./option-scans.js";
 import { LIBRARY_BY_ID, OPTION_QUICK_SCANS, activeQuickScan, quickScanPatch } from "./scan-library.js";
 import { readinessSheetRow } from "./readiness.js";
 import { dayText, loadReference, refBanners, refCharges, refChip, refRate, refSession, refSignature } from "./reference.js";
@@ -20,6 +21,7 @@ import { every, segmented, stopTimer } from "./views.js";
 import { hbar, heatCell, setBar, spotPill, svgEl } from "./viz.js";
 
 const SLOT = "mcb.dashboard.screener";
+const SAVED_SLOT = "mcb.dashboard.screener.saved";
 const HV_SLOT = "mcb.dashboard.screener.hv";
 const BASE_SLOT = "mcb.dashboard.screener.base";
 const DESK_SLOT = "mcb.dashboard.desk";
@@ -315,7 +317,10 @@ export function renderScreenerPage() {
   const saved = read(SLOT);
   let autoOn = saved?.autoOn !== false;
   let mapOpen = saved?.mapOpen === true;
-  const save = () => write(SLOT, { ...cfg, autoOn, mapOpen });
+  // The Scans tab: each family remembers the scan used last in it; the symbol search is not kept.
+  const famLast = { ...(saved?.famLast && typeof saved.famLast === "object" && !Array.isArray(saved.famLast) ? saved.famLast : {}) };
+  let query = "";
+  const save = () => write(SLOT, { ...cfg, autoOn, mapOpen, famLast });
   const preset = () => S.presetById(cfg.preset);
 
   // Reference data (docs/spec/p1-02-reference.md §5): the charge table, rate and session close come from the first
@@ -454,7 +459,196 @@ export function renderScreenerPage() {
     const on = activeQuickScan(cfg, dirOptions);
     for (const b of quickBtns) b.setAttribute("aria-pressed", String(b.dataset.id === on));
   }
-  const main = h("section", { class: "desk-panel scr-main", "data-panel": "screener-main", "aria-label": "Option Screener" }, head, quickRow, chipRow, legendRow, banners, mapEl, wrap, scatEl, cards, emptyEl, foot, live);
+  // ── The scan shelf (the Scans tab): a family capsule, the family's scans as chips with live counts, the plain
+  // question the list answers; beside it, on every tab, the symbol search and the saved scans. ──
+  const curScan = () => SC.scanById(cfg.filters.scans?.scan);
+  const famSeg = segmented("Scan family", SC.SCAN_FAMILIES.map((f) => [f.id, f.label]), curScan().family);
+  famSeg.classList.add("scn-fam");
+  let settingFam = false;
+  famSeg.addEventListener("change", () => {
+    if (settingFam || (famSeg.value === curScan().family && cfg.preset === "scans")) return;
+    const id = SC.scansOf(famSeg.value).some((x) => x.id === famLast[famSeg.value]) ? famLast[famSeg.value] : SC.scansOf(famSeg.value)[0].id;
+    pickScan(id);
+  });
+  const scanChips = h("div", { class: "scn-chips", role: "group", "aria-label": "Scans" });
+  const scanBtns = new Map();
+  let chipFam = null;
+  function buildScanChips(fam) {
+    chipFam = fam;
+    scanBtns.clear();
+    scanChips.replaceChildren(
+      ...SC.scansOf(fam).map((x) => {
+        const n = h("span", { class: "scn-n" });
+        const b = h("button", { type: "button", class: "chip-btn scn-chip", "data-id": x.id, "data-side": x.side, "aria-pressed": "false", title: x.plain, onclick: () => pickScan(x.id) }, h("span", { class: "scn-dir", "aria-hidden": "true" }, x.side === "up" ? "▲" : x.side === "down" ? "▼" : "●"), h("span", { class: "scn-l" }, x.label), n);
+        b.__n = n;
+        scanBtns.set(x.id, b);
+        return b;
+      }),
+    );
+  }
+  const scanQ = h("p", { class: "scn-q" });
+  function pickScan(id) {
+    const x = SC.scanById(id);
+    famLast[x.family] = x.id;
+    shown = cfg.rows;
+    autoSel = true;
+    swapPending = true;
+    setCfg({ preset: "scans", filters: { ...cfg.filters, scans: { ...cfg.filters.scans, scan: x.id } }, sort: { ...cfg.sort, scans: { ...x.sort } } });
+    centreTab(true);
+  }
+  // Symbol search: a whole symbol means that underlying alone (NIFTY, not BANKNIFTY); part of one finds every match.
+  const searchIn = h("input", { type: "search", class: "scn-search-in", placeholder: "Search symbol", "aria-label": "Search symbol", autocomplete: "off", spellcheck: "false", enterkeyhint: "search" });
+  const searchEl = h("label", { class: "scn-search" }, icon("search"), searchIn);
+  searchIn.addEventListener("input", () => {
+    query = searchIn.value;
+    shown = cfg.rows;
+    autoSel = true;
+    draw();
+  });
+  searchIn.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && searchIn.value) {
+      e.stopPropagation();
+      clearSearch();
+    }
+  });
+  function clearSearch() {
+    searchIn.value = "";
+    query = "";
+    draw();
+  }
+  // Saved scans: the tab, its filters and its sort under a name, kept in this browser.
+  let savedList = SC.normaliseSavedScans(read(SAVED_SLOT));
+  const savedBtn = h("button", { type: "button", class: "small scr-btn scn-saved-btn", "aria-haspopup": "dialog", "aria-expanded": "false", title: "Saved scans" }, h("span", { class: "scn-star", "aria-hidden": "true" }, "★"), h("span", { class: "scn-saved-t" }, "Saved"));
+  savedBtn.addEventListener("click", () => openSaved());
+  const shelfTools = h("div", { class: "scn-tools" }, searchEl, savedBtn);
+  const shelfTop = h("div", { class: "scn-top" }, famSeg, h("span", { class: "scr-grow" }), shelfTools);
+  const shelf = h("div", { class: "scn-shelf" }, shelfTop, scanChips, scanQ);
+  const saveName = () => {
+    const p = preset();
+    const side = filters().side;
+    return SC.suggestScanName(p.id === "scans" ? curScan().label : p.label, savedList, side && side !== "both" ? side : "");
+  };
+  function openSaved() {
+    const host = h("div", { class: "scn-saved" });
+    const nameIn = h("input", { type: "text", class: "scn-name-in", maxlength: String(SC.NAME_MAX), "aria-label": "Name", value: saveName() });
+    let pop = null;
+    const render = () => {
+      const on = SC.activeSavedScan(cfg, savedList);
+      const rows = savedList.map((e) => {
+        const pl = S.presetById(e.preset);
+        const label = e.preset === "scans" ? `${pl.label} · ${SC.scanById(e.filters?.scan).label}` : pl.label;
+        return h(
+          "li",
+          { class: `scn-sv${e.id === on ? " cur" : ""}` },
+          h("button", { type: "button", class: "scn-sv-open", "aria-current": e.id === on ? "true" : "false", onclick: () => openSavedScan(e, pop) }, h("strong", {}, e.name), h("small", {}, label)),
+          h(
+            "button",
+            {
+              type: "button",
+              class: "icon-btn tiny",
+              "aria-label": `Delete ${e.name}`,
+              title: "Delete",
+              onclick: () => {
+                savedList = SC.removeSavedScan(savedList, e.id);
+                write(SAVED_SLOT, savedList);
+                render();
+                drawShelf();
+              },
+            },
+            icon("close"),
+          ),
+        );
+      });
+      const form = h(
+        "form",
+        { class: "scn-save" },
+        h("label", { class: "scn-save-l" }, h("span", {}, "Save this screen as"), nameIn),
+        h("button", { type: "submit", class: "small primary" }, "Save"),
+      );
+      form.addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        const p = preset();
+        const { list: next, entry } = SC.addSavedScan(savedList, { name: nameIn.value, preset: p.id, filters: filters(), sort: cfg.sort[p.id] });
+        if (!entry) return nameIn.focus();
+        savedList = next;
+        write(SAVED_SLOT, savedList);
+        toast(`Saved “${entry.name}”`);
+        nameIn.value = saveName();
+        render();
+        drawShelf();
+      });
+      host.replaceChildren(form, rows.length ? h("ul", { class: "scn-sv-list", "aria-label": "Saved scans" }, rows) : h("p", { class: "scn-sv-empty" }, "Nothing saved yet. A saved scan keeps the tab, its filters and its sort; the underlyings and the search stay as they are."));
+    };
+    render();
+    savedBtn.setAttribute("aria-expanded", "true");
+    pop = sheetPopover({ trigger: savedBtn, title: "Saved scans", body: host, cls: "scn-saved-pop" });
+  }
+  function openSavedScan(e, pop) {
+    const patch = SC.savedScanPatch(cfg, e);
+    if (!patch) return;
+    shown = cfg.rows;
+    autoSel = true;
+    if (patch.preset !== cfg.preset) swapPending = true;
+    if (patch.preset === "scans") famLast[SC.familyOf(patch.filters.scans?.scan)] = SC.scanById(patch.filters.scans?.scan).id;
+    setCfg(patch);
+    centreTab(true);
+    pop?.close?.();
+  }
+  let scanCountMemo = { sig: "", counts: null };
+  function scanCountsNow() {
+    const p = S.presetById("scans");
+    const f = cfg.filters.scans;
+    const sig = `${scanSig}|${JSON.stringify({ ...f, scan: null })}|${cfg.underlyings.join(",")}|${query}`;
+    if (scanCountMemo.sig === sig && scanCountMemo.counts) return scanCountMemo.counts;
+    const base = S.runPreset(presetRecords(p), { ...p, filters: sheetFilters(p) }, f, null, { ctx: { expiries: scannedExpiries() } }).rows;
+    scanCountMemo = { sig, counts: SC.scanCounts(base) };
+    return scanCountMemo.counts;
+  }
+  let shelfSig = "";
+  function drawShelf() {
+    const p = preset();
+    const onScans = p.id === "scans";
+    const x = curScan();
+    scanChips.hidden = !onScans;
+    scanQ.hidden = !onScans;
+    quickRow.hidden = onScans;
+    if (chipFam !== x.family) buildScanChips(x.family);
+    if (famSeg.value !== x.family) {
+      settingFam = true;
+      famSeg.value = x.family;
+      settingFam = false;
+    }
+    famSeg.classList.toggle("dim", !onScans);
+    const counts = scan && onScans ? scanCountsNow() : null;
+    for (const [id, b] of scanBtns) {
+      const on = onScans && id === x.id;
+      if (b.getAttribute("aria-pressed") !== String(on)) b.setAttribute("aria-pressed", String(on));
+      const t = counts ? formatInt(counts[id] ?? 0) : "";
+      if (b.__n.textContent !== t) b.__n.textContent = t;
+      b.classList.toggle("none", Boolean(counts) && !counts[id]);
+    }
+    main.dataset.scanSide = onScans ? x.side : "";
+    const q = onScans ? x.plain : "";
+    if (scanQ.__t !== q) {
+      scanQ.__t = q;
+      scanQ.textContent = q;
+      scanQ.classList.remove("in");
+      if (q && !reducedMotion()) {
+        void scanQ.offsetWidth;
+        scanQ.classList.add("in");
+      }
+    }
+    const on = SC.activeSavedScan(cfg, savedList);
+    const name = on ? (savedList.find((e) => e.id === on)?.name ?? "Saved") : "Saved";
+    const sig = `${name}|${savedList.length}`;
+    if (sig !== shelfSig) {
+      shelfSig = sig;
+      savedBtn.querySelector(".scn-saved-t").textContent = name;
+      savedBtn.classList.toggle("on-saved", Boolean(on));
+      savedBtn.setAttribute("aria-label", on ? `Saved scan in use: ${name}. Saved scans (${formatInt(savedList.length)})` : `Saved scans (${formatInt(savedList.length)})`);
+    }
+  }
+  const main = h("section", { class: "desk-panel scr-main", "data-panel": "screener-main", "aria-label": "Option Screener" }, head, shelf, quickRow, chipRow, legendRow, banners, mapEl, wrap, scatEl, cards, emptyEl, foot, live);
   const paneBody = h("div", { class: "scr-pane" });
   const detail = h("section", { class: "desk-panel scr-detail", "data-panel": "screener-detail", "aria-label": "Selected row" }, paneBody);
   const root = main;
@@ -528,12 +722,18 @@ export function renderScreenerPage() {
     return scan;
   }
   const staleAfter = () => (cfg.auto ? cfg.auto * 2000 : 10 * 60_000);
-  const presetRecords = (p) => S.recordsFor(scan, p).filter((r) => cfg.underlyings.includes(r.underlying));
+  const presetRecords = (p) => S.recordsFor(scan, p).filter((r) => cfg.underlyings.includes(r.underlying) && SC.symbolMatch(query, r.underlying, list));
   /** Is the current sort the tab's own ranking (the default sort)? Movement glyphs only make sense then. */
   const defaultSort = (p = preset()) => {
     const s = cfg.sort[p.id];
-    return s.by === p.defaults.sort.by && s.dir === p.defaults.sort.dir;
+    const want = rankSort(p);
+    return s.by === want.by && s.dir === want.dir;
   };
+  /** The tab's own ranking: its default sort, or on Scans the scan in use's sort (each scan ranks by its own figure). */
+  const rankSort = (p = preset()) => (p.id === "scans" ? SC.scanById(cfg.filters.scans?.scan).sort : p.defaults.sort);
+  const rankBy = (p = preset()) => rankSort(p).by;
+  /** The filters the Filters sheet and the chips show: the scan itself has its own picker (the scan shelf). */
+  const sheetFilters = (p) => p.filters.filter((id) => !S.FILTERS[id].picker);
   function recompute() {
     records();
     const p = preset();
@@ -563,7 +763,7 @@ export function renderScreenerPage() {
     if (!scan) return;
     const at = Date.now();
     for (const p of S.PRESETS) {
-      const keys = S.runPreset(presetRecords(p), p, cfg.filters[p.id], null, { ctx: { expiries: scannedExpiries() } }).rows.map((r) => r.key);
+      const keys = S.runPreset(presetRecords(p), p, cfg.filters[p.id], p.id === "scans" ? rankSort(p) : null, { ctx: { expiries: scannedExpiries() } }).rows.map((r) => r.key);
       const sig = JSON.stringify([cfg.filters[p.id], cfg.underlyings, cfg.expiries, cfg.monthly, cfg.strikes]);
       rankMem.set(p.id, S.rankSnapshot(rankMem.get(p.id), keys, sig, at));
     }
@@ -869,10 +1069,10 @@ export function renderScreenerPage() {
     for (const b of uBtns) paintUChip(b);
     const p = preset();
     const f = filters();
-    const active = p.filters.filter((id) => S.filterActive(id, f[id]));
+    const active = sheetFilters(p).filter((id) => S.filterActive(id, f[id]));
     // A chip only for a value that differs from the preset's default (the defaults are listed in Filters).
     const shownChips = active.filter((id) => JSON.stringify(f[id]) !== JSON.stringify(S.filterDefault(p, id)));
-    const changed = p.filters.some((id) => JSON.stringify(f[id]) !== JSON.stringify(S.filterDefault(p, id)));
+    const changed = sheetFilters(p).some((id) => JSON.stringify(f[id]) !== JSON.stringify(S.filterDefault(p, id)));
     const ctx = { expiries: scannedExpiries() };
     const sig = JSON.stringify([p.id, shownChips.map((id) => [id, S.filterText(id, f[id], ctx)]), changed]);
     if (sig !== fChipSig) {
@@ -907,7 +1107,8 @@ export function renderScreenerPage() {
   function resetFilters() {
     const p = preset();
     shown = cfg.rows;
-    setCfg({ filters: { ...cfg.filters, [p.id]: S.defaultFilters(p) } });
+    // Reset keeps the scan in use (Scans): it returns the settings, not the question.
+    setCfg({ filters: { ...cfg.filters, [p.id]: { ...S.defaultFilters(p), ...(p.id === "scans" ? { scan: filters().scan } : {}) } } });
   }
 
   // ── Match count: counts up from the last value (§7) ──
@@ -967,7 +1168,7 @@ export function renderScreenerPage() {
   function columns() {
     const p = preset();
     const cols = S.visibleColumns(p, cfg.cols[cfg.preset]);
-    const i = cols.findIndex((c) => c.id === p.defaults.sort.by);
+    const i = cols.findIndex((c) => c.id === rankBy(p));
     if (i > 1) cols.splice(1, 0, ...cols.splice(i, 1));
     return cols;
   }
@@ -982,7 +1183,7 @@ export function renderScreenerPage() {
         rankTh,
         cols.map((c) => {
           const sorted = s.by === c.id;
-          const th = h("th", { scope: "col", class: [c.num && !c.text ? "num" : "", c.lead ? "lead" : "", c.p === 3 ? "p3" : c.p === 2 ? "p2" : "", c.wrap ? "wrap" : "", c.viz ? `vz-${c.viz.kind}` : "", c.id === p.defaults.sort.by ? "rank-col" : ""].join(" ").trim() || null, title: c.title || null, "aria-sort": sorted ? (s.dir === "asc" ? "ascending" : "descending") : null });
+          const th = h("th", { scope: "col", class: [c.num && !c.text ? "num" : "", c.lead ? "lead" : "", c.p === 3 ? "p3" : c.p === 2 ? "p2" : "", c.wrap ? "wrap" : "", c.viz ? `vz-${c.viz.kind}` : "", c.id === rankBy(p) ? "rank-col" : ""].join(" ").trim() || null, title: c.title || null, "aria-sort": sorted ? (s.dir === "asc" ? "ascending" : "descending") : null });
           if (!c.sortable) th.append(c.label);
           else th.append(h("button", { type: "button", class: "scr-sort-btn", "data-col": c.id }, c.label, h("span", { class: "scr-sort-i", "aria-hidden": "true" }, sorted ? (s.dir === "asc" ? "▲" : "▼") : "")));
           return th;
@@ -1174,7 +1375,7 @@ export function renderScreenerPage() {
     const extraTitle = paintViz(td, c, r, sc);
     const ink = c.ink ? c.ink(r) : null;
     const subInk = c.subInk ? c.subInk(r) : null;
-    const cls = [c.num && !c.text ? "num" : "", c.p === 3 ? "p3" : c.p === 2 ? "p2" : "", c.wrap ? "wrap" : "", c.viz ? `vz vz-${c.viz.kind}` : "", ink ? `ink-${ink}` : "", subInk ? `sub-${subInk}` : "", c.id === preset().defaults.sort.by ? "rank-col" : "", td.classList.contains("dv-heat") ? "dv-heat" : ""].join(" ").trim();
+    const cls = [c.num && !c.text ? "num" : "", c.p === 3 ? "p3" : c.p === 2 ? "p2" : "", c.wrap ? "wrap" : "", c.viz ? `vz vz-${c.viz.kind}` : "", ink ? `ink-${ink}` : "", subInk ? `sub-${subInk}` : "", c.id === rankBy() ? "rank-col" : "", td.classList.contains("dv-heat") ? "dv-heat" : ""].join(" ").trim();
     if (td.__cls !== cls) {
       td.__cls = cls;
       td.className = cls;
@@ -1833,9 +2034,23 @@ export function renderScreenerPage() {
     const atDefaults = p.filters.every((id) => JSON.stringify(f[id] ?? null) === JSON.stringify(S.filterDefault(p, id) ?? null));
     const quiet = !blockers.length && atDefaults;
     const next = autoOn && cfg.auto && sweepEndedAt ? ` · next scan ${S.istHm(sweepEndedAt + cfg.auto * 1000)}` : "";
-    const sig = JSON.stringify([p.id, blockers.map((b) => [b.filter, b.label, b.without]), scan?.strikes, scan?.chains, nearOff, atDefaults, next]);
+    const sig = JSON.stringify([p.id, blockers.map((b) => [b.filter, b.label, b.without]), scan?.strikes, scan?.chains, nearOff, atDefaults, next, query]);
     if (sig === emptySig) return;
     emptySig = sig;
+    // A search with nothing on this list: say so in place, with a way back that keeps the page.
+    if (query.trim()) {
+      const what = p.kind === "underlying" ? "underlyings" : p.kind === "arb" ? "rows" : "contracts";
+      swapKeepFocus(
+        emptyEl,
+        [
+          h("strong", {}, `No ${what} match “${query.trim().toUpperCase()}”`),
+          h("p", { class: "scr-empty-note" }, `Nothing on this list for that symbol. Clear the search, or try another ${p.id === "scans" ? "scan" : "tab"}.`),
+          h("div", { class: "scr-empty-btns" }, h("button", { type: "button", class: "small", "data-fk": "clear-search", onclick: () => clearSearch() }, "Clear search")),
+        ],
+        searchIn,
+      );
+      return;
+    }
     const title = !quiet ? "No contracts pass these filters" : p.id === "arb" ? "No arbitrage right now" : p.id === "ivout" ? "No IV outliers right now" : "Nothing matches right now";
     const first =
       p.id === "arb"
@@ -1943,6 +2158,7 @@ export function renderScreenerPage() {
         h("li", {}, "Each underlying's nearest expiries plus the current monthly are fetched once per sweep, one call at a time within the broker's rate limit; tabs re-rank the same data without new calls."),
         h("li", {}, "Colour: violet = how much (the ranking: darker is better), red / green = signed money or direction, blue / orange = calls / puts, amber = a warning. Score colours are fixed bands (45 · 55 · 65 · 75); other rankings are relative to the rows shown."),
         h("li", {}, `Unusual means Vol/OI against the median of the same side of the same chain (Indian index options routinely trade 5–50× their OI), with floors on OI, volume, turnover and price; strikes under ${formatInt(O.VOL_OI_MIN_LOTS)} lots of OI get no ratio.`),
+        h("li", {}, `Scans: thirteen ready-made questions over every strike, measured against the previous close. Gainers and losers need a starting premium of at least ₹${formatInt(SC.START_PREMIUM)}; OI % and Volume above OI need ${formatInt(SC.START_OI_LOTS)} lots open at the start, so a tiny base never tops the list. Volume surge compares a strike's volume ÷ OI with the median of its own chain (a chain read carries no yesterday volume). Build-ups use the chain's own noise floor; a flat contract shows no pattern. Chance worthless is a log-normal reading on the forward at the leg's IV, never a forecast.`),
         h("li", {}, "Cheap or rich is judged against 20-day realised vol (HV20) from daily closes. IV rank and IV percentile are not shown: there is no IV history yet."),
         h("li", {}, "POP is a log-normal probability on the forward at the leg's IV; it is always shown with the maximum loss. ±1σ = F·(e^{σ√T} − e^{−σ√T})/2 at ATM IV; an ATM straddle ≈ 0.8 × 1σ."),
         costsLi,
@@ -2081,6 +2297,7 @@ export function renderScreenerPage() {
       const sc = p.id === "buy" ? r.buy : p.id === "sell" ? r.sell : null;
       if (sc) parts.push(scoreBlock(sc, p.id === "buy" ? "Buy score" : "Sell score"));
       else parts.push(heroBlock(r, p));
+      if (p.id === "scans") parts.push(scanBlock(r));
     } else parts.push(heroBlock(r, p));
     // No engine, no slot box (and no empty wrapper either).
     const slotBox = chartSlotBox(r);
@@ -2149,9 +2366,36 @@ export function renderScreenerPage() {
       sc.penalties.length ? h("p", { class: "scr-score-pen" }, h("span", { "aria-hidden": "true" }, "⚠ "), `Halved: ${sc.penalties.join(", ").toLowerCase()}`) : null,
     );
   }
+  /** Scans: the row in plain words, its cautions, and the numbers behind it (from → to). */
+  function scanBlock(r) {
+    const x = curScan();
+    const rd = SC.scanReading(r, x.id);
+    const sf = SC.scanFacts(r);
+    const ink = (v) => (num(v) === null || v === 0 ? null : v > 0 ? "pos" : "neg");
+    const lotsOf = (v) => `${formatCompact(v)} ${Math.abs(Math.round(v)) === 1 ? "lot" : "lots"}`;
+    return section(
+      `On ${x.label}`,
+      h(
+        "div",
+        { class: "scn-read" },
+        h("p", { class: `scn-read-t${rd.tone ? ` ink-${rd.tone}` : ""}` }, rd.text),
+        rd.caution ? h("p", { class: "scn-read-c ink-warn" }, rd.caution) : null,
+        kvGrid([
+          ["Premium", num(sf.prevPrice) !== null && num(r.ltp) !== null ? `₹${formatFixed(sf.prevPrice, 2)} → ₹${formatFixed(r.ltp, 2)}` : DASH, ink(r.changePct)],
+          ["Per lot", num(r.ltp) !== null && r.lot ? formatRupee(r.ltp * r.lot, 0) : DASH],
+          ["Open interest", num(sf.startOiLots) !== null && num(r.oiLots) !== null ? `${lotsOf(sf.startOiLots)} → ${lotsOf(r.oiLots)}` : DASH, ink(r.oiChangeLots)],
+          ["Traded", num(r.turnover) !== null ? `₹${formatCompact(r.turnover)} · ${lotsOf(r.volLots ?? 0)}` : DASH],
+          ["Spread", num(r.spread) !== null ? `${formatFixed(r.spread, 1)}%` : DASH, r.spread > SC.WIDE_SPREAD ? "warn" : null],
+          ["Chance worthless", SC.worthlessText(r.worthless)],
+        ]),
+        h("p", { class: "scr-d-note" }, "Against the previous close. Build-up names are conventions for how the pattern is read, not a record of who traded; chance worthless is a model reading, not a forecast."),
+      ),
+      "scn-sec",
+    );
+  }
   /** Tabs without a score: the ranking metric as a 22 px hero, with its chip or heat. */
   function heroBlock(r, p) {
-    const c = p.columns.find((x) => x.id === p.defaults.sort.by);
+    const c = p.columns.find((x) => x.id === rankBy(p));
     if (!c) return null;
     const val = c.fmt(c.get(r), r) ?? DASH;
     const v = h("strong", { class: "scr-hero-v" }, val);
@@ -2505,7 +2749,7 @@ export function renderScreenerPage() {
     const live = () => {
       if (!host.isConnected) return;
       const { f, n, removes } = funnel();
-      for (const id of p.filters) {
+      for (const id of sheetFilters(p)) {
         const row = host.querySelector(`[data-filter="${id}"]`);
         if (!row) continue;
         const name = row.querySelector(".scr-f-name");
@@ -2522,7 +2766,7 @@ export function renderScreenerPage() {
     };
     const build = () => {
       const { f, ctx, n, removes } = funnel();
-      const rows = [...p.filters.map((id) => filterControl(id, f[id], render, ctx, removes.get(id) ?? 0, live)), ...(p.id === "hedge" ? [notionalControl(render)] : [])];
+      const rows = [...sheetFilters(p).map((id) => filterControl(id, f[id], render, ctx, removes.get(id) ?? 0, live)), ...(p.id === "hedge" ? [notionalControl(render)] : [])];
       // Keys for focus: "<filter>:<n>" on each control, so a rebuild puts focus back where it was.
       for (const row of rows) row.querySelectorAll("input, button, select").forEach((el, i) => el.setAttribute("data-fk", `${row.dataset.filter}:${i}`));
       swapKeepFocus(host, [h("p", { class: "scr-f-intro" }, `${p.label}: changes apply as you go.`), ...rows]);
@@ -2938,7 +3182,7 @@ export function renderScreenerPage() {
         return h(
           "div",
           { class: `scr-sort-row${on ? " on" : ""}` },
-          h("button", { type: "button", role: "radio", "aria-checked": String(on), class: "scr-sort-pick", onclick: () => pick(on ? s.dir : c.dir) }, h("i", { class: "scr-radio", "aria-hidden": "true" }), c.label, c.id === p.defaults.sort.by ? h("small", {}, "ranking") : null),
+          h("button", { type: "button", role: "radio", "aria-checked": String(on), class: "scr-sort-pick", onclick: () => pick(on ? s.dir : c.dir) }, h("i", { class: "scr-radio", "aria-hidden": "true" }), c.label, c.id === rankBy(p) ? h("small", {}, "ranking") : null),
           h("button", { type: "button", class: `scr-sort-dir${on ? " on" : ""}`, "aria-label": `${c.label}, ${on && s.dir === "asc" ? "descending" : "ascending"}`, onclick: () => pick(on ? (s.dir === "asc" ? "desc" : "asc") : c.dir === "asc" ? "desc" : "asc") }, on ? (s.dir === "asc" ? "↑" : "↓") : c.dir === "asc" ? "↑" : "↓"),
         );
       });
@@ -2971,6 +3215,8 @@ export function renderScreenerPage() {
     drawSort();
     const hasData = [...cache.keys()].some((k) => cfg.underlyings.includes(k.split("|")[0]) && cache.get(k)?.chain);
     recompute();
+    // After recompute: the scan chips' counts read the same records the list does.
+    drawShelf();
     drawBanners();
     drawIssues();
     drawMethod();

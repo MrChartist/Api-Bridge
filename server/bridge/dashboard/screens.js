@@ -7,6 +7,7 @@
 import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
 import { REF_DEFAULTS } from "./reference.js";
+import * as SC from "./option-scans.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const DAY_MON = new Intl.DateTimeFormat("en-IN", { timeZone: "UTC", day: "numeric", month: "short" });
@@ -117,6 +118,13 @@ export function chainRecords(chain, { now = Date.now(), hv20 = null, charges = O
       rec.beMovePct = rec.beLong !== null && S ? ((rec.beLong - S) / S) * 100 : null;
       rec.oiLots = rec.oi === null ? null : rec.oi / lot;
       rec.volLots = rec.volume === null ? null : rec.volume / lot;
+      // The Scans tab: the model's chance the option ends out of the money (forward, the leg's IV), and the facts the
+      // scans read (where the premium and the open interest started).
+      rec.worthless = SC.chanceWorthless(rec.right, rec.strike, (x) => O.probBelow(x, ctx.F, ctx.T, rec.ivUsed));
+      const sf = SC.scanFacts(rec);
+      rec.oiPct = sf.oiPct;
+      rec.volStartOi = sf.volStartOi;
+      rec.prevPrice = sf.prevPrice;
       legs.push(rec);
     }
   }
@@ -327,6 +335,11 @@ export const FILTERS = Object.freeze({
   best: { label: "Best per expiry", short: "Best per expiry", type: "toggle", apply: (rows, v) => (v ? O.bestHedges(rows) : rows) },
   minLeg: { label: "Min leg price", short: "Min leg", type: "min", get: (r) => r.minLeg, test: (r, v) => v === null || r.type === "Calendar" || (r.minLeg !== null && r.minLeg >= v - 1e-9), step: 0.5, dp: 2, unit: "₹" },
   nearMiss: { label: "Show near misses (the closest of each type per chain: gross ≥ −0.5 pts, net ≥ −₹500/lot)", short: "Near misses", type: "toggle", apply: (rows, v) => nearMisses(rows, v) },
+  scan: { label: "Scan", type: "seg", picker: true, options: SC.CONTRACT_SCANS.map((x) => [x.id, x.label]), test: (r, v) => SC.meetsScan(r, v) },
+  money: { label: "Strikes", type: "seg", options: [["all", "All"], ["itm", "ITM"], ["otm", "OTM"]], test: (r, v) => v === "all" || (v === "otm" ? r.otm === true : r.otm === false && num(r.F) !== null) },
+  turnoverMin: { label: "Traded today, at least", short: "Traded", type: "min", get: (r) => r.turnover, step: 500000, unit: "₹" },
+  premLotMax: { label: "Premium per lot, at most", short: "₹/lot", type: "max", get: (r) => (num(r.ltp) === null || !r.lot ? null : r.ltp * r.lot), step: 1000, unit: "₹" },
+  worthless: { label: "Chance worthless", short: "Worthless", type: "range", get: (r) => (r.worthless === null || r.worthless === undefined ? null : r.worthless * 100), step: 5, dp: 0, unit: "%" },
   richAbs: { label: "Min |rich or cheap| ₹/lot", short: "|Rich|", type: "min", get: (r) => (r.richLot === null || r.richLot === undefined ? null : Math.abs(r.richLot)), step: 25, unit: "₹" },
 });
 /**
@@ -461,6 +474,34 @@ export const PRESETS = Object.freeze([
     secondary: { get: (r) => r.atmIv, dir: "desc" },
     card: { badge: "verdict", keys: ["ivHvRatio", "atmIv", "em"] },
     legend: [{ label: "Rich (IV > HV)", token: "iv" }, { label: "Cheap", token: "hv" }, { label: "1.0× at the centre", token: "spot", kind: "line" }],
+  },
+  {
+    id: "scans",
+    label: "Scans",
+    short: "Scans",
+    kind: "contract",
+    description: "Thirteen ready-made scans in four families: price, open interest, build-up and volume. Each one plain question over every strike.",
+    columns: [
+      lead(),
+      col("changePct", "Change", 1, (r) => r.changePct, (v) => (num(v) === null ? DASH : `${formatSigned(v, 1)}%`), { title: "(Price − previous close) ÷ previous close. Sub: the premium it started from", sub: (r) => (num(r.prevPrice) === null ? "" : `from ₹${f2(r.prevPrice)}`), ink: (r) => signInk(r.changePct) }),
+      col("ltp", "Price", 2, (r) => r.ltp, f2, { title: "Last traded premium, ₹ per unit. Sub: ₹ per lot", sortable: false, sub: (r) => (num(r.ltp) === null || !r.lot ? "" : `${rupee(r.ltp * r.lot)}/lot`) }),
+      col("oiChangeLots", "OI chg", 1, (r) => r.oiChangeLots, (v) => (num(v) === null ? DASH : `${formatCompact(v, { signed: true })}`), { title: "Open interest now minus at the previous close, in lots. Sub: as a % of where it started (from 50 lots), or new", sub: (r) => (num(r.oiPct) !== null ? `${formatSigned(r.oiPct, 1)}%` : SC.scanFacts(r).oiNew ? "new" : ""), ink: (r) => signInk(r.oiChangeLots), subInk: (r) => signInk(r.oiPct), viz: { kind: "cbar", at: null, signed: (r) => r.oiChangeLots, tone: (r) => (r.oiChangeLots < 0 ? "neg" : "pos"), dec: (r) => r.oiChangeLots < 0 } }),
+      col("oiPct", "OI chg %", 3, (r) => r.oiPct, (v) => (num(v) === null ? DASH : `${formatSigned(v, 1)}%`), { title: "Open interest change ÷ the open interest it started from (only from 50 lots: a small base makes a large %)", ink: (r) => signInk(r.oiPct) }),
+      col("oiLots", "OI", 3, (r) => r.oiLots, (v) => formatCompact(v), { title: "Open interest now, in lots" }),
+      col("volLots", "Volume", 2, (r) => r.volLots, (v) => formatCompact(v), { title: "Lots traded today" }),
+      col("turnover", "Traded", 1, (r) => r.turnover, bigRupee, { title: "Money traded today: volume × price", viz: { kind: "bar", max: "p95", tone: "side" } }),
+      col("volStartOi", "Vol ÷ OI", 3, (r) => r.volStartOi, times, { title: "Lots traded today ÷ the lots open at the start (from 50 lots). Above 1: more traded than was open" }),
+      col("volOiRel", "× chain", 3, (r) => r.volOiRel, times, { title: "(Volume ÷ OI) against the median of the same side of the same chain" }),
+      col("spread", "Spread", 2, (r) => r.spread, (v) => (num(v) === null ? DASH : formatPercent(v, 1)), { title: "(Ask − bid) ÷ the middle of the two. A dash without a two-sided quote", dir: "asc", ink: (r) => (r.spread > SC.WIDE_SPREAD ? "warn" : null) }),
+      col("worthless", "Worthless", 3, (r) => r.worthless, (v) => SC.worthlessText(v), { title: "The model's chance the option ends out of the money at expiry (forward from the chain, the leg's IV). A model reading, not a forecast" }),
+      col("build", "Build-up", 1, (r) => r.tag, (v, r) => (r.tag ? O.BUILDUP_NAMES[r.tag] : DASH), { title: "Premium and open interest read together: long build-up ↑↑ · short build-up ↓↑ · short covering ↑↓ · long unwinding ↓↓. A convention, not a record of who traded", sortable: false, text: true, viz: { kind: "chip", chip: (r) => buildupChip(r.tag), label: (r) => SC.patternText(r.tag) } }),
+      col("reading", "Reading", 3, (r) => SC.rowReading(r), (v) => v || DASH, { title: "What the numbers did, in plain words. Sub: what to read with care (a small base, a wide quote, thin trade)", sortable: false, text: true, wrap: true, sub: (r) => SC.cautions(r).join(" · "), subInk: () => "warn" }),
+    ],
+    filters: ["scan", "expiries", "days", "side", "money", "turnoverMin", "liq", "spread", "oiLots", "volLots", "twoSided", "premLotMax", "worthless"],
+    defaults: { filters: { scan: SC.DEFAULT_SCAN, turnoverMin: 1000000 }, sort: { by: "changePct", dir: "desc" } },
+    secondary: { get: (r) => r.turnover, dir: "desc" },
+    card: { badge: "build", keys: ["changePct", "oiChangeLots", "turnover"] },
+    legend: [...SIDES, { label: "Up", token: "pos" }, { label: "Down", token: "neg" }, { label: "Traded bar (call / put)", kind: "none" }],
   },
   {
     id: "unusual",
@@ -737,6 +778,8 @@ export function reason(rec, presetId) {
         has(rec.emPct) ? `${formatFixed(rec.emPct, 1)}% move priced` : null,
         rec.build ? rec.build.text.toLowerCase() : has(rec.pcr) ? `PCR ${formatFixed(rec.pcr, 2)}` : null,
       ]);
+    case "scans":
+      return join([SC.rowReading(rec), ...SC.cautions(rec).slice(0, 1)]);
     case "unusual":
       return join([
         has(rec.volOi) ? `Vol/OI ${formatFixed(rec.volOi, 1)}× on ${formatCompact(rec.oiLots)} ${lotWord(Math.round(rec.oiLots ?? 0))} OI` : null,

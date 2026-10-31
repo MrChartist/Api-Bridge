@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import * as O from "./options.js";
 import * as S from "./screens.js";
+import * as SC from "./option-scans.js";
 
 const NOW = Date.UTC(2026, 9, 29, 4, 0); // 29 Oct 2026 09:30 IST
 const priced = (k, right, F = 26450) => {
@@ -13,8 +14,8 @@ const strikes = Array.from({ length: 25 }, (_, i) => 25850 + i * 50);
 const chain = (expiry = "2026-11-03", u = "NIFTY") => ({ underlying: u, expiry, underlyingLtp: 26450, atmStrike: 26450, lotSize: 75, rows: strikes.map((k) => ({ strike: k, ce: priced(k, "CE"), pe: priced(k, "PE") })) });
 
 describe("screener presets", () => {
-  it("has eight presets with unique ids, a fixed lead, formula titles and valid defaults", () => {
-    expect(S.PRESETS.map((p) => p.id)).toEqual(["overview", "unusual", "buildup", "sell", "buy", "ivout", "hedge", "arb"]);
+  it("has nine presets with unique ids, a fixed lead, formula titles and valid defaults", () => {
+    expect(S.PRESETS.map((p) => p.id)).toEqual(["overview", "scans", "unusual", "buildup", "sell", "buy", "ivout", "hedge", "arb"]);
     for (const p of S.PRESETS) {
       const ids = p.columns.map((c) => c.id);
       expect(new Set(ids).size, p.id).toBe(ids.length);
@@ -53,6 +54,36 @@ describe("chain records and runPreset", () => {
     expect(o.verdict.basis).toBe("hv");
     expect(s.legs[0].name).toBe("NIFTY 3 Nov 25850 CE");
     expect(S.chainRecords({ ...chain("2026-10-01") }, { now: NOW })).toBeNull();
+  });
+
+  it("Scans: every scan's sort is a sortable column, legs carry chance worthless and the scan facts, the scan filters", () => {
+    const s = scan();
+    const p = S.presetById("scans");
+    for (const x of SC.CONTRACT_SCANS) expect(p.columns.find((c) => c.id === x.sort.by)?.sortable, x.id).toBe(true);
+    expect(p.filters[0]).toBe("scan");
+    expect(S.FILTERS.scan.picker).toBe(true);
+    const leg = s.legs.find((l) => l.strike === 26700 && l.right === "CE");
+    // Above the forward: the call more likely than not ends out of the money; its put the other way.
+    expect(leg.worthless).toBeGreaterThan(0.5);
+    expect(s.legs.find((l) => l.strike === 26700 && l.right === "PE").worthless).toBeCloseTo(1 - leg.worthless, 9);
+    expect(leg.prevPrice).toBeCloseTo(leg.ltp / (1 + leg.changePct / 100), 9);
+    expect(leg.oiPct).toBeCloseTo((leg.oiChange / (leg.oi - leg.oiChange)) * 100, 9);
+    const def = S.runPreset(S.recordsFor(s, p), p, S.defaultFilters(p));
+    expect(def.total).toBeGreaterThan(0);
+    for (const r of def.rows) expect(SC.meetsScan(r, "gainers")).toBe(true);
+    // Sorted by the scan's own figure, largest first.
+    expect(def.rows[0].changePct).toBeGreaterThanOrEqual(def.rows.at(-1).changePct);
+    const unw = S.runPreset(S.recordsFor(s, p), p, { ...S.defaultFilters(p), scan: "oi-losers", turnoverMin: null }, { by: "oiChangeLots", dir: "asc" });
+    expect(unw.rows.every((r) => r.oiChange < 0)).toBe(true);
+    const otm = S.runPreset(S.recordsFor(s, p), p, { ...S.defaultFilters(p), scan: "most-active", money: "otm", turnoverMin: null });
+    expect(otm.rows.every((r) => r.otm === true)).toBe(true);
+    const itm = S.runPreset(S.recordsFor(s, p), p, { ...S.defaultFilters(p), scan: "most-active", money: "itm", turnoverMin: null });
+    expect(itm.rows.every((r) => r.otm === false)).toBe(true);
+    expect(otm.total + itm.total).toBe(S.runPreset(S.recordsFor(s, p), p, { ...S.defaultFilters(p), scan: "most-active", turnoverMin: null }).total);
+    expect(S.reason(leg, "scans").length).toBeGreaterThan(0);
+    // An unknown saved scan falls back to the default; settings keep a valid one.
+    expect(S.screenerConfig({ filters: { scans: { scan: "nope" } } }).filters.scans.scan).toBe("gainers");
+    expect(S.screenerConfig({ preset: "scans", filters: { scans: { scan: "long-unwinding" } } }).filters.scans.scan).toBe("long-unwinding");
   });
 
   it("runs filters in a fixed order with funnel counts, sorts stably, limits rows", () => {
