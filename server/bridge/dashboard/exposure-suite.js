@@ -3,16 +3,23 @@
 // One clear reading per view, at the top: the GEX verdict and the solved gamma flip; the ATM straddle with its moves.
 // The figures behind each reading are a hover (a strike's card, a point on the curve) or a row further down.
 //   By strike   GET /v1/analytics/exposure (greekExposure + gexProfile): the strike profile with level badges, where
-//               the sign changes (the re-priced curve), the levels and every strike.
+//               the sign changes (the re-priced curve), the levels and every strike; then the session
+//               (GET /v1/analytics/exposure/session: the book re-solved at each recorded reading) as three cards, and
+//               the replay, which moves every figure above to the reading picked (`&at=` gives that reading in full).
 //   By expiry   GET /v1/analytics/exposure/expiries: each expiry's net gamma, flip, walls and verdict side by side.
 //   Straddle    GET /v1/options/snapshots (the recorder's minutes: the forward-anchored ATM straddle through the day,
 //               the time-alone line and the split of its change), GET /v1/optionchain per expiry (the comparison), and
-//               GET /v1/analytics/straddle when the recorder has nothing for this chain.
-// Maths in vol-suite-core.js (tested); pricing in pricing.js. Read-only; nothing here polls.
-import { api, chartSlot, emptyState, h } from "./app.js";
+//               GET /v1/analytics/straddle when the recorder has nothing for this chain. The same minutes feed the
+//               four leg views beside the Overview (straddle-views.js). Sessions left come from the exchange holiday
+//               calendar (vol-today.js tradingCalendar).
+// Maths in vol-suite-core.js (tested); pricing in pricing.js. Read-only; nothing here polls (the replay reads one
+// recorded reading per step, only while it is open).
+import { api, chartSlot, emptyState, h, icon } from "./app.js";
 import { DASH, MINUS, formatDayMonth, formatFixed, formatInt, formatPercent, formatSigned, isFigure } from "./format.js";
 import { TAG_CHAR_W, chartHeight, compact, chartHost, dataDisclosure, niceScale, s, statusRow, svgRoot } from "./analyticsViews.js";
 import { workspace } from "./workspace.js";
+import { tradingCalendar } from "./vol-today.js";
+import { STRADDLE_VIEWS, straddleView } from "./straddle-views.js";
 import {
   GEX_WORDS,
   badgeLanes,
@@ -20,7 +27,10 @@ import {
   expiryRow,
   extremes,
   flipGist,
+  gexSessionModel,
+  gexSessionSpecs,
   leanText,
+  nearestIndex,
   nearestStrikes,
   premiumVerdict,
   rupeeCr,
@@ -55,10 +65,10 @@ function panel({ title, sub, tools = [], body, wide = false, cls = "" }) {
 }
 
 /** The hero: one reading in large type with its pill, and the few figures that qualify it as quiet chips. */
-function hero({ pillText, pillTone, label, value, valueTone = "", gist, chips = [] }) {
+function hero({ pillText, pillTone, label, value, valueTone = "", gist, chips = [], replay = false }) {
   return h(
     "section",
-    { class: "card vs-hero an-wide", "aria-label": label },
+    { class: `card vs-hero an-wide${replay ? " is-replay" : ""}`, "aria-label": label },
     h(
       "div",
       { class: "card-body vs-hero-body" },
@@ -338,35 +348,27 @@ function gexLevels(p) {
   ].filter((l) => isFigure(l.price));
 }
 
-async function renderGexStrike(H) {
-  const st = workspace.state;
-  const u = st.underlying;
-  const e = st.expiry;
-  if (!e) return emptyState("info", "No expiry to show", "Pick an underlying with upcoming expiries in the top bar.");
-  // Read a wide ladder so the flip, the walls and the totals never depend on how many strikes are drawn.
-  const res = await api(`/v1/analytics/exposure?${new URLSearchParams({ underlying: u, expiry: e, strikes: String(Math.max(40, Number(st.strikes) || 10)) })}`);
-  const d = res.data?.data ?? {};
+/**
+ * One reading of the book, as the hero, the strike profile, the sign curve and the levels: the live chain, or a
+ * recorded reading the replay shows (`asOf`, epoch ms). `ctl` holds the Greek and Plot controls, which outlive a
+ * reading (a replay keeps the choice).
+ */
+function gexReading(d, { u, e, st, ctl, asOf = null }) {
   const p = d.profile ?? {};
   const all = (d.strikes ?? []).filter((r) => isFigure(r.strike));
-  if (!all.length) return [statusRow(res.data?.meta?.freshness), emptyState("chart", "No exposure to draw", "No strike has open interest with a usable IV and gamma.")];
   const tone = p.verdict === "dampens" ? "pos" : p.verdict === "amplifies" ? "neg" : "";
   const levels = gexLevels(p);
-  const state = { greek: "gamma", plot: "net" };
-  const plotSeg = H.segmented("Plot", PLOTS, state.plot);
-  const greekSeg = H.segmented("Greek", Object.entries(GREEKS).map(([k, g]) => [k, g.label]), state.greek);
   const slot = h("div", {});
   const shown = () => nearestStrikes(all, p.spot ?? d.underlyingLtp, 2 * (Number(st.strikes) || 10) + 1);
-  const paint = () => {
+  ctl.paint = () => {
     const rows = shown();
-    const g = GREEKS[state.greek];
+    const g = GREEKS[ctl.state.greek];
     slot.replaceChildren(
-      strikeProfile({ rows, greek: state.greek, plot: state.plot, levels: state.greek === "gamma" ? levels : levels.filter((l) => l.id === "spot"), spot: p.spot, label: `${g.label} exposure by strike for ${u} ${e}, ${PLOTS.find((x) => x[0] === state.plot)[1]}. ${rows.length} of ${all.length} strikes drawn. Gamma flip ${level(p.flip)}, call wall ${level(p.callWall)}, put wall ${level(p.putWall)}.` }),
+      strikeProfile({ rows, greek: ctl.state.greek, plot: ctl.state.plot, levels: ctl.state.greek === "gamma" ? levels : levels.filter((l) => l.id === "spot"), spot: p.spot, label: `${g.label} exposure by strike for ${u} ${e}, ${PLOTS.find((x) => x[0] === ctl.state.plot)[1]}. ${rows.length} of ${all.length} strikes drawn. Gamma flip ${level(p.flip)}, call wall ${level(p.callWall)}, put wall ${level(p.putWall)}.` }),
       h("p", { class: "vs-foot" }, `${g.unit} · ${rows.length} of ${all.length} strikes drawn${rows.length < all.length ? "; the levels and totals use all of them" : ""}${d.skippedLegs ? ` · ${formatInt(d.skippedLegs)} legs without a usable IV left out` : ""}`),
     );
   };
-  plotSeg.addEventListener("change", () => ((state.plot = plotSeg.value), paint()));
-  greekSeg.addEventListener("change", () => ((state.greek = greekSeg.value), paint()));
-  paint();
+  ctl.paint();
   const marks = (r) => [r.strike === p.callWall && "Call gamma wall", r.strike === p.putWall && "Put gamma wall", r.strike === p.heaviest && "Heaviest strike"].filter(Boolean);
   const levelRows = [
     ["spot", "Spot", p.spot],
@@ -376,14 +378,14 @@ async function renderGexStrike(H) {
     ["putWall", "Put gamma wall", p.putWall],
     ["heaviest", "Heaviest strike", p.heaviest],
   ];
+  const when = asOf !== null ? `Replay at ${clock(asOf)} IST, a recorded reading. ` : "";
   return [
-    statusRow(res.data?.meta?.freshness),
     hero({
       pillText: GEX_WORDS[p.verdict ?? "unmeasured"],
       pillTone: tone,
-      label: "Gamma flip",
+      label: asOf !== null ? `Gamma flip at ${clock(asOf)}` : "Gamma flip",
       value: level(p.flip),
-      gist: `${flipGist(u, p.distanceToFlip)} · ${shortDay(e)} expiry. A model of dealer hedging (Calls +, Puts −), not an observed position.`,
+      gist: `${when}${flipGist(u, p.distanceToFlip)} · ${shortDay(e)} expiry. A model of dealer hedging (Calls +, Puts −), not an observed position.`,
       chips: [
         { k: "Net", v: rupeeCr(p.net ?? d.totals?.netGex), tone: toneOf(p.net), title: "Net gamma exposure, rupees of hedging per 1% move, all strikes read" },
         { k: "Lean", v: leanText(p.lean), title: "How much of the strike-by-strike exposure survives the sum. Under 10% the page names no side" },
@@ -391,12 +393,13 @@ async function renderGexStrike(H) {
         { k: "Put wall", v: level(p.putWall), title: LEVEL_INFO.putWall },
         { k: "Regime at spot", v: p.regimeAtSpot === "positive" ? "Positive γ" : p.regimeAtSpot === "negative" ? "Negative γ" : DASH, tone: p.regimeAtSpot === "positive" ? "vs-pos" : p.regimeAtSpot === "negative" ? "vs-neg" : "" },
       ],
+      replay: asOf !== null,
     }),
-    panel({ title: "Gamma exposure by strike", sub: "Each bar is one strike's rupees of hedging per 1% move. Positive gamma steadies the price in the model; it is not a bullish signal. Hover a strike for its figures; click to pin it.", tools: [greekSeg, plotSeg], body: slot, wide: true, cls: "vs-gex" }),
+    panel({ title: "Gamma exposure by strike", sub: "Each bar is one strike's rupees of hedging per 1% move. Positive gamma steadies the price in the model; it is not a bullish signal. Hover a strike for its figures; click to pin it.", tools: [ctl.greekSeg, ctl.plotSeg], body: slot, wide: true, cls: "vs-gex" }),
     panel({ title: "Where the sign changes", sub: "The whole book re-priced as if the underlying stood at each price, every strike keeping its IV and the time to expiry held. Where the line crosses zero is the gamma flip.", body: signCurve(p, { underlying: u, from: shown()[0]?.strike, to: shown().at(-1)?.strike }) }),
     panel({
       title: "Levels",
-      sub: "Each level and its distance from spot, in points.",
+      sub: asOf !== null ? `Each level and its distance from spot at ${clock(asOf)}, in points.` : "Each level and its distance from spot, in points.",
       body: h(
         "div",
         { class: "vs-levels" },
@@ -425,6 +428,208 @@ async function renderGexStrike(H) {
       ),
     }),
   ];
+}
+
+const SPEEDS = [["1", "1×"], ["2", "2×"], ["4", "4×"]];
+const REPLAY_STEP_MS = 1200;
+
+/**
+ * GEX through the session: the three cards (price against the levels, price and the heaviest strikes, exposure through
+ * the session) from GET /v1/analytics/exposure/session, and the replay: a scrubber over the recorded readings that
+ * moves every figure on the page (the hero, the bars, the badges, the curve, the levels and the cards). The replay is
+ * never remembered; a new underlying or expiry draws the page again with it closed.
+ */
+function gexSession(H, { u, e, live, show }) {
+  const sess = { points: [], ladder: null, i: -1, on: false, playing: false, timer: 0, seq: 0, cache: new Map() };
+  const replayBtn = h("button", { type: "button", class: "small plain", "aria-pressed": "false", disabled: true, title: "Needs two or more recorded readings today" }, icon("clock"), "Replay");
+  const facts = h("dl", { class: "vs-chips vs-session-chips" });
+  const note = h("p", { class: "vs-foot" }, "Reading the recorder's minutes…");
+  // The replay strip.
+  const range = h("input", { type: "range", class: "vs-scrub", min: "0", max: "0", step: "1", value: "0", "aria-label": "Reading shown" });
+  const timeEl = h("span", { class: "vs-scrub-time", "aria-live": "polite" }, DASH);
+  const back = h("button", { type: "button", class: "icon-btn vs-step back", "aria-label": "One reading back" }, icon("chevron"));
+  const fwd = h("button", { type: "button", class: "icon-btn vs-step", "aria-label": "One reading on" }, icon("chevron"));
+  const playBtn = h("button", { type: "button", class: "icon-btn", "aria-label": "Play" }, icon("play"));
+  const speed = H.segmented("Speed", SPEEDS, "1");
+  const latestBtn = h("button", { type: "button", class: "small plain" }, "Latest");
+  const closeBtn = h("button", { type: "button", class: "icon-btn", "aria-label": "Close the replay" }, icon("close"));
+  const strip = h("div", { class: "vs-replay", hidden: true, role: "group", "aria-label": "Session replay" }, h("div", { class: "vs-replay-keys" }, back, playBtn, fwd), h("div", { class: "vs-replay-track" }, range, timeEl), h("div", { class: "vs-replay-tools" }, speed, latestBtn, closeBtn));
+  const slots = {
+    levels: chartSlot("Price against the levels", { id: "gex-s-levels" }),
+    strikes: chartSlot("Price and the heaviest strikes", { id: "gex-s-strikes" }),
+    exposure: chartSlot("Exposure through the session", { id: "gex-s-exposure" }),
+  };
+  const head = panel({
+    title: "Through the session",
+    sub: "The book re-solved at each recorded reading (one in five minutes), so the levels and the exposure can be read as the day went. Replay moves every figure on this page to the reading you pick.",
+    tools: [replayBtn],
+    body: h("div", { class: "vs-session" }, strip, facts, note),
+    wide: true,
+  });
+  const cards = [
+    panel({ title: "Price against the levels", sub: "Spot through the day against the gamma flip and the walls as each reading solved them: where the price met, turned at or ran through a level.", body: slots.levels ?? h("p", { class: "muted" }, "Chart unavailable.") }),
+    panel({ title: "Price and the heaviest strikes", sub: "Spot through the day with the five strikes carrying the most net gamma at the reading shown (green positive, red negative).", body: slots.strikes ?? h("p", { class: "muted" }, "Chart unavailable.") }),
+    panel({ title: "Exposure through the session", sub: "Net gamma, filled green above zero and red below: where the fill crosses zero the book changed sign. Both sides runs on its own scale beneath and is never filled.", body: slots.exposure ?? h("p", { class: "muted" }, "Chart unavailable."), wide: true }),
+  ];
+
+  const signedCr = (c) => (c ? `${Number(c.change) > 0 ? "+" : ""}${rupeeCr(c.change)}` : DASH);
+  function paintSession(i, reading) {
+    const list = sess.points;
+    const latest = i === list.length - 1;
+    const specs = gexSessionSpecs(list, { underlying: u, at: latest ? null : list[i]?.t ?? null, reading });
+    slots.levels?.chart.set(specs.levels);
+    slots.strikes?.chart.set(specs.strikes);
+    slots.exposure?.chart.set(specs.exposure);
+    const m = gexSessionModel(list, i, { ladder: sess.ladder });
+    if (!m) {
+      facts.replaceChildren();
+      return;
+    }
+    const chip = (k, v, tone, title) => h("div", { class: "vs-chip", title }, h("dt", {}, k), h("dd", { class: tone || undefined }, v));
+    const ch = m.changes;
+    facts.replaceChildren(
+      chip(latest ? "Net, latest reading" : `Net at ${clock(m.t)}`, rupeeCr(m.net), toneOf(m.net), "Net gamma exposure at that reading, rupees per 1% move"),
+      chip("5 min", signedCr(ch.m5), toneOf(ch.m5?.change), "The change of net over the 5 minutes before the reading shown"),
+      chip("15 min", signedCr(ch.m15), toneOf(ch.m15?.change), "The change of net over the 15 minutes before the reading shown"),
+      chip("Today", signedCr(ch.day), toneOf(ch.day?.change), "The change of net since the session's first reading"),
+      chip("Sign changes", formatInt(m.signChanges), m.signChanges ? "vs-hi" : "", "How many times net changed sign between readings so far today"),
+      m.flipRange ? chip("Flip range", `${level(m.flipRange.lo)} – ${level(m.flipRange.hi)}`, "", "The lowest and highest gamma flip solved so far today") : null,
+    );
+    const n = list.length;
+    note.textContent = `${formatInt(n)} readings from ${clock(list[0].t)} to ${clock(list[n - 1].t)} IST${m.grew ? ` · the ladder gained ${formatInt(m.grew)} strikes through the day, so part of any rise is the book being listed, not positions taken` : ""}. Volatility is re-solved from traded prices at each reading.`;
+  }
+
+  async function readingAt(i) {
+    const t = sess.points[i].t;
+    if (sess.cache.has(t)) return sess.cache.get(t);
+    const r = await api(`/v1/analytics/exposure/session?${new URLSearchParams({ underlying: u, expiry: e, at: String(t) })}`);
+    const reading = r.data?.data?.reading ?? null;
+    sess.cache.set(t, reading);
+    return reading;
+  }
+
+  /** Show reading i everywhere: the live chain at the latest, a recorded reading before it. */
+  async function go(i) {
+    const n = sess.points.length;
+    if (!n) return;
+    i = Math.max(0, Math.min(n - 1, i));
+    sess.i = i;
+    range.value = String(i);
+    range.style.setProperty("--fill", `${n > 1 ? Math.round((i / (n - 1)) * 1000) / 10 : 100}%`);
+    timeEl.textContent = `${clock(sess.points[i].t)} IST${i === n - 1 ? " · latest" : ""}`;
+    back.disabled = i === 0;
+    fwd.disabled = i === n - 1;
+    const mine = ++sess.seq;
+    if (i === n - 1 || !sess.on) {
+      show(live, null);
+      paintSession(i, live);
+      return;
+    }
+    let reading = null;
+    try {
+      reading = await readingAt(i);
+    } catch {
+      reading = null;
+    }
+    if (mine !== sess.seq || !sess.on) return;
+    if (reading) show(reading, sess.points[i].t);
+    paintSession(i, reading);
+  }
+
+  const stop = () => {
+    sess.playing = false;
+    clearTimeout(sess.timer);
+    playBtn.replaceChildren(icon("play"));
+    playBtn.setAttribute("aria-label", "Play");
+  };
+  const tick = async () => {
+    if (!sess.playing || !head.isConnected) return stop();
+    if (sess.i >= sess.points.length - 1) return stop();
+    await go(sess.i + 1);
+    if (sess.playing) sess.timer = setTimeout(tick, REPLAY_STEP_MS / Number(speed.value || 1));
+  };
+  playBtn.addEventListener("click", () => {
+    if (sess.playing) return stop();
+    if (sess.i >= sess.points.length - 1) go(0);
+    sess.playing = true;
+    playBtn.replaceChildren(icon("pause"));
+    playBtn.setAttribute("aria-label", "Pause");
+    sess.timer = setTimeout(tick, REPLAY_STEP_MS / Number(speed.value || 1));
+  });
+  back.addEventListener("click", () => (stop(), go(sess.i - 1)));
+  fwd.addEventListener("click", () => (stop(), go(sess.i + 1)));
+  let scrubT = 0;
+  range.addEventListener("input", () => {
+    stop();
+    clearTimeout(scrubT);
+    const i = Number(range.value);
+    timeEl.textContent = `${clock(sess.points[i].t)} IST`;
+    scrubT = setTimeout(() => go(i), 140);
+  });
+  latestBtn.addEventListener("click", () => (stop(), go(sess.points.length - 1)));
+  const setOn = (on) => {
+    sess.on = on;
+    strip.hidden = !on;
+    replayBtn.setAttribute("aria-pressed", String(on));
+    if (!on) {
+      stop();
+      go(sess.points.length - 1);
+    } else go(Math.max(0, sess.points.length - 2));
+  };
+  replayBtn.addEventListener("click", () => setOn(!sess.on));
+  closeBtn.addEventListener("click", () => setOn(false));
+
+  api(`/v1/analytics/exposure/session?${new URLSearchParams({ underlying: u, expiry: e })}`).then(
+    (r) => {
+      const d = r.data?.data ?? {};
+      sess.points = d.points ?? [];
+      sess.ladder = d.ladder ?? null;
+      const n = sess.points.length;
+      range.max = String(Math.max(0, n - 1));
+      if (n >= 2) {
+        replayBtn.disabled = false;
+        replayBtn.removeAttribute("title");
+      }
+      if (!n) {
+        note.textContent = d.unavailable?.detail ?? "The recorder has no readings of this chain yet.";
+        paintSession(-1, null);
+        const empty = gexSessionSpecs([], {});
+        for (const k of Object.keys(slots)) slots[k]?.chart.set(empty[k]);
+        return;
+      }
+      sess.i = n - 1;
+      paintSession(n - 1, live);
+      // Not today's: say which session the cards are from (the bars above are the live chain).
+      if (d.day && d.day !== new Date(Date.now() + IST_MS).toISOString().slice(0, 10)) note.textContent = `${note.textContent} These readings are from ${shortDay(d.day)}, the latest recorded session.`;
+    },
+    (err) => {
+      note.textContent = `The session could not be read: ${err?.message ?? "no answer"}.`;
+      const empty = gexSessionSpecs([], {});
+      for (const k of Object.keys(slots)) slots[k]?.chart.set(empty[k]);
+    },
+  );
+  return [head, ...cards];
+}
+
+async function renderGexStrike(H) {
+  const st = workspace.state;
+  const u = st.underlying;
+  const e = st.expiry;
+  if (!e) return emptyState("info", "No expiry to show", "Pick an underlying with upcoming expiries in the top bar.");
+  // Read a wide ladder so the flip, the walls and the totals never depend on how many strikes are drawn.
+  const res = await api(`/v1/analytics/exposure?${new URLSearchParams({ underlying: u, expiry: e, strikes: String(Math.max(40, Number(st.strikes) || 10)) })}`);
+  const d = res.data?.data ?? {};
+  if (!(d.strikes ?? []).some((r) => isFigure(r.strike))) return [statusRow(res.data?.meta?.freshness), emptyState("chart", "No exposure to draw", "No strike has open interest with a usable IV and gamma.")];
+  const ctl = { state: { greek: "gamma", plot: "net" }, paint: () => {} };
+  ctl.plotSeg = H.segmented("Plot", PLOTS, ctl.state.plot);
+  ctl.greekSeg = H.segmented("Greek", Object.entries(GREEKS).map(([k, g]) => [k, g.label]), ctl.state.greek);
+  ctl.plotSeg.addEventListener("change", () => ((ctl.state.plot = ctl.plotSeg.value), ctl.paint()));
+  ctl.greekSeg.addEventListener("change", () => ((ctl.state.greek = ctl.greekSeg.value), ctl.paint()));
+  // The reading's cards sit in one display: contents box, so a replay swaps them without moving the page grid.
+  const readingBox = h("div", { class: "vs-contents" });
+  const show = (data, asOf) => readingBox.replaceChildren(...gexReading(data, { u, e, st, ctl, asOf }));
+  show(d, null);
+  return [statusRow(res.data?.meta?.freshness), readingBox, ...gexSession(H, { u, e, live: d, show })];
 }
 
 // ───────────────────────── GEX: by expiry ─────────────────────────
@@ -479,11 +684,13 @@ async function renderGexExpiry(H) {
 // ───────────────────────── Straddle ─────────────────────────
 
 const WINDOWS = [["5", "5 min"], ["15", "15 min"], ["day", "Day"]];
+/** The Straddle view in use, kept while the page is open (not remembered across reloads). */
+let straddleViewId = "overview";
 const VERDICT_WORDS = { rising: "Premium rising", falling: "Premium falling", steady: "Premium steady" };
 
 /** Snapshots of today for one chain (one page of up to 500 minutes covers a session). */
 async function todaysSnapshots(u, e) {
-  const r = await api(`/v1/options/snapshots?${new URLSearchParams({ underlying: u, expiry: e, fields: "ltp,iv", strikes: "12", limit: "500" })}`);
+  const r = await api(`/v1/options/snapshots?${new URLSearchParams({ underlying: u, expiry: e, fields: "ltp,iv,oi", strikes: "15", limit: "500" })}`);
   return r.data?.data?.snapshots ?? [];
 }
 
@@ -511,8 +718,8 @@ async function compareCard(u, nowMs) {
   const list = (await api(`/v1/expiries?underlying=${encodeURIComponent(u)}`)).data?.data?.expiries ?? [];
   const today = new Date(nowMs + IST_MS).toISOString().slice(0, 10);
   const next = list.filter((x) => x >= today).sort().slice(0, 4);
-  const chains = await Promise.all(next.map((x) => api(`/v1/optionchain?${new URLSearchParams({ underlying: u, expiry: x, strikes: "3" })}`).then((r) => r.data?.data, () => null)));
-  const rows = chains.filter(Boolean).map((c) => expiryRow(c, nowMs));
+  const [chains, cal] = await Promise.all([Promise.all(next.map((x) => api(`/v1/optionchain?${new URLSearchParams({ underlying: u, expiry: x, strikes: "3" })}`).then((r) => r.data?.data, () => null))), tradingCalendar(u, nowMs)]);
+  const rows = chains.filter(Boolean).map((c) => expiryRow(c, nowMs, { isTradingDay: cal }));
   if (!rows.length) return emptyState("list", "No expiries could be read", "Try again in a minute.", null, { compact: true });
   const ivEx = extremes(rows, "atmIv");
   const dayEx = extremes(rows, "perDay");
@@ -535,7 +742,7 @@ async function compareCard(u, nowMs) {
         cell("Move per day", h("span", { class: "vs-cmp-day" }, meter, h("span", { class: r.expiry === dayEx.hi ? "vs-hi" : undefined }, isFigure(r.perDay) ? `±${pts(r.perDay)}` : DASH))),
       );
     }),
-    h("p", { class: "vs-foot" }, "Compare the move per day down the rows: IV counts calendar days, so a near expiry reads high in IV for that reason alone. Expected move is 0.85 × the straddle, a pricing convention, not a forecast. Each row is priced at its chain's ATM strike (nearest spot), which can be one strike from the forward-anchored strike in the reading above. Sessions count weekdays; exchange holidays are not removed."),
+    h("p", { class: "vs-foot" }, `Compare the move per day down the rows: IV counts calendar days, so a near expiry reads high in IV for that reason alone. Expected move is 0.85 × the straddle, a pricing convention, not a forecast. Each row is priced at its chain's ATM strike (nearest spot), which can be one strike from the forward-anchored strike in the reading above. ${cal.calendar ? "Sessions are trading days on the exchange calendar: holidays are left out." : "Sessions count weekdays: the exchange holiday calendar could not be read."}`),
   );
 }
 
@@ -597,12 +804,22 @@ async function renderStraddle(H) {
   const chart = chartSlot("ATM straddle through the session", { id: "vs-straddle" });
   chart?.chart.set(straddleSpec(points, { underlying: u, expiry: e }));
   const split = points.length >= 2 ? straddleSplit(firstRaw, lastRaw, last.atm) : null;
-  return [
-    statusRow({ source: "Recorder", ageMs: Math.max(0, nowMs - last.t), asOf: new Date(last.t).toISOString() }),
+  const overview = [
     heroSlot,
     panel({ title: "Through the session", sub: "The straddle of the strike nearest the forward at each recorded minute, with the time-alone line: where the first premium would be if only time had passed.", tools: [windowSeg], body: chart ?? emptyState("chart", "Chart unavailable", "Reload the page to try again."), wide: true, cls: "vs-chartpanel" }),
     panel({ title: `What moved the ${level(last.atm)} straddle`, sub: `Since ${clock(points[0].t)}: the change split into the price move, the IV change and time passing (Black-76 at each reading's forward and time, each leg at its own IV). What is left is "Other".`, body: splitCard(split) }),
     compare,
+  ];
+  // The view switch: the Overview above, or one of the four leg views (straddle-views.js) from the same minutes.
+  const viewSeg = H.segmented("View", STRADDLE_VIEWS, straddleViewId);
+  const body = h("div", { class: "vs-contents" });
+  const draw = () => body.replaceChildren(...(straddleViewId === "overview" ? overview : straddleView(straddleViewId, { points, u, e, H, rerender: draw })));
+  viewSeg.addEventListener("change", () => ((straddleViewId = viewSeg.value), draw()));
+  draw();
+  return [
+    statusRow({ source: "Recorder", ageMs: Math.max(0, nowMs - last.t), asOf: new Date(last.t).toISOString() }),
+    h("div", { class: "vs-viewbar an-wide" }, viewSeg),
+    body,
   ];
 }
 

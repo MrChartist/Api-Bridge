@@ -10148,6 +10148,57 @@ a.pm-n-title:hover { text-decoration: underline; }
 .vt-sub { font: 400 12px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .vol-today .lc-slot { --lc-h: 230px; }
 @container (max-width: 720px) { .vt-answers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Exposure › GEX through the session and the replay; Straddle's views (straddle-views.js). */
+.vs-contents { display: contents; }
+.vs-hero.is-replay { box-shadow: var(--shadow-1), inset 0 0 0 1.5px hsl(var(--dv-today) / 0.55); }
+.vs-viewbar { display: flex; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.vs-viewbar::-webkit-scrollbar { display: none; }
+.vs-viewbar .segmented { flex: none; }
+.vs-session { display: flex; flex-direction: column; gap: 12px; }
+.vs-session-chips { justify-content: flex-start; flex: 1 1 auto; }
+.vs-replay { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 12px; border-radius: 16px; background: var(--mat-fill-1); }
+.vs-replay[hidden] { display: none; }
+.vs-replay-keys, .vs-replay-tools { display: flex; align-items: center; gap: 6px; }
+.vs-replay-track { display: flex; flex: 1 1 240px; align-items: center; gap: 12px; min-width: 0; }
+.vs-step.back svg { transform: rotate(180deg); }
+.vs-scrub-time { flex: none; min-width: 92px; font: 500 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--dv-today)); }
+input.vs-scrub { -webkit-appearance: none; appearance: none; flex: 1 1 auto; min-width: 0; height: 28px; min-height: 28px; padding: 0; background: transparent; box-shadow: none; cursor: pointer; --fill: 100%; }
+input.vs-scrub::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(90deg, hsl(var(--dv-today)) 0 var(--fill), var(--mat-fill-3) var(--fill) 100%); }
+input.vs-scrub::-moz-range-track { height: 4px; border-radius: 2px; background: linear-gradient(90deg, hsl(var(--dv-today)) 0 var(--fill), var(--mat-fill-3) var(--fill) 100%); }
+input.vs-scrub::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; margin-top: -7px; border-radius: 50%; background: var(--surface-raised); box-shadow: var(--shadow-1), inset 0 0 0 var(--hl) var(--mat-separator); }
+input.vs-scrub::-moz-range-thumb { width: 18px; height: 18px; border: 0; border-radius: 50%; background: var(--surface-raised); box-shadow: var(--shadow-1), inset 0 0 0 var(--hl) var(--mat-separator); }
+input.vs-scrub:focus-visible { outline: 2px solid var(--sel-ring); outline-offset: 2px; border-radius: 4px; }
+.vs-chartbody .lc-slot { --lc-h: 320px; }
+.vs-keys:empty { display: none; }
+.vs-keys .dv-legend { margin-top: 10px; }
+.vs-picker { display: flex; flex-direction: column; gap: 12px; }
+.vs-picks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.vs-pick { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 4px 0 12px; border-radius: 999px; background: var(--mat-fill-1); font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.vs-pick-atm { font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.vs-pick-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.vs-pick-add select { width: auto; min-width: 0; }
+.vs-pick-count { margin-left: auto; }
+.vs-end-dot { flex: none; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: hsl(var(--foreground) / 0.55); }
+.vs-end-dot[data-dv="call"] { background: hsl(var(--dv-call)); }
+.vs-end-dot[data-dv="put"] { background: hsl(var(--dv-put)); }
+.vs-end-dot[data-dv="iv"] { background: hsl(var(--dv-iv)); }
+.vs-end-dot[data-dv="today"] { background: hsl(var(--dv-today)); }
+.vs-end-dot[data-dv="warn"] { background: hsl(var(--warn)); }
+.vs-end-dot[data-dv="hv"] { background: var(--dv-hv); }
+.vs-end-dot[data-dv="spot"] { background: hsl(var(--dv-spot)); }
+:is(.vs-end-dot, .dv-key, .lc-line)[data-shade="1"] { opacity: 0.78; }
+:is(.vs-end-dot, .dv-key, .lc-line)[data-shade="2"] { opacity: 0.6; }
+:is(.vs-end-dot, .dv-key, .lc-line)[data-shade="3"] { opacity: 0.44; }
+.vs-ends { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
+.vs-end { display: flex; flex-direction: column; gap: 3px; padding: 7px 12px; border-radius: 12px; background: var(--mat-fill-1); cursor: help; }
+.vs-end.is-top { background: hsl(var(--dv-iv) / 0.12); }
+.vs-end dt { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1.2 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; }
+.vs-end dd { margin: 0; font: 500 14px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
+@container (max-width: 720px) {
+  .vs-replay-track { flex-basis: 100%; order: -1; }
+  .vs-pick-count { margin-left: 0; flex-basis: 100%; }
+}
+
 @media (prefers-reduced-motion: reduce) { .vs-bar, .vs-meter > i, .vs-split-bar > i { transition: none; } }
 
 /* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────
