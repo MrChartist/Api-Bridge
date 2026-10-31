@@ -254,7 +254,7 @@ export function createChart(host, spec = {}) {
             layers.marks.push(svgEl("path", { class: "lc-vol", "data-dir": "up", d: vp.up, "shape-rendering": "crispEdges" }), svgEl("path", { class: "lc-vol", "data-dir": "down", d: vp.down, "shape-rendering": "crispEdges" }));
           }
         } else if (s.type === "line") {
-          layers.lines.push(svgEl("path", { class: s.dash ? "lc-line dash" : "lc-line", "data-tone": tone, "data-weight": s.weight ?? undefined, d: C.linePath(s.pts, X.xOf, p.yOf) }));
+          layers.lines.push(svgEl("path", { class: s.dash ? "lc-line dash" : "lc-line", "data-tone": tone, "data-weight": s.weight ?? undefined, "data-shade": s.shade ? String(s.shade) : undefined, d: C.linePath(s.pts, X.xOf, p.yOf) }));
         }
       }
       // Levels: a crisp ray over the plot and a capsule in the gutter (LevelLayer.tsx), led back when nudged.

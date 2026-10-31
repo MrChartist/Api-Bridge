@@ -220,6 +220,73 @@ export function oiMatrix(charts, { top = 10 } = {}) {
   };
 }
 
+// ── Through the session: the recorder's readings re-solved one at a time ──
+
+/** At most this many readings in a session series (one in each `every` minutes, thinned evenly beyond it). */
+export const SESSION_POINTS = 120;
+const IST_MS = 330 * 60_000;
+const istDay = (ms) => new Date(ms + IST_MS).toISOString().slice(0, 10);
+
+/**
+ * One recorder snapshot (the stored shape: k, ce / pe { oi, iv } arrays, spot, t in years, OI in units) as the option
+ * chain greekExposure and gexProfile read. Gamma is recomputed at spot from each leg's recorded IV (the recorder keeps
+ * the IV; gamma at spot keeps the bars and the re-priced curve on one footing). Null without a spot or a time left.
+ * @returns {{ chain: object, days: number } | null}
+ */
+export function snapshotChain(snap, { underlying = null, expiry = null, rate = DEFAULT_RATE } = {}) {
+  const spot = Number(snap?.spot);
+  const years = Number(snap?.t);
+  if (!(spot > 0) || !(years > 0) || !Array.isArray(snap?.k)) return null;
+  const days = years * 365;
+  const leg = (side, i, strike, type) => {
+    const oi = Number(snap?.[side]?.oi?.[i]);
+    const iv = Number(snap?.[side]?.iv?.[i]);
+    if (!(oi > 0)) return null;
+    if (!(iv > 0)) return { oi, iv: null, gamma: null };
+    return { oi, iv, gamma: computeGreeks({ spot, strike, daysToExpiry: days, type, vol: iv / 100, rate }).gamma };
+  };
+  const rows = snap.k.map((strike, i) => ({ strike, ce: leg("ce", i, strike, "CE"), pe: leg("pe", i, strike, "PE") }));
+  return { chain: { underlying, expiry, underlyingLtp: spot, units: "units", lotSize: snap.lot ?? null, rows }, days };
+}
+
+/** The full reading of one snapshot: greekExposure's rows and totals, and the profile with its curve. */
+export function snapshotExposure(snap, opts = {}) {
+  const sc = snapshotChain(snap, opts);
+  if (!sc) return null;
+  const data = greekExposure(sc.chain, { days: sc.days, rate: opts.rate });
+  data.profile = gexProfile(sc.chain, { days: sc.days, rate: opts.rate, strikes: data.strikes });
+  return data;
+}
+
+/** Keep at most `max` items, evenly spaced, always the first and the last. */
+export function thinEvenly(list, max = SESSION_POINTS) {
+  if (!Array.isArray(list) || list.length <= max) return list ?? [];
+  const out = [];
+  for (let i = 0; i < max; i++) out.push(list[Math.round((i * (list.length - 1)) / (max - 1))]);
+  return out;
+}
+
+/**
+ * The gamma book through one session, one point per snapshot (oldest first): spot, net and both-sides gamma, the
+ * solved flip, the walls, the lean and the verdict, each as gexProfile reads that minute. The flip scan is coarser
+ * than the single-reading route's (120 steps over the same ±25 %, then bisected), and the curve is left out.
+ * `ladder` is the number of strikes read at the first and the last point, so a growing ladder can be named.
+ */
+export function gexSession(snaps, { rate = DEFAULT_RATE } = {}) {
+  const points = [];
+  for (const snap of snaps ?? []) {
+    const sc = snapshotChain(snap, { rate });
+    const t = Number(snap?.slot ?? Date.parse(snap?.ts ?? ""));
+    if (!sc || !Number.isFinite(t)) continue;
+    const g = gammaExposure(sc.chain);
+    const p = gexProfile(sc.chain, { days: sc.days, rate, strikes: g.strikes, curve: false, steps: 120 });
+    const read = sc.chain.rows.filter((r) => (r.ce?.oi ?? 0) > 0 || (r.pe?.oi ?? 0) > 0).length;
+    points.push({ t, spot: p.spot, net: p.net, gross: p.gross, flip: p.flip, callWall: p.callWall, putWall: p.putWall, ladderCross: p.ladderCross, lean: p.lean, verdict: p.verdict, regimeAtSpot: p.regimeAtSpot, strikes: read });
+  }
+  points.sort((a, b) => a.t - b.t);
+  return { points, ladder: points.length ? { first: points[0].strikes, last: points[points.length - 1].strikes } : null };
+}
+
 const invalid = (path, detail) => new BridgeError("VALIDATION_FAILED", detail, { errors: [{ path, message: detail }] });
 const opt = (q, name) => {
   const v = q.get(name);
@@ -261,6 +328,37 @@ export function exposureRoutes(deps) {
     return { underlying: underlying.toUpperCase(), charts, opts, freshness: list.freshness };
   }
 
+  // The session series, worked once per chain and recorded minute (a replay asks again for each reading it shows).
+  const sessionCache = new Map();
+  async function sessionOf(underlying, expiry, every) {
+    const rec = deps.recorder;
+    if (!rec || typeof rec.snapshots !== "function") return { snaps: [], summary: { day: null, points: [], ladder: null, unavailable: { reason: "no-recorder", detail: "The data recorder is not running on this Bridge." } } };
+    const now = nowMsOf(deps);
+    // The latest session the recorder holds: today, else the most recent of the four days before (never mixing days).
+    let snaps = [];
+    let unavailable = null;
+    for (let back = 0; back < 5 && !snaps.length; back++) {
+      const day = istDay(now - back * 86_400_000);
+      const fromMs = Date.parse(`${day}T00:00:00+05:30`);
+      const toMs = back ? fromMs + 86_400_000 - 1 : now;
+      const page = await rec.snapshots({ underlying, expiry, fromMs, toMs, fields: ["oi", "iv"], every, limit: 500 });
+      snaps = page?.snapshots ?? [];
+      if (!back) unavailable = page?.unavailable ?? null;
+    }
+    if (!snaps.length) return { snaps, summary: { day: null, points: [], ladder: null, unavailable } };
+    const day = istDay(snaps[snaps.length - 1].slot);
+    snaps = thinEvenly(snaps.filter((s) => istDay(s.slot) === day));
+    const key = `${underlying}|${expiry}|${every}`;
+    const sig = `${snaps.length}|${snaps[0].slot}|${snaps[snaps.length - 1].slot}`;
+    const hit = sessionCache.get(key);
+    if (hit?.sig === sig) return { snaps, summary: hit.summary };
+    const summary = { day, ...gexSession(snaps), unavailable: null };
+    sessionCache.delete(key);
+    sessionCache.set(key, { sig, summary });
+    while (sessionCache.size > 8) sessionCache.delete(sessionCache.keys().next().value);
+    return { snaps, summary };
+  }
+
   return [
     [
       "GET",
@@ -298,6 +396,30 @@ export function exposureRoutes(deps) {
           e.profile = p;
         });
         return { data: { underlying, ...out }, meta: meta(ctx, opts, freshness) };
+      },
+    ],
+    [
+      "GET",
+      "/v1/analytics/exposure/session",
+      { scope: "read" },
+      async (ctx) => {
+        const q = ctx.query;
+        const underlying = underlyingOf(q).toUpperCase();
+        const expiry = opt(q, "expiry");
+        if (!expiry || !/^\d{4}-\d{2}-\d{2}$/.test(expiry)) throw invalid("expiry", "expiry is required as YYYY-MM-DD.");
+        const every = intParam(q, "every", 1, 15, 5);
+        const atRaw = opt(q, "at");
+        const at = atRaw === undefined ? null : /^\d+$/.test(atRaw) ? Number(atRaw) : Date.parse(atRaw);
+        if (atRaw !== undefined && !Number.isFinite(at)) throw invalid("at", "at must be an ISO time or epoch milliseconds.");
+        const out = await sessionOf(underlying, expiry, every);
+        const data = { underlying, expiry, every, ...out.summary };
+        // The full reading nearest `at` (bars, levels and curve as the single-reading route gives them), for the replay.
+        if (at !== null && out.snaps.length) {
+          const snap = out.snaps.reduce((b, s) => (Math.abs(s.slot - at) < Math.abs(b.slot - at) ? s : b));
+          const r = snapshotExposure(snap, { underlying, expiry });
+          data.reading = r ? { t: snap.slot, ...r } : null;
+        }
+        return { data, meta: { requestId: ctx.requestId } };
       },
     ],
     [

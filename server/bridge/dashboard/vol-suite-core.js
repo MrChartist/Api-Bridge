@@ -8,7 +8,7 @@
 //   GET /v1/optionchain         one chain per expiry for the expiry comparison.
 //   GET /v1/analytics/exposure  greekExposure + gexProfile (the solved flip, walls, lean and the curve).
 // Pricing comes from pricing.js (black76), unchanged.
-import { black76 } from "./pricing.js";
+import { b76Delta, black76 } from "./pricing.js";
 import { DASH, formatFixed, formatInt, formatPercent, isFigure, MINUS } from "./format.js";
 
 const IST_MS = 330 * 60_000;
@@ -148,12 +148,47 @@ export function sigmaMovePts(spot, ivPct, years) {
   return pos(spot) && pos(ivPct) && pos(years) ? Number(spot) * (Number(ivPct) / 100) * Math.sqrt(Number(years)) : null;
 }
 
+/** Weekends closed, every weekday open: the test when no holiday calendar could be read. */
+export const weekdaysOnly = (date) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(date ?? ""));
+  if (!m) return false;
+  const w = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay();
+  return w !== 0 && w !== 6;
+};
+
+/**
+ * A trading-day test from the reference holiday calendar (GET /v1/reference/holidays items): weekends and listed
+ * holidays closed. A special session on a closed day (Muhurat, about an hour) is not counted as a session: it would
+ * add a whole session's move for an hour of trading. `holidays` are { date, label } or date strings. Returns
+ * (date) => boolean, with `.closed(date)` naming the holiday (null when none) and `.calendar` true.
+ */
+export function tradingDayTest(holidays = []) {
+  const hol = new Map((holidays ?? []).map((x) => (typeof x === "string" ? [x, x] : [x?.date, x?.label ?? x?.date])).filter(([d]) => /^\d{4}-\d{2}-\d{2}$/.test(String(d ?? ""))));
+  const test = (date) => weekdaysOnly(date) && !hol.has(date);
+  test.closed = (date) => hol.get(date) ?? null;
+  test.calendar = true;
+  return test;
+}
+
+/** The weekdays from `nowMs`'s IST day to `expiry` (both included) that `isTradingDay` closes: [{ date, label }]. */
+export function closedWeekdays(nowMs, expiry, isTradingDay) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(expiry ?? ""));
+  if (!m || !Number.isFinite(nowMs) || typeof isTradingDay !== "function") return [];
+  const expDay = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  const out = [];
+  for (let d = Math.floor((nowMs + IST_MS) / DAY_MS) * DAY_MS; d <= expDay && out.length < 60; d += DAY_MS) {
+    const date = new Date(d).toISOString().slice(0, 10);
+    if (weekdaysOnly(date) && !isTradingDay(date)) out.push({ date, label: isTradingDay.closed?.(date) ?? null });
+  }
+  return out;
+}
+
 /**
  * Trading sessions left from `nowMs` to the close of `expiry` (IST): the unspent part of today's session plus every
- * whole weekday session after today up to and including expiry. Weekends carry none; exchange holidays are not
- * removed (no calendar here). Null for a passed or malformed expiry.
+ * whole trading session after today up to and including expiry. `isTradingDay` (tradingDayTest) closes exchange
+ * holidays; without it weekdays count. Null for a passed or malformed expiry.
  */
-export function sessionsLeft(nowMs, expiry, { open = 555, close = 930 } = {}) {
+export function sessionsLeft(nowMs, expiry, { open = 555, close = 930, isTradingDay = weekdaysOnly } = {}) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(expiry ?? ""));
   if (!m || !Number.isFinite(nowMs)) return null;
   const expDay = Date.UTC(+m[1], +m[2] - 1, +m[3]);
@@ -161,12 +196,9 @@ export function sessionsLeft(nowMs, expiry, { open = 555, close = 930 } = {}) {
   const today = Math.floor(ist / DAY_MS) * DAY_MS;
   const minute = (ist - today) / 60_000;
   if (today > expDay || (today === expDay && minute >= close)) return null;
-  const weekday = (d) => {
-    const w = new Date(d).getUTCDay();
-    return w !== 0 && w !== 6;
-  };
-  let n = weekday(today) ? Math.min(1, Math.max(0, (close - Math.max(minute, open)) / (close - open))) : 0;
-  for (let d = today + DAY_MS; d <= expDay; d += DAY_MS) if (weekday(d)) n += 1;
+  const trades = (d) => (isTradingDay ?? weekdaysOnly)(new Date(d).toISOString().slice(0, 10));
+  let n = trades(today) ? Math.min(1, Math.max(0, (close - Math.max(minute, open)) / (close - open))) : 0;
+  for (let d = today + DAY_MS; d <= expDay; d += DAY_MS) if (trades(d)) n += 1;
   return n > 0 ? n : null;
 }
 
@@ -267,7 +299,7 @@ export function daysTo(nowMs, expiry) {
  * One row of the expiry comparison from a GET /v1/optionchain answer: the ATM strike's straddle, its expected move and
  * breakevens, the ATM IV (mean of the two legs' IV), the 1σ move to expiry and the move per session.
  */
-export function expiryRow(chain, nowMs) {
+export function expiryRow(chain, nowMs, { isTradingDay } = {}) {
   const rows = chain?.rows ?? [];
   const spot = num(chain?.underlyingLtp);
   const k = num(chain?.atmStrike);
@@ -278,7 +310,7 @@ export function expiryRow(chain, nowMs) {
   const ivs = [row?.ce?.iv, row?.pe?.iv].filter(pos).map(Number);
   const atmIv = ivs.length ? ivs.reduce((a, b) => a + b, 0) / ivs.length : null;
   const days = daysTo(nowMs, chain?.expiry);
-  const sessions = sessionsLeft(nowMs, chain?.expiry);
+  const sessions = sessionsLeft(nowMs, chain?.expiry, { isTradingDay });
   const sigma = sigmaMovePts(spot, atmIv, days !== null ? days / 365 : null);
   return { expiry: chain?.expiry ?? null, strike: k, spot, ce, pe, premium, atmIv, days, sessions, sigma, perDay: perSession(sigma, sessions), levels: straddleLevels({ premium, strike: k, spot }) };
 }
@@ -397,13 +429,13 @@ export function ivTodaySpec(points, { underlying = "", expiry = "" } = {}) {
 }
 
 /** The four answers as figures (pure, for the panel and its tests). */
-export function ivTodayModel(points, { expiry, nowMs, hv20 = null, rank = null }) {
+export function ivTodayModel(points, { expiry, nowMs, hv20 = null, rank = null, isTradingDay } = {}) {
   const last = points[points.length - 1] ?? null;
   if (!last) return null;
   const open = changeOver(points, "atmIv", "day");
   const range = dayRange(points, "atmIv");
   const move = sigmaMovePts(last.spot, last.atmIv, last.years);
-  const sessions = sessionsLeft(nowMs, expiry);
+  const sessions = sessionsLeft(nowMs, expiry, { isTradingDay });
   const day = perSession(move, sessions);
   const actual = actualDayPts(last.spot, hv20);
   return {
@@ -414,6 +446,8 @@ export function ivTodayModel(points, { expiry, nowMs, hv20 = null, rank = null }
     move,
     movePct: isFigure(move) && last.spot ? (move / last.spot) * 100 : null,
     sessions,
+    holidays: closedWeekdays(nowMs, expiry, isTradingDay),
+    calendar: Boolean(isTradingDay?.calendar),
     lastSession: isFigure(sessions) && sessions <= 1,
     day,
     actual,
@@ -423,5 +457,222 @@ export function ivTodayModel(points, { expiry, nowMs, hv20 = null, rank = null }
     rankDays: rank?.n ?? null,
     verdict: ivVerdict(rank?.ivp),
     gaps: points.filter((p) => !isFigure(p.atmIv)).length,
+  };
+}
+
+// ── Straddle views: legs through the session (Premium Decay, Multi-Strike, Multi-Straddle, Price vs OI) ──
+
+/** Most legs one Multi-Strike chart draws, and most strikes one Multi-Straddle chart draws. */
+export const MULTI_LEG_MAX = 20;
+export const MULTI_STRADDLE_MAX = 10;
+/** The neutral tones a Multi-Straddle line takes (no direction is implied), two shades each: ten before they repeat. */
+export const STRADDLE_TONES = Object.freeze(["iv", "today", "warn", "hv", "spot"]);
+
+/** Every strike recorded over the session's readings (the union: the ladder moves with the ATM), in order. */
+export function sessionStrikes(points) {
+  const set = new Set();
+  for (const p of points ?? []) for (const k of p?.raw?.strikes ?? []) if (pos(k)) set.add(Number(k));
+  return [...set].sort((a, b) => a - b);
+}
+
+/** The recorded strike nearest `price`, or null. */
+export function nearestStrike(strikes, price) {
+  if (!pos(price) || !strikes?.length) return null;
+  return strikes.reduce((b, k) => (Math.abs(k - price) < Math.abs(b - price) ? k : b));
+}
+
+/** The strikes within ±n of `centre` in the list (centre included), in order; [] when the centre is not listed. */
+export function strikesAround(strikes, centre, n) {
+  const list = [...(strikes ?? [])].sort((a, b) => a - b);
+  const i = list.indexOf(centre);
+  return i < 0 ? [] : list.slice(Math.max(0, i - n), i + n + 1);
+}
+
+/**
+ * One leg's `key` ("ltp" or "oi") through the session: [{ t, v }], one per reading, v null where that reading has no
+ * value (the recorder stores 0 for none). A gap stays a gap; it is never drawn as zero.
+ */
+export function legLine(points, strike, side, key = "ltp") {
+  return (points ?? []).map((p) => {
+    const s = p?.raw;
+    const i = (s?.strikes ?? []).indexOf(strike);
+    const v = i < 0 ? null : s?.[side]?.[key]?.[i];
+    return { t: p.t, v: pos(v) ? Number(v) : null };
+  });
+}
+
+/**
+ * Premium Decay's baselines on a leg line: "open" each value minus the leg's first value in the window (the lines fan
+ * out from zero); "prev" each value minus the reading before it (the first reading, with nothing before, is dropped;
+ * a reading after a gap has no change either).
+ */
+export function decayLine(line, mode = "open") {
+  const list = line ?? [];
+  if (mode === "prev") return list.slice(1).map((p, i) => ({ t: p.t, v: p.v !== null && list[i].v !== null ? p.v - list[i].v : null }));
+  const first = list.find((p) => p.v !== null);
+  return first ? list.map((p) => ({ t: p.t, v: p.v !== null ? p.v - first.v : null })) : list.map((p) => ({ t: p.t, v: null }));
+}
+
+/** Lines added reading by reading: a reading counts only when every line has a value there (a missing leg is never 0). */
+export function sumLines(lines) {
+  const list = (lines ?? []).filter(Boolean);
+  if (!list.length) return [];
+  return list[0].map((p, i) => ({ t: p.t, v: list.every((l) => l[i] && l[i].v !== null) ? list.reduce((s, l) => s + l[i].v, 0) : null }));
+}
+
+/** The strike's own Put Call Ratio by reading: Put OI ÷ Call OI at that strike only; null where Call OI is 0 or a leg is missing. */
+export function strikePcrLine(points, strike) {
+  const c = legLine(points, strike, "ce", "oi");
+  const p = legLine(points, strike, "pe", "oi");
+  return c.map((x, i) => ({ t: x.t, v: x.v !== null && p[i].v !== null ? p[i].v / x.v : null }));
+}
+
+/** Each value's change from the line's first value (OI since the session's first reading); gaps stay gaps. */
+export function changeSinceFirst(line) {
+  return decayLine(line, "open");
+}
+
+/** The first and last values of a line and their change: { first, last, change } (null without two values). */
+export function lineEnds(line) {
+  const vals = (line ?? []).filter((p) => p.v !== null);
+  if (vals.length < 2) return null;
+  return { first: vals[0].v, last: vals[vals.length - 1].v, change: vals[vals.length - 1].v - vals[0].v, firstT: vals[0].t, lastT: vals[vals.length - 1].t };
+}
+
+/** The colour of the i-th pick on a side: shade 0 for the first, paler by pick order (four steps, then again). */
+export const shadeOf = (i) => Math.max(0, Math.floor(Number(i) || 0)) % 4;
+
+/** A Multi-Straddle line's tone and shade by pick order: five neutral tones, two shades, ten before they repeat. */
+export function straddleTone(i) {
+  const n = Math.max(0, Math.floor(Number(i) || 0)) % (STRADDLE_TONES.length * 2);
+  return { tone: STRADDLE_TONES[n % STRADDLE_TONES.length], shade: n < STRADDLE_TONES.length ? 0 : 2 };
+}
+
+/** The leg's name as the keys print it: "24500 CE". */
+export const legName = (strike, side) => `${formatInt(strike)} ${side === "pe" ? "PE" : "CE"}`;
+
+// ── The smile at the session's first reading (Volatility › Smile, "open vs now") ──
+
+/**
+ * The OTM smile of one recorder snapshot, in the shape the smile chart's compare curve reads: each strike's OTM leg
+ * (Call at or above the forward, Put below; the other side when that one has no IV), its moneyness against the
+ * snapshot's own forward and its call delta. { t, forward, points } or null without a forward, a time or two strikes.
+ */
+export function smileFromSnapshot(snap) {
+  const F = num(snap?.forward);
+  const T = num(snap?.t);
+  const t = Date.parse(snap?.ts ?? snap?.slot ?? "");
+  if (!pos(F) || !pos(T)) return null;
+  const points = [];
+  (snap?.strikes ?? []).forEach((k, i) => {
+    if (!pos(k)) return;
+    const K = Number(k);
+    const ce = pos(snap?.ce?.iv?.[i]) ? Number(snap.ce.iv[i]) : null;
+    const pe = pos(snap?.pe?.iv?.[i]) ? Number(snap.pe.iv[i]) : null;
+    const want = K >= F ? "ce" : "pe";
+    const other = want === "ce" ? "pe" : "ce";
+    const ivOf = (s) => (s === "ce" ? ce : pe);
+    const side = ivOf(want) !== null ? want : ivOf(other) !== null ? other : null;
+    if (!side) return;
+    const iv = ivOf(side);
+    points.push({ strike: K, m: (K / F - 1) * 100, callDelta: b76Delta(F, K, T, iv, "CE"), otm: { side, iv, q: "ltp" } });
+  });
+  return points.length >= 2 ? { t: Number.isFinite(t) ? t : null, forward: F, points: points.sort((a, b) => a.strike - b.strike) } : null;
+}
+
+// ── GEX through the session (GET /v1/analytics/exposure/session) ──
+
+/** The index of the reading nearest `t` (the last one for null). -1 for no readings. */
+export function nearestIndex(points, t) {
+  const list = points ?? [];
+  if (!list.length) return -1;
+  if (!isFigure(t)) return list.length - 1;
+  let best = 0;
+  list.forEach((p, i) => {
+    if (Math.abs(p.t - t) < Math.abs(list[best].t - t)) best = i;
+  });
+  return best;
+}
+
+/**
+ * The three session cards as chart-lite specs, each with a marker at the reading shown (`at`, epoch ms; none at the
+ * latest):
+ *   levels    spot through the day against the flip and the walls as each reading solved them;
+ *   strikes   spot through the day with the strikes carrying the most net gamma at the reading shown as levels;
+ *   exposure  net gamma (filled, green above zero, red below) and Both sides on its own scale (a line, never filled).
+ * `reading` is the full reading at `at` (for the strike levels). Fewer than two readings give `empty` cards.
+ */
+export function gexSessionSpecs(points, { underlying = "", at = null, reading = null, top = 5 } = {}) {
+  const list = (points ?? []).filter((p) => isFigure(p?.t));
+  if (list.length < 2) {
+    const empty = { empty: { title: list.length ? "One reading so far" : "Nothing recorded yet", text: "The session cards draw from the second recorded reading." } };
+    return { levels: empty, strikes: empty, exposure: empty };
+  }
+  const line = (key) => list.filter((p) => isFigure(p[key])).map((p) => ({ t: p.t, v: Number(p[key]) }));
+  const shownT = isFigure(at) ? list[nearestIndex(list, at)].t : null;
+  const marker = shownT !== null && shownT !== list[list.length - 1].t ? [{ id: "at", type: "marker", t: shownT, label: "Shown", tone: "today" }] : [];
+  const lvl = (v) => (isFigure(v) ? formatInt(v) : DASH);
+  const levels = {
+    label: `${underlying}: spot through the session against the gamma flip and the walls at each reading`,
+    panes: [{ id: "px", format: (v) => formatInt(v) }],
+    series: [
+      { id: "spot", type: "line", pane: "px", label: "Spot", tone: "spot", data: line("spot"), format: (v) => formatFixed(v, 2) },
+      { id: "flip", type: "line", pane: "px", label: "Gamma flip", tone: "warn", dash: true, data: line("flip"), format: lvl },
+      { id: "cw", type: "line", pane: "px", label: "Call wall", tone: "call", weight: "thin", data: line("callWall"), format: lvl },
+      { id: "pw", type: "line", pane: "px", label: "Put wall", tone: "put", weight: "thin", data: line("putWall"), format: lvl },
+      ...marker,
+    ],
+  };
+  const rows = (reading?.strikes ?? []).filter((r) => isFigure(r?.netGex) && r.netGex !== 0);
+  const heavy = [...rows].sort((a, b) => Math.abs(b.netGex) - Math.abs(a.netGex)).slice(0, top);
+  const strikes = {
+    label: `${underlying}: spot through the session and the ${heavy.length} strikes with the most net gamma at the reading shown`,
+    panes: [{ id: "px", format: (v) => formatInt(v) }],
+    series: [
+      { id: "spot", type: "line", pane: "px", label: "Spot", tone: "spot", data: line("spot"), format: (v) => formatFixed(v, 2) },
+      ...heavy.map((r) => ({ id: `k${r.strike}`, type: "level", pane: "px", value: r.strike, label: `${formatInt(r.strike)} ${r.netGex < 0 ? MINUS : "+"}${formatInt(Math.abs(r.netGex) / 1e7)} Cr`, tone: r.netGex > 0 ? "pos" : "neg", dash: false })),
+      ...marker,
+    ],
+  };
+  const exposure = {
+    label: `${underlying}: net gamma exposure through the session (filled) and both sides on their own scale`,
+    panes: [
+      { id: "net", weight: 2, label: "Net, ₹ per 1% move", format: (v) => rupeeCr(v), include: [0] },
+      { id: "gross", weight: 1, label: "Both sides", format: (v) => rupeeCr(v) },
+    ],
+    series: [
+      { id: "net", type: "area", pane: "net", label: "Net", signed: true, baseline: 0, data: line("net"), format: rupeeCr },
+      { id: "gross", type: "line", pane: "gross", label: "Both sides", tone: "muted", data: line("gross"), format: rupeeCr },
+      ...marker,
+    ],
+  };
+  return { levels, strikes, exposure };
+}
+
+/**
+ * The session as of reading `i`: the net's change over 5 minutes, 15 minutes and the day (each measured back from that
+ * reading), how many times the net changed sign so far, the flip's range so far, and how many strikes the ladder grew.
+ */
+export function gexSessionModel(points, i, { ladder = null } = {}) {
+  const list = points ?? [];
+  if (!list.length || i < 0 || i >= list.length) return null;
+  const upTo = list.slice(0, i + 1);
+  const now = upTo[upTo.length - 1];
+  const win = (w) => changeOver(upTo, "net", w, { tolMs: w === 5 ? 200_000 : 300_000 });
+  let flips = 0;
+  for (let k = 1; k < upTo.length; k++) {
+    const a = upTo[k - 1].net;
+    const b = upTo[k].net;
+    if (isFigure(a) && isFigure(b) && a !== 0 && b !== 0 && Math.sign(a) !== Math.sign(b)) flips += 1;
+  }
+  return {
+    t: now.t,
+    index: i,
+    latest: i === list.length - 1,
+    net: isFigure(now.net) ? Number(now.net) : null,
+    changes: { m5: win(5), m15: win(15), day: win("day") },
+    signChanges: flips,
+    flipRange: dayRange(upTo, "flip"),
+    grew: ladder && isFigure(ladder.first) && isFigure(ladder.last) && ladder.last > ladder.first ? ladder.last - ladder.first : 0,
   };
 }

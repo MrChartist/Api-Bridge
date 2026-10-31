@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { black76 } from "./pricing.js";
-import { DASH, MINUS } from "./format.js";
+import { DASH, MINUS, formatInt } from "./format.js";
 import {
   actualDayPts,
   badgeLanes,
@@ -29,6 +29,28 @@ import {
   straddleSplit,
   straddleSpec,
   timeOnlyLine,
+  tradingDayTest,
+  weekdaysOnly,
+  closedWeekdays,
+  legLine,
+  decayLine,
+  sumLines,
+  strikePcrLine,
+  changeSinceFirst,
+  sessionStrikes,
+  nearestStrike,
+  strikesAround,
+  lineEnds,
+  shadeOf,
+  straddleTone,
+  STRADDLE_TONES,
+  legName,
+  MULTI_LEG_MAX,
+  MULTI_STRADDLE_MAX,
+  smileFromSnapshot,
+  nearestIndex,
+  gexSessionModel,
+  gexSessionSpecs,
 } from "./vol-suite-core.js";
 
 const ist = (s) => Date.parse(`${s}+05:30`);
@@ -279,5 +301,161 @@ describe("house rules", () => {
   it("formats numbers only through format.js", () => {
     const src = readFileSync(new URL("./vol-suite-core.js", import.meta.url), "utf8");
     expect(src).not.toMatch(/Intl\.NumberFormat|\.toLocaleString\(|toFixed\(/);
+  });
+});
+
+// ── Exchange holidays, straddle views, the smile at the open, GEX through the session ──
+
+describe("trading days from the reference holiday calendar", () => {
+  // Diwali-style week: Wednesday 11 and Thursday 12 Nov 2026 listed, and Sunday 8 Nov (an hour of Muhurat trading).
+  const cal = tradingDayTest([{ date: "2026-11-11", label: "Diwali Balipratipada" }, "2026-11-12", { date: "2026-11-08", label: "Diwali Laxmi Pujan" }]);
+  it("closes weekends and listed holidays; an hour-long special session on a closed day is not a session", () => {
+    expect(cal("2026-11-10")).toBe(true);
+    expect(cal("2026-11-11")).toBe(false);
+    expect(cal("2026-11-14")).toBe(false);
+    expect(cal("2026-11-08")).toBe(false);
+    expect(cal.closed("2026-11-11")).toBe("Diwali Balipratipada");
+    expect(cal.closed("2026-11-10")).toBeNull();
+    expect(weekdaysOnly("2026-11-11")).toBe(true);
+    expect(weekdaysOnly("bad")).toBe(false);
+  });
+  it("removes the holidays from the sessions left, and names them", () => {
+    const now = ist("2026-11-09T15:30:00"); // Monday after the close
+    expect(sessionsLeft(now, "2026-11-17")).toBe(6); // Tue..Tue on weekdays alone
+    expect(sessionsLeft(now, "2026-11-17", { isTradingDay: cal })).toBe(4);
+    expect(closedWeekdays(now, "2026-11-17", cal)).toEqual([{ date: "2026-11-11", label: "Diwali Balipratipada" }, { date: "2026-11-12", label: "2026-11-12" }]);
+    expect(closedWeekdays(now, "2026-11-17", null)).toEqual([]);
+    // An expiry on a holiday-shortened week: only the trading days count.
+    expect(sessionsLeft(ist("2026-11-10T09:15:00"), "2026-11-13", { isTradingDay: cal })).toBe(2);
+  });
+  it("carries the calendar into the IV-today answers", () => {
+    const day = [snap("2026-11-09T10:00:00+05:30", { t: 8 / 365 }), snap("2026-11-09T10:01:00+05:30", { t: 8 / 365 })];
+    const pts = snapshotPoints(day);
+    const nowMs = ist("2026-11-09T15:30:00");
+    const plain = ivTodayModel(pts, { expiry: "2026-11-17", nowMs });
+    const held = ivTodayModel(pts, { expiry: "2026-11-17", nowMs, isTradingDay: cal });
+    expect(plain.sessions).toBe(6);
+    expect(held.sessions).toBe(4);
+    expect(held.holidays).toHaveLength(2);
+    expect(held.calendar).toBe(true);
+    expect(plain.calendar).toBe(false);
+    expect(held.day).toBeGreaterThan(plain.day);
+  });
+});
+
+describe("straddle views: legs through the session", () => {
+  const strikes = [24900, 25000, 25100];
+  const day = [snap("2026-10-30T09:15:00+05:30", { strikes }), snap("2026-10-30T09:16:00+05:30", { strikes, spot: 25040, forward: 25050 }), snap("2026-10-30T09:17:00+05:30", { strikes, spot: 24980, forward: 24990 })];
+  day[1].ce.ltp[2] = 0; // the recorder's "no price"
+  day[2].pe.oi = [100, 0, 300];
+  const pts = snapshotPoints(day);
+  it("reads a leg with gaps, never zeros", () => {
+    const l = legLine(pts, 25100, "ce");
+    expect(l).toHaveLength(3);
+    expect(l[1].v).toBeNull();
+    expect(l[0].v).toBeGreaterThan(0);
+    expect(legLine(pts, 26000, "ce").every((p) => p.v === null)).toBe(true);
+  });
+  it("measures decay from the open or the reading before", () => {
+    const line = [{ t: 1, v: 10 }, { t: 2, v: 8 }, { t: 3, v: null }, { t: 4, v: 5 }];
+    expect(decayLine(line, "open").map((p) => p.v)).toEqual([0, -2, null, -5]);
+    expect(decayLine(line, "prev")).toEqual([{ t: 2, v: -2 }, { t: 3, v: null }, { t: 4, v: null }]);
+    expect(decayLine([{ t: 1, v: null }], "open")).toEqual([{ t: 1, v: null }]);
+    expect(changeSinceFirst(line)[3].v).toBe(-5);
+  });
+  it("adds lines only where every leg has a price", () => {
+    const a = [{ t: 1, v: 10 }, { t: 2, v: 8 }];
+    const b = [{ t: 1, v: 5 }, { t: 2, v: null }];
+    expect(sumLines([a, b])).toEqual([{ t: 1, v: 15 }, { t: 2, v: null }]);
+    expect(sumLines([])).toEqual([]);
+  });
+  it("takes the strike's own PCR, with a gap where a leg is missing", () => {
+    const pcr = strikePcrLine(pts, 25000);
+    expect(pcr[0].v).toBe(1);
+    expect(pcr[2].v).toBeNull();
+  });
+  it("lists the recorded strikes and picks around a centre", () => {
+    expect(sessionStrikes(pts)).toEqual(strikes);
+    expect(nearestStrike(strikes, 25060)).toBe(25100);
+    expect(nearestStrike([], 1)).toBeNull();
+    expect(strikesAround(strikes, 25000, 1)).toEqual(strikes);
+    expect(strikesAround(strikes, 24900, 5)).toEqual(strikes);
+    expect(strikesAround(strikes, 1, 1)).toEqual([]);
+  });
+  it("reads the ends of a line", () => {
+    expect(lineEnds([{ t: 1, v: null }, { t: 2, v: 4 }, { t: 3, v: 7 }])).toMatchObject({ first: 4, last: 7, change: 3, firstT: 2, lastT: 3 });
+    expect(lineEnds([{ t: 1, v: 4 }])).toBeNull();
+  });
+  it("shades picks by order and colours straddles in neutral tones", () => {
+    expect([0, 1, 2, 3, 4].map(shadeOf)).toEqual([0, 1, 2, 3, 0]);
+    expect(straddleTone(0)).toEqual({ tone: "iv", shade: 0 });
+    expect(straddleTone(5)).toEqual({ tone: "iv", shade: 2 });
+    expect(straddleTone(10)).toEqual(straddleTone(0));
+    expect(STRADDLE_TONES).not.toContain("call");
+    expect(STRADDLE_TONES).not.toContain("pos");
+    expect(legName(24500, "pe")).toBe(`${formatInt(24500)} PE`);
+    expect(legName(24500, "ce")).toBe(`${formatInt(24500)} CE`);
+    expect(MULTI_LEG_MAX).toBe(20);
+    expect(MULTI_STRADDLE_MAX).toBe(10);
+  });
+});
+
+describe("smileFromSnapshot", () => {
+  it("takes the OTM leg each side of the forward, with moneyness and call delta", () => {
+    const s = snap("2026-10-30T09:15:00+05:30", { strikes: [24900, 25000, 25100], forward: 25010, iv: 15 });
+    s.ce.iv[2] = 0; // no Call IV at 25100: the Put stands in
+    const sm = smileFromSnapshot(s);
+    expect(sm.forward).toBe(25010);
+    expect(sm.t).toBe(ist("2026-10-30T09:15:00"));
+    expect(sm.points.map((p) => p.otm.side)).toEqual(["pe", "pe", "pe"]);
+    const s2 = snap("2026-10-30T09:15:00+05:30", { strikes: [24900, 25100], forward: 25010 });
+    const sm2 = smileFromSnapshot(s2);
+    expect(sm2.points.map((p) => p.otm.side)).toEqual(["pe", "ce"]);
+    expect(sm2.points[1].m).toBeCloseTo((25100 / 25010 - 1) * 100, 9);
+    expect(sm2.points[1].callDelta).toBeGreaterThan(0);
+    expect(sm2.points[1].callDelta).toBeLessThan(0.5);
+  });
+  it("declines a snapshot without a forward, a time or two strikes", () => {
+    expect(smileFromSnapshot({ ...snap("2026-10-30T09:15:00+05:30"), forward: null })).toBeNull();
+    expect(smileFromSnapshot({ ...snap("2026-10-30T09:15:00+05:30"), t: 0 })).toBeNull();
+    expect(smileFromSnapshot(snap("2026-10-30T09:15:00+05:30", { strikes: [25000] }))).toBeNull();
+  });
+});
+
+describe("GEX through the session", () => {
+  const t0 = ist("2026-10-30T09:15:00");
+  const pts = [0, 1, 2, 3, 4].map((i) => ({ t: t0 + i * 300_000, spot: 25000 + i * 10, net: [5e9, 3e9, -1e9, -2e9, 1e9][i], gross: 9e9, flip: 24990 + i, callWall: 25200, putWall: 24800 }));
+  it("finds the reading nearest a time", () => {
+    expect(nearestIndex(pts, t0 + 400_000)).toBe(1);
+    expect(nearestIndex(pts, null)).toBe(4);
+    expect(nearestIndex([], 1)).toBe(-1);
+  });
+  it("measures the changes back from the reading shown, and counts sign changes", () => {
+    const m = gexSessionModel(pts, 3, { ladder: { first: 30, last: 34 } });
+    expect(m.net).toBe(-2e9);
+    expect(m.changes.m5.change).toBe(-1e9);
+    expect(m.changes.m15.change).toBe(-7e9);
+    expect(gexSessionModel(pts, 4).changes.m15.change).toBe(-2e9);
+    expect(m.changes.day.change).toBe(-7e9);
+    expect(m.signChanges).toBe(1);
+    expect(m.latest).toBe(false);
+    expect(m.grew).toBe(4);
+    expect(m.flipRange).toMatchObject({ lo: 24990, hi: 24993 });
+    expect(gexSessionModel(pts, 4).signChanges).toBe(2);
+    expect(gexSessionModel(pts, 9)).toBeNull();
+    expect(gexSessionModel([], 0)).toBeNull();
+  });
+  it("draws three cards with a marker at the reading shown (none at the latest)", () => {
+    const reading = { strikes: [{ strike: 25000, netGex: 4e9 }, { strike: 24900, netGex: -6e9 }, { strike: 25100, netGex: 0 }] };
+    const s = gexSessionSpecs(pts, { underlying: "NIFTY", at: pts[2].t, reading, top: 5 });
+    expect(s.levels.series.map((x) => x.id)).toEqual(["spot", "flip", "cw", "pw", "at"]);
+    expect(s.levels.series.find((x) => x.id === "at").t).toBe(pts[2].t);
+    expect(s.strikes.series.filter((x) => x.type === "level").map((x) => [x.value, x.tone])).toEqual([[24900, "neg"], [25000, "pos"]]);
+    const net = s.exposure.series.find((x) => x.id === "net");
+    expect(net).toMatchObject({ type: "area", signed: true });
+    expect(s.exposure.series.find((x) => x.id === "gross").type).toBe("line");
+    expect(gexSessionSpecs(pts, { at: pts[4].t }).levels.series.some((x) => x.id === "at")).toBe(false);
+    expect(gexSessionSpecs(pts.slice(0, 1)).levels.empty.title).toBe("One reading so far");
+    expect(gexSessionSpecs([]).exposure.empty.title).toBe("Nothing recorded yet");
   });
 });

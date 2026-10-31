@@ -17,6 +17,7 @@ import { clockNote } from "./vol-context.js";
 import { explainBox } from "./explain.js";
 import { explainVol } from "./explain-core.js";
 import { createVolToday } from "./vol-today.js";
+import { smileFromSnapshot } from "./vol-suite-core.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -112,7 +113,7 @@ export function volConfig(saved) {
     x: pick(s.x, ["strike", "m", "delta"], d.x),
     series: Object.fromEntries(Object.keys(d.series).map((k) => [k, bool(ser[k], d.series[k])])),
     range: pick(s.range, ["10", "20", "all"], d.range),
-    compare: pick(s.compare, ["none", "next", "monthly"], d.compare),
+    compare: pick(s.compare, ["none", "next", "monthly", "open"], d.compare),
     tab: pick(s.tab, ["smile", "term", "surface"], d.tab),
     surf: { mode: pick(sf.mode, ["delta", "mny"], d.surf.mode), vsAtm: bool(sf.vsAtm, d.surf.vsAtm) },
     cols: cols.length ? cols : [...d.cols],
@@ -332,7 +333,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
   const rangeSel = h("select", { "aria-label": "Strikes shown", class: "vol-range" }, RANGES.map(([v, t]) => h("option", { value: v, selected: v === cfg().range }, t)));
   rangeSel.addEventListener("change", () => setCfg({ range: rangeSel.value }));
   // The compare select's closed label is "Compare" or "vs 10 Nov" (short, never clipped).
-  const compareSel = h("select", { "aria-label": "Compare with", class: "vol-compare" }, h("option", { value: "none" }, "Compare"), h("option", { value: "next" }, "Next expiry"), h("option", { value: "monthly" }, "Monthly"));
+  const compareSel = h("select", { "aria-label": "Compare with", class: "vol-compare" }, h("option", { value: "none" }, "Compare"), h("option", { value: "next" }, "Next expiry"), h("option", { value: "monthly" }, "Monthly"), h("option", { value: "open" }, "Today's open"));
   compareSel.value = cfg().compare;
   compareSel.addEventListener("change", () => setCompare(compareSel.value));
   const tabSeg = segmented("Curve", [["smile", "Smile"], ["term", "Term"], ["surface", "Surface"]], cfg().tab);
@@ -548,13 +549,14 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
   }
   function setX(x) {
     axisBeforeCompare = null;
-    if (x === "strike" && cfg().compare !== "none") return setCfg({ x, compare: "none" });
+    if (x === "strike" && cfg().compare !== "none" && cfg().compare !== "open") return setCfg({ x, compare: "none" });
     setCfg({ x });
   }
   // Compare is drawn in moneyness (two expiries share no strikes' meaning). A forced Strike → Mny % switch is named
   // in the legend and undone when Compare goes back to none.
   function setCompare(v) {
-    if (v !== "none" && cfg().x === "strike") {
+    // The open's smile is the same expiry: its strikes mean what they did, so the strike axis stays.
+    if (v !== "none" && v !== "open" && cfg().x === "strike") {
       axisBeforeCompare = "strike";
       toast("Compare uses Mny %");
       return setCfg({ compare: v, x: "m" });
@@ -613,7 +615,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
         seg("Smile x-axis", X_AXES, c.x, (v) => setX(v)),
         h("section", {}, h("h3", {}, "Series"), SERIES_MENU.map(([k, t]) => sw(t, c.series[k], (on) => setSeries(k, on)))),
         seg("Strikes", [["10", "±10"], ["20", "±20"], ["all", "All"]], c.range, (v) => setCfg({ range: v })),
-        seg("Compare", [["none", "None"], ["next", "Next"], ["monthly", "Monthly"]], c.compare, (v) => setCompare(v)),
+        seg("Compare", [["none", "None"], ["next", "Next"], ["monthly", "Monthly"], ["open", "Open"]], c.compare, (v) => setCompare(v)),
         h("section", {}, h("h3", {}, "Term structure"), sw("25Δ wings", c.series.wings, (on) => setSeries("wings", on), "Put and call 25-delta IV per expiry"), sw("HV20 line", c.series.hv, (on) => setSeries("hv", on), "20-day realised vol")),
       );
       if (fi >= 0) {
@@ -1180,7 +1182,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
           band: r.lo === null ? "±1σ" : `±1σ ${formatInt(r.lo)}–${formatInt(r.hi)}`,
         },
         skewTicks: skewTicks.map((t) => ({ ...t, pos: qm(t.pos) })),
-        compare: cmp ? { points: cmpPts.map(qp), label: dayMon(cmp.expiry) } : null,
+        compare: cmp ? { points: cmpPts.map(qp), label: cmp.open ? "Open" : cmpName(cmp) } : null,
         oi,
       };
       const opts = { x: c.x, series: { otm: c.series.otm, ce: c.series.ce, pe: c.series.pe, ba: c.series.ba && m.twoSided, oi: c.series.oi }, width, height, coarse: d.coarse, docked: d.phone, dock: smileDock, label: smileLabel({ expiryLabel: dayMon(r.expiry), atmIv: r.atmIv, rr25: r.rr25, n: pts0.length }), empty: "No usable IV in this range", banners, onPick: pickFromSmile, tip: smileTip };
@@ -1197,7 +1199,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
         { id: "ce", label: "CE", kind: "dash", dv: "call", on: c.series.ce, toggle: (on) => setSeries("ce", on) },
         { id: "pe", label: "PE", kind: "dot", dv: "put", on: c.series.pe, toggle: (on) => setSeries("pe", on) },
         coincide ? { id: "parity", label: "CE ≈ PE (parity holds)", note: true } : null,
-        cmp ? { id: "cmp", label: `vs ${dayMon(cmp.expiry)}`, kind: "dash", dv: "hv" } : null,
+        cmp ? { id: "cmp", label: cmp.open ? `${cmpName(cmp)} (dashed)` : `vs ${cmpName(cmp)}`, kind: "dash", dv: "hv" } : null,
         cmp && axisBeforeCompare ? { id: "cmpaxis", label: "Compare uses Mny %", note: true } : null,
         { id: "band", label: "±1σ / ±2σ", kind: "band" },
         { id: "dots", label: "put / call priced", kind: "dots" },
@@ -1284,9 +1286,31 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     const hi = pr[pr.length - 1].m + 0.05;
     return p.m >= lo && p.m <= hi;
   }
+  // ── "Open vs now": the smile of the session's first recorded reading of this expiry, dashed under today's ──
+  let openSmile = { key: "", row: null, busy: false };
+  /** The compare curve's name: "Open 09:15" or "10 Nov". */
+  const cmpName = (cmp) => (cmp?.open ? `Open ${cmp.time}` : dayMon(cmp?.expiry));
+  function openRow() {
+    const key = `${st.underlying}|${st.expiry}`;
+    if (openSmile.key === key) return openSmile.row;
+    openSmile = { key, row: null, busy: true };
+    api(`/v1/options/snapshots?${new URLSearchParams({ underlying: st.underlying, expiry: st.expiry, fields: "iv", limit: "1" })}`)
+      .then((r) => {
+        if (openSmile.key !== key) return;
+        const sm = smileFromSnapshot(r.data?.data?.snapshots?.[0]);
+        openSmile = { key, busy: false, row: sm ? { open: true, expiry: st.expiry, time: sm.t ? new Date(sm.t + 330 * 60_000).toISOString().slice(11, 16) : "", points: sm.points } : null };
+        if (!openSmile.row) toast("No recorded reading of this expiry today to compare with");
+        draw();
+      })
+      .catch(() => {
+        if (openSmile.key === key) openSmile = { key, busy: false, row: null };
+      });
+    return null;
+  }
   function compareRow(m) {
     const c = cfg().compare;
     if (c === "none") return null;
+    if (c === "open") return openRow();
     const list = m.items;
     const i = list.findIndex((it) => it.e === st.expiry);
     let it = null;
@@ -1319,7 +1343,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       // The docked card: two fixed lines (no layout jump while scrubbing).
       return [
         h("div", { class: "dock-l" }, h("span", { class: "dock-k" }, h("b", {}, formatInt(p.strike)), atm ? h("span", { class: "tip-atm" }, "ATM") : null, ` · ${minus(formatSigned(p.m, 1))}%`, ...tags.map(([t, side]) => h("span", { class: `vol-chip ${side}` }, t))), h("span", {}, "OTM ", ink("ink-iv strong", formatPercent(iv, 1)))),
-        h("div", { class: "dock-l sub" }, h("span", {}, "vs ATM ", h("b", {}, minus(formatSigned(vs, 1))), " · CE ", ink("ink-call", formatFixed(p.ce?.iv ?? null, 1)), " · PE ", ink("ink-put", formatFixed(p.pe?.iv ?? null, 1))), h("span", {}, cmp0 && cmpIv !== null ? `${dayMon(cmp0.expiry)} ${formatFixed(cmpIv, 1)}` : `|Δ| ${formatFixed(dAbs, 2)}`)),
+        h("div", { class: "dock-l sub" }, h("span", {}, "vs ATM ", h("b", {}, minus(formatSigned(vs, 1))), " · CE ", ink("ink-call", formatFixed(p.ce?.iv ?? null, 1)), " · PE ", ink("ink-put", formatFixed(p.pe?.iv ?? null, 1))), h("span", {}, cmp0 && cmpIv !== null ? `${cmpName(cmp0)} ${formatFixed(cmpIv, 1)}` : `|Δ| ${formatFixed(dAbs, 2)}`)),
       ];
     }
     const rows = [
@@ -1329,7 +1353,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     ];
     if (two) rows.push(h("div", { class: "row" }, h("span", {}, "Bid/ask IV"), h("span", {}, `${formatFixed(sideLeg.bidIv, 1)} – ${formatFixed(sideLeg.askIv, 1)}`)));
     if (sideLeg?.price !== null && sideLeg?.price !== undefined) rows.push(h("div", { class: "row" }, h("span", {}, "Prem"), ink(sideCls, `${formatFixed(sideLeg.price, 2)} (${p.otm.side.toUpperCase()})`)));
-    if (cmp0 && cmpIv !== null) rows.push(h("div", { class: "row cmp" }, h("span", {}, dayMon(cmp0.expiry)), h("span", {}, `${formatPercent(cmpIv, 1)} (${minus(formatSigned(iv === null ? null : cmpIv - iv, 1))})`)));
+    if (cmp0 && cmpIv !== null) rows.push(h("div", { class: "row cmp" }, h("span", {}, cmpName(cmp0)), h("span", {}, `${formatPercent(cmpIv, 1)} (${minus(formatSigned(iv === null ? null : cmpIv - iv, 1))})`)));
     return rows;
   }
   function termTip(row) {
@@ -2024,7 +2048,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
       return setX(X_AXES[(i + 1) % X_AXES.length][0]), true;
     }
     if (k === "c") {
-      const list = ["none", "next", "monthly"];
+      const list = ["none", "next", "monthly", "open"];
       return setCompare(list[(list.indexOf(cfg().compare) + 1) % list.length]), true;
     }
     if (k === "t") {

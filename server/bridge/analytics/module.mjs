@@ -48,7 +48,7 @@ export const ROUTES = Object.freeze([
 ]);
 
 /** The services analytics reads. Nothing here may reach safety or place an order: orders is read only (positions, holdings, funds, trades, order list). */
-export const USED_SERVICES = Object.freeze(["marketData", "orders", "accounts", "backupData", "symbols", "participants"]);
+export const USED_SERVICES = Object.freeze(["marketData", "orders", "accounts", "backupData", "symbols", "participants", "recorder"]);
 
 /** Feature files that build their own [method, path, options, handler] entries. */
 const FEATURE_ROUTES = Object.freeze([oiTrackerRoutes, greeksGridRoutes, strategyRoutes, futuresChainRoutes, flowsRoutes, expiryDayRoutes, positionRoutes, unusualRoutes, tideRoutes, exposureRoutes, volStatsRoutes, marketEventsRoutes, screenerRoutes, backtestRoutes, participantsRoutes, optimizerRoutes, marketsRoutes, fieldsRoutes, riskRoutes, derivDepthRoutes, newsFeedsRoutes, technicalsRoutes, depthProfileRoutes]);

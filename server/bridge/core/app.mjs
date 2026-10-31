@@ -101,6 +101,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "vol-suite-core.js": "text/javascript; charset=utf-8",
   "exposure-suite.js": "text/javascript; charset=utf-8",
   "vol-today.js": "text/javascript; charset=utf-8",
+  "straddle-views.js": "text/javascript; charset=utf-8",
   "events.js": "text/javascript; charset=utf-8",
   "scanner.js": "text/javascript; charset=utf-8",
   "scan-builder.js": "text/javascript; charset=utf-8",
