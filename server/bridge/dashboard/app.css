@@ -1893,16 +1893,17 @@ button.start-row:hover { --btn-bg: var(--mat-fill-1); }
 .start-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px var(--card-pad) 12px; font: 400 13px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 @media (max-width: 719px) {
   .start-row .progress .bar { width: 56px; }
-  /* Phones: the cockpit first (indices, P&L today, positions, events), then the first steps, then the calendar and
-     health. The cockpit grid lends its cards to the page column for that order. */
+  /* Phones: the cockpit first (the hero cards, indices, key levels, positions, events), then the first steps, then
+     the rest. The cockpit grid lends its cards to the page column for that order. */
   :root[data-page="home"] #content > .cockpit { display: contents; }
+  :root[data-page="home"] #content > .ck-heroes { order: 1; }
   :root[data-page="home"] #content > .ck-strip { order: 1; }
-  :root[data-page="home"] #content > .cockpit > .ck-a-pnl { order: 2; }
+  :root[data-page="home"] #content > .cockpit > .ck-a-lv { order: 2; }
   :root[data-page="home"] #content > .cockpit > .ck-a-pos { order: 3; }
   :root[data-page="home"] #content > .cockpit > .ck-a-ev { order: 4; }
   :root[data-page="home"] #content > .cockpit > .ck-a-wl { order: 4; }
   :root[data-page="home"] #content > .home-start { order: 5; }
-  :root[data-page="home"] #content > .cockpit > .ck-a-cal { order: 6; }
+  :root[data-page="home"] #content > .cockpit > :is(.ck-a-mv, .ck-a-nw) { order: 6; }
   :root[data-page="home"] #content > .cockpit > .ck-a-hl { order: 7; }
   /* The indices are one sideways row of tiles, not three rows. */
   .ck-strip { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(136px, 42%); overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; margin: 0 calc(-1 * var(--page-gutter)); padding: 0 var(--page-gutter); scroll-padding: 0 var(--page-gutter); }
@@ -1933,22 +1934,20 @@ button.start-row:hover { --btn-bg: var(--mat-fill-1); }
 .ck-px { grid-area: p; font: 500 18px/1.15 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ck-ch { grid-area: c; font: 500 12px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .cockpit { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--panel-gap); align-items: start; }
-.ck-a-pnl { grid-area: pnl; } .ck-a-pos { grid-area: pos; } .ck-a-ev { grid-area: ev; } .ck-a-cal { grid-area: cal; } .ck-a-hl { grid-area: hl; } .ck-a-wl { grid-area: wl; } .ck-a-mv { grid-area: mv; } .ck-a-nw { grid-area: nw; }
-.cockpit { grid-template-areas: "pnl" "pos" "mv" "wl" "ev" "nw" "cal" "hl"; }
+.ck-a-lv { grid-area: lv; } .ck-a-pos { grid-area: pos; } .ck-a-ev { grid-area: ev; } .ck-a-hl { grid-area: hl; } .ck-a-wl { grid-area: wl; } .ck-a-mv { grid-area: mv; } .ck-a-nw { grid-area: nw; }
+.cockpit { grid-template-areas: "lv" "pos" "mv" "wl" "ev" "nw" "hl"; }
 /* From tablet up the cards stretch to their row, so every column ends on one line. Latest live events is the elastic
    card: it takes the height its row leaves and scrolls inside (contain: size keeps its 40 events from growing the row).
    The watchlist and the card lists share out any spare height between their rows, so no card ends half empty. */
 @media (min-width: 720px) {
-  .cockpit { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "pnl cal" "pos pos" "mv nw" "hl ev" "wl ev"; align-items: stretch; }
+  .cockpit { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "lv lv" "pos pos" "mv nw" "hl ev" "wl ev"; align-items: stretch; }
   .ck-card { display: flex; flex-direction: column; }
   .ck-card > .card-head { flex: none; }
   .ck-card > .card-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-  .ck-pnl, .ck-cal, .ck-health, .ck-wl { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
-  :is(.ck-pnl, .ck-cal) > .ck-list { flex: 1 1 auto; }
+  .ck-health, .ck-wl, .ck-ev, .ck-lv { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
   /* Health: account rows keep their height; the latest orders take the spare height and scroll inside. */
   .ck-recent { flex: 1 1 0; min-height: 96px; display: flex; flex-direction: column; }
   .ck-recent-list { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-  :is(.ck-pnl, .ck-cal) .ck-list > li { flex: 1 1 auto; }
   .ck-a-pos .ck-table { flex: 1 1 auto; }
   .ck-wl-list { flex: 1 1 auto; align-content: stretch; }
   .ck-wl-list li { align-content: center; }
@@ -1969,15 +1968,15 @@ button.start-row:hover { --btn-bg: var(--mat-fill-1); }
   :root[data-page="home"] #content { flex: 1 1 auto; }
   :root[data-page="home"] #content > .cockpit { flex: 1 1 auto; }
   :root[data-page="home"] .app-foot { margin-top: 16px; }
-  .cockpit { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto auto auto minmax(0, 1fr); grid-template-areas: "pnl pos pos" "mv nw ev" "cal hl ev" "wl wl ev"; }
+  .cockpit { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto auto auto minmax(0, 1fr); grid-template-areas: "lv lv ev" "pos pos ev" "mv nw hl" "wl wl hl"; }
 }
 @media (min-width: 1700px) {
   .ck-idx { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "n n" "p c"; }
-  .cockpit { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: auto auto minmax(0, 1fr); grid-template-areas: "pnl pos pos cal" "mv nw ev ev" "hl wl ev ev"; }
+  .cockpit { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: auto auto minmax(0, 1fr); grid-template-areas: "lv lv pos pos" "mv nw ev ev" "hl wl ev ev"; }
   .ck-a-wl .ck-wl-list { grid-template-columns: minmax(0, 1fr); }
 }
 @media (min-width: 2300px) {
-  .cockpit { grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-areas: "pnl pos pos cal hl" "mv nw wl ev ev"; }
+  .cockpit { grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-areas: "lv lv pos pos hl" "mv nw wl ev ev"; }
 }
 .ck-card .card-body { padding-top: 10px; }
 .ck-hero { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
@@ -1987,6 +1986,96 @@ button.start-row:hover { --btn-bg: var(--mat-fill-1); }
 /* Home while the demo book is being seeded: the progress line over a skeleton of the card's rows. */
 .ck-seed .ck-seed-line { margin: 0 0 6px; font-variant-numeric: tabular-nums; }
 .ck-seed .skel-row { padding: 0; }
+
+/* Home hero cards (cockpit.js heroCard): tinted glyph and label, one large figure, one line, a small picture at the
+   right (a ring, a calendar leaf, P&L bars). Four across from 1280 px, two from 720, two on phones. */
+.ck-heroes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--panel-gap-dense); }
+@media (min-width: 1280px) { .ck-heroes { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--panel-gap); } }
+.ck-stat { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "h pic" "v pic" "s s"; align-items: center; gap: 6px 12px; padding: 14px 16px 14px; color: hsl(var(--foreground)); text-decoration: none; min-width: 0; transition: background-color var(--dur-2) var(--ease-std), translate var(--dur-2) var(--ease-std); }
+.ck-stat:hover { background: var(--mat-fill-1); translate: 0 -1px; text-decoration: none; }
+@media (prefers-reduced-motion: reduce) { .ck-stat { transition: none; } .ck-stat:hover { translate: none; } }
+.ck-stat-h { grid-area: h; display: flex; align-items: center; gap: 8px; min-width: 0; font: 500 13px/1.25 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; }
+.ck-stat-v { grid-area: v; font: 600 28px/1.05 var(--font-numeric); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ck-stat-v.warn { color: hsl(var(--warn)); }
+.ck-stat-s { grid-area: s; font: 500 12px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.ck-stat-pic { grid-area: pic; display: grid; place-items: center; min-width: 0; }
+.ck-stat-pic:empty { display: none; }
+.ck-ring { display: block; }
+.ck-ring circle { fill: none; stroke-width: 5; }
+.ck-ring-track { stroke: var(--mat-fill-2); }
+.ck-ring-arc { stroke: hsl(var(--foreground) / 0.35); stroke-linecap: round; }
+.ck-ring.ok .ck-ring-arc { stroke: hsl(var(--ios-green)); }
+.ck-ring.warn .ck-ring-arc { stroke: hsl(var(--warn)); }
+.ck-ring text { font: 600 12px var(--font-numeric); fill: hsl(var(--foreground)); }
+.ck-leaf { display: grid; width: 46px; border-radius: 10px; overflow: hidden; background: var(--surface-raised); box-shadow: 0 0 0 var(--hl) var(--mat-separator), 0 1px 3px hsl(var(--foreground) / 0.08); text-align: center; }
+.ck-leaf-m { padding: 2px 0 1px; background: hsl(var(--ios-red)); color: var(--switch-knob); font: 600 12px/1.2 var(--font-body); letter-spacing: 0.02em; }
+.ck-leaf-d { padding: 2px 0 4px; font: 600 20px/1.1 var(--font-numeric); }
+.ck-bars { display: block; overflow: visible; }
+.ck-bars-zero { stroke: var(--mat-separator); stroke-width: 1; }
+.ck-bars rect.up { fill: hsl(var(--pos)); }
+.ck-bars rect.down { fill: hsl(var(--neg)); }
+@media (max-width: 719px) {
+  /* Phones: two hero cards a row; the picture shrinks into the top right corner so the figure has the width. */
+  .ck-stat { grid-template-columns: minmax(0, 1fr); grid-template-areas: "h" "v" "s"; padding: 12px 14px; }
+  .ck-stat-h { padding-right: 30px; }
+  .ck-stat-h > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+  .ck-stat-v { font-size: 22px; }
+  .ck-stat-pic { position: absolute; top: 8px; right: 8px; transform: scale(0.6); transform-origin: top right; }
+}
+
+/* An index tile's day range: low to high, the dot where the last price sits. */
+.ck-rng { grid-column: 1 / -1; position: relative; height: 4px; margin: 6px 0 2px; border-radius: 2px; background: var(--mat-fill-2); }
+.ck-rng[hidden] { display: none; }
+.ck-rng i { position: absolute; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: hsl(var(--foreground) / 0.7); box-shadow: 0 0 0 2px var(--surface-raised); }
+.ck-rng i.up { background: hsl(var(--pos)); }
+.ck-rng i.down { background: hsl(var(--neg)); }
+
+/* Key levels: the expected move as the hero, the data line, the price ruler, then one tile per level. */
+.ck-lv { container-type: inline-size; }
+.ck-lv-acts { gap: 10px; flex-wrap: nowrap; }
+.ck-lv-top { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 12px; }
+.ck-lv-hero { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ck-lv-k { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.ck-lv-hero small { font: 500 12px/1.35 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-quiet)); }
+.ck-dl { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px; background: var(--mat-fill-1); font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; }
+.ck-dl::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: hsl(var(--foreground) / 0.4); }
+.ck-dl.live::before { background: hsl(var(--ios-green)); }
+.ck-dl.delayed::before { background: hsl(var(--warn)); }
+.ck-dl.stale::before { background: hsl(var(--ios-red)); }
+.ck-ruler { margin: 30px 4px 4px; }
+.ck-ruler-track { position: relative; height: 6px; border-radius: 3px; background: var(--mat-fill-2); }
+.ck-ruler-band { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: hsl(var(--ios-blue) / 0.28); }
+.ck-ruler-tick { position: absolute; top: -4px; width: 3px; height: 14px; margin-left: -1.5px; border-radius: 2px; background: hsl(var(--foreground) / 0.45); }
+.ck-ruler-tick.ce { background: hsl(var(--c-call)); }
+.ck-ruler-tick.pe { background: hsl(var(--c-put)); }
+.ck-ruler-tick.gx { background: hsl(var(--ios-orange)); }
+.ck-ruler-tick.mp { background: hsl(var(--foreground) / 0.75); }
+.ck-ruler-spot { position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: hsl(var(--ios-blue)); box-shadow: 0 0 0 3px var(--surface-raised); }
+.ck-ruler-spot b { position: absolute; bottom: 16px; left: 50%; translate: -50% 0; padding: 1px 8px; border-radius: 99px; background: hsl(var(--ios-blue)); color: var(--switch-knob); font: 600 12px/1.4 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ck-ruler-labels { position: relative; margin-top: 8px; }
+.ck-ruler-l { position: absolute; display: flex; flex-direction: column; align-items: center; translate: -50% 0; white-space: nowrap; font: 500 12px/1.2 var(--font-body); }
+.ck-ruler-l.start { align-items: flex-start; translate: -6px 0; }
+.ck-ruler-l.end { align-items: flex-end; translate: calc(-100% + 6px) 0; }
+.ck-ruler-l small { font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.ck-ruler-l b { font: 600 12px/1.25 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.ck-ruler-l.ce b { color: hsl(var(--c-call-ink)); } .ck-ruler-l.pe b { color: hsl(var(--c-put-ink)); }
+.ck-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+@container (min-width: 520px) { .ck-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.ck-tile { display: flex; flex-direction: column; gap: 2px; padding: 9px 12px; border-radius: var(--r-md); background: var(--mat-fill-1); min-width: 0; cursor: default; }
+.ck-tile-k { font: 500 12px/1.25 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ck-tile-v { font: 600 17px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; white-space: nowrap; }
+.ck-tile-s { font: 500 12px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-quiet)); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.ck-tile.ce .ck-tile-v { color: hsl(var(--c-call-ink)); }
+.ck-tile.pe .ck-tile-v { color: hsl(var(--c-put-ink)); }
+
+/* Live events: today's count with the bullish / bearish split as one capsule bar. */
+.ck-ev .ck-hero, .ck-health .ck-hero { align-items: center; justify-content: flex-start; }
+.ck-split { display: flex; flex: 1 1 auto; min-width: 48px; max-width: 140px; height: 6px; margin-left: auto; gap: 2px; border-radius: 3px; overflow: hidden; }
+.ck-split i { flex: 1 1 0; min-width: 2px; }
+.ck-split i.up { background: hsl(var(--pos)); }
+.ck-split i.down { background: hsl(var(--neg)); }
+.ck-split.none i { background: var(--mat-fill-2); }
+.ck-accts .ck-bar[hidden] { visibility: hidden; display: block; }
 .ck-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .ck-list > li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: var(--list-row-h); padding: 4px 0; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); font: 500 13px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; }
 .ck-list > li:last-child { box-shadow: none; }

@@ -1489,7 +1489,9 @@ async function renderHome() {
   // The cockpit: indices, P&L today, open positions with risk, live events, today's calendar, API and broker health.
   const readySnap = await refreshReadiness();
   const { cockpit } = await import("./cockpit.js");
-  const ck = await cockpit({ accs, orders, streams, usage, safety, keys, readyPill: readySnap ? readinessPill(readySnap) : null, starting: startup });
+  // The cockpit's one-line summary (market, books, P&L, next expiry) replaces the sub line while Home is shown.
+  const onSummary = (t) => document.documentElement.dataset.route === "home" && ($("page-sub").textContent = t);
+  const ck = await cockpit({ accs, orders, streams, usage, safety, keys, readyPill: readySnap ? readinessPill(readySnap) : null, starting: startup, onSummary });
   nodes.push(...ck.nodes);
   every(5000, ck.refresh);
   return nodes;
