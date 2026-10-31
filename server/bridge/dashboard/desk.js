@@ -3359,7 +3359,7 @@ function createChain({ st, host, tools = null, headRow = null, toolSlot = null, 
     const code = rd.code === "NT" ? "CH" : rd.code;
     const tone = code === "LB" || code === "SC" ? "pos" : code === "SB" || code === "LU" ? "neg" : "";
     const title = `${M.BUILDUP_LABELS[rd.code]} ${winLabel}: premium ${formatSignedPercent(rd.pxPct, 2)} (${formatSigned(rd.dPx, 2)}), OI ${rd.isNew ? "new at this strike" : formatSignedPercent(rd.oiPct, 1)} (${formatCompact(rd.dOi / unit(x), { signed: true })}). ${rd.code === "NT" ? "One move is inside its floor, so neither side is named. " : ""}Premium up and OI up = Long build-up; down and up = Short build-up; up and down = Short covering; down and down = Long unwinding. The line under it = OI change as a share of the largest on this side (${formatInt(ticks)} of 10)`;
-    const el = cgBar(h("span", { class: `bu-pill bu-${code}` }, BUILDUP_SHORT[rd.code] ?? M.BUILDUP_LABELS[rd.code]), null, bar(ticks / 10, `bu-m${tone ? ` ${tone}` : ""}`), "bu-l1");
+    const el = cgBar(h("span", { class: `bu-pill bu-${code}` }, M.BUILDUP_LABELS[rd.code]), null, bar(ticks / 10, `bu-m${tone ? ` ${tone}` : ""}`), "bu-l1");
     el.classList.add("bu-cell");
     el.title = title;
     el.style.setProperty("--bw", String(r1(M.buildupIntensity(rd, max) * 100) / 100));
@@ -5099,9 +5099,6 @@ export function heldTitle(lots) {
   return `Your position: ${lots > 0 ? "long" : "short"} ${formatInt(n)} lot${n === 1 ? "" : "s"} in this contract`;
 }
 
-/** The build-up cell's capsule names (the full names, Long build-up and so on, are in its title and hover card): short
- *  enough that the column fits about 120 px with the longest of them. */
-export const BUILDUP_SHORT = Object.freeze({ LB: "Long build", SB: "Short build", SC: "Short cover", LU: "Long unwind", NT: "Neutral" });
 const PHONE_TAG = { mp: "MP", cw: "C wall", pw: "P wall" };
 const SHORT_TAG = { mp: "MP", cw: "CW", pw: "PW" };
 /**

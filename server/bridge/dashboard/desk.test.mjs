@@ -265,17 +265,15 @@ describe("chain, clean: defaults that fit common widths", () => {
     // With Bid / Ask switched on, 1600 px still holds everything.
     expect(fitCore(PANEL[1600], true).hidden).toEqual([]);
   });
-  it("the estimates are the clean cells' real widths: Build-up fits about 120 px, OI and volume carry no side figure", async () => {
-    const { STRIKE_W, BUILDUP_SHORT } = await import("./desk.js");
+  it("the estimates are the clean cells' real widths: Build-up fits about 120 px (its full name wraps when tight), OI and volume carry no side figure", async () => {
+    const { STRIKE_W } = await import("./desk.js");
+    // One line, "Long unwinding" needs about 138 px; the capsule may wrap at the space, so the column needs about 120.
     expect(COL_MIN.bu).toBeGreaterThanOrEqual(116);
     expect(COL_MIN.bu).toBeLessThanOrEqual(124);
     expect(COL_MIN.oi).toBeLessThan(80);
     expect(COL_MIN.vol).toBeLessThan(80);
     expect(STRIKE_W).toBeGreaterThanOrEqual(88);
     expect(STRIKE_W).toBeLessThanOrEqual(104);
-    // The capsule names stay short (the full names are in the title and the hover card).
-    for (const [code, name] of Object.entries(BUILDUP_SHORT)) expect(name.length, code).toBeLessThanOrEqual(11);
-    expect(Object.keys(BUILDUP_SHORT).sort()).toEqual(["LB", "LU", "NT", "SB", "SC"]);
   });
   it("Other and the OI view keep Build-up at 1280 px; Hedger keeps LTP, Bid / Ask, Delta, IV and OI", () => {
     for (const p of ["other", "oi"]) {

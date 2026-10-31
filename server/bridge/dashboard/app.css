@@ -2331,6 +2331,8 @@ table.chain.dense { --desk-row: var(--chain-row-1); }
 /* One gutter for every column (9 px a side), horizontal hairlines only (inset shadows, never vertical rules). */
 table.chain th, table.chain td { height: var(--desk-row); padding: 0 var(--chain-gx); border: 0; white-space: nowrap; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-hairline); }
 table.chain { --chain-gx: 9px; }
+/* Laptop widths (about 1280 with the sidebar open): slightly tighter gutters, so Core keeps every column. */
+@media (min-width: 1180px) and (max-width: 1365px) { table.chain { --chain-gx: 7px; } }
 table.chain th:first-child, table.chain td:first-child { padding-left: 12px; }
 table.chain th:last-child, table.chain td:last-child { padding-right: 12px; }
 /* Every figure right-aligned on one tabular edge, calls and puts alike; the strike and the per-strike columns centred.
@@ -2512,8 +2514,10 @@ table.chain .bu, .cs-m .bu { display: inline-flex; align-items: center; justify-
    strength is the hairline at the cell's foot; the figures are in the title and the hover card. */
 table.chain .cg.bu-cell { grid-template-rows: 29px; cursor: help; }
 table.chain.dense .cg.bu-cell { grid-template-rows: 16px; }
-table.chain .bu-pill { display: inline-flex; align-items: center; height: 20px; padding: 0 9px; border-radius: 99px; font: 500 12px/1 var(--font-body); white-space: nowrap; transition: background-color 420ms var(--ease-out); }
-table.chain.dense .bu-pill { height: 16px; padding: 0 7px; }
+/* The full name on one line when the column has room; at tight widths it wraps at the space ("Long" / "unwinding"),
+   so the column needs only about 120 px and Build-up is not the first column dropped. */
+table.chain .bu-pill { display: inline-flex; align-items: center; justify-content: center; min-height: 20px; padding: 2px 9px; border-radius: 10px; font: 500 12px/1.15 var(--font-body); text-align: center; white-space: normal; text-wrap: balance; transition: background-color 420ms var(--ease-out); }
+table.chain.dense .bu-pill { min-height: 16px; padding: 1px 7px; }
 table.chain .bu-pill:is(.bu-LB, .bu-SC) { color: hsl(var(--gain-ink-strong)); }
 table.chain .bu-pill:is(.bu-SB, .bu-LU) { color: hsl(var(--loss-ink-strong)); }
 table.chain .bu-pill.bu-LB { background: hsl(var(--pos) / calc(0.12 + 0.10 * var(--bw, 0))); }
