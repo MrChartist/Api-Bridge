@@ -14,8 +14,8 @@ const ET = `<?xml version="1.0"?><rss version="2.0"><channel><title>ET Markets</
 <item><title>Bank Nifty ends flat; TCS gains</title><link>https://economictimes.indiatimes.com/a2.cms</link><guid>et-2</guid><pubDate>Thu, 29 Oct 2026 16:00:00 +0530</pubDate></item>
 <item><title>Old story</title><link>https://economictimes.indiatimes.com/old.cms</link><guid>et-old</guid><pubDate>Mon, 01 Jun 2026 09:00:00 +0530</pubDate></item>
 </channel></rss>`;
-const MC = `<rss version="2.0"><channel>
-<item><title>Nifty 50 slips 0.4% as IT weighs</title><link>https://www.moneycontrol.com/m1.html</link><pubDate>Fri, 30 Oct 2026 11:00:00 +0530</pubDate></item>
+const MINT = `<rss version="2.0"><channel>
+<item><title>Nifty 50 slips 0.4% as IT weighs</title><link>https://www.livemint.com/m1.html</link><pubDate>Fri, 30 Oct 2026 11:00:00 +0530</pubDate></item>
 <item><title>Bank Nifty ends flat; TCS gains</title><link>https://economictimes.indiatimes.com/a2.cms</link><pubDate>Thu, 29 Oct 2026 16:00:00 +0530</pubDate></item>
 </channel></rss>`;
 const EMPTY = `<rss version="2.0"><channel></channel></rss>`;
@@ -60,13 +60,16 @@ describe("pure helpers", () => {
     expect(JSON.stringify(rows)).not.toContain("Long article text");
   });
 
-  it("every market feed is marked unverified", () => {
-    for (const k of MARKET_KINDS) expect(ENDPOINTS[k]).toMatchObject({ verified: false, url: expect.stringMatching(/^https:\/\//) });
+  it("market feeds: ET and Mint verified, Business Standard unverified, Moneycontrol retired (its RSS stopped in 2024)", () => {
+    expect(MARKET_KINDS).toEqual(["etMarkets", "bsMarkets", "mintMarkets"]);
+    for (const k of MARKET_KINDS) expect(ENDPOINTS[k].url).toMatch(/^https:\/\//);
+    expect([ENDPOINTS.etMarkets.verified, ENDPOINTS.mintMarkets.verified, ENDPOINTS.bsMarkets.verified]).toEqual([true, true, false]);
+    expect(ENDPOINTS.mcMarkets).toMatchObject({ retired: true, verified: false });
   });
 });
 
 describe("GET /v1/analytics/news/headlines", () => {
-  const ALL = { etMarkets: ET, mcMarkets: MC, bsMarkets: EMPTY, mintMarkets: EMPTY, announcements: ANN, sebi: EMPTY, rbiPress: EMPTY, rbiNotifications: EMPTY, rbiSpeeches: EMPTY };
+  const ALL = { etMarkets: ET, bsMarkets: EMPTY, mintMarkets: MINT, announcements: ANN, sebi: EMPTY, rbiPress: EMPTY, rbiNotifications: EMPTY, rbiSpeeches: EMPTY };
 
   it("merges the sources newest first, drops old rows and duplicate links, and tags the asked symbols", async () => {
     const { call, route } = setup(ALL, { symbols });
@@ -92,15 +95,15 @@ describe("GET /v1/analytics/news/headlines", () => {
   });
 
   it("a failed feed is listed and does not fail the call; all failing raises", async () => {
-    const { call } = setup({ ...ALL, mcMarkets: undefined, announcements: undefined });
+    const { call } = setup({ ...ALL, mintMarkets: undefined, announcements: undefined });
     const r = await call("source=all");
-    expect(r.meta.failedFeeds).toEqual(["moneycontrol", "nse"]);
+    expect(r.meta.failedFeeds).toEqual(["mint", "nse"]);
     expect(r.data.items.length).toBeGreaterThan(0);
     const none = setup({});
     await expect(none.call("source=market")).rejects.toMatchObject({ code: "UPSTREAM_ERROR" });
   });
 
-  it("source=market reads only the four papers", async () => {
+  it("source=market reads only the three papers", async () => {
     const { call, calls } = setup(ALL);
     await call("source=market");
     expect([...calls].sort()).toEqual([...MARKET_KINDS].sort());
@@ -114,7 +117,7 @@ describe("GET /v1/analytics/news/headlines", () => {
   it("demo mode has headlines for every paper", async () => {
     const { call } = setup(Object.fromEntries(await Promise.all(Object.keys(ALL).map(async (k) => [k, await demoNewsFeedsFetcher(k, {})]))), {});
     const r = await call("source=market&days=14");
-    expect(new Set(r.data.items.map((i) => i.source))).toEqual(new Set(["et", "moneycontrol", "business-standard", "mint"]));
+    expect(new Set(r.data.items.map((i) => i.source))).toEqual(new Set(["et", "business-standard", "mint"]));
     expect(r.data.items.every((i) => /\(demo\)$/.test(i.title))).toBe(true);
   });
 });

@@ -574,7 +574,7 @@ export async function renderNewsPage() {
   load();
   every(5 * 60_000, load);
   const bar0 = h("div", { class: "pm-toolbar" }, kindSeg, followSeg, daysSel, search, status);
-  return [bar0, host, h("p", { class: "muted small pm-foot" }, "Headlines and links from the public markets feeds of The Economic Times, Moneycontrol, Business Standard and Mint, NSE filings and SEBI / RBI. Each article opens on its publisher's site. Feeds are third-party text and not advice.")];
+  return [bar0, host, h("p", { class: "muted small pm-foot" }, "Headlines and links from the public markets feeds of The Economic Times, Business Standard and Mint, NSE filings and SEBI / RBI. Each article opens on its publisher's site. Feeds are third-party text and not advice.")];
 }
 
 // ── Depth ladder ──

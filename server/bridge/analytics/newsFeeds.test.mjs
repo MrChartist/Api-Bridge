@@ -309,8 +309,10 @@ describe("newsAlertCheck", () => {
 });
 
 describe("misc", () => {
-  it("lists every assumed URL as unverified", () => {
-    for (const e of Object.values(ENDPOINTS)) expect(e.verified).toBe(false);
+  it("marks only the probed feeds verified", () => {
+    const verified = Object.entries(ENDPOINTS).filter(([, e]) => e.verified).map(([k]) => k).sort();
+    expect(verified).toEqual(["etMarkets", "mintMarkets"]);
+    for (const e of Object.values(ENDPOINTS)) expect(typeof e.verified).toBe("boolean");
   });
   it("default fetcher primes NSE cookies and reads text through the client", async () => {
     const urls = [];
