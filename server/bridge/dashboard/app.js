@@ -229,8 +229,14 @@ const MARKET_RE = /^\/v1\/(optionchain|quotes|ltp|expiries|depth|history)\?/;
 
 /** POSTs that read or start something and change no state the pages show: they keep the remembered answers. */
 const READ_LIKE_POST_RE = /^\/v1\/(stream\/token|sign-in|orders\/preview|margin\/preview|readiness\/check|scanner\/plan|reference\/corporate-actions\/preview|paper\/accounts\/[^/]+\/margin|strategy\/(price|payoff|preview))(\/|\?|$)/;
-/** Whether a write may change what the remembered answers say (pure). */
-export const forgetsAnswers = (method, path) => method !== "GET" && !READ_LIKE_POST_RE.test(String(path));
+/**
+ * Whether a write may change what the remembered answers say (pure). A dry run (body `dryRun: true`, such as Cancel
+ * all's count on the Orders page) changes nothing.
+ */
+export const forgetsAnswers = (method, path, body) => method !== "GET" && !READ_LIKE_POST_RE.test(String(path)) && !(method === "POST" && body?.dryRun === true);
+/** Writes so far that forgot the remembered answers: an answer a page keeps itself is good until this moves. */
+let writes = 0;
+export const writeCount = () => writes;
 
 /** Whether a GET path may be remembered (pure). */
 export const cacheable = (path) => typeof path === "string" && path.startsWith("/v1/") && !NO_CACHE_RE.test(path);
@@ -338,8 +344,11 @@ export async function api(path, { method = "GET", body, raw = false, fresh = fal
   const headers = baseHeaders();
   if (method !== "GET" || raw) {
     if (body !== undefined) headers["Content-Type"] = "application/json";
-    const forget = forgetsAnswers(method, path);
-    if (forget) answers.clear();
+    const forget = forgetsAnswers(method, path, body);
+    if (forget) {
+      answers.clear();
+      writes += 1;
+    }
     const t0 = performance.now();
     let res;
     try {
@@ -350,7 +359,10 @@ export async function api(path, { method = "GET", body, raw = false, fresh = fal
     }
     noteStatus(res);
     const a = { ok: res.ok, status: res.status, ct: res.headers.get("content-type") ?? "", text: await res.text(), headers: res.headers };
-    if (forget) answers.clear();
+    if (forget) {
+      answers.clear();
+      writes += 1;
+    }
     return toResult(a, { raw, ms: Math.round(performance.now() - t0) });
   }
   const navigating = performance.now() < navUntil;

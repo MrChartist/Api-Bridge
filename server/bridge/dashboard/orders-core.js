@@ -64,6 +64,33 @@ export function cancelAllGroups(dry) {
   return { bridge, external, total: bridge.length + external.length, paper: bridge.filter((o) => o.mode !== "live").length, live: bridge.filter((o) => o.mode === "live").length };
 }
 
+/** How long the Orders page reuses Cancel all's dry run for its button (a redraw right after a render asks again). */
+export const DRY_RUN_REUSE_MS = 3000;
+
+/**
+ * One answer reused while it is at most `ttlMs` old and no write happened since (`epoch`, app.js writeCount): a page
+ * drawn twice in a row asks once. A load that answers with an error is not kept.
+ * @returns {(load: () => Promise<any>, o?: { now?: number, epoch?: number }) => Promise<any>}
+ */
+export function shortMemo(ttlMs) {
+  let held = null;
+  return (load, { now = Date.now(), epoch = 0 } = {}) => {
+    if (held && held.epoch === epoch && now - held.at >= 0 && now - held.at <= ttlMs) return held.value;
+    const value = Promise.resolve(load());
+    const mine = { at: now, epoch, value };
+    held = mine;
+    value.then(
+      (r) => {
+        if (r?.error && held === mine) held = null;
+      },
+      () => {
+        if (held === mine) held = null;
+      },
+    );
+    return value;
+  };
+}
+
 /**
  * Cancel all's button: the page's own open orders until the dry run answers, then the dry run's count of both groups
  * (so it also shows when only orders placed outside the Bridge are open).

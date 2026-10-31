@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, dayRows, depthView, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, tradeTotals } from "./orders-core.js";
+import { DRY_RUN_REUSE_MS, cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, dayRows, depthView, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, shortMemo, tradeTotals } from "./orders-core.js";
 
 const O = (o) => ({ orderId: "PAPER-1", accountId: "demo-paper", symbol: "NFO:NIFTY-2026-11-03-25850-CE", side: "BUY", status: "filled", mode: "paper", ...o });
 const list = [
@@ -144,5 +145,36 @@ describe("Cancel all: Bridge orders and orders placed outside the Bridge", () =>
     expect(cancelAllReport({ cancelled: ["A", "B"], failed: [], bridge: { cancelled: ["A", "B"] }, external: { cancelled: [], left: ["M"] } })).toEqual({ tone: "ok", text: "Cancelled 2 Bridge orders. 1 order placed outside the Bridge left open." });
     expect(cancelAllReport({ cancelled: ["A", "M"], failed: [], bridge: { cancelled: ["A"] }, external: { cancelled: ["M"], left: [] } })).toEqual({ tone: "ok", text: "Cancelled 1 Bridge order and 1 order placed outside the Bridge." });
     expect(cancelAllReport({ cancelled: [], failed: [{ orderId: "A", message: "Too late" }], bridge: { cancelled: [] }, external: { cancelled: [], left: [] } })).toEqual({ tone: "warn", text: "Cancelled 0 Bridge orders. 1 not cancelled: Too late" });
+  });
+});
+
+describe("Cancel all's dry run on the Orders page (perf round 5)", () => {
+  it("asks once for a render and the redraw right after it, again after a few seconds or any write", async () => {
+    const memo = shortMemo(DRY_RUN_REUSE_MS);
+    let calls = 0;
+    const load = () => Promise.resolve({ data: { n: ++calls } });
+    expect((await memo(load, { now: 1000, epoch: 0 })).data.n).toBe(1);
+    expect((await memo(load, { now: 1200, epoch: 0 })).data.n).toBe(1); // the revalidation redraw
+    expect((await memo(load, { now: 1000 + DRY_RUN_REUSE_MS, epoch: 0 })).data.n).toBe(1);
+    expect((await memo(load, { now: 1001 + DRY_RUN_REUSE_MS, epoch: 0 })).data.n).toBe(2); // older: asks again
+    expect((await memo(load, { now: 1002 + DRY_RUN_REUSE_MS, epoch: 1 })).data.n).toBe(3); // a write happened
+    expect(calls).toBe(3);
+    expect(DRY_RUN_REUSE_MS).toBeLessThanOrEqual(5000);
+  });
+
+  it("keeps no error, so the next render asks again", async () => {
+    const memo = shortMemo(DRY_RUN_REUSE_MS);
+    let calls = 0;
+    const failing = () => Promise.resolve({ error: { code: "UNAVAILABLE" }, n: ++calls });
+    await memo(failing, { now: 0 });
+    await Promise.resolve();
+    expect((await memo(failing, { now: 10 })).n).toBe(2);
+  });
+
+  it("the Cancel all question itself never reuses an earlier count", () => {
+    const src = readFileSync(new URL("./orders-book.js", import.meta.url), "utf8");
+    const flow = src.slice(src.indexOf("async function cancelAllFlow"));
+    expect(flow).toMatch(/const dry = await optional\(api\("\/v1\/orders\/cancel-all", \{ method: "POST", body: \{ dryRun: true \} \}\)\)/);
+    expect(flow.slice(0, 400)).not.toContain("buttonDryRun");
   });
 });

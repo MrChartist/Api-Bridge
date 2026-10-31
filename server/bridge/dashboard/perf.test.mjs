@@ -30,6 +30,11 @@ describe("fetch layer memory", () => {
     expect(forgetsAnswers("POST", "/v1/stream/token")).toBe(false);
     expect(forgetsAnswers("POST", "/v1/orders/preview")).toBe(false);
     expect(forgetsAnswers("GET", "/v1/orders")).toBe(false);
+    // A dry run changes nothing (Cancel all's count on the Orders page ran one on every render and forgot every answer).
+    expect(forgetsAnswers("POST", "/v1/orders/cancel-all", { dryRun: true })).toBe(false);
+    expect(forgetsAnswers("POST", "/v1/orders/cancel-all", { dryRun: false })).toBe(true);
+    expect(forgetsAnswers("POST", "/v1/orders/cancel-all", {})).toBe(true);
+    expect(forgetsAnswers("DELETE", "/v1/orders/abc", { dryRun: true })).toBe(true);
   });
 });
 

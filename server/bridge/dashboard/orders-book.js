@@ -1,12 +1,17 @@
 // Orders › Orders: the day's order book with filters (status, side, search) and Cancel all; Orders › Trades: every fill
 // with totals. Filters are a per-viewer convenience (localStorage); the books come from GET /v1/orders and /v1/trades.
-import { alertBox, api, card, emptyState, h, istTime, modal, optional, table, toast } from "./app.js";
+import { alertBox, api, card, emptyState, h, istTime, modal, optional, table, toast, writeCount } from "./app.js";
 import { contractName } from "./flows.js";
 import { DASH, formatDayMonth, formatFixed, formatInt, formatPercent, formatRupee, formatRupeeGrouped } from "./format.js";
-import { ORDER_FILTERS, cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, filterOrders, filterTrades, fundsView, openByMode, orderCounts } from "./orders-core.js";
+import { DRY_RUN_REUSE_MS, ORDER_FILTERS, cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, filterOrders, filterTrades, fundsView, openByMode, orderCounts, shortMemo } from "./orders-core.js";
 import { fillTotals } from "./statement-core.js";
 
 const KEY = "mcb.orders.filters";
+/**
+ * Cancel all's dry run for the button: one per page render or action. The redraw that follows a render painted from
+ * remembered answers reuses it (DRY_RUN_REUSE_MS), any write asks again, and the Cancel all question always asks afresh.
+ */
+const buttonDryRun = shortMemo(DRY_RUN_REUSE_MS);
 function loadFilters() {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) ?? "{}");
@@ -59,7 +64,7 @@ export function ordersCard({ ord, error, byId, columns, empty, actions, refresh 
     cancelAll.replaceChildren(b.show ? h("button", { type: "button", class: "small", onclick: () => cancelAllFlow(labelOf).then((report) => report && showReport(report, refresh)) }, b.label) : "");
   };
   drawCancelAll(null);
-  optional(api("/v1/orders/cancel-all", { method: "POST", body: { dryRun: true } })).then((r) => {
+  buttonDryRun(() => optional(api("/v1/orders/cancel-all", { method: "POST", body: { dryRun: true } })), { epoch: writeCount() }).then((r) => {
     if (!r.error) drawCancelAll(cancelAllGroups(r.data?.data));
   });
   const bar = h("div", { class: "bk-ob-bar" }, status.el, side.el, search);
