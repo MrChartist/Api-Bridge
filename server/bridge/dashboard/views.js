@@ -47,6 +47,7 @@ import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText, startupText } from "./flows.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 import { PAGE_CODES } from "./workspace.js";
+import { workspaceForKey } from "./workspaces-core.js";
 import { triggersCard } from "./triggers.js";
 import { fundsCard, ordersCard, renderTradesPage, sideCell } from "./orders-book.js";
 import { whatToDo } from "./reasons-core.js";
@@ -71,6 +72,7 @@ const PAGE_MODULES = Object.freeze({
   analytics: () => import("./analytics.js"),
   algo: () => import("./algo.js"),
   pulse: () => import("./pulse.js"),
+  workspaces: () => import("./workspaces.js"),
 });
 /** A page renderer that loads its module first. `.module` names it, for preloading. */
 function lazyPage(mod, name) {
@@ -106,6 +108,9 @@ const renderMoversPage = lazyPage("pulse", "renderMoversPage");
 const renderTechnicalsPage = lazyPage("pulse", "renderTechnicalsPage");
 const renderNewsPage = lazyPage("pulse", "renderNewsPage");
 const renderDepthPage = lazyPage("pulse", "renderDepthPage");
+const renderScalperPage = lazyPage("workspaces", "renderScalperPage");
+const renderTraderPage = lazyPage("workspaces", "renderTraderPage");
+const renderWatchPage = lazyPage("workspaces", "renderWatchPage");
 
 /** Load a page's module and warm its data ahead of a click (menu hover or focus). Idempotent and cheap. */
 export function preloadPage(pageId) {
@@ -325,6 +330,16 @@ const INTEGRATION_TOOLS = [
 export const PAGES = [
   { id: "home", label: "Home", icon: "home", tint: "blue", tab: true, key: 1, group: "", title: "Home", headline: ["Your ", { serif: "Bridge" }], sub: "Your accounts, today's activity and safety, on this computer", render: renderHome },
   { id: "chain", label: "Option Chain", short: "Chain", icon: "chart", tint: "green", tab: true, key: 2, group: "Trade", layout: "desk", title: "Option Chain", get sub() { return `Live chain with OI, IV and Greeks. ${touchWord()} a bid or ask to trade`; }, render: renderChainPage },
+  // Trading workspaces (workspaces.js): Shift+1 to Shift+6 switch between them from anywhere (bindWorkspaceKeys).
+  {
+    id: "workspaces", label: "Workspaces", icon: "columns", tint: "indigo", group: "Trade", layout: "desk", title: "Workspaces", sub: "Charts arranged for one way of trading, with Buy and Sell on each",
+    defaultTab: "scalper",
+    tabs: [
+      { id: "scalper", label: "Scalper", page: "ws-scalper", command: "Scalper workspace", icon: "columns", tint: "indigo", keywords: "scalper workspace index atm call put side by side stacked buy sell strike picker layout terminal", sub: "The index with its ATM call and put side by side, Buy and Sell on each chart", render: renderScalperPage },
+      { id: "trader", label: "Options Trader", page: "ws-trader", command: "Options Trader workspace", icon: "columns", tint: "indigo", keywords: "options trader workspace chain call put charts strike pick terminal", sub: "A compact chain beside the call and put charts of the strike you pick", render: renderTraderPage },
+      { id: "watch", label: "Market Watch", page: "ws-watch", command: "Market Watch workspace", icon: "columns", tint: "indigo", keywords: "market watch workspace six charts grid multi chart symbol interval tiles terminal", sub: "Up to six charts, each with its own symbol and interval, kept in this browser", render: renderWatchPage },
+    ],
+  },
   { id: "strategy", label: "Strategy Builder", icon: "strategy", tint: "purple", key: 3, group: "Trade", layout: "desk", title: "Strategy Builder", sub: "Payoff, breakevens, POP and margin before you trade", render: renderStrategyPage },
   { id: "positions", label: "Positions", icon: "wallet", tint: "teal", tab: true, key: 4, group: "Trade", layout: "desk", title: "Option positions", sub: "Open option positions with P&L, net Δ and θ", render: renderPositionsPage },
   {
@@ -1386,6 +1401,7 @@ export async function startRouter() {
   setupA11y();
   setupChrome();
   initPalette({ pages: () => PAGES, go, refresh: () => show({ refresh: true }), codes: paletteCodes });
+  bindWorkspaceKeys();
   try {
     motionHooks = await import("./motion.js");
   } catch {
@@ -1393,6 +1409,24 @@ export async function startRouter() {
   }
   window.addEventListener("hashchange", show);
   show();
+}
+
+/**
+ * Shift+1 to Shift+6 switch trading workspace from any page (workspaces-core.js WORKSPACES): Scalper, Options Trader,
+ * Stocks (Screeners › Depth ladder), Options Seller (Strategy Builder), Market Watch, and the list of all of them. Not
+ * while typing, or over a dialog, popover or the symbol search.
+ */
+function bindWorkspaceKeys() {
+  document.addEventListener("keydown", (e) => {
+    const w = workspaceForKey(e);
+    if (!w || e.defaultPrevented || e.isComposing) return;
+    const t = e.target;
+    if (t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName))) return;
+    if (document.querySelector("dialog[open], .sym-search, .popover.floating")) return;
+    e.preventDefault();
+    if (w.action === "switcher") PAGE_MODULES.workspaces().then((m) => m.openSwitcher());
+    else go(w.route);
+  });
 }
 
 // ── Home ──

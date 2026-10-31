@@ -3,6 +3,7 @@
 import { api, app, chooseTheme, copyText, h, icon, iconTile, lockScroll, modal, toast } from "./app.js";
 import { intentHandoff, intentLabel, parseTradeIntent, pickExpiry } from "./trade-intent.js";
 import { parseCommand } from "./terminal.js";
+import { workspaceShortcuts } from "./workspaces-core.js";
 import { helpFor } from "./help.js";
 import { PAGE_CODES, createSequencer, goKeyTable, workspace } from "./workspace.js";
 
@@ -397,6 +398,7 @@ export function shortcutList() {
     { keys: ["/"], what: "Search (when not typing in a field)" },
     { keys: ["?"], what: "Show these shortcuts" },
     ...pages.filter((p) => p.key).sort((a, b) => a.key - b.key).map((p) => ({ keys: [mod, String(p.key)], what: `Go to ${p.label}` })),
+    ...workspaceShortcuts(),
     { keys: ["↑", "↓"], what: "Move through search results" },
     { keys: ["↵"], what: "Open the selected result" },
     { keys: ["esc"], what: "Close search or a dialog" },

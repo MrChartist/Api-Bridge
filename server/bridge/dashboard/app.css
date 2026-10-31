@@ -10764,6 +10764,109 @@ input.bx-act-search { width: 240px; max-width: 100%; }
   .bx-summary-note { text-align: left; }
 }
 
+/* ───────────────────────── 14w · TRADING WORKSPACES (workspaces.js: Scalper, Options Trader, Market Watch) ───────────────────────── */
+/* One control row, then the charts filling the window: each chart is a tile (the card surface) with its name, strike
+   picker, live price and change (green up, red down) and Buy (green) / Sell (red) in its head. Chart heights follow
+   the window (--lc-h) so the whole workspace fits without scrolling on a desktop. */
+.ws-page { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ws-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; min-width: 0; }
+.ws-bar-l, .ws-bar-r { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.ws-bar-k { font: 500 13px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+select.ws-select { width: auto; min-width: 0; max-width: 220px; min-height: 34px; padding: 0 32px 0 14px; border-radius: 999px; font: 600 13px/1 var(--font-body); background-position: right 10px center; }
+select.ws-int { min-width: 72px; }
+.ws-status { margin: 0; font: 500 13px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.ws-status[hidden] { display: none; }
+.ws-spot { display: inline-flex; align-items: baseline; gap: 8px; padding: 0 4px; }
+.ws-spot > small { font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+
+.ws-tile { display: flex; flex-direction: column; min-width: 0; border-radius: var(--r-panel); background: var(--mat-grouped-solid); box-shadow: var(--edge-1); }
+.ws-tile[hidden] { display: none; }
+.ws-tile-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 14px 4px; min-width: 0; }
+.ws-id { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.ws-id-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.ws-name { font: 600 15px/1.2 var(--font-display); letter-spacing: -0.01em; white-space: nowrap; }
+.ws-sub { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ws-sub:empty { display: none; }
+.ws-px { display: inline-flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ws-ltp { font: 600 17px/1 var(--font-numeric); letter-spacing: -0.01em; }
+.ws-chg { font: 500 13px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); }
+.ws-chg.up { color: hsl(var(--pos-ink)); }
+.ws-chg.down { color: hsl(var(--neg-ink)); }
+.ws-trade { display: flex; gap: 6px; flex: none; }
+.ws-trade .btn { min-width: 64px; }
+.ws-tile-ctl { display: flex; align-items: center; gap: 6px; flex: none; }
+.ws-chart { min-width: 0; flex: 1 1 auto; }
+.ws-chart .lc-slot { padding: 2px 12px 12px; }
+
+/* The strike picker: − strike + in one capsule. */
+.ws-strike { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: 999px; background: var(--mat-fill-1); }
+.ws-strike .ws-step { --btn-h: 28px; --btn-ic: 14px; }
+select.ws-strike-sel { width: auto; min-height: 28px; padding: 0 26px 0 10px; border-radius: 999px; font: 600 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; background-color: transparent; background-position: right 6px center; background-size: 14px 14px; }
+
+/* Scalper: three charts side by side (default), stacked, or one alone. */
+.ws-scalper { --lc-h: clamp(260px, calc(100vh - 330px), 760px); display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); min-width: 0; }
+.ws-scalper[data-arrange="stack"] { --lc-h: clamp(170px, calc((100vh - 420px) / 3), 340px); grid-template-columns: minmax(0, 1fr); }
+.ws-scalper:not([data-view="all"]) { --lc-h: clamp(300px, calc(100vh - 330px), 860px); grid-template-columns: minmax(0, 1fr); }
+.ws-scalper .lc-slot, .ws-trader .lc-slot, .ws-watch .lc-slot { --lc-h: inherit; }
+
+/* Options Trader: the compact chain on the left, the call and put charts of its strike on the right. */
+.ws-trader { display: grid; gap: 10px; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); align-items: start; min-width: 0; }
+.ws-trader-charts { --lc-h: clamp(190px, calc((100vh - 440px) / 2), 420px); display: grid; gap: 10px; min-width: 0; }
+.ws-chain-card { display: flex; flex-direction: column; min-width: 0; border-radius: var(--r-panel); background: var(--mat-grouped-solid); box-shadow: var(--edge-1); overflow: hidden; }
+.ws-chain-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px 8px; }
+.ws-chain-scroll { max-height: clamp(320px, calc(100vh - 290px), 900px); overflow: auto; overscroll-behavior: contain; }
+table.ws-chain { width: 100%; border-collapse: collapse; font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; }
+table.ws-chain thead th { position: sticky; top: 0; z-index: 1; padding: 8px 10px; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); background: var(--mat-grouped-solid); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+table.ws-chain :is(td, th) { padding: 9px 10px; text-align: right; white-space: nowrap; }
+table.ws-chain .k { text-align: center; font-weight: 600; }
+table.ws-chain .pe { text-align: left; }
+table.ws-chain td.chg { color: hsl(var(--foreground) / var(--a-label)); }
+table.ws-chain td.chg.up { color: hsl(var(--pos-ink)); }
+table.ws-chain td.chg.down { color: hsl(var(--neg-ink)); }
+table.ws-chain tbody tr { cursor: pointer; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+table.ws-chain tbody tr:focus-visible { outline: 2px solid var(--sel-ring); outline-offset: -2px; }
+table.ws-chain tbody tr.atm { background: var(--mat-fill-1); }
+table.ws-chain tbody tr[aria-selected="true"] { background: hsl(var(--foreground) / 0.12); }
+table.ws-chain tbody tr[aria-selected="true"] > :is(td, th) { font-weight: 600; }
+@media (hover: hover) { table.ws-chain tbody tr:not([aria-selected="true"]):hover { background: var(--mat-fill-2); } }
+.ws-atm-tag { margin-left: 6px; padding: 2px 6px; border-radius: 999px; font: 600 12px/1 var(--font-body); background: var(--mat-fill-2); }
+
+/* Market Watch: 1, 2, 4 or 6 charts in a grid. */
+.ws-watch { --lc-h: clamp(160px, calc((100vh - 470px) / 2), 400px); display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); min-width: 0; }
+.ws-watch[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ws-watch[data-cols="1"] { grid-template-columns: minmax(0, 1fr); }
+.ws-watch:is([data-count="1"], [data-count="2"]) { --lc-h: clamp(280px, calc(100vh - 330px), 820px); }
+button.ws-sym { --btn-px: 10px; --btn-fs: 15px; --btn-ic: 14px; gap: 4px; }
+button.ws-sym svg { rotate: 90deg; }
+
+/* The workspace switcher's list. */
+.ws-sw-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; min-width: 280px; }
+.ws-sw-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px; border-radius: var(--r-sm); color: hsl(var(--foreground)); text-decoration: none; }
+.ws-sw-row:hover { text-decoration: none; }
+@media (hover: hover) { .ws-sw-row:hover { background: var(--mat-fill-1); } }
+.ws-sw-row[aria-current="page"] { background: var(--mat-fill-2); }
+.ws-sw-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ws-sw-text strong { font: 600 14px/1.2 var(--font-body); }
+.ws-sw-text small { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.ws-sw-key { flex: none; }
+
+@media (max-width: 1279px) {
+  .ws-scalper[data-arrange="row"][data-view="all"] { --lc-h: clamp(220px, calc(100vh - 360px), 560px); }
+  .ws-watch { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1023px) {
+  .ws-scalper, .ws-scalper[data-arrange="stack"] { --lc-h: 240px; grid-template-columns: minmax(0, 1fr); }
+  .ws-trader { grid-template-columns: minmax(0, 1fr); }
+  .ws-trader-charts { --lc-h: 230px; }
+  .ws-chain-scroll { max-height: 360px; }
+  .ws-watch, .ws-watch:is([data-count="1"], [data-count="2"]) { --lc-h: 230px; }
+}
+@media (max-width: 719px) {
+  .ws-watch, .ws-watch[data-cols="2"] { grid-template-columns: minmax(0, 1fr); }
+  .ws-bar-r { width: 100%; }
+  .ws-tile-head { padding: 10px 12px 2px; }
+}
+
 /* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────
    Inline-SVG charts: every colour is a theme token (so light and dark both work), every size is an SVG attribute
    (no style attributes: the dashboard CSP is style-src 'self'). Series are told apart by colour AND dash or position. */

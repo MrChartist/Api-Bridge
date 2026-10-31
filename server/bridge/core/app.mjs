@@ -175,6 +175,9 @@ export const DASHBOARD_FILES = Object.freeze({
   "workspace.js": "text/javascript; charset=utf-8",
   "chrome.js": "text/javascript; charset=utf-8",
   "terminal.js": "text/javascript; charset=utf-8",
+  // Trading workspaces (Scalper, Options Trader, Market Watch): the page and its pure core.
+  "workspaces.js": "text/javascript; charset=utf-8",
+  "workspaces-core.js": "text/javascript; charset=utf-8",
   "export.js": "text/javascript; charset=utf-8",
   "help.js": "text/javascript; charset=utf-8",
   "budget.js": "text/javascript; charset=utf-8",

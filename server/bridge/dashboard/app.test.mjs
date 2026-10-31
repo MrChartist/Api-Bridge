@@ -246,9 +246,9 @@ describe("UI pass 3 §5: the menu and the merged pages", async () => {
   const { fuzzyScore, pageCommands, rank } = await import("./palette.js");
   const route = (hash, lastTab = () => null) => resolveRoute(hash, { lastTab });
 
-  it("has 14 pages in four groups, in the order of the sidebar", () => {
+  it("has 15 pages in four groups, in the order of the sidebar", () => {
     // PR 17's Analytics group sits between Markets and Bridge (docs/design/pr17-integration.md).
-    expect(PAGES.filter((p) => p.group !== "Analytics").map((p) => p.id)).toEqual(["home", "chain", "strategy", "positions", "orders", "safety", "algo", "oi", "vol", "screeners", "calendar", "accounts", "api", "recorder"]);
+    expect(PAGES.filter((p) => p.group !== "Analytics").map((p) => p.id)).toEqual(["home", "chain", "workspaces", "strategy", "positions", "orders", "safety", "algo", "oi", "vol", "screeners", "calendar", "accounts", "api", "recorder"]);
     expect([...new Set(PAGES.map((p) => p.group))]).toEqual(["", "Trade", "Markets", "Analytics", "Bridge"]);
     expect(PAGES.filter((p) => p.tab).map((p) => p.id)).toEqual(["home", "chain", "positions", "orders"]);
     expect(PAGES.find((p) => p.id === "orders").title).toBe("Orders");
@@ -261,7 +261,7 @@ describe("UI pass 3 §5: the menu and the merged pages", async () => {
 
   it("every tab names a legacy page id and every legacy id resolves to a tab of the page it names", () => {
     const tabbed = PAGES.filter((p) => p.tabs);
-    expect(tabbed.map((p) => p.id)).toEqual(["orders", "oi", "vol", "screeners", "exposure", "flow", "futures", "lab", "risk", "api"]);
+    expect(tabbed.map((p) => p.id)).toEqual(["workspaces", "orders", "oi", "vol", "screeners", "exposure", "flow", "futures", "lab", "risk", "api"]);
     for (const p of tabbed) {
       expect(p.tabs.some((t) => t.id === p.defaultTab), p.id).toBe(true);
       for (const t of p.tabs) {
