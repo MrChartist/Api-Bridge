@@ -26,7 +26,7 @@ import { readinessSheetRow } from "./readiness.js";
 import { loadPricingContext } from "./vol-context.js";
 import { animatePage, barsEnter, flashValue } from "./motion.js";
 import { riskAfterCharges, ticketRisk } from "./flows.js";
-import { depthView } from "./orders-core.js";
+import { VALIDITY, depthView, quoteHead, stepLots, validityApplies } from "./orders-core.js";
 import { whatToDo } from "./reasons-core.js";
 import { watch } from "./live.js";
 import { SPAN_METHOD, marginLegsOf, portfolioMargin } from "./span-margin.js";
@@ -1615,6 +1615,9 @@ async function renderDesk(kind) {
       ? h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(start ?? lotSize) })
       : h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(start ? Math.max(1, Math.round(start / lotSize)) : 1) });
     const lotHint = h("span", { class: "hint" });
+    // The stepper: − and + either side of the field (typing still works); the field never goes below one.
+    const stepBtn = (d, label) => h("button", { type: "button", class: "plain bk-step-btn", "aria-label": label, onclick: () => ((lots.value = String(stepLots(lots.value, d))), changed()) }, d < 0 ? MINUS : "+");
+    const lotsStepper = h("div", { class: "bk-stepper" }, stepBtn(-1, inUnits ? "One less" : "One lot less"), lots, stepBtn(1, inUnits ? "One more" : "One lot more"));
     const typeSeg = segmented("Order type", [["LIMIT", "Limit"], ["MARKET", "Market"], ["SL", "SL"], ["SL-M", "SL-M"]], ["MARKET", "SL", "SL-M"].includes(orderType) ? orderType : "LIMIT");
     // Stop-loss orders (SL: a limit once triggered; SL-M: market once triggered) rest at the exchange (paper: the
     // paper engine) until LTP reaches the trigger. Not a Bridge trigger: the broker holds them.
@@ -1662,10 +1665,19 @@ async function renderDesk(kind) {
     const startPx = isFigure(priceIn) ? Number(priceIn) : exit ? midPx(side) ?? O.touchPrice(quote(), side, tick) : O.touchPrice(quote(), side, tick);
     const price = h("input", { type: "number", min: "0.05", step: String(tick), inputmode: "decimal", value: String(startPx ?? "") });
     const prodSeg = segmented("Product", [["INTRADAY", "Intraday"], ["MARGIN", "Margin (NRML)"]], O.ticketProduct(product));
+    // Validity for an order sent now (limit or market): Day rests until the close; IOC fills what it can at once.
+    const valSeg = exit ? null : segmented("Validity", VALIDITY, "DAY");
+    const valField = valSeg ? segField("Validity", valSeg) : null;
+    const ioc = () => Boolean(valSeg) && valSeg.value === "IOC" && validityApplies({ orderType: typeSeg.value, later: later() });
     const modeSeg = a.liveAllowedByConfig ? segmented("Mode", [["paper", "Paper"], ["live", "Live"]], "paper") : null;
     const ack = h("input", { type: "checkbox" });
     const ackRow = h("label", { class: "check live-ack", hidden: true }, ack, `I understand this sends a real order to ${a.label}.`);
     const quoteLine = h("div", { class: "ticket-quote" });
+    // The head: LTP large and the day's change in its colour, the spread on the right (drawQuote keeps it live).
+    const headLtp = h("strong", { class: "bk-tk-ltp" });
+    const headChg = h("span", { class: "bk-tk-chg" });
+    const headSpread = h("span", { class: "bk-tk-spread" });
+    const headEl = h("div", { class: "bk-tk-head" }, h("span", { class: "bk-tk-px" }, headLtp, headChg), headSpread);
     // A refusal from the Bridge, in its own words, then the next step (reasons-core.js) when there is one.
     const refusalNodes = (err) => {
       const fix = whatToDo({ code: err?.code, message: err?.message ?? err?.detail, mode: live() ? "live" : "paper" });
@@ -1828,6 +1840,7 @@ async function renderDesk(kind) {
       if ((typeSeg.value === "LIMIT" || typeSeg.value === "SL") && isFigure(price.value)) b.price = Number(price.value);
       if (isStop() && isFigure(slTrig.value)) b.triggerPrice = Number(slTrig.value);
       if (live()) b.mode = "live";
+      if (ioc()) b.validity = "IOC";
       if (gate.needed && gateBox.checked && b.lots !== undefined) b.lotSizeConfirmed = lotSize;
       return b;
     };
@@ -1865,7 +1878,12 @@ async function renderDesk(kind) {
       const bid = num(top?.bids?.[0]?.price) ?? q?.bid;
       const ask = num(top?.asks?.[0]?.price) ?? q?.ask;
       const cell = (l, v, cls) => h("span", { class: cls }, h("small", {}, l), isFigure(v) ? formatFixed(v, 2) : DASH);
-      quoteLine.replaceChildren(cell("Bid", bid, "bid"), cell("LTP", q?.ltp), cell("Ask", ask, "ask"), h("span", {}, h("small", {}, "IV"), fut ? DASH : formatFixed(q?.iv, 1)), h("span", {}, h("small", {}, "Δ"), fut ? "1.00" : formatFixed(q?.delta, 2)));
+      const hd = quoteHead({ ...q, bid, ask });
+      headLtp.textContent = isFigure(hd.ltp) ? formatFixed(hd.ltp, 2) : DASH;
+      headChg.textContent = hd.change === null ? "" : `${formatSigned(hd.change, 2)}${hd.pct === null ? "" : ` (${formatSignedPercent(hd.pct, 2)})`}`;
+      headChg.className = `bk-tk-chg${hd.dir === "up" ? " up" : hd.dir === "down" ? " down" : ""}`;
+      headSpread.textContent = hd.spread === null ? "" : `Spread ${formatFixed(hd.spread, 2)}${hd.spreadPct === null ? "" : ` · ${formatPercent(hd.spreadPct, 1)}`}`;
+      quoteLine.replaceChildren(cell("Bid", bid, "bid"), cell("Ask", ask, "ask"), h("span", {}, h("small", {}, "IV"), fut ? DASH : formatFixed(q?.iv, 1)), h("span", {}, h("small", {}, "Δ"), fut ? "1.00" : formatFixed(q?.delta, 2)));
     };
     let previewSeq = 0;
     let previewTimer = null;
@@ -1943,22 +1961,22 @@ async function renderDesk(kind) {
         previewEl.replaceChildren(
           h(
             "div",
-            { class: `ticket-figs${risk ? " with-risk" : ""}` },
+            { class: `ticket-figs bk-sum${risk ? " with-risk" : ""}` },
             h("div", {}, h("small", {}, "Quantity"), `${formatInt(r.quantity)}`),
             h("div", {}, h("small", {}, b.side === "BUY" ? "You pay" : "You receive"), formatRupee(gtt() && isFigure(px) ? px * r.quantity : r.estimatedValue, 0)),
             risk && atStop === null ? h("div", { title: "The most this order can lose at expiry, before charges" }, h("small", {}, "Max loss"), h("span", { class: risk.maxLoss === null ? "down" : "" }, lossText)) : null,
             risk && atStop !== null ? h("div", { title: "What the stop exits at, before charges and slippage. A gap past the stop can cost more (below)." }, h("small", {}, "Max loss at stop"), formatRupee(atStop, 0)) : null,
             risk ? h("div", { title: "Where the underlying must settle at expiry for this order to break even, before charges" }, h("small", {}, "Breakeven"), formatFixed(risk.breakeven, 2)) : null,
             mg ? h("div", { title: SPAN_METHOD }, h("small", {}, "Margin ≈"), formatRupee(mg.required, 0)) : null,
+            isFigure(entryCh) ? h("div", { title: "Charges from the reference table: brokerage, STT, exchange and SEBI fees, stamp duty and GST. Round trip: open now, square off at the same price." }, h("small", {}, "Charges ≈"), formatRupee(entryCh + exitCh, 0)) : null,
             // Paper is said once (the account); only a live order gets a Mode figure, in red.
             r.mode === "live" ? h("div", {}, h("small", {}, "Mode"), h("span", { class: "down" }, "LIVE")) : null,
           ),
           ...(exitFigs ? [exitFigs] : []),
-          isFigure(entryCh)
+          isFigure(entryCh) && (after || (mg && isFigure(withBook) && Math.abs(withBook - mg.required) > Math.max(1, mg.required * 0.02)))
             ? h(
                 "p",
-                { class: "ticket-after", title: "Charges from the reference table: brokerage, STT, exchange and SEBI fees, stamp duty and GST. Round trip: open now, square off at the same price." },
-                h("span", {}, "Charges ≈ ", h("strong", {}, formatRupee(entryCh + exitCh, 0)), " round trip"),
+                { class: "ticket-after", title: "After round-trip charges: open now, square off at the same price." },
                 after ? h("span", {}, "After charges: max loss ", h("strong", {}, after.maxLoss === null ? "Unlimited" : formatRupee(after.maxLoss, 0)), ", breakeven ", h("strong", {}, formatFixed(after.breakeven, 2))) : null,
                 mg && isFigure(withBook) && Math.abs(withBook - mg.required) > Math.max(1, mg.required * 0.02) ? h("span", { title: "From the paper engine, with the positions this account already holds." }, "With your positions: adds ", h("strong", {}, formatRupee(Math.max(0, withBook), 0))) : null,
               )
@@ -2043,6 +2061,7 @@ async function renderDesk(kind) {
         trigHint.textContent = warn ? `${sends} ${warn}` : sends;
         trigHint.classList.toggle("bad-text", Boolean(warn));
       }
+      if (valField) valField.hidden = !validityApplies({ orderType: typeSeg.value, later: later() });
       ackRow.hidden = !live();
       drawButton();
       clearTimeout(previewTimer);
@@ -2058,7 +2077,7 @@ async function renderDesk(kind) {
       }
       changed();
     });
-    for (const el of [prodSeg, modeSeg].filter(Boolean)) el.addEventListener("change", changed);
+    for (const el of [prodSeg, modeSeg, valSeg].filter(Boolean)) el.addEventListener("change", changed);
     typeSeg.addEventListener("change", () => {
       if (isStop()) {
         if (whenSeg && later()) whenSeg.value = "now";
@@ -2112,11 +2131,12 @@ async function renderDesk(kind) {
       body: (close) => (closeTicket = ticketCloser = close) && h(
         "div",
         { class: "stack ticket" },
+        headEl,
         quoteLine,
         depthBox,
         // An exit's side is fixed (the other side would add to the position): a label, not a control.
         exit ? h("div", { class: "field" }, h("span", {}, "Side"), h("span", { class: "ticket-acct" }, side === "BUY" ? "Buy to close" : "Sell to close", h("span", { class: "muted small" }, "· to add, use the chain"))) : segField("Side", sideSeg),
-        h("div", { class: "ticket-grid" }, h("label", { class: "field" }, h("span", {}, inUnits ? "Quantity " : "Lots ", lotHint), lots), segField("Type", typeSeg)),
+        h("div", { class: "ticket-grid" }, h("label", { class: "field" }, h("span", {}, inUnits ? "Quantity " : "Lots ", lotHint), lotsStepper), segField("Type", typeSeg)),
         whenRow,
         whenSeg ? trigHint : null,
         gateRow,
@@ -2124,7 +2144,8 @@ async function renderDesk(kind) {
         slField,
         slHint,
         priceField,
-        h("div", { class: "ticket-grid" }, segField("Product", prodSeg), acctField ?? h("div", { class: "field" }, h("span", {}, "Account"), h("span", { class: "ticket-acct one-line", title: a.label }, h("span", { class: "acct-name" }, a.label), modeSeg || /paper/i.test(a.label ?? "") ? null : h("span", { class: "acct-badge", "data-mode": "paper" }, "Paper")))),
+        h("div", { class: "ticket-grid" }, segField("Product", prodSeg), valField ?? h("span")),
+        acctField ?? h("div", { class: "field" }, h("span", {}, "Account"), h("span", { class: "ticket-acct one-line", title: a.label }, h("span", { class: "acct-name" }, a.label), modeSeg || /paper/i.test(a.label ?? "") ? null : h("span", { class: "acct-badge", "data-mode": "paper" }, "Paper"))),
         exitsBox,
         modeSeg ? segField("Mode", modeSeg) : null,
         ackRow,

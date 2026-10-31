@@ -3,7 +3,7 @@
 import { alertBox, api, card, emptyState, h, istTime, modal, optional, table, toast, writeCount } from "./app.js";
 import { contractName } from "./flows.js";
 import { DASH, formatDayMonth, formatFixed, formatInt, formatPercent, formatRupee, formatRupeeGrouped } from "./format.js";
-import { DRY_RUN_REUSE_MS, ORDER_FILTERS, cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, filterOrders, filterTrades, fundsView, openByMode, orderCounts, shortMemo } from "./orders-core.js";
+import { DRY_RUN_REUSE_MS, ORDER_FILTERS, bucketTone, cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, filterOrders, filterTrades, fundsView, openByMode, orderCounts, shortMemo, sideView } from "./orders-core.js";
 import { fillTotals } from "./statement-core.js";
 
 const KEY = "mcb.orders.filters";
@@ -28,18 +28,34 @@ function saveFilters(f) {
   }
 }
 
-/** A small pressed-button group (a filter), with counts. */
-function chips(label, options, value, onPick) {
+/**
+ * A small pressed-button group (a filter), with counts. `tone(v)` puts a status dot on a chip (ok / warn / bad /
+ * muted); a side chip (BUY / SELL) carries data-side, so it is green or red, selected too.
+ */
+function chips(label, options, value, onPick, tone = () => null) {
   const el = h("div", { class: "bk-chips", role: "group", "aria-label": label });
   const draw = (current, counts = null) =>
     el.replaceChildren(
       ...options.map(([v, text]) => {
         const n = counts?.[v];
-        return h("button", { type: "button", class: "chip-btn bk-chip", "aria-pressed": String(v === current), onclick: () => onPick(v) }, text, n !== undefined ? h("span", { class: "bk-chip-n" }, formatInt(n)) : null);
+        const t = tone(v);
+        return h(
+          "button",
+          { type: "button", class: "chip-btn bk-chip", "data-side": v === "BUY" || v === "SELL" ? v : null, "aria-pressed": String(v === current), onclick: () => onPick(v) },
+          t ? h("span", { class: `bk-chip-dot ${t}`, "aria-hidden": "true" }) : null,
+          text,
+          n !== undefined ? h("span", { class: "bk-chip-n" }, formatInt(n)) : null,
+        );
       }),
     );
   draw(value);
   return { el, draw };
+}
+
+/** An order's or a trade's side as a capsule: Buy green, Sell red (never neutral). */
+export function sideCell(side) {
+  const v = sideView(side);
+  return h("span", { class: `bk-side ${v.cls}`.trim() }, v.text || DASH);
 }
 
 /**
@@ -51,7 +67,7 @@ export function ordersCard({ ord, error, byId, columns, empty, actions, refresh 
   const labelOf = (id) => byId.get(id)?.label ?? id;
   const counts = orderCounts(ord);
   const body = h("div", { class: "bk-ob-body" });
-  const status = chips("Status", ORDER_FILTERS, f.status, (v) => ((f.status = v), saveFilters(f), draw()));
+  const status = chips("Status", ORDER_FILTERS, f.status, (v) => ((f.status = v), saveFilters(f), draw()), bucketTone);
   const side = chips("Side", [["all", "Both sides"], ["BUY", "Buy"], ["SELL", "Sell"]], f.side, (v) => ((f.side = v), saveFilters(f), draw()));
   const search = h("input", { type: "search", class: "bk-ob-search", placeholder: "Search contract, order id or tag", "aria-label": "Search orders", autocomplete: "off", spellcheck: "false" });
   search.addEventListener("input", () => ((f.q = search.value), draw()));
@@ -175,7 +191,7 @@ export async function renderTradesPage() {
     { label: "Time", cell: (t) => istTime(t.tradedAt) },
     { label: "Account", cell: (t) => labelOf(t.accountId) },
     { label: "Contract", wrap: true, cell: (t) => h("div", { class: "order-contract", title: t.symbol }, h("strong", {}, contractName(t.symbol)), h("div", { class: "muted small" }, `${t.product ?? ""} · ${formatDayMonth(String(t.tradedAt ?? "").slice(0, 10))}`)) },
-    { label: "Side", cell: (t) => h("span", { class: "order-side" }, t.side) },
+    { label: "Side", cell: (t) => sideCell(t.side) },
     { label: "Qty", num: true, cell: (t) => formatInt(t.qty ?? t.quantity) },
     { label: "Price", num: true, cell: (t) => formatFixed(t.price, 2) },
     { label: "Value", num: true, cell: (t) => formatRupee((Number(t.qty ?? t.quantity) || 0) * (Number(t.price) || 0), 0) },

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DRY_RUN_REUSE_MS, cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, dayRows, depthView, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, shortMemo, tradeTotals } from "./orders-core.js";
+import { DRY_RUN_REUSE_MS, VALIDITY, bucketTone, cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, dayRows, depthView, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, quoteHead, shortMemo, sideView, stepLots, tradeTotals, validityApplies } from "./orders-core.js";
 
 const O = (o) => ({ orderId: "PAPER-1", accountId: "demo-paper", symbol: "NFO:NIFTY-2026-11-03-25850-CE", side: "BUY", status: "filled", mode: "paper", ...o });
 const list = [
@@ -176,5 +176,54 @@ describe("Cancel all's dry run on the Orders page (perf round 5)", () => {
     const flow = src.slice(src.indexOf("async function cancelAllFlow"));
     expect(flow).toMatch(/const dry = await optional\(api\("\/v1\/orders\/cancel-all", \{ method: "POST", body: \{ dryRun: true \} \}\)\)/);
     expect(flow.slice(0, 400)).not.toContain("buttonDryRun");
+  });
+});
+
+describe("orders suite: the ticket's head and stepper, the book's colours", () => {
+  it("quoteHead: LTP, change and percent from change and close; the spread and its share of mid", () => {
+    const q = quoteHead({ ltp: 110, change: 10, close: 100, bid: 109.5, ask: 110.5 });
+    expect(q).toMatchObject({ ltp: 110, change: 10, dir: "up", spread: 1 });
+    expect(q.pct).toBeCloseTo(10, 9);
+    expect(q.spreadPct).toBeCloseTo((1 / 110) * 100, 9);
+  });
+  it("quoteHead: change from the previous close when the source sends none; down and flat", () => {
+    expect(quoteHead({ ltp: 90, prevClose: 100 })).toMatchObject({ change: -10, pct: -10, dir: "down" });
+    expect(quoteHead({ ltp: 100, change: 0, close: 100 }).dir).toBe("flat");
+    // Change without a close: the base is LTP − change.
+    expect(quoteHead({ ltp: 120, change: 20 }).pct).toBeCloseTo(20, 9);
+  });
+  it("quoteHead: missing figures stay null (a dash), never an invented 0; no spread for a one-sided or crossed book", () => {
+    expect(quoteHead(null)).toEqual({ ltp: null, change: null, pct: null, dir: null, spread: null, spreadPct: null });
+    expect(quoteHead({ ltp: 5, bid: 0, ask: 5.5 }).spread).toBeNull();
+    expect(quoteHead({ ltp: 5, bid: 6, ask: 5.5 }).spread).toBeNull();
+    expect(quoteHead({ ltp: "", change: "x" }).ltp).toBeNull();
+  });
+  it("stepLots: whole numbers, never below one, capped when a max is given; a broken entry steps from the minimum", () => {
+    expect(stepLots("3", 1)).toBe(4);
+    expect(stepLots(1, -1)).toBe(1);
+    expect(stepLots("2.7", 1)).toBe(3);
+    expect(stepLots("", 1)).toBe(2);
+    expect(stepLots("abc", -1)).toBe(1);
+    expect(stepLots(9, 5, { max: 10 })).toBe(10);
+    expect(stepLots(0, 0)).toBe(1);
+  });
+  it("validity applies to limit and market orders sent now, not to stops, GTTs or after-market orders", () => {
+    expect(VALIDITY.map(([v]) => v)).toEqual(["DAY", "IOC"]);
+    expect(validityApplies({ orderType: "LIMIT" })).toBe(true);
+    expect(validityApplies({ orderType: "MARKET" })).toBe(true);
+    expect(validityApplies({ orderType: "SL" })).toBe(false);
+    expect(validityApplies({ orderType: "LIMIT", later: true })).toBe(false);
+  });
+  it("bucketTone and sideView: status dots by state; Buy green, Sell red", () => {
+    expect(["open", "filled", "rejected", "cancelled", "all"].map(bucketTone)).toEqual(["warn", "ok", "bad", "muted", null]);
+    expect(sideView("BUY")).toEqual({ text: "Buy", cls: "buy" });
+    expect(sideView("sell")).toEqual({ text: "Sell", cls: "sell" });
+    expect(sideView(null)).toEqual({ text: "", cls: "" });
+  });
+  it("the ticket sends validity only for IOC, and the book draws every side as a coloured capsule", () => {
+    const read = (f) => readFileSync(new URL(f, import.meta.url), "utf8");
+    expect(read("./desk.js")).toMatch(/if \(ioc\(\)\) b\.validity = "IOC";/);
+    expect(read("./orders-book.js")).not.toMatch(/class: "order-side"/);
+    expect(read("./views.js")).toMatch(/label: "Side", cell: \(o\) => sideCell\(o\.side\)/);
   });
 });
