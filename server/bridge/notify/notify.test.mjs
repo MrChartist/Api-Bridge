@@ -139,9 +139,105 @@ describe("notify routes", () => {
       const get = (k) => fetch(`http://127.0.0.1:${port}/v1/notify`, { headers: { Authorization: `Bearer ${k}` } });
       expect((await get(reader)).status).toBe(403);
       const body = await (await get(admin)).json();
-      expect(body.data.targets[0]).toMatchObject({ id: "phone", kind: "telegram", events: ["scan.alert", "safety.kill_switch"] });
+      expect(body.data.targets[0]).toMatchObject({ id: "phone", kind: "telegram", events: ["scan.alert", "safety.kill_switch", "trading.readiness"] });
     } finally {
       await app.close();
+    }
+  });
+});
+
+describe("trading.readiness (p1-05 §6.8)", () => {
+  const base = { accountId: "dhan-main", broker: "dhan", brokerName: "Dhan", label: null, previous: "ready", simulated: false, at: "2026-10-29T10:12:31+05:30" };
+  const expired = { ...base, state: "cannot_trade", kind: "change", notify: true, automations: { total: 1, live: 1 }, reasons: [{ check: "session", code: "SESSION_EXPIRED", severity: "fail", message: "The broker session has expired." }] };
+  const ipMismatch = {
+    ...base,
+    accountId: "zerodha-main",
+    broker: "zerodha",
+    brokerName: "Zerodha",
+    label: "Main",
+    state: "cannot_trade",
+    kind: "change",
+    notify: true,
+    automations: { total: 0, live: 0 },
+    reasons: [{ check: "egress", code: "IP_MISMATCH", severity: "fail", message: "This computer's internet address does not match the static IP registered for Main. Live orders will be refused by Zerodha." }],
+  };
+  const preopen = {
+    accountId: null,
+    kind: "preopen",
+    preOpenAt: "09:00",
+    state: "cannot_trade",
+    notify: true,
+    holidayCaveat: "(The Bridge does not have the exchange holiday list yet; ignore this if the market is closed today.)",
+    accounts: [
+      { accountId: "zerodha-main", brokerName: "Zerodha", label: "Main", state: "cannot_trade", reasons: ipMismatch.reasons },
+      { accountId: "dhan-main", brokerName: "Dhan", label: null, state: "ready", reasons: [] },
+    ],
+    at: "2026-10-29T09:00:12+05:30",
+  };
+
+  it("formats the BRD example exactly", () => {
+    expect(formatEvent("trading.readiness", expired)).toEqual({
+      title: "Dhan dhan-main: cannot trade",
+      text: "The broker session has expired. Automated orders on this account are paused. Log in again: mc-bridge accounts connect dhan-main, or the Accounts page.",
+    });
+  });
+
+  it("formats change (with the remedy of the first failing check), recovered and pre-open messages", () => {
+    const ip = formatEvent("trading.readiness", ipMismatch);
+    expect(ip.title).toBe("Zerodha Main: cannot trade");
+    expect(ip.text).toMatch(/Check your internet connection or VPN; see the deployment guide\.$/);
+    expect(ip.text).not.toMatch(/paused/);
+    const ks = formatEvent("trading.readiness", { ...base, state: "cannot_trade", kind: "change", automations: { live: 0 }, reasons: [{ check: "killSwitch", code: "KILL_SWITCH", severity: "fail", message: "The kill switch is on (manual)." }] });
+    expect(ks.text).toBe("The kill switch is on (manual). Release it on the Safety page if this was not intended.");
+    const loss = formatEvent("trading.readiness", { ...base, state: "cannot_trade", kind: "change", automations: { live: 0 }, reasons: [{ check: "dailyLoss", code: "DAILY_LOSS_REACHED", severity: "fail", message: "Today's loss limit (₹10,000) is reached." }] });
+    expect(loss.text).toMatch(/Daily limit reached; it resets at midnight IST\.$/);
+    expect(formatEvent("trading.readiness", { ...base, label: "Main", state: "ready", previous: "cannot_trade", kind: "recovered", reasons: [] })).toEqual({ title: "Dhan Main: ready again", text: "Trading readiness checks pass again." });
+    const pre = formatEvent("trading.readiness", preopen);
+    expect(pre.title).toBe("09:00 readiness: 1 account(s) cannot trade");
+    expect(pre.text.split("\n")).toEqual([
+      "Zerodha Main: cannot trade (This computer's internet address does not match the static IP registered for Main. Live orders will be refused by Zerodha)",
+      preopen.holidayCaveat,
+    ]);
+    const warnOnly = formatEvent("trading.readiness", { ...preopen, accounts: [{ accountId: "a", brokerName: "Dhan", label: "A", state: "warn", reasons: [{ severity: "warn", message: "₹1,750 of ₹10,000 daily loss left." }] }] });
+    expect(warnOnly.title).toBe("09:00 readiness: 1 account(s) need attention");
+    // A label that already starts with the broker's name is not prefixed twice.
+    expect(formatEvent("trading.readiness", { ...base, brokerName: "Demo", label: "Demo market data", state: "ready", previous: "cannot_trade", kind: "recovered", reasons: [] }).title).toBe("Demo market data: ready again");
+    expect(formatEvent("trading.readiness", { ...base, brokerName: "Zerodha", label: "zerodha main", state: "ready", previous: "cannot_trade", kind: "recovered", reasons: [] }).title).toBe("zerodha main: ready again");
+    expect(formatEvent("trading.readiness", { ...base, brokerName: "Dhan", label: "Dhanush", state: "ready", previous: "cannot_trade", kind: "recovered", reasons: [] }).title).toBe("Dhan Dhanush: ready again");
+  });
+
+  it("delivers only payloads the monitor marked notify: true, and targets get the event by default", async () => {
+    const parsed = NOTIFY_CONFIG_SCHEMA.parse({ targets: [{ id: "hook", kind: "webhook", url: "https://example.com/x" }] });
+    expect(parsed.targets[0].events).toContain("trading.readiness");
+    const { bus, fetchImpl } = make(parsed.targets);
+    bus.emit("trading.readiness", { ...expired, notify: false });
+    bus.emit("trading.readiness", { ...base, state: "warn", kind: "change", notify: false, reasons: [] });
+    await flush();
+    expect(fetchImpl.calls).toHaveLength(0);
+    bus.emit("trading.readiness", expired);
+    await flush();
+    expect(fetchImpl.calls).toHaveLength(1);
+    expect(fetchImpl.calls[0].body).toMatchObject({ event: "trading.readiness", title: "Dhan dhan-main: cannot trade" });
+  });
+
+  it("T-n2: no IPv4/IPv6 address, no mcb_ key and no lookup host in any formatted readiness message", () => {
+    const payloads = [expired, ipMismatch, preopen, { ...ipMismatch, kind: "recovered", state: "ready", reasons: [] }];
+    const IPV4 = /\b\d{1,3}(\.\d{1,3}){3}\b/;
+    const IPV6 = /\b[0-9a-f]{1,4}(:[0-9a-f]{0,4}){2,7}\b/i;
+    for (const p of payloads) {
+      const { title, text } = formatEvent("trading.readiness", p);
+      const all = `${title}\n${text}`;
+      expect(all).not.toMatch(IPV4);
+      expect(all).not.toMatch(IPV6);
+      expect(all).not.toMatch(/mcb_[A-Za-z0-9]/);
+      expect(all).not.toMatch(/ipify|ifconfig|icanhazip|api\.|https?:\/\//i);
+    }
+  });
+
+  it("uses neutral copy (no advice words)", () => {
+    for (const p of [expired, ipMismatch, preopen]) {
+      const { title, text } = formatEvent("trading.readiness", p);
+      expect(`${title} ${text}`).not.toMatch(/recommend|\bbest\b|safe to|you should|\bbuy\b|\bsell\b/i);
     }
   });
 });

@@ -363,6 +363,25 @@ describe("modify and cancel (live)", () => {
     expect(h.safety.calls.filter((c) => c[0] === "check").map((c) => c[1].action)).toEqual(["place", "modify", "modify"]);
   });
 
+  it("checks a live change with the order's lot size and its new value (per-order lots and value limits)", async () => {
+    const safety = createStubSafety();
+    const h = buildHarness({ safety });
+    const { order } = await h.svc.place(h.ctx(), liveOrder({ symbol: "NFO:NIFTY-2026-10-27-25000-CE", quantity: 130, product: "INTRADAY", price: 120.5 }));
+    // Refuse what SafetyGuard would refuse at 10 lots / ₹2,00,000, from the intent the service sends.
+    safety.refuse = (i) => (i.action === "modify" && (i.lots > 10 || i.value > 200_000) ? [{ code: "INVALID_ORDER", message: `lots ${i.lots} value ${i.value}` }] : []);
+    const e = await reject(h.svc.modify(h.ctx(), order.orderId, { quantity: 1300 }));
+    expect(e).toMatchObject({ code: "INVALID_ORDER", detail: "lots 20 value 156650" });
+    const intent = safety.calls.filter((c) => c[0] === "check").at(-1)[1];
+    expect(intent).toMatchObject({ mode: "live", action: "modify", quantity: 1300, lots: 20, lotSize: 65, value: 156_650, ltp: 120.5 });
+    expect(h.zerodha.modified).toHaveLength(0);
+    // Above the freeze quantity (1800): a change cannot be sliced, so it is refused before the safety check.
+    expect((await reject(h.svc.modify(h.ctx(), order.orderId, { quantity: 1820 }))).detail).toMatch(/freeze quantity 1800/);
+    const ok = await h.svc.modify(h.ctx(), order.orderId, { quantity: 650, price: 121 });
+    expect(ok.order.quantity).toBe(650);
+    expect(safety.calls.filter((c) => c[0] === "check").at(-1)[1]).toMatchObject({ lots: 10, value: 78_650 });
+    expect(h.zerodha.modified).toHaveLength(1);
+  });
+
   it("validates changes (tick, lot, SL ordering) and refuses AI changes to live orders", async () => {
     const h = buildHarness();
     const { order } = await h.svc.place(h.ctx(), liveOrder());
@@ -402,6 +421,31 @@ describe("cancel-all and the kill switch", () => {
     expect(r.failed).toEqual([]);
     expect(r.cancelled.sort()).toEqual([order.orderId, "MANUAL-9", paper.order.orderId].sort());
     expect(h.zerodha.cancelled.map((c) => c.orderId).sort()).toEqual(["MANUAL-9", "ZERODHA-1001"]);
+  });
+
+  it("bridgeOnly leaves orders placed outside the Bridge open, and the answer says what was cancelled in each group", async () => {
+    const h = buildHarness();
+    const { order } = await h.svc.place(h.ctx(), liveOrder());
+    const paper = await h.svc.place(h.ctx(), liveOrder({ mode: "paper" }));
+    h.zerodha.book = [bookRow({ orderId: "ZERODHA-1001", status: "OPEN" }), bookRow({ orderId: "MANUAL-9", status: "TRIGGER_PENDING", side: "SELL", qty: 5, pendingQty: 5 }), bookRow({ orderId: "DONE-1", status: "COMPLETE" })];
+    // A dry run lists both groups and cancels nothing.
+    const dry = await h.svc.cancelAll(h.ctx(), { accountId: "zerodha-main", dryRun: true });
+    expect(dry).toMatchObject({ dryRun: true, cancelled: [], failed: [] });
+    expect(dry.bridge.open.map((o) => o.orderId).sort()).toEqual([order.orderId, paper.order.orderId].sort());
+    expect(dry.external.open).toEqual([{ orderId: "MANUAL-9", accountId: "zerodha-main", mode: "live", symbol: "NSE:RELIANCE", side: "SELL", quantity: 5, status: "trigger_pending", external: true }]);
+    expect(h.zerodha.cancelled).toHaveLength(0);
+    expect(h.audit.records.filter((r) => r.type === "order.cancel_all")).toHaveLength(0);
+    // Bridge orders only.
+    const r = await h.svc.cancelAll(h.ctx(), { accountId: "zerodha-main", bridgeOnly: true });
+    expect(r.failed).toEqual([]);
+    expect(r.cancelled.sort()).toEqual([order.orderId, paper.order.orderId].sort());
+    expect(r.bridge.cancelled.sort()).toEqual([order.orderId, paper.order.orderId].sort());
+    expect(r.external).toEqual({ cancelled: [], left: ["MANUAL-9"] });
+    expect(h.zerodha.cancelled.map((c) => c.orderId)).toEqual(["ZERODHA-1001"]);
+    // Then the outside one too, when asked.
+    h.zerodha.book = [bookRow({ orderId: "MANUAL-9", status: "TRIGGER_PENDING" })];
+    const all = await h.svc.cancelAll(h.ctx(), { accountId: "zerodha-main", bridgeOnly: false });
+    expect(all).toMatchObject({ cancelled: ["MANUAL-9"], bridge: { cancelled: [] }, external: { cancelled: ["MANUAL-9"], left: [] } });
   });
 
   it("a key without the live scope cancels only paper orders", async () => {

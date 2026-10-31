@@ -87,7 +87,7 @@ beforeAll(async () => {
     overrides: {
       keyStore: fakeKeyStore,
       audit: fakeAudit,
-      marketData: createFakeMarketData({ prices: { "NSE:RELIANCE": 1400 } }),
+      marketData: createFakeMarketData({ prices: { "NSE:RELIANCE": 1400, "NSE:NIFTY": 25_000, "NFO:NIFTY-2026-10-27-25100-CE": 75, "NFO:NIFTY-2026-10-27-25200-CE": 45 } }),
       symbols: createFakeSymbolService(),
     },
     logger: createNullLogger(),
@@ -129,6 +129,17 @@ describe("paper routes", () => {
     const r = await call("/v1/paper/accounts/paper-2");
     expect(r.json.data.ordersToday).toBe(1);
     expect(r.json.data.funds.usedMargin).toBe(14_000);
+  });
+
+  it("daily P&L: a snapshot on demand needs the paper scope and then lists by day", async () => {
+    expect((await call("/v1/paper/accounts/paper-2/daily", { method: "POST" })).status).toBe(403);
+    const snap = await call("/v1/paper/accounts/paper-2/daily", { key: PAPER, method: "POST" });
+    expect(snap.status).toBe(200);
+    expect(snap.json.data).toMatchObject({ source: "manual", day: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), equity: expect.any(Number), pnl: expect.any(Number) });
+    const list = await call("/v1/paper/accounts/paper-2/daily");
+    expect(list.status).toBe(200);
+    expect(list.json.data.items.map((x) => x.day)).toEqual([snap.json.data.day]);
+    expect((await call("/v1/paper/accounts/paper-1/daily", { key: LIMITED })).status).toBe(403);
   });
 
   it("404s an unknown account and 403s an account the key may not use", async () => {
@@ -180,6 +191,41 @@ describe("paper routes", () => {
     const r = await call("/v1/paper/accounts/paper-1/reset", { key: LIMITED, method: "POST", body: { startingCapital: 50_000 } });
     expect(r.status).toBe(403);
     expect((await call("/v1/paper/accounts/paper-1")).json.data.startingCapital).toBe(2_000_000);
+  });
+});
+
+describe("basket margin and undo reset", () => {
+  const legs = [
+    { symbol: "NFO:NIFTY-2026-10-27-25100-CE", side: "SELL", lots: 1, price: 75 },
+    { symbol: "NFO:NIFTY-2026-10-27-25200-CE", side: "BUY", lots: 1, price: 45 },
+  ];
+  it("prices a hedged basket with the portfolio model and places nothing", async () => {
+    const n = (await app.deps.paper.orders("paper-2")).items.length;
+    const r = await call("/v1/paper/accounts/paper-2/margin", { method: "POST", body: { legs } });
+    expect(r.status).toBe(200);
+    expect(r.json.data).toMatchObject({ model: "portfolio", forwards: { NIFTY: 25_000 }, fallback: [] });
+    expect(r.json.data.change).toBeCloseTo(r.json.data.after - r.json.data.before, 1);
+    expect(r.json.data.standalone).toBeGreaterThan(r.json.data.alone * 2);
+    expect(r.json.data.method).toMatch(/^Approximate, not the exchange's SPAN/);
+    expect((await app.deps.paper.orders("paper-2")).items).toHaveLength(n);
+  });
+  it("validates the basket", async () => {
+    for (const body of [{}, { legs: [] }, { legs: [{ symbol: "NSE:RELIANCE", side: "HOLD", lots: 1 }] }, { legs: [{ symbol: "NSE:RELIANCE", side: "BUY" }] }]) {
+      const r = await call("/v1/paper/accounts/paper-2/margin", { method: "POST", body });
+      expect(r.status).toBe(400);
+    }
+  });
+  it("undo puts back the book from before a reset, once", async () => {
+    await app.deps.paper.place("paper-2", { symbol: "NSE:RELIANCE", side: "BUY", quantity: 2, product: "CNC", orderType: "MARKET" });
+    const before = (await call("/v1/paper/accounts/paper-2")).json.data;
+    await call("/v1/paper/accounts/paper-2/reset", { key: PAPER, method: "POST", body: { startingCapital: 500_000 } });
+    expect((await call("/v1/paper/accounts/paper-2/reset/undo", { method: "POST" })).status).toBe(403);
+    const u = await call("/v1/paper/accounts/paper-2/reset/undo", { key: PAPER, method: "POST" });
+    expect(u.status).toBe(200);
+    expect(u.json.data.startingCapital).toBe(before.startingCapital);
+    expect(u.json.data.funds.usedMargin).toBe(before.funds.usedMargin);
+    const again = await call("/v1/paper/accounts/paper-2/reset/undo", { key: PAPER, method: "POST" });
+    expect(again.json.code).toBe("INVALID_ORDER");
   });
 });
 

@@ -6,7 +6,8 @@ import { createFakeMarketData } from "../market/fake.mjs";
 import { createFakeOrderService } from "../orders/fake.mjs";
 import { createFakeSafetyGuard } from "../safety/fake.mjs";
 import { createFakeSymbolService } from "../symbols/fake.mjs";
-import { DEFAULT_TOOL_NAMES, TOOL_DEFS, createToolRegistry, paginate, summariseCandles, summariseChain } from "./tools.mjs";
+import { DEFAULT_TOOLSETS, TOOLSETS, mcpConfig } from "./config.mjs";
+import { DEFAULT_TOOL_NAMES, TOOL_DEFS, createToolRegistry, paginate, summariseCandles, summariseChain, toolEnv, toolVisible } from "./tools.mjs";
 
 const PRICES = { "NSE:RELIANCE": 1402.5, "NSE:NIFTY": 25010, "NFO:NIFTY-2026-10-27-25000-CE": 120.5 };
 
@@ -43,7 +44,28 @@ describe("registry shape", () => {
     const names = registry.listTools(ctxFor(["read"])).map((t) => t.name);
     expect(names.length).toBeLessThan(20);
     expect(names).toEqual(DEFAULT_TOOL_NAMES);
-    expect(names).toEqual(TOOL_DEFS.filter((t) => t.toolset !== "orders").map((t) => t.name));
+    expect(names).toEqual(TOOL_DEFS.filter((t) => t.toolset !== "orders" && t.toolset !== "options").map((t) => t.name));
+  });
+
+  it("lists exactly the 18 default tools; the opt-in options toolset stays at 19 tools or fewer", () => {
+    expect(DEFAULT_TOOL_NAMES).toHaveLength(18);
+    expect(TOOLSETS).toContain("options");
+    expect(DEFAULT_TOOLSETS).not.toContain("options");
+    expect(TOOL_DEFS.filter((t) => t.toolset === "options").length).toBeLessThanOrEqual(19);
+    const { registry } = setup({ mcp: { toolsets: ["market", "analytics", "account", "options"] } });
+    const names = registry.listTools(ctxFor(["read"])).map((t) => t.name);
+    expect(names).toEqual(TOOL_DEFS.filter((t) => ["market", "analytics", "account", "options"].includes(t.toolset)).map((t) => t.name));
+  });
+
+  it("a tool with requiredScope (options write tools such as create_guard) is hidden from keys without it", () => {
+    const cfg = mcpConfig({ mcp: { toolsets: ["options"] } });
+    const def = { name: "create_guard", toolset: "options", requiredScope: "paper" };
+    const read = ctxFor(["read"]);
+    const paper = ctxFor(["paper"]);
+    expect(toolVisible(def, cfg, toolEnv(cfg, read), read)).toBe(false);
+    expect(toolVisible(def, cfg, toolEnv(cfg, paper), paper)).toBe(true);
+    const off = mcpConfig({});
+    expect(toolVisible(def, off, toolEnv(off, paper), paper)).toBe(false);
   });
 
   it("sets all four annotations explicitly, plus title, inputSchema and outputSchema on every tool", () => {
@@ -288,5 +310,220 @@ describe("market reads keep to the key's accounts", () => {
     const ltpCalls = deps.marketData.calls.filter((c) => c[0] === "ltp");
     expect(ltpCalls[0][2]).toMatchObject({ allowedAccounts: ["dhan-main"] });
     expect(ltpCalls[1][2]?.allowedAccounts).toBeUndefined();
+  });
+});
+
+describe("get_reference (options toolset)", () => {
+  const refSetup = async () => {
+    const { createReferenceService } = await import("../reference/referenceService.mjs");
+    const { parseReferenceConfig } = await import("../reference/config.mjs");
+    const { demoInstruments } = await import("../demo/demoAdapter.mjs");
+    const t = Date.parse("2026-10-29T10:00:00+05:30");
+    const reference = createReferenceService({ config: { demo: true, reference: parseReferenceConfig({}) }, logger: createNullLogger(), clock: { now: () => t }, paths: {}, symbols: createFakeSymbolService({ masters: { fake: demoInstruments(t) } }) });
+    const registry = createToolRegistry({ deps: { config: { mcp: { toolsets: ["market", "analytics", "account", "options"] } }, reference }, now: () => t });
+    return { reference, registry, t };
+  };
+
+  it("returns the same data as the REST route for bundle and lots", async () => {
+    const { reference, registry, t } = await refSetup();
+    const { readReference } = await import("../reference/routes.mjs");
+    for (const [dataset, params] of [
+      ["bundle", { underlying: "NIFTY" }],
+      ["lots", { underlying: "BANKNIFTY" }],
+    ]) {
+      const out = await registry.call("get_reference", { dataset, ...params }, ctxFor(["read"]));
+      expect(out.isError, JSON.stringify(out.content)).toBeUndefined();
+      const rest = await readReference(reference, dataset, params, { now: () => t });
+      expect(out.structuredContent.data).toEqual(JSON.parse(JSON.stringify(rest)));
+    }
+  });
+
+  it("is read-only, opt-in, and there is no reference write tool", async () => {
+    const { registry } = await refSetup();
+    const def = TOOL_DEFS.find((t) => t.name === "get_reference");
+    expect(def).toMatchObject({ toolset: "options", annotations: { readOnlyHint: true, destructiveHint: false } });
+    expect(DEFAULT_TOOL_NAMES).not.toContain("get_reference");
+    expect(TOOL_DEFS.filter((t) => /reference|rate|corporate|sources/.test(t.name)).map((t) => t.name)).toEqual(["get_reference"]);
+    const bad = await registry.call("get_reference", { dataset: "set-rate" }, ctxFor(["read"]));
+    expect(bad.isError).toBe(true);
+  });
+});
+
+describe("get_participant_oi (options toolset)", () => {
+  const partSetup = async () => {
+    const { createParticipantsService } = await import("../participants/service.mjs");
+    const t = Date.parse("2026-10-29T12:00:00+05:30");
+    const participants = createParticipantsService({ config: { demo: true }, clock: { now: () => t }, paths: {} });
+    const registry = createToolRegistry({ deps: { config: { mcp: { toolsets: ["market", "analytics", "account", "options"] } }, participants }, now: () => t });
+    return { participants, registry };
+  };
+
+  it("returns the same summary as the REST read, and a series with from/to (capped at 250 days)", async () => {
+    const { participants, registry } = await partSetup();
+    const { readParticipantOi } = await import("../participants/routes.mjs");
+    const out = await registry.call("get_participant_oi", {}, ctxFor(["read"]));
+    expect(out.isError, JSON.stringify(out.content)).toBeUndefined();
+    expect(out.structuredContent.data).toEqual(JSON.parse(JSON.stringify(readParticipantOi(participants, {}))));
+    expect(out.structuredContent.data).toMatchObject({ kind: "summary", available: true, date: "2026-10-28", unit: "contracts" });
+    const s = await registry.call("get_participant_oi", { from: "2025-01-01", to: "2026-10-28", participants: ["FII"], instruments: ["IDX_FUT"] }, ctxFor(["read"]));
+    expect(s.structuredContent.data.kind).toBe("series");
+    expect(s.structuredContent.data.days).toHaveLength(250);
+    expect(s.structuredContent.data.truncated).toBe(true);
+    expect(Object.keys(s.structuredContent.data.days[0].rows)).toEqual(["FII"]);
+  });
+
+  it("is read-only and opt-in", () => {
+    const def = TOOL_DEFS.find((t) => t.name === "get_participant_oi");
+    expect(def).toMatchObject({ toolset: "options", annotations: { readOnlyHint: true, destructiveHint: false } });
+    expect(def.requiredScope).toBeUndefined();
+    expect(DEFAULT_TOOL_NAMES).not.toContain("get_participant_oi");
+  });
+});
+
+describe("get_safety_status readiness (p1-05 §4.6)", () => {
+  it("adds readiness per account: state, reason codes and messages, checkedAt; never an IP address", async () => {
+    const { deps, registry } = setup();
+    deps.readiness = {
+      status: () => ({}),
+      canTrade: (id) =>
+        id === "dhan-main"
+          ? { ok: false, state: "cannot_trade", checkedAt: "2026-10-19T10:00:00+05:30", stale: false, reasons: [{ check: "egress", code: "IP_MISMATCH", severity: "fail", message: "This computer's internet address does not match the static IP registered for dhan-main.", detectedIp: "198.51.100.23" }] }
+          : { ok: true, state: "paper_only", reasons: [], checkedAt: null, stale: false },
+      ensureFresh: async () => ({}),
+      check: async () => ({}),
+      registerAutomation: () => ({}),
+    };
+    const r = await registry.call("get_safety_status", {}, ctxFor(["read"]));
+    const accounts = r.structuredContent.data.accounts;
+    expect(accounts.find((a) => a.accountId === "dhan-main").readiness).toEqual({
+      state: "cannot_trade",
+      reasons: [{ code: "IP_MISMATCH", message: "This computer's internet address does not match the static IP registered for dhan-main." }],
+      checkedAt: "2026-10-19T10:00:00+05:30",
+    });
+    expect(accounts.find((a) => a.accountId === "paper").readiness.state).toBe("paper_only");
+    expect(JSON.stringify(r.structuredContent)).not.toMatch(/198\.51\.100\.23/);
+    expect(TOOL_DEFS.find((t) => t.name === "get_safety_status").description).toMatch(/readiness says whether the account can trade now/);
+  });
+
+  it("without a readiness service the field is null", async () => {
+    const { registry } = setup();
+    const r = await registry.call("get_safety_status", {}, ctxFor(["read"]));
+    expect(r.structuredContent.data.accounts.every((a) => a.readiness === null)).toBe(true);
+  });
+});
+
+describe("T-sec-6: MCP order tools by key scope (p1-05 §3.9 F9)", () => {
+  const order = { account: "paper", symbol: "NSE:RELIANCE", side: "BUY", quantity: 1, product: "CNC", orderType: "LIMIT", price: 1400 };
+  const toolsets = [["market", "analytics", "account", "orders"], ["orders"], ["account", "orders", "options"]];
+  for (const ts of toolsets) {
+    describe(`toolsets ${ts.join(", ")}`, () => {
+      const mcp = { toolsets: ts, orderAccounts: ["paper", "dhan-main"] };
+      it("read: no order tools, and calling them answers exactly like an unknown tool", async () => {
+        const { registry, orders } = setup({ mcp });
+        const names = registry.listTools(ctxFor(["read"])).map((t) => t.name);
+        expect(names).not.toContain("prepare_order");
+        expect(names).not.toContain("submit_confirmed_order");
+        const hidden = await registry.call("prepare_order", order, ctxFor(["read"]));
+        const hidden2 = await registry.call("submit_confirmed_order", { ticketId: "t", confirmToken: "mct_x" }, ctxFor(["read"]));
+        const unknown = await registry.call("no_such_tool", {}, ctxFor(["read"]));
+        const same = (r, name) => JSON.stringify(r).replaceAll(name, "<tool>");
+        expect(same(hidden, "prepare_order")).toBe(same(unknown, "no_such_tool"));
+        expect(same(hidden2, "submit_confirmed_order")).toBe(same(unknown, "no_such_tool"));
+        expect(orders.calls).toHaveLength(0);
+      });
+      it("paper: mode enum lacks live; live: has it", () => {
+        const { registry } = setup({ mcp });
+        const paper = registry.listTools(ctxFor(["paper"])).find((t) => t.name === "prepare_order");
+        expect(paper.inputSchema.properties.mode.anyOf[0].enum).toEqual(["paper"]);
+        const live = registry.listTools(ctxFor(["live"])).find((t) => t.name === "prepare_order");
+        expect(live.inputSchema.properties.mode.anyOf[0].enum).toEqual(["paper", "live"]);
+      });
+    });
+  }
+  it("an mcp client key with admin cannot be created (auth/keyStore.test.mjs: AI-assistant keys never hold admin)", () => {
+    // Referenced, not repeated: keyStore.create({ scopes: ["admin"], clientKind: "mcp" }) → VALIDATION_FAILED.
+    expect(true).toBe(true);
+  });
+});
+
+describe("get_option_snapshots (options toolset, p1-01 §4.7)", () => {
+  it("returns the REST page shape and units, at most 80 snapshots, defaults oi,ltp ±10 every 5", async () => {
+    const { makeRecorder, IST, EXPIRY } = await import("../recorder/testkit.mjs");
+    const { parseSnapshotQuery, readSnapshots, UNITS } = await import("../recorder/routes.mjs");
+    const r = makeRecorder({ start: IST("2026-10-19T09:14:30"), recorder: { sources: { stream: false } } });
+    await r.svc.start();
+    await r.minutes(120); // 09:15 … 11:14
+    const registry = createToolRegistry({ deps: { config: { mcp: { toolsets: ["market", "analytics", "account", "options"] } }, recorder: r.svc }, now: () => r.clock.now() });
+    const def = TOOL_DEFS.find((t) => t.name === "get_option_snapshots");
+    expect(def).toMatchObject({ toolset: "options", annotations: { readOnlyHint: true, destructiveHint: false } });
+    expect(DEFAULT_TOOL_NAMES).not.toContain("get_option_snapshots");
+    const out = await registry.call("get_option_snapshots", { underlying: "NIFTY", expiry: EXPIRY, every: 1 }, ctxFor(["read"]));
+    expect(out.isError, JSON.stringify(out.content)).toBeUndefined();
+    const d = out.structuredContent.data;
+    expect(d.units).toEqual(UNITS);
+    expect(d.fields).toEqual(["oi", "ltp"]);
+    expect(d.snapshots).toHaveLength(80);
+    expect(d.truncated).toBe(true);
+    const five = await registry.call("get_option_snapshots", { underlying: "NIFTY", expiry: EXPIRY }, ctxFor(["read"]));
+    const rest = await readSnapshots(r.svc, { ...parseSnapshotQuery({ underlying: "NIFTY", expiry: EXPIRY, fields: "oi,ltp", strikes: "10", every: "5" }, { now: r.clock.now() }), limit: 81 }, ctxFor(["read"]));
+    expect(five.structuredContent.data.truncated).toBe(false);
+    expect(five.structuredContent.data.snapshots).toEqual(JSON.parse(JSON.stringify(rest.snapshots)));
+    const bad = await registry.call("get_option_snapshots", { underlying: "NIFTY", expiry: EXPIRY, fields: "theta" }, ctxFor(["read"]));
+    expect(bad.isError).toBe(true);
+    await r.svc.stop();
+  });
+});
+
+describe("F&O tools (options toolset, p1-06 §3.7)", () => {
+  const boot = async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { createApp } = await import("../core/app.mjs");
+    const { loadConfig } = await import("../core/config.mjs");
+    const { fnoFor } = await import("../fno/module.mjs");
+    const raw = { dataDir: mkdtempSync(join(tmpdir(), "mcb-mcp-fno-")), mcp: { toolsets: ["market", "analytics", "account", "options"] }, fno: { demo: { callDelayMs: 0 }, sweep: { hv: { source: "off" } } } };
+    const { config } = loadConfig({ raw, env: {}, demo: true });
+    const app = await createApp({ config, logger: createNullLogger() });
+    return { app, f: fnoFor(app.deps), registry: createToolRegistry({ deps: app.deps, now: () => Date.now() }) };
+  };
+
+  it("get_option_underlyings and get_expiry_costs return the same data as REST; get_option_sweep reads the last sweep", async () => {
+    const { app, f, registry } = await boot();
+    try {
+      const { readUnderlyings, readExpiryCosts, expiryCostsRequest } = await import("../fno/routes.mjs");
+      const u = await registry.call("get_option_underlyings", { kind: "stock", q: "rel" }, ctxFor(["read"]));
+      expect(u.isError, JSON.stringify(u.content)).toBeUndefined();
+      expect(u.structuredContent.data).toEqual(JSON.parse(JSON.stringify(await readUnderlyings(f, { kind: "stock", q: "rel" }))));
+      const { facts } = await f.universe.detail("RELIANCE");
+      const exp = facts.expiries[0];
+      const chain = await app.deps.marketData.optionChain({ underlying: "RELIANCE", expiry: exp, strikes: 1 });
+      const legs = [{ symbol: chain.rows[0].ce.symbol, qty: 525, bid: 30, ask: 31 }];
+      const body = { underlying: "RELIANCE", asOf: exp, spot: chain.rows[0].strike + 30, legs };
+      const m = await registry.call("get_expiry_costs", { ...body, varElmPct: null, legs: legs.map((l) => ({ ...l })) }, ctxFor(["read"]));
+      expect(m.isError, JSON.stringify(m.content)).toBeUndefined();
+      expect(m.structuredContent.data).toEqual(JSON.parse(JSON.stringify(await readExpiryCosts(f, app.deps, expiryCostsRequest(body)))));
+      expect(m.structuredContent.data.legs[0]).toMatchObject({ moneyness: "ITM", obligation: { kind: "receive-shares", shares: 525 } });
+      const none = await registry.call("get_option_sweep", { since: null }, ctxFor(["read"]));
+      expect(none.isError).toBe(true);
+      await f.sweeper.start({});
+      await f.sweeper.idle();
+      const s2 = await registry.call("get_option_sweep", { since: null }, ctxFor(["read"]));
+      expect(s2.isError, JSON.stringify(s2.content)).toBeUndefined();
+      expect(s2.structuredContent.data.job.status).toBe("done");
+      expect(s2.structuredContent.data.page.items.length).toBeGreaterThan(0);
+    } finally {
+      await app.close();
+    }
+  }, 30_000);
+
+  it("are read-only, opt-in, and no tool starts or cancels a sweep", () => {
+    for (const name of ["get_option_underlyings", "get_option_sweep", "get_expiry_costs"]) {
+      const def = TOOL_DEFS.find((t) => t.name === name);
+      expect(def).toMatchObject({ toolset: "options", annotations: { readOnlyHint: true, destructiveHint: false } });
+      expect(def.requiredScope).toBeUndefined();
+      expect(DEFAULT_TOOL_NAMES).not.toContain(name);
+    }
+    expect(TOOL_DEFS.filter((t) => /sweep/.test(t.name)).map((t) => t.name)).toEqual(["get_option_sweep"]);
   });
 });

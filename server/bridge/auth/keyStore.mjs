@@ -77,6 +77,11 @@ export const KEY_ID_RE = /^[a-z2-7]{10}$/;
 export const API_KEY_RE = /^mcb_([a-z2-7]{10})_([A-Za-z0-9_-]{43})$/;
 export const STREAM_TOKEN_RE = /^mcb_st_[A-Za-z0-9_-]{43}$/;
 export const CLIENT_KINDS = Object.freeze(["script", "excel", "mcp", "ui", "other"]);
+/**
+ * What the Bridge made a key for, set only by the Bridge itself (never from a request body): "strategy-run" is the key
+ * of one Python strategy run (docs/STRATEGIES-PYTHON.md), revoked when the run ends and at every start.
+ */
+export const KEY_PURPOSES = Object.freeze(["strategy-run"]);
 const ACCOUNT_ID_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 
@@ -136,6 +141,8 @@ const storedKeySchema = z.object({
   allowQuery: z.boolean().default(false),
   // A kind this version no longer offers (a key file written by an older release) reads as "other".
   clientKind: z.enum(CLIENT_KINDS).catch("other"),
+  // A purpose this version does not know reads as none.
+  purpose: z.enum(KEY_PURPOSES).nullable().default(null).catch(null),
   createdAt: isoString,
   expiresAt: isoString.nullable().default(null),
   revokedAt: isoString.nullable().default(null),
@@ -163,6 +170,7 @@ export function publicRecord(r) {
     accounts: r.accounts === "*" ? "*" : [...r.accounts],
     allowQuery: r.allowQuery,
     clientKind: r.clientKind,
+    ...(r.purpose ? { purpose: r.purpose } : {}),
     createdAt: r.createdAt,
     expiresAt: r.expiresAt,
     lastUsedAt: r.lastUsedAt,
@@ -358,11 +366,13 @@ export function createKeyStore(deps, opts = {}) {
     /**
      * Create a key. The full key is in the result once and is never stored.
      * @param {object} input  KeyCreateRequest: { label, scopes, accounts?, expiresAt?, allowQuery?, clientKind? }
-     * @param {{ loopback?: boolean }} [opts]  loopback: the request came from this computer (default true: CLI).
+     * @param {{ loopback?: boolean, purpose?: string }} [opts]  loopback: the request came from this computer (default
+     *   true: CLI). purpose: one of KEY_PURPOSES, set by the Bridge's own code only (a strategy run's key).
      */
-    async create(input, { loopback = true, creatorScopes, creatorAccounts } = {}) {
+    async create(input, { loopback = true, creatorScopes, creatorAccounts, purpose } = {}) {
       const parsed = keyCreateSchema.safeParse(input ?? {});
       if (!parsed.success) throw fromValidation(parsed.error, "The key request is not valid.");
+      if (purpose !== undefined && !KEY_PURPOSES.includes(purpose)) throw new BridgeError("VALIDATION_FAILED", `purpose must be one of ${KEY_PURPOSES.join(", ")}.`, { errors: [{ path: "purpose", message: "unknown purpose" }] });
       const v = parsed.data;
       const scopes = SCOPES.filter((s) => v.scopes.includes(s));
       if (v.allowQuery && !readOnlyScopes(scopes)) {
@@ -397,6 +407,15 @@ export function createKeyStore(deps, opts = {}) {
         }
         let id = generateKeyId();
         while (records.has(id)) id = generateKeyId();
+        // The file holds at most MAX_KEYS * 2 records (keysFileSchema): past that it would fail validation and every
+        // key would be refused. Revoked keys can never authenticate again, so the oldest revoked ones make room
+        // (strategy runs mint and revoke a key each, docs/STRATEGIES-PYTHON.md). Active keys are never dropped.
+        let kept = records;
+        if (records.size >= MAX_KEYS * 2) {
+          const revoked = [...records.values()].filter((r) => r.revokedAt).sort((a, b) => a.revokedAt.localeCompare(b.revokedAt) || a.id.localeCompare(b.id));
+          kept = new Map(records);
+          for (const r of revoked.slice(0, records.size - MAX_KEYS * 2 + 1)) kept.delete(r.id);
+        }
         const stored = {
           id,
           label: v.label,
@@ -404,6 +423,7 @@ export function createKeyStore(deps, opts = {}) {
           accounts: v.accounts,
           allowQuery: v.allowQuery,
           clientKind: v.clientKind,
+          ...(purpose ? { purpose } : {}),
           createdAt: new Date(t).toISOString(),
           expiresAt: v.expiresAt ? new Date(Date.parse(v.expiresAt)).toISOString() : null,
           revokedAt: null,
@@ -412,7 +432,7 @@ export function createKeyStore(deps, opts = {}) {
           salt: salt.toString("base64"),
           hash: hash.toString("base64"),
         };
-        const next = new Map(records).set(id, hydrate(stored));
+        const next = new Map(kept).set(id, hydrate(stored));
         const prev = records;
         records = next;
         try {

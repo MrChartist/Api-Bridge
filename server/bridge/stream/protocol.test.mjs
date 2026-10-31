@@ -313,13 +313,54 @@ describe("docs/asyncapi.yaml stays in step with the code", async () => {
 
   it("documents every client op", () => {
     const ops = clientOpSchema.options.map((o) => o.shape.op.value);
-    expect(ops).toEqual(["subscribe", "unsubscribe", "subscribe_orders", "unsubscribe_orders", "subscribe_scans", "unsubscribe_scans", "ping"]);
+    expect(ops).toEqual(["subscribe", "unsubscribe", "subscribe_orders", "unsubscribe_orders", "subscribe_scans", "unsubscribe_scans", "subscribe_events", "unsubscribe_events", "subscribe_budget", "unsubscribe_budget", "ping"]);
     for (const op of ops) expect(spec).toContain(`op: { const: ${op} }`);
   });
 
   it("documents every server message type and go_away reason", () => {
-    for (const type of ["heartbeat", "snapshot", "tick", "order", "scan", "status", "error", "go_away"]) expect(spec).toContain(`type: { const: ${type} }`);
+    for (const type of ["heartbeat", "snapshot", "tick", "order", "scan", "market_event", "budget", "status", "error", "go_away"]) expect(spec).toContain(`type: { const: ${type} }`);
     expect(spec).toContain("enum: [shutdown, slow_consumer, key_revoked]");
     expect(spec).toMatch(/^asyncapi: 3\.0\.0$/m);
+  });
+});
+
+describe("subscribe_budget", () => {
+  it("sends the budget at once, then only while it changes (at least every 5 s), for the key's accounts only", async () => {
+    let calls = 3;
+    const scheduler = {
+      usage: () => ({
+        accounts: [
+          { accountId: "dhan-main", broker: "dhan", healthy: true, queued: 0, classes: { quote: { callsToday: calls, backoffMs: 0, windows: [{ window: "1s", used: 1, limit: 1 }] } } },
+          { accountId: "kite-main", broker: "zerodha", healthy: true, queued: 0, classes: { quote: { callsToday: 99, backoffMs: 0, windows: [] } } },
+        ],
+        savings: { servedFromStream: 4 },
+      }),
+    };
+    const bus = createEventBus();
+    const hub = createFakeStreamHub({ bus, accountId: "dhan-main", broker: "dhan" });
+    const transport = fakeTransport();
+    const session = createClientSession({ id: "ws_b", kind: "ws", key: KEY, hub, bus, transport, config: resolveStreamConfig({}), clock: { now: () => Date.now() }, logger: createNullLogger(), scheduler });
+    await session.handleOp({ op: "subscribe_budget" });
+    await settle();
+    const budgets = () => transport.sent.filter((m) => m.type === "budget");
+    expect(budgets()).toHaveLength(1);
+    expect(budgets()[0].accounts.map((a) => a.accountId)).toEqual(["dhan-main"]);
+    expect(budgets()[0]).toMatchObject({ callsToday: 3, savedToday: 4 });
+    vi.advanceTimersByTime(1000);
+    await settle();
+    expect(budgets()).toHaveLength(1); // nothing changed
+    calls = 4;
+    vi.advanceTimersByTime(1000);
+    await settle();
+    expect(budgets()).toHaveLength(2);
+    vi.advanceTimersByTime(5000);
+    await settle();
+    expect(budgets()).toHaveLength(3); // the keep-alive copy
+    await session.handleOp({ op: "unsubscribe_budget" });
+    calls = 9;
+    vi.advanceTimersByTime(10_000);
+    await settle();
+    expect(budgets()).toHaveLength(3);
+    session.close("test", false);
   });
 });

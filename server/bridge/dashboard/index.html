@@ -6,8 +6,10 @@
   <meta name="color-scheme" content="light dark">
   <title>Mr. Chartist API Bridge</title>
   <link rel="icon" href="/dashboard/logo.svg" type="image/svg+xml">
-  <link rel="preload" href="/dashboard/font-inter-var-v3.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="/dashboard/font-plus-jakarta-sans-var.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F2F2F7">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000">
+  <link rel="preload" href="/dashboard/font-chartist-sans-flex.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/dashboard/font-chartist-sans.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/dashboard/app.css">
   <link rel="stylesheet" href="/dashboard/palette.css">
   <!-- Motion (motion.dev, MIT, vendored v14.1.0: see motion.LICENSE.md). Sets window.Motion; served from this Bridge (CSP script-src 'self'). -->
@@ -17,6 +19,11 @@
 <body>
   <!-- The Mr. Chartist symbol, defined once: the brand lockups and the faint backdrop behind every page use it. -->
   <svg class="sprite" aria-hidden="true" focusable="false"><symbol id="mc-symbol" viewBox="0 0 1024 1024"><g transform="translate(512.0,512.0) scale(0.8248330058939096) translate(-598.5,-627)"><path d="M113.000 419.000 C128.592 434.006 145.057 448.270 162.000 461.824 C299.947 577.880 486.231 594.815 659.000 599.706 C680.524 601.629 702.137 604.069 723.000 609.941 C739.114 614.722 756.237 621.994 765.294 637.000 C772.039 648.057 770.249 662.141 764.059 673.000 C757.496 684.792 747.292 693.980 737.000 702.471 C622.184 776.562 493.076 829.586 375.000 896.000 L375.000 963.000 C515.515 883.674 670.173 822.286 802.000 726.706 C813.556 716.290 824.300 704.439 830.529 690.000 C838.815 671.480 839.343 649.379 830.353 631.000 C820.580 611.223 801.894 597.282 782.000 588.706 C761.954 580.063 740.467 575.548 719.000 572.118 C554.209 556.993 381.998 531.255 246.000 428.882 C217.642 409.437 190.041 388.438 165.000 365.000 L113.000 419.000 Z" vector-effect="non-scaling-stroke"/><path d="M188.000 337.000 C316.846 468.242 496.277 534.615 677.000 549.412 C696.033 552.012 715.091 554.437 734.000 557.882 C755.462 561.939 776.867 567.125 797.000 575.765 C818.791 584.906 838.835 599.627 851.294 620.000 C862.243 638.513 866.051 660.948 861.588 682.000 C858.237 697.772 850.648 712.466 840.588 725.000 C831.364 736.435 820.525 746.457 809.000 755.529 C693.716 834.576 560.949 886.762 440.000 954.000 L440.000 1019.000 C574.338 944.999 718.397 882.423 848.000 798.000 C858.899 789.873 869.372 781.082 878.529 771.000 C894.178 753.831 906.631 733.452 912.941 711.000 C920.380 682.285 918.024 650.759 904.941 624.000 C893.907 601.346 875.568 582.806 854.000 570.000 C832.847 557.324 809.419 549.133 786.000 541.765 C766.238 535.785 746.114 531.161 726.000 526.529 C548.716 496.882 375.210 416.898 258.000 278.000 L188.000 337.000 Z" vector-effect="non-scaling-stroke"/><path d="M290.000 254.000 C308.447 274.155 327.161 295.512 348.000 314.000 C453.478 424.326 599.037 483.129 746.000 513.353 C763.758 517.829 781.437 522.609 799.000 527.824 C820.526 534.566 841.986 542.016 862.000 552.529 C886.185 565.229 907.447 583.869 922.118 607.000 C936.227 629.718 943.569 656.320 944.000 683.000 C943.512 706.016 937.438 728.767 926.471 749.000 C918.039 764.406 907.264 778.449 895.000 791.000 C883.493 802.227 871.026 812.419 858.000 821.824 C746.244 894.490 621.481 948.074 505.000 1010.000 L504.000 1076.000 C632.480 1005.064 770.972 946.800 897.000 869.294 C910.758 860.022 923.644 849.526 936.000 838.471 C949.658 825.478 962.100 811.081 972.000 795.000 C986.214 772.034 994.894 745.857 997.529 719.000 C999.937 688.692 995.002 657.792 982.588 630.000 C968.964 599.153 947.229 572.032 920.000 552.118 C902.365 539.381 883.111 528.960 863.000 520.706 C845.298 513.239 827.109 507.048 809.000 500.647 C636.074 454.709 466.017 356.684 383.000 193.000 L290.000 254.000 Z" vector-effect="non-scaling-stroke"/><path d="M425.000 170.000 C433.325 187.316 444.967 205.810 455.765 223.000 C533.154 356.596 671.084 441.407 816.000 484.765 C836.523 491.915 856.986 499.223 877.000 507.706 C897.796 516.718 918.241 526.786 937.000 539.588 C960.903 556.257 981.598 577.851 996.412 603.000 C1009.897 626.411 1018.784 652.337 1023.000 679.000 C1026.668 705.231 1025.905 732.331 1019.059 758.000 C1012.980 780.132 1003.460 801.351 990.000 820.000 C978.054 836.793 963.343 851.389 948.000 865.059 C831.432 949.293 692.805 999.811 568.000 1068.000 L568.000 1134.000 C703.535 1066.165 848.062 1008.114 977.000 925.941 C993.062 914.079 1008.092 900.785 1021.529 886.000 C1040.975 864.157 1057.656 839.480 1068.000 812.000 C1078.937 784.083 1083.851 753.948 1083.000 724.000 C1082.049 696.275 1076.066 668.824 1066.000 643.000 C1050.881 604.319 1026.649 569.070 995.000 542.059 C976.526 526.146 955.609 513.398 934.000 502.235 C918.017 493.984 901.516 486.805 885.000 479.706 C739.010 425.017 609.370 318.638 551.353 171.000 C543.555 154.264 535.319 136.249 529.000 120.000 L425.000 170.000 Z" vector-effect="non-scaling-stroke"/></g></symbol></svg>
+  <!-- Data-viz hatch patterns (calls / puts decrease marks): colour from CSS via currentColor on the <pattern>. -->
+  <svg class="sprite dv-sprite" aria-hidden="true" focusable="false"><defs>
+    <pattern id="dv-hatch-call" class="dv-hatch-call" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="4" fill="currentColor" fill-opacity="0.35"/><line x1="0" y1="0" x2="0" y2="4" stroke="currentColor" stroke-width="1" stroke-opacity="0.6"/></pattern>
+    <pattern id="dv-hatch-put" class="dv-hatch-put" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="4" fill="currentColor" fill-opacity="0.35"/><line x1="0" y1="0" x2="0" y2="4" stroke="currentColor" stroke-width="1" stroke-opacity="0.6"/></pattern>
+  </defs></svg>
   <div class="app-symbol-wrap" aria-hidden="true"><svg class="app-symbol" viewBox="0 0 1024 1024" focusable="false"><use href="#mc-symbol"/></svg></div>
 
   <!-- Sign-in: the API key stays in this browser tab only (sessionStorage) and is never put in a URL. A one-time
@@ -27,10 +34,10 @@
         <svg class="lockup-symbol" viewBox="0 0 1024 1024" aria-hidden="true" focusable="false"><use href="#mc-symbol"/></svg>
         <span class="lockup-text"><span class="lockup-name">API Bridge</span><span class="lockup-sub">by Mr. Chartist</span></span>
       </div>
-      <div id="login-demo" class="demo-banner" hidden><span class="pill demo">Demo data</span><span>This Bridge runs in demo mode: sample prices, no broker, paper orders only.</span></div>
+      <div id="login-demo" class="login-demo" hidden><span class="pill demo">Demo data</span><span>This Bridge runs in demo mode: sample prices, no broker, paper orders only.</span></div>
       <div class="login-head">
         <div class="eyebrow">Local dashboard · this computer only</div>
-        <h1>Sign in with your admin key</h1>
+        <h1>Sign in with your <em class="serif">admin key</em></h1>
         <p class="muted">The key was printed once when you ran the setup. It stays in this browser tab and is forgotten when you close it.</p>
       </div>
       <form id="login-form" class="stack">
@@ -42,10 +49,15 @@
       <div id="login-error" role="alert"></div>
       <div class="login-help-list">
         <strong>No key yet?</strong>
-        <ol>
-          <li>In the Bridge folder, run <code>npm run bridge -- init</code> (first time), or</li>
-          <li><code>npm run bridge -- keys create --label me --scope admin,paper</code></li>
-        </ol>
+        <p class="muted">Run one of these in the Bridge folder:</p>
+        <dl class="login-cmds">
+          <dt>Just trying it: demo mode, opens signed in</dt>
+          <dd><code>npm run dev</code></dd>
+          <dt>First time: set up and print an admin key</dt>
+          <dd><code>npm run bridge -- init</code></dd>
+          <dt>Another key</dt>
+          <dd><code>npm run bridge -- keys create --label me --scope admin,paper</code></dd>
+        </dl>
         <p class="muted">Lost your key? You do not need it here: open the Bridge again from its shortcut, or run <code>mc-bridge open</code> (in the Bridge folder: <code>npm run bridge -- open</code>). The dashboard then opens already signed in.</p>
       </div>
     </div>
@@ -55,7 +67,7 @@
     <div class="scroll-edge" aria-hidden="true"></div>
     <div class="scroll-edge-b" aria-hidden="true"></div>
 
-    <!-- Wide screens (1024px and up): the floating glass sidebar. -->
+    <!-- Wide screens (1024px and up): the sidebar, flush on the left edge; the icon rail from 1024 to 1279 px or when collapsed. -->
     <aside id="sidebar" class="sidebar glass glass-strong" aria-label="Sidebar">
       <a class="sb-brand lockup" href="#/home" aria-label="API Bridge home">
         <svg class="lockup-symbol" viewBox="0 0 1024 1024" aria-hidden="true" focusable="false"><use href="#mc-symbol"/></svg>
@@ -63,33 +75,31 @@
       </a>
       <button type="button" id="sb-search" class="sb-search"><span class="sb-search-label">Search</span></button>
       <nav id="nav" class="nav sidebar-scroll" aria-label="Pages"></nav>
+      <!-- One account row: it opens Appearance, Density, Keyboard shortcuts, About and Forget key (views.js accountPopover); then the rail toggle. -->
       <div class="sb-foot">
-        <div class="segmented appearance" id="theme" role="group" aria-label="Appearance">
-          <button type="button" data-theme-choice="light">Light</button>
-          <button type="button" data-theme-choice="dark">Dark</button>
-          <button type="button" data-theme-choice="auto">Auto</button>
-        </div>
-        <div class="who"><span class="dot"></span><span id="who">Signed in</span></div>
-        <button type="button" id="logout" class="plain small" data-action="logout">Forget key</button>
+        <button type="button" id="sb-account" class="sb-account who" aria-haspopup="dialog" aria-expanded="false" title="Appearance, shortcuts and your key"><span class="dot" aria-hidden="true"></span><span id="who">Signed in</span></button>
+        <button type="button" id="sb-toggle" class="sb-toggle" aria-controls="sidebar" aria-expanded="true" aria-label="Collapse the sidebar to icons" title="Collapse the sidebar to icons"></button>
       </div>
     </aside>
 
-    <!-- The floating toolbar: the page's name, demo state, the IST clock, search and refresh. -->
+    <!-- The floating toolbar: the page's name, the page's context (Options pages: underlying, expiry, spot, lot, account
+         and the live control, mounted into #toolbar-ctx by desk.js), the one demo indicator, the IST clock, search and
+         refresh (the Options pages hide the clock and refresh: their live control shows the data time). -->
     <header class="toolbar" aria-label="Toolbar">
       <div class="toolbar-title glass"><span id="toolbar-icon" class="toolbar-icon"></span><span id="toolbar-label">Home</span></div>
-      <span id="toolbar-demo" class="toolbar-demo glass" hidden><i aria-hidden="true"></i><span>Demo data</span></span>
+      <div id="toolbar-ctx" class="toolbar-ctx" hidden></div>
       <span class="toolbar-spacer"></span>
+      <button type="button" id="toolbar-demo" class="toolbar-demo glass" data-demo-indicator aria-haspopup="dialog" aria-label="Demo data: sample prices, paper orders only" hidden><i aria-hidden="true"></i><span>Demo</span></button>
+      <span id="toolbar-bell" class="toolbar-bell" hidden></span>
+      <!-- The broker API budget: calls this second and this minute, stream state, calls saved today (budget.js). -->
+      <span id="toolbar-budget" class="toolbar-budget" hidden></span>
+      <span id="toolbar-ready" class="toolbar-ready" hidden></span>
       <span id="clock" class="toolbar-clock glass" aria-hidden="true"></span>
       <span id="toolbar-actions" class="toolbar-actions"></span>
     </header>
 
     <main class="app-main">
       <div class="container-wide">
-        <div id="demo-banner" class="demo-banner" role="status" hidden>
-          <span class="pill demo">Demo data</span>
-          <span class="demo-long">Sample prices generated on this computer. Not live market data. No broker is connected and orders are paper only.</span>
-          <span class="demo-short">Sample prices, not live. Paper orders only.</span>
-        </div>
         <header class="page-head">
           <div class="page-head-main">
             <div id="page-eyebrow" class="eyebrow"></div>
@@ -97,6 +107,7 @@
             <p id="page-sub" class="page-sub"></p>
           </div>
           <div class="page-actions" id="page-actions"></div>
+          <div id="context-bar" class="context-bar" hidden></div>
         </header>
         <div id="content" class="content" tabindex="-1"></div>
         <footer class="app-foot" id="foot">Mr. Chartist API Bridge · paper trading is the default · live orders need explicit opt-ins in bridge.config.json</footer>
@@ -107,6 +118,6 @@
     <nav id="tabbar" class="tabbar glass glass-strong" aria-label="Primary pages"></nav>
   </div>
   <dialog id="dialog" class="sheet"></dialog>
-  <div id="toast" class="toast glass" role="status" aria-live="polite" hidden></div>
+  <div id="toast" class="toast glass" role="status" aria-live="polite" popover="manual" hidden></div>
 </body>
 </html>

@@ -23,6 +23,7 @@
 import { randomBytes } from "node:crypto";
 import { assertService } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
+import { isAutomatedContext } from "../core/context.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
 import { createIdempotencyStore } from "./idempotencyStore.mjs";
 import { IDEMPOTENCY_KEY_RE, TERMINAL_STATUSES, fingerprint, orderBody, parseOrderChanges, parseOrderRequest } from "./orderValidation.mjs";
@@ -218,18 +219,25 @@ export function createFakeOrderService({ accounts = ["paper"], liveAccounts = []
       return { order: structuredClone(o), replayed: false };
     },
 
-    async cancelAll(ctx, { accountId, mode } = {}) {
+    async cancelAll(ctx, { accountId, mode, dryRun = false } = {}) {
       calls.push(["cancelAll", { accountId, mode }]);
       if (accountId) ctx.requireAccountAccess(accountId);
       const cancelled = [];
+      const open = [];
       for (const o of orders.values()) {
         if ((accountId && o.accountId !== accountId) || (mode && o.mode !== mode) || !canAccess(ctx, o.accountId) || TERMINAL_STATUSES.has(o.status)) continue;
+        if (dryRun) {
+          open.push({ orderId: o.orderId, accountId: o.accountId, mode: o.mode, symbol: o.symbol, side: o.side, quantity: o.quantity, status: o.status, external: false });
+          continue;
+        }
         o.status = "cancelled";
         o.legs[0].status = "cancelled";
         cancelled.push(o.orderId);
         emit(o);
       }
-      return { cancelled, failed: [] };
+      // Every order here was placed through the Bridge; there are none placed outside it.
+      if (dryRun) return { dryRun: true, cancelled, failed: [], bridge: { cancelled: [], open }, external: { cancelled: [], left: [], open: [] } };
+      return { cancelled, failed: [], bridge: { cancelled: [...cancelled] }, external: { cancelled: [], left: [] } };
     },
 
     async get(ctx, orderId) {
@@ -292,7 +300,7 @@ export function createFakeOrderService({ accounts = ["paper"], liveAccounts = []
 
     async confirmTicket(ctx, ticketId) {
       if (ctx.principal?.kind !== "local" && !ctx.scopes?.has("admin")) throw new BridgeError("SCOPE_REQUIRED", 'This needs an API key with the "admin" scope.');
-      if (ctx.source === "mcp" || ctx.source === "webhook") throw new BridgeError("SCOPE_REQUIRED", "Only a person using the Bridge on this computer can confirm an order.");
+      if (isAutomatedContext(ctx)) throw new BridgeError("SCOPE_REQUIRED", "Only a person using the Bridge on this computer can confirm an order.");
       const r = tickets.confirm(String(ticketId), principal(ctx));
       return { confirmToken: r.confirmToken, expiresAt: r.expiresAt };
     },

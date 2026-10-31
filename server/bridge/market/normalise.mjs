@@ -156,26 +156,47 @@ export function mergeCandles(lists) {
 const GREEK_KEYS = ["delta", "gamma", "theta", "vega"];
 
 /**
- * ChainLeg fields (no symbol) from a Dhan-shaped contract leg (the same aliases brokers/contractShapes.mjs
- * toOptionData reads), keeping nulls for missing fields.
- * @param {object | null | undefined} leg
- * @returns {{ ltp, bid, ask, oi, oiChange, volume, iv, delta, gamma, theta, vega } | null}
+ * Open interest in UNITS (docs/spec/p1-01-recorder.md §10). `unit` is what the broker sends (market/oiUnits.mjs):
+ * "units" passes through; "lots" is multiplied by the leg's lot size, and becomes null when the lot size is unknown
+ * (never a guess).
+ * @param {unknown} value
+ * @param {"units"|"lots"} [unit]
+ * @param {number | null} [lotSize]
+ * @returns {number | null}
  */
-export function chainLegFields(leg) {
+export function oiToUnits(value, unit = "units", lotSize = null) {
+  const n = numOrNull(value);
+  if (n === null || unit !== "lots") return n;
+  return Number.isFinite(lotSize) && lotSize > 0 ? n * lotSize : null;
+}
+
+/**
+ * ChainLeg fields (no symbol) from a Dhan-shaped contract leg (the same aliases brokers/contractShapes.mjs
+ * toOptionData reads), keeping nulls for missing fields. OI fields are converted to units (`oiUnit`, `lotSize`).
+ * @param {object | null | undefined} leg
+ * @param {{ oiUnit?: "units"|"lots", lotSize?: number | null }} [opts]
+ * @returns {{ ltp, bid, ask, oi, oiChange, volume, iv, close, change, delta, gamma, theta, vega } | null}
+ */
+export function chainLegFields(leg, { oiUnit = "units", lotSize = null } = {}) {
   if (!leg || typeof leg !== "object") return null;
   const g = leg.greeks && typeof leg.greeks === "object" ? leg.greeks : {};
-  const oi = numOrNull(leg.oi);
-  const prevOi = numOrNull(leg.previous_oi);
-  const oiChg = numOrNull(leg.oi_chg ?? leg.oiChange);
+  const oi = oiToUnits(leg.oi, oiUnit, lotSize);
+  const prevOi = oiToUnits(leg.previous_oi, oiUnit, lotSize);
+  const oiChg = oiToUnits(leg.oi_chg ?? leg.oiChange, oiUnit, lotSize);
   const iv = numOrNull(leg.implied_volatility ?? leg.iv);
+  const ltp = priceOrNull(leg.last_price ?? leg.ltp);
+  // Previous session's close, when the broker sends it: lets clients read price change (and OI build-up) per leg.
+  const close = priceOrNull(leg.previous_close_price ?? leg.prev_close ?? leg.previous_close ?? leg.prevClose ?? leg.close);
   const out = {
-    ltp: priceOrNull(leg.last_price ?? leg.ltp),
+    ltp,
     bid: priceOrNull(leg.top_bid_price ?? leg.best_bid_price ?? leg.bid_price ?? leg.bid),
     ask: priceOrNull(leg.top_ask_price ?? leg.best_ask_price ?? leg.ask_price ?? leg.ask),
     oi,
     oiChange: oiChg !== null ? oiChg : oi !== null && prevOi !== null ? oi - prevOi : null,
     volume: numOrNull(leg.volume),
     iv: iv !== null && iv > 0 ? iv : null,
+    close,
+    change: ltp !== null && close !== null ? round(ltp - close, 4) : null,
   };
   for (const k of GREEK_KEYS) out[k] = numOrNull(g[k] ?? leg[k]);
   return out;

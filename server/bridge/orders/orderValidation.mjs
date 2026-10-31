@@ -35,6 +35,8 @@ export const orderRequestSchema = z
     side: z.enum(["BUY", "SELL"]),
     quantity: z.number().int().min(1).max(100_000_000).optional(),
     lots: z.number().int().min(1).max(100_000).optional(),
+    /** The lot size the caller has checked; used only when reference lot data is stale (p1-02 §3.6, LOT_SIZE_STALE). */
+    lotSizeConfirmed: z.number().int().min(1).max(10_000_000).optional(),
     product: z.enum(PRODUCTS),
     orderType: z.enum(ORDER_TYPES),
     price: positivePrice.optional(),
@@ -84,6 +86,10 @@ export const cancelAllSchema = z
   .object({
     account: z.string().regex(ACCOUNT_RE).optional(),
     mode: z.enum(["paper", "live"]).optional(),
+    /** Leave orders placed outside the Bridge (in the broker's app) open. Default false: cancel them too. */
+    bridgeOnly: z.boolean().optional(),
+    /** Cancel nothing: list what is open, the Bridge's orders and those placed outside it. */
+    dryRun: z.boolean().optional(),
   })
   .strict();
 
@@ -296,6 +302,7 @@ const CODE_PRIORITY = Object.freeze({
   PAPER_ONLY: 1,
   SCOPE_REQUIRED: 1,
   CONFIRMATION_REQUIRED: 2,
+  CANNOT_TRADE: 2,
   SESSION_EXPIRED: 3,
   CAPABILITY_UNSUPPORTED: 3,
   SYMBOL_NOT_FOUND: 3,

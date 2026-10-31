@@ -6,9 +6,15 @@
  * Computed Greeks use: the leg's LTP, the underlying LTP from the same read, the strike, calendar days to 15:30 IST on
  * the expiry day (at least 0.25 days), and the configured risk-free rate (default 6.5 %). No dividend yield. IV is in
  * percent; theta per calendar day; vega per one vol point. Every leg says where its Greeks came from (greeksSource).
+ * That is the legacy model (`ivModel=legacy-bs-spot`, still the default until 2027-05-01).
+ *
+ * `ivModel=b76-forward` (docs/spec/p1-03-pricing-vol.md §3.9) prices every leg through dashboard/pricing.js, the same
+ * code the dashboard runs: Black-76 on the 5-strike parity forward, mid prices, the vol-time clock for σ√T and calendar
+ * time for interest. Theta is per trading-day unit. The broker's own IV, if it sent one, is kept as `brokerIv`.
  */
 import { computeIVAndGreeks, daysBetween } from "../../lib/blackScholes.mjs";
 import { formatSymbol } from "../core/symbolFormat.mjs";
+import { greeks76, legIv, parityForward, volTime } from "../dashboard/pricing.js";
 import { GREEK_KEYS, chainLegFields, legLacksGreeks, stripGreeks } from "./normalise.mjs";
 
 /** BSE index underlyings trade on BFO; everything else defaults to NFO. */
@@ -23,6 +29,28 @@ export function defaultOptionExchange(underlying) {
 export function legSymbol(exchange, underlying, expiry, strike, right) {
   return formatSymbol({ exchange, underlying, expiry, strike, right, kind: "OPT" });
 }
+
+/**
+ * Strike step (docs/spec/p1-06-stocks.md §6.1): the most common positive gap between consecutive distinct listed
+ * strikes of one expiry; the smaller gap wins a tie; null with fewer than 3 strikes. Inferred, so callers label it.
+ * [1360, 1380, 1400, 1410, 1420, 1440, 1460] → 20 (the off-grid 1410 is typical after a corporate action).
+ * @param {number[]} strikes
+ */
+export function strikeStepOf(strikes) {
+  const xs = [...new Set((strikes ?? []).filter((k) => typeof k === "number" && Number.isFinite(k) && k > 0))].sort((a, b) => a - b);
+  if (xs.length < 3) return null;
+  const counts = new Map();
+  for (let i = 1; i < xs.length; i += 1) {
+    const gap = Math.round((xs[i] - xs[i - 1]) * 10_000) / 10_000;
+    if (gap > 0) counts.set(gap, (counts.get(gap) ?? 0) + 1);
+  }
+  let best = null;
+  for (const [gap, n] of counts) if (best === null || n > best[1] || (n === best[1] && gap < best[0])) best = [gap, n];
+  return best ? best[0] : null;
+}
+
+/** "physical" for stock derivatives, "cash" for index derivatives, null when the kind is unknown. */
+export const settlementOfKind = (kind) => (kind === "stock" ? "physical" : kind === "index" ? "cash" : null);
 
 /** The strike nearest to spot (lower strike on a tie), or null. */
 export function atmStrike(strikes, spot) {
@@ -77,7 +105,8 @@ export function finishLeg(fields, p) {
  * Rows from a broker chain (adapter.fetchOptionChain result).
  * @param {object} result { status, data: { oc: { "<strike>": { ce?, pe? } }, last_price } }
  * @param {{ underlying: string, expiry: string, exchange: string, declared: "broker"|"computed"|null, greeks: boolean,
- *   strikes?: number, nowMs: number, rate: number }} p
+ *   strikes?: number, nowMs: number, rate: number, oiUnit?: "units"|"lots", lotSize?: number | null }} p
+ *   oiUnit/lotSize: the broker's OI unit (market/oiUnits.mjs); OI is converted to units
  * @returns {{ underlyingLtp: number | null, atmStrike: number | null, rows: object[] }}
  */
 export function rowsFromBrokerChain(result, p) {
@@ -92,7 +121,7 @@ export function rowsFromBrokerChain(result, p) {
     const pair = oc[key] ?? {};
     const row = { strike, ce: null, pe: null };
     for (const right of ["CE", "PE"]) {
-      const fields = chainLegFields(pair[right.toLowerCase()]);
+      const fields = chainLegFields(pair[right.toLowerCase()], { oiUnit: p.oiUnit ?? "units", lotSize: p.lotSize ?? null });
       row[right.toLowerCase()] = finishLeg(fields, {
         ...p,
         symbol: legSymbol(p.exchange, p.underlying, p.expiry, strike, right),
@@ -121,10 +150,62 @@ export function rowsFromQuotes(legs, quotes, p) {
     const row = byStrike.get(leg.strike) ?? { strike: leg.strike, ce: null, pe: null };
     byStrike.set(leg.strike, row);
     if (!q) continue;
-    const fields = { ltp: q.ltp ?? null, bid: q.bid ?? null, ask: q.ask ?? null, oi: q.oi ?? null, oiChange: null, volume: q.volume ?? null, iv: null, delta: null, gamma: null, theta: null, vega: null };
+    const fields = { ltp: q.ltp ?? null, bid: q.bid ?? null, ask: q.ask ?? null, oi: q.oi ?? null, oiChange: null, volume: q.volume ?? null, iv: null, close: q.close ?? null, change: q.change ?? null, delta: null, gamma: null, theta: null, vega: null };
     row[leg.right.toLowerCase()] = finishLeg(fields, { ...p, symbol: leg.canonical, declared: null, strike: leg.strike, right: leg.right });
   }
   const rows = [...byStrike.values()].sort((a, b) => a.strike - b.strike);
   const atm = atmStrike(rows.map((r) => r.strike), p.spot);
   return { underlyingLtp: p.spot, atmStrike: atm, rows: trimStrikes(rows, atm, p.strikes) };
+}
+
+/** The chain IV models: the new single pricing core and the legacy Black-Scholes-on-spot path. */
+export const IV_MODELS = Object.freeze(["b76-forward", "legacy-bs-spot"]);
+
+/**
+ * Reprice a finished chain (OpenAPI OptionChain) with Black-76 on the parity forward (pure). Every leg gets iv, delta,
+ * gamma, theta (₹ per trading-day unit) and vega from pricing.js, `greeksSource: "computed"` and `brokerIv` (the IV
+ * the broker sent, else null); legs without an IV get nulls and `ivReason` (SETTLING, NOQUOTE, TICK, INTRINSIC, RANGE,
+ * SETTLED, NOFORWARD; null when the IV solved). Adds the chain-level `pricing` object.
+ * @param {object} chain  { underlying, expiry, underlyingLtp, rows, ... }
+ * @param {{ ctx: object, nowMs: number, rate: number, rateQuality?: string|null }} p  ctx from vol/context.mjs
+ */
+export function applyB76(chain, { ctx, nowMs, rate, rateQuality = null }) {
+  const clock = volTime(ctx, nowMs, chain.expiry);
+  const T = clock?.T ?? 0;
+  const Tcal = clock?.Tcal ?? 0;
+  const fw = parityForward(chain, { rate, Tcal });
+  const F = fw.F;
+  const df = Math.exp(-rate * Tcal);
+  const yearBasis = clock?.yearBasis ?? null;
+  const leg = (q, strike, right) => {
+    if (!q) return null;
+    const brokerIv = q.greeksSource === "broker" && q.iv > 0 ? q.iv : null;
+    const out = { ...q, iv: null, delta: null, gamma: null, theta: null, vega: null, greeksSource: "computed", brokerIv, ivReason: null };
+    if (!(T > 0)) return { ...out, ivReason: "SETTLED" };
+    if (!(F > 0)) return { ...out, ivReason: "NOFORWARD" };
+    const r = legIv(q, F, strike, right, { years: T, df, basis: "mid", settling: clock.settling });
+    // Why a leg has no IV (§6.1: SETTLING inside the expiry-day settlement window), so clients can tell it from no quote.
+    if (!r) return { ...out, ivReason: "NOQUOTE" };
+    if (r.iv === null) return { ...out, ivReason: String(r.out ?? "noquote").toUpperCase() };
+    const g = greeks76(F, strike, T, r.iv, right, { yearBasis });
+    // IV is not rounded (the dashboard's own solve on the same JSON must agree to 1e-9); Greeks to 6 decimals.
+    out.iv = round(r.iv, 10);
+    for (const k of GREEK_KEYS) out[k] = round(g[k], 6);
+    return out;
+  };
+  const rows = chain.rows.map((r) => ({ ...r, ce: leg(r.ce, r.strike, "CE"), pe: leg(r.pe, r.strike, "PE") }));
+  return {
+    ...chain,
+    rows,
+    pricing: {
+      model: "black76-parity-forward",
+      ivModel: "b76-forward",
+      priceBasis: "mid",
+      forward: F === null ? null : round(F, 4),
+      forwardSource: fw.source,
+      forwardStrikes: fw.strikes,
+      rate: { value: rate, quality: rateQuality },
+      clock: { version: clock?.version ?? "vt1", mode: clock?.mode ?? ctx.mode, T: round(T, 10), units: round(clock?.units ?? 0, 6), Tcal: round(Tcal, 10), yearBasis },
+    },
+  };
 }

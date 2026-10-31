@@ -1,0 +1,141 @@
+/**
+ * Events service (stream S28): wires the engine to its store, its inputs (live feed, or the demo simulator in demo
+ * mode) and its timers. One per app (module.mjs keeps it in a WeakMap, like the scanner).
+ */
+import { join } from "node:path";
+import { parseEventsConfig } from "./config.mjs";
+import { createDemoMarket } from "./demoMarket.mjs";
+import { createEventsEngine, istDate, sessionMinute } from "./engine.mjs";
+import { createLiveFeed } from "./feed.mjs";
+import { createEventStore } from "./store.mjs";
+import { newCondition } from "./conditions.mjs";
+import { BridgeError } from "../core/errors.mjs";
+
+/** Chain-level detectors run on this timer (dirty chains only). */
+export const FLUSH_MS = 250;
+
+/**
+ * @param {object} deps every service (module register()), plus config, clock, bus, paths, logger
+ * @param {{ demoStepMs?: number, backfill?: boolean, autoStart?: boolean }} [opts]
+ */
+export function createEventsService(deps, opts = {}) {
+  const cfg = parseEventsConfig(deps.config?.events);
+  const demo = Boolean(deps.config?.demo);
+  const log = deps.logger?.child ? deps.logger.child({ module: "events" }) : deps.logger;
+  const dataDir = deps.paths?.dataDir ?? deps.config?.dataDir ?? null;
+  const store = createEventStore({ dir: dataDir ? join(dataDir, demo ? "events-demo" : "events") : null, clock: deps.clock, keepDays: demo ? 3 : cfg.keepDays, logger: log });
+  let demoMarket = null;
+  const sessionOf = (ms) => (demoMarket ? demoMarket.sessionOf(ms) : sessionMinute(ms));
+  const engine = createEventsEngine({ clock: deps.clock, bus: deps.bus, store, selection: store.loadSelection() ?? undefined, sessionOf, maxEvents: cfg.maxEventsPerDay, chainEveryMs: cfg.chainEveryMs, foldMs: cfg.foldMs, logger: log });
+  let conditions = store.loadConditions().filter((c) => {
+    try {
+      engine.setConditions([c]);
+      return true;
+    } catch {
+      log?.warn?.("a saved custom condition no longer compiles; skipped", { id: c?.id });
+      return false;
+    }
+  });
+  engine.setConditions(conditions);
+  const feed = !demo && cfg.enabled ? createLiveFeed({ engine, deps, cfg, store, logger: log }) : null;
+  const timers = [];
+  let started = false;
+
+  let demoArmed = false;
+  /** Demo mode starts its simulated session on first use (a read of /v1/events*), so an idle demo Bridge costs no CPU. */
+  function touch() {
+    if (demo && demoArmed && !started) start().catch((err) => log?.error?.("events demo start failed", { err }));
+  }
+
+  async function start() {
+    if (started || !cfg.enabled) return;
+    if (demo && opts.autoStart !== true && !demoArmed) {
+      demoArmed = true;
+      return;
+    }
+    started = true;
+    store.prune();
+    if (demo) {
+      demoMarket = createDemoMarket({ engine, clock: deps.clock, scale: cfg.demoScale });
+      if (opts.backfill !== false) await demoMarket.backfillAsync(undefined, undefined, () => !started);
+      if (!started) return;
+      // Ten slices a second, each a tenth of the symbols, so quotes (and events) arrive spread out as from a feed.
+      const PARTS = 10;
+      const sliceMs = Math.max(20, Math.round((opts.demoStepMs ?? 1000) / PARTS));
+      let part = 0;
+      const t = setInterval(() => {
+        demoMarket.step(deps.clock.now(), { dtSec: (sliceMs * PARTS) / 1000, part, parts: PARTS });
+        part = (part + 1) % PARTS;
+      }, sliceMs);
+      t.unref?.();
+      timers.push(t);
+    } else {
+      engine.restore(await store.readDay(istDate(deps.clock.now())));
+      await feed?.start();
+      const f = setInterval(() => engine.flush(), FLUSH_MS);
+      f.unref?.();
+      timers.push(f);
+    }
+  }
+
+  return {
+    engine,
+    store,
+    cfg,
+    demo,
+    start,
+    touch,
+    async stop() {
+      demoArmed = false;
+      for (const t of timers) clearInterval(t);
+      timers.length = 0;
+      feed?.stop();
+      await store.flush();
+      started = false;
+    },
+    conditions: () => conditions.map(({ id, name, expr, side, createdAt }) => ({ id, name, expr, side, createdAt })),
+    addCondition(body) {
+      const c = newCondition(body, conditions);
+      conditions = [...conditions, c];
+      engine.setConditions(conditions);
+      store.saveConditions(conditions);
+      return c;
+    },
+    removeCondition(id) {
+      const c = conditions.find((x) => x.id === id);
+      if (!c) throw new BridgeError("NOT_FOUND", `No condition ${id}.`);
+      conditions = conditions.filter((x) => x.id !== id);
+      engine.setConditions(conditions);
+      store.saveConditions(conditions);
+      return { id, deleted: true };
+    },
+    setSelection(input) {
+      const sel = engine.setSelection(input);
+      try {
+        store.saveSelection(sel);
+      } catch (err) {
+        log?.warn?.("could not save the event selection", { err: err?.message });
+      }
+      feed?.refresh().catch(() => {});
+      return sel;
+    },
+    status() {
+      return {
+        enabled: cfg.enabled,
+        demo,
+        mode: demo ? "demo" : "live",
+        engine: engine.stats(),
+        feed: feed?.status() ?? null,
+        demoMarket: demoMarket?.size() ?? null,
+        budgetShare: cfg.budgetShare,
+      };
+    },
+    demoMarket: () => demoMarket,
+    /** A saved scan's new match as a "Scan hit" row (scanner/scanService.mjs). Returns the record or null. */
+    scanHit({ symbol, name, savedId, side = null, ltp = null, changePct = null }) {
+      if (!cfg.enabled) return null;
+      const dir = side === "up" ? 1 : side === "down" ? -1 : 0;
+      return engine.external({ symbol, kind: "scan_hit", variant: String(savedId ?? name ?? ""), label: String(name ?? "Scan hit").slice(0, 80), dir, text: `Scan "${String(name ?? "").slice(0, 80)}" matched`, ltp, changePct });
+    },
+  };
+}

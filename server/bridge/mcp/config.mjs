@@ -3,7 +3,8 @@
  *
  *   "mcp": {
  *     "enabled": true,                                   // false: POST /mcp answers 404 and `mc-bridge mcp` gets nothing
- *     "toolsets": ["market", "analytics", "account"],    // add "orders" to let AI assistants PREPARE orders
+ *     "toolsets": ["market", "analytics", "account"],    // add "orders" to let AI assistants PREPARE orders;
+ *                                                         // add "options" for the Phase 1 options tools (opt-in)
  *     "orderAccounts": [],                               // accounts order tools may name; empty = no order tools at all
  *     "maxItems": 200                                    // largest page a tool returns (cursor for the rest)
  *   }
@@ -15,7 +16,11 @@
  */
 import { z } from "zod";
 
-export const TOOLSETS = Object.freeze(["market", "analytics", "account", "orders"]);
+/**
+ * "options" (Phase 1 options platform: recorder, vol, exposure, alerts, guards ...) is opt-in so the default list
+ * stays under 20 tools. Its write tools (create_guard) still need the "paper" scope (ToolDef.requiredScope).
+ */
+export const TOOLSETS = Object.freeze(["market", "analytics", "account", "orders", "options"]);
 export const DEFAULT_TOOLSETS = Object.freeze(["market", "analytics", "account"]);
 
 export const MCP_DEFAULTS = Object.freeze({

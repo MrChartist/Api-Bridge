@@ -60,9 +60,10 @@ export function configFileAccountIds(path) {
  * since the Bridge started).
  * @param {string} path
  * @param {Record<string, unknown>} entry  as it should appear in the file
- * @returns {Promise<{ created: boolean }>}  created: the file did not exist before
+ * @param {{ leaveDemo?: boolean }} [opts]  leaveDemo: also delete a top-level "demo": true (demo-mode save, opt-in)
+ * @returns {Promise<{ created: boolean, demoWasInFile: boolean, demoTurnedOff: boolean }>}  created: the file did not exist before
  */
-export function addAccountToConfigFile(path, entry) {
+export function addAccountToConfigFile(path, entry, { leaveDemo = false } = {}) {
   return serialised(() => {
     const created = !existsSync(path);
     const obj = readForEdit(path);
@@ -71,8 +72,11 @@ export function addAccountToConfigFile(path, entry) {
       throw new BridgeError("VALIDATION_FAILED", `The account id "${entry.id}" is already in your config file. Choose another id, or restart the Bridge to load it.`);
     }
     obj.accounts = [...accounts, entry];
+    // Saved from demo mode: turn demo off in the file too, so the next start loads the account (opt-in, see routes).
+    const demoWasInFile = obj.demo === true;
+    if (leaveDemo && demoWasInFile) delete obj.demo;
     writeChecked(path, obj);
-    return { created };
+    return { created, demoWasInFile, demoTurnedOff: leaveDemo && demoWasInFile };
   });
 }
 
@@ -92,5 +96,33 @@ export function removeAccountFromConfigFile(path, accountId) {
     obj.accounts = kept;
     writeChecked(path, obj);
     return { removed: true };
+  });
+}
+
+/**
+ * Replace one module-owned section of the file (for example `recorder`, docs/spec/p1-01-recorder.md §4.6). The
+ * section is checked with the module's own schema and the whole file with the core schema before an atomic write;
+ * every other section stays as it was. Serialised with the account writes.
+ * @param {string} path
+ * @param {string} key   section name
+ * @param {Record<string, unknown>} value  the section as it should appear in the file
+ * @param {{ schema?: { safeParse(v: unknown): { success: boolean, error?: any } } }} [opts]
+ * @returns {Promise<{ created: boolean }>}
+ */
+export function setConfigSection(path, key, value, { schema } = {}) {
+  if (typeof key !== "string" || !/^[a-z][A-Za-z0-9]{1,40}$/.test(key) || key === "accounts") throw new TypeError("setConfigSection needs a module section name");
+  return serialised(() => {
+    const created = !existsSync(path);
+    const obj = readForEdit(path);
+    if (schema) {
+      const parsed = schema.safeParse(value);
+      if (!parsed.success) {
+        const first = parsed.error?.issues?.[0];
+        throw new BridgeError("VALIDATION_FAILED", `The ${key} settings are not valid (${first ? `${first.path.join(".") || "(root)"}: ${first.message}` : "unknown problem"}). Nothing was changed.`);
+      }
+    }
+    obj[key] = value;
+    writeChecked(path, obj);
+    return { created };
   });
 }

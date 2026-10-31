@@ -6,15 +6,17 @@
  *   GET    /v1/orders?account=&mode=&status=&limit=&cursor=      list (both modes when mode is absent)
  *   POST   /v1/orders               Idempotency-Key header        201, Idempotency-Replayed: true on replay
  *   POST   /v1/orders/preview
- *   POST   /v1/orders/cancel-all    { account?, mode? }
+ *   POST   /v1/orders/cancel-all    { account?, mode?, bridgeOnly?, dryRun? }
  *   GET    /v1/orders/by-client-id/{clientOrderId}
  *   GET    /v1/orders/{orderId}     PATCH (OrderChanges)          DELETE
  *   GET    /v1/trades?account=&mode=&limit=&cursor=
  *   GET    /v1/positions?account=&mode=   /v1/holdings?account=   /v1/funds?account=&mode=
+ *   POST   /v1/positions/convert    { account, symbol, from, to, quantity | lots, mode? }   Intraday ↔ carry (paper)
  *   GET    /v1/tickets              POST /v1/tickets/{ticketId}/confirm   (admin, this computer only)
  */
 import { BridgeError } from "../core/errors.mjs";
 import { json } from "../core/http.mjs";
+import { startupReady } from "../core/startup.mjs";
 import { ACCOUNT_RE, CLIENT_ORDER_ID_RE, ORDER_STATUSES, cancelAllSchema, parseWith } from "./orderValidation.mjs";
 
 const invalid = (path, detail) => new BridgeError("VALIDATION_FAILED", detail, { errors: [{ path, message: detail }] });
@@ -78,6 +80,8 @@ export function createOrderRoutes(deps) {
   const svc = () => deps.orders;
   return {
     async listOrders(ctx) {
+      // While the Bridge starts, wait for startup jobs (the demo book seed): never a half-seeded book.
+      await startupReady(deps);
       const q = ctx.query;
       const status = opt(q, "status");
       if (status !== undefined && !ORDER_STATUSES.includes(status)) throw invalid("status", `status must be one of ${ORDER_STATUSES.join(", ")}.`);
@@ -101,7 +105,7 @@ export function createOrderRoutes(deps) {
     async cancelAll(ctx) {
       idempotencyKey(ctx); // validated; cancel-all is naturally idempotent
       const body = parseWith(cancelAllSchema, ctx.body ?? {}, "The cancel-all request is not valid.");
-      const data = await svc().cancelAll(ctx, { accountId: body.account, mode: body.mode });
+      const data = await svc().cancelAll(ctx, { accountId: body.account, mode: body.mode, bridgeOnly: body.bridgeOnly === true, dryRun: body.dryRun === true });
       return { data, meta: meta(ctx, { accountId: body.account ?? null, ...(body.mode ? { mode: body.mode } : {}) }) };
     },
 
@@ -128,6 +132,8 @@ export function createOrderRoutes(deps) {
     },
 
     async listTrades(ctx) {
+      // While the Bridge starts, wait for startup jobs (the demo book seed): never a half-seeded book.
+      await startupReady(deps);
       const q = ctx.query;
       const accountId = accountParam(q, { required: false });
       const mode = modeParam(q);
@@ -136,9 +142,16 @@ export function createOrderRoutes(deps) {
     },
 
     async positions(ctx) {
+      // While the Bridge starts, wait for startup jobs (the demo book seed): never a half-seeded book.
+      await startupReady(deps);
       const accountId = accountParam(ctx.query, { required: true });
       const r = await svc().positions(ctx, accountId, { mode: modeParam(ctx.query) });
       return { data: r.items, meta: meta(ctx, { accountId, mode: r.freshness.source === "paper" ? "paper" : "live", freshness: r.freshness }) };
+    },
+
+    async convertPosition(ctx) {
+      const data = await svc().convertPosition(ctx, ctx.body);
+      return { data, meta: meta(ctx, { accountId: data.accountId, mode: data.mode }) };
     },
 
     async holdings(ctx) {
@@ -148,6 +161,8 @@ export function createOrderRoutes(deps) {
     },
 
     async funds(ctx) {
+      // While the Bridge starts, wait for startup jobs (the demo book seed): never a half-seeded book.
+      await startupReady(deps);
       const accountId = accountParam(ctx.query, { required: true });
       const r = await svc().funds(ctx, accountId, { mode: modeParam(ctx.query) });
       return { data: r.funds, meta: meta(ctx, { accountId, mode: r.freshness.source === "paper" ? "paper" : "live", freshness: r.freshness }) };

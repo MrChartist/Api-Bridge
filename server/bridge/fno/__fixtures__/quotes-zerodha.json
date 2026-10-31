@@ -1,0 +1,124 @@
+{
+ "args": [
+  [
+   {
+    "token": "17105410",
+    "exchange": "NFO"
+   }
+  ]
+ ],
+ "responses": [
+  {
+   "method": "GET",
+   "url": "https://api.kite.trade/instruments/NSE",
+   "status": 200,
+   "text": "instrument_token,exchange_token,tradingsymbol,name,last_price,expiry,strike,tick_size,lot_size,instrument_type,segment,exchange\n256265,1001,NIFTY 50,\"NIFTY 50\",0,,0,0,0,EQ,INDICES,NSE\n260105,1016,NIFTY BANK,\"NIFTY BANK\",0,,0,0,0,EQ,INDICES,NSE\n738561,2885,RELIANCE,\"RELIANCE INDUSTRIES\",0,,0,0.1,1,EQ,NSE,NSE\n408065,1594,INFY,\"INFOSYS\",0,,0,0.05,1,EQ,NSE,NSE\n",
+   "headers": {
+    "content-type": "text/csv"
+   }
+  },
+  {
+   "method": "GET",
+   "url": "https://api.kite.trade/instruments/NFO",
+   "status": 200,
+   "text": "instrument_token,exchange_token,tradingsymbol,name,last_price,expiry,strike,tick_size,lot_size,instrument_type,segment,exchange\n12010242,46915,NIFTY26OCT25000CE,\"NIFTY\",0,2026-10-27,25000,0.05,65,CE,NFO-OPT,NFO\n12010498,46916,NIFTY26OCT25000PE,\"NIFTY\",0,2026-10-27,25000,0.05,65,PE,NFO-OPT,NFO\n12010754,46917,NIFTY26OCT25050CE,\"NIFTY\",0,2026-10-27,25050,0.05,65,CE,NFO-OPT,NFO\n12011010,46918,NIFTY26OCT25050PE,\"NIFTY\",0,2026-10-27,25050,0.05,65,PE,NFO-OPT,NFO\n12011266,46919,NIFTY26OCT25100CE,\"NIFTY\",0,2026-10-27,25100,0.05,65,CE,NFO-OPT,NFO\n12011522,46920,NIFTY26OCT25100PE,\"NIFTY\",0,2026-10-27,25100,0.05,65,PE,NFO-OPT,NFO\n12090370,47228,NIFTY26N0325000CE,\"NIFTY\",0,2026-11-03,25000,0.05,65,CE,NFO-OPT,NFO\n12090626,47229,NIFTY26N0325000PE,\"NIFTY\",0,2026-11-03,25000,0.05,65,PE,NFO-OPT,NFO\n12601602,49225,NIFTY26OCTFUT,\"NIFTY\",0,2026-10-27,0,0.1,65,FUT,NFO-FUT,NFO\n13502978,52746,BANKNIFTY26OCT56000CE,\"BANKNIFTY\",0,2026-10-27,56000,0.05,30,CE,NFO-OPT,NFO\n17105410,66818,RELIANCE26OCT1400CE,\"RELIANCE\",0,2026-10-27,1400,0.05,500,CE,NFO-OPT,NFO\n17105666,66819,RELIANCE26OCT1400PE,\"RELIANCE\",0,2026-10-27,1400,0.05,500,PE,NFO-OPT,NFO\n14400002,56250,NIFTYNXT5026DEC81600CE,\"NIFTYNXT50\",0,2026-12-29,81600,0.05,25,CE,NFO-OPT,NFO\n",
+   "headers": {
+    "content-type": "text/csv"
+   }
+  },
+  {
+   "method": "GET",
+   "urlPattern": "^https://api\\.kite\\.trade/quote\\?i=",
+   "status": 200,
+   "json": {
+    "status": "success",
+    "data": {
+     "NFO:RELIANCE26OCT1400CE": {
+      "instrument_token": 17105410,
+      "timestamp": "2026-10-16 15:29:59",
+      "last_trade_time": "2026-10-16 15:29:58",
+      "last_price": 34.0,
+      "last_quantity": 65,
+      "buy_quantity": 12500,
+      "sell_quantity": 9000,
+      "volume": 412500,
+      "average_price": 182.4,
+      "oi": 1302500,
+      "oi_day_high": 1310000,
+      "oi_day_low": 1245000,
+      "net_change": 0,
+      "lower_circuit_limit": 0.05,
+      "upper_circuit_limit": 547.2,
+      "ohlc": {
+       "open": 31.5,
+       "high": 35.2,
+       "low": 29.8,
+       "close": 30.1
+      },
+      "depth": {
+       "buy": [
+        {
+         "price": 33.8,
+         "quantity": 500,
+         "orders": 1
+        },
+        {
+         "price": 0,
+         "quantity": 0,
+         "orders": 0
+        },
+        {
+         "price": 0,
+         "quantity": 0,
+         "orders": 0
+        },
+        {
+         "price": 0,
+         "quantity": 0,
+         "orders": 0
+        },
+        {
+         "price": 0,
+         "quantity": 0,
+         "orders": 0
+        }
+       ],
+       "sell": [
+        {
+         "price": 34.2,
+         "quantity": 1000,
+         "orders": 2
+        },
+        {
+         "price": 0,
+         "quantity": 0,
+         "orders": 0
+        },
+        {
+         "price": 0,
+         "quantity": 0,
+         "orders": 0
+        },
+        {
+         "price": 0,
+         "quantity": 0,
+         "orders": 0
+        },
+        {
+         "price": 0,
+         "quantity": 0,
+         "orders": 0
+        }
+       ]
+      }
+     }
+    }
+   }
+  }
+ ],
+ "expect": {
+  "minRows": 3
+ },
+ "note": "Kite Connect v3 full quote shape (https://kite.trade/docs/connect/v3/market-quotes/) for an NFO stock option (OPTSTK, RELIANCE26OCT1400CE, lot 500); instrument rows from the Kite instrument dump format; values illustrative. P1-6 quotesVerified fixture.",
+ "lot": 500
+}

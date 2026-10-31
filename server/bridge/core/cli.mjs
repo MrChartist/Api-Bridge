@@ -15,11 +15,12 @@ import { SIGN_IN_TTL_MS, createSignInCode } from "../auth/signIn.mjs";
 import { BridgeError, NotImplementedError } from "./errors.mjs";
 import { configFileForWrites, isLoopbackHost, loadConfig } from "./config.mjs";
 import { createLogger } from "./logger.mjs";
+import { DEFAULT_NOTIFY_EVENTS } from "../notify/config.mjs";
 
 export const USAGE = `Mr. Chartist API Bridge
 
 Usage:
-  mc-bridge init [--yes] [--demo] [--broker <id> [--account <id>] [--label <text>]] [--no-paper] [--force]
+  mc-bridge init [--yes] [--demo] [--broker <id> [--account <id>] [--label <text>]] [--no-paper] [--nse-archives] [--force]
                                    first-run setup (alias: setup); asks questions unless --yes
   mc-bridge start [--config <file>] [--demo] [--open]
                                    --demo: sample data, no broker, live trading off; --open: open the dashboard,
@@ -105,6 +106,7 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
   if (!s.liveTrading) add("ok", "live-trading", "Live trading is off (paper only)");
   else add("warn", "live-trading", `Live trading is ON for: ${liveAccounts.join(", ") || "no account (enable per account)"}. Orders must leave from your broker-registered static IP.`);
   if (s.killSwitchOnStart) add("warn", "kill-switch", "The kill switch will be engaged at start");
+  for (const c of readinessDoctorChecks(config)) add(c.level, c.check, c.message);
   add(config.accounts.length ? "ok" : "warn", "accounts", config.accounts.length ? `${config.accounts.length} account(s): ${config.accounts.map((a) => `${a.id} (${a.broker})`).join(", ")}` : "No accounts configured yet");
   try {
     new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata" }).format(new Date());
@@ -147,6 +149,35 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
       srv.listen(config.server.port, host, () => srv.close(() => r(true)));
     });
     add(free ? "ok" : "warn", "port", free ? `Port ${config.server.port} is free` : `Port ${config.server.port} is in use (is the Bridge already running?)`);
+  }
+  return out;
+}
+
+/**
+ * The two trading-readiness checks (docs/spec/p1-05-readiness.md §3.1, T15). Pure.
+ *  (a) a live-enabled account without live.registeredIp: the readiness monitor cannot compare the static IP;
+ *  (b) notify targets exist but none listens to trading.readiness, so a failing 09:00 check reaches nobody.
+ * @returns {Array<{ level: "ok"|"warn", check: string, message: string }>}
+ */
+export function readinessDoctorChecks(config) {
+  const out = [];
+  const live = (config.accounts ?? []).filter((a) => a.live?.enabled && a.broker !== "paper");
+  const missing = live.filter((a) => !String(a.live?.registeredIp ?? "").trim());
+  if (live.length) {
+    out.push(
+      missing.length
+        ? { level: "warn", check: "static-ip", message: `No live.registeredIp for ${missing.map((a) => a.id).join(", ")}: the readiness check cannot compare this computer's IP with the one registered at the broker. Add it to the account in bridge.config.json (see docs/guides/deployment.md).` }
+        : { level: "ok", check: "static-ip", message: `Registered static IP set for every live account (${live.map((a) => a.id).join(", ")})` },
+    );
+  }
+  const targets = (config.notify?.targets ?? []).filter((t) => t && t.enabled !== false);
+  if (targets.length) {
+    const listening = targets.filter((t) => (Array.isArray(t.events) && t.events.length ? t.events : DEFAULT_NOTIFY_EVENTS).includes("trading.readiness"));
+    out.push(
+      listening.length
+        ? { level: "ok", check: "readiness-notify", message: `Readiness alerts go to: ${listening.map((t) => t.id).join(", ")}` }
+        : { level: "warn", check: "readiness-notify", message: `No notify target listens to trading.readiness, so a failing 09:00 readiness check reaches nobody. Add "trading.readiness" to notify.targets[].events (docs/guides/notifications.md).` },
+    );
   }
   return out;
 }

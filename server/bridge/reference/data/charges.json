@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "asOf": "2026-04-01",
+  "source": "Union Budget 2026 STT; exchange and SEBI fee schedules (verify against contract note)",
+  "verified": false,
+  "notes": {
+    "opt": "STT on the premium of sell orders; exercise STT on the intrinsic value of long in-the-money options (holder pays); stamp duty on buys; exchange transaction charge on premium turnover",
+    "fut": "STT on the value of sell orders; stamp duty on buys; exchange transaction charge on turnover",
+    "gst": "on brokerage + exchange transaction charge + SEBI fee (+ IPFT)",
+    "ipftPerCrore": "unverified: 0 unless the user sets it"
+  },
+  "opt": { "sttSell": 0.0015, "exerciseStt": 0.0015, "stampBuy": 0.00003, "txn": { "NSE": 0.0003503, "BSE": 0.000325 } },
+  "fut": { "sttSell": 0.0005, "stampBuy": 0.00002, "txn": { "NSE": 0.0000173, "BSE": 0 } },
+  "sebiPerCrore": 10,
+  "ipftPerCrore": 0,
+  "gst": 0.18,
+  "physical": { "sttDelivery": 0.001, "basis": "strike × quantity (needs verification)", "stampBuy": 0.00015,
+                "txn": { "NSE": 0.0000297, "BSE": 0.0000375 }, "verified": false,
+                "source": "Equity delivery rates applied to physically settled F&O (Finance Act STT schedule; NSE Clearing physical settlement FAQ; needs verification)" },
+  "margin": { "expiryDayElmIndexShort": 0.02, "verified": false, "source": "SEBI circular 1 Oct 2024 (extra 2% ELM on short index options on expiry day; needs verification)" }
+}

@@ -9,6 +9,12 @@
  *   { "op": "unsubscribe_orders", "id"?: ... }
  *   { "op": "subscribe_scans", "id"?: ... }        scanner progress, completions and saved-scan alerts (SSE: &scans=1)
  *   { "op": "unsubscribe_scans", "id"?: ... }
+ *   { "op": "subscribe_events", "asset"?: "stock"|"option", "kinds"?: [...], "sides"?: [...], "id"?: ... }
+ *                                                  live market events (S28) as they are detected (SSE: &events=1)
+ *   { "op": "unsubscribe_events", "id"?: ... }
+ *   { "op": "subscribe_budget", "id"?: ... }      the API budget (ratelimit/budget.mjs) once a second while it changes,
+ *                                                  at least every 5 s; only accounts the key may use (SSE: &budget=1)
+ *   { "op": "unsubscribe_budget", "id"?: ... }
  *   { "op": "ping", "id"?: ... }
  *
  * Server -> client messages, every one with `type` and a per-connection `seq` (1, 2, 3 ... in wire order):
@@ -17,6 +23,10 @@
  *   tick       { symbol, ltp, ... }                                 fields depend on the mode (see tickBody)
  *   order      { order }                                            from "order.updated", only accounts the key may use
  *   scan       { event: progress|completed|alert, jobId, savedId, ... }   only this key's scans (all of them for an admin key)
+ *   budget     { accounts, callsToday, savedToday, savings, stream }   reply to subscribe_budget, then while it changes
+ *   market_event { action: new|update, event, sentAt }             a live event record; repeats inside its cool-down
+ *                                                  arrive as "update" with the same id and a higher count (conflated
+ *                                                  per id, like ticks per symbol)
  *   status     { accountId, broker, state: up|stale|down, connected, reason, subscriptions }
  *   error      { code, message, retryable, id?, op?, symbols? }
  *   go_away    { reason, message, reconnectAfterMs }                then the server closes the connection
@@ -33,6 +43,7 @@ import { z } from "zod";
 import { expandScopes } from "../core/context.mjs";
 import { BridgeError, ERROR_CODES } from "../core/errors.mjs";
 import { STREAM_MODES } from "./streamHub.mjs";
+import { budgetSummary } from "../ratelimit/budget.mjs";
 
 const IST_OFFSET_MS = 330 * 60_000;
 /** Epoch ms -> ISO-8601 with +05:30. */
@@ -53,6 +64,18 @@ export const clientOpSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("unsubscribe_orders"), id: opId }).strict(),
   z.object({ op: z.literal("subscribe_scans"), id: opId }).strict(),
   z.object({ op: z.literal("unsubscribe_scans"), id: opId }).strict(),
+  z
+    .object({
+      op: z.literal("subscribe_events"),
+      asset: z.enum(["stock", "option"]).optional(),
+      kinds: z.array(z.string().regex(/^[a-z0-9_]{2,40}$/)).max(60).optional(),
+      sides: z.array(z.enum(["bull", "bear", "neutral"])).max(3).optional(),
+      id: opId,
+    })
+    .strict(),
+  z.object({ op: z.literal("unsubscribe_events"), id: opId }).strict(),
+  z.object({ op: z.literal("subscribe_budget"), id: opId }).strict(),
+  z.object({ op: z.literal("unsubscribe_budget"), id: opId }).strict(),
   z.object({ op: z.literal("ping"), id: opId }).strict(),
 ]);
 
@@ -178,7 +201,7 @@ export function createSessionRegistry({ max, maxPerKey = Infinity }) {
  *   transport: Transport, config: ReturnType<typeof import("./config.mjs").resolveStreamConfig>, clock: { now(): number },
  *   logger: object, keyStore?: object, onClosed?: (session: object) => void }} opts
  */
-export function createClientSession({ id, kind, key, hub, bus, transport, config: cfg, clock, logger, keyStore, onClosed }) {
+export function createClientSession({ id, kind, key, hub, bus, transport, config: cfg, clock, logger, keyStore, onClosed, scheduler = null }) {
   const log = logger.child({ clientId: id, keyId: key.id });
   const now = () => clock.now();
   let seq = 0;
@@ -195,6 +218,10 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
   let orderFilter = null;
   /** Unsubscribe functions for the scan topics, or null when not subscribed. */
   let scanOffs = null;
+  /** Unsubscribe function for market events, or null; and the filter the client asked for. */
+  let eventsOff = null;
+  let eventsFilter = null;
+  let eventSlots = 0;
   let tokens = cfg.maxOpsPerSecond;
   let refillAt = now();
   const offs = [];
@@ -212,11 +239,23 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
   };
 
   // ── queue ──
-  function enqueue(msg, tickSymbol) {
+  function enqueue(msg, tickSymbol, eventId) {
     if (closed) return;
     seq += 1;
     const out = { type: msg.type, seq, ...msg };
-    if (tickSymbol !== undefined) {
+    if (eventId !== undefined) {
+      // One slot per event id: an update replaces a queued new/update of the same event (its count only goes up).
+      const k = `e:${eventId}`;
+      const queued = queue.get(k);
+      if (queued) {
+        queue.delete(k);
+        if (queued.action === "new") out.action = "new";
+      } else if (eventSlots >= cfg.maxQueuedMessages) {
+        slowConsumer();
+        return;
+      } else eventSlots += 1;
+      queue.set(k, out);
+    } else if (tickSymbol !== undefined) {
       const k = `t:${tickSymbol}`;
       if (queue.has(k)) {
         queue.delete(k);
@@ -248,6 +287,7 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
       const [k, msg] = queue.entries().next().value;
       queue.delete(k);
       if (k.charCodeAt(0) === 99 /* c */) control -= 1;
+      else if (k.charCodeAt(0) === 101 /* e */) eventSlots -= 1;
       try {
         transport.write(msg);
         sent += 1;
@@ -324,6 +364,62 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
     scanOffs = null;
   }
 
+  // Market events (S28): every key with read scope sees them (they describe the market, not an account).
+  function doSubscribeEvents(op) {
+    eventsFilter = { asset: op.asset ?? null, kinds: op.kinds?.length ? new Set(op.kinds) : null, sides: op.sides?.length ? new Set(op.sides) : null };
+    if (eventsOff) return;
+    eventsOff = bus.on("market.event", (p) => {
+      const ev = p?.event;
+      const f = eventsFilter;
+      if (!ev || !f) return;
+      if (f.asset && ev.asset !== f.asset) return;
+      if (f.kinds && !f.kinds.has(ev.kind)) return;
+      if (f.sides && !f.sides.has(ev.side)) return;
+      enqueue({ type: "market_event", action: p.type === "update" ? "update" : "new", event: ev, sentAt: now() }, undefined, ev.id);
+    });
+    offs.push(eventsOff);
+  }
+  function doUnsubscribeEvents() {
+    if (!eventsOff) return;
+    eventsOff();
+    const i = offs.indexOf(eventsOff);
+    if (i >= 0) offs.splice(i, 1);
+    eventsOff = null;
+    eventsFilter = null;
+  }
+
+  // ── API budget (the dashboard's budget indicator) ──
+  let budgetTimer = null;
+  let budgetLast = "";
+  let budgetSentAt = 0;
+  const budgetVisible = key.accounts === "*" || key.accounts === undefined ? "*" : new Set(Array.isArray(key.accounts) ? key.accounts : []);
+  function sendBudget(force = false) {
+    if (closed || !scheduler?.usage) return;
+    let msg;
+    try {
+      msg = budgetSummary(scheduler.usage(), budgetVisible, { feeds: hub.stats?.().upstreams ?? [] });
+    } catch (err) {
+      log.debug("budget summary failed", { code: err?.code });
+      return;
+    }
+    const sig = JSON.stringify(msg);
+    if (!force && sig === budgetLast && now() - budgetSentAt < 5000) return;
+    budgetLast = sig;
+    budgetSentAt = now();
+    // One slot: a newer budget replaces one still waiting to be written.
+    enqueue({ type: "budget", ...msg }, "\u0000budget");
+  }
+  function doSubscribeBudget() {
+    sendBudget(true);
+    if (budgetTimer) return;
+    budgetTimer = setInterval(() => sendBudget(false), 1000);
+    budgetTimer.unref?.();
+  }
+  function doUnsubscribeBudget() {
+    clearInterval(budgetTimer);
+    budgetTimer = null;
+  }
+
   // ── heartbeat and key re-check ──
   const beat = setInterval(() => {
     enqueue({ type: "heartbeat", time: istIso(now()), conflated: conflatedSinceBeat });
@@ -392,6 +488,10 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
       else if (op.op === "unsubscribe_orders") orderFilter = null;
       else if (op.op === "subscribe_scans") doSubscribeScans();
       else if (op.op === "unsubscribe_scans") doUnsubscribeScans();
+      else if (op.op === "subscribe_events") doSubscribeEvents(op);
+      else if (op.op === "unsubscribe_events") doUnsubscribeEvents();
+      else if (op.op === "subscribe_budget") doSubscribeBudget();
+      else if (op.op === "unsubscribe_budget") doUnsubscribeBudget();
       else if (op.op === "ping") enqueue({ type: "heartbeat", time: istIso(now()), conflated: conflatedSinceBeat, ...ref });
     } catch (err) {
       if (!(err instanceof BridgeError)) log.error("stream op failed", { op: op.op, err });
@@ -462,6 +562,7 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
     closed = true;
     session.closeReason ??= reason;
     clearInterval(beat);
+    clearInterval(budgetTimer);
     for (const off of offs.splice(0)) off();
     queue.clear();
     hub.dropClient(id);

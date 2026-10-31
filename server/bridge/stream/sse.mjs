@@ -1,5 +1,5 @@
 /**
- * Server-Sent Events endpoint: GET /v1/stream/sse?token=<stream token>&symbols=NSE:NIFTY,NSE:RELIANCE&mode=ltp[&orders=1][&scans=1]
+ * Server-Sent Events endpoint: GET /v1/stream/sse?token=<stream token>&symbols=NSE:NIFTY,NSE:RELIANCE&mode=ltp[&orders=1][&scans=1][&events=1|stock|option]
  *
  * Same messages as the WebSocket (docs/asyncapi.yaml). Each event is
  *   id: <seq>\nevent: <type>\ndata: <JSON message>\n\n
@@ -29,7 +29,7 @@ export const SSE_RECONNECT_GRACE_MS = 5 * 60_000;
 const MAX_RECONNECT_GRANTS = 1000;
 
 const tokenTag = (token) => createHash("sha256").update(String(token)).digest("base64url");
-const subscriptionTag = (query) => ["symbols", "mode", "orders", "scans"].map((k) => `${k}=${query.get(k) ?? ""}`).join("&");
+const subscriptionTag = (query) => ["symbols", "mode", "orders", "scans", "events"].map((k) => `${k}=${query.get(k) ?? ""}`).join("&");
 const usable = (r, t) => Boolean(r) && !r.revokedAt && !(r.expiresAt && Date.parse(r.expiresAt) <= t);
 
 /**
@@ -37,7 +37,7 @@ const usable = (r, t) => Boolean(r) && !r.revokedAt && !(r.expiresAt && Date.par
  *   logger: object, cors?: { allowedOrigins?: string[] } }} opts
  * @returns {(ctx: import("../core/context.mjs").RequestContext) => Promise<void>}
  */
-export function createSseHandler({ hub, bus, keyStore, registry, config: cfg, clock, logger, cors }) {
+export function createSseHandler({ hub, bus, keyStore, registry, config: cfg, clock, logger, cors, scheduler = null }) {
   const corsCheck = createCors(cors ?? {});
   /** @type {Map<string, { keyId: string, sub: string, active: boolean, expiresAt: number }>} token tag -> grant */
   const grants = new Map();
@@ -77,8 +77,10 @@ export function createSseHandler({ hub, bus, keyStore, registry, config: cfg, cl
     const mode = ctx.query.get("mode") ?? "ltp";
     const orders = ["1", "true", "yes"].includes(String(ctx.query.get("orders") ?? "").toLowerCase());
     const scans = ["1", "true", "yes"].includes(String(ctx.query.get("scans") ?? "").toLowerCase());
+    const budget = ["1", "true", "yes"].includes(String(ctx.query.get("budget") ?? "").toLowerCase());
+    const events = ["1", "true", "yes", "stock", "option"].includes(String(ctx.query.get("events") ?? "").toLowerCase());
     if (!STREAM_MODES.includes(mode)) throw new BridgeError("VALIDATION_FAILED", `mode must be one of ${STREAM_MODES.join(", ")}.`);
-    if (!symbols.length && !orders && !scans) throw new BridgeError("VALIDATION_FAILED", "Give the symbols to stream, e.g. ?symbols=NSE:NIFTY,NSE:RELIANCE.");
+    if (!symbols.length && !orders && !scans && !events) throw new BridgeError("VALIDATION_FAILED", "Give the symbols to stream, e.g. ?symbols=NSE:NIFTY,NSE:RELIANCE.");
     if (symbols.length > cfg.maxSymbolsPerRequest) throw new BridgeError("VALIDATION_FAILED", `Stream at most ${cfg.maxSymbolsPerRequest} symbols on one SSE URL.`);
     if (registry.full()) throw new BridgeError("RATE_LIMITED", "Too many stream connections are open on the Bridge. Close one and try again.", { retryAfterMs: 5000 });
     if (registry.fullFor?.(key.id)) throw new BridgeError("RATE_LIMITED", "This API key already has the most stream connections allowed (stream.maxClientsPerKey). Close one and try again.", { retryAfterMs: 5000 });
@@ -128,6 +130,7 @@ export function createSseHandler({ hub, bus, keyStore, registry, config: cfg, cl
       clock,
       logger: ctx.log ?? logger,
       keyStore,
+      scheduler,
       onClosed: (s) => registry.remove(s),
     });
     registry.add(session);
@@ -141,5 +144,10 @@ export function createSseHandler({ hub, bus, keyStore, registry, config: cfg, cl
     if (symbols.length) await session.handleOp({ op: "subscribe", symbols, mode });
     if (orders) await session.handleOp({ op: "subscribe_orders" });
     if (scans) await session.handleOp({ op: "subscribe_scans" });
+    if (budget) await session.handleOp({ op: "subscribe_budget" });
+    if (events) {
+      const asset = String(ctx.query.get("events")).toLowerCase();
+      await session.handleOp({ op: "subscribe_events", ...(asset === "stock" || asset === "option" ? { asset } : {}) });
+    }
   };
 }

@@ -4,6 +4,54 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ## [Unreleased]
 
+### Analytics from PR 17, in this dashboard's design
+
+- **Analytics pages.** Exposure, Flow, Futures, Strategy lab and Risk, plus PR 17 tabs inside OI Analysis and
+  Volatility, drawn as desk pages: the context in the top-bar capsule, panels in a masonry grid that fills the screen.
+- **Risk.** One-day VaR and expected shortfall with the simulated P&L histogram, exposure and delta by underlying,
+  concentration, and paper execution costs.
+- **Strategy lab.** One finder on the optimizer, templates handed to the Strategy Builder, calculators, and a
+  read-only backtest of a scanner rule.
+- **Time series.** Strike history (OI and IV of one strike from the recorder), strangle premium, probability cone.
+- **Alerts.** Market alerts in the bell (14 metrics, including OI change and IV at a strike and ATM IV change), and
+  theta and vega conditions on position alerts.
+- **Palette.** `banknifty oc`, `help gx` and `g` + go-key.
+- **Fixes.** OI in units (PR 17 counted lots twice); monthly futures for weekly expiries; paper accounts' risk reads
+  priced through the data accounts; tide only in market hours; SVG bar heights.
+- **Demo.** Prices follow a seeded random walk (drift 10 to 12 %, vol 18 to 35 % in regimes) instead of waves around a
+  fixed level. Inside a session the price follows a seeded path from the previous close to the day's close; outside it
+  the price holds at the close, so history, sparklines and live quotes agree. Three monthly index futures.
+- **Demo price path changed.** A demo Bridge updated across this version may see a one-off gap, which can fire open
+  demo triggers.
+
+### Live events
+
+- **Live events engine (server).** Detects 37 price, gap, volume, circuit (only buyers / only sellers / unlocked),
+  level, pivot, swing, F&O OI and option events (strike OI surge and build-up, premium spike, IV spike and crush,
+  walls, PCR, max pain, straddle, basis, unusual volume) on stream ticks across F&O stocks, indices and your watchlist,
+  with repeats counted inside a cool-down, a day store, `GET /v1/events*` routes, the `subscribe_events` stream op
+  and a lively demo feed. One alert per move (ATH > 52w > prev high > day high fold into one row), spot-crosses-strike
+  events with strike OI, and live custom conditions in the scanner language (`/v1/events/conditions`). Guide:
+  `docs/guides/live-events.md`.
+
+### Options analytics and terminal dashboard
+
+- **Read-only options analytics API** under `/v1/analytics/...`: OI and PCR, max pain, OI change and spurts, gamma, delta,
+  vanna and charm exposure, IV skew, surface and term structure, Greeks grid, synthetics, straddle, futures chain and
+  basis, expiry-day digest, strategy templates, finder and optimizer, payoff, Greeks and position-size calculators,
+  lot-split plans, position Greeks, a condition-based backtest, participant OI, FII/DII flows, unusual options activity,
+  market tide, vol stats with IV rank, a contract screener, markets overview (indices, movers, sectors, breadth,
+  rotation, correlation), risk scenarios, VaR and what-if, watchlists, and alert rules on 11 metrics. Nothing in it
+  places an order. See `docs/guides/analytics.md`.
+- **Field access** (`/v1/fields`, `/v1/fields/history`, `/v1/fields/bulk`, `/v1/fields/search`, `POST /v1/batch`): a
+  Bloomberg-style field catalogue with snapshot, history and bulk reads and CSV output.
+- **NSE, SEBI and RBI public data** (deals, insiders, events, announcements, regulatory wire, F&O ban list): best effort,
+  personal use, endpoints unverified without network access, with stale-serve and clear `UPSTREAM_ERROR` messages.
+- **Dashboard terminal shell:** an Analytics page group, a shared underlying, expiry and strikes context bar, a
+  `[symbol] [code]` command line with `HELP`, `g` key navigation, history, saved layouts, auto-refresh with backoff, an
+  IST market-status chip, compact density, and CSV export on every table.
+- **Roadmap:** a Bloomberg-inspired terminal plan in `ROADMAP.md`.
+
 ### Easy install
 
 - **One-line installers, no Node.js needed.** `irm …/install.ps1 | iex` (Windows) and `curl -fsSL …/install.sh | sh`
@@ -28,9 +76,14 @@ All notable changes to this project are listed here. The format follows [Keep a 
 - **Dashboard redesigned in the IPO Decode design system** (Liquid Glass): a floating glass sidebar on wide
   screens and a floating tab bar with a More sheet on phones and tablets, a glass toolbar with an IST clock, calm
   grouped cards with tinted icon tiles, large-title page headers and numbered section eyebrows, warm paper and warm
-  charcoal canvases, bottom sheets on phones, and a Spotlight-style search. The house fonts (Plus Jakarta Sans,
-  Inter, DM Serif Display) are self-hosted; numbers print without grouping commas, with fixed decimals and `--` for
+  charcoal canvases, bottom sheets on phones, and a Spotlight-style search. The house fonts follow the Mr. Chartist
+  type system (`docs/theme/TYPE-SYSTEM.md`): Chartist Sans for headings, Chartist Sans Flex for text and numbers,
+  Chartist Serif for the one accent word, all self-hosted under the SIL Open Font License with no slashed zero; numbers print without grouping commas, with fixed decimals and `--` for
   missing values. Checked at 320 to 2560 px in light and dark with no horizontal overflow.
+- **Buttons follow the Mr Chartist button system** (`docs/theme/BUTTON-SYSTEM.md`): pure black or white with an iOS
+  glass finish, only Buy and Sell in colour (gain green, loss red), capsules by default, a focus ring inside the shape,
+  a press that settles and springs back, connected bars with one line per seam, and a 44 px touch area that keeps dense
+  toolbars dense. Price changes are plain coloured text, never a filled pill.
 - **Android**: the one-line installer works in Termux (Node.js from Termux's own packages, a Termux:Widget shortcut,
   a wake lock while running, links opened with termux-open-url).
 - **Broker logos** on the Accounts page, the Add a broker list and the account tables: each broker's own site icon,
@@ -56,6 +109,34 @@ All notable changes to this project are listed here. The format follows [Keep a 
   SECURITY.md).
 
 ### Added
+
+- **Trading readiness** (`readiness` config, `GET /v1/readiness`, `POST /v1/readiness/check`,
+  `GET /v1/readiness/history`): every live-enabled account is checked at 09:00 IST on trading days and every 4
+  minutes in market hours (broker session and stated expiry, a cheap read call, this computer's IP against
+  `live.registeredIp` / the new `live.backupIp` through an opt-in lookup, order and daily-limit headroom, kill switch).
+  A badge on every dashboard page (a bottom sheet on phones), a "Trading readiness" card on the Safety page with recent
+  changes and, in the demo, simulation buttons. New notify event `trading.readiness` (on by default; never carries an
+  IP). `get_safety_status` includes it. `mc-bridge doctor` warns about a live account without `live.registeredIp` and
+  about notify targets that do not listen to `trading.readiness`. New guide: [deployment.md](docs/guides/deployment.md).
+- **Behaviour change:** a live webhook order is refused with `CANNOT_TRADE` while its account cannot trade (no broker
+  call is made); orders a person sends get a `READINESS` warning instead. Escape hatches: `readiness.gateAutomated:
+  false` or `readiness.enabled: false`.
+- Writes from a browser that says `Sec-Fetch-Site: cross-site` (or `same-site`) without an allowlisted Origin are
+  refused (`ORIGIN_NOT_ALLOWED`).
+- **Option chains recorded on this computer, with the browser closed** (stream S17, `docs/guides/recorder.md`). The
+  Bridge records the configured index chains every minute in session (opted-in stocks every 5 minutes) from one data
+  account: live feed first, REST only inside half of every broker window, never more than 200 ms of delay to your own
+  requests. Gaps are written as gaps. Read it with `GET /v1/options/snapshots` (JSON or CSV), `/snapshots/latest`,
+  `/v1/options/daily` (PCR, max pain, largest OI, ΔOI, futures basis and rollover) and the MCP tool
+  `get_option_snapshots`. **On upgrade the recorder starts for indices by default** and may hold up to 60 % of the
+  feed's subscriptions; opt out with `"recorder": { "enabled": false }`.
+- **Data recorder page** (`#/recorder`, Overview): state, feeding account, today's snapshots and disk use; coverage per
+  chain with its gap list; the recorder's share of the feed and REST budget; settings with a live "this account can
+  carry …" verdict (a request the account cannot carry is refused with what fits, and nothing is saved); which
+  brokers can record what.
+- **OI Analysis windows read from the recorder.** When the recorder records the chain on screen, the 5m, 15m, 30m,
+  1h and Since open windows use its minutes ("Recorded by the Bridge every minute", with its coverage and gaps), and
+  the page's own browser snapshots become a cache of them.
 
 - **Spread the work over your own accounts.** Many-symbol quote reads are split in each broker's batch size to the
   pooled account with the most spare budget. `marketData.poolingWhenTermsUnknown` lets you pool your own

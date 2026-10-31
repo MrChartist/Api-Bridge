@@ -4,7 +4,8 @@
  *
  * Rules (docs/ARCHITECTURE.md §8 "AI confirmation", docs/STREAMS.md §S11):
  *  - Fixed order. Tools are listed in TOOL_DEFS order, filtered by toolset, scope and config; never re-sorted.
- *  - Fewer than 20 tools by default (market, analytics and account toolsets: 18).
+ *  - Fewer than 20 tools by default (market, analytics and account toolsets: 18). The Phase 1 options tools live in
+ *    the opt-in "options" toolset (at most 19 tools); a tool with `requiredScope` is shown only to keys with it.
  *  - All four annotations are set explicitly on every tool. Annotations are hints for the client; they are NEVER
  *    treated as consent. Client-side approval prompts are not confirmation either.
  *  - Every successful result has `structuredContent` = { data, meta, untrusted: true } matching the tool's
@@ -26,7 +27,7 @@ import { z } from "zod";
 import { isStub } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { allowedAccountsFor } from "../market/routes.mjs";
-import { mcpConfig } from "./config.mjs";
+import { DEFAULT_TOOLSETS, mcpConfig } from "./config.mjs";
 
 // ───────────────────────────── shared schemas ─────────────────────────────
 
@@ -52,8 +53,9 @@ const READ_LOCAL = Object.freeze({ readOnlyHint: true, destructiveHint: false, i
  * @typedef {{ cfg: ReturnType<typeof mcpConfig>, orderAccounts: string[], canLive: boolean }} ToolEnv
  *   orderAccounts: accounts this caller may prepare orders for (config ∩ key); canLive: key has the "live" scope.
  * @typedef {{
- *   name: string, title: string, toolset: "market"|"analytics"|"account"|"orders", description: string,
+ *   name: string, title: string, toolset: "market"|"analytics"|"account"|"orders"|"options", description: string,
  *   input: (env: ToolEnv) => import("zod").ZodObject<any>, output: import("zod").ZodType, annotations: Annotations,
+ *   requiredScope?: "paper"|"live"|"admin",
  *   available?: (env: ToolEnv, ctx: any) => boolean,
  *   handler: (args: any, ctx: any, rt: ToolRuntime) => Promise<{ data: unknown, meta?: object }>
  * }} ToolDef
@@ -544,7 +546,8 @@ export const TOOL_DEFS = Object.freeze([
     name: "get_safety_status",
     title: "Safety status",
     toolset: "account",
-    description: "Kill-switch state and today's safety limits and usage for the accounts this key may use. Read-only: the kill switch cannot be released from here.",
+    description:
+      "Kill-switch state and today's safety limits and usage for the accounts this key may use. readiness says whether the account can trade now (session, static IP, limits). Read-only: the kill switch cannot be released from here.",
     input: () => z.strictObject({ account: accountIn }),
     output: z.strictObject({ data: z.looseObject({ killSwitch: z.looseObject({ engaged: z.boolean() }), accounts: z.array(z.looseObject({ accountId: z.string() })) }), meta: metaOut, untrusted: z.literal(true) }),
     annotations: READ_LOCAL,
@@ -555,7 +558,18 @@ export const TOOL_DEFS = Object.freeze([
         ctx.requireAccountAccess(a.account);
         ids = [a.account];
       } else ids = svc(rt.deps, "accounts").list().map((s) => s.id).filter((id) => canUse(ctx, id));
-      return { data: { killSwitch: safety.killSwitchStatus(), accounts: ids.map((id) => ({ accountId: id, ...safety.limits(id) })) } };
+      const readiness = rt.deps.readiness && !isStub(rt.deps.readiness) ? rt.deps.readiness : null;
+      // Readiness per account: state, reason codes and messages, checkedAt. Never an IP address (for any key).
+      const readinessOf = (id) => {
+        if (!readiness) return null;
+        try {
+          const r = readiness.canTrade(id, { mode: "live" });
+          return { state: r.state, reasons: (r.reasons ?? []).map((x) => ({ code: x.code, message: x.message })), checkedAt: r.checkedAt ?? null };
+        } catch {
+          return null;
+        }
+      };
+      return { data: { killSwitch: safety.killSwitchStatus(), accounts: ids.map((id) => ({ accountId: id, ...safety.limits(id), readiness: readinessOf(id) })) } };
     },
   },
 
@@ -623,10 +637,201 @@ export const TOOL_DEFS = Object.freeze([
       return { data: { order: r.order, replayed: Boolean(r.replayed) }, meta: { accountId: r.order?.accountId ?? null, mode: r.order?.mode } };
     },
   },
+
+  // ── options (opt-in toolset "options": Phase 1 options platform) ──
+  {
+    name: "get_reference",
+    title: "Contract reference data",
+    toolset: "options",
+    description:
+      "Read-only contract facts with their source and as-of date: the bundle for an underlying (session, holidays, rate, expiries with lot and holiday shift, lots, freeze quantity, ban/MWPL, events, charges), or one dataset: expiries, sessions, holidays, lots, ban, mwpl, fno-universe, corporate-actions, rate, charges, delivery-margin, events, status. " +
+      "Unavailable data says available: false with a reason; values marked default, inferred or unverified are not exchange facts. It cannot change the rate, add actions or switch sources.",
+    input: () =>
+      z.strictObject({
+        dataset: z.enum(["bundle", "expiries", "sessions", "holidays", "lots", "ban", "mwpl", "fno-universe", "corporate-actions", "rate", "charges", "delivery-margin", "events", "status"]),
+        underlying: z.string().min(1).max(30).nullable().describe("NIFTY, BANKNIFTY, SENSEX or a stock; needed for bundle, expiries, lots and delivery-margin."),
+        symbol: z.string().min(1).max(30).nullable().describe("A stock symbol, for mwpl and corporate-actions; null for all."),
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().describe("YYYY-MM-DD (IST) for sessions, ban, mwpl and fno-universe; null for today."),
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+        days: z.number().int().min(1).max(30).nullable().describe("Events window in days; null for 7."),
+        expiry: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().describe("For delivery-margin."),
+      }),
+    output: z.strictObject({ data: anyObj, meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_LOCAL,
+    handler: async (a, _ctx, rt) => {
+      const { readReference } = await import("../reference/routes.mjs");
+      const { dataset, ...params } = a;
+      return { data: await readReference(svc(rt.deps, "reference"), dataset, params, { now: rt.now }) };
+    },
+  },
+  {
+    name: "get_participant_oi",
+    title: "NSE participant-wise open interest",
+    toolset: "options",
+    description:
+      "Read-only NSE participant-wise open interest (Client, DII, FII, Pro), in contracts, summed over all strikes and expiries, published by NSE after the close. " +
+      "Without from/to: one day's table (default the latest) with long, short, net, day-on-day change, long % and share of OI, plus the FII index-futures headline and its formula. " +
+      "With from and/or to: the daily series (at most 250 days; CSV via REST). NSE only (no BSE file). Descriptive data, not a signal or advice.",
+    input: () =>
+      z.strictObject({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().describe("YYYY-MM-DD for one day's table; null for the latest."),
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().describe("Series start, YYYY-MM-DD."),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().describe("Series end, YYYY-MM-DD."),
+        participants: z.array(z.enum(["CLIENT", "DII", "FII", "PRO", "TOTAL"])).max(5).nullable(),
+        instruments: z.array(z.enum(["IDX_FUT", "IDX_CE", "IDX_PE", "STK_FUT", "STK_CE", "STK_PE"])).max(6).nullable(),
+      }),
+    output: z.strictObject({ data: anyObj, meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_LOCAL,
+    handler: async (a, _ctx, rt) => {
+      const { readParticipantOi } = await import("../participants/routes.mjs");
+      const p = Object.fromEntries(Object.entries(a).filter(([, v]) => v !== null && v !== undefined));
+      return { data: readParticipantOi(svc(rt.deps, "participants"), p) };
+    },
+  },
+  {
+    name: "get_option_snapshots",
+    title: "Recorded option-chain snapshots",
+    toolset: "options",
+    description:
+      "Option-chain snapshots the Bridge recorded on this computer (every minute in session for indices, every 5 minutes for opted-in stocks), with gaps and coverage, for one underlying and expiry over a time range. " +
+      "Same fields and units as GET /v1/options/snapshots: OI and volume in units, IV in percent, prices in INR; gaps are never filled. At most 80 snapshots (truncated says so; use every or a shorter range). For CSV use the REST route with format=csv.",
+    input: () =>
+      z.strictObject({
+        underlying: z.string().min(1).max(30).describe("NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, SENSEX or a stock."),
+        expiry: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("YYYY-MM-DD."),
+        from: z.string().max(40).nullable().describe("IST date, IST date-time or epoch seconds; null for today's session start."),
+        to: z.string().max(40).nullable().describe("Null for now. At most 31 days after from."),
+        fields: z.string().max(120).nullable().describe("Comma list of ltp, bid, ask, bidQty, askQty, oi, volume, iv, delta, gamma, age; null for oi,ltp."),
+        strikes: z.number().int().min(1).max(60).nullable().describe("Strikes each side of ATM; null for 10."),
+        every: z.union([z.literal(1), z.literal(3), z.literal(5), z.literal(15), z.literal(30), z.literal(60)]).nullable().describe("Minutes between snapshots; null for 5."),
+      }),
+    output: z.strictObject({ data: anyObj, meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_LOCAL,
+    handler: async (a, ctx, rt) => {
+      const { parseSnapshotQuery, readSnapshots } = await import("../recorder/routes.mjs");
+      const params = Object.fromEntries(Object.entries(a).filter(([, v]) => v !== null && v !== undefined).map(([k, v]) => [k, String(v)]));
+      const query = parseSnapshotQuery(params, { now: rt.now(), defaults: { fields: ["oi", "ltp"], strikes: 10, every: 5 } });
+      const page = await readSnapshots(svc(rt.deps, "recorder"), { ...query, limit: 81 }, ctx);
+      const truncated = page.snapshots.length > 80 || Boolean(page.nextCursor);
+      return { data: { ...page, snapshots: page.snapshots.slice(0, 80), nextCursor: null, truncated } };
+    },
+  },
+  {
+    name: "get_book",
+    title: "Positions book per holder, or the family view",
+    toolset: "options",
+    description:
+      "Read-only positions across the accounts this key may use, grouped by holder (whose account it is), with per-leg account, P&L, IV and Greeks, per-underlying Δ, ₹Δ, Θ and Vega, and broker-reported margin per account. " +
+      "view family keeps holders inside the configured family definition and lists the others under outsideFamily. Each holder is priced only from its own market data; totals add separate accounts and margin is not shared. Legs are capped at 200 (truncated: true). It cannot place or exit anything.",
+    input: () =>
+      z.strictObject({
+        view: z.enum(["holders", "family"]).nullable().describe("holders (default) or family."),
+        underlying: z.string().regex(/^[A-Z0-9&-]{1,20}$/).nullable().describe("Only this underlying, e.g. NIFTY; null for all."),
+      }),
+    output: z.strictObject({ data: anyObj, meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_BROKER,
+    handler: async (a, ctx, rt) => {
+      const { bookFor } = await import("../book/module.mjs");
+      const book = bookFor(rt.deps);
+      if (!book) throw new BridgeError("NOT_IMPLEMENTED", "The book is not running on this Bridge.");
+      const body = await book.service.read(ctx, { view: a.view ?? "holders", underlying: a.underlying ?? null });
+      let left = 200;
+      let truncated = false;
+      const holders = body.holders.map((h) => ({
+        ...h,
+        underlyings: h.underlyings.map((u) => {
+          const legs = u.legs.slice(0, Math.max(0, left));
+          if (legs.length < u.legs.length) truncated = true;
+          left -= legs.length;
+          return { ...u, legs };
+        }),
+      }));
+      return { data: { ...body, holders, truncated } };
+    },
+  },
+  {
+    name: "get_option_underlyings",
+    title: "F&O underlyings",
+    toolset: "options",
+    description:
+      "Read-only list of indices and F&O stocks with contract facts: kind, settlement (cash or physical), lot, tick size, strike step (inferred from listed strikes), freeze quantity, F&O ban band (ban / high MWPL / normal), events in the next 7 days and whether the option sweep covers it. " +
+      "q searches by symbol or name. No broker call. Ban data is end-of-day from NSE when archive downloads are on; descriptive, not advice.",
+    input: () =>
+      z.strictObject({
+        kind: z.enum(["all", "index", "stock"]).nullable().describe("null for all."),
+        q: z.string().min(1).max(40).nullable().describe("Search text, for example rel or bank."),
+      }),
+    output: z.strictObject({ data: anyObj, meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_LOCAL,
+    handler: async (a, _ctx, rt) => {
+      const { fnoFor } = await import("../fno/module.mjs");
+      const { readUnderlyings } = await import("../fno/routes.mjs");
+      const f = fnoFor(rt.deps);
+      if (!f) throw new BridgeError("NOT_IMPLEMENTED", "The fno module is not running.");
+      return { data: await readUnderlyings(f, { kind: a.kind ?? "all", q: a.q ?? undefined }) };
+    },
+  },
+  {
+    name: "get_option_sweep",
+    title: "Last option sweep",
+    toolset: "options",
+    description:
+      "Read-only status of today's option sweep (the screener's server-side sweep: progress, plan, method per group, coverage) plus one page of finished chains after `since` (at most 40). " +
+      "It cannot start or cancel a sweep: an AI client reads the last sweep and never spends the account's rate budget. NOT_FOUND when no sweep ran today.",
+    input: () => z.strictObject({ since: z.number().int().min(0).nullable().describe("Sequence cursor; null for the first page.") }),
+    output: z.strictObject({ data: anyObj, meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_LOCAL,
+    handler: async (a, _ctx, rt) => {
+      const { fnoFor } = await import("../fno/module.mjs");
+      const { sweepPage } = await import("../fno/routes.mjs");
+      const f = fnoFor(rt.deps);
+      if (!f) throw new BridgeError("NOT_IMPLEMENTED", "The fno module is not running.");
+      return { data: { job: f.sweeper.current(), page: sweepPage(f, { since: a.since ?? 0, limit: 40 }) } };
+    },
+  },
+  {
+    name: "get_expiry_costs",
+    title: "Expiry and delivery costs",
+    toolset: "options",
+    description:
+      "Read-only maths for option legs near expiry: moneyness (ITM / close to money / OTM), the delivery obligation of physically settled stock options (shares and cash), the delivery-margin schedule percentage (and an indicative rupee figure only when varElmPct is given), and the charges if a leg settles versus squaring it off now. " +
+      "Rates come from the reference charge table (physical delivery rows unverified); broker delivery fees excluded. Not tax or investment advice; nothing is stored or sent.",
+    input: () =>
+      z.strictObject({
+        underlying: z.string().min(1).max(30),
+        legs: z.array(z.strictObject({ symbol: z.string().min(1).max(80), qty: z.number().int().describe("Signed units: + long, - short."), bid: z.number().min(0).nullable(), ask: z.number().min(0).nullable() })).min(1).max(40),
+        asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().describe("YYYY-MM-DD; null for today."),
+        spot: z.number().positive().nullable(),
+        varElmPct: z.number().min(1).max(100).nullable().describe("Your broker's VaR + ELM rate in percent, or null."),
+      }),
+    output: z.strictObject({ data: anyObj, meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_LOCAL,
+    handler: async (a, _ctx, rt) => {
+      const { fnoFor } = await import("../fno/module.mjs");
+      const { expiryCostsRequest, readExpiryCosts } = await import("../fno/routes.mjs");
+      const f = fnoFor(rt.deps);
+      if (!f) throw new BridgeError("NOT_IMPLEMENTED", "The fno module is not running.");
+      const body = { underlying: a.underlying, legs: a.legs.map((l) => Object.fromEntries(Object.entries(l).filter(([, v]) => v !== null))) };
+      for (const k of ["asOf", "spot", "varElmPct"]) if (a[k] !== null && a[k] !== undefined) body[k] = a[k];
+      return { data: await readExpiryCosts(f, rt.deps, expiryCostsRequest(body)) };
+    },
+  },
 ]);
 
 /** Tools listed when nothing is configured (must stay under 20). */
-export const DEFAULT_TOOL_NAMES = Object.freeze(TOOL_DEFS.filter((t) => t.toolset !== "orders").map((t) => t.name));
+export const DEFAULT_TOOL_NAMES = Object.freeze(TOOL_DEFS.filter((t) => DEFAULT_TOOLSETS.includes(t.toolset)).map((t) => t.name));
+
+/**
+ * Whether one tool is visible to this caller: its toolset is configured, the key has its required scope (write
+ * tools in "options" need "paper") and its own availability check passes.
+ * @param {ToolDef} def @param {ReturnType<typeof mcpConfig>} cfg @param {ToolEnv} env @param {any} ctx
+ */
+export function toolVisible(def, cfg, env, ctx) {
+  if (!cfg.toolsets.includes(def.toolset)) return false;
+  if (def.requiredScope && !ctx?.scopes?.has?.(def.requiredScope)) return false;
+  return !def.available || def.available(env, ctx);
+}
 
 /**
  * Work out what this caller may see.
@@ -674,7 +879,7 @@ export function createToolRegistry({ deps, now = () => Date.now() }) {
   const visible = (ctx) => {
     if (!ctx?.scopes?.has("read")) return [];
     const env = toolEnv(cfg, ctx);
-    return TOOL_DEFS.filter((t) => cfg.toolsets.includes(t.toolset) && (!t.available || t.available(env, ctx))).map((def) => ({ def, env }));
+    return TOOL_DEFS.filter((t) => toolVisible(t, cfg, env, ctx)).map((def) => ({ def, env }));
   };
 
   /** Envelope: per-call random marker so third-party text cannot close it. */

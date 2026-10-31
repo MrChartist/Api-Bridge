@@ -21,6 +21,13 @@
 import { liveAllowedByConfig } from "../core/config.mjs";
 
 /**
+ * Sources whose LIVE orders the readiness gate refuses while their account cannot trade (docs/spec/p1-05-readiness.md
+ * §3.7, §6.9): nobody is watching the order go out. "guard" and "alert" are reserved for P1-11/12. Orders a person
+ * sends (rest, cli, a confirmed MCP ticket) get a readiness warning instead.
+ */
+export const AUTOMATED_SOURCES = Object.freeze(["webhook", "system", "guard", "alert"]);
+
+/**
  * @typedef {{ mode: "paper"|"live", requested: "paper"|"live", needsConfirmation: boolean,
  *   refusals: Array<{ code: string, message: string, severity: "block" }> }} ModeDecision
  */
@@ -83,7 +90,7 @@ export function decideMode({ config, accountCfg, summary, requested, ctx, confir
 /** Human label for a source, for messages. */
 export function sourceLabel(source) {
   return (
-    { rest: "scripts and apps (REST)", webhook: "webhooks", mcp: "AI assistants", cli: "the command line", system: "the Bridge itself", stream: "the stream" }[source] ??
+    { rest: "scripts and apps (REST)", webhook: "webhooks", mcp: "AI assistants", cli: "the command line", system: "the Bridge itself", stream: "the stream", guard: "strategy guards", alert: "alert actions" }[source] ??
     String(source)
   );
 }

@@ -1,0 +1,81 @@
+{
+  "at": "2026-10-30T19:58:58.469Z",
+  "node": "v22.22.0",
+  "seconds": 15,
+  "latencyMs": 200,
+  "pages": [],
+  "idle": {
+    "seconds": 5,
+    "brokerPerMin": 0,
+    "byClass": {}
+  },
+  "soak": {
+    "minutes": 10,
+    "pages": {
+      "chain": {
+        "heap1minKB": 4305,
+        "heapEndKB": 4890,
+        "growthKB": 585,
+        "nodes1min": 3549,
+        "nodesEnd": 3618
+      },
+      "oi": {
+        "heap1minKB": 5033,
+        "heapEndKB": 5915,
+        "growthKB": 882,
+        "nodes1min": 4144,
+        "nodesEnd": 4142
+      },
+      "strategy": {
+        "heap1minKB": 4401,
+        "heapEndKB": 5220,
+        "growthKB": 819,
+        "nodes1min": 941,
+        "nodesEnd": 941
+      },
+      "positions": {
+        "heap1minKB": 4770,
+        "heapEndKB": 5076,
+        "growthKB": 306,
+        "nodes1min": 1196,
+        "nodesEnd": 1191
+      },
+      "orders": {
+        "heap1minKB": 1835,
+        "heapEndKB": 1805,
+        "growthKB": -30,
+        "nodes1min": 673,
+        "nodesEnd": 673
+      },
+      "watchlists": {
+        "heap1minKB": 2711,
+        "heapEndKB": 2735,
+        "growthKB": 24,
+        "nodes1min": 569,
+        "nodesEnd": 569
+      },
+      "exposure": {
+        "heap1minKB": 2025,
+        "heapEndKB": 1962,
+        "growthKB": -63,
+        "nodes1min": 520,
+        "nodesEnd": 520
+      },
+      "flow": {
+        "heap1minKB": 2090,
+        "heapEndKB": 2018,
+        "growthKB": -72,
+        "nodes1min": 1753,
+        "nodesEnd": 1753
+      },
+      "cycle": {
+        "heap1minKB": 12385,
+        "heapEndKB": 49081,
+        "growthKB": 36696,
+        "nodes1min": 553,
+        "nodesEnd": 1248,
+        "switches": 149
+      }
+    }
+  }
+}

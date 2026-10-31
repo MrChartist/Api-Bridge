@@ -8,6 +8,8 @@ import { defineModule } from "../core/modules.mjs";
 import { SCANNER_CONFIG_SCHEMA } from "./config.mjs";
 import { createScannerRoutes } from "./routes.mjs";
 import { createScanner } from "./scanService.mjs";
+import { eventsFor } from "../events/module.mjs";
+import { fnoFor } from "../fno/module.mjs";
 
 /** [method, path, route options, handler name] */
 export const ROUTES = Object.freeze([
@@ -23,10 +25,17 @@ export const ROUTES = Object.freeze([
   ["POST", "/v1/scanner/saved", { scope: "read" }, "createSaved"],
   ["DELETE", "/v1/scanner/saved/:savedId", { scope: "read", body: "none" }, "deleteSaved"],
   ["POST", "/v1/scanner/saved/:savedId/run", { scope: "read", body: "none" }, "runSaved"],
+  ["PATCH", "/v1/scanner/saved/:savedId", { scope: "read" }, "updateSaved"],
+  ["POST", "/v1/scanner/saved/:savedId/duplicate", { scope: "read", body: "none" }, "duplicateSaved"],
+  ["GET", "/v1/scanner/saved/:savedId/results", { scope: "read", allowQueryKey: true }, "savedResults"],
+  ["GET", "/v1/scanner/library", { scope: "read" }, "library"],
+  ["POST", "/v1/scanner/compile", { scope: "read" }, "compile"],
+  ["POST", "/v1/scanner/count", { scope: "read" }, "count"],
+  ["GET", "/v1/scanner/scan", { scope: "read", allowQueryKey: true }, "scanFromQuery"],
 ]);
 
 /** The services the scanner reads. Nothing here may reach orders, paper or safety. */
-export const USED_SERVICES = Object.freeze(["marketData", "accounts", "scheduler", "symbols", "backupData"]);
+export const USED_SERVICES = Object.freeze(["marketData", "accounts", "scheduler", "symbols", "backupData", "reference", "recorder"]);
 
 /** One scanner per app (tests build many apps in one process). */
 const scanners = new WeakMap();
@@ -49,6 +58,11 @@ export default defineModule({
       scheduler: deps.scheduler,
       symbols: deps.symbols,
       backupData: deps.backupData,
+      reference: deps.reference,
+      recorder: deps.recorder,
+      // Getters: Live events (scan hits) and the option sweep (chains) are built by their own modules.
+      events: () => eventsFor(deps),
+      fno: () => fnoFor(deps),
       bus: deps.bus,
       clock: deps.clock,
       paths: deps.paths,
@@ -60,6 +74,7 @@ export default defineModule({
   },
   async start(deps) {
     scanners.get(deps)?.startSchedule();
+    scanners.get(deps)?.startPrewarm?.();
   },
   async stop(deps) {
     scanners.get(deps)?.stop();

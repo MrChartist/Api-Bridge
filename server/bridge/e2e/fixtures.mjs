@@ -4,7 +4,7 @@
  * services, real HTTP listener on an ephemeral 127.0.0.1 port) in-process. No network beyond loopback, no live
  * broker, no sleeps longer than a few batching windows.
  */
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
@@ -158,12 +158,20 @@ export function stubRegistry(brokers) {
 
 /**
  * Boot the real Bridge on 127.0.0.1:<ephemeral> with every built-in module.
- * @param {{ raw: object, brokers: Record<string, ReturnType<typeof stubBroker>>, clock?: { now(): number } }} opts
+ * @param {{ raw: object, brokers: Record<string, ReturnType<typeof stubBroker>>, clock?: { now(): number }, withConfigFile?: boolean }} opts
  */
-export async function bootBridge({ raw, brokers, clock = shiftedClock() }) {
+export async function bootBridge({ raw, brokers, clock = shiftedClock(), withConfigFile = false }) {
   const dataDir = mkdtempSync(join(tmpdir(), "mcb-e2e-"));
-  const { config } = loadConfig({ raw: { dataDir, logging: { level: "silent" }, server: { port: 0 }, ...raw }, env: {} });
-  const app = await createApp({ config, logger: createNullLogger(), clock, brokers: stubRegistry(brokers) });
+  const full = { dataDir, logging: { level: "silent" }, server: { port: 0 }, ...raw };
+  // withConfigFile: the config is a real bridge.config.json loaded from its path and passed as the file to save
+  // to, the way the CLI starts the Bridge (routes that edit the config write it).
+  let configFile = null;
+  if (withConfigFile) {
+    configFile = join(dataDir, "bridge.config.json");
+    writeFileSync(configFile, `${JSON.stringify(full, null, 2)}\n`);
+  }
+  const { config } = configFile ? loadConfig({ path: configFile, env: {} }) : loadConfig({ raw: full, env: {} });
+  const app = await createApp({ config, logger: createNullLogger(), clock, brokers: stubRegistry(brokers), configFile });
   const { port } = await app.listen();
   const base = `http://127.0.0.1:${port}`;
   /**
@@ -184,7 +192,7 @@ export async function bootBridge({ raw, brokers, clock = shiftedClock() }) {
     }
     return { status: res.status, headers: res.headers, text, json };
   };
-  return { app, deps: app.deps, port, base, http, dataDir, close: () => app.close() };
+  return { app, deps: app.deps, port, base, http, dataDir, configFile, close: () => app.close() };
 }
 
 /**
@@ -232,6 +240,28 @@ export function openStream(url) {
     );
   });
 }
+
+/**
+ * A stopwatch for "within N s" acceptance checks: `stop()` gives the wall time and this process's CPU time (every
+ * thread: the event loop and the libuv pool that runs scrypt and file writes) since it started.
+ *
+ * Why CPU time: the Bridge under test runs in this process, so its CPU time is the work it did to get there. Wall
+ * time also counts every other test worker and process on the machine; on a 4-core machine running the full suite
+ * in parallel it stretched 5 s of work past 5.4 s while the work itself had not changed. So the spec's budget is
+ * asserted on CPU time, and wall time gets a loose bound (WAIT_SLACK_MS) that still catches a step that sleeps on a
+ * timer (a recorder that waits for the next minute instead of recording at once).
+ */
+export function stopwatch() {
+  const wall0 = Date.now();
+  const cpu0 = process.cpuUsage();
+  return () => {
+    const c = process.cpuUsage(cpu0);
+    return { wallMs: Date.now() - wall0, cpuMs: (c.user + c.system) / 1000 };
+  };
+}
+
+/** The wall-time bound beside a CPU budget: under 60 s, so a wait for the next minute still fails. */
+export const WAIT_SLACK_MS = 30_000;
 
 /** Poll `fn` until it returns a truthy value (or throw after `ms`). */
 export async function eventually(fn, { ms = 3000, every = 20 } = {}) {

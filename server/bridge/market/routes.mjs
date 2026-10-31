@@ -7,7 +7,10 @@
  *   GET /v1/depth?symbol=...[&account=][&maxAgeMs=]
  *   GET /v1/history?symbol=...&interval=5m&(from=...[&to=...] | [to=...&]countback=N)[&format=csv][&account=]
  *   GET /v1/expiries?underlying=NIFTY[&exchange=NFO][&account=]
- *   GET /v1/optionchain?underlying=NIFTY&expiry=2026-10-27[&strikes=10][&greeks=false][&account=][&maxAgeMs=]
+ *   GET /v1/optionchain?underlying=NIFTY&expiry=2026-10-27[&strikes=10][&greeks=false][&ivModel=b76-forward][&account=][&maxAgeMs=]
+ *
+ * Every read also takes ?swr=true (stale-while-revalidate: an older cached value now, labelled `stale` and
+ * `revalidating`, refreshed in the background) and ?priority=background (a prefetch; it never runs ahead of a click).
  *
  * A pinned read (`account=`) is checked against the key's account list (ctx.requireAccountAccess) before anything
  * else happens. An unpinned read is served only by accounts the key may use (allowedAccountsFor): a key limited to
@@ -16,10 +19,16 @@
  */
 import { BridgeError } from "../core/errors.mjs";
 import { csv } from "../core/http.mjs";
+import { IV_MODELS } from "./chain.mjs";
+import { parseMarketConfig } from "./config.mjs";
 import { historyCsvRows } from "./history.mjs";
 import { MAX_AGE_LIMIT_MS, MAX_SYMBOLS } from "./marketDataService.mjs";
 
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
+
+/** 1 May 2027 00:00 IST: from then the chain IV default becomes b76-forward (docs/spec/p1-03-pricing-vol.md §10). */
+export const LEGACY_IV_DEPRECATION = Date.UTC(2027, 3, 30, 18, 30) / 1000;
+const LEGACY_IV_HEADERS = Object.freeze({ Deprecation: `@${LEGACY_IV_DEPRECATION}`, Link: '</docs/CHANGELOG.md#optionchain-ivmodel>; rel="deprecation"' });
 
 /** Optional query value: absent or empty -> undefined. */
 const opt = (q, name) => {
@@ -61,7 +70,7 @@ export function parseSymbolList(raw) {
 
 /**
  * The accounts a caller may have its unpinned reads served from: undefined for no restriction (the local operator,
- * or a key with accounts "*"), otherwise the key's list (plus a webhook's own accounts). An empty list means none.
+ * or a key with accounts "*"), otherwise the key's list (plus the own accounts of a webhook or a strategy guard, as in requireAccountAccess). An empty list means none.
  * @param {import("../core/context.mjs").RequestContext} ctx
  * @returns {string[] | undefined}
  */
@@ -70,7 +79,8 @@ export function allowedAccountsFor(ctx) {
   const fromKey = ctx?.key?.accounts;
   if (fromKey === "*") return undefined;
   const list = Array.isArray(fromKey) ? [...fromKey] : [];
-  if (ctx?.principal?.kind === "hook" && Array.isArray(ctx.hookAccounts)) list.push(...ctx.hookAccounts);
+  const kind = ctx?.principal?.kind;
+  if ((kind === "hook" || kind === "guard") && Array.isArray(ctx.hookAccounts)) list.push(...ctx.hookAccounts);
   return list;
 }
 
@@ -79,7 +89,7 @@ export function allowedAccountsFor(ctx) {
  * unpinned reads, and maxAgeMs.
  * @param {import("../core/context.mjs").RequestContext} ctx
  */
-function readOptionsBase(ctx, { maxAge = true, autoBackup = false } = {}) {
+export function readOptionsBase(ctx, { maxAge = true, autoBackup = false } = {}) {
   const q = ctx.query;
   const opts = { signal: ctx.signal };
   const allowed = allowedAccountsFor(ctx);
@@ -95,6 +105,15 @@ function readOptionsBase(ctx, { maxAge = true, autoBackup = false } = {}) {
     if (m !== undefined) opts.maxAgeMs = m;
   }
   if (opts.accountId === undefined && boolParam(q, "backup", autoBackup)) opts.allowBackup = true;
+  // ?swr=true: an older cached value (labelled stale and revalidating) now, a fresh one for the next read.
+  if (boolParam(q, "swr", false)) opts.staleWhileRevalidate = true;
+  // ?priority=background: a prefetch. It may only lower the priority, so a person's click always goes first (a click
+  // that asks for the same thing joins the prefetch and raises it).
+  const pri = opt(q, "priority");
+  if (pri !== undefined) {
+    if (pri !== "background" && pri !== "interactive") throw invalid("priority", "priority may be background or interactive.");
+    opts.priority = pri;
+  }
   return opts;
 }
 
@@ -119,6 +138,18 @@ const meta = (ctx, opts) => ({ requestId: ctx.requestId, accountId: opts.account
  */
 export function createMarketRoutes(deps) {
   const md = () => deps.marketData;
+  /** The chain IV model a request without ivModel gets (market.chain.ivModelDefault), read once. */
+  let ivDefault;
+  const chainIvModelDefault = () => {
+    if (ivDefault === undefined) {
+      try {
+        ivDefault = parseMarketConfig(deps.config?.market).chain.ivModelDefault;
+      } catch {
+        ivDefault = "legacy-bs-spot";
+      }
+    }
+    return ivDefault;
+  };
   const readOptions = (ctx, o = {}) => readOptionsBase(ctx, { ...o, autoBackup: autoBackupFor(deps) });
 
   return {
@@ -188,8 +219,16 @@ export function createMarketRoutes(deps) {
       const params = { underlying, expiry, greeks: boolParam(q, "greeks", true) };
       const strikes = intParam(q, "strikes", 1, 100);
       if (strikes !== undefined) params.strikes = strikes;
+      const ivModel = opt(q, "ivModel");
+      if (ivModel !== undefined) {
+        if (!IV_MODELS.includes(ivModel)) throw invalid("ivModel", `ivModel must be one of ${IV_MODELS.join(", ")}.`);
+        params.ivModel = ivModel;
+      }
       const opts = readOptions(ctx);
       const data = await md().optionChain(params, opts);
+      // The legacy model chosen by default (not asked for) is deprecated: say so in the headers (RFC 9745 / 8288). Decided
+      // on the effective model, not on whether `pricing` is present (greeks=false has none under either model).
+      if (ivModel === undefined && chainIvModelDefault() === "legacy-bs-spot") for (const [k, v] of Object.entries(LEGACY_IV_HEADERS)) ctx.setHeader?.(k, v);
       return { data, meta: { ...meta(ctx, opts), freshness: data.freshness } };
     },
   };

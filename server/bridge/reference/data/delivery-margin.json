@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "asOf": "2026-10-29",
+  "source": "NSE Clearing circular on physical settlement margins (number to be filled)",
+  "verified": false,
+  "appliesTo": "stock derivatives, in-the-money and close-to-money long and short positions",
+  "schedule": [
+    {
+      "day": "E-4",
+      "pct": 10
+    },
+    {
+      "day": "E-3",
+      "pct": 25
+    },
+    {
+      "day": "E-2",
+      "pct": 45
+    },
+    {
+      "day": "E-1",
+      "pct": 70
+    }
+  ]
+}

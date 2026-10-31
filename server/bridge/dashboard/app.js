@@ -4,8 +4,10 @@
 // (#signin=<code>): it is removed from the address bar before anything else and exchanged for a key (POST /v1/sign-in).
 // Pure helpers (ticketFields, confirmCodeNotice, friendlyError ...) are exported for tests; DOM code runs only in a browser.
 
-import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, installPressFeedback, pulse, sheetIn, sheetOut, shake } from "./motion.js";
-import { DASH, formatRupee } from "./format.js";
+import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, pulse, reducedMotion, sheetIn, sheetOut, shake } from "./motion.js";
+import { DASH, ageText, formatRupee } from "./format.js";
+import { DENSITY_SLOT, SIDEBAR_SLOT, parseDensity, resolveDensity, resolveSidebar, toggleSidebar } from "./layout-prefs.js";
+import { watch as liveWatch } from "./live.js";
 
 // Page hooks for views.js (optional: app.js start-up already runs them automatically; both are idempotent).
 export { animateNav, animatePage };
@@ -103,6 +105,23 @@ const session = store("session");
 const local = store("local");
 let memoryKey = session.get(KEY_SLOT);
 
+/**
+ * The page module the address opens with (pure): the Options desk, screeners, calendar, recorder or live events load
+ * on demand (views.js); fetching the one this tab opens on alongside views.js saves a round of loading on a cold start.
+ */
+export function bootModuleFor(hash) {
+  const page = String(hash ?? "").replace(/^#\/?/, "").split(/[/?]/)[0].toLowerCase();
+  if (["chain", "strategy", "positions", "oi", "vol"].includes(page)) return "./desk.js";
+  if (page === "screeners") return /^#\/?screeners\/events/.test(hash) ? "./events.js" : /^#\/?screeners\/stocks/.test(hash) ? null : /^#\/?screeners\/arbitrage/.test(hash) ? "./desk.js" : "./screener.js";
+  if (page === "calendar") return "./calendar.js";
+  if (page === "recorder") return "./recorder.js";
+  return null;
+}
+if (typeof location !== "undefined" && memoryKey) {
+  const mod = bootModuleFor(location.hash);
+  if (mod) import(mod).catch(() => {});
+}
+
 export function setKey(k) {
   memoryKey = k || null;
   session.set(KEY_SLOT, memoryKey);
@@ -121,7 +140,7 @@ export function friendlyError(err) {
   if (err?.network) return { title: "Cannot reach the Bridge", detail: "Is it still running? Start it again from its shortcut (or the start file you double-clicked), then refresh this page." };
   switch (err?.code) {
     case "UNAUTHENTICATED":
-      return { title: "That key was not accepted", detail: "It may be mistyped, expired or revoked. Open the Bridge again from its shortcut (or run mc-bridge open) to sign in without a key, or create a new one with: npm run bridge -- keys create --label me --scope admin,paper" };
+      return { title: "That key was not accepted", detail: "It may be mistyped, expired or revoked, or made by another Bridge (each Bridge only accepts its own keys). To sign in without a key, run npm run dev in the Bridge folder (demo mode) or npm run bridge -- open while it runs; or create one with: npm run bridge -- keys create --label me --scope admin,paper" };
     case "SCOPE_REQUIRED":
       return { title: "This key is not allowed to do that", detail: `${detail} Sign in with an admin key to manage the Bridge.` };
     case "LOOPBACK_ONLY":
@@ -143,9 +162,12 @@ export function friendlyError(err) {
     case "KILL_SWITCH_ENGAGED":
       return { title: "The kill switch is on", detail: "No orders are sent until an admin releases it on the Safety page." };
     case "SYMBOL_NOT_FOUND":
-      return { title: "Symbol not found", detail: `${detail} Symbols look like NSE:RELIANCE, NSE:NIFTY or NFO:NIFTY-2026-10-27-25000-CE.` };
+      // Most often the contract list is simply not loaded yet: it comes from a broker you are logged in to.
+      return { title: "Symbol not found", detail: `${detail} If you have not logged in to your broker today, log in on Accounts: the contract list comes from your broker. Symbols look like NSE:RELIANCE or NFO:NIFTY-2026-10-27-25000-CE.` };
     case "VALIDATION_FAILED":
       return { title: "Please check the form", detail };
+    case "INVALID_ORDER":
+      return { title: "The order was refused", detail };
     case "NOT_IMPLEMENTED":
       return { title: "Not available yet", detail };
     default:
@@ -165,30 +187,297 @@ export class ApiError extends Error {
   }
 }
 
-/** Call the Bridge. Returns { data, headers, status, ms, text }. With raw: true, error answers are returned too. */
-export async function api(path, { method = "GET", body, raw = false } = {}) {
-  const headers = { Authorization: `Bearer ${memoryKey}`, "X-MCB-Client": "dashboard" };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
-  const t0 = performance.now();
-  let res;
-  try {
-    res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-  } catch {
-    throw new ApiError("The Bridge did not answer.", { network: true });
+/**
+ * The last transient failure (network, 429 or 5xx) seen by api(), numbered. Auto-refresh compares `seq` before and
+ * after a page reload to learn whether it should back off (pages draw their own error boxes and do not throw).
+ */
+export const apiHealth = { seq: 0, failure: null };
+const noteFailure = (status, retryAfterMs = 0) => {
+  apiHealth.failure = { seq: ++apiHealth.seq, status: status ?? null, retryAfterMs };
+};
+const noteStatus = (res) => {
+  if (res.status === 429 || res.status >= 500) {
+    const ra = Number(res.headers.get("retry-after"));
+    noteFailure(res.status, Number.isFinite(ra) && ra > 0 ? ra * 1000 : 0);
   }
-  const ms = Math.round(performance.now() - t0);
-  const ct = res.headers.get("content-type") ?? "";
-  const text = await res.text();
-  let data = text;
-  if (ct.includes("json") && text) {
+};
+
+// ── The shared fetch layer ──
+//
+// Every page reads through api(). For GET it adds three things, so pages that ask for the same data share it:
+//  1. one request per URL at a time: a second caller of a URL already on its way waits for the same answer;
+//  2. a short memory of answers (SHARE_MS): parts of a page and other pages asking within a moment get the same one;
+//  3. paint from memory on a page switch: during the first moments after a switch (beginNavigation), an answer up to
+//     PAINT_FROM_CACHE_MS old is used at once and a fresh one is fetched behind it; pages that show market data label
+//     it with its own data time, and onRevalidated() lets the router redraw the other pages when the fresh one differs.
+// Never from memory: one-time and audit reads, and states a person acts on (safety, tickets, order preview). Any
+// write (POST, PUT, PATCH, DELETE) forgets every remembered answer, so what follows an order is always fresh.
+
+/** Answers shared between callers asking within this many ms. */
+export const SHARE_MS = 1000;
+/** On a page switch, an answer up to this old paints at once while a fresh one is fetched. */
+export const PAINT_FROM_CACHE_MS = 30_000;
+/** How long after a page switch its first reads may paint from memory. */
+export const NAV_WINDOW_MS = 2500;
+/** A prefetched answer serves the next ask for this long. */
+export const PREFETCH_USE_MS = 4000;
+const CACHE_MAX = 300;
+/** GETs never answered from memory (one-time, audit, safety-critical or diagnostics). */
+const NO_CACHE_RE = /^\/v1\/(stream\/token|sign-in|requests|audit|safety|tickets|orders\/preview|readiness|limits|usage)(\/|\?|$)/;
+/** Market reads that take ?priority=background when prefetched (a click on the same thing raises it). */
+const MARKET_RE = /^\/v1\/(optionchain|quotes|ltp|expiries|depth|history)\?/;
+
+/** POSTs that read or start something and change no state the pages show: they keep the remembered answers. */
+const READ_LIKE_POST_RE = /^\/v1\/(stream\/token|sign-in|orders\/preview|margin\/preview|readiness\/check|scanner\/plan|reference\/corporate-actions\/preview|paper\/accounts\/[^/]+\/margin|strategy\/(price|payoff|preview))(\/|\?|$)/;
+/**
+ * Whether a write may change what the remembered answers say (pure). A dry run (body `dryRun: true`, such as Cancel
+ * all's count on the Orders page) changes nothing.
+ */
+export const forgetsAnswers = (method, path, body) => method !== "GET" && !READ_LIKE_POST_RE.test(String(path)) && !(method === "POST" && body?.dryRun === true);
+/** Writes so far that forgot the remembered answers: an answer a page keeps itself is good until this moves. */
+let writes = 0;
+export const writeCount = () => writes;
+
+/** Whether a GET path may be remembered (pure). */
+export const cacheable = (path) => typeof path === "string" && path.startsWith("/v1/") && !NO_CACHE_RE.test(path);
+
+/**
+ * May a remembered answer of this age be used now (pure)? Shared answers are always fine; older ones only while a page
+ * is switching in. @returns {"fresh"|"paint"|null}
+ */
+export function cacheUse(ageMs, navigating) {
+  if (!(ageMs >= 0)) return null;
+  if (ageMs <= SHARE_MS) return "fresh";
+  if (navigating && ageMs <= PAINT_FROM_CACHE_MS) return "paint";
+  return null;
+}
+
+const answers = new Map(); // path -> { at, ok, status, ct, text, headers }
+const inflight = new Map(); // path -> Promise<answer>
+const routeReads = new Map(); // page -> Set<path> read while it switched in (what to prefetch on hover)
+const revalidatedListeners = new Set();
+let navUntil = 0;
+let navPage = null;
+
+/** The router calls this when a page starts to render: its first reads may paint from memory. */
+export function beginNavigation(page) {
+  navPage = typeof page === "string" ? page : null;
+  navUntil = performance.now() + NAV_WINDOW_MS;
+}
+/** Call fn(path) when an answer painted from memory was refreshed and came back different. */
+export function onRevalidated(fn) {
+  revalidatedListeners.add(fn);
+  return () => revalidatedListeners.delete(fn);
+}
+
+function remember(path, a) {
+  answers.delete(path);
+  answers.set(path, a);
+  if (answers.size > CACHE_MAX) answers.delete(answers.keys().next().value);
+}
+
+/** One network GET per path at a time; ok answers are remembered. */
+function fetchShared(path, { headers, priority = null } = {}) {
+  const running = inflight.get(path);
+  if (running) return running;
+  const url = priority === "background" && MARKET_RE.test(path) ? `${path}&priority=background` : path;
+  const p = (async () => {
+    const t0 = performance.now();
+    let res;
     try {
-      data = JSON.parse(text);
+      res = await fetch(url, { headers });
+    } catch {
+      noteFailure(null);
+      throw new ApiError("The Bridge did not answer.", { network: true });
+    }
+    noteStatus(res);
+    const a = { at: Date.now(), ok: res.ok, status: res.status, ct: res.headers.get("content-type") ?? "", text: await res.text(), headers: res.headers, ms: Math.round(performance.now() - t0), prefetched: priority === "background" };
+    if (a.ok && cacheable(path)) remember(path, a);
+    return a;
+  })().finally(() => inflight.delete(path));
+  inflight.set(path, p);
+  return p;
+}
+
+function baseHeaders(page = navPage) {
+  const headers = { Authorization: `Bearer ${memoryKey}`, "X-MCB-Client": "dashboard" };
+  // Which page asked (the Bridge credits its broker calls to it on API › Rate limits).
+  if (page && /^[a-z-]{2,20}$/.test(page)) headers["X-MCB-Page"] = page;
+  return headers;
+}
+
+/** An answer as api() returns it: parsed afresh for each caller, so no page can change another page's data. */
+function toResult(a, { raw, ms }) {
+  let data = a.text;
+  if (a.ct.includes("json") && a.text) {
+    try {
+      data = JSON.parse(a.text);
     } catch {
       /* leave as text */
     }
   }
-  if (!res.ok && !raw) throw new ApiError(data?.detail ?? data?.title ?? `HTTP ${res.status}`, { status: res.status, code: data?.code, body: data });
-  return { data, headers: res.headers, status: res.status, ms, text };
+  if (!a.ok && !raw) {
+    // problem+json (detail / title), or a proxy's or broker's own shape ({ error: { message } }, { message }).
+    const said = data?.detail ?? data?.title ?? (typeof data?.error === "string" ? data.error : data?.error?.message) ?? data?.message;
+    throw new ApiError(typeof said === "string" && said ? said : `HTTP ${a.status}`, { status: a.status, code: data?.code ?? data?.error?.code, body: data });
+  }
+  return { data, headers: a.headers, status: a.status, ms, text: a.text };
+}
+
+/** Fetch `path` again behind an answer painted from memory; tell the router when it changed. */
+function revalidate(path, served) {
+  fetchShared(path, { headers: baseHeaders() })
+    .then((a) => {
+      if (a.ok && a.text !== served.text) for (const fn of revalidatedListeners) fn(path);
+    })
+    .catch(() => {});
+}
+
+/**
+ * Call the Bridge. Returns { data, headers, status, ms, text, cached? }. With raw: true, error answers are returned
+ * too (and nothing is shared or remembered: the test console shows the real call). `fresh: true` skips the memory.
+ * `paintOld: true` treats this read like a page switch: a remembered answer up to PAINT_FROM_CACHE_MS old (a
+ * prefetch, say) is returned at once with `cached: "paint"` while a fresh one is fetched behind it (the caller reads
+ * again to get it; the second read joins that request).
+ */
+export async function api(path, { method = "GET", body, raw = false, fresh = false, paintOld = false } = {}) {
+  const headers = baseHeaders();
+  if (method !== "GET" || raw) {
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const forget = forgetsAnswers(method, path, body);
+    if (forget) {
+      answers.clear();
+      writes += 1;
+    }
+    const t0 = performance.now();
+    let res;
+    try {
+      res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    } catch {
+      noteFailure(null);
+      throw new ApiError("The Bridge did not answer.", { network: true });
+    }
+    noteStatus(res);
+    const a = { ok: res.ok, status: res.status, ct: res.headers.get("content-type") ?? "", text: await res.text(), headers: res.headers };
+    if (forget) {
+      answers.clear();
+      writes += 1;
+    }
+    return toResult(a, { raw, ms: Math.round(performance.now() - t0) });
+  }
+  const navigating = performance.now() < navUntil;
+  if (navigating && navPage && cacheable(path)) {
+    let reads = routeReads.get(navPage);
+    if (!reads) routeReads.set(navPage, (reads = new Set()));
+    if (reads.size < 16) reads.add(path);
+  }
+  noteRead(path);
+  if (!fresh && cacheable(path)) {
+    const hit = answers.get(path);
+    const age = hit ? Date.now() - hit.at : NaN;
+    // A prefetched answer (the expiry chip under the pointer) serves the click that follows it for a few seconds.
+    const use = hit ? cacheUse(age, navigating || paintOld) ?? (hit.prefetched && age <= PREFETCH_USE_MS ? "fresh" : null) : null;
+    if (use) {
+      hit.prefetched = false; // a prefetch serves one ask; the page's own refreshes go to the Bridge
+      if (use === "paint") revalidate(path, hit);
+      return { ...toResult(hit, { raw, ms: 0 }), cached: use };
+    }
+  }
+  const t0 = performance.now();
+  const a = await fetchShared(path, { headers });
+  const out = toResult(a, { raw, ms: Math.round(performance.now() - t0) });
+  const held = positionSymbols(path, out.data);
+  if (held) noteRead(path, { symbols: held, mode: "ltp", update: true });
+  return out;
+}
+
+// ── Polls become stream subscriptions ──
+// A page that reads the same /v1/quotes or /v1/ltp URL again within AUTO_WATCH_MS is polling: its symbols are then
+// watched on the shared live connection (live.js) until it stops, so the Bridge answers the next polls from ticks
+// instead of the broker. Positions, Home, Strategy and the screeners get this without knowing about it.
+export const AUTO_WATCH_MS = 15_000;
+const AUTO_WATCH_MAX = 400;
+const AUTO_WATCH_RE = /^\/v1\/(quotes|ltp)\?(?:[^#]*&)?symbols=([^&#]+)/;
+const autoWatches = new Map(); // path -> { seen, handle, timer, n }
+let autoWatched = 0;
+
+/** The symbols and stream mode of a polled read, or null (pure). */
+export function pollTarget(path) {
+  const m = AUTO_WATCH_RE.exec(String(path));
+  if (!m) return null;
+  let raw = m[2];
+  try {
+    raw = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  const symbols = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  return symbols.length ? { symbols, mode: m[1] === "quotes" ? "quote" : "ltp" } : null;
+}
+
+/**
+ * The open positions' symbols in a /v1/positions answer (pure): a page polling positions (the chain, OI and Strategy
+ * read them every few seconds for held lots and delta) has them watched too, so the Bridge marks them to market from
+ * ticks instead of a broker read per poll. Null for any other path.
+ */
+export function positionSymbols(path, body) {
+  if (!/^\/v1\/positions(?:\?|$)/.test(String(path))) return null;
+  const rows = Array.isArray(body?.data) ? body.data : [];
+  const out = new Set();
+  for (const p of rows) if (typeof p?.symbol === "string" && Number(p.netQty)) out.add(p.symbol);
+  return [...out].slice(0, 100);
+}
+
+function noteRead(path, target = pollTarget(path)) {
+  if (!target || typeof window === "undefined") return;
+  const now = Date.now();
+  const w = autoWatches.get(path);
+  if (!w) {
+    autoWatches.set(path, { seen: now, handle: null, timer: null, n: 0 });
+    return;
+  }
+  if (w.handle && target.update && now - w.seen <= AUTO_WATCH_MS) {
+    // Positions change (a fill, a close): follow them, within the same cap.
+    const extra = target.symbols.length - w.n;
+    if (autoWatched + extra <= AUTO_WATCH_MAX) {
+      w.handle.update(target.symbols);
+      autoWatched += extra;
+      w.n = target.symbols.length;
+    }
+  } else if (!w.handle && now - w.seen <= AUTO_WATCH_MS && target.symbols.length && autoWatched + target.symbols.length <= AUTO_WATCH_MAX) {
+    w.n = target.symbols.length;
+    autoWatched += w.n;
+    w.handle = liveWatch(target.symbols, target.mode, () => {});
+  }
+  w.seen = now;
+  clearTimeout(w.timer);
+  w.timer = setTimeout(() => {
+    w.handle?.stop();
+    if (w.handle) autoWatched -= w.n;
+    autoWatches.delete(path);
+  }, AUTO_WATCH_MS);
+}
+
+/**
+ * Warm what a page reads before it is opened (menu hover or focus): its reads from the last visit that are not
+ * remembered already, market data at background priority. Never more than one request per path.
+ */
+export function prefetchPage(page) {
+  const reads = routeReads.get(page);
+  if (!reads) return;
+  for (const path of reads) prefetch(path);
+}
+
+/**
+ * Warm one GET a person is about to ask for (an expiry chip under the pointer): fetched once at background priority
+ * unless an answer under 5 s old is remembered; a click on it then paints from memory (the page-switch window) or joins
+ * the request already on its way.
+ */
+export function prefetch(path) {
+  if (!memoryKey || !cacheable(path)) return;
+  const hit = answers.get(path);
+  if (hit && Date.now() - hit.at <= 5000) return;
+  fetchShared(path, { headers: baseHeaders("prefetch"), priority: "background" }).catch(() => {});
 }
 export const optional = (p) => p.then((r) => r, (error) => ({ error }));
 
@@ -241,13 +530,33 @@ export const ICONS = {
   monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
   more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
   chevron: '<path d="m9 6 6 6-6 6"/>',
+  pause: '<path d="M8.5 5v14M15.5 5v14"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   logout: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>',
   chart: '<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/>',
   wallet: '<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18"/><circle cx="16" cy="15" r="1.2"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+  sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  grip: '<circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/><circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/><circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/>',
+  up: '<path d="m6 15 6-6 6 6"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
+  expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  shrink: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
+  strategy: '<path d="M3 17h5l4-10 4 10h5"/><path d="M3 21h18"/>',
+  bars: '<path d="M4 20V10M9 20V4M14 20v-7M19 20V8"/>',
+  wave: '<path d="M3 12c2-5 4-5 6 0s4 5 6 0 4-5 6 0"/><path d="M3 20h18"/>',
+  scale: '<path d="M12 4v16M5 20h14M4 8h16"/><path d="m4 8-2.5 6h5zM20 8l-2.5 6h5z"/>',
+  columns: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/>',
+  people: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.6 2.7-6 6-6s6 2.4 6 6"/><circle cx="17" cy="9" r="2.6"/><path d="M15.5 14.3c3 .2 5.5 2.3 5.5 5.7"/>',
+  download: '<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01"/>',
+  sidebar: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/><path d="m15 10-2 2 2 2"/>',
+  rail: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/><path d="m13 10 2 2-2 2"/>',
+  density: '<path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>',
+  radar: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 12 18.4 5.6"/><circle cx="15.5" cy="9.5" r="1.1"/>',
 };
 export function icon(name) {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -267,12 +576,20 @@ export function iconTile(name, tint = "blue", size = "md") {
 }
 
 /** A HUD confirmation in #toast (one at a time; a new one replaces the old). views.js may hide it with `$("toast").hidden = true`. */
-export function toast(text) {
+export function toast(text, { tone = "ok" } = {}) {
   const t = document.getElementById("toast");
   const gen = (toast.gen = (toast.gen ?? 0) + 1);
   const wasHidden = t.hidden;
-  t.replaceChildren(h("span", { class: "toast-icon" }, icon("check")), h("span", { class: "toast-text" }, text));
+  // Tones: "ok" a done action (green check); "info" a refused or not-yet-possible action (neutral ⓘ); "warn" a caution
+  // (amber !); "error" a failure (red !, read out at once, stays a little longer). Never the green check for a problem.
+  const kind = TOAST_TONES.has(tone) ? tone : "ok";
+  const glyph = kind === "ok" ? "check" : kind === "info" ? "info" : "warn";
+  t.dataset.tone = kind;
+  t.setAttribute("role", kind === "error" ? "alert" : "status");
+  t.replaceChildren(h("span", { class: `toast-icon${kind === "ok" ? "" : ` ${kind}`}` }, icon(glyph)), h("span", { class: "toast-text" }, text));
   t.hidden = false;
+  raiseToast(t);
+  placeToast(t);
   if (wasHidden) bannerIn(t);
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => {
@@ -280,10 +597,86 @@ export function toast(text) {
     bannerOut(t).then(() => {
       if (toast.gen === gen) t.hidden = true;
     });
-  }, 2600);
+  }, kind === "error" || kind === "warn" ? 4200 : 2600);
+}
+const TOAST_TONES = new Set(["ok", "info", "warn", "error"]);
+
+const TOAST_CONTROLS = "button, a[href], input, select, textarea, summary, [role=tab], [role=button]";
+
+/** How many visible controls the toast's box (plus a 4px margin) overlaps. */
+function toastCovers(t) {
+  const r = t.getBoundingClientRect();
+  if (!r.width || typeof document.elementsFromPoint !== "function") return 0;
+  const [l, top, rt, b] = [r.left - 4, r.top - 4, r.right + 4, r.bottom + 4];
+  let n = 0;
+  for (const c of document.querySelectorAll(TOAST_CONTROLS)) {
+    if (t.contains(c)) continue;
+    const q = c.getBoundingClientRect();
+    if (!q.width || q.right <= l || q.left >= rt || q.bottom <= top || q.top >= b) continue;
+    // Count it only where it is really on top there (not under a sheet, scrolled out or clipped by its panel).
+    const x = (Math.max(l, q.left) + Math.min(rt, q.right)) / 2;
+    const y = (Math.max(top, q.top) + Math.min(b, q.bottom)) / 2;
+    const under = document.elementsFromPoint(x, y).find((e) => !t.contains(e));
+    if (under && (under === c || c.contains(under))) n++;
+  }
+  return n;
+}
+
+/**
+ * The control the person used last (pointer or key), so a toast never lands on it: a slider dragged on Strategy, the
+ * button just pressed. Kept for 4s; after that only the count of covered controls decides.
+ */
+let lastUsed = null;
+let lastUsedAt = 0;
+if (typeof document !== "undefined") {
+  const note = (e) => {
+    const c = e.target?.closest?.(TOAST_CONTROLS);
+    if (!c || c.closest?.("#toast")) return;
+    lastUsed = c;
+    lastUsedAt = Date.now();
+  };
+  document.addEventListener("pointerdown", note, true);
+  document.addEventListener("keydown", note, true);
+  document.addEventListener("input", note, true);
+}
+function coversLast(t) {
+  if (!lastUsed?.isConnected || Date.now() - lastUsedAt > 4000) return false;
+  const r = t.getBoundingClientRect();
+  const q = lastUsed.getBoundingClientRect();
+  return r.width > 0 && q.width > 0 && !(q.right <= r.left - 4 || q.left >= r.right + 4 || q.bottom <= r.top - 4 || q.top >= r.bottom + 4);
+}
+
+/**
+ * Where the toast goes. Wide screens: top centre under the toolbar (app.css), else the bottom right
+ * ([data-place="low"]). Phones and tablets: bottom centre above the tab bar and any sticky bottom bar, else top centre
+ * under the toolbar ([data-place="top"]). The other place is taken when the first covers the control just used, or
+ * covers more controls; neither place ever reaches the tab bar.
+ */
+function placeToast(t) {
+  delete t.dataset.place;
+  const cost = () => (coversLast(t) ? 100 : 0) + toastCovers(t);
+  const first = cost();
+  if (!first) return;
+  t.dataset.place = window.matchMedia?.("(min-width: 1024px)").matches ? "low" : "top";
+  if (cost() >= first) delete t.dataset.place;
+}
+
+/**
+ * The toast is a manual popover (index.html): re-showing it makes it the newest top-layer entry, so it sits above an
+ * open sheet or palette. Browsers without popovers keep the fixed --z-toast layer.
+ */
+function raiseToast(t) {
+  if (typeof t.showPopover !== "function") return;
+  try {
+    if (t.matches(":popover-open")) t.hidePopover();
+    t.showPopover();
+  } catch {
+    /* not in the document, or popovers unsupported: the CSS layer still shows it */
+  }
 }
 
 export async function copyText(text, label = "Copied") {
+  let ok = true;
   try {
     await navigator.clipboard.writeText(text);
   } catch {
@@ -291,13 +684,33 @@ export async function copyText(text, label = "Copied") {
     document.body.append(ta);
     ta.select();
     try {
-      document.execCommand("copy");
+      ok = document.execCommand("copy");
     } catch {
-      /* the person can still select the text */
+      ok = false; /* the person can still select the text */
     }
     ta.remove();
   }
-  toast(label);
+  if (ok) toast(label);
+  else toast("This browser blocked copying. Select the text and press Ctrl+C.", { tone: "warn" });
+  return ok;
+}
+
+/** A Copy button that answers on itself too: "Copied" with a check for a moment, then back to its label. */
+export function copyButton(getText, { label = "Copy", done = "Copied", toastLabel = "Copied", cls = "small copy", onCopy, ariaLabel } = {}) {
+  const b = h("button", { type: "button", class: cls, ...(ariaLabel ? { "aria-label": ariaLabel } : {}) }, icon("copy"), label);
+  b.addEventListener("click", async () => {
+    const ok = await copyText(typeof getText === "function" ? getText() : getText, toastLabel);
+    if (!ok) return;
+    onCopy?.();
+    clearTimeout(b._copiedTimer);
+    b.dataset.copied = "true";
+    b.replaceChildren(icon("check"), done);
+    b._copiedTimer = setTimeout(() => {
+      delete b.dataset.copied;
+      b.replaceChildren(icon("copy"), label);
+    }, 1800);
+  });
+  return b;
 }
 
 /** Highlight JSON text (escaped first, so nothing in the data is ever interpreted as HTML). Pure. */
@@ -310,13 +723,16 @@ export function highlightJson(text) {
   });
 }
 
-/** A code block with a copy button. `onCopy` runs after copying (the welcome checklist listens). */
+/**
+ * A code block: a head row (title, Copy) above the code, so Copy never covers it; the code scrolls sideways instead of
+ * wrapping mid-token. `onCopy` runs after copying (the welcome checklist listens).
+ */
 export function codeBlock(code, { title, json = false, onCopy } = {}) {
   const pre = h("pre", { tabindex: "0" });
   if (json) pre.innerHTML = highlightJson(code);
   else pre.textContent = code;
-  const btn = h("button", { type: "button", class: "small copy", onclick: () => copyText(code).then(() => onCopy?.()) }, icon("copy"), "Copy");
-  return h("div", { class: "code-block" }, title ? h("div", { class: "code-title" }, title) : null, h("div", { class: "code" }, pre, btn));
+  const btn = copyButton(code, { onCopy, ariaLabel: title ? `Copy: ${title}` : "Copy" });
+  return h("div", { class: "code-block" }, h("div", { class: "code-head" }, h("div", { class: "code-title" }, title ?? ""), btn), h("div", { class: "code" }, pre));
 }
 
 /**
@@ -328,8 +744,282 @@ export function pill(text, cls = "") {
   return h("span", { class: `pill ${cls}`.trim() }, state ? h("span", { class: "pdot", "aria-hidden": "true" }) : null, text);
 }
 
-export function emptyState(iconName, title, text, action) {
-  return h("div", { class: "empty" }, iconTile(iconName, "gray", "lg"), h("strong", {}, title), text ? h("p", {}, text) : null, action ?? null);
+/**
+ * The one empty state: icon tile, title, one line and an action (a node or a list). `compact: true` is the in-card
+ * variant (no icon tile, 16 px padding) for Options panels.
+ */
+export function emptyState(iconName, title, text, action, { compact = false } = {}) {
+  return h(
+    "div",
+    { class: compact ? "empty compact" : "empty" },
+    compact ? null : iconTile(iconName, "gray", "lg"),
+    h("strong", {}, title),
+    text ? h("p", {}, text) : null,
+    action ? h("div", { class: "empty-acts" }, action) : null,
+  );
+}
+
+// ── Shared states for the Options pages (PRD 08 §5): one look for loading, error, freshness ──
+
+const mm = (q) => typeof matchMedia === "function" && matchMedia(q).matches;
+/** True when the only pointer is a finger (no mouse or trackpad as well). */
+export const touchOnly = () => mm("(pointer: coarse)") && !mm("(any-pointer: fine)");
+/** "Tap" on touch-only screens, "Click" elsewhere (P4: phones never read "press B"). */
+export const touchWord = () => (touchOnly() ? "Tap" : "Click");
+/** A keyboard hint, only where there is a keyboard-class pointer: "" on touch-only screens. */
+export const keyHint = (text) => (touchOnly() ? "" : text);
+
+/**
+ * Skeleton rows at the final row height (no layout shift when the data lands), with one screen-reader line. The
+ * host panel should carry aria-busy while it shows. Static DOM: no timers.
+ */
+export function loadingState({ rows = 8, cols = 4, label = "Loading", height = null } = {}) {
+  const el = h(
+    "div",
+    { class: "skel-state", role: "status" },
+    h("span", { class: "sr-only" }, label),
+    Array.from({ length: rows }, () => h("div", { class: "skel-row", "aria-hidden": "true" }, Array.from({ length: cols }, () => h("i")))),
+  );
+  if (height) el.style.setProperty("--skel-h", `${height}px`);
+  return el;
+}
+
+/**
+ * An error in plain words with Retry. Without data it sits in the panel body; with data kept (`lastGood`, an ISO
+ * time) it is a slim bar at the top of the panel saying what is still shown.
+ */
+export function errorState(err, { onRetry = null, lastGood = null } = {}) {
+  const f = err instanceof Error || err?.code || err?.network ? friendlyError(err) : { title: String(err?.title ?? err ?? "Something went wrong"), detail: err?.detail ?? "" };
+  const auth = ["SESSION_EXPIRED", "UNAUTHENTICATED", "NO_ACCOUNT", "BROKER_UNAVAILABLE", "SYMBOL_NOT_FOUND"].includes(err?.code);
+  const retry = onRetry ? h("button", { type: "button", class: "small err-retry", onclick: () => onRetry() }, icon("refresh"), "Retry") : null;
+  if (lastGood) {
+    // An answer without a known code: say what the server said ("Broker feed unavailable (503)"), not just its status.
+    const said = typeof err?.message === "string" && err.message && !/^HTTP \d+$/.test(err.message) ? err.message.replace(/\.$/, "") : "";
+    const what = said && f.title.startsWith("The Bridge answered") ? `${said} (${err.status})` : f.title;
+    return h(
+      "div",
+      { class: "err-bar", role: "alert" },
+      icon("warn"),
+      h("span", { class: "err-text" }, h("strong", {}, `Couldn't refresh: ${what}.`), ` Showing ${istTime(lastGood)}.`),
+      retry,
+    );
+  }
+  return h(
+    "div",
+    { class: "err-state", role: "alert" },
+    h("strong", {}, f.title),
+    f.detail ? h("p", {}, f.detail) : null,
+    h("div", { class: "empty-acts" }, retry, auth ? h("a", { href: "#/accounts", class: "err-link" }, "Log in on Accounts") : null),
+  );
+}
+
+/**
+ * The Options top bar's one live control: Live / Pause and data freshness in a single button (docs/design/foundation.md
+ * §5.1). "● 08:52:24" while live, "Paused · 12 s old", "Stale · 45 s old", "Not updating · 2 min old",
+ * "Market closed · 15:29:59". update() patches text nodes only; tick() pulses the dot once (one successful refresh).
+ */
+export function liveControl({ onToggle, refreshMs = 3000 } = {}) {
+  const text = document.createTextNode("Waiting");
+  const dot = h("span", { class: "live-dot", "aria-hidden": "true" });
+  const glyph = h("span", { class: "live-glyph", "aria-hidden": "true" });
+  const el = h("button", { type: "button", class: "live-ctl", "aria-keyshortcuts": "P", onclick: () => onToggle?.() }, dot, glyph, h("span", { class: "live-txt" }, text));
+  let sig = "";
+  let flip = false;
+  return {
+    el,
+    update({ kind = "live", asOf = null, ageMs = null, source = null, live = true } = {}) {
+      const t = istTime(asOf);
+      const age = ageMs === null ? "" : ageText(ageMs);
+      const words =
+        kind === "error"
+          ? `Not updating${age ? ` · ${age}` : ""}`
+          : kind === "paused"
+            ? `Paused${age ? ` · ${age}` : ""}`
+            : kind === "stale"
+              ? `Stale${age ? ` · ${age}` : ""}`
+              : kind === "closed"
+                ? `Market closed · ${t}`
+                : asOf
+                  ? t
+                  : "Waiting";
+      const s = `${kind}|${words}|${source}|${asOf}|${live}`;
+      if (s === sig) return;
+      sig = s;
+      if (text.data !== words) text.data = words;
+      // Live with no data yet: "Waiting" with a neutral dot (green would claim a live feed before the first load).
+      el.dataset.kind = kind === "live" && !asOf ? "waiting" : kind;
+      el.setAttribute("aria-pressed", String(live));
+      glyph.replaceChildren(live ? "" : icon("pause"));
+      const what = live ? `Live: refreshing every ${refreshMs / 1000} s. ${touchWord()} to pause${keyHint(" (P)")}` : `Paused. ${touchWord()} to resume${keyHint(" (P)")}`;
+      el.title = [what, source ? `Data from ${source}` : "", asOf ? `${istDateTime(asOf)} IST` : ""].filter(Boolean).join(" · ");
+      // The state word comes first, then what the data is, then the action: "Not updating, data 15 s old. Pause updates".
+      const state = kind === "error" ? "Not updating" : kind === "stale" ? "Stale" : kind === "closed" ? "Market closed" : live ? "Live" : "Paused";
+      const data = kind === "live" || kind === "closed" ? (asOf ? `data as of ${t}` : "waiting for data") : age ? `data ${age}` : "no data yet";
+      el.setAttribute("aria-label", `${state}, ${data}. ${live ? "Pause" : "Resume"} updates`);
+    },
+    /** One ring pulse on the dot (re-added per successful refresh, never an endless loop). */
+    tick() {
+      flip = !flip;
+      dot.classList.toggle("tick-a", flip);
+      dot.classList.toggle("tick-b", !flip);
+    },
+  };
+}
+
+/**
+ * Put the page's context (underlying, expiry, spot, account, live control) into the app toolbar's #toolbar-ctx slot.
+ * `page` is the route that owns it: a render that finishes after the visitor has moved on mounts nothing.
+ */
+export function mountToolbarCtx(page, ...nodes) {
+  const slot = typeof document !== "undefined" ? document.getElementById("toolbar-ctx") : null;
+  if (!slot || document.documentElement.dataset.page !== page) return false;
+  slot.replaceChildren(...nodes.flat().filter(Boolean));
+  slot.hidden = false;
+  return true;
+}
+
+/** The one demo indicator's explanation (the toolbar's "Demo" and the phone ⋯ badge). */
+export const DEMO_EXPLAINER = "Sample prices generated on this computer. Not live market data. Orders are paper only.";
+
+/**
+ * The shared slot for the owner's chart engine. Nothing is drawn until an engine registers (`app.chartEngine`): the
+ * function returns null then, so every caller filters it out (replaceChildren(null) would print "null").
+ */
+export function chartSlot(label, sub = "") {
+  if (!app.chartEngine) return null;
+  return h("div", { class: "chart-slot-box", role: "img", "aria-label": `Chart engine slot: ${label}` }, h("span", { class: "chart-slot-kicker" }, "Chart engine slot"), h("span", { class: "chart-slot-label" }, label), sub ? h("span", { class: "chart-slot-sub" }, sub) : null);
+}
+
+/**
+ * A popover that is a bottom sheet on phones (< 720 px, in #dialog with aria-modal) and a body-attached popover from
+ * 720 px up, placed against the trigger and clamped to the viewport (never clipped by a panel). Both trap Tab, close
+ * on Esc and return focus to the trigger. Returns { el, close() }; `onClose` runs once.
+ */
+const OPEN_POPS = new WeakMap();
+export function sheetPopover({ trigger, title, body, head = [], cls = "", onClose = null, within = null }) {
+  // One popover per trigger: clicking the trigger again while its popover is open closes it (no second copy).
+  const open = trigger ? OPEN_POPS.get(trigger) : null;
+  if (open) {
+    open.close();
+    return open;
+  }
+  const phone = mm("(max-width: 719px)");
+  let closed = false;
+  const closeBtn = h("button", { type: "button", class: "icon-btn tiny", "aria-label": "Close", onclick: () => close() }, icon("close"));
+  const headEl = h("div", { class: "pop-head" }, h("strong", { id: "pop-title" }, title), head, closeBtn);
+  const done = () => {
+    if (closed) return;
+    closed = true;
+    trigger?.setAttribute("aria-expanded", "false");
+    removeEventListener("resize", place);
+    removeEventListener("scroll", onScroll, true);
+    removeEventListener("hashchange", close);
+    document.removeEventListener("pointerdown", outside, true);
+    if (trigger && OPEN_POPS.get(trigger) === handle) OPEN_POPS.delete(trigger);
+    onClose?.();
+    if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+  };
+  const trap = (e, root) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const f = [...root.querySelectorAll("button, input, select, textarea, a[href], [tabindex]:not([tabindex='-1'])")].filter((x) => !x.disabled && x.offsetParent !== null);
+    if (!f.length) return;
+    const first = f[0];
+    const last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+  let el;
+  let raf = 0;
+  function place() {
+    if (phone || !el?.isConnected || !trigger) return;
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => {
+      const r = trigger.getBoundingClientRect();
+      const w = el.offsetWidth;
+      const hgt = el.offsetHeight;
+      // `within`: an element (a column, a panel) the popover stays inside; it opens from the trigger's left then.
+      const b = within?.isConnected ? within.getBoundingClientRect() : null;
+      const minL = Math.max(8, b ? b.left : 8);
+      const maxL = Math.max(minL, Math.min(innerWidth - w - 8, b ? b.right - w : innerWidth));
+      const left = Math.max(minL, Math.min(maxL, b ? r.left : r.right - w));
+      let top = r.bottom + 6;
+      if (top + hgt > innerHeight - 8) top = Math.max(8, Math.min(innerHeight - hgt - 8, r.top - hgt - 6));
+      el.style.left = `${Math.round(left)}px`;
+      el.style.top = `${Math.round(top)}px`;
+    });
+  }
+  const onScroll = (e) => {
+    if (el && !el.contains(e.target)) place();
+  };
+  const outside = (e) => {
+    if (el && !el.contains(e.target) && !trigger?.contains(e.target)) close();
+  };
+  function close() {
+    if (closed) return;
+    if (phone) {
+      const d = document.getElementById("dialog");
+      if (d.open) d.close();
+      else done();
+      return;
+    }
+    el?.remove();
+    done();
+  }
+  trigger?.setAttribute("aria-expanded", "true");
+  if (phone) {
+    const d = document.getElementById("dialog");
+    d.classList.add("sheet");
+    el = h("div", { class: `pop-sheet ${cls}`.trim() }, headEl, body);
+    d.replaceChildren(h("div", { class: "sheet-grabber", "aria-hidden": "true" }), el);
+    d.setAttribute("aria-labelledby", "pop-title");
+    d.setAttribute("aria-modal", "true");
+    d.onkeydown = null;
+    const onKey = (e) => trap(e, d);
+    const onBackdrop = (e) => {
+      if (e.target !== d) return;
+      const r = d.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) close();
+    };
+    const onDlgClose = () => {
+      d.removeEventListener("keydown", onKey);
+      d.removeEventListener("close", onDlgClose);
+      d.removeEventListener("click", onBackdrop);
+      d.removeAttribute("aria-modal");
+      lockScroll(false);
+      done();
+    };
+    d.addEventListener("keydown", onKey);
+    d.addEventListener("close", onDlgClose);
+    d.addEventListener("click", onBackdrop);
+    if (!d.open) d.showModal();
+    lockScroll(true);
+    sheetIn(d, d);
+  } else {
+    el = h("div", { class: `popover floating ${cls}`.trim(), role: "dialog", "aria-modal": "false", "aria-labelledby": "pop-title" }, headEl, body);
+    el.addEventListener("keydown", (e) => trap(e, el));
+    document.body.append(el);
+    place();
+    addEventListener("resize", place);
+    addEventListener("scroll", onScroll, true);
+    setTimeout(() => !closed && document.addEventListener("pointerdown", outside, true));
+  }
+  // A route change (palette, keyboard back, a hash link) closes it too, not only a pointerdown outside.
+  addEventListener("hashchange", close);
+  (body.querySelector?.("button, input, select") ?? closeBtn).focus({ preventScroll: true });
+  const handle = { el, close, place };
+  if (trigger) OPEN_POPS.set(trigger, handle);
+  return handle;
 }
 
 export function alertBox(err, cls = "bad") {
@@ -344,7 +1034,10 @@ export function alertBox(err, cls = "bad") {
  * scrolls sideways inside the card (for logs with many short rows); `mobile: "stack-wide"` stacks on tablets too (below
  * 1100px), for wide tables whose last column holds the row's actions.
  */
-export function table(columns, rows, empty, { mobile = "stack" } = {}) {
+/** A cell whose whole content is the missing-value placeholder draws it in the quiet ink, so it reads as "nothing here". */
+const emptyMark = (v) => (v === DASH ? h("span", { class: "empty-dash" }, DASH) : v);
+
+export function table(columns, rows, empty, { mobile = "stack", caption = null } = {}) {
   if (!rows.length) return empty;
   const cls = (c, i) => [c.num ? "num" : "", c.wrap ? "wrap" : "", c.label ? "" : "act", i === 0 ? "lead" : ""].join(" ").trim() || undefined;
   return h(
@@ -353,8 +1046,9 @@ export function table(columns, rows, empty, { mobile = "stack" } = {}) {
     h(
       "table",
       {},
+      caption ? h("caption", { class: "sr-only" }, caption) : null,
       h("thead", {}, h("tr", {}, columns.map((c) => h("th", { scope: "col", class: c.num ? "num" : undefined }, c.label || h("span", { class: "pal-sr-only" }, "Actions"))))),
-      h("tbody", {}, rows.map((r) => h("tr", {}, columns.map((c, i) => h("td", { class: cls(c, i), "data-label": c.label || undefined }, c.cell(r)))))),
+      h("tbody", {}, rows.map((r) => h("tr", {}, columns.map((c, i) => h("td", { class: cls(c, i), "data-label": c.label || undefined }, emptyMark(c.cell(r))))))),
     ),
   );
 }
@@ -371,9 +1065,9 @@ export function card({ title, sub, actions, body, flush = false, cls = "", id, g
   );
 }
 
-/** A numbered section eyebrow ("01  GET STARTED ———"), as IPO Decode's SectionEyebrow. */
-export function sectionEyebrow(index, label) {
-  return h("div", { class: "sec-eyebrow" }, h("b", {}, index), h("span", {}, label), h("i", { "aria-hidden": "true" }));
+/** A plain section label over a group that has no title of its own (Home's "Today" figures). No pill, no rule. */
+export function sectionEyebrow(label) {
+  return h("h2", { class: "sec-eyebrow" }, label);
 }
 
 export function meterRow(name, used, limit, valueText) {
@@ -402,12 +1096,17 @@ export function lockScroll(on) {
  * <dialog> keeps focus inside and returns it to the opener; Escape, the close button and a tap on the dimmed backdrop
  * close it; the page behind stops scrolling. buttons: [{ label, cls, value, onClick? }]; onClick returning false keeps
  * it open. `body` may be a function that receives close(value). Resolves with the value (undefined when dismissed).
+ * A button may carry `id`, and `ref(el)` is called with its element once drawn (so callers keep a direct reference).
  */
-export function modal({ title, body, buttons = [] }) {
+export function modal({ title, body, buttons = [], canClose = null }) {
   const d = document.getElementById("dialog");
   d.classList.add("sheet");
   return new Promise((resolve) => {
     const token = (modal.token = {});
+    // A sheet that is still sliding away from an earlier modal takes no more input; this one starts live.
+    d.inert = false;
+    delete d.dataset.closing;
+    d.closeNow = null;
     let settled = false;
     let closing = false;
     const finish = (v) => {
@@ -416,17 +1115,32 @@ export function modal({ title, body, buttons = [] }) {
       d.removeEventListener("cancel", onCancel);
       d.removeEventListener("close", onClose);
       d.removeEventListener("click", onBackdrop);
-      if (modal.token === token) lockScroll(false);
+      if (modal.token === token) {
+        lockScroll(false);
+        d.inert = false;
+        delete d.dataset.closing;
+        d.closeNow = null;
+      }
       resolve(v);
     };
     // Animate the sheet away, then close the native dialog (focus returns to the opener) and resolve.
-    const close = (v) => {
+    // canClose() === false refuses Escape, the X and a backdrop tap (e.g. while orders are going out). The body's own
+    // buttons pass force = true once they have decided.
+    const close = (v, force = false) => {
       if (closing || settled) return;
+      if (!force && canClose && canClose() === false) return;
       closing = true;
-      sheetOut(d, d).then(() => {
+      // While it slides away the sheet is inert: keys typed meanwhile (Ctrl K, a search) never land in its fields.
+      // closeNow() ends the slide at once, for the palette opening over it.
+      d.inert = true;
+      d.dataset.closing = "";
+      const done = () => {
+        if (settled) return;
         if (modal.token === token && d.open) d.close();
         finish(v);
-      });
+      };
+      d.closeNow = done;
+      sheetOut(d, d).then(done);
     };
     // Escape: keep the native behaviour (resolves undefined) but let the sheet slide away first.
     const onCancel = (e) => {
@@ -460,6 +1174,7 @@ export function modal({ title, body, buttons = [] }) {
                 {
                   type: "button",
                   class: b.cls ?? "",
+                  id: b.id,
                   onclick: async () => {
                     if (closing) return;
                     if (b.onClick) {
@@ -475,10 +1190,40 @@ export function modal({ title, body, buttons = [] }) {
           )
         : "",
     );
+    for (const [i, b] of buttons.entries()) if (typeof b.ref === "function") b.ref(d.querySelectorAll(".dialog-actions > button")[i] ?? null);
     d.setAttribute("aria-labelledby", "dialog-title");
     d.addEventListener("cancel", onCancel);
     d.addEventListener("close", onClose);
     d.addEventListener("click", onBackdrop);
+    // Enter in a one-line field presses the sheet's main (primary) action, as in any form. Fields that use Enter
+    // themselves (search pickers, textareas, a focused button) stop it first or are skipped here.
+    d.onkeydown = (e) => {
+      // Tab stays inside the sheet: a native modal <dialog> lets it leave past the last control (to the browser and
+      // back to the page behind), so the first and last controls hand focus round to each other.
+      if (e.key === "Tab" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const f = [...d.querySelectorAll("button, input, select, textarea, a[href], [tabindex]:not([tabindex='-1'])")].filter((x) => !x.disabled && x.offsetParent !== null && !x.closest("[inert], [hidden]"));
+        if (!f.length) return;
+        const first = f[0];
+        const last = f[f.length - 1];
+        const a = document.activeElement;
+        if (e.shiftKey && (a === first || !d.contains(a))) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && (a === last || !d.contains(a))) {
+          e.preventDefault();
+          first.focus();
+        }
+        return;
+      }
+      if (e.key !== "Enter" || e.isComposing || e.defaultPrevented || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+      const el = e.target;
+      if (!(el instanceof HTMLInputElement) || ["checkbox", "radio", "button", "submit", "search", "file"].includes(el.type)) return;
+      if (el.closest("form")) return; // a form inside the sheet handles its own submit
+      const primary = [...d.querySelectorAll(".dialog-actions > button.primary")].pop();
+      if (!primary || primary.disabled) return;
+      e.preventDefault();
+      primary.click();
+    };
     if (!d.open) d.showModal();
     lockScroll(true);
     d.querySelector(".dialog-body")?.scrollTo?.(0, 0);
@@ -540,15 +1285,17 @@ export function confirmCodeNotice(ticketId, result) {
  * Welcome checklist state from what the Bridge reports plus what this browser remembers. Pure.
  * @returns {Array<{ id: string, done: boolean }>}
  */
-export function checklistState({ demo = false, accounts = [], keys = [], copied = false, tested = false }) {
+export function checklistState({ demo = false, accounts = [], keys = [], chainOpened = false, traded = false, orders = [] }) {
   const brokerConnected = accounts.some((a) => a.broker !== "paper" && a.session?.state === "connected");
-  // Keys made by sign-in links are the dashboard's own, not a key for a tool.
-  const activeKeys = keys.filter((k) => !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) < Date.now()) && !(k.clientKind === "ui" && k.label === SIGN_IN_KEY_LABEL));
+  // A key for a tool: active, not the dashboard's own sign-in key and not an admin key (init makes one of those).
+  const toolKeys = keys.filter((k) => !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) < Date.now()) && !(k.clientKind === "ui" && k.label === SIGN_IN_KEY_LABEL) && !(k.scopes ?? []).includes("admin"));
+  // A paper order the person placed (demo mode seeds a few of its own, tagged DEMOSEED).
+  const placed = orders.some((o) => o?.mode === "paper" && o.tag !== "DEMOSEED");
   return [
     { id: "broker", done: demo || brokerConnected },
-    { id: "key", done: activeKeys.length >= 2 },
-    { id: "snippet", done: Boolean(copied) },
-    { id: "test", done: Boolean(tested) },
+    { id: "key", done: toolKeys.length >= 1 },
+    { id: "chain", done: Boolean(chainOpened) },
+    { id: "trade", done: Boolean(traded) || placed },
   ];
 }
 
@@ -701,6 +1448,31 @@ export function brokerMatches(broker, query) {
   return q.split(/\s+/).every((w) => hay.includes(w));
 }
 
+// ── Kill switch ──
+
+/**
+ * "Stop all orders?": the one confirmation for engaging the kill switch (the Safety page and the readiness badge's
+ * popover both call it). Resolves true once the switch is on.
+ */
+export async function confirmEngageKillSwitch() {
+  const reason = h("input", { value: "Stopped from the dashboard", maxlength: "200" });
+  const cancel = h("input", { type: "checkbox" });
+  const go = await modal({
+    title: "Stop all orders?",
+    body: h("div", { class: "stack" }, h("p", {}, "New orders are refused at once, including ones already queued. Cancels still work."), h("label", { class: "field" }, "Reason", reason), h("label", { class: "check" }, cancel, "Also cancel open orders the Bridge placed")),
+    buttons: [{ label: "Keep trading", value: false }, { label: "Stop all orders", cls: "primary", value: true }],
+  });
+  if (!go) return false;
+  try {
+    await api("/v1/safety/kill-switch", { method: "POST", body: { reason: reason.value || "manual", cancelOpenOrders: cancel.checked } });
+    toast("Kill switch engaged");
+    return true;
+  } catch (err) {
+    await modal({ title: "Could not engage", body: alertBox(err), buttons: [{ label: "Close", value: true }] });
+    return false;
+  }
+}
+
 // ── Theme ──
 
 export function applyTheme(choice) {
@@ -708,6 +1480,54 @@ export function applyTheme(choice) {
   if (choice === "light" || choice === "dark") root.setAttribute("data-theme", choice);
   else root.removeAttribute("data-theme");
   for (const b of document.querySelectorAll("[data-theme-choice]")) b.setAttribute("aria-pressed", String(b.dataset.themeChoice === (choice ?? "auto")));
+}
+
+// ── Space: the sidebar (full or icon rail) and the density (compact or comfortable), layout-prefs.js ──
+
+const finePointer = () => typeof matchMedia === "function" && matchMedia("(pointer: fine)").matches;
+/** Resolve the stored sidebar and density choices for this screen and set data-sb / data-density on <html>. */
+export function applyLayout() {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  const w = typeof innerWidth === "number" ? innerWidth : 0;
+  const sb = resolveSidebar(local.get(SIDEBAR_SLOT), w);
+  const density = resolveDensity(local.get(DENSITY_SLOT), { fine: finePointer(), width: w });
+  const changed = root.dataset.sb !== sb || root.dataset.density !== density;
+  if (root.dataset.sb !== sb) root.dataset.sb = sb;
+  if (root.dataset.density !== density) root.dataset.density = density;
+  const t = document.getElementById("sb-toggle");
+  if (t) {
+    const rail = sb === "rail";
+    const label = rail ? "Expand the sidebar" : "Collapse the sidebar to icons";
+    t.setAttribute("aria-expanded", String(!rail));
+    t.setAttribute("aria-label", label);
+    t.title = label;
+    if (t.dataset.icon !== sb) {
+      t.dataset.icon = sb;
+      t.replaceChildren(icon(rail ? "rail" : "sidebar"));
+    }
+  }
+  const choice = parseDensity(local.get(DENSITY_SLOT));
+  for (const b of document.querySelectorAll("[data-density-choice]")) b.setAttribute("aria-pressed", String(b.dataset.densityChoice === choice));
+  return changed;
+}
+/** Re-fit what measures itself (the chain's columns and height, charts) after the sidebar or density changed. */
+const relayout = () => {
+  if (applyLayout() && typeof dispatchEvent === "function") requestAnimationFrame(() => dispatchEvent(new Event("resize")));
+};
+/** Compact, comfortable or auto (compact with a mouse on a desktop), remembered in this browser. */
+export function chooseDensity(choice) {
+  const c = parseDensity(choice);
+  local.set(DENSITY_SLOT, c === "auto" ? null : c);
+  relayout();
+}
+/** The sidebar's toggle: the icon rail or the full sidebar, remembered in this browser. */
+export function toggleSidebarRail() {
+  const cur = document.documentElement.dataset.sb;
+  if (cur !== "rail" && cur !== "full") return;
+  const next = toggleSidebar(cur, innerWidth);
+  local.set(SIDEBAR_SLOT, next === "auto" ? null : next);
+  relayout();
 }
 
 /** Apply an appearance (auto, light or dark) and remember it in this browser. */
@@ -760,26 +1580,35 @@ async function signIn() {
   }
   login.hidden = true;
   shell.hidden = false;
-  document.getElementById("demo-banner").hidden = !app.state.demo;
   if (!signIn.pulsing) signIn.pulsing = pulse(document.querySelector(".who .dot"));
   app.state.who = `Key ${memoryKey.split("_")[1] ?? ""} · v${app.state.health?.version ?? ""}`;
   document.getElementById("who").textContent = app.state.who;
   const { startRouter } = await import("./views.js");
   // Awaited so a banner shown after sign-in comes after the first page draw (which clears #toast).
   await startRouter();
+  // The trading-readiness badge in the toolbar (every page; docs/spec/p1-05-readiness.md §6.3).
+  import("./readiness.js").then((m) => m.mountReadinessBadge()).catch(() => {});
+  // Position alerts: the bell (unread fires, every alert) once there is an alert (alerts.js).
+  import("./alerts.js").then((m) => m.mountAlertBell()).catch(() => {});
 }
 
 if (typeof document !== "undefined" && document.getElementById("login-form")) {
   applyTheme(local.get(THEME_SLOT) ?? "auto");
-  // Motion: button press feedback, and page / sidebar entrances on navigation.
-  installPressFeedback(document);
+  applyLayout();
+  addEventListener("resize", () => applyLayout(), { passive: true });
+  if (typeof matchMedia === "function") matchMedia("(pointer: fine)").addEventListener?.("change", relayout);
+  // Motion: page / sidebar entrances on navigation (a button press is CSS: app.css 8a).
   installAutoAnimations();
   // Appearance buttons (the sidebar's and the More sheet's) and "Forget key", wherever they are drawn.
   document.addEventListener("click", (e) => {
     const t = /** @type {Element} */ (e.target);
     const choice = t?.closest?.("[data-theme-choice]");
+    const dens = t?.closest?.("[data-density-choice]");
     if (choice) chooseTheme(/** @type {HTMLElement} */ (choice).dataset.themeChoice);
+    else if (dens) chooseDensity(/** @type {HTMLElement} */ (dens).dataset.densityChoice);
+    else if (t?.closest?.("#sb-toggle")) toggleSidebarRail();
     else if (t?.closest?.("[data-action=logout]")) forgetKey();
+    revealInRow(t?.closest?.("button, [role=tab], [role=radio]"));
   });
   document.getElementById("login-form").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -790,6 +1619,22 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
     signIn();
   });
   boot();
+}
+
+/**
+ * A choice picked in a sideways-scrolling row (phone tab rows, chips, expiry strips) slides fully into view, so the
+ * selected tab is never left half under the row's edge fade.
+ */
+function revealInRow(el) {
+  const row = el?.parentElement;
+  if (!row || row.scrollWidth <= row.clientWidth + 1) return;
+  const x = getComputedStyle(row).overflowX;
+  if (x !== "auto" && x !== "scroll") return;
+  const a = el.getBoundingClientRect();
+  const b = row.getBoundingClientRect();
+  const pad = 24; // clear of the 12 to 16 px edge fades
+  const dx = a.left < b.left + pad ? a.left - b.left - pad : a.right > b.right - pad ? a.right - b.right + pad : 0;
+  if (dx) row.scrollBy({ left: dx, behavior: reducedMotion() ? "auto" : "smooth" });
 }
 
 /** Start-up: redeem a sign-in link first (when the page was opened with one), then sign in as usual. */

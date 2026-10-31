@@ -20,7 +20,7 @@ const coreDeps = () => ({
 describe("service contracts", () => {
   it("every contract names an owning stream, its requires exist and methods are unique", () => {
     for (const [name, spec] of Object.entries(SERVICE_CONTRACTS)) {
-      expect(spec.stream, name).toMatch(/^S(\d|1[0-5])$/);
+      expect(spec.stream, name).toMatch(/^S(\d|1\d|2[0-7])$/);
       for (const r of spec.requires) expect(SERVICE_CONTRACTS[r], `${name} requires ${r}`).toBeDefined();
       expect(new Set(spec.methods).size).toBe(spec.methods.length);
     }

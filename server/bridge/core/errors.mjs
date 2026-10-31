@@ -39,12 +39,17 @@ export const ERROR_CODES = Object.freeze({
   INVALID_ORDER: { status: 422, title: "The order failed a pre-trade check", retryable: false },
   SESSION_EXPIRED: { status: 422, title: "The broker session has expired. Log in again", retryable: false },
   CONFIRMATION_REQUIRED: { status: 422, title: "This order needs a human confirmation first", retryable: false },
+  CAPACITY_EXCEEDED: { status: 422, title: "This request is more than the account's capacity can carry", retryable: false },
+  ALERT_LIMIT: { status: 422, title: "The alert limit has been reached", retryable: false },
+  STATE_CONFLICT: { status: 409, title: "The item changed or is busy; read it again", retryable: true },
   // Safety refusals
   PAPER_ONLY: { status: 403, title: "Live trading is not enabled for this account", retryable: false },
   ORDER_GATE_CLOSED: { status: 403, title: "The live order gate refused this order. No order was sent", retryable: false },
   DAILY_LIMIT_REACHED: { status: 403, title: "A daily safety limit has been reached", retryable: false },
   MARKET_CLOSED: { status: 403, title: "The market is closed for this instrument", retryable: false },
   KILL_SWITCH_ACTIVE: { status: 423, title: "The kill switch is on. No orders are being sent", retryable: false },
+  CANNOT_TRADE: { status: 403, title: "This account cannot trade right now (trading readiness)", retryable: false },
+  AUTOMATION_NOT_ALLOWED: { status: 403, title: "Automation is not allowed on this account (family definition)", retryable: false },
   // Throttling (retry after Retry-After)
   RATE_LIMITED: { status: 429, title: "Too many requests from this API key", retryable: true },
   ORDER_RATE_LIMITED: { status: 429, title: "Order rate cap for this account reached", retryable: true },
@@ -67,7 +72,10 @@ export class BridgeError extends Error {
    * @param {keyof typeof ERROR_CODES | string} code
    * @param {string} [detail] Human text in Indian English. Clients must not parse it.
    * @param {{ status?: number, retryable?: boolean, retryAfterMs?: number, broker?: { id?: string, code?: string, message?: string },
-   *           errors?: Array<{ path: string, message: string }>, headers?: Record<string, string>, cause?: unknown }} [extra]
+   *           errors?: Array<{ path: string, message: string }>, headers?: Record<string, string>, cause?: unknown,
+   *           fields?: Record<string, unknown> }} [extra]
+   *   fields: extra documented problem members for one code (CAPACITY_EXCEEDED: canCarry, refused); they never
+   *   replace the standard members.
    */
   constructor(code, detail, extra = {}) {
     const spec = ERROR_CODES[code] ?? ERROR_CODES.INTERNAL;
@@ -81,6 +89,7 @@ export class BridgeError extends Error {
     if (extra.broker) this.broker = extra.broker;
     if (extra.errors) this.errors = extra.errors;
     if (extra.headers) this.headers = extra.headers;
+    if (extra.fields && typeof extra.fields === "object") this.fields = extra.fields;
   }
 }
 
@@ -143,6 +152,7 @@ export function toProblem(err, { requestId, instance } = {}) {
   if (e.retryAfterMs !== undefined) problem.retryAfterMs = e.retryAfterMs;
   if (e.broker) problem.broker = e.broker;
   if (e.errors) problem.errors = e.errors;
+  if (e.fields) for (const [k, v] of Object.entries(e.fields)) if (!(k in problem)) problem[k] = v;
   return problem;
 }
 

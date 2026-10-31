@@ -7,8 +7,8 @@
  *     "useDepth": true,                    // MARKET fills at the opposite best price when depth is available
  *     "pollIntervalMs": 2000,              // pending orders are re-priced at least this often without ticks
  *     "squareOff": { "enabled": true, "time": "15:20", "times": {} },   // times: per-exchange HH:MM overrides
- *     "sessionEnd": { "time": "15:30", "times": {} },
- *     "margin": { "intradayEquityPct": 20, "futuresPct": 15, "optionSellPct": 15 },
+ *     "sessionEnd": { "time": null, "times": {} },   // null: the reference session close (reference module)
+ *     "margin": { "model": "portfolio", "intradayEquityPct": 20, "futuresPct": 15, "optionSellPct": 15 },
  *     "brokerage": { "perOrder": 0, "pct": 0, "maxPerOrder": null },
  *     "historyLimit": 1000
  *   }
@@ -25,7 +25,8 @@ export const PAPER_DEFAULTS = Object.freeze({
   slippageBps: 5,
   pollIntervalMs: 2000,
   squareOffTime: "15:20",
-  sessionEndTime: "15:30",
+  /** null: the reference session close for the exchange (deps.reference, else reference/defaults.mjs). */
+  sessionEndTime: null,
 });
 
 /**
@@ -34,6 +35,12 @@ export const PAPER_DEFAULTS = Object.freeze({
  */
 export const EXCHANGE_SQUARE_OFF = Object.freeze({ MCX: "23:00", CDS: "16:45" });
 export const EXCHANGE_SESSION_END = Object.freeze({ MCX: "23:30", CDS: "17:00" });
+
+/**
+ * Demo mode's starting capital when the config leaves the default: ₹25 lakh, so the sample positions leave most of it
+ * free and a new user can trade at once (with ₹10 lakh the seeded book used about 85 % under the old per-leg margin).
+ */
+export const DEMO_STARTING_CAPITAL = 2_500_000;
 
 /** Starting capital bounds (same as the reset route in docs/openapi.yaml). */
 export const CAPITAL_MIN = 10_000;
@@ -60,19 +67,28 @@ export const PAPER_CONFIG_SCHEMA = z
       .prefault({}),
     sessionEnd: z
       .object({
-        /** Pending DAY orders expire at this IST time (and any left over from an earlier day expire at once). */
-        time: hhmm.default(PAPER_DEFAULTS.sessionEndTime),
+        /**
+         * Pending DAY orders expire at this IST time (and any left over from an earlier day expire at once). null (the
+         * default) means the reference session close for the order's exchange.
+         */
+        time: hhmm.nullable().default(PAPER_DEFAULTS.sessionEndTime),
         times: z.partialRecord(exchange, hhmm).default({}),
       })
       .strict()
       .prefault({}),
     margin: z
       .object({
+        /**
+         * "portfolio" (default): F&O legs are margined together per underlying with the approximate SPAN-like scan in
+         * dashboard/span-margin.js, so hedges get their benefit. "simple": every leg on its own with the percentages
+         * below (the model before October 2026). Equity always uses the percentages.
+         */
+        model: z.enum(["portfolio", "simple"]).default("portfolio"),
         /** INTRADAY equity: this percentage of order value is blocked (approximate). */
         intradayEquityPct: pct.default(20),
-        /** Futures (any product): this percentage of contract value is blocked (approximate). */
+        /** Futures (any product), simple model or no underlying price: this percentage of contract value is blocked. */
         futuresPct: pct.default(15),
-        /** Option writing: this percentage of strike × quantity is blocked (approximate). Option buys block the premium. */
+        /** Option writing, simple model or no underlying price: this percentage of strike × quantity. Buys block the premium. */
         optionSellPct: pct.default(15),
       })
       .strict()

@@ -242,6 +242,9 @@ export async function createAccountManager(deps, options = {}) {
       enabled: account.enabled !== false,
       session: sessionState(account),
       liveAllowedByConfig: liveAllowedByConfig(config, account),
+      // The tools that may send this account live orders (accounts[].live.allowedSources): the Algo page says why
+      // "Start live" cannot work before anyone tries (strategies send through REST).
+      liveSources: [...(account.live?.allowedSources ?? [])],
       pooling: effectivePooling(account),
       capabilities: capabilityList(account),
       authKind: adapter ? adapter.capabilities?.auth?.kind ?? "apiKeyToken" : null,

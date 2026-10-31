@@ -290,6 +290,23 @@ describe("StreamHub", () => {
     expect(hub.stats().upstreams[0]).toMatchObject({ connected: true, reconnects: 1, subscriptions: 3 });
   });
 
+  it("feedInfo says when the feed behind a symbol connected and last ticked (quiet strikes)", async () => {
+    const { hub, a1 } = setup({ stream: { adapterGraceMs: 10_000 } });
+    await hub.subscribe("c1", ["NSE:NIFTY", "NSE:RELIANCE"]);
+    await settle();
+    expect(hub.feedInfo("NSE:NIFTY")).toBeNull(); // not connected yet
+    a1.last().status(true);
+    const info = hub.feedInfo("NSE:NIFTY");
+    expect(info).toMatchObject({ lastTickAt: null, stale: false });
+    expect(Number.isFinite(info.connectedAt)).toBe(true);
+    vi.advanceTimersByTime(1500);
+    a1.last().tick("2885", "NSE", 2900); // RELIANCE ticks; NIFTY is quiet
+    const after = hub.feedInfo("NSE:NIFTY");
+    expect(after.lastTickAt).toBe(hub.lastTick("NSE:RELIANCE").receivedAt);
+    expect(after.lastTickAt).toBeGreaterThan(after.connectedAt);
+    expect(hub.feedInfo("NSE:INFY")).toBeNull(); // not subscribed
+  });
+
   it("leaves a feed alone when the adapter reconnects within the grace period", async () => {
     const { hub, a1 } = setup({ stream: { adapterGraceMs: 10_000 } });
     await hub.subscribe("c1", ["NSE:NIFTY"]);

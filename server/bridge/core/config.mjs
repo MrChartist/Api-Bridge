@@ -31,7 +31,8 @@ export const isLoopbackHost = (h) => LOOPBACK_HOSTS.has(String(h ?? "").toLowerC
 
 const accountId = z.string().regex(/^[a-z0-9][a-z0-9-]{1,31}$/, "use 2-32 lowercase letters, digits or hyphens");
 const money = z.number().finite().nonnegative();
-const sources = z.enum(["rest", "webhook", "mcp", "cli"]);
+/** Sources that may send live orders. "guard" and "alert" are the Phase 1 automations (opt-in per account, additive). */
+const sources = z.enum(["rest", "webhook", "mcp", "cli", "guard", "alert"]);
 
 const limitsOverride = z
   .object({
@@ -61,6 +62,8 @@ export const accountSchema = z
         allowedSources: z.array(sources).default(["rest"]),
         /** The static IP the user registered with the broker, for the pre-order egress check (optional). */
         registeredIp: z.string().max(64).optional(),
+        /** A second static IP registered with the broker (primary + backup). Readiness accepts either (optional). */
+        backupIp: z.string().max(64).optional(),
       })
       .strict()
       .prefault({}),

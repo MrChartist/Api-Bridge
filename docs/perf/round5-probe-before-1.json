@@ -1,0 +1,51 @@
+{
+  "at": "2026-10-31T00:31:32.617Z",
+  "seconds": 20,
+  "latencyMs": 200,
+  "orders": {
+    "dryRunsFirstVisit": 0,
+    "dryRunsPerMinStill": 0,
+    "restPerMinStill": 9,
+    "dryRunsFor3Reloads": 0,
+    "homeSwitchAfterOrdersMs": 830,
+    "dryRunMs": 5
+  },
+  "depth": {
+    "depthPerMin": {
+      "ticketClosed": 0,
+      "depthClosed": 0,
+      "depthOpen": 0,
+      "depthClosedAgain": 0,
+      "ticketShut": 0
+    }
+  },
+  "algo": {
+    "started": [
+      {
+        "id": "ema_crossover",
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "iron_condor",
+        "ok": true,
+        "error": null
+      }
+    ],
+    "selected": "ema_crossover.py",
+    "settled": {
+      "restPerMin": 117,
+      "logsPerMin": 60,
+      "listPerMin": 27,
+      "detailPerMin": 27
+    },
+    "afterClicks": {
+      "restPerMin": 129,
+      "logsPerMin": 60,
+      "listPerMin": 30,
+      "detailPerMin": 30
+    },
+    "logLinesShown": 4,
+    "duplicateLogLines": 0
+  }
+}

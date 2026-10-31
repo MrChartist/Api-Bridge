@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { SERVICE_CONTRACTS, assertService } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
+import { createNullLogger } from "../core/logger.mjs";
 import { createFakeScheduler } from "../ratelimit/fake.mjs";
 import { FIFTY, T0, buildMarket, priceForToken, stubAdapter, stubStreamHub } from "./__fixtures__/helpers.mjs";
 
@@ -560,6 +561,23 @@ describe("option chain", () => {
     expect(c.freshness).toMatchObject({ source: "broker", accountId: "zerodha-main" });
   });
 
+  it("computed Greeks use the reference rate; the deprecated market.chain.riskFreeRate override wins and warns once", async () => {
+    const pe = async (opts) => (await buildMarket(opts).md.optionChain({ underlying: "NIFTY", expiry: "2026-10-27" })).rows[2].pe;
+    const fakeRef = (value) => ({ rate: () => ({ value, asOf: "2026-10-28", source: "test", quality: "user", stale: false }) });
+    const low = await pe({ reference: fakeRef(0) });
+    const high = await pe({ reference: fakeRef(0.25) });
+    expect(low.greeksSource).toBe("computed");
+    expect(high.iv).not.toBe(low.iv);
+    const warns = [];
+    const logger = { ...createNullLogger(), warn: (msg) => warns.push(msg), child() { return this; } };
+    const overridden = await pe({ reference: fakeRef(0), market: { chain: { riskFreeRate: 0.25 } }, logger });
+    expect(overridden.iv).toBe(high.iv);
+    expect(warns.filter((w) => /deprecated/.test(w))).toHaveLength(1);
+    const fallback = await pe({});
+    const dflt = await pe({ reference: fakeRef(0.065) });
+    expect(fallback.iv).toBe(dflt.iv);
+  });
+
   it("trims to N strikes each side of ATM and strips greeks when asked", async () => {
     const { md } = buildMarket();
     const c = await md.optionChain({ underlying: "NIFTY", expiry: "2026-10-27", strikes: 1, greeks: false });
@@ -591,6 +609,15 @@ describe("option chain", () => {
     expect(zerodha.calls.filter((x) => x[0] === "fetchOptionChain")).toHaveLength(1);
   });
 
+  it("a Greeks-off read reuses a fresh chain read with Greeks (Greeks stripped, no broker call)", async () => {
+    const { md, zerodha } = buildMarket();
+    await md.optionChain({ underlying: "NIFTY", expiry: "2026-10-27" });
+    const off = await md.optionChain({ underlying: "NIFTY", expiry: "2026-10-27", greeks: false });
+    expect(off.freshness.source).toBe("cache");
+    expect(off.rows[2].ce).toMatchObject({ delta: null, gamma: null, greeksSource: null, oi: 1000 });
+    expect(zerodha.calls.filter((x) => x[0] === "fetchOptionChain")).toHaveLength(1);
+  });
+
   it("reports an empty chain as SYMBOL_NOT_FOUND", async () => {
     const z = stubAdapter("zerodha", { chain: { status: "success", data: { oc: {}, last_price: 0 } } });
     const { md } = buildMarket({ adapters: { zerodha: z } });
@@ -607,5 +634,32 @@ describe("secrets", () => {
     const text = JSON.stringify([r, scheduler.calls, [...Array(0)]]);
     expect(text).not.toMatch(/SECRET/);
     for (const k of ["q|NSE:STK01"]) expect(JSON.stringify(md.cache.peek(k))).not.toMatch(/SECRET/);
+  });
+});
+
+describe("chain contract facts (P1-6 §6.1)", () => {
+  const specs = (rows) => rows.map((s, i) => ({ ...s, refs: { zerodha: { token: `Z${i + 1}` }, dhan: { token: `D${i + 1}` } } }));
+  const stockStrikes = [1360, 1380, 1400, 1410, 1420, 1440, 1460];
+  const instruments = specs([
+    { symbol: "NSE:NIFTY", lotSize: 1, tickSize: 0.05 },
+    { symbol: "NSE:RELIANCE", lotSize: 1, tickSize: 0.1 },
+    ...[24900, 25000, 25100].flatMap((k) => ["CE", "PE"].map((r) => ({ symbol: `NFO:NIFTY-2026-10-27-${k}-${r}`, lotSize: 65, tickSize: 0.05 }))),
+    ...stockStrikes.flatMap((k) => ["CE", "PE"].map((r) => ({ symbol: `NFO:RELIANCE-2026-10-27-${k}-${r}`, lotSize: 500, tickSize: k === 1460 ? 0.1 : 0.05 }))),
+  ]);
+  const build = async () => {
+    const { createFakeSymbolService } = await import("../symbols/fake.mjs");
+    return buildMarket({ symbols: createFakeSymbolService({ instruments }), market: { chain: { source: "built" } } });
+  };
+
+  it("a stock chain is physical with the inferred step and the largest tick", async () => {
+    const { md, settle } = await build();
+    const c = await settle(md.optionChain({ underlying: "RELIANCE", expiry: "2026-10-27" }), 60);
+    expect(c).toMatchObject({ underlyingKind: "stock", settlement: "physical", strikeStep: 20, tickSize: 0.1 });
+  });
+
+  it("an index chain is cash settled", async () => {
+    const { md, settle } = await build();
+    const c = await settle(md.optionChain({ underlying: "NIFTY", expiry: "2026-10-27" }), 60);
+    expect(c).toMatchObject({ underlyingKind: "index", settlement: "cash", strikeStep: 100, tickSize: 0.05 });
   });
 });

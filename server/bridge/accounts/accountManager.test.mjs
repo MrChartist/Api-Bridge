@@ -74,6 +74,9 @@ describe("AccountManager: summaries", () => {
     expect(list[0].session).toEqual({ state: "missing", expiresAt: null, checkedAt: null, message: expect.any(String) });
     expect(list[0].capabilities).toEqual(["testConnection", "expiries", "optionChain", "ltp", "quotes", "depth"]);
     expect(list[1]).toMatchObject({ authKind: "sessionLogin", label: "stubsess", liveAllowedByConfig: false, pooling: false });
+    // The tools that may send live orders, as configured (the Algo page reads it); the config default is REST only.
+    expect(list[0].liveSources).toEqual(["rest"]);
+    expect(list[1].liveSources).toEqual(["rest"]);
     expect(list[2]).toMatchObject({ broker: "paper", label: "Paper account", authKind: null, session: { state: "connected" } });
     expect(list[2].capabilities).toContain("placeOrder");
     expect(list[2].capabilities).not.toContain("quotes");

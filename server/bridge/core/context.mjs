@@ -14,6 +14,25 @@ import { BridgeError } from "./errors.mjs";
 export const SCOPES = Object.freeze(["read", "paper", "live", "admin"]);
 const IMPLIES = Object.freeze({ read: ["read"], paper: ["paper", "read"], live: ["live", "paper", "read"], admin: ["admin", "read"] });
 
+/**
+ * Sources that are automations, never a person: they may not confirm an order ticket (the human confirmation gate).
+ * "guard" and "alert" are the Phase 1 automations (strategy guards, alert actions).
+ */
+export const AUTOMATED_SOURCES = Object.freeze(["mcp", "webhook", "guard", "alert"]);
+/** Principal kinds that are automations (hooks and in-process guards). */
+const AUTOMATED_PRINCIPALS = new Set(["hook", "guard"]);
+
+/**
+ * Whether a context belongs to an automation rather than a person: an automated source, a key whose clientKind is
+ * "mcp", or a hook / guard principal.
+ * @param {{ source?: string, key?: { clientKind?: string } | null, principal?: { kind?: string } }} ctx
+ */
+export function isAutomatedContext(ctx) {
+  if (AUTOMATED_SOURCES.includes(ctx?.source)) return true;
+  if (ctx?.key?.clientKind === "mcp") return true;
+  return AUTOMATED_PRINCIPALS.has(ctx?.principal?.kind);
+}
+
 /** Expand granted scopes with what they imply. */
 export function expandScopes(granted) {
   const out = new Set();
@@ -32,8 +51,12 @@ export function hasScope(granted, needed) {
  *   lastUsedAt?: string | null, revokedAt?: string | null }} KeyRecord
  *   Public view of an API key. Never holds the key or its hash.
  * @typedef {{ kind: "key", id: string, label: string } | { kind: "hook", id: string, label?: string } |
- *   { kind: "local", id: "cli" } | { kind: "anonymous", id: "anonymous" }} Principal
- * @typedef {"rest" | "webhook" | "mcp" | "cli" | "stream" | "system"} Source
+ *   { kind: "guard", id: string, label?: string } | { kind: "local", id: "cli" } | { kind: "anonymous", id: "anonymous" }} Principal
+ *   A "guard" principal is built in-process only (strategy guards, docs/spec/p1-12); like a hook it may use only the
+ *   accounts in ctx.hookAccounts.
+ * @typedef {"rest" | "webhook" | "mcp" | "cli" | "stream" | "system" | "guard" | "alert"} Source
+ *   "guard" and "alert" are automated sources (strategy guards and alert actions, Phase 1); live orders from them
+ *   still need the source in the account's live.allowedSources.
  *
  * @typedef {object} RequestContext
  * @property {string} requestId
@@ -80,7 +103,7 @@ function attachHelpers(ctx) {
     if (ctx.principal.kind === "local") return;
     const allowed = ctx.key?.accounts;
     if (allowed === "*" || (Array.isArray(allowed) && allowed.includes(accountId))) return;
-    if (ctx.principal.kind === "hook" && ctx.hookAccounts?.includes(accountId)) return;
+    if ((ctx.principal.kind === "hook" || ctx.principal.kind === "guard") && ctx.hookAccounts?.includes(accountId)) return;
     throw new BridgeError("ACCOUNT_FORBIDDEN", `This key may not use account ${accountId}.`);
   };
   ctx.canAccessAccounts = (accounts) => {

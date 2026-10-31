@@ -84,3 +84,6 @@ venv/
 
 # Private Node.js downloaded by the installer and the start-mac.command / start-linux.sh launchers
 /runtime/
+
+# Merge leftovers
+*.orig

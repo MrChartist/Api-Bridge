@@ -1,0 +1,166 @@
+{
+  "at": "2026-10-30T13:40:28.107Z",
+  "node": "v22.22.0",
+  "seconds": 30,
+  "latencyMs": 200,
+  "pages": [
+    {
+      "page": "chain",
+      "firstData": 1122,
+      "fcp": 160,
+      "jsKB": 2128,
+      "cssKB": 706,
+      "jsFiles": 39,
+      "reloadLoadMs": 321,
+      "switchFirst": 4,
+      "switchBack": 26,
+      "switchCached": 185,
+      "restPerMin": 70,
+      "duplicates": 0,
+      "duplicateUrls": {},
+      "brokerPerMinRaw": 20,
+      "brokerByClass": {
+        "quote": 10
+      },
+      "longTasks": 75,
+      "longTaskMs": 6151,
+      "longTaskMax": 330,
+      "tickToCell": {
+        "n": 39,
+        "p50": 124,
+        "p95": 319
+      },
+      "topRequests": {
+        "GET /v1/optionchain": 10,
+        "GET /v1/quotes": 10,
+        "GET /v1/positions": 10,
+        "GET /v1/alerts/inbox": 2,
+        "GET /v1/alerts": 2,
+        "GET /v1/readiness": 1
+      },
+      "brokerPerMinNet": 0
+    },
+    {
+      "page": "strategy",
+      "firstData": null,
+      "fcp": 160,
+      "jsKB": 2128,
+      "cssKB": 706,
+      "jsFiles": 39,
+      "reloadLoadMs": 123,
+      "switchFirst": null,
+      "switchBack": 558,
+      "switchCached": null,
+      "restPerMin": 70,
+      "duplicates": 0,
+      "duplicateUrls": {},
+      "brokerPerMinRaw": 20,
+      "brokerByClass": {
+        "quote": 10
+      },
+      "longTasks": 0,
+      "longTaskMs": 0,
+      "longTaskMax": 0,
+      "tickToCell": {
+        "n": 0,
+        "p50": null,
+        "p95": null
+      },
+      "topRequests": {
+        "GET /v1/optionchain": 10,
+        "GET /v1/quotes": 10,
+        "GET /v1/positions": 10,
+        "GET /v1/alerts/inbox": 2,
+        "GET /v1/alerts": 2,
+        "GET /v1/readiness": 1
+      },
+      "brokerPerMinNet": 0
+    },
+    {
+      "page": "oi",
+      "firstData": null,
+      "fcp": 128,
+      "jsKB": 2128,
+      "cssKB": 706,
+      "jsFiles": 39,
+      "reloadLoadMs": 130,
+      "switchFirst": null,
+      "switchBack": 580,
+      "switchCached": 1,
+      "restPerMin": 70,
+      "duplicates": 0,
+      "duplicateUrls": {},
+      "brokerPerMinRaw": 20,
+      "brokerByClass": {
+        "quote": 10
+      },
+      "longTasks": 7,
+      "longTaskMs": 600,
+      "longTaskMax": 209,
+      "tickToCell": {
+        "n": 30,
+        "p50": 67,
+        "p95": 85
+      },
+      "topRequests": {
+        "GET /v1/optionchain": 10,
+        "GET /v1/quotes": 10,
+        "GET /v1/positions": 10,
+        "GET /v1/alerts/inbox": 2,
+        "GET /v1/alerts": 2,
+        "GET /v1/readiness": 1
+      },
+      "brokerPerMinNet": 0
+    },
+    {
+      "page": "events",
+      "firstData": 346,
+      "fcp": 144,
+      "jsKB": 975,
+      "cssKB": 706,
+      "jsFiles": 19,
+      "reloadLoadMs": 104,
+      "switchFirst": 113,
+      "switchBack": 613,
+      "switchCached": 33,
+      "restPerMin": 10,
+      "duplicates": 0,
+      "duplicateUrls": {},
+      "brokerPerMinRaw": 0,
+      "brokerByClass": {},
+      "longTasks": 0,
+      "longTaskMs": 0,
+      "longTaskMax": 0,
+      "tickToCell": {
+        "n": 0,
+        "p50": null,
+        "p95": null
+      },
+      "topRequests": {
+        "GET /v1/alerts/inbox": 2,
+        "GET /v1/alerts": 2,
+        "GET /v1/readiness": 1
+      },
+      "brokerPerMinNet": 0
+    }
+  ],
+  "idle": {
+    "seconds": 30,
+    "brokerPerMin": 22,
+    "byClass": {
+      "quote": 1,
+      "depth": 2,
+      "chain": 8
+    }
+  },
+  "busiest": {
+    "seconds": 60,
+    "brokerCalls": 35,
+    "brokerPerMinRaw": 35,
+    "byClass": {
+      "quote": 20,
+      "chain": 15
+    },
+    "brokerPerMinNet": 13
+  }
+}

@@ -14,7 +14,8 @@
  *   8. access log line (method, path WITHOUT query string, status, ms, key id) — never bodies, never keys
  */
 import http from "node:http";
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createBrokerRegistry } from "../../brokers/registry.mjs";
@@ -25,12 +26,15 @@ import { SERVICE_CONTRACTS, isStub } from "./contracts.mjs";
 import { createHttpContext, expandScopes, newRequestId } from "./context.mjs";
 import { BridgeError, problemHeaders, toProblem } from "./errors.mjs";
 import { createEventBus } from "./eventBus.mjs";
+import { armStartup, openStartup, startupStatus } from "./startup.mjs";
 import { isControlToken, removeControlToken, writeControlToken } from "./controlToken.mjs";
 import { Reply, noContent, parseBody, readBody, send, sendProblem, text } from "./http.mjs";
 import { createLogger } from "./logger.mjs";
 import { applyModuleConfig, buildServices, validateModules } from "./modules.mjs";
 import { createRouter } from "./router.mjs";
-import { BASE_HEADERS, assertTransportAllowed, createCors, createHostCheck, isLocalRequest } from "./security.mjs";
+import { BASE_HEADERS, assertNotCrossSiteWrite, assertTransportAllowed, createCors, createHostCheck, isLocalRequest } from "./security.mjs";
+import { registerDemoRoutes } from "../demo/routes.mjs";
+import { httpConsumer, runAsConsumer } from "../ratelimit/consumer.mjs";
 import { DEMO_ACCOUNT_HINT, DEMO_HEADER, DEMO_MARKET_ACCOUNT, DEMO_NOTICE, createDemoRegistry, labelDemoResult } from "../demo/demoMode.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -66,12 +70,106 @@ export function safeLogPath(pathname, isPublic = false) {
 }
 
 /**
+ * Files the local dashboard serves (name -> Content-Type). A fixed allowlist: no request can name another path. Every
+ * new dashboard page or shared module is added here (and to dashboard/format.test.mjs).
+ */
+export const DASHBOARD_FILES = Object.freeze({
+  "index.html": "text/html; charset=utf-8",
+  "app.js": "text/javascript; charset=utf-8",
+  "views.js": "text/javascript; charset=utf-8",
+  "trigger-core.js": "text/javascript; charset=utf-8",
+  "triggers.js": "text/javascript; charset=utf-8",
+  "orders-core.js": "text/javascript; charset=utf-8",
+  "reasons-core.js": "text/javascript; charset=utf-8",
+  "statement-core.js": "text/javascript; charset=utf-8",
+  "statement.js": "text/javascript; charset=utf-8",
+  "orders-book.js": "text/javascript; charset=utf-8",
+  "snippets.js": "text/javascript; charset=utf-8",
+  "flows.js": "text/javascript; charset=utf-8",
+  "motion.js": "text/javascript; charset=utf-8",
+  "palette.js": "text/javascript; charset=utf-8",
+  "format.js": "text/javascript; charset=utf-8",
+  "options.js": "text/javascript; charset=utf-8",
+  "events.js": "text/javascript; charset=utf-8",
+  "scanner.js": "text/javascript; charset=utf-8",
+  "scan-builder.js": "text/javascript; charset=utf-8",
+  "scan-library.js": "text/javascript; charset=utf-8",
+  "pricing.js": "text/javascript; charset=utf-8",
+  "expiry-costs.js": "text/javascript; charset=utf-8",
+  "span-margin.js": "text/javascript; charset=utf-8",
+  "alert-core.js": "text/javascript; charset=utf-8",
+  "alerts.js": "text/javascript; charset=utf-8",
+  "cockpit.js": "text/javascript; charset=utf-8",
+  "workbook.js": "text/javascript; charset=utf-8",
+  "workbook-core.js": "text/javascript; charset=utf-8",
+  "xlsx-core.js": "text/javascript; charset=utf-8",
+  "today-core.js": "text/javascript; charset=utf-8",
+  "trade-intent.js": "text/javascript; charset=utf-8",
+  "explain.js": "text/javascript; charset=utf-8",
+  "explain-core.js": "text/javascript; charset=utf-8",
+  "watchlists.js": "text/javascript; charset=utf-8",
+  "watchlist-core.js": "text/javascript; charset=utf-8",
+  "expiry-core.js": "text/javascript; charset=utf-8",
+  "journal.js": "text/javascript; charset=utf-8",
+  "journal-core.js": "text/javascript; charset=utf-8",
+  "roll-core.js": "text/javascript; charset=utf-8",
+  "basket-core.js": "text/javascript; charset=utf-8",
+  "whatif.js": "text/javascript; charset=utf-8",
+  "whatif-core.js": "text/javascript; charset=utf-8",
+  "reference.js": "text/javascript; charset=utf-8",
+  "vol-context.js": "text/javascript; charset=utf-8",
+  "calendar.js": "text/javascript; charset=utf-8",
+  "readiness.js": "text/javascript; charset=utf-8",
+  "recorder.js": "text/javascript; charset=utf-8",
+  "algo.js": "text/javascript; charset=utf-8",
+  "algo-core.js": "text/javascript; charset=utf-8",
+  "desk.js": "text/javascript; charset=utf-8",
+  "arbitrage.js": "text/javascript; charset=utf-8",
+  "screener.js": "text/javascript; charset=utf-8",
+  "screens.js": "text/javascript; charset=utf-8",
+  "participants.js": "text/javascript; charset=utf-8",
+  "chain-sheet.js": "text/javascript; charset=utf-8",
+  "oi.js": "text/javascript; charset=utf-8",
+  "positions.js": "text/javascript; charset=utf-8",
+  "book-core.js": "text/javascript; charset=utf-8",
+  "book-view.js": "text/javascript; charset=utf-8",
+  "vol.js": "text/javascript; charset=utf-8",
+  "vol-curves.js": "text/javascript; charset=utf-8",
+  "oi-store.js": "text/javascript; charset=utf-8",
+  "oi-series.js": "text/javascript; charset=utf-8",
+  "strategy.js": "text/javascript; charset=utf-8",
+  "strategy-place.js": "text/javascript; charset=utf-8",
+  "payoff.js": "text/javascript; charset=utf-8",
+  "viz.js": "text/javascript; charset=utf-8",
+  "layout-prefs.js": "text/javascript; charset=utf-8",
+  "live.js": "text/javascript; charset=utf-8",
+  "analytics.js": "text/javascript; charset=utf-8",
+  "analyticsViews.js": "text/javascript; charset=utf-8",
+  "analyticsMore.js": "text/javascript; charset=utf-8",
+  "analyticsFlow.js": "text/javascript; charset=utf-8",
+  "analyticsRisk.js": "text/javascript; charset=utf-8",
+  "analyticsTime.js": "text/javascript; charset=utf-8",
+  "analyticsDepth.js": "text/javascript; charset=utf-8",
+  "workspace.js": "text/javascript; charset=utf-8",
+  "chrome.js": "text/javascript; charset=utf-8",
+  "terminal.js": "text/javascript; charset=utf-8",
+  "export.js": "text/javascript; charset=utf-8",
+  "help.js": "text/javascript; charset=utf-8",
+  "budget.js": "text/javascript; charset=utf-8",
+  "motion.min.js": "text/javascript; charset=utf-8",
+  "palette.css": "text/css; charset=utf-8",
+  "app.css": "text/css; charset=utf-8",
+  "logo.svg": "image/svg+xml",
+});
+
+/**
  * @param {{ config: any, modules?: any[], overrides?: Record<string, object>, logger?: any, clock?: { now(): number },
- *   brokers?: any, warnings?: string[], configFile?: string | null }} opts
+ *   brokers?: any, warnings?: string[], configFile?: string | null, demoRoutes?: readonly import("../demo/routes.mjs").DemoRoute[] }} opts
  *   configFile: where accounts added from the dashboard are saved (config.mjs configFileForWrites). Without it the
  *   Bridge cannot add or remove accounts at run time.
+ *   demoRoutes: replaces demo/routes.mjs DEMO_ROUTES (tests only); registered only when config.demo is true.
  */
-export async function createApp({ config: baseConfig, modules, overrides = {}, logger, clock, brokers, warnings = [], configFile = null }) {
+export async function createApp({ config: baseConfig, modules, overrides = {}, logger, clock, brokers, warnings = [], configFile = null, demoRoutes }) {
   const mods = modules ?? (await import("./builtinModules.mjs")).BUILTIN_MODULES;
   validateModules(mods);
   const config = withAddableAccounts(applyModuleConfig(baseConfig, mods));
@@ -132,7 +230,10 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
   core.get(
     "/v1/health",
     (ctx) => {
-      const basic = { status: "ok", version: BRIDGE_VERSION, apiVersion: API_VERSION, ...(config.demo ? { demo: true, dataNotice: DEMO_NOTICE } : {}) };
+      // While the Bridge starts, the reads it holds (positions, funds, orders, trades, the book) and how far the jobs
+      // they wait for have got: a page shows that progress instead of a silent wait (core/startup.mjs).
+      const starting = startupStatus(deps);
+      const basic = { status: "ok", version: BRIDGE_VERSION, apiVersion: API_VERSION, ...(config.demo ? { demo: true, dataNotice: DEMO_NOTICE } : {}), ...(starting ? { startup: starting } : {}) };
       if (!ctx.loopback) return basic;
       const services = {};
       for (const name of Object.keys(SERVICE_CONTRACTS)) services[name] = isStub(deps[name]) ? "not_built" : "ready";
@@ -164,19 +265,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     { scope: "admin", loopbackOnly: true, summary: "Recent requests to this Bridge (memory only, newest first)" },
   );
   // ── Local dashboard (static files, this computer only; the page asks for an API key and keeps it in the tab) ──
-  const DASHBOARD_FILES = Object.freeze({
-    "index.html": "text/html; charset=utf-8",
-    "app.js": "text/javascript; charset=utf-8",
-    "views.js": "text/javascript; charset=utf-8",
-    "snippets.js": "text/javascript; charset=utf-8",
-    "motion.js": "text/javascript; charset=utf-8",
-    "palette.js": "text/javascript; charset=utf-8",
-    "format.js": "text/javascript; charset=utf-8",
-    "motion.min.js": "text/javascript; charset=utf-8",
-    "palette.css": "text/css; charset=utf-8",
-    "app.css": "text/css; charset=utf-8",
-    "logo.svg": "image/svg+xml",
-  });
+  // DASHBOARD_FILES (module scope, above) lists what may be served.
   const DASHBOARD_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
   // Broker logos (dashboard/brokers/<id>.png, see its README), served as /dashboard/broker-<id>.png. Only ids with a
   // file present when the Bridge starts can be asked for, so no request can name another path.
@@ -189,12 +278,13 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       }
     })(),
   );
-  // The dashboard's three self-hosted typefaces (dashboard/fonts/, SIL Open Font Licence files beside them), served as
+  // The dashboard's self-hosted Chartist typefaces (dashboard/fonts/, SIL Open Font Licence files beside them), served as
   // /dashboard/font-<file>.woff2. A fixed list, so no request can name another path.
   const DASHBOARD_FONTS = Object.freeze({
-    "font-inter-var-v3.woff2": "inter-var-v3.woff2",
-    "font-plus-jakarta-sans-var.woff2": "plus-jakarta-sans-var.woff2",
-    "font-dm-serif-display-italic.woff2": "dm-serif-display-italic.woff2",
+    "font-chartist-sans-flex.woff2": "chartist-sans-flex.woff2",
+    "font-chartist-sans-flex-symbols.woff2": "chartist-sans-flex-symbols.woff2",
+    "font-chartist-sans.woff2": "chartist-sans.woff2",
+    "font-chartist-serif-italic.woff2": "chartist-serif-italic.woff2",
   });
   const dashboardFile = (name) => {
     if (Object.hasOwn(DASHBOARD_FONTS, name)) {
@@ -207,13 +297,41 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     // Object.hasOwn: inherited names such as "constructor" or "__proto__" must not pass the allowlist.
     const type = Object.hasOwn(DASHBOARD_FILES, name) ? DASHBOARD_FILES[name] : undefined;
     if (!type) throw new BridgeError("NOT_FOUND", `No dashboard file ${name}.`);
-    return new Reply(200, readFileSync(resolve(ROOT, "server/bridge/dashboard", name), "utf8"), { "Content-Type": type, "Content-Security-Policy": DASHBOARD_CSP });
+    const file = dashboardSource(name);
+    // ETag + no-cache: the browser keeps every file and asks "still this one?" (a 304 with no body) instead of
+    // downloading the whole dashboard on each load. A file edited on disk gets a new ETag at once.
+    const cacheHeaders = { "Content-Type": type, "Content-Security-Policy": DASHBOARD_CSP, "Cache-Control": "no-cache", ETag: file.etag };
+    if (ifNoneMatch(ifNoneMatchHeader, file.etag)) return new Reply(304, "", cacheHeaders);
+    return new Reply(200, file.body, cacheHeaders);
+  };
+  /** name -> { mtimeMs, size, body, etag }: each dashboard file read once and re-read when it changes on disk. */
+  const dashboardMemo = new Map();
+  function dashboardSource(name) {
+    const path = resolve(ROOT, "server/bridge/dashboard", name);
+    const st = statSync(path);
+    const hit = dashboardMemo.get(name);
+    if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit;
+    const body = readFileSync(path, "utf8");
+    const entry = { mtimeMs: st.mtimeMs, size: st.size, body, etag: `"${createHash("sha1").update(body).digest("base64url").slice(0, 22)}"` };
+    dashboardMemo.set(name, entry);
+    return entry;
+  }
+  /** The If-None-Match of the request being answered (set per dashboard request below). */
+  let ifNoneMatchHeader = null;
+  const ifNoneMatch = (header, etag) => typeof header === "string" && header.split(",").some((t) => t.trim().replace(/^W\//, "") === etag);
+  const dashboardReply = (ctx, name) => {
+    ifNoneMatchHeader = ctx.req?.headers?.["if-none-match"] ?? null;
+    try {
+      return dashboardFile(name);
+    } finally {
+      ifNoneMatchHeader = null;
+    }
   };
   // server.remoteDashboard (demo mode only, enforced by config.mjs) serves the pages to other computers as well.
   const dashboardLocalOnly = !(config.demo && config.server.remoteDashboard);
   core.get("/", () => new Reply(302, "", { Location: "/dashboard" }), { auth: "none", loopbackOnly: dashboardLocalOnly, summary: "Redirect to the local dashboard" });
-  core.get("/dashboard", () => dashboardFile("index.html"), { auth: "none", loopbackOnly: dashboardLocalOnly, summary: "Local dashboard" });
-  core.get("/dashboard/:file", (ctx) => dashboardFile(ctx.params.file), { auth: "none", loopbackOnly: dashboardLocalOnly, summary: "Dashboard assets" });
+  core.get("/dashboard", (ctx) => dashboardReply(ctx, "index.html"), { auth: "none", loopbackOnly: dashboardLocalOnly, summary: "Local dashboard" });
+  core.get("/dashboard/:file", (ctx) => dashboardReply(ctx, ctx.params.file), { auth: "none", loopbackOnly: dashboardLocalOnly, summary: "Dashboard assets" });
   core.get(
     "/openapi.yaml",
     () => text(readFileSync(resolve(ROOT, "docs/openapi.yaml"), "utf8"), { headers: { "Content-Type": "application/yaml; charset=utf-8" } }),
@@ -221,6 +339,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
   );
 
   for (const m of mods) if (m.register) await m.register(facadeFor(m.name), deps);
+  // Demo-only controls (demo/routes.mjs): registered only in demo mode, each under its owning module.
+  registerDemoRoutes({ config, facadeFor, deps, modules: mods, ...(demoRoutes ? { routes: demoRoutes } : {}) });
 
   // ── Request pipeline ──
   const cors = createCors(config.cors);
@@ -249,6 +369,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       // miss on /hooks/... fails before the route's pattern is known.
       path = safeLogPath(url.pathname, listener.public);
       assertTransportAllowed(req, { hostCheck: listener.hostCheck, cors });
+      assertNotCrossSiteWrite(req, cors);
       const origin = req.headers.origin;
       if (origin !== undefined) Object.assign(headers, cors.headersFor(origin));
       if (req.method === "OPTIONS") {
@@ -314,7 +435,9 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         ctx.body = parseBody(raw, req.headers["content-type"], bodyMode);
       }
 
-      const result = await route.handler(ctx);
+      // Every broker call this request causes is credited to its consumer (API › Rate limits, Top consumers).
+      const consumer = httpConsumer({ headers: req.headers, path: url.pathname, principal: ctx.principal });
+      const result = await runAsConsumer(consumer, () => route.handler(ctx));
       if (res.headersSent || res.writableEnded) {
         status = res.statusCode;
         return;
@@ -400,10 +523,14 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     config,
     router,
     warnings,
+    /** Registered WebSocket upgrade paths (security tests check every one). */
+    upgradePaths: () => [...upgrades.keys()],
     /** Bind the listeners and start modules. Resolves with the bound ports. */
     async listen() {
       if (started) throw new Error("already listening");
       started = true;
+      // Reads gated on startup jobs (the demo book seed) wait from the first request until the jobs are done.
+      armStartup(deps);
       const bind = (host, port, listener) =>
         new Promise((resolveBind, rejectBind) => {
           const server = makeServer(listener);
@@ -427,6 +554,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         publicPort = await bind(s.publicIngress.host, s.publicIngress.port, pub);
       }
       for (const m of mods) if (m.start) await m.start(deps);
+      // Not awaited: the Bridge answers at once; only the gated reads wait for the startup jobs.
+      openStartup(deps).catch(() => {});
       try {
         controlToken = writeControlToken(config.dataDir);
       } catch (err) {

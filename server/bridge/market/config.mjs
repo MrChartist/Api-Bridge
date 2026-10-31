@@ -6,8 +6,9 @@
  *     "stale":     { "enabled": true, "maxStaleMs": 60000, "waitMs": 250 },
  *     "batch":     { "windowMs": 25, "maxSymbols": 1000 },
  *     "streamFirst": true,
+ *     "quietLegMaxAgeMs": 60000,   // stream-first chains: trust a quiet leg on a live feed this long (0 = off)
  *     "history":   { "maxChunks": 40, "maxSpanDays": { "intraday": 60, "daily": 2000 }, "brokers": { "dhan": { "intraday": 90 } } },
- *     "chain":     { "source": "auto", "riskFreeRate": 0.065 },
+ *     "chain":     { "source": "auto", "ivModelDefault": "legacy-bs-spot" },   // riskFreeRate: deprecated override of reference.rate
  *     "cache":     { "maxEntries": 20000 }
  *   }
  *
@@ -23,6 +24,10 @@ export const FRESHNESS_DEFAULTS = Object.freeze({ ltpMs: 1000, quoteMs: 2000, de
 
 /** The loosest a freshness target may be set in config. */
 export const FRESHNESS_MAX = Object.freeze({ ltpMs: 5000, quoteMs: 10_000, depthMs: 5000, chainMs: 30_000, expiriesMs: 3_600_000, historyMs: 600_000 });
+
+/** Stream-first chains: how old a quiet leg's last tick may be (default) and the most config may allow. */
+export const QUIET_LEG_DEFAULT_MS = 60_000;
+export const QUIET_LEG_MAX_MS = 600_000;
 
 /** Depth older than this is never served, stale or not. */
 export const DEPTH_STALE_CAP_MS = 5000;
@@ -77,6 +82,13 @@ export const MARKET_CONFIG_SCHEMA = z
       .prefault({}),
     /** Serve LTP and quotes from a live StreamHub subscription when there is one (zero REST calls). */
     streamFirst: z.boolean().default(true),
+    /**
+     * Stream-first option chains: a leg whose last tick is older than the chain freshness target is still used, up to
+     * this age, while its subscription is live on a feed that is ticking now and the tick came on the current
+     * connection (no tick on a live subscription means no trade). Such legs are counted in `freshness.quiet` and carry
+     * `tickAgeMs`. 0 turns it off (every leg must have ticked within the target).
+     */
+    quietLegMaxAgeMs: z.number().int().min(0).max(QUIET_LEG_MAX_MS).default(QUIET_LEG_DEFAULT_MS),
     history: z
       .object({
         /** Most broker calls one history request may make; longer ranges return the newest part with partial:true. */
@@ -97,8 +109,17 @@ export const MARKET_CONFIG_SCHEMA = z
       .object({
         /** auto: the broker's chain where the account declares one, else built from the master plus quotes. */
         source: z.enum(["auto", "broker", "built"]).default("auto"),
-        /** Risk-free rate for computed Greeks (annual, decimal). */
-        riskFreeRate: z.number().min(0).max(0.25).default(0.065),
+        /**
+         * DEPRECATED (use reference.rate or the Market calendar page): risk-free rate for computed Greeks (annual,
+         * decimal). When set it overrides the reference rate and a warning is logged once. No default: unset means
+         * "use deps.reference.rate()" (docs/spec/p1-02-reference.md §10).
+         */
+        riskFreeRate: z.number().min(0).max(0.25).optional(),
+        /**
+         * The chain IV model when a request names none (docs/spec/p1-03-pricing-vol.md §10): legacy-bs-spot until the
+         * deprecation date (1 May 2027), then b76-forward. Owners can switch early.
+         */
+        ivModelDefault: z.enum(["legacy-bs-spot", "b76-forward"]).default("legacy-bs-spot"),
         /** Most option instruments a built chain will quote. */
         maxBuiltLegs: z.number().int().min(2).max(2000).default(400),
       })

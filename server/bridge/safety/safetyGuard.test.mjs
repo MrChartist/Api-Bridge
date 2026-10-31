@@ -14,6 +14,8 @@ import { createEventBus } from "../core/eventBus.mjs";
 import { createLogger, createNullLogger } from "../core/logger.mjs";
 import { createAuditLog } from "./auditLog.mjs";
 import { createSafetyGuard, rupees } from "./safetyGuard.mjs";
+import { parseReferenceConfig } from "../reference/config.mjs";
+import { createReferenceService } from "../reference/referenceService.mjs";
 
 const MON_1000 = Date.UTC(2026, 9, 19, 4, 30); // Monday 2026-10-19 10:00 IST (market open)
 const MON_0800 = Date.UTC(2026, 9, 19, 2, 30); // 08:00 IST (closed)
@@ -35,13 +37,13 @@ function makeConfig({ safety = {}, accounts } = {}) {
   }).config;
 }
 
-function setup({ t = MON_1000, config = makeConfig(), dataDir = mkdtempSync(join(tmpdir(), "mcb-safety-")), env = {}, audit, bus = createEventBus(), egressIp, logger = createNullLogger() } = {}) {
+function setup({ t = MON_1000, config = makeConfig(), dataDir = mkdtempSync(join(tmpdir(), "mcb-safety-")), env = {}, audit, bus = createEventBus(), egressIp, logger = createNullLogger(), reference } = {}) {
   const clock = { t, now: () => clock.t };
   const auditLog = audit ?? createAuditLog({ logger, bus, clock, paths: { dataDir } });
   const events = [];
   bus.on("safety.kill_switch", (p) => events.push({ topic: "safety.kill_switch", ...p }));
   bus.on("safety.limit", (p) => events.push({ topic: "safety.limit", ...p }));
-  const make = () => createSafetyGuard({ config, logger, bus, clock, paths: { dataDir }, audit: auditLog, accounts: notImplementedService("accounts") }, { env, egressIp });
+  const make = () => createSafetyGuard({ config, logger, bus, clock, paths: { dataDir }, audit: auditLog, accounts: notImplementedService("accounts"), ...(reference ? { reference } : {}) }, { env, egressIp });
   return { guard: make(), make, clock, dataDir, audit: auditLog, events, bus, config };
 }
 
@@ -125,9 +127,23 @@ describe("check(): live enablement", () => {
     const { guard } = setup({ egressIp: "198.51.100.9" });
     const v = await guard.check(keyCtx({ scopes: ["live"] }), live());
     expect(v.ok).toBe(true);
-    expect(v.warnings.join(" ")).toMatch(/198\.51\.100\.9.*203\.0\.113\.7/);
+    expect(v.warnings.join(" ")).toMatch(/does not match the static IP registered for dhan-main/);
+    // The text reaches order records, MCP results and notifications for any key: it never carries an address.
+    expect(JSON.stringify(v)).not.toMatch(/198\.51\.100\.9|203\.0\.113\.7/);
     guard.setDetectedEgressIp("203.0.113.7");
     expect((await guard.check(keyCtx({ scopes: ["live"] }), live())).warnings).toEqual([]);
+  });
+
+  it("static-IP warning: normalised IPv6 and the backup IP count as a match", async () => {
+    const config = makeConfig({ accounts: [{ id: "dhan-main", broker: "dhan", live: { enabled: true, allowedSources: ["rest", "cli"], registeredIp: "2001:db8::1", backupIp: "198.51.100.20" } }] });
+    const { guard } = setup({ config, egressIp: "2001:db8:0:0:0:0:0:1" });
+    expect((await guard.check(keyCtx({ scopes: ["live"] }), live())).warnings).toEqual([]);
+    guard.setDetectedEgressIp("198.51.100.20");
+    expect((await guard.check(keyCtx({ scopes: ["live"] }), live())).warnings).toEqual([]);
+    guard.setDetectedEgressIp("198.51.100.21");
+    const v = await guard.check(keyCtx({ scopes: ["live"] }), live());
+    expect(v.warnings).toHaveLength(1);
+    expect(JSON.stringify(v)).not.toMatch(/198\.51\.100\.2|2001:db8/);
   });
 });
 
@@ -208,6 +224,45 @@ describe("check(): market hours", () => {
     clock.t = Date.UTC(2026, 9, 19, 12, 0); // 17:30 IST: CDS closed, MCX open
     expect(codes(await guard.check(keyCtx({ scopes: ["live"] }), intent({ mode: "live", order: limitOrder({ symbol: "CDS:USDINR-2026-10-28-FUT" }) })))).toContain("MARKET_CLOSED");
     expect(codes(await guard.check(keyCtx({ scopes: ["live"] }), mcx))).not.toContain("MARKET_CLOSED");
+  });
+});
+
+describe("check(): reference holidays (p1-02 §7.1)", () => {
+  const withHoliday = (verified) => {
+    const clock = { now: () => MON_1000 };
+    const reference = createReferenceService({ config: { reference: parseReferenceConfig({ holidays: { add: [{ date: "2026-10-19", label: "Test holiday", exchanges: ["NSE", "BSE"], verified }] } }) }, logger: createNullLogger(), clock, paths: {} });
+    return setup({ reference });
+  };
+
+  it("a verified holiday blocks live NSE/NFO orders with MARKET_CLOSED", async () => {
+    const { guard } = withHoliday(true);
+    const v = await guard.check(keyCtx({ scopes: ["live"] }), intent({ mode: "live" }));
+    expect(codes(v)).toEqual(["MARKET_CLOSED"]);
+    expect(v.reasons[0].message).toMatch(/NSE is closed today \(Test holiday\)/);
+    const nfo = await guard.check(keyCtx({ scopes: ["live"] }), intent({ mode: "live", order: limitOrder({ symbol: "NFO:NIFTY-2026-10-27-25000-CE", quantity: 65 }), quantity: 65 }));
+    expect(codes(nfo)).toContain("MARKET_CLOSED");
+  });
+
+  it("an unverified holiday only warns live orders", async () => {
+    const { guard } = withHoliday(false);
+    const v = await guard.check(keyCtx({ scopes: ["live"] }), intent({ mode: "live" }));
+    expect(codes(v)).not.toContain("MARKET_CLOSED");
+    expect(v.warnings.join(" ")).toMatch(/may be an exchange holiday \(Test holiday, unverified\); the broker will refuse the order if so/);
+  });
+
+  it("paper orders are warned, not refused, on a verified holiday", async () => {
+    const { guard } = withHoliday(true);
+    const p = await guard.check(keyCtx(), intent());
+    expect(p.ok).toBe(true);
+    expect(p.warnings.join(" ")).toMatch(/NSE is closed today \(Test holiday\); a paper order fills only/);
+  });
+
+  it("a stub reference falls back to lib/marketHours alone", async () => {
+    const { guard } = setup({ reference: notImplementedService("reference") });
+    const v = await guard.check(keyCtx({ scopes: ["live"] }), intent({ mode: "live" }));
+    expect(codes(v)).not.toContain("MARKET_CLOSED");
+    const closed = setup({ t: MON_0800, reference: notImplementedService("reference") });
+    expect(codes(await closed.guard.check(keyCtx({ scopes: ["live"] }), intent({ mode: "live" })))).toContain("MARKET_CLOSED");
   });
 });
 
@@ -500,6 +555,23 @@ describe("review regressions", () => {
     expect(noValue.reasons.find((r) => r.rule === "maxOrderValue")).toBeTruthy();
   });
 
+  it("a modify (paper or live) meets the per-order lots and value limits like a place", async () => {
+    const { guard } = setup();
+    const fo = limitOrder({ symbol: "NFO:NIFTY-2026-10-27-25000-CE", quantity: 1300, price: 120 });
+    for (const mode of ["paper", "live"]) {
+      const scopes = mode === "live" ? ["live"] : ["paper"];
+      const lots = await guard.check(keyCtx({ scopes }), intent({ mode, action: "modify", order: fo, quantity: 1300, lots: 20, lotSize: 65, value: 156_000, ltp: 120 }));
+      expect(lots.reasons.map((r) => r.rule), mode).toContain("maxLotsPerOrder");
+      const value = await guard.check(keyCtx({ scopes }), intent({ mode, action: "modify", order: fo, quantity: 650, lots: 10, lotSize: 65, value: 227_000, ltp: 120 }));
+      expect(value.reasons.map((r) => r.rule), mode).toContain("maxOrderValue");
+      expect(value.reasons.map((r) => r.rule), mode).not.toContain("maxLotsPerOrder");
+    }
+    // A paper modify whose value is unknown is no longer passed silently: it says the limit was not checked.
+    const unknown = await guard.check(keyCtx(), intent({ action: "modify", value: null, lots: null, order: limitOrder({ symbol: "NFO:NIFTY-2026-10-27-25000-CE" }) }));
+    expect(unknown.warnings.join(" ")).toMatch(/value limit was not checked/);
+    expect(unknown.warnings.join(" ")).toMatch(/lots limit was not checked/);
+  });
+
   it("cancelOpenOrders needs the live scope and is limited to the caller's accounts and Bridge orders", async () => {
     const { guard, events } = setup();
     const read = await guard.engageKillSwitch(keyCtx({ scopes: ["read"] }), { reason: "x", cancelOpenOrders: true });
@@ -509,5 +581,65 @@ describe("review regressions", () => {
     expect(events.at(-1)).toMatchObject({ cancelOpenOrders: true, cancelScope: { accounts: ["dhan-main"], includeExternal: false } });
     await guard.engageKillSwitch(keyCtx({ scopes: ["admin"] }), { reason: "z", cancelOpenOrders: true, includeExternal: true });
     expect(events.at(-1)).toMatchObject({ cancelOpenOrders: true, cancelScope: { accounts: "*", includeExternal: true } });
+  });
+});
+
+describe("fnoBan (p1-06 §2.8, §6.8)", async () => {
+  const { fnoBanCheck } = await import("./safetyGuard.mjs");
+  const BAN = { inBan: true, mwplPct: 96.2, forDate: "2026-11-19" };
+  const optOrder = (side, quantity, symbol = "NFO:ADANIENT-2026-11-23-2400-CE") => limitOrder({ symbol, side, quantity, price: 50 });
+  const banIntent = (side, quantity, heldQty, over = {}) => intent({ order: optOrder(side, quantity), quantity, value: 50 * quantity, ltp: 50, lots: quantity / 300, lotSize: 300, underlyingKind: "stock", underlying: "ADANIENT", ban: BAN, heldQty, ...over });
+
+  it.each([
+    ["BUY", 600, -600, true],
+    ["BUY", 300, -600, true],
+    ["BUY", 900, -600, false],
+    ["SELL", 300, -600, false],
+    ["BUY", 300, 0, false],
+  ])("§6.8: %s %i with h = %i → allowed %s", async (side, qty, h, allowed) => {
+    const { guard } = setup();
+    const v = await guard.check(keyCtx(), banIntent(side, qty, h));
+    expect(codes(v).includes("FNO_BAN")).toBe(!allowed);
+    if (allowed) expect(v.checks?.map((c) => c.message)).toContain("Closing order in a ban-period stock.");
+  });
+
+  it("the message names the band, the date and the largest closing quantity", () => {
+    expect(fnoBanCheck({ underlying: "RELIANCE", side: "BUY", qty: 900, heldQty: -600, ban: BAN }).message).toBe(
+      "RELIANCE is in the F&O ban period (MWPL 96.2 %, 19 Nov). Only orders that reduce your position are allowed. You hold -600 of this contract: you can buy up to 600.",
+    );
+    expect(fnoBanCheck({ underlying: "RELIANCE", side: "BUY", qty: 300, heldQty: 0, ban: BAN }).message).toMatch(/fresh position/);
+  });
+
+  it("heldQty null → warn only (FNO_BAN_UNCONFIRMED); not in ban → pass; index → pass", async () => {
+    const { guard } = setup();
+    const unknown = await guard.check(keyCtx(), banIntent("BUY", 300, null));
+    expect(unknown.ok).toBe(true);
+    expect(unknown.checks.map((c) => c.code)).toEqual(["FNO_BAN_UNCONFIRMED"]);
+    const free = await guard.check(keyCtx(), banIntent("BUY", 300, 0, { ban: { inBan: false } }));
+    expect(free).toMatchObject({ ok: true });
+    expect(free.checks).toBeUndefined();
+    const index = await guard.check(keyCtx(), banIntent("BUY", 300, 0, { underlyingKind: "index" }));
+    expect(codes(index)).not.toContain("FNO_BAN");
+  });
+
+  it("a cancel is never blocked; a modify that raises the quantity is checked with the new quantity", async () => {
+    const { guard } = setup();
+    const cancel = await guard.check(keyCtx(), banIntent("BUY", 900, -600, { action: "cancel", order: null }));
+    expect(codes(cancel)).not.toContain("FNO_BAN");
+    const modify = await guard.check(keyCtx(), banIntent("BUY", 900, -600, { action: "modify" }));
+    expect(codes(modify)).toContain("FNO_BAN");
+    const modifyOk = await guard.check(keyCtx(), banIntent("BUY", 600, -600, { action: "modify" }));
+    expect(codes(modifyOk)).not.toContain("FNO_BAN");
+  });
+
+  it("fno.ban.blockOpening false → a warning, and the order is audited", async () => {
+    const config = { ...makeConfig(), fno: { ban: { blockOpening: false } } };
+    const { guard, audit } = setup({ config });
+    const v = await guard.check(keyCtx(), banIntent("BUY", 300, 0));
+    expect(v.ok).toBe(true);
+    expect(v.checks.map((c) => c.code)).toEqual(["FNO_BAN"]);
+    await new Promise((r) => setTimeout(r, 20));
+    const rows = await audit.query({ limit: 20 });
+    expect((rows.items ?? rows).map((x) => x.type)).toContain("safety.fno_ban_not_blocked");
   });
 });

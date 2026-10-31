@@ -15,7 +15,7 @@
 //        differs from the last one animated, animatePage(#content) runs (fade + rise, staggered cards, table rows,
 //        stat numbers counting up). Auto-refreshes (every(), Refresh button, inner replaceChildren) stay still.
 //      * when #nav is rebuilt, animateNav(#nav) slides the selection highlight to the active item.
-//  - app.js: modal() → sheetIn/sheetOut, toast() → bannerIn/bannerOut, login error → shake, global pressFeedback.
+//  - app.js: modal() → sheetIn/sheetOut, toast() → bannerIn/bannerOut, login error → shake. Button presses are CSS only (app.css 8a, BUTTON-SYSTEM.md §7).
 //  - views.js MAY still call animatePage(document.getElementById("content")) after a page render and
 //    animateNav(document.getElementById("nav")) after nav(): both are idempotent (a second call for the same
 //    route / same active item does nothing), so calling them on top of the observers is harmless.
@@ -319,54 +319,8 @@ function place(st, link) {
 
 // ── Small feedback ──
 
-/** Press a button down to 0.97; returns a function that springs it back (and restores its inline transform). */
-export function pressFeedback(button) {
-  const m = live();
-  if (!m || !isEl(button)) return () => done();
-  const before = button.style.transform;
-  let anim;
-  try {
-    anim = m.animate(button, { scale: 0.97 }, { duration: 0.08, ease: "easeOut" });
-  } catch {
-    return () => done();
-  }
-  return () => {
-    try {
-      anim.stop?.();
-    } catch {
-      /* ignore */
-    }
-    return run(button, { scale: 1 }, SPRING(0.2), { ms: 600 }).then(() => {
-      if (before) button.style.transform = before;
-      else button.style.removeProperty("transform");
-    });
-  };
-}
-
-/** Attach pressFeedback once, by delegation, to button, .btn and [role=button] across the document. */
-export function installPressFeedback(doc = typeof document !== "undefined" ? document : null) {
-  if (!doc || doc.__mcbPress) return;
-  doc.__mcbPress = true;
-  doc.addEventListener(
-    "pointerdown",
-    (e) => {
-      if (e.button !== 0) return;
-      const b = e.target?.closest?.("button, .btn, [role=button]");
-      if (!b || b.disabled || b.getAttribute("aria-disabled") === "true") return;
-      const release = pressFeedback(b);
-      const up = () => {
-        doc.removeEventListener("pointerup", up, true);
-        doc.removeEventListener("pointercancel", up, true);
-        b.removeEventListener("pointerleave", up);
-        release();
-      };
-      doc.addEventListener("pointerup", up, true);
-      doc.addEventListener("pointercancel", up, true);
-      b.addEventListener("pointerleave", up);
-    },
-    { passive: true },
-  );
-}
+// A button press is not animated here: app.css (8a) settles and springs it back with the `scale` property, so there is
+// one press animation (BUTTON-SYSTEM.md §7).
 
 // Counted figures follow the house rule (format.js): no grouping commas.
 const fmtDefault = { format: (v) => formatInt(v) };
@@ -375,8 +329,16 @@ const fmtDefault = { format: (v) => formatInt(v) };
  * Count a number up from `from` to `to`, writing format(value) into el. The final text is exactly format(to)
  * (or `finalText` when given), even if the animation is skipped or cut short.
  */
+const COUNTS = new WeakMap();
+/** Cancel a running countUp on `el` so a later textContent write is not overwritten by it. */
+export function stopCount(el) {
+  if (isEl(el)) COUNTS.delete(el);
+}
 export function countUp(el, from, to, format = (v) => fmtDefault.format(Math.round(v)), finalText) {
   if (!isEl(el)) return done();
+  const tok = {};
+  COUNTS.set(el, tok);
+  const mine = () => COUNTS.get(el) === tok;
   const end = finalText ?? format(to);
   const m = live();
   if (!m || !Number.isFinite(from) || !Number.isFinite(to) || from === to) {
@@ -385,7 +347,7 @@ export function countUp(el, from, to, format = (v) => fmtDefault.format(Math.rou
   }
   let anim;
   try {
-    anim = m.animate(from, to, { duration: Math.min(0.9, 0.4 + Math.log10(Math.abs(to - from) + 1) * 0.12), ease: [0.16, 1, 0.3, 1], onUpdate: (v) => (el.textContent = format(v)) });
+    anim = m.animate(from, to, { duration: Math.min(0.9, 0.4 + Math.log10(Math.abs(to - from) + 1) * 0.12), ease: [0.16, 1, 0.3, 1], onUpdate: (v) => mine() && (el.textContent = format(v)) });
   } catch {
     el.textContent = end;
     return done();
@@ -399,7 +361,10 @@ export function countUp(el, from, to, format = (v) => fmtDefault.format(Math.rou
     } catch {
       /* ignore */
     }
-    el.textContent = end;
+    if (mine()) {
+      COUNTS.delete(el);
+      el.textContent = end;
+    }
   });
 }
 
@@ -409,28 +374,31 @@ export function shake(el) {
   return run(el, { translate: ["0px 0px", "-10px 0px", "9px 0px", "-7px 0px", "5px 0px", "-3px 0px", "0px 0px"] }, { duration: 0.42, ease: "easeInOut" }, { ms: 1000 });
 }
 
-/** A subtle breathing pulse for live indicators. Returns { stop() }; the element stays fully visible after stop. */
+/**
+ * A subtle breathing pulse for live indicators. Returns { stop() }; the element stays fully visible after stop.
+ * A CSS animation of opacity and transform only (`.dv-breathe`, app.css) on its own compositor layer: no JS frame loop
+ * and no repaint of the page under it on every frame (Motion's `scale` ran a main-thread loop that repainted the whole
+ * page layer about 60 times a second). Paused while the tab is hidden, none under reduced motion (both in app.css).
+ */
 export function pulse(el) {
-  const m = live();
-  if (!m || !isEl(el)) return { stop() {}, finished: done() };
-  let anim;
-  try {
-    anim = m.animate(el, { opacity: [1, 0.45, 1], scale: [1, 0.85, 1] }, { duration: 2.4, ease: "easeInOut", repeat: Infinity });
-  } catch {
-    return { stop() {}, finished: done() };
-  }
+  if (!isEl(el)) return { stop() {}, finished: done() };
+  watchHidden();
+  el.classList.add("dv-breathe");
   return {
     finished: done(),
     stop() {
-      try {
-        anim.stop?.();
-      } catch {
-        /* ignore */
-      }
-      el.style.removeProperty("opacity");
-      el.style.removeProperty("transform");
+      el.classList.remove("dv-breathe");
     },
   };
+}
+let hiddenWatched = false;
+/** `:root.tab-hidden` while the tab is in the background: the endless CSS animations pause on it (app.css). */
+function watchHidden() {
+  if (hiddenWatched || typeof document === "undefined") return;
+  hiddenWatched = true;
+  const sync = () => document.documentElement.classList.toggle("tab-hidden", document.hidden);
+  document.addEventListener("visibilitychange", sync);
+  sync();
 }
 
 // ── Page hooks (idempotent; see the top of this file) ──
@@ -484,4 +452,87 @@ export function installAutoAnimations({ content = "content", nav = "nav" } = {})
   const n = document.getElementById(nav);
   if (c) new MutationObserver(() => animatePage(c)).observe(c, { childList: true });
   if (n) new MutationObserver(() => animateNav(n)).observe(n, { childList: true });
+}
+
+// ── Data-viz primitives (docs/design/foundation.md §6.2). CSS does the drawing (app.css 3c); these only flip classes.
+// All are no-ops without a DOM and fall back to a static cue (or nothing) under reduced motion. ──
+
+const raf2 = (fn) => (typeof requestAnimationFrame === "function" ? requestAnimationFrame(() => requestAnimationFrame(fn)) : fn());
+
+/**
+ * Flash a value's background green (up) or red (down) once; the text colour never changes. Restarts on every call
+ * without a reflow (two identical keyframe names alternate through data-flash a / b). Reduced motion: a still
+ * whole-value tint for 3 s instead (never an edge bar).
+ * @param {Element} el @param {"up"|"down"|boolean} dir
+ */
+export function flashValue(el, dir) {
+  if (!isEl(el)) return;
+  const up = dir === "up" || dir === true;
+  if (reducedMotion()) {
+    el.classList.remove("dv-mark-up", "dv-mark-down");
+    el.classList.add(up ? "dv-mark-up" : "dv-mark-down");
+    clearTimeout(el.__dvMark);
+    el.__dvMark = setTimeout(() => el.classList.remove("dv-mark-up", "dv-mark-down"), 3000);
+    return;
+  }
+  el.classList.remove(up ? "dv-flash-down" : "dv-flash-up");
+  el.classList.add(up ? "dv-flash-up" : "dv-flash-down");
+  el.dataset.flash = el.dataset.flash === "a" ? "b" : "a";
+}
+
+/**
+ * First draw of a set of bars: they grow from the baseline (scaleX / scaleY from 0), staggered 12 ms each and capped at
+ * 240 ms. Later refreshes resize from the old value (a CSS transition on transform), they never regrow.
+ * Works on .dv-bar, the chain's .vbar and SVG .dv-col / rect.dv-grow inside `root`.
+ */
+export function barsEnter(root) {
+  if (!isEl(root) || reducedMotion() || typeof requestAnimationFrame !== "function") return done();
+  const bars = [...root.querySelectorAll(".dv-bar, .vbar > span, .dv-col, rect.dv-grow")];
+  if (!bars.length) return done();
+  bars.forEach((b, i) => b.style.setProperty("--i", String(Math.min(i, 20))));
+  root.classList.add("dv-enter");
+  return new Promise((resolve) => {
+    raf2(() => {
+      root.classList.add("dv-entering");
+      root.classList.remove("dv-enter");
+      setTimeout(() => {
+        root.classList.remove("dv-entering");
+        resolve();
+      }, 620);
+    });
+  });
+}
+
+/**
+ * First draw of a line chart: the stroke draws itself (dash offset L → 0 over 600 ms) and the areas fade in after
+ * 120 ms. On a refresh the caller simply replaces the path's d (no reveal).
+ * @param {SVGPathElement|SVGPathElement[]} lines @param {Element[]} [areas]
+ */
+export function lineReveal(lines, areas = []) {
+  if (typeof document === "undefined" || reducedMotion()) return done();
+  const list = (Array.isArray(lines) ? lines : [lines]).filter((p) => isEl(p) && typeof p.getTotalLength === "function");
+  const jobs = [];
+  for (const p of list) {
+    let L = 0;
+    try {
+      L = p.getTotalLength();
+    } catch {
+      L = 0;
+    }
+    // Dashed series keep their dashes: they fade in with the areas instead.
+    const dashed = typeof getComputedStyle === "function" && getComputedStyle(p).strokeDasharray !== "none";
+    if (!L || dashed || typeof p.animate !== "function") {
+      p.classList.add("dv-area-in");
+      continue;
+    }
+    p.style.strokeDasharray = `${L}`;
+    const a = p.animate([{ strokeDashoffset: L }, { strokeDashoffset: 0 }], { duration: 600, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+    jobs.push(
+      a.finished
+        .catch(() => {})
+        .then(() => p.style.removeProperty("stroke-dasharray")),
+    );
+  }
+  for (const a of areas) if (isEl(a)) a.classList.add("dv-area-in");
+  return Promise.all(jobs).then(() => {});
 }

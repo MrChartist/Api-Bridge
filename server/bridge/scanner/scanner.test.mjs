@@ -166,11 +166,12 @@ function makeScanner(f, extra = {}) {
   const events = [];
   for (const t of ["scan.progress", "scan.completed", "scan.alert"]) bus.on(t, (e) => events.push([t, e]));
   const scanner = createScanner({
-    config: { scanner: extra.scanner ?? {} },
+    config: { scanner: extra.scanner ?? {}, ...(extra.demo ? { demo: true } : {}) },
     ...f,
     bus,
     clock: { now: () => extra.now?.() ?? T },
     paths: { dataDir: extra.dataDir ?? mkdtempSync(join(tmpdir(), "mcb-scan-")) },
+    ...(extra.reference ? { reference: extra.reference } : {}),
   });
   return { scanner, events, bus };
 }
@@ -340,6 +341,33 @@ describe("scan jobs", () => {
     expect(scanner.view(job2).newMatches).toEqual([]);
     scanner.removeSaved(s.id);
     expect(scanner.saved()).toEqual([]);
+  });
+
+  it("demo mode runs scheduled scans after hours too (the demo market ticks at any hour); normal mode does not", async () => {
+    let t = Date.UTC(2026, 9, 30, 13, 30); // Friday 19:00 IST, after the close
+    const f = fakes({ candidates: ["acc-a"] });
+    const normal = makeScanner(f, { now: () => t }).scanner;
+    await normal.save({ name: "Risers", request: { symbols: ["NSE:UP1"], condition: "close > 0" }, everyMinutes: 5 });
+    await normal.tick();
+    expect(normal.list()).toHaveLength(0);
+    const { scanner } = makeScanner(f, { now: () => t, demo: true });
+    await scanner.save({ name: "Risers", request: { symbols: ["NSE:UP1"], condition: "close > 0" }, everyMinutes: 5 });
+    await scanner.tick();
+    expect(scanner.list()).toHaveLength(1);
+    await done(scanner, scanner.list()[0]);
+    t = Date.UTC(2026, 10, 1, 5, 0); // Sunday
+    await scanner.tick();
+    expect(scanner.list()).toHaveLength(2);
+  });
+
+  it("market-hours scans follow the reference calendar: nothing runs on an exchange holiday", async () => {
+    const t = Date.UTC(2026, 9, 26, 5, 0); // Monday 10:30 IST
+    const reference = { session: (exch, at) => ({ state: at === t ? "HOLIDAY" : "OPEN", label: "Test holiday" }) };
+    const f = fakes({ candidates: ["acc-a"] });
+    const { scanner } = makeScanner(f, { now: () => t, reference });
+    await scanner.save({ name: "Risers", request: { symbols: ["NSE:UP1"], condition: "close > 0" }, everyMinutes: 5 });
+    await scanner.tick();
+    expect(scanner.list()).toHaveLength(0);
   });
 
   it("emits scan.alert with the symbols a saved scan newly matches", async () => {

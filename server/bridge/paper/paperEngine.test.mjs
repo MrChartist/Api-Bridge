@@ -45,7 +45,7 @@ function fakeTimers() {
 /**
  * A full engine over a temp dir. `rig.restart()` builds a new engine on the same dir, clock, bus and market data.
  */
-function rig({ dir = mkdtempSync(join(tmpdir(), "mcb-paper-")), paper = {}, prices = { [RELIANCE]: 1400, [NIFTY_CE]: 120, [NIFTY_FUT]: 25_000, [CRUDE]: 6000 }, t0 = at("2026-10-19T10:00:00") } = {}) {
+function rig({ dir = mkdtempSync(join(tmpdir(), "mcb-paper-")), paper = {}, prices = { [RELIANCE]: 1400, [NIFTY_CE]: 120, [NIFTY_FUT]: 25_000, [CRUDE]: 6000 }, t0 = at("2026-10-19T10:00:00"), reference, demo = false } = {}) {
   const clock = { t: t0, now() { return this.t; } };
   const config = {
     accounts: [
@@ -54,6 +54,7 @@ function rig({ dir = mkdtempSync(join(tmpdir(), "mcb-paper-")), paper = {}, pric
       { id: "zerodha-main", broker: "zerodha" },
     ],
     paper: paperConfig(paper),
+    ...(demo ? { demo: true } : {}),
   };
   const bus = createEventBus();
   const events = [];
@@ -63,7 +64,7 @@ function rig({ dir = mkdtempSync(join(tmpdir(), "mcb-paper-")), paper = {}, pric
   const md = createFakeMarketData({ prices, clock });
   const symbols = createFakeSymbolService();
   const timers = fakeTimers();
-  const make = () => createPaperEngine({ config, logger: createNullLogger(), bus, clock, paths: { dataDir: dir }, marketData: md, symbols }, { timers });
+  const make = () => createPaperEngine({ config, logger: createNullLogger(), bus, clock, paths: { dataDir: dir }, marketData: md, symbols, ...(reference ? { reference } : {}) }, { timers });
   const r = { dir, clock, config, bus, events, warnings, md, symbols, timers, engine: make() };
   r.engine.start(); // as the module does at boot: restore books, listen to ticks, poll timer (fake)
   r.restart = ({ stopOld = true } = {}) => {
@@ -343,7 +344,7 @@ describe("funds and margin", () => {
   });
 
   it("approximates futures and option-writing margin as configured", async () => {
-    const r = rig({ paper: { margin: { futuresPct: 10, optionSellPct: 12 } } });
+    const r = rig({ paper: { margin: { model: "simple", futuresPct: 10, optionSellPct: 12 } } });
     await r.engine.place("paper-1", { symbol: NIFTY_FUT, side: "SELL", quantity: 65, product: "MARGIN", orderType: "MARKET" });
     expect((await r.engine.funds("paper-1")).usedMargin).toBe(162_500); // 65 * 25000 * 10%
     await r.engine.place("paper-1", { symbol: NIFTY_CE, side: "SELL", quantity: 65, product: "MARGIN", orderType: "MARKET" });
@@ -495,6 +496,27 @@ describe("time-based behaviour (fake clock)", () => {
     r.clock.t = at("2026-10-19T15:30:00");
     await r.engine.runOnce();
     expect(await r.engine.order("paper-1", o.orderId)).toMatchObject({ status: "expired", statusMessage: expect.stringMatching(/session/) });
+  });
+
+  it("in demo (prices tick at any hour) a DAY order placed after the close rests until the day rolls", async () => {
+    const r = rig({ t0: at("2026-10-19T18:00:00"), demo: true });
+    const o = await r.engine.place("paper-1", { ...buy(RELIANCE, 1), product: "CNC", orderType: "LIMIT", price: 1300 });
+    r.clock.t = at("2026-10-19T18:05:00");
+    await r.engine.runOnce();
+    expect((await r.engine.order("paper-1", o.orderId)).status).toBe("open");
+  });
+
+  it("with no sessionEnd.time configured, DAY orders expire at the reference session close", async () => {
+    const reference = { session: () => ({ close: "15:00" }) };
+    const r = rig({ t0: at("2026-10-19T14:00:00"), reference });
+    const o = await r.engine.place("paper-1", { ...buy(RELIANCE, 1), product: "CNC", orderType: "LIMIT", price: 1300 });
+    r.clock.t = at("2026-10-19T14:59:00");
+    await r.engine.runOnce();
+    expect((await r.engine.order("paper-1", o.orderId)).status).toBe("open");
+    r.clock.t = at("2026-10-19T15:00:00");
+    await r.engine.runOnce();
+    expect((await r.engine.order("paper-1", o.orderId)).status).toBe("expired");
+    expect(paperConfig({}).sessionEnd.time).toBe(null);
   });
 
   it("rolls the day: expires leftovers, resets the counters, drops flat positions and keeps carried ones", async () => {
@@ -697,5 +719,119 @@ describe("listing and reset", () => {
     await r.engine.place("paper-1", { ...sell(RELIANCE, 10), product: "INTRADAY" }); // 1499.2
     const fills = r.events.filter((e) => e.status === "filled");
     expect(fills.map((e) => e.realisedPnl)).toEqual([0, 985]);
+  });
+});
+
+describe("estimateOrderMargin (order preview)", () => {
+  it("sizes an option sell on the strike, a buy on its premium, and a closing order at 0; nothing is stored", async () => {
+    const r = rig();
+    const sellCe = { symbol: NIFTY_CE, side: "SELL", quantity: 65, product: "MARGIN", orderType: "LIMIT", price: 120 };
+    expect(await r.engine.estimateOrderMargin("paper-1", sellCe)).toBe(243_750); // 15% × 25000 × 65
+    expect(await r.engine.estimateOrderMargin("paper-1", { ...sellCe, side: "BUY" })).toBe(7800); // 120 × 65
+    expect(await r.engine.estimateOrderMargin("paper-1", { ...sellCe, side: "BUY" }, 100)).toBe(6500);
+    expect((await r.engine.orders("paper-1")).items).toHaveLength(0);
+    await r.engine.place("paper-1", { symbol: NIFTY_CE, side: "BUY", quantity: 65, product: "MARGIN", orderType: "MARKET" });
+    expect(await r.engine.estimateOrderMargin("paper-1", sellCe)).toBe(0);
+    // 65 closes the long (its 7800 premium block is released), 65 opens a short: 243750 − 7800.
+    expect(await r.engine.estimateOrderMargin("paper-1", { ...sellCe, quantity: 130 })).toBe(235_950);
+  });
+});
+
+describe("portfolio margin (hedges get their benefit)", () => {
+  const PE = (k) => `NFO:NIFTY-2026-10-27-${k}-PE`;
+  const CE = (k) => `NFO:NIFTY-2026-10-27-${k}-CE`;
+  const condorPrices = { "NSE:NIFTY": 25_000, [PE(24800)]: 40, [PE(24900)]: 70, [CE(25100)]: 75, [CE(25200)]: 45, [NIFTY_FUT]: 25_000 };
+  const order = (symbol, side) => ({ symbol, side, quantity: 65, product: "MARGIN", orderType: "MARKET" });
+
+  it("an iron condor blocks far less than its legs one by one, and less than the simple model", async () => {
+    const r = rig({ prices: condorPrices, paper: { startingCapital: 2_000_000 } });
+    for (const [s, side] of [[PE(24800), "BUY"], [CE(25200), "BUY"], [PE(24900), "SELL"], [CE(25100), "SELL"]]) {
+      expect((await r.engine.place("paper-1", order(s, side))).status).toBe("filled");
+    }
+    const used = (await r.engine.funds("paper-1")).usedMargin;
+    const simple = rig({ prices: condorPrices, paper: { startingCapital: 2_000_000, margin: { model: "simple" } } });
+    for (const [s, side] of [[PE(24800), "BUY"], [CE(25200), "BUY"], [PE(24900), "SELL"], [CE(25100), "SELL"]]) await simple.engine.place("paper-1", order(s, side));
+    const naked = (await simple.engine.funds("paper-1")).usedMargin;
+    expect(used).toBeGreaterThan(60_000); // exposure alone is 2 × 65 × 25000 × 2 %
+    expect(used).toBeLessThan(naked * 0.3);
+  });
+
+  it("the hedge leg can be placed even when the account could not afford the short alone again", async () => {
+    const r = rig({ prices: condorPrices, paper: { startingCapital: 200_000 } });
+    expect((await r.engine.place("paper-1", order(CE(25100), "SELL"))).status).toBe("filled");
+    const hedge = await r.engine.place("paper-1", order(CE(25200), "BUY"));
+    expect(hedge.status).toBe("filled");
+    const f = await r.engine.funds("paper-1");
+    expect(f.usedMargin).toBeLessThan(80_000);
+  });
+
+  it("estimateBasketMargin reports before, after, alone and the legs one by one", async () => {
+    const r = rig({ prices: condorPrices });
+    const legs = [order(PE(24800), "BUY"), order(CE(25200), "BUY"), order(PE(24900), "SELL"), order(CE(25100), "SELL")];
+    const m = await r.engine.estimateBasketMargin("paper-1", legs);
+    expect(m).toMatchObject({ model: "portfolio", before: 0, forwards: { NIFTY: 25_000 }, fallback: [] });
+    expect(m.after).toBe(m.alone);
+    expect(m.change).toBe(m.after);
+    expect(m.standalone).toBeGreaterThan(m.alone * 3);
+    expect(m.method).toMatch(/^Approximate, not the exchange's SPAN/);
+    expect((await r.engine.orders("paper-1")).items).toHaveLength(0);
+  });
+
+  it("without an underlying price it falls back to the simple per-leg figures", async () => {
+    const r = rig();
+    const m = await r.engine.estimateBasketMargin("paper-1", [{ symbol: NIFTY_CE, side: "SELL", quantity: 65, product: "MARGIN", orderType: "LIMIT", price: 120 }]);
+    expect(m.fallback).toEqual(["NIFTY"]);
+    expect(m.after).toBe(243_750);
+  });
+});
+
+describe("daily P&L snapshots and tagged fills (the journal's inputs)", () => {
+  it("trades carry the order's tag and client order id", async () => {
+    const { engine } = rig();
+    await engine.place("paper-1", buy(RELIANCE, 2, { clientOrderId: "strat-abc-0", tag: "mcbstrat" }));
+    const t = (await engine.trades("paper-1")).items[0];
+    expect(t).toMatchObject({ clientOrderId: "strat-abc-0", tag: "mcbstrat", side: "BUY", qty: 2 });
+  });
+
+  it("takes a snapshot on demand, measures the day from the start, and keeps one row per day", async () => {
+    const r = rig();
+    await r.engine.place("paper-1", buy(RELIANCE, 10));
+    r.tick(RELIANCE, 1450);
+    const s1 = await r.engine.snapshot("paper-1");
+    expect(s1).toMatchObject({ day: "2026-10-19", source: "manual", openPositions: 1 });
+    expect(s1.pnl).toBeCloseTo(s1.equity - (await r.engine.account("paper-1")).startingCapital, 2);
+    const s2 = await r.engine.snapshot("paper-1");
+    expect((await r.engine.daily("paper-1")).length).toBe(1);
+    expect(s2.at >= s1.at).toBe(true);
+  });
+
+  it("takes the end-of-day row after the session end, and a manual one never replaces it", async () => {
+    const r = rig();
+    await r.engine.place("paper-1", buy(RELIANCE, 1));
+    r.clock.t = at("2026-10-19T15:45:00");
+    await r.engine.runOnce();
+    let d = await r.engine.daily("paper-1");
+    expect(d.map((x) => [x.day, x.source])).toEqual([["2026-10-19", "eod"]]);
+    const m = await r.engine.snapshot("paper-1");
+    expect(m.source).toBe("eod");
+    // Next day: the day roll keeps yesterday's row and today's change is measured from it.
+    r.clock.t = at("2026-10-20T10:00:00");
+    r.tick(RELIANCE, 1500);
+    const s = await r.engine.snapshot("paper-1");
+    d = await r.engine.daily("paper-1");
+    expect(d.map((x) => x.day)).toEqual(["2026-10-19", "2026-10-20"]);
+    expect(s.pnl).toBeCloseTo(s.equity - d[0].equity, 2);
+  });
+
+  it("a day that ends without a session-end pass gets its row at the day roll; history survives restart and reset", async () => {
+    const r = rig();
+    await r.engine.place("paper-1", buy(RELIANCE, 1));
+    r.clock.t = at("2026-10-20T09:20:00");
+    await r.engine.runOnce();
+    expect((await r.engine.daily("paper-1")).map((x) => [x.day, x.source])).toEqual([["2026-10-19", "eod"]]);
+    r.restart();
+    expect((await r.engine.daily("paper-1")).length).toBe(1);
+    await r.engine.reset("paper-1", {});
+    expect((await r.engine.daily("paper-1")).length).toBe(1);
   });
 });

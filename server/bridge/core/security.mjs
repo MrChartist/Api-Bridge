@@ -136,6 +136,26 @@ export function assertTransportAllowed(req, { hostCheck, cors }) {
 }
 
 /**
+ * Defence in depth for writes (docs/spec/p1-05-readiness.md §3.9 F7): a browser that says the request is cross-site
+ * or same-site (Sec-Fetch-Site) but sends NO allowlisted or same-origin Origin is refused for every method other than
+ * GET/HEAD/OPTIONS. Modern browsers send Origin on cross-origin writes anyway, so this only closes the gap where
+ * Origin is missing. Non-browser clients never send Sec-Fetch-* headers, so nothing legitimate breaks. "same-site" is
+ * included because http://localhost:5173 and http://127.0.0.1:4300 are same-site but not same-origin.
+ * @param {import("node:http").IncomingMessage} req
+ * @param {ReturnType<typeof createCors>} cors
+ */
+export function assertNotCrossSiteWrite(req, cors) {
+  const method = String(req.method ?? "GET").toUpperCase();
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return;
+  const raw = req.headers["sec-fetch-site"];
+  const site = String(Array.isArray(raw) ? raw[0] : raw ?? "").trim().toLowerCase();
+  if (site !== "cross-site" && site !== "same-site") return;
+  const origin = req.headers.origin;
+  if (origin !== undefined && (cors.isAllowed(origin) || isSameOrigin(origin, req.headers.host))) return;
+  throw new BridgeError("ORIGIN_NOT_ALLOWED", "This browser request comes from another site. Add that page's origin to cors.allowedOrigins in bridge.config.json to allow it.");
+}
+
+/**
  * Whether an IPv4 peer (plain or IPv4-mapped IPv6) matches one of `list` (addresses or CIDR blocks).
  * Used only for server.localPeers (Docker).
  * @param {string | undefined} addr @param {string[]} list

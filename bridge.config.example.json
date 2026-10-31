@@ -14,7 +14,7 @@
       "broker": "dhan",
       "label": "Dhan (main)",
       "holder": "self",
-      "live": { "enabled": false, "allowedSources": ["rest"] },
+      "live": { "enabled": false, "allowedSources": ["rest"], "registeredIp": "203.0.113.10" },
       "marketData": { "pooling": false }
     },
     {
@@ -46,11 +46,41 @@
     "backoff": { "initialMs": 1000, "maxMs": 60000 }
   },
   "symbols": { "refreshAfterIst": "08:30", "diskCache": true, "failureBackoffMs": 60000, "warmOnStart": true },
+  "reference": {
+    "sources": { "nseArchives": { "enabled": false, "baseUrl": "https://nsearchives.nseindia.com", "gapMs": 2000, "timeoutMs": 15000, "maxBytes": 20971520 } },
+    "schedule": { "morning": "08:20", "morningRetry": "08:50", "evening": "19:35", "eveningRetry": "21:05" },
+    "staleAfterTradingDays": 1,
+    "bannerDays": 7,
+    "blockLotsWhenStale": false,
+    "rate": { "value": null, "asOf": null, "source": null },
+    "rateStaleDays": 14,
+    "specialSessions": {},
+    "holidays": { "add": [], "remove": [] },
+    "freeze": {},
+    "retentionDays": 400
+  },
+  "recorder": {
+    "enabled": true,
+    "account": null,
+    "indices": ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX"],
+    "indexExpiries": 3,
+    "indexStrikes": 40,
+    "stocks": [],
+    "stockExpiries": 1,
+    "stockStrikes": 15,
+    "stockEveryMinutes": 5,
+    "sources": { "stream": true, "rest": true, "nseBackup": false },
+    "budgetShare": 0.5,
+    "streamShare": 0.6,
+    "retentionDays": 365,
+    "maxDiskMb": 10240,
+    "dailyAt": "15:31"
+  },
   "market": {
     "freshness": { "ltpMs": 1000, "quoteMs": 2000, "depthMs": 1000, "chainMs": 3000 },
     "stale": { "enabled": true, "maxStaleMs": 60000, "waitMs": 250 },
     "streamFirst": true,
-    "chain": { "source": "auto", "riskFreeRate": 0.065 }
+    "chain": { "source": "auto" }
   },
   "stream": { "heartbeatMs": 15000, "maxClients": 50, "maxSymbolsPerClient": 500 },
   "orders": { "ticketTtlMs": 60000, "confirmTokenTtlMs": 60000, "confirmPaperFromMcp": true, "sliceAboveFreeze": false },
@@ -61,5 +91,13 @@
   "backup": { "enabled": true, "autoFallback": true, "providers": { "yahoo": { "perSecond": 4 }, "nse": { "perSecond": 2 } } },
   "scanner": { "maxSymbols": 1000, "maxRunning": 2, "perAccountConcurrency": 4, "schedule": true, "universes": {} },
   "compat": { "enabled": true, "analyzer": true },
-  "notify": { "targets": [] }
+  "notify": { "targets": [] },
+  "readiness": { "egressIp": { "mode": "off", "lookupUrl": null }, "gateAutomated": true },
+  "fno": {
+    "universe": { "indices": null, "exchanges": ["NFO"], "maxStocks": 400 },
+    "sweep": { "budgetShare": 0.5, "accountId": "auto", "maxMinutes": 10, "method": "auto", "indexExpiries": 2, "indexMonthly": true, "indexStrikes": 30, "stockExpiries": 1, "nextExpiryWithinDays": 7, "stockStrikes": 15, "hv": { "source": "auto", "candles": 40 }, "minIntervalSeconds": 120, "leaseSeconds": 180, "resumeWithinMinutes": 30, "keepJobs": 2 },
+    "expiry": { "warnFromTradingDays": 4, "closeToMoneyStrikes": 1 },
+    "ban": { "blockOpening": true },
+    "retentionDays": 5
+  }
 }

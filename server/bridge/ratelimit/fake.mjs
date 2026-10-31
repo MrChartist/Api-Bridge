@@ -137,6 +137,12 @@ export function createFakeScheduler({ bus, policies, accountBroker = (id) => Str
       const left = throttleLeft(accountId, endpointClass);
       return left > 0 ? { remaining: 0, limit: 1, resetMs: left } : { remaining: 1000, limit: 1000, resetMs: 0 };
     },
+    headroomWindows(accountId, endpointClass) {
+      const left = throttleLeft(accountId, endpointClass);
+      return left > 0
+        ? { windows: [{ bucket: endpointClass, window: "second", used: 1, limit: 1, remaining: 0, resetMs: left }], backoffMs: left }
+        : { windows: [{ bucket: endpointClass, window: "second", used: 0, limit: 1000, remaining: 1000, resetMs: 0 }], backoffMs: 0 };
+    },
     pickAccount({ candidates = [], endpointClass } = {}) {
       return candidates.find((c) => throttleLeft(c, endpointClass) === 0) ?? candidates[0] ?? null;
     },

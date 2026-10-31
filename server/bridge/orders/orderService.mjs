@@ -17,7 +17,9 @@
  *   caller gets 504 OUTCOME_UNKNOWN naming the order id, and the reconciliation job looks for it in the broker order
  *   book (reconcile.mjs). A late answer from the adapter also resolves it.
  *
- * modify()/cancel(): same idempotency and audit; live modify needs the live opt-ins and passes SafetyGuard.check;
+ * modify()/cancel(): same idempotency and audit; every modify (paper and live) passes SafetyGuard.check with the
+ *   same per-order inputs as a place (modifyShape: lots, value, price band, market policy, freeze); a live modify also
+ *   needs the live opt-ins;
  *   cancels are never blocked by the kill switch or limits (they only reduce risk) but each counts towards the
  *   order-rate cap. AI assistants may cancel but not change live orders.
  * cancelAll(): every open order (paper book, and the broker's own order book for live) on the accounts the caller
@@ -31,12 +33,17 @@
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { issueOrderGate } from "../../brokers/orderGate.mjs";
+import { isStub } from "../core/contracts.mjs";
 import { BridgeError, ERROR_CODES, fromBrokerError } from "../core/errors.mjs";
+import { isAutomatedContext } from "../core/context.mjs";
+import { deliveryMarginOf, expiryDay, moneynessOf, obligationOf } from "../dashboard/expiry-costs.js";
+import { strikeStepOf } from "../market/chain.mjs";
 import { assertLiveSupport, liveSupport, unverifiedWarning } from "./brokerOrders.mjs";
 import { ordersConfig } from "./config.mjs";
 import { createIdempotencyStore } from "./idempotencyStore.mjs";
-import { decideMode, effectiveSource } from "./modeDecision.mjs";
+import { AUTOMATED_SOURCES, decideMode, effectiveSource } from "./modeDecision.mjs";
 import {
+  ACCOUNT_RE,
   IDEMPOTENCY_KEY_RE,
   TERMINAL_STATUSES,
   applyMarketPolicy,
@@ -252,7 +259,7 @@ export function createOrderService(deps) {
    * to SafetyGuard, so dailyMaxLoss works for live accounts. When it cannot be read the order is not blocked, but
    * the caller is told plainly that the loss limit was not checked.
    */
-  async function syncLivePnl(summary, checks) {
+  async function syncLivePnl(summary, checks, readPositions = null) {
     if (typeof deps.safety.syncDayPnl !== "function") return;
     let adapter = null;
     try {
@@ -263,7 +270,7 @@ export function createOrderService(deps) {
     const unchecked = (why) => checks.push({ code: "SAFETY_WARNING", message: `Today's loss on ${summary.id} could not be read from the broker (${why}), so the daily loss limit was not checked for this order.`, severity: "warn" });
     if (!adapter || typeof adapter.fetchPositions !== "function") return unchecked("this adapter cannot read positions");
     try {
-      const { data } = await brokerRead(summary.id, "fetchPositions", [], "positions", { priority: "order" });
+      const { data } = readPositions ? await readPositions() : await brokerRead(summary.id, "fetchPositions", [], "positions", { priority: "order" });
       let total = 0;
       for (const row of Array.isArray(data) ? data : []) {
         const pnl = Number(row?.pnl);
@@ -281,7 +288,62 @@ export function createOrderService(deps) {
   function refusalError(blocks) {
     const first = blocks[0];
     const code = ERROR_CODES[first.code] ? first.code : "INVALID_ORDER";
-    return new BridgeError(code, first.message, { errors: blocks.map((b) => ({ path: b.code, message: b.message })) });
+    return new BridgeError(code, first.message, { errors: blocks.map((b) => ({ path: b.path ?? b.code, message: b.message })) });
+  }
+
+  /** deps.readiness when the readiness module runs (not a stub); null otherwise (back-compat: no readiness line). */
+  const readinessService = () => {
+    try {
+      const r = deps.readiness;
+      return r && !isStub(r) && typeof r.canTrade === "function" ? r : null;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * The readiness line for a LIVE order (docs/spec/p1-05-readiness.md §3.7, §6.9), checked before safety.check:
+   *  - automated sources (webhook, system, guard, alert) with readiness.gateAutomated: refused with CANNOT_TRADE while
+   *    the account cannot trade, or when its state is still unknown or stale after ensureFresh (5 s at most). No
+   *    safety slot is taken and no broker call is made.
+   *  - everyone else (a person): a READINESS warning when the account is cannot_trade or warn.
+   * @returns {Promise<{ code: string, message: string, severity: "block"|"warn", path?: string } | null>}
+   */
+  async function readinessLine(ctx, accountId) {
+    const r = readinessService();
+    if (!r) return null;
+    let v;
+    try {
+      v = r.canTrade(accountId, { mode: "live" });
+    } catch (err) {
+      log.warn("readiness could not be read for an order", { accountId, code: err?.code });
+      return null;
+    }
+    if (!v || v.disabled) return null;
+    const why = (x) => (x.reasons ?? []).filter((y) => y.severity === "fail" || x.state !== "cannot_trade").map((y) => y.message).slice(0, 3).join("; ") || "no reason given";
+    const label = (state) => (state === "cannot_trade" ? "cannot trade" : state === "unknown" ? "not checked" : state);
+    const gate = config?.readiness?.gateAutomated !== false;
+    if (gate && AUTOMATED_SOURCES.includes(effectiveSource(ctx))) {
+      if (v.stale || v.state === "unknown") {
+        try {
+          v = await r.ensureFresh(accountId, { timeoutMs: 5000 });
+        } catch (err) {
+          log.warn("readiness could not be refreshed for an automated order", { accountId, code: err?.code });
+        }
+      }
+      if (v.state === "cannot_trade" || v.state === "unknown" || v.stale) {
+        const first = (v.reasons ?? []).find((y) => y.severity === "fail") ?? (v.reasons ?? [])[0];
+        const message =
+          v.state === "cannot_trade"
+            ? `Readiness: ${accountId} cannot trade right now (${why(v)}). Automated live orders are paused for this account; nothing was sent.`
+            : `Readiness: ${accountId} could not be checked just now, so this automated live order was not sent.`;
+        return { code: "CANNOT_TRADE", message, severity: "block", path: `readiness.${first?.check ?? "state"}` };
+      }
+      if (v.state === "warn") return { code: "READINESS", message: `Readiness: ${label(v.state)}: ${why(v)}`, severity: "warn" };
+      return null;
+    }
+    if (v.state === "cannot_trade" || v.state === "warn") return { code: "READINESS", message: `Readiness: ${label(v.state)}: ${why(v)}`, severity: "warn" };
+    return null;
   }
 
   const verdictError = (verdict) => refusalError(sortByPriority((verdict?.reasons?.length ? verdict.reasons : [{ code: "INVALID_ORDER", message: "The safety check did not pass." }]).map((r) => ({ ...r, severity: "block" }))));
@@ -578,6 +640,13 @@ export function createOrderService(deps) {
       return p;
     };
 
+    if (decision.mode === "live") {
+      const line = await readinessLine(ctx, summary.id);
+      if (line) checks.push(line);
+      // Refused before anything else: no symbol lookup at the broker, no P&L read, no safety slot, no broker call.
+      if (line?.severity === "block" && forPlace) return finish();
+    }
+
     try {
       p.resolved = await deps.symbols.resolve(body.symbol, wantsLive ? { broker: summary.broker } : {});
     } catch (err) {
@@ -593,6 +662,12 @@ export function createOrderService(deps) {
     const inst = checkInstrumentOrder(body, resolved, q.quantity, cfg);
     checks.push(...inst.checks);
     p.legs = inst.legs;
+    const lotCheck = await lotSizeCheck(body, resolved);
+    if (lotCheck) checks.push(lotCheck);
+    // One live positions read per prepare, shared by the ban gate and syncLivePnl (p1-06 §2.8, §7).
+    let livePositions = null;
+    const readLivePositions = () => (livePositions ??= brokerRead(summary.id, "fetchPositions", [], "positions", { priority: "order" }));
+    const stock = await stockDerivativeContext(body, resolved, summary, { wantsLive, readLivePositions, checks });
 
     if (wantsLive) {
       let adapter = null;
@@ -620,13 +695,14 @@ export function createOrderService(deps) {
       }
     }
 
-    if (wantsLive) await syncLivePnl(summary, checks);
+    if (wantsLive) await syncLivePnl(summary, checks, readLivePositions);
     p.ltp = await ltpOf(resolved.canonical);
     const policy = config?.safety?.marketOrders ?? "protect";
     const defaultPct = config?.safety?.marketProtectionPct ?? 2;
-    const { lots, quantity, ...rest } = body;
+    const { lots, quantity, lotSizeConfirmed, ...rest } = body;
     void lots;
     void quantity;
+    void lotSizeConfirmed;
     if (wantsLive) {
       const m = applyMarketPolicy(rest, { policy, defaultPct, nativeProtection: Boolean(p.mapper?.nativeMarketProtection), ltp: p.ltp, tickSize: resolved.tickSize });
       checks.push(...m.checks);
@@ -669,6 +745,8 @@ export function createOrderService(deps) {
         ltp: p.ltp,
         // A passing place check reserves a daily-count slot at once (released when the order is recorded).
         reserve: forPlace,
+        // p1-06: stock derivatives carry the underlying kind; heldQty and ban only when the underlying is in ban.
+        ...(stock ? { underlyingKind: stock.underlyingKind, underlying: resolved.underlying, ban: stock.ban, heldQty: stock.heldQty } : {}),
       };
       const verdict = await deps.safety.check(ctx, intent);
       p.verdict = verdict;
@@ -676,9 +754,172 @@ export function createOrderService(deps) {
       const reported = new Set(decision.refusals.map((r) => r.code));
       for (const r of verdict?.reasons ?? []) if (!reported.has(r.code)) checks.push({ code: r.code, message: r.message, severity: "block" });
       for (const w of verdict?.warnings ?? []) checks.push({ code: "SAFETY_WARNING", message: String(w), severity: "warn" });
+      for (const w of verdict?.checks ?? []) checks.push({ code: w.code, message: w.message, severity: "warn" });
       if (!verdict || (verdict.ok !== true && !(verdict.reasons ?? []).length)) checks.push({ code: "INVALID_ORDER", message: "The safety check did not pass.", severity: "block" });
     }
     return finish();
+  }
+
+  // ───────────────────────────── stock derivatives (p1-06) ─────────────────────────────
+
+  const kindCache = new Map();
+  /** An unknown kind (master still loading, reference not built) is retried after this long, never kept for good. */
+  const UNKNOWN_KIND_TTL_MS = 60_000;
+  /**
+   * "stock" | "index" | null for an underlying, from the master's spot row (INDEX vs EQ), else the reference universe.
+   * The spot search names its cash exchange: free text alone would read an underlying named BSE or MCX as an
+   * exchange filter and find nothing.
+   */
+  async function underlyingKindOf(underlying, exchange) {
+    const key = `${exchange}|${underlying}`;
+    const hit = kindCache.get(key);
+    if (hit && (hit.kind !== null || now() - hit.at < UNKNOWN_KIND_TTL_MS)) return hit.kind;
+    let kind = null;
+    try {
+      const res = await deps.symbols.search({ q: underlying, underlying, exchange: exchange === "BFO" ? "BSE" : "NSE", limit: 5 });
+      const spot = (res?.items ?? []).find((r) => r?.underlying === underlying && (r.kind === "INDEX" || r.kind === "EQ"));
+      if (spot) kind = spot.kind === "INDEX" ? "index" : "stock";
+    } catch {
+      kind = null;
+    }
+    if (!kind) {
+      try {
+        const r = referenceService();
+        kind = r?.universe?.({ kind: "all" })?.items?.find((i) => i.symbol === underlying)?.kind ?? null;
+      } catch {
+        kind = null;
+      }
+    }
+    kindCache.delete(key);
+    kindCache.set(key, { kind, at: now() });
+    if (kindCache.size > 500) kindCache.delete(kindCache.keys().next().value);
+    return kind;
+  }
+
+  const referenceService = () => {
+    try {
+      const r = deps.reference;
+      return r && !isStub(r) ? r : null;
+    } catch {
+      return null;
+    }
+  };
+
+  /** Net held quantity of one contract in this account: paper engine (memory) or the live positions read. */
+  async function heldQtyOf(summary, canonical, { wantsLive, readLivePositions }) {
+    try {
+      if (!wantsLive) {
+        const items = await deps.paper.positions(summary.id);
+        return (items ?? []).filter((x) => x.symbol === canonical).reduce((a, x) => a + (Number(x.netQty) || 0), 0);
+      }
+      const res = await readLivePositions();
+      let n = 0;
+      for (const row of Array.isArray(res?.data) ? res.data : []) {
+        const { symbol } = await symbolFor(deps.symbols, summary.broker, row);
+        if (symbol === canonical) n += Number(row?.netQty ?? row?.quantity ?? 0) || 0;
+      }
+      return n;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Ban gate inputs and the delivery warnings for an NFO/BFO derivative of a stock (docs/spec/p1-06-stocks.md §2.8,
+   * §3.7). Index and cash orders, and stocks not in ban, cost nothing extra: the positions are read only when the
+   * underlying is in ban. Adds BAN_DATA_UNAVAILABLE and PHYSICAL_SETTLEMENT warnings to `checks`.
+   * @returns {Promise<{ underlyingKind: string, ban: object|null, heldQty: number|null } | null>}
+   */
+  async function stockDerivativeContext(body, resolved, summary, { wantsLive, readLivePositions, checks, physical = true }) {
+    if ((resolved.kind !== "OPT" && resolved.kind !== "FUT") || (resolved.exchange !== "NFO" && resolved.exchange !== "BFO")) return null;
+    const kind = await underlyingKindOf(resolved.underlying, resolved.exchange);
+    if (kind !== "stock") return kind ? { underlyingKind: kind, ban: null, heldQty: null } : null;
+    const ref = referenceService();
+    let ban = null;
+    try {
+      ban = typeof ref?.banStatus === "function" ? ref.banStatus(resolved.underlying) : null;
+    } catch {
+      ban = null;
+    }
+    if (!ban || ban.available === false) {
+      checks.push({ code: "BAN_DATA_UNAVAILABLE", message: "Ban list not loaded (NSE archive downloads are off); the exchange may refuse fresh positions.", severity: "warn" });
+      ban = null;
+    }
+    let heldQty = null;
+    const inBan = ban?.inBan === true;
+    if (inBan) heldQty = await heldQtyOf(summary, resolved.canonical, { wantsLive, readLivePositions });
+    // The delivery warning is for opening orders only (§3.7). Inside the window, a paper order's holding is read from
+    // the engine (memory, no broker cost); a live order's stays unknown unless the ban already read it.
+    const heldForWarning = async () => (heldQty !== null || wantsLive ? heldQty : heldQtyOf(summary, resolved.canonical, { wantsLive, readLivePositions }));
+    if (physical && resolved.kind === "OPT") await physicalSettlementCheck(body, resolved, heldForWarning, checks).catch(() => {});
+    return { underlyingKind: "stock", ban: inBan ? { inBan: true, mwplPct: ban.mwplPct ?? null, forDate: ban.forDate ?? null, band: ban.band ?? "ban", source: ban.source ?? null } : ban ? { inBan: false } : null, heldQty };
+  }
+
+  /**
+   * Ban inputs for a modify that raises the quantity of an order in a stock derivative (p1-06 §2.8), the same rule on
+   * paper and live. The held quantity already includes the order's filled part, so the order's signed effect is its
+   * unfilled remainder: new quantity − filled quantity (banQuantity). Empty when the quantity does not rise, nothing
+   * is left to fill, the order is not a stock derivative, or nothing can be read.
+   */
+  async function modifyBanIntent(ctx, accountId, orderId, quantity, live, liveOrder = null) {
+    try {
+      const o = liveOrder ?? (await deps.paper.order(accountId, orderId));
+      if (!o?.symbol) return {};
+      if (!(Number(quantity) > Number(o.quantity))) return {};
+      const remaining = Number(quantity) - (Number(o.filledQuantity) || 0);
+      if (!(remaining > 0)) return {};
+      const resolved = await deps.symbols.resolve(o.symbol);
+      const summary = deps.accounts.get(accountId);
+      let livePositions = null;
+      const readLivePositions = () => (livePositions ??= brokerRead(accountId, "fetchPositions", [], "positions", { priority: "order" }));
+      const stock = await stockDerivativeContext({ side: o.side, quantity: remaining }, resolved, summary, { wantsLive: live, readLivePositions, checks: [], physical: false });
+      if (!stock) return {};
+      return { order: { symbol: o.symbol, side: o.side, quantity }, extra: { underlyingKind: stock.underlyingKind, underlying: resolved.underlying, ban: stock.ban, heldQty: stock.heldQty, banQuantity: remaining } };
+    } catch {
+      return {};
+    }
+  }
+
+  /** PHYSICAL_SETTLEMENT (warn): from E-4, an opening order in an ITM or close-to-money stock option. */
+  async function physicalSettlementCheck(body, resolved, heldFor, checks) {
+    const ref = referenceService();
+    if (!ref || typeof ref.calendar !== "function") return;
+    const warnFrom = config?.fno?.expiry?.warnFromTradingDays ?? 4;
+    const ctmStrikes = config?.fno?.expiry?.closeToMoneyStrikes ?? 1;
+    const d = expiryDay({ asOf: istDay(now()), expiry: resolved.expiry, cal: ref.calendar(), warnFrom });
+    if (!d.inWindow) return;
+    const qty = Number(body.quantity ?? (body.lots ?? 0) * resolved.lotSize) || 0;
+    const x = body.side === "BUY" ? qty : -qty;
+    const heldQty = await heldFor();
+    // Closing (the ban rule's reading, §6.8): |n| ≤ |h| without crossing zero. A flip from long to short opens.
+    if (heldQty !== null) {
+      const n = heldQty + x;
+      if (Math.abs(n) <= Math.abs(heldQty) && (n === 0 || Math.sign(n) === Math.sign(heldQty))) return;
+    }
+    const spot = await ltpOf(`${resolved.exchange === "BFO" ? "BSE" : "NSE"}:${resolved.underlying}`);
+    if (spot === null) return;
+    let step = null;
+    try {
+      const res = await deps.symbols.search({ q: resolved.underlying, underlying: resolved.underlying, exchange: resolved.exchange, kind: "OPT", expiry: resolved.expiry, limit: 500 });
+      step = strikeStepOf((res?.items ?? []).filter((r) => r.underlying === resolved.underlying).map((r) => r.strike));
+    } catch {
+      step = null;
+    }
+    const m = moneynessOf({ strike: resolved.strike, right: resolved.right, spot, step, ctmStrikes });
+    if (m.moneyness !== "ITM" && m.moneyness !== "CTM") return;
+    const ob = obligationOf({ strike: resolved.strike, right: resolved.right, qty: (heldQty ?? 0) + x, underlying: resolved.underlying });
+    if (!ob) return;
+    let pct = null;
+    try {
+      pct = deliveryMarginOf({ day: d.day, schedule: ref.deliveryMargin(resolved.expiry, resolved.exchange)?.items ?? [], spot, qty: ob.shares }).pct;
+    } catch {
+      pct = null;
+    }
+    const what = ob.buyer ? `you buy ${ob.shares} ${resolved.underlying} at ${resolved.strike}` : `you deliver ${ob.shares} ${resolved.underlying} shares at ${resolved.strike}`;
+    const margin = pct !== null ? ` Delivery margin today: ${pct} % (${d.day}).` : "";
+    // Unknown holding (live, not in ban): the order may be closing, so the obligation is stated as conditional.
+    const lead = heldQty === null ? "Physically settled: if this order opens a position and it is ITM at expiry," : "Physically settled: if ITM at expiry";
+    checks.push({ code: "PHYSICAL_SETTLEMENT", message: `${lead} ${what} (₹${Math.round(ob.value)}).${margin}`, severity: "warn" });
   }
 
   const publicInstrument = (r) =>
@@ -851,6 +1092,39 @@ export function createOrderService(deps) {
   function paperSlot(accountId) {
     const s = deps.safety.acquireOrderSlot(accountId, { mode: "paper" });
     if (s && s.ok === false) throw new BridgeError("ORDER_RATE_LIMITED", `The order-rate cap for ${accountId} was reached (paper orders are paced like live ones). Try again in a moment.`, { retryAfterMs: s.retryAfterMs });
+  }
+
+  /**
+   * LOT_SIZE_STALE (p1-02 §3.6): an order sent in lots whose reference lot data is stale (more than
+   * reference.staleAfterTradingDays trading days old) or disagrees with the broker master. A warning by default; a block
+   * when reference.blockLotsWhenStale is true. lotSizeConfirmed equal to the resolved lot clears it; orders sent as
+   * quantity are never checked. The master's lot is always the one used (orderValidation is unchanged).
+   */
+  async function lotSizeCheck(body, resolved) {
+    if (body.lots === undefined || (resolved.kind !== "FUT" && resolved.kind !== "OPT")) return null;
+    let reference = null;
+    try {
+      reference = deps.reference;
+    } catch {
+      reference = null;
+    }
+    if (!reference || isStub(reference) || typeof reference.lotFor !== "function") return null;
+    let info;
+    try {
+      info = await reference.lotFor(resolved.underlying, resolved.expiry, { exchange: resolved.exchange });
+    } catch {
+      return null;
+    }
+    if (!info || !(info.stale || info.conflict)) return null;
+    const lot = resolved.lotSize;
+    if (body.lotSizeConfirmed === lot) return null;
+    const asOf = typeof info.asOf === "string" ? info.asOf : null;
+    const day = asOf ? `${Number(asOf.slice(8, 10))} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(asOf.slice(5, 7)) - 1]}` : "an unknown date";
+    const why = info.conflict
+      ? `Lot size for ${resolved.underlying} differs between the broker master (${info.conflict.master}) and the reference file (${info.conflict.reference})`
+      : `Lot size for ${resolved.underlying} is from ${day} (${info.staleTradingDays} trading day${info.staleTradingDays === 1 ? "" : "s"} old)`;
+    const mismatch = body.lotSizeConfirmed !== undefined ? ` lotSizeConfirmed ${body.lotSizeConfirmed} does not match.` : "";
+    return { code: "LOT_SIZE_STALE", message: `${why}. Confirm ${lot} units per lot or send quantity in units.${mismatch}`, severity: info.blockWhenStale ? "block" : "warn" };
   }
 
   async function placePaper(ctx, body, p, { tag, warnings }) {
@@ -1077,6 +1351,48 @@ export function createOrderService(deps) {
     return next;
   }
 
+  /** A paper order as it would stand after `changes` (the paper engine's own merge rule). */
+  function paperNext(o, changes) {
+    const orderType = changes.orderType ?? o.orderType;
+    const priced = orderType === "LIMIT" || orderType === "SL";
+    const stop = orderType === "SL" || orderType === "SL-M";
+    return {
+      orderType,
+      price: priced ? (changes.price ?? o.price ?? undefined) : undefined,
+      triggerPrice: stop ? (changes.triggerPrice ?? o.triggerPrice ?? undefined) : undefined,
+      quantity: changes.quantity ?? o.quantity,
+      side: o.side,
+    };
+  }
+
+  /**
+   * The per-order inputs SafetyGuard needs to check a modify exactly like a new order: lots (quantity / lot size),
+   * value (new quantity x the new limit or trigger price, or x LTP for a market order: the place rule), the LTP for
+   * the price band, and the order itself for the market-order policy and market hours. A change that raises the
+   * quantity above the exchange freeze quantity is refused here: a change cannot be split into slices.
+   * @returns {Promise<{ order: object, intent: { quantity: number, lots: number | null, lotSize: number | null, value: number | null, ltp: number | null } }>}
+   */
+  async function modifyShape(o, next, { lotSize = null, broker = null, ltp: knownLtp, quantityChanged = false } = {}) {
+    let resolved = null;
+    try {
+      resolved = await deps.symbols.resolve(o.symbol, broker ? { broker } : {});
+    } catch {
+      resolved = null;
+    }
+    const pos = (v) => Number.isFinite(v) && v > 0;
+    const lot = pos(lotSize) ? lotSize : pos(resolved?.lotSize) ? resolved.lotSize : null;
+    const quantity = Number(next.quantity);
+    const freeze = resolved?.freezeQty;
+    if (quantityChanged && pos(freeze) && quantity > freeze) {
+      throw new BridgeError("INVALID_ORDER", `quantity ${quantity} is above the exchange freeze quantity ${freeze} for ${o.symbol}. A change cannot be split into slices: cancel this order and place a new one.`);
+    }
+    const ltp = knownLtp !== undefined ? knownLtp : await ltpOf(o.symbol);
+    const unit = pos(next.price) ? next.price : pos(next.triggerPrice) ? next.triggerPrice : ltp;
+    const value = pos(unit) && pos(quantity) ? Number((unit * quantity).toFixed(2)) : null;
+    const order = { symbol: o.symbol, side: o.side, product: o.product, orderType: next.orderType, price: next.price, triggerPrice: next.triggerPrice, quantity };
+    return { order, intent: { quantity, lots: lot ? quantity / lot : null, lotSize: lot, value, ltp } };
+  }
+
   const openLeg = (l) => l.brokerOrderId && !TERMINAL_STATUSES.has(l.status) && l.status !== "outcome_unknown";
 
   /**
@@ -1121,7 +1437,11 @@ export function createOrderService(deps) {
     let committed = false;
     try {
       if (loc.mode === "paper") {
-        const verdict = await deps.safety.check(ctx, { accountId: loc.accountId, mode: "paper", action: "modify", order: null, orderId, source: ctx.source, keyId: ctx.key?.id ?? null, quantity: changes.quantity ?? null, value: null, ltp: null });
+        const banIntent = changes.quantity !== undefined ? await modifyBanIntent(ctx, loc.accountId, orderId, changes.quantity, false) : {};
+        // The same per-order checks as a place (lots, value, price band, market policy, market hours, freeze), on the
+        // order as it would stand after the change.
+        const shape = await modifyShape(loc.order, paperNext(loc.order, changes), { quantityChanged: changes.quantity !== undefined });
+        const verdict = await deps.safety.check(ctx, { ...banIntent.extra, accountId: loc.accountId, mode: "paper", action: "modify", order: shape.order, orderId, source: ctx.source, keyId: ctx.key?.id ?? null, ...shape.intent });
         if (!verdict?.ok) throw verdictError(verdict);
         paperSlot(loc.accountId);
         const out = await deps.paper.modify(loc.accountId, orderId, changes);
@@ -1154,7 +1474,10 @@ export function createOrderService(deps) {
         next = { ...next, ...m.order };
         mpPct = m.marketProtectionPct;
       }
+      const banIntent = changes.quantity !== undefined ? await modifyBanIntent(ctx, o.accountId, orderId, next.quantity, true, o) : {};
+      const shape = await modifyShape(o, next, { lotSize: rec.x.lotSize, broker: summary.broker, ltp, quantityChanged: changes.quantity !== undefined });
       const verdict = await deps.safety.check(ctx, {
+        ...banIntent.extra,
         accountId: o.accountId,
         mode: "live",
         action: "modify",
@@ -1162,9 +1485,7 @@ export function createOrderService(deps) {
         orderId,
         source: ctx.source,
         keyId: ctx.key?.id ?? null,
-        quantity: next.quantity,
-        value: Number.isFinite(next.price) ? next.price * next.quantity : Number.isFinite(next.triggerPrice) ? next.triggerPrice * next.quantity : Number.isFinite(ltp) ? ltp * next.quantity : null,
-        ltp,
+        ...shape.intent,
       });
       if (!verdict?.ok) throw verdictError(verdict);
       const legs = o.legs.map((l, i) => (openLeg(l) ? i : -1)).filter((i) => i >= 0);
@@ -1289,23 +1610,35 @@ export function createOrderService(deps) {
   }
 
   /**
+   * Cancel every working order on the accounts this key may use, in two groups: orders the Bridge placed (paper and
+   * live) and live orders placed outside it (in the broker's app or terminal).
    * @param {RequestContext} ctx
-   * @param {{ accountId?: string, mode?: "paper"|"live", bridgeOnly?: boolean }} [opts]  bridgeOnly: leave broker
-   *   orders the Bridge did not place (e.g. a stop-loss set in the broker app) alone.
+   * @param {{ accountId?: string, mode?: "paper"|"live", bridgeOnly?: boolean, dryRun?: boolean }} [opts]
+   *   bridgeOnly: leave broker orders the Bridge did not place (e.g. a stop-loss set in the broker app) alone.
+   *   dryRun: cancel nothing; list what is open in each group (`bridge.open`, `external.open`).
+   * @returns {Promise<{ cancelled: string[], failed: object[], bridge: { cancelled: string[], open?: object[] },
+   *   external: { cancelled: string[], left: string[], open?: object[] }, dryRun?: true }>}
    */
-  async function cancelAll(ctx, { accountId, mode, bridgeOnly = false } = {}) {
+  async function cancelAll(ctx, { accountId, mode, bridgeOnly = false, dryRun = false } = {}) {
     const accounts = accountId ? [accountFor(ctx, accountId).summary] : accessibleAccounts(ctx);
     const cancelled = [];
     const failed = [];
+    const bridge = { cancelled: [], ...(dryRun ? { open: [] } : {}) };
+    const external = { cancelled: [], left: [], ...(dryRun ? { open: [] } : {}) };
     const canLive = ctx.scopes?.has("live") || ctx.principal?.kind === "local";
     for (const acc of accounts) {
       if (mode !== "live") {
         try {
           const open = await pagedAll((cursor) => deps.paper.orders(acc.id, { limit: MAX_PAGE, cursor }), cfg.maxOrderLookups);
           for (const o of open.filter((x) => !TERMINAL_STATUSES.has(x.status))) {
+            if (dryRun) {
+              bridge.open.push({ orderId: o.orderId, accountId: acc.id, mode: "paper", symbol: o.symbol, side: o.side, quantity: o.quantity, status: o.status, external: false });
+              continue;
+            }
             try {
               const out = await deps.paper.cancel(acc.id, o.orderId);
               cancelled.push(o.orderId);
+              bridge.cancelled.push(o.orderId);
               recordEvent(acc.id, { action: "cancel", mode: "paper", status: out?.status ?? "cancelled" });
               if (out) emitUpdate(out);
             } catch (err) {
@@ -1329,18 +1662,40 @@ export function createOrderService(deps) {
           if (mode === "live" || bridgeOpen || err?.code !== "CAPABILITY_UNSUPPORTED") failed.push({ input: acc.id, code: err?.code ?? "INTERNAL", message: err?.detail ?? "The broker order book could not be read." });
           continue;
         }
-        const ours = bridgeOnly ? brokerIndex(acc.id) : null;
-        for (const row of (book ?? []).filter((r) => OPEN_BOOK_STATUSES.has(r.status) && (!ours || ours.has(String(r.orderId))))) {
+        const ours = brokerIndex(acc.id);
+        const listed = new Set();
+        for (const row of (book ?? []).filter((r) => OPEN_BOOK_STATUSES.has(r.status))) {
+          const brokerId = String(row.orderId);
+          const mine = ours.get(brokerId) ?? null;
+          if (dryRun) {
+            if (mine) {
+              const rec = live.get(mine);
+              if (rec && !listed.has(mine)) {
+                listed.add(mine);
+                bridge.open.push({ orderId: mine, accountId: acc.id, mode: "live", symbol: rec.order.symbol, side: rec.order.side, quantity: rec.order.quantity, status: rec.order.status, external: false });
+              }
+            } else {
+              external.open.push({ orderId: brokerId, accountId: acc.id, mode: "live", symbol: row.exchange && row.tradingSymbol ? `${row.exchange}:${row.tradingSymbol}` : String(row.tradingSymbol ?? row.symbol ?? ""), side: row.side ?? null, quantity: Number(row.pendingQty ?? row.qty ?? 0) || null, status: String(row.status).toLowerCase(), external: true });
+            }
+            continue;
+          }
+          if (!mine && bridgeOnly) {
+            external.left.push(brokerId);
+            continue;
+          }
           try {
-            cancelled.push(await cancelBrokerOrder(ctx, acc.id, acc.broker, row.orderId));
+            const id = await cancelBrokerOrder(ctx, acc.id, acc.broker, row.orderId);
+            cancelled.push(id);
+            (mine ? bridge : external).cancelled.push(id);
           } catch (err) {
-            failed.push({ orderId: String(row.orderId), code: err?.code ?? "INTERNAL", message: err?.detail ?? "The order could not be cancelled." });
+            failed.push({ orderId: brokerId, code: err?.code ?? "INTERNAL", message: err?.detail ?? "The order could not be cancelled." });
           }
         }
       }
     }
-    await audit(ctx, "order.cancel_all", { accountId: accountId ?? null, data: { mode: mode ?? "all", bridgeOnly, cancelled: cancelled.length, failed: failed.length } });
-    return { cancelled, failed };
+    if (dryRun) return { dryRun: true, cancelled, failed, bridge, external };
+    await audit(ctx, "order.cancel_all", { accountId: accountId ?? null, data: { mode: mode ?? "all", bridgeOnly, cancelled: cancelled.length, cancelledOutsideBridge: external.cancelled.length, leftOutsideBridge: external.left.length, failed: failed.length } });
+    return { cancelled, failed, bridge, external };
   }
 
   // ───────────────────────────── reads ─────────────────────────────
@@ -1459,6 +1814,48 @@ export function createOrderService(deps) {
     return { items, freshness: freshness("broker", res.at, accountId, summary.broker) };
   }
 
+  /**
+   * Convert a position between products (Intraday MIS and carry NRML). Paper: the paper engine moves the quantity (no
+   * order, no fill). Live: no broker adapter maps a conversion yet, so it is refused with where to do it. Refused
+   * while the kill switch is on (a conversion keeps risk open past the square-off). Audited.
+   * @param {{ account: string, symbol: string, from: string, to: string, quantity?: number, lots?: number, mode?: string }} raw
+   */
+  async function convertPosition(ctx, raw) {
+    const body = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const bad = (path, message) => new BridgeError("VALIDATION_FAILED", message, { errors: [{ path, message }] });
+    if (typeof body.account !== "string" || !ACCOUNT_RE.test(body.account)) throw bad("account", "account is required: the account id from your config.");
+    if (typeof body.symbol !== "string" || !body.symbol) throw bad("symbol", "symbol is required.");
+    const PRODUCTS = ["INTRADAY", "MARGIN", "CNC"];
+    if (!PRODUCTS.includes(body.from) || !PRODUCTS.includes(body.to) || body.from === body.to) throw bad("to", "from and to must be two different products: INTRADAY, MARGIN or CNC.");
+    if ((body.quantity === undefined) === (body.lots === undefined)) throw bad("quantity", "Send exactly one of quantity (units) or lots.");
+    const { summary } = accountFor(ctx, body.account);
+    const mode = readMode(summary, body.mode);
+    if (mode === "live") {
+      throw new BridgeError("CAPABILITY_UNSUPPORTED", `Converting a live position is not supported through the Bridge for ${summary.broker} yet. Convert it in your broker's app or terminal.`);
+    }
+    if (deps.safety.killSwitchStatus?.()?.engaged) throw new BridgeError("KILL_SWITCH_ACTIVE", "The kill switch is on, so positions are not converted. Release it on the Safety page first.");
+    let resolved;
+    try {
+      resolved = await deps.symbols.resolve(body.symbol);
+    } catch (err) {
+      throw new BridgeError("SYMBOL_NOT_FOUND", err?.detail ?? `${body.symbol} could not be found.`);
+    }
+    const lot = Number(resolved.lotSize) > 0 ? Number(resolved.lotSize) : 1;
+    const quantity = body.lots !== undefined ? Number(body.lots) * lot : Number(body.quantity);
+    if (!Number.isInteger(quantity) || quantity <= 0) throw bad("quantity", "quantity must be a whole number above zero.");
+    if (quantity % lot !== 0) throw bad("quantity", `quantity must be a whole number of lots (lot ${lot}).`);
+    if (typeof deps.paper?.convert !== "function") throw new BridgeError("CAPABILITY_UNSUPPORTED", "This Bridge's paper engine cannot convert positions.");
+    const out = await deps.paper.convert(summary.id, { symbol: resolved.canonical, from: body.from, to: body.to, quantity });
+    // At once, before anything else is awaited: the trigger engine moves the position's stops and targets with the units.
+    try {
+      bus.emit("position.converted", { accountId: summary.id, mode: "paper", symbol: resolved.canonical, from: body.from, to: body.to, quantity, at: out.at });
+    } catch (err) {
+      log.warn("position.converted could not be announced", { code: err?.code ?? "ERROR" });
+    }
+    await audit(ctx, "position.converted", { accountId: summary.id, data: { mode: "paper", symbol: resolved.canonical, from: body.from, to: body.to, quantity } });
+    return { accountId: summary.id, mode: "paper", symbol: resolved.canonical, from: body.from, to: body.to, quantity, at: out.at, fromNetQty: out.from.netQty, toNetQty: out.to.netQty };
+  }
+
   async function holdings(ctx, accountId) {
     const { summary } = accountFor(ctx, accountId);
     if (summary.broker === "paper") return { items: [], freshness: freshness("paper", now(), accountId, "paper") };
@@ -1504,6 +1901,7 @@ export function createOrderService(deps) {
       ok: p.blocks.length === 0,
       mode: p.decision.requested,
       checks: p.checks,
+      margin: await previewMargin(p),
       resolved: publicInstrument(p.resolved),
       quantity: p.quantity,
       estimatedValue: p.estimatedValue,
@@ -1513,6 +1911,23 @@ export function createOrderService(deps) {
       requiresHumanConfirmation,
       ticketId,
     };
+  }
+
+  /**
+   * The margin a paper order would block, from the paper engine's own model (the figure its fill will use). Live
+   * orders: null (the broker decides; basket-margin adapters are a later addition). Never throws: no figure → null.
+   */
+  async function previewMargin(p) {
+    const live = p.decision.requested === "live" && p.summary.broker !== "paper";
+    if (live || !p.resolved || !Number.isFinite(p.quantity) || p.quantity <= 0 || typeof deps.paper?.estimateOrderMargin !== "function") return null;
+    try {
+      const order = { ...p.effective, symbol: p.resolved.canonical, quantity: p.quantity, resolved: p.resolved };
+      const px = p.effective?.price ?? p.effective?.triggerPrice ?? p.ltp;
+      const required = await deps.paper.estimateOrderMargin(p.summary.id, order, Number.isFinite(px) ? px : undefined);
+      return Number.isFinite(required) ? { required, source: "paper-model" } : null;
+    } catch {
+      return null;
+    }
   }
 
   function requireAdmin(ctx) {
@@ -1527,7 +1942,7 @@ export function createOrderService(deps) {
 
   async function confirmTicket(ctx, ticketId) {
     requireAdmin(ctx);
-    if (effectiveSource(ctx) === "mcp" || ctx.source === "webhook") throw new BridgeError("SCOPE_REQUIRED", "Only a person using the Bridge on this computer can confirm an order.");
+    if (isAutomatedContext(ctx)) throw new BridgeError("SCOPE_REQUIRED", "Only a person using the Bridge on this computer can confirm an order.");
     if (!ctx.loopback) throw new BridgeError("LOOPBACK_ONLY", "Orders can only be confirmed from this computer.");
     // The client that prepared an order may not confirm it itself: a confirmation must come from someone else
     // (the person, through the dashboard, the CLI or another admin client), or it confirms nothing.
@@ -1576,6 +1991,7 @@ export function createOrderService(deps) {
     list,
     trades,
     positions,
+    convertPosition,
     holdings,
     funds,
     tickets: listTickets,

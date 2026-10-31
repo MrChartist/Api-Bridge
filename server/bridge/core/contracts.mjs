@@ -70,7 +70,7 @@ import { NotImplementedError } from "./errors.mjs";
  * @typedef {"connected"|"expired"|"missing"|"error"|"checking"} SessionStateName
  * @typedef {{ state: SessionStateName, expiresAt: string | null, checkedAt: string | null, message: string | null }} SessionState
  * @typedef {{ id: string, broker: string, label: string, enabled: boolean, session: SessionState, liveAllowedByConfig: boolean,
- *   pooling: boolean, capabilities: string[], authKind: string | null }} AccountSummary   No secrets, ever.
+ *   liveSources?: string[], pooling: boolean, capabilities: string[], authKind: string | null }} AccountSummary   No secrets, ever.
  *
  * @typedef {"pending"|"open"|"trigger_pending"|"partially_filled"|"filled"|"cancelled"|"rejected"|"expired"|"outcome_unknown"} OrderStatus
  * @typedef {"CNC"|"INTRADAY"|"MARGIN"|"MTF"} Product
@@ -89,9 +89,15 @@ import { NotImplementedError } from "./errors.mjs";
  * @typedef {{ ok: boolean, mode: "paper"|"live", checks: Check[], resolved: ResolvedInstrument | null, quantity: number | null,
  *   estimatedValue: number | null, ltp: number | null, confirmToken: string | null, confirmExpiresAt: string | null,
  *   requiresHumanConfirmation: boolean, ticketId: string | null }} PreviewResult
- * @typedef {{ ok: boolean, mode: "paper"|"live", reasons: Array<{ code: string, message: string }>, warnings: string[] }} Verdict
+ * @typedef {{ ok: boolean, mode: "paper"|"live", reasons: Array<{ code: string, message: string }>, warnings: string[],
+ *   checks?: Array<{ code: string, message: string }> }} Verdict   checks: warnings that carry their own code (p1-06 ban rule)
  * @typedef {{ accountId: string, mode: "paper"|"live", action: "place"|"modify"|"cancel", order: OrderRequest | null,
- *   orderId?: string, source: string, keyId: string | null, quantity: number | null, value: number | null, ltp: number | null }} SafetyIntent
+ *   orderId?: string, source: string, keyId: string | null, quantity: number | null, value: number | null, ltp: number | null,
+ *   underlyingKind?: "stock"|"index"|null, underlying?: string, heldQty?: number | null, banQuantity?: number,
+ *   ban?: { inBan: boolean, mwplPct?: number|null, forDate?: string|null } | null }} SafetyIntent
+ *   underlyingKind/underlying/ban/heldQty (p1-06 §2.8): set for NFO/BFO derivatives; heldQty (signed units held in that
+ *   contract, null when unreadable) only when the stock is in the F&O ban period. banQuantity (modify only): the
+ *   order's unfilled remainder, the quantity the ban rule weighs against heldQty.
  * @typedef {{ engaged: boolean, reason: string | null, by: string | null, at: string | null }} KillSwitchState
  * @typedef {{ type: string, actor: { kind: string, id: string }, source: string, accountId?: string | null, requestId?: string | null,
  *   data?: object }} AuditInput
@@ -240,6 +246,98 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
+   * ReferenceData — S16 (docs/spec/p1-02-reference.md §2.2). Contract calendar, sessions, holidays, lots with effective
+   * dates, freeze quantities, ban list, MWPL, F&O universe by date, corporate actions, delivery-margin schedule, rate and
+   * charges, from the masters (via symbols), shipped files, config and (opt-in) NSE archive files. Never calls a broker.
+   * Every dataset value carries source, asOf and quality; unavailable data answers available: false with a reason.
+   *  session(exchange, tMs) -> { state: "CLOSED"|"PRE_OPEN"|"OPEN"|"SPECIAL"|"HOLIDAY", label, date, open, close, preOpen,
+   *      holiday: { label, verified } | null, special | null, tradingDay, source }      (times "HH:MM" IST)
+   *  calendar() -> { isTradingDay(date, exch), prevTradingDay(date, exch), nextTradingDay(date, exch),
+   *      tradingDaysBetween(a, b, exch), holidays: [...] }
+   *  rate(atDate?) -> { value, asOf, source, quality: "user"|"config"|"default"|"demo", stale }
+   *  lotFor(underlying, expiry, { exchange }) -> Promise<{ lot, effectiveFrom, previousLot, source, asOf,
+   *      conflict: null | { master, reference }, stale, staleTradingDays, staleAfterTradingDays, blockWhenStale }>
+   *  freezeFor(canonical) -> Promise<{ freezeQty | null, source: "master"|"exchange-list"|"config"|null, verified }>
+   *  banStatus(symbol, date?) -> { inBan, mwplPct, mwpl, oi, band: "ban"|"high"|"normal"|null, forDate, asOf, source }
+   *  universe({ date, kind }) -> { date, coverage: "recorded"|"not-recorded", knownSince, items: [{ symbol, kind, exchange }] }
+   *  corporateActions({ symbol, from, to }) -> CorporateAction[]
+   *  events({ days = 7, underlying }) -> Promise<[{ kind: "lot-revision"|"corporate-action"|"holiday-expiry-shift",
+   *      underlying, effectiveOn, daysAway, text, ref }]>
+   *  charges() -> statutory table (the dashboard's CHARGE_RATES shape) + brokerage from config
+   *  deliveryMargin(expiry, exch) -> { expiry, items: [{ day: "E-4", date, pct }], verified, source }
+   *  status() -> per-dataset sync state
+   *  bundle({ underlying, exchange, now }) -> Promise<everything one page needs>
+   *  sync({ datasets, reason }) -> Promise<{ jobId, results }>   (CAPABILITY_UNSUPPORTED in demo mode)
+   *  archives() -> { enabled: boolean, setBy: "config"|"user"|"demo"|null, client: NseArchiveClient | null }
+   *      (the NSE archive switch and the shared, rate-limited archive client; client is null while the switch is off.
+   *      Other streams that fetch NSE archive files, e.g. participants S26, fetch through this client only.)
+   */
+  reference: {
+    iface: "ReferenceData",
+    stream: "S16",
+    requires: ["symbols"],
+    methods: ["session", "calendar", "rate", "lotFor", "freezeFor", "banStatus", "universe", "corporateActions", "events", "charges", "deliveryMargin", "status", "bundle", "sync", "archives"],
+  },
+
+  /**
+   * ParticipantOI — S26 (docs/spec/p1-12-guard-participants.md §4.2.1). NSE participant-wise open interest (store S4):
+   * one file a day from the NSE archives (behind the reference service's archive switch), a resumable back-fill and a
+   * deterministic demo history. No broker calls. NSE only.
+   *  latest({ exchange: "NSE"|"BSE" }) -> { available: true, asOfDate, source: "nse-participant-oi"|"demo", unit: "contracts",
+   *      quality, rows: [{ participant: "CLIENT"|"DII"|"FII"|"PRO", instrument: "IDX_FUT"|"IDX_CE"|"IDX_PE"|"STK_FUT"|"STK_CE"|"STK_PE", long, short }] }
+   *    | { available: false, reason: "NO_PARTICIPANT_DATA"|"PARTICIPANT_STALE"|"NOT_FOR_BSE"|"SOURCE_OFF", detail }
+   *      (the shape p1-08 §3.5 reads; stale = asOfDate older than the previous trading day)
+   *  series({ from, to, participants?, instruments? }) -> Array<ParticipantDay>
+   *  status() -> ParticipantStatus
+   *  sync({ date?, backfill? }) -> Promise<{ fetched: string[], noFile: string[], failed: Array<{ date, code }> }>
+   * `reference` may be a stub: the service then reports SOURCE_UNAVAILABLE in real mode instead of failing.
+   */
+  participants: { iface: "ParticipantOI", stream: "S26", requires: ["reference"], methods: ["latest", "series", "status", "sync"] },
+
+  /**
+   * VolService — S18 (docs/spec/p1-03-pricing-vol.md §2.2). The vol-time clock, the daily vol store (S2), IV rank and
+   * percentile, IV history, VIX and the prediction log (S9). IVs in vol points; every row carries quality and source.
+   *  clock({ underlying, expiries?, at? }) -> { settings, holidays, expiries: ClockResult[] }
+   *  snapshot({ underlying, expiries? }, opts?) -> live S2-shaped rows + cm30 + quick rank (cached snapshotTtlSeconds)
+   *  history({ underlying, basis, expiry?, from, to, series, quality, clock, cursor, limit }) -> { items, gaps, coverage, nextCursor, method }
+   *  rank({ underlying, basis, lookbacks, quality, clock, expiry? }) -> { current, lookbacks, sameDte, vix, definitions }
+   *  summary({ underlyings, lookback }) -> memory-only rank lines for the screener
+   *  status() -> capture state, coverage, capacity, sources, back-fill job, disk
+   *  capture({ underlyings, replace, trigger }) -> per-underlying results of a capture run
+   *  backfill({ sources, from, to, underlyings }) -> { jobId, days, files, estimateMinutes }
+   *  cancelBackfill() -> stops after the current file
+   *  predictions({ from, to, underlying, metric }) -> S9 rows
+   *  logPredictions(rows) -> { ids }   validates metric against an open list; P1-9 is the first external caller
+   */
+  vol: {
+    iface: "VolService",
+    stream: "S18",
+    requires: ["marketData", "reference", "symbols", "scheduler", "recorder"],
+    methods: ["clock", "snapshot", "history", "rank", "summary", "status", "capture", "backfill", "cancelBackfill", "predictions", "logPredictions"],
+  },
+
+  /**
+   * OptionsRecorder — S17 (docs/spec/p1-01-recorder.md §2.1, §4). Records configured option chains every minute
+   * (indices) or every 5 minutes (opted-in stocks) in session from ONE data account, stream first, REST inside a hard
+   * 50 % slice of the broker budget; S1 snapshots and gaps on disk, S3 daily rows. Never places orders.
+   *  status() -> RecorderStatus (state, account, session, plan, budget, today, disk, coverage, sources, warnings)
+   *  plan(section?) -> { ok, message, plan, budget, capacity }      dry run over the current config merged with section
+   *  snapshots({ underlying, expiry, fromMs?, toMs?, fields?, strikes?, every?, includeSuspect?, limit?, cursor? })
+   *      -> { underlying, expiry, exchange, units, fields, snapshots, gaps, coverage, unavailable, method, nextCursor }
+   *      (stored records; slots and ts as epoch ms; routes render IST ISO strings)
+   *  latest({ underlying, expiry, fields?, strikes? }) -> snapshot | null   from memory
+   *  daily({ underlying, from, to, expiry? }) -> S3 rows, oldest first
+   *  configure(section, { persist }) -> Promise<{ persisted, status }>   CAPACITY_EXCEEDED / CONFIRMATION_REQUIRED
+   *  Extras: start(), stop(), demo(), events for "recorder.status" and "recorder.snapshot".
+   */
+  recorder: {
+    iface: "OptionsRecorder",
+    stream: "S17",
+    requires: ["marketData", "streamHub", "accounts", "scheduler", "symbols", "reference", "backupData"],
+    methods: ["status", "plan", "snapshots", "latest", "daily", "configure"],
+  },
+
+  /**
    * StreamHub — S6. One upstream feed per account (adapter.createFeed), reference-counted subscriptions across all
    * local clients, mode = max demand, broker subscription caps enforced (SUBSCRIPTION_LIMIT, never silent drops),
    * resubscribe after reconnect/re-login. Emits "tick" and "stream.status".
@@ -285,7 +383,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   marketData: {
     iface: "MarketDataService",
     stream: "S5",
-    requires: ["accounts", "scheduler", "symbols", "streamHub", "backupData"],
+    requires: ["accounts", "scheduler", "symbols", "streamHub", "backupData", "reference"],
     methods: ["ltp", "quotes", "depth", "history", "expiries", "optionChain"],
   },
 
@@ -309,7 +407,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   safety: {
     iface: "SafetyGuard",
     stream: "S9",
-    requires: ["audit", "accounts"],
+    requires: ["audit", "accounts", "reference"],
     methods: ["check", "acquireOrderSlot", "recordOrderEvent", "killSwitchStatus", "engageKillSwitch", "releaseKillSwitch", "limits"],
   },
 
@@ -330,7 +428,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   paper: {
     iface: "PaperEngine",
     stream: "S8",
-    requires: ["marketData", "symbols"],
+    requires: ["marketData", "symbols", "reference"],
     methods: ["place", "modify", "cancel", "order", "orders", "trades", "positions", "funds", "account", "reset"],
   },
 
@@ -345,7 +443,9 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *      never see the confirmToken; they listen for "ticket.confirmed"). ctx.confirmationRequired marks such hooks.
    *  modify(ctx, orderId, changes, { idempotencyKey? }) -> Promise<{ order: OrderResult, replayed: boolean }>
    *  cancel(ctx, orderId, { idempotencyKey? }) -> Promise<{ order: OrderResult, replayed: boolean }>
-   *  cancelAll(ctx, { accountId?, mode? }) -> Promise<{ cancelled: string[], failed: Array<{ orderId, code, message }> }>
+   *  cancelAll(ctx, { accountId?, mode?, bridgeOnly?, dryRun? }) -> Promise<{ cancelled: string[], failed: Array<{ orderId, code, message }>,
+   *      bridge: { cancelled: string[], open? }, external: { cancelled: string[], left: string[], open? }, dryRun? }>
+   *      (bridge: orders the Bridge placed; external: live orders placed outside it, left open when bridgeOnly)
    *  get(ctx, orderId) -> Promise<OrderResult>                     throws ORDER_NOT_FOUND
    *  getByClientId(ctx, clientOrderId) -> Promise<OrderResult>
    *  list(ctx, { accountId?, status?, mode?, limit?, cursor? }) -> Promise<Page>
@@ -356,10 +456,28 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  tickets(ctx) -> Promise<object[]>                             pending human confirmations (OpenAPI Ticket)
    *  confirmTicket(ctx, ticketId) -> Promise<{ confirmToken: string, expiresAt: string }>   human confirmation (loopback admin)
    */
+  /**
+   * Readiness — S20 (docs/spec/p1-05-readiness.md §3.3). Whether each live-enabled account can trade right now (H5),
+   * for people (badge, notify) and for automation (guards, alert actions, webhooks). Never sends or engages anything.
+   *  status({ accountIds? }) -> ReadinessSnapshot                     cached; no I/O
+   *  canTrade(accountId, { mode }) -> { ok, state, reasons, checkedAt, stale }   cached; mode "paper" is always ok
+   *  ensureFresh(accountId, { maxAgeMs? = 60_000, timeoutMs? = 5_000 }) -> Promise<same as canTrade>
+   *  check({ accountId?, reason }) -> Promise<ReadinessSnapshot>      runs evaluate (probe subject to cooldown)
+   *  registerAutomation({ id, kind, accountId, mode, label, onState? }) -> { update(patch), remove() }
+   *      kind: "webhook"|"guard"|"alert"|"sample"; onState(stateObj) is called on every state change of its account
+   *  `reference` and `audit` are optional: a stub reference falls back to the weekday rule, a stub audit log is skipped.
+   */
+  readiness: {
+    iface: "Readiness",
+    stream: "S20",
+    requires: ["accounts", "scheduler", "safety", "audit", "reference"],
+    methods: ["status", "canTrade", "ensureFresh", "check", "registerAutomation"],
+  },
+
   orders: {
     iface: "OrderService",
     stream: "S7",
-    requires: ["accounts", "scheduler", "symbols", "safety", "audit", "paper", "marketData"],
+    requires: ["accounts", "scheduler", "symbols", "safety", "audit", "paper", "marketData", "reference", "readiness"],
     methods: ["preview", "place", "modify", "cancel", "cancelAll", "get", "getByClientId", "list", "trades", "positions", "holdings", "funds", "tickets", "confirmTicket"],
   },
 });

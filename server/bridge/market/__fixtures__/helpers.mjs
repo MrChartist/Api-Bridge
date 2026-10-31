@@ -157,7 +157,7 @@ export function buildMarket(opts = {}) {
   const streamHub = opts.streamHub ?? stubStreamHub();
   const deps = {
     config: { market: opts.market ?? {} },
-    logger: createNullLogger(),
+    logger: opts.logger ?? createNullLogger(),
     bus,
     clock,
     paths: {},
@@ -166,6 +166,7 @@ export function buildMarket(opts = {}) {
     scheduler,
     symbols,
     streamHub,
+    ...(opts.reference ? { reference: opts.reference } : {}),
   };
   const md = createMarketDataService(deps);
   /** Advance the manual clock past the batch window and wait for `p`. */

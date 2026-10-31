@@ -9,7 +9,7 @@ import {
   checklistState,
   codeBlock,
   confirmCodeNotice,
-  copyText,
+  copyButton,
   currentKey,
   emptyState,
   fillLoginUrl,
@@ -29,20 +29,107 @@ import {
   table,
   ticketFields,
   toast,
+  touchWord,
+  sheetPopover,
+  store,
+  confirmEngageKillSwitch,
+  DEMO_EXPLAINER,
+  beginNavigation,
+  onRevalidated,
+  prefetchPage,
 } from "./app.js";
-import { DASH, formatFixed, formatInt, formatRupee, formatSigned, isFigure } from "./format.js";
+import { STATE_TEXT, STATE_TONE, homeSafetyLine, readinessCard, readinessPill, refreshReadiness } from "./readiness.js";
+import { DASH, formatFixed, formatGrouped, formatInt, formatRupee, formatRupeeGrouped, formatSigned, formatSignedRupee, isFigure } from "./format.js";
+import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
+import { busiestClass, mountBudget, perSecondLimit, usageChart, windowText } from "./budget.js";
+import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
-import { initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
+import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText, startupText } from "./flows.js";
+import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
+import { PAGE_CODES } from "./workspace.js";
+import { triggersCard } from "./triggers.js";
+import { fundsCard, ordersCard, renderTradesPage } from "./orders-book.js";
+import { whatToDo } from "./reasons-core.js";
 
 const $ = (id) => document.getElementById(id);
+
+// ── Page modules, loaded on first visit ──
+// The heavy pages (the Options desk, screeners, calendar, recorder, live events) are ES modules imported when first
+// opened, so Home, Orders, Accounts and API start without them. Hovering or focusing a menu item loads its module and
+// warms its data (prefetchPage), so the click paints at once.
+const PAGE_MODULES = Object.freeze({
+  desk: () => import("./desk.js"),
+  calendar: () => import("./calendar.js"),
+  screener: () => import("./screener.js"),
+  participants: () => import("./participants.js"),
+  recorder: () => import("./recorder.js"),
+  events: () => import("./events.js"),
+  journal: () => import("./journal.js"),
+  statement: () => import("./statement.js"),
+  watchlists: () => import("./watchlists.js"),
+  scanner: () => import("./scanner.js"),
+  analytics: () => import("./analytics.js"),
+  algo: () => import("./algo.js"),
+});
+/** A page renderer that loads its module first. `.module` names it, for preloading. */
+function lazyPage(mod, name) {
+  const render = (...args) => PAGE_MODULES[mod]().then((m) => m[name](...args));
+  render.module = mod;
+  return render;
+}
+const renderChainPage = lazyPage("desk", "renderChainPage");
+const renderStrategyPage = lazyPage("desk", "renderStrategyPage");
+const renderPositionsPage = lazyPage("desk", "renderPositionsPage");
+const renderOiPage = lazyPage("desk", "renderOiPage");
+const renderVolPage = lazyPage("desk", "renderVolPage");
+const renderArbPage = lazyPage("desk", "renderArbPage");
+const renderCalendarPage = lazyPage("calendar", "renderCalendarPage");
+const renderScreenerPage = lazyPage("screener", "renderScreenerPage");
+/** One of PR 17's analytics views (analytics.js VIEWS), drawn in this shell. */
+function analyticsView(view) {
+  const render = () => PAGE_MODULES.analytics().then((m) => m.renderAnalyticsView(view));
+  render.module = "analytics";
+  return render;
+}
+/** A tab that draws an analytics view; `page` is the view id (data-page), so old PR 17 ids resolve through LEGACY. */
+const anTab = (id, label, view, extra = {}) => ({ id, label, page: view, layout: "desk", render: analyticsView(view), ...extra });
+const renderParticipantsPage = lazyPage("participants", "renderParticipantsPage");
+const renderRecorderPage = lazyPage("recorder", "renderRecorderPage");
+const renderEventsPage = lazyPage("events", "renderEventsPage");
+const renderJournalPage = lazyPage("journal", "renderJournalPage");
+const renderStatementPage = lazyPage("statement", "renderStatementPage");
+const renderWatchlistsPage = lazyPage("watchlists", "renderWatchlistsPage");
+const renderScannerPage = lazyPage("scanner", "renderScannerPage");
+const renderAlgoPage = lazyPage("algo", "renderAlgoPage");
+
+/** Load a page's module and warm its data ahead of a click (menu hover or focus). Idempotent and cheap. */
+export function preloadPage(pageId) {
+  const page = PAGES.find((p) => p.id === pageId);
+  if (!page) return;
+  const tab = page.tabs ? page.tabs.find((t) => t.id === (readLastTab(page.id) ?? page.defaultTab)) ?? page.tabs[0] : null;
+  const render = tab?.render ?? page.render;
+  if (render?.module) PAGE_MODULES[render.module]().catch(() => {});
+  prefetchPage(tab?.page ?? page.id);
+}
 const local = app.local;
-const FLAG = { copied: "mcb.dashboard.copied", tested: "mcb.dashboard.tested", hideChecklist: "mcb.dashboard.hideChecklist", hideOwn: "mcb.dashboard.hideOwnRequests" };
+const tabStore = store("session");
+const FLAG = { copied: "mcb.dashboard.copied", tested: "mcb.dashboard.tested", hideChecklist: "mcb.dashboard.hideChecklist", hideOwn: "mcb.dashboard.hideOwnRequests", chain: "mcb.dashboard.chainOpened", traded: "mcb.dashboard.paperTraded", checklistOpen: "mcb.dashboard.checklistOpen" };
 const markCopied = () => local.set(FLAG.copied, "1");
+/** A button at work (BUTTON-SYSTEM.md §9): disabled, its label swapped for a turning ring, its width kept. */
+const busy = (b, on) => {
+  b.disabled = on;
+  if (on) b.setAttribute("aria-busy", "true");
+  else b.removeAttribute("aria-busy");
+};
 const scopeChip = (s) => h("span", { class: `chip scope-${s}` }, s);
 /** Sentence case for a status word from the API ("filled" → "Filled"). */
-const cap = (s) => (s ? `${String(s)[0].toUpperCase()}${String(s).slice(1)}` : DASH);
-const sessionPill = (s) => pill(cap(s), s === "connected" ? "ok" : s === "expired" || s === "error" ? "bad" : "warn");
-const demoPill = () => (app.state.demo ? pill("Demo data", "demo") : null);
+export const cap = (s) => (s ? `${String(s)[0].toUpperCase()}${String(s).slice(1)}` : DASH);
+/** A broker session in plain words ("Logged in", "Not logged in", "Expired: log in again"); a paper account is "Ready". */
+const sessionPill = (s, broker) => {
+  if (broker === "paper") return pill("Ready", "ok");
+  const t = sessionText(s);
+  return pill(t.text, t.tone);
+};
 const sum = (o) => Object.values(o ?? {}).reduce((a, b) => a + (Number(b) || 0), 0);
 const initials = (name) => String(name).replace(/\(.*?\)/g, "").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 /** A table cell: the broker's small logo and its name (paper accounts and unknown brokers: the name alone). */
@@ -73,11 +160,11 @@ function delta(value, text) {
   return h("span", { class: `delta ${dir}` }, h("span", { "aria-hidden": "true" }, n > 0 ? "▲" : n < 0 ? "▼" : "•"), text);
 }
 /** Money with the gain / loss colour and an explicit sign (P&L). */
-function pnl(v) {
+export function pnl(v, dp = 2) {
   if (!isFigure(v)) return DASH;
-  const text = formatRupee(Math.abs(Number(v)));
-  const n = Number(formatFixed(v, 2));
-  return h("span", { class: n > 0 ? "up" : n < 0 ? "down" : undefined }, n > 0 ? `+${text}` : n < 0 ? `-${text}` : text);
+  const text = formatSignedRupee(v, dp);
+  const n = Number(v);
+  return h("span", { class: text.startsWith("₹") ? undefined : n > 0 ? "up" : "down" }, text);
 }
 /** A button for an empty state's next step: goes to a page (hash) or runs a function. */
 const nextStep = (label, to, cls = "primary") => h("button", { type: "button", class: cls, onclick: typeof to === "function" ? to : () => (location.hash = to) }, label);
@@ -86,18 +173,49 @@ const nextStep = (label, to, cls = "primary") => h("button", { type: "button", c
  * A macOS segmented control for 2-4 mutually exclusive options. The returned element has a `.value` like a <select>,
  * so the code that reads it does not change. Arrow keys move the choice; only the chosen button is in the Tab order.
  */
-function segmented(label, options, initial = options[0][0]) {
+export function segmented(label, options, initial = options[0][0]) {
   let value = initial;
   const el = h("div", { class: "segmented", role: "group", "aria-label": label });
   const buttons = options.map(([v, text]) => h("button", { type: "button", "data-value": v, onclick: () => pick(v, false) }, text));
+  /** Slide the contrast thumb (a ::before on the track) under the chosen button: --seg-x / --seg-w. The button's
+   *  own background is the fallback until it is measured (not in the document yet, or a hidden panel). */
+  let measured = false;
+  const place = () => {
+    const b = buttons.find((x) => x.dataset.value === value);
+    if (!b || !el.isConnected || !b.offsetWidth) return;
+    if (!measured) el.classList.add("no-anim");
+    el.style.setProperty("--seg-x", `${b.offsetLeft}px`);
+    el.style.setProperty("--seg-w", `${b.offsetWidth}px`);
+    el.classList.add("has-thumb");
+    if (!measured) {
+      measured = true;
+      requestAnimationFrame(() => el.classList.remove("no-anim"));
+    }
+  };
+  // Measure once it is laid out, and again whenever the track changes size (fonts, rotation, wrap). A detached
+  // control stops observing (a 0 × 0 callback) and starts again on its next pick.
+  let ro = null;
+  const watch = () => {
+    if (ro || typeof ResizeObserver !== "function") return;
+    let seen = false;
+    ro = new ResizeObserver(() => {
+      if (el.isConnected) return (seen = true), place();
+      if (!seen) return;
+      ro?.disconnect();
+      ro = null;
+    });
+    ro.observe(el);
+  };
   const pick = (v, focus) => {
     value = v;
+    watch();
     for (const b of buttons) {
       const on = b.dataset.value === v;
       b.setAttribute("aria-pressed", String(on));
       b.tabIndex = on ? 0 : -1;
       if (on && focus) b.focus();
     }
+    place();
     el.dispatchEvent(new Event("change"));
   };
   el.addEventListener("keydown", (e) => {
@@ -110,10 +228,11 @@ function segmented(label, options, initial = options[0][0]) {
   el.append(...buttons);
   Object.defineProperty(el, "value", { get: () => value, set: (v) => pick(String(v), false) });
   pick(initial, false);
+  watch();
   return el;
 }
 /** A labelled field around a segmented control (a <label> would forward clicks on its text to the first button). */
-const segField = (label, seg, { wide = false } = {}) => {
+export const segField = (label, seg, { wide = false } = {}) => {
   const id = `seg-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${++segField.n}`;
   seg.removeAttribute("aria-label");
   seg.setAttribute("aria-labelledby", id);
@@ -150,7 +269,7 @@ drawTabs.n = 0;
  * Pages that redraw on a timer would drop keyboard focus every few seconds. Run `fn` (which replaces the children of
  * `container`) and put focus back on the equivalent control if it was inside.
  */
-function keepFocus(container, fn) {
+export function keepFocus(container, fn) {
   const sig = focusSignature(container);
   const r = fn();
   restoreFocus(container, sig);
@@ -175,23 +294,250 @@ function restoreFocus(container, saved) {
 
 // ── Pages ──
 
+/** The Integrations tab's tools (its inner segmented control; each is also a ⌘K destination). */
+const INTEGRATION_TOOLS = [
+  ["webhooks", "Webhooks"],
+  ["python", "Python"],
+  ["node", "Node"],
+  ["excel", "Excel and Sheets"],
+  ["amibroker", "AmiBroker"],
+  ["claude", "Claude (MCP)"],
+  ["chatgpt", "ChatGPT / OpenAI"],
+  ["rest", "REST / curl"],
+];
+
 /**
- * The one list of pages: it feeds the sidebar, the phone tab bar, the More sheet and the ⌘K palette. `tint` is an iOS
- * system colour name (the page's glyph colour everywhere), `tab: true` puts it in the phone tab bar, `headline` is the
- * large title when it differs from `title` (one serif accent word at most).
+ * The one list of pages: it feeds the sidebar, the phone tab bar, the More sheet and the ⌘K palette
+ * (docs/design/ui-pass-3.md §5). `group` is the sidebar group ("" for Home, which has no label), `tint` an iOS system
+ * colour name (the page's glyph colour everywhere), `key` the curated ⌘1 to ⌘9 shortcut, `tab: true` puts it in the
+ * phone tab bar (`short` labels it there), `headline` is the large title when it differs from `title` (one serif accent
+ * word at most). A page with `tabs` is one page with a tab strip: each tab names the legacy page id it renders (`page`,
+ * which keeps every `:root[data-page]` rule and old link working), may set its own `layout` and `sub`, and `command`
+ * is its ⌘K label; `extras` are further ⌘K destinations inside it.
  */
 export const PAGES = [
-  { id: "home", label: "Home", icon: "home", tint: "blue", tab: true, group: "Overview", title: "Home", headline: ["Your ", { serif: "Bridge" }], sub: "Your accounts, today's activity and safety, on this computer", render: renderHome },
-  { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", tab: true, group: "Overview", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
-  { id: "console", label: "Test console", icon: "console", tint: "teal", group: "Overview", title: "Test console", sub: "Try any call and see exactly what comes back", render: renderConsole },
-  { id: "limits", label: "Rate limits", icon: "limits", tint: "purple", group: "Overview", title: "Rate limits", sub: "Live usage against each broker's limits, and the calls the Bridge saved", render: renderLimits },
-  { id: "scanner", label: "Scanner", icon: "scan", tint: "mint", group: "Overview", title: "Scanner", sub: "Scan big universes with a readable condition, shared out over your accounts", render: renderScanner },
-  { id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, group: "Trading", title: "Orders and positions", sub: "Paper by default. Pending confirmations wait here", render: renderOrders },
-  { id: "safety", label: "Safety", icon: "safety", tint: "red", tab: true, group: "Trading", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
-  { id: "keys", label: "API keys", icon: "keys", tint: "pink", group: "Connect", title: "API keys", sub: "One key per tool, with only the access it needs", render: renderKeys },
-  { id: "integrations", label: "Integrations", icon: "integrations", tint: "blue", group: "Connect", title: "Integrations", sub: "Copy-paste setup for webhooks, Python, Excel, Claude and more", render: renderIntegrations },
-  { id: "activity", label: "Activity", icon: "activity", tint: "gray", group: "Connect", title: "Activity", sub: "Recent requests and the tamper-evident audit log", render: renderActivity },
+  { id: "home", label: "Home", icon: "home", tint: "blue", tab: true, key: 1, group: "", title: "Home", headline: ["Your ", { serif: "Bridge" }], sub: "Your accounts, today's activity and safety, on this computer", render: renderHome },
+  { id: "chain", label: "Option Chain", short: "Chain", icon: "chart", tint: "green", tab: true, key: 2, group: "Trade", layout: "desk", title: "Option Chain", get sub() { return `Live chain with OI, IV and Greeks. ${touchWord()} a bid or ask to trade`; }, render: renderChainPage },
+  { id: "strategy", label: "Strategy Builder", icon: "strategy", tint: "purple", key: 3, group: "Trade", layout: "desk", title: "Strategy Builder", sub: "Payoff, breakevens, POP and margin before you trade", render: renderStrategyPage },
+  { id: "positions", label: "Positions", icon: "wallet", tint: "teal", tab: true, key: 4, group: "Trade", layout: "desk", title: "Option positions", sub: "Open option positions with P&L, net Δ and θ", render: renderPositionsPage },
+  {
+    id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, key: 5, group: "Trade", title: "Orders", sub: "Paper by default. Pending confirmations wait here",
+    defaultTab: "book",
+    tabs: [
+      { id: "book", label: "Orders", page: "orders", command: "Orders", keywords: "orders confirmations tickets modify cancel paper", render: renderOrders },
+      { id: "trades", label: "Trades", page: "trades", command: "Trade book", icon: "list", tint: "orange", keywords: "trades trade book fills executions turnover charges csv", sub: "Every fill with buy, sell and turnover totals", render: renderTradesPage },
+      { id: "statement", label: "Statement", page: "statement", command: "Statement, tax P&L and ledger", icon: "list", tint: "teal", keywords: "statement tax pnl p&l turnover icai stt charges ledger financial year fy capital gains stcg ltcg speculative business income export xlsx", sub: "Realised P&L by year and segment, F&O turnover, charges and the paper ledger", render: renderStatementPage },
+      { id: "journal", label: "Journal", page: "journal", command: "Trade journal", icon: "list", tint: "teal", keywords: "journal trades tags notes setup win rate expectancy drawdown calendar heatmap daily pnl csv export", sub: "Every fill as a trade: tags, notes, a P&L calendar and stats", render: renderJournalPage },
+    ],
+  },
+  { id: "safety", label: "Safety", icon: "safety", tint: "red", key: 6, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
+  { id: "algo", label: "Algo", icon: "console", tint: "indigo", group: "Trade", title: "Algo", headline: ["Python ", { serif: "strategies" }], sub: "Your Python strategies, run by the Bridge. Paper by default; every order passes the safety gates", render: renderAlgoPage },
+  {
+    id: "oi", label: "OI Analysis", icon: "bars", tint: "orange", key: 7, group: "Markets", layout: "desk", title: "OI Analysis", sub: "Open interest and OI chg by strike, build-up and walls",
+    defaultTab: "strike",
+    tabs: [
+      { id: "strike", label: "By strike", page: "oi", command: "OI Analysis", keywords: "open interest build-up walls max pain pcr", render: renderOiPage },
+      { id: "participants", label: "Participants", page: "participants", command: "Participant OI", icon: "people", tint: "teal", keywords: "participants fii dii client pro", sub: "NSE participant-wise open interest: Client, DII, FII and Pro, by day", render: renderParticipantsPage },
+      anTab("change", "OI change", "oichange", { command: "OI change", icon: "activity", tint: "orange", keywords: "oi change build-up unwinding long short covering window", sub: "Open interest added or cut over a window, and who is acting, by strike" }),
+      anTab("history", "Strike history", "an-strikehist", { command: "OI and IV of a strike over time", icon: "clock", tint: "orange", keywords: "strike history oi iv over time session recorded call put", sub: "One strike's call and put OI and IV through the session, from the Bridge's recorder" }),
+      anTab("spurts", "Spurts", "an-spurts", { command: "OI spurts", icon: "bolt", tint: "orange", keywords: "oi spurts jump baseline surge", sub: "Strikes whose open interest jumped most against their rolling baseline" }),
+      anTab("expiry", "Expiry day", "expiry", { command: "Expiry day digest", icon: "clock", tint: "red", keywords: "expiry day digest time left straddle max pain walls gamma flags", sub: "Time left, the ATM straddle, max pain, OI walls and gamma flags for the expiry, in one view" }),
+    ],
+  },
+  {
+    id: "vol", label: "Volatility", icon: "wave", tint: "pink", group: "Markets", layout: "desk", title: "Volatility", sub: "Smile, skew, term structure and expected move",
+    defaultTab: "overview",
+    tabs: [
+      { id: "overview", label: "Overview", page: "vol", command: "Volatility", keywords: "smile skew term structure expected move iv surface", render: renderVolPage },
+      anTab("skew", "Skew", "skew", { command: "IV skew", icon: "wave", tint: "pink", keywords: "iv skew call put risk reversal strike smile", sub: "Call and put IV by strike for one expiry, with the risk reversal" }),
+      anTab("surface", "Surface", "an-surface", { command: "IV surface", icon: "wave", tint: "pink", keywords: "iv surface across expiries term structure lines", sub: "IV by strike for the next expiries, one line each, and the term structure" }),
+      anTab("cone", "Cone", "an-cone", { command: "Probability cone", icon: "wave", tint: "pink", keywords: "probability cone expected move sigma range expiry iv", sub: "The ±1σ and ±2σ range each expiry's ATM IV implies" }),
+      anTab("forward", "Forward", "an-forward", { command: "Forward curve", icon: "chart", tint: "pink", keywords: "forward curve put call parity basis carry dividend yield implied forward expiry", sub: "Each expiry's implied forward from put-call parity, its basis, carry and implied dividend yield" }),
+      anTab("rrbf", "RR and BF", "an-rrbf", { command: "Risk reversal and butterfly term structure", icon: "wave", tint: "pink", keywords: "risk reversal butterfly rr bf 25 delta 10 delta skew term structure wings", sub: "Risk reversal and butterfly at 25 and 10 delta for each expiry" }),
+      anTab("event", "Event vol", "an-eventvol", { command: "Event vol", icon: "calendar", tint: "pink", keywords: "event vol implied move results policy budget election total variance forward vol term structure", sub: "The move the options price in for a dated event, from the expiries either side of it" }),
+      anTab("stats", "Vol stats", "an-volstats", { command: "Vol stats and IV rank", icon: "chart", tint: "pink", keywords: "hv historical volatility iv rank percentile expected move cone", sub: "Historical volatility, ATM IV against HV, expected move, IV rank and the term structure" }),
+    ],
+  },
+  {
+    id: "screeners", label: "Screeners", icon: "radar", tint: "yellow", key: 8, group: "Markets", layout: "desk", title: "Screeners", sub: "Options, arbitrage, live events and stocks, ranked and scanned",
+    defaultTab: "options",
+    tabs: [
+      { id: "options", label: "Options", page: "screener", layout: "desk", command: "Option Screener", keywords: "screener unusual activity build-up rich cheap premium hedges", sub: "Scan every underlying and expiry for unusual activity, build-ups, rich or cheap premium, hedges and arbitrage", render: renderScreenerPage },
+      { id: "arbitrage", label: "Arbitrage", page: "arb", layout: "desk", command: "Arbitrage scanner", icon: "scale", tint: "indigo", keywords: "arb parity box conversion reversal basis", sub: "Parity, boxes and futures basis at executable prices, after charges", render: renderArbPage },
+      { id: "events", label: "Live events", page: "events", layout: "desk", command: "Live events", icon: "bolt", tint: "orange", keywords: "events event selector spider circuit only buyers only sellers volume surge gap day high breakout alerts live oi build-up iv spike wall", sub: "Circuits, volume surges, gaps, breakouts, F&O OI and option events as they happen", render: renderEventsPage },
+      { id: "watchlists", label: "Watchlists", page: "watchlists", layout: "desk", command: "Watchlists", icon: "list", tint: "blue", keywords: "watchlist watch list quotes change oi iv favourites", sub: "Your lists with live quotes, % change, OI change for F&O and IV. One feeds Live events, one shows on Home", render: renderWatchlistsPage },
+      { id: "stocks", label: "Stocks", page: "scanner", layout: "desk", command: "Stock scanner", icon: "scan", tint: "mint", keywords: "scanner scan condition rsi universe gap 52-week circuit nr7 inside day build-up oi spike ban pcr iv rank basis rollover max pain straddle skew", sub: "Price, F&O and option-chain scans in plain words, saved and scheduled", render: renderScannerPage },
+    ],
+  },
+  { id: "calendar", label: "Market calendar", icon: "calendar", tint: "teal", group: "Markets", layout: "desk", title: "Market calendar", sub: "Expiries, holidays, lot sizes, ban list and corporate actions, with their sources", render: renderCalendarPage },
+  {
+    id: "exposure", label: "Exposure", icon: "bolt", tint: "yellow", group: "Analytics", layout: "desk", title: "Exposure", sub: "Dealer delta, gamma, vanna and charm by strike and expiry, OI heatmap and Greeks",
+    defaultTab: "strike",
+    tabs: [
+      anTab("strike", "By strike", "an-gex", { command: "Gamma exposure (GEX)", keywords: "gex gamma exposure dex delta vanna charm walls zero gamma flip dealer", sub: "Dealer delta, gamma, vanna and charm by strike, the call and put walls and the zero-gamma level" }),
+      anTab("expiry", "By expiry", "an-gex-expiry", { command: "Exposure by expiry", keywords: "gamma exposure expiries term", sub: "How exposure spreads across expiries" }),
+      anTab("heatmap", "OI heatmap", "an-oi-heatmap", { command: "OI heatmap", keywords: "oi explorer heatmap strike expiry open interest grid", sub: "Call and put OI by strike and expiry, with the biggest cells marked" }),
+      anTab("greeks", "Greeks grid", "greeksgrid", { command: "Greeks grid", keywords: "greeks grid delta gamma theta vega by strike peak", sub: "Delta, gamma, theta, vega and IV by strike, with peak gamma and vega" }),
+      anTab("straddle", "Straddle", "an-straddle", { command: "ATM straddle history", keywords: "straddle atm premium history implied move decay", sub: "The ATM straddle's price through the session and the move it implies" }),
+    ],
+  },
+  {
+    id: "flow", label: "Flow", icon: "activity", tint: "green", group: "Analytics", layout: "desk", title: "Flow", sub: "Unusual options activity, market tide, FII and DII cash flows and NSE filings",
+    defaultTab: "unusual",
+    tabs: [
+      anTab("unusual", "Unusual activity", "unusual", { command: "Unusual options activity", icon: "scan", tint: "red", keywords: "unusual options activity uoa volume oi premium sweep score whales", sub: "Contracts trading far above their open interest, ranked by a 0 to 100 score" }),
+      anTab("tide", "Market tide", "tide", { command: "Market tide", keywords: "tide net premium call put flow sentiment bought sold", sub: "Net call against put premium through the session, and the sentiment it implies" }),
+      anTab("fii", "FII and DII", "flows", { command: "FII and DII flows", icon: "inbox", keywords: "fii dii fpi institutional cash flows net buying selling streak", sub: "Cash-market buying and selling by foreign and domestic institutions, with streaks" }),
+      anTab("filings", "Filings", "an-filings", { command: "NSE filings", icon: "list", keywords: "nse block bulk deals insider trading results corporate events announcements sebi rbi", sub: "NSE block and bulk deals, insider trades and the results calendar (public pages, unverified)" }),
+    ],
+  },
+  {
+    id: "futures", label: "Futures", icon: "chart", tint: "pink", group: "Analytics", layout: "desk", title: "Futures", sub: "Every future with basis and carry, basis history and synthetic futures",
+    defaultTab: "chain",
+    tabs: [
+      anTab("chain", "Futures chain", "futures", { command: "Futures chain", keywords: "futures basis carry calendar spread roll cost", sub: "Every upcoming future with basis, carry, calendar spreads and roll cost" }),
+      anTab("basis", "Basis history", "an-basis", { command: "Basis history", keywords: "basis history z-score mean futures premium", sub: "The futures basis through time, with its mean and z-score" }),
+      anTab("synthetic", "Synthetics", "an-synthetic", { command: "Synthetic futures", keywords: "synthetic future put call parity gap", sub: "The synthetic future at each strike from put-call parity, and its gap to the future" }),
+    ],
+  },
+  {
+    id: "lab", label: "Strategy lab", icon: "strategy", tint: "mint", group: "Analytics", layout: "desk", title: "Strategy lab", sub: "Find strategies for a view, build from templates, work out Greeks and size, and backtest a rule",
+    defaultTab: "finder",
+    tabs: [
+      anTab("finder", "Finder", "strategies", { command: "Strategy finder", keywords: "strategy finder view bullish bearish neutral rank pop", sub: "Strategies for your market view, ranked, built from the live chain" }),
+      anTab("templates", "Templates", "an-templates", { command: "Strategy templates", keywords: "templates iron condor straddle strangle spread build", sub: "Thirteen templates built from the live chain, with their payoff" }),
+      anTab("calculators", "Calculators", "calculators", { command: "Greeks and position size calculators", icon: "limits", keywords: "calculator greeks iv black scholes position size risk lots", sub: "Greeks for one option from a price or an IV, and lots for a risk budget" }),
+      anTab("backtest", "Backtest", "an-backtest", { command: "Backtest a rule", icon: "play", keywords: "backtest rule replay history candles rsi ema breakout equity drawdown sharpe win rate", sub: "Replay an entry and exit rule over past candles: equity, drawdown and every trade" }),
+    ],
+  },
+  {
+    id: "risk", label: "Risk", icon: "safety", tint: "red", group: "Analytics", layout: "desk", title: "Risk", sub: "Value at risk, exposure and concentration of an account's book, and what its fills cost",
+    defaultTab: "var",
+    tabs: [
+      anTab("var", "VaR and exposure", "an-risk", { command: "Value at risk", keywords: "var value at risk expected shortfall exposure notional delta concentration hhi sector margin", sub: "One-day VaR and expected shortfall, exposure by underlying and concentration" }),
+      anTab("costs", "Execution costs", "an-tca", { command: "Execution costs", icon: "orders", keywords: "tca transaction cost slippage charges latency fills paper", sub: "Slippage, charges and fill latency from the paper account's fills" }),
+    ],
+  },
+  { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
+  {
+    id: "api", label: "API", icon: "keys", tint: "pink", key: 9, group: "Bridge", title: "API", sub: "Keys, integrations, a test console, rate limits and the request log",
+    defaultTab: "keys",
+    tabs: [
+      { id: "keys", label: "Keys", page: "keys", command: "API keys", keywords: "keys token access create revoke", render: renderKeys },
+      {
+        id: "integrations", label: "Integrations", page: "integrations", command: "Integrations", icon: "integrations", tint: "blue", keywords: "integrations snippets connect tools sdk", render: renderIntegrations,
+        extras: INTEGRATION_TOOLS.map(([id, label]) => ({ id, label: id === "webhooks" ? "Webhooks" : `${label} snippet`, route: `api/integrations?tool=${id}`, keywords: id === "webhooks" ? "webhook alert chartink gocharting hooks" : `${id} snippet setup code`, sub: `API › Integrations › ${label}` })),
+      },
+      { id: "console", label: "Test console", page: "console", command: "Test console", icon: "console", tint: "teal", keywords: "console try request call endpoint", render: renderConsole },
+      { id: "limits", label: "Rate limits", page: "limits", command: "Rate limits", icon: "limits", tint: "purple", keywords: "limits usage throttle budget", render: renderLimits },
+      {
+        id: "activity", label: "Activity", page: "activity", command: "Activity", icon: "activity", tint: "gray", keywords: "activity requests log", render: renderActivity,
+        extras: [{ id: "audit", label: "Audit log", route: "api/activity?view=audit", keywords: "audit log hash chain tamper", sub: "API › Activity › Audit log" }],
+      },
+    ],
+  },
+  { id: "recorder", label: "Data recorder", icon: "clock", tint: "indigo", group: "Bridge", layout: "desk", title: "Data recorder", sub: "Option chains recorded every minute on this computer, with the browser closed", render: renderRecorderPage },
 ];
+
+/**
+ * Old page ids that became tabs (ui-pass-3.md §5.2): an old link or bookmark opens the tab, keeping its ?query.
+ */
+export const LEGACY = {
+  console: "api/console",
+  limits: "api/limits",
+  keys: "api/keys",
+  integrations: "api/integrations",
+  activity: "api/activity",
+  screener: "screeners/options",
+  arb: "screeners/arbitrage",
+  scanner: "screeners/stocks",
+  events: "screeners/events",
+  participants: "oi/participants",
+  journal: "orders/journal",
+  watchlists: "screeners/watchlists",
+  // PR 17's page ids (docs/design/pr17-integration.md).
+  "an-gex": "exposure/strike",
+  "an-gex-expiry": "exposure/expiry",
+  "an-oi-heatmap": "exposure/heatmap",
+  greeksgrid: "exposure/greeks",
+  "an-straddle": "exposure/straddle",
+  unusual: "flow/unusual",
+  tide: "flow/tide",
+  flows: "flow/fii",
+  "an-filings": "flow/filings",
+  "an-basis": "futures/basis",
+  "an-synthetic": "futures/synthetic",
+  strategies: "lab/finder",
+  "an-templates": "lab/templates",
+  calculators: "lab/calculators",
+  "an-backtest": "lab/backtest",
+  "an-risk": "risk/var",
+  "an-tca": "risk/costs",
+  skew: "vol/skew",
+  "an-surface": "vol/surface",
+  "an-volstats": "vol/stats",
+  oichange: "oi/change",
+  "an-spurts": "oi/spurts",
+  "an-strikehist": "oi/history",
+  "an-cone": "vol/cone",
+  "an-forward": "vol/forward",
+  "an-rrbf": "vol/rrbf",
+  "an-eventvol": "vol/event",
+  expiry: "oi/expiry",
+};
+
+/**
+ * Where a hash leads (pure): { page, tab, query, redirect, view, layout }. `#/<page>/<tab>?query`; a LEGACY id is
+ * rewritten (`redirect` is the hash to put in its place; Integrations' old `?tab=` becomes `?tool=`); an unknown page
+ * is Home, an unknown or missing tab the page's last tab (`lastTab(pageId)`) or its default. `view` is the legacy page
+ * id the view renders as (the `data-page` value), `layout` the tab's layout, else the page's.
+ */
+export function resolveRoute(hash, { pages = PAGES, lastTab = () => null } = {}) {
+  let raw = String(hash ?? "").replace(/^#\/?/, "");
+  // A one-time sign-in fragment (#signin=..., app.js removes it at start-up) is never a page name.
+  if (raw.startsWith("signin=")) raw = "";
+  const q = raw.indexOf("?");
+  let path = (q < 0 ? raw : raw.slice(0, q)).toLowerCase();
+  let query = q < 0 ? "" : raw.slice(q + 1);
+  let redirect = null;
+  const head = path.split("/")[0];
+  if (Object.hasOwn(LEGACY, head) && !path.includes("/")) {
+    path = LEGACY[head];
+    if (head === "integrations") {
+      const qs = new URLSearchParams(query);
+      if (qs.has("tab") && !qs.has("tool")) qs.set("tool", qs.get("tab"));
+      qs.delete("tab");
+      query = qs.toString();
+    }
+    redirect = `#/${path}${query ? `?${query}` : ""}`;
+  }
+  const [pageId, tabId] = path.split("/");
+  const page = pages.find((p) => p.id === pageId) ?? pages[0];
+  let tab = null;
+  if (page.tabs?.length) {
+    const find = (id) => (id ? page.tabs.find((t) => t.id === id) : undefined);
+    tab = find(tabId) ?? find(lastTab(page.id)) ?? find(page.defaultTab) ?? page.tabs[0];
+    // A tab that no longer exists (#/api/nope) shows its stand-in under the stand-in's own address.
+    if (tabId && tab.id !== tabId) redirect = `#/${page.id}/${tab.id}${query ? `?${query}` : ""}`;
+  }
+  return { page, tab, query, redirect, view: tab?.page ?? page.id, layout: tab?.layout ?? page.layout ?? "" };
+}
+
+const TAB_SLOT = (pageId) => `mcb.tab.${pageId}`;
+const readLastTab = (pageId) => {
+  try {
+    return localStorage.getItem(TAB_SLOT(pageId));
+  } catch {
+    return null;
+  }
+};
+const rememberTab = (pageId, tabId) => {
+  try {
+    localStorage.setItem(TAB_SLOT(pageId), tabId);
+  } catch {
+    /* private mode or storage off: the default tab opens next time */
+  }
+};
 
 let timer = null;
 let renderSeq = 0;
@@ -209,9 +555,10 @@ function nav(active) {
   for (const p of PAGES) {
     if (p.group !== group) {
       group = p.group;
-      out.push(h("div", { class: "nav-group" }, group));
+      // The first group (Home) has no label.
+      if (group) out.push(h("div", { class: "nav-group" }, group));
     }
-    const sc = pageShortcut(PAGES.indexOf(p));
+    const sc = pageShortcut(p);
     out.push(
       h(
         "a",
@@ -223,12 +570,51 @@ function nav(active) {
     );
   }
   $("nav").replaceChildren(...out);
+  edgeFades($("nav"), "y");
   const anim = motionHooks?.animateNav;
   if (typeof anim === "function") anim($("nav"));
   tabbar(active);
 }
 
-/** The phone / tablet tab bar: the four `tab` pages and More (a sheet with every page, appearance and the key). */
+/**
+ * Overflow hints (ui-pass-3.md §1.4): a scroller gets fade-l / fade-r (or fade-b, axis "y") only while there is more
+ * to see on that side. Wired once per element; call again after its content changes.
+ */
+export function edgeFades(el, axis = "x") {
+  if (!el) return;
+  const update = () => {
+    if (axis === "y") {
+      el.classList.toggle("fade-b", el.scrollTop + el.clientHeight < el.scrollHeight - 1);
+      return;
+    }
+    const max = el.scrollWidth - el.clientWidth;
+    el.classList.toggle("fade-l", max > 1 && el.scrollLeft > 1);
+    el.classList.toggle("fade-r", max > 1 && el.scrollLeft < max - 1);
+  };
+  if (!el.dataset.fades) {
+    el.dataset.fades = axis;
+    el.addEventListener("scroll", update, { passive: true });
+    if (typeof ResizeObserver === "function") new ResizeObserver(update).observe(el);
+  }
+  update();
+}
+
+/**
+ * Card tables (ui-pass-3.md §4): a table that fits its card is not a scroll box (.fits), so its sticky head sticks to
+ * the page; a wider one scrolls sideways with a fade on the side that has more.
+ */
+function fitTables(root) {
+  for (const w of root.querySelectorAll(".card .table-wrap")) {
+    const t = w.querySelector(":scope > table");
+    if (!t) continue;
+    const fits = t.offsetWidth <= w.clientWidth + 1;
+    w.classList.toggle("fits", fits);
+    if (fits) w.classList.remove("fade-l", "fade-r");
+    else edgeFades(w);
+  }
+}
+
+/** The phone / tablet tab bar: the four `tab` pages and More (a sheet with the other pages, appearance and the key). */
 function tabbar(active) {
   const bar = $("tabbar");
   if (!bar) return;
@@ -240,7 +626,7 @@ function tabbar(active) {
         "a",
         { href: `#/${p.id}`, class: "tab", "data-page": p.id, "aria-current": p.id === active ? "page" : undefined },
         icon(p.icon),
-        h("span", {}, p.label),
+        h("span", {}, p.short ?? p.label),
         p.id === "orders" ? h("span", { class: "count", "data-tickets": "", hidden: true }) : null,
       ),
     ),
@@ -248,9 +634,14 @@ function tabbar(active) {
   );
 }
 
-/** "More" (phones and tablets): every page grouped as in the sidebar, appearance, and the signed-in key. */
+/**
+ * "More" (phones and tablets): the pages not in the tab bar, grouped as in the sidebar (labels only, one row per page;
+ * the current one filled with a trailing check), then appearance and the signed-in key.
+ */
 function moreSheet(active) {
-  const groups = [...new Set(PAGES.map((p) => p.group))];
+  // Safety leads Trade here: it is the one trading page a phone keeps a tap away (the toolbar's readiness pill too).
+  const pages = PAGES.filter((p) => !p.tab).sort((a, b) => (b.id === "safety") - (a.id === "safety"));
+  const groups = [...new Set(pages.map((p) => p.group))];
   return modal({
     title: "More",
     body: (close) => {
@@ -271,17 +662,17 @@ function moreSheet(active) {
           h(
             "section",
             {},
-            h("div", { class: "eyebrow list-label" }, g),
+            g ? h("div", { class: "eyebrow list-label" }, g) : null,
             h(
               "div",
               { class: "list" },
-              PAGES.filter((p) => p.group === g).map((p) =>
+              pages.filter((p) => p.group === g).map((p) =>
                 h(
                   "button",
                   { type: "button", class: "list-row", "aria-current": p.id === active ? "page" : undefined, onclick: () => goTo(p.id) },
                   iconTile(p.icon, p.tint, "md"),
-                  h("span", { class: "names" }, h("span", { class: "nm" }, p.label), h("span", { class: "sub" }, p.sub)),
-                  chevron(),
+                  h("span", { class: "names" }, h("span", { class: "nm" }, p.label)),
+                  p.id === active ? checkMark() : chevron(),
                 ),
               ),
             ),
@@ -292,6 +683,8 @@ function moreSheet(active) {
           {},
           h("div", { class: "eyebrow list-label", id: "more-appearance" }, "Appearance"),
           appearanceControl("more-appearance"),
+          h("div", { class: "eyebrow list-label density-ctl more-density", id: "more-density" }, "Density"),
+          densityControl("more-density"),
         ),
         h(
           "section",
@@ -301,18 +694,50 @@ function moreSheet(active) {
             "div",
             { class: "list" },
             h("div", { class: "list-row" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", { class: "names" }, h("span", { class: "nm" }, "Signed in"), h("span", { class: "sub" }, app.state.who ?? ""))),
-            h("button", { type: "button", class: "list-row", onclick: () => { close(undefined); showShortcutsLater(); } }, iconTile("info", "gray", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, "Keyboard shortcuts")), chevron()),
+            h("button", { type: "button", class: "list-row more-shortcuts", onclick: () => { close(undefined); showShortcutsLater(); } }, iconTile("info", "gray", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, "Keyboard shortcuts")), chevron()),
             h("button", { type: "button", class: "list-row", "data-action": "logout" }, iconTile("logout", "red", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, "Forget key"), h("span", { class: "sub" }, "Sign out of this tab"))),
           ),
         ),
+        h("p", { class: "type-credit" }, TYPE_CREDIT),
       );
     },
   });
+}
+
+/**
+ * The sidebar's account row opens this (an L3 popover): appearance, keyboard shortcuts, the About line (the font
+ * credit) and Forget key.
+ */
+function accountPopover(trigger) {
+  const body = h(
+    "div",
+    { class: "acct-pop" },
+    h("span", { class: "acct-pop-label", id: "acct-appearance" }, "Appearance"),
+    appearanceControl("acct-appearance"),
+    h("span", { class: "acct-pop-label density-ctl", id: "acct-density" }, "Density"),
+    densityControl("acct-density"),
+    h(
+      "div",
+      { class: "acct-pop-acts" },
+      h("button", { type: "button", class: "small", onclick: () => { pop.close(); showShortcutsLater(); } }, icon("info"), "Keyboard shortcuts"),
+      h("button", { type: "button", class: "small plain", "data-action": "logout" }, icon("logout"), "Forget key"),
+    ),
+    h("p", { class: "type-credit" }, h("strong", {}, "About. "), TYPE_CREDIT),
+  );
+  const pop = sheetPopover({ trigger, title: app.state.who ?? "Signed in", body, cls: "acct-popover" });
+  return pop;
 }
 const showShortcutsLater = () => setTimeout(() => import("./palette.js").then((m) => m.showShortcuts()), 260);
 const chevron = () => {
   const s = icon("chevron");
   s.classList.add("chev");
+  return s;
+};
+/** The More sheet's mark for the current page: a check in the selection ink, where the others have a chevron. */
+const checkMark = () => {
+  const s = icon("check");
+  s.classList.add("check");
+  s.setAttribute("aria-hidden", "true");
   return s;
 };
 /** The Mr. Chartist symbol (the sprite in index.html). */
@@ -337,8 +762,28 @@ function appearanceControl(labelledBy) {
   );
 }
 
+/**
+ * Compact / Comfortable / Auto (app.js handles the clicks for every copy). Auto is compact with a mouse on a desktop;
+ * touch screens are always comfortable, so the control is hidden there (app.css section 16).
+ */
+function densityControl(labelledBy) {
+  let current = "auto";
+  try {
+    current = parseDensity(localStorage.getItem(DENSITY_SLOT));
+  } catch {
+    /* storage blocked: auto */
+  }
+  return h(
+    "div",
+    { class: "segmented density density-ctl", role: "group", "aria-labelledby": labelledBy },
+    [["compact", "Compact"], ["comfortable", "Comfortable"], ["auto", "Auto"]].map(([v, label]) => h("button", { type: "button", "data-density-choice": v, "aria-pressed": String(current === v), title: v === "auto" ? "Compact with a mouse on a desktop, comfortable on touch" : undefined }, label)),
+  );
+}
+
+/** Stop the page's refresh timer (a page that pauses its own refresh). */
+export const stopTimer = () => clearInterval(timer);
 /** Re-run `fn` every `ms` while this page is shown and the tab is visible. */
-function every(ms, fn) {
+export function every(ms, fn) {
   clearInterval(timer);
   timer = setInterval(() => {
     if (!document.hidden) fn().catch(() => {});
@@ -347,6 +792,9 @@ function every(ms, fn) {
 
 let shownPage = null;
 let pendingFocus = null;
+/** The render (renderSeq) already redrawn after fresh data, and the debounce for it. */
+let redrawnFor = 0;
+let redrawTimer = null;
 
 /** The page's large title: plain text, with at most one word in the serif accent. */
 function headline(page) {
@@ -355,37 +803,72 @@ function headline(page) {
 /** Home's eyebrow is today's date in IST; every other page names its group. */
 const IST_DAY = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
-async function show() {
-  const raw = location.hash.replace(/^#\/?/, "").split("?")[0];
-  // A one-time sign-in fragment (#signin=..., app.js removes it at start-up) is never a page name.
-  const id = (raw && !raw.startsWith("signin=") ? raw : "home").toLowerCase();
-  const page = PAGES.find((p) => p.id === id) ?? PAGES[0];
-  const changed = page.id !== shownPage;
-  shownPage = page.id;
+/**
+ * Draw the page the hash names. `opts.refresh`: the Reload button, the palette or a redraw after fresh data came in;
+ * a reload never paints from remembered answers.
+ */
+async function show(opts) {
+  const reload = opts?.refresh === true;
+  const route = resolveRoute(location.hash, { lastTab: readLastTab });
+  // An old link (#/console?endpoint=order) becomes its tab's address, without a second history entry.
+  if (route.redirect && typeof history !== "undefined") history.replaceState(history.state, "", route.redirect);
+  const { page, tab } = route;
+  if (tab) rememberTab(page.id, tab.id);
+  if (page.id === "chain") local.set(FLAG.chain, "1"); // ticks the Home checklist step
+  const changed = route.view !== shownPage;
+  shownPage = route.view;
   clearInterval(timer);
   $("toast").hidden = true;
   nav(page.id);
-  document.title = `${page.label} · Mr. Chartist API Bridge`;
+  // Pages can restyle the shell (the Option Desk hides the large title and runs edge to edge). data-page is the view's
+  // own id (a tab's legacy page id), data-route the page in the menu.
+  const root = $("content");
+  document.documentElement.dataset.page = route.view;
+  document.documentElement.dataset.route = page.id;
+  document.documentElement.dataset.layout = route.layout;
+  document.documentElement.classList.remove("panel-max-open");
+  root.classList.toggle("api-page", page.id === "api");
+  document.title = tab ? `${tab.label} · ${page.label} · Mr. Chartist API Bridge` : `${page.label} · Mr. Chartist API Bridge`;
   $("toolbar-icon").replaceChildren(pageGlyph(page));
+  // The page name only: the tab strip right under it names the tab ("API: Integrations" clipped on phones).
   $("toolbar-label").textContent = page.label;
   $("page-eyebrow").textContent = page.id === "home" ? IST_DAY.format(new Date()) : page.group;
   $("page-title").replaceChildren(...headline(page));
-  $("page-sub").textContent = page.sub;
+  $("page-sub").textContent = tab?.sub ?? page.sub;
   $("toolbar-demo").hidden = !app.state.demo;
+  // The Options pages mount their context (underlying, expiry, spot, live) here on render; every other page has none.
+  const ctx = $("toolbar-ctx");
+  if (changed || route.layout !== "desk") {
+    ctx.replaceChildren();
+    ctx.hidden = true;
+  }
   const seq = ++renderSeq;
-  const root = $("content");
+  // Its first reads may paint from what the dashboard already has (app.js api), then refresh behind it.
+  if (!reload) beginNavigation(route.view);
+  redrawnFor = reload ? seq : 0;
+  // A tabbed page: the tab strip is the first row of the page; only the chosen tab renders (and refreshes).
+  const tabs = tab ? pageTabs(page, tab, root) : null;
+  if (!tabs) {
+    root.removeAttribute("role");
+    root.setAttribute("aria-labelledby", "page-title");
+  }
   root.setAttribute("aria-busy", "true");
-  root.replaceChildren(h("p", { class: "muted" }, "Loading…"));
+  root.replaceChildren(...[tabs, h("p", { class: "muted" }, "Loading…")].filter(Boolean));
+  if (tabs) edgeFades(tabs.firstElementChild);
   try {
-    const nodes = await page.render();
+    const nodes = await (tab?.render ?? page.render)();
     if (seq !== renderSeq) return;
-    root.replaceChildren(...[nodes].flat());
+    root.replaceChildren(...[tabs, nodes].flat().filter(Boolean));
+    arrangePanels(root, route.view);
+    fitTables(root);
   } catch (err) {
     if (seq !== renderSeq) return;
-    root.replaceChildren(alertBox(err));
+    root.replaceChildren(...[tabs, alertBox(err)].filter(Boolean));
   }
   root.removeAttribute("aria-busy");
-  announce(changed ? `${page.title} page` : `${page.title} refreshed`);
+  if (tabs) revealActiveTab(tabs.firstElementChild);
+  const title = tab ?`${page.title}: ${tab.label}` : page.title;
+  announce(changed ? `${title} page` : `${title} refreshed`);
   if (pendingFocus) {
     const target = pendingFocus === true ? null : root.querySelector(pendingFocus);
     pendingFocus = null;
@@ -395,6 +878,166 @@ async function show() {
   const anim = motionHooks?.animatePage;
   if (typeof anim === "function") anim(root);
   refreshTicketCount();
+}
+
+/**
+ * On a phone the page tab strip scrolls sideways: bring the current tab fully into view (API › Rate limits sat half
+ * cut off at the right edge). Called once the strip is in the page for good (re-inserting it resets its scroll).
+ */
+function revealActiveTab(bar) {
+  const sel = bar?.querySelector('[aria-selected="true"]');
+  if (!sel || bar.scrollWidth <= bar.clientWidth) return;
+  const b = bar.getBoundingClientRect();
+  const s = sel.getBoundingClientRect();
+  if (s.right > b.right - 4) bar.scrollLeft += s.right - b.right + 24;
+  else if (s.left < b.left + 4) bar.scrollLeft -= b.left - s.left + 24;
+}
+
+/**
+ * The tab strip of a tabbed page (ui-pass-3.md §5.2): a segmented tab list, the page's first row. Picking a tab goes
+ * to `#/<page>/<tab>` (the hash is the state), so back and forward walk the tabs. #content is its tab panel.
+ */
+function pageTabs(page, tab, panel) {
+  const bar = h("div", { class: "segmented page-tabs", role: "tablist", id: `page-tabs-${page.id}`, "aria-label": `${page.label} sections` });
+  drawTabs(bar, panel, page.tabs.map((t) => [t.id, t.label]), tab.id, (id) => go(`${page.id}/${id}`, `#page-tabs-${page.id}-${id}`));
+  // A full-width row of its own (pages that lay their panels out in a wrapping row stretch every child).
+  return h("div", { class: "page-tabs-row", "data-fixed": "" }, bar);
+}
+
+// ── Movable panels ──
+
+const layoutSlot = (pageId) => `mcb.dashboard.layout.${pageId}`;
+const panelKey = (el, i) => el.dataset.panel || el.querySelector(".card-head h2")?.textContent?.trim() || el.getAttribute("aria-label") || `panel-${i}`;
+const movables = (root) => [...root.children].filter((el) => el.classList.contains("movable"));
+const saveLayout = (root, pageId) => local.set(layoutSlot(pageId), JSON.stringify(movables(root).map((el) => el.dataset.panelKey)));
+
+/**
+ * Give each top-level panel of a page a handle to move it (drag, or arrow keys on the handle) and a button to
+ * maximise it, and put the panels in the order this browser saved for the page. Panels marked data-fixed stay put.
+ */
+function arrangePanels(root, pageId) {
+  // Empty hosts (an error or notice slot that fills later) are not panels: a move strip on them is a bare rule.
+  const items = [...root.children].filter((el) => !el.hasAttribute("data-fixed") && !el.matches("p, .alert") && (el.firstElementChild || el.textContent.trim()));
+  if (items.length < 2 && !items.some((el) => el.dataset.panel)) return;
+  items.forEach((el, i) => {
+    el.dataset.panelKey = panelKey(el, i);
+    el.classList.add("movable");
+    if (!el.querySelector(":scope > .panel-tools") && !el.querySelector(":scope > * > .panel-tools.in-head")) {
+      const tools = panelTools(el, root, pageId);
+      el.prepend(panelEdge(el), tools);
+      // Touch tablets: the tools sit in flow in the panel's own head row (never over its content); a panel without a
+      // head gets a 44 px strip instead (CSS). Phones hide them (one column).
+      const head = typeof matchMedia === "function" && matchMedia("(pointer: coarse) and (min-width: 720px)").matches ? el.querySelector(":scope > :is(.panel-head, .card-head, header)") : null;
+      if (head) {
+        tools.classList.add("in-head");
+        // On the head's first line: right after its title (or its only control group).
+        head.insertBefore(tools, head.children[1] ?? null);
+      }
+    }
+  });
+  let saved = [];
+  try {
+    saved = JSON.parse(local.get(layoutSlot(pageId)) ?? "[]");
+  } catch {
+    saved = [];
+  }
+  if (!Array.isArray(saved) || !saved.length) return;
+  const rank = (el) => {
+    const i = saved.indexOf(el.dataset.panelKey);
+    return i < 0 ? saved.length + items.indexOf(el) : i;
+  };
+  root.append(...[...items].sort((a, b) => rank(a) - rank(b)));
+}
+
+/**
+ * A thin strip on the panel's top edge: hovering it (or tapping it on a touch screen) shows the move / maximise pill,
+ * so the pill never sits over the panel's own controls while you work in it.
+ */
+function panelEdge(panel) {
+  let timer = 0;
+  const edge = h("div", { class: "panel-edge", "aria-hidden": "true" });
+  edge.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse") return;
+    panel.classList.add("tools-shown");
+    clearTimeout(timer);
+    timer = setTimeout(() => panel.classList.remove("tools-shown"), 4000);
+  });
+  return edge;
+}
+
+function panelTools(panel, root, pageId) {
+  const grip = h("button", { type: "button", class: "grip-btn", title: "Drag to move (or use the arrow keys). Double-click to reset this page's layout", "aria-label": "Move panel: arrow up or down" }, icon("grip"));
+  const max = h("button", { type: "button", class: "max-btn", title: "Maximise", "aria-label": "Maximise panel", "aria-pressed": "false" }, icon("expand"));
+  const moveBy = (d) => {
+    const list = movables(root);
+    const i = list.indexOf(panel);
+    const j = i + d;
+    if (j < 0 || j >= list.length) return;
+    if (d < 0) root.insertBefore(panel, list[j]);
+    else root.insertBefore(panel, list[j].nextSibling);
+    saveLayout(root, pageId);
+    grip.focus();
+  };
+  grip.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.preventDefault();
+      moveBy(e.key === "ArrowUp" ? -1 : 1);
+    }
+  });
+  grip.addEventListener("dblclick", () => {
+    local.set(layoutSlot(pageId), null);
+    toast("Layout reset");
+    show();
+  });
+  grip.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    panel.classList.add("dragging");
+    const startY = e.clientY;
+    let moved = false;
+    const onMove = (ev) => {
+      if (Math.abs(ev.clientY - startY) > 4) moved = true;
+      // Swap with a neighbour once the pointer passes its middle.
+      for (const other of movables(root)) {
+        if (other === panel) continue;
+        const r = other.getBoundingClientRect();
+        const mid = r.top + r.height / 2;
+        const before = panel.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_PRECEDING;
+        if (before && ev.clientY < mid) root.insertBefore(panel, other);
+        else if (!before && ev.clientY > mid) root.insertBefore(panel, other.nextSibling);
+      }
+    };
+    const onUp = () => {
+      grip.removeEventListener("pointermove", onMove);
+      grip.removeEventListener("pointerup", onUp);
+      grip.removeEventListener("pointercancel", onUp);
+      panel.classList.remove("dragging");
+      if (moved) saveLayout(root, pageId);
+    };
+    grip.addEventListener("pointermove", onMove);
+    grip.addEventListener("pointerup", onUp);
+    grip.addEventListener("pointercancel", onUp);
+  });
+  const setMax = (on) => {
+    panel.classList.toggle("panel-max", on);
+    document.documentElement.classList.toggle("panel-max-open", on);
+    max.setAttribute("aria-pressed", String(on));
+    max.title = on ? "Restore (Esc)" : "Maximise";
+    max.setAttribute("aria-label", on ? "Restore panel" : "Maximise panel");
+    max.replaceChildren(icon(on ? "shrink" : "expand"));
+    if (on) {
+      const esc = (e) => {
+        if (e.key !== "Escape" || document.querySelector("dialog[open]") || !panel.classList.contains("panel-max")) return;
+        if (panel.querySelector(".popover")) return;
+        document.removeEventListener("keydown", esc);
+        setMax(false);
+      };
+      document.addEventListener("keydown", esc);
+    }
+  };
+  max.addEventListener("click", () => setMax(!panel.classList.contains("panel-max")));
+  return h("div", { class: "panel-tools" }, grip, max);
 }
 
 // ── Accessibility plumbing (created from here because index.html is static) ──
@@ -432,7 +1075,17 @@ function setupA11y() {
   if (!$("route-announcer")) document.body.append(h("div", { id: "route-announcer", class: "pal-sr-only", role: "status", "aria-live": "polite", "aria-atomic": "true" }));
   const content = $("content");
   content.setAttribute("aria-labelledby", "page-title");
-  const mo = new MutationObserver(() => labelTables(content));
+  // Once a frame at most: live pages change cells many times a second, and running this on each change searched the
+  // whole page and read a table's width (a forced layout) on every tick.
+  let queued = 0;
+  const mo = new MutationObserver(() => {
+    if (queued) return;
+    queued = requestAnimationFrame(() => {
+      queued = 0;
+      labelTables(content);
+      fitTables(content);
+    });
+  });
   mo.observe(content, { childList: true, subtree: true });
 }
 
@@ -444,8 +1097,60 @@ function setupChrome() {
   $("toolbar-actions").replaceChildren(
     h("button", { type: "button", class: "toolbar-search search-hint", title: `Search pages and actions (${shortcut})`, "aria-keyshortcuts": aria, onclick: () => openPalette() }, searchIcon(), h("span", { class: "lbl" }, "Search pages and actions"), kbd(mod, "K")),
     h("button", { type: "button", class: "icon-btn toolbar-search-m", "aria-label": "Search pages and actions", "aria-keyshortcuts": aria, onclick: () => openPalette() }, searchIcon()),
-    h("button", { type: "button", class: "icon-btn", title: "Reload this page's data", "aria-label": "Reload this page's data", onclick: () => show() }, icon("refresh")),
+    h("button", { type: "button", class: "icon-btn toolbar-refresh", title: "Reload this page's data", "aria-label": "Reload this page's data", onclick: () => show({ refresh: true }) }, icon("refresh")),
   );
+  // The API budget indicator (budget.js), fed by the shared live connection.
+  const budgetSlot = $("toolbar-budget");
+  if (budgetSlot && !budgetSlot.dataset.ready) {
+    budgetSlot.dataset.ready = "1";
+    mountBudget(budgetSlot, live);
+    // A saved scan's new matches (Screeners › Stocks) as a toast on any page; they are rows in Live events too.
+    live.onScanAlerts((m) => {
+      const names = (m.newMatches ?? []).map((s) => String(s).split(":").pop());
+      if (names.length) toast(`Scan "${m.name ?? "Saved scan"}": ${names.slice(0, 4).join(", ")}${names.length > 4 ? ` and ${formatInt(names.length - 4)} more` : ""} new`, { tone: "info" });
+    });
+  }
+  // Hover or focus a menu item: load that page's module and warm its data, so the click paints at once.
+  const warmed = new Map();
+  const warm = (e) => {
+    const id = e.target?.closest?.("a[data-page]")?.dataset.page;
+    if (!id || Date.now() - (warmed.get(id) ?? 0) < 3000) return;
+    warmed.set(id, Date.now());
+    preloadPage(id);
+  };
+  for (const bar of [$("nav"), $("tabbar")]) {
+    if (!bar || bar.dataset.warm) continue;
+    bar.dataset.warm = "1";
+    bar.addEventListener("pointerover", warm, { passive: true });
+    bar.addEventListener("focusin", warm);
+  }
+  // A page painted from remembered answers is drawn again once, when a fresh answer differs. The Options pages
+  // refresh themselves every few seconds, and a person typing or reading a dialog is never interrupted.
+  onRevalidated(() => {
+    if (redrawnFor === renderSeq) return;
+    clearTimeout(redrawTimer);
+    redrawTimer = setTimeout(() => {
+      if (redrawnFor === renderSeq || document.documentElement.dataset.layout === "desk") return;
+      const busy = document.activeElement?.closest?.("input, textarea, select, dialog[open], .popover") || $("dialog")?.open;
+      if (busy) return;
+      redrawnFor = renderSeq + 1;
+      show({ refresh: true });
+    }, 120);
+  });
+  // The sidebar's foot: one account row that opens appearance, shortcuts, About and Forget key.
+  const acct = $("sb-account");
+  if (acct && !acct.dataset.ready) {
+    acct.dataset.ready = "1";
+    acct.append(icon("chevron"));
+    acct.addEventListener("click", () => accountPopover(acct));
+  }
+  addEventListener("resize", () => fitTables($("content")));
+  // The one demo indicator explains itself.
+  const demo = $("toolbar-demo");
+  if (demo && !demo.dataset.ready) {
+    demo.dataset.ready = "1";
+    demo.addEventListener("click", () => sheetPopover({ trigger: demo, title: "Demo data", cls: "demo-pop", body: h("p", {}, DEMO_EXPLAINER) }));
+  }
   const sb = $("sb-search");
   if (sb && !sb.dataset.ready) {
     sb.dataset.ready = "1";
@@ -456,19 +1161,27 @@ function setupChrome() {
     sb.append(kbd(mod, "K"));
     sb.addEventListener("click", () => openPalette());
   }
-  // The sidebar's appearance buttons get their glyphs here (index.html carries the words).
-  for (const b of document.querySelectorAll("#theme [data-theme-choice]")) if (!b.querySelector("svg")) b.prepend(icon({ light: "sun", dark: "moon", auto: "monitor" }[b.dataset.themeChoice] ?? "monitor"));
   // The IST clock in the toolbar (wide screens). It claims nothing about the market being open.
   const clock = $("clock");
   const IST_CLOCK = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hourCycle: "h23", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  // Each second only the time's text node changes (new nodes every second restyled the toolbar).
+  let clockText = null;
   const tick = () => {
-    if (clock && clock.offsetParent !== null) clock.replaceChildren(IST_CLOCK.format(new Date()), h("small", {}, "IST"));
+    if (!clock || clock.offsetParent === null) return;
+    if (!clockText || clockText.parentNode !== clock) {
+      clockText = document.createTextNode("");
+      clock.replaceChildren(clockText, h("small", {}, "IST"));
+    }
+    clockText.data = IST_CLOCK.format(new Date());
   };
   tick();
   setInterval(tick, 1000);
 }
 
-/** Go to a page from the palette or a shortcut; focus moves into the page (or to `focusSelector`) once it is drawn. */
+/**
+ * Go to a page from the palette, a shortcut or a tab: `id` is a page id, `page/tab` or either with a `?query`
+ * (`api/integrations?tool=python`). Focus moves into the page (or to `focusSelector`) once it is drawn.
+ */
 function go(id, focusSelector) {
   pendingFocus = focusSelector ?? true;
   const hash = `#/${id}`;
@@ -489,10 +1202,27 @@ async function refreshTicketCount() {
 // Motion helpers (animatePage / animateNav), when motion.js provides them. Loaded lazily so Node tests never touch it.
 let motionHooks = null;
 
+/**
+ * PR 17's page codes that open a page here, with the page's name (the palette's command line, "banknifty oc", and
+ * the g-key sequences). A code whose page id does not resolve (it would land on Home) is left out. Pure.
+ */
+const CODE_ROUTES = Object.freeze({ gex: "exposure/strike", payoff: "strategy" }); // PR 17 ids with no LEGACY entry of their own
+export function paletteCodes() {
+  const out = [];
+  for (const id of Object.keys(PAGE_CODES)) {
+    const route = CODE_ROUTES[id] ?? id;
+    const r = resolveRoute(`#/${route}`);
+    if (r.page.id === "home" && id !== "home") continue;
+    if (r.page.id !== route.split("/")[0] && !Object.hasOwn(LEGACY, route)) continue;
+    out.push({ id, route, label: r.tab ? `${r.page.label} › ${r.tab.label}` : r.page.label });
+  }
+  return out;
+}
+
 export async function startRouter() {
   setupA11y();
   setupChrome();
-  initPalette({ pages: () => PAGES, go, refresh: () => show() });
+  initPalette({ pages: () => PAGES, go, refresh: () => show({ refresh: true }), codes: paletteCodes });
   try {
     motionHooks = await import("./motion.js");
   } catch {
@@ -502,300 +1232,121 @@ export async function startRouter() {
   show();
 }
 
-// ── Scanner ──
-
-const SCAN_EXAMPLES = [
-  "rsi(14) > 60 and close > sma(50)",
-  "close crosses above ema(20) and volume > 1.5 * avg_volume(20)",
-  "close > highest(20)[1]",
-  "macd() crosses above macd_signal()",
-  "close > supertrend(10, 3) and change_pct > 2",
-];
-
-async function renderScanner() {
-  const [universes, backup, jobs] = await Promise.all([optional(api("/v1/scanner/universes")), optional(api("/v1/backup/status")), optional(api("/v1/scanner/jobs"))]);
-  const uni = h("select", { "aria-label": "Universe" }, h("option", { value: "" }, "My symbols (below)"), (universes.data?.data ?? []).map((u) => h("option", { value: u.name, selected: u.name === "NIFTY50" }, `${u.name}${u.size ? ` (${u.size})` : ""}`)));
-  const syms = h("input", { placeholder: "NSE:RELIANCE, NSE:TCS …", spellcheck: "false" });
-  syms.disabled = Boolean(uni.value);
-  uni.addEventListener("change", () => (syms.disabled = Boolean(uni.value)));
-  const interval = h("select", { "aria-label": "Interval" }, ["1d", "1w", "60m", "30m", "15m", "5m", "1m"].map((i) => h("option", { value: i }, i)));
-  const source = h("select", { "aria-label": "Source" }, h("option", { value: "auto" }, "Brokers, then backup"), h("option", { value: "broker" }, "Brokers only"), h("option", { value: "backup" }, "Backup only (Yahoo)"));
-  const cond = h("textarea", { id: "scan-condition", rows: 3, spellcheck: "false" }, SCAN_EXAMPLES[0]);
-  const cols = h("input", { value: "rsi(14), close / sma(50) - 1", spellcheck: "false" });
-  const sortBy = h("input", { value: "rsi(14)", spellcheck: "false" });
-  const examples = h("div", { class: "row", role: "group", "aria-label": "Example conditions" }, SCAN_EXAMPLES.map((e) => h("button", { type: "button", class: "small example", title: "Use this condition", onclick: () => { cond.value = e; cond.focus(); } }, e)));
-  const out = h("div", { class: "stack" });
-  const planBtn = h("button", { type: "button", class: "" }, icon("info"), "Plan");
-  const runBtn = h("button", { type: "button", class: "primary" }, icon("play"), "Run scan");
-
-  const request = () => {
-    const r = { interval: interval.value, condition: cond.value.trim(), source: source.value };
-    if (uni.value) r.universe = uni.value;
-    else r.symbols = syms.value.split(/[\s,]+/).filter(Boolean);
-    const c = cols.value.split(",").map((x) => x.trim()).filter(Boolean);
-    if (c.length) r.columns = c;
-    if (sortBy.value.trim()) r.sort = { by: sortBy.value.trim(), order: "desc" };
-    return r;
-  };
-  const drawJob = (job) => {
-    const p = job.progress ?? {};
-    const pools = (job.plan?.pools ?? []).map((x) => (x.kind === "backup" ? "backup sources" : `${x.accountId} ×${x.concurrency}`)).join(", ");
-    const head = h("div", { class: "row" }, pill(cap(job.status), job.status === "completed" ? "ok" : job.status === "failed" ? "bad" : "info"), h("span", { class: "muted small" }, `${formatInt(p.done ?? 0)}/${formatInt(p.total ?? 0)} symbols · ${formatInt(p.matched ?? 0)} matched · ${formatInt(p.errors ?? 0)} errors${pools ? ` · served by ${pools}` : ""}`));
-    const results = job.results ?? [];
-    const labels = Object.keys(results[0]?.values ?? {});
-    // Fixed decimals per column: whole numbers when every value in the column is whole, else 2.
-    const dp = Object.fromEntries(labels.map((l) => [l, results.every((r) => !isFigure(r.values[l]) || Number.isInteger(Number(r.values[l]))) ? 0 : 2]));
-    const rows = h(
-      "div",
-      { class: "card" },
-      table(
-        [{ label: "Symbol", cell: (r) => h("strong", {}, r.symbol) }, ...labels.map((l) => ({ label: l, num: true, cell: (r) => formatFixed(r.values[l], dp[l]) })), { label: "Data", cell: (r) => pill(r.source === "backup" ? `backup · ${r.provider}` : r.accountId ?? r.source, r.source === "backup" ? "warn" : "") }],
-        results,
-        emptyState("scan", job.status === "completed" ? "Nothing matched" : "Scanning…", job.status === "completed" ? "No symbol met the condition on its last candle." : "Results appear here when the scan finishes."),
-        { mobile: "scroll" },
-      ),
-    );
-    const errs = (job.errors ?? []).length ? h("details", { class: "disclosure" }, h("summary", {}, `${formatInt(job.errors.length)} symbol(s) could not be scanned`), h("div", { class: "card" }, table([{ label: "Symbol", cell: (e) => e.symbol }, { label: "Code", cell: (e) => e.code }, { label: "Message", wrap: true, cell: (e) => e.message }], job.errors.slice(0, 100), null))) : null;
-    out.replaceChildren(head, rows, errs ?? "");
-  };
-  planBtn.addEventListener("click", async () => {
-    try {
-      const r = (await api("/v1/scanner/plan", { method: "POST", body: request() })).data.data;
-      toast(`${formatInt(r.symbols)} symbols · about ${formatInt(r.estimatedSeconds)} s · ${r.pools.map((x) => x.accountId ?? "backup").join(", ")}`);
-    } catch (err) {
-      out.replaceChildren(alertBox(err));
-    }
-  });
-  runBtn.addEventListener("click", async () => {
-    runBtn.disabled = true;
-    out.replaceChildren(h("p", { class: "muted" }, "Scanning…"));
-    try {
-      let job = (await api("/v1/scanner/jobs?waitMs=2000", { method: "POST", body: request() })).data.data;
-      drawJob(job);
-      while (job.status === "queued" || job.status === "running") {
-        await new Promise((r) => setTimeout(r, 1000));
-        job = (await api(`/v1/scanner/jobs/${encodeURIComponent(job.id)}`)).data.data;
-        drawJob(job);
-      }
-    } catch (err) {
-      out.replaceChildren(alertBox(err));
-    } finally {
-      runBtn.disabled = false;
-    }
-  });
-
-  const b = backup.data?.data;
-  const backupCard = card({
-    glyph: "plug",
-    tint: "gray",
-    title: "Backup data",
-    sub: "Used only when no broker account can answer; every value is labelled source \"backup\".",
-    actions: b ? pill(b.enabled ? "On" : b.demo ? "Off in demo mode" : "Off", b.enabled ? "ok" : "warn") : null,
-    flush: Boolean(b),
-    body: b
-      ? table(
-          [
-            { label: "Provider", cell: (p) => h("strong", {}, p.name) },
-            { label: "State", cell: (p) => (!p.enabled ? pill("Off", "warn") : p.paused ? pill("Paused", "bad") : pill("Ready", "ok")) },
-            { label: "Calls", num: true, cell: (p) => formatInt(p.calls) },
-            { label: "Errors", num: true, cell: (p) => formatInt(p.errors) },
-            { label: "Last error", wrap: true, cell: (p) => p.lastError?.message ?? DASH },
-          ],
-          b.providers ?? [],
-          null,
-        )
-      : alertBox(backup.error ?? "Backup status is not available."),
-  });
-  const recent = (jobs.data?.data ?? []).slice(0, 10);
-  const recentCard = card({
-    glyph: "clock",
-    tint: "mint",
-    title: "Recent scans",
-    flush: true,
-    body: table(
-      [
-        { label: "Started", cell: (j) => istTime(j.startedAt) },
-        { label: "Condition", wrap: true, cell: (j) => h("code", {}, j.request?.condition ?? "") },
-        { label: "Status", cell: (j) => pill(cap(j.status), j.status === "completed" ? "ok" : j.status === "failed" ? "bad" : "warn") },
-        { label: "Matched", num: true, cell: (j) => formatInt(j.progress?.matched) },
-      ],
-      recent,
-      emptyState("scan", "No scans yet", "Run one above, or from Python, Node, Excel or an AI assistant.", nextStep("Write a condition", () => cond.focus())),
-    ),
-  });
-
-  return [
-    card({
-      glyph: "scan",
-      tint: "mint",
-      title: "New scan",
-      sub: "The condition is checked on each symbol's last candle. Scans run behind charts and orders, and share the work over your pooled accounts.",
-      body: h(
-        "div",
-        { class: "stack" },
-        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Universe", uni), h("label", { class: "field" }, "Interval", interval), h("label", { class: "field" }, "Data", source)),
-        h("label", { class: "field" }, "Symbols", h("span", { class: "hint" }, "Only when Universe is “My symbols”."), syms),
-        h("label", { class: "field" }, "Condition", h("span", { class: "hint" }, "Fields: open high low close volume change_pct. Functions: sma ema rsi atr macd supertrend vwap highest lowest avg_volume … “crosses above”, x[1] for the previous bar."), cond),
-        examples,
-        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Columns", h("span", { class: "hint" }, "Comma-separated expressions."), cols), h("label", { class: "field" }, "Sort by", sortBy)),
-        h("div", { class: "row" }, runBtn, planBtn),
-        out,
-      ),
-    }),
-    h("div", { class: "grid cols-2" }, recentCard, backupCard),
-  ];
-}
-
 // ── Home ──
 
 async function renderHome() {
-  const [accounts, keys, usage, safety, streams, orders] = await Promise.all([
+  // While the Bridge starts (the demo book seed), it holds positions, funds and orders so no client reads a partial
+  // book. Home does not wait on them: it draws at once and the cockpit shows the seed's progress (GET /v1/health).
+  const health = optional(api("/v1/health", { fresh: true }));
+  const starting = health.then((r) => (startupText(r.data?.startup) ? r.data.startup : null));
+  const [accounts, keys, usage, safety, streams, orders, startup] = await Promise.all([
     api("/v1/accounts"),
     optional(api("/v1/keys")),
     optional(api("/v1/usage")),
     optional(api("/v1/safety")),
     optional(api("/v1/stream/stats")),
-    optional(api("/v1/orders?limit=100")),
+    starting.then((st) => (st ? { data: null } : optional(api("/v1/orders?limit=100")))),
+    starting,
   ]);
   const accs = accounts.data.data ?? [];
   const keyRows = keys.data?.data ?? [];
   const nodes = [];
-  let section = 0;
-  const eyebrow = (label) => sectionEyebrow(String(++section).padStart(2, "0"), label);
 
   // Welcome checklist
   if (!local.get(FLAG.hideChecklist)) {
-    const state = checklistState({ demo: app.state.demo, accounts: accs, keys: keyRows, copied: local.get(FLAG.copied), tested: local.get(FLAG.tested) });
+    const ordersAll = orders.data?.data ?? [];
+    // Remember a paper trade once seen, so the step stays ticked after today's orders roll over.
+    if (ordersAll.some((o) => o?.mode === "paper" && o.tag !== "DEMOSEED")) local.set(FLAG.traded, "1");
+    const state = checklistState({ demo: app.state.demo, accounts: accs, keys: keyRows, chainOpened: local.get(FLAG.chain), traded: local.get(FLAG.traded), orders: ordersAll });
     const done = state.filter((s) => s.done).length;
     // The broker step goes straight to the next action: add a broker when there is none, else log in.
     const hasBroker = accs.some((a) => a.broker !== "paper");
     const ITEMS = {
       broker: app.state.demo
-        ? { title: "Demo mode is on: sample data is ready", text: "Everything works with sample prices. When you are ready, close the Bridge and start it normally to add your broker.", go: "accounts", cta: "Accounts" }
+        ? { title: "Explore with sample data, or add your broker", text: "Demo mode is on: everything works with sample prices. Add your broker to see what connecting it takes and save it for your next normal start.", go: "accounts?add=1", cta: "Add your broker" }
         : hasBroker
           ? { title: "Log in to your broker", text: "Open Accounts and press Log in. Most brokers ask again every morning; it takes a few seconds.", go: "accounts", cta: "Log in" }
           : { title: "Add your broker and log in", text: "Choose your broker, then log in with its API details, right here. Nothing is sent anywhere but your broker.", go: "accounts?add=1", cta: "Add a broker" },
-      key: { title: "Create a key for each tool", text: "A read-only key for spreadsheets and AI, a paper key for scripts. Never share your admin key.", go: "keys", cta: "Create a key" },
-      snippet: { title: "Copy a snippet for Python, Excel, Claude or webhooks", text: "Ready-made setup with your Bridge address filled in.", go: "integrations", cta: "Integrations" },
-      test: { title: "Make your first call", text: "Fetch a quote or an option chain in the test console and see the rate-limit headers.", go: "console", cta: "Test console" },
+      key: { title: "Create a key for Excel or AI", text: "Pick the tool and get a key with a setup ready to paste (Excel formula, Claude config, Python).", go: "api/keys", cta: "Create a key" },
+      chain: { title: "Open the option chain", text: "Prices, OI and Greeks for NIFTY, BANKNIFTY and SENSEX. Click any price to open a trade ticket.", go: "chain", cta: "Option Chain" },
+      trade: { title: "Place a paper trade", text: "Click a bid or ask in the chain, check the ticket and send it. Paper only: no real money moves.", go: "chain", cta: "Try it" },
     };
     const fill = h("span");
     fill.style.width = `${(done / state.length) * 100}%`;
-    nodes.push(
-      eyebrow("Get started"),
-      card({
-        glyph: "check",
-        tint: "green",
-        title: "Welcome to your Bridge",
-        sub: `${formatInt(done)} of ${formatInt(state.length)} done. One local API for all your broker accounts.`,
-        actions: h(
-          "div",
-          { class: "row" },
-          h("div", { class: "progress", role: "img", "aria-label": `${done} of ${state.length} steps done` }, h("div", { class: "bar ok" }, fill)),
-          h("button", { type: "button", class: "plain small", onclick: () => { local.set(FLAG.hideChecklist, "1"); show(); } }, "Hide"),
-        ),
-        flush: true,
-        body: h(
-          "div",
-          { class: "checklist" },
-          state.map((s) =>
-            h("div", { class: `check-item${s.done ? " done" : ""}` }, h("span", { class: "tick", "aria-hidden": "true" }, icon("check")), h("div", { class: "what" }, h("strong", {}, ITEMS[s.id].title, s.done ? h("span", { class: "pal-sr-only" }, " (done)") : null), h("span", {}, ITEMS[s.id].text)), h("button", { type: "button", class: s.done ? "small" : "small primary", onclick: () => (location.hash = `#/${ITEMS[s.id].go}`) }, ITEMS[s.id].cta)),
-          ),
-        ),
-      }),
-    );
-  }
-
-  // Today: the figures, then the market snapshot
-  const connected = accs.filter((a) => a.session?.state === "connected").length;
-  const sv = usage.data?.data?.savings;
-  const saved = sv ? (sv.servedFromStream ?? 0) + (sv.servedFromCache ?? 0) + (sv.coalesced ?? 0) + (sv.batched ?? 0) : null;
-  const ord = orders.data?.data ?? null;
-  const sd = streams.data?.data;
-  nodes.push(
-    eyebrow("Today"),
-    h(
+    const allDone = done === state.length;
+    const hideBtn = h("button", { type: "button", class: "plain small", onclick: () => { local.set(FLAG.hideChecklist, "1"); show(); } }, "Hide");
+    const list = h(
       "div",
-      { class: "grid cols-4 stats" },
-      stat("Accounts connected", `${formatInt(connected)}/${formatInt(accs.length)}`, accs.length ? accs.map((a) => a.id).join(", ") : "None configured", "accounts", "indigo"),
-      stat("Broker calls saved today", formatInt(saved), "Stream, cache, coalescing and batching", "bolt", "purple"),
-      stat("Live symbols", formatInt(sd?.symbols), sd ? `${formatInt(sd.downstream?.connections ?? 0)} client connection(s)` : "Stream statistics are not available", "activity", "teal"),
-      stat("Orders today", formatInt(ord?.length), ord ? `${formatInt(ord.filter((o) => o.mode === "paper").length)} paper · ${formatInt(ord.filter((o) => o.mode === "live").length)} live` : "Orders are not available", "orders", "orange"),
-    ),
-  );
-
-  const marketAccount = accs.find((a) => a.broker !== "paper" && a.session?.state === "connected");
-  const snapshot = h("div", { class: "quotes" });
-  const fillQuotes = async () => {
-    const r = await api("/v1/quotes?symbols=NSE:NIFTY,NSE:BANKNIFTY,BSE:SENSEX");
-    snapshot.replaceChildren(
-      ...(r.data.data ?? []).map((q) =>
-        h(
-          "div",
-          { class: "quote" },
-          h("span", { class: "sym" }, h("span", {}, q.symbol.split(":")[1]), h("small", {}, q.freshness?.source ?? "")),
-          h("span", { class: "px" }, formatFixed(q.ltp, 2)),
-          delta(q.change, `${formatSigned(q.change)} (${formatSigned(q.changePct)}%)`),
-        ),
+      { class: "checklist", id: "home-checklist" },
+      state.map((s) =>
+        h("div", { class: `check-item${s.done ? " done" : ""}` }, h("span", { class: "tick", "aria-hidden": "true" }, icon("check")), h("div", { class: "what" }, h("strong", {}, ITEMS[s.id].title, s.done ? h("span", { class: "pal-sr-only" }, " (done)") : null), h("span", {}, ITEMS[s.id].text)), h("button", { type: "button", class: s.done ? "small" : "small primary", onclick: () => (location.hash = `#/${ITEMS[s.id].go}`) }, ITEMS[s.id].cta)),
       ),
     );
-  };
-  if (marketAccount) {
-    await fillQuotes().catch(() => snapshot.replaceChildren(h("div", { class: "quote" }, h("span", { class: "muted" }, "Prices are not available right now."))));
-    every(5000, fillQuotes);
+    const progress = h("div", { class: "progress", role: "img", "aria-label": `${done} of ${state.length} steps done` }, h("div", { class: "bar ok" }, fill));
+    if (done === 0) {
+      nodes.push(
+        card({
+          glyph: "check",
+          tint: "green",
+          cls: "home-start",
+          title: "Get started",
+          sub: `${formatInt(done)} of ${formatInt(state.length)} done. Each step ticks itself off as you go.`,
+          actions: h("div", { class: "row" }, progress, hideBtn),
+          flush: true,
+          body: list,
+        }),
+      );
+    } else {
+      // Once a step is done the card is one line (title, count, progress, next step) that opens on a tap, so the
+      // cockpit starts on the first screen of a phone. Open or shut is kept for this browser tab only.
+      const next = state.find((s) => !s.done);
+      const open = tabStore.get(FLAG.checklistOpen) === "1";
+      list.hidden = !open;
+      const foot = h("div", { class: "start-foot" }, h("span", {}, allDone ? "Every first step is done. Hide this when you like; it stays hidden." : "Each step ticks itself off as you go."), hideBtn);
+      foot.hidden = !open;
+      const toggle = h(
+        "button",
+        { type: "button", class: "start-row", "aria-expanded": String(open), "aria-controls": "home-checklist" },
+        iconTile("check", "green", "sm"),
+        h("span", { class: "start-t" }, h("strong", {}, allDone ? "You are all set" : "Get started"), h("small", {}, allDone ? `${formatInt(done)} of ${formatInt(state.length)} done` : `${formatInt(done)} of ${formatInt(state.length)} done · next: ${ITEMS[next.id].cta}`)),
+        progress,
+        h("span", { class: "start-chev", "aria-hidden": "true" }, icon("chevron")),
+      );
+      toggle.addEventListener("click", () => {
+        const on = toggle.getAttribute("aria-expanded") !== "true";
+        toggle.setAttribute("aria-expanded", String(on));
+        list.hidden = !on;
+        foot.hidden = !on;
+        tabStore.set(FLAG.checklistOpen, on ? "1" : null);
+      });
+      nodes.push(h("section", { class: "card home-start compact" }, toggle, list, foot));
+    }
   }
-  nodes.push(
-    card({
-      glyph: "chart",
-      tint: "blue",
-      title: "Market snapshot",
-      sub: marketAccount ? `From ${marketAccount.label}, through the rate-limit engine` : "Connect a broker to see prices",
-      actions: demoPill(),
-      flush: true,
-      body: marketAccount ? snapshot : emptyState("plug", "No market data yet", "Quotes, charts and paper orders need one connected broker account, or demo mode.", h("button", { type: "button", class: "primary", onclick: () => (location.hash = accs.some((a) => a.broker !== "paper") || app.state.demo ? "#/accounts" : "#/accounts?add=1") }, "Connect a broker")),
-    }),
-  );
 
-  // Your Bridge: accounts and safety
-  const ks = safety.data?.data?.killSwitch;
-  nodes.push(
-    eyebrow("Your Bridge"),
-    h(
-      "div",
-      { class: "grid side" },
-      card({
-        glyph: "accounts",
-        tint: "indigo",
-        title: "Broker accounts",
-        flush: true,
-        actions: h("button", { type: "button", class: "small tinted", onclick: () => (location.hash = "#/accounts") }, "Manage"),
-        body: table(
-          [
-            { label: "Account", cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
-            { label: "Broker", cell: (a) => brokerCell(a.broker, a.broker) },
-            { label: "Session", cell: (a) => sessionPill(a.session?.state) },
-            { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")) },
-          ],
-          accs,
-          emptyState("accounts", "No accounts yet", "Add your broker: choose it, then log in with its API details.", app.state.demo ? null : nextStep("Add a broker", "#/accounts?add=1")),
-        ),
-      }),
-      card({
-        glyph: "safety",
-        tint: ks?.engaged ? "red" : "green",
-        title: "Safety",
-        actions: h("button", { type: "button", class: "small tinted", onclick: () => (location.hash = "#/safety") }, "Open"),
-        body: h(
-          "div",
-          { class: "stack" },
-          h("div", { class: "row" }, ks?.engaged ? pill("Kill switch on", "bad") : pill("Kill switch off", "ok"), safety.data?.data?.liveTrading ? pill("Live trading on", "bad") : pill("Paper only")),
-          h("p", { class: "muted" }, ks?.engaged ? `Engaged ${istDateTime(ks.at)}: ${ks.reason ?? ""}` : "Orders pass every safety check: order-rate cap, daily limits, price band, market-order protection."),
-          h("p", { class: "muted small" }, `Bridge ${app.state.health?.version ?? ""} · up ${formatInt((app.state.health?.uptimeSeconds ?? 0) / 60)} min · listening on this computer only`),
-        ),
-      }),
-    ),
-  );
+  // The cockpit: indices, P&L today, open positions with risk, live events, today's calendar, API and broker health.
+  const readySnap = await refreshReadiness();
+  const { cockpit } = await import("./cockpit.js");
+  const ck = await cockpit({ accs, orders, streams, usage, safety, keys, readyPill: readySnap ? readinessPill(readySnap) : null, starting: startup });
+  nodes.push(...ck.nodes);
+  every(5000, ck.refresh);
   return nodes;
+}
+
+/**
+ * An account's capabilities on one line: the first as a chip, then a "+N" chip (two chips at most) that opens the rest in a popover,
+ * so every account row keeps one height (about 64px on a desktop) however much its broker can do.
+ */
+function capabilityChips(a) {
+  const caps = a.capabilities ?? [];
+  // One summary chip in words ("Data and orders"); the full list, also in words, behind "+N".
+  const more = caps.length
+    ? h("button", { type: "button", class: "chip-btn acct-caps-more", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-label": `Everything ${a.label} can do (${formatInt(caps.length)})` }, `+${formatInt(caps.length)}`)
+    : null;
+  more?.addEventListener("click", () => {
+    more.setAttribute("aria-expanded", "true");
+    sheetPopover({ trigger: more, title: `${a.label} can do`, body: h("div", { class: "chips acct-caps-all" }, caps.map((c) => h("span", { class: "chip" }, capabilityLabel(c)))) });
+  });
+  return h("div", { class: "chips acct-caps" }, caps.length ? h("span", { class: "chip" }, capabilitySummary(caps)) : null, more);
 }
 
 /** A metric card: tinted icon and label, the figure, a footnote (IPO Decode's Metric). */
@@ -811,12 +1362,13 @@ const PAPER_CHOICE = { id: "paper", name: "Paper account (practice, no broker)",
 /** The 41 real brokers, by the name people see (the API lists by id, which put "5paisa" between Firstock and Flattrade). */
 const realBrokers = (list) => list.filter((b) => b.id !== "demo").sort((a, b) => String(a.name ?? a.id).localeCompare(String(b.name ?? b.id), undefined, { sensitivity: "base", numeric: true }));
 const cliHint = () => app.state.meta?.cliCommand || "npm run bridge --";
-const field = (labelText, input, hint) => h("label", { class: "field", for: input.id }, h("span", {}, labelText), input, hint ? h("span", { class: "hint" }, hint) : null);
+export const field = (labelText, input, hint) => h("label", { class: "field", for: input.id }, h("span", {}, labelText), input, hint ? h("span", { class: "hint" }, hint) : null);
 
 /** A failed call as an alert, with the Bridge's per-field messages (field names only, never values) when it sent any. */
-function errorBox(err, labels = {}) {
+export function errorBox(err, labels = {}) {
   const box = alertBox(err);
-  const errors = Array.isArray(err?.body?.errors) ? err.body.errors : [];
+  // A field message that only repeats the alert's own text is not listed again.
+  const errors = (Array.isArray(err?.body?.errors) ? err.body.errors : []).filter((e) => e?.message && e.message !== err?.message && e.message !== err?.body?.detail);
   if (errors.length) {
     const list = h("ul", { class: "field-errors" }, errors.slice(0, 6).map((e) => {
       const key = String(e.path ?? "").split(".").pop();
@@ -827,74 +1379,161 @@ function errorBox(err, labels = {}) {
   return box;
 }
 
+/** One broker as a row of the pick lists (name, how it logs in, Verified / Beta). */
+function brokerPickRow(b, checked, onPick) {
+  const radio = h("input", { type: "radio", name: "add-broker", value: b.id, checked });
+  radio.addEventListener("change", () => onPick(b.id));
+  return h(
+    "label",
+    { class: "pick-row" },
+    radio,
+    b.paper ? h("span", { class: "avatar" }, "P") : brokerAvatar(b),
+    h("span", { class: "names" }, h("span", { class: "nm" }, b.name), h("span", { class: "sub" }, b.paper ? "Simulated orders with real prices" : AUTH_KIND_LABEL[b.authKind] ?? b.authKind)),
+    b.paper ? pill("Simulator") : b.verified ? pill("Verified", "ok") : pill("Beta", "warn"),
+  );
+}
+
+/** A searchable broker list: the search field, the radio list, and redraw/selection plumbing. */
+function brokerPicker(brokers, initial, onPick) {
+  let chosen = brokers.some((b) => b.id === initial) ? initial : null;
+  const realCount = brokers.filter((b) => !b.paper).length;
+  const search = h("input", { type: "search", placeholder: `Search ${formatInt(realCount)} brokers…`, "aria-label": "Search brokers", autocomplete: "off", spellcheck: "false" });
+  const picker = h("div", { class: "pick-list", role: "radiogroup", "aria-label": "Broker" });
+  const draw = () => {
+    const rows = brokers.filter((b) => brokerMatches(b, search.value));
+    picker.replaceChildren(...rows.map((b) => brokerPickRow(b, b.id === chosen, (id) => ((chosen = id), onPick(id)))));
+    if (!rows.length) picker.replaceChildren(h("p", { class: "muted small pick-empty" }, `No broker matches “${search.value}”. Try its short name, like “kite” or “angel”.`));
+  };
+  search.addEventListener("input", draw);
+  // Enter in the search picks the only match (or the first), so a typed name plus Enter is enough.
+  search.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const first = picker.querySelector("input[type=radio]");
+    if (!first) return;
+    e.preventDefault();
+    e.stopPropagation();
+    first.checked = true;
+    first.dispatchEvent(new Event("change"));
+    first.focus();
+  });
+  draw();
+  // A preselected broker is scrolled into view once the sheet is open.
+  if (chosen) setTimeout(() => picker.querySelector("input:checked")?.closest(".pick-row")?.scrollIntoView?.({ block: "nearest" }), 60);
+  return { search, picker, chosen: () => chosen };
+}
+
+/**
+ * Demo mode's "Add a broker": demo runs on sample prices, so nothing is connected here. Pick a broker, see what
+ * connecting it takes (its fields, step by step), and save it to the config file for the next normal start
+ * (POST /v1/accounts in demo mode). Resolves with the answer, or null when cancelled.
+ */
+function demoBrokerSheet(list, { preselect } = {}) {
+  const brokers = realBrokers(list);
+  const guide = h("div", { class: "setup-guide", "aria-live": "polite" });
+  const pickErr = h("div", { "aria-live": "polite" });
+  const err = h("div", { "aria-live": "polite" });
+  const leave = h("input", { type: "checkbox", checked: true });
+  const drawGuide = (id) => {
+    pickErr.replaceChildren();
+    const b = brokers.find((x) => x.id === id);
+    if (!b) {
+      guide.replaceChildren(h("p", { class: "muted small" }, "Choose your broker to see what connecting it takes."));
+      return;
+    }
+    const steps = brokerSetupSteps(b, loginFormSpec(b), { demo: true });
+    guide.replaceChildren(
+      h("div", { class: "setup-head" }, brokerAvatar(b), h("strong", {}, `Connecting ${b.name}`), b.verified ? pill("Verified", "ok") : pill("Beta", "warn")),
+      h(
+        "ol",
+        { class: "setup-steps" },
+        steps.map((st) => h("li", {}, h("strong", {}, st.title), h("span", {}, st.text), st.fields?.length ? h("span", { class: "chips" }, st.fields.map((f) => h("span", { class: "chip" }, f))) : null)),
+      ),
+    );
+  };
+  const pick = brokerPicker(brokers, preselect, drawGuide);
+  drawGuide(pick.chosen());
+  return modal({
+    title: "Add a broker",
+    body: h(
+      "div",
+      { class: "stack" },
+      alertBox({ title: "You are in demo mode", detail: "Demo runs on sample prices, so no broker is connected here. Pick yours to see what connecting it takes, and save it for when you start the Bridge normally." }, "info"),
+      pick.search,
+      pick.picker,
+      pickErr,
+      guide,
+      h("label", { class: "check" }, leave, "Start normally next time (turns demo mode off in the config file)"),
+      err,
+    ),
+    buttons: [
+      { label: "Cancel", value: null },
+      {
+        label: "Save for normal mode",
+        cls: "primary",
+        onClick: async () => {
+          const chosen = pick.chosen();
+          if (!chosen) {
+            pickErr.replaceChildren(h("p", { class: "field-msg", role: "alert" }, "Choose your broker from the list first."));
+            pick.search.focus();
+            return false;
+          }
+          try {
+            const r = await api("/v1/accounts", { method: "POST", body: { broker: chosen, leaveDemo: leave.checked } });
+            return { ...r.data.data, broker: brokers.find((b) => b.id === chosen) };
+          } catch (e) {
+            err.replaceChildren(errorBox(e, { broker: "Broker" }));
+            return false;
+          }
+        },
+      },
+    ],
+  });
+}
+
 /**
  * "Add a broker" sheet: a searchable list of the brokers (verified / beta), an optional name and id. Resolves with
- * the POST /v1/accounts answer ({ account, restartNeeded, configFile }) or null when cancelled.
+ * the POST /v1/accounts answer ({ account, restartNeeded, configFile }) or null when cancelled. Demo mode opens
+ * demoBrokerSheet instead (never a dead end).
  */
 function addBrokerSheet(list, { preselect } = {}) {
-  if (app.state.demo) {
-    return modal({
-      title: "Add a broker",
-      body: alertBox({ title: "Demo mode is on", detail: "Demo mode uses sample accounts only. Close the Bridge and start it normally (not in demo mode) to add your own broker." }, "info"),
-      buttons: [{ label: "OK", cls: "primary", value: null }],
-    });
-  }
+  if (app.state.demo) return demoBrokerSheet(list, { preselect });
   const brokers = [...realBrokers(list).filter((b) => b.available !== false), PAPER_CHOICE];
-  let chosen = brokers.some((b) => b.id === preselect) ? preselect : null;
-  const search = h("input", { type: "search", placeholder: `Search ${brokers.length - 1} brokers…`, "aria-label": "Search brokers", autocomplete: "off", spellcheck: "false" });
-  const picker = h("div", { class: "pick-list", role: "radiogroup", "aria-label": "Broker" });
   const nameInput = h("input", { id: "add-label", type: "text", maxlength: "60", autocomplete: "off", placeholder: "A name you will recognise" });
   const idInput = h("input", { id: "add-id", type: "text", maxlength: "32", autocomplete: "off", spellcheck: "false", autocapitalize: "off", placeholder: "Picked for you, e.g. zerodha-main" });
+  const pickErr = h("div", { "aria-live": "polite" });
   const err = h("div", { "aria-live": "polite" });
-  const describe = () => {
-    const b = brokers.find((x) => x.id === chosen);
+  const idBox = h("details", { class: "disclosure" }, h("summary", {}, "Account id (optional)"), field("Account id", idInput, "Used by scripts and spreadsheets to pick this account: 2-32 lowercase letters, digits or hyphens."));
+  const describe = (id) => {
+    pickErr.replaceChildren();
+    const b = brokers.find((x) => x.id === id);
     nameInput.placeholder = b ? (b.paper ? "Paper account" : `${b.name} (main)`) : "A name you will recognise";
     idInput.placeholder = b ? `Picked for you, e.g. ${b.paper ? "paper-2" : `${b.id}-main`}` : "Picked for you, e.g. zerodha-main";
   };
-  const option = (b) => {
-    const radio = h("input", { type: "radio", name: "add-broker", value: b.id, checked: b.id === chosen });
-    radio.addEventListener("change", () => {
-      chosen = b.id;
-      err.replaceChildren();
-      describe();
-    });
-    return h(
-      "label",
-      { class: "pick-row" },
-      radio,
-      b.paper ? h("span", { class: "avatar" }, "P") : brokerAvatar(b),
-      h("span", { class: "names" }, h("span", { class: "nm" }, b.name), h("span", { class: "sub" }, b.paper ? "Simulated orders with real prices" : AUTH_KIND_LABEL[b.authKind] ?? b.authKind)),
-      b.paper ? pill("Simulator") : b.verified ? pill("Verified", "ok") : pill("Beta", "warn"),
-    );
-  };
-  const draw = () => {
-    const rows = brokers.filter((b) => brokerMatches(b, search.value));
-    picker.replaceChildren(...rows.map(option));
-    if (!rows.length) picker.replaceChildren(h("p", { class: "muted small pick-empty" }, `No broker matches “${search.value}”.`));
-  };
-  search.addEventListener("input", draw);
-  draw();
-  describe();
+  const pick = brokerPicker(brokers, preselect, describe);
+  describe(pick.chosen());
   return modal({
     title: "Add a broker",
     body: h(
       "div",
       { class: "stack" },
       h("p", { class: "muted" }, "Choose your broker. You log in on the next step; nothing is sent to the broker yet. New accounts are paper only."),
-      search,
-      picker,
+      pick.search,
+      pick.picker,
+      pickErr,
       field("Name (optional)", nameInput),
-      h("details", { class: "disclosure" }, h("summary", {}, "Account id (optional)"), field("Account id", idInput, "Used by scripts and spreadsheets to pick this account: 2-32 lowercase letters, digits or hyphens.")),
+      idBox,
       err,
     ),
     buttons: [
       { label: "Cancel", value: null },
       {
-        label: "Add",
+        label: "Add and log in",
         cls: "primary",
         onClick: async () => {
+          const chosen = pick.chosen();
           if (!chosen) {
-            err.replaceChildren(alertBox({ title: "Choose a broker", detail: "Pick your broker from the list first." }, "warn"));
+            pickErr.replaceChildren(h("p", { class: "field-msg", role: "alert" }, "Choose your broker from the list first."));
+            pick.search.focus();
             return false;
           }
           const body = { broker: chosen };
@@ -904,6 +1543,14 @@ function addBrokerSheet(list, { preselect } = {}) {
             const r = await api("/v1/accounts", { method: "POST", body });
             return r.data.data;
           } catch (e) {
+            // A problem with one field goes under that field; anything else above the buttons.
+            const paths = (Array.isArray(e?.body?.errors) ? e.body.errors : []).map((x) => String(x.path ?? "").split(".").pop());
+            const one = e?.body?.errors?.[0];
+            if (paths[0] === "id") {
+              idBox.open = true;
+              return fieldError(idInput, one.message ? `${cap(one.message)}.` : e.message);
+            }
+            if (paths[0] === "label") return fieldError(nameInput, one.message ? `${cap(one.message)}.` : e.message);
             err.replaceChildren(errorBox(e, { id: "Account id", label: "Name", broker: "Broker" }));
             return false;
           }
@@ -913,21 +1560,48 @@ function addBrokerSheet(list, { preselect } = {}) {
   });
 }
 
+/** After a demo-mode save: what happens next, step by step. */
+function demoSavedSheet(r) {
+  const name = r.broker?.name ?? "your broker";
+  return modal({
+    title: `${name} is saved`,
+    body: h(
+      "div",
+      { class: "stack" },
+      h("p", {}, `It will be ready to log in the next time the Bridge starts normally, as a paper account (${r.savedId}). Demo keeps running until then.`),
+      h("ol", { class: "setup-steps" }, afterDemoSaveSteps(r, name).map((t) => h("li", {}, h("span", {}, t)))),
+      h("p", { class: "muted small" }, `Saved in ${r.configFile}`),
+    ),
+    buttons: [{ label: "Done", cls: "primary", value: true }],
+  });
+}
+
 /** Add an account, then go straight on to logging in to it. */
 async function addAccountFlow(list, opts) {
   const added = await addBrokerSheet(list, opts);
   if (!added) return;
+  if (added.savedForLater) {
+    await demoSavedSheet(added);
+    return show();
+  }
   if (added.restartNeeded || !added.account) {
     await modal({
-      title: "Saved",
-      body: alertBox({ title: "Restart the Bridge to use the new account", detail: `It was saved to ${added.configFile}. Close the Bridge and start it again, then log in on this page.` }, "info"),
-      buttons: [{ label: "OK", cls: "primary", value: true }],
+      title: "Saved: one more step",
+      body: h(
+        "div",
+        { class: "stack" },
+        alertBox({ title: "Restart the Bridge to use the new account", detail: "This Bridge could not load it while running, so it was saved for the next start." }, "info"),
+        h("ol", { class: "setup-steps" }, ["Close the Bridge window (or press Ctrl+C in it).", "Start it again from the Start menu, the Desktop or the same command.", "Open Accounts and press Log in next to the new account."].map((t) => h("li", {}, h("span", {}, t)))),
+        h("p", { class: "muted small" }, `Saved in ${added.configFile}`),
+      ),
+      buttons: [{ label: "Done", cls: "primary", value: true }],
     });
     return show();
   }
   await show();
-  toast(`Added ${added.account.label}`);
-  if (added.account.broker !== "paper") await loginSheet(added.account, list.find((b) => b.id === added.account.broker));
+  if (added.account.broker === "paper") return toast(`Added ${added.account.label}. It is ready for paper orders.`);
+  toast(`Added ${added.account.label}. Now log in to it.`);
+  await loginSheet(added.account, list.find((b) => b.id === added.account.broker));
 }
 
 /**
@@ -968,7 +1642,7 @@ function loginSheet(a, broker) {
   if (broker.loginUrl) {
     const needs = [...broker.loginUrl.matchAll(/\{([A-Za-z0-9_]+)\}/g)].map((m) => labels[m[1]] ?? m[1]);
     const note = h("span", { class: "hint" }, `Type your ${needs.join(" and ")} above first.`);
-    const open = h("button", { type: "button", class: "small tinted", disabled: true }, icon("external"), `Open ${broker.name} login page`);
+    const open = h("button", { type: "button", class: "small", disabled: true }, icon("external"), `Open ${broker.name} login page`);
     const sync = () => {
       const ok = fillLoginUrl(broker.loginUrl, typed()) !== null;
       open.disabled = !ok;
@@ -991,15 +1665,23 @@ function loginSheet(a, broker) {
   let busy = false;
   const submit = async () => {
     if (busy) return false;
+    result.replaceChildren();
+    // Checked before anything leaves the page, and shown on the field itself: a missing or malformed one-time code or
+    // PIN. (Saved fields are not all required: some brokers fill a token in themselves from the day's code.)
+    for (const [f, input] of inputs) {
+      if (f.group === "secrets" && !input.value.trim()) return fieldError(input, `Type your ${f.label} to log in.`);
+      if (f.group === "secrets" && f.pattern && !new RegExp(`^${f.pattern}$`).test(input.value.trim())) return fieldError(input, `${f.label} is ${f.maxlength ?? 6} digits.`);
+    }
     let body = loginBody(spec, (f) => inputs.get(f).value);
     // Off the page at once, whatever happens next.
     for (const i of inputs.values()) i.value = "";
     if (!Object.keys(body.values).length && !body.secrets) {
-      result.replaceChildren(alertBox({ title: "Nothing to send", detail: spec.keepHint ? "Type at least the fields that changed (for most brokers: today's token or code)." : "Fill in the fields above first." }, "warn"));
-      return false;
+      const firstInput = inputs.values().next().value;
+      return fieldError(firstInput, spec.keepHint ? "Type at least the fields that changed (for most brokers: today's token or code)." : `Type your ${broker.name} details first.`);
     }
     busy = true;
-    result.replaceChildren(h("p", { class: "muted small" }, `Logging in to ${broker.name}…`));
+    loginBtn?.setAttribute("aria-busy", "true");
+    result.replaceChildren(h("p", { class: "muted small", role: "status" }, `Logging in to ${broker.name}…`));
     let state;
     try {
       state = (await api(`/v1/accounts/${encodeURIComponent(a.id)}/session`, { method: "POST", body })).data.data;
@@ -1009,17 +1691,19 @@ function loginSheet(a, broker) {
     } finally {
       body = null;
       busy = false;
+      loginBtn?.removeAttribute("aria-busy");
     }
     if (state?.state === "connected") {
       show().then(() => toast(`${a.label}: logged in${state.expiresAt ? `, until ${istDateTime(state.expiresAt)}` : ""}`));
       return true;
     }
-    result.replaceChildren(alertBox({ title: "The broker did not accept this", detail: `${state?.message ?? "No reason given."} Check the fields and try again.` }));
+    result.replaceChildren(alertBox({ title: `${broker.name} did not accept this`, detail: `${state?.message ?? "No reason given."} Check the fields and try again. One-time codes change every 30 seconds.` }));
     return false;
   };
+  let loginBtn = null;
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    document.querySelector("#dialog .dialog-actions button.primary")?.click();
+    loginBtn?.click();
   });
   return modal({
     title: `Log in to ${a.label}`,
@@ -1040,7 +1724,7 @@ function loginSheet(a, broker) {
     ),
     buttons: [
       { label: "Cancel", value: null },
-      { label: "Log in", cls: "primary", onClick: submit },
+      { label: "Log in", cls: "primary", onClick: submit, ref: (el) => (loginBtn = el) },
     ],
   }).finally(() => {
     for (const i of inputs.values()) i.value = "";
@@ -1063,7 +1747,7 @@ function removeAccountSheet(a) {
       { label: "Cancel", value: false },
       {
         label: "Remove",
-        cls: "danger",
+        cls: "primary",
         onClick: async () => {
           try {
             await api(`/v1/accounts/${encodeURIComponent(a.id)}`, { method: "DELETE" });
@@ -1080,21 +1764,160 @@ function removeAccountSheet(a) {
   });
 }
 
+/** Reset a paper account, optionally with more (or less) paper money: POST /v1/paper/accounts/{id}/reset. */
+async function paperResetSheet(a) {
+  const info = (await optional(api(`/v1/paper/accounts/${encodeURIComponent(a.id)}`))).data?.data ?? null;
+  const funds = info?.funds ?? null;
+  const start = Number(info?.startingCapital) || 1_000_000;
+  const CHOICES = [1_000_000, 2_500_000, 5_000_000, 10_000_000];
+  const pick = segmented("Starting money", CHOICES.map((v) => [String(v), formatRupeeGrouped(v)]), String(CHOICES.includes(start) ? start : CHOICES[0]));
+  const err = h("div", { "aria-live": "polite" });
+  const done = await modal({
+    title: `Reset ${a.label}?`,
+    body: h(
+      "div",
+      { class: "stack" },
+      funds
+        ? h("div", { class: "ticket-figs" }, h("div", {}, h("small", {}, "Started with"), formatRupeeGrouped(start)), h("div", {}, h("small", {}, "Margin in use"), formatRupeeGrouped(funds.usedMargin)), h("div", {}, h("small", {}, "Free now"), formatRupeeGrouped(funds.availableCash)))
+        : null,
+      alertBox({ title: "This clears the account's paper orders and positions", detail: "It starts again with the money you choose below. Only this paper account changes; no real account or money is touched." }, "warn"),
+      segField("Starting money", pick, { wide: true }),
+      err,
+    ),
+    buttons: [
+      { label: "Cancel", value: false },
+      {
+        label: "Reset paper account",
+        cls: "primary",
+        onClick: async () => {
+          try {
+            await api(`/v1/paper/accounts/${encodeURIComponent(a.id)}/reset`, { method: "POST", body: { startingCapital: Number(pick.value) } });
+            return true;
+          } catch (e) {
+            err.replaceChildren(errorBox(e));
+            return false;
+          }
+        },
+      },
+    ],
+  });
+  // Undo for 2 minutes, while nothing has been placed since: the Bridge keeps the book from before the reset.
+  const undo = async () => {
+    const r = await optional(api(`/v1/paper/accounts/${encodeURIComponent(a.id)}/reset/undo`, { method: "POST" }));
+    if (r.error) return toast(r.error.message ?? "The reset could not be undone.", { tone: "error" });
+    show().then(() => toast(`${a.label}: positions, orders and funds put back`));
+  };
+  if (done) show().then(() => toast(h("span", { class: "toast-undo-row" }, `${a.label} starts again with ${formatRupeeGrouped(Number(pick.value))} · `, h("button", { type: "button", class: "toast-undo", onclick: undo }, "Undo"))));
+}
+
+/** The holder text an account card shows (P1-13 §6.8): "Asha · Spouse · Family" / "friend · Other · Outside family". */
+export function holderText(entry) {
+  if (!entry) return null;
+  const rel = entry.relationship ? HOLDER_REL[entry.relationship] ?? entry.relationship : "No relationship";
+  const who = entry.label || entry.holder;
+  return `${who} · ${rel} · ${entry.inFamily ? "Family" : "Outside family"}`;
+}
+/** The Accounts row's holder line under its Family pill: "You (demo) · Self". */
+const holderWhoText = (e) => `${e.label || e.holder} · ${e.relationship ? HOLDER_REL[e.relationship] ?? e.relationship : "No relationship"}`;
+const HOLDER_REL = { self: "Self", spouse: "Spouse", "dependent-child": "Dependent child", "dependent-parent": "Dependent parent", huf: "HUF", other: "Other" };
+
+/** Edit a holder's relationship and label (PUT /v1/book/holders/{holder}: admin, this computer). */
+function holderSheet(entry, relationships) {
+  const err = h("div", { "aria-live": "polite" });
+  const sel = h("select", { "aria-label": "Relationship" }, relationships.map((r) => h("option", { value: r.value, selected: r.value === entry.relationship }, `${r.label}${r.inFamily ? " · family" : ""}`)));
+  const label = h("input", { type: "text", maxlength: "40", value: entry.label && entry.label !== entry.holder ? entry.label : "", placeholder: "A name you recognise (optional)" });
+  return modal({
+    title: `Holder: ${entry.holder}`,
+    body: h(
+      "div",
+      { class: "stack" },
+      h("p", { class: "muted small" }, `Accounts: ${entry.accounts.join(", ") || "none visible"}. The relationship decides whether guards and alert actions may act on these accounts.`),
+      h("label", { class: "field" }, "Relationship", sel),
+      h("label", { class: "field" }, "Label", label),
+      err,
+    ),
+    buttons: [
+      { label: "Cancel", value: false },
+      {
+        label: "Save",
+        cls: "primary",
+        onClick: async () => {
+          try {
+            await api(`/v1/book/holders/${encodeURIComponent(entry.holder)}`, { method: "PUT", body: { relationship: sel.value, ...(label.value.trim() ? { label: label.value.trim() } : {}) } });
+            return true;
+          } catch (e) {
+            err.replaceChildren(errorBox(e));
+            return false;
+          }
+        },
+      },
+    ],
+  }).then((saved) => {
+    if (saved) show().then(() => toast(`Saved the relationship for ${entry.holder}`));
+  });
+}
+
+/** The Accounts "Today" cell: a placeholder that fills itself (positions, funds, today's orders; today-core.js). */
+const todayCells = new Map();
+function todayCell(a) {
+  const el = h("div", { class: "acct-today", "data-acct": a.id }, a.broker === "paper" || a.session?.state === "connected" ? h("span", { class: "muted small" }, "Reading") : h("span", { class: "muted small" }, "Log in to see today"));
+  todayCells.set(a.id, el);
+  return el;
+}
+async function fillToday(accs) {
+  const readable = accs.filter((a) => a.broker === "paper" || a.session?.state === "connected").slice(0, 8);
+  const { accountToday } = await import("./today-core.js");
+  const orders = await optional(api("/v1/orders?limit=200"));
+  await Promise.all(
+    readable.map(async (a) => {
+      const [p, f] = await Promise.all([optional(api(`/v1/positions?account=${encodeURIComponent(a.id)}`)), optional(api(`/v1/funds?account=${encodeURIComponent(a.id)}`))]);
+      const el = todayCells.get(a.id);
+      if (!el?.isConnected) return;
+      if (p.error && f.error) {
+        el.replaceChildren(h("span", { class: "muted small" }, "Not available"));
+        return;
+      }
+      const t = accountToday({ accountId: a.id, positions: p.data?.data ?? null, funds: f.data?.data ?? null, orders: orders.data?.data ?? [], nowMs: Date.now() });
+      el.replaceChildren(
+        h("div", { class: "acct-today-pnl" }, pnl(t.pnl, 0), h("span", { class: "muted small" }, ` · ${formatInt(t.open)} open`)),
+        h("div", { class: "muted small" }, `${formatInt(t.orders)} order${t.orders === 1 ? "" : "s"}${t.orders ? ` (${formatInt(t.filled)} filled)` : ""} · margin ${t.margin === null ? DASH : formatRupeeGrouped(t.margin)}`),
+      );
+    }),
+  );
+}
 async function renderAccounts() {
-  const [accounts, brokers] = await Promise.all([api("/v1/accounts"), api("/v1/brokers")]);
+  const [accounts, brokers, holdersRes] = await Promise.all([api("/v1/accounts"), api("/v1/brokers"), optional(api("/v1/book/holders"))]);
   const accs = accounts.data.data ?? [];
+  const book = holdersRes.data?.data ?? null;
+  const holderOfAcc = (id) => book?.holders.find((x) => x.accounts.includes(id)) ?? null;
+  const holderCell = (a) => {
+    const e = holderOfAcc(a.id);
+    if (!e) return null;
+    // Two short lines, like the Account cell beside it: the deciding Family pill and Edit, then who and how related.
+    return h(
+      "div",
+      { class: "acct-holder", title: `Holder: ${holderText(e)}` },
+      h(
+        "span",
+        { class: "acct-holder-top" },
+        h("span", { class: "bk-rel", "data-tone": e.inFamily ? "ok" : "warn" }, e.inFamily ? "Family" : "Outside family"),
+        e.locked ? h("span", { class: "muted small" }, "set in bridge.config.json") : h("button", { type: "button", class: "small link-btn", "aria-label": `Edit the relationship of holder ${e.holder}`, onclick: () => holderSheet(e, book.relationships) }, "Edit"),
+      ),
+      h("span", { class: "muted small acct-holder-who" }, holderWhoText(e)),
+    );
+  };
   const list = brokers.data.data ?? [];
   const brokerOf = (a) => list.find((b) => b.id === a.broker);
   const paperCount = accs.filter((a) => a.broker === "paper").length;
   const testAccount = async (a, btn) => {
-    btn.disabled = true;
+    busy(btn, true);
     try {
       const r = await api(`/v1/accounts/${encodeURIComponent(a.id)}/test`, { method: "POST" });
-      toast(r.data?.data?.ok ? `${a.id}: connection OK` : `${a.id}: ${r.data?.data?.message ?? "not OK"}`);
+      toast(r.data?.data?.ok ? `${a.label}: connection OK` : `${a.label}: ${r.data?.data?.message ?? "the broker did not answer"}`, { tone: r.data?.data?.ok ? "ok" : "error" });
     } catch (err) {
       modal({ title: `Test ${a.id}`, body: alertBox(err), buttons: [{ label: "Close", value: true }] });
     } finally {
-      btn.disabled = false;
+      busy(btn, false);
     }
   };
   const addButton = (cls = "primary", text = "Add a broker") => h("button", { type: "button", class: cls, onclick: () => addAccountFlow(list) }, icon("plus"), text);
@@ -1106,38 +1929,66 @@ async function renderAccounts() {
     tint: "indigo",
     title: "Your accounts",
     sub: "Several brokers and several accounts per broker are fine. New accounts are paper only.",
-    actions: app.state.demo ? null : addButton("small primary"),
+    actions: h("div", { class: "row" }, h("button", { type: "button", class: "small quiet", title: "A .xlsx with your watchlist and open positions as live formulas against this Bridge", onclick: () => import("./workbook.js").then((m) => m.downloadWorkbook()) }, icon("download"), h("span", {}, "Excel workbook")), addButton("small primary", app.state.demo ? "Add your broker" : "Add a broker")),
     flush: true,
     body: table(
       [
-        { label: "Account", cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
-        { label: "Broker", cell: (a) => (a.broker === "paper" ? "Paper (simulator)" : brokerCell(a.broker, brokerOf(a)?.name ?? a.broker)) },
-        { label: "Session", cell: (a) => h("div", {}, sessionPill(a.session?.state), a.session?.expiresAt ? h("div", { class: "muted small" }, `until ${istDateTime(a.session.expiresAt)}`) : null) },
-        { label: "Mode", cell: (a) => (a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")) },
-        { label: "Can do", wrap: true, cell: (a) => h("div", { class: "chips" }, (a.capabilities ?? []).slice(0, 6).map((c) => h("span", { class: "chip" }, c)), (a.capabilities?.length ?? 0) > 6 ? h("span", { class: "chip" }, `+${a.capabilities.length - 6}`) : null) },
+        { label: "Account", wrap: true, cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
+        ...(book ? [{ label: "Holder", cell: (a) => holderCell(a) ?? h("span", { class: "muted small" }, "No holder") }] : []),
+        // Broker and what it can do share a cell, and Session carries the mode under its pill, so the table fits its
+        // card from 1100px up without a sideways scroll (two fewer columns).
+        { label: "Broker", wrap: true, cell: (a) => h("div", { class: "acct-broker" }, a.broker === "paper" ? h("span", {}, "Paper (simulator)") : brokerCell(a.broker, brokerOf(a)?.name ?? a.broker), capabilityChips(a)) },
+        {
+          label: "Session and today",
+          cell: (a) =>
+            h(
+              "div",
+              { class: "acct-session" },
+              h("span", { class: "acct-session-pills" }, sessionPill(a.session?.state, a.broker), a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")),
+              a.session?.expiresAt ? h("div", { class: "muted small" }, `until ${istDateTime(a.session.expiresAt)}`) : null,
+              // Today: P&L, orders and margin used, filled in after the table draws (paper and logged-in accounts). It
+              // shares the Session cell so the table keeps fitting its card from 1024 px without a sideways scroll.
+              todayCell(a),
+            ),
+        },
         {
           label: "",
           cell: (a) => {
-            if (a.broker === "paper") return h("div", { class: "row" }, h("span", { class: "muted small" }, "Simulator"), !app.state.demo && paperCount > 1 ? removeButton(a) : null);
+            if (a.broker === "paper") return h("div", { class: "row" }, h("button", { type: "button", class: "small", "aria-label": `Reset ${a.label} or add paper money`, onclick: () => paperResetSheet(a) }, "Reset funds"), !app.state.demo && paperCount > 1 ? removeButton(a) : null);
             const t = h("button", { type: "button", class: "small", "aria-label": `Test ${a.id}` }, "Test");
             t.addEventListener("click", () => testAccount(a, t));
             if (app.state.demo) return t;
             const connected = a.session?.state === "connected";
+            const loginText = connected ? "Log in again" : "Log in";
+            const login = () => loginSheet(a, brokerOf(a));
+            // A narrow card (accounts-card container < 1080px, app.css) shows these as one ⋯ menu instead of a row.
+            const more = h("button", { type: "button", class: "icon-btn acct-acts-more", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-label": `Actions for ${a.label}: test, ${loginText.toLowerCase()}${a.liveAllowedByConfig ? "" : ", remove"}` }, icon("more"));
+            more.addEventListener("click", () => {
+              more.setAttribute("aria-expanded", "true");
+              let handle = null;
+              const item = (label, fn, cls = "") => h("button", { type: "button", class: `menu-item${cls}`, onclick: () => (handle?.close(), setTimeout(fn, 0)) }, label);
+              const items = [item("Test connection", () => testAccount(a, more)), item(loginText, login), a.liveAllowedByConfig ? null : item("Remove", () => removeAccountSheet(a), " destructive")].filter(Boolean);
+              handle = sheetPopover({ trigger: more, title: a.label, body: h("div", { class: "menu-list stack" }, items), cls: "menu-pop" });
+            });
             return h(
               "div",
-              { class: "row" },
-              t,
-              h("button", { type: "button", class: connected ? "small" : "small primary", "aria-label": `${connected ? "Log in again to" : "Log in to"} ${a.label}`, onclick: () => loginSheet(a, brokerOf(a)) }, connected ? "Log in again" : "Log in"),
-              a.liveAllowedByConfig ? null : removeButton(a),
+              { class: "acct-acts" },
+              h("div", { class: "row acct-acts-inline" }, t, h("button", { type: "button", class: connected ? "small" : "small primary", "aria-label": `${loginText === "Log in" ? "Log in to" : "Log in again to"} ${a.label}`, onclick: login }, loginText), a.liveAllowedByConfig ? null : removeButton(a)),
+              more,
             );
           },
         },
       ],
       accs,
-      emptyState("accounts", "No accounts yet", "Add your broker to get started: choose it, then log in with its API details. It takes a minute.", app.state.demo ? null : addButton()),
+      emptyState("accounts", "No accounts yet", "Add your broker to get started: choose it, then log in with its API details. It takes a minute.", addButton()),
       { mobile: "stack-wide" },
     ),
   });
+  // P1-13 §6.8: what "family" means here, under the accounts.
+  if (book && accs.length) {
+    const fam = book.relationships.filter((r) => r.inFamily).map((r) => r.label.toLowerCase());
+    accountsCard.querySelector(".card-body")?.append(h("p", { class: "muted small acct-family-note" }, `Family = ${fam.join(", ")} (book.family in the config file). Guards and alert actions work only on family accounts. Managing money for anyone else needs SEBI registration.`));
+  }
 
   // Directory
   const search = h("input", { type: "search", class: "dir-search", placeholder: "Search 41 brokers…", "aria-label": "Search brokers" });
@@ -1155,12 +2006,12 @@ async function renderAccounts() {
             "div",
             { class: "row broker-foot" },
             h("div", { class: "chips grow" }, h("span", { class: "chip" }, AUTH_KIND_LABEL[b.authKind] ?? b.authKind), b.capabilities.includes("feed") ? h("span", { class: "chip" }, "live feed") : null, b.capabilities.includes("historical") ? h("span", { class: "chip" }, "history") : null, b.capabilities.includes("placeOrder") ? h("span", { class: "chip" }, "orders") : null),
-            app.state.demo ? null : h("button", { type: "button", class: "small tinted", "aria-label": `Add a ${b.name} account`, onclick: () => addAccountFlow(list, { preselect: b.id }) }, "Add"),
+            h("button", { type: "button", class: "small", "aria-label": `Add a ${b.name} account`, onclick: () => addAccountFlow(list, { preselect: b.id }) }, app.state.demo ? "Set up" : "Add"),
           ),
         ),
       ),
     );
-    if (!rows.length) grid.replaceChildren(h("div", { class: "row" }, h("p", { class: "muted" }, `No broker matches “${search.value}”.`), nextStep("Clear search", () => { search.value = ""; draw(); search.focus(); }, "small tinted")));
+    if (!rows.length) grid.replaceChildren(h("div", { class: "row" }, h("p", { class: "muted" }, `No broker matches “${search.value}”.`), nextStep("Clear search", () => { search.value = ""; draw(); search.focus(); }, "small")));
   };
   search.addEventListener("input", draw);
   draw();
@@ -1168,18 +2019,26 @@ async function renderAccounts() {
     glyph: "plug",
     tint: "blue",
     title: "Supported brokers",
-    sub: `${real.length} brokers. Dhan is verified with a live account; the others are beta (tested against recorded samples).${app.state.demo ? " Demo mode loads none of them." : ""}`,
+    sub: `${real.length} brokers. Dhan is verified with a live account; the others are beta (tested against recorded samples).${app.state.demo ? " In demo mode, Set up shows what connecting one takes and saves it for your next normal start." : ""}`,
     actions: search,
     flush: true,
     body: grid,
   });
 
+  // #/accounts?reset=<paper id>, from a "short of margin" block: open the reset sheet for that paper account.
+  const resetId = /[?&]reset=([a-z0-9-]+)/.exec(location.hash)?.[1];
+  if (resetId) {
+    history.replaceState(null, "", "#/accounts");
+    const acc = accs.find((x) => x.id === resetId && x.broker === "paper");
+    if (acc) setTimeout(() => paperResetSheet(acc), 0);
+  }
   // #/accounts?add=1 (or ?add=<broker id>), from the Home page: open the sheet once the page is drawn.
   const want = /[?&]add=([a-z0-9]+)/.exec(location.hash)?.[1];
   if (want) {
     history.replaceState(null, "", "#/accounts");
     setTimeout(() => addAccountFlow(list, { preselect: want }), 0);
   }
+  setTimeout(() => fillToday(accs).catch(() => {}), 0);
   return [accountsCard, dirCard];
 }
 
@@ -1204,7 +2063,7 @@ async function renderConsole() {
   const paperAcc = accounts.find((a) => a.broker === "paper")?.id ?? accounts[0]?.id ?? "paper";
   const dataAcc = accounts.find((a) => a.broker !== "paper")?.id ?? paperAcc;
   const select = h("select", { "aria-label": "Endpoint" }, ENDPOINTS.map((e) => h("option", { value: e.id }, e.label)));
-  // #/console?endpoint=order opens a given endpoint (the Orders page links straight to the order form).
+  // #/api/console?endpoint=order opens a given endpoint (the Orders page links straight to the order form).
   const wanted = new URLSearchParams(location.hash.split("?")[1] ?? "").get("endpoint");
   if (ENDPOINTS.some((e) => e.id === wanted)) select.value = wanted;
   const fieldsBox = h("div", { class: "stack" });
@@ -1270,7 +2129,7 @@ async function renderConsole() {
       out.replaceChildren(alertBox({ title: "The order JSON is not valid", detail: "Check the commas and quotes." }));
       return;
     }
-    runBtn.disabled = true;
+    busy(runBtn, true);
     try {
       const idem = b.ep.method === "POST" ? `dash-${crypto.randomUUID()}` : null;
       const opts = { method: b.ep.method, raw: true, body: b.body };
@@ -1292,21 +2151,21 @@ async function renderConsole() {
           glyph: "inbox",
           tint: ok ? "green" : "red",
           title: "Response",
-          actions: h("div", { class: "row" }, pill(`${r.status} ${ok ? "OK" : "Error"}`, ok ? "ok" : "bad"), r.ms ? pill(`${formatInt(r.ms)} ms`) : null, hdr("x-mcb-data") === "demo" ? pill("Demo data", "demo") : null),
+          actions: h("div", { class: "row" }, pill(`${r.status} ${ok ? "OK" : "Error"}`, ok ? "ok" : "bad"), r.ms ? pill(`${formatInt(r.ms)} ms`) : null, hdr("x-mcb-data") === "demo" ? pill("Sample prices", "demo") : null),
           flush: true,
           body: h(
             "div",
             {},
             friendly ? h("div", { class: "card-body" }, friendly) : null,
             h("dl", { class: "kv" }, ...["x-request-id", "ratelimit", "ratelimit-policy", "x-mcb-data", "content-type"].flatMap((n) => (hdr(n) ? [h("dt", {}, n), h("dd", {}, hdr(n))] : []))),
-            h("div", { class: "code" }, pre, h("button", { type: "button", class: "small copy", onclick: () => copyText(pretty) }, icon("copy"), "Copy")),
+            h("div", { class: "code" }, h("div", { class: "code-head" }, h("span", { class: "code-title" }, "Body"), copyButton(() => pretty, { ariaLabel: "Copy the response body" })), pre),
           ),
         }),
       );
     } catch (err) {
       out.replaceChildren(alertBox(err));
     } finally {
-      runBtn.disabled = false;
+      busy(runBtn, false);
     }
   };
 
@@ -1337,8 +2196,13 @@ async function renderConsole() {
 
 async function renderLimits() {
   const root = h("div", { class: "stack" });
+  /** accountId -> the endpoint class its chart shows (the busiest, until a person picks another) */
+  const chartClass = new Map();
+  let limitsData = null;
   const draw = async () => {
-    const [usage, limits] = await Promise.all([api("/v1/usage"), api("/v1/limits")]);
+    // The policy table changes only with the config: read it once. Usage (with the per-second history) every 1.5 s.
+    const [usage, limits] = await Promise.all([api("/v1/usage?series=1"), limitsData ? Promise.resolve(limitsData) : api("/v1/limits")]);
+    limitsData = limits;
     const u = usage.data.data ?? {};
     const lim = limits.data.data ?? {};
     const sv = u.savings ?? {};
@@ -1355,12 +2219,12 @@ async function renderLimits() {
     const accounts = (u.accounts ?? []).filter((a) => a.broker !== "paper");
     const tryBtn = h("button", { type: "button", class: "primary" }, icon("bolt"), "Send 20 identical requests");
     tryBtn.addEventListener("click", async () => {
-      tryBtn.disabled = true;
+      busy(tryBtn, true);
       const before = (await api("/v1/usage")).data.data;
       const calls = (x) => (x.accounts ?? []).reduce((n, a) => n + sum(Object.fromEntries(Object.entries(a.classes ?? {}).map(([k, v]) => [k, v.callsToday ?? 0]))), 0);
       await Promise.all(Array.from({ length: 20 }, () => optional(api("/v1/ltp?symbols=NSE:NIFTY,NSE:RELIANCE"))));
       const after = (await api("/v1/usage")).data.data;
-      tryBtn.disabled = false;
+      busy(tryBtn, false);
       const used = calls(after) - calls(before);
       toast(`20 requests → ${formatInt(used)} broker call${used === 1 ? "" : "s"}. The rest came from the live stream, the cache or a shared call.`);
       await draw();
@@ -1375,6 +2239,69 @@ async function renderLimits() {
       }),
     );
     if (!accounts.length) nodes.push(card({ glyph: "limits", tint: "purple", title: "Broker budgets", body: emptyState("limits", "No broker account in use yet", "Once a broker account is connected, its live budget per endpoint class shows here.", nextStep("Go to Accounts", "#/accounts")) }));
+    // Live: calls per second over two minutes against the per-second limit, one chart per account.
+    for (const a of accounts) {
+      const classes = Object.keys(a.classes ?? {}).filter((c) => (a.classes[c].callsToday ?? 0) > 0 || a.series?.classes?.[c]);
+      const cls = chartClass.get(a.accountId) ?? busiestClass(a);
+      const c = a.classes?.[cls] ?? {};
+      const counts = a.series?.classes?.[cls] ?? new Array(a.series?.seconds ?? 120).fill(0);
+      const limit = perSecondLimit(c);
+      const sec = (c.windows ?? []).find((w) => w.window === "1s");
+      const min = (c.windows ?? []).find((w) => w.window === "1m");
+      const pick = classes.length > 1
+        ? h(
+            "div",
+            { class: "segmented", role: "group", "aria-label": "Endpoint class" },
+            classes.map((k) => h("button", { type: "button", "aria-pressed": String(k === cls), onclick: () => (chartClass.set(a.accountId, k), draw()) }, k)),
+          )
+        : null;
+      nodes.push(
+        card({
+          glyph: "activity",
+          tint: "blue",
+          title: `Live usage · ${a.accountId}`,
+          sub: `${cls}: ${sec ? `${windowText(sec)} this second` : "no per-second limit"}${min ? ` · ${windowText(min)} this minute` : ""}`,
+          actions: pick,
+          body: h(
+            "div",
+            { class: "stack" },
+            usageChart(counts, limit, `${cls} calls per second over the last two minutes${limit ? `, limit ${formatInt(limit)} a second` : ""}`),
+            h("div", { class: "rl-axis" }, h("span", {}, "2 min ago"), h("span", {}, "now")),
+            h("div", { class: "rl-legend" }, h("span", {}, h("i", { class: "sw" }), "Calls per second"), limit ? h("span", {}, h("i", { class: "sw limit" }), `Limit ${formatInt(limit)} a second`) : null),
+          ),
+        }),
+      );
+    }
+    // Who used the budget today (admin keys only: it names API keys).
+    if (Array.isArray(u.consumers) && u.consumers.length) {
+      const top = Math.max(1, ...u.consumers.map((x) => x.calls));
+      nodes.push(
+        card({
+          glyph: "people",
+          tint: "teal",
+          title: "Top consumers today",
+          sub: "Broker calls each page, key or job caused, and the calls it got from the stream, the cache or a shared call instead",
+          flush: true,
+          body: table(
+            [
+              { label: "Consumer", cell: (r) => h("strong", {}, r.name) },
+              { label: "Broker calls", num: true, cell: (r) => formatInt(r.calls) },
+              {
+                label: "Share",
+                cell: (r) => {
+                  const bar = h("span", { class: "rl-cons-bar", "aria-hidden": "true" });
+                  bar.style.setProperty("--w", `${Math.round((r.calls / top) * 100)}%`);
+                  return bar;
+                },
+              },
+              { label: "Saved", num: true, cell: (r) => formatInt(r.saved) },
+            ],
+            u.consumers,
+            emptyState("limits", "No broker calls yet today", ""),
+          ),
+        }),
+      );
+    }
     for (const a of accounts) {
       const classes = Object.entries(a.classes ?? {});
       nodes.push(
@@ -1383,7 +2310,7 @@ async function renderLimits() {
           tint: "purple",
           title: `${a.accountId} · ${a.broker}`,
           sub: `${a.healthy === false ? "Backing off" : "Healthy"} · ${formatInt(a.inFlight ?? 0)} in flight · ${formatInt(a.queued ?? 0)} queued`,
-          actions: h("div", { class: "row" }, a.healthy === false ? pill("Backing off", "bad") : pill("Healthy", "ok"), demoPill()),
+          actions: h("div", { class: "row" }, a.healthy === false ? pill("Backing off", "bad") : pill("Healthy", "ok")),
           body: h(
             "div",
             {},
@@ -1419,7 +2346,7 @@ async function renderLimits() {
     keepFocus(root, () => root.replaceChildren(...nodes));
   };
   await draw();
-  every(2500, draw);
+  every(1500, draw);
   return root;
 }
 
@@ -1432,7 +2359,21 @@ async function renderOrders() {
   const nodes = [];
 
   const tk = tickets.data?.data ?? [];
-  nodes.push(
+  // Nothing waiting: the card is its head line only (it was a 300 px empty state above the day's orders).
+  if (!tickets.error && !tk.length)
+    nodes.push(
+      card({
+        glyph: "inbox",
+        tint: "orange",
+        title: "Pending confirmations",
+        sub: "Nothing waiting. When an AI assistant or a confirmation-required webhook prepares an order, it waits here until you check every field and confirm.",
+        cls: "orders-pending none",
+        actions: nextStep("Set up an AI assistant", "#/api/integrations?tool=claude", "small"),
+        flush: true,
+        body: null,
+      }),
+    );
+  else nodes.push(
     card({
       glyph: "inbox",
       tint: "orange",
@@ -1451,71 +2392,174 @@ async function renderOrders() {
                 label: "",
                 cell: (t) => {
                   const blocked = (t.checks ?? []).some((c) => c?.severity === "block");
-                  return h("button", { type: "button", class: t.order?.mode === "live" ? "small danger" : "small primary", disabled: blocked, "aria-label": `${blocked ? "Blocked" : "Review"} ticket ${t.ticketId}`, onclick: () => confirmTicket(t, byId) }, blocked ? "Blocked" : "Review");
+                  return h("button", { type: "button", class: "small primary", disabled: blocked, "aria-label": `${blocked ? "Blocked" : "Review"} ticket ${t.ticketId}`, onclick: () => confirmTicket(t, byId) }, blocked ? "Blocked" : "Review");
                 },
               },
             ],
             tk,
-            emptyState("inbox", "Nothing waiting", "When an AI assistant prepares an order, it appears here for you to check every field and confirm.", nextStep("Set up an AI assistant", "#/integrations?tab=claude", "tinted")),
+            emptyState("inbox", "Nothing waiting", "When an AI assistant prepares an order, it appears here for you to check every field and confirm.", nextStep("Set up an AI assistant", "#/api/integrations?tool=claude")),
           ),
     }),
   );
+
+  // GTT, OCO, stops, targets and trailing stops checked on the Bridge (triggers.js), above the day's orders so an
+  // open stop is never below a long list; it refreshes itself.
+  nodes.push(triggersCard(byId));
 
   const ord = orders.data?.data ?? [];
+  // The day's orders with status and side filters, a search and Cancel all (orders-book.js).
   nodes.push(
-    card({
-      glyph: "orders",
-      tint: "orange",
-      title: "Today's orders",
-      actions: h("button", { type: "button", class: "small tinted", onclick: () => (location.hash = "#/console?endpoint=order") }, icon("plus"), "Place a paper order"),
-      flush: true,
-      body: orders.error
-        ? h("div", { class: "card-body" }, alertBox(orders.error))
-        : table(
-            [
+    ordersCard({
+      ord,
+      error: orders.error ?? null,
+      byId,
+      refresh: () => show(),
+      // Orders are placed from the chain's ticket; the JSON route is for trying the API (API › Test console).
+      actions: [
+        h("button", { type: "button", class: "small quiet", onclick: () => (location.hash = "#/api/console?endpoint=order") }, "Send as JSON"),
+        h("button", { type: "button", class: "small primary", onclick: () => (location.hash = "#/chain") }, "Trade from the chain"),
+      ],
+      columns: [
               { label: "Time", cell: (o) => istTime(o.placedAt) },
-              { label: "Account", cell: (o) => o.accountId },
-              { label: "Symbol", cell: (o) => h("strong", {}, o.symbol) },
+              { label: "Account", cell: (o) => byId.get(o.accountId)?.label ?? o.accountId },
+              { label: "Contract", wrap: true, cell: (o) => h("div", { title: o.symbol, class: "order-contract" }, h("strong", {}, contractName(o.symbol)), h("div", { class: "muted small" }, `${o.orderType ?? ""}${isFigure(o.price) ? ` @ ${formatFixed(o.price, 2)}` : ""} · ${o.product ?? ""}`)) },
               { label: "Side", cell: (o) => h("span", { class: "order-side" }, o.side) },
-              { label: "Qty", num: true, cell: (o) => formatInt(o.quantity) },
+              { label: "Qty", num: true, cell: (o) => (o.filledQuantity && o.filledQuantity !== o.quantity ? `${formatInt(o.filledQuantity)}/${formatInt(o.quantity)}` : formatInt(o.quantity)) },
               { label: "Avg price", num: true, cell: (o) => formatFixed(o.avgPrice, 2) },
-              { label: "Status", cell: (o) => pill(cap(o.status), o.status === "filled" ? "ok" : o.status === "rejected" ? "bad" : "warn") },
+              {
+                label: "Status",
+                wrap: true,
+                cell: (o) => {
+                  const t = orderStatusText(o.status);
+                  // Why it was refused or cancelled, right under the pill (the broker's or the paper engine's words).
+                  // ...and the next step, in plain words, when there is one (reasons-core.js).
+                  const why = o.statusMessage && ["rejected", "expired", "outcome_unknown"].includes(o.status) ? o.statusMessage : null;
+                  const fix = why || o.status === "outcome_unknown" ? whatToDo({ code: o.status === "outcome_unknown" ? "OUTCOME_UNKNOWN" : null, message: why ?? "", mode: o.mode }) : null;
+                  return h("div", { class: "order-status" }, pill(t.text, t.tone), why ? h("div", { class: "muted small order-why" }, why) : null, fix ? h("div", { class: "small bk-fix" }, fix) : null);
+                },
+              },
               { label: "Mode", cell: (o) => (o.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
-            ],
-            ord,
-            emptyState("orders", "No orders today", "Paper orders from the test console, your scripts, webhooks and AI assistants show up here.", nextStep("Place a paper order", "#/console?endpoint=order")),
-          ),
+              { label: "", cell: (o) => (WORKING_ORDER.has(o.status) ? orderActions(o) : "") },
+      ],
+      empty: emptyState("orders", "No orders today", "Paper orders from the option chain, your scripts, webhooks and AI assistants show up here.", nextStep("Trade from the chain", "#/chain")),
     }),
   );
 
-  for (const a of accs.filter((x) => x.broker === "paper")) {
-    const [pos, funds] = await Promise.all([optional(api(`/v1/positions?account=${encodeURIComponent(a.id)}`)), optional(api(`/v1/funds?account=${encodeURIComponent(a.id)}`))]);
-    const f = funds.data?.data?.funds ?? funds.data?.data ?? {};
-    const rows = pos.data?.data ?? [];
-    nodes.push(
-      card({
-        glyph: "wallet",
-        tint: "teal",
-        title: `${a.label} (paper)`,
-        sub: `Cash ${formatRupee(f.availableCash)} · used margin ${formatRupee(f.usedMargin)} · realised ${formatRupee(f.realisedPnl)} · unrealised ${formatRupee(f.unrealisedPnl)}`,
-        actions: demoPill(),
-        flush: true,
-        body: table(
-          [
-            { label: "Symbol", cell: (p) => h("strong", {}, p.symbol) },
-            { label: "Product", cell: (p) => p.product },
-            { label: "Net qty", num: true, cell: (p) => formatInt(p.netQty) },
-            { label: "Avg", num: true, cell: (p) => formatFixed(p.avgPrice, 2) },
-            { label: "LTP", num: true, cell: (p) => formatFixed(p.ltp, 2) },
-            { label: "P&L", num: true, cell: (p) => pnl(p.pnl) },
-          ],
-          rows,
-          emptyState("orders", "No open paper positions", `Place a paper order to practise with ${formatRupee(1000000, 0)} of virtual money.`, nextStep("Place a paper order", "#/console?endpoint=order", "tinted")),
-        ),
-      }),
-    );
-  }
+  // The Funds card in whole rupees with Indian grouping (the P&L columns too, with an explicit + for gains), like the
+  // other money summaries.
+  const pnlGrouped = (v) => {
+    if (!isFigure(v)) return DASH;
+    const text = formatRupeeGrouped(v, 0);
+    const zero = text === "₹0";
+    const n = Number(v);
+    return h("span", { class: zero ? undefined : n > 0 ? "up" : "down" }, n > 0 && !zero ? `+${text}` : text);
+  };
+  // Funds for every account (orders-book.js): available, margin used, collateral, utilisation and P&L.
+  const funds = await fundsCard(accs, pnlGrouped);
+  if (funds) nodes.push(funds);
   return nodes;
+}
+
+/** Modify and Cancel for a working order (PATCH / DELETE /v1/orders/{id}); each answers with a toast and a redraw. */
+function orderActions(o) {
+  const name = contractName(o.symbol);
+  const modify = async () => {
+    // Asked in lots, as on the ticket (the quantity in units under it). The lot size is the instrument's; without one
+    // (an equity, or the master not loaded) a lot is one unit and the field says "Quantity".
+    const inst = await optional(api(`/v1/instruments/${encodeURIComponent(o.symbol)}`));
+    const lotSize = Number(inst.data?.data?.lotSize) > 0 ? Number(inst.data.data.lotSize) : 1;
+    const inLots = lotSize > 1;
+    const lotsNow = (o.quantity ?? 0) / lotSize;
+    const qty = h("input", { id: "mod-qty", type: "number", min: "1", step: "1", inputmode: "numeric", value: Number.isInteger(lotsNow) ? String(lotsNow) : String(o.quantity ?? "") });
+    const price = h("input", { id: "mod-price", type: "number", min: "0.05", step: "0.05", inputmode: "decimal", value: isFigure(o.price) ? String(o.price) : "" });
+    const units = h("span", { class: "hint", "aria-live": "polite" });
+    const filled = o.filledQuantity ?? 0;
+    const filledText = filled > 0 ? `${inLots ? `${formatInt(Math.floor(filled / lotSize))} lots` : formatInt(filled)} filled` : "none filled yet";
+    const showUnits = () => {
+      const c = modifyChange({ lots: qty.value, lotSize, order: o, price: price.value, limit: false });
+      units.textContent = inLots ? `${c.quantity === null ? DASH : formatInt(c.quantity)} qty · lot ${formatInt(lotSize)} · ${filledText}` : `Filled so far: ${formatInt(filled)}`;
+    };
+    qty.addEventListener("input", showUnits);
+    showUnits();
+    // A refusal from the Bridge, said once: under its field when it names one, else on one line above the buttons.
+    const err = h("p", { class: "bad-text", role: "alert", hidden: true });
+    const limit = o.orderType === "LIMIT" || o.orderType === "SL";
+    // A stop-loss order (SL, SL-M) changes its trigger here too.
+    const stop = o.orderType === "SL" || o.orderType === "SL-M";
+    const trig = h("input", { id: "mod-trigger", type: "number", min: "0.05", step: "0.05", inputmode: "decimal", value: isFigure(o.triggerPrice) ? String(o.triggerPrice) : "" });
+    const ok = await modal({
+      title: `Modify ${o.side === "BUY" ? "buy" : "sell"} ${name}`,
+      // Lots on its own row with its hint; the trigger and the limit side by side (a pair), or one full width.
+      body: h(
+        "div",
+        { class: "stack" },
+        h("label", { class: "field", for: "mod-qty" }, h("span", {}, inLots ? "Lots" : "Quantity"), qty, units),
+        stop || limit ? h("div", { class: "form-grid bk-pair" }, stop ? field("Trigger price", trig) : null, limit ? field("Limit price", price) : null) : null,
+        err,
+      ),
+      buttons: [
+        { label: "Keep as is", value: false },
+        {
+          label: "Save change",
+          cls: "primary",
+          onClick: async () => {
+            err.hidden = true;
+            const c = modifyChange({ lots: qty.value, lotSize, order: o, price: price.value, limit, trigger: trig.value, stop });
+            if (c.error) return fieldError(c.error.field === "price" ? price : c.error.field === "trigger" ? trig : qty, c.error.message);
+            try {
+              await api(`/v1/orders/${encodeURIComponent(o.orderId)}`, { method: "PATCH", body: c.body });
+              return true;
+            } catch (e) {
+              const f = (Array.isArray(e?.body?.errors) ? e.body.errors : []).find((x) => /^(quantity|lots|price|triggerPrice)$/.test(String(x.path ?? "").split(".").pop()));
+              const msg = String(f?.message ?? e?.message ?? "Not changed").replace(/(\d),(?=\d)/g, "$1");
+              if (f) return fieldError(String(f.path).endsWith("triggerPrice") ? trig : String(f.path).endsWith("price") ? price : qty, msg);
+              err.textContent = `Not changed: ${msg}`;
+              err.hidden = false;
+              return false;
+            }
+          },
+        },
+      ],
+    });
+    if (ok) show().then(() => toast(`Modified ${name}`));
+  };
+  const cancel = async () => {
+    const err = h("div", { "aria-live": "polite" });
+    const ok = await modal({
+      title: `Cancel ${o.side === "BUY" ? "buy" : "sell"} ${name}?`,
+      body: h("div", { class: "stack" }, h("p", {}, `The unfilled part (${formatInt((o.quantity ?? 0) - (o.filledQuantity ?? 0))} qty) is withdrawn. What already filled stays in Positions.`), err),
+      buttons: [
+        { label: "Keep it", value: false },
+        {
+          label: "Cancel order",
+          cls: "primary",
+          onClick: async () => {
+            try {
+              await api(`/v1/orders/${encodeURIComponent(o.orderId)}`, { method: "DELETE" });
+              return true;
+            } catch (e) {
+              err.replaceChildren(errorBox(e));
+              return false;
+            }
+          },
+        },
+      ],
+    });
+    if (!ok) return;
+    // Undo (paper only): place the unfilled part again, as it was. The order goes through every normal check, so a
+    // price that is no longer valid is refused and said so. Live orders are never re-sent from a toast.
+    const left = (o.quantity ?? 0) - (o.filledQuantity ?? 0);
+    const again = async () => {
+      const body = { account: o.accountId, symbol: o.symbol, side: o.side, quantity: left, product: o.product, orderType: o.orderType, validity: o.validity ?? "DAY", mode: "paper", ...(o.price ? { price: o.price } : {}), ...(o.triggerPrice ? { triggerPrice: o.triggerPrice } : {}), ...(o.tag ? { tag: o.tag } : {}) };
+      const r = await optional(api("/v1/orders", { method: "POST", body }));
+      if (r.error) return toast(`Could not place ${name} again: ${r.error.message ?? "refused"}`, { tone: "error" });
+      const placed = r.data?.data ?? {};
+      show().then(() => toast(placed.status === "rejected" ? `Placed again but rejected: ${placed.statusMessage ?? "no reason given"}` : `${name} placed again`, { tone: placed.status === "rejected" ? "warn" : "ok" }));
+    };
+    const canUndo = o.mode === "paper" && left > 0;
+    show().then(() => toast(canUndo ? h("span", { class: "toast-undo-row" }, `Cancelled ${name} · `, h("button", { type: "button", class: "toast-undo", onclick: again }, "Undo")) : `Cancelled ${name}`));
+  };
+  return h("div", { class: "row order-acts" }, h("button", { type: "button", class: "small", "aria-label": `Modify ${name}`, onclick: modify }, "Modify"), h("button", { type: "button", class: "small", "aria-label": `Cancel ${name}`, onclick: cancel }, "Cancel"));
 }
 
 async function confirmTicket(t, byId) {
@@ -1523,13 +2567,13 @@ async function confirmTicket(t, byId) {
   const ok = await modal({
     title: `Confirm ticket ${t.ticketId}?`,
     body: h("div", { class: "stack" }, h("p", { class: "muted" }, "The client that prepared it can then send exactly this order, once."), h("dl", { class: "kv" }, ...fields.flatMap(([k, v, cls]) => [h("dt", {}, k), h("dd", { class: cls ? `${cls}-text` : undefined }, v)]))),
-    buttons: [{ label: "Cancel", value: false }, { label: t.order?.mode === "live" ? "Confirm LIVE order" : "Confirm", cls: t.order?.mode === "live" ? "danger" : "primary", value: true }],
+    buttons: [{ label: "Cancel", value: false }, { label: t.order?.mode === "live" ? "Confirm LIVE order" : "Confirm", cls: "primary", value: true }],
   });
   if (!ok) return;
   try {
     const r = await api(`/v1/tickets/${encodeURIComponent(t.ticketId)}/confirm`, { method: "POST" });
     const n = confirmCodeNotice(t.ticketId, r.data);
-    if (n) await modal({ title: "Confirmed", body: h("div", { class: "stack" }, h("p", {}, n.text), h("div", { class: "secret-box" }, h("code", {}, n.token), h("button", { type: "button", class: "small", onclick: () => copyText(n.token) }, icon("copy"), "Copy"))), buttons: [{ label: "Done", cls: "primary", value: true }] });
+    if (n) await modal({ title: "Confirmed", body: h("div", { class: "stack" }, h("p", {}, n.text), h("div", { class: "secret-box" }, h("code", {}, n.token), copyButton(n.token, { cls: "small" }))), buttons: [{ label: "Done", cls: "primary", value: true }] });
   } catch (err) {
     await modal({ title: "Could not confirm", body: alertBox(err), buttons: [{ label: "Close", value: true }] });
   }
@@ -1539,23 +2583,13 @@ async function confirmTicket(t, byId) {
 // ── Safety ──
 
 async function renderSafety() {
-  const s = (await api("/v1/safety")).data.data;
+  const [safety, accounts] = await Promise.all([api("/v1/safety"), optional(api("/v1/accounts"))]);
+  const s = safety.data.data;
+  // Accounts by their names, as everywhere else; the id stays in the tooltip for API users.
+  const names = new Map((accounts.data?.data ?? []).map((a) => [a.id, a.label]));
   const ks = s.killSwitch ?? {};
   const engage = async () => {
-    const reason = h("input", { value: "Stopped from the dashboard", maxlength: "200" });
-    const cancel = h("input", { type: "checkbox" });
-    const go = await modal({
-      title: "Stop all orders?",
-      body: h("div", { class: "stack" }, h("p", {}, "New orders are refused at once, including ones already queued. Cancels still work."), h("label", { class: "field" }, "Reason", reason), h("label", { class: "check" }, cancel, "Also cancel open orders the Bridge placed")),
-      buttons: [{ label: "Keep trading", value: false }, { label: "Stop all orders", cls: "danger", value: true }],
-    });
-    if (!go) return;
-    try {
-      await api("/v1/safety/kill-switch", { method: "POST", body: { reason: reason.value || "manual", cancelOpenOrders: cancel.checked } });
-      toast("Kill switch engaged");
-    } catch (err) {
-      await modal({ title: "Could not engage", body: alertBox(err), buttons: [{ label: "Close", value: true }] });
-    }
+    if (await confirmEngageKillSwitch()) refreshReadiness();
     show();
   };
   const release = async () => {
@@ -1563,38 +2597,39 @@ async function renderSafety() {
     const go = await modal({
       title: "Allow orders again?",
       body: h("div", { class: "stack" }, h("p", {}, "Needs an admin key, from this computer."), h("label", { class: "field" }, "Type RELEASE to confirm", typed)),
-      buttons: [{ label: "Cancel", value: false }, { label: "Release", cls: "primary", onClick: () => (typed.value === "RELEASE" ? true : (toast("Type RELEASE exactly"), false)) }],
+      buttons: [{ label: "Cancel", value: false }, { label: "Release", cls: "primary", onClick: () => (typed.value === "RELEASE" ? true : (toast("Type RELEASE exactly, in capitals", { tone: "warn" }), false)) }],
     });
     if (!go) return;
     try {
       await api("/v1/safety/kill-switch", { method: "DELETE", body: { confirm: "RELEASE" } });
       toast("Kill switch released");
+      refreshReadiness();
     } catch (err) {
       await modal({ title: "Could not release", body: alertBox(err), buttons: [{ label: "Close", value: true }] });
     }
     show();
   };
   const verify = async (btn) => {
-    btn.disabled = true;
+    busy(btn, true);
     try {
       const r = await api("/v1/audit/verify");
       const d = r.data.data ?? {};
-      toast(d.ok ? `Audit chain intact (${formatInt(d.checked)} records)` : `Audit chain broken at ${d.brokenAt}`);
+      toast(d.ok ? `Audit chain intact (${formatInt(d.checked)} records)` : `Audit chain broken at ${d.brokenAt}`, { tone: d.ok ? "ok" : "error" });
     } catch (err) {
-      toast(err.message);
+      toast(err.message, { tone: "error" });
     } finally {
-      btn.disabled = false;
+      busy(btn, false);
     }
   };
-  const verifyBtn = h("button", { type: "button", class: "small tinted" }, "Verify audit log");
+  const verifyBtn = h("button", { type: "button", class: "small" }, "Verify audit log");
   verifyBtn.addEventListener("click", () => verify(verifyBtn));
 
   const killCard = h(
     "section",
     { class: `card kill${ks.engaged ? " engaged" : ""}` },
     iconTile(ks.engaged ? "stop" : "power", ks.engaged ? "red" : "green", "lg"),
-    h("div", { class: "stack" }, h("h2", {}, ks.engaged ? "Kill switch is on: no orders are sent" : "Kill switch is off"), h("p", { class: "muted" }, ks.engaged ? `Engaged ${istDateTime(ks.at)} by ${ks.by ?? "?"}: ${ks.reason ?? ""}` : "One click stops every new order from every tool: REST, webhooks, AI assistants and the CLI. Also: mc-bridge kill.")),
-    h("div", { class: "actions" }, ks.engaged ? h("button", { type: "button", id: "kill-action", class: "primary", onclick: release }, "Release (admin)") : h("button", { type: "button", id: "kill-action", class: "danger", onclick: engage }, icon("stop"), "Stop all orders")),
+    h("div", { class: "stack" }, h("h2", {}, ks.engaged ? "Kill switch is on: no orders are sent" : "Kill switch is off"), h("p", { class: "muted" }, ks.engaged ? `Engaged ${istDateTime(ks.at)} by ${ks.by ?? "?"}: ${ks.reason ?? ""}` : ["One click stops every new order from every tool: REST, webhooks, AI assistants and the CLI. Also: ", h("span", { class: "cli-cmd" }, "mc-bridge kill"), "."])),
+    h("div", { class: "actions" }, ks.engaged ? h("button", { type: "button", id: "kill-action", class: "primary", onclick: release }, "Release (admin)") : h("button", { type: "button", id: "kill-action", class: "primary", onclick: engage }, icon("stop"), "Stop all orders")),
   );
   const live = card({
     glyph: "bolt",
@@ -1624,64 +2659,145 @@ async function renderSafety() {
     tint: "orange",
     title: "Daily limits per account",
     sub: `IST day ${s.day ?? ""}. Paper and live are counted separately.`,
-    actions: verifyBtn,
     flush: true,
     body: table(
       [
-        { label: "Account", cell: (a) => h("strong", {}, a.accountId) },
+        { label: "Account", cell: (a) => h("strong", { title: `Account id ${a.accountId}` }, names.get(a.accountId) || a.accountId) },
         { label: "Orders today", num: true, cell: (a) => `${formatInt((a.ordersToday ?? 0) + (a.paperOrdersToday ?? 0))} / ${formatInt(a.limits?.dailyMaxOrders)}` },
-        { label: "P&L today", num: true, cell: (a) => pnl(isFigure(a.realisedPnlToday) || isFigure(a.paperRealisedPnlToday) ? (a.realisedPnlToday ?? 0) + (a.paperRealisedPnlToday ?? 0) : null) },
-        { label: "Max loss", num: true, cell: (a) => formatRupee(a.limits?.dailyMaxLoss) },
-        { label: "Max order value", num: true, cell: (a) => formatRupee(a.limits?.maxOrderValue) },
+        { label: "P&L today", num: true, cell: (a) => pnl(isFigure(a.realisedPnlToday) || isFigure(a.paperRealisedPnlToday) ? (a.realisedPnlToday ?? 0) + (a.paperRealisedPnlToday ?? 0) : null, 0) },
+        // Limits are whole rupees: no paise.
+        { label: "Max loss", num: true, cell: (a) => formatRupeeGrouped(a.limits?.dailyMaxLoss, 0) },
+        { label: "Max order value", num: true, cell: (a) => formatRupeeGrouped(a.limits?.maxOrderValue, 0) },
         { label: "Max lots", num: true, cell: (a) => formatInt(a.limits?.maxLotsPerOrder) },
         { label: "Orders / s", num: true, cell: (a) => formatInt(a.limits?.orderRatePerSecond) },
-        { label: "Market orders", cell: (a) => a.limits?.marketOrders ?? "protect" },
+        { label: "Market orders", cell: (a) => cap(a.limits?.marketOrders ?? "protect") },
       ],
       s.accounts ?? [],
-      emptyState("safety", "No accounts", "Daily limits appear once an account is configured.", nextStep("Go to Accounts", "#/accounts", "tinted")),
+      emptyState("safety", "No accounts", "Daily limits appear once an account is configured.", nextStep("Go to Accounts", "#/accounts")),
     ),
   });
-  return [killCard, h("div", { class: "grid side" }, limits, live)];
+  // The audit chain check: a narrow card beside Live trading (the limits table gets the full width so no column is cut).
+  const audit = card({
+    glyph: "activity",
+    tint: "indigo",
+    title: "Audit log",
+    body: h("div", { class: "stack" }, h("p", { class: "muted" }, "Every order, key change and kill-switch action is written to a hash chain. Verify checks that no record was changed or removed."), h("div", { class: "row" }, verifyBtn)),
+  });
+  // Trading readiness (docs/spec/p1-05-readiness.md §6.4): between the kill switch and live trading.
+  const ready = await readinessCard({ cardFn: card, demo: app.state.demo }).catch(() => null);
+  return [killCard, ready, limits, h("div", { class: "grid side safety-row" }, live, audit)].filter(Boolean);
 }
 
 // ── Keys ──
+
+/** Where each snippet group goes, as the "Paste it into" tabs after a key is made. */
+const SNIPPET_TABS = Object.freeze({ excel: "Excel and Sheets", claude: "Claude (MCP)", chatgpt: "ChatGPT / OpenAI", python: "Python", node: "Node", amibroker: "AmiBroker", rest: "curl" });
+const CLIENT_LABEL = Object.freeze({ excel: "Excel / Sheets", mcp: "AI assistant", script: "Script", ui: "App", other: "Other" });
+const ACCESS_LABEL = Object.freeze({ read: "Read only: prices, charts, AI", paper: "Paper trading: read + paper orders", "admin,paper": "Admin: manage the Bridge" });
+
+/**
+ * The key just made, shown big: the key with Copy (and a Copied state), a clear shown-once warning, and setups ready
+ * to paste for the tool it is for (the key already filled in). Nothing here is stored; leaving the page forgets it.
+ */
+function newKeyPanel({ key, label, use, scopes, account, onDone }) {
+  const tabs = [...new Set([...use.snippets, "excel", "python", "node", "claude", "rest"])].filter((id) => SNIPPET_TABS[id]);
+  // A key that may not sit in a URL gets no spreadsheet tab (spreadsheets can only send it that way).
+  const usable = tabs.filter((id) => !(id === "excel" || id === "amibroker") || use.allowQuery);
+  const all = snippets({ base: location.origin, key, account, symbol: "NSE:NIFTY", folder: app.state.meta?.installDir || undefined });
+  const body = h("div", { class: "stack" });
+  const seg = segmented("Paste it into", usable.map((id) => [id, SNIPPET_TABS[id]]), usable[0]);
+  const draw = () => body.replaceChildren(...(all[seg.value] ?? []).map((sn) => codeBlock(sn.code, { title: sn.title, json: sn.lang === "json", onCopy: markCopied })));
+  seg.addEventListener("change", draw);
+  draw();
+  const keyCode = h("code", { class: "new-key-value" }, key);
+  return h(
+    "section",
+    { class: "new-key", "aria-label": `New key ${label}`, tabindex: "-1" },
+    h("div", { class: "new-key-head" }, h("span", { class: "new-key-tick", "aria-hidden": "true" }, icon("check")), h("div", { class: "grow" }, h("strong", {}, `Key created: ${label}`), h("span", { class: "muted small" }, `${scopes.join(" + ")} access · ${use.label}`))),
+    alertBox({ title: "Copy it now. It is shown only once.", detail: "The Bridge keeps only a fingerprint of it. If you lose it, revoke it below and create another." }, "warn"),
+    h("div", { class: "new-key-row" }, keyCode, copyButton(key, { label: "Copy key", toastLabel: "Key copied", cls: "primary", onCopy: markCopied })),
+    h("div", { class: "new-key-snips stack" }, h("div", { class: "row" }, h("strong", {}, "Paste it into"), seg), body),
+    h("div", { class: "row" }, h("span", { class: "grow muted small" }, "Leaving this page hides the key for good."), h("button", { type: "button", class: "small", onclick: onDone }, "I have copied it, hide it")),
+  );
+}
 
 async function renderKeys() {
   const [keys, accounts] = await Promise.all([api("/v1/keys"), api("/v1/accounts")]);
   const rows = keys.data.data ?? [];
   const accs = accounts.data.data ?? [];
-  const createdBox = h("div");
-  const label = h("input", { id: "key-label", placeholder: "e.g. Excel prices", maxlength: "60", "aria-required": "true" });
-  const scope = h("select", {}, h("option", { value: "read" }, "Read only: prices, charts, AI"), h("option", { value: "paper" }, "Paper trading: read + paper orders"), h("option", { value: "admin,paper" }, "Admin: manage the Bridge"));
-  const acct = h("select", {}, h("option", { value: "*" }, "All accounts"), accs.map((a) => h("option", { value: a.id }, a.id)));
-  const client = h("select", {}, ["script", "excel", "mcp", "ui", "other"].map((c) => h("option", { value: c }, { script: "Script (Python, Node)", excel: "Excel / Sheets", mcp: "AI assistant (MCP)", ui: "App / dashboard", other: "Other" }[c])));
+  const paperAcc = accs.find((a) => a.broker === "paper")?.id ?? "paper";
+  let labels = rows.map((k) => k.label);
+  const createdBox = h("div", { class: "new-key-box" });
+  const formErr = h("div", { "aria-live": "polite" });
+  // "Used by" comes first: it fills in the name, the access, the expiry and URL use, so Create works first time.
+  const usedBy = h("select", { id: "key-use" }, KEY_USES.map((u) => h("option", { value: u.id }, u.label)));
+  const label = h("input", { id: "key-label", maxlength: "60", "aria-required": "true", autocomplete: "off" });
+  const scope = h("select", { id: "key-access" }, Object.entries(ACCESS_LABEL).map(([v, t]) => h("option", { value: v }, t)));
+  const acct = h("select", { id: "key-accounts" }, h("option", { value: "*" }, "All accounts"), accs.map((a) => h("option", { value: a.id }, `${a.label} (${a.id})`)));
   const expires = segmented("Expires", [["", "Never"], ["7", "7 days"], ["30", "30 days"], ["90", "90 days"]], "");
-  const urlUse = h("input", { type: "checkbox" });
+  const urlUse = h("input", { type: "checkbox", id: "key-url" });
   const createBtn = h("button", { type: "button", class: "primary" }, icon("plus"), "Create key");
-  createBtn.addEventListener("click", async () => {
-    if (!label.value.trim()) {
-      label.focus();
-      return toast("Give the key a name");
+  // What the person changed by hand is kept when they switch "Used by"; the rest follows the tool.
+  const touched = { label: false, scope: false, expires: false, url: false };
+  label.addEventListener("input", () => (touched.label = label.value.trim() !== ""));
+  scope.addEventListener("change", () => (touched.scope = true));
+  expires.addEventListener("click", () => (touched.expires = true));
+  urlUse.addEventListener("change", () => (touched.url = true));
+  const applyUse = () => {
+    const u = keyUse(usedBy.value);
+    if (!touched.label) {
+      label.value = defaultKeyName(u.id, new Date(), labels);
+      clearFieldError(label);
     }
-    createBtn.disabled = true;
+    if (!touched.scope) {
+      scope.value = u.scopes.join(",");
+      clearFieldError(scope);
+    }
+    if (!touched.expires) expires.value = u.expiresDays ? String(u.expiresDays) : "";
+    if (!touched.url) urlUse.checked = u.allowQuery;
+  };
+  usedBy.addEventListener("change", applyUse);
+  applyUse();
+  const create = async () => {
+    formErr.replaceChildren();
+    const u = keyUse(usedBy.value);
+    const scopes = scope.value.split(",");
+    const problem = keyFormProblem({ label: label.value, scopes, allowQuery: urlUse.checked });
+    if (problem) return fieldError(problem.field === "label" ? label : scope, problem.message);
+    busy(createBtn, true);
     try {
-      const body = { label: label.value.trim(), scopes: scope.value.split(","), accounts: acct.value === "*" ? "*" : [acct.value], clientKind: client.value };
+      const body = { label: label.value.trim(), scopes, accounts: acct.value === "*" ? "*" : [acct.value], clientKind: u.clientKind };
       if (expires.value) body.expiresAt = new Date(Date.now() + Number(expires.value) * 86_400_000).toISOString();
       if (urlUse.checked) body.allowQuery = true;
       const r = await api("/v1/keys", { method: "POST", body });
       const k = r.data.data?.key;
-      createdBox.replaceChildren(
-        h("div", { class: "secret-box" }, h("strong", {}, "Copy it now, it is shown only once:"), h("code", {}, k), h("button", { type: "button", class: "small primary", onclick: () => copyText(k, "Key copied") }, icon("copy"), "Copy")),
-      );
-      label.value = "";
+      const made = body.label;
+      createdBox.replaceChildren(newKeyPanel({ key: k, label: made, use: { ...u, allowQuery: urlUse.checked }, scopes, account: acct.value === "*" ? paperAcc : acct.value, onDone: () => createdBox.replaceChildren() }));
+      createdBox.firstElementChild?.scrollIntoView?.({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      createdBox.querySelector(".new-key-row button")?.focus({ preventScroll: true });
+      toast(`Key created: ${made}. Copy it now.`);
+      labels = [...labels, made];
+      touched.label = false;
+      applyUse();
       await drawTable();
     } catch (err) {
-      createdBox.replaceChildren(alertBox(err));
+      const one = err?.body?.errors?.[0];
+      const at = String(one?.path ?? "").split(".").pop();
+      if (at === "label") fieldError(label, one.message ? `${cap(one.message)}.` : err.message);
+      else formErr.replaceChildren(errorBox(err, { label: "Name", scopes: "Access", accounts: "Accounts", expiresAt: "Expires" }));
     } finally {
-      createBtn.disabled = false;
+      busy(createBtn, false);
+    }
+  };
+  createBtn.addEventListener("click", create);
+  label.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.isComposing) {
+      e.preventDefault();
+      create();
     }
   });
 
+  const ownId = String(currentKey() ?? "").split("_")[1] ?? null;
   const tableBox = h("div");
   const drawTable = async (list) => {
     const data = list ?? (await api("/v1/keys")).data.data ?? [];
@@ -1689,11 +2805,11 @@ async function renderKeys() {
     tableBox.replaceChildren(
       table(
         [
-          { label: "Name", cell: (k) => h("div", {}, h("strong", {}, k.label), h("div", { class: "muted small mono" }, k.id)) },
+          { label: "Name", cell: (k) => h("div", {}, h("strong", {}, k.label), h("div", { class: "muted small mono" }, k.id, k.id === ownId ? h("span", { class: "chip own-key" }, "this browser") : null)) },
           { label: "Scopes", cell: (k) => h("div", { class: "chips" }, k.scopes.slice().sort().map(scopeChip), k.allowQuery ? h("span", { class: "chip" }, "URL ok") : null) },
           { label: "Accounts", cell: (k) => (k.accounts === "*" ? "All" : k.accounts.join(", ")) },
-          { label: "For", cell: (k) => k.clientKind ?? DASH },
-          { label: "Last used", cell: (k) => istDateTime(k.lastUsedAt) },
+          { label: "For", cell: (k) => CLIENT_LABEL[k.clientKind] ?? k.clientKind ?? DASH },
+          { label: "Last used", cell: (k) => (k.lastUsedAt ? istDateTime(k.lastUsedAt) : "Never") },
           { label: "Expires", cell: (k) => (k.expiresAt ? istDateTime(k.expiresAt) : "Never") },
           { label: "Status", cell: status },
           {
@@ -1705,15 +2821,28 @@ async function renderKeys() {
                     type: "button",
                     class: "small plain",
                     "aria-label": `Revoke key ${k.label}`,
-                    onclick: async () => {
-                      const ok = await modal({ title: `Revoke “${k.label}”?`, body: h("p", {}, "It stops working on its very next request, and its open streams close. This cannot be undone."), buttons: [{ label: "Cancel", value: false }, { label: "Revoke", cls: "danger", value: true }] });
+                    onclick: async (e) => {
+                      const btn = e.currentTarget;
+                      const own = k.id === ownId;
+                      const ok = await modal({
+                        title: `Revoke “${k.label}”?`,
+                        body: h(
+                          "div",
+                          { class: "stack" },
+                          h("p", {}, "It stops working on its very next request, and its open streams close. This cannot be undone."),
+                          own ? alertBox({ title: "This browser is signed in with this key", detail: "You will be signed out at once. Sign in again with another admin key, or make a sign-in link with the CLI." }, "warn") : null,
+                        ),
+                        buttons: [{ label: "Cancel", value: false }, { label: own ? "Revoke and sign out" : "Revoke", cls: "primary", value: true }],
+                      });
                       if (!ok) return;
+                      busy(btn, true);
                       try {
                         await api(`/v1/keys/${encodeURIComponent(k.id)}`, { method: "DELETE" });
-                        toast("Key revoked");
+                        toast(`Revoked ${k.label}`);
                       } catch (err) {
-                        toast(err.message);
+                        toast(`Could not revoke ${k.label}: ${err.message}`, { tone: "error" });
                       }
+                      busy(btn, false);
                       drawTable();
                     },
                   }, "Revoke"),
@@ -1726,36 +2855,37 @@ async function renderKeys() {
     );
   };
   await drawTable(rows);
+  // Wide screens (1700 px and up): create on the left, the keys beside it (app.css .keys-split).
   return [
-    card({
+    h("div", { class: "keys-split" }, card({
       glyph: "plus",
       tint: "pink",
       title: "Create a key",
-      sub: "Least access wins: charts and AI need read, scripts that trade on paper need paper. Live keys are made from the terminal only.",
+      sub: "One key per tool. Pick the tool and the rest is filled in with the least access it needs. Live keys are made from the terminal only.",
       body: h(
         "div",
         { class: "stack" },
-        h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field wide" }, "Access", scope), h("label", { class: "field" }, "Accounts", acct), h("label", { class: "field" }, "Used by", client), segField("Expires", expires, { wide: true })),
+        h(
+          "div",
+          { class: "form-grid" },
+          field("Used by", usedBy, "Sets the name, the access and the expiry for you"),
+          field("Name", label),
+          h("label", { class: "field wide", for: "key-access" }, h("span", {}, "Access"), scope),
+          h("label", { class: "field", for: "key-accounts" }, h("span", {}, "Accounts"), acct),
+          segField("Expires", expires, { wide: true }),
+        ),
         h("div", { class: "row" }, h("label", { class: "check" }, urlUse, "Allow in URLs (?key=), for Excel and Google Sheets. Read-only keys only."), h("span", { class: "grow" }), createBtn),
+        formErr,
         createdBox,
       ),
     }),
-    card({ glyph: "keys", tint: "pink", title: "Your keys", sub: "Only a hash of each key is stored. The key itself was shown once.", flush: true, body: tableBox }),
+    card({ glyph: "keys", tint: "pink", title: "Your keys", sub: "Only a fingerprint (hash) of each key is stored. The key itself was shown once.", flush: true, body: tableBox })),
   ];
 }
 
 // ── Integrations ──
 
-const TABS = [
-  ["webhooks", "Webhooks"],
-  ["python", "Python"],
-  ["node", "Node"],
-  ["excel", "Excel & Sheets"],
-  ["amibroker", "AmiBroker"],
-  ["claude", "Claude (MCP)"],
-  ["chatgpt", "ChatGPT / OpenAI"],
-  ["rest", "REST / curl"],
-];
+const TABS = INTEGRATION_TOOLS;
 const INTRO = {
   webhooks: "Alerts that place paper orders through a webhook: signed generic JSON from your scripts, ChartInk scans or GoCharting alerts.",
   python: "The Python SDK: standard library only, Python 3.9+. Paper orders get an Idempotency-Key automatically.",
@@ -1768,23 +2898,40 @@ const INTRO = {
 };
 const GUIDES = { webhooks: "webhooks", python: "python", node: "typescript", excel: "excel-sheets", amibroker: "amibroker", claude: "mcp", chatgpt: "chatgpt-openai", rest: "streaming" };
 
+/** The hash's query (`#/api/integrations?tool=python` → URLSearchParams). */
+const hashParams = () => new URLSearchParams(location.hash.split("?")[1] ?? "");
+/** Put one query value in the address without a navigation (the page is already showing it). */
+function setHashParam(key, value) {
+  const [path] = location.hash.split("?");
+  const qs = hashParams();
+  qs.set(key, value);
+  history.replaceState(history.state, "", `${path}?${qs}`);
+}
+
+/**
+ * API › Integrations: one panel. Its tools are an inner segmented control (?tool=, and the old ?tab=); the webhook
+ * form sits straight in the panel and the code blocks are its only inner surfaces.
+ */
 async function renderIntegrations() {
   const accounts = (await api("/v1/accounts")).data.data ?? [];
   const paperAcc = accounts.find((a) => a.broker === "paper")?.id ?? "paper";
   const createdKeys = {};
   const tabsBar = h("div", { class: "tabs", role: "tablist", "aria-label": "Tools" });
-  const panel = h("div", { class: "card-body stack" });
-  const params = new URLSearchParams(location.hash.split("?")[1] ?? "");
-  let active = TABS.some(([id]) => id === params.get("tab")) ? params.get("tab") : "webhooks";
+  const panel = h("div", { class: "integ-panel" });
+  const params = hashParams();
+  const asked = params.get("tool") ?? params.get("tab");
+  let active = TABS.some(([id]) => id === asked) ? asked : "webhooks";
 
   const draw = async () => {
     drawTabs(tabsBar, panel, TABS, active, (id) => {
       active = id;
+      setHashParam("tool", id);
       draw();
     });
+    edgeFades(tabsBar);
     const s = snippets({ base: location.origin, key: createdKeys[active] ?? null, account: paperAcc, symbol: "NSE:NIFTY", folder: app.state.meta?.installDir || undefined })[active];
     const preset = KEY_PRESETS[active];
-    const keyBtn = preset && h("button", { type: "button", class: createdKeys[active] ? "small" : "small tinted" }, icon("keys"), createdKeys[active] ? "Key created" : `Create a ${preset.scopes.join("+")} key for this`);
+    const keyBtn = preset && h("button", { type: "button", class: "small" }, icon("keys"), createdKeys[active] ? "Key created" : `Create a ${preset.scopes.join("+")} key for this`);
     if (keyBtn) keyBtn.disabled = Boolean(createdKeys[active]);
     keyBtn?.addEventListener("click", async () => {
       try {
@@ -1796,19 +2943,22 @@ async function renderIntegrations() {
         toast("Key created and filled in below. Copy it now: it is shown only once.");
         draw();
       } catch (err) {
-        toast(err.message);
+        toast(err.message, { tone: "error" });
       }
     });
-    const parts = [
-      h("div", { class: "row" }, h("p", { class: "grow muted" }, INTRO[active]), ...(keyBtn ? [keyBtn] : []), h("a", { href: `https://github.com/MrChartist/api-bridge/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener", "aria-label": `${TABS.find(([id]) => id === active)[1]} guide (opens in a new tab)` }, "Guide ↗")),
+    const intro = h(
+      "div",
+      { class: "card-body stack" },
+      h("div", { class: "row" }, h("p", { class: "grow muted" }, INTRO[active], " ", h("span", { class: "nowrap" }, `Your Bridge address: ${location.origin}`)), ...(keyBtn ? [keyBtn] : []), h("a", { href: `https://github.com/MrChartist/api-bridge/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener", "aria-label": `${TABS.find(([id]) => id === active)[1]} guide (opens in a new tab)` }, "Guide ↗")),
       createdKeys[active] ? h("div", { class: "alert info" }, icon("info"), h("div", {}, h("strong", {}, "Your new key is in the snippets below."), h("span", { class: "detail" }, "It is shown only on this page and only until you leave it."))) : null,
-    ];
-    if (active === "webhooks") parts.push(await webhookPanel(paperAcc));
-    for (const sn of s) parts.push(codeBlock(sn.code, { title: sn.title, json: sn.lang === "json", onCopy: markCopied }));
+    );
+    const parts = [intro];
+    if (active === "webhooks") parts.push(...(await webhookPanel(paperAcc)));
+    if (s.length) parts.push(h("div", { class: "card-body stack" }, s.map((sn) => codeBlock(sn.code, { title: sn.title, json: sn.lang === "json", onCopy: markCopied }))));
     panel.replaceChildren(...parts.filter(Boolean));
   };
   await draw();
-  return card({ glyph: "integrations", tint: "blue", title: "Connect your tools", sub: `Your Bridge address: ${location.origin}`, actions: demoPill(), flush: true, body: h("div", {}, tabsBar, panel) });
+  return card({ flush: true, cls: "integ-card", body: h("div", {}, tabsBar, panel) });
 }
 
 async function webhookPanel(paperAcc) {
@@ -1820,13 +2970,15 @@ async function webhookPanel(paperAcc) {
   const side = segmented("Side", [["", "From the alert"], ["BUY", "BUY"], ["SELL", "SELL"]], "");
   const orderType = segmented("Order type", [["LIMIT", "LIMIT (safer)"], ["MARKET", "MARKET (protected)"]], "LIMIT");
   const product = segmented("Product", ["INTRADAY", "MARGIN", "CNC"].map((p) => [p, p]), "INTRADAY");
-  const lots = h("input", { type: "number", value: "1", min: "1", max: "50" });
+  const lots = h("input", { type: "number", inputmode: "numeric", value: "1", min: "1", max: "50" });
   const btn = h("button", { type: "button", class: "primary" }, icon("plus"), "Create webhook");
   const columns = [
     { label: "Hook", cell: (x) => h("div", {}, h("strong", {}, x.label), h("div", { class: "muted small mono" }, x.id)) },
     { label: "Source", cell: (x) => x.source },
     { label: "Account", cell: (x) => x.account },
     { label: "Mode", cell: (x) => (x.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
+    // Live hooks: their account's trading readiness (GET /v1/hooks `readiness`; paper hooks have none).
+    { label: "Readiness", cell: (x) => (x.mode === "live" && x.readiness ? pill(STATE_TEXT[x.readiness] ?? x.readiness, STATE_TONE[x.readiness] ?? "") : h("span", { class: "muted" }, DASH)) },
     { label: "Last alert", cell: (x) => istDateTime(x.lastSignalAt) },
     {
       label: "",
@@ -1836,7 +2988,7 @@ async function webhookPanel(paperAcc) {
           class: "small plain",
           "aria-label": `Delete webhook ${x.label}`,
           onclick: async () => {
-            if (!(await modal({ title: `Delete “${x.label}”?`, body: h("p", {}, "Alerts sent to its URL are refused from now on."), buttons: [{ label: "Cancel", value: false }, { label: "Delete", cls: "danger", value: true }] }))) return;
+            if (!(await modal({ title: `Delete “${x.label}”?`, body: h("p", {}, "Alerts sent to its URL are refused from now on."), buttons: [{ label: "Cancel", value: false }, { label: "Delete", cls: "primary", value: true }] }))) return;
             await optional(api(`/v1/hooks/${encodeURIComponent(x.id)}`, { method: "DELETE" }));
             show();
           },
@@ -1844,19 +2996,19 @@ async function webhookPanel(paperAcc) {
     },
   ];
   // Only the table is redrawn when a hook is added, so the one-time secret URL in `box` stays on screen.
-  const tableSlot = h("div");
-  const drawTable = () => tableSlot.replaceChildren(...[table(columns, list, h("p", { class: "card-body muted small" }, "No webhooks yet. Fill in the form above and choose Create webhook."))].filter(Boolean));
+  const tableSlot = h("div", { class: "integ-hooks" });
+  const drawTable = () => tableSlot.replaceChildren(...[table(columns, list, h("p", { class: "integ-empty muted small" }, "No webhooks yet. Fill in the form above and choose Create webhook."))].filter(Boolean));
   drawTable();
   btn.addEventListener("click", async () => {
-    btn.disabled = true;
+    busy(btn, true);
     try {
       const r = await api("/v1/hooks", { method: "POST", body: { source: source.value, label: label.value.trim() || "Webhook", account: paperAcc, orderType: orderType.value, product: product.value, maxLotsPerSignal: Number(lots.value) || 1, ...(side.value ? { side: side.value } : {}) } });
       const d = r.data.data;
       list.push(d);
       drawTable();
       box.replaceChildren(...[
-        h("div", { class: "secret-box" }, h("strong", {}, "Webhook URL (its secret token is shown once):"), h("code", {}, d.url), h("button", { type: "button", class: "small primary", onclick: () => copyText(d.url, "URL copied").then(markCopied) }, icon("copy"), "Copy")),
-        d.signingSecret ? h("div", { class: "secret-box" }, h("strong", {}, "Signing secret (shown once; sign every request with it):"), h("code", {}, d.signingSecret), h("button", { type: "button", class: "small primary", onclick: () => copyText(d.signingSecret, "Secret copied").then(markCopied) }, icon("copy"), "Copy")) : null,
+        h("div", { class: "secret-box" }, h("strong", {}, "Webhook URL (its secret token is shown once):"), h("code", {}, d.url), copyButton(d.url, { cls: "small primary", toastLabel: "URL copied", onCopy: markCopied })),
+        d.signingSecret ? h("div", { class: "secret-box" }, h("strong", {}, "Signing secret (shown once; sign every request with it):"), h("code", {}, d.signingSecret), copyButton(d.signingSecret, { cls: "small primary", toastLabel: "Secret copied", onCopy: markCopied })) : null,
         ...(d.templates ?? []).slice(0, 1).map((t) => codeBlock(t.message, { title: t.name, json: t.contentType === "application/json" && t.message.startsWith("{"), onCopy: markCopied })),
         ...(d.warnings ?? []).map((w) => alertBox({ title: "Note", detail: w }, "warn")),
         h("p", { class: "muted small" }, "Hosted alert services post from the internet, so point a tunnel (for example Cloudflare Tunnel) at the public ingress listener, which serves /hooks only. Paper orders by default."),
@@ -1864,16 +3016,19 @@ async function webhookPanel(paperAcc) {
     } catch (err) {
       box.replaceChildren(alertBox(err));
     } finally {
-      btn.disabled = false;
+      busy(btn, false);
     }
   });
-  return h(
-    "div",
-    { class: "card" },
-    h("div", { class: "card-head" }, iconTile("bolt", "orange"), h("div", { class: "card-titles" }, h("h3", {}, "Alert webhook"), h("p", {}, `Each hook has its own secret URL and places paper orders on ${paperAcc}.`))),
-    h("div", { class: "card-body stack" }, h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field" }, "Source", source), segField("Side", side), segField("Order type", orderType, { wide: true }), segField("Product", product), h("label", { class: "field" }, "Max lots per alert", lots), btn), box),
+  return [
+    h(
+      "div",
+      { class: "card-body stack integ-hook-form" },
+      h("div", { class: "card-titles" }, h("h3", {}, "Alert webhook"), h("p", {}, `Each hook has its own secret URL and places paper orders on ${paperAcc}.`)),
+      h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field" }, "Source", source), segField("Side", side), segField("Order type", orderType, { wide: true }), segField("Product", product), h("label", { class: "field" }, "Max lots per alert", lots), btn),
+      box,
+    ),
     tableSlot,
-  );
+  ];
 }
 
 // ── Activity ──
@@ -1881,7 +3036,8 @@ async function webhookPanel(paperAcc) {
 async function renderActivity() {
   const tabsBar = h("div", { class: "tabs", role: "tablist", "aria-label": "Activity" });
   const body = h("div");
-  let active = "requests";
+  // #/api/activity?view=audit opens the audit log (the ⌘K "Audit log" entry).
+  let active = hashParams().get("view") === "audit" ? "audit" : "requests";
   let showAll = false;
   const hideOwn = h("input", { type: "checkbox" });
   hideOwn.checked = local.get(FLAG.hideOwn) !== "0";
@@ -1893,13 +3049,14 @@ async function renderActivity() {
   const drawActivity = async () => {
     drawTabs(tabsBar, body, [["requests", "Requests"], ["audit", "Audit log"]], active, (id) => {
       active = id;
+      setHashParam("view", id);
       draw();
     });
     if (active === "requests") {
       const r = await api("/v1/requests?limit=200");
       const all = (r.data.data ?? []).filter((x) => !hideOwn.checked || x.client !== "dashboard");
       const rows = all.slice(0, showAll ? 200 : 40);
-      const more = all.length > rows.length ? h("div", { class: "card-body row" }, h("span", { class: "muted small" }, `Showing the latest ${formatInt(rows.length)} of ${formatInt(all.length)}.`), h("button", { type: "button", class: "small tinted", onclick: () => { showAll = true; draw(); } }, "Show all")) : null;
+      const more = all.length > rows.length ? h("div", { class: "card-body row" }, h("span", { class: "muted small" }, `Showing the latest ${formatInt(rows.length)} of ${formatInt(all.length)}.`), h("button", { type: "button", class: "small", onclick: () => { showAll = true; draw(); } }, "Show all")) : null;
       body.replaceChildren(
         h("div", { class: "card-body row" }, h("label", { class: "check" }, hideOwn, "Hide the dashboard's own requests"), h("span", { class: "grow" }), h("span", { class: "muted small" }, "Kept in memory only: the last 200 requests. Paths only, never query strings, bodies or keys.")),
         table(
@@ -1912,7 +3069,7 @@ async function renderActivity() {
             { label: "Key", cell: (x) => (x.keyId ? h("span", { class: "mono small" }, x.keyId) : h("span", { class: "muted" }, "None")) },
           ],
           rows,
-          emptyState("activity", "No requests yet", hideOwn.checked ? "Requests from your scripts, charts, Excel and AI tools appear here. Untick the box to see the dashboard's own." : "Requests appear here as they arrive.", nextStep("Make a call in the test console", "#/console", "tinted")),
+          emptyState("activity", "No requests yet", hideOwn.checked ? "Requests from your scripts, charts, Excel and AI tools appear here. Untick the box to see the dashboard's own." : "Requests appear here as they arrive.", nextStep("Make a call in the test console", "#/api/console")),
           { mobile: "scroll" },
         ),
         ...(more ? [more] : []), // replaceChildren would print a null as the text "null"

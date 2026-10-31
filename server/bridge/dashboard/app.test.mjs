@@ -21,9 +21,9 @@ describe("dashboard ticket view", () => {
     expect(f.Account).toBe("zerodha-main (zerodha · Main)");
     expect(f.Mode).toMatch(/LIVE/);
     expect(f).toMatchObject({ Side: "BUY", Quantity: "10", Symbol: "NSE:RELIANCE", "Order type": "LIMIT", Product: "CNC", Validity: "DAY", Tag: "ai1" });
-    // Money follows the house rule: rupee sign, no grouping commas, two decimals; a missing value is "--".
+    // Money follows the house rule: rupee sign, no grouping commas, two decimals; a missing value is "–" (DASH).
     expect(f.Price).toBe("₹1400.00");
-    expect(f["Trigger price"]).toBe("--");
+    expect(f["Trigger price"]).toBe("–");
     expect(f["Estimated value"]).toBe("₹14000.00");
     expect(f.Warning).toMatch(/PRICE_FAR_FROM_LTP/);
   });
@@ -64,15 +64,20 @@ describe("dashboard helpers", async () => {
     expect(friendlyError({ status: 418, message: "teapot" })).toEqual({ title: "The Bridge answered 418", detail: "teapot" });
   });
 
-  it("works out the welcome checklist", () => {
-    const keys = [{ id: "a" }, { id: "b", revokedAt: "2026-01-01" }];
+  it("works out the welcome checklist (broker or demo, a key for a tool, the chain, a paper trade)", () => {
+    // Init's admin key and a revoked key are not keys for a tool.
+    const keys = [{ id: "a", scopes: ["admin", "paper"] }, { id: "b", scopes: ["read"], revokedAt: "2026-01-01" }];
+    expect(checklistState({ demo: true, keys }).map((s) => s.id)).toEqual(["broker", "key", "chain", "trade"]);
     expect(checklistState({ demo: true, keys }).map((s) => s.done)).toEqual([true, false, false, false]);
     const accounts = [{ broker: "dhan", session: { state: "connected" } }];
-    expect(checklistState({ accounts, keys: [{ id: "a" }, { id: "b" }], copied: "1", tested: "1" }).every((s) => s.done)).toBe(true);
+    expect(checklistState({ accounts, keys: [{ id: "c", scopes: ["read"] }], chainOpened: "1", traded: "1" }).every((s) => s.done)).toBe(true);
     expect(checklistState({ accounts: [{ broker: "paper", session: { state: "connected" } }] })[0].done).toBe(false);
     // A key made by a sign-in link is not a key for a tool.
-    const signedIn = [{ id: "a", clientKind: "ui", label: "admin (created by init)" }, { id: "b", clientKind: "ui", label: "Dashboard sign-in" }];
+    const signedIn = [{ id: "a", clientKind: "ui", label: "admin (created by init)", scopes: ["admin"] }, { id: "b", clientKind: "ui", label: "Dashboard sign-in", scopes: ["read"] }];
     expect(checklistState({ keys: signedIn })[1].done).toBe(false);
+    // Demo's own seeded orders do not tick the trade step; one placed by the person does.
+    expect(checklistState({ orders: [{ mode: "paper", tag: "DEMOSEED" }] })[3].done).toBe(false);
+    expect(checklistState({ orders: [{ mode: "paper", tag: null }] })[3].done).toBe(true);
   });
 
   it("escapes data before highlighting JSON", () => {
@@ -232,5 +237,97 @@ describe("dashboard broker login form", async () => {
       expect(src).not.toMatch(/restart without --demo/);
       expect(src).not.toMatch(/under "accounts" in bridge\.config\.json/);
     }
+  });
+});
+
+describe("UI pass 3 §5: the menu and the merged pages", async () => {
+  // views.js imports desk.js and calendar.js (the router): it loads the page modules, as in the browser.
+  const { PAGES, LEGACY, resolveRoute } = await import("./views.js");
+  const { fuzzyScore, pageCommands, rank } = await import("./palette.js");
+  const route = (hash, lastTab = () => null) => resolveRoute(hash, { lastTab });
+
+  it("has 14 pages in four groups, in the order of the sidebar", () => {
+    // PR 17's Analytics group sits between Markets and Bridge (docs/design/pr17-integration.md).
+    expect(PAGES.filter((p) => p.group !== "Analytics").map((p) => p.id)).toEqual(["home", "chain", "strategy", "positions", "orders", "safety", "algo", "oi", "vol", "screeners", "calendar", "accounts", "api", "recorder"]);
+    expect([...new Set(PAGES.map((p) => p.group))]).toEqual(["", "Trade", "Markets", "Analytics", "Bridge"]);
+    expect(PAGES.filter((p) => p.tab).map((p) => p.id)).toEqual(["home", "chain", "positions", "orders"]);
+    expect(PAGES.find((p) => p.id === "orders").title).toBe("Orders");
+  });
+
+  it("curates the ⌘1 to ⌘9 shortcuts", () => {
+    const keys = Object.fromEntries(PAGES.filter((p) => p.key).map((p) => [p.key, p.id]));
+    expect(keys).toEqual({ 1: "home", 2: "chain", 3: "strategy", 4: "positions", 5: "orders", 6: "safety", 7: "oi", 8: "screeners", 9: "api" });
+  });
+
+  it("every tab names a legacy page id and every legacy id resolves to a tab of the page it names", () => {
+    const tabbed = PAGES.filter((p) => p.tabs);
+    expect(tabbed.map((p) => p.id)).toEqual(["orders", "oi", "vol", "screeners", "exposure", "flow", "futures", "lab", "risk", "api"]);
+    for (const p of tabbed) {
+      expect(p.tabs.some((t) => t.id === p.defaultTab), p.id).toBe(true);
+      for (const t of p.tabs) {
+        expect(typeof t.page, `${p.id}/${t.id}`).toBe("string");
+        expect(typeof t.render, `${p.id}/${t.id}`).toBe("function");
+      }
+    }
+    for (const [old, to] of Object.entries(LEGACY)) {
+      const [pageId, tabId] = to.split("/");
+      const tab = PAGES.find((p) => p.id === pageId)?.tabs?.find((t) => t.id === tabId);
+      expect(tab?.page, `${old} → ${to}`).toBe(old);
+    }
+  });
+
+  it("old hashes open the right tab and keep their query", () => {
+    const cases = [
+      ["#/console?endpoint=order", "api", "console", "console", "#/api/console?endpoint=order"],
+      ["#/keys", "api", "keys", "keys", "#/api/keys"],
+      ["#/limits", "api", "limits", "limits", "#/api/limits"],
+      ["#/integrations?tab=python", "api", "integrations", "integrations", "#/api/integrations?tool=python"],
+      ["#/activity", "api", "activity", "activity", "#/api/activity"],
+      ["#/scanner", "screeners", "stocks", "scanner", "#/screeners/stocks"],
+      ["#/screener", "screeners", "options", "screener", "#/screeners/options"],
+      ["#/arb", "screeners", "arbitrage", "arb", "#/screeners/arbitrage"],
+      ["#/participants", "oi", "participants", "participants", "#/oi/participants"],
+    ];
+    for (const [hash, page, tab, view, redirect] of cases) {
+      const r = route(hash);
+      expect([r.page.id, r.tab?.id, r.view, r.redirect], hash).toEqual([page, tab, view, redirect]);
+    }
+  });
+
+  it("each tab sets its own layout and data-page; plain pages are untouched", () => {
+    expect(route("#/screeners/stocks")).toMatchObject({ view: "scanner", layout: "desk", redirect: null });
+    expect(route("#/screeners/arbitrage")).toMatchObject({ view: "arb", layout: "desk" });
+    expect(route("#/oi")).toMatchObject({ view: "oi", layout: "desk" });
+    expect(route("#/api/console?endpoint=order")).toMatchObject({ view: "console", layout: "", query: "endpoint=order", redirect: null });
+    expect(route("#/chain")).toMatchObject({ view: "chain", layout: "desk", tab: null });
+    expect(route("#/accounts?add=1")).toMatchObject({ view: "accounts", query: "add=1" });
+  });
+
+  it("an unknown page is Home; an unknown or missing tab is the last tab used, then the default", () => {
+    expect(route("#/nowhere").page.id).toBe("home");
+    expect(route("").page.id).toBe("home");
+    expect(route("#signin=abc").page.id).toBe("home");
+    expect(route("#/api").tab.id).toBe("keys");
+    expect(route("#/api/nope").tab.id).toBe("keys");
+    expect(route("#/api/nope").redirect).toBe("#/api/keys");
+    expect(route("#/api/keys").redirect).toBe(null);
+    expect(route("#/api", (id) => (id === "api" ? "limits" : null)).tab.id).toBe("limits");
+    expect(route("#/api/nope", () => "gone").tab.id).toBe("keys");
+  });
+
+  it("the palette has one command per tab, the tools as search-only destinations, and ranks prefixes first", () => {
+    const cmds = pageCommands(PAGES, "Ctrl");
+    const byLabel = Object.fromEntries(cmds.map((c) => [c.label, c]));
+    for (const l of ["API keys", "Integrations", "Test console", "Rate limits", "Activity", "Participant OI", "Option Screener", "Arbitrage scanner", "Stock scanner", "Python snippet", "Webhooks", "Audit log"]) expect(byLabel[l], l).toBeTruthy();
+    expect(byLabel["API keys"]).toMatchObject({ route: "api/keys", sub: "API › Keys", hint: ["Ctrl", "9"] });
+    expect(byLabel["Python snippet"]).toMatchObject({ route: "api/integrations?tool=python", searchOnly: true });
+    expect(byLabel["Audit log"].route).toBe("api/activity?view=audit");
+    expect([...new Set(cmds.map((c) => c.group))]).toEqual(["Home", "Trade", "Markets", "Analytics", "Bridge"]);
+    expect(rank(cmds, "rate")[0].label).toBe("Rate limits");
+    expect(rank(cmds, "console")[0].label).toBe("Test console");
+    // A scattered in-order match is not enough: three points per query character.
+    expect(fuzzyScore("rate", "Strategy Builder")).toBeLessThan(fuzzyScore("rate", "Rate limits"));
+    expect(fuzzyScore("xqz", "Option Chain")).toBe(-1);
+    expect(fuzzyScore("oc", "Option Chain")).toBeGreaterThanOrEqual(6);
   });
 });

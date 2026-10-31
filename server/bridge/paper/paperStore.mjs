@@ -9,9 +9,9 @@
  *
  * The memory store has the same interface for the fake engine and for tests.
  */
-import { randomBytes } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { existsSync, readFileSync, renameSync } from "node:fs";
+import { join } from "node:path";
+import { writeFileAtomic } from "../../lib/jsonl.mjs";
 
 /** Account ids are validated by core config; re-checked here because they become file names. */
 export const ACCOUNT_ID_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
@@ -25,41 +25,8 @@ export const STATE_VERSION = 1;
  *   saveIds(ids: { day: string, seq: number }): void }} PaperStore
  */
 
-/**
- * Write `data` atomically with mode 0600.
- * @param {string} path
- * @param {string} data
- */
-export function writeFileAtomic(path, data) {
-  const dir = dirname(path);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const tmp = join(dir, `.${basename(path)}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
-  let fd = null;
-  try {
-    fd = openSync(tmp, "wx", 0o600);
-    const buf = Buffer.from(data, "utf8");
-    let off = 0;
-    while (off < buf.length) off += writeSync(fd, buf, off, buf.length - off);
-    fsyncSync(fd);
-    closeSync(fd);
-    fd = null;
-    renameSync(tmp, path);
-  } catch (err) {
-    if (fd !== null) {
-      try {
-        closeSync(fd);
-      } catch {
-        /* ignore */
-      }
-    }
-    try {
-      unlinkSync(tmp);
-    } catch {
-      /* ignore */
-    }
-    throw err;
-  }
-}
+/** Write `data` atomically with mode 0600: the one server implementation (server/lib/jsonl.mjs), re-exported. */
+export { writeFileAtomic };
 
 function assertId(accountId) {
   if (typeof accountId !== "string" || !ACCOUNT_ID_RE.test(accountId)) throw new Error(`Bad paper account id ${String(accountId)}`);

@@ -42,3 +42,29 @@ export async function batchWithDelay(items, size, delayMs, fn) {
   }
   return results;
 }
+
+/**
+ * Run async `fn(item, index)` over `items` with at most `limit` calls in flight, starting them in order. Resolves
+ * with one settled result per item, in the items' order, like Promise.allSettled: { status: "fulfilled", value } or
+ * { status: "rejected", reason }. Never rejects, so the caller handles each result in order exactly as a sequential
+ * loop would. It only bounds how many run at once: every call still goes through whatever pacing `fn` does (the
+ * Bridge's market reads go through the rate-limit scheduler).
+ */
+export async function mapSettledLimit(items, limit, fn) {
+  const list = [...items];
+  const out = new Array(list.length);
+  const cap = Math.max(1, Math.min(list.length, Math.floor(Number(limit)) || 1));
+  let next = 0;
+  async function worker() {
+    while (next < list.length) {
+      const i = next++;
+      try {
+        out[i] = { status: "fulfilled", value: await fn(list[i], i) };
+      } catch (reason) {
+        out[i] = { status: "rejected", reason };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: list.length ? cap : 0 }, worker));
+  return out;
+}

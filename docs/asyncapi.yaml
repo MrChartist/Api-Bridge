@@ -83,12 +83,18 @@ channels:
       unsubscribeOrders: { $ref: "#/components/messages/unsubscribeOrders" }
       subscribeScans: { $ref: "#/components/messages/subscribeScans" }
       unsubscribeScans: { $ref: "#/components/messages/unsubscribeScans" }
+      subscribeEvents: { $ref: "#/components/messages/subscribeEvents" }
+      unsubscribeEvents: { $ref: "#/components/messages/unsubscribeEvents" }
+      subscribeBudget: { $ref: "#/components/messages/subscribeBudget" }
+      unsubscribeBudget: { $ref: "#/components/messages/unsubscribeBudget" }
       ping: { $ref: "#/components/messages/ping" }
       heartbeat: { $ref: "#/components/messages/heartbeat" }
       snapshot: { $ref: "#/components/messages/snapshot" }
       tick: { $ref: "#/components/messages/tick" }
       order: { $ref: "#/components/messages/order" }
       scan: { $ref: "#/components/messages/scan" }
+      marketEvent: { $ref: "#/components/messages/marketEvent" }
+      budget: { $ref: "#/components/messages/budget" }
       status: { $ref: "#/components/messages/status" }
       error: { $ref: "#/components/messages/error" }
       goAway: { $ref: "#/components/messages/goAway" }
@@ -108,8 +114,9 @@ channels:
     title: Server-Sent Events stream
     description: |
       One-way. Query parameters: `token`, `symbols` (comma-separated, up to `stream.maxSymbolsPerRequest`, default 200),
-      `mode` (ltp | quote | depth, default ltp), `orders=1` to add order updates, `scans=1` to add scanner events.
-      Give `symbols`, `orders=1`, `scans=1` or any mix.
+      `mode` (ltp | quote | depth, default ltp), `orders=1` to add order updates, `scans=1` to add scanner events,
+      `events=1` (or `events=stock` / `events=option`) to add live market events, `budget=1` to add the API budget.
+      Give `symbols`, `orders=1`, `scans=1`, `events=1`, `budget=1` or any mix.
       Each event: `id: <seq>`, `event: <type>`, `data: <message JSON>`.
     servers:
       - $ref: "#/servers/local-http"
@@ -119,6 +126,8 @@ channels:
       tick: { $ref: "#/components/messages/tick" }
       order: { $ref: "#/components/messages/order" }
       scan: { $ref: "#/components/messages/scan" }
+      marketEvent: { $ref: "#/components/messages/marketEvent" }
+      budget: { $ref: "#/components/messages/budget" }
       status: { $ref: "#/components/messages/status" }
       error: { $ref: "#/components/messages/error" }
       goAway: { $ref: "#/components/messages/goAway" }
@@ -159,6 +168,29 @@ operations:
     channel: { $ref: "#/channels/stream" }
     summary: Client stops scanner events.
     messages: [{ $ref: "#/channels/stream/messages/unsubscribeScans" }]
+  receiveSubscribeEvents:
+    action: receive
+    channel: { $ref: "#/channels/stream" }
+    summary: Client asks for live market events (S28) as they are detected, optionally only one asset, some kinds or sides. Sending it again replaces the filter.
+    messages: [{ $ref: "#/channels/stream/messages/subscribeEvents" }]
+  receiveUnsubscribeEvents:
+    action: receive
+    channel: { $ref: "#/channels/stream" }
+    summary: Client stops live market events.
+    messages: [{ $ref: "#/channels/stream/messages/unsubscribeEvents" }]
+  receiveSubscribeBudget:
+    action: receive
+    channel: { $ref: "#/channels/stream" }
+    summary: Client asks for the API budget of the broker accounts its key may use. The Bridge answers with a budget message at once, then once a second while it changes (at least every 5 s).
+    messages: [{ $ref: "#/channels/stream/messages/subscribeBudget" }]
+    reply:
+      channel: { $ref: "#/channels/stream" }
+      messages: [{ $ref: "#/channels/stream/messages/budget" }]
+  receiveUnsubscribeBudget:
+    action: receive
+    channel: { $ref: "#/channels/stream" }
+    summary: Client stops budget messages.
+    messages: [{ $ref: "#/channels/stream/messages/unsubscribeBudget" }]
   receivePing:
     action: receive
     channel: { $ref: "#/channels/stream" }
@@ -192,6 +224,16 @@ operations:
     channel: { $ref: "#/channels/stream" }
     summary: A scan made progress or finished, or a saved scan found new matches.
     messages: [{ $ref: "#/channels/stream/messages/scan" }]
+  sendMarketEvent:
+    action: send
+    channel: { $ref: "#/channels/stream" }
+    summary: A live market event was detected (action new), or a repeat inside its cool-down raised its count (action update, same id). Conflated per event id.
+    messages: [{ $ref: "#/channels/stream/messages/marketEvent" }]
+  sendBudget:
+    action: send
+    channel: { $ref: "#/channels/stream" }
+    summary: The API budget after subscribe_budget. Conflated (a newer one replaces one still waiting).
+    messages: [{ $ref: "#/channels/stream/messages/budget" }]
   sendStatus:
     action: send
     channel: { $ref: "#/channels/stream" }
@@ -272,6 +314,26 @@ components:
       name: unsubscribe_scans
       title: Stop scanner events
       payload: { $ref: "#/components/schemas/UnsubscribeScansOp" }
+    subscribeEvents:
+      name: subscribe_events
+      title: Subscribe to live market events
+      payload: { $ref: "#/components/schemas/SubscribeEventsOp" }
+      examples:
+        - payload: { op: subscribe_events, asset: stock, sides: [bull] }
+    unsubscribeEvents:
+      name: unsubscribe_events
+      title: Stop live market events
+      payload: { $ref: "#/components/schemas/UnsubscribeEventsOp" }
+    subscribeBudget:
+      name: subscribe_budget
+      title: Subscribe to the API budget
+      payload: { $ref: "#/components/schemas/SubscribeBudgetOp" }
+      examples:
+        - payload: { op: subscribe_budget }
+    unsubscribeBudget:
+      name: unsubscribe_budget
+      title: Stop API budget messages
+      payload: { $ref: "#/components/schemas/UnsubscribeBudgetOp" }
     ping:
       name: ping
       title: Ping
@@ -343,6 +405,18 @@ components:
       payload: { $ref: "#/components/schemas/ScanMessage" }
       examples:
         - payload: { type: scan, seq: 40, event: alert, savedId: saved_9f2c1a7b3d4e5f60, name: "Breakouts", jobId: scan_1a2b3c4d5e6f7a8b, newMatches: ["NSE:TCS"], at: "2026-10-26T10:35:02.000Z" }
+    marketEvent:
+      name: market_event
+      title: Live market event
+      payload: { $ref: "#/components/schemas/MarketEventMessage" }
+      examples:
+        - payload: { type: market_event, seq: 512, action: new, sentAt: 1793345527120, event: { id: ev_20261030_1k, seq: 56, ts: 1793345527118, time: "2026-10-30T10:42:07+05:30", date: "2026-10-30", symbol: "NSE:BODALCHEM", segment: NSE, name: "Bodal Chemicals", asset: stock, kind: only_buyers, label: Only buyers, category: circuit, side: bull, ltp: 164.52, changePct: 5, strength: 5, context: "upper circuit 5 % at 164.52, 182340 bid", first: true, count: 1 } }
+    budget:
+      name: budget
+      title: API budget
+      payload: { $ref: "#/components/schemas/BudgetMessage" }
+      examples:
+        - payload: { type: budget, seq: 30, accounts: [{ accountId: kite-main, broker: zerodha, healthy: true, queued: 0, backoffMs: 0, second: { used: 3, limit: 10, cls: quote }, minute: { used: 41, limit: 400, cls: quote }, callsToday: 1210 }], callsToday: 1210, savedToday: 9620, savings: { servedFromStream: 8100, servedFromCache: 1200, coalesced: 280, batched: 40 }, stream: { feeds: 1, up: 1, subscriptions: 164 } }
     status:
       name: status
       title: Upstream status
@@ -441,6 +515,37 @@ components:
       required: [op]
       properties:
         op: { const: unsubscribe_scans }
+        id: { $ref: "#/components/schemas/OpId" }
+    SubscribeEventsOp:
+      type: object
+      additionalProperties: false
+      required: [op]
+      properties:
+        op: { const: subscribe_events }
+        asset: { type: string, enum: [stock, option] }
+        kinds: { type: array, maxItems: 60, items: { type: string }, description: "Event kinds from GET /v1/events/catalogue; all when absent." }
+        sides: { type: array, maxItems: 3, items: { type: string, enum: [bull, bear, neutral] } }
+        id: { $ref: "#/components/schemas/OpId" }
+    UnsubscribeEventsOp:
+      type: object
+      additionalProperties: false
+      required: [op]
+      properties:
+        op: { const: unsubscribe_events }
+        id: { $ref: "#/components/schemas/OpId" }
+    SubscribeBudgetOp:
+      type: object
+      additionalProperties: false
+      required: [op]
+      properties:
+        op: { const: subscribe_budget }
+        id: { $ref: "#/components/schemas/OpId" }
+    UnsubscribeBudgetOp:
+      type: object
+      additionalProperties: false
+      required: [op]
+      properties:
+        op: { const: unsubscribe_budget }
         id: { $ref: "#/components/schemas/OpId" }
     PingOp:
       type: object
@@ -548,6 +653,72 @@ components:
             name: { type: string, description: "alert: the saved scan's name" }
             newMatches: { type: array, items: { type: string }, description: "alert: symbols the previous run did not match" }
             at: { type: string, format: date-time }
+    BudgetWindow:
+      type: [object, "null"]
+      description: The fullest window of this length over the account's endpoint classes right now.
+      properties:
+        used: { type: integer }
+        limit: { type: integer }
+        cls: { type: string, description: The endpoint class (quote, chain, depth ...). }
+    BudgetMessage:
+      allOf:
+        - { $ref: "#/components/schemas/Envelope" }
+        - type: object
+          required: [accounts, callsToday, savedToday, savings, stream]
+          properties:
+            type: { const: budget }
+            accounts:
+              type: array
+              items:
+                type: object
+                properties:
+                  accountId: { type: string }
+                  broker: { type: string }
+                  healthy: { type: boolean }
+                  queued: { type: integer }
+                  backoffMs: { type: integer }
+                  second: { $ref: "#/components/schemas/BudgetWindow" }
+                  minute: { $ref: "#/components/schemas/BudgetWindow" }
+                  callsToday: { type: integer }
+            callsToday: { type: integer, description: Broker calls made today (IST) by the accounts shown. }
+            savedToday: { type: integer, description: Broker calls avoided today by the stream, the cache, shared calls and batching. }
+            savings: { type: object }
+            stream: { type: object, properties: { feeds: { type: integer }, up: { type: integer }, subscriptions: { type: integer } } }
+            jobs:
+              type: array
+              description: Background jobs spending broker budget now, e.g. the scanner's pre-warm ("Preparing scans").
+              items: { type: object, properties: { id: { type: string }, label: { type: string }, done: { type: integer }, total: { type: integer }, paused: { type: boolean } } }
+    MarketEventMessage:
+      allOf:
+        - { $ref: "#/components/schemas/Envelope" }
+        - type: object
+          required: [action, event]
+          properties:
+            type: { const: market_event }
+            action: { type: string, enum: [new, update] }
+            sentAt: { type: integer, description: Epoch ms when the Bridge queued the message. }
+            event:
+              type: object
+              description: The event record, as GET /v1/events returns it (docs/guides/live-events.md).
+              required: [id, ts, time, symbol, asset, kind, side, count]
+              properties:
+                id: { type: string }
+                seq: { type: integer }
+                ts: { type: integer }
+                time: { type: string }
+                symbol: { type: string }
+                name: { type: [string, "null"] }
+                asset: { type: string, enum: [stock, option] }
+                kind: { type: string }
+                label: { type: string }
+                side: { type: string, enum: [bull, bear, neutral] }
+                ltp: { type: [number, "null"] }
+                changePct: { type: [number, "null"] }
+                strength: { type: [number, "null"] }
+                context: { type: string }
+                first: { type: boolean }
+                count: { type: integer }
+                option: { type: object, description: "Option events: underlying, expiry, strike, right, premium, oi, dOiLots, iv, lot" }
     OrderMessage:
       allOf:
         - { $ref: "#/components/schemas/Envelope" }

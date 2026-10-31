@@ -51,6 +51,17 @@ data/
   orders/               idempotency records, clientOrderId map, live order index      (S7)
   paper/<accountId>.json  paper books                                                 (S8)
   hooks.json            webhook definitions (token hashes only)                       (S11)
+  reference/            reference data store S5: state.json, settings.json (dashboard choices: archives,
+                        rate), lots.json, universe.json, ban.json, mwpl.json, corporate-actions.json (user
+                        rows) and raw/YYYY-MM-DD/ NSE archive downloads with .sha256              (S16)
+  recorder/             option-chain recorder S17 (docs/spec/p1-01-recorder.md §3.4):            (S17)
+    state.json          last slot, plan hash, refused chains, warnings, holiday flag
+    s1/YYYY-MM-DD/<UNDERLYING>/<EXPIRY>.ndjson(.gz)  one line per chain per minute (snapshot or gap
+                        record), append-only; gzipped at the 15:40 IST day roll
+    s1/YYYY-MM-DD/<UNDERLYING>/_und.ndjson(.gz)  spot and futures per minute
+    s1/YYYY-MM-DD/day.json  per-chain counts after the roll
+    s3/<UNDERLYING>/<YYYY>.ndjson  daily derived rows (PCR, max pain, largest OI, ΔOI, basis, rollover)
+  recorder-demo/        the same layout for demo mode only (sample data, kept 3 days; real mode never reads it)
 ```
 
 ## 3. Module map
@@ -75,7 +86,21 @@ data/
 | `scanner/` | S13 | (routes only) | `/v1/scanner/*`; `scan` events on the stream |
 | `compat/` | S14 | (routes only) | `/api/v1/*` apikey-in-body REST, WS `/api/v1/ws` |
 | `notify/` | S15 | (routes only) | `/v1/notify`, `/v1/notify/test`; Telegram, Discord, Slack, signed webhooks |
-| `server/brokers/`, `server/lib/` | frozen | broker adapters and helpers (existing, tested) | none directly |
+| `reference/` | S16 | `reference` (ReferenceData, `docs/spec/p1-02-reference.md`); dashboard `reference.js` (bundle, chip, banners, lot gate) and `calendar.js` (Market calendar page) | `/v1/reference/*`, demo-only `PUT /v1/demo/reference` |
+| `recorder/` | S17 | `recorder` (RecorderService, `docs/spec/p1-01-recorder.md`; series planned in `p1-07`); dashboard `recorder.js` (Data recorder page) and `oi-store.js` (the OI page's cache of the server series) | `/v1/options/snapshots`, `/v1/options/snapshots/latest`, `/v1/options/daily`, `/v1/options/recorder`, `/v1/options/recorder/plan`, `/v1/options/recorder/config`; MCP `get_option_snapshots` (`options` toolset) |
+| `vol/` | S18 | `vol` (planned, `p1-03`) | `/v1/vol/*` |
+| `fno/` | S19 | (routes only; `docs/spec/p1-06-stocks.md`): F&O universe from the reference store and the masters, the server-side option sweep (one at a time, ≤ 50 % of the data account's budget, background priority, resumable), expiry and delivery costs (`dashboard/expiry-costs.js`, shared with the pages); store `dataDir/fno/` (settings, sweep jobs as NDJSON, OI baselines, HV20 per day) | `/v1/options/underlyings*`, `/v1/options/expiry-costs`, `/v1/options/sweeps*`, demo-only `POST /v1/demo/fno` |
+| `readiness/` | S20 | `readiness` (`p1-05`) | trading readiness: session, static IP, headroom, kill switch per live account; automated-send gate |
+| `exposure/` | S21 | `exposure` (planned, `p1-08`) | `/v1/options/levels`, exposure profile |
+| `strategy/` | S22 | `settlement` (planned, `p1-09`) | `/v1/strategy/*` |
+| `margin/` | S23 | `margin`, `chargePlans` (planned, `p1-10`) | basket margin, `/v1/charges/plans` |
+| `alerts/` | S24 | `alerts` (planned, `p1-11`) | `/v1/alerts*` |
+| `guards/` | S25 | `guards` (planned, `p1-12`) | `/v1/guards*` |
+| `participants/` | S26 | `participants` (planned, `p1-12`) | participant OI |
+| `book/` | S27 | `book` (planned, `p1-12`) | `/v1/book` |
+| `strategies/` | S30 | (routes only; `docs/STRATEGIES-PYTHON.md`): runs the user's Python strategy files from `<Bridge home>/strategies` as child processes, one API key per run limited to one account, paper by default; heartbeat, restart back-off, kill switch stops all; dashboard `algo.js` (Trade › Algo) | `/v1/strategies*` (admin, loopback) |
+| `demo/` | lead | demo adapter and config; `routes.mjs`: demo-only routes (`/v1/demo/*`, registered only in demo mode, `x-demo-only: true` in OpenAPI) | `/v1/demo/*` (demo mode only) |
+| `server/brokers/`, `server/lib/` | frozen | broker adapters and helpers (existing, tested); `server/lib/jsonl.mjs` is the shared append-only store helper (F0) | none directly |
 
 **How modules plug in** (`core/modules.mjs`): each area has one `module.mjs` exporting `defineModule({ name, stream, services, configKey?, configSchema?, register(app, deps), start?, stop? })`.
 
@@ -169,13 +194,13 @@ route (S7, scope paper) ─► validate body (zod) ─► idempotency check (rep
 - **Coalescing (singleflight).** Identical in-flight reads (`coalesceKey` = class + account + canonical args) share one broker call.
 - **Batching.** Quote and LTP requests arriving within a short window (about 25 ms) are merged up to `maxQuoteBatch` per adapter call.
 - **Freshness cache.** Per-class targets (LTP 1 s, quotes 2 s, depth 1 s, chain 3 s, expiries 5 min, history 60 s for closed bars). Callers tighten with `maxAgeMs`. When the budget is exhausted the engine may serve the cached value **labelled `stale: true`** rather than queueing past the caller's deadline; portfolio and orders are never served stale.
-- **Streaming first.** If StreamHub has a live, fresh tick for a symbol, LTP and quotes come from it and cost no REST call. Front ends and charts should subscribe rather than poll.
+- **Streaming first.** If StreamHub has a live, fresh tick for a symbol, LTP and quotes come from it and cost no REST call. An option chain whose whole strike window is streamed is built from the ticks over the day's broker chain (previous OI from it), also with no REST call. Front ends and charts should subscribe rather than poll: the dashboard keeps one WebSocket per tab (`dashboard/live.js`) shared by every page.
 - **Pooled routing.** `pickAccount` chooses among eligible candidates by headroom, health and back-off state. Credentials never move between accounts; each call uses the chosen account's own session. A many-symbol unpinned quote read is split: `maxQuoteBatch` chunks go to the pooled account with the most spare quote budget (accounts in back-off or out of budget for longer than a second get none). Pooling at a broker whose policy is `unknown` needs the account's `marketData.poolingWhenTermsUnknown` as well; `not-allowed` is never pooled.
 - **Backup data (S12).** An unpinned read whose caller allows it (`ReadOptions.allowBackup`: REST, /xl, the compat API and the scanner by default via `backup.autoFallback`; never orders, paper or safety) and that no broker account could answer is served by BackupDataService (Yahoo Finance chart API, NSE website JSON), labelled `freshness.source: "backup"` with `provider` and the provider's own timestamp, and never written to the shared freshness cache. Per-provider pacing, circuit breaker and a short quote cache keep the Bridge a polite client.
 - **Scanner (S13).** Scan jobs fetch candles at `background` priority. With several pooled candidates, one worker pool per account is pinned to it and sized to the account's history `perSecond` (capped by `scanner.perAccountConcurrency`), all pulling from one queue; the scheduler still paces every call. Conditions are parsed into a tree by a small recursive-descent parser and evaluated over candle series; nothing is ever `eval`'d.
 - **Upstream back-off.** A broker 429 or rate-limit error (`UPSTREAM_RATE_LIMITED`) puts that `(account, class)` into back-off (Retry-After, else exponential from 1 s) and emits `limits.throttled`.
 - **Client limits.** Each API key has its own budget (default 50 requests/s, configurable in the `ratelimit` config section), reported in `RateLimit` / `RateLimit-Policy` headers and 429 + `Retry-After`.
-- **Observability.** `/v1/usage` shows used, queued and reset per class, and the calls saved by streaming, caching, coalescing and batching.
+- **Observability.** `/v1/usage` shows used, queued and reset per class, every window (this second, this minute, today), two minutes of calls per second (`?series=1`), the calls saved by streaming, caching, coalescing and batching, and (admin keys) today's calls and saved calls per consumer: the dashboard page, API key label, MCP, compat or background job that caused them (`ratelimit/consumer.mjs`, AsyncLocalStorage). The dashboard's top-bar budget capsule reads the `budget` stream message. Measurements: `docs/perf/`.
 
 **StreamHub.** One upstream feed per account (`adapter.createFeed`), reference-counted subscriptions across all local clients, upstream mode = the highest mode any client wants, broker caps enforced (a client gets `SUBSCRIPTION_LIMIT`, never a silent drop), reconnect with back-off, resubscribe after re-login. Downstream protocol (WS and SSE): `snapshot` on subscribe, then `tick` with a per-connection `seq`, `status` (upstream up, down or stale), `heartbeat` every 15 s, `go_away` before shutdown. Clients authenticate with a 60-second stream token from `POST /v1/stream/token` (so keys never sit in URLs) or an Authorization header. Message schemas go in `docs/asyncapi.yaml` (S6).
 
@@ -216,6 +241,22 @@ route (S7, scope paper) ─► validate body (zod) ─► idempotency check (rep
 | Public ingress | core | off by default; a separate listener that serves only `public` routes (webhooks), never the API |
 | AI confirmation | S7, S11 | order tools prepare a ticket; a human confirms it in the dashboard with an admin key from this computer; client-side approval prompts and MCP annotations never count as confirmation; no tool can change paper/live mode, scopes or the kill switch release |
 | Body limits and timeouts | core | 64 KB default bodies (16 KB for hooks), 30 s request timeout, broker calls time out via `brokerFetch` |
+| Cross-site writes | core security | besides the Origin allowlist, a non-GET request with `Sec-Fetch-Site: cross-site` or `same-site` and no allowlisted Origin is refused (`ORIGIN_NOT_ALLOWED`) |
+| Trading readiness | S20 | per live account: session (stated expiry + read call), egress IP vs `live.registeredIp` (opt-in lookup, IP in memory only), headroom, kill switch; automated live sends refused with `CANNOT_TRADE` while `cannot_trade`; it never sends or engages anything |
+
+**Security baseline (BRD §7.9), audited 29 Oct 2026** (`docs/spec/p1-05-readiness.md` §3.9):
+
+| # | Finding | Verdict and test |
+|---|---|---|
+| F1 | No route authenticates from a cookie; the dashboard sends a per-tab bearer key from `sessionStorage` | This is the per-session token: a browser never attaches it on its own, so CSRF cannot carry it. No cookies (T-sec-4) |
+| F2 | The Origin allowlist runs before routing; preflight only for listed origins; `Origin: null` refused | Every non-GET route is tested (T-sec-1) |
+| F3 | The sign-in admin key lives 30 days, though the tab forgets it on close | Acceptable (loopback-only creation, hashed at rest); revoking on tab close is not reliable |
+| F4 | Non-GET `auth: "none"` only `POST /v1/sign-in` (loopback, one-time code); `auth: "custom"` only hooks and `/api/v1/*` | Locked by an allowlist test (T-sec-2) |
+| F5 | `?key=` only on GET routes with `allowQueryKey`, read keys only | Tested (T-sec-2) |
+| F6 | WebSocket upgrades run the same Host and Origin check | Every upgrade path tested (T-sec-3) |
+| F7 | A write with `Sec-Fetch-Site: cross-site` and no Origin passed the Origin check | Fixed: `assertNotCrossSiteWrite` (T-sec-1c) |
+| F8 | `X-Frame-Options: DENY`, `frame-ancestors 'none'`, `script-src 'self'`, CORP, `no-store` on every response | Asserted per module (T-sec-5) |
+| F9 | MCP order tools hidden without config and `paper` scope; `live` mode only with a live key; MCP keys cannot hold `admin` | Matrix test (T-sec-6) |
 
 ## 9. Symbology
 
@@ -281,7 +322,7 @@ These shape the design. None of this is legal advice; items flagged **(needs ver
 
 ## 14. Configuration and environment
 
-`bridge.config.json` (see `bridge.config.example.json`). Core sections: `server`, `cors`, `dataDir`, `logging`, `accounts`, `safety`. Module sections (each validated by its module's zod schema): `ratelimit` (S3), `symbols` (S4), `market` (S5), `stream` (S6), `orders` (S7), `paper` (S8), `integrations` (S10), `hooks` and `mcp` (S11). Unknown sections are errors.
+`bridge.config.json` (see `bridge.config.example.json`). Core sections: `server`, `cors`, `dataDir`, `logging`, `accounts`, `safety`. Module sections (each validated by its module's zod schema): `ratelimit` (S3), `symbols` (S4), `market` (S5), `stream` (S6), `orders` (S7), `paper` (S8), `integrations` (S10), `hooks` and `mcp` (S11), `reference` (S16: NSE archive switch, sync times, rate, sessions, holidays, brokerage default), `fno` (S19: universe, sweep budget share and method, expiry window, ban gate switch). Unknown sections are errors.
 
 | Variable | Effect |
 |---|---|

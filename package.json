@@ -38,6 +38,7 @@
   },
   "scripts": {
     "start": "node bin/mc-bridge.mjs start",
+    "dev": "node bin/mc-bridge.mjs start --demo --open",
     "doctor": "node bin/mc-bridge.mjs doctor",
     "bridge": "node bin/mc-bridge.mjs",
     "audit:runtime": "npm audit --omit=dev",
