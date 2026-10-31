@@ -604,3 +604,44 @@ recorder's minute round landing in the 20 s window; it moves between rounds of t
   about 1.4 s at 200 ms a read. Exposure and Event vol do the same; the scheduler would pace parallel reads anyway.
 - Algo's log and list reads (117 a minute with a strategy running) could move to the shared live connection. They are
   local reads and cost no broker calls.
+
+# Round 5b (31 Oct)
+
+The two items left in round 5's "Not done": Chain and Futures cold first data, and the Volatility depth tabs reading
+their chains one after another.
+
+Raw results in this folder: `round5b-{before,after}-{1,2,3}.json` (`--only chain,futures,exposure,volfwd,volrrbf,volevent`,
+`--latency 200`, 10 s steady windows, port 4740). Before is `9a766b5` (round 5's end), after is this round's fixes; the
+same harness on both sides, run interleaved (before-1, after-1, … after-3). 4 vCPU, load average 0.4 to 0.8.
+
+| Page | Figure | Round 5 end (`9a766b5`) | After round 5b |
+|---|---|---|---|
+| chain | First data, ms | 811 (824, 811, 766) | **534** (511, 583, 534) |
+| chain | Switch from Home, ms | 460 (501, 460, 435) | 215 (215, 268, 215) |
+| futures | First data, ms | 523 (468, 523, 541) | **307** (264, 320, 307) |
+| volfwd | First data, ms | 1237 (1231, 1242, 1237) | **827** (827, 1060, 797) |
+| volevent | First data, ms | 1500 (1506, 1500, 1219) | **876** (838, 876, 907) |
+| exposure (one expiry), volrrbf | First data, ms | 280; 654 | 287; 692 (within the spread: one chain each) |
+| all six | REST / min; broker / min; duplicates | 6; 0 to 6; 0 | 0 to 6; 0 to 6; 0 |
+
+Medians, the three runs in brackets. Chain and Futures are back to round 4's figures (523 and 244 to 264 ms).
+
+What changed:
+- **The far-month future no longer holds the first draw.** No stream slot was added: the recorder still streams the two
+  nearest index futures.
+  - Chain (`desk.js quotePlan / readQuotes`): the index, the two nearest futures and the selected expiry's own future
+    are awaited. A farther future without a quote yet is read at the same time and filled in (the page redrawn) when
+    it arrives. Once it has a quote, one read as before, so no extra request per refresh.
+  - Futures: `GET /v1/analytics/futures?wait=near` answers once spot and the two nearest futures are quoted. A far
+    month still on its way comes back `pending: true` with null figures, and its read carries on through the
+    scheduler. The page draws that ("–" for the far month), then fills it in from the default `wait=all` read, which
+    joins the read already running. The default answer is unchanged for API clients.
+- **Chains 3 at a time** (`CHAIN_READS` in `analytics/math.mjs`, `mapSettledLimit` in `server/lib/batch.mjs`): forward
+  curve, vol cone (Event vol's term structure), event vol, and exposure / OI explorer across expiries.
+  - Every read still goes through `marketData.optionChain`, so through the rate-limit scheduler and its budget. The
+    cap only bounds how many reads one request has in flight.
+  - Results are used in expiry order, so the answers and errors are those of the sequential loop
+    (`chainReads.test.mjs` checks each route against a one-at-a-time run and the in-flight cap).
+  - The vol cone also reads its daily candles alongside its chains.
+- Forward's 827 ms is two chain round trips plus the expiry list and the page's own work. Six chains at 3 in flight
+  can't go lower than two round trips.
