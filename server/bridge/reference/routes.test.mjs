@@ -270,7 +270,7 @@ describe("fresh non-demo Bridge (archives off)", () => {
     const st = (await h.call("GET", "/v1/reference/status")).json.data;
     expect(st).toMatchObject({ demo: false, sources: { nseArchives: { enabled: false, setBy: "default" } } });
     expect(st.datasets.ban).toMatchObject({ available: false, reason: "SOURCE_OFF" });
-    expect(st.datasets.holidays).toMatchObject({ available: true, verified: false });
+    expect(st.datasets.holidays).toMatchObject({ available: true, verified: true });
     expect(st.datasets.rate).toMatchObject({ quality: "default", stale: true });
     expect((await h.call("GET", "/v1/reference/ban")).json.data).toMatchObject({ available: false, reason: "SOURCE_OFF", items: [] });
     expect((await h.call("GET", "/v1/reference/mwpl")).json.data).toMatchObject({ available: false, reason: "SOURCE_OFF" });
@@ -279,7 +279,7 @@ describe("fresh non-demo Bridge (archives off)", () => {
 
   it("no master loaded: bundle is 404; sessions and holidays still answer", async () => {
     expect((await h.call("GET", "/v1/reference/bundle?underlying=NIFTY")).status).toBe(404);
-    expect((await h.call("GET", "/v1/reference/sessions?date=2026-11-24")).json.data).toMatchObject({ state: "HOLIDAY", holiday: { verified: false } });
+    expect((await h.call("GET", "/v1/reference/sessions?date=2026-11-24")).json.data).toMatchObject({ state: "HOLIDAY", holiday: { verified: true } });
   });
 
   it("a sync with archives off records SOURCE_OFF and makes zero fetch calls", async () => {

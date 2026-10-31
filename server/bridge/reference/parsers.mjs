@@ -3,9 +3,11 @@
  * §6.7). Pure. Layouts NEED VERIFICATION against real downloads before the parsers are marked done.
  *
  *   fo_secban_DDMMYYYY.csv   "Securities in Ban For Trade Date 30-OCT-2026:" then "1,ABC" rows (or ": NIL")
- *   combineoi_DDMMYYYY.zip   one CSV: Date,ISIN,Scrip Name,NSE Symbol,MWPL,Open Interest,Limit for Next Day
+ *   combineoi_DDMMYYYY.zip   one CSV (newer zips add an XML copy): Date,ISIN,Scrip Name,NSE Symbol,MWPL,Open Interest,
+ *                            Future Equivalent Open Interest (newer files),Limit for Next Day
  *
- * mwplPct = 100 × combined OI / MWPL (both in shares). Band: "ban" when the symbol is on the ban list for the date (the
+ * mwplPct = 100 × combined OI / MWPL (both in shares), using the future-equivalent OI when the file has it: the
+ * measure the limit is applied to (the plain OI counts every option contract in full). Band: "ban" when the symbol is on the ban list for the date (the
  * list is the authority, not our %), else "high" at 80 % or more (a neutral display band, not an exchange status),
  * else "normal".
  */
@@ -68,7 +70,8 @@ export function parseCombineOi(text) {
   const iIsin = col(/isin/);
   const iSym = col(/symbol/);
   const iMwpl = col(/^mwpl$/);
-  const iOi = col(/open interest/);
+  const iFeq = col(/future equivalent/);
+  const iOi = header.findIndex((h, i) => i !== iFeq && /open interest/.test(h));
   const iLimit = col(/limit/);
   if (iSym < 0 || iMwpl < 0 || iOi < 0) throw new Error("combineoi: missing Symbol, MWPL or Open Interest column");
   let forDate = null;
@@ -77,26 +80,29 @@ export function parseCombineOi(text) {
     const c = splitCsvLine(line);
     const symbol = (c[iSym] ?? "").toUpperCase();
     const mwpl = num(c[iMwpl]);
-    const oi = num(c[iOi]);
+    const rawOi = num(c[iOi]);
+    const feq = iFeq >= 0 ? num(c[iFeq]) : null;
+    const oi = feq !== null && feq >= 0 ? feq : rawOi;
     if (!/^[A-Z0-9&-]{1,30}$/.test(symbol) || !(mwpl > 0) || oi === null || oi < 0) continue;
     if (!forDate && iDate >= 0) forDate = parseNseDate(c[iDate]);
-    rows.push({ symbol, isin: iIsin >= 0 ? c[iIsin] || null : null, mwpl, oi, limitNextDay: iLimit >= 0 ? num(c[iLimit]) : null });
+    rows.push({ symbol, isin: iIsin >= 0 ? c[iIsin] || null : null, mwpl, oi, rawOi, limitNextDay: iLimit >= 0 ? num(c[iLimit]) : null });
   }
   if (!rows.length) throw new Error("combineoi: no rows");
   return { forDate, rows };
 }
 
 /**
- * The CSV inside the combined-OI zip, through safeArchive's caps: exactly one entry, and it must be a .csv.
+ * The CSV inside the combined-OI zip, through safeArchive's caps: exactly one plain .csv entry (other entries, such as
+ * the XML copy NSE now adds, are ignored).
  * @param {Buffer} buf
  * @param {{ maxBytes: number }} o
  */
 export function readCombineOiZip(buf, { maxBytes }) {
   const label = "NSE combined OI";
   const entries = listZipEntries(buf, { label });
-  if (entries.length !== 1) throw new Error(`${label}: expected one file in the zip, found ${entries.length}`);
-  if (!/\.csv$/i.test(entries[0].name) || entries[0].name.includes("/") || entries[0].name.includes("\\")) throw new Error(`${label}: the zip entry is not a plain .csv file`);
-  return readZipEntry(buf, entries[0], { maxBytes, label }).toString("utf8");
+  const csvs = entries.filter((e) => /\.csv$/i.test(e.name) && !e.name.includes("/") && !e.name.includes("\\"));
+  if (csvs.length !== 1) throw new Error(`${label}: expected one plain .csv file in the zip, found ${csvs.length}`);
+  return readZipEntry(buf, csvs[0], { maxBytes, label }).toString("utf8");
 }
 
 /** mwplPct rounded to 0.1 and the display band. */

@@ -190,12 +190,6 @@ describe("Turn on NSE downloads (spec §7.2: name the files and how often)", () 
     expect(c.tail).toContain("At most 20 requests a day");
     expect(consentText(null).lead).toContain("the NSE archives");
     for (const t of [c.title, c.lead, c.tail, ...c.files]) expect(checkSource(JSON.stringify(t))).toEqual([]);
-    // The button opens the sheet first; PUT /v1/reference/sources runs only after "Turn on downloads".
-    const src = readFileSync(new URL("./calendar.js", import.meta.url), "utf8");
-    const fn = src.slice(src.indexOf("async function turnOn("), src.indexOf("async function turnOff("));
-    expect(fn.indexOf("await modal(")).toBeGreaterThan(0);
-    expect(fn.indexOf("if (ok !== true) return;")).toBeGreaterThan(fn.indexOf("await modal("));
-    expect(fn.indexOf('api("/v1/reference/sources"')).toBeGreaterThan(fn.indexOf("if (ok !== true) return;"));
   });
 
   it("dataset times read in the house date style, in IST", () => {

@@ -16,6 +16,18 @@ describe("parseMktLots", () => {
     expect(parsed.rows.find((r) => r.symbol === "M&M").lots["2026-10"]).toBe(200);
     expect(parsed.rows.filter((r) => r.kind === "stock").map((r) => r.symbol)).toEqual(["RELIANCE", "BAJAJFINSV", "M&M", "XYZ"]);
   });
+  it("starts the stock section at a repeated header row (the current NSE layout)", () => {
+    const text = [
+      "UNDERLYING                          ,SYMBOL    ,NOV-26     ,DEC-26     ",
+      "NIFTY 50                            ,NIFTY     ,65         ,65         ",
+      "NIFTY BANK                          ,BANKNIFTY ,30         ,30         ",
+      "Derivatives on Individual Securities,Symbol    ,NOV-26     ,DEC-26     ",
+      "360 ONE WAM LIMITED                 ,360ONE    ,500        ,500        ",
+      "ABB INDIA LIMITED                   ,ABB       ,125        ,125        ",
+    ].join("\n");
+    const rows = parseMktLots(text).rows;
+    expect(rows.map((r) => `${r.symbol}:${r.kind}`)).toEqual(["NIFTY:index", "BANKNIFTY:index", "360ONE:stock", "ABB:stock"]);
+  });
   it("month headers", () => {
     expect(parseMonthHeader("JAN-26")).toBe("2026-01");
     expect(parseMonthHeader(" dec-25 ")).toBe("2025-12");

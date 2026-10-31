@@ -15,6 +15,7 @@ import { segmented } from "./views.js";
 const SLOT = "mcb.dashboard.calendar";
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 /** replaceChildren without the nulls (a null child would print "null"). */
 const fill = (el, ...kids) => el.replaceChildren(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false));
 const num = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
@@ -260,10 +261,14 @@ export const CSV_COLUMNS = Object.freeze({
 
 // ── Ban / MWPL, universe, corporate-action preview (pure) ──
 
-/** The MWPL table: filter by `query` (symbol prefix, any case), sort by "pct" (high first) or "symbol". */
-export function mwplView(items, { query = "", sort = "pct" } = {}) {
+/**
+ * The MWPL table: filter by `query` (symbol prefix, any case) and `band` ("all", "ban", or "high" = 80 % or more,
+ * banned symbols included), sort by "pct" (high first) or "symbol".
+ */
+export function mwplView(items, { query = "", sort = "pct", band = "all" } = {}) {
   const q = String(query ?? "").trim().toUpperCase();
-  const rows = (items ?? []).filter((r) => !q || String(r.symbol).toUpperCase().includes(q));
+  const inBand = (r) => band === "all" || (band === "ban" ? r.band === "ban" : r.band === "ban" || r.band === "high");
+  const rows = (items ?? []).filter((r) => (!q || String(r.symbol).toUpperCase().includes(q)) && inBand(r));
   return rows.sort(sort === "symbol" ? (a, b) => String(a.symbol).localeCompare(String(b.symbol)) : (a, b) => (num(b.mwplPct) ?? -1) - (num(a.mwplPct) ?? -1) || String(a.symbol).localeCompare(String(b.symbol)));
 }
 /** What the universe panel says for a date: coverage, count and the "not recorded" line (spec §1.3, §6.8). */
@@ -388,6 +393,8 @@ export async function renderCalendarPage() {
     mwplQuery: "",
     mwplSort: "pct",
     mwplAll: false,
+    mwplBand: "all",
+    uniQuery: "",
     uniDate: today,
     ref: null,
   };
@@ -412,6 +419,8 @@ export async function renderCalendarPage() {
   });
 
   // ── Panel shell ──
+  // Each panel's head carries a small system-colour badge (app.css .cal-ico, coloured per .calp-<id>).
+  const PANEL_ICONS = { calendar: "calendar", expiries: "clock", ban: "safety", universe: "list", actions: "bolt", rate: "chart", charges: "wallet" };
   function panel(id, title, sub, { csv = null, extra = [] } = {}) {
     const subEl = h("span", { class: "cal-sub" }, sub ?? "");
     const help = h("button", { type: "button", class: "icon-btn tiny cal-help", "aria-label": `How ${title.toLowerCase()} is read`, title: "Method" }, h("span", { "aria-hidden": "true" }, "?"));
@@ -427,7 +436,7 @@ export async function renderCalendarPage() {
     });
     const body = h("div", { class: "cal-body" });
     const acts = h("div", { class: "cal-acts" }, ...extra.filter(Boolean), csvBtn, help);
-    const el = h("section", { class: `desk-panel cal-panel calp-${id}`, "data-panel": `cal-${id}`, "aria-label": title }, h("header", { class: "panel-head cal-head" }, h("div", { class: "cal-titles" }, h("h2", {}, title), subEl), acts), body);
+    const el = h("section", { class: `desk-panel cal-panel calp-${id}`, "data-panel": `cal-${id}`, "aria-label": title }, h("header", { class: "panel-head cal-head" }, h("span", { class: "cal-ico", "aria-hidden": "true" }, icon(PANEL_ICONS[id] ?? "info")), h("div", { class: "cal-titles" }, h("h2", {}, title), subEl), acts), body);
     return { el, body, sub: subEl, acts };
   }
   function download(name, text) {
@@ -472,95 +481,9 @@ export async function renderCalendarPage() {
   // ── 0. Banners: everything within 7 days, every underlying (the Options pages show their own) ──
   const banners = refBanners({ onMore: () => chip.open() });
 
-  // ── 1. Status strip ──
-  const statusEl = h("section", { class: "desk-panel cal-status", "data-panel": "cal-status", "aria-label": "Reference data status" });
-  function drawStatus() {
-    const s = data.status;
-    if (!s) return fill(statusEl, loading("Reading the status of each dataset"));
-    if (s.error) return fill(statusEl, fail(s.error));
-    const tiles = statusTiles(s.data, { today });
-    const off = !s.data.demo && s.data.sources?.nseArchives?.enabled === false;
-    const tilesEl = h(
-      "div",
-      { class: "cal-tiles", role: "list" },
-      tiles.map((t) => {
-        const b = h("button", { type: "button", class: `cal-tile ${t.tone}`, "aria-haspopup": "dialog", "aria-label": `${t.label}: ${t.word}${t.asOf ? `, as of ${dayText(t.asOf)}` : ""}` }, h("span", { class: "cal-tile-k" }, t.label), h("strong", { class: "cal-tile-v" }, t.word), h("small", {}, t.asOf ? dayText(String(t.asOf).slice(0, 10)) : DASH));
-        b.addEventListener("click", () => sheetPopover({ trigger: b, title: `${t.label}: ${t.word}`, body: h("p", { class: "cal-method" }, t.detail || "No details recorded yet.") }));
-        // The list item wraps the button, so the button keeps its own role (an explicit role would replace it).
-        return h("div", { role: "listitem", class: "cal-tile-li" }, b);
-      }),
-    );
-    const notice = off
-      ? h(
-          "div",
-          { class: "cal-off" },
-          icon("info"),
-          h("p", {}, "NSE archive downloads are off. Lot sizes come from your broker's master; ban list, MWPL and universe history are unavailable."),
-          onThisComputer() ? h("button", { type: "button", class: "small", onclick: (e) => turnOn(e.currentTarget, s.data.sources?.nseArchives) }, "Turn on") : null,
-        )
-      : null;
-    const on = !s.data.demo && s.data.sources?.nseArchives?.enabled === true;
-    const lead = h(
-      "div",
-      { class: "cal-status-lead" },
-      h("span", { class: "cal-status-k" }, s.data.demo ? "Demo reference data" : "Reference data"),
-      h("small", {}, s.data.knownSince ? `Recorded since ${dayText(s.data.knownSince, { year: true })}` : ""),
-      on && onThisComputer() ? h("button", { type: "button", class: "small plain cal-src-off", onclick: (e) => turnOff(e.currentTarget) }, "Turn off NSE downloads") : null,
-    );
-    fill(statusEl, h("div", { class: "cal-status-row" }, lead, tilesEl), notice, s.data.demo && onThisComputer() ? demoStaleSwitch(Boolean(s.data.demoLotsStale)) : null);
-  }
-  /**
-   * Demo only (spec §4): report the demo lot data as two trading days old, so the stale warning, the chip's "Stale"
-   * and the order ticket's lot-size check can be seen from the dashboard (PUT /v1/demo/reference, this computer only).
-   */
-  function demoStaleSwitch(on) {
-    const box = h("input", { type: "checkbox", role: "switch" });
-    box.checked = on;
-    box.addEventListener("change", async () => {
-      box.disabled = true;
-      const r = await optional(api("/v1/demo/reference", { method: "PUT", body: { lotsStale: box.checked } }));
-      box.disabled = false;
-      if (r.error) {
-        box.checked = !box.checked;
-        return toast(r.error.message ?? "Could not change the demo lot data", { tone: "error" });
-      }
-      toast(box.checked ? "Demo lot data now reads as two trading days old on every page" : "Demo lot data is current again");
-      clearReferenceCache();
-      loadStatus();
-      loadUnderlying();
-    });
-    return h("label", { class: "check cal-demo-stale" }, box, h("span", {}, "Show stale lot data ", h("small", {}, "demo: lots read as two trading days old, so the warning and the ticket's lot-size check appear")));
-  }
-  async function turnOn(btn, src) {
-    // Nothing is fetched until the user has read what will be fetched, from where and how often (spec §7.2).
-    const c = consentText(src);
-    const ok = await modal({
-      title: c.title,
-      body: h("div", { class: "stack cal-consent" }, h("p", {}, c.lead), h("ul", { class: "cal-consent-files" }, c.files.map((f) => h("li", {}, f))), h("p", { class: "muted small" }, c.tail)),
-      buttons: [
-        { label: "Cancel", cls: "plain", value: false },
-        { label: "Turn on downloads", cls: "primary", value: true },
-      ],
-    });
-    if (ok !== true) return;
-    btn.disabled = true;
-    const r = await optional(api("/v1/reference/sources", { method: "PUT", body: { nseArchives: true } }));
-    btn.disabled = false;
-    if (r.error) return toast(r.error.message ?? "Could not turn it on", { tone: "error" });
-    toast("NSE archive downloads are on: the first sync starts shortly");
-    clearReferenceCache();
-    loadAll();
-  }
-
-  async function turnOff(btn) {
-    btn.disabled = true;
-    const r = await optional(api("/v1/reference/sources", { method: "PUT", body: { nseArchives: false } }));
-    btn.disabled = false;
-    if (r.error) return toast(r.error.message ?? "Could not turn it off", { tone: "error" });
-    toast("NSE archive downloads are off");
-    clearReferenceCache();
-    loadAll();
-  }
+  // ── 1. Dataset status: read for the panels that need NSE archive downloads (no strip on this page) ──
+  /** True when NSE archive files can fill the ban list and the F&O universe (demo mode always can). */
+  const archivesOn = () => Boolean(data.status?.data && (data.status.data.demo || data.status.data.sources?.nseArchives?.enabled === true));
 
   // ── 2. Month calendar ──
   const cal = panel("calendar", "Calendar", "", { csv: { name: "calendar", cols: "calendar", rows: () => monthGrid(st.month, gridData()).flat().filter((c) => c.inMonth) } });
@@ -568,11 +491,11 @@ export async function renderCalendarPage() {
   const prevBtn = h("button", { type: "button", class: "icon-btn tiny", "aria-label": "Previous month" }, icon("chevron"));
   const nextBtn = h("button", { type: "button", class: "icon-btn tiny", "aria-label": "Next month" }, icon("chevron"));
   prevBtn.classList.add("flip");
-  const todayBtn = h("button", { type: "button", class: "small", title: "This month" }, "Today");
+  const todayBtn = h("button", { type: "button", class: "small plain cal-today", title: "This month" }, "Today");
   prevBtn.addEventListener("click", () => setMonth(addMonths(st.month, -1)));
   nextBtn.addEventListener("click", () => setMonth(addMonths(st.month, 1)));
   todayBtn.addEventListener("click", () => setMonth(today.slice(0, 7)));
-  const monthNav = h("div", { class: "cal-nav" }, prevBtn, monthLabel, nextBtn, todayBtn);
+  const monthNav = h("div", { class: "cal-nav" }, monthLabel, h("div", { class: "cal-nav-btns" }, prevBtn, todayBtn, nextBtn));
   const legendEl = h("div", { class: "cal-legend", "aria-hidden": "true" }, h("span", { class: "lg hol" }, "Holiday"), h("span", { class: "lg spe" }, "Special session"), h("span", { class: "lg exw" }, "Weekly expiry"), h("span", { class: "lg exm" }, "Monthly expiry"), h("span", { class: "lg mov" }, "Moved expiry"));
   const gridHost = h("div", { class: "cal-grid-host" });
   cal.body.append(monthNav, gridHost, legendEl);
@@ -590,7 +513,9 @@ export async function renderCalendarPage() {
     monthTimer = setTimeout(loadMonth, 250);
   }
   function drawCalendar() {
-    monthLabel.textContent = monthText(st.month);
+    const [my, mm] = st.month.split("-").map(Number);
+    fill(monthLabel, MONTH_NAMES[mm - 1], " ", h("span", { class: "cal-year" }, String(my)));
+    monthLabel.setAttribute("aria-label", monthText(st.month));
     cal.sub.textContent = `${st.underlying} expiries · NSE holidays`;
     if (!data.holidays) return fill(gridHost, loading("Loading the holiday list"));
     if (data.holidays.error) return fill(gridHost, fail(data.holidays.error));
@@ -665,11 +590,17 @@ export async function renderCalendarPage() {
     const head = h(
       "div",
       { class: "cal-kv" },
-      kv("Lot now", l.data?.current ? `${formatInt(l.data.current)} units` : DASH, l.data?.stale ? "Stale" : l.data?.asOf ? `as of ${dayText(l.data.asOf)}` : ""),
-      kv("Next lot", l.data?.next?.from && l.data.next.lot !== l.data.current ? `${formatInt(l.data.next.lot)} from ${dayText(l.data.next.from)}` : "No change listed", ""),
-      kv("Freeze qty", fq === null ? "Unknown" : `${formatInt(fq)} units`, fq === null ? "slicing is not checked" : `${freeze.source === "exchange-list" ? "exchange list" : freeze.source ?? ""}${freeze.verified ? "" : " · unverified"}`),
-      kv("Source", e.data?.source ?? DASH, e.data?.asOf ? dayText(e.data.asOf) : ""),
+      kv("Lot now", l.data?.current ? `${formatInt(l.data.current)} units` : DASH, l.data?.stale ? "Stale" : l.data?.asOf ? `as of ${dayText(l.data.asOf)}` : "", "purple"),
+      kv("Next lot", l.data?.next?.from && l.data.next.lot !== l.data.current ? `${formatInt(l.data.next.lot)} from ${dayText(l.data.next.from)}` : "No change listed", "", "blue"),
+      kv("Freeze qty", fq === null ? "Unknown" : `${formatInt(fq)} units`, fq === null ? "slicing is not checked" : `${freeze.source === "exchange-list" ? "exchange list" : freeze.source ?? ""}${freeze.verified ? "" : " · unverified"}`, "orange"),
+      kv("Source", e.data?.source ?? DASH, e.data?.asOf ? dayText(e.data.asOf) : "", "teal"),
     );
+    // The next expiry from today is marked; every row says how far away it is.
+    const nextDate = rows.map((r) => r.date).filter((d) => d >= today).sort()[0] ?? null;
+    const awayText = (d) => {
+      const n = daysBetween(today, d);
+      return n === null ? DASH : n < 0 ? "past" : n === 0 ? "Today" : n === 1 ? "1 day" : `${formatInt(n)} days`;
+    };
     const table = rows.length
       ? h(
           "div",
@@ -677,11 +608,11 @@ export async function renderCalendarPage() {
           h(
             "table",
             { class: "cal-table" },
-            h("thead", {}, h("tr", {}, ["Expiry", "Kind", "Lot", "Freeze", "Note"].map((t, i) => h("th", { scope: "col", class: i === 2 || i === 3 ? "num" : undefined }, t)))),
+            h("thead", {}, h("tr", {}, ["Expiry", "In", "Kind", "Lot", "Freeze", "Note"].map((t, i) => h("th", { scope: "col", class: i === 1 || i === 3 || i === 4 ? "num" : undefined }, t)))),
             h(
               "tbody",
               {},
-              rows.map((r) => h("tr", {}, h("th", { scope: "row" }, dayText(r.date, { weekday: true })), h("td", {}, h("span", { class: `cal-kind ${r.kind}` }, r.kind === "monthly" ? "Monthly" : "Weekly")), h("td", { class: "num" }, r.lot ? formatInt(r.lot) : DASH), h("td", { class: "num" }, fq === null ? DASH : formatInt(fq)), h("td", { class: "wrap" }, r.shifted ? `Moved from ${dayText(r.ruleDate, { weekday: true })}: ${dayText(r.ruleDate)} is a holiday` : ""))),
+              rows.map((r) => h("tr", { class: r.date === nextDate ? "next" : undefined }, h("th", { scope: "row" }, dayText(r.date, { weekday: true })), h("td", { class: "num cal-away" }, awayText(r.date)), h("td", {}, h("span", { class: `cal-kind ${r.kind}` }, r.kind === "monthly" ? "Monthly" : "Weekly")), h("td", { class: "num" }, r.lot ? formatInt(r.lot) : DASH), h("td", { class: "num" }, fq === null ? DASH : formatInt(fq)), h("td", { class: "wrap" }, r.shifted ? `Moved from ${dayText(r.ruleDate, { weekday: true })}: ${dayText(r.ruleDate)} is a holiday` : ""))),
             ),
           ),
         )
@@ -704,8 +635,9 @@ export async function renderCalendarPage() {
       : null;
     fill(exp.body, lotsFailed, head, table, histEl);
   }
-  function kv(k, v, sub) {
-    return h("div", { class: "cal-kv-i" }, h("span", { class: "k" }, k), h("strong", {}, v), sub ? h("small", {}, sub) : null);
+  /** A stat card; `tone` (blue, purple, orange, teal, green, red, indigo) tints it with that system colour. */
+  function kv(k, v, sub, tone = "") {
+    return h("div", { class: `cal-kv-i${tone ? ` t-${tone}` : ""}` }, h("span", { class: "k" }, k), h("strong", {}, v), sub ? h("small", {}, sub) : null);
   }
 
   // ── 4. Ban list and MWPL ──
@@ -720,9 +652,15 @@ export async function renderCalendarPage() {
     st.mwplQuery = search.value;
     drawBan();
   });
-  const ban = panel("ban", "Ban list and MWPL", "", { csv: { name: "mwpl", cols: "mwpl", rows: () => mwplView(data.mwpl?.data?.items ?? [], { query: st.mwplQuery, sort: st.mwplSort }) } });
+  const ban = panel("ban", "Ban list and MWPL", "", { csv: { name: "mwpl", cols: "mwpl", rows: () => mwplView(data.mwpl?.data?.items ?? [], { query: st.mwplQuery, sort: st.mwplSort, band: st.mwplBand }) } });
   const banTop = h("div", { class: "cal-ban-top" });
-  const banTools = h("div", { class: "cal-tools" }, search, sortSeg);
+  const bandSeg = segmented("Show symbols", [["all", "All"], ["high", "80 % +"], ["ban", "In ban"]], st.mwplBand);
+  bandSeg.addEventListener("change", () => {
+    st.mwplBand = bandSeg.value;
+    st.mwplAll = false;
+    drawBan();
+  });
+  const banTools = h("div", { class: "cal-tools" }, search, bandSeg, sortSeg);
   const mwplHost = h("div", { class: "cal-scroll cal-mwpl" });
   ban.body.append(banTop, banTools, mwplHost);
   function drawBan() {
@@ -740,16 +678,20 @@ export async function renderCalendarPage() {
       return;
     }
     banTools.hidden = false;
-    fill(banTop, 
-      h("div", { class: "cal-ban-list" }, h("span", { class: "k" }, `In ban (${formatInt(bd.items.length)})`), bd.items.length ? bd.items.map((x) => h("span", { class: "cal-ban-chip" }, h("strong", {}, x.symbol), num(x.mwplPct) !== null ? ` ${formatFixed(x.mwplPct, 1)} %` : "")) : h("span", { class: "muted" }, "None")),
-      h("p", { class: "cal-note-line" }, `In ban: no fresh positions; closing is allowed. Source: ${bd.source === "demo" ? "demo data" : "NSE combined OI"}, end of day ${dayText(m.data?.asOf ?? bd.asOf)}.`),
+    // Three counts at a glance; the band filter beside the search shows the same groups in the table.
+    const all = m.data?.items ?? [];
+    const nHigh = all.filter((r) => r.band === "ban" || r.band === "high").length;
+    fill(banTop,
+      h("div", { class: "cal-kv cal-stats" }, kv("In ban", formatInt(bd.items.length), "no fresh positions", "red"), kv("80 % or more", formatInt(nHigh), "of the position limit", "orange"), kv("All symbols", formatInt(all.length), "with a position limit", "green")),
+      bd.items.length ? h("div", { class: "cal-ban-list" }, h("span", { class: "k" }, "In ban"), bd.items.map((x) => h("span", { class: "cal-ban-chip" }, h("strong", {}, x.symbol), num(x.mwplPct) !== null ? ` ${formatFixed(x.mwplPct, 1)} %` : ""))) : null,
+      h("p", { class: "cal-note-line quiet" }, `In ban: no fresh positions; closing is allowed. MWPL % uses future-equivalent OI. Source: ${bd.source === "demo" ? "demo data" : "NSE combined OI"}, end of day ${dayText(m.data?.asOf ?? bd.asOf)}.`),
     );
     if (m.error) {
       // The ban list read but MWPL did not: the table is unavailable, not an empty search result.
       banTools.hidden = true;
       return fill(mwplHost, fail(m.error));
     }
-    const rows = mwplView(m.data?.items ?? [], { query: st.mwplQuery, sort: st.mwplSort });
+    const rows = mwplView(m.data?.items ?? [], { query: st.mwplQuery, sort: st.mwplSort, band: st.mwplBand });
     // The top rows, then one row button for the rest: the page scrolls, never a second scroll box inside the panel.
     const shown = st.mwplAll ? rows : rows.slice(0, MWPL_TOP);
     const toggle = (all) => () => {
@@ -778,7 +720,7 @@ export async function renderCalendarPage() {
             ),
             more,
           )
-        : h("p", { class: "muted small pad" }, `No symbol matches "${st.mwplQuery}".`),
+        : h("p", { class: "muted small pad" }, st.mwplQuery ? `No symbol matches "${st.mwplQuery}".` : "No symbols in this band."),
     );
   }
 
@@ -803,6 +745,22 @@ export async function renderCalendarPage() {
     dateIn.setAttribute("aria-label", "Membership on");
     return null;
   }
+  // Quick lookup: "is this symbol in F&O on that date?" The input stays put across redraws; only the hits change.
+  const uniSearch = h("input", { type: "search", class: "cal-search", placeholder: "Find a symbol, e.g. RELIANCE", "aria-label": "Find a symbol in the F&O universe", autocomplete: "off", spellcheck: "false" });
+  const uniHits = h("div", { class: "cal-uni-hits", "aria-live": "polite" });
+  const UNI_HITS = 12;
+  function drawUniHits() {
+    const q = st.uniQuery.trim().toUpperCase();
+    const items = data.universe?.data?.items ?? [];
+    if (!q) return fill(uniHits);
+    const hits = items.filter((x) => String(x.symbol).includes(q)).sort((a, b) => (a.symbol.startsWith(q) ? 0 : 1) - (b.symbol.startsWith(q) ? 0 : 1) || a.symbol.localeCompare(b.symbol));
+    if (!hits.length) return fill(uniHits, h("p", { class: "cal-uni-miss" }, h("strong", {}, q), ` is not in F&O on ${dayText(st.uniDate)}.`));
+    fill(uniHits, h("ul", { class: "cal-uni-list" }, hits.slice(0, UNI_HITS).map((x) => h("li", {}, h("strong", {}, x.symbol), h("span", { class: `cal-uni-kind ${x.kind}` }, x.kind === "index" ? "Index" : "Stock"), h("small", {}, x.since && !x.sinceIsFirstFetch ? `since ${dayText(x.since)}` : "")))), hits.length > UNI_HITS ? h("p", { class: "muted small" }, `${formatInt(hits.length - UNI_HITS)} more: type more letters.`) : null);
+  }
+  uniSearch.addEventListener("input", () => {
+    st.uniQuery = uniSearch.value;
+    drawUniHits();
+  });
   function drawUniverse() {
     const u = data.universe;
     const dateRow = placeDate();
@@ -816,10 +774,12 @@ export async function renderCalendarPage() {
     fill(uni.body, 
       dateRow,
       h("p", { class: note.recorded ? "cal-note-line" : "cal-note-line quiet" }, note.text),
-      note.recorded ? h("div", { class: "cal-kv" }, kv("Stocks", formatInt(stocks), ""), kv("Indices", formatInt(idx), ""), kv("Recorded since", dayText(u.data.knownSince, { year: true }), "")) : null,
+      note.recorded ? h("div", { class: "cal-kv" }, kv("Stocks", formatInt(stocks), "", "teal"), kv("Indices", formatInt(idx), "", "indigo"), kv("Recorded since", dayText(u.data.knownSince, { year: true }), "", "blue")) : null,
+      note.recorded ? h("div", { class: "cal-uni-find" }, uniSearch, uniHits) : null,
       h("h3", {}, "Changes ", h("small", {}, "last 90 days")),
       changes.length ? h("ul", { class: "cal-changes" }, changes.map((c) => h("li", {}, h("span", { class: `cal-chg ${c.change}` }, c.change === "added" ? "Added" : "Removed"), h("strong", {}, c.symbol), h("small", {}, dayText(c.date))))) : h("p", { class: "muted small" }, "No additions or removals recorded."),
     );
+    drawUniHits();
   }
 
   // ── 6. Corporate actions ──
@@ -842,7 +802,7 @@ export async function renderCalendarPage() {
       return h(
         "li",
         { class: `cal-ca ${x.origin}` },
-        h("div", { class: "cal-ca-top" }, h("strong", {}, x.symbol), h("span", { class: "cal-ca-type" }, `${typeWord}${ratio ? ` ${ratio}` : ""}`), h("span", { class: "cal-ca-date" }, x.exDate ? `ex ${dayText(x.exDate, { year: x.exDate.slice(0, 4) !== today.slice(0, 4) })}` : x.contract?.expiry ? `contract ${dayText(x.contract.expiry)}` : ""), del),
+        h("div", { class: "cal-ca-top" }, h("strong", {}, x.symbol), h("span", { class: `cal-ca-type ${x.origin === "inferred" ? "inferred" : x.type ?? "other"}` }, `${typeWord}${ratio ? ` ${ratio}` : ""}`), h("span", { class: "cal-ca-date" }, x.exDate ? `ex ${dayText(x.exDate, { year: x.exDate.slice(0, 4) !== today.slice(0, 4) })}` : x.contract?.expiry ? `contract ${dayText(x.contract.expiry)}` : ""), del),
         h(
           "div",
           { class: "cal-ca-meta" },
@@ -1038,7 +998,7 @@ export async function renderCalendarPage() {
     const asOfIn = h("input", { type: "date", value: d.asOf ?? today, max: today, "aria-label": "As of" });
     const srcIn = h("input", { type: "text", maxlength: "120", value: isDefault ? "" : d.source ?? "", placeholder: "91-day T-bill cut-off, RBI auction", "aria-label": "Source" });
     const msg = h("p", { class: "cal-form-err", role: "alert", hidden: true });
-    const saveBtn = h("button", { type: "button", class: "small" }, "Save rate");
+    const saveBtn = h("button", { type: "button", class: "small primary" }, "Save rate");
     saveBtn.addEventListener("click", async () => {
       const v = num(valIn.value);
       msg.hidden = true;
@@ -1054,10 +1014,11 @@ export async function renderCalendarPage() {
     });
     const age = d.asOf ? daysBetween(d.asOf, today) : null;
     fill(rate.body, 
-      h("div", { class: "cal-rate-now" }, h("strong", { class: "cal-rate-v" }, `${formatFixed(d.value * 100, 2)} %`), h("span", { class: `cal-rate-src${isDefault || d.stale ? " warn" : ""}` }, isDefault ? "Default, not sourced" : d.source, h("small", {}, isDefault ? "Set it below" : `${dayText(d.asOf, { year: true })}${age !== null ? ` · ${age === 0 ? "today" : age === 1 ? "1 day old" : `${formatInt(age)} days old`}` : ""}${d.stale ? " · over 14 days old" : ""}`))),
+      h("div", { class: `cal-rate-now${isDefault || d.stale ? " warn" : ""}` }, h("strong", { class: "cal-rate-v" }, formatFixed(d.value * 100, 2), h("span", { class: "cal-rate-u" }, "%")), h("span", { class: `cal-rate-src${isDefault || d.stale ? " warn" : ""}` }, isDefault ? "Default, not sourced" : d.source, h("small", {}, isDefault ? "No rate entered yet" : `${dayText(d.asOf, { year: true })}${age !== null ? ` · ${age === 0 ? "today" : age === 1 ? "1 day old" : `${formatInt(age)} days old`}` : ""}${d.stale ? " · over 14 days old" : ""}`))),
       h("p", { class: "cal-note-line" }, "Used for forwards, IV and Greeks on every page. Enter the 91-day T-bill or your preferred rate."),
+      // The form folds under one button so the panel shows the rate, not an empty form.
       onThisComputer()
-        ? h("div", { class: "cal-rate-form" }, h("label", { class: "field" }, h("span", {}, "Rate, % a year"), valIn), h("label", { class: "field" }, h("span", {}, "As of"), asOfIn), h("label", { class: "field cal-wide" }, h("span", {}, "Source"), srcIn), h("div", { class: "cal-rate-acts" }, saveBtn), msg)
+        ? h("details", { class: "cal-rate-edit" }, h("summary", { class: "btn small" }, isDefault ? "Set the rate" : "Change the rate"), h("div", { class: "cal-rate-form" }, h("label", { class: "field" }, h("span", {}, "Rate, % a year"), valIn), h("label", { class: "field" }, h("span", {}, "As of"), asOfIn), h("label", { class: "field cal-wide" }, h("span", {}, "Source"), srcIn), h("div", { class: "cal-rate-acts" }, saveBtn), msg))
         : h("p", { class: "muted small" }, "The rate can be set from the Bridge's own computer."),
     );
   }
@@ -1069,8 +1030,19 @@ export async function renderCalendarPage() {
     if (!c) return fill(chg.body, loading("Loading the charge table"));
     if (c.error) return fill(chg.body, fail(c.error));
     chg.sub.textContent = `as of ${dayText(c.data.asOf, { year: true })}${c.data.verified ? "" : " · unverified"}`;
-    fill(chg.body, 
-      h("table", { class: "cal-table cal-charges" }, h("tbody", {}, chargeRows(c.data).map((r) => h("tr", {}, h("th", { scope: "row" }, r.k), h("td", { class: "num" }, r.v))))),
+    // Grouped like a settings list: what is taxed, what the exchange takes, stamp duty, then fees and the broker.
+    const rows = chargeRows(c.data);
+    const groups = [
+      ["STT", "red", rows.slice(0, 3)],
+      ["Exchange charges", "blue", rows.slice(3, 6)],
+      ["Stamp duty", "orange", rows.slice(6, 8)],
+      ["Fees and tax", "purple", rows.slice(8, 11)],
+      ["Brokerage", "green", rows.slice(11)],
+    ].filter(([, , g]) => g.length);
+    fill(chg.body,
+      groups.map(([name, tone, g]) =>
+        h("section", { class: `cal-chg-g t-${tone}`, "aria-label": name }, h("h3", { class: "cal-chg-h" }, h("span", { class: "dot", "aria-hidden": "true" }), name), h("table", { class: "cal-table cal-charges" }, h("tbody", {}, g.map((r) => h("tr", {}, h("th", { scope: "row" }, r.k.replace(/^(STT|Exchange charge|Stamp duty), /, "").replace(/^./, (ch) => ch.toUpperCase()), h("small", {}, r.unit)), h("td", { class: "num" }, h("span", { class: "cal-chg-v" }, r.v))))))),
+      ),
       h("p", { class: "muted small cal-src" }, `Source: ${c.data.source}`),
     );
   }
@@ -1081,7 +1053,7 @@ export async function renderCalendarPage() {
   }
   async function loadStatus() {
     data.status = await get("/v1/reference/status");
-    drawStatus();
+    placePanels();
   }
   async function loadMonth() {
     const ym = st.month;
@@ -1150,9 +1122,9 @@ export async function renderCalendarPage() {
   // Phones get the list, wider screens the grid: redraw when the device class changes. The listener (and a pending
   // month fetch) go when the route leaves this page, so a visit does not keep the page's DOM alive.
   const mq = typeof matchMedia === "function" ? matchMedia("(max-width: 719px)") : null;
-  const onMq = () => (statusEl.isConnected ? (drawCalendar(), drawUniverse()) : cleanup());
+  const onMq = () => (cols.isConnected ? (drawCalendar(), drawUniverse()) : cleanup());
   mq?.addEventListener("change", onMq);
-  const onRoute = () => setTimeout(() => !statusEl.isConnected && cleanup(), 0);
+  const onRoute = () => setTimeout(() => !cols.isConnected && cleanup(), 0);
   window.addEventListener("hashchange", onRoute);
   function cleanup() {
     chip.destroy?.();
@@ -1161,7 +1133,6 @@ export async function renderCalendarPage() {
     clearTimeout(monthTimer);
   }
 
-  drawStatus();
   drawCalendar();
   drawExpiries();
   drawBan();
@@ -1178,21 +1149,24 @@ export async function renderCalendarPage() {
   const right = h("div", { class: "cal-col cal-right" });
   const cols = h("div", { class: "cal-cols", "data-fixed": "" }, left, mid, right);
   const threeMq = typeof matchMedia === "function" ? matchMedia("(min-width: 1800px)") : null;
+  // The ban list and the F&O universe come only from NSE archive files: with downloads off they have nothing to show,
+  // so they are left out rather than drawn empty.
   function placePanels() {
-    const three = Boolean(threeMq?.matches);
+    const nse = archivesOn();
+    const three = Boolean(threeMq?.matches) && nse;
     cols.classList.toggle("three", three);
     if (three) {
       left.replaceChildren(cal.el, exp.el);
       mid.replaceChildren(ban.el, uni.el);
       right.replaceChildren(act.el, rate.el, chg.el);
     } else {
-      left.replaceChildren(cal.el, exp.el, ban.el);
+      left.replaceChildren(cal.el, exp.el, ...(nse ? [ban.el] : []));
       mid.replaceChildren();
-      right.replaceChildren(act.el, rate.el, chg.el, uni.el);
+      right.replaceChildren(act.el, rate.el, chg.el, ...(nse ? [uni.el] : []));
     }
     mid.hidden = !three;
   }
   placePanels();
   threeMq?.addEventListener?.("change", () => cols.isConnected && placePanels());
-  return [banners.el, pageAlert, statusEl, cols, foot];
+  return [banners.el, pageAlert, cols, foot];
 }

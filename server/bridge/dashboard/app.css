@@ -105,6 +105,8 @@ html { font-synthesis-weight: none; }
   --ios-blue-fill: 211 100% 43%;
   --ios-blue-fill-hover: 211 100% 38%;
   --ios-red-fill: 3 82% 47%;
+  /* The glyph on a solid system-colour badge (iOS Settings icons): white in both themes. */
+  --ios-on-fill: 0 0% 100%;
 
   /* Semantics: neutral paper canvas (#F2F2F7), pure black ink, white cards */
   --background: 240 23.8% 95.9%;
@@ -7207,48 +7209,55 @@ button.cal-csv svg { width: 13px; height: 13px; }
 .cal-note-line { margin: 0; font: 500 13px/1.45 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .cal-note-line.quiet { color: hsl(var(--foreground) / var(--a-quiet)); }
 
-.cal-nav { display: flex; align-items: center; gap: 6px; }
-.cal-month { min-width: 108px; text-align: center; font: 600 15px/1 var(--font-display); }
+/* Month calendar, after the iOS month view: a big month name with a quiet year, chevrons and Today in one capsule,
+   hairline rows instead of tiles, the date at the top of each cell (today in a filled circle), and each event as a
+   small tinted pill. Closed days keep a faint tint so a trader sees them at a glance. */
+.cal-nav { display: flex; align-items: center; gap: 10px; padding: 2px 2px 0; }
+.cal-month { flex: 1 1 auto; min-width: 0; text-align: left; font: 600 22px/1.1 var(--font-display); letter-spacing: -0.02em; }
+.cal-year { font-weight: 500; color: hsl(var(--foreground) / var(--a-quiet)); }
+.cal-nav-btns { flex: none; display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 999px; background: var(--mat-fill-1); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
+.cal-nav-btns .icon-btn.tiny { width: 30px; height: 30px; border-radius: 999px; }
+.cal-nav-btns button.cal-today { height: 30px; min-height: 30px; padding: 0 12px; border-radius: 999px; font: 600 13px/1 var(--font-body); }
 .cal-nav .flip svg { transform: rotate(180deg); }
-.cal-nav button.small { margin-left: auto; }
-.cal-grid { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 4px; margin: -4px; width: calc(100% + 8px); }
-.cal-grid th { padding: 2px 0 4px; font: 600 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); text-align: left; }
+.cal-grid { width: 100%; table-layout: fixed; border-collapse: collapse; border-spacing: 0; }
+.cal-grid th { padding: 4px 6px 8px; font: 600 12px/1 var(--font-body); letter-spacing: 0.02em; text-transform: uppercase; color: hsl(var(--foreground) / var(--a-label)); text-align: center; }
 .cal-grid th.we { color: hsl(var(--foreground) / var(--a-quiet)); }
-.cal-cell { height: 74px; padding: 6px 5px; vertical-align: top; border-radius: var(--r-inner); background: var(--mat-fill-1); overflow: hidden; white-space: normal; }
-.cal-cell.out { background: transparent; }
-.cal-cell.out .cal-day { color: hsl(var(--foreground) / var(--a-quiet)); font-weight: 400; }
-/* Weekends read as background in both themes: no fill (light: no ring either; dark adds a faint ring so the
-   recessed cell still shows its place in the grid). */
-.cal-cell.we:not(.spe) { background: transparent; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .cal-cell.we:not(.spe):not(.out):not(.today) { box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); } }
-:root[data-theme="dark"] .cal-cell.we:not(.spe):not(.out):not(.today) { box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
-.cal-cell.out.we { box-shadow: none; }
-.cal-cell.hol { background: hsl(var(--warn) / 0.13); }
-.cal-cell.spe { background: hsl(var(--dv-iv) / 0.12); }
-.cal-cell.today { box-shadow: inset 0 0 0 2px hsl(var(--foreground)); }
-.cal-day { display: block; font: 600 13px/1 var(--font-numeric); color: hsl(var(--foreground)); margin-bottom: 4px; }
-.cal-cell.we:not(.out) .cal-day, .cal-cell.hol:not(.out) .cal-day { color: hsl(var(--foreground) / var(--a-quiet)); }
-.cal-mark { display: block; margin-top: 2px; font: 600 12px/1.25 var(--font-body); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
-.cal-mark em { font-style: normal; font-weight: 500; color: hsl(var(--foreground) / var(--a-quiet)); }
-.cal-mark.hol { color: hsl(var(--warn-ink)); }
-.cal-mark.spe { color: hsl(var(--dv-iv-ink)); }
-.cal-mark.exw, .cal-mark.exm { display: inline-block; padding: 1px 5px; font-size: 12px; border-radius: 99px; font-weight: 600; color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); -webkit-line-clamp: 1; white-space: nowrap; max-width: 100%; text-overflow: ellipsis; }
-.cal-mark.hol-u { margin-top: 0; font-weight: 500; color: hsl(var(--foreground) / var(--a-quiet)); -webkit-line-clamp: 1; }
-.cal-mark.spe-t { margin-top: 0; font-weight: 500; -webkit-line-clamp: unset; display: block; overflow: visible; color: hsl(var(--dv-iv-ink)); }
+.cal-cell { position: relative; height: 92px; padding: 6px 4px 6px; vertical-align: top; text-align: center; background: transparent; box-shadow: inset 0 var(--hl) 0 var(--mat-separator); overflow: hidden; white-space: normal; }
+.cal-cell::before { content: ""; position: absolute; inset: 3px 2px; z-index: -1; border-radius: 12px; }
+.cal-grid tbody { position: relative; z-index: 0; }
+.cal-grid tbody tr:hover td.cal-cell:not([data-seq]) { background: transparent; }
+.cal-cell.hol:not(.out)::before { background: hsl(var(--warn) / 0.09); }
+.cal-cell.spe:not(.out)::before { background: hsl(var(--dv-iv) / 0.11); }
+.cal-day { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 28px; padding: 0 4px; margin-bottom: 4px; border-radius: 999px; font: 600 15px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground)); }
+.cal-cell.out .cal-day { color: hsl(var(--foreground) / 0.28); font-weight: 500; }
+.cal-cell.we:not(.out) .cal-day { color: hsl(var(--foreground) / var(--a-quiet)); }
+.cal-cell.hol:not(.out) .cal-day { color: hsl(var(--warn-ink)); }
+.cal-cell.today .cal-day { color: hsl(var(--btn-trade-fg)); background: hsl(var(--badge-red)); }
+.cal-mark { display: block; max-width: 100%; margin: 2px auto 0; padding: 2px 6px; border-radius: 6px; font: 600 12px/1.25 var(--font-body); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-mark.hol, .cal-mark.spe { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.cal-mark.hol { color: hsl(var(--warn-ink)); background: hsl(var(--warn) / 0.18); }
+.cal-mark.hol-u { padding: 0 6px; margin-top: 1px; font-weight: 500; font-size: 12px; color: hsl(var(--foreground) / var(--a-quiet)); background: none; }
+.cal-mark.spe { color: hsl(var(--dv-iv-ink)); background: hsl(var(--dv-iv) / 0.2); }
+.cal-mark.spe-t { padding: 0 6px; margin-top: 1px; white-space: normal; text-overflow: clip; letter-spacing: -0.01em; font: 500 12px/1.25 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--dv-iv-ink)); background: none; }
+.cal-mark.exm { color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); }
+.cal-mark.exw { color: hsl(var(--foreground)); background: none; box-shadow: inset 0 0 0 1.25px hsl(var(--foreground) / 0.5); }
+.cal-mark.exm, .cal-mark.exw { display: inline-block; margin: 3px 0 0; padding: 2px 9px; line-height: 1.3; border-radius: 999px; text-align: center; }
+.cal-mark.mov { padding: 0 6px; margin-top: 1px; font-weight: 500; font-size: 12px; color: hsl(var(--foreground) / var(--a-label)); background: none; text-align: center; }
 .cal-cell.has-marks { cursor: pointer; }
-.cal-cell.has-marks:hover { background-color: hsl(var(--foreground) / 0.04); }
-.cal-cell.has-marks:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.cal-cell.has-marks:hover::before { background-color: hsl(var(--foreground) / 0.05); }
+.cal-cell.hol.has-marks:hover::before { background-color: hsl(var(--warn) / 0.15); }
+.cal-cell.spe.has-marks:hover::before { background-color: hsl(var(--dv-iv) / 0.17); }
+.cal-cell.has-marks:focus-visible { outline: none; }
+.cal-cell.has-marks:focus-visible::before { box-shadow: inset 0 0 0 2px var(--sel-ring); }
 .cal-cell-sheet { margin: 0; padding: 6px 16px 14px; list-style: none; display: grid; gap: 6px; font: 500 14px/1.4 var(--font-body); }
 .cal-consent-files { margin: 0; padding: 0 0 0 18px; display: grid; gap: 6px; font: 500 14px/1.4 var(--font-body); }
 .cal-src-off { align-self: flex-start; padding-left: 0; padding-right: 0; }
-.cal-mark.exw { color: hsl(var(--foreground)); background: transparent; box-shadow: inset 0 0 0 1.5px hsl(var(--foreground) / 0.55); }
-.cal-mark.mov { color: hsl(var(--foreground) / var(--a-label)); font-weight: 500; }
 .cal-legend[hidden] { display: none; }
-.cal-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.cal-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; padding-top: 10px; box-shadow: inset 0 var(--hl) 0 var(--mat-separator); font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .cal-legend .lg::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 3px; vertical-align: -1px; }
-.cal-legend .hol::before { background: hsl(var(--warn) / 0.45); }
-.cal-legend .spe::before { background: hsl(var(--dv-iv) / 0.45); }
-.cal-legend .exw::before { box-shadow: inset 0 0 0 1.5px hsl(var(--foreground) / 0.55); border-radius: 99px; }
+.cal-legend .hol::before { background: hsl(var(--warn) / 0.35); }
+.cal-legend .spe::before { background: hsl(var(--dv-iv) / 0.35); }
+.cal-legend .exw::before { box-shadow: inset 0 0 0 1.25px hsl(var(--foreground) / 0.5); border-radius: 99px; }
 .cal-legend .exm::before { background: hsl(var(--sel-bg)); border-radius: 99px; }
 .cal-legend .mov::before { width: 14px; height: 2px; border-radius: 0; background: hsl(var(--foreground) / var(--a-label)); vertical-align: 3px; }
 .cal-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
@@ -7361,6 +7370,109 @@ input.cal-date { height: 34px; min-width: 0; max-width: 160px; }
 .cal-preview p { margin: 0; }
 .cal-form-acts { display: flex; justify-content: flex-end; gap: 8px; }
 .cal-foot { margin: 4px 2px 0; font: 500 12px/1.5 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); flex: 1 1 100%; }
+
+/* Market calendar panels, in colour (iOS grouped lists): each panel's head has a system-colour badge; stat cards,
+   pills and bars pick up that panel's colour. Every shape is evenly rounded: tints and hairline rings, no edge bars. */
+.cal-panel { --tone: var(--ios-blue); --tone-ink: var(--ios-blue-ink); }
+.calp-calendar { --tone: var(--ios-red); --tone-ink: var(--ios-red-ink); }
+.calp-expiries { --tone: var(--ios-purple); --tone-ink: var(--ios-purple-ink); }
+.calp-ban { --tone: var(--ios-orange); --tone-ink: var(--ios-orange-ink); }
+.calp-universe { --tone: var(--ios-teal); --tone-ink: var(--ios-teal-ink); }
+.calp-actions { --tone: var(--ios-blue); --tone-ink: var(--ios-blue-ink); }
+.calp-rate { --tone: var(--ios-green); --tone-ink: var(--ios-green-ink); }
+.calp-charges { --tone: var(--ios-indigo); --tone-ink: var(--ios-indigo-ink); }
+.cal-head { gap: 10px; }
+.cal-ico { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 9px; background: hsl(var(--tone)); color: hsl(var(--ios-on-fill)); box-shadow: 0 1px 2px hsl(var(--tone) / 0.35); }
+.cal-ico svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Stat cards: a soft tint of their colour, the label in its ink, the value large. */
+.cal-kv { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.cal-kv-i { gap: 4px; padding: 11px 12px; border-radius: 14px; }
+.cal-kv-i strong { font-size: 16px; letter-spacing: -0.01em; }
+.cal-kv-i[class*=" t-"] { background: hsl(var(--kv) / 0.12); box-shadow: inset 0 0 0 var(--hl) hsl(var(--kv) / 0.22); }
+.cal-kv-i[class*=" t-"] .k { color: hsl(var(--kv-ink)); }
+.t-blue { --kv: var(--ios-blue); --kv-ink: var(--ios-blue-ink); }
+.t-purple { --kv: var(--ios-purple); --kv-ink: var(--ios-purple-ink); }
+.t-orange { --kv: var(--ios-orange); --kv-ink: var(--ios-orange-ink); }
+.t-teal { --kv: var(--ios-teal); --kv-ink: var(--ios-teal-ink); }
+.t-green { --kv: var(--ios-green); --kv-ink: var(--ios-green-ink); }
+.t-red { --kv: var(--ios-red); --kv-ink: var(--ios-red-ink); }
+.t-indigo { --kv: var(--ios-indigo); --kv-ink: var(--ios-indigo-ink); }
+
+/* Expiries: monthly in the panel's colour, weekly as a ring, the next expiry's row tinted; "In" counts the days. */
+.cal-table .cal-kind { box-shadow: inset 0 0 0 1.25px hsl(var(--tone) / 0.6); color: hsl(var(--tone-ink)); background: none; }
+.cal-table .cal-kind.monthly { color: hsl(var(--ios-on-fill)); background: hsl(var(--tone)); box-shadow: none; }
+.cal-table td.cal-away { color: hsl(var(--foreground) / var(--a-label)); font-weight: 600; }
+.cal-table tr.next > * { background: hsl(var(--tone) / 0.1); }
+.cal-table tr.next th { background: linear-gradient(hsl(var(--tone) / 0.1), hsl(var(--tone) / 0.1)), var(--mat-grouped-solid); }
+.cal-table tr.next th, .cal-table tr.next td.cal-away { color: hsl(var(--tone-ink)); }
+.cal-table tr.next > :first-child { border-radius: 10px 0 0 10px; }
+.cal-table tr.next > :last-child { border-radius: 0 10px 10px 0; }
+.cal-lot-steps li { border-radius: 12px; background: hsl(var(--tone) / 0.08); }
+.cal-lot-steps li .m { color: hsl(var(--tone-ink)); }
+.cal-lot-steps li.chg { background: hsl(var(--tone) / 0.18); box-shadow: inset 0 0 0 var(--hl) hsl(var(--tone) / 0.45); }
+
+/* Ban list and MWPL: banned symbols as red capsules; the bars fill green, amber near the limit, red in ban. */
+.cal-ban-chip { color: hsl(var(--ios-red-ink)); background: hsl(var(--ios-red) / 0.13); box-shadow: inset 0 0 0 var(--hl) hsl(var(--ios-red) / 0.3); }
+.cal-ban-list .k { color: hsl(var(--ios-red-ink)); }
+.cal-track { height: 8px; background: hsl(var(--foreground) / 0.07); }
+.cal-bar { background: hsl(var(--ios-green)); }
+.cal-bar.high { background: hsl(var(--ios-orange)); }
+.cal-bar.ban { background: hsl(var(--ios-red)); }
+.cal-band { display: inline-block; padding: 3px 8px; border-radius: 99px; color: hsl(var(--ios-green-ink)); background: hsl(var(--ios-green) / 0.12); }
+.cal-band.high { color: hsl(var(--ios-orange-ink)); background: hsl(var(--ios-orange) / 0.14); }
+.cal-band.ban { color: hsl(var(--ios-red-ink)); background: hsl(var(--ios-red) / 0.14); }
+
+/* F&O universe: additions green, removals red. */
+.cal-chg.added { color: hsl(var(--ios-green-ink)); background: hsl(var(--ios-green) / 0.13); }
+.cal-chg.removed { color: hsl(var(--ios-red-ink)); background: hsl(var(--ios-red) / 0.12); }
+
+/* Corporate actions: cards with the action as a coloured capsule. */
+.cal-ca { gap: 7px; padding: 12px 14px; border-radius: 14px; background: hsl(var(--tone) / 0.06); box-shadow: inset 0 0 0 var(--hl) hsl(var(--tone) / 0.16); }
+.cal-ca.inferred { background: var(--mat-fill-1); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
+.cal-ca-top strong { font-size: 15px; }
+.cal-ca-type { padding: 3px 9px; border-radius: 99px; font-size: 12px; color: hsl(var(--kv-ink, var(--tone-ink))); background: hsl(var(--kv, var(--tone)) / 0.14); }
+.cal-ca-type.bonus { --kv: var(--ios-green); --kv-ink: var(--ios-green-ink); }
+.cal-ca-type.split, .cal-ca-type.consolidation { --kv: var(--ios-blue); --kv-ink: var(--ios-blue-ink); }
+.cal-ca-type.rights { --kv: var(--ios-purple); --kv-ink: var(--ios-purple-ink); }
+.cal-ca-type.dividend { --kv: var(--ios-orange); --kv-ink: var(--ios-orange-ink); }
+.cal-ca-type.inferred { --kv: var(--ios-gray); --kv-ink: var(--ios-indigo-ink); }
+.cal-ca-meta > span { padding: 2px 8px; border-radius: 99px; background: var(--mat-fill-1); }
+.cal-ver { color: hsl(var(--ios-orange-ink)); }
+.cal-ver.yes { color: hsl(var(--ios-green-ink)); }
+
+/* Risk-free rate: the figure large in green (amber while it is the unsourced default), on a soft tinted card. */
+.cal-rate-now { gap: 16px; padding: 14px 16px; border-radius: 16px; background: hsl(var(--tone) / 0.1); box-shadow: inset 0 0 0 var(--hl) hsl(var(--tone) / 0.24); }
+.cal-rate-now.warn { --tone: var(--ios-orange); --tone-ink: var(--ios-orange-ink); }
+.cal-rate-v { display: inline-flex; align-items: baseline; gap: 4px; font-size: 38px; color: hsl(var(--tone-ink)); }
+.cal-rate-u { font: 600 18px/1 var(--font-numeric); opacity: 0.75; }
+.cal-rate-src.warn { color: hsl(var(--ios-orange-ink)); }
+
+/* Charges: a grouped list per kind of charge, each with its colour dot; the rate sits in a tinted capsule. */
+.cal-chg-g { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px 4px; border-radius: 14px; background: var(--mat-fill-1); }
+.cal-body h3.cal-chg-h { display: flex; align-items: center; gap: 8px; margin: 2px 0; font: 600 13px/1.2 var(--font-body); color: hsl(var(--kv-ink)); }
+.cal-chg-h .dot { width: 8px; height: 8px; border-radius: 99px; background: hsl(var(--kv)); }
+.cal-charges th { color: hsl(var(--foreground)); font-weight: 500; }
+.cal-charges th small { display: block; margin-top: 2px; font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.cal-chg-v { display: inline-block; padding: 4px 10px; border-radius: 99px; font: 600 13px/1 var(--font-numeric); color: hsl(var(--kv-ink)); background: hsl(var(--kv) / 0.13); }
+.cal-charges th, .cal-charges td { padding-top: 9px; padding-bottom: 9px; vertical-align: middle; }
+.cal-table.cal-charges tbody th { position: static; background: none; }
+.cal-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cal-stats .cal-kv-i strong { font-size: 22px; letter-spacing: -0.02em; }
+/* F&O universe lookup. */
+.cal-uni-find { display: flex; flex-direction: column; gap: 8px; }
+.cal-uni-find .cal-search { flex: none; width: 100%; max-width: none; }
+.cal-uni-hits:empty { display: none; }
+.cal-uni-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.cal-uni-list li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: hsl(var(--tone) / 0.08); font: 500 13px/1.2 var(--font-body); }
+.cal-uni-list small { margin-left: auto; color: hsl(var(--foreground) / var(--a-quiet)); font: 500 12px/1 var(--font-numeric); }
+.cal-uni-kind { padding: 2px 7px; border-radius: 99px; font: 600 12px/1.2 var(--font-body); color: hsl(var(--ios-teal-ink)); background: hsl(var(--ios-teal) / 0.14); }
+.cal-uni-kind.index { color: hsl(var(--ios-indigo-ink)); background: hsl(var(--ios-indigo) / 0.14); }
+.cal-uni-miss { margin: 0; padding: 8px 10px; border-radius: 12px; font: 500 13px/1.3 var(--font-body); color: hsl(var(--ios-orange-ink)); background: hsl(var(--ios-orange) / 0.12); }
+/* Risk-free rate: the form folds under one button. */
+.cal-rate-edit > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; }
+.cal-rate-edit > summary::-webkit-details-marker { display: none; }
+.cal-rate-edit[open] > summary { margin-bottom: 10px; }
 
 /* Tablet: the chip keeps the lot and the event count; desktop: two columns from 1024 px. */
 @media (min-width: 1024px) {

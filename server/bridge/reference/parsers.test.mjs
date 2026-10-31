@@ -25,9 +25,15 @@ describe("parseCombineOi through the zip", () => {
     expect(p.rows.find((r) => r.symbol === "DEF")).toMatchObject({ mwpl: 100000000, oi: 84200000, limitNextDay: 75800000 });
     expect(p.rows.find((r) => r.symbol === "ABC").limitNextDay).toBe(null);
   });
+  it("reads NSE's current zip (CSV plus an XML copy) and measures MWPL with the future-equivalent OI", () => {
+    const p = parseCombineOi(readCombineOiZip(fixture("combineoi-csv-xml.zip", null), { maxBytes: 1024 * 1024 }));
+    expect(p.forDate).toBe("2026-10-30");
+    expect(p.rows.find((r) => r.symbol === "KAYNES")).toMatchObject({ mwpl: 4679418, rawOi: 6112650, oi: 4312890.84700102 });
+    expect(mwplRows(p, ["KAYNES"]).find((r) => r.symbol === "KAYNES")).toMatchObject({ mwplPct: 92.2, band: "ban" });
+  });
   it("refuses a zip over the size cap and a zip with two entries", () => {
     expect(() => readCombineOiZip(fixture("combineoi.zip", null), { maxBytes: 10 })).toThrow(/limit/);
-    expect(() => readCombineOiZip(fixture("combineoi-two-entries.zip", null), { maxBytes: 1024 })).toThrow(/one file/);
+    expect(() => readCombineOiZip(fixture("combineoi-two-entries.zip", null), { maxBytes: 1024 })).toThrow(/one plain \.csv file/);
     expect(() => readCombineOiZip(Buffer.from("not a zip"), { maxBytes: 1024 })).toThrow(/ZIP/);
   });
 });

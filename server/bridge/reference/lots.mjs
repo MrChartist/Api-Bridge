@@ -71,7 +71,9 @@ export function parseMktLots(text) {
     const cells = splitCsvLine(line);
     const name = cells[0] ?? "";
     const symbol = (cells[1] ?? "").toUpperCase();
-    if (!symbol) {
+    // A section starts with a blank symbol cell or, in the current file, a repeated header
+    // ("Derivatives on Individual Securities,Symbol,NOV-26,...").
+    if (!symbol || symbol === "SYMBOL") {
       if (/individual securities|stock/i.test(name)) section = "stock";
       else if (/index/i.test(name)) section = "index";
       continue;
@@ -191,9 +193,18 @@ export function updateUniverse(universe, members, d, prevTradingDay) {
       changed = true;
     }
   }
-  const open = new Set(u.intervals.filter((i) => i.to === null).map((i) => `${i.exchange}|${i.symbol}`));
+  const openBy = new Map(u.intervals.filter((i) => i.to === null).map((i) => [`${i.exchange}|${i.symbol}`, i]));
+  const open = new Set(openBy.keys());
   for (const m of members) {
-    if (open.has(`${m.exchange}|${m.symbol}`)) continue;
+    const cur = openBy.get(`${m.exchange}|${m.symbol}`);
+    if (cur) {
+      // Still a member: only its kind can be corrected (an older parser read every row as an index).
+      if (m.kind && cur.kind !== m.kind) {
+        cur.kind = m.kind;
+        changed = true;
+      }
+      continue;
+    }
     u.intervals.push({ symbol: m.symbol, kind: m.kind, exchange: m.exchange, from: d, to: null, fromIsFirstFetch: d === u.knownSince });
     open.add(`${m.exchange}|${m.symbol}`);
     changed = true;

@@ -72,12 +72,15 @@ describe("sessionAt (§6.5)", () => {
   it("a holiday reports HOLIDAY with its label and verification", () => {
     const s = cal.sessionAt("NFO", at("2026-11-24", "10:00"));
     expect(s.state).toBe("HOLIDAY");
-    expect(s.holiday).toEqual({ label: "Prakash Gurpurb Sri Guru Nanak Dev", verified: false });
-    expect(s.label).toMatch(/unverified/);
+    expect(s.holiday).toEqual({ label: "Prakash Gurpurb Sri Guru Nanak Dev", verified: true });
+    expect(s.label).toBe("Prakash Gurpurb Sri Guru Nanak Dev");
   });
 
   it("Muhurat with no announced time is closed; with times it is SPECIAL at 18:30", () => {
-    expect(cal.sessionAt("NFO", at("2026-11-08", "18:30"))).toMatchObject({ state: "CLOSED", label: "Muhurat trading: time not announced" });
+    const untimed = createCalendar({ holidays: [], specialSessions: { "2026-11-08": { open: null, close: null, label: "Muhurat trading" } } });
+    expect(untimed.sessionAt("NFO", at("2026-11-08", "18:30"))).toMatchObject({ state: "CLOSED", label: "Muhurat trading: time not announced" });
+    // The shipped 2026 session has its times (NSE notice of 19 Oct 2026: 14:20 to 15:30 IST).
+    expect(cal.sessionAt("NFO", at("2026-11-08", "14:30")).state).toBe("SPECIAL");
     const timed = createCalendar({ holidays: [], specialSessions: { "2026-11-08": { open: "18:00", close: "19:00", label: "Muhurat trading" } } });
     expect(timed.sessionAt("NFO", at("2026-11-08", "18:30")).state).toBe("SPECIAL");
     expect(timed.sessionAt("NFO", at("2026-11-08", "19:00")).state).toBe("CLOSED");
@@ -99,7 +102,7 @@ describe("expiry kinds and shifts (§6.6)", () => {
     expect(kinds.map((k) => k.kind)).toEqual(["weekly", "weekly", "weekly", "monthly", "weekly", "monthly"]);
     const out = expiryShifts(kinds, cal, "NFO");
     const nov23 = out.find((e) => e.date === "2026-11-23");
-    expect(nov23).toMatchObject({ shifted: true, ruleDate: "2026-11-24", reason: "2026-11-24 is a holiday (unverified)" });
+    expect(nov23).toMatchObject({ shifted: true, ruleDate: "2026-11-24", reason: "2026-11-24 is a holiday" });
     expect(out.find((e) => e.date === "2026-11-09")).toMatchObject({ shifted: true, ruleDate: "2026-11-10" });
     expect(out.find((e) => e.date === "2026-11-17").shifted).toBe(false);
   });
