@@ -1,0 +1,24 @@
+ChartistScript (@chartist/core): the language, its engine, standard library,
+documentation and examples.
+
+Copyright (c) 2026 Rohit Singh (Mr. Chartist). All rights reserved.
+
+This is a copyrighted work. No licence is granted by this notice or by the
+presence of the files on any machine or in any repository: copying,
+modifying, distributing, publishing, or using it other than for the
+copyright holder's own purposes, requires the copyright holder's written
+permission.
+
+If the owner later releases it under an open-source or other licence, that
+licence is a grant made by the copyright holder and will be added to this
+folder as a separate file. It does not transfer the copyright, which stays
+with the holder. Until such a file exists, nothing here is open source.
+
+Third-party material: none is included. Where every part came from is
+recorded in PROVENANCE.md; THIRD_PARTY_NOTICES.md lists the notices and the
+two items held back for review.
+
+Needs verification (by the owner and counsel, not decided here):
+  - the exact name of the copyright holder (the person, or a company);
+  - the wording of this notice;
+  - the name "ChartistScript" (a trademark check is a separate step).

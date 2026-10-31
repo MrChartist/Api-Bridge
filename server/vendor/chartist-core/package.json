@@ -1,0 +1,8 @@
+{
+  "name": "@chartist/core-vendored",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./index.js"
+}

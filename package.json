@@ -46,7 +46,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check:mjs": "node scripts/check-mjs.mjs",
-    "capabilities": "node scripts/generate-broker-capabilities.mjs"
+    "capabilities": "node scripts/generate-broker-capabilities.mjs",
+    "vendor:chartist-core": "node scripts/vendor-chartist-core.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
