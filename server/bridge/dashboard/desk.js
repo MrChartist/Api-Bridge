@@ -9,6 +9,7 @@ import { DEMO_EXPLAINER, alertBox, api, app, emptyState, errorState, h, icon, li
 import { DASH, MINUS, ageText, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedPercent, formatSignedRupee, isFigure } from "./format.js";
 import { arbPanels } from "./arbitrage.js";
 import { openChainSheet } from "./chain-sheet.js";
+import { installChainInsight, openChainHelp } from "./chain-insight.js";
 import { createOiPage, oiConfig } from "./oi.js";
 import { oiStore, snapKey } from "./oi-store.js";
 import { createBuilder } from "./strategy.js";
@@ -112,6 +113,7 @@ const CHAIN_KEYS = [
   [["G"], "ATM", "Back to ATM (Home too)"],
   [["P"], "pause", "Pause / resume live updates"],
   [["R"], "refresh", "Refresh now"],
+  [["I"], "explain", "Explain a cell of the focused row (again: the next column out)"],
   [["?"], "keys", "This list"],
   [["Esc"], "clear", "Clear the focus; close the sheet or search"],
 ];
@@ -1376,6 +1378,8 @@ async function renderDesk(kind) {
       return () => selectExpiry(st.expiries[i + 1]);
     },
   });
+  // Insight cards on the chain's cells and headers, and the "How to read the chain" sheet (chain-insight.js).
+  if (kind === "chain") installChainInsight(chainEl, { x: () => chain.x, cfg: () => st.cfg, keys: keysEl });
   /** Multi-select → Strategy Builder: the ticked contracts become legs of this expiry's basket, then the builder opens. */
   function openPicked(items, side) {
     if (!items.length) return;
@@ -2523,8 +2527,8 @@ async function renderDesk(kind) {
         { class: "keys-table" },
         h("tbody", {}, CHAIN_KEYS.map(([keys, , long]) => h("tr", {}, h("th", { scope: "row" }, keys.map((k) => h("kbd", {}, k))), h("td", {}, long)))),
       ),
-      buttons: [{ label: "Close", value: true }],
-    });
+      buttons: [{ label: "How to read the chain", value: "help" }, { label: "Close", value: true }],
+    }).then((v) => v === "help" && openChainHelp());
   }
 
   // ── Keyboard ──
@@ -2947,6 +2951,7 @@ export const CHAIN_DEFAULTS = Object.freeze({
   wide: true,
   oiWin: "day",
   tags: { mp: true, walls: true, em: true, em2: false },
+  insight: true,
 });
 export function chainConfig(saved) {
   const d = CHAIN_DEFAULTS;
@@ -2970,6 +2975,7 @@ export function chainConfig(saved) {
     wide: bool(c.wide, d.wide),
     oiWin: ["day", "60", "15"].includes(c.oiWin) ? c.oiWin : d.oiWin,
     tags: { mp: bool(c.tags?.mp, d.tags.mp), walls: bool(c.tags?.walls, d.tags.walls), em: bool(c.tags?.em, d.tags.em), em2: bool(c.tags?.em2, d.tags.em2) },
+    insight: bool(c.insight, d.insight),
   };
   out.preset = presetOf(out.cols);
   // Bid and ask are what an arbitrage is read from: the Arb preset always shows them.
