@@ -185,6 +185,9 @@ function commands() {
     { id: "brief", label: "Market brief", sub: "Trend, breadth, PCR, RSI, MACD, IV, VWAP and key levels, as facts", keywords: "analysis trend summary levels pivot cpr vwap rsi macd pcr breadth", icon: "radar", tint: "indigo", hint: ["Shift", "Y"], run: () => import("./brief.js").then((m) => m.openBrief()) },
     { id: "refresh", label: "Refresh this page", keywords: "reload update data", icon: "refresh", tint: "gray", run: () => ctx.refresh() },
     { id: "shortcuts", label: "Keyboard shortcuts", keywords: "help keys hotkeys", icon: "info", tint: "gray", hint: ["?"], run: () => showShortcuts() },
+    { id: "glossary", label: "Options glossary", sub: "Options terms in plain words", keywords: "help terms words meaning definitions greeks iv oi pcr", icon: "info", tint: "gray", run: () => showShortcuts({ tab: "glossary" }) },
+    { id: "one-tap", label: "1-Tap instant trade on / off", sub: "Buy and sell at once with your order defaults (off on reload and after 30 minutes idle)", keywords: "one tap instant trade quick order fast", icon: "bolt", tint: "orange", hint: isMac() ? ["⌃", "⌥", "1"] : ["Ctrl", "Alt", "1"], run: () => import("./one-tap.js").then((m) => m.toggleOneTap()) },
+    { id: "order-defaults", label: "Order defaults", sub: "Product, lots per underlying, order type, limit offset, validity, account", keywords: "ticket defaults settings lots product intraday normal limit market validity", icon: "sliders", tint: "gray", run: () => import("./one-tap.js").then((m) => m.openOrderDefaults()) },
   ].map((a) => ({ ...a, group: "Actions" }));
   return [...pageCmds, ...actions];
 }
@@ -409,10 +412,13 @@ export function shortcutList() {
   ];
 }
 
-export function showShortcuts() {
+/**
+ * The keyboard shortcuts and glossary sheet (shortcuts.js): every shortcut in the app grouped by page, searchable.
+ * `opts.group` opens it on a page's group (the chain's "?" opens on Option Chain).
+ */
+export function showShortcuts(opts = {}) {
   if (otherDialogOpen()) return;
   closePalette({ restore: false });
-  const rows = shortcutList().map((s) => h("tr", {}, h("td", { class: "shortcut-keys" }, kbd(...s.keys)), h("td", {}, s.what)));
   // Chrome can swallow the first Escape on a dialog opened from a key press; close it through its own button instead.
   const d = document.getElementById("dialog");
   const onEsc = (e) => {
@@ -422,17 +428,10 @@ export function showShortcuts() {
   };
   d.addEventListener("keydown", onEsc);
   d.addEventListener("close", () => d.removeEventListener("keydown", onEsc), { once: true });
-  return modal({
-    title: "Keyboard shortcuts",
-    body: h(
-      "div",
-      { class: "stack shortcuts-sheet" },
-      h("table", { class: "shortcuts" }, h("caption", { class: "pal-sr-only" }, "Keyboard shortcuts"), h("thead", { class: "pal-sr-only" }, h("tr", {}, h("th", { scope: "col" }, "Keys"), h("th", { scope: "col" }, "Action"))), h("tbody", {}, rows)),
-      h("p", { class: "muted small" }, isMac() ? "Some browsers keep ⌘1 to ⌘9 for switching tabs; the search (⌘K) always works." : "Some browsers keep Ctrl+1 to Ctrl+9 for switching tabs; the search (Ctrl+K) always works."),
-      h("p", { class: "type-credit" }, h("strong", {}, "About. "), TYPE_CREDIT),
-    ),
-    buttons: [{ label: "Done", cls: "primary", value: true }],
-  });
+  const pages = ctx?.pages() ?? [];
+  const labels = new Map(pages.map((p) => [p.id, p.label]));
+  const goKeys = Object.entries(goKeyTable((ctx?.codes?.() ?? []).map((c) => c.id))).map(([keys, id]) => ({ keys, label: (ctx?.codes?.() ?? []).find((c) => c.id === id)?.label ?? labels.get(id) ?? id }));
+  return import("./shortcuts.js").then((m) => m.openShortcuts({ mod: modKey(), pages, goKeys, ...opts }));
 }
 
 /** The shortcut of a page (its curated `key`, 1 to 9) or of a key number, e.g. "⌘1"; null for a page without one. */

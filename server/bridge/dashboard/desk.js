@@ -6,10 +6,10 @@
 // then patched cell by cell, so nothing flickers, scroll and keyboard focus stay put, and only cells that changed
 // flash. The maths lives in options.js (pure, tested); numbers are formatted by format.js only.
 import { DEMO_EXPLAINER, alertBox, api, app, emptyState, errorState, h, icon, liveControl, loadingState, modal, mountToolbarCtx, optional, prefetch, sheetPopover, toast, touchWord } from "./app.js";
-import { DASH, MINUS, ageText, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedPercent, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, MINUS, ageText, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatRupeeGrouped, formatSigned, formatSignedPercent, formatSignedRupee, isFigure } from "./format.js";
 import { arbPanels } from "./arbitrage.js";
 import { openChainSheet } from "./chain-sheet.js";
-import { installChainInsight, openChainHelp } from "./chain-insight.js";
+import { installChainInsight } from "./chain-insight.js";
 import { createOiPage, oiConfig } from "./oi.js";
 import { oiStore, snapKey } from "./oi-store.js";
 import { createBuilder } from "./strategy.js";
@@ -30,6 +30,9 @@ import { VALIDITY, depthView, quoteHead, stepLots, validityApplies } from "./ord
 import { whatToDo } from "./reasons-core.js";
 import { watch } from "./live.js";
 import { SPAN_METHOD, marginLegsOf, portfolioMargin } from "./span-margin.js";
+import { CHAIN_KEYS } from "./shortcuts-core.js";
+import { oneTapOn, orderDefaults, registerTicketHost, sendOneTap } from "./one-tap.js";
+import { lotsFor, offsetLimit } from "./one-tap-core.js";
 import { checksForLaterDay, gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, marketClosedAt, opFor, slTriggerStart, stopOrderProblem, stopOrderText, triggerBody, triggerProblem } from "./trigger-core.js";
 
 const SLOT = "mcb.dashboard.desk";
@@ -104,28 +107,7 @@ const EXPIRY_DAY_NOTE = "Index option shorts carry +2% ELM today; no calendar-sp
 /** Freeze quantities by symbol (GET /v1/instruments/{symbol}), for the session. */
 const freezeCache = new Map();
 const freezeLoading = new Set();
-/** The chain's keys: [keys, what they do] (the legend under the table and the ? overlay). */
-const CHAIN_KEYS = [
-  [["J", "K"], "strike", "Next / previous strike (↓ ↑ too)"],
-  [["←", "→"], "side", "Calls / puts side (H L too)"],
-  [["/"], "search", "Search: a symbol (NIFTY, RELIANCE) or a strike (26400, 264, +3, -2σ, atm, mp). Typing any letter that is not a key here (n, f, a…) opens it too"],
-  [["[", "]"], "expiry", "Previous / next expiry"],
-  [["1–5"], "view", "Columns: OI, Buyer, Seller, Hedger, Arb (Customise has every view)"],
-  [["C", "V"], "calls / puts", "Calls only / puts only (again: both)"],
-  [["M"], "select", "Select contracts for the Strategy Builder (Space ticks one)"],
-  [["↵"], "sheet", "Open the action sheet for the strike"],
-  [["B"], "buy", "Order ticket: buy at the ask"],
-  [["S"], "sell", "Order ticket: sell at the bid"],
-  [["⇧B", "⇧S"], "add to strategy", "Add a buy / sell leg to the strategy"],
-  [["T"], "build around", "Build a strategy around the strike: straddle, strangle, condor, spreads, butterfly, calendar (right-click or long-press the strike too)"],
-  [["X"], "exit", "Exit the position you hold in this contract"],
-  [["G"], "ATM", "Back to ATM (Home too)"],
-  [["P"], "pause", "Pause / resume live updates"],
-  [["R"], "refresh", "Refresh now"],
-  [["I"], "explain", "Explain a cell of the focused row (again: the next column out)"],
-  [["?"], "keys", "This list"],
-  [["Esc"], "clear", "Clear the focus; close the sheet or the search"],
-];
+/** The chain's keys (shortcuts-core.js CHAIN_KEYS: the legend under the table and the shortcuts sheet). */
 const KEY_LEGEND = CHAIN_KEYS.filter((k) => !["R", "Esc", "M", "X", "T"].includes(k[0][0]));
 /** A strategy built from the chain, handed to the Strategy Builder (which offers Undo): { u, label, prev }. */
 export const FROM_CHAIN_SLOT = "mcb.dashboard.fromChain";
@@ -205,7 +187,8 @@ async function renderDesk(kind) {
     strikes: strikesPref(prefs.strikes),
     strikesView: null,
     cfg: chainConfig(prefs.chain),
-    account: tradable.some((a) => a.id === prefs.account) ? prefs.account : (tradable.find((a) => a.broker === "paper") ?? tradable[0])?.id ?? null,
+    // The order defaults' account (one-tap.js), when set, is where the Options pages start; else the last one used.
+    account: tradable.some((a) => a.id === orderDefaults().account) ? orderDefaults().account : tradable.some((a) => a.id === prefs.account) ? prefs.account : (tradable.find((a) => a.broker === "paper") ?? tradable[0])?.id ?? null,
     live: prefs.live !== false,
     baskets: prefs.baskets && typeof prefs.baskets === "object" ? prefs.baskets : {},
     oi: oiConfig(prefs.oi),
@@ -534,6 +517,7 @@ async function renderDesk(kind) {
           save,
           account,
           openTicket: (o) => openTicket(o),
+          quickTrade: (o) => quickTrade(o),
           onClock: () => (drawClock(), drawCtx()),
           openInChain: (expiry, strike, side) => {
             st.expiry = expiry;
@@ -1323,7 +1307,8 @@ async function renderDesk(kind) {
     // Picking a side (the header buttons, C / V, the phone switch) leaves the straddle table.
     onSide: (side) => setCfg({ side, straddle: false }),
     onPhoneSide: (side) => setCfg({ phoneSide: side, straddle: false }),
-    onTrade: (row, right, side) => openTicket({ row, right, side }),
+    // The bid / ask buttons and the hover B / S: sent at once when 1-Tap is on (quickTrade), else the ticket.
+    onTrade: (row, right, side) => quickTrade({ row, right, side }),
     onFocus: (f) => {
       st.focus = f;
       chain.paintFocus(false, true);
@@ -1526,7 +1511,7 @@ async function renderDesk(kind) {
           },
         })
       : null;
-  /** ⇧B / ⇧S on the chain and "Add to strategy" in the ticket: the same contract and side merge into one leg. */
+  /** + / − on the chain and "Add to strategy" in the ticket: the same contract and side merge into one leg. */
   function addLeg(leg) {
     if (builder) return toast(builder.addLeg(leg) ?? "");
     const legs = basket();
@@ -1592,7 +1577,7 @@ async function renderDesk(kind) {
    * the live quote), `lotSize`, `units` (an odd quantity: the ticket works in units and sends `quantity`), `kind`, `name`
    * and `tick`. An exit starts as a LIMIT at mid rounded toward a fill, with 25 / 50 / 75 / 100 % chips.
    */
-  async function openTicket({ row, right, side, qty, symbol, product, orderType = "LIMIT", expiry, exit = false, quote: quoteIn = null, units: oddUnits = false, lotSize: lotIn = null, kind = "OPT", name: nameIn = null, tick: tickIn = null, freezeQty = null, price: priceIn = null, held: heldIn = null, account: accountIn = null }) {
+  async function openTicket({ row, right, side, qty, symbol, product, orderType = null, expiry, exit = false, quote: quoteIn = null, units: oddUnits = false, lotSize: lotIn = null, kind = "OPT", name: nameIn = null, tick: tickIn = null, freezeQty = null, price: priceIn = null, held: heldIn = null, account: accountIn = null }) {
     // `account` presets the leg's own account (Positions All accounts / Family: every exit goes to that account).
     const a = accountIn ? tradable.find((x) => x.id === accountIn) ?? null : account();
     if (!a) return toast(accountIn ? `${accountIn} cannot place orders from this dashboard.` : "Choose an account that can place orders first.", { tone: "warn" });
@@ -1605,8 +1590,12 @@ async function renderDesk(kind) {
     const tick = num(tickIn) || 0.05;
     const quote = quoteIn ?? (() => (st.chain?.expiry === ex ? st.chain.rows.find((r) => r.strike === row.strike)?.[right.toLowerCase()] : row?.[right.toLowerCase()]) ?? null);
     const clientOrderId = `desk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    // Order defaults (one-tap.js): a new order (never an exit) opens with the saved lots, product, order type, limit
+    // offset and validity. What the caller passes (a reopen, a hedge, a typed trade) wins.
+    const dflt = exit ? null : orderDefaults();
+    const qtyIn = qty ?? (dflt && !oddUnits ? lotsFor(dflt, c?.underlying ?? st.underlying) * lotSize : null);
     // `qty` is the starting size; `held` (exits) the whole position, which the 25-100 % chips are measured from.
-    const start = num(qty) ? Math.abs(num(qty)) : null;
+    const start = num(qtyIn) ? Math.abs(num(qtyIn)) : null;
     const held = num(heldIn) ? Math.abs(num(heldIn)) : start;
     const inUnits = Boolean(oddUnits) || (held !== null && held % lotSize !== 0) || (start !== null && start % lotSize !== 0);
     const sideSeg = segmented("Side", [["BUY", "Buy"], ["SELL", "Sell"]], side);
@@ -1618,7 +1607,7 @@ async function renderDesk(kind) {
     // The stepper: − and + either side of the field (typing still works); the field never goes below one.
     const stepBtn = (d, label) => h("button", { type: "button", class: "plain bk-step-btn", "aria-label": label, onclick: () => ((lots.value = String(stepLots(lots.value, d))), changed()) }, d < 0 ? MINUS : "+");
     const lotsStepper = h("div", { class: "bk-stepper" }, stepBtn(-1, inUnits ? "One less" : "One lot less"), lots, stepBtn(1, inUnits ? "One more" : "One lot more"));
-    const typeSeg = segmented("Order type", [["LIMIT", "Limit"], ["MARKET", "Market"], ["SL", "SL"], ["SL-M", "SL-M"]], ["MARKET", "SL", "SL-M"].includes(orderType) ? orderType : "LIMIT");
+    const typeSeg = segmented("Order type", [["LIMIT", "Limit"], ["MARKET", "Market"], ["SL", "SL"], ["SL-M", "SL-M"]], ["MARKET", "SL", "SL-M"].includes(orderType ?? dflt?.orderType) ? orderType ?? dflt?.orderType : "LIMIT");
     // Stop-loss orders (SL: a limit once triggered; SL-M: market once triggered) rest at the exchange (paper: the
     // paper engine) until LTP reaches the trigger. Not a Bridge trigger: the broker holds them.
     typeSeg.classList.add("bk-type-seg");
@@ -1662,11 +1651,13 @@ async function renderDesk(kind) {
     const exitsWanted = () => !exit && (isFigure(stopIn.value) || isFigure(targetIn.value));
     const whenRow = whenSeg ? h("div", { class: "ticket-grid bk-when" }, segField("When", whenSeg), trigField) : null;
     const midPx = (sd) => O.roundToTick(O.mid(quote()), tick, sd === "BUY" ? "buy" : "sell");
-    const startPx = isFigure(priceIn) ? Number(priceIn) : exit ? midPx(side) ?? O.touchPrice(quote(), side, tick) : O.touchPrice(quote(), side, tick);
+    // A new order's limit: the touch moved by the defaults' offset (ticks), else the touch.
+    const defaultPx = (sd) => (dflt ? offsetLimit({ side: sd, bid: quote()?.bid, ask: quote()?.ask, tick, offsetTicks: dflt.offsetTicks }) : null) ?? O.touchPrice(quote(), sd, tick);
+    const startPx = isFigure(priceIn) ? Number(priceIn) : exit ? midPx(side) ?? O.touchPrice(quote(), side, tick) : defaultPx(side);
     const price = h("input", { type: "number", min: "0.05", step: String(tick), inputmode: "decimal", value: String(startPx ?? "") });
-    const prodSeg = segmented("Product", [["INTRADAY", "Intraday"], ["MARGIN", "Margin (NRML)"]], O.ticketProduct(product));
+    const prodSeg = segmented("Product", [["INTRADAY", "Intraday"], ["MARGIN", "Margin (NRML)"]], O.ticketProduct(product ?? (dflt?.product === "MARGIN" ? "MARGIN" : undefined)));
     // Validity for an order sent now (limit or market): Day rests until the close; IOC fills what it can at once.
-    const valSeg = exit ? null : segmented("Validity", VALIDITY, "DAY");
+    const valSeg = exit ? null : segmented("Validity", VALIDITY, dflt?.validity ?? "DAY");
     const valField = valSeg ? segField("Validity", valSeg) : null;
     const ioc = () => Boolean(valSeg) && valSeg.value === "IOC" && validityApplies({ orderType: typeSeg.value, later: later() });
     const modeSeg = a.liveAllowedByConfig ? segmented("Mode", [["paper", "Paper"], ["live", "Live"]], "paper") : null;
@@ -1846,6 +1837,8 @@ async function renderDesk(kind) {
     };
     let placeBtn = null;
     let last = null;
+    /** The preview's money for the Place button: { need: margin (a buy's premium), charges: round trip } or null. */
+    let figs = null;
     const drawButton = () => {
       if (!placeBtn) return;
       const b = body();
@@ -1858,8 +1851,12 @@ async function renderDesk(kind) {
       const size = `${b.side === "BUY" ? "Buy" : "Sell"} ${inUnits ? `${formatInt(b.quantity)} qty` : `${formatInt(b.lots)} lot${b.lots === 1 ? "" : "s"}`}`;
       // On a phone the footer has room for "Set GTT" only (the side is the button's colour, the size is above).
       const narrow = typeof matchMedia === "function" && matchMedia("(max-width: 719px)").matches;
-      placeBtn.textContent = `${gtt() ? (narrow ? "Set GTT" : `Set GTT: ${size}`) : amo() ? (narrow ? "Queue AMO" : `Queue AMO: ${size}`) : size}${live() ? " · LIVE" : ""}`;
-      placeBtn.className = b.side === "BUY" ? "btn buy" : "btn sell";
+      // An order sent now says what it costs on the button, on a second line: "Buy 2 lots" over "₹ margin · ₹ charges".
+      const money = figs && !later() && isFigure(figs.need) ? `${formatRupeeGrouped(figs.need, 0)} margin${isFigure(figs.charges) ? ` · ${formatRupeeGrouped(figs.charges, 0)} charges` : ""}` : "";
+      const main = `${gtt() ? (narrow ? "Set GTT" : `Set GTT: ${size}`) : amo() ? (narrow ? "Queue AMO" : `Queue AMO: ${size}`) : size}${live() ? " · LIVE" : ""}`;
+      placeBtn.replaceChildren(h("span", { class: "btn-main" }, main), ...(money ? [h("small", { class: "btn-money" }, money)] : []));
+      if (!firstBlock && figs && !later()) placeBtn.title = `${isFigure(figs.need) ? `Margin ≈ ${formatRupeeGrouped(figs.need, 0)}${b.side === "BUY" && !fut ? " (the premium)" : ""}. ` : ""}${isFigure(figs.charges) ? `Charges ≈ ${formatRupeeGrouped(figs.charges, 0)} round trip: brokerage, STT, exchange and SEBI fees, stamp duty and GST.` : ""}`.trim();
+      placeBtn.className = `${b.side === "BUY" ? "btn buy" : "btn sell"}${money ? " with-money" : ""}`;
       // Refused by a check: the standard disabled button, saying so (the reason is its title and in the preview).
       if (firstBlock) {
         placeBtn.textContent = "Blocked";
@@ -1892,22 +1889,26 @@ async function renderDesk(kind) {
       const b = body();
       if (refPending()) {
         last = null;
+        figs = null;
         previewEl.replaceChildren(h("p", { class: "muted small pad" }, "Reading contract data"));
         return drawButton();
       }
       if (!gateOk()) {
         last = null;
+        figs = null;
         previewEl.replaceChildren(h("p", { class: "muted small pad" }, "Check the lot size above to see the order preview."));
         return drawButton();
       }
       const slProblem = isStop() ? stopOrderProblem({ side: b.side, orderType: b.orderType, trigger: b.triggerPrice, price: b.price, ltp: num(quote()?.ltp) }) : null;
       if (slProblem) {
         last = null;
+        figs = null;
         previewEl.replaceChildren(h("p", { class: "muted small pad" }, slProblem.message));
         return drawButton();
       }
       if (b.orderType === "LIMIT" && b.price === undefined) {
         last = null;
+        figs = null;
         previewEl.replaceChildren(h("p", { class: "muted small pad" }, "Enter a limit price."));
         return drawButton();
       }
@@ -1941,6 +1942,8 @@ async function renderDesk(kind) {
         const chLeg = (sd) => ({ kind: fut ? "FUT" : "OPT", side: sd, price: px, lots: 1, lotSize: r.quantity, strike: row?.strike, right, symbol: sym });
         const entryCh = isFigure(px) && r.quantity > 0 ? O.charges([chLeg(b.side)], rates, { lotSize: r.quantity }).total : null;
         const exitCh = isFigure(entryCh) ? O.charges([chLeg(b.side === "BUY" ? "SELL" : "BUY")], rates, { lotSize: r.quantity }).total : null;
+        // The button's money: a buy of an option needs its premium; a sell or a future needs margin. Exits show none.
+        figs = exit ? null : { need: b.side === "BUY" && !fut ? num(r.estimatedValue) : mg ? mg.required : num(withBook), charges: isFigure(entryCh) ? entryCh + exitCh : null };
         const after = risk && isFigure(entryCh) ? riskAfterCharges(risk, { side: b.side, right, qty: r.quantity, entry: entryCh, exit: exitCh }) : null;
         const lossText = risk ? (risk.maxLoss === null ? "Unlimited" : formatRupee(risk.maxLoss, 0)) : null;
         // With a stop and target on the entry: the loss at the stop and the reward at the target, from the expected
@@ -1987,6 +1990,7 @@ async function renderDesk(kind) {
       } catch (err) {
         if (seq !== previewSeq) return;
         last = null;
+        figs = null;
         previewEl.replaceChildren(...refusalNodes(err));
       }
       drawButton();
@@ -2068,7 +2072,7 @@ async function renderDesk(kind) {
       previewTimer = setTimeout(preview, 200);
     };
     sideSeg.addEventListener("change", () => {
-      const p = exit ? midPx(sideSeg.value) ?? O.touchPrice(quote(), sideSeg.value, tick) : O.touchPrice(quote(), sideSeg.value, tick);
+      const p = exit ? midPx(sideSeg.value) ?? O.touchPrice(quote(), sideSeg.value, tick) : defaultPx(sideSeg.value);
       if (p !== null) price.value = String(p);
       if (gtt() || isStop()) priceTyped = false;
       if (isStop()) {
@@ -2241,6 +2245,34 @@ async function renderDesk(kind) {
     }
     if (result === "placed") refresh();
     return result;
+  }
+
+  /**
+   * Buy / sell from a chain cell, the hover B / S or Shift+B / Shift+S. With 1-Tap off: the ticket. With it on: one-tap.js
+   * sends it with the order defaults through the same preview and order routes as the ticket (every Bridge check),
+   * and opens the ticket instead whenever a person should look first (an exit, a lot size to check, no bid / ask).
+   * Takes openTicket's options.
+   */
+  function quickTrade(o) {
+    if (!oneTapOn()) return openTicket(o);
+    const r = o.right ?? "CE";
+    const lotSize = num(o.lotSize) || num(st.chain?.lotSize) || 1;
+    const symbol = o.symbol ?? o.row?.[r.toLowerCase()]?.symbol ?? null;
+    const ex = o.expiry ?? st.chain?.expiry;
+    const quote = o.quote ? o.quote() : (st.chain?.expiry === ex ? st.chain.rows.find((x) => x.strike === o.row?.strike)?.[r.toLowerCase()] : o.row?.[r.toLowerCase()]) ?? null;
+    return sendOneTap({
+      symbol,
+      side: o.side,
+      underlying: st.chain?.underlying ?? st.underlying,
+      quote,
+      tick: num(o.tick) || 0.05,
+      name: o.name ?? contractName(st.chain?.underlying ?? st.underlying, ex, o.row?.strike, r),
+      exit: Boolean(o.exit),
+      // An order in lots needs the reference bundle, and its confirmation when the lot data is stale (the ticket's gate).
+      lotCheckNeeded: !st.ref || lotConfirmGate(st.ref, lotSize, { units: false }).needed,
+      openTicket: () => openTicket(o),
+      onPlaced: () => refresh(),
+    });
   }
 
   /**
@@ -2632,16 +2664,9 @@ async function renderDesk(kind) {
     return O.strikeQuery(text, { strikes, atm: x.sm.atm, F: x.F, sigmaPts, maxPain: x.sm.maxPain });
   }
 
+  /** "?": the app's shortcuts sheet, opened on the chain's own keys (shortcuts.js; "How to read the chain" is in ⋯). */
   function showKeys() {
-    modal({
-      title: "Option chain keys",
-      body: h(
-        "table",
-        { class: "keys-table" },
-        h("tbody", {}, CHAIN_KEYS.map(([keys, , long]) => h("tr", {}, h("th", { scope: "row" }, keys.map((k) => h("kbd", {}, k))), h("td", {}, long)))),
-      ),
-      buttons: [{ label: "How to read the chain", value: "help" }, { label: "Close", value: true }],
-    }).then((v) => v === "help" && openChainHelp());
+    import("./palette.js").then((m) => m.showShortcuts({ group: "Option Chain" }));
   }
 
   // ── Keyboard ──
@@ -2698,8 +2723,11 @@ async function renderDesk(kind) {
         if (chain.pick(row.strike, target.side)) return true;
         return openSheet(row.strike, target.side), true;
       }
-      if (k === "b" || k === "s") return openTicket({ row, right, side: k === "b" ? "BUY" : "SELL" }), true;
-      if (k === "B" || k === "S") return addLeg({ right, strike: row.strike, side: k === "B" ? "BUY" : "SELL" }), true;
+      // Shift+B / Shift+S: the focused contract at once with the order defaults when 1-Tap is on, else its ticket. Read
+      // from the Shift key, not the letter's case (Caps Lock types "B" without Shift; some keyboards send "b" with it).
+      if (e.shiftKey && (k === "B" || k === "S" || k === "b" || k === "s")) return quickTrade({ row, right, side: k.toLowerCase() === "b" ? "BUY" : "SELL" }), true;
+      if (k === "b" || k === "s" || k === "B" || k === "S") return openTicket({ row, right, side: k.toLowerCase() === "b" ? "BUY" : "SELL" }), true;
+      if (k === "+" || k === "=" || k === "-" || k === "_") return addLeg({ right, strike: row.strike, side: k === "+" || k === "=" ? "BUY" : "SELL" }), true;
       if (k === "t") return strategyMenu(row.strike, chain.rowHead?.(row.strike) ?? null), true;
       if (k === "x") {
         const sym = row[target.side]?.symbol;
@@ -2761,6 +2789,15 @@ async function renderDesk(kind) {
   };
   activeDesk = kind === "chain" ? desk : kind === "oi" ? oiDesk : kind === "strategy" ? stratDesk : kind === "positions" ? posDesk : kind === "vol" ? volDesk : kind === "arb" ? arbDesk : null;
   bindKeys();
+  // one-tap.js openTicketFor: a contract on this chain opens its ticket here, over the page (1-Tap aware).
+  registerTicketHost((symbol, side) => {
+    if (!pageRoot.isConnected) return false;
+    const o = O.parseOptionSymbol(symbol);
+    const row = o && st.chain?.underlying === o.underlying && st.chain?.expiry === o.expiry ? st.chain.rows.find((r) => r.strike === o.strike) : null;
+    if (!row) return false;
+    quickTrade({ row, right: o.right, side });
+    return true;
+  });
 
   // ── Wiring ──
   // Reaching for the underlying picker warms the other underlyings' expiry lists (one cached read each, background

@@ -605,7 +605,7 @@ export function iconTile(name, tint = "blue", size = "md") {
 }
 
 /** A HUD confirmation in #toast (one at a time; a new one replaces the old). views.js may hide it with `$("toast").hidden = true`. */
-export function toast(text, { tone = "ok" } = {}) {
+export function toast(text, { tone = "ok", ms = null } = {}) {
   const t = document.getElementById("toast");
   const gen = (toast.gen = (toast.gen ?? 0) + 1);
   const wasHidden = t.hidden;
@@ -626,7 +626,7 @@ export function toast(text, { tone = "ok" } = {}) {
     bannerOut(t).then(() => {
       if (toast.gen === gen) t.hidden = true;
     });
-  }, kind === "error" || kind === "warn" ? 4200 : 2600);
+  }, ms ?? (kind === "error" || kind === "warn" ? 4200 : 2600)); // `ms`: longer for a toast with an action (1-Tap's Cancel)
 }
 const TOAST_TONES = new Set(["ok", "info", "warn", "error"]);
 
