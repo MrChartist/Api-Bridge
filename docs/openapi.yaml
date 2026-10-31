@@ -7292,7 +7292,13 @@ paths:
       tags: [Analytics]
       operationId: getAnalyticsExposure
       summary: Delta, gamma, vanna and charm exposure by strike with walls and the zero-gamma level
-      description: Dealers are assumed long calls and short puts. Delta INR per point, gamma INR per 1% move, vanna INR per point per vol point, charm INR per point per day. Legs without usable IV or gamma are counted in skippedLegs.
+      description: >-
+        Dealers are assumed long calls and short puts. Delta INR per point, gamma INR per 1% move, vanna INR per point per vol point, charm INR per point per day.
+        Legs without usable IV or gamma are counted in skippedLegs. `profile` (gexProfile.mjs) adds the solved gamma flip (the price where the re-priced
+        net gamma changes sign, searched within 25% of spot; null when none), `flips`, `flipRange`, `ladderCross` (where the running total of Net crosses
+        zero, interpolated), `callWall` (above spot, largest Call GEX), `putWall` (below spot, largest Put GEX), `heaviest` (largest Call + |Put|), `net`,
+        `gross`, `lean` (|net| / gross, 0..1), `verdict` (dampens, amplifies, balanced under a 10% lean, unmeasured), `regimeAtSpot`, `distanceToFlip`
+        (spot minus flip) and `curve` ([{ price, net }], 121 points across the strikes read). A model estimate, not an observed dealer position.
       x-stream: S15
       x-scope: read
       parameters:
@@ -7312,6 +7318,7 @@ paths:
       tags: [Analytics]
       operationId: getAnalyticsExposureExpiries
       summary: Gamma and delta exposure summed over the next expiries with per-expiry share
+      description: Each `expiries[]` item carries `profile`, the expiry's own gexProfile without the curve (solved flip, walls either side of spot, lean and verdict), as on /v1/analytics/exposure.
       x-stream: S15
       x-scope: read
       parameters:

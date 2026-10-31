@@ -10004,6 +10004,152 @@ a.pm-n-title:hover { text-decoration: underline; }
   .pm-custom, .pm-search { min-width: 0; flex: 1 1 160px; }
 }
 
+/* ───────────────────────── 19 · VOL SUITE (exposure-suite.js, vol-today.js) ─────────────────────────
+   Analytics › Exposure (By strike, By expiry, Straddle) and Volatility › IV today. One hero reading per view in large
+   type, quiet capsule chips beside it, direction in green / red (net gamma, changes), calls blue / puts orange, IV
+   violet, the flip in amber. Figures behind a reading are a hover card, never always on. Tokens only. */
+.vs-pos { color: hsl(var(--pos-ink)); }
+.vs-neg { color: hsl(var(--neg-ink)); }
+.vs-panel { container-type: inline-size; }
+.vs-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* Hero: the verdict capsule, the one big figure, a sentence; the qualifying figures as soft chips. */
+.vs-hero-body { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 32px; padding-block: 18px; }
+.vs-hero-main { display: flex; flex-direction: column; gap: 8px; flex: 1 1 320px; min-width: 0; }
+.vs-hero-figure { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.vs-hero-label { font: 500 13px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.vs-hero-value { font: var(--t-num-hero); letter-spacing: var(--tk-num-hero); font-variant-numeric: tabular-nums; }
+.vs-hero-gist { margin: 0; max-width: 78ch; font: 400 13px/1.5 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.vs-chips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; flex: 2 1 420px; margin: 0; }
+.vs-chip { display: flex; flex-direction: column; gap: 3px; min-width: 96px; padding: 8px 14px; border-radius: 14px; background: var(--mat-fill-1); }
+.vs-chip[title] { cursor: help; }
+.vs-chip dt { font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; }
+.vs-chip dd { margin: 0; font: 500 15px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.vs-verdict { align-self: flex-start; display: inline-flex; align-items: center; min-height: 26px; padding: 0 12px; border-radius: 999px; font: 600 13px/1 var(--font-body); white-space: nowrap; color: hsl(var(--foreground)); background: var(--mat-fill-2); }
+.vs-verdict.pos { color: hsl(var(--pos-ink)); background: hsl(var(--pos) / 0.14); }
+.vs-verdict.neg { color: hsl(var(--neg-ink)); background: hsl(var(--neg) / 0.14); }
+.vs-verdict.iv { color: hsl(var(--dv-iv-ink)); background: hsl(var(--dv-iv) / 0.14); }
+.vs-verdict.quiet { color: hsl(var(--foreground) / var(--a-label)); background: transparent; box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
+.vs-verdict.small { min-height: 22px; padding: 0 10px; font-size: 12px; font-weight: 500; }
+
+/* The strike profile and the sign curve (SVG). */
+.vs-profile, .vs-curve { position: relative; }
+.vs-svg { display: block; overflow: visible; }
+.vs-svg:focus-visible { outline: 2px solid var(--sel-ring); outline-offset: 2px; border-radius: 8px; }
+.vs-grid { stroke: var(--dv-grid); stroke-width: 1; }
+.vs-zero { stroke: var(--dv-zero); stroke-width: 1; }
+.vs-tick, .vs-rail, .vs-mark-text { font: 500 12px/1 var(--font-numeric); fill: var(--dv-axis); }
+.vs-rail.is-near { fill: hsl(var(--foreground)); font-weight: 600; }
+.vs-hit { fill: transparent; }
+.vs-col { cursor: pointer; }
+.vs-col.is-hover .vs-hit, .vs-col.is-pinned .vs-hit { fill: var(--mat-fill-1); }
+.vs-bar { transition: opacity var(--dur-2) var(--ease-std); }
+.vs-bar.pos { fill: hsl(var(--pos)); }
+.vs-bar.neg { fill: hsl(var(--neg)); }
+.vs-bar.call { fill: hsl(var(--dv-call)); }
+.vs-bar.put { fill: hsl(var(--dv-put)); }
+.vs-bar.both { fill: hsl(var(--dv-iv) / 0.8); }
+.vs-col.is-max .vs-bar { stroke: hsl(var(--foreground) / 0.55); stroke-width: 1; }
+.vs-cols:has(.is-hover) .vs-col:not(.is-hover):not(.is-pinned) .vs-bar { opacity: 0.5; }
+.vs-rule { stroke: hsl(var(--foreground) / 0.35); stroke-width: 1; stroke-dasharray: 3 3; }
+.vs-rule.lv-spot { stroke: hsl(var(--foreground) / 0.7); stroke-dasharray: none; }
+.vs-rule.lv-flip { stroke: hsl(var(--warn)); stroke-width: 1.5; }
+.vs-rule.lv-callWall { stroke: hsl(var(--dv-call)); }
+.vs-rule.lv-putWall { stroke: hsl(var(--dv-put)); }
+.vs-badge rect { fill: var(--surface-raised); stroke: var(--mat-separator); stroke-width: 1; }
+.vs-badge text { font: 500 12px/1 var(--font-numeric); fill: hsl(var(--foreground)); }
+.vs-badge.lv-spot rect { fill: hsl(var(--foreground)); stroke: none; }
+.vs-badge.lv-spot text { fill: hsl(var(--background)); }
+.vs-badge.lv-flip rect { fill: hsl(var(--warn) / 0.2); stroke: hsl(var(--warn) / 0.7); }
+.vs-badge.lv-flip text { fill: hsl(var(--warn-ink)); }
+.vs-badge.lv-callWall rect { fill: hsl(var(--dv-call) / 0.14); stroke: none; }
+.vs-badge.lv-callWall text { fill: hsl(var(--dv-call-ink)); }
+.vs-badge.lv-putWall rect { fill: hsl(var(--dv-put) / 0.14); stroke: none; }
+.vs-badge.lv-putWall text { fill: hsl(var(--dv-put-ink)); }
+.vs-badge.lv-cross text { fill: hsl(var(--foreground) / var(--a-label)); }
+.vs-badge.is-off rect { stroke-dasharray: 3 3; }
+.vs-area.pos { fill: hsl(var(--pos) / 0.16); }
+.vs-area.neg { fill: hsl(var(--neg) / 0.16); }
+.vs-line { fill: none; stroke: hsl(var(--foreground) / 0.8); stroke-width: 1.75; stroke-linejoin: round; }
+.vs-flip-dot { fill: hsl(var(--warn)); stroke: var(--surface-raised); stroke-width: 2; }
+.vs-mark-text.lv-flip { fill: hsl(var(--warn-ink)); font-weight: 600; }
+.vs-cross { stroke: hsl(var(--foreground) / 0.3); stroke-width: 1; }
+.vs-readout { min-height: 1.5em; margin: 8px 0 0; font: 400 13px/1.5 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.vs-foot { margin: 10px 0 0; font: 400 12px/1.5 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+
+/* The hover card: follows the column, flips to the left past 60 % of the width. */
+.vs-tip { position: absolute; top: var(--tip-y, 8px); left: var(--tip-x, 0); z-index: var(--z-raised); min-width: 176px; padding: 10px 12px; border-radius: 12px; background: var(--surface-raised); box-shadow: var(--shadow-2), inset 0 0 0 var(--hl) var(--mat-separator); transform: translateX(14px); pointer-events: none; }
+.vs-tip.flip { transform: translateX(calc(-100% - 14px)); }
+.vs-tip-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-bottom: 6px; font: 600 14px/1.2 var(--font-numeric); }
+.vs-tip-pin, .vs-tip-mark { font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.vs-tip-mark.lv-callWall { color: hsl(var(--dv-call-ink)); }
+.vs-tip-mark.lv-putWall { color: hsl(var(--dv-put-ink)); }
+.vs-tip-grid { display: grid; grid-template-columns: auto auto; gap: 3px 18px; margin: 0; font: 500 13px/1.3 var(--font-numeric); }
+.vs-tip-grid dt { font-family: var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.vs-tip-grid dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Levels list. */
+.vs-levels { display: flex; flex-direction: column; }
+.vs-level { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 84px; align-items: center; gap: 12px; padding: 9px 4px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); cursor: help; }
+.vs-level-dot { width: 10px; height: 10px; border-radius: 50%; background: hsl(var(--foreground) / 0.35); }
+.vs-level.lv-spot .vs-level-dot { background: hsl(var(--foreground)); }
+.vs-level.lv-flip .vs-level-dot { background: hsl(var(--warn)); }
+.vs-level.lv-callWall .vs-level-dot { background: hsl(var(--dv-call)); }
+.vs-level.lv-putWall .vs-level-dot { background: hsl(var(--dv-put)); }
+.vs-level.lv-heaviest .vs-level-dot { background: hsl(var(--dv-iv)); }
+.vs-level-name { font: 500 13px/1.2 var(--font-body); }
+.vs-level-value { font: 500 15px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.vs-level.lv-flip .vs-level-value { color: hsl(var(--warn-ink)); font-weight: 600; }
+.vs-level-dist { text-align: right; font: 500 12px/1.2 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
+.vs-levels .disclosure { margin-top: 12px; }
+
+/* Rows: expiries (GEX) and the straddle comparison. */
+.vs-exp, .vs-cmp { display: flex; flex-direction: column; }
+.vs-exp-row, .vs-cmp-row { display: grid; align-items: center; gap: 10px 18px; padding: 12px 10px; border-radius: 12px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+.vs-exp-row { grid-template-columns: minmax(130px, 1.1fr) minmax(170px, 2fr) minmax(70px, 0.7fr) minmax(120px, 1fr) 176px; }
+.vs-cmp-row { grid-template-columns: minmax(120px, 1fr) repeat(4, minmax(96px, 1fr)) minmax(150px, 1.4fr); }
+.vs-exp-row.is-top, .vs-cmp-row.is-current { background: var(--mat-fill-1); box-shadow: none; }
+.vs-exp-name, .vs-exp-cell, .vs-cmp-name, .vs-cmp-cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; font: 500 14px/1.25 var(--font-numeric); font-variant-numeric: tabular-nums; }
+:is(.vs-exp-name, .vs-exp-cell, .vs-cmp-name) .muted, .vs-cmp-k { font: 400 12px/1.25 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.vs-exp-bar, .vs-cmp-day { display: flex; align-items: center; gap: 10px; font: 500 14px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.vs-exp-row > .vs-verdict { justify-self: end; }
+.vs-hi { color: hsl(var(--dv-iv-ink)); font-weight: 600; }
+.vs-meter { position: relative; flex: 1 1 auto; min-width: 48px; height: 8px; border-radius: 4px; overflow: hidden; background: var(--mat-fill-2); }
+.vs-meter > i { position: absolute; inset: 0; border-radius: 4px; transform-origin: left center; transform: scaleX(var(--f, 0)); background: hsl(var(--foreground) / 0.4); transition: transform var(--dur-3) var(--ease-std); }
+.vs-meter.pos > i { background: hsl(var(--pos)); }
+.vs-meter.neg > i { background: hsl(var(--neg)); }
+.vs-meter.iv > i { background: hsl(var(--dv-iv)); }
+@container (max-width: 900px) {
+  .vs-cmp-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .vs-exp-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .vs-exp-row > .vs-verdict { justify-self: start; }
+}
+
+/* The straddle split: signed bars from a centre line on one scale (right adds to the premium, left takes from it). */
+.vs-split { display: flex; flex-direction: column; gap: 12px; }
+.vs-split-head { margin: 0; font: 500 14px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.vs-split-row { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(120px, 2fr) 92px; align-items: center; gap: 12px; }
+.vs-split-name { display: flex; flex-direction: column; gap: 2px; font: 500 13px/1.25 var(--font-body); }
+.vs-split-name .muted { font-size: 12px; font-weight: 400; }
+.vs-split-bar { position: relative; height: 10px; border-radius: 5px; background: var(--mat-fill-1); }
+.vs-split-bar > i { position: absolute; top: 0; bottom: 0; left: 50%; width: calc(50% * var(--f, 0)); border-radius: 5px; background: hsl(var(--pos)); transition: width var(--dur-3) var(--ease-std); }
+.vs-split-bar.neg > i { left: auto; right: 50%; background: hsl(var(--neg)); }
+.vs-split-val { text-align: right; font: 500 13px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.vs-chartpanel .lc-slot { --lc-h: 360px; }
+
+/* Volatility › IV today: four answers across, then the line. */
+.vol-today { container-type: inline-size; }
+.vt-answers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 4px 12px 12px; }
+.vt-answer { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; padding: 10px 14px; border-radius: 14px; background: var(--mat-fill-1); }
+.vt-answer[title] { cursor: help; }
+.vt-answer .vs-verdict { max-width: 100%; white-space: normal; line-height: 1.25; padding-block: 3px; }
+.vt-k { font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.vt-value { font: 500 22px/1.15 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.vt-sub { font: 400 12px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.vol-today .lc-slot { --lc-h: 230px; }
+@container (max-width: 720px) { .vt-answers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (prefers-reduced-motion: reduce) { .vs-bar, .vs-meter > i, .vs-split-bar > i { transition: none; } }
+
 /* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────
    Inline-SVG charts: every colour is a theme token (so light and dark both work), every size is an SVG attribute
    (no style attributes: the dashboard CSP is style-src 'self'). Series are told apart by colour AND dash or position. */

@@ -19,6 +19,7 @@ import { analyticsRiskPages } from "./analyticsRisk.js";
 import { analyticsTimePages } from "./analyticsTime.js";
 import { analyticsDepthPages } from "./analyticsDepth.js";
 import { analyticsOiPages } from "./analyticsOi.js";
+import { exposureSuitePages } from "./exposure-suite.js";
 import { UNDERLYING_CHIPS, isFormPage, nowShowing, workspace } from "./workspace.js";
 import { errorBox, field, segField, segmented } from "./views.js";
 
@@ -27,11 +28,11 @@ const STRIKES = [5, 10, 15, 20, 30];
 /** Which PR 17 page draws a view, and which of its inner tabs: view id -> [source page id, tab or null, context]. */
 export const VIEWS = Object.freeze({
   // Analytics › Exposure
-  "an-gex": ["exposure", "strike", { expiry: true, strikes: true }],
-  "an-gex-expiry": ["exposure", "expiry", { expiry: false, strikes: true }],
+  "an-gex": ["gexsuite", "strike", { expiry: true, strikes: true }],
+  "an-gex-expiry": ["gexsuite", "expiry", { expiry: false, strikes: true }],
   "an-oi-heatmap": ["oix-heatmap", null, { expiry: true, strikes: true }],
   greeksgrid: ["greeksgrid", "grid", { expiry: true, strikes: true }],
-  "an-straddle": ["greeksgrid", "straddle", { expiry: true, strikes: false }],
+  "an-straddle": ["straddlesuite", null, { expiry: true, strikes: false }],
   // Analytics › Flow
   unusual: ["unusual", null, { underlying: false, expiry: false, strikes: false }],
   tide: ["tide", null, { expiry: true, strikes: false }],
@@ -120,7 +121,7 @@ function newsTab(kind) {
 
 function sources(tab) {
   const H = () => helpers(tab);
-  const all = [...analyticsPages(H), ...analyticsMorePages(H), ...analyticsFlowPages(H), ...analyticsRiskPages(H), ...analyticsTimePages(H), ...analyticsDepthPages(H), ...analyticsOiPages(H)];
+  const all = [...analyticsPages(H), ...analyticsMorePages(H), ...analyticsFlowPages(H), ...analyticsRiskPages(H), ...analyticsTimePages(H), ...analyticsDepthPages(H), ...analyticsOiPages(H), ...exposureSuitePages(H)];
   const filings = [...filingsTabs(), { id: "announcements", label: "Announcements", build: newsTab("announcements") }, { id: "regulatory", label: "SEBI and RBI", build: newsTab("regulatory") }];
   all.push({ id: "filings", render: () => tabbedPage(H(), { label: "Filings", tabs: filings }) });
   return all;
