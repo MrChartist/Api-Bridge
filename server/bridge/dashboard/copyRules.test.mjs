@@ -34,6 +34,10 @@ const NEUTRAL_COPY_FILES = Object.freeze({
   "scanner.js": ["BUY"], // the ATM straddle handed to Strategy Builder names its legs' side
   "scan-builder.js": [],
   "scan-library.js": [],
+  // The option chain's insight cards and help: column names that carry an order side are the only exceptions.
+  "chain-help.js": ["POP buy", "POP sell"],
+  "chain-insight-core.js": [],
+  "chain-insight.js": ["PoP buy", "PoP sell"], // the action sheet's figure labels, matched to their columns
 });
 
 describe("banned-word list", () => {

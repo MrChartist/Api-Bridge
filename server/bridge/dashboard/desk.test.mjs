@@ -50,13 +50,15 @@ describe("chain settings", () => {
   it("fills the Customise defaults: market line, view, display", () => {
     const c = chainConfig({});
     expect(c).toMatchObject({ straddle: false, contracts: "all", priceLine: "spot", greeks: false, pinLtp: false });
-    expect(c.line).toEqual({ straddle: true, em: true, iv: true, range: true, pcr: false, mp: false, walls: false });
+    expect(c.line).toEqual({ straddle: true, em: true, iv: false, range: false, pcr: false, mp: false, walls: false });
+    expect(c.insight).toBe(true);
+    expect(chainConfig({ insight: false }).insight).toBe(false);
     expect(c.itm).toBe(false);
     expect(chainConfig({ mode: "simple" }).mode).toBe("simple");
     expect(chainConfig({ mode: "x" }).mode).toBe("advanced");
     const s = chainConfig({ straddle: true, contracts: "itm", priceLine: "fut", line: { pcr: true, em: false }, greeks: true, pinLtp: true });
     expect(s).toMatchObject({ straddle: true, contracts: "itm", priceLine: "fut", greeks: true, pinLtp: true });
-    expect(s.line).toMatchObject({ straddle: true, em: false, pcr: true, range: true });
+    expect(s.line).toMatchObject({ straddle: true, em: false, pcr: true, range: false });
     expect(chainConfig({ contracts: "deep", priceLine: "x" })).toMatchObject({ contracts: "all", priceLine: "spot" });
   });
 });

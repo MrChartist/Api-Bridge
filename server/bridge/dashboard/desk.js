@@ -9,6 +9,7 @@ import { DEMO_EXPLAINER, alertBox, api, app, emptyState, errorState, h, icon, li
 import { DASH, MINUS, ageText, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, formatSignedPercent, formatSignedRupee, isFigure } from "./format.js";
 import { arbPanels } from "./arbitrage.js";
 import { openChainSheet } from "./chain-sheet.js";
+import { installChainInsight, openChainHelp } from "./chain-insight.js";
 import { createOiPage, oiConfig } from "./oi.js";
 import { oiStore, snapKey } from "./oi-store.js";
 import { createBuilder } from "./strategy.js";
@@ -121,6 +122,7 @@ const CHAIN_KEYS = [
   [["G"], "ATM", "Back to ATM (Home too)"],
   [["P"], "pause", "Pause / resume live updates"],
   [["R"], "refresh", "Refresh now"],
+  [["I"], "explain", "Explain a cell of the focused row (again: the next column out)"],
   [["?"], "keys", "This list"],
   [["Esc"], "clear", "Clear the focus; close the sheet or the search"],
 ];
@@ -1228,6 +1230,8 @@ async function renderDesk(kind) {
       return () => selectExpiry(st.expiries[i + 1]);
     },
   });
+  // Insight cards on the chain's cells and headers, and the "How to read the chain" sheet (chain-insight.js).
+  if (kind === "chain") installChainInsight(chainEl, { x: () => chain.x, cfg: () => st.cfg, keys: keysEl });
   /** Multi-select → Strategy Builder: the ticked contracts become legs of this expiry's basket, then the builder opens. */
   function openPicked(items, side) {
     if (!items.length) return;
@@ -2331,6 +2335,8 @@ async function renderDesk(kind) {
           tagSw("±1σ band", "em", { hint: "The expected move to expiry, on the strikes" }),
           tagSw("±2σ", "em2"),
           cfgSw("Compact rows", "dense"),
+          // The insight cards on a resting pointer (mouse, trackpad); a tap, the I key and the help sheet work either way.
+          typeof matchMedia === "function" && matchMedia("(hover: hover) and (pointer: fine)").matches ? cfgSw("Hover cards", "insight", { hint: "What a cell shows and how it is worked out, when the pointer rests on it" }) : null,
           cfgSw("My positions", "positions", { hint: "Lots you hold, beside the LTP" }),
           cfgSw("Bid & ask", "quotes", { hint: c.preset === "arb" ? "Always on in the Arb view" : `${touchWord()} to trade; touch screens use the row's sheet`, disabled: c.preset === "arb" }),
           adv() ? cfgSw("More columns on wide screens", "wide", { hint: "A preset adds Greeks or OI columns while there is room" }) : null,
@@ -2490,8 +2496,8 @@ async function renderDesk(kind) {
         { class: "keys-table" },
         h("tbody", {}, CHAIN_KEYS.map(([keys, , long]) => h("tr", {}, h("th", { scope: "row" }, keys.map((k) => h("kbd", {}, k))), h("td", {}, long)))),
       ),
-      buttons: [{ label: "Close", value: true }],
-    });
+      buttons: [{ label: "How to read the chain", value: "help" }, { label: "Close", value: true }],
+    }).then((v) => v === "help" && openChainHelp());
   }
 
   // ── Keyboard ──
@@ -3011,10 +3017,11 @@ export const CHAIN_DEFAULTS = Object.freeze({
   contracts: "all",
   // Customise → Market line: the divider row's price (spot or the future) and the figures it carries.
   priceLine: "spot",
-  line: { straddle: true, em: true, iv: true, range: true, pcr: false, mp: false, walls: false },
+  line: { straddle: true, em: true, iv: false, range: false, pcr: false, mp: false, walls: false },
   // Customise → Display: every Greek for now (added to the chosen columns), LTP kept next to the strike.
   greeks: false,
   pinLtp: false,
+  insight: true,
 });
 /** The market line's chips, in the order they show: [key, Customise label]. */
 export const LINE_CHIPS = Object.freeze([["straddle", "ATM straddle"], ["em", "Expected move"], ["iv", "ATM implied volatility"], ["range", "Day low & day high"], ["pcr", "Put/call ratio (PCR)"], ["mp", "Max pain"], ["walls", "Put wall / Call wall"]]);
@@ -3047,6 +3054,7 @@ export function chainConfig(saved) {
     line: Object.fromEntries(LINE_CHIPS.map(([k]) => [k, bool(c.line?.[k], d.line[k])])),
     greeks: bool(c.greeks, d.greeks),
     pinLtp: bool(c.pinLtp, d.pinLtp),
+    insight: bool(c.insight, d.insight),
   };
   out.preset = presetOf(out.cols);
   // Bid and ask are what an arbitrage is read from: the Arb preset always shows them.

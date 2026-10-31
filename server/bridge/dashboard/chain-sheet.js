@@ -152,6 +152,9 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
     const { q, row, x } = d;
     const right = s === "ce" ? "CE" : "PE";
     if (sideSeg.value !== s) sideSeg.value = s;
+    // The insight card (chain-insight.js) reads which contract a tapped figure belongs to.
+    dlg.dataset.strike = String(strike);
+    dlg.dataset.side = s;
     const name = d.name ?? `${formatInt(strike)} ${right}`;
     if (title.textContent !== name) title.textContent = name;
     const sym = q?.symbol ?? null;
