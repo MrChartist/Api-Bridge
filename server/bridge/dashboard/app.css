@@ -10503,6 +10503,174 @@ a.pm-n-title:hover { text-decoration: underline; }
 .trg-near { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font: 600 12px/1.4 var(--font-numeric); font-variant-numeric: tabular-nums; }
 .trg-near.near { color: hsl(var(--ios-orange-ink)); background: hsl(var(--ios-orange) / 0.14); }
 .trg-near.close { color: hsl(var(--ios-red-ink)); background: hsl(var(--ios-red) / 0.14); }
+/* ───────────────────────── 12z · BRIDGE PAGES (views.js Accounts and API tabs; bridge-core.js) ─────────────────────────
+   Settings-style: inset groups of rows (.list from 5 · LISTS) with a small heading and a footnote, status as capsules,
+   "Needs attention" at the top in orange (about to stop) or red (stopped). Integrations are tiles (tabs), Activity a
+   timeline under time headings, Rate limits the API budget's rings. Tokens only; no edge stripes; hairlines inset. */
+.bx-group { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.bx-group-head { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 6px; }
+.bx-group-title { flex: 1; min-width: 0; font: 600 13px/1.3 var(--font-body); letter-spacing: 0; color: hsl(var(--foreground) / var(--a-label)); }
+.bx-group-acts { display: flex; align-items: center; gap: 8px; }
+.bx-list { display: flex; flex-direction: column; }
+.bx-list > .empty { margin: 0; }
+.bx-foot { margin: 0; padding: 0 6px; font: 400 12.5px/1.45 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); overflow-wrap: anywhere; }
+.bx-foot code { font: 400 12.5px/1.4 var(--font-mono); }
+.bx-row { align-items: flex-start; gap: 14px; padding: 14px 16px; }
+.bx-list > .bx-row + .bx-row::before { left: 70px; }
+.bx-row > :is(.avatar, .icon-tile) { width: 40px; height: 40px; border-radius: 11px; }
+.bx-row > .icon-tile svg { width: 20px; height: 20px; }
+.bx-row .names { gap: 3px; }
+.bx-row .nm { font: 600 15px/1.3 var(--font-body); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.bx-row .sub { font-size: 13px; line-height: 1.4; white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+.bx-meta { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; min-width: 0; }
+.bx-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.bx-line { font: 400 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); overflow-wrap: anywhere; }
+.bx-line .mono { font-family: var(--font-mono); }
+.bx-holder { font: 500 12.5px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.bx-trail { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: none; align-self: center; }
+button.icon-btn.bx-more { width: 34px; height: 34px; }
+button.icon-btn.bx-more svg { width: 18px; height: 18px; fill: currentColor; stroke: currentColor; }
+.bx-row.attn-bad { background: hsl(var(--ios-red) / 0.05); }
+.bx-row.attn-warn { background: hsl(var(--ios-orange) / 0.06); }
+.bx-row .acct-today { margin-top: 0; }
+/* A phone or a narrow column: the actions go under the text, left-aligned. */
+@media (max-width: 719px) {
+  .bx-row { flex-wrap: wrap; }
+  .bx-row > .names { flex-basis: calc(100% - 54px); }
+  .bx-trail { width: 100%; justify-content: flex-start; padding-left: 54px; }
+}
+
+/* Status dots: green working, orange about to stop, red stopped; an order's dot is its side (buy green, sell red). */
+.bx-dot { width: 10px; height: 10px; flex: none; margin-top: 5px; border-radius: 99px; background: hsl(var(--foreground) / 0.28); }
+.bx-dot.ok { background: hsl(var(--ios-green)); }
+.bx-dot.warn { background: hsl(var(--ios-orange)); }
+.bx-dot.bad { background: hsl(var(--ios-red)); }
+.bx-dot.buy { background: hsl(var(--pos)); }
+.bx-dot.sell { background: hsl(var(--neg)); }
+.bx-dot.k-keys { background: hsl(var(--ios-blue)); }
+.bx-dot.k-accounts { background: hsl(var(--ios-indigo)); }
+.bx-dot.k-safety { background: hsl(var(--ios-purple)); }
+.bx-dot.k-orders { background: hsl(var(--ios-teal)); }
+
+/* Needs attention: a tinted panel with its own rows, at the top of the page. */
+.bx-attn { --t: var(--ios-orange); display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--r-panel); background: hsl(var(--t) / 0.08); box-shadow: inset 0 0 0 var(--hl) hsl(var(--t) / 0.28); }
+.bx-attn.bad { --t: var(--ios-red); }
+.bx-attn-head { display: flex; align-items: center; gap: 10px; padding: 0 2px; }
+.bx-attn-head h2 { font: 600 15px/1.3 var(--font-display); letter-spacing: -0.01em; }
+.bx-attn .bx-row { padding: 12px 14px; }
+.bx-attn .bx-list > .bx-row + .bx-row::before { left: 38px; }
+.bx-attn .bx-row .nm { font-size: 14px; }
+
+/* Accounts: the summary capsules and actions, then the groups; "How logging in works" beside them on wide screens. */
+.bx-pagebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.bx-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.bx-summary-note { flex: 1 1 260px; text-align: right; font: 400 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.bx-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--panel-gap); align-items: start; min-width: 0; }
+.bx-main, .bx-side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+@media (min-width: 1280px) { .bx-cols { grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); } .bx-side { position: sticky; top: calc(var(--toolbar-h, 56px) + 12px); } }
+.bx-steps { list-style: none; margin: 0; padding: 4px 16px; display: flex; flex-direction: column; }
+.bx-step { display: flex; align-items: flex-start; gap: 12px; padding: 11px 0; font: 400 13.5px/1.45 var(--font-body); }
+.bx-step + .bx-step { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+.bx-step-n { flex: none; width: 24px; height: 24px; display: inline-grid; place-items: center; border-radius: 99px; font: 600 12px/1 var(--font-numeric); color: hsl(var(--ios-blue-ink)); background: hsl(var(--ios-blue) / 0.14); }
+
+/* Keys: create beside the list from 1280 px; revoked keys folded away. */
+@media (min-width: 1280px) { .keys-split { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); } }
+.bx-keys { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.bx-key-name { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.bx-key.gone { opacity: 0.62; }
+.bx-revoked > summary { padding: 0 6px; }
+.bx-revoked > .bx-list { margin-top: 4px; }
+
+/* Integrations: one tile per tool (a tab), then the tool's panel. */
+.bx-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(210px, 100%), 1fr)); gap: 10px; }
+button.bx-tile {
+  height: auto; min-height: 64px; padding: 12px 14px; gap: 12px; justify-content: flex-start; text-align: left; white-space: normal;
+  border-radius: 16px; background: var(--mat-grouped-solid); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); color: hsl(var(--foreground));
+}
+@media (hover: hover) and (pointer: fine) { button.bx-tile[aria-selected="false"]:hover { background: var(--mat-fill-1); } }
+.bx-tile-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bx-tile-t strong { font: 600 14px/1.25 var(--font-body); }
+.bx-tile-t span { font: 400 12.5px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.bx-tile[aria-selected="true"] .bx-tile-t span { color: inherit; opacity: 0.78; }
+.bx-integ { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.bx-integ-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px; }
+.bx-integ-head h2 { font: 600 20px/1.2 var(--font-display); letter-spacing: -0.016em; }
+.bx-integ-head p { margin-top: 4px; max-width: 72ch; font: 400 13.5px/1.5 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.bx-integ-head > .grow { flex: 1 1 320px; }
+.bx-guide { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; font: 500 13px/1 var(--font-body); }
+.bx-guide svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; }
+.bx-integ :is(.bx-integ-steps, .bx-integ-code) > h3 { margin-bottom: 8px; font: 600 13px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.bx-integ-steps > .bx-steps { border-radius: 14px; background: var(--mat-fill-1); }
+.bx-integ-steps > .bx-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.bx-integ .integ-hook-form { padding-top: 16px; box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+.bx-integ .integ-hooks .table-wrap { border-radius: 14px; }
+
+/* Test console: the method and path as one line under the endpoint; curl folded away. */
+.bx-route { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 12px; border-radius: 12px; background: var(--mat-fill-1); }
+.bx-route-path { min-width: 0; font: 400 12.5px/1.4 var(--font-mono); overflow-wrap: anywhere; }
+.bx-console-fields { grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 1fr)); }
+.bx-curl .code-block { margin-top: 4px; }
+
+/* Rate limits: rings and today's totals, the live chart, then each class as a bar against its fullest limit. */
+.bx-limits.drawn :is(.bud-ring-fill, .bud-bar i, .bud-split i) { animation: none; }
+.bx-budget-body { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.bx-budget-top { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+@media (min-width: 1024px) { .bx-budget-top { grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); align-items: stretch; } }
+.bx-budget-today { display: flex; flex-direction: column; justify-content: center; padding: 4px 16px; border-radius: 16px; background: var(--mat-fill-1); }
+.bx-budget-today > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 12px 0; }
+.bx-budget-today > div + div { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+.bx-budget-today span { font: 400 13px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.bx-budget-today strong { font: 600 20px/1 var(--font-numeric); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.bx-budget-today .warn strong { color: hsl(var(--ios-orange-ink)); }
+.bx-chart-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 8px; }
+:is(.bx-chart-head, .bx-classes) h3 { font: 600 13px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.bx-classes > h3 { margin-bottom: 4px; }
+.bx-cls { display: grid; grid-template-columns: 96px minmax(0, 1fr) minmax(130px, auto) minmax(110px, auto); align-items: center; gap: 12px; padding: 9px 0; }
+.bx-cls + .bx-cls { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+.bx-cls strong { font: 500 13.5px/1.2 var(--font-body); }
+.bx-cls .bud-num { font-size: 12.5px; text-align: right; }
+.bx-cls-today { font: 400 12.5px/1.2 var(--font-body); text-align: right; color: hsl(var(--foreground) / var(--a-quiet)); }
+@media (max-width: 719px) {
+  .bx-cls { grid-template-columns: 80px minmax(0, 1fr); row-gap: 4px; }
+  .bx-cls .bud-num, .bx-cls-today { grid-column: 2; text-align: left; }
+}
+.bx-saved-legend { grid-template-columns: repeat(auto-fill, minmax(min(160px, 100%), 1fr)); }
+.bx-policies { display: flex; flex-direction: column; gap: var(--panel-gap); }
+.bx-policies > summary { padding: 0 6px; }
+
+/* Activity: filters, a summary in capsules and a timeline under time headings. */
+.bx-act { display: flex; flex-direction: column; gap: 12px; padding: 14px var(--card-pad) var(--card-pad); min-width: 0; }
+.bx-act-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; }
+input.bx-act-search { width: 240px; max-width: 100%; }
+.bx-tl-group + .bx-tl-group { margin-top: 16px; }
+.bx-tl-when { display: flex; align-items: center; gap: 8px; padding: 0 4px 6px; font: 600 12.5px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.bx-tl-when span { font: 500 12px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
+.bx-tl-list { list-style: none; margin: 0; padding: 2px 0; border-radius: 14px; background: var(--mat-fill-1); }
+.bx-tl-row { display: grid; align-items: center; gap: 12px; padding: 8px 14px; min-width: 0; font-size: 13px; }
+.bx-tl-row + .bx-tl-row { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+.bx-tl-row .bx-dot { margin-top: 0; }
+.bx-req { grid-template-columns: 10px 64px 64px minmax(0, 1fr) auto 64px minmax(80px, 110px); }
+.bx-audit { grid-template-columns: 10px 64px minmax(0, 1fr) auto 48px; align-items: start; }
+.bx-audit .bx-dot { margin-top: 4px; }
+.bx-tl-t { font: 400 12.5px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-quiet)); }
+.bx-tl-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12.5px/1.3 var(--font-mono); }
+.bx-tl-ms { text-align: right; font: 400 12.5px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-label)); }
+.bx-tl-ms.slow { color: hsl(var(--ios-orange-ink)); font-weight: 600; }
+.bx-tl-key { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/1.2 var(--font-mono); color: hsl(var(--foreground) / var(--a-quiet)); }
+.bx-tl-key.muted { font-family: var(--font-body); }
+.bx-tl-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bx-tl-main strong { font: 500 13.5px/1.3 var(--font-body); }
+.bx-tl-detail { font: 400 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); overflow-wrap: anywhere; }
+.bx-tl-by { font: 400 12.5px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; }
+.bx-tl-seq { text-align: right; font: 400 12px/1.3 var(--font-mono); color: hsl(var(--foreground) / var(--a-quiet)); }
+.bx-act-more { padding-top: 4px; }
+@media (max-width: 719px) {
+  .bx-req { grid-template-columns: 10px 52px minmax(0, 1fr) auto; }
+  .bx-req :is(.bx-tl-t, .bx-tl-ms, .bx-tl-key) { display: none; }
+  .bx-audit { grid-template-columns: 10px 56px minmax(0, 1fr); }
+  .bx-audit :is(.bx-tl-by, .bx-tl-seq) { display: none; }
+  .bx-summary-note { text-align: left; }
+}
 
 /* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────
    Inline-SVG charts: every colour is a theme token (so light and dark both work), every size is an SVG attribute

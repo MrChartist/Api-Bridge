@@ -19,6 +19,7 @@ import {
   formFrom,
   gapRange,
   gapReason,
+  recorderAttention,
   stackCoverage,
   statePill,
   stocksFromSearch,
@@ -223,5 +224,32 @@ describe("copy", () => {
     expect(FOOTER).toBe("Recorded on this computer from your own broker account, for your personal use. Nothing is uploaded.");
     expect(DEMO_FOOTER).toBe("Demo recordings are sample data and are kept for 3 days in a separate folder.");
     expect(src).toContain("FOOTER, demo ? ` ${DEMO_FOOTER}`");
+  });
+});
+
+describe("needs attention", () => {
+  it("is empty while recording with room to spare", () => {
+    expect(recorderAttention({ state: "recording", account: { id: "dhan", session: "connected" }, disk: { bytes: 10, maxBytes: 100 }, budget: { restCapPerMinute: 10, restCallsLastMinute: 2 } })).toEqual([]);
+    expect(recorderAttention(null)).toEqual([]);
+  });
+  it("puts what stopped first, then what is about to, then the Bridge's warnings", () => {
+    const items = recorderAttention(
+      { state: "degraded", account: { id: "dhan", session: "expired" }, disk: { bytes: 80, maxBytes: 100 }, budget: { restCapPerMinute: 10, restCallsLastMinute: 10 }, holidaySuspected: true },
+      { extra: ["Feed reconnecting"] },
+    );
+    expect(items.map((x) => [x.tone, x.title])).toEqual([
+      ["bad", "dhan is not logged in"],
+      ["warn", "Recording with gaps"],
+      ["warn", "Recordings use 80% of their disk allowance"],
+      ["warn", "The recorder is using its whole REST share"],
+      ["warn", "Feed reconnecting"],
+      ["warn", "Today looks like an unlisted holiday"],
+    ]);
+    expect(items[0].action).toEqual({ label: "Accounts", href: "#/accounts" });
+  });
+  it("says a full disk once, and an error in the recorder's own words", () => {
+    expect(recorderAttention({ state: "disk-full", disk: { bytes: 100, maxBytes: 100 } }).map((x) => x.tone)).toEqual(["bad"]);
+    expect(recorderAttention({ state: "error", stateDetail: "Write failed" })[0]).toMatchObject({ tone: "bad", detail: "Write failed" });
+    expect(recorderAttention({ state: "recording", disk: { bytes: 95, maxBytes: 100 } })[0].tone).toBe("bad");
   });
 });
