@@ -437,6 +437,8 @@ showed the earlier read's +₹53. Realised (−₹96) matched everywhere. Risk s
 | 46 | Statement .xlsx | Cells carried float tails (STT 48.751163424999994). | Money to the paisa (`statementSheets`). |
 | 47 | Watchlists | A refused price refresh showed "Loading prices": `draw()` overwrote the error. | "Prices unavailable: …", with the last update time when there was one. |
 
+Checks: `npm run -s check:mjs` (931 files OK); full vitest: 355 files, 5527 passed, 17 skipped, none failed.
+
 ### Left (not fixed here)
 
 - **Event vol:** the event date is still the browser's own date field.
