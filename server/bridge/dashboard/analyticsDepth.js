@@ -83,6 +83,14 @@ export function rrWords(rr) {
 }
 
 /**
+ * The chosen event day in the app's format ("4 Nov"), shown under the native date picker (which writes the browser's
+ * locale, "11/04/2026" in en-US). "" when no day is picked.
+ */
+export function eventDateText(isoDay) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(isoDay ?? "")) ? `Event on ${formatDayMonth(isoDay)}` : "";
+}
+
+/**
  * The first event date worth asking about (pure): the weekday after the nearest expiry that has a later one, so the
  * route has an expiry on each side. Null when fewer than two expiries are listed.
  * @param {string[]} expiries  YYYY-MM-DD, any order
@@ -337,6 +345,7 @@ async function renderEventVol(H) {
   const today = new Date(Date.now() + 19_800_000).toISOString().slice(0, 10);
   const upcoming = expiries.filter((e) => e >= today);
   const dateEl = h("input", { id: nextId("an-ev"), type: "date", min: today, value: defaultEventDate(upcoming) ?? "" });
+  const dateText = h("span", { class: "an-ev-day" }, eventDateText(dateEl.value));
   const baseEl = h("input", { id: nextId("an-ev"), type: "number", inputmode: "decimal", min: "1", max: "300", step: "0.05", placeholder: "Pre-event ATM IV", value: calm === null ? "" : formatInput(calm, 2) });
   const result = h("div", { class: "stack", "aria-live": "polite" });
   const tileBox = h("div", { class: "an-contents" });
@@ -416,7 +425,8 @@ async function renderEventVol(H) {
       table(cols, list, emptyState("list", "No windows", "Two expiries at least 3 days out are needed.")),
     );
   };
-  dateEl.addEventListener("change", load);
+  dateEl.addEventListener("input", () => (dateText.textContent = eventDateText(dateEl.value)));
+  dateEl.addEventListener("change", () => ((dateText.textContent = eventDateText(dateEl.value)), load()));
   baseEl.addEventListener("change", () => (drawWindows(), load()));
   drawWindows();
   await load();
@@ -458,7 +468,7 @@ async function renderEventVol(H) {
   return [
     term?.data ? statusRow(term.meta?.freshness) : null,
     tileBox,
-    card({ title: "Event", sub: "The date and the vol to assume without it", body: h("div", { class: "stack" }, h("div", { class: "form-grid" }, H.field("Event date", dateEl), H.field("Baseline vol %", baseEl, calm === null ? "Empty: the pre-event ATM IV" : "Set to the calmest forward vol")), result, windowsBox) }),
+    card({ title: "Event", sub: "The date and the vol to assume without it", body: h("div", { class: "stack" }, h("div", { class: "form-grid" }, H.field("Event date", dateEl, dateText), H.field("Baseline vol %", baseEl, calm === null ? "Empty: the pre-event ATM IV" : "Set to the calmest forward vol")), result, windowsBox) }),
     card({
       title: "Term structure",
       sub: vrp ? `ATM IV ${formatPercent(vrp.atmIvPct, 1)} against ${formatInt(vrp.hvTenorDays)}-day realised ${formatPercent(vrp.hvPct, 1)}: ${formatSigned(vrp.spreadPts, 2)} pts` : "ATM IV by expiry and the forward vol between them",

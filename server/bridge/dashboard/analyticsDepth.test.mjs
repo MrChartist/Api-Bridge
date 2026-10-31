@@ -2,7 +2,7 @@
 // and the house rules for page code (no inline styles, figures through format.js).
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DEPTH_EXPIRIES, RR_DELTAS, calmestForwardVol, defaultEventDate, eventWindows, forwardRows, rrBfTerm, rrWords, varianceParts } from "./analyticsDepth.js";
+import { DEPTH_EXPIRIES, RR_DELTAS, calmestForwardVol, defaultEventDate, eventDateText, eventWindows, forwardRows, rrBfTerm, rrWords, varianceParts } from "./analyticsDepth.js";
 import { VIEWS } from "./analytics.js";
 import { PAGES, resolveRoute } from "./views.js";
 import { eventMove } from "../analytics/derivDepth.mjs";
@@ -64,6 +64,16 @@ describe("risk reversal and butterfly term structure", () => {
 });
 
 describe("event vol", () => {
+  it("names the picked day as \"4 Nov\", not in the picker's en-US form", () => {
+    expect(eventDateText("2026-11-04")).toBe("Event on 4 Nov");
+    expect(eventDateText("2027-01-26")).toBe("Event on 26 Jan");
+    expect(eventDateText("")).toBe("");
+    expect(eventDateText(null)).toBe("");
+    const src = readFileSync(new URL("./analyticsDepth.js", import.meta.url), "utf8");
+    expect(src).toContain('H.field("Event date", dateEl, dateText)');
+    expect(src).toMatch(/dateEl\.addEventListener\("change", \(\) => \(\(dateText\.textContent = eventDateText\(dateEl\.value\)\), load\(\)\)\);/);
+  });
+
   it("defaults the event to the weekday after the nearest expiry, so an expiry sits on each side", () => {
     expect(defaultEventDate(["2026-11-09", "2026-11-03", "2026-11-17"])).toBe("2026-11-04");
     // A Friday expiry: the next weekday is Monday.
