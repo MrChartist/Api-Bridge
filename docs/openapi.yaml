@@ -9380,6 +9380,12 @@ components:
         gamma: { type: [number, "null"] }
         theta: { type: [number, "null"] }
         vega: { type: [number, "null"] }
+        bidQty: { type: number, description: "Quantity at the best bid, when the broker sends it." }
+        askQty: { type: number, description: "Quantity at the best ask, when the broker sends it." }
+        high: { type: number, description: "Today's high, when the broker sends it." }
+        low: { type: number, description: "Today's low, when the broker sends it." }
+        avgPrice: { type: number, description: "Average traded price today, when the broker sends it." }
+        prevVolume: { type: number, description: "The previous session's volume, when the broker sends it." }
         greeksSource: { type: [string, "null"], enum: [broker, computed, null] }
         oiChangeBasis:
           type: [string, "null"]

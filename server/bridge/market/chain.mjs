@@ -151,6 +151,8 @@ export function rowsFromQuotes(legs, quotes, p) {
     byStrike.set(leg.strike, row);
     if (!q) continue;
     const fields = { ltp: q.ltp ?? null, bid: q.bid ?? null, ask: q.ask ?? null, oi: q.oi ?? null, oiChange: null, volume: q.volume ?? null, iv: null, close: q.close ?? null, change: q.change ?? null, delta: null, gamma: null, theta: null, vega: null };
+    // Sizes at the touch and the day's range when the quote has them (the chain's optional extras).
+    for (const k of ["bidQty", "askQty", "high", "low"]) if (q[k] !== null && q[k] !== undefined) fields[k] = q[k];
     row[leg.right.toLowerCase()] = finishLeg(fields, { ...p, symbol: leg.canonical, declared: null, strike: leg.strike, right: leg.right });
   }
   const rows = [...byStrike.values()].sort((a, b) => a.strike - b.strike);

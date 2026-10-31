@@ -910,7 +910,7 @@ export function createDemoAdapter({ now = () => Date.now(), tickMs = 1000 } = {}
           const q = quoteOf(`DM-${u.symbol}-${expiry}-${k}-${r}`, u.deriv, t);
           // "Prev close" OI is the same function at the previous close, so recorded windows and the chain agree.
           const prevOi = openInterestAt(u.symbol, k, r, expiry, pc);
-          return { last_price: q.ltp, oi: q.oi, previous_oi: prevOi, oi_chg: q.oi - prevOi, volume: q.volume, top_bid_price: q.bid, top_ask_price: q.ask, top_bid_quantity: q.bidQty, top_ask_quantity: q.askQty, previous_close_price: q.close, security_id: `DM-${u.symbol}-${expiry}-${k}-${r}` };
+          return { last_price: q.ltp, oi: q.oi, previous_oi: prevOi, oi_chg: q.oi - prevOi, volume: q.volume, top_bid_price: q.bid, top_ask_price: q.ask, top_bid_quantity: q.bidQty, top_ask_quantity: q.askQty, high: q.high, low: q.low, previous_close_price: q.close, security_id: `DM-${u.symbol}-${expiry}-${k}-${r}` };
         };
         oc[k.toFixed(6)] = { ce: leg("CE"), pe: leg("PE") };
       }

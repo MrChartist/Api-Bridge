@@ -136,6 +136,9 @@ describe("normalise", () => {
     expect(chainLegFields({ last_price: 12.5, previous_close_price: 10 })).toMatchObject({ ltp: 12.5, close: 10, change: 2.5 });
     expect(chainLegFields({ ltp: 0, iv: 0 })).toMatchObject({ ltp: null, iv: null, oiChange: null, delta: null });
     expect(chainLegFields(undefined)).toBeNull();
+    // Optional extras only when sent (sizes at the touch, day range, average price, previous volume).
+    expect(chainLegFields({ last_price: 10, top_bid_quantity: 750, top_ask_quantity: 1500, high: 12, low: 9, average_price: 10.4, previous_volume: 90000 })).toMatchObject({ bidQty: 750, askQty: 1500, high: 12, low: 9, avgPrice: 10.4, prevVolume: 90000 });
+    expect(Object.keys(chainLegFields({ last_price: 10 }))).not.toContain("bidQty");
   });
 });
 
