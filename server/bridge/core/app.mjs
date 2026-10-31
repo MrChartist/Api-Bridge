@@ -145,6 +145,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "chain-help.js": "text/javascript; charset=utf-8",
   "oi.js": "text/javascript; charset=utf-8",
   "positions.js": "text/javascript; charset=utf-8",
+  "positions-core.js": "text/javascript; charset=utf-8",
   "book-core.js": "text/javascript; charset=utf-8",
   "book-view.js": "text/javascript; charset=utf-8",
   "vol.js": "text/javascript; charset=utf-8",
