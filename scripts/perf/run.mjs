@@ -73,9 +73,14 @@ export const PAGES = [
   ["risk", "#/risk/var"],
   ["lab", "#/lab/finder"],
   ["watchlists", "#/screeners/watchlists"],
+  // Pages and tabs added by 31 October (perf round 5).
+  ["algo", "#/algo"],
+  ["volfwd", "#/vol/forward"],
+  ["volrrbf", "#/vol/rrbf"],
+  ["volevent", "#/vol/event"],
 ];
 /** Pages that stay open for the --soak run (JS heap over --soak minutes); "cycle" walks every page in turn. */
-const SOAK_PAGES = ["chain", "oi", "strategy", "positions", "orders", "watchlists", "exposure", "flow", "cycle"];
+const SOAK_PAGES = ["chain", "oi", "strategy", "positions", "orders", "watchlists", "exposure", "flow", "algo", "cycle"];
 
 function loadPlaywright() {
   try {
