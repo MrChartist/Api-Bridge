@@ -1675,7 +1675,8 @@ async function renderDesk(kind) {
       const fix = whatToDo({ code: err?.code, message: err?.message ?? err?.detail, mode: live() ? "live" : "paper" });
       return [alertBox(err), ...(fix ? [h("p", { class: "bk-fix" }, h("strong", {}, "What to do: "), fix)] : [])];
     };
-    // Market depth (GET /v1/depth): read every 2 s only while it is open, so a closed panel costs no broker calls.
+    // Market depth (GET /v1/depth): read every 2 s only while it is open and the tab is in view, so a closed panel or a
+    // hidden tab costs no broker calls.
     // Five levels a side; twenty where the source sends them. A tap on a price makes it the limit.
     const depthSum = h("span", { class: "muted small bk-depth-sum" });
     const depthBody = h("div", { class: "bk-depth-body" });
@@ -1746,7 +1747,7 @@ async function renderDesk(kind) {
       depthTimer = null;
       if (depthBox.open) {
         loadDepth();
-        depthTimer = setInterval(() => (depthBox.isConnected && depthBox.open ? loadDepth() : clearInterval(depthTimer)), 2000);
+        depthTimer = setInterval(() => (depthBox.isConnected && depthBox.open ? document.hidden || loadDepth() : clearInterval(depthTimer)), 2000);
       }
     });
     // Advisory warnings from the chain (spread, liquidity, freeze qty, expiry day...): the server checks still decide.

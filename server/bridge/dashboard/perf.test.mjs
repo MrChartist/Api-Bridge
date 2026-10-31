@@ -153,6 +153,13 @@ describe("live paths stay cheap", () => {
     expect(motion.slice(motion.indexOf("export function pulse"), motion.indexOf("export function pulse") + 600)).not.toMatch(/animate\(/);
   });
 
+  it("reads the ticket's market depth only while its panel is open and the tab is in view", () => {
+    const desk = read("desk.js");
+    expect(desk).toContain("depthTimer = setInterval(() => (depthBox.isConnected && depthBox.open ? document.hidden || loadDepth() : clearInterval(depthTimer)), 2000);");
+    expect(desk).toMatch(/depthBox\.addEventListener\("toggle", \(\) => \{\s+clearInterval\(depthTimer\);/);
+    expect(desk.match(/\/v1\/depth\?/g)).toHaveLength(1);
+  });
+
   it("opens one WebSocket per tab: pages use live.js", () => {
     for (const f of Object.keys(DASHBOARD_FILES).filter((n) => n.endsWith(".js") && n !== "live.js" && !n.startsWith("motion"))) {
       expect(read(f), f).not.toMatch(/new WebSocket\(/);
