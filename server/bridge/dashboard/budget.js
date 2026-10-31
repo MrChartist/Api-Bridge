@@ -133,8 +133,8 @@ export function headroomText(v) {
  */
 export const heroTone = (v) => (v.backoff ? "bad" : v.minute ? shareTone(v.minute.used, v.minute.limit) : v.tone);
 
-/** The ring gauge for one window: used / limit, the ring filled to the share and coloured by tone. */
-function ring(label, w) {
+/** The ring gauge for one window: used / limit, the ring filled to the share and coloured by tone (also API › Rate limits). */
+export function ring(label, w) {
   const R = 26;
   const C = 2 * Math.PI * R;
   const share = w && w.limit > 0 ? Math.min(1, w.used / w.limit) : 0;

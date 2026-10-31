@@ -7,7 +7,7 @@
 // Data: GET /v1/options/recorder every 10 s while the tab is visible (the feasibility rows once), POST
 // /v1/options/recorder/plan 400 ms after a settings edit, PUT /v1/options/recorder/config on Save.
 //
-// Pure view-model helpers (statePill, tilesModel, coverageRows, budgetModel, diskModel, verdictView, formBody,
+// Pure view-model helpers (statePill, tilesModel, coverageRows, budgetModel, diskModel, recorderAttention, verdictView, formBody,
 // fitToCarry, stocksFromSearch, gapRange, stackCoverage) are exported for recorder.test.mjs; DOM code runs only in a
 // browser. Numbers become text through format.js only. Copy describes facts and never advises (copyRules.mjs).
 import { alertBox, api, app, emptyState, h, icon, istTime, meterRow, modal, mountToolbarCtx, optional, pill, sheetPopover, toast } from "./app.js";
@@ -230,6 +230,35 @@ export function diskModel(st) {
       ["Free on this disk", bytesText(d.freeBytes)],
     ],
   };
+}
+
+/**
+ * What needs attention on the recorder (pure), most urgent first: [{ tone: "bad" | "warn", title, detail, action? }].
+ * Stopped (disk full, an error), nothing set up, gaps, the feeding account logged out, the disk or the REST share
+ * nearly used, then the Bridge's own warnings (`extra`, plain strings) and a suspected holiday.
+ * @param {object} st  GET /v1/options/recorder
+ * @param {{ extra?: string[] }} [o]
+ */
+export function recorderAttention(st, { extra = [] } = {}) {
+  const out = [];
+  const state = st?.state;
+  if (state === "disk-full") out.push({ tone: "bad", title: "The disk is full, so recording has stopped", detail: "Free some space on this disk, or keep fewer days in the settings below." });
+  else if (state === "error") out.push({ tone: "bad", title: "The recorder stopped with an error", detail: st?.stateDetail || "The Bridge's log has the reason." });
+  else if (state === "not-configured") out.push({ tone: "warn", title: "Nothing is set up to record", detail: st?.stateDetail || "Choose the indices and the account in the settings below." });
+  else if (state === "degraded") out.push({ tone: "warn", title: "Recording with gaps", detail: st?.stateDetail || "Some chains are missing minutes; the coverage table shows which." });
+  const acc = st?.account;
+  if (acc?.id && ["expired", "missing", "error"].includes(acc.session)) {
+    out.push({ tone: acc.session === "missing" ? "warn" : "bad", title: `${acc.id} is not logged in`, detail: "The recorder reads chains through this account. Log in again and recording carries on with the next minute.", action: { label: "Accounts", href: "#/accounts" } });
+  }
+  const d = st?.disk ?? {};
+  const share = num(d.maxBytes) > 0 ? (num(d.bytes) ?? 0) / num(d.maxBytes) : null;
+  if (state !== "disk-full" && share !== null && share >= 0.75) out.push({ tone: share >= 0.9 ? "bad" : "warn", title: `Recordings use ${pct(share)} of their disk allowance`, detail: `${bytesText(d.bytes)} of ${bytesText(d.maxBytes)}. The oldest days are dropped once it is full.` });
+  const b = st?.budget ?? {};
+  if (num(b.restCapPerMinute) > 0 && (num(b.restCallsLastMinute) ?? 0) / num(b.restCapPerMinute) >= 0.9) out.push({ tone: "warn", title: "The recorder is using its whole REST share", detail: "New chains wait for the next minute. Your own requests still go first." });
+  for (const w of extra) if (w) out.push({ tone: "warn", title: String(w), detail: "" });
+  if (st?.holidaySuspected) out.push({ tone: "warn", title: "Today looks like an unlisted holiday", detail: "The first minutes had no change and no volume. Today's records are kept but left out of reads unless asked for." });
+  const rank = { bad: 0, warn: 1 };
+  return out.map((x, i) => ({ x, i })).sort((p, q) => rank[p.x.tone] - rank[q.x.tone] || p.i - q.i).map((p) => p.x);
 }
 
 /** The plan verdict above Save: { text, tone: "ok" | "warn" | "busy" | "bad" }. */
@@ -729,6 +758,30 @@ function feasibilityEl(rows, broker) {
   );
 }
 
+/** "Needs attention" as on the Bridge pages (app.css 12z .bx-attn): one row per item, red stopped, orange about to. */
+function attentionEl(items) {
+  if (!items.length) return null;
+  const bad = items.some((x) => x.tone === "bad");
+  return h(
+    "section",
+    { class: `bx-attn ${bad ? "bad" : "warn"}`, "aria-label": "Needs attention" },
+    h("div", { class: "bx-attn-head" }, h("span", { class: `icon-tile tint-${bad ? "red" : "orange"} tile-sm`, "aria-hidden": "true" }, icon("warn")), h("h2", {}, items.length === 1 ? "One thing needs attention" : `${formatInt(items.length)} things need attention`)),
+    h(
+      "div",
+      { class: "list bx-list" },
+      items.map((x) =>
+        h(
+          "div",
+          { class: "list-row bx-row" },
+          h("span", { class: `bx-dot ${x.tone}`, "aria-hidden": "true" }),
+          h("div", { class: "names" }, h("span", { class: "nm" }, x.title), x.detail ? h("span", { class: "sub" }, x.detail) : null),
+          x.action ? h("div", { class: "bx-trail" }, h("a", { class: "btn small", href: x.action.href }, x.action.label)) : null,
+        ),
+      ),
+    ),
+  );
+}
+
 export async function renderRecorderPage() {
   const demo = Boolean(app.state.demo);
   const [first, accountsRes] = await Promise.all([api("/v1/options/recorder?feasibility=true"), optional(api("/v1/accounts"))]);
@@ -764,7 +817,7 @@ export async function renderRecorderPage() {
     const st = tilesModel(status).find((t) => t.key === "state");
     ctxSub.textContent = [st?.value, status.account?.id].filter(Boolean).join(" · ");
     const warns = (status.warnings ?? []).filter((w) => !(demo && /^Demo clock/.test(w)));
-    fill(warnEl, warns.map((w) => alertBox({ title: w }, "warn")), status.holidaySuspected ? alertBox({ title: "Today looks like an unlisted holiday", detail: "The first minutes had no change and no volume. Today's records are kept but left out of reads unless asked for." }, "warn") : null);
+    fill(warnEl, attentionEl(recorderAttention(status, { extra: warns })));
     const rows = coverageRows(status);
     const ses = status.session ?? {};
     covSub.textContent = [

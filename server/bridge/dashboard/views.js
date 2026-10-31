@@ -21,7 +21,6 @@ import {
   istTime,
   loginBody,
   loginFormSpec,
-  meterRow,
   modal,
   optional,
   pill,
@@ -41,7 +40,8 @@ import {
 import { STATE_TEXT, STATE_TONE, homeSafetyLine, readinessCard, readinessPill, refreshReadiness } from "./readiness.js";
 import { DASH, formatFixed, formatGrouped, formatInt, formatRupee, formatRupeeGrouped, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
-import { busiestClass, mountBudget, perSecondLimit, usageChart, windowText } from "./budget.js";
+import { busiestClass, headroomText, mountBudget, perSecondLimit, ring as budgetRing, savedParts, usageChart, windowText } from "./budget.js";
+import { ACTIVITY_FILTERS, AUDIT_FILTERS, INTEGRATION_INFO, SLOW_MS, accountCounts, accountGroups, accountStatus, accountUsage, actorText, attentionItems, auditEntry, classRows, filterRequests, keyStatus, lastUsedText, requestSummary, sessionLine, sortKeys, statusText, timeBuckets, windowWord } from "./bridge-core.js";
 import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText, startupText } from "./flows.js";
@@ -1495,23 +1495,6 @@ async function renderHome() {
   return nodes;
 }
 
-/**
- * An account's capabilities on one line: the first as a chip, then a "+N" chip (two chips at most) that opens the rest in a popover,
- * so every account row keeps one height (about 64px on a desktop) however much its broker can do.
- */
-function capabilityChips(a) {
-  const caps = a.capabilities ?? [];
-  // One summary chip in words ("Data and orders"); the full list, also in words, behind "+N".
-  const more = caps.length
-    ? h("button", { type: "button", class: "chip-btn acct-caps-more", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-label": `Everything ${a.label} can do (${formatInt(caps.length)})` }, `+${formatInt(caps.length)}`)
-    : null;
-  more?.addEventListener("click", () => {
-    more.setAttribute("aria-expanded", "true");
-    sheetPopover({ trigger: more, title: `${a.label} can do`, body: h("div", { class: "chips acct-caps-all" }, caps.map((c) => h("span", { class: "chip" }, capabilityLabel(c)))) });
-  });
-  return h("div", { class: "chips acct-caps" }, caps.length ? h("span", { class: "chip" }, capabilitySummary(caps)) : null, more);
-}
-
 /** A metric card: tinted icon and label, the figure, a footnote (IPO Decode's Metric). */
 function stat(label, value, sub, glyph, tint) {
   return h("section", { class: "card stat" }, h("div", { class: "stat-head" }, glyph ? iconTile(glyph, tint, "sm") : null, h("span", { class: "label" }, label)), h("span", { class: "value" }, value), h("span", { class: "sub" }, sub));
@@ -2048,27 +2031,64 @@ async function fillToday(accs) {
     }),
   );
 }
+// ── Bridge pages: Settings-style inset groups (app.css 12z · BRIDGE PAGES) ──
+
+/** An inset group: a small heading (and its actions) over rows on one grouped surface, and an optional footnote. */
+function bxGroup(title, rows, { foot = null, actions = null, cls = "", label } = {}) {
+  return h(
+    "section",
+    { class: `bx-group ${cls}`.trim(), "aria-label": label ?? title ?? undefined },
+    title || actions ? h("div", { class: "bx-group-head" }, title ? h("h2", { class: "bx-group-title" }, title) : h("span", { class: "grow" }), actions ? h("div", { class: "bx-group-acts" }, actions) : null) : null,
+    h("div", { class: "list bx-list" }, rows),
+    foot ? h("p", { class: "bx-foot" }, foot) : null,
+  );
+}
+/** One row of an inset group: a leading tile or logo, a title and a sub line, capsules under them, trailing actions. */
+function bxRow({ lead = null, title, sub = null, meta = null, trail = null, cls = "", attrs = {} }) {
+  return h(
+    "div",
+    { class: `list-row bx-row ${cls}`.trim(), ...attrs },
+    lead,
+    h("div", { class: "names" }, h("span", { class: "nm" }, title), sub ? h("span", { class: "sub" }, sub) : null, meta ? h("div", { class: "bx-meta" }, meta) : null),
+    trail ? h("div", { class: "bx-trail" }, trail) : null,
+  );
+}
+/** A numbered step row (how logging in works, an integration's setup). */
+const bxStep = (n, text) => h("li", { class: "bx-step" }, h("span", { class: "bx-step-n", "aria-hidden": "true" }, formatInt(n)), h("span", {}, text));
+/**
+ * "Needs attention" at the top of a Bridge page (bridge-core.js attentionItems): one row per item with its action, red
+ * for what has stopped working and orange for what is about to. Nothing when all is well.
+ */
+function attentionPanel(items, onAction) {
+  if (!items.length) return null;
+  const bad = items.some((x) => x.tone === "bad");
+  return h(
+    "section",
+    { class: `bx-attn ${bad ? "bad" : "warn"}`, "aria-label": "Needs attention", "data-fixed": "" },
+    h("div", { class: "bx-attn-head" }, iconTile("warn", bad ? "red" : "orange", "sm"), h("h2", {}, items.length === 1 ? "One thing needs attention" : `${formatInt(items.length)} things need attention`)),
+    h(
+      "div",
+      { class: "list bx-list" },
+      items.map((x) =>
+        bxRow({
+          lead: h("span", { class: `bx-dot ${x.tone}`, "aria-hidden": "true" }),
+          title: x.title,
+          sub: x.detail,
+          trail: h("button", { type: "button", class: x.tone === "bad" ? "small primary" : "small", onclick: () => onAction(x) }, x.action.label),
+        }),
+      ),
+    ),
+  );
+}
+/** Where an attention item's button goes from a page that cannot act on it itself. */
+const attentionGo = (x) => (location.hash = x.action.kind === "login" ? "#/accounts" : x.action.kind === "keys" ? "#/api/keys" : "#/api/limits");
+
 async function renderAccounts() {
-  const [accounts, brokers, holdersRes] = await Promise.all([api("/v1/accounts"), api("/v1/brokers"), optional(api("/v1/book/holders"))]);
+  const [accounts, brokers, holdersRes, keysRes] = await Promise.all([api("/v1/accounts"), api("/v1/brokers"), optional(api("/v1/book/holders")), optional(api("/v1/keys"))]);
   const accs = accounts.data.data ?? [];
   const book = holdersRes.data?.data ?? null;
+  const now = Date.now();
   const holderOfAcc = (id) => book?.holders.find((x) => x.accounts.includes(id)) ?? null;
-  const holderCell = (a) => {
-    const e = holderOfAcc(a.id);
-    if (!e) return null;
-    // Two short lines, like the Account cell beside it: the deciding Family pill and Edit, then who and how related.
-    return h(
-      "div",
-      { class: "acct-holder", title: `Holder: ${holderText(e)}` },
-      h(
-        "span",
-        { class: "acct-holder-top" },
-        h("span", { class: "bk-rel", "data-tone": e.inFamily ? "ok" : "warn" }, e.inFamily ? "Family" : "Outside family"),
-        e.locked ? h("span", { class: "muted small" }, "set in bridge.config.json") : h("button", { type: "button", class: "small link-btn", "aria-label": `Edit the relationship of holder ${e.holder}`, onclick: () => holderSheet(e, book.relationships) }, "Edit"),
-      ),
-      h("span", { class: "muted small acct-holder-who" }, holderWhoText(e)),
-    );
-  };
   const list = brokers.data.data ?? [];
   const brokerOf = (a) => list.find((b) => b.id === a.broker);
   const paperCount = accs.filter((a) => a.broker === "paper").length;
@@ -2084,74 +2104,113 @@ async function renderAccounts() {
     }
   };
   const addButton = (cls = "primary", text = "Add a broker") => h("button", { type: "button", class: cls, onclick: () => addAccountFlow(list) }, icon("plus"), text);
-  const removeButton = (a) => h("button", { type: "button", class: "small", "aria-label": `Remove ${a.label}`, onclick: () => removeAccountSheet(a) }, "Remove");
+  const login = (a) => loginSheet(a, brokerOf(a));
 
-  const accountsCard = card({
-    cls: "accounts-card",
-    glyph: "accounts",
-    tint: "indigo",
-    title: "Your accounts",
-    sub: "Several brokers and several accounts per broker are fine. New accounts are paper only.",
-    actions: h("div", { class: "row" }, h("button", { type: "button", class: "small quiet", title: "A .xlsx with your watchlist and open positions as live formulas against this Bridge", onclick: () => import("./workbook.js").then((m) => m.downloadWorkbook()) }, icon("download"), h("span", {}, "Excel workbook")), addButton("small primary", app.state.demo ? "Add your broker" : "Add a broker")),
-    flush: true,
-    body: table(
-      [
-        { label: "Account", wrap: true, cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
-        ...(book ? [{ label: "Holder", cell: (a) => holderCell(a) ?? h("span", { class: "muted small" }, "No holder") }] : []),
-        // Broker and what it can do share a cell, and Session carries the mode under its pill, so the table fits its
-        // card from 1100px up without a sideways scroll (two fewer columns).
-        { label: "Broker", wrap: true, cell: (a) => h("div", { class: "acct-broker" }, a.broker === "paper" ? h("span", {}, "Paper (simulator)") : brokerCell(a.broker, brokerOf(a)?.name ?? a.broker), capabilityChips(a)) },
-        {
-          label: "Session and today",
-          cell: (a) =>
-            h(
-              "div",
-              { class: "acct-session" },
-              h("span", { class: "acct-session-pills" }, sessionPill(a.session?.state, a.broker), a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper")),
-              a.session?.expiresAt ? h("div", { class: "muted small" }, `until ${istDateTime(a.session.expiresAt)}`) : null,
-              // Today: P&L, orders and margin used, filled in after the table draws (paper and logged-in accounts). It
-              // shares the Session cell so the table keeps fitting its card from 1024 px without a sideways scroll.
-              todayCell(a),
-            ),
-        },
-        {
-          label: "",
-          cell: (a) => {
-            if (a.broker === "paper") return h("div", { class: "row" }, h("button", { type: "button", class: "small", "aria-label": `Reset ${a.label} or add paper money`, onclick: () => paperResetSheet(a) }, "Reset funds"), !app.state.demo && paperCount > 1 ? removeButton(a) : null);
-            const t = h("button", { type: "button", class: "small", "aria-label": `Test ${a.id}` }, "Test");
-            t.addEventListener("click", () => testAccount(a, t));
-            if (app.state.demo) return t;
-            const connected = a.session?.state === "connected";
-            const loginText = connected ? "Log in again" : "Log in";
-            const login = () => loginSheet(a, brokerOf(a));
-            // A narrow card (accounts-card container < 1080px, app.css) shows these as one ⋯ menu instead of a row.
-            const more = h("button", { type: "button", class: "icon-btn acct-acts-more", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-label": `Actions for ${a.label}: test, ${loginText.toLowerCase()}${a.liveAllowedByConfig ? "" : ", remove"}` }, icon("more"));
-            more.addEventListener("click", () => {
-              more.setAttribute("aria-expanded", "true");
-              let handle = null;
-              const item = (label, fn, cls = "") => h("button", { type: "button", class: `menu-item${cls}`, onclick: () => (handle?.close(), setTimeout(fn, 0)) }, label);
-              const items = [item("Test connection", () => testAccount(a, more)), item(loginText, login), a.liveAllowedByConfig ? null : item("Remove", () => removeAccountSheet(a), " destructive")].filter(Boolean);
-              handle = sheetPopover({ trigger: more, title: a.label, body: h("div", { class: "menu-list stack" }, items), cls: "menu-pop" });
-            });
-            return h(
-              "div",
-              { class: "acct-acts" },
-              h("div", { class: "row acct-acts-inline" }, t, h("button", { type: "button", class: connected ? "small" : "small primary", "aria-label": `${loginText === "Log in" ? "Log in to" : "Log in again to"} ${a.label}`, onclick: login }, loginText), a.liveAllowedByConfig ? null : removeButton(a)),
-              more,
-            );
-          },
-        },
-      ],
-      accs,
-      emptyState("accounts", "No accounts yet", "Add your broker to get started: choose it, then log in with its API details. It takes a minute.", addButton()),
-      { mobile: "stack-wide" },
-    ),
-  });
-  // P1-13 §6.8: what "family" means here, under the accounts.
-  if (book && accs.length) {
-    const fam = book.relationships.filter((r) => r.inFamily).map((r) => r.label.toLowerCase());
-    accountsCard.querySelector(".card-body")?.append(h("p", { class: "muted small acct-family-note" }, `Family = ${fam.join(", ")} (book.family in the config file). Guards and alert actions work only on family accounts. Managing money for anyone else needs SEBI registration.`));
-  }
+  /** The holder capsule (Family / Outside family) with Edit, and who it is, for one account. */
+  const holderBits = (a) => {
+    const e = holderOfAcc(a.id);
+    if (!e) return [];
+    return [
+      h("span", { class: "bk-rel", "data-tone": e.inFamily ? "ok" : "warn", title: `Holder: ${holderText(e)}` }, e.inFamily ? "Family" : "Outside family"),
+      h("span", { class: "bx-holder" }, holderWhoText(e)),
+      e.locked ? null : h("button", { type: "button", class: "small link-btn", "aria-label": `Edit the relationship of holder ${e.holder}`, onclick: () => holderSheet(e, book.relationships) }, "Edit"),
+    ];
+  };
+  /** The ⋯ menu of an account row: test, log in again, what it can do, remove. */
+  const moreMenu = (a, st) => {
+    const more = h("button", { type: "button", class: "icon-btn bx-more", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-label": `More for ${a.label}` }, icon("more"));
+    more.addEventListener("click", () => {
+      more.setAttribute("aria-expanded", "true");
+      let handle = null;
+      const item = (label, fn, cls = "") => h("button", { type: "button", class: `menu-item${cls}`, onclick: () => (handle?.close(), setTimeout(fn, 0)) }, label);
+      const caps = a.capabilities ?? [];
+      const paper = a.broker === "paper";
+      const items = [
+        paper ? null : item("Test connection", () => testAccount(a, more)),
+        !paper && !app.state.demo && st.kind === "connected" ? item("Log in again", () => login(a)) : null,
+        caps.length ? item(`What it can do (${formatInt(caps.length)})`, () => sheetPopover({ trigger: more, title: `${a.label} can do`, body: h("div", { class: "chips acct-caps-all" }, caps.map((c) => h("span", { class: "chip" }, capabilityLabel(c)))) })) : null,
+        app.state.demo || a.liveAllowedByConfig || (paper && paperCount < 2) ? null : item("Remove", () => removeAccountSheet(a), " destructive"),
+      ].filter(Boolean);
+      handle = sheetPopover({ trigger: more, title: a.label, body: h("div", { class: "menu-list stack" }, items), cls: "menu-pop" });
+    });
+    return more;
+  };
+  /** Today's figures, under the capsules (paper and logged-in accounts: filled in after the page draws). */
+  const accountRow = (a) => {
+    const st = accountStatus(a, now);
+    const paper = a.broker === "paper";
+    const b = brokerOf(a);
+    const caps = a.capabilities ?? [];
+    const lead = paper ? iconTile("wallet", "teal") : brokerAvatar({ id: a.broker, name: b?.name ?? a.broker });
+    const sub = paper ? `Paper account · ${a.id}` : `${b?.name ?? a.broker} · ${caps.length ? capabilitySummary(caps) : "No capabilities listed"} · ${a.id}`;
+    const pills = [
+      pill(st.text, st.tone),
+      paper ? pill("Paper") : a.liveAllowedByConfig ? pill("Live enabled", "bad") : pill("Paper only"),
+      ...holderBits(a),
+    ].filter(Boolean);
+    let trail;
+    if (paper) trail = [h("button", { type: "button", class: "small", "aria-label": `Reset ${a.label} or add paper money`, onclick: () => paperResetSheet(a) }, "Reset funds"), moreMenu(a, st)];
+    else if (app.state.demo) {
+      const t = h("button", { type: "button", class: "small", "aria-label": `Test ${a.id}` }, "Test");
+      t.addEventListener("click", () => testAccount(a, t));
+      trail = [t];
+    } else if (st.attention) trail = [h("button", { type: "button", class: "small primary", "aria-label": `Log in to ${a.label}`, onclick: () => login(a) }, st.kind === "missing" ? "Log in" : "Log in again"), moreMenu(a, st)];
+    else {
+      const t = h("button", { type: "button", class: "small", "aria-label": `Test ${a.id}` }, "Test");
+      t.addEventListener("click", () => testAccount(a, t));
+      trail = [t, moreMenu(a, st)];
+    }
+    return bxRow({
+      cls: `bx-acct${st.attention ? ` attn-${st.tone}` : ""}`,
+      lead,
+      title: a.label,
+      sub,
+      meta: [h("div", { class: "bx-pills" }, pills), paper ? null : h("div", { class: "bx-line" }, sessionLine(a, now, istDateTime)), todayCell(a)],
+      trail,
+      attrs: { "data-acct": a.id },
+    });
+  };
+
+  const { brokers: brokerAccs, paper: paperAccs } = accountGroups(accs);
+  const counts = accountCounts(accs, now);
+  const summary = h(
+    "div",
+    { class: "bx-summary", role: "status" },
+    counts.loggedIn ? pill(`${formatInt(counts.loggedIn)} logged in`, "ok") : null,
+    counts.needLogin ? pill(`${formatInt(counts.needLogin)} need${counts.needLogin === 1 ? "s" : ""} a login`, "warn") : null,
+    counts.paper ? pill(`${formatInt(counts.paper)} paper`) : null,
+    counts.live ? pill(`Live on ${formatInt(counts.live)}`, "bad") : null,
+  );
+  const head = h(
+    "div",
+    { class: "bx-pagebar" },
+    summary,
+    h("span", { class: "grow" }),
+    h("button", { type: "button", class: "small quiet", title: "A .xlsx with your watchlist and open positions as live formulas against this Bridge", onclick: () => import("./workbook.js").then((m) => m.downloadWorkbook()) }, icon("download"), h("span", {}, "Excel workbook")),
+    addButton("small primary", app.state.demo ? "Add your broker" : "Add a broker"),
+  );
+  const fam = book ? book.relationships.filter((r) => r.inFamily).map((r) => r.label.toLowerCase()) : [];
+  const famNote = book && accs.length ? `Family = ${fam.join(", ")} (book.family in the config file). Guards and alert actions work only on family accounts. Managing money for anyone else needs SEBI registration.` : null;
+  const groups = accs.length
+    ? [
+        brokerAccs.length ? bxGroup("Broker accounts", brokerAccs.map(accountRow), { foot: "Several brokers, and several accounts per broker, are fine. New accounts are paper only." }) : null,
+        paperAccs.length ? bxGroup("Paper accounts", paperAccs.map(accountRow), { foot: famNote }) : null,
+      ]
+    : [bxGroup(null, [emptyState("accounts", "No accounts yet", "Add your broker to get started: choose it, then log in with its API details. It takes a minute.", addButton())], { label: "Your accounts" })];
+  // How logging in works, in plain words, beside the accounts (under them on narrow screens).
+  const how = bxGroup(
+    "How logging in works",
+    [
+      h(
+        "ol",
+        { class: "bx-steps" },
+        bxStep(1, "Add your broker once. Its API key and secret are kept on this computer only."),
+        bxStep(2, "Each trading day, press Log in and type the broker's one-time code or PIN. The Bridge does the rest."),
+        bxStep(3, "The session lasts until the broker ends it, usually overnight. This page shows it in orange before then and in red after."),
+      ),
+    ],
+    { foot: "Paper accounts need no login: they fill orders on real prices with paper money.", cls: "bx-how" },
+  );
 
   // Directory
   const search = h("input", { type: "search", class: "dir-search", placeholder: "Search 41 brokers…", "aria-label": "Search brokers" });
@@ -2202,7 +2261,14 @@ async function renderAccounts() {
     setTimeout(() => addAccountFlow(list, { preselect: want }), 0);
   }
   setTimeout(() => fillToday(accs).catch(() => {}), 0);
-  return [accountsCard, dirCard];
+  // Sessions first, then keys about to stop working (the Keys tab has the rest).
+  const attention = attentionItems({ accounts: accs, keys: keysRes.data?.data ?? [] }, now);
+  const attn = attentionPanel(attention, (x) => {
+    if (x.action.kind !== "login") return attentionGo(x);
+    const a = accs.find((y) => y.id === x.action.id);
+    if (a) login(a);
+  });
+  return [attn, h("div", { class: "bx-cols", "data-panel": "accounts", "aria-label": "Your accounts" }, h("div", { class: "bx-main" }, head, ...groups.filter(Boolean)), h("div", { class: "bx-side" }, how)), dirCard].filter(Boolean);
 }
 
 // ── Test console ──
@@ -2221,15 +2287,25 @@ const ENDPOINTS = [
   { id: "order", label: "Place a paper order", method: "POST", path: "/v1/orders", body: { account: "", symbol: "NSE:RELIANCE", side: "BUY", quantity: 1, product: "CNC", orderType: "MARKET" } },
 ];
 
+/** A request path as people read it: "?symbols=NSE:NIFTY,NSE:RELIANCE", not "%3A" and "%2C" (display only). */
+const readableUrl = (u) => {
+  try {
+    return decodeURIComponent(u);
+  } catch {
+    return u;
+  }
+};
+
 async function renderConsole() {
   const accounts = (await api("/v1/accounts")).data.data ?? [];
   const paperAcc = accounts.find((a) => a.broker === "paper")?.id ?? accounts[0]?.id ?? "paper";
   const dataAcc = accounts.find((a) => a.broker !== "paper")?.id ?? paperAcc;
-  const select = h("select", { "aria-label": "Endpoint" }, ENDPOINTS.map((e) => h("option", { value: e.id }, e.label)));
+  const select = h("select", { id: "console-endpoint" }, ENDPOINTS.map((e) => h("option", { value: e.id }, e.label)));
   // #/api/console?endpoint=order opens a given endpoint (the Orders page links straight to the order form).
   const wanted = new URLSearchParams(location.hash.split("?")[1] ?? "").get("endpoint");
   if (ENDPOINTS.some((e) => e.id === wanted)) select.value = wanted;
-  const fieldsBox = h("div", { class: "stack" });
+  const route = h("div", { class: "bx-route" });
+  const fieldsBox = h("div", { class: "form-grid bx-console-fields" });
   const curlBox = h("div");
   const out = h("div", { class: "response" });
   const runBtn = h("button", { type: "button", class: "primary" }, icon("play"), "Send request");
@@ -2256,28 +2332,35 @@ async function renderConsole() {
     } catch {
       return;
     }
+    route.replaceChildren(h("span", { class: `method ${b.ep.method}` }, b.ep.method), h("code", { class: "bx-route-path" }, readableUrl(b.url)));
     const base = location.origin;
     const cmd = b.ep.method === "POST" ? `curl -X POST "${base}${b.url}" -H "Authorization: Bearer $MCB_API_KEY" -H "Content-Type: application/json" -H "Idempotency-Key: $(node -e "console.log(crypto.randomUUID())")" -d '${JSON.stringify(b.body)}'` : `curl -H "Authorization: Bearer $MCB_API_KEY" "${base}${b.url}"`;
-    curlBox.replaceChildren(codeBlock(cmd, { title: "Same call from a terminal", onCopy: markCopied }));
+    curlBox.replaceChildren(h("details", { class: "disclosure bx-curl" }, h("summary", {}, "Same call from a terminal (curl)"), codeBlock(cmd, { onCopy: markCopied })));
   };
   const drawFields = async () => {
     const ep = ENDPOINTS.find((e) => e.id === select.value);
     inputs = {};
     const rows = [];
     if (ep.method === "POST") {
-      const ta = h("textarea", { rows: 9, spellcheck: "false" }, JSON.stringify({ ...ep.body, account: paperAcc }, null, 2));
+      const ta = h("textarea", { id: "console-body", rows: 9, spellcheck: "false" }, JSON.stringify({ ...ep.body, account: paperAcc }, null, 2));
       ta.addEventListener("input", drawCurl);
       inputs.body = ta;
-      rows.push(h("label", { class: "field" }, "Order (JSON)", h("span", { class: "hint" }, "Paper by default. The dashboard adds an Idempotency-Key, so a retry never places it twice."), ta));
+      rows.push(h("label", { class: "field wide", for: "console-body" }, h("span", {}, "Order (JSON)"), ta, h("span", { class: "hint" }, "Paper by default. The dashboard adds an Idempotency-Key, so a retry never places it twice.")));
     } else {
       for (const [k, def] of ep.fields) {
         let value = def;
         if (k === "expiry") value = await firstExpiry();
         if (k === "account") value = ep.id === "funds" || ep.id === "positions" ? paperAcc : dataAcc;
-        const input = h("input", { value, spellcheck: "false" });
+        const input = h("input", { id: `console-${k}`, value, spellcheck: "false", autocomplete: "off" });
         input.addEventListener("input", drawCurl);
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && !e.isComposing) {
+            e.preventDefault();
+            runBtn.click();
+          }
+        });
         inputs[k] = input;
-        rows.push(h("label", { class: "field" }, k, input));
+        rows.push(field(k, input));
       }
     }
     fieldsBox.replaceChildren(...rows);
@@ -2293,6 +2376,7 @@ async function renderConsole() {
       return;
     }
     busy(runBtn, true);
+    const t0 = performance.now();
     try {
       const idem = b.ep.method === "POST" ? `dash-${crypto.randomUUID()}` : null;
       const opts = { method: b.ep.method, raw: true, body: b.body };
@@ -2302,26 +2386,29 @@ async function renderConsole() {
         const text = await res.text();
         r = { status: res.status, headers: res.headers, text, ms: 0, data: (() => { try { return JSON.parse(text); } catch { return text; } })() };
       } else r = await api(b.url, opts);
+      const ms = r.ms || Math.round(performance.now() - t0);
       local.set(FLAG.tested, "1");
       const pretty = typeof r.data === "string" ? r.data : JSON.stringify(r.data, null, 2);
-      const pre = h("pre");
+      const pre = h("pre", { tabindex: "0" });
       pre.innerHTML = highlightJson(pretty);
       const hdr = (n) => r.headers.get(n);
+      const st = statusText(r.status);
       const ok = r.status < 400;
       const friendly = !ok && typeof r.data === "object" ? alertBox({ code: r.data.code, status: r.status, message: r.data.detail }) : null;
+      const headers = ["x-request-id", "ratelimit", "ratelimit-policy", "x-mcb-data", "content-type"].filter((n) => hdr(n));
       out.replaceChildren(
         card({
           glyph: "inbox",
-          tint: ok ? "green" : "red",
+          tint: ok ? "green" : st.tone === "warn" ? "orange" : "red",
           title: "Response",
-          actions: h("div", { class: "row" }, pill(`${r.status} ${ok ? "OK" : "Error"}`, ok ? "ok" : "bad"), r.ms ? pill(`${formatInt(r.ms)} ms`) : null, hdr("x-mcb-data") === "demo" ? pill("Sample prices", "demo") : null),
-          flush: true,
+          sub: `${b.ep.method} ${readableUrl(b.url)}`,
+          actions: h("div", { class: "row" }, pill(st.text, st.tone), pill(`${formatInt(ms)} ms`), hdr("x-mcb-data") === "demo" ? pill("Sample prices", "demo") : null),
           body: h(
             "div",
-            {},
-            friendly ? h("div", { class: "card-body" }, friendly) : null,
-            h("dl", { class: "kv" }, ...["x-request-id", "ratelimit", "ratelimit-policy", "x-mcb-data", "content-type"].flatMap((n) => (hdr(n) ? [h("dt", {}, n), h("dd", {}, hdr(n))] : []))),
-            h("div", { class: "code" }, h("div", { class: "code-head" }, h("span", { class: "code-title" }, "Body"), copyButton(() => pretty, { ariaLabel: "Copy the response body" })), pre),
+            { class: "stack" },
+            friendly,
+            headers.length ? h("details", { class: "disclosure" }, h("summary", {}, `Headers (${formatInt(headers.length)})`), h("dl", { class: "kv" }, ...headers.flatMap((n) => [h("dt", {}, n), h("dd", {}, hdr(n))]))) : null,
+            h("div", { class: "code-block" }, h("div", { class: "code-head" }, h("span", { class: "code-title" }, "Body"), copyButton(() => pretty, { ariaLabel: "Copy the response body" })), h("div", { class: "code" }, pre)),
           ),
         }),
       );
@@ -2335,30 +2422,33 @@ async function renderConsole() {
   select.addEventListener("change", drawFields);
   runBtn.addEventListener("click", run);
   await drawFields();
-  out.replaceChildren(card({ glyph: "inbox", tint: "gray", title: "Response", body: emptyState("console", "Send a request to see the answer", "The response shows the status, the rate-limit headers and the JSON exactly as your scripts would get it.") }));
+  out.replaceChildren(card({ glyph: "inbox", tint: "gray", title: "Response", body: emptyState("console", "Send a request to see the answer", "The status, the time it took, the rate-limit headers and the JSON, exactly as your scripts would get them.") }));
   return h(
     "div",
     { class: "console" },
-    h(
-      "div",
-      { class: "stack" },
-      card({
-        glyph: "console",
-        tint: "teal",
-        title: "Request",
-        sub: "Uses your dashboard key. Scripts should use their own key.",
-        body: h("div", { class: "stack" }, h("label", { class: "field" }, "Endpoint", select), fieldsBox, h("div", { class: "row" }, runBtn)),
-      }),
-      curlBox,
-    ),
+    card({
+      glyph: "console",
+      tint: "teal",
+      title: "Request",
+      sub: "Uses your dashboard key. Scripts should use their own key.",
+      body: h("div", { class: "stack" }, field("Endpoint", select), route, fieldsBox, h("div", { class: "row" }, runBtn, h("span", { class: "muted small" }, "Enter in a field sends it too.")), curlBox),
+    }),
     out,
   );
 }
 
 // ── Rate limits ──
 
+/** The fullest window of a kind ("1s" / "1m") across an account's classes, as the API budget ring takes it. */
+function fullestOf(account, win) {
+  let best = null;
+  for (const c of Object.values(account?.classes ?? {}))
+    for (const w of c.windows ?? []) if (w.window === win && w.limit > 0 && (!best || w.used / w.limit > best.used / best.limit)) best = { used: Number(w.used) || 0, limit: w.limit };
+  return best;
+}
+
 async function renderLimits() {
-  const root = h("div", { class: "stack" });
+  const root = h("div", { class: "stack bx-limits" });
   /** accountId -> the endpoint class its chart shows (the busiest, until a person picks another) */
   const chartClass = new Map();
   let limitsData = null;
@@ -2368,19 +2458,86 @@ async function renderLimits() {
     limitsData = limits;
     const u = usage.data.data ?? {};
     const lim = limits.data.data ?? {};
-    const sv = u.savings ?? {};
-    const nodes = [
-      h(
-        "div",
-        { class: "grid cols-4 stats" },
-        stat("Served from live stream", formatInt(sv.servedFromStream), "No broker call at all", "activity", "teal"),
-        stat("Served from cache", formatInt(sv.servedFromCache), "Fresh enough, labelled with its age", "clock", "indigo"),
-        stat("Coalesced", formatInt(sv.coalesced), "Identical requests shared one call", "integrations", "purple"),
-        stat("Batched", formatInt(sv.batched), "Symbols packed into fewer calls", "list", "blue"),
-      ),
-    ];
     const accounts = (u.accounts ?? []).filter((a) => a.broker !== "paper");
-    const tryBtn = h("button", { type: "button", class: "primary" }, icon("bolt"), "Send 20 identical requests");
+    const nodes = [attentionPanel(attentionItems({ usage: u }, Date.now()), (x) => root.querySelector(`[data-budget="${CSS.escape(x.action.id)}"]`)?.scrollIntoView?.({ block: "start" }))];
+    if (!accounts.length) nodes.push(card({ glyph: "limits", tint: "purple", title: "Broker budgets", body: emptyState("limits", "No broker account in use yet", "Once a broker account is connected, its live budget per endpoint class shows here.", nextStep("Go to Accounts", "#/accounts")) }));
+    // One card per broker account: the API budget's two rings and its plain reading, today's totals, the live chart
+    // of calls per second, and every endpoint class as a bar against its fullest limit.
+    for (const a of accounts) {
+      const second = fullestOf(a, "1s");
+      const minute = fullestOf(a, "1m");
+      const backoff = a.healthy === false || Object.values(a.classes ?? {}).some((c) => c.backoffMs > 0);
+      const v = { hasBrokers: true, second, minute, backoff, tone: "ok" };
+      const tone = backoff ? "bad" : minute ? (minute.used / minute.limit >= 0.9 ? "bad" : minute.used / minute.limit >= 0.7 ? "warn" : "ok") : second && second.used / second.limit >= 0.9 ? "warn" : "ok";
+      const totals = accountUsage(a);
+      const classes = Object.keys(a.classes ?? {}).filter((c) => (a.classes[c].callsToday ?? 0) > 0 || a.series?.classes?.[c]);
+      const cls = chartClass.get(a.accountId) ?? busiestClass(a);
+      const c = a.classes?.[cls] ?? {};
+      const counts = a.series?.classes?.[cls] ?? new Array(a.series?.seconds ?? 120).fill(0);
+      const limit = perSecondLimit(c);
+      const pick = classes.length > 1
+        ? h("div", { class: "segmented", role: "group", "aria-label": "Endpoint class" }, classes.map((k) => h("button", { type: "button", "aria-pressed": String(k === cls), onclick: () => (chartClass.set(a.accountId, k), draw()) }, k)))
+        : null;
+      const classList = classRows(a).map((r) => {
+        const f = r.fullest;
+        const bar = h("span", { class: `bud-bar ${f?.tone ?? "ok"}`, "aria-hidden": "true" }, h("i"));
+        bar.firstChild.style.setProperty("--w", `${f ? Math.min(100, Math.round(f.share * 100)) : 0}%`);
+        return h(
+          "div",
+          { class: "bx-cls", role: "listitem" },
+          h("strong", {}, r.cls),
+          bar,
+          h("span", { class: "bud-num" }, f ? `${formatInt(f.used)} / ${formatInt(f.limit)} a ${windowWord(f.window)}` : "No limit"),
+          h("span", { class: "bx-cls-today" }, `${formatInt(r.today)} today${r.throttled ? ` · ${formatInt(r.throttled)} throttled` : ""}`),
+        );
+      });
+      nodes.push(
+        card({
+          cls: "bx-budget",
+          glyph: "limits",
+          tint: "purple",
+          title: a.accountId,
+          sub: `${cap(a.broker)} · ${formatInt(a.inFlight ?? 0)} in flight · ${formatInt(a.queued ?? 0)} queued`,
+          actions: backoff ? pill("Backing off", "bad") : pill("Healthy", "ok"),
+          body: h(
+            "div",
+            { class: "bx-budget-body", "data-budget": a.accountId },
+            h(
+              "div",
+              { class: "bx-budget-top" },
+              h("div", { class: `bud-hero ${tone}` }, h("div", { class: "bud-rings" }, budgetRing("This second", second), budgetRing("This minute", minute)), h("p", { class: "bud-read" }, headroomText(v))),
+              h(
+                "div",
+                { class: "bx-budget-today" },
+                h("div", {}, h("span", {}, "Broker calls today"), h("strong", {}, formatInt(totals.today))),
+                h("div", { class: totals.throttled ? "warn" : "" }, h("span", {}, "Throttled by the broker"), h("strong", {}, formatInt(totals.throttled))),
+                h("div", { class: totals.refused ? "warn" : "" }, h("span", {}, "Held back to stay inside limits"), h("strong", {}, formatInt(totals.refused))),
+              ),
+            ),
+            h(
+              "div",
+              { class: "bx-chart" },
+              h("div", { class: "bx-chart-head" }, h("h3", {}, `${cls} calls per second`), pick),
+              usageChart(counts, limit, `${cls} calls per second over the last two minutes${limit ? `, limit ${formatInt(limit)} a second` : ""}`),
+              h("div", { class: "rl-axis" }, h("span", {}, "2 min ago"), h("span", {}, "now")),
+              h("div", { class: "rl-legend" }, h("span", {}, h("i", { class: "sw" }), "Calls per second"), limit ? h("span", {}, h("i", { class: "sw limit" }), `Limit ${formatInt(limit)} a second`) : null),
+            ),
+            classList.length ? h("div", { class: "bx-classes" }, h("h3", {}, "Each endpoint class, fullest first"), h("div", { role: "list" }, classList)) : null,
+          ),
+        }),
+      );
+    }
+    // What the cache, the stream and shared calls saved: one split bar, the API budget's colours.
+    const sv = u.savings ?? {};
+    const parts = savedParts(sv);
+    const total = parts.reduce((s, [, n]) => s + n, 0);
+    const TONE = { "Live stream": "green", Cache: "blue", "Shared calls": "purple", Batched: "orange" };
+    const split = h("div", { class: "bud-split", "aria-hidden": "true" }, parts.filter(([, n]) => n > 0).map(([label, n]) => {
+      const seg = h("i", { class: `t-${TONE[label]}` });
+      seg.style.setProperty("--w", `${(100 * n) / Math.max(1, total)}%`);
+      return seg;
+    }));
+    const tryBtn = h("button", { type: "button", class: "small" }, icon("bolt"), "Send 20 identical requests");
     tryBtn.addEventListener("click", async () => {
       busy(tryBtn, true);
       const before = (await api("/v1/usage")).data.data;
@@ -2395,53 +2552,26 @@ async function renderLimits() {
     nodes.push(
       card({
         glyph: "bolt",
-        tint: "purple",
-        title: "Try it",
-        sub: "Twenty tools asking for the same price at once should cost the broker about one call. Watch the counters.",
-        body: h("div", { class: "row" }, tryBtn, h("span", { class: "muted small" }, accounts.length ? "Uses /v1/ltp for NIFTY and RELIANCE." : "Needs a connected broker or demo mode.")),
+        tint: "teal",
+        title: "Calls saved today",
+        sub: "Requests answered without a broker call: from the live stream, the cache, a shared call or a batch",
+        actions: h("strong", { class: "bud-big" }, formatInt(total)),
+        body: h(
+          "div",
+          { class: "stack" },
+          total ? split : h("p", { class: "muted small" }, "Nothing saved yet today."),
+          h("div", { class: "bud-legend bx-saved-legend" }, parts.map(([label, n]) => h("span", { class: `bud-part t-${TONE[label]}` }, h("i", { "aria-hidden": "true" }), h("span", {}, label), h("strong", { class: "bud-num" }, formatInt(n))))),
+          h("div", { class: "row" }, tryBtn, h("span", { class: "muted small" }, accounts.length ? "Twenty tools asking for one price at once should cost the broker about one call." : "Needs a connected broker or demo mode.")),
+        ),
       }),
     );
-    if (!accounts.length) nodes.push(card({ glyph: "limits", tint: "purple", title: "Broker budgets", body: emptyState("limits", "No broker account in use yet", "Once a broker account is connected, its live budget per endpoint class shows here.", nextStep("Go to Accounts", "#/accounts")) }));
-    // Live: calls per second over two minutes against the per-second limit, one chart per account.
-    for (const a of accounts) {
-      const classes = Object.keys(a.classes ?? {}).filter((c) => (a.classes[c].callsToday ?? 0) > 0 || a.series?.classes?.[c]);
-      const cls = chartClass.get(a.accountId) ?? busiestClass(a);
-      const c = a.classes?.[cls] ?? {};
-      const counts = a.series?.classes?.[cls] ?? new Array(a.series?.seconds ?? 120).fill(0);
-      const limit = perSecondLimit(c);
-      const sec = (c.windows ?? []).find((w) => w.window === "1s");
-      const min = (c.windows ?? []).find((w) => w.window === "1m");
-      const pick = classes.length > 1
-        ? h(
-            "div",
-            { class: "segmented", role: "group", "aria-label": "Endpoint class" },
-            classes.map((k) => h("button", { type: "button", "aria-pressed": String(k === cls), onclick: () => (chartClass.set(a.accountId, k), draw()) }, k)),
-          )
-        : null;
-      nodes.push(
-        card({
-          glyph: "activity",
-          tint: "blue",
-          title: `Live usage · ${a.accountId}`,
-          sub: `${cls}: ${sec ? `${windowText(sec)} this second` : "no per-second limit"}${min ? ` · ${windowText(min)} this minute` : ""}`,
-          actions: pick,
-          body: h(
-            "div",
-            { class: "stack" },
-            usageChart(counts, limit, `${cls} calls per second over the last two minutes${limit ? `, limit ${formatInt(limit)} a second` : ""}`),
-            h("div", { class: "rl-axis" }, h("span", {}, "2 min ago"), h("span", {}, "now")),
-            h("div", { class: "rl-legend" }, h("span", {}, h("i", { class: "sw" }), "Calls per second"), limit ? h("span", {}, h("i", { class: "sw limit" }), `Limit ${formatInt(limit)} a second`) : null),
-          ),
-        }),
-      );
-    }
     // Who used the budget today (admin keys only: it names API keys).
     if (Array.isArray(u.consumers) && u.consumers.length) {
       const top = Math.max(1, ...u.consumers.map((x) => x.calls));
       nodes.push(
         card({
           glyph: "people",
-          tint: "teal",
+          tint: "blue",
           title: "Top consumers today",
           sub: "Broker calls each page, key or job caused, and the calls it got from the stream, the cache or a shared call instead",
           flush: true,
@@ -2465,50 +2595,46 @@ async function renderLimits() {
         }),
       );
     }
-    for (const a of accounts) {
-      const classes = Object.entries(a.classes ?? {});
-      nodes.push(
-        card({
-          glyph: "limits",
-          tint: "purple",
-          title: `${a.accountId} · ${a.broker}`,
-          sub: `${a.healthy === false ? "Backing off" : "Healthy"} · ${formatInt(a.inFlight ?? 0)} in flight · ${formatInt(a.queued ?? 0)} queued`,
-          actions: h("div", { class: "row" }, a.healthy === false ? pill("Backing off", "bad") : pill("Healthy", "ok")),
-          body: h(
-            "div",
-            {},
-            classes.map(([cls, c]) => meterRow(cls, c.used ?? 0, c.limit ?? 0, `${formatInt(c.used ?? 0)} / ${isFigure(c.limit) ? formatInt(c.limit) : "∞"} per ${c.window ?? "s"} · ${formatInt(c.callsToday)} today`)),
-            h("p", { class: "muted small" }, `Today: ${formatInt(sum(Object.fromEntries(classes.map(([k, c]) => [k, c.callsToday ?? 0]))))} broker calls, ${formatInt(sum(Object.fromEntries(classes.map(([k, c]) => [k, c.throttledToday ?? 0]))))} throttled by the broker, ${formatInt(sum(Object.fromEntries(classes.map(([k, c]) => [k, c.refusedToday ?? 0]))))} refused to stay inside limits.`),
-          ),
-        }),
-      );
-    }
+    // The brokers' published limits, behind a disclosure: reference, not something to watch.
     const policies = Object.values(lim.brokers ?? {});
-    for (const p of policies) {
+    if (policies.length)
       nodes.push(
-        card({
-          glyph: "list",
-          tint: "gray",
-          title: `Policy: ${p.brokerId}`,
-          sub: p.notes ?? "",
-          flush: true,
-          body: table(
-            [
-              { label: "Endpoint class", cell: (r) => h("strong", {}, r[0]) },
-              { label: "Per second", num: true, cell: (r) => formatFixed(r[1].perSecond, Object.values(p.limits ?? {}).some((x) => isFigure(x.perSecond) && !Number.isInteger(Number(x.perSecond))) ? 1 : 0) },
-              { label: "Per minute", num: true, cell: (r) => formatInt(r[1].perMinute) },
-              { label: "Per day", num: true, cell: (r) => formatInt(r[1].perDay) },
-              { label: "Source", wrap: true, cell: (r) => (String(r[1].source ?? "").includes("demo") ? pill("Sample (demo)", "demo") : r[1].verified ? pill("Broker docs", "ok") : pill("Conservative default", "warn")) },
-            ],
-            Object.entries(p.limits ?? {}),
-            emptyState("limits", "No limits", ""),
+        h(
+          "details",
+          { class: "disclosure bx-policies", "data-fixed": "" },
+          h("summary", {}, `The brokers' limits (${formatInt(policies.length)})`),
+          ...policies.map((p) =>
+            card({
+              glyph: "list",
+              tint: "gray",
+              title: `Policy: ${p.brokerId}`,
+              sub: p.notes ?? "",
+              flush: true,
+              body: table(
+                [
+                  { label: "Endpoint class", cell: (r) => h("strong", {}, r[0]) },
+                  { label: "Per second", num: true, cell: (r) => formatFixed(r[1].perSecond, Object.values(p.limits ?? {}).some((x) => isFigure(x.perSecond) && !Number.isInteger(Number(x.perSecond))) ? 1 : 0) },
+                  { label: "Per minute", num: true, cell: (r) => formatInt(r[1].perMinute) },
+                  { label: "Per day", num: true, cell: (r) => formatInt(r[1].perDay) },
+                  { label: "Source", wrap: true, cell: (r) => (String(r[1].source ?? "").includes("demo") ? pill("Sample (demo)", "demo") : r[1].verified ? pill("Broker docs", "ok") : pill("Conservative default", "warn")) },
+                ],
+                Object.entries(p.limits ?? {}),
+                emptyState("limits", "No limits", ""),
+              ),
+            }),
           ),
-        }),
+        ),
       );
-    }
-    keepFocus(root, () => root.replaceChildren(...nodes));
+    // Redraws keep an open disclosure open.
+    const wasOpen = root.querySelector(".bx-policies")?.open;
+    const fresh = nodes.filter(Boolean);
+    const pol = fresh.find((n) => n.classList?.contains("bx-policies"));
+    if (pol && wasOpen) pol.open = true;
+    keepFocus(root, () => root.replaceChildren(...fresh));
   };
   await draw();
+  // After the first paint the rings and bars stop replaying their fill-in on every redraw (app.css 12z).
+  setTimeout(() => root.classList.add("drawn"), 900);
   every(1500, draw);
   return root;
 }
@@ -2884,6 +3010,9 @@ function newKeyPanel({ key, label, use, scopes, account, onDone }) {
   );
 }
 
+/** The tile each key carries in the list, by what it is for. */
+const KEY_TILE = Object.freeze({ excel: ["list", "green"], mcp: ["integrations", "orange"], script: ["console", "blue"], ui: ["monitor", "indigo"], other: ["keys", "pink"] });
+
 async function renderKeys() {
   const [keys, accounts] = await Promise.all([api("/v1/keys"), api("/v1/accounts")]);
   const rows = keys.data.data ?? [];
@@ -2961,65 +3090,74 @@ async function renderKeys() {
   });
 
   const ownId = String(currentKey() ?? "").split("_")[1] ?? null;
-  const tableBox = h("div");
+  const revoke = async (k, btn) => {
+    const own = k.id === ownId;
+    const ok = await modal({
+      title: `Revoke “${k.label}”?`,
+      body: h(
+        "div",
+        { class: "stack" },
+        h("p", {}, "It stops working on its very next request, and its open streams close. This cannot be undone."),
+        own ? alertBox({ title: "This browser is signed in with this key", detail: "You will be signed out at once. Sign in again with another admin key, or make a sign-in link with the CLI." }, "warn") : null,
+      ),
+      buttons: [{ label: "Cancel", value: false }, { label: own ? "Revoke and sign out" : "Revoke", cls: "primary", value: true }],
+    });
+    if (!ok) return;
+    busy(btn, true);
+    try {
+      await api(`/v1/keys/${encodeURIComponent(k.id)}`, { method: "DELETE" });
+      toast(`Revoked ${k.label}`);
+    } catch (err) {
+      toast(`Could not revoke ${k.label}: ${err.message}`, { tone: "error" });
+    }
+    busy(btn, false);
+    drawTable();
+  };
+  /** One key as a row: its tool's tile, name, what it is for and when it was used; scopes as capsules; copy and revoke. */
+  const keyRow = (k, now) => {
+    const st = keyStatus(k, now);
+    const [glyph, tint] = KEY_TILE[k.clientKind] ?? KEY_TILE.other;
+    const gone = st.kind === "revoked";
+    return bxRow({
+      attrs: { "data-key": k.id },
+      cls: `bx-key${gone ? " gone" : ""}${st.kind === "expiring" || st.kind === "expired" ? ` attn-${st.tone}` : ""}`,
+      lead: iconTile(glyph, gone ? "gray" : tint, "md"),
+      title: h("span", { class: "bx-key-name" }, k.label, k.id === ownId ? h("span", { class: "chip own-key" }, "This browser") : null),
+      sub: `${CLIENT_LABEL[k.clientKind] ?? k.clientKind ?? "Other"} · ${k.accounts === "*" ? "All accounts" : k.accounts.join(", ")} · ${lastUsedText(k, now)}`,
+      meta: [
+        h("div", { class: "bx-pills" }, k.scopes.slice().sort().map(scopeChip), k.allowQuery ? h("span", { class: "chip" }, "URL ok") : null, st.kind === "active" ? null : pill(st.text, st.tone)),
+        h("div", { class: "bx-line" }, h("span", { class: "mono" }, k.id), ` · ${st.expiry}`),
+      ],
+      trail: gone
+        ? null
+        : [
+            copyButton(k.id, { label: "Copy ID", toastLabel: "Key ID copied", ariaLabel: `Copy the ID of key ${k.label} (to find it in Activity)` }),
+            h("button", { type: "button", class: "small plain", "aria-label": `Revoke key ${k.label}`, onclick: (e) => revoke(k, e.currentTarget) }, "Revoke"),
+          ],
+    });
+  };
+  const tableBox = h("div", { class: "bx-keys" });
+  const attnSlot = h("div", { "data-fixed": "" });
   const drawTable = async (list) => {
     const data = list ?? (await api("/v1/keys")).data.data ?? [];
-    const status = (k) => (k.revokedAt ? pill("Revoked", "bad") : k.expiresAt && Date.parse(k.expiresAt) < Date.now() ? pill("Expired", "warn") : pill("Active", "ok"));
+    const now = Date.now();
+    const sorted = sortKeys(data, now);
+    const live = sorted.filter((k) => !k.revokedAt);
+    const revoked = sorted.filter((k) => k.revokedAt);
+    attnSlot.replaceChildren(...[attentionPanel(attentionItems({ keys: data }, now), (x) => tableBox.querySelector(`[data-key="${CSS.escape(x.action.id)}"]`)?.scrollIntoView?.({ block: "center" }))].filter(Boolean));
     tableBox.replaceChildren(
-      table(
-        [
-          { label: "Name", cell: (k) => h("div", {}, h("strong", {}, k.label), h("div", { class: "muted small mono" }, k.id, k.id === ownId ? h("span", { class: "chip own-key" }, "this browser") : null)) },
-          { label: "Scopes", cell: (k) => h("div", { class: "chips" }, k.scopes.slice().sort().map(scopeChip), k.allowQuery ? h("span", { class: "chip" }, "URL ok") : null) },
-          { label: "Accounts", cell: (k) => (k.accounts === "*" ? "All" : k.accounts.join(", ")) },
-          { label: "For", cell: (k) => CLIENT_LABEL[k.clientKind] ?? k.clientKind ?? DASH },
-          { label: "Last used", cell: (k) => (k.lastUsedAt ? istDateTime(k.lastUsedAt) : "Never") },
-          { label: "Expires", cell: (k) => (k.expiresAt ? istDateTime(k.expiresAt) : "Never") },
-          { label: "Status", cell: status },
-          {
-            label: "",
-            cell: (k) =>
-              k.revokedAt
-                ? ""
-                : h("button", {
-                    type: "button",
-                    class: "small plain",
-                    "aria-label": `Revoke key ${k.label}`,
-                    onclick: async (e) => {
-                      const btn = e.currentTarget;
-                      const own = k.id === ownId;
-                      const ok = await modal({
-                        title: `Revoke “${k.label}”?`,
-                        body: h(
-                          "div",
-                          { class: "stack" },
-                          h("p", {}, "It stops working on its very next request, and its open streams close. This cannot be undone."),
-                          own ? alertBox({ title: "This browser is signed in with this key", detail: "You will be signed out at once. Sign in again with another admin key, or make a sign-in link with the CLI." }, "warn") : null,
-                        ),
-                        buttons: [{ label: "Cancel", value: false }, { label: own ? "Revoke and sign out" : "Revoke", cls: "primary", value: true }],
-                      });
-                      if (!ok) return;
-                      busy(btn, true);
-                      try {
-                        await api(`/v1/keys/${encodeURIComponent(k.id)}`, { method: "DELETE" });
-                        toast(`Revoked ${k.label}`);
-                      } catch (err) {
-                        toast(`Could not revoke ${k.label}: ${err.message}`, { tone: "error" });
-                      }
-                      busy(btn, false);
-                      drawTable();
-                    },
-                  }, "Revoke"),
-          },
-        ],
-        data,
-        emptyState("keys", "No keys yet", "Create one key per tool so you can revoke one without touching the others.", nextStep("Create a key", () => label.focus())),
-        { mobile: "stack-wide" },
+      bxGroup(
+        `Your keys${live.length ? ` · ${formatInt(live.length)}` : ""}`,
+        live.length ? live.map((k) => keyRow(k, now)) : [emptyState("keys", "No keys yet", "Create one key per tool so you can revoke one without touching the others.", nextStep("Create a key", () => label.focus()))],
+        { foot: "Only a fingerprint (hash) of each key is stored. The key itself was shown once, when it was made." },
       ),
+      revoked.length ? h("details", { class: "disclosure bx-revoked" }, h("summary", {}, `Revoked keys (${formatInt(revoked.length)})`), h("div", { class: "list bx-list" }, revoked.map((k) => keyRow(k, now)))) : "",
     );
   };
   await drawTable(rows);
   // Wide screens (1700 px and up): create on the left, the keys beside it (app.css .keys-split).
   return [
+    attnSlot,
     h("div", { class: "keys-split" }, card({
       glyph: "plus",
       tint: "pink",
@@ -3042,7 +3180,7 @@ async function renderKeys() {
         createdBox,
       ),
     }),
-    card({ glyph: "keys", tint: "pink", title: "Your keys", sub: "Only a fingerprint (hash) of each key is stored. The key itself was shown once.", flush: true, body: tableBox })),
+    tableBox),
   ];
 }
 
@@ -3072,31 +3210,58 @@ function setHashParam(key, value) {
 }
 
 /**
- * API › Integrations: one panel. Its tools are an inner segmented control (?tool=, and the old ?tab=); the webhook
- * form sits straight in the panel and the code blocks are its only inner surfaces.
+ * API › Integrations: every tool as a tile (its glyph, name and one line), then the chosen tool's panel: what it is,
+ * three setup steps, a key made for it in one press, the webhook form (Webhooks) and the code to paste. The tiles
+ * are tabs (?tool=, and the old ?tab=): arrow keys, Home and End move between them.
  */
 async function renderIntegrations() {
   const accounts = (await api("/v1/accounts")).data.data ?? [];
   const paperAcc = accounts.find((a) => a.broker === "paper")?.id ?? "paper";
   const createdKeys = {};
-  const tabsBar = h("div", { class: "tabs", role: "tablist", "aria-label": "Tools" });
-  const panel = h("div", { class: "integ-panel" });
+  const tiles = h("div", { class: "bx-tiles", role: "tablist", "aria-label": "Tools" });
+  const panel = h("div", { class: "bx-integ", role: "tabpanel" });
   const params = hashParams();
   const asked = params.get("tool") ?? params.get("tab");
   let active = TABS.some(([id]) => id === asked) ? asked : "webhooks";
+  const pickTool = (id, focus = false) => {
+    active = id;
+    setHashParam("tool", id);
+    drawTiles(focus);
+    draw();
+  };
+  const drawTiles = (focus = false) => {
+    const buttons = TABS.map(([id, name]) => {
+      const info = INTEGRATION_INFO[id];
+      const on = id === active;
+      return h(
+        "button",
+        { type: "button", role: "tab", class: "bx-tile", id: `integ-tab-${id}`, "aria-selected": String(on), "aria-controls": "integ-panel", tabindex: on ? "0" : "-1", onclick: () => pickTool(id) },
+        iconTile(info.glyph, info.tint, "md"),
+        h("span", { class: "bx-tile-t" }, h("strong", {}, name), h("span", {}, info.blurb)),
+      );
+    });
+    tiles.replaceChildren(...buttons);
+    tiles.onkeydown = (e) => {
+      const i = TABS.findIndex(([id]) => id === active);
+      const j = e.key === "ArrowRight" || e.key === "ArrowDown" ? i + 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? TABS.length - 1 : null;
+      if (j === null) return;
+      e.preventDefault();
+      pickTool(TABS[(j + TABS.length) % TABS.length][0], true);
+    };
+    panel.id = "integ-panel";
+    panel.setAttribute("aria-labelledby", `integ-tab-${active}`);
+    if (focus) buttons.find((b) => b.getAttribute("aria-selected") === "true")?.focus();
+  };
 
   const draw = async () => {
-    drawTabs(tabsBar, panel, TABS, active, (id) => {
-      active = id;
-      setHashParam("tool", id);
-      draw();
-    });
-    edgeFades(tabsBar);
+    const name = TABS.find(([id]) => id === active)[1];
+    const info = INTEGRATION_INFO[active];
     const s = snippets({ base: location.origin, key: createdKeys[active] ?? null, account: paperAcc, symbol: "NSE:NIFTY", folder: app.state.meta?.installDir || undefined })[active];
     const preset = KEY_PRESETS[active];
-    const keyBtn = preset && h("button", { type: "button", class: "small" }, icon("keys"), createdKeys[active] ? "Key created" : `Create a ${preset.scopes.join("+")} key for this`);
+    const keyBtn = preset && h("button", { type: "button", class: createdKeys[active] ? "small" : "small primary" }, icon(createdKeys[active] ? "check" : "keys"), createdKeys[active] ? "Key created" : `Create a ${preset.scopes.join(" + ")} key`);
     if (keyBtn) keyBtn.disabled = Boolean(createdKeys[active]);
     keyBtn?.addEventListener("click", async () => {
+      busy(keyBtn, true);
       try {
         const body = { label: preset.label, scopes: preset.scopes, accounts: "*", clientKind: preset.clientKind };
         if (preset.allowQuery) body.allowQuery = true;
@@ -3106,22 +3271,32 @@ async function renderIntegrations() {
         toast("Key created and filled in below. Copy it now: it is shown only once.");
         draw();
       } catch (err) {
+        busy(keyBtn, false);
         toast(err.message, { tone: "error" });
       }
     });
-    const intro = h(
+    const head = h(
       "div",
-      { class: "card-body stack" },
-      h("div", { class: "row" }, h("p", { class: "grow muted" }, INTRO[active], " ", h("span", { class: "nowrap" }, `Your Bridge address: ${location.origin}`)), ...(keyBtn ? [keyBtn] : []), h("a", { href: `https://github.com/MrChartist/api-bridge/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener", "aria-label": `${TABS.find(([id]) => id === active)[1]} guide (opens in a new tab)` }, "Guide ↗")),
-      createdKeys[active] ? h("div", { class: "alert info" }, icon("info"), h("div", {}, h("strong", {}, "Your new key is in the snippets below."), h("span", { class: "detail" }, "It is shown only on this page and only until you leave it."))) : null,
+      { class: "bx-integ-head" },
+      iconTile(info.glyph, info.tint, "lg"),
+      h("div", { class: "grow" }, h("h2", {}, name), h("p", {}, INTRO[active])),
+      h("div", { class: "row" }, keyBtn ?? null, h("a", { class: "bx-guide", href: `https://github.com/MrChartist/api-bridge/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener", "aria-label": `${name} guide (opens in a new tab)` }, "Guide", icon("external"))),
     );
-    const parts = [intro];
+    const steps = h(
+      "div",
+      { class: "bx-integ-steps" },
+      h("h3", {}, "Set up in three steps"),
+      h("ol", { class: "bx-steps" }, info.steps.map((t, i) => bxStep(i + 1, t))),
+      h("p", { class: "bx-foot" }, "Your Bridge address: ", h("code", {}, location.origin), " ", copyButton(location.origin, { label: "Copy", toastLabel: "Address copied", ariaLabel: "Copy your Bridge address" })),
+    );
+    const parts = [head, createdKeys[active] ? alertBox({ title: "Your new key is in the code below.", detail: "It is shown only on this page and only until you leave it." }, "info") : null, steps];
     if (active === "webhooks") parts.push(...(await webhookPanel(paperAcc)));
-    if (s.length) parts.push(h("div", { class: "card-body stack" }, s.map((sn) => codeBlock(sn.code, { title: sn.title, json: sn.lang === "json", onCopy: markCopied }))));
+    if (s.length) parts.push(h("div", { class: "bx-integ-code stack" }, h("h3", {}, "Code to paste"), s.map((sn) => codeBlock(sn.code, { title: sn.title, json: sn.lang === "json", onCopy: markCopied }))));
     panel.replaceChildren(...parts.filter(Boolean));
   };
+  drawTiles();
   await draw();
-  return card({ flush: true, cls: "integ-card", body: h("div", {}, tabsBar, panel) });
+  return [h("div", { class: "bx-tiles-wrap", "data-fixed": "" }, tiles), card({ cls: "integ-card", body: panel })];
 }
 
 async function webhookPanel(paperAcc) {
@@ -3131,6 +3306,7 @@ async function webhookPanel(paperAcc) {
   const label = h("input", { value: "NIFTY breakout", maxlength: "60" });
   const source = h("select", {}, [["generic", "Generic (signed JSON)"], ["chartink", "ChartInk"], ["gocharting", "GoCharting"]].map(([v, t]) => h("option", { value: v }, t)));
   const side = segmented("Side", [["", "From the alert"], ["BUY", "BUY"], ["SELL", "SELL"]], "");
+  side.classList.add("side-seg"); // BUY green, SELL red, chosen or not
   const orderType = segmented("Order type", [["LIMIT", "LIMIT (safer)"], ["MARKET", "MARKET (protected)"]], "LIMIT");
   const product = segmented("Product", ["INTRADAY", "MARGIN", "CNC"].map((p) => [p, p]), "INTRADAY");
   const lots = h("input", { type: "number", inputmode: "numeric", value: "1", min: "1", max: "50" });
@@ -3185,7 +3361,7 @@ async function webhookPanel(paperAcc) {
   return [
     h(
       "div",
-      { class: "card-body stack integ-hook-form" },
+      { class: "stack integ-hook-form" },
       h("div", { class: "card-titles" }, h("h3", {}, "Alert webhook"), h("p", {}, `Each hook has its own secret URL and places paper orders on ${paperAcc}.`)),
       h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field" }, "Source", source), segField("Side", side), segField("Order type", orderType, { wide: true }), segField("Product", product), h("label", { class: "field" }, "Max lots per alert", lots), btn),
       box,
@@ -3196,9 +3372,22 @@ async function webhookPanel(paperAcc) {
 
 // ── Activity ──
 
+/** A timeline of rows under time-bucket headings ("Last minute", "Last hour", …): bridge-core.js timeBuckets. */
+function timeline(rows, nowMs, rowEl, at) {
+  return h(
+    "div",
+    { class: "bx-tl" },
+    timeBuckets(rows, nowMs, at).map((g) => h("section", { class: "bx-tl-group", "aria-label": g.label }, h("h3", { class: "bx-tl-when" }, g.label, h("span", {}, formatInt(g.rows.length))), h("ol", { class: "bx-tl-list" }, g.rows.map(rowEl)))),
+  );
+}
+
 async function renderActivity() {
   const tabsBar = h("div", { class: "tabs", role: "tablist", "aria-label": "Activity" });
-  const body = h("div");
+  const body = h("div", { class: "bx-act" });
+  const controls = h("div", { class: "bx-act-bar" });
+  const summary = h("div", { class: "bx-summary", role: "status" });
+  const listSlot = h("div", { class: "bx-act-list" });
+  body.append(controls, summary, listSlot);
   // #/api/activity?view=audit opens the audit log (the ⌘K "Audit log" entry).
   let active = hashParams().get("view") === "audit" ? "audit" : "requests";
   let showAll = false;
@@ -3208,58 +3397,89 @@ async function renderActivity() {
     local.set(FLAG.hideOwn, hideOwn.checked ? null : "0");
     draw();
   });
+  const reqKind = segmented("Show", ACTIVITY_FILTERS, "all");
+  reqKind.addEventListener("change", () => draw());
+  const auditKindSeg = segmented("Show", AUDIT_FILTERS, "all");
+  auditKindSeg.addEventListener("change", () => draw());
+  const search = h("input", { type: "search", class: "bx-act-search", placeholder: "Filter by path or key ID", "aria-label": "Filter requests by path or key ID", autocomplete: "off", spellcheck: "false" });
+  let typing = 0;
+  search.addEventListener("input", () => {
+    clearTimeout(typing);
+    typing = setTimeout(draw, 150);
+  });
+  const drawControls = () => {
+    if (active === "requests") controls.replaceChildren(reqKind, search, h("span", { class: "grow" }), h("label", { class: "check" }, hideOwn, "Hide the dashboard's own"));
+    else controls.replaceChildren(auditKindSeg, h("span", { class: "grow" }), nextStep("Verify the chain on Safety", "#/safety", "small quiet"));
+  };
+  const reqRow = (x) => {
+    const st = statusText(x.status);
+    const slow = x.ms >= SLOW_MS;
+    return h(
+      "li",
+      { class: `bx-tl-row bx-req ${st.tone}` },
+      h("span", { class: `bx-dot ${st.tone}`, "aria-hidden": "true" }),
+      h("time", { class: "bx-tl-t", datetime: x.at }, istTime(x.at)),
+      h("span", { class: `method ${x.method}` }, x.method),
+      h("span", { class: "bx-tl-path mono", title: x.path }, x.path),
+      pill(st.text, st.tone),
+      h("span", { class: `bx-tl-ms${slow ? " slow" : ""}` }, `${formatInt(x.ms)} ms`),
+      x.keyId ? h("span", { class: "bx-tl-key mono" }, x.keyId) : h("span", { class: "bx-tl-key muted" }, "No key"),
+    );
+  };
+  const auditRow = (x) => {
+    const e = auditEntry(x);
+    return h(
+      "li",
+      { class: `bx-tl-row bx-audit k-${e.kind}`, title: `#${x.seq} · ${x.type}` },
+      h("span", { class: `bx-dot ${e.side ?? `k-${e.kind}`}`, "aria-hidden": "true" }),
+      h("time", { class: "bx-tl-t", datetime: x.at }, istTime(x.at)),
+      h("span", { class: "bx-tl-main" }, h("strong", {}, e.title), e.detail ? h("span", { class: "bx-tl-detail" }, e.detail) : null),
+      h("span", { class: "bx-tl-by" }, `${actorText(x.actor)} · ${x.source ?? DASH}`),
+      h("span", { class: "bx-tl-seq mono" }, `#${formatInt(x.seq)}`),
+    );
+  };
   const draw = () => keepFocusAsync(body, drawActivity);
   const drawActivity = async () => {
-    drawTabs(tabsBar, body, [["requests", "Requests"], ["audit", "Audit log"]], active, (id) => {
-      active = id;
-      setHashParam("view", id);
-      draw();
-    });
+    const now = Date.now();
     if (active === "requests") {
       const r = await api("/v1/requests?limit=200");
-      const all = (r.data.data ?? []).filter((x) => !hideOwn.checked || x.client !== "dashboard");
+      const all = filterRequests(r.data.data ?? [], { kind: reqKind.value, q: search.value, hideOwn: hideOwn.checked });
       const rows = all.slice(0, showAll ? 200 : 40);
-      const more = all.length > rows.length ? h("div", { class: "card-body row" }, h("span", { class: "muted small" }, `Showing the latest ${formatInt(rows.length)} of ${formatInt(all.length)}.`), h("button", { type: "button", class: "small", onclick: () => { showAll = true; draw(); } }, "Show all")) : null;
-      body.replaceChildren(
-        h("div", { class: "card-body row" }, h("label", { class: "check" }, hideOwn, "Hide the dashboard's own requests"), h("span", { class: "grow" }), h("span", { class: "muted small" }, "Kept in memory only: the last 200 requests. Paths only, never query strings, bodies or keys.")),
-        table(
-          [
-            { label: "Time", cell: (x) => istTime(x.at) },
-            { label: "Method", cell: (x) => h("span", { class: `method ${x.method}` }, x.method) },
-            { label: "Path", cell: (x) => h("span", { class: "mono" }, x.path) },
-            { label: "Status", cell: (x) => pill(String(x.status), x.status < 300 ? "ok" : x.status < 500 ? "warn" : "bad") },
-            { label: "Time taken", num: true, cell: (x) => `${formatInt(x.ms)} ms` },
-            { label: "Key", cell: (x) => (x.keyId ? h("span", { class: "mono small" }, x.keyId) : h("span", { class: "muted" }, "None")) },
-          ],
-          rows,
-          emptyState("activity", "No requests yet", hideOwn.checked ? "Requests from your scripts, charts, Excel and AI tools appear here. Untick the box to see the dashboard's own." : "Requests appear here as they arrive.", nextStep("Make a call in the test console", "#/api/console")),
-          { mobile: "scroll" },
-        ),
-        ...(more ? [more] : []), // replaceChildren would print a null as the text "null"
+      const sm = requestSummary(all);
+      summary.replaceChildren(
+        ...[
+          pill(`${formatInt(sm.count)} request${sm.count === 1 ? "" : "s"}`),
+          sm.errors ? pill(`${formatInt(sm.errors)} error${sm.errors === 1 ? "" : "s"}`, all.some((x) => x.status >= 500) ? "bad" : "warn") : pill("No errors", "ok"),
+          sm.slow ? pill(`${formatInt(sm.slow)} slow`, "warn") : null,
+          sm.median === null ? null : pill(`Typical ${formatInt(sm.median)} ms`),
+          h("span", { class: "bx-summary-note" }, "Last 200 requests, kept in memory only. Paths only: never query strings, bodies or keys."),
+        ].filter(Boolean),
+      );
+      const filtered = reqKind.value !== "all" || search.value.trim();
+      listSlot.replaceChildren(
+        rows.length
+          ? timeline(rows, now, reqRow, (x) => x.at)
+          : emptyState("activity", filtered ? "Nothing matches" : "No requests yet", filtered ? "Try All, or clear the filter." : hideOwn.checked ? "Requests from your scripts, charts, Excel and AI tools appear here. Untick the box to see the dashboard's own." : "Requests appear here as they arrive.", filtered ? null : nextStep("Make a call in the test console", "#/api/console")),
+        all.length > rows.length ? h("div", { class: "row bx-act-more" }, h("span", { class: "muted small" }, `Showing the latest ${formatInt(rows.length)} of ${formatInt(all.length)}.`), h("button", { type: "button", class: "small", onclick: () => { showAll = true; draw(); } }, "Show all")) : "",
       );
     } else {
       const r = await api("/v1/audit?limit=100");
-      const rows = r.data.data ?? [];
-      body.replaceChildren(
-        h("div", { class: "card-body" }, h("p", { class: "muted small" }, "Append-only and hash-chained, one file per IST day in data/audit/. Secrets are redacted. Verify the chain on the Safety page.")),
-        table(
-          [
-            { label: "#", num: true, cell: (x) => formatInt(x.seq) },
-            { label: "When", cell: (x) => istDateTime(x.at) },
-            { label: "Event", cell: (x) => h("strong", {}, x.type) },
-            { label: "By", cell: (x) => `${x.actor?.kind ?? ""}:${x.actor?.id ?? ""}` },
-            { label: "Source", cell: (x) => x.source },
-            { label: "Account", cell: (x) => x.accountId ?? DASH },
-            { label: "Details", wrap: true, cell: (x) => h("span", { class: "mono small" }, JSON.stringify(x.data ?? {}).slice(0, 140)) },
-          ],
-          rows,
-          emptyState("activity", "The audit log is empty today", "Key changes, orders, kill-switch actions and webhook events are recorded here."),
-          { mobile: "scroll" },
-        ),
-      );
+      const kind = auditKindSeg.value;
+      const rows = (r.data.data ?? []).filter((x) => kind === "all" || auditEntry(x).kind === kind);
+      summary.replaceChildren(pill(`${formatInt(rows.length)} event${rows.length === 1 ? "" : "s"}`), h("span", { class: "bx-summary-note" }, "Append-only and hash-chained, one file per IST day in data/audit/. Secrets are redacted."));
+      listSlot.replaceChildren(rows.length ? timeline(rows, now, auditRow, (x) => x.at) : emptyState("activity", kind === "all" ? "The audit log is empty today" : "Nothing of this kind today", "Key changes, orders, kill-switch actions and webhook events are recorded here."));
     }
   };
+  const pick = (id) => {
+    active = id;
+    setHashParam("view", id);
+    drawTabs(tabsBar, body, [["requests", "Requests"], ["audit", "Audit log"]], active, pick);
+    drawControls();
+    draw();
+  };
+  drawTabs(tabsBar, body, [["requests", "Requests"], ["audit", "Audit log"]], active, pick);
+  drawControls();
   await draw();
   every(4000, draw);
-  return card({ flush: true, body: h("div", {}, tabsBar, body) });
+  return card({ flush: true, cls: "bx-act-card", body: h("div", {}, tabsBar, body) });
 }
