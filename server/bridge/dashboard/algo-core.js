@@ -105,6 +105,15 @@ export function totals(items) {
   return { running, count: (items ?? []).length, pnl: withPnl ? Math.round(pnl * 100) / 100 : null, orders };
 }
 
+/** How often the Algo page reads the strategy list (and the selected one's detail), in ms. */
+export const LIST_MS = 2000;
+/** How often it reads the selected strategy's log while that strategy runs, in ms. */
+export const LOG_MS = 1000;
+/** ... and once it is not running: its log no longer grows, but a start from elsewhere still shows within 5 s. */
+export const LOG_IDLE_MS = 5000;
+/** The wait before the next log read, from the selected strategy's status. */
+export const logGap = (status) => (isActive(status) ? LOG_MS : LOG_IDLE_MS);
+
 /** "Paper" or "Live" for a strategy's mode chip. */
 export const modeText = (m) => (m === "live" ? "Live" : "Paper");
 

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { TEMPLATE, heartbeatText, isActive, paramFields, paramLabel, readParams, serverFieldErrors, statusOf, totals, uptimeText } from "./algo-core.js";
+import { LIST_MS, LOG_IDLE_MS, LOG_MS, TEMPLATE, heartbeatText, isActive, logGap, paramFields, paramLabel, readParams, serverFieldErrors, statusOf, totals, uptimeText } from "./algo-core.js";
 
 describe("Algo page model (algo-core.js)", () => {
   it("names every status and its tone", () => {
@@ -63,5 +63,24 @@ describe("Algo page model (algo-core.js)", () => {
     const src = readFileSync(new URL("./algo.js", import.meta.url), "utf8");
     expect(src).not.toMatch(/\/v1\/orders["`]/);
     expect(src).not.toMatch(/toFixed\(|toLocaleString\(|Intl\.NumberFormat/);
+  });
+});
+
+describe("Algo polling (perf round 5)", () => {
+  it("tails the log every second while the strategy runs, every 5 s otherwise", () => {
+    expect(logGap("running")).toBe(LOG_MS);
+    expect(logGap("starting")).toBe(LOG_MS);
+    expect(logGap("stopped")).toBe(LOG_IDLE_MS);
+    expect(logGap(undefined)).toBe(LOG_IDLE_MS);
+    expect([LOG_MS, LIST_MS, LOG_IDLE_MS]).toEqual([1000, 2000, 5000]);
+  });
+
+  it("reads nothing while the tab is hidden", () => {
+    const src = readFileSync(new URL("./algo.js", import.meta.url), "utf8");
+    for (const fn of ["pollLog", "pollAll"]) {
+      const body = src.slice(src.indexOf(`function ${fn}()`), src.indexOf(`function ${fn}()`) + 200);
+      expect(body, fn).toMatch(/if \(document\.hidden\) \w+Timer = setTimeout\(\w+, LOG_MS\);\s+else load\w+\(\);/);
+    }
+    expect(src).not.toMatch(/setTimeout\(\(\) => grid\.isConnected && load/);
   });
 });

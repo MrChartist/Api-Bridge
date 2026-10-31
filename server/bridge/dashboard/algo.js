@@ -7,11 +7,9 @@
 import { api, app, codeBlock, copyButton, emptyState, errorState, h, icon, istTime, modal, optional, pill, toast } from "./app.js";
 import { DASH, formatGrouped, formatInt, formatNumber, formatSignedRupee, isFigure } from "./format.js";
 import { clearFieldError, fieldError } from "./flows.js";
-import { DOCS_URL, TEMPLATE, heartbeatText, isActive, modeText, paramFields, readParams, serverFieldErrors, statusOf, totals, uptimeText } from "./algo-core.js";
+import { DOCS_URL, LIST_MS, LOG_MS, TEMPLATE, heartbeatText, isActive, logGap, modeText, paramFields, readParams, serverFieldErrors, statusOf, totals, uptimeText } from "./algo-core.js";
 
 const SLOT = "mcb.dashboard.algo";
-const LIST_MS = 2000;
-const LOG_MS = 1000;
 const tone = (v) => (isFigure(v) && v > 0 ? "up" : isFigure(v) && v < 0 ? "down" : "");
 const money = (v) => h("span", { class: `nowrap ${tone(v)}` }, isFigure(v) ? formatSignedRupee(v) : DASH);
 const enc = encodeURIComponent;
@@ -422,7 +420,18 @@ export async function renderAlgoPage() {
         if (!logList.childElementCount) logList.append(h("li", { class: "algo-ll muted" }, "Nothing logged yet. Start the strategy to see its log here."));
       }
     }
-    logTimer = setTimeout(() => grid.isConnected && loadLog(), LOG_MS);
+    logTimer = setTimeout(pollLog, logGap(cur()?.status));
+  }
+  // A hidden tab reads nothing: the timer comes round again and reads once the tab is back in view.
+  function pollLog() {
+    if (!grid.isConnected) return;
+    if (document.hidden) logTimer = setTimeout(pollLog, LOG_MS);
+    else loadLog();
+  }
+  function pollAll() {
+    if (!grid.isConnected) return;
+    if (document.hidden) listTimer = setTimeout(pollAll, LOG_MS);
+    else loadAll();
   }
 
   // ── refresh ──
@@ -433,7 +442,7 @@ export async function renderAlgoPage() {
     if (d && !d.error && d.data.data.id === st.sel) st.detail = d.data.data;
     if (!st.data.items.some((s) => s.id === st.sel) && st.data.items.length) select(st.data.items[0].id, { quiet: true });
     draw();
-    listTimer = setTimeout(() => grid.isConnected && loadAll(), LIST_MS);
+    listTimer = setTimeout(pollAll, LIST_MS);
   }
   function draw() {
     drawBar();
