@@ -199,6 +199,17 @@ export function chainLegFields(leg, { oiUnit = "units", lotSize = null } = {}) {
     change: ltp !== null && close !== null ? round(ltp - close, 4) : null,
   };
   for (const k of GREEK_KEYS) out[k] = numOrNull(g[k] ?? leg[k]);
+  // Optional extras (sizes at the touch, the day's range, average traded price, the previous session's volume): added
+  // only when the broker sends them, so a leg without them keeps its usual shape.
+  const extra = {
+    bidQty: numOrNull(leg.top_bid_quantity ?? leg.best_bid_qty ?? leg.bid_qty ?? leg.bidQty),
+    askQty: numOrNull(leg.top_ask_quantity ?? leg.best_ask_qty ?? leg.ask_qty ?? leg.askQty),
+    high: priceOrNull(leg.high_price ?? leg.high),
+    low: priceOrNull(leg.low_price ?? leg.low),
+    avgPrice: priceOrNull(leg.average_price ?? leg.avg_price ?? leg.avgPrice ?? leg.atp),
+    prevVolume: numOrNull(leg.previous_volume ?? leg.prev_volume ?? leg.prevVolume),
+  };
+  for (const [k, v] of Object.entries(extra)) if (v !== null) out[k] = v;
   return out;
 }
 

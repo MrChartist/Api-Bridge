@@ -35,9 +35,15 @@ async function chains(model, marketCfg = {}) {
 
 /** The P1-6 contract-fact fields are additive (docs/spec/p1-06-stocks.md §3.7); every legacy byte is still compared. */
 const P1_6_FIELDS = ["underlyingKind", "settlement", "strikeStep", "tickSize"];
+/** The chain leg's optional extras are additive too (sent only when the broker or quote has them; ChainLeg in openapi). */
+const LEG_EXTRA_FIELDS = ["bidQty", "askQty", "high", "low", "avgPrice", "prevVolume"];
+const legacyLeg = (leg) => (leg ? Object.fromEntries(Object.entries(leg).filter(([f]) => !LEG_EXTRA_FIELDS.includes(f))) : leg);
 function legacyOnly(out) {
   const copy = {};
-  for (const [k, c] of Object.entries(out)) copy[k] = Object.fromEntries(Object.entries(c).filter(([f]) => !P1_6_FIELDS.includes(f)));
+  for (const [k, c] of Object.entries(out)) {
+    copy[k] = Object.fromEntries(Object.entries(c).filter(([f]) => !P1_6_FIELDS.includes(f)));
+    if (Array.isArray(copy[k].rows)) copy[k].rows = copy[k].rows.map((r) => ({ ...r, ce: legacyLeg(r.ce), pe: legacyLeg(r.pe) }));
+  }
   return copy;
 }
 
