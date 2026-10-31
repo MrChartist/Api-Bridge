@@ -42,6 +42,7 @@ export const ERROR_CODES = Object.freeze({
   CAPACITY_EXCEEDED: { status: 422, title: "This request is more than the account's capacity can carry", retryable: false },
   ALERT_LIMIT: { status: 422, title: "The alert limit has been reached", retryable: false },
   STATE_CONFLICT: { status: 409, title: "The item changed or is busy; read it again", retryable: true },
+  COMPUTE_LIMIT: { status: 422, title: "The calculation is larger than its limits allow", retryable: false },
   // Safety refusals
   PAPER_ONLY: { status: 403, title: "Live trading is not enabled for this account", retryable: false },
   ORDER_GATE_CLOSED: { status: 403, title: "The live order gate refused this order. No order was sent", retryable: false },
@@ -61,6 +62,7 @@ export const ERROR_CODES = Object.freeze({
   UPSTREAM_ERROR: { status: 502, title: "The broker returned an error", retryable: false },
   BROKER_UNAVAILABLE: { status: 503, title: "The broker is not reachable right now", retryable: true },
   UPSTREAM_TIMEOUT: { status: 504, title: "The broker did not respond in time", retryable: true },
+  COMPUTE_TIMEOUT: { status: 504, title: "The calculation did not finish within its time limit", retryable: false },
   OUTCOME_UNKNOWN: { status: 504, title: "The order outcome is unknown. Check the order book before sending it again", retryable: false },
 });
 
