@@ -153,11 +153,24 @@ export function rulerLayout(markers, { width = 640, band = null } = {}) {
 
 /** Flow rows for the grouped bar chart: one row per session (newest first, as the Bridge sends them), FII and DII net. */
 export function flowItems(days) {
+  const big = biggestFlow(days);
   return (days ?? []).map((d) => {
     const lab = dayLabel(d.date);
     const t = (who, v) => `${lab} ${who} net ${formatSigned(v.net, 2)} crore (bought ${formatFixed(v.buy, 2)}, sold ${formatFixed(v.sell, 2)})`;
-    return { label: lab, bars: [{ value: d.fii?.net ?? 0, cls: "s1", title: t("FII", d.fii ?? {}) }, { value: d.dii?.net ?? 0, cls: "s2", title: t("DII", d.dii ?? {}) }] };
+    // Green net buying, red net selling; DII the lighter bar under FII.
+    const dir = (v) => (Number(v) < 0 ? "dn" : "up");
+    return { label: lab, band: big && d.date === big.date ? "hot" : null, tag: big && d.date === big.date ? `Biggest: ${big.who}` : null, bars: [{ value: d.fii?.net ?? 0, cls: dir(d.fii?.net), title: t("FII", d.fii ?? {}) }, { value: d.dii?.net ?? 0, cls: `${dir(d.dii?.net)} lite`, title: t("DII", d.dii ?? {}) }] };
   });
+}
+/** The largest single-session net flow, FII or DII, either sign: { who, date, net } or null (pure). */
+export function biggestFlow(days) {
+  let top = null;
+  for (const d of days ?? [])
+    for (const who of ["FII", "DII"]) {
+      const v = d?.[who.toLowerCase()]?.net;
+      if (isFigure(v) && (!top || Math.abs(Number(v)) > Math.abs(top.net))) top = { who, date: d.date, net: Number(v) };
+    }
+  return top;
 }
 /** A streak as a tile: net buying or selling and for how many sessions. */
 export function streakText(st) {
@@ -241,15 +254,59 @@ export function gridItems(strikes, metric) {
       ],
     }));
 }
-/** Synthetic-future gaps by strike as single bars: right (blue) means the synthetic is dearer than the reference. */
+/**
+ * The synthetic gaps against their median (pure). Nearly every strike carries the same gap (the cost of carry and
+ * dividends between spot or the future and the expiry), so the median is "normal" and a strike's distance from it is
+ * what stands out. Returns { median, rows: [{ strike, gap, dev }], outlier } (outlier: the row furthest from the
+ * median, null when nothing has a gap).
+ */
+export function syntheticGaps(strikes) {
+  const rows = (strikes ?? []).filter((r) => isFigure(r?.arbitrageGap)).map((r) => ({ strike: r.strike, gap: Number(r.arbitrageGap) }));
+  if (!rows.length) return { median: null, rows: [], outlier: null };
+  const sorted = rows.map((r) => r.gap).sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  const out = rows.map((r) => ({ ...r, dev: Math.round((r.gap - median) * 100) / 100 }));
+  const outlier = out.reduce((b, r) => (Math.abs(r.dev) > Math.abs(b.dev) ? r : b), out[0]);
+  return { median: Math.round(median * 100) / 100, rows: out, outlier: outlier.dev === 0 ? null : outlier };
+}
+
+/**
+ * Synthetic-future gaps by strike as single bars, measured from the median gap: right (green) means the synthetic is
+ * dearer than the usual strike, left (red) cheaper. The strike furthest out of line is banded and tagged.
+ */
 export function syntheticItems(strikes, atm) {
+  const g = syntheticGaps(strikes);
+  const dev = new Map(g.rows.map((r) => [r.strike, r.dev]));
   return [...(strikes ?? [])]
     .sort((a, b) => b.strike - a.strike)
+    .map((r) => {
+      const d = dev.get(r.strike);
+      const odd = g.outlier && r.strike === g.outlier.strike;
+      return {
+        label: formatInt(r.strike),
+        band: odd ? "hot" : r.strike === atm ? "atm" : null,
+        tag: odd ? "Out of line" : r.strike === atm ? "ATM" : null,
+        bars: [{ value: isFigure(d) ? d : 0, cls: isFigure(d) && d < 0 ? "dn" : "up", title: `${formatInt(r.strike)} synthetic ${formatFixed(r.synthetic, 2)}, gap ${formatSigned(r.arbitrageGap, 2)}, ${isFigure(d) ? `${formatSigned(d, 2)} from the median gap` : "no gap"}` }],
+      };
+    });
+}
+
+/** The future with the steepest carry (largest annualised premium or discount, either sign), or null (pure). */
+export function steepestCarry(list) {
+  return (list ?? []).filter((r) => isFigure(r?.annualisedPct)).reduce((b, r) => (!b || Math.abs(Number(r.annualisedPct)) > Math.abs(Number(b.annualisedPct)) ? r : b), null);
+}
+
+/** Annualised carry by expiry as bars: green a premium to spot, red a discount; the steepest one banded (pure). */
+export function carryItems(list) {
+  const top = steepestCarry(list);
+  return (list ?? [])
+    .filter((r) => isFigure(r?.annualisedPct))
     .map((r) => ({
-      label: formatInt(r.strike),
-      band: r.strike === atm ? "atm" : null,
-      tag: r.strike === atm ? "ATM" : null,
-      bars: [{ value: isFigure(r.arbitrageGap) ? Number(r.arbitrageGap) : 0, cls: Number(r.arbitrageGap) >= 0 ? "call" : "put", title: `${formatInt(r.strike)} synthetic ${formatFixed(r.synthetic, 2)}, gap ${formatSigned(r.arbitrageGap, 2)}` }],
+      label: formatDayMonth(r.expiry),
+      band: r === top ? "hot" : null,
+      tag: r === top ? "Steepest" : null,
+      bars: [{ value: Number(r.annualisedPct), cls: Number(r.annualisedPct) >= 0 ? "up" : "dn", title: `${formatDayMonth(r.expiry)}: ${formatSigned(r.annualisedPct, 2)}% a year (${formatSigned(r.basis, 2)} points)` }],
     }));
 }
 export const directionWord = (d) => ({ "sell-synthetic": "Synthetic is dear", "buy-synthetic": "Synthetic is cheap" })[d] ?? DASH;
@@ -435,6 +492,10 @@ const partial = (errors, title = "Some prices could not be read") => (errors?.le
 const money = (v) => (isFigure(v) ? formatRupee(v) : DASH);
 const signedClass = (v) => (Number(v) > 0 ? "up" : Number(v) < 0 ? "down" : undefined);
 const signedSpan = (v, dp = 2, suffix = "") => (isFigure(v) ? h("span", { class: signedClass(v) }, `${formatSigned(v, dp)}${suffix}`) : DASH);
+/** The view's one hero reading: the first figure, set larger (app.css "21 · OPS PAGES"). */
+export const heroTile = (node) => (node.classList.add("ops-hero"), node);
+/** A signed series' colour class: green while the latest value is zero or above, red below (pure). */
+export const basisCls = (v) => (isFigure(v) && Number(v) < 0 ? "dn" : "up");
 const sectionCard = (title, sub, ...body) => card({ title, sub, body: h("div", { class: "stack" }, body) });
 /** Labelled figures in a compact grid inside a card. `rows`: [label, value, tone?]. */
 const kv = (rows) => h("dl", { class: "kv" }, rows.map(([k, v, tone]) => h("div", {}, h("dt", {}, k), h("dd", { class: tone || undefined }, v))));
@@ -544,8 +605,9 @@ function drawFutures(res) {
   const d = res.data?.data ?? {};
   const list = d.futures ?? [];
   const near = list[0];
+  const top = steepestCarry(list);
   const cols = [
-    { label: "Expiry", cell: (r) => h("strong", { title: r.expiry }, formatDayMonth(r.expiry)) },
+    { label: "Expiry", cell: (r) => h("strong", { title: r.expiry }, formatDayMonth(r.expiry), r === top && list.length > 1 ? h("span", { class: "fx-chip" }, "Steepest") : null) },
     { label: "Price", num: true, cell: (r) => formatFixed(r.ltp, 2) },
     { label: "Basis", num: true, cell: (r) => signedSpan(r.basis) },
     { label: "Basis %", num: true, cell: (r) => signedSpan(r.basisPct, 3, "%") },
@@ -555,7 +617,7 @@ function drawFutures(res) {
     { label: "Volume", num: true, cell: (r) => compact(r.volume) },
     { label: "Calendar days", num: true, cell: (r) => (isFigure(r.daysToExpiry) ? formatInt(Math.floor(Number(r.daysToExpiry))) : DASH) },
   ];
-  const carry = list.filter((r) => isFigure(r.annualisedPct)).map((r) => ({ label: formatDayMonth(r.expiry), bars: [{ value: Number(r.annualisedPct), cls: Number(r.annualisedPct) >= 0 ? "call" : "put", title: `${formatDayMonth(r.expiry)}: ${formatSigned(r.annualisedPct, 2)}% a year (${formatSigned(r.basis, 2)} points)` }] }));
+  const carry = carryItems(list);
   const spreadCols = [
     { label: "Near", cell: (r) => h("strong", {}, formatDayMonth(r.near)) },
     { label: "Far", cell: (r) => formatDayMonth(r.far) },
@@ -568,14 +630,14 @@ function drawFutures(res) {
     statusRow(res.data?.meta?.freshness),
     partial(res.data?.errors),
     tiles(
-      tile(`${d.underlying ?? ""} spot`, isFigure(d.spot) ? formatFixed(d.spot, 2) : DASH, d.spotSymbol ?? ""),
-      tile("Near-month basis", isFigure(near?.basis) ? formatSigned(near.basis, 2) : DASH, near ? `${isFigure(near.basisPct) ? `${formatSigned(near.basisPct, 3)}%` : DASH} · ${stateWord(near.state)}` : ""),
-      tile("Roll cost", isFigure(d.rollCostPct) ? `${formatSigned(d.rollCostPct, 3)}%` : DASH, isFigure(d.rollCostAnnualisedPct) ? `${formatSigned(d.rollCostAnnualisedPct, 2)}% a year, near to next` : "Needs two expiries with prices"),
-      tile("Contracts", formatInt(list.length), "Upcoming expiries shown"),
+      heroTile(tile("Near-month basis", isFigure(near?.basis) ? formatSigned(near.basis, 2) : DASH, near ? `${isFigure(near.basisPct) ? `${formatSigned(near.basisPct, 3)}%` : DASH} · ${stateWord(near.state)}` : "No priced future", signedClass(near?.basis))),
+      tile("Steepest carry", top ? `${formatSigned(top.annualisedPct, 2)}%` : DASH, top ? `A year, ${formatDayMonth(top.expiry)} expiry` : "Needs a priced future", signedClass(top?.annualisedPct)),
+      tile("Roll cost", isFigure(d.rollCostPct) ? `${formatSigned(d.rollCostPct, 3)}%` : DASH, isFigure(d.rollCostAnnualisedPct) ? `${formatSigned(d.rollCostAnnualisedPct, 2)}% a year, near to next` : "Needs two expiries with prices", signedClass(d.rollCostPct)),
+      tile(`${d.underlying ?? ""} spot`, isFigure(d.spot) ? formatFixed(d.spot, 2) : DASH, `${d.spotSymbol ?? ""} · ${formatInt(list.length)} expiries shown`),
     ),
     sectionCard("Futures", "Each upcoming future against spot. Basis is future minus spot; carry scales it to a year.", h("div", { class: "card-flush" }, table(cols, list, emptyState("list", "No futures", "The Bridge found no priced futures for this underlying."), { mobile: "scroll" }))),
     carry.length
-      ? sectionCard("Carry by expiry", "Annualised premium of each future over spot. Blue bars are a premium, orange bars a discount.", legend([{ cls: "call", label: "Premium to spot" }, { cls: "put", label: "Discount to spot" }]), strikeBars(carry, { label: `Annualised carry by expiry for ${d.underlying}.`, layout: { labelW: 84, tickFormat: (v) => `${formatFixed(v, 1)}%` } }))
+      ? sectionCard("Carry by expiry", "Annualised premium of each future over spot. Green bars are a premium, red bars a discount; the steepest is marked.", legend([{ cls: "up", label: "Premium to spot" }, { cls: "dn", label: "Discount to spot" }]), strikeBars(carry, { label: `Annualised carry by expiry for ${d.underlying}.`, layout: { labelW: 84, tickFormat: (v) => `${formatFixed(v, 1)}%` } }))
       : null,
     sectionCard("Calendar spreads", "The price gap between neighbouring expiries. The first one is the cost of rolling the near month forward.", h("div", { class: "card-flush" }, table(spreadCols, d.calendarSpreads ?? [], emptyState("list", "No spreads", "Calendar spreads need two expiries with prices."), { mobile: "scroll" }))),
   ];
@@ -597,12 +659,12 @@ function drawBasis(res) {
     statusRow(fr),
     partial(res.data?.errors, "Part of the history could not be read"),
     tiles(
-      tile("Latest basis", isFigure(b.latest) ? formatSigned(b.latest, 2) : DASH, isFigure(bp.latest) ? `${formatSigned(bp.latest, 3)}% of spot` : ""),
-      tile("Average basis", isFigure(b.mean) ? formatFixed(b.mean, 2) : DASH, `Over ${formatInt(b.count)} candles`),
+      heroTile(tile("Latest basis", isFigure(b.latest) ? formatSigned(b.latest, 2) : DASH, isFigure(bp.latest) ? `${formatSigned(bp.latest, 3)}% of spot · ${Number(b.latest) >= 0 ? "premium" : "discount"}` : "", signedClass(b.latest))),
+      tile("Average basis", isFigure(b.mean) ? formatSigned(b.mean, 2) : DASH, `Over ${formatInt(b.count)} candles`, signedClass(b.mean)),
       tile("Range", isFigure(b.min) ? `${formatFixed(b.min, 1)} to ${formatFixed(b.max, 1)}` : DASH, "Lowest to highest basis"),
       tile("How unusual", isFigure(b.zScore) ? formatSigned(b.zScore, 2) : DASH, zWords(b.zScore)),
     ),
-    sectionCard("Basis over time", `${d.futureSymbol ?? ""} minus ${d.spotSymbol ?? ""}, in points. The dashed line is the average.`, legend([{ cls: "s1", label: "Basis (points)" }]), seriesChart([{ id: "basis", label: "Basis", cls: "s1", points: pts }], { label: `Futures basis in points over ${series.length} candles for ${d.underlying} ${d.expiry}. Latest ${isFigure(b.latest) ? formatSigned(b.latest, 2) : "unknown"}.`, refs: isFigure(b.mean) ? [{ y: b.mean, label: "Average" }] : [] })),
+    sectionCard("Basis over time", `${d.futureSymbol ?? ""} minus ${d.spotSymbol ?? ""}, in points. Green while the latest basis is a premium, red a discount; the dashed line is the average.`, legend([{ cls: basisCls(b.latest), label: "Basis (points)" }]), seriesChart([{ id: "basis", label: "Basis", cls: basisCls(b.latest), points: pts }], { label: `Futures basis in points over ${series.length} candles for ${d.underlying} ${d.expiry}. Latest ${isFigure(b.latest) ? formatSigned(b.latest, 2) : "unknown"}.`, refs: isFigure(b.mean) ? [{ y: b.mean, label: "Average" }] : [] })),
     dataDisclosure("Show as a table", [{ label: "Time", cell: (r) => h("strong", {}, istDateTime(new Date(r.time * 1000).toISOString())) }, { label: "Future", num: true, cell: (r) => formatFixed(r.future, 2) }, { label: "Spot", num: true, cell: (r) => formatFixed(r.spot, 2) }, { label: "Basis", num: true, cell: (r) => formatSigned(r.basis, 2) }, { label: "Basis %", num: true, cell: (r) => formatSigned(r.basisPct, 3) }], rows.slice(0, 100)),
   ];
 }
@@ -613,6 +675,7 @@ function drawSynthetic(res) {
   const fr = res.data?.meta?.freshness;
   if (!list.length) return [statusRow(fr), emptyState("chart", "No strikes with both prices", "A synthetic future needs a call and a put price at the same strike.")];
   const ref = d.referenceSource === "future" ? "the futures price" : "spot";
+  const g = syntheticGaps(list);
   const cols = [
     { label: "Strike", cell: (r) => h("strong", {}, formatInt(r.strike), r.strike === d.atmStrike ? h("span", { class: "atm-flag" }, "ATM") : null) },
     { label: "Call", num: true, cell: (r) => formatFixed(r.ce, 2) },
@@ -626,12 +689,12 @@ function drawSynthetic(res) {
     statusRow(fr),
     partial(res.data?.errors, "The futures price could not be read, so spot is the reference"),
     tiles(
-      tile("Reference", isFigure(d.future) ? formatFixed(d.future, 2) : isFigure(d.spot) ? formatFixed(d.spot, 2) : DASH, `The ${ref}`),
+      heroTile(tile("Typical gap", isFigure(g.median) ? formatSigned(g.median, 2) : DASH, isFigure(g.median) ? `Median synthetic against ${ref}: ${g.median >= 0 ? "dearer" : "cheaper"}` : "No strike has a gap", signedClass(g.median))),
+      tile("Most out of line", g.outlier ? formatInt(g.outlier.strike) : DASH, g.outlier ? `${formatSigned(g.outlier.dev, 2)} from the typical gap` : "Every strike is level", signedClass(g.outlier?.dev)),
       tile("ATM synthetic", isFigure(d.atmSynthetic) ? formatFixed(d.atmSynthetic, 2) : DASH, `Strike ${isFigure(d.atmStrike) ? formatInt(d.atmStrike) : DASH}`),
-      tile("Widest gap at", isFigure(d.widestGapStrike) ? formatInt(d.widestGapStrike) : DASH, "Strike furthest from the reference"),
-      tile("Spot", isFigure(d.spot) ? formatFixed(d.spot, 2) : DASH, d.underlying ?? ""),
+      tile("Reference", isFigure(d.future) ? formatFixed(d.future, 2) : isFigure(d.spot) ? formatFixed(d.spot, 2) : DASH, `The ${ref}${isFigure(d.spot) && isFigure(d.future) ? ` · spot ${formatFixed(d.spot, 2)}` : ""}`),
     ),
-    sectionCard("Synthetic future by strike", `Strike plus call minus put, against ${ref}. Blue bars mean the synthetic is dearer, orange cheaper.`, legend([{ cls: "call", label: "Synthetic dearer" }, { cls: "put", label: "Synthetic cheaper" }]), strikeBars(syntheticItems(list, d.atmStrike), { label: `Synthetic future gap by strike for ${d.underlying} ${d.expiry}.`, layout: { tickFormat: (x) => formatFixed(x, 1) } })),
+    sectionCard("Synthetic future by strike", `Strike plus call minus put, measured from the typical gap (${isFigure(g.median) ? formatSigned(g.median, 2) : DASH} against ${ref}). Green is dearer than usual, red cheaper; the strike most out of line is marked.`, legend([{ cls: "up", label: "Dearer than typical" }, { cls: "dn", label: "Cheaper than typical" }]), strikeBars(syntheticItems(list, d.atmStrike), { label: `Synthetic future gap from the median by strike for ${d.underlying} ${d.expiry}.`, layout: { tickFormat: (x) => formatFixed(x, 2) } })),
     sectionCard("Strikes", "Gaps are in index points. Small gaps are normal; a large one is worth a second look before trusting either price.", h("div", { class: "card-flush" }, table(cols, [...list].sort((a, b) => a.strike - b.strike), emptyState("list", "No strikes", ""), { mobile: "scroll" }))),
   ];
 }
@@ -687,7 +750,15 @@ function drawFlows(res) {
   const latest = days[0];
   const fs = streakText(d.streak?.fii);
   const ds = streakText(d.streak?.dii);
-  const netTile = (who, v) => tile(`${who} net, ${dayLabel(latest.date)}`, formatSigned(v.net, 2), `Bought ${formatFixed(v.buy, 0)}, sold ${formatFixed(v.sell, 0)} (₹ crore)`, signedClass(v.net));
+  // The latest session's net per side, its run in the sub line and bought / sold on hover.
+  const netTile = (who, v, run) => {
+    const n = tile(`${who} net, ${dayLabel(latest.date)}`, isFigure(v?.net) ? formatSigned(v.net, 2) : DASH, run.sub && run.value !== "Flat" ? `${run.value}, ${run.sub.toLowerCase()}` : run.sub, signedClass(v?.net));
+    n.title = `Bought ${formatFixed(v?.buy, 0)}, sold ${formatFixed(v?.sell, 0)} (₹ crore)`;
+    return n;
+  };
+  const big = biggestFlow(days);
+  const both = days.reduce((t, r) => t + (Number(r.fii?.net) || 0) + (Number(r.dii?.net) || 0), 0);
+  const flowLegend = () => legend([{ cls: "up", label: "Net buying" }, { cls: "dn", label: "Net selling" }, { cls: "solid", label: "FII / FPI" }, { cls: "lite", label: "DII (lighter, dashed)" }]);
   const rows = rollingRows(d.rolling);
   const cols = [
     { label: "Period", cell: (r) => h("strong", {}, r.label) },
@@ -708,10 +779,15 @@ function drawFlows(res) {
   return [
     status,
     short ? note("Only part of the history is held so far", `This Bridge holds ${meta.available} session${meta.available === 1 ? "" : "s"} of the ${meta.requested} you asked for. NSE publishes one session at a time, so the history builds up while the Bridge runs and starts empty after a restart.`) : null,
-    tiles(netTile("FII", latest.fii), netTile("DII", latest.dii), tile("FII run", fs.value, fs.sub, fs.tone), tile("DII run", ds.value, ds.sub, ds.tone)),
+    tiles(
+      heroTile(netTile("FII", latest.fii, fs)),
+      netTile("DII", latest.dii, ds),
+      tile("Biggest flow", big ? formatSigned(big.net, 2) : DASH, big ? `${big.who} on ${dayLabel(big.date)}, ₹ crore` : "No session held", signedClass(big?.net)),
+      tile("FII and DII together", formatSigned(both, 2), `Net over the ${formatInt(days.length)} session${days.length === 1 ? "" : "s"} shown, ₹ crore`, signedClass(both)),
+    ),
     // Rows grow to use the window's height (a short list is not a band of empty plot), between 26 and 46 px.
-    sectionCard("Net flow by session", "₹ crore, newest first. Right of zero is net buying.", legend([{ cls: "s1", label: "FII / FPI" }, { cls: "s2", label: "DII" }]), strikeBars(flowItems(days), { label: `FII and DII net flows over ${days.length} sessions. Latest FII ${formatSigned(latest.fii.net, 2)} crore, DII ${formatSigned(latest.dii.net, 2)} crore.`, layout: { group: true, rowH: flowRowH(days.length), labelW: 52, tickFormat: (v) => formatNumber(v, { maximumFractionDigits: 0 }) } })),
-    sectionCard("Cumulative net", "₹ crore, added up from the oldest session shown.", legend([{ cls: "s1", label: "FII / FPI" }, { cls: "s2", label: "DII" }]), seriesChart(cumulativeFlows(days), { label: `Cumulative FII and DII net flows over ${days.length} sessions`, yDecimals: 0 })),
+    sectionCard("Net flow by session", "₹ crore, newest first. Right of zero is net buying; the biggest session is marked.", flowLegend(), strikeBars(flowItems(days), { label: `FII and DII net flows over ${days.length} sessions. Latest FII ${formatSigned(latest.fii.net, 2)} crore, DII ${formatSigned(latest.dii.net, 2)} crore.`, layout: { group: true, rowH: flowRowH(days.length), labelW: 52, tickFormat: (v) => formatNumber(v, { maximumFractionDigits: 0 }) } })),
+    sectionCard("Cumulative net", "₹ crore, added up from the oldest session shown. Each line is green while its total is net buying, red while net selling.", flowLegend(), seriesChart(cumulativeFlows(days), { label: `Cumulative FII and DII net flows over ${days.length} sessions`, yDecimals: 0 })),
     sectionCard("Rolling sums", "Net flow over the latest sessions held.", h("div", { class: "card-flush" }, table(cols, rows, emptyState("list", "No sums", ""), { mobile: "stack" }))),
     sectionCard("Sessions", "Bought, sold and net by session, ₹ crore.", h("div", { class: "card-flush" }, table(detail, days, h("p", { class: "muted small" }, "No data."), { mobile: "scroll" }))),
   ];
@@ -735,9 +811,11 @@ export function cumulativeFlows(days) {
     fii.push({ label: dayLabel(r.date), y: Math.round(f * 100) / 100 });
     dii.push({ label: dayLabel(r.date), y: Math.round(d * 100) / 100 });
   }
+  // Each line green while its running total is net buying, red while net selling; DII dashed.
+  const dir = (pts) => (Number(pts.at(-1)?.y) < 0 ? "dn" : "up");
   return [
-    { id: "fii", label: "FII", cls: "s1", points: fii },
-    { id: "dii", label: "DII", cls: "s2", dash: "6 3", points: dii },
+    { id: "fii", label: "FII", cls: dir(fii), points: fii },
+    { id: "dii", label: "DII", cls: dir(dii), dash: "6 3", points: dii },
   ];
 }
 

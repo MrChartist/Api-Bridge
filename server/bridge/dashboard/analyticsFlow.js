@@ -10,7 +10,7 @@
 import { alertBox, api, emptyState, h, icon, istTime, optional, pill, sheetPopover, table } from "./app.js";
 import { DASH, MINUS, formatFixed, formatInt, formatNumber, formatSigned, isFigure } from "./format.js";
 import { chainControls, chartHeight, chartHost, compact, demoPill, legend, linear, nextId, niceScale, readNumber, s, statusRow, strikeBars, svgRoot, tile, tiles } from "./analyticsViews.js";
-import { barTimeLabel, dayLabel, rulerLayout, seriesChart, seriesLayout } from "./analyticsMore.js";
+import { barTimeLabel, dayLabel, heroTile, rulerLayout, seriesChart, seriesLayout } from "./analyticsMore.js";
 
 // ───────────────────────── pure helpers ─────────────────────────
 
@@ -52,7 +52,30 @@ export function aggressorInfo(a) {
   return { text, sub: ["proxy", pct].filter(Boolean).join(" · "), tone: a.side === "buyer-aggressive" ? "up" : a.side === "seller-aggressive" ? "down" : "" };
 }
 
-export const MIN_PREMIUM_CHOICES = [["0", "Any premium"], ["100000", "₹1 L"], ["1000000", "₹10 L"], ["5000000", "₹50 L"], ["10000000", "₹1 Cr"], ["50000000", "₹5 Cr"]];
+/** "NIFTY 25500 CE" for an unusual-activity contract (pure). */
+export const contractLabel = (c) => (c ? `${c.underlying} ${formatInt(c.strike)} ${c.side === "call" ? "CE" : "PE"}` : DASH);
+
+/**
+ * The unusual-activity headline (pure): the top-scored contract, the one with the most premium traded, and how the
+ * premium shown splits between calls and puts (`callShare` 0..1, null when no premium is known).
+ */
+export function unusualLead(rows) {
+  const list = rows ?? [];
+  let call = 0;
+  let put = 0;
+  let biggest = null;
+  for (const c of list) {
+    if (!isFigure(c?.premiumInr)) continue;
+    const p = Number(c.premiumInr);
+    if (c.side === "call") call += p;
+    else put += p;
+    if (!biggest || p > Number(biggest.premiumInr)) biggest = c;
+  }
+  const total = call + put;
+  return { top: list[0] ?? null, biggest, callPremium: call, putPremium: put, callShare: total > 0 ? call / total : null };
+}
+
+export const MIN_PREMIUM_CHOICES =[["0", "Any premium"], ["100000", "₹1 L"], ["1000000", "₹10 L"], ["5000000", "₹50 L"], ["10000000", "₹1 Cr"], ["50000000", "₹5 Cr"]];
 
 /** The GET /v1/analytics/unusual query from the filter fields, or { ok: false, error }. */
 export function unusualQuery({ underlyings, minPremium, side, sort, limit } = {}) {
@@ -125,8 +148,8 @@ export function tideFlowSeries(points, k = 3) {
       return { label: barTimeLabel(p.ts / 1000, "time"), y: Math.round(sum / 1e5) / 100 };
     });
   return [
-    { id: "call", label: "Calls (₹ Cr, 15 min)", cls: "s1", points: roll("callPremium") },
-    { id: "put", label: "Puts (₹ Cr, 15 min)", cls: "s2", dash: "6 3", points: roll("putPremium") },
+    { id: "call", label: "Calls (₹ Cr, 15 min)", cls: "up", points: roll("callPremium") },
+    { id: "put", label: "Puts (₹ Cr, 15 min)", cls: "dn", dash: "6 3", points: roll("putPremium") },
   ];
 }
 
@@ -502,7 +525,7 @@ function cumulativeChart(points, label) {
     svg.append(s("defs", {}, s("clipPath", { id: `${id}-up` }, s("rect", { x: L.padL, y: 0, width: L.plotRight - L.padL, height: L.zeroY })), s("clipPath", { id: `${id}-dn` }, s("rect", { x: L.padL, y: L.zeroY, width: L.plotRight - L.padL, height: Math.max(0, L.height - L.zeroY) }))));
     for (const t of L.yTicks) svg.append(s("line", { class: "grid-line", x1: L.padL, x2: L.plotRight, y1: t.y, y2: t.y }), s("text", { class: "tick", x: L.padL - 6, y: t.y + 4, "text-anchor": "end" }, t.label));
     for (const t of L.xTicks) svg.append(s("text", { class: "tick", x: t.x, y: L.height - 8, "text-anchor": "middle" }, t.label));
-    svg.append(s("path", { class: "area call", d: L.area, "clip-path": `url(#${id}-up)` }), s("path", { class: "area put", d: L.area, "clip-path": `url(#${id}-dn)` }), s("line", { class: "zero-line", x1: L.padL, x2: L.plotRight, y1: L.zeroY, y2: L.zeroY }), s("path", { class: "line payoff", d: L.line }));
+    svg.append(s("path", { class: "area up", d: L.area, "clip-path": `url(#${id}-up)` }), s("path", { class: "area dn", d: L.area, "clip-path": `url(#${id}-dn)` }), s("line", { class: "zero-line", x1: L.padL, x2: L.plotRight, y1: L.zeroY, y2: L.zeroY }), s("path", { class: "line payoff", d: L.line }));
     for (const d of L.dots) svg.append(s("circle", { class: "be-dot", cx: d.x, cy: d.y, r: 3 }, s("title", {}, d.title)));
     return svg;
   });
@@ -576,7 +599,7 @@ async function renderUnusual(H) {
       const t = dataTable(
         [
           { label: "#", cell: (_, i) => h("span", { class: "muted" }, String(i + 1)) },
-          { label: "Contract", cell: (c) => h("div", { class: "cell-two" }, h("button", { type: "button", class: "row-pick" }, `${c.underlying} ${formatInt(c.strike)} ${c.side === "call" ? "CE" : "PE"}`), h("span", { class: "muted small" }, dayLabel(c.expiry))) },
+          { label: "Contract", cell: (c) => h("div", { class: "cell-two" }, h("button", { type: "button", class: "row-pick" }, `${c.underlying} ${formatInt(c.strike)} `, h("span", { class: c.side === "call" ? "up" : "down" }, c.side === "call" ? "CE" : "PE")), h("span", { class: "muted small" }, dayLabel(c.expiry))) },
           { label: "Score", num: true, cell: (c) => h("span", { class: `score-chip ${scoreTone(c.score)}` }, formatFixed(c.score, 1)) },
           // Two flags and a "+N" chip (the rest in its tooltip), so a row stays one line on a wide screen.
           { label: "Flags", cell: (c) => h("div", { class: "flags" }, c.flags?.length ? [...c.flags.slice(0, 2).map((f) => h("span", { class: `pill sm ${flagInfo(f).tone}`, title: flagInfo(f).hint }, flagInfo(f).label)), c.flags.length > 2 ? h("span", { class: "pill sm flag-more", title: c.flags.slice(2).map((f) => flagInfo(f).label).join(", ") }, `+${formatInt(c.flags.length - 2)}`) : null] : h("span", { class: "muted small" }, "None")) },
@@ -594,13 +617,18 @@ async function renderUnusual(H) {
     build();
     showDetail();
     const lotMissing = (d.underlyings ?? []).filter((u) => u.lotSizeMissing).map((u) => u.underlying);
-    const sum = rows.reduce((t, c) => t + (isFigure(c.premiumInr) ? Number(c.premiumInr) : 0), 0);
-    const top = rows[0];
+    const lead = unusualLead(rows);
+    const top = lead.top;
     return [
       statusRow(res.data?.meta?.freshness),
       partial(res.data?.errors),
       lotMissing.length ? note("No lot size", `${lotMissing.join(", ")}: the chain carries no lot size, so premium traded is not available and those contracts cannot pass a premium filter.`, "warn") : null,
-      tiles(tile("Contracts", formatInt(d.count), `${formatInt(d.returned)} shown of ${formatInt(d.count)} that passed`), tile("Top score", top ? formatFixed(top.score, 1) : DASH, top ? `${top.underlying} ${formatInt(top.strike)} ${top.side === "call" ? "CE" : "PE"}` : "Nothing ranked"), tile("Premium shown", inr(sum), "Volume (units) x price"), tile("Scanned", formatInt((d.underlyings ?? []).reduce((t, u) => t + u.contracts, 0)), `${(d.underlyings ?? []).map((u) => `${u.underlying} ${dayLabel(u.expiry)}`).join(", ") || "No underlying"}`)),
+      tiles(
+        heroTile(tile("Top contract", contractLabel(top), top ? `Score ${formatFixed(top.score, 1)} · ${dayLabel(top.expiry)}${isFigure(top.premiumInr) ? ` · ${inr(top.premiumInr)} traded` : ""}` : "Nothing ranked", top ? (top.side === "call" ? "up" : "down") : undefined)),
+        tile("Most premium", lead.biggest ? inr(lead.biggest.premiumInr) : DASH, lead.biggest ? contractLabel(lead.biggest) : "No premium known", lead.biggest ? (lead.biggest.side === "call" ? "up" : "down") : undefined),
+        tile("Calls against puts", lead.callShare === null ? DASH : `${formatInt(Math.round(lead.callShare * 100))}% calls`, lead.callShare === null ? "No premium known" : `${inr(lead.callPremium)} calls, ${inr(lead.putPremium)} puts`, lead.callShare === null ? undefined : lead.callShare >= 0.5 ? "up" : "down"),
+        tile("Contracts", formatInt(d.count), `${formatInt(d.returned)} shown of ${formatInt(d.count)} that passed · ${formatInt((d.underlyings ?? []).reduce((t, u) => t + u.contracts, 0))} scanned`),
+      ),
       h("div", { class: "grid side" }, h("section", { class: "card" }, h("header", { class: "card-head" }, h("div", { class: "card-titles" }, h("h2", {}, "Ranked contracts"), h("p", {}, "Choose a row to see where its score comes from. Buy-side and sell-side are a proxy from the price's place in the bid-ask spread, not trade data."))), h("div", { class: "card-body flush" }, tbl)), detail),
       d.disclaimer ? h("p", { class: "muted small" }, d.disclaimer) : null,
     ];
@@ -669,7 +697,7 @@ async function renderTide(H) {
     return [
       status,
       d.lotSizeAssumed ? note("No lot size", "The chain carries no lot size, so premium assumes 1 unit per lot.", "warn") : null,
-      tiles(tile("Call premium", inr(t.callPremium), "Traded this session"), tile("Put premium", inr(t.putPremium), "Traded this session"), tile("Net (calls - puts)", inr(t.net), "Call premium minus put premium", signClass(t.net)), tile("Cumulative net", inr(t.cumulativeNet), `${formatInt(d.intervals)} intervals so far`, signClass(t.cumulativeNet))),
+      tiles(heroTile(tile("Cumulative net", inr(t.cumulativeNet), `Calls minus puts over ${formatInt(d.intervals)} intervals: ${Number(t.cumulativeNet) > 0 ? "call-led" : Number(t.cumulativeNet) < 0 ? "put-led" : "level"}`, signClass(t.cumulativeNet))), tile("Net (calls - puts)", inr(t.net), "Call premium minus put premium", signClass(t.net)), tile("Call premium", inr(t.callPremium), "Traded this session", "up"), tile("Put premium", inr(t.putPremium), "Traded this session", "down")),
       h(
         "div",
         { class: "grid cols-2" },
@@ -688,7 +716,7 @@ async function renderTide(H) {
       sectionCard(
         "Premium flow through the session",
         `${d.underlying} ${d.expiry}: premium traded between snapshots, each interval shown at its end. Times are IST.`,
-        legend([{ cls: "s1", label: "Call premium" }, { cls: "s2", label: "Put premium" }]),
+        legend([{ cls: "up", label: "Call premium" }, { cls: "dn", label: "Put premium (dashed)" }]),
         seriesChart(tideFlowSeries(pts), { label: `Call and put premium traded over rolling 15 minutes through the session for ${d.underlying}. Total calls ${inr(t.callPremium)}, puts ${inr(t.putPremium)}.`, yDecimals: 0 }),
         h("h3", { class: "chart-title" }, "Cumulative net premium"),
         cumulativeChart(pts, `Cumulative call minus put premium for ${d.underlying}, now ${inr(t.cumulativeNet)}.`),
@@ -1057,11 +1085,11 @@ async function nseTab(H, { fields, extra, path, draw, intro }) {
 }
 const NSE_NOTE = "These pages read NSE's public site, which changes without notice. If NSE changes a page, the Bridge says so instead of guessing, and shows the last good copy when it has one. Values are in INR crore.";
 
-function topList(rows, valueKey, labelKey, extraKey) {
+function topList(rows, valueKey, labelKey, extraKey, tone) {
   return table(
     [
       { label: labelKey === "client" ? "Client" : "Symbol", cell: (r) => h("span", { class: "clip", title: r[labelKey] }, r[labelKey]) },
-      { label: "Value", num: true, cell: (r) => h("span", { class: valueKey === "netCr" ? signClass(r[valueKey]) : undefined }, crore(r[valueKey])) },
+      { label: "Value", num: true, cell: (r) => h("span", { class: tone ?? (valueKey === "netCr" ? signClass(r[valueKey]) : undefined) }, crore(r[valueKey])) },
       ...(extraKey ? [{ label: "Deals", num: true, cell: (r) => formatInt(r[extraKey]) }] : []),
     ],
     rows ?? [],
@@ -1085,8 +1113,8 @@ function dealsTab(H) {
       const sum = d.summary ?? {};
       const net = Number(sum.buyCr) - Number(sum.sellCr);
       return [
-        tiles(tile("Deals", formatInt(sum.deals), `${d.kind === "bulk" ? "Bulk" : "Block"} deals in the window`), tile("Bought", crore(sum.buyCr), "Buy-side value"), tile("Sold", crore(sum.sellCr), "Sell-side value"), tile("Net", crore(net), "Bought minus sold", signClass(net))),
-        h("div", { class: "grid cols-2" }, sectionCard("Top buyers", "By value in the window.", topList(sum.topBuyers, "valueCr", "client", "deals")), sectionCard("Top sellers", "By value in the window.", topList(sum.topSellers, "valueCr", "client", "deals"))),
+        tiles(heroTile(tile("Net", crore(net), "Bought minus sold in the window", signClass(net))), tile("Bought", crore(sum.buyCr), "Buy-side value", "up"), tile("Sold", crore(sum.sellCr), "Sell-side value", "down"), tile("Deals", formatInt(sum.deals), `${d.kind === "bulk" ? "Bulk" : "Block"} deals in the window`)),
+        h("div", { class: "grid cols-2" }, sectionCard("Top buyers", "By value in the window.", topList(sum.topBuyers, "valueCr", "client", "deals", "up")), sectionCard("Top sellers", "By value in the window.", topList(sum.topSellers, "valueCr", "client", "deals", "down"))),
         h(
           "section",
           { class: "card" },

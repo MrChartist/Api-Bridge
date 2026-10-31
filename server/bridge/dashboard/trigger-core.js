@@ -211,6 +211,12 @@ export function distancePct(leg, ltp) {
   return Math.abs((Number(leg.trigger) - Number(ltp)) / Number(ltp)) * 100;
 }
 
+/** How close a leg is to firing, for its highlight: "close" within 0.5 %, "near" within 1.5 %, else "" (pure). */
+export function distanceTone(d) {
+  if (!isFigure(d)) return "";
+  return Number(d) <= 0.5 ? "close" : Number(d) <= 1.5 ? "near" : "";
+}
+
 /** What happened, in one line (for fired, failed, cancelled or expired triggers, and retries). */
 export function outcomeText(t) {
   const r = t.result ?? {};

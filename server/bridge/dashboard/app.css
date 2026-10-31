@@ -9550,12 +9550,10 @@ button.bk-chip[data-side="SELL"][aria-pressed="true"]::before { background: hsl(
 .algo-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 14px 28px; padding: 16px var(--card-pad); }
 .algo-kpis { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 36px; flex: 1 1 560px; min-width: 0; }
 .algo-kpi { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.algo-kpi:last-child { flex: 1 1 280px; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "l l" "p c"; align-items: center; column-gap: 8px; }
-.algo-kpi:last-child > .algo-kl { grid-area: l; }
-.algo-kpi:last-child > .algo-path { grid-area: p; }
 .algo-kl { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; }
 .algo-kv { font: 500 22px/1.15 var(--font-numeric); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; white-space: nowrap; }
-.algo-path { font: 400 12.5px/1.4 var(--font-mono); color: hsl(var(--foreground) / var(--a-label)); overflow-wrap: anywhere; min-width: 0; }
+.algo-kpi.hero .algo-kv { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; }
+.algo-bar.killed { background: linear-gradient(hsl(var(--ios-red) / 0.08), hsl(var(--ios-red) / 0.08)), var(--mat-grouped-solid); box-shadow: var(--panel-shadow), inset 0 0 0 1px hsl(var(--ios-red) / 0.35); }
 .algo-bar-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .algo-kill { display: inline-flex; text-decoration: none; }
 .algo-kill:hover { text-decoration: none; }
@@ -10209,6 +10207,44 @@ a.pm-n-title:hover { text-decoration: underline; }
 @container (max-width: 720px) { .vt-answers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (prefers-reduced-motion: reduce) { .vs-bar, .vs-meter > i, .vs-split-bar > i { transition: none; } }
 
+/* ───────────────────────── 20 · OPS PAGES: Safety and triggers (views.js renderSafety, triggers.js) ─────────────────────────
+   One hero reading per view; direction always green or red; the thing that matters (a limit near its cap, the steepest
+   carry, the biggest flow, the top unusual contract) gets the highlight. */
+.kill.clear { background: linear-gradient(hsl(var(--ios-green) / 0.06), hsl(var(--ios-green) / 0.06)), var(--mat-grouped-solid); }
+.kill-cap { display: inline-flex; align-self: flex-start; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font: 600 12px/1.4 var(--font-body); letter-spacing: 0.01em; }
+.kill-cap i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.kill-cap.flowing { color: hsl(var(--ios-green-ink)); background: hsl(var(--ios-green) / 0.14); }
+.kill-cap.stopped { color: hsl(var(--ios-red-ink)); background: hsl(var(--ios-red) / 0.14); }
+.kill-cap.flowing i { animation: sf-pulse 2.4s ease-in-out infinite; }
+@keyframes sf-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .kill-cap.flowing i { animation: none; } .sf-fill { transition: none; } }
+
+.sf-headroom { container: sfhead / inline-size; }
+.sf-headline { margin: 0; font: 500 15px/1.4 var(--font-body); color: hsl(var(--foreground) / 0.88); }
+.sf-headline.t-near { color: hsl(var(--ios-orange-ink)); }
+.sf-headline.t-breach { color: hsl(var(--ios-red-ink)); font-weight: 600; }
+.sf-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+@container sfhead (max-width: 1000px) { .sf-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container sfhead (max-width: 520px) { .sf-grid { grid-template-columns: minmax(0, 1fr); } }
+.sf-acct { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--r-md, 14px); background: var(--mat-fill-1); }
+.sf-acct.t-near { background: hsl(var(--ios-orange) / 0.10); box-shadow: inset 0 0 0 1px hsl(var(--ios-orange) / 0.35); }
+.sf-acct.t-breach { background: hsl(var(--ios-red) / 0.10); box-shadow: inset 0 0 0 1px hsl(var(--ios-red) / 0.45); }
+.sf-acct-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.sf-acct-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.sf-meter { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: 8px; font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.sf-mv { font-family: var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / 0.86); white-space: nowrap; }
+.sf-track { position: relative; height: 6px; border-radius: 999px; background: var(--mat-fill-2); overflow: hidden; }
+.sf-fill { display: block; height: 100%; width: 0; border-radius: 999px; background: hsl(var(--ios-green)); transition: width 400ms var(--ease-out); }
+.sf-meter.t-near .sf-fill { background: hsl(var(--ios-orange)); }
+.sf-meter.t-breach .sf-fill { background: hsl(var(--ios-red)); }
+.sf-meter.t-near .sf-mv { color: hsl(var(--ios-orange-ink)); }
+.sf-meter.t-breach .sf-mv { color: hsl(var(--ios-red-ink)); font-weight: 600; }
+.sf-pnl { font-variant-numeric: tabular-nums; }
+/* Triggers (triggers.js): a leg close to firing gets a capsule instead of grey text. */
+.trg-near { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font: 600 12px/1.4 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.trg-near.near { color: hsl(var(--ios-orange-ink)); background: hsl(var(--ios-orange) / 0.14); }
+.trg-near.close { color: hsl(var(--ios-red-ink)); background: hsl(var(--ios-red) / 0.14); }
+
 /* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────
    Inline-SVG charts: every colour is a theme token (so light and dark both work), every size is an SVG attribute
    (no style attributes: the dashboard CSP is style-src 'self'). Series are told apart by colour AND dash or position. */
@@ -10698,3 +10734,25 @@ a.pm-n-title:hover { text-decoration: underline; }
 @media (forced-colors: active) {
   .an-page .oix-tile, .an-page .oix-cfill, .an-page .oix-rfill, .an-page .oix-spfill { forced-color-adjust: none; }
 }
+
+/* ───────────────────────── 15h · OPS PAGES, ANALYTICS: Futures and Flow (analyticsMore.js, analyticsFlow.js) ───────────────────────── */
+/* Analytics charts in direction colours: up = green (premium, net buying, calls), dn = red (discount, net selling, puts).
+   A second series on the same chart (DII beside FII) is the same hue, lighter: told apart by tone and position. */
+.an-page .chart .bar.up { fill: hsl(var(--pos)); }
+.an-page .chart .bar.dn { fill: hsl(var(--neg)); }
+.an-page .chart .bar.up.lite { fill: hsl(var(--pos) / 0.45); }
+.an-page .chart .bar.dn.lite { fill: hsl(var(--neg) / 0.45); }
+.an-page .chart .line.up { stroke: hsl(var(--pos)); fill: none; }
+.an-page .chart .line.dn { stroke: hsl(var(--neg)); fill: none; }
+.an-page .chart .dot.up { fill: hsl(var(--pos)); }
+.an-page .chart .dot.dn { fill: hsl(var(--neg)); }
+.an-page .chart .area.up { fill: hsl(var(--pos) / 0.22); }
+.an-page .chart .area.dn { fill: hsl(var(--neg) / 0.22); }
+.an-page .chart .band.hot { fill: hsl(var(--ios-orange) / 0.12); stroke: hsl(var(--ios-orange-ink) / 0.5); }
+.an-page .chart-legend .swatch.up { background: hsl(var(--pos)); }
+.an-page .chart-legend .swatch.dn { background: hsl(var(--neg)); }
+.an-page .chart-legend .swatch.lite { background: hsl(var(--foreground) / 0.3); }
+.an-page .chart-legend .swatch.solid { background: hsl(var(--foreground) / 0.8); }
+.an-page .grid.stats > .card.stat.ops-hero { background: hsl(var(--foreground) / 0.035); }
+.an-page .grid.stats > .card.stat.ops-hero .value { font-size: 24px; font-weight: 600; }
+.an-page .fx-chip { margin-left: 6px; padding: 1px 7px; border-radius: 999px; font: 600 12px/1.4 var(--font-body); color: hsl(var(--ios-orange-ink)); background: hsl(var(--ios-orange) / 0.14); }
