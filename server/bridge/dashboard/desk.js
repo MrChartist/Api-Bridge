@@ -1019,6 +1019,9 @@ async function renderDesk(kind) {
       // 5 / 15 min build-up: the baseline snapshots, found once per refresh (only while a column needs them).
       ...minuteRefs(w, c.rows),
       maxChg,
+      // High / Low with no day range from the data source: the range of this page's minute snapshots (today's key),
+      // once per refresh and only while one of those columns is chosen.
+      snapHL: (st.cfg.cols.includes("high") || st.cfg.cols.includes("low")) && w?.snaps?.length ? M.snapshotRanges(w.snaps) : null,
     };
   }
   /** The 5 / 15 min build-up baselines (chain-metrics.js windowRef). "Now" is this device's clock while the session is
@@ -2981,7 +2984,7 @@ export const CHAIN_COLUMNS = [
   ["ltpChg", "LTP change"], ["prevClose", "Previous close"], ["avgPx", "Average price"], ["high", "Today's high"], ["low", "Today's low"],
   ["prevVol", "Previous volume"], ["volOi", "Volume / OI"],
   ["bidPx", "Bid"], ["bidQty", "Bid quantity"], ["askPx", "Ask"], ["askQty", "Ask quantity"],
-  ["rho", "Rho"], ["bu5", "5 min build-up"], ["bu15", "15 min build-up"],
+  ["rho", "Rho"], ["bu5", "5 min build-up"], ["bu15", "15 min build-up"], ["prevOi", "Previous OI"],
   ["intrinsic", "Intrinsic value"], ["bePct", "Breakeven %"], ["spreadAbs", "Bid-ask spread"], ["theo", "Theoretical price"],
   ["relDist", "Relative distance"], ["bidPct", "Bid %"], ["askPct", "Ask %"], ["bidPctAnn", "Annualised bid %"], ["askPctAnn", "Annualised ask %"],
 ];
@@ -3029,7 +3032,7 @@ export const COLUMN_GROUPS = Object.freeze([
   { id: "price", label: "Price & volume", keys: ["ltp", "ltpChg", "prevClose", "avgPx", "high", "low", "vol", "prevVol", "volOi", "prem", "premLot"] },
   { id: "depth", label: "Market depth", keys: ["bidPx", "bidQty", "askPx", "askQty", "spread", "liq"] },
   { id: "greeks", label: "Greeks", keys: ["iv", "delta", "gamma", "theta", "vega", "rho", "thetaLot", "ivx", "ivskew"] },
-  { id: "oi", label: "Open interest signals", keys: ["oi", "chg", "bu", "bu5", "bu15", "pcrK"] },
+  { id: "oi", label: "Open interest signals", keys: ["oi", "prevOi", "chg", "bu", "bu5", "bu15", "pcrK"] },
   {
     id: "other",
     label: "Other metrics",
@@ -3053,7 +3056,7 @@ export const COL_MIN = Object.freeze({
   ltp: 78, iv: 52, oi: 64, chg: 70, vol: 74, bu: 120, bid: 68, ask: 68, delta: 60, gamma: 70, theta: 60, vega: 52, pitm: 58, potm: 64,
   ext: 82, spread: 74, liq: 70, prem: 110, be: 70, pop: 60, pops: 62, dist: 72, premLot: 76, thetaLot: 76, ivx: 64, hedge: 84,
   costPct: 62, syn: 126, dev: 98, edge: 96, ivskew: 58, pcrK: 54, strad: 78,
-  ltpChg: 70, prevClose: 80, avgPx: 74, high: 68, low: 68, prevVol: 74, volOi: 60, bidPx: 64, bidQty: 68, askPx: 64, askQty: 68,
+  ltpChg: 70, prevClose: 80, avgPx: 74, high: 68, low: 68, prevVol: 74, prevOi: 70, volOi: 60, bidPx: 64, bidQty: 68, askPx: 64, askQty: 68,
   rho: 70, bu5: 120, bu15: 120, intrinsic: 70, bePct: 60, spreadAbs: 72, theo: 68, relDist: 64, bidPct: 60, askPct: 60, bidPctAnn: 76,
   askPctAnn: 76, sdOi: 70, sdBu: 120, default: 64,
 });
@@ -3520,6 +3523,8 @@ function createChain({ st, host, tools = null, headRow = null, toolSlot = null, 
     r: (q, row, side, x) => buCard(M.windowBuildup(q, x[`bu${win}`], row.strike, side), x[`bu${win}`]?.max?.[side], x, `over the last ${label}`, buTop(x[`bu${win}`]?.top, side, row.strike)),
   });
   const R = (side) => (side === "ce" ? "CE" : "PE");
+  /** A day high / low (M.dayHighOr / dayLowOr): the feed's figure plain; the snapshots' in a quieter ink, titled. */
+  const rangeCell = (r, which) => (!r ? DASH : r.from === "feed" ? g(r.value, 2) : cg(h("span", { class: "muted", title: `From this page's minute snapshots (the data source sent no day ${which}): it can miss a move between two snapshots` }, g(r.value, 2))));
   const prem = (q) => O.mid(q);
   const picked = new Map();
   let selecting = false;
@@ -3591,8 +3596,14 @@ function createChain({ st, host, tools = null, headRow = null, toolSlot = null, 
     iv: {
       label: "IV",
       title: "Implied volatility: the yearly volatility (%) at which Black-76 on the forward gives the option's price. Hover a dash for why there is none",
-      v: (q) => [g(q?.iv, 1), q?.ivReason ?? "", q?.greeksSource ?? ""],
-      r: (q) => (num(q?.iv) > 0 ? g(q.iv, 1) : cg(h("span", { class: "muted", title: CF.ivSourceText(q) }, DASH))),
+      v: (q, row, side, x) => [g(q?.iv, 1), q?.ivReason ?? "", q?.greeksSource ?? "", g(M.mirroredIv(row, side, x.F), 1)],
+      r: (q, row, side, x) => {
+        if (num(q?.iv) > 0) return g(q.iv, 1);
+        // No IV of its own (deep in the money, a tick): the out-of-the-money leg's at this strike, in a quieter ink.
+        const m = M.mirroredIv(row, side, x.F);
+        if (m !== null) return cg(h("span", { class: "muted", title: `${CF.ivSourceText(q)}. Shown: the ${side === "ce" ? "put" : "call"}'s IV at this strike (put-call parity gives both legs one volatility)` }, g(m, 1)));
+        return cg(h("span", { class: "muted", title: CF.ivSourceText(q) }, DASH));
+      },
     },
     ltp: {
       label: "LTP",
@@ -3698,12 +3709,12 @@ function createChain({ st, host, tools = null, headRow = null, toolSlot = null, 
     dist: {
       label: "Distance",
       short: "Dist",
-      title: "Distance from spot, out of the money positive (%); under it, in standard deviations to expiry at ATM IV",
+      title: "Points from spot, a whole number (|strike − spot|); under it, the gap in standard deviations to expiry at ATM IV, out of the money positive. Relative distance gives it as a % of spot",
       v: (q, row, side, x) => [Math.round(x.spot ?? 0), Math.round(x.F ?? 0), x.sm.atmIv],
       r: (q, row, side, x) => {
         const d = O.distance(row.strike, R(side), x.spot);
         const sd = O.sigmaDistance(row.strike, R(side), x.F, x.sm.atmIv, x.years);
-        return two(d ? pct1(d.pct) : DASH, { text: sd === null ? "" : `${formatSigned(sd, 1)}σ`, force: true });
+        return two(d ? h("span", { title: `${pct1(d.pct)} of spot, out of the money positive` }, formatInt(Math.round(Math.abs(d.pts)))) : DASH, { text: sd === null ? "" : `${formatSigned(sd, 1)}σ`, force: true });
       },
     },
     premLot: { label: "Prem/lot", title: "Premium for one lot (mid × lot size)", v: (q, row, side, x) => [prem(q), x.lot], r: (q, row, side, x) => rupees(prem(q) === null ? null : prem(q) * x.lot) },
@@ -3809,8 +3820,28 @@ function createChain({ st, host, tools = null, headRow = null, toolSlot = null, 
     },
     prevClose: { label: "Prev close", title: "Previous close: the option's closing price in the last session", v: (q) => q?.close, r: (q) => g(M.quotePrice(q?.close), 2) },
     avgPx: { label: "Avg price", short: "ATP", title: "Average traded price today (volume-weighted, as the broker sends it). A dash when the data source does not send it", v: (q) => q?.avgPrice, r: (q) => g(M.quotePrice(q?.avgPrice), 2) },
-    high: { label: "High", title: "Today's high: the highest premium this contract traded at today, never below the live LTP (max of the day high and LTP). A dash when the data source sends no day high", v: (q) => [q?.high, q?.ltp], r: (q) => g(M.dayHigh(q), 2) },
-    low: { label: "Low", title: "Today's low: the lowest premium this contract traded at today, never above the live LTP (min of the day low and LTP). A dash when the data source sends no day low", v: (q) => [q?.low, q?.ltp], r: (q) => g(M.dayLow(q), 2) },
+    high: {
+      label: "High",
+      title: "Today's high: the highest premium this contract traded at today, never below the live LTP (max of the day high and LTP). With no day high from the data source, the highest of this page's minute snapshots (quieter ink); a dash when there are none",
+      v: (q, row, side, x) => [q?.high, q?.ltp, x.snapHL?.[side]?.get(row.strike)?.hi ?? null],
+      r: (q, row, side, x) => rangeCell(M.dayHighOr(q, x.snapHL?.[side]?.get(row.strike)), "high"),
+    },
+    low: {
+      label: "Low",
+      title: "Today's low: the lowest premium this contract traded at today, never above the live LTP (min of the day low and LTP). With no day low from the data source, the lowest of this page's minute snapshots (quieter ink); a dash when there are none",
+      v: (q, row, side, x) => [q?.low, q?.ltp, x.snapHL?.[side]?.get(row.strike)?.lo ?? null],
+      r: (q, row, side, x) => rangeCell(M.dayLowOr(q, x.snapHL?.[side]?.get(row.strike)), "low"),
+    },
+    prevOi: {
+      label: "Prev OI",
+      head: () => (cfg().lots ? "Prev OI (lots)" : "Prev OI"),
+      title: "Open interest at the previous close (OI − its change): the baseline the OI change and the build-up read from. A dash without a baseline",
+      v: (q, row, side, x) => [q?.oi, q?.oiChange, unit(x)],
+      r: (q, row, side, x) => {
+        const p = M.prevOi(q);
+        return formatCompact(p === null ? null : p / unit(x));
+      },
+    },
     prevVol: {
       label: "Prev vol",
       head: () => (cfg().lots ? "Prev vol (lots)" : "Prev vol"),

@@ -511,6 +511,7 @@ export function cardModel(key, q, row, side, x, { facts = null, label = null } =
     case "high":
     case "low":
     case "prevVol":
+    case "prevOi":
     case "volOi":
     case "bidPx":
     case "askPx":
@@ -597,7 +598,7 @@ export function cardModel(key, q, row, side, x, { facts = null, label = null } =
     case "dist": {
       const d = O.distance(K, RIGHT[side], num(x?.spot));
       if (!d) return no("No spot to measure from.");
-      out.headline = `The strike is ${g(Math.abs(d.pts), 1)} points (${pc(Math.abs(d.pct), 2)}) ${d.pts > 0 ? "out of" : d.pts < 0 ? "in" : "at"} the money for this ${leg?.toLowerCase() ?? "leg"}.`;
+      out.headline = `The strike is ${formatInt(Math.round(Math.abs(d.pts)))} points (${pc(Math.abs(d.pct), 2)}) ${d.pts > 0 ? "out of" : d.pts < 0 ? "in" : "at"} the money for this ${leg?.toLowerCase() ?? "leg"}.`;
       return out;
     }
     case "pitm":

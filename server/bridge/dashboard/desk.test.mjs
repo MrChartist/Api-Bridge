@@ -319,12 +319,13 @@ describe("chain columns: Customise groups and the extra columns", () => {
     for (const k of ["ltpChg", "prevClose", "avgPx", "high", "low", "prevVol", "volOi"]) expect(at(k), k).toBe("price");
     for (const k of ["bidPx", "bidQty", "askPx", "askQty"]) expect(at(k), k).toBe("depth");
     expect(at("rho")).toBe("greeks");
-    for (const k of ["bu5", "bu15"]) expect(at(k), k).toBe("oi");
+    for (const k of ["bu5", "bu15", "prevOi"]) expect(at(k), k).toBe("oi");
     for (const k of ["intrinsic", "bePct", "spreadAbs", "theo", "relDist", "bidPct", "askPct", "bidPctAnn", "askPctAnn"]) expect(at(k), k).toBe("other");
   });
   it("new columns are per side (not per strike), have a width, and keep clear of the Bid and ask switch's keys", () => {
     const added = CHAIN_COLUMNS.slice(CHAIN_COLUMNS.findIndex((c) => c[0] === "ltpChg"));
-    expect(added.length).toBe(23);
+    // 23 from the columns round, then Previous OI (the OI baseline as its own column).
+    expect(added.length).toBe(24);
     for (const [k, , scope] of added) {
       expect(scope, k).toBeUndefined();
       expect(COL_MIN[k], k).toBeGreaterThan(0);

@@ -54,6 +54,70 @@ export function rangePosition(leg) {
   return h === null || l === null || ltp === null || h <= l ? null : (ltp - l) / (h - l);
 }
 
+/**
+ * The day's range from this page's own minute snapshots (oi-store.js: `k` strikes, `cl` / `pl` call and put LTPs), for
+ * a leg whose data source sends no day high or low: Map strike → { hi, lo, n } per side, over snapshots taken on
+ * `istDate` (a snapshot's own `istDate`; all when absent). The live LTP is folded in by the caller. Snapshots only
+ * sample once a minute, so the range can miss a spike between them: callers say so.
+ */
+export function snapshotRanges(snaps, istDate = null) {
+  const out = { ce: new Map(), pe: new Map() };
+  for (const s of Array.isArray(snaps) ? snaps : []) {
+    if (!Array.isArray(s?.k) || (istDate && s.istDate && s.istDate !== istDate)) continue;
+    for (const [side, key] of [["ce", "cl"], ["pe", "pl"]]) {
+      const px = s[key];
+      if (!Array.isArray(px)) continue;
+      for (let i = 0; i < s.k.length; i += 1) {
+        const p = pos(px[i]);
+        if (p === null) continue;
+        const r = out[side].get(s.k[i]);
+        if (r) {
+          if (p > r.hi) r.hi = p;
+          if (p < r.lo) r.lo = p;
+          r.n += 1;
+        } else out[side].set(s.k[i], { hi: p, lo: p, n: 1 });
+      }
+    }
+  }
+  return out;
+}
+
+/** Today's high with the snapshot fallback: { value, from: "feed" | "snapshots" } or null (dayHigh first). */
+export function dayHighOr(leg, range) {
+  const v = dayHigh(leg);
+  if (v !== null) return { value: v, from: "feed" };
+  if (!range) return null;
+  const ltp = pos(leg?.ltp);
+  return { value: ltp === null ? range.hi : Math.max(range.hi, ltp), from: "snapshots" };
+}
+
+/** Today's low with the snapshot fallback: { value, from: "feed" | "snapshots" } or null (dayLow first). */
+export function dayLowOr(leg, range) {
+  const v = dayLow(leg);
+  if (v !== null) return { value: v, from: "feed" };
+  if (!range) return null;
+  const ltp = pos(leg?.ltp);
+  return { value: ltp === null ? range.lo : Math.min(range.lo, ltp), from: "snapshots" };
+}
+
+/**
+ * The IV a leg can borrow from its strike's other leg when its own will not solve (a deep in-the-money premium that is
+ * mostly intrinsic value, or one tick): under Black-76 on the forward, put-call parity gives a call and a put at one
+ * strike the same volatility, and the out-of-the-money leg is the one that carries it. Only for the reasons where
+ * borrowing makes sense (INTRINSIC, TICK, RANGE, NOQUOTE), only from an out-of-the-money leg with an IV of its own;
+ * null otherwise (never for a settled or settling series, nor without a forward).
+ */
+export function mirroredIv(row, side, forward) {
+  const q = row?.[side];
+  if (!q || num(q.iv) > 0 || !["INTRINSIC", "TICK", "RANGE", "NOQUOTE"].includes(q.ivReason)) return null;
+  const other = side === "ce" ? row?.pe : row?.ce;
+  const F = num(forward);
+  const K = num(row?.strike);
+  if (F === null || K === null || !(num(other?.iv) > 0)) return null;
+  const otherOtm = side === "ce" ? K <= F : K >= F;
+  return otherOtm ? Number(other.iv) : null;
+}
+
 /** Volume ÷ open interest (both in contracts): contracts traded for every contract still open. Null without OI > 0. */
 export function volumeOiRatio(leg) {
   const v = num(leg?.volume);

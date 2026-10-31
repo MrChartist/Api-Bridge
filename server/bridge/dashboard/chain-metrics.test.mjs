@@ -193,6 +193,35 @@ describe("Greek dashes", () => {
   });
 });
 
+describe("snapshot fallbacks", () => {
+  const snaps = [
+    { t: 1, k: [100, 200], cl: [10, 0], pl: [5, null] },
+    { t: 2, k: [100, 200], cl: [14, 3], pl: [4, 7] },
+    { t: 3, k: [200], cl: [2], pl: [9] },
+  ];
+  it("day range from the minute snapshots, a 0 or missing price skipped, the live LTP folded in", () => {
+    const r = M.snapshotRanges(snaps);
+    expect(r.ce.get(100)).toEqual({ hi: 14, lo: 10, n: 2 });
+    expect(r.ce.get(200)).toEqual({ hi: 3, lo: 2, n: 2 });
+    expect(r.pe.get(200)).toEqual({ hi: 9, lo: 7, n: 2 });
+    expect(M.dayHighOr({ high: 20, ltp: 12 }, r.ce.get(100))).toEqual({ value: 20, from: "feed" });
+    expect(M.dayHighOr({ ltp: 15 }, r.ce.get(100))).toEqual({ value: 15, from: "snapshots" });
+    expect(M.dayLowOr({ ltp: 12 }, r.ce.get(100))).toEqual({ value: 10, from: "snapshots" });
+    expect(M.dayLowOr({ ltp: 12 }, undefined)).toBeNull();
+    expect(M.snapshotRanges(null).ce.size).toBe(0);
+  });
+  it("mirrored IV: a deep ITM leg with no IV borrows the OTM leg's at the same strike", () => {
+    const row = { strike: 22000, ce: { iv: null, ivReason: "INTRINSIC" }, pe: { iv: 18.2 } };
+    expect(M.mirroredIv(row, "ce", 23000)).toBe(18.2);
+    // The put is in the money above the forward: no mirror from it.
+    expect(M.mirroredIv({ strike: 24000, ce: { iv: null, ivReason: "INTRINSIC" }, pe: { iv: 15 } }, "ce", 23000)).toBeNull();
+    expect(M.mirroredIv({ strike: 24000, ce: { iv: 14 }, pe: { iv: null, ivReason: "TICK" } }, "pe", 23000)).toBe(14);
+    expect(M.mirroredIv({ ...row, ce: { iv: null, ivReason: "SETTLED" } }, "ce", 23000)).toBeNull();
+    expect(M.mirroredIv({ ...row, ce: { iv: 12 } }, "ce", 23000)).toBeNull();
+    expect(M.mirroredIv(row, "ce", null)).toBeNull();
+  });
+});
+
 describe("highlights", () => {
   const leg = (oi, oiChange, volume, ltp = 100, close = 100) => ({ oi, oiChange, volume, ltp, close });
   const rows = [
