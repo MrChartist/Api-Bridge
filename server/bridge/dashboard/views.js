@@ -208,6 +208,8 @@ export function segmented(label, options, initial = options[0][0]) {
   };
   const pick = (v, focus) => {
     value = v;
+    // The chosen value on the track too, so a control can colour its thumb by meaning (Buy green, Sell red: .side-seg).
+    el.dataset.value = v;
     watch();
     for (const b of buttons) {
       const on = b.dataset.value === v;

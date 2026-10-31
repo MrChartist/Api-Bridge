@@ -1647,6 +1647,7 @@ async function renderDesk(kind) {
     const held = num(heldIn) ? Math.abs(num(heldIn)) : start;
     const inUnits = Boolean(oddUnits) || (held !== null && held % lotSize !== 0) || (start !== null && start % lotSize !== 0);
     const sideSeg = segmented("Side", [["BUY", "Buy"], ["SELL", "Sell"]], side);
+    sideSeg.classList.add("side-seg");
     const lots = inUnits
       ? h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(start ?? lotSize) })
       : h("input", { type: "number", min: "1", step: "1", inputmode: "numeric", value: String(start ? Math.max(1, Math.round(start / lotSize)) : 1) });
@@ -4106,6 +4107,7 @@ function createChain({ st, host, onTrade, onFocus, onOpen, onSide, onPhoneSide, 
 
   // ── Multi-select (m, or Select in the chain head): tick contracts, then open them in the strategy builder ──
   const pickSide = segmented("Legs", [["BUY", "Buy"], ["SELL", "Sell"]], "BUY");
+  pickSide.classList.add("side-seg");
   pickSide.classList.add("pick-side");
   const pickText = h("span", { class: "pick-text" });
   const pickOpen = h("button", { type: "button", class: "primary small", onclick: () => onPick?.([...picked.values()], pickSide.value) }, "Open in builder");

@@ -227,7 +227,7 @@ function drawCosts(res) {
   const fills = d.fills ?? [];
   const cols = [
     { label: "Contract", cell: (r) => h("span", { class: "an-wrap", title: r.symbol }, contractName(r.symbol)) },
-    { label: "Side", cell: (r) => pill(r.side === "SELL" ? "Sell" : "Buy", r.side === "SELL" ? "warn" : "info") },
+    { label: "Side", cell: (r) => pill(r.side === "SELL" ? "Sell" : "Buy", r.side === "SELL" ? "bad" : "ok") },
     { label: "Quantity", num: true, cell: (r) => formatInt(r.qty) },
     { label: "Price", num: true, cell: (r) => formatFixed(r.price, 2) },
     { label: "Order", cell: (r) => (r.orderType === "LIMIT" ? "Limit" : r.orderType === "MARKET" ? "Market" : r.orderType ?? DASH) },

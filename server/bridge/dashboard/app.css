@@ -1536,6 +1536,13 @@ label.check { display: flex; align-items: center; gap: 10px; min-height: 32px; f
 .segmented.has-thumb.no-anim::before { transition: none; }
 .segmented.has-thumb button[aria-pressed="true"] { background: transparent; }
 .segmented.custom::before { display: none; }
+/* Buy / Sell controls always carry their meaning: the chosen side's thumb is buy green or sell red, never the neutral
+   contrast colour (unselected labels keep a tint of their colour too). */
+.segmented.side-seg.has-thumb[data-value="BUY"]::before { background: hsl(var(--btn-buy)); }
+.segmented.side-seg.has-thumb[data-value="SELL"]::before { background: hsl(var(--btn-sell)); }
+.segmented.side-seg.has-thumb button[aria-pressed="true"] { color: hsl(var(--btn-trade-fg)); }
+.segmented.side-seg button[data-value="BUY"]:not([aria-pressed="true"]) { color: hsl(var(--pos-ink)); }
+.segmented.side-seg button[data-value="SELL"]:not([aria-pressed="true"]) { color: hsl(var(--neg-ink)); }
 .tabs { display: flex; width: max-content; margin: var(--card-pad) var(--card-pad) 6px; max-width: calc(100% - 2 * var(--card-pad)); }
 .tabs button { flex: none; }
 .appearance { display: flex; width: 100%; }
