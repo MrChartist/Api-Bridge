@@ -636,6 +636,7 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     const o = window.__mcbStrategyOverlay();
     const box = chartSlot("Price chart with your strikes, breakevens and ±σ", {
       id: "strategy",
+      studies: { symbol: () => spotSymbol(o.underlying) },
       load: async () => strategySpec({ ...o, candles: candlesOf((await api(`/v1/history?symbol=${encodeURIComponent(spotSymbol(o.underlying))}&interval=1d&countback=120`)).data?.data) }),
     });
     if (!box) return;

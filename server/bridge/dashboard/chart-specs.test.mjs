@@ -219,6 +219,70 @@ describe("arbitrage: implied forward and box rate", () => {
   });
 });
 
+describe("indicators: studies from the ChartistScript core", () => {
+  const days = [28, 29, 30].map((d) => ist(2026, 10, d));
+  const spec = S.strategySpec({ underlying: "NIFTY", candles: days.map((t, k) => candle(t, 26000 + k)) });
+  // The core's times are its own candles' (IST midnight here, but matched by IST day whatever the hour).
+  const result = {
+    time: days.map((t) => sec(t) + 3600),
+    partial: false,
+    studies: [{ key: "bb0" }, { key: "macd1" }],
+    series: [
+      { key: "bb0.upper", study: "bb0", field: "upper", label: "bb(20, 2) upper", pane: "price", style: "line", values: [26100, 26110, 26120] },
+      { key: "bb0.lower", study: "bb0", field: "lower", label: "bb(20, 2) lower", pane: "price", style: "line", values: [25900, null, 25920] },
+      { key: "macd1.macd", study: "macd1", field: "macd", label: "macd(12, 26, 9) macd", pane: "panel", style: "line", values: [1, 2, 3] },
+      { key: "macd1.hist", study: "macd1", field: "hist", label: "macd(12, 26, 9) hist", pane: "panel", style: "hist", values: [-1, 0.5, 2], level: 0 },
+      { key: "x.bg", study: "x", field: "bg", label: "bg", pane: "price", style: "background", values: [1, 1, 1] },
+    ],
+    fills: [{ key: "bbfill", between: ["bb0.upper", "bb0.lower"] }],
+    markers: [{ key: "m1", time: sec(days[1]), price: 1, position: "below", text: "Hammer", bias: "bullish" }, { key: "m2", time: sec(ist(2026, 9, 1)), text: "off chart" }],
+  };
+  const out = S.withStudies(spec, result);
+  it("overlays price studies on the candles' pane and gives each panel study its own pane", () => {
+    expect(out.panes.map((p) => [p.id, p.label ?? null])).toEqual([["price", null], ["study:macd1", "macd(12, 26, 9)"]]);
+    expect(byId(out, "st:bb0.upper")).toMatchObject({ type: "line", pane: "price" });
+    expect(byId(out, "st:bb0.upper").data.map((p) => p.t)).toEqual(days);
+    expect(byId(out, "st:bb0.lower").data[1].v).toBeNull();
+  });
+  it("hist becomes signed bars, a level a reference line; background outputs are not drawn", () => {
+    expect(byId(out, "st:macd1.hist")).toMatchObject({ type: "bars", signed: true, pane: "study:macd1" });
+    expect(byId(out, "st:macd1.hist:level")).toMatchObject({ type: "level", value: 0 });
+    expect(out.series.some((x) => x.id === "st:x.bg")).toBe(false);
+  });
+  it("tones come from the data-viz set, in order per study", () => {
+    expect(["st:bb0.upper", "st:bb0.lower", "st:macd1.macd"].map((id) => byId(out, id).tone)).toEqual(["call", "put", "put"]);
+    for (const x of out.series.filter((x) => x.id.startsWith("st:") && x.tone)) expect([...S.STUDY_TONES, "muted", "pos", "neg", "iv"]).toContain(x.tone);
+  });
+  it("a fill is a band between its two series, drawn first; markers on their candle, others dropped", () => {
+    expect(out.series.findIndex((x) => x.type === "band")).toBeLessThan(out.series.findIndex((x) => x.id === "st:bb0.upper"));
+    const band = out.series.find((x) => x.type === "band");
+    expect(band.data[0]).toEqual({ t: days[0], lo: 25900, hi: 26100 });
+    expect(Number.isNaN(band.data[1].lo)).toBe(true);
+    expect(out.series.filter((x) => x.type === "marker")).toEqual([expect.objectContaining({ t: days[1], label: "Hammer", tone: "pos" })]);
+    expect(buildModel(out).panes.length).toBe(2);
+  });
+  it("leaves a spec without candles, or an empty answer, as it was; says when warm-up was short", () => {
+    expect(S.withStudies({ series: [{ type: "line", data: [] }] }, result).series).toHaveLength(1);
+    expect(S.withStudies(spec, { time: [] })).toBe(spec);
+    expect(S.withStudies(spec, { ...result, partial: true }).note).toMatch(/warm/);
+  });
+  it("remembers at most four known ids, and asks for daily candles of the chart's length", () => {
+    expect(S.studyList('["rsi","macd","rsi","bad id!","bb","ema","sma"]')).toEqual(["rsi", "macd", "bb", "ema"]);
+    expect(S.studyList("not json")).toEqual([]);
+    expect(S.studyList(null)).toEqual([]);
+    expect(S.studyRequest({ symbol: "NSE:NIFTY", bars: 120, ids: ["rsi"] })).toEqual({ symbol: "NSE:NIFTY", interval: "1d", countback: 120, studies: [{ id: "rsi" }] });
+  });
+  it("the chain sheet says when it shows daily candles for indicators", () => {
+    expect(S.contractSpec({ name: "X", candles: [candle(1, 1)], daily: true })).toMatchObject({ label: "X: daily candles" });
+    expect(S.contractSpec({ name: "X", candles: [candle(1, 1)], daily: true }).note).toMatch(/indicators/);
+  });
+  it("reads no studies until one is on: the catalogue loads on the picker's first open, compute only with ids", () => {
+    const src = readFileSync(new URL("./chart-lite.js", import.meta.url), "utf8");
+    expect(src).toMatch(/const loadCatalogue = \(\) => \(catalogue \?\?=/);
+    expect(src).toMatch(/if \(!ids\.length \|\| !candles\?\.data\?\.length \|\| !symbol\) return spec;/);
+  });
+});
+
 describe("house rules", () => {
   it("chart modules are served, format numbers only through format.js and set no inline styles", () => {
     for (const f of ["chart-lite.js", "chart-lite-core.js", "chart-specs.js"]) {

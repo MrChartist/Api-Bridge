@@ -228,7 +228,7 @@ const NO_CACHE_RE = /^\/v1\/(stream\/token|sign-in|requests|audit|safety|tickets
 const MARKET_RE = /^\/v1\/(optionchain|quotes|ltp|expiries|depth|history)\?/;
 
 /** POSTs that read or start something and change no state the pages show: they keep the remembered answers. */
-const READ_LIKE_POST_RE = /^\/v1\/(stream\/token|sign-in|orders\/preview|margin\/preview|readiness\/check|scanner\/plan|reference\/corporate-actions\/preview|paper\/accounts\/[^/]+\/margin|strategy\/(price|payoff|preview))(\/|\?|$)/;
+const READ_LIKE_POST_RE = /^\/v1\/(stream\/token|sign-in|orders\/preview|margin\/preview|readiness\/check|scanner\/plan|reference\/corporate-actions\/preview|studies\/compute|paper\/accounts\/[^/]+\/margin|strategy\/(price|payoff|preview))(\/|\?|$)/;
 /**
  * Whether a write may change what the remembered answers say (pure). A dry run (body `dryRun: true`, such as Cancel
  * all's count on the Orders page) changes nothing.

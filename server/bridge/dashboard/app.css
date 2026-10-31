@@ -9055,6 +9055,8 @@ p.bk-fix { font-size: 13px; }
 .lc-plot { position: relative; height: var(--lc-h); min-width: 0; overflow: hidden; }
 .lc-chart[data-panes="2"] .lc-plot { height: calc(var(--lc-h) * 1.35); }
 .lc-chart[data-panes="3"] .lc-plot { height: calc(var(--lc-h) * 1.6); }
+.lc-chart[data-panes="4"] .lc-plot { height: calc(var(--lc-h) * 1.85); }
+.lc-chart:is([data-panes="5"], [data-panes="6"]) .lc-plot { height: calc(var(--lc-h) * 2.1); }
 .lc-svg { display: block; overflow: hidden; }
 .lc-svg text { font: 500 12px/1 var(--font-numeric); font-variant-numeric: tabular-nums; text-rendering: geometricPrecision; -webkit-font-smoothing: antialiased; }
 .lc-note { margin: 0; font: 400 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
@@ -9123,6 +9125,25 @@ p.bk-fix { font-size: 13px; }
 .dv-tip .lc-tip-key[data-dv="today"] { --lc-key: hsl(var(--dv-today)); }
 .dv-tip .lc-tip-key[data-dv="warn"] { --lc-key: hsl(var(--warn)); }
 .dv-tip .lc-tip-key[data-dv="hv"] { --lc-key: var(--dv-hv); }
+
+/* Indicators (candle charts): a compact button above the plot and an inline picker panel (works inside sheets and modals). */
+.lc-tools { display: flex; justify-content: flex-end; margin: 0 0 6px; }
+.lc-ind-btn { display: inline-flex; align-items: center; gap: 6px; }
+.lc-count { min-width: 18px; padding: 0 5px; border-radius: 999px; font: 600 12px/18px var(--font-numeric); text-align: center; color: hsl(var(--foreground)); background: hsl(var(--foreground) / 0.12); }
+.lc-count[hidden] { display: none; }
+.lc-ind-panel { display: flex; flex-direction: column; gap: 8px; margin: 0 0 8px; padding: 10px; border-radius: var(--r-inner); background: var(--mat-fill-1); }
+.lc-ind-panel[hidden] { display: none; }
+.lc-ind-on { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 28px; }
+.lc-ind-chip { display: inline-flex; align-items: center; gap: 4px; }
+.lc-ind-search { width: 100%; }
+.lc-ind-list { display: flex; flex-direction: column; max-height: min(280px, 40vh); overflow: auto; overscroll-behavior: contain; }
+.lc-ind-head { margin: 6px 0 2px; font: 600 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.lc-ind-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-width: 0; min-height: 44px; padding: 6px 8px; border-radius: 8px; text-align: left; font: 400 12.5px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); background: none; box-shadow: none; }
+.lc-ind-item b { font: 600 13px/1.2 var(--font-body); color: hsl(var(--foreground)); }
+.lc-ind-item span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lc-ind-item:hover:not(:disabled) { background: var(--mat-fill-1); }
+.lc-ind-item:disabled { opacity: 0.45; }
+.lc-ind-note { margin: 0; font: 400 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 
 /* Where each page puts its chart. */
 .strat-price-chart .lc-slot { --lc-h: min(360px, 48vh); padding: 0; }

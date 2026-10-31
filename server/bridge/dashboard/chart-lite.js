@@ -15,8 +15,9 @@
 // Cleanup (docs/perf/baseline.md, route-change leaks): one ResizeObserver per chart, disconnected when the chart is
 // destroyed; a chart whose box has left the document destroys itself (its observer fires on removal, and every route
 // change sweeps). The device pixel ratio has ONE listener for the whole page.
-import { emptyState, errorState, h } from "./app.js";
+import { api, emptyState, errorState, h, icon, store, toast } from "./app.js";
 import * as C from "./chart-lite-core.js";
+import { MAX_STUDIES, studyList, studyRequest, withStudies } from "./chart-specs.js";
 import { DASH, formatCompactTick, formatFixed, isFigure } from "./format.js";
 import { legend, scrubber, svgEl } from "./viz.js";
 
@@ -79,6 +80,8 @@ export function createChart(host, spec = {}) {
   let last = { w: 0, h: 0, dpr: 0 };
   let geo = null;
   host.classList.add("lc-chart");
+  const setPanes = () => (host.dataset.panes = String(Math.max(1, model.panes.length)));
+  setPanes();
   const svg = svgEl("svg", { class: "lc-svg", role: "img", focusable: "false" });
   const plot = h("div", { class: "lc-plot" }, svg);
   const legendHost = h("div", { class: "lc-legend" });
@@ -319,6 +322,7 @@ export function createChart(host, spec = {}) {
       cur = { ...cur, ...next, series: [...(next.series ?? cur.series ?? [])] };
       if (!("empty" in next)) delete cur.empty;
       model = C.buildModel(cur);
+      setPanes();
       schedule();
       return chart;
     },
@@ -362,11 +366,109 @@ export function createChart(host, spec = {}) {
   return chart;
 }
 
+// ── Indicators: the ChartistScript studies (GET /v1/studies, POST /v1/studies/compute), on candle charts ──
+// Lazy: the catalogue is read the first time the picker opens, and nothing is computed until a study is on. The ids on
+// are remembered in this browser (one list for every candle chart), at most MAX_STUDIES.
+const STUDY_SLOT = "mcb.dashboard.studies";
+const prefs = store("local");
+const activeStudies = () => studyList(prefs.get(STUDY_SLOT));
+let catalogue = null;
+const loadCatalogue = () => (catalogue ??= api("/v1/studies").then((r) => (r.data?.data?.studies ?? []).filter((x) => x.available)).catch((e) => ((catalogue = null), Promise.reject(e))));
+const computed = new Map();
+/** One compute per symbol, studies and length for 5 minutes (a daily study moves once a day). */
+function computeStudies(req) {
+  const key = JSON.stringify(req);
+  const hit = computed.get(key);
+  if (hit && Date.now() - hit.at < 300_000) return hit.p;
+  const p = api("/v1/studies/compute", { method: "POST", body: req }).then((r) => r.data?.data ?? null);
+  p.catch(() => computed.delete(key));
+  if (computed.size > 40) computed.clear();
+  computed.set(key, { at: Date.now(), p });
+  return p;
+}
+
+/**
+ * The "Indicators" button and its picker, an inline panel in the slot (a popover would sit under the strategy's modal
+ * and the chain's sheet, which make the rest of the page inert). `onChange(ids)` runs after the list changes.
+ */
+let pickerSeq = 0;
+function studiesControl(label, onChange) {
+  const count = h("span", { class: "lc-count" });
+  const panelId = `lc-ind-${(pickerSeq += 1)}`;
+  const btn = h("button", { type: "button", class: "small lc-ind-btn", "aria-expanded": "false", "aria-controls": panelId }, icon("chart"), h("span", {}, "Indicators"), count);
+  const onList = h("div", { class: "lc-ind-on", "aria-live": "polite" });
+  const search = h("input", { type: "search", class: "lc-ind-search", placeholder: "Search indicators", "aria-label": `Search indicators for ${label}`, autocomplete: "off" });
+  const list = h("div", { class: "lc-ind-list", role: "group", "aria-label": "Indicators to add" });
+  const panel = h("div", { class: "lc-ind-panel", id: panelId, hidden: true }, h("p", { class: "lc-ind-note" }, `Daily candles. Up to ${MAX_STUDIES}, remembered in this browser.`), onList, search, list);
+  let all = null;
+  const paint = () => {
+    const n = activeStudies().length;
+    count.textContent = n ? String(n) : "";
+    count.hidden = !n;
+    btn.setAttribute("aria-label", n ? `Indicators: ${n} on` : "Indicators");
+  };
+  const set = (ids) => {
+    prefs.set(STUDY_SLOT, JSON.stringify(studyList(ids)));
+    paint();
+    draw();
+    onChange(activeStudies());
+  };
+  function draw() {
+    const on = activeStudies();
+    onList.replaceChildren(
+      ...(on.length
+        ? on.map((id) => h("button", { type: "button", class: "chip-btn lc-ind-chip", "aria-label": `Remove ${id}`, onclick: () => set(on.filter((x) => x !== id)) }, h("span", {}, id), icon("close")))
+        : [h("span", { class: "lc-ind-note" }, "None on")]),
+    );
+    if (!all) return;
+    const q = search.value.trim().toLowerCase();
+    const full = on.length >= MAX_STUDIES;
+    const rows = all.filter((x) => !on.includes(x.id) && (!q || x.id.includes(q) || String(x.summary ?? "").toLowerCase().includes(q)));
+    const item = (x) => h("button", { type: "button", class: "lc-ind-item", disabled: full, title: x.summary ?? "", onclick: () => set([...activeStudies(), x.id]) }, h("b", {}, x.id), h("span", {}, String(x.summary ?? "").split(/[.;(]/)[0]));
+    const group = (title, items) => (items.length ? [h("p", { class: "lc-ind-head" }, title), ...items.map(item)] : []);
+    list.replaceChildren(
+      ...(full ? [h("p", { class: "lc-ind-note" }, `${MAX_STUDIES} on: remove one to add another.`)] : []),
+      ...group("On the price", rows.filter((x) => x.pane === "price")),
+      ...group("Below the chart", rows.filter((x) => x.pane !== "price")),
+      ...(rows.length ? [] : [h("p", { class: "lc-ind-note" }, "No match")]),
+    );
+  }
+  const open = async (on) => {
+    panel.hidden = !on;
+    btn.setAttribute("aria-expanded", String(on));
+    if (!on) return;
+    draw();
+    search.focus({ preventScroll: true });
+    if (all) return;
+    list.replaceChildren(h("p", { class: "lc-ind-note", role: "status" }, "Loading the list"));
+    try {
+      all = await loadCatalogue();
+      draw();
+    } catch (err) {
+      list.replaceChildren(errorState(err, { onRetry: () => open(true) }));
+    }
+  };
+  btn.addEventListener("click", () => open(panel.hidden));
+  search.addEventListener("input", draw);
+  panel.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    open(false);
+    btn.focus();
+  });
+  paint();
+  return { el: btn, panel, paint };
+}
+
 /**
  * A chart slot (app.js chartSlot): loads its data when it comes near the viewport, shows a skeleton, an error with
  * Retry or an honest empty state, and redraws in place on `set` / `reload`. `opts`:
- *   { label, data?: spec, load?: ({ signal }) => Promise<spec>, refreshMs?: number }
- * A loader may return { empty: { title, text } } when there is no data source or nothing recorded yet.
+ *   { label, data?: spec, load?: ({ studies }) => Promise<spec>, refreshMs?: number,
+ *     studies?: { symbol: () => string|null, interval?: "1d" } }
+ * A loader may return { empty: { title, text } } when there is no data source or nothing recorded yet. With `studies`,
+ * an Indicators control sits above a candle chart; the loader is told whether any are on (`studies: true`), since
+ * studies read daily candles only.
  * Returns { set(spec), load(loader), reload(), destroy(), chart }.
  */
 export function mountSlot(box, opts = {}) {
@@ -380,8 +482,22 @@ export function mountSlot(box, opts = {}) {
   let pending = opts.data ?? null;
   const host = h("div", { class: "lc-host" });
   const status = h("div", { class: "lc-status" }, h("div", { class: "lc-skel skel", role: "status", "aria-label": `Loading ${opts.label ?? "chart"}` }));
-  box.replaceChildren(status, host);
+  const control = opts.studies ? studiesControl(opts.label ?? "chart", () => run()) : null;
+  box.replaceChildren(...(control ? [h("div", { class: "lc-tools" }, control.el), control.panel] : []), status, host);
   host.hidden = true;
+  /** The loader's spec with the indicators on laid over it (a failed compute keeps the chart and says so). */
+  async function studied(spec) {
+    const ids = control ? activeStudies() : [];
+    const candles = spec?.series?.find((x) => x.type === "candles");
+    const symbol = opts.studies?.symbol?.();
+    if (!ids.length || !candles?.data?.length || !symbol) return spec;
+    try {
+      return withStudies(spec, await computeStudies(studyRequest({ symbol, interval: opts.studies.interval ?? "1d", bars: candles.data.length, ids })));
+    } catch (err) {
+      toast(`Indicators not drawn: ${err?.message ?? "the Bridge did not answer"}`, { tone: "warn" });
+      return spec;
+    }
+  }
 
   const ensure = () => {
     if (!chart || !chart.alive) chart = createChart(host, { label: opts.label });
@@ -392,14 +508,16 @@ export function mountSlot(box, opts = {}) {
     status.hidden = true;
     host.hidden = false;
     const c = ensure();
-    c.update({ label: opts.label, ...spec });
+    // A new spec replaces the old one whole (no note, pane or kind left over from the last draw).
+    c.update({ label: opts.label, note: "", panes: undefined, kind: undefined, ...spec });
   }
   async function run() {
     if (dead || !loader) return;
     if (!box.isConnected && seq > 0) return ctl.destroy();
     const my = ++seq;
     try {
-      const spec = await loader({ label: opts.label });
+      const base = await loader({ label: opts.label, studies: Boolean(control) && activeStudies().length > 0 });
+      const spec = await studied(base);
       if (dead || my !== seq) return;
       show(spec ?? { empty: { title: "No data", text: "" } });
     } catch (err) {

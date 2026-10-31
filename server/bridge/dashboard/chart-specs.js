@@ -51,11 +51,13 @@ const empty = (title, text) => ({ empty: { title, text } });
 // ── Chain sheet: the contract's candles ──
 
 /** The contract's 5-minute candles and volume (the latest session and the one before it). */
-export function contractSpec({ name, candles }) {
-  if (!candles?.length) return empty("No candles for this contract yet", "The broker has no intraday history for it, or it has not traded today.");
+export function contractSpec({ name, candles, daily = false }) {
+  if (!candles?.length) return empty("No candles for this contract yet", "The broker has no history for it, or it has not traded yet.");
   return {
-    label: `${name}: 5-minute candles`,
-    panes: [{ id: "price", format: price2 }],
+    label: `${name}: ${daily ? "daily" : "5-minute"} candles`,
+    note: daily ? "Daily candles while indicators are on: studies read one candle per session." : "",
+    // The axis takes its decimals from the tick step (chart-lite.js); the tooltip keeps the price's two.
+    panes: [{ id: "price" }],
     series: [{ id: "c", type: "candles", label: name, data: candles, volume: true, format: price2 }],
   };
 }
@@ -284,4 +286,84 @@ export function arbSpec(snaps, { underlying = "", expiry = "", hurdle = null } =
     series,
     note: "From the recorder's last prices (parity over the five strikes nearest spot; the box of the strikes either side of spot), not bid and ask.",
   };
+}
+
+// ── Indicators (studies from the ChartistScript core: GET /v1/studies, POST /v1/studies/compute) ──
+
+/** At most this many indicators on one chart. */
+export const MAX_STUDIES = 4;
+/** Series colours for studies, in order: data-viz tokens only (the core's own `color` is not used). */
+export const STUDY_TONES = Object.freeze(["call", "put", "iv", "warn", "today", "hv"]);
+
+/** The indicator ids a browser remembers (stored JSON), cleaned: known shape, no repeats, at most MAX_STUDIES. */
+export function studyList(raw) {
+  let v = raw;
+  if (typeof v === "string") {
+    try {
+      v = JSON.parse(v);
+    } catch {
+      v = [];
+    }
+  }
+  return [...new Set((Array.isArray(v) ? v : []).filter((x) => typeof x === "string" && /^[a-z0-9_]{1,32}$/.test(x)))].slice(0, MAX_STUDIES);
+}
+
+/** The compute request for a chart's candles: daily (or coarser) only, as many bars as the chart shows. */
+export function studyRequest({ symbol, interval = "1d", bars = 120, ids = [] }) {
+  return { symbol, interval, countback: Math.max(1, Math.min(2000, Math.round(bars) || 120)), studies: studyList(ids).map((id) => ({ id })) };
+}
+
+/** The study's own name for a pane ("macd(12, 26, 9)" from "macd(12, 26, 9) macd"). */
+const studyName = (x) => String(x.label ?? x.study ?? "").replace(new RegExp(` ${String(x.field ?? "").replace(/[^a-z0-9_]/gi, "")}$`), "") || String(x.study ?? "");
+
+/**
+ * Lay a compute answer over a candle spec: series on pane "price" join the candles' pane, each "panel" study gets a
+ * pane of its own (a "hist" output becomes bars, "area" an area, "line" and "step" a line, a `level` a reference
+ * line), fills become a band between their two series, markers become markers. Study times are matched to the
+ * candles by IST day, so a study point always sits on its candle. "background" outputs are not drawn.
+ */
+export function withStudies(spec, result) {
+  const base = spec?.series?.find((s) => s.type === "candles");
+  if (!base || !result?.time?.length) return spec;
+  const pricePane = base.pane ?? spec.panes?.[0]?.id ?? "price";
+  const dayOf = (ms) => Math.floor((ms + IST_MS) / 86_400_000);
+  const byDay = new Map(base.data.map((c) => [dayOf(c.t), c.t]));
+  const ts = result.time.map((sec) => byDay.get(dayOf(Number(sec) * 1000)) ?? null);
+  const order = new Map((result.studies ?? []).map((s, k) => [s.key, k]));
+  const fieldNo = new Map();
+  const paneOf = new Map();
+  const values = new Map();
+  const series = [];
+  const panes = [];
+  for (const x of result.series ?? []) {
+    if (!x?.key || !Array.isArray(x.values) || x.style === "background") continue;
+    const n = fieldNo.get(x.study) ?? 0;
+    fieldNo.set(x.study, n + 1);
+    const tone = STUDY_TONES[((order.get(x.study) ?? 0) + n) % STUDY_TONES.length];
+    const data = x.values.map((v, i) => ({ t: ts[i], v: num(v) })).filter((p) => p.t !== null);
+    values.set(x.key, data);
+    let pane = pricePane;
+    if (x.pane !== "price") {
+      pane = `study:${x.study}`;
+      if (!panes.some((p) => p.id === pane)) panes.push({ id: pane, weight: 0.75, label: studyName(x) });
+    }
+    paneOf.set(x.key, pane);
+    const type = x.pane !== "price" && x.style === "hist" ? "bars" : x.pane !== "price" && x.style === "area" ? "area" : "line";
+    series.push({ id: `st:${x.key}`, type, pane, label: x.label ?? x.key, tone, data, signed: type === "bars", weight: "thin", study: x.study });
+    if (isFigure(x.level)) series.push({ id: `st:${x.key}:level`, type: "level", pane, value: Number(x.level), tone: "muted" });
+  }
+  for (const f of result.fills ?? []) {
+    const [a, b] = f?.between ?? [];
+    if (!values.has(a) || !values.has(b)) continue;
+    const vb = new Map(values.get(b).map((p) => [p.t, p.v]));
+    const data = values.get(a).map((p) => ({ t: p.t, lo: Math.min(p.v ?? NaN, vb.get(p.t) ?? NaN), hi: Math.max(p.v ?? NaN, vb.get(p.t) ?? NaN) }));
+    series.unshift({ id: `st:fill:${f.key ?? `${a}-${b}`}`, type: "band", pane: paneOf.get(a), data, tone: "iv", legend: false });
+  }
+  for (const m of (result.markers ?? []).slice(-20)) {
+    const t = byDay.get(dayOf(Number(m?.time) * 1000));
+    if (t === undefined) continue;
+    series.push({ id: `st:mk:${m.key ?? t}`, type: "marker", t, label: m.text ? String(m.text).slice(0, 24) : undefined, tone: m.bias === "bullish" ? "pos" : m.bias === "bearish" ? "neg" : "muted" });
+  }
+  const notes = [spec.note, result.partial ? "Indicators: not enough history to warm every study up; its first values are left out." : ""].filter(Boolean);
+  return { ...spec, panes: [...(spec.panes ?? [{ id: pricePane }]), ...panes], series: [...spec.series, ...series], note: notes.join(" ") };
 }

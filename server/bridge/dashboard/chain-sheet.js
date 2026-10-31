@@ -128,9 +128,11 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
   // This contract's live price as one Excel cell (the key sits in a cell named BridgeKey: API › Keys makes one).
   const xlBtn = copyButton(() => excelFormula(location.origin, state().q?.symbol ?? ""), { label: "Excel formula", toastLabel: "Excel formula copied: put your key in a cell named BridgeKey", cls: "small", ariaLabel: "Copy an Excel formula for this contract's live price" });
   // The contract's 5-minute candles (GET /v1/history), reloaded when CE / PE switches the contract; every 60 s while open.
-  const chartSlotEl = chartSlot("Price chart of this contract", { id: "contract", refreshMs: 60_000 });
+  // With indicators on, daily candles (studies read one candle per session).
   let chartSym = null;
-  const loadContract = (sym, name) => async () => contractSpec({ name, candles: candlesOf((await bridgeApi(`/v1/history?symbol=${encodeURIComponent(sym)}&interval=5m&countback=150`)).data?.data) });
+  const chartSlotEl = chartSlot("Price chart of this contract", { id: "contract", refreshMs: 60_000, studies: { symbol: () => chartSym } });
+  const loadContract = (sym, name) => async ({ studies }) =>
+    contractSpec({ name, daily: studies, candles: candlesOf((await bridgeApi(`/v1/history?symbol=${encodeURIComponent(sym)}&interval=${studies ? "1d" : "5m"}&countback=${studies ? 120 : 150}`)).data?.data) });
   const grid = h("div", { class: "cs-groups" });
   const warns = h("ul", { class: "ticket-checks cs-warns", "aria-label": "Before you trade", hidden: true });
   const grab = h("div", { class: "cs-grab", "aria-hidden": "true" });

@@ -2049,7 +2049,7 @@ export function renderScreenerPage() {
   };
   const chartSlotBox = (r) => {
     if (!r?.underlying) return null;
-    const box = chartSlot("Price and IV history", { id: "screener", load: () => chartSpecFor(r.underlying) });
+    const box = chartSlot("Price and IV history", { id: "screener", studies: { symbol: () => spotSymbol(r.underlying) }, load: () => chartSpecFor(r.underlying) });
     box?.classList.add("scr-slot");
     return box;
   };
